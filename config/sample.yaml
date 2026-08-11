@@ -1,0 +1,8 @@
+# EthGuard sample configuration.
+# Copy and adapt this file for your application.
+
+upstreams:
+  - id: primary
+    endpoint: https://eth.example.com
+  - id: secondary
+    endpoint: https://eth-backup.example.com
