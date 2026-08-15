@@ -22,7 +22,7 @@ func New(cfg config.Config) (*Client, error) {
 		return nil, err
 	}
 
-	rpcPool := pool.NewPool()
+	rpcPool := pool.NewPoolWithChainID(cfg.ChainID)
 	for _, upstream := range cfg.Upstreams {
 		if _, err := rpcPool.Join(upstream.ID, upstream.Endpoint); err != nil {
 			return nil, fmt.Errorf("ethguard: register %q: %w", upstream.Endpoint, err)

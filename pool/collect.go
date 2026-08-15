@@ -103,8 +103,14 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 		}(i, src)
 	}
 	wg.Wait()
+	if err := callCtx.Err(); err != nil {
+		return emissions, err
+	}
 
 	for _, emission := range emissions {
+		if errors.Is(emission.Err, ErrChainIDMismatch) {
+			return emissions, emission.Err
+		}
 		if emission.Val != nil || isJSONRPCResponseError(emission.Err) {
 			return emissions, nil
 		}
@@ -113,7 +119,10 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 }
 
 func shouldRecordFailure(parent context.Context, err error) bool {
-	return err != nil && parent.Err() == nil && !errors.Is(err, ErrClosed)
+	return err != nil &&
+		parent.Err() == nil &&
+		!errors.Is(err, ErrClosed) &&
+		!errors.Is(err, errWaitingForDial)
 }
 
 func isJSONRPCResponseError(err error) bool {
@@ -138,6 +147,12 @@ func isHealthyRPCResponse(err error) bool {
 func collectOne(ctx context.Context, src *Source, method string, params []any) (json.RawMessage, error) {
 	client, err := src.clientForCall(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := src.verifyChainID(ctx, client); err != nil {
+		if errors.Is(err, ErrChainIDMismatch) {
+			src.recordFailedCall(err)
+		}
 		return nil, err
 	}
 

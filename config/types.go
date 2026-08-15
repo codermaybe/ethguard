@@ -2,6 +2,9 @@ package config
 
 // Config is the top-level EthGuard configuration.
 type Config struct {
+	// ChainID optionally constrains upstreams to one Ethereum network. Zero
+	// leaves chain identity validation to the caller.
+	ChainID uint64 `yaml:"chain_id" json:"chain_id"`
 	// Upstreams is the list of Ethereum JSON-RPC providers to manage.
 	Upstreams []Upstream `yaml:"upstreams" json:"upstreams"`
 }

@@ -52,6 +52,8 @@ type fakeAPI struct {
 	n *fakeNode
 }
 
+func (a *fakeAPI) ChainId() (interface{}, error) { return "0x1", nil }
+
 type fakeRPCError struct {
 	code int
 }
@@ -160,6 +162,21 @@ func TestCollectFanoutReturnsOneEmissionPerSource(t *testing.T) {
 	}
 }
 
+func TestCollectRejectsUnexpectedChainID(t *testing.T) {
+	d := &newFakeDialer{dials: make(map[string]int)}
+	p := newPoolWithDialerAndChainID(d, 5)
+	src, err := p.Join("a", "https://a.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{}); !errors.Is(err, ErrChainIDMismatch) {
+		t.Fatalf("expected chain ID mismatch, got %v", err)
+	}
+	if src.eligible(time.Now()) {
+		t.Fatal("chain-mismatched source must remain ineligible")
+	}
+}
+
 func TestCollectDialOncePerSource(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
 	p := newPoolWithDialer(d)
@@ -178,6 +195,74 @@ func TestCollectDialOncePerSource(t *testing.T) {
 
 	if got := d.dials["https://a.example"]; got != 1 {
 		t.Fatalf("expected single dial, got %d", got)
+	}
+}
+
+func TestCollectDeadlineIncludesWaitForSharedDial(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	d := &newFakeDialer{
+		dials:       make(map[string]int),
+		dialEntered: entered,
+		dialRelease: release,
+	}
+	p := newPoolWithDialer(d)
+	defer p.Close()
+	src, err := p.Join("a", "https://a.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{})
+		firstDone <- err
+	}()
+	<-entered
+
+	type collectResult struct {
+		emissions []Emission
+		err       error
+	}
+	secondDone := make(chan collectResult, 1)
+	go func() {
+		emissions, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{
+			Timeout: 20 * time.Millisecond,
+		})
+		secondDone <- collectResult{emissions: emissions, err: err}
+	}()
+
+	var second collectResult
+	select {
+	case second = <-secondDone:
+	case <-time.After(200 * time.Millisecond):
+		close(release)
+		<-firstDone
+		<-secondDone
+		t.Fatal("Collect remained blocked waiting for another call's dial")
+	}
+	if second.err == nil {
+		t.Fatal("expected the short collection to time out")
+	}
+	if len(second.emissions) != 1 {
+		t.Fatalf("expected one emission, got %+v", second.emissions)
+	}
+	// The waiter gave up either on its own deadline or while waiting for the
+	// shared dial; both must surface the deadline cause, not a dial failure.
+	if !errors.Is(second.emissions[0].Err, context.DeadlineExceeded) &&
+		!errors.Is(second.emissions[0].Err, errWaitingForDial) {
+		t.Fatalf("expected a deadline or waiting emission, got %+v", second.emissions)
+	}
+	if got := src.Health(); got.Failures != 0 {
+		t.Fatalf("waiting for a shared dial should not count as a source failure: %+v", got)
+	}
+
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first Collect: %v", err)
+	}
+	if got := d.dials["https://a.example"]; got != 1 {
+		t.Fatalf("expected one shared dial, got %d", got)
 	}
 }
 
@@ -298,6 +383,34 @@ func TestCollectRecordsJSONRPCProtocolErrorAsFailure(t *testing.T) {
 	}
 }
 
+func TestCollectTemporarilyExcludesRepeatedlyFailingSource(t *testing.T) {
+	d := &newFakeDialer{dials: make(map[string]int)}
+	p := newPoolWithDialer(d)
+	src, err := p.Join("a", "https://a.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < eligibleFailureThreshold; i++ {
+		if _, err := p.Collect(context.Background(), "eth_protocolFailure", nil, CollectOptions{}); err != nil {
+			t.Fatalf("failure %d: %v", i+1, err)
+		}
+	}
+	if got := src.Health().ConsecutiveFailures; got != eligibleFailureThreshold {
+		t.Fatalf("expected %d consecutive failures, got %d", eligibleFailureThreshold, got)
+	}
+	emissions, err := p.Collect(context.Background(), "eth_protocolFailure", nil, CollectOptions{})
+	if err == nil {
+		t.Fatal("expected collection with no eligible source to fail")
+	}
+	if len(emissions) != 0 {
+		t.Fatalf("expected no emissions from an open circuit, got %+v", emissions)
+	}
+	if got := d.dials["https://a.example"]; got != 1 {
+		t.Fatalf("open circuit should avoid another dial, got %d", got)
+	}
+}
+
 func TestCollectDoesNotBlameSourceForCallerDeadline(t *testing.T) {
 	tracker := &callTracker{delay: 100 * time.Millisecond}
 	d := &newFakeDialer{
@@ -314,6 +427,8 @@ func TestCollectDoesNotBlameSourceForCallerDeadline(t *testing.T) {
 
 	if _, err := p.Collect(ctx, "eth_blockNumber", nil, CollectOptions{Timeout: time.Second}); err == nil {
 		t.Fatal("expected caller deadline")
+	} else if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected caller deadline to be preserved, got %v", err)
 	}
 	if got := src.Health(); got.Successes != 0 || got.Failures != 0 {
 		t.Fatalf("expected no source observation for caller deadline, got %+v", got)
@@ -574,5 +689,12 @@ func TestPoolJoinDeduplicatesNormalizedEndpoints(t *testing.T) {
 	}
 	if first != second || p.Len() != 1 {
 		t.Fatalf("expected one canonical source, got first=%p second=%p len=%d", first, second, p.Len())
+	}
+}
+
+func TestPoolJoinRejectsUnsupportedScheme(t *testing.T) {
+	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
+	if _, err := p.Join("bad", "ftp://example.com"); err == nil {
+		t.Fatal("expected unsupported scheme to be rejected")
 	}
 }

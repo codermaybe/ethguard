@@ -2,18 +2,22 @@ package pool
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+var errWaitingForDial = errors.New("pool: waiting for shared dial")
+
 // Source is a single managed RPC endpoint backed by ethclient only.
 // One Source owns at most one long-lived *ethclient.Client; request paths
 // must reuse it rather than dialing per call.
 type Source struct {
-	mu     sync.RWMutex
-	dialMu sync.Mutex
+	mu sync.RWMutex
 
 	name string
 	url  string
@@ -22,53 +26,93 @@ type Source struct {
 	id string
 
 	// dialer dials the endpoint on first use. Injected for testability.
-	dialer dialer
+	dialer           dialer
+	expectedChainID  uint64
+	identityMu       sync.Mutex
+	identityChecked  bool
+	identityInvalid  bool
+	identityChecking chan struct{}
 
-	client     *ethclient.Client
-	dialCancel context.CancelFunc
-	stats      monitor
-	state      SourceState
-	closed     bool
+	// life is cancelled when the source closes; it aborts any in-flight dial.
+	life       context.Context
+	cancelLife context.CancelFunc
+
+	// dialing is non-nil while a goroutine dials on behalf of the source;
+	// it is closed when that dial settles, waking all waiters.
+	dialing chan struct{}
+
+	client *ethclient.Client
+	stats  monitor
+	state  SourceState
+	closed bool
 }
 
-// clientForCall lazily dials the endpoint on first use.
-// It is safe for concurrent callers; only one goroutine performs the dial and
-// a successful client is shared.
+// clientForCall returns the shared long-lived client, dialing lazily on first
+// use. Concurrent first callers do not each dial: exactly one goroutine
+// performs the dial while the others wait on dialing; a waiter can give up
+// via its own ctx and then receives errWaitingForDial, which callers must
+// not record as a source failure.
 func (s *Source) clientForCall(ctx context.Context) (*ethclient.Client, error) {
-	s.mu.RLock()
-	if s.closed {
-		s.mu.RUnlock()
-		return nil, ErrClosed
+	if client, err, ok := s.cachedClient(); ok {
+		return client, err
 	}
-	if s.client != nil {
-		client := s.client
-		s.mu.RUnlock()
-		return client, nil
-	}
-	s.mu.RUnlock()
 
-	s.dialMu.Lock()
-	defer s.dialMu.Unlock()
-
+	// Try to become the dialer without blocking on the network.
 	s.mu.Lock()
-	if s.closed {
+	if s.dialing == nil {
+		if s.closed {
+			s.mu.Unlock()
+			return nil, ErrClosed
+		}
+		s.dialing = make(chan struct{})
+		dialDone := s.dialing
 		s.mu.Unlock()
-		return nil, ErrClosed
+		client, err := s.dial(ctx)
+		close(dialDone)
+		return client, err
 	}
-	if s.client != nil {
-		client := s.client
-		s.mu.Unlock()
-		return client, nil
-	}
-	dialCtx, cancel := context.WithCancel(ctx)
-	s.dialCancel = cancel
+	wait := s.dialing
 	s.mu.Unlock()
 
+	// Someone else is dialing. Wait for their result (published as s.client or
+	// s.closed) or for this caller's ctx to give up first.
+	select {
+	case <-wait:
+		if client, err, ok := s.cachedClient(); ok {
+			return client, err
+		}
+		// The shared dial failed; this caller retries its own dial attempt.
+		return s.clientForCall(ctx)
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: %w", ctx.Err(), errWaitingForDial)
+	}
+}
+
+func (s *Source) cachedClient() (client *ethclient.Client, err error, ok bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed {
+		return nil, ErrClosed, true
+	}
+	if s.client != nil {
+		return s.client, nil, true
+	}
+	return nil, nil, false
+}
+
+// dial establishes the shared client without holding mu across network I/O.
+// The caller becomes the single dialer (it set dialing before calling).
+func (s *Source) dial(ctx context.Context) (*ethclient.Client, error) {
+	// Cancel this attempt if the caller gives up or the source is closed.
+	dialCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(s.life, cancel)
+	defer stop()
+
 	client, err := s.dialer.DialContext(dialCtx, s.url)
-	cancel()
 
 	s.mu.Lock()
-	s.dialCancel = nil
+	s.dialing = nil
 	if s.closed {
 		s.mu.Unlock()
 		if client != nil {
@@ -78,7 +122,14 @@ func (s *Source) clientForCall(ctx context.Context) (*ethclient.Client, error) {
 	}
 	if err != nil {
 		s.mu.Unlock()
+		if client != nil {
+			client.Close()
+		}
 		return nil, err
+	}
+	if client == nil {
+		s.mu.Unlock()
+		return nil, errors.New("pool: dial returned nil client")
 	}
 	s.client = client
 	s.state = SourceReady
@@ -105,9 +156,7 @@ func (s *Source) close() {
 		return
 	}
 	s.closed = true
-	if s.dialCancel != nil {
-		s.dialCancel()
-	}
+	s.cancelLife() // aborts any in-flight dial via dial's AfterFunc
 	client := s.client
 	s.client = nil
 	s.state = SourceDown
@@ -152,30 +201,21 @@ type SourceState int
 const (
 	// SourceDown has not connected successfully or its last transport attempt failed.
 	SourceDown SourceState = iota
-	// SourceReady is connected and has no later observed transport failure.
+	// SourceReady is connected and has later observed no transport failure.
 	SourceReady
 )
 
 // Name returns the configured display name.
-func (s *Source) Name() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.name
-}
+// Immutable after Join; no lock required.
+func (s *Source) Name() string { return s.name }
 
 // URL returns the dial URL.
-func (s *Source) URL() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.url
-}
+// Immutable after Join; no lock required.
+func (s *Source) URL() string { return s.url }
 
 // ID returns the deduplication key.
-func (s *Source) ID() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.id
-}
+// Immutable after Join; no lock required.
+func (s *Source) ID() string { return s.id }
 
 // State returns the current readiness state.
 func (s *Source) State() SourceState {
@@ -187,4 +227,69 @@ func (s *Source) State() SourceState {
 // Health returns a consistent, read-only snapshot of source observations.
 func (s *Source) Health() HealthSnapshot {
 	return s.stats.snapshot()
+}
+
+// eligible reports whether a source should receive a normal request. A source
+// with no observations is eligible for its first lazy dial. After repeated
+// failures it is temporarily held out; the cooldown expiry admits a probe.
+func (s *Source) eligible(now time.Time) bool {
+	if s.isClosed() {
+		return false
+	}
+	s.identityMu.Lock()
+	invalid := s.identityInvalid
+	s.identityMu.Unlock()
+	if invalid {
+		return false
+	}
+	health := s.Health()
+	if health.ConsecutiveFailures < eligibleFailureThreshold {
+		return true
+	}
+	return health.LastFailure.IsZero() || now.Sub(health.LastFailure) >= eligibleFailureCooldown
+}
+
+var ErrChainIDMismatch = errors.New("pool: upstream chain ID mismatch")
+
+func (s *Source) verifyChainID(ctx context.Context, client *ethclient.Client) error {
+	if s.expectedChainID == 0 {
+		return nil
+	}
+	s.identityMu.Lock()
+	if s.identityInvalid {
+		s.identityMu.Unlock()
+		return ErrChainIDMismatch
+	}
+	if s.identityChecked {
+		s.identityMu.Unlock()
+		return nil
+	}
+	if s.identityChecking != nil {
+		wait := s.identityChecking
+		s.identityMu.Unlock()
+		select {
+		case <-wait:
+			return s.verifyChainID(ctx, client)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	checking := make(chan struct{})
+	s.identityChecking = checking
+	s.identityMu.Unlock()
+
+	chainID, err := client.ChainID(ctx)
+	s.identityMu.Lock()
+	s.identityChecking = nil
+	defer close(checking)
+	defer s.identityMu.Unlock()
+	if err != nil {
+		return err
+	}
+	if chainID == nil || chainID.Cmp(new(big.Int).SetUint64(s.expectedChainID)) != 0 {
+		s.identityInvalid = true
+		return fmt.Errorf("%w: expected %d", ErrChainIDMismatch, s.expectedChainID)
+	}
+	s.identityChecked = true
+	return nil
 }

@@ -33,6 +33,13 @@ type HealthSnapshot struct {
 	LastError           error
 }
 
+// eligibleFailureThreshold is deliberately small: repeated transport
+// failures should stop consuming request capacity, while still allowing a
+// later probe to recover the source.
+const eligibleFailureThreshold = 3
+
+const eligibleFailureCooldown = 30 * time.Second
+
 func (m *monitor) observeSuccess(rtt time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
