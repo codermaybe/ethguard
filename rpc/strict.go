@@ -4,17 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"ethguard/pool"
 )
 
-// StrictPolicy resolves by full agreement: every observation must normalize to the
-// same canonical value, otherwise the conflict is reported with evidence.
-type StrictPolicy struct{}
-
-func (StrictPolicy) Prepare(_ context.Context, req Request) (Request, error) { return req, nil }
-
-func (StrictPolicy) Normalize(value json.RawMessage) (string, error) {
+// CanonicalJSON reduces any JSON value to a comparable canonical form by
+// decoding and re-encoding it, erasing key order and formatting differences.
+func CanonicalJSON(value json.RawMessage) (string, error) {
 	var decoded any
 	if err := json.Unmarshal(value, &decoded); err != nil {
 		return "", err
@@ -23,8 +20,25 @@ func (StrictPolicy) Normalize(value json.RawMessage) (string, error) {
 	return string(canonical), err
 }
 
-func (p StrictPolicy) Resolve(obs []Observation) (Decision, error) {
-	return ResolveStrict(p, obs)
+// Strict binds a response normalizer to strict-consensus resolution. Method
+// authors supply only the normalizer — the one part that varies per method —
+// instead of re-implementing the Policy shell.
+func Strict(normalize func(json.RawMessage) (string, error)) Policy {
+	return strictFunc{normalize}
+}
+
+type strictFunc struct{ normalize func(json.RawMessage) (string, error) }
+
+func (f strictFunc) Prepare(_ context.Context, req Request) (Request, error) {
+	return req, nil
+}
+
+func (f strictFunc) Normalize(value json.RawMessage) (string, error) {
+	return f.normalize(value)
+}
+
+func (f strictFunc) Resolve(obs []Observation) (Decision, error) {
+	return ResolveStrict(f, obs)
 }
 
 // ResolveStrict groups observations by their normalized value and verifies
@@ -47,16 +61,18 @@ func ResolveStrict(policy Policy, obs []Observation) (Decision, error) {
 		return Decision{}, fmt.Errorf("strict: no valid response")
 	}
 	if len(groups) != 1 {
-		var firstKey string
+		// Conflict reporting must be reproducible: pick the winner by sorted
+		// canonical key rather than map iteration order, so identical inputs
+		// always yield identical Support, Reject, and Value evidence.
+		keys := make([]string, 0, len(groups))
 		for key := range groups {
-			firstKey = key
-			break
+			keys = append(keys, key)
 		}
-		decision := Decision{Status: Verified, Value: values[firstKey], Support: groups[firstKey]}
-		for key, sources := range groups {
-			if key != firstKey {
-				decision.Reject = append(decision.Reject, sources...)
-			}
+		sort.Strings(keys)
+		winner := keys[0]
+		decision := Decision{Status: Verified, Value: values[winner], Support: groups[winner]}
+		for _, key := range keys[1:] {
+			decision.Reject = append(decision.Reject, groups[key]...)
 		}
 		return decision, ErrConflict
 	}

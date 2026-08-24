@@ -1,22 +1,22 @@
 package methods
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 
 	"ethguard/rpc"
 )
 
-// BlockByHashPolicy compares block objects after canonicalizing hexadecimal
+// MethodGetBlockByHash is the JSON-RPC method name resolved by
+// BlockByHashPolicy.
+const MethodGetBlockByHash = "eth_getBlockByHash"
+
+// BlockByHashPolicy verifies eth_getBlockByHash by full agreement.
+func BlockByHashPolicy() rpc.Policy { return rpc.Strict(normalizeBlockByHash) }
+
+// normalizeBlockByHash compares block objects after canonicalizing hexadecimal
 // casing. JSON object key order does not cause false conflicts.
-type BlockByHashPolicy struct{}
-
-func (BlockByHashPolicy) Prepare(_ context.Context, req rpc.Request) (rpc.Request, error) {
-	return req, nil
-}
-
-func (BlockByHashPolicy) Normalize(value json.RawMessage) (string, error) {
+func normalizeBlockByHash(value json.RawMessage) (string, error) {
 	var decoded any
 	if err := json.Unmarshal(value, &decoded); err != nil {
 		return "", err
@@ -24,10 +24,6 @@ func (BlockByHashPolicy) Normalize(value json.RawMessage) (string, error) {
 	canonicalizeHex(&decoded)
 	encoded, err := json.Marshal(decoded)
 	return string(encoded), err
-}
-
-func (p BlockByHashPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
-	return rpc.ResolveStrict(p, obs)
 }
 
 func canonicalizeHex(value *any) {

@@ -9,17 +9,18 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"ethguard/rpc"
+	"ethguard/rpc/methods"
 )
 
 // ChainID returns the verified chain ID and its aggregation decision.
 func (c *Client) ChainID(ctx context.Context) (*big.Int, rpc.Decision, error) {
-	decision, err := c.Call(ctx, "eth_chainId")
+	decision, err := c.Call(ctx, methods.MethodChainID)
 	if err != nil {
 		return nil, decision, err
 	}
 	// Hex parsing has one owner: the method policy. Convert its canonical
 	// decimal form instead of re-parsing the raw quantity here.
-	canonical, err := c.policies.PolicyFor("eth_chainId").Normalize(decision.Value)
+	canonical, err := c.policies.PolicyFor(methods.MethodChainID).Normalize(decision.Value)
 	if err != nil {
 		return nil, decision, fmt.Errorf("ethguard: decode chain ID: %w", err)
 	}
@@ -32,7 +33,7 @@ func (c *Client) ChainID(ctx context.Context) (*big.Int, rpc.Decision, error) {
 
 // BlockByHash returns a strictly compared block and the aggregation decision.
 func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*types.Block, rpc.Decision, error) {
-	block, decision, err := CallInto[types.Block](ctx, c, "eth_getBlockByHash", hash.Hex(), fullTx)
+	block, decision, err := CallInto[types.Block](ctx, c, methods.MethodGetBlockByHash, hash.Hex(), fullTx)
 	if err != nil {
 		return nil, decision, err
 	}

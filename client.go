@@ -35,8 +35,8 @@ func New(cfg config.Config) (*Client, error) {
 	}
 
 	policies := rpc.Registry{
-		"eth_chainId":        methods.ChainIDPolicy{},
-		"eth_getBlockByHash": methods.BlockByHashPolicy{},
+		methods.MethodChainID:        methods.ChainIDPolicy(),
+		methods.MethodGetBlockByHash: methods.BlockByHashPolicy(),
 	}
 	return &Client{
 		pool:       rpcPool,

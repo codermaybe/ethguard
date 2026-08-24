@@ -21,6 +21,11 @@ func New(p *pool.Pool, policies rpc.Registry) *Aggregator {
 }
 
 // Aggregate collects one request and resolves it according to its policy.
+//
+// The returned error reports why no classified decision was reached.
+// Failures that did not prevent a decision — a pool-level collection error
+// or individual sources failing or timing out — are attached to
+// Decision.Faults instead, keeping partial fan-outs diagnosable.
 func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decision, error) {
 	policy := a.policies.PolicyFor(req.Method)
 	prepared, err := policy.Prepare(ctx, req)
@@ -33,11 +38,13 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		observations[i] = rpc.Observation{Source: emission.Src, Value: emission.Val, Err: emission.Err}
 	}
 	decision, resolveErr := policy.Resolve(observations)
-	if resolveErr != nil {
-		if collectErr != nil {
-			return decision, fmt.Errorf("aggregate: collect: %w", collectErr)
-		}
-		return decision, resolveErr
+	if collectErr != nil {
+		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", collectErr))
 	}
-	return decision, nil
+	for _, obs := range observations {
+		if obs.Err != nil {
+			decision.Faults = append(decision.Faults, fmt.Errorf("source %q: %w", obs.Source.Name(), obs.Err))
+		}
+	}
+	return decision, resolveErr
 }

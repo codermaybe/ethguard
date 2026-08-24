@@ -1,7 +1,6 @@
 package methods
 
 import (
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,15 +9,15 @@ import (
 	"ethguard/rpc"
 )
 
-// ChainIDPolicy compares chain IDs numerically, accepting equivalent hex
+// MethodChainID is the JSON-RPC method name resolved by ChainIDPolicy.
+const MethodChainID = "eth_chainId"
+
+// ChainIDPolicy verifies eth_chainId by full agreement.
+func ChainIDPolicy() rpc.Policy { return rpc.Strict(normalizeChainID) }
+
+// normalizeChainID compares chain IDs numerically, accepting equivalent hex
 // quantity spellings rather than comparing JSON bytes.
-type ChainIDPolicy struct{}
-
-func (ChainIDPolicy) Prepare(_ context.Context, req rpc.Request) (rpc.Request, error) {
-	return req, nil
-}
-
-func (ChainIDPolicy) Normalize(value json.RawMessage) (string, error) {
+func normalizeChainID(value json.RawMessage) (string, error) {
 	var quantity string
 	if err := json.Unmarshal(value, &quantity); err != nil {
 		return "", fmt.Errorf("chain ID: expected hex quantity: %w", err)
@@ -35,8 +34,4 @@ func (ChainIDPolicy) Normalize(value json.RawMessage) (string, error) {
 		return "", fmt.Errorf("chain ID: invalid quantity %q: %w", quantity, err)
 	}
 	return new(big.Int).SetBytes(bytes).String(), nil
-}
-
-func (p ChainIDPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
-	return rpc.ResolveStrict(p, obs)
 }

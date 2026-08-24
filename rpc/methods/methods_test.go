@@ -6,7 +6,7 @@ import (
 )
 
 func TestChainIDPolicyNormalizesQuantities(t *testing.T) {
-	p := ChainIDPolicy{}
+	p := ChainIDPolicy()
 	first, err := p.Normalize(json.RawMessage(`"0x01"`))
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +21,7 @@ func TestChainIDPolicyNormalizesQuantities(t *testing.T) {
 }
 
 func TestBlockByHashPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
-	p := BlockByHashPolicy{}
+	p := BlockByHashPolicy()
 	first, err := p.Normalize(json.RawMessage(`{"hash":"0xAB","number":"0x1","transactions":[]}`))
 	if err != nil {
 		t.Fatal(err)

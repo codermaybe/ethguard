@@ -32,12 +32,15 @@ const (
 )
 
 // Decision is the minimal result returned by aggregation. Support and Reject
-// provide enough evidence for diagnostics without introducing an evidence tree.
+// provide enough evidence for diagnostics without introducing an evidence
+// tree. Faults records collection-phase failures that did not prevent the
+// decision, so partial fan-outs stay diagnosable on success paths too.
 type Decision struct {
 	Status  Status
 	Value   json.RawMessage
 	Support []*pool.Source
 	Reject  []*pool.Source
+	Faults  []error
 }
 
 var ErrConflict = errors.New("rpc: conflicting responses")
