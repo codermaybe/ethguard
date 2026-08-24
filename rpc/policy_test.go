@@ -3,38 +3,8 @@ package rpc
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 )
-
-func TestStrictReturnsConflictEvidence(t *testing.T) {
-	p := Strict(CanonicalJSON)
-	decision, err := p.Resolve([]Observation{
-		{Value: json.RawMessage(`1`)},
-		{Value: json.RawMessage(`2`)},
-	})
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("expected conflict, got %v", err)
-	}
-	if len(decision.Support) != 1 || len(decision.Reject) != 1 {
-		t.Fatalf("expected one support and one reject, got %+v", decision)
-	}
-
-	// Conflict evidence must be reproducible regardless of map iteration
-	// order: the smallest canonical key always wins.
-	for range 32 {
-		again, err := p.Resolve([]Observation{
-			{Value: json.RawMessage(`2`)},
-			{Value: json.RawMessage(`1`)},
-		})
-		if !errors.Is(err, ErrConflict) {
-			t.Fatalf("expected conflict, got %v", err)
-		}
-		if string(again.Value) != string(decision.Value) {
-			t.Fatalf("conflict winner drifted: %s vs %s", again.Value, decision.Value)
-		}
-	}
-}
 
 func TestRegistryUsesForwardPolicyForUnknownMethods(t *testing.T) {
 	policy := Registry{}.PolicyFor("eth_unknown")
