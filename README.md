@@ -11,13 +11,16 @@ It does this by aggregating responses from multiple RPC sources and applying sev
 ## Layout
 
 ```text
-ethguard/                   # public Client and construction
+ethguard/                   # public Client facade
+├── client.go               # composition root: Client, New, Pool, Close
+├── call.go                 # generic call pipeline (Call, CallInto[T])
+├── eth.go                  # typed convenience methods
 ├── config/                 # programmatic and YAML configuration
 ├── pool/                   # upstream lifecycle, health, and eligibility
 ├── metrics/                # passive observability seam
 ├── aggregator/             # semantic quorum, conflicts, and evidence
 ├── rpc/                    # normalized JSON-RPC transport types
-│   └── methods/            # method-aware policies and default forwarding
+│   └── methods/            # one policy file per verified method + forwarding
 ├── docs/                   # architecture, threat model, and design notes
 └── examples/               # small import demos
 ```

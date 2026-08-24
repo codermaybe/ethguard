@@ -17,5 +17,5 @@ It owns:
 It does not own Ethereum method semantics, connection lifecycle, telemetry
 storage, gas optimization, nonce management, signing, or transaction retries.
 
-No Go interface is declared yet. The interface should be introduced together
-with the first real implementation and its tests.
+The initial implementation exposes `Aggregator.Aggregate` and starts with
+strict chain-ID agreement plus transparent forwarding for unknown methods.

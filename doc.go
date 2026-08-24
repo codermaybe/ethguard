@@ -4,7 +4,10 @@
 //
 // Typical layout of this module:
 //
-//	ethguard          — public Client API (this package)
-//	ethguard/config   — configuration types, samples, and loaders
-//	ethguard/pool     — multi-source RPC upstream management
+//	ethguard             — public Client API (this package): client.go,
+//	                       call.go, and eth.go form a stable facade
+//	ethguard/config      — configuration types, samples, and loaders
+//	ethguard/pool        — multi-source RPC upstream management
+//	ethguard/rpc         — transport model shared across modules
+//	ethguard/rpc/methods — one policy file per verified method
 package ethguard

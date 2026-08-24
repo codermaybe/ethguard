@@ -3,15 +3,20 @@ package ethguard
 import (
 	"fmt"
 
+	"ethguard/aggregator"
 	"ethguard/config"
 	"ethguard/pool"
+	"ethguard/rpc"
+	"ethguard/rpc/methods"
 )
 
 // Client is the single entry point for application code.
 // Multiple goroutines may use one Client concurrently; connections are owned
 // and reused by the internal RPC management pool.
 type Client struct {
-	pool *pool.Pool
+	pool       *pool.Pool
+	aggregator *aggregator.Aggregator
+	policies   rpc.Registry
 }
 
 // New builds a Client from an already-loaded configuration.
@@ -29,8 +34,14 @@ func New(cfg config.Config) (*Client, error) {
 		}
 	}
 
+	policies := rpc.Registry{
+		"eth_chainId":        methods.ChainIDPolicy{},
+		"eth_getBlockByHash": methods.BlockByHashPolicy{},
+	}
 	return &Client{
-		pool: rpcPool,
+		pool:       rpcPool,
+		aggregator: aggregator.New(rpcPool, policies),
+		policies:   policies,
 	}, nil
 }
 
