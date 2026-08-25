@@ -47,6 +47,7 @@ go run ./examples/basic
 
 The library API and verification policies are still evolving. See the
 [architecture](docs/architecture.md), [aggregation design](docs/design/rpc-aggregation.md),
+the [proxyd comparison](docs/design/proxyd-comparison.md),
 and [threat model](docs/threat-model.md) before relying on security properties.
 
 The package currently provides configuration loading, multi-upstream lifecycle,

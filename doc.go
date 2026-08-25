@@ -8,6 +8,10 @@
 //	                       call.go, and eth.go form a stable facade
 //	ethguard/config      — configuration types, samples, and loaders
 //	ethguard/pool        — multi-source RPC upstream management
+//	ethguard/observe     — observability seam: one decision event per
+//	                       aggregate, log adapter, Prometheus adapter under
+//	                       observe/prometheus
+//	ethguard/aggregator  — prepare → collect → resolve orchestration
 //	ethguard/rpc         — transport model shared across modules
 //	ethguard/rpc/methods — one policy file per verified method
 package ethguard

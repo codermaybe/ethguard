@@ -43,4 +43,20 @@ type Decision struct {
 	Faults  []error
 }
 
+// String names the confidence class for observability sinks. The values are
+// part of the observability contract consumed by metrics and logs; they must
+// stay in sync with the status labels documented on observe.DecisionEvent.
+func (s Status) String() string {
+	switch s {
+	case Verified:
+		return "verified"
+	case Selected:
+		return "selected"
+	case Forwarded:
+		return "forwarded"
+	default:
+		return "unknown"
+	}
+}
+
 var ErrConflict = errors.New("rpc: conflicting responses")

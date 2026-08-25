@@ -1,0 +1,119 @@
+// Package prometheus turns EthGuard's observability events into Prometheus
+// metrics. It is deliberately a separate package: applications that never
+// import it do not link the Prometheus client.
+//
+// Metrics acts as both an observe.Recorder and a prometheus.Collector.
+// Register it into any registry, or serve the built-in handler directly:
+//
+//	pm := prometheus.New()
+//	client, err := ethguard.New(cfg, ethguard.WithRecorder(pm))
+//	http.Handle("/metrics", pm.Handler())
+package prometheus
+
+import (
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"ethguard/observe"
+)
+
+// Metrics aggregates decision and per-source events into six metric
+// families. It must be created with New; the zero value is unusable.
+type Metrics struct {
+	decisions *prometheus.CounterVec   // method, status
+	conflicts *prometheus.CounterVec   // method
+	faults    *prometheus.CounterVec   // method
+	duration  *prometheus.HistogramVec // method
+	rtt       *prometheus.HistogramVec // method, source
+	failures  *prometheus.CounterVec   // method, source
+
+	registry *prometheus.Registry
+}
+
+// New builds the metric set. The returned value can be registered into any
+// number of registries; each call also owns a private registry backing
+// Handler.
+func New() *Metrics {
+	m := &Metrics{
+		decisions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "ethguard",
+			Name:      "decisions_total",
+			Help:      "Aggregate decisions by method and confidence class (verified, selected, forwarded, failed).",
+		}, []string{"method", "status"}),
+		conflicts: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "ethguard",
+			Name:      "conflicts_total",
+			Help:      "Decisions rejected because verified sources disagreed.",
+		}, []string{"method"}),
+		faults: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "ethguard",
+			Name:      "faults_total",
+			Help:      "Collection-phase faults (source failures, normalize errors) attached to decisions.",
+		}, []string{"method"}),
+		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "ethguard",
+			Name:      "decision_duration_seconds",
+			Help:      "Wall time from prepare through resolve per aggregate decision.",
+		}, []string{"method"}),
+		rtt: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "ethguard",
+			Name:      "source_rtt_seconds",
+			Help:      "Per-source round-trip time inside a fan-out.",
+		}, []string{"method", "source"}),
+		failures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "ethguard",
+			Name:      "source_failures_total",
+			Help:      "Per-source attempts that contributed no value to their decision.",
+		}, []string{"method", "source"}),
+	}
+	m.registry = prometheus.NewRegistry()
+	m.registry.MustRegister(m)
+	return m
+}
+
+// RecordDecision implements observe.Recorder. Per-source attempts are
+// accounted here as well; there is no separate per-attempt hook.
+func (m *Metrics) RecordDecision(e observe.DecisionEvent) {
+	m.decisions.WithLabelValues(e.Method, e.Status).Inc()
+	if e.Conflict {
+		m.conflicts.WithLabelValues(e.Method).Inc()
+	}
+	if e.Faults > 0 {
+		m.faults.WithLabelValues(e.Method).Add(float64(e.Faults))
+	}
+	m.duration.WithLabelValues(e.Method).Observe(e.Duration.Seconds())
+	for _, attempt := range e.Attempts {
+		m.rtt.WithLabelValues(e.Method, attempt.Source).Observe(attempt.RTT.Seconds())
+		if attempt.Failed {
+			m.failures.WithLabelValues(e.Method, attempt.Source).Inc()
+		}
+	}
+}
+
+// Describe implements prometheus.Collector.
+func (m *Metrics) Describe(ch chan<- *prometheus.Desc) {
+	m.decisions.Describe(ch)
+	m.conflicts.Describe(ch)
+	m.faults.Describe(ch)
+	m.duration.Describe(ch)
+	m.rtt.Describe(ch)
+	m.failures.Describe(ch)
+}
+
+// Collect implements prometheus.Collector.
+func (m *Metrics) Collect(ch chan<- prometheus.Metric) {
+	m.decisions.Collect(ch)
+	m.conflicts.Collect(ch)
+	m.faults.Collect(ch)
+	m.duration.Collect(ch)
+	m.rtt.Collect(ch)
+	m.failures.Collect(ch)
+}
+
+// Handler serves Prometheus text exposition over this metric set alone,
+// suitable for http.Handle("/metrics", ...).
+func (m *Metrics) Handler() http.Handler {
+	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
+}
