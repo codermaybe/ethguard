@@ -653,6 +653,72 @@ func TestTipTrackingQuarantinesLaggingSource(t *testing.T) {
 	}
 }
 
+// anchorEstablishments counts block-head queries across the whole fleet:
+// the wire footprint of anchor establishment.
+func anchorEstablishments(nodes []*rpctest.Node) int {
+	total := 0
+	for _, node := range nodes {
+		for _, call := range node.Calls() {
+			if call.Method == methods.MethodGetBlockByNumber {
+				total++
+			}
+		}
+	}
+	return total
+}
+
+// TestAnchorCachingSharesOneEstablishment proves the latency win on the
+// wire: consecutive anchored reads reuse one verified reference instead of
+// re-fanning the head query per call.
+func TestAnchorCachingSharesOneEstablishment(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithAnchorCaching(time.Hour))
+	agreeOnHead(nodes)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for range 2 {
+		decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+		if err != nil || decision.Status != rpc.Verified {
+			t.Fatalf("anchored read failed: %+v %v", decision, err)
+		}
+	}
+	if got := anchorEstablishments(nodes); got != 3 {
+		t.Fatalf("expected one fleet-wide establishment (3 queries), got %d", got)
+	}
+
+	balances := 0
+	for _, node := range nodes {
+		for _, call := range node.Calls() {
+			if call.Method == methods.MethodGetBalance {
+				balances++
+			}
+		}
+	}
+	if balances != 6 {
+		t.Fatalf("expected both reads to fan out balances, got %d", balances)
+	}
+}
+
+// TestAnchorCachingReestablishesAfterTTL proves the cache bounds staleness:
+// once the TTL lapses the next read establishes a fresh reference.
+func TestAnchorCachingReestablishesAfterTTL(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithAnchorCaching(30*time.Millisecond))
+	agreeOnHead(nodes)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
+		t.Fatal(err)
+	}
+	if got := anchorEstablishments(nodes); got != 6 {
+		t.Fatalf("expected a fresh establishment after TTL (6 queries), got %d", got)
+	}
+}
+
 // TestClientHandlesConcurrentCallsUnderSharedRecorder exercises the
 // Recorder contract (safe for concurrent use) and the client's fan-out under
 // -race, mixing plain and anchored reads through one sink.

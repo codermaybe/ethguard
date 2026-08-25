@@ -30,6 +30,7 @@ type clientOptions struct {
 	recorder      observe.Recorder
 	anchor        AnchorResolver
 	anchorFactory func(*pool.Pool, observe.Recorder) AnchorResolver
+	anchorCache   time.Duration
 	poolOpts      []pool.PoolOption
 }
 
@@ -64,6 +65,14 @@ func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
 			return NewFinalizedHeadAnchor(p, rec, opts...)
 		}
 	}
+}
+
+// WithAnchorCaching reuses the established block reference for ttl across
+// moving-tag reads, so an anchored call costs one fan-out instead of two
+// (NewCachedAnchor). Failures are never cached. Size ttl against freshness
+// needs: it bounds how far behind the chain a cached reference may lag.
+func WithAnchorCaching(ttl time.Duration) Option {
+	return func(o *clientOptions) { o.anchorCache = ttl }
 }
 
 // WithTipTracking enables pool-side block-tip sampling and the freshness
@@ -110,6 +119,9 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		} else {
 			resolver = NewStrictHeadAnchor(rpcPool, rec)
 		}
+	}
+	if co.anchorCache > 0 {
+		resolver = NewCachedAnchor(resolver, co.anchorCache)
 	}
 	policies := rpc.Registry{
 		methods.MethodChainID:          methods.ChainIDPolicy(),

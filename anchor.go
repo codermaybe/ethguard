@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"ethguard/aggregator"
 	"ethguard/observe"
@@ -25,8 +27,8 @@ const anchorMethod = "anchor"
 // reads (latest/safe/finalized). It is the replaceable anchoring strategy:
 // implementations decide how a reference is chosen and how stale it may be,
 // while call orchestration stays fixed. The default is StrictHeadAnchor;
-// WithFinalizedAnchoring opts into conservative selection, and TTL caching
-// is a future implementation of this same seam.
+// WithFinalizedAnchoring opts into conservative selection and
+// NewCachedAnchor adds time-bounded reuse — decorators of this same seam.
 type AnchorResolver interface {
 	// AnchorBlockHash returns one block hash every source will be asked
 	// about, or an error explaining why no trusted reference was reached.
@@ -310,4 +312,44 @@ func blockHashFromDecision(decision rpc.Decision) (string, error) {
 		return "", fmt.Errorf("%w: winning anchor block carries no hash", rpc.ErrMalformedResponse)
 	}
 	return head.Hash, nil
+}
+
+// CachedAnchor decorates any AnchorResolver with time-bounded reuse: the
+// first establishment inside a TTL window is shared by every moving-tag
+// read, so anchored calls cost one fan-out instead of two. Failures are
+// never cached; concurrent misses serialize on one establishment.
+//
+// Safety note: over a FinalizedHeadAnchor the pinned block is irreversible,
+// so caching cannot regress safety — it only bounds liveness of progress.
+// Over StrictHeadAnchor the head moves, and the TTL bounds how far behind
+// the chain reads may land; size it against the caller's freshness needs
+// (see decision 0007, anchor caching amendment).
+type CachedAnchor struct {
+	inner AnchorResolver
+	ttl   time.Duration
+
+	mu         sync.Mutex
+	hash       string
+	validUntil time.Time
+}
+
+// NewCachedAnchor wraps inner so its references are reused for ttl.
+func NewCachedAnchor(inner AnchorResolver, ttl time.Duration) *CachedAnchor {
+	return &CachedAnchor{inner: inner, ttl: ttl}
+}
+
+// AnchorBlockHash implements AnchorResolver.
+func (c *CachedAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.hash != "" && time.Now().Before(c.validUntil) {
+		return c.hash, nil
+	}
+	hash, err := c.inner.AnchorBlockHash(ctx)
+	if err != nil {
+		return "", err
+	}
+	c.hash = hash
+	c.validUntil = time.Now().Add(c.ttl)
+	return hash, nil
 }
