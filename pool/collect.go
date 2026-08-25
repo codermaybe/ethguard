@@ -52,6 +52,12 @@ const maxDefaultTimeout = 30 * time.Second
 //
 // The returned slice has one Emission per eligible source, in pool order.
 func (p *Pool) Collect(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
+	return p.collect(ctx, method, params, opts, true)
+}
+
+// collect is Collect with a switch for the freshness gate; tip probes pass
+// applyFreshness=false so a stale fleet can still refresh its own picture.
+func (p *Pool) collect(ctx context.Context, method string, params []any, opts CollectOptions, applyFreshness bool) ([]Emission, error) {
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = maxDefaultTimeout
@@ -59,7 +65,7 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	sources, err := p.sourcesForCollect()
+	sources, err := p.sourcesForCollect(applyFreshness)
 	if err != nil {
 		return nil, err
 	}

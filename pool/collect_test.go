@@ -16,8 +16,9 @@ import (
 
 // fakeNode serves an in-process JSON-RPC server speaking a minimal namespace.
 type fakeNode struct {
-	blockNum atomic.Int64
-	tracker  *callTracker
+	blockNum    atomic.Int64
+	blockOffset atomic.Int64
+	tracker     *callTracker
 }
 
 type callTracker struct {
@@ -66,7 +67,7 @@ func (a *fakeAPI) BlockNumber() (interface{}, error) {
 	if a.n.tracker != nil {
 		defer a.n.tracker.enter()()
 	}
-	return a.n.blockNum.Add(1), nil
+	return a.n.blockNum.Add(1) + a.n.blockOffset.Load(), nil
 }
 
 func (a *fakeAPI) Fail() (interface{}, error) {
@@ -88,6 +89,18 @@ type newFakeDialer struct {
 	clients     map[string][]*ethclient.Client
 	dialEntered chan<- struct{}
 	dialRelease <-chan struct{}
+	offsets     map[string]int64
+	nodes       map[string]*fakeNode
+}
+
+// setOffset moves a node's block height, including an already-dialed node.
+func (d *newFakeDialer) setOffset(rawURL string, off int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.offsets[rawURL] = off
+	if n := d.nodes[rawURL]; n != nil {
+		n.blockOffset.Store(off)
+	}
 }
 
 func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (*ethclient.Client, error) {
@@ -112,9 +125,17 @@ func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (*ethcli
 	}
 
 	n := &fakeNode{tracker: d.track}
+	if d.offsets != nil {
+		n.blockOffset.Store(d.offsets[rawURL])
+	}
 	server := rpc.NewServer()
 	if err := server.RegisterName("eth", &fakeAPI{n: n}); err != nil {
 		return nil, err
+	}
+	if d.nodes != nil {
+		d.mu.Lock()
+		d.nodes[rawURL] = n
+		d.mu.Unlock()
 	}
 
 	client := ethclient.NewClient(rpc.DialInProc(server))

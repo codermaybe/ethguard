@@ -606,6 +606,50 @@ func TestFinalizedAnchoringRejectsForkAtPinnedHeight(t *testing.T) {
 	}
 }
 
+// TestTipTrackingQuarantinesLaggingSource proves the freshness gate end to
+// end: a provider trailing the fleet's reference height is skipped by
+// ordinary fan-outs while still receiving probes that can readmit it.
+func TestTipTrackingQuarantinesLaggingSource(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithTipTracking(time.Hour, 16))
+	for i, node := range nodes {
+		height := fmt.Sprintf("0x%x", 100)
+		if i == 2 {
+			height = "0x10" // 80+ blocks behind
+		}
+		node.Return("eth_blockNumber", height)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Probe once so tips exist; the probe itself performs each source's
+	// one-time chain-ID identity check, so gate assertions start after it.
+	client.Pool().RefreshTips(ctx)
+	seenByLaggard := len(nodes[2].Calls())
+
+	value, decision, err := client.ChainID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.Int64() != 1 || decision.Status != rpc.Verified {
+		t.Fatalf("expected verified chain id from fresh sources, got %v %+v", value, decision)
+	}
+	if len(decision.Support) != 2 {
+		t.Fatalf("expected the lagging source to be gated out, got %+v", decision.Support)
+	}
+	for _, call := range nodes[2].Calls()[seenByLaggard:] {
+		if call.Method == methods.MethodChainID {
+			t.Fatal("gated source received a user request")
+		}
+	}
+
+	// Recovery: catching up plus one probe readmits the source.
+	nodes[2].Return("eth_blockNumber", "0x65")
+	client.Pool().RefreshTips(ctx)
+	if _, decision, err := client.ChainID(ctx); err != nil || len(decision.Support) != 3 {
+		t.Fatalf("expected recovered source to be readmitted, got %+v %v", decision.Support, err)
+	}
+}
+
 // TestClientHandlesConcurrentCallsUnderSharedRecorder exercises the
 // Recorder contract (safe for concurrent use) and the client's fan-out under
 // -race, mixing plain and anchored reads through one sink.

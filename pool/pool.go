@@ -56,6 +56,12 @@ type Pool struct {
 	dialer          dialer
 	expectedChainID uint64
 	closed          bool
+
+	// Tip tracking (see WithTipTracking). maxTipLag zero disables the
+	// freshness gate; stopTips is non-nil only while sampling runs.
+	maxTipLag      uint64
+	tipIntervalRef time.Duration
+	stopTips       chan struct{}
 }
 
 // NewPool creates an empty pool.
@@ -122,17 +128,27 @@ func (p *Pool) Sources() []*Source {
 	return out
 }
 
-func (p *Pool) sourcesForCollect() ([]*Source, error) {
+func (p *Pool) sourcesForCollect(applyFreshness bool) ([]*Source, error) {
 	sources, err := p.snapshotSources(true)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
+	var floor uint64
+	if applyFreshness {
+		floor = p.staleFloor(sources)
+	}
 	eligible := sources[:0]
 	for _, src := range sources {
-		if src.eligible(now) {
-			eligible = append(eligible, src)
+		if !src.eligible(now) {
+			continue
 		}
+		if floor > 0 {
+			if tip, ok := src.tipHeight(); ok && tip < floor {
+				continue // freshness gate: trailing beyond the bound
+			}
+		}
+		eligible = append(eligible, src)
 	}
 	return eligible, nil
 }
@@ -158,6 +174,9 @@ func (p *Pool) Close() {
 		return
 	}
 	p.closed = true
+	if p.stopTips != nil {
+		close(p.stopTips)
+	}
 	sources := make([]*Source, len(p.sources))
 	copy(sources, p.sources)
 	p.mu.Unlock()

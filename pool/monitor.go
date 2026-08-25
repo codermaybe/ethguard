@@ -20,6 +20,11 @@ type monitor struct {
 	lastSuccess time.Time
 	lastError   error
 	lastFailure time.Time
+
+	// tip is the latest block height observed by the tip sampler;
+	// tipObservedAt is zero until the first sample arrives.
+	tipHeight     uint64
+	tipObservedAt time.Time
 }
 
 // HealthSnapshot is a point-in-time copy of source health observations.
@@ -31,6 +36,10 @@ type HealthSnapshot struct {
 	LastSuccess         time.Time
 	LastFailure         time.Time
 	LastError           error
+	// TipHeight is the latest block height observed by the tip sampler;
+	// TipObservedAt is zero when sampling never reached this source.
+	TipHeight     uint64
+	TipObservedAt time.Time
 }
 
 // eligibleFailureThreshold is deliberately small: repeated transport
@@ -65,6 +74,26 @@ func (m *monitor) observeFailure(err error) {
 	m.lastError = err
 }
 
+// observeTip records one block-height sample from the tip sampler.
+func (m *monitor) observeTip(height uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.tipHeight = height
+	m.tipObservedAt = time.Now()
+}
+
+// sampledTip returns the last observed tip; ok is false before any sample.
+func (m *monitor) sampledTip() (uint64, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.tipObservedAt.IsZero() {
+		return 0, false
+	}
+	return m.tipHeight, true
+}
+
 func (m *monitor) snapshot() HealthSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -77,5 +106,7 @@ func (m *monitor) snapshot() HealthSnapshot {
 		LastSuccess:         m.lastSuccess,
 		LastFailure:         m.lastFailure,
 		LastError:           m.lastError,
+		TipHeight:           m.tipHeight,
+		TipObservedAt:       m.tipObservedAt,
 	}
 }

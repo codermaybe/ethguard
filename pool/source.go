@@ -195,6 +195,22 @@ func (s *Source) recordFailedCall(err error) {
 	s.state = SourceDown
 }
 
+// recordTip stores one block-height sample from the tip sampler.
+func (s *Source) recordTip(height uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.stats.observeTip(height)
+}
+
+// tipHeight returns the last sampled block height; ok is false when this
+// source has never been sampled.
+func (s *Source) tipHeight() (uint64, bool) {
+	return s.stats.sampledTip()
+}
+
 // SourceState is the readiness of a managed endpoint.
 type SourceState int
 

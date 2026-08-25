@@ -3,6 +3,7 @@ package ethguard
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"ethguard/aggregator"
 	"ethguard/config"
@@ -29,6 +30,7 @@ type clientOptions struct {
 	recorder      observe.Recorder
 	anchor        AnchorResolver
 	anchorFactory func(*pool.Pool, observe.Recorder) AnchorResolver
+	poolOpts      []pool.PoolOption
 }
 
 // WithLogger injects a structured logger receiving one event per aggregate
@@ -64,6 +66,17 @@ func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
 	}
 }
 
+// WithTipTracking enables pool-side block-tip sampling and the freshness
+// eligibility gate: sources trailing the fleet's robust reference height by
+// more than maxBehind blocks are skipped by fan-outs until they catch up or
+// their sample recovers (pool.WithTipTracking). Zero values select the
+// defaults of 10s sampling and a 32-block bound.
+func WithTipTracking(every time.Duration, maxBehind uint64) Option {
+	return func(o *clientOptions) {
+		o.poolOpts = append(o.poolOpts, pool.WithTipTracking(every, maxBehind))
+	}
+}
+
 // New builds a Client from an already-loaded configuration.
 // Upstreams are registered into the RPC pool with endpoint deduplication.
 // Dialing each source is deferred until its first call.
@@ -83,7 +96,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		rec = observe.Nop
 	}
 
-	rpcPool := pool.NewPoolWithChainID(cfg.ChainID)
+	rpcPool := pool.NewPoolWithOptions(cfg.ChainID, co.poolOpts...)
 	for _, upstream := range cfg.Upstreams {
 		if _, err := rpcPool.Join(upstream.ID, upstream.Endpoint); err != nil {
 			return nil, fmt.Errorf("ethguard: register %q: %w", upstream.Endpoint, err)
