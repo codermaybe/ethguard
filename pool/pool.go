@@ -12,7 +12,19 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-var ErrClosed = errors.New("pool: closed")
+var (
+	ErrClosed = errors.New("pool: closed")
+
+	// ErrNoEligibleSource reports that a fan-out was impossible: the pool has
+	// no registered source, or none passed its eligibility gates (open
+	// cooldown circuit, quarantined identity). No upstream was contacted.
+	ErrNoEligibleSource = errors.New("pool: no eligible upstream source")
+
+	// ErrAllSourcesDown reports that sources were contacted but not one
+	// produced a usable response at the transport level. Individual causes
+	// remain available on the returned emissions and on Decision.Faults.
+	ErrAllSourcesDown = errors.New("pool: all upstream sources failed to respond")
+)
 
 // dialer establishes long-lived RPC connections to upstream endpoints.
 //

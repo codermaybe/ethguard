@@ -59,4 +59,21 @@ func (s Status) String() string {
 	}
 }
 
-var ErrConflict = errors.New("rpc: conflicting responses")
+// Error classes for the decision pipeline. Every failure wraps exactly one
+// class; match with errors.Is. These sentinels are part of the public
+// stability contract (decision 0009): new classes may appear, existing ones
+// will not be removed or merged.
+var (
+	// ErrConflict reports that sources were verified but disagreed, or that
+	// a configured quorum was unmet. Decision evidence names the clusters.
+	ErrConflict = errors.New("rpc: conflicting responses")
+
+	// ErrNoValidResponse reports that sources answered but no response
+	// survived normalization — including fleets whose every emission was a
+	// JSON-RPC error object.
+	ErrNoValidResponse = errors.New("rpc: no valid response")
+
+	// ErrMalformedResponse reports a decode-stage failure at a typed
+	// boundary: a resolved value cannot be shaped into its target.
+	ErrMalformedResponse = errors.New("rpc: malformed response")
+)

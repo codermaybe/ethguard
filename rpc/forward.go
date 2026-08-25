@@ -22,7 +22,7 @@ func (ForwardPolicy) Resolve(obs []Observation) (Decision, error) {
 			return Decision{Status: Forwarded, Value: item.Value, Support: []*pool.Source{item.Source}}, nil
 		}
 	}
-	return Decision{}, fmt.Errorf("forward: no source responded")
+	return Decision{}, fmt.Errorf("forward: no source responded: %w", ErrNoValidResponse)
 }
 
 // SelectedPolicy returns the first successful observation while marking the
@@ -39,5 +39,5 @@ func (SelectedPolicy) Resolve(obs []Observation) (Decision, error) {
 			return Decision{Status: Selected, Value: item.Value, Support: []*pool.Source{item.Source}}, nil
 		}
 	}
-	return Decision{}, fmt.Errorf("selected: no source responded")
+	return Decision{}, fmt.Errorf("selected: no source responded: %w", ErrNoValidResponse)
 }

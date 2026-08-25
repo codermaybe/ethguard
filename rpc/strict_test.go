@@ -152,3 +152,29 @@ func TestNormalizeFailureBecomesFault(t *testing.T) {
 		t.Fatalf("valid responses should still verify, got %+v", decision)
 	}
 }
+
+func TestStrictClassifiesFleetWithoutValidResponses(t *testing.T) {
+	p := Strict(CanonicalJSON)
+	decision, err := p.Resolve([]Observation{
+		obs(`not-json`),
+		{Source: src(), Err: errors.New("timeout")},
+	})
+	if !errors.Is(err, ErrNoValidResponse) {
+		t.Fatalf("expected no-valid-response class, got %v", err)
+	}
+	if len(decision.Faults) != 1 {
+		t.Fatalf("expected the normalize failure on faults, got %+v", decision.Faults)
+	}
+}
+
+func TestForwardWithoutResponseIsNoValidResponse(t *testing.T) {
+	policies := []Policy{
+		ForwardPolicy{},
+		SelectedPolicy{},
+	}
+	for _, p := range policies {
+		if _, err := p.Resolve([]Observation{{Source: src(), Err: errors.New("down")}}); !errors.Is(err, ErrNoValidResponse) {
+			t.Fatalf("%T: expected no-valid-response class, got %v", p, err)
+		}
+	}
+}

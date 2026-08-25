@@ -90,7 +90,8 @@ func (f strictFunc) Resolve(obs []Observation) (Decision, error) {
 		valid++
 	}
 	if len(groups) == 0 {
-		return Decision{Faults: decision.Faults}, fmt.Errorf("strict: no valid response")
+		return Decision{Faults: decision.Faults}, fmt.Errorf(
+			"strict: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
 	}
 
 	// Evidence must be reproducible: rank clusters by size and break ties by

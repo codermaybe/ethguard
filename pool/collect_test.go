@@ -400,8 +400,8 @@ func TestCollectTemporarilyExcludesRepeatedlyFailingSource(t *testing.T) {
 		t.Fatalf("expected %d consecutive failures, got %d", eligibleFailureThreshold, got)
 	}
 	emissions, err := p.Collect(context.Background(), "eth_protocolFailure", nil, CollectOptions{})
-	if err == nil {
-		t.Fatal("expected collection with no eligible source to fail")
+	if !errors.Is(err, ErrNoEligibleSource) {
+		t.Fatalf("expected no-eligible-source class, got %v", err)
 	}
 	if len(emissions) != 0 {
 		t.Fatalf("expected no emissions from an open circuit, got %+v", emissions)
@@ -696,5 +696,46 @@ func TestPoolJoinRejectsUnsupportedScheme(t *testing.T) {
 	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
 	if _, err := p.Join("bad", "ftp://example.com"); err == nil {
 		t.Fatal("expected unsupported scheme to be rejected")
+	}
+}
+
+func TestCollectClassifiesEmptyPoolAsNoEligibleSource(t *testing.T) {
+	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
+	emissions, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{})
+	if !errors.Is(err, ErrNoEligibleSource) {
+		t.Fatalf("expected no-eligible-source class, got %v", err)
+	}
+	if len(emissions) != 0 {
+		t.Fatalf("expected no emissions without sources, got %+v", emissions)
+	}
+}
+
+func TestCollectClassifiesDeadFleetAsAllSourcesDown(t *testing.T) {
+	dialErr := errors.New("dial failed")
+	d := &newFakeDialer{
+		dials: make(map[string]int),
+		fails: map[string]error{
+			"https://a.example": dialErr,
+			"https://b.example": dialErr,
+		},
+	}
+	p := newPoolWithDialer(d)
+	for _, name := range []string{"a", "b"} {
+		if _, err := p.Join(name, "https://"+name+".example"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	emissions, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{})
+	if !errors.Is(err, ErrAllSourcesDown) {
+		t.Fatalf("expected all-sources-down class, got %v", err)
+	}
+	if len(emissions) != 2 {
+		t.Fatalf("expected per-source emissions preserved, got %+v", emissions)
+	}
+	for i, em := range emissions {
+		if !errors.Is(em.Err, dialErr) {
+			t.Fatalf("emission %d: expected original cause preserved, got %v", i, em.Err)
+		}
 	}
 }

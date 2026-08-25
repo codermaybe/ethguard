@@ -124,7 +124,7 @@ func anchorLatestBlock(ctx context.Context, rec observe.Recorder, rpcPool *pool.
 		Hash string `json:"hash"`
 	}
 	if err := json.Unmarshal(decision.Value, &head); err != nil || len(head.Hash) < 3 {
-		return "", fmt.Errorf("anchor: winning block carries no hash")
+		return "", fmt.Errorf("%w: anchor: winning block carries no hash", rpc.ErrMalformedResponse)
 	}
 	return head.Hash, nil
 }

@@ -23,7 +23,7 @@ func CallInto[T any](ctx context.Context, c *Client, method string, params ...an
 	}
 	var out T
 	if err := json.Unmarshal(decision.Value, &out); err != nil {
-		return nil, decision, fmt.Errorf("ethguard: decode %s: %w", method, err)
+		return nil, decision, fmt.Errorf("%w: decode %s: %w", rpc.ErrMalformedResponse, method, err)
 	}
 	return &out, decision, nil
 }

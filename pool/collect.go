@@ -59,6 +59,9 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 	if err != nil {
 		return nil, err
 	}
+	if len(sources) == 0 {
+		return nil, ErrNoEligibleSource
+	}
 	maxConcurrent := opts.MaxConcurrent
 	if maxConcurrent <= 0 || maxConcurrent > len(sources) {
 		maxConcurrent = len(sources)
@@ -118,7 +121,7 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 			return emissions, nil
 		}
 	}
-	return emissions, errors.New("pool: no source produced a response")
+	return emissions, ErrAllSourcesDown
 }
 
 func shouldRecordFailure(parent context.Context, err error) bool {

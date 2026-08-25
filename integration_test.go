@@ -209,6 +209,68 @@ func TestClientNormalizesBlockResponsesAcrossSources(t *testing.T) {
 	}
 }
 
+func TestClientClassifiesFailuresThroughPublicSentinels(t *testing.T) {
+	t.Run("dissent is conflict", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 0, 3)
+		nodes[2].Return("eth_chainId", "0x2")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+			t.Fatalf("expected ErrConflict, got %v", err)
+		}
+	})
+
+	t.Run("fleet of unusable payloads is no valid response", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 1, 3)
+		for _, node := range nodes {
+			node.Return("eth_getBlockByNumber", "not-a-block")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		decision, err := client.Call(ctx, methods.MethodGetBlockByNumber, "0x10", false)
+		if !errors.Is(err, ethguard.ErrNoValidResponse) {
+			t.Fatalf("expected ErrNoValidResponse, got %v", err)
+		}
+		if len(decision.Faults) == 0 {
+			t.Fatal("expected per-source normalize faults on decision")
+		}
+	})
+
+	t.Run("typed decode miss is malformed response", func(t *testing.T) {
+		client, _ := fleet(t, 1, 1, 2)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, _, err := ethguard.CallInto[struct{ X int }](ctx, client, methods.MethodChainID)
+		if !errors.Is(err, ethguard.ErrMalformedResponse) {
+			t.Fatalf("expected ErrMalformedResponse, got %v", err)
+		}
+	})
+
+	t.Run("poisoned identity rides on faults", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 1, 3)
+		nodes[1].Return("eth_chainId", "0x5")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, decision, err := client.ChainID(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		poisoned := false
+		for _, fault := range decision.Faults {
+			if errors.Is(fault, ethguard.ErrChainIDMismatch) {
+				poisoned = true
+			}
+		}
+		if !poisoned {
+			t.Fatalf("expected chain-ID mismatch on faults, got %+v", decision.Faults)
+		}
+	})
+}
+
 func TestClientEmitsOneDecisionEventToLogger(t *testing.T) {
 	nodes := make([]*rpctest.Node, 0, 3)
 	cfg := config.Config{ChainID: 1}
