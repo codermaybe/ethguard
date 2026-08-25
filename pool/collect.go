@@ -21,9 +21,13 @@ type Emission struct {
 	// Err reports this source's transport/JSON-RPC-level failure or timeout.
 	// A non-nil Err means this source did not contribute a value.
 	Err error
-	// RTT is the round-trip time of the attempted call. Zero means the call
-	// never started (the fan-out expired while waiting for a slot).
+	// RTT is the round-trip time of the attempted call; zero when the call
+	// never started or failed before reaching the wire.
 	RTT time.Duration
+	// Attempted reports whether the call was actually issued to this source.
+	// False means the fan-out expired while this source waited for a slot;
+	// such an emission carries no observation and must not count as one.
+	Attempted bool
 }
 
 // CollectOptions configures one fan-out. Zero value is a sensible default.
@@ -105,7 +109,7 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 				}
 			}
 
-			emissions[i] = Emission{Src: src, Val: val, Err: err, RTT: rtt}
+			emissions[i] = Emission{Src: src, Val: val, Err: err, RTT: rtt, Attempted: attempted}
 		}(i, src)
 	}
 	wg.Wait()

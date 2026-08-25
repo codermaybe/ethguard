@@ -1,11 +1,8 @@
 package ethguard
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"ethguard/aggregator"
 	"ethguard/config"
@@ -15,10 +12,6 @@ import (
 	"ethguard/rpc/methods"
 )
 
-// anchorMethod labels observability events for anchored reads establishing
-// their block reference. A fixed literal keeps label cardinality bounded.
-const anchorMethod = "anchor"
-
 // Client is the single entry point for application code.
 // Multiple goroutines may use one Client concurrently; connections are owned
 // and reused by the internal RPC management pool.
@@ -26,7 +19,6 @@ type Client struct {
 	pool       *pool.Pool
 	aggregator *aggregator.Aggregator
 	policies   rpc.Registry
-	rec        observe.Recorder
 }
 
 // Option tunes a Client at construction time.
@@ -35,6 +27,7 @@ type Option func(*clientOptions)
 type clientOptions struct {
 	logger   *slog.Logger
 	recorder observe.Recorder
+	anchor   AnchorResolver
 }
 
 // WithLogger injects a structured logger receiving one event per aggregate
@@ -45,9 +38,18 @@ func WithLogger(l *slog.Logger) Option {
 }
 
 // WithRecorder injects a custom observability sink, such as the collector
-// from ethguard/observe/prometheus.
+// from ethguard/observe/prometheus. It wins over WithLogger.
 func WithRecorder(r observe.Recorder) Option {
 	return func(o *clientOptions) { o.recorder = r }
+}
+
+// WithAnchorResolver replaces the strategy establishing verified block
+// references behind moving-tag reads (see AnchorResolver). The default is
+// strict consensus on the latest head; alternatives such as finalized-tag
+// selection or TTL-cached references plug in here without touching call
+// orchestration.
+func WithAnchorResolver(r AnchorResolver) Option {
+	return func(o *clientOptions) { o.anchor = r }
 }
 
 // New builds a Client from an already-loaded configuration.
@@ -76,57 +78,21 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		}
 	}
 
-	// Anchored policies resolve their block reference through the same pool,
-	// before the registry exists — hence the closure over the pool only.
-	anchor := func(ctx context.Context) (string, error) {
-		return anchorLatestBlock(ctx, rec, rpcPool)
+	resolver := co.anchor
+	if resolver == nil {
+		resolver = NewStrictHeadAnchor(rpcPool, rec)
 	}
-
 	policies := rpc.Registry{
 		methods.MethodChainID:          methods.ChainIDPolicy(),
 		methods.MethodGetBlockByHash:   methods.BlockByHashPolicy(),
 		methods.MethodGetBlockByNumber: methods.BlockByNumberPolicy(),
-		methods.MethodGetBalance:       methods.GetBalancePolicy(anchor),
+		methods.MethodGetBalance:       methods.GetBalancePolicy(resolver.AnchorBlockHash),
 	}
 	return &Client{
 		pool:       rpcPool,
 		aggregator: aggregator.New(rpcPool, policies, aggregator.WithRecorder(rec)),
 		policies:   policies,
-		rec:        rec,
 	}, nil
-}
-
-// anchorLatestBlock establishes the anchor for moving-tag reads: fan out a
-// latest-block query and accept it only under strict cross-source agreement.
-// The block head policy is itself unanchored, so this cannot recurse. If
-// sources sit on different heads the call fails with conflict evidence rather
-// than guessing which head is right; conservative selection over divergent
-// heads (common ancestor, lowest safe/finalized) is deliberately future work.
-func anchorLatestBlock(ctx context.Context, rec observe.Recorder, rpcPool *pool.Pool) (string, error) {
-	started := time.Now()
-	emissions, collectErr := rpcPool.Collect(ctx,
-		methods.MethodGetBlockByNumber, []any{"latest", false}, pool.CollectOptions{})
-	if collectErr != nil {
-		rec.RecordDecision(observe.BuildDecision(started, anchorMethod, rpc.Decision{}, collectErr, emissions))
-		return "", fmt.Errorf("anchor: collect: %w", collectErr)
-	}
-	observations := make([]rpc.Observation, len(emissions))
-	for i, emission := range emissions {
-		observations[i] = rpc.Observation{Source: emission.Src, Value: emission.Val, Err: emission.Err}
-	}
-	headPolicy := methods.BlockByNumberPolicy()
-	decision, err := headPolicy.Resolve(observations)
-	rec.RecordDecision(observe.BuildDecision(started, anchorMethod, decision, err, emissions))
-	if err != nil {
-		return "", fmt.Errorf("anchor: %w", err)
-	}
-	var head struct {
-		Hash string `json:"hash"`
-	}
-	if err := json.Unmarshal(decision.Value, &head); err != nil || len(head.Hash) < 3 {
-		return "", fmt.Errorf("%w: anchor: winning block carries no hash", rpc.ErrMalformedResponse)
-	}
-	return head.Hash, nil
 }
 
 // Pool exposes the underlying multi-source manager for advanced use.

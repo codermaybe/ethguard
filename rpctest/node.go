@@ -7,6 +7,7 @@
 package rpctest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,10 @@ import (
 type Call struct {
 	Method string
 	Params []json.RawMessage
+	// Context is the request's server-side context. It is canceled when the
+	// caller gives up (deadline, cancellation, connection loss), so scripted
+	// handlers can abandon stalled answers instead of blocking Node.Close.
+	Context context.Context
 }
 
 // Handler returns the result for one call. A non-nil error is delivered to the
@@ -94,9 +99,17 @@ func (n *Node) Fail(method string, code int, message string) {
 }
 
 // Hang scripts one method to delay before answering, simulating a stalled
-// provider. Callers bound by context deadline observe a timeout.
+// provider. Callers bound by context deadline observe a timeout; the handler
+// abandons the answer as soon as the caller's request goes away.
 func (n *Node) Hang(method string, delay time.Duration) {
-	n.Handle(method, After(delay, Value(nil)))
+	n.Handle(method, func(c Call) (any, error) {
+		select {
+		case <-time.After(delay):
+			return nil, nil
+		case <-c.Context.Done():
+			return nil, c.Context.Err()
+		}
+	})
 }
 
 // Calls returns a snapshot of every request the node has received.
@@ -118,7 +131,7 @@ func (n *Node) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("rpctest: bad request: %v", err), http.StatusBadRequest)
 		return
 	}
-	call := Call{Method: req.Method, Params: req.Params}
+	call := Call{Method: req.Method, Params: req.Params, Context: r.Context()}
 
 	n.mu.Lock()
 	n.calls = append(n.calls, call)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +25,8 @@ import (
 // fleet spins up count fake nodes answering eth_chainId with nodeChainID by
 // default, wires them into one client through the public configuration path,
 // and configures the pool to enforce poolChainID (zero disables the check).
-func fleet(t *testing.T, nodeChainID, poolChainID uint64, count int) (*ethguard.Client, []*rpctest.Node) {
+// Extra opts tune the client like any other construction.
+func fleet(t *testing.T, nodeChainID, poolChainID uint64, count int, opts ...ethguard.Option) (*ethguard.Client, []*rpctest.Node) {
 	t.Helper()
 	nodes := make([]*rpctest.Node, 0, count)
 	cfg := config.Config{ChainID: poolChainID}
@@ -37,12 +39,28 @@ func fleet(t *testing.T, nodeChainID, poolChainID uint64, count int) (*ethguard.
 			Endpoint: node.URL(),
 		})
 	}
-	client, err := ethguard.New(cfg)
+	client, err := ethguard.New(cfg, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(client.Close)
 	return client, nodes
+}
+
+// agreeOnHead scripts every node into one common block head, with balances
+// that agree only at the pinned hash and diverge for any moving tag.
+func agreeOnHead(nodes []*rpctest.Node) {
+	head := map[string]any{"number": "0x10", "hash": "0xabc"}
+	for i, node := range nodes {
+		node.Return("eth_getBlockByNumber", head)
+		node.Handle("eth_getBalance", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == "0xabc" {
+				return "0x64", nil // agreed balance at the anchored block
+			}
+			return fmt.Sprintf("0x%x", 100+i), nil // divergent answers for a moving tag
+		})
+	}
 }
 
 func TestClientVerifiesChainIDAcrossSources(t *testing.T) {
@@ -122,21 +140,9 @@ func TestClientQuarantinesPoisonedChainIdentity(t *testing.T) {
 
 func TestClientAnchorsBalanceReadsAcrossDivergentHeads(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
-	// All providers agree on one head for anchoring purposes.
-	head := map[string]any{"number": "0x10", "hash": "0xabc"}
-	// ...but when asked for a moving tag they each report a different balance,
-	// which would be meaningless noise without the anchor. Asked for the
-	// pinned hash, they agree.
-	for i, node := range nodes {
-		node.Return("eth_getBlockByNumber", head)
-		node.Handle("eth_getBalance", func(c rpctest.Call) (any, error) {
-			var tag string
-			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == "0xabc" {
-				return "0x64", nil // agreed balance at the anchored block
-			}
-			return fmt.Sprintf("0x%x", 100+i), nil // divergent answers for a moving tag
-		})
-	}
+	// All providers agree on one head for anchoring purposes, but report
+	// different balances for a moving tag — noise without the anchor.
+	agreeOnHead(nodes)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -182,8 +188,11 @@ func TestClientFailsWhenHeadsDivergeForAnchoring(t *testing.T) {
 	defer cancel()
 
 	_, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
-	if err == nil || !strings.Contains(err.Error(), "anchor") {
+	if !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("expected anchor failure on divergent heads, got %v", err)
+	}
+	if got := strings.Count(err.Error(), "anchor:"); got != 1 {
+		t.Fatalf("expected exactly one anchor prefix, got %d in %q", got, err)
 	}
 }
 
@@ -272,24 +281,9 @@ func TestClientClassifiesFailuresThroughPublicSentinels(t *testing.T) {
 }
 
 func TestClientEmitsOneDecisionEventToLogger(t *testing.T) {
-	nodes := make([]*rpctest.Node, 0, 3)
-	cfg := config.Config{ChainID: 1}
-	for i := range 3 {
-		node := rpctest.NewNode(1)
-		t.Cleanup(node.Close)
-		nodes = append(nodes, node)
-		cfg.Upstreams = append(cfg.Upstreams, config.Upstream{
-			ID:       fmt.Sprintf("node-%c", 'a'+i),
-			Endpoint: node.URL(),
-		})
-	}
 	var buf bytes.Buffer
-	client, err := ethguard.New(cfg, ethguard.WithLogger(slog.New(
+	client, _ := fleet(t, 1, 1, 3, ethguard.WithLogger(slog.New(
 		slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -304,6 +298,33 @@ func TestClientEmitsOneDecisionEventToLogger(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in event:\n%s", want, out)
 		}
+	}
+}
+
+// TestRecorderWinsOverLogger pins the documented priority: when both sinks
+// are wired, the recorder receives the events and the logger stays silent.
+func TestRecorderWinsOverLogger(t *testing.T) {
+	pm := dprom.New()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	client, _ := fleet(t, 1, 1, 3,
+		ethguard.WithLogger(logger), ethguard.WithRecorder(pm))
+	reg := promclient.NewRegistry()
+	if err := reg.Register(pm); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, _, err := client.ChainID(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); out != "" {
+		t.Fatalf("logger must stay silent when a recorder is wired, got:\n%s", out)
+	}
+	if got := sampleValue(t, reg, "ethguard_decisions_total",
+		map[string]string{"method": "eth_chainId", "status": "verified"}); got != 1 {
+		t.Fatalf("recorder should have received the event, decisions_total = %v", got)
 	}
 }
 
@@ -346,23 +367,8 @@ func sampleValue(t *testing.T, reg *promclient.Registry, name string, want map[s
 
 func TestClientExposesDecisionsThroughPrometheus(t *testing.T) {
 	pm := dprom.New()
-
-	nodes := make([]*rpctest.Node, 0, 3)
-	cfg := config.Config{ChainID: 0} // identity check off so dissent reaches aggregation
-	for i := range 3 {
-		node := rpctest.NewNode(1)
-		t.Cleanup(node.Close)
-		nodes = append(nodes, node)
-		cfg.Upstreams = append(cfg.Upstreams, config.Upstream{
-			ID:       fmt.Sprintf("node-%c", 'a'+i),
-			Endpoint: node.URL(),
-		})
-	}
-	client, err := ethguard.New(cfg, ethguard.WithRecorder(pm))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Close)
+	// Identity check off so dissent reaches aggregation.
+	client, nodes := fleet(t, 1, 0, 3, ethguard.WithRecorder(pm))
 
 	reg := promclient.NewRegistry()
 	if err := reg.Register(pm); err != nil {
@@ -408,5 +414,99 @@ func TestClientExposesDecisionsThroughPrometheus(t *testing.T) {
 	}
 	if rttSeries != 3 {
 		t.Fatalf("expected one rtt series per source, got %d", rttSeries)
+	}
+}
+
+// TestAnchorEventsReportUnderBoundedLabel pins decision 0008: anchor
+// establishment is observable under the fixed "anchor" literal, never under
+// the wire method it fans out with.
+func TestAnchorEventsReportUnderBoundedLabel(t *testing.T) {
+	pm := dprom.New()
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithRecorder(pm))
+	agreeOnHead(nodes)
+	reg := promclient.NewRegistry()
+	if err := reg.Register(pm); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sampleValue(t, reg, "ethguard_decisions_total",
+		map[string]string{"method": "anchor", "status": "verified"}); got != 1 {
+		t.Fatalf("decisions_total{anchor,verified} = %v, want 1", got)
+	}
+
+	nodes[2].Return("eth_getBlockByNumber", map[string]any{"number": "0xf", "hash": "0xdifferent"})
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+	if _, err := client.Call(ctx2, methods.MethodGetBalance, "0xaddr", "latest"); !errors.Is(err, rpc.ErrConflict) {
+		t.Fatalf("expected anchor conflict on divergent heads, got %v", err)
+	}
+	if got := sampleValue(t, reg, "ethguard_decisions_total",
+		map[string]string{"method": "anchor", "status": "failed"}); got != 1 {
+		t.Fatalf("decisions_total{anchor,failed} = %v, want 1", got)
+	}
+	if got := sampleValue(t, reg, "ethguard_conflicts_total",
+		map[string]string{"method": "anchor"}); got != 1 {
+		t.Fatalf("conflicts_total{anchor} = %v, want 1", got)
+	}
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range families {
+		for _, metric := range family.GetMetric() {
+			for _, pair := range metric.GetLabel() {
+				if pair.GetName() == "method" && pair.GetValue() == methods.MethodGetBlockByNumber {
+					t.Fatalf("anchoring leaked onto wire-method label in %s", family.GetName())
+				}
+			}
+		}
+	}
+}
+
+// TestClientHandlesConcurrentCallsUnderSharedRecorder exercises the
+// Recorder contract (safe for concurrent use) and the client's fan-out under
+// -race, mixing plain and anchored reads through one sink.
+func TestClientHandlesConcurrentCallsUnderSharedRecorder(t *testing.T) {
+	pm := dprom.New()
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithRecorder(pm))
+	agreeOnHead(nodes)
+
+	const workers = 6
+	var wg sync.WaitGroup
+	failed := make(chan error, 1)
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for range 5 {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				var err error
+				if i%2 == 0 {
+					_, _, err = client.ChainID(ctx)
+				} else {
+					_, err = client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+				}
+				cancel()
+				if err != nil {
+					select {
+					case failed <- err:
+					default:
+					}
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+	select {
+	case err := <-failed:
+		t.Fatal(err)
+	default:
 	}
 }

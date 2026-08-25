@@ -13,8 +13,9 @@ import (
 // evidence but was rejected (for example by conflict detection) reports
 // status "failed" with Conflict set, never a success class.
 //
-// Emissions whose call never started (zero RTT and no error) are skipped:
-// they were scheduled but not attempted.
+// Emissions whose call never started (Attempted is false) are skipped:
+// they were scheduled but expired waiting for a slot, so they carry no
+// observation.
 func BuildDecision(started time.Time, method string, decision rpc.Decision, resolveErr error, emissions []pool.Emission) DecisionEvent {
 	event := DecisionEvent{
 		Method:   method,
@@ -28,7 +29,7 @@ func BuildDecision(started time.Time, method string, decision rpc.Decision, reso
 		event.Status = decision.Status.String()
 	}
 	for _, emission := range emissions {
-		if emission.RTT == 0 && emission.Err == nil {
+		if !emission.Attempted {
 			continue
 		}
 		event.Attempts = append(event.Attempts, SourceEvent{

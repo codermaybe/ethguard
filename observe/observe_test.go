@@ -30,9 +30,9 @@ func testSources(t *testing.T, names ...string) []*pool.Source {
 func TestBuildDecisionReportsVerifiedWithAttempts(t *testing.T) {
 	sources := testSources(t, "alpha", "beta", "gamma")
 	emissions := []pool.Emission{
-		{Src: sources[0], Val: []byte(`"0x1"`), RTT: 10 * time.Millisecond},
-		{Src: sources[1], Val: []byte(`"0x1"`), RTT: 20 * time.Millisecond},
-		{Src: sources[2], Err: fmt.Errorf("timeout"), RTT: 30 * time.Millisecond},
+		{Src: sources[0], Val: []byte(`"0x1"`), RTT: 10 * time.Millisecond, Attempted: true},
+		{Src: sources[1], Val: []byte(`"0x1"`), RTT: 20 * time.Millisecond, Attempted: true},
+		{Src: sources[2], Err: fmt.Errorf("timeout"), RTT: 30 * time.Millisecond, Attempted: true},
 		{Src: sources[0]}, // never attempted: must be skipped
 	}
 	event := BuildDecision(time.Now().Add(-50*time.Millisecond), "eth_chainId",
@@ -60,7 +60,7 @@ func TestBuildDecisionReportsVerifiedWithAttempts(t *testing.T) {
 
 func TestBuildDecisionMarksConflictAsFailed(t *testing.T) {
 	sources := testSources(t, "alpha")
-	emissions := []pool.Emission{{Src: sources[0], Val: []byte(`"0x2"`), RTT: time.Millisecond}}
+	emissions := []pool.Emission{{Src: sources[0], Val: []byte(`"0x2"`), RTT: time.Millisecond, Attempted: true}}
 	err := fmt.Errorf("strict: %w", rpc.ErrConflict)
 	event := BuildDecision(time.Now(), "eth_chainId", rpc.Decision{Status: rpc.Verified}, err, emissions)
 	if event.Status != "failed" || !event.Conflict {
