@@ -34,16 +34,37 @@ func TestTipSamplingRecordsHeights(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// Warm the sources: probes observe established connections only, so
+	// first contact stays caller-driven.
+	if _, err := p.Collect(ctx, "eth_blockNumber", nil, CollectOptions{}); err != nil {
+		t.Fatal(err)
+	}
 	p.RefreshTips(ctx)
 
 	for i, src := range sources {
 		height, ok := src.tipHeight()
-		if !ok || height != uint64(101+i) {
-			t.Fatalf("source %d: expected sampled height %d, got %d (ok=%v)", i, 101+i, height, ok)
+		if !ok || height != uint64(102+i) {
+			t.Fatalf("source %d: expected sampled height %d, got %d (ok=%v)", i, 102+i, height, ok)
 		}
-		if got := src.Health().TipHeight; got != uint64(101+i) {
+		if got := src.Health().TipHeight; got != uint64(102+i) {
 			t.Fatalf("source %d: snapshot tip = %d", i, got)
 		}
+	}
+}
+
+// TestProbeNeverDialsColdSources locks in the lazy-dialing boundary: tip
+// probes observe established connections, they do not create them.
+func TestProbeNeverDialsColdSources(t *testing.T) {
+	d := &newFakeDialer{dials: make(map[string]int)}
+	p := newPoolWithDialerAndOptions(d, 0, WithTipTracking(time.Hour, 32))
+	defer p.Close()
+	if _, err := p.Join("a", "https://a.example"); err != nil {
+		t.Fatal(err)
+	}
+
+	p.RefreshTips(context.Background())
+	if got := d.dials["https://a.example"]; got != 0 {
+		t.Fatalf("a probe dialed a cold source %d time(s)", got)
 	}
 }
 
@@ -63,6 +84,9 @@ func TestFreshnessGateExcludesTrailingSource(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if _, err := p.Collect(ctx, "eth_blockNumber", nil, CollectOptions{}); err != nil {
+		t.Fatal(err)
+	}
 	p.RefreshTips(ctx)
 
 	emissions, err := p.Collect(ctx, "eth_blockNumber", nil, CollectOptions{})
@@ -79,7 +103,7 @@ func TestFreshnessGateExcludesTrailingSource(t *testing.T) {
 	}
 
 	// Recovery: once the source catches up, the next probe readmits it.
-	d.setOffset("https://c.example", 101)
+	d.setOffset("https://c.example", 104)
 	p.RefreshTips(ctx)
 
 	emissions, err = p.Collect(ctx, "eth_blockNumber", nil, CollectOptions{})
@@ -98,6 +122,9 @@ func TestFreshnessGateResistsHeightLies(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if _, err := p.Collect(ctx, "eth_blockNumber", nil, CollectOptions{}); err != nil {
+		t.Fatal(err)
+	}
 	p.RefreshTips(ctx)
 
 	emissions, err := p.Collect(ctx, "eth_blockNumber", nil, CollectOptions{})
@@ -121,5 +148,35 @@ func TestFreshnessGateStaysOffUntilSampled(t *testing.T) {
 	}
 	if len(emissions) != 3 {
 		t.Fatalf("unsampled tips must never gate traffic, got %+v", emissions)
+	}
+}
+
+// TestProbeDetectsRecoveryThroughOpenCircuit proves proactive recovery: a
+// source whose failure circuit is closed to user traffic still receives
+// probes, and one successful probe readmits it immediately.
+func TestProbeDetectsRecoveryThroughOpenCircuit(t *testing.T) {
+	p, _, _ := newTipPool(t, 32, 50, 50, 50)
+	sources := p.Sources()
+	target := sources[0]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// Trip the consecutive-failure circuit on one source.
+	for i := 0; i < eligibleFailureThreshold; i++ {
+		if _, err := p.Collect(ctx, "eth_protocolFailure", nil, CollectOptions{}); err != nil {
+			t.Fatalf("failure %d should ride as faults, got %v", i+1, err)
+		}
+	}
+	if target.eligible(time.Now()) {
+		t.Fatal("expected the circuit to hold the source out of user fan-outs")
+	}
+
+	// The probe ignores cooldowns; its success resets the circuit.
+	p.RefreshTips(ctx)
+	if !target.eligible(time.Now()) {
+		t.Fatal("expected a successful probe to readmit the source")
+	}
+	if got := target.Health().ConsecutiveFailures; got != 0 {
+		t.Fatalf("expected failures reset by probe success, got %d", got)
 	}
 }

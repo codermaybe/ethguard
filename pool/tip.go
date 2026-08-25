@@ -90,7 +90,10 @@ func (p *Pool) tipLoop(every time.Duration) {
 // Health().TipHeight regardless of whether the freshness gate is enabled.
 //
 // The probe bypasses the freshness gate on purpose: a fleet that drifted
-// behind must still be able to refresh its own picture of "behind".
+// behind must still be able to refresh its own picture of "behind". It also
+// ignores cooldown circuits, so recovery is detected proactively within one
+// interval instead of after user traffic happens to retry — but it never
+// dials: sources without an established connection stay lazy.
 func (p *Pool) RefreshTips(ctx context.Context) {
 	p.mu.RLock()
 	interval := p.tipIntervalRef
@@ -102,7 +105,9 @@ func (p *Pool) RefreshTips(ctx context.Context) {
 
 	probeCtx, cancel := context.WithTimeout(ctx, interval)
 	defer cancel()
-	emissions, _ := p.collect(probeCtx, "eth_blockNumber", nil, CollectOptions{}, false)
+	emissions, _ := p.collect(probeCtx, "eth_blockNumber", nil, CollectOptions{}, collectPlan{
+		warmOnly: true,
+	})
 	for _, em := range emissions {
 		if em.Err != nil || !em.Attempted {
 			continue

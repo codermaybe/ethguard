@@ -1,9 +1,20 @@
 package pool
 
 import (
+	"errors"
+	"math"
+	"sort"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/rpc"
 )
+
+// latencyWindow is the number of recent successful RTTs kept for percentile
+// estimates. Count-based rather than time-based: predictable memory, and a
+// quiet source keeps its last known distribution instead of decaying into
+// ignorance.
+const latencyWindow = 128
 
 // monitor holds lightweight health and latency statistics for one Source.
 // All methods are safe for concurrent use.
@@ -14,12 +25,22 @@ type monitor struct {
 	failures  uint64
 	// consecutiveFailures resets on success.
 	consecutiveFailures uint64
+	// rateLimited counts transport failures that were HTTP 429 responses:
+	// the provider is alive but throttling us, which is operationally
+	// different from being broken or unreachable.
+	rateLimited uint64
 
 	// latencyEWMA is a simple exponential moving average of successful RTTs.
 	latencyEWMA time.Duration
 	lastSuccess time.Time
 	lastError   error
 	lastFailure time.Time
+
+	// rtts is a ring of the most recent successful round-trip times, the raw
+	// material for P95/P99 estimates.
+	rtts  [latencyWindow]time.Duration
+	rttN  uint64 // total samples ever pushed
+	rttAt int    // next write index
 
 	// tip is the latest block height observed by the tip sampler;
 	// tipObservedAt is zero until the first sample arrives.
@@ -32,12 +53,15 @@ type HealthSnapshot struct {
 	Successes           uint64
 	Failures            uint64
 	ConsecutiveFailures uint64
+	RateLimited         uint64
 	LatencyEWMA         time.Duration
-	LastSuccess         time.Time
-	LastFailure         time.Time
-	LastError           error
-	// TipHeight is the latest block height observed by the tip sampler;
-	// TipObservedAt is zero when sampling never reached this source.
+	// LatencyP95 and LatencyP99 are nearest-rank percentiles over the recent
+	// sample window; zero while fewer samples than the rank exist.
+	LatencyP95    time.Duration
+	LatencyP99    time.Duration
+	LastSuccess   time.Time
+	LastFailure   time.Time
+	LastError     error
 	TipHeight     uint64
 	TipObservedAt time.Time
 }
@@ -62,6 +86,9 @@ func (m *monitor) observeSuccess(rtt time.Duration) {
 		// alpha ≈ 0.2
 		m.latencyEWMA = (m.latencyEWMA*4 + rtt) / 5
 	}
+	m.rtts[m.rttAt] = rtt
+	m.rttAt = (m.rttAt + 1) % latencyWindow
+	m.rttN++
 }
 
 func (m *monitor) observeFailure(err error) {
@@ -70,6 +97,10 @@ func (m *monitor) observeFailure(err error) {
 
 	m.failures++
 	m.consecutiveFailures++
+	var httpErr rpc.HTTPError
+	if errors.As(err, &httpErr) && httpErr.StatusCode == 429 {
+		m.rateLimited++
+	}
 	m.lastFailure = time.Now()
 	m.lastError = err
 }
@@ -98,10 +129,11 @@ func (m *monitor) snapshot() HealthSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return HealthSnapshot{
+	snap := HealthSnapshot{
 		Successes:           m.successes,
 		Failures:            m.failures,
 		ConsecutiveFailures: m.consecutiveFailures,
+		RateLimited:         m.rateLimited,
 		LatencyEWMA:         m.latencyEWMA,
 		LastSuccess:         m.lastSuccess,
 		LastFailure:         m.lastFailure,
@@ -109,4 +141,36 @@ func (m *monitor) snapshot() HealthSnapshot {
 		TipHeight:           m.tipHeight,
 		TipObservedAt:       m.tipObservedAt,
 	}
+	p95, p99 := m.percentilesLocked()
+	snap.LatencyP95, snap.LatencyP99 = p95, p99
+	return snap
+}
+
+// percentilesLocked computes nearest-rank P95/P99 over the live window.
+// Caller holds m.mu.
+func (m *monitor) percentilesLocked() (time.Duration, time.Duration) {
+	n := int(m.rttN)
+	if n > latencyWindow {
+		n = latencyWindow
+	}
+	if n == 0 {
+		return 0, 0
+	}
+	samples := make([]time.Duration, n)
+	copy(samples, m.rtts[:])
+	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+	return samples[nearestRank(0.95, n)-1], samples[nearestRank(0.99, n)-1]
+}
+
+// nearestRank returns the 1-based rank of the p-quantile (0<p<=1) over n
+// sorted samples.
+func nearestRank(p float64, n int) int {
+	rank := int(math.Ceil(p * float64(n)))
+	if rank < 1 {
+		rank = 1
+	}
+	if rank > n {
+		rank = n
+	}
+	return rank
 }

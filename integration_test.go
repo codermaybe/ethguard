@@ -621,8 +621,11 @@ func TestTipTrackingQuarantinesLaggingSource(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Probe once so tips exist; the probe itself performs each source's
-	// one-time chain-ID identity check, so gate assertions start after it.
+	// First contact warms every source (probes never dial); one plain read
+	// also proves the gate stays off until tips exist.
+	if _, _, err := client.ChainID(ctx); err != nil {
+		t.Fatal(err)
+	}
 	client.Pool().RefreshTips(ctx)
 	seenByLaggard := len(nodes[2].Calls())
 

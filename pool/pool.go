@@ -128,20 +128,26 @@ func (p *Pool) Sources() []*Source {
 	return out
 }
 
-func (p *Pool) sourcesForCollect(applyFreshness bool) ([]*Source, error) {
+func (p *Pool) sourcesForCollect(plan collectPlan) ([]*Source, error) {
 	sources, err := p.snapshotSources(true)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
 	var floor uint64
-	if applyFreshness {
+	if plan.applyFreshness {
 		floor = p.staleFloor(sources)
 	}
 	eligible := sources[:0]
 	for _, src := range sources {
-		if !src.eligible(now) {
-			continue
+		if plan.warmOnly {
+			// Probe path: observe established connections only, ignoring
+			// cooldown circuits so recovery is detected proactively.
+			if !src.hasClient() || src.isIdentityInvalid() {
+				continue
+			}
+		} else if !src.eligible(now) {
+			continue // user path: identity, circuit, closed gates
 		}
 		if floor > 0 {
 			if tip, ok := src.tipHeight(); ok && tip < floor {

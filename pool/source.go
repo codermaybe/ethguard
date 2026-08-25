@@ -195,6 +195,21 @@ func (s *Source) recordFailedCall(err error) {
 	s.state = SourceDown
 }
 
+// hasClient reports whether an established connection exists, without
+// dialing. Tip probes use it to keep first contact caller-driven.
+func (s *Source) hasClient() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return !s.closed && s.client != nil
+}
+
+// isIdentityInvalid reports whether the source failed its chain-ID check.
+func (s *Source) isIdentityInvalid() bool {
+	s.identityMu.Lock()
+	defer s.identityMu.Unlock()
+	return s.identityInvalid
+}
+
 // recordTip stores one block-height sample from the tip sampler.
 func (s *Source) recordTip(height uint64) {
 	s.mu.Lock()
