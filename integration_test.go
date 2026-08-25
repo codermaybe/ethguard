@@ -47,18 +47,43 @@ func fleet(t *testing.T, nodeChainID, poolChainID uint64, count int, opts ...eth
 	return client, nodes
 }
 
-// agreeOnHead scripts every node into one common block head, with balances
-// that agree only at the pinned hash and diverge for any moving tag.
-func agreeOnHead(nodes []*rpctest.Node) {
-	head := map[string]any{"number": "0x10", "hash": "0xabc"}
+// balancePinnedAt scripts every node to answer balances that agree only at
+// the given hash and diverge for any other reference (including moving tags).
+func balancePinnedAt(nodes []*rpctest.Node, hash string) {
 	for i, node := range nodes {
-		node.Return("eth_getBlockByNumber", head)
 		node.Handle("eth_getBalance", func(c rpctest.Call) (any, error) {
 			var tag string
-			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == "0xabc" {
+			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == hash {
 				return "0x64", nil // agreed balance at the anchored block
 			}
-			return fmt.Sprintf("0x%x", 100+i), nil // divergent answers for a moving tag
+			return fmt.Sprintf("0x%x", 100+i), nil // divergent answers elsewhere
+		})
+	}
+}
+
+// agreeOnHead scripts every node into one common latest-block head, with
+// balances that agree only at the pinned hash.
+func agreeOnHead(nodes []*rpctest.Node) {
+	head := map[string]any{"number": "0x10", "hash": "0xabc"}
+	for _, node := range nodes {
+		node.Return("eth_getBlockByNumber", head)
+	}
+	balancePinnedAt(nodes, "0xabc")
+}
+
+// scriptFinalizedHeads answers the anchor pipeline's finalized-tag query
+// per node (finalized(i)) while the plain latest tag returns latest(i).
+func scriptFinalizedHeads(nodes []*rpctest.Node, latest, finalized func(i int) map[string]any) {
+	for i, node := range nodes {
+		node.Handle("eth_getBlockByNumber", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) > 0 {
+				json.Unmarshal(c.Params[0], &tag)
+			}
+			if tag == "finalized" {
+				return finalized(i), nil
+			}
+			return latest(i), nil
 		})
 	}
 }
@@ -464,6 +489,118 @@ func TestAnchorEventsReportUnderBoundedLabel(t *testing.T) {
 				if pair.GetName() == "method" && pair.GetValue() == methods.MethodGetBlockByNumber {
 					t.Fatalf("anchoring leaked onto wire-method label in %s", family.GetName())
 				}
+			}
+		}
+	}
+}
+
+// TestFinalizedAnchoringToleratesDivergentTips proves the availability gain
+// of conservative selection: sources sitting on different latest heads would
+// fail strict anchoring, yet agree on finalized state, so the read proceeds
+// pinned to the agreed finalized hash.
+func TestFinalizedAnchoringToleratesDivergentTips(t *testing.T) {
+	pm := dprom.New()
+	client, nodes := fleet(t, 1, 1, 3,
+		ethguard.WithRecorder(pm), ethguard.WithFinalizedAnchoring())
+	scriptFinalizedHeads(nodes,
+		func(i int) map[string]any {
+			return map[string]any{"number": fmt.Sprintf("0x%x", 0x65+i), "hash": fmt.Sprintf("0xtip%d", i)}
+		},
+		func(int) map[string]any { return map[string]any{"number": "0x64", "hash": "0xabc"} })
+	balancePinnedAt(nodes, "0xabc")
+	reg := promclient.NewRegistry()
+	if err := reg.Register(pm); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	if err != nil {
+		t.Fatalf("expected divergent tips to anchor at agreed finalized head, got %v", err)
+	}
+	if decision.Status != rpc.Verified || len(decision.Support) != 3 {
+		t.Fatalf("expected anchored read to verify across three sources, got %+v", decision)
+	}
+	if got := sampleValue(t, reg, "ethguard_decisions_total",
+		map[string]string{"method": "anchor", "status": "verified"}); got != 1 {
+		t.Fatalf("decisions_total{anchor,verified} = %v, want 1", got)
+	}
+
+	// The rewrite is on the wire: pinned hash in, no moving tag anywhere.
+	for _, node := range nodes {
+		for _, call := range node.Calls() {
+			if call.Method != methods.MethodGetBalance {
+				continue
+			}
+			var tag string
+			if err := json.Unmarshal(call.Params[1], &tag); err == nil && (tag == "latest" || tag == "safe" || tag == "finalized") {
+				t.Fatalf("node received an unrewritten moving tag %q", tag)
+			}
+		}
+	}
+}
+
+// TestFinalizedAnchoringIsolatesStaleReporter proves the freshness bound:
+// a provider whose finalized view trails far behind is excluded from pinning
+// the reference and surfaces as an anchor fault, without blocking the read.
+func TestFinalizedAnchoringIsolatesStaleReporter(t *testing.T) {
+	pm := dprom.New()
+	client, nodes := fleet(t, 1, 1, 3,
+		ethguard.WithRecorder(pm), ethguard.WithFinalizedAnchoring())
+	scriptFinalizedHeads(nodes,
+		func(int) map[string]any { return map[string]any{"number": "0x66", "hash": "0xtip"} },
+		func(i int) map[string]any {
+			if i == 2 {
+				return map[string]any{"number": "0x2", "hash": "0xstale"} // 100 blocks behind
+			}
+			return map[string]any{"number": "0x66", "hash": "0xabc"}
+		})
+	balancePinnedAt(nodes, "0xabc")
+	reg := promclient.NewRegistry()
+	if err := reg.Register(pm); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sampleValue(t, reg, "ethguard_faults_total",
+		map[string]string{"method": "anchor"}); got != 1 {
+		t.Fatalf("expected the stale reporter as one anchor fault, faults_total = %v", got)
+	}
+}
+
+// TestFinalizedAnchoringRejectsForkAtPinnedHeight proves dissent at the
+// chosen height still fails closed: two hashes claimed for one finalized
+// height are a fork signal, not something to vote over.
+func TestFinalizedAnchoringRejectsForkAtPinnedHeight(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring())
+	scriptFinalizedHeads(nodes,
+		func(int) map[string]any { return map[string]any{"number": "0x66", "hash": "0xtip"} },
+		func(i int) map[string]any {
+			if i < 2 {
+				return map[string]any{"number": "0x64", "hash": "0xaaa"}
+			}
+			return map[string]any{"number": "0x64", "hash": "0xbbb"}
+		})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	if !errors.Is(err, rpc.ErrConflict) {
+		t.Fatalf("expected conflict on finalized fork, got %v", err)
+	}
+	if got := strings.Count(err.Error(), "anchor:"); got != 1 {
+		t.Fatalf("expected exactly one anchor prefix, got %d in %q", got, err)
+	}
+	// Fail-before-fan-out: the balance read must never reach the wire.
+	for i, node := range nodes {
+		for _, call := range node.Calls() {
+			if call.Method == methods.MethodGetBalance {
+				t.Fatalf("node %d received a balance read despite unresolved anchor", i)
 			}
 		}
 	}

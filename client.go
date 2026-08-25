@@ -25,9 +25,10 @@ type Client struct {
 type Option func(*clientOptions)
 
 type clientOptions struct {
-	logger   *slog.Logger
-	recorder observe.Recorder
-	anchor   AnchorResolver
+	logger        *slog.Logger
+	recorder      observe.Recorder
+	anchor        AnchorResolver
+	anchorFactory func(*pool.Pool, observe.Recorder) AnchorResolver
 }
 
 // WithLogger injects a structured logger receiving one event per aggregate
@@ -44,12 +45,23 @@ func WithRecorder(r observe.Recorder) Option {
 }
 
 // WithAnchorResolver replaces the strategy establishing verified block
-// references behind moving-tag reads (see AnchorResolver). The default is
-// strict consensus on the latest head; alternatives such as finalized-tag
-// selection or TTL-cached references plug in here without touching call
-// orchestration.
+// references behind moving-tag reads (see AnchorResolver). It wins over the
+// anchoring presets; the default is strict consensus on the latest head.
 func WithAnchorResolver(r AnchorResolver) Option {
 	return func(o *clientOptions) { o.anchor = r }
+}
+
+// WithFinalizedAnchoring opts into conservative anchor selection: the block
+// reference is pinned at the lowest finalized height that is still fresh
+// across sources (NewFinalizedHeadAnchor), so divergent latest tips no
+// longer fail anchored reads. Options tune the freshness bound and similar
+// knobs.
+func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
+	return func(o *clientOptions) {
+		o.anchorFactory = func(p *pool.Pool, rec observe.Recorder) AnchorResolver {
+			return NewFinalizedHeadAnchor(p, rec, opts...)
+		}
+	}
 }
 
 // New builds a Client from an already-loaded configuration.
@@ -80,7 +92,11 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 
 	resolver := co.anchor
 	if resolver == nil {
-		resolver = NewStrictHeadAnchor(rpcPool, rec)
+		if co.anchorFactory != nil {
+			resolver = co.anchorFactory(rpcPool, rec)
+		} else {
+			resolver = NewStrictHeadAnchor(rpcPool, rec)
+		}
 	}
 	policies := rpc.Registry{
 		methods.MethodChainID:          methods.ChainIDPolicy(),
