@@ -33,7 +33,11 @@ func (c *Client) ChainID(ctx context.Context) (*big.Int, rpc.Decision, error) {
 
 // BlockByHash returns a strictly compared block and the aggregation decision.
 func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*types.Block, rpc.Decision, error) {
-	block, decision, err := CallInto[types.Block](ctx, c, methods.MethodGetBlockByHash, hash.Hex(), fullTx)
+	decision, err := c.Call(ctx, methods.MethodGetBlockByHash, hash.Hex(), fullTx)
+	if err != nil {
+		return nil, decision, err
+	}
+	block, err := DecodeBlock(decision.Value)
 	if err != nil {
 		return nil, decision, err
 	}

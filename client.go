@@ -1,6 +1,8 @@
 package ethguard
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -20,6 +22,7 @@ type Client struct {
 	pool       *pool.Pool
 	aggregator *aggregator.Aggregator
 	policies   rpc.Registry
+	resolver   AnchorResolver
 }
 
 // Option tunes a Client at construction time.
@@ -133,7 +136,22 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		pool:       rpcPool,
 		aggregator: aggregator.New(rpcPool, policies, aggregator.WithRecorder(rec)),
 		policies:   policies,
+		resolver:   resolver,
 	}, nil
+}
+
+// AnchorBlockHash returns the currently verified block reference behind
+// moving-tag reads, establishing it through the configured AnchorResolver
+// strategy if necessary (and consulting its cache when caching is enabled).
+func (c *Client) AnchorBlockHash(ctx context.Context) (string, error) {
+	return c.resolver.AnchorBlockHash(ctx)
+}
+
+// Normalize reduces one raw response through the owning method policy's
+// canonical form — the single owner of value parsing for a verified method.
+// Typed callers use it instead of re-parsing raw JSON.
+func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
+	return c.policies.PolicyFor(method).Normalize(raw)
 }
 
 // Pool exposes the underlying multi-source manager for advanced use.

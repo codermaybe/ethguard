@@ -24,6 +24,7 @@ ethguard/                   # public Client facade
 ├── aggregator/             # semantic quorum, conflicts, and evidence
 ├── rpc/                    # normalized JSON-RPC transport types
 │   └── methods/            # one policy file per verified method + forwarding
+├── ethadapter/             # ethclient-shaped surface over the verified core
 ├── rpctest/                # in-process scriptable Ethereum nodes for tests
 ├── docs/                   # architecture, threat model, and design notes
 └── examples/               # small import demos
