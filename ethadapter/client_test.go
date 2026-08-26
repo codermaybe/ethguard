@@ -195,6 +195,23 @@ func TestAdapterSurfacesMalformedClass(t *testing.T) {
 	}
 }
 
+func TestAdapterSuggestGasPriceTakesMedian(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	nodes[0].Return("eth_gasPrice", "0x3b9aca00") // 1 gwei
+	nodes[1].Return("eth_gasPrice", "0x3b9aca00")
+	nodes[2].Return("eth_gasPrice", "0x77359400") // 2 gwei outlier
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	price, err := client.SuggestGasPrice(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if price.Int64() != 1_000_000_000 {
+		t.Fatalf("expected median 1 gwei, got %v", price)
+	}
+}
+
 // blockHashOf extracts the hash field of a fixture payload.
 func blockHashOf(raw json.RawMessage) string {
 	var obj struct {

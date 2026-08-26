@@ -104,6 +104,13 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 	return block.NumberU64(), nil
 }
 
+// SuggestGasPrice returns the fleet's lower-median gas price — a variable
+// result resolved by robust selection, never claimed verified.
+func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
+	price, _, err := c.eg.GasPrice(ctx)
+	return price, err
+}
+
 // blockAt fetches and strictly compares one block identified explicitly by
 // hash or height — never by a moving tag.
 func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, error) {

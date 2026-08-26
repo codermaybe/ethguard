@@ -719,6 +719,54 @@ func TestAnchorCachingReestablishesAfterTTL(t *testing.T) {
 	}
 }
 
+// TestGasPriceIsSelectedWithOutlierEvidence pins the Variable-group
+// contract end to end: the fleet's lower median wins, unanimous fleets still
+// stay Selected (never Verified), and outliers ride as evidence.
+func TestGasPriceIsSelectedWithOutlierEvidence(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	nodes[0].Return("eth_gasPrice", "0x3b9aca00") // 1 gwei
+	nodes[1].Return("eth_gasPrice", "0x3b9aca00")
+	nodes[2].Return("eth_gasPrice", "0x77359400") // 2 gwei outlier
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	value, decision, err := client.GasPrice(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.Int64() != 1_000_000_000 {
+		t.Fatalf("expected median 1 gwei, got %v", value)
+	}
+	if decision.Status != rpc.Selected || len(decision.Support) != 2 || len(decision.Reject) != 1 {
+		t.Fatalf("expected selected median with outlier evidence, got %+v", decision)
+	}
+}
+
+// TestGasPriceUnanimousStaysSelected proves the honesty ceiling through the
+// public API: unanimity on a moving value must not upgrade the class.
+func TestGasPriceUnanimousStaysSelected(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	for _, node := range nodes {
+		node.Return("eth_gasPrice", "0x3b9aca00")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	value, decision, err := client.GasPrice(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != rpc.Selected {
+		t.Fatalf("unanimous variable result must stay selected, got %v", decision.Status)
+	}
+	if len(decision.Support) != 3 || decision.Reject != nil {
+		t.Fatalf("expected the whole fleet in support, got %+v", decision)
+	}
+	if value.Int64() <= 0 {
+		t.Fatalf("expected a decoded positive gas price, got %v", value)
+	}
+}
+
 // TestClientHandlesConcurrentCallsUnderSharedRecorder exercises the
 // Recorder contract (safe for concurrent use) and the client's fan-out under
 // -race, mixing plain and anchored reads through one sink.

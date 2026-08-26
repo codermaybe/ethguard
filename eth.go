@@ -43,3 +43,21 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool)
 	}
 	return block, decision, nil
 }
+
+// GasPrice returns the fleet's lower-median gas price — a variable result,
+// so the decision is Selected at best, with outliers kept as evidence.
+func (c *Client) GasPrice(ctx context.Context) (*big.Int, rpc.Decision, error) {
+	decision, err := c.Call(ctx, methods.MethodGasPrice)
+	if err != nil {
+		return nil, decision, err
+	}
+	canonical, err := c.Normalize(methods.MethodGasPrice, decision.Value)
+	if err != nil {
+		return nil, decision, fmt.Errorf("ethguard: decode gas price: %w", err)
+	}
+	value, ok := new(big.Int).SetString(canonical, 10)
+	if !ok {
+		return nil, decision, fmt.Errorf("ethguard: invalid gas price %q", canonical)
+	}
+	return value, decision, nil
+}
