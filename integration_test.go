@@ -767,6 +767,56 @@ func TestGasPriceUnanimousStaysSelected(t *testing.T) {
 	}
 }
 
+// TestPeerCountIsUpstreamLocalSelected pins the Local-group contract: each
+// answer describes one provider's own state, so the first healthy source's
+// value stands as Selected — differing answers are not dissent.
+func TestPeerCountIsUpstreamLocalSelected(t *testing.T) {
+	client, nodes := fleet(t, 1, 0, 3)
+	for i, node := range nodes {
+		node.Return("net_peerCount", fmt.Sprintf("0x%x", 5+i))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	count, decision, err := client.PeerCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 5 {
+		t.Fatalf("expected the first source's local count, got %d", count)
+	}
+	if decision.Status != rpc.Selected || len(decision.Support) != 1 || len(decision.Reject) != 0 {
+		t.Fatalf("expected a selected local read naming its one source, got %+v", decision)
+	}
+}
+
+// TestSyncingReportsConsultedSourceState covers both wire shapes of
+// eth_syncing through the typed wrapper.
+func TestSyncingReportsConsultedSourceState(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	for _, node := range nodes {
+		node.Return("eth_syncing", false)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	progress, decision, err := client.Syncing(ctx)
+	if err != nil || progress != nil || decision.Status != rpc.Selected {
+		t.Fatalf("expected synced-fleet nil progress, got %v %+v %v", progress, decision.Status, err)
+	}
+
+	nodes[0].Return("eth_syncing", map[string]any{
+		"startingBlock": "0x0", "currentBlock": "0x64", "highestBlock": "0xc8",
+	})
+	progress, _, err = client.Syncing(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if progress == nil || progress.CurrentBlock != 100 || progress.HighestBlock != 200 {
+		t.Fatalf("expected decoded sync progress, got %+v", progress)
+	}
+}
+
 // TestClientHandlesConcurrentCallsUnderSharedRecorder exercises the
 // Recorder contract (safe for concurrent use) and the client's fan-out under
 // -race, mixing plain and anchored reads through one sink.

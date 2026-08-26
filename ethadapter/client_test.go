@@ -212,6 +212,29 @@ func TestAdapterSuggestGasPriceTakesMedian(t *testing.T) {
 	}
 }
 
+func TestAdapterLocalObservations(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	for i, node := range nodes {
+		node.Return("net_peerCount", "0xa")
+		node.Return("eth_syncing", false)
+		_ = i
+	}
+	nodes[2].Return("eth_syncing", map[string]any{
+		"startingBlock": "0x0", "currentBlock": "0x32", "highestBlock": "0x64",
+	}) // a later source's state must not leak into the consulted answer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	peers, err := client.PeerCount(ctx)
+	if err != nil || peers != 10 {
+		t.Fatalf("expected peer count 10, got %d %v", peers, err)
+	}
+	progress, err := client.SyncProgress(ctx)
+	if err != nil || progress != nil {
+		t.Fatalf("expected nil progress from the first source, got %+v %v", progress, err)
+	}
+}
+
 // blockHashOf extracts the hash field of a fixture payload.
 func blockHashOf(raw json.RawMessage) string {
 	var obj struct {

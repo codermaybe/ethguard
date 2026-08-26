@@ -132,6 +132,8 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		methods.MethodGetBlockByNumber: methods.BlockByNumberPolicy(),
 		methods.MethodGetBalance:       methods.GetBalancePolicy(resolver.AnchorBlockHash),
 		methods.MethodGasPrice:         methods.GasPricePolicy(),
+		methods.MethodPeerCount:        methods.PeerCountPolicy(),
+		methods.MethodSyncing:          methods.SyncingPolicy(),
 	}
 	return &Client{
 		pool:       rpcPool,

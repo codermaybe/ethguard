@@ -24,6 +24,7 @@ import (
 	"context"
 	"math/big"
 
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -109,6 +110,19 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 	price, _, err := c.eg.GasPrice(ctx)
 	return price, err
+}
+
+// PeerCount returns one healthy source's count of its own peers.
+func (c *Client) PeerCount(ctx context.Context) (uint64, error) {
+	count, _, err := c.eg.PeerCount(ctx)
+	return count, err
+}
+
+// SyncProgress reports the consulted source's sync state; nil means it
+// considers itself fully synced.
+func (c *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, error) {
+	progress, _, err := c.eg.Syncing(ctx)
+	return progress, err
 }
 
 // blockAt fetches and strictly compares one block identified explicitly by
