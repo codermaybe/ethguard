@@ -14,4 +14,6 @@
 //	ethguard/aggregator  — prepare → collect → resolve orchestration
 //	ethguard/rpc         — transport model shared across modules
 //	ethguard/rpc/methods — one policy file per verified method
+//	ethguard/ethadapter  — ethclient-shaped surface over the verified subset
+//	ethguard/rpctest     — scriptable in-process Ethereum nodes for tests
 package ethguard

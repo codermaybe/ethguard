@@ -1,21 +1,23 @@
 # Aggregator
 
-This directory is reserved for the deep aggregation module.
-
-Its intended interface accepts a normalized RPC request and a method policy,
-collects responses from eligible upstreams, and returns a classified result
-with evidence.
+The orchestration seam between the upstream pool and per-method policies. It
+accepts a normalized RPC request, looks up its method policy, delegates one
+bounded fan-out to the pool, resolves the emissions through the policy, and
+returns a classified result with evidence.
 
 It owns:
 
-- bounded concurrent collection and cancellation;
-- response grouping and quorum evaluation;
-- `Verified`, `Selected`, `Forwarded`, and `Conflict` outcomes;
-- evidence describing supporting and conflicting upstreams;
-- high-confidence feedback to the upstream pool.
+- the prepare → collect → resolve pipeline (`Aggregator.Aggregate`);
+- faults attached to decisions (`Decision.Faults`), keeping partial
+  fan-outs diagnosable;
+- exactly one observability event per aggregate decision (decision 0008).
 
-It does not own Ethereum method semantics, connection lifecycle, telemetry
-storage, gas optimization, nonce management, signing, or transaction retries.
+It does not own Ethereum method semantics (those live in `rpc/methods`
+policies), connection lifecycle or concurrency bounds (`pool.Collect`),
+telemetry storage, gas optimization, nonce management, signing, or
+transaction retries.
 
-The initial implementation exposes `Aggregator.Aggregate` and starts with
-strict chain-ID agreement plus transparent forwarding for unknown methods.
+Resolution semantics — strict consensus, quorum options, anchoring,
+median and local selection, and transparent forwarding that never claims
+`Verified` — are implemented by the strategies in the parent `rpc` package
+and selected per method; see `docs/decisions.md` 0006–0013.
