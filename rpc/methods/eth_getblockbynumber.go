@@ -3,6 +3,7 @@ package methods
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"ethguard/rpc"
 )
@@ -14,11 +15,11 @@ const MethodGetBlockByNumber = "eth_getBlockByNumber"
 // BlockByNumberPolicy verifies eth_getBlockByNumber by full agreement on the
 // block head: number and hash must match across sources, hexadecimal casing
 // and key order aside. It also serves as the anchor policy for pinned reads.
-func BlockByNumberPolicy() rpc.Policy { return rpc.Strict(NormalizeBlockHead) }
+func BlockByNumberPolicy() rpc.Policy { return rpc.Strict(normalizeBlockHead) }
 
-// NormalizeBlockHead reduces a block object to its comparable identity:
-// "<number>|<hash>" with both lowercased.
-func NormalizeBlockHead(value json.RawMessage) (string, error) {
+// normalizeBlockHead reduces a block object to its comparable identity:
+// "<number>|<hash>", both lowercased.
+func normalizeBlockHead(value json.RawMessage) (string, error) {
 	var head struct {
 		Number string `json:"number"`
 		Hash   string `json:"hash"`
@@ -29,15 +30,5 @@ func NormalizeBlockHead(value json.RawMessage) (string, error) {
 	if head.Number == "" || len(head.Hash) < 3 {
 		return "", fmt.Errorf("block head: missing number or hash")
 	}
-	return lower(head.Number) + "|" + lower(head.Hash), nil
-}
-
-func lower(s string) string {
-	out := []byte(s)
-	for i := range out {
-		if 'A' <= out[i] && out[i] <= 'Z' {
-			out[i] += 'a' - 'A'
-		}
-	}
-	return string(out)
+	return strings.ToLower(head.Number) + "|" + strings.ToLower(head.Hash), nil
 }

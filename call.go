@@ -7,6 +7,7 @@ import (
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"ethguard/rpc"
@@ -76,6 +77,96 @@ func DecodeBlock(raw json.RawMessage) (*types.Block, error) {
 			rpc.ErrMalformedResponse, body.Hash, head.Hash())
 	}
 	return types.NewBlockWithHeader(head).WithBody(types.Body{Transactions: txs}), nil
+}
+
+// DecodeReceipt shapes one verified eth_getTransactionReceipt response into
+// a receipt value. go-ethereum's generated Receipt unmarshaller owns the
+// wire schema, so a unanimous payload missing one of its required fields
+// (cumulativeGasUsed, logsBloom, logs, transactionHash, gasUsed) dies here
+// as malformed instead of silently zero-valuing — the malformed-but-unanimous
+// class of decision 0011. As with DecodeBlock's wire-hash check, a free
+// integrity check rides along once sources agree: logsBloom is derived from
+// the receipt's logs by consensus rule, so a payload whose bloom contradicts
+// its own logs cannot be honest, however unanimous the fleet.
+func DecodeReceipt(raw json.RawMessage) (*types.Receipt, error) {
+	var receipt *types.Receipt
+	if err := json.Unmarshal(raw, &receipt); err != nil {
+		return nil, wrapMalformed("decode receipt", err)
+	}
+	if receipt == nil { // upstream "no receipt for this transaction"
+		return nil, ethereum.NotFound
+	}
+	if err := validateReceipt(receipt); err != nil {
+		return nil, err
+	}
+	return receipt, nil
+}
+
+// validateReceipt holds the integrity checks every decoded receipt must
+// pass, shared by the single-receipt and block-receipts decode paths: the
+// bloom is derived from a receipt's logs by consensus rule, so a payload
+// whose bloom contradicts its own logs cannot be honest.
+func validateReceipt(receipt *types.Receipt) error {
+	if receipt.Bloom != types.CreateBloom(receipt) {
+		return wrapMalformed("logsBloom disagrees with the receipt's logs", nil)
+	}
+	return nil
+}
+
+// DecodeReceipts shapes one verified eth_getBlockReceipts response into
+// receipts. JSON null means the block is unknown to the fleet and maps to
+// ethereum.NotFound; an empty array is a real answer for an empty block.
+// Every element passes the single-receipt integrity checks.
+func DecodeReceipts(raw json.RawMessage) ([]*types.Receipt, error) {
+	var receipts []*types.Receipt
+	if err := json.Unmarshal(raw, &receipts); err != nil {
+		return nil, wrapMalformed("decode receipts", err)
+	}
+	if receipts == nil { // upstream "block not found"
+		return nil, ethereum.NotFound
+	}
+	for i, receipt := range receipts {
+		if receipt == nil {
+			return nil, wrapMalformed(fmt.Sprintf("decode receipt %d: null element", i), nil)
+		}
+		if err := validateReceipt(receipt); err != nil {
+			return nil, err
+		}
+	}
+	return receipts, nil
+}
+
+// DecodeTransaction shapes one verified eth_getTransactionByHash response
+// into a transaction, reporting whether the fleet saw it as still pending
+// (no block number on the wire). go-ethereum's generated Transaction
+// unmarshaller owns the wire schema. Two integrity checks ride along once
+// sources agree: the wire hash must equal the hash recomputed from the
+// decoded signature (the transaction-side analogue of DecodeBlock's wire
+// hash check), and an unsigned payload is rejected — honest sources only
+// hold signed transactions.
+func DecodeTransaction(raw json.RawMessage) (*types.Transaction, bool, error) {
+	var tx *types.Transaction
+	if err := json.Unmarshal(raw, &tx); err != nil {
+		return nil, false, wrapMalformed("decode transaction", err)
+	}
+	if tx == nil { // upstream "no such transaction"
+		return nil, false, ethereum.NotFound
+	}
+	var wire struct {
+		Hash        *common.Hash `json:"hash"`
+		BlockNumber *hexutil.Big `json:"blockNumber"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return nil, false, wrapMalformed("decode transaction context", err)
+	}
+	if _, r, _ := tx.RawSignatureValues(); r == nil {
+		return nil, false, wrapMalformed("transaction without signature", nil)
+	}
+	if wire.Hash != nil && *wire.Hash != tx.Hash() {
+		return nil, false, wrapMalformed(fmt.Sprintf("wire hash %s disagrees with computed transaction hash %s",
+			wire.Hash, tx.Hash()), nil)
+	}
+	return tx, wire.BlockNumber == nil, nil
 }
 
 // wrapMalformed keeps every block-decode failure inside the malformed

@@ -127,13 +127,22 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		resolver = NewCachedAnchor(resolver, co.anchorCache)
 	}
 	policies := rpc.Registry{
-		methods.MethodChainID:          methods.ChainIDPolicy(),
-		methods.MethodGetBlockByHash:   methods.BlockByHashPolicy(),
-		methods.MethodGetBlockByNumber: methods.BlockByNumberPolicy(),
-		methods.MethodGetBalance:       methods.GetBalancePolicy(resolver.AnchorBlockHash),
-		methods.MethodGasPrice:         methods.GasPricePolicy(),
-		methods.MethodPeerCount:        methods.PeerCountPolicy(),
-		methods.MethodSyncing:          methods.SyncingPolicy(),
+		methods.MethodChainID:               methods.ChainIDPolicy(),
+		methods.MethodGetBlockByHash:        methods.BlockByHashPolicy(),
+		methods.MethodGetBlockByNumber:      methods.BlockByNumberPolicy(),
+		methods.MethodGetBalance:            methods.GetBalancePolicy(resolver.AnchorBlockHash),
+		methods.MethodGetTransactionReceipt: methods.TransactionReceiptPolicy(),
+		methods.MethodGetTransactionByHash:  methods.TransactionByHashPolicy(),
+		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(resolver.AnchorBlockHash),
+		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(resolver.AnchorBlockHash),
+		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(resolver.AnchorBlockHash),
+		methods.MethodGetCode:               methods.GetCodePolicy(resolver.AnchorBlockHash),
+		methods.MethodGasPrice:              methods.GasPricePolicy(),
+		methods.MethodMaxPriorityFeePerGas:  methods.MaxPriorityFeePerGasPolicy(),
+		methods.MethodPeerCount:             methods.PeerCountPolicy(),
+		methods.MethodSyncing:               methods.SyncingPolicy(),
+		methods.MethodNetVersion:            methods.NetVersionPolicy(),
+		methods.MethodListening:             methods.ListeningPolicy(),
 	}
 	return &Client{
 		pool:       rpcPool,

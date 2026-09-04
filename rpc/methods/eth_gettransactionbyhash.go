@@ -1,0 +1,17 @@
+package methods
+
+import (
+	"ethguard/rpc"
+)
+
+// MethodGetTransactionByHash is the JSON-RPC method name resolved by
+// TransactionByHashPolicy.
+const MethodGetTransactionByHash = "eth_getTransactionByHash"
+
+// TransactionByHashPolicy verifies eth_getTransactionByHash by full
+// agreement. The hash addresses immutable content — a mined transaction
+// never changes, and a pending transaction's object is stable while it
+// stays pending — so it rides the shared canonical-object normalizer. Null
+// is an ordinary answer: verified absence maps to ethereum.NotFound at the
+// typed boundary, and a fleet split between null and an object is conflict.
+func TransactionByHashPolicy() rpc.Policy { return rpc.Strict(normalizeCanonicalObject) }

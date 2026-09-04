@@ -10,8 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"ethguard"
 	"ethguard/config"
@@ -242,4 +245,246 @@ func blockHashOf(raw json.RawMessage) string {
 	}
 	json.Unmarshal(raw, &obj)
 	return obj.Hash
+}
+
+// fixtureReceipt marshals a schema-valid receipt through go-ethereum's own
+// codec, so the wire shape honest sources emit is exercised end to end. The
+// bloom is derived from the receipt's logs the way consensus nodes derive
+// it, keeping DecodeReceipt's integrity check green by construction.
+func fixtureReceipt(t *testing.T, txHash common.Hash) json.RawMessage {
+	t.Helper()
+	receipt := &types.Receipt{
+		Type:              types.LegacyTxType,
+		Status:            types.ReceiptStatusSuccessful,
+		CumulativeGasUsed: 21000,
+		Logs: []*types.Log{{
+			Address:     common.HexToAddress("0x" + strings.Repeat("cc", 20)),
+			Topics:      []common.Hash{common.HexToHash("0x" + strings.Repeat("dd", 32))},
+			Data:        []byte{0x01, 0x02},
+			BlockNumber: 16,
+			TxHash:      txHash,
+			TxIndex:     1,
+			BlockHash:   common.HexToHash("0x" + strings.Repeat("11", 32)),
+			Index:       0,
+		}},
+		TxHash:            txHash,
+		GasUsed:           21000,
+		BlockHash:         common.HexToHash("0x" + strings.Repeat("11", 32)),
+		BlockNumber:       big.NewInt(16),
+		TransactionIndex:  1,
+		EffectiveGasPrice: big.NewInt(1_000_000_000),
+	}
+	receipt.Bloom = types.CreateBloom(receipt)
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestAdapterTransactionReceiptReturnsVerifiedReceipt(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	raw := fixtureReceipt(t, txHash)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionReceipt, json.RawMessage(raw))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	receipt, err := client.TransactionReceipt(ctx, txHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.TxHash != txHash || receipt.Status != types.ReceiptStatusSuccessful {
+		t.Fatalf("unexpected verified receipt: %+v", receipt)
+	}
+	if len(receipt.Logs) != 1 || receipt.Logs[0].TxHash != txHash {
+		t.Fatalf("expected the receipt's logs to survive decoding, got %+v", receipt.Logs)
+	}
+}
+
+func TestAdapterTransactionReceiptMapsVerifiedAbsenceToNotFound(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionReceipt, nil)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("expected ethereum.NotFound, got %v", err)
+	}
+}
+
+// signedTxFixture marshals a signed legacy transaction with the context
+// fields a node reports: hash, from, and blockNumber when mined.
+func signedTxFixture(t *testing.T, mined bool) json.RawMessage {
+	t.Helper()
+	key, err := crypto.HexToECDSA("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := common.HexToAddress("0x" + strings.Repeat("bb", 20))
+	tx := types.NewTransaction(7, to, big.NewInt(1_000_000_000_000_000_000), 21000, big.NewInt(1_000_000_000), nil)
+	signed, err := types.SignTx(tx, types.HomesteadSigner{}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	obj["hash"] = json.RawMessage(fmt.Sprintf("%q", signed.Hash().Hex()))
+	obj["from"] = json.RawMessage(fmt.Sprintf("%q", crypto.PubkeyToAddress(key.PublicKey).Hex()))
+	if mined {
+		obj["blockNumber"] = json.RawMessage(`"0x10"`)
+	}
+	out, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestAdapterTransactionByHashReportsPendingFlag(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Mined: the fleet holds the same transaction with its block context.
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionByHash, signedTxFixture(t, true))
+	}
+	tx, pending, err := client.TransactionByHash(ctx, txHash)
+	if err != nil || pending {
+		t.Fatalf("expected mined transaction without pending flag, got %+v pending=%v err=%v", tx, pending, err)
+	}
+	if tx.Nonce() != 7 {
+		t.Fatalf("unexpected transaction: %+v", tx)
+	}
+
+	// Pending: the same object without block context — pending is an
+	// ordinary verified state while the object stays stable.
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionByHash, signedTxFixture(t, false))
+	}
+	if _, pending, err := client.TransactionByHash(ctx, txHash); err != nil || !pending {
+		t.Fatalf("expected pending flag from blockless payload, got pending=%v err=%v", pending, err)
+	}
+}
+
+func TestAdapterAnchoredStateReads(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	pinned := "0x" + strings.Repeat("11", 32)
+	for i, node := range nodes {
+		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": pinned})
+		node.Handle("eth_getTransactionCount", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == pinned {
+				return "0x7", nil
+			}
+			return fmt.Sprintf("0x%x", 10+i), nil // divergence a moving tag would expose
+		})
+		node.Handle("eth_getStorageAt", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) == 3 && json.Unmarshal(c.Params[2], &tag) == nil && tag == pinned {
+				return "0x" + strings.Repeat("ab", 32), nil
+			}
+			return "0x" + strings.Repeat("cd", 32), nil
+		})
+		node.Handle("eth_getCode", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == pinned {
+				return "0x", nil // externally owned account: empty code is valid data
+			}
+			return "0xdead", nil
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	nonce, err := client.NonceAt(ctx, common.HexToAddress("0xdad"), nil)
+	if err != nil || nonce != 7 {
+		t.Fatalf("expected pinned nonce 7, got %d %v", nonce, err)
+	}
+	storage, err := client.StorageAt(ctx, common.HexToAddress("0xdad"), common.HexToHash("0x0"), nil)
+	if err != nil || string(storage) != string(common.Hex2Bytes(strings.Repeat("ab", 32))) {
+		t.Fatalf("expected pinned storage word, got %x %v", storage, err)
+	}
+	code, err := client.CodeAt(ctx, common.HexToAddress("0xdad"), nil)
+	if err != nil || len(code) != 0 {
+		t.Fatalf("expected empty verified code for the EOA answer, got %x %v", code, err)
+	}
+
+	// None of the anchored state reads may reach a source with a moving tag.
+	for i, node := range nodes {
+		for _, call := range node.Calls() {
+			switch call.Method {
+			case "eth_getTransactionCount", "eth_getStorageAt", "eth_getCode":
+				var ref string
+				if err := json.Unmarshal(call.Params[len(call.Params)-1], &ref); err != nil {
+					t.Fatalf("node %d received malformed reference %s", i, call.Params[len(call.Params)-1])
+				}
+				if ref == "latest" || ref == "safe" || ref == "finalized" {
+					t.Fatalf("node %d received an unrewritten moving tag %q for %s", i, ref, call.Method)
+				}
+			}
+		}
+	}
+}
+
+func TestAdapterSuggestGasTipCapTakesMedian(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	nodes[0].Return(methods.MethodMaxPriorityFeePerGas, "0x3b9aca00") // 1 gwei
+	nodes[1].Return(methods.MethodMaxPriorityFeePerGas, "0x3b9aca00")
+	nodes[2].Return(methods.MethodMaxPriorityFeePerGas, "0x77359400") // 2 gwei outlier
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tip, err := client.SuggestGasTipCap(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tip.Int64() != 1_000_000_000 {
+		t.Fatalf("expected median 1 gwei, got %v", tip)
+	}
+}
+
+func TestAdapterBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	pin := "0x" + strings.Repeat("11", 32)
+	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	raw := fixtureReceipt(t, txHash)
+	for _, node := range nodes {
+		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": pin})
+		node.Handle("eth_getBlockReceipts", func(c rpctest.Call) (any, error) {
+			var ref string
+			json.Unmarshal(c.Params[0], &ref)
+			if ref == pin || ref == "0x10" { // rewritten tag and explicit number both land here
+				return []json.RawMessage{json.RawMessage(raw)}, nil
+			}
+			return nil, fmt.Errorf("unexpected receipts reference %q", ref)
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	byHash, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(common.HexToHash(pin), false))
+	if err != nil || len(byHash) != 1 || byHash[0].TxHash != txHash {
+		t.Fatalf("expected hash-addressed receipts, got %v", err)
+	}
+	byNumber, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	if err != nil || len(byNumber) != 1 {
+		t.Fatalf("expected explicit-number receipts to pass through, got %v", err)
+	}
+	byTag, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.LatestBlockNumber))
+	if err != nil || len(byTag) != 1 {
+		t.Fatalf("expected moving tag to be pinned before fan-out, got %v", err)
+	}
 }

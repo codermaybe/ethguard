@@ -22,12 +22,14 @@ package ethadapter
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"ethguard"
 	"ethguard/config"
@@ -103,6 +105,113 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 		return 0, err
 	}
 	return block.NumberU64(), nil
+}
+
+// TransactionReceipt returns the fleet-verified receipt for txHash;
+// ethereum.NotFound when the fleet verifies the transaction has no receipt
+// yet, matching go-ethereum's own client. The hash addresses immutable
+// content, so no anchoring or freshness machinery applies.
+func (c *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
+	receipt, _, err := c.eg.TransactionReceipt(ctx, txHash)
+	return receipt, err
+}
+
+// TransactionByHash returns the fleet-verified transaction for txHash and
+// whether the fleet saw it as still pending; ethereum.NotFound when the
+// fleet verifies no such transaction exists. Pending transactions are
+// ordinary verified objects here: while they stay pending, honest sources
+// hold identical payloads.
+func (c *Client) TransactionByHash(ctx context.Context, txHash common.Hash) (*types.Transaction, bool, error) {
+	decision, err := c.eg.Call(ctx, methods.MethodGetTransactionByHash, txHash.Hex())
+	if err != nil {
+		return nil, false, err
+	}
+	return ethguard.DecodeTransaction(decision.Value)
+}
+
+// BlockReceipts returns the fleet-verified receipts of one block. Numbers
+// and moving tags are pinned to the verified reference before fan-out;
+// hashes address immutable content directly. Verified absence of the block
+// maps to ethereum.NotFound.
+func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, error) {
+	ref, err := blockRefArg(blockNrOrHash)
+	if err != nil {
+		return nil, err
+	}
+	decision, err := c.eg.Call(ctx, methods.MethodGetBlockReceipts, ref)
+	if err != nil {
+		return nil, err
+	}
+	return ethguard.DecodeReceipts(decision.Value)
+}
+
+// NonceAt returns the verified account nonce of account at blockNumber;
+// nil pins the moving tag to the currently verified reference.
+func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error) {
+	nonce, _, err := ethguard.CallInto[hexutil.Uint64](
+		ctx, c.eg, methods.MethodGetTransactionCount, account.Hex(), toBlockNumArg(blockNumber))
+	if err != nil {
+		return 0, err
+	}
+	return uint64(*nonce), nil
+}
+
+// StorageAt returns the verified value of key in account's storage at
+// blockNumber; nil pins the moving tag to the currently verified reference.
+func (c *Client) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, error) {
+	value, _, err := ethguard.CallInto[hexutil.Bytes](
+		ctx, c.eg, methods.MethodGetStorageAt, account.Hex(), key.Hex(), toBlockNumArg(blockNumber))
+	if err != nil {
+		return nil, err
+	}
+	return *value, nil
+}
+
+// CodeAt returns the verified contract code of account at blockNumber; nil
+// pins the moving tag to the currently verified reference. An externally
+// owned account answers empty code, not an error.
+func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
+	code, _, err := ethguard.CallInto[hexutil.Bytes](
+		ctx, c.eg, methods.MethodGetCode, account.Hex(), toBlockNumArg(blockNumber))
+	if err != nil {
+		return nil, err
+	}
+	return *code, nil
+}
+
+// SuggestGasTipCap returns the fleet's lower-median priority-fee estimate —
+// a variable result resolved by robust selection, never claimed verified.
+func (c *Client) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
+	tip, _, err := c.eg.MaxPriorityFeePerGas(ctx)
+	return tip, err
+}
+
+// blockRefArg converts go-ethereum's BlockNumberOrHash into the plain
+// string reference the anchored policies rewrite. The object wire form is
+// deliberately avoided: an object-shaped moving tag would slip past the
+// rewrite unrewritten and turn the read into inevitable dissent.
+func blockRefArg(blockNrOrHash gethrpc.BlockNumberOrHash) (string, error) {
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		return hash.Hex(), nil
+	}
+	if number, ok := blockNrOrHash.Number(); ok {
+		switch number {
+		case gethrpc.PendingBlockNumber:
+			return "pending", nil
+		case gethrpc.LatestBlockNumber:
+			return "latest", nil
+		case gethrpc.SafeBlockNumber:
+			return "safe", nil
+		case gethrpc.FinalizedBlockNumber:
+			return "finalized", nil
+		default:
+			if number < 0 {
+				return "", fmt.Errorf("ethadapter: unsupported block number %d", number)
+			}
+			return toBlockNumArg(big.NewInt(number.Int64())), nil
+		}
+	}
+	return "", fmt.Errorf("ethadapter: empty block number or hash")
 }
 
 // SuggestGasPrice returns the fleet's lower-median gas price — a variable

@@ -47,6 +47,107 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool)
 	return block, decision, nil
 }
 
+// TransactionReceipt returns a strictly compared receipt for the transaction
+// hash and the aggregation decision. The hash addresses immutable content:
+// honest sources either hold the identical receipt or the dissent is
+// evidence. Verified absence — every source answers null, the transaction
+// has no receipt yet — maps to ethereum.NotFound, the convention DecodeBlock
+// applies to blocks and go-ethereum's own client applies to receipts.
+func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*types.Receipt, rpc.Decision, error) {
+	decision, err := c.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
+	if err != nil {
+		return nil, decision, err
+	}
+	receipt, err := DecodeReceipt(decision.Value)
+	if err != nil {
+		return nil, decision, err
+	}
+	return receipt, decision, nil
+}
+
+// TransactionByHash returns a strictly compared transaction and the
+// aggregation decision. The hash addresses immutable content; verified
+// absence maps to ethereum.NotFound like TransactionReceipt.
+func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (*types.Transaction, rpc.Decision, error) {
+	decision, err := c.Call(ctx, methods.MethodGetTransactionByHash, hash.Hex())
+	if err != nil {
+		return nil, decision, err
+	}
+	tx, _, err := DecodeTransaction(decision.Value)
+	if err != nil {
+		return nil, decision, err
+	}
+	return tx, decision, nil
+}
+
+// BlockReceipts returns the strictly compared receipts of one block,
+// addressed by its verified hash. Moving tags never reach this method:
+// anchor the reference first (Adapter callers pass numbers or tags and the
+// policy rewrites them). Verified absence of the block maps to
+// ethereum.NotFound; an empty block yields an empty, non-nil slice.
+func (c *Client) BlockReceipts(ctx context.Context, hash common.Hash) ([]*types.Receipt, rpc.Decision, error) {
+	decision, err := c.Call(ctx, methods.MethodGetBlockReceipts, hash.Hex())
+	if err != nil {
+		return nil, decision, err
+	}
+	receipts, err := DecodeReceipts(decision.Value)
+	if err != nil {
+		return nil, decision, err
+	}
+	return receipts, decision, nil
+}
+
+// MaxPriorityFeePerGas returns the fleet's lower-median priority-fee
+// estimate — a variable result, Selected at best, with outliers kept as
+// evidence (see GasPrice).
+func (c *Client) MaxPriorityFeePerGas(ctx context.Context) (*big.Int, rpc.Decision, error) {
+	decision, err := c.Call(ctx, methods.MethodMaxPriorityFeePerGas)
+	if err != nil {
+		return nil, decision, err
+	}
+	canonical, err := c.Normalize(methods.MethodMaxPriorityFeePerGas, decision.Value)
+	if err != nil {
+		return nil, decision, fmt.Errorf("ethguard: decode max priority fee: %w", err)
+	}
+	value, ok := new(big.Int).SetString(canonical, 10)
+	if !ok {
+		return nil, decision, fmt.Errorf("ethguard: invalid max priority fee %q", canonical)
+	}
+	return value, decision, nil
+}
+
+// NetVersion returns the verified legacy chain identity (net_version spells
+// in decimal what eth_chainId spells in hex).
+func (c *Client) NetVersion(ctx context.Context) (*big.Int, rpc.Decision, error) {
+	decision, err := c.Call(ctx, methods.MethodNetVersion)
+	if err != nil {
+		return nil, decision, err
+	}
+	canonical, err := c.Normalize(methods.MethodNetVersion, decision.Value)
+	if err != nil {
+		return nil, decision, fmt.Errorf("ethguard: decode net version: %w", err)
+	}
+	value, ok := new(big.Int).SetString(canonical, 10)
+	if !ok {
+		return nil, decision, fmt.Errorf("ethguard: invalid net version %q", canonical)
+	}
+	return value, decision, nil
+}
+
+// Listening reports whether the consulted source accepts inbound peers —
+// an upstream-local result, selected not compared.
+func (c *Client) Listening(ctx context.Context) (bool, rpc.Decision, error) {
+	decision, err := c.Call(ctx, methods.MethodListening)
+	if err != nil {
+		return false, decision, err
+	}
+	var flag bool
+	if err := json.Unmarshal(decision.Value, &flag); err != nil {
+		return false, decision, fmt.Errorf("%w: decode listening flag: %w", rpc.ErrMalformedResponse, err)
+	}
+	return flag, decision, nil
+}
+
 // GasPrice returns the fleet's lower-median gas price — a variable result,
 // so the decision is Selected at best, with outliers kept as evidence.
 func (c *Client) GasPrice(ctx context.Context) (*big.Int, rpc.Decision, error) {

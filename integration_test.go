@@ -7,11 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	promclient "github.com/prometheus/client_golang/prometheus"
 
 	"ethguard"
@@ -856,5 +861,327 @@ func TestClientHandlesConcurrentCallsUnderSharedRecorder(t *testing.T) {
 	case err := <-failed:
 		t.Fatal(err)
 	default:
+	}
+}
+
+// receiptFixture builds a schema-valid receipt as real providers emit it:
+// hexadecimal quantities as strings, from/to present, contractAddress null
+// for a non-creation transaction, and a zero bloom because the logs are
+// empty (the derivation rule DecodeReceipt checks holds by construction).
+func receiptFixture(txHash string) map[string]any {
+	return map[string]any{
+		"transactionHash":   txHash,
+		"transactionIndex":  "0x1",
+		"blockHash":         "0x" + strings.Repeat("11", 32),
+		"blockNumber":       "0x10",
+		"from":              "0x" + strings.Repeat("aa", 20),
+		"to":                "0x" + strings.Repeat("bb", 20),
+		"cumulativeGasUsed": "0x5208",
+		"gasUsed":           "0x5208",
+		"contractAddress":   nil,
+		"logs":              []any{},
+		"logsBloom":         "0x" + strings.Repeat("00", 256),
+		"type":              "0x0",
+		"status":            "0x1",
+		"effectiveGasPrice": "0x4a817c800",
+	}
+}
+
+func TestClientVerifiesReceiptAcrossSources(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	txHash := "0x" + strings.Repeat("42", 32)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionReceipt, receiptFixture(txHash))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	receipt, decision, err := client.TransactionReceipt(ctx, common.HexToHash(txHash))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.TxHash != common.HexToHash(txHash) || decision.Status != rpc.Verified || len(decision.Support) != 3 {
+		t.Fatalf("expected verified receipt across three sources, got %+v %+v", receipt, decision)
+	}
+
+	// The wire must carry the exact requested hash to every source.
+	for i, node := range nodes {
+		var saw bool
+		for _, call := range node.Calls() {
+			if call.Method != methods.MethodGetTransactionReceipt {
+				continue
+			}
+			var got string
+			if err := json.Unmarshal(call.Params[0], &got); err != nil || got != txHash {
+				t.Fatalf("node %d was asked for %s, want %s", i, call.Params[0], txHash)
+			}
+			saw = true
+		}
+		if !saw {
+			t.Fatalf("node %d was never asked for the receipt", i)
+		}
+	}
+}
+
+func TestClientVerifiesReceiptAbsenceAsNotFound(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionReceipt, nil)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, decision, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	if !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("expected ethereum.NotFound, got %v", err)
+	}
+	if decision.Status != rpc.Verified {
+		t.Fatalf("expected unanimous absence to verify like any answer, got %+v", decision)
+	}
+}
+
+func TestClientFailsClosedWhenReceiptPresenceSplits(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	receipt := receiptFixture("0x" + strings.Repeat("42", 32))
+	for _, node := range nodes[:2] {
+		node.Return(methods.MethodGetTransactionReceipt, receipt)
+	}
+	nodes[2].Return(methods.MethodGetTransactionReceipt, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, decision, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	if !errors.Is(err, rpc.ErrConflict) {
+		t.Fatalf("expected conflict on split presence, got %v", err)
+	}
+	if len(decision.Support) != 2 || len(decision.Reject) != 1 {
+		t.Fatalf("expected 2 support and 1 reject, got %+v", decision)
+	}
+}
+
+func TestClientRejectsUnanimousReceiptMissingRequiredFields(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	broken := receiptFixture("0x" + strings.Repeat("42", 32))
+	delete(broken, "logsBloom")
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionReceipt, broken)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Normalization compares shapes, not schemas, so the fleet agrees; the
+	// required-field set binds one stage later, at the typed decode boundary.
+	_, decision, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	if !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for schema-invalid unanimous payload, got %v", err)
+	}
+	if decision.Status != rpc.Verified {
+		t.Fatalf("expected verification to pass before the typed boundary, got %+v", decision)
+	}
+}
+
+// signedTxFixture marshals a signed legacy transaction the way a node
+// reports it: the envelope fields plus the context fields (hash, from, and
+// blockNumber when mined) that ride alongside them on the wire.
+func signedTxFixture(t *testing.T, mined bool) json.RawMessage {
+	t.Helper()
+	key, err := crypto.HexToECDSA("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := common.HexToAddress("0x" + strings.Repeat("bb", 20))
+	tx := types.NewTransaction(7, to, big.NewInt(1_000_000_000_000_000_000), 21000, big.NewInt(1_000_000_000), nil)
+	signed, err := types.SignTx(tx, types.HomesteadSigner{}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	obj["hash"] = json.RawMessage(fmt.Sprintf("%q", signed.Hash().Hex()))
+	obj["from"] = json.RawMessage(fmt.Sprintf("%q", crypto.PubkeyToAddress(key.PublicKey).Hex()))
+	if mined {
+		obj["blockNumber"] = json.RawMessage(`"0x10"`)
+	}
+	out, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestClientVerifiesTransactionByHash(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	raw := signedTxFixture(t, true)
+	var want types.Transaction
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionByHash, json.RawMessage(raw))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tx, decision, err := client.TransactionByHash(ctx, want.Hash())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tx.Hash() != want.Hash() || decision.Status != rpc.Verified || len(decision.Support) != 3 {
+		t.Fatalf("expected verified transaction across three sources, got %+v %+v", tx, decision)
+	}
+}
+
+func TestClientRejectsTransactionWithFabricatedHash(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	broken := signedTxFixture(t, true)
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(broken, &obj); err != nil {
+		t.Fatal(err)
+	}
+	obj["hash"] = json.RawMessage(fmt.Sprintf("%q", "0x"+strings.Repeat("77", 32)))
+	out, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionByHash, json.RawMessage(out))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// The fleet agrees, so verification passes; the wire hash disagrees with
+	// the recomputed signature hash, so the typed boundary rejects it.
+	if _, _, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for fabricated wire hash, got %v", err)
+	}
+}
+
+func TestClientMapsTransactionAbsenceToNotFound(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionByHash, nil)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, decision, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	if !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("expected ethereum.NotFound, got %v", err)
+	}
+	if decision.Status != rpc.Verified {
+		t.Fatalf("expected unanimous absence to verify like any answer, got %+v", decision)
+	}
+}
+
+func TestClientPinsBlockReceiptsToVerifiedReference(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	receipts := []any{receiptFixture("0x" + strings.Repeat("42", 32))}
+	for _, node := range nodes {
+		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": "0xabc"})
+		node.Handle(methods.MethodGetBlockReceipts, func(c rpctest.Call) (any, error) {
+			var ref string
+			json.Unmarshal(c.Params[0], &ref)
+			if ref == "0xabc" {
+				return receipts, nil
+			}
+			return fmt.Sprintf("unpinned reference %s", ref), nil // divergence for anything unrewritten
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	decision, err := client.Call(ctx, methods.MethodGetBlockReceipts, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != rpc.Verified || len(decision.Support) != 3 {
+		t.Fatalf("expected anchored receipts read to verify across three sources, got %+v", decision)
+	}
+	for i, node := range nodes {
+		for _, call := range node.Calls() {
+			if call.Method != methods.MethodGetBlockReceipts {
+				continue
+			}
+			var ref string
+			if err := json.Unmarshal(call.Params[0], &ref); err != nil || ref == "latest" || ref == "safe" || ref == "finalized" {
+				t.Fatalf("node %d received unrewritten reference %s", i, call.Params[0])
+			}
+		}
+	}
+}
+
+func TestClientMapsUnknownBlockReceiptsToNotFound(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockReceipts, nil)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, _, err := client.BlockReceipts(ctx, common.HexToHash("0x"+strings.Repeat("11", 32))); !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("expected ethereum.NotFound, got %v", err)
+	}
+}
+
+func TestMaxPriorityFeePerGasTakesLowerMedian(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	nodes[0].Return(methods.MethodMaxPriorityFeePerGas, "0x3b9aca00") // 1 gwei
+	nodes[1].Return(methods.MethodMaxPriorityFeePerGas, "0x3b9aca00")
+	nodes[2].Return(methods.MethodMaxPriorityFeePerGas, "0x77359400") // 2 gwei outlier
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tip, decision, err := client.MaxPriorityFeePerGas(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tip.Int64() != 1_000_000_000 {
+		t.Fatalf("expected lower median 1 gwei, got %v", tip)
+	}
+	if decision.Status != rpc.Selected {
+		t.Fatalf("expected Selected ceiling for a variable result, got %+v", decision)
+	}
+}
+
+func TestClientVerifiesNetVersionAcrossSpellings(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	nodes[0].Return(methods.MethodNetVersion, "1")
+	nodes[1].Return(methods.MethodNetVersion, "1")
+	nodes[2].Return(methods.MethodNetVersion, "01") // same identity, looser spelling
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	version, decision, err := client.NetVersion(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version.Int64() != 1 || decision.Status != rpc.Verified || len(decision.Support) != 3 {
+		t.Fatalf("expected cross-spelling net_version agreement to verify, got %v %+v", version, decision)
+	}
+}
+
+func TestListeningIsUpstreamLocalSelected(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	nodes[0].Return(methods.MethodListening, true)
+	nodes[1].Return(methods.MethodListening, false) // differing answers are not dissent
+	nodes[2].Return(methods.MethodListening, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	listening, decision, err := client.Listening(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !listening {
+		t.Fatalf("expected the first source's answer, got %v", listening)
+	}
+	if decision.Status != rpc.Selected {
+		t.Fatalf("expected Selected ceiling for a local result, got %+v", decision)
 	}
 }
