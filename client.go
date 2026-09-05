@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"ethguard/aggregator"
@@ -147,7 +148,11 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 			co.tipMaxBehind = cfg.TipTracking.MaxBehind
 		}
 	}
-	if cfg.Anchoring != nil && cfg.Anchoring.Preset != "" && cfg.Anchoring.Preset != "strict" {
+	// The preset comparison mirrors config.Validate's normalization exactly:
+	// a case-spelling that passes validation must select the same strategy
+	// here, or the YAML path silently changes anchoring behavior (decision
+	// 0004's failure mode).
+	if cfg.Anchoring != nil && strings.EqualFold(strings.TrimSpace(cfg.Anchoring.Preset), "finalized") {
 		maxLag := cfg.Anchoring.MaxLag
 		if maxLag == 0 {
 			maxLag = config.DefaultFinalizedLag()

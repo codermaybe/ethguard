@@ -262,8 +262,13 @@ func (c *CachedAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
 }
 
 // AnchorBlockRef implements AnchorHeightProvider, sharing the cached
-// establishment with hash reads.
+// establishment with hash reads. An inner resolver without the height
+// capability fails height reads with a clear error instead of silently
+// pinning reads to a bogus height.
 func (c *CachedAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
+	if _, ok := c.inner.(AnchorHeightProvider); !ok {
+		return "", 0, fmt.Errorf("ethguard: anchor resolver %T does not implement AnchorHeightProvider", c.inner)
+	}
 	return c.establish(ctx)
 }
 
@@ -275,8 +280,9 @@ func (c *CachedAnchor) establish(ctx context.Context) (string, uint64, error) {
 	}
 	hp, ok := c.inner.(AnchorHeightProvider)
 	if !ok {
-		// The inner resolver cannot produce heights: hash reads stay cached,
-		// height reads fail through their own clear error path.
+		// Height-incapable inners serve hash reads only; the zero height in
+		// the cache entry is never returned as an answer (AnchorBlockRef
+		// rejects first).
 		hash, err := c.inner.AnchorBlockHash(ctx)
 		if err != nil {
 			return "", 0, err

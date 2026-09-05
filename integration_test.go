@@ -1614,3 +1614,63 @@ func TestFeeHistoryPinsNewestToTheVerifiedHeight(t *testing.T) {
 		t.Fatalf("unexpected decoded history: %+v", history)
 	}
 }
+
+// hashOnlyAnchor is a custom resolver without the height capability.
+type hashOnlyAnchor struct{}
+
+func (hashOnlyAnchor) AnchorBlockHash(context.Context) (string, error) { return "0xabc", nil }
+
+// TestCachedAnchorRejectsHeightReadsWithoutHeightCapability pins the audit
+// fix: a cached resolver whose inner cannot produce heights must fail
+// height-anchored reads with a clear error, never silently pin them to
+// height zero.
+func TestCachedAnchorRejectsHeightReadsWithoutHeightCapability(t *testing.T) {
+	client, _ := fleet(t, 1, 1, 3,
+		ethguard.WithAnchorResolver(hashOnlyAnchor{}),
+		ethguard.WithAnchorCaching(time.Minute))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, _, err := client.FeeHistory(ctx, 2, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "AnchorHeightProvider") {
+		t.Fatalf("expected a clear height-capability error, got %v", err)
+	}
+}
+
+// TestConfigPresetSpellingSelectsTheSameStrategy pins decision 0004's
+// normalization: "STRICT" passes validation and must select the strict
+// strategy, not silently flip to the finalized preset. Divergent latest
+// heads conflict under strict anchoring and would succeed under finalized.
+func TestConfigPresetSpellingSelectsTheSameStrategy(t *testing.T) {
+	cfg := config.Config{ChainID: 1, Anchoring: &config.AnchoringConfig{Preset: "STRICT"}}
+	nodes := make([]*rpctest.Node, 0, 3)
+	for i := range 3 {
+		node := rpctest.NewNode(1)
+		t.Cleanup(node.Close)
+		nodes = append(nodes, node)
+		cfg.Upstreams = append(cfg.Upstreams, config.Upstream{
+			ID:       fmt.Sprintf("node-%c", 'a'+i),
+			Endpoint: node.URL(),
+		})
+	}
+	scriptFinalizedHeads(nodes,
+		func(i int) map[string]any { // divergent latest heads
+			return map[string]any{"number": fmt.Sprintf("0x%x", 16-i), "hash": fmt.Sprintf("0xhead%d", i)}
+		},
+		func(int) map[string]any { // one common finalized head
+			return map[string]any{"number": "0x8", "hash": "0xdead"}
+		},
+	)
+	client, err := ethguard.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	if !errors.Is(err, ethguard.ErrConflict) {
+		t.Fatalf("expected strict anchoring to fail closed on divergent heads, got %v", err)
+	}
+}

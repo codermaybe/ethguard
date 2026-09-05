@@ -153,8 +153,11 @@ func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, newest *big.
 		GasUsedRatio  []float64        `json:"gasUsedRatio"`
 		Reward        [][]*hexutil.Big `json:"reward"`
 	}
-	if err := json.Unmarshal(decision.Value, &wire); err != nil || wire.OldestBlock == nil {
+	if err := json.Unmarshal(decision.Value, &wire); err != nil {
 		return nil, decision, fmt.Errorf("%w: decode fee history: %v", rpc.ErrMalformedResponse, err)
+	}
+	if wire.OldestBlock == nil {
+		return nil, decision, fmt.Errorf("%w: fee history carries no oldest block", rpc.ErrMalformedResponse)
 	}
 	out := &FeeHistory{
 		OldestBlock:   (*big.Int)(wire.OldestBlock),
