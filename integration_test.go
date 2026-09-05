@@ -1185,3 +1185,83 @@ func TestListeningIsUpstreamLocalSelected(t *testing.T) {
 		t.Fatalf("expected Selected ceiling for a local result, got %+v", decision)
 	}
 }
+
+func TestClientBlockNumberDerivesFromVerifiedReference(t *testing.T) {
+	t.Run("agrees on one head", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 1, 3)
+		// A schema-valid block: the derivation decodes the reference fully,
+		// not just its head identity. Anchor establishment rides the head
+		// policy; the height fetch rides the hash-addressed method.
+		pinned := fixtureBlock(t, 16)
+		for _, node := range nodes {
+			node.Return("eth_getBlockByNumber", json.RawMessage(pinned))
+			node.Return("eth_getBlockByHash", json.RawMessage(pinned))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		height, err := client.BlockNumber(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if height != 16 {
+			t.Fatalf("expected derived height 16, got %d", height)
+		}
+		// The derivation must be visible in what does NOT hit the wire:
+		// eth_blockNumber is never fanned out to any source.
+		for i, node := range nodes {
+			for _, call := range node.Calls() {
+				if call.Method == "eth_blockNumber" {
+					t.Fatalf("node %d received an eth_blockNumber fan-out", i)
+				}
+			}
+		}
+	})
+
+	t.Run("divergent tips fail closed through anchor establishment", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 1, 3)
+		nodes[0].Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": "0xabc"})
+		nodes[1].Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": "0xabc"})
+		nodes[2].Return("eth_getBlockByNumber", map[string]any{"number": "0xf", "hash": "0xdifferent"})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if _, err := client.BlockNumber(ctx); !errors.Is(err, rpc.ErrConflict) {
+			t.Fatalf("expected anchor failure on divergent tips, got %v", err)
+		}
+	})
+}
+
+// fixtureBlock marshals a self-consistent block at the given height: the
+// wire hash equals the header's computed hash, so DecodeBlock's integrity
+// check passes.
+func fixtureBlock(t *testing.T, number int64) string {
+	t.Helper()
+	head := &types.Header{
+		ParentHash:  common.HexToHash("0x" + strings.Repeat("01", 32)),
+		UncleHash:   types.EmptyUncleHash,
+		Root:        common.HexToHash("0x" + strings.Repeat("02", 32)),
+		TxHash:      types.EmptyTxsHash,
+		ReceiptHash: common.HexToHash("0x" + strings.Repeat("03", 32)),
+		Difficulty:  new(big.Int), // post-merge zero; must survive the round-trip
+		Number:      big.NewInt(number),
+		GasLimit:    30_000_000,
+		Time:        5,
+	}
+	block := types.NewBlockWithHeader(head)
+	raw, err := head.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	obj["hash"] = json.RawMessage(fmt.Sprintf("%q", block.Hash().Hex()))
+	obj["transactions"] = json.RawMessage(`[]`)
+	out, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}

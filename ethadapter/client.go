@@ -24,6 +24,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -98,13 +99,11 @@ func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Blo
 	return c.blockAt(ctx, toBlockNumArg(number))
 }
 
-// BlockNumber returns the height of the currently verified block reference.
+// BlockNumber returns the height of the currently verified block reference —
+// a derivation over verified primitives, never one provider's tip. The full
+// selection reasoning lives on the root Client.BlockNumber.
 func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
-	block, err := c.BlockByNumber(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	return block.NumberU64(), nil
+	return c.eg.BlockNumber(ctx)
 }
 
 // TransactionReceipt returns the fleet-verified receipt for txHash;
@@ -235,9 +234,17 @@ func (c *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, erro
 }
 
 // blockAt fetches and strictly compares one block identified explicitly by
-// hash or height — never by a moving tag.
+// hash or height — never by a moving tag. Which method the reference rides
+// is a wire-portability decision: the first live soak run caught public
+// endpoints rejecting a 32-byte hash in eth_getBlockByNumber's number
+// position ("hex number > 64 bits"), so hash-looking references take the
+// hash-addressed method and everything else the number-addressed one.
 func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, error) {
-	decision, err := c.eg.Call(ctx, methods.MethodGetBlockByNumber, ref, true)
+	method := methods.MethodGetBlockByNumber
+	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
+		method = methods.MethodGetBlockByHash
+	}
+	decision, err := c.eg.Call(ctx, method, ref, true)
 	if err != nil {
 		return nil, err
 	}

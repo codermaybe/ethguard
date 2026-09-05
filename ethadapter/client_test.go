@@ -123,10 +123,13 @@ func TestAdapterBlockByNumberNeverFetchesAMovingTag(t *testing.T) {
 	pinned := fixtureBlock(t, 16)
 	for _, node := range nodes {
 		// Every reference resolves to the same self-consistent block, so
-		// anchor establishment and the pinned fetch agree end to end.
+		// anchor establishment and the pinned fetch agree end to end. The
+		// hash-shaped fetch rides eth_getBlockByHash after blockAt's
+		// portability dispatch.
 		node.Handle("eth_getBlockByNumber", func(c rpctest.Call) (any, error) {
 			return json.RawMessage(pinned), nil
 		})
+		node.Return("eth_getBlockByHash", json.RawMessage(pinned))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -157,6 +160,30 @@ func TestAdapterBlockByNumberNeverFetchesAMovingTag(t *testing.T) {
 	}
 }
 
+func TestAdapterBlockByHashUsesDedicatedMethod(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	pinned := fixtureBlock(t, 16)
+	for _, node := range nodes {
+		// A hash must reach the wire as eth_getBlockByHash: several public
+		// providers reject a 32-byte hash in eth_getBlockByNumber's number
+		// position, so the shortcut this test forbids is not portable.
+		node.Handle("eth_getBlockByNumber", func(c rpctest.Call) (any, error) {
+			return nil, fmt.Errorf("eth_getBlockByNumber must not be called for a hash lookup")
+		})
+		node.Return("eth_getBlockByHash", json.RawMessage(pinned))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	block, err := client.BlockByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if block.NumberU64() != 16 {
+		t.Fatalf("expected block 16, got %d", block.NumberU64())
+	}
+}
+
 func TestAdapterBlockNumberMatchesVerifiedReference(t *testing.T) {
 	client, nodes := fleet(t, 3, ethguard.WithFinalizedAnchoring())
 	fin := fixtureBlock(t, 42)
@@ -170,6 +197,8 @@ func TestAdapterBlockNumberMatchesVerifiedReference(t *testing.T) {
 			}
 			return map[string]any{"number": "0x99", "hash": "0xtip"}, nil // divergent tips
 		})
+		// The derived height fetch rides the hash-addressed method.
+		node.Return("eth_getBlockByHash", json.RawMessage(fin))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

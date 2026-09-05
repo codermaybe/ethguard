@@ -148,6 +148,45 @@ func (c *Client) Listening(ctx context.Context) (bool, rpc.Decision, error) {
 	return flag, decision, nil
 }
 
+// BlockNumber returns the height of the currently verified block reference.
+// It is a derivation over verified primitives, not an independent read, and
+// the selection reasoning is stated here rather than left implicit:
+//
+//   - Sources sit at different heads as a matter of course. A fleet fan-out
+//     of eth_blockNumber would turn routine replication lag into conflict;
+//     divergence here is the common case, not an anomaly, so fail-closed
+//     comparison is the wrong tool for this read.
+//   - The verified reference behind moving-tag reads already carries the
+//     fleet's agreement. Its height is the only height with a verification
+//     claim behind it — any other answer would be one provider's tip.
+//   - eth_blockNumber therefore stays unregistered on purpose: a raw
+//     fan-out of it falls through to transparent Forwarded, never a
+//     pretended Verified on a moving value.
+//
+// This is the consensus-override shape proxyd popularized, expressed as
+// derivation. Callers wanting bounded staleness should configure the
+// anchoring presets (WithFinalizedAnchoring) and, optionally, its cache.
+func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
+	ref, err := c.AnchorBlockHash(ctx)
+	if err != nil {
+		return 0, err
+	}
+	// The height lookup rides eth_getBlockByHash even though a "height of
+	// this hash" read feels like eth_getBlockByNumber: the first live soak
+	// run caught public endpoints rejecting a 32-byte hash in the number
+	// position ("hex number > 64 bits"), so hash lookups use the
+	// hash-addressed method, full stop.
+	decision, err := c.Call(ctx, methods.MethodGetBlockByHash, ref, true)
+	if err != nil {
+		return 0, err
+	}
+	block, err := DecodeBlock(decision.Value)
+	if err != nil {
+		return 0, err
+	}
+	return block.NumberU64(), nil
+}
+
 // GasPrice returns the fleet's lower-median gas price — a variable result,
 // so the decision is Selected at best, with outliers kept as evidence.
 func (c *Client) GasPrice(ctx context.Context) (*big.Int, rpc.Decision, error) {

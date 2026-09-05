@@ -1,0 +1,25 @@
+[
+  {
+    "name": "Fixture Mainnet",
+    "chain": "ETH",
+    "chainId": 1,
+    "rpc": [
+      { "url": "https://z.example.org", "tracking": "none" },
+      "https://a.example.org",
+      { "url": "wss://m.example.org", "tracking": "limited" },
+      { "url": "https://a.example.org", "tracking": "yes" }
+    ],
+    "faucets": [],
+    "infoURL": "https://example.org"
+  },
+  {
+    "name": "Fixture Polygon",
+    "chain": "MATIC",
+    "chainId": 137,
+    "rpc": [
+      { "url": "https://polygon.example.org", "tracking": "none" }
+    ],
+    "faucets": [],
+    "infoURL": "https://example.org"
+  }
+]
