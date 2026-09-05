@@ -22,6 +22,7 @@ package ethadapter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
@@ -34,6 +35,7 @@ import (
 
 	"ethguard"
 	"ethguard/config"
+	"ethguard/rpc"
 	"ethguard/rpc/methods"
 )
 
@@ -239,6 +241,160 @@ func blockRefArg(blockNrOrHash gethrpc.BlockNumberOrHash) (string, error) {
 func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 	price, _, err := c.eg.GasPrice(ctx)
 	return price, err
+}
+
+// CallContract returns the fleet-verified result of executing msg at
+// blockNumber; nil pins the moving tag to the currently verified reference.
+// A fleet-verified revert is an observation, not a pipeline failure: it is
+// returned as a *RevertError carrying the revert context, while the
+// verification claim stays on the decision evidence.
+func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+	decision, err := c.eg.Call(ctx, methods.MethodCall, toCallArg(msg), toBlockNumArg(blockNumber))
+	if err != nil {
+		return nil, err
+	}
+	return decodeCallResult(decision.Value)
+}
+
+// EstimateGas returns the fleet's lower-median gas estimate for msg at the
+// currently verified reference — a variable result, Selected at best, never
+// claimed verified. A fleet that unanimously fails estimation fails as
+// no-valid-response; the revert is never laundered into a number.
+func (c *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
+	decision, err := c.eg.Call(ctx, methods.MethodEstimateGas, toCallArg(msg), "latest")
+	if err != nil {
+		return 0, err
+	}
+	var gas hexutil.Uint64
+	if err := json.Unmarshal(decision.Value, &gas); err != nil {
+		return 0, fmt.Errorf("%w: decode gas estimate: %v", rpc.ErrMalformedResponse, err)
+	}
+	return uint64(gas), nil
+}
+
+// FilterLogs returns the fleet-verified logs matching q. Range filters are
+// pinned to the verified reference exactly like any other anchored read —
+// the policy rewrites moving tags and defaults missing bounds inside the
+// filter object; a blockHash query addresses immutable content directly.
+func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+	arg, err := toFilterArg(q)
+	if err != nil {
+		return nil, err
+	}
+	decision, err := c.eg.Call(ctx, methods.MethodGetLogs, arg)
+	if err != nil {
+		return nil, err
+	}
+	if string(decision.Value) == "null" {
+		return nil, fmt.Errorf("%w: log array is JSON null", rpc.ErrMalformedResponse)
+	}
+	var logs []types.Log
+	if err := json.Unmarshal(decision.Value, &logs); err != nil {
+		return nil, fmt.Errorf("%w: decode logs: %v", rpc.ErrMalformedResponse, err)
+	}
+	return logs, nil
+}
+
+// RevertError reports a fleet-verified execution revert of an eth_call. It
+// is an observation rather than a pipeline failure — none of the classified
+// sentinels apply — and its message and data are provider context:
+// unverified content with the same standing decision 0015 gives the
+// server-provided `from` field.
+type RevertError struct {
+	Message string
+	Data    []byte
+}
+
+func (e *RevertError) Error() string {
+	if len(e.Data) > 0 {
+		return fmt.Sprintf("ethguard: call reverted (verified observation): %s: 0x%x", e.Message, e.Data)
+	}
+	return fmt.Sprintf("ethguard: call reverted (verified observation): %s", e.Message)
+}
+
+// decodeCallResult separates a verified revert envelope from return data.
+func decodeCallResult(raw json.RawMessage) ([]byte, error) {
+	var envelope struct {
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err == nil && (envelope.Code != 0 || envelope.Message != "") {
+		revert := &RevertError{Message: envelope.Message}
+		var hexData string
+		if len(envelope.Data) > 0 && json.Unmarshal(envelope.Data, &hexData) == nil {
+			if data, err := hexutil.Decode(hexData); err == nil {
+				revert.Data = data
+			}
+		}
+		return nil, revert
+	}
+	var out hexutil.Bytes
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("%w: decode call result: %v", rpc.ErrMalformedResponse, err)
+	}
+	return out, nil
+}
+
+// toCallArg mirrors go-ethereum's own client-side shape of an eth_call
+// message, the "input" key spelling included, so requests stay
+// wire-comparable with ethclient's.
+func toCallArg(msg ethereum.CallMsg) map[string]any {
+	arg := map[string]any{
+		"from": msg.From,
+		"to":   msg.To,
+	}
+	if len(msg.Data) > 0 {
+		arg["input"] = hexutil.Bytes(msg.Data)
+	}
+	if msg.Value != nil {
+		arg["value"] = (*hexutil.Big)(msg.Value)
+	}
+	if msg.Gas != 0 {
+		arg["gas"] = hexutil.Uint64(msg.Gas)
+	}
+	if msg.GasPrice != nil {
+		arg["gasPrice"] = (*hexutil.Big)(msg.GasPrice)
+	}
+	if msg.GasFeeCap != nil {
+		arg["maxFeePerGas"] = (*hexutil.Big)(msg.GasFeeCap)
+	}
+	if msg.GasTipCap != nil {
+		arg["maxPriorityFeePerGas"] = (*hexutil.Big)(msg.GasTipCap)
+	}
+	if msg.AccessList != nil {
+		arg["accessList"] = msg.AccessList
+	}
+	return arg
+}
+
+// toFilterArg mirrors go-ethereum's filter-object shape: address and topics
+// are omitted when empty (some providers reject empty arrays), blockHash
+// addresses the range explicitly, and otherwise geth's from/to spellings
+// apply — a nil fromBlock becomes "0x0" and a nil toBlock "latest", which
+// the anchored policy then pins to the verified reference.
+func toFilterArg(q ethereum.FilterQuery) (map[string]any, error) {
+	arg := map[string]any{}
+	if len(q.Addresses) > 0 {
+		arg["address"] = q.Addresses
+	}
+	if q.Topics != nil {
+		arg["topics"] = q.Topics
+	}
+	if q.BlockHash != nil {
+		if q.FromBlock != nil || q.ToBlock != nil {
+			return nil, fmt.Errorf("ethadapter: cannot specify both block hash and from/to blocks")
+		}
+		arg["blockHash"] = *q.BlockHash
+		return arg, nil
+	}
+	if q.FromBlock == nil {
+		arg["fromBlock"] = "0x0"
+	} else {
+		arg["fromBlock"] = toBlockNumArg(q.FromBlock)
+	}
+	arg["toBlock"] = toBlockNumArg(q.ToBlock)
+	return arg, nil
 }
 
 // PeerCount returns one healthy source's count of its own peers.

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,14 +62,26 @@ func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, strictOpts ...rpc.S
 
 // AnchorBlockHash implements AnchorResolver.
 func (a *StrictHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
+	hash, _, err := a.establish(ctx)
+	return hash, err
+}
+
+// AnchorBlockRef implements AnchorHeightProvider: hash and height come from
+// the same establishment response, so height-anchored methods cost nothing
+// extra.
+func (a *StrictHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
+	return a.establish(ctx)
+}
+
+func (a *StrictHeadAnchor) establish(ctx context.Context) (string, uint64, error) {
 	decision, err := a.aggregate.Aggregate(ctx, rpc.Request{
 		Method: anchorMethod,
 		Params: []any{"latest", false},
 	})
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return blockHashFromDecision(decision)
+	return blockRefFromDecision(decision)
 }
 
 // FinalizedHeadAnchor is the conservative AnchorResolver: fan out a
@@ -132,14 +146,26 @@ func NewFinalizedHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...Finalize
 
 // AnchorBlockHash implements AnchorResolver.
 func (a *FinalizedHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
+	hash, _, err := a.establish(ctx)
+	return hash, err
+}
+
+// AnchorBlockRef implements AnchorHeightProvider: hash and height come from
+// the same establishment response, so height-anchored methods cost nothing
+// extra.
+func (a *FinalizedHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
+	return a.establish(ctx)
+}
+
+func (a *FinalizedHeadAnchor) establish(ctx context.Context) (string, uint64, error) {
 	decision, err := a.aggregate.Aggregate(ctx, rpc.Request{
 		Method: anchorMethod,
 		Params: []any{"finalized", false},
 	})
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return blockHashFromDecision(decision)
+	return blockRefFromDecision(decision)
 }
 
 // anchorHeadPolicy adapts the unanchored block-head policy to the anchor
@@ -158,15 +184,50 @@ func (p anchorHeadPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Req
 	return prepared, nil
 }
 
-// blockHashFromDecision extracts the anchor hash from a resolved head.
-func blockHashFromDecision(decision rpc.Decision) (string, error) {
+// blockRefFromDecision extracts the anchor hash and height from a resolved
+// head. The height rides along for free: every anchor policy normalizes the
+// block's number, so height-anchored methods (feeHistory) need no extra
+// fan-out to learn it.
+func blockRefFromDecision(decision rpc.Decision) (string, uint64, error) {
 	var head struct {
-		Hash string `json:"hash"`
+		Number string `json:"number"`
+		Hash   string `json:"hash"`
 	}
 	if err := json.Unmarshal(decision.Value, &head); err != nil || len(head.Hash) < 3 {
-		return "", fmt.Errorf("%w: winning anchor block carries no hash", rpc.ErrMalformedResponse)
+		return "", 0, fmt.Errorf("%w: winning anchor block carries no hash", rpc.ErrMalformedResponse)
 	}
-	return head.Hash, nil
+	digits := strings.TrimPrefix(head.Number, "0x")
+	height, err := strconv.ParseUint(digits, 16, 64)
+	if err != nil {
+		return "", 0, fmt.Errorf("%w: winning anchor block carries an invalid height %q",
+			rpc.ErrMalformedResponse, head.Number)
+	}
+	return head.Hash, height, nil
+}
+
+// AnchorHeightProvider is an optional AnchorResolver capability for methods
+// whose wire form accepts a height but not a hash (eth_feeHistory's
+// newestBlock is a BlockNumber, not a BlockNumberOrHash). The capability
+// returns the reference as a pair so one establishment serves both shapes;
+// both built-in resolvers provide it, and a custom resolver without it
+// simply leaves those methods unavailable, failing their reads with a clear
+// error at Prepare.
+type AnchorHeightProvider interface {
+	AnchorBlockRef(ctx context.Context) (hash string, height uint64, err error)
+}
+
+// anchorHeightOf exposes a resolver's height capability to height-anchored
+// policies at the composition root.
+func anchorHeightOf(resolver AnchorResolver) rpc.AnchorHeightFunc {
+	if hp, ok := resolver.(AnchorHeightProvider); ok {
+		return func(ctx context.Context) (uint64, error) {
+			_, height, err := hp.AnchorBlockRef(ctx)
+			return height, err
+		}
+	}
+	return func(context.Context) (uint64, error) {
+		return 0, fmt.Errorf("ethguard: anchor resolver %T does not implement AnchorHeightProvider", resolver)
+	}
 }
 
 // CachedAnchor decorates any AnchorResolver with time-bounded reuse: the
@@ -185,6 +246,7 @@ type CachedAnchor struct {
 
 	mu         sync.Mutex
 	hash       string
+	height     uint64
 	validUntil time.Time
 }
 
@@ -195,16 +257,41 @@ func NewCachedAnchor(inner AnchorResolver, ttl time.Duration) *CachedAnchor {
 
 // AnchorBlockHash implements AnchorResolver.
 func (c *CachedAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
+	hash, _, err := c.establish(ctx)
+	return hash, err
+}
+
+// AnchorBlockRef implements AnchorHeightProvider, sharing the cached
+// establishment with hash reads.
+func (c *CachedAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
+	return c.establish(ctx)
+}
+
+func (c *CachedAnchor) establish(ctx context.Context) (string, uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.hash != "" && time.Now().Before(c.validUntil) {
-		return c.hash, nil
+		return c.hash, c.height, nil
 	}
-	hash, err := c.inner.AnchorBlockHash(ctx)
+	hp, ok := c.inner.(AnchorHeightProvider)
+	if !ok {
+		// The inner resolver cannot produce heights: hash reads stay cached,
+		// height reads fail through their own clear error path.
+		hash, err := c.inner.AnchorBlockHash(ctx)
+		if err != nil {
+			return "", 0, err
+		}
+		c.hash = hash
+		c.height = 0
+		c.validUntil = time.Now().Add(c.ttl)
+		return hash, 0, nil
+	}
+	hash, height, err := hp.AnchorBlockRef(ctx)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	c.hash = hash
+	c.height = height
 	c.validUntil = time.Now().Add(c.ttl)
-	return hash, nil
+	return hash, height, nil
 }

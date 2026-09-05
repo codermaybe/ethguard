@@ -570,3 +570,119 @@ func TestAdapterBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 		t.Fatalf("expected ErrMalformedResponse for receipts from another block, got %v", err)
 	}
 }
+
+// headFixture pins one common latest head (number 0x10, hash 0xabc) so
+// anchored reads rewrite moving tags deterministically.
+func headFixture(nodes []*rpctest.Node) {
+	for _, node := range nodes {
+		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": "0xabc"})
+	}
+}
+
+func TestAdapterCallContractVerifiesResultsAndMapsReverts(t *testing.T) {
+	adapter, nodes := fleet(t, 3)
+	headFixture(nodes)
+	for _, node := range nodes {
+		node.Handle("eth_call", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == "0xabc" {
+				return "0xdeadbeef", nil
+			}
+			return nil, rpctest.RPCError(-32000, "execution reverted")
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	to := common.HexToAddress("0x1")
+	msg := ethereum.CallMsg{To: &to, Data: []byte{0x00}}
+	data, err := adapter.CallContract(ctx, msg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string([]byte{0xde, 0xad, 0xbe, 0xef}) {
+		t.Fatalf("unexpected call result %x", data)
+	}
+
+	// A unanimous revert is a verified observation surfaced as RevertError,
+	// with the pipeline sentinels left for pipeline failures.
+	for _, node := range nodes {
+		node.Fail("eth_call", -32000, "execution reverted: no funds")
+	}
+	_, err = adapter.CallContract(ctx, msg, nil)
+	var revert *ethadapter.RevertError
+	if !errors.As(err, &revert) {
+		t.Fatalf("expected RevertError, got %v", err)
+	}
+	if revert.Message != "execution reverted: no funds" {
+		t.Fatalf("unexpected revert message %q", revert.Message)
+	}
+	if !strings.Contains(err.Error(), "verified observation") {
+		t.Fatalf("revert error should state its standing: %v", err)
+	}
+}
+
+func TestAdapterEstimateGasPinsTagAndTakesMedian(t *testing.T) {
+	adapter, nodes := fleet(t, 3)
+	headFixture(nodes)
+	estimates := []string{"0x64", "0x66", "0x68"}
+	for i, node := range nodes {
+		want := estimates[i]
+		node.Handle("eth_estimateGas", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == "0xabc" {
+				return want, nil
+			}
+			return nil, rpctest.RPCError(-32602, "tag was not pinned")
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	to := common.HexToAddress("0x1")
+	gas, err := adapter.EstimateGas(ctx, ethereum.CallMsg{To: &to})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gas != 0x66 {
+		t.Fatalf("expected lower median 0x66, got %d", gas)
+	}
+}
+
+func TestAdapterFilterLogsPinsTheFilterRange(t *testing.T) {
+	adapter, nodes := fleet(t, 3)
+	headFixture(nodes)
+	logs := []map[string]any{{
+		"address":          "0x0000000000000000000000000000000000000002",
+		"blockNumber":      "0x10",
+		"blockHash":        "0x00000000000000000000000000000000000000000000000000000000000000ab",
+		"transactionHash":  "0x00000000000000000000000000000000000000000000000000000000000000cd",
+		"transactionIndex": "0x0",
+		"logIndex":         "0x0",
+		"topics":           []any{},
+		"data":             "0x",
+		"removed":          false,
+	}}
+	for _, node := range nodes {
+		node.Handle("eth_getLogs", func(c rpctest.Call) (any, error) {
+			var filter map[string]any
+			if len(c.Params) != 1 || json.Unmarshal(c.Params[0], &filter) != nil {
+				return nil, rpctest.RPCError(-32602, "expected filter object")
+			}
+			if filter["fromBlock"] == "0x0" && filter["toBlock"] == "0xabc" {
+				return logs, nil
+			}
+			return nil, rpctest.RPCError(-32602, "range was not pinned")
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := adapter.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: big.NewInt(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].BlockNumber != 16 {
+		t.Fatalf("unexpected logs: %+v", got)
+	}
+}

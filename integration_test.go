@@ -1455,3 +1455,162 @@ func TestClientQuorumCoversAnchoredStateReads(t *testing.T) {
 		}
 	})
 }
+
+// callAt scripts eth_call to answer want only at the anchored hash and
+// revert everywhere else, so the test proves which reference rode the wire.
+func callAt(nodes []*rpctest.Node, hash, want string) {
+	for _, node := range nodes {
+		node.Handle("eth_call", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == hash {
+				return want, nil
+			}
+			return nil, rpctest.RPCError(-32000, "execution reverted")
+		})
+	}
+}
+
+func TestClientVerifiesCallOutcomeAcrossSources(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	agreeOnHead(nodes)
+	callAt(nodes, "0xabc", "0xdeadbeef")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	decision, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != rpc.Verified || string(decision.Value) != `"0xdeadbeef"` {
+		t.Fatalf("expected verified call result, got %+v", decision)
+	}
+	if decision.BlockRef != "0xabc" {
+		t.Fatalf("expected the anchored rewrite recorded as block ref, got %q", decision.BlockRef)
+	}
+}
+
+func TestClientVerifiedRevertIsAnObservation(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	agreeOnHead(nodes)
+	for _, node := range nodes {
+		node.Fail("eth_call", -32000, "execution reverted")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	decision, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest")
+	if err != nil {
+		t.Fatalf("a unanimous revert is a verified observation, not a failure: %v", err)
+	}
+	if decision.Status != rpc.Verified {
+		t.Fatalf("expected verified revert observation, got %+v", decision)
+	}
+	if !strings.Contains(string(decision.Value), "execution reverted") {
+		t.Fatalf("expected the revert envelope as value, got %s", decision.Value)
+	}
+}
+
+func TestClientFailsClosedWhenCallSplitsAcrossClasses(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	agreeOnHead(nodes)
+	callAt(nodes, "0xabc", "0xdeadbeef") // two sources answer; the third reverts below
+	nodes[2].Handle("eth_call", func(c rpctest.Call) (any, error) {
+		return nil, rpctest.RPCError(-32000, "execution reverted")
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest")
+	if !errors.Is(err, ethguard.ErrConflict) {
+		t.Fatalf("expected a result/revert split to conflict, got %v", err)
+	}
+}
+
+func TestEstimateGasIsAnchoredMedian(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	agreeOnHead(nodes)
+	estimates := []string{"0x64", "0x66", "0x68"}
+	for i, node := range nodes {
+		want := estimates[i]
+		node.Handle("eth_estimateGas", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == "0xabc" {
+				return want, nil
+			}
+			return nil, rpctest.RPCError(-32000, "execution reverted")
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	decision, err := client.Call(ctx, methods.MethodEstimateGas, map[string]any{"to": "0x1", "gas": 21000}, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != rpc.Selected || string(decision.Value) != `"0x66"` {
+		t.Fatalf("expected selected lower median 0x66, got %+v", decision)
+	}
+}
+
+func TestGetLogsPinsTheFilterRangeOnTheWire(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	agreeOnHead(nodes)
+	logs := []map[string]any{{"address": "0xaddr", "blockNumber": "0x10", "logIndex": "0x0"}}
+	for _, node := range nodes {
+		node.Handle("eth_getLogs", func(c rpctest.Call) (any, error) {
+			if len(c.Params) != 1 {
+				return nil, rpctest.RPCError(-32602, "expected filter object")
+			}
+			var filter map[string]any
+			if err := json.Unmarshal(c.Params[0], &filter); err != nil {
+				return nil, rpctest.RPCError(-32602, "malformed filter")
+			}
+			if filter["fromBlock"] == "0xabc" && filter["toBlock"] == "0xabc" {
+				return logs, nil
+			}
+			return nil, rpctest.RPCError(-32602, "range was not pinned to the anchor")
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	decision, err := client.Call(ctx, methods.MethodGetLogs, map[string]any{"fromBlock": "latest", "toBlock": "finalized"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != rpc.Verified || decision.BlockRef != "0xabc" {
+		t.Fatalf("expected verified pinned log query, got %+v", decision)
+	}
+}
+
+func TestFeeHistoryPinsNewestToTheVerifiedHeight(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	agreeOnHead(nodes) // head fixture: number 0x10, hash 0xabc
+	fixture := map[string]any{
+		"oldestBlock":   "0xf",
+		"baseFeePerGas": []string{"0x1", "0x2", "0x3"},
+		"gasUsedRatio":  []float64{0.5, 0.6, 0.7},
+	}
+	for _, node := range nodes {
+		node.Handle("eth_feeHistory", func(c rpctest.Call) (any, error) {
+			var newest string
+			if len(c.Params) == 3 && json.Unmarshal(c.Params[1], &newest) == nil && newest == "0x10" {
+				return fixture, nil
+			}
+			return nil, rpctest.RPCError(-32602, "newest was not the verified height")
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	history, decision, err := client.FeeHistory(ctx, 3, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != rpc.Verified || decision.BlockRef != "0x10" {
+		t.Fatalf("expected verified height-pinned history, got %+v", decision)
+	}
+	if history.OldestBlock.Uint64() != 15 || len(history.BaseFeePerGas) != 3 {
+		t.Fatalf("unexpected decoded history: %+v", history)
+	}
+}

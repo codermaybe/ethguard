@@ -115,6 +115,68 @@ func (c *Client) BlockReceipts(ctx context.Context, hash common.Hash) ([]*types.
 	return receipts, decision, nil
 }
 
+// FeeHistory describes the fleet-verified fee history of a pinned range.
+// It has no ethclient-shaped home, so it lives at the root (division rule:
+// the adapter mirrors ethclient; go-ethereum's client does not expose
+// feeHistory).
+type FeeHistory struct {
+	// OldestBlock is the first block of the returned range.
+	OldestBlock *big.Int
+	// BaseFeePerGas holds one entry per block of the range plus the
+	// EIP-1559 prediction for the block after the newest.
+	BaseFeePerGas []*big.Int
+	// GasUsedRatio holds one gas-used/gas-limit ratio per block of the range.
+	GasUsedRatio []float64
+	// Reward holds, per block, the priority fees at the caller's requested
+	// percentiles. Nil when no percentiles were requested.
+	Reward [][]*big.Int
+}
+
+// FeeHistory returns the fleet-verified fee history ending at the verified
+// reference: newest nil pins the moving "latest" tag, an explicit number
+// passes through. The range is chain-determined once newest is pinned, so
+// the decision is Verified when sources agree; cross-client percentile
+// rounding of Reward is the known liveness gate and fails closed as
+// conflict until the soak measures it.
+func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, newest *big.Int, rewardPercentiles []float64) (*FeeHistory, rpc.Decision, error) {
+	newestRef := "latest"
+	if newest != nil {
+		newestRef = hexutil.EncodeBig(newest)
+	}
+	decision, err := c.Call(ctx, methods.MethodFeeHistory, blockCount, newestRef, rewardPercentiles)
+	if err != nil {
+		return nil, decision, err
+	}
+	var wire struct {
+		OldestBlock   *hexutil.Big     `json:"oldestBlock"`
+		BaseFeePerGas []*hexutil.Big   `json:"baseFeePerGas"`
+		GasUsedRatio  []float64        `json:"gasUsedRatio"`
+		Reward        [][]*hexutil.Big `json:"reward"`
+	}
+	if err := json.Unmarshal(decision.Value, &wire); err != nil || wire.OldestBlock == nil {
+		return nil, decision, fmt.Errorf("%w: decode fee history: %v", rpc.ErrMalformedResponse, err)
+	}
+	out := &FeeHistory{
+		OldestBlock:   (*big.Int)(wire.OldestBlock),
+		BaseFeePerGas: make([]*big.Int, 0, len(wire.BaseFeePerGas)),
+		GasUsedRatio:  wire.GasUsedRatio,
+	}
+	for _, fee := range wire.BaseFeePerGas {
+		out.BaseFeePerGas = append(out.BaseFeePerGas, (*big.Int)(fee))
+	}
+	if wire.Reward != nil {
+		out.Reward = make([][]*big.Int, 0, len(wire.Reward))
+		for _, row := range wire.Reward {
+			rewards := make([]*big.Int, 0, len(row))
+			for _, reward := range row {
+				rewards = append(rewards, (*big.Int)(reward))
+			}
+			out.Reward = append(out.Reward, rewards)
+		}
+	}
+	return out, decision, nil
+}
+
 // MaxPriorityFeePerGas returns the fleet's lower-median priority-fee
 // estimate — a variable result, Selected at best, with outliers kept as
 // evidence (see GasPrice).

@@ -102,3 +102,38 @@ func TestNormalizeDecimalStringComparesNumerically(t *testing.T) {
 		t.Fatal("expected hex spelling to be rejected")
 	}
 }
+
+func TestNormalizeCallOutcomeClustersResultsAndReverts(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+		wantErr bool
+	}{
+		{"return data compares case-insensitively", `"0xDEADbeef"`, "ok|0xdeadbeef", false},
+		{"empty result is valid data", `"0x"`, "ok|0x", false},
+		{"revert wording collapses to one key", `{"code":-32000,"message":"execution reverted: ERC20: insufficient allowance"}`, "reverted", false},
+		{"bare revert collapses to the same key", `{"code":-32000,"message":"execution reverted"}`, "reverted", false},
+		{"legacy parity revert code", `{"code":3,"message":"Reverted"}`, "reverted", false},
+		{"geth client timeout is a fault, not an observation", `{"code":-32002,"message":"request timed out"}`, "", true},
+		{"internal error is a fault", `{"code":-32603,"message":"panic"}`, "", true},
+		{"unrecognized payload is a fault", `{"neither":"result nor error"}`, "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			key, err := normalizeCallOutcome(json.RawMessage(tc.payload))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected fault, got key %q", key)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if key != tc.want {
+				t.Fatalf("expected key %q, got %q", tc.want, key)
+			}
+		})
+	}
+}
