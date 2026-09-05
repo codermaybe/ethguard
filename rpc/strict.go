@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-
-	"ethguard/pool"
 )
 
 // CanonicalJSON reduces any JSON value to a comparable canonical form by
@@ -43,6 +41,13 @@ func WithQuorum(n int) StrictOption {
 	}
 }
 
+// WithRPCErrorBodies opts a strict policy into normalizing and clustering
+// structured JSON-RPC error bodies. It is intentionally opt-in: most method
+// errors are not interchangeable with successful result values.
+func WithRPCErrorBodies() StrictOption {
+	return func(s *strictFunc) { s.includeRPCError = true }
+}
+
 // Strict binds a response normalizer to strict-consensus resolution. Method
 // authors supply only the normalizer — the one part that varies per method —
 // instead of re-implementing the Policy shell.
@@ -59,8 +64,9 @@ func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOptio
 }
 
 type strictFunc struct {
-	normalize func(json.RawMessage) (string, error)
-	minQuorum int
+	normalize       func(json.RawMessage) (string, error)
+	minQuorum       int
+	includeRPCError bool
 }
 
 func (f strictFunc) Prepare(_ context.Context, req Request) (Request, error) {
@@ -71,22 +77,28 @@ func (f strictFunc) Normalize(value json.RawMessage) (string, error) {
 	return f.normalize(value)
 }
 
+func (f strictFunc) IncludeRPCError() bool { return f.includeRPCError }
+
 func (f strictFunc) Resolve(obs []Observation) (Decision, error) {
 	var decision Decision
-	groups := make(map[string][]*pool.Source)
+	groups := make(map[string][]SourceRef)
 	values := make(map[string]json.RawMessage)
 	valid := 0
 	for _, item := range obs {
+		value := item.Value
 		if item.Err != nil {
-			continue
+			if !f.includeRPCError || item.RPCError == nil {
+				continue
+			}
+			value = item.RPCError.Raw()
 		}
-		key, err := f.normalize(item.Value)
+		key, err := f.normalize(value)
 		if err != nil {
 			decision.Faults = append(decision.Faults, fmt.Errorf("normalize: %w", err))
 			continue
 		}
 		groups[key] = append(groups[key], item.Source)
-		values[key] = item.Value
+		values[key] = value
 		valid++
 	}
 	if len(groups) == 0 {

@@ -39,9 +39,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"ethguard"
-	"ethguard/chainlist"
 	"ethguard/config"
 	"ethguard/ethadapter"
+	"ethguard/internal/chainlist"
 	"ethguard/pool"
 	"ethguard/rpc"
 	"ethguard/rpc/methods"

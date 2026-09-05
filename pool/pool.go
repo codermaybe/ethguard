@@ -90,7 +90,9 @@ func newPoolWithDialerAndChainID(d dialer, chainID uint64) *Pool {
 }
 
 // Join registers an endpoint if it is not already present. Concurrent calls
-// for the same normalized endpoint always return the same Source.
+// for the same normalized endpoint always return the same Source. Distinct
+// endpoints must have distinct display names so diagnostics and metric labels
+// cannot collide.
 func (p *Pool) Join(name, rawURL string) (*Source, error) {
 	id, err := normalizeEndpointID(rawURL)
 	if err != nil {
@@ -104,6 +106,11 @@ func (p *Pool) Join(name, rawURL string) (*Source, error) {
 	}
 	if existing := p.byID[id]; existing != nil {
 		return existing, nil
+	}
+	for _, existing := range p.sources {
+		if existing.name == name {
+			return nil, fmt.Errorf("pool: duplicate source name %q", name)
+		}
 	}
 
 	life, cancelLife := context.WithCancel(context.Background())

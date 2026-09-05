@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -50,13 +47,13 @@ type StrictHeadAnchor struct {
 
 // NewStrictHeadAnchor builds the default resolver over p, reporting one
 // decision event per establishment into rec.
-func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder) *StrictHeadAnchor {
+func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, strictOpts ...rpc.StrictOption) *StrictHeadAnchor {
 	if rec == nil {
 		rec = observe.Nop
 	}
 	return &StrictHeadAnchor{
 		aggregate: aggregator.New(p, rpc.Registry{
-			anchorMethod: anchorHeadPolicy{methods.BlockByNumberPolicy()},
+			anchorMethod: anchorHeadPolicy{methods.BlockByNumberPolicy(strictOpts...)},
 		}, aggregator.WithRecorder(rec)),
 	}
 }
@@ -128,7 +125,7 @@ func NewFinalizedHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...Finalize
 	}
 	return &FinalizedHeadAnchor{
 		aggregate: aggregator.New(p, rpc.Registry{
-			anchorMethod: finalizedHeadPolicy{maxLag: cfg.maxLag},
+			anchorMethod: anchorHeadPolicy{rpc.FinalizedHead(cfg.maxLag)},
 		}, aggregator.WithRecorder(rec)),
 	}
 }
@@ -143,148 +140,6 @@ func (a *FinalizedHeadAnchor) AnchorBlockHash(ctx context.Context) (string, erro
 		return "", err
 	}
 	return blockHashFromDecision(decision)
-}
-
-// finalizedHeadPolicy resolves the fleet's finalized-block answers with
-// lowest-fresh-height selection instead of strict consensus.
-type finalizedHeadPolicy struct {
-	maxLag uint64
-}
-
-type finalizedHead struct {
-	Number string `json:"number"`
-	Hash   string `json:"hash"`
-}
-
-func (p finalizedHeadPolicy) Prepare(_ context.Context, req rpc.Request) (rpc.Request, error) {
-	prepared := rpc.Request{Method: methods.MethodGetBlockByNumber, Params: req.Params}
-	return prepared, nil
-}
-
-// Normalize reduces a finalized block object to "<height>|<hash>" with the
-// height in decimal, so equivalent hexadecimal spellings cluster together.
-func (p finalizedHeadPolicy) Normalize(value json.RawMessage) (string, error) {
-	head, err := decodeFinalizedHead(value)
-	if err != nil {
-		return "", err
-	}
-	height, err := parseHeight(head.Number)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%d|%s", height, strings.ToLower(head.Hash)), nil
-}
-
-func (p finalizedHeadPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
-	var decision rpc.Decision
-	type view struct {
-		height uint64
-		hash   string
-		value  json.RawMessage
-	}
-	views := make(map[*pool.Source]view, len(obs))
-	for _, item := range obs {
-		if item.Err != nil {
-			continue
-		}
-		head, err := decodeFinalizedHead(item.Value)
-		if err != nil {
-			decision.Faults = append(decision.Faults, fmt.Errorf("normalize: %w", err))
-			continue
-		}
-		height, err := parseHeight(head.Number)
-		if err != nil {
-			decision.Faults = append(decision.Faults, fmt.Errorf("normalize: %w", err))
-			continue
-		}
-		views[item.Source] = view{height: height, hash: strings.ToLower(head.Hash), value: item.Value}
-	}
-	if len(views) == 0 {
-		return rpc.Decision{}, fmt.Errorf(
-			"finalized head: no source produced a valid response (%d attempted): %w",
-			len(obs), rpc.ErrNoValidResponse)
-	}
-
-	var freshest uint64
-	for _, v := range views {
-		if v.height > freshest {
-			freshest = v.height
-		}
-	}
-
-	// Cluster surviving views by height, excluding stale ones in the same
-	// pass; deterministic iteration comes from sorting heights afterwards.
-	clusters := make(map[uint64][]*pool.Source)
-	hashes := make(map[uint64]string)
-	values := make(map[uint64]json.RawMessage)
-	var excluded []*pool.Source
-	for src, v := range views {
-		switch {
-		case freshest-v.height > p.maxLag:
-			excluded = append(excluded, src)
-			decision.Faults = append(decision.Faults, fmt.Errorf(
-				"source %q: stale finalized height %d trails %d beyond %d blocks",
-				src.Name(), v.height, freshest, p.maxLag))
-		default:
-			clusters[v.height] = append(clusters[v.height], src)
-			if _, seen := hashes[v.height]; !seen {
-				hashes[v.height] = v.hash
-				values[v.height] = v.value
-			}
-		}
-	}
-	for _, src := range excluded {
-		decision.Reject = append(decision.Reject, src)
-	}
-
-	heights := make([]uint64, 0, len(clusters))
-	for h := range clusters {
-		heights = append(heights, h)
-	}
-	slices.Sort(heights)
-	winner := heights[0]
-
-	// A fork at the pinned height is real dissent: fail closed with evidence.
-	distinct := make(map[string]bool, len(clusters[winner]))
-	for _, v := range views {
-		if v.height == winner {
-			distinct[v.hash] = true
-		}
-	}
-	if len(distinct) > 1 {
-		decision.Value = values[winner]
-		decision.Support = clusters[winner]
-		return decision, fmt.Errorf("finalized head: %d hashes claimed for height %d: %w",
-			len(distinct), winner, rpc.ErrConflict)
-	}
-
-	decision.Status = rpc.Verified
-	if len(clusters[winner]) == 1 {
-		decision.Status = rpc.Selected // no corroboration, no Verified claim
-	}
-	decision.Value = values[winner]
-	decision.Support = clusters[winner]
-	return decision, nil
-}
-
-func decodeFinalizedHead(value json.RawMessage) (finalizedHead, error) {
-	var head finalizedHead
-	if err := json.Unmarshal(value, &head); err != nil {
-		return head, err
-	}
-	if head.Number == "" || len(head.Hash) < 3 {
-		return head, fmt.Errorf("finalized head: missing number or hash")
-	}
-	return head, nil
-}
-
-func parseHeight(number string) (uint64, error) {
-	digits := strings.TrimPrefix(number, "0x")
-	height, err := strconv.ParseUint(digits, 16, 64)
-	if err != nil {
-		return 0, fmt.Errorf("finalized head: invalid height %q", number)
-	}
-	return height, nil
 }
 
 // anchorHeadPolicy adapts the unanchored block-head policy to the anchor

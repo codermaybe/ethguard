@@ -3,14 +3,18 @@ package rpc
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
-
-	"ethguard/pool"
 )
 
-// src returns a distinct opaque source pointer so Support/Reject membership
-// can be counted without constructing real connections.
-func src() *pool.Source { return &pool.Source{} }
+// src returns a distinct source identity without constructing real connections.
+var sourceCounter atomic.Uint64
+
+func src() SourceRef {
+	n := sourceCounter.Add(1)
+	return SourceRef{Name: fmt.Sprintf("source-%d", n), ID: fmt.Sprintf("id-%d", n)}
+}
 
 func obs(value string) Observation {
 	return Observation{Source: src(), Value: json.RawMessage(value)}
@@ -176,5 +180,19 @@ func TestForwardWithoutResponseIsNoValidResponse(t *testing.T) {
 		if _, err := p.Resolve([]Observation{{Source: src(), Err: errors.New("down")}}); !errors.Is(err, ErrNoValidResponse) {
 			t.Fatalf("%T: expected no-valid-response class, got %v", p, err)
 		}
+	}
+}
+
+func TestStrictCanOptIntoRPCErrorBodyClustering(t *testing.T) {
+	p := Strict(CanonicalJSON, WithRPCErrorBodies())
+	decision, err := p.Resolve([]Observation{
+		{Source: src(), Err: errors.New("rpc error"), RPCError: &RPCError{Code: -32000, Message: "execution reverted"}},
+		{Source: src(), Err: errors.New("rpc error"), RPCError: &RPCError{Code: -32000, Message: "execution reverted"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != Verified || len(decision.Support) != 2 {
+		t.Fatalf("expected clustered protocol errors, got %+v", decision)
 	}
 }

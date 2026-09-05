@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"ethguard/pool"
 )
 
 // Local binds a normalizer to upstream-local resolution for results that
@@ -49,7 +47,7 @@ func (f localFunc) Resolve(obs []Observation) (Decision, error) {
 		return Decision{
 			Status:  Selected,
 			Value:   item.Value,
-			Support: []*pool.Source{item.Source},
+			Support: []SourceRef{item.Source},
 			Faults:  faults,
 		}, nil
 	}

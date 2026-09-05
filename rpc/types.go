@@ -5,8 +5,6 @@ package rpc
 import (
 	"encoding/json"
 	"errors"
-
-	"ethguard/pool"
 )
 
 // Request is an arbitrary JSON-RPC request.
@@ -15,11 +13,42 @@ type Request struct {
 	Params []any
 }
 
+// SourceRef is immutable source identity carried in observations and decision
+// evidence. Keeping this value type in rpc prevents the policy layer from
+// depending on pool's connection and health implementation.
+type SourceRef struct {
+	Name string
+	URL  string
+	ID   string
+}
+
+// RPCError is the structured protocol error returned by a JSON-RPC upstream.
+// Data is retained verbatim because contract-specific callers may need it.
+type RPCError struct {
+	Code    int
+	Message string
+	Data    json.RawMessage
+}
+
+// Raw returns a stable JSON representation of the protocol error body. It is
+// used only by policies that explicitly opt into treating protocol errors as
+// clusterable values.
+func (e RPCError) Raw() json.RawMessage {
+	body := struct {
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data,omitempty"`
+	}{Code: e.Code, Message: e.Message, Data: e.Data}
+	raw, _ := json.Marshal(body)
+	return raw
+}
+
 // Observation is one source's raw response to a request.
 type Observation struct {
-	Source *pool.Source
-	Value  json.RawMessage
-	Err    error
+	Source   SourceRef
+	Value    json.RawMessage
+	Err      error
+	RPCError *RPCError
 }
 
 // Status describes the confidence class of a successful decision.
@@ -36,16 +65,15 @@ const (
 // tree. Faults records collection-phase failures that did not prevent the
 // decision, so partial fan-outs stay diagnosable on success paths too.
 type Decision struct {
-	Status  Status
-	Value   json.RawMessage
-	Support []*pool.Source
-	Reject  []*pool.Source
-	Faults  []error
+	Status   Status
+	Value    json.RawMessage
+	BlockRef string
+	Support  []SourceRef
+	Reject   []SourceRef
+	Faults   []error
 }
 
-// String names the confidence class for observability sinks. The values are
-// part of the observability contract consumed by metrics and logs; they must
-// stay in sync with the status labels documented on observe.DecisionEvent.
+// String names the confidence class for observability sinks.
 func (s Status) String() string {
 	switch s {
 	case Verified:
@@ -59,21 +87,10 @@ func (s Status) String() string {
 	}
 }
 
-// Error classes for the decision pipeline. Every failure wraps exactly one
-// class; match with errors.Is. These sentinels are part of the public
-// stability contract (decision 0009): new classes may appear, existing ones
-// will not be removed or merged.
+// Error classes for the decision pipeline.
 var (
-	// ErrConflict reports that sources were verified but disagreed, or that
-	// a configured quorum was unmet. Decision evidence names the clusters.
-	ErrConflict = errors.New("rpc: conflicting responses")
-
-	// ErrNoValidResponse reports that sources answered but no response
-	// survived normalization — including fleets whose every emission was a
-	// JSON-RPC error object.
-	ErrNoValidResponse = errors.New("rpc: no valid response")
-
-	// ErrMalformedResponse reports a decode-stage failure at a typed
-	// boundary: a resolved value cannot be shaped into its target.
+	ErrConflict          = errors.New("rpc: conflicting responses")
+	ErrNoValidResponse   = errors.New("rpc: no valid response")
 	ErrMalformedResponse = errors.New("rpc: malformed response")
+	ErrInvalidRequest    = errors.New("rpc: invalid request")
 )

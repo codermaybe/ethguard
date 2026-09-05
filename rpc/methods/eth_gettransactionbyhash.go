@@ -14,4 +14,6 @@ const MethodGetTransactionByHash = "eth_getTransactionByHash"
 // stays pending — so it rides the shared canonical-object normalizer. Null
 // is an ordinary answer: verified absence maps to ethereum.NotFound at the
 // typed boundary, and a fleet split between null and an object is conflict.
-func TransactionByHashPolicy() rpc.Policy { return rpc.Strict(normalizeCanonicalObject) }
+func TransactionByHashPolicy(opts ...rpc.StrictOption) rpc.Policy {
+	return rpc.Strict(normalizeCanonicalObject, opts...)
+}

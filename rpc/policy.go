@@ -25,3 +25,19 @@ func (r Registry) PolicyFor(method string) Policy {
 	}
 	return ForwardPolicy{}
 }
+
+// BlockRefProvider is an optional policy capability. It reports the block
+// reference introduced while preparing a request, if any. The aggregator uses
+// it to retain the security-relevant pin in Decision.BlockRef without making
+// every policy carry anchoring state.
+type BlockRefProvider interface {
+	BlockRef(original, prepared Request) string
+}
+
+// RPCErrorPolicy is an optional capability for policies whose value domain
+// includes JSON-RPC error bodies. Ordinary strict/local/median policies leave
+// protocol errors out of normalization; forwarded policies return them as the
+// authoritative single-source answer.
+type RPCErrorPolicy interface {
+	IncludeRPCError() bool
+}

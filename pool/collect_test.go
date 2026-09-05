@@ -78,6 +78,10 @@ func (a *fakeAPI) ProtocolFailure() (interface{}, error) {
 	return nil, fakeRPCError{code: -32700}
 }
 
+func (a *fakeAPI) ServerFailure() (interface{}, error) {
+	return nil, fakeRPCError{code: -32603}
+}
+
 // newFakeDialer returns a dialer that spins up an in-memory RPC node per URL,
 // so each Source gets its own independent value. It counts dials per URL.
 type newFakeDialer struct {
@@ -713,6 +717,16 @@ func TestPoolJoinDeduplicatesNormalizedEndpoints(t *testing.T) {
 	}
 }
 
+func TestPoolJoinRejectsDuplicateDisplayNames(t *testing.T) {
+	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
+	if _, err := p.Join("same", "https://a.example"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Join("same", "https://b.example"); err == nil {
+		t.Fatal("expected duplicate display name to be rejected")
+	}
+}
+
 func TestPoolJoinRejectsUnsupportedScheme(t *testing.T) {
 	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
 	if _, err := p.Join("bad", "ftp://example.com"); err == nil {
@@ -758,5 +772,42 @@ func TestCollectClassifiesDeadFleetAsAllSourcesDown(t *testing.T) {
 		if !errors.Is(em.Err, dialErr) {
 			t.Fatalf("emission %d: expected original cause preserved, got %v", i, em.Err)
 		}
+	}
+}
+
+func TestForwardFailsOverTransportErrorsInPoolOrder(t *testing.T) {
+	d := &newFakeDialer{dials: make(map[string]int), closeFirst: map[string]bool{"https://a.example": true}}
+	p := newPoolWithDialer(d)
+	if _, err := p.Join("a", "https://a.example"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Join("b", "https://b.example"); err != nil {
+		t.Fatal(err)
+	}
+	emissions, err := p.Forward(context.Background(), "eth_blockNumber", nil, CollectOptions{})
+	if err != nil {
+		t.Fatalf("Forward: %v", err)
+	}
+	if len(emissions) != 2 || emissions[0].Err == nil || emissions[1].Err != nil || len(emissions[1].Val) == 0 {
+		t.Fatalf("unexpected failover emissions: %+v", emissions)
+	}
+	if d.dials["https://a.example"] != 1 || d.dials["https://b.example"] != 1 {
+		t.Fatalf("expected one dial per attempted source, got %+v", d.dials)
+	}
+}
+
+func TestServerErrorsHaveDedicatedHealthBucket(t *testing.T) {
+	d := &newFakeDialer{dials: make(map[string]int)}
+	p := newPoolWithDialer(d)
+	src, err := p.Join("a", "https://a.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Collect(context.Background(), "eth_serverFailure", nil, CollectOptions{}); err != nil {
+		t.Fatalf("expected protocol response to be returned: %v", err)
+	}
+	health := src.Health()
+	if health.Failures != 1 || health.ProtocolServerErrors != 1 || health.Successes != 0 {
+		t.Fatalf("unexpected server-error health: %+v", health)
 	}
 }

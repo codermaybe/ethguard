@@ -16,4 +16,6 @@ const MethodGetTransactionReceipt = "eth_getTransactionReceipt"
 // presence pass through the same comparison; a fleet split between them is
 // conflict. The receipt schema's required-field set binds typed decoding
 // after verification, at the root client's decode boundary.
-func TransactionReceiptPolicy() rpc.Policy { return rpc.Strict(normalizeCanonicalObject) }
+func TransactionReceiptPolicy(opts ...rpc.StrictOption) rpc.Policy {
+	return rpc.Strict(normalizeCanonicalObject, opts...)
+}

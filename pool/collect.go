@@ -146,6 +146,55 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 	return emissions, ErrAllSourcesDown
 }
 
+// Forward sends a request to one eligible source at a time, in deterministic
+// pool order. It fails over only after a transport-level failure. A JSON-RPC
+// response error is an answer from that source and stops the sequence.
+//
+// Unlike Collect, this method deliberately avoids symmetric fan-out for
+// unknown, heavy, or non-idempotent methods. The returned emissions contain
+// only sources that were actually attempted.
+func (p *Pool) Forward(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = maxDefaultTimeout
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	sources, err := p.sourcesForCollect(collectPlan{applyFreshness: true})
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) == 0 {
+		return nil, ErrNoEligibleSource
+	}
+
+	emissions := make([]Emission, 0, len(sources))
+	for _, src := range sources {
+		if err := callCtx.Err(); err != nil {
+			return emissions, err
+		}
+		start := time.Now()
+		val, callErr := collectOne(callCtx, src, method, params)
+		rtt := time.Since(start)
+		emission := Emission{Src: src, Val: val, Err: callErr, RTT: rtt, Attempted: true}
+		if isHealthyRPCResponse(callErr) {
+			src.recordSuccessfulCall(rtt)
+		} else if shouldRecordFailure(ctx, callErr) {
+			src.recordFailedCall(callErr)
+		}
+		emissions = append(emissions, emission)
+
+		if callErr == nil || isJSONRPCResponseError(callErr) {
+			return emissions, nil
+		}
+		if errors.Is(callErr, ErrChainIDMismatch) {
+			return emissions, callErr
+		}
+	}
+	return emissions, ErrAllSourcesDown
+}
+
 func shouldRecordFailure(parent context.Context, err error) bool {
 	return err != nil &&
 		parent.Err() == nil &&
@@ -167,7 +216,7 @@ func isHealthyRPCResponse(err error) bool {
 		return false
 	}
 	// These codes mean the peer could not process a valid JSON-RPC exchange.
-	return rpcErr.ErrorCode() != -32700 && rpcErr.ErrorCode() != -32600
+	return !isProtocolServerError(err) && rpcErr.ErrorCode() != -32700 && rpcErr.ErrorCode() != -32600
 }
 
 // collectOne performs a single JSON-RPC call on one source, dialing lazily if
@@ -178,9 +227,6 @@ func collectOne(ctx context.Context, src *Source, method string, params []any) (
 		return nil, err
 	}
 	if err := src.verifyChainID(ctx, client); err != nil {
-		if errors.Is(err, ErrChainIDMismatch) {
-			src.recordFailedCall(err)
-		}
 		return nil, err
 	}
 

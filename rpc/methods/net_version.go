@@ -11,4 +11,6 @@ const MethodNetVersion = "net_version"
 // chain identity in its legacy decimal spelling — a separate encoder from
 // eth_chainId's hex quantity, so it gets its own normalizer rather than
 // sharing one.
-func NetVersionPolicy() rpc.Policy { return rpc.Strict(normalizeDecimalString) }
+func NetVersionPolicy(opts ...rpc.StrictOption) rpc.Policy {
+	return rpc.Strict(normalizeDecimalString, opts...)
+}

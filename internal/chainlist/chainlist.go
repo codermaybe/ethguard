@@ -1,6 +1,5 @@
 // Package chainlist parses chainlist.org's public RPC registry (rpcs.json)
-// into endpoint lists for soak testing EthGuard against a real fleet of
-// mutually untrusted providers.
+// into endpoint lists for EthGuard's internal soak command.
 //
 // This package is a test-tooling aid, deliberately not a runtime dependency:
 // zero-config public endpoint pools are a recorded product rejection (see

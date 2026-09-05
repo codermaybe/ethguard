@@ -1,12 +1,39 @@
 package config
 
-// Config is the top-level EthGuard configuration.
+// Config is the top-level EthGuard configuration. The same fields are
+// available to YAML users and are mapped to the corresponding Go options by
+// ethguard.New.
 type Config struct {
 	// ChainID optionally constrains upstreams to one Ethereum network. Zero
 	// leaves chain identity validation to the caller.
 	ChainID uint64 `yaml:"chain_id" json:"chain_id"`
 	// Upstreams is the list of Ethereum JSON-RPC providers to manage.
 	Upstreams []Upstream `yaml:"upstreams" json:"upstreams"`
+	// Anchoring selects the moving-tag reference strategy. An omitted section
+	// means strict anchoring with the default finalized lag.
+	Anchoring *AnchoringConfig `yaml:"anchoring,omitempty" json:"anchoring,omitempty"`
+	// AnchorCacheTTL enables reuse of an established anchor for this duration.
+	// An empty value disables caching.
+	AnchorCacheTTL string `yaml:"anchor_cache_ttl,omitempty" json:"anchor_cache_ttl,omitempty"`
+	// TipTracking enables freshness-based source eligibility when present.
+	TipTracking *TipTrackingConfig `yaml:"tip_tracking,omitempty" json:"tip_tracking,omitempty"`
+	// Quorum is the minimum strict winning cluster. Zero preserves strict's
+	// default full-agreement behavior.
+	Quorum int `yaml:"quorum,omitempty" json:"quorum,omitempty"`
+	// CollectTimeout bounds one aggregate collection. Empty uses 30 seconds.
+	CollectTimeout string `yaml:"collect_timeout,omitempty" json:"collect_timeout,omitempty"`
+}
+
+// AnchoringConfig selects a moving-tag anchoring preset.
+type AnchoringConfig struct {
+	Preset string `yaml:"preset,omitempty" json:"preset,omitempty"`
+	MaxLag uint64 `yaml:"max_lag,omitempty" json:"max_lag,omitempty"`
+}
+
+// TipTrackingConfig configures the source freshness sampler.
+type TipTrackingConfig struct {
+	Interval  string `yaml:"interval,omitempty" json:"interval,omitempty"`
+	MaxBehind uint64 `yaml:"max_behind,omitempty" json:"max_behind,omitempty"`
 }
 
 // Upstream describes a single RPC provider.

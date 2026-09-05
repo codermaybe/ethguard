@@ -44,6 +44,10 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool)
 	if err != nil {
 		return nil, decision, err
 	}
+	if block.Hash() != hash {
+		return nil, decision, fmt.Errorf("%w: block hash %s does not match requested hash %s",
+			rpc.ErrMalformedResponse, block.Hash(), hash)
+	}
 	return block, decision, nil
 }
 
@@ -62,6 +66,10 @@ func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*typ
 	if err != nil {
 		return nil, decision, err
 	}
+	if receipt.TxHash != hash {
+		return nil, decision, fmt.Errorf("%w: receipt transaction hash %s does not match requested hash %s",
+			rpc.ErrMalformedResponse, receipt.TxHash, hash)
+	}
 	return receipt, decision, nil
 }
 
@@ -76,6 +84,10 @@ func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (*type
 	tx, _, err := DecodeTransaction(decision.Value)
 	if err != nil {
 		return nil, decision, err
+	}
+	if tx.Hash() != hash {
+		return nil, decision, fmt.Errorf("%w: transaction hash %s does not match requested hash %s",
+			rpc.ErrMalformedResponse, tx.Hash(), hash)
 	}
 	return tx, decision, nil
 }
@@ -93,6 +105,12 @@ func (c *Client) BlockReceipts(ctx context.Context, hash common.Hash) ([]*types.
 	receipts, err := DecodeReceipts(decision.Value)
 	if err != nil {
 		return nil, decision, err
+	}
+	for i, receipt := range receipts {
+		if receipt.BlockHash != hash {
+			return nil, decision, fmt.Errorf("%w: receipt %d block hash %s does not match requested hash %s",
+				rpc.ErrMalformedResponse, i, receipt.BlockHash, hash)
+		}
 	}
 	return receipts, decision, nil
 }
@@ -183,6 +201,10 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 	block, err := DecodeBlock(decision.Value)
 	if err != nil {
 		return 0, err
+	}
+	if block.Hash() != common.HexToHash(ref) {
+		return 0, fmt.Errorf("%w: block hash %s does not match anchor reference %s",
+			rpc.ErrMalformedResponse, block.Hash(), ref)
 	}
 	return block.NumberU64(), nil
 }

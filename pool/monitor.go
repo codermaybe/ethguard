@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,9 @@ type monitor struct {
 	// the provider is alive but throttling us, which is operationally
 	// different from being broken or unreachable.
 	rateLimited uint64
+	// protocolServerErrors counts JSON-RPC internal/server failures separately
+	// from transport failures and rate limits.
+	protocolServerErrors uint64
 
 	// latencyEWMA is a simple exponential moving average of successful RTTs.
 	latencyEWMA time.Duration
@@ -50,11 +54,12 @@ type monitor struct {
 
 // HealthSnapshot is a point-in-time copy of source health observations.
 type HealthSnapshot struct {
-	Successes           uint64
-	Failures            uint64
-	ConsecutiveFailures uint64
-	RateLimited         uint64
-	LatencyEWMA         time.Duration
+	Successes            uint64
+	Failures             uint64
+	ConsecutiveFailures  uint64
+	RateLimited          uint64
+	ProtocolServerErrors uint64
+	LatencyEWMA          time.Duration
 	// LatencyP95 and LatencyP99 are nearest-rank percentiles over the recent
 	// sample window; zero while fewer samples than the rank exist.
 	LatencyP95    time.Duration
@@ -101,6 +106,9 @@ func (m *monitor) observeFailure(err error) {
 	if errors.As(err, &httpErr) && httpErr.StatusCode == 429 {
 		m.rateLimited++
 	}
+	if isProtocolServerError(err) {
+		m.protocolServerErrors++
+	}
 	m.lastFailure = time.Now()
 	m.lastError = err
 }
@@ -130,16 +138,17 @@ func (m *monitor) snapshot() HealthSnapshot {
 	defer m.mu.Unlock()
 
 	snap := HealthSnapshot{
-		Successes:           m.successes,
-		Failures:            m.failures,
-		ConsecutiveFailures: m.consecutiveFailures,
-		RateLimited:         m.rateLimited,
-		LatencyEWMA:         m.latencyEWMA,
-		LastSuccess:         m.lastSuccess,
-		LastFailure:         m.lastFailure,
-		LastError:           m.lastError,
-		TipHeight:           m.tipHeight,
-		TipObservedAt:       m.tipObservedAt,
+		Successes:            m.successes,
+		Failures:             m.failures,
+		ConsecutiveFailures:  m.consecutiveFailures,
+		RateLimited:          m.rateLimited,
+		ProtocolServerErrors: m.protocolServerErrors,
+		LatencyEWMA:          m.latencyEWMA,
+		LastSuccess:          m.lastSuccess,
+		LastFailure:          m.lastFailure,
+		LastError:            m.lastError,
+		TipHeight:            m.tipHeight,
+		TipObservedAt:        m.tipObservedAt,
 	}
 	p95, p99 := m.percentilesLocked()
 	snap.LatencyP95, snap.LatencyP99 = p95, p99
@@ -173,4 +182,24 @@ func nearestRank(p float64, n int) int {
 		rank = n
 	}
 	return rank
+}
+
+// isProtocolServerError separates provider/server failures from application
+// errors. In particular, contract execution reverts commonly use -32000 and
+// remain healthy responses rather than being treated as node failures.
+func isProtocolServerError(err error) bool {
+	var rpcErr rpc.Error
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+	switch rpcErr.ErrorCode() {
+	case -32603, -32002, -32003:
+		return true
+	case -32000:
+		message := strings.ToLower(rpcErr.Error())
+		return !strings.Contains(message, "execution reverted") &&
+			!strings.Contains(message, "revert")
+	default:
+		return false
+	}
 }

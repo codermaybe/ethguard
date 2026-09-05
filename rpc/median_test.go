@@ -74,6 +74,23 @@ func TestMedianDuplicatesClusterAroundWinner(t *testing.T) {
 	}
 }
 
+func TestMedianUsesFirstPoolOrderSpellingOnEqualValues(t *testing.T) {
+	p := Median(func(v json.RawMessage) (string, error) {
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return "", err
+		}
+		return map[string]string{"0x01": "1", "0x1": "1", "0x2": "2"}[s], nil
+	})
+	decision, err := p.Resolve([]Observation{obs(`"0x01"`), obs(`"0x1"`), obs(`"0x2"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decision.Value) != `"0x01"` {
+		t.Fatalf("expected first pool-order spelling to win, got %s", decision.Value)
+	}
+}
+
 func TestMedianInvalidResponsesRideAsFaults(t *testing.T) {
 	p := Median(decimal)
 	decision, err := p.Resolve([]Observation{

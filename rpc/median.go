@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
-
-	"ethguard/pool"
 )
 
 // Median binds a response normalizer to robust-selection resolution for
@@ -41,7 +39,7 @@ func (f medianFunc) Normalize(value json.RawMessage) (string, error) {
 func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 	var decision Decision
 	type sample struct {
-		source *pool.Source
+		source SourceRef
 		value  *big.Int
 		raw    json.RawMessage
 	}
@@ -68,8 +66,18 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 			"median: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
 	}
 
-	sort.Slice(samples, func(i, j int) bool { return samples[i].value.Cmp(samples[j].value) < 0 })
-	winner := samples[(len(samples)-1)/2] // lower median: never above the middle
+	// Keep equal-valued samples in pool order. When the median value has
+	// multiple raw spellings, the first source's spelling is the deterministic
+	// winner rather than an artifact of an unstable sort.
+	sort.SliceStable(samples, func(i, j int) bool { return samples[i].value.Cmp(samples[j].value) < 0 })
+	medianValue := samples[(len(samples)-1)/2].value // lower median: never above the middle
+	winner := samples[0]
+	for _, candidate := range samples {
+		if candidate.value.Cmp(medianValue) == 0 {
+			winner = candidate // first equal sample remains first in pool order
+			break
+		}
+	}
 
 	decision.Status = Selected // variable result: corroboration proves nothing
 	decision.Value = winner.raw

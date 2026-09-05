@@ -175,12 +175,27 @@ func TestAdapterBlockByHashUsesDedicatedMethod(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	block, err := client.BlockByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	block, err := client.BlockByHash(ctx, common.HexToHash(blockHashOf(pinned)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if block.NumberU64() != 16 {
 		t.Fatalf("expected block 16, got %d", block.NumberU64())
+	}
+}
+
+func TestAdapterBlockByHashRejectsAnotherSelfConsistentBlock(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	pinned := fixtureBlock(t, 16)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockByHash, pinned)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
+	if _, err := client.BlockByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for wrong requested block, got %v", err)
 	}
 }
 
@@ -382,13 +397,18 @@ func signedTxFixture(t *testing.T, mined bool) json.RawMessage {
 
 func TestAdapterTransactionByHashReportsPendingFlag(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Mined: the fleet holds the same transaction with its block context.
+	minedRaw := signedTxFixture(t, true)
+	var want types.Transaction
+	if err := json.Unmarshal(minedRaw, &want); err != nil {
+		t.Fatal(err)
+	}
+	txHash := want.Hash()
 	for _, node := range nodes {
-		node.Return(methods.MethodGetTransactionByHash, signedTxFixture(t, true))
+		node.Return(methods.MethodGetTransactionByHash, minedRaw)
 	}
 	tx, pending, err := client.TransactionByHash(ctx, txHash)
 	if err != nil || pending {
@@ -400,11 +420,27 @@ func TestAdapterTransactionByHashReportsPendingFlag(t *testing.T) {
 
 	// Pending: the same object without block context — pending is an
 	// ordinary verified state while the object stays stable.
+	pendingRaw := signedTxFixture(t, false)
 	for _, node := range nodes {
-		node.Return(methods.MethodGetTransactionByHash, signedTxFixture(t, false))
+		node.Return(methods.MethodGetTransactionByHash, pendingRaw)
 	}
 	if _, pending, err := client.TransactionByHash(ctx, txHash); err != nil || !pending {
 		t.Fatalf("expected pending flag from blockless payload, got pending=%v err=%v", pending, err)
+	}
+}
+
+func TestAdapterTransactionByHashRejectsAnotherTransaction(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	raw := signedTxFixture(t, true)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionByHash, raw)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
+	if _, _, err := client.TransactionByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for wrong requested transaction, got %v", err)
 	}
 }
 
@@ -515,5 +551,22 @@ func TestAdapterBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 	byTag, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.LatestBlockNumber))
 	if err != nil || len(byTag) != 1 {
 		t.Fatalf("expected moving tag to be pinned before fan-out, got %v", err)
+	}
+}
+
+func TestAdapterBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	raw := fixtureReceipt(t, txHash)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{raw})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	requested := common.HexToHash("0x" + strings.Repeat("22", 32))
+	_, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(requested, false))
+	if !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for receipts from another block, got %v", err)
 	}
 }

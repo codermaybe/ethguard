@@ -35,6 +35,21 @@ func TestBlockByHashPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
 	}
 }
 
+func TestBlockByNumberPolicyComparesHeightsNumerically(t *testing.T) {
+	p := BlockByNumberPolicy()
+	first, err := p.Normalize(json.RawMessage(`{"number":"0x010f","hash":"0xAB"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := p.Normalize(json.RawMessage(`{"number":"0x10f","hash":"0xab"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second || first != "271|0xab" {
+		t.Fatalf("expected numerically equal block heads, got %q vs %q", first, second)
+	}
+}
+
 func TestTransactionReceiptPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
 	p := TransactionReceiptPolicy()
 	first, err := p.Normalize(json.RawMessage(`{"transactionHash":"0xAB","status":"0x1","gasUsed":"0x10","logs":[]}`))

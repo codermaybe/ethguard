@@ -41,6 +41,26 @@ func TestAggregateAttachesSourceFaultsToDecision(t *testing.T) {
 	}
 }
 
+func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
+	p := pool.NewPool()
+	if _, err := p.Join("a", "http://127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Join("b", "http://127.0.0.1:2"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	decision, err := New(p, nil).Aggregate(ctx, rpc.Request{Method: "eth_unknown"})
+	if err == nil {
+		t.Fatal("expected canceled collection to fail")
+	}
+	if len(decision.Faults) != 1 {
+		t.Fatalf("expected only the collection fault, got %+v", decision.Faults)
+	}
+}
+
 func TestAggregateEmitsDecisionEvent(t *testing.T) {
 	p := pool.NewPool()
 	if _, err := p.Join("dead", "http://127.0.0.1:1"); err != nil {

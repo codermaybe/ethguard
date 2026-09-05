@@ -83,7 +83,8 @@ func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNum
 
 // BlockByHash returns the verified block with the given hash.
 func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
-	return c.blockAt(ctx, hash.Hex())
+	block, _, err := c.eg.BlockByHash(ctx, hash, true)
+	return block, err
 }
 
 // BlockByNumber returns the verified block at number; nil pins the moving
@@ -125,7 +126,15 @@ func (c *Client) TransactionByHash(ctx context.Context, txHash common.Hash) (*ty
 	if err != nil {
 		return nil, false, err
 	}
-	return ethguard.DecodeTransaction(decision.Value)
+	tx, pending, err := ethguard.DecodeTransaction(decision.Value)
+	if err != nil {
+		return nil, false, err
+	}
+	if tx.Hash() != txHash {
+		return nil, false, fmt.Errorf("%w: transaction hash %s does not match requested hash %s",
+			ethguard.ErrMalformedResponse, tx.Hash(), txHash)
+	}
+	return tx, pending, nil
 }
 
 // BlockReceipts returns the fleet-verified receipts of one block. Numbers
@@ -141,7 +150,19 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 	if err != nil {
 		return nil, err
 	}
-	return ethguard.DecodeReceipts(decision.Value)
+	receipts, err := ethguard.DecodeReceipts(decision.Value)
+	if err != nil {
+		return nil, err
+	}
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		for i, receipt := range receipts {
+			if receipt.BlockHash != hash {
+				return nil, fmt.Errorf("%w: receipt %d block hash %s does not match requested hash %s",
+					ethguard.ErrMalformedResponse, i, receipt.BlockHash, hash)
+			}
+		}
+	}
+	return receipts, nil
 }
 
 // NonceAt returns the verified account nonce of account at blockNumber;

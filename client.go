@@ -29,12 +29,17 @@ type Client struct {
 type Option func(*clientOptions)
 
 type clientOptions struct {
-	logger        *slog.Logger
-	recorder      observe.Recorder
-	anchor        AnchorResolver
-	anchorFactory func(*pool.Pool, observe.Recorder) AnchorResolver
-	anchorCache   time.Duration
-	poolOpts      []pool.PoolOption
+	logger         *slog.Logger
+	recorder       observe.Recorder
+	anchor         AnchorResolver
+	anchorCache    time.Duration
+	quorum         int
+	tipEnabled     bool
+	tipInterval    time.Duration
+	tipMaxBehind   uint64
+	collectTimeout time.Duration
+	anchorFactory  func(*pool.Pool, observe.Recorder) AnchorResolver
+	poolOpts       []pool.PoolOption
 }
 
 // WithLogger injects a structured logger receiving one event per aggregate
@@ -55,6 +60,23 @@ func WithRecorder(r observe.Recorder) Option {
 // anchoring presets; the default is strict consensus on the latest head.
 func WithAnchorResolver(r AnchorResolver) Option {
 	return func(o *clientOptions) { o.anchor = r }
+}
+
+// WithQuorum applies the strict quorum floor to every strict method and to
+// strict head anchoring. Zero is reserved for the default full-agreement mode.
+func WithQuorum(n int) Option {
+	if n <= 0 {
+		panic("ethguard: WithQuorum: n must be positive")
+	}
+	return func(o *clientOptions) { o.quorum = n }
+}
+
+// WithCollectTimeout bounds each aggregate collection or forwarded attempt.
+func WithCollectTimeout(timeout time.Duration) Option {
+	if timeout <= 0 {
+		panic("ethguard: WithCollectTimeout: timeout must be positive")
+	}
+	return func(o *clientOptions) { o.collectTimeout = timeout }
 }
 
 // WithFinalizedAnchoring opts into conservative anchor selection: the block
@@ -84,8 +106,16 @@ func WithAnchorCaching(ttl time.Duration) Option {
 // their sample recovers (pool.WithTipTracking). Zero values select the
 // defaults of 10s sampling and a 32-block bound.
 func WithTipTracking(every time.Duration, maxBehind uint64) Option {
+	if every <= 0 {
+		every = config.DefaultTipInterval()
+	}
+	if maxBehind == 0 {
+		maxBehind = config.DefaultTipMaxBehind()
+	}
 	return func(o *clientOptions) {
-		o.poolOpts = append(o.poolOpts, pool.WithTipTracking(every, maxBehind))
+		o.tipEnabled = true
+		o.tipInterval = every
+		o.tipMaxBehind = maxBehind
 	}
 }
 
@@ -96,9 +126,41 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	var co clientOptions
+	co := clientOptions{collectTimeout: config.DefaultCollectTimeout()}
+	if cfg.Quorum > 0 {
+		co.quorum = cfg.Quorum
+	}
+	if cfg.CollectTimeout != "" {
+		co.collectTimeout, _ = time.ParseDuration(cfg.CollectTimeout)
+	}
+	if cfg.AnchorCacheTTL != "" {
+		co.anchorCache, _ = time.ParseDuration(cfg.AnchorCacheTTL)
+	}
+	if cfg.TipTracking != nil {
+		co.tipEnabled = true
+		co.tipInterval = config.DefaultTipInterval()
+		co.tipMaxBehind = config.DefaultTipMaxBehind()
+		if cfg.TipTracking.Interval != "" {
+			co.tipInterval, _ = time.ParseDuration(cfg.TipTracking.Interval)
+		}
+		if cfg.TipTracking.MaxBehind != 0 {
+			co.tipMaxBehind = cfg.TipTracking.MaxBehind
+		}
+	}
+	if cfg.Anchoring != nil && cfg.Anchoring.Preset != "" && cfg.Anchoring.Preset != "strict" {
+		maxLag := cfg.Anchoring.MaxLag
+		if maxLag == 0 {
+			maxLag = config.DefaultFinalizedLag()
+		}
+		co.anchorFactory = func(p *pool.Pool, rec observe.Recorder) AnchorResolver {
+			return NewFinalizedHeadAnchor(p, rec, WithMaxFinalizedLag(maxLag))
+		}
+	}
 	for _, opt := range opts {
 		opt(&co)
+	}
+	if co.tipEnabled {
+		co.poolOpts = append(co.poolOpts, pool.WithTipTracking(co.tipInterval, co.tipMaxBehind))
 	}
 	rec := co.recorder
 	if rec == nil && co.logger != nil {
@@ -116,37 +178,41 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	}
 
 	resolver := co.anchor
+	var strictOpts []rpc.StrictOption
+	if co.quorum > 0 {
+		strictOpts = append(strictOpts, rpc.WithQuorum(co.quorum))
+	}
 	if resolver == nil {
 		if co.anchorFactory != nil {
 			resolver = co.anchorFactory(rpcPool, rec)
 		} else {
-			resolver = NewStrictHeadAnchor(rpcPool, rec)
+			resolver = NewStrictHeadAnchor(rpcPool, rec, strictOpts...)
 		}
 	}
 	if co.anchorCache > 0 {
 		resolver = NewCachedAnchor(resolver, co.anchorCache)
 	}
 	policies := rpc.Registry{
-		methods.MethodChainID:               methods.ChainIDPolicy(),
-		methods.MethodGetBlockByHash:        methods.BlockByHashPolicy(),
-		methods.MethodGetBlockByNumber:      methods.BlockByNumberPolicy(),
-		methods.MethodGetBalance:            methods.GetBalancePolicy(resolver.AnchorBlockHash),
-		methods.MethodGetTransactionReceipt: methods.TransactionReceiptPolicy(),
-		methods.MethodGetTransactionByHash:  methods.TransactionByHashPolicy(),
-		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(resolver.AnchorBlockHash),
-		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(resolver.AnchorBlockHash),
-		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(resolver.AnchorBlockHash),
-		methods.MethodGetCode:               methods.GetCodePolicy(resolver.AnchorBlockHash),
+		methods.MethodChainID:               methods.ChainIDPolicy(strictOpts...),
+		methods.MethodGetBlockByHash:        methods.BlockByHashPolicy(strictOpts...),
+		methods.MethodGetBlockByNumber:      methods.BlockByNumberPolicy(strictOpts...),
+		methods.MethodGetBalance:            methods.GetBalancePolicy(resolver.AnchorBlockHash, strictOpts...),
+		methods.MethodGetTransactionReceipt: methods.TransactionReceiptPolicy(strictOpts...),
+		methods.MethodGetTransactionByHash:  methods.TransactionByHashPolicy(strictOpts...),
+		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(resolver.AnchorBlockHash, strictOpts...),
+		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(resolver.AnchorBlockHash, strictOpts...),
+		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(resolver.AnchorBlockHash, strictOpts...),
+		methods.MethodGetCode:               methods.GetCodePolicy(resolver.AnchorBlockHash, strictOpts...),
 		methods.MethodGasPrice:              methods.GasPricePolicy(),
 		methods.MethodMaxPriorityFeePerGas:  methods.MaxPriorityFeePerGasPolicy(),
 		methods.MethodPeerCount:             methods.PeerCountPolicy(),
 		methods.MethodSyncing:               methods.SyncingPolicy(),
-		methods.MethodNetVersion:            methods.NetVersionPolicy(),
+		methods.MethodNetVersion:            methods.NetVersionPolicy(strictOpts...),
 		methods.MethodListening:             methods.ListeningPolicy(),
 	}
 	return &Client{
 		pool:       rpcPool,
-		aggregator: aggregator.New(rpcPool, policies, aggregator.WithRecorder(rec)),
+		aggregator: aggregator.New(rpcPool, policies, aggregator.WithRecorder(rec), aggregator.WithCollectTimeout(co.collectTimeout)),
 		policies:   policies,
 		resolver:   resolver,
 	}, nil

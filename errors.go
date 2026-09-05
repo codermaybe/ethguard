@@ -31,4 +31,5 @@ var (
 	ErrConflict          = rpc.ErrConflict
 	ErrNoValidResponse   = rpc.ErrNoValidResponse
 	ErrMalformedResponse = rpc.ErrMalformedResponse
+	ErrInvalidRequest    = rpc.ErrInvalidRequest
 )

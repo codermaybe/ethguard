@@ -248,7 +248,77 @@ func TestClientNormalizesBlockResponsesAcrossSources(t *testing.T) {
 	}
 }
 
+func TestClientRejectsBlockThatDoesNotMatchRequestedHash(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	pinned := fixtureBlock(t, 16)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockByHash, json.RawMessage(pinned))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
+	if _, _, err := client.BlockByHash(ctx, requested, true); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for wrong requested block, got %v", err)
+	}
+}
+
 func TestClientClassifiesFailuresThroughPublicSentinels(t *testing.T) {
+	t.Run("closed client is pool closed", func(t *testing.T) {
+		client, _ := fleet(t, 1, 1, 1)
+		client.Close()
+
+		_, err := client.Call(context.Background(), methods.MethodChainID)
+		if !errors.Is(err, ethguard.ErrPoolClosed) {
+			t.Fatalf("expected ErrPoolClosed, got %v", err)
+		}
+	})
+
+	t.Run("dead fleet is all sources down", func(t *testing.T) {
+		client, err := ethguard.New(config.Config{
+			Upstreams: []config.Upstream{
+				{ID: "dead-a", Endpoint: "http://127.0.0.1:1"},
+				{ID: "dead-b", Endpoint: "http://127.0.0.1:2"},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(client.Close)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, err = client.Call(ctx, methods.MethodChainID)
+		if !errors.Is(err, ethguard.ErrAllSourcesDown) {
+			t.Fatalf("expected ErrAllSourcesDown, got %v", err)
+		}
+	})
+
+	t.Run("all poisoned fleet is chain ID mismatch", func(t *testing.T) {
+		client, _ := fleet(t, 5, 1, 3)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, err := client.Call(ctx, methods.MethodChainID)
+		if !errors.Is(err, ethguard.ErrChainIDMismatch) {
+			t.Fatalf("expected ErrChainIDMismatch, got %v", err)
+		}
+	})
+
+	t.Run("JSON-RPC errors remain no valid response", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 1, 3)
+		for _, node := range nodes {
+			node.Fail(methods.MethodGetBlockByHash, -32601, "method unavailable")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, err := client.Call(ctx, methods.MethodGetBlockByHash, common.Hash{}.Hex(), false)
+		if !errors.Is(err, ethguard.ErrNoValidResponse) {
+			t.Fatalf("expected ErrNoValidResponse, got %v", err)
+		}
+	})
+
 	t.Run("dissent is conflict", func(t *testing.T) {
 		client, nodes := fleet(t, 1, 0, 3)
 		nodes[2].Return("eth_chainId", "0x2")
@@ -923,6 +993,21 @@ func TestClientVerifiesReceiptAcrossSources(t *testing.T) {
 	}
 }
 
+func TestClientRejectsReceiptThatDoesNotMatchRequestedTransaction(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	returnedHash := "0x" + strings.Repeat("42", 32)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionReceipt, receiptFixture(returnedHash))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	requested := common.HexToHash("0x" + strings.Repeat("43", 32))
+	if _, _, err := client.TransactionReceipt(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for wrong requested receipt, got %v", err)
+	}
+}
+
 func TestClientVerifiesReceiptAbsenceAsNotFound(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	for _, node := range nodes {
@@ -1037,6 +1122,21 @@ func TestClientVerifiesTransactionByHash(t *testing.T) {
 	}
 }
 
+func TestClientRejectsTransactionThatDoesNotMatchRequestedHash(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	raw := signedTxFixture(t, true)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionByHash, json.RawMessage(raw))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
+	if _, _, err := client.TransactionByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for wrong requested transaction, got %v", err)
+	}
+}
+
 func TestClientRejectsTransactionWithFabricatedHash(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	broken := signedTxFixture(t, true)
@@ -1129,6 +1229,22 @@ func TestClientMapsUnknownBlockReceiptsToNotFound(t *testing.T) {
 	}
 }
 
+func TestClientRejectsBlockReceiptsFromAnotherBlock(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockReceipts, []any{
+			receiptFixture("0x" + strings.Repeat("42", 32)),
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	requested := common.HexToHash("0x" + strings.Repeat("22", 32))
+	if _, _, err := client.BlockReceipts(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for receipts from another block, got %v", err)
+	}
+}
+
 func TestMaxPriorityFeePerGasTakesLowerMedian(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	nodes[0].Return(methods.MethodMaxPriorityFeePerGas, "0x3b9aca00") // 1 gwei
@@ -1218,6 +1334,22 @@ func TestClientBlockNumberDerivesFromVerifiedReference(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects a fetched block that does not match the anchor", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 1, 3)
+		anchored := fixtureBlock(t, 16)
+		wrong := fixtureBlock(t, 17)
+		for _, node := range nodes {
+			node.Return(methods.MethodGetBlockByNumber, json.RawMessage(anchored))
+			node.Return(methods.MethodGetBlockByHash, json.RawMessage(wrong))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if _, err := client.BlockNumber(ctx); !errors.Is(err, ethguard.ErrMalformedResponse) {
+			t.Fatalf("expected ErrMalformedResponse for block outside the anchor, got %v", err)
+		}
+	})
+
 	t.Run("divergent tips fail closed through anchor establishment", func(t *testing.T) {
 		client, nodes := fleet(t, 1, 1, 3)
 		nodes[0].Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": "0xabc"})
@@ -1264,4 +1396,62 @@ func fixtureBlock(t *testing.T, number int64) string {
 		t.Fatal(err)
 	}
 	return string(out)
+}
+
+// balanceDissentAt scripts three sources to answer want at the pinned hash
+// and the rest dissent, so the winning cluster holds exactly three of the
+// five attempted sources.
+func balanceDissentAt(nodes []*rpctest.Node, hash, want, dissent string) {
+	for i, node := range nodes {
+		agree := i < 3
+		node.Handle("eth_getBalance", func(c rpctest.Call) (any, error) {
+			var tag string
+			if len(c.Params) == 2 && json.Unmarshal(c.Params[1], &tag) == nil && tag == hash {
+				if agree {
+					return want, nil
+				}
+				return dissent, nil
+			}
+			return "0x1", nil // divergent elsewhere; only the anchor matters
+		})
+	}
+}
+
+// TestClientQuorumCoversAnchoredStateReads pins decision 0006's reach: the
+// client-level quorum option must reach the anchored state reads, not only
+// the plainly strict methods. Three of five sources agree at the verified
+// anchor while two dissent — a conflict under the default full-agreement
+// mode, a Verified majority cluster under WithQuorum(3).
+func TestClientQuorumCoversAnchoredStateReads(t *testing.T) {
+	t.Run("quorum resolves the anchored majority cluster", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 1, 5, ethguard.WithQuorum(3))
+		agreeOnHead(nodes) // anchor establishment still sees full agreement
+		balanceDissentAt(nodes, "0xabc", "0x64", "0x65")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+		if err != nil {
+			t.Fatalf("quorum should resolve the anchored read over dissent: %v", err)
+		}
+		if decision.Status != rpc.Verified || len(decision.Support) != 3 {
+			t.Fatalf("expected a verified 3-source cluster, got %+v", decision)
+		}
+		if string(decision.Value) != `"0x64"` {
+			t.Fatalf("expected the majority cluster's balance, got %s", decision.Value)
+		}
+	})
+
+	t.Run("without quorum the same dissent conflicts", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 1, 5)
+		agreeOnHead(nodes)
+		balanceDissentAt(nodes, "0xabc", "0x64", "0x65")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+		if !errors.Is(err, ethguard.ErrConflict) {
+			t.Fatalf("expected full-agreement mode to conflict, got %v", err)
+		}
+	})
 }

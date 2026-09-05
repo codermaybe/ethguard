@@ -10,7 +10,8 @@ const MethodGetCode = "eth_getCode"
 // GetCodePolicy verifies eth_getCode at an agreed block reference. The
 // answer is arbitrary-length bytecode — hex data, not a quantity; an
 // externally owned account answers "0x", which is valid data and would
-// fail a quantity-shaped normalizer.
-func GetCodePolicy(anchor rpc.AnchorFunc) rpc.Policy {
-	return rpc.Anchored(1, normalizeHexData, anchor)
+// fail a quantity-shaped normalizer. Strict options pass through to the
+// underlying strict resolution.
+func GetCodePolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
+	return rpc.Anchored(1, normalizeHexData, anchor, opts...)
 }
