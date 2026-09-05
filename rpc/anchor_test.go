@@ -145,82 +145,6 @@ func TestRejectPendingFailsBeforeResolution(t *testing.T) {
 	}
 }
 
-func TestAnchoredFieldsRewriteFilterBounds(t *testing.T) {
-	calls := 0
-	p := WithAnchorFields(func(context.Context) (string, error) {
-		calls++
-		return "0xanchor", nil
-	}, 0, "fromBlock", "toBlock")(Strict(CanonicalJSON))
-
-	t.Run("moving fields rewrite and share one anchor", func(t *testing.T) {
-		prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
-			map[string]any{"fromBlock": "latest", "toBlock": "finalized", "address": "0x1"},
-		}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		filtered := prepared.Params[0].(map[string]any)
-		if filtered["fromBlock"] != "0xanchor" || filtered["toBlock"] != "0xanchor" {
-			t.Fatalf("filter bounds not rewritten: %v", filtered)
-		}
-		if filtered["address"] != "0x1" {
-			t.Fatalf("untouched field changed: %v", filtered)
-		}
-		if calls != 1 {
-			t.Fatalf("anchor consulted %d times for one request", calls)
-		}
-	})
-
-	t.Run("absent fields default to the reference", func(t *testing.T) {
-		prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
-			map[string]any{"topics": []any{"0xtopic"}},
-		}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		filtered := prepared.Params[0].(map[string]any)
-		if filtered["fromBlock"] != "0xanchor" || filtered["toBlock"] != "0xanchor" {
-			t.Fatalf("missing bounds not defaulted: %v", filtered)
-		}
-	})
-
-	t.Run("explicit numbers and blockHash pins pass through", func(t *testing.T) {
-		before := calls
-		prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
-			map[string]any{"fromBlock": "0x10", "toBlock": "0x20"},
-		}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		filtered := prepared.Params[0].(map[string]any)
-		if filtered["fromBlock"] != "0x10" || filtered["toBlock"] != "0x20" {
-			t.Fatalf("explicit bounds rewritten: %v", filtered)
-		}
-		prepared, err = p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
-			map[string]any{"blockHash": "0xabc"},
-		}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if prepared.Params[0].(map[string]any)["blockHash"] != "0xabc" {
-			t.Fatalf("blockHash pin changed: %v", prepared.Params[0])
-		}
-		if calls != before {
-			t.Fatalf("pass-through consulted the anchor")
-		}
-	})
-
-	t.Run("non-object params pass through untouched", func(t *testing.T) {
-		before := calls
-		if _, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{"latest"}}); err != nil {
-			t.Fatal(err)
-		}
-		if calls != before {
-			t.Fatalf("non-object param consulted the anchor")
-		}
-	})
-}
-
 func TestAnchoredHeightRewritesToHexHeight(t *testing.T) {
 	calls := 0
 	p := WithAnchorHeight(func(context.Context) (uint64, error) {
@@ -261,20 +185,71 @@ func TestAnchoredHeightFieldsRewriteFilterBounds(t *testing.T) {
 		return 4660, nil
 	}, 0, "fromBlock", "toBlock")(Strict(CanonicalJSON))
 
-	prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
-		map[string]any{"fromBlock": "latest", "toBlock": "finalized", "address": "0x1"},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	filtered := prepared.Params[0].(map[string]any)
-	if filtered["fromBlock"] != "0x1234" || filtered["toBlock"] != "0x1234" {
-		t.Fatalf("filter bounds not pinned to the hex height: %v", filtered)
-	}
-	if filtered["address"] != "0x1" {
-		t.Fatalf("untouched field changed: %v", filtered)
-	}
-	if calls != 1 {
-		t.Fatalf("height consulted %d times for one request", calls)
-	}
+	t.Run("moving fields rewrite to the hex height and share one establishment", func(t *testing.T) {
+		prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
+			map[string]any{"fromBlock": "latest", "toBlock": "finalized", "address": "0x1"},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		filtered := prepared.Params[0].(map[string]any)
+		if filtered["fromBlock"] != "0x1234" || filtered["toBlock"] != "0x1234" {
+			t.Fatalf("filter bounds not pinned to the hex height: %v", filtered)
+		}
+		if filtered["address"] != "0x1" {
+			t.Fatalf("untouched field changed: %v", filtered)
+		}
+		if calls != 1 {
+			t.Fatalf("height consulted %d times for one request", calls)
+		}
+	})
+
+	t.Run("absent fields default to the verified height", func(t *testing.T) {
+		prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
+			map[string]any{"topics": []any{"0xtopic"}},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		filtered := prepared.Params[0].(map[string]any)
+		if filtered["fromBlock"] != "0x1234" || filtered["toBlock"] != "0x1234" {
+			t.Fatalf("missing bounds not defaulted: %v", filtered)
+		}
+	})
+
+	t.Run("explicit numbers and blockHash pins pass through", func(t *testing.T) {
+		before := calls
+		prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
+			map[string]any{"fromBlock": "0x10", "toBlock": "0x20"},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		filtered := prepared.Params[0].(map[string]any)
+		if filtered["fromBlock"] != "0x10" || filtered["toBlock"] != "0x20" {
+			t.Fatalf("explicit bounds rewritten: %v", filtered)
+		}
+		prepared, err = p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
+			map[string]any{"blockHash": "0xabc"},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prepared.Params[0].(map[string]any)["blockHash"] != "0xabc" {
+			t.Fatalf("blockHash pin changed: %v", prepared.Params[0])
+		}
+		if calls != before {
+			t.Fatalf("pass-through consulted the height")
+		}
+	})
+
+	t.Run("non-object params pass through untouched", func(t *testing.T) {
+		before := calls
+		if _, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{"latest"}}); err != nil {
+			t.Fatal(err)
+		}
+		if calls != before {
+			t.Fatalf("non-object param consulted the height")
+		}
+	})
 }

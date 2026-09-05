@@ -253,22 +253,15 @@ func (a anchoredHeightPolicy) Resolve(obs []Observation) (Decision, error) {
 	return a.policy.Resolve(obs)
 }
 
-// WithAnchorFields decorates a policy so that named string fields of the
-// object-typed parameter at paramPos are rewritten to the verified block
-// hash — and defaulted to it when absent, since a provider's implicit
-// default is a moving tag in field clothing. A filter carrying the
-// dedicated hash position (eth_getLogs' blockHash) pins its range
-// explicitly and passes through untouched.
-func WithAnchorFields(anchor AnchorFunc, paramPos int, fields ...string) func(Policy) Policy {
-	return anchorFields(anchor, paramPos, fields)
-}
-
-// WithAnchorHeightFields is the height-spelled variant of WithAnchorFields:
-// the named fields are rewritten to the verified reference's hex height.
-// eth_getLogs needs this flavor — its fromBlock/toBlock are BlockNumbers
-// (a 32-byte hash there dies with "hex number > 64 bits", the soak's first
+// WithAnchorHeightFields decorates a policy so that named string fields of
+// the object-typed parameter at paramPos are rewritten to the verified
+// reference's hex height — and defaulted to it when absent, since a
+// provider's implicit default is a moving tag in field clothing.
+// eth_getLogs needs this: its fromBlock/toBlock are BlockNumbers (a
+// 32-byte hash there dies with "hex number > 64 bits", the soak's first
 // catch), while blockHash is the dedicated, mutually exclusive hash
-// position.
+// position — a filter carrying blockHash pins its range explicitly and
+// passes through untouched.
 func WithAnchorHeightFields(height AnchorHeightFunc, paramPos int, fields ...string) func(Policy) Policy {
 	return anchorFields(heightRef(height), paramPos, fields)
 }
