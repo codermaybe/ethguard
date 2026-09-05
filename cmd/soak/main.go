@@ -37,6 +37,7 @@ import (
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"ethguard"
 	"ethguard/config"
@@ -111,6 +112,10 @@ func main() {
 	defer client.Close()
 
 	anchor := mustAnchor(client, *timeout)
+	// The height rides the same establishment as the hash (cached here), so
+	// it survives a sampling conflict and the height-anchored steps keep
+	// testing the real pinned block instead of degrading to genesis.
+	anchorHeight := mustAnchorHeight(client, *timeout)
 	txHash, sampleErr := sampleTx(client, anchor, *timeout)
 	if sampleErr != nil {
 		// Sampling is data, not a prerequisite: report what the fleet said
@@ -120,7 +125,8 @@ func main() {
 			params: []any{anchor, true}}, 2**timeout)
 	}
 
-	state := fleetState{client: client, adapter: ethadapter.Wrap(client), anchor: anchor, txHash: txHash}
+	state := fleetState{client: client, adapter: ethadapter.Wrap(client), anchor: anchor,
+		anchorHeight: anchorHeight, txHash: txHash}
 	steps := state.buildSteps(*chainFlag)
 
 	results := make([]stepReport, len(steps))
@@ -155,10 +161,11 @@ func main() {
 // established through the verified pipeline and one transaction sampled
 // from the pinned block.
 type fleetState struct {
-	client  *ethguard.Client
-	adapter *ethadapter.Client
-	anchor  string
-	txHash  common.Hash
+	client       *ethguard.Client
+	adapter      *ethadapter.Client
+	anchor       string
+	anchorHeight uint64
+	txHash       common.Hash
 }
 
 func (f fleetState) buildSteps(chainID uint64) []step {
@@ -232,6 +239,33 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 		{"getBlockReceipts", methods.MethodGetBlockReceipts, []any{f.anchor}, true, func(ctx context.Context) (stepReport, error) {
 			rs, dec, err := f.client.BlockReceipts(ctx, common.HexToHash(f.anchor))
 			return classify(dec, err, fmt.Sprintf("%d receipts", len(rs)))
+		}},
+		{"getBlockReceipts(number)", methods.MethodGetBlockReceipts, []any{f.heightRef()}, true, func(ctx context.Context) (stepReport, error) {
+			rs, err := f.adapter.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.BlockNumber(f.anchorHeight)))
+			if err != nil {
+				return stepReport{}, err
+			}
+			return stepReport{outcome: "ok", detail: fmt.Sprintf("%d receipts", len(rs))}, nil
+		}},
+		{"eth_call(totalSupply)", methods.MethodCall, []any{f.totalSupplyCall(), f.anchor}, true, func(ctx context.Context) (stepReport, error) {
+			dec, err := f.client.Call(ctx, methods.MethodCall, f.totalSupplyCall(), f.anchor)
+			return classify(dec, err, callResultDetail(dec))
+		}},
+		{"estimateGas(totalSupply)", methods.MethodEstimateGas, []any{f.totalSupplyCall(), f.anchor}, true, func(ctx context.Context) (stepReport, error) {
+			dec, err := f.client.Call(ctx, methods.MethodEstimateGas, f.totalSupplyCall(), f.anchor)
+			return classify(dec, err, estimateDetail(dec))
+		}},
+		{"getLogs(one-block range)", methods.MethodGetLogs, []any{f.logFilter()}, true, func(ctx context.Context) (stepReport, error) {
+			dec, err := f.client.Call(ctx, methods.MethodGetLogs, f.logFilter())
+			return classify(dec, err, logsDetail(dec))
+		}},
+		{"feeHistory(percentiles)", methods.MethodFeeHistory, []any{uint64(2), f.heightRef(), []float64{25, 50, 75}}, true, func(ctx context.Context) (stepReport, error) {
+			history, dec, err := f.client.FeeHistory(ctx, 2, new(big.Int).SetUint64(f.anchorHeight), []float64{25, 50, 75})
+			if err != nil {
+				return stepReport{}, err
+			}
+			detail := fmt.Sprintf("oldest %d, %d base fees", history.OldestBlock.Uint64(), len(history.BaseFeePerGas))
+			return classify(dec, err, detail)
 		}},
 		{"gasPrice", methods.MethodGasPrice, nil, false, func(ctx context.Context) (stepReport, error) {
 			price, dec, err := f.client.GasPrice(ctx)
@@ -404,6 +438,18 @@ func sampleTx(client *ethguard.Client, anchor string, timeout time.Duration) (co
 	return txs[0].Hash(), nil
 }
 
+// mustAnchorHeight resolves the pinned reference's height through the
+// verified pipeline (AnchorHeightProvider); it shares the anchor cache.
+func mustAnchorHeight(client *ethguard.Client, timeout time.Duration) uint64 {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	height, err := client.AnchorBlockHeight(ctx)
+	if err != nil {
+		fail("establish anchor height: %v", err)
+	}
+	return height
+}
+
 func printReport(sources int, chainID uint64, anchoring string, steps []step, results []stepReport) {
 	fmt.Printf("== soak: %d sources, chain %d, anchoring=%s ==\n", sources, chainID, anchoring)
 	fmt.Printf("%-28s %-30s %s\n", "step", "outcome", "sup/rej/fault  detail")
@@ -455,6 +501,58 @@ func encodeJSON(client *ethguard.Client, steps []step, results []stepReport) {
 			Failures: h.Failures, RateLimited: h.RateLimited, LatencyP95: h.LatencyP95.String()})
 	}
 	json.NewEncoder(os.Stdout).Encode(out)
+}
+
+// heightRef spells the pinned anchor height — the wire form the
+// height-anchored methods (getLogs bounds, feeHistory newest) must carry,
+// since their number positions reject hashes.
+func (f fleetState) heightRef() string {
+	return fmt.Sprintf("0x%x", f.anchorHeight)
+}
+
+// totalSupplyCall builds the canonical WETH totalSupply() read: a
+// deterministic, gas-cheap call whose result is chain-determined at the
+// pinned reference.
+func (f fleetState) totalSupplyCall() map[string]any {
+	return map[string]any{
+		"from":  "0x0000000000000000000000000000000000000000",
+		"to":    soakContract,
+		"input": "0x18160ddd",
+	}
+}
+
+// logFilter pins a one-block range at the anchor height, so the response is
+// a deterministic log set (possibly empty) rather than a moving window.
+func (f fleetState) logFilter() map[string]any {
+	return map[string]any{
+		"fromBlock": f.heightRef(),
+		"toBlock":   f.heightRef(),
+		"address":   soakContract,
+	}
+}
+
+func callResultDetail(dec rpc.Decision) string {
+	var result string
+	if json.Unmarshal(dec.Value, &result) == nil {
+		return truncate(result, 40)
+	}
+	return ""
+}
+
+func estimateDetail(dec rpc.Decision) string {
+	var gas string
+	if json.Unmarshal(dec.Value, &gas) == nil {
+		return "gas " + gas
+	}
+	return ""
+}
+
+func logsDetail(dec rpc.Decision) string {
+	var logs []json.RawMessage
+	if json.Unmarshal(dec.Value, &logs) == nil {
+		return fmt.Sprintf("%d logs", len(logs))
+	}
+	return ""
 }
 
 func identityDetail(v *big.Int, want uint64) string {

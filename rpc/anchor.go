@@ -255,23 +255,49 @@ func (a anchoredHeightPolicy) Resolve(obs []Observation) (Decision, error) {
 
 // WithAnchorFields decorates a policy so that named string fields of the
 // object-typed parameter at paramPos are rewritten to the verified block
-// reference — and defaulted to it when absent, since a provider's implicit
-// default is a moving tag in field clothing. eth_getLogs needs this: its
-// fromBlock/toBlock live inside the filter object, where top-level position
-// rewriting cannot reach. A filter carrying blockHash pins its range
+// hash — and defaulted to it when absent, since a provider's implicit
+// default is a moving tag in field clothing. A filter carrying the
+// dedicated hash position (eth_getLogs' blockHash) pins its range
 // explicitly and passes through untouched.
 func WithAnchorFields(anchor AnchorFunc, paramPos int, fields ...string) func(Policy) Policy {
+	return anchorFields(anchor, paramPos, fields)
+}
+
+// WithAnchorHeightFields is the height-spelled variant of WithAnchorFields:
+// the named fields are rewritten to the verified reference's hex height.
+// eth_getLogs needs this flavor — its fromBlock/toBlock are BlockNumbers
+// (a 32-byte hash there dies with "hex number > 64 bits", the soak's first
+// catch), while blockHash is the dedicated, mutually exclusive hash
+// position.
+func WithAnchorHeightFields(height AnchorHeightFunc, paramPos int, fields ...string) func(Policy) Policy {
+	return anchorFields(heightRef(height), paramPos, fields)
+}
+
+func anchorFields(resolve func(context.Context) (string, error), paramPos int, fields []string) func(Policy) Policy {
 	return func(policy Policy) Policy {
 		if policy == nil {
 			policy = ForwardPolicy{}
 		}
-		return anchoredFieldsPolicy{policy: policy, anchor: anchor, paramPos: paramPos, fields: append([]string(nil), fields...)}
+		return anchoredFieldsPolicy{policy: policy, resolve: resolve, paramPos: paramPos, fields: append([]string(nil), fields...)}
+	}
+}
+
+func heightRef(height AnchorHeightFunc) func(context.Context) (string, error) {
+	if height == nil {
+		return nil
+	}
+	return func(ctx context.Context) (string, error) {
+		h, err := height(ctx)
+		if err != nil {
+			return "", err
+		}
+		return "0x" + strconv.FormatUint(h, 16), nil
 	}
 }
 
 type anchoredFieldsPolicy struct {
 	policy   Policy
-	anchor   AnchorFunc
+	resolve  func(context.Context) (string, error)
 	paramPos int
 	fields   []string
 }
@@ -282,7 +308,7 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 	}
 	obj, ok := req.Params[a.paramPos].(map[string]any)
 	if !ok {
-		return a.policy.Prepare(ctx, req) // not an object (blockHash form, malformed): upstream judges
+		return a.policy.Prepare(ctx, req) // not an object (hash-pin form, malformed): upstream judges
 	}
 	if _, pinned := obj["blockHash"]; pinned {
 		return a.policy.Prepare(ctx, req) // explicit pin; both forms together are the caller's mistake
@@ -302,10 +328,10 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 	if !rewrite {
 		return a.policy.Prepare(ctx, req)
 	}
-	if a.anchor == nil {
+	if a.resolve == nil {
 		return Request{}, fmt.Errorf("anchor: missing anchor function")
 	}
-	hash, err := a.anchor(ctx)
+	ref, err := a.resolve(ctx)
 	if err != nil {
 		return Request{}, fmt.Errorf("anchor: %w", err)
 	}
@@ -316,11 +342,11 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 	for _, field := range a.fields {
 		value, present := filtered[field]
 		if !present {
-			filtered[field] = hash
+			filtered[field] = ref
 			continue
 		}
 		if tag, isStr := value.(string); isStr && movingTags[strings.ToLower(tag)] {
-			filtered[field] = hash
+			filtered[field] = ref
 		}
 	}
 	params := append([]any(nil), req.Params...)
@@ -328,8 +354,8 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 	return a.policy.Prepare(ctx, Request{Method: req.Method, Params: params})
 }
 
-// BlockRef reports the anchor hash when this request actually rewrote or
-// defaulted at least one filter field.
+// BlockRef reports the pinned reference spelling when this request actually
+// rewrote or defaulted at least one filter field.
 func (a anchoredFieldsPolicy) BlockRef(original, prepared Request) string {
 	if a.paramPos >= 0 && a.paramPos < len(original.Params) && a.paramPos < len(prepared.Params) {
 		originalObj, okOriginal := original.Params[a.paramPos].(map[string]any)
@@ -339,13 +365,13 @@ func (a anchoredFieldsPolicy) BlockRef(original, prepared Request) string {
 				for _, field := range a.fields {
 					value, present := originalObj[field]
 					if !present {
-						if hash, ok := preparedObj[field].(string); ok {
-							return hash
+						if ref, ok := preparedObj[field].(string); ok {
+							return ref
 						}
 					}
 					if tag, isStr := value.(string); isStr && movingTags[strings.ToLower(tag)] {
-						if hash, ok := preparedObj[field].(string); ok {
-							return hash
+						if ref, ok := preparedObj[field].(string); ok {
+							return ref
 						}
 					}
 				}

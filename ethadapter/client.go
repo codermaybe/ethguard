@@ -425,7 +425,26 @@ func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, error) 
 	if err != nil {
 		return nil, err
 	}
-	return ethguard.DecodeBlock(decision.Value)
+	block, err := ethguard.DecodeBlock(decision.Value)
+	if err != nil {
+		return nil, err
+	}
+	// Request-answer binding rides the adapter path too: the root wrapper
+	// holds the same check, and an adapter-only caller gets identical
+	// integrity guarantees against a coherent fabricated fleet.
+	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
+		if block.Hash() != common.HexToHash(ref) {
+			return nil, fmt.Errorf("%w: block hash %s does not match requested hash %s",
+				rpc.ErrMalformedResponse, block.Hash(), ref)
+		}
+		return block, nil
+	}
+	number, ok := new(big.Int).SetString(strings.TrimPrefix(ref, "0x"), 16)
+	if !ok || block.NumberU64() != number.Uint64() {
+		return nil, fmt.Errorf("%w: block height %d does not match requested reference %s",
+			rpc.ErrMalformedResponse, block.NumberU64(), ref)
+	}
+	return block, nil
 }
 
 // toBlockNumArg mirrors go-ethereum's conversion of a block number argument.

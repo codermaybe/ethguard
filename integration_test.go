@@ -1565,10 +1565,10 @@ func TestGetLogsPinsTheFilterRangeOnTheWire(t *testing.T) {
 			if err := json.Unmarshal(c.Params[0], &filter); err != nil {
 				return nil, rpctest.RPCError(-32602, "malformed filter")
 			}
-			if filter["fromBlock"] == "0xabc" && filter["toBlock"] == "0xabc" {
+			if filter["fromBlock"] == "0x10" && filter["toBlock"] == "0x10" {
 				return logs, nil
 			}
-			return nil, rpctest.RPCError(-32602, "range was not pinned to the anchor")
+			return nil, rpctest.RPCError(-32602, "range was not pinned to the verified height")
 		})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1578,8 +1578,8 @@ func TestGetLogsPinsTheFilterRangeOnTheWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || decision.BlockRef != "0xabc" {
-		t.Fatalf("expected verified pinned log query, got %+v", decision)
+	if decision.Status != rpc.Verified || decision.BlockRef != "0x10" {
+		t.Fatalf("expected verified height-pinned log query, got %+v", decision)
 	}
 }
 
@@ -1672,5 +1672,35 @@ func TestConfigPresetSpellingSelectsTheSameStrategy(t *testing.T) {
 	_, err = client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
 	if !errors.Is(err, ethguard.ErrConflict) {
 		t.Fatalf("expected strict anchoring to fail closed on divergent heads, got %v", err)
+	}
+}
+
+func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithAnchorCaching(time.Minute))
+	agreeOnHead(nodes) // head fixture: number 0x10, hash 0xabc
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	height, err := client.AnchorBlockHeight(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if height != 16 {
+		t.Fatalf("expected height 16 from the verified reference, got %d", height)
+	}
+	// The height rides the cached establishment: no further fleet contact.
+	callsBefore := 0
+	for _, node := range nodes {
+		callsBefore += len(node.Calls())
+	}
+	if _, err := client.AnchorBlockHeight(ctx); err != nil {
+		t.Fatal(err)
+	}
+	callsAfter := 0
+	for _, node := range nodes {
+		callsAfter += len(node.Calls())
+	}
+	if callsBefore != callsAfter {
+		t.Fatalf("height re-establishment contacted the fleet: %d -> %d", callsBefore, callsAfter)
 	}
 }

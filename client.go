@@ -210,7 +210,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		methods.MethodGetCode:               methods.GetCodePolicy(resolver.AnchorBlockHash, strictOpts...),
 		methods.MethodCall:                  methods.CallPolicy(resolver.AnchorBlockHash, strictOpts...),
 		methods.MethodEstimateGas:           methods.EstimateGasPolicy(resolver.AnchorBlockHash),
-		methods.MethodGetLogs:               methods.LogsPolicy(resolver.AnchorBlockHash, strictOpts...),
+		methods.MethodGetLogs:               methods.LogsPolicy(anchorHeightOf(resolver), strictOpts...),
 		methods.MethodFeeHistory:            methods.FeeHistoryPolicy(anchorHeightOf(resolver), strictOpts...),
 		methods.MethodGasPrice:              methods.GasPricePolicy(),
 		methods.MethodMaxPriorityFeePerGas:  methods.MaxPriorityFeePerGasPolicy(),
@@ -232,6 +232,20 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 // strategy if necessary (and consulting its cache when caching is enabled).
 func (c *Client) AnchorBlockHash(ctx context.Context) (string, error) {
 	return c.resolver.AnchorBlockHash(ctx)
+}
+
+// AnchorBlockHeight returns the height of the currently verified block
+// reference. It rides the same establishment as AnchorBlockHash — the
+// response carries number and hash together, so no extra fan-out is
+// needed — and errors clearly when a custom resolver cannot produce
+// heights (AnchorHeightProvider).
+func (c *Client) AnchorBlockHeight(ctx context.Context) (uint64, error) {
+	hp, ok := c.resolver.(AnchorHeightProvider)
+	if !ok {
+		return 0, fmt.Errorf("ethguard: anchor resolver %T does not implement AnchorHeightProvider", c.resolver)
+	}
+	_, height, err := hp.AnchorBlockRef(ctx)
+	return height, err
 }
 
 // Normalize reduces one raw response through the owning method policy's

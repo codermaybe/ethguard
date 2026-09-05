@@ -669,10 +669,10 @@ func TestAdapterFilterLogsPinsTheFilterRange(t *testing.T) {
 			if len(c.Params) != 1 || json.Unmarshal(c.Params[0], &filter) != nil {
 				return nil, rpctest.RPCError(-32602, "expected filter object")
 			}
-			if filter["fromBlock"] == "0x0" && filter["toBlock"] == "0xabc" {
+			if filter["fromBlock"] == "0x0" && filter["toBlock"] == "0x10" {
 				return logs, nil
 			}
-			return nil, rpctest.RPCError(-32602, "range was not pinned")
+			return nil, rpctest.RPCError(-32602, "range was not pinned to the verified height")
 		})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -685,4 +685,39 @@ func TestAdapterFilterLogsPinsTheFilterRange(t *testing.T) {
 	if len(got) != 1 || got[0].BlockNumber != 16 {
 		t.Fatalf("unexpected logs: %+v", got)
 	}
+}
+
+// TestAdapterBlockAtBindsAnswersToTheRequestedReference pins the adapter
+// half of the request-answer binding: a coherent foreign block (self-
+// consistent payload, unanimous fleet) is rejected at the typed boundary
+// for both the hash-addressed and the height-addressed forms.
+func TestAdapterBlockAtBindsAnswersToTheRequestedReference(t *testing.T) {
+	t.Run("foreign block by hash", func(t *testing.T) {
+		adapter, nodes := fleet(t, 3)
+		for _, node := range nodes {
+			node.Return("eth_getBlockByHash", json.RawMessage(fixtureBlock(t, 5)))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		requested := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+		_, err := adapter.BlockByHash(ctx, requested)
+		if !errors.Is(err, ethguard.ErrMalformedResponse) {
+			t.Fatalf("expected malformed-response binding failure, got %v", err)
+		}
+	})
+
+	t.Run("foreign block by height", func(t *testing.T) {
+		adapter, nodes := fleet(t, 3)
+		for _, node := range nodes {
+			node.Return("eth_getBlockByNumber", json.RawMessage(fixtureBlock(t, 7)))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, err := adapter.BlockByNumber(ctx, big.NewInt(5))
+		if !errors.Is(err, ethguard.ErrMalformedResponse) {
+			t.Fatalf("expected malformed-response binding failure, got %v", err)
+		}
+	})
 }

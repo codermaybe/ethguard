@@ -253,3 +253,28 @@ func TestAnchoredHeightRewritesToHexHeight(t *testing.T) {
 		t.Fatalf("pass-through consulted the height")
 	}
 }
+
+func TestAnchoredHeightFieldsRewriteFilterBounds(t *testing.T) {
+	calls := 0
+	p := WithAnchorHeightFields(func(context.Context) (uint64, error) {
+		calls++
+		return 4660, nil
+	}, 0, "fromBlock", "toBlock")(Strict(CanonicalJSON))
+
+	prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
+		map[string]any{"fromBlock": "latest", "toBlock": "finalized", "address": "0x1"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered := prepared.Params[0].(map[string]any)
+	if filtered["fromBlock"] != "0x1234" || filtered["toBlock"] != "0x1234" {
+		t.Fatalf("filter bounds not pinned to the hex height: %v", filtered)
+	}
+	if filtered["address"] != "0x1" {
+		t.Fatalf("untouched field changed: %v", filtered)
+	}
+	if calls != 1 {
+		t.Fatalf("height consulted %d times for one request", calls)
+	}
+}
