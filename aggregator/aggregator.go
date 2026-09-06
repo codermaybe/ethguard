@@ -64,11 +64,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	policy := a.policies.PolicyFor(req.Method)
 	prepared, err := policy.Prepare(ctx, req)
 	if err != nil {
-		a.rec.RecordDecision(observe.DecisionEvent{
-			Method:   req.Method,
-			Status:   "failed",
-			Duration: time.Since(started),
-		})
+		a.recordDecision(started, req.Method, policy, rpc.Decision{}, err, nil)
 		return rpc.Decision{}, err
 	}
 	var emissions []pool.Emission
@@ -89,7 +85,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	}
 	if collectErr != nil && !hasUsableEmission(emissions) {
 		decision := rpc.Decision{Faults: collectionFaults(collectErr, emissions)}
-		a.rec.RecordDecision(observe.BuildDecision(started, req.Method, decision, collectErr, emissions))
+		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions)
 		return decision, collectErr
 	}
 	decision, resolveErr := policy.Resolve(observations)
@@ -104,8 +100,69 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 			decision.Faults = append(decision.Faults, fmt.Errorf("source %q: %w", emission.Src.Name(), emission.Err))
 		}
 	}
-	a.rec.RecordDecision(observe.BuildDecision(started, req.Method, decision, resolveErr, emissions))
+	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions)
 	return decision, resolveErr
+}
+
+// recordDecision folds one completed aggregation into exactly one
+// observability event (decision 0008). It lives here — the call site that
+// owns policies — so the per-attempt Failed flag reuses the policy's own
+// validity contract instead of a second answer classifier living in the
+// observability seam. The no-op sink skips assembly entirely, keeping the
+// default call path free of event-building costs.
+func (a *Aggregator) recordDecision(started time.Time, method string, policy rpc.Policy, decision rpc.Decision, resolveErr error, emissions []pool.Emission) {
+	if a.rec == observe.Nop {
+		return
+	}
+	event := observe.DecisionEvent{
+		Method:   method,
+		Duration: time.Since(started),
+		Faults:   len(decision.Faults),
+	}
+	if resolveErr != nil {
+		// resolveErr is authoritative: a decision carrying evidence but
+		// rejected (for example by conflict detection) reports "failed"
+		// with Conflict set, never a success class.
+		event.Status = "failed"
+		event.Conflict = errors.Is(resolveErr, rpc.ErrConflict)
+	} else {
+		event.Status = decision.Status.String()
+	}
+	for _, emission := range emissions {
+		if !emission.Attempted {
+			continue // never acquired a slot: no attempt, no observation
+		}
+		event.Attempts = append(event.Attempts, observe.SourceEvent{
+			Source: emission.Src.Name(),
+			RTT:    emission.RTT,
+			Failed: !usableAnswer(policy, emission),
+		})
+	}
+	a.rec.RecordDecision(event)
+}
+
+// usableAnswer reports whether an attempted call provided an answer the
+// policy could use. A delivered value counts when the policy normalizes it
+// — a valid answer that simply lost the comparison is dissent, not a
+// failure. A structured protocol error counts only for policies that opted
+// into error bodies (rpc.RPCErrorPolicy) and accept the body: a verified
+// revert is an observation that contributed value. Everything else —
+// transport faults, timeouts, malformed payloads, protocol errors the
+// policy rejects — provided no usable answer.
+func usableAnswer(policy rpc.Policy, emission pool.Emission) bool {
+	if emission.Err == nil {
+		_, err := policy.Normalize(emission.Val)
+		return err == nil
+	}
+	structured := observationRPCError(emission.Err)
+	if structured == nil {
+		return false
+	}
+	if provider, ok := policy.(rpc.RPCErrorPolicy); ok && provider.IncludeRPCError() {
+		_, err := policy.Normalize(structured.Raw())
+		return err == nil
+	}
+	return false
 }
 
 func hasUsableEmission(emissions []pool.Emission) bool {

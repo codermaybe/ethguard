@@ -2,71 +2,11 @@ package observe
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
-
-	"ethguard/pool"
-	"ethguard/rpc"
 )
-
-func testSources(t *testing.T, names ...string) []*pool.Source {
-	t.Helper()
-	p := pool.NewPool()
-	out := make([]*pool.Source, 0, len(names))
-	for i, name := range names {
-		src, err := p.Join(name, fmt.Sprintf("http://127.0.0.1:%d", 9000+i))
-		if err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, src)
-	}
-	return out
-}
-
-func TestBuildDecisionReportsVerifiedWithAttempts(t *testing.T) {
-	sources := testSources(t, "alpha", "beta", "gamma")
-	emissions := []pool.Emission{
-		{Src: sources[0], Val: []byte(`"0x1"`), RTT: 10 * time.Millisecond, Attempted: true},
-		{Src: sources[1], Val: []byte(`"0x1"`), RTT: 20 * time.Millisecond, Attempted: true},
-		{Src: sources[2], Err: fmt.Errorf("timeout"), RTT: 30 * time.Millisecond, Attempted: true},
-		{Src: sources[0]}, // never attempted: must be skipped
-	}
-	event := BuildDecision(time.Now().Add(-50*time.Millisecond), "eth_chainId",
-		rpc.Decision{Status: rpc.Verified}, nil, emissions)
-
-	if event.Method != "eth_chainId" || event.Status != "verified" || event.Conflict {
-		t.Fatalf("unexpected event header: %+v", event)
-	}
-	if event.Faults != 0 {
-		t.Fatalf("expected zero faults, got %d", event.Faults)
-	}
-	if len(event.Attempts) != 3 {
-		t.Fatalf("expected three attempted sources, got %+v", event.Attempts)
-	}
-	if event.Attempts[1].Source != "beta" || event.Attempts[1].RTT != 20*time.Millisecond {
-		t.Fatalf("unexpected attempt record: %+v", event.Attempts[1])
-	}
-	if !event.Attempts[2].Failed {
-		t.Fatal("expected gamma attempt marked failed")
-	}
-	if event.Duration <= 0 {
-		t.Fatalf("expected positive duration, got %v", event.Duration)
-	}
-}
-
-func TestBuildDecisionMarksConflictAsFailed(t *testing.T) {
-	sources := testSources(t, "alpha")
-	emissions := []pool.Emission{{Src: sources[0], Val: []byte(`"0x2"`), RTT: time.Millisecond, Attempted: true}}
-	err := fmt.Errorf("strict: %w", rpc.ErrConflict)
-	event := BuildDecision(time.Now(), "eth_chainId", rpc.Decision{Status: rpc.Verified}, err, emissions)
-	if event.Status != "failed" || !event.Conflict {
-		t.Fatalf("expected failed conflict event, got %+v", event)
-	}
-}
 
 func TestLogLevelsMatchOutcome(t *testing.T) {
 	cases := []struct {
@@ -129,5 +69,5 @@ func TestNopIsSafeDefault(t *testing.T) {
 		}
 	}()
 	Nop.RecordDecision(DecisionEvent{Status: "verified"})
-	Nop.RecordDecision(DecisionEvent{Method: "m", Status: "failed", Conflict: errors.Is(rpc.ErrConflict, rpc.ErrConflict)})
+	Nop.RecordDecision(DecisionEvent{Method: "m", Status: "failed", Conflict: true})
 }

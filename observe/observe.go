@@ -3,6 +3,8 @@
 // hosts inject a structured logger (NewLog) or their own Recorder; the
 // optional ethguard/observe/prometheus adapter turns the same events into
 // Prometheus metrics without coupling the rest of the module to that client.
+// Event assembly lives with the caller that owns the decisions (the
+// aggregator), which keeps this package free of pool and policy types.
 package observe
 
 import "time"
