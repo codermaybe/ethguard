@@ -294,8 +294,11 @@ func blockHashOf(raw json.RawMessage) string {
 // fixtureReceipt marshals a schema-valid receipt through go-ethereum's own
 // codec, so the wire shape honest sources emit is exercised end to end. The
 // bloom is derived from the receipt's logs the way consensus nodes derive
-// it, keeping DecodeReceipt's integrity check green by construction.
-func fixtureReceipt(t *testing.T, txHash common.Hash) json.RawMessage {
+// it, keeping DecodeReceipt's integrity check green by construction. The
+// receipt claims the given height while its BlockHash stays the fleet's
+// canonical pin, so hash-form and height-form bindings can be tested
+// independently.
+func fixtureReceipt(t *testing.T, txHash common.Hash, height int64) json.RawMessage {
 	t.Helper()
 	receipt := &types.Receipt{
 		Type:              types.LegacyTxType,
@@ -305,7 +308,7 @@ func fixtureReceipt(t *testing.T, txHash common.Hash) json.RawMessage {
 			Address:     common.HexToAddress("0x" + strings.Repeat("cc", 20)),
 			Topics:      []common.Hash{common.HexToHash("0x" + strings.Repeat("dd", 32))},
 			Data:        []byte{0x01, 0x02},
-			BlockNumber: 16,
+			BlockNumber: uint64(height),
 			TxHash:      txHash,
 			TxIndex:     1,
 			BlockHash:   common.HexToHash("0x" + strings.Repeat("11", 32)),
@@ -314,7 +317,7 @@ func fixtureReceipt(t *testing.T, txHash common.Hash) json.RawMessage {
 		TxHash:            txHash,
 		GasUsed:           21000,
 		BlockHash:         common.HexToHash("0x" + strings.Repeat("11", 32)),
-		BlockNumber:       big.NewInt(16),
+		BlockNumber:       big.NewInt(height),
 		TransactionIndex:  1,
 		EffectiveGasPrice: big.NewInt(1_000_000_000),
 	}
@@ -329,7 +332,7 @@ func fixtureReceipt(t *testing.T, txHash common.Hash) json.RawMessage {
 func TestAdapterTransactionReceiptReturnsVerifiedReceipt(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
-	raw := fixtureReceipt(t, txHash)
+	raw := fixtureReceipt(t, txHash, 16)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionReceipt, json.RawMessage(raw))
 	}
@@ -525,7 +528,7 @@ func TestAdapterBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	pin := "0x" + strings.Repeat("11", 32)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
-	raw := fixtureReceipt(t, txHash)
+	raw := fixtureReceipt(t, txHash, 16)
 	for _, node := range nodes {
 		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": pin})
 		node.Handle("eth_getBlockReceipts", func(c rpctest.Call) (any, error) {
@@ -557,7 +560,7 @@ func TestAdapterBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 func TestAdapterBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
-	raw := fixtureReceipt(t, txHash)
+	raw := fixtureReceipt(t, txHash, 16)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{raw})
 	}
@@ -568,6 +571,116 @@ func TestAdapterBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 	_, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(requested, false))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for receipts from another block, got %v", err)
+	}
+}
+
+// TestAdapterBlockReceiptsNumberFormBindsRequestedHeight pins the number-form
+// half of the request-answer binding: a unanimous, self-consistent fleet
+// returning another block's legitimate receipts still fails, because
+// agreement cannot substitute for the binding.
+func TestAdapterBlockReceiptsNumberFormBindsRequestedHeight(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	foreign := fixtureReceipt(t, txHash, 17) // legitimate receipts, wrong block
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{foreign})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	if !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for coherent receipts of another height, got %v", err)
+	}
+}
+
+func TestAdapterBlockReceiptsNumberFormBindsEveryReceipt(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	good := fixtureReceipt(t, txHash, 16)
+	foreign := fixtureReceipt(t, txHash, 17)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{good, foreign})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	if !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected one mismatched element to fail the whole array, got %v", err)
+	}
+}
+
+func TestAdapterBlockReceiptsNumberFormRejectsMissingHeight(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	var receipt map[string]json.RawMessage
+	if err := json.Unmarshal(fixtureReceipt(t, txHash, 16), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	delete(receipt, "blockNumber") // blockless receipts are legal wire; the binding must catch them
+	stripped, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{stripped})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	if !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected receipts without a height to fail the number-form binding, got %v", err)
+	}
+}
+
+// TestAdapterBlockReceiptsTagFormBindsToThePinnedReference proves the
+// tag-form binding rides decision.BlockRef: receipts whose block hash
+// differs from the verified pin fail without a second anchor call.
+func TestAdapterBlockReceiptsTagFormBindsToThePinnedReference(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	// fixtureReceipt's BlockHash is the pin (0x11…), so reroute the pin:
+	// anchor reports 0x22…, receipts claim 0x11….
+	pin := "0x" + strings.Repeat("22", 32)
+	raw := fixtureReceipt(t, txHash, 16)
+	for _, node := range nodes {
+		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": pin})
+		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{raw})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.LatestBlockNumber))
+	if !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected receipts from another block than the pin to fail, got %v", err)
+	}
+	// No second establishment: one anchor fan-out per read is the budget.
+	for i, node := range nodes {
+		establishments := 0
+		for _, call := range node.Calls() {
+			if call.Method == "eth_getBlockByNumber" {
+				establishments++
+			}
+		}
+		if establishments != 1 {
+			t.Fatalf("node %d: expected exactly one anchor establishment, got %d", i, establishments)
+		}
+	}
+}
+
+func TestAdapterBlockReceiptsNumberFormAcceptsEmptyBlock(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	receipts, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	if err != nil || len(receipts) != 0 {
+		t.Fatalf("an empty block stays a legal answer, got %+v err=%v", receipts, err)
 	}
 }
 

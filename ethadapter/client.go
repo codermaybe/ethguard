@@ -143,6 +143,17 @@ func (c *Client) TransactionByHash(ctx context.Context, txHash common.Hash) (*ty
 // and moving tags are pinned to the verified reference before fan-out;
 // hashes address immutable content directly. Verified absence of the block
 // maps to ethereum.NotFound.
+//
+// Request-answer binding closes the typed boundary for every reference
+// form: a hash request binds every receipt's BlockHash to that hash, an
+// explicit number binds every receipt's BlockNumber to that height, and a
+// moving tag binds every receipt's BlockHash to the reference the policy
+// actually pinned (decision.BlockRef — no second anchor call). A coherent
+// fleet returning another block's legitimate receipts therefore fails as
+// malformed instead of passing. This binding is per-response integrity,
+// not a completeness proof: an empty array stays a legal answer for an
+// empty block, and nothing here proves the fleet reported every receipt
+// of the block.
 func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, error) {
 	ref, err := blockRefArg(blockNrOrHash)
 	if err != nil {
@@ -157,11 +168,34 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 		return nil, err
 	}
 	if hash, ok := blockNrOrHash.Hash(); ok {
+		return bindReceiptsToHash(receipts, hash)
+	}
+	if number, ok := blockNrOrHash.Number(); ok && number >= 0 {
 		for i, receipt := range receipts {
-			if receipt.BlockHash != hash {
-				return nil, fmt.Errorf("%w: receipt %d block hash %s does not match requested hash %s",
-					ethguard.ErrMalformedResponse, i, receipt.BlockHash, hash)
+			if receipt.BlockNumber == nil || receipt.BlockNumber.Uint64() != uint64(number.Int64()) {
+				return nil, fmt.Errorf("%w: receipt %d height %v does not match requested number %d",
+					ethguard.ErrMalformedResponse, i, receipt.BlockNumber, number.Int64())
 			}
+		}
+		return receipts, nil
+	}
+	// Moving tag: the policy rewrote it to the verified reference, and
+	// decision.BlockRef carries that pin. Bind against the pin, not against
+	// a fresh anchor call.
+	if decision.BlockRef == "" {
+		return nil, fmt.Errorf("%w: pinned receipts carry no block reference",
+			ethguard.ErrMalformedResponse)
+	}
+	return bindReceiptsToHash(receipts, common.HexToHash(decision.BlockRef))
+}
+
+// bindReceiptsToHash applies the per-receipt block-hash binding shared by
+// hash-addressed and tag-pinned requests.
+func bindReceiptsToHash(receipts []*types.Receipt, hash common.Hash) ([]*types.Receipt, error) {
+	for i, receipt := range receipts {
+		if receipt.BlockHash != hash {
+			return nil, fmt.Errorf("%w: receipt %d block hash %s does not match requested hash %s",
+				ethguard.ErrMalformedResponse, i, receipt.BlockHash, hash)
 		}
 	}
 	return receipts, nil
