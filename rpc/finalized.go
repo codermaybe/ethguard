@@ -75,23 +75,36 @@ func (p finalizedHeadPolicy) Resolve(obs []Observation) (Decision, error) {
 			len(obs), ErrNoValidResponse)
 	}
 
-	var freshest uint64
+	// The freshness reference is the lower median of the fleet's reported
+	// heights, never the maximum. The reference is provider-reported, so a
+	// minority lying about height must not be able to move it and vote
+	// honest views out of the selection — the same collusion resistance as
+	// the tip gate's reference (threat model: median-class references for
+	// provider-reported data). Under the previous maximum, one source
+	// reporting an inflated height excluded every honest view as stale
+	// while remaining eligible itself, and could then win the pin.
+	heights := make([]uint64, 0, len(views))
 	for _, v := range views {
-		if v.height > freshest {
-			freshest = v.height
-		}
+		heights = append(heights, v.height)
 	}
+	slices.Sort(heights)
+	reference := heights[(len(heights)-1)/2]
 
 	clusters := make(map[uint64][]SourceRef)
 	hashes := make(map[uint64]string)
 	values := make(map[uint64]json.RawMessage)
 	validViews := make([]view, 0, len(views))
 	for _, v := range views {
-		if freshest-v.height > p.maxLag {
+		// Views at or above the reference are never stale; views below it
+		// are excluded only when they trail it by more than the bound.
+		// Spelled as a strict inequality on the lower side so the unsigned
+		// difference cannot underflow. Exclusion is filter evidence, not a
+		// source punishment: an outlier height is suspicion, not proof.
+		if v.height < reference && reference-v.height > p.maxLag {
 			decision.Reject = append(decision.Reject, v.source)
 			decision.Faults = append(decision.Faults, fmt.Errorf(
-				"source %q: stale finalized height %d trails %d beyond %d blocks",
-				v.source.Name, v.height, freshest, p.maxLag))
+				"source %q: stale finalized height %d trails reference %d beyond %d blocks",
+				v.source.Name, v.height, reference, p.maxLag))
 			continue
 		}
 		validViews = append(validViews, v)
@@ -105,12 +118,12 @@ func (p finalizedHeadPolicy) Resolve(obs []Observation) (Decision, error) {
 		return decision, fmt.Errorf("finalized head: all source views are stale: %w", ErrNoValidResponse)
 	}
 
-	heights := make([]uint64, 0, len(clusters))
-	for h := range clusters {
-		heights = append(heights, h)
+	winner := validViews[0].height
+	for _, v := range validViews {
+		if v.height < winner {
+			winner = v.height
+		}
 	}
-	slices.Sort(heights)
-	winner := heights[0]
 
 	distinct := make(map[string]bool, len(clusters[winner]))
 	for _, v := range validViews {
@@ -121,6 +134,11 @@ func (p finalizedHeadPolicy) Resolve(obs []Observation) (Decision, error) {
 	if len(distinct) > 1 {
 		decision.Value = values[winner]
 		decision.Support = clusters[winner]
+		for _, v := range validViews {
+			if v.height != winner {
+				decision.Reject = append(decision.Reject, v.source)
+			}
+		}
 		return decision, fmt.Errorf("finalized head: %d hashes claimed for height %d: %w",
 			len(distinct), winner, ErrConflict)
 	}
@@ -131,6 +149,11 @@ func (p finalizedHeadPolicy) Resolve(obs []Observation) (Decision, error) {
 	}
 	decision.Value = values[winner]
 	decision.Support = clusters[winner]
+	for _, v := range validViews {
+		if v.height != winner {
+			decision.Reject = append(decision.Reject, v.source)
+		}
+	}
 	return decision, nil
 }
 
@@ -146,8 +169,12 @@ func decodeFinalizedHead(value json.RawMessage) (finalizedHead, error) {
 }
 
 func parseFinalizedHeight(number string) (uint64, error) {
-	digits := strings.TrimPrefix(number, "0x")
-	height, err := strconv.ParseUint(digits, 16, 64)
+	// The 0x prefix is mandatory: a bare decimal string is malformed, not a
+	// decimal spelling (parsing it as hex would silently misread it).
+	if len(number) < 3 || (number[:2] != "0x" && number[:2] != "0X") {
+		return 0, fmt.Errorf("finalized head: invalid height %q", number)
+	}
+	height, err := strconv.ParseUint(number[2:], 16, 64)
 	if err != nil {
 		return 0, fmt.Errorf("finalized head: invalid height %q", number)
 	}

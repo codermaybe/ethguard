@@ -86,21 +86,26 @@ func (a *StrictHeadAnchor) establish(ctx context.Context) (string, uint64, error
 
 // FinalizedHeadAnchor is the conservative AnchorResolver: fan out a
 // finalized-tag query and pin the reference at the lowest finalized height
-// that still counts as fresh. Post-merge finalized blocks are irreversible,
-// so this never places the anchor ahead of true finality — a colluding
-// majority cannot confirm what has not been finalized, and a lagging or
-// stalled minority can only drag the reference backward within the freshness
-// bound, never forward.
+// that still counts as fresh. The reference is what providers report, not
+// a consensus-verified fact: safety rests on the fleet's trustworthiness
+// and cross-source consistency, never on a proof of on-chain finality. The
+// freshness bound and lowest-height selection keep a stale or lying
+// minority from moving the pin; they do not make a colluding majority
+// harmless.
 //
 // Selection rules over the fleet's finalized answers:
 //
-//   - Sources whose finalized height falls more than MaxFinalizedLag behind
-//     the freshest observed finalized height are ignored as stale.
+//   - The freshness reference is the lower median of the fleet's reported
+//     heights, so a minority lying about height cannot vote honest views
+//     out of the selection — the same collusion resistance as the tip
+//     gate's reference.
+//   - Sources trailing that reference by more than MaxFinalizedLag are
+//     excluded as stale — filter evidence, not a health punishment.
 //   - The remaining lowest height wins; sources reporting it must agree on
 //     its hash, otherwise the call fails with conflict evidence (a fork).
 //   - One uncorroborated report of the winning height still pins the anchor
-//     (Selected class): a false pin costs liveness inside the freshness
-//     bound, never safety.
+//     (Selected class): bounded by the freshness bound, and safe only under
+//     the source-trust assumption above.
 //
 // The pipeline rides the same aggregation flow and "anchor" label as
 // StrictHeadAnchor and cannot recurse for the same reason.
