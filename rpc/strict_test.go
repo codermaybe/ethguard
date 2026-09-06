@@ -139,6 +139,47 @@ func TestWithQuorumPanicsOnNonPositive(t *testing.T) {
 	Strict(CanonicalJSON, WithQuorum(0))
 }
 
+func TestQuorumSingleSourceFleetStaysSelected(t *testing.T) {
+	// Floor and majority both admit a lone response under quorum 1, but
+	// WithQuorum relaxes the agreement clause only: one uncorroborated
+	// response stays Selected, never Verified.
+	p := Strict(CanonicalJSON, WithQuorum(1))
+	decision, err := p.Resolve([]Observation{obs(`1`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != Selected {
+		t.Fatalf("expected selected for a single uncorroborated response, got %v", decision.Status)
+	}
+}
+
+func TestQuorumSingleSurvivorConflicts(t *testing.T) {
+	// A multi-source fleet with one survivor fails the fleet majority even
+	// under quorum 1: the participation defense is not bypassed by the
+	// downgrade path.
+	p := Strict(CanonicalJSON, WithQuorum(1))
+	_, err := p.Resolve([]Observation{
+		obs(`1`),
+		{Source: src(), Err: errors.New("timeout")},
+		{Source: src(), Err: errors.New("timeout")},
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected conflict for a lone survivor of three, got %v", err)
+	}
+}
+
+func TestQuorumTwoSupportersVerify(t *testing.T) {
+	// Corroboration, floor, and fleet majority together verify as before.
+	p := Strict(CanonicalJSON, WithQuorum(1))
+	decision, err := p.Resolve([]Observation{obs(`1`), obs(`1`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != Verified {
+		t.Fatalf("expected verified with two supporters, got %v", decision.Status)
+	}
+}
+
 func TestNormalizeFailureBecomesFault(t *testing.T) {
 	p := Strict(CanonicalJSON)
 	decision, err := p.Resolve([]Observation{

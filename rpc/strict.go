@@ -31,7 +31,9 @@ type StrictOption func(*strictFunc)
 // growing it; forging agreement requires corrupting more than half of the
 // fleet rather than more than half of whoever is left.
 //
-// A non-positive n is a configuration error.
+// A non-positive n is a configuration error. Even where the floor admits a
+// single response (n = 1), that response stays Selected: WithQuorum relaxes
+// the agreement clause only, never the corroboration rule.
 func WithQuorum(n int) StrictOption {
 	return func(s *strictFunc) {
 		if n <= 0 {
@@ -139,6 +141,15 @@ func (f strictFunc) Resolve(obs []Observation) (Decision, error) {
 
 	size := len(groups[winner])
 	if size >= f.minQuorum && 2*size > len(obs) {
+		// Classification order matters: the floor and the fleet majority
+		// are evaluated first, and only an admitted winner is then
+		// downgraded for lacking corroboration. A quorum relaxes the
+		// agreement clause only — never the single-response rule — so even
+		// where the floor admits one response (quorum 1, single-source
+		// fleet), it stays Selected rather than claiming Verified.
+		if size == 1 {
+			decision.Status = Selected
+		}
 		return decision, nil
 	}
 	return decision, fmt.Errorf("strict: quorum %d unmet: top cluster %d of %d attempted sources: %w",
