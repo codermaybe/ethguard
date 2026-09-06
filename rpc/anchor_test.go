@@ -252,4 +252,17 @@ func TestAnchoredHeightFieldsRewriteFilterBounds(t *testing.T) {
 			t.Fatalf("non-object param consulted the height")
 		}
 	})
+
+	t.Run("blockHash mixed with a range field fails before any upstream contact", func(t *testing.T) {
+		before := calls
+		_, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
+			map[string]any{"blockHash": "0xabc", "fromBlock": "latest"},
+		}})
+		if !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("expected invalid-request rejection, got %v", err)
+		}
+		if calls != before {
+			t.Fatalf("contradictory filter consulted the height: %d", calls)
+		}
+	})
 }

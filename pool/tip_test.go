@@ -77,6 +77,41 @@ func TestRefreshTipsIsANoOpWhenDisabled(t *testing.T) {
 	p.RefreshTips(context.Background()) // must not panic or block
 }
 
+// TestTipTrackingZeroValuesSelectDefaultBound pins the zero-value semantics
+// of WithTipTracking behaviorally: the gate activates with the default
+// 32-block bound — a source trailing by 40 falls out, one trailing by
+// exactly 32 stays — instead of an unbounded or disabled gate.
+func TestTipTrackingZeroValuesSelectDefaultBound(t *testing.T) {
+	p, _, _ := newTipPool(t, 0, 100, 100, 60) // 60 trails the reference 100 by 40 > 32
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := p.Collect(ctx, "eth_blockNumber", nil, CollectOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	p.RefreshTips(ctx)
+
+	ems, err := p.Collect(ctx, "eth_blockNumber", nil, CollectOptions{})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(ems) != 2 {
+		t.Fatalf("default bound must gate a 40-behind source, got %+v", ems)
+	}
+
+	p2, _, _ := newTipPool(t, 0, 100, 100, 68) // exactly 32 behind: inside the bound
+	if _, err := p2.Collect(ctx, "eth_blockNumber", nil, CollectOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	p2.RefreshTips(ctx)
+	ems, err = p2.Collect(ctx, "eth_blockNumber", nil, CollectOptions{})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(ems) != 3 {
+		t.Fatalf("a source trailing exactly the default bound must stay, got %+v", ems)
+	}
+}
+
 func TestFreshnessGateExcludesTrailingSource(t *testing.T) {
 	// Heights 100/100/10: the lower median is 100, so with a bound of 16
 	// the trailing source falls out of fan-outs but keeps being probed.

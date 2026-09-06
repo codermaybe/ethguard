@@ -96,7 +96,7 @@ func DefaultTipInterval() time.Duration { return defaultTipInterval }
 // treated as stale when configuration omits tip_tracking.max_behind.
 func DefaultTipMaxBehind() uint64 { return defaultTipMaxBehind }
 
-// DefaultFinalizedLag is the maximum distance from the observed finalized
-// head that an anchored read may lag when configuration omits
-// anchoring.max_finalized_lag.
+// DefaultFinalizedLag is the maximum distance from the fleet's finalized
+// reference that an anchored read may lag when configuration omits
+// anchoring.max_lag.
 func DefaultFinalizedLag() uint64 { return defaultFinalizedLag }

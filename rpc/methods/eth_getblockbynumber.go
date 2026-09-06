@@ -3,9 +3,10 @@ package methods
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
+	"strconv"
 	"strings"
 
+	"ethguard/internal/hexqty"
 	"ethguard/rpc"
 )
 
@@ -23,6 +24,9 @@ func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
 // normalizeBlockHead reduces a block object to its comparable identity:
 // "<decimal number>|<lowercase hash>". Parsing the height numerically makes
 // equivalent hexadecimal spellings (for example 0x010f and 0x10f) agree.
+// The height is a uint64-shaped quantity, so the shared wire-quantity
+// primitive owns the spelling contract; the required-field checks here are
+// this method's wire semantics.
 func normalizeBlockHead(value json.RawMessage) (string, error) {
 	var head struct {
 		Number string `json:"number"`
@@ -34,12 +38,9 @@ func normalizeBlockHead(value json.RawMessage) (string, error) {
 	if head.Number == "" || len(head.Hash) < 3 {
 		return "", fmt.Errorf("block head: missing number or hash")
 	}
-	if len(head.Number) < 3 || !strings.EqualFold(head.Number[:2], "0x") {
-		return "", fmt.Errorf("block head: invalid number %q", head.Number)
+	height, err := hexqty.Parse(head.Number)
+	if err != nil {
+		return "", fmt.Errorf("block head: %w", err)
 	}
-	height, ok := new(big.Int).SetString(head.Number[2:], 16)
-	if !ok {
-		return "", fmt.Errorf("block head: invalid number %q", head.Number)
-	}
-	return height.String() + "|" + strings.ToLower(head.Hash), nil
+	return strconv.FormatUint(height, 10) + "|" + strings.ToLower(head.Hash), nil
 }

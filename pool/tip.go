@@ -7,14 +7,15 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"ethguard/config"
 )
 
-// Tip-tracking defaults. The poll interval is deliberately low-rate: probes
-// ride the ordinary collection path and must never compete with traffic.
-const (
-	defaultTipInterval = 10 * time.Second
-	defaultMaxTipLag   = 32
-)
+// Tip-tracking defaults live in config (DefaultTipInterval,
+// DefaultTipMaxBehind): one source for both the YAML and Go construction
+// paths, so they cannot drift (decision 0004). The poll interval is
+// deliberately low-rate: probes ride the ordinary collection path and must
+// never compete with traffic.
 
 // PoolOption tunes a Pool at construction time.
 type PoolOption func(*poolConfig)
@@ -53,8 +54,8 @@ func NewPoolWithOptions(chainID uint64, opts ...PoolOption) *Pool {
 // option tuning.
 func newPoolWithDialerAndOptions(d dialer, chainID uint64, opts ...PoolOption) *Pool {
 	cfg := poolConfig{
-		tipInterval: defaultTipInterval,
-		maxTipLag:   defaultMaxTipLag,
+		tipInterval: config.DefaultTipInterval(),
+		maxTipLag:   config.DefaultTipMaxBehind(),
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -86,8 +87,9 @@ func (p *Pool) tipLoop(every time.Duration) {
 
 // RefreshTips samples eth_blockNumber across sources once, updating each
 // source's observed tip. It is called by the background loop and may be
-// called manually to force an immediate sample. Per-source results land in
-// Health().TipHeight regardless of whether the freshness gate is enabled.
+// called manually to force an immediate sample — but only when tip tracking
+// is enabled: on a pool constructed without WithTipTracking it is a no-op,
+// because the sampler and its state do not exist.
 //
 // The probe bypasses the freshness gate on purpose: a fleet that drifted
 // behind must still be able to refresh its own picture of "behind". It also

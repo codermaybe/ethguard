@@ -26,7 +26,13 @@ type Config struct {
 
 // AnchoringConfig selects a moving-tag anchoring preset.
 type AnchoringConfig struct {
+	// Preset is "strict" (default) or "finalized"; spelling is
+	// case-insensitive and surrounding whitespace is ignored. An empty
+	// value selects strict.
 	Preset string `yaml:"preset,omitempty" json:"preset,omitempty"`
+	// MaxLag bounds how far a source's finalized view may trail the fleet's
+	// reference before its view is excluded as stale. Zero selects the
+	// documented default (32 blocks).
 	MaxLag uint64 `yaml:"max_lag,omitempty" json:"max_lag,omitempty"`
 }
 

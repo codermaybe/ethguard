@@ -105,14 +105,9 @@ func WithAnchorCaching(ttl time.Duration) Option {
 // eligibility gate: sources trailing the fleet's robust reference height by
 // more than maxBehind blocks are skipped by fan-outs until they catch up or
 // their sample recovers (pool.WithTipTracking). Zero values select the
-// defaults of 10s sampling and a 32-block bound.
+// documented defaults (10s sampling, 32-block bound), applied by pool from
+// config's single source of defaults (decision 0004).
 func WithTipTracking(every time.Duration, maxBehind uint64) Option {
-	if every <= 0 {
-		every = config.DefaultTipInterval()
-	}
-	if maxBehind == 0 {
-		maxBehind = config.DefaultTipMaxBehind()
-	}
 	return func(o *clientOptions) {
 		o.tipEnabled = true
 		o.tipInterval = every
@@ -123,6 +118,12 @@ func WithTipTracking(every time.Duration, maxBehind uint64) Option {
 // New builds a Client from an already-loaded configuration.
 // Upstreams are registered into the RPC pool with endpoint deduplication.
 // Dialing each source is deferred until its first call.
+//
+// Precedence between the two construction paths: an explicit Go option
+// always wins over a value derived from the configuration, and a zero
+// option value falls through to the documented default. Duration strings
+// in the configuration were validated by cfg.Validate; the parses below
+// cannot fail for a Config that passed validation.
 func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -139,14 +140,12 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	}
 	if cfg.TipTracking != nil {
 		co.tipEnabled = true
-		co.tipInterval = config.DefaultTipInterval()
-		co.tipMaxBehind = config.DefaultTipMaxBehind()
+		// Empty strings and a zero bound fall through to pool's defaults,
+		// the same ones the Go option path relies on.
 		if cfg.TipTracking.Interval != "" {
 			co.tipInterval, _ = time.ParseDuration(cfg.TipTracking.Interval)
 		}
-		if cfg.TipTracking.MaxBehind != 0 {
-			co.tipMaxBehind = cfg.TipTracking.MaxBehind
-		}
+		co.tipMaxBehind = cfg.TipTracking.MaxBehind
 	}
 	// The preset comparison mirrors config.Validate's normalization exactly:
 	// a case-spelling that passes validation must select the same strategy

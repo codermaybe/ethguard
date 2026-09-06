@@ -304,7 +304,17 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 		return a.policy.Prepare(ctx, req) // not an object (hash-pin form, malformed): upstream judges
 	}
 	if _, pinned := obj["blockHash"]; pinned {
-		return a.policy.Prepare(ctx, req) // explicit pin; both forms together are the caller's mistake
+		// blockHash addresses the range explicitly and excludes fromBlock/
+		// toBlock on the wire. Coexisting bounds are contradictory input;
+		// failing here keeps the read off the upstream entirely instead of
+		// producing inevitable fleet dissent.
+		for _, field := range a.fields {
+			if _, present := obj[field]; present {
+				return Request{}, fmt.Errorf("rpc: %s mixes blockHash with %q: %w",
+					req.Method, field, ErrInvalidRequest)
+			}
+		}
+		return a.policy.Prepare(ctx, req) // explicit pin without range fields: complete, untouched
 	}
 	var rewrite bool
 	for _, field := range a.fields {

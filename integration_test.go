@@ -22,6 +22,7 @@ import (
 	"ethguard"
 	"ethguard/config"
 	dprom "ethguard/observe/prometheus"
+	"ethguard/pool"
 	"ethguard/rpc"
 	"ethguard/rpc/methods"
 	"ethguard/rpctest"
@@ -1702,5 +1703,63 @@ func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
 	}
 	if callsBefore != callsAfter {
 		t.Fatalf("height re-establishment contacted the fleet: %d -> %d", callsBefore, callsAfter)
+	}
+}
+
+// TestTipTrackingConfigPathMatchesGoOptionPath pins decision 0004 at the
+// behavioral level: a tip_tracking section in the configuration and the
+// equivalent Go option must gate the same fleet identically — the lagging
+// source falls out of fan-outs under either construction path.
+func TestTipTrackingConfigPathMatchesGoOptionPath(t *testing.T) {
+	// Heights 100/100/90: the lower-median reference is 100, so with a
+	// 4-block bound the 90 source is gated; under any other bound the
+	// fleets would differ and the test would catch the drift.
+	addresses := []string{"0x64", "0x64", "0x5a"}
+	paths := map[string]func(cfg config.Config) (*ethguard.Client, error){
+		"yaml": func(cfg config.Config) (*ethguard.Client, error) {
+			cfg.TipTracking = &config.TipTrackingConfig{MaxBehind: 4}
+			return ethguard.New(cfg)
+		},
+		"go option": func(cfg config.Config) (*ethguard.Client, error) {
+			return ethguard.New(cfg, ethguard.WithTipTracking(0, 4))
+		},
+	}
+	for name, build := range paths {
+		t.Run(name, func(t *testing.T) {
+			cfg := config.Config{ChainID: 1}
+			var nodes []*rpctest.Node
+			for i, addr := range addresses {
+				node := rpctest.NewNode(1)
+				t.Cleanup(node.Close)
+				node.Return("eth_blockNumber", addr)
+				nodes = append(nodes, node)
+				cfg.Upstreams = append(cfg.Upstreams, config.Upstream{
+					ID:       fmt.Sprintf("node-%c", 'a'+i),
+					Endpoint: node.URL(),
+				})
+			}
+			client, err := build(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(client.Close)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// First contact warms the connections; the probe observes them
+			// and samples the tips that arm the freshness gate.
+			if _, err := client.Pool().Collect(ctx, "eth_blockNumber", nil, pool.CollectOptions{}); err != nil {
+				t.Fatalf("warm-up collect: %v", err)
+			}
+			client.Pool().RefreshTips(ctx)
+
+			ems, err := client.Pool().Collect(ctx, "eth_blockNumber", nil, pool.CollectOptions{})
+			if err != nil {
+				t.Fatalf("gated collect: %v", err)
+			}
+			if len(ems) != 2 {
+				t.Fatalf("%s path: expected the 10-block-lagging source gated, got %+v", name, ems)
+			}
+		})
 	}
 }

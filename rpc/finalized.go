@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
+
+	"ethguard/internal/hexqty"
 )
 
 // FinalizedHead resolves finalized-block observations by selecting the lowest
@@ -169,14 +170,9 @@ func decodeFinalizedHead(value json.RawMessage) (finalizedHead, error) {
 }
 
 func parseFinalizedHeight(number string) (uint64, error) {
-	// The 0x prefix is mandatory: a bare decimal string is malformed, not a
-	// decimal spelling (parsing it as hex would silently misread it).
-	if len(number) < 3 || (number[:2] != "0x" && number[:2] != "0X") {
-		return 0, fmt.Errorf("finalized head: invalid height %q", number)
-	}
-	height, err := strconv.ParseUint(number[2:], 16, 64)
+	height, err := hexqty.Parse(number)
 	if err != nil {
-		return 0, fmt.Errorf("finalized head: invalid height %q", number)
+		return 0, fmt.Errorf("finalized head: %w", err)
 	}
 	return height, nil
 }

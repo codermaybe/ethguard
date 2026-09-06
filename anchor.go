@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"ethguard/aggregator"
+	"ethguard/internal/hexqty"
 	"ethguard/observe"
 	"ethguard/pool"
 	"ethguard/rpc"
@@ -201,8 +200,7 @@ func blockRefFromDecision(decision rpc.Decision) (string, uint64, error) {
 	if err := json.Unmarshal(decision.Value, &head); err != nil || len(head.Hash) < 3 {
 		return "", 0, fmt.Errorf("%w: winning anchor block carries no hash", rpc.ErrMalformedResponse)
 	}
-	digits := strings.TrimPrefix(head.Number, "0x")
-	height, err := strconv.ParseUint(digits, 16, 64)
+	height, err := hexqty.Parse(head.Number)
 	if err != nil {
 		return "", 0, fmt.Errorf("%w: winning anchor block carries an invalid height %q",
 			rpc.ErrMalformedResponse, head.Number)

@@ -17,7 +17,11 @@ That line decides where normalizers live:
   quantity-shaped result, `normalizeCanonicalObject` for immutable-content
   object reads); a method-specific shape stays in its method's file
   (`normalizeBlockHead`). Normalizers are unexported, and the 0x/hex
-  conventions never leave this directory.
+  comparison conventions never leave this directory. The one exception is
+  the uint64-shaped height parser: a spelling primitive shared with the
+  finalized-head policy and the anchor extraction, kept in
+  `internal/hexqty`. Which response fields are quantities at all — the wire
+  semantics — still belong to this layer alone.
 
 A policy describes how its method is prepared, normalized, compared,
 anchored, and classified. Initial policy groups are:
