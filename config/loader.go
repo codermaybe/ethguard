@@ -83,9 +83,20 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// Defaults are exported as functions so composition roots can use exactly the
-// same defaults as configuration loading without duplicating constants.
+// DefaultCollectTimeout is the collect window applied when configuration
+// omits collect_timeout. Composition roots should use this rather than
+// duplicating the constant.
 func DefaultCollectTimeout() time.Duration { return defaultCollectTimeout }
-func DefaultTipInterval() time.Duration    { return defaultTipInterval }
-func DefaultTipMaxBehind() uint64          { return defaultTipMaxBehind }
-func DefaultFinalizedLag() uint64          { return defaultFinalizedLag }
+
+// DefaultTipInterval is the tip-sampling period applied when configuration
+// omits tip_tracking.interval.
+func DefaultTipInterval() time.Duration { return defaultTipInterval }
+
+// DefaultTipMaxBehind is the lag, in blocks, beyond which a source is
+// treated as stale when configuration omits tip_tracking.max_behind.
+func DefaultTipMaxBehind() uint64 { return defaultTipMaxBehind }
+
+// DefaultFinalizedLag is the maximum distance from the observed finalized
+// head that an anchored read may lag when configuration omits
+// anchoring.max_finalized_lag.
+func DefaultFinalizedLag() uint64 { return defaultFinalizedLag }

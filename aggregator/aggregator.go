@@ -29,18 +29,18 @@ type Option func(*Aggregator)
 
 // WithRecorder routes one observability event per aggregate decision into r.
 // A nil recorder keeps the default no-op sink.
-// WithCollectTimeout bounds the pool operation used by each aggregate call.
-// Zero keeps pool's default timeout.
-func WithCollectTimeout(timeout time.Duration) Option {
-	return func(a *Aggregator) { a.collectTimeout = timeout }
-}
-
 func WithRecorder(r observe.Recorder) Option {
 	return func(a *Aggregator) {
 		if r != nil {
 			a.rec = r
 		}
 	}
+}
+
+// WithCollectTimeout bounds the pool operation used by each aggregate call.
+// Zero keeps pool's default timeout.
+func WithCollectTimeout(timeout time.Duration) Option {
+	return func(a *Aggregator) { a.collectTimeout = timeout }
 }
 
 func New(p *pool.Pool, policies rpc.Registry, opts ...Option) *Aggregator {

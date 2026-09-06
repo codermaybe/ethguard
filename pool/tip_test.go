@@ -69,7 +69,7 @@ func TestProbeNeverDialsColdSources(t *testing.T) {
 }
 
 func TestRefreshTipsIsANoOpWhenDisabled(t *testing.T) {
-	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
+	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
 	defer p.Close()
 	if _, err := p.Join("a", "https://a.example"); err != nil {
 		t.Fatal(err)

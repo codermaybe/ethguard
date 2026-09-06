@@ -158,7 +158,7 @@ func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (*ethcli
 
 func TestCollectFanoutReturnsOneEmissionPerSource(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 
 	if _, err := p.Join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestCollectRejectsUnexpectedChainID(t *testing.T) {
 
 func TestCollectDialOncePerSource(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	if _, err := p.Join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestCollectDeadlineIncludesWaitForSharedDial(t *testing.T) {
 		dialEntered: entered,
 		dialRelease: release,
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	defer p.Close()
 	src, err := p.Join("a", "https://a.example")
 	if err != nil {
@@ -297,7 +297,7 @@ func TestCollectRespectsMaxConcurrent(t *testing.T) {
 		dials: make(map[string]int),
 		track: tracker,
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
 		if _, err := p.Join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -324,7 +324,7 @@ func TestCollectRecordsPerSourceHealthWithoutBlockingSuccess(t *testing.T) {
 		dials: make(map[string]int),
 		fails: map[string]error{"https://b.example": dialErr},
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	a, err := p.Join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -364,7 +364,7 @@ func TestCollectRecordsPerSourceHealthWithoutBlockingSuccess(t *testing.T) {
 
 func TestCollectTreatsJSONRPCErrorAsAHealthyResponse(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	src, err := p.Join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +387,7 @@ func TestCollectTreatsJSONRPCErrorAsAHealthyResponse(t *testing.T) {
 
 func TestCollectRecordsJSONRPCProtocolErrorAsFailure(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	src, err := p.Join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -410,7 +410,7 @@ func TestCollectRecordsJSONRPCProtocolErrorAsFailure(t *testing.T) {
 
 func TestCollectTemporarilyExcludesRepeatedlyFailingSource(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	src, err := p.Join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -442,7 +442,7 @@ func TestCollectDoesNotBlameSourceForCallerDeadline(t *testing.T) {
 		dials: make(map[string]int),
 		track: tracker,
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	src, err := p.Join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -462,7 +462,7 @@ func TestCollectDoesNotBlameSourceForCallerDeadline(t *testing.T) {
 
 func TestCollectDoesNotBlameSourceForCallerCancellation(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	src, err := p.Join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -484,7 +484,7 @@ func TestCollectDoesNotBlameSourceThatNeverAcquiredConcurrencySlot(t *testing.T)
 		dials: make(map[string]int),
 		track: tracker,
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	for _, name := range []string{"a", "b"} {
 		if _, err := p.Join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -513,7 +513,7 @@ func TestCollectLatencyExcludesConcurrencyQueueTime(t *testing.T) {
 		dials: make(map[string]int),
 		track: tracker,
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	for _, name := range []string{"a", "b", "c", "d", "e"} {
 		if _, err := p.Join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -546,7 +546,7 @@ func TestPoolCloseReleasesConnectionsAndRejectsFurtherUse(t *testing.T) {
 		dials:   make(map[string]int),
 		clients: make(map[string][]*ethclient.Client),
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	if _, err := p.Join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +577,7 @@ func TestPoolCloseDoesNotBlameOrReviveInFlightSource(t *testing.T) {
 		dials: make(map[string]int),
 		track: &callTracker{entered: entered, release: release},
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	src, err := p.Join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -610,7 +610,7 @@ func TestPoolCloseCancelsInFlightDial(t *testing.T) {
 		dialEntered: entered,
 		dialRelease: release,
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	if _, err := p.Join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -644,7 +644,7 @@ func TestCollectRedialsAfterUnrecoverableClientFailure(t *testing.T) {
 		dials:      make(map[string]int),
 		closeFirst: map[string]bool{"https://a.example": true},
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	src, err := p.Join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -665,7 +665,7 @@ func TestCollectRedialsAfterUnrecoverableClientFailure(t *testing.T) {
 }
 
 func TestPoolJoinIsAtomicAndReturnsCanonicalSource(t *testing.T) {
-	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
+	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
 	const goroutines = 32
 	results := make(chan *Source, goroutines)
 	errs := make(chan error, goroutines)
@@ -703,7 +703,7 @@ func TestPoolJoinIsAtomicAndReturnsCanonicalSource(t *testing.T) {
 }
 
 func TestPoolJoinDeduplicatesNormalizedEndpoints(t *testing.T) {
-	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
+	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
 	first, err := p.Join("first", "HTTPS://EXAMPLE.COM/")
 	if err != nil {
 		t.Fatal(err)
@@ -718,7 +718,7 @@ func TestPoolJoinDeduplicatesNormalizedEndpoints(t *testing.T) {
 }
 
 func TestPoolJoinRejectsDuplicateDisplayNames(t *testing.T) {
-	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
+	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
 	if _, err := p.Join("same", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -728,14 +728,14 @@ func TestPoolJoinRejectsDuplicateDisplayNames(t *testing.T) {
 }
 
 func TestPoolJoinRejectsUnsupportedScheme(t *testing.T) {
-	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
+	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
 	if _, err := p.Join("bad", "ftp://example.com"); err == nil {
 		t.Fatal("expected unsupported scheme to be rejected")
 	}
 }
 
 func TestCollectClassifiesEmptyPoolAsNoEligibleSource(t *testing.T) {
-	p := newPoolWithDialer(&newFakeDialer{dials: make(map[string]int)})
+	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
 	emissions, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{})
 	if !errors.Is(err, ErrNoEligibleSource) {
 		t.Fatalf("expected no-eligible-source class, got %v", err)
@@ -754,7 +754,7 @@ func TestCollectClassifiesDeadFleetAsAllSourcesDown(t *testing.T) {
 			"https://b.example": dialErr,
 		},
 	}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	for _, name := range []string{"a", "b"} {
 		if _, err := p.Join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -777,7 +777,7 @@ func TestCollectClassifiesDeadFleetAsAllSourcesDown(t *testing.T) {
 
 func TestForwardFailsOverTransportErrorsInPoolOrder(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int), closeFirst: map[string]bool{"https://a.example": true}}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	if _, err := p.Join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -798,7 +798,7 @@ func TestForwardFailsOverTransportErrorsInPoolOrder(t *testing.T) {
 
 func TestServerErrorsHaveDedicatedHealthBucket(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialer(d)
+	p := newPoolWithDialerAndChainID(d, 0)
 	src, err := p.Join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)

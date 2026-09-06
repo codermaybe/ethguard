@@ -76,11 +76,6 @@ func NewPoolWithChainID(chainID uint64) *Pool {
 	return newPoolWithDialerAndChainID(standardDialer{}, chainID)
 }
 
-// newPoolWithDialer lets tests use an in-process RPC transport.
-func newPoolWithDialer(d dialer) *Pool {
-	return newPoolWithDialerAndChainID(d, 0)
-}
-
 func newPoolWithDialerAndChainID(d dialer, chainID uint64) *Pool {
 	return &Pool{
 		byID:            make(map[string]*Source),
