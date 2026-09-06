@@ -1,6 +1,8 @@
 # EthGuard sample configuration.
 # Copy and adapt this file for your application.
 
+chain_id: 1
+
 upstreams:
   - id: primary
     endpoint: https://eth.example.com

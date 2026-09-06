@@ -2,11 +2,14 @@
 
 > Status: early-stage design and implementation
 
-EthGuard aims to be a trusted, security-focused wrapper around `ethclient`. It trades a small amount of network performance for relatively reliable data sources.
+EthGuard is a multi-source Ethereum RPC client. Its primary entry point is
+`ethguard/ethadapter`: supported methods keep the names, arguments, return
+types and calling style of `ethclient`. Change construction and dependency
+injection; ordinary business calls do not need an anchor/confirm/read workflow.
 
-It is a library you can import into your project—not a standalone RPC proxy. Use it to reduce trust issues that come from network connectivity, such as response hijacking or weak verification.
-
-It does this by aggregating responses from multiple RPC sources and applying several mechanisms to keep connections stable and results trustworthy.
+The library establishes a common reference internally, verifies method-specific
+answers, and returns a value or a classified error. Agreement is evidence from
+providers, not a consensus proof, and multiple URLs need not be independent.
 
 ## Layout
 
@@ -32,7 +35,8 @@ ethguard/                   # public Client facade
 
 | Package | Role |
 |---------|------|
-| `ethguard` | Single entry `Client`; composition root and typed wrappers |
+| `ethguard/ethadapter` | Primary ethclient-shaped client for supported methods |
+| `ethguard` | Advanced `Client`, composition root, generic calls and evidence |
 | `ethguard/config` | One configuration model for Go construction and YAML loading |
 | `ethguard/pool` | Shared upstream connections, collection, health, tips, eligibility |
 | `ethguard/observe` | Observability events (`Recorder`); never a source of security decisions |
@@ -47,9 +51,51 @@ clone pools per goroutine. Owners should close the Client when its lifetime ends
 
 ## Usage
 
-```bash
-go run ./examples/basic
+```go
+client, err := ethadapter.New(config.Config{
+    ChainID: 1,
+    Upstreams: []config.Upstream{
+        {ID: "a", Endpoint: "https://your-provider-a"},
+        {ID: "b", Endpoint: "https://your-provider-b"},
+    },
+})
+if err != nil { return err }
+defer client.Close()
+
+balance, err := client.BalanceAt(ctx, account, nil)
 ```
+
+For a runnable example, supply your own configuration:
+
+```bash
+go run ./examples/basic -config /path/to/config.yaml
+```
+
+`ethadapter` is the main supported-method interface, not an optional demo.
+`Unwrap()` exposes the advanced `ethguard.Client` for generic `Call`, decision
+evidence and pool inspection. The adapter retains method-shaped compatibility
+for the supported subset; it does not claim the complete `ethclient` interface.
+
+Deterministic adapter reads require corroboration even when `quorum=1`:
+insufficient support returns `ErrConflict`, since these methods cannot expose
+`Selected` to their callers. Advanced root `Call` still returns `Selected` with
+evidence. Median/local methods retain their selection semantics, and unknown
+methods remain forwarded. `Wrap` applies the same safety checks as `New`.
+
+With finalized anchoring, divergent provider heights are reconciled at one
+common height. Existing matching heads are reused; otherwise one bounded
+confirmation round fills in missing responses. Default agreement requires the
+fresh first-round views to confirm that candidate; explicit quorum uses the
+original first-round participation count. Confirmation failures never shrink
+that count or silently lower the requirement. `Decision.Reference` retains the
+reference's origin, height, hash, participants, support and faults alongside
+business-answer evidence. Caching retains independent copies of this evidence.
+
+This can add a header lookup, and insufficient reference support now fails
+before the business read. The library never treats knowing a historical block
+as proof of finality: finalized coverage remains a provider-reported claim.
+Legacy custom resolvers keep their existing methods; their candidate hash is
+confirmed by the fleet and labelled `custom-reference`, not finalized.
 
 The library API and verification policies are still evolving. See the
 [architecture](docs/architecture.md), [aggregation design](docs/design/rpc-aggregation.md),
