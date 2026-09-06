@@ -23,6 +23,8 @@ import (
 //	                      normalization
 //	ErrMalformedResponse  a resolved value cannot be shaped at a typed
 //	                      boundary (CallInto, anchor head)
+//	ErrInvalidRequest     the request cannot be prepared at all (pending on
+//	                      incomparable methods, contradictory anchors)
 var (
 	ErrNoEligibleSource  = pool.ErrNoEligibleSource
 	ErrAllSourcesDown    = pool.ErrAllSourcesDown

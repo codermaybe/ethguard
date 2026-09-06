@@ -15,21 +15,31 @@ import (
 	"ethguard/rpc/methods"
 )
 
+// decodedQuantity is the shared tail of every quantity-shaped typed wrapper:
+// the owning policy's canonical decimal form converts to a big.Int. Hex
+// parsing has one owner — the method policy — and typed callers convert its
+// canonical form instead of re-parsing raw JSON.
+func (c *Client) decodedQuantity(method string, decision rpc.Decision) (*big.Int, error) {
+	canonical, err := c.Normalize(method, decision.Value)
+	if err != nil {
+		return nil, fmt.Errorf("ethguard: decode %s: %w", method, err)
+	}
+	value, ok := new(big.Int).SetString(canonical, 10)
+	if !ok {
+		return nil, fmt.Errorf("ethguard: invalid %s %q", method, canonical)
+	}
+	return value, nil
+}
+
 // ChainID returns the verified chain ID and its aggregation decision.
 func (c *Client) ChainID(ctx context.Context) (*big.Int, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodChainID)
 	if err != nil {
 		return nil, decision, err
 	}
-	// Hex parsing has one owner: the method policy. Convert its canonical
-	// decimal form instead of re-parsing the raw quantity here.
-	canonical, err := c.policies.PolicyFor(methods.MethodChainID).Normalize(decision.Value)
+	value, err := c.decodedQuantity(methods.MethodChainID, decision)
 	if err != nil {
-		return nil, decision, fmt.Errorf("ethguard: decode chain ID: %w", err)
-	}
-	value, ok := new(big.Int).SetString(canonical, 10)
-	if !ok {
-		return nil, decision, fmt.Errorf("ethguard: invalid chain ID %q", canonical)
+		return nil, decision, err
 	}
 	return value, decision, nil
 }
@@ -188,13 +198,9 @@ func (c *Client) MaxPriorityFeePerGas(ctx context.Context) (*big.Int, rpc.Decisi
 	if err != nil {
 		return nil, decision, err
 	}
-	canonical, err := c.Normalize(methods.MethodMaxPriorityFeePerGas, decision.Value)
+	value, err := c.decodedQuantity(methods.MethodMaxPriorityFeePerGas, decision)
 	if err != nil {
-		return nil, decision, fmt.Errorf("ethguard: decode max priority fee: %w", err)
-	}
-	value, ok := new(big.Int).SetString(canonical, 10)
-	if !ok {
-		return nil, decision, fmt.Errorf("ethguard: invalid max priority fee %q", canonical)
+		return nil, decision, err
 	}
 	return value, decision, nil
 }
@@ -206,13 +212,9 @@ func (c *Client) NetVersion(ctx context.Context) (*big.Int, rpc.Decision, error)
 	if err != nil {
 		return nil, decision, err
 	}
-	canonical, err := c.Normalize(methods.MethodNetVersion, decision.Value)
+	value, err := c.decodedQuantity(methods.MethodNetVersion, decision)
 	if err != nil {
-		return nil, decision, fmt.Errorf("ethguard: decode net version: %w", err)
-	}
-	value, ok := new(big.Int).SetString(canonical, 10)
-	if !ok {
-		return nil, decision, fmt.Errorf("ethguard: invalid net version %q", canonical)
+		return nil, decision, err
 	}
 	return value, decision, nil
 }
@@ -281,13 +283,9 @@ func (c *Client) GasPrice(ctx context.Context) (*big.Int, rpc.Decision, error) {
 	if err != nil {
 		return nil, decision, err
 	}
-	canonical, err := c.Normalize(methods.MethodGasPrice, decision.Value)
+	value, err := c.decodedQuantity(methods.MethodGasPrice, decision)
 	if err != nil {
-		return nil, decision, fmt.Errorf("ethguard: decode gas price: %w", err)
-	}
-	value, ok := new(big.Int).SetString(canonical, 10)
-	if !ok {
-		return nil, decision, fmt.Errorf("ethguard: invalid gas price %q", canonical)
+		return nil, decision, err
 	}
 	return value, decision, nil
 }
@@ -299,13 +297,12 @@ func (c *Client) PeerCount(ctx context.Context) (uint64, rpc.Decision, error) {
 	if err != nil {
 		return 0, decision, err
 	}
-	canonical, err := c.Normalize(methods.MethodPeerCount, decision.Value)
+	value, err := c.decodedQuantity(methods.MethodPeerCount, decision)
 	if err != nil {
-		return 0, decision, fmt.Errorf("ethguard: decode peer count: %w", err)
+		return 0, decision, err
 	}
-	value, ok := new(big.Int).SetString(canonical, 10)
-	if !ok || !value.IsUint64() {
-		return 0, decision, fmt.Errorf("ethguard: invalid peer count %q", canonical)
+	if !value.IsUint64() {
+		return 0, decision, fmt.Errorf("ethguard: invalid %s %q", methods.MethodPeerCount, decision.Value)
 	}
 	return value.Uint64(), decision, nil
 }

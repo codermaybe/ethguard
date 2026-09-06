@@ -95,11 +95,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	if collectErr != nil {
 		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", collectErr))
 	}
-	for _, emission := range emissions {
-		if emission.Attempted && emission.Err != nil && !isRPCResponseError(emission.Err) {
-			decision.Faults = append(decision.Faults, fmt.Errorf("source %q: %w", emission.Src.Name(), emission.Err))
-		}
-	}
+	decision.Faults = append(decision.Faults, sourceFaults(emissions)...)
 	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions)
 	return decision, resolveErr
 }
@@ -179,7 +175,15 @@ func hasUsableEmission(emissions []pool.Emission) bool {
 }
 
 func collectionFaults(collectErr error, emissions []pool.Emission) []error {
-	faults := []error{fmt.Errorf("collect: %w", collectErr)}
+	return append([]error{fmt.Errorf("collect: %w", collectErr)}, sourceFaults(emissions)...)
+}
+
+// sourceFaults collects the failures of attempted calls that did not end in
+// a JSON-RPC response error — the blame model aligned with pool health
+// accounting: emissions that never started and authoritative protocol
+// answers are not source faults.
+func sourceFaults(emissions []pool.Emission) []error {
+	var faults []error
 	for _, emission := range emissions {
 		if emission.Attempted && emission.Err != nil && !isRPCResponseError(emission.Err) {
 			faults = append(faults, fmt.Errorf("source %q: %w", emission.Src.Name(), emission.Err))

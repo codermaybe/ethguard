@@ -133,6 +133,15 @@ func (m *monitor) sampledTip() (uint64, bool) {
 	return m.tipHeight, true
 }
 
+// circuitState reports the two fields the eligibility gate reads, without
+// copying the latency window or computing percentiles: eligibility runs per
+// source per request, so its read path must stay cheap.
+func (m *monitor) circuitState() (consecutiveFailures uint64, lastFailure time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.consecutiveFailures, m.lastFailure
+}
+
 func (m *monitor) snapshot() HealthSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -63,7 +63,7 @@ func newPoolWithDialerAndOptions(d dialer, chainID uint64, opts ...PoolOption) *
 	p := newPoolWithDialerAndChainID(d, chainID)
 	p.maxTipLag = cfg.maxTipLag
 	if cfg.tipEnabled {
-		p.tipIntervalRef = cfg.tipInterval
+		p.tipInterval = cfg.tipInterval
 		p.stopTips = make(chan struct{})
 		go p.tipLoop(cfg.tipInterval)
 	}
@@ -98,7 +98,7 @@ func (p *Pool) tipLoop(every time.Duration) {
 // dials: sources without an established connection stay lazy.
 func (p *Pool) RefreshTips(ctx context.Context) {
 	p.mu.RLock()
-	interval := p.tipIntervalRef
+	interval := p.tipInterval
 	stop := p.stopTips
 	p.mu.RUnlock()
 	if stop == nil {

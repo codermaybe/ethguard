@@ -273,11 +273,11 @@ func (s *Source) eligible(now time.Time) bool {
 	if invalid {
 		return false
 	}
-	health := s.Health()
-	if health.ConsecutiveFailures < eligibleFailureThreshold {
+	consecutive, lastFailure := s.stats.circuitState()
+	if consecutive < eligibleFailureThreshold {
 		return true
 	}
-	return health.LastFailure.IsZero() || now.Sub(health.LastFailure) >= eligibleFailureCooldown
+	return lastFailure.IsZero() || now.Sub(lastFailure) >= eligibleFailureCooldown
 }
 
 var ErrChainIDMismatch = errors.New("pool: upstream chain ID mismatch")

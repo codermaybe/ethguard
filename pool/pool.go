@@ -59,9 +59,9 @@ type Pool struct {
 
 	// Tip tracking (see WithTipTracking). maxTipLag zero disables the
 	// freshness gate; stopTips is non-nil only while sampling runs.
-	maxTipLag      uint64
-	tipIntervalRef time.Duration
-	stopTips       chan struct{}
+	maxTipLag    uint64
+	tipInterval  time.Duration
+	stopTips     chan struct{}
 }
 
 // NewPool creates an empty pool.
