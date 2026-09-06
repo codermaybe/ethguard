@@ -16,7 +16,8 @@ import (
 	"ethguard/rpc/methods"
 )
 
-// Client is the single entry point for application code.
+// Client is the advanced entry point for generic calls and decision evidence.
+// Prefer ethadapter.Client for ethclient-shaped application reads.
 // Multiple goroutines may use one Client concurrently; connections are owned
 // and reused by the internal RPC management pool.
 type Client struct {
@@ -190,8 +191,15 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		if co.anchorFactory != nil {
 			resolver = co.anchorFactory(rpcPool, rec)
 		} else {
-			resolver = NewStrictHeadAnchor(rpcPool, rec, strictOpts...)
+			resolver = newStrictHeadAnchor(rpcPool, rec, co.collectTimeout, strictOpts...)
 		}
+	}
+	if finalized, ok := resolver.(*FinalizedHeadAnchor); ok && co.anchor == nil {
+		finalized.quorum = co.quorum
+		finalized.timeout = co.collectTimeout
+	}
+	if co.anchor != nil {
+		resolver = &confirmedAnchor{inner: co.anchor, pool: rpcPool, rec: rec, quorum: co.quorum, timeout: co.collectTimeout}
 	}
 	if co.anchorCache > 0 {
 		resolver = NewCachedAnchor(resolver, co.anchorCache)
@@ -200,15 +208,15 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		methods.MethodChainID:               methods.ChainIDPolicy(strictOpts...),
 		methods.MethodGetBlockByHash:        methods.BlockByHashPolicy(strictOpts...),
 		methods.MethodGetBlockByNumber:      methods.BlockByNumberPolicy(strictOpts...),
-		methods.MethodGetBalance:            methods.GetBalancePolicy(resolver.AnchorBlockHash, strictOpts...),
+		methods.MethodGetBalance:            methods.GetBalancePolicy(anchorHashOf(resolver), strictOpts...),
 		methods.MethodGetTransactionReceipt: methods.TransactionReceiptPolicy(strictOpts...),
 		methods.MethodGetTransactionByHash:  methods.TransactionByHashPolicy(strictOpts...),
-		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(resolver.AnchorBlockHash, strictOpts...),
-		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(resolver.AnchorBlockHash, strictOpts...),
-		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(resolver.AnchorBlockHash, strictOpts...),
-		methods.MethodGetCode:               methods.GetCodePolicy(resolver.AnchorBlockHash, strictOpts...),
-		methods.MethodCall:                  methods.CallPolicy(resolver.AnchorBlockHash, strictOpts...),
-		methods.MethodEstimateGas:           methods.EstimateGasPolicy(resolver.AnchorBlockHash),
+		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(anchorHashOf(resolver), strictOpts...),
+		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(anchorHashOf(resolver), strictOpts...),
+		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(anchorHashOf(resolver), strictOpts...),
+		methods.MethodGetCode:               methods.GetCodePolicy(anchorHashOf(resolver), strictOpts...),
+		methods.MethodCall:                  methods.CallPolicy(anchorHashOf(resolver), strictOpts...),
+		methods.MethodEstimateGas:           methods.EstimateGasPolicy(anchorHashOf(resolver)),
 		methods.MethodGetLogs:               methods.LogsPolicy(anchorHeightOf(resolver), strictOpts...),
 		methods.MethodFeeHistory:            methods.FeeHistoryPolicy(anchorHeightOf(resolver), strictOpts...),
 		methods.MethodGasPrice:              methods.GasPricePolicy(),

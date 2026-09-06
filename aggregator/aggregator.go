@@ -11,6 +11,7 @@ import (
 
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"ethguard/internal/refcontext"
 	"ethguard/observe"
 	"ethguard/pool"
 	"ethguard/rpc"
@@ -61,20 +62,23 @@ func New(p *pool.Pool, policies rpc.Registry, opts ...Option) *Aggregator {
 // public sentinel is not masked by a policy's empty-input error.
 func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decision, error) {
 	started := time.Now()
+	ctx, capture := refcontext.New(ctx)
 	policy := a.policies.PolicyFor(req.Method)
 	prepared, err := policy.Prepare(ctx, req)
 	if err != nil {
-		a.recordDecision(started, req.Method, policy, rpc.Decision{}, err, nil)
-		return rpc.Decision{}, err
+		decision := rpc.Decision{Reference: capture.Reference()}
+		a.recordDecision(started, req.Method, policy, decision, err, nil)
+		return decision, err
 	}
 	var emissions []pool.Emission
 	var collectErr error
-	if single, ok := policy.(interface{ SingleSource() bool }); ok && single.SingleSource() {
+	if single, ok := policy.(rpc.SingleSourcePolicy); ok && single.SingleSource() {
 		emissions, collectErr = a.pool.Forward(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
 	} else {
 		emissions, collectErr = a.pool.Collect(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
 	}
 	observations := make([]rpc.Observation, len(emissions))
+	participants := make([]rpc.SourceRef, 0, len(emissions))
 	for i, emission := range emissions {
 		observations[i] = rpc.Observation{
 			Source:   rpc.SourceRef{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()},
@@ -82,20 +86,26 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 			Err:      emission.Err,
 			RPCError: observationRPCError(emission.Err),
 		}
+		participants = append(participants, observations[i].Source)
 	}
 	if collectErr != nil && !hasUsableEmission(emissions) {
-		decision := rpc.Decision{Faults: collectionFaults(collectErr, emissions)}
+		decision := rpc.Decision{Faults: collectionFaults(policy, collectErr, emissions), Reference: capture.Reference(), Participants: participants}
 		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions)
 		return decision, collectErr
 	}
 	decision, resolveErr := policy.Resolve(observations)
+	if agreement, ok := policy.(rpc.AgreementPolicy); ok && agreement.RequiresAgreement() && refcontext.VerificationRequired(ctx) && resolveErr == nil && decision.Status != rpc.Verified {
+		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
+	}
+	decision.Reference = capture.Reference()
+	decision.Participants = participants
 	if provider, ok := policy.(rpc.BlockRefProvider); ok {
 		decision.BlockRef = provider.BlockRef(req, prepared)
 	}
 	if collectErr != nil {
 		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", collectErr))
 	}
-	decision.Faults = append(decision.Faults, sourceFaults(emissions)...)
+	decision.Faults = append(decision.Faults, sourceFaults(policy, emissions)...)
 	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions)
 	return decision, resolveErr
 }
@@ -174,18 +184,16 @@ func hasUsableEmission(emissions []pool.Emission) bool {
 	return false
 }
 
-func collectionFaults(collectErr error, emissions []pool.Emission) []error {
-	return append([]error{fmt.Errorf("collect: %w", collectErr)}, sourceFaults(emissions)...)
+func collectionFaults(policy rpc.Policy, collectErr error, emissions []pool.Emission) []error {
+	return append([]error{fmt.Errorf("collect: %w", collectErr)}, sourceFaults(policy, emissions)...)
 }
 
-// sourceFaults collects the failures of attempted calls that did not end in
-// a JSON-RPC response error — the blame model aligned with pool health
-// accounting: emissions that never started and authoritative protocol
-// answers are not source faults.
-func sourceFaults(emissions []pool.Emission) []error {
+// sourceFaults preserves rejected protocol answers as diagnostics, without
+// changing pool health or blaming calls that never started.
+func sourceFaults(policy rpc.Policy, emissions []pool.Emission) []error {
 	var faults []error
 	for _, emission := range emissions {
-		if emission.Attempted && emission.Err != nil && !isRPCResponseError(emission.Err) {
+		if emission.Attempted && emission.Err != nil && !usableAnswer(policy, emission) {
 			faults = append(faults, fmt.Errorf("source %q: %w", emission.Src.Name(), emission.Err))
 		}
 	}
@@ -210,9 +218,4 @@ func observationRPCError(err error) *rpc.RPCError {
 		}
 	}
 	return structured
-}
-
-func isRPCResponseError(err error) bool {
-	var rpcErr gethrpc.Error
-	return errors.As(err, &rpcErr)
 }

@@ -59,9 +59,9 @@ type Pool struct {
 
 	// Tip tracking (see WithTipTracking). maxTipLag zero disables the
 	// freshness gate; stopTips is non-nil only while sampling runs.
-	maxTipLag    uint64
-	tipInterval  time.Duration
-	stopTips     chan struct{}
+	maxTipLag   uint64
+	tipInterval time.Duration
+	stopTips    chan struct{}
 }
 
 // NewPool creates an empty pool.
@@ -220,4 +220,26 @@ func normalizeEndpointID(raw string) (string, error) {
 		u.Path = ""
 	}
 	return u.String(), nil
+}
+
+func (p *Pool) sourcesByIDs(ids []string) ([]*Source, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.closed {
+		return nil, ErrClosed
+	}
+	selected := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if selected[id] || p.byID[id] == nil {
+			return nil, fmt.Errorf("pool: invalid fixed membership: %w", ErrNoEligibleSource)
+		}
+		selected[id] = true
+	}
+	out := make([]*Source, 0, len(ids))
+	for _, src := range p.sources {
+		if selected[src.id] {
+			out = append(out, src)
+		}
+	}
+	return out, nil
 }

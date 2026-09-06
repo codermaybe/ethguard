@@ -103,6 +103,20 @@ func (a anchoredPolicy) BlockRef(original, prepared Request) string {
 	return ""
 }
 
+func (a anchoredPolicy) RequiresAgreement() bool {
+	inner, ok := a.policy.(AgreementPolicy)
+	return ok && inner.RequiresAgreement()
+}
+
+func (a anchoredPolicy) SingleSource() bool {
+	inner, ok := a.policy.(SingleSourcePolicy)
+	return ok && inner.SingleSource()
+}
+
+func (a anchoredPolicy) IncludeRPCError() bool {
+	return includesRPCError(a.policy)
+}
+
 func (a anchoredPolicy) Normalize(value json.RawMessage) (string, error) {
 	return a.policy.Normalize(value)
 }
@@ -156,6 +170,20 @@ func (p pendingRejectingPolicy) BlockRef(original, prepared Request) string {
 		return provider.BlockRef(original, prepared)
 	}
 	return ""
+}
+
+func (p pendingRejectingPolicy) RequiresAgreement() bool {
+	inner, ok := p.policy.(AgreementPolicy)
+	return ok && inner.RequiresAgreement()
+}
+
+func (p pendingRejectingPolicy) SingleSource() bool {
+	inner, ok := p.policy.(SingleSourcePolicy)
+	return ok && inner.SingleSource()
+}
+
+func (p pendingRejectingPolicy) IncludeRPCError() bool {
+	return includesRPCError(p.policy)
 }
 
 func (p pendingRejectingPolicy) Normalize(value json.RawMessage) (string, error) {
@@ -243,6 +271,20 @@ func (a anchoredHeightPolicy) BlockRef(original, prepared Request) string {
 		return provider.BlockRef(original, prepared)
 	}
 	return ""
+}
+
+func (a anchoredHeightPolicy) RequiresAgreement() bool {
+	inner, ok := a.policy.(AgreementPolicy)
+	return ok && inner.RequiresAgreement()
+}
+
+func (a anchoredHeightPolicy) SingleSource() bool {
+	inner, ok := a.policy.(SingleSourcePolicy)
+	return ok && inner.SingleSource()
+}
+
+func (a anchoredHeightPolicy) IncludeRPCError() bool {
+	return includesRPCError(a.policy)
 }
 
 func (a anchoredHeightPolicy) Normalize(value json.RawMessage) (string, error) {
@@ -387,10 +429,30 @@ func (a anchoredFieldsPolicy) BlockRef(original, prepared Request) string {
 	return ""
 }
 
+func (a anchoredFieldsPolicy) RequiresAgreement() bool {
+	inner, ok := a.policy.(AgreementPolicy)
+	return ok && inner.RequiresAgreement()
+}
+
+func (a anchoredFieldsPolicy) SingleSource() bool {
+	inner, ok := a.policy.(SingleSourcePolicy)
+	return ok && inner.SingleSource()
+}
+
+func (a anchoredFieldsPolicy) IncludeRPCError() bool {
+	return includesRPCError(a.policy)
+}
+
 func (a anchoredFieldsPolicy) Normalize(value json.RawMessage) (string, error) {
 	return a.policy.Normalize(value)
 }
 
 func (a anchoredFieldsPolicy) Resolve(obs []Observation) (Decision, error) {
 	return a.policy.Resolve(obs)
+}
+
+// includesRPCError preserves the inner answer domain through Prepare decorators.
+func includesRPCError(policy Policy) bool {
+	provider, ok := policy.(RPCErrorPolicy)
+	return ok && provider.IncludeRPCError()
 }

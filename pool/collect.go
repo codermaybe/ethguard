@@ -32,6 +32,11 @@ type Emission struct {
 
 // CollectOptions configures one fan-out. Zero value is a sensible default.
 type CollectOptions struct {
+	// SourceIDs fixes membership for a continuation of a previous collection.
+	// Nil selects current eligible sources. Explicit IDs retain pool order and
+	// bypass changing freshness/cooldown gates; identity and lifecycle checks
+	// still apply. Unknown or duplicate IDs are rejected.
+	SourceIDs []string
 	// Timeout bounds the whole fan-out. Zero uses a conservative default.
 	Timeout time.Duration
 	// MaxConcurrent caps simultaneous in-flight per-source calls.
@@ -77,7 +82,13 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	sources, err := p.sourcesForCollect(plan)
+	var sources []*Source
+	var err error
+	if opts.SourceIDs != nil {
+		sources, err = p.sourcesByIDs(opts.SourceIDs)
+	} else {
+		sources, err = p.sourcesForCollect(plan)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +172,13 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	sources, err := p.sourcesForCollect(collectPlan{applyFreshness: true})
+	var sources []*Source
+	var err error
+	if opts.SourceIDs != nil {
+		sources, err = p.sourcesByIDs(opts.SourceIDs)
+	} else {
+		sources, err = p.sourcesForCollect(collectPlan{applyFreshness: true})
+	}
 	if err != nil {
 		return nil, err
 	}

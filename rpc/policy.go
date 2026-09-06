@@ -41,3 +41,11 @@ type BlockRefProvider interface {
 type RPCErrorPolicy interface {
 	IncludeRPCError() bool
 }
+
+// SingleSourcePolicy requests ordered forwarding instead of symmetric fan-out.
+// Prepare decorators preserve this execution requirement.
+type SingleSourcePolicy interface{ SingleSource() bool }
+
+// AgreementPolicy identifies deterministic answers that require corroboration
+// at an ethclient-shaped boundary, where callers cannot inspect Selected.
+type AgreementPolicy interface{ RequiresAgreement() bool }

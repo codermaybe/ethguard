@@ -16,6 +16,9 @@ type ForwardPolicy struct{}
 // SingleSource marks the policy as requiring ordered one-source forwarding.
 func (ForwardPolicy) SingleSource() bool { return true }
 
+// IncludeRPCError preserves authoritative protocol answers in observations.
+func (ForwardPolicy) IncludeRPCError() bool { return true }
+
 func (ForwardPolicy) Prepare(_ context.Context, req Request) (Request, error) {
 	return req, nil
 }

@@ -19,6 +19,7 @@ import (
 	"ethguard"
 	"ethguard/config"
 	"ethguard/ethadapter"
+	"ethguard/rpc"
 	"ethguard/rpc/methods"
 	"ethguard/rpctest"
 )
@@ -594,6 +595,23 @@ func TestAdapterBlockReceiptsNumberFormBindsRequestedHeight(t *testing.T) {
 	}
 }
 
+func TestAdapterBlockReceiptsNumberFormRejectsTruncatedHeight(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	var receipt map[string]json.RawMessage
+	if err := json.Unmarshal(fixtureReceipt(t, common.HexToHash("0x42"), 16), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	receipt["blockNumber"] = json.RawMessage(`"0x10000000000000010"`)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockReceipts, []any{receipt})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16)); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected full-height mismatch to fail, got %v", err)
+	}
+}
+
 func TestAdapterBlockReceiptsNumberFormBindsEveryReceipt(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
@@ -833,4 +851,105 @@ func TestAdapterBlockAtBindsAnswersToTheRequestedReference(t *testing.T) {
 			t.Fatalf("expected malformed-response binding failure, got %v", err)
 		}
 	})
+}
+
+func TestReceiptNullLogReturnsMalformed(t *testing.T) {
+	for _, batch := range []bool{false, true} {
+		t.Run(fmt.Sprint(batch), func(t *testing.T) {
+			client, nodes := fleet(t, 2)
+			hash := common.HexToHash("0x42")
+			var receipt map[string]json.RawMessage
+			if err := json.Unmarshal(fixtureReceipt(t, hash, 16), &receipt); err != nil {
+				t.Fatal(err)
+			}
+			receipt["logs"] = json.RawMessage(`[null]`)
+			for _, node := range nodes {
+				node.Return(methods.MethodGetTransactionReceipt, receipt)
+				node.Return(methods.MethodGetBlockReceipts, []any{receipt})
+			}
+			var err error
+			if batch {
+				_, err = client.BlockReceipts(context.Background(), gethrpc.BlockNumberOrHashWithNumber(16))
+			} else {
+				_, err = client.TransactionReceipt(context.Background(), hash)
+			}
+			if !errors.Is(err, ethguard.ErrMalformedResponse) {
+				t.Fatalf("expected malformed null log, got %v", err)
+			}
+		})
+	}
+}
+
+func TestAdapterBlockByNumberRejectsOverflowBeforeDispatch(t *testing.T) {
+	client, nodes := fleet(t, 2)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockByNumber, fixtureBlock(t, 16))
+	}
+	number := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 64), big.NewInt(16))
+	if _, err := client.BlockByNumber(context.Background(), number); !errors.Is(err, ethguard.ErrInvalidRequest) {
+		t.Fatalf("expected unsupported request height, got %v", err)
+	}
+	for _, node := range nodes {
+		if len(node.Calls()) != 0 {
+			t.Fatal("unsupported height reached the wire")
+		}
+	}
+}
+
+func TestDecodeTransactionRejectsUnsigned(t *testing.T) {
+	tx := types.NewTx(&types.LegacyTx{Gas: 21000, GasPrice: big.NewInt(1), Value: big.NewInt(0)})
+	raw, err := json.Marshal(tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ethguard.DecodeTransaction(raw); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected unsigned rejection, got %v", err)
+	}
+}
+
+func TestAdapterRequiresCorroborationWithoutChangingMethodSignatures(t *testing.T) {
+	client, nodes := fleet(t, 2)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBlockByNumber, map[string]any{"number": "0x10", "hash": "0xabc"})
+	}
+	nodes[0].Return(methods.MethodGetBalance, "0x1")
+	nodes[1].Fail(methods.MethodGetBalance, -32603, "unavailable")
+	if value, err := client.BalanceAt(context.Background(), common.Address{}, nil); !errors.Is(err, ethguard.ErrConflict) || value != nil {
+		t.Fatalf("typed read hid Selected answer: %v %v", value, err)
+	}
+	// The advanced API retains the existing Selected result and evidence.
+	d, err := client.Unwrap().Call(context.Background(), methods.MethodGetBalance, common.Address{}, "0x10")
+	if err != nil || d.Status != rpc.Selected {
+		t.Fatalf("advanced decision contract changed: %+v %v", d, err)
+	}
+	wrapped := ethadapter.Wrap(client.Unwrap())
+	if _, err := wrapped.BalanceAt(context.Background(), common.Address{}, big.NewInt(16)); !errors.Is(err, ethguard.ErrConflict) {
+		t.Fatalf("Wrap bypassed verification: %v", err)
+	}
+}
+
+func TestDecodeTypedTransactionAllowsZeroParity(t *testing.T) {
+	key, err := crypto.HexToECDSA(strings.Repeat("11", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for nonce := uint64(0); nonce < 100; nonce++ {
+		tx, err := types.SignTx(types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(1), Nonce: nonce, Gas: 21000, GasFeeCap: big.NewInt(2), GasTipCap: big.NewInt(1), Value: big.NewInt(0)}), types.NewLondonSigner(big.NewInt(1)), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, _, _ := tx.RawSignatureValues()
+		if v.Sign() != 0 {
+			continue
+		}
+		raw, err := json.Marshal(tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := ethguard.DecodeTransaction(raw); err != nil {
+			t.Fatalf("valid parity-zero transaction rejected: %v", err)
+		}
+		return
+	}
+	t.Fatal("fixture did not produce parity zero")
 }

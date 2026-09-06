@@ -266,3 +266,28 @@ func TestAnchoredHeightFieldsRewriteFilterBounds(t *testing.T) {
 		}
 	})
 }
+
+func TestPrepareDecoratorsPreserveRPCErrorDomain(t *testing.T) {
+	decorators := map[string]func(Policy) Policy{
+		"hash":    WithAnchor(nil, 1),
+		"height":  WithAnchorHeight(nil, 1),
+		"fields":  WithAnchorHeightFields(nil, 0, "fromBlock", "toBlock"),
+		"pending": RejectPending(1),
+		"stacked": func(p Policy) Policy { return RejectPending(1)(WithAnchor(nil, 1)(p)) },
+	}
+	for name, decorate := range decorators {
+		t.Run(name, func(t *testing.T) {
+			for _, enabled := range []bool{false, true} {
+				var opts []StrictOption
+				if enabled {
+					opts = append(opts, WithRPCErrorBodies())
+				}
+				policy := decorate(Strict(CanonicalJSON, opts...))
+				capability, ok := policy.(RPCErrorPolicy)
+				if !ok || capability.IncludeRPCError() != enabled {
+					t.Fatalf("error domain lost through decorator (enabled=%v)", enabled)
+				}
+			}
+		})
+	}
+}

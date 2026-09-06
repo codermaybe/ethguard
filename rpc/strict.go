@@ -79,6 +79,8 @@ func (f strictFunc) Normalize(value json.RawMessage) (string, error) {
 	return f.normalize(value)
 }
 
+func (f strictFunc) RequiresAgreement() bool { return true }
+
 func (f strictFunc) IncludeRPCError() bool { return f.includeRPCError }
 
 func (f strictFunc) Resolve(obs []Observation) (Decision, error) {

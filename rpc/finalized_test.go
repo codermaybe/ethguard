@@ -72,9 +72,16 @@ func TestFinalizedHeadStalenessBoundaryIsExclusive(t *testing.T) {
 	// Exactly the bound behind the reference stays valid; one more block
 	// behind is excluded. Heights 100/100/84: reference 100, 84 trails by
 	// exactly 16.
-	_, err := heightsOf(p, "0x64", "0x64", "0x54")
+	boundary, err := heightsOf(p, "0x64", "0x64", "0x54")
 	if err != nil {
 		t.Fatalf("trailing exactly maxLag must stay valid: %v", err)
+	}
+	if boundary.Status != Selected || len(boundary.Support) != 1 || len(boundary.Faults) != 0 {
+		t.Fatalf("exact boundary must remain the single-source pin: %+v", boundary)
+	}
+	var head finalizedHead
+	if err := json.Unmarshal(boundary.Value, &head); err != nil || head.Number != "0x54" {
+		t.Fatalf("expected height 84, got %s", boundary.Value)
 	}
 	// 83 trails by 17: stale. Remaining views still pin the winner, and the
 	// stale view is the only fault (the winner's co-reporter supports).
@@ -88,33 +95,18 @@ func TestFinalizedHeadStalenessBoundaryIsExclusive(t *testing.T) {
 }
 
 func TestFinalizedHeadEvenCountUsesLowerMedian(t *testing.T) {
-	p := FinalizedHead(4)
-	// Four views {100,100,101,102}: the lower median is 100. A bound of 4
-	// excludes 95 but keeps 96; both facts only hold if the reference is 100
-	// rather than any higher even-count choice.
-	decision, err := p.Resolve([]Observation{
-		finObs("0x64", "0xha"), finObs("0x64", "0xha"),
-		finObs("0x65", "0xhb"), finObs("0x66", "0xhc"),
-	})
+	// Lower median 100 keeps 84 exactly at the bound; upper median 101
+	// would exclude it. Assert the pin itself, not only successful resolution.
+	decision, err := heightsOf(FinalizedHead(16), "0x54", "0x64", "0x65", "0x66")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Verified {
-		t.Fatalf("expected verified, got %v", decision.Status)
+	var head finalizedHead
+	if err := json.Unmarshal(decision.Value, &head); err != nil || head.Number != "0x54" {
+		t.Fatalf("expected height 84 at the lower-median boundary, got %s", decision.Value)
 	}
-	decision, err = p.Resolve([]Observation{
-		finObs("0x64", "0xha"), finObs("0x64", "0xha"),
-		finObs("0x65", "0xhb"), finObs("0x5f", "0xstale"), // 95: 5 below the reference, bound 4
-	})
-	if err != nil || len(decision.Reject) != 2 || len(decision.Faults) != 1 {
-		t.Fatalf("95 must trail reference 100 by more than 4, got %+v err=%v", decision, err)
-	}
-	_, err = p.Resolve([]Observation{
-		finObs("0x64", "0xha"), finObs("0x64", "0xha"),
-		finObs("0x65", "0xhb"), finObs("0x60", "0xok"), // 96: exactly the bound
-	})
-	if err != nil {
-		t.Fatalf("96 must stay valid at bound 4: %v", err)
+	if decision.Status != Selected || len(decision.Support) != 1 || len(decision.Reject) != 3 || len(decision.Faults) != 0 {
+		t.Fatalf("expected fresh single-source pin with three other views: %+v", decision)
 	}
 }
 

@@ -5,6 +5,7 @@ package rpc
 import (
 	"encoding/json"
 	"errors"
+	"time"
 )
 
 // Request is an arbitrary JSON-RPC request.
@@ -60,17 +61,42 @@ const (
 	Forwarded
 )
 
+// ReferenceEvidence describes the prerequisite used for a moving-state read.
+// Reported finality is provider evidence, not a consensus proof.
+type ReferenceEvidence struct {
+	Hash         string
+	Height       uint64
+	Status       Status
+	Origin       string
+	ObservedAt   time.Time
+	Participants []SourceRef
+	Support      []SourceRef
+	Reject       []SourceRef
+	Faults       []error
+}
+
+// Clone isolates evidence held by a cache from callers and recorders.
+func (r ReferenceEvidence) Clone() ReferenceEvidence {
+	r.Participants = append([]SourceRef(nil), r.Participants...)
+	r.Support = append([]SourceRef(nil), r.Support...)
+	r.Reject = append([]SourceRef(nil), r.Reject...)
+	r.Faults = append([]error(nil), r.Faults...)
+	return r
+}
+
 // Decision is the minimal result returned by aggregation. Support and Reject
 // provide enough evidence for diagnostics without introducing an evidence
 // tree. Faults records collection-phase failures that did not prevent the
 // decision, so partial fan-outs stay diagnosable on success paths too.
 type Decision struct {
-	Status   Status
-	Value    json.RawMessage
-	BlockRef string
-	Support  []SourceRef
-	Reject   []SourceRef
-	Faults   []error
+	Reference    *ReferenceEvidence
+	Participants []SourceRef
+	Status       Status
+	Value        json.RawMessage
+	BlockRef     string
+	Support      []SourceRef
+	Reject       []SourceRef
+	Faults       []error
 }
 
 // String names the confidence class for observability sinks.

@@ -36,7 +36,7 @@ type DecisionEvent struct {
 	// collection errors.
 	Faults int
 	// Attempts holds one entry per source the request fanned out to,
-	// including sources that failed or never got to start.
+	// including failed calls but excluding calls that never got to start.
 	Attempts []SourceEvent
 	// Duration covers prepare, fan-out, and resolve for this decision.
 	Duration time.Duration
@@ -49,8 +49,8 @@ type SourceEvent struct {
 	Source string
 	// RTT is the observed round-trip time; zero means the call never started.
 	RTT time.Duration
-	// Failed marks a transport-, JSON-RPC-, or deadline-level failure of this
-	// attempt. A failed attempt contributed no value to the decision.
+	// Failed means the attempt supplied no answer usable by the method policy.
+	// Valid dissent and accepted execution reverts are not source failures.
 	Failed bool
 }
 

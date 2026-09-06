@@ -107,6 +107,11 @@ func DecodeReceipt(raw json.RawMessage) (*types.Receipt, error) {
 // bloom is derived from a receipt's logs by consensus rule, so a payload
 // whose bloom contradicts its own logs cannot be honest.
 func validateReceipt(receipt *types.Receipt) error {
+	for i, log := range receipt.Logs {
+		if log == nil {
+			return wrapMalformed(fmt.Sprintf("decode receipt log %d: null element", i), nil)
+		}
+	}
 	if receipt.Bloom != types.CreateBloom(receipt) {
 		return wrapMalformed("logsBloom disagrees with the receipt's logs", nil)
 	}
@@ -159,7 +164,7 @@ func DecodeTransaction(raw json.RawMessage) (*types.Transaction, bool, error) {
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return nil, false, wrapMalformed("decode transaction context", err)
 	}
-	if _, r, _ := tx.RawSignatureValues(); r == nil {
+	if _, r, s := tx.RawSignatureValues(); r == nil || s == nil || r.Sign() == 0 || s.Sign() == 0 {
 		return nil, false, wrapMalformed("transaction without signature", nil)
 	}
 	if wire.Hash != nil && *wire.Hash != tx.Hash() {

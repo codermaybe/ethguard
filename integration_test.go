@@ -21,6 +21,7 @@ import (
 
 	"ethguard"
 	"ethguard/config"
+	"ethguard/observe"
 	dprom "ethguard/observe/prometheus"
 	"ethguard/pool"
 	"ethguard/rpc"
@@ -1490,8 +1491,13 @@ func TestClientVerifiesCallOutcomeAcrossSources(t *testing.T) {
 	}
 }
 
+type decisionEvents chan observe.DecisionEvent
+
+func (events decisionEvents) RecordDecision(event observe.DecisionEvent) { events <- event }
+
 func TestClientVerifiedRevertIsAnObservation(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3)
+	events := make(decisionEvents, 8)
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithRecorder(events))
 	agreeOnHead(nodes)
 	for _, node := range nodes {
 		node.Fail("eth_call", -32000, "execution reverted")
@@ -1508,6 +1514,25 @@ func TestClientVerifiedRevertIsAnObservation(t *testing.T) {
 	}
 	if !strings.Contains(string(decision.Value), "execution reverted") {
 		t.Fatalf("expected the revert envelope as value, got %s", decision.Value)
+	}
+	callEvents := 0
+	for len(events) > 0 {
+		event := <-events
+		if event.Method != methods.MethodCall {
+			continue
+		}
+		callEvents++
+		if event.Status != "verified" || len(event.Attempts) != 3 {
+			t.Fatalf("unexpected event: %+v", event)
+		}
+		for _, attempt := range event.Attempts {
+			if attempt.Failed {
+				t.Fatalf("verified revert must not fail its source: %+v", attempt)
+			}
+		}
+	}
+	if callEvents != 1 {
+		t.Fatalf("expected one call event, got %d", callEvents)
 	}
 }
 
@@ -1711,20 +1736,41 @@ func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
 // equivalent Go option must gate the same fleet identically — the lagging
 // source falls out of fan-outs under either construction path.
 func TestTipTrackingConfigPathMatchesGoOptionPath(t *testing.T) {
-	// Heights 100/100/90: the lower-median reference is 100, so with a
-	// 4-block bound the 90 source is gated; under any other bound the
-	// fleets would differ and the test would catch the drift.
+	// The same fleet must be gated identically after real YAML parsing and
+	// Go construction. A 10-block lag survives the default 32 but not 4.
 	addresses := []string{"0x64", "0x64", "0x5a"}
-	paths := map[string]func(cfg config.Config) (*ethguard.Client, error){
-		"yaml": func(cfg config.Config) (*ethguard.Client, error) {
-			cfg.TipTracking = &config.TipTrackingConfig{MaxBehind: 4}
-			return ethguard.New(cfg)
-		},
-		"go option": func(cfg config.Config) (*ethguard.Client, error) {
-			return ethguard.New(cfg, ethguard.WithTipTracking(0, 4))
-		},
+	fromYAML := func(cfg config.Config, maxBehind uint64, opts ...ethguard.Option) (*ethguard.Client, error) {
+		var input strings.Builder
+		fmt.Fprintf(&input, "chain_id: %d\ntip_tracking:\n  max_behind: %d\nupstreams:\n", cfg.ChainID, maxBehind)
+		for _, upstream := range cfg.Upstreams {
+			fmt.Fprintf(&input, "  - id: %q\n    endpoint: %q\n", upstream.ID, upstream.Endpoint)
+		}
+		parsed, err := config.ParseYAML([]byte(input.String()))
+		if err != nil {
+			return nil, err
+		}
+		return ethguard.New(parsed, opts...)
 	}
-	for name, build := range paths {
+	paths := map[string]struct {
+		build func(config.Config) (*ethguard.Client, error)
+		want  int
+	}{
+		"yaml explicit": {func(cfg config.Config) (*ethguard.Client, error) { return fromYAML(cfg, 4) }, 2},
+		"go explicit": {func(cfg config.Config) (*ethguard.Client, error) {
+			return ethguard.New(cfg, ethguard.WithTipTracking(0, 4))
+		}, 2},
+		"yaml defaults": {func(cfg config.Config) (*ethguard.Client, error) { return fromYAML(cfg, 0) }, 3},
+		"go defaults": {func(cfg config.Config) (*ethguard.Client, error) {
+			return ethguard.New(cfg, ethguard.WithTipTracking(0, 0))
+		}, 3},
+		"go overrides yaml": {func(cfg config.Config) (*ethguard.Client, error) {
+			return fromYAML(cfg, 0, ethguard.WithTipTracking(0, 4))
+		}, 2},
+		"go zero restores default": {func(cfg config.Config) (*ethguard.Client, error) {
+			return fromYAML(cfg, 4, ethguard.WithTipTracking(0, 0))
+		}, 3},
+	}
+	for name, path := range paths {
 		t.Run(name, func(t *testing.T) {
 			cfg := config.Config{ChainID: 1}
 			var nodes []*rpctest.Node
@@ -1738,7 +1784,7 @@ func TestTipTrackingConfigPathMatchesGoOptionPath(t *testing.T) {
 					Endpoint: node.URL(),
 				})
 			}
-			client, err := build(cfg)
+			client, err := path.build(cfg)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1757,8 +1803,8 @@ func TestTipTrackingConfigPathMatchesGoOptionPath(t *testing.T) {
 			if err != nil {
 				t.Fatalf("gated collect: %v", err)
 			}
-			if len(ems) != 2 {
-				t.Fatalf("%s path: expected the 10-block-lagging source gated, got %+v", name, ems)
+			if len(ems) != path.want {
+				t.Fatalf("%s path: expected %d eligible sources, got %+v", name, path.want, ems)
 			}
 		})
 	}
