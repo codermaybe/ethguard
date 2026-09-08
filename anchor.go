@@ -40,12 +40,14 @@ type AnchorEvidenceProvider interface {
 // StrictHeadAnchor requires corroborated strict latest-head agreement.
 type StrictHeadAnchor struct{ aggregate *aggregator.Aggregator }
 
-// NewStrictHeadAnchor builds the default latest-head resolver.
+// NewStrictHeadAnchor builds the default latest-head resolver. It resolves
+// with the policy's construction-time configuration; clients wire the shared
+// corroboration configuration through the unexported constructor.
 func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...rpc.StrictOption) *StrictHeadAnchor {
-	return newStrictHeadAnchor(p, rec, 0, opts...)
+	return newStrictHeadAnchor(p, rec, 0, nil, opts...)
 }
-func newStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, timeout time.Duration, opts ...rpc.StrictOption) *StrictHeadAnchor {
-	return &StrictHeadAnchor{aggregator.New(p, rpc.Registry{anchorMethod: anchorHeadPolicy{methods.BlockByNumberPolicy(opts...)}}, aggregator.WithRecorder(rec), aggregator.WithCollectTimeout(timeout))}
+func newStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, timeout time.Duration, corrob *rpc.CorroborationShared, opts ...rpc.StrictOption) *StrictHeadAnchor {
+	return &StrictHeadAnchor{aggregator.New(p, rpc.Registry{anchorMethod: anchorHeadPolicy{methods.BlockByNumberPolicy(opts...)}}, aggregator.WithRecorder(rec), aggregator.WithCollectTimeout(timeout), aggregator.WithCorroboration(corrob))}
 }
 func (a *StrictHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
 	d, err := a.aggregate.Aggregate(ctx, rpc.Request{Method: anchorMethod, Params: []any{"latest", false}})
@@ -117,6 +119,23 @@ func (p anchorHeadPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Req
 }
 func (p anchorHeadPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
 	d, err := p.Policy.Resolve(obs)
+	return p.requireCorroborated(d, err)
+}
+func (p anchorHeadPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
+	// Route the invocation's frozen snapshot through to the wrapped policy
+	// before the anchor's own corroboration requirement is applied.
+	var (
+		d   rpc.Decision
+		err error
+	)
+	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
+		d, err = cp.ResolveCorroborated(c, obs)
+	} else {
+		d, err = p.Policy.Resolve(obs)
+	}
+	return p.requireCorroborated(d, err)
+}
+func (p anchorHeadPolicy) requireCorroborated(d rpc.Decision, err error) (rpc.Decision, error) {
 	if err == nil && d.Status != rpc.Verified {
 		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrConflict)
 	}

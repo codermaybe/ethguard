@@ -68,9 +68,16 @@ func (c *Client) Unwrap() *ethguard.Client { return c.eg }
 // Close releases all upstream connections owned by the client.
 func (c *Client) Close() { c.eg.Close() }
 
+func (c *Client) requireContext(ctx context.Context) context.Context {
+	if c.eg.Mode() == rpc.CorroborationForwarded {
+		return refcontext.WithForwarded(ctx)
+	}
+	return refcontext.RequireVerified(ctx)
+}
+
 // ChainID returns the fleet-verified chain ID.
 func (c *Client) ChainID(ctx context.Context) (*big.Int, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	id, _, err := c.eg.ChainID(ctx)
 	return id, err
 }
@@ -78,7 +85,7 @@ func (c *Client) ChainID(ctx context.Context) (*big.Int, error) {
 // BalanceAt returns the verified balance of account at blockNumber; nil
 // means the currently verified reference behind "latest".
 func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	value, _, err := ethguard.CallInto[hexutil.Big](
 		ctx, c.eg, methods.MethodGetBalance, account.Hex(), toBlockNumArg(blockNumber))
 	if err != nil {
@@ -89,7 +96,7 @@ func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNum
 
 // BlockByHash returns the verified block with the given hash.
 func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	block, _, err := c.eg.BlockByHash(ctx, hash, true)
 	return block, err
 }
@@ -97,7 +104,7 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Bloc
 // BlockByNumber returns the verified block at number; nil pins the moving
 // "latest" tag to the currently verified reference first.
 func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	if number != nil && number.Sign() >= 0 && !number.IsUint64() {
 		return nil, fmt.Errorf("block number exceeds supported height range: %w", ethguard.ErrInvalidRequest)
 	}
@@ -115,7 +122,7 @@ func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Blo
 // a derivation over verified primitives, never one provider's tip. The full
 // selection reasoning lives on the root Client.BlockNumber.
 func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	return c.eg.BlockNumber(ctx)
 }
 
@@ -124,7 +131,7 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 // yet, matching go-ethereum's own client. The hash addresses immutable
 // content, so no anchoring or freshness machinery applies.
 func (c *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	receipt, _, err := c.eg.TransactionReceipt(ctx, txHash)
 	return receipt, err
 }
@@ -135,7 +142,7 @@ func (c *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*t
 // ordinary verified objects here: while they stay pending, honest sources
 // hold identical payloads.
 func (c *Client) TransactionByHash(ctx context.Context, txHash common.Hash) (*types.Transaction, bool, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	decision, err := c.eg.Call(ctx, methods.MethodGetTransactionByHash, txHash.Hex())
 	if err != nil {
 		return nil, false, err
@@ -167,7 +174,7 @@ func (c *Client) TransactionByHash(ctx context.Context, txHash common.Hash) (*ty
 // empty block, and nothing here proves the fleet reported every receipt
 // of the block.
 func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	ref, err := blockRefArg(blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -218,7 +225,7 @@ func bindReceiptsToHash(receipts []*types.Receipt, hash common.Hash) ([]*types.R
 // NonceAt returns the verified account nonce of account at blockNumber;
 // nil pins the moving tag to the currently verified reference.
 func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	nonce, _, err := ethguard.CallInto[hexutil.Uint64](
 		ctx, c.eg, methods.MethodGetTransactionCount, account.Hex(), toBlockNumArg(blockNumber))
 	if err != nil {
@@ -230,7 +237,7 @@ func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumbe
 // StorageAt returns the verified value of key in account's storage at
 // blockNumber; nil pins the moving tag to the currently verified reference.
 func (c *Client) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	value, _, err := ethguard.CallInto[hexutil.Bytes](
 		ctx, c.eg, methods.MethodGetStorageAt, account.Hex(), key.Hex(), toBlockNumArg(blockNumber))
 	if err != nil {
@@ -243,7 +250,7 @@ func (c *Client) StorageAt(ctx context.Context, account common.Address, key comm
 // pins the moving tag to the currently verified reference. An externally
 // owned account answers empty code, not an error.
 func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	code, _, err := ethguard.CallInto[hexutil.Bytes](
 		ctx, c.eg, methods.MethodGetCode, account.Hex(), toBlockNumArg(blockNumber))
 	if err != nil {
@@ -255,7 +262,7 @@ func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber
 // SuggestGasTipCap returns the fleet's lower-median priority-fee estimate —
 // a variable result resolved by robust selection, never claimed verified.
 func (c *Client) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	tip, _, err := c.eg.MaxPriorityFeePerGas(ctx)
 	return tip, err
 }
@@ -291,7 +298,7 @@ func blockRefArg(blockNrOrHash gethrpc.BlockNumberOrHash) (string, error) {
 // SuggestGasPrice returns the fleet's lower-median gas price — a variable
 // result resolved by robust selection, never claimed verified.
 func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	price, _, err := c.eg.GasPrice(ctx)
 	return price, err
 }
@@ -302,7 +309,7 @@ func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 // returned as a *RevertError carrying the revert context, while the
 // verification claim stays on the decision evidence.
 func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	decision, err := c.eg.Call(ctx, methods.MethodCall, toCallArg(msg), toBlockNumArg(blockNumber))
 	if err != nil {
 		return nil, err
@@ -315,7 +322,7 @@ func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNu
 // claimed verified. A fleet that unanimously fails estimation fails as
 // no-valid-response; the revert is never laundered into a number.
 func (c *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	decision, err := c.eg.Call(ctx, methods.MethodEstimateGas, toCallArg(msg), "latest")
 	if err != nil {
 		return 0, err
@@ -332,7 +339,7 @@ func (c *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64,
 // the policy rewrites moving tags and defaults missing bounds inside the
 // filter object; a blockHash query addresses immutable content directly.
 func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	arg, err := toFilterArg(q)
 	if err != nil {
 		return nil, err
@@ -455,7 +462,7 @@ func toFilterArg(q ethereum.FilterQuery) (map[string]any, error) {
 
 // PeerCount returns one healthy source's count of its own peers.
 func (c *Client) PeerCount(ctx context.Context) (uint64, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	count, _, err := c.eg.PeerCount(ctx)
 	return count, err
 }
@@ -463,7 +470,7 @@ func (c *Client) PeerCount(ctx context.Context) (uint64, error) {
 // SyncProgress reports the consulted source's sync state; nil means it
 // considers itself fully synced.
 func (c *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	progress, _, err := c.eg.Syncing(ctx)
 	return progress, err
 }
@@ -475,7 +482,7 @@ func (c *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, erro
 // position ("hex number > 64 bits"), so hash-looking references take the
 // hash-addressed method and everything else the number-addressed one.
 func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, error) {
-	ctx = refcontext.RequireVerified(ctx)
+	ctx = c.requireContext(ctx)
 	method := methods.MethodGetBlockByNumber
 	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
 		method = methods.MethodGetBlockByHash

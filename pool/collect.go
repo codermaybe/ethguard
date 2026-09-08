@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -47,6 +48,13 @@ type CollectOptions struct {
 // maxDefaultTimeout is applied when CollectOptions.Timeout is zero.
 const maxDefaultTimeout = 30 * time.Second
 
+// ErrSourceGated reports that a voting member's request was skipped by a
+// scheduling gate (cooldown circuit or freshness bound). The member still
+// occupies the invocation's voting basis (decision 0027): this error marks a
+// paused request, not a health observation — gated members receive no
+// failure accounting.
+var ErrSourceGated = errors.New("pool: source gated; request paused, voting basis retained")
+
 // Collect fans a single request out to all eligible sources symmetrically and
 // returns each source's raw response, unjudged.
 //
@@ -58,6 +66,154 @@ const maxDefaultTimeout = 30 * time.Second
 // The returned slice has one Emission per eligible source, in pool order.
 func (p *Pool) Collect(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
 	return p.collect(ctx, method, params, opts, collectPlan{applyFreshness: true})
+}
+
+// CollectVoting fans a single request out to the full voting membership and
+// returns one emission per member, in pool order. Membership is captured at
+// entry; a concurrent Join or Remove changes only subsequent invocations.
+//
+// Unlike Collect, scheduling gates pause requests rather than removing
+// members (decision 0027): a member whose cooldown circuit is open, whose tip
+// trails the freshness bound, or whose identity is known-invalid is not
+// requested, but keeps its place in the returned basis — corroboration is
+// adjudicated against every voting member, so failures and skips can never
+// shrink the denominator. Gated members carry ErrSourceGated (or
+// ErrChainIDMismatch) with Attempted=false and receive no health penalty.
+//
+// A member that fails its lazily-verified chain identity during this
+// collection fails as one member; the invocation continues without it.
+func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = maxDefaultTimeout
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if opts.SourceIDs != nil {
+		return nil, fmt.Errorf("pool: CollectVoting fixes its own membership; SourceIDs does not apply")
+	}
+	members, err := p.snapshotSources(true)
+	if err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return nil, ErrNoEligibleSource
+	}
+
+	// Gates are decided before dispatch so paused members never consume a
+	// concurrency slot. The freshness reference is computed over the whole
+	// basis, as in the eligible path.
+	now := time.Now()
+	floor := p.staleFloor(members)
+	gated := make(map[int]error, len(members))
+	attemptable := 0
+	for i, src := range members {
+		if gate := votingGate(src, floor, now); gate != nil {
+			gated[i] = gate
+			continue
+		}
+		attemptable++
+	}
+	if attemptable == 0 {
+		// Preserve the captured basis even when no request can start.
+		emissions := make([]Emission, len(members))
+		for i, src := range members {
+			emissions[i] = Emission{Src: src, Err: gated[i]}
+		}
+		return emissions, ErrNoEligibleSource
+	}
+
+	maxConcurrent := opts.MaxConcurrent
+	if maxConcurrent <= 0 || maxConcurrent > len(members) {
+		maxConcurrent = len(members)
+	}
+	sem := make(chan struct{}, maxConcurrent)
+
+	var (
+		emissions = make([]Emission, len(members))
+		wg        sync.WaitGroup
+	)
+	for i, src := range members {
+		if gate, skip := gated[i]; skip {
+			emissions[i] = Emission{Src: src, Err: gate}
+			continue
+		}
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
+	}
+	wg.Wait()
+	if err := callCtx.Err(); err != nil {
+		return emissions, err
+	}
+	for _, emission := range emissions {
+		if emission.Val != nil || isJSONRPCResponseError(emission.Err) {
+			return emissions, nil
+		}
+	}
+	// Nothing usable: a known-off-chain member names the identity sentinel;
+	// otherwise the fleet was contacted but stayed silent.
+	for _, emission := range emissions {
+		if errors.Is(emission.Err, ErrChainIDMismatch) {
+			return emissions, emission.Err
+		}
+	}
+	return emissions, ErrAllSourcesDown
+}
+
+// votingGate reports why a member's request is currently paused, or nil when
+// it should be dispatched. Closed members are not gated: attempting them
+// fails fast with ErrClosed and no penalty, keeping a member removed
+// mid-invocation visible in its captured basis.
+func votingGate(src *Source, floor uint64, now time.Time) error {
+	if src.isIdentityInvalid() {
+		return ErrChainIDMismatch
+	}
+	if !src.requestable(now) {
+		return ErrSourceGated
+	}
+	if floor > 0 {
+		if tip, ok := src.tipHeight(); ok && tip < floor {
+			return ErrSourceGated
+		}
+	}
+	return nil
+}
+
+// dispatchOne attempts one member's call under the shared semaphore and
+// records its emission. Attempted calls report health here, so callers cannot
+// accidentally hide a dead source by forgetting a separate report step; a
+// caller that never acquires a local slot records nothing.
+func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src *Source, method string, params []any, emissions []Emission, wg *sync.WaitGroup) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		var val json.RawMessage
+		var err error
+		var rtt time.Duration
+		attempted := false
+		select {
+		case sem <- struct{}{}:
+			if err = callCtx.Err(); err == nil {
+				attempted = true
+				start := time.Now()
+				val, err = collectOne(callCtx, src, method, params)
+				rtt = time.Since(start)
+			}
+			<-sem
+		case <-callCtx.Done():
+			err = callCtx.Err()
+		}
+
+		if attempted {
+			if isHealthyRPCResponse(err) {
+				src.recordSuccessfulCall(rtt)
+			} else if shouldRecordFailure(parent, err) {
+				src.recordFailedCall(err)
+			}
+		}
+
+		emissions[i] = Emission{Src: src, Val: val, Err: err, RTT: rtt, Attempted: attempted}
+	}()
 }
 
 // collectPlan selects which eligibility rules one collection applies. User
@@ -107,39 +263,7 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 	)
 
 	for i, src := range sources {
-		wg.Add(1)
-		go func(i int, src *Source) {
-			defer wg.Done()
-
-			var val json.RawMessage
-			var err error
-			var rtt time.Duration
-			attempted := false
-			select {
-			case sem <- struct{}{}:
-				if err = callCtx.Err(); err == nil {
-					attempted = true
-					start := time.Now()
-					val, err = collectOne(callCtx, src, method, params)
-					rtt = time.Since(start)
-				}
-				<-sem
-			case <-callCtx.Done():
-				err = callCtx.Err()
-			}
-
-			// Attempted calls report health here, so callers cannot accidentally
-			// hide a dead source by forgetting a separate report step.
-			if attempted {
-				if isHealthyRPCResponse(err) {
-					src.recordSuccessfulCall(rtt)
-				} else if shouldRecordFailure(ctx, err) {
-					src.recordFailedCall(err)
-				}
-			}
-
-			emissions[i] = Emission{Src: src, Val: val, Err: err, RTT: rtt, Attempted: attempted}
-		}(i, src)
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
 	}
 	wg.Wait()
 	if err := callCtx.Err(); err != nil {

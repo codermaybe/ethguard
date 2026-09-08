@@ -273,6 +273,14 @@ func (s *Source) eligible(now time.Time) bool {
 	if invalid {
 		return false
 	}
+	return s.requestable(now)
+}
+
+// requestable reports whether the cooldown circuit admits a request to this
+// source, independent of closure and identity gates: the voting-basis
+// collection consults it alone, so paused members stay in the basis while
+// skipping the request (decision 0027).
+func (s *Source) requestable(now time.Time) bool {
 	consecutive, lastFailure := s.stats.circuitState()
 	if consecutive < eligibleFailureThreshold {
 		return true

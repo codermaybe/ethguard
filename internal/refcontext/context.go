@@ -41,6 +41,18 @@ type verificationKey struct{}
 func RequireVerified(ctx context.Context) context.Context {
 	return context.WithValue(ctx, verificationKey{}, true)
 }
+
+type forwardedKey struct{}
+
+// AllowForwarded marks an intentional single-source call as eligible to
+// return locally validated data with Forwarded status.
+func WithForwarded(ctx context.Context) context.Context {
+	return context.WithValue(ctx, forwardedKey{}, true)
+}
+func AllowForwarded(ctx context.Context) bool {
+	value, _ := ctx.Value(forwardedKey{}).(bool)
+	return value
+}
 func VerificationRequired(ctx context.Context) bool {
 	value, _ := ctx.Value(verificationKey{}).(bool)
 	return value

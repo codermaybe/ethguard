@@ -14,6 +14,17 @@ type Policy interface {
 	Resolve([]Observation) (Decision, error)
 }
 
+// CorroboratingPolicy is the optional capability of a policy whose resolution
+// is adjudicated against an invocation's fixed voting basis: the aggregator
+// supplies the corroboration mode and support floor captured before any
+// request was issued (decision 0025), overriding construction-time options.
+// Implementing it also selects the fixed-basis collection mode in the
+// aggregator: every voting member is represented in the observation set,
+// including members whose request a scheduling gate skipped.
+type CorroboratingPolicy interface {
+	ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error)
+}
+
 // Registry maps JSON-RPC method names to policies. An empty or nil registry
 // forwards every method transparently.
 type Registry map[string]Policy

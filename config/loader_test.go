@@ -33,6 +33,8 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 		{"missing endpoint", Config{Upstreams: []Upstream{{ID: "a"}}}, "endpoint is required"},
 		{"negative quorum", Config{Upstreams: upstreams, Quorum: -1}, "non-negative"},
 		{"unknown preset", Config{Upstreams: upstreams, Anchoring: &AnchoringConfig{Preset: "aggressive"}}, "must be strict or finalized"},
+		{"unknown corroboration", Config{Upstreams: upstreams, Corroboration: "weighted"}, "majority or unanimity"},
+		{"valid corroboration spellings", Config{Upstreams: upstreams, Corroboration: " UNANIMITY "}, ""},
 		{"non-positive anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "-5s"}, "anchor_cache_ttl"},
 		{"garbage anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "soon"}, "anchor_cache_ttl"},
 		{"non-positive collect timeout", Config{Upstreams: upstreams, CollectTimeout: "0s"}, "collect_timeout"},
@@ -47,6 +49,7 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 			AnchorCacheTTL: "30s",
 			TipTracking:    &TipTrackingConfig{Interval: "5s", MaxBehind: 8},
 			Quorum:         2,
+			Corroboration:  "majority",
 			CollectTimeout: "10s",
 		}, ""},
 	}
@@ -77,5 +80,11 @@ func TestParseYAMLRunsValidation(t *testing.T) {
 			"upstreams:\n  - id: a\n    endpoint: https://a.example\n"))
 	if err != nil || cfg.ChainID != 1 || len(cfg.Upstreams) != 1 {
 		t.Fatalf("expected minimal YAML to load, got %+v err=%v", cfg, err)
+	}
+}
+
+func TestDefaultSupportFloorIsTwo(t *testing.T) {
+	if got := DefaultSupportFloor(); got != 2 {
+		t.Fatalf("decision 0029's default H is 2, got %d", got)
 	}
 }

@@ -23,13 +23,16 @@ type Aggregator struct {
 	policies       rpc.Registry
 	rec            observe.Recorder
 	collectTimeout time.Duration
+	// corrob is the runtime-mutable adjudication configuration shared by one
+	// client's aggregators; nil leaves policies on construction-time
+	// defaults (direct construction, legacy tests).
+	corrob *rpc.CorroborationShared
 }
 
 // Option tunes an Aggregator at construction time.
 type Option func(*Aggregator)
 
 // WithRecorder routes one observability event per aggregate decision into r.
-// A nil recorder keeps the default no-op sink.
 func WithRecorder(r observe.Recorder) Option {
 	return func(a *Aggregator) {
 		if r != nil {
@@ -39,9 +42,21 @@ func WithRecorder(r observe.Recorder) Option {
 }
 
 // WithCollectTimeout bounds the pool operation used by each aggregate call.
-// Zero keeps pool's default timeout.
 func WithCollectTimeout(timeout time.Duration) Option {
 	return func(a *Aggregator) { a.collectTimeout = timeout }
+}
+
+// WithCorroboration shares one runtime-mutable corroboration configuration
+// across the client's aggregators. Each invocation snapshots the mode and
+// support floor at its start (decision 0025); corroborated reads then collect
+// the full voting basis and resolve under the snapshot instead of
+// construction-time defaults.
+func WithCorroboration(c *rpc.CorroborationShared) Option {
+	return func(a *Aggregator) {
+		if c != nil {
+			a.corrob = c
+		}
+	}
 }
 
 func New(p *pool.Pool, policies rpc.Registry, opts ...Option) *Aggregator {
@@ -50,6 +65,28 @@ func New(p *pool.Pool, policies rpc.Registry, opts ...Option) *Aggregator {
 		opt(a)
 	}
 	return a
+}
+
+// corroboration captures the shared configuration for one invocation. A nil
+// shared configuration yields no snapshot, so the aggregator falls back to
+// each policy's construction-time resolution.
+func (a *Aggregator) corroboration() (rpc.Corroboration, bool) {
+	if a.corrob == nil {
+		return rpc.Corroboration{}, false
+	}
+	return a.corrob.Snapshot(), true
+}
+
+// resolve applies the invocation's frozen corroboration snapshot when the
+// policy supports it; policies without the capability resolve with their
+// construction-time configuration.
+func resolve(policy rpc.Policy, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) (rpc.Decision, error) {
+	if snapOK {
+		if cp, ok := policy.(rpc.CorroboratingPolicy); ok {
+			return cp.ResolveCorroborated(snap, obs)
+		}
+	}
+	return policy.Resolve(obs)
 }
 
 // Aggregate collects one request and resolves it according to its policy.
@@ -63,7 +100,16 @@ func New(p *pool.Pool, policies rpc.Registry, opts ...Option) *Aggregator {
 func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decision, error) {
 	started := time.Now()
 	ctx, capture := refcontext.New(ctx)
+	// The corroboration mode and support floor are frozen here, before
+	// preparation and any request: a concurrent Set only reaches
+	// invocations that start later (decision 0025).
+	snap, snapOK := a.corroboration()
 	policy := a.policies.PolicyFor(req.Method)
+	// A corroborated read collects over the fixed voting basis — every
+	// member occupies the denominator even when a scheduling gate skipped
+	// its request (decisions 0025 and 0027).
+	_, corroborating := policy.(rpc.CorroboratingPolicy)
+	corroborating = snapOK && corroborating
 	prepared, err := policy.Prepare(ctx, req)
 	if err != nil {
 		decision := rpc.Decision{Reference: capture.Reference()}
@@ -72,8 +118,12 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	}
 	var emissions []pool.Emission
 	var collectErr error
-	if single, ok := policy.(rpc.SingleSourcePolicy); ok && single.SingleSource() {
+	if snapOK && snap.Mode == rpc.CorroborationForwarded {
 		emissions, collectErr = a.pool.Forward(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
+	} else if single, ok := policy.(rpc.SingleSourcePolicy); ok && single.SingleSource() {
+		emissions, collectErr = a.pool.Forward(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
+	} else if corroborating {
+		emissions, collectErr = a.pool.CollectVoting(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
 	} else {
 		emissions, collectErr = a.pool.Collect(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
 	}
@@ -93,8 +143,11 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions)
 		return decision, collectErr
 	}
-	decision, resolveErr := policy.Resolve(observations)
-	if agreement, ok := policy.(rpc.AgreementPolicy); ok && agreement.RequiresAgreement() && refcontext.VerificationRequired(ctx) && resolveErr == nil && decision.Status != rpc.Verified {
+	decision, resolveErr := resolve(policy, snap, snapOK, observations)
+	if resolveErr == nil && snapOK && snap.Mode == rpc.CorroborationForwarded {
+		decision.Status = rpc.Forwarded
+	}
+	if agreement, ok := policy.(rpc.AgreementPolicy); ok && agreement.RequiresAgreement() && refcontext.VerificationRequired(ctx) && !(snapOK && snap.Mode == rpc.CorroborationForwarded) && resolveErr == nil && decision.Status != rpc.Verified {
 		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
 	}
 	decision.Reference = capture.Reference()

@@ -19,7 +19,6 @@ import (
 	"ethguard"
 	"ethguard/config"
 	"ethguard/ethadapter"
-	"ethguard/rpc"
 	"ethguard/rpc/methods"
 	"ethguard/rpctest"
 )
@@ -915,12 +914,17 @@ func TestAdapterRequiresCorroborationWithoutChangingMethodSignatures(t *testing.
 	nodes[0].Return(methods.MethodGetBalance, "0x1")
 	nodes[1].Fail(methods.MethodGetBalance, -32603, "unavailable")
 	if value, err := client.BalanceAt(context.Background(), common.Address{}, nil); !errors.Is(err, ethguard.ErrConflict) || value != nil {
-		t.Fatalf("typed read hid Selected answer: %v %v", value, err)
+		t.Fatalf("typed read hid unmet corroboration: %v %v", value, err)
 	}
-	// The advanced API retains the existing Selected result and evidence.
+	// The advanced API reports the unmet majority as a conflict with the
+	// surviving cluster in evidence (decision 0029): a 1-of-2 answer is no
+	// longer surfaced as Selected under the default support floor.
 	d, err := client.Unwrap().Call(context.Background(), methods.MethodGetBalance, common.Address{}, "0x10")
-	if err != nil || d.Status != rpc.Selected {
-		t.Fatalf("advanced decision contract changed: %+v %v", d, err)
+	if !errors.Is(err, ethguard.ErrConflict) {
+		t.Fatalf("advanced call hid the unmet majority: %v", err)
+	}
+	if len(d.Support) != 1 || string(d.Value) != `"0x1"` {
+		t.Fatalf("expected the surviving cluster in evidence, got %+v", d)
 	}
 	wrapped := ethadapter.Wrap(client.Unwrap())
 	if _, err := wrapped.BalanceAt(context.Background(), common.Address{}, big.NewInt(16)); !errors.Is(err, ethguard.ErrConflict) {

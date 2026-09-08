@@ -38,7 +38,11 @@ func WithAnchor(anchor AnchorFunc, positions ...int) func(Policy) Policy {
 		if policy == nil {
 			policy = ForwardPolicy{}
 		}
-		return anchoredPolicy{policy: policy, anchor: anchor, positions: append([]int(nil), positions...)}
+		base := anchoredPolicy{policy: policy, anchor: anchor, positions: append([]int(nil), positions...)}
+		if _, ok := corroboratingPolicy(policy); ok {
+			return corroboratingAnchoredPolicy{base}
+		}
+		return base
 	}
 }
 
@@ -125,6 +129,16 @@ func (a anchoredPolicy) Resolve(obs []Observation) (Decision, error) {
 	return a.policy.Resolve(obs)
 }
 
+// corroboratingAnchoredPolicy is the WithAnchor wrapper around an inner
+// CorroboratingPolicy. A separate type keeps wrapping Median from looking
+// like a corroborated read (T01 review P3) while wrapping Strict still
+// forwards the invocation snapshot (T01 review P1).
+type corroboratingAnchoredPolicy struct{ anchoredPolicy }
+
+func (a corroboratingAnchoredPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
+	return resolveCorroborated(a.policy, c, obs)
+}
+
 // Anchored binds a normalizer to strict resolution and rewrites a moving block
 // tag at position tagPos to a verified block hash before fan-out. Strict
 // options (for example WithQuorum) pass through to the underlying resolution.
@@ -144,7 +158,11 @@ func RejectPending(positions ...int) func(Policy) Policy {
 		if policy == nil {
 			policy = ForwardPolicy{}
 		}
-		return pendingRejectingPolicy{policy: policy, positions: append([]int(nil), positions...)}
+		base := pendingRejectingPolicy{policy: policy, positions: append([]int(nil), positions...)}
+		if _, ok := corroboratingPolicy(policy); ok {
+			return corroboratingPendingPolicy{base}
+		}
+		return base
 	}
 }
 
@@ -194,6 +212,12 @@ func (p pendingRejectingPolicy) Resolve(obs []Observation) (Decision, error) {
 	return p.policy.Resolve(obs)
 }
 
+type corroboratingPendingPolicy struct{ pendingRejectingPolicy }
+
+func (p corroboratingPendingPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
+	return resolveCorroborated(p.policy, c, obs)
+}
+
 // WithAnchorHeight decorates a policy with moving-tag rewriting to the
 // verified reference's block height, spelled as a hex quantity. It exists
 // for methods whose wire form cannot carry a hash (see AnchorHeightFunc);
@@ -207,7 +231,11 @@ func WithAnchorHeight(height AnchorHeightFunc, positions ...int) func(Policy) Po
 		if policy == nil {
 			policy = ForwardPolicy{}
 		}
-		return anchoredHeightPolicy{policy: policy, height: height, positions: append([]int(nil), positions...)}
+		base := anchoredHeightPolicy{policy: policy, height: height, positions: append([]int(nil), positions...)}
+		if _, ok := corroboratingPolicy(policy); ok {
+			return corroboratingHeightPolicy{base}
+		}
+		return base
 	}
 }
 
@@ -295,6 +323,12 @@ func (a anchoredHeightPolicy) Resolve(obs []Observation) (Decision, error) {
 	return a.policy.Resolve(obs)
 }
 
+type corroboratingHeightPolicy struct{ anchoredHeightPolicy }
+
+func (a corroboratingHeightPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
+	return resolveCorroborated(a.policy, c, obs)
+}
+
 // WithAnchorHeightFields decorates a policy so that named string fields of
 // the object-typed parameter at paramPos are rewritten to the verified
 // reference's hex height — and defaulted to it when absent, since a
@@ -313,7 +347,11 @@ func anchorFields(resolve func(context.Context) (string, error), paramPos int, f
 		if policy == nil {
 			policy = ForwardPolicy{}
 		}
-		return anchoredFieldsPolicy{policy: policy, resolve: resolve, paramPos: paramPos, fields: append([]string(nil), fields...)}
+		base := anchoredFieldsPolicy{policy: policy, resolve: resolve, paramPos: paramPos, fields: append([]string(nil), fields...)}
+		if _, ok := corroboratingPolicy(policy); ok {
+			return corroboratingFieldsPolicy{base}
+		}
+		return base
 	}
 }
 
@@ -451,8 +489,31 @@ func (a anchoredFieldsPolicy) Resolve(obs []Observation) (Decision, error) {
 	return a.policy.Resolve(obs)
 }
 
+type corroboratingFieldsPolicy struct{ anchoredFieldsPolicy }
+
+func (a corroboratingFieldsPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
+	return resolveCorroborated(a.policy, c, obs)
+}
+
 // includesRPCError preserves the inner answer domain through Prepare decorators.
 func includesRPCError(policy Policy) bool {
 	provider, ok := policy.(RPCErrorPolicy)
 	return ok && provider.IncludeRPCError()
+}
+
+// resolveCorroborated forwards an invocation snapshot to the inner
+// CorroboratingPolicy without bypassing intermediate decorators.
+func resolveCorroborated(policy Policy, c Corroboration, obs []Observation) (Decision, error) {
+	if inner, ok := corroboratingPolicy(policy); ok {
+		return inner.ResolveCorroborated(c, obs)
+	}
+	return policy.Resolve(obs)
+}
+
+// corroboratingPolicy reports the capability of the immediate wrapped policy.
+// Constructors preserve it using distinct wrapper types, so forwarding through
+// each layer neither invents a capability nor bypasses an intermediate policy.
+func corroboratingPolicy(policy Policy) (CorroboratingPolicy, bool) {
+	p, ok := policy.(CorroboratingPolicy)
+	return p, ok
 }

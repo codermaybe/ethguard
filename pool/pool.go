@@ -130,6 +130,38 @@ func (p *Pool) Sources() []*Source {
 	return out
 }
 
+// Remove removes one voting member by its configured display name and
+// releases its connection (decision 0027). An invocation that already
+// captured the member keeps it in its voting basis — its calls fail closed
+// with ErrClosed and count in that invocation's denominator — while
+// invocations starting after the removal exclude it. Runtime removal never
+// follows from upstream behavior; it is always an explicit caller action.
+func (p *Pool) Remove(name string) error {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return ErrClosed
+	}
+	index := -1
+	for i, src := range p.sources {
+		if src.name == name {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		p.mu.Unlock()
+		return fmt.Errorf("pool: no source named %q", name)
+	}
+	src := p.sources[index]
+	p.sources = append(p.sources[:index], p.sources[index+1:]...)
+	delete(p.byID, src.id)
+	p.mu.Unlock()
+
+	src.close()
+	return nil
+}
+
 func (p *Pool) sourcesForCollect(plan collectPlan) ([]*Source, error) {
 	sources, err := p.snapshotSources(true)
 	if err != nil {

@@ -17,6 +17,7 @@ type Request struct {
 // SourceRef is immutable source identity carried in observations and decision
 // evidence. Keeping this value type in rpc prevents the policy layer from
 // depending on pool's connection and health implementation.
+// Strict resolution requires a nonempty, unique ID for every observation.
 type SourceRef struct {
 	Name string
 	URL  string
