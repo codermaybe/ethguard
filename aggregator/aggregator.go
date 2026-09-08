@@ -104,6 +104,21 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// preparation and any request: a concurrent Set only reaches
 	// invocations that start later (decision 0025).
 	snap, snapOK := a.corroboration()
+	if value, ok := refcontext.Corroboration(ctx); ok {
+		if inherited, valid := value.(rpc.Corroboration); valid {
+			snap, snapOK = inherited, true
+		}
+	} else if snapOK {
+		ctx = refcontext.WithCorroboration(ctx, snap)
+	}
+	var members []*pool.Source
+	if value, ok := refcontext.Members(ctx); ok {
+		members, _ = value.([]*pool.Source)
+	}
+	if members == nil {
+		members = a.pool.VotingMembers()
+		ctx = refcontext.WithMembers(ctx, members)
+	}
 	policy := a.policies.PolicyFor(req.Method)
 	// A corroborated read collects over the fixed voting basis — every
 	// member occupies the denominator even when a scheduling gate skipped
@@ -119,13 +134,13 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	var emissions []pool.Emission
 	var collectErr error
 	if snapOK && snap.Mode == rpc.CorroborationForwarded {
-		emissions, collectErr = a.pool.Forward(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
+		emissions, collectErr = a.pool.Forward(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout, Sources: members})
 	} else if single, ok := policy.(rpc.SingleSourcePolicy); ok && single.SingleSource() {
-		emissions, collectErr = a.pool.Forward(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
+		emissions, collectErr = a.pool.Forward(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout, Sources: members})
 	} else if corroborating {
-		emissions, collectErr = a.pool.CollectVoting(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
+		emissions, collectErr = a.pool.CollectVoting(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout, Sources: members})
 	} else {
-		emissions, collectErr = a.pool.Collect(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout})
+		emissions, collectErr = a.pool.Collect(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout, Sources: members})
 	}
 	observations := make([]rpc.Observation, len(emissions))
 	participants := make([]rpc.SourceRef, 0, len(emissions))

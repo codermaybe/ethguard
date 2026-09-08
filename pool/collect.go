@@ -33,6 +33,10 @@ type Emission struct {
 
 // CollectOptions configures one fan-out. Zero value is a sensible default.
 type CollectOptions struct {
+	// Sources fixes the exact source objects captured by an outer invocation.
+	// Closed members remain visible as failed emissions instead of being
+	// replaced by a later membership configuration.
+	Sources []*Source
 	// SourceIDs fixes membership for a continuation of a previous collection.
 	// Nil selects current eligible sources. Explicit IDs retain pool order and
 	// bypass changing freshness/cooldown gates; identity and lifecycle checks
@@ -89,12 +93,20 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if opts.SourceIDs != nil {
-		return nil, fmt.Errorf("pool: CollectVoting fixes its own membership; SourceIDs does not apply")
+	if p.isClosed() {
+		return nil, ErrClosed
 	}
-	members, err := p.snapshotSources(true)
-	if err != nil {
-		return nil, err
+	var members []*Source
+	if opts.Sources != nil {
+		members = append([]*Source(nil), opts.Sources...)
+	} else if opts.SourceIDs != nil {
+		return nil, fmt.Errorf("pool: CollectVoting fixes its own membership; SourceIDs does not apply")
+	} else {
+		var err error
+		members, err = p.snapshotSources(true)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(members) == 0 {
 		return nil, ErrNoEligibleSource
@@ -237,10 +249,15 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if p.isClosed() {
+		return nil, ErrClosed
+	}
 
 	var sources []*Source
 	var err error
-	if opts.SourceIDs != nil {
+	if opts.Sources != nil {
+		sources = append([]*Source(nil), opts.Sources...)
+	} else if opts.SourceIDs != nil {
 		sources, err = p.sourcesByIDs(opts.SourceIDs)
 	} else {
 		sources, err = p.sourcesForCollect(plan)
@@ -295,10 +312,15 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if p.isClosed() {
+		return nil, ErrClosed
+	}
 
 	var sources []*Source
 	var err error
-	if opts.SourceIDs != nil {
+	if opts.Sources != nil {
+		sources = append([]*Source(nil), opts.Sources...)
+	} else if opts.SourceIDs != nil {
 		sources, err = p.sourcesByIDs(opts.SourceIDs)
 	} else {
 		sources, err = p.sourcesForCollect(collectPlan{applyFreshness: true})

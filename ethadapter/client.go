@@ -86,8 +86,12 @@ func (c *Client) ChainID(ctx context.Context) (*big.Int, error) {
 // means the currently verified reference behind "latest".
 func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error) {
 	ctx = c.requireContext(ctx)
+	blockArg, err := checkedBlockNumArg(blockNumber)
+	if err != nil {
+		return nil, err
+	}
 	value, _, err := ethguard.CallInto[hexutil.Big](
-		ctx, c.eg, methods.MethodGetBalance, account.Hex(), toBlockNumArg(blockNumber))
+		ctx, c.eg, methods.MethodGetBalance, account.Hex(), blockArg)
 	if err != nil {
 		return nil, err
 	}
@@ -108,14 +112,25 @@ func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Blo
 	if number != nil && number.Sign() >= 0 && !number.IsUint64() {
 		return nil, fmt.Errorf("block number exceeds supported height range: %w", ethguard.ErrInvalidRequest)
 	}
-	if number == nil || number.Sign() < 0 {
+	if number != nil && number.Sign() < 0 {
+		blockArg, err := checkedBlockNumArg(number)
+		if err != nil {
+			return nil, err
+		}
+		return c.blockAt(ctx, blockArg)
+	}
+	if number == nil {
 		ref, err := c.eg.AnchorBlockHash(ctx)
 		if err != nil {
 			return nil, err
 		}
 		return c.blockAt(ctx, ref)
 	}
-	return c.blockAt(ctx, toBlockNumArg(number))
+	blockArg, err := checkedBlockNumArg(number)
+	if err != nil {
+		return nil, err
+	}
+	return c.blockAt(ctx, blockArg)
 }
 
 // BlockNumber returns the height of the currently verified block reference —
@@ -226,8 +241,12 @@ func bindReceiptsToHash(receipts []*types.Receipt, hash common.Hash) ([]*types.R
 // nil pins the moving tag to the currently verified reference.
 func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error) {
 	ctx = c.requireContext(ctx)
+	blockArg, err := checkedBlockNumArg(blockNumber)
+	if err != nil {
+		return 0, err
+	}
 	nonce, _, err := ethguard.CallInto[hexutil.Uint64](
-		ctx, c.eg, methods.MethodGetTransactionCount, account.Hex(), toBlockNumArg(blockNumber))
+		ctx, c.eg, methods.MethodGetTransactionCount, account.Hex(), blockArg)
 	if err != nil {
 		return 0, err
 	}
@@ -238,8 +257,12 @@ func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumbe
 // blockNumber; nil pins the moving tag to the currently verified reference.
 func (c *Client) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, error) {
 	ctx = c.requireContext(ctx)
+	blockArg, err := checkedBlockNumArg(blockNumber)
+	if err != nil {
+		return nil, err
+	}
 	value, _, err := ethguard.CallInto[hexutil.Bytes](
-		ctx, c.eg, methods.MethodGetStorageAt, account.Hex(), key.Hex(), toBlockNumArg(blockNumber))
+		ctx, c.eg, methods.MethodGetStorageAt, account.Hex(), key.Hex(), blockArg)
 	if err != nil {
 		return nil, err
 	}
@@ -251,8 +274,12 @@ func (c *Client) StorageAt(ctx context.Context, account common.Address, key comm
 // owned account answers empty code, not an error.
 func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
 	ctx = c.requireContext(ctx)
+	blockArg, err := checkedBlockNumArg(blockNumber)
+	if err != nil {
+		return nil, err
+	}
 	code, _, err := ethguard.CallInto[hexutil.Bytes](
-		ctx, c.eg, methods.MethodGetCode, account.Hex(), toBlockNumArg(blockNumber))
+		ctx, c.eg, methods.MethodGetCode, account.Hex(), blockArg)
 	if err != nil {
 		return nil, err
 	}
@@ -285,11 +312,13 @@ func blockRefArg(blockNrOrHash gethrpc.BlockNumberOrHash) (string, error) {
 			return "safe", nil
 		case gethrpc.FinalizedBlockNumber:
 			return "finalized", nil
+		case gethrpc.EarliestBlockNumber:
+			return "0x0", nil
 		default:
 			if number < 0 {
-				return "", fmt.Errorf("ethadapter: unsupported block number %d", number)
+				return "", fmt.Errorf("ethadapter: unsupported block number %d: %w", number, ethguard.ErrInvalidRequest)
 			}
-			return toBlockNumArg(big.NewInt(number.Int64())), nil
+			return checkedBlockNumArg(big.NewInt(number.Int64()))
 		}
 	}
 	return "", fmt.Errorf("ethadapter: empty block number or hash")
@@ -310,7 +339,11 @@ func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 // verification claim stays on the decision evidence.
 func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
 	ctx = c.requireContext(ctx)
-	decision, err := c.eg.Call(ctx, methods.MethodCall, toCallArg(msg), toBlockNumArg(blockNumber))
+	blockArg, err := checkedBlockNumArg(blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	decision, err := c.eg.Call(ctx, methods.MethodCall, toCallArg(msg), blockArg)
 	if err != nil {
 		return nil, err
 	}
@@ -451,12 +484,20 @@ func toFilterArg(q ethereum.FilterQuery) (map[string]any, error) {
 		arg["blockHash"] = *q.BlockHash
 		return arg, nil
 	}
-	if q.FromBlock == nil {
-		arg["fromBlock"] = "0x0"
-	} else {
-		arg["fromBlock"] = toBlockNumArg(q.FromBlock)
+	fromBlock := "0x0"
+	var err error
+	if q.FromBlock != nil {
+		fromBlock, err = checkedBlockNumArg(q.FromBlock)
+		if err != nil {
+			return nil, err
+		}
 	}
-	arg["toBlock"] = toBlockNumArg(q.ToBlock)
+	toBlock, err := checkedBlockNumArg(q.ToBlock)
+	if err != nil {
+		return nil, err
+	}
+	arg["fromBlock"] = fromBlock
+	arg["toBlock"] = toBlock
 	return arg, nil
 }
 
@@ -518,5 +559,29 @@ func toBlockNumArg(number *big.Int) string {
 	if number == nil {
 		return "latest"
 	}
+	if number.Sign() < 0 {
+		switch number.Int64() {
+		case -1:
+			return "pending"
+		case -2:
+			return "latest"
+		case -3:
+			return "finalized"
+		case -4:
+			return "safe"
+		case -5:
+			return "0x0"
+		default:
+			return ""
+		}
+	}
 	return hexutil.EncodeBig(number)
+}
+
+func checkedBlockNumArg(number *big.Int) (string, error) {
+	arg := toBlockNumArg(number)
+	if arg == "" {
+		return "", fmt.Errorf("ethadapter: unsupported block number %s: %w", number.String(), ethguard.ErrInvalidRequest)
+	}
+	return arg, nil
 }

@@ -37,6 +37,24 @@ func (c *Capture) Reference() *rpc.ReferenceEvidence {
 
 type verificationKey struct{}
 
+type membersKey struct{}
+type corroborationKey struct{}
+
+func WithMembers(ctx context.Context, members any) context.Context {
+	return context.WithValue(ctx, membersKey{}, members)
+}
+func Members(ctx context.Context) (any, bool) {
+	v := ctx.Value(membersKey{})
+	return v, v != nil
+}
+func WithCorroboration(ctx context.Context, value any) context.Context {
+	return context.WithValue(ctx, corroborationKey{}, value)
+}
+func Corroboration(ctx context.Context) (any, bool) {
+	v := ctx.Value(corroborationKey{})
+	return v, v != nil
+}
+
 // RequireVerified marks typed calls that cannot expose a Selected decision.
 func RequireVerified(ctx context.Context) context.Context {
 	return context.WithValue(ctx, verificationKey{}, true)

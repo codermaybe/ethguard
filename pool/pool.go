@@ -130,6 +130,13 @@ func (p *Pool) Sources() []*Source {
 	return out
 }
 
+// VotingMembers returns the exact source objects currently configured. The
+// objects are safe to retain for one invocation: removal closes the object but
+// does not mutate its identity, so an outer snapshot can fail it closed.
+func (p *Pool) VotingMembers() []*Source {
+	return p.Sources()
+}
+
 // Remove removes one voting member by its configured display name and
 // releases its connection (decision 0027). An invocation that already
 // captured the member keeps it in its voting basis — its calls fail closed
@@ -231,6 +238,12 @@ func (p *Pool) Len() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return len(p.sources)
+}
+
+func (p *Pool) isClosed() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.closed
 }
 
 func normalizeEndpointID(raw string) (string, error) {
