@@ -51,6 +51,9 @@ type Observation struct {
 	Value    json.RawMessage
 	Err      error
 	RPCError *RPCError
+	// Evidence is method-specific admission evidence (for example, the
+	// same-source uncle headers needed to complete a block body).
+	Evidence json.RawMessage
 }
 
 // Status describes the confidence class of a successful decision.
@@ -65,6 +68,7 @@ const (
 // ReferenceEvidence describes the prerequisite used for a moving-state read.
 // Reported finality is provider evidence, not a consensus proof.
 type ReferenceEvidence struct {
+	Tag          string
 	Hash         string
 	Height       uint64
 	Status       Status
@@ -98,6 +102,9 @@ type Decision struct {
 	Support      []SourceRef
 	Reject       []SourceRef
 	Faults       []error
+	// Evidence belongs to the selected value and is populated by an
+	// AdmissionPolicy. It is opaque to generic callers.
+	Evidence json.RawMessage
 }
 
 // String names the confidence class for observability sinks.

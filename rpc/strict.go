@@ -21,9 +21,10 @@ func CanonicalJSON(value json.RawMessage) (string, error) {
 // cluster is one equivalence class of admissible answers: every source whose
 // response normalizes to the same key.
 type cluster struct {
-	key     string
-	value   json.RawMessage
-	sources []SourceRef
+	key      string
+	value    json.RawMessage
+	evidence json.RawMessage
+	sources  []SourceRef
 }
 
 // StrictOption tunes a strict policy at construction time.
@@ -151,6 +152,7 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 	decision.Faults = faults
 	winner := ranked[0]
 	decision.Value = winner.value
+	decision.Evidence = append(json.RawMessage(nil), winner.evidence...)
 	decision.Support = winner.sources
 	for _, cl := range ranked[1:] {
 		decision.Reject = append(decision.Reject, cl.sources...)
@@ -172,6 +174,7 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 	var faults []error
 	groups := make(map[string][]SourceRef)
 	values := make(map[string]json.RawMessage)
+	evidence := make(map[string]json.RawMessage)
 	seen := make(map[string]int, len(obs))
 	for i, item := range obs {
 		id := item.Source.ID
@@ -198,6 +201,9 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 		}
 		groups[key] = append(groups[key], item.Source)
 		values[key] = value
+		if evidence[key] == nil && item.Evidence != nil {
+			evidence[key] = append(json.RawMessage(nil), item.Evidence...)
+		}
 	}
 	if len(groups) == 0 {
 		return nil, faults, fmt.Errorf(
@@ -215,7 +221,7 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 	})
 	ranked := make([]cluster, 0, len(keys))
 	for _, key := range keys {
-		ranked = append(ranked, cluster{key: key, value: values[key], sources: groups[key]})
+		ranked = append(ranked, cluster{key: key, value: values[key], evidence: evidence[key], sources: groups[key]})
 	}
 	return ranked, faults, nil
 }

@@ -39,6 +39,26 @@ func TestAnchoredRewritesMovingTags(t *testing.T) {
 	}
 }
 
+func TestAnchoredPassesMovingTagToReferenceResolver(t *testing.T) {
+	var tags []string
+	p := Anchored(1, CanonicalJSON, func(ctx context.Context) (string, error) {
+		tags = append(tags, AnchorTag(ctx))
+		return "0x" + AnchorTag(ctx), nil
+	})
+	for _, tag := range []string{"latest", "safe", "finalized"} {
+		prepared, err := p.Prepare(context.Background(), Request{Method: "m", Params: []any{"x", tag}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prepared.Params[1] != "0x"+tag {
+			t.Fatalf("tag %s was not preserved for resolver: %+v", tag, prepared.Params)
+		}
+	}
+	if len(tags) != 3 || tags[0] != "latest" || tags[1] != "safe" || tags[2] != "finalized" {
+		t.Fatalf("resolver tags = %v", tags)
+	}
+}
+
 func TestAnchoredPassesExplicitReferencesThrough(t *testing.T) {
 	calls := 0
 	anchor := func(context.Context) (string, error) {
@@ -81,7 +101,7 @@ func TestWithAnchorDecoratesMedianAndRewritesMultiplePositionsOnce(t *testing.T)
 		calls++
 		return "0xanchor", nil
 	}, 1, 2)(Median(func(v json.RawMessage) (string, error) { return string(v), nil }))
-	req := Request{Method: "eth_getLogs", Params: []any{"filter", "latest", "safe"}}
+	req := Request{Method: "eth_getLogs", Params: []any{"filter", "latest", "latest"}}
 	prepared, err := p.Prepare(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +109,7 @@ func TestWithAnchorDecoratesMedianAndRewritesMultiplePositionsOnce(t *testing.T)
 	if prepared.Params[1] != "0xanchor" || prepared.Params[2] != "0xanchor" {
 		t.Fatalf("moving positions were not rewritten: %+v", prepared.Params)
 	}
-	if req.Params[1] != "latest" || req.Params[2] != "safe" {
+	if req.Params[1] != "latest" || req.Params[2] != "latest" {
 		t.Fatalf("original params mutated: %+v", req.Params)
 	}
 	if calls != 1 {
@@ -127,6 +147,22 @@ func TestWithAnchorLeavesPendingAndExplicitReferencesUntouched(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("anchor consulted unexpectedly: %d", calls)
+	}
+}
+
+func TestWithAnchorRejectsMixedMovingTags(t *testing.T) {
+	p := WithAnchor(func(context.Context) (string, error) { return "0xabc", nil }, 0, 1)(Strict(CanonicalJSON))
+	_, err := p.Prepare(context.Background(), Request{Method: "m", Params: []any{"latest", "safe"}})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("mixed tags must be rejected, got %v", err)
+	}
+}
+
+func TestWithAnchorHeightRejectsMixedMovingTags(t *testing.T) {
+	p := WithAnchorHeight(func(context.Context) (uint64, error) { return 1, nil }, 0, 1)(Strict(CanonicalJSON))
+	_, err := p.Prepare(context.Background(), Request{Method: "m", Params: []any{"latest", "finalized"}})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("mixed tags must be rejected, got %v", err)
 	}
 }
 
@@ -187,7 +223,7 @@ func TestAnchoredHeightFieldsRewriteFilterBounds(t *testing.T) {
 
 	t.Run("moving fields rewrite to the hex height and share one establishment", func(t *testing.T) {
 		prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
-			map[string]any{"fromBlock": "latest", "toBlock": "finalized", "address": "0x1"},
+			map[string]any{"fromBlock": "latest", "toBlock": "latest", "address": "0x1"},
 		}})
 		if err != nil {
 			t.Fatal(err)
@@ -263,6 +299,14 @@ func TestAnchoredHeightFieldsRewriteFilterBounds(t *testing.T) {
 		}
 		if calls != before {
 			t.Fatalf("contradictory filter consulted the height: %d", calls)
+		}
+	})
+	t.Run("mixed moving tags are rejected", func(t *testing.T) {
+		_, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
+			map[string]any{"fromBlock": "latest", "toBlock": "finalized"},
+		}})
+		if !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("mixed tags: got %v", err)
 		}
 	})
 }

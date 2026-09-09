@@ -12,7 +12,7 @@
 // Semantics worth knowing before switching:
 //
 //   - Moving references ("latest") resolve through the configured anchoring
-//     strategy and its cache, exactly like any other anchored read; results
+//     strategy; each invocation establishes its own reference and results
 //     are pinned to a cross-verified reference rather than racing heads.
 //   - BlockNumber reports the height of that verified reference — a consensus
 //     override in the proxyd tradition, not one arbitrary provider's tip.
@@ -190,9 +190,27 @@ func (c *Client) TransactionByHash(ctx context.Context, txHash common.Hash) (*ty
 // of the block.
 func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, error) {
 	ctx = c.requireContext(ctx)
-	ref, err := blockRefArg(blockNrOrHash)
+	refText, err := blockRefArg(blockNrOrHash)
 	if err != nil {
 		return nil, err
+	}
+	var ref any = refText
+	var canonicalHash *common.Hash
+	if blockNrOrHash.RequireCanonical {
+		// Preserve go-ethereum's requireCanonical bit on the wire. A moving
+		// tag cannot be made canonical without first establishing a tag-aware
+		// reference; reject it explicitly rather than silently dropping the
+		// caller's constraint.
+		if _, ok := blockNrOrHash.Number(); ok {
+			number, _ := blockNrOrHash.Number()
+			if number == gethrpc.PendingBlockNumber || number == gethrpc.LatestBlockNumber || number == gethrpc.SafeBlockNumber || number == gethrpc.FinalizedBlockNumber {
+				return nil, fmt.Errorf("ethadapter: requireCanonical with moving block tag %s is unsupported: %w", number, ethguard.ErrInvalidRequest)
+			}
+			ref = map[string]any{"blockNumber": refText, "requireCanonical": true}
+		} else if hash, ok := blockNrOrHash.Hash(); ok {
+			ref = map[string]any{"blockHash": hash, "requireCanonical": true}
+			canonicalHash = &hash
+		}
 	}
 	decision, err := c.eg.Call(ctx, methods.MethodGetBlockReceipts, ref)
 	if err != nil {
@@ -204,6 +222,9 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 	}
 	if hash, ok := blockNrOrHash.Hash(); ok {
 		return bindReceiptsToHash(receipts, hash)
+	}
+	if canonicalHash != nil {
+		return bindReceiptsToHash(receipts, *canonicalHash)
 	}
 	if number, ok := blockNrOrHash.Number(); ok && number >= 0 {
 		requested := big.NewInt(number.Int64())
@@ -397,8 +418,15 @@ func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]type
 // unverified content with the same standing decision 0015 gives the
 // server-provided `from` field.
 type RevertError struct {
+	// Code is the JSON-RPC error code supplied by the provider. Geth uses
+	// code 3 for execution reverts while a number of providers use -32000;
+	// retaining the wire value lets callers distinguish those dialects.
+	Code    int
 	Message string
 	Data    []byte
+	// DataRaw retains a non-hex data value (some providers return a structured
+	// object) without forcing it through the byte-oriented ethclient helper.
+	DataRaw json.RawMessage
 }
 
 func (e *RevertError) Error() string {
@@ -406,6 +434,34 @@ func (e *RevertError) Error() string {
 		return fmt.Sprintf("ethguard: call reverted (verified observation): %s: 0x%x", e.Message, e.Data)
 	}
 	return fmt.Sprintf("ethguard: call reverted (verified observation): %s", e.Message)
+}
+
+// ErrorCode makes RevertError compatible with go-ethereum's rpc.Error. The
+// original provider code remains available through Code.
+func (e *RevertError) ErrorCode() int {
+	if e == nil {
+		return 0
+	}
+	return e.Code
+}
+
+// ErrorData makes RevertError compatible with go-ethereum's rpc.DataError.
+// Geth's RevertErrorData helper expects the conventional hex string; callers
+// that need a structured provider extension can inspect DataRaw directly.
+func (e *RevertError) ErrorData() interface{} {
+	if e == nil {
+		return nil
+	}
+	if len(e.DataRaw) > 0 && string(e.DataRaw) != "null" {
+		var value interface{}
+		if json.Unmarshal(e.DataRaw, &value) == nil {
+			return value
+		}
+	}
+	if e.Data != nil {
+		return hexutil.Encode(e.Data)
+	}
+	return "0x"
 }
 
 // decodeCallResult separates a verified revert envelope from return data.
@@ -416,7 +472,7 @@ func decodeCallResult(raw json.RawMessage) ([]byte, error) {
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err == nil && (envelope.Code != 0 || envelope.Message != "") {
-		revert := &RevertError{Message: envelope.Message}
+		revert := &RevertError{Code: envelope.Code, Message: envelope.Message, DataRaw: append(json.RawMessage(nil), envelope.Data...)}
 		var hexData string
 		if len(envelope.Data) > 0 && json.Unmarshal(envelope.Data, &hexData) == nil {
 			if data, err := hexutil.Decode(hexData); err == nil {
@@ -424,6 +480,9 @@ func decodeCallResult(raw json.RawMessage) ([]byte, error) {
 			}
 		}
 		return nil, revert
+	}
+	if string(raw) == "null" {
+		return nil, fmt.Errorf("%w: null call result", rpc.ErrMalformedResponse)
 	}
 	var out hexutil.Bytes
 	if err := json.Unmarshal(raw, &out); err != nil {
@@ -460,6 +519,15 @@ func toCallArg(msg ethereum.CallMsg) map[string]any {
 	}
 	if msg.AccessList != nil {
 		arg["accessList"] = msg.AccessList
+	}
+	if msg.BlobGasFeeCap != nil {
+		arg["maxFeePerBlobGas"] = (*hexutil.Big)(msg.BlobGasFeeCap)
+	}
+	if msg.BlobHashes != nil {
+		arg["blobVersionedHashes"] = msg.BlobHashes
+	}
+	if msg.AuthorizationList != nil {
+		arg["authorizationList"] = msg.AuthorizationList
 	}
 	return arg
 }
@@ -532,7 +600,7 @@ func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, error) 
 	if err != nil {
 		return nil, err
 	}
-	block, err := ethguard.DecodeBlock(decision.Value)
+	block, err := ethguard.DecodeBlockWithEvidence(decision.Value, decision.Evidence)
 	if err != nil {
 		return nil, err
 	}

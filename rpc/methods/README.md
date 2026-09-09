@@ -35,6 +35,25 @@ Unknown or unsupported methods never get a file here; they fall through the
 registry to transparent forwarding. Default forwarding must produce
 `Forwarded`, never `Verified`.
 
+## Coverage inventory
+
+The package exposes `Catalog()` and `RegisteredNames()` as a read-only method
+coverage index. The inventory distinguishes three cases:
+
+| Kind | Meaning | Current examples |
+| --- | --- | --- |
+| Registered | A method-aware policy is installed in the default client registry. | `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `net_peerCount`, `eth_syncing`, `net_listening` |
+| Derived | The root client provides the value without fan-out. | `eth_blockNumber`, derived from the established reference |
+| Unsupported | A known method is intentionally absent until its contract is designed. | `eth_getProof` |
+
+Registered methods without an adapter-shaped wrapper remain available through
+the root client or `Client.Call`; the catalog records that distinction in the
+`Adapter` field. Any method outside the catalog uses `rpc.ForwardPolicy`: the
+pool attempts sources in order, stops on the first transport-successful value
+or JSON-RPC answer, and returns `Forwarded`. It never retries a non-idempotent
+method by broadcasting it to the fleet and never upgrades an unknown answer to
+`Verified`.
+
 Gas estimates, fee observations, and transaction-count reads may have
 policies here. Gas optimization, nonce allocation, transaction signing,
 broadcast retries, and replacement transactions do not.

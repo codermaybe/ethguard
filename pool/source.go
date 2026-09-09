@@ -195,6 +195,23 @@ func (s *Source) recordFailedCall(err error) {
 	s.state = SourceDown
 }
 
+// acquireRequest reserves this source's adaptive scheduling budget. Waiting
+// is bounded by ctx; a caller that times out has not contacted the upstream.
+func (s *Source) acquireRequest(ctx context.Context) (func(), error) {
+	if s.isClosed() {
+		return nil, ErrClosed
+	}
+	release, err := s.stats.acquireRequest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.isClosed() {
+		release()
+		return nil, ErrClosed
+	}
+	return release, nil
+}
+
 // hasClient reports whether an established connection exists, without
 // dialing. Tip probes use it to keep first contact caller-driven.
 func (s *Source) hasClient() bool {

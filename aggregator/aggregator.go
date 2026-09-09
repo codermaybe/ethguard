@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"ethguard/internal/refcontext"
+	"ethguard/internal/uncertain"
 	"ethguard/observe"
 	"ethguard/pool"
 	"ethguard/rpc"
@@ -99,6 +101,8 @@ func resolve(policy rpc.Policy, snap rpc.Corroboration, snapOK bool, obs []rpc.O
 // public sentinel is not masked by a policy's empty-input error.
 func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decision, error) {
 	started := time.Now()
+	ctx, uncertainDone := uncertain.Begin(ctx)
+	defer uncertainDone()
 	ctx, capture := refcontext.New(ctx)
 	// The corroboration mode and support floor are frozen here, before
 	// preparation and any request: a concurrent Set only reaches
@@ -127,6 +131,9 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	corroborating = snapOK && corroborating
 	prepared, err := policy.Prepare(ctx, req)
 	if err != nil {
+		if c := uncertain.FromContext(ctx); c != nil {
+			c.Record("prepare", req.Method, uncertain.Source{}, nil, err.Error())
+		}
 		decision := rpc.Decision{Reference: capture.Reference()}
 		a.recordDecision(started, req.Method, policy, decision, err, nil)
 		return decision, err
@@ -142,6 +149,64 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	} else {
 		emissions, collectErr = a.pool.Collect(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout, Sources: members})
 	}
+	// Preserve every primary response before admission is allowed to clear a
+	// malformed value. This is the raw per-source record used by Uncertain;
+	// admission and resolver outcomes are recorded as separate stages below.
+	if c := uncertain.FromContext(ctx); c != nil {
+		for _, emission := range emissions {
+			source := uncertain.Source{}
+			if emission.Src != nil {
+				source = uncertain.Source{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()}
+			}
+			errText := ""
+			if emission.Err != nil {
+				errText = emission.Err.Error()
+			}
+			c.Record("response", prepared.Method, source, emission.Val, errText)
+		}
+		if collectErr != nil {
+			c.Record("collect", prepared.Method, uncertain.Source{}, nil, collectErr.Error())
+		}
+	}
+	// Admission runs before normalization and clustering. A malformed body
+	// cannot win a cluster, and dependent content is always fetched from the
+	// source that supplied the primary response.
+	if admission, ok := policy.(rpc.AdmissionPolicy); ok {
+		var wg sync.WaitGroup
+		for i := range emissions {
+			if emissions[i].Err != nil || emissions[i].Val == nil {
+				continue
+			}
+			i := i
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				evidence, admissionErr := admission.Admit(ctx, prepared, emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
+					raw, callErr := a.pool.CallSource(callCtx, emissions[i].Src, method, params)
+					if c := uncertain.FromContext(ctx); c != nil {
+						source := uncertain.Source{Name: emissions[i].Src.Name(), URL: emissions[i].Src.URL(), ID: emissions[i].Src.ID()}
+						errText := ""
+						if callErr != nil {
+							errText = callErr.Error()
+						}
+						c.Record("dependency", method, source, raw, errText)
+					}
+					return raw, callErr
+				})
+				if admissionErr != nil {
+					if c := uncertain.FromContext(ctx); c != nil {
+						source := uncertain.Source{Name: emissions[i].Src.Name(), URL: emissions[i].Src.URL(), ID: emissions[i].Src.ID()}
+						c.Record("admission", prepared.Method, source, nil, admissionErr.Error())
+					}
+					emissions[i].Err = fmt.Errorf("admission: %w", admissionErr)
+					emissions[i].Val = nil
+					return
+				}
+				emissions[i].Evidence = evidence
+			}()
+		}
+		wg.Wait()
+	}
 	observations := make([]rpc.Observation, len(emissions))
 	participants := make([]rpc.SourceRef, 0, len(emissions))
 	for i, emission := range emissions {
@@ -150,6 +215,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 			Value:    emission.Val,
 			Err:      emission.Err,
 			RPCError: observationRPCError(emission.Err),
+			Evidence: emission.Evidence,
 		}
 		participants = append(participants, observations[i].Source)
 	}
@@ -157,6 +223,17 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		decision := rpc.Decision{Faults: collectionFaults(policy, collectErr, emissions), Reference: capture.Reference(), Participants: participants}
 		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions)
 		return decision, collectErr
+	}
+	// Admission runs before clustering, so when every delivered response is
+	// malformed there is no usable cluster from which Strict could preserve
+	// the more specific malformed-response class. Keep that class visible to
+	// typed callers instead of replacing it with ErrNoValidResponse.
+	if collectErr == nil && !hasUsableEmission(emissions) && hasMalformedAdmission(emissions) {
+		admissionErr := firstMalformedAdmission(emissions)
+		decision := rpc.Decision{Faults: sourceFaults(policy, emissions), Reference: capture.Reference(), Participants: participants}
+		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
+		a.recordDecision(started, req.Method, policy, decision, err, emissions)
+		return decision, err
 	}
 	decision, resolveErr := resolve(policy, snap, snapOK, observations)
 	if resolveErr == nil && snapOK && snap.Mode == rpc.CorroborationForwarded {
@@ -176,6 +253,24 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	decision.Faults = append(decision.Faults, sourceFaults(policy, emissions)...)
 	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions)
 	return decision, resolveErr
+}
+
+func hasMalformedAdmission(emissions []pool.Emission) bool {
+	for _, emission := range emissions {
+		if errors.Is(emission.Err, rpc.ErrMalformedResponse) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstMalformedAdmission(emissions []pool.Emission) error {
+	for _, emission := range emissions {
+		if errors.Is(emission.Err, rpc.ErrMalformedResponse) {
+			return emission.Err
+		}
+	}
+	return rpc.ErrMalformedResponse
 }
 
 // recordDecision folds one completed aggregation into exactly one

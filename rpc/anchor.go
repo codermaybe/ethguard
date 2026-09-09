@@ -26,13 +26,24 @@ var movingTags = map[string]bool{
 	"finalized": true,
 }
 
+type anchorTagContextKey struct{}
+
+func WithAnchorTag(ctx context.Context, tag string) context.Context {
+	return context.WithValue(ctx, anchorTagContextKey{}, tag)
+}
+func AnchorTag(ctx context.Context) string {
+	tag, _ := ctx.Value(anchorTagContextKey{}).(string)
+	return tag
+}
+
 // WithAnchor decorates any policy with moving-tag rewriting at one or more
 // parameter positions. The underlying policy still owns normalization and
 // resolution; this decorator only prepares an immutable request for fan-out.
 //
 // The anchor is resolved at most once per request, even when several positions
-// contain moving tags. Explicit numbers and hashes pass through untouched, as
-// does pending: rewriting pending would silently change its meaning.
+// contain the same moving tag. The tag is carried through context to a
+// tag-aware resolver; mixed moving tags are rejected rather than interchanged.
+// Explicit numbers and hashes pass through untouched, as does pending.
 func WithAnchor(anchor AnchorFunc, positions ...int) func(Policy) Policy {
 	return func(policy Policy) Policy {
 		if policy == nil {
@@ -50,6 +61,13 @@ type anchoredPolicy struct {
 	policy    Policy
 	anchor    AnchorFunc
 	positions []int
+}
+
+func (a anchoredPolicy) Admit(ctx context.Context, req Request, value json.RawMessage, call AdmissionCaller) (json.RawMessage, error) {
+	if p, ok := a.policy.(AdmissionPolicy); ok {
+		return p.Admit(ctx, req, value, call)
+	}
+	return nil, nil
 }
 
 func (a anchoredPolicy) Prepare(ctx context.Context, req Request) (Request, error) {
@@ -70,7 +88,23 @@ func (a anchoredPolicy) Prepare(ctx context.Context, req Request) (Request, erro
 	if a.anchor == nil {
 		return Request{}, fmt.Errorf("anchor: missing anchor function")
 	}
-	hash, err := a.anchor(ctx)
+	anchorCtx := ctx
+	anchorTag := ""
+	for _, pos := range a.positions {
+		if pos >= 0 && pos < len(req.Params) {
+			if tag, ok := req.Params[pos].(string); ok && movingTags[strings.ToLower(tag)] {
+				tag = strings.ToLower(tag)
+				if anchorTag != "" && anchorTag != tag {
+					return Request{}, fmt.Errorf("rpc: %s mixes moving tags %q and %q: %w", req.Method, anchorTag, tag, ErrInvalidRequest)
+				}
+				anchorTag = tag
+			}
+		}
+	}
+	if anchorTag != "" {
+		anchorCtx = WithAnchorTag(ctx, anchorTag)
+	}
+	hash, err := a.anchor(anchorCtx)
 	if err != nil {
 		return Request{}, fmt.Errorf("anchor: %w", err)
 	}
@@ -171,6 +205,13 @@ type pendingRejectingPolicy struct {
 	positions []int
 }
 
+func (p pendingRejectingPolicy) Admit(ctx context.Context, req Request, value json.RawMessage, call AdmissionCaller) (json.RawMessage, error) {
+	if inner, ok := p.policy.(AdmissionPolicy); ok {
+		return inner.Admit(ctx, req, value, call)
+	}
+	return nil, nil
+}
+
 func (p pendingRejectingPolicy) Prepare(ctx context.Context, req Request) (Request, error) {
 	for _, pos := range p.positions {
 		if pos < 0 || pos >= len(req.Params) {
@@ -245,6 +286,13 @@ type anchoredHeightPolicy struct {
 	positions []int
 }
 
+func (a anchoredHeightPolicy) Admit(ctx context.Context, req Request, value json.RawMessage, call AdmissionCaller) (json.RawMessage, error) {
+	if p, ok := a.policy.(AdmissionPolicy); ok {
+		return p.Admit(ctx, req, value, call)
+	}
+	return nil, nil
+}
+
 func (a anchoredHeightPolicy) Prepare(ctx context.Context, req Request) (Request, error) {
 	var rewrite bool
 	for _, pos := range a.positions {
@@ -263,7 +311,23 @@ func (a anchoredHeightPolicy) Prepare(ctx context.Context, req Request) (Request
 	if a.height == nil {
 		return Request{}, fmt.Errorf("anchor: missing height function")
 	}
-	height, err := a.height(ctx)
+	anchorCtx := ctx
+	anchorTag := ""
+	for _, pos := range a.positions {
+		if pos >= 0 && pos < len(req.Params) {
+			if tag, ok := req.Params[pos].(string); ok && movingTags[strings.ToLower(tag)] {
+				tag = strings.ToLower(tag)
+				if anchorTag != "" && anchorTag != tag {
+					return Request{}, fmt.Errorf("rpc: %s mixes moving tags %q and %q: %w", req.Method, anchorTag, tag, ErrInvalidRequest)
+				}
+				anchorTag = tag
+			}
+		}
+	}
+	if anchorTag != "" {
+		anchorCtx = WithAnchorTag(ctx, anchorTag)
+	}
+	height, err := a.height(anchorCtx)
 	if err != nil {
 		return Request{}, fmt.Errorf("anchor: %w", err)
 	}
@@ -375,6 +439,13 @@ type anchoredFieldsPolicy struct {
 	fields   []string
 }
 
+func (a anchoredFieldsPolicy) Admit(ctx context.Context, req Request, value json.RawMessage, call AdmissionCaller) (json.RawMessage, error) {
+	if p, ok := a.policy.(AdmissionPolicy); ok {
+		return p.Admit(ctx, req, value, call)
+	}
+	return nil, nil
+}
+
 func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request, error) {
 	if a.paramPos < 0 || a.paramPos >= len(req.Params) {
 		return a.policy.Prepare(ctx, req)
@@ -397,6 +468,7 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 		return a.policy.Prepare(ctx, req) // explicit pin without range fields: complete, untouched
 	}
 	var rewrite bool
+	anchorTag := ""
 	for _, field := range a.fields {
 		value, present := obj[field]
 		if !present {
@@ -405,7 +477,11 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 		}
 		if tag, isStr := value.(string); isStr && movingTags[strings.ToLower(tag)] {
 			rewrite = true
-			break
+			tag = strings.ToLower(tag)
+			if anchorTag != "" && anchorTag != tag {
+				return Request{}, fmt.Errorf("rpc: %s mixes moving tags %q and %q: %w", req.Method, anchorTag, tag, ErrInvalidRequest)
+			}
+			anchorTag = tag
 		}
 	}
 	if !rewrite {
@@ -414,7 +490,11 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 	if a.resolve == nil {
 		return Request{}, fmt.Errorf("anchor: missing anchor function")
 	}
-	ref, err := a.resolve(ctx)
+	anchorCtx := ctx
+	if anchorTag != "" {
+		anchorCtx = WithAnchorTag(ctx, anchorTag)
+	}
+	ref, err := a.resolve(anchorCtx)
 	if err != nil {
 		return Request{}, fmt.Errorf("anchor: %w", err)
 	}

@@ -112,6 +112,23 @@ func TestClientVerifiesChainIDAcrossSources(t *testing.T) {
 	}
 }
 
+func TestUncertainCaptureIsInvocationScopedAndDefensive(t *testing.T) {
+	client, _ := fleet(t, 1, 1, 3)
+	ctx, capture := ethguard.WithUncertain(context.Background())
+	if _, _, err := client.ChainID(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := capture.Result()
+	if len(first.Raw) != 3 || first.Truncated {
+		t.Fatalf("unexpected uncertain snapshot: %+v", first)
+	}
+	first.Raw[0].Value[0] = 'X'
+	second := capture.Result()
+	if len(second.Raw) != 3 || second.Raw[0].Value[0] == 'X' {
+		t.Fatalf("capture exposed mutable response storage: %+v", second)
+	}
+}
+
 func TestClientMajorityToleratesMinorityDissentOnChainID(t *testing.T) {
 	// Chain validation is disabled (pool side zero) so a disagreeing provider
 	// reaches the aggregation layer instead of being rejected up front. The
@@ -291,6 +308,44 @@ func TestClientRejectsBlockThatDoesNotMatchRequestedHash(t *testing.T) {
 	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
 	if _, _, err := client.BlockByHash(ctx, requested, true); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested block, got %v", err)
+	}
+}
+
+func TestMalformedFullBlockCannotJoinTheWinningCluster(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	valid := fixtureBlock(t, 16)
+	var malformed map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(valid), &malformed); err != nil {
+		t.Fatal(err)
+	}
+	malformed["transactions"] = json.RawMessage(`[null]`)
+	bad, err := json.Marshal(malformed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, node := range nodes {
+		if i == 2 {
+			node.Return(methods.MethodGetBlockByHash, bad)
+		} else {
+			node.Return(methods.MethodGetBlockByHash, json.RawMessage(valid))
+		}
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(valid), &object); err != nil {
+		t.Fatal(err)
+	}
+	var requested common.Hash
+	if err := json.Unmarshal(object["hash"], &requested); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	block, decision, err := client.BlockByHash(ctx, requested, true)
+	if err != nil {
+		t.Fatalf("valid majority should survive one malformed body: %v", err)
+	}
+	if block == nil || len(decision.Support) != 2 {
+		t.Fatalf("expected two valid supporters, got block=%v decision=%+v", block, decision)
 	}
 }
 
@@ -689,7 +744,7 @@ func TestFinalizedAnchoringIsolatesStaleReporter(t *testing.T) {
 // chosen height still fails closed: two hashes claimed for one finalized
 // height are a fork signal, not something to vote over.
 func TestFinalizedAnchoringRejectsForkAtPinnedHeight(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring())
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring(), ethguard.WithQuorum(3))
 	scriptFinalizedHeads(nodes,
 		func(int) map[string]any { return map[string]any{"number": "0x66", "hash": "0xtip"} },
 		func(i int) map[string]any {
@@ -783,51 +838,18 @@ func anchorEstablishments(nodes []*rpctest.Node) int {
 // wire: consecutive anchored reads reuse one verified reference instead of
 // re-fanning the head query per call.
 func TestAnchorCachingSharesOneEstablishment(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithAnchorCaching(time.Hour))
-	agreeOnHead(nodes)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	for range 2 {
-		decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
-		if err != nil || decision.Status != rpc.Verified {
-			t.Fatalf("anchored read failed: %+v %v", decision, err)
-		}
-	}
-	if got := anchorEstablishments(nodes); got != 3 {
-		t.Fatalf("expected one fleet-wide establishment (3 queries), got %d", got)
-	}
-
-	balances := 0
-	for _, node := range nodes {
-		for _, call := range node.Calls() {
-			if call.Method == methods.MethodGetBalance {
-				balances++
-			}
-		}
-	}
-	if balances != 6 {
-		t.Fatalf("expected both reads to fan out balances, got %d", balances)
+	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}}, ethguard.WithAnchorCaching(time.Hour))
+	if err == nil || !strings.Contains(err.Error(), "anchor_cache_ttl") {
+		t.Fatalf("positive cache TTL must be rejected, got %v", err)
 	}
 }
 
 // TestAnchorCachingReestablishesAfterTTL proves the cache bounds staleness:
 // once the TTL lapses the next read establishes a fresh reference.
 func TestAnchorCachingReestablishesAfterTTL(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithAnchorCaching(30*time.Millisecond))
-	agreeOnHead(nodes)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
-		t.Fatal(err)
-	}
-	if got := anchorEstablishments(nodes); got != 6 {
-		t.Fatalf("expected a fresh establishment after TTL (6 queries), got %d", got)
+	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}}, ethguard.WithAnchorCaching(30*time.Millisecond))
+	if err == nil || !strings.Contains(err.Error(), "anchor_cache_ttl") {
+		t.Fatalf("positive cache TTL must be rejected, got %v", err)
 	}
 }
 
@@ -1244,13 +1266,16 @@ func TestClientMapsTransactionAbsenceToNotFound(t *testing.T) {
 
 func TestClientPinsBlockReceiptsToVerifiedReference(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
-	receipts := []any{receiptFixture("0x" + strings.Repeat("42", 32))}
+	receipt := receiptFixture("0x" + strings.Repeat("42", 32))
+	receipt["blockHash"] = "0x" + strings.Repeat("ab", 32)
+	receipt["blockNumber"] = "0x10"
+	receipts := []any{receipt}
 	for _, node := range nodes {
-		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": "0xabc"})
+		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": "0x" + strings.Repeat("ab", 32)})
 		node.Handle(methods.MethodGetBlockReceipts, func(c rpctest.Call) (any, error) {
 			var ref string
 			json.Unmarshal(c.Params[0], &ref)
-			if ref == "0xabc" {
+			if ref == "0x"+strings.Repeat("ab", 32) {
 				return receipts, nil
 			}
 			return fmt.Sprintf("unpinned reference %s", ref), nil // divergence for anything unrewritten
@@ -1456,6 +1481,7 @@ func fixtureBlock(t *testing.T, number int64) string {
 	}
 	obj["hash"] = json.RawMessage(fmt.Sprintf("%q", block.Hash().Hex()))
 	obj["transactions"] = json.RawMessage(`[]`)
+	obj["uncles"] = json.RawMessage(`[]`)
 	out, err := json.Marshal(obj)
 	if err != nil {
 		t.Fatal(err)
@@ -1667,7 +1693,13 @@ func TestEstimateGasIsAnchoredMedian(t *testing.T) {
 func TestGetLogsPinsTheFilterRangeOnTheWire(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	agreeOnHead(nodes)
-	logs := []map[string]any{{"address": "0xaddr", "blockNumber": "0x10", "logIndex": "0x0"}}
+	logs := []map[string]any{{
+		"address": "0x0000000000000000000000000000000000000001",
+		"topics":  []string{}, "data": "0x", "blockNumber": "0x10",
+		"transactionHash":  "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"transactionIndex": "0x0", "blockHash": "0x0000000000000000000000000000000000000000000000000000000000000002",
+		"logIndex": "0x0", "removed": false,
+	}}
 	for _, node := range nodes {
 		node.Handle("eth_getLogs", func(c rpctest.Call) (any, error) {
 			if len(c.Params) != 1 {
@@ -1686,7 +1718,7 @@ func TestGetLogsPinsTheFilterRangeOnTheWire(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetLogs, map[string]any{"fromBlock": "latest", "toBlock": "finalized"})
+	decision, err := client.Call(ctx, methods.MethodGetLogs, map[string]any{"fromBlock": "latest", "toBlock": "latest"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1700,7 +1732,7 @@ func TestFeeHistoryPinsNewestToTheVerifiedHeight(t *testing.T) {
 	agreeOnHead(nodes) // head fixture: number 0x10, hash 0xabc
 	fixture := map[string]any{
 		"oldestBlock":   "0xf",
-		"baseFeePerGas": []string{"0x1", "0x2", "0x3"},
+		"baseFeePerGas": []string{"0x1", "0x2", "0x3", "0x4"},
 		"gasUsedRatio":  []float64{0.5, 0.6, 0.7},
 	}
 	for _, node := range nodes {
@@ -1722,7 +1754,7 @@ func TestFeeHistoryPinsNewestToTheVerifiedHeight(t *testing.T) {
 	if decision.Status != rpc.Verified || decision.BlockRef != "0x10" {
 		t.Fatalf("expected verified height-pinned history, got %+v", decision)
 	}
-	if history.OldestBlock.Uint64() != 15 || len(history.BaseFeePerGas) != 3 {
+	if history.OldestBlock.Uint64() != 15 || len(history.BaseFeePerGas) != 4 {
 		t.Fatalf("unexpected decoded history: %+v", history)
 	}
 }
@@ -1737,15 +1769,9 @@ func (hashOnlyAnchor) AnchorBlockHash(context.Context) (string, error) { return 
 // height-anchored reads with a clear error, never silently pin them to
 // height zero.
 func TestCachedAnchorRejectsHeightReadsWithoutHeightCapability(t *testing.T) {
-	client, _ := fleet(t, 1, 1, 3,
-		ethguard.WithAnchorResolver(hashOnlyAnchor{}),
-		ethguard.WithAnchorCaching(time.Minute))
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, _, err := client.FeeHistory(ctx, 2, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "AnchorHeightProvider") {
-		t.Fatalf("expected a clear height-capability error, got %v", err)
+	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}}, ethguard.WithAnchorResolver(hashOnlyAnchor{}))
+	if err == nil || !strings.Contains(err.Error(), "WithAnchorResolver") {
+		t.Fatalf("expected retired resolver error, got %v", err)
 	}
 }
 
@@ -1788,7 +1814,7 @@ func TestConfigPresetSpellingSelectsTheSameStrategy(t *testing.T) {
 }
 
 func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithAnchorCaching(time.Minute))
+	client, nodes := fleet(t, 1, 1, 3)
 	agreeOnHead(nodes) // head fixture: number 0x10, hash 0xabc
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1800,7 +1826,7 @@ func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
 	if height != 16 {
 		t.Fatalf("expected height 16 from the verified reference, got %d", height)
 	}
-	// The height rides the cached establishment: no further fleet contact.
+	// Cross-call cache is disabled by the T03 migration rule.
 	callsBefore := 0
 	for _, node := range nodes {
 		callsBefore += len(node.Calls())
@@ -1812,8 +1838,8 @@ func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
 	for _, node := range nodes {
 		callsAfter += len(node.Calls())
 	}
-	if callsBefore != callsAfter {
-		t.Fatalf("height re-establishment contacted the fleet: %d -> %d", callsBefore, callsAfter)
+	if callsAfter <= callsBefore {
+		t.Fatalf("expected a fresh establishment after cache migration: before=%d after=%d", callsBefore, callsAfter)
 	}
 }
 

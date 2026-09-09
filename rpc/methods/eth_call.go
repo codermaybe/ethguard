@@ -42,11 +42,13 @@ func normalizeCallOutcome(value json.RawMessage) (string, error) {
 	var envelope struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
+		Data    string `json:"data"`
 	}
 	if err := json.Unmarshal(value, &envelope); err != nil || (envelope.Code == 0 && envelope.Message == "") {
 		return "", fmt.Errorf("call outcome: unrecognized payload")
 	}
-	if isRevertObservation(envelope.Code, envelope.Message) {
+	if isRevertObservation(envelope.Code, envelope.Message) ||
+		(envelope.Code == -32000 && envelope.Message == "" && strings.HasPrefix(envelope.Data, "0x")) {
 		return "reverted", nil
 	}
 	return "", fmt.Errorf("call outcome: protocol error %d is not an execution observation", envelope.Code)

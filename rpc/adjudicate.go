@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 )
@@ -71,6 +72,7 @@ func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Deci
 	decision.Faults = faults
 	winner := ranked[0]
 	decision.Value = winner.value
+	decision.Evidence = append(json.RawMessage(nil), winner.evidence...)
 	decision.Support = winner.sources
 	for _, cl := range ranked[1:] {
 		decision.Reject = append(decision.Reject, cl.sources...)

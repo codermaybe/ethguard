@@ -29,6 +29,9 @@ type Emission struct {
 	// False means the fan-out expired while this source waited for a slot;
 	// such an emission carries no observation and must not count as one.
 	Attempted bool
+	// Evidence is populated by an admission stage after collection. It stays
+	// attached to this source and is never combined across sources.
+	Evidence json.RawMessage
 }
 
 // CollectOptions configures one fan-out. Zero value is a sensible default.
@@ -206,10 +209,18 @@ func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src 
 		select {
 		case sem <- struct{}{}:
 			if err = callCtx.Err(); err == nil {
-				attempted = true
-				start := time.Now()
-				val, err = collectOne(callCtx, src, method, params)
-				rtt = time.Since(start)
+				var release func()
+				release, err = src.acquireRequest(callCtx)
+				if err != nil && parent.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+					err = ErrSourceGated
+				}
+				if err == nil {
+					attempted = true
+					start := time.Now()
+					val, err = collectOne(callCtx, src, method, params)
+					rtt = time.Since(start)
+					release()
+				}
 			}
 			<-sem
 		case <-callCtx.Done():
@@ -337,9 +348,23 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 		if err := callCtx.Err(); err != nil {
 			return emissions, err
 		}
+		release, waitErr := src.acquireRequest(callCtx)
+		if waitErr != nil {
+			if ctx.Err() == nil && errors.Is(waitErr, context.DeadlineExceeded) {
+				waitErr = ErrSourceGated
+			}
+			emissions = append(emissions, Emission{Src: src, Err: waitErr})
+			// A local scheduling gate is not an upstream transport failure;
+			// Forward must not turn it into an implicit source failover.
+			if errors.Is(waitErr, ErrSourceGated) {
+				return emissions, waitErr
+			}
+			continue
+		}
 		start := time.Now()
 		val, callErr := collectOne(callCtx, src, method, params)
 		rtt := time.Since(start)
+		release()
 		emission := Emission{Src: src, Val: val, Err: callErr, RTT: rtt, Attempted: true}
 		if isHealthyRPCResponse(callErr) {
 			src.recordSuccessfulCall(rtt)
@@ -356,6 +381,24 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 		}
 	}
 	return emissions, ErrAllSourcesDown
+}
+
+// CallSource performs one dependent request against the captured source. It
+// is used by admission policies for same-source content (such as uncle
+// headers) and deliberately does not alter the voting membership.
+func (p *Pool) CallSource(ctx context.Context, src *Source, method string, params []any) (json.RawMessage, error) {
+	if src == nil {
+		return nil, ErrNoEligibleSource
+	}
+	// Admission dependencies are part of validating one primary response;
+	// malformed or unavailable optional content must not alter source health,
+	// but they still consume the source's shared scheduling budget.
+	release, err := src.acquireRequest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return collectOne(ctx, src, method, params)
 }
 
 func shouldRecordFailure(parent context.Context, err error) bool {

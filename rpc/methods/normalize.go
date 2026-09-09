@@ -51,6 +51,35 @@ func normalizeHexData(value json.RawMessage) (string, error) {
 	if len(data) < 2 || data[:2] != "0x" {
 		return "", fmt.Errorf("hex data: invalid data %q", data)
 	}
+	// JSON-RPC DATA values are byte strings.  Requiring an even number of
+	// hexadecimal digits keeps malformed provider responses out of a voting
+	// cluster; hexutil.Bytes applies the same wire contract at the typed
+	// adapter boundary.  The empty byte string (0x) remains valid for code
+	// reads from EOAs and for successful eth_call results.
+	if len(data[2:])%2 != 0 {
+		return "", fmt.Errorf("hex data: odd number of digits in %q", data)
+	}
+	if _, err := hex.DecodeString(data[2:]); err != nil {
+		return "", fmt.Errorf("hex data: invalid data %q: %w", data, err)
+	}
+	return strings.ToLower(data), nil
+}
+
+// normalizeStorageWord applies the stricter result shape of
+// eth_getStorageAt.  A storage slot is always exactly one 32-byte word;
+// unlike arbitrary DATA (bytecode, eth_call return data), short or long
+// strings are malformed responses rather than alternate encodings.
+func normalizeStorageWord(value json.RawMessage) (string, error) {
+	var data string
+	if err := json.Unmarshal(value, &data); err != nil {
+		return "", fmt.Errorf("storage word: expected string: %w", err)
+	}
+	if len(data) != 66 || data[:2] != "0x" {
+		return "", fmt.Errorf("storage word: expected 32-byte 0x-prefixed data, got %q", data)
+	}
+	if _, err := hex.DecodeString(data[2:]); err != nil {
+		return "", fmt.Errorf("storage word: invalid data %q: %w", data, err)
+	}
 	return strings.ToLower(data), nil
 }
 

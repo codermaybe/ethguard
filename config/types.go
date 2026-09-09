@@ -12,8 +12,8 @@ type Config struct {
 	// Anchoring selects the moving-tag reference strategy. An omitted section
 	// means strict anchoring with the default finalized lag.
 	Anchoring *AnchoringConfig `yaml:"anchoring,omitempty" json:"anchoring,omitempty"`
-	// AnchorCacheTTL enables reuse of an established anchor for this duration.
-	// An empty value disables caching.
+	// AnchorCacheTTL is a retired migration setting. Empty disables it; any
+	// configured duration is rejected by ethguard.New under decision 0037.
 	AnchorCacheTTL string `yaml:"anchor_cache_ttl,omitempty" json:"anchor_cache_ttl,omitempty"`
 	// TipTracking enables freshness-based source eligibility when present.
 	TipTracking *TipTrackingConfig `yaml:"tip_tracking,omitempty" json:"tip_tracking,omitempty"`

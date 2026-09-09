@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ethguard/internal/hexqty"
+	"ethguard/internal/refcontext"
 	"ethguard/observe"
 	"ethguard/pool"
 	"ethguard/rpc"
@@ -27,7 +28,7 @@ type view struct {
 // Finalized observes once and, if necessary, confirms one common height once.
 // Membership and the required support are fixed before confirmation. It never
 // retries successively older candidates or relaxes the caller's quorum.
-func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, timeout time.Duration, rec observe.Recorder) (ref rpc.ReferenceEvidence, resultErr error) {
+func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mode rpc.CorroborationMode, timeout time.Duration, rec observe.Recorder) (ref rpc.ReferenceEvidence, resultErr error) {
 	started := time.Now()
 	ref.Origin, ref.ObservedAt, ref.Status = "reported-finalized", started, rpc.Selected
 	var attempts []observe.SourceEvent
@@ -41,7 +42,11 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, tim
 		}
 		rec.RecordDecision(observe.DecisionEvent{Method: "anchor", Status: status, Conflict: errors.Is(resultErr, rpc.ErrConflict), Faults: len(ref.Faults), Duration: time.Since(started), Attempts: attempts})
 	}()
-	emissions, collectErr := p.Collect(ctx, methods.MethodGetBlockByNumber, []any{"finalized", false}, pool.CollectOptions{Timeout: timeout})
+	firstOpts := pool.CollectOptions{Timeout: timeout}
+	if value, ok := refcontext.Members(ctx); ok {
+		firstOpts.Sources, _ = value.([]*pool.Source)
+	}
+	emissions, collectErr := p.Collect(ctx, methods.MethodGetBlockByNumber, []any{"finalized", false}, firstOpts)
 	if collectErr != nil {
 		ref.Faults = append(ref.Faults, fmt.Errorf("collect: %w", collectErr))
 	}
@@ -131,12 +136,28 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, tim
 	if quorum > 0 {
 		opts = append(opts, rpc.WithQuorum(quorum))
 	}
+	if mode == rpc.CorroborationUnanimity {
+		opts = append(opts, rpc.WithUnanimity())
+	}
 	policy := rpc.Strict(methods.BlockByNumberPolicy().Normalize, opts...)
 	initial, initialErr := policy.Resolve(observations)
 	// Reuse an already corroborated candidate; no redundant header fan-out.
 	if initialErr != nil || len(initial.Support) < required {
 		if len(missing) > 0 {
-			confirmations, err := p.Collect(ctx, methods.MethodGetBlockByNumber, []any{fmt.Sprintf("0x%x", candidate), false}, pool.CollectOptions{Timeout: timeout, SourceIDs: missing})
+			confirmOpts := pool.CollectOptions{Timeout: timeout, SourceIDs: missing}
+			if firstOpts.Sources != nil {
+				byID := make(map[string]*pool.Source, len(firstOpts.Sources))
+				for _, source := range firstOpts.Sources {
+					byID[source.ID()] = source
+				}
+				confirmOpts.SourceIDs = nil
+				for _, id := range missing {
+					if source := byID[id]; source != nil {
+						confirmOpts.Sources = append(confirmOpts.Sources, source)
+					}
+				}
+			}
+			confirmations, err := p.Collect(ctx, methods.MethodGetBlockByNumber, []any{fmt.Sprintf("0x%x", candidate), false}, confirmOpts)
 			if err != nil {
 				ref.Faults = append(ref.Faults, fmt.Errorf("confirm: %w", err))
 			}

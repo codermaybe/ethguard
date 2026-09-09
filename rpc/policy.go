@@ -14,6 +14,20 @@ type Policy interface {
 	Resolve([]Observation) (Decision, error)
 }
 
+// AdmissionCaller performs a dependent request against the same upstream
+// source that produced the primary response.  Method policies use it for
+// content that the primary JSON-RPC result references by commitment (for
+// example uncle headers referenced by an execution block).
+type AdmissionCaller func(context.Context, string, []any) (json.RawMessage, error)
+
+// AdmissionPolicy validates a response before it is allowed into a voting
+// cluster.  The returned evidence is attached to the winning Decision and is
+// available to typed decoders; it is deliberately opaque to the rpc package.
+// An admission error is a malformed source answer, not a transport failure.
+type AdmissionPolicy interface {
+	Admit(context.Context, Request, json.RawMessage, AdmissionCaller) (json.RawMessage, error)
+}
+
 // CorroboratingPolicy is the optional capability of a policy whose resolution
 // is adjudicated against an invocation's fixed voting basis: the aggregator
 // supplies the corroboration mode and support floor captured before any

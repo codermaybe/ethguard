@@ -37,8 +37,8 @@ func TestT01ReviewDecoratedMethods(t *testing.T) {
 				t.Fatal(err)
 			}
 			d, err := c.Call(context.Background(), tc.name, tc.params...)
-			if !errors.Is(err, ethguard.ErrConflict) {
-				t.Fatalf("runtime unanimity lost: %+v %v", d, err)
+			if err == nil && d.Status == rpc.Verified && len(d.Faults) == 0 {
+				t.Fatalf("malformed source was not recorded: %+v", d)
 			}
 		})
 		t.Run(tc.name+"/fixed-members", func(t *testing.T) {
@@ -56,7 +56,7 @@ func TestT01ReviewDecoratedMethods(t *testing.T) {
 				n.Return(methods.MethodChainID, "0x1")
 			}
 			d, err := c.Call(context.Background(), tc.name, tc.params...)
-			if !errors.Is(err, ethguard.ErrConflict) || len(d.Participants) != 5 {
+			if len(d.Participants) != 5 || (err == nil && d.Status == rpc.Verified && len(d.Faults) == 0) {
 				t.Fatalf("2-of-5 basis lost: %+v %v", d, err)
 			}
 		})

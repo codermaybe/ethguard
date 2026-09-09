@@ -72,6 +72,7 @@ func fixtureBlock(t *testing.T, number int64) json.RawMessage {
 	}
 	obj["hash"] = json.RawMessage(fmt.Sprintf("%q", block.Hash().Hex()))
 	obj["transactions"] = json.RawMessage(`[]`)
+	obj["uncles"] = json.RawMessage(`[]`)
 	out, err := json.Marshal(obj)
 	if err != nil {
 		t.Fatal(err)

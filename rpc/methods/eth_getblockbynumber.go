@@ -18,7 +18,7 @@ const MethodGetBlockByNumber = "eth_getBlockByNumber"
 // block head: number and hash must match across sources, hexadecimal casing
 // and key order aside. It also serves as the anchor policy for pinned reads.
 func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Strict(normalizeBlockHead, opts...)
+	return blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, opts...), byHash: false}
 }
 
 // normalizeBlockHead reduces a block object to its comparable identity:
@@ -27,7 +27,10 @@ func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
 // The height is a uint64-shaped quantity, so the shared wire-quantity
 // primitive owns the spelling contract; the required-field checks here are
 // this method's wire semantics.
-func normalizeBlockHead(value json.RawMessage) (string, error) {
+func normalizeBlockIdentity(value json.RawMessage) (string, error) {
+	if string(value) == "null" {
+		return "null", nil
+	}
 	var head struct {
 		Number string `json:"number"`
 		Hash   string `json:"hash"`

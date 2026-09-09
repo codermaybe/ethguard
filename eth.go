@@ -50,7 +50,12 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool)
 	if err != nil {
 		return nil, decision, err
 	}
-	block, err := DecodeBlock(decision.Value)
+	var block *types.Block
+	if fullTx {
+		block, err = DecodeBlockWithEvidence(decision.Value, decision.Evidence)
+	} else {
+		block, err = DecodeBlockHeaderOnly(decision.Value)
+	}
 	if err != nil {
 		return nil, decision, err
 	}
@@ -265,7 +270,7 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	block, err := DecodeBlock(decision.Value)
+	block, err := DecodeBlockWithEvidence(decision.Value, decision.Evidence)
 	if err != nil {
 		return 0, err
 	}

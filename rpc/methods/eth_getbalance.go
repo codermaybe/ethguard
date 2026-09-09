@@ -12,7 +12,9 @@ const MethodGetBalance = "eth_getBalance"
 // noise. The policy rewrites latest/safe/finalized to a verified block hash
 // before fan-out, so all sources answer for identical state. The anchor is
 // injected by the composition root; strict options pass through so client
-// level quorum tuning reaches anchored state reads too.
+// level quorum tuning reaches anchored state reads too. Explicit block
+// numbers, hashes, and pending pass through unchanged; pending is supported
+// as an explicit provider state request rather than a moving tag.
 func GetBalancePolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
 	return rpc.Anchored(1, normalizeHexQuantity, anchor, opts...)
 }

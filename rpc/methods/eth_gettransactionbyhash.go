@@ -15,5 +15,5 @@ const MethodGetTransactionByHash = "eth_getTransactionByHash"
 // is an ordinary answer: verified absence maps to ethereum.NotFound at the
 // typed boundary, and a fleet split between null and an object is conflict.
 func TransactionByHashPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Strict(normalizeCanonicalObject, opts...)
+	return admissionPolicy{Policy: rpc.Strict(normalizeTransactionObject, opts...), admit: admitTransaction}
 }

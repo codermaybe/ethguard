@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"ethguard"
+	"ethguard/config"
 	"ethguard/rpc"
 	"ethguard/rpc/methods"
 	"ethguard/rpctest"
@@ -41,7 +42,7 @@ func TestCommonReferenceConfirmsDifferentHeightsAndCachesEvidence(t *testing.T) 
 	for _, quorum := range []int{0, 2} {
 		t.Run(fmt.Sprint(quorum), func(t *testing.T) {
 			events := make(decisionEvents, 8)
-			opts := []ethguard.Option{ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(16)), ethguard.WithAnchorCaching(time.Minute), ethguard.WithRecorder(events)}
+			opts := []ethguard.Option{ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(16)), ethguard.WithRecorder(events)}
 			if quorum > 0 {
 				opts = append(opts, ethguard.WithQuorum(quorum))
 			}
@@ -51,10 +52,7 @@ func TestCommonReferenceConfirmsDifferentHeightsAndCachesEvidence(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantHeight, wantSupport, wantCalls := uint64(84), 3, 5
-			if quorum > 0 {
-				wantHeight, wantSupport, wantCalls = 100, 2, 3
-			}
+			wantHeight, wantSupport, wantCalls := uint64(100), 2, 3
 			ref := decision.Reference
 			if ref == nil || ref.Height != wantHeight || ref.Status != rpc.Verified || len(ref.Support) != wantSupport || len(ref.Participants) != 3 {
 				t.Fatalf("unexpected reference: %+v", ref)
@@ -95,8 +93,8 @@ func TestCommonReferenceConfirmsDifferentHeightsAndCachesEvidence(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if again.Reference.Support[0].Name == "caller mutation" || !again.Reference.ObservedAt.Equal(observed) || anchorEstablishments(nodes) != wantCalls {
-				t.Fatalf("cache lost or exposed evidence: %+v", again.Reference)
+			if again.Reference.Support[0].Name == "caller mutation" || again.Reference.ObservedAt.Equal(observed) || anchorEstablishments(nodes) <= wantCalls {
+				t.Fatalf("cross-call cache was retained or evidence was exposed: %+v", again.Reference)
 			}
 		})
 	}
@@ -126,8 +124,32 @@ func TestCommonReferenceConfirmationCannotShrinkQuorum(t *testing.T) {
 	}
 }
 
+func TestCommonReferenceChoosesHighestFinalizedHeightCoveredByQuorum(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 4, ethguard.WithFinalizedAnchoring(), ethguard.WithQuorum(3))
+	commonHeads(nodes, []uint64{10000, 9999, 10001, 9999}, nil)
+	decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Reference == nil || decision.Reference.Height != 9999 || len(decision.Reference.Support) != 4 {
+		t.Fatalf("expected highest Q=3-covered finalized height 9999, got %+v", decision.Reference)
+	}
+}
+
+func TestCommonReferenceDoesNotPromoteUndercoveredHigherFinalizedHeight(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 5, ethguard.WithFinalizedAnchoring(), ethguard.WithQuorum(3))
+	commonHeads(nodes, []uint64{10000, 10000, 9999, 9999, 9999}, nil)
+	decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Reference == nil || decision.Reference.Height != 9999 {
+		t.Fatalf("undercovered height 10000 was promoted: %+v", decision.Reference)
+	}
+}
+
 func TestCommonReferenceRejectsWrongConfirmationHeight(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring())
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring(), ethguard.WithQuorum(3))
 	commonHeads(nodes, []uint64{84, 100, 100}, func(int, uint64) (any, error) {
 		return map[string]any{"number": "0x64", "hash": fmt.Sprintf("0x%064x", 100)}, nil
 	})
@@ -200,14 +222,9 @@ func TestCachedAnchorWaiterCancelsIndependently(t *testing.T) {
 
 func TestCachedLegacyCustomReferenceStillSupportsHashReads(t *testing.T) {
 	inner := ethguard.NewCachedAnchor(hashOnlyAnchor{}, time.Minute)
-	client, nodes := fleet(t, 1, 1, 2, ethguard.WithAnchorResolver(inner))
-	for _, node := range nodes {
-		node.Return(methods.MethodGetBlockByHash, map[string]any{"number": "0x10", "hash": "0xabc"})
-		node.Return(methods.MethodGetBalance, "0x1")
-	}
-	d, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
-	if err != nil {
-		t.Fatalf("hash-only cached resolver should work for hash-pinned reads: %v (reference=%+v)", err, d.Reference)
+	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}}, ethguard.WithAnchorResolver(inner))
+	if err == nil {
+		t.Fatal("expected custom resolver path to be retired")
 	}
 }
 

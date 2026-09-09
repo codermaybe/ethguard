@@ -17,5 +17,5 @@ const MethodGetTransactionReceipt = "eth_getTransactionReceipt"
 // conflict. The receipt schema's required-field set binds typed decoding
 // after verification, at the root client's decode boundary.
 func TransactionReceiptPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Strict(normalizeCanonicalObject, opts...)
+	return admissionPolicy{Policy: rpc.Strict(normalizeReceiptObject, opts...), admit: admitReceipt}
 }

@@ -1,0 +1,46 @@
+{
+  "schema": "ethguard.rpc-sample-plan/v1",
+  "network": {
+    "chain_id": 1,
+    "fork": "cancun"
+  },
+  "redact_env": ["RPC_SAMPLE_TOKEN"],
+  "sources": [
+    {
+      "id": "provider-a",
+      "endpoint_env": "RPC_A_URL",
+      "header_env": {
+        "Authorization": "RPC_A_AUTH"
+      }
+    },
+    {
+      "id": "provider-b",
+      "endpoint_env": "RPC_B_URL",
+      "header_env": {
+        "Authorization": "RPC_B_AUTH"
+      }
+    }
+  ],
+  "requests": [
+    {
+      "id": "chain-id",
+      "method": "eth_chainId",
+      "params": []
+    },
+    {
+      "id": "head",
+      "method": "eth_blockNumber",
+      "params": []
+    },
+    {
+      "id": "latest-header",
+      "method": "eth_getBlockByNumber",
+      "params": ["latest", false]
+    },
+    {
+      "id": "latest-full",
+      "method": "eth_getBlockByNumber",
+      "params": ["latest", true]
+    }
+  ]
+}

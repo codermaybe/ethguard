@@ -1,9 +1,66 @@
 package methods
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
+
+	"ethguard/rpc"
 )
+
+func TestStateReadPoliciesPinMovingTagsAndPreserveExplicitReferences(t *testing.T) {
+	anchorCalls := 0
+	anchor := func(ctx context.Context) (string, error) {
+		anchorCalls++
+		if got := rpc.AnchorTag(ctx); got != "latest" {
+			t.Fatalf("anchor tag = %q, want latest", got)
+		}
+		return "0x" + "11" + "22", nil
+	}
+	cases := []struct {
+		name   string
+		policy rpc.Policy
+		params []any
+		pos    int
+	}{
+		{"balance", GetBalancePolicy(anchor), []any{"0xabc", "latest"}, 1},
+		{"nonce", GetTransactionCountPolicy(anchor), []any{"0xabc", "latest"}, 1},
+		{"code", GetCodePolicy(anchor), []any{"0xabc", "latest"}, 1},
+		{"storage", GetStorageAtPolicy(anchor), []any{"0xabc", "0x01", "latest"}, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prepared, err := tc.policy.Prepare(context.Background(), rpc.Request{Method: tc.name, Params: tc.params})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := prepared.Params[tc.pos]; got != "0x1122" {
+				t.Fatalf("moving reference = %v, want pinned hash", got)
+			}
+		})
+	}
+	if anchorCalls != len(cases) {
+		t.Fatalf("anchor calls = %d, want %d", anchorCalls, len(cases))
+	}
+
+	for _, tc := range cases {
+		for _, ref := range []string{"0x" + "33" + "44", "pending"} {
+			before := anchorCalls
+			params := append([]any(nil), tc.params...)
+			params[tc.pos] = ref
+			prepared, err := tc.policy.Prepare(context.Background(), rpc.Request{Method: tc.name, Params: params})
+			if err != nil {
+				t.Fatalf("%s %s: %v", tc.name, ref, err)
+			}
+			if got := prepared.Params[tc.pos]; got != ref {
+				t.Fatalf("%s %s rewritten to %v", tc.name, ref, got)
+			}
+			if anchorCalls != before {
+				t.Fatalf("%s %s consulted anchor", tc.name, ref)
+			}
+		}
+	}
+}
 
 func TestChainIDPolicyNormalizesQuantities(t *testing.T) {
 	p := ChainIDPolicy()
@@ -65,6 +122,25 @@ func TestTransactionReceiptPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
 	}
 }
 
+func TestTransactionPoliciesRejectIncompleteObjectsBeforeClustering(t *testing.T) {
+	if _, err := TransactionByHashPolicy().Normalize(json.RawMessage(`{"hash":"0x01"}`)); err == nil {
+		t.Fatal("expected incomplete transaction context to be rejected")
+	}
+	if _, err := TransactionReceiptPolicy().Normalize(json.RawMessage(`{"transactionHash":"0x01"}`)); err == nil {
+		t.Fatal("expected incomplete receipt to be rejected")
+	}
+}
+
+func TestBlockReceiptsPolicyPreservesEmptyArrayAndRejectsNullElement(t *testing.T) {
+	p := BlockReceiptsPolicy(nil)
+	if got, err := p.Normalize(json.RawMessage(`[]`)); err != nil || got != `[]` {
+		t.Fatalf("expected empty receipt list to remain valid, got %q: %v", got, err)
+	}
+	if _, err := p.Normalize(json.RawMessage(`[null]`)); err == nil {
+		t.Fatal("expected null receipt element to be rejected")
+	}
+}
+
 func TestNormalizeHexDataFoldsCaseAndAllowsEmpty(t *testing.T) {
 	first, err := normalizeHexData(json.RawMessage(`"0x6080FE"`))
 	if err != nil {
@@ -83,6 +159,27 @@ func TestNormalizeHexDataFoldsCaseAndAllowsEmpty(t *testing.T) {
 	}
 	if _, err := normalizeHexData(json.RawMessage(`"6080"`)); err == nil {
 		t.Fatal("expected non-0x data to be rejected")
+	}
+	for _, malformed := range []string{`"0x1"`, `"0xgg"`, `null`} {
+		if _, err := normalizeHexData(json.RawMessage(malformed)); err == nil {
+			t.Fatalf("expected malformed data %s to be rejected", malformed)
+		}
+	}
+}
+
+func TestNormalizeStorageWordRequiresExactly32Bytes(t *testing.T) {
+	word := `"0x00000000000000000000000000000000000000000000000000000000000000AB"`
+	canonical, err := normalizeStorageWord(json.RawMessage(word))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical != "0x00000000000000000000000000000000000000000000000000000000000000ab" {
+		t.Fatalf("unexpected storage word canonical form: %q", canonical)
+	}
+	for _, malformed := range []string{`"0x"`, `"0x01"`, `"0x000000000000000000000000000000000000000000000000000000000000000001"`, `"0x00000000000000000000000000000000000000000000000000000000000000GG"`, `null`} {
+		if _, err := normalizeStorageWord(json.RawMessage(malformed)); err == nil {
+			t.Fatalf("expected malformed storage word %s to be rejected", malformed)
+		}
 	}
 }
 
@@ -114,6 +211,7 @@ func TestNormalizeCallOutcomeClustersResultsAndReverts(t *testing.T) {
 		{"empty result is valid data", `"0x"`, "ok|0x", false},
 		{"revert wording collapses to one key", `{"code":-32000,"message":"execution reverted: ERC20: insufficient allowance"}`, "reverted", false},
 		{"bare revert collapses to the same key", `{"code":-32000,"message":"execution reverted"}`, "reverted", false},
+		{"empty revert data is still an execution observation", `{"code":-32000,"message":"","data":"0x"}`, "reverted", false},
 		{"legacy parity revert code", `{"code":3,"message":"Reverted"}`, "reverted", false},
 		{"geth client timeout is a fault, not an observation", `{"code":-32002,"message":"request timed out"}`, "", true},
 		{"internal error is a fault", `{"code":-32603,"message":"panic"}`, "", true},

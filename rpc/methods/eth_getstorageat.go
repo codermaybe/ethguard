@@ -9,10 +9,12 @@ import (
 const MethodGetStorageAt = "eth_getStorageAt"
 
 // GetStorageAtPolicy verifies eth_getStorageAt at an agreed block reference.
-// The answer is a 32-byte data word, not a quantity: it rides the hex-data
-// normalizer. The storage key (position 1) passes through untouched; the
-// block tag (position 2) is rewritten. Strict options pass through to the
-// underlying strict resolution.
+// The answer is exactly one 32-byte data word, not a quantity: its
+// method-specific normalizer rejects null, missing, short, long, and invalid
+// hex responses. The storage key (position 1) passes through untouched; the
+// block tag (position 2) is rewritten for latest/safe/finalized while
+// explicit numbers, hashes, and pending pass through. Strict options pass
+// through to the underlying strict resolution.
 func GetStorageAtPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(2, normalizeHexData, anchor, opts...)
+	return rpc.Anchored(2, normalizeStorageWord, anchor, opts...)
 }
