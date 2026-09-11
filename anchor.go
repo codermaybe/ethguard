@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"ethguard/aggregator"
-	"ethguard/internal/hexqty"
 	"ethguard/internal/refcontext"
 	"ethguard/internal/reference"
 	"ethguard/observe"
@@ -19,36 +18,27 @@ import (
 
 const anchorMethod = "anchor"
 
-// AnchorResolver supplies a candidate reference for moving-state reads.
-//
-// Deprecated: reference establishment is library-owned. New clients should
-// use the default constructor and moving-tag APIs.
-// Existing implementations remain usable; the client confirms their candidate
-// through its configured fleet before using it for business reads.
+// ReferenceResolver establishes a verified block reference for moving-state reads.
+type ReferenceResolver interface {
+	AnchorBlockHash(context.Context) (string, error)
+	AnchorBlockRef(context.Context) (string, uint64, error)
+	AnchorReference(context.Context) (rpc.ReferenceEvidence, error)
+	AnchorReferenceForTag(context.Context, string) (rpc.ReferenceEvidence, error)
+}
+
+// Backward-compatible interface aliases.
 type AnchorResolver interface {
 	AnchorBlockHash(context.Context) (string, error)
 }
 
-// AnchorHeightProvider supplies a hash and height from the same establishment.
-//
-// Deprecated: retained only for migration compatibility.
 type AnchorHeightProvider interface {
 	AnchorBlockRef(context.Context) (string, uint64, error)
 }
 
-// AnchorTagProvider preserves the moving tag that caused a reference to be
-// established. Implementations must reject tags they cannot establish rather
-// than silently substituting latest.
-//
-// Deprecated: reference establishment is library-owned.
 type AnchorTagProvider interface {
 	AnchorReferenceForTag(context.Context, string) (rpc.ReferenceEvidence, error)
 }
 
-// AnchorEvidenceProvider is the optional complete-reference capability. Built-in
-// resolvers and their cache retain provenance without changing ethclient methods.
-//
-// Deprecated: retained only for migration compatibility.
 type AnchorEvidenceProvider interface {
 	AnchorReference(context.Context) (rpc.ReferenceEvidence, error)
 }
@@ -56,48 +46,72 @@ type AnchorEvidenceProvider interface {
 // StrictHeadAnchor requires corroborated strict latest-head agreement.
 type StrictHeadAnchor struct{ aggregate *aggregator.Aggregator }
 
-// NewStrictHeadAnchor builds the default latest-head resolver. It resolves
-// with the policy's construction-time configuration; clients wire the shared
-// corroboration configuration through the unexported constructor.
+// NewStrictHeadAnchor builds the default latest-head resolver.
 func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...rpc.StrictOption) *StrictHeadAnchor {
 	return newStrictHeadAnchor(p, rec, 0, nil, opts...)
 }
+
 func newStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, timeout time.Duration, corrob *rpc.CorroborationShared, opts ...rpc.StrictOption) *StrictHeadAnchor {
-	return &StrictHeadAnchor{aggregator.New(p, rpc.Registry{anchorMethod: anchorHeadPolicy{methods.BlockByNumberPolicy(opts...)}}, aggregator.WithRecorder(rec), aggregator.WithCollectTimeout(timeout), aggregator.WithCorroboration(corrob))}
+	return &StrictHeadAnchor{
+		aggregate: aggregator.New(p, rpc.Registry{anchorMethod: anchorHeadPolicy{methods.BlockByNumberPolicy(opts...)}},
+			aggregator.WithRecorder(rec),
+			aggregator.WithCollectTimeout(timeout),
+			aggregator.WithCorroboration(corrob)),
+	}
 }
+
 func (a *StrictHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
 	d, err := a.aggregate.Aggregate(ctx, rpc.Request{Method: anchorMethod, Params: []any{"latest", false}})
-	ref := rpc.ReferenceEvidence{Status: d.Status, Origin: "strict-head", ObservedAt: time.Now(), Participants: d.Participants, Support: d.Support, Reject: d.Reject, Faults: d.Faults}
+	ref := rpc.ReferenceEvidence{
+		Status:       d.Status,
+		Origin:       "strict-head",
+		ObservedAt:   time.Now(),
+		Participants: d.Participants,
+		Support:      d.Support,
+		Reject:       d.Reject,
+		Faults:       d.Faults,
+	}
 	if err != nil {
 		return ref, err
 	}
 	ref.Hash, ref.Height, err = blockRefFromDecision(d)
 	return ref, err
 }
+
 func (a *StrictHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 	if tag == "" || tag == "latest" {
 		return a.AnchorReference(ctx)
 	}
 	d, err := a.aggregate.Aggregate(ctx, rpc.Request{Method: anchorMethod, Params: []any{tag, false}})
-	ref := rpc.ReferenceEvidence{Tag: tag, Status: d.Status, Origin: "tagged-head", ObservedAt: time.Now(), Participants: d.Participants, Support: d.Support, Reject: d.Reject, Faults: d.Faults}
+	ref := rpc.ReferenceEvidence{
+		Tag:          tag,
+		Status:       d.Status,
+		Origin:       "tagged-head",
+		ObservedAt:   time.Now(),
+		Participants: d.Participants,
+		Support:      d.Support,
+		Reject:       d.Reject,
+		Faults:       d.Faults,
+	}
 	if err != nil {
 		return ref, err
 	}
 	ref.Hash, ref.Height, err = blockRefFromDecision(d)
 	return ref, err
 }
+
 func (a *StrictHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
 	r, e := a.AnchorReference(ctx)
 	return r.Hash, e
 }
+
 func (a *StrictHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
 	r, e := a.AnchorReference(ctx)
 	return r.Hash, r.Height, e
 }
 
 // FinalizedHeadAnchor establishes a common reference from provider-reported
-// finalized views. Different heights are reconciled at one candidate height.
-// This is source-backed evidence, not a consensus proof of finality.
+// finalized views.
 type FinalizedHeadAnchor struct {
 	pool    *pool.Pool
 	rec     observe.Recorder
@@ -105,6 +119,7 @@ type FinalizedHeadAnchor struct {
 	quorum  int
 	timeout time.Duration
 }
+
 type FinalizedAnchorOption func(*finalizedAnchorConfig)
 type finalizedAnchorConfig struct{ maxLag uint64 }
 
@@ -123,6 +138,7 @@ func NewFinalizedHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...Finalize
 	}
 	return &FinalizedHeadAnchor{pool: p, rec: rec, maxLag: cfg.maxLag}
 }
+
 func (a *FinalizedHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
 	quorum, mode := a.quorum, rpc.CorroborationMajority
 	if value, ok := refcontext.Corroboration(ctx); ok {
@@ -132,22 +148,29 @@ func (a *FinalizedHeadAnchor) AnchorReference(ctx context.Context) (rpc.Referenc
 	}
 	return reference.Finalized(ctx, a.pool, a.maxLag, quorum, mode, a.timeout, a.rec)
 }
+
 func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 	if tag == "latest" {
-		quorum, mode := a.quorum, rpc.CorroborationMajority
+		mode, floor := rpc.CorroborationMajority, a.quorum
 		if value, ok := refcontext.Corroboration(ctx); ok {
 			if snapshot, valid := value.(rpc.Corroboration); valid {
-				quorum, mode = snapshot.Floor, snapshot.Mode
+				mode, floor = snapshot.Mode, snapshot.Floor
 			}
 		}
-		var opts []rpc.StrictOption
-		if quorum > 0 {
-			opts = append(opts, rpc.WithQuorum(quorum))
+		if mode == rpc.CorroborationForwarded || floor < 1 {
+			floor = 2
 		}
+		shared, err := rpc.NewCorroborationShared(mode, floor)
+		if err != nil {
+			return rpc.ReferenceEvidence{Tag: tag}, err
+		}
+		var opts []rpc.StrictOption
+		opts = append(opts, rpc.WithQuorum(floor))
 		if mode == rpc.CorroborationUnanimity {
 			opts = append(opts, rpc.WithUnanimity())
 		}
-		return newStrictHeadAnchor(a.pool, a.rec, a.timeout, nil, opts...).AnchorReferenceForTag(ctx, tag)
+		resolver := newStrictHeadAnchor(a.pool, a.rec, a.timeout, shared, opts...)
+		return resolver.AnchorReferenceForTag(ctx, tag)
 	}
 	if tag == "finalized" || tag == "" {
 		ref, err := a.AnchorReference(ctx)
@@ -178,10 +201,12 @@ func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag str
 	}
 	return rpc.ReferenceEvidence{Tag: tag, Origin: "finalized-anchor"}, fmt.Errorf("anchor: tag %q is not supported by finalized resolver: %w", tag, rpc.ErrInvalidRequest)
 }
+
 func (a *FinalizedHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
 	r, e := a.AnchorReference(ctx)
 	return r.Hash, e
 }
+
 func (a *FinalizedHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
 	r, e := a.AnchorReference(ctx)
 	return r.Hash, r.Height, e
@@ -197,13 +222,13 @@ func (p anchorHeadPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Req
 	prepared.Method = methods.MethodGetBlockByNumber
 	return prepared, nil
 }
+
 func (p anchorHeadPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
 	d, err := p.Policy.Resolve(obs)
 	return p.requireCorroborated(d, err)
 }
+
 func (p anchorHeadPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
-	// Route the invocation's frozen snapshot through to the wrapped policy
-	// before the anchor's own corroboration requirement is applied.
 	var (
 		d   rpc.Decision
 		err error
@@ -215,12 +240,14 @@ func (p anchorHeadPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Obs
 	}
 	return p.requireCorroborated(d, err)
 }
+
 func (p anchorHeadPolicy) requireCorroborated(d rpc.Decision, err error) (rpc.Decision, error) {
 	if err == nil && d.Status != rpc.Verified {
 		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrConflict)
 	}
 	return d, err
 }
+
 func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
 	var head struct {
 		Number string `json:"number"`
@@ -229,61 +256,20 @@ func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
 	if err := json.Unmarshal(d.Value, &head); err != nil || len(head.Hash) < 3 {
 		return "", 0, fmt.Errorf("winning anchor carries no hash: %w", rpc.ErrMalformedResponse)
 	}
-	height, err := hexqty.Parse(head.Number)
+	height, err := rpc.ParseHexQuantity(head.Number)
 	if err != nil {
 		return "", 0, fmt.Errorf("invalid anchor height: %w", rpc.ErrMalformedResponse)
 	}
 	return head.Hash, height, nil
 }
 
-func anchorHashOf(resolver AnchorResolver) rpc.AnchorFunc {
-	return func(ctx context.Context) (string, error) {
-		tag := rpc.AnchorTag(ctx)
-		var ref rpc.ReferenceEvidence
-		var err error
-		if tag != "" && tag != "latest" {
-			if provider, ok := resolver.(AnchorTagProvider); ok {
-				ref, err = provider.AnchorReferenceForTag(ctx, tag)
-			} else {
-				err = fmt.Errorf("anchor: resolver %T cannot establish tag %q: %w", resolver, tag, rpc.ErrInvalidRequest)
-			}
-		} else {
-			ref, err = resolveReference(ctx, resolver)
+func resolveReference(ctx context.Context, resolver AnchorResolver, tag string) (rpc.ReferenceEvidence, error) {
+	if tag != "" && tag != "latest" {
+		if provider, ok := resolver.(AnchorTagProvider); ok {
+			return provider.AnchorReferenceForTag(ctx, tag)
 		}
-		ref.Tag = tag
-		refcontext.Publish(ctx, ref)
-		if err == nil && ref.Status != rpc.Verified {
-			err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
-		}
-		return ref.Hash, err
+		return rpc.ReferenceEvidence{Tag: tag}, fmt.Errorf("anchor: resolver %T cannot establish tag %q: %w", resolver, tag, rpc.ErrInvalidRequest)
 	}
-}
-func anchorHeightOf(resolver AnchorResolver) rpc.AnchorHeightFunc {
-	return func(ctx context.Context) (uint64, error) {
-		if !hasAnchorHeight(resolver) {
-			return 0, fmt.Errorf("anchor resolver %T does not implement AnchorHeightProvider: %w", resolver, rpc.ErrInvalidRequest)
-		}
-		tag := rpc.AnchorTag(ctx)
-		var ref rpc.ReferenceEvidence
-		var err error
-		if tag != "" && tag != "latest" {
-			if provider, ok := resolver.(AnchorTagProvider); ok {
-				ref, err = provider.AnchorReferenceForTag(ctx, tag)
-			} else {
-				err = fmt.Errorf("anchor: resolver %T cannot establish tag %q: %w", resolver, tag, rpc.ErrInvalidRequest)
-			}
-		} else {
-			ref, err = resolveReference(ctx, resolver)
-		}
-		ref.Tag = tag
-		refcontext.Publish(ctx, ref)
-		if err == nil && ref.Status != rpc.Verified {
-			err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
-		}
-		return ref.Height, err
-	}
-}
-func resolveReference(ctx context.Context, resolver AnchorResolver) (rpc.ReferenceEvidence, error) {
 	if p, ok := resolver.(AnchorEvidenceProvider); ok {
 		return p.AnchorReference(ctx)
 	}
@@ -297,12 +283,36 @@ func resolveReference(ctx context.Context, resolver AnchorResolver) (rpc.Referen
 	return ref, err
 }
 
-// CachedAnchor retains one complete reference and its evidence for a bounded
-// TTL. Each waiter may cancel independently. Failed establishments are not
-// cached, and cancellation never promotes a failed establishment to success.
-//
-// Deprecated: cross-call anchor caching is retired; use the library-owned
-// invocation snapshot instead.
+func anchorHashOf(resolver AnchorResolver) rpc.AnchorFunc {
+	return func(ctx context.Context) (string, error) {
+		tag := rpc.AnchorTag(ctx)
+		ref, err := resolveReference(ctx, resolver, tag)
+		ref.Tag = tag
+		refcontext.Publish(ctx, ref)
+		if err == nil && ref.Status != rpc.Verified {
+			err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
+		}
+		return ref.Hash, err
+	}
+}
+
+func anchorHeightOf(resolver AnchorResolver) rpc.AnchorHeightFunc {
+	return func(ctx context.Context) (uint64, error) {
+		if !hasAnchorHeight(resolver) {
+			return 0, fmt.Errorf("anchor resolver %T does not implement AnchorHeightProvider: %w", resolver, rpc.ErrInvalidRequest)
+		}
+		tag := rpc.AnchorTag(ctx)
+		ref, err := resolveReference(ctx, resolver, tag)
+		ref.Tag = tag
+		refcontext.Publish(ctx, ref)
+		if err == nil && ref.Status != rpc.Verified {
+			err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
+		}
+		return ref.Height, err
+	}
+}
+
+// CachedAnchor retains one complete reference and its evidence for a bounded TTL.
 type CachedAnchor struct {
 	inner      AnchorResolver
 	ttl        time.Duration
@@ -315,10 +325,12 @@ type CachedAnchor struct {
 func NewCachedAnchor(inner AnchorResolver, ttl time.Duration) *CachedAnchor {
 	return &CachedAnchor{inner: inner, ttl: ttl}
 }
+
 func (c *CachedAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
 	r, e := c.AnchorReference(ctx)
 	return r.Hash, e
 }
+
 func (c *CachedAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
 	if !hasAnchorHeight(c.inner) {
 		return "", 0, fmt.Errorf("anchor resolver %T does not implement AnchorHeightProvider: %w", c.inner, rpc.ErrInvalidRequest)
@@ -326,6 +338,7 @@ func (c *CachedAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, erro
 	r, e := c.AnchorReference(ctx)
 	return r.Hash, r.Height, e
 }
+
 func (c *CachedAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 	if tag == "" || tag == "latest" {
 		return c.AnchorReference(ctx)
@@ -335,6 +348,7 @@ func (c *CachedAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (r
 	}
 	return rpc.ReferenceEvidence{Tag: tag}, fmt.Errorf("anchor: resolver %T does not preserve tag %q: %w", c.inner, tag, rpc.ErrInvalidRequest)
 }
+
 func (c *CachedAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
 	if tag := rpc.AnchorTag(ctx); tag != "" && tag != "latest" {
 		if provider, ok := c.inner.(AnchorTagProvider); ok {
@@ -364,7 +378,7 @@ func (c *CachedAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEviden
 		done := make(chan struct{})
 		c.pending = done
 		c.mu.Unlock()
-		ref, err := resolveReference(ctx, c.inner)
+		ref, err := resolveReference(ctx, c.inner, "")
 		if err == nil {
 			err = ctx.Err()
 		}
@@ -380,8 +394,7 @@ func (c *CachedAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEviden
 	}
 }
 
-// confirmedAnchor adapts existing custom resolvers without new caller methods.
-// A custom choice is confirmed as a block identity, not as on-chain finality.
+// confirmedAnchor adapts custom resolvers.
 type confirmedAnchor struct {
 	inner   AnchorResolver
 	pool    *pool.Pool
@@ -391,7 +404,7 @@ type confirmedAnchor struct {
 }
 
 func (a *confirmedAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	candidate, err := resolveReference(ctx, a.inner)
+	candidate, err := resolveReference(ctx, a.inner, "")
 	if err != nil {
 		return candidate, err
 	}
@@ -403,16 +416,19 @@ func (a *confirmedAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvi
 	}
 	return ref, err
 }
+
 func (a *confirmedAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 	if tag == "" || tag == "latest" {
 		return a.AnchorReference(ctx)
 	}
 	return rpc.ReferenceEvidence{Tag: tag, Origin: "custom-reference"}, fmt.Errorf("anchor: custom resolver cannot establish tag %q: %w", tag, rpc.ErrInvalidRequest)
 }
+
 func (a *confirmedAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
 	r, e := a.AnchorReference(ctx)
 	return r.Hash, e
 }
+
 func (a *confirmedAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
 	if !hasAnchorHeight(a.inner) {
 		return "", 0, fmt.Errorf("anchor resolver %T does not implement AnchorHeightProvider: %w", a.inner, rpc.ErrInvalidRequest)

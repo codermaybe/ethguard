@@ -370,3 +370,53 @@ func (w syncProgressWire) toSyncProgress() *ethereum.SyncProgress {
 		HealedBytecodes: pick(w.HealedBytecodes),
 	}
 }
+
+// BlobBaseFee returns the fleet's lower-median blob base fee (EIP-4844) — a
+// variable result, so the decision is Selected at best, with outliers kept as
+// evidence.
+func (c *Client) BlobBaseFee(ctx context.Context) (*big.Int, rpc.Decision, error) {
+	decision, err := c.Call(ctx, methods.MethodBlobBaseFee)
+	if err != nil {
+		return nil, decision, err
+	}
+	value, err := c.decodedQuantity(methods.MethodBlobBaseFee, decision)
+	if err != nil {
+		return nil, decision, err
+	}
+	return value, decision, nil
+}
+
+// AccessListResult represents the outcome of eth_createAccessList.
+type AccessListResult struct {
+	AccessList types.AccessList `json:"accessList"`
+	GasUsed    uint64           `json:"gasUsed"`
+	Error      string           `json:"error,omitempty"`
+}
+
+type accessListResultWire struct {
+	AccessList types.AccessList `json:"accessList"`
+	GasUsed    hexutil.Uint64   `json:"gasUsed"`
+	Error      string           `json:"error,omitempty"`
+}
+
+// CreateAccessList creates an EIP-2930 access list for a transaction at the
+// verified reference block or an explicitly provided block argument.
+func (c *Client) CreateAccessList(ctx context.Context, msg any, blockNrOrHash ...any) (*AccessListResult, rpc.Decision, error) {
+	params := []any{msg}
+	if len(blockNrOrHash) > 0 {
+		params = append(params, blockNrOrHash[0])
+	}
+	decision, err := c.Call(ctx, methods.MethodCreateAccessList, params...)
+	if err != nil {
+		return nil, decision, err
+	}
+	var wire accessListResultWire
+	if err := json.Unmarshal(decision.Value, &wire); err != nil {
+		return nil, decision, fmt.Errorf("%w: decode access list result: %w", rpc.ErrMalformedResponse, err)
+	}
+	return &AccessListResult{
+		AccessList: wire.AccessList,
+		GasUsed:    uint64(wire.GasUsed),
+		Error:      wire.Error,
+	}, decision, nil
+}

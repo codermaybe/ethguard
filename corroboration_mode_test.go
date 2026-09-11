@@ -9,7 +9,7 @@ import (
 	"ethguard/rpc"
 )
 
-func TestT02SingleSourceDefaultsToForwarded(t *testing.T) {
+func TestSingleSourceDefaultsToForwarded(t *testing.T) {
 	c, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "solo", Endpoint: "http://solo.example"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +23,7 @@ func TestT02SingleSourceDefaultsToForwarded(t *testing.T) {
 	}
 }
 
-func TestT02SingleSourceExplicitCorroborationIsConfigurationError(t *testing.T) {
+func TestSingleSourceExplicitCorroborationIsConfigurationError(t *testing.T) {
 	cases := []config.Config{
 		{Upstreams: []config.Upstream{{ID: "solo", Endpoint: "http://solo.example"}}, Corroboration: "majority"},
 		{Upstreams: []config.Upstream{{ID: "solo", Endpoint: "http://solo.example"}}, Corroboration: "unanimity"},
@@ -36,7 +36,7 @@ func TestT02SingleSourceExplicitCorroborationIsConfigurationError(t *testing.T) 
 	}
 }
 
-func TestT02ForwardedHasNoSupportFloor(t *testing.T) {
+func TestForwardedHasNoSupportFloor(t *testing.T) {
 	if _, err := ethguard.New(config.Config{
 		Corroboration: "forwarded",
 		Quorum:        2,
@@ -46,7 +46,7 @@ func TestT02ForwardedHasNoSupportFloor(t *testing.T) {
 	}
 }
 
-func TestT02RuntimeModeSwitchIsExplicit(t *testing.T) {
+func TestRuntimeModeSwitchIsExplicit(t *testing.T) {
 	c, err := ethguard.New(config.Config{Upstreams: []config.Upstream{
 		{ID: "a", Endpoint: "http://a.example"},
 		{ID: "b", Endpoint: "http://b.example"},

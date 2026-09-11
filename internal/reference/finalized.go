@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"ethguard/internal/hexqty"
 	"ethguard/internal/refcontext"
 	"ethguard/observe"
 	"ethguard/pool"
@@ -225,6 +224,6 @@ func decode(raw json.RawMessage) (view, error) {
 	if err := json.Unmarshal(raw, &head); err != nil {
 		return view{}, err
 	}
-	height, err := hexqty.Parse(head.Number)
+	height, err := rpc.ParseHexQuantity(head.Number)
 	return view{height: height, hash: strings.ToLower(head.Hash), raw: raw}, err
 }

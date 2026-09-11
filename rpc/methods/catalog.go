@@ -83,10 +83,12 @@ var methodCatalog = []MethodDescriptor{
 	{Name: MethodFeeHistory, Kind: RegisteredMethod, Policy: "FeeHistoryPolicy"},
 	{Name: MethodGasPrice, Kind: RegisteredMethod, Policy: "GasPricePolicy", Adapter: "SuggestGasPrice"},
 	{Name: MethodMaxPriorityFeePerGas, Kind: RegisteredMethod, Policy: "MaxPriorityFeePerGasPolicy", Adapter: "SuggestGasTipCap"},
+	{Name: MethodBlobBaseFee, Kind: RegisteredMethod, Policy: "BlobBaseFeePolicy"},
+	{Name: MethodBlockNumber, Kind: RegisteredMethod, Policy: "BlockNumberPolicy", Adapter: "BlockNumber"},
+	{Name: MethodCreateAccessList, Kind: RegisteredMethod, Policy: "CreateAccessListPolicy"},
 	{Name: MethodPeerCount, Kind: RegisteredMethod, Policy: "PeerCountPolicy", Adapter: "PeerCount"},
 	{Name: MethodSyncing, Kind: RegisteredMethod, Policy: "SyncingPolicy", Adapter: "SyncProgress"},
 	{Name: MethodNetVersion, Kind: RegisteredMethod, Policy: "NetVersionPolicy", Notes: "Root Client.NetVersion; adapter has no ethclient-shaped method."},
 	{Name: MethodListening, Kind: RegisteredMethod, Policy: "ListeningPolicy", Notes: "Root Client.Listening; adapter has no ethclient-shaped method."},
-	{Name: "eth_blockNumber", Kind: DerivedMethod, Adapter: "BlockNumber", Notes: "Derived from the established reference; deliberately absent from the RPC registry."},
 	{Name: "eth_getProof", Kind: UnsupportedMethod, Notes: "Not registered; no account/storage proof admission contract yet."},
 }

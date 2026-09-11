@@ -1921,3 +1921,77 @@ func TestTipTrackingConfigPathMatchesGoOptionPath(t *testing.T) {
 		})
 	}
 }
+
+func TestClientResolvesNewMethods(t *testing.T) {
+	client, nodes := fleet(t, 1, 0, 3)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	t.Run("eth_blockNumber lower median", func(t *testing.T) {
+		nodes[0].Return("eth_blockNumber", "0x10")
+		nodes[1].Return("eth_blockNumber", "0x20")
+		nodes[2].Return("eth_blockNumber", "0x18")
+
+		d, err := client.Call(ctx, "eth_blockNumber")
+		if err != nil {
+			t.Fatalf("call failed: %v", err)
+		}
+		if d.Status != rpc.Selected {
+			t.Fatalf("status = %v, want Selected", d.Status)
+		}
+		if string(d.Value) != `"0x18"` {
+			t.Fatalf("value = %s, want %s", d.Value, `"0x18"`)
+		}
+	})
+
+	t.Run("eth_blobBaseFee lower median", func(t *testing.T) {
+		nodes[0].Return("eth_blobBaseFee", "0x1")
+		nodes[1].Return("eth_blobBaseFee", "0x3")
+		nodes[2].Return("eth_blobBaseFee", "0x2")
+
+		fee, d, err := client.BlobBaseFee(ctx)
+		if err != nil {
+			t.Fatalf("blobBaseFee failed: %v", err)
+		}
+		if d.Status != rpc.Selected {
+			t.Fatalf("status = %v, want Selected", d.Status)
+		}
+		if fee.Int64() != 2 {
+			t.Fatalf("fee = %d, want 2", fee.Int64())
+		}
+	})
+
+	t.Run("eth_createAccessList anchored consensus", func(t *testing.T) {
+		headHash := "0x" + strings.Repeat("aa", 32)
+		// All nodes answer head block for anchoring
+		for _, n := range nodes {
+			n.Return("eth_getBlockByNumber", map[string]any{
+				"number": "0x1",
+				"hash":   headHash,
+			})
+			n.Return("eth_createAccessList", map[string]any{
+				"accessList": []map[string]any{
+					{
+						"address":     "0x0000000000000000000000000000000000000001",
+						"storageKeys": []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
+					},
+				},
+				"gasUsed": "0x5208",
+			})
+		}
+
+		res, d, err := client.CreateAccessList(ctx, map[string]any{"to": "0x0000000000000000000000000000000000000001"}, "latest")
+		if err != nil {
+			t.Fatalf("createAccessList failed: %v", err)
+		}
+		if d.Status != rpc.Verified {
+			t.Fatalf("status = %v, want Verified", d.Status)
+		}
+		if res.GasUsed != 0x5208 {
+			t.Fatalf("gasUsed = %d, want %d", res.GasUsed, 0x5208)
+		}
+		if len(res.AccessList) != 1 {
+			t.Fatalf("accessList length = %d, want 1", len(res.AccessList))
+		}
+	})
+}

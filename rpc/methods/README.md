@@ -20,7 +20,7 @@ That line decides where normalizers live:
   comparison conventions never leave this directory. The one exception is
   the uint64-shaped height parser: a spelling primitive shared with the
   finalized-head policy and the anchor extraction, kept in
-  `internal/hexqty`. Which response fields are quantities at all — the wire
+  `rpc.ParseHexQuantity`. Which response fields are quantities at all — the wire
   semantics — still belong to this layer alone.
 
 A policy describes how its method is prepared, normalized, compared,

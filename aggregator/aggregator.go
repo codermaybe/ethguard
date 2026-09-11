@@ -132,7 +132,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	prepared, err := policy.Prepare(ctx, req)
 	if err != nil {
 		if c := uncertain.FromContext(ctx); c != nil {
-			c.Record("prepare", req.Method, uncertain.Source{}, nil, err.Error())
+			c.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
 		}
 		decision := rpc.Decision{Reference: capture.Reference()}
 		a.recordDecision(started, req.Method, policy, decision, err, nil)
@@ -154,9 +154,9 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// admission and resolver outcomes are recorded as separate stages below.
 	if c := uncertain.FromContext(ctx); c != nil {
 		for _, emission := range emissions {
-			source := uncertain.Source{}
+			source := rpc.SourceRef{}
 			if emission.Src != nil {
-				source = uncertain.Source{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()}
+				source = rpc.SourceRef{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()}
 			}
 			errText := ""
 			if emission.Err != nil {
@@ -165,7 +165,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 			c.Record("response", prepared.Method, source, emission.Val, errText)
 		}
 		if collectErr != nil {
-			c.Record("collect", prepared.Method, uncertain.Source{}, nil, collectErr.Error())
+			c.Record("collect", prepared.Method, rpc.SourceRef{}, nil, collectErr.Error())
 		}
 	}
 	// Admission runs before normalization and clustering. A malformed body
@@ -184,7 +184,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 				evidence, admissionErr := admission.Admit(ctx, prepared, emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
 					raw, callErr := a.pool.CallSource(callCtx, emissions[i].Src, method, params)
 					if c := uncertain.FromContext(ctx); c != nil {
-						source := uncertain.Source{Name: emissions[i].Src.Name(), URL: emissions[i].Src.URL(), ID: emissions[i].Src.ID()}
+						source := rpc.SourceRef{Name: emissions[i].Src.Name(), URL: emissions[i].Src.URL(), ID: emissions[i].Src.ID()}
 						errText := ""
 						if callErr != nil {
 							errText = callErr.Error()
@@ -195,7 +195,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 				})
 				if admissionErr != nil {
 					if c := uncertain.FromContext(ctx); c != nil {
-						source := uncertain.Source{Name: emissions[i].Src.Name(), URL: emissions[i].Src.URL(), ID: emissions[i].Src.ID()}
+						source := rpc.SourceRef{Name: emissions[i].Src.Name(), URL: emissions[i].Src.URL(), ID: emissions[i].Src.ID()}
 						c.Record("admission", prepared.Method, source, nil, admissionErr.Error())
 					}
 					emissions[i].Err = fmt.Errorf("admission: %w", admissionErr)

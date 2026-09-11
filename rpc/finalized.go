@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"ethguard/internal/hexqty"
 )
 
 // FinalizedHead resolves finalized-block observations by selecting the lowest
@@ -170,7 +169,7 @@ func decodeFinalizedHead(value json.RawMessage) (finalizedHead, error) {
 }
 
 func parseFinalizedHeight(number string) (uint64, error) {
-	height, err := hexqty.Parse(number)
+	height, err := ParseHexQuantity(number)
 	if err != nil {
 		return 0, fmt.Errorf("finalized head: %w", err)
 	}

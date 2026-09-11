@@ -20,7 +20,7 @@ import (
 // 0027, 0028, 0029) through the public ChainID path. ---------------------------
 
 // requiredSupport is the decision-0029 table: Q = max(2, floor(N/2)+1).
-func TestT01RequiredSupportPerMembership(t *testing.T) {
+func TestRequiredSupportPerMembership(t *testing.T) {
 	for n, want := range map[int]int{2: 2, 3: 2, 4: 3, 5: 3} {
 		client, _ := fleet(t, 1, 1, n)
 		if got := client.Pool().Len(); got != n {
@@ -30,7 +30,7 @@ func TestT01RequiredSupportPerMembership(t *testing.T) {
 	}
 }
 
-func TestT01MajorityThresholdsOnChainID(t *testing.T) {
+func TestMajorityThresholdsOnChainID(t *testing.T) {
 	// Dissenters split their answers so no cluster below the agreeing one can
 	// reach the bound by itself; "agreeing" counts sources answering 0x1.
 	cases := []struct {
@@ -79,7 +79,7 @@ func TestT01MajorityThresholdsOnChainID(t *testing.T) {
 // Checklist 2: three members unavailable before selection (open cooldown
 // circuits) or failing after selection — either way, two agreeing votes
 // cannot succeed and three agreeing votes plus two failures can.
-func TestT01UnavailableMembersStayInDenominator(t *testing.T) {
+func TestUnavailableMembersStayInDenominator(t *testing.T) {
 	t.Run("three cooled before selection", func(t *testing.T) {
 		// A five-member client where three members' transports are dead from
 		// the start: their lazy dials fail, which is an in-collection failure,
@@ -166,7 +166,7 @@ func TestT01UnavailableMembersStayInDenominator(t *testing.T) {
 
 // Checklist 3: mode asymmetry on 3×A/2×B, and the floor refusing 2×A with
 // three failed members in both modes.
-func TestT01ModeAsymmetry(t *testing.T) {
+func TestModeAsymmetry(t *testing.T) {
 	build := func(t *testing.T, mode rpc.CorroborationMode) (*ethguard.Client, []*rpctest.Node) {
 		return fleet(t, 1, 0, 5, ethguard.WithCorroborationMode(mode), ethguard.WithQuorum(2))
 	}
@@ -217,7 +217,7 @@ func TestT01ModeAsymmetry(t *testing.T) {
 // Checklist 4: runtime membership and mode changes take effect for
 // subsequent invocations only; in-flight invocations keep their snapshot.
 // Unknown sources can never join the voting set through responses.
-func TestT01RuntimeMembershipAndModeChanges(t *testing.T) {
+func TestRuntimeMembershipAndModeChanges(t *testing.T) {
 	t.Run("runtime add then remove changes later invocations", func(t *testing.T) {
 		// Two members split 1×A/1×B: below Q=2. Adding a third member that
 		// answers B lifts the B cluster to a verified 2-of-3 majority;
@@ -341,7 +341,7 @@ func TestT01RuntimeMembershipAndModeChanges(t *testing.T) {
 // Checklist 5: duplicate URLs collapse to one vote (pool identity dedup);
 // duplicate results and repeated requests produce no extra votes; pool order
 // does not change the outcome.
-func TestT01NoExtraVotes(t *testing.T) {
+func TestNoExtraVotes(t *testing.T) {
 	t.Run("duplicate URL joins collapse to one member", func(t *testing.T) {
 		node := rpctest.NewNode(1)
 		defer node.Close()
@@ -469,7 +469,7 @@ func TestT01NoExtraVotes(t *testing.T) {
 // degradation to Selected — the typed path errors and the decision's error
 // is authoritative over the Status field, whose zero value is Verified) and
 // the evidence carries the cluster rather than a guessed winner.
-func TestT01RefusesWithoutDegradation(t *testing.T) {
+func TestRefusesWithoutDegradation(t *testing.T) {
 	client, _ := fleet(t, 1, 1, 2, ethguard.WithCorroborationMode(rpc.CorroborationMajority))
 	if err := client.Pool().Remove("node-b"); err != nil {
 		t.Fatal(err)
@@ -490,7 +490,7 @@ func TestT01RefusesWithoutDegradation(t *testing.T) {
 // voting-basis collection, so a cooled member still occupies the basis of
 // every public read (decision 0027's example: 5 members, floor 3, 2 cooling,
 // 3 valid answers succeed; 3 cooling, 2 valid answers refuse).
-func TestT01PoolVotingBasisExample(t *testing.T) {
+func TestPoolVotingBasisExample(t *testing.T) {
 	t.Run("explicit floor 3: two cooling, three answer", func(t *testing.T) {
 		client, nodes := fleet(t, 1, 0, 5, ethguard.WithQuorum(3))
 		for _, node := range nodes[:2] {

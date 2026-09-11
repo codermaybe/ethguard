@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"ethguard/internal/hexqty"
 	"ethguard/rpc"
 )
 
@@ -41,7 +40,7 @@ func normalizeBlockIdentity(value json.RawMessage) (string, error) {
 	if head.Number == "" || len(head.Hash) < 3 {
 		return "", fmt.Errorf("block head: missing number or hash")
 	}
-	height, err := hexqty.Parse(head.Number)
+	height, err := rpc.ParseHexQuantity(head.Number)
 	if err != nil {
 		return "", fmt.Errorf("block head: %w", err)
 	}

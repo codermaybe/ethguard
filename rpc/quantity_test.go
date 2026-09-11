@@ -1,8 +1,8 @@
-package hexqty
+package rpc
 
 import "testing"
 
-func TestParseAcceptsEquivalentSpellings(t *testing.T) {
+func TestParseHexQuantityAcceptsEquivalentSpellings(t *testing.T) {
 	cases := []struct {
 		in   string
 		want uint64
@@ -14,14 +14,14 @@ func TestParseAcceptsEquivalentSpellings(t *testing.T) {
 		{"0xFFFFFFFFFFFFFFFF", ^uint64(0)}, // uint64 range edge
 	}
 	for _, tc := range cases {
-		got, err := Parse(tc.in)
+		got, err := ParseHexQuantity(tc.in)
 		if err != nil || got != tc.want {
-			t.Fatalf("Parse(%q) = %d, %v; want %d", tc.in, got, err, tc.want)
+			t.Fatalf("ParseHexQuantity(%q) = %d, %v; want %d", tc.in, got, err, tc.want)
 		}
 	}
 }
 
-func TestParseRejectsMalformedQuantities(t *testing.T) {
+func TestParseHexQuantityRejectsMalformedQuantities(t *testing.T) {
 	for _, in := range []string{
 		"",                     // empty
 		"0x",                   // prefix without digits
@@ -35,8 +35,8 @@ func TestParseRejectsMalformedQuantities(t *testing.T) {
 		"x10",                  // missing prefix
 		"0x1FFFFFFFFFFFFFFFFF", // beyond uint64
 	} {
-		if _, err := Parse(in); err == nil {
-			t.Fatalf("Parse(%q) unexpectedly succeeded", in)
+		if _, err := ParseHexQuantity(in); err == nil {
+			t.Fatalf("ParseHexQuantity(%q) unexpectedly succeeded", in)
 		}
 	}
 }

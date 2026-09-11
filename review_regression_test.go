@@ -17,7 +17,7 @@ import (
 )
 
 // Regression counterexamples added during T01 acceptance review.
-func TestT01ReviewDecoratedMethods(t *testing.T) {
+func TestReviewDecoratedMethods(t *testing.T) {
 	cases := []struct {
 		name   string
 		params []any
@@ -63,7 +63,7 @@ func TestT01ReviewDecoratedMethods(t *testing.T) {
 	}
 }
 
-func TestT01ReviewDuplicateObservationCannotVerify(t *testing.T) {
+func TestReviewDuplicateObservationCannotVerify(t *testing.T) {
 	p := rpc.Strict(rpc.CanonicalJSON, rpc.WithQuorum(2))
 	source := rpc.SourceRef{ID: "same", Name: "same", URL: "https://same.example"}
 	obs := rpc.Observation{Source: source, Value: json.RawMessage(`"0x1"`)}
@@ -73,7 +73,7 @@ func TestT01ReviewDuplicateObservationCannotVerify(t *testing.T) {
 	}
 }
 
-func TestT01ReviewInFlightChanges(t *testing.T) {
+func TestReviewInFlightChanges(t *testing.T) {
 	for _, action := range []string{"add", "remove", "replace", "mode", "floor"} {
 		t.Run(action, func(t *testing.T) {
 			n := 3
@@ -194,7 +194,7 @@ func TestT01ReviewInFlightChanges(t *testing.T) {
 	}
 }
 
-func TestT01ReviewAllGatedKeepsEvidence(t *testing.T) {
+func TestReviewAllGatedKeepsEvidence(t *testing.T) {
 	c, nodes := fleet(t, 1, 0, 3)
 	for _, n := range nodes {
 		n.Fail(methods.MethodChainID, -32700, "outage")
