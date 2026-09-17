@@ -27,8 +27,8 @@ func TestCatalogHasUniqueNamesAndStableRegistrationSet(t *testing.T) {
 	if registered != len(RegisteredNames()) {
 		t.Fatalf("registered name count = %d, catalog count = %d", len(RegisteredNames()), registered)
 	}
-	if len(RegisteredNames()) != 23 {
-		t.Fatalf("registered method count = %d, want 23", len(RegisteredNames()))
+	if len(RegisteredNames()) != 24 {
+		t.Fatalf("registered method count = %d, want 24", len(RegisteredNames()))
 	}
 }
 

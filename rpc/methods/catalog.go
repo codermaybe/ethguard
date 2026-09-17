@@ -90,5 +90,10 @@ var methodCatalog = []MethodDescriptor{
 	{Name: MethodSyncing, Kind: RegisteredMethod, Policy: "SyncingPolicy", Adapter: "SyncProgress"},
 	{Name: MethodNetVersion, Kind: RegisteredMethod, Policy: "NetVersionPolicy", Notes: "Root Client.NetVersion; adapter has no ethclient-shaped method."},
 	{Name: MethodListening, Kind: RegisteredMethod, Policy: "ListeningPolicy", Notes: "Root Client.Listening; adapter has no ethclient-shaped method."},
+	// Write path (decision-map #4): a dedicated pipeline outside the read
+	// registry. Broadcast to the full voting basis + relative-trust
+	// adjudication; no Policy entry, so ValidateRegistry does not require
+	// one here.
+	{Name: MethodSendRawTransaction, Kind: RegisteredMethod, Policy: "WritePipeline", Adapter: "SendTransaction", Notes: "Root Client.SendRawTransaction; broadcast + relative-trust, no read registry policy."},
 	{Name: "eth_getProof", Kind: UnsupportedMethod, Notes: "Not registered; no account/storage proof admission contract yet."},
 }

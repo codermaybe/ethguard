@@ -28,6 +28,9 @@ type Client struct {
 	// corrob is the shared, runtime-mutable adjudication configuration
 	// behind SetCorroboration; every invocation snapshots it at its start.
 	corrob *rpc.CorroborationShared
+	// collectTimeout bounds each write fan-out; the read aggregator owns its
+	// own copy supplied at construction.
+	collectTimeout time.Duration
 }
 
 // Option tunes a Client at construction time.
@@ -320,11 +323,12 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("ethguard: %w", err)
 	}
 	return &Client{
-		pool:       rpcPool,
-		aggregator: aggregator.New(rpcPool, policies, aggregator.WithRecorder(rec), aggregator.WithCollectTimeout(co.collectTimeout), aggregator.WithCorroboration(corrob)),
-		policies:   policies,
-		resolver:   resolver,
-		corrob:     corrob,
+		pool:           rpcPool,
+		aggregator:     aggregator.New(rpcPool, policies, aggregator.WithRecorder(rec), aggregator.WithCollectTimeout(co.collectTimeout), aggregator.WithCorroboration(corrob)),
+		policies:       policies,
+		resolver:       resolver,
+		corrob:         corrob,
+		collectTimeout: co.collectTimeout,
 	}, nil
 }
 

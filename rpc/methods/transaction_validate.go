@@ -13,6 +13,12 @@ import (
 	"ethguard/rpc"
 )
 
+// MethodSendRawTransaction is the write-side JSON-RPC method. It has no
+// Policy in the read registry: the write pipeline owns its collection and
+// adjudication (pool.Broadcast + relative-trust resolution), not the
+// method-policy registry.
+const MethodSendRawTransaction = "eth_sendRawTransaction"
+
 // admissionPolicy keeps method-specific admission visible through request
 // decorators.  The aggregator checks AdmissionPolicy on the final policy
 // value, so wrapping an anchored policy after its decorators is necessary to
