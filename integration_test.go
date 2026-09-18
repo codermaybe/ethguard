@@ -1052,6 +1052,30 @@ func TestClientVerifiesReceiptAcrossSources(t *testing.T) {
 	}
 }
 
+func TestClientAttachesReceiptExtensionsToDecision(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	txHash := "0x" + strings.Repeat("43", 32)
+	object := receiptFixture(txHash)
+	object["l1Fee"] = "0x10"
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionReceipt, object)
+	}
+	decision, err := client.Call(context.Background(), methods.MethodGetTransactionReceipt, txHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Extensions == nil || len(decision.Extensions.Fields) != 1 {
+		t.Fatalf("extensions = %#v, want one extension", decision.Extensions)
+	}
+	extension := decision.Extensions.Fields[0]
+	if extension.Kind != rpc.CorroboratedExtension || extension.Path != "/l1Fee" || len(extension.Sources) != 3 {
+		t.Fatalf("extension = %#v", extension)
+	}
+	if extension.CoreObjectFingerprint == "" {
+		t.Fatal("extension has no core object fingerprint")
+	}
+}
+
 func TestClientRejectsReceiptThatDoesNotMatchRequestedTransaction(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	returnedHash := "0x" + strings.Repeat("42", 32)

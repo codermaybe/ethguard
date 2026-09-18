@@ -26,6 +26,7 @@ type Aggregator struct {
 	policies       rpc.Registry
 	rec            observe.Recorder
 	collectTimeout time.Duration
+	projectors     map[string]rpc.ObservationProjector
 	// corrob is the runtime-mutable adjudication configuration shared by one
 	// client's aggregators; nil leaves policies on construction-time
 	// defaults (direct construction, legacy tests).
@@ -62,8 +63,21 @@ func WithCorroboration(c *rpc.CorroborationShared) Option {
 	}
 }
 
+// WithProjectors registers method-level semantic projectors separately from
+// policies. Keeping this assembly map outside Policy preserves every optional
+// policy capability (admission, anchoring, corroboration, forwarding).
+func WithProjectors(projectors map[string]rpc.ObservationProjector) Option {
+	return func(a *Aggregator) {
+		for method, projector := range projectors {
+			if projector != nil {
+				a.projectors[method] = projector
+			}
+		}
+	}
+}
+
 func New(p *pool.Pool, policies rpc.Registry, opts ...Option) *Aggregator {
-	a := &Aggregator{pool: p, policies: policies, rec: observe.Nop}
+	a := &Aggregator{pool: p, policies: policies, rec: observe.Nop, projectors: make(map[string]rpc.ObservationProjector)}
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -265,7 +279,11 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	decision.Participants = participants
 	decision.Observed = observed
 	if resolveErr == nil && observed != nil {
-		if projector, ok := policy.(rpc.ObservationProjector); ok {
+		projector, ok := a.projectors[req.Method]
+		if !ok {
+			projector, ok = policy.(rpc.ObservationProjector)
+		}
+		if ok {
 			if extensions, projectionErr := projector.ProjectObservation(decision.Value, *observed); projectionErr == nil {
 				decision.Extensions = &extensions
 			} else {

@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"encoding/json"
 	"sort"
 
 	"ethguard/rpc"
@@ -24,6 +25,18 @@ type Projection struct {
 	Residuals  []rpc.FieldObservation
 	Missing    []string
 	Conflicts  []rpc.ConflictField
+}
+
+type standardProjector struct{ fields []StandardField }
+
+// NewStandardProjector builds the reusable method projector used by the
+// aggregator assembly map. It owns a copy of the field declaration.
+func NewStandardProjector(fields []StandardField) rpc.ObservationProjector {
+	return standardProjector{fields: append([]StandardField(nil), fields...)}
+}
+
+func (p standardProjector) ProjectObservation(value json.RawMessage, observed rpc.CommonObservation) (rpc.ExtensionSet, error) {
+	return ProjectStandard(observed, p.fields).Carrier(value)
 }
 
 // ProjectStandard applies a method's standard field declaration to a generic

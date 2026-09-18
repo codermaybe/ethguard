@@ -32,15 +32,6 @@ type admissionPolicy struct {
 	admit func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error)
 }
 
-type projectingAdmissionPolicy struct {
-	admissionPolicy
-	project func(json.RawMessage, rpc.CommonObservation) (rpc.ExtensionSet, error)
-}
-
-func (p projectingAdmissionPolicy) ProjectObservation(value json.RawMessage, observed rpc.CommonObservation) (rpc.ExtensionSet, error) {
-	return p.project(value, observed)
-}
-
 func (p admissionPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
 	return p.Policy.Prepare(ctx, req)
 }

@@ -323,8 +323,14 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("ethguard: %w", err)
 	}
 	return &Client{
-		pool:           rpcPool,
-		aggregator:     aggregator.New(rpcPool, policies, aggregator.WithRecorder(rec), aggregator.WithCollectTimeout(co.collectTimeout), aggregator.WithCorroboration(corrob)),
+		pool: rpcPool,
+		aggregator: aggregator.New(rpcPool, policies,
+			aggregator.WithRecorder(rec),
+			aggregator.WithCollectTimeout(co.collectTimeout),
+			aggregator.WithCorroboration(corrob),
+			aggregator.WithProjectors(map[string]rpc.ObservationProjector{
+				methods.MethodGetTransactionReceipt: methods.NewStandardProjector(methods.TransactionReceiptStandardFields()),
+			})),
 		policies:       policies,
 		resolver:       resolver,
 		corrob:         corrob,

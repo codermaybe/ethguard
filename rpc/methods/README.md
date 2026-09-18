@@ -49,6 +49,11 @@ undeclared common paths become extensions, and missing required paths remain
 an explicit method error. OpenRPC is used only as an offline CI reference and
 is not loaded by the production projection path.
 
+Projectors are assembled by the client with a method-keyed projector map. A
+method policy therefore keeps its existing admission, anchoring, and
+corroboration capabilities; adding a projection does not require wrapping or
+reimplementing that policy.
+
 ## Coverage inventory
 
 The package exposes `Catalog()` and `RegisteredNames()` as a read-only method
