@@ -233,6 +233,7 @@ OpenRPC 仅作为 CI 离线参考资料，用于：
 
 已完成：
 
+- wire 归一化实现已迁移到 `rpc/internal/wire`，`rpc/methods` 保留兼容转发；
 - `rpc.AggregateFields`：通用 JSON path 观测归约；
 - `Common`、`Residuals`、`Conflicts` 及来源保留；
 - `rpc/methods.ProjectStandard`：方法级标准字段投影；
