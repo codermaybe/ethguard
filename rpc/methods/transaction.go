@@ -9,9 +9,8 @@ import (
 
 // This file is the Transaction object slice: the Transaction shape table,
 // its semantic gates (hash/signature/inclusion context), and its projection,
-// owned by eth_getTransactionByHash (R2: this slice solely owns the
-// Transaction table; the shared admissionPolicy decorator and request/JSON
-// helpers live in receipt.go until prune.go absorbs them).
+// owned by eth_getTransactionByHash. Shared transaction semantics live in
+// rpc/internal/objects/transaction; this file keeps the method-facing seam.
 
 // MethodSendRawTransaction is the write-side JSON-RPC method. It has no
 // Policy in the read registry: the write pipeline owns its collection and
