@@ -2,6 +2,7 @@ package methods
 
 import (
 	"ethguard/rpc"
+	"ethguard/rpc/internal/policy"
 )
 
 // MethodGetTransactionByHash is the JSON-RPC method name resolved by
@@ -15,5 +16,5 @@ const MethodGetTransactionByHash = "eth_getTransactionByHash"
 // is an ordinary answer: verified absence maps to ethereum.NotFound at the
 // typed boundary, and a fleet split between null and an object is conflict.
 func TransactionByHashPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return admissionPolicy{Policy: rpc.Strict(normalizeTransactionObject, opts...), admit: admitTransaction}
+	return policy.WithAdmission(rpc.Strict(normalizeTransactionObject, opts...), admitTransaction)
 }

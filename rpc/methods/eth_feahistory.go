@@ -1,10 +1,10 @@
 package methods
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"ethguard/rpc"
+	"ethguard/rpc/internal/objects/feehistory"
 	"fmt"
 	"math"
 	"math/big"
@@ -74,25 +74,7 @@ func (p feeHistoryPolicy) Admit(_ context.Context, req rpc.Request, value json.R
 }
 
 func validateFeeHistoryRange(req rpc.Request, value json.RawMessage) error {
-	count, err := requestQuantity(req.Params[0], false)
-	if err != nil || count == 0 {
-		return fmt.Errorf("invalid block count")
-	}
-	var response struct {
-		Oldest json.RawMessage   `json:"oldestBlock"`
-		Gas    []json.RawMessage `json:"gasUsedRatio"`
-	}
-	if err := json.Unmarshal(value, &response); err != nil {
-		return fmt.Errorf("malformed response")
-	}
-	if uint64(len(response.Gas)) != count {
-		return fmt.Errorf("gasUsedRatio length %d does not match requested block count %d", len(response.Gas), count)
-	}
-	_, err = normalizeWireQuantity(response.Oldest)
-	if err != nil {
-		return fmt.Errorf("oldestBlock: %w", err)
-	}
-	return nil
+	return feehistory.ValidateRange(req, value)
 }
 
 func validateFeeHistoryRequest(req rpc.Request) error {
@@ -207,60 +189,5 @@ func requestPercentiles(value any) ([]float64, error) {
 }
 
 func normalizeFeeHistory(value json.RawMessage) (string, error) {
-	trimmed := bytes.TrimSpace(value)
-	if len(trimmed) == 0 || trimmed[0] != '{' || bytes.Equal(trimmed, []byte("null")) {
-		return "", fmt.Errorf("feeHistory: expected an object")
-	}
-	var raw struct {
-		Oldest json.RawMessage     `json:"oldestBlock"`
-		Base   []json.RawMessage   `json:"baseFeePerGas"`
-		Gas    []float64           `json:"gasUsedRatio"`
-		Reward [][]json.RawMessage `json:"reward"`
-	}
-	if err := json.Unmarshal(value, &raw); err != nil || len(raw.Oldest) == 0 {
-		return "", fmt.Errorf("feeHistory: malformed response")
-	}
-	oldest, err := normalizeWireQuantity(raw.Oldest)
-	if err != nil || len(raw.Base) != len(raw.Gas)+1 {
-		return "", fmt.Errorf("feeHistory: baseFeePerGas must have gasUsedRatio length plus one")
-	}
-	base := make([]string, len(raw.Base))
-	for i, item := range raw.Base {
-		base[i], err = normalizeWireQuantity(item)
-		if err != nil {
-			return "", fmt.Errorf("feeHistory: baseFeePerGas[%d]: %w", i, err)
-		}
-	}
-	for i, ratio := range raw.Gas {
-		if math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio < 0 || ratio > 1 {
-			return "", fmt.Errorf("feeHistory: gasUsedRatio[%d] out of range", i)
-		}
-	}
-	if raw.Reward != nil && len(raw.Reward) != len(raw.Gas) {
-		return "", fmt.Errorf("feeHistory: reward must have gasUsedRatio length")
-	}
-	reward := make([][]string, len(raw.Reward))
-	rewardWidth := -1
-	for i, row := range raw.Reward {
-		if rewardWidth < 0 {
-			rewardWidth = len(row)
-		} else if len(row) != rewardWidth {
-			return "", fmt.Errorf("feeHistory: reward rows must have equal length")
-		}
-		reward[i] = make([]string, len(row))
-		for j, item := range row {
-			reward[i][j], err = normalizeWireQuantity(item)
-			if err != nil {
-				return "", fmt.Errorf("feeHistory: reward[%d][%d]: %w", i, j, err)
-			}
-		}
-	}
-	projection := struct {
-		Oldest string     `json:"oldestBlock"`
-		Base   []string   `json:"baseFeePerGas"`
-		Gas    []float64  `json:"gasUsedRatio"`
-		Reward [][]string `json:"reward,omitempty"`
-	}{oldest, base, raw.Gas, reward}
-	encoded, err := json.Marshal(projection)
-	return string(encoded), err
+	return feehistory.Normalize(value)
 }

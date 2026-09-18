@@ -1,6 +1,9 @@
 package methods
 
-import "ethguard/rpc"
+import (
+	"ethguard/rpc"
+	"ethguard/rpc/internal/policy"
+)
 
 // MethodGetTransactionReceipt is the JSON-RPC method name resolved by
 // TransactionReceiptPolicy.
@@ -15,5 +18,5 @@ const MethodGetTransactionReceipt = "eth_getTransactionReceipt"
 // conflict. The receipt schema's required-field set binds typed decoding
 // after verification, at the root client's decode boundary.
 func TransactionReceiptPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return admissionPolicy{Policy: rpc.Strict(normalizeReceiptObject, opts...), admit: admitReceipt}
+	return policy.WithAdmission(rpc.Strict(normalizeReceiptObject, opts...), admitReceipt)
 }

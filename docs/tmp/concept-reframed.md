@@ -237,6 +237,8 @@ OpenRPC 仅作为 CI 离线参考资料，用于：
 - Receipt 对象语义已迁移到 `rpc/internal/objects/receipt`，方法层保留兼容入口；
 - Block 和 Transaction 对象语义已迁移到 `rpc/internal/objects`，方法层保留兼容入口；
 - Log 对象语义已迁移到 `rpc/internal/objects/log`，方法层保留方法专属装配；
+- FeeHistory 响应语义已迁移到 `rpc/internal/objects/feehistory`；
+- 通用 admission decorator 已迁移到 `rpc/internal/policy`；
 - `rpc.AggregateFields`：通用 JSON path 观测归约；
 - `Common`、`Residuals`、`Conflicts` 及来源保留；
 - `rpc/methods.ProjectStandard`：方法级标准字段投影；

@@ -2,6 +2,7 @@ package methods
 
 import (
 	"ethguard/rpc"
+	"ethguard/rpc/internal/policy"
 )
 
 // MethodGetBlockReceipts is the JSON-RPC method name resolved by
@@ -15,5 +16,5 @@ const MethodGetBlockReceipts = "eth_getBlockReceipts"
 // Prepare because this method has no stable pending-block receipt semantics.
 func BlockReceiptsPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
 	prepared := rpc.RejectPending(0)(rpc.WithAnchor(anchor, 0)(rpc.Strict(normalizeBlockReceiptList, opts...)))
-	return admissionPolicy{Policy: prepared, admit: admitBlockReceipts}
+	return policy.WithAdmission(prepared, admitBlockReceipts)
 }
