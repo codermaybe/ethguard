@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 // MethodCall is the JSON-RPC method name resolved by CallPolicy.
@@ -33,7 +34,7 @@ func CallPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
 func normalizeCallOutcome(value json.RawMessage) (string, error) {
 	var result string
 	if err := json.Unmarshal(value, &result); err == nil {
-		data, err := normalizeHexData(value)
+		data, err := wire.NormalizeHexData(value)
 		if err != nil {
 			return "", err
 		}

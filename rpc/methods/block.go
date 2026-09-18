@@ -37,9 +37,5 @@ func (p blockPolicy) Admit(ctx context.Context, req rpc.Request, value json.RawM
 	if !fullTx {
 		return nil, nil
 	}
-	return admitBlock(ctx, req, value, p.byHash, call)
-}
-
-func admitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHash bool, call rpc.AdmissionCaller) (json.RawMessage, error) {
-	return blockobject.AdmitBlock(ctx, req, raw, byHash, call)
+	return blockobject.AdmitBlock(ctx, req, value, p.byHash, call)
 }

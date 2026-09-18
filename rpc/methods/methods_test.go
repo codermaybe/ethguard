@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 func TestStateReadPoliciesPinMovingTagsAndPreserveExplicitReferences(t *testing.T) {
@@ -90,22 +91,22 @@ func TestStrictWireScalarHelpers(t *testing.T) {
 		{`"0x1"`, "1"},
 		{`"0xAB"`, "171"},
 	} {
-		got, err := normalizeWireQuantity(json.RawMessage(tc.input))
+		got, err := wire.NormalizeWireQuantity(json.RawMessage(tc.input))
 		if err != nil || got != tc.want {
-			t.Fatalf("normalizeWireQuantity(%s) = %q, %v; want %q", tc.input, got, err, tc.want)
+			t.Fatalf("wire.NormalizeWireQuantity(%s) = %q, %v; want %q", tc.input, got, err, tc.want)
 		}
 	}
 	for _, input := range []string{`"0x00"`, `"0x01"`, `"0x"`, `"0xg"`} {
-		if _, err := normalizeWireQuantity(json.RawMessage(input)); err == nil {
-			t.Fatalf("normalizeWireQuantity(%s) unexpectedly succeeded", input)
+		if _, err := wire.NormalizeWireQuantity(json.RawMessage(input)); err == nil {
+			t.Fatalf("wire.NormalizeWireQuantity(%s) unexpectedly succeeded", input)
 		}
 	}
-	data, err := normalizeWireData(json.RawMessage(`"0X0012AB"`))
+	data, err := wire.NormalizeWireData(json.RawMessage(`"0X0012AB"`))
 	if err != nil || data != "0x0012ab" {
-		t.Fatalf("normalizeWireData() = %q, %v", data, err)
+		t.Fatalf("wire.NormalizeWireData() = %q, %v", data, err)
 	}
-	if _, err := validateWireFixedHex(json.RawMessage(`"0x01"`), 4, "hash"); err == nil {
-		t.Fatal("validateWireFixedHex accepted a short hash")
+	if _, err := wire.ValidateWireFixedHex(json.RawMessage(`"0x01"`), 4, "hash"); err == nil {
+		t.Fatal("wire.ValidateWireFixedHex accepted a short hash")
 	}
 }
 
@@ -208,26 +209,26 @@ func TestBlockReceiptsPolicyPreservesEmptyArrayAndRejectsNullElement(t *testing.
 }
 
 func TestNormalizeHexDataFoldsCaseAndAllowsEmpty(t *testing.T) {
-	first, err := normalizeHexData(json.RawMessage(`"0x6080FE"`))
+	first, err := wire.NormalizeHexData(json.RawMessage(`"0x6080FE"`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := normalizeHexData(json.RawMessage(`"0x6080fe"`))
+	second, err := wire.NormalizeHexData(json.RawMessage(`"0x6080fe"`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	empty, err := normalizeHexData(json.RawMessage(`"0x"`))
+	empty, err := wire.NormalizeHexData(json.RawMessage(`"0x"`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first != second || first != "0x6080fe" || empty != "0x" {
 		t.Fatalf("unexpected canonical data: %q, %q, %q", first, second, empty)
 	}
-	if _, err := normalizeHexData(json.RawMessage(`"6080"`)); err == nil {
+	if _, err := wire.NormalizeHexData(json.RawMessage(`"6080"`)); err == nil {
 		t.Fatal("expected non-0x data to be rejected")
 	}
 	for _, malformed := range []string{`"0x1"`, `"0xgg"`, `null`} {
-		if _, err := normalizeHexData(json.RawMessage(malformed)); err == nil {
+		if _, err := wire.NormalizeHexData(json.RawMessage(malformed)); err == nil {
 			t.Fatalf("expected malformed data %s to be rejected", malformed)
 		}
 	}
@@ -235,7 +236,7 @@ func TestNormalizeHexDataFoldsCaseAndAllowsEmpty(t *testing.T) {
 
 func TestNormalizeStorageWordRequiresExactly32Bytes(t *testing.T) {
 	word := `"0x00000000000000000000000000000000000000000000000000000000000000AB"`
-	canonical, err := normalizeStorageWord(json.RawMessage(word))
+	canonical, err := wire.NormalizeStorageWord(json.RawMessage(word))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,25 +244,25 @@ func TestNormalizeStorageWordRequiresExactly32Bytes(t *testing.T) {
 		t.Fatalf("unexpected storage word canonical form: %q", canonical)
 	}
 	for _, malformed := range []string{`"0x"`, `"0x01"`, `"0x000000000000000000000000000000000000000000000000000000000000000001"`, `"0x00000000000000000000000000000000000000000000000000000000000000GG"`, `null`} {
-		if _, err := normalizeStorageWord(json.RawMessage(malformed)); err == nil {
+		if _, err := wire.NormalizeStorageWord(json.RawMessage(malformed)); err == nil {
 			t.Fatalf("expected malformed storage word %s to be rejected", malformed)
 		}
 	}
 }
 
 func TestNormalizeDecimalStringComparesNumerically(t *testing.T) {
-	first, err := normalizeDecimalString(json.RawMessage(`"01"`))
+	first, err := wire.NormalizeDecimalString(json.RawMessage(`"01"`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := normalizeDecimalString(json.RawMessage(`"1"`))
+	second, err := wire.NormalizeDecimalString(json.RawMessage(`"1"`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first != second || first != "1" {
 		t.Fatalf("expected numeric equality across spellings, got %q vs %q", first, second)
 	}
-	if _, err := normalizeDecimalString(json.RawMessage(`"0x1"`)); err == nil {
+	if _, err := wire.NormalizeDecimalString(json.RawMessage(`"0x1"`)); err == nil {
 		t.Fatal("expected hex spelling to be rejected")
 	}
 }

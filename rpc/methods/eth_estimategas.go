@@ -2,6 +2,7 @@ package methods
 
 import (
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 // MethodEstimateGas is the JSON-RPC method name resolved by
@@ -17,5 +18,5 @@ const MethodEstimateGas = "eth_estimateGas"
 // no-valid-response, so "this call reverts" is never laundered into a
 // number.
 func EstimateGasPolicy(anchor rpc.AnchorFunc) rpc.Policy {
-	return rpc.WithAnchor(anchor, 1)(rpc.Median(normalizeWireQuantity))
+	return rpc.WithAnchor(anchor, 1)(rpc.Median(wire.NormalizeWireQuantity))
 }

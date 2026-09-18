@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 // MethodCreateAccessList is the JSON-RPC method name resolved by
@@ -23,5 +24,5 @@ func CreateAccessListPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc
 // key: hexadecimal casing or JSON key ordering differences do not cause false
 // conflicts, and vendor extension fields do not either.
 func normalizeAccessList(value json.RawMessage) (string, error) {
-	return PruneMethod(MethodCreateAccessList, value)
+	return wire.PruneMethod(MethodCreateAccessList, value)
 }

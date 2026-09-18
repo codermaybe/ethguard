@@ -2,6 +2,7 @@ package methods
 
 import (
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 // MethodGetCode is the JSON-RPC method name resolved by GetCodePolicy.
@@ -14,5 +15,5 @@ const MethodGetCode = "eth_getCode"
 // underlying strict resolution. Moving tags are anchored; explicit block
 // numbers, hashes, and pending pass through unchanged.
 func GetCodePolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(1, normalizeHexData, anchor, opts...)
+	return rpc.Anchored(1, wire.NormalizeHexData, anchor, opts...)
 }

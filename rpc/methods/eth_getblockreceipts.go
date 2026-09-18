@@ -1,8 +1,13 @@
 package methods
 
 import (
+	"context"
+	"encoding/json"
+
 	"ethguard/rpc"
+	"ethguard/rpc/internal/objects/receipt"
 	"ethguard/rpc/internal/policy"
+	"ethguard/rpc/internal/wire"
 )
 
 // MethodGetBlockReceipts is the JSON-RPC method name resolved by
@@ -17,4 +22,15 @@ const MethodGetBlockReceipts = "eth_getBlockReceipts"
 func BlockReceiptsPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
 	prepared := rpc.RejectPending(0)(rpc.WithAnchor(anchor, 0)(rpc.Strict(normalizeBlockReceiptList, opts...)))
 	return policy.WithAdmission(prepared, admitBlockReceipts)
+}
+
+func admitBlockReceipts(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
+	if err := receipt.AdmitBlock(req, value); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func normalizeBlockReceiptList(value json.RawMessage) (string, error) {
+	return receipt.NormalizeBlock(value, wire.PruneMethod, MethodGetBlockReceipts)
 }

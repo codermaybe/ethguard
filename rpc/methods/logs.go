@@ -7,6 +7,7 @@ import (
 
 	"ethguard/rpc"
 	logobject "ethguard/rpc/internal/objects/log"
+	"ethguard/rpc/internal/wire"
 )
 
 // This file is the Log object slice: Log validation (requiredness) and the
@@ -55,7 +56,7 @@ func normalizeLogs(value json.RawMessage) (string, error) {
 			return "", fmt.Errorf("logs[%d]: %w", i, err)
 		}
 	}
-	return PruneMethod(MethodGetLogs, trimmed)
+	return wire.PruneMethod(MethodGetLogs, trimmed)
 }
 
 // validateLogsResponse is intentionally stricter than types.Log's JSON

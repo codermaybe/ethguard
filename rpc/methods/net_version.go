@@ -2,6 +2,7 @@ package methods
 
 import (
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 // MethodNetVersion is the JSON-RPC method name resolved by NetVersionPolicy.
@@ -12,5 +13,5 @@ const MethodNetVersion = "net_version"
 // eth_chainId's hex quantity, so it gets its own normalizer rather than
 // sharing one.
 func NetVersionPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Strict(normalizeDecimalString, opts...)
+	return rpc.Strict(wire.NormalizeDecimalString, opts...)
 }

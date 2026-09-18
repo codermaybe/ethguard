@@ -288,7 +288,7 @@ rpc/
 - 为未知方法设计稳定的 `ObservedOnly` 调用接口；
 - 将 OpenRPC CI diff 和方法字段声明接入自动化检查。
 
-本轮收尾：`prune` 的实现也已移出 `rpc/methods`。当前 methods 中的 `normalize.go`、`projection.go`、`prune.go` 和对象兼容文件仅承担兼容转发；新的共享实现不再依赖 methods，依赖方向固定为 `methods -> rpc/internal -> rpc`。后续若确认没有外部调用者，可再删除这些兼容薄层，但不把删除薄层与本轮功能迁移混在一起。
+本轮收尾：`prune`、wire 归一化和对象兼容转发已经从 `rpc/methods` 收口。methods 现在只保留方法入口、方法策略、目录注册，以及少量与具体方法绑定的适配函数；新的共享实现不再依赖 methods，依赖方向固定为 `methods -> rpc/internal -> rpc`。
 
 ### 批量迁移工具约束
 

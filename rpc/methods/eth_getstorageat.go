@@ -2,6 +2,7 @@ package methods
 
 import (
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 // MethodGetStorageAt is the JSON-RPC method name resolved by
@@ -16,5 +17,5 @@ const MethodGetStorageAt = "eth_getStorageAt"
 // explicit numbers, hashes, and pending pass through. Strict options pass
 // through to the underlying strict resolution.
 func GetStorageAtPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(2, normalizeStorageWord, anchor, opts...)
+	return rpc.Anchored(2, wire.NormalizeStorageWord, anchor, opts...)
 }

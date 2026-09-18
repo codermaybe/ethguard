@@ -2,6 +2,7 @@ package methods
 
 import (
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 // MethodGetBalance is the JSON-RPC method name resolved by GetBalancePolicy.
@@ -16,5 +17,5 @@ const MethodGetBalance = "eth_getBalance"
 // numbers, hashes, and pending pass through unchanged; pending is supported
 // as an explicit provider state request rather than a moving tag.
 func GetBalancePolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(1, normalizeWireQuantity, anchor, opts...)
+	return rpc.Anchored(1, wire.NormalizeWireQuantity, anchor, opts...)
 }

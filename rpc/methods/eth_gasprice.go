@@ -2,6 +2,7 @@ package methods
 
 import (
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 // MethodGasPrice is the JSON-RPC method name resolved by GasPricePolicy.
@@ -11,4 +12,4 @@ const MethodGasPrice = "eth_gasPrice"
 // median, never claimed verified (see rpc.Median). Sources legitimately sit
 // at different moments and pricing policies; disagreement is spread
 // evidence, not dissent.
-func GasPricePolicy() rpc.Policy { return rpc.Median(normalizeWireQuantity) }
+func GasPricePolicy() rpc.Policy { return rpc.Median(wire.NormalizeWireQuantity) }
