@@ -103,10 +103,13 @@ type Decision struct {
 	// carries no Ethereum semantic claim. Method packages may project it into
 	// their compile-time standard field set.
 	Observed *CommonObservation
-	BlockRef string
-	Support  []SourceRef
-	Reject   []SourceRef
-	Faults   []error
+	// Extensions contains non-core fields projected by an optional method
+	// semantic projector and bound to Value's core fingerprint.
+	Extensions *ExtensionSet
+	BlockRef   string
+	Support    []SourceRef
+	Reject     []SourceRef
+	Faults     []error
 	// Evidence belongs to the selected value and is populated by an
 	// AdmissionPolicy. It is opaque to generic callers.
 	Evidence json.RawMessage

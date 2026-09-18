@@ -264,6 +264,15 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	decision.Reference = capture.Reference()
 	decision.Participants = participants
 	decision.Observed = observed
+	if resolveErr == nil && observed != nil {
+		if projector, ok := policy.(rpc.ObservationProjector); ok {
+			if extensions, projectionErr := projector.ProjectObservation(decision.Value, *observed); projectionErr == nil {
+				decision.Extensions = &extensions
+			} else {
+				decision.Faults = append(decision.Faults, fmt.Errorf("projection: %w", projectionErr))
+			}
+		}
+	}
 	if provider, ok := policy.(rpc.BlockRefProvider); ok {
 		decision.BlockRef = provider.BlockRef(req, prepared)
 	}

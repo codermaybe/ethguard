@@ -28,6 +28,14 @@ type AdmissionPolicy interface {
 	Admit(context.Context, Request, json.RawMessage, AdmissionCaller) (json.RawMessage, error)
 }
 
+// ObservationProjector is an optional semantic-room capability. It turns a
+// generic observation into source-bound extensions for the selected core
+// value. Policies that do not implement it retain the existing decision
+// shape.
+type ObservationProjector interface {
+	ProjectObservation(json.RawMessage, CommonObservation) (ExtensionSet, error)
+}
+
 // CorroboratingPolicy is the optional capability of a policy whose resolution
 // is adjudicated against an invocation's fixed voting basis: the aggregator
 // supplies the corroboration mode and support floor captured before any

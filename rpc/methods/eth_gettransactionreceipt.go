@@ -1,6 +1,8 @@
 package methods
 
 import (
+	"encoding/json"
+
 	"ethguard/rpc"
 )
 
@@ -17,5 +19,11 @@ const MethodGetTransactionReceipt = "eth_getTransactionReceipt"
 // conflict. The receipt schema's required-field set binds typed decoding
 // after verification, at the root client's decode boundary.
 func TransactionReceiptPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return admissionPolicy{Policy: rpc.Strict(normalizeReceiptObject, opts...), admit: admitReceipt}
+	return projectingAdmissionPolicy{
+		admissionPolicy: admissionPolicy{Policy: rpc.Strict(normalizeReceiptObject, opts...), admit: admitReceipt},
+		project: func(value json.RawMessage, observed rpc.CommonObservation) (rpc.ExtensionSet, error) {
+			projection := ProjectStandard(observed, TransactionReceiptStandardFields())
+			return projection.Carrier(value)
+		},
+	}
 }

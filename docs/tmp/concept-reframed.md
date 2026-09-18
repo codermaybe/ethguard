@@ -241,10 +241,12 @@ OpenRPC 仅作为 CI 离线参考资料，用于：
 - 转发模式不产生 CommonSet 声明。
 - 扩展 Carrier：按核心对象指纹绑定公共扩展、Provider residual 和冲突字段；
 - 未注册方法的 `Decision.ObservedView()` 观察结果接口。
+- 通过可选 `ObservationProjector` 将已接入方法的观测结果写入 `Decision.Extensions`；
+- `eth_getTransactionReceipt` 已完成标准字段投影和扩展 Carrier 接入。
 
 尚未完成：
 
 - 将每个已注册方法的标准字段声明补齐；
-- 将投影结果包装为面向调用方的扩展 Carrier；
+- 为更多已注册方法补充投影器和扩展 Carrier；
 - 为未知方法设计稳定的 `ObservedOnly` 调用接口；
 - 将 OpenRPC CI diff 和方法字段声明接入自动化检查。
