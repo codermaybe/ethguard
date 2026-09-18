@@ -289,3 +289,7 @@ rpc/
 - 将 OpenRPC CI diff 和方法字段声明接入自动化检查。
 
 本轮收尾：`prune` 的实现也已移出 `rpc/methods`。当前 methods 中的 `normalize.go`、`projection.go`、`prune.go` 和对象兼容文件仅承担兼容转发；新的共享实现不再依赖 methods，依赖方向固定为 `methods -> rpc/internal -> rpc`。后续若确认没有外部调用者，可再删除这些兼容薄层，但不把删除薄层与本轮功能迁移混在一起。
+
+### 批量迁移工具约束
+
+`gomvpkg` 适合整个 package 的路径迁移，`goimports` 适合迁移后的导入修复；两者都不负责从混合 package 中判断文件职责。因此本项目采用“职责边界先确定、共享实现按 package 成组迁移、工具批量修复引用”的流程。不能直接把整个 `rpc/methods` 移到 `rpc/internal`，否则会连同具体 JSON-RPC 方法一起迁移。
