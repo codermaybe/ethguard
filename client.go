@@ -330,6 +330,11 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 			aggregator.WithCorroboration(corrob),
 			aggregator.WithProjectors(map[string]rpc.ObservationProjector{
 				methods.MethodGetTransactionReceipt: methods.NewStandardProjector(methods.TransactionReceiptStandardFields()),
+				methods.MethodGetBlockByHash:        methods.NewStandardProjector(methods.BlockStandardFields()),
+				methods.MethodGetBlockByNumber:      methods.NewStandardProjector(methods.BlockStandardFields()),
+				methods.MethodGetTransactionByHash:  methods.NewStandardProjector(methods.TransactionStandardFields()),
+				methods.MethodGetBalance:            methods.ScalarStandardProjector(),
+				methods.MethodCall:                  methods.ScalarStandardProjector(),
 			})),
 		policies:       policies,
 		resolver:       resolver,

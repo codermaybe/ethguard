@@ -113,3 +113,74 @@ var transactionReceiptStandardFields = []StandardField{
 func TransactionReceiptStandardFields() []StandardField {
 	return append([]StandardField(nil), transactionReceiptStandardFields...)
 }
+
+var blockStandardFields = []StandardField{
+	{Path: "/hash", Required: true},
+	{Path: "/parentHash", Required: true},
+	{Path: "/sha3Uncles", Required: true},
+	{Path: "/transactionsRoot", Required: true},
+	{Path: "/stateRoot", Required: true},
+	{Path: "/receiptsRoot", Required: true},
+	{Path: "/miner", Required: true},
+	{Path: "/difficulty", Required: true},
+	{Path: "/number", Required: true},
+	{Path: "/gasLimit", Required: true},
+	{Path: "/gasUsed", Required: true},
+	{Path: "/timestamp", Required: true},
+	{Path: "/extraData", Required: true},
+	{Path: "/logsBloom", Required: true},
+	{Path: "/mixHash", Required: true},
+	{Path: "/nonce", Required: true},
+	{Path: "/transactions", Required: true},
+	{Path: "/uncles", Required: true},
+	{Path: "/baseFeePerGas", Required: false},
+	{Path: "/withdrawalsRoot", Required: false},
+	{Path: "/blobGasUsed", Required: false},
+	{Path: "/excessBlobGas", Required: false},
+	{Path: "/parentBeaconBlockRoot", Required: false},
+	{Path: "/requestsHash", Required: false},
+}
+
+// BlockStandardFields returns the compile-time core projection for block
+// responses. Fork-specific fields remain optional and are admitted by the
+// block policy when present.
+func BlockStandardFields() []StandardField {
+	return append([]StandardField(nil), blockStandardFields...)
+}
+
+var transactionStandardFields = []StandardField{
+	{Path: "/hash", Required: true},
+	{Path: "/nonce", Required: true},
+	{Path: "/blockHash", Required: true},
+	{Path: "/blockNumber", Required: true},
+	{Path: "/transactionIndex", Required: true},
+	{Path: "/from", Required: true},
+	{Path: "/to", Required: false},
+	{Path: "/value", Required: true},
+	{Path: "/gas", Required: true},
+	{Path: "/gasPrice", Required: false},
+	{Path: "/input", Required: true},
+	{Path: "/v", Required: true},
+	{Path: "/r", Required: true},
+	{Path: "/s", Required: true},
+	{Path: "/type", Required: true},
+	{Path: "/chainId", Required: false},
+	{Path: "/accessList", Required: false},
+	{Path: "/maxFeePerGas", Required: false},
+	{Path: "/maxPriorityFeePerGas", Required: false},
+	{Path: "/yParity", Required: false},
+	{Path: "/blobVersionedHashes", Required: false},
+	{Path: "/maxFeePerBlobGas", Required: false},
+}
+
+// TransactionStandardFields returns the compile-time core projection for
+// eth_getTransactionByHash responses.
+func TransactionStandardFields() []StandardField {
+	return append([]StandardField(nil), transactionStandardFields...)
+}
+
+// ScalarStandardProjector projects scalar result methods such as balance and
+// call. The root JSON path is the scalar value itself.
+func ScalarStandardProjector() rpc.ObservationProjector {
+	return NewStandardProjector([]StandardField{{Path: "", Required: true}})
+}

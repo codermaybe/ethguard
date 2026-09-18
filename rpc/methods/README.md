@@ -54,6 +54,11 @@ method policy therefore keeps its existing admission, anchoring, and
 corroboration capabilities; adding a projection does not require wrapping or
 reimplementing that policy.
 
+The current client assembly reuses the same projector for receipt, block,
+transaction, balance, and call methods. Only their compile-time field lists
+vary; array-shaped methods such as logs still require a dedicated projection
+shape before they are registered.
+
 ## Coverage inventory
 
 The package exposes `Catalog()` and `RegisteredNames()` as a read-only method
