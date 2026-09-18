@@ -268,8 +268,8 @@ OpenRPC 仅作为 CI 离线参考资料，用于：
 ```text
 rpc/
   methods/              具体 JSON-RPC 方法和方法目录
+  projection/           标准字段投影和 Carrier 装配（公共 rpc 子包）
   internal/
-    projection/         标准字段投影和 Carrier 装配
     wire/               JSON wire 归一化和裁剪
     objects/            Block、Receipt、Transaction、Log 等对象语义
     policy/             通用 admission/decorator
@@ -288,7 +288,7 @@ rpc/
 - 为未知方法设计稳定的 `ObservedOnly` 调用接口；
 - 将 OpenRPC CI diff 和方法字段声明接入自动化检查。
 
-本轮收尾：`prune`、wire 归一化和对象兼容转发已经从 `rpc/methods` 收口。methods 现在只保留方法入口、方法策略、目录注册，以及少量与具体方法绑定的适配函数；新的共享实现不再依赖 methods，依赖方向固定为 `methods -> rpc/internal -> rpc`。
+本轮收尾：`prune`、wire 归一化和对象兼容转发已经从 `rpc/methods` 收口。methods 现在只保留方法入口、方法策略、目录注册，以及少量与具体方法绑定的适配函数；新的共享实现不再依赖 methods，依赖方向固定为 `methods -> rpc/internal -> rpc`，客户端通过公共 `rpc/projection` 子包使用投影能力。
 
 ### 批量迁移工具约束
 

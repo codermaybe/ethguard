@@ -1,4 +1,4 @@
-package methods
+package projection
 
 import (
 	"encoding/json"

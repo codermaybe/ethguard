@@ -14,6 +14,7 @@ import (
 	"ethguard/pool"
 	"ethguard/rpc"
 	"ethguard/rpc/methods"
+	"ethguard/rpc/projection"
 )
 
 // Client is the advanced entry point for generic calls and decision evidence.
@@ -329,14 +330,14 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 			aggregator.WithCollectTimeout(co.collectTimeout),
 			aggregator.WithCorroboration(corrob),
 			aggregator.WithProjectors(map[string]rpc.ObservationProjector{
-				methods.MethodGetTransactionReceipt: methods.NewStandardProjector(methods.TransactionReceiptStandardFields()),
-				methods.MethodGetBlockByHash:        methods.NewStandardProjector(methods.BlockStandardFields()),
-				methods.MethodGetBlockByNumber:      methods.NewStandardProjector(methods.BlockStandardFields()),
-				methods.MethodGetTransactionByHash:  methods.NewStandardProjector(methods.TransactionStandardFields()),
-				methods.MethodGetBalance:            methods.ScalarStandardProjector(),
-				methods.MethodCall:                  methods.ScalarStandardProjector(),
-				methods.MethodGetLogs:               methods.NewStandardProjector(methods.LogsStandardFields()),
-				methods.MethodFeeHistory:            methods.NewStandardProjector(methods.FeeHistoryStandardFields()),
+				methods.MethodGetTransactionReceipt: projection.NewStandardProjector(projection.TransactionReceiptStandardFields()),
+				methods.MethodGetBlockByHash:        projection.NewStandardProjector(projection.BlockStandardFields()),
+				methods.MethodGetBlockByNumber:      projection.NewStandardProjector(projection.BlockStandardFields()),
+				methods.MethodGetTransactionByHash:  projection.NewStandardProjector(projection.TransactionStandardFields()),
+				methods.MethodGetBalance:            projection.ScalarStandardProjector(),
+				methods.MethodCall:                  projection.ScalarStandardProjector(),
+				methods.MethodGetLogs:               projection.NewStandardProjector(projection.LogsStandardFields()),
+				methods.MethodFeeHistory:            projection.NewStandardProjector(projection.FeeHistoryStandardFields()),
 			})),
 		policies:       policies,
 		resolver:       resolver,
