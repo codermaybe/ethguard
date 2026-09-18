@@ -98,10 +98,15 @@ type Decision struct {
 	Participants []SourceRef
 	Status       Status
 	Value        json.RawMessage
-	BlockRef     string
-	Support      []SourceRef
-	Reject       []SourceRef
-	Faults       []error
+	// Observed is the optional generic observation-room result for this
+	// invocation. It contains source-backed common fields and residuals; it
+	// carries no Ethereum semantic claim. Method packages may project it into
+	// their compile-time standard field set.
+	Observed *CommonObservation
+	BlockRef string
+	Support  []SourceRef
+	Reject   []SourceRef
+	Faults   []error
 	// Evidence belongs to the selected value and is populated by an
 	// AdmissionPolicy. It is opaque to generic callers.
 	Evidence json.RawMessage

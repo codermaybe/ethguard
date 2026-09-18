@@ -236,15 +236,16 @@ func validateReceiptObject(value json.RawMessage) error {
 	if _, err := validateWireFixedHex(obj["logsBloom"], 512, "logsBloom"); err != nil {
 		return fmt.Errorf("receipt: logsBloom: %w", err)
 	}
-	if !presentNonNull(obj["status"]) && !presentNonNull(obj["root"]) {
+	statusPresent := presentNonNull(obj["status"])
+	rootPresent := presentNonNull(obj["root"])
+	if !statusPresent && !rootPresent {
 		return fmt.Errorf("receipt: missing status or root")
 	}
-	if presentNonNull(obj["status"]) {
+	if statusPresent {
 		if _, err := normalizeWireQuantity(obj["status"]); err != nil {
 			return fmt.Errorf("receipt: status: %w", err)
 		}
-	}
-	if presentNonNull(obj["root"]) {
+	} else if rootPresent {
 		if _, err := validateWireFixedHex(obj["root"], 64, "root"); err != nil {
 			return fmt.Errorf("receipt: root: %w", err)
 		}

@@ -40,6 +40,15 @@ Unknown or unsupported methods never get a file here; they fall through the
 registry to transparent forwarding. Default forwarding must produce
 `Forwarded`, never `Verified`.
 
+## Standard projection
+
+Method policies own the compile-time standard field declaration. The generic
+`rpc` package first produces a source-backed `CommonSet`; this package then
+projects it with `ProjectStandard`. Declared paths become core fields,
+undeclared common paths become extensions, and missing required paths remain
+an explicit method error. OpenRPC is used only as an offline CI reference and
+is not loaded by the production projection path.
+
 ## Coverage inventory
 
 The package exposes `Catalog()` and `RegisteredNames()` as a read-only method

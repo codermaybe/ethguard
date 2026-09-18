@@ -232,8 +232,14 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		}
 		participants = append(participants, observations[i].Source)
 	}
+	var observed *rpc.CommonObservation
+	if snapOK && snap.Mode != rpc.CorroborationForwarded {
+		if common, observationErr := rpc.AggregateFields(observations, snap.Required(len(observations))); observationErr == nil {
+			observed = &common
+		}
+	}
 	if collectErr != nil && !hasUsableEmission(emissions) {
-		decision := rpc.Decision{Faults: collectionFaults(policy, collectErr, emissions), Reference: capture.Reference(), Participants: participants}
+		decision := rpc.Decision{Faults: collectionFaults(policy, collectErr, emissions), Reference: capture.Reference(), Participants: participants, Observed: observed}
 		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions)
 		return decision, collectErr
 	}
@@ -243,7 +249,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// typed callers instead of replacing it with ErrNoValidResponse.
 	if collectErr == nil && !hasUsableEmission(emissions) && hasMalformedAdmission(emissions) {
 		admissionErr := firstMalformedAdmission(emissions)
-		decision := rpc.Decision{Faults: sourceFaults(policy, emissions), Reference: capture.Reference(), Participants: participants}
+		decision := rpc.Decision{Faults: sourceFaults(policy, emissions), Reference: capture.Reference(), Participants: participants, Observed: observed}
 		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
 		a.recordDecision(started, req.Method, policy, decision, err, emissions)
 		return decision, err
@@ -257,6 +263,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	}
 	decision.Reference = capture.Reference()
 	decision.Participants = participants
+	decision.Observed = observed
 	if provider, ok := policy.(rpc.BlockRefProvider); ok {
 		decision.BlockRef = provider.BlockRef(req, prepared)
 	}

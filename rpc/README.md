@@ -29,5 +29,9 @@ Method packages can project `Common` into their locked, method-specific core
 fields and carry the remaining observations as extensions. OpenRPC is not a
 runtime dependency of this reduction path.
 
+An aggregate `Decision` may expose the same source-backed result through
+`Decision.Observed` when the client is running in corroborated mode. Forwarded
+calls intentionally do not make a common-set claim.
+
 This package does not select upstreams or own connections; `SourceRef`
 keeps it decoupled from pool's connection and health implementation.
