@@ -252,5 +252,32 @@ OpenRPC 仅作为 CI 离线参考资料，用于：
 
 - 将每个已注册方法的标准字段声明补齐；
 - 对数组结果增加更严格的长度、覆盖范围和分页完整性校验；
+
+## 12. `rpc/methods` 技术负债偿还计划
+
+当前目录同时包含具体方法、Ethereum 对象语义、wire 归一化、投影和策略装饰器。该混合状态已经影响审计和后续扩展，因此在功能装配稳定后进行结构迁移。
+
+目标结构为：
+
+```text
+rpc/
+  methods/              具体 JSON-RPC 方法和方法目录
+  internal/
+    projection/         标准字段投影和 Carrier 装配
+    wire/               JSON wire 归一化和裁剪
+    objects/            Block、Receipt、Transaction、Log 等对象语义
+    policy/             通用 admission/decorator
+```
+
+迁移原则：
+
+1. `rpc/methods` 保留每个具体方法的原生文件名和公共构造函数；
+2. 共享实现移入 `rpc/internal`，不扩大项目公共 API；
+3. 迁移顺序从底层依赖到上层方法：projection → wire → objects → policy；
+4. 每个阶段保留兼容转发入口，阶段结束后运行全仓测试；
+5. 不在迁移期间同时改变方法语义、quorum 规则或返回接口；
+6. 每个阶段独立提交，出现问题可以单独回滚。
+
+阶段一是 projection 迁移；阶段二迁移 wire 归一化和旧裁剪逻辑；阶段三按对象迁移 Receipt、Block、Transaction、Log 和 FeeHistory；阶段四迁移通用 Policy decorator；最后删除兼容转发代码并重新检查依赖方向。
 - 为未知方法设计稳定的 `ObservedOnly` 调用接口；
 - 将 OpenRPC CI diff 和方法字段声明接入自动化检查。
