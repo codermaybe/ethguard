@@ -57,3 +57,13 @@ func TestLogsAdmissionBindsBlockHash(t *testing.T) {
 		t.Fatalf("expected block binding failure, got %v", err)
 	}
 }
+
+func TestLogsAdmissionBindsRequestedRange(t *testing.T) {
+	p := LogsPolicy(func(context.Context) (uint64, error) { return 1, nil })
+	row := `{"address":"0x0000000000000000000000000000000000000001","topics":[],"data":"0x","blockNumber":"0x5","transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000001","transactionIndex":"0x0","blockHash":"0x0000000000000000000000000000000000000000000000000000000000000002","logIndex":"0x0","removed":false}`
+	admit := p.(rpc.AdmissionPolicy)
+	_, err := admit.Admit(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{map[string]any{"fromBlock": "0x1", "toBlock": "0x4"}}}, json.RawMessage("["+row+"]"), nil)
+	if !errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("expected range binding failure, got %v", err)
+	}
+}

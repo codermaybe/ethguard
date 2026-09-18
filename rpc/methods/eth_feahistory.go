@@ -67,7 +67,32 @@ func (p feeHistoryPolicy) Admit(_ context.Context, req rpc.Request, value json.R
 	if _, err := normalizeFeeHistory(value); err != nil {
 		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
 	}
+	if err := validateFeeHistoryRange(req, value); err != nil {
+		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+	}
 	return nil, nil
+}
+
+func validateFeeHistoryRange(req rpc.Request, value json.RawMessage) error {
+	count, err := requestQuantity(req.Params[0], false)
+	if err != nil || count == 0 {
+		return fmt.Errorf("invalid block count")
+	}
+	var response struct {
+		Oldest json.RawMessage   `json:"oldestBlock"`
+		Gas    []json.RawMessage `json:"gasUsedRatio"`
+	}
+	if err := json.Unmarshal(value, &response); err != nil {
+		return fmt.Errorf("malformed response")
+	}
+	if uint64(len(response.Gas)) != count {
+		return fmt.Errorf("gasUsedRatio length %d does not match requested block count %d", len(response.Gas), count)
+	}
+	_, err = normalizeWireQuantity(response.Oldest)
+	if err != nil {
+		return fmt.Errorf("oldestBlock: %w", err)
+	}
+	return nil
 }
 
 func validateFeeHistoryRequest(req rpc.Request) error {

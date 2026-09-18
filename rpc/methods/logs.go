@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -141,6 +142,46 @@ func validateLogRequestBinding(req rpc.Request, rows []json.RawMessage) error {
 			if err := json.Unmarshal(obj["blockHash"], &got); err != nil || got != want {
 				return fmt.Errorf("log %d blockHash does not match requested blockHash", i)
 			}
+		}
+		return nil
+	}
+	var from, to *uint64
+	if value, ok := filter["fromBlock"]; ok {
+		bound, err := requestQuantity(value, false)
+		if err != nil {
+			return fmt.Errorf("fromBlock is invalid: %w", err)
+		}
+		from = &bound
+	}
+	if value, ok := filter["toBlock"]; ok {
+		bound, err := requestQuantity(value, false)
+		if err != nil {
+			return fmt.Errorf("toBlock is invalid: %w", err)
+		}
+		to = &bound
+	}
+	if from != nil && to != nil && *from > *to {
+		return fmt.Errorf("fromBlock is greater than toBlock")
+	}
+	for i, row := range rows {
+		if from == nil && to == nil {
+			break
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(row, &obj); err != nil {
+			return fmt.Errorf("log %d is malformed: %w", i, err)
+		}
+		block, err := normalizeWireQuantity(obj["blockNumber"])
+		if err != nil {
+			return fmt.Errorf("log %d blockNumber: %w", i, err)
+		}
+		value, ok := new(big.Int).SetString(block, 10)
+		if !ok || !value.IsUint64() {
+			return fmt.Errorf("log %d blockNumber is out of range", i)
+		}
+		height := value.Uint64()
+		if from != nil && height < *from || to != nil && height > *to {
+			return fmt.Errorf("log %d blockNumber is outside requested range", i)
 		}
 	}
 	return nil

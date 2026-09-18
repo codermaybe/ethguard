@@ -52,3 +52,13 @@ func TestFeeHistoryAdmissionRejectsMalformedResponse(t *testing.T) {
 		t.Fatalf("expected malformed response, got %v", err)
 	}
 }
+
+func TestFeeHistoryAdmissionRequiresRequestedBlockCount(t *testing.T) {
+	p := FeeHistoryPolicy(func(context.Context) (uint64, error) { return 1, nil })
+	admit := p.(rpc.AdmissionPolicy)
+	value := json.RawMessage(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2","0x3"],"gasUsedRatio":[0.5],"reward":[[]]}`)
+	_, err := admit.Admit(context.Background(), rpc.Request{Method: MethodFeeHistory, Params: []any{uint64(2), "0x2", []float64{}}}, value, nil)
+	if !errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("expected block-count mismatch, got %v", err)
+	}
+}

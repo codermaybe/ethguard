@@ -245,6 +245,8 @@ OpenRPC 仅作为 CI 离线参考资料，用于：
 - `eth_getTransactionReceipt` 已完成标准字段投影和扩展 Carrier 接入。
 - 区块、交易、余额和调用方法已复用同一 projector 装配机制；
 - 日志和 fee history 已通过 JSON Pointer 通配路径接入同一装配机制；
+- 日志响应会校验请求的 blockHash 或 fromBlock/toBlock 覆盖范围；
+- fee history 会校验请求 blockCount 与响应数组长度一致；
 
 尚未完成：
 
