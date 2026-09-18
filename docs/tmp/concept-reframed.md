@@ -233,7 +233,7 @@ OpenRPC 仅作为 CI 离线参考资料，用于：
 
 已完成：
 
-- wire 归一化实现已迁移到 `rpc/internal/wire`，`rpc/methods` 保留兼容转发；
+- wire 归一化与基于 OpenRPC 离线结果契约的 JSON 裁剪实现已迁移到 `rpc/internal/wire`，`rpc/methods` 只保留兼容转发；
 - Receipt 对象语义已迁移到 `rpc/internal/objects/receipt`，方法层保留兼容入口；
 - Block 和 Transaction 对象语义已迁移到 `rpc/internal/objects`，方法层保留兼容入口；
 - Log 对象语义已迁移到 `rpc/internal/objects/log`，方法层保留方法专属装配；
@@ -287,3 +287,5 @@ rpc/
 阶段一是 projection 迁移；阶段二迁移 wire 归一化和旧裁剪逻辑；阶段三按对象迁移 Receipt、Block、Transaction、Log 和 FeeHistory；阶段四迁移通用 Policy decorator；最后删除兼容转发代码并重新检查依赖方向。
 - 为未知方法设计稳定的 `ObservedOnly` 调用接口；
 - 将 OpenRPC CI diff 和方法字段声明接入自动化检查。
+
+本轮收尾：`prune` 的实现也已移出 `rpc/methods`。当前 methods 中的 `normalize.go`、`projection.go`、`prune.go` 和对象兼容文件仅承担兼容转发；新的共享实现不再依赖 methods，依赖方向固定为 `methods -> rpc/internal -> rpc`。后续若确认没有外部调用者，可再删除这些兼容薄层，但不把删除薄层与本轮功能迁移混在一起。
