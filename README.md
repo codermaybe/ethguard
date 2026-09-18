@@ -27,16 +27,17 @@ ethguard/                   # public Client facade
 ├── observe/                # passive observability seam
 │   └── prometheus/         # optional metrics adapter (kept out of core)
 ├── aggregator/             # orchestration only: Collect → Admit → Resolve
-├── rpc/                    # generic decision model (Policy/Registry/strategies)
-│   └── methods/            # Ethereum wire semantics (sole home)
-│       ├── eth_*.go        # thin per-method assembly (const + Policy + wiring)
-│       ├── receipt.go      # object slice: Receipt shape + gates + projection
-│       ├── transaction.go  # object slice: Transaction shape + hash/sig/context gates
-│       ├── block.go        # object slice: header commitments + root recompute + binding
-│       ├── logs.go         # object slice: Log shape + projection (sole Log owner)
-│       ├── prune.go        # pruning engine + mask compiler (shape gate)
-│       ├── normalize.go    # shared canonical primitives
-│       ├── catalog.go      # method coverage inventory
+├── rpc/                    # public request, decision, policy, and evidence model
+│   ├── projection/         # public standard-field projection and extension Carrier
+│   ├── methods/            # concrete Ethereum JSON-RPC methods and catalog
+│   │   ├── eth_*.go        # per-method constants, policies, and wiring
+│   │   ├── block.go        # block method policy and method-specific admission
+│   │   ├── logs.go         # log request/response binding and assembly
+│   │   └── catalog.go      # method coverage inventory
+│   └── internal/           # implementation packages used by rpc and methods
+│       ├── wire/           # JSON normalization and spec-driven pruning
+│       ├── objects/        # block, receipt, transaction, log, feeHistory rules
+│       └── policy/         # shared admission decorator
 ├── internal/
 │   ├── jsonsafe/           # bounded JSON validation (duplicate keys/limits)
 │   ├── reference/          # internal finalized/reference establishment
@@ -65,8 +66,10 @@ ethguard/                   # public Client facade
 | `ethguard/pool` | Shared upstream connections, collection, health, tips, eligibility |
 | `ethguard/observe` | Observability events (`Recorder`); never a source of security decisions |
 | `ethguard/aggregator` | Semantic quorum, conflicts, and evidence |
-| `ethguard/rpc` | JSON-RPC request, response, transport, and error model |
-| `ethguard/rpc/methods` | Ethereum wire semantics: thin per-method assembly over per-object slices |
+| `ethguard/rpc` | Public request, decision, policy, observation, and evidence model |
+| `ethguard/rpc/projection` | Standard-field projection and extension Carrier assembly |
+| `ethguard/rpc/methods` | Concrete Ethereum JSON-RPC methods, policies, and catalog |
+| `ethguard/rpc/internal` | Internal wire, object, and admission implementations |
 | `ethguard/internal/spec` | Pinned execution-apis reference data (version, schemas, vectors) |
 | `ethguard/rpctest` | Scriptable multi-source test harness over real HTTP |
 
@@ -76,10 +79,9 @@ clone pools per goroutine. Owners should close the Client when its lifetime ends
 
 Layering rules: `aggregator` only knows the `rpc.Policy` / `AdmissionPolicy`
 interfaces and never imports `methods`; `rpc` never imports `methods`
-(verified: no import cycle, `go build ./...` passes). All Ethereum wire
-knowledge lives in `rpc/methods`: thin per-method assembly (`eth_*.go`)
-over per-object vertical slices (`receipt.go`, `transaction.go`, `block.go`,
-`logs.go`).
+(verified: no import cycle, `go build ./...` passes). Ethereum method entrypoints and method-specific binding live in `rpc/methods`.
+Shared wire normalization, pruning, object semantics, and admission helpers live
+in `rpc/internal`; standard projection is exposed through `rpc/projection`.
 
 - **R1 – slice admission.** Shapes used by one method only (feeHistory,
   syncing, accessList, call/estimateGas, quantity reads) stay in `eth_*.go`;

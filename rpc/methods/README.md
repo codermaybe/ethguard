@@ -7,26 +7,16 @@ collect alongside. Shapes used by one method only stay in `eth_*.go` (R1);
 slices exist only for objects shared by ≥2 methods or carrying cryptographic
 commitments. The comparison whitelists compile at init from the trimmed
 `internal/spec/methods.json` (no generated code, no freshness gap); slices own
-requiredness. The division against the parent `rpc` package follows one
-line: `rpc` owns the `Policy` contract, the `Registry`, and the shared
-resolution strategies — everything true of any method and any JSON; this
-directory owns Ethereum method semantics — everything that requires knowing
-the wire shapes.
+requiredness. The parent `rpc` package owns the `Policy` contract, the
+`Registry`, and shared resolution strategies. This directory owns concrete
+Ethereum method entrypoints and method-specific binding. Shared wire and object
+implementations live in `rpc/internal`; standard projection and Carrier
+assembly live in `rpc/projection`.
 
-That line decides where normalizers live:
-
-- `rpc.CanonicalJSON` is the parent's only normalizer: it is true of any
-  JSON and knows nothing about Ethereum.
-- Every Ethereum wire shape is canonicalized here. Shapes shared across
-  methods collect in `normalize.go` (`normalizeHexQuantity` for every
-  quantity-shaped result, `normalizeCanonicalObject` for immutable-content
-  object reads); a method-specific shape stays in its method's file
-  (`normalizeBlockHead`). Normalizers are unexported, and the 0x/hex
-  comparison conventions never leave this directory. The one exception is
-  the uint64-shaped height parser: a spelling primitive shared with the
-  finalized-head policy and the anchor extraction, kept in
-  `rpc.ParseHexQuantity`. Which response fields are quantities at all — the wire
-  semantics — still belong to this layer alone.
+Wire and object implementations are deliberately outside this directory:
+`rpc/internal/wire` owns JSON normalization and spec-driven pruning, while
+`rpc/internal/objects` owns shared block, receipt, transaction, log, and fee-history
+semantics. Method files retain only the request binding and policy assembly.
 
 A policy describes how its method is prepared, normalized, compared,
 anchored, and classified. Initial policy groups are:
@@ -42,9 +32,7 @@ registry to transparent forwarding. Default forwarding must produce
 
 ## Standard projection
 
-Method policies own the compile-time standard field declaration. The generic
-`rpc` package first produces a source-backed `CommonSet`; this package then
-projects it with `ProjectStandard`. Declared paths become core fields,
+The public `rpc/projection` package owns the compile-time standard field declarations and projects the source-backed `CommonSet` produced by `rpc`. Declared paths become core fields,
 undeclared common paths become extensions, and missing required paths remain
 an explicit method error. OpenRPC is used only as an offline CI reference and
 is not loaded by the production projection path.
