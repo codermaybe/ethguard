@@ -21,6 +21,7 @@ type StandardField struct {
 type Projection struct {
 	Core       []rpc.FieldObservation
 	Extensions []rpc.FieldObservation
+	Residuals  []rpc.FieldObservation
 	Missing    []string
 	Conflicts  []rpc.ConflictField
 }
@@ -36,7 +37,10 @@ func ProjectStandard(observation rpc.CommonObservation, fields []StandardField) 
 		declared[field.Path] = field
 	}
 
-	result := Projection{Conflicts: append([]rpc.ConflictField(nil), observation.Conflicts...)}
+	result := Projection{
+		Conflicts: append([]rpc.ConflictField(nil), observation.Conflicts...),
+		Residuals: append([]rpc.FieldObservation(nil), observation.Residuals...),
+	}
 	seen := make(map[string]struct{}, len(observation.Common))
 	for _, field := range observation.Common {
 		seen[field.Path] = struct{}{}
@@ -58,6 +62,13 @@ func ProjectStandard(observation rpc.CommonObservation, fields []StandardField) 
 	sort.Strings(result.Missing)
 	sort.Slice(result.Conflicts, func(i, j int) bool { return result.Conflicts[i].Path < result.Conflicts[j].Path })
 	return result
+}
+
+// Carrier binds the non-core portion of a projection to the selected
+// core response. The returned fields retain their evidence level and source
+// identity; no extension is interpreted as a standard Ethereum field.
+func (p Projection) Carrier(coreValue []byte) (rpc.ExtensionSet, error) {
+	return rpc.NewExtensionSet(coreValue, p.Extensions, p.Residuals, p.Conflicts)
 }
 
 // TransactionReceiptStandardFields is the compile-time core projection for

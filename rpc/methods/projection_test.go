@@ -36,3 +36,25 @@ func TestProjectStandardSeparatesCoreExtensionsAndMissing(t *testing.T) {
 		t.Fatalf("conflicts = %#v, want status", result.Conflicts)
 	}
 }
+
+func TestProjectionExtensionsBindFingerprintAndEvidenceKind(t *testing.T) {
+	observation := rpc.CommonObservation{
+		Common:    []rpc.FieldObservation{{Path: "/l1Fee", Value: json.RawMessage(`"0x10"`), Sources: []rpc.SourceRef{{ID: "a"}, {ID: "b"}}}},
+		Residuals: []rpc.FieldObservation{{Path: "/revertReason", Value: json.RawMessage(`"oops"`), Sources: []rpc.SourceRef{{ID: "a"}}}},
+		Conflicts: []rpc.ConflictField{{Path: "/debug", Values: []rpc.FieldObservation{{Path: "/debug", Value: json.RawMessage(`1`), Sources: []rpc.SourceRef{{ID: "a"}}}, {Path: "/debug", Value: json.RawMessage(`2`), Sources: []rpc.SourceRef{{ID: "b"}}}}}},
+	}
+	p := ProjectStandard(observation, nil)
+	set, err := p.Carrier([]byte(`{"hash":"0x01"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(set.Fields) != 4 {
+		t.Fatalf("fields = %d, want 4", len(set.Fields))
+	}
+	if set.Fields[0].Kind != rpc.CorroboratedExtension || set.Fields[1].Kind != rpc.ProviderResidual {
+		t.Fatalf("kinds = %#v", set.Fields)
+	}
+	if set.Fields[0].CoreObjectFingerprint == "" || set.Fields[0].CoreObjectFingerprint != set.Fields[1].CoreObjectFingerprint {
+		t.Fatalf("fingerprints not shared: %#v", set.Fields)
+	}
+}

@@ -33,5 +33,9 @@ An aggregate `Decision` may expose the same source-backed result through
 `Decision.Observed` when the client is running in corroborated mode. Forwarded
 calls intentionally do not make a common-set claim.
 
+Callers handling an unregistered method can use `Decision.ObservedView()` as
+an explicit observation-only contract. Its dynamic JSON value and CommonSet
+are not a typed or `Verified` Ethereum result.
+
 This package does not select upstreams or own connections; `SourceRef`
 keeps it decoupled from pool's connection and health implementation.

@@ -112,6 +112,29 @@ type Decision struct {
 	Evidence json.RawMessage
 }
 
+// ObservedResult is the explicit dynamic result shape for callers handling
+// methods without a semantic projection. It must not be decoded as a Geth
+// core type or treated as Verified standard data.
+type ObservedResult struct {
+	Value       json.RawMessage
+	Status      Status
+	Observation CommonObservation
+}
+
+// ObservedView exposes a decision as an observation-only result when the
+// aggregator collected a CommonSet. Forwarded calls or failed collections
+// return false when no observation set is available.
+func (d Decision) ObservedView() (ObservedResult, bool) {
+	if d.Observed == nil {
+		return ObservedResult{}, false
+	}
+	return ObservedResult{
+		Value:       append(json.RawMessage(nil), d.Value...),
+		Status:      d.Status,
+		Observation: *d.Observed,
+	}, true
+}
+
 // String names the confidence class for observability sinks.
 func (s Status) String() string {
 	switch s {
