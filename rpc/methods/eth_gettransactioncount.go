@@ -14,5 +14,5 @@ const MethodGetTransactionCount = "eth_getTransactionCount"
 // options pass through to the underlying strict resolution. Explicit block
 // numbers, hashes, and pending pass through unchanged.
 func GetTransactionCountPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(1, normalizeHexQuantity, anchor, opts...)
+	return rpc.Anchored(1, normalizeWireQuantity, anchor, opts...)
 }

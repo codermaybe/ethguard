@@ -11,13 +11,16 @@ import (
 // methods are intentionally absent from the RPC registry because the root
 // client obtains their value from an already established reference.  Known
 // unsupported methods are listed explicitly so an omission cannot be mistaken
-// for a transparent verification guarantee.
+// for a transparent verification guarantee.  Write methods are supported
+// through the dedicated write pipeline outside the read registry, so they
+// carry no read-registry policy.
 type MethodKind uint8
 
 const (
 	RegisteredMethod MethodKind = iota
 	DerivedMethod
 	UnsupportedMethod
+	WriteMethod
 )
 
 // MethodDescriptor is the public inventory of method coverage.  Adapter is
@@ -92,8 +95,7 @@ var methodCatalog = []MethodDescriptor{
 	{Name: MethodListening, Kind: RegisteredMethod, Policy: "ListeningPolicy", Notes: "Root Client.Listening; adapter has no ethclient-shaped method."},
 	// Write path (decision-map #4): a dedicated pipeline outside the read
 	// registry. Broadcast to the full voting basis + relative-trust
-	// adjudication; no Policy entry, so ValidateRegistry does not require
-	// one here.
-	{Name: MethodSendRawTransaction, Kind: RegisteredMethod, Policy: "WritePipeline", Adapter: "SendTransaction", Notes: "Root Client.SendRawTransaction; broadcast + relative-trust, no read registry policy."},
+	// adjudication; WriteMethod entries are skipped by ValidateRegistry.
+	{Name: MethodSendRawTransaction, Kind: WriteMethod, Policy: "WritePipeline", Adapter: "SendTransaction", Notes: "Root Client.SendRawTransaction; broadcast + relative-trust, no read registry policy."},
 	{Name: "eth_getProof", Kind: UnsupportedMethod, Notes: "Not registered; no account/storage proof admission contract yet."},
 }

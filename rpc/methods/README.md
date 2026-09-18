@@ -1,8 +1,13 @@
 # RPC Method Policies
 
-This directory holds exactly one file per verified RPC method
-(`eth_chainid.go`, `eth_getblockbyhash.go`); their tests collect in
-`methods_test.go`. The division against the parent `rpc` package follows one
+This directory holds the Ethereum wire semantics: thin per-method assembly
+(`eth_*.go`: constant + `XxxPolicy()` + wiring) over per-object vertical
+slices (`receipt.go`, `transaction.go`, `block.go`, `logs.go`); their tests
+collect alongside. Shapes used by one method only stay in `eth_*.go` (R1);
+slices exist only for objects shared by ≥2 methods or carrying cryptographic
+commitments. The comparison whitelists compile at init from the trimmed
+`internal/spec/methods.json` (no generated code, no freshness gap); slices own
+requiredness. The division against the parent `rpc` package follows one
 line: `rpc` owns the `Policy` contract, the `Registry`, and the shared
 resolution strategies — everything true of any method and any JSON; this
 directory owns Ethereum method semantics — everything that requires knowing
@@ -43,8 +48,9 @@ coverage index. The inventory distinguishes three cases:
 | Kind | Meaning | Current examples |
 | --- | --- | --- |
 | Registered | A method-aware policy is installed in the default client registry. | `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `net_peerCount`, `eth_syncing`, `net_listening` |
-| Derived | The root client provides the value without fan-out. | `eth_blockNumber`, derived from the established reference |
+| Derived | The root client provides the value without fan-out. | No current catalog entry; reserved for values derived from an established reference |
 | Unsupported | A known method is intentionally absent until its contract is designed. | `eth_getProof` |
+| Write | Supported through the write pipeline outside the read registry. | `eth_sendRawTransaction` |
 
 Registered methods without an adapter-shaped wrapper remain available through
 the root client or `Client.Call`; the catalog records that distinction in the

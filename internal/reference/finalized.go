@@ -109,6 +109,13 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 		candidate = heights[len(heights)-required]
 	}
 	ref.Height = candidate
+	candidateHashes := make(map[string]struct{})
+	for _, view := range fresh {
+		if view.height == candidate {
+			candidateHashes[strings.ToLower(view.hash)] = struct{}{}
+		}
+	}
+	reorgDetected := false
 
 	// Preserve all first-round participants as the voting denominator, including
 	// failures and views that cannot support the selected finalized height.
@@ -169,6 +176,13 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 				if decodeErr == nil && v.height != candidate {
 					decodeErr = fmt.Errorf("confirmation height %d does not match %d: %w", v.height, candidate, rpc.ErrMalformedResponse)
 				}
+				if decodeErr == nil {
+					if _, same := candidateHashes[strings.ToLower(v.hash)]; !same {
+						reorgDetected = true
+						decodeErr = errors.Join(rpc.ErrAnchorMismatch, rpc.ErrReorgDetected,
+							fmt.Errorf("confirmation hash %s differs from the established candidate", v.hash))
+					}
+				}
 				if emission.Attempted {
 					attempts = append(attempts, observe.SourceEvent{Source: source.Name, RTT: emission.RTT, Failed: decodeErr != nil})
 				}
@@ -197,10 +211,17 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 		}
 	}
 	if err != nil {
+		if reorgDetected {
+			return ref, errors.Join(rpc.ErrReorgDetected, err)
+		}
 		return ref, err
 	}
 	if len(decision.Support) < required || decision.Status != rpc.Verified {
-		return ref, fmt.Errorf("common reference needs %d supporters, got %d: %w", required, len(decision.Support), rpc.ErrConflict)
+		err := fmt.Errorf("common reference needs %d supporters, got %d: %w", required, len(decision.Support), rpc.ErrConflict)
+		if reorgDetected {
+			return ref, errors.Join(rpc.ErrReorgDetected, err)
+		}
+		return ref, err
 	}
 	winner, err := decode(decision.Value)
 	if err != nil {

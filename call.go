@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"ethguard/internal/jsonsafe"
 	"ethguard/rpc"
 )
 
@@ -27,7 +29,7 @@ func CallInto[T any](ctx context.Context, c *Client, method string, params ...an
 		return nil, decision, err
 	}
 	var out T
-	if err := json.Unmarshal(decision.Value, &out); err != nil {
+	if err := jsonsafe.Decode(decision.Value, &out); err != nil {
 		return nil, decision, fmt.Errorf("%w: decode %s: %w", rpc.ErrMalformedResponse, method, err)
 	}
 	return &out, decision, nil
@@ -248,6 +250,9 @@ func validateReceiptEnvelope(raw json.RawMessage) error {
 func DecodeTransaction(raw json.RawMessage) (*types.Transaction, bool, error) {
 	var tx *types.Transaction
 	if err := json.Unmarshal(raw, &tx); err != nil {
+		if errors.Is(err, types.ErrTxTypeNotSupported) {
+			return nil, false, errors.Join(rpc.ErrUnsupportedTypedObject, err)
+		}
 		return nil, false, wrapMalformed("decode transaction", err)
 	}
 	if tx == nil { // upstream "no such transaction"
@@ -284,6 +289,9 @@ func DecodeTransaction(raw json.RawMessage) (*types.Transaction, bool, error) {
 // wrapMalformed keeps every block-decode failure inside the malformed
 // response class with its cause attached.
 func wrapMalformed(what string, cause error) error {
+	if errors.Is(cause, rpc.ErrUnsupportedTypedObject) {
+		return errors.Join(rpc.ErrMalformedResponse, cause, fmt.Errorf("%s", what))
+	}
 	if cause == nil {
 		return fmt.Errorf("%w: %s", rpc.ErrMalformedResponse, what)
 	}

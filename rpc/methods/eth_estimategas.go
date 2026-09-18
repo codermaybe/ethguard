@@ -17,5 +17,5 @@ const MethodEstimateGas = "eth_estimateGas"
 // no-valid-response, so "this call reverts" is never laundered into a
 // number.
 func EstimateGasPolicy(anchor rpc.AnchorFunc) rpc.Policy {
-	return rpc.WithAnchor(anchor, 1)(rpc.Median(normalizeHexQuantity))
+	return rpc.WithAnchor(anchor, 1)(rpc.Median(normalizeWireQuantity))
 }

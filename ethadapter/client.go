@@ -23,6 +23,7 @@ package ethadapter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -230,8 +231,11 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 		requested := big.NewInt(number.Int64())
 		for i, receipt := range receipts {
 			if receipt.BlockNumber == nil || receipt.BlockNumber.Cmp(requested) != 0 {
-				return nil, fmt.Errorf("%w: receipt %d height %v does not match requested number %d",
-					ethguard.ErrMalformedResponse, i, receipt.BlockNumber, number.Int64())
+				return nil, errors.Join(
+					ethguard.ErrMalformedResponse,
+					ethguard.ErrAnchorMismatch,
+					fmt.Errorf("receipt %d height %v does not match requested number %d", i, receipt.BlockNumber, number.Int64()),
+				)
 			}
 		}
 		return receipts, nil
@@ -240,8 +244,8 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 	// decision.BlockRef carries that pin. Bind against the pin, not against
 	// a fresh anchor call.
 	if decision.BlockRef == "" {
-		return nil, fmt.Errorf("%w: pinned receipts carry no block reference",
-			ethguard.ErrMalformedResponse)
+		return nil, errors.Join(ethguard.ErrMalformedResponse, ethguard.ErrAnchorMismatch,
+			errors.New("pinned receipts carry no block reference"))
 	}
 	return bindReceiptsToHash(receipts, common.HexToHash(decision.BlockRef))
 }
@@ -251,8 +255,11 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 func bindReceiptsToHash(receipts []*types.Receipt, hash common.Hash) ([]*types.Receipt, error) {
 	for i, receipt := range receipts {
 		if receipt.BlockHash != hash {
-			return nil, fmt.Errorf("%w: receipt %d block hash %s does not match requested hash %s",
-				ethguard.ErrMalformedResponse, i, receipt.BlockHash, hash)
+			return nil, errors.Join(
+				ethguard.ErrMalformedResponse,
+				ethguard.ErrAnchorMismatch,
+				fmt.Errorf("receipt %d block hash %s does not match requested hash %s", i, receipt.BlockHash, hash),
+			)
 		}
 	}
 	return receipts, nil

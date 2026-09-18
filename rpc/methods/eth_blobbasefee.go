@@ -11,4 +11,4 @@ const MethodBlobBaseFee = "eth_blobBaseFee"
 // the fleet's lower median, consistent with fee estimation policies
 // (GasPricePolicy, MaxPriorityFeePerGasPolicy). Sources legitimately observe
 // slightly different block arrival moments and local pricing states.
-func BlobBaseFeePolicy() rpc.Policy { return rpc.Median(normalizeHexQuantity) }
+func BlobBaseFeePolicy() rpc.Policy { return rpc.Median(normalizeWireQuantity) }

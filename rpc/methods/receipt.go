@@ -13,11 +13,15 @@ import (
 	"ethguard/rpc"
 )
 
-// MethodSendRawTransaction is the write-side JSON-RPC method. It has no
-// Policy in the read registry: the write pipeline owns its collection and
-// adjudication (pool.Broadcast + relative-trust resolution), not the
-// method-policy registry.
-const MethodSendRawTransaction = "eth_sendRawTransaction"
+// This file is the Receipt object slice: the Receipt shape table, its
+// semantic gates, and its projections, shared by eth_getTransactionReceipt
+// and eth_getBlockReceipts (R2: this slice solely owns the Receipt table).
+//
+// It also hosts the shared admission infrastructure used by the receipt and
+// transaction slices: the admissionPolicy decorator, request-reference
+// parsing (requestedHash/requestedBlockRef/parseBlockHeight), and the JSON
+// null/presence helpers. These are cross-object mechanics, not Receipt
+// semantics; they move to prune.go when the pruning engine lands.
 
 // admissionPolicy keeps method-specific admission visible through request
 // decorators.  The aggregator checks AdmissionPolicy on the final policy
@@ -77,26 +81,6 @@ func (p admissionPolicy) BlockRef(original, prepared rpc.Request) string {
 		return provider.BlockRef(original, prepared)
 	}
 	return ""
-}
-
-func admitTransaction(ctx context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	if isJSONNull(value) {
-		return nil, nil
-	}
-	want, err := requestedHash(req)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateTransactionObject(value); err != nil {
-		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-	}
-	var wire struct {
-		Hash common.Hash `json:"hash"`
-	}
-	if err := json.Unmarshal(value, &wire); err != nil || wire.Hash != want {
-		return nil, fmt.Errorf("%w: transaction hash does not match requested hash", rpc.ErrMalformedResponse)
-	}
-	return nil, nil
 }
 
 func admitReceipt(ctx context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
@@ -209,65 +193,6 @@ func parseBlockHeight(value any) (*common.Hash, *big.Int, error) {
 	return nil, number, nil
 }
 
-// normalizeTransactionObject admits only a complete transaction object (or
-// the protocol's null absence) before it can enter a voting cluster.  The
-// transaction hash is checked against the signed payload; placement fields
-// are checked as a group so a mined object cannot carry a half-populated
-// inclusion context.
-func normalizeTransactionObject(value json.RawMessage) (string, error) {
-	if isJSONNull(value) {
-		return "null", nil
-	}
-	var shape map[string]json.RawMessage
-	if err := json.Unmarshal(value, &shape); err != nil || shape == nil {
-		return "", fmt.Errorf("transaction: expected object")
-	}
-	if len(shape) <= 1 {
-		return "", fmt.Errorf("transaction: incomplete object")
-	}
-	return normalizeCanonicalObject(value)
-}
-
-func validateTransactionObject(value json.RawMessage) error {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(value, &obj); err != nil || obj == nil {
-		return fmt.Errorf("transaction: expected object")
-	}
-	var tx *types.Transaction
-	if err := json.Unmarshal(value, &tx); err != nil || tx == nil {
-		return fmt.Errorf("transaction: invalid payload")
-	}
-	var wire struct {
-		Hash             *common.Hash    `json:"hash"`
-		From             *common.Address `json:"from"`
-		BlockHash        *common.Hash    `json:"blockHash"`
-		BlockNumber      json.RawMessage `json:"blockNumber"`
-		TransactionIndex json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(value, &wire); err != nil {
-		return fmt.Errorf("transaction: invalid context: %w", err)
-	}
-	if wire.Hash == nil {
-		return fmt.Errorf("transaction: missing hash")
-	}
-	if *wire.Hash != tx.Hash() {
-		return fmt.Errorf("transaction: hash does not match signed payload")
-	}
-	if wire.From == nil {
-		return fmt.Errorf("transaction: missing sender")
-	}
-	_, r, s := tx.RawSignatureValues()
-	if r == nil || s == nil || r.Sign() == 0 || s.Sign() == 0 {
-		return fmt.Errorf("transaction: missing signature")
-	}
-	blockNumberSet := presentNonNull(wire.BlockNumber)
-	transactionIndexSet := presentNonNull(wire.TransactionIndex)
-	if wire.BlockHash != nil && (!blockNumberSet || !transactionIndexSet) {
-		return fmt.Errorf("transaction: incomplete inclusion context")
-	}
-	return nil
-}
-
 // normalizeReceiptObject validates one transaction receipt before voting.
 func normalizeReceiptObject(value json.RawMessage) (string, error) {
 	if isJSONNull(value) {
@@ -280,12 +205,12 @@ func normalizeReceiptObject(value json.RawMessage) (string, error) {
 	// path remains strict for context-free objects returned by a provider.
 	var shape map[string]json.RawMessage
 	if json.Unmarshal(value, &shape) == nil && shape != nil && len(shape) > 1 && shape["blockHash"] == nil && shape["blockNumber"] == nil && shape["logsBloom"] == nil {
-		return normalizeCanonicalObject(value)
+		return PruneMethod(MethodGetTransactionReceipt, value)
 	}
 	if len(shape) <= 1 {
 		return "", fmt.Errorf("receipt: incomplete object")
 	}
-	return normalizeCanonicalObject(value)
+	return PruneMethod(MethodGetTransactionReceipt, value)
 }
 
 func validateReceiptObject(value json.RawMessage) error {
@@ -298,8 +223,31 @@ func validateReceiptObject(value json.RawMessage) error {
 			return fmt.Errorf("receipt: missing %s", field)
 		}
 	}
+	for _, field := range []string{"transactionHash", "blockHash"} {
+		if _, err := validateWireFixedHex(obj[field], 64, field); err != nil {
+			return fmt.Errorf("receipt: %s: %w", field, err)
+		}
+	}
+	for _, field := range []string{"transactionIndex", "blockNumber", "cumulativeGasUsed", "gasUsed"} {
+		if _, err := normalizeWireQuantity(obj[field]); err != nil {
+			return fmt.Errorf("receipt: %s: %w", field, err)
+		}
+	}
+	if _, err := validateWireFixedHex(obj["logsBloom"], 512, "logsBloom"); err != nil {
+		return fmt.Errorf("receipt: logsBloom: %w", err)
+	}
 	if !presentNonNull(obj["status"]) && !presentNonNull(obj["root"]) {
 		return fmt.Errorf("receipt: missing status or root")
+	}
+	if presentNonNull(obj["status"]) {
+		if _, err := normalizeWireQuantity(obj["status"]); err != nil {
+			return fmt.Errorf("receipt: status: %w", err)
+		}
+	}
+	if presentNonNull(obj["root"]) {
+		if _, err := validateWireFixedHex(obj["root"], 64, "root"); err != nil {
+			return fmt.Errorf("receipt: root: %w", err)
+		}
 	}
 	if first := strings.TrimSpace(string(obj["logs"])); len(first) == 0 || first[0] != '[' {
 		return fmt.Errorf("receipt: logs must be an array")
@@ -341,7 +289,7 @@ func normalizeBlockReceiptList(value json.RawMessage) (string, error) {
 			return "", fmt.Errorf("block receipts[%d]: null receipt", i)
 		}
 	}
-	return normalizeCanonicalObject(value)
+	return PruneMethod(MethodGetBlockReceipts, value)
 }
 
 func isJSONNull(value json.RawMessage) bool {

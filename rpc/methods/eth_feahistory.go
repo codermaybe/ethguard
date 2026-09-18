@@ -195,13 +195,13 @@ func normalizeFeeHistory(value json.RawMessage) (string, error) {
 	if err := json.Unmarshal(value, &raw); err != nil || len(raw.Oldest) == 0 {
 		return "", fmt.Errorf("feeHistory: malformed response")
 	}
-	oldest, err := normalizeHexQuantity(raw.Oldest)
+	oldest, err := normalizeWireQuantity(raw.Oldest)
 	if err != nil || len(raw.Base) != len(raw.Gas)+1 {
 		return "", fmt.Errorf("feeHistory: baseFeePerGas must have gasUsedRatio length plus one")
 	}
 	base := make([]string, len(raw.Base))
 	for i, item := range raw.Base {
-		base[i], err = normalizeHexQuantity(item)
+		base[i], err = normalizeWireQuantity(item)
 		if err != nil {
 			return "", fmt.Errorf("feeHistory: baseFeePerGas[%d]: %w", i, err)
 		}
@@ -224,7 +224,7 @@ func normalizeFeeHistory(value json.RawMessage) (string, error) {
 		}
 		reward[i] = make([]string, len(row))
 		for j, item := range row {
-			reward[i][j], err = normalizeHexQuantity(item)
+			reward[i][j], err = normalizeWireQuantity(item)
 			if err != nil {
 				return "", fmt.Errorf("feeHistory: reward[%d][%d]: %w", i, j, err)
 			}

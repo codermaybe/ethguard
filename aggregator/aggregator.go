@@ -12,6 +12,7 @@ import (
 
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"ethguard/internal/jsonsafe"
 	"ethguard/internal/refcontext"
 	"ethguard/internal/uncertain"
 	"ethguard/observe"
@@ -166,6 +167,18 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		}
 		if collectErr != nil {
 			c.Record("collect", prepared.Method, rpc.SourceRef{}, nil, collectErr.Error())
+		}
+	}
+	// Reject structurally unsafe JSON before any method-specific admission or
+	// normalization. The raw response has already been captured above so the
+	// caller can still inspect the offending source through UncertainCapture.
+	for i := range emissions {
+		if emissions[i].Err != nil || emissions[i].Val == nil {
+			continue
+		}
+		if err := jsonsafe.Validate(emissions[i].Val); err != nil {
+			emissions[i].Err = fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+			emissions[i].Val = nil
 		}
 	}
 	// Admission runs before normalization and clustering. A malformed body

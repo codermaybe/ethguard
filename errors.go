@@ -26,12 +26,15 @@ import (
 //	ErrInvalidRequest     the request cannot be prepared at all (pending on
 //	                      incomparable methods, contradictory anchors)
 var (
-	ErrNoEligibleSource  = pool.ErrNoEligibleSource
-	ErrAllSourcesDown    = pool.ErrAllSourcesDown
-	ErrChainIDMismatch   = pool.ErrChainIDMismatch
-	ErrPoolClosed        = pool.ErrClosed
-	ErrConflict          = rpc.ErrConflict
-	ErrNoValidResponse   = rpc.ErrNoValidResponse
-	ErrMalformedResponse = rpc.ErrMalformedResponse
-	ErrInvalidRequest    = rpc.ErrInvalidRequest
+	ErrNoEligibleSource       = pool.ErrNoEligibleSource
+	ErrAllSourcesDown         = pool.ErrAllSourcesDown
+	ErrChainIDMismatch        = pool.ErrChainIDMismatch
+	ErrPoolClosed             = pool.ErrClosed
+	ErrConflict               = rpc.ErrConflict
+	ErrNoValidResponse        = rpc.ErrNoValidResponse
+	ErrMalformedResponse      = rpc.ErrMalformedResponse
+	ErrInvalidRequest         = rpc.ErrInvalidRequest
+	ErrAnchorMismatch         = rpc.ErrAnchorMismatch
+	ErrReorgDetected          = rpc.ErrReorgDetected
+	ErrUnsupportedTypedObject = rpc.ErrUnsupportedTypedObject
 )

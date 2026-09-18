@@ -3,6 +3,7 @@ package methods
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"ethguard/rpc"
@@ -64,7 +65,7 @@ func TestStateReadPoliciesPinMovingTagsAndPreserveExplicitReferences(t *testing.
 
 func TestChainIDPolicyNormalizesQuantities(t *testing.T) {
 	p := ChainIDPolicy()
-	first, err := p.Normalize(json.RawMessage(`"0x01"`))
+	first, err := p.Normalize(json.RawMessage(`"0x1"`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,6 +75,71 @@ func TestChainIDPolicyNormalizesQuantities(t *testing.T) {
 	}
 	if first != "1" || second != "1" || first != second {
 		t.Fatalf("unexpected normalized IDs: %q, %q", first, second)
+	}
+	if _, err := p.Normalize(json.RawMessage(`"0x01"`)); err == nil {
+		t.Fatal("expected non-canonical chain ID quantity to be rejected")
+	}
+}
+
+func TestStrictWireScalarHelpers(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{`"0x0"`, "0"},
+		{`"0x1"`, "1"},
+		{`"0xAB"`, "171"},
+	} {
+		got, err := normalizeWireQuantity(json.RawMessage(tc.input))
+		if err != nil || got != tc.want {
+			t.Fatalf("normalizeWireQuantity(%s) = %q, %v; want %q", tc.input, got, err, tc.want)
+		}
+	}
+	for _, input := range []string{`"0x00"`, `"0x01"`, `"0x"`, `"0xg"`} {
+		if _, err := normalizeWireQuantity(json.RawMessage(input)); err == nil {
+			t.Fatalf("normalizeWireQuantity(%s) unexpectedly succeeded", input)
+		}
+	}
+	data, err := normalizeWireData(json.RawMessage(`"0X0012AB"`))
+	if err != nil || data != "0x0012ab" {
+		t.Fatalf("normalizeWireData() = %q, %v", data, err)
+	}
+	if _, err := validateWireFixedHex(json.RawMessage(`"0x01"`), 4, "hash"); err == nil {
+		t.Fatal("validateWireFixedHex accepted a short hash")
+	}
+}
+
+func TestQuantityPoliciesRejectNonCanonicalWireValues(t *testing.T) {
+	policies := []struct {
+		name   string
+		policy rpc.Policy
+	}{
+		{"chain id", ChainIDPolicy()},
+		{"block number", BlockNumberPolicy()},
+		{"blob base fee", BlobBaseFeePolicy()},
+		{"gas price", GasPricePolicy()},
+		{"priority fee", MaxPriorityFeePerGasPolicy()},
+	}
+	for _, tc := range policies {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := tc.policy.Normalize(json.RawMessage(`"0x01"`)); err == nil {
+				t.Fatal("accepted non-canonical quantity")
+			}
+		})
+	}
+}
+
+func TestTransactionAdmissionClassifiesUnsupportedTypedObject(t *testing.T) {
+	policy := TransactionByHashPolicy().(rpc.AdmissionPolicy)
+	_, err := policy.Admit(context.Background(), rpc.Request{
+		Method: MethodGetTransactionByHash,
+		Params: []any{"0x0000000000000000000000000000000000000000000000000000000000000001"},
+	}, json.RawMessage(`{"type":"0x7f"}`), nil)
+	if !errors.Is(err, rpc.ErrUnsupportedTypedObject) {
+		t.Fatalf("error = %v, want unsupported typed object", err)
+	}
+	if !errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("error = %v, want malformed compatibility classification", err)
 	}
 }
 

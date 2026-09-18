@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+
+	"ethguard/internal/jsonsafe"
 )
 
 // CanonicalJSON reduces any JSON value to a comparable canonical form by
 // decoding and re-encoding it, erasing key order and formatting differences.
 func CanonicalJSON(value json.RawMessage) (string, error) {
 	var decoded any
-	if err := json.Unmarshal(value, &decoded); err != nil {
+	if err := jsonsafe.Decode(value, &decoded); err != nil {
 		return "", err
 	}
 	canonical, err := json.Marshal(decoded)

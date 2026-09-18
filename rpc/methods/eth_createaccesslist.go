@@ -1,6 +1,8 @@
 package methods
 
 import (
+	"encoding/json"
+
 	"ethguard/rpc"
 )
 
@@ -14,5 +16,12 @@ const MethodCreateAccessList = "eth_createAccessList"
 // Responses are compared with canonical object normalization so hexadecimal casing
 // or JSON key ordering differences do not cause false conflicts.
 func CreateAccessListPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(1, normalizeCanonicalObject, anchor, opts...)
+	return rpc.Anchored(1, normalizeAccessList, anchor, opts...)
+}
+
+// normalizeAccessList reduces one access-list answer to its pruned comparison
+// key: hexadecimal casing or JSON key ordering differences do not cause false
+// conflicts, and vendor extension fields do not either.
+func normalizeAccessList(value json.RawMessage) (string, error) {
+	return PruneMethod(MethodCreateAccessList, value)
 }

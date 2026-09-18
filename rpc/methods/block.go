@@ -73,6 +73,9 @@ func admitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return nil, malformed("block body", err)
 	}
+	if err := validateBlockWireScalars(raw); err != nil {
+		return nil, malformed("block scalar", err)
+	}
 	if body.Hash == nil {
 		return nil, malformed("full block missing hash", nil)
 	}
@@ -165,6 +168,51 @@ func admitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 		return nil, malformed("uncle root mismatch", nil)
 	}
 	return json.Marshal(uncleEvidence)
+}
+
+// validateBlockWireScalars applies context-sensitive wire checks to fields
+// that are present in a block response. Fork-specific optional fields remain
+// optional; their presence still cannot bypass the scalar contract.
+func validateBlockWireScalars(raw json.RawMessage) error {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return err
+	}
+	for _, field := range []string{"hash", "parentHash", "sha3Uncles", "transactionsRoot", "stateRoot", "receiptsRoot", "withdrawalsRoot", "parentBeaconBlockRoot", "requestsHash"} {
+		if value, ok := obj[field]; ok && !isJSONNull(value) {
+			if _, err := validateWireFixedHex(value, 64, field); err != nil {
+				return fmt.Errorf("%s: %w", field, err)
+			}
+		}
+	}
+	for _, field := range []string{"number", "gasLimit", "gasUsed", "timestamp", "size", "baseFeePerGas", "blobGasUsed", "excessBlobGas"} {
+		if value, ok := obj[field]; ok && !isJSONNull(value) {
+			if _, err := normalizeWireQuantity(value); err != nil {
+				return fmt.Errorf("%s: %w", field, err)
+			}
+		}
+	}
+	if value, ok := obj["logsBloom"]; ok && !isJSONNull(value) {
+		if _, err := validateWireFixedHex(value, 512, "logsBloom"); err != nil {
+			return err
+		}
+	}
+	if value, ok := obj["nonce"]; ok && !isJSONNull(value) {
+		if _, err := validateWireFixedHex(value, 16, "nonce"); err != nil {
+			return err
+		}
+	}
+	if value, ok := obj["extraData"]; ok && !isJSONNull(value) {
+		if _, err := normalizeWireData(value); err != nil {
+			return fmt.Errorf("extraData: %w", err)
+		}
+	}
+	if value, ok := obj["miner"]; ok && !isJSONNull(value) {
+		if _, err := validateWireFixedHex(value, 40, "miner"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func bindBlockRequest(req rpc.Request, head *types.Header, hash common.Hash, byHash bool) error {

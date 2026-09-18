@@ -16,6 +16,64 @@ import (
 	"strings"
 )
 
+// normalizeWireQuantity validates the canonical JSON-RPC QUANTITY grammar
+// before converting it to a comparison value. It is intentionally separate
+// from normalizeHexQuantity, whose historical numeric-equivalence behavior is
+// retained until each method opts into the stricter wire contract.
+func normalizeWireQuantity(value json.RawMessage) (string, error) {
+	var quantity string
+	if err := json.Unmarshal(value, &quantity); err != nil {
+		return "", fmt.Errorf("hex quantity: expected string: %w", err)
+	}
+	if len(quantity) < 3 || !strings.EqualFold(quantity[:2], "0x") {
+		return "", fmt.Errorf("hex quantity: invalid quantity %q", quantity)
+	}
+	digits := quantity[2:]
+	if digits != "0" && strings.HasPrefix(digits, "0") {
+		return "", fmt.Errorf("hex quantity: non-canonical leading zero in %q", quantity)
+	}
+	for _, digit := range digits {
+		if !((digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f') || (digit >= 'A' && digit <= 'F')) {
+			return "", fmt.Errorf("hex quantity: invalid quantity %q", quantity)
+		}
+	}
+	number, ok := new(big.Int).SetString(digits, 16)
+	if !ok {
+		return "", fmt.Errorf("hex quantity: invalid quantity %q", quantity)
+	}
+	return number.String(), nil
+}
+
+// normalizeWireData validates arbitrary DATA while preserving byte length
+// and leading zeroes. Case differences are the only normalization applied.
+func normalizeWireData(value json.RawMessage) (string, error) {
+	var data string
+	if err := json.Unmarshal(value, &data); err != nil {
+		return "", fmt.Errorf("hex data: expected string: %w", err)
+	}
+	if len(data) < 2 || !strings.EqualFold(data[:2], "0x") || len(data[2:])%2 != 0 {
+		return "", fmt.Errorf("hex data: invalid data %q", data)
+	}
+	if _, err := hex.DecodeString(data[2:]); err != nil {
+		return "", fmt.Errorf("hex data: invalid data %q: %w", data, err)
+	}
+	return "0x" + strings.ToLower(data[2:]), nil
+}
+
+func validateWireFixedHex(value json.RawMessage, digits int, kind string) (string, error) {
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return "", fmt.Errorf("%s: expected string: %w", kind, err)
+	}
+	if len(text) != digits+2 || !strings.EqualFold(text[:2], "0x") {
+		return "", fmt.Errorf("%s: expected 0x-prefixed value with %d hex digits", kind, digits)
+	}
+	if _, err := hex.DecodeString(text[2:]); err != nil {
+		return "", fmt.Errorf("%s: invalid hex: %w", kind, err)
+	}
+	return "0x" + strings.ToLower(text[2:]), nil
+}
+
 // normalizeHexQuantity compares hex quantities numerically, accepting
 // equivalent spellings rather than comparing JSON bytes. It is the shared
 // normalizer for every quantity-shaped result (chain ID, balances, and
@@ -99,22 +157,9 @@ func normalizeDecimalString(value json.RawMessage) (string, error) {
 	return number.String(), nil
 }
 
-// normalizeCanonicalObject compares whole JSON objects after canonicalizing
-// hexadecimal casing; JSON object key order does not cause false conflicts.
-// It is the shared normalizer for immutable-content object reads (blocks,
-// receipts): the payload is fully determined by the request's hash argument,
-// so every benign encoding difference is erased here and whatever still
-// differs between sources is dissent, not noise.
-func normalizeCanonicalObject(value json.RawMessage) (string, error) {
-	var decoded any
-	if err := json.Unmarshal(value, &decoded); err != nil {
-		return "", err
-	}
-	canonicalizeHex(&decoded)
-	encoded, err := json.Marshal(decoded)
-	return string(encoded), err
-}
-
+// canonicalizeHex lowercases hexadecimal casing in decoded JSON so key order
+// and casing differences do not cause false conflicts. It is the shared
+// primitive behind the pruning engine's comparison keys (PruneMethod).
 func canonicalizeHex(value *any) {
 	switch item := (*value).(type) {
 	case map[string]any:
