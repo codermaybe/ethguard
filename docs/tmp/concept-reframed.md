@@ -235,6 +235,7 @@ OpenRPC 仅作为 CI 离线参考资料，用于：
 
 - wire 归一化实现已迁移到 `rpc/internal/wire`，`rpc/methods` 保留兼容转发；
 - Receipt 对象语义已迁移到 `rpc/internal/objects/receipt`，方法层保留兼容入口；
+- Block 和 Transaction 对象语义已迁移到 `rpc/internal/objects`，方法层保留兼容入口；
 - `rpc.AggregateFields`：通用 JSON path 观测归约；
 - `Common`、`Residuals`、`Conflicts` 及来源保留；
 - `rpc/methods.ProjectStandard`：方法级标准字段投影；
