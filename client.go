@@ -335,6 +335,8 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 				methods.MethodGetTransactionByHash:  methods.NewStandardProjector(methods.TransactionStandardFields()),
 				methods.MethodGetBalance:            methods.ScalarStandardProjector(),
 				methods.MethodCall:                  methods.ScalarStandardProjector(),
+				methods.MethodGetLogs:               methods.NewStandardProjector(methods.LogsStandardFields()),
+				methods.MethodFeeHistory:            methods.NewStandardProjector(methods.FeeHistoryStandardFields()),
 			})),
 		policies:       policies,
 		resolver:       resolver,

@@ -58,3 +58,20 @@ func TestProjectionExtensionsBindFingerprintAndEvidenceKind(t *testing.T) {
 		t.Fatalf("fingerprints not shared: %#v", set.Fields)
 	}
 }
+
+func TestProjectStandardMatchesArrayPathPatterns(t *testing.T) {
+	result := ProjectStandard(rpc.CommonObservation{Common: []rpc.FieldObservation{
+		{Path: "/0/address", Value: json.RawMessage(`"0x01"`)},
+		{Path: "/1/topics", Value: json.RawMessage(`[]`)},
+		{Path: "/0/vendor", Value: json.RawMessage(`true`)},
+	}}, LogsStandardFields())
+	if len(result.Core) != 2 {
+		t.Fatalf("core = %#v, want two wildcard matches", result.Core)
+	}
+	if len(result.Extensions) != 1 || result.Extensions[0].Path != "/0/vendor" {
+		t.Fatalf("extensions = %#v, want vendor field", result.Extensions)
+	}
+	if len(result.Missing) != 0 {
+		t.Fatalf("missing = %#v, wildcard required fields must not be globally required", result.Missing)
+	}
+}

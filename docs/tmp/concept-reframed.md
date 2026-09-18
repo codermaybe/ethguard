@@ -244,10 +244,11 @@ OpenRPC 仅作为 CI 离线参考资料，用于：
 - 通过可选 `ObservationProjector` 将已接入方法的观测结果写入 `Decision.Extensions`；
 - `eth_getTransactionReceipt` 已完成标准字段投影和扩展 Carrier 接入。
 - 区块、交易、余额和调用方法已复用同一 projector 装配机制；
+- 日志和 fee history 已通过 JSON Pointer 通配路径接入同一装配机制；
 
 尚未完成：
 
 - 将每个已注册方法的标准字段声明补齐；
-- 为日志、fee history 等数组或复合结果补充专用投影器；
+- 对数组结果增加更严格的长度、覆盖范围和分页完整性校验；
 - 为未知方法设计稳定的 `ObservedOnly` 调用接口；
 - 将 OpenRPC CI diff 和方法字段声明接入自动化检查。

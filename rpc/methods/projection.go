@@ -3,6 +3,7 @@ package methods
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 
 	"ethguard/rpc"
 )
@@ -57,7 +58,7 @@ func ProjectStandard(observation rpc.CommonObservation, fields []StandardField) 
 	seen := make(map[string]struct{}, len(observation.Common))
 	for _, field := range observation.Common {
 		seen[field.Path] = struct{}{}
-		if _, ok := declared[field.Path]; ok {
+		if _, ok := standardFieldForPath(field.Path, declared); ok {
 			result.Core = append(result.Core, field)
 		} else {
 			result.Extensions = append(result.Extensions, field)
@@ -65,6 +66,9 @@ func ProjectStandard(observation rpc.CommonObservation, fields []StandardField) 
 	}
 	for _, field := range fields {
 		if field.Required {
+			if strings.Contains(field.Path, "/*") {
+				continue
+			}
 			if _, ok := seen[field.Path]; !ok {
 				result.Missing = append(result.Missing, field.Path)
 			}
@@ -75,6 +79,32 @@ func ProjectStandard(observation rpc.CommonObservation, fields []StandardField) 
 	sort.Strings(result.Missing)
 	sort.Slice(result.Conflicts, func(i, j int) bool { return result.Conflicts[i].Path < result.Conflicts[j].Path })
 	return result
+}
+
+func standardFieldForPath(path string, fields map[string]StandardField) (StandardField, bool) {
+	if field, ok := fields[path]; ok {
+		return field, true
+	}
+	for pattern, field := range fields {
+		if matchJSONPointerPattern(pattern, path) {
+			return field, true
+		}
+	}
+	return StandardField{}, false
+}
+
+func matchJSONPointerPattern(pattern, path string) bool {
+	patternParts := strings.Split(strings.TrimPrefix(pattern, "/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(patternParts) != len(pathParts) {
+		return false
+	}
+	for i := range patternParts {
+		if patternParts[i] != "*" && patternParts[i] != pathParts[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Carrier binds the non-core portion of a projection to the selected
@@ -177,6 +207,37 @@ var transactionStandardFields = []StandardField{
 // eth_getTransactionByHash responses.
 func TransactionStandardFields() []StandardField {
 	return append([]StandardField(nil), transactionStandardFields...)
+}
+
+var logsStandardFields = []StandardField{
+	{Path: "/*/address", Required: true},
+	{Path: "/*/topics", Required: true},
+	{Path: "/*/data", Required: true},
+	{Path: "/*/blockNumber", Required: true},
+	{Path: "/*/transactionHash", Required: true},
+	{Path: "/*/transactionIndex", Required: true},
+	{Path: "/*/blockHash", Required: true},
+	{Path: "/*/logIndex", Required: true},
+	{Path: "/*/removed", Required: false},
+}
+
+// LogsStandardFields describes each log entry in an eth_getLogs result.
+func LogsStandardFields() []StandardField {
+	return append([]StandardField(nil), logsStandardFields...)
+}
+
+var feeHistoryStandardFields = []StandardField{
+	{Path: "/oldestBlock", Required: true},
+	{Path: "/baseFeePerGas/*", Required: true},
+	{Path: "/gasUsedRatio/*", Required: true},
+	{Path: "/reward/*/*", Required: false},
+}
+
+// FeeHistoryStandardFields describes the stable object and array members of
+// eth_feeHistory. Array lengths are validated by the method policy, not by
+// the generic projection.
+func FeeHistoryStandardFields() []StandardField {
+	return append([]StandardField(nil), feeHistoryStandardFields...)
 }
 
 // ScalarStandardProjector projects scalar result methods such as balance and
