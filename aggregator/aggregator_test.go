@@ -138,9 +138,9 @@ func TestEventMarksOnlyUnusableAttemptsFailed(t *testing.T) {
 
 	sources := namedSources(t, "a", "b", "c", "d", "e", "f")
 	emissions := []pool.Emission{
-		{Src: sources[0], Val: json.RawMessage(`"1"`), Attempted: true}, // valid answer
-		{Src: sources[1], Val: json.RawMessage(`"junk"`), Attempted: true}, // delivered but malformed
-		{Src: sources[2], Err: context.DeadlineExceeded, Attempted: true},  // transport/timeout fault
+		{Src: sources[0], Val: json.RawMessage(`"1"`), Attempted: true},                     // valid answer
+		{Src: sources[1], Val: json.RawMessage(`"junk"`), Attempted: true},                  // delivered but malformed
+		{Src: sources[2], Err: context.DeadlineExceeded, Attempted: true},                   // transport/timeout fault
 		{Src: sources[3], Err: fakeRPCError{-32000, "execution reverted"}, Attempted: true}, // opt-in: an observation
 		{Src: sources[4], Err: fakeRPCError{-32603, "panic"}, Attempted: true},              // opt-in: still rejected by the normalizer
 		{Src: sources[5]}, // never acquired a slot: absent from attempts

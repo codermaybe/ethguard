@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -27,9 +28,13 @@ func LoadFile(path string) (Config, error) {
 }
 
 // ParseYAML unmarshals YAML bytes into Config and runs basic validation.
+// Unknown fields are rejected: silently ignoring a misspelled security
+// knob (decision 0004) is worse than failing fast at startup.
 func ParseYAML(data []byte) (Config, error) {
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("config: parse yaml: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
@@ -45,17 +50,27 @@ func (c Config) Validate() error {
 		return fmt.Errorf("config: at least one upstream is required")
 	}
 	seenIDs := make(map[string]struct{}, len(c.Upstreams))
+	seenEndpoints := make(map[string]struct{}, len(c.Upstreams))
 	for i, upstream := range c.Upstreams {
-		if upstream.ID == "" {
+		if strings.TrimSpace(upstream.ID) == "" {
 			return fmt.Errorf("config: upstreams[%d]: id is required", i)
 		}
-		if upstream.Endpoint == "" {
+		if strings.TrimSpace(upstream.Endpoint) == "" {
 			return fmt.Errorf("config: upstreams[%d]: endpoint is required", i)
 		}
 		if _, exists := seenIDs[upstream.ID]; exists {
 			return fmt.Errorf("config: upstreams[%d]: duplicate id %q", i, upstream.ID)
 		}
 		seenIDs[upstream.ID] = struct{}{}
+		// Duplicate endpoints silently collapse to one pool member at
+		// construction, shrinking the voting basis below what the operator
+		// configured. Reject the exact duplicates here; pool-side URL
+		// normalization (scheme case, default ports) remains pool's domain
+		// and is surfaced by Join, not reimplemented here.
+		if _, exists := seenEndpoints[upstream.Endpoint]; exists {
+			return fmt.Errorf("config: upstreams[%d]: duplicate endpoint %q", i, upstream.Endpoint)
+		}
+		seenEndpoints[upstream.Endpoint] = struct{}{}
 	}
 	if c.Quorum < 0 {
 		return fmt.Errorf("config: quorum must be non-negative")

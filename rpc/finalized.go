@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-
 )
 
 // FinalizedHead resolves finalized-block observations by selecting the lowest

@@ -1,5 +1,8 @@
 # EthGuard sample configuration.
 # Copy and adapt this file for your application.
+#
+# Unknown keys are rejected at load time: a misspelled knob fails fast
+# instead of silently falling back to defaults.
 
 chain_id: 1
 
@@ -8,3 +11,14 @@ upstreams:
     endpoint: https://eth.example.com
   - id: secondary
     endpoint: https://eth-backup.example.com
+
+# Optional knobs with their defaults:
+# corroboration: majority   # majority | unanimity | forwarded (single-source only)
+# quorum: 2                 # support floor H; 0 selects DefaultSupportFloor (2)
+# collect_timeout: 30s      # per-aggregate collection bound, positive duration
+# anchoring:
+#   preset: strict          # strict | finalized
+#   max_lag: 32             # finalized preset freshness bound, blocks; 0 selects default
+# tip_tracking:
+#   interval: 10s           # freshness sampling period; empty selects default
+#   max_behind: 32          # blocks behind the fleet reference before a source is skipped

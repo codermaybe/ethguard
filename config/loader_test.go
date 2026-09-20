@@ -30,7 +30,13 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 	}{
 		{"missing upstreams", Config{}, "at least one upstream"},
 		{"missing id", Config{Upstreams: []Upstream{{Endpoint: "https://a.example"}}}, "id is required"},
+		{"whitespace id", Config{Upstreams: []Upstream{{ID: "  ", Endpoint: "https://a.example"}}}, "id is required"},
 		{"missing endpoint", Config{Upstreams: []Upstream{{ID: "a"}}}, "endpoint is required"},
+		{"whitespace endpoint", Config{Upstreams: []Upstream{{ID: "a", Endpoint: "  "}}}, "endpoint is required"},
+		{"duplicate endpoint", Config{Upstreams: []Upstream{
+			{ID: "a", Endpoint: "https://a.example"},
+			{ID: "b", Endpoint: "https://a.example"},
+		}}, "duplicate endpoint"},
 		{"negative quorum", Config{Upstreams: upstreams, Quorum: -1}, "non-negative"},
 		{"unknown preset", Config{Upstreams: upstreams, Anchoring: &AnchoringConfig{Preset: "aggressive"}}, "must be strict or finalized"},
 		{"unknown corroboration", Config{Upstreams: upstreams, Corroboration: "weighted"}, "majority or unanimity"},
@@ -69,9 +75,9 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 	}
 }
 
-// TestParseYAMLRunsValidation pins that the YAML path cannot bypass the
+// TestParseYAMLValidates pins that the YAML path cannot bypass the
 // domain checks the programmatic path enforces (decision 0004).
-func TestParseYAMLRunsValidation(t *testing.T) {
+func TestParseYAMLValidates(t *testing.T) {
 	if _, err := ParseYAML([]byte("upstreams: []")); err == nil {
 		t.Fatal("expected empty-upstream YAML to fail validation")
 	}
@@ -80,6 +86,15 @@ func TestParseYAMLRunsValidation(t *testing.T) {
 			"upstreams:\n  - id: a\n    endpoint: https://a.example\n"))
 	if err != nil || cfg.ChainID != 1 || len(cfg.Upstreams) != 1 {
 		t.Fatalf("expected minimal YAML to load, got %+v err=%v", cfg, err)
+	}
+}
+
+// TestParseYAMLRejectsUnknownFields pins strict decoding: a misspelled
+// security knob must fail fast instead of silently loading defaults.
+func TestParseYAMLRejectsUnknownFields(t *testing.T) {
+	input := "chain_id: 1\ncorroboratin: majority\nupstreams:\n  - id: a\n    endpoint: https://a.example\n"
+	if _, err := ParseYAML([]byte(input)); err == nil || !strings.Contains(err.Error(), "parse yaml") {
+		t.Fatalf("expected unknown-field YAML to fail parsing, got %v", err)
 	}
 }
 

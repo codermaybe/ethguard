@@ -3,7 +3,6 @@ package rpc
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // WriteMethodEthSendRawTransaction is the JSON-RPC method the write pipeline
@@ -60,10 +59,11 @@ type SourceAnswer struct {
 	// Hash is the accepted transaction hash this source reported. Empty when
 	// Rejected or unreachable. RawMessage is the untouched wire hash value.
 	Hash string
-	// Rejected is a structured protocol error body from the source —
-	// "already known", "nonce too low", replacement underpricing, and
-	// similar. "already known" is an acceptance signal for the broadcast
-	// phase: the transaction is in that node's pool under the same hash.
+	// Rejection is a structured protocol error body from the source —
+	// "nonce too low", replacement underpricing, an execution revert, and
+	// similar. It is evidence on the decision: nothing here classifies a
+	// rejection body as acceptance or as a permanent failure, because that
+	// reading is a txpool-behaviour question this layer does not decide.
 	Rejection *RPCError
 }
 
@@ -72,11 +72,11 @@ type SourceAnswer struct {
 // configured support bound across the voting basis, with every other
 // outcome preserved as evidence.
 type WriteDecision struct {
-	Status    WriteStatus
-	Hash      string
-	Accepted  []SourceAnswer
-	Rejected  []SourceAnswer
-	Silent    []SourceRef
+	Status   WriteStatus
+	Hash     string
+	Accepted []SourceAnswer
+	Rejected []SourceAnswer
+	Silent   []SourceRef
 	// Agreement is the size of the winning hash cluster.
 	Agreement int
 	// Basis is the number of voting members the outcome was adjudicated
@@ -101,20 +101,6 @@ func WriteQuorum(n, h int) int {
 	return q
 }
 
-// knownWrite is the classification of one txpool or protocol rejection as
-// either an acceptance signal or a rejection for the broadcast phase.
-func knownWriteRejection(code int, message string) (acceptance bool) {
-	// Geth and most compatible pools answer "already known" (and its
-	// "ALREADY_EXISTS" variants) when the identical transaction is already
-	// in the pool: the source has accepted it. Re-broadcast idempotence makes
-	// this the honest signal of a retried send.
-	lower := strings.ToLower(message)
-	if strings.Contains(lower, "already known") || strings.Contains(lower, "already exists") {
-		return true
-	}
-	return false
-}
-
 // ResolveWriteBroadcast adjudicates one completed broadcast's answers under
 // a fixed voting basis. Per-source outcomes are already classified by the
 // caller into SourceAnswer; this function only clusters and adjudicates. It
@@ -131,14 +117,12 @@ func ResolveWriteBroadcast(basis int, floor int, answers []SourceAnswer, faults 
 	decision.Faults = append(decision.Faults, faults...)
 
 	clusters := make(map[string][]SourceRef)
-	hashValues := make(map[string]string)
 	var rejected []SourceAnswer
 	var silent []SourceRef
 	for _, answer := range answers {
 		switch {
 		case answer.Hash != "":
 			clusters[answer.Hash] = append(clusters[answer.Hash], answer.Source)
-			hashValues[answer.Hash] = answer.Hash
 		case answer.Rejection != nil:
 			rejected = append(rejected, answer)
 		default:
@@ -190,7 +174,3 @@ func ResolveWriteBroadcast(basis int, floor int, answers []SourceAnswer, faults 
 	decision.Status = WriteUnreachable
 	return decision, fmt.Errorf("write: no source answered: %w", ErrNoValidResponse)
 }
-
-// knownWriteIsAcceptance is exported for tests and callers that want to read
-// the acceptance classification of a rejection body.
-func knownWriteIsAcceptance(code int, message string) bool { return knownWriteRejection(code, message) }

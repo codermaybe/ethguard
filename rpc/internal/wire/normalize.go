@@ -1,11 +1,3 @@
-// Package methods holds one policy per verified Ethereum JSON-RPC method.
-//
-// The parent rpc package owns the Policy contract, the Registry, and the
-// shared resolution strategies — everything true of any method and any JSON.
-// This package owns Ethereum method semantics: prepare, normalize, compare,
-// anchor, and classify each supported method. Unknown methods never get a
-// file here; they fall through the registry to transparent forwarding, which
-// must produce Forwarded, never Verified.
 package wire
 
 import (

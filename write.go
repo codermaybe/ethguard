@@ -37,9 +37,9 @@ func (w WriteResult) Accepted() bool { return w.Decision.Status == rpc.WriteAcce
 func (w WriteResult) Hash() common.Hash { return common.HexToHash(w.Decision.Hash) }
 
 // writeAnswerClassified converts one broadcast emission into a classified
-// SourceAnswer. A structured protocol error body is a rejection candidate:
-// acceptance-classified rejections ("already known") keep the body as
-// evidence, everything else keeps it as a rejection answer.
+// SourceAnswer. A hash-shaped value is an acceptance candidate; a structured
+// protocol error body is always a rejection answer kept as evidence. No
+// message-text classification ("already known" etc.) happens here.
 func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err error) rpc.SourceAnswer {
 	if err == nil && len(value) > 0 {
 		var hashHex string
@@ -78,10 +78,11 @@ func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err erro
 //     membership snapshot, the corroboration mode, and the support floor.
 //     Forwarded mode broadcasts to the single member and reports WriteAccepted
 //     with Basis=1 without claiming corroboration.
-//   - A quorum-reaching hash cluster is WriteAccepted; minority dissent is
-//     evidence, not failure. An acceptance-classified txpool answer ("already
-//     known") counts as that source having the transaction, but the explicit
-//     hash answers stay authoritative for the winning cluster's hash.
+//   - A quorum-reaching hash cluster is WriteAccepted; minority dissent and
+//     rejections are evidence, not failure. Rejection bodies never join the
+//     hash cluster, even when their text suggests the transaction is already
+//     in that source's pool; callers that need idempotent-retry semantics
+//     should re-read via TransactionReceipt on the winning hash.
 //   - The returned error wraps exactly one classified sentinel
 //     (ErrConflict for disputed, ErrNoValidResponse for rejected/unreachable,
 //     pool sentinels for fan-out impossibility), so errors.Is keeps working.
@@ -106,7 +107,6 @@ func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (WriteRes
 	basis := c.pool.Len()
 	params := []any{hexutil.Encode(rawTx)}
 
-	started := time.Now()
 	var emissions []pool.Emission
 	var collectErr error
 	if snap.Mode == rpc.CorroborationForwarded {
@@ -118,7 +118,6 @@ func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (WriteRes
 		return WriteResult{Decision: rpc.WriteDecision{Status: rpc.WriteUnreachable, Basis: basis}},
 			fmt.Errorf("write broadcast: %w", collectErr)
 	}
-	_ = started
 
 	answers := make([]rpc.SourceAnswer, 0, len(emissions))
 	var faults []error
