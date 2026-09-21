@@ -16,6 +16,11 @@ const MethodGetBalance = "eth_getBalance"
 // level quorum tuning reaches anchored state reads too. Explicit block
 // numbers, hashes, and pending pass through unchanged; pending is supported
 // as an explicit provider state request rather than a moving tag.
+// EIP-1898 object forms ({blockHash} / {blockNumber[, requireCanonical]})
+// are admitted by EIP1898BlockRef: only the official default-block methods
+// carry this layer, never quantity-only positions. Pending is served as a
+// node-local observation by PendingLocal (decision 0035): it keeps its
+// node-state meaning and can never become Corroborated through agreement.
 func GetBalancePolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(1, wire.NormalizeWireQuantity, anchor, opts...)
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, wire.NormalizeWireQuantity, anchor, opts...)))
 }

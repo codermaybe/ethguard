@@ -22,9 +22,11 @@ const MethodCall = "eth_call"
 // own client-side errors (-32002 timeout, -32003 response too large,
 // -32603 panic), rate limits — ride as faults, never as corroborated outcomes.
 // The block tag at position 1 is rewritten to the corroborated reference.
+// EIP-1898 object forms ride EIP1898BlockRef (see GetBalancePolicy).
+// Pending resolves as a node-local observation (see GetBalancePolicy).
 func CallPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(1, normalizeCallOutcome, anchor,
-		append([]rpc.StrictOption{rpc.WithRPCErrorBodies()}, opts...)...)
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, normalizeCallOutcome, anchor,
+		append([]rpc.StrictOption{rpc.WithRPCErrorBodies()}, opts...)...)))
 }
 
 // normalizeCallOutcome reduces one eth_call answer to a comparable key.

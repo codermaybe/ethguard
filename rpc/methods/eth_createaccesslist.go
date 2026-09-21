@@ -16,8 +16,10 @@ const MethodCreateAccessList = "eth_createAccessList"
 // the corroborated block reference before fan-out so sources evaluate identical state.
 // Responses are compared with canonical object normalization so hexadecimal casing
 // or JSON key ordering differences do not cause false conflicts.
+// Pending resolves as a node-local observation (decision 0035), never
+// Corroborated through agreement.
 func CreateAccessListPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(1, normalizeAccessList, anchor, opts...)
+	return PendingLocal(1)(rpc.Anchored(1, normalizeAccessList, anchor, opts...))
 }
 
 // normalizeAccessList reduces one access-list answer to its pruned comparison

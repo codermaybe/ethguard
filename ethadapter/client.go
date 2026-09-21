@@ -106,19 +106,17 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Bloc
 	return block, err
 }
 
-// BlockByNumber returns the corroborated block at number; nil pins the moving
-// "latest" tag to the currently corroborated reference first.
+// BlockByNumber returns the corroborated block at number: nil and explicit
+// moving tags (-2 latest, -3 finalized, -4 safe) pin their tag to the
+// corroborated reference first and fetch by hash; explicit heights fetch
+// directly; pending (-1) keeps its node-state path and is never anchored.
 func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
 	ctx = c.requireContext(ctx)
 	if number != nil && number.Sign() >= 0 && !number.IsUint64() {
 		return nil, fmt.Errorf("block number exceeds supported height range: %w", ethguard.ErrInvalidRequest)
 	}
 	if number != nil && number.Sign() < 0 {
-		blockArg, err := checkedBlockNumArg(number)
-		if err != nil {
-			return nil, err
-		}
-		return c.blockAt(ctx, blockArg)
+		return c.blockByNegativeNumber(ctx, number)
 	}
 	if number == nil {
 		ref, err := c.eg.AnchorBlockHash(ctx)
@@ -132,6 +130,34 @@ func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Blo
 		return nil, err
 	}
 	return c.blockAt(ctx, blockArg)
+}
+
+// blockByNegativeNumber resolves Geth's negative block numbers through the
+// tag-aware anchor seam: -2/-3/-4 establish their own level's reference
+// (never downgraded, never fetched as a moving tag) and read by hash.
+// Pending (-1) keeps its node-state path without anchoring; earliest (-5)
+// is an explicit height; anything else — including values outside int64
+// range — fails locally before any upstream contact.
+func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+	if !number.IsInt64() {
+		return nil, fmt.Errorf("ethadapter: unsupported block number %s: %w", number.String(), ethguard.ErrInvalidRequest)
+	}
+	switch number.Int64() {
+	case -2, -3, -4:
+		tags := map[int64]string{-2: "latest", -3: "finalized", -4: "safe"}
+		tag := tags[number.Int64()]
+		ref, err := c.eg.AnchorBlockHashForTag(ctx, tag)
+		if err != nil {
+			return nil, err
+		}
+		return c.blockAt(ctx, ref)
+	default:
+		blockArg, err := checkedBlockNumArg(number)
+		if err != nil {
+			return nil, err
+		}
+		return c.blockAt(ctx, blockArg)
+	}
 }
 
 // BlockNumber returns the height of the currently corroborated block reference —

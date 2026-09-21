@@ -82,3 +82,26 @@ type SingleSourcePolicy interface{ SingleSource() bool }
 // AgreementPolicy identifies deterministic answers that require corroboration
 // at an ethclient-shaped boundary, where callers cannot inspect Selected.
 type AgreementPolicy interface{ RequiresAgreement() bool }
+
+// LocalObservationPolicy is an optional per-request capability for methods
+// that serve one request shape — pending — as a node-local observation
+// rather than cross-source corroboration (decision 0035). The aggregator
+// consults it after Prepare: when IsLocalObservation reports true for the
+// prepared request, resolution goes to ResolveLocal (first healthy source
+// stands, ceiling Selected, never Corroborated) and the corroboration
+// gate is skipped for that invocation. Every other request shape resolves
+// through the ordinary Policy path untouched.
+//
+// This is deliberately per-method opt-in (each method constructor applies
+// its own decorator), never a global pending switch: supported shapes,
+// positions, and local-reject rules stay method-specific.
+type LocalObservationPolicy interface {
+	Policy
+	// IsLocalObservation reports whether the prepared request must resolve
+	// as a node-local observation.
+	IsLocalObservation(Request) bool
+	// ResolveLocal resolves observations as a local observation: the first
+	// source with a normalizable answer stands with Selected status and
+	// its source as Support; no usable source fails Unknown.
+	ResolveLocal([]Observation) (Decision, error)
+}

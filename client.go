@@ -10,6 +10,7 @@ import (
 
 	"ethguard/aggregator"
 	"ethguard/config"
+	"ethguard/internal/refcontext"
 	"ethguard/observe"
 	"ethguard/pool"
 	"ethguard/rpc"
@@ -362,6 +363,34 @@ func (c *Client) VotingMembers() int { return c.pool.Len() }
 // moving-tag reads through the library-owned anchor strategy.
 func (c *Client) AnchorBlockHash(ctx context.Context) (string, error) {
 	return c.resolver.AnchorBlockHash(ctx)
+}
+
+// AnchorBlockHashForTag is the tag-aware adapter seam behind moving-tag
+// reads: it establishes the corroborated block reference for exactly the
+// requested tag ("latest", "safe", or "finalized") and returns its hash.
+// Each level keeps its meaning — safe is anchored at the safe reference,
+// finalized at the finalized reference, never silently latest — and the
+// returned evidence records the original tag. A reference that cannot reach
+// Corroborated fails instead of returning an uncorroborated hash; pending
+// and earliest are not moving tags and are rejected here (pending keeps its
+// node-state path, earliest is an explicit height).
+func (c *Client) AnchorBlockHashForTag(ctx context.Context, tag string) (string, error) {
+	lowered := strings.ToLower(tag)
+	switch lowered {
+	case "latest", "safe", "finalized":
+	default:
+		return "", fmt.Errorf("ethguard: anchor tag %q is not an anchorable moving tag: %w", tag, rpc.ErrInvalidRequest)
+	}
+	ref, err := resolveReference(rpc.WithAnchorTag(ctx, lowered), c.resolver, lowered)
+	ref.Tag = lowered
+	refcontext.Publish(ctx, ref)
+	if err == nil && ref.Status != rpc.Corroborated {
+		err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
+	}
+	if err != nil {
+		return "", err
+	}
+	return ref.Hash, nil
 }
 
 // AnchorBlockHeight returns the height of the currently corroborated block

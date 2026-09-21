@@ -13,7 +13,9 @@ const MethodGetCode = "eth_getCode"
 // externally owned account answers "0x", which is valid data and would
 // fail a quantity-shaped normalizer. Strict options pass through to the
 // underlying strict resolution. Moving tags are anchored; explicit block
-// numbers, hashes, and pending pass through unchanged.
+// numbers, hashes, and pending pass through unchanged. EIP-1898 object
+// forms ride EIP1898BlockRef (see GetBalancePolicy). Pending resolves as a
+// node-local observation (see GetBalancePolicy).
 func GetCodePolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Anchored(1, wire.NormalizeHexData, anchor, opts...)
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, wire.NormalizeHexData, anchor, opts...)))
 }
