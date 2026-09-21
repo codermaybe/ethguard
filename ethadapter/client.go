@@ -1,4 +1,4 @@
-// Package ethadapter presents EthGuard's verified aggregation behind an
+// Package ethadapter presents EthGuard's corroborated aggregation behind an
 // ethclient-shaped surface, so code written against go-ethereum's client can
 // switch with minimal friction:
 //
@@ -6,15 +6,15 @@
 //
 // Compatibility is method-shaped, not interface-claimed: the adapter offers
 // same-named methods with identical signatures for the subset backed by
-// verified policies. Anything beyond the subset stays reachable through the
+// corroborated policies. Anything beyond the subset stays reachable through the
 // wrapped *ethguard.Client (Unwrap) and its generic Call.
 //
 // Semantics worth knowing before switching:
 //
 //   - Moving references ("latest") resolve through the configured anchoring
 //     strategy; each invocation establishes its own reference and results
-//     are pinned to a cross-verified reference rather than racing heads.
-//   - BlockNumber reports the height of that verified reference — a consensus
+//     are pinned to a cross-corroborated reference rather than racing heads.
+//   - BlockNumber reports the height of that corroborated reference — a source-agreement
 //     override in the proxyd tradition, not one arbitrary provider's tip.
 //   - Every failure keeps EthGuard's classified sentinels: errors.Is works
 //     against the ethguard error surface unchanged.
@@ -47,7 +47,7 @@ type Client struct {
 	eg *ethguard.Client
 }
 
-// New builds the underlying verified client from configuration and returns
+// New builds the underlying corroborated client from configuration and returns
 // it in ethclient shape. Options pass through unchanged.
 func New(cfg config.Config, opts ...ethguard.Option) (*Client, error) {
 	eg, err := ethguard.New(cfg, opts...)
@@ -63,7 +63,7 @@ func Wrap(eg *ethguard.Client) *Client {
 }
 
 // Unwrap exposes the underlying client for methods beyond this adapter's
-// verified subset (generic Call, Pool, lifecycle).
+// corroborated subset (generic Call, Pool, lifecycle).
 func (c *Client) Unwrap() *ethguard.Client { return c.eg }
 
 // Close releases all upstream connections owned by the client.
@@ -73,18 +73,18 @@ func (c *Client) requireContext(ctx context.Context) context.Context {
 	if c.eg.Mode() == rpc.CorroborationForwarded {
 		return refcontext.WithForwarded(ctx)
 	}
-	return refcontext.RequireVerified(ctx)
+	return refcontext.RequireCorroborated(ctx)
 }
 
-// ChainID returns the fleet-verified chain ID.
+// ChainID returns the fleet-corroborated chain ID.
 func (c *Client) ChainID(ctx context.Context) (*big.Int, error) {
 	ctx = c.requireContext(ctx)
 	id, _, err := c.eg.ChainID(ctx)
 	return id, err
 }
 
-// BalanceAt returns the verified balance of account at blockNumber; nil
-// means the currently verified reference behind "latest".
+// BalanceAt returns the corroborated balance of account at blockNumber; nil
+// means the currently corroborated reference behind "latest".
 func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error) {
 	ctx = c.requireContext(ctx)
 	blockArg, err := checkedBlockNumArg(blockNumber)
@@ -99,15 +99,15 @@ func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNum
 	return (*big.Int)(value), nil
 }
 
-// BlockByHash returns the verified block with the given hash.
+// BlockByHash returns the corroborated block with the given hash.
 func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
 	ctx = c.requireContext(ctx)
 	block, _, err := c.eg.BlockByHash(ctx, hash, true)
 	return block, err
 }
 
-// BlockByNumber returns the verified block at number; nil pins the moving
-// "latest" tag to the currently verified reference first.
+// BlockByNumber returns the corroborated block at number; nil pins the moving
+// "latest" tag to the currently corroborated reference first.
 func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
 	ctx = c.requireContext(ctx)
 	if number != nil && number.Sign() >= 0 && !number.IsUint64() {
@@ -134,16 +134,16 @@ func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Blo
 	return c.blockAt(ctx, blockArg)
 }
 
-// BlockNumber returns the height of the currently verified block reference —
-// a derivation over verified primitives, never one provider's tip. The full
+// BlockNumber returns the height of the currently corroborated block reference —
+// a derivation over corroborated primitives, never one provider's tip. The full
 // selection reasoning lives on the root Client.BlockNumber.
 func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 	ctx = c.requireContext(ctx)
 	return c.eg.BlockNumber(ctx)
 }
 
-// TransactionReceipt returns the fleet-verified receipt for txHash;
-// ethereum.NotFound when the fleet verifies the transaction has no receipt
+// TransactionReceipt returns the fleet-corroborated receipt for txHash;
+// ethereum.NotFound when the fleet corroborates the transaction has no receipt
 // yet, matching go-ethereum's own client. The hash addresses immutable
 // content, so no anchoring or freshness machinery applies.
 func (c *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
@@ -152,10 +152,10 @@ func (c *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*t
 	return receipt, err
 }
 
-// TransactionByHash returns the fleet-verified transaction for txHash and
+// TransactionByHash returns the fleet-corroborated transaction for txHash and
 // whether the fleet saw it as still pending; ethereum.NotFound when the
-// fleet verifies no such transaction exists. Pending transactions are
-// ordinary verified objects here: while they stay pending, honest sources
+// fleet corroborates no such transaction exists. Pending transactions are
+// ordinary corroborated objects here: while they stay pending, honest sources
 // hold identical payloads.
 func (c *Client) TransactionByHash(ctx context.Context, txHash common.Hash) (*types.Transaction, bool, error) {
 	ctx = c.requireContext(ctx)
@@ -174,9 +174,9 @@ func (c *Client) TransactionByHash(ctx context.Context, txHash common.Hash) (*ty
 	return tx, pending, nil
 }
 
-// BlockReceipts returns the fleet-verified receipts of one block. Numbers
-// and moving tags are pinned to the verified reference before fan-out;
-// hashes address immutable content directly. Verified absence of the block
+// BlockReceipts returns the fleet-corroborated receipts of one block. Numbers
+// and moving tags are pinned to the corroborated reference before fan-out;
+// hashes address immutable content directly. Corroborated absence of the block
 // maps to ethereum.NotFound.
 //
 // Request-answer binding closes the typed boundary for every reference
@@ -240,7 +240,7 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 		}
 		return receipts, nil
 	}
-	// Moving tag: the policy rewrote it to the verified reference, and
+	// Moving tag: the policy rewrote it to the corroborated reference, and
 	// decision.BlockRef carries that pin. Bind against the pin, not against
 	// a fresh anchor call.
 	if decision.BlockRef == "" {
@@ -265,8 +265,8 @@ func bindReceiptsToHash(receipts []*types.Receipt, hash common.Hash) ([]*types.R
 	return receipts, nil
 }
 
-// NonceAt returns the verified account nonce of account at blockNumber;
-// nil pins the moving tag to the currently verified reference.
+// NonceAt returns the corroborated account nonce of account at blockNumber;
+// nil pins the moving tag to the currently corroborated reference.
 func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error) {
 	ctx = c.requireContext(ctx)
 	blockArg, err := checkedBlockNumArg(blockNumber)
@@ -281,8 +281,8 @@ func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumbe
 	return uint64(*nonce), nil
 }
 
-// StorageAt returns the verified value of key in account's storage at
-// blockNumber; nil pins the moving tag to the currently verified reference.
+// StorageAt returns the corroborated value of key in account's storage at
+// blockNumber; nil pins the moving tag to the currently corroborated reference.
 func (c *Client) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, error) {
 	ctx = c.requireContext(ctx)
 	blockArg, err := checkedBlockNumArg(blockNumber)
@@ -297,8 +297,8 @@ func (c *Client) StorageAt(ctx context.Context, account common.Address, key comm
 	return *value, nil
 }
 
-// CodeAt returns the verified contract code of account at blockNumber; nil
-// pins the moving tag to the currently verified reference. An externally
+// CodeAt returns the corroborated contract code of account at blockNumber; nil
+// pins the moving tag to the currently corroborated reference. An externally
 // owned account answers empty code, not an error.
 func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
 	ctx = c.requireContext(ctx)
@@ -315,7 +315,7 @@ func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber
 }
 
 // SuggestGasTipCap returns the fleet's lower-median priority-fee estimate —
-// a variable result resolved by robust selection, never claimed verified.
+// a variable result resolved by robust selection, never claimed corroborated.
 func (c *Client) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
 	ctx = c.requireContext(ctx)
 	tip, _, err := c.eg.MaxPriorityFeePerGas(ctx)
@@ -353,18 +353,18 @@ func blockRefArg(blockNrOrHash gethrpc.BlockNumberOrHash) (string, error) {
 }
 
 // SuggestGasPrice returns the fleet's lower-median gas price — a variable
-// result resolved by robust selection, never claimed verified.
+// result resolved by robust selection, never claimed corroborated.
 func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 	ctx = c.requireContext(ctx)
 	price, _, err := c.eg.GasPrice(ctx)
 	return price, err
 }
 
-// CallContract returns the fleet-verified result of executing msg at
-// blockNumber; nil pins the moving tag to the currently verified reference.
-// A fleet-verified revert is an observation, not a pipeline failure: it is
+// CallContract returns the fleet-corroborated result of executing msg at
+// blockNumber; nil pins the moving tag to the currently corroborated reference.
+// A fleet-corroborated revert is an observation, not a pipeline failure: it is
 // returned as a *RevertError carrying the revert context, while the
-// verification claim stays on the decision evidence.
+// corroboration claim stays on the decision evidence.
 func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
 	ctx = c.requireContext(ctx)
 	blockArg, err := checkedBlockNumArg(blockNumber)
@@ -379,8 +379,8 @@ func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNu
 }
 
 // EstimateGas returns the fleet's lower-median gas estimate for msg at the
-// currently verified reference — a variable result, Selected at best, never
-// claimed verified. A fleet that unanimously fails estimation fails as
+// currently corroborated reference — a variable result, Selected at best, never
+// claimed corroborated. A fleet that unanimously fails estimation fails as
 // no-valid-response; the revert is never laundered into a number.
 func (c *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
 	ctx = c.requireContext(ctx)
@@ -395,8 +395,8 @@ func (c *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64,
 	return uint64(gas), nil
 }
 
-// FilterLogs returns the fleet-verified logs matching q. Range filters are
-// pinned to the verified reference exactly like any other anchored read —
+// FilterLogs returns the fleet-corroborated logs matching q. Range filters are
+// pinned to the corroborated reference exactly like any other anchored read —
 // the policy rewrites moving tags and defaults missing bounds inside the
 // filter object; a blockHash query addresses immutable content directly.
 func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
@@ -419,10 +419,10 @@ func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]type
 	return logs, nil
 }
 
-// RevertError reports a fleet-verified execution revert of an eth_call. It
+// RevertError reports a fleet-corroborated execution revert of an eth_call. It
 // is an observation rather than a pipeline failure — none of the classified
 // sentinels apply — and its message and data are provider context:
-// unverified content with the same standing decision 0015 gives the
+// uncorroborated content with the same standing decision 0015 gives the
 // server-provided `from` field.
 type RevertError struct {
 	// Code is the JSON-RPC error code supplied by the provider. Geth uses
@@ -438,9 +438,9 @@ type RevertError struct {
 
 func (e *RevertError) Error() string {
 	if len(e.Data) > 0 {
-		return fmt.Sprintf("ethguard: call reverted (verified observation): %s: 0x%x", e.Message, e.Data)
+		return fmt.Sprintf("ethguard: call reverted (corroborated observation): %s: 0x%x", e.Message, e.Data)
 	}
-	return fmt.Sprintf("ethguard: call reverted (verified observation): %s", e.Message)
+	return fmt.Sprintf("ethguard: call reverted (corroborated observation): %s", e.Message)
 }
 
 // ErrorCode makes RevertError compatible with go-ethereum's rpc.Error. The
@@ -471,7 +471,7 @@ func (e *RevertError) ErrorData() interface{} {
 	return "0x"
 }
 
-// decodeCallResult separates a verified revert envelope from return data.
+// decodeCallResult separates a corroborated revert envelope from return data.
 func decodeCallResult(raw json.RawMessage) ([]byte, error) {
 	var envelope struct {
 		Code    int             `json:"code"`
@@ -543,7 +543,7 @@ func toCallArg(msg ethereum.CallMsg) map[string]any {
 // are omitted when empty (some providers reject empty arrays), blockHash
 // addresses the range explicitly, and otherwise geth's from/to spellings
 // apply — a nil fromBlock becomes "0x0" and a nil toBlock "latest", which
-// the anchored policy then pins to the verified reference.
+// the anchored policy then pins to the corroborated reference.
 func toFilterArg(q ethereum.FilterQuery) (map[string]any, error) {
 	arg := map[string]any{}
 	if len(q.Addresses) > 0 {

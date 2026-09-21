@@ -95,7 +95,7 @@ func scriptFinalizedHeads(nodes []*rpctest.Node, latest, finalized func(i int) m
 	}
 }
 
-func TestClientVerifiesChainIDAcrossSources(t *testing.T) {
+func TestClientCorroboratesChainIDAcrossSources(t *testing.T) {
 	client, _ := fleet(t, 1, 1, 3)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -107,8 +107,8 @@ func TestClientVerifiesChainIDAcrossSources(t *testing.T) {
 	if value.Int64() != 1 {
 		t.Fatalf("expected chain id 1, got %v", value)
 	}
-	if decision.Status != rpc.Verified || len(decision.Support) != 3 {
-		t.Fatalf("expected verified decision with three supporters, got %+v", decision)
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("expected corroborated decision with three supporters, got %+v", decision)
 	}
 }
 
@@ -133,7 +133,7 @@ func TestClientMajorityToleratesMinorityDissentOnChainID(t *testing.T) {
 	// Chain validation is disabled (pool side zero) so a disagreeing provider
 	// reaches the aggregation layer instead of being rejected up front. The
 	// default fixed-membership majority (decisions 0028 and 0029) needs
-	// Q = max(2, floor(3/2)+1) = 2: the 2-source cluster verifies while the
+	// Q = max(2, floor(3/2)+1) = 2: the 2-source cluster corroborates while the
 	// dissenter rides as Reject evidence, not a failure.
 	client, nodes := fleet(t, 1, 0, 3)
 	nodes[2].Return("eth_chainId", "0x2")
@@ -147,8 +147,8 @@ func TestClientMajorityToleratesMinorityDissentOnChainID(t *testing.T) {
 	if value.Int64() != 1 {
 		t.Fatalf("expected chain id 1, got %v", value)
 	}
-	if decision.Status != rpc.Verified || len(decision.Support) != 2 || len(decision.Reject) != 1 {
-		t.Fatalf("expected verified 2-source majority with one reject, got %+v", decision)
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 {
+		t.Fatalf("expected corroborated 2-source majority with one reject, got %+v", decision)
 	}
 	if string(decision.Value) != `"0x1"` {
 		t.Fatalf("expected majority value in evidence, got %s", decision.Value)
@@ -165,8 +165,8 @@ func TestClientSurvivesHungSourceWithFaultEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value.Int64() != 1 || decision.Status != rpc.Verified || len(decision.Support) != 2 {
-		t.Fatalf("expected verified id 1 from two healthy sources, got %v %+v", value, decision)
+	if value.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
+		t.Fatalf("expected corroborated id 1 from two healthy sources, got %v %+v", value, decision)
 	}
 	if len(decision.Faults) == 0 {
 		t.Fatal("expected hung source to appear in faults")
@@ -176,7 +176,7 @@ func TestClientSurvivesHungSourceWithFaultEvidence(t *testing.T) {
 func TestClientQuarantinesPoisonedChainIdentity(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	// One provider reports another chain than configured: the pool rejects it
-	// while the remaining two sources still verify cleanly.
+	// while the remaining two sources still corroborate cleanly.
 	nodes[1].Handle("eth_chainId", rpctest.Value("0x5"))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -205,8 +205,8 @@ func TestClientAnchorsBalanceReadsAcrossDivergentHeads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || len(decision.Support) != 3 {
-		t.Fatalf("expected anchored read to verify across three sources, got %+v", decision)
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("expected anchored read to corroborate across three sources, got %+v", decision)
 	}
 
 	// The rewrite must be visible on the wire: every node was asked for the
@@ -269,8 +269,8 @@ func TestClientMajorityAnchorPinsTwoOfThreeHeads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || len(decision.Support) != 3 {
-		t.Fatalf("expected verified read over the majority anchor, got %+v", decision)
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("expected corroborated read over the majority anchor, got %+v", decision)
 	}
 }
 
@@ -291,8 +291,8 @@ func TestClientNormalizesBlockResponsesAcrossSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || len(decision.Support) != 2 {
-		t.Fatalf("expected cross-spelling agreement to verify, got %+v", decision)
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
+		t.Fatalf("expected cross-spelling agreement to corroborate, got %+v", decision)
 	}
 }
 
@@ -482,7 +482,7 @@ func TestClientEmitsOneDecisionEventToLogger(t *testing.T) {
 	if got := strings.Count(out, "msg=\"ethguard decision\""); got != 1 {
 		t.Fatalf("expected exactly one decision event, got %d in:\n%s", got, out)
 	}
-	for _, want := range []string{"method=eth_chainId", "status=verified", "conflict=false", "sources=3"} {
+	for _, want := range []string{"method=eth_chainId", "status=corroborated", "conflict=false", "sources=3"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in event:\n%s", want, out)
 		}
@@ -511,7 +511,7 @@ func TestRecorderWinsOverLogger(t *testing.T) {
 		t.Fatalf("logger must stay silent when a recorder is wired, got:\n%s", out)
 	}
 	if got := sampleValue(t, reg, "ethguard_decisions_total",
-		map[string]string{"method": "eth_chainId", "status": "verified"}); got != 1 {
+		map[string]string{"method": "eth_chainId", "status": "corroborated"}); got != 1 {
 		t.Fatalf("recorder should have received the event, decisions_total = %v", got)
 	}
 }
@@ -569,8 +569,8 @@ func TestClientExposesDecisionsThroughPrometheus(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := sampleValue(t, reg, "ethguard_decisions_total",
-		map[string]string{"method": "eth_chainId", "status": "verified"}); got != 1 {
-		t.Fatalf("decisions_total{verified} = %v, want 1", got)
+		map[string]string{"method": "eth_chainId", "status": "corroborated"}); got != 1 {
+		t.Fatalf("decisions_total{corroborated} = %v, want 1", got)
 	}
 
 	nodes[1].Return("eth_chainId", "0x2")
@@ -625,8 +625,8 @@ func TestAnchorEventsReportUnderBoundedLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := sampleValue(t, reg, "ethguard_decisions_total",
-		map[string]string{"method": "anchor", "status": "verified"}); got != 1 {
-		t.Fatalf("decisions_total{anchor,verified} = %v, want 1", got)
+		map[string]string{"method": "anchor", "status": "corroborated"}); got != 1 {
+		t.Fatalf("decisions_total{anchor,corroborated} = %v, want 1", got)
 	}
 
 	nodes[1].Return("eth_getBlockByNumber", map[string]any{"number": "0x11", "hash": "0xfirst"})
@@ -686,12 +686,12 @@ func TestFinalizedAnchoringToleratesDivergentTips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected divergent tips to anchor at agreed finalized head, got %v", err)
 	}
-	if decision.Status != rpc.Verified || len(decision.Support) != 3 {
-		t.Fatalf("expected anchored read to verify across three sources, got %+v", decision)
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("expected anchored read to corroborate across three sources, got %+v", decision)
 	}
 	if got := sampleValue(t, reg, "ethguard_decisions_total",
-		map[string]string{"method": "anchor", "status": "verified"}); got != 1 {
-		t.Fatalf("decisions_total{anchor,verified} = %v, want 1", got)
+		map[string]string{"method": "anchor", "status": "corroborated"}); got != 1 {
+		t.Fatalf("decisions_total{anchor,corroborated} = %v, want 1", got)
 	}
 
 	// The rewrite is on the wire: pinned hash in, no moving tag anywhere.
@@ -800,8 +800,8 @@ func TestTipTrackingQuarantinesLaggingSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value.Int64() != 1 || decision.Status != rpc.Verified {
-		t.Fatalf("expected verified chain id from fresh sources, got %v %+v", value, decision)
+	if value.Int64() != 1 || decision.Status != rpc.Corroborated {
+		t.Fatalf("expected corroborated chain id from fresh sources, got %v %+v", value, decision)
 	}
 	if len(decision.Support) != 2 {
 		t.Fatalf("expected the lagging source to be gated out, got %+v", decision.Support)
@@ -835,7 +835,7 @@ func anchorEstablishments(nodes []*rpctest.Node) int {
 }
 
 // TestAnchorCachingSharesOneEstablishment proves the latency win on the
-// wire: consecutive anchored reads reuse one verified reference instead of
+// wire: consecutive anchored reads reuse one corroborated reference instead of
 // re-fanning the head query per call.
 func TestAnchorCachingSharesOneEstablishment(t *testing.T) {
 	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}}, ethguard.WithAnchorCaching(time.Hour))
@@ -855,7 +855,7 @@ func TestAnchorCachingReestablishesAfterTTL(t *testing.T) {
 
 // TestGasPriceIsSelectedWithOutlierEvidence pins the Variable-group
 // contract end to end: the fleet's lower median wins, unanimous fleets still
-// stay Selected (never Verified), and outliers ride as evidence.
+// stay Selected (never Corroborated), and outliers ride as evidence.
 func TestGasPriceIsSelectedWithOutlierEvidence(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	nodes[0].Return("eth_gasPrice", "0x3b9aca00") // 1 gwei
@@ -1016,7 +1016,7 @@ func receiptFixture(txHash string) map[string]any {
 	}
 }
 
-func TestClientVerifiesReceiptAcrossSources(t *testing.T) {
+func TestClientCorroboratesReceiptAcrossSources(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	txHash := "0x" + strings.Repeat("42", 32)
 	for _, node := range nodes {
@@ -1029,8 +1029,8 @@ func TestClientVerifiesReceiptAcrossSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.TxHash != common.HexToHash(txHash) || decision.Status != rpc.Verified || len(decision.Support) != 3 {
-		t.Fatalf("expected verified receipt across three sources, got %+v %+v", receipt, decision)
+	if receipt.TxHash != common.HexToHash(txHash) || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("expected corroborated receipt across three sources, got %+v %+v", receipt, decision)
 	}
 
 	// The wire must carry the exact requested hash to every source.
@@ -1091,7 +1091,7 @@ func TestClientRejectsReceiptThatDoesNotMatchRequestedTransaction(t *testing.T) 
 	}
 }
 
-func TestClientVerifiesReceiptAbsenceAsNotFound(t *testing.T) {
+func TestClientCorroboratesReceiptAbsenceAsNotFound(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionReceipt, nil)
@@ -1103,15 +1103,15 @@ func TestClientVerifiesReceiptAbsenceAsNotFound(t *testing.T) {
 	if !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
-	if decision.Status != rpc.Verified {
-		t.Fatalf("expected unanimous absence to verify like any answer, got %+v", decision)
+	if decision.Status != rpc.Corroborated {
+		t.Fatalf("expected unanimous absence to corroborate like any answer, got %+v", decision)
 	}
 }
 
 // TestClientResolvesReceiptPresenceSplitByMajority pins decision 0022's
 // interaction with the new default mode: null is a comparable answer, so a
 // presence split adjudicates like ordinary dissent — the fixed-membership
-// majority (0028) verifies the 2-source object cluster while the null answer
+// majority (0028) corroborates the 2-source object cluster while the null answer
 // rides as Reject evidence.
 func TestClientResolvesReceiptPresenceSplitByMajority(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
@@ -1127,8 +1127,8 @@ func TestClientResolvesReceiptPresenceSplitByMajority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || len(decision.Support) != 2 || len(decision.Reject) != 1 {
-		t.Fatalf("expected verified 2-source cluster over one null reject, got %+v", decision)
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 {
+		t.Fatalf("expected corroborated 2-source cluster over one null reject, got %+v", decision)
 	}
 }
 
@@ -1169,8 +1169,8 @@ func TestClientRejectsUnanimousReceiptMissingRequiredFields(t *testing.T) {
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for schema-invalid unanimous payload, got %v", err)
 	}
-	if decision.Status != rpc.Verified {
-		t.Fatalf("expected verification to pass before the typed boundary, got %+v", decision)
+	if decision.Status != rpc.Corroborated {
+		t.Fatalf("expected corroboration to pass before the typed boundary, got %+v", decision)
 	}
 }
 
@@ -1209,7 +1209,7 @@ func signedTxFixture(t *testing.T, mined bool) json.RawMessage {
 	return out
 }
 
-func TestClientVerifiesTransactionByHash(t *testing.T) {
+func TestClientCorroboratesTransactionByHash(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	raw := signedTxFixture(t, true)
 	var want types.Transaction
@@ -1226,8 +1226,8 @@ func TestClientVerifiesTransactionByHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tx.Hash() != want.Hash() || decision.Status != rpc.Verified || len(decision.Support) != 3 {
-		t.Fatalf("expected verified transaction across three sources, got %+v %+v", tx, decision)
+	if tx.Hash() != want.Hash() || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("expected corroborated transaction across three sources, got %+v %+v", tx, decision)
 	}
 }
 
@@ -1264,7 +1264,7 @@ func TestClientRejectsTransactionWithFabricatedHash(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// The fleet agrees, so verification passes; the wire hash disagrees with
+	// The fleet agrees, so corroboration passes; the wire hash disagrees with
 	// the recomputed signature hash, so the typed boundary rejects it.
 	if _, _, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for fabricated wire hash, got %v", err)
@@ -1283,12 +1283,12 @@ func TestClientMapsTransactionAbsenceToNotFound(t *testing.T) {
 	if !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
-	if decision.Status != rpc.Verified {
-		t.Fatalf("expected unanimous absence to verify like any answer, got %+v", decision)
+	if decision.Status != rpc.Corroborated {
+		t.Fatalf("expected unanimous absence to corroborate like any answer, got %+v", decision)
 	}
 }
 
-func TestClientPinsBlockReceiptsToVerifiedReference(t *testing.T) {
+func TestClientPinsBlockReceiptsToCorroboratedReference(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	receipt := receiptFixture("0x" + strings.Repeat("42", 32))
 	receipt["blockHash"] = "0x" + strings.Repeat("ab", 32)
@@ -1312,8 +1312,8 @@ func TestClientPinsBlockReceiptsToVerifiedReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || len(decision.Support) != 3 {
-		t.Fatalf("expected anchored receipts read to verify across three sources, got %+v", decision)
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("expected anchored receipts read to corroborate across three sources, got %+v", decision)
 	}
 	for i, node := range nodes {
 		for _, call := range node.Calls() {
@@ -1377,7 +1377,7 @@ func TestMaxPriorityFeePerGasTakesLowerMedian(t *testing.T) {
 	}
 }
 
-func TestClientVerifiesNetVersionAcrossSpellings(t *testing.T) {
+func TestClientCorroboratesNetVersionAcrossSpellings(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	nodes[0].Return(methods.MethodNetVersion, "1")
 	nodes[1].Return(methods.MethodNetVersion, "1")
@@ -1389,8 +1389,8 @@ func TestClientVerifiesNetVersionAcrossSpellings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version.Int64() != 1 || decision.Status != rpc.Verified || len(decision.Support) != 3 {
-		t.Fatalf("expected cross-spelling net_version agreement to verify, got %v %+v", version, decision)
+	if version.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("expected cross-spelling net_version agreement to corroborate, got %v %+v", version, decision)
 	}
 }
 
@@ -1414,7 +1414,7 @@ func TestListeningIsUpstreamLocalSelected(t *testing.T) {
 	}
 }
 
-func TestClientBlockNumberDerivesFromVerifiedReference(t *testing.T) {
+func TestClientBlockNumberDerivesFromCorroboratedReference(t *testing.T) {
 	t.Run("agrees on one head", func(t *testing.T) {
 		client, nodes := fleet(t, 1, 1, 3)
 		// A schema-valid block: the derivation decodes the reference fully,
@@ -1535,7 +1535,7 @@ func balanceDissentAt(nodes []*rpctest.Node, hash, want, dissent string) {
 // TestClientQuorumCoversAnchoredStateReads pins decision 0028's reach: the
 // client-level corroboration configuration must reach the anchored state
 // reads, not only the plainly strict methods. Three of five sources agree at
-// the verified anchor while two dissent — under the default floor H=2 both
+// the corroborated anchor while two dissent — under the default floor H=2 both
 // the quorum option and the default majority resolve the same 3-of-5 cluster.
 func TestClientQuorumCoversAnchoredStateReads(t *testing.T) {
 	t.Run("quorum resolves the anchored majority cluster", func(t *testing.T) {
@@ -1549,8 +1549,8 @@ func TestClientQuorumCoversAnchoredStateReads(t *testing.T) {
 		if err != nil {
 			t.Fatalf("quorum should resolve the anchored read over dissent: %v", err)
 		}
-		if decision.Status != rpc.Verified || len(decision.Support) != 3 {
-			t.Fatalf("expected a verified 3-source cluster, got %+v", decision)
+		if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+			t.Fatalf("expected a corroborated 3-source cluster, got %+v", decision)
 		}
 		if string(decision.Value) != `"0x64"` {
 			t.Fatalf("expected the majority cluster's balance, got %s", decision.Value)
@@ -1585,7 +1585,7 @@ func callAt(nodes []*rpctest.Node, hash, want string) {
 	}
 }
 
-func TestClientVerifiesCallOutcomeAcrossSources(t *testing.T) {
+func TestClientCorroboratesCallOutcomeAcrossSources(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	agreeOnHead(nodes)
 	callAt(nodes, "0xabc", "0xdeadbeef")
@@ -1596,8 +1596,8 @@ func TestClientVerifiesCallOutcomeAcrossSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || string(decision.Value) != `"0xdeadbeef"` {
-		t.Fatalf("expected verified call result, got %+v", decision)
+	if decision.Status != rpc.Corroborated || string(decision.Value) != `"0xdeadbeef"` {
+		t.Fatalf("expected corroborated call result, got %+v", decision)
 	}
 	if decision.BlockRef != "0xabc" {
 		t.Fatalf("expected the anchored rewrite recorded as block ref, got %q", decision.BlockRef)
@@ -1608,7 +1608,7 @@ type decisionEvents chan observe.DecisionEvent
 
 func (events decisionEvents) RecordDecision(event observe.DecisionEvent) { events <- event }
 
-func TestClientVerifiedRevertIsAnObservation(t *testing.T) {
+func TestClientCorroboratedRevertIsAnObservation(t *testing.T) {
 	events := make(decisionEvents, 8)
 	client, nodes := fleet(t, 1, 1, 3, ethguard.WithRecorder(events))
 	agreeOnHead(nodes)
@@ -1620,10 +1620,10 @@ func TestClientVerifiedRevertIsAnObservation(t *testing.T) {
 
 	decision, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest")
 	if err != nil {
-		t.Fatalf("a unanimous revert is a verified observation, not a failure: %v", err)
+		t.Fatalf("a unanimous revert is a corroborated observation, not a failure: %v", err)
 	}
-	if decision.Status != rpc.Verified {
-		t.Fatalf("expected verified revert observation, got %+v", decision)
+	if decision.Status != rpc.Corroborated {
+		t.Fatalf("expected corroborated revert observation, got %+v", decision)
 	}
 	if !strings.Contains(string(decision.Value), "execution reverted") {
 		t.Fatalf("expected the revert envelope as value, got %s", decision.Value)
@@ -1635,12 +1635,12 @@ func TestClientVerifiedRevertIsAnObservation(t *testing.T) {
 			continue
 		}
 		callEvents++
-		if event.Status != "verified" || len(event.Attempts) != 3 {
+		if event.Status != "corroborated" || len(event.Attempts) != 3 {
 			t.Fatalf("unexpected event: %+v", event)
 		}
 		for _, attempt := range event.Attempts {
 			if attempt.Failed {
-				t.Fatalf("verified revert must not fail its source: %+v", attempt)
+				t.Fatalf("corroborated revert must not fail its source: %+v", attempt)
 			}
 		}
 	}
@@ -1652,7 +1652,7 @@ func TestClientVerifiedRevertIsAnObservation(t *testing.T) {
 // TestClientMajorityResolvesCallClassSplit pins how the default mode treats a
 // result/revert split: revert envelopes are a comparable class (decision
 // 0023's protected form is pending), so the split is ordinary dissent and the
-// 2-of-3 result cluster verifies. Unanimity fails closed on the same split.
+// 2-of-3 result cluster corroborates. Unanimity fails closed on the same split.
 func TestClientMajorityResolvesCallClassSplit(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	agreeOnHead(nodes)
@@ -1667,8 +1667,8 @@ func TestClientMajorityResolvesCallClassSplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || len(decision.Support) != 2 || len(decision.Reject) != 1 {
-		t.Fatalf("expected verified 2-source result cluster, got %+v", decision)
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 {
+		t.Fatalf("expected corroborated 2-source result cluster, got %+v", decision)
 	}
 }
 
@@ -1736,7 +1736,7 @@ func TestGetLogsPinsTheFilterRangeOnTheWire(t *testing.T) {
 			if filter["fromBlock"] == "0x10" && filter["toBlock"] == "0x10" {
 				return logs, nil
 			}
-			return nil, rpctest.RPCError(-32602, "range was not pinned to the verified height")
+			return nil, rpctest.RPCError(-32602, "range was not pinned to the corroborated height")
 		})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1746,12 +1746,12 @@ func TestGetLogsPinsTheFilterRangeOnTheWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || decision.BlockRef != "0x10" {
-		t.Fatalf("expected verified height-pinned log query, got %+v", decision)
+	if decision.Status != rpc.Corroborated || decision.BlockRef != "0x10" {
+		t.Fatalf("expected corroborated height-pinned log query, got %+v", decision)
 	}
 }
 
-func TestFeeHistoryPinsNewestToTheVerifiedHeight(t *testing.T) {
+func TestFeeHistoryPinsNewestToTheCorroboratedHeight(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	agreeOnHead(nodes) // head fixture: number 0x10, hash 0xabc
 	fixture := map[string]any{
@@ -1765,7 +1765,7 @@ func TestFeeHistoryPinsNewestToTheVerifiedHeight(t *testing.T) {
 			if len(c.Params) == 3 && json.Unmarshal(c.Params[1], &newest) == nil && newest == "0x10" {
 				return fixture, nil
 			}
-			return nil, rpctest.RPCError(-32602, "newest was not the verified height")
+			return nil, rpctest.RPCError(-32602, "newest was not the corroborated height")
 		})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1775,8 +1775,8 @@ func TestFeeHistoryPinsNewestToTheVerifiedHeight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Verified || decision.BlockRef != "0x10" {
-		t.Fatalf("expected verified height-pinned history, got %+v", decision)
+	if decision.Status != rpc.Corroborated || decision.BlockRef != "0x10" {
+		t.Fatalf("expected corroborated height-pinned history, got %+v", decision)
 	}
 	if history.OldestBlock.Uint64() != 15 || len(history.BaseFeePerGas) != 4 {
 		t.Fatalf("unexpected decoded history: %+v", history)
@@ -1848,7 +1848,7 @@ func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
 		t.Fatal(err)
 	}
 	if height != 16 {
-		t.Fatalf("expected height 16 from the verified reference, got %d", height)
+		t.Fatalf("expected height 16 from the corroborated reference, got %d", height)
 	}
 	// Cross-call cache is disabled by the T03 migration rule.
 	callsBefore := 0
@@ -1985,7 +1985,7 @@ func TestClientResolvesNewMethods(t *testing.T) {
 		}
 	})
 
-	t.Run("eth_createAccessList anchored consensus", func(t *testing.T) {
+	t.Run("eth_createAccessList anchored corroboration", func(t *testing.T) {
 		headHash := "0x" + strings.Repeat("aa", 32)
 		// All nodes answer head block for anchoring
 		for _, n := range nodes {
@@ -2008,8 +2008,8 @@ func TestClientResolvesNewMethods(t *testing.T) {
 		if err != nil {
 			t.Fatalf("createAccessList failed: %v", err)
 		}
-		if d.Status != rpc.Verified {
-			t.Fatalf("status = %v, want Verified", d.Status)
+		if d.Status != rpc.Corroborated {
+			t.Fatalf("status = %v, want Corroborated", d.Status)
 		}
 		if res.GasUsed != 0x5208 {
 			t.Fatalf("gasUsed = %d, want %d", res.GasUsed, 0x5208)

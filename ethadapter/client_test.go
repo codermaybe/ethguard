@@ -80,7 +80,7 @@ func fixtureBlock(t *testing.T, number int64) json.RawMessage {
 	return out
 }
 
-func TestAdapterChainIDIsVerified(t *testing.T) {
+func TestAdapterChainIDIsCorroborated(t *testing.T) {
 	client, _ := fleet(t, 3)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -200,7 +200,7 @@ func TestAdapterBlockByHashRejectsAnotherSelfConsistentBlock(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockNumberMatchesVerifiedReference(t *testing.T) {
+func TestAdapterBlockNumberMatchesCorroboratedReference(t *testing.T) {
 	client, nodes := fleet(t, 3, ethguard.WithFinalizedAnchoring())
 	fin := fixtureBlock(t, 42)
 	pin := blockHashOf(fin)
@@ -224,7 +224,7 @@ func TestAdapterBlockNumberMatchesVerifiedReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	if height != 42 {
-		t.Fatalf("expected verified finalized reference height 42, got %d", height)
+		t.Fatalf("expected corroborated finalized reference height 42, got %d", height)
 	}
 }
 
@@ -330,7 +330,7 @@ func fixtureReceipt(t *testing.T, txHash common.Hash, height int64) json.RawMess
 	return raw
 }
 
-func TestAdapterTransactionReceiptReturnsVerifiedReceipt(t *testing.T) {
+func TestAdapterTransactionReceiptReturnsCorroboratedReceipt(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
 	raw := fixtureReceipt(t, txHash, 16)
@@ -345,14 +345,14 @@ func TestAdapterTransactionReceiptReturnsVerifiedReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if receipt.TxHash != txHash || receipt.Status != types.ReceiptStatusSuccessful {
-		t.Fatalf("unexpected verified receipt: %+v", receipt)
+		t.Fatalf("unexpected corroborated receipt: %+v", receipt)
 	}
 	if len(receipt.Logs) != 1 || receipt.Logs[0].TxHash != txHash {
 		t.Fatalf("expected the receipt's logs to survive decoding, got %+v", receipt.Logs)
 	}
 }
 
-func TestAdapterTransactionReceiptMapsVerifiedAbsenceToNotFound(t *testing.T) {
+func TestAdapterTransactionReceiptMapsCorroboratedAbsenceToNotFound(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionReceipt, nil)
@@ -423,7 +423,7 @@ func TestAdapterTransactionByHashReportsPendingFlag(t *testing.T) {
 	}
 
 	// Pending: the same object without block context — pending is an
-	// ordinary verified state while the object stays stable.
+	// ordinary corroborated state while the object stays stable.
 	pendingRaw := signedTxFixture(t, false)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionByHash, pendingRaw)
@@ -488,7 +488,7 @@ func TestAdapterAnchoredStateReads(t *testing.T) {
 	}
 	code, err := client.CodeAt(ctx, common.HexToAddress("0xdad"), nil)
 	if err != nil || len(code) != 0 {
-		t.Fatalf("expected empty verified code for the EOA answer, got %x %v", code, err)
+		t.Fatalf("expected empty corroborated code for the EOA answer, got %x %v", code, err)
 	}
 
 	// None of the anchored state reads may reach a source with a moving tag.
@@ -655,7 +655,7 @@ func TestAdapterBlockReceiptsNumberFormRejectsMissingHeight(t *testing.T) {
 
 // TestAdapterBlockReceiptsTagFormBindsToThePinnedReference proves the
 // tag-form binding rides decision.BlockRef: receipts whose block hash
-// differs from the verified pin fail without a second anchor call.
+// differs from the corroborated pin fail without a second anchor call.
 func TestAdapterBlockReceiptsTagFormBindsToThePinnedReference(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
@@ -710,7 +710,7 @@ func headFixture(nodes []*rpctest.Node) {
 	}
 }
 
-func TestAdapterCallContractVerifiesResultsAndMapsReverts(t *testing.T) {
+func TestAdapterCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
 	adapter, nodes := fleet(t, 3)
 	headFixture(nodes)
 	for _, node := range nodes {
@@ -735,7 +735,7 @@ func TestAdapterCallContractVerifiesResultsAndMapsReverts(t *testing.T) {
 		t.Fatalf("unexpected call result %x", data)
 	}
 
-	// A unanimous revert is a verified observation surfaced as RevertError,
+	// A unanimous revert is a corroborated observation surfaced as RevertError,
 	// with the pipeline sentinels left for pipeline failures.
 	for _, node := range nodes {
 		node.Fail("eth_call", -32000, "execution reverted: no funds")
@@ -748,7 +748,7 @@ func TestAdapterCallContractVerifiesResultsAndMapsReverts(t *testing.T) {
 	if revert.Message != "execution reverted: no funds" {
 		t.Fatalf("unexpected revert message %q", revert.Message)
 	}
-	if !strings.Contains(err.Error(), "verified observation") {
+	if !strings.Contains(err.Error(), "corroborated observation") {
 		t.Fatalf("revert error should state its standing: %v", err)
 	}
 }
@@ -803,7 +803,7 @@ func TestAdapterFilterLogsPinsTheFilterRange(t *testing.T) {
 			if filter["fromBlock"] == "0x0" && filter["toBlock"] == "0x10" {
 				return logs, nil
 			}
-			return nil, rpctest.RPCError(-32602, "range was not pinned to the verified height")
+			return nil, rpctest.RPCError(-32602, "range was not pinned to the corroborated height")
 		})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -929,7 +929,7 @@ func TestAdapterRequiresCorroborationWithoutChangingMethodSignatures(t *testing.
 	}
 	wrapped := ethadapter.Wrap(client.Unwrap())
 	if _, err := wrapped.BalanceAt(context.Background(), common.Address{}, big.NewInt(16)); !errors.Is(err, ethguard.ErrConflict) {
-		t.Fatalf("Wrap bypassed verification: %v", err)
+		t.Fatalf("Wrap bypassed corroboration: %v", err)
 	}
 }
 

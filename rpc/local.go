@@ -10,7 +10,7 @@ import (
 // describe one provider's own state (peer tables, sync progress): there is
 // no fleet truth to agree on, so the first healthy source's answer stands —
 // deterministically in pool order — labelled Selected at best, never
-// Verified.
+// Corroborated.
 //
 // Honesty notes: Support names only the consulted source; local answers are
 // not comparable, so no cluster semantics apply. The caller inherits the

@@ -216,7 +216,7 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 		}
 		return ref, err
 	}
-	if len(decision.Support) < required || decision.Status != rpc.Verified {
+	if len(decision.Support) < required || decision.Status != rpc.Corroborated {
 		err := fmt.Errorf("common reference needs %d supporters, got %d: %w", required, len(decision.Support), rpc.ErrConflict)
 		if reorgDetected {
 			return ref, errors.Join(rpc.ErrReorgDetected, err)
@@ -227,7 +227,7 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 	if err != nil {
 		return ref, fmt.Errorf("winning reference: %w", rpc.ErrMalformedResponse)
 	}
-	ref.Hash, ref.Status = winner.hash, rpc.Verified
+	ref.Hash, ref.Status = winner.hash, rpc.Corroborated
 	return ref, nil
 }
 

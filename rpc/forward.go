@@ -39,7 +39,7 @@ func (ForwardPolicy) Resolve(obs []Observation) (Decision, error) {
 }
 
 // SelectedPolicy returns the first successful observation while marking the
-// decision as selected rather than verified.
+// decision as selected rather than corroborated.
 type SelectedPolicy struct{}
 
 func (SelectedPolicy) Prepare(_ context.Context, req Request) (Request, error) {

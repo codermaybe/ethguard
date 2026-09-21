@@ -142,7 +142,7 @@ func (p finalizedHeadPolicy) Resolve(obs []Observation) (Decision, error) {
 			len(distinct), winner, ErrConflict)
 	}
 
-	decision.Status = Verified
+	decision.Status = Corroborated
 	if len(clusters[winner]) == 1 {
 		decision.Status = Selected
 	}

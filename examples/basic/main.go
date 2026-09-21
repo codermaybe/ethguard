@@ -30,8 +30,8 @@ func main() {
 	defer cancel()
 	id, err := client.ChainID(ctx)
 	if err != nil {
-		log.Printf("chain ID verification failed: %v", err)
+		log.Printf("chain ID corroboration failed: %v", err)
 		return
 	}
-	fmt.Printf("verified chain ID: %s\n", id)
+	fmt.Printf("corroborated chain ID: %s\n", id)
 }

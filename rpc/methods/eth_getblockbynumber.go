@@ -13,7 +13,7 @@ import (
 // BlockByNumberPolicy.
 const MethodGetBlockByNumber = "eth_getBlockByNumber"
 
-// BlockByNumberPolicy verifies eth_getBlockByNumber by full agreement on the
+// BlockByNumberPolicy corroborates eth_getBlockByNumber by full agreement on the
 // block head: number and hash must match across sources, hexadecimal casing
 // and key order aside. It also serves as the anchor policy for pinned reads.
 func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {

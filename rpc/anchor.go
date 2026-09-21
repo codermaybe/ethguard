@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-// AnchorFunc establishes a verified, immutable block reference. It is called
+// AnchorFunc establishes a corroborated, immutable block reference. It is called
 // only when a moving tag actually needs rewriting.
 type AnchorFunc func(context.Context) (string, error)
 
-// AnchorHeightFunc establishes a verified block height for methods whose
+// AnchorHeightFunc establishes a corroborated block height for methods whose
 // wire form accepts a height but not a hash — eth_feeHistory's newestBlock
 // is a BlockNumber, not a BlockNumberOrHash, so a hash cannot ride the wire
 // (the soak caught the same constraint for eth_getBlockByNumber's number
@@ -174,7 +174,7 @@ func (a corroboratingAnchoredPolicy) ResolveCorroborated(c Corroboration, obs []
 }
 
 // Anchored binds a normalizer to strict resolution and rewrites a moving block
-// tag at position tagPos to a verified block hash before fan-out. Strict
+// tag at position tagPos to a corroborated block hash before fan-out. Strict
 // options (for example WithQuorum) pass through to the underlying resolution.
 //
 // It remains as a convenience constructor. WithAnchor is the general-purpose
@@ -260,7 +260,7 @@ func (p corroboratingPendingPolicy) ResolveCorroborated(c Corroboration, obs []O
 }
 
 // WithAnchorHeight decorates a policy with moving-tag rewriting to the
-// verified reference's block height, spelled as a hex quantity. It exists
+// corroborated reference's block height, spelled as a hex quantity. It exists
 // for methods whose wire form cannot carry a hash (see AnchorHeightFunc);
 // everywhere else WithAnchor's hash rewrite is the right shape.
 //
@@ -394,7 +394,7 @@ func (a corroboratingHeightPolicy) ResolveCorroborated(c Corroboration, obs []Ob
 }
 
 // WithAnchorHeightFields decorates a policy so that named string fields of
-// the object-typed parameter at paramPos are rewritten to the verified
+// the object-typed parameter at paramPos are rewritten to the corroborated
 // reference's hex height — and defaulted to it when absent, since a
 // provider's implicit default is a moving tag in field clothing.
 // eth_getLogs needs this: its fromBlock/toBlock are BlockNumbers (a

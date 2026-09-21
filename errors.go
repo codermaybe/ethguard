@@ -17,8 +17,8 @@ import (
 //	                      transport-level response
 //	ErrChainIDMismatch    a source reported a foreign chain and was rejected
 //	ErrPoolClosed         the client's pool has been closed
-//	ErrConflict           verified sources disagreed, or a quorum went unmet;
-//	                      Decision evidence names the clusters
+//	ErrConflict           sources disagreed under corroboration, or a quorum
+//	                      went unmet; Decision evidence names the clusters
 //	ErrNoValidResponse    sources answered but no response survived
 //	                      normalization
 //	ErrMalformedResponse  a resolved value cannot be shaped at a typed

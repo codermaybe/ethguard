@@ -28,7 +28,7 @@ anchored, and classified. Initial policy groups are:
 
 Unknown or unsupported methods never get a file here; they fall through the
 registry to transparent forwarding. Default forwarding must produce
-`Forwarded`, never `Verified`.
+`Forwarded`, never `Corroborated`.
 
 ## Standard projection
 
@@ -65,7 +65,7 @@ the root client or `Client.Call`; the catalog records that distinction in the
 pool attempts sources in order, stops on the first transport-successful value
 or JSON-RPC answer, and returns `Forwarded`. It never retries a non-idempotent
 method by broadcasting it to the fleet and never upgrades an unknown answer to
-`Verified`.
+`Corroborated`.
 
 Gas estimates, fee observations, and transaction-count reads may have
 policies here. Gas optimization, nonce allocation, transaction signing,

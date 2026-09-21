@@ -31,7 +31,7 @@ func (c *Client) decodedQuantity(method string, decision rpc.Decision) (*big.Int
 	return value, nil
 }
 
-// ChainID returns the verified chain ID and its aggregation decision.
+// ChainID returns the corroborated chain ID and its aggregation decision.
 func (c *Client) ChainID(ctx context.Context) (*big.Int, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodChainID)
 	if err != nil {
@@ -69,7 +69,7 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool)
 // TransactionReceipt returns a strictly compared receipt for the transaction
 // hash and the aggregation decision. The hash addresses immutable content:
 // honest sources either hold the identical receipt or the dissent is
-// evidence. Verified absence — every source answers null, the transaction
+// evidence. Corroborated absence — every source answers null, the transaction
 // has no receipt yet — maps to ethereum.NotFound, the convention DecodeBlock
 // applies to blocks and go-ethereum's own client applies to receipts.
 func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*types.Receipt, rpc.Decision, error) {
@@ -89,7 +89,7 @@ func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*typ
 }
 
 // TransactionByHash returns a strictly compared transaction and the
-// aggregation decision. The hash addresses immutable content; verified
+// aggregation decision. The hash addresses immutable content; corroborated
 // absence maps to ethereum.NotFound like TransactionReceipt.
 func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (*types.Transaction, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodGetTransactionByHash, hash.Hex())
@@ -108,9 +108,9 @@ func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (*type
 }
 
 // BlockReceipts returns the strictly compared receipts of one block,
-// addressed by its verified hash. Moving tags never reach this method:
+// addressed by its corroborated hash. Moving tags never reach this method:
 // anchor the reference first (Adapter callers pass numbers or tags and the
-// policy rewrites them). Verified absence of the block maps to
+// policy rewrites them). Corroborated absence of the block maps to
 // ethereum.NotFound; an empty block yields an empty, non-nil slice.
 func (c *Client) BlockReceipts(ctx context.Context, hash common.Hash) ([]*types.Receipt, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodGetBlockReceipts, hash.Hex())
@@ -130,7 +130,7 @@ func (c *Client) BlockReceipts(ctx context.Context, hash common.Hash) ([]*types.
 	return receipts, decision, nil
 }
 
-// FeeHistory describes the fleet-verified fee history of a pinned range.
+// FeeHistory describes the fleet-corroborated fee history of a pinned range.
 // It has no ethclient-shaped home, so it lives at the root (division rule:
 // the adapter mirrors ethclient; go-ethereum's client does not expose
 // feeHistory).
@@ -147,10 +147,10 @@ type FeeHistory struct {
 	Reward [][]*big.Int
 }
 
-// FeeHistory returns the fleet-verified fee history ending at the verified
+// FeeHistory returns the fleet-corroborated fee history ending at the corroborated
 // reference: newest nil pins the moving "latest" tag, an explicit number
 // passes through. The range is chain-determined once newest is pinned, so
-// the decision is Verified when sources agree; cross-client percentile
+// the decision is Corroborated when sources agree; cross-client percentile
 // rounding of Reward is the known liveness gate and fails closed as
 // conflict until the soak measures it.
 func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, newest *big.Int, rewardPercentiles []float64) (*FeeHistory, rpc.Decision, error) {
@@ -210,7 +210,7 @@ func (c *Client) MaxPriorityFeePerGas(ctx context.Context) (*big.Int, rpc.Decisi
 	return value, decision, nil
 }
 
-// NetVersion returns the verified legacy chain identity (net_version spells
+// NetVersion returns the corroborated legacy chain identity (net_version spells
 // in decimal what eth_chainId spells in hex).
 func (c *Client) NetVersion(ctx context.Context) (*big.Int, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodNetVersion)
@@ -238,22 +238,22 @@ func (c *Client) Listening(ctx context.Context) (bool, rpc.Decision, error) {
 	return flag, decision, nil
 }
 
-// BlockNumber returns the height of the currently verified block reference.
-// It is a derivation over verified primitives, not an independent read, and
+// BlockNumber returns the height of the currently corroborated block reference.
+// It is a derivation over corroborated primitives, not an independent read, and
 // the selection reasoning is stated here rather than left implicit:
 //
 //   - Sources sit at different heads as a matter of course. A fleet fan-out
 //     of eth_blockNumber would turn routine replication lag into conflict;
 //     divergence here is the common case, not an anomaly, so fail-closed
 //     comparison is the wrong tool for this read.
-//   - The verified reference behind moving-tag reads already carries the
-//     fleet's agreement. Its height is the only height with a verification
+//   - The corroborated reference behind moving-tag reads already carries the
+//     fleet's agreement. Its height is the only height with a corroboration
 //     claim behind it — any other answer would be one provider's tip.
 //   - eth_blockNumber therefore stays unregistered on purpose: a raw
 //     fan-out of it falls through to transparent Forwarded, never a
-//     pretended Verified on a moving value.
+//     pretended Corroborated on a moving value.
 //
-// This is the consensus-override shape proxyd popularized, expressed as
+// This is the source-agreement-override shape proxyd popularized, expressed as
 // derivation. Callers wanting bounded staleness should configure the
 // anchoring presets (WithFinalizedAnchoring) and, optionally, its cache.
 func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
@@ -313,7 +313,7 @@ func (c *Client) PeerCount(ctx context.Context) (uint64, rpc.Decision, error) {
 }
 
 // Syncing reports the consulted source's sync state: nil progress means it
-// considers itself fully synced. An upstream-local result, never verified.
+// considers itself fully synced. An upstream-local result, never corroborated.
 func (c *Client) Syncing(ctx context.Context) (*ethereum.SyncProgress, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodSyncing)
 	if err != nil {
@@ -400,7 +400,7 @@ type accessListResultWire struct {
 }
 
 // CreateAccessList creates an EIP-2930 access list for a transaction at the
-// verified reference block or an explicitly provided block argument.
+// corroborated reference block or an explicitly provided block argument.
 func (c *Client) CreateAccessList(ctx context.Context, msg any, blockNrOrHash ...any) (*AccessListResult, rpc.Decision, error) {
 	params := []any{msg}
 	if len(blockNrOrHash) > 0 {

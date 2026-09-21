@@ -14,7 +14,7 @@ import (
 // into agreement.
 //
 // The normalized form must be a base-10 integer string, which the shared hex
-// quantity normalizers produce. Resolution never claims Verified — agreeing
+// quantity normalizers produce. Resolution never claims Corroborated — agreeing
 // on a moving value at one instant is coincidence, not corroboration of a
 // deterministic truth — so every median decision is Selected at best. The
 // choice resists manipulation the same way the tip gate does: dragging the

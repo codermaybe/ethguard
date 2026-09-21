@@ -63,8 +63,8 @@ func TestMajorityThresholdsOnChainID(t *testing.T) {
 				if err != nil {
 					t.Fatalf("expected success, got %v", err)
 				}
-				if value.Int64() != 1 || decision.Status != rpc.Verified || len(decision.Support) != tc.wantSupport {
-					t.Fatalf("expected verified cluster of %d, got %+v %v", tc.wantSupport, decision, err)
+				if value.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != tc.wantSupport {
+					t.Fatalf("expected corroborated cluster of %d, got %+v %v", tc.wantSupport, decision, err)
 				}
 				if len(decision.Reject) != tc.n-tc.wantSupport {
 					t.Fatalf("expected %d rejects, got %+v", tc.n-tc.wantSupport, decision.Reject)
@@ -124,8 +124,8 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		if err != nil {
 			t.Fatalf("3-of-5 must succeed with two members gated, got %v", err)
 		}
-		if value.Int64() != 1 || decision.Status != rpc.Verified || len(decision.Support) != 3 {
-			t.Fatalf("expected verified 3-source cluster, got %+v", decision)
+		if value.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+			t.Fatalf("expected corroborated 3-source cluster, got %+v", decision)
 		}
 	})
 
@@ -156,7 +156,7 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		defer cancel()
 
 		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("2 agreeing of a 5-member basis must not verify, got %v", err)
+			t.Fatalf("2 agreeing of a 5-member basis must not corroborate, got %v", err)
 		}
 		if len(client.Pool().Sources()) != 5 {
 			t.Fatalf("expected the 5-member basis to survive failed transports, got %d", len(client.Pool().Sources()))
@@ -179,7 +179,7 @@ func TestModeAsymmetry(t *testing.T) {
 		defer cancel()
 
 		value, decision, err := client.ChainID(ctx)
-		if err != nil || value.Int64() != 1 || decision.Status != rpc.Verified || len(decision.Support) != 3 {
+		if err != nil || value.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 			t.Fatalf("majority must accept the 3-source cluster, got %+v %v", decision, err)
 		}
 	})
@@ -220,7 +220,7 @@ func TestModeAsymmetry(t *testing.T) {
 func TestRuntimeMembershipAndModeChanges(t *testing.T) {
 	t.Run("runtime add then remove changes later invocations", func(t *testing.T) {
 		// Two members split 1×A/1×B: below Q=2. Adding a third member that
-		// answers B lifts the B cluster to a verified 2-of-3 majority;
+		// answers B lifts the B cluster to a corroborated 2-of-3 majority;
 		// removing it returns the invocation to a conflict. Only explicit
 		// Join/Remove moves the basis (decision 0027).
 		client, nodes := fleet(t, 1, 0, 2)
@@ -240,7 +240,7 @@ func TestRuntimeMembershipAndModeChanges(t *testing.T) {
 			t.Fatal(err)
 		}
 		value, decision, err := client.ChainID(ctx)
-		if err != nil || value.Int64() != 2 || decision.Status != rpc.Verified || len(decision.Support) != 2 {
+		if err != nil || value.Int64() != 2 || decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
 			t.Fatalf("expected the added member to lift the B cluster, got %+v %v", decision, err)
 		}
 		if err := p.Remove("extra"); err != nil {
@@ -278,7 +278,7 @@ func TestRuntimeMembershipAndModeChanges(t *testing.T) {
 		// 3 members: 2×A with one delayed, 1×B dissenting. The invocation
 		// captures the majority mode at entry; a switch to unanimity while
 		// the delayed answer is pending must not flip the in-flight result
-		// — unanimity would reject the dissent, majority verifies 2-of-3.
+		// — unanimity would reject the dissent, majority corroborates 2-of-3.
 		client, nodes := fleet(t, 1, 0, 3)
 		nodes[2].Return(methods.MethodChainID, "0x2")
 		nodes[1].Handle(methods.MethodChainID, func(c rpctest.Call) (any, error) {
@@ -326,14 +326,14 @@ func TestRuntimeMembershipAndModeChanges(t *testing.T) {
 	})
 
 	t.Run("insufficient membership for the floor is a construction error path only via T02", func(t *testing.T) {
-		// N=1 can never verify under the default floor H=2 (decision 0029);
+		// N=1 can never corroborate under the default floor H=2 (decision 0029);
 		// forwarding is T02 scope.
 		client, _ := fleet(t, 1, 1, 2, ethguard.WithCorroborationMode(rpc.CorroborationMajority))
 		if err := client.Pool().Remove("node-b"); err != nil {
 			t.Fatal(err)
 		}
 		if _, _, err := client.ChainID(context.Background()); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("single-member basis cannot verify, got %v", err)
+			t.Fatalf("single-member basis cannot corroborate, got %v", err)
 		}
 	})
 }
@@ -431,7 +431,7 @@ func TestNoExtraVotes(t *testing.T) {
 			_, decision, err := client.ChainID(ctx)
 			cancel()
 			if err != nil {
-				t.Fatalf("order %v: expected verified majority, got %v", order, err)
+				t.Fatalf("order %v: expected corroborated majority, got %v", order, err)
 			}
 			got := outcome{status: decision.Status, value: string(decision.Value), support: map[string]bool{}, reject: map[string]bool{}}
 			for _, s := range decision.Support {
@@ -443,7 +443,7 @@ func TestNoExtraVotes(t *testing.T) {
 			outcomes = append(outcomes, got)
 		}
 		first := outcomes[0]
-		if first.status != rpc.Verified || first.value != `"0x1"` ||
+		if first.status != rpc.Corroborated || first.value != `"0x1"` ||
 			len(first.support) != 2 || !first.support["a"] || !first.support["b"] ||
 			len(first.reject) != 1 || !first.reject["c"] {
 			t.Fatalf("unexpected decision shape: %+v", first)
@@ -465,9 +465,9 @@ func TestNoExtraVotes(t *testing.T) {
 }
 
 // Checklist 6: the adjudication module is transport-agnostic and refuses
-// below the floor. Verifiable from outside: N=1 with floor 2 refuses (no
+// below the floor. Observable from outside: N=1 with floor 2 refuses (no
 // degradation to Selected — the typed path errors and the decision's error
-// is authoritative over the Status field, whose zero value is Verified) and
+// is authoritative over the Status field, whose zero value is Corroborated) and
 // the evidence carries the cluster rather than a guessed winner.
 func TestRefusesWithoutDegradation(t *testing.T) {
 	client, _ := fleet(t, 1, 1, 2, ethguard.WithCorroborationMode(rpc.CorroborationMajority))
@@ -504,7 +504,7 @@ func TestPoolVotingBasisExample(t *testing.T) {
 		defer cancel()
 
 		value, decision, err := client.ChainID(ctx)
-		if err != nil || value.Int64() != 1 || decision.Status != rpc.Verified || len(decision.Support) != 3 {
+		if err != nil || value.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 			t.Fatalf("decision 0027's success example failed: %+v %v", decision, err)
 		}
 	})

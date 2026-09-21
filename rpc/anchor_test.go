@@ -240,7 +240,7 @@ func TestAnchoredHeightFieldsRewriteFilterBounds(t *testing.T) {
 		}
 	})
 
-	t.Run("absent fields default to the verified height", func(t *testing.T) {
+	t.Run("absent fields default to the corroborated height", func(t *testing.T) {
 		prepared, err := p.Prepare(context.Background(), Request{Method: "eth_getLogs", Params: []any{
 			map[string]any{"topics": []any{"0xtopic"}},
 		}})

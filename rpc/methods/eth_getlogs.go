@@ -10,7 +10,7 @@ import (
 // MethodGetLogs is the JSON-RPC method name resolved by LogsPolicy.
 const MethodGetLogs = "eth_getLogs"
 
-// LogsPolicy verifies eth_getLogs by full agreement over the whole log
+// LogsPolicy corroborates eth_getLogs by full agreement over the whole log
 // array. Once the range is pinned the response is chain-determined and
 // strictly comparable (analysis 2026-09-04): every log is ordered by its
 // chain-assigned index, so the spec whitelist erases benign encoding and
@@ -20,7 +20,7 @@ const MethodGetLogs = "eth_getLogs"
 // wire types those fields as BlockNumbers — a 32-byte hash dies there with
 // "hex number > 64 bits" (the soak's first catch; blockHash is the
 // dedicated, mutually exclusive hash position). The bounds are therefore
-// pinned to the verified reference's height: moving tags are rewritten and
+// pinned to the corroborated reference's height: moving tags are rewritten and
 // absent fields are defaulted, since a provider's implicit "latest" is a
 // moving tag in field clothing. blockHash pins pass through untouched.
 //

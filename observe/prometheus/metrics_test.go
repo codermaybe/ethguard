@@ -16,7 +16,7 @@ func TestRecordDecisionPopulatesFamilies(t *testing.T) {
 	m := New()
 	m.RecordDecision(observe.DecisionEvent{
 		Method:   "eth_chainId",
-		Status:   "verified",
+		Status:   "corroborated",
 		Duration: 12 * time.Millisecond,
 		Attempts: []observe.SourceEvent{
 			{Source: "alpha", RTT: 5 * time.Millisecond},
@@ -24,7 +24,7 @@ func TestRecordDecisionPopulatesFamilies(t *testing.T) {
 		},
 	})
 
-	if got := testutil.ToFloat64(m.decisions.WithLabelValues("eth_chainId", "verified")); got != 1 {
+	if got := testutil.ToFloat64(m.decisions.WithLabelValues("eth_chainId", "corroborated")); got != 1 {
 		t.Fatalf("decisions_total = %v, want 1", got)
 	}
 	if count := testutil.CollectAndCount(m, "ethguard_decision_duration_seconds"); count != 1 {
@@ -81,14 +81,14 @@ func TestNilMetricsDropsEvent(t *testing.T) {
 		}
 	}()
 	var m *Metrics
-	m.RecordDecision(observe.DecisionEvent{Method: "m", Status: "verified"})
+	m.RecordDecision(observe.DecisionEvent{Method: "m", Status: "corroborated"})
 }
 
 func TestHandlerServesExposition(t *testing.T) {
 	m := New()
 	m.RecordDecision(observe.DecisionEvent{
 		Method:   "eth_chainId",
-		Status:   "verified",
+		Status:   "corroborated",
 		Duration: time.Millisecond,
 		Attempts: []observe.SourceEvent{{Source: "alpha", RTT: time.Millisecond}},
 	})

@@ -145,7 +145,7 @@ func TestEventMarksOnlyUnusableAttemptsFailed(t *testing.T) {
 		{Src: sources[4], Err: fakeRPCError{-32603, "panic"}, Attempted: true},              // opt-in: still rejected by the normalizer
 		{Src: sources[5]}, // never acquired a slot: absent from attempts
 	}
-	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Verified}, nil, emissions)
+	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated}, nil, emissions)
 
 	if len(rec.events) != 1 {
 		t.Fatalf("expected exactly one event, got %d", len(rec.events))
@@ -171,7 +171,7 @@ func TestEventMarksRevertAsFailureForPoliciesWithoutErrorBodies(t *testing.T) {
 	a.rec = rec
 
 	sources := namedSources(t, "a")
-	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Verified}, nil, []pool.Emission{
+	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated}, nil, []pool.Emission{
 		{Src: sources[0], Err: fakeRPCError{-32000, "execution reverted"}, Attempted: true},
 	})
 	if !rec.events[0].Attempts[0].Failed {
@@ -186,7 +186,7 @@ func TestEventMarksConflictAsFailed(t *testing.T) {
 	a.rec = rec
 
 	sources := namedSources(t, "a")
-	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Verified},
+	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated},
 		fmt.Errorf("strict: %w", rpc.ErrConflict), []pool.Emission{
 			{Src: sources[0], Val: json.RawMessage(`"2"`), Attempted: true},
 		})

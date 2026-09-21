@@ -17,7 +17,7 @@ policies), connection lifecycle or concurrency bounds (`pool.Collect`),
 telemetry storage, gas optimization, nonce management, signing, or
 transaction retries.
 
-Resolution semantics — strict consensus, quorum options, anchoring,
+Resolution semantics — strict corroboration, quorum options, anchoring,
 median and local selection, and transparent forwarding that never claims
-`Verified` — are implemented by the strategies in the parent `rpc` package
+`Corroborated` — are implemented by the strategies in the parent `rpc` package
 and selected per method; see `docs/decisions.md` 0006–0013.

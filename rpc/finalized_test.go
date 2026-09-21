@@ -31,8 +31,8 @@ func TestFinalizedHeadMedianReferenceBeatsInflatedLie(t *testing.T) {
 	if err != nil {
 		t.Fatalf("an inflated minority lie must not break the pin: %v", err)
 	}
-	if decision.Status != Verified {
-		t.Fatalf("expected verified pin at the honest height, got %v", decision.Status)
+	if decision.Status != Corroborated {
+		t.Fatalf("expected corroborated pin at the honest height, got %v", decision.Status)
 	}
 	var head struct {
 		Number string `json:"number"`
@@ -59,8 +59,8 @@ func TestFinalizedHeadExcludesViewsTrailingTheMedian(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a trailing minority must not break the pin: %v", err)
 	}
-	if decision.Status != Verified {
-		t.Fatalf("expected verified pin, got %v", decision.Status)
+	if decision.Status != Corroborated {
+		t.Fatalf("expected corroborated pin, got %v", decision.Status)
 	}
 	if len(decision.Reject) != 2 || len(decision.Faults) != 1 {
 		t.Fatalf("expected the stale view as fault and both non-winners as reject evidence, got %+v", decision)
@@ -89,7 +89,7 @@ func TestFinalizedHeadStalenessBoundaryIsExclusive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("honest majority must still pin: %v", err)
 	}
-	if decision.Status != Verified || len(decision.Reject) != 1 || len(decision.Faults) != 1 {
+	if decision.Status != Corroborated || len(decision.Reject) != 1 || len(decision.Faults) != 1 {
 		t.Fatalf("expected the 17-behind view excluded, got %+v", decision)
 	}
 }
@@ -113,8 +113,8 @@ func TestFinalizedHeadEvenCountUsesLowerMedian(t *testing.T) {
 func TestFinalizedHeadZeroHeightIsValid(t *testing.T) {
 	p := FinalizedHead(32)
 	decision, err := heightsOf(p, "0x0", "0x0", "0x0")
-	if err != nil || decision.Status != Verified {
-		t.Fatalf("genesis-height views must verify, got %+v err=%v", decision, err)
+	if err != nil || decision.Status != Corroborated {
+		t.Fatalf("genesis-height views must corroborate, got %+v err=%v", decision, err)
 	}
 }
 
@@ -124,7 +124,7 @@ func TestFinalizedHeadEquivalentSpellingsAgree(t *testing.T) {
 		finObs("0x010f", "0xha"),
 		finObs("0x10f", "0xha"),
 	})
-	if err != nil || decision.Status != Verified {
+	if err != nil || decision.Status != Corroborated {
 		t.Fatalf("equivalent hex spellings must cluster and corroborate, got %+v err=%v", decision, err)
 	}
 }

@@ -43,7 +43,7 @@ func TestCorroborationMajorityAcceptsMinorityDissent(t *testing.T) {
 		corrObs(`1`), corrObs(`1`), corrObs(`1`),
 		corrObs(`2`), corrObs(`2`),
 	})
-	if err != nil || decision.Status != Verified {
+	if err != nil || decision.Status != Corroborated {
 		t.Fatalf("majority must accept the 3-of-5 cluster, got %+v %v", decision, err)
 	}
 	if len(decision.Support) != 3 || len(decision.Reject) != 2 {
@@ -67,7 +67,7 @@ func TestCorroborationUnanimityRejectsDissent(t *testing.T) {
 
 func TestCorroborationFailuresOccupyTheBasis(t *testing.T) {
 	// 2 valid agreeing answers plus 3 failed members: the required support
-	// is Q=3 of the 5-member basis, so a surviving pair cannot verify.
+	// is Q=3 of the 5-member basis, so a surviving pair cannot corroborate.
 	p := Strict(CanonicalJSON, WithQuorum(2))
 	_, err := p.Resolve([]Observation{
 		corrObs(`1`), corrObs(`1`), errObs(), errObs(), errObs(),
@@ -75,13 +75,13 @@ func TestCorroborationFailuresOccupyTheBasis(t *testing.T) {
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("2-of-5 must refuse, got %v", err)
 	}
-	// 3 valid agreeing answers plus 2 failed members verify: the denominator
+	// 3 valid agreeing answers plus 2 failed members corroborate: the denominator
 	// counts failures, and the threshold is met anyway.
 	decision, err := p.Resolve([]Observation{
 		corrObs(`1`), corrObs(`1`), corrObs(`1`), errObs(), errObs(),
 	})
-	if err != nil || decision.Status != Verified || len(decision.Support) != 3 {
-		t.Fatalf("3-of-5 must verify with failures in the basis, got %+v %v", decision, err)
+	if err != nil || decision.Status != Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("3-of-5 must corroborate with failures in the basis, got %+v %v", decision, err)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestResolveCorroboratedOverridesConstruction(t *testing.T) {
 		Corroboration{Mode: CorroborationMajority, Floor: 2},
 		[]Observation{corrObs(`1`), corrObs(`1`), corrObs(`2`)},
 	)
-	if err != nil || corroborated.Status != Verified || len(corroborated.Support) != 2 {
+	if err != nil || corroborated.Status != Corroborated || len(corroborated.Support) != 2 {
 		t.Fatalf("snapshot must adjudicate by majority, got %+v %v", corroborated, err)
 	}
 }

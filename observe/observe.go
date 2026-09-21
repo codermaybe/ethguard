@@ -24,9 +24,12 @@ type DecisionEvent struct {
 	// literal "anchor" when the event reports an anchored read establishing
 	// its block reference. Label cardinality is bounded by configuration.
 	Method string
-	// Status is one of "verified", "selected", "forwarded" (matching
+	// Status is one of "corroborated", "selected", "forwarded" (matching
 	// rpc.Status.String()) or "failed" when no classified decision was
-	// reached. A failed decision may still carry evidence and faults.
+	// reached. "corroborated" is provider-backed cross-source evidence,
+	// not Ethereum consensus, a canonical proof, cryptographic finality,
+	// or light-client verification. A failed decision may still carry
+	// evidence and faults.
 	Status string
 	// Conflict marks a resolution rejected because sources disagreed rather
 	// than because they were unreachable.

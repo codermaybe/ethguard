@@ -51,7 +51,7 @@ func (p customPolicy) Prepare(_ context.Context, req rpc.Request) (rpc.Request, 
 }
 func (p customPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
 	d, err := p.Policy.Resolve(obs)
-	if err == nil && d.Status != rpc.Verified {
+	if err == nil && d.Status != rpc.Corroborated {
 		err = fmt.Errorf("uncorroborated custom reference: %w", rpc.ErrConflict)
 	}
 	return d, err

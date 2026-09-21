@@ -68,7 +68,7 @@ type SourceAnswer struct {
 }
 
 // WriteDecision is the relative-trust result of one broadcast. It never
-// claims consensus finality: Accepted means a hash agreement reached the
+// claims Ethereum consensus finality: Accepted means a hash agreement reached the
 // configured support bound across the voting basis, with every other
 // outcome preserved as evidence.
 type WriteDecision struct {

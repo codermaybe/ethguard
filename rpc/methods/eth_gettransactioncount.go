@@ -9,7 +9,7 @@ import (
 // GetTransactionCountPolicy.
 const MethodGetTransactionCount = "eth_getTransactionCount"
 
-// GetTransactionCountPolicy verifies eth_getTransactionCount at an agreed
+// GetTransactionCountPolicy corroborates eth_getTransactionCount at an agreed
 // block reference — the account nonce is state that moves with the head, so
 // moving tags are rewritten before fan-out (see GetBalancePolicy). Strict
 // options pass through to the underlying strict resolution. Explicit block

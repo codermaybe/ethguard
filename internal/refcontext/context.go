@@ -35,7 +35,7 @@ func (c *Capture) Reference() *rpc.ReferenceEvidence {
 	return &copy
 }
 
-type verificationKey struct{}
+type corroborationRequiredKey struct{}
 
 type membersKey struct{}
 type corroborationKey struct{}
@@ -55,9 +55,9 @@ func Corroboration(ctx context.Context) (any, bool) {
 	return v, v != nil
 }
 
-// RequireVerified marks typed calls that cannot expose a Selected decision.
-func RequireVerified(ctx context.Context) context.Context {
-	return context.WithValue(ctx, verificationKey{}, true)
+// RequireCorroborated marks typed calls that cannot expose a Selected decision.
+func RequireCorroborated(ctx context.Context) context.Context {
+	return context.WithValue(ctx, corroborationRequiredKey{}, true)
 }
 
 type forwardedKey struct{}
@@ -71,7 +71,7 @@ func AllowForwarded(ctx context.Context) bool {
 	value, _ := ctx.Value(forwardedKey{}).(bool)
 	return value
 }
-func VerificationRequired(ctx context.Context) bool {
-	value, _ := ctx.Value(verificationKey{}).(bool)
+func CorroborationRequired(ctx context.Context) bool {
+	value, _ := ctx.Value(corroborationRequiredKey{}).(bool)
 	return value
 }

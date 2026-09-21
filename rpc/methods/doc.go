@@ -1,4 +1,4 @@
-// Package methods holds one policy per verified Ethereum JSON-RPC method:
+// Package methods holds one policy per corroborated Ethereum JSON-RPC method:
 // request binding, wire validation, requiredness, comparison whitelists, and
 // the method's resolution strategy.
 //
@@ -10,7 +10,7 @@
 // cryptographic commitment.
 //
 // Unknown methods never get a file here; they fall through the registry to
-// transparent forwarding, which must produce Forwarded, never Verified.
+// transparent forwarding, which must produce Forwarded, never Corroborated.
 // Write methods are deliberately absent too: eth_sendRawTransaction is
 // adjudicated by the write pipeline, not by a read policy.
 //

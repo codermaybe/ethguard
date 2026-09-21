@@ -6,7 +6,7 @@ import (
 )
 
 // MethodPeerCount is the JSON-RPC method name resolved by PeerCountPolicy.
-// Note the namespace: this is a net_ method, verified like any other
+// Note the namespace: this is a net_ method, corroborated like any other
 // registered method.
 const MethodPeerCount = "net_peerCount"
 

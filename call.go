@@ -35,7 +35,7 @@ func CallInto[T any](ctx context.Context, c *Client, method string, params ...an
 	return &out, decision, nil
 }
 
-// DecodeBlock shapes one verified eth_getBlockByNumber / eth_getBlockByHash
+// DecodeBlock shapes one corroborated eth_getBlockByNumber / eth_getBlockByHash
 // response into a block value — the same header-plus-body reconstruction
 // go-ethereum's own client performs, since types.Block deliberately has no
 // JSON unmarshaller. Responses carrying a hash-only transaction list (the
@@ -48,7 +48,7 @@ func DecodeBlock(raw json.RawMessage) (*types.Block, error) {
 
 // DecodeBlockHeaderOnly decodes the header returned by a fullTx=false block
 // query. Transaction and uncle bodies are intentionally absent; callers must
-// not present this value as a fully content-verified block.
+// not present this value as a fully content-corroborated block.
 func DecodeBlockHeaderOnly(raw json.RawMessage) (*types.Block, error) {
 	var head *types.Header
 	if err := json.Unmarshal(raw, &head); err != nil {
@@ -134,7 +134,7 @@ func DecodeBlockWithEvidence(raw json.RawMessage, evidence json.RawMessage) (*ty
 	return types.NewBlockWithHeader(head).WithBody(types.Body{Transactions: txs, Uncles: uncles, Withdrawals: body.Withdrawals}), nil
 }
 
-// DecodeReceipt shapes one verified eth_getTransactionReceipt response into
+// DecodeReceipt shapes one corroborated eth_getTransactionReceipt response into
 // a receipt value. go-ethereum's generated Receipt unmarshaller owns the
 // wire schema, so a unanimous payload missing one of its required fields
 // (cumulativeGasUsed, logsBloom, logs, transactionHash, gasUsed) dies here
@@ -178,7 +178,7 @@ func validateReceipt(receipt *types.Receipt) error {
 	return nil
 }
 
-// DecodeReceipts shapes one verified eth_getBlockReceipts response into
+// DecodeReceipts shapes one corroborated eth_getBlockReceipts response into
 // receipts. JSON null means the block is unknown to the fleet and maps to
 // ethereum.NotFound; an empty array is a real answer for an empty block.
 // Every element passes the single-receipt integrity checks.
@@ -239,7 +239,7 @@ func validateReceiptEnvelope(raw json.RawMessage) error {
 	return nil
 }
 
-// DecodeTransaction shapes one verified eth_getTransactionByHash response
+// DecodeTransaction shapes one corroborated eth_getTransactionByHash response
 // into a transaction, reporting whether the fleet saw it as still pending
 // (no block number on the wire). go-ethereum's generated Transaction
 // unmarshaller owns the wire schema. Two integrity checks ride along once

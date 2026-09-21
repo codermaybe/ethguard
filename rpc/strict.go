@@ -75,14 +75,14 @@ func WithRPCErrorBodies() StrictOption {
 	return func(s *strictConfig) { s.includeRPCError = true }
 }
 
-// Strict binds a response normalizer to strict-consensus resolution. Method
+// Strict binds a response normalizer to strict-corroboration resolution. Method
 // authors supply only the normalizer — the one part that varies per method —
 // instead of re-implementing the Policy shell.
 //
 // Corroboration options install the decision-0028 adjudication (majority or
 // unanimity over the invocation's fixed voting basis). Without one, the
 // legacy decision-0006 default applies: every valid response must agree, and
-// a single uncorroborated response is Selected rather than Verified. The
+// a single uncorroborated response is Selected rather than Corroborated. The
 // legacy default is retained for direct construction — the reference
 // establishment paths depend on it until T03 aligns them — while the
 // client's default path always resolves under a captured corroboration
@@ -163,7 +163,7 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 		return decision, fmt.Errorf("strict: %d disagreeing values: %w", len(ranked), ErrConflict)
 	}
 	if len(winner.sources) == 1 {
-		decision.Status = Selected // no corroboration, no Verified claim
+		decision.Status = Selected // no corroboration, no Corroborated claim
 	}
 	return decision, nil
 }

@@ -8,7 +8,7 @@ import (
 // MethodGetCode is the JSON-RPC method name resolved by GetCodePolicy.
 const MethodGetCode = "eth_getCode"
 
-// GetCodePolicy verifies eth_getCode at an agreed block reference. The
+// GetCodePolicy corroborates eth_getCode at an agreed block reference. The
 // answer is arbitrary-length bytecode — hex data, not a quantity; an
 // externally owned account answers "0x", which is valid data and would
 // fail a quantity-shaped normalizer. Strict options pass through to the

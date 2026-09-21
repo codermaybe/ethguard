@@ -20,7 +20,7 @@ func obs(value string) Observation {
 	return Observation{Source: src(), Value: json.RawMessage(value)}
 }
 
-func TestStrictUnanimousVerifiesWithCorroboration(t *testing.T) {
+func TestStrictUnanimousCorroborates(t *testing.T) {
 	p := Strict(CanonicalJSON)
 	decision, err := p.Resolve([]Observation{
 		obs(`{"a":1}`),
@@ -30,8 +30,8 @@ func TestStrictUnanimousVerifiesWithCorroboration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Verified {
-		t.Fatalf("expected verified, got %v", decision.Status)
+	if decision.Status != Corroborated {
+		t.Fatalf("expected corroborated, got %v", decision.Status)
 	}
 	if len(decision.Support) != 3 {
 		t.Fatalf("expected three supporters, got %+v", decision)
@@ -123,8 +123,8 @@ func TestQuorumRequiresFloorAndFleetMajority(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if decision.Status != Verified {
-				t.Fatalf("expected verified, got %v", decision.Status)
+			if decision.Status != Corroborated {
+				t.Fatalf("expected corroborated, got %v", decision.Status)
 			}
 		})
 	}
@@ -142,7 +142,7 @@ func TestWithQuorumPanicsOnNonPositive(t *testing.T) {
 func TestQuorumSingleSourceFleetStaysSelected(t *testing.T) {
 	// Floor and majority both admit a lone response under quorum 1, but
 	// WithQuorum relaxes the agreement clause only: one uncorroborated
-	// response stays Selected, never Verified.
+	// response stays Selected, never Corroborated.
 	p := Strict(CanonicalJSON, WithQuorum(1))
 	decision, err := p.Resolve([]Observation{obs(`1`)})
 	if err != nil {
@@ -168,15 +168,15 @@ func TestQuorumSingleSurvivorConflicts(t *testing.T) {
 	}
 }
 
-func TestQuorumTwoSupportersVerify(t *testing.T) {
-	// Corroboration, floor, and fleet majority together verify as before.
+func TestQuorumTwoSupportersCorroborate(t *testing.T) {
+	// Corroboration, floor, and fleet majority together corroborate as before.
 	p := Strict(CanonicalJSON, WithQuorum(1))
 	decision, err := p.Resolve([]Observation{obs(`1`), obs(`1`)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Verified {
-		t.Fatalf("expected verified with two supporters, got %v", decision.Status)
+	if decision.Status != Corroborated {
+		t.Fatalf("expected corroborated with two supporters, got %v", decision.Status)
 	}
 }
 
@@ -193,8 +193,8 @@ func TestNormalizeFailureBecomesFault(t *testing.T) {
 	if len(decision.Faults) != 1 {
 		t.Fatalf("expected one normalize fault, got %+v", decision.Faults)
 	}
-	if decision.Status != Verified || len(decision.Support) != 2 {
-		t.Fatalf("valid responses should still verify, got %+v", decision)
+	if decision.Status != Corroborated || len(decision.Support) != 2 {
+		t.Fatalf("valid responses should still corroborate, got %+v", decision)
 	}
 }
 
@@ -233,7 +233,7 @@ func TestStrictCanOptIntoRPCErrorBodyClustering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Verified || len(decision.Support) != 2 {
+	if decision.Status != Corroborated || len(decision.Support) != 2 {
 		t.Fatalf("expected clustered protocol errors, got %+v", decision)
 	}
 }

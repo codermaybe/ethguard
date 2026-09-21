@@ -14,14 +14,14 @@ import (
 // TransactionReceiptPolicy.
 const MethodGetTransactionReceipt = "eth_getTransactionReceipt"
 
-// TransactionReceiptPolicy verifies eth_getTransactionReceipt by full
+// TransactionReceiptPolicy corroborates eth_getTransactionReceipt by full
 // agreement. The transaction hash addresses immutable content: no moving
 // tags, no anchoring, no freshness machinery — honest sources either hold
 // the identical receipt or the disagreement is evidence. A null answer is
-// an ordinary answer, so verified absence (no receipt yet) and verified
+// an ordinary answer, so corroborated absence (no receipt yet) and corroborated
 // presence pass through the same comparison; a fleet split between them is
 // conflict. The receipt schema's required-field set binds typed decoding
-// after verification, at the root client's decode boundary.
+// after corroboration, at the root client's decode boundary.
 func TransactionReceiptPolicy(opts ...rpc.StrictOption) rpc.Policy {
 	return policy.WithAdmission(rpc.Strict(normalizeReceiptObject, opts...), admitReceipt)
 }

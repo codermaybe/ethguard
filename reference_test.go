@@ -54,10 +54,10 @@ func TestCommonReferenceConfirmsDifferentHeightsAndCachesEvidence(t *testing.T) 
 			}
 			wantHeight, wantSupport, wantCalls := uint64(100), 2, 3
 			ref := decision.Reference
-			if ref == nil || ref.Height != wantHeight || ref.Status != rpc.Verified || len(ref.Support) != wantSupport || len(ref.Participants) != 3 {
+			if ref == nil || ref.Height != wantHeight || ref.Status != rpc.Corroborated || len(ref.Support) != wantSupport || len(ref.Participants) != 3 {
 				t.Fatalf("unexpected reference: %+v", ref)
 			}
-			if decision.Status != rpc.Verified || len(decision.Support) != 3 {
+			if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 				t.Fatalf("unexpected answer: %+v", decision)
 			}
 			if got := anchorEstablishments(nodes); got != wantCalls {
@@ -79,7 +79,7 @@ func TestCommonReferenceConfirmsDifferentHeightsAndCachesEvidence(t *testing.T) 
 				event := <-events
 				if event.Method == "anchor" {
 					anchors++
-					if event.Status != "verified" || len(event.Attempts) != wantCalls {
+					if event.Status != "corroborated" || len(event.Attempts) != wantCalls {
 						t.Fatalf("incomplete establishment event: %+v", event)
 					}
 				}

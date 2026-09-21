@@ -358,13 +358,13 @@ func (c *Client) Mode() rpc.CorroborationMode { return c.corrob.Snapshot().Mode 
 // diagnostic snapshot; an invocation already in flight keeps its own basis.
 func (c *Client) VotingMembers() int { return c.pool.Len() }
 
-// AnchorBlockHash returns a newly established verified block reference behind
+// AnchorBlockHash returns a newly established corroborated block reference behind
 // moving-tag reads through the library-owned anchor strategy.
 func (c *Client) AnchorBlockHash(ctx context.Context) (string, error) {
 	return c.resolver.AnchorBlockHash(ctx)
 }
 
-// AnchorBlockHeight returns the height of the currently verified block
+// AnchorBlockHeight returns the height of the currently corroborated block
 // reference. It rides the same establishment as AnchorBlockHash — the
 // response carries number and hash together, so no extra fan-out is
 // needed — and errors clearly when a custom resolver cannot produce
@@ -379,7 +379,7 @@ func (c *Client) AnchorBlockHeight(ctx context.Context) (uint64, error) {
 }
 
 // Normalize reduces one raw response through the owning method policy's
-// canonical form — the single owner of value parsing for a verified method.
+// canonical form — the single owner of value parsing for a corroborated method.
 // Typed callers use it instead of re-parsing raw JSON.
 func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
 	return c.policies.PolicyFor(method).Normalize(raw)

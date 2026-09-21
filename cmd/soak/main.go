@@ -1,6 +1,6 @@
-// Command soak runs EthGuard's verification pipeline against a live fleet
+// Command soak runs EthGuard's corroboration pipeline against a live fleet
 // of public endpoints from chainlist.org, producing a per-method census of
-// outcomes (verified / selected / conflict / notfound / faults) plus
+// outcomes (corroborated / selected / conflict / notfound / faults) plus
 // per-source health. Conflicts on strictly comparable methods trigger a
 // deep-dive that clusters each source's canonical answer — the direct
 // probe for real-world normalizer divergence.
@@ -17,7 +17,7 @@
 //	go run ./cmd/soak [-file rpcs.json] [-max-sources 12] [-timeout 20s]
 //
 // All references are derived from the fleet itself: the anchor comes from
-// the verified pipeline, the sample transaction from the pinned block.
+// the corroborated pipeline, the sample transaction from the pinned block.
 package main
 
 import (
@@ -158,7 +158,7 @@ func main() {
 }
 
 // fleetState carries the derived references every step shares: one anchor
-// established through the verified pipeline and one transaction sampled
+// established through the corroborated pipeline and one transaction sampled
 // from the pinned block.
 type fleetState struct {
 	client       *ethguard.Client
@@ -439,7 +439,7 @@ func sampleTx(client *ethguard.Client, anchor string, timeout time.Duration) (co
 }
 
 // mustAnchorHeight resolves the pinned reference's height through the
-// verified pipeline (AnchorHeightProvider); it shares the anchor cache.
+// corroborated pipeline (AnchorHeightProvider); it shares the anchor cache.
 func mustAnchorHeight(client *ethguard.Client, timeout time.Duration) uint64 {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

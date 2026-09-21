@@ -8,7 +8,7 @@ import (
 // BlockByHashPolicy.
 const MethodGetBlockByHash = "eth_getBlockByHash"
 
-// BlockByHashPolicy verifies eth_getBlockByHash by full agreement. The block
+// BlockByHashPolicy corroborates eth_getBlockByHash by full agreement. The block
 // hash addresses immutable content, so comparison rides the shared
 // canonical-object normalizer: encoding differences are erased, everything
 // still differing between sources is dissent.

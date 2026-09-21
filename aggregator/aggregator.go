@@ -272,7 +272,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	if resolveErr == nil && snapOK && snap.Mode == rpc.CorroborationForwarded {
 		decision.Status = rpc.Forwarded
 	}
-	if agreement, ok := policy.(rpc.AgreementPolicy); ok && agreement.RequiresAgreement() && refcontext.VerificationRequired(ctx) && !(snapOK && snap.Mode == rpc.CorroborationForwarded) && resolveErr == nil && decision.Status != rpc.Verified {
+	if agreement, ok := policy.(rpc.AgreementPolicy); ok && agreement.RequiresAgreement() && refcontext.CorroborationRequired(ctx) && !(snapOK && snap.Mode == rpc.CorroborationForwarded) && resolveErr == nil && decision.Status != rpc.Corroborated {
 		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
 	}
 	decision.Reference = capture.Reference()
@@ -361,7 +361,7 @@ func (a *Aggregator) recordDecision(started time.Time, method string, policy rpc
 // policy could use. A delivered value counts when the policy normalizes it
 // — a valid answer that simply lost the comparison is dissent, not a
 // failure. A structured protocol error counts only for policies that opted
-// into error bodies (rpc.RPCErrorPolicy) and accept the body: a verified
+// into error bodies (rpc.RPCErrorPolicy) and accept the body: a corroborated
 // revert is an observation that contributed value. Everything else —
 // transport faults, timeouts, malformed payloads, protocol errors the
 // policy rejects — provided no usable answer.

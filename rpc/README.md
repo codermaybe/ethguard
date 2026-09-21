@@ -2,7 +2,7 @@
 
 This package holds the normalized JSON-RPC transport and decision model:
 the `Request`/`Observation`/`Decision` types, the `Policy` contract and
-`Registry`, and the shared resolution strategies — strict consensus with
+`Registry`, and the shared resolution strategies — strict corroboration with
 quorum options, lower-median selection for variable results, upstream-local
 selection, transparent forwarding, and the anchor decorators
 (`WithAnchor`, `WithAnchorHeight`, `WithAnchorHeightFields`,
@@ -12,7 +12,7 @@ The line against `rpc/methods`: everything here is true of any method and
 any JSON; Ethereum wire shapes and per-method normalization live in
 `rpc/methods`, whose policies compose the strategies this package provides.
 Unknown methods fall through the registry to explicit forwarding, which
-never claims `Verified`.
+never claims `Corroborated`.
 
 ## Generic observation reduction
 
@@ -35,7 +35,7 @@ calls intentionally do not make a common-set claim.
 
 Callers handling an unregistered method can use `Decision.ObservedView()` as
 an explicit observation-only contract. Its dynamic JSON value and CommonSet
-are not a typed or `Verified` Ethereum result.
+are not a typed or `Corroborated` Ethereum result.
 
 This package does not select upstreams or own connections; `SourceRef`
 keeps it decoupled from pool's connection and health implementation.

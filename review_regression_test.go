@@ -37,7 +37,7 @@ func TestReviewDecoratedMethods(t *testing.T) {
 				t.Fatal(err)
 			}
 			d, err := c.Call(context.Background(), tc.name, tc.params...)
-			if err == nil && d.Status == rpc.Verified && len(d.Faults) == 0 {
+			if err == nil && d.Status == rpc.Corroborated && len(d.Faults) == 0 {
 				t.Fatalf("malformed source was not recorded: %+v", d)
 			}
 		})
@@ -56,19 +56,19 @@ func TestReviewDecoratedMethods(t *testing.T) {
 				n.Return(methods.MethodChainID, "0x1")
 			}
 			d, err := c.Call(context.Background(), tc.name, tc.params...)
-			if len(d.Participants) != 5 || (err == nil && d.Status == rpc.Verified && len(d.Faults) == 0) {
+			if len(d.Participants) != 5 || (err == nil && d.Status == rpc.Corroborated && len(d.Faults) == 0) {
 				t.Fatalf("2-of-5 basis lost: %+v %v", d, err)
 			}
 		})
 	}
 }
 
-func TestReviewDuplicateObservationCannotVerify(t *testing.T) {
+func TestReviewDuplicateObservationCannotCorroborate(t *testing.T) {
 	p := rpc.Strict(rpc.CanonicalJSON, rpc.WithQuorum(2))
 	source := rpc.SourceRef{ID: "same", Name: "same", URL: "https://same.example"}
 	obs := rpc.Observation{Source: source, Value: json.RawMessage(`"0x1"`)}
 	d, err := p.Resolve([]rpc.Observation{obs, obs})
-	if err == nil && d.Status == rpc.Verified {
+	if err == nil && d.Status == rpc.Corroborated {
 		t.Fatalf("one source counted twice: %+v", d)
 	}
 }
@@ -162,7 +162,7 @@ func TestReviewInFlightChanges(t *testing.T) {
 			}
 			wantFirstSuccess := action != "remove" && action != "replace"
 			if wantFirstSuccess {
-				if first.err != nil || first.d.Status != rpc.Verified {
+				if first.err != nil || first.d.Status != rpc.Corroborated {
 					t.Fatalf("captured rules changed: %+v", first)
 				}
 			} else if !errors.Is(first.err, ethguard.ErrConflict) {
@@ -174,7 +174,7 @@ func TestReviewInFlightChanges(t *testing.T) {
 			_, next, err := c.ChainID(ctx)
 			wantNextSuccess := !wantFirstSuccess
 			if wantNextSuccess {
-				if err != nil || next.Status != rpc.Verified {
+				if err != nil || next.Status != rpc.Corroborated {
 					t.Fatalf("later call did not use new members: %+v %v", next, err)
 				}
 			} else if !errors.Is(err, ethguard.ErrConflict) {

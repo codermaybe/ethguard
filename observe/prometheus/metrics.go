@@ -40,12 +40,12 @@ func New() *Metrics {
 		decisions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "ethguard",
 			Name:      "decisions_total",
-			Help:      "Aggregate decisions by method and confidence class (verified, selected, forwarded, failed).",
+			Help:      "Aggregate decisions by method and confidence class (corroborated, selected, forwarded, failed).",
 		}, []string{"method", "status"}),
 		conflicts: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "ethguard",
 			Name:      "conflicts_total",
-			Help:      "Decisions rejected because verified sources disagreed.",
+			Help:      "Decisions rejected because sources disagreed under corroboration.",
 		}, []string{"method"}),
 		faults: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "ethguard",

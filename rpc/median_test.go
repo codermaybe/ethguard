@@ -56,7 +56,7 @@ func TestMedianUnanimousFleetStaysSelected(t *testing.T) {
 	// The red line: agreement on a moving value is coincidence, so the
 	// ceiling is Selected no matter how many sources agree.
 	if decision.Status != Selected {
-		t.Fatalf("median selection must never claim verified, got %v", decision.Status)
+		t.Fatalf("median selection must never claim corroborated, got %v", decision.Status)
 	}
 	if len(decision.Support) != 3 || len(decision.Reject) != 0 {
 		t.Fatalf("unanimous fleet should sit fully in support, got %+v", decision)

@@ -92,8 +92,8 @@ func TestCreateAccessListPolicyAnchoringAndNormalization(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if decision.Status != rpc.Verified {
-			t.Fatalf("status = %v, want Verified", decision.Status)
+		if decision.Status != rpc.Corroborated {
+			t.Fatalf("status = %v, want Corroborated", decision.Status)
 		}
 		if len(decision.Support) != 2 {
 			t.Fatalf("support = %d, want 2", len(decision.Support))

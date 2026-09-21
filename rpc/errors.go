@@ -8,7 +8,7 @@ import "errors"
 var ErrAnchorMismatch = errors.New("rpc: anchor mismatch")
 
 // ErrReorgDetected means a reference or its bound response changed while an
-// anchored operation was being verified. It is evidence of movement, not a
+// anchored operation was being corroborated. It is evidence of movement, not a
 // claim about canonical chain membership.
 var ErrReorgDetected = errors.New("rpc: reorg detected")
 

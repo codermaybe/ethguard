@@ -11,7 +11,7 @@ import (
 // methods are intentionally absent from the RPC registry because the root
 // client obtains their value from an already established reference.  Known
 // unsupported methods are listed explicitly so an omission cannot be mistaken
-// for a transparent verification guarantee.  Write methods are supported
+// for a transparent corroboration guarantee.  Write methods are supported
 // through the dedicated write pipeline outside the read registry, so they
 // carry no read-registry policy.
 type MethodKind uint8

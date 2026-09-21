@@ -7,9 +7,11 @@ EthGuard is a multi-source Ethereum RPC client. Its primary entry point is
 types and calling style of `ethclient`. Change construction and dependency
 injection; ordinary business calls do not need an anchor/confirm/read workflow.
 
-The library establishes a common reference internally, verifies method-specific
+The library establishes a common reference internally, corroborates method-specific
 answers, and returns a value or a classified error. Agreement is evidence from
-providers, not a consensus proof, and multiple URLs need not be independent.
+providers, not an Ethereum consensus proof, and multiple URLs need not be independent.
+Corroborated means provider-backed cross-source evidence: it is not Ethereum
+consensus, a canonical proof, cryptographic finality, or light-client verification.
 
 ## Layout
 
@@ -50,7 +52,7 @@ ethguard/                   # public Client facade
 │       ├── methods.json    # trimmed per-method result contracts (~100KB)
 │       ├── vectors/        # conformance vectors extracted from tests/*.io
 │       └── README.md       # provenance, upgrade procedure, audit guide
-├── ethadapter/             # ethclient-shaped surface over the verified core
+├── ethadapter/             # ethclient-shaped surface over the corroborated core
 ├── rpctest/                # in-process scriptable Ethereum nodes for tests
 ├── cmd/                    # executable entries (soak, rpcsample)
 ├── docs/                   # architecture, threat model, and design notes
@@ -79,7 +81,7 @@ clone pools per goroutine. Owners should close the Client when its lifetime ends
 
 Layering rules: `aggregator` only knows the `rpc.Policy` / `AdmissionPolicy`
 interfaces and never imports `methods`; `rpc` never imports `methods`
-(verified: no import cycle, `go build ./...` passes). Ethereum method entrypoints and method-specific binding live in `rpc/methods`.
+(corroborated: no import cycle, `go build ./...` passes). Ethereum method entrypoints and method-specific binding live in `rpc/methods`.
 Shared wire normalization, pruning, object semantics, and admission helpers live
 in `rpc/internal`; standard projection is exposed through `rpc/projection`.
 
@@ -158,7 +160,7 @@ Reference establishment is library-owned and preserves the requested moving
 tag in its evidence. The former custom resolver injection and cross-call
 anchor cache settings are retired; configuring either now returns a migration
 error. Provider-reported finalized coverage remains evidence, not independent
-consensus finality.
+Ethereum consensus finality.
 
 Complete block reads (`eth_getBlockByNumber` and `eth_getBlockByHash` with
 full transactions) validate request binding and protocol commitments before a
@@ -167,7 +169,7 @@ applicable withdrawals root, and the uncle commitment. Historical uncle
 headers are fetched from the same source and retained in the typed block. This
 protects content-to-header consistency; it does not prove canonical chain
 membership or on-chain finality. Real provider and fork compatibility samples
-remain a separate verification step.
+remain a separate corroboration step.
 
 Uncertain data is opt-in and belongs to one invocation. The ordinary method
 signatures stay unchanged; pass a context created by `WithUncertain`, then read
@@ -196,24 +198,24 @@ a reliability guarantee or a recent-client cache. Retention is bounded during
 collection and cancellation may leave a partial snapshot. A fresh capture is
 required for each logical call; returned values are defensive copies.
 
-The library API and verification policies are still evolving. See the
+The library API and corroboration policies are still evolving. See the
 [architecture record](docs/design/architecture-record.md), [architecture](docs/architecture.md),
 [aggregation design](docs/design/rpc-aggregation.md), the [proxyd comparison](docs/design/proxyd-comparison.md),
 and [threat model](docs/threat-model.md) before relying on security properties.
 
 Sources are treated as equal voting members. EthGuard does not model provider,
 region, client-family, or weight-based independence, and a matching result is
-provider-fault-tolerance evidence rather than a proof of chain consensus,
+provider-fault-tolerance evidence rather than a proof of Ethereum chain consensus,
 canonical membership, or independent finality.
 
 The library currently provides: configuration loading; multi-upstream
-lifecycle with lazy dialing and health-driven recovery; strict-consensus and
-quorum verification with deterministic conflict evidence; block-anchored
+lifecycle with lazy dialing and health-driven recovery; strict corroboration and
+quorum corroboration with deterministic conflict evidence; block-anchored
 reads (strict or conservative finalized selection); a freshness gate that
 quarantines lagging providers; classified sentinel errors; and a passive
-observability seam with an optional Prometheus adapter. Verification covers
-the shipped method set; unverified methods are forwarded and labeled
-`Forwarded`, never claimed as verified.
+observability seam with an optional Prometheus adapter. Corroboration covers
+the shipped method set; uncorroborated methods are forwarded and labeled
+`Forwarded`, never claimed as corroborated.
 
 EthGuard may assess RPC observations such as gas estimates, fee data, and
 transaction counts. It does not optimize gas, allocate nonces, sign

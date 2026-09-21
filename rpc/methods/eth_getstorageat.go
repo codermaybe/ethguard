@@ -9,7 +9,7 @@ import (
 // GetStorageAtPolicy.
 const MethodGetStorageAt = "eth_getStorageAt"
 
-// GetStorageAtPolicy verifies eth_getStorageAt at an agreed block reference.
+// GetStorageAtPolicy corroborates eth_getStorageAt at an agreed block reference.
 // The answer is exactly one 32-byte data word, not a quantity: its
 // method-specific normalizer rejects null, missing, short, long, and invalid
 // hex responses. The storage key (position 1) passes through untouched; the

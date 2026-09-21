@@ -9,7 +9,7 @@ import (
 const MethodGasPrice = "eth_gasPrice"
 
 // GasPricePolicy resolves gas prices as a variable result: the fleet's lower
-// median, never claimed verified (see rpc.Median). Sources legitimately sit
+// median, never claimed corroborated (see rpc.Median). Sources legitimately sit
 // at different moments and pricing policies; disagreement is spread
 // evidence, not dissent.
 func GasPricePolicy() rpc.Policy { return rpc.Median(wire.NormalizeWireQuantity) }

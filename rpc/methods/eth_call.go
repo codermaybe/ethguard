@@ -12,16 +12,16 @@ import (
 // MethodCall is the JSON-RPC method name resolved by CallPolicy.
 const MethodCall = "eth_call"
 
-// CallPolicy verifies eth_call as behavior, not content (ruling 2026-09-04):
-// unanimous execution failure is a verified observation, a split between
+// CallPolicy corroborates eth_call as behavior, not content (ruling 2026-09-04):
+// unanimous execution failure is a corroborated observation, a split between
 // results and reverts is conflict, and the content inside a revert stays out
 // of scope. Concretely, the normalizer collapses every revert-class error to
 // one key, so benign client-to-client differences in revert wording cannot
 // fake dissent, while return data rides the hex-data normalizer. Provider
 // failures that are not execution observations — transport faults, geth's
 // own client-side errors (-32002 timeout, -32003 response too large,
-// -32603 panic), rate limits — ride as faults, never as verified outcomes.
-// The block tag at position 1 is rewritten to the verified reference.
+// -32603 panic), rate limits — ride as faults, never as corroborated outcomes.
+// The block tag at position 1 is rewritten to the corroborated reference.
 func CallPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
 	return rpc.Anchored(1, normalizeCallOutcome, anchor,
 		append([]rpc.StrictOption{rpc.WithRPCErrorBodies()}, opts...)...)
@@ -29,7 +29,7 @@ func CallPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
 
 // normalizeCallOutcome reduces one eth_call answer to a comparable key.
 // Successful return data is compared as hex data; a revert-class protocol
-// error collapses to the constant "reverted" — the verified observation is
+// error collapses to the constant "reverted" — the corroborated observation is
 // that the call reverted, not the wording of any particular revert message.
 func normalizeCallOutcome(value json.RawMessage) (string, error) {
 	var result string

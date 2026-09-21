@@ -86,13 +86,13 @@ func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Deci
 		return decision, fmt.Errorf("strict: required support %d, winning cluster %d of %d voting members: %w",
 			required, size, n, ErrConflict)
 	}
-	// Verified claims corroboration, so a lone admitted response stays
+	// Corroborated claims corroboration, so a lone admitted response stays
 	// Selected even where the floor lets it through (decision 0028).
 	if size == 1 {
 		decision.Status = Selected
 		return decision, nil
 	}
-	decision.Status = Verified
+	decision.Status = Corroborated
 	return decision, nil
 }
 

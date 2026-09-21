@@ -14,8 +14,8 @@ func TestLogLevelsMatchOutcome(t *testing.T) {
 		event DecisionEvent
 		want  string
 	}{
-		{"clean", DecisionEvent{Method: "m", Status: "verified"}, "level=DEBUG"},
-		{"faulted", DecisionEvent{Method: "m", Status: "verified", Faults: 1}, "level=INFO"},
+		{"clean", DecisionEvent{Method: "m", Status: "corroborated"}, "level=DEBUG"},
+		{"faulted", DecisionEvent{Method: "m", Status: "corroborated", Faults: 1}, "level=INFO"},
 		{"conflict", DecisionEvent{Method: "m", Status: "failed", Conflict: true}, "level=WARN"},
 		{"failed", DecisionEvent{Method: "m", Status: "failed"}, "level=WARN"},
 	}
@@ -72,7 +72,7 @@ func TestZeroLogFallsBackToDefault(t *testing.T) {
 			t.Fatalf("zero Log panicked: %v", r)
 		}
 	}()
-	Log{}.RecordDecision(DecisionEvent{Method: "m", Status: "verified"})
+	Log{}.RecordDecision(DecisionEvent{Method: "m", Status: "corroborated"})
 	if !strings.Contains(buf.String(), "ethguard decision") {
 		t.Fatalf("expected fallback record in %q", buf.String())
 	}
@@ -84,6 +84,6 @@ func TestNopIsSafeDefault(t *testing.T) {
 			t.Fatalf("nop recorder panicked: %v", r)
 		}
 	}()
-	Nop.RecordDecision(DecisionEvent{Status: "verified"})
+	Nop.RecordDecision(DecisionEvent{Status: "corroborated"})
 	Nop.RecordDecision(DecisionEvent{Method: "m", Status: "failed", Conflict: true})
 }

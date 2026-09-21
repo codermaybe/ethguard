@@ -18,7 +18,7 @@ import (
 
 const anchorMethod = "anchor"
 
-// ReferenceResolver establishes a verified block reference for moving-state reads.
+// ReferenceResolver establishes a corroborated block reference for moving-state reads.
 type ReferenceResolver interface {
 	AnchorBlockHash(context.Context) (string, error)
 	AnchorBlockRef(context.Context) (string, uint64, error)
@@ -242,7 +242,7 @@ func (p anchorHeadPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Obs
 }
 
 func (p anchorHeadPolicy) requireCorroborated(d rpc.Decision, err error) (rpc.Decision, error) {
-	if err == nil && d.Status != rpc.Verified {
+	if err == nil && d.Status != rpc.Corroborated {
 		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrConflict)
 	}
 	return d, err
@@ -289,7 +289,7 @@ func anchorHashOf(resolver AnchorResolver) rpc.AnchorFunc {
 		ref, err := resolveReference(ctx, resolver, tag)
 		ref.Tag = tag
 		refcontext.Publish(ctx, ref)
-		if err == nil && ref.Status != rpc.Verified {
+		if err == nil && ref.Status != rpc.Corroborated {
 			err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
 		}
 		return ref.Hash, err
@@ -305,7 +305,7 @@ func anchorHeightOf(resolver AnchorResolver) rpc.AnchorHeightFunc {
 		ref, err := resolveReference(ctx, resolver, tag)
 		ref.Tag = tag
 		refcontext.Publish(ctx, ref)
-		if err == nil && ref.Status != rpc.Verified {
+		if err == nil && ref.Status != rpc.Corroborated {
 			err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
 		}
 		return ref.Height, err

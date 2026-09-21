@@ -57,16 +57,20 @@ type Observation struct {
 }
 
 // Status describes the confidence class of a successful decision.
+// Corroborated is provider-backed cross-source evidence: independent
+// sources agreeing under the declared support rule. It is not Ethereum
+// consensus, a canonical proof, cryptographic finality, or light-client
+// verification.
 type Status int
 
 const (
-	Verified Status = iota
+	Corroborated Status = iota
 	Selected
 	Forwarded
 )
 
 // ReferenceEvidence describes the prerequisite used for a moving-state read.
-// Reported finality is provider evidence, not a consensus proof.
+// Reported finality is provider evidence, not an Ethereum consensus proof.
 type ReferenceEvidence struct {
 	Tag          string
 	Hash         string
@@ -117,7 +121,7 @@ type Decision struct {
 
 // ObservedResult is the explicit dynamic result shape for callers handling
 // methods without a semantic projection. It must not be decoded as a Geth
-// core type or treated as Verified standard data.
+// core type or treated as Corroborated standard data.
 type ObservedResult struct {
 	Value       json.RawMessage
 	Status      Status
@@ -141,8 +145,8 @@ func (d Decision) ObservedView() (ObservedResult, bool) {
 // String names the confidence class for observability sinks.
 func (s Status) String() string {
 	switch s {
-	case Verified:
-		return "verified"
+	case Corroborated:
+		return "corroborated"
 	case Selected:
 		return "selected"
 	case Forwarded:
