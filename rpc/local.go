@@ -51,6 +51,6 @@ func (f localFunc) Resolve(obs []Observation) (Decision, error) {
 			Faults:  faults,
 		}, nil
 	}
-	return Decision{Faults: faults}, fmt.Errorf(
+	return Decision{Status: Unknown, Faults: faults}, fmt.Errorf(
 		"local: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
 }

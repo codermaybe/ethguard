@@ -162,7 +162,7 @@ func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag str
 		}
 		shared, err := rpc.NewCorroborationShared(mode, floor)
 		if err != nil {
-			return rpc.ReferenceEvidence{Tag: tag}, err
+			return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, err
 		}
 		var opts []rpc.StrictOption
 		opts = append(opts, rpc.WithQuorum(floor))
@@ -189,7 +189,7 @@ func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag str
 		}
 		shared, err := rpc.NewCorroborationShared(mode, floor)
 		if err != nil {
-			return rpc.ReferenceEvidence{Tag: tag}, err
+			return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, err
 		}
 		var opts []rpc.StrictOption
 		opts = append(opts, rpc.WithQuorum(floor))
@@ -199,7 +199,7 @@ func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag str
 		resolver := newStrictHeadAnchor(a.pool, a.rec, a.timeout, shared, opts...)
 		return resolver.AnchorReferenceForTag(ctx, tag)
 	}
-	return rpc.ReferenceEvidence{Tag: tag, Origin: "finalized-anchor"}, fmt.Errorf("anchor: tag %q is not supported by finalized resolver: %w", tag, rpc.ErrInvalidRequest)
+	return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown, Origin: "finalized-anchor"}, fmt.Errorf("anchor: tag %q is not supported by finalized resolver: %w", tag, rpc.ErrInvalidRequest)
 }
 
 func (a *FinalizedHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
@@ -243,6 +243,7 @@ func (p anchorHeadPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Obs
 
 func (p anchorHeadPolicy) requireCorroborated(d rpc.Decision, err error) (rpc.Decision, error) {
 	if err == nil && d.Status != rpc.Corroborated {
+		d.Status = rpc.Unknown
 		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrConflict)
 	}
 	return d, err
@@ -268,7 +269,7 @@ func resolveReference(ctx context.Context, resolver AnchorResolver, tag string) 
 		if provider, ok := resolver.(AnchorTagProvider); ok {
 			return provider.AnchorReferenceForTag(ctx, tag)
 		}
-		return rpc.ReferenceEvidence{Tag: tag}, fmt.Errorf("anchor: resolver %T cannot establish tag %q: %w", resolver, tag, rpc.ErrInvalidRequest)
+		return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, fmt.Errorf("anchor: resolver %T cannot establish tag %q: %w", resolver, tag, rpc.ErrInvalidRequest)
 	}
 	if p, ok := resolver.(AnchorEvidenceProvider); ok {
 		return p.AnchorReference(ctx)
@@ -279,6 +280,9 @@ func resolveReference(ctx context.Context, resolver AnchorResolver, tag string) 
 		ref.Hash, ref.Height, err = p.AnchorBlockRef(ctx)
 	} else {
 		ref.Hash, err = resolver.AnchorBlockHash(ctx)
+	}
+	if err != nil {
+		ref.Status = rpc.Unknown
 	}
 	return ref, err
 }
@@ -346,7 +350,7 @@ func (c *CachedAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (r
 	if provider, ok := c.inner.(AnchorTagProvider); ok {
 		return provider.AnchorReferenceForTag(ctx, tag)
 	}
-	return rpc.ReferenceEvidence{Tag: tag}, fmt.Errorf("anchor: resolver %T does not preserve tag %q: %w", c.inner, tag, rpc.ErrInvalidRequest)
+	return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, fmt.Errorf("anchor: resolver %T does not preserve tag %q: %w", c.inner, tag, rpc.ErrInvalidRequest)
 }
 
 func (c *CachedAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
@@ -354,7 +358,7 @@ func (c *CachedAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEviden
 		if provider, ok := c.inner.(AnchorTagProvider); ok {
 			return provider.AnchorReferenceForTag(ctx, tag)
 		}
-		return rpc.ReferenceEvidence{Tag: tag}, fmt.Errorf("anchor: resolver %T does not preserve tag %q: %w", c.inner, tag, rpc.ErrInvalidRequest)
+		return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, fmt.Errorf("anchor: resolver %T does not preserve tag %q: %w", c.inner, tag, rpc.ErrInvalidRequest)
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -421,7 +425,7 @@ func (a *confirmedAnchor) AnchorReferenceForTag(ctx context.Context, tag string)
 	if tag == "" || tag == "latest" {
 		return a.AnchorReference(ctx)
 	}
-	return rpc.ReferenceEvidence{Tag: tag, Origin: "custom-reference"}, fmt.Errorf("anchor: custom resolver cannot establish tag %q: %w", tag, rpc.ErrInvalidRequest)
+	return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown, Origin: "custom-reference"}, fmt.Errorf("anchor: custom resolver cannot establish tag %q: %w", tag, rpc.ErrInvalidRequest)
 }
 
 func (a *confirmedAnchor) AnchorBlockHash(ctx context.Context) (string, error) {

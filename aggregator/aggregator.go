@@ -149,7 +149,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		if c := uncertain.FromContext(ctx); c != nil {
 			c.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
 		}
-		decision := rpc.Decision{Reference: capture.Reference()}
+		decision := rpc.Decision{Status: rpc.Unknown, Reference: capture.Reference()}
 		a.recordDecision(started, req.Method, policy, decision, err, nil)
 		return decision, err
 	}
@@ -253,7 +253,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		}
 	}
 	if collectErr != nil && !hasUsableEmission(emissions) {
-		decision := rpc.Decision{Faults: collectionFaults(policy, collectErr, emissions), Reference: capture.Reference(), Participants: participants, Observed: observed}
+		decision := rpc.Decision{Status: rpc.Unknown, Faults: collectionFaults(policy, collectErr, emissions), Reference: capture.Reference(), Participants: participants, Observed: observed}
 		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions)
 		return decision, collectErr
 	}
@@ -263,7 +263,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// typed callers instead of replacing it with ErrNoValidResponse.
 	if collectErr == nil && !hasUsableEmission(emissions) && hasMalformedAdmission(emissions) {
 		admissionErr := firstMalformedAdmission(emissions)
-		decision := rpc.Decision{Faults: sourceFaults(policy, emissions), Reference: capture.Reference(), Participants: participants, Observed: observed}
+		decision := rpc.Decision{Status: rpc.Unknown, Faults: sourceFaults(policy, emissions), Reference: capture.Reference(), Participants: participants, Observed: observed}
 		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
 		a.recordDecision(started, req.Method, policy, decision, err, emissions)
 		return decision, err
@@ -273,6 +273,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		decision.Status = rpc.Forwarded
 	}
 	if agreement, ok := policy.(rpc.AgreementPolicy); ok && agreement.RequiresAgreement() && refcontext.CorroborationRequired(ctx) && !(snapOK && snap.Mode == rpc.CorroborationForwarded) && resolveErr == nil && decision.Status != rpc.Corroborated {
+		decision.Status = rpc.Unknown
 		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
 	}
 	decision.Reference = capture.Reference()

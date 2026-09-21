@@ -69,7 +69,7 @@ func (p finalizedHeadPolicy) Resolve(obs []Observation) (Decision, error) {
 		views = append(views, view{source: item.Source, height: height, hash: strings.ToLower(head.Hash), value: item.Value})
 	}
 	if len(views) == 0 {
-		return Decision{Faults: decision.Faults}, fmt.Errorf(
+		return Decision{Status: Unknown, Faults: decision.Faults}, fmt.Errorf(
 			"finalized head: no source produced a valid response (%d attempted): %w",
 			len(obs), ErrNoValidResponse)
 	}

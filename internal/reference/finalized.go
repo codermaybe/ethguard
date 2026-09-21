@@ -29,7 +29,7 @@ type view struct {
 // retries successively older candidates or relaxes the caller's quorum.
 func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mode rpc.CorroborationMode, timeout time.Duration, rec observe.Recorder) (ref rpc.ReferenceEvidence, resultErr error) {
 	started := time.Now()
-	ref.Origin, ref.ObservedAt, ref.Status = "reported-finalized", started, rpc.Selected
+	ref.Origin, ref.ObservedAt, ref.Status = "reported-finalized", started, rpc.Unknown
 	var attempts []observe.SourceEvent
 	defer func() {
 		if rec == nil || rec == observe.Nop {

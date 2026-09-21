@@ -22,9 +22,12 @@ func (c *captureRecorder) RecordDecision(e observe.DecisionEvent) {
 
 func TestAggregateEmptyPoolReturnsCollectionError(t *testing.T) {
 	a := New(pool.NewPool(), nil)
-	_, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
+	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 	if err == nil {
 		t.Fatal("expected empty pool to fail")
+	}
+	if decision.IsCorroborated(err) {
+		t.Fatalf("failed empty-pool decision must not claim corroboration: %+v", decision)
 	}
 }
 
@@ -40,6 +43,9 @@ func TestAggregateAttachesSourceFaultsToDecision(t *testing.T) {
 	}
 	if len(decision.Faults) == 0 {
 		t.Fatal("expected collection faults on decision, got none")
+	}
+	if decision.IsCorroborated(err) {
+		t.Fatalf("failed collection decision must not claim corroboration: %+v", decision)
 	}
 }
 
@@ -60,6 +66,9 @@ func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
 	}
 	if len(decision.Faults) != 1 {
 		t.Fatalf("expected only the collection fault, got %+v", decision.Faults)
+	}
+	if decision.IsCorroborated(err) {
+		t.Fatalf("canceled collection decision must not claim corroboration: %+v", decision)
 	}
 }
 

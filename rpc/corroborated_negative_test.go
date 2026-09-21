@@ -11,9 +11,9 @@ import (
 // agreeing under the declared support rule. It is not Ethereum consensus, a
 // canonical proof, cryptographic finality, or light-client verification.
 // These tests pin the negative side of that definition: every resolution
-// path that must NOT claim Corroborated, and the rule that a Status value on
-// an error return carries no claim at all (the zero value of Status is
-// Corroborated, so only a nil error plus Status == Corroborated counts).
+// path that must NOT claim Corroborated, and the rule that error returns
+// carry Status Unknown (the zero value claims nothing, so only a nil error
+// plus Status == Corroborated counts).
 
 func TestCorroboratedRejectsSingleSource(t *testing.T) {
 	p := Strict(CanonicalJSON)
@@ -51,10 +51,13 @@ func TestCorroboratedQuorumFailureIsConflict(t *testing.T) {
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("a pair on a 5-member basis (Q=3) must fail, got %+v %v", decision, err)
 	}
-	// The error is authoritative: any Status on this return — including the
-	// zero value — carries no corroboration claim.
+	// The error is authoritative and the Status must be Unknown: ignoring
+	// err must yield no claim, never Corroborated.
 	if err == nil {
 		t.Fatal("unreachable: conflict must come with an error")
+	}
+	if decision.Status != Unknown {
+		t.Fatalf("conflict decision status = %v, want Unknown", decision.Status)
 	}
 }
 
@@ -112,10 +115,14 @@ func TestCorroboratedProviderFinalizedForkFailsClosed(t *testing.T) {
 	}
 	// Provider reports disagreeing with each other prove nothing about the
 	// chain: the conflict error — not the Status field — is the verdict.
+	if decision.Status != Unknown {
+		t.Fatalf("fork-conflict decision status = %v, want Unknown", decision.Status)
+	}
 }
 
 func TestCorroboratedStatusLabels(t *testing.T) {
 	cases := map[Status]string{
+		Unknown:      "unknown",
 		Corroborated: "corroborated",
 		Selected:     "selected",
 		Forwarded:    "forwarded",

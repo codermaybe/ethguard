@@ -1103,8 +1103,11 @@ func TestClientCorroboratesReceiptAbsenceAsNotFound(t *testing.T) {
 	if !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
-	if decision.Status != rpc.Corroborated {
-		t.Fatalf("expected unanimous absence to corroborate like any answer, got %+v", decision)
+	// Unanimous null is corroborated agreement at aggregation, but the typed
+	// boundary maps absence to ethereum.NotFound: an error return carries
+	// Status Unknown, with the 3-source agreement retained on Support/Value.
+	if decision.Status != rpc.Unknown {
+		t.Fatalf("expected Unknown alongside NotFound, got %+v", decision)
 	}
 }
 
@@ -1163,14 +1166,17 @@ func TestClientRejectsUnanimousReceiptMissingRequiredFields(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Normalization compares shapes, not schemas, so the fleet agrees; the
-	// required-field set binds one stage later, at the typed decode boundary.
+	// Admission binds the required-field set before clustering, so a fleet
+	// that unanimously reports a schema-invalid payload is rejected at
+	// admission: no cluster forms, the decision is Unknown, and the typed
+	// boundary never runs. Scheme B: an error return must not carry
+	// Corroborated even when every source agrees on the bytes.
 	_, decision, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for schema-invalid unanimous payload, got %v", err)
 	}
-	if decision.Status != rpc.Corroborated {
-		t.Fatalf("expected corroboration to pass before the typed boundary, got %+v", decision)
+	if decision.Status != rpc.Unknown {
+		t.Fatalf("expected Unknown on admission rejection, got %+v", decision)
 	}
 }
 
@@ -1283,8 +1289,10 @@ func TestClientMapsTransactionAbsenceToNotFound(t *testing.T) {
 	if !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
-	if decision.Status != rpc.Corroborated {
-		t.Fatalf("expected unanimous absence to corroborate like any answer, got %+v", decision)
+	// Same boundary rule as receipts: corroborated absence maps to NotFound,
+	// so the error return carries Status Unknown with evidence retained.
+	if decision.Status != rpc.Unknown {
+		t.Fatalf("expected Unknown alongside NotFound, got %+v", decision)
 	}
 }
 

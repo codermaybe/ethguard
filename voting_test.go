@@ -467,7 +467,7 @@ func TestNoExtraVotes(t *testing.T) {
 // Checklist 6: the adjudication module is transport-agnostic and refuses
 // below the floor. Observable from outside: N=1 with floor 2 refuses (no
 // degradation to Selected — the typed path errors and the decision's error
-// is authoritative over the Status field, whose zero value is Corroborated) and
+// is authoritative over the Status field, whose zero value is Unknown) and
 // the evidence carries the cluster rather than a guessed winner.
 func TestRefusesWithoutDegradation(t *testing.T) {
 	client, _ := fleet(t, 1, 1, 2, ethguard.WithCorroborationMode(rpc.CorroborationMajority))

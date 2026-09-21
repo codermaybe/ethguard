@@ -62,7 +62,7 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 		samples = append(samples, sample{source: item.Source, value: value, raw: item.Value})
 	}
 	if len(samples) == 0 {
-		return Decision{Faults: decision.Faults}, fmt.Errorf(
+		return Decision{Status: Unknown, Faults: decision.Faults}, fmt.Errorf(
 			"median: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
 	}
 

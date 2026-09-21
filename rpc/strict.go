@@ -137,7 +137,7 @@ func (f strictFunc) ResolveCorroborated(c Corroboration, obs []Observation) (Dec
 func (f strictFunc) resolve(c Corroboration, obs []Observation) (Decision, error) {
 	ranked, faults, err := f.cluster(obs)
 	if err != nil {
-		return Decision{Faults: faults}, err
+		return Decision{Status: Unknown, Faults: faults}, err
 	}
 	return c.adjudicate(len(obs), ranked, faults)
 }
@@ -148,9 +148,10 @@ func (f strictFunc) resolve(c Corroboration, obs []Observation) (Decision, error
 func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 	ranked, faults, err := f.cluster(obs)
 	if err != nil {
-		return Decision{Faults: faults}, err
+		return Decision{Status: Unknown, Faults: faults}, err
 	}
 	var decision Decision
+	decision.Status = Unknown
 	decision.Faults = faults
 	winner := ranked[0]
 	decision.Value = winner.value
@@ -164,7 +165,9 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 	}
 	if len(winner.sources) == 1 {
 		decision.Status = Selected // no corroboration, no Corroborated claim
+		return decision, nil
 	}
+	decision.Status = Corroborated
 	return decision, nil
 }
 

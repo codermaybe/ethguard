@@ -21,16 +21,28 @@ func (c *Client) Call(ctx context.Context, method string, params ...any) (rpc.De
 	return c.aggregator.Aggregate(ctx, rpc.Request{Method: method, Params: params})
 }
 
+// unknownDecision enforces the typed-boundary invariant for scheme B: any
+// error return traveling with a Decision must carry Status Unknown, so
+// ignoring err can never surface Corroborated, Selected, or Forwarded.
+// Aggregation failures already arrive Unknown; this clears a success Status
+// when the typed layer (decode, binding, projection) fails after a
+// successful aggregate. It is a no-op on the success path by construction:
+// callers pass only error returns through it.
+func unknownDecision(d rpc.Decision) rpc.Decision {
+	d.Status = rpc.Unknown
+	return d
+}
+
 // CallInto aggregates one request and decodes the resolved value into T.
 // The returned pointer is nil whenever the error is non-nil.
 func CallInto[T any](ctx context.Context, c *Client, method string, params ...any) (*T, rpc.Decision, error) {
 	decision, err := c.Call(ctx, method, params...)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	var out T
 	if err := jsonsafe.Decode(decision.Value, &out); err != nil {
-		return nil, decision, fmt.Errorf("%w: decode %s: %w", rpc.ErrMalformedResponse, method, err)
+		return nil, unknownDecision(decision), fmt.Errorf("%w: decode %s: %w", rpc.ErrMalformedResponse, method, err)
 	}
 	return &out, decision, nil
 }

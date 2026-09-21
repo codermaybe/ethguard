@@ -69,6 +69,7 @@ func (c Corroboration) Required(n int) int {
 // identical Support, Reject, and Value.
 func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Decision, error) {
 	var decision Decision
+	decision.Status = Unknown
 	decision.Faults = faults
 	winner := ranked[0]
 	decision.Value = winner.value

@@ -35,11 +35,11 @@ func (c *Client) decodedQuantity(method string, decision rpc.Decision) (*big.Int
 func (c *Client) ChainID(ctx context.Context) (*big.Int, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodChainID)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	value, err := c.decodedQuantity(methods.MethodChainID, decision)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	return value, decision, nil
 }
@@ -48,7 +48,7 @@ func (c *Client) ChainID(ctx context.Context) (*big.Int, rpc.Decision, error) {
 func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*types.Block, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodGetBlockByHash, hash.Hex(), fullTx)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	var block *types.Block
 	if fullTx {
@@ -57,10 +57,10 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool)
 		block, err = DecodeBlockHeaderOnly(decision.Value)
 	}
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	if block.Hash() != hash {
-		return nil, decision, fmt.Errorf("%w: block hash %s does not match requested hash %s",
+		return nil, unknownDecision(decision), fmt.Errorf("%w: block hash %s does not match requested hash %s",
 			rpc.ErrMalformedResponse, block.Hash(), hash)
 	}
 	return block, decision, nil
@@ -75,14 +75,14 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool)
 func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*types.Receipt, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	receipt, err := DecodeReceipt(decision.Value)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	if receipt.TxHash != hash {
-		return nil, decision, fmt.Errorf("%w: receipt transaction hash %s does not match requested hash %s",
+		return nil, unknownDecision(decision), fmt.Errorf("%w: receipt transaction hash %s does not match requested hash %s",
 			rpc.ErrMalformedResponse, receipt.TxHash, hash)
 	}
 	return receipt, decision, nil
@@ -94,14 +94,14 @@ func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*typ
 func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (*types.Transaction, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodGetTransactionByHash, hash.Hex())
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	tx, _, err := DecodeTransaction(decision.Value)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	if tx.Hash() != hash {
-		return nil, decision, fmt.Errorf("%w: transaction hash %s does not match requested hash %s",
+		return nil, unknownDecision(decision), fmt.Errorf("%w: transaction hash %s does not match requested hash %s",
 			rpc.ErrMalformedResponse, tx.Hash(), hash)
 	}
 	return tx, decision, nil
@@ -115,15 +115,15 @@ func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (*type
 func (c *Client) BlockReceipts(ctx context.Context, hash common.Hash) ([]*types.Receipt, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodGetBlockReceipts, hash.Hex())
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	receipts, err := DecodeReceipts(decision.Value)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	for i, receipt := range receipts {
 		if receipt.BlockHash != hash {
-			return nil, decision, fmt.Errorf("%w: receipt %d block hash %s does not match requested hash %s",
+			return nil, unknownDecision(decision), fmt.Errorf("%w: receipt %d block hash %s does not match requested hash %s",
 				rpc.ErrMalformedResponse, i, receipt.BlockHash, hash)
 		}
 	}
@@ -160,7 +160,7 @@ func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, newest *big.
 	}
 	decision, err := c.Call(ctx, methods.MethodFeeHistory, blockCount, newestRef, rewardPercentiles)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	var wire struct {
 		OldestBlock   *hexutil.Big     `json:"oldestBlock"`
@@ -169,10 +169,10 @@ func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, newest *big.
 		Reward        [][]*hexutil.Big `json:"reward"`
 	}
 	if err := json.Unmarshal(decision.Value, &wire); err != nil {
-		return nil, decision, fmt.Errorf("%w: decode fee history: %v", rpc.ErrMalformedResponse, err)
+		return nil, unknownDecision(decision), fmt.Errorf("%w: decode fee history: %v", rpc.ErrMalformedResponse, err)
 	}
 	if wire.OldestBlock == nil {
-		return nil, decision, fmt.Errorf("%w: fee history carries no oldest block", rpc.ErrMalformedResponse)
+		return nil, unknownDecision(decision), fmt.Errorf("%w: fee history carries no oldest block", rpc.ErrMalformedResponse)
 	}
 	out := &FeeHistory{
 		OldestBlock:   (*big.Int)(wire.OldestBlock),
@@ -201,11 +201,11 @@ func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, newest *big.
 func (c *Client) MaxPriorityFeePerGas(ctx context.Context) (*big.Int, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodMaxPriorityFeePerGas)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	value, err := c.decodedQuantity(methods.MethodMaxPriorityFeePerGas, decision)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	return value, decision, nil
 }
@@ -215,11 +215,11 @@ func (c *Client) MaxPriorityFeePerGas(ctx context.Context) (*big.Int, rpc.Decisi
 func (c *Client) NetVersion(ctx context.Context) (*big.Int, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodNetVersion)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	value, err := c.decodedQuantity(methods.MethodNetVersion, decision)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	return value, decision, nil
 }
@@ -229,11 +229,11 @@ func (c *Client) NetVersion(ctx context.Context) (*big.Int, rpc.Decision, error)
 func (c *Client) Listening(ctx context.Context) (bool, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodListening)
 	if err != nil {
-		return false, decision, err
+		return false, unknownDecision(decision), err
 	}
 	var flag bool
 	if err := json.Unmarshal(decision.Value, &flag); err != nil {
-		return false, decision, fmt.Errorf("%w: decode listening flag: %w", rpc.ErrMalformedResponse, err)
+		return false, unknownDecision(decision), fmt.Errorf("%w: decode listening flag: %w", rpc.ErrMalformedResponse, err)
 	}
 	return flag, decision, nil
 }
@@ -286,11 +286,11 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 func (c *Client) GasPrice(ctx context.Context) (*big.Int, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodGasPrice)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	value, err := c.decodedQuantity(methods.MethodGasPrice, decision)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	return value, decision, nil
 }
@@ -300,14 +300,14 @@ func (c *Client) GasPrice(ctx context.Context) (*big.Int, rpc.Decision, error) {
 func (c *Client) PeerCount(ctx context.Context) (uint64, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodPeerCount)
 	if err != nil {
-		return 0, decision, err
+		return 0, unknownDecision(decision), err
 	}
 	value, err := c.decodedQuantity(methods.MethodPeerCount, decision)
 	if err != nil {
-		return 0, decision, err
+		return 0, unknownDecision(decision), err
 	}
 	if !value.IsUint64() {
-		return 0, decision, fmt.Errorf("ethguard: invalid %s %q", methods.MethodPeerCount, decision.Value)
+		return 0, unknownDecision(decision), fmt.Errorf("ethguard: invalid %s %q", methods.MethodPeerCount, decision.Value)
 	}
 	return value.Uint64(), decision, nil
 }
@@ -317,19 +317,19 @@ func (c *Client) PeerCount(ctx context.Context) (uint64, rpc.Decision, error) {
 func (c *Client) Syncing(ctx context.Context) (*ethereum.SyncProgress, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodSyncing)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	var flag bool
 	if json.Unmarshal(decision.Value, &flag) == nil {
 		if !flag {
 			return nil, decision, nil
 		}
-		return nil, decision, fmt.Errorf("%w: syncing boolean true is not a shape sources return",
+		return nil, unknownDecision(decision), fmt.Errorf("%w: syncing boolean true is not a shape sources return",
 			rpc.ErrMalformedResponse)
 	}
 	var wire syncProgressWire
 	if err := json.Unmarshal(decision.Value, &wire); err != nil {
-		return nil, decision, fmt.Errorf("%w: decode sync progress: %w", rpc.ErrMalformedResponse, err)
+		return nil, unknownDecision(decision), fmt.Errorf("%w: decode sync progress: %w", rpc.ErrMalformedResponse, err)
 	}
 	return wire.toSyncProgress(), decision, nil
 }
@@ -377,11 +377,11 @@ func (w syncProgressWire) toSyncProgress() *ethereum.SyncProgress {
 func (c *Client) BlobBaseFee(ctx context.Context) (*big.Int, rpc.Decision, error) {
 	decision, err := c.Call(ctx, methods.MethodBlobBaseFee)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	value, err := c.decodedQuantity(methods.MethodBlobBaseFee, decision)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	return value, decision, nil
 }
@@ -408,11 +408,11 @@ func (c *Client) CreateAccessList(ctx context.Context, msg any, blockNrOrHash ..
 	}
 	decision, err := c.Call(ctx, methods.MethodCreateAccessList, params...)
 	if err != nil {
-		return nil, decision, err
+		return nil, unknownDecision(decision), err
 	}
 	var wire accessListResultWire
 	if err := json.Unmarshal(decision.Value, &wire); err != nil {
-		return nil, decision, fmt.Errorf("%w: decode access list result: %w", rpc.ErrMalformedResponse, err)
+		return nil, unknownDecision(decision), fmt.Errorf("%w: decode access list result: %w", rpc.ErrMalformedResponse, err)
 	}
 	return &AccessListResult{
 		AccessList: wire.AccessList,

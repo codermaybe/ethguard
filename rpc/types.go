@@ -57,6 +57,11 @@ type Observation struct {
 }
 
 // Status describes the confidence class of a successful decision.
+// Unknown is the zero value and carries no claim: it must appear only with
+// a non-nil error (or an uninitialized value). Successful results are always
+// Corroborated, Selected, or Forwarded, set explicitly by the resolving
+// policy. Failed is never a Status: failures are carried by error returns
+// and the observability event's "failed" string.
 // Corroborated is provider-backed cross-source evidence: independent
 // sources agreeing under the declared support rule. It is not Ethereum
 // consensus, a canonical proof, cryptographic finality, or light-client
@@ -64,13 +69,16 @@ type Observation struct {
 type Status int
 
 const (
-	Corroborated Status = iota
+	Unknown Status = iota
+	Corroborated
 	Selected
 	Forwarded
 )
 
 // ReferenceEvidence describes the prerequisite used for a moving-state read.
 // Reported finality is provider evidence, not an Ethereum consensus proof.
+// Status follows the same contract as Decision: Unknown with an error,
+// otherwise Corroborated, Selected, or Forwarded set explicitly.
 type ReferenceEvidence struct {
 	Tag          string
 	Hash         string
@@ -119,6 +127,16 @@ type Decision struct {
 	Evidence json.RawMessage
 }
 
+// IsCorroborated reports whether d is a successful corroborated result.
+// The error is part of the result contract: Unknown is the zero value of
+// Status, so a failed call must never be interpreted from Status alone.
+// It remains a defensive convenience predicate, not the validity model
+// itself: error paths must return Status Unknown, success paths must set
+// Corroborated, Selected, or Forwarded explicitly.
+func (d Decision) IsCorroborated(err error) bool {
+	return err == nil && d.Status == Corroborated
+}
+
 // ObservedResult is the explicit dynamic result shape for callers handling
 // methods without a semantic projection. It must not be decoded as a Geth
 // core type or treated as Corroborated standard data.
@@ -145,6 +163,8 @@ func (d Decision) ObservedView() (ObservedResult, bool) {
 // String names the confidence class for observability sinks.
 func (s Status) String() string {
 	switch s {
+	case Unknown:
+		return "unknown"
 	case Corroborated:
 		return "corroborated"
 	case Selected:

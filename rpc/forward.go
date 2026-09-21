@@ -32,10 +32,11 @@ func (ForwardPolicy) Resolve(obs []Observation) (Decision, error) {
 		if errors.As(item.Err, &rpcErr) {
 			// The selected provider's protocol response is authoritative for a
 			// forwarded method; preserve the original RPC error for the caller.
-			return Decision{Status: Forwarded, Support: []SourceRef{item.Source}}, item.Err
+			// No confidence claim is made on an error return: Unknown, not Forwarded.
+			return Decision{Status: Unknown, Support: []SourceRef{item.Source}}, item.Err
 		}
 	}
-	return Decision{}, fmt.Errorf("forward: no source responded: %w", ErrNoValidResponse)
+	return Decision{Status: Unknown}, fmt.Errorf("forward: no source responded: %w", ErrNoValidResponse)
 }
 
 // SelectedPolicy returns the first successful observation while marking the
@@ -52,5 +53,5 @@ func (SelectedPolicy) Resolve(obs []Observation) (Decision, error) {
 			return Decision{Status: Selected, Value: item.Value, Support: []SourceRef{item.Source}}, nil
 		}
 	}
-	return Decision{}, fmt.Errorf("selected: no source responded: %w", ErrNoValidResponse)
+	return Decision{Status: Unknown}, fmt.Errorf("selected: no source responded: %w", ErrNoValidResponse)
 }
