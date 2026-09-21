@@ -2,10 +2,11 @@ package pool
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
+
+	"ethguard/config"
 )
 
 // BroadcastOption tunes one broadcast fan-out.
@@ -13,9 +14,6 @@ type BroadcastOption func(*broadcastConfig)
 
 type broadcastConfig struct {
 	timeout time.Duration
-	// maxAttempts caps how many retries a source may serve while other
-	// sources are still collecting. Zero disables the cap.
-	maxRetriesPerSource int
 }
 
 // WithBroadcastTimeout bounds the whole fan-out per attempt round. Zero uses
@@ -24,21 +22,11 @@ func WithBroadcastTimeout(timeout time.Duration) BroadcastOption {
 	return func(c *broadcastConfig) { c.timeout = timeout }
 }
 
-// BroadcastOptionSourceRetries bounds the number of re-attempts one source
-// may serve inside a single Broadcast call. A non-negative value caps the
-// catch-up rounds described on Broadcast.
-func WithSourceRetries(n int) BroadcastOption {
-	return func(c *broadcastConfig) {
-		if n < 0 {
-			panic("pool: WithSourceRetries: n must be non-negative")
-		}
-		c.maxRetriesPerSource = n
-	}
-}
-
-// Broadcast sends one non-idempotent request to every requestable source in
-// parallel and collects every source's outcome. Unlike Collect and
-// CollectVoting it:
+// Broadcast sends one idempotent request to every requestable source in
+// parallel and collects every source's outcome. The same raw bytes re-sent
+// derive the same transaction hash on every honest node, so re-broadcasting
+// is safe; what Broadcast never does is short-circuit or gate by read
+// freshness. Unlike Collect and CollectVoting it:
 //
 //   - never applies the tip-freshness gate. A source trailing the fleet tip
 //     can still accept a valid transaction; gating a write by read freshness
@@ -64,7 +52,7 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 	}
 	timeout := cfg.timeout
 	if timeout <= 0 {
-		timeout = maxDefaultTimeout
+		timeout = config.DefaultCollectTimeout()
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -125,7 +113,7 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 		if gated[i] != nil || src.isClosed() {
 			continue
 		}
-		dispatchBroadcastOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
 	}
 	wg.Wait()
 	// A laggard source must not turn the whole broadcast into an error while
@@ -147,50 +135,4 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 		}
 	}
 	return emissions, ErrAllSourcesDown
-}
-
-// dispatchBroadcastOne mirrors dispatchOne but reports failures without the
-// freshness bookkeeping a read attempt carries: a broadcast failure is
-// health-accounted identically, so a source that cannot accept writes cools
-// down for reads too.
-func dispatchBroadcastOne(callCtx, parent context.Context, sem chan struct{}, i int, src *Source, method string, params []any, emissions []Emission, wg *sync.WaitGroup) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		var val json.RawMessage
-		var err error
-		var rtt time.Duration
-		attempted := false
-		select {
-		case sem <- struct{}{}:
-			if err = callCtx.Err(); err == nil {
-				var release func()
-				release, err = src.acquireRequest(callCtx)
-				if err != nil && parent.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
-					err = ErrSourceGated
-				}
-				if err == nil {
-					attempted = true
-					start := time.Now()
-					val, err = collectOne(callCtx, src, method, params)
-					rtt = time.Since(start)
-					release()
-				}
-			}
-			<-sem
-		case <-callCtx.Done():
-			err = callCtx.Err()
-		}
-
-		if attempted {
-			if isHealthyRPCResponse(err) {
-				src.recordSuccessfulCall(rtt)
-			} else if shouldRecordFailure(parent, err) {
-				src.recordFailedCall(err)
-			}
-		}
-
-		emissions[i] = Emission{Src: src, Val: val, Err: err, RTT: rtt, Attempted: attempted}
-	}()
 }

@@ -87,7 +87,9 @@ func newPoolWithDialerAndChainID(d dialer, chainID uint64) *Pool {
 // Join registers an endpoint if it is not already present. Concurrent calls
 // for the same normalized endpoint always return the same Source. Distinct
 // endpoints must have distinct display names so diagnostics and metric labels
-// cannot collide.
+// cannot collide. A Join whose endpoint is already registered returns the
+// existing Source unchanged, even under a different display name: endpoint
+// identity wins over naming, so callers must not assume one Join per name.
 func (p *Pool) Join(name, rawURL string) (*Source, error) {
 	id, err := normalizeEndpointID(rawURL)
 	if err != nil {
@@ -179,7 +181,9 @@ func (p *Pool) sourcesForCollect(plan collectPlan) ([]*Source, error) {
 	if plan.applyFreshness {
 		floor = p.staleFloor(sources)
 	}
-	eligible := sources[:0]
+	// Fresh filtering slice: sources is a snapshot other paths may still
+	// read, so never filter it in place.
+	eligible := make([]*Source, 0, len(sources))
 	for _, src := range sources {
 		if plan.warmOnly {
 			// Probe path: observe established connections only, ignoring
@@ -264,7 +268,29 @@ func normalizeEndpointID(raw string) (string, error) {
 	if u.Path == "/" {
 		u.Path = ""
 	}
+	// Strip an explicit default port so the same node dialed as
+	// https://host and https://host:443 deduplicates to one member.
+	// Non-default ports stay significant: they address different listeners.
+	if isDefaultPort(u.Scheme, u.Port()) {
+		u.Host = u.Hostname()
+		if strings.Contains(u.Host, ":") {
+			u.Host = "[" + u.Host + "]" // IPv6 literal without port
+		}
+	}
 	return u.String(), nil
+}
+
+// isDefaultPort reports whether port is the conventional listener for
+// scheme. Empty means unspecified, never a default.
+func isDefaultPort(scheme, port string) bool {
+	switch scheme {
+	case "http", "ws":
+		return port == "80"
+	case "https", "wss":
+		return port == "443"
+	default:
+		return false
+	}
 }
 
 func (p *Pool) sourcesByIDs(ids []string) ([]*Source, error) {

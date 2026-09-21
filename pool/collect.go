@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/rpc"
+
+	"ethguard/config"
 )
 
 // Emission is the result of a single upstream fan-out request.
@@ -52,8 +54,9 @@ type CollectOptions struct {
 	MaxConcurrent int
 }
 
-// maxDefaultTimeout is applied when CollectOptions.Timeout is zero.
-const maxDefaultTimeout = 30 * time.Second
+// The default fan-out bound lives in config (DefaultCollectTimeout): one
+// source for both the YAML and Go construction paths, so they cannot drift
+// (decision 0004). A zero CollectOptions.Timeout selects it.
 
 // ErrSourceGated reports that a voting member's request was skipped by a
 // scheduling gate (cooldown circuit or freshness bound). The member still
@@ -69,6 +72,13 @@ var ErrSourceGated = errors.New("pool: source gated; request paused, voting basi
 // shared context. A single source's failure does not affect the others. Sources
 // whose calls actually start report health automatically; expiration while
 // waiting for a local concurrency slot does not count against a source.
+//
+// Membership selection: an explicit opts.Sources list is requested
+// best-effort, without scheduling gates — no cooldown, freshness, or
+// pre-dispatch identity filtering (a known-invalid identity still fails fast
+// inside its own call). Gate-paused-but-in-basis semantics belong to
+// CollectVoting; Collect serves selection reads where every answer is useful
+// evidence and no voting denominator exists.
 //
 // The returned slice has one Emission per eligible source, in pool order.
 func (p *Pool) Collect(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
@@ -92,7 +102,7 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
 	timeout := opts.Timeout
 	if timeout <= 0 {
-		timeout = maxDefaultTimeout
+		timeout = config.DefaultCollectTimeout()
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -156,6 +166,9 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
 	}
 	wg.Wait()
+	// Usable answers ride alongside a fan-out timeout: the caller adjudicates
+	// over the emissions and records the timeout as a fault rather than
+	// discarding answered sources.
 	if err := callCtx.Err(); err != nil {
 		return emissions, err
 	}
@@ -196,7 +209,9 @@ func votingGate(src *Source, floor uint64, now time.Time) error {
 // dispatchOne attempts one member's call under the shared semaphore and
 // records its emission. Attempted calls report health here, so callers cannot
 // accidentally hide a dead source by forgetting a separate report step; a
-// caller that never acquires a local slot records nothing.
+// caller that never acquires a local slot records nothing. Shared by the
+// read paths and Broadcast: a broadcast failure cools the source for reads
+// too, and a read failure cools it for writes.
 func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src *Source, method string, params []any, emissions []Emission, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
@@ -216,10 +231,12 @@ func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src 
 				}
 				if err == nil {
 					attempted = true
+					// Released by defer: a panic below must not leak the
+					// scheduling slot and slowly wedge this source.
+					defer release()
 					start := time.Now()
 					val, err = collectOne(callCtx, src, method, params)
 					rtt = time.Since(start)
-					release()
 				}
 			}
 			<-sem
@@ -256,7 +273,7 @@ type collectPlan struct {
 func (p *Pool) collect(ctx context.Context, method string, params []any, opts CollectOptions, plan collectPlan) ([]Emission, error) {
 	timeout := opts.Timeout
 	if timeout <= 0 {
-		timeout = maxDefaultTimeout
+		timeout = config.DefaultCollectTimeout()
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -319,7 +336,7 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 func (p *Pool) Forward(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
 	timeout := opts.Timeout
 	if timeout <= 0 {
-		timeout = maxDefaultTimeout
+		timeout = config.DefaultCollectTimeout()
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
