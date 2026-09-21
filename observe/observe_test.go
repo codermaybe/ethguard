@@ -62,6 +62,22 @@ func TestLogFoldsAttemptsIntoOneEvent(t *testing.T) {
 	}
 }
 
+func TestZeroLogFallsBackToDefault(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("zero Log panicked: %v", r)
+		}
+	}()
+	Log{}.RecordDecision(DecisionEvent{Method: "m", Status: "verified"})
+	if !strings.Contains(buf.String(), "ethguard decision") {
+		t.Fatalf("expected fallback record in %q", buf.String())
+	}
+}
+
 func TestNopIsSafeDefault(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {

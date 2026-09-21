@@ -74,8 +74,13 @@ func New() *Metrics {
 }
 
 // RecordDecision implements observe.Recorder. Per-source attempts are
-// accounted here as well; there is no separate per-attempt hook.
+// accounted here as well; there is no separate per-attempt hook. A nil
+// receiver drops the event so a miswired recorder degrades silently instead
+// of panicking the call path.
 func (m *Metrics) RecordDecision(e observe.DecisionEvent) {
+	if m == nil {
+		return
+	}
 	m.decisions.WithLabelValues(e.Method, e.Status).Inc()
 	if e.Conflict {
 		m.conflicts.WithLabelValues(e.Method).Inc()

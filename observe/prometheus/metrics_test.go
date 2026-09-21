@@ -74,6 +74,16 @@ func TestMetricsWorkInForeignRegistry(t *testing.T) {
 	}
 }
 
+func TestNilMetricsDropsEvent(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("nil Metrics panicked: %v", r)
+		}
+	}()
+	var m *Metrics
+	m.RecordDecision(observe.DecisionEvent{Method: "m", Status: "verified"})
+}
+
 func TestHandlerServesExposition(t *testing.T) {
 	m := New()
 	m.RecordDecision(observe.DecisionEvent{

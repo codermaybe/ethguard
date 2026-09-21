@@ -24,8 +24,14 @@ func NewLog(l *slog.Logger) Log {
 	return Log{Logger: l}
 }
 
-// RecordDecision emits the single per-decision structured event.
+// RecordDecision emits the single per-decision structured event. A zero Log
+// falls back to slog.Default so a miswired recorder degrades to stderr
+// instead of panicking the call path.
 func (l Log) RecordDecision(e DecisionEvent) {
+	logger := l.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	level := slog.LevelDebug
 	switch {
 	case e.Conflict || e.Status == "failed":
@@ -46,7 +52,7 @@ func (l Log) RecordDecision(e DecisionEvent) {
 	if len(e.Attempts) > 0 {
 		group := make([]any, len(e.Attempts))
 		for i, attempt := range e.Attempts {
-			group[i] = slog.Group("",
+			group[i] = slog.Group("attempt",
 				slog.String("source", attempt.Source),
 				slog.Duration("rtt", attempt.RTT),
 				slog.Bool("failed", attempt.Failed),
@@ -54,5 +60,5 @@ func (l Log) RecordDecision(e DecisionEvent) {
 		}
 		attrs = append(attrs, slog.Any("attempts", group))
 	}
-	l.Logger.LogAttrs(context.Background(), level, "ethguard decision", attrs...)
+	logger.LogAttrs(context.Background(), level, "ethguard decision", attrs...)
 }
