@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"ethguard/rpc"
 	logobject "ethguard/rpc/internal/objects/log"
@@ -37,6 +38,11 @@ func validateLogRequest(req rpc.Request) error {
 		}
 		if _, hasTo := filter["toBlock"]; hasTo {
 			return fmt.Errorf("%w: eth_getLogs blockHash conflicts with toBlock", rpc.ErrInvalidRequest)
+		}
+	}
+	for _, key := range []string{"fromBlock", "toBlock"} {
+		if value, ok := filter[key].(string); ok && strings.EqualFold(value, "pending") {
+			return fmt.Errorf("%w: eth_getLogs %s=pending has no stable corroboration semantics", rpc.ErrInvalidRequest, key)
 		}
 	}
 	return nil

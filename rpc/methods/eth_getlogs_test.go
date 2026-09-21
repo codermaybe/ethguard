@@ -19,6 +19,18 @@ func TestLogsPolicyRejectsMixedBlockSelectors(t *testing.T) {
 	}
 }
 
+func TestLogsPolicyRejectsPendingBounds(t *testing.T) {
+	p := LogsPolicy(func(context.Context) (uint64, error) { return 7, nil })
+	for _, key := range []string{"fromBlock", "toBlock"} {
+		_, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{
+			map[string]any{key: "pending"},
+		}})
+		if !errors.Is(err, rpc.ErrInvalidRequest) {
+			t.Fatalf("%s=pending: expected invalid request, got %v", key, err)
+		}
+	}
+}
+
 func TestNormalizeLogsKeepsOrderAndDuplicates(t *testing.T) {
 	value := []byte(`[{"address":"0x0000000000000000000000000000000000000001","topics":[],"data":"0x","blockNumber":"0x1","transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000001","transactionIndex":"0x0","blockHash":"0x0000000000000000000000000000000000000000000000000000000000000002","logIndex":"0x0","removed":false},{"address":"0x0000000000000000000000000000000000000001","topics":[],"data":"0x","blockNumber":"0x1","transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000001","transactionIndex":"0x0","blockHash":"0x0000000000000000000000000000000000000000000000000000000000000002","logIndex":"0x0","removed":false}]`)
 	got, err := normalizeLogs(value)

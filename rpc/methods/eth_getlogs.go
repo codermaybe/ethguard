@@ -23,6 +23,9 @@ const MethodGetLogs = "eth_getLogs"
 // pinned to the corroborated reference's height: moving tags are rewritten and
 // absent fields are defaulted, since a provider's implicit "latest" is a
 // moving tag in field clothing. blockHash pins pass through untouched.
+// pending bounds are rejected locally: a log range over node-local pending
+// state cannot claim Corroborated semantics, and this policy has no local
+// observation projection for a mixed filter.
 //
 // Payload cost makes getLogs a singleflight candidate (deferred);
 // pruned-node gaps surface as dissent and fail closed — excluding stale
