@@ -106,10 +106,11 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Bloc
 	return block, err
 }
 
-// BlockByNumber returns the corroborated block at number: nil and explicit
-// moving tags (-2 latest, -3 finalized, -4 safe) pin their tag to the
-// corroborated reference first and fetch by hash; explicit heights fetch
-// directly; pending (-1) keeps its node-state path and is never anchored.
+// BlockByNumber returns the corroborated block at number. nil and explicit
+// moving tags (-2 latest, -3 finalized, -4 safe) pin that tag's own reference
+// first and fetch by hash. Explicit heights, including earliest (-5 as 0x0),
+// fetch directly. Pending (-1) is rejected locally: there is no pending-block
+// typed projection, and -1 is not rewritten into an anchored or ordinary block.
 func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
 	ctx = c.requireContext(ctx)
 	if number != nil && number.Sign() >= 0 && !number.IsUint64() {
@@ -132,17 +133,20 @@ func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Blo
 	return c.blockAt(ctx, blockArg)
 }
 
-// blockByNegativeNumber resolves Geth's negative block numbers through the
-// tag-aware anchor seam: -2/-3/-4 establish their own level's reference
-// (never downgraded, never fetched as a moving tag) and read by hash.
-// Pending (-1) keeps its node-state path without anchoring; earliest (-5)
-// is an explicit height; anything else — including values outside int64
-// range — fails locally before any upstream contact.
+// blockByNegativeNumber resolves Geth's negative block numbers without
+// collapsing them into one tag. -2/-3/-4 establish their own level's
+// reference (never downgraded, never fetched as a moving tag) and read by
+// hash. -1 is a local rejection: pending has no typed block projection, so
+// it is not anchored and not sent as a business request or as "-0x1".
+// -5 is earliest, an explicit height 0x0. Anything else — including values
+// outside int64 range — fails locally before any upstream contact.
 func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
 	if !number.IsInt64() {
 		return nil, fmt.Errorf("ethadapter: unsupported block number %s: %w", number.String(), ethguard.ErrInvalidRequest)
 	}
 	switch number.Int64() {
+	case -1:
+		return nil, fmt.Errorf("ethadapter: pending block typed projection is not supported: %w", ethguard.ErrInvalidRequest)
 	case -2, -3, -4:
 		tags := map[int64]string{-2: "latest", -3: "finalized", -4: "safe"}
 		tag := tags[number.Int64()]
@@ -151,12 +155,10 @@ func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*t
 			return nil, err
 		}
 		return c.blockAt(ctx, ref)
+	case -5:
+		return c.blockAt(ctx, "0x0")
 	default:
-		blockArg, err := checkedBlockNumArg(number)
-		if err != nil {
-			return nil, err
-		}
-		return c.blockAt(ctx, blockArg)
+		return nil, fmt.Errorf("ethadapter: unsupported block number %s: %w", number.String(), ethguard.ErrInvalidRequest)
 	}
 }
 

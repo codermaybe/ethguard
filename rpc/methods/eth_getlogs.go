@@ -22,18 +22,23 @@ const MethodGetLogs = "eth_getLogs"
 // dedicated, mutually exclusive hash position). The bounds are therefore
 // pinned to the corroborated reference's height: moving tags are rewritten and
 // absent fields are defaulted, since a provider's implicit "latest" is a
-// moving tag in field clothing. blockHash pins pass through untouched.
-// pending bounds are rejected locally: a log range over node-local pending
-// state cannot claim Corroborated semantics, and this policy has no local
-// observation projection for a mixed filter.
+// moving tag in field clothing. A real blockHash pin passes through untouched.
+// The pending tag in blockHash is not a hash and is rejected locally.
+// pending bounds are rejected in Prepare before any anchor lookup: a log
+// range over node-local pending state has no stable corroboration semantics,
+// and this policy has no field-level pending observation. That rejection is
+// ErrInvalidRequest, not a provider failure and not a business Unknown
+// adjudication. Corroborated remains provider-backed cross-source evidence.
 //
 // Payload cost makes getLogs a singleflight candidate (deferred);
 // pruned-node gaps surface as dissent and fail closed — excluding stale
 // reporters stays a deferred liveness knob, the same shape as decision
 // 0016.
 func LogsPolicy(height rpc.AnchorHeightFunc, opts ...rpc.StrictOption) rpc.Policy {
-	inner := logsPolicy{Policy: rpc.Strict(normalizeLogs, opts...)}
-	return rpc.WithAnchorHeightFields(height, 0, "fromBlock", "toBlock")(inner)
+	// Validation wraps anchoring so a pending or malformed bound returns
+	// before WithAnchorHeightFields resolves a height.
+	anchored := rpc.WithAnchorHeightFields(height, 0, "fromBlock", "toBlock")(rpc.Strict(normalizeLogs, opts...))
+	return logsPolicy{Policy: anchored}
 }
 
 // logsPolicy is the thin assembly for eth_getLogs: request validation before
@@ -46,6 +51,18 @@ func (p logsPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, 
 		return rpc.Request{}, err
 	}
 	return p.Policy.Prepare(ctx, req)
+}
+
+func (p logsPolicy) BlockRef(original, prepared rpc.Request) string {
+	if provider, ok := p.Policy.(rpc.BlockRefProvider); ok {
+		return provider.BlockRef(original, prepared)
+	}
+	return ""
+}
+
+func (p logsPolicy) IncludeRPCError() bool {
+	provider, ok := p.Policy.(rpc.RPCErrorPolicy)
+	return ok && provider.IncludeRPCError()
 }
 func (p logsPolicy) Normalize(value json.RawMessage) (string, error) {
 	return normalizeLogs(value)

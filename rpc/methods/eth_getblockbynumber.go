@@ -16,8 +16,11 @@ const MethodGetBlockByNumber = "eth_getBlockByNumber"
 // BlockByNumberPolicy corroborates eth_getBlockByNumber by full agreement on the
 // block head: number and hash must match across sources, hexadecimal casing
 // and key order aside. It also serves as the anchor policy for pinned reads.
-// Pending resolves as a node-local observation (decision 0035), never
-// Corroborated through agreement; anchor establishment never uses pending.
+// The pending tag resolves as a node-local observation (decision 0035), never
+// Corroborated through agreement and never rewritten into an anchored read.
+// Anchor establishment never uses pending. The typed adapter rejects
+// BlockByNumber(-1) before fan-out; this policy does not project that tag
+// into an ordinary block.
 func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
 	return PendingLocal(0)(blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, opts...), byHash: false})
 }

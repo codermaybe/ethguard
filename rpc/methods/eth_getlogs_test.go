@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"ethguard/rpc"
@@ -28,6 +29,104 @@ func TestLogsPolicyRejectsPendingBounds(t *testing.T) {
 		if !errors.Is(err, rpc.ErrInvalidRequest) {
 			t.Fatalf("%s=pending: expected invalid request, got %v", key, err)
 		}
+	}
+}
+
+func TestLogsRejectPendingRangeLocally(t *testing.T) {
+	p := LogsPolicy(func(context.Context) (uint64, error) {
+		t.Fatal("pending range consulted the anchor")
+		return 0, nil
+	})
+	filters := []map[string]any{
+		{"fromBlock": "pending"},
+		{"toBlock": "pending"},
+		{"fromBlock": "pending", "toBlock": "pending"},
+		{"fromBlock": "Pending", "toBlock": "0x10"},
+		{"fromBlock": "0x1", "toBlock": "PENDING"},
+		{"fromBlock": " pending ", "toBlock": "latest"},
+		{"address": "0x0000000000000000000000000000000000000001", "fromBlock": "pending", "topics": []any{}},
+		{"blockHash": "pending"},
+		{"blockHash": "PENDING"},
+		{"blockHash": "0xabc", "fromBlock": "pending"},
+		{"blockHash": "0xabc", "toBlock": "Pending"},
+		{"fromBlock": json.RawMessage(`"pending"`)},
+		{"toBlock": json.RawMessage(`"PENDING"`)},
+		{"fromBlock": map[string]any{"blockNumber": "pending"}},
+	}
+	for _, filter := range filters {
+		_, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{filter}})
+		if !errors.Is(err, rpc.ErrInvalidRequest) {
+			t.Fatalf("filter %v: got %v, want ErrInvalidRequest", filter, err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "no stable corroboration semantics") {
+			t.Fatalf("filter %v: error %v must name the missing pending-range corroboration semantics", filter, err)
+		}
+		if errors.Is(err, rpc.ErrConflict) || errors.Is(err, rpc.ErrNoValidResponse) || errors.Is(err, rpc.ErrMalformedResponse) {
+			t.Fatalf("filter %v: pending rejection classified as a business or provider failure: %v", filter, err)
+		}
+	}
+}
+
+func TestLogsRejectAbnormalPendingBoundsLocally(t *testing.T) {
+	p := LogsPolicy(func(context.Context) (uint64, error) {
+		t.Fatal("abnormal log bound consulted the anchor")
+		return 0, nil
+	})
+	filters := []map[string]any{
+		{"fromBlock": 1},
+		{"toBlock": nil},
+		{"fromBlock": ""},
+		{"toBlock": "   "},
+		{"fromBlock": true},
+		{"fromBlock": json.RawMessage(`null`)},
+		{"toBlock": json.RawMessage(`1`)},
+		{"fromBlock": json.RawMessage(`not-json`)},
+	}
+	for _, filter := range filters {
+		_, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{filter}})
+		if !errors.Is(err, rpc.ErrInvalidRequest) {
+			t.Fatalf("filter %v: got %v, want ErrInvalidRequest", filter, err)
+		}
+		if strings.Contains(err.Error(), "no stable corroboration semantics") {
+			t.Fatalf("filter %v: non-pending bound mislabeled as pending: %v", filter, err)
+		}
+		if strings.Contains(err.Error(), "anchor:") {
+			t.Fatalf("filter %v: local rejection escaped into anchor: %v", filter, err)
+		}
+	}
+}
+
+func TestLogsPendingDoesNotConsultAnchor(t *testing.T) {
+	calls := 0
+	p := LogsPolicy(func(context.Context) (uint64, error) {
+		calls++
+		return 7, nil
+	})
+	_, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{
+		map[string]any{"fromBlock": "latest", "toBlock": "Pending"},
+	}})
+	if !errors.Is(err, rpc.ErrInvalidRequest) {
+		t.Fatalf("got %v, want ErrInvalidRequest", err)
+	}
+	if calls != 0 {
+		t.Fatalf("anchor calls = %d, want 0", calls)
+	}
+}
+
+func TestLogsHistoricalRangePreparesWithoutPendingRejection(t *testing.T) {
+	p := LogsPolicy(func(context.Context) (uint64, error) {
+		t.Fatal("explicit historical range consulted the anchor")
+		return 0, nil
+	})
+	prepared, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{
+		map[string]any{"fromBlock": "0x1", "toBlock": "0x10", "address": "0x0000000000000000000000000000000000000001"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := prepared.Params[0].(map[string]any)
+	if filter["fromBlock"] != "0x1" || filter["toBlock"] != "0x10" {
+		t.Fatalf("historical range rewritten: %+v", filter)
 	}
 }
 

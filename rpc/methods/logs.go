@@ -32,6 +32,21 @@ func validateLogRequest(req rpc.Request) error {
 		// receives the full filter validation below.
 		return nil
 	}
+	for _, key := range []string{"fromBlock", "toBlock"} {
+		value, present := filter[key]
+		if !present {
+			continue
+		}
+		if pendingTag(value) {
+			return fmt.Errorf("%w: eth_getLogs %s=pending has no stable corroboration semantics", rpc.ErrInvalidRequest, key)
+		}
+		if err := validateLogBound(key, value); err != nil {
+			return err
+		}
+	}
+	if value, present := filter["blockHash"]; present && pendingTag(value) {
+		return fmt.Errorf("%w: eth_getLogs blockHash=pending has no stable corroboration semantics", rpc.ErrInvalidRequest)
+	}
 	if _, hasHash := filter["blockHash"]; hasHash {
 		if _, hasFrom := filter["fromBlock"]; hasFrom {
 			return fmt.Errorf("%w: eth_getLogs blockHash conflicts with fromBlock", rpc.ErrInvalidRequest)
@@ -40,12 +55,53 @@ func validateLogRequest(req rpc.Request) error {
 			return fmt.Errorf("%w: eth_getLogs blockHash conflicts with toBlock", rpc.ErrInvalidRequest)
 		}
 	}
-	for _, key := range []string{"fromBlock", "toBlock"} {
-		if value, ok := filter[key].(string); ok && strings.EqualFold(value, "pending") {
+	return nil
+}
+
+// pendingTag reports spellings that mean the pending tag, including case
+// variants and non-string encodings that would otherwise skip the string
+// check and reach an anchor or a provider.
+func pendingTag(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "pending")
+	case json.RawMessage:
+		var decoded any
+		if err := json.Unmarshal(bytes.TrimSpace(typed), &decoded); err != nil {
+			return false
+		}
+		return pendingTag(decoded)
+	case map[string]any:
+		number, ok := typed["blockNumber"]
+		return ok && pendingTag(number)
+	default:
+		return false
+	}
+}
+
+// validateLogBound rejects empty and wrong-typed range fields locally.
+// Recognized non-pending tags and quantities pass through for anchoring.
+func validateLogBound(key string, value any) error {
+	switch typed := value.(type) {
+	case nil:
+		return fmt.Errorf("%w: eth_getLogs %s is empty", rpc.ErrInvalidRequest, key)
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return fmt.Errorf("%w: eth_getLogs %s is empty", rpc.ErrInvalidRequest, key)
+		}
+		return nil
+	case json.RawMessage:
+		var decoded any
+		if err := json.Unmarshal(bytes.TrimSpace(typed), &decoded); err != nil {
+			return fmt.Errorf("%w: eth_getLogs %s has an unsupported type", rpc.ErrInvalidRequest, key)
+		}
+		if pendingTag(decoded) {
 			return fmt.Errorf("%w: eth_getLogs %s=pending has no stable corroboration semantics", rpc.ErrInvalidRequest, key)
 		}
+		return validateLogBound(key, decoded)
+	default:
+		return fmt.Errorf("%w: eth_getLogs %s has an unsupported type", rpc.ErrInvalidRequest, key)
 	}
-	return nil
 }
 
 // normalizeLogs validates every log row, then reduces the array to its pruned
