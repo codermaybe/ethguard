@@ -318,6 +318,11 @@ T03-A 已固定、但尚未写成完整六问条目的边界：
 - `eth_getLogs` 的 pending（fromBlock/toBlock，含大小写与非字符串 pending 编码，以及 blockHash 上的 pending 标签）在 Prepare 本地拒绝，错误说明该范围没有稳定 corroboration 语义（`ErrInvalidRequest`）。不调用 anchor，不访问 provider，不产生 Corroborated、Selected 或普通冲突决定。field-level pending observation 仍未实现，不能写成已支持 pending。
 - 这两类本地拒绝都不是 provider 不支持，也不是 Unknown 业务裁决。`Corroborated` 仍只表示 provider-backed cross-source evidence。
 
+- `eth_getBlockReceipts` 的 pending 同样在 Prepare 本地拒绝（`ErrInvalidRequest`：pending is not supported）。覆盖大小写字符串、首尾空白、JSON 字符串，以及 `{blockNumber: pending}`（可带 `requireCanonical`）。不调用 anchor，不访问 provider。非 pending 对象不按 pending 拒绝。这不是 provider 不支持，也不是 Unknown 业务裁决。
+- `eth_estimateGas` 与 `eth_createAccessList` 的位置 1 接受与 T02 状态读取相同的 EIP-1898 对象。字符串移动标签仍改写成裸 anchor hash；`{blockNumber: latest|safe|finalized}` 改写成 `{blockHash: anchor}`，并保留 `requireCanonical`。显式数量、hash、earliest、pending（字符串或 `{blockNumber: pending}`）不改写。非法对象在调用 anchor 之前返回 `ErrInvalidRequest`。`eth_estimateGas` 的成功和分歧都停在 Selected，不因为同值成为 Corroborated。`eth_createAccessList` 的 pending 仍是节点本地观测。provider error 与 payload 冲突的失败决策保持 Unknown，不升格成业务成功。
+- 2026-09-23 的 chainlist 对象样本只证明部分公开端点的响应形状：有的接受 `{blockNumber: pending}` 和 `{blockHash}`，有的对历史状态返回 pruned，有的拒绝 `requireCanonical` 或未知字段，也有端点接受未知字段。样本不能写成“provider 普遍支持”或“provider 普遍拒绝”。
+
+
 按注册表（[client.go](../../client.go)）推进，每批以本文档新增条目闭环：
 
 1. 锚定状态读取：eth_getBalance、eth_getTransactionCount、eth_getStorageAt、eth_getCode

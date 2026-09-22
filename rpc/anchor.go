@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,22 @@ type AnchorFunc func(context.Context) (string, error)
 // establishment response; no extra fan-out is required.
 type AnchorHeightFunc func(context.Context) (uint64, error)
 
+// movingTags is the anchor-rewrite set: latest, safe, and finalized. It is
+// not the spelling authority for every block reference in the repo. The
+// other spellings stay local on purpose:
+//
+//   - methods.validateEIP1898Object / isMovingTag: same three tags are
+//     anchored; pending and earliest pass through on EIP-1898 objects.
+//   - methods.pendingTag: pending only, including case, JSON, and
+//     {blockNumber: pending}. RejectPending uses pendingReference below,
+//     which recognizes that same pending shape.
+//   - ethadapter.toBlockNumArg / blockRefArg: Geth negative numbers
+//     (-1 pending, -2 latest, -3 finalized, -4 safe, -5 earliest as 0x0).
+//     Typed BlockByNumber(-1) is rejected in blockByNegativeNumber and
+//     never reaches this set.
+//
+// Do not fold these into one cross-package table: pending is not a moving
+// tag, and earliest is an explicit height for some entry points.
 var movingTags = map[string]bool{
 	"latest":    true,
 	"safe":      true,
@@ -187,6 +204,13 @@ func Anchored(tagPos int, normalize func(json.RawMessage) (string, error), ancho
 // tag at selected parameter positions. This is intentionally separate from
 // WithAnchor: pending must never be rewritten, and methods that cannot support
 // pending should fail before contacting any upstream.
+//
+// Choice (a): a position rejects the same pending spellings as
+// methods.pendingTag — a case-insensitive string, a JSON string, or an
+// EIP-1898 object whose blockNumber is pending (requireCanonical may be
+// present). Other objects are not pending and stay in contract for the
+// inner policy. WithAnchor still rewrites only string moving tags; this
+// decorator is what stops a pending object from reaching a provider.
 func RejectPending(positions ...int) func(Policy) Policy {
 	return func(policy Policy) Policy {
 		if policy == nil {
@@ -217,11 +241,33 @@ func (p pendingRejectingPolicy) Prepare(ctx context.Context, req Request) (Reque
 		if pos < 0 || pos >= len(req.Params) {
 			continue
 		}
-		if tag, ok := req.Params[pos].(string); ok && strings.EqualFold(tag, "pending") {
+		if pendingReference(req.Params[pos]) {
 			return Request{}, fmt.Errorf("rpc: pending is not supported for %s: %w", req.Method, ErrInvalidRequest)
 		}
 	}
 	return p.policy.Prepare(ctx, req)
+}
+
+// pendingReference reports pending spellings at one block-reference position.
+// It matches methods.pendingTag: case-insensitive strings, JSON strings, and
+// EIP-1898 objects whose blockNumber is pending. A blockHash object is not
+// pending.
+func pendingReference(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "pending")
+	case json.RawMessage:
+		var decoded any
+		if err := json.Unmarshal(bytes.TrimSpace(typed), &decoded); err != nil {
+			return false
+		}
+		return pendingReference(decoded)
+	case map[string]any:
+		number, ok := typed["blockNumber"]
+		return ok && pendingReference(number)
+	default:
+		return false
+	}
 }
 
 func (p pendingRejectingPolicy) BlockRef(original, prepared Request) string {

@@ -1,0 +1,758 @@
+{
+  "schema": "ethguard.rpc-sample-index/v1",
+  "plan_schema": "ethguard.rpc-sample-plan/v1",
+  "generated_at": "2026-09-23T01:20:00Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "records": [
+    {
+      "request_id": "access-hash-canonical",
+      "method": "eth_createAccessList",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-hash-canonical--s1.json",
+      "sha256": "16a610cfeea58c9359fd6769f42aff70b5a3ae60167a22645d3d22303f55ef5a",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "access-hash-canonical",
+      "method": "eth_createAccessList",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-hash-canonical--s2.json",
+      "sha256": "0029c3499b31bcba55fa7b59f8aa0f2eabcdfda1725e6f02f362b1e3a35eeffb"
+    },
+    {
+      "request_id": "access-hash-canonical",
+      "method": "eth_createAccessList",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-hash-canonical--s3.json",
+      "sha256": "55715def6a1c4bd46f92dde9726fb0dfc4574d80c0633baf99ee03dc1476f138",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "access-hash-canonical",
+      "method": "eth_createAccessList",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-hash-canonical--s4.json",
+      "sha256": "2bc5b46ce1641e4da527af807947e9c15a5db033f32d9ca4af740a7af2fd7d4c",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "access-latest-object",
+      "method": "eth_createAccessList",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-latest-object--s1.json",
+      "sha256": "a894191ec0de3fb5d815b979288d850c004dedcd9d814f95633c2a9be98eb8b0"
+    },
+    {
+      "request_id": "access-latest-object",
+      "method": "eth_createAccessList",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-latest-object--s2.json",
+      "sha256": "071f2d87f919b74dedd66ceeb7fc9a499953c16cf60a8043a4c63dba358634c3"
+    },
+    {
+      "request_id": "access-latest-object",
+      "method": "eth_createAccessList",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-latest-object--s3.json",
+      "sha256": "88c1012f034c21536db7021897e9c10ef924f60d2cfdac511528d9ff86378a06",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "access-latest-object",
+      "method": "eth_createAccessList",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-latest-object--s4.json",
+      "sha256": "36e197a7af15b6f2960dfc84b971b2439011223c8ca4e233b40b9b5b8000f878",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "access-pending-object",
+      "method": "eth_createAccessList",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-pending-object--s1.json",
+      "sha256": "438fc3f985dd2d6ac8823ad4977c268c1ccee16e7397178a92b5c5b095051372"
+    },
+    {
+      "request_id": "access-pending-object",
+      "method": "eth_createAccessList",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-pending-object--s2.json",
+      "sha256": "39fd4366231cdd7e5c9f35da5895ae644a2950de0cf0a8efbb0be505d3393ca9"
+    },
+    {
+      "request_id": "access-pending-object",
+      "method": "eth_createAccessList",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-pending-object--s3.json",
+      "sha256": "35214d7a4386dfeb98d63cfec98f80c15ec96790284e2c5246ae507b0a84b54a",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "access-pending-object",
+      "method": "eth_createAccessList",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/access-pending-object--s4.json",
+      "sha256": "a85ffeaa2be130760a963f14f5b164746770cc371fe3ed511e6d5a5eb7bd7217",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "balance-earliest-object",
+      "method": "eth_getBalance",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-earliest-object--s1.json",
+      "sha256": "cc291dc13abec5b381fec7654ea02fdf684a3beea606c2af6b9dc1e9b827f8c8",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-earliest-object",
+      "method": "eth_getBalance",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-earliest-object--s2.json",
+      "sha256": "3914f6ee76b3378ea122fae9610273145b39100add8942305fdafa115c76792f"
+    },
+    {
+      "request_id": "balance-earliest-object",
+      "method": "eth_getBalance",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-earliest-object--s3.json",
+      "sha256": "394d3408fc1326a35a53c6861b36b7771a3ffdf5e87edb5f119e20697f04ccb3",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-earliest-object",
+      "method": "eth_getBalance",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-earliest-object--s4.json",
+      "sha256": "e0abf560abab5e5e4b155b6c92a5599200b19eb0527f634d28ad8f6232f0f35b"
+    },
+    {
+      "request_id": "balance-finalized-object",
+      "method": "eth_getBalance",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-finalized-object--s1.json",
+      "sha256": "ef2a91afec5d3451022d5ca4033a1a5672b7621a788f3880fa003830875810c8"
+    },
+    {
+      "request_id": "balance-finalized-object",
+      "method": "eth_getBalance",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-finalized-object--s2.json",
+      "sha256": "750288d4a17d71b4e6ded0f61576964b66b6b4db42b9d96397a79dd151696b34"
+    },
+    {
+      "request_id": "balance-finalized-object",
+      "method": "eth_getBalance",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-finalized-object--s3.json",
+      "sha256": "785e165b8f390c47999b44820b855cadc1e769d71b59dc138a92ac6ae9093971"
+    },
+    {
+      "request_id": "balance-finalized-object",
+      "method": "eth_getBalance",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-finalized-object--s4.json",
+      "sha256": "60a860809b31f75c34cd2084f1704bc937d45775cdb0bc32067212ddeb5ac977",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "balance-hash-canonical",
+      "method": "eth_getBalance",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-hash-canonical--s1.json",
+      "sha256": "a7135d22edac371898a2d630031c383c8123dc28395daac148ac9b86785e0879",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-hash-canonical",
+      "method": "eth_getBalance",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-hash-canonical--s2.json",
+      "sha256": "2cf7b9a5dc09412fd90839dbc6c6306169ca3b534a18fd43d81dd95a1f829f65"
+    },
+    {
+      "request_id": "balance-hash-canonical",
+      "method": "eth_getBalance",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-hash-canonical--s3.json",
+      "sha256": "3017266f8c9c26453b74ec8e332c270606188d46547e888a91255715c98c8c00",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-hash-canonical",
+      "method": "eth_getBalance",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-hash-canonical--s4.json",
+      "sha256": "479c202cd9e3d283bccc82520ecbc148707c993985cb5249a07df50370bbc35c",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "balance-latest-object",
+      "method": "eth_getBalance",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-latest-object--s1.json",
+      "sha256": "ba85d74ecc97a067b77fc9c7a102f9740919f24d094060fe5007930541c4a600"
+    },
+    {
+      "request_id": "balance-latest-object",
+      "method": "eth_getBalance",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-latest-object--s2.json",
+      "sha256": "32e327b693b398bc9d40fec73229b6ea799bf14f99ba8ae7ec8a46e538864463"
+    },
+    {
+      "request_id": "balance-latest-object",
+      "method": "eth_getBalance",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-latest-object--s3.json",
+      "sha256": "76db83a86762a78f2a6f63575c185c02ab037f596afecc0bfa49b12238238b8c"
+    },
+    {
+      "request_id": "balance-latest-object",
+      "method": "eth_getBalance",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-latest-object--s4.json",
+      "sha256": "45a48147f6526333b2adb5198fa0b65d7826eda02bb1a9916d0d790a74dd958f",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "balance-mixed-object",
+      "method": "eth_getBalance",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-mixed-object--s1.json",
+      "sha256": "cdeef2dba675fd67792034961726c6b6d9f78abbf45952e0531e31ec217adabb",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-mixed-object",
+      "method": "eth_getBalance",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-mixed-object--s2.json",
+      "sha256": "f03ed8f169c533f35f7c07d3640db7dc582afa35e5744abd017c85d5cd6bfb24",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-mixed-object",
+      "method": "eth_getBalance",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-mixed-object--s3.json",
+      "sha256": "4b94ffe79095a80d79d9d34ee1883ed31c7ddd0197093bbb830ddd638de181d7",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-mixed-object",
+      "method": "eth_getBalance",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-mixed-object--s4.json",
+      "sha256": "902a3c0ad1b5c8d60f391cd46c1cb24d5678e57f88559627647a008f65244965",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "balance-number-object",
+      "method": "eth_getBalance",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-number-object--s1.json",
+      "sha256": "94843e21766e4fe28dd75f27691bfb99ee76fc3fa42bf4d3edef51aa7b17868c",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-number-object",
+      "method": "eth_getBalance",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-number-object--s2.json",
+      "sha256": "4cba45978af99abc906c6b1049593a6b9dfc8683d067c185507067763c24d097"
+    },
+    {
+      "request_id": "balance-number-object",
+      "method": "eth_getBalance",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-number-object--s3.json",
+      "sha256": "b93507185fe141e285b59960251ad5c6343ce9b9a501163480467865387d8c5a",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-number-object",
+      "method": "eth_getBalance",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-number-object--s4.json",
+      "sha256": "824a13db1b7a846a4ffa1ce26a508cb1c71f16fa81f222f4d2b2e45ae26f1a76"
+    },
+    {
+      "request_id": "balance-pending-object",
+      "method": "eth_getBalance",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-pending-object--s1.json",
+      "sha256": "33db77b4bd4f84e4023ebd36e949e66c0ad3bed9557f7767b655781568d6f422"
+    },
+    {
+      "request_id": "balance-pending-object",
+      "method": "eth_getBalance",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-pending-object--s2.json",
+      "sha256": "1a76a255321bbee1c263402f203531adf3b108edfd2a85333221f6f76efba399"
+    },
+    {
+      "request_id": "balance-pending-object",
+      "method": "eth_getBalance",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-pending-object--s3.json",
+      "sha256": "d14e819876c5cbc88d2b6ec2daa1a727872e29c0e866e0a88a4b463c014e867e"
+    },
+    {
+      "request_id": "balance-pending-object",
+      "method": "eth_getBalance",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-pending-object--s4.json",
+      "sha256": "d46fa998ccc680d1205f3cd9889b1bcf4045b38e22f0f49822d7290d0a14084e",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "balance-safe-canonical",
+      "method": "eth_getBalance",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-safe-canonical--s1.json",
+      "sha256": "9c91f77157e22bc5fde831443f4981e7bdbdbe27f3b60b005e4adfa78281537c",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-safe-canonical",
+      "method": "eth_getBalance",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-safe-canonical--s2.json",
+      "sha256": "c6a3a003ea28e7b161c7e7b6482d34e4b7c407af0067a3fe703004e113d0bbc5"
+    },
+    {
+      "request_id": "balance-safe-canonical",
+      "method": "eth_getBalance",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-safe-canonical--s3.json",
+      "sha256": "53bd369018da9d0c10e7658e63e204b675e1fd86b132838e760dd5847da7e3ae",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-safe-canonical",
+      "method": "eth_getBalance",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-safe-canonical--s4.json",
+      "sha256": "d4a21b05acd686aae63d99b379f734e86bb4f4ec107d953a59cf6cbaafc1a2ee",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "balance-unknown-field",
+      "method": "eth_getBalance",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-unknown-field--s1.json",
+      "sha256": "dbe6898b1f84f4235f6eedd8d0081b6cab87289465e6a33b3a00d73d425ccbe8",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-unknown-field",
+      "method": "eth_getBalance",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-unknown-field--s2.json",
+      "sha256": "4b636ce331bd65e1c1f68bb1ab7450a82ac9159644d7aa146d7cc6d9faf9e13a"
+    },
+    {
+      "request_id": "balance-unknown-field",
+      "method": "eth_getBalance",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-unknown-field--s3.json",
+      "sha256": "8dcfd985853d42743e890af5ef57a6b61b94a6a05c797e58c95256245d96b8e2",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "balance-unknown-field",
+      "method": "eth_getBalance",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/balance-unknown-field--s4.json",
+      "sha256": "a7cf170493fa72e76b6ff9256b019a76cf93336e8609189f9407b28282363b19",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "call-hash-object",
+      "method": "eth_call",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/call-hash-object--s1.json",
+      "sha256": "00ae9359ea2063eb315faecefdcfc92f8eab59d77120c32f90abf500b850ed28",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "call-hash-object",
+      "method": "eth_call",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/call-hash-object--s2.json",
+      "sha256": "8b64af7be62999a54a6f1b085c997bff0c598ceea7be23296bd2e278c36097d5"
+    },
+    {
+      "request_id": "call-hash-object",
+      "method": "eth_call",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/call-hash-object--s3.json",
+      "sha256": "dc9711f0538ec1bc70c5230bacd800d14ea2646626da672bafb1509bb0840b79",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "call-hash-object",
+      "method": "eth_call",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/call-hash-object--s4.json",
+      "sha256": "586bb3d4e5e924b6e957ab64facf9bc2ce8fed0bf125f93770c37eb6a2bcdb90",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "code-hash-object",
+      "method": "eth_getCode",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/code-hash-object--s1.json",
+      "sha256": "236cbc907b8c2c616374bb1d54714a65f4c154c9050c3709194d37601fe9398f",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "code-hash-object",
+      "method": "eth_getCode",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/code-hash-object--s2.json",
+      "sha256": "996d8b18e36371a39273483a7b3cef3d95c18497fc1c11571559e2758d0a2cf9"
+    },
+    {
+      "request_id": "code-hash-object",
+      "method": "eth_getCode",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/code-hash-object--s3.json",
+      "sha256": "c181eb0c7edb48ff4e5f230e3974448aa2981518f761ae9c07e7e4577f860bd1",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "code-hash-object",
+      "method": "eth_getCode",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/code-hash-object--s4.json",
+      "sha256": "ef3e2f33f9dff2e9360932f149a9ffcec5ee873ccbd518fc81160a6362dc27e5",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "estimate-hash-object",
+      "method": "eth_estimateGas",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-hash-object--s1.json",
+      "sha256": "b7ef2513276221b6a5a0f6155e726a5de4f0acac36929e09424d321aa4a8e9fe",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "estimate-hash-object",
+      "method": "eth_estimateGas",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-hash-object--s2.json",
+      "sha256": "95ce4c76e61745abdfbec27f302ddc72469d0d406746f6b0c8bc462ef60e951b",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "estimate-hash-object",
+      "method": "eth_estimateGas",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-hash-object--s3.json",
+      "sha256": "243cf083add3fa82fac9fb617f1a09767b2060b825f86d14d85eebffb7e3dc11",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "estimate-hash-object",
+      "method": "eth_estimateGas",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-hash-object--s4.json",
+      "sha256": "35f8ee3f8da117d9681faa4ceba60479efacff7936c4370544dc10f9ce9301b9",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "estimate-latest-object",
+      "method": "eth_estimateGas",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-latest-object--s1.json",
+      "sha256": "9b55357ae6ea2e6b710ea8e413417cccb3463c34bed3a01f279c9b0a71d67c57"
+    },
+    {
+      "request_id": "estimate-latest-object",
+      "method": "eth_estimateGas",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-latest-object--s2.json",
+      "sha256": "8b0243ec486aa3b0efb64426ae3eb039d36132e5b1e699d62f2b45ef98d39cea"
+    },
+    {
+      "request_id": "estimate-latest-object",
+      "method": "eth_estimateGas",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-latest-object--s3.json",
+      "sha256": "7cb46b7d35570d78cc2959f1df2707bb798d89af4313838fd36a8da4fd1cab79"
+    },
+    {
+      "request_id": "estimate-latest-object",
+      "method": "eth_estimateGas",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-latest-object--s4.json",
+      "sha256": "203fa637cc7854d4d0e66185bab65026a55248e6734a13983a919f7d5fc152ff",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "estimate-pending-object",
+      "method": "eth_estimateGas",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-pending-object--s1.json",
+      "sha256": "f53bd034c8e63149c8870d9c2b23fc7a91594486b924057839b4ed179dba97ba"
+    },
+    {
+      "request_id": "estimate-pending-object",
+      "method": "eth_estimateGas",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-pending-object--s2.json",
+      "sha256": "dc8b2a1dfa626b98c538901fac7ee7f3f45b3c9c7f43afc79fce353f7abd57e3"
+    },
+    {
+      "request_id": "estimate-pending-object",
+      "method": "eth_estimateGas",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-pending-object--s3.json",
+      "sha256": "f6120a01245d62f4484e7cda08225e1ab88ede15c1a8323da3151013a802bb30"
+    },
+    {
+      "request_id": "estimate-pending-object",
+      "method": "eth_estimateGas",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/estimate-pending-object--s4.json",
+      "sha256": "49eb5976a81b7b74567fa5947b194fac2a29930352c4c95111b1d621f697d218",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "nonce-number-object",
+      "method": "eth_getTransactionCount",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/nonce-number-object--s1.json",
+      "sha256": "2510443b5f84060da95754fdeb4c134b6439af5d9f03260abb9cab330f7d85d5",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "nonce-number-object",
+      "method": "eth_getTransactionCount",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/nonce-number-object--s2.json",
+      "sha256": "121bf4ce045082817d8256b287c45f64196a846fe33af4e99cdb871dbe2e7802"
+    },
+    {
+      "request_id": "nonce-number-object",
+      "method": "eth_getTransactionCount",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/nonce-number-object--s3.json",
+      "sha256": "565f891ad2364f4d05a0488f87b15d2bd6d8e3fda160703d5059c4d52100a08c",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "nonce-number-object",
+      "method": "eth_getTransactionCount",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/nonce-number-object--s4.json",
+      "sha256": "86248955bb0a42a18b509fd86a55e93e1a640ed1b1770ceff26251edcf7e7380",
+      "error_kinds": [
+        "transport"
+      ]
+    },
+    {
+      "request_id": "storage-number-object",
+      "method": "eth_getStorageAt",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/storage-number-object--s1.json",
+      "sha256": "7a22b7e6048fe3fe5589dc0c3cf0bc81b62652411c1d0d4ea132d7354d1639e5",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "storage-number-object",
+      "method": "eth_getStorageAt",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/storage-number-object--s2.json",
+      "sha256": "03de49d87316ba6181cb4a7bf680b8bb3851142b50409a7d51bf9e9634f35e8b"
+    },
+    {
+      "request_id": "storage-number-object",
+      "method": "eth_getStorageAt",
+      "source_id": "s3",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/storage-number-object--s3.json",
+      "sha256": "cb8e09431308803ccaeba0bab5b388c28fcd4fc22e7ba2857e0f6ac96044e9ac",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "storage-number-object",
+      "method": "eth_getStorageAt",
+      "source_id": "s4",
+      "observed_at": "2026-09-23T01:20:00Z",
+      "file": "records/storage-number-object--s4.json",
+      "sha256": "48d6d57352283788d07ae3176c8d01a8c8f40b46c39c8b7b23b8e297c0f60fe2",
+      "error_kinds": [
+        "transport"
+      ]
+    }
+  ],
+  "redaction": {
+    "endpoint": "[REDACTED]",
+    "rule": "source URLs, hosts, userinfo, query values, and path segments are not stored; committed files must not contain an http(s) or ws(s) URL"
+  }
+}

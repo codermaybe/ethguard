@@ -55,7 +55,7 @@ ChainID、BalanceAt、BlockByHash、BlockByNumber、BlockNumber、BlockReceipts�
 | 差异 | ethclient v1.17.5 | ethadapter 现状 | 目标 |
 | --- | --- | --- | --- |
 | `BlockByNumber(ctx, nil)` | 单 provider 自然头 | 先建立跨源验证参考再按 hash 读取（0018） | 保持，文档说明成本 |
-| 负数块参数 | `-1`→pending、`-2`→latest、`-3`→finalized、`-4`→safe、`-5`→earliest（`rpc.BlockNumber.String()`） | `-2`/`-3`/`-4` 按各自标签建立参考再按 hash 读取；`-5` 作为 earliest 的显式高度 `0x0`；未知负数本地拒绝。类型化 `BlockByNumber(-1)` 本地拒绝（不支持 pending block typed projection），不锚定、不发业务请求、不编码为 `-0x1`。策略层 `pending` 标签仍是本地观测，不是类型化区块。状态读取的 `-1` 是 `pending` 字符串，不是 `-0x1`。`eth_getLogs` pending 范围本地拒绝 | 保持上述边界。field-level pending observation、EIP-1898 object 样本与 estimate/access-list 对象形态仍未完成（T03-B 及之后） |
+| 负数块参数 | `-1`→pending、`-2`→latest、`-3`→finalized、`-4`→safe、`-5`→earliest（`rpc.BlockNumber.String()`） | `-2`/`-3`/`-4` 按各自标签建立参考再按 hash 读取；`-5` 作为 earliest 的显式高度 `0x0`；未知负数本地拒绝。类型化 `BlockByNumber(-1)` 本地拒绝（不支持 pending block typed projection），不锚定、不发业务请求、不编码为 `-0x1`。策略层 `pending` 标签仍是本地观测，不是类型化区块。状态读取的 `-1` 是 `pending` 字符串，不是 `-0x1`。`eth_getLogs` pending 范围本地拒绝 | 保持上述边界。field-level pending observation 仍未实现。EIP-1898 object 样本已脱敏收录（形状证据，不是兼容性结论）。`eth_estimateGas` / `eth_createAccessList` 的对象形态已与 T02 状态读取对齐 |
 | `BlockReceipts` 的 tag | BlockNumberOrHash 携带 tag 字符串 | blockRefArg 正确映射 pending/safe/finalized/latest 标签，但随后被锚定改写（见差距总账 6） | T03 |
 | fullTx | Header* 走轻量头（`eth_getBlockByNumber(tag, false)`） | adapter 恒传 true（整对象语义）；fullTx=false 的决策会被类型化解码拒绝 | 保持；Header 轻量形态未设计 |
 | 错误面 | 原样上游/传输错误 | 分类哨兵（ErrConflict/ErrNoValidResponse/…），`errors.Is` 可判 | 保持（0009） |

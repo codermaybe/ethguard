@@ -106,6 +106,15 @@ func resolve(policy rpc.Policy, snap rpc.Corroboration, snapOK bool, obs []rpc.O
 	return policy.Resolve(obs)
 }
 
+// isPendingLocalRoute is the single pending-local routing check. Both
+// resolution and the corroboration-required gate use it: a pending request
+// on a LocalObservationPolicy resolves as a node-local observation, except
+// in Forwarded mode, where the pending shape still forwards.
+func isPendingLocalRoute(policy rpc.Policy, prepared rpc.Request, snap rpc.Corroboration, snapOK bool) bool {
+	lp, ok := policy.(rpc.LocalObservationPolicy)
+	return ok && lp.IsLocalObservation(prepared) && !(snapOK && snap.Mode == rpc.CorroborationForwarded)
+}
+
 // resolveWithPending routes one prepared request shape — pending — to
 // node-local observation instead of cross-source corroboration (decision
 // 0035): the pending tag keeps its node-state meaning and unanimous pending
@@ -113,20 +122,10 @@ func resolve(policy rpc.Policy, snap rpc.Corroboration, snapOK bool, obs []rpc.O
 // through the ordinary path. Intentional single-source forwarding keeps its
 // own contract: in Forwarded mode the pending shape still forwards.
 func resolveWithPending(policy rpc.Policy, prepared rpc.Request, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) (rpc.Decision, error) {
-	if lp, ok := policy.(rpc.LocalObservationPolicy); ok && lp.IsLocalObservation(prepared) {
-		if !(snapOK && snap.Mode == rpc.CorroborationForwarded) {
-			return lp.ResolveLocal(obs)
-		}
+	if isPendingLocalRoute(policy, prepared, snap, snapOK) {
+		return policy.(rpc.LocalObservationPolicy).ResolveLocal(obs)
 	}
 	return resolve(policy, snap, snapOK, obs)
-}
-
-// isPendingLocal mirrors resolveWithPending's routing for the
-// corroboration-required gate: a pending-local Selected result must not be
-// rejected for lacking Corroborated status.
-func isPendingLocal(policy rpc.Policy, prepared rpc.Request, snap rpc.Corroboration, snapOK bool) bool {
-	lp, ok := policy.(rpc.LocalObservationPolicy)
-	return ok && lp.IsLocalObservation(prepared) && !(snapOK && snap.Mode == rpc.CorroborationForwarded)
 }
 
 // Aggregate collects one request and resolves it according to its policy.
@@ -295,7 +294,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	if resolveErr == nil && snapOK && snap.Mode == rpc.CorroborationForwarded {
 		decision.Status = rpc.Forwarded
 	}
-	if agreement, ok := policy.(rpc.AgreementPolicy); ok && agreement.RequiresAgreement() && refcontext.CorroborationRequired(ctx) && !(snapOK && snap.Mode == rpc.CorroborationForwarded) && !isPendingLocal(policy, prepared, snap, snapOK) && resolveErr == nil && decision.Status != rpc.Corroborated {
+	if agreement, ok := policy.(rpc.AgreementPolicy); ok && agreement.RequiresAgreement() && refcontext.CorroborationRequired(ctx) && !(snapOK && snap.Mode == rpc.CorroborationForwarded) && !isPendingLocalRoute(policy, prepared, snap, snapOK) && resolveErr == nil && decision.Status != rpc.Corroborated {
 		decision.Status = rpc.Unknown
 		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
 	}

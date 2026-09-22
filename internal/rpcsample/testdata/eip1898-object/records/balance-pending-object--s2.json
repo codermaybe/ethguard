@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-23T01:20:00Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s2",
+    "endpoint": "[REDACTED]"
+  },
+  "request_id": "balance-pending-object",
+  "method": "eth_getBalance",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getBalance\",\"params\":[\"0x0000000000000000000000000000000000000000\",{\"blockNumber\":\"pending\"}]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x2ff3210ed1efd752816\"}\n"
+  }
+}

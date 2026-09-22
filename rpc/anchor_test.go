@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -178,6 +179,46 @@ func TestRejectPendingFailsBeforeResolution(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("pending rejection consulted anchor: %d", calls)
+	}
+}
+
+func TestRejectPendingObjectFailsBeforeAnchor(t *testing.T) {
+	calls := 0
+	p := RejectPending(0)(WithAnchor(func(context.Context) (string, error) {
+		calls++
+		return "0xanchor", nil
+	}, 0)(Strict(CanonicalJSON)))
+	hash := "0x" + strings.Repeat("ab", 32)
+	pending := []any{
+		map[string]any{"blockNumber": "pending"},
+		map[string]any{"blockNumber": "PENDING", "requireCanonical": true},
+		json.RawMessage(`{"blockNumber":"Pending"}`),
+		json.RawMessage(`"pending"`),
+		" pending ",
+	}
+	for _, ref := range pending {
+		calls = 0
+		_, err := p.Prepare(context.Background(), Request{Method: "eth_getBlockReceipts", Params: []any{ref}})
+		if !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("%v: got %v, want ErrInvalidRequest", ref, err)
+		}
+		if calls != 0 {
+			t.Fatalf("%v consulted anchor %d times", ref, calls)
+		}
+	}
+	explicit := []any{
+		map[string]any{"blockHash": hash},
+		map[string]any{"blockNumber": "0x10", "requireCanonical": true},
+		"0x10",
+	}
+	for _, ref := range explicit {
+		calls = 0
+		if _, err := p.Prepare(context.Background(), Request{Method: "eth_getBlockReceipts", Params: []any{ref}}); err != nil {
+			t.Fatalf("non-pending %v rejected: %v", ref, err)
+		}
+		if calls != 0 {
+			t.Fatalf("non-pending %v consulted anchor", ref)
+		}
 	}
 }
 

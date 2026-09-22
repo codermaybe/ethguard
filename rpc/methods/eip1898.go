@@ -119,11 +119,11 @@ func validateEIP1898Object(method string, obj map[string]any) (pinned, needAncho
 		number, hasNumber = obj["blockNumber"]
 		canon, hasCanon   = obj["requireCanonical"]
 	)
-	if len(obj) > len([]string{"blockHash", "blockNumber", "requireCanonical"}) || len(obj) != boolCount(hasHash, hasNumber, hasCanon) {
-		for key := range obj {
-			if key != "blockHash" && key != "blockNumber" && key != "requireCanonical" {
-				return invalid("unknown field %q", key)
-			}
+	for key := range obj {
+		switch key {
+		case "blockHash", "blockNumber", "requireCanonical":
+		default:
+			return invalid("unknown field %q", key)
 		}
 	}
 	if hasHash && hasNumber {
@@ -161,16 +161,6 @@ func validateEIP1898Object(method string, obj map[string]any) (pinned, needAncho
 		return invalid("blockNumber %q is not a tag or hex quantity", numberStr)
 	}
 	return pinned, false, "", nil
-}
-
-func boolCount(bools ...bool) int {
-	n := 0
-	for _, b := range bools {
-		if b {
-			n++
-		}
-	}
-	return n
 }
 
 func isBlockHash(s string) bool {

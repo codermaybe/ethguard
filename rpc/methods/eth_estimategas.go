@@ -17,6 +17,13 @@ const MethodEstimateGas = "eth_estimateGas"
 // exchange) ride as faults; a fleet that unanimously fails fails as
 // no-valid-response, so "this call reverts" is never laundered into a
 // number.
+//
+// Position 1 accepts the same EIP-1898 shapes as the T02 state reads.
+// String moving tags still rewrite to the bare anchor hash. Object moving
+// tags rewrite to {blockHash: anchor[, requireCanonical]}. Explicit
+// quantities, hashes, earliest, and pending — string or object — pass
+// through. Pending needs no local-observation wrapper: Median's ceiling is
+// already Selected. Malformed objects fail locally before any anchor call.
 func EstimateGasPolicy(anchor rpc.AnchorFunc) rpc.Policy {
-	return rpc.WithAnchor(anchor, 1)(rpc.Median(wire.NormalizeWireQuantity))
+	return EIP1898BlockRef(anchor, 1)(rpc.WithAnchor(anchor, 1)(rpc.Median(wire.NormalizeWireQuantity)))
 }

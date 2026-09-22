@@ -29,13 +29,13 @@ func TestDecoratedForwardContactsOneSourceAndAcceptsProtocolAnswer(t *testing.T)
 			p.Join("b", b.URL())
 			rec := &captureRecorder{}
 			agg := New(p, rpc.Registry{"custom_write": decorate(rpc.ForwardPolicy{})}, WithRecorder(rec))
-		d, err := agg.Aggregate(context.Background(), rpc.Request{Method: "custom_write"})
-		// Scheme B: an error return carries Status Unknown even when the
-		// protocol answer is authoritative. Provenance stays on Support and
-		// the attempt stays usable; no confidence class is claimed.
-		if err == nil || d.Status != rpc.Unknown || len(d.Support) != 1 || len(d.Faults) != 0 {
-			t.Fatalf("protocol answer changed: %+v %v", d, err)
-		}
+			d, err := agg.Aggregate(context.Background(), rpc.Request{Method: "custom_write"})
+			// Scheme B: an error return carries Status Unknown even when the
+			// protocol answer is authoritative. Provenance stays on Support and
+			// the attempt stays usable; no confidence class is claimed.
+			if err == nil || d.Status != rpc.Unknown || len(d.Support) != 1 || len(d.Faults) != 0 {
+				t.Fatalf("protocol answer changed: %+v %v", d, err)
+			}
 			if len(b.Calls()) != 0 || len(a.Calls()) != 1 {
 				t.Fatalf("forward was broadcast: %d/%d", len(a.Calls()), len(b.Calls()))
 			}

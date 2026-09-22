@@ -16,10 +16,13 @@ const MethodCreateAccessList = "eth_createAccessList"
 // the corroborated block reference before fan-out so sources evaluate identical state.
 // Responses are compared with canonical object normalization so hexadecimal casing
 // or JSON key ordering differences do not cause false conflicts.
-// Pending resolves as a node-local observation (decision 0035), never
-// Corroborated through agreement.
+// Position 1 accepts the same EIP-1898 object shapes as the T02 state reads:
+// moving-tag objects rewrite to {blockHash[, requireCanonical]}, explicit
+// objects pass through, and malformed objects fail locally before any anchor
+// call. Pending, including {blockNumber: pending}, resolves as a node-local
+// observation (decision 0035), never Corroborated through agreement.
 func CreateAccessListPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return PendingLocal(1)(rpc.Anchored(1, normalizeAccessList, anchor, opts...))
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, normalizeAccessList, anchor, opts...)))
 }
 
 // normalizeAccessList reduces one access-list answer to its pruned comparison

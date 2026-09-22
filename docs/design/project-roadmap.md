@@ -1,7 +1,7 @@
 # EthGuard 后续推进规划
 
-本规划记录 T02 之后的方向。文档目录当前按本地工作流保留，不作为 Git
-提交的一部分；代码与测试提交仍是唯一可执行状态来源。
+本规划记录 T02 之后的方向。`docs/` 已纳入版本管理；moving-tag matrix
+的可执行来源仍是测试，文档只作对照。
 
 ## 当前基线
 
@@ -13,15 +13,16 @@
   的 pending local observation。
 - `eth_getLogs` 的 pending 范围现在本地拒绝，避免进入普通 corroboration。
 - 类型化 `BlockByNumber(-1)` 现在本地拒绝，不支持 pending block typed projection。
+- `eth_getBlockReceipts` 的 pending 本地拒绝覆盖对象形态（大小写字符串、首尾空白、JSON 字符串、`{blockNumber: pending}`）；`ErrInvalidRequest`，不触 anchor、不接触上游。
 
 ## T03：Execution RPC 语义收口
 
 1. 为 `eth_getLogs` 评估 field-level pending observation；T03-A 保持本地拒绝，该观察尚未实现。
 2. `BlockByNumber(-1)` 的 pending typed projection 已在 T03-A 正式保持本地拒绝。
-3. 采集并脱敏 EIP-1898 object 形态的真实 provider 样本。
-4. 补齐 `eth_estimateGas`、`eth_createAccessList` 的对象形态契约。
-5. 固定 `eth_getLogs` 的 hash、pending 和范围字段语义。
-6. 重审 `method-contracts.md` 与 moving-tag matrix 的一致性。
+3. EIP-1898 object 形态样本已收录在 `internal/rpcsample/testdata/eip1898-object`。端点已脱敏。离线测试只重放形状，不把样本写成兼容性结论。
+4. `eth_estimateGas`、`eth_createAccessList` 的对象形态已与 T02 五个 state-read 对齐：移动标签对象改写为 `{blockHash}`，显式对象和 pending 透传，非法对象在 anchor 之前本地拒绝。
+5. `eth_getLogs` 的 hash / pending / 范围字段保持 T03-A：pending 本地拒绝，`blockHash` 与范围字段互斥。没有改成已支持 pending。
+6. `method-contracts.md`、moving-tag matrix 与上述代码一致。matrix 的可执行来源仍是测试；文档只作对照。
 
 ## T04：内容与错误兼容性
 
