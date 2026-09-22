@@ -1,0 +1,30 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-09T16:50:37.430574512Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "cancun"
+  },
+  "source": {
+    "id": "llamarpc",
+    "endpoint": "https://eth.llamarpc.com"
+  },
+  "request_id": "net-version",
+  "method": "net_version",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"net_version\",\"params\":[]}",
+  "response": {
+    "http_status": 525,
+    "content_type": "text/plain; charset=UTF-8",
+    "body": "error code: 525\n"
+  },
+  "errors": [
+    {
+      "kind": "http",
+      "message": "525 "
+    },
+    {
+      "kind": "malformed_json",
+      "message": "response is not a JSON object"
+    }
+  ]
+}

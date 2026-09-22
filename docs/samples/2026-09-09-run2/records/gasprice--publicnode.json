@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-09T16:51:59.351336512Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "cancun"
+  },
+  "source": {
+    "id": "ethereum-rpc",
+    "endpoint": "https://ethereum-rpc.publicnode.com"
+  },
+  "request_id": "gasprice",
+  "method": "eth_gasPrice",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"eth_gasPrice\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":\"0x75b5f43\"}\n"
+  }
+}

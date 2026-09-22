@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-09T16:50:37.910096355Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "cancun"
+  },
+  "source": {
+    "id": "merkle",
+    "endpoint": "https://eth.merkle.io"
+  },
+  "request_id": "net-version",
+  "method": "net_version",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"net_version\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"id\":2,\"result\":\"1\",\"jsonrpc\":\"2.0\"}\n"
+  }
+}

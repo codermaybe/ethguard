@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-09T16:50:38.182677965Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "cancun"
+  },
+  "source": {
+    "id": "publicnode",
+    "endpoint": "https://ethereum-rpc.publicnode.com"
+  },
+  "request_id": "head",
+  "method": "eth_blockNumber",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"eth_blockNumber\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":\"0x18bd480\",\"id\":3}\n"
+  }
+}

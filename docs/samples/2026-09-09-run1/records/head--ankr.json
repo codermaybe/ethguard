@@ -1,0 +1,26 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-09T16:50:38.660302755Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "cancun"
+  },
+  "source": {
+    "id": "ankr",
+    "endpoint": "https://rpc.ankr.com"
+  },
+  "request_id": "head",
+  "method": "eth_blockNumber",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"eth_blockNumber\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\": \"2.0\", \"error\": {\"code\": -32000, \"message\": \"Unauthorized: You must authenticate your request with an API key. Create an account on https://www.ankr.com/rpc/ and generate your personal API key for free.\"}, \"id\": null}"
+  },
+  "errors": [
+    {
+      "kind": "jsonrpc",
+      "message": "response contains a JSON-RPC error"
+    }
+  ]
+}

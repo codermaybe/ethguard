@@ -1,0 +1,348 @@
+{
+  "schema": "ethguard.rpc-sample-index/v1",
+  "records": [
+    {
+      "request_id": "chain-id",
+      "method": "eth_chainId",
+      "source_id": "ankr",
+      "observed_at": "2026-09-09T16:50:35.386912266Z",
+      "file": "records/chain-id--ankr.json",
+      "sha256": "eae6c540005998caff57d2a11c9478c167832f809189af057bb11cf1a38bf3a8",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "chain-id",
+      "method": "eth_chainId",
+      "source_id": "llamarpc",
+      "observed_at": "2026-09-09T16:50:34.825305594Z",
+      "file": "records/chain-id--llamarpc.json",
+      "sha256": "f21163a83a587371b815049cca01ff1a638d0c14d559e6c5ad859c1470c4d7ae",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "chain-id",
+      "method": "eth_chainId",
+      "source_id": "merkle",
+      "observed_at": "2026-09-09T16:50:35.969959284Z",
+      "file": "records/chain-id--merkle.json",
+      "sha256": "4584579c9cc735746bc8625d32a82b7f078d5cff39291096d78f583a2f4c8894",
+      "error_kinds": []
+    },
+    {
+      "request_id": "chain-id",
+      "method": "eth_chainId",
+      "source_id": "publicnode",
+      "observed_at": "2026-09-09T16:50:34.135580976Z",
+      "file": "records/chain-id--publicnode.json",
+      "sha256": "2a6314f7812fd3d3b3d4a66d5b1ca1a778115dd6c73b4f6c90f696147ece576e",
+      "error_kinds": []
+    },
+    {
+      "request_id": "finalized-header",
+      "method": "eth_getBlockByNumber",
+      "source_id": "ankr",
+      "observed_at": "2026-09-09T16:50:41.712543563Z",
+      "file": "records/finalized-header--ankr.json",
+      "sha256": "fbbe896c9265f01e41fc89d6fbe50c1c75035ef5e5fe23a22973e125599c594b",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "finalized-header",
+      "method": "eth_getBlockByNumber",
+      "source_id": "llamarpc",
+      "observed_at": "2026-09-09T16:50:41.259947422Z",
+      "file": "records/finalized-header--llamarpc.json",
+      "sha256": "50e1b3b1e6bafef12af01bc8843441b6f13ac151ed78476237eb2198ff694025",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "finalized-header",
+      "method": "eth_getBlockByNumber",
+      "source_id": "merkle",
+      "observed_at": "2026-09-09T16:50:41.762316789Z",
+      "file": "records/finalized-header--merkle.json",
+      "sha256": "eff2e495bc4f3cafd73eb81f8864c703a6170068921e32a0f440b03dc56075e4",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "finalized-header",
+      "method": "eth_getBlockByNumber",
+      "source_id": "publicnode",
+      "observed_at": "2026-09-09T16:50:41.181338063Z",
+      "file": "records/finalized-header--publicnode.json",
+      "sha256": "d62c191d8b813e44c80ffa040333c7972992b2991fc685cc0a7c4c88a4c5e8b6",
+      "error_kinds": []
+    },
+    {
+      "request_id": "gasprice",
+      "method": "eth_gasPrice",
+      "source_id": "ankr",
+      "observed_at": "2026-09-09T16:50:42.277318484Z",
+      "file": "records/gasprice--ankr.json",
+      "sha256": "f12fc68caa297db9fdb468e71c790eacb5b34fc6274d53bcbe6e077437636760",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "gasprice",
+      "method": "eth_gasPrice",
+      "source_id": "llamarpc",
+      "observed_at": "2026-09-09T16:50:41.851300219Z",
+      "file": "records/gasprice--llamarpc.json",
+      "sha256": "459c8e16ef9f9151fc1d0b3572b3d25df0553e44bb364be4e3c6420f8be90ab5",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "gasprice",
+      "method": "eth_gasPrice",
+      "source_id": "merkle",
+      "observed_at": "2026-09-09T16:50:42.326728463Z",
+      "file": "records/gasprice--merkle.json",
+      "sha256": "9e055da1534a4cbda02a790c4a14f5d2ecfe8d65bf16984d7077b66add4d746c",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "gasprice",
+      "method": "eth_gasPrice",
+      "source_id": "publicnode",
+      "observed_at": "2026-09-09T16:50:41.780130061Z",
+      "file": "records/gasprice--publicnode.json",
+      "sha256": "00bf2f4be491ac217f71978bf018337d9c9a88afa5b630c4e0f5730fc2552cf1",
+      "error_kinds": []
+    },
+    {
+      "request_id": "head",
+      "method": "eth_blockNumber",
+      "source_id": "ankr",
+      "observed_at": "2026-09-09T16:50:38.660302755Z",
+      "file": "records/head--ankr.json",
+      "sha256": "fb609148b2577e382fc2634344de634ac404ec45faf9b8b116ec2bfa90e89e02",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "head",
+      "method": "eth_blockNumber",
+      "source_id": "llamarpc",
+      "observed_at": "2026-09-09T16:50:38.255555883Z",
+      "file": "records/head--llamarpc.json",
+      "sha256": "48edde24ae62232318a526cd642425a8c8a243336cf10fde9e1db5b3d743c03c",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "head",
+      "method": "eth_blockNumber",
+      "source_id": "merkle",
+      "observed_at": "2026-09-09T16:50:38.710920584Z",
+      "file": "records/head--merkle.json",
+      "sha256": "41a7147363022557a54739a3fef742446e7ea4cc92f4f6d980e37f4d5a97e531",
+      "error_kinds": []
+    },
+    {
+      "request_id": "head",
+      "method": "eth_blockNumber",
+      "source_id": "publicnode",
+      "observed_at": "2026-09-09T16:50:38.182677965Z",
+      "file": "records/head--publicnode.json",
+      "sha256": "1ff6135ccc8f1310bd232f40572fc612612492eba509fff7ab6758fd0153ab45",
+      "error_kinds": []
+    },
+    {
+      "request_id": "latest-full",
+      "method": "eth_getBlockByNumber",
+      "source_id": "ankr",
+      "observed_at": "2026-09-09T16:50:41.111284392Z",
+      "file": "records/latest-full--ankr.json",
+      "sha256": "e6c5ce51ad597b11aa39011f4e9c25b556ea752bb0c292cda946510a1d5c4cba",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "latest-full",
+      "method": "eth_getBlockByNumber",
+      "source_id": "llamarpc",
+      "observed_at": "2026-09-09T16:50:40.687775877Z",
+      "file": "records/latest-full--llamarpc.json",
+      "sha256": "0ccaca91de9829f07ccd58c9e1978d101916ae1db1c1b76fb0b15b72775a437a",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "latest-full",
+      "method": "eth_getBlockByNumber",
+      "source_id": "merkle",
+      "observed_at": "2026-09-09T16:50:41.161549312Z",
+      "file": "records/latest-full--merkle.json",
+      "sha256": "4e9394ea8bde1e7c2e9cbbb34511e6597f4c9c51a5d47e66d44aa69ce42df1c8",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "latest-full",
+      "method": "eth_getBlockByNumber",
+      "source_id": "publicnode",
+      "observed_at": "2026-09-09T16:50:40.549123697Z",
+      "file": "records/latest-full--publicnode.json",
+      "sha256": "2a07af962bf421f3782b11b2f8a545e41f675b4593697e6e687c69b4b2ad1608",
+      "error_kinds": []
+    },
+    {
+      "request_id": "latest-header",
+      "method": "eth_getBlockByNumber",
+      "source_id": "ankr",
+      "observed_at": "2026-09-09T16:50:40.473600202Z",
+      "file": "records/latest-header--ankr.json",
+      "sha256": "601bea4d4511a8f33dcc32ee302b4e935169599b0daf86bf34fb923247500f94",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "latest-header",
+      "method": "eth_getBlockByNumber",
+      "source_id": "llamarpc",
+      "observed_at": "2026-09-09T16:50:39.061577927Z",
+      "file": "records/latest-header--llamarpc.json",
+      "sha256": "177484d69d07c3be73cd59572d23245c9f170d56fe0bd153882412ddf35bab0f",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "latest-header",
+      "method": "eth_getBlockByNumber",
+      "source_id": "merkle",
+      "observed_at": "2026-09-09T16:50:40.524217932Z",
+      "file": "records/latest-header--merkle.json",
+      "sha256": "5a06f884d798a89059b39fdbb2dc8ed6ede7b961deaeea2e2c99f80dc870c616",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "latest-header",
+      "method": "eth_getBlockByNumber",
+      "source_id": "publicnode",
+      "observed_at": "2026-09-09T16:50:38.983173365Z",
+      "file": "records/latest-header--publicnode.json",
+      "sha256": "aa682e5dbde6ee8d333f3fa4148e048afb7dc7fd0e2da80e36f843d32763fe20",
+      "error_kinds": []
+    },
+    {
+      "request_id": "net-version",
+      "method": "net_version",
+      "source_id": "ankr",
+      "observed_at": "2026-09-09T16:50:37.860042619Z",
+      "file": "records/net-version--ankr.json",
+      "sha256": "4d09006f3e3531d1b9bde03b9df466bf1b7246aff9e131aa0b7f3b26cd351dc9",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "net-version",
+      "method": "net_version",
+      "source_id": "llamarpc",
+      "observed_at": "2026-09-09T16:50:37.430574512Z",
+      "file": "records/net-version--llamarpc.json",
+      "sha256": "06b3ea90ca01ce7008c24246b2db600b2f7545489f145bf99cb34c2b551bfbb3",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "net-version",
+      "method": "net_version",
+      "source_id": "merkle",
+      "observed_at": "2026-09-09T16:50:37.910096355Z",
+      "file": "records/net-version--merkle.json",
+      "sha256": "ad741bd233903e37307b3fab0758d2683cc1e92b0dd33748ed80a392653caf7c",
+      "error_kinds": []
+    },
+    {
+      "request_id": "net-version",
+      "method": "net_version",
+      "source_id": "publicnode",
+      "observed_at": "2026-09-09T16:50:37.349910981Z",
+      "file": "records/net-version--publicnode.json",
+      "sha256": "4f6ac2267f63a9165d4bf5b4ea1b40440b37c8376ddf5ac7773d02daa054f6de",
+      "error_kinds": []
+    },
+    {
+      "request_id": "syncing",
+      "method": "eth_syncing",
+      "source_id": "ankr",
+      "observed_at": "2026-09-09T16:50:42.827774673Z",
+      "file": "records/syncing--ankr.json",
+      "sha256": "e0b64d7009f28fa7ff940b4db5386d0d37419be206a9977ef80660229da01a9e",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "syncing",
+      "method": "eth_syncing",
+      "source_id": "llamarpc",
+      "observed_at": "2026-09-09T16:50:42.419834814Z",
+      "file": "records/syncing--llamarpc.json",
+      "sha256": "da5793e1498912bab4316b8a2ffc5309064c0c4c5aa71efc6f484739d7767a29",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "syncing",
+      "method": "eth_syncing",
+      "source_id": "merkle",
+      "observed_at": "2026-09-09T16:50:42.878484026Z",
+      "file": "records/syncing--merkle.json",
+      "sha256": "893662db4a6975d7e806231608ea7896fc4ba9f2c0fde1ccd12baf7599b5a118",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "syncing",
+      "method": "eth_syncing",
+      "source_id": "publicnode",
+      "observed_at": "2026-09-09T16:50:42.345095893Z",
+      "file": "records/syncing--publicnode.json",
+      "sha256": "859f584d1673c18af87c2ac943459e684ad821b2f9727933ae304c168d6a8085",
+      "error_kinds": []
+    }
+  ]
+}

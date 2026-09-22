@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-09T16:51:53.106654886Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "cancun"
+  },
+  "source": {
+    "id": "rpc",
+    "endpoint": "https://rpc.flashbots.net"
+  },
+  "request_id": "chain-id",
+  "method": "eth_chainId",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":\"0x1\",\"id\":1}\n"
+  }
+}

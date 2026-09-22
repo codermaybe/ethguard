@@ -1,0 +1,30 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-09T16:50:41.161549312Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "cancun"
+  },
+  "source": {
+    "id": "merkle",
+    "endpoint": "https://eth.merkle.io"
+  },
+  "request_id": "latest-full",
+  "method": "eth_getBlockByNumber",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"eth_getBlockByNumber\",\"params\":[\"latest\",true]}",
+  "response": {
+    "http_status": 429,
+    "content_type": "text/plain; charset=UTF-8",
+    "body": "error code: 1015\n"
+  },
+  "errors": [
+    {
+      "kind": "http",
+      "message": "429 Too Many Requests"
+    },
+    {
+      "kind": "malformed_json",
+      "message": "response is not a JSON object"
+    }
+  ]
+}

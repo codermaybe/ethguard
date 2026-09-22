@@ -1,0 +1,30 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-09T16:51:59.636240611Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "cancun"
+  },
+  "source": {
+    "id": "rpc",
+    "endpoint": "https://rpc.flashbots.net"
+  },
+  "request_id": "gasprice",
+  "method": "eth_gasPrice",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"eth_gasPrice\",\"params\":[]}",
+  "response": {
+    "http_status": 504,
+    "content_type": "text/html",
+    "body": "<html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n</body>\r\n</html>\r\n"
+  },
+  "errors": [
+    {
+      "kind": "http",
+      "message": "504 Gateway Timeout"
+    },
+    {
+      "kind": "malformed_json",
+      "message": "response is not a JSON object"
+    }
+  ]
+}
