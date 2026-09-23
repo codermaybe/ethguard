@@ -39,3 +39,11 @@ are not a typed or `Corroborated` Ethereum result.
 
 This package does not select upstreams or own connections; `SourceRef`
 keeps it decoupled from pool's connection and health implementation.
+
+
+## Method layers
+
+Ethereum method behavior is not decided in this package. Wire normalization,
+object requiredness, request admission, and typed projection stay separate;
+see `rpc/methods/README.md`. A comparison key is not an admission decision,
+and a typed decode failure is not a corroboration result.

@@ -1,0 +1,147 @@
+{
+  "schema": "ethguard.rpc-sample-index/v1",
+  "plan_schema": "ethguard.rpc-sample-plan/v1",
+  "generated_at": "2026-09-23T14:17:21.681669145Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "records": [
+    {
+      "request_id": "revert-empty-1",
+      "method": "eth_call",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:21.681669413Z",
+      "file": "records/revert-empty-1--s1.json",
+      "sha256": "0e3488994db9e28cb115f07b4638363bdf58536fd59396df33d539ba1787294d",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-empty-1",
+      "method": "eth_call",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:21.865566515Z",
+      "file": "records/revert-empty-1--s2.json",
+      "sha256": "a478469e241809b782ba4e0b418cdeb0b073bdeffc8340034417de944698a0d3",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-empty-2",
+      "method": "eth_call",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:22.259467647Z",
+      "file": "records/revert-empty-2--s1.json",
+      "sha256": "84d33806199bc51e072e214ded87310ca3f33cc8f29c4ce58f8339e7b052992a",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-empty-2",
+      "method": "eth_call",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:22.356540025Z",
+      "file": "records/revert-empty-2--s2.json",
+      "sha256": "dbefa84d159fe451d68136ae76dc310570eafc12da3d8de5331a0f65c28eff98",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-empty-3",
+      "method": "eth_call",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:22.67742801Z",
+      "file": "records/revert-empty-3--s1.json",
+      "sha256": "28118bf1f78acfcb952e2b3e0d6504753b3e67e075b48809d7e5c61b073ae464",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-empty-3",
+      "method": "eth_call",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:22.774203222Z",
+      "file": "records/revert-empty-3--s2.json",
+      "sha256": "01ba514d6abbc5ecbbe14981d6baf0a9437d882a99ae0c2fe1d9693789022fcc",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-empty-4",
+      "method": "eth_call",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:23.090076615Z",
+      "file": "records/revert-empty-4--s1.json",
+      "sha256": "65f12f1a2770ce1c2e293f5bb407038c2cfb61c975a2129c8f6ae445339f00b8",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-empty-4",
+      "method": "eth_call",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:23.192387939Z",
+      "file": "records/revert-empty-4--s2.json",
+      "sha256": "c845c38f468e3161802f2027c6a1128c296635019ce70df6b63d0bc790b865ac",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-error-string",
+      "method": "eth_call",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:23.953658365Z",
+      "file": "records/revert-error-string--s1.json",
+      "sha256": "ffabcc33a1155aee6d08fe6fa1e6b57fea694b01498d446d65ea3977f1215142",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-error-string",
+      "method": "eth_call",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:24.054420152Z",
+      "file": "records/revert-error-string--s2.json",
+      "sha256": "993671def17a105f8227b502cbedbac0027d1f0c6765c2e92198853c891675a4",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-hex",
+      "method": "eth_call",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:23.513448578Z",
+      "file": "records/revert-hex--s1.json",
+      "sha256": "753186ca0bb70865b635eb8ed5f8fb342061a09f5ddaeca688b14c0bc1bca3b2",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "revert-hex",
+      "method": "eth_call",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:23.610111543Z",
+      "file": "records/revert-hex--s2.json",
+      "sha256": "82a6430373a71c23cb4228d49e9ee0fc6713c6ab5fabf28a2dae8688df279da6",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    }
+  ],
+  "redaction": {
+    "endpoint": "[REDACTED]",
+    "rule": "source URLs, hosts, userinfo, query values, and path segments are not stored; committed files must not contain an http(s) or ws(s) URL"
+  }
+}

@@ -46,6 +46,10 @@ func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
 	return nil
 }
 
+// AdmitBlock checks each receipt against the requested block. A JSON null
+// means the block itself is absent. An empty array is a legal empty block,
+// not a missing response. This is per-response integrity against the
+// request, not a completeness claim over every receipt that could exist.
 func AdmitBlock(req rpc.Request, value json.RawMessage) error {
 	if IsJSONNull(value) {
 		return nil
@@ -138,6 +142,9 @@ func ParseBlockHeight(value any) (*common.Hash, *big.Int, error) {
 	return nil, n, nil
 }
 
+// Normalize chooses the comparison key. Vendor fields disappear in the
+// whitelist prune and are not rejected here. A value with no canonical
+// form errors. Required-field rejection belongs to Validate and Admit.
 func Normalize(value json.RawMessage, prune Pruner, method string) (string, error) {
 	if IsJSONNull(value) {
 		return "null", nil

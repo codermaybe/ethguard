@@ -40,7 +40,8 @@ func Admit(req rpc.Request, value json.RawMessage) error {
 	return nil
 }
 
-// Normalize validates the shape before pruning it for a method.
+// Normalize chooses the comparison key. It rejects only values with no
+// canonical object form. Required fields and hash binding belong to Admit.
 func Normalize(method string, value json.RawMessage, pruner Pruner) (string, error) {
 	if IsJSONNull(value) {
 		return "null", nil

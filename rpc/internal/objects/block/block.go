@@ -94,6 +94,9 @@ func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 		}
 	}
 
+	// An empty uncle list is legal when the header's uncle root is empty,
+	// including an empty post-merge block. A non-empty list against that
+	// root is not. This is per-response integrity, not a completeness claim.
 	if head.UncleHash == types.EmptyUncleHash {
 		if len(body.UncleHashes) != 0 {
 			return nil, malformed("uncle list is non-empty for empty uncle root", nil)

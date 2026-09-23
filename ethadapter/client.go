@@ -21,6 +21,7 @@
 package ethadapter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -447,20 +448,23 @@ func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]type
 	return logs, nil
 }
 
-// RevertError reports a fleet-corroborated execution revert of an eth_call. It
-// is an observation rather than a pipeline failure — none of the classified
-// sentinels apply — and its message and data are provider context:
-// uncorroborated content with the same standing decision 0015 gives the
-// server-provided `from` field.
+// RevertError reports a fleet-corroborated execution revert of an eth_call.
+// The corroborated observation is the data-aware comparison key (missing,
+// null, empty, hex, or raw JSON). Code and Message are the winning
+// provider's own context and are not part of that key. None of the
+// classified pipeline sentinels apply.
 type RevertError struct {
 	// Code is the JSON-RPC error code supplied by the provider. Geth uses
 	// code 3 for execution reverts while a number of providers use -32000;
 	// retaining the wire value lets callers distinguish those dialects.
 	Code    int
 	Message string
-	Data    []byte
-	// DataRaw retains a non-hex data value (some providers return a structured
-	// object) without forcing it through the byte-oriented ethclient helper.
+	// Data is set only when the provider data is a hex string. Missing and
+	// JSON null leave it nil; empty bytes ("0x") are a non-nil empty slice.
+	Data []byte
+	// DataRaw is the original JSON data value. Structured data stays here
+	// and is not forced into hex. Missing data leaves DataRaw empty; JSON
+	// null is retained as the bytes `null`.
 	DataRaw json.RawMessage
 }
 
@@ -481,22 +485,29 @@ func (e *RevertError) ErrorCode() int {
 }
 
 // ErrorData makes RevertError compatible with go-ethereum's rpc.DataError.
-// Geth's RevertErrorData helper expects the conventional hex string; callers
-// that need a structured provider extension can inspect DataRaw directly.
+// A hex string is returned as that string so RevertErrorData can decode it.
+// A structured value is returned as decoded JSON, never coerced to hex.
+// Missing and JSON null return nil rather than an empty "0x", so absence
+// is not presented as empty bytes.
 func (e *RevertError) ErrorData() interface{} {
 	if e == nil {
 		return nil
 	}
-	if len(e.DataRaw) > 0 && string(e.DataRaw) != "null" {
-		var value interface{}
-		if json.Unmarshal(e.DataRaw, &value) == nil {
-			return value
+	trimmed := bytes.TrimSpace(e.DataRaw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		if len(e.Data) > 0 {
+			return hexutil.Encode(e.Data)
 		}
+		return nil
 	}
-	if e.Data != nil {
+	var value any
+	if json.Unmarshal(trimmed, &value) == nil {
+		return value
+	}
+	if len(e.Data) > 0 {
 		return hexutil.Encode(e.Data)
 	}
-	return "0x"
+	return nil
 }
 
 // decodeCallResult separates a corroborated revert envelope from return data.

@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-23T14:17:24.372606729Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s1",
+    "endpoint": "[REDACTED]"
+  },
+  "request_id": "block-empty-number",
+  "method": "eth_getBlockByNumber",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"eth_getBlockByNumber\",\"params\":[\"0xec82ec\",false]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"baseFeePerGas\":\"0x4b64da15d\",\"difficulty\":\"0x2b47a9e9d3776a\",\"extraData\":\"0x617369612d65617374322d32\",\"gasLimit\":\"0x1ca35ef\",\"gasUsed\":\"0x0\",\"hash\":\"0xb207611d590b49435320b9e64a2c9e77f1bd9c73f602fd1ede2c5cf4815aa2e7\",\"logsBloom\":\"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\",\"miner\":\"0xea674fdde714fd979de3edf0f56aa9716b898ec8\",\"mixHash\":\"0x473ff3879c70f922c9c71e0c03be6a801c2daacc6768a5b51e59bdeb4b21502b\",\"nonce\":\"0xa46d4d4f11c511cc\",\"number\":\"0xec82ec\",\"parentHash\":\"0x7bf744325ee113d167eeefd1ea0012881d433fd3cdbf99b0798886c63b0b75bb\",\"receiptsRoot\":\"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421\",\"sha3Uncles\":\"0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347\",\"size\":\"0x219\",\"stateRoot\":\"0x54435f64f0e54d2e54aa85af7b5218d7a6405d40942e87969f9f5552114a33c7\",\"timestamp\":\"0x631a99eb\",\"transactions\":[],\"transactionsRoot\":\"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421\",\"uncles\":[]},\"id\":7}\n"
+  }
+}

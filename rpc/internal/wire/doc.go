@@ -9,4 +9,8 @@
 // means all live in rpc/methods. Unknown or vendor fields are pruned out of
 // comparison keys without being deleted from the winning payload, where they
 // stay available to invocation-scoped Uncertain capture.
+//
+// Normalizers and Prune produce a canonical comparison form. They error only
+// when a value has no canonical form. They do not admit a response: missing
+// required fields are rejected by object Validate and method Admit.
 package wire

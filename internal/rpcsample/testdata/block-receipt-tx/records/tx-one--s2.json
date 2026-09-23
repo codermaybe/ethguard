@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-23T14:17:26.837292174Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s2",
+    "endpoint": "[REDACTED]"
+  },
+  "request_id": "tx-one",
+  "method": "eth_getTransactionByHash",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"eth_getTransactionByHash\",\"params\":[\"0xaa1c6c878d686b6c14b77c6b78ff23ae4b069cf941736678e9c1f8102b219b15\"]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":12,\"result\":{\"accessList\":[],\"blockHash\":\"0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e\",\"blockNumber\":\"0x18d592f\",\"blockTimestamp\":\"0x6ab3dae7\",\"chainId\":\"0x1\",\"from\":\"0x2252f216f4a494a87025123425181ca1bb754fb8\",\"gas\":\"0x186a0\",\"gasPrice\":\"0x135e45e7\",\"hash\":\"0xaa1c6c878d686b6c14b77c6b78ff23ae4b069cf941736678e9c1f8102b219b15\",\"input\":\"0x1828e0e70000000000000000000000002252f216f4a494a87025123425181ca1bb754fb800000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000041e9f46d2dff10fd19431e8a985fd8d2ab201a84b7325e6215c711f3931334c90563d9bc47fb1233c6a5bf922762b626e3b03d255f3a174ec905f791ed8907b7b61b00000000000000000000000000000000000000000000000000000000000000\",\"maxFeePerGas\":\"0x2747bd30\",\"maxPriorityFeePerGas\":\"0x0\",\"nonce\":\"0x1d37f\",\"r\":\"0x3e581694ff07caeae1a8add08f1bf6585ebe46a110e202c295000870f7e02c5f\",\"s\":\"0x44611523cc45f30db11d12f40bc4420f5bde97e8eb27f100738a0be027c74ea1\",\"to\":\"0x0000000aa232009084bd71a5797d089aa4edfad4\",\"transactionIndex\":\"0x0\",\"type\":\"0x2\",\"v\":\"0x0\",\"value\":\"0x0\",\"yParity\":\"0x0\"}}"
+  }
+}

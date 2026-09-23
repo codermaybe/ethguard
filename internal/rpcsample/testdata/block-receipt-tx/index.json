@@ -1,0 +1,191 @@
+{
+  "schema": "ethguard.rpc-sample-index/v1",
+  "plan_schema": "ethguard.rpc-sample-plan/v1",
+  "generated_at": "2026-09-23T14:17:21.681669145Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "records": [
+    {
+      "request_id": "block-empty-hash",
+      "method": "eth_getBlockByHash",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:24.831139175Z",
+      "file": "records/block-empty-hash--s1.json",
+      "sha256": "7642c72627842fb053e46c0df57acf33b8cadbe02876b2d20a460000747d74a1"
+    },
+    {
+      "request_id": "block-empty-hash",
+      "method": "eth_getBlockByHash",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:24.931798533Z",
+      "file": "records/block-empty-hash--s2.json",
+      "sha256": "2f98f89deea166518a75f16a70ec557fbd253d59286b66018fcacd2256941179"
+    },
+    {
+      "request_id": "block-empty-number",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:24.372606729Z",
+      "file": "records/block-empty-number--s1.json",
+      "sha256": "e1facd33984eba1d0818771eb63d614e807f334bd54509c5c57a9cf33589a28f"
+    },
+    {
+      "request_id": "block-empty-number",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:24.480246925Z",
+      "file": "records/block-empty-number--s2.json",
+      "sha256": "e221ff36593c10288bb0358c2b6443e045ec67c91f1adac18b3e8ea7cc702921"
+    },
+    {
+      "request_id": "block-filled-hash",
+      "method": "eth_getBlockByHash",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:25.871252435Z",
+      "file": "records/block-filled-hash--s1.json",
+      "sha256": "8b6b5a3258b8121d2f285912375ad2e4a9743d387c2f118bfb5280a8f5453545"
+    },
+    {
+      "request_id": "block-filled-hash",
+      "method": "eth_getBlockByHash",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:25.970002706Z",
+      "file": "records/block-filled-hash--s2.json",
+      "sha256": "45bcdb3ea1ade3b35dd91c5553298b1c25185c36291a07fc28212124f7f4e975"
+    },
+    {
+      "request_id": "block-filled-number",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:25.271240695Z",
+      "file": "records/block-filled-number--s1.json",
+      "sha256": "815b57f880bc349a4413519256a8ac73ef3c410252a6df35122bd46da07bf88e"
+    },
+    {
+      "request_id": "block-filled-number",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:25.530764016Z",
+      "file": "records/block-filled-number--s2.json",
+      "sha256": "09463356f55680e903d322e0d0cea38d8b44fce66d72591b7c93ef6684b02604"
+    },
+    {
+      "request_id": "block-hash-null",
+      "method": "eth_getBlockByHash",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:28.076334593Z",
+      "file": "records/block-hash-null--s1.json",
+      "sha256": "c085c55880794601cae2547df4cc40d863a4a492549625ab48837aa283152233"
+    },
+    {
+      "request_id": "block-hash-null",
+      "method": "eth_getBlockByHash",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:28.175872586Z",
+      "file": "records/block-hash-null--s2.json",
+      "sha256": "5f98de59914f83ec1364ac022f96494d041ba3513d590cb05ef8ecec75f2fbf1"
+    },
+    {
+      "request_id": "block-null",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:27.66169985Z",
+      "file": "records/block-null--s1.json",
+      "sha256": "332fed34742b86fa51cb5893afd1b83a8f5fc21f76e2fb9fed47c25894a95410"
+    },
+    {
+      "request_id": "block-null",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:27.762628473Z",
+      "file": "records/block-null--s2.json",
+      "sha256": "8c6a287e648a61ecc6bf66d9e07e8fcdf4f11cf3f29539c833a75ef0b46d5896"
+    },
+    {
+      "request_id": "receipt-null",
+      "method": "eth_getTransactionReceipt",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:29.054580896Z",
+      "file": "records/receipt-null--s1.json",
+      "sha256": "0bca81d056c54d35da4c75d76dd2658441c4ab40cb2f47965803d20ee5999315"
+    },
+    {
+      "request_id": "receipt-null",
+      "method": "eth_getTransactionReceipt",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:29.283405848Z",
+      "file": "records/receipt-null--s2.json",
+      "sha256": "a5da209573e9dac95c8d5e626d6326f89d1463d3cd3ecd1659406816d1c76c73"
+    },
+    {
+      "request_id": "receipt-one",
+      "method": "eth_getTransactionReceipt",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:27.252118821Z",
+      "file": "records/receipt-one--s1.json",
+      "sha256": "610fba438d6c033762afacd412433487fc7db73b3812df0f227c799dbdc8ee92"
+    },
+    {
+      "request_id": "receipt-one",
+      "method": "eth_getTransactionReceipt",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:27.347751351Z",
+      "file": "records/receipt-one--s2.json",
+      "sha256": "2ac0cc4ef59e13b8c3f2135c830ed70801e1db5f70b47196756584cfe1b09758"
+    },
+    {
+      "request_id": "receipts-empty",
+      "method": "eth_getBlockReceipts",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:26.284719604Z",
+      "file": "records/receipts-empty--s1.json",
+      "sha256": "91a1fde335e8489bf82852ab33d2b33cc6289f0a3c68998424a129dfc9e91f54"
+    },
+    {
+      "request_id": "receipts-empty",
+      "method": "eth_getBlockReceipts",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:26.377327582Z",
+      "file": "records/receipts-empty--s2.json",
+      "sha256": "1a5cd2d3114c759f0755d056bc5730066c10033f49de5851e33389e407c90134"
+    },
+    {
+      "request_id": "tx-null",
+      "method": "eth_getTransactionByHash",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:28.53797431Z",
+      "file": "records/tx-null--s1.json",
+      "sha256": "04cd60ffd224ffae7bc9707af3a616c57754985c0dcc93a7a6aa7514dd965d3a"
+    },
+    {
+      "request_id": "tx-null",
+      "method": "eth_getTransactionByHash",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:28.6386324Z",
+      "file": "records/tx-null--s2.json",
+      "sha256": "6a5711efee8aab59ecd7a8796a3630013d16c31420f76634053dbcf21cd0420e"
+    },
+    {
+      "request_id": "tx-one",
+      "method": "eth_getTransactionByHash",
+      "source_id": "s1",
+      "observed_at": "2026-09-23T14:17:26.740588658Z",
+      "file": "records/tx-one--s1.json",
+      "sha256": "0a7141c9379f2e8189e81bfd142bc070a4dcb74c644de1fdb3f5da4596b97397"
+    },
+    {
+      "request_id": "tx-one",
+      "method": "eth_getTransactionByHash",
+      "source_id": "s2",
+      "observed_at": "2026-09-23T14:17:26.837292174Z",
+      "file": "records/tx-one--s2.json",
+      "sha256": "a27dabeb6a34463bebb7440d74b7aaf178fdc3787f6295a00efce0f32c8cd70b"
+    }
+  ],
+  "redaction": {
+    "endpoint": "[REDACTED]",
+    "rule": "source URLs, hosts, userinfo, query values, and path segments are not stored; committed files must not contain an http(s) or ws(s) URL"
+  }
+}

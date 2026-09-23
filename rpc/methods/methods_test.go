@@ -276,12 +276,14 @@ func TestNormalizeCallOutcomeClustersResultsAndReverts(t *testing.T) {
 	}{
 		{"return data compares case-insensitively", `"0xDEADbeef"`, "ok|0xdeadbeef", false},
 		{"empty result is valid data", `"0x"`, "ok|0x", false},
-		{"revert wording collapses to one key", `{"code":-32000,"message":"execution reverted: ERC20: insufficient allowance"}`, "reverted", false},
-		{"bare revert collapses to the same key", `{"code":-32000,"message":"execution reverted"}`, "reverted", false},
-		{"empty revert data is still an execution observation", `{"code":-32000,"message":"","data":"0x"}`, "reverted", false},
-		{"legacy parity revert code", `{"code":3,"message":"Reverted"}`, "reverted", false},
+		{"revert wording is not the key; missing data stays missing", `{"code":-32000,"message":"execution reverted: ERC20: insufficient allowance"}`, "reverted|missing", false},
+		{"bare revert with no data field", `{"code":-32000,"message":"execution reverted"}`, "reverted|missing", false},
+		{"empty revert bytes stay an execution observation", `{"code":-32000,"message":"","data":"0x"}`, "reverted|empty", false},
+		{"legacy parity revert code shares the data key", `{"code":3,"message":"Reverted"}`, "reverted|missing", false},
 		{"geth client timeout is a fault, not an observation", `{"code":-32002,"message":"request timed out"}`, "", true},
 		{"internal error is a fault", `{"code":-32603,"message":"panic"}`, "", true},
+		{"response too large is a fault", `{"code":-32003,"message":"response too large"}`, "", true},
+		{"rate limit is a fault", `{"code":-32005,"message":"rate limit exceeded"}`, "", true},
 		{"unrecognized payload is a fault", `{"neither":"result nor error"}`, "", true},
 	}
 	for _, tc := range cases {

@@ -25,12 +25,17 @@ func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
 	return PendingLocal(0)(blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, opts...), byHash: false})
 }
 
+// normalizeBlockIdentity reduces a block object to its comparable identity.
+// Extra fields, including vendor extensions, do not change the key and are
+// not rejected here. Missing number or hash has no identity, so it errors
+// instead of voting. Body checks belong to Admit.
+//
 // normalizeBlockHead reduces a block object to its comparable identity:
 // "<decimal number>|<lowercase hash>". Parsing the height numerically makes
 // equivalent hexadecimal spellings (for example 0x010f and 0x10f) agree.
 // The height is a uint64-shaped quantity, so the shared wire-quantity
-// primitive owns the spelling contract; the required-field checks here are
-// this method's wire semantics.
+// primitive owns the spelling contract. Number and hash are the identity
+// the key is defined on; other body fields are not checked here.
 func normalizeBlockIdentity(value json.RawMessage) (string, error) {
 	if string(value) == "null" {
 		return "null", nil

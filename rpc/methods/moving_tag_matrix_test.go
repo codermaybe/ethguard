@@ -28,6 +28,9 @@ var forbiddenClaims = []string{
 	"light-client proof",
 	"proves finality",
 	"consensus proof",
+	"最终性证明",
+	"典型性证明",
+	"共识证明",
 }
 
 func loadMatrixRows(t *testing.T) [][]string {
@@ -112,5 +115,27 @@ func TestCatalogMatrixInterlock(t *testing.T) {
 		if strings.Contains(row[canonCol], "preserved") && row[testsCol] == "" {
 			t.Fatalf("matrix row %q claims requireCanonical with no assertion", name)
 		}
+	}
+}
+
+func TestMethodContractsForbiddenClaims(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "design", "method-contracts.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(raw)
+	for _, claim := range forbiddenClaims {
+		if strings.Contains(doc, claim) {
+			t.Fatalf("method-contracts contains forbidden claim %q", claim)
+		}
+	}
+	if !strings.Contains(doc, "provider-backed") {
+		t.Fatal("method-contracts lost its provider-backed evidence wording")
+	}
+	if !strings.Contains(doc, "TestNormalizeCallOutcomeSeparatesRevertDataStates") {
+		t.Fatal("method-contracts does not link the revert data-key test")
+	}
+	if !strings.Contains(doc, "TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected") {
+		t.Fatal("method-contracts does not link the block content test")
 	}
 }

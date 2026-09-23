@@ -1658,9 +1658,9 @@ func TestClientCorroboratedRevertIsAnObservation(t *testing.T) {
 }
 
 // TestClientMajorityResolvesCallClassSplit pins how the default mode treats a
-// result/revert split: revert envelopes are a comparable class (decision
-// 0023's protected form is pending), so the split is ordinary dissent and the
-// 2-of-3 result cluster corroborates. Unanimity fails closed on the same split.
+// result/revert split: a revert envelope is a comparable class whose key
+// includes revert data, so the split is ordinary dissent and the 2-of-3
+// result cluster corroborates. Unanimity fails closed on the same split.
 func TestClientMajorityResolvesCallClassSplit(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	agreeOnHead(nodes)

@@ -18,6 +18,16 @@ Wire and object implementations are deliberately outside this directory:
 `rpc/internal/objects` owns shared block, receipt, transaction, log, and fee-history
 semantics. Method files retain only the request binding and policy assembly.
 
+## Four layers
+
+Wire normalization (`rpc/internal/wire`) only chooses a canonical comparison
+form. Object validation (`rpc/internal/objects`) decides required fields.
+Method admission binds a response to its request and runs content checks
+such as block uncle roots and receipt hash or height binding; it does not
+rewrite the comparison key. Typed projection (`call.go` Decode and
+`rpc/projection`) runs after a decision and reports failure as Unknown.
+These layers are not interchangeable.
+
 A policy describes how its method is prepared, normalized, compared,
 anchored, and classified. Initial policy groups are:
 

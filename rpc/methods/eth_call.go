@@ -1,6 +1,8 @@
 package methods
 
 import (
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,15 +14,16 @@ import (
 // MethodCall is the JSON-RPC method name resolved by CallPolicy.
 const MethodCall = "eth_call"
 
-// CallPolicy corroborates eth_call as behavior, not content (ruling 2026-09-04):
-// unanimous execution failure is a corroborated observation, a split between
-// results and reverts is conflict, and the content inside a revert stays out
-// of scope. Concretely, the normalizer collapses every revert-class error to
-// one key, so benign client-to-client differences in revert wording cannot
-// fake dissent, while return data rides the hex-data normalizer. Provider
-// failures that are not execution observations — transport faults, geth's
-// own client-side errors (-32002 timeout, -32003 response too large,
-// -32603 panic), rate limits — ride as faults, never as corroborated outcomes.
+// CallPolicy corroborates eth_call by a data-aware execution key (decisions
+// 0017 and 0023). Successful return data is compared as hex. A revert-class
+// error is compared by its data state — missing, null, empty ("0x"),
+// non-empty hex, or non-hex JSON — so the same provider message cannot hide
+// different data, and those states are not pre-merged. Vendor code (3 versus
+// -32000) and message text stay out of the key; they remain uncorroborated
+// context on the winning envelope. Provider failures that are not execution
+// observations — transport faults, -32002, -32003, -32603, rate limits —
+// ride as faults and never enter a revert key. Agreement is provider-backed
+// evidence of that outcome, not a claim about Ethereum consensus.
 // The block tag at position 1 is rewritten to the corroborated reference.
 // EIP-1898 object forms ride EIP1898BlockRef (see GetBalancePolicy).
 // Pending resolves as a node-local observation (see GetBalancePolicy).
@@ -30,9 +33,9 @@ func CallPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
 }
 
 // normalizeCallOutcome reduces one eth_call answer to a comparable key.
-// Successful return data is compared as hex data; a revert-class protocol
-// error collapses to the constant "reverted" — the corroborated observation is
-// that the call reverted, not the wording of any particular revert message.
+// It canonicalizes return data and revert data. It does not admit the call:
+// a payload with no canonical form errors, and a non-revert protocol error
+// errors so it stays a fault. Method admission is not this function's job.
 func normalizeCallOutcome(value json.RawMessage) (string, error) {
 	var result string
 	if err := json.Unmarshal(value, &result); err == nil {
@@ -42,19 +45,91 @@ func normalizeCallOutcome(value json.RawMessage) (string, error) {
 		}
 		return "ok|" + data, nil
 	}
-	var envelope struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-		Data    string `json:"data"`
-	}
-	if err := json.Unmarshal(value, &envelope); err != nil || (envelope.Code == 0 && envelope.Message == "") {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(value, &fields); err != nil || fields == nil {
 		return "", fmt.Errorf("call outcome: unrecognized payload")
 	}
-	if isRevertObservation(envelope.Code, envelope.Message) ||
-		(envelope.Code == -32000 && envelope.Message == "" && strings.HasPrefix(envelope.Data, "0x")) {
-		return "reverted", nil
+	var code int
+	var message string
+	if raw, ok := fields["code"]; ok {
+		if err := json.Unmarshal(raw, &code); err != nil {
+			return "", fmt.Errorf("call outcome: unrecognized payload")
+		}
 	}
-	return "", fmt.Errorf("call outcome: protocol error %d is not an execution observation", envelope.Code)
+	if raw, ok := fields["message"]; ok && string(bytes.TrimSpace(raw)) != "null" {
+		if err := json.Unmarshal(raw, &message); err != nil {
+			return "", fmt.Errorf("call outcome: unrecognized payload")
+		}
+	}
+	if code == 0 && message == "" {
+		return "", fmt.Errorf("call outcome: unrecognized payload")
+	}
+	state, err := revertDataState(fields)
+	if err != nil {
+		return "", err
+	}
+	if isRevertObservation(code, message) || bareHexRevert(code, message, state) {
+		return "reverted|" + state, nil
+	}
+	return "", fmt.Errorf("call outcome: protocol error %d is not an execution observation", code)
+}
+
+// revertDataState is the data half of a revert key. Missing, JSON null,
+// empty bytes ("0x" in either hex-prefix case), other even-length hex, and
+// non-hex JSON each take a different state. An empty JSON string is not
+// empty bytes.
+func revertDataState(fields map[string]json.RawMessage) (string, error) {
+	raw, ok := fields["data"]
+	if !ok || len(bytes.TrimSpace(raw)) == 0 {
+		return "missing", nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if string(trimmed) == "null" {
+		return "null", nil
+	}
+	var text string
+	if err := json.Unmarshal(trimmed, &text); err == nil {
+		if strings.EqualFold(text, "0x") {
+			return "empty", nil
+		}
+		if canonical, ok := canonicalHexData(text); ok {
+			return "hex:" + canonical, nil
+		}
+		encoded, err := json.Marshal(text)
+		if err != nil {
+			return "", err
+		}
+		return "raw:" + string(encoded), nil
+	}
+	var decoded any
+	if err := json.Unmarshal(trimmed, &decoded); err != nil {
+		return "", fmt.Errorf("call outcome: revert data is not JSON: %w", err)
+	}
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		return "", err
+	}
+	return "raw:" + string(encoded), nil
+}
+
+func canonicalHexData(text string) (string, bool) {
+	if len(text) < 4 || !strings.EqualFold(text[:2], "0x") {
+		return "", false
+	}
+	digits := text[2:]
+	if len(digits)%2 != 0 {
+		return "", false
+	}
+	if _, err := hex.DecodeString(digits); err != nil {
+		return "", false
+	}
+	return "0x" + strings.ToLower(digits), true
+}
+
+// bareHexRevert keeps the historical empty-message -32000 shape, but only
+// when data is hex. A non-hex body is not an execution observation.
+func bareHexRevert(code int, message, state string) bool {
+	return code == -32000 && message == "" && (state == "empty" || strings.HasPrefix(state, "hex:"))
 }
 
 // isRevertObservation classifies revert-class JSON-RPC errors. The geth

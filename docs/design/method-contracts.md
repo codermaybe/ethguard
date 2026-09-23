@@ -17,7 +17,7 @@
 - 分母时间边界：请求前已过滤的来源不进入本次分母；入选后失败的来源保留；下一请求重新筛选（治理文档第 3 节）。
 - 获胜簇的 Value 取簇内最后一个池序成员的原始回答：确定性，但不是“多数负载”，也不承诺由多数派提供。
 - 类型化读取（ethadapter）以 refcontext.RequireCorroborated 强制佐证，Selected 不静默替代（[ethadapter/client.go](../../ethadapter/client.go)、[aggregator/aggregator.go](../../aggregator/aggregator.go)）。
-- Corroborated 表示方法策略得到满足的跨源佐证，不是密码学证明或链上最终性证明（治理文档第 2 节）。
+- Corroborated 表示方法策略得到满足的 provider-backed cross-source evidence，不是 Ethereum consensus，也不是密码学结论（治理文档第 2 节）。
 
 ## 0.1 已接受边界：完整区块内容保护
 
@@ -30,6 +30,8 @@
 验证要求：固定同一块，对真实多源 byNumber/byHash 回答检查编码与字段兼容性，覆盖不同交易类型、空块、withdrawals 和历史叔块；本地篡改测试覆盖替换、删除、重排内容而保留原头部，纯表示差异应在解码后兼容。记录性能，不预设固定开销。现有 soak 的请求形态验证不等于本条已验证。
 
 本条不要求完整 EVM 重执行或轻客户端；内容与头部一致仍不证明区块属于规范链，也不消除多源共同伪造身份的风险。
+
+T04 已用离线样本锁住现有检查，没有把本条收成完备性结论：`internal/rpcsample/testdata/block-receipt-tx` 含空块（空交易、空 uncle）、带 withdrawals 的头、单笔 transaction / receipt、空 receipt 数组，以及 block / receipt / transaction 的 null。白名单外字段不制造分歧，缺必填字段进不了准入，另一块的内容在绑定处失败。空 uncle 列表对空 uncle root 合法，空 receipt 数组对空块合法；这是单份响应的完整性，不是完备性结论。历史叔块样本未采集。测试：`TestRealShapesAgreeAfterPruneAndCaseFold`、`TestMissingRequiredFieldsStayOutOfAdmission`、`TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected`、`TestReceiptFromAnotherTransactionIsRejected`、`TestTypedRealHeaderRejectsAnotherBlocksContent`、`TestTypedReceiptFromAnotherHashIsMalformed`。
 
 ## 0.2 已接受边界：先准入，再裁决
 
@@ -71,25 +73,21 @@
 
 ## 0.4 已接受边界：null 沿用官方语义
 
-状态：2026-09-07 已接受，见 [决策 0022](../decisions.md#0022-preserve-standard-null-semantics-and-adjudicate-mixed-answers-normally)；byNumber 等实现对齐待完成。
+状态：2026-09-07 已接受，见 [决策 0022](../decisions.md#0022-preserve-standard-null-semantics-and-adjudicate-mixed-answers-normally)。区块、receipt、transaction 的 JSON null 已是可比较回答，类型化边界映射为 `ethereum.NotFound`；`eth_getLogs` 的 null 仍是非法回答。测试：`TestNullAnswersStayDistinct`、`TestTypedNullAndEmptyReceiptsStayDistinct`、`TestTypedLogsNullIsMalformed`。
 
 对方法契约允许 null 的对象查询，null 是合法回答。区块查询在 RPC 层保留 null，接受该结果后类型化接口按 Geth 惯例映射为 `ethereum.NotFound`。不新增缺失状态，不猜测同步／裁剪等原因，不补成空对象，也不因合法 null 本身认定来源异常；NotFound 不构成不存在证明。
 
 多源选择与 null 的含义分开：默认 Strict 对 null／有效对象混合返回 ErrConflict；显式 quorum 可接受达到既有门槛的任一簇。单个有效 null 最多为 Selected，不能绕过类型化读取的佐证要求。不因出现一个 null 就提前结束，也不因其他来源有对象就忽略 null。未接受回答按 Uncertain 边界保留。
 
-缺字段、坏格式和方法不允许的 null 仍属准入失败，不与合法 NotFound 混同。下方 byNumber 表记录当前 null 被拒绝的实现现状，不代表目标契约。
+缺字段、坏格式和方法不允许的 null 仍属准入失败，不与合法 NotFound 混同。区块、receipt、transaction 的 null 与空数组不是同一个键；日志 null 不进入比较。这不是 provider 失败，也不是 Unknown 业务裁决；类型化失败返回时 Status 为 Unknown。
 
 ## 0.5 已接受边界：revert 数据保护与兼容验证
 
-状态：2026-09-07 已接受，见 [决策 0023](../decisions.md#0023-revert-data-protection-precedes-provider-error-normalization)；具体等价规则、真实样本验证及实现待完成。
+状态：已实现。比较键区分 data 的缺失、JSON null、空字节（`0x`）、非空 hex 与非 hex JSON。相同文案不能掩盖不同 data。厂商 code（3 与 -32000）和 message 不进入比较键，只保留在获胜信封上，不表示文案已获佐证。传输失败、-32002、-32003、-32603 和限流仍是 fault，不进入 revert 键。`RevertError.Data` 只承接 hex；结构化 data 留在 `DataRaw`，缺失和 null 的 `ErrorData` 为 nil，不伪装成空字节。
 
-保留上游 JSON-RPC 的 code、message、data，不擅自改写。传输失败、协议错误和方法执行错误分开；只有方法契约允许的错误参与裁决，未接受的原始错误可通过 Uncertain 提供。
+见 [决策 0023](../decisions.md#0023-revert-data-protection-precedes-provider-error-normalization)。测试：`TestNormalizeCallOutcomeClustersResultsAndReverts`、`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees`、`TestCallRevertDataConflictIsNotSwallowed`、`TestCallProviderErrorDoesNotEnterRevertKey`、`TestCallRPCErrorRawPreservesDataAbsence`、`TestDecodeCallResultKeepsRevertDataStates`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`。样本：`internal/rpcsample/testdata/revert-data`。该样本只证明 code 3 下缺失、`0x`、`0xdeadbeef` 与 `Error(string)` 同时出现，不是普遍性结论；code -32000 与结构化 data 由单元测试锁定，不在这次样本里。
 
-`eth_call` 必须固定同一区块参考与执行参数后比较。可供业务解码的 revert 字节应受到保护，相同文案不能掩盖不同 data；不预先将 data 缺失、null 和空字节合并，也不因都属于 revert 就视为等价。
-
-厂商 code、文案和包装差异，仅经真实样本论证后纳入明确兼容规则。验证覆盖 `Error(string)`、`Panic(uint256)`、自定义错误、空回滚，以及可能被误判的超时／限流错误。重点核对相同字节在不同包装下能否可靠提取，不同或缺失字节如何影响准入与异见；具体处理尚未定案。
-
-当前实现仍把 revert-class 回答压成同一键，仅比较是否回滚。该事实不表示 data 已获佐证；本条调整决策 0017 的目标边界，不能用“统一 reverted”代替兼容性验证。对外错误表示待具体规则确定后收敛。
+保留上游 JSON-RPC 的 code、message、data，不擅自改写。`eth_call` 仍固定同一区块参考与执行参数后比较。同意一个键是 provider-backed evidence of that data state，不是对 message 的佐证，也不是 Ethereum consensus。
 
 ## 0.6 已接受边界：标准字段与厂商扩展
 

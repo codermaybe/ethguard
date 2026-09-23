@@ -40,8 +40,9 @@ func (p standardProjector) ProjectObservation(value json.RawMessage, observed rp
 	return ProjectStandard(observed, p.fields).Carrier(value)
 }
 
-// ProjectStandard applies a method's standard field declaration to a generic
-// observation. A common field is core only when its path is declared. Common
+// ProjectStandard classifies already-reduced observations into a method's
+// declared fields. It does not admit responses and it does not choose the
+// comparison key. A common field is core only when its path is declared. Common
 // fields outside the declaration become extensions. Required fields absent
 // from Common are reported in Missing; conflicts are preserved for the method
 // policy to decide whether to fail, retry, or degrade.

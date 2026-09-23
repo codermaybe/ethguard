@@ -24,6 +24,8 @@ func (c *Client) Call(ctx context.Context, method string, params ...any) (rpc.De
 // unknownDecision enforces the typed-boundary invariant for scheme B: any
 // error return traveling with a Decision must carry Status Unknown, so
 // ignoring err can never surface Corroborated, Selected, or Forwarded.
+// Decode and projection failures use this path. They are not a business
+// adjudication and must not be reported as Corroborated or Selected.
 // Aggregation failures already arrive Unknown; this clears a success Status
 // when the typed layer (decode, binding, projection) fails after a
 // successful aggregate. It is a no-op on the success path by construction:

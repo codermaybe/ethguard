@@ -1,0 +1,26 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-23T14:17:23.953658365Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s1",
+    "endpoint": "[REDACTED]"
+  },
+  "request_id": "revert-error-string",
+  "method": "eth_call",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"eth_call\",\"params\":[{\"data\":\"0xa9059cbb00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000001\",\"from\":\"0x0000000000000000000000000000000000000000\",\"to\":\"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\"},\"latest\"]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":6,\"error\":{\"code\":3,\"message\":\"execution reverted: ERC20: transfer from the zero address\",\"data\":\"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002545524332303a207472616e736665722066726f6d20746865207a65726f2061646472657373000000000000000000000000000000000000000000000000000000\"}}\n"
+  },
+  "errors": [
+    {
+      "kind": "jsonrpc",
+      "message": "response contains a JSON-RPC error"
+    }
+  ]
+}

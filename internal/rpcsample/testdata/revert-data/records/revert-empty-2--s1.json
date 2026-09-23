@@ -1,0 +1,26 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-23T14:17:22.259467647Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s1",
+    "endpoint": "[REDACTED]"
+  },
+  "request_id": "revert-empty-2",
+  "method": "eth_call",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"eth_call\",\"params\":[{\"to\":\"0x00000000000000000000000000000000000000c0\"},\"latest\",{\"0x00000000000000000000000000000000000000c0\":{\"code\":\"0x60006000fd\"}}]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":3,\"message\":\"execution reverted\"}}\n"
+  },
+  "errors": [
+    {
+      "kind": "jsonrpc",
+      "message": "response contains a JSON-RPC error"
+    }
+  ]
+}
