@@ -119,23 +119,80 @@ func TestCatalogMatrixInterlock(t *testing.T) {
 }
 
 func TestMethodContractsForbiddenClaims(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "design", "method-contracts.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc := string(raw)
-	for _, claim := range forbiddenClaims {
-		if strings.Contains(doc, claim) {
-			t.Fatalf("method-contracts contains forbidden claim %q", claim)
-		}
-	}
+	doc := readRepoDoc(t, filepath.Join("docs", "design", "method-contracts.md"))
+	assertNoForbiddenClaims(t, "method-contracts", doc)
 	if !strings.Contains(doc, "provider-backed") {
 		t.Fatal("method-contracts lost its provider-backed evidence wording")
 	}
-	if !strings.Contains(doc, "TestNormalizeCallOutcomeSeparatesRevertDataStates") {
-		t.Fatal("method-contracts does not link the revert data-key test")
+	for _, name := range []string{
+		"TestNormalizeCallOutcomeSeparatesRevertDataStates",
+		"TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected",
+		"TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout",
+		"TestReferenceEstablishedFreshPerCall",
+		"TestReferenceFailureEvidenceIsUnknownWithObservedAt",
+	} {
+		if !strings.Contains(doc, name) {
+			t.Fatalf("method-contracts does not link %s", name)
+		}
 	}
-	if !strings.Contains(doc, "TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected") {
-		t.Fatal("method-contracts does not link the block content test")
+}
+
+// TestRuntimeEvidenceDocsForbiddenClaims covers the T05 documents that sit
+// outside the method matrix: the decision record, the roadmap section, and
+// the metrics migration comment.
+func TestRuntimeEvidenceDocsForbiddenClaims(t *testing.T) {
+	for _, rel := range []string{
+		filepath.Join("docs", "decisions.md"),
+		filepath.Join("observe", "prometheus", "metrics.go"),
+	} {
+		assertNoForbiddenClaims(t, rel, readRepoDoc(t, rel))
+	}
+	roadmap := readRepoDoc(t, filepath.Join("docs", "design", "project-roadmap.md"))
+	start := strings.Index(roadmap, "## T05：")
+	end := strings.Index(roadmap, "## 暂不推进")
+	if start < 0 || end < start {
+		t.Fatal("roadmap lost the T05 section")
+	}
+	section := roadmap[start:end]
+	assertNoForbiddenClaims(t, "roadmap T05", section)
+	for _, name := range []string{
+		"TestDecisionEventStatusMatchesSuccessClass",
+		"TestDecisionEventFailedStatusForClassifiedErrors",
+		"TestStatusStringSetExcludesFailed",
+		"TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout",
+		"TestReferenceEstablishedFreshPerCall",
+		"TestReferenceFailureEvidenceIsUnknownWithObservedAt",
+		"TestDocumentedDecisionStatusLabelsMatchEmissions",
+		"0038",
+	} {
+		if !strings.Contains(section, name) {
+			t.Fatalf("roadmap T05 does not link %s", name)
+		}
+	}
+	decisions := readRepoDoc(t, filepath.Join("docs", "decisions.md"))
+	if !strings.Contains(decisions, "## 0038.") || !strings.Contains(decisions, "Rejected:") {
+		t.Fatal("decision 0038 is missing or does not record the rejected helper")
+	}
+	metrics := readRepoDoc(t, filepath.Join("observe", "prometheus", "metrics.go"))
+	if !strings.Contains(metrics, "Documented emitted status labels:") {
+		t.Fatal("metrics migration comment lost its status list")
+	}
+}
+
+func readRepoDoc(t *testing.T, rel string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", rel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func assertNoForbiddenClaims(t *testing.T, name, doc string) {
+	t.Helper()
+	for _, claim := range forbiddenClaims {
+		if strings.Contains(doc, claim) {
+			t.Fatalf("%s contains forbidden claim %q", name, claim)
+		}
 	}
 }

@@ -264,6 +264,22 @@ func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
 	return head.Hash, height, nil
 }
 
+// resolveReference establishes the moving reference for this call.
+// Freshness is invocation-local (decision 0026): this function stores
+// nothing for a later call, and it applies no TTL. CachedAnchor still
+// implements a TTL, but Client rejects a non-zero cache duration before
+// that wrapper can be installed, so the call path does not reuse a
+// reference. Caching was rejected because a stored head would be another
+// call's evidence, not this call's establishment.
+//
+// ObservedAt is the establishment time. Tag-aware and strict resolvers
+// set it, including on failure; the hash-only branch below sets it before
+// the resolver call and clears Status to Unknown if that call fails.
+//
+// Failure stays inside Prepare. anchorHashOf and anchorHeightOf publish
+// the evidence, then the anchored policy returns a wrapped anchor error
+// and the aggregator does not fan out the business method. The published
+// evidence keeps Status Unknown and the resolver's Faults.
 func resolveReference(ctx context.Context, resolver AnchorResolver, tag string) (rpc.ReferenceEvidence, error) {
 	if tag != "" && tag != "latest" {
 		if provider, ok := resolver.(AnchorTagProvider); ok {
@@ -317,6 +333,13 @@ func anchorHeightOf(resolver AnchorResolver) rpc.AnchorHeightFunc {
 }
 
 // CachedAnchor retains one complete reference and its evidence for a bounded TTL.
+//
+// Client never installs it. New rejects a non-zero anchor cache duration
+// (decision 0026) before the construction-site wrapper can run, so this
+// type is unreachable from Client. It stays for direct construction and
+// the existing cache tests; do not wire it back into Client, and do not
+// delete it in this cycle. Moving references are established per call,
+// with no reuse and no TTL.
 type CachedAnchor struct {
 	inner      AnchorResolver
 	ttl        time.Duration

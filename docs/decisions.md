@@ -1221,3 +1221,58 @@ local reference reuse remain allowed. Future caching proposals require review.
 Update repository examples, configuration validation and regression tests for
 this behavior. This closes spec-baseline sections 6.2 and 6.4; per-method pending
 support and other explicitly deferred work remain separate.
+
+
+## 0038. Keep corroboration gates explicit instead of a general validity helper
+
+Status: Implemented (2026-09-23; no new helper; `Decision.IsCorroborated` stays a corroborated-only predicate).
+
+Do not add a general evidence-validity helper, and do not migrate the
+internal status checks onto one. `rpc.Status` stays `{Unknown, Corroborated,
+Selected, Forwarded}`. `failed` remains an `observe.DecisionEvent` string,
+not a confidence value.
+
+Inventory of validity judgments:
+
+- `Decision.IsCorroborated(err)` (`rpc/types.go`) is the only helper. It is
+  true only for `err == nil && Status == Corroborated`. Production code does
+  not call it. Tests do: `aggregator/aggregator_test.go` and
+  `rpc/decision_test.go`.
+- Corroboration gates, all of the form `err == nil && status != Corroborated`,
+  then force `Unknown` and `ErrConflict` only on that branch:
+  `anchorHeadPolicy.requireCorroborated`, `anchorHashOf`, `anchorHeightOf`,
+  `Client.AnchorBlockHashForTag`, the typed-read gate in
+  `Aggregator.Aggregate`, `reference.Finalized`'s support check, and
+  `customPolicy.Resolve`. These ask "is this corroborated enough to
+  proceed?", not "is any successful class valid?".
+- Event-layer string comparison: `observe.Log.RecordDecision` checks
+  `Status == "failed"`. `Aggregator.recordDecision` and
+  `reference.Finalized` write that string when the call errors and otherwise
+  copy `Status.String()`. That is the dual model, not an `rpc.Status` check.
+- Different enum: `WriteResult.Accepted` and the hash check in
+  `SendRawTransaction` compare `rpc.WriteAccepted`. That is the write
+  decision, not `rpc.Status`.
+- Producers that assign a status (`unknownDecision`, strict, median,
+  adjudicate, forwarded overwrite) are not judgments of a returned result.
+- `cmd/soak` reports `Status.String()` as an outcome label. It does not
+  decide validity.
+- Test assertions that compare `Status` directly are checks on fixtures,
+  not call-site policy.
+
+Bare comparison is enough when the caller is assigning a class, or already
+knows `err == nil` and is distinguishing success classes, or is a
+corroboration gate that must keep the `err == nil` split visible.
+`IsCorroborated(err)` is required when the caller holds both the decision
+and the error and wants the corroborated claim without a prior error check:
+`Unknown` is the zero value, so `Status` alone can be misread. Production
+gates do not use it, because `!IsCorroborated(err)` is also true for an
+existing non-conflict error and would rewrite that error.
+
+Rejected: add a structured helper (for example `Decision.Valid(err)`:
+non-nil error invalid, `Corroborated` / `Selected` / `Forwarded` valid,
+`Unknown` with a nil error invalid) and migrate every internal judgment to
+it. That helper is a different predicate from the corroboration gates.
+Substituting it would accept `Selected` where those gates must fail closed,
+or, if the gates were rewritten as `!IsCorroborated`, would swallow an
+existing error into `ErrConflict`. A helper with no remaining call site
+would only add a second way to ask a question the gates must not ask.

@@ -61,7 +61,10 @@ type Observation struct {
 // a non-nil error (or an uninitialized value). Successful results are always
 // Corroborated, Selected, or Forwarded, set explicitly by the resolving
 // policy. Failed is never a Status: failures are carried by error returns
-// and the observability event's "failed" string.
+// and the observability event's "failed" string. That string is
+// observe.DecisionEvent.Status, not a value of this enum: the event is
+// "failed" when the call returns an error, and Status.String() otherwise.
+// A failed Decision.Status is Unknown.
 // Corroborated is provider-backed cross-source evidence: independent
 // sources agreeing under the declared support rule. It is not Ethereum
 // consensus, a canonical proof, cryptographic finality, or light-client
@@ -79,6 +82,16 @@ const (
 // Reported finality is provider evidence, not an Ethereum consensus proof.
 // Status follows the same contract as Decision: Unknown with an error,
 // otherwise Corroborated, Selected, or Forwarded set explicitly.
+//
+// Freshness is this call only (decision 0026). The reference is established
+// inside the invocation that needs it and held only for that invocation's
+// dependent reads. There is no cross-call reuse and no TTL: a cache would
+// present another call's head as this call's evidence. ObservedAt is the
+// establishment time for this call, including when establishment fails.
+//
+// Failure is a Prepare-phase error wrapping the anchor cause. The business
+// method is not fanned out. Status stays Unknown, and Faults recorded by
+// the failed establishment stay on this evidence.
 type ReferenceEvidence struct {
 	Tag          string
 	Hash         string
@@ -132,7 +145,10 @@ type Decision struct {
 // Status, so a failed call must never be interpreted from Status alone.
 // It remains a defensive convenience predicate, not the validity model
 // itself: error paths must return Status Unknown, success paths must set
-// Corroborated, Selected, or Forwarded explicitly.
+// Corroborated, Selected, or Forwarded explicitly. Decision 0038 keeps
+// this predicate and does not add a general validity helper. Corroboration
+// gates still write the err == nil split inline so an existing error is
+// not rewritten into a conflict.
 func (d Decision) IsCorroborated(err error) bool {
 	return err == nil && d.Status == Corroborated
 }

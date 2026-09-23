@@ -8,6 +8,38 @@
 //	pm := prometheus.New()
 //	client, err := ethguard.New(cfg, ethguard.WithRecorder(pm))
 //	http.Handle("/metrics", pm.Handler())
+//
+// # Dashboard and alert migration
+//
+// Local dashboards and alerts are outside this repository. This is the
+// label contract they should move to. Metric names, label names, and Help
+// text are unchanged.
+//
+// ethguard_decisions_total status values that are actually emitted:
+//
+//	corroborated  event, metric, and rpc.Status.String(); successful cross-source evidence
+//	selected      event, metric, and rpc.Status.String(); successful weaker class
+//	forwarded     event, metric, and rpc.Status.String(); successful single-source class
+//	failed        event and metric only
+//
+// "failed" is not an rpc.Status value and is never Decision.Status. A failed
+// call is Decision.Status Unknown plus a non-nil error. rpc.Status.String
+// also returns "unknown", but a failed decision is recorded as "failed",
+// not as "unknown". Do not look for a Failed confidence class on the API.
+//
+// Alerts should watch the rate of ethguard_conflicts_total and the rate of
+// ethguard_decisions_total{status="failed"}. Do not alert on the absence of
+// status="corroborated": selected and forwarded are successful classes, and
+// a quiet method is not a failure. Disagreement is conflicts_total (and the
+// event Conflict flag), not a status label. A conflict also increments
+// status="failed"; the disagreement signal itself stays on conflicts_total.
+//
+// Cardinality stays bounded. method is the caller-supplied JSON-RPC name,
+// or the literal "anchor", and is limited by configuration
+// (observe.DecisionEvent.Method). source is the configured endpoint name,
+// never a value taken from a response (observe.SourceEvent.Source).
+//
+// Documented emitted status labels: corroborated, selected, forwarded, failed.
 package prometheus
 
 import (

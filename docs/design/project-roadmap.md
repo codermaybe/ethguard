@@ -17,7 +17,7 @@
 
 ## T03：Execution RPC 语义收口
 
-1. 为 `eth_getLogs` 评估 field-level pending observation；T03-A 保持本地拒绝，该观察尚未实现。
+1. 已评估：`eth_getLogs` field-level pending observation 保持本地拒绝（T03-A），未实现；如需实现单独立项，不属本轮。
 2. `BlockByNumber(-1)` 的 pending typed projection 已在 T03-A 正式保持本地拒绝。
 3. EIP-1898 object 形态样本已收录在 `internal/rpcsample/testdata/eip1898-object`。端点已脱敏。离线测试只重放形状，不把样本写成兼容性结论。
 4. `eth_estimateGas`、`eth_createAccessList` 的对象形态已与 T02 五个 state-read 对齐：移动标签对象改写为 `{blockHash}`，显式对象和 pending 透传，非法对象在 anchor 之前本地拒绝。
@@ -33,10 +33,10 @@
 
 ## T05：运行期证据与可观测性
 
-- 明确 provider-backed reference 的新鲜度和失败语义。
-- 保持 `DecisionEvent` 与 `rpc.Status` 的双模型，不把 `failed` 加进置信状态。
-- 记录 `corroborated` label 迁移对本地 dashboard 和 alert 的影响。
-- 评估是否需要结构化的 evidence validity helper，而不是依赖裸状态比较。
+1. 已完成。provider-backed reference 的新鲜度和失败语义已写成契约：本次调用内建立，无复用、无 TTL（决策 0026）；`ObservedAt` 是本次建立时刻；失败是 Prepare 期错误，包裹 anchor 原因，业务零 fan-out；证据 `Status=Unknown` 且保留 `Faults`。测试：`TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout`、`TestReferenceEstablishedFreshPerCall`、`TestReferenceFailureEvidenceIsUnknownWithObservedAt`。
+2. 已完成。`DecisionEvent` 与 `rpc.Status` 保持双模型，没有把 `failed` 加进置信状态。成功事件串等于 `Status.String()`；conflict、no-valid-response、invalid-request 的事件都是 `failed`，`Conflict` 当且仅当 `ErrConflict`；`Status.String()` 的输出集合恰为 `unknown`、`corroborated`、`selected`、`forwarded`。测试：`TestDecisionEventStatusMatchesSuccessClass`、`TestDecisionEventFailedStatusForClassifiedErrors`、`TestStatusStringSetExcludesFailed`。
+3. 已完成。`corroborated` label 迁移记录在 `observe/prometheus` 包注释：status 四取值、告警看 `conflicts_total` 与 `status="failed"`、method/source 基数界。测试：`TestDocumentedDecisionStatusLabelsMatchEmissions`。
+4. 已完成。不新增通用 evidence validity helper，见决策 0038。裸状态比较与 `IsCorroborated(err)` 的分工已写明；被拒选项是新增结构化 helper 并迁移全部内部判断点。
 
 ## 暂不推进
 

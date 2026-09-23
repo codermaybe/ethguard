@@ -293,6 +293,8 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if co.anchor != nil {
 		resolver = &confirmedAnchor{inner: co.anchor, pool: rpcPool, rec: rec, quorum: co.quorum, timeout: co.collectTimeout}
 	}
+	// Unreachable. A non-zero duration already returned above (decision 0026).
+	// CachedAnchor stays unwired so Client cannot reuse a reference across calls.
 	if co.anchorCache > 0 {
 		resolver = NewCachedAnchor(resolver, co.anchorCache)
 	}

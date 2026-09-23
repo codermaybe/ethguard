@@ -122,13 +122,13 @@ T04 已用离线样本锁住现有检查，没有把本条收成完备性结论�
 
 ## 0.9 已接受边界：每次调用重新建立移动参考
 
-状态：2026-09-07 已接受，见 [决策 0026](../decisions.md#0026-establish-moving-references-afresh-for-each-invocation)；实现对齐待完成。
+状态：2026-09-07 已接受，见 [决策 0026](../decisions.md#0026-establish-moving-references-afresh-for-each-invocation)。T05-1 已把调用内新鲜度与失败语义写成契约。
 
 本轮不跨逻辑调用缓存区块参考或业务结果。方法需要移动参考时，每次向上游重新建立 H，再在该调用内部固定 H 完成读取；显式历史参考仍按其参数语义处理。连接可以复用。
 
 调用内固定 H 解决比较期间参考移动，跨调用缓存 H 只是减少请求的优化，不是保证一致性的必要条件。真实请求也不保证上游已同步到全网最新状态；latest／safe／finalized 与新鲜度规则另行明确。
 
-现有可选缓存代码与配置尚未修改；跨调用缓存退出本轮支持目标，不等于已经删除或决定永久删除。旧配置如何迁移应在实施时明确，不能静默改变用户设置。以后仅在请求成本与限流实测有充分依据时，重新评估显式可选缓存。
+非零 `anchor_cache_ttl` / `WithAnchorCaching` 在构造期拒绝（决策 0026、0037）。`CachedAnchor` 仍保留，但不从 `Client` 接入，也不在本轮删除。每次调用重新建立参考，无跨调用复用、无 TTL；`ObservedAt` 是本次建立时刻。失败是 Prepare 期错误，包裹 anchor 原因，业务请求零 fan-out；证据 `Status=Unknown`，并保留 `Faults`。以后仅在请求成本与限流实测有充分依据时，重新评估显式可选缓存。测试：`TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout`、`TestReferenceEstablishedFreshPerCall`、`TestReferenceFailureEvidenceIsUnknownWithObservedAt`。
 
 ## 0.10 已接受边界：使用方显式管理投票成员
 
