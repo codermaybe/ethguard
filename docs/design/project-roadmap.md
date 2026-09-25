@@ -41,7 +41,8 @@
 ## T06：测试流水线收敛与方法合规（计划中）
 
 标准见 `method-verification-pipeline.md`；本节只记录实施顺序、依赖和出口。
-静态索引可以立即开始，完整 replay / golden 在 WSS anchor 的参考语义稳定后进入主线；读方法批次扩展必须等 T06 核心出口通过。
+`project-roadmap.md` 是唯一持久化计划，不另建执行计划文件。
+T06.0、T06.1 和 Anchor Transport Seam 已完成。下一步是 T06.2 replay；golden、0039 和读方法批次仍依次等待。
 
 ### T06.0 冻结设计约束
 
@@ -63,9 +64,17 @@
 - `Tests` 列已清理 `Prefix*`、`as above` 和自由文本。不扩展 Markdown 解析语法。
 - 列数、非空单元格、catalog 双向覆盖和 forbidden-claims 检查仍在。
 
+### Anchor Transport Seam（T06.2 前置）
+
+依赖：T06.0、T06.1。状态：2026-09-25 已完成。出口：HTTP 与 WSS 共用现有 anchor resolver 和 pool dial，参考语义不按 transport 分叉。
+
+- seam 是 `pool.standardDialer` 加 `collectOne`。resolver 不看 URL scheme。没有第二套 resolver、cache、quorum 或 evidence 类型。说明见 `anchor-transport-seam.md`。
+- `latest`、`safe`、`finalized` 不降级。hash 与 height 来自同一次建立。失败留在 Prepare，业务零 fan-out。每次调用重新建立 reference。
+- 测试：`TestAnchorTransportReferenceMatchesAcrossHTTPAndWSS`、`TestAnchorTransportFailuresMatchAcrossHTTPAndWSS`、`TestAnchorTransportReestablishesEachCall`。进程内 HTTP/WSS，无外部网络。
+
 ### T06.2 Replay 基础设施
 
-依赖：T06.0；端到端 golden 依赖 WSS anchor 的参考语义稳定。出口：同一批样本可以通过 Policy 层和 Aggregator 层重放。
+依赖：T06.0，以及已完成的 Anchor Transport Seam。状态：可以开始；本轮没有提取 replay，也没有新增 `expect.json`。出口：同一批样本可以通过 Policy 层和 Aggregator 层重放。
 
 - 提取 `internal/rpcsample/replay`，合并现有样本加载逻辑，保留每条 record 的 sha256 校验。
 - Policy 层用真实 Policy 构造 `rpc.Observation`，错误响应保留完整 `RPCError` data 形态。
@@ -95,40 +104,34 @@
 
 ### T06.5 扩展读方法批次
 
-依赖：T06.1–T06.4 及 WSS anchor 语义稳定。出口：每个新增 RegisteredMethod 通过标准第 5 节清单，并提交对应样本状态和 golden。
+依赖：T06.1–T06.4。Anchor Transport Seam 已完成，不再单独阻塞本步。出口：每个新增 RegisteredMethod 通过标准第 5 节清单，并提交对应样本状态和 golden。
 
 - 按方法逐项增加 matrix、Policy 测试、admission / normalization 边界、端到端 replay 和 golden。
 - 不为批量扩展新增声明式方法契约或统一生成器；重复行为通过普通 Go helper 和 table-driven tests 复用。
 
-### T06 执行任务图与审计门禁
+### T06 执行顺序与审计门禁
 
-任务依赖和执行者 brief 记录在
-[`project-roadmap-next-map.md`](project-roadmap-next-map.md)。本节是执行约束，防止
-把规划重新解释成一次性大重构。
-
-执行顺序为：
+`project-roadmap.md` 是唯一计划源。`project-roadmap-next-map.md` 已删除，不再使用编号任务地图。
 
 ```text
-#1 设计不变量
- ├── #2 精确 matrix 互锁
- └── #3 HTTP/WSS anchor seam
-          │
-          ▼
-       #4 真实 replay
-          │
-          ▼
-       #5 golden 与批次归档
-          │
-          ▼
-       #6 0039 规则 4e
-          │
-          ▼
-       #7 读方法批次扩展
+T06.0 设计不变量          已完成
+T06.1 matrix 互锁         已完成
+Anchor Transport Seam     已完成，T06.2 的前置
+        |
+        v
+T06.2 replay
+        |
+        v
+T06.3 golden 与批次归档
+        |
+        v
+T06.4 0039 规则 4e
+        |
+        v
+T06.5 读方法批次扩展
 ```
 
-`#2` 可以与 `#3` 并行；`#4` 以前不得批量迁移样本或新增读方法；`#6` 以前不得把
-缺失与 `0x` 合并为同一个比较值。每个任务都必须先提交自己的验收证据，再解除
-后继任务的阻塞。
+T06.2 以前不得批量迁移样本或新增读方法。T06.4 以前不得把缺失与 `0x` 合并为同一个比较值。每个任务先提交自己的验收证据，再解除后继任务。
 
 #### 执行者通用要求
 
@@ -146,20 +149,6 @@
 - 修改样本 record 却没有对应 sha256 / index / golden 变化说明；
 - 将 provider-backed evidence 写成 canonical、finality、consensus 或链上正确性结论；
 - 任务声称完成但没有可复现的 `go test` 命令和失败路径验证。
-
-#### #1 验收提交（2026-09-25）
-
-变更摘要：冻结 T06.0。修订 `architecture-record.md` 的 `Decision.Value` 规则、`rpc.Decision` 注释、决策 0039 状态，以及 `method-contracts.md` 0.3 / 0.5。当前事实与目标语义写在 `method-verification-pipeline.md` 第 1.1 节。`project-roadmap-next-map.md` 随本次 Git 提交入库。没有修改裁决代码、样本或 golden。
-
-此前“已提交”只表示交给审计审阅，不是 Git commit。交付记录以本次 commit 为准。
-
-运行命令：`go test -count=1 ./...`。结果：通过（2026-09-25）。
-
-样本 / golden：无变化。
-
-未解决风险：删减式投影、维度 `Abstain`、`rpctest` 的 `RPCError` helper / 内部 `rpcError` 原样 error-body，以及 `observationRPCError` 的缺失 / `null` 保留，都仍是目标语义。matrix `Tests` 列中的 `as above` 已由 T06.1 清理；其他列里的说明性文字不是测试索引。
-
-解除下一任务的依据：第 1.1 节已经固定方案 (i)、删减边界、无测试 DSL，以及 `rpc.RPCError.Data` 与 `rpctest` 缺口的分工。#2 可以做静态互锁，#3 可以记录 anchor seam；二者都不得提前实现 0039 resolver、迁移 golden 或扩展读方法。交付门禁复审通过前，#2 / #3 继续阻塞。
 
 ## 暂不推进
 
