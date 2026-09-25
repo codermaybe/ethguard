@@ -38,6 +38,67 @@
 3. 已完成。`corroborated` label 迁移记录在 `observe/prometheus` 包注释：status 四取值、告警看 `conflicts_total` 与 `status="failed"`、method/source 基数界。测试：`TestDocumentedDecisionStatusLabelsMatchEmissions`。
 4. 已完成。不新增通用 evidence validity helper，见决策 0038。裸状态比较与 `IsCorroborated(err)` 的分工已写明；被拒选项是新增结构化 helper 并迁移全部内部判断点。
 
+## T06：测试流水线收敛与方法合规（计划中）
+
+标准见 `method-verification-pipeline.md`；本节只记录实施顺序、依赖和出口。
+静态索引可以立即开始，完整 replay / golden 在 WSS anchor 的参考语义稳定后进入主线；读方法批次扩展必须等 T06 核心出口通过。
+
+### T06.0 冻结设计约束
+
+依赖：无。出口：设计记录和标准互相引用，后续任务不再重新讨论这些边界。
+
+- 0039 规则 4e 采用方案 (i)：返回已佐证的 revert 行为，未佐证的 data 通过删减式投影扣除，只在 Uncertain / 审计证据中保留原始字节。
+- 明确 dimension evidence 至少能区分每个维度的 `Support`、`Reject` 和 `Abstain`，golden 同步记录删减字段。
+- 修订 `Decision.Value` 的不变量：允许方法契约声明的删减式投影；禁止新增、替换或跨来源拼装字段。
+- 保持 Policy 组合和真实测试为执行事实；不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`（决策 0040）。
+- 修正 T06 旧描述：`rpc.RPCError` 已有 `Data` 字段，缺口在 `rpctest` 的原样 error-body 返回和转换路径对缺失 / `null` 的保留。
+
+### T06.1 静态互锁
+
+依赖：T06.0。出口：CI 能在 matrix 行与 RegisteredMethod 双向检查，并能确认 `Tests` 列中的每个完整函数名真实存在。
+
+- 用 `go/parser` 扫描仓库内 `func Test*`。
+- 只检查 `moving-tag-matrix.md` 的 `Tests` 列；`method-contracts.md` 与 roadmap 中的测试名保留为说明性引用。
+- 只接受完整测试函数名。清理 matrix 现有的 `Prefix*` 和 `as above`，不再扩展 Markdown 解析语法。
+- 维持现有的列数、非空单元格、catalog 双向覆盖和 forbidden-claims 检查。
+
+### T06.2 Replay 基础设施
+
+依赖：T06.0；端到端 golden 依赖 WSS anchor 的参考语义稳定。出口：同一批样本可以通过 Policy 层和 Aggregator 层重放。
+
+- 提取 `internal/rpcsample/replay`，合并现有样本加载逻辑，保留每条 record 的 sha256 校验。
+- Policy 层用真实 Policy 构造 `rpc.Observation`，错误响应保留完整 `RPCError` data 形态。
+- 端到端层经 `rpctest` 原样返回记录的 JSON-RPC 响应体，走 `Aggregator.Aggregate`，覆盖 Admit 和 typed-read 门禁（0038）。
+- 为 `latest` 请求提供进程内 anchor 应答；禁止外部网络 I/O，允许 `httptest`。
+- `rpctest` 增加缺失 data、`null`、`0x` 和具体 data 的 error-body 表达，避免依靠错误字符串重建响应。
+
+### T06.3 Golden 快照与批次归档
+
+依赖：T06.2。出口：CI 能从批次目录重放并比较 golden，变更必须产生可审阅 diff。
+
+- 按 `testdata/<feature-or-method>/<batch-id>/` 组织批次；每批次保留 `index.json`，不删除 sha256 凭据。
+- `expect.json` 固定 schema 版本、request、mode、floor、成员数 N、每源比较键、准入 Faults、维度证据、删减字段和最终 Decision / error。
+- golden 是数据格式，不包含条件、继承、通配或生成测试逻辑；禁止盲目 `-update`。
+- 采集时尽力记录 `web3_clientVersion`，只作上下文，不能用于 provider / client 归因。
+- 现有三个样本目录迁移到批次布局时保持 record 内容和 record sha256 不变。
+
+### T06.4 决策 0039 落地
+
+依赖：T06.0、T06.2；出口：4e 的所有代表性矩阵和端到端调用通过，文档不再描述旧的扁平键结果。
+
+- 在 `eth_call` 上声明 revert `data` 可弃权，由方法专属多维 resolver 处理；generic Strict 保持单 key 语义。
+- 弃权源留在投票分母，不进 data 的 Reject，不用其他来源的值补全。
+- 短 data 簇采用删减式投影；typed `CallContract` 返回无 data 的 corroborated revert，原始具体 data 仅经 Uncertain / 审计证据可见。
+- 覆盖 N=2、N=3、N=4、全 abstain、具体 data 达到 quorum、具体 data 冲突和 unanimity 模式。
+- 更新 `method-contracts.md` 0.5、matrix 的 eth_call 行、相关现状测试及 golden。
+
+### T06.5 扩展读方法批次
+
+依赖：T06.1–T06.4 及 WSS anchor 语义稳定。出口：每个新增 RegisteredMethod 通过标准第 5 节清单，并提交对应样本状态和 golden。
+
+- 按方法逐项增加 matrix、Policy 测试、admission / normalization 边界、端到端 replay 和 golden。
+- 不为批量扩展新增声明式方法契约或统一生成器；重复行为通过普通 Go helper 和 table-driven tests 复用。
+
 ## 暂不推进
 
 - Ethereum light client、BLS、sync committee、trusted checkpoint。
@@ -48,7 +109,7 @@
 
 ## 每个新方法的进入条件
 
-新增 RegisteredMethod 必须同时提供：
+新增 RegisteredMethod 必须同时提供（逐项核验见 `method-verification-pipeline.md` 第 5 节）：
 
 1. 官方请求和响应契约；
 2. moving-tag / block-reference 处理矩阵；

@@ -1276,3 +1276,135 @@ Substituting it would accept `Selected` where those gates must fail closed,
 or, if the gates were rewritten as `!IsCorroborated`, would swallow an
 existing error into `ErrConflict`. A helper with no remaining call site
 would only add a second way to ask a question the gates must not ask.
+
+## 0039. Treat partial information absence as abstention rather than conflict
+
+Status: Accepted direction (2026-09-24); per-method abstainable-field
+declarations, dimension evidence and implementation pending.
+
+A source that omits a method-declared abstainable sub-dimension of an answer,
+or returns JSON `null` for it, abstains on that sub-dimension. It does not
+assert that the value is absent, empty or different from what another source
+supplied. The first such field is `data` on an `eth_call` revert.
+
+This refines 0023. Missing and null are still not merged into empty bytes;
+they are classified as non-assertions instead of values. For the fields it
+covers, the rules below replace 0023's "no missing-data fallback is accepted
+here". 0017's behavior-level rule is unchanged: a split between results and
+reverts is conflict.
+
+Reason:
+
+T04 split `eth_call` revert keys into `reverted|<state>` (`missing`, `null`,
+`empty`, `hex:<val>`, `raw:<json>`). The committed capture
+(`internal/rpcsample/testdata/revert-data`) sends one request four times to two
+anonymized mainnet endpoints: a state-overridden contract whose code is
+`revert(0, 0)`. s1 omitted `data` all four times. s2 returned `"0x"` three
+times and omitted `data` once. The shape is not stable even within one
+endpoint, so it reflects the serving backend's encoding, not a different
+execution outcome. The capture is anonymized and does not attribute either
+shape to a named provider or client. As distinct keys, any fleet in which
+neither cluster meets quorum on its own, typically two sources, reports
+`ErrConflict` for an empty revert.
+
+Classification. It applies to every method. Only class 4 is new.
+
+1. Representational variance is normalized silently: hex letter case, JSON
+   key order, whitespace, and leading zeros in QUANTITY values. Leading zeros
+   in DATA values are content: `0x00` is not `0x`.
+2. Out-of-scope fields do not enter the comparison key: provider extensions,
+   and envelope parts outside the key such as revert `code` and `message`.
+   They stay on the winning payload as uncorroborated context and remain
+   available through Uncertain (0024, 0034).
+3. Inadmissible answers are recorded as faults and contribute no support:
+   values with no canonical form, missing required fields, and failed request
+   or content binding. Their sources stay in the voting denominator (0020,
+   0025).
+4. Abstention applies only to fields a method contract explicitly declares
+   abstainable. An undeclared missing field is class 3 when required and
+   class 2 when outside the key. Being protocol-optional does not by itself
+   qualify a field (0024).
+   a. The answer is admitted and counts toward the dimensions it does assert.
+      For `eth_call`, that is the fact that execution reverted.
+   b. On the abstained sub-dimension it neither supports nor rejects any
+      value, and it stays in the denominator.
+   c. Concrete values on that sub-dimension are adjudicated among themselves
+      under the invocation's corroboration mode, floor and denominator, like
+      any other key. Abstainers never count toward that quorum. An abstaining
+      answer is never completed with another source's value (0024).
+   d. If every admitted answer abstains, the sub-dimension is absent from the
+      result and the asserted dimensions alone decide the status. For
+      `eth_call`, that is a corroborated revert with no data
+      (`RevertError.Data` nil).
+   e. If concrete values exist but the agreeing cluster falls short of quorum,
+      the result keeps the corroborated asserted dimensions and withholds the
+      uncorroborated sub-dimension from the result value. For `eth_call`, the
+      typed boundary therefore returns the corroborated revert behavior with
+      `RevertError.Data` unset; the concrete bytes remain available only from
+      the invocation's Uncertain or audit evidence. This is a method-declared
+      redaction-only projection: it may remove an uncorroborated field, but it
+      may not add, replace or splice fields from another source. The status is
+      honest about the dimensions it covers; dimension evidence records which
+      sources supported, rejected or abstained on each dimension. A plain
+      downgrade to `Selected` is not used because the typed-read gate would
+      still turn it into `ErrConflict` (0038).
+   f. In unanimity mode, abstention counts as neither agreement nor
+      disagreement.
+5. Asserted conflict, meaning admitted answers carrying different canonical
+   values inside a required comparison dimension, is adjudicated as today. A
+   cluster short of quorum, or any split in unanimity mode, is `ErrConflict`
+   with Support and Reject preserved. For an abstainable sub-dimension, rule
+   4e applies instead: no short concrete cluster is returned as a value.
+   Different envelope shapes (hex versus structured data) remain different
+   values until a sample-backed envelope-equivalence rule is accepted (0023).
+   A conflict says the sources disagree. It does not say which one is right.
+
+Examples, majority mode, floor 2:
+
+- N=3: `0x`, `0x`, missing is a corroborated revert with empty data. The
+  abstainer is not in Reject.
+- N=3: `0xdead`, `0xbeef`, missing is a corroborated revert with data
+  withheld; neither concrete byte string reaches the data quorum.
+- N=3: missing, missing, missing is a corroborated revert with no data.
+- N=3: missing, missing, `0xdead` is a corroborated revert with data withheld;
+  `0xdead` is retained as an uncorroborated data assertion.
+- N=2: `0x`, missing is a corroborated revert with data withheld.
+- N=4: `0x`, `0x`, missing, missing is a corroborated revert with data
+  withheld (Q=3).
+
+Consequences:
+
+- A provider that strips revert data can no longer create dissent against
+  sources that return bytes. It also never vouches for bytes.
+- When an upstream spec adds an optional field, a method contract may declare
+  it abstainable, so older clients that omit it do not generate conflicts.
+  This is a per-method declaration, not automatic.
+- Multi-dimensional keys need a method-specific resolver behind the existing
+  Policy seam; the generic Strict adjudicator keeps its single-key semantics.
+  Evidence must let a caller tell which sources vouched for each returned
+  dimension and which sources abstained.
+
+## 0040. Keep method verification executable; do not add a contract DSL
+
+Status: Accepted (2026-09-24); the standard and roadmap are recorded in
+`docs/design/method-verification-pipeline.md` and
+`docs/design/project-roadmap.md`.
+
+Policy decorator composition and the tests that exercise it remain the
+executable source of method behavior. The moving-tag matrix is a human-facing
+cross-check that tests interlock with the registered method set. Do not add a
+declarative `MethodContract` structure, code generation, or a universal
+`suite.RunAll` runner: the registered methods deliberately differ in
+anchoring, pending routing, admission, normalization, resolution and typed
+projection, so a shared schema would become a second method language.
+
+Sample replay and `expect.json` are versioned test data, not an executable
+language. They may describe requests, source responses, corroboration
+configuration, dimension evidence and expected outcomes, but contain no
+conditionals, inheritance or generated test logic.
+
+The static interlock is intentionally narrow. CI may parse the matrix's
+`Tests` column and check exact `func Test*` names. It does not interpret
+free-form prose, `Prefix*` wildcards or `as above` aliases. Repetition in the
+matrix is preferred to maintaining a Markdown grammar. References in the
+method contracts and roadmap are explanatory links, not a second test index.

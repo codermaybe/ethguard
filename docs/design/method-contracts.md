@@ -87,6 +87,8 @@ T04 已用离线样本锁住现有检查，没有把本条收成完备性结论�
 
 见 [决策 0023](../decisions.md#0023-revert-data-protection-precedes-provider-error-normalization)。测试：`TestNormalizeCallOutcomeClustersResultsAndReverts`、`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees`、`TestCallRevertDataConflictIsNotSwallowed`、`TestCallProviderErrorDoesNotEnterRevertKey`、`TestCallRPCErrorRawPreservesDataAbsence`、`TestDecodeCallResultKeepsRevertDataStates`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`。样本：`internal/rpcsample/testdata/revert-data`。该样本只证明 code 3 下缺失、`0x`、`0xdeadbeef` 与 `Error(string)` 同时出现，不是普遍性结论；code -32000 与结构化 data 由单元测试锁定，不在这次样本里。
 
+已知现状：当前实现给空 revert 的缺失 data 与 `0x` 两个不同的比较键（`reverted|missing` 与 `reverted|empty`）。样本中同一请求（state override 注入 `revert(0, 0)`）s1 四次均缺失 data，s2 三次返回 `0x`、一次缺失；同一端点在相同请求上都不稳定，样本已脱敏，不能归因到具名 provider 或客户端。因此只要两种形态同时出现且没有一簇单独达到门槛（典型是两源配置），无 data 的 revert 就报 `ErrConflict`。这符合决策 0023“不预先等同缺失与 `0x`”的立场，但在混合部署中造成可用性摩擦。演进方向见决策 0039（缺席即弃权）；规则 4e 已选择方案 (i)：实现后返回已佐证的 revert 行为并扣下未佐证 data，当前实现仍待迁移。
+
 保留上游 JSON-RPC 的 code、message、data，不擅自改写。`eth_call` 仍固定同一区块参考与执行参数后比较。同意一个键是 provider-backed evidence of that data state，不是对 message 的佐证，也不是 Ethereum consensus。
 
 ## 0.6 已接受边界：标准字段与厂商扩展
