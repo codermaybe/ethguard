@@ -36,7 +36,7 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
 3. `rpc.RPCError.Raw` 在 `Data` 为 nil 时省略字段，在 `Data` 为 `null` 时保留 JSON null。直接构造可以区分缺失与 null（`TestCallRPCErrorRawPreservesDataAbsence`）。
 4. `rpctest` 的 `RPCError` helper / 内部 `rpcError` 只有 code 与 message。`Node.serve` 写出的 error 对象没有 data 字段，不能原样回放缺失、`null`、`0x` 或具体 data。
 5. `aggregator.observationRPCError` 只在 `ErrorData()` 非 nil 时写入 `Data`。nil 不能同时保留“字段缺失”和 JSON null。
-6. 尚无 `internal/rpcsample/replay` 与 `expect.json`。`moving-tag-matrix.md` 仍有 `as above`；清理属于任务 #2，不在本次修改。
+6. 尚无 `internal/rpcsample/replay` 与 `expect.json`。`moving-tag-matrix.md` 的 `Tests` 列已在 T06.1 清理为完整测试函数名，并由 `go/parser` 检查这些函数真实存在。`method-contracts.md` 与 roadmap 中的测试名仍只是说明性引用。
 
 ---
 
@@ -90,7 +90,7 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
   1. 16 列全部显式声明，不得留空（不适用的写 `n/a`）；
   2. 依赖 `latest` / `safe` / `finalized` 的方法，必须按 matrix 行声明的方式锚定到本次调用建立的 reference（决策 0026）。可以是 hash pin（如 state read 经 `rpc.Anchored`，`eth_getBlockByNumber` 经 `AnchorBlockHashForTag`），也可以是 height pin（如 `eth_getLogs`、`eth_feeHistory`）。不得把移动标签原样发往上游；
   3. 禁止出现 `finality proof`、`canonical proof`、`共识证明` 等越权表述；
-  4. `Tests` 列中的测试名必须经 `go/parser` 静态扫描确认对应的 `func Test*` 真实存在。只接受完整函数名；不解析 `Prefix*` 通配、`as above` 或自由文本。`method-contracts.md` 与 `project-roadmap.md` 中的测试名是说明性引用，不构成第二份测试索引。现状只检查非空，由 T06 补齐。
+  4. `Tests` 列中的测试名必须经 `go/parser` 静态扫描确认对应的 `func Test*` 真实存在。只接受完整函数名；不解析 `Prefix*` 通配、`as above` 或自由文本。`method-contracts.md` 与 `project-roadmap.md` 中的测试名是说明性引用，不构成第二份测试索引。T06.1 已落地该检查，不再只要求单元格非空。
 - **代码实现**：`rpc/methods/moving_tag_matrix_test.go`。
 
 ### 阶段 3：本地准入与拒绝屏障（Local Admission & Rejection）

@@ -56,12 +56,12 @@
 
 ### T06.1 静态互锁
 
-依赖：T06.0。出口：CI 能在 matrix 行与 RegisteredMethod 双向检查，并能确认 `Tests` 列中的每个完整函数名真实存在。
+依赖：T06.0。状态：2026-09-25 已完成。出口：CI 在 matrix 行与 RegisteredMethod 双向检查，并确认 `Tests` 列中的每个完整函数名真实存在。
 
-- 用 `go/parser` 扫描仓库内 `func Test*`。
-- 只检查 `moving-tag-matrix.md` 的 `Tests` 列；`method-contracts.md` 与 roadmap 中的测试名保留为说明性引用。
-- 只接受完整测试函数名。清理 matrix 现有的 `Prefix*` 和 `as above`，不再扩展 Markdown 解析语法。
-- 维持现有的列数、非空单元格、catalog 双向覆盖和 forbidden-claims 检查。
+- `go/parser` 扫描仓库内顶层 `func Test*(t *testing.T)`。名称规则与 Go 的测试发现一致：名字是 `Test`，或 `Test` 之后的首个字符不是小写字母。`TestMain`、方法接收者和 helper 不计入。
+- 只检查 `moving-tag-matrix.md` 的 `Tests` 列。`method-contracts.md` 与 roadmap 中的测试名仍是说明性引用。
+- `Tests` 列已清理 `Prefix*`、`as above` 和自由文本。不扩展 Markdown 解析语法。
+- 列数、非空单元格、catalog 双向覆盖和 forbidden-claims 检查仍在。
 
 ### T06.2 Replay 基础设施
 
@@ -157,7 +157,7 @@
 
 样本 / golden：无变化。
 
-未解决风险：删减式投影、维度 `Abstain`、`rpctest` 的 `RPCError` helper / 内部 `rpcError` 原样 error-body，以及 `observationRPCError` 的缺失 / `null` 保留，都仍是目标语义。matrix 里的 `as above` 留到 #2。
+未解决风险：删减式投影、维度 `Abstain`、`rpctest` 的 `RPCError` helper / 内部 `rpcError` 原样 error-body，以及 `observationRPCError` 的缺失 / `null` 保留，都仍是目标语义。matrix `Tests` 列中的 `as above` 已由 T06.1 清理；其他列里的说明性文字不是测试索引。
 
 解除下一任务的依据：第 1.1 节已经固定方案 (i)、删减边界、无测试 DSL，以及 `rpc.RPCError.Data` 与 `rpctest` 缺口的分工。#2 可以做静态互锁，#3 可以记录 anchor seam；二者都不得提前实现 0039 resolver、迁移 golden 或扩展读方法。交付门禁复审通过前，#2 / #3 继续阻塞。
 

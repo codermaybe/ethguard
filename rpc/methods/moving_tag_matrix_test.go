@@ -1,10 +1,17 @@
 package methods
 
 import (
+	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 )
 
 // matrixColumns is the contract header of docs/design/moving-tag-matrix.md.
@@ -105,6 +112,10 @@ func TestCatalogMatrixInterlock(t *testing.T) {
 	// a row claiming coverage in a support cell without a Tests entry is
 	// an unpinned claim.
 	hashCol, pendingCol, canonCol, testsCol := 4, 8, 9, 14
+	known, err := repoTestFuncNames(moduleRoot(t))
+	if err != nil {
+		t.Fatalf("scan test funcs: %v", err)
+	}
 	for name, row := range byMethod {
 		if strings.Contains(row[hashCol], "yes") && row[testsCol] == "" {
 			t.Fatalf("matrix row %q claims hash support with no test", name)
@@ -114,6 +125,196 @@ func TestCatalogMatrixInterlock(t *testing.T) {
 		}
 		if strings.Contains(row[canonCol], "preserved") && row[testsCol] == "" {
 			t.Fatalf("matrix row %q claims requireCanonical with no assertion", name)
+		}
+		if err := matrixTestColumn(row[testsCol], known); err != nil {
+			t.Fatalf("matrix row %q Tests: %v", name, err)
+		}
+	}
+}
+
+func moduleRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		t.Fatalf("module root %s: %v", root, err)
+	}
+	return root
+}
+
+// repoTestFuncNames scans top-level func Test*(t *testing.T) declarations
+// with go/parser. TestMain, methods, and helpers are not test functions.
+func repoTestFuncNames(root string) (map[string]bool, error) {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "vendor", "testdata":
+				if path != root {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, "_test.go") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return testFuncNames(paths, func(path string) (*ast.File, error) {
+		return parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	})
+}
+
+func testFuncNames(paths []string, parse func(string) (*ast.File, error)) (map[string]bool, error) {
+	known := make(map[string]bool)
+	for _, path := range paths {
+		file, err := parse(path)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+		for _, name := range testFuncNamesIn(file) {
+			known[name] = true
+		}
+	}
+	return known, nil
+}
+
+func testFuncNamesIn(file *ast.File) []string {
+	var names []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil || fn.Name == nil || !isGoTestFunc(fn) {
+			continue
+		}
+		names = append(names, fn.Name.Name)
+	}
+	return names
+}
+
+func isGoTestFunc(fn *ast.FuncDecl) bool {
+	if !isCitableTestName(fn.Name.Name) {
+		return false
+	}
+	if fn.Type.Params == nil || len(fn.Type.Params.List) != 1 {
+		return false
+	}
+	star, ok := fn.Type.Params.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := star.X.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "testing" && sel.Sel.Name == "T"
+}
+
+// matrixTestColumn checks one Tests cell against functions the scanner saw.
+// known is the fixture or the repository scan; this never rewrites the matrix.
+func matrixTestColumn(cell string, known map[string]bool) error {
+	if strings.TrimSpace(cell) == "" {
+		return errors.New("empty Tests cell")
+	}
+	for _, part := range strings.Split(cell, ",") {
+		name := strings.TrimSpace(part)
+		if !isCitableTestName(name) {
+			return fmt.Errorf("%q is not a complete Test function name", name)
+		}
+		if !known[name] {
+			return fmt.Errorf("test func %q is not declared", name)
+		}
+	}
+	return nil
+}
+
+// isCitableTestName is Go's test discovery rule for the Test prefix
+// (cmd/go isTest): the name is "Test", or the first character after "Test"
+// is not a lowercase letter. Test_Example and Test123 qualify; Testhelper
+// does not. The token must also be one Go identifier, so wildcards and
+// notes are not names. TestMain is the test harness hook, not a case.
+func isCitableTestName(name string) bool {
+	if name == "TestMain" || !token.IsIdentifier(name) || !strings.HasPrefix(name, "Test") {
+		return false
+	}
+	rest := name[len("Test"):]
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return !unicode.IsLower(r)
+}
+
+// TestMatrixTestsColumnRejectsMissingAndRenamed proves the interlock fails
+// closed on an in-memory name set. It does not edit moving-tag-matrix.md.
+func TestMatrixTestsColumnRejectsMissingAndRenamed(t *testing.T) {
+	const src = `package fixture
+import "testing"
+type S struct{}
+func Test(t *testing.T) {}
+func TestKept(t *testing.T) {}
+func TestRenamed(t *testing.T) {}
+func Test_Example(t *testing.T) {}
+func Test123(t *testing.T) {}
+func TestMain(m *testing.M) {}
+func Testhelper(t *testing.T) {}
+func helper(t *testing.T) {}
+func (s *S) TestMethod(t *testing.T) {}
+func TestnotATest(t *testing.T) {}
+`
+	known, err := testFuncNames([]string{"mem_test.go"}, func(string) (*ast.File, error) {
+		return parser.ParseFile(token.NewFileSet(), "mem_test.go", src, 0)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Test", "TestKept", "TestRenamed", "Test_Example", "Test123"}
+	if len(known) != len(want) {
+		t.Fatalf("scanner saw %v, want %v", known, want)
+	}
+	for _, name := range want {
+		if !known[name] {
+			t.Fatalf("scanner rejected %s", name)
+		}
+	}
+	for _, name := range []string{"TestMain", "Testhelper", "TestnotATest", "helper", "TestMethod"} {
+		if known[name] {
+			t.Fatalf("scanner accepted %s", name)
+		}
+	}
+	if err := matrixTestColumn("Test, TestKept, Test_Example, Test123", known); err != nil {
+		t.Fatal(err)
+	}
+	if err := matrixTestColumn("Testhelper", known); err == nil {
+		t.Fatal("Testhelper was accepted")
+	}
+	if err := matrixTestColumn("TestMain", known); err == nil {
+		t.Fatal("TestMain was accepted")
+	}
+	if err := matrixTestColumn("TestMissing", known); err == nil {
+		t.Fatal("missing test func was accepted")
+	}
+	if err := matrixTestColumn("TestOldName", known); err == nil {
+		t.Fatal("renamed test func was accepted under its old name")
+	}
+	for _, alias := range []string{
+		"as above",
+		"TestAdapterBlockByHash*",
+		"methods tests",
+		"TestFeeHistoryRejectsHashInNewestBlock (T02)",
+		"eth_feahistory_test.go",
+	} {
+		if err := matrixTestColumn(alias, known); err == nil {
+			t.Fatalf("alias %q was accepted", alias)
 		}
 	}
 }
