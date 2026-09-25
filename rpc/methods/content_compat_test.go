@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"ethguard/internal/rpcsample/replay"
 	"ethguard/rpc"
 	"ethguard/rpc/internal/wire"
 )
@@ -192,44 +192,26 @@ func TestWireNormalizeDoesNotRejectUnknownFields(t *testing.T) {
 
 func sampleResults(t *testing.T, dir, requestID string) []json.RawMessage {
 	t.Helper()
-	root := filepath.Join("..", "..", "internal", "rpcsample", "testdata", dir)
-	indexRaw, err := os.ReadFile(filepath.Join(root, "index.json"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "rpcsample", "testdata", dir, "2026-09-23"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var index struct {
-		Records []struct {
-			RequestID string `json:"request_id"`
-			File      string `json:"file"`
-		} `json:"records"`
-	}
-	if err := json.Unmarshal(indexRaw, &index); err != nil {
-		t.Fatal(err)
-	}
 	var out []json.RawMessage
-	for _, entry := range index.Records {
-		if entry.RequestID != requestID {
+	for _, record := range records {
+		if record.RequestID != requestID {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(entry.File)))
+		_, body, err := replay.BodyOf(record)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var doc struct {
-			Response struct {
-				Body string `json:"body"`
-			} `json:"response"`
-		}
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			t.Fatal(err)
-		}
-		var body struct {
 			Result json.RawMessage `json:"result"`
 		}
-		if err := json.Unmarshal([]byte(doc.Response.Body), &body); err != nil {
+		if err := json.Unmarshal(body, &doc); err != nil {
 			t.Fatal(err)
 		}
-		out = append(out, body.Result)
+		out = append(out, doc.Result)
 	}
 	if len(out) < 2 {
 		t.Fatalf("%s/%s: got %d results", dir, requestID, len(out))

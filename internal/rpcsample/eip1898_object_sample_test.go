@@ -1,13 +1,11 @@
-package rpcsample
+package rpcsample_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"ethguard/internal/rpcsample"
 )
 
 // EIP-1898 object samples live in testdata, not in rpctest and not inline in
@@ -16,49 +14,21 @@ import (
 // carry no URL path or query. Endpoints are removed before the files are
 // written. This test replays that fixture offline. It is not a live
 // recollection and not a provider-compatibility verdict.
-const eip1898SampleDir = "testdata/eip1898-object"
+const eip1898SampleDir = "testdata/eip1898-object/2026-09-23"
 
 func TestEIP1898ObjectSamplesReplayWithoutEndpoints(t *testing.T) {
-	indexRaw, err := os.ReadFile(filepath.Join(eip1898SampleDir, "index.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rejectURL(t, "index.json", indexRaw)
-	var index Index
-	if err := json.Unmarshal(indexRaw, &index); err != nil {
-		t.Fatal(err)
-	}
-	if index.Schema != IndexSchema || index.Network.ChainID != 1 || len(index.Records) == 0 {
+	index, records := loadSampleRecords(t, eip1898SampleDir)
+	if index.Network.ChainID != 1 || len(index.Records) == 0 {
 		t.Fatalf("index header = %+v", index)
 	}
-	byRequest := map[string][]Record{}
-	for _, entry := range index.Records {
-		path := filepath.Join(eip1898SampleDir, filepath.FromSlash(entry.File))
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rejectURL(t, entry.File, raw)
-		sum := sha256.Sum256(raw)
-		if hex.EncodeToString(sum[:]) != entry.SHA256 {
-			t.Fatalf("%s sha256 changed", entry.File)
-		}
-		var record Record
-		if err := json.Unmarshal(raw, &record); err != nil {
-			t.Fatalf("%s: %v", entry.File, err)
-		}
-		if record.Schema != RecordSchema || record.Source.Endpoint != "[REDACTED]" || record.Source.ID == "" {
-			t.Fatalf("%s identity = %+v", entry.File, record.Source)
-		}
-		if record.Method != entry.Method || record.RequestID != entry.RequestID {
-			t.Fatalf("%s index/record mismatch", entry.File)
-		}
-		var wire WireRequest
+	byRequest := map[string][]rpcsample.Record{}
+	for _, record := range records {
+		var wire rpcsample.WireRequest
 		if err := json.Unmarshal([]byte(record.Request), &wire); err != nil {
-			t.Fatalf("%s request: %v", entry.File, err)
+			t.Fatalf("%s request: %v", record.RequestID, err)
 		}
 		if wire.Method != record.Method || !paramsContainObject(wire.Params) {
-			t.Fatalf("%s is not an EIP-1898 object request: %s", entry.File, record.Request)
+			t.Fatalf("%s/%s is not an EIP-1898 object request: %s", record.RequestID, record.Source.ID, record.Request)
 		}
 		byRequest[record.RequestID] = append(byRequest[record.RequestID], record)
 	}
@@ -108,7 +78,7 @@ func paramsContainObject(raw json.RawMessage) bool {
 	return false
 }
 
-func outcome(t *testing.T, record Record) (string, int) {
+func outcome(t *testing.T, record rpcsample.Record) (string, int) {
 	t.Helper()
 	if record.Response.Body == "" {
 		return "empty", 0
@@ -131,7 +101,7 @@ func outcome(t *testing.T, record Record) (string, int) {
 	return "result", 0
 }
 
-func assertResult(t *testing.T, records []Record, min int) {
+func assertResult(t *testing.T, records []rpcsample.Record, min int) {
 	t.Helper()
 	if len(records) == 0 {
 		t.Fatal("missing records")
@@ -147,7 +117,7 @@ func assertResult(t *testing.T, records []Record, min int) {
 	}
 }
 
-func assertAccessListResult(t *testing.T, records []Record, min int) {
+func assertAccessListResult(t *testing.T, records []rpcsample.Record, min int) {
 	t.Helper()
 	n := 0
 	for _, record := range records {
@@ -174,7 +144,7 @@ func assertAccessListResult(t *testing.T, records []Record, min int) {
 	}
 }
 
-func assertJSONRPCCode(t *testing.T, records []Record, code int, min int) {
+func assertJSONRPCCode(t *testing.T, records []rpcsample.Record, code int, min int) {
 	t.Helper()
 	if len(records) == 0 {
 		t.Fatal("missing records")
@@ -191,7 +161,7 @@ func assertJSONRPCCode(t *testing.T, records []Record, code int, min int) {
 	}
 }
 
-func hasClass(t *testing.T, records []Record, want string, code int) bool {
+func hasClass(t *testing.T, records []rpcsample.Record, want string, code int) bool {
 	t.Helper()
 	for _, record := range records {
 		kind, got := outcome(t, record)

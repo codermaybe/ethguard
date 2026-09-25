@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"ethguard"
+	"ethguard/internal/rpcsample/replay"
 	"ethguard/rpc"
 	"ethguard/rpc/methods"
 )
@@ -124,43 +123,25 @@ func TestTypedLogsNullIsMalformed(t *testing.T) {
 
 func sampleResult(t *testing.T, requestID string) json.RawMessage {
 	t.Helper()
-	root := filepath.Join("internal", "rpcsample", "testdata", "block-receipt-tx")
-	indexRaw, err := os.ReadFile(filepath.Join(root, "index.json"))
+	_, records, err := replay.LoadBatch(filepath.Join("internal", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var index struct {
-		Records []struct {
-			RequestID string `json:"request_id"`
-			File      string `json:"file"`
-		} `json:"records"`
-	}
-	if err := json.Unmarshal(indexRaw, &index); err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range index.Records {
-		if entry.RequestID != requestID || !strings.Contains(entry.File, "s1") {
+	for _, record := range records {
+		if record.RequestID != requestID || record.Source.ID != "s1" {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(entry.File)))
+		_, body, err := replay.BodyOf(record)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var doc struct {
-			Response struct {
-				Body string `json:"body"`
-			} `json:"response"`
-		}
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			t.Fatal(err)
-		}
-		var body struct {
 			Result json.RawMessage `json:"result"`
 		}
-		if err := json.Unmarshal([]byte(doc.Response.Body), &body); err != nil {
+		if err := json.Unmarshal(body, &doc); err != nil {
 			t.Fatal(err)
 		}
-		return body.Result
+		return doc.Result
 	}
 	t.Fatalf("missing %s", requestID)
 	return nil

@@ -24,8 +24,10 @@ import (
 
 const replayHeadHash = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+const sampleBatchID = "2026-09-23"
+
 func batchDir(feature string) string {
-	return filepath.Join("..", "testdata", feature)
+	return filepath.Join("..", "testdata", feature, sampleBatchID)
 }
 
 func TestSameFixtureReplaysThroughPolicyAndAggregator(t *testing.T) {

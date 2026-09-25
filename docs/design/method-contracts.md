@@ -31,7 +31,7 @@
 
 本条不要求完整 EVM 重执行或轻客户端；内容与头部一致仍不证明区块属于规范链，也不消除多源共同伪造身份的风险。
 
-T04 已用离线样本锁住现有检查，没有把本条收成完备性结论：`internal/rpcsample/testdata/block-receipt-tx` 含空块（空交易、空 uncle）、带 withdrawals 的头、单笔 transaction / receipt、空 receipt 数组，以及 block / receipt / transaction 的 null。白名单外字段不制造分歧，缺必填字段进不了准入，另一块的内容在绑定处失败。空 uncle 列表对空 uncle root 合法，空 receipt 数组对空块合法；这是单份响应的完整性，不是完备性结论。历史叔块样本未采集。测试：`TestRealShapesAgreeAfterPruneAndCaseFold`、`TestMissingRequiredFieldsStayOutOfAdmission`、`TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected`、`TestReceiptFromAnotherTransactionIsRejected`、`TestTypedRealHeaderRejectsAnotherBlocksContent`、`TestTypedReceiptFromAnotherHashIsMalformed`。
+T04 已用离线样本锁住现有检查，没有把本条收成完备性结论：`internal/rpcsample/testdata/block-receipt-tx/2026-09-23` 含空块（空交易、空 uncle）、带 withdrawals 的头、单笔 transaction / receipt、空 receipt 数组，以及 block / receipt / transaction 的 null。白名单外字段不制造分歧，缺必填字段进不了准入，另一块的内容在绑定处失败。空 uncle 列表对空 uncle root 合法，空 receipt 数组对空块合法；这是单份响应的完整性，不是完备性结论。历史叔块样本未采集。测试：`TestRealShapesAgreeAfterPruneAndCaseFold`、`TestMissingRequiredFieldsStayOutOfAdmission`、`TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected`、`TestReceiptFromAnotherTransactionIsRejected`、`TestTypedRealHeaderRejectsAnotherBlocksContent`、`TestTypedReceiptFromAnotherHashIsMalformed`。
 
 ## 0.2 已接受边界：先准入，再裁决
 
@@ -85,7 +85,7 @@ T04 已用离线样本锁住现有检查，没有把本条收成完备性结论�
 
 状态：已实现。比较键区分 data 的缺失、JSON null、空字节（`0x`）、非空 hex 与非 hex JSON。相同文案不能掩盖不同 data。厂商 code（3 与 -32000）和 message 不进入比较键，只保留在获胜信封上，不表示文案已获佐证。传输失败、-32002、-32003、-32603 和限流仍是 fault，不进入 revert 键。`RevertError.Data` 只承接 hex；结构化 data 留在 `DataRaw`，缺失和 null 的 `ErrorData` 为 nil，不伪装成空字节。
 
-见 [决策 0023](../decisions.md#0023-revert-data-protection-precedes-provider-error-normalization)。测试：`TestNormalizeCallOutcomeClustersResultsAndReverts`、`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees`、`TestCallRevertDataConflictIsNotSwallowed`、`TestCallProviderErrorDoesNotEnterRevertKey`、`TestCallRPCErrorRawPreservesDataAbsence`、`TestDecodeCallResultKeepsRevertDataStates`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`。样本：`internal/rpcsample/testdata/revert-data`。该样本只证明 code 3 下缺失、`0x`、`0xdeadbeef` 与 `Error(string)` 同时出现，不是普遍性结论；code -32000 与结构化 data 由单元测试锁定，不在这次样本里。
+见 [决策 0023](../decisions.md#0023-revert-data-protection-precedes-provider-error-normalization)。测试：`TestNormalizeCallOutcomeClustersResultsAndReverts`、`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees`、`TestCallRevertDataConflictIsNotSwallowed`、`TestCallProviderErrorDoesNotEnterRevertKey`、`TestCallRPCErrorRawPreservesDataAbsence`、`TestDecodeCallResultKeepsRevertDataStates`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`。样本：`internal/rpcsample/testdata/revert-data/2026-09-23`。该样本只证明 code 3 下缺失、`0x`、`0xdeadbeef` 与 `Error(string)` 同时出现，不是普遍性结论；code -32000 与结构化 data 由单元测试锁定，不在这次样本里。
 
 已知现状：当前实现给空 revert 的缺失 data 与 `0x` 两个不同的比较键（`reverted|missing` 与 `reverted|empty`）。样本中同一请求（state override 注入 `revert(0, 0)`）s1 四次均缺失 data，s2 三次返回 `0x`、一次缺失；同一端点在相同请求上都不稳定，样本已脱敏，不能归因到具名 provider 或客户端。因此只要两种形态同时出现且没有一簇单独达到门槛（典型是两源配置），无 data 的 revert 就报 `ErrConflict`。这符合决策 0023“不预先等同缺失与 `0x`”的立场，但在混合部署中造成可用性摩擦。演进方向见决策 0039（缺席即弃权）；规则 4e 已选择并冻结方案 (i)：目标是返回已佐证的 revert 行为并扣下未佐证 data，`Decision.Value` 只允许这种删减，不允许新增、替换或跨来源拼装。当前实现仍待迁移，见 `method-verification-pipeline.md` 第 1.1 节。
 

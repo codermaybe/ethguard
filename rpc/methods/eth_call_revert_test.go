@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"ethguard/internal/rpcsample/replay"
 	"ethguard/rpc"
 )
 
@@ -130,45 +130,27 @@ func rpcErrorObs(id string, code int, message, data string) rpc.Observation {
 }
 
 func TestRevertSamplesUseDistinctDataKeys(t *testing.T) {
-	root := filepath.Join("..", "..", "internal", "rpcsample", "testdata", "revert-data")
-	keys := map[string]map[string]bool{}
-	indexRaw, err := os.ReadFile(filepath.Join(root, "index.json"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "rpcsample", "testdata", "revert-data", "2026-09-23"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var index struct {
-		Records []struct {
-			RequestID string `json:"request_id"`
-			File      string `json:"file"`
-		} `json:"records"`
-	}
-	if err := json.Unmarshal(indexRaw, &index); err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range index.Records {
-		raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(entry.File)))
+	keys := map[string]map[string]bool{}
+	for _, record := range records {
+		_, body, err := replay.BodyOf(record)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var doc struct {
-			Response struct {
-				Body string `json:"body"`
-			} `json:"response"`
-		}
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			t.Fatal(err)
-		}
-		var body struct {
 			Error json.RawMessage `json:"error"`
 		}
-		if err := json.Unmarshal([]byte(doc.Response.Body), &body); err != nil || len(body.Error) == 0 {
-			t.Fatalf("%s: %v", entry.File, err)
+		if err := json.Unmarshal(body, &doc); err != nil || len(doc.Error) == 0 {
+			t.Fatalf("%s/%s: %v", record.RequestID, record.Source.ID, err)
 		}
-		key, err := normalizeCallOutcome(body.Error)
+		key, err := normalizeCallOutcome(doc.Error)
 		if err != nil {
-			t.Fatalf("%s: %v", entry.File, err)
+			t.Fatalf("%s/%s: %v", record.RequestID, record.Source.ID, err)
 		}
-		group := entry.RequestID
+		group := record.RequestID
 		if strings.HasPrefix(group, "revert-empty") {
 			group = "revert-empty"
 		}

@@ -36,7 +36,7 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
 3. `rpc.RPCError.Raw` 在 `Data` 为 nil 时省略字段，在 `Data` 为 `null` 时保留 JSON null。直接构造可以区分缺失与 null（`TestCallRPCErrorRawPreservesDataAbsence`）。
 4. `rpctest.FailWithData` 可以原样表达 data 缺失、JSON `null`、`0x` 和具体 data。`present == false` 不写 `data`；`present == true` 原样写入，包括 `null`。旧的 `Fail` / `RPCError` 仍然只有 code 与 message。
 5. HTTP 收集在 geth 把缺失和 JSON `null` 都解成 nil 之前保留原始 error 对象。`observationRPCError` 因此把字段缺失记为 `Data == nil`，把 JSON `null` 记为 `Data` 为 `null`。没有这份原始对象时仍走 `ErrorData()`；当前 WSS 帧属于这种情况，不能区分缺失和 `null`。
-6. `internal/rpcsample/replay` 按记录文件的原始字节校验 sha256，并还原响应体。当时尚无 `expect.json`。WSS 上缺失与 `null` 的坍缩仍在。`moving-tag-matrix.md` 的 `Tests` 列已在 T06.1 清理为完整测试函数名，并由 `go/parser` 检查这些函数真实存在。`method-contracts.md` 与 roadmap 中的测试名仍只是说明性引用。
+6. `internal/rpcsample/replay` 按记录文件的原始字节校验 sha256，并还原响应体。三份现有样本已迁入 `<feature>/2026-09-23/`。`revert-data` 有 `expect.json`（schema `ethguard.expect/v1`，`transport: http`）。Abstain 与删减字段仍为空，因为 0039 未实现；缺失与 `0x` 仍是不同比较键。`block-receipt-tx` 与 `eip1898-object` 尚无 golden。WSS 上缺失与 `null` 的坍缩仍在。`moving-tag-matrix.md` 的 `Tests` 列已在 T06.1 清理为完整测试函数名，并由 `go/parser` 检查这些函数真实存在。`method-contracts.md` 与 roadmap 中的测试名仍只是说明性引用。
 
 ---
 

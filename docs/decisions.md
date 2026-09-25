@@ -1302,7 +1302,7 @@ Reason:
 
 T04 split `eth_call` revert keys into `reverted|<state>` (`missing`, `null`,
 `empty`, `hex:<val>`, `raw:<json>`). The committed capture
-(`internal/rpcsample/testdata/revert-data`) sends one request four times to two
+(`internal/rpcsample/testdata/revert-data/2026-09-23`) sends one request four times to two
 anonymized mainnet endpoints: a state-overridden contract whose code is
 `revert(0, 0)`. s1 omitted `data` all four times. s2 returned `"0x"` three
 times and omitted `data` once. The shape is not stable even within one

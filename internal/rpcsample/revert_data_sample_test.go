@@ -1,12 +1,13 @@
-package rpcsample
+package rpcsample_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"ethguard/internal/rpcsample"
+	"ethguard/internal/rpcsample/replay"
 )
 
 // Revert-data samples are an offline replay of one capture from two mainnet
@@ -14,12 +15,15 @@ import (
 // with data missing, with "0x", and with non-empty hex. They are not a
 // census and do not show code -32000 or structured data; those shapes are
 // locked by method tests, not by this fixture.
-const revertSampleDir = "testdata/revert-data"
+//
+// The old in-package sha256 loader is frozen. New reads go through
+// replay.LoadBatch so record bytes have one checksum path.
+const revertSampleDir = "testdata/revert-data/2026-09-23"
 
 func TestRevertDataSamplesReplayWithoutEndpoints(t *testing.T) {
-	records := loadSampleRecords(t, revertSampleDir)
-	byRequest := map[string][]Record{}
-	var empty []Record
+	_, records := loadSampleRecords(t, revertSampleDir)
+	byRequest := map[string][]rpcsample.Record{}
+	var empty []rpcsample.Record
 	for _, record := range records {
 		byRequest[record.RequestID] = append(byRequest[record.RequestID], record)
 		if len(record.RequestID) >= len("revert-empty") && record.RequestID[:len("revert-empty")] == "revert-empty" {
@@ -38,7 +42,7 @@ func TestRevertDataSamplesReplayWithoutEndpoints(t *testing.T) {
 	}
 }
 
-func hasRevertData(t *testing.T, records []Record, want string) bool {
+func hasRevertData(t *testing.T, records []rpcsample.Record, want string) bool {
 	t.Helper()
 	for _, record := range records {
 		if revertData(t, record) == want && revertMessage(t, record) == "execution reverted" {
@@ -48,7 +52,7 @@ func hasRevertData(t *testing.T, records []Record, want string) bool {
 	return false
 }
 
-func assertRevertData(t *testing.T, records []Record, want string, min int) {
+func assertRevertData(t *testing.T, records []rpcsample.Record, want string, min int) {
 	t.Helper()
 	n := 0
 	for _, record := range records {
@@ -61,7 +65,7 @@ func assertRevertData(t *testing.T, records []Record, want string, min int) {
 	}
 }
 
-func assertRevertPrefix(t *testing.T, records []Record, prefix string, min int) {
+func assertRevertPrefix(t *testing.T, records []rpcsample.Record, prefix string, min int) {
 	t.Helper()
 	n := 0
 	for _, record := range records {
@@ -75,12 +79,12 @@ func assertRevertPrefix(t *testing.T, records []Record, prefix string, min int) 
 	}
 }
 
-func revertMessage(t *testing.T, record Record) string {
+func revertMessage(t *testing.T, record rpcsample.Record) string {
 	t.Helper()
 	return revertError(t, record).Message
 }
 
-func revertData(t *testing.T, record Record) string {
+func revertData(t *testing.T, record rpcsample.Record) string {
 	t.Helper()
 	err := revertError(t, record)
 	if len(err.Data) == 0 || string(err.Data) == "null" {
@@ -99,7 +103,7 @@ type sampleError struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-func revertError(t *testing.T, record Record) sampleError {
+func revertError(t *testing.T, record rpcsample.Record) sampleError {
 	t.Helper()
 	var doc struct {
 		Error *sampleError `json:"error"`
@@ -110,11 +114,11 @@ func revertError(t *testing.T, record Record) sampleError {
 	return *doc.Error
 }
 
-const objectSampleDir = "testdata/block-receipt-tx"
+const objectSampleDir = "testdata/block-receipt-tx/2026-09-23"
 
 func TestBlockReceiptTxSamplesReplayWithoutEndpoints(t *testing.T) {
-	records := loadSampleRecords(t, objectSampleDir)
-	byRequest := map[string][]Record{}
+	_, records := loadSampleRecords(t, objectSampleDir)
+	byRequest := map[string][]rpcsample.Record{}
 	for _, record := range records {
 		if record.Network.Fork != "unspecified" || record.Network.ChainID != 1 {
 			t.Fatalf("%s network = %+v", record.RequestID, record.Network)
@@ -147,7 +151,7 @@ func TestBlockReceiptTxSamplesReplayWithoutEndpoints(t *testing.T) {
 	}
 }
 
-func assertJSONNull(t *testing.T, records []Record, min int) {
+func assertJSONNull(t *testing.T, records []rpcsample.Record, min int) {
 	t.Helper()
 	n := 0
 	for _, record := range records {
@@ -160,7 +164,7 @@ func assertJSONNull(t *testing.T, records []Record, min int) {
 	}
 }
 
-func resultText(t *testing.T, record Record) string {
+func resultText(t *testing.T, record rpcsample.Record) string {
 	t.Helper()
 	var doc struct {
 		Result json.RawMessage `json:"result"`
@@ -171,40 +175,28 @@ func resultText(t *testing.T, record Record) string {
 	return string(doc.Result)
 }
 
-func loadSampleRecords(t *testing.T, dir string) []Record {
+func loadSampleRecords(t *testing.T, dir string) (rpcsample.Index, []rpcsample.Record) {
 	t.Helper()
 	indexRaw, err := os.ReadFile(filepath.Join(dir, "index.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	rejectURL(t, dir+"/index.json", indexRaw)
-	var index Index
-	if err := json.Unmarshal(indexRaw, &index); err != nil {
+	index, records, err := replay.LoadBatch(dir)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if index.Schema != IndexSchema || len(index.Records) == 0 {
-		t.Fatalf("%s index header = %+v", dir, index)
-	}
-	var records []Record
 	for _, entry := range index.Records {
-		path := filepath.Join(dir, filepath.FromSlash(entry.File))
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(entry.File)))
 		if err != nil {
 			t.Fatal(err)
 		}
 		rejectURL(t, entry.File, raw)
-		sum := sha256.Sum256(raw)
-		if hex.EncodeToString(sum[:]) != entry.SHA256 {
-			t.Fatalf("%s sha256 changed", entry.File)
-		}
-		var record Record
-		if err := json.Unmarshal(raw, &record); err != nil {
-			t.Fatal(err)
-		}
-		if record.Source.Endpoint != "[REDACTED]" || record.Schema != RecordSchema {
-			t.Fatalf("%s identity = %+v", entry.File, record.Source)
-		}
-		records = append(records, record)
 	}
-	return records
+	for _, record := range records {
+		if record.Source.Endpoint != "[REDACTED]" || record.Source.ID == "" {
+			t.Fatalf("%s/%s identity = %+v", record.RequestID, record.Source.ID, record.Source)
+		}
+	}
+	return index, records
 }

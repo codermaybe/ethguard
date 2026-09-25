@@ -19,15 +19,15 @@
 
 1. 已评估：`eth_getLogs` field-level pending observation 保持本地拒绝（T03-A），未实现；如需实现单独立项，不属本轮。
 2. `BlockByNumber(-1)` 的 pending typed projection 已在 T03-A 正式保持本地拒绝。
-3. EIP-1898 object 形态样本已收录在 `internal/rpcsample/testdata/eip1898-object`。端点已脱敏。离线测试只重放形状，不把样本写成兼容性结论。
+3. EIP-1898 object 形态样本已收录在 `internal/rpcsample/testdata/eip1898-object/2026-09-23`。端点已脱敏。离线测试只重放形状，不把样本写成兼容性结论。
 4. `eth_estimateGas`、`eth_createAccessList` 的对象形态已与 T02 五个 state-read 对齐：移动标签对象改写为 `{blockHash}`，显式对象和 pending 透传，非法对象在 anchor 之前本地拒绝。
 5. `eth_getLogs` 的 hash / pending / 范围字段保持 T03-A：pending 本地拒绝，`blockHash` 与范围字段互斥。没有改成已支持 pending。
 6. `method-contracts.md`、moving-tag matrix 与上述代码一致。matrix 的可执行来源仍是测试；文档只作对照。
 
 ## T04：内容与错误兼容性
 
-1. revert data 比较键已区分缺失、null、空字节、非空 hex 与非 hex JSON。样本 `internal/rpcsample/testdata/revert-data`。测试：`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestCallRevertDataConflictIsNotSwallowed`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`。
-2. block / receipt / transaction 的真实形态在 `internal/rpcsample/testdata/block-receipt-tx`。白名单外字段不制造分歧，缺必填字段不进入准入，另一块内容绑定失败。测试：`TestRealShapesAgreeAfterPruneAndCaseFold`、`TestMissingRequiredFieldsStayOutOfAdmission`、`TestTypedRealHeaderRejectsAnotherBlocksContent`。
+1. revert data 比较键已区分缺失、null、空字节、非空 hex 与非 hex JSON。样本 `internal/rpcsample/testdata/revert-data/2026-09-23`。测试：`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestCallRevertDataConflictIsNotSwallowed`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`。
+2. block / receipt / transaction 的真实形态在 `internal/rpcsample/testdata/block-receipt-tx/2026-09-23`。白名单外字段不制造分歧，缺必填字段不进入准入，另一块内容绑定失败。测试：`TestRealShapesAgreeAfterPruneAndCaseFold`、`TestMissingRequiredFieldsStayOutOfAdmission`、`TestTypedRealHeaderRejectsAnotherBlocksContent`。
 3. wire、admission、content check 与 typed projection 分开。空 uncle 列表和空 receipt 数组保持合法。测试：`TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected`、`TestAdmitDoesNotChangeComparisonKey`、`TestWireNormalizeDoesNotRejectUnknownFields`、`TestTypedReceiptFromAnotherHashIsMalformed`。
 4. 同值响应仍只写成 provider-backed evidence。`TestMethodContractsForbiddenClaims` 与 matrix 的 forbiddenClaims 互锁。
 
@@ -42,7 +42,7 @@
 
 标准见 `method-verification-pipeline.md`；本节只记录实施顺序、依赖和出口。
 `project-roadmap.md` 是唯一持久化计划，不另建执行计划文件。
-T06.0、T06.1、Anchor Transport Seam 和 T06.2 已验收。下一步是 T06.3；golden、0039 和读方法批次仍依次等待。
+T06.0、T06.1、Anchor Transport Seam、T06.2 和 T06.3 已验收，并且 T06.2、T06.3 已分两次提交。T06.3 含批次布局、首个 expect、读取器改走 `LoadBatch`，以及文档路径和 matrix `Tests` 列。0039 和读方法批次仍依次等待。T06.4 尚未开始。
 
 ### T06.0 冻结设计约束
 
@@ -74,7 +74,7 @@ T06.0、T06.1、Anchor Transport Seam 和 T06.2 已验收。下一步是 T06.3�
 
 ### T06.2 Replay 基础设施
 
-依赖：T06.0，以及已完成的 Anchor Transport Seam。状态：2026-09-25 已验收，工作区待提交。出口已满足：同一批样本可以通过 Policy 层和 Aggregator 层重放。没有新增 `expect.json`。
+依赖：T06.0，以及已完成的 Anchor Transport Seam。状态：2026-09-25 已验收，已提交。出口已满足：同一批样本可以通过 Policy 层和 Aggregator 层重放。没有新增 `expect.json`。
 
 - 已提取 `internal/rpcsample/replay`。`LoadBatch` 按记录文件的原始字节校验 sha256，篡改单字节即失败。`BodyOf` 只还原响应体，不做裁决。
 - Policy 层用真实 `CallPolicy`、`TransactionByHashPolicy` 和 `ChainIDPolicy` 构造 `rpc.Observation`。错误响应保留缺失、JSON `null`、`0x` 和具体 data，不把缺失与 `0x` 合成同一个比较值。
@@ -82,23 +82,53 @@ T06.0、T06.1、Anchor Transport Seam 和 T06.2 已验收。下一步是 T06.3�
 - `latest` 使用进程内 anchor。`eth_getBlockByNumber` 仍请求 `latest`，`eth_call` 改写到本次 hash。无外部网络。
 - 已接受的范围例外：geth 把 error data 解成 `interface{}`，缺失和 JSON `null` 在进入 `observationRPCError` 之前都变成 nil。HTTP/HTTPS 因此在 `pool/rawbody.go` 增加 capturing transport，`pool/pool.go` 的 `standardDialer` 和 `pool/collect.go` 的 `collectOne` 保留原始 data。`preservedDataError` 只暴露 `ErrorDataJSON`，不实现 geth `DataError`，`RevertErrorData` 仍落到内部 geth 错误。只包 `http`/`https`；WSS 仍走原来的 `ethclient.DialContext`。这不是第二套 resolver、cache、quorum 或 evidence。
 - WSS 没有原始帧，缺失与 `null` 仍坍缩。四态只在 HTTP 上成立。`rpctest` 仍没有 WSS 节点。
-- 旧 `*_sample_test.go` 的本地 sha256 loader 在 T06.2 结束时尚未删除。
+- 旧 `*_sample_test.go` 的本地 sha256 loader 在 T06.2 结束时尚未删除。T06.3 已停用该入口，样本读取只经 `replay.LoadBatch`。
 - `safe` / `finalized` 矩阵本轮未重跑，留到 T06.5 方法批次前。business 零 fan-out 未单列重验；anchor transport 全量测试仍绿。T06.3 若改 anchor 或 pool 错误路径，必须重跑那一组。
 - 证明测试：`TestSameFixtureReplaysThroughPolicyAndAggregator`、`TestReplayErrorDataStatesStayDistinct`、`TestReplayTypedReadGateRejectsUncorroboratedCall`、`TestReplayChainIDAgreesWithoutAnchor`、`TestLoadBatchRejectsChangedRecordBytes`。样本 record 与 sha256 未变。
 
 ### T06.3 Golden 快照与批次归档
 
-依赖：T06.2。出口：CI 能从批次目录重放并比较 golden，变更必须产生可审阅 diff。
+依赖：T06.2。状态：2026-09-25 已验收，已提交。T06.2 的双层重放出口已满足。出口：CI 能从批次目录重放并比较 golden，变更必须产生可审阅 diff。本提交不开始 T06.4，也不再改 `expect.json`。
 
-- 按 `testdata/<feature-or-method>/<batch-id>/` 组织批次；每批次保留 `index.json`，不删除 sha256 凭据。
-- `expect.json` 固定 schema 版本、request、mode、floor、成员数 N、每源比较键、准入 Faults、维度证据、删减字段和最终 Decision / error。
+已落地，尚未验收：
+
+- `revert-data`、`block-receipt-tx`、`eip1898-object` 原样迁入 `testdata/<feature>/2026-09-23/`。`index.json` 与 record 字节、sha256 未改。每批新增 `batch.json`。`web3_clientVersion` 与区块高度都没有采集，记为 null，只说明缺上下文，不作 provider / client 归因。
+- 首个 golden 是 `internal/rpcsample/testdata/revert-data/2026-09-23/expect.json`（`ethguard.expect/v1`）。它钉住 request、majority、floor 2、N=2、每源比较键、准入 Faults、execution 维度的 Support / Reject / Abstain、删减字段、Decision / error，以及 `transport: http`。缺失与 `0x` 仍是不同键，短簇是 conflict。Abstain 为空，reductive 为 false，因为没有做 0039。
+- `block-receipt-tx` 与 `eip1898-object` 还没有 `expect.json`。不得用这份 HTTP golden 断言 WSS。
+- 旧样本测试不再自带 sha256 loader。`TestRevertDataBatchMatchesExpect` 走 Policy 与 Aggregator，并在 Corroborated 结果上再过 typed-read 门禁。`TestExpectTamperProducesReviewableDiff` 证明篡改会打出 diff。`TestExpectTransportRejectsWSS` 拒绝把 HTTP golden 用到 WSS。`TestBatchLayoutKeepsIndexAndOmitsLaterGoldens` 钉住三份 `batch.json` 的 null 上下文，并确认另外两批没有 `expect.json`。
+- 读取器已停用本地 sha256 loader，只经 `replay.LoadBatch`：`content_boundary_test.go`、`rpc/methods/content_compat_test.go`、`rpc/methods/eth_call_revert_test.go`、`internal/rpcsample/revert_data_sample_test.go`、`internal/rpcsample/eip1898_object_sample_test.go`。后两份改为 `package rpcsample_test`。`rejectURL` 脱敏检查保留。
+- 文档路径改到 `.../2026-09-23`：`docs/decisions.md`、`docs/design/method-contracts.md`、`docs/design/method-verification-pipeline.md` 第 1.1 节第 6 条，以及本文件 T03/T04 的样本路径。`docs/design/moving-tag-matrix.md` 同步这些路径，eth_call 的 `Tests` 列新增 `TestRevertDataBatchMatchesExpect`。
+- 本轮没有改 anchor 或 pool 的错误路径，所以没有重跑 transport 三测试。
+
+约束仍是：
+
+- 按 `testdata/<feature-or-method>/<batch-id>/` 组织批次；每批次保留 `index.json`，不删除 sha256 凭据。record 字节与 sha256 不变。
+- `expect.json` 固定 schema 版本、request、mode、floor、成员数 N、每源比较键、准入 Faults、维度证据、删减字段、最终 Decision / error，以及 `transport`。data presence 四态只对 `transport: http` 成立。不得用 HTTP golden 断言 WSS；WSS 上缺失与 `null` 的坍缩是已知缺口。
+- 迁移前冻结旧 `*_sample_test.go` loader，新回放只经 `replay.LoadBatch`，避免 sha256 双轨。
 - golden 是数据格式，不包含条件、继承、通配或生成测试逻辑；禁止盲目 `-update`。
 - 采集时尽力记录 `web3_clientVersion`，只作上下文，不能用于 provider / client 归因。
-- 现有三个样本目录迁移到批次布局时保持 record 内容和 record sha256 不变。
+- 不做 0039 规则 4e，不新增 RegisteredMethod，不把缺失与 `0x` 并成同一个比较值。
+- 若改动 anchor 或 pool 的错误路径，重跑 `TestAnchorTransportReferenceMatchesAcrossHTTPAndWSS`、`TestAnchorTransportFailuresMatchAcrossHTTPAndWSS` 和 `TestAnchorTransportReestablishesEachCall`。
+
+提交划分（已执行，先 T06.2，后 T06.3）：
+
+两次提交分开，没有一锅端。T06.2 那一次的 `batchDir` 指向迁移前的 `testdata/<feature>/`。本提交把 `batchDir` 改回 `2026-09-23`，并带上批次与 golden。
+
+第一次，T06.2。整文件：`aggregator/aggregator.go`、`pool/collect.go`、`pool/pool.go`、`pool/rawbody.go`、`rpctest/node.go`、`rpctest/data_test.go`、`internal/rpcsample/replay/replay.go`。`replay_test.go` 只留 `TestLoadBatchVerifiesRecordSHA256`、`TestLoadBatchRejectsChangedRecordBytes` 和 `copyTree`，`batchDir` 指向迁移前目录；不含 `TestBatchLayoutKeepsIndexAndOmitsLaterGoldens` 和 `batchMeta`。`layers_test.go` 留四个 replay 测试，`batchDir` 同样指向迁移前目录。`project-roadmap.md` 只带 T06.2 状态、T06.0 的 HTTP 缺口句、T06.2 正文（loader 句停在“尚未删除”）和顺序图的 T06.2 行。`method-verification-pipeline.md` 带事实第 4、5 条，以及第 6 条里“replay 按原始字节校验 sha256、当时尚无 expect.json”的一半；端到端要求里的 `FailWithData`、HTTP 保留和 WSS 不能作四态也在这次。不进入这次：`expect_test.go`、`expect.json`、三份 `batch.json`、113 个改名、五个读取器、`docs/decisions.md`、`method-contracts.md`、`moving-tag-matrix.md`，以及本文件里 T03/T04 的 `/2026-09-23`、T06.3 正文和“现有样本已迁入”。
+
+第二次，T06.3。113 个 `index.json` / record 纯改名（字节与 sha256 不变），三份 `batch.json`，`revert-data/2026-09-23/expect.json`，`expect_test.go`。`replay_test.go` 补批次布局测试并把 `batchDir` 改到 `2026-09-23`；`layers_test.go` 只改 `batchDir`。读取器：`content_boundary_test.go`、`rpc/methods/content_compat_test.go`、`rpc/methods/eth_call_revert_test.go`、`internal/rpcsample/revert_data_sample_test.go`、`internal/rpcsample/eip1898_object_sample_test.go`。文档：`docs/decisions.md`、`method-contracts.md`、pipeline 第 6 条的批次与 golden 句、`moving-tag-matrix.md` 的路径和 eth_call `Tests` 列，以及本文件剩余 hunk。提交说明必须点名这些读取器和文档，不能只写批次与 golden。
 
 ### T06.4 决策 0039 落地
 
-依赖：T06.0、T06.2；出口：4e 的所有代表性矩阵和端到端调用通过，文档不再描述旧的扁平键结果。
+依赖：T06.0、T06.2、T06.3。出口：4e 的所有代表性矩阵和端到端调用通过，文档不再描述旧的扁平键结果。
+
+入口（T06.3 已提交后满足；本次不实施）：
+
+- 本 golden 的 6 个 case 保持绿。`DeletedFields` 或 `Abstain` 的任何变化必须出现在 `expect.json` 的 `-/+` diff 里，再审阅。
+- generic Strict 仍是单 key。缺失与 `0x` 的合并属于本步，不是 T06.3。
+- 0039 会把这批 golden 的 Abstain 与 reductive 从空改成有值。不得预先合并，也不得把未验收的 T06.3 当成入口已解除。
+
+落地范围仍是：
 
 - 在 `eth_call` 上声明 revert `data` 可弃权，由方法专属多维 resolver 处理；generic Strict 保持单 key 语义。
 - 弃权源留在投票分母，不进 data 的 Reject，不用其他来源的值补全。
@@ -123,10 +153,10 @@ T06.1 matrix 互锁         已完成
 Anchor Transport Seam     已完成，T06.2 的前置
         |
         v
-T06.2 replay              已验收，出口已满足；工作区待提交
+T06.2 replay              已验收，已提交
         |
         v
-T06.3 golden 与批次归档
+T06.3 golden 与批次归档   已验收，已提交：三批已归档，仅 revert-data 有 expect
         |
         v
 T06.4 0039 规则 4e
@@ -135,7 +165,7 @@ T06.4 0039 规则 4e
 T06.5 读方法批次扩展
 ```
 
-T06.2 以前不得批量迁移样本或新增读方法。T06.4 以前不得把缺失与 `0x` 合并为同一个比较值。每个任务先提交自己的验收证据，再解除后继任务。
+现有样本已迁入各自 `2026-09-23` 批次。不得新增读方法。T06.4 以前不得把缺失与 `0x` 合并为同一个比较值，也不得把尚未验收的 T06.3 当成 0039 已解除。T06.2 与 T06.3 已分两次提交。每个任务先提交自己的验收证据，再解除后继任务。
 
 #### 执行者通用要求
 

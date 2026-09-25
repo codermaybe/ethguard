@@ -1,0 +1,13 @@
+{
+  "schema_version": "ethguard.batch/v1",
+  "batch_id": "2026-09-23",
+  "feature": "block-receipt-tx",
+  "captured_at": "2026-09-23T14:17:21.681669145Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "block_height": null,
+  "web3_client_version": null,
+  "note": "Captured from redacted HTTPS endpoints. web3_clientVersion was not recorded; a later value would be context only and must not attribute a dialect to a provider or client."
+}
