@@ -29,13 +29,13 @@
       "sources": [
         {
           "id": "s1",
-          "comparison_key": "reverted|missing",
+          "comparison_key": "execution:reverted|data:abstain:missing",
           "admission": "not_applicable",
           "faults": []
         },
         {
           "id": "s2",
-          "comparison_key": "reverted|empty",
+          "comparison_key": "execution:reverted|data:empty",
           "admission": "not_applicable",
           "faults": []
         }
@@ -44,22 +44,34 @@
         {
           "name": "execution",
           "support": [
+            "s1",
             "s2"
           ],
-          "reject": [
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        },
+        {
+          "name": "data",
+          "support": [
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [
             "s1"
           ],
-          "abstain": [],
           "returned": false
         }
       ],
       "projection": {
-        "reductive": false,
-        "deleted_fields": []
+        "reductive": true,
+        "deleted_fields": [
+          "data"
+        ]
       },
       "decision": {
-        "status": "unknown",
-        "error": "conflict"
+        "status": "corroborated",
+        "error": ""
       }
     },
     {
@@ -87,13 +99,13 @@
       "sources": [
         {
           "id": "s1",
-          "comparison_key": "reverted|missing",
+          "comparison_key": "execution:reverted|data:abstain:missing",
           "admission": "not_applicable",
           "faults": []
         },
         {
           "id": "s2",
-          "comparison_key": "reverted|empty",
+          "comparison_key": "execution:reverted|data:empty",
           "admission": "not_applicable",
           "faults": []
         }
@@ -102,22 +114,34 @@
         {
           "name": "execution",
           "support": [
+            "s1",
             "s2"
           ],
-          "reject": [
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        },
+        {
+          "name": "data",
+          "support": [
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [
             "s1"
           ],
-          "abstain": [],
           "returned": false
         }
       ],
       "projection": {
-        "reductive": false,
-        "deleted_fields": []
+        "reductive": true,
+        "deleted_fields": [
+          "data"
+        ]
       },
       "decision": {
-        "status": "unknown",
-        "error": "conflict"
+        "status": "corroborated",
+        "error": ""
       }
     },
     {
@@ -145,13 +169,13 @@
       "sources": [
         {
           "id": "s1",
-          "comparison_key": "reverted|missing",
+          "comparison_key": "execution:reverted|data:abstain:missing",
           "admission": "not_applicable",
           "faults": []
         },
         {
           "id": "s2",
-          "comparison_key": "reverted|empty",
+          "comparison_key": "execution:reverted|data:empty",
           "admission": "not_applicable",
           "faults": []
         }
@@ -160,22 +184,34 @@
         {
           "name": "execution",
           "support": [
+            "s1",
             "s2"
           ],
-          "reject": [
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        },
+        {
+          "name": "data",
+          "support": [
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [
             "s1"
           ],
-          "abstain": [],
           "returned": false
         }
       ],
       "projection": {
-        "reductive": false,
-        "deleted_fields": []
+        "reductive": true,
+        "deleted_fields": [
+          "data"
+        ]
       },
       "decision": {
-        "status": "unknown",
-        "error": "conflict"
+        "status": "corroborated",
+        "error": ""
       }
     },
     {
@@ -203,13 +239,13 @@
       "sources": [
         {
           "id": "s1",
-          "comparison_key": "reverted|missing",
+          "comparison_key": "execution:reverted|data:abstain:missing",
           "admission": "not_applicable",
           "faults": []
         },
         {
           "id": "s2",
-          "comparison_key": "reverted|missing",
+          "comparison_key": "execution:reverted|data:abstain:missing",
           "admission": "not_applicable",
           "faults": []
         }
@@ -224,6 +260,16 @@
           "reject": [],
           "abstain": [],
           "returned": true
+        },
+        {
+          "name": "data",
+          "support": [],
+          "reject": [],
+          "abstain": [
+            "s1",
+            "s2"
+          ],
+          "returned": false
         }
       ],
       "projection": {
@@ -257,13 +303,13 @@
       "sources": [
         {
           "id": "s1",
-          "comparison_key": "reverted|hex:0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002545524332303a207472616e736665722066726f6d20746865207a65726f2061646472657373000000000000000000000000000000000000000000000000000000",
+          "comparison_key": "execution:reverted|data:hex:0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002545524332303a207472616e736665722066726f6d20746865207a65726f2061646472657373000000000000000000000000000000000000000000000000000000",
           "admission": "not_applicable",
           "faults": []
         },
         {
           "id": "s2",
-          "comparison_key": "reverted|hex:0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002545524332303a207472616e736665722066726f6d20746865207a65726f2061646472657373000000000000000000000000000000000000000000000000000000",
+          "comparison_key": "execution:reverted|data:hex:0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002545524332303a207472616e736665722066726f6d20746865207a65726f2061646472657373000000000000000000000000000000000000000000000000000000",
           "admission": "not_applicable",
           "faults": []
         }
@@ -271,6 +317,16 @@
       "dimensions": [
         {
           "name": "execution",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        },
+        {
+          "name": "data",
           "support": [
             "s1",
             "s2"
@@ -314,13 +370,13 @@
       "sources": [
         {
           "id": "s1",
-          "comparison_key": "reverted|hex:0xdeadbeef",
+          "comparison_key": "execution:reverted|data:hex:0xdeadbeef",
           "admission": "not_applicable",
           "faults": []
         },
         {
           "id": "s2",
-          "comparison_key": "reverted|hex:0xdeadbeef",
+          "comparison_key": "execution:reverted|data:hex:0xdeadbeef",
           "admission": "not_applicable",
           "faults": []
         }
@@ -328,6 +384,16 @@
       "dimensions": [
         {
           "name": "execution",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        },
+        {
+          "name": "data",
           "support": [
             "s1",
             "s2"

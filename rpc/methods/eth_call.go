@@ -14,22 +14,25 @@ import (
 // MethodCall is the JSON-RPC method name resolved by CallPolicy.
 const MethodCall = "eth_call"
 
-// CallPolicy corroborates eth_call by a data-aware execution key (decisions
-// 0017 and 0023). Successful return data is compared as hex. A revert-class
-// error is compared by its data state — missing, null, empty ("0x"),
-// non-empty hex, or non-hex JSON — so the same provider message cannot hide
-// different data, and those states are not pre-merged. Vendor code (3 versus
-// -32000) and message text stay out of the key; they remain uncorroborated
-// context on the winning envelope. Provider failures that are not execution
-// observations — transport faults, -32002, -32003, -32603, rate limits —
-// ride as faults and never enter a revert key. Agreement is provider-backed
-// evidence of that outcome, not a claim about Ethereum consensus.
+// CallPolicy corroborates eth_call on two dimensions (decisions 0017, 0023,
+// and 0039 rule 4e). Successful return data stays inside the execution key.
+// A revert-class error asserts execution and, separately, data: missing and
+// JSON null abstain, while empty ("0x"), non-empty hex, and non-hex JSON
+// stay distinct assertions and are not pre-merged into one another. A short
+// or non-unanimous data cluster keeps the corroborated revert and deletes
+// data from one admitted envelope. Vendor code (3 versus -32000) and message
+// text stay out of the key; they remain uncorroborated context on that
+// envelope. Provider failures that are not execution observations —
+// transport faults, -32002, -32003, -32603, rate limits — ride as faults and
+// never enter a revert key. Agreement is provider-backed evidence of that
+// outcome, not a claim about Ethereum consensus. Generic Strict is not used
+// here and keeps its single-key semantics.
 // The block tag at position 1 is rewritten to the corroborated reference.
 // EIP-1898 object forms ride EIP1898BlockRef (see GetBalancePolicy).
 // Pending resolves as a node-local observation (see GetBalancePolicy).
 func CallPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, normalizeCallOutcome, anchor,
-		append([]rpc.StrictOption{rpc.WithRPCErrorBodies()}, opts...)...)))
+	inner := rpc.NewCallRevertPolicy(normalizeCallOutcome, append([]rpc.StrictOption{rpc.WithRPCErrorBodies()}, opts...)...)
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.WithAnchor(anchor, 1)(inner)))
 }
 
 // normalizeCallOutcome reduces one eth_call answer to a comparable key.

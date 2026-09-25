@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -71,14 +72,20 @@ func TestCallRevertDataConflictIsNotSwallowed(t *testing.T) {
 		rpcErrorObs("b", 3, "execution reverted", `"0xbeef"`),
 	}
 	decision, err := policy.Resolve(obs)
-	if !errors.Is(err, rpc.ErrConflict) {
-		t.Fatalf("err = %v, want ErrConflict", err)
+	if err != nil {
+		t.Fatalf("err = %v, want a corroborated revert with data withheld", err)
 	}
-	if errors.Is(err, rpc.ErrNoValidResponse) || errors.Is(err, rpc.ErrMalformedResponse) || errors.Is(err, rpc.ErrInvalidRequest) {
-		t.Fatalf("data conflict swallowed as %v", err)
+	if decision.Status != rpc.Corroborated {
+		t.Fatalf("status = %v, want Corroborated", decision.Status)
 	}
-	if decision.Status != rpc.Unknown {
-		t.Fatalf("status = %v, want Unknown", decision.Status)
+	if bytes.Contains(decision.Value, []byte("0xdead")) || bytes.Contains(decision.Value, []byte("0xbeef")) {
+		t.Fatalf("concrete data was returned: %s", decision.Value)
+	}
+	if len(decision.DeletedFields) != 1 || decision.DeletedFields[0] != "data" {
+		t.Fatalf("deleted = %v", decision.DeletedFields)
+	}
+	if !bytes.Contains(decision.Evidence, []byte("0xdead")) || !bytes.Contains(decision.Evidence, []byte("0xbeef")) {
+		t.Fatalf("withheld bytes missing from evidence: %s", decision.Evidence)
 	}
 }
 

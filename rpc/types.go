@@ -122,13 +122,12 @@ type Decision struct {
 	Reference    *ReferenceEvidence
 	Participants []SourceRef
 	Status       Status
-	// Value is the payload returned for this decision. The current resolvers
-	// copy one admitted source value from the winning cluster. A method
-	// contract may declare a reductive projection (decision 0039 rule 4e,
-	// option (i)): it may delete fields that lack corroboration, and it may
-	// not add, replace, or splice fields from another source. Methods without
-	// that declaration keep returning the source value. The projection is not
-	// implemented; see docs/design/method-verification-pipeline.md section 1.1.
+	// Value is the payload returned for this decision. Generic Strict copies
+	// one admitted source value from the winning cluster and does not change
+	// its fields. eth_call may apply a reductive projection (decision 0039
+	// rule 4e, option (i)): it may delete a field that lacks corroboration,
+	// and it may not add, replace, or splice fields from another source.
+	// Methods without that declaration keep returning the source value.
 	Value json.RawMessage
 	// Observed is the optional generic observation-room result for this
 	// invocation. It contains source-backed common fields and residuals; it
@@ -143,8 +142,28 @@ type Decision struct {
 	Reject     []SourceRef
 	Faults     []error
 	// Evidence belongs to the selected value and is populated by an
-	// AdmissionPolicy. It is opaque to generic callers.
+	// AdmissionPolicy. It is opaque to generic callers. eth_call also stores
+	// withheld revert-data bytes here when rule 4e removes them from Value;
+	// those bytes are audit material, not a corroborated field.
 	Evidence json.RawMessage
+	// Dimensions is method-specific evidence. Generic Strict leaves it nil.
+	// eth_call records execution and revert-data Support, Reject, and Abstain.
+	Dimensions []DimensionEvidence
+	// DeletedFields lists top-level fields a reductive projection removed
+	// from Value. Nil means this resolver did not delete anything.
+	DeletedFields []string
+}
+
+// DimensionEvidence is one method-declared dimension of a decision.
+// Returned is false when the dimension was withheld. Abstain is sources
+// that asserted the parent outcome but not this dimension; they are not
+// Reject.
+type DimensionEvidence struct {
+	Name     string
+	Support  []SourceRef
+	Reject   []SourceRef
+	Abstain  []SourceRef
+	Returned bool
 }
 
 // IsCorroborated reports whether d is a successful corroborated result.

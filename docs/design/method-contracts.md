@@ -67,7 +67,7 @@ T04 已用离线样本锁住现有检查，没有把本条收成完备性结论�
 - 不保证完整收集。没有某个字段条目不能推导为所有来源均无此字段；仅提供本次可保留的数据。
 - 未纳入契约的厂商扩展、未接受或未获佐证的内容，可由此提供；其中的一致不表示可靠，异见也不表示已证伪。
 
-必要字段不合格时，该来源回答仍不能投票，且仍保留在本次 quorum 分母中。不能把坏字段移入 Uncertain 后把剩余对象作为完整成功结果；独立接受字段子集必须有方法契约依据。决策 0039 规则 4e 的删减式投影是已冻结的这类契约：只删除未佐证字段，不把残缺对象说成该字段已获佐证；当前实现尚未投影，见 `method-verification-pipeline.md` 第 1.1 节。主结果的校验责任不因保留原始数据而改变。
+必要字段不合格时，该来源回答仍不能投票，且仍保留在本次 quorum 分母中。不能把坏字段移入 Uncertain 后把剩余对象作为完整成功结果；独立接受字段子集必须有方法契约依据。决策 0039 规则 4e 的删减式投影是已冻结的这类契约：只删除未佐证字段，不把残缺对象说成该字段已获佐证。`eth_call` 的 revert `data` 已按此投影；未声明的方法仍返回来源原值。见 `method-verification-pipeline.md` 第 1.1 节。主结果的校验责任不因保留原始数据而改变。
 
 获取方式已按第 0.17 节确定为 context 收集器；具体 Go 类型、字段路径语法、原始字节表示及保留容量待设计。需核对传输／解码路径能否暴露原始响应，当前尚未实现该能力。`Uncertain(paths ...string)` 仅为候选表达，不是已接受签名。
 
@@ -83,13 +83,13 @@ T04 已用离线样本锁住现有检查，没有把本条收成完备性结论�
 
 ## 0.5 已接受边界：revert 数据保护与兼容验证
 
-状态：已实现。比较键区分 data 的缺失、JSON null、空字节（`0x`）、非空 hex 与非 hex JSON。相同文案不能掩盖不同 data。厂商 code（3 与 -32000）和 message 不进入比较键，只保留在获胜信封上，不表示文案已获佐证。传输失败、-32002、-32003、-32603 和限流仍是 fault，不进入 revert 键。`RevertError.Data` 只承接 hex；结构化 data 留在 `DataRaw`，缺失和 null 的 `ErrorData` 为 nil，不伪装成空字节。
+状态：已实现，含决策 0039 规则 4e。`eth_call` 用方法专属 resolver，不走 generic Strict。执行维度比较成功结果与 revert，成功返回数据留在执行键里。revert 的 `data` 可弃权：缺失与 JSON null 是弃权，不是空字节；空字节（`0x`）、非空 hex 与非 hex JSON 仍是不同的 data 断言，比较键不把它们并成同一个值。弃权源留在投票分母，不进入 data 的 Reject，也不用其他来源的值补全。具体 data 达到门槛才进入 `Decision.Value`；短簇或一致性模式下的 data 分裂保持已佐证的 revert，并从一份已准入信封删掉 `data`。`DeletedFields` 只记录这次删掉的字段。被删字节留在 `Decision.Evidence`，不作为已佐证字段。厂商 code（3 与 -32000）和 message 不进入比较键，只保留在这份信封上，不表示文案已获佐证。传输失败、-32002、-32003、-32603 和限流仍是 fault，不进入 revert 键。`RevertError.Data` 只承接已返回的 hex；删减后的 revert 没有 data，`ErrorData` 为 nil，不伪装成空字节。结构化 data 在被返回时留在 `DataRaw`。
 
-见 [决策 0023](../decisions.md#0023-revert-data-protection-precedes-provider-error-normalization)。测试：`TestNormalizeCallOutcomeClustersResultsAndReverts`、`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees`、`TestCallRevertDataConflictIsNotSwallowed`、`TestCallProviderErrorDoesNotEnterRevertKey`、`TestCallRPCErrorRawPreservesDataAbsence`、`TestDecodeCallResultKeepsRevertDataStates`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`。样本：`internal/rpcsample/testdata/revert-data/2026-09-23`。该样本只证明 code 3 下缺失、`0x`、`0xdeadbeef` 与 `Error(string)` 同时出现，不是普遍性结论；code -32000 与结构化 data 由单元测试锁定，不在这次样本里。
+见 [决策 0023](../decisions.md#0023-revert-data-protection-precedes-provider-error-normalization) 与 [决策 0039](../decisions.md#0039-treat-partial-information-absence-as-abstention-rather-than-conflict)。测试：`TestNormalizeCallOutcomeClustersResultsAndReverts`、`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees`、`TestCallRevertDataConflictIsNotSwallowed`、`TestCallProviderErrorDoesNotEnterRevertKey`、`TestCallRPCErrorRawPreservesDataAbsence`、`TestDecodeCallResultKeepsRevertDataStates`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`、`TestCallRevertRule4eMatrix`。样本：`internal/rpcsample/testdata/revert-data/2026-09-23`。该样本只证明 code 3 下缺失、`0x`、`0xdeadbeef` 与 `Error(string)` 同时出现，不是普遍性结论；code -32000 与结构化 data 由单元测试锁定，不在这次样本里。
 
-已知现状：当前实现给空 revert 的缺失 data 与 `0x` 两个不同的比较键（`reverted|missing` 与 `reverted|empty`）。样本中同一请求（state override 注入 `revert(0, 0)`）s1 四次均缺失 data，s2 三次返回 `0x`、一次缺失；同一端点在相同请求上都不稳定，样本已脱敏，不能归因到具名 provider 或客户端。因此只要两种形态同时出现且没有一簇单独达到门槛（典型是两源配置），无 data 的 revert 就报 `ErrConflict`。这符合决策 0023“不预先等同缺失与 `0x`”的立场，但在混合部署中造成可用性摩擦。演进方向见决策 0039（缺席即弃权）；规则 4e 已选择并冻结方案 (i)：目标是返回已佐证的 revert 行为并扣下未佐证 data，`Decision.Value` 只允许这种删减，不允许新增、替换或跨来源拼装。当前实现仍待迁移，见 `method-verification-pipeline.md` 第 1.1 节。
+样本中同一请求（state override 注入 `revert(0, 0)`）s1 四次均缺失 data，s2 三次返回 `0x`、一次缺失；同一端点在相同请求上都不稳定，样本已脱敏，不能归因到具名 provider 或客户端。两源、floor 2 时，缺失对 data 弃权，单独的 `0x` 达不到 data 门槛，结果是已佐证的 revert 且没有 data，不是 `ErrConflict`。缺失与 `0x` 仍是不同比较键。双方都给出同一具体 data 时，该 data 随 revert 一起返回。
 
-保留上游 JSON-RPC 的 code、message、data，不擅自改写。`eth_call` 仍固定同一区块参考与执行参数后比较。同意一个键是 provider-backed evidence of that data state，不是对 message 的佐证，也不是 Ethereum consensus。
+code 与 message 来自一份已准入信封，不跨来源拼装。未佐证的 `data` 只删除，不改写成别的值。`eth_call` 仍固定同一区块参考与执行参数后比较。同意是 provider-backed evidence of the returned dimensions，不是对 message 的佐证，也不是 Ethereum consensus。
 
 ## 0.6 已接受边界：标准字段与厂商扩展
 

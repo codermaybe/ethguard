@@ -26,8 +26,8 @@ const expectSchemaV1 = "ethguard.expect/v1"
 
 // Golden replay for the first archived batch. Transport http is the only
 // replay this file asserts. WSS still collapses a missing data field into
-// null, so a WSS golden is rejected instead of compared. Reductive
-// projection and per-dimension abstain are not implemented; both stay empty.
+// null, so a WSS golden is rejected instead of compared. Abstain and
+// reductive projection are part of the compared document.
 func TestRevertDataBatchMatchesExpect(t *testing.T) {
 	dir := batchDir("revert-data")
 	raw, err := os.ReadFile(filepath.Join(dir, "expect.json"))
@@ -49,22 +49,56 @@ func TestExpectTamperProducesReviewableDiff(t *testing.T) {
 	if err := decodeExpect(raw, &file); err != nil {
 		t.Fatal(err)
 	}
-	if len(file.Cases) == 0 || len(file.Cases[0].Sources) == 0 {
-		t.Fatal("expect.json has no source to tamper")
+	if len(file.Cases) == 0 || len(file.Cases[0].Sources) == 0 || len(file.Cases[0].Dimensions) == 0 {
+		t.Fatal("expect.json has nothing to tamper")
 	}
-	original := file.Cases[0].Sources[0].ComparisonKey
-	file.Cases[0].Sources[0].ComparisonKey = original + "|tampered"
-	tampered, err := json.Marshal(file)
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name   string
+		mutate func(*expectFile) (before, after string)
+	}{
+		{
+			name: "comparison key",
+			mutate: func(file *expectFile) (string, string) {
+				original := file.Cases[0].Sources[0].ComparisonKey
+				file.Cases[0].Sources[0].ComparisonKey = original + "|tampered"
+				return original, "|tampered"
+			},
+		},
+		{
+			name: "abstain",
+			mutate: func(file *expectFile) (string, string) {
+				file.Cases[0].Dimensions[0].Abstain = append(append([]string{}, file.Cases[0].Dimensions[0].Abstain...), "tampered")
+				return `"abstain"`, "tampered"
+			},
+		},
+		{
+			name: "deleted fields",
+			mutate: func(file *expectFile) (string, string) {
+				file.Cases[0].Projection.DeletedFields = append(append([]string{}, file.Cases[0].Projection.DeletedFields...), "tampered")
+				return `"data"`, "tampered"
+			},
+		},
 	}
-	err = matchBatchExpect(t, dir, tampered)
-	if err == nil {
-		t.Fatal("tampered expect matched the replay")
-	}
-	diff := err.Error()
-	if !strings.Contains(diff, "\n- ") || !strings.Contains(diff, "\n+ ") || !strings.Contains(diff, original) || !strings.Contains(diff, "|tampered") {
-		t.Fatalf("diff is not reviewable:\n%s", diff)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var current expectFile
+			if err := decodeExpect(raw, &current); err != nil {
+				t.Fatal(err)
+			}
+			before, after := tc.mutate(&current)
+			tampered, err := json.Marshal(current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = matchBatchExpect(t, dir, tampered)
+			if err == nil {
+				t.Fatal("tampered expect matched the replay")
+			}
+			diff := err.Error()
+			if !strings.Contains(diff, "\n- ") || !strings.Contains(diff, "\n+ ") || !strings.Contains(diff, before) || !strings.Contains(diff, after) {
+				t.Fatalf("diff is not reviewable:\n%s", diff)
+			}
+		})
 	}
 }
 
@@ -198,6 +232,9 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 	if len(policyDecision.Faults) != len(aggDecision.Faults) {
 		return expectCase{}, fmt.Errorf("%s faults policy %d aggregator %d", id, len(policyDecision.Faults), len(aggDecision.Faults))
 	}
+	if strings.Join(policyDecision.DeletedFields, ",") != strings.Join(aggDecision.DeletedFields, ",") || !sameDimensions(policyDecision.Dimensions, aggDecision.Dimensions) {
+		return expectCase{}, fmt.Errorf("%s projection diverged", id)
+	}
 	if policyErr == nil && policyDecision.Status == rpc.Corroborated {
 		gatedCtx, gatedCancel := context.WithTimeout(refcontext.RequireCorroborated(context.Background()), 5*time.Second)
 		defer gatedCancel()
@@ -217,31 +254,21 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 			}
 		}
 	}
-	if !payloadMatches(t, policyDecision.Value, payloads) {
-		return expectCase{}, fmt.Errorf("%s decision value is not one source payload", id)
+	deleted := append([]string{}, policyDecision.DeletedFields...)
+	if deleted == nil {
+		deleted = []string{}
 	}
-	support := namesOf(policyDecision.Support)
-	reject := namesOf(policyDecision.Reject)
-	if support == nil {
-		support = []string{}
-	}
-	if reject == nil {
-		reject = []string{}
+	if !projectionMatches(t, policyDecision.Value, payloads, deleted) {
+		return expectCase{}, fmt.Errorf("%s decision value is not one source payload with %v removed", id, deleted)
 	}
 	return expectCase{
-		RequestID: id,
-		Method:    records[0].Method,
-		Request:   requestRaw,
-		N:         len(records),
-		Sources:   sources,
-		Dimensions: []expectDimension{{
-			Name:     "execution",
-			Support:  support,
-			Reject:   reject,
-			Abstain:  []string{},
-			Returned: policyErr == nil,
-		}},
-		Projection: expectProjection{Reductive: false, DeletedFields: []string{}},
+		RequestID:  id,
+		Method:     records[0].Method,
+		Request:    requestRaw,
+		N:          len(records),
+		Sources:    sources,
+		Dimensions: expectDimensions(policyDecision.Dimensions),
+		Projection: expectProjection{Reductive: len(deleted) > 0, DeletedFields: deleted},
 		Decision:   expectDecision{Status: policyDecision.Status.String(), Error: decisionError(policyErr)},
 	}, nil
 }
@@ -408,16 +435,116 @@ func sameRequest(records []rpcsample.Record) (json.RawMessage, error) {
 
 func payloadMatches(t *testing.T, value json.RawMessage, payloads []json.RawMessage) bool {
 	t.Helper()
-	if len(value) == 0 {
+	return projectionMatches(t, value, payloads, nil)
+}
+
+func projectionMatches(t *testing.T, value json.RawMessage, payloads []json.RawMessage, deleted []string) bool {
+	t.Helper()
+	if len(value) == 0 || containsFields(t, value, deleted) {
 		return false
 	}
-	got := compact(t, value)
+	got := canonicalJSON(t, value)
 	for _, payload := range payloads {
-		if payload != nil && compact(t, payload) == got {
+		if payload == nil {
+			continue
+		}
+		reduced := payload
+		if len(deleted) > 0 {
+			var err error
+			reduced, err = deleteFields(payload, deleted)
+			if err != nil {
+				continue
+			}
+		}
+		if canonicalJSON(t, reduced) == got {
 			return true
 		}
 	}
 	return false
+}
+
+func containsFields(t *testing.T, raw json.RawMessage, fields []string) bool {
+	t.Helper()
+	if len(fields) == 0 {
+		return false
+	}
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(raw, &doc) != nil {
+		return true
+	}
+	for _, field := range fields {
+		if _, ok := doc[field]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func deleteFields(raw json.RawMessage, fields []string) (json.RawMessage, error) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil || doc == nil {
+		return nil, err
+	}
+	for _, field := range fields {
+		delete(doc, field)
+	}
+	return json.Marshal(doc)
+}
+
+func canonicalJSON(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("canonical %s: %v", raw, err)
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+func expectDimensions(dims []rpc.DimensionEvidence) []expectDimension {
+	out := make([]expectDimension, 0, len(dims))
+	for _, dim := range dims {
+		out = append(out, expectDimension{
+			Name:     dim.Name,
+			Support:  nonNilNames(dim.Support),
+			Reject:   nonNilNames(dim.Reject),
+			Abstain:  nonNilNames(dim.Abstain),
+			Returned: dim.Returned,
+		})
+	}
+	return out
+}
+
+func nonNilNames(refs []rpc.SourceRef) []string {
+	names := namesOf(refs)
+	if names == nil {
+		return []string{}
+	}
+	return names
+}
+
+func sameDimensions(left, right []rpc.DimensionEvidence) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i].Name != right[i].Name || left[i].Returned != right[i].Returned {
+			return false
+		}
+		if strings.Join(namesOf(left[i].Support), ",") != strings.Join(namesOf(right[i].Support), ",") {
+			return false
+		}
+		if strings.Join(namesOf(left[i].Reject), ",") != strings.Join(namesOf(right[i].Reject), ",") {
+			return false
+		}
+		if strings.Join(namesOf(left[i].Abstain), ",") != strings.Join(namesOf(right[i].Abstain), ",") {
+			return false
+		}
+	}
+	return true
 }
 
 func namesOf(refs []rpc.SourceRef) []string {

@@ -1279,11 +1279,12 @@ would only add a second way to ask a question the gates must not ask.
 
 ## 0039. Treat partial information absence as abstention rather than conflict
 
-Status: Accepted direction (2026-09-24). Rule 4e option (i) was frozen on
+Status: Accepted (2026-09-24). Rule 4e option (i) was frozen on
 2026-09-25 as the Decision.Value invariant: a method-declared projection may
 delete uncorroborated fields only, and may not add, replace, or splice fields
-across sources. Per-method abstainable-field declarations, dimension evidence
-and implementation remain pending. The freeze is recorded in
+across sources. The first declaration is `eth_call` revert `data`, implemented
+with dimension evidence on 2026-09-25. Other methods remain single-key until
+their own declaration. The freeze is recorded in
 docs/design/method-verification-pipeline.md section 1.1 and
 docs/design/architecture-record.md.
 

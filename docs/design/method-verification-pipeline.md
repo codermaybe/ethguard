@@ -29,20 +29,20 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
 5. 不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`。
 6. 原始 JSON-RPC error 回放必须区分 data 缺失、JSON `null`、`0x` 和具体 data。`rpc.RPCError` 已有 `Data`；缺口不在该类型。
 
-当前实现事实（与目标语义分开记录；T06.2 只补回放，不改下面第 1–3 条的裁决行为）：
+当前实现事实（与目标语义分开记录）：
 
-1. `rpc.Corroboration.adjudicate` 与 legacy Strict 都把获胜簇的来源原值写入 `Decision.Value`。没有删减式投影，也没有按维度的 `Abstain`。
-2. `eth_call` 仍用扁平键 `reverted|missing`、`reverted|null`、`reverted|empty`、`reverted|hex:`、`reverted|raw:`。缺失与 `0x` 不相同。短簇返回 `ErrConflict`。
+1. generic Strict 与 `rpc.Corroboration.adjudicate` 仍把获胜簇的来源原值写入 `Decision.Value`，保持单 key，没有删减式投影。`eth_call` 不走这条路径。
+2. `eth_call` 的公开比较键是 `execution:ok|...`、`execution:reverted|data:abstain:missing`、`execution:reverted|data:abstain:null`、`execution:reverted|data:empty`、`execution:reverted|data:hex:`、`execution:reverted|data:raw:`。缺失与 `0x` 不是同一个键。缺席 data 不制造执行冲突；具体 data 不足门槛时删减该字段并保持已佐证的 revert。
 3. `rpc.RPCError.Raw` 在 `Data` 为 nil 时省略字段，在 `Data` 为 `null` 时保留 JSON null。直接构造可以区分缺失与 null（`TestCallRPCErrorRawPreservesDataAbsence`）。
 4. `rpctest.FailWithData` 可以原样表达 data 缺失、JSON `null`、`0x` 和具体 data。`present == false` 不写 `data`；`present == true` 原样写入，包括 `null`。旧的 `Fail` / `RPCError` 仍然只有 code 与 message。
 5. HTTP 收集在 geth 把缺失和 JSON `null` 都解成 nil 之前保留原始 error 对象。`observationRPCError` 因此把字段缺失记为 `Data == nil`，把 JSON `null` 记为 `Data` 为 `null`。没有这份原始对象时仍走 `ErrorData()`；当前 WSS 帧属于这种情况，不能区分缺失和 `null`。
-6. `internal/rpcsample/replay` 按记录文件的原始字节校验 sha256，并还原响应体。三份现有样本已迁入 `<feature>/2026-09-23/`。`revert-data` 有 `expect.json`（schema `ethguard.expect/v1`，`transport: http`）。Abstain 与删减字段仍为空，因为 0039 未实现；缺失与 `0x` 仍是不同比较键。`block-receipt-tx` 与 `eip1898-object` 尚无 golden。WSS 上缺失与 `null` 的坍缩仍在。`moving-tag-matrix.md` 的 `Tests` 列已在 T06.1 清理为完整测试函数名，并由 `go/parser` 检查这些函数真实存在。`method-contracts.md` 与 roadmap 中的测试名仍只是说明性引用。
+6. `internal/rpcsample/replay` 按记录文件的原始字节校验 sha256，并还原响应体。三份现有样本已迁入 `<feature>/2026-09-23/`。`revert-data` 有 `expect.json`（schema `ethguard.expect/v1`，`transport: http`）。0039 规则 4e 已写入该 golden：短簇的 Abstain 与 reductive 有值，缺失与 `0x` 仍是不同比较键。`block-receipt-tx` 与 `eip1898-object` 尚无 golden。WSS 上缺失与 `null` 的坍缩仍在。`moving-tag-matrix.md` 的 `Tests` 列已在 T06.1 清理为完整测试函数名，并由 `go/parser` 检查这些函数真实存在。`method-contracts.md` 与 roadmap 中的测试名仍只是说明性引用。
 
 ---
 
 ## 2. 报文差异的五类分类模型（判定与仲裁基准）
 
-归一化与仲裁不得采用“剪枝或冲突”的两分法，必须遵循决策 0039 的五类模型。第 4 类和规则 4e 是第 1.1 节的目标语义；当前实现仍是该节记录的单键冲突：
+归一化与仲裁不得采用“剪枝或冲突”的两分法，必须遵循决策 0039 的五类模型。第 4 类和规则 4e 已在 `eth_call` 落地；generic Strict 仍是单键：
 
 | 类别 | 判据特征 | 处理策略 | 目标效果 |
 | :--- | :--- | :--- | :--- |

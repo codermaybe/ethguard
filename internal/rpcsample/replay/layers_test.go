@@ -38,10 +38,22 @@ func TestSameFixtureReplaysThroughPolicyAndAggregator(t *testing.T) {
 		records := recordsByID(revert, "revert-hex")
 		assertReplay(t, records, methods.CallPolicy(fixedAnchor), true)
 	})
-	t.Run("revert empty conflicts", func(t *testing.T) {
+	t.Run("revert empty withholds data", func(t *testing.T) {
 		records := recordsByID(revert, "revert-empty-1")
-		assertReplay(t, records, methods.CallPolicy(fixedAnchor), true)
-		assertDataStatesDiffer(t, methods.CallPolicy(fixedAnchor), records)
+		policy := methods.CallPolicy(fixedAnchor)
+		assertReplay(t, records, policy, true)
+		assertDataStatesDiffer(t, policy, records)
+		obs := []rpc.Observation{observationFromRecord(t, records[0]), observationFromRecord(t, records[1])}
+		decision, err := policy.Resolve(obs)
+		if err != nil || decision.Status != rpc.Corroborated {
+			t.Fatalf("status %v err %v, want a corroborated revert", decision.Status, err)
+		}
+		if present, _ := dataField(t, decision.Value); present {
+			t.Fatalf("short data cluster returned data: %s", decision.Value)
+		}
+		if len(decision.DeletedFields) != 1 || decision.DeletedFields[0] != "data" {
+			t.Fatalf("deleted = %v", decision.DeletedFields)
+		}
 	})
 	t.Run("transaction admits and agrees", func(t *testing.T) {
 		records := recordsByID(objects, "tx-one")
@@ -79,11 +91,17 @@ func TestReplayErrorDataStatesStayDistinct(t *testing.T) {
 			aggDecision, aggErr := aggregateCall(t, agg, false)
 			sameDecision(t, policyDecision, policyErr, aggDecision, aggErr)
 			present, data := dataField(t, aggDecision.Value)
-			if present != state.present {
-				t.Fatalf("aggregator data present = %v, want %v (%s)", present, state.present, aggDecision.Value)
-			}
-			if present && data != state.data {
-				t.Fatalf("aggregator data = %s, want %s", data, state.data)
+			if state.name == "missing" || state.name == "null" {
+				if present {
+					t.Fatalf("abstained %s data was returned: %s", state.name, aggDecision.Value)
+				}
+			} else {
+				if present != state.present {
+					t.Fatalf("aggregator data present = %v, want %v (%s)", present, state.present, aggDecision.Value)
+				}
+				if present && data != state.data {
+					t.Fatalf("aggregator data = %s, want %s", data, state.data)
+				}
 			}
 			for _, node := range nodes {
 				if tags := callTags(node, methods.MethodCall, 1); len(tags) != 1 || tags[0] != replayHeadHash {
