@@ -45,13 +45,14 @@
 
 ### T06.0 冻结设计约束
 
-依赖：无。出口：设计记录和标准互相引用，后续任务不再重新讨论这些边界。
+依赖：无。状态：2026-09-25 已冻结。出口正文在
+`method-verification-pipeline.md` 第 1.1 节；本节只留指针，避免两份规则分叉。
 
 - 0039 规则 4e 采用方案 (i)：返回已佐证的 revert 行为，未佐证的 data 通过删减式投影扣除，只在 Uncertain / 审计证据中保留原始字节。
-- 明确 dimension evidence 至少能区分每个维度的 `Support`、`Reject` 和 `Abstain`，golden 同步记录删减字段。
-- 修订 `Decision.Value` 的不变量：允许方法契约声明的删减式投影；禁止新增、替换或跨来源拼装字段。
-- 保持 Policy 组合和真实测试为执行事实；不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`（决策 0040）。
-- 修正 T06 旧描述：`rpc.RPCError` 已有 `Data` 字段，缺口在 `rpctest` 的原样 error-body 返回和转换路径对缺失 / `null` 的保留。
+- dimension evidence 至少区分每个维度的 `Support`、`Reject` 和 `Abstain`，golden 同步记录删减字段。
+- `Decision.Value` 允许方法契约声明的删减式投影；禁止新增、替换或跨来源拼装字段。架构记录与 `rpc.Decision` 已按此修订，并标明当前实现仍返回来源原值。
+- Policy 组合和真实测试仍是执行事实；不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`（决策 0040）。
+- `rpc.RPCError` 已有 `Data`。缺口在 `rpctest` 的原样 error-body，以及 `observationRPCError` 对缺失 / `null` 的保留。
 
 ### T06.1 静态互锁
 
@@ -98,6 +99,67 @@
 
 - 按方法逐项增加 matrix、Policy 测试、admission / normalization 边界、端到端 replay 和 golden。
 - 不为批量扩展新增声明式方法契约或统一生成器；重复行为通过普通 Go helper 和 table-driven tests 复用。
+
+### T06 执行任务图与审计门禁
+
+任务依赖和执行者 brief 记录在
+[`project-roadmap-next-map.md`](project-roadmap-next-map.md)。本节是执行约束，防止
+把规划重新解释成一次性大重构。
+
+执行顺序为：
+
+```text
+#1 设计不变量
+ ├── #2 精确 matrix 互锁
+ └── #3 HTTP/WSS anchor seam
+          │
+          ▼
+       #4 真实 replay
+          │
+          ▼
+       #5 golden 与批次归档
+          │
+          ▼
+       #6 0039 规则 4e
+          │
+          ▼
+       #7 读方法批次扩展
+```
+
+`#2` 可以与 `#3` 并行；`#4` 以前不得批量迁移样本或新增读方法；`#6` 以前不得把
+缺失与 `0x` 合并为同一个比较值。每个任务都必须先提交自己的验收证据，再解除
+后继任务的阻塞。
+
+#### 执行者通用要求
+
+1. 只修改任务范围内的代码、测试、样本和文档；发现范围外问题，单独记录，不顺手修复。
+2. 不引入 `MethodContract` DSL、代码生成、`suite.RunAll`、新的 quorum 模式或 provider 权重。
+3. 不通过删减投票分母、降低 floor、改变 typed gate 或自动补字段来让测试变绿。
+4. 所有 replay 必须离线运行；允许进程内 `httptest`，禁止外部网络 I/O。
+5. 每个任务提交：变更摘要、运行命令、测试结果、样本 / golden 变化、未解决风险和下一任务解除依据。
+
+#### 审计拒收条件
+
+- 只测试 Policy 层而没有 Aggregator / typed-read 端到端证据；
+- 用 mock 结果替代生产路径的 JSON-RPC error、Admission 或 anchor；
+- 新增第二份方法契约事实源，或以通配 / `as above` 扩展 Markdown 语法；
+- 修改样本 record 却没有对应 sha256 / index / golden 变化说明；
+- 将 provider-backed evidence 写成 canonical、finality、consensus 或链上正确性结论；
+- 任务声称完成但没有可复现的 `go test` 命令和失败路径验证。
+
+#### #1 验收提交（2026-09-25）
+
+变更摘要：冻结 T06.0。修订 `architecture-record.md` 的 `Decision.Value` 规则、`rpc.Decision` 注释、决策 0039 状态，以及 `method-contracts.md` 0.3 / 0.5。当前事实与目标语义写在 `method-verification-pipeline.md` 第 1.1 节。`project-roadmap-next-map.md` 随本次 Git 提交入库。没有修改裁决代码、样本或 golden。
+
+此前“已提交”只表示交给审计审阅，不是 Git commit。交付记录以本次 commit 为准。
+
+运行命令：`go test -count=1 ./...`。结果：通过（2026-09-25）。
+
+样本 / golden：无变化。
+
+未解决风险：删减式投影、维度 `Abstain`、`rpctest` 的 `RPCError` helper / 内部 `rpcError` 原样 error-body，以及 `observationRPCError` 的缺失 / `null` 保留，都仍是目标语义。matrix 里的 `as above` 留到 #2。
+
+解除下一任务的依据：第 1.1 节已经固定方案 (i)、删减边界、无测试 DSL，以及 `rpc.RPCError.Data` 与 `rpctest` 缺口的分工。#2 可以做静态互锁，#3 可以记录 anchor seam；二者都不得提前实现 0039 resolver、迁移 golden 或扩展读方法。交付门禁复审通过前，#2 / #3 继续阻塞。
 
 ## 暂不推进
 

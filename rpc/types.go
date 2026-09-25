@@ -122,7 +122,14 @@ type Decision struct {
 	Reference    *ReferenceEvidence
 	Participants []SourceRef
 	Status       Status
-	Value        json.RawMessage
+	// Value is the payload returned for this decision. The current resolvers
+	// copy one admitted source value from the winning cluster. A method
+	// contract may declare a reductive projection (decision 0039 rule 4e,
+	// option (i)): it may delete fields that lack corroboration, and it may
+	// not add, replace, or splice fields from another source. Methods without
+	// that declaration keep returning the source value. The projection is not
+	// implemented; see docs/design/method-verification-pipeline.md section 1.1.
+	Value json.RawMessage
 	// Observed is the optional generic observation-room result for this
 	// invocation. It contains source-backed common fields and residuals; it
 	// carries no Ethereum semantic claim. Method packages may project it into

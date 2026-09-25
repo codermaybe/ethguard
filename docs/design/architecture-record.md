@@ -38,7 +38,7 @@ collect → bounded JSON validation → method admission → method normalizatio
 → fixed-basis resolution → Decision → typed projection
 ```
 
-`Decision.Value` 必须来自一个已经通过 admission 的完整来源响应。方法实现不得跨来源拼装对象。未知或 vendor 字段由 `UncertainCapture` 作为调用级诊断材料保留，不自动提升为 VerifiedCore。
+`Decision.Value` 的当前实现来自一个已经通过 admission 的来源响应：Strict 与显式 quorum 都写入获胜簇的原始值，不改字段。已冻结的目标不变量（2026-09-25，决策 0039 规则 4e 方案 (i)，见 `method-verification-pipeline.md` 第 1.1 节）允许方法契约声明删减式投影：只能从已准入结果中删除未佐证字段，不能新增、替换或跨来源拼装字段。未声明投影的方法仍返回来源原值。投影来源和被扣除维度必须进入 dimension evidence；被扣除的原始字节只留在 Uncertain 或审计证据中。该投影尚未实现。未知或 vendor 字段由 `UncertainCapture` 作为调用级诊断材料保留，不自动提升为 VerifiedCore。
 
 ## 目录职责
 

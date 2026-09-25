@@ -1279,8 +1279,13 @@ would only add a second way to ask a question the gates must not ask.
 
 ## 0039. Treat partial information absence as abstention rather than conflict
 
-Status: Accepted direction (2026-09-24); per-method abstainable-field
-declarations, dimension evidence and implementation pending.
+Status: Accepted direction (2026-09-24). Rule 4e option (i) was frozen on
+2026-09-25 as the Decision.Value invariant: a method-declared projection may
+delete uncorroborated fields only, and may not add, replace, or splice fields
+across sources. Per-method abstainable-field declarations, dimension evidence
+and implementation remain pending. The freeze is recorded in
+docs/design/method-verification-pipeline.md section 1.1 and
+docs/design/architecture-record.md.
 
 A source that omits a method-declared abstainable sub-dimension of an answer,
 or returns JSON `null` for it, abstains on that sub-dimension. It does not
@@ -1343,7 +1348,10 @@ Classification. It applies to every method. Only class 4 is new.
       `RevertError.Data` unset; the concrete bytes remain available only from
       the invocation's Uncertain or audit evidence. This is a method-declared
       redaction-only projection: it may remove an uncorroborated field, but it
-      may not add, replace or splice fields from another source. The status is
+      may not add, replace or splice fields from another source. This revises
+      the earlier architecture rule that Decision.Value must be a complete
+      admitted source response; methods that do not declare the projection
+      still return that source value. The status is
       honest about the dimensions it covers; dimension evidence records which
       sources supported, rejected or abstained on each dimension. A plain
       downgrade to `Selected` is not used because the typed-read gate would

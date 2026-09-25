@@ -1,8 +1,8 @@
 # 方法落点验证流水线与审计留痕规范
 
-状态：方法验证标准（2026-09-24；部分实现，按 T06 收敛）  
+状态：方法验证标准（2026-09-24；部分实现，按 T06 收敛）。T06.0 不变量已于 2026-09-25 冻结，见第 1.1 节。
 适用范围：`rpc/methods` 下所有已注册方法（RegisteredMethod）及其后续增改  
-关联基准：`docs/design/project-roadmap.md`、`docs/design/moving-tag-matrix.md`、`docs/design/method-contracts.md`、`docs/decisions.md`（0020、0023、0024、0028、0038、0039、0040）
+关联基准：`docs/design/project-roadmap.md`、`docs/design/moving-tag-matrix.md`、`docs/design/method-contracts.md`、`docs/design/architecture-record.md`、`docs/decisions.md`（0020、0023、0024、0028、0038、0039、0040）
 
 ---
 
@@ -16,11 +16,33 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
 2. **闭环审计留痕**：通过离线多源样本回放与 golden 快照，让归一化和仲裁行为的变化在代码审查中以 diff 呈现。
 3. **标准与规划分离**：本文件保持稳定的验收规则；roadmap 只引用本文件，不复制规则正文。
 
+### 1.1 已冻结的 T06 不变量
+
+2026-09-25 冻结。后续任务不得重新讨论这些边界。本节区分目标语义和当前实现事实；两者冲突时，以本节加上决策 0039、0040 为准，并修正其他文档。
+
+目标语义：
+
+1. 决策 0039 规则 4e 采用方案 (i)。`eth_call` 的 revert 行为达到门槛即可保持 `Corroborated`；具体 `data` 达不到门槛时扣下该字段。原始字节只经 Uncertain 或审计证据可见。generic Strict 保持单 key 语义。
+2. 删减式投影只能删除未佐证字段，不能新增、替换或跨来源拼装。`Decision.Value` 允许这种方法契约声明的投影；未声明的方法仍返回来源原值。见 `architecture-record.md` 与 `rpc.Decision`。
+3. dimension evidence 至少区分每个维度的 `Support`、`Reject`、`Abstain`。弃权源留在投票分母，不进入该维度的 Reject，也不用其他来源的值补全。
+4. golden 记录删减字段。样本回放保持离线；`expect.json` 是数据，不是测试语言（决策 0040）。
+5. 不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`。
+6. 原始 JSON-RPC error 回放必须区分 data 缺失、JSON `null`、`0x` 和具体 data。`rpc.RPCError` 已有 `Data`；缺口不在该类型。
+
+当前实现事实（本任务不改代码行为）：
+
+1. `rpc.Corroboration.adjudicate` 与 legacy Strict 都把获胜簇的来源原值写入 `Decision.Value`。没有删减式投影，也没有按维度的 `Abstain`。
+2. `eth_call` 仍用扁平键 `reverted|missing`、`reverted|null`、`reverted|empty`、`reverted|hex:`、`reverted|raw:`。缺失与 `0x` 不相同。短簇返回 `ErrConflict`。
+3. `rpc.RPCError.Raw` 在 `Data` 为 nil 时省略字段，在 `Data` 为 `null` 时保留 JSON null。直接构造可以区分缺失与 null（`TestCallRPCErrorRawPreservesDataAbsence`）。
+4. `rpctest` 的 `RPCError` helper / 内部 `rpcError` 只有 code 与 message。`Node.serve` 写出的 error 对象没有 data 字段，不能原样回放缺失、`null`、`0x` 或具体 data。
+5. `aggregator.observationRPCError` 只在 `ErrorData()` 非 nil 时写入 `Data`。nil 不能同时保留“字段缺失”和 JSON null。
+6. 尚无 `internal/rpcsample/replay` 与 `expect.json`。`moving-tag-matrix.md` 仍有 `as above`；清理属于任务 #2，不在本次修改。
+
 ---
 
 ## 2. 报文差异的五类分类模型（判定与仲裁基准）
 
-归一化与仲裁不得采用“剪枝或冲突”的两分法，必须遵循决策 0039 的五类模型：
+归一化与仲裁不得采用“剪枝或冲突”的两分法，必须遵循决策 0039 的五类模型。第 4 类和规则 4e 是第 1.1 节的目标语义；当前实现仍是该节记录的单键冲突：
 
 | 类别 | 判据特征 | 处理策略 | 目标效果 |
 | :--- | :--- | :--- | :--- |

@@ -67,7 +67,7 @@ T04 已用离线样本锁住现有检查，没有把本条收成完备性结论�
 - 不保证完整收集。没有某个字段条目不能推导为所有来源均无此字段；仅提供本次可保留的数据。
 - 未纳入契约的厂商扩展、未接受或未获佐证的内容，可由此提供；其中的一致不表示可靠，异见也不表示已证伪。
 
-必要字段不合格时，该来源回答仍不能投票，且仍保留在本次 quorum 分母中。不能把坏字段移入 Uncertain 后把剩余对象作为完整成功结果；独立接受字段子集必须有方法契约依据。主结果的校验责任不因保留原始数据而改变。
+必要字段不合格时，该来源回答仍不能投票，且仍保留在本次 quorum 分母中。不能把坏字段移入 Uncertain 后把剩余对象作为完整成功结果；独立接受字段子集必须有方法契约依据。决策 0039 规则 4e 的删减式投影是已冻结的这类契约：只删除未佐证字段，不把残缺对象说成该字段已获佐证；当前实现尚未投影，见 `method-verification-pipeline.md` 第 1.1 节。主结果的校验责任不因保留原始数据而改变。
 
 获取方式已按第 0.17 节确定为 context 收集器；具体 Go 类型、字段路径语法、原始字节表示及保留容量待设计。需核对传输／解码路径能否暴露原始响应，当前尚未实现该能力。`Uncertain(paths ...string)` 仅为候选表达，不是已接受签名。
 
@@ -87,7 +87,7 @@ T04 已用离线样本锁住现有检查，没有把本条收成完备性结论�
 
 见 [决策 0023](../decisions.md#0023-revert-data-protection-precedes-provider-error-normalization)。测试：`TestNormalizeCallOutcomeClustersResultsAndReverts`、`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees`、`TestCallRevertDataConflictIsNotSwallowed`、`TestCallProviderErrorDoesNotEnterRevertKey`、`TestCallRPCErrorRawPreservesDataAbsence`、`TestDecodeCallResultKeepsRevertDataStates`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`。样本：`internal/rpcsample/testdata/revert-data`。该样本只证明 code 3 下缺失、`0x`、`0xdeadbeef` 与 `Error(string)` 同时出现，不是普遍性结论；code -32000 与结构化 data 由单元测试锁定，不在这次样本里。
 
-已知现状：当前实现给空 revert 的缺失 data 与 `0x` 两个不同的比较键（`reverted|missing` 与 `reverted|empty`）。样本中同一请求（state override 注入 `revert(0, 0)`）s1 四次均缺失 data，s2 三次返回 `0x`、一次缺失；同一端点在相同请求上都不稳定，样本已脱敏，不能归因到具名 provider 或客户端。因此只要两种形态同时出现且没有一簇单独达到门槛（典型是两源配置），无 data 的 revert 就报 `ErrConflict`。这符合决策 0023“不预先等同缺失与 `0x`”的立场，但在混合部署中造成可用性摩擦。演进方向见决策 0039（缺席即弃权）；规则 4e 已选择方案 (i)：实现后返回已佐证的 revert 行为并扣下未佐证 data，当前实现仍待迁移。
+已知现状：当前实现给空 revert 的缺失 data 与 `0x` 两个不同的比较键（`reverted|missing` 与 `reverted|empty`）。样本中同一请求（state override 注入 `revert(0, 0)`）s1 四次均缺失 data，s2 三次返回 `0x`、一次缺失；同一端点在相同请求上都不稳定，样本已脱敏，不能归因到具名 provider 或客户端。因此只要两种形态同时出现且没有一簇单独达到门槛（典型是两源配置），无 data 的 revert 就报 `ErrConflict`。这符合决策 0023“不预先等同缺失与 `0x`”的立场，但在混合部署中造成可用性摩擦。演进方向见决策 0039（缺席即弃权）；规则 4e 已选择并冻结方案 (i)：目标是返回已佐证的 revert 行为并扣下未佐证 data，`Decision.Value` 只允许这种删减，不允许新增、替换或跨来源拼装。当前实现仍待迁移，见 `method-verification-pipeline.md` 第 1.1 节。
 
 保留上游 JSON-RPC 的 code、message、data，不擅自改写。`eth_call` 仍固定同一区块参考与执行参数后比较。同意一个键是 provider-backed evidence of that data state，不是对 message 的佐证，也不是 Ethereum consensus。
 
