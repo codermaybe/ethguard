@@ -42,7 +42,7 @@
 
 标准见 `method-verification-pipeline.md`；本节只记录实施顺序、依赖和出口。
 `project-roadmap.md` 是唯一持久化计划，不另建执行计划文件。
-T06.0、T06.1、Anchor Transport Seam、T06.2、T06.3 和 T06.4 已验收。T06.2、T06.3 和 T06.4 分次提交。T06.4：`eth_call` 按 0039 规则 4e 处理可弃权的 revert data，generic Strict 仍是单 key。T06.5 在这次提交之后开始。
+T06.0、T06.1、Anchor Transport Seam、T06.2、T06.3 和 T06.4 已验收。T06.2、T06.3 和 T06.4 分次提交。T06.4：`eth_call` 按 0039 规则 4e 处理可弃权的 revert data，generic Strict 仍是单 key。T06.5 已验收，已提交：两份缺 golden 的捕获批次已补上 `expect.json`，没有合成未捕获方法的样本。
 
 ### T06.0 冻结设计约束
 
@@ -134,10 +134,15 @@ T06.0、T06.1、Anchor Transport Seam、T06.2、T06.3 和 T06.4 已验收。T06.
 
 ### T06.5 扩展读方法批次
 
-依赖：T06.1–T06.4。Anchor Transport Seam 已完成，不再单独阻塞本步。出口：每个新增 RegisteredMethod 通过标准第 5 节清单，并提交对应样本状态和 golden。
+依赖：T06.1–T06.4。Anchor Transport Seam 已完成，不再单独阻塞本步。出口：每个新增 RegisteredMethod 通过标准第 5 节清单，并提交对应样本状态和 golden。状态：2026-09-25 已验收，已提交。
 
-- 按方法逐项增加 matrix、Policy 测试、admission / normalization 边界、端到端 replay 和 golden。
+- `block-receipt-tx/2026-09-23/expect.json` 与 `eip1898-object/2026-09-23/expect.json` 是 `ethguard.expect/v1`，`transport: http`。record 字节、sha256 和 `index.json` 未改。`revert-data` 的 6 个 case 未改。
+- 回放走真实 Policy、`Aggregator.Aggregate` 和 typed-read 门禁。`safe` / `finalized` 由 tag-aware anchor 分别钉住，不脚本成 `latest`。pending 保持 Selected，同意也不会变成 Corroborated。空 body 按记录里的 429 或 403 作为 transport fault。
+- generic Strict 仍是单 key：golden 记一个 `value` 维度，Abstain 为空，reductive 为 false。`eth_call` 仍只有自己的 execution / data 维度。
+- `storage-number-object` 的 s4 请求与其他来源不同，且 body 为空。golden 把它记为 transport fault，并多标 `request_differs`，不拿它的请求去投票。
+- 没有捕获批次的读方法不新增合成样本：`eth_getLogs`、`eth_feeHistory`、`eth_chainId`、`net_version`、`eth_gasPrice`、`eth_maxPriorityFeePerGas`、`eth_blobBaseFee`、`eth_blockNumber`、`eth_syncing`、`net_peerCount`、`net_listening`。`TestRegisteredMethodSampleStatus` 钉住这份名单。
 - 不为批量扩展新增声明式方法契约或统一生成器；重复行为通过普通 Go helper 和 table-driven tests 复用。
+- `TestBatchLayoutKeepsIndexAndOmitsLaterGoldens` 改名为 `TestBatchLayoutKeepsIndexAndExpect`。三批现在都有 `expect.json`。
 
 ### T06 执行顺序与审计门禁
 
@@ -158,10 +163,10 @@ T06.3 golden 与批次归档   已验收，已提交：三批已归档，仅 rev
 T06.4 0039 规则 4e        已验收，已提交
         |
         v
-T06.5 读方法批次扩展
+T06.5 读方法批次扩展      已验收，已提交：block-receipt-tx 与 eip1898-object 有 expect
 ```
 
-现有样本已迁入各自 `2026-09-23` 批次。不得新增读方法。T06.4 没有把缺失与 `0x` 收成同一个比较值：缺失是弃权，`0x` 仍是 data 断言。T06.2、T06.3 与 T06.4 已分次提交。T06.4 提交后 T06.5 才开始。每个任务先提交自己的验收证据，再解除后继任务。
+现有样本已迁入各自 `2026-09-23` 批次。不得新增读方法。T06.4 没有把缺失与 `0x` 收成同一个比较值：缺失是弃权，`0x` 仍是 data 断言。T06.2、T06.3 与 T06.4 已分次提交。T06.4 与 T06.5 已分次提交。未捕获的读方法仍然没有 golden。每个任务先提交自己的验收证据，再解除后继任务。
 
 #### 执行者通用要求
 

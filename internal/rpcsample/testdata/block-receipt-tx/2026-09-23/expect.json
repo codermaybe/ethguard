@@ -1,0 +1,553 @@
+{
+  "schema_version": "ethguard.expect/v1",
+  "batch_id": "2026-09-23",
+  "feature": "block-receipt-tx",
+  "transport": "http",
+  "cases": [
+    {
+      "request_id": "block-empty-hash",
+      "method": "eth_getBlockByHash",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "eth_getBlockByHash",
+        "params": [
+          "0xb207611d590b49435320b9e64a2c9e77f1bd9c73f602fd1ede2c5cf4815aa2e7",
+          false
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "15500012|0xb207611d590b49435320b9e64a2c9e77f1bd9c73f602fd1ede2c5cf4815aa2e7",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "15500012|0xb207611d590b49435320b9e64a2c9e77f1bd9c73f602fd1ede2c5cf4815aa2e7",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "block-empty-number",
+      "method": "eth_getBlockByNumber",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "0xec82ec",
+          false
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "15500012|0xb207611d590b49435320b9e64a2c9e77f1bd9c73f602fd1ede2c5cf4815aa2e7",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "15500012|0xb207611d590b49435320b9e64a2c9e77f1bd9c73f602fd1ede2c5cf4815aa2e7",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "block-filled-hash",
+      "method": "eth_getBlockByHash",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "eth_getBlockByHash",
+        "params": [
+          "0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e",
+          false
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "26040623|0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "26040623|0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "block-filled-number",
+      "method": "eth_getBlockByNumber",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "0x18d592f",
+          false
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "26040623|0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "26040623|0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "block-hash-null",
+      "method": "eth_getBlockByHash",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 15,
+        "method": "eth_getBlockByHash",
+        "params": [
+          "0x1111111111111111111111111111111111111111111111111111111111111111",
+          false
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "null",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "null",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "block-null",
+      "method": "eth_getBlockByNumber",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 14,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "0xffffffff",
+          false
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "null",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "null",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "receipt-null",
+      "method": "eth_getTransactionReceipt",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 17,
+        "method": "eth_getTransactionReceipt",
+        "params": [
+          "0x1111111111111111111111111111111111111111111111111111111111111111"
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "null",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "null",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "receipt-one",
+      "method": "eth_getTransactionReceipt",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 13,
+        "method": "eth_getTransactionReceipt",
+        "params": [
+          "0xaa1c6c878d686b6c14b77c6b78ff23ae4b069cf941736678e9c1f8102b219b15"
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "{\"blockHash\":\"0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e\",\"blockNumber\":\"0x18d592f\",\"cumulativeGasUsed\":\"0x8779\",\"effectiveGasPrice\":\"0x135e45e7\",\"from\":\"0x2252f216f4a494a87025123425181ca1bb754fb8\",\"gasUsed\":\"0x8779\",\"logs\":[],\"logsBloom\":\"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\",\"status\":\"0x1\",\"to\":\"0x0000000aa232009084bd71a5797d089aa4edfad4\",\"transactionHash\":\"0xaa1c6c878d686b6c14b77c6b78ff23ae4b069cf941736678e9c1f8102b219b15\",\"transactionIndex\":\"0x0\",\"type\":\"0x2\"}",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "{\"blockHash\":\"0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e\",\"blockNumber\":\"0x18d592f\",\"cumulativeGasUsed\":\"0x8779\",\"effectiveGasPrice\":\"0x135e45e7\",\"from\":\"0x2252f216f4a494a87025123425181ca1bb754fb8\",\"gasUsed\":\"0x8779\",\"logs\":[],\"logsBloom\":\"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\",\"status\":\"0x1\",\"to\":\"0x0000000aa232009084bd71a5797d089aa4edfad4\",\"transactionHash\":\"0xaa1c6c878d686b6c14b77c6b78ff23ae4b069cf941736678e9c1f8102b219b15\",\"transactionIndex\":\"0x0\",\"type\":\"0x2\"}",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "receipts-empty",
+      "method": "eth_getBlockReceipts",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "eth_getBlockReceipts",
+        "params": [
+          "0xec82ec"
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "[]",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "[]",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "tx-null",
+      "method": "eth_getTransactionByHash",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 16,
+        "method": "eth_getTransactionByHash",
+        "params": [
+          "0x1111111111111111111111111111111111111111111111111111111111111111"
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "null",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "null",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    },
+    {
+      "request_id": "tx-one",
+      "method": "eth_getTransactionByHash",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "eth_getTransactionByHash",
+        "params": [
+          "0xaa1c6c878d686b6c14b77c6b78ff23ae4b069cf941736678e9c1f8102b219b15"
+        ]
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 2,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "{\"accessList\":[],\"blockHash\":\"0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e\",\"blockNumber\":\"0x18d592f\",\"blockTimestamp\":\"0x6ab3dae7\",\"chainId\":\"0x1\",\"from\":\"0x2252f216f4a494a87025123425181ca1bb754fb8\",\"gas\":\"0x186a0\",\"gasPrice\":\"0x135e45e7\",\"hash\":\"0xaa1c6c878d686b6c14b77c6b78ff23ae4b069cf941736678e9c1f8102b219b15\",\"input\":\"0x1828e0e70000000000000000000000002252f216f4a494a87025123425181ca1bb754fb800000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000041e9f46d2dff10fd19431e8a985fd8d2ab201a84b7325e6215c711f3931334c90563d9bc47fb1233c6a5bf922762b626e3b03d255f3a174ec905f791ed8907b7b61b00000000000000000000000000000000000000000000000000000000000000\",\"maxFeePerGas\":\"0x2747bd30\",\"maxPriorityFeePerGas\":\"0x0\",\"nonce\":\"0x1d37f\",\"r\":\"0x3e581694ff07caeae1a8add08f1bf6585ebe46a110e202c295000870f7e02c5f\",\"s\":\"0x44611523cc45f30db11d12f40bc4420f5bde97e8eb27f100738a0be027c74ea1\",\"to\":\"0x0000000aa232009084bd71a5797d089aa4edfad4\",\"transactionIndex\":\"0x0\",\"type\":\"0x2\",\"v\":\"0x0\",\"value\":\"0x0\",\"yParity\":\"0x0\"}",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "{\"accessList\":[],\"blockHash\":\"0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e\",\"blockNumber\":\"0x18d592f\",\"blockTimestamp\":\"0x6ab3dae7\",\"chainId\":\"0x1\",\"from\":\"0x2252f216f4a494a87025123425181ca1bb754fb8\",\"gas\":\"0x186a0\",\"gasPrice\":\"0x135e45e7\",\"hash\":\"0xaa1c6c878d686b6c14b77c6b78ff23ae4b069cf941736678e9c1f8102b219b15\",\"input\":\"0x1828e0e70000000000000000000000002252f216f4a494a87025123425181ca1bb754fb800000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000041e9f46d2dff10fd19431e8a985fd8d2ab201a84b7325e6215c711f3931334c90563d9bc47fb1233c6a5bf922762b626e3b03d255f3a174ec905f791ed8907b7b61b00000000000000000000000000000000000000000000000000000000000000\",\"maxFeePerGas\":\"0x2747bd30\",\"maxPriorityFeePerGas\":\"0x0\",\"nonce\":\"0x1d37f\",\"r\":\"0x3e581694ff07caeae1a8add08f1bf6585ebe46a110e202c295000870f7e02c5f\",\"s\":\"0x44611523cc45f30db11d12f40bc4420f5bde97e8eb27f100738a0be027c74ea1\",\"to\":\"0x0000000aa232009084bd71a5797d089aa4edfad4\",\"transactionIndex\":\"0x0\",\"type\":\"0x2\",\"v\":\"0x0\",\"value\":\"0x0\",\"yParity\":\"0x0\"}",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": ""
+      }
+    }
+  ]
+}

@@ -71,6 +71,13 @@ func RPCErrorWithData(code int, message string, data json.RawMessage, present bo
 	}
 }
 
+// httpStatusError is an HTTP failure with no JSON-RPC body. Empty 429 and
+// 403 responses from captured samples are transport faults, not protocol
+// errors, and must not be rewritten into a JSON-RPC error object.
+type httpStatusError struct{ status int }
+
+func (e *httpStatusError) Error() string { return fmt.Sprintf("http %d", e.status) }
+
 // Node is one scriptable Ethereum JSON-RPC server.
 type Node struct {
 	mu       sync.Mutex
@@ -130,6 +137,12 @@ func (n *Node) ReturnRaw(method string, result json.RawMessage) {
 	n.Handle(method, func(Call) (any, error) { return copied, nil })
 }
 
+// FailHTTP scripts one method to answer with an HTTP status and an empty
+// body. Callers observe a transport failure rather than a JSON-RPC error.
+func (n *Node) FailHTTP(method string, status int) {
+	n.Handle(method, func(Call) (any, error) { return nil, &httpStatusError{status: status} })
+}
+
 // Hang scripts one method to delay before answering, simulating a stalled
 // provider. Callers bound by context deadline observe a timeout; the handler
 // abandons the answer as soon as the caller's request goes away.
@@ -175,6 +188,11 @@ func (n *Node) serve(w http.ResponseWriter, r *http.Request) {
 
 	result, err := handler(call)
 
+	var httpErr *httpStatusError
+	if errors.As(err, &httpErr) {
+		w.WriteHeader(httpErr.status)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]any{

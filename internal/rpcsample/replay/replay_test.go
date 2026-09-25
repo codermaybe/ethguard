@@ -61,7 +61,7 @@ func TestLoadBatchRejectsChangedRecordBytes(t *testing.T) {
 	}
 }
 
-func TestBatchLayoutKeepsIndexAndOmitsLaterGoldens(t *testing.T) {
+func TestBatchLayoutKeepsIndexAndExpect(t *testing.T) {
 	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object"} {
 		t.Run(feature, func(t *testing.T) {
 			dir := batchDir(feature)
@@ -87,15 +87,8 @@ func TestBatchLayoutKeepsIndexAndOmitsLaterGoldens(t *testing.T) {
 			if meta.BlockHeight != nil || meta.Web3ClientVersion != nil {
 				t.Fatalf("batch invented height or client version: %+v", meta)
 			}
-			_, err = os.Stat(filepath.Join(dir, "expect.json"))
-			if feature == "revert-data" {
-				if err != nil {
-					t.Fatal(err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatal("only the first batch has expect.json")
+			if _, err = os.Stat(filepath.Join(dir, "expect.json")); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}

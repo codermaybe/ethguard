@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +25,8 @@ import (
 )
 
 const replayHeadHash = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const replaySafeHash = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+const replayFinalizedHash = "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
 const sampleBatchID = "2026-09-23"
 
@@ -306,6 +310,17 @@ func callRequest() rpc.Request {
 
 func fixedAnchor(context.Context) (string, error) { return replayHeadHash, nil }
 
+func taggedAnchor(ctx context.Context) (string, error) {
+	switch rpc.AnchorTag(ctx) {
+	case "safe":
+		return replaySafeHash, nil
+	case "finalized":
+		return replayFinalizedHash, nil
+	default:
+		return replayHeadHash, nil
+	}
+}
+
 func newReplayAggregator(t *testing.T, count int) (*aggregator.Aggregator, []*rpctest.Node) {
 	t.Helper()
 	names := make([]string, count)
@@ -333,34 +348,95 @@ func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobor
 		opts = append(opts, aggregator.WithCorroboration(corrob))
 	}
 	resolver := ethguard.NewStrictHeadAnchor(sources, observe.Nop)
-	anchor := func(ctx context.Context) (string, error) {
-		ref, err := resolver.AnchorReference(ctx)
-		if err != nil {
-			return "", err
+	reference := func(ctx context.Context) (rpc.ReferenceEvidence, error) {
+		tag := rpc.AnchorTag(ctx)
+		var ref rpc.ReferenceEvidence
+		var err error
+		if tag != "" && tag != "latest" {
+			ref, err = resolver.AnchorReferenceForTag(ctx, tag)
+		} else {
+			ref, err = resolver.AnchorReference(ctx)
 		}
+		ref.Tag = tag
 		refcontext.Publish(ctx, ref)
-		if ref.Status != rpc.Corroborated {
-			return "", fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
+		if err != nil {
+			return ref, err
 		}
-		return ref.Hash, nil
+		if ref.Status != rpc.Corroborated {
+			return ref, fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
+		}
+		return ref, nil
 	}
-	registry := rpc.Registry{
-		methods.MethodCall:                 methods.CallPolicy(anchor),
-		methods.MethodGetTransactionByHash: methods.TransactionByHashPolicy(),
-		methods.MethodChainID:              methods.ChainIDPolicy(),
+	anchor := func(ctx context.Context) (string, error) {
+		ref, err := reference(ctx)
+		return ref.Hash, err
 	}
-	return aggregator.New(sources, registry, opts...), nodes
+	height := func(ctx context.Context) (uint64, error) {
+		ref, err := reference(ctx)
+		return ref.Height, err
+	}
+	return aggregator.New(sources, replayRegistry(anchor, height), opts...), nodes
 }
 
-func scriptLatest(nodes []*rpctest.Node) {
-	head := map[string]any{"number": "0x10", "hash": replayHeadHash}
+func replayRegistry(anchor rpc.AnchorFunc, height rpc.AnchorHeightFunc) rpc.Registry {
+	return rpc.Registry{
+		methods.MethodChainID:               methods.ChainIDPolicy(),
+		methods.MethodGetBlockByHash:        methods.BlockByHashPolicy(),
+		methods.MethodGetBlockByNumber:      methods.BlockByNumberPolicy(),
+		methods.MethodGetBalance:            methods.GetBalancePolicy(anchor),
+		methods.MethodGetTransactionReceipt: methods.TransactionReceiptPolicy(),
+		methods.MethodGetTransactionByHash:  methods.TransactionByHashPolicy(),
+		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(anchor),
+		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(anchor),
+		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(anchor),
+		methods.MethodGetCode:               methods.GetCodePolicy(anchor),
+		methods.MethodCall:                  methods.CallPolicy(anchor),
+		methods.MethodEstimateGas:           methods.EstimateGasPolicy(anchor),
+		methods.MethodGetLogs:               methods.LogsPolicy(height),
+		methods.MethodFeeHistory:            methods.FeeHistoryPolicy(height),
+		methods.MethodGasPrice:              methods.GasPricePolicy(),
+		methods.MethodMaxPriorityFeePerGas:  methods.MaxPriorityFeePerGasPolicy(),
+		methods.MethodBlobBaseFee:           methods.BlobBaseFeePolicy(),
+		methods.MethodBlockNumber:           methods.BlockNumberPolicy(),
+		methods.MethodCreateAccessList:      methods.CreateAccessListPolicy(anchor),
+		methods.MethodPeerCount:             methods.PeerCountPolicy(),
+		methods.MethodSyncing:               methods.SyncingPolicy(),
+		methods.MethodNetVersion:            methods.NetVersionPolicy(),
+		methods.MethodListening:             methods.ListeningPolicy(),
+	}
+}
+
+func scriptLatest(nodes []*rpctest.Node) { scriptTaggedHeads(nodes) }
+
+func scriptTaggedHeads(nodes []*rpctest.Node) {
+	heads := map[string]map[string]any{
+		"latest":    {"number": "0x10", "hash": replayHeadHash},
+		"safe":      {"number": "0x0e", "hash": replaySafeHash},
+		"finalized": {"number": "0x0c", "hash": replayFinalizedHash},
+	}
 	for _, node := range nodes {
-		node.Return(methods.MethodGetBlockByNumber, head)
+		node.Handle(methods.MethodGetBlockByNumber, func(call rpctest.Call) (any, error) {
+			tag := "latest"
+			if len(call.Params) > 0 {
+				if err := json.Unmarshal(call.Params[0], &tag); err != nil || tag == "" {
+					tag = "latest"
+				}
+			}
+			head, ok := heads[strings.ToLower(tag)]
+			if !ok {
+				return nil, rpctest.RPCError(-32602, "rpctest: unscripted block tag "+tag)
+			}
+			return head, nil
+		})
 	}
 }
 
 func scriptRecord(t *testing.T, node *rpctest.Node, record rpcsample.Record) {
 	t.Helper()
+	if strings.TrimSpace(record.Response.Body) == "" {
+		node.FailHTTP(record.Method, recordedTransportStatus(record))
+		return
+	}
 	isError, body, err := replay.BodyOf(record)
 	if err != nil {
 		t.Fatal(err)
@@ -382,11 +458,14 @@ func scriptRecord(t *testing.T, node *rpctest.Node, record rpcsample.Record) {
 
 func observationFromRecord(t *testing.T, record rpcsample.Record) rpc.Observation {
 	t.Helper()
+	source := rpc.SourceRef{Name: record.Source.ID, ID: record.Source.ID}
+	if strings.TrimSpace(record.Response.Body) == "" {
+		return rpc.Observation{Source: source, Err: errors.New(transportFault(record))}
+	}
 	isError, body, err := replay.BodyOf(record)
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := rpc.SourceRef{Name: record.Source.ID, ID: record.Source.ID}
 	var doc struct {
 		Result json.RawMessage `json:"result"`
 		Error  json.RawMessage `json:"error"`
@@ -398,6 +477,30 @@ func observationFromRecord(t *testing.T, record rpcsample.Record) rpc.Observatio
 		return rpc.Observation{Source: source, Value: doc.Result}
 	}
 	return observationFromError(record.Source.ID, doc.Error)
+}
+
+func recordedTransportStatus(record rpcsample.Record) int {
+	for _, item := range record.Errors {
+		if item.Kind != "transport" {
+			continue
+		}
+		switch {
+		case strings.Contains(item.Message, "403"):
+			return http.StatusForbidden
+		case strings.Contains(item.Message, "429"):
+			return http.StatusTooManyRequests
+		}
+	}
+	return http.StatusTooManyRequests
+}
+
+func transportFault(record rpcsample.Record) string {
+	for _, item := range record.Errors {
+		if item.Kind == "transport" && item.Message != "" {
+			return item.Message
+		}
+	}
+	return "transport fault"
 }
 
 func observationFromError(id string, raw json.RawMessage) rpc.Observation {
