@@ -176,6 +176,28 @@ func (a anchoredPolicy) Normalize(value json.RawMessage) (string, error) {
 	return a.policy.Normalize(value)
 }
 
+// MethodRule reports hash anchoring at this decorator's positions. It does
+// not prepare or resolve the request. The corroborating wrapper promotes it.
+func (a anchoredPolicy) MethodRule() (MethodRule, Policy) {
+	rule := MethodRule{Anchor: anchorRule("hash", a.positions)}
+	if inner, ok := a.policy.(MethodRuleSource); ok {
+		innerRule, _ := inner.MethodRule()
+		rule = rule.WithInner(innerRule)
+	}
+	return rule, a.policy
+}
+
+func anchorRule(kind string, positions []int) string {
+	if len(positions) == 0 {
+		return kind
+	}
+	parts := make([]string, len(positions))
+	for i, pos := range positions {
+		parts[i] = strconv.Itoa(pos)
+	}
+	return kind + "@" + strings.Join(parts, ",")
+}
+
 func (a anchoredPolicy) Resolve(obs []Observation) (Decision, error) {
 	return a.policy.Resolve(obs)
 }

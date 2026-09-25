@@ -54,6 +54,13 @@ func (p callRevertFunc) RequiresAgreement() bool { return true }
 
 func (p callRevertFunc) IncludeRPCError() bool { return p.includeRPCError }
 
+// MethodRule reports the call-revert resolver and its coarse comparison-key
+// class. Revert-data states stay out of the index. This method does not
+// participate in Prepare, Normalize, or Resolve.
+func (p callRevertFunc) MethodRule() (MethodRule, Policy) {
+	return MethodRule{Resolver: "call-revert", CompareKind: "method-specific"}, nil
+}
+
 func (p callRevertFunc) Resolve(obs []Observation) (Decision, error) {
 	if p.fallback != nil {
 		return p.resolve(*p.fallback, false, obs)

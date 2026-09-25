@@ -105,3 +105,58 @@ type LocalObservationPolicy interface {
 	// its source as Support; no usable source fails Unknown.
 	ResolveLocal([]Observation) (Decision, error)
 }
+
+// MethodRule is one layer of the method-rule index. Zero strings mean this
+// layer does not declare that column. A decorator fills only its own fields
+// and adopts the rest from the inner layer through WithInner. A resolver
+// fills Resolver and CompareKind and is the end of the chain.
+//
+// The index is a read-only projection. Nothing in request handling reads it.
+// Allowed values, and no finer classification:
+//
+//	Anchor:      "hash@<positions>", "height@<positions>", empty renders "none"
+//	BlockRef:    "eip1898", empty renders "none"
+//	Pending:     "local-observation", "local-reject", empty renders "none"
+//	Resolver:    "strict", "call-revert", "median", "local"
+//	CompareKind: "quantity", "object", "method-specific"
+//
+// CompareKind stays a coarse class. eth_call revert-data states and any
+// other comparison-key internals do not belong in the index.
+type MethodRule struct {
+	Anchor      string
+	BlockRef    string
+	Pending     string
+	Resolver    string
+	CompareKind string
+}
+
+// WithInner keeps this layer's declared fields and fills the gaps from inner.
+func (rule MethodRule) WithInner(inner MethodRule) MethodRule {
+	return MethodRule{
+		Anchor:      pickMethodRule(rule.Anchor, inner.Anchor),
+		BlockRef:    pickMethodRule(rule.BlockRef, inner.BlockRef),
+		Pending:     pickMethodRule(rule.Pending, inner.Pending),
+		Resolver:    pickMethodRule(rule.Resolver, inner.Resolver),
+		CompareKind: pickMethodRule(rule.CompareKind, inner.CompareKind),
+	}
+}
+
+func pickMethodRule(own, inner string) string {
+	if own != "" {
+		return own
+	}
+	return inner
+}
+
+// MethodRuleSource is an optional introspection capability. It reports this
+// layer's rule composition, including the inner layer, and the next policy
+// in the decorator chain. A nil next policy is the resolver.
+//
+// It is not part of Policy. Prepare, Normalize, and Resolve do not consult
+// it. ForwardPolicy, SelectedPolicy, and FinalizedHead are not registered
+// method rules and do not implement it. The methods test fails, naming the
+// method and the concrete type, when a visited layer is missing. A walk of
+// registered methods must not grow an allow-undeclared exception.
+type MethodRuleSource interface {
+	MethodRule() (MethodRule, Policy)
+}

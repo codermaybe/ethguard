@@ -223,6 +223,17 @@ func (p eip1898Policy) Normalize(value json.RawMessage) (string, error) {
 	return p.policy.Normalize(value)
 }
 
+// MethodRule reports the EIP-1898 block-reference form. It does not rewrite
+// a request. The corroborating wrapper promotes this method.
+func (p eip1898Policy) MethodRule() (rpc.MethodRule, rpc.Policy) {
+	rule := rpc.MethodRule{BlockRef: "eip1898"}
+	if inner, ok := p.policy.(rpc.MethodRuleSource); ok {
+		innerRule, _ := inner.MethodRule()
+		rule = rule.WithInner(innerRule)
+	}
+	return rule, p.policy
+}
+
 func (p eip1898Policy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
 	return p.policy.Resolve(obs)
 }
