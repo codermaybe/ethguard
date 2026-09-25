@@ -433,6 +433,13 @@ func sourceFaults(policy rpc.Policy, emissions []pool.Emission) []error {
 	return faults
 }
 
+// errorDataPresence is the raw JSON form of a protocol error's data field.
+// present is false when the field was absent and true when it was JSON null
+// or any other value. geth's DataError cannot say which of those happened.
+type errorDataPresence interface {
+	ErrorDataJSON() (json.RawMessage, bool)
+}
+
 func observationRPCError(err error) *rpc.RPCError {
 	if err == nil {
 		return nil
@@ -442,6 +449,13 @@ func observationRPCError(err error) *rpc.RPCError {
 		return nil
 	}
 	structured := &rpc.RPCError{Code: protocolErr.ErrorCode(), Message: protocolErr.Error()}
+	var preserved errorDataPresence
+	if errors.As(err, &preserved) {
+		if raw, present := preserved.ErrorDataJSON(); present {
+			structured.Data = append(json.RawMessage(nil), raw...)
+		}
+		return structured
+	}
 	var dataErr gethrpc.DataError
 	if errors.As(err, &dataErr) {
 		if data := dataErr.ErrorData(); data != nil {

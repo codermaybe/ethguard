@@ -40,6 +40,9 @@ type dialer interface {
 type standardDialer struct{}
 
 func (standardDialer) DialContext(ctx context.Context, rawURL string) (*ethclient.Client, error) {
+	if client, ok, err := dialHTTPPreservingErrorData(ctx, rawURL); ok {
+		return client, err
+	}
 	return ethclient.DialContext(ctx, rawURL)
 }
 

@@ -453,6 +453,7 @@ func collectOne(ctx context.Context, src *Source, method string, params []any) (
 		return nil, err
 	}
 
+	ctx, body := withRawBody(ctx)
 	var result json.RawMessage
 	err = client.Client().CallContext(ctx, &result, method, params...)
 	if src.isClosed() {
@@ -461,6 +462,9 @@ func collectOne(ctx context.Context, src *Source, method string, params []any) (
 	if err != nil {
 		if shouldDiscardClient(err) {
 			src.discardClient(client)
+		}
+		if raw, ok := body.bytes(); ok {
+			err = preserveErrorData(err, raw)
 		}
 		return nil, err
 	}

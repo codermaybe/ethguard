@@ -29,14 +29,14 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
 5. 不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`。
 6. 原始 JSON-RPC error 回放必须区分 data 缺失、JSON `null`、`0x` 和具体 data。`rpc.RPCError` 已有 `Data`；缺口不在该类型。
 
-当前实现事实（本任务不改代码行为）：
+当前实现事实（与目标语义分开记录；T06.2 只补回放，不改下面第 1–3 条的裁决行为）：
 
 1. `rpc.Corroboration.adjudicate` 与 legacy Strict 都把获胜簇的来源原值写入 `Decision.Value`。没有删减式投影，也没有按维度的 `Abstain`。
 2. `eth_call` 仍用扁平键 `reverted|missing`、`reverted|null`、`reverted|empty`、`reverted|hex:`、`reverted|raw:`。缺失与 `0x` 不相同。短簇返回 `ErrConflict`。
 3. `rpc.RPCError.Raw` 在 `Data` 为 nil 时省略字段，在 `Data` 为 `null` 时保留 JSON null。直接构造可以区分缺失与 null（`TestCallRPCErrorRawPreservesDataAbsence`）。
-4. `rpctest` 的 `RPCError` helper / 内部 `rpcError` 只有 code 与 message。`Node.serve` 写出的 error 对象没有 data 字段，不能原样回放缺失、`null`、`0x` 或具体 data。
-5. `aggregator.observationRPCError` 只在 `ErrorData()` 非 nil 时写入 `Data`。nil 不能同时保留“字段缺失”和 JSON null。
-6. 尚无 `internal/rpcsample/replay` 与 `expect.json`。`moving-tag-matrix.md` 的 `Tests` 列已在 T06.1 清理为完整测试函数名，并由 `go/parser` 检查这些函数真实存在。`method-contracts.md` 与 roadmap 中的测试名仍只是说明性引用。
+4. `rpctest.FailWithData` 可以原样表达 data 缺失、JSON `null`、`0x` 和具体 data。`present == false` 不写 `data`；`present == true` 原样写入，包括 `null`。旧的 `Fail` / `RPCError` 仍然只有 code 与 message。
+5. HTTP 收集在 geth 把缺失和 JSON `null` 都解成 nil 之前保留原始 error 对象。`observationRPCError` 因此把字段缺失记为 `Data == nil`，把 JSON `null` 记为 `Data` 为 `null`。没有这份原始对象时仍走 `ErrorData()`；当前 WSS 帧属于这种情况，不能区分缺失和 `null`。
+6. `internal/rpcsample/replay` 按记录文件的原始字节校验 sha256，并还原响应体。当时尚无 `expect.json`。WSS 上缺失与 `null` 的坍缩仍在。`moving-tag-matrix.md` 的 `Tests` 列已在 T06.1 清理为完整测试函数名，并由 `go/parser` 检查这些函数真实存在。`method-contracts.md` 与 roadmap 中的测试名仍只是说明性引用。
 
 ---
 
@@ -115,7 +115,7 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
 - **要求**：
   1. 统一由 `internal/rpcsample/replay` 加载，并校验样本 sha256；
   2. **Policy 层**：样本按生产路径构造 `rpc.Observation`（错误响应带 `RPCError`），送入对应方法的真实 Policy，断言 `Decision.Status` 或 `ErrConflict`；
-  3. **端到端层**：经 `rpctest` 原样返回记录的 JSON-RPC 响应体，走 `Aggregator.Aggregate`，覆盖 Admit 与 typed-read 门禁（决策 0038）。只测 Policy 层会漏掉这两步。`rpc.RPCError` 已有 `Data` 字段；需要补的是 `rpctest` 的原样 error-body 能力，以及转换路径对缺失和 `null` 的保留；
+  3. **端到端层**：经 `rpctest` 原样返回记录的 JSON-RPC 响应体，走 `Aggregator.Aggregate`，覆盖 Admit 与 typed-read 门禁（决策 0038）。只测 Policy 层会漏掉这两步。`rpctest.FailWithData` 原样表达 error data；HTTP 转换路径保留缺失和 `null`。WSS 仍没有原始帧，不能作这四态的回放传输；
   4. 禁止外部网络 I/O；进程内 `httptest`（`rpctest`）允许。
 - **代码实现**：`internal/rpcsample/` 及 `rpc/methods/*_test.go`。
 

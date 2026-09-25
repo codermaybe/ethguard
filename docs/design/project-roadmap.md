@@ -42,7 +42,7 @@
 
 标准见 `method-verification-pipeline.md`；本节只记录实施顺序、依赖和出口。
 `project-roadmap.md` 是唯一持久化计划，不另建执行计划文件。
-T06.0、T06.1 和 Anchor Transport Seam 已完成。下一步是 T06.2 replay；golden、0039 和读方法批次仍依次等待。
+T06.0、T06.1、Anchor Transport Seam 和 T06.2 已验收。下一步是 T06.3；golden、0039 和读方法批次仍依次等待。
 
 ### T06.0 冻结设计约束
 
@@ -53,7 +53,7 @@ T06.0、T06.1 和 Anchor Transport Seam 已完成。下一步是 T06.2 replay；
 - dimension evidence 至少区分每个维度的 `Support`、`Reject` 和 `Abstain`，golden 同步记录删减字段。
 - `Decision.Value` 允许方法契约声明的删减式投影；禁止新增、替换或跨来源拼装字段。架构记录与 `rpc.Decision` 已按此修订，并标明当前实现仍返回来源原值。
 - Policy 组合和真实测试仍是执行事实；不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`（决策 0040）。
-- `rpc.RPCError` 已有 `Data`。缺口在 `rpctest` 的原样 error-body，以及 `observationRPCError` 对缺失 / `null` 的保留。
+- `rpc.RPCError` 已有 `Data`。冻结时的缺口是 `rpctest` 的原样 error-body，以及 `observationRPCError` 对缺失 / `null` 的保留。HTTP 上该缺口已由 T06.2 关闭；WSS 仍不能区分缺失和 `null`，限制记在 T06.2。
 
 ### T06.1 静态互锁
 
@@ -74,13 +74,17 @@ T06.0、T06.1 和 Anchor Transport Seam 已完成。下一步是 T06.2 replay；
 
 ### T06.2 Replay 基础设施
 
-依赖：T06.0，以及已完成的 Anchor Transport Seam。状态：可以开始；本轮没有提取 replay，也没有新增 `expect.json`。出口：同一批样本可以通过 Policy 层和 Aggregator 层重放。
+依赖：T06.0，以及已完成的 Anchor Transport Seam。状态：2026-09-25 已验收，工作区待提交。出口已满足：同一批样本可以通过 Policy 层和 Aggregator 层重放。没有新增 `expect.json`。
 
-- 提取 `internal/rpcsample/replay`，合并现有样本加载逻辑，保留每条 record 的 sha256 校验。
-- Policy 层用真实 Policy 构造 `rpc.Observation`，错误响应保留完整 `RPCError` data 形态。
-- 端到端层经 `rpctest` 原样返回记录的 JSON-RPC 响应体，走 `Aggregator.Aggregate`，覆盖 Admit 和 typed-read 门禁（0038）。
-- 为 `latest` 请求提供进程内 anchor 应答；禁止外部网络 I/O，允许 `httptest`。
-- `rpctest` 增加缺失 data、`null`、`0x` 和具体 data 的 error-body 表达，避免依靠错误字符串重建响应。
+- 已提取 `internal/rpcsample/replay`。`LoadBatch` 按记录文件的原始字节校验 sha256，篡改单字节即失败。`BodyOf` 只还原响应体，不做裁决。
+- Policy 层用真实 `CallPolicy`、`TransactionByHashPolicy` 和 `ChainIDPolicy` 构造 `rpc.Observation`。错误响应保留缺失、JSON `null`、`0x` 和具体 data，不把缺失与 `0x` 合成同一个比较值。
+- 端到端层经 `rpctest.FailWithData` / `ReturnRaw` 返回记录体，走 `Aggregator.Aggregate`。`tx-one` 覆盖真实 Admit；单侧成功在 `RequireCorroborated` 下覆盖 typed-read 门禁（0038）。
+- `latest` 使用进程内 anchor。`eth_getBlockByNumber` 仍请求 `latest`，`eth_call` 改写到本次 hash。无外部网络。
+- 已接受的范围例外：geth 把 error data 解成 `interface{}`，缺失和 JSON `null` 在进入 `observationRPCError` 之前都变成 nil。HTTP/HTTPS 因此在 `pool/rawbody.go` 增加 capturing transport，`pool/pool.go` 的 `standardDialer` 和 `pool/collect.go` 的 `collectOne` 保留原始 data。`preservedDataError` 只暴露 `ErrorDataJSON`，不实现 geth `DataError`，`RevertErrorData` 仍落到内部 geth 错误。只包 `http`/`https`；WSS 仍走原来的 `ethclient.DialContext`。这不是第二套 resolver、cache、quorum 或 evidence。
+- WSS 没有原始帧，缺失与 `null` 仍坍缩。四态只在 HTTP 上成立。`rpctest` 仍没有 WSS 节点。
+- 旧 `*_sample_test.go` 的本地 sha256 loader 在 T06.2 结束时尚未删除。
+- `safe` / `finalized` 矩阵本轮未重跑，留到 T06.5 方法批次前。business 零 fan-out 未单列重验；anchor transport 全量测试仍绿。T06.3 若改 anchor 或 pool 错误路径，必须重跑那一组。
+- 证明测试：`TestSameFixtureReplaysThroughPolicyAndAggregator`、`TestReplayErrorDataStatesStayDistinct`、`TestReplayTypedReadGateRejectsUncorroboratedCall`、`TestReplayChainIDAgreesWithoutAnchor`、`TestLoadBatchRejectsChangedRecordBytes`。样本 record 与 sha256 未变。
 
 ### T06.3 Golden 快照与批次归档
 
@@ -119,7 +123,7 @@ T06.1 matrix 互锁         已完成
 Anchor Transport Seam     已完成，T06.2 的前置
         |
         v
-T06.2 replay
+T06.2 replay              已验收，出口已满足；工作区待提交
         |
         v
 T06.3 golden 与批次归档

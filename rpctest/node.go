@@ -45,14 +45,31 @@ func After(delay time.Duration, next Handler) Handler {
 }
 
 type rpcError struct {
-	code    int
-	message string
+	code        int
+	message     string
+	data        json.RawMessage
+	dataPresent bool
 }
 
 func (e rpcError) Error() string { return e.message }
 
 // RPCError builds a handler error that carries an explicit JSON-RPC code.
-func RPCError(code int, message string) error { return rpcError{code, message} }
+// The encoded error object has no data field.
+func RPCError(code int, message string) error {
+	return rpcError{code: code, message: message}
+}
+
+// RPCErrorWithData builds a handler error whose data field is under the
+// caller's control. present is false when the field must be omitted, including
+// the distinct case of a JSON null, which is present with data "null".
+func RPCErrorWithData(code int, message string, data json.RawMessage, present bool) error {
+	return rpcError{
+		code:        code,
+		message:     message,
+		data:        append(json.RawMessage(nil), data...),
+		dataPresent: present,
+	}
+}
 
 // Node is one scriptable Ethereum JSON-RPC server.
 type Node struct {
@@ -93,9 +110,24 @@ func (n *Node) Return(method string, result any) {
 	n.Handle(method, Value(result))
 }
 
-// Fail scripts one method to always answer with a JSON-RPC error.
+// Fail scripts one method to always answer with a JSON-RPC error that has
+// no data field.
 func (n *Node) Fail(method string, code int, message string) {
 	n.Handle(method, func(Call) (any, error) { return nil, RPCError(code, message) })
+}
+
+// FailWithData scripts one method to answer with a JSON-RPC error whose data
+// presence is exact. present false omits the field. present true writes data
+// unchanged, including JSON null, "0x", and concrete values.
+func (n *Node) FailWithData(method string, code int, message string, data json.RawMessage, present bool) {
+	err := RPCErrorWithData(code, message, data, present)
+	n.Handle(method, func(Call) (any, error) { return nil, err })
+}
+
+// ReturnRaw scripts one method to answer with result bytes unchanged.
+func (n *Node) ReturnRaw(method string, result json.RawMessage) {
+	copied := append(json.RawMessage(nil), result...)
+	n.Handle(method, func(Call) (any, error) { return copied, nil })
 }
 
 // Hang scripts one method to delay before answering, simulating a stalled
@@ -145,15 +177,10 @@ func (n *Node) serve(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
-		code := -32000 // server error
-		var re rpcError
-		if errors.As(err, &re) {
-			code = re.code
-		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
-			"error":   map[string]any{"code": code, "message": err.Error()},
+			"error":   errorObject(err),
 		})
 		return
 	}
@@ -162,6 +189,25 @@ func (n *Node) serve(w http.ResponseWriter, r *http.Request) {
 		"id":      req.ID,
 		"result":  result,
 	})
+}
+
+func errorObject(err error) map[string]any {
+	object := map[string]any{"code": -32000, "message": err.Error()}
+	var re rpcError
+	if !errors.As(err, &re) {
+		return object
+	}
+	object["code"] = re.code
+	object["message"] = re.message
+	if !re.dataPresent {
+		return object
+	}
+	data := re.data
+	if len(data) == 0 {
+		data = json.RawMessage("null")
+	}
+	object["data"] = json.RawMessage(append([]byte(nil), data...))
+	return object
 }
 
 // defaultHandler answers eth_chainId when scripted behaviour is absent and
