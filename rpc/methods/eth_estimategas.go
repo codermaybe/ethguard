@@ -21,9 +21,12 @@ const MethodEstimateGas = "eth_estimateGas"
 // Position 1 accepts the same EIP-1898 shapes as the T02 state reads.
 // String moving tags still rewrite to the bare anchor hash. Object moving
 // tags rewrite to {blockHash: anchor[, requireCanonical]}. Explicit
-// quantities, hashes, earliest, and pending — string or object — pass
-// through. Pending needs no local-observation wrapper: Median's ceiling is
-// already Selected. Malformed objects fail locally before any anchor call.
+// quantities, hashes, and earliest pass through. Pending — string or
+// object — is a node-local observation: it passes through, never touches
+// the anchor, and the first healthy source stands, ceiling Selected, never
+// Corroborated. That semantic belongs to PendingLocal, not to Median.
+// Median still resolves every other shape and never claims Corroborated.
+// Malformed objects fail locally before any anchor call.
 func EstimateGasPolicy(anchor rpc.AnchorFunc) rpc.Policy {
-	return EIP1898BlockRef(anchor, 1)(rpc.WithAnchor(anchor, 1)(rpc.Median(wire.NormalizeWireQuantity)))
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.WithAnchor(anchor, 1)(rpc.Median(wire.NormalizeWireQuantity))))
 }

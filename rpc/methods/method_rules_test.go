@@ -90,6 +90,7 @@ func assertPendingSemantics(rows []methodRuleRow) error {
 		{MethodGetLogs, rpc.RulePendingLocalReject},
 		{MethodCall, rpc.RulePendingLocalObservation},
 		{MethodChainID, "none"},
+		{MethodEstimateGas, rpc.RulePendingLocalObservation},
 	}
 	for _, check := range checks {
 		pending, ok := got[check.method]

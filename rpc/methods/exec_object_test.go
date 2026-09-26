@@ -110,6 +110,34 @@ func TestEstimateGasObjectForms(t *testing.T) {
 		}
 	})
 
+	t.Run("pending is the first healthy source, not the fleet median", func(t *testing.T) {
+		anchor.seen = nil
+		prepared, err := policy.Prepare(context.Background(), rpc.Request{
+			Method: MethodEstimateGas, Params: []any{call, "pending"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(anchor.seen) != 0 {
+			t.Fatal("pending consulted anchor")
+		}
+		local, ok := policy.(rpc.LocalObservationPolicy)
+		if !ok || !local.IsLocalObservation(prepared) {
+			t.Fatal("pending estimate was not a local observation")
+		}
+		decision, err := local.ResolveLocal([]rpc.Observation{
+			{Source: rpc.SourceRef{ID: "a"}, Value: json.RawMessage(`"0x10"`)},
+			{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`"0x30"`)},
+			{Source: rpc.SourceRef{ID: "c"}, Value: json.RawMessage(`"0x20"`)},
+		})
+		if err != nil || decision.Status != rpc.Selected || string(decision.Value) != `"0x10"` || len(decision.Support) != 1 || decision.Support[0].ID != "a" {
+			t.Fatalf("pending local = %+v %v", decision, err)
+		}
+		if decision.Status == rpc.Corroborated {
+			t.Fatal("pending estimate claimed Corroborated")
+		}
+	})
+
 	t.Run("provider errors stay unknown", func(t *testing.T) {
 		decision, err := policy.Resolve([]rpc.Observation{
 			{Source: rpc.SourceRef{ID: "a"}, Err: errors.New("transport")},

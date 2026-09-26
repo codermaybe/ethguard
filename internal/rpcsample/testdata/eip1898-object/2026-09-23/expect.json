@@ -1159,9 +1159,7 @@
         {
           "name": "value",
           "support": [
-            "s1",
-            "s2",
-            "s3"
+            "s1"
           ],
           "reject": [],
           "abstain": [],

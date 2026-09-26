@@ -13,7 +13,7 @@
 | eth_getStorageAt | hash@2 | eip1898 | local-observation | strict | method-specific |
 | eth_getCode | hash@1 | eip1898 | local-observation | strict | method-specific |
 | eth_call | hash@1 | eip1898 | local-observation | call-revert | method-specific |
-| eth_estimateGas | hash@1 | eip1898 | none | median | quantity |
+| eth_estimateGas | hash@1 | eip1898 | local-observation | median | quantity |
 | eth_getLogs | height@0.fromBlock,toBlock | none | local-reject | strict | method-specific |
 | eth_feeHistory | height@1 | none | local-observation | strict | method-specific |
 | eth_gasPrice | none | none | none | median | quantity |

@@ -230,9 +230,11 @@ func repeat00(n int) string {
 
 // TestPendingLocalExtendedMethods pins decision 0035 beyond the first
 // slice: access-list creation, fee history, and block-by-number serve
-// pending as a node-local observation too. Estimate/gas-price-style Median
-// methods need no wrapper (Selected ceiling by construction); logs carries
-// its range in filter fields and stays a documented T03 item.
+// pending as a node-local observation too. eth_estimateGas does as well,
+// but its mined path is Median, not a corroborating policy, so its pending
+// lock lives with TestEstimateGasObjectForms. Gas-price Median methods have
+// no pending form and stay unwrapped. Logs carries its range in filter
+// fields and stays a documented T03 item.
 func TestPendingLocalExtendedMethods(t *testing.T) {
 	heightCalls := 0
 	height := func(ctx context.Context) (uint64, error) {
