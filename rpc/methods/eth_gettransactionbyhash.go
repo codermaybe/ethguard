@@ -21,7 +21,7 @@ const MethodGetTransactionByHash = "eth_getTransactionByHash"
 // is an ordinary answer: corroborated absence maps to ethereum.NotFound at the
 // typed boundary, and a fleet split between null and an object is conflict.
 func TransactionByHashPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return policy.WithAdmission(rpc.Strict(normalizeTransactionObject, opts...), admitTransaction)
+	return policy.WithAdmission(rpc.Strict(normalizeTransactionObject, compareOpts(rpc.RuleCompareMethodSpecific, opts)...), admitTransaction)
 }
 
 func admitTransaction(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {

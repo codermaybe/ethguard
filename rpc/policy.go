@@ -114,11 +114,17 @@ type LocalObservationPolicy interface {
 // The index is a read-only projection. Nothing in request handling reads it.
 // Allowed values, and no finer classification:
 //
-//	Anchor:      "hash@<positions>", "height@<positions>", empty renders "none"
+//	Anchor:      "hash@<positions>", "height@<positions>",
+//	             "height@<pos>.<field>,<field>", empty renders "none"
 //	BlockRef:    "eip1898", empty renders "none"
 //	Pending:     "local-observation", "local-reject", empty renders "none"
 //	Resolver:    "strict", "call-revert", "median", "local"
 //	CompareKind: "quantity", "object", "method-specific"
+//
+// Pending is the layer's own pending semantics, not the presence of a
+// decorator. local-observation is a node-local observation capped at
+// Selected. local-reject fails locally, contacts no upstream, and does not
+// touch the anchor. none means that position has no pending form.
 //
 // CompareKind stays a coarse class. eth_call revert-data states and any
 // other comparison-key internals do not belong in the index.
@@ -160,3 +166,16 @@ func pickMethodRule(own, inner string) string {
 type MethodRuleSource interface {
 	MethodRule() (MethodRule, Policy)
 }
+
+const (
+	RulePendingLocalObservation = "local-observation"
+	RulePendingLocalReject      = "local-reject"
+	RuleBlockRefEIP1898         = "eip1898"
+	RuleResolverStrict          = "strict"
+	RuleResolverCallRevert      = "call-revert"
+	RuleResolverMedian          = "median"
+	RuleResolverLocal           = "local"
+	RuleCompareQuantity         = "quantity"
+	RuleCompareObject           = "object"
+	RuleCompareMethodSpecific   = "method-specific"
+)

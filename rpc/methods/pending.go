@@ -145,10 +145,13 @@ func (p pendingLocalPolicy) Normalize(value json.RawMessage) (string, error) {
 	return p.policy.Normalize(value)
 }
 
-// MethodRule reports pending as a node-local observation. It does not decide
-// a request. The corroborating wrapper promotes this method.
+// MethodRule reports this decorator's pending semantics: a node-local
+// observation capped at Selected. PendingLocal is not used for methods that
+// reject pending, so the value is this layer's behavior rather than a label
+// shared with rejection. It does not decide a request. The corroborating
+// wrapper promotes this method.
 func (p pendingLocalPolicy) MethodRule() (rpc.MethodRule, rpc.Policy) {
-	rule := rpc.MethodRule{Pending: "local-observation"}
+	rule := rpc.MethodRule{Pending: rpc.RulePendingLocalObservation}
 	if inner, ok := p.policy.(rpc.MethodRuleSource); ok {
 		innerRule, _ := inner.MethodRule()
 		rule = rule.WithInner(innerRule)

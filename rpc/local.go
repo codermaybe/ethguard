@@ -18,12 +18,27 @@ import (
 // sources out, but a live liar's local view cannot be cross-checked by
 // definition. Consumers needing conservatism over local state should consult
 // several sources themselves or wait for a derivation strategy.
-func Local(normalize func(json.RawMessage) (string, error)) Policy {
-	return localFunc{normalize: normalize}
+func Local(normalize func(json.RawMessage) (string, error), opts ...LocalOption) Policy {
+	f := localFunc{normalize: normalize}
+	for _, opt := range opts {
+		opt(&f)
+	}
+	return f
+}
+
+// LocalOption carries introspection for a local policy. Options are not
+// read by Prepare, Normalize, or Resolve.
+type LocalOption func(*localFunc)
+
+// WithLocalRuleCompareKind records the coarse comparison-key class for a
+// local policy. It does not change which source is selected.
+func WithLocalRuleCompareKind(kind string) LocalOption {
+	return func(f *localFunc) { f.compareKind = kind }
 }
 
 type localFunc struct {
-	normalize func(json.RawMessage) (string, error)
+	normalize   func(json.RawMessage) (string, error)
+	compareKind string
 }
 
 func (f localFunc) Prepare(_ context.Context, req Request) (Request, error) {
@@ -32,6 +47,12 @@ func (f localFunc) Prepare(_ context.Context, req Request) (Request, error) {
 
 func (f localFunc) Normalize(value json.RawMessage) (string, error) {
 	return f.normalize(value)
+}
+
+// MethodRule reports local resolution and the coarse comparison-key class
+// supplied at construction. It does not participate in request handling.
+func (f localFunc) MethodRule() (MethodRule, Policy) {
+	return MethodRule{Resolver: RuleResolverLocal, CompareKind: f.compareKind}, nil
 }
 
 func (f localFunc) Resolve(obs []Observation) (Decision, error) {

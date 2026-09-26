@@ -22,7 +22,7 @@ const MethodGetBlockByNumber = "eth_getBlockByNumber"
 // BlockByNumber(-1) before fan-out; this policy does not project that tag
 // into an ordinary block.
 func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return PendingLocal(0)(blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, opts...), byHash: false})
+	return PendingLocal(0)(blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, opts)...), byHash: false})
 }
 
 // normalizeBlockIdentity reduces a block object to its comparable identity.

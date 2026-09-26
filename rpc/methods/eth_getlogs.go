@@ -37,7 +37,7 @@ const MethodGetLogs = "eth_getLogs"
 func LogsPolicy(height rpc.AnchorHeightFunc, opts ...rpc.StrictOption) rpc.Policy {
 	// Validation wraps anchoring so a pending or malformed bound returns
 	// before WithAnchorHeightFields resolves a height.
-	anchored := rpc.WithAnchorHeightFields(height, 0, "fromBlock", "toBlock")(rpc.Strict(normalizeLogs, opts...))
+	anchored := rpc.WithAnchorHeightFields(height, 0, "fromBlock", "toBlock")(rpc.Strict(normalizeLogs, compareOpts(rpc.RuleCompareMethodSpecific, opts)...))
 	return logsPolicy{Policy: anchored}
 }
 
@@ -66,6 +66,18 @@ func (p logsPolicy) IncludeRPCError() bool {
 }
 func (p logsPolicy) Normalize(value json.RawMessage) (string, error) {
 	return normalizeLogs(value)
+}
+
+// MethodRule reports eth_getLogs pending rejection. Prepare returns
+// ErrInvalidRequest before any anchor lookup or upstream call. This method
+// does not change that path.
+func (p logsPolicy) MethodRule() (rpc.MethodRule, rpc.Policy) {
+	rule := rpc.MethodRule{Pending: rpc.RulePendingLocalReject}
+	if inner, ok := p.Policy.(rpc.MethodRuleSource); ok {
+		innerRule, _ := inner.MethodRule()
+		rule = rule.WithInner(innerRule)
+	}
+	return rule, p.Policy
 }
 func (p logsPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
 	return p.Policy.Resolve(obs)

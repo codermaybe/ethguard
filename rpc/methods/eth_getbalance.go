@@ -22,5 +22,5 @@ const MethodGetBalance = "eth_getBalance"
 // node-local observation by PendingLocal (decision 0035): it keeps its
 // node-state meaning and can never become Corroborated through agreement.
 func GetBalancePolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, wire.NormalizeWireQuantity, anchor, opts...)))
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, wire.NormalizeWireQuantity, anchor, compareOpts(rpc.RuleCompareQuantity, opts)...)))
 }

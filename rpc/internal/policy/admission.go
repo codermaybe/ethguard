@@ -27,6 +27,17 @@ type admissionPolicy struct {
 func (p admissionPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
 	return p.Policy.Prepare(ctx, req)
 }
+
+// MethodRule forwards the inner rule composition. Admission is not a column
+// in the method-rule index and this method does not admit a response.
+func (p admissionPolicy) MethodRule() (rpc.MethodRule, rpc.Policy) {
+	rule := rpc.MethodRule{}
+	if inner, ok := p.Policy.(rpc.MethodRuleSource); ok {
+		innerRule, _ := inner.MethodRule()
+		rule = rule.WithInner(innerRule)
+	}
+	return rule, p.Policy
+}
 func (p admissionPolicy) Normalize(value json.RawMessage) (string, error) {
 	return p.Policy.Normalize(value)
 }

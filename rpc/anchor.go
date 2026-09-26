@@ -317,6 +317,17 @@ func (p pendingRejectingPolicy) Normalize(value json.RawMessage) (string, error)
 	return p.policy.Normalize(value)
 }
 
+// MethodRule reports a local pending rejection. This decorator fails the
+// request before any anchor or upstream call. It does not resolve a value.
+func (p pendingRejectingPolicy) MethodRule() (MethodRule, Policy) {
+	rule := MethodRule{Pending: RulePendingLocalReject}
+	if inner, ok := p.policy.(MethodRuleSource); ok {
+		innerRule, _ := inner.MethodRule()
+		rule = rule.WithInner(innerRule)
+	}
+	return rule, p.policy
+}
+
 func (p pendingRejectingPolicy) Resolve(obs []Observation) (Decision, error) {
 	return p.policy.Resolve(obs)
 }
@@ -449,6 +460,17 @@ func (a anchoredHeightPolicy) IncludeRPCError() bool {
 
 func (a anchoredHeightPolicy) Normalize(value json.RawMessage) (string, error) {
 	return a.policy.Normalize(value)
+}
+
+// MethodRule reports height anchoring at this decorator's positions. It does
+// not prepare or resolve the request. The corroborating wrapper promotes it.
+func (a anchoredHeightPolicy) MethodRule() (MethodRule, Policy) {
+	rule := MethodRule{Anchor: anchorRule("height", a.positions)}
+	if inner, ok := a.policy.(MethodRuleSource); ok {
+		innerRule, _ := inner.MethodRule()
+		rule = rule.WithInner(innerRule)
+	}
+	return rule, a.policy
 }
 
 func (a anchoredHeightPolicy) Resolve(obs []Observation) (Decision, error) {
@@ -631,6 +653,21 @@ func (a anchoredFieldsPolicy) IncludeRPCError() bool {
 
 func (a anchoredFieldsPolicy) Normalize(value json.RawMessage) (string, error) {
 	return a.policy.Normalize(value)
+}
+
+// MethodRule reports height anchoring of named fields. It does not prepare
+// or resolve the request. The corroborating wrapper promotes it.
+func (a anchoredFieldsPolicy) MethodRule() (MethodRule, Policy) {
+	rule := MethodRule{Anchor: anchorFieldsRule(a.paramPos, a.fields)}
+	if inner, ok := a.policy.(MethodRuleSource); ok {
+		innerRule, _ := inner.MethodRule()
+		rule = rule.WithInner(innerRule)
+	}
+	return rule, a.policy
+}
+
+func anchorFieldsRule(pos int, fields []string) string {
+	return "height@" + strconv.Itoa(pos) + "." + strings.Join(fields, ",")
 }
 
 func (a anchoredFieldsPolicy) Resolve(obs []Observation) (Decision, error) {

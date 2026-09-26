@@ -58,7 +58,7 @@ func (p callRevertFunc) IncludeRPCError() bool { return p.includeRPCError }
 // class. Revert-data states stay out of the index. This method does not
 // participate in Prepare, Normalize, or Resolve.
 func (p callRevertFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: "call-revert", CompareKind: "method-specific"}, nil
+	return MethodRule{Resolver: RuleResolverCallRevert, CompareKind: RuleCompareMethodSpecific}, nil
 }
 
 func (p callRevertFunc) Resolve(obs []Observation) (Decision, error) {

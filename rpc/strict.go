@@ -38,6 +38,7 @@ type strictConfig struct {
 	floor           int
 	floorSet        bool
 	includeRPCError bool
+	compareKind     string
 }
 
 // WithQuorum sets the support floor H: the winning cluster must hold at
@@ -75,6 +76,12 @@ func WithRPCErrorBodies() StrictOption {
 	return func(s *strictConfig) { s.includeRPCError = true }
 }
 
+// WithRuleCompareKind records the coarse comparison-key class for the
+// method-rule index. It is not read by Prepare, Normalize, or Resolve.
+func WithRuleCompareKind(kind string) StrictOption {
+	return func(s *strictConfig) { s.compareKind = kind }
+}
+
 // Strict binds a response normalizer to strict-corroboration resolution. Method
 // authors supply only the normalizer — the one part that varies per method —
 // instead of re-implementing the Policy shell.
@@ -92,7 +99,7 @@ func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOptio
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	p := strictFunc{normalize: normalize, includeRPCError: cfg.includeRPCError}
+	p := strictFunc{normalize: normalize, includeRPCError: cfg.includeRPCError, compareKind: cfg.compareKind}
 	if cfg.modeSet || cfg.floorSet {
 		p.corroboration = &Corroboration{Mode: cfg.mode, Floor: cfg.floor}
 	}
@@ -103,6 +110,7 @@ type strictFunc struct {
 	normalize       func(json.RawMessage) (string, error)
 	corroboration   *Corroboration
 	includeRPCError bool
+	compareKind     string
 }
 
 func (f strictFunc) Prepare(_ context.Context, req Request) (Request, error) {
@@ -116,6 +124,12 @@ func (f strictFunc) Normalize(value json.RawMessage) (string, error) {
 func (f strictFunc) RequiresAgreement() bool { return true }
 
 func (f strictFunc) IncludeRPCError() bool { return f.includeRPCError }
+
+// MethodRule reports strict resolution and the coarse comparison-key class
+// supplied at construction. It does not participate in request handling.
+func (f strictFunc) MethodRule() (MethodRule, Policy) {
+	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind}, nil
+}
 
 func (f strictFunc) Resolve(obs []Observation) (Decision, error) {
 	if f.corroboration == nil {

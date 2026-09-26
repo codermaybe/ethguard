@@ -13,5 +13,5 @@ const MethodGetBlockByHash = "eth_getBlockByHash"
 // canonical-object normalizer: encoding differences are erased, everything
 // still differing between sources is dissent.
 func BlockByHashPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, opts...), byHash: true}
+	return blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, opts)...), byHash: true}
 }

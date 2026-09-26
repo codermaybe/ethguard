@@ -13,5 +13,5 @@ const MethodNetVersion = "net_version"
 // eth_chainId's hex quantity, so it gets its own normalizer rather than
 // sharing one.
 func NetVersionPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Strict(wire.NormalizeDecimalString, opts...)
+	return rpc.Strict(wire.NormalizeDecimalString, compareOpts(rpc.RuleCompareQuantity, opts)...)
 }

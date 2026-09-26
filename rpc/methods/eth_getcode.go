@@ -17,5 +17,5 @@ const MethodGetCode = "eth_getCode"
 // forms ride EIP1898BlockRef (see GetBalancePolicy). Pending resolves as a
 // node-local observation (see GetBalancePolicy).
 func GetCodePolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, wire.NormalizeHexData, anchor, opts...)))
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, wire.NormalizeHexData, anchor, compareOpts(rpc.RuleCompareMethodSpecific, opts)...)))
 }

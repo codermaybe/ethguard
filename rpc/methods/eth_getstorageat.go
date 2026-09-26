@@ -19,5 +19,5 @@ const MethodGetStorageAt = "eth_getStorageAt"
 // node-local observation (see GetBalancePolicy). Strict options pass
 // through to the underlying strict resolution.
 func GetStorageAtPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return PendingLocal(2)(EIP1898BlockRef(anchor, 2)(rpc.Anchored(2, wire.NormalizeStorageWord, anchor, opts...)))
+	return PendingLocal(2)(EIP1898BlockRef(anchor, 2)(rpc.Anchored(2, wire.NormalizeStorageWord, anchor, compareOpts(rpc.RuleCompareMethodSpecific, opts)...)))
 }

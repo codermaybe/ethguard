@@ -10,5 +10,5 @@ const MethodChainID = "eth_chainId"
 
 // ChainIDPolicy corroborates eth_chainId by full agreement.
 func ChainIDPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return rpc.Strict(wire.NormalizeWireQuantity, opts...)
+	return rpc.Strict(wire.NormalizeWireQuantity, compareOpts(rpc.RuleCompareQuantity, opts)...)
 }

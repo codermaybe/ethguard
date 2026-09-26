@@ -17,5 +17,5 @@ const MethodGetTransactionCount = "eth_getTransactionCount"
 // ride EIP1898BlockRef (see GetBalancePolicy); quantity-only positions never do.
 // Pending resolves as a node-local observation (see GetBalancePolicy).
 func GetTransactionCountPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, wire.NormalizeWireQuantity, anchor, opts...)))
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, wire.NormalizeWireQuantity, anchor, compareOpts(rpc.RuleCompareQuantity, opts)...)))
 }

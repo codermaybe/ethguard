@@ -11,10 +11,9 @@ import (
 )
 
 // TestMethodRulesMatchIndex locks docs/design/method-rules.md to runtime
-// introspection. This checkpoint renders the eth_call chain only, so the
-// column shape can be confirmed before the other registered methods are
-// added. The follow-up must walk every RegisteredMethod. It must not allow
-// an undeclared layer to pass, and it must not skip a registered method.
+// introspection of every RegisteredMethod. A layer that does not implement
+// MethodRuleSource fails the test with the method name and the concrete
+// type. There is no allow-undeclared exception.
 //
 // ETHGUARD_UPDATE_METHOD_RULES=1 rewrites the file. The default does not.
 func TestMethodRulesMatchIndex(t *testing.T) {
@@ -22,8 +21,8 @@ func TestMethodRulesMatchIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Method != MethodCall {
-		t.Fatalf("column-shape checkpoint must render eth_call only, got %+v", rows)
+	if len(rows) != len(RegisteredNames()) {
+		t.Fatalf("rule rows = %d, registered methods = %d", len(rows), len(RegisteredNames()))
 	}
 	got := renderMethodRules(rows)
 	path := filepath.Join("..", "..", "docs", "design", "method-rules.md")
@@ -42,39 +41,123 @@ func TestMethodRulesMatchIndex(t *testing.T) {
 }
 
 func methodRuleRows() ([]methodRuleRow, error) {
-	name, policy, err := catalogCallPolicy()
-	if err != nil {
-		return nil, err
-	}
-	rule, err := inspectMethodRule(name, policy)
-	if err != nil {
-		return nil, err
-	}
-	want := rpc.MethodRule{
-		Anchor:      "hash@1",
-		BlockRef:    "eip1898",
-		Pending:     "local-observation",
-		Resolver:    "call-revert",
-		CompareKind: "method-specific",
-	}
-	if rule != want {
-		return nil, fmt.Errorf("%s: column shape = %+v, want %+v", name, rule, want)
-	}
-	return []methodRuleRow{{Method: name, Rule: rule}}, nil
-}
-
-// catalogCallPolicy reads eth_call from Catalog rather than a free-floating
-// name. Non-registered catalog entries are outside the index. Other
-// registered methods are intentionally absent until the column shape is
-// confirmed; they are not an allow-undeclared exception inside a full walk.
-func catalogCallPolicy() (string, rpc.Policy, error) {
+	var rows []methodRuleRow
 	for _, method := range Catalog() {
-		if method.Kind != RegisteredMethod || method.Name != MethodCall {
+		if method.Kind != RegisteredMethod {
 			continue
 		}
-		return method.Name, CallPolicy(nil), nil
+		policy, err := policyForRuleIndex(method.Name)
+		if err != nil {
+			return nil, err
+		}
+		rule, err := inspectMethodRule(method.Name, policy)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, methodRuleRow{Method: method.Name, Rule: rule})
 	}
-	return "", nil, fmt.Errorf("catalog is missing registered method %s", MethodCall)
+	if err := assertPendingSemantics(rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// assertPendingSemantics locks the three pending mechanisms to methods whose
+// constructions differ. The values have to come from those layers; a single
+// fixed label cannot satisfy all three.
+func assertPendingSemantics(rows []methodRuleRow) error {
+	got := map[string]string{}
+	for _, row := range rows {
+		got[row.Method] = ruleOrNone(row.Rule.Pending)
+		if row.Method != MethodCall {
+			continue
+		}
+		want := rpc.MethodRule{
+			Anchor:      "hash@1",
+			BlockRef:    rpc.RuleBlockRefEIP1898,
+			Pending:     rpc.RulePendingLocalObservation,
+			Resolver:    rpc.RuleResolverCallRevert,
+			CompareKind: rpc.RuleCompareMethodSpecific,
+		}
+		if row.Rule != want {
+			return fmt.Errorf("%s: column shape = %+v, want %+v", row.Method, row.Rule, want)
+		}
+	}
+	checks := []struct {
+		method  string
+		pending string
+	}{
+		{MethodGetLogs, rpc.RulePendingLocalReject},
+		{MethodCall, rpc.RulePendingLocalObservation},
+		{MethodChainID, "none"},
+	}
+	for _, check := range checks {
+		pending, ok := got[check.method]
+		if !ok {
+			return fmt.Errorf("%s: missing from the rule index", check.method)
+		}
+		if pending != check.pending {
+			return fmt.Errorf("%s: pending = %s, want %s", check.method, pending, check.pending)
+		}
+	}
+	return nil
+}
+
+// policyForRuleIndex constructs the registered policy. A name without a case
+// fails the walk; it is not skipped.
+func policyForRuleIndex(name string) (rpc.Policy, error) {
+	var anchor rpc.AnchorFunc
+	var height rpc.AnchorHeightFunc
+	switch name {
+	case MethodChainID:
+		return ChainIDPolicy(), nil
+	case MethodGetBlockByHash:
+		return BlockByHashPolicy(), nil
+	case MethodGetBlockByNumber:
+		return BlockByNumberPolicy(), nil
+	case MethodGetBalance:
+		return GetBalancePolicy(anchor), nil
+	case MethodGetTransactionReceipt:
+		return TransactionReceiptPolicy(), nil
+	case MethodGetTransactionByHash:
+		return TransactionByHashPolicy(), nil
+	case MethodGetBlockReceipts:
+		return BlockReceiptsPolicy(anchor), nil
+	case MethodGetTransactionCount:
+		return GetTransactionCountPolicy(anchor), nil
+	case MethodGetStorageAt:
+		return GetStorageAtPolicy(anchor), nil
+	case MethodGetCode:
+		return GetCodePolicy(anchor), nil
+	case MethodCall:
+		return CallPolicy(anchor), nil
+	case MethodEstimateGas:
+		return EstimateGasPolicy(anchor), nil
+	case MethodGetLogs:
+		return LogsPolicy(height), nil
+	case MethodFeeHistory:
+		return FeeHistoryPolicy(height), nil
+	case MethodGasPrice:
+		return GasPricePolicy(), nil
+	case MethodMaxPriorityFeePerGas:
+		return MaxPriorityFeePerGasPolicy(), nil
+	case MethodBlobBaseFee:
+		return BlobBaseFeePolicy(), nil
+	case MethodBlockNumber:
+		return BlockNumberPolicy(), nil
+	case MethodCreateAccessList:
+		return CreateAccessListPolicy(anchor), nil
+	case MethodPeerCount:
+		return PeerCountPolicy(), nil
+	case MethodSyncing:
+		return SyncingPolicy(), nil
+	case MethodNetVersion:
+		return NetVersionPolicy(), nil
+	case MethodListening:
+		return ListeningPolicy(), nil
+	default:
+		return nil, fmt.Errorf("%s: no policy constructor for rule introspection", name)
+	}
 }
 
 // inspectMethodRule visits each concrete decorator. The outer MethodRule
