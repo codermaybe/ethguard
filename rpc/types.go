@@ -126,8 +126,10 @@ type Decision struct {
 	// and successful DATA write the canonical encoding, which does not follow
 	// the representative source's spelling. eth_feeHistory writes the
 	// canonical object of its protected fields; its comparison key stays the
-	// feeHistory key. Other generic Strict decisions copy one admitted source
-	// value from the winning cluster and do not change its fields. A
+	// feeHistory key. eth_getLogs writes the canonical array of the fields its
+	// mask retains; its comparison key stays the existing log key. Other
+	// generic Strict decisions copy one admitted source value from the winning
+	// cluster and do not change its fields. A
 	// successful eth_call value is canonical DATA. An eth_call revert may
 	// apply a reductive projection (decision 0039 rule 4e, option (i)): it
 	// may delete a field that lacks corroboration, and it may not add,
@@ -154,8 +156,8 @@ type Decision struct {
 	// Representative is the first supporter of the winning cluster in this
 	// call's captured member order. For a method that has not migrated, Value
 	// is that source's admitted payload. For a migrated quantity, successful
-	// DATA result, or eth_feeHistory, Value is the canonical encoding and this
-	// field only records who was first. It is set wherever that cluster is
+	// DATA result, eth_feeHistory, or eth_getLogs, Value is the canonical
+	// encoding and this field only records who was first. It is set wherever that cluster is
 	// carried out, including decisions that fail with the Value attached. It
 	// stays zero when there is no valid response, and on Local, Forward, and
 	// ResolveLocal. It carries no ordinal; the ordinal is the source's

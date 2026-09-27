@@ -38,7 +38,7 @@ collect → bounded JSON validation → method admission → method normalizatio
 → fixed-basis resolution → Decision → typed projection
 ```
 
-`Decision.Value`：已迁移的数量和成功 DATA 由 Encode 写成规范编码，不跟随代表源拼写。`eth_feeHistory` 的 Value 是受保护字段的规范对象，比较键仍是 feeHistory 键。其余 generic Strict 与显式 quorum 仍写入获胜簇里捕获顺序第一人的原始值，不改字段。决策 0039 规则 4e 方案 (i)（见 `method-verification-pipeline.md` 第 1.1 节）允许方法契约声明删减式投影：只能从已准入结果中删除未佐证字段，不能新增、替换或跨来源拼装字段。`eth_call` 的成功结果是规范 DATA；revert `data` 已按 4e 投影。未迁移且未声明投影的方法仍返回来源原值。投影来源和被扣除维度进入 `Decision.Dimensions`；被扣除的原始字节留在 `Decision.Evidence`，原始响应仍可经 Uncertain 查看。未知或 vendor 字段由 `UncertainCapture` 作为调用级诊断材料保留，不自动提升为 VerifiedCore。
+`Decision.Value`：已迁移的数量和成功 DATA 由 Encode 写成规范编码，不跟随代表源拼写。`eth_feeHistory` 的 Value 是受保护字段的规范对象，比较键仍是 feeHistory 键。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组，比较键仍是现有日志键。其余 generic Strict 与显式 quorum 仍写入获胜簇里捕获顺序第一人的原始值，不改字段。决策 0039 规则 4e 方案 (i)（见 `method-verification-pipeline.md` 第 1.1 节）允许方法契约声明删减式投影：只能从已准入结果中删除未佐证字段，不能新增、替换或跨来源拼装字段。`eth_call` 的成功结果是规范 DATA；revert `data` 已按 4e 投影。未迁移且未声明投影的方法仍返回来源原值。投影来源和被扣除维度进入 `Decision.Dimensions`；被扣除的原始字节留在 `Decision.Evidence`，原始响应仍可经 Uncertain 查看。未知或 vendor 字段由 `UncertainCapture` 作为调用级诊断材料保留，不自动提升为 VerifiedCore。
 
 ## 目录职责
 
@@ -124,7 +124,7 @@ record format 也属于该 CLI 的操作文档，不应混入核心 `docs/design
 
 1. `internal/jsonsafe`：输入资源和 JSON 语法安全，拒绝重复 key、超深、超大和 trailing data；
 2. `rpc/methods`：字段上下文相关的 wire validation、requiredness、请求绑定和 commitment admission；
-3. `rpc.Policy.Normalize`：只产生用于 cluster 的比较投影，不修改胜出 raw payload。已迁移标量的 Value 由 Encode 生成，`eth_feeHistory` 的 Value 也由 Encode 生成。Normalize 仍不改写原始载荷，也不从比较键反推 Value。
+3. `rpc.Policy.Normalize`：只产生用于 cluster 的比较投影，不修改胜出 raw payload。已迁移标量的 Value 由 Encode 生成，`eth_feeHistory` 和 `eth_getLogs` 的 Value 也由 Encode 生成。Normalize 仍不改写原始载荷，也不从比较键反推 Value。
 
 Geth 类型解码是 typed boundary 的投影和第二层校验，不替代 admission。未知 typed object 返回结构化错误，并可通过 `WithUncertain` 读取原始响应，但不得作为普通 Geth 类型继续返回。
 

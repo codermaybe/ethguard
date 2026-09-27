@@ -1521,3 +1521,57 @@ Representative stays at its zero value there, and the status stays Selected.
 Median and Local are not promoted to Corroborated. The denominator is not
 shrunk and the floor is not lowered. There is no encoder registry. The
 encoder lives in `rpc/internal/objects/feehistory/encode.go`.
+
+
+## 0043. Canonical eth_getLogs
+
+Status: Accepted (2026-09-27). `eth_getLogs` only. Decisions 0041 and 0042
+are not amended and do not cover this method. Receipts, transactions, block
+receipts, access lists, block re-encoding, and the `eth_call` envelope stay
+out.
+
+The comparison key stays the method's existing `normalizeLogs` / `PruneMethod`
+result. It is not the canonical JSON of the whole result. A migrated scalar
+still clusters on its canonical JSON bytes (0041). `eth_feeHistory` still
+clusters on its feeHistory key (0042). `eth_getLogs` does not take either
+branch.
+
+The protected fields are only the log fields the existing `eth_getLogs` mask
+retains: `address`, `topics`, `data`, `blockNumber`, `transactionHash`,
+`transactionIndex`, `blockHash`, `logIndex`, `removed`, and `blockTimestamp`
+when it is present. That is the first step of section 4.2 in
+`docs/design/return-value-design.md`. A field the mask drops does not enter
+Value. This decision does not copy `projection.LogsStandardFields` and does
+not add a second field table. It does not build an Extensions diff and does
+not build Provenance, so a field left outside the key has nowhere to go. That
+gap stays open. It is not recorded as retained.
+
+`log.Validate` still requires the fields it requires today. A missing required
+field is an EncodeCheck failure. `blockTimestamp` is omitted when absent. It
+is not filled in as null. An empty array is still a legal result `[]`. JSON
+null is still an illegal answer, not an empty array. Pending stays the
+Prepare rejection, `ErrInvalidRequest`. Do not add a local observation and do
+not encode pending.
+
+Address and hashes are lowercase. Quantities are canonical QUANTITY: `0x`
+plus lowercase hex, no leading zeros, zero written `0x0`. `data` is canonical
+DATA and leading zeros stay. `removed` is a JSON boolean. Array order is the
+response order and is not sorted. The object uses the encoder struct's field
+order, compact JSON, and `SetEscapeHTML(false)`. Value comes from the
+encoder. It is not rebuilt by deserializing the comparison key, and it is not
+rebuilt from `float64`.
+
+The order is the one already in the resolver. EncodeCheck runs on each source
+first. A failure is a Fault, the source stays in the denominator, and it does
+not vote. Resolve then runs once on the existing log keys of the sources that
+passed. EncodeCommit writes the canonical array when every supporter in the
+winning cluster encoded the same bytes. If those bytes differ, the result is
+Unknown, `ErrMalformedResponse`, and the reason contains `result encoding
+disagrees within cluster`. Do not select another source's original payload and
+do not vote again.
+
+The method-rule index records `result=canonical` for `eth_getLogs` only.
+Representative stays the first captured supporter and does not decide the
+spelling. Scalar and `eth_feeHistory` cluster keys stay unchanged. Logs use
+the existing `WithCanonicalObject`. There is no encoder registry. The encoder
+lives in `rpc/internal/objects/log/encode.go`.

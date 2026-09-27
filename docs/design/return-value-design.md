@@ -1,12 +1,12 @@
 # 返回值设计：受保护结果域与规范编码
 
-状态：阶段 0 已在 8aac099 验收。阶段 1 已在 48e2c64 验收，0041 只接入数量和成功 DATA：`rpc/result.go` 与 `rpc/internal/wire/encode.go`。0042 已在 dee2208 验收，只接入 `eth_feeHistory`。下一刀是路线图 RV2b1，只做 `eth_getLogs`。收据、交易、access list、eth_call 信封和区块重编码仍不实现。执行顺序、任务出口和核对清单只写在 `project-roadmap.md` 的「返回值框架」；本文不另写一套任务。
+状态：阶段 0 已在 8aac099 验收。阶段 1 已在 48e2c64 验收，0041 只接入数量和成功 DATA：`rpc/result.go` 与 `rpc/internal/wire/encode.go`。0042 已在 dee2208 验收，只接入 `eth_feeHistory`。0043 只接入 `eth_getLogs`：比较键仍是现有的 `normalizeLogs` / `PruneMethod` 结果，不是整段规范 JSON；Value 是掩码留下的日志字段的规范数组，编码器在 `rpc/internal/objects/log/encode.go`。收据、交易、access list、eth_call 信封和区块重编码仍不实现。执行顺序、任务出口和核对清单只写在 `project-roadmap.md` 的「返回值框架」；本文不另写一套任务。
 
 2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据，不再标成不定档。第 13 节仍只是外部意见对照。阶段 3a、3b 的方向已锁，阶段 0 不实现，也不据此给每个字段另写标准。
 
 仍开放、且不挡住阶段 0 的只有两项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。Provenance 的字节上限没有数字，不在这里补。
 
-未迁移对象的 Value 仍是某一份原始载荷（4e 删减除外）。`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码。`eth_feeHistory` 的 Value 是受保护字段的规范对象，键外字段不进 Value。这不表示区块已经语义安全：那些字段要到阶段 3b 才从区块 Value 去掉。
+未迁移对象的 Value 仍是某一份原始载荷（4e 删减除外）。`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码。`eth_feeHistory` 的 Value 是受保护字段的规范对象，键外字段不进 Value。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组，掩码外字段不进 Value。这不表示区块已经语义安全：那些字段要到阶段 3b 才从区块 Value 去掉。
 
 `return-value-normalization.md` 里的问题记录、事实核对和执行标准已并入本文。模型意见不再单独成文，避免和正文分成两套设计。
 
@@ -16,7 +16,7 @@
 
 ## 1. 结论
 
-下面第 1 点到第 8 点是规范编码全部落地后的结论。阶段 0 已完成，没有把全部方法改成规范编码。阶段 1 只让数量和成功 DATA 的 Value 变成规范编码。0042 再让 `eth_feeHistory` 的 Value 变成受保护字段的规范对象，比较键仍是 feeHistory 键。其余未迁移方法的 Value 仍是代表源原文。阶段 0 做的是：代表源改成捕获顺序第一个；Value、Evidence、Withheld 与这个来源同源；StrictHeadAnchor 发出的区块 hash 改成小写。见第 7 节和第 11 节。
+下面第 1 点到第 8 点是规范编码全部落地后的结论。阶段 0 已完成，没有把全部方法改成规范编码。阶段 1 只让数量和成功 DATA 的 Value 变成规范编码。0042 再让 `eth_feeHistory` 的 Value 变成受保护字段的规范对象，比较键仍是 feeHistory 键。0043 再让 `eth_getLogs` 的 Value 变成掩码留下的日志字段的规范数组，比较键仍是现有日志键。其余未迁移方法的 Value 仍是代表源原文。阶段 0 做的是：代表源改成捕获顺序第一个；Value、Evidence、Withheld 与这个来源同源；StrictHeadAnchor 发出的区块 hash 改成小写。见第 7 节和第 11 节。
 
 1. `Decision.Value` 对已注册方法只表示受保护结果，不再同时充当来源原文。
 2. 受保护结果按方法定义为受保护结果域。Value 是该域的确定性规范编码。
@@ -24,7 +24,7 @@
 4. 执行顺序是：逐源 EncodeCheck，再按方法自己的比较键比对，Resolve 只跑一次，最后 EncodeCommit。编码失败不触发第二次投票，本轮分母不缩小。
 5. 获胜簇内每个支持源的规范字节必须相同。不相同是比较键太窄或编码器越界，是代码缺陷，不是来源分歧。
 6. 逐字节相等是必要条件，不是充分条件。编码器不能靠删掉应受保护的字段来制造相等。字段表、变异测试和往返测试负责补上这一层。
-7. 来源证据走独立通道。已迁移的数量、成功 DATA 和 `eth_feeHistory`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。原文不写入 Provenance。
+7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory` 和 `eth_getLogs`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。原文不写入 Provenance。
 8. 第 14 节是已锁定口径。它不给每个字段另写标准。code 与 message 留在代表源上；区块 Value 只收已经核对过承诺的内容，`from` 默认留在域外。为什么不改成胜者原文透传，也不再加一层最终响应投影，见第 13 节。仍开放、且不挡住阶段 0 的，只有 `from` 的测量后归属和 Provenance 的字节上限。
 
 ## 2. 事实前提
@@ -179,6 +179,7 @@ EncodeCheck 属于准入的效果：单源无法给出不改变原值的规范�
 | 数量、成功的 DATA（chainId、balance、nonce、code、storage、成功的 eth_call 结果） | 规范编码就是比较键 | 比这份规范字节 | 同一份字节。三步看见的是同一结果 |
 | Median | 不能规范编码的数量先排除，不进入样本 | 在剩下的样本里按现有中位数规则取一次 | 把取中的那个数写成规范 QUANTITY。Status 维持 Selected，不因为编码一致升成 Corroborated（0012） |
 | feeHistory | 数量按 QUANTITY；`gasUsedRatio` 按第 5 节。比较键里的比例必须使用规范十进制，不再经 `[]float64` 把不同原值折成同一键 | 方法现有的 feeHistory 键，其中的比例已是规范十进制 | 获胜簇的规范对象。簇内字节不同则按 6.4 |
+| eth_getLogs | 掩码留下的字段按第 5 节。`log.Validate` 要求的字段缺失则失败。`blockTimestamp` 没有时省略 | 现有 `normalizeLogs` / `PruneMethod` 键，不是整段规范 JSON | 获胜簇的规范数组。簇内字节不同则按 6.4 |
 | eth_call 的 data 维度、区块 | 只回答受保护内容能不能编码。此时还不知道 4e 会不会扣下 data，也不在这里重做区块承诺 | data 维度或 `number\|hash` 维持现行键。不用整段最终 JSON 投票 | 裁决之后才生成最终字节。data 未达门槛时由编码器省略，不再用 `deleteObjectField` 重序列化 |
 | Local | 被选中的那一个来源能否编码 | 不改 Local 的选取 | 该来源的规范编码。Status 仍为 Selected |
 | Forward（未注册） | 无编码器 | 现状 | 保持原值，Status 为 Forwarded，不作受保护声明 |
@@ -213,7 +214,7 @@ Admission        该来源的准入证据（原先 Decision.Evidence 里的 uncl
 Withheld         4e 扣下的字节
 ```
 
-Raw、Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。未迁移方法的 Value 仍是这个人的原始载荷（4e 删减除外）。已迁移的数量和成功 DATA 不再从某一个人的原文里挑；这个人只提供上面这一条证据通道。原文不写入 Provenance。
+Raw、Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。未迁移方法的 Value 仍是这个人的原始载荷（4e 删减除外）。已迁移的数量、成功 DATA、`eth_feeHistory` 和 `eth_getLogs` 不再从某一个人的原文里挑；这个人只提供上面这一条证据通道。原文不写入 Provenance。
 
 Provenance 常开，不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获（0034）。迁移期间可以保留 `Decision.Evidence`，语义收窄为准入证据，最终并入 Provenance。证据预算若存在，耗尽只能减少审计材料，不能改变 Admit、Resolve 或 Status。
 
