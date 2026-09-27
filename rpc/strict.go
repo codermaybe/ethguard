@@ -41,6 +41,7 @@ type strictConfig struct {
 	includeRPCError bool
 	compareKind     string
 	encode          CanonicalEncoder
+	objectEncode    CanonicalEncoder
 }
 
 // WithQuorum sets the support floor H: the winning cluster must hold at
@@ -86,9 +87,18 @@ func WithRuleCompareKind(kind string) StrictOption {
 
 // WithCanonicalValue attaches a scalar encoder at method assembly. It is not
 // a registry. EncodeCheck runs before the single resolve; EncodeCommit writes
-// the canonical bytes. A nil encoder is not this option.
+// the canonical bytes. A nil encoder is not this option. A migrated scalar's
+// comparison key is those same bytes.
 func WithCanonicalValue(encode CanonicalEncoder) StrictOption {
 	return func(s *strictConfig) { s.encode = encode }
+}
+
+// WithCanonicalObject attaches an object encoder at method assembly. It is not
+// a registry and it is not WithCanonicalValue: EncodeCheck still runs first,
+// but the comparison key stays the normalizer's key. EncodeCommit writes the
+// canonical object. eth_feeHistory uses it. A migrated scalar does not.
+func WithCanonicalObject(encode CanonicalEncoder) StrictOption {
+	return func(s *strictConfig) { s.objectEncode = encode }
 }
 
 // Strict binds a response normalizer to strict-corroboration resolution. Method
@@ -108,7 +118,7 @@ func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOptio
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	p := strictFunc{normalize: normalize, includeRPCError: cfg.includeRPCError, compareKind: cfg.compareKind, encode: cfg.encode}
+	p := strictFunc{normalize: normalize, includeRPCError: cfg.includeRPCError, compareKind: cfg.compareKind, encode: cfg.encode, objectEncode: cfg.objectEncode}
 	if cfg.modeSet || cfg.floorSet {
 		p.corroboration = &Corroboration{Mode: cfg.mode, Floor: cfg.floor}
 	}
@@ -121,6 +131,7 @@ type strictFunc struct {
 	includeRPCError bool
 	compareKind     string
 	encode          CanonicalEncoder
+	objectEncode    CanonicalEncoder
 }
 
 func (f strictFunc) Prepare(_ context.Context, req Request) (Request, error) {
@@ -138,14 +149,22 @@ func (f strictFunc) IncludeRPCError() bool { return f.includeRPCError }
 // MethodRule reports strict resolution and the coarse comparison-key class
 // supplied at construction. It does not participate in request handling.
 func (f strictFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind, Result: resultRule(f.encode)}, nil
+	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind, Result: resultRule(f.canonicalEncoder())}, nil
+}
+
+func (f strictFunc) canonicalEncoder() CanonicalEncoder {
+	if f.encode != nil {
+		return f.encode
+	}
+	return f.objectEncode
 }
 
 func (f strictFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
-	if f.encode == nil {
+	encode := f.canonicalEncoder()
+	if encode == nil {
 		return nil, ErrNotCanonicalScalar
 	}
-	return f.encode(raw)
+	return encode(raw)
 }
 
 func (f strictFunc) Resolve(obs []Observation) (Decision, error) {
@@ -210,7 +229,7 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 // within-cluster disagreement does not select another original and does not
 // vote again.
 func (f strictFunc) finish(decision Decision, err error, winner cluster) (Decision, error) {
-	if f.encode == nil {
+	if f.canonicalEncoder() == nil {
 		return decision, err
 	}
 	committed, cerr := CommitCanonical(winner.canonical)
@@ -228,11 +247,14 @@ func (f strictFunc) finish(decision Decision, err error, winner cluster) (Decisi
 // ties by key, so identical inputs always yield identical Support and Reject
 // regardless of arrival order or map iteration. A migrated scalar's key is
 // the canonical JSON from EncodeCheck. EncodeCommit writes those same bytes.
-// Unmigrated methods keep the normalizer key, including block number|hash.
-// The cluster's Value and Evidence both come from the first supporter in the
-// captured member order, which is the order of obs; when that supporter has
-// no evidence the cluster's evidence stays empty instead of borrowing a
-// later supporter's.
+// An object encoder does not take that branch: EncodeCheck still runs first
+// and a failure stays a Fault inside the denominator, but the key still comes
+// from the normalizer and EncodeCommit writes the object's own canonical
+// bytes. Unmigrated methods keep the normalizer key, including block
+// number|hash. The cluster's Value and Evidence both come from the first
+// supporter in the captured member order, which is the order of obs; when
+// that supporter has no evidence the cluster's evidence stays empty instead
+// of borrowing a later supporter's.
 func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 	var faults []error
 	groups := make(map[string][]representativeCandidate)
@@ -256,14 +278,16 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 			value = item.RPCError.Raw()
 		}
 		var canonical json.RawMessage
-		var key string
-		if f.encode != nil {
-			encoded, err := f.encode(value)
+		if encode := f.canonicalEncoder(); encode != nil {
+			encoded, err := encode(value)
 			if err != nil {
 				faults = append(faults, fmt.Errorf("encode: %w", err))
 				continue
 			}
 			canonical = append(json.RawMessage(nil), encoded...)
+		}
+		var key string
+		if f.encode != nil {
 			key = string(canonical)
 		} else {
 			var err error

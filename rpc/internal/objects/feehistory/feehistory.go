@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math"
 	"strconv"
 
 	"ethguard/rpc"
@@ -44,7 +43,7 @@ func Normalize(value json.RawMessage) (string, error) {
 	var raw struct {
 		Oldest json.RawMessage     `json:"oldestBlock"`
 		Base   []json.RawMessage   `json:"baseFeePerGas"`
-		Gas    []float64           `json:"gasUsedRatio"`
+		Gas    []json.RawMessage   `json:"gasUsedRatio"`
 		Reward [][]json.RawMessage `json:"reward"`
 	}
 	if err := json.Unmarshal(value, &raw); err != nil || len(raw.Oldest) == 0 {
@@ -61,10 +60,13 @@ func Normalize(value json.RawMessage) (string, error) {
 			return "", fmt.Errorf("feeHistory: baseFeePerGas[%d]: %w", i, err)
 		}
 	}
-	for i, ratio := range raw.Gas {
-		if math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio < 0 || ratio > 1 {
-			return "", fmt.Errorf("feeHistory: gasUsedRatio[%d] out of range", i)
+	gas := make([]json.Number, len(raw.Gas))
+	for i, item := range raw.Gas {
+		ratio, err := canonicalRatio(item)
+		if err != nil {
+			return "", fmt.Errorf("feeHistory: gasUsedRatio[%d]: %w", i, err)
 		}
+		gas[i] = ratio
 	}
 	if raw.Reward != nil && len(raw.Reward) != len(raw.Gas) {
 		return "", fmt.Errorf("feeHistory: reward must have gasUsedRatio length")
@@ -86,11 +88,11 @@ func Normalize(value json.RawMessage) (string, error) {
 		}
 	}
 	projection := struct {
-		Oldest string     `json:"oldestBlock"`
-		Base   []string   `json:"baseFeePerGas"`
-		Gas    []float64  `json:"gasUsedRatio"`
-		Reward [][]string `json:"reward,omitempty"`
-	}{oldest, base, raw.Gas, reward}
+		Oldest string        `json:"oldestBlock"`
+		Base   []string      `json:"baseFeePerGas"`
+		Gas    []json.Number `json:"gasUsedRatio"`
+		Reward [][]string    `json:"reward,omitempty"`
+	}{oldest, base, gas, reward}
 	encoded, err := json.Marshal(projection)
 	return string(encoded), err
 }

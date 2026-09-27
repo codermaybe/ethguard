@@ -53,7 +53,7 @@ T06.0、T06.1、Anchor Transport Seam、T06.2、T06.3、T06.4 和 T06.5 已验�
 
 - 0039 规则 4e 采用方案 (i)：返回已佐证的 revert 行为，未佐证的 data 通过删减式投影扣除，只在 Uncertain / 审计证据中保留原始字节。
 - dimension evidence 至少区分每个维度的 `Support`、`Reject` 和 `Abstain`，golden 同步记录删减字段。
-- `Decision.Value` 允许方法契约声明的删减式投影；禁止新增、替换或跨来源拼装字段。架构记录与 `rpc.Decision` 已按此修订：`eth_call` 的 revert `data` 已投影。未迁移且未声明投影的方法仍返回来源原值。已迁移的数量和成功 DATA 写规范编码。
+- `Decision.Value` 允许方法契约声明的删减式投影；禁止新增、替换或跨来源拼装字段。架构记录与 `rpc.Decision` 已按此修订：`eth_call` 的 revert `data` 已投影。未迁移且未声明投影的方法仍返回来源原值。已迁移的数量和成功 DATA 写规范编码。`eth_feeHistory` 写受保护字段的规范对象，比较键仍是 feeHistory 键。
 - Policy 组合和真实测试仍是执行事实；不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`（决策 0040）。
 - `rpc.RPCError` 已有 `Data`。冻结时的缺口是 `rpctest` 的原样 error-body，以及 `observationRPCError` 对缺失 / `null` 的保留。HTTP 上该缺口已由 T06.2 关闭；WSS 仍不能区分缺失和 `null`，限制记在 T06.2。
 
@@ -174,7 +174,7 @@ T06.5 读方法批次扩展      已验收，已提交：block-receipt-tx 与 ei
 
 不挡住 RV0 的开放项只有两项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。Provenance 截断上限没有数字，不在任务里补。
 
-已知缺口不能写成已经语义安全：未迁移对象的 Value 仍是代表源原文（4e 删减除外），`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码，这不表示区块已经语义安全。
+已知缺口不能写成已经语义安全：未迁移对象的 Value 仍是代表源原文（4e 删减除外），`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码，`eth_feeHistory` 的 Value 是受保护字段的规范对象。这不表示区块已经语义安全。`eth_feeHistory` 的键外字段这一刀不进 Value，也没有 Extensions 或 Provenance 可去，这个缺口还开着。
 
 ```text
 RV0 代表源、同源、锚点 hash    已验收：8aac099

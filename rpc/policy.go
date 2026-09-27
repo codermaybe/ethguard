@@ -130,9 +130,11 @@ type LocalObservationPolicy interface {
 // CompareKind stays a coarse class. eth_call revert-data states and any
 // other comparison-key internals do not belong in the index.
 //
-// Result records whether this method writes a canonical scalar. It is
+// Result records whether this method writes a canonical result. It is
 // "canonical" or "raw". The index does not explain fields and does not
-// generate tests. Request handling does not read it.
+// generate tests. Request handling does not read it. A canonical scalar
+// clusters on its canonical JSON. eth_feeHistory is canonical too, and
+// its comparison key stays the feeHistory key.
 type MethodRule struct {
 	Anchor      string
 	BlockRef    string

@@ -15,7 +15,7 @@
 | eth_call | hash@1 | eip1898 | local-observation | call-revert | method-specific | canonical |
 | eth_estimateGas | hash@1 | eip1898 | local-observation | median | quantity | canonical |
 | eth_getLogs | height@0.fromBlock,toBlock | none | local-reject | strict | method-specific | raw |
-| eth_feeHistory | height@1 | none | local-observation | strict | method-specific | raw |
+| eth_feeHistory | height@1 | none | local-observation | strict | method-specific | canonical |
 | eth_gasPrice | none | none | none | median | quantity | canonical |
 | eth_maxPriorityFeePerGas | none | none | none | median | quantity | canonical |
 | eth_blobBaseFee | none | none | none | median | quantity | canonical |

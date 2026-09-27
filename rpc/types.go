@@ -124,13 +124,15 @@ type Decision struct {
 	Status       Status
 	// Value is the payload returned for this decision. Migrated quantities
 	// and successful DATA write the canonical encoding, which does not follow
-	// the representative source's spelling. Other generic Strict decisions
-	// copy one admitted source value from the winning cluster and do not
-	// change its fields. A successful eth_call value is canonical DATA. An
-	// eth_call revert may apply a reductive projection (decision 0039 rule
-	// 4e, option (i)): it may delete a field that lacks corroboration, and it
-	// may not add, replace, or splice fields from another source. Revert
-	// payloads, and methods that have not migrated, keep that source value.
+	// the representative source's spelling. eth_feeHistory writes the
+	// canonical object of its protected fields; its comparison key stays the
+	// feeHistory key. Other generic Strict decisions copy one admitted source
+	// value from the winning cluster and do not change its fields. A
+	// successful eth_call value is canonical DATA. An eth_call revert may
+	// apply a reductive projection (decision 0039 rule 4e, option (i)): it
+	// may delete a field that lacks corroboration, and it may not add,
+	// replace, or splice fields from another source. Revert payloads, and
+	// methods that have not migrated, keep that source value.
 	Value json.RawMessage
 	// Observed is the optional generic observation-room result for this
 	// invocation. It contains source-backed common fields and residuals; it
@@ -151,13 +153,13 @@ type Decision struct {
 	Evidence json.RawMessage
 	// Representative is the first supporter of the winning cluster in this
 	// call's captured member order. For a method that has not migrated, Value
-	// is that source's admitted payload. For a migrated quantity or successful
-	// DATA result, Value is the canonical encoding and this field only records
-	// who was first. It is set wherever that cluster is carried out, including
-	// decisions that fail with the Value attached. It stays zero when there is
-	// no valid response, and on Local, Forward, and ResolveLocal. It carries
-	// no ordinal; the ordinal is the source's position in the captured order,
-	// which the caller already has.
+	// is that source's admitted payload. For a migrated quantity, successful
+	// DATA result, or eth_feeHistory, Value is the canonical encoding and this
+	// field only records who was first. It is set wherever that cluster is
+	// carried out, including decisions that fail with the Value attached. It
+	// stays zero when there is no valid response, and on Local, Forward, and
+	// ResolveLocal. It carries no ordinal; the ordinal is the source's
+	// position in the captured order, which the caller already has.
 	Representative SourceRef
 	// Dimensions is method-specific evidence. Generic Strict leaves it nil.
 	// eth_call records execution and revert-data Support, Reject, and Abstain.

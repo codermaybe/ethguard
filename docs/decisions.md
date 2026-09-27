@@ -1466,3 +1466,58 @@ block re-encoding, `eth_call` code and message, moving `from` or `size` out of
 Value, Provenance, an Extensions diff, shrinking the denominator, lowering the
 floor, promoting Median or Local to Corroborated, a second field table, or an
 encoder registry.
+
+
+## 0042. Canonical eth_feeHistory
+
+Status: Accepted (2026-09-27). `eth_feeHistory` only. Decision 0041 is not
+amended and does not cover this method. Receipts, transactions, logs, access
+lists, block re-encoding, and the `eth_call` envelope stay out.
+
+The comparison key stays the method's existing feeHistory key. It is not the
+canonical JSON of the whole result. A migrated scalar still clusters on its
+canonical JSON bytes (0041); `eth_feeHistory` does not take that branch.
+`gasUsedRatio` inside the key is the canonical decimal. It is no longer a
+`[]float64`, which folded distinct decimal originals into one key.
+
+The decimal rule reads the original text with `json.Number` and writes
+`strconv.FormatFloat(f, 'f', -1, 64)`. `0.50`, `0.5000`, and `0.5` share one
+key, and the Value writes `0.5`. `0.10` and `0.1`, `1.0` and `1`, and `1e-1`
+and `0.1` do the same. `0.30000000000000001` has shortest form `0.3`, but the
+decimal original changed, so EncodeCheck fails, the source is a Fault, it
+stays in the denominator, and it does not vote. It is not another spelling of
+`0.3`. A ratio outside `[0,1]`, and NaN or Inf, stay Admit failures. They are
+not a new encoding class.
+
+The protected fields are the four already in that key: `oldestBlock`,
+`baseFeePerGas`, `gasUsedRatio`, and `reward`. That is the first step of
+section 4.2 in `docs/design/return-value-design.md`. A field outside the key
+does not enter Value. This decision does not build an Extensions diff and does
+not build Provenance, so a field left outside the key has nowhere to go. That
+gap stays open. It is not recorded as retained.
+
+Quantities keep the existing QUANTITY rule. A spelling that already rejects a
+leading zero still rejects it. The key may keep today's decimal projection of
+a quantity. Inside Value, `oldestBlock`, `baseFeePerGas`, and `reward` are
+canonical QUANTITY: `0x` plus lowercase hex, no leading zeros, zero written
+`0x0`. The object uses the encoder struct's field order, compact JSON, and
+`SetEscapeHTML(false)`. A missing `reward` is omitted. It is not filled in as
+null or as an empty array. Value comes from the encoder. It is not rebuilt by
+deserializing the comparison key.
+
+The order is the one already in the resolver. EncodeCheck runs on each source
+first. A failure is a Fault, the source stays in the denominator, and it does
+not vote. Resolve then runs once on the feeHistory keys of the sources that
+passed. EncodeCommit writes the canonical object when every supporter in the
+winning cluster encoded the same bytes. If those bytes differ, the result is
+Unknown, `ErrMalformedResponse`, and the reason contains `result encoding
+disagrees within cluster`. Do not select another source's original payload and
+do not vote again.
+
+The method-rule index records `result=canonical` for `eth_feeHistory` only.
+Representative stays the first captured supporter and does not decide the
+spelling. Pending `ResolveLocal` may encode the selected source.
+Representative stays at its zero value there, and the status stays Selected.
+Median and Local are not promoted to Corroborated. The denominator is not
+shrunk and the floor is not lowered. There is no encoder registry. The
+encoder lives in `rpc/internal/objects/feehistory/encode.go`.
