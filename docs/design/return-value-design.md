@@ -1,6 +1,6 @@
 # 返回值设计：受保护结果域与规范编码
 
-状态：阶段 0 已在 8aac099 验收。阶段 1 已在 48e2c64 验收，0041 只接入数量和成功 DATA：`rpc/result.go` 与 `rpc/internal/wire/encode.go`。0042 已在 dee2208 验收，只接入 `eth_feeHistory`。0043 只接入 `eth_getLogs`：比较键仍是现有的 `normalizeLogs` / `PruneMethod` 结果，不是整段规范 JSON；Value 是掩码留下的日志字段的规范数组，编码器在 `rpc/internal/objects/log/encode.go`。收据、交易、access list、eth_call 信封和区块重编码仍不实现。执行顺序、任务出口和核对清单只写在 `project-roadmap.md` 的「返回值框架」；本文不另写一套任务。
+状态：阶段 0 已在 8aac099 验收。阶段 1 已在 48e2c64 验收，0041 只接入数量和成功 DATA：`rpc/result.go` 与 `rpc/internal/wire/encode.go`。0042 已在 dee2208 验收，只接入 `eth_feeHistory`。0043 已在 f8b4280 验收，只接入 `eth_getLogs`。下一刀是路线图 RV2b2，只做 `eth_createAccessList`。收据、交易、eth_call 信封和区块重编码仍不实现。执行顺序、任务出口和核对清单只写在 `project-roadmap.md` 的「返回值框架」；本文不另写一套任务。
 
 2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据，不再标成不定档。第 13 节仍只是外部意见对照。阶段 3a、3b 的方向已锁，阶段 0 不实现，也不据此给每个字段另写标准。
 

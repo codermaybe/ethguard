@@ -186,10 +186,13 @@ RV1 数量与 DATA 规范编码        已验收：48e2c64
 RV2a eth_feeHistory            已验收：dee2208
         |
         v
-RV2b1 eth_getLogs              当前，可开工。先写 0043，再编码
+RV2b1 eth_getLogs              已验收：f8b4280
         |
         v
-RV2b2 receipt、transaction、blockReceipts、accessList
+RV2b2 eth_createAccessList     当前，可开工。先写 0044，再编码
+        |
+        v
+RV2b3 receipt、transaction、blockReceipts
                                未解除：from 与承诺内容尚未逐项判定
         |
         v
@@ -270,7 +273,7 @@ result 列只有 `eth_feeHistory` 改为 canonical。Representative 仍是捕获
 
 ### RV2b1 eth_getLogs
 
-状态：可开工。RV2a 已在 dee2208 验收。RV2b2、RV3a、RV3b、RV4 仍不实现。
+状态：已验收（f8b4280）。0043 只覆盖 `eth_getLogs`。比较键仍是现有日志键。收据、交易、access list、区块和 `eth_call` 信封都不在这一刀。
 
 这一刀只做 `eth_getLogs`。比较键仍是现有的 `normalizeLogs` / `PruneMethod` 结果，不是另写的整段 JSON。Value 是掩码留下的日志字段的规范编码。依据是第 4.2 节第一步：比较键覆盖的字段进域。不要抄 `projection.LogsStandardFields`，也不要另列一张字段表。
 
@@ -296,11 +299,39 @@ result 列只有 `eth_getLogs` 改为 canonical。Representative 仍是捕获顺
 
 出口：`go test ./... -count=1`。失败路径是缺必填字段的来源留在分母里，不能靠丢掉它变成成功。
 
-### RV2b2 及以后
+### RV2b2 eth_createAccessList
+
+状态：可开工。`eth_getLogs` 已在 f8b4280 验收。RV2b3、RV3a、RV3b、RV4 仍不实现。
+
+这一刀只做 `eth_createAccessList`。比较键仍是现有的 `normalizeAccessList` / `PruneMethod` 结果，不是另写的整段 JSON。Value 是掩码留下的字段的规范对象。依据是第 4.2 节第一步。不要抄 `projection.StandardFields`，也不要另列一张字段表。
+
+一次提交。先写 0044，再改代码。0044 只采纳这一方法，不改 0041、0042、0043。
+
+受保护字段只限于现有掩码会留下的三个：`accessList`、`error`、`gasUsed`。`accessList` 的每一项只留 `address` 和 `storageKeys`。掩码丢掉的字段不进 Value。`accessList` 或 `storageKeys` 缺失则 EncodeCheck 失败。`error` 和 `gasUsed` 没有时省略，不补 null。空的 `accessList` 或空的 `storageKeys` 仍是空数组，不省略。
+
+顺序沿用第 6.1 节：逐源 EncodeCheck，失败记 Fault，留在分母，不投票；再用现有 access-list 键做唯一一次 Resolve；最后 EncodeCommit。簇内规范字节不同则是 Unknown，`ErrMalformedResponse`，原因含 `result encoding disagrees within cluster`。不第二次投票。
+
+标量、`eth_feeHistory` 和 `eth_getLogs` 的分簇键都不得改。本方法走已有的 `WithCanonicalObject`：有编码器时键仍来自 Normalize。不要把键换成规范 JSON。Value 来自编码器，不从比较键反序列化，也不要解进 `any` 或 `float64`。
+
+规范形式沿用第 5 节：地址和 storage key 小写；`gasUsed` 是规范 QUANTITY，`0x` 加小写十六进制，无前导零，零写作 `0x0`；`error` 是 JSON 字符串，原样保留。数组顺序就是响应顺序，不得排序。对象用编码器 struct 的字段顺序、紧凑 JSON、`SetEscapeHTML(false)`。
+
+result 列只有 `eth_createAccessList` 改为 canonical。Representative 仍是捕获顺序第一人，不决定 Value 拼写。pending 仍是节点本地观测：可以编码被选中的那一份，Representative 保持零值，Status 仍是 Selected。
+
+新文件只允许 `rpc/internal/objects/accesslist/encode.go`。不把通用对象编码器放进 `wire/encode.go`，不建编码器注册表。
+
+测试至少覆盖：同一结果只差大小写或键序时同簇，换序不改变 Value，Representative 跟随第一人；掩码外字段不进 Value，也不把两人拆开；缺 `address` 或 `storageKeys` 记 Fault 且分母不缩小；pending 编码后 Representative 仍为零。标量平票、feeHistory 的 `0.5`/`0.50`、日志的大小写同簇用例仍通过。禁止合成样本，禁止把探针升成 golden，禁止 `-update` 已有三批 expect。
+
+不改：receipt、transaction、blockReceipts、区块重编码、`eth_call` 的 code 与 message、`from` 和 `size`、Extensions、Provenance、分母、门槛。未跟踪的 `cmd/shapeprobe/`、`internal/shapeprobe/`、`internal/rpcsample/probe/` 不读不改。
+
+键外字段这一刀仍无处安放。提交说明写明这个缺口，不要写成已经保留，也不要提前做 Extensions。文档只改现在成为事实的句子。执行者不得把本任务标成已验收。
+
+出口：`go test ./... -count=1`。失败路径是缺 `storageKeys` 的来源留在分母里，不能靠丢掉它变成成功。
+
+### RV2b3 及以后
 
 状态：未解除。
 
-RV2b2：receipt、transaction、blockReceipts、accessList。`from` 仍默认留在域外，交易和收据的承诺内容还没有逐项走过第 4.2 节，所以这一段不编码。Extensions 改为差集也留在这里。
+RV2b3：receipt、transaction、blockReceipts。`from` 仍默认留在域外，交易和收据的承诺内容还没有逐项走过第 4.2 节，所以这一段不编码。Extensions 改为差集也留在这里。
 
 RV3a：`eth_call` 的 code 与 message 留在代表源，不进受保护域，不合成信封。RV3b：区块 Value 只重编码已经核对过承诺的内容。两段方向已锁，都没有开工出口。RV4：方法规则索引断言已注册方法没有 `raw`。
 
