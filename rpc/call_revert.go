@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -25,7 +26,7 @@ func NewCallRevertPolicy(normalize func(json.RawMessage) (string, error), opts .
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	p := callRevertFunc{normalize: normalize, includeRPCError: cfg.includeRPCError}
+	p := callRevertFunc{normalize: normalize, includeRPCError: cfg.includeRPCError, encode: cfg.encode}
 	if cfg.modeSet || cfg.floorSet {
 		p.fallback = &Corroboration{Mode: cfg.mode, Floor: cfg.floor}
 	}
@@ -36,6 +37,7 @@ type callRevertFunc struct {
 	normalize       func(json.RawMessage) (string, error)
 	fallback        *Corroboration
 	includeRPCError bool
+	encode          CanonicalEncoder
 }
 
 func (p callRevertFunc) Prepare(_ context.Context, req Request) (Request, error) {
@@ -58,7 +60,14 @@ func (p callRevertFunc) IncludeRPCError() bool { return p.includeRPCError }
 // class. Revert-data states stay out of the index. This method does not
 // participate in Prepare, Normalize, or Resolve.
 func (p callRevertFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverCallRevert, CompareKind: RuleCompareMethodSpecific}, nil
+	return MethodRule{Resolver: RuleResolverCallRevert, CompareKind: RuleCompareMethodSpecific, Result: resultRule(p.encode)}, nil
+}
+
+func (p callRevertFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
+	if p.encode == nil {
+		return nil, ErrNotCanonicalScalar
+	}
+	return p.encode(raw)
 }
 
 func (p callRevertFunc) Resolve(obs []Observation) (Decision, error) {
@@ -76,6 +85,7 @@ type callAnswer struct {
 	source    SourceRef
 	value     json.RawMessage
 	evidence  json.RawMessage
+	canonical json.RawMessage
 	execution string
 	data      string
 	abstain   bool
@@ -103,6 +113,20 @@ func (p callRevertFunc) resolve(c Corroboration, legacy bool, obs []Observation)
 		Representative: rep.source,
 		Support:        sourcesOf(winner),
 		Reject:         sourcesOf(rejected),
+	}
+	if len(winner) > 0 && winner[0].success && p.encode != nil {
+		canonical := make([]json.RawMessage, len(winner))
+		for i := range winner {
+			canonical[i] = append(json.RawMessage(nil), winner[i].canonical...)
+		}
+		committed, cerr := CommitCanonical(canonical)
+		if cerr != nil {
+			decision.Status = Unknown
+			decision.Value = nil
+			decision.Faults = append(decision.Faults, cerr)
+			return decision, cerr
+		}
+		decision.Value = committed
 	}
 	var failed error
 	switch {
@@ -152,6 +176,17 @@ func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []error, error) 
 			}
 			value = item.RPCError.Raw()
 		}
+		var canonical json.RawMessage
+		if p.encode != nil {
+			encoded, err := p.encode(value)
+			if err != nil && !errors.Is(err, ErrNotCanonicalScalar) {
+				faults = append(faults, fmt.Errorf("encode: %w", err))
+				continue
+			}
+			if err == nil {
+				canonical = encoded
+			}
+		}
 		flat, err := p.normalize(value)
 		if err != nil {
 			faults = append(faults, fmt.Errorf("normalize: %w", err))
@@ -161,6 +196,16 @@ func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []error, error) 
 		if err != nil {
 			faults = append(faults, fmt.Errorf("normalize: %w", err))
 			continue
+		}
+		if answer.success && p.encode != nil {
+			if len(canonical) == 0 {
+				faults = append(faults, fmt.Errorf("encode: %w", ErrNotCanonicalScalar))
+				continue
+			}
+			answer.canonical = append(json.RawMessage(nil), canonical...)
+			answer.execution = string(answer.canonical)
+		} else if answer.success {
+			answer.canonical = append(json.RawMessage(nil), canonical...)
 		}
 		admitted = append(admitted, answer)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -235,5 +236,30 @@ func TestStrictCanOptIntoRPCErrorBodyClustering(t *testing.T) {
 	}
 	if decision.Status != Corroborated || len(decision.Support) != 2 {
 		t.Fatalf("expected clustered protocol errors, got %+v", decision)
+	}
+}
+
+func TestFinishRejectsCanonicalDisagreement(t *testing.T) {
+	f := strictFunc{encode: func(raw json.RawMessage) (json.RawMessage, error) {
+		return append(json.RawMessage(nil), raw...), nil
+	}}
+	decision := Decision{
+		Status:         Corroborated,
+		Value:          json.RawMessage(`"0xA"`),
+		Representative: SourceRef{Name: "a", ID: "a"},
+	}
+	winner := cluster{canonical: []json.RawMessage{
+		json.RawMessage(`"0x1"`),
+		json.RawMessage(`"0x01"`),
+	}}
+	got, err := f.finish(decision, nil, winner)
+	if !errors.Is(err, ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
+		t.Fatalf("err = %v", err)
+	}
+	if got.Status != Unknown || len(got.Value) != 0 {
+		t.Fatalf("decision = %+v", got)
+	}
+	if got.Representative != decision.Representative {
+		t.Fatalf("representative changed to %+v", got.Representative)
 	}
 }

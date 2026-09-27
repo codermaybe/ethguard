@@ -120,6 +120,7 @@ type LocalObservationPolicy interface {
 //	Pending:     "local-observation", "local-reject", empty renders "none"
 //	Resolver:    "strict", "call-revert", "median", "local"
 //	CompareKind: "quantity", "object", "method-specific"
+//	Result:      "canonical", "raw"
 //
 // Pending is the layer's own pending semantics, not the presence of a
 // decorator. local-observation is a node-local observation capped at
@@ -128,12 +129,17 @@ type LocalObservationPolicy interface {
 //
 // CompareKind stays a coarse class. eth_call revert-data states and any
 // other comparison-key internals do not belong in the index.
+//
+// Result records whether this method writes a canonical scalar. It is
+// "canonical" or "raw". The index does not explain fields and does not
+// generate tests. Request handling does not read it.
 type MethodRule struct {
 	Anchor      string
 	BlockRef    string
 	Pending     string
 	Resolver    string
 	CompareKind string
+	Result      string
 }
 
 // WithInner keeps this layer's declared fields and fills the gaps from inner.
@@ -144,6 +150,7 @@ func (rule MethodRule) WithInner(inner MethodRule) MethodRule {
 		Pending:     pickMethodRule(rule.Pending, inner.Pending),
 		Resolver:    pickMethodRule(rule.Resolver, inner.Resolver),
 		CompareKind: pickMethodRule(rule.CompareKind, inner.CompareKind),
+		Result:      pickMethodRule(rule.Result, inner.Result),
 	}
 }
 
@@ -178,4 +185,6 @@ const (
 	RuleCompareQuantity         = "quantity"
 	RuleCompareObject           = "object"
 	RuleCompareMethodSpecific   = "method-specific"
+	RuleResultCanonical         = "canonical"
+	RuleResultRaw               = "raw"
 )

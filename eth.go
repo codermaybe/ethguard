@@ -15,10 +15,10 @@ import (
 	"ethguard/rpc/methods"
 )
 
-// decodedQuantity is the shared tail of every quantity-shaped typed wrapper:
-// the owning policy's canonical decimal form converts to a big.Int. Hex
-// parsing has one owner — the method policy — and typed callers convert its
-// canonical form instead of re-parsing raw JSON.
+// decodedQuantity is the shared tail of every quantity-shaped typed wrapper.
+// It decodes Decision.Value, not a source's original payload. Migrated
+// quantities store the canonical JSON spelling there. The normalizer only
+// parses that spelling into an integer; it is not the cluster key.
 func (c *Client) decodedQuantity(method string, decision rpc.Decision) (*big.Int, error) {
 	canonical, err := c.Normalize(method, decision.Value)
 	if err != nil {

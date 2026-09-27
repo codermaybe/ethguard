@@ -7,9 +7,10 @@ import "encoding/json"
 // Median all hand their winning cluster to firstRepresentative, so the three
 // resolvers pick the same person.
 type representativeCandidate struct {
-	source   SourceRef
-	value    json.RawMessage
-	evidence json.RawMessage
+	source    SourceRef
+	value     json.RawMessage
+	evidence  json.RawMessage
+	canonical json.RawMessage
 }
 
 // firstRepresentative returns the first supporter in captured order. Its

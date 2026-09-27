@@ -23,10 +23,11 @@ func CanonicalJSON(value json.RawMessage) (string, error) {
 // cluster is one equivalence class of admissible answers: every source whose
 // response normalizes to the same key.
 type cluster struct {
-	key      string
-	value    json.RawMessage
-	evidence json.RawMessage
-	sources  []SourceRef
+	key       string
+	value     json.RawMessage
+	evidence  json.RawMessage
+	sources   []SourceRef
+	canonical []json.RawMessage
 }
 
 // StrictOption tunes a strict policy at construction time.
@@ -39,6 +40,7 @@ type strictConfig struct {
 	floorSet        bool
 	includeRPCError bool
 	compareKind     string
+	encode          CanonicalEncoder
 }
 
 // WithQuorum sets the support floor H: the winning cluster must hold at
@@ -82,6 +84,13 @@ func WithRuleCompareKind(kind string) StrictOption {
 	return func(s *strictConfig) { s.compareKind = kind }
 }
 
+// WithCanonicalValue attaches a scalar encoder at method assembly. It is not
+// a registry. EncodeCheck runs before the single resolve; EncodeCommit writes
+// the canonical bytes. A nil encoder is not this option.
+func WithCanonicalValue(encode CanonicalEncoder) StrictOption {
+	return func(s *strictConfig) { s.encode = encode }
+}
+
 // Strict binds a response normalizer to strict-corroboration resolution. Method
 // authors supply only the normalizer — the one part that varies per method —
 // instead of re-implementing the Policy shell.
@@ -99,7 +108,7 @@ func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOptio
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	p := strictFunc{normalize: normalize, includeRPCError: cfg.includeRPCError, compareKind: cfg.compareKind}
+	p := strictFunc{normalize: normalize, includeRPCError: cfg.includeRPCError, compareKind: cfg.compareKind, encode: cfg.encode}
 	if cfg.modeSet || cfg.floorSet {
 		p.corroboration = &Corroboration{Mode: cfg.mode, Floor: cfg.floor}
 	}
@@ -111,6 +120,7 @@ type strictFunc struct {
 	corroboration   *Corroboration
 	includeRPCError bool
 	compareKind     string
+	encode          CanonicalEncoder
 }
 
 func (f strictFunc) Prepare(_ context.Context, req Request) (Request, error) {
@@ -128,7 +138,14 @@ func (f strictFunc) IncludeRPCError() bool { return f.includeRPCError }
 // MethodRule reports strict resolution and the coarse comparison-key class
 // supplied at construction. It does not participate in request handling.
 func (f strictFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind}, nil
+	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind, Result: resultRule(f.encode)}, nil
+}
+
+func (f strictFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
+	if f.encode == nil {
+		return nil, ErrNotCanonicalScalar
+	}
+	return f.encode(raw)
 }
 
 func (f strictFunc) Resolve(obs []Observation) (Decision, error) {
@@ -153,7 +170,8 @@ func (f strictFunc) resolve(c Corroboration, obs []Observation) (Decision, error
 	if err != nil {
 		return Decision{Status: Unknown, Faults: faults}, err
 	}
-	return c.adjudicate(len(obs), ranked, faults)
+	decision, err := c.adjudicate(len(obs), ranked, faults)
+	return f.finish(decision, err, ranked[0])
 }
 
 // resolveLegacy is the decision-0006 default for policies constructed
@@ -175,24 +193,46 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 	for _, cl := range ranked[1:] {
 		decision.Reject = append(decision.Reject, cl.sources...)
 	}
-	if len(ranked) != 1 {
-		return decision, fmt.Errorf("strict: %d disagreeing values: %w", len(ranked), ErrConflict)
-	}
-	if len(winner.sources) == 1 {
+	var ret error
+	switch {
+	case len(ranked) != 1:
+		ret = fmt.Errorf("strict: %d disagreeing values: %w", len(ranked), ErrConflict)
+	case len(winner.sources) == 1:
 		decision.Status = Selected // no corroboration, no Corroborated claim
-		return decision, nil
+	default:
+		decision.Status = Corroborated
 	}
-	decision.Status = Corroborated
-	return decision, nil
+	return f.finish(decision, ret, winner)
 }
 
-// cluster groups admissible answers by normalized form and ranks the
-// clusters by size, breaking ties by canonical key, so identical inputs
-// always yield identical Support and Reject regardless of arrival order or
-// map iteration. The cluster's Value and Evidence both come from the first
-// supporter in the captured member order, which is the order of obs; when
-// that supporter has no evidence the cluster's evidence stays empty instead
-// of borrowing a later supporter's.
+// finish commits canonical bytes after the single resolve. EncodeCheck
+// failures already stayed out of the cluster and inside the denominator. A
+// within-cluster disagreement does not select another original and does not
+// vote again.
+func (f strictFunc) finish(decision Decision, err error, winner cluster) (Decision, error) {
+	if f.encode == nil {
+		return decision, err
+	}
+	committed, cerr := CommitCanonical(winner.canonical)
+	if cerr != nil {
+		decision.Status = Unknown
+		decision.Value = nil
+		decision.Faults = append(decision.Faults, cerr)
+		return decision, cerr
+	}
+	decision.Value = committed
+	return decision, err
+}
+
+// cluster groups admissible answers and ranks the clusters by size, breaking
+// ties by key, so identical inputs always yield identical Support and Reject
+// regardless of arrival order or map iteration. A migrated scalar's key is
+// the canonical JSON from EncodeCheck. EncodeCommit writes those same bytes.
+// Unmigrated methods keep the normalizer key, including block number|hash.
+// The cluster's Value and Evidence both come from the first supporter in the
+// captured member order, which is the order of obs; when that supporter has
+// no evidence the cluster's evidence stays empty instead of borrowing a
+// later supporter's.
 func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 	var faults []error
 	groups := make(map[string][]representativeCandidate)
@@ -215,12 +255,25 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 			}
 			value = item.RPCError.Raw()
 		}
-		key, err := f.normalize(value)
-		if err != nil {
-			faults = append(faults, fmt.Errorf("normalize: %w", err))
-			continue
+		var canonical json.RawMessage
+		var key string
+		if f.encode != nil {
+			encoded, err := f.encode(value)
+			if err != nil {
+				faults = append(faults, fmt.Errorf("encode: %w", err))
+				continue
+			}
+			canonical = append(json.RawMessage(nil), encoded...)
+			key = string(canonical)
+		} else {
+			var err error
+			key, err = f.normalize(value)
+			if err != nil {
+				faults = append(faults, fmt.Errorf("normalize: %w", err))
+				continue
+			}
 		}
-		groups[key] = append(groups[key], representativeCandidate{source: item.Source, value: value, evidence: item.Evidence})
+		groups[key] = append(groups[key], representativeCandidate{source: item.Source, value: value, evidence: item.Evidence, canonical: canonical})
 	}
 	if len(groups) == 0 {
 		return nil, faults, fmt.Errorf(
@@ -241,10 +294,12 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 		members := groups[key]
 		rep := firstRepresentative(members)
 		sources := make([]SourceRef, len(members))
+		canonical := make([]json.RawMessage, len(members))
 		for i, member := range members {
 			sources[i] = member.source
+			canonical[i] = append(json.RawMessage(nil), member.canonical...)
 		}
-		ranked = append(ranked, cluster{key: key, value: rep.value, evidence: rep.evidence, sources: sources})
+		ranked = append(ranked, cluster{key: key, value: rep.value, evidence: rep.evidence, sources: sources, canonical: canonical})
 	}
 	return ranked, faults, nil
 }

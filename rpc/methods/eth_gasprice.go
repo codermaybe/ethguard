@@ -12,4 +12,6 @@ const MethodGasPrice = "eth_gasPrice"
 // median, never claimed corroborated (see rpc.Median). Sources legitimately sit
 // at different moments and pricing policies; disagreement is spread
 // evidence, not dissent.
-func GasPricePolicy() rpc.Policy { return rpc.Median(wire.NormalizeWireQuantity) }
+func GasPricePolicy() rpc.Policy {
+	return rpc.Median(wire.NormalizeWireQuantity, rpc.WithMedianCanonical(wire.EncodeQuantity))
+}

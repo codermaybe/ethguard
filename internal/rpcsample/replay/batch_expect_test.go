@@ -241,9 +241,11 @@ func replayCapturedCase(t *testing.T, mode string, floor int, records []rpcsampl
 
 	obs := make([]rpc.Observation, len(records))
 	sources := make([]expectSource, len(records))
+	payloads := make([]json.RawMessage, len(records))
 	for i, record := range records {
 		item := observationFromRecord(t, record)
-		_, admission, faults, key := classifySource(t, policy, req, item)
+		payload, admission, faults, key := classifySource(t, policy, req, item)
+		payloads[i] = payload
 		if requestDiffers(record, requestRaw) {
 			faults = append(append([]string{}, faults...), "request_differs")
 		}
@@ -306,6 +308,9 @@ func replayCapturedCase(t *testing.T, mode string, floor int, records []rpcsampl
 	deleted := append([]string{}, policyDecision.DeletedFields...)
 	if deleted == nil {
 		deleted = []string{}
+	}
+	if err := replayValueAgrees(t, policy, policyDecision, payloads, sources, deleted, true); err != nil {
+		return expectCase{}, fmt.Errorf("%s %w", id, err)
 	}
 	dims := capturedDimensions(policyDecision, policyErr)
 	return expectCase{

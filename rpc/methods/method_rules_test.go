@@ -78,6 +78,7 @@ func assertPendingSemantics(rows []methodRuleRow) error {
 			Pending:     rpc.RulePendingLocalObservation,
 			Resolver:    rpc.RuleResolverCallRevert,
 			CompareKind: rpc.RuleCompareMethodSpecific,
+			Result:      rpc.RuleResultCanonical,
 		}
 		if row.Rule != want {
 			return fmt.Errorf("%s: column shape = %+v, want %+v", row.Method, row.Rule, want)
@@ -186,6 +187,9 @@ func inspectMethodRule(method string, policy rpc.Policy) (rpc.MethodRule, error)
 	if composed.Resolver == "" || composed.CompareKind == "" {
 		return rpc.MethodRule{}, fmt.Errorf("%s: resolver or comparison-key class is empty", method)
 	}
+	if composed.Result != rpc.RuleResultCanonical && composed.Result != rpc.RuleResultRaw {
+		return rpc.MethodRule{}, fmt.Errorf("%s: result = %q, want canonical or raw", method, composed.Result)
+	}
 	return composed, nil
 }
 
@@ -198,16 +202,17 @@ func renderMethodRules(rows []methodRuleRow) string {
 	var b strings.Builder
 	b.WriteString("由 TestMethodRulesMatchIndex 生成，勿手动编辑。\n")
 	b.WriteString("\n")
-	b.WriteString("| 方法 | 锚定 | 区块引用形态 | pending 处理 | resolver | 比较键种类 |\n")
-	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| 方法 | 锚定 | 区块引用形态 | pending 处理 | resolver | 比较键种类 | result |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s |\n",
 			row.Method,
 			ruleOrNone(row.Rule.Anchor),
 			ruleOrNone(row.Rule.BlockRef),
 			ruleOrNone(row.Rule.Pending),
 			row.Rule.Resolver,
 			row.Rule.CompareKind,
+			row.Rule.Result,
 		)
 	}
 	return b.String()

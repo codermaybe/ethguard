@@ -3,6 +3,7 @@ package methods
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -90,6 +91,12 @@ func (p pendingLocalPolicy) ResolveLocal(obs []rpc.Observation) (rpc.Decision, e
 		if _, err := p.policy.Normalize(value); err != nil {
 			faults = append(faults, fmt.Errorf("normalize: %w", err))
 			continue
+		}
+		if canonical, err := rpc.CanonicalOf(p.policy, value); err == nil {
+			value = canonical
+		} else if !errors.Is(err, rpc.ErrNotCanonicalScalar) {
+			faults = append(faults, fmt.Errorf("encode: %w", err))
+			return rpc.Decision{Status: rpc.Unknown, Faults: faults}, fmt.Errorf("pending: %w", err)
 		}
 		return rpc.Decision{
 			Status:   rpc.Selected,

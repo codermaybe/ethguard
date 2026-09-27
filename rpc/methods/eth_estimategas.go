@@ -28,5 +28,5 @@ const MethodEstimateGas = "eth_estimateGas"
 // Median still resolves every other shape and never claims Corroborated.
 // Malformed objects fail locally before any anchor call.
 func EstimateGasPolicy(anchor rpc.AnchorFunc) rpc.Policy {
-	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.WithAnchor(anchor, 1)(rpc.Median(wire.NormalizeWireQuantity))))
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.WithAnchor(anchor, 1)(rpc.Median(wire.NormalizeWireQuantity, rpc.WithMedianCanonical(wire.EncodeQuantity)))))
 }

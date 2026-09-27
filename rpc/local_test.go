@@ -68,3 +68,37 @@ func TestLocalAllInvalidIsNoValidResponse(t *testing.T) {
 		t.Fatalf("expected no-valid-response class, got %v", err)
 	}
 }
+
+func TestLocalCanonicalFailureDoesNotSelectTheNextSource(t *testing.T) {
+	normalize := func(v json.RawMessage) (string, error) {
+		var text string
+		if err := json.Unmarshal(v, &text); err != nil {
+			return "", err
+		}
+		return text, nil
+	}
+	encode := func(v json.RawMessage) (json.RawMessage, error) {
+		var text string
+		if err := json.Unmarshal(v, &text); err != nil {
+			return nil, err
+		}
+		if text == "bad" {
+			return nil, errors.New("cannot encode")
+		}
+		return json.Marshal(text)
+	}
+	second := src()
+	decision, err := Local(normalize, WithLocalCanonical(encode)).Resolve([]Observation{
+		{Source: src(), Value: json.RawMessage(`"bad"`)},
+		{Source: second, Value: json.RawMessage(`"ok"`)},
+	})
+	if err == nil || decision.Status != Unknown {
+		t.Fatalf("err = %v, decision = %+v", err, decision)
+	}
+	if string(decision.Value) == `"ok"` || len(decision.Support) != 0 || decision.Representative != (SourceRef{}) {
+		t.Fatalf("selected another source: %+v", decision)
+	}
+	if len(decision.Faults) == 0 {
+		t.Fatal("expected an encode fault")
+	}
+}

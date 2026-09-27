@@ -1,12 +1,12 @@
 # 返回值设计：受保护结果域与规范编码
 
-状态：阶段 0 的工程依据。第 1–9 节的规则和第 14 节的口径已经锁定。阶段 0 按第 11 节落地：只改代表源选择、同源和锚点 hash 小写。不实现规范编码，不写入 `docs/decisions.md`，不立 0041。0041 等到阶段 0 出口通过、阶段 1 改编码之前再写入。执行顺序、任务出口和核对清单只写在 `project-roadmap.md` 的「返回值框架」；本文不另写一套任务。阶段 0 的代码提交不改路线图的任务定义。
+状态：阶段 0 已在 8aac099 验收。阶段 1 按 0041 接入数量和成功 DATA：`rpc/result.go` 与 `rpc/internal/wire/encode.go`。feeHistory、对象、eth_call 信封和区块重编码不在这一刀。执行顺序、任务出口和核对清单只写在 `project-roadmap.md` 的「返回值框架」；本文不另写一套任务。
 
 2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据，不再标成不定档。第 13 节仍只是外部意见对照。阶段 3a、3b 的方向已锁，阶段 0 不实现，也不据此给每个字段另写标准。
 
 仍开放、且不挡住阶段 0 的只有两项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。Provenance 的字节上限没有数字，不在这里补。
 
-阶段 0 和阶段 1 的 Value 仍是某一份原始载荷（4e 删减除外）。`from` 和 `size` 还会出现在 Corroborated 结果里。这是已知缺口，要到阶段 3b 才从 Value 去掉，现在不能写成已经语义安全。
+未迁移对象的 Value 仍是某一份原始载荷（4e 删减除外）。`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码。这不表示区块已经语义安全：那些字段要到阶段 3b 才从区块 Value 去掉。
 
 `return-value-normalization.md` 里的问题记录、事实核对和执行标准已并入本文。模型意见不再单独成文，避免和正文分成两套设计。
 
@@ -16,7 +16,7 @@
 
 ## 1. 结论
 
-下面是规范编码落地后的结论，不是阶段 0 的现状。阶段 0 不引入编码器。它只做三件事：代表源改成捕获顺序第一个；Value、Evidence、Withheld 与这个来源同源；StrictHeadAnchor 发出的区块 hash 改成小写。见第 7 节和第 11 节。
+下面第 1 点到第 8 点是规范编码全部落地后的结论。阶段 0 已完成，没有把全部方法改成规范编码。阶段 1 只让数量和成功 DATA 的 Value 变成规范编码；未迁移方法的 Value 仍是代表源原文。阶段 0 做的是：代表源改成捕获顺序第一个；Value、Evidence、Withheld 与这个来源同源；StrictHeadAnchor 发出的区块 hash 改成小写。见第 7 节和第 11 节。
 
 1. `Decision.Value` 对已注册方法只表示受保护结果，不再同时充当来源原文。
 2. 受保护结果按方法定义为受保护结果域。Value 是该域的确定性规范编码。
@@ -24,7 +24,7 @@
 4. 执行顺序是：逐源 EncodeCheck，再按方法自己的比较键比对，Resolve 只跑一次，最后 EncodeCommit。编码失败不触发第二次投票，本轮分母不缩小。
 5. 获胜簇内每个支持源的规范字节必须相同。不相同是比较键太窄或编码器越界，是代码缺陷，不是来源分歧。
 6. 逐字节相等是必要条件，不是充分条件。编码器不能靠删掉应受保护的字段来制造相等。字段表、变异测试和往返测试负责补上这一层。
-7. 来源证据走独立通道。规范编码落地之后，代表源只决定审计锚点，不决定 Value。在那之前，阶段 0 的 Value 就是代表源原文（4e 删减除外），见第 7 节。
+7. 来源证据走独立通道。已迁移的数量和成功 DATA：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。原文不写入 Provenance。
 8. 第 14 节是已锁定口径。它不给每个字段另写标准。code 与 message 留在代表源上；区块 Value 只收已经核对过承诺的内容，`from` 默认留在域外。为什么不改成胜者原文透传，也不再加一层最终响应投影，见第 13 节。仍开放、且不挡住阶段 0 的，只有 `from` 的测量后归属和 Provenance 的字节上限。
 
 ## 2. 事实前提
@@ -72,8 +72,8 @@
 | 规范编码 | 按第 5 节把受保护结果域写成确定的 JSON 字节 |
 | EncodeCheck | 裁决前，逐个来源回答：这份载荷能否在不改变原值的前提下编成规范字节。失败记 Fault |
 | EncodeCommit | 唯一一次 Resolve 之后，把获胜簇里已经相等的规范字节写入 `Decision.Value`。不再解释来源，也不重新投票 |
-| 代表源 | 实际写入 Value 的那一簇里，本次捕获顺序的第一个支持源。阶段 0 和阶段 1：Value 就是它的原始载荷（4e 删减除外），所以它决定用哪一份原文。规范编码落地后：只作审计锚点，不决定 Value |
-| 域外字段 | 已准入载荷里有、但编码器没有输出的字段。阶段 0 和阶段 1 还没有编码器，这些字段仍留在上述原文里 |
+| 代表源 | 获胜簇里本次捕获顺序的第一个支持源。未迁移方法：Value 就是它的原始载荷（4e 删减除外）。已迁移的数量和成功 DATA：Value 是规范编码，这个人只作审计锚点 |
+| 域外字段 | 已准入载荷里有、但编码器没有输出的字段。未迁移对象还没有这层编码器，这些字段仍留在代表源原文里 |
 
 ## 4. 受保护结果域
 
@@ -85,7 +85,7 @@
 2. 受约束的字段：被请求绑定，或被已经验证的内容承诺约束。区块头受 header hash 约束，交易签名内容受交易根约束，withdrawals 受 withdrawals root 约束，uncle 受 uncle hash 约束。
 3. 派生字段：由前两类按公开、确定的规则在本地算出。例如交易 hash，以及区块内交易的 `blockHash`、`transactionIndex`。
 
-不在域内：厂商扩展；没有佐证的上下文字段，例如 revert 的 code、message；来源自述但没有约束的字段，例如区块里的 `from`、`size`、`totalDifficulty`。`from` 的口径见第 14.3 节：默认留在域外。没有测量不能进域。阶段 0 和阶段 1 的 Value 仍是代表源原文，这些字段还会出现在结果里，要到阶段 3b 才从 Value 去掉。
+不在域内：厂商扩展；没有佐证的上下文字段，例如 revert 的 code、message；来源自述但没有约束的字段，例如区块里的 `from`、`size`、`totalDifficulty`。`from` 的口径见第 14.3 节：默认留在域外。没有测量不能进域。未迁移对象（含区块）的 Value 仍是代表源原文，这些字段还会出现在结果里，要到阶段 3b 才从区块 Value 去掉。数量和成功 DATA 已是规范编码。
 
 区块的比较键可以仍是 `number|hash`。头、交易、withdrawals 和 uncle 只有在准入已经核对过承诺之后，才进入域。
 
@@ -122,12 +122,12 @@
 
 ## 5. 规范输出规则
 
-Execution API 给出形状和约束，给不出唯一字节。下面的规则由 EthGuard 自定，用 golden 和 typed decode 锁住。落地后，规则正文只放在 `rpc/internal/wire/encode.go` 的包注释里；本文是设计阶段的规格，实现时改为引用那份注释，不保留第二份规则正文。
+Execution API 给出形状和约束，给不出唯一字节。数量、成功 DATA、`net_version` 的十进制和 `net_peerCount` 的折合数量，规则正文只在 `rpc/internal/wire/encode.go` 的包注释里。本文不保留第二份标量规则。
+
+对象、地址、浮点和缺失与 null 还没有落地，不在那份注释里：
 
 | 项 | 规则 | 依据 |
 |---|---|---|
-| QUANTITY | `0x` + 小写十六进制，无前导零，零写作 `0x0` | spec 模式 `^0x(0\|[1-9a-f][0-9a-f]*)$` |
-| DATA / hash / bloom | `0x` + 小写，长度与字节数一致；DATA 的前导零是内容，保留 | spec 模式 `^0x[0-9a-f]*$` |
 | 地址 | 小写，不用 EIP-55 大小写 | spec 允许两种大小写；geth JSON 输出为小写 |
 | byte 类字段（`v`、`yParity`、`type`） | 按 QUANTITY 规则 | 与 geth 输出一致 |
 | 对象键顺序 | 由编码器的 Go struct 字段顺序固定；不承诺语义顺序 | golden 锁定 |
@@ -183,7 +183,7 @@ EncodeCheck 属于准入的效果：单源无法给出不改变原值的规范�
 | Local | 被选中的那一个来源能否编码 | 不改 Local 的选取 | 该来源的规范编码。Status 仍为 Selected |
 | Forward（未注册） | 无编码器 | 现状 | 保持原值，Status 为 Forwarded，不作受保护声明 |
 
-`eth_call` 信封和区块重编码的口径见第 14.2、14.3 节。方向已锁，阶段 3a、3b 之前不实现。在那之前，EncodeCheck 不得把 code、message 或未约束的区块字段编进受保护结果。阶段 0 和阶段 1 还没有这层编码，Value 仍是代表源原文。
+`eth_call` 信封和区块重编码的口径见第 14.2、14.3 节。方向已锁，阶段 3a、3b 之前不实现。EncodeCheck 不得把 code、message 或未约束的区块字段编进受保护结果。阶段 1 接入的数量和成功 DATA，比较键就是规范字节：EncodeCheck、比对、EncodeCommit 看见同一串字节。eth_call 的 code、message 和未迁移对象的 Value 仍是代表源原文。
 
 ### 6.3 公共检查与方法编码器
 
@@ -213,7 +213,7 @@ Admission        该来源的准入证据（原先 Decision.Evidence 里的 uncl
 Withheld         4e 扣下的字节
 ```
 
-Raw、Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。阶段 0 和阶段 1，Value 也就是这个人的原始载荷（4e 删减除外）。规范编码落地后，Value 不再从某一个人的原文里挑；这个人只提供上面这一条证据通道。
+Raw、Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。未迁移方法的 Value 仍是这个人的原始载荷（4e 删减除外）。已迁移的数量和成功 DATA 不再从某一个人的原文里挑；这个人只提供上面这一条证据通道。原文不写入 Provenance。
 
 Provenance 常开，不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获（0034）。迁移期间可以保留 `Decision.Evidence`，语义收窄为准入证据，最终并入 Provenance。证据预算若存在，耗尽只能减少审计材料，不能改变 Admit、Resolve 或 Status。
 
@@ -229,7 +229,7 @@ Provenance 常开，不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原�
 | `DeletedFields` | 4e 删除的字段 | 保留，语义不变 |
 | `Representative` | 没有这个字段。Strict、CallRevert 在簇内取最后一人，Median 取等值样本里的第一个，而且可以和 Evidence 不同源 | 阶段 0 起就写入：Strict、CallRevert、Median 在带出获胜簇 Value 时记下捕获顺序第一人。Local 与 Forward 保持零值。规范编码落地后这个人只标审计锚点 |
 
-「设计后」一列里，`Value`、`Evidence`、`Extensions` 三格写的是规范编码落地后的终态。阶段 0 不把它们改成那一列，但仍然要改 Value 和 Evidence 的来源：从「Value 取簇内最后一人、Evidence 取另一个有证据的人」改成捕获顺序第一人，Withheld 也是这一人。改完之后，Value 的字节仍是这个人的原始载荷（4e 删减除外），不是规范编码。`Representative` 从阶段 0 起写入。Extensions 指纹、Provenance 并入和规范编码不在阶段 0 开工。
+「设计后」一列里，`Value`、`Evidence`、`Extensions` 三格写的是规范编码落地后的终态。阶段 0 不把它们改成那一列，但仍然要改 Value 和 Evidence 的来源：从「Value 取簇内最后一人、Evidence 取另一个有证据的人」改成捕获顺序第一人，Withheld 也是这一人。改完之后，阶段 0 的 Value 字节仍是这个人的原始载荷（4e 删减除外），不是规范编码。阶段 1 的数量和成功 DATA 把 Value 写成规范编码；未迁移方法的 Value 仍是这个人的原始载荷。`Representative` 从阶段 0 起写入。Extensions 指纹和 Provenance 不在阶段 0 或这一刀开工。
 
 域外字段沿用 `corroborated_extension`、`provider_residual`、`conflict_field`。`AggregateFields` 只处理这些域外路径，并按规范化后的叶子值分组，不再按原始叶子字节分组。`projection.StandardFields` 是与编码器平行的第二份字段表。口径见第 14.3 节：它不作为区块 Value 的依据。阶段 0 不删。数组路径不能再因为匹配不到清单而被当成扩展或 Missing。
 
@@ -238,7 +238,7 @@ Provenance 常开，不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原�
 - 定义：获胜簇中，本次调用捕获成员顺序里的第一个支持源。
 - 这个顺序和投票成员一起在调用开始时捕获（0025）。含义就是调用方配置的顺序。
 - 生产路径已经按成员下标写入。Policy 单测和 replay 必须传入同一个捕获顺序。replay 以 `index.json` 的来源顺序为准，并在 `expect.json` 记录 `ordinal`。
-- 不按 `Source.ID` 排序。规范编码落地后，Value 与代表源无关；再按端点 URL 的拼写选审计锚点，会变成第二条规则。在那之前，阶段 0 的 Value 就是这份代表源原文，不能用「与代表源无关」把现状说成已经规范化。
+- 不按 `Source.ID` 排序。已迁移标量的 Value 与代表源拼写无关；再按端点 URL 的拼写选审计锚点，会变成第二条规则。未迁移方法的 Value 仍是这份代表源原文，不能用「与代表源无关」把那些方法说成已经规范化。
 - Strict、CallRevert、Median 共用 `rpc.representative`。Local 的“第一个健康源”保持为选取策略。Forward 不选代表源。
 - 它替换 `cluster` 的 map 覆盖、`call_revert.representative`，以及 Median 里各自的选法。
 
@@ -246,7 +246,7 @@ Provenance 常开，不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原�
 
 阶段 0 不改「Value 取哪一簇」，只把该簇内部从最后一人改成捕获顺序第一人。`eth_call` 的 4e 仍按现实现选簇：data 有具体值时，Value 来自 data 排名第一的那一簇（人数多的在前，人数相同再按键排序）；这一簇没达到门槛时，仍用它的信封，再删掉 data。全部在 data 上弃权时，才用执行簇。代表源是这一簇的第一人。Withheld 只放这一人扣下的 data，不收集其他来源的 data。
 
-规范编码之前，阶段 0 的 Value 仍是代表源的原始载荷（4e 删减除外）。编码落地后，代表源才只决定审计锚点，不决定 Value。阶段 0 和阶段 1 因此还不能把 Corroborated 写成语义安全：`from`、`size` 仍会随这份原文出现，要到阶段 3b 才从 Value 去掉。
+未迁移方法的 Value 仍是代表源的原始载荷（4e 删减除外）。已迁移的数量和成功 DATA 上，代表源只决定审计锚点，不决定 Value。未迁移对象因此还不能把 Corroborated 写成语义安全：`from`、`size` 仍会随区块原文出现，要到阶段 3b 才从 Value 去掉。
 
 阶段 0 的 `Decision.Representative` 用现有的 `SourceRef`，放在 Evidence 旁。失败但仍带出获胜簇 Value 的路径也要填。Local、Forward，以及本地的 `ResolveLocal`，保持零值。
 
@@ -310,20 +310,20 @@ aggregator
 | 位置 | 现文 | 改为 |
 |---|---|---|
 | 0039 规则 4e | methods that do not declare the projection still return that source value | 已注册且已迁移的方法返回受保护结果域的规范编码 |
-| 0039 第 2 类 | They stay on the winning payload as uncorroborated context | 它们不进入 Value，随来源进入 Extensions、Provenance 或 Uncertain |
-| `architecture-record.md` 第 41 行 | 写入获胜簇的原始值，不改字段 | 按本文第 1 节 |
+| 0039 第 2 类 | They stay on the winning payload as uncorroborated context | 这一刀不改。未迁移对象上它们仍留在 Value 里 |
+| `architecture-record.md` 的 Value 句 | 写入获胜簇的原始值，不改字段 | 已迁移标量写规范编码；未迁移 Strict 仍写捕获顺序第一人的原文 |
 | `architecture-record.md` 第 127 行 | Normalize 不修改胜出 raw payload | 这句保留。Normalize 仍不改写原始载荷。另加一层：Encode 生成 Value |
-| `rpc.Decision.Value` 注释 | Generic Strict copies one admitted source value | 已迁移方法写规范编码；原文在 Provenance |
-| pipeline 1.1 目标语义第 2 条 | 未声明的方法仍返回来源原值 | 迁移期间 result 列为 `raw`，迁移完成后不允许 |
-| `method-contracts.md` 第 0 节 | 取簇内最后一个池序成员的原始回答 | Value 为规范编码；代表源为捕获顺序中的第一个 |
-| `eth_getblockbyhash.go` 注释、method-contracts byHash 行 | 整对象比较 | 键为 `number\|hash`，内容由承诺约束。这是文档漂移，采纳时顺带改正 |
+| `rpc.Decision.Value` 注释 | Generic Strict copies one admitted source value | 已迁移方法写规范编码；未迁移 Strict 仍是捕获顺序第一人的原文。原文不在 Provenance |
+| pipeline 1.1 目标语义第 2 条 | 未声明的方法仍返回来源原值 | 迁移期间 result 列为 `raw` 或 `canonical`。迁移完成前仍允许 `raw` |
+| `method-contracts.md` 第 0 节 | 取簇内最后一个池序成员的原始回答 | 已迁移方法的 Value 是规范编码；其余 Strict 方法仍是捕获顺序第一人的原文 |
+| `eth_getblockbyhash.go` 注释、method-contracts byHash 行 | 整对象比较 | 这一刀不改，也不写成「内容由承诺约束」 |
 
 上表是 0041 采纳时要改的句子，不是阶段 0 的改动清单。阶段 0 只改两处选源事实，而且必须和代码同一批改，不能先改文档：
 
 - `method-contracts.md` 第 0 节：「获胜簇的 Value 取簇内最后一个池序成员的原始回答」改为捕获顺序中的第一个。Value 仍是该来源的原始回答，不是规范编码。
 - 同文件 byNumber 归一化行：「获胜簇 Value 取簇内最后池序成员的原始对象」同样改为捕获顺序第一个。
 
-这两处在代码落地前仍是现状基准。规范编码、0039 和本表其余各行留到 0041。阶段 0 的代码提交不改 `docs/decisions.md`、`method-verification-pipeline.md`，也不改 `project-roadmap.md` 的任务定义。路线图状态行只在该任务出口核对通过后改。
+阶段 0 的那两处已经落地。0041 这一刀改成事实的只有这些句子：`method-contracts.md` 第 0 节、`Decision.Value` 注释、`architecture-record.md` 里 Normalize 仍不改原文并补上 Encode、pipeline 1.1 的迁移期 result 列。0039 第 2 类没有改成已经离开 Value。byHash 没有改成「内容由承诺约束」。原文没有写入 Provenance。路线图状态行仍等出口核对，不在这里把 RV1 标成已验收。
 
 0020 不用改。单源没有规范形式时记 Fault 并留在分母，就是 0020 已经要求的“不得静默进入受保护业务结果”。
 
@@ -339,12 +339,12 @@ aggregator
 | 1 | 立 0041。增加 `rpc/result.go` 和 `wire/encode.go`。数量类和 DATA 类接入第 6 节的顺序 | 0041 | 这些方法的 result 列为 canonical；同余测试通过；typed 层改读 Value |
 | 2 | receipt、transaction、logs、blockReceipts、accessList、feeHistory。Extensions 改为差集；golden 钉 value。feeHistory 的比例按第 5 节，不再用 float64 比较键 | 否，前提是 0041 已覆盖对象编码 | JSON 转义用例改为从规范 Value 解码后通过 |
 | 3a | eth_call 信封：code 与 message 留在代表源，不进受保护域，不合成信封 | 方向已锁，见第 14.2 节。阶段 0 不实现，也不因此立 0041 | 阶段 0 的出口不包含这一行 |
-| 3b | 区块 Value 只重编码已经核对过承诺的内容。`size`、`totalDifficulty`、厂商字段和 `from` 不进 Value。`from` 测量之后要不要改成派生字段仍开放 | 方向已锁，见第 14.3 节。阶段 0 不实现 | 阶段 0 和阶段 1 的 Value 仍会带上这些字段。这是已知缺口，不能写成已经语义安全 |
+| 3b | 区块 Value 只重编码已经核对过承诺的内容。`size`、`totalDifficulty`、厂商字段和 `from` 不进 Value。`from` 测量之后要不要改成派生字段仍开放 | 方向已锁，见第 14.3 节。阶段 0 不实现 | 未迁移的区块 Value 仍会带上这些字段。这是已知缺口，不能写成已经语义安全 |
 | 4 | 索引断言已注册方法没有 `raw` | 否 | 第 9 节的断言生效 |
 
 每个阶段单独提交。出口是可复现的 `go test`、失败路径和 golden diff。
 
-阶段 0 选出的这个人，后面的阶段继续用同一个函数。没有编码器也能做，所以它不是规范编码的前置条件。阶段 0 和阶段 1 它决定 Value 用哪一份原文，Evidence 和 Withheld 必须是同一人。不能把这个阶段写成「只是审计锚点」。规范编码落地之后，同一函数才只标审计锚点，不再决定 Value。
+阶段 0 选出的这个人，后面的阶段继续用同一个函数。未迁移方法仍由它决定 Value 用哪一份原文。已迁移标量的 Value 不随这个人的拼写变化。Evidence 和 Withheld 必须是同一人。不能把未迁移方法写成「只是审计锚点」。
 
 ## 12. 明确不做
 
@@ -417,10 +417,10 @@ eRPC 用语义键分簇，达到门槛后返回获胜簇里一份上游原文，
 
 Raw、Admission、Withheld 与代表源是同一个来源。两段时期不要写成同一句：
 
-- 阶段 0 和阶段 1：Value 仍是这个人的整份原文（4e 删减除外），所以 code 与 message 还在 Value 里。下面例子里，顺序 A、B、C 时 Value 的 code 是 A 的 3；换成 B、A、C 时变成 B 的 -32000。这是阶段 0 的选源结果，不是又一个未决项。
+- 成功 DATA 的 Value 已是规范编码，不含 `ok|`。revert 的 Value 仍是这个人的整份原文（4e 删减除外），所以 code 与 message 还在 revert 的 Value 里。下面例子里，顺序 A、B、C 时 Value 的 code 是 A 的 3；换成 B、A、C 时变成 B 的 -32000。这是选源结果，不是又一个未决项。
 - 阶段 3a 之后：Value 是受保护域的规范字节。簇内规范字节已经相等，代表源不再决定 Value。code 与 message 只留在这个人的 Raw 上。
 
-三人，门槛 2。三份都是 revert，data 都是 `0xdead`，data 达到门槛。A 的 code 是 3，message 是 `execution reverted`。B 的 code 是 -32000，message 是 `execution reverted: revert`。阶段 3a 之后，Value 是 revert 加 data `0xdead`，两种捕获顺序下逐字节相同。顺序 A、B、C 时，代表源 Raw 上是 A 的 3 和 `execution reverted`；改成 B、A、C 时，Raw 上变成 B 的 -32000 和 B 的句子。阶段 0 和阶段 1 还没到这一步，Value 仍是代表源整份原文，code 与 message 随第一人改变。
+三人，门槛 2。三份都是 revert，data 都是 `0xdead`，data 达到门槛。A 的 code 是 3，message 是 `execution reverted`。B 的 code 是 -32000，message 是 `execution reverted: revert`。阶段 3a 之后，Value 是 revert 加 data `0xdead`，两种捕获顺序下逐字节相同。顺序 A、B、C 时，代表源 Raw 上是 A 的 3 和 `execution reverted`；改成 B、A、C 时，Raw 上变成 B 的 -32000 和 B 的句子。阶段 3a 之前，revert 的 Value 仍是代表源整份原文，code 与 message 随第一人改变。成功结果不是这句：它的 Value 已是规范 DATA。
 
 data 未达门槛时，阶段 0 的 4e 仍用代表源信封，再删掉 data。code 与 message 还在这份 Value 里。不从别的来源补 data，也不合成 message。阶段 3a 才改为由编码器省略 data，并且 code 与 message 不进入 Value。
 
@@ -432,9 +432,9 @@ data 未达门槛时，阶段 0 的 4e 仍用代表源信封，再删掉 data。
 
 区块 Value 按做法乙重编码。只收第 4.1 节已经写过的、准入核对过承诺的内容：头受 header hash 约束，交易签名内容受交易根约束，withdrawals 受 withdrawals root 约束，uncle 受 uncle hash 约束。不另列一份根字段清单。`size`、`totalDifficulty` 和厂商字段不进 Value，留在代表源 Raw 相对 Value 的差集里。
 
-重编码落地之后：三人，门槛 2。三份的 `number|hash` 相同，捕获顺序 A、B、C，代表源是 A。A 的 `size` 是 `0x100`，B 的 `size` 是 `0x200`。比较键不分叉。Corroborated 的 Value 里没有这两份 `size`，也没有只在 A 上出现的 `totalDifficulty`。阶段 0 和阶段 1 还没有这一步，那两份 `size` 仍留在代表源原文里。
+重编码落地之后：三人，门槛 2。三份的 `number|hash` 相同，捕获顺序 A、B、C，代表源是 A。A 的 `size` 是 `0x100`，B 的 `size` 是 `0x200`。比较键不分叉。Corroborated 的 Value 里没有这两份 `size`，也没有只在 A 上出现的 `totalDifficulty`。区块重编码还没有做，那两份 `size` 仍留在代表源原文里。
 
-`from` 先不进域。交易 hash 约束不了它，第 4.2 节的派生一步现在不成立。A 写 `0xaaa`、B 写 `0xbbb` 时，B 不因此被排除，两份都不进 Value。本地能够恢复出 `0xaaa`，也不把一次失败改成成功。代表源 Raw 里可以看见 A 写下的 `from`，那不是第二条投票。要不要在 CPU 测量之后把它定义成派生字段，仍开放。默认留在域外。没有测量就不能进域，也不能为此把整票判掉。阶段 0 和阶段 1 的 Value 仍是代表源原文，所以 `from` 和 `size` 还会出现在 Corroborated 结果里。这是已知缺口，要到阶段 3b 才从 Value 去掉。现在不能写成已经语义安全。
+`from` 先不进域。交易 hash 约束不了它，第 4.2 节的派生一步现在不成立。A 写 `0xaaa`、B 写 `0xbbb` 时，B 不因此被排除，两份都不进 Value。本地能够恢复出 `0xaaa`，也不把一次失败改成成功。代表源 Raw 里可以看见 A 写下的 `from`，那不是第二条投票。要不要在 CPU 测量之后把它定义成派生字段，仍开放。默认留在域外。没有测量就不能进域，也不能为此把整票判掉。未迁移的区块 Value 仍是代表源原文，所以 `from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 没有这些字段。这是已知缺口，要到阶段 3b 才从区块 Value 去掉。现在不能把区块写成已经语义安全。
 
 第 13 节的透传意见在这里不成立。三人，门槛 2。三份 `number|hash` 相同，交易根也通过。A 的 `from` 是 `0xaaa`，B 的是 `0xbbb`。捕获顺序 A、B、C 时，若把 A 的原文当作 Value，Corroborated 里的付款人只是 A 的断言；顺序改成 B、A、C，就变成 `0xbbb`。`size` 同样可以在块哈希不变时一个是 `0x100`、一个是 `0x200`。根核对通过，这两项仍停在第 4.2 节第四步。
 

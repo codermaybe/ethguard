@@ -1417,3 +1417,52 @@ The static interlock is intentionally narrow. CI may parse the matrix's
 free-form prose, `Prefix*` wildcards or `as above` aliases. Repetition in the
 matrix is preferred to maintaining a Markdown grammar. References in the
 method contracts and roadmap are explanatory links, not a second test index.
+
+
+## 0041. Canonical quantity and successful DATA results
+
+Status: Accepted (2026-09-27). Quantities and successful DATA only.
+`rpc/result.go` and `rpc/internal/wire/encode.go` hold the code. The method
+rule index records `result=canonical` or `result=raw`. That column does not
+explain fields and does not generate tests (0040).
+
+Migrated scalars write a canonical Value. For those scalars the comparison
+key is the canonical JSON bytes. EncodeCheck, the comparison, and
+EncodeCommit see the same bytes. EncodeCommit writes that cluster key. It
+does not rebuild Value by deserializing a decimal key. Canonical QUANTITY is
+a JSON string: `0x` plus lowercase hex, no leading zeros, zero written `0x0`.
+Canonical DATA is a JSON string: `0x` plus lowercase hex whose length matches
+the bytes. Leading zeros in DATA are content and stay. `net_version` is a
+decimal JSON string with no leading zeros, not `0x`. A successful `eth_call`
+execution key is that canonical DATA string. The `ok|` prefix is not part of
+the key or the Value. A revert keeps the `reverted|...` key, does not enter
+the encoder, and its Value stays the representative source's original payload
+aside from a 4e deletion. `NormalizeWireQuantity` still returns a decimal
+string. That decimal is not the cluster key and is not the canonical bytes.
+
+The order inside the existing resolver is one pass. EncodeCheck runs on each
+source first. A failure is a Fault, the source stays in the denominator, and
+it does not vote. Resolve then runs once on the sources that passed. EncodeCommit
+writes the canonical bytes when every supporter in the winning cluster encoded
+the same bytes. If those bytes differ, the result is Unknown,
+`ErrMalformedResponse`, and the reason contains `result encoding disagrees
+within cluster`. Do not select another source's original payload and do not
+vote again.
+
+Wire quantities that already reject leading zeros still reject them. Do not
+loosen that check. `net_version` and `net_peerCount` still fold leading zeros
+into one key, then write the canonical form.
+
+Median quantities stay Selected. Median selection itself is unchanged: a
+sample that cannot be encoded does not enter the median, then the existing
+median is taken once. Local `net_peerCount` encodes only the selected source
+and stays Selected. `ResolveLocal` leaves Representative at its zero value.
+Unmigrated methods, including a block `number|hash` key, keep the first
+captured supporter's original payload. Representative for Strict, CallRevert,
+and Median is still that supporter.
+
+Not in this decision: fee history, receipts, transactions, logs, access lists,
+block re-encoding, `eth_call` code and message, moving `from` or `size` out of
+Value, Provenance, an Extensions diff, shrinking the denominator, lowering the
+floor, promoting Median or Local to Corroborated, a second field table, or an
+encoder registry.

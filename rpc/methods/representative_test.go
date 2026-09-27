@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"math/big"
+	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
+
 	"ethguard/rpc"
+	"ethguard/rpc/internal/wire"
 )
 
 var errExecutionReverted = errors.New("execution reverted")
@@ -185,4 +190,314 @@ func payloadOf(item rpc.Observation) json.RawMessage {
 		return item.RPCError.Raw()
 	}
 	return item.Value
+}
+
+// TestMigratedScalarValueIsCanonical pins RV1 for quantities and successful
+// DATA. Swapping the captured order does not change Value. Representative
+// still follows the first supporter. Unmigrated methods stay on
+// TestRepresentativeIsFirstCapturedSource and must keep changing Value.
+func TestMigratedScalarValueIsCanonical(t *testing.T) {
+	a := rpc.SourceRef{Name: "a", ID: "a"}
+	b := rpc.SourceRef{Name: "b", ID: "b"}
+	wordA := `"0x` + strings.Repeat("00", 31) + `AB"`
+	wordB := `"0x` + strings.Repeat("00", 31) + `ab"`
+	wordCanon := `"0x` + strings.Repeat("00", 31) + `ab"`
+
+	cases := []struct {
+		name   string
+		policy rpc.Policy
+		first  string
+		second string
+		want   string
+	}{
+		{"chain id", ChainIDPolicy(rpc.WithQuorum(2)), `"0xA"`, `"0xa"`, `"0xa"`},
+		{"balance", GetBalancePolicy(nil), `"0xA"`, `"0xa"`, `"0xa"`},
+		{"nonce", GetTransactionCountPolicy(nil), `"0xA"`, `"0xa"`, `"0xa"`},
+		{"code", GetCodePolicy(nil), `"0xAB"`, `"0xab"`, `"0xab"`},
+		{"storage", GetStorageAtPolicy(nil), wordA, wordB, wordCanon},
+		{"net version", NetVersionPolicy(rpc.WithQuorum(2)), `"01"`, `"1"`, `"1"`},
+		{"call success", CallPolicy(nil, rpc.WithQuorum(2)), `"0xAB"`, `"0xab"`, `"0xab"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			first := observation(a, tc.first, `{"from":"a"}`)
+			second := observation(b, tc.second, `{"from":"b"}`)
+			decision := resolvePair(t, tc.policy, first, second)
+			swapped := resolvePair(t, tc.policy, second, first)
+			if string(decision.Value) != tc.want || string(swapped.Value) != tc.want {
+				t.Fatalf("value = %s / %s, want %s", decision.Value, swapped.Value, tc.want)
+			}
+			if !bytes.Equal(decision.Value, swapped.Value) {
+				t.Fatalf("reordering changed canonical value %s -> %s", decision.Value, swapped.Value)
+			}
+			if bytes.Contains(decision.Value, []byte("ok|")) {
+				t.Fatalf("comparison prefix leaked into value %s", decision.Value)
+			}
+			if decision.Representative != a || swapped.Representative != b {
+				t.Fatalf("representative = %+v / %+v, want a then b", decision.Representative, swapped.Representative)
+			}
+			if !bytes.Equal(decision.Evidence, first.Evidence) || !bytes.Equal(swapped.Evidence, second.Evidence) {
+				t.Fatalf("evidence did not follow the first supporter: %s / %s", decision.Evidence, swapped.Evidence)
+			}
+		})
+	}
+}
+
+func TestTypedQuantityReadsCanonicalValue(t *testing.T) {
+	policy := ChainIDPolicy(rpc.WithQuorum(2))
+	a := rpc.SourceRef{Name: "a", ID: "a"}
+	b := rpc.SourceRef{Name: "b", ID: "b"}
+	decision := resolvePair(t, policy,
+		observation(a, `"0xA"`, ""),
+		observation(b, `"0xa"`, ""),
+	)
+	if string(decision.Value) != `"0xa"` {
+		t.Fatalf("value = %s, want canonical 0xa", decision.Value)
+	}
+	got := typedQuantity(t, policy, decision.Value)
+	want := typedQuantity(t, policy, json.RawMessage(`"0xa"`))
+	if got.Cmp(want) != 0 {
+		t.Fatalf("typed value = %s, typed canonical = %s", got, want)
+	}
+}
+
+func TestTypedDataReadsCanonicalValue(t *testing.T) {
+	policy := GetCodePolicy(nil)
+	a := rpc.SourceRef{Name: "a", ID: "a"}
+	b := rpc.SourceRef{Name: "b", ID: "b"}
+	decision := resolvePair(t, policy,
+		observation(a, `"0xAB"`, ""),
+		observation(b, `"0xab"`, ""),
+	)
+	if string(decision.Value) != `"0xab"` {
+		t.Fatalf("value = %s, want 0xab", decision.Value)
+	}
+	got := typedData(t, decision.Value)
+	want := typedData(t, json.RawMessage(`"0xab"`))
+	if !bytes.Equal(got, want) {
+		t.Fatalf("typed value = %x, typed canonical = %x", got, want)
+	}
+}
+
+func TestTypedCallSuccessReadsCanonicalData(t *testing.T) {
+	policy := CallPolicy(nil, rpc.WithQuorum(2))
+	a := rpc.SourceRef{Name: "a", ID: "a"}
+	b := rpc.SourceRef{Name: "b", ID: "b"}
+	decision := resolvePair(t, policy,
+		observation(a, `"0xAB"`, ""),
+		observation(b, `"0xab"`, ""),
+	)
+	if string(decision.Value) != `"0xab"` || bytes.Contains(decision.Value, []byte("ok|")) {
+		t.Fatalf("value = %s", decision.Value)
+	}
+	got := typedData(t, decision.Value)
+	want := typedData(t, json.RawMessage(`"0xab"`))
+	if !bytes.Equal(got, want) {
+		t.Fatalf("typed call = %x, want %x", got, want)
+	}
+}
+
+func TestScalarMutationCannotManufactureEquality(t *testing.T) {
+	if _, err := wire.EncodeQuantity(json.RawMessage(`"0x01"`)); err == nil {
+		t.Fatal("leading-zero quantity encoded")
+	}
+	if _, err := wire.EncodeData(json.RawMessage(`"0xa"`)); err == nil {
+		t.Fatal("odd-length data encoded")
+	}
+	short, err := wire.EncodeData(json.RawMessage(`"0xab"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	padded, err := wire.EncodeData(json.RawMessage(`"0x00ab"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(short, padded) {
+		t.Fatal("dropping a protected data byte manufactured equality")
+	}
+
+	a := rpc.SourceRef{Name: "a", ID: "a"}
+	b := rpc.SourceRef{Name: "b", ID: "b"}
+	policy := GetCodePolicy(nil)
+	resolver := policy.(rpc.CorroboratingPolicy)
+	decision, err := resolver.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
+		observation(a, `"0x00ab"`, ""),
+		observation(b, `"0xab"`, ""),
+	})
+	if !errors.Is(err, rpc.ErrConflict) || decision.Status == rpc.Corroborated {
+		t.Fatalf("different data agreed: %v %+v", err, decision)
+	}
+
+	broken := rpc.SourceRef{Name: "c", ID: "c"}
+	decision, err = ChainIDPolicy(rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).ResolveCorroborated(
+		rpc.Corroboration{Floor: 1},
+		[]rpc.Observation{
+			observation(a, `"0x1"`, ""),
+			observation(broken, `"0x01"`, ""),
+		},
+	)
+	if err == nil || !errors.Is(err, rpc.ErrConflict) || !strings.Contains(err.Error(), "of 2") {
+		t.Fatalf("leading zero left the denominator: %v %+v", err, decision)
+	}
+	if decision.Status == rpc.Selected || decision.Status == rpc.Corroborated {
+		t.Fatalf("status = %v, want failure", decision.Status)
+	}
+	for _, source := range decision.Support {
+		if source.ID == broken.ID {
+			t.Fatal("rejected quantity voted")
+		}
+	}
+	if len(decision.Faults) == 0 {
+		t.Fatal("encode failure was not a fault")
+	}
+}
+
+func TestCanonicalDisagreementDoesNotRevote(t *testing.T) {
+	_, err := rpc.CommitCanonical([]json.RawMessage{
+		json.RawMessage(`"0xA"`),
+		json.RawMessage(`"0xa"`),
+	})
+	if !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
+		t.Fatalf("commit err = %v", err)
+	}
+
+	// The cluster key is the encoder output. Distinct bytes are distinct
+	// clusters, not one cluster repaired by dropping a source and voting again.
+	normalize := func(raw json.RawMessage) (string, error) {
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return "", err
+		}
+		return strings.ToLower(text), nil
+	}
+	encode := func(raw json.RawMessage) (json.RawMessage, error) {
+		return append(json.RawMessage(nil), raw...), nil
+	}
+	policy := rpc.Strict(normalize, rpc.WithQuorum(2), rpc.WithCanonicalValue(encode))
+	a := rpc.SourceRef{Name: "a", ID: "a"}
+	b := rpc.SourceRef{Name: "b", ID: "b"}
+	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
+		observation(a, `"0xA"`, ""),
+		observation(b, `"0xa"`, ""),
+	})
+	if !errors.Is(err, rpc.ErrConflict) {
+		t.Fatalf("err = %v", err)
+	}
+	if decision.Status == rpc.Corroborated || decision.Status == rpc.Selected || len(decision.Support) != 1 {
+		t.Fatalf("decision = %+v", decision)
+	}
+}
+
+func TestMigratedQuantityTieUsesCanonicalKey(t *testing.T) {
+	policy := ChainIDPolicy(rpc.WithQuorum(1))
+	a := rpc.SourceRef{Name: "a", ID: "a"}
+	b := rpc.SourceRef{Name: "b", ID: "b"}
+	c := rpc.SourceRef{Name: "c", ID: "c"}
+	d := rpc.SourceRef{Name: "d", ID: "d"}
+	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
+		observation(a, `"0x2"`, `{"from":"a"}`),
+		observation(b, `"0xA"`, `{"from":"b"}`),
+		observation(c, `"0x2"`, `{"from":"c"}`),
+		observation(d, `"0xa"`, `{"from":"d"}`),
+	})
+	if !errors.Is(err, rpc.ErrConflict) {
+		t.Fatalf("err = %v", err)
+	}
+	if string(decision.Value) != `"0x2"` || decision.Representative != a {
+		t.Fatalf("value = %s representative = %+v, want canonical 0x2 from a", decision.Value, decision.Representative)
+	}
+	if !bytes.Equal(decision.Evidence, json.RawMessage(`{"from":"a"}`)) {
+		t.Fatalf("evidence = %s", decision.Evidence)
+	}
+}
+
+func TestMedianSkipsUnencodableQuantity(t *testing.T) {
+	policy := BlockNumberPolicy()
+	good := rpc.SourceRef{Name: "a", ID: "a"}
+	bad := rpc.SourceRef{Name: "b", ID: "b"}
+	high := rpc.SourceRef{Name: "c", ID: "c"}
+	decision, err := policy.Resolve([]rpc.Observation{
+		{Source: good, Value: json.RawMessage(`"0x1"`)},
+		{Source: bad, Value: json.RawMessage(`"0x02"`)},
+		{Source: high, Value: json.RawMessage(`"0x3"`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != rpc.Selected || string(decision.Value) != `"0x1"` {
+		t.Fatalf("median = %s status %v, want selected 0x1", decision.Value, decision.Status)
+	}
+	if decision.Representative != good {
+		t.Fatalf("representative = %+v, want the first encodable median", decision.Representative)
+	}
+	for _, source := range decision.Support {
+		if source.ID == bad.ID {
+			t.Fatal("unencodable sample entered the median")
+		}
+	}
+	if len(decision.Faults) == 0 {
+		t.Fatal("expected an encode fault")
+	}
+}
+
+func TestLocalPeerCountEncodesOnlyTheSelectedSource(t *testing.T) {
+	policy := PeerCountPolicy()
+	first := rpc.SourceRef{Name: "a", ID: "a"}
+	second := rpc.SourceRef{Name: "b", ID: "b"}
+	decision, err := policy.Resolve([]rpc.Observation{
+		{Source: first, Value: json.RawMessage(`"0x0A"`)},
+		{Source: second, Value: json.RawMessage(`"0x1"`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != rpc.Selected || string(decision.Value) != `"0xa"` {
+		t.Fatalf("local = %s status %v", decision.Value, decision.Status)
+	}
+	if decision.Representative != (rpc.SourceRef{}) {
+		t.Fatalf("representative = %+v, want zero", decision.Representative)
+	}
+	if len(decision.Support) != 1 || decision.Support[0] != first {
+		t.Fatalf("support = %+v", decision.Support)
+	}
+}
+
+func TestResolveLocalKeepsRepresentativeZero(t *testing.T) {
+	policy := GetBalancePolicy(nil).(rpc.LocalObservationPolicy)
+	first := rpc.SourceRef{Name: "a", ID: "a"}
+	decision, err := policy.ResolveLocal([]rpc.Observation{
+		{Source: first, Value: json.RawMessage(`"0xA"`)},
+		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(`"0x1"`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Status != rpc.Selected || string(decision.Value) != `"0xa"` {
+		t.Fatalf("pending = %s status %v", decision.Value, decision.Status)
+	}
+	if decision.Representative != (rpc.SourceRef{}) || len(decision.Support) != 1 || decision.Support[0] != first {
+		t.Fatalf("decision = %+v", decision)
+	}
+}
+
+func typedQuantity(t *testing.T, policy rpc.Policy, raw json.RawMessage) *big.Int {
+	t.Helper()
+	text, err := policy.Normalize(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, ok := new(big.Int).SetString(text, 10)
+	if !ok {
+		t.Fatalf("quantity %q", text)
+	}
+	return value
+}
+
+func typedData(t *testing.T, raw json.RawMessage) []byte {
+	t.Helper()
+	var data hexutil.Bytes
+	if err := json.Unmarshal(raw, &data); err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

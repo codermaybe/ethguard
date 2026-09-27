@@ -26,8 +26,9 @@ func Local(normalize func(json.RawMessage) (string, error), opts ...LocalOption)
 	return f
 }
 
-// LocalOption carries introspection for a local policy. Options are not
-// read by Prepare, Normalize, or Resolve.
+// LocalOption carries introspection or a scalar encoder for a local policy.
+// WithLocalRuleCompareKind is not read by Prepare, Normalize, or Resolve.
+// WithLocalCanonical encodes only the source Resolve already selected.
 type LocalOption func(*localFunc)
 
 // WithLocalRuleCompareKind records the coarse comparison-key class for a
@@ -36,9 +37,16 @@ func WithLocalRuleCompareKind(kind string) LocalOption {
 	return func(f *localFunc) { f.compareKind = kind }
 }
 
+// WithLocalCanonical encodes the one selected source. It does not change
+// which source is selected and it does not raise Status to Corroborated.
+func WithLocalCanonical(encode CanonicalEncoder) LocalOption {
+	return func(f *localFunc) { f.encode = encode }
+}
+
 type localFunc struct {
 	normalize   func(json.RawMessage) (string, error)
 	compareKind string
+	encode      CanonicalEncoder
 }
 
 func (f localFunc) Prepare(_ context.Context, req Request) (Request, error) {
@@ -52,7 +60,14 @@ func (f localFunc) Normalize(value json.RawMessage) (string, error) {
 // MethodRule reports local resolution and the coarse comparison-key class
 // supplied at construction. It does not participate in request handling.
 func (f localFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverLocal, CompareKind: f.compareKind}, nil
+	return MethodRule{Resolver: RuleResolverLocal, CompareKind: f.compareKind, Result: resultRule(f.encode)}, nil
+}
+
+func (f localFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
+	if f.encode == nil {
+		return nil, ErrNotCanonicalScalar
+	}
+	return f.encode(raw)
 }
 
 func (f localFunc) Resolve(obs []Observation) (Decision, error) {
@@ -65,9 +80,18 @@ func (f localFunc) Resolve(obs []Observation) (Decision, error) {
 			faults = append(faults, fmt.Errorf("normalize: %w", err))
 			continue
 		}
+		value := item.Value
+		if f.encode != nil {
+			canonical, err := f.encode(item.Value)
+			if err != nil {
+				faults = append(faults, fmt.Errorf("encode: %w", err))
+				return Decision{Status: Unknown, Faults: faults}, fmt.Errorf("local: %w", err)
+			}
+			value = canonical
+		}
 		return Decision{
 			Status:  Selected,
-			Value:   item.Value,
+			Value:   value,
 			Support: []SourceRef{item.Source},
 			Faults:  faults,
 		}, nil

@@ -15,7 +15,7 @@ import (
 const MethodCall = "eth_call"
 
 // CallPolicy corroborates eth_call on two dimensions (decisions 0017, 0023,
-// and 0039 rule 4e). Successful return data stays inside the execution key.
+// and 0039 rule 4e). Successful return data stays inside the execution key as canonical DATA JSON, not an ok| prefix.
 // A revert-class error asserts execution and, separately, data: missing and
 // JSON null abstain, while empty ("0x"), non-empty hex, and non-hex JSON
 // stay distinct assertions and are not pre-merged into one another. A short
@@ -31,7 +31,7 @@ const MethodCall = "eth_call"
 // EIP-1898 object forms ride EIP1898BlockRef (see GetBalancePolicy).
 // Pending resolves as a node-local observation (see GetBalancePolicy).
 func CallPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	inner := rpc.NewCallRevertPolicy(normalizeCallOutcome, append([]rpc.StrictOption{rpc.WithRPCErrorBodies()}, opts...)...)
+	inner := rpc.NewCallRevertPolicy(normalizeCallOutcome, append([]rpc.StrictOption{rpc.WithRPCErrorBodies(), rpc.WithCanonicalValue(encodeCallSuccess)}, opts...)...)
 	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.WithAnchor(anchor, 1)(inner)))
 }
 
@@ -75,6 +75,18 @@ func normalizeCallOutcome(value json.RawMessage) (string, error) {
 		return "reverted|" + state, nil
 	}
 	return "", fmt.Errorf("call outcome: protocol error %d is not an execution observation", code)
+}
+
+// encodeCallSuccess canonicalizes a successful eth_call result. The returned
+// JSON is the execution key and the committed Value. Revert envelopes return
+// ErrNotCanonicalScalar, keep the reverted| key, and do not enter Value as
+// canonical DATA. The ok| prefix is not part of the returned JSON string.
+func encodeCallSuccess(value json.RawMessage) (json.RawMessage, error) {
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return nil, rpc.ErrNotCanonicalScalar
+	}
+	return wire.EncodeData(value)
 }
 
 // revertDataState is the data half of a revert key. Missing, JSON null,

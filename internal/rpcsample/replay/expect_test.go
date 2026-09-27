@@ -261,8 +261,8 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 	if deleted == nil {
 		deleted = []string{}
 	}
-	if !projectionMatches(t, policyDecision.Value, payloads, deleted) {
-		return expectCase{}, fmt.Errorf("%s decision value is not one source payload with %v removed", id, deleted)
+	if err := replayValueAgrees(t, policy, policyDecision, payloads, sources, deleted, false); err != nil {
+		return expectCase{}, fmt.Errorf("%s %w", id, err)
 	}
 	return expectCase{
 		RequestID:  id,
@@ -452,6 +452,46 @@ func sameRequest(records []rpcsample.Record) (json.RawMessage, error) {
 func payloadMatches(t *testing.T, value json.RawMessage, payloads []json.RawMessage) bool {
 	t.Helper()
 	return projectionMatches(t, value, payloads, nil)
+}
+
+// replayValueAgrees keeps the source-payload check for unmigrated methods and
+// for canonical values that still happen to equal one original. A migrated
+// quantity or successful DATA value that is no longer any original must be
+// the canonical encoding of the representative payload, or of the one source
+// Local / ResolveLocal selected. An empty value is a failed decision: batch
+// replay does not add a new must-match-an-original assertion for it.
+func replayValueAgrees(t *testing.T, policy rpc.Policy, decision rpc.Decision, payloads []json.RawMessage, sources []expectSource, deleted []string, allowEmpty bool) error {
+	t.Helper()
+	if len(decision.Value) == 0 {
+		if allowEmpty {
+			return nil
+		}
+		return fmt.Errorf("decision value is not one source payload with %v removed", deleted)
+	}
+	if projectionMatches(t, decision.Value, payloads, deleted) {
+		return nil
+	}
+	encoded, err := rpc.CanonicalOf(policy, replaySourcePayload(decision, payloads, sources))
+	if err != nil || !bytes.Equal(encoded, decision.Value) {
+		return fmt.Errorf("decision value is not one source payload with %v removed", deleted)
+	}
+	return nil
+}
+
+func replaySourcePayload(decision rpc.Decision, payloads []json.RawMessage, sources []expectSource) json.RawMessage {
+	id := decision.Representative.ID
+	if id == "" && len(decision.Support) == 1 {
+		id = decision.Support[0].ID
+	}
+	if id == "" {
+		return nil
+	}
+	for i, source := range sources {
+		if source.ID == id && i < len(payloads) {
+			return payloads[i]
+		}
+	}
+	return nil
 }
 
 func projectionMatches(t *testing.T, value json.RawMessage, payloads []json.RawMessage, deleted []string) bool {

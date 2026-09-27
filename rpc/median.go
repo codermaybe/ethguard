@@ -20,12 +20,27 @@ import (
 // choice resists manipulation the same way the tip gate does: dragging the
 // median requires buying more than half of the fleet, and outliers stay on
 // Reject as spread evidence.
-func Median(normalize func(json.RawMessage) (string, error)) Policy {
-	return medianFunc{normalize: normalize}
+func Median(normalize func(json.RawMessage) (string, error), opts ...MedianOption) Policy {
+	f := medianFunc{normalize: normalize}
+	for _, opt := range opts {
+		opt(&f)
+	}
+	return f
+}
+
+// MedianOption attaches a scalar encoder. It does not change the median rule.
+type MedianOption func(*medianFunc)
+
+// WithMedianCanonical encodes samples before they enter the median. A sample
+// that cannot be encoded is a Fault and does not cause a second vote. Status
+// stays Selected.
+func WithMedianCanonical(encode CanonicalEncoder) MedianOption {
+	return func(f *medianFunc) { f.encode = encode }
 }
 
 type medianFunc struct {
 	normalize func(json.RawMessage) (string, error)
+	encode    CanonicalEncoder
 }
 
 func (f medianFunc) Prepare(_ context.Context, req Request) (Request, error) {
@@ -40,34 +55,53 @@ func (f medianFunc) Normalize(value json.RawMessage) (string, error) {
 // integer key, so the coarse class is quantity. This method does not
 // participate in request handling.
 func (f medianFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverMedian, CompareKind: RuleCompareQuantity}, nil
+	return MethodRule{Resolver: RuleResolverMedian, CompareKind: RuleCompareQuantity, Result: resultRule(f.encode)}, nil
+}
+
+func (f medianFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
+	if f.encode == nil {
+		return nil, ErrNotCanonicalScalar
+	}
+	return f.encode(raw)
 }
 
 func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 	var decision Decision
 	type sample struct {
-		source   SourceRef
-		value    *big.Int
-		raw      json.RawMessage
-		evidence json.RawMessage
+		source    SourceRef
+		value     *big.Int
+		raw       json.RawMessage
+		evidence  json.RawMessage
+		canonical json.RawMessage
 	}
 	samples := make([]sample, 0, len(obs))
 	for _, item := range obs {
 		if item.Err != nil {
 			continue
 		}
-		canonical, err := f.normalize(item.Value)
+		var canonical json.RawMessage
+		if f.encode != nil {
+			encoded, err := f.encode(item.Value)
+			if err != nil {
+				decision.Faults = append(decision.Faults, fmt.Errorf("encode: %w", err))
+				continue
+			}
+			canonical = encoded
+		}
+		key, err := f.normalize(item.Value)
 		if err != nil {
 			decision.Faults = append(decision.Faults, fmt.Errorf("normalize: %w", err))
 			continue
 		}
-		value, ok := new(big.Int).SetString(canonical, 10)
+		value, ok := new(big.Int).SetString(key, 10)
 		if !ok {
 			decision.Faults = append(decision.Faults, fmt.Errorf(
-				"normalize: median selection needs an integer, got %q", canonical))
+				"normalize: median selection needs an integer, got %q", key))
 			continue
 		}
-		samples = append(samples, sample{source: item.Source, value: value, raw: item.Value, evidence: item.Evidence})
+		samples = append(samples, sample{
+			source: item.Source, value: value, raw: item.Value, evidence: item.Evidence, canonical: canonical,
+		})
 	}
 	if len(samples) == 0 {
 		return Decision{Status: Unknown, Faults: decision.Faults}, fmt.Errorf(
@@ -76,16 +110,18 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 
 	// Keep equal-valued samples in pool order. When the median value has
 	// multiple raw spellings, the first source's spelling is the deterministic
-	// winner rather than an artifact of an unstable sort.
+	// winner rather than an artifact of an unstable sort. A canonical encoder
+	// replaces that spelling in Value and still records this person.
 	sort.SliceStable(samples, func(i, j int) bool { return samples[i].value.Cmp(samples[j].value) < 0 })
 	medianValue := samples[(len(samples)-1)/2].value // lower median: never above the middle
 	equal := make([]representativeCandidate, 0, len(samples))
 	for _, candidate := range samples {
 		if candidate.value.Cmp(medianValue) == 0 {
 			equal = append(equal, representativeCandidate{
-				source:   candidate.source,
-				value:    candidate.raw,
-				evidence: candidate.evidence,
+				source:    candidate.source,
+				value:     candidate.raw,
+				evidence:  candidate.evidence,
+				canonical: candidate.canonical,
 			})
 		}
 	}
@@ -102,5 +138,21 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 			decision.Reject = append(decision.Reject, s.source)
 		}
 	}
+	if f.encode == nil {
+		return decision, nil
+	}
+	canonical := make([]json.RawMessage, len(equal))
+	for i, candidate := range equal {
+		canonical[i] = append(json.RawMessage(nil), candidate.canonical...)
+	}
+	committed, err := CommitCanonical(canonical)
+	if err != nil {
+		decision.Status = Unknown
+		decision.Value = nil
+		decision.Faults = append(decision.Faults, err)
+		return decision, err
+	}
+	decision.Value = committed
+	decision.Status = Selected
 	return decision, nil
 }
