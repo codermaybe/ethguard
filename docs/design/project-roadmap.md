@@ -177,10 +177,10 @@ T06.5 读方法批次扩展      已验收，已提交：block-receipt-tx 与 ei
 已知缺口要写进 RV0 和 RV1 的出口，不能写成已经语义安全：这两阶段的 Value 仍是代表源原文（4e 删减除外），`from` 和 `size` 还会出现在 Corroborated 结果里。
 
 ```text
-RV0 代表源、同源、锚点 hash    当前，可开工，不立 0041
+RV0 代表源、同源、锚点 hash    已验收：8aac099
         |
         v
-RV1 数量与 DATA 规范编码        未解除：RV0 出口通过之后才立 0041
+RV1 数量与 DATA 规范编码        当前，可开工。先写 0041，再编码
         |
         v
 RV2 receipt、transaction、log、feeHistory
@@ -196,7 +196,7 @@ RV4 已注册方法不再是 raw        未解除
 
 ### RV0 代表源、同源、锚点 hash
 
-状态：可开工。依据是 `return-value-design.md` 第 7 节和第 11 节阶段 0。不引入编码器，不立 0041，不改「Value 取哪一簇」。
+状态：已验收（8aac099）。依据是 `return-value-design.md` 第 7 节和第 11 节阶段 0。没有引入编码器，没有立 0041，没有改「Value 取哪一簇」。Value 仍是代表源原始载荷。
 
 出口：锚点拼写用例通过；Value、Evidence、Withheld 同源用例通过。出口文字必须写明 Value 仍是代表源原始载荷。
 
@@ -223,7 +223,9 @@ replay 仍以 `index.json` 的来源顺序为捕获顺序。三批 `expect.json`
 - 同源测试失败路径是：输入 `[a, b]` 且两人同键时，Value、Evidence、Withheld 都来自 a，而不是 Value 取 b、Evidence 取 a。
 - 提交说明里有可复现的 `go test` 命令。范围外问题只记录，不顺手修。
 
-### RV1 及以后（未解除，现在不实现）
+### RV1 及以后
+
+状态：RV1 可开工。RV0 已在 8aac099 验收。RV2 及以后仍不实现。
 
 RV1：RV0 出口通过之后才写入 0041，再增加 `rpc/result.go` 和 `wire/encode.go`，只接入数量类和成功的 DATA。出口是这些方法的 result 列为 canonical，同余测试通过，typed 层改读 Value。第 10 节其余句子在这一步改，不在 RV0 改。
 
