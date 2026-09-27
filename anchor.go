@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -261,7 +262,7 @@ func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
 	if err != nil {
 		return "", 0, fmt.Errorf("invalid anchor height: %w", rpc.ErrMalformedResponse)
 	}
-	return head.Hash, height, nil
+	return strings.ToLower(head.Hash), height, nil
 }
 
 // resolveReference establishes the moving reference for this call.

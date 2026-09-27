@@ -15,7 +15,7 @@
 - 默认（未启用 quorum）：全部有效回答一致且至少两源 → Corroborated；单个有效回答 → Selected；两个及以上不同值 → ErrConflict（携带 Support/Reject 证据）；零有效回答 → ErrNoValidResponse（[rpc/strict.go](../../rpc/strict.go)）。
 - 显式 quorum（WithQuorum(n)）：获胜簇需 size ≥ H 且 2·size > N，N 为本次观察集合——含入选后失败与未获本地并发槽的成员；size == 1 永不 Corroborated（决策 0006）。
 - 分母时间边界：请求前已过滤的来源不进入本次分母；入选后失败的来源保留；下一请求重新筛选（治理文档第 3 节）。
-- 获胜簇的 Value 取簇内最后一个池序成员的原始回答：确定性，但不是“多数负载”，也不承诺由多数派提供。
+- 获胜簇的 Value 取簇内捕获顺序第一个成员的原始回答：确定性，但不是“多数负载”，也不承诺由多数派提供。它是该来源的原始回答，不是规范编码。
 - 类型化读取（ethadapter）以 refcontext.RequireCorroborated 强制佐证，Selected 不静默替代（[ethadapter/client.go](../../ethadapter/client.go)、[aggregator/aggregator.go](../../aggregator/aggregator.go)）。
 - Corroborated 表示方法策略得到满足的 provider-backed cross-source evidence，不是 Ethereum consensus，也不是密码学结论（治理文档第 2 节）。
 
@@ -300,7 +300,7 @@ block, err := client.BlockByNumber(callCtx, number)
 | --- | --- |
 | 1 结果类别 | 确定性事实：区块头（number + hash）。体（transactions、uncles、其余字段）不参与跨源比较，见待明确边界 |
 | 2 共同参考 | 显式高度 = 参数即参考。移动标签（latest/safe/finalized）在本策略层不改写（Prepare 恒等）：标签的锚定发生在类型化路径——先建立参考，再按 hash 走 eth_getBlockByHash（[ethadapter/client.go](../../ethadapter/client.go) blockAt、决策 0018）；根层 Call 直传 latest 时按各源自然头回答，头一致即 Corroborated（共识于当时自然头，未钉参考），头分歧即 ErrConflict。策略层 pending 标签透传不改写，作为节点本地观测（Selected 上限），永不因同值成为 Corroborated，也不改写成锚定读取。类型化 BlockByNumber(-1) 在 adapter 本地拒绝：不支持 pending block typed projection（ErrInvalidRequest）。-1 不锚定为 latest/safe/finalized，不发送业务请求，也不编码成 -0x1。这次拒绝不是 provider 不支持，也不是 Unknown 业务裁决；错误返回携带的 Unknown 只是失败决策不得带成功置信，不是冲突或无有效响应裁决。本策略兼任锚定策略：strictHeadAnchor 以 ("latest", false) 建立参考，锚定裁决强制 Corroborated（[anchor.go](../../anchor.go)）。Corroborated 仍只表示 provider-backed cross-source evidence。 |
-| 3 归一化 | 仅头："十进制高度 \| 小写 hash"（等效十六进制拼写一致；高度解析走 hexqty，强制 0x 前缀）；number 或 hash 缺失 = 无效；JSON null 解码为零值头 = 无效。**体不参与跨源比较**；获胜簇 Value 取簇内最后池序成员的原始对象（[rpc/methods/eth_getblockbynumber.go](../../rpc/methods/eth_getblockbynumber.go)） |
+| 3 归一化 | 仅头："十进制高度 \| 小写 hash"（等效十六进制拼写一致；高度解析走 hexqty，强制 0x 前缀）；number 或 hash 缺失 = 无效；JSON null 解码为零值头 = 无效。**体不参与跨源比较**；获胜簇 Value 取簇内捕获顺序第一个成员的原始对象，不是规范编码（[rpc/methods/eth_getblockbynumber.go](../../rpc/methods/eth_getblockbynumber.go)） |
 | 4 结果分类 | 第 0 节之外：null = 无效（区别于 byHash 的可比较 null）。高度超前于全部源 tip：全 null → ErrNoValidResponse；部分 null + 部分头：null 记 Fault，持有者成簇可 Corroborated——滞后源的“未见”不构成否决 |
 | 5 失败语义 | 同高分叉 → 头 hash 不同 → ErrConflict（头比较即捕获）。同头异体（诚实执行不可能、恶意负载可能）→ 同簇 → Corroborated；类型化解码仅逐响应完整性（wire hash == header hash、uncle 一致、高度绑定），不校验体对 transactionsRoot |
 | 6 成本 | 显式高度读取单次 fan-out；fullTx=true 时下载全部源的完整体但比较只用头（带宽按体计、比较按头计）。移动标签的类型化读取共两次 fan-out（锚定 + 按 hash 整对象读取；合并为单次是 M4 缓议项） |

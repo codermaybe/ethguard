@@ -170,6 +170,7 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 	winner := ranked[0]
 	decision.Value = winner.value
 	decision.Evidence = append(json.RawMessage(nil), winner.evidence...)
+	decision.Representative = winner.sources[0]
 	decision.Support = winner.sources
 	for _, cl := range ranked[1:] {
 		decision.Reject = append(decision.Reject, cl.sources...)
@@ -187,13 +188,14 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 
 // cluster groups admissible answers by normalized form and ranks the
 // clusters by size, breaking ties by canonical key, so identical inputs
-// always yield identical Support, Reject, and Value regardless of arrival
-// order or map iteration.
+// always yield identical Support and Reject regardless of arrival order or
+// map iteration. The cluster's Value and Evidence both come from the first
+// supporter in the captured member order, which is the order of obs; when
+// that supporter has no evidence the cluster's evidence stays empty instead
+// of borrowing a later supporter's.
 func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 	var faults []error
-	groups := make(map[string][]SourceRef)
-	values := make(map[string]json.RawMessage)
-	evidence := make(map[string]json.RawMessage)
+	groups := make(map[string][]representativeCandidate)
 	seen := make(map[string]int, len(obs))
 	for i, item := range obs {
 		id := item.Source.ID
@@ -218,11 +220,7 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 			faults = append(faults, fmt.Errorf("normalize: %w", err))
 			continue
 		}
-		groups[key] = append(groups[key], item.Source)
-		values[key] = value
-		if evidence[key] == nil && item.Evidence != nil {
-			evidence[key] = append(json.RawMessage(nil), item.Evidence...)
-		}
+		groups[key] = append(groups[key], representativeCandidate{source: item.Source, value: value, evidence: item.Evidence})
 	}
 	if len(groups) == 0 {
 		return nil, faults, fmt.Errorf(
@@ -240,7 +238,13 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 	})
 	ranked := make([]cluster, 0, len(keys))
 	for _, key := range keys {
-		ranked = append(ranked, cluster{key: key, value: values[key], evidence: evidence[key], sources: groups[key]})
+		members := groups[key]
+		rep := firstRepresentative(members)
+		sources := make([]SourceRef, len(members))
+		for i, member := range members {
+			sources[i] = member.source
+		}
+		ranked = append(ranked, cluster{key: key, value: rep.value, evidence: rep.evidence, sources: sources})
 	}
 	return ranked, faults, nil
 }

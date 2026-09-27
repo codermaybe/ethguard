@@ -385,6 +385,65 @@ func callMethod(ctx context.Context, client *ethguard.Client, method string, par
 	return client.Call(ctx, method, params...)
 }
 
+// TestAnchorRequestHashIsLowercase pins the request spelling separately from
+// the returned value. When the winning head spells its hash with a 0X prefix,
+// the hash sent to sources afterwards is lowercase, while the block decision's
+// Value keeps the source's own 0X spelling. Folding only the comparison key,
+// or lowercasing the Value as well, fails this test.
+func TestAnchorRequestHashIsLowercase(t *testing.T) {
+	const (
+		number = "0x10"
+		upper  = "0Xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		lower  = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	client, nodes := newAnchorFleet(t, transportHTTP, 2)
+	scriptSame(nodes, func(method string, args []any) (any, error) {
+		switch method {
+		case "eth_getBlockByNumber":
+			return map[string]any{"number": number, "hash": upper}, nil
+		case "eth_getBalance":
+			return "0x64", nil
+		default:
+			return nil, errScriptPass
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	decision, err := callMethod(ctx, client, methods.MethodGetBalance, "0xaddr", "latest")
+	if err != nil {
+		t.Fatalf("getBalance: %v\n%s", err, dumpCalls(nodes))
+	}
+	if decision.Reference == nil || decision.Reference.Hash != lower {
+		t.Fatalf("reference hash = %+v, want %s", decision.Reference, lower)
+	}
+	for _, node := range nodes {
+		for _, call := range node.snapshot() {
+			if call.Method != methods.MethodGetBalance {
+				continue
+			}
+			block, _ := call.Args[1].(string)
+			if block != lower {
+				t.Fatalf("balance block = %q, want lowercase %s", block, lower)
+			}
+			if block == upper {
+				t.Fatalf("balance block kept the source spelling %s", upper)
+			}
+		}
+	}
+
+	block, err := callMethod(ctx, client, methods.MethodGetBlockByNumber, "latest", false)
+	if err != nil {
+		t.Fatalf("getBlockByNumber: %v\n%s", err, dumpCalls(nodes))
+	}
+	if !strings.Contains(string(block.Value), upper) {
+		t.Fatalf("block value = %s, want the source spelling %s", block.Value, upper)
+	}
+	if strings.Contains(string(block.Value), lower) {
+		t.Fatalf("block value was lowercased: %s", block.Value)
+	}
+}
+
 func TestAnchorTransportReferenceMatchesAcrossHTTPAndWSS(t *testing.T) {
 	kinds := []anchorTransport{transportHTTP, transportWS}
 	clients := make(map[anchorTransport]*ethguard.Client, len(kinds))

@@ -71,7 +71,11 @@
       },
       "decision": {
         "status": "corroborated",
-        "error": ""
+        "error": "",
+        "representative": {
+          "id": "s2",
+          "ordinal": 1
+        }
       }
     },
     {
@@ -141,7 +145,11 @@
       },
       "decision": {
         "status": "corroborated",
-        "error": ""
+        "error": "",
+        "representative": {
+          "id": "s2",
+          "ordinal": 1
+        }
       }
     },
     {
@@ -211,7 +219,11 @@
       },
       "decision": {
         "status": "corroborated",
-        "error": ""
+        "error": "",
+        "representative": {
+          "id": "s2",
+          "ordinal": 1
+        }
       }
     },
     {
@@ -278,7 +290,11 @@
       },
       "decision": {
         "status": "corroborated",
-        "error": ""
+        "error": "",
+        "representative": {
+          "id": "s1",
+          "ordinal": 0
+        }
       }
     },
     {
@@ -342,7 +358,11 @@
       },
       "decision": {
         "status": "corroborated",
-        "error": ""
+        "error": "",
+        "representative": {
+          "id": "s1",
+          "ordinal": 0
+        }
       }
     },
     {
@@ -409,7 +429,11 @@
       },
       "decision": {
         "status": "corroborated",
-        "error": ""
+        "error": "",
+        "representative": {
+          "id": "s1",
+          "ordinal": 0
+        }
       }
     }
   ]

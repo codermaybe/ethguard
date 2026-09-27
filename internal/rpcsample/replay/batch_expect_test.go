@@ -292,6 +292,9 @@ func replayCapturedCase(t *testing.T, mode string, floor int, records []rpcsampl
 	if strings.Join(policyDecision.DeletedFields, ",") != strings.Join(aggDecision.DeletedFields, ",") || !sameDimensions(policyDecision.Dimensions, aggDecision.Dimensions) {
 		return expectCase{}, fmt.Errorf("%s projection diverged", id)
 	}
+	if policyDecision.Representative.Name != aggDecision.Representative.Name {
+		return expectCase{}, fmt.Errorf("%s representative policy %s aggregator %s", id, policyDecision.Representative.Name, aggDecision.Representative.Name)
+	}
 	if err := assertCapturedFanout(nodes, req, prepErr); err != nil {
 		return expectCase{}, fmt.Errorf("%s: %w", id, err)
 	}
@@ -315,7 +318,11 @@ func replayCapturedCase(t *testing.T, mode string, floor int, records []rpcsampl
 		Sources:    sources,
 		Dimensions: expectDimensions(dims),
 		Projection: expectProjection{Reductive: len(policyDecision.DeletedFields) > 0, DeletedFields: deleted},
-		Decision:   expectDecision{Status: policyDecision.Status.String(), Error: decisionError(policyErr)},
+		Decision: expectDecision{
+			Status:         policyDecision.Status.String(),
+			Error:          decisionError(policyErr),
+			Representative: representativeOf(policyDecision, records),
+		},
 	}, nil
 }
 

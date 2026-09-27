@@ -96,12 +96,13 @@ func (p callRevertFunc) resolve(c Corroboration, legacy bool, obs []Observation)
 	rejected := flattenCall(ranked[1:])
 	rep := representative(winner)
 	decision := Decision{
-		Status:   Unknown,
-		Faults:   faults,
-		Value:    rep.value,
-		Evidence: clusterEvidence(winner),
-		Support:  sourcesOf(winner),
-		Reject:   sourcesOf(rejected),
+		Status:         Unknown,
+		Faults:         faults,
+		Value:          rep.value,
+		Evidence:       rep.evidence,
+		Representative: rep.source,
+		Support:        sourcesOf(winner),
+		Reject:         sourcesOf(rejected),
 	}
 	var failed error
 	switch {
@@ -213,10 +214,12 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 	decision.Status = Corroborated
 	execution := callDimension(callDimensionExecution, decision.Support, decision.Reject, nil, true)
 	if len(concrete) == 0 {
-		value, deleted := withoutData(representative(winner))
+		rep := representative(winner)
+		value, deleted := withoutData(rep)
 		decision.Value = value
 		decision.DeletedFields = deleted
-		decision.Evidence = clusterEvidence(winner)
+		decision.Evidence = rep.evidence
+		decision.Representative = rep.source
 		decision.Dimensions = []DimensionEvidence{
 			execution,
 			callDimension(callDimensionData, nil, nil, sourcesOf(abstain), false),
@@ -227,18 +230,22 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 	dataWinner := ranked[0]
 	dataRejected := flattenCall(ranked[1:])
 	if revertDataReturned(c, legacy, voters, ranked) {
-		decision.Value = representative(dataWinner).value
-		decision.Evidence = clusterEvidence(dataWinner)
+		rep := representative(dataWinner)
+		decision.Value = rep.value
+		decision.Evidence = rep.evidence
+		decision.Representative = rep.source
 		decision.Dimensions = []DimensionEvidence{
 			execution,
 			callDimension(callDimensionData, sourcesOf(dataWinner), sourcesOf(dataRejected), sourcesOf(abstain), true),
 		}
 		return decision, nil
 	}
-	value, deleted := withoutData(representative(dataWinner))
+	rep := representative(dataWinner)
+	value, deleted := withoutData(rep)
 	decision.Value = value
 	decision.DeletedFields = deleted
-	decision.Evidence = withheldRevertData(concrete)
+	decision.Evidence = withheldRevertData(dataWinner)
+	decision.Representative = rep.source
 	decision.Dimensions = []DimensionEvidence{
 		execution,
 		callDimension(callDimensionData, sourcesOf(dataWinner), sourcesOf(dataRejected), sourcesOf(abstain), false),
@@ -331,17 +338,20 @@ func sourcesOf(answers []callAnswer) []SourceRef {
 	return out
 }
 
+// representative is the first supporter of the cluster in captured order.
+// The cluster slice keeps the order the answers were admitted, which is the
+// captured member order, so the first element is that person. Its value and
+// evidence are copies, so a later projection cannot edit the stored answer.
 func representative(answers []callAnswer) callAnswer {
-	return answers[len(answers)-1]
-}
-
-func clusterEvidence(answers []callAnswer) json.RawMessage {
-	for _, answer := range answers {
-		if len(answer.evidence) > 0 {
-			return append(json.RawMessage(nil), answer.evidence...)
-		}
+	candidates := make([]representativeCandidate, len(answers))
+	for i, answer := range answers {
+		candidates[i] = representativeCandidate{source: answer.source, value: answer.value, evidence: answer.evidence}
 	}
-	return nil
+	chosen := firstRepresentative(candidates)
+	answer := answers[0]
+	answer.value = chosen.value
+	answer.evidence = chosen.evidence
+	return answer
 }
 
 func withoutData(answer callAnswer) (json.RawMessage, []string) {
@@ -368,7 +378,10 @@ func deleteObjectField(raw json.RawMessage, field string) (json.RawMessage, bool
 	return out, true
 }
 
-func withheldRevertData(concrete []callAnswer) json.RawMessage {
+// withheldRevertData records the data the representative withheld. Only that
+// one source's data is kept; the other concrete answers stay out of the
+// evidence so it cannot splice sources together.
+func withheldRevertData(answers []callAnswer) json.RawMessage {
 	type item struct {
 		Source string          `json:"source"`
 		Data   json.RawMessage `json:"data"`
@@ -376,19 +389,15 @@ func withheldRevertData(concrete []callAnswer) json.RawMessage {
 	body := struct {
 		Withheld []item `json:"withheld_revert_data"`
 	}{}
-	for _, answer := range concrete {
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(answer.value, &fields) != nil {
-			continue
+	answer := representative(answers)
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(answer.value, &fields) == nil {
+		if data, ok := fields["data"]; ok {
+			body.Withheld = append(body.Withheld, item{
+				Source: answer.source.ID,
+				Data:   append(json.RawMessage(nil), data...),
+			})
 		}
-		data, ok := fields["data"]
-		if !ok {
-			continue
-		}
-		body.Withheld = append(body.Withheld, item{
-			Source: answer.source.ID,
-			Data:   append(json.RawMessage(nil), data...),
-		})
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {

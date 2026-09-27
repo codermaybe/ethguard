@@ -84,8 +84,8 @@ func TestCallRevertDataConflictIsNotSwallowed(t *testing.T) {
 	if len(decision.DeletedFields) != 1 || decision.DeletedFields[0] != "data" {
 		t.Fatalf("deleted = %v", decision.DeletedFields)
 	}
-	if !bytes.Contains(decision.Evidence, []byte("0xdead")) || !bytes.Contains(decision.Evidence, []byte("0xbeef")) {
-		t.Fatalf("withheld bytes missing from evidence: %s", decision.Evidence)
+	if !bytes.Contains(decision.Evidence, []byte("0xbeef")) || bytes.Contains(decision.Evidence, []byte("0xdead")) {
+		t.Fatalf("withheld evidence = %s, want only b's data", decision.Evidence)
 	}
 }
 

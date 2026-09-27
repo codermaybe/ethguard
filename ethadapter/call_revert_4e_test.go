@@ -63,6 +63,10 @@ func TestCallRevertRule4eMatrix(t *testing.T) {
 			wantAbstain: []string{"node-c"},
 			wantDeleted: []string{"data"},
 			absentBytes: []string{"0xdead", "0xbeef"},
+			// Equal-sized data clusters rank by key, so "hex:0xbeef" wins
+			// over "hex:0xdead". The representative is the first source of
+			// that cluster, node-b, and only its data is withheld.
+			withheldBytes: []string{"0xbeef"},
 		},
 		{
 			name: "N=3 all abstain",
@@ -130,6 +134,9 @@ func TestCallRevertRule4eMatrix(t *testing.T) {
 			wantAbstain: []string{"node-c"},
 			wantDeleted: []string{"data"},
 			absentBytes: []string{"0xdead", "0xbeef"},
+			// Same ranking as the majority split above: the beef cluster is
+			// first, so only node-b's data is withheld.
+			withheldBytes: []string{"0xbeef"},
 		},
 		{
 			name: "concrete data quorum",
@@ -188,6 +195,7 @@ type rule4eCase struct {
 	wantDataRejectEmpty  bool
 	wantDeleted          []string
 	absentBytes          []string
+	withheldBytes        []string
 }
 
 func assertRule4e(t *testing.T, tc rule4eCase) {
@@ -240,8 +248,25 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 		if bytes.Contains(aggDecision.Value, []byte(needle)) {
 			t.Fatalf("value still contains %s: %s", needle, aggDecision.Value)
 		}
+	}
+	kept := tc.withheldBytes
+	if kept == nil {
+		kept = tc.absentBytes
+	}
+	for _, needle := range kept {
 		if !bytes.Contains(aggDecision.Evidence, []byte(needle)) {
 			t.Fatalf("evidence lost %s: %s", needle, aggDecision.Evidence)
+		}
+	}
+	for _, needle := range tc.absentBytes {
+		withheld := false
+		for _, keep := range kept {
+			if keep == needle {
+				withheld = true
+			}
+		}
+		if !withheld && bytes.Contains(aggDecision.Evidence, []byte(needle)) {
+			t.Fatalf("evidence spliced in %s from another source: %s", needle, aggDecision.Evidence)
 		}
 	}
 	_, err := adapter.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)

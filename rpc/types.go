@@ -146,6 +146,15 @@ type Decision struct {
 	// withheld revert-data bytes here when rule 4e removes them from Value;
 	// those bytes are audit material, not a corroborated field.
 	Evidence json.RawMessage
+	// Representative is the source whose admitted payload Value was taken
+	// from: the first supporter of the winning cluster in this call's
+	// captured member order. It is set wherever that cluster's Value is
+	// carried out, including decisions that fail with the Value attached.
+	// It stays zero when there is no valid response, when Value is empty,
+	// and on Local, Forward, and ResolveLocal. It is not a canonical
+	// encoding and it carries no ordinal; the ordinal is the source's
+	// position in the captured order, which the caller already has.
+	Representative SourceRef
 	// Dimensions is method-specific evidence. Generic Strict leaves it nil.
 	// eth_call records execution and revert-data Support, Reject, and Abstain.
 	Dimensions []DimensionEvidence

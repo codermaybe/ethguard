@@ -46,9 +46,10 @@ func (f medianFunc) MethodRule() (MethodRule, Policy) {
 func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 	var decision Decision
 	type sample struct {
-		source SourceRef
-		value  *big.Int
-		raw    json.RawMessage
+		source   SourceRef
+		value    *big.Int
+		raw      json.RawMessage
+		evidence json.RawMessage
 	}
 	samples := make([]sample, 0, len(obs))
 	for _, item := range obs {
@@ -66,7 +67,7 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 				"normalize: median selection needs an integer, got %q", canonical))
 			continue
 		}
-		samples = append(samples, sample{source: item.Source, value: value, raw: item.Value})
+		samples = append(samples, sample{source: item.Source, value: value, raw: item.Value, evidence: item.Evidence})
 	}
 	if len(samples) == 0 {
 		return Decision{Status: Unknown, Faults: decision.Faults}, fmt.Errorf(
@@ -78,18 +79,24 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 	// winner rather than an artifact of an unstable sort.
 	sort.SliceStable(samples, func(i, j int) bool { return samples[i].value.Cmp(samples[j].value) < 0 })
 	medianValue := samples[(len(samples)-1)/2].value // lower median: never above the middle
-	winner := samples[0]
+	equal := make([]representativeCandidate, 0, len(samples))
 	for _, candidate := range samples {
 		if candidate.value.Cmp(medianValue) == 0 {
-			winner = candidate // first equal sample remains first in pool order
-			break
+			equal = append(equal, representativeCandidate{
+				source:   candidate.source,
+				value:    candidate.raw,
+				evidence: candidate.evidence,
+			})
 		}
 	}
+	rep := firstRepresentative(equal)
 
 	decision.Status = Selected // variable result: corroboration proves nothing
-	decision.Value = winner.raw
+	decision.Value = rep.value
+	decision.Evidence = rep.evidence
+	decision.Representative = rep.source
 	for _, s := range samples {
-		if s.value.Cmp(winner.value) == 0 {
+		if s.value.Cmp(medianValue) == 0 {
 			decision.Support = append(decision.Support, s.source)
 		} else {
 			decision.Reject = append(decision.Reject, s.source)

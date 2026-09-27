@@ -235,6 +235,9 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 	if strings.Join(policyDecision.DeletedFields, ",") != strings.Join(aggDecision.DeletedFields, ",") || !sameDimensions(policyDecision.Dimensions, aggDecision.Dimensions) {
 		return expectCase{}, fmt.Errorf("%s projection diverged", id)
 	}
+	if policyDecision.Representative.Name != aggDecision.Representative.Name {
+		return expectCase{}, fmt.Errorf("%s representative policy %s aggregator %s", id, policyDecision.Representative.Name, aggDecision.Representative.Name)
+	}
 	if policyErr == nil && policyDecision.Status == rpc.Corroborated {
 		gatedCtx, gatedCancel := context.WithTimeout(refcontext.RequireCorroborated(context.Background()), 5*time.Second)
 		defer gatedCancel()
@@ -269,7 +272,11 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 		Sources:    sources,
 		Dimensions: expectDimensions(policyDecision.Dimensions),
 		Projection: expectProjection{Reductive: len(deleted) > 0, DeletedFields: deleted},
-		Decision:   expectDecision{Status: policyDecision.Status.String(), Error: decisionError(policyErr)},
+		Decision: expectDecision{
+			Status:         policyDecision.Status.String(),
+			Error:          decisionError(policyErr),
+			Representative: representativeOf(policyDecision, records),
+		},
 	}, nil
 }
 
@@ -357,6 +364,15 @@ func validateExpectHeader(feature, batchID string, file expectFile) error {
 		}
 		if item.Projection.DeletedFields == nil || len(item.Dimensions) == 0 {
 			return fmt.Errorf("%s projection or dimensions are missing", item.RequestID)
+		}
+		if item.Decision.Representative != nil {
+			rep := item.Decision.Representative
+			if rep.ID == "" || rep.Ordinal < 0 || rep.Ordinal >= len(item.Sources) {
+				return fmt.Errorf("%s representative %+v is outside the captured slice", item.RequestID, rep)
+			}
+			if item.Sources[rep.Ordinal].ID != rep.ID {
+				return fmt.Errorf("%s representative %s is not source %d", item.RequestID, rep.ID, rep.Ordinal)
+			}
 		}
 		for _, source := range item.Sources {
 			if source.Faults == nil || source.ID == "" || source.Admission == "" {
@@ -644,6 +660,28 @@ type expectProjection struct {
 }
 
 type expectDecision struct {
-	Status string `json:"status"`
-	Error  string `json:"error"`
+	Status         string                `json:"status"`
+	Error          string                `json:"error"`
+	Representative *expectRepresentative `json:"representative"`
+}
+
+// expectRepresentative names the source whose payload the decision carried.
+// Ordinal is that source's position in the whole captured slice, which is the
+// index.json order, not its position among the admitted answers and not an
+// ordering by source id. A decision without a representative writes null.
+type expectRepresentative struct {
+	ID      string `json:"id"`
+	Ordinal int    `json:"ordinal"`
+}
+
+func representativeOf(decision rpc.Decision, records []rpcsample.Record) *expectRepresentative {
+	if decision.Representative.ID == "" {
+		return nil
+	}
+	for i, record := range records {
+		if record.Source.ID == decision.Representative.ID {
+			return &expectRepresentative{ID: record.Source.ID, Ordinal: i}
+		}
+	}
+	return &expectRepresentative{ID: decision.Representative.ID, Ordinal: -1}
 }
