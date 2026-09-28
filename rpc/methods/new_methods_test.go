@@ -81,8 +81,8 @@ func TestCreateAccessListPolicyAnchoringAndNormalization(t *testing.T) {
 			{ID: "s1", Name: "source-1"},
 			{ID: "s2", Name: "source-2"},
 		}
-		resp1 := json.RawMessage(`{"accessList":[{"address":"0xABC","storageKeys":["0x01"]}],"gasUsed":"0x5208"}`)
-		resp2 := json.RawMessage(`{"gasUsed":"0x5208","accessList":[{"address":"0xabc","storageKeys":["0x01"]}]}`)
+		resp1 := json.RawMessage(`{"accessList":[{"address":"0x0000000000000000000000000000000000000ABC","storageKeys":["0x0000000000000000000000000000000000000000000000000000000000000001"]}],"gasUsed":"0x5208"}`)
+		resp2 := json.RawMessage(`{"gasUsed":"0x5208","accessList":[{"address":"0x0000000000000000000000000000000000000abc","storageKeys":["0x0000000000000000000000000000000000000000000000000000000000000001"]}]}`)
 
 		observations := []rpc.Observation{
 			{Source: sources[0], Value: resp1},

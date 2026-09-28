@@ -20,7 +20,7 @@
 | eth_maxPriorityFeePerGas | none | none | none | median | quantity | canonical |
 | eth_blobBaseFee | none | none | none | median | quantity | canonical |
 | eth_blockNumber | none | none | none | median | quantity | canonical |
-| eth_createAccessList | hash@1 | eip1898 | local-observation | strict | method-specific | raw |
+| eth_createAccessList | hash@1 | eip1898 | local-observation | strict | method-specific | canonical |
 | net_peerCount | none | none | none | local | quantity | canonical |
 | eth_syncing | none | none | none | local | object | raw |
 | net_version | none | none | none | strict | quantity | canonical |

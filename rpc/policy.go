@@ -136,6 +136,8 @@ type LocalObservationPolicy interface {
 // clusters on its canonical JSON. eth_feeHistory is canonical too, and
 // its comparison key stays the feeHistory key. eth_getLogs is canonical
 // too, and its comparison key stays the existing log key.
+// eth_createAccessList is canonical too, and its comparison key stays the
+// existing access-list key.
 type MethodRule struct {
 	Anchor      string
 	BlockRef    string

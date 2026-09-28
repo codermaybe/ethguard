@@ -156,8 +156,8 @@ func TestCreateAccessListObjectForms(t *testing.T) {
 	anchor := newTagAnchor(t)
 	policy := CreateAccessListPolicy(anchor.fn)
 	call := map[string]any{"to": "0xabc", "data": "0x18160ddd"}
-	body := json.RawMessage(`{"accessList":[{"address":"0xABC","storageKeys":["0x01"]}],"gasUsed":"0x5208"}`)
-	other := json.RawMessage(`{"accessList":[{"address":"0xABC","storageKeys":["0x02"]}],"gasUsed":"0x5208"}`)
+	body := json.RawMessage(`{"accessList":[{"address":"0x0000000000000000000000000000000000000ABC","storageKeys":["0x0000000000000000000000000000000000000000000000000000000000000001"]}],"gasUsed":"0x5208"}`)
+	other := json.RawMessage(`{"accessList":[{"address":"0x0000000000000000000000000000000000000ABC","storageKeys":["0x0000000000000000000000000000000000000000000000000000000000000002"]}],"gasUsed":"0x5208"}`)
 
 	t.Run("success rewrites moving-tag object and corroborates", func(t *testing.T) {
 		anchor.seen = nil
@@ -177,7 +177,7 @@ func TestCreateAccessListObjectForms(t *testing.T) {
 		}
 		decision, err := policy.Resolve([]rpc.Observation{
 			{Source: rpc.SourceRef{ID: "a"}, Value: body},
-			{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`{"gasUsed":"0x5208","accessList":[{"address":"0xabc","storageKeys":["0x01"]}]}`)},
+			{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`{"gasUsed":"0x5208","accessList":[{"address":"0x0000000000000000000000000000000000000abc","storageKeys":["0x0000000000000000000000000000000000000000000000000000000000000001"]}]}`)},
 		})
 		if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
 			t.Fatalf("success = %+v %v", decision, err)
