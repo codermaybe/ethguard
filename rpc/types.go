@@ -129,7 +129,10 @@ type Decision struct {
 	// feeHistory key. eth_getLogs writes the canonical array of the fields its
 	// mask retains; its comparison key stays the existing log key.
 	// eth_createAccessList writes the canonical object of the fields its mask
-	// retains; its comparison key stays the existing access-list key. Other
+	// retains; its comparison key stays the existing access-list key.
+	// eth_getTransactionReceipt writes the canonical object of its protected
+	// receipt fields. from stays out of that value. Its comparison key stays the
+	// existing receipt key. Other
 	// generic Strict decisions copy one admitted source value from the winning
 	// cluster and do not change its fields. A
 	// successful eth_call value is canonical DATA. An eth_call revert may
@@ -158,7 +161,8 @@ type Decision struct {
 	// Representative is the first supporter of the winning cluster in this
 	// call's captured member order. For a method that has not migrated, Value
 	// is that source's admitted payload. For a migrated quantity, successful
-	// DATA result, eth_feeHistory, eth_getLogs, or eth_createAccessList, Value
+	// DATA result, eth_feeHistory, eth_getLogs, eth_createAccessList, or
+	// eth_getTransactionReceipt, Value
 	// is the canonical encoding and this field only records who was first. It
 	// is set wherever that cluster is
 	// carried out, including decisions that fail with the Value attached. It

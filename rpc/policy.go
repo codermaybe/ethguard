@@ -137,7 +137,8 @@ type LocalObservationPolicy interface {
 // its comparison key stays the feeHistory key. eth_getLogs is canonical
 // too, and its comparison key stays the existing log key.
 // eth_createAccessList is canonical too, and its comparison key stays the
-// existing access-list key.
+// existing access-list key. eth_getTransactionReceipt is canonical too, and
+// its comparison key stays the existing receipt key. from stays outside its Value.
 type MethodRule struct {
 	Anchor      string
 	BlockRef    string

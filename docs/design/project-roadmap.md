@@ -192,8 +192,9 @@ RV2b1 eth_getLogs              已验收：f8b4280
 RV2b2 eth_createAccessList     已实现：cade5a3。未在本文件标成已验收
         |
         v
-RV2b3 receipt、transaction、blockReceipts
-                               判定完成，编码仍未解除
+RV2b3a receipt                 已实现，未在本文件标成已验收。0045 排除 from
+RV2b3b transaction             未解除：区块上下文尚未核对
+RV2b3c blockReceipts           排在收据编码器之后
         |
         v
 RV3a eth_call 信封             方向已锁，未解除
@@ -327,9 +328,33 @@ result 列只有 `eth_createAccessList` 改为 canonical。Representative 仍是
 
 出口：`go test ./... -count=1`。失败路径是缺 `storageKeys` 的来源留在分母里，不能靠丢掉它变成成功。
 
+### RV2b3a receipt
+
+状态：已实现，未在本文件标成已验收。这一刀只编码 `eth_getTransactionReceipt`。交易和区块回执数组仍不编码。
+
+一次提交。先写 0045，再改代码。0045 只采纳收据，不改 0041、0042、0043、0044。
+
+比较键仍来自现有 `normalizeReceiptObject` / `PruneMethod`，然后去掉 `from`。它不是整段规范 JSON。Value 是受保护字段的规范对象或 JSON null。`from` 按第 14.3 节不进比较键，也不进 Value，所以两人的 `from` 不同仍是同一簇。区块上下文字段这一刀随比较键进入收据 Value，因为它们本来就在单份收据的比较键里；这不解除交易对象的编码。
+
+受保护字段是比较键留下、并且不属于 `from` 的字段：`transactionHash`、`transactionIndex`、`blockHash`、`blockNumber`、`cumulativeGasUsed`、`gasUsed`、`effectiveGasPrice`、`logsBloom`、`logs`、`status` 或 `root`、`type`、`contractAddress`、`to`、`blobGasUsed`、`blobGasPrice`。日志沿用已验收的日志字段，不含 `blockTimestamp` 时省略。`logsBloom` 必须等于 `CreateBloom(logs)`，不相等则 EncodeCheck 失败。
+
+`contractAddress`、`to`、`blobGasUsed`、`blobGasPrice` 没有时省略，不补 null。`contractAddress` 为 JSON null 时省略。空 `logs` 仍是 `[]`。status 与 root 已有的互斥规则保持：两者都没有则失败，同时存在时 status 优先，root 不进 Value。
+
+顺序沿用第 6.1 节：逐源 EncodeCheck，失败记 Fault，留在分母，不投票；再用现有收据键做唯一一次 Resolve；最后 EncodeCommit。簇内规范字节不同则是 Unknown，`ErrMalformedResponse`，原因含 `result encoding disagrees within cluster`。不第二次投票。
+
+result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative 仍是捕获顺序第一人，不决定 Value 拼写。JSON null 仍是合法的缺失收据，编码为 `null`。
+
+新文件只允许 `rpc/internal/objects/receipt/encode.go`。不建编码器注册表，不改交易和区块回执的 result 列。
+
+测试至少覆盖：同一收据只差大小写或键序时同簇，换序不改变 Value，Representative 跟随第一人；`from` 不进 Value，也不把两人拆开；缺 `logs` 记 Fault 且分母不缩小；`logsBloom` 与 logs 不一致则失败。禁止合成样本，禁止把探针升成 golden，禁止 `-update` 已有三批 expect。
+
+键外字段除已经判定为域外的 `from` 外，这一刀仍无处安放。提交说明写明这个缺口。执行者不得把本任务标成已验收。
+
+出口：`go test ./... -count=1`。失败路径是缺 `logs` 的来源留在分母里，不能靠丢掉它变成成功。
+
 ### RV2b3 receipt、transaction、blockReceipts
 
-状态：判定完成（2026-09-28），编码未解除。没有编码器，没有 0045，result 列仍是 `raw`。
+状态：判定完成（2026-09-28）。收据编码见 RV2b3a。交易和区块回执数组的编码仍未解除。
 
 判定只走第 4.2 节，不另列字段标准。现有比较键是 `PruneMethod`，它留下 execution-apis 结果里的字段，所以第一步会把这些字段算进比较键。这不表示它们都被交易根或收据承诺约束。`from` 在比较键里，但仍按第 14.3 节留在域外：交易 hash 约束不了它，没有 CPU 测量就不能定义成派生字段，也不能因为对不上把整票判掉。
 

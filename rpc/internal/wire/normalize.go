@@ -164,8 +164,8 @@ func CanonicalizeHex(value *any) {
 			CanonicalizeHex(&item[i])
 		}
 	case string:
-		if strings.HasPrefix(item, "0x") {
-			*value = strings.ToLower(item)
+		if len(item) >= 2 && strings.EqualFold(item[:2], "0x") {
+			*value = "0x" + strings.ToLower(item[2:])
 		}
 	}
 }

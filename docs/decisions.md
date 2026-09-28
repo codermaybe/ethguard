@@ -1632,3 +1632,65 @@ and log cluster keys stay unchanged. This method uses the existing
 `WithCanonicalObject`. There is no encoder registry. The encoder lives in
 `rpc/internal/objects/accesslist/encode.go`.
 
+
+
+## 0045. Canonical eth_getTransactionReceipt
+
+Status: Accepted (2026-09-28). `eth_getTransactionReceipt` only. Decisions
+0041, 0042, 0043, and 0044 are not amended and do not cover this method.
+Transactions, block receipts, block re-encoding, and the `eth_call` envelope
+stay out.
+
+The comparison key stays the method's existing `normalizeReceiptObject` /
+`PruneMethod` result. It is not the canonical JSON of the whole result. A
+migrated scalar still clusters on its canonical JSON bytes (0041).
+`eth_feeHistory` still clusters on its feeHistory key (0042). `eth_getLogs`
+still clusters on its existing log key (0043). `eth_createAccessList` still
+clusters on its existing access-list key (0044). `eth_getTransactionReceipt`
+does not take any of those branches.
+
+The protected fields are the fields the existing mask retains except `from`.
+The comparison key drops `from` after `PruneMethod`. `from` stays outside
+Value, as section 14.3 of `docs/design/return-value-design.md` requires. The
+transaction hash does not constrain it, and there is no CPU measurement that
+defines it as a derived field. A disagreement on `from` does not split the
+cluster and does not reject the receipt. The protected
+fields are `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`,
+`cumulativeGasUsed`, `gasUsed`, `effectiveGasPrice`, `logsBloom`, `logs`,
+`status` or `root`, `type`, `contractAddress`, `to`, `blobGasUsed`, and
+`blobGasPrice`. This decision does not add a second field table. It does not
+build an Extensions diff and does not build Provenance. A field left outside
+this set has nowhere to go. That gap stays open. It is not recorded as retained.
+
+A missing required receipt field is an EncodeCheck failure. The source is a
+Fault, it stays in the denominator, and it does not vote. `logsBloom` must
+equal `CreateBloom(logs)`. A disagreement is an EncodeCheck failure, not an
+omitted field. `contractAddress`, `to`, `blobGasUsed`, and `blobGasPrice` are
+omitted when absent. A JSON null `contractAddress` is omitted. It is not filled
+in as null. An empty `logs` stays `[]`. Both `status` and `root` absent is a
+failure. When both are present, `status` is encoded and `root` stays out.
+JSON null remains a legal absent receipt and encodes as `null`.
+
+Addresses and hashes are lowercase. Quantities are canonical QUANTITY: `0x`
+plus lowercase hex, no leading zeros, zero written `0x0`. Log `data` keeps its
+leading zeros. Array order is the response order and is not sorted. The object
+uses the encoder struct's field order, compact JSON, and `SetEscapeHTML(false)`.
+Value comes from the encoder. It is not rebuilt by deserializing the comparison
+key, and it is not rebuilt from `float64`.
+
+The order is the one already in the resolver. EncodeCheck runs on each source
+first. A failure is a Fault, the source stays in the denominator, and it does
+not vote. Resolve then runs once on the existing receipt keys of the sources
+that passed. EncodeCommit writes the canonical object when every supporter in
+the winning cluster encoded the same bytes. If those bytes differ, the result
+is Unknown, `ErrMalformedResponse`, and the reason contains `result encoding
+disagrees within cluster`. Do not select another source's original payload and
+do not vote again.
+
+The method-rule index records `result=canonical` for `eth_getTransactionReceipt`
+only. Representative stays the first captured supporter and does not decide
+the spelling. Median and Local are not promoted to Corroborated. The
+denominator is not shrunk and the floor is not lowered. Scalar, feeHistory,
+log, and access-list cluster keys stay unchanged. This method uses the existing
+`WithCanonicalObject`. There is no encoder registry. The encoder lives in
+`rpc/internal/objects/receipt/encode.go`.

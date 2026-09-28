@@ -23,7 +23,7 @@ const MethodGetTransactionReceipt = "eth_getTransactionReceipt"
 // conflict. The receipt schema's required-field set binds typed decoding
 // after corroboration, at the root client's decode boundary.
 func TransactionReceiptPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return policy.WithAdmission(rpc.Strict(normalizeReceiptObject, compareOpts(rpc.RuleCompareMethodSpecific, opts)...), admitReceipt)
+	return policy.WithAdmission(rpc.Strict(normalizeReceiptObject, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalObject(receipt.Encode)}, opts...))...), admitReceipt)
 }
 
 func admitReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
@@ -34,5 +34,27 @@ func admitReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _ r
 }
 
 func normalizeReceiptObject(value json.RawMessage) (string, error) {
-	return receipt.Normalize(value, wire.PruneMethod, MethodGetTransactionReceipt)
+	key, err := receipt.Normalize(value, wire.PruneMethod, MethodGetTransactionReceipt)
+	if err != nil || key == "null" {
+		return key, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(key), &obj); err != nil {
+		return "", err
+	}
+	delete(obj, "from")
+	var decoded any
+	encoded, err := json.Marshal(obj)
+	if err != nil {
+		return "", err
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return "", err
+	}
+	wire.CanonicalizeHex(&decoded)
+	folded, err := json.Marshal(decoded)
+	if err != nil {
+		return "", err
+	}
+	return string(folded), nil
 }

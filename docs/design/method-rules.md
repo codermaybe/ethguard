@@ -6,7 +6,7 @@
 | eth_getBlockByHash | none | none | none | strict | method-specific | raw |
 | eth_getBlockByNumber | none | none | local-observation | strict | method-specific | raw |
 | eth_getBalance | hash@1 | eip1898 | local-observation | strict | quantity | canonical |
-| eth_getTransactionReceipt | none | none | none | strict | method-specific | raw |
+| eth_getTransactionReceipt | none | none | none | strict | method-specific | canonical |
 | eth_getTransactionByHash | none | none | none | strict | method-specific | raw |
 | eth_getBlockReceipts | hash@0 | none | local-reject | strict | method-specific | raw |
 | eth_getTransactionCount | hash@1 | eip1898 | local-observation | strict | quantity | canonical |

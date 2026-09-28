@@ -23,7 +23,7 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
 目标语义：
 
 1. 决策 0039 规则 4e 采用方案 (i)。`eth_call` 的 revert 行为达到门槛即可保持 `Corroborated`；具体 `data` 达不到门槛时扣下该字段。原始字节只经 Uncertain 或审计证据可见。generic Strict 保持单 key 语义。
-2. 删减式投影只能删除未佐证字段，不能新增、替换或跨来源拼装。`Decision.Value` 允许这种方法契约声明的投影。迁移期间方法规则索引的 result 列是 `raw` 或 `canonical`：`raw` 仍返回捕获顺序第一人的原文，`canonical` 的数量和成功 DATA 写规范编码，`eth_feeHistory` 写受保护字段的规范对象，`eth_getLogs` 写掩码留下的日志字段的规范数组，`eth_createAccessList` 写掩码留下的 access list 字段的规范对象。迁移完成后才不允许 `raw`，这一步还没有做。见 `architecture-record.md` 与 `rpc.Decision`。
+2. 删减式投影只能删除未佐证字段，不能新增、替换或跨来源拼装。`Decision.Value` 允许这种方法契约声明的投影。迁移期间方法规则索引的 result 列是 `raw` 或 `canonical`：`raw` 仍返回捕获顺序第一人的原文，`canonical` 的数量和成功 DATA 写规范编码，`eth_feeHistory` 写受保护字段的规范对象，`eth_getLogs` 写掩码留下的日志字段的规范数组，`eth_createAccessList` 写掩码留下的 access list 字段的规范对象，`eth_getTransactionReceipt` 写受保护收据字段的规范对象，`from` 不进这份 Value。迁移完成后才不允许 `raw`，这一步还没有做。见 `architecture-record.md` 与 `rpc.Decision`。
 3. dimension evidence 至少区分每个维度的 `Support`、`Reject`、`Abstain`。弃权源留在投票分母，不进入该维度的 Reject，也不用其他来源的值补全。
 4. golden 记录删减字段。样本回放保持离线；`expect.json` 是数据，不是测试语言（决策 0040）。
 5. 不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`。
@@ -31,7 +31,7 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
 
 当前实现事实（与目标语义分开记录）：
 
-1. 未迁移的 generic Strict 仍把获胜簇捕获顺序第一人的来源原值写入 `Decision.Value`，保持单 key，没有删减式投影。`adjudicate` 本身不编码。已迁移的数量和成功 DATA 在唯一一次 Resolve 之后写入规范编码，比较键就是这份规范 JSON。`eth_feeHistory` 也在这一次之后写入规范对象，但比较键仍是 feeHistory 键，不是这份规范 JSON。`eth_getLogs` 也在这一次之后写入规范数组，但比较键仍是现有日志键，不是这份规范 JSON。`eth_createAccessList` 也在这一次之后写入规范对象，但比较键仍是现有 access-list 键，不是这份规范 JSON。`eth_call` 不走 generic Strict：成功结果是规范 DATA，revert 仍是代表源原文（4e 删减除外）。
+1. 未迁移的 generic Strict 仍把获胜簇捕获顺序第一人的来源原值写入 `Decision.Value`，保持单 key，没有删减式投影。`adjudicate` 本身不编码。已迁移的数量和成功 DATA 在唯一一次 Resolve 之后写入规范编码，比较键就是这份规范 JSON。`eth_feeHistory` 也在这一次之后写入规范对象，但比较键仍是 feeHistory 键，不是这份规范 JSON。`eth_getLogs` 也在这一次之后写入规范数组，但比较键仍是现有日志键，不是这份规范 JSON。`eth_createAccessList` 也在这一次之后写入规范对象，但比较键仍是现有 access-list 键，不是这份规范 JSON。`eth_getTransactionReceipt` 也在这一次之后写入规范对象，但比较键仍是现有收据键，不是这份规范 JSON，并且 `from` 不进 Value。`eth_call` 不走 generic Strict：成功结果是规范 DATA，revert 仍是代表源原文（4e 删减除外）。
 2. `eth_call` 的公开比较键是 `execution:ok|...`、`execution:reverted|data:abstain:missing`、`execution:reverted|data:abstain:null`、`execution:reverted|data:empty`、`execution:reverted|data:hex:`、`execution:reverted|data:raw:`。缺失与 `0x` 不是同一个键。缺席 data 不制造执行冲突；具体 data 不足门槛时删减该字段并保持已佐证的 revert。
 3. `rpc.RPCError.Raw` 在 `Data` 为 nil 时省略字段，在 `Data` 为 `null` 时保留 JSON null。直接构造可以区分缺失与 null（`TestCallRPCErrorRawPreservesDataAbsence`）。
 4. `rpctest.FailWithData` 可以原样表达 data 缺失、JSON `null`、`0x` 和具体 data。`present == false` 不写 `data`；`present == true` 原样写入，包括 `null`。旧的 `Fail` / `RPCError` 仍然只有 code 与 message。
