@@ -189,11 +189,11 @@ RV2a eth_feeHistory            已验收：dee2208
 RV2b1 eth_getLogs              已验收：f8b4280
         |
         v
-RV2b2 eth_createAccessList     当前，可开工。先写 0044，再编码
+RV2b2 eth_createAccessList     已实现：cade5a3。未在本文件标成已验收
         |
         v
 RV2b3 receipt、transaction、blockReceipts
-                               未解除：from 与承诺内容尚未逐项判定
+                               判定完成，编码仍未解除
         |
         v
 RV3a eth_call 信封             方向已锁，未解除
@@ -301,7 +301,7 @@ result 列只有 `eth_getLogs` 改为 canonical。Representative 仍是捕获顺
 
 ### RV2b2 eth_createAccessList
 
-状态：可开工。`eth_getLogs` 已在 f8b4280 验收。RV2b3、RV3a、RV3b、RV4 仍不实现。
+状态：已实现（cade5a3），未在本文件标成已验收。`eth_getLogs` 已在 f8b4280 验收。RV2b3 的字段判定已完成，编码仍不实现。RV3a、RV3b、RV4 仍不实现。
 
 这一刀只做 `eth_createAccessList`。比较键仍是现有的 `normalizeAccessList` / `PruneMethod` 结果，不是另写的整段 JSON。Value 是掩码留下的字段的规范对象。依据是第 4.2 节第一步。不要抄 `projection.StandardFields`，也不要另列一张字段表。
 
@@ -327,11 +327,30 @@ result 列只有 `eth_createAccessList` 改为 canonical。Representative 仍是
 
 出口：`go test ./... -count=1`。失败路径是缺 `storageKeys` 的来源留在分母里，不能靠丢掉它变成成功。
 
-### RV2b3 及以后
+### RV2b3 receipt、transaction、blockReceipts
+
+状态：判定完成（2026-09-28），编码未解除。没有编码器，没有 0045，result 列仍是 `raw`。
+
+判定只走第 4.2 节，不另列字段标准。现有比较键是 `PruneMethod`，它留下 execution-apis 结果里的字段，所以第一步会把这些字段算进比较键。这不表示它们都被交易根或收据承诺约束。`from` 在比较键里，但仍按第 14.3 节留在域外：交易 hash 约束不了它，没有 CPU 测量就不能定义成派生字段，也不能因为对不上把整票判掉。
+
+收据（`eth_getTransactionReceipt`、`eth_getBlockReceipts` 的每一项）：
+
+- 比较键留下：`transactionHash`、`transactionIndex`、`blockHash`、`blockNumber`、`cumulativeGasUsed`、`gasUsed`、`effectiveGasPrice`、`logsBloom`、`logs`、`status`、`root`、`type`、`contractAddress`、`to`、`blobGasUsed`、`blobGasPrice`、`from`。
+- 请求绑定：按 hash 取收据时是 `transactionHash`；按区块取收据时是每项的 `blockHash` 或 `blockNumber`。绑定失败已是准入失败。
+- 内容承诺：`logsBloom` 必须等于 `CreateBloom(logs)`。不相等已经是整票失败，不是可省略字段。
+- 域外：`from`。比较键现在留下它，编码时不得因此把它写进 Value。其余键外字段仍无处安放，不提前做 Extensions。
+
+交易（`eth_getTransactionByHash`）：
+
+- 比较键留下签名载荷和上下文字段，包括 `hash`、`type`、`nonce`、`gas`、`value`、`input`、`to`、`chainId`、`gasPrice`、`maxFeePerGas`、`maxPriorityFeePerGas`、`accessList`、`authorizationList`、`blobVersionedHashes`、`maxFeePerBlobGas`、`v`、`r`、`s`、`yParity`，以及 `blockHash`、`blockNumber`、`blockTimestamp`、`transactionIndex`、`from`。
+- 已验证承诺：`hash` 必须等于本地 `tx.Hash()`。不相等已经排除整票。`tx.Hash()` 不覆盖 `from`、`blockHash`、`blockNumber`、`blockTimestamp`、`transactionIndex`。
+- 域外：`from`。区块上下文字段要等区块承诺核对之后才能进交易 Value，这一步还没有。
+
+因此这一段仍不编码。下一个编码任务要先把 `from` 从受保护 Value 排除，并且不把区块上下文提前写进单独的交易或收据 Value。Extensions 改为差集也留在编码任务里，现在不做。
+
+### RV3 及以后
 
 状态：未解除。
-
-RV2b3：receipt、transaction、blockReceipts。`from` 仍默认留在域外，交易和收据的承诺内容还没有逐项走过第 4.2 节，所以这一段不编码。Extensions 改为差集也留在这里。
 
 RV3a：`eth_call` 的 code 与 message 留在代表源，不进受保护域，不合成信封。RV3b：区块 Value 只重编码已经核对过承诺的内容。两段方向已锁，都没有开工出口。RV4：方法规则索引断言已注册方法没有 `raw`。
 
