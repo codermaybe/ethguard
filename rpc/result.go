@@ -52,16 +52,25 @@ func CanonicalOf(policy Policy, raw json.RawMessage) (json.RawMessage, error) {
 // Unknown, ErrMalformedResponse, and no second vote. The caller must not
 // substitute another source's original payload.
 func CommitCanonical(parts []json.RawMessage) (json.RawMessage, error) {
+	if err := checkCanonical(parts); err != nil {
+		return nil, err
+	}
+	return append(json.RawMessage(nil), parts[0]...), nil
+}
+
+// checkCanonical also diagnoses rejected clusters without copying a value
+// that will never be returned.
+func checkCanonical(parts []json.RawMessage) error {
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("result encoding disagrees within cluster: %w", ErrMalformedResponse)
+		return fmt.Errorf("result encoding disagrees within cluster: %w", ErrMalformedResponse)
 	}
 	first := parts[0]
 	for _, part := range parts[1:] {
 		if !bytes.Equal(part, first) {
-			return nil, fmt.Errorf("result encoding disagrees within cluster: %w", ErrMalformedResponse)
+			return fmt.Errorf("result encoding disagrees within cluster: %w", ErrMalformedResponse)
 		}
 	}
-	return append(json.RawMessage(nil), first...), nil
+	return nil
 }
 
 func resultRule(encode CanonicalEncoder) string {

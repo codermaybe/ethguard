@@ -252,7 +252,7 @@ func TestFinishRejectsCanonicalDisagreement(t *testing.T) {
 		json.RawMessage(`"0x1"`),
 		json.RawMessage(`"0x01"`),
 	}}
-	got, err := f.finish(decision, nil, winner)
+	got, err := f.finish(decision, nil, []cluster{winner})
 	if !errors.Is(err, ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
 		t.Fatalf("err = %v", err)
 	}

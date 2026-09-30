@@ -196,7 +196,9 @@ RV2b3a receipt                 已验收：2026-09-30，实现 2583c28；0045 �
         |
         v
 RV2b3c blockReceipts           已验收：2026-09-30；0046 复用收据编码器
-RV2b3b transaction             未解除：区块上下文及 typed pending 判定尚未核对
+RV2b3b transaction             未解除：上下文调查完成，保护依据与 typed pending 口径待决策
+RV2c 落选簇编码诊断            已验收：2026-09-30；按第 14.1 节保留裁决
+RV2d 不一致簇编码摘要          已解除：按第 6.4 节补齐来源摘要
         |
         v
 RV3a eth_call 信封             方向已锁，未解除
@@ -428,7 +430,27 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 
 后续需选择并记录统一口径：沿用比较键佐证上下文，明确它不是 inclusion proof；或坚持区块承诺要求，另设计所需验证和 typed pending 输入。前者需要采纳决策修订本任务，后者需要独立接口与准入设计。两条均未在本轮实现。`from` 默认域外、固定分母和一次裁决不受此选择影响。
 
-独立的已锁定缺口可以先推进：第 14.1 节要求落选簇规范字节不一致写入 Faults，当前 Strict 只检查排名第一簇。该诊断不依赖交易上下文设计；实施范围和出口在下面的 RV2c。
+独立的已锁定缺口可以先推进：第 14.1 节要求落选簇规范字节不一致写入 Faults，调查时 Strict 只检查排名第一簇。该诊断不依赖交易上下文设计；实施范围和出口在下面的 RV2c。
+
+### RV2c 落选簇编码诊断
+
+状态：2026-09-30 主检查验收通过。依据是 `return-value-design.md` 第 14.1 节已锁定的做法乙，不新增采纳决策。本任务独立于未解除的交易上下文设计，补齐既有编码管线的诊断缺口。
+
+普通 Strict 挂编码器的路径在唯一一次裁决后检查排名第一簇及落选簇。落选簇规范字节不一致只追加 Faults，诊断包含该簇的 Source ID，不携带完整比较键。不改 Status、返回错误、Value、Support、Reject、Representative 或分母。获胜簇自身不一致仍 Unknown / ErrMalformedResponse，不再投票。检查落选字节只比较，不复制一份不会返回的大 Value。Resolve、ResolveCorroborated、legacy 和 unanimity 都走同一提交收尾。
+
+必要证据：五源三票同键同编码的胜者与两票同键不同编码的落选簇，仍 Corroborated 且记录诊断；floor 4 保持普通 ErrConflict，不能凭坏票减分母；获胜簇自身不一致仍失败；legacy/unanimity 保留原冲突语义；一致的落选簇不添 Fault；真实 Aggregator 以进程内 RPC 保留五人 Participants、三人 Support、两人 Reject，并在 floor 3/4 下保持上述结果。每源编码一次，不第二次裁决。
+
+不修改 eth_call revert resolver、transaction、Provenance/Extensions 或 provider 样本/golden。同步实现事实，保留尚未实现的编码摘要要求。出口：定向测试、全部已跟踪包测试、diff 检查通过。执行者不自标验收或提交，由主检查验收后记录提交。
+
+验收证据：subagent 实现，主检查独立运行全部 31 个已跟踪 Go 包测试（命令同 RV2b2 / RV2b3a 验收节），全部通过；`git diff --check` 通过。`TestStrictRejectedEncodingDiagnosticPreservesAdjudication` 覆盖两条 Resolve 入口、majority/unanimity 和 floor 3/4；legacy、胜者自身错误及一致落选簇另有回归测试。`TestAggregateRejectedEncodingDoesNotChangeVotingBasis` 走五节点进程内 RPC，验证成功及未达 floor 两条路径。provider 样本/golden 未变。
+
+### RV2d 不一致簇编码摘要
+
+状态：2026-09-30 已解除，待实现。RV2c 已通过主检查，下一批按 `return-value-design.md` 第 6.4 节补齐不一致簇内各来源的编码摘要。
+
+只在簇规范字节不一致时生成诊断，为每个来源记录 Source ID、规范编码字节长度及 SHA-256，随该簇错误写入 Faults。包括排名第一簇与落选簇；不保存完整比较键或 Value，不重编码来源，也不新增公开证据类型或预算。获胜簇错误的返回分类、落选簇仅诊断、固定分母及一次裁决保持 RV2c 的行为。
+
+出口：测试核对摘要与实际规范字节对应、等值字节的摘要相同、不等值字节可区分、来源顺序可关联；一致簇不添诊断；原有五源裁决矩阵及真实 Aggregator 测试继续通过。主检查独立运行全部已跟踪包测试和 diff 检查后验收并本地提交，不改样本/golden。
 
 ### RV3 及以后
 

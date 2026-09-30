@@ -191,7 +191,7 @@ func (f strictFunc) resolve(c Corroboration, obs []Observation) (Decision, error
 		return Decision{Status: Unknown, Faults: faults}, err
 	}
 	decision, err := c.adjudicate(len(obs), ranked, faults)
-	return f.finish(decision, err, ranked[0])
+	return f.finish(decision, err, ranked)
 }
 
 // resolveLegacy is the decision-0006 default for policies constructed
@@ -222,17 +222,28 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 	default:
 		decision.Status = Corroborated
 	}
-	return f.finish(decision, ret, winner)
+	return f.finish(decision, ret, ranked)
 }
 
 // finish commits canonical bytes after the single resolve. EncodeCheck
 // failures already stayed out of the cluster and inside the denominator. A
 // within-cluster disagreement does not select another original and does not
-// vote again.
-func (f strictFunc) finish(decision Decision, err error, winner cluster) (Decision, error) {
+// vote again. Rejected-cluster disagreements are diagnostics only and do not
+// change the adjudication, membership, or denominator (design section 14.1).
+func (f strictFunc) finish(decision Decision, err error, ranked []cluster) (Decision, error) {
 	if f.canonicalEncoder() == nil {
 		return decision, err
 	}
+	for _, rejected := range ranked[1:] {
+		if cerr := checkCanonical(rejected.canonical); cerr != nil {
+			ids := make([]string, len(rejected.sources))
+			for i, source := range rejected.sources {
+				ids[i] = source.ID
+			}
+			decision.Faults = append(decision.Faults, fmt.Errorf("rejected cluster sources %q: %w", ids, cerr))
+		}
+	}
+	winner := ranked[0]
 	committed, cerr := CommitCanonical(winner.canonical)
 	if cerr != nil {
 		decision.Status = Unknown
