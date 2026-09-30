@@ -2,9 +2,11 @@ package rpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"ethguard/internal/jsonsafe"
 )
@@ -236,11 +238,7 @@ func (f strictFunc) finish(decision Decision, err error, ranked []cluster) (Deci
 	}
 	for _, rejected := range ranked[1:] {
 		if cerr := checkCanonical(rejected.canonical); cerr != nil {
-			ids := make([]string, len(rejected.sources))
-			for i, source := range rejected.sources {
-				ids[i] = source.ID
-			}
-			decision.Faults = append(decision.Faults, fmt.Errorf("rejected cluster sources %q: %w", ids, cerr))
+			decision.Faults = append(decision.Faults, fmt.Errorf("rejected cluster: %w", encodingDiagnostic(rejected, cerr)))
 		}
 	}
 	winner := ranked[0]
@@ -248,11 +246,23 @@ func (f strictFunc) finish(decision Decision, err error, ranked []cluster) (Deci
 	if cerr != nil {
 		decision.Status = Unknown
 		decision.Value = nil
-		decision.Faults = append(decision.Faults, cerr)
+		decision.Faults = append(decision.Faults, encodingDiagnostic(winner, cerr))
 		return decision, cerr
 	}
 	decision.Value = committed
 	return decision, err
+}
+
+// encodingDiagnostic runs only for an inconsistent cluster. It summarizes
+// the already encoded bytes without copying payloads or interpreting sources.
+func encodingDiagnostic(cl cluster, err error) error {
+	parts := make([]string, len(cl.sources))
+	for i, source := range cl.sources {
+		encoded := cl.canonical[i]
+		digest := sha256.Sum256(encoded)
+		parts[i] = fmt.Sprintf("source %q canonical length %d sha256 %x", source.ID, len(encoded), digest)
+	}
+	return fmt.Errorf("%w; encodings: %s", err, strings.Join(parts, "; "))
 }
 
 // cluster groups admissible answers and ranks the clusters by size, breaking

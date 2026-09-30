@@ -63,6 +63,7 @@ func TestStrictRejectedEncodingDiagnosticPreservesAdjudication(t *testing.T) {
 					if string(d.Value) != `"v1"` || len(d.Faults) != 1 || !errors.Is(d.Faults[0], ErrMalformedResponse) || !strings.Contains(d.Faults[0].Error(), "rejected cluster") {
 						t.Fatalf("diagnostic = %+v", d)
 					}
+					assertEncodingDigests(t, d.Faults[0], observations[3:])
 					wantSupport := []SourceRef{observations[0].Source, observations[1].Source, observations[2].Source}
 					wantReject := []SourceRef{observations[3].Source, observations[4].Source}
 					if !reflect.DeepEqual(d.Support, wantSupport) || !reflect.DeepEqual(d.Reject, wantReject) || *calls != 5 {

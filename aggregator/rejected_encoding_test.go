@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,10 +64,19 @@ func TestAggregateRejectedEncodingDoesNotChangeVotingBasis(t *testing.T) {
 		if len(d.Participants) != 5 || len(d.Support) != 3 || len(d.Reject) != 2 || string(d.Value) != `"v1"` || len(d.Faults) != 1 || !errors.Is(d.Faults[0], rpc.ErrMalformedResponse) {
 			t.Fatalf("voting basis = %+v", d)
 		}
-		for _, source := range d.Reject {
-			if !strings.Contains(d.Faults[0].Error(), source.ID) {
-				t.Fatalf("fault did not identify rejected source %s: %v", source.ID, d.Faults)
+		for i, source := range d.Reject {
+			canonical := []byte(`"v2"`)
+			if i == 1 {
+				canonical = []byte(`"v3"`)
 			}
+			digest := sha256.Sum256(canonical)
+			want := fmt.Sprintf("source %q canonical length %d sha256 %x", source.ID, len(canonical), digest)
+			if !strings.Contains(d.Faults[0].Error(), want) {
+				t.Fatalf("fault does not bind source to its encoded bytes: want %s got %v", want, d.Faults)
+			}
+		}
+		if strings.Count(d.Faults[0].Error(), " sha256 ") != 2 || strings.Contains(d.Faults[0].Error(), `"key"`) || strings.Contains(d.Faults[0].Error(), `"v2"`) || strings.Contains(d.Faults[0].Error(), `"v3"`) {
+			t.Fatalf("diagnostic contains unexpected material: %v", d.Faults)
 		}
 		if d.Representative != d.Support[0] {
 			t.Fatalf("representative = %+v", d)

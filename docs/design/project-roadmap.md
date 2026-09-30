@@ -198,7 +198,7 @@ RV2b3a receipt                 已验收：2026-09-30，实现 2583c28；0045 �
 RV2b3c blockReceipts           已验收：2026-09-30；0046 复用收据编码器
 RV2b3b transaction             未解除：上下文调查完成，保护依据与 typed pending 口径待决策
 RV2c 落选簇编码诊断            已验收：2026-09-30；按第 14.1 节保留裁决
-RV2d 不一致簇编码摘要          已解除：按第 6.4 节补齐来源摘要
+RV2d 不一致簇编码摘要          已验收：2026-09-30；Source ID、长度及 SHA-256
         |
         v
 RV3a eth_call 信封             方向已锁，未解除
@@ -446,11 +446,15 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 
 ### RV2d 不一致簇编码摘要
 
-状态：2026-09-30 已解除，待实现。RV2c 已通过主检查，下一批按 `return-value-design.md` 第 6.4 节补齐不一致簇内各来源的编码摘要。
+状态：2026-09-30 主检查验收通过。RV2c 已通过主检查，本批按 `return-value-design.md` 第 6.4 节补齐不一致簇内各来源的编码摘要。
 
 只在簇规范字节不一致时生成诊断，为每个来源记录 Source ID、规范编码字节长度及 SHA-256，随该簇错误写入 Faults。包括排名第一簇与落选簇；不保存完整比较键或 Value，不重编码来源，也不新增公开证据类型或预算。获胜簇错误的返回分类、落选簇仅诊断、固定分母及一次裁决保持 RV2c 的行为。
 
 出口：测试核对摘要与实际规范字节对应、等值字节的摘要相同、不等值字节可区分、来源顺序可关联；一致簇不添诊断；原有五源裁决矩阵及真实 Aggregator 测试继续通过。主检查独立运行全部已跟踪包测试和 diff 检查后验收并本地提交，不改样本/golden。
+
+验收证据：主检查复审 subagent 实现，独立运行全部 31 个已跟踪 Go 包测试（命令同 RV2b2 / RV2b3a 验收节），全部通过；`git diff --check` 通过。`TestStrictInconsistentClustersRecordActualEncodingDigests` 在两条 Resolve 入口及 legacy 下核对胜者/落选簇的逐源摘要，包含等值字节、不同长度字节与带引号的 Source ID；`TestAggregateRejectedEncodingDoesNotChangeVotingBasis` 从真实五节点 RPC 检查摘要和 floor 3/4 结果。摘要不携带完整键或 Value，不增加每源编码次数。provider 样本/golden 未变。
+
+本轮已明确的编码管线诊断缺口已完成。后续 transaction 仍先统一上下文保护依据与 typed pending 口径；Provenance/Extensions 和 RV3 的接口及出口另行细化，不因 RV2c/RV2d 验收自动解除。
 
 ### RV3 及以后
 
