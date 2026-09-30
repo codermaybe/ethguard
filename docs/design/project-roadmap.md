@@ -420,6 +420,16 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 
 单笔收据按 0045 把区块上下文字段随比较键纳入 Value，并从键与 Value 排除 from；不能再把它描述成仍不编码或上下文全部域外。区块回执数组沿用这套字段规则，另核对数组的请求绑定。交易的区块上下文仍待核对：当前 `DecodeTransaction` 由 blockNumber 是否存在返回 pending，不能简单删掉上下文后把 mined 交易改成 pending。RV2b3b 需要先写明上下文的保护依据及 typed pending 判定，再解除编码。Extensions 差集、Provenance 和 RV3 的任务出口仍需后续单独细化。
 
+#### RV2b3b 解除调查（2026-09-30）
+
+主检查核对 subagent 的代码调查，结论是继续保持未解除：第 4.2 节第一步允许比较键中的字段进域，但上面的交易任务又要求区块上下文先核对承诺。这两条不能由编码器暗中选择。现有 `transaction.Validate` 只核对签名载荷 hash、上下文格式，以及 blockHash 有值时 number/index 必须存在；没有查询区块或验证交易 inclusion。不能把现有上下文校验写成承诺验证。
+
+`DecodeTransaction` 按 blockNumber 非缺失且非 null 返回 pending=false；它不要求 blockHash 必须存在。`TestAdapterTransactionByHashReportsPendingFlag` 的 mined 输入只有 blockNumber，因此迁移不能顺手收紧为三个上下文字段全有。直接使用 geth 的 `Transaction.MarshalJSON` 会丢掉上下文，使 mined 被误报为 pending，也不能保证保留方法掩码中的所有字段及其可选性。
+
+后续需选择并记录统一口径：沿用比较键佐证上下文，明确它不是 inclusion proof；或坚持区块承诺要求，另设计所需验证和 typed pending 输入。前者需要采纳决策修订本任务，后者需要独立接口与准入设计。两条均未在本轮实现。`from` 默认域外、固定分母和一次裁决不受此选择影响。
+
+独立的已锁定缺口可以先推进：第 14.1 节要求落选簇规范字节不一致写入 Faults，当前 Strict 只检查排名第一簇。该诊断不依赖交易上下文设计；实施范围和出口在下面的 RV2c。
+
 ### RV3 及以后
 
 状态：未解除。
