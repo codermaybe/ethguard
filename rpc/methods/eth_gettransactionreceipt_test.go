@@ -331,3 +331,27 @@ func TestReceiptBloomMismatchIsEncodeFault(t *testing.T) {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
 }
+
+func BenchmarkBlockReceiptsCanonicalValue(b *testing.B) {
+	raw := benchmarkReceipt(b)
+	for _, count := range []int{0, 1, 100, 1000} {
+		b.Run(fmt.Sprintf("receipts-%d", count), func(b *testing.B) {
+			rows := make([]json.RawMessage, count)
+			for i := range rows {
+				rows[i] = raw
+			}
+			body, err := json.Marshal(rows)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.SetBytes(int64(len(body)))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := receiptobj.EncodeBlock(body); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

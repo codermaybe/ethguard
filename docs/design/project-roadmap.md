@@ -195,7 +195,7 @@ RV2b2 eth_createAccessList     已验收：2026-09-30，实现 cade5a3；验收�
 RV2b3a receipt                 已验收：2026-09-30，实现 2583c28；0045 排除 from
         |
         v
-RV2b3c blockReceipts           已解除：复用验收后的收据编码器，先于 transaction
+RV2b3c blockReceipts           已验收：2026-09-30；0046 复用收据编码器
 RV2b3b transaction             未解除：区块上下文及 typed pending 判定尚未核对
         |
         v
@@ -369,7 +369,7 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 
 ### RV2b3c blockReceipts
 
-状态：2026-09-30 已解除，待实现。先记录决策 0046，只覆盖 `eth_getBlockReceipts`，再改代码；不修改 0041–0045 的采纳范围。
+状态：2026-09-30 主检查验收通过。决策 0046 只覆盖 `eth_getBlockReceipts`；复用收据编码器，按完整数组投票。0041–0045 的采纳范围不变。
 
 复用 `rpc/internal/objects/receipt/encode.go` 内的收据编码规则，增加数组编码入口，不新增第二份字段模型。比较键仍来自现有 `normalizeBlockReceiptList` / `PruneMethod`，只从每项的键中排除 `from`。不能换成规范数组 JSON 投票。每份来源响应作为完整数组参与现有 Strict 裁决，不逐项跨源拼接。
 
@@ -383,18 +383,34 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 
 出口：定向测试、全部已跟踪包测试及 diff 检查通过，记录可复现命令、失败路径、样本/golden 变化和数组编码的分配测量。subagent 不自行标验收；主检查通过后再提交本任务。
 
+#### RV2b3c 本轮验收证据
+
+2026-09-30，subagent 实现，主检查复审并独立运行全部 31 个已跟踪 Go 包，全部通过。全量命令同上一节；`git diff --check` 通过。没有修改 provider record、index、sha256 或 expect。方法规则索引通过生成测试更新，仅 `eth_getBlockReceipts` 的 result 从 raw 改为 canonical。
+
+- 方法与公共 ethadapter 测试覆盖等价拼写、来源换序、from 分歧、日志时间戳、null/空数组、数组顺序和内容分歧、无效/null 元素、请求绑定及 pending 零请求。四源中只有两票有效同值时，坏元素来源仍占分母，结果不能达到三票多数。
+- 注入同键但规范字节不同的编码结果，验证返回 Unknown / ErrMalformedResponse，保留原支持者且不重投票。
+- 转义测试发现 geth 的 hex 解码器不能直接接受合法的 `"\u0030x..."` 字符串拼写。收据准入现在先解析 JSON 字符串语义，再交给 geth；使用 `UseNumber` 保留整数、精确小数及指数数字，不改来源字节。单笔和数组共用此修复；外来区块绑定及 bloom 错误仍被拒绝。
+- 分配测量命令：`GOCACHE=/tmp/ethguard-return-value-go-cache GOPROXY=off GOTOOLCHAIN=local go test ./rpc/methods ./rpc/internal/objects/receipt -run '^$' -bench 'Benchmark(Receipt|BlockReceipts)CanonicalValue' -benchmem -benchtime=200ms -count=1`。
+
+| 输入 | B/op | allocs/op |
+| --- | ---: | ---: |
+| 单笔收据，0 / 100 / 1000 条日志 | 22,325 / 1,234,209 / 13,499,624 | 327 / 16,460 / 161,443 |
+| 数组，0 / 1 / 100 / 1000 笔空日志收据 | 336 / 25,857 / 2,632,080 / 27,589,485 | 7 / 343 / 33,331 / 333,156 |
+
+这是本机短测量，不是资源限额或延迟保证。单笔结果更新了上一节的阶段测量，增加的 JSON 语义解析有可见分配成本；后续优化须保持转义、数字精度和固定分母语义。
+
 ### RV2b3 receipt、transaction、blockReceipts
 
-状态：判定完成（2026-09-28）。单笔收据已按 0045 实现并验收；区块回执数组见已解除的 RV2b3c；交易仍未解除。下面记录原始字段判定，已迁移方法的比较键变化以对应采纳决策为准。
+状态：判定完成（2026-09-28）。单笔收据及区块回执数组已按 0045、0046 实现并验收；交易仍未解除。下面记录原始字段判定，已迁移方法的比较键变化以对应采纳决策为准。
 
-判定只走第 4.2 节，不另列字段标准。现有比较键是 `PruneMethod`，它留下 execution-apis 结果里的字段，所以第一步会把这些字段算进比较键。这不表示它们都被交易根或收据承诺约束。`from` 在比较键里，但仍按第 14.3 节留在域外：交易 hash 约束不了它，没有 CPU 测量就不能定义成派生字段，也不能因为对不上把整票判掉。
+判定只走第 4.2 节，不另列字段标准。原始 `PruneMethod` 掩码留下 execution-apis 结果里的字段，所以第一步会把这些字段算进比较键。这不表示它们都被交易根或收据承诺约束。原始掩码含 `from`，但它按第 14.3 节留在域外：交易 hash 约束不了它，没有 CPU 测量就不能定义成派生字段，也不能因为对不上把整票判掉。0045、0046 已从单笔及数组收据的实际比较键移除它。
 
 收据（`eth_getTransactionReceipt`、`eth_getBlockReceipts` 的每一项）：
 
 - 比较键留下：`transactionHash`、`transactionIndex`、`blockHash`、`blockNumber`、`cumulativeGasUsed`、`gasUsed`、`effectiveGasPrice`、`logsBloom`、`logs`、`status`、`root`、`type`、`contractAddress`、`to`、`blobGasUsed`、`blobGasPrice`、`from`。
 - 请求绑定：按 hash 取收据时是 `transactionHash`；按区块取收据时是每项的 `blockHash` 或 `blockNumber`。绑定失败已是准入失败。
 - 内容承诺：`logsBloom` 必须等于 `CreateBloom(logs)`。不相等已经是整票失败，不是可省略字段。
-- 域外：`from`。比较键现在留下它，编码时不得因此把它写进 Value。其余键外字段仍无处安放，不提前做 Extensions。
+- 域外：`from`。0045、0046 已从实际比较键及 Value 排除它。其余键外字段仍无处安放，不提前做 Extensions。
 
 交易（`eth_getTransactionByHash`）：
 

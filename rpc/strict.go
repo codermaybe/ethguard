@@ -96,8 +96,8 @@ func WithCanonicalValue(encode CanonicalEncoder) StrictOption {
 // WithCanonicalObject attaches an object encoder at method assembly. It is not
 // a registry and it is not WithCanonicalValue: EncodeCheck still runs first,
 // but the comparison key stays the normalizer's key. EncodeCommit writes the
-// canonical object. eth_feeHistory, eth_getLogs, eth_createAccessList, and
-// eth_getTransactionReceipt use it. A migrated scalar does not.
+// canonical object. eth_feeHistory, eth_getLogs, eth_createAccessList,
+// eth_getTransactionReceipt and eth_getBlockReceipts use it. A migrated scalar does not.
 func WithCanonicalObject(encode CanonicalEncoder) StrictOption {
 	return func(s *strictConfig) { s.objectEncode = encode }
 }

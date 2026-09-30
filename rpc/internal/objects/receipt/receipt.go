@@ -2,6 +2,7 @@
 package receipt
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -39,8 +40,8 @@ func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
 	if err := Validate(value); err != nil {
 		return fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
 	}
-	var r types.Receipt
-	if err := json.Unmarshal(value, &r); err != nil || r.TxHash != want {
+	r, err := decodeReceipt(value)
+	if err != nil || r == nil || r.TxHash != want {
 		return fmt.Errorf("%w: receipt transaction hash does not match requested hash", rpc.ErrMalformedResponse)
 	}
 	return nil
@@ -66,8 +67,8 @@ func AdmitBlock(req rpc.Request, value json.RawMessage) error {
 		if err := Validate(row); err != nil {
 			return fmt.Errorf("%w: receipt %d: %v", rpc.ErrMalformedResponse, i, err)
 		}
-		var r types.Receipt
-		if err := json.Unmarshal(row, &r); err != nil {
+		r, err := decodeReceipt(row)
+		if err != nil || r == nil {
 			return fmt.Errorf("%w: receipt %d: %v", rpc.ErrMalformedResponse, i, err)
 		}
 		if hash != nil && r.BlockHash != *hash {
@@ -196,8 +197,8 @@ func Validate(value json.RawMessage) error {
 	if s := strings.TrimSpace(string(obj["logs"])); len(s) == 0 || s[0] != '[' {
 		return fmt.Errorf("receipt: logs must be an array")
 	}
-	var r *types.Receipt
-	if err := json.Unmarshal(value, &r); err != nil || r == nil {
+	r, err := decodeReceipt(value)
+	if err != nil || r == nil {
 		return fmt.Errorf("receipt: invalid payload")
 	}
 	if r.TxHash == (common.Hash{}) || r.BlockHash == (common.Hash{}) {
@@ -218,6 +219,32 @@ func Validate(value json.RawMessage) error {
 		return fmt.Errorf("receipt: logsBloom disagrees with logs")
 	}
 	return nil
+}
+
+// decodeReceipt decodes JSON string escapes before geth's hex codecs see the
+// temporary payload. UseNumber preserves numeric tokens exactly. This is
+// semantic parsing for validation and binding; it does not project fields,
+// canonicalize hex, or modify the source payload.
+func decodeReceipt(value json.RawMessage) (*types.Receipt, error) {
+	plain, err := receiptSemanticJSON(value)
+	if err != nil {
+		return nil, err
+	}
+	var r *types.Receipt
+	if err := json.Unmarshal(plain, &r); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+func receiptSemanticJSON(value json.RawMessage) (json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, err
+	}
+	return json.Marshal(decoded)
 }
 
 func NormalizeBlock(value json.RawMessage, prune Pruner, method string) (string, error) {

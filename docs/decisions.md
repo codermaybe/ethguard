@@ -1694,3 +1694,47 @@ denominator is not shrunk and the floor is not lowered. Scalar, feeHistory,
 log, and access-list cluster keys stay unchanged. This method uses the existing
 `WithCanonicalObject`. There is no encoder registry. The encoder lives in
 `rpc/internal/objects/receipt/encode.go`.
+
+## 0046. Canonical eth_getBlockReceipts
+
+Status: Accepted (2026-09-30). `eth_getBlockReceipts` only. Decisions
+0041–0045 keep their existing scope. Transactions, block re-encoding,
+Provenance/Extensions, and the `eth_call` envelope stay out.
+
+Each source's whole receipt array is one Strict vote. The comparison key
+stays `normalizeBlockReceiptList` / `PruneMethod`, with `from` removed from
+each receipt after pruning. It is not replaced by canonical result JSON.
+Array order is retained, and receipts are never assembled across sources.
+
+Value reuses the single-receipt protected field model in
+`rpc/internal/objects/receipt/encode.go` (0045). `from` stays outside both
+key and Value. Log `blockTimestamp`, when present, is canonical QUANTITY;
+missing/null timestamps are omitted. Required `removed` must be a boolean,
+and missing/null does not become false. Other receipt field rules, bloom
+checks, omission rules, and canonical spelling follow the same encoder.
+
+Top-level JSON null remains `null`; an empty array remains `[]`. An array
+element cannot be null. Failure of any element invalidates the source's
+whole array. The source contributes no support but stays in the invocation's
+fixed denominator. `receipt.AdmitBlock` still binds every receipt to the
+requested block hash or number. This does not prove list completeness and
+does not add verification against receiptsRoot.
+
+The existing `WithCanonicalObject` path performs EncodeCheck per source,
+then one Resolve over the existing method keys. EncodeCommit writes Value
+only when the winning supporters' canonical bytes agree; disagreement is
+Unknown / `ErrMalformedResponse` with `result encoding disagrees within
+cluster`. No source is removed for another vote. Representative is the
+first captured supporter, and Evidence stays from that source. Changing
+capture order or JSON spelling does not change canonical Value.
+
+Pending remains rejected locally during Prepare, before anchoring or
+provider requests. Shared receipt admission and binding now decode JSON string
+escapes into temporary semantic JSON before geth validation. `UseNumber`
+preserves numeric tokens; source bytes and the protected field model are
+unchanged. This accepts alternate legal spellings of protected hash, quantity,
+and log-data values without projecting fields during admission.
+
+The method-rule index changes only this method's result
+to canonical. Fields outside the protected domain have no newly retained
+channel; that gap remains open.

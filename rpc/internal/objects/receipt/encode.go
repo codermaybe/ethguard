@@ -9,6 +9,32 @@ import (
 	"ethguard/rpc/internal/wire"
 )
 
+// EncodeBlock encodes one complete eth_getBlockReceipts response using the
+// same protected receipt model as Encode. Null is an absent block; [] is an
+// empty block. Null or invalid elements invalidate the whole source response.
+func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(value)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return json.RawMessage("null"), nil
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(trimmed, &rows); err != nil || rows == nil {
+		return nil, fmt.Errorf("block receipts: expected an array")
+	}
+	encoded := make([]json.RawMessage, len(rows))
+	for i, row := range rows {
+		if IsJSONNull(row) {
+			return nil, fmt.Errorf("block receipts[%d]: null receipt", i)
+		}
+		var err error
+		encoded[i], err = Encode(row)
+		if err != nil {
+			return nil, fmt.Errorf("block receipts[%d]: %w", i, err)
+		}
+	}
+	return marshal(encoded)
+}
+
 // Encode checks one eth_getTransactionReceipt result and returns the canonical
 // JSON of the protected fields. JSON null stays null. from is removed from
 // the comparison key and does not enter the value. contractAddress, to,

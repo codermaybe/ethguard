@@ -20,7 +20,7 @@ const MethodGetBlockReceipts = "eth_getBlockReceipts"
 // moving tags are rewritten to the corroborated reference. pending is rejected in
 // Prepare because this method has no stable pending-block receipt semantics.
 func BlockReceiptsPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	prepared := rpc.RejectPending(0)(rpc.WithAnchor(anchor, 0)(rpc.Strict(normalizeBlockReceiptList, compareOpts(rpc.RuleCompareMethodSpecific, opts)...)))
+	prepared := rpc.RejectPending(0)(rpc.WithAnchor(anchor, 0)(rpc.Strict(normalizeBlockReceiptList, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalObject(receipt.EncodeBlock)}, opts...))...)))
 	return policy.WithAdmission(prepared, admitBlockReceipts)
 }
 
@@ -32,5 +32,17 @@ func admitBlockReceipts(_ context.Context, req rpc.Request, value json.RawMessag
 }
 
 func normalizeBlockReceiptList(value json.RawMessage) (string, error) {
-	return receipt.NormalizeBlock(value, wire.PruneMethod, MethodGetBlockReceipts)
+	key, err := receipt.NormalizeBlock(value, wire.PruneMethod, MethodGetBlockReceipts)
+	if err != nil || key == "null" {
+		return key, err
+	}
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(key), &rows); err != nil {
+		return "", err
+	}
+	for _, row := range rows {
+		delete(row, "from")
+	}
+	encoded, err := json.Marshal(rows)
+	return string(encoded), err
 }
