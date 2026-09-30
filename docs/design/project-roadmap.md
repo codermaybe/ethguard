@@ -189,12 +189,14 @@ RV2a eth_feeHistory            已验收：dee2208
 RV2b1 eth_getLogs              已验收：f8b4280
         |
         v
-RV2b2 eth_createAccessList     已实现：cade5a3。未在本文件标成已验收
+RV2b2 eth_createAccessList     已验收：2026-09-30，实现 cade5a3；验收修复见本节
         |
         v
-RV2b3a receipt                 已实现，未在本文件标成已验收。0045 排除 from
-RV2b3b transaction             未解除：区块上下文尚未核对
-RV2b3c blockReceipts           排在收据编码器之后
+RV2b3a receipt                 已验收：2026-09-30，实现 2583c28；0045 排除 from
+        |
+        v
+RV2b3c blockReceipts           已解除：复用验收后的收据编码器，先于 transaction
+RV2b3b transaction             未解除：区块上下文及 typed pending 判定尚未核对
         |
         v
 RV3a eth_call 信封             方向已锁，未解除
@@ -302,7 +304,7 @@ result 列只有 `eth_getLogs` 改为 canonical。Representative 仍是捕获顺
 
 ### RV2b2 eth_createAccessList
 
-状态：已实现（cade5a3），未在本文件标成已验收。`eth_getLogs` 已在 f8b4280 验收。RV2b3 的字段判定已完成，编码仍不实现。RV3a、RV3b、RV4 仍不实现。
+状态：2026-09-30 主检查验收通过。原实现 cade5a3；验收时修正 `normalizeAccessList` 对 `error` 文本误用 hex 大小写折合的问题。比较键仍来自现有 PruneMethod，但其中的 `error` 保留解码后的文本大小写；JSON 转义不改变文本值。显式 null 保持原键，不补成空字符串。收据状态见 RV2b3a；RV3a、RV3b、RV4 仍未解除。
 
 这一刀只做 `eth_createAccessList`。比较键仍是现有的 `normalizeAccessList` / `PruneMethod` 结果，不是另写的整段 JSON。Value 是掩码留下的字段的规范对象。依据是第 4.2 节第一步。不要抄 `projection.StandardFields`，也不要另列一张字段表。
 
@@ -324,13 +326,13 @@ result 列只有 `eth_createAccessList` 改为 canonical。Representative 仍是
 
 不改：receipt、transaction、blockReceipts、区块重编码、`eth_call` 的 code 与 message、`from` 和 `size`、Extensions、Provenance、分母、门槛。未跟踪的 `cmd/shapeprobe/`、`internal/shapeprobe/`、`internal/rpcsample/probe/` 不读不改。
 
-键外字段这一刀仍无处安放。提交说明写明这个缺口，不要写成已经保留，也不要提前做 Extensions。文档只改现在成为事实的句子。执行者不得把本任务标成已验收。
+键外字段这一刀仍无处安放。提交说明写明这个缺口，不要写成已经保留，也不要提前做 Extensions。文档只改现在成为事实的句子。实现执行者不得自行标成已验收；上面的状态由本轮主检查核对后记录。
 
 出口：`go test ./... -count=1`。失败路径是缺 `storageKeys` 的来源留在分母里，不能靠丢掉它变成成功。
 
 ### RV2b3a receipt
 
-状态：已实现，未在本文件标成已验收。这一刀只编码 `eth_getTransactionReceipt`。交易和区块回执数组仍不编码。
+状态：2026-09-30 主检查验收通过。原实现 2583c28；验收补齐日志 `blockTimestamp` 的规范输出，拒绝 `removed` 缺失/null，避免补成 false。这一刀只编码 `eth_getTransactionReceipt`。交易仍未解除；区块回执数组的独立任务见 RV2b3c。
 
 一次提交。先写 0045，再改代码。0045 只采纳收据，不改 0041、0042、0043、0044。
 
@@ -348,13 +350,42 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 
 测试至少覆盖：同一收据只差大小写或键序时同簇，换序不改变 Value，Representative 跟随第一人；`from` 不进 Value，也不把两人拆开；缺 `logs` 记 Fault 且分母不缩小；`logsBloom` 与 logs 不一致则失败。禁止合成样本，禁止把探针升成 golden，禁止 `-update` 已有三批 expect。
 
-键外字段除已经判定为域外的 `from` 外，这一刀仍无处安放。提交说明写明这个缺口。执行者不得把本任务标成已验收。
+键外字段除已经判定为域外的 `from` 外，这一刀仍无处安放。提交说明写明这个缺口。实现执行者不得自行标成已验收；上面的状态由本轮主检查核对后记录。
 
 出口：`go test ./... -count=1`。失败路径是缺 `logs` 的来源留在分母里，不能靠丢掉它变成成功。
 
+#### RV2b2 / RV2b3a 本轮验收证据
+
+2026-09-30，subagent 执行，主检查复审并两次打回 accessList 文本/null 边界后通过。生产修复仅涉及 accessList 方法 normalizer 与 receipt 编码器；没有改分母、floor、通用 hex 折合或其他方法编码器。
+
+- `TestReturnValueAccessListThroughClient`、`TestReturnValueReceiptFromAndSpellingThroughClient` 走公共 Client、生产 Aggregator 和 typed 读取。accessList pending 仍为 Selected，Representative 为零；receipt 的 `from` 分歧不分簇，不进入 Value。
+- `TestReturnValueFaultKeepsClientDenominator` 用四源的两份同值、一份异值、一份坏票，验证两票达不到固定 N=4 的多数门槛。receipt 的缺 logs 在 Admit 失败，accessList 的缺 storageKeys 在 EncodeCheck 失败，均保留分母。
+- `TestCanonicalReceiptLogTimestampThroughAdapter`、`TestCanonicalReceiptTimestampDisagreementIsConflict`、`TestCanonicalReceiptRemovedCannotDefaultFromNull` 验证日志字段不会丢失或被填默认值。accessList 的文本大小写、等价 JSON 转义、null 与空串由方法回归测试验证。
+- 全部 31 个已跟踪 Go 包测试通过。工作区有三个范围外的未跟踪探针目录，因此本轮全量按 `git ls-files '*.go'` 的目录去重构建包列表，不用 `./...` 扫描它们。可复现命令：`GOCACHE=/tmp/ethguard-return-value-go-cache GOPROXY=off GOTOOLCHAIN=local go test $(git ls-files '*.go' | xargs -n1 dirname | sort -u | sed 's#^#./#') -count=1`。测试只有进程内 HTTP/WSS，无外部网络请求。
+- 主检查独立重跑 `go test ./rpc/methods ./ethadapter . -run 'Test(AccessListHex|AccessListNull|CanonicalReceipt|ReturnValue|ReceiptOptional|ReceiptStatus|ReceiptBloom)' -count=1` 通过；`git diff --check` 通过。本轮没有修改 provider record、index、sha256 或 expect。原收据提交 2583c28 的两个 comparison_key 变更是移除 from，全量 replay 通过。
+- `BenchmarkReceiptCanonicalValue` 的本机短测量（`-benchmem -benchtime=200ms -count=1`）：0/100/1000 条日志约为 15,658/781,626/8,487,168 B/op，247/10,761/105,308 allocs/op。它是后续数组编码成本的参考，不是资源限额或延迟保证。
+
+解除依据：收据字段与 typed 路径已核对，receipt 与 blockReceipts 的固定 spec 掩码具有相同的收据/日志形状。RV2b3c 依赖收据验收，不依赖交易 inclusion context，因此先于 RV2b3b 开工，仍一次只执行一个任务。
+
+### RV2b3c blockReceipts
+
+状态：2026-09-30 已解除，待实现。先记录决策 0046，只覆盖 `eth_getBlockReceipts`，再改代码；不修改 0041–0045 的采纳范围。
+
+复用 `rpc/internal/objects/receipt/encode.go` 内的收据编码规则，增加数组编码入口，不新增第二份字段模型。比较键仍来自现有 `normalizeBlockReceiptList` / `PruneMethod`，只从每项的键中排除 `from`。不能换成规范数组 JSON 投票。每份来源响应作为完整数组参与现有 Strict 裁决，不逐项跨源拼接。
+
+顶层 JSON null 编成 `null`，空数组保持 `[]`，两者不合并。数组元素不得是 null，顺序不排序。任一元素准入或编码失败，整份来源响应不贡献支持，来源仍占固定分母。日志时间戳出现时保留规范数量，removed 不得由 null/缺失补成 false。请求绑定仍由 `receipt.AdmitBlock` 核对每项的 blockHash 或 blockNumber；该检查不宣称已经证明列表完整，也不增加 receiptsRoot 验证。
+
+沿用已有 WithCanonicalObject：逐源先 EncodeCheck，再用现有方法键分簇，以完整 observations 裁决一次，获胜簇规范字节相等才提交 Value。不同则 Unknown / ErrMalformedResponse，不剔除来源再投票。代表源与 Evidence 同源；Value 不随捕获顺序或 JSON 拼写变化。pending 仍在 Prepare 本地拒绝，不触 anchor 或业务 fan-out。
+
+交付需要普通 Policy 测试及公共 Client / ethadapter 的真实进程内 RPC 测试：大小写、键序和转义同值；from 分歧不分簇且不进 Value；日志时间戳保留；null 的 NotFound 与空数组成功；数组顺序和受保护内容分歧；无效/null 元素排除整份来源且保留分母；请求绑定失败；pending 零请求；获胜簇规范字节不一致失败。更新方法规则索引只能通过其生成测试，diff 应只有 blockReceipts 的 result 变为 canonical。
+
+不修改 transaction、eth_call 信封、区块重编码、Provenance/Extensions、投票分母或门槛。不修改已有样本字节或盲目更新 golden，不读取三个未跟踪探针目录。域外字段仍没有新增保留通道，交付说明继续携带这个缺口。
+
+出口：定向测试、全部已跟踪包测试及 diff 检查通过，记录可复现命令、失败路径、样本/golden 变化和数组编码的分配测量。subagent 不自行标验收；主检查通过后再提交本任务。
+
 ### RV2b3 receipt、transaction、blockReceipts
 
-状态：判定完成（2026-09-28）。收据编码见 RV2b3a。交易和区块回执数组的编码仍未解除。
+状态：判定完成（2026-09-28）。单笔收据已按 0045 实现并验收；区块回执数组见已解除的 RV2b3c；交易仍未解除。下面记录原始字段判定，已迁移方法的比较键变化以对应采纳决策为准。
 
 判定只走第 4.2 节，不另列字段标准。现有比较键是 `PruneMethod`，它留下 execution-apis 结果里的字段，所以第一步会把这些字段算进比较键。这不表示它们都被交易根或收据承诺约束。`from` 在比较键里，但仍按第 14.3 节留在域外：交易 hash 约束不了它，没有 CPU 测量就不能定义成派生字段，也不能因为对不上把整票判掉。
 
@@ -371,7 +402,7 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 - 已验证承诺：`hash` 必须等于本地 `tx.Hash()`。不相等已经排除整票。`tx.Hash()` 不覆盖 `from`、`blockHash`、`blockNumber`、`blockTimestamp`、`transactionIndex`。
 - 域外：`from`。区块上下文字段要等区块承诺核对之后才能进交易 Value，这一步还没有。
 
-因此这一段仍不编码。下一个编码任务要先把 `from` 从受保护 Value 排除，并且不把区块上下文提前写进单独的交易或收据 Value。Extensions 改为差集也留在编码任务里，现在不做。
+单笔收据按 0045 把区块上下文字段随比较键纳入 Value，并从键与 Value 排除 from；不能再把它描述成仍不编码或上下文全部域外。区块回执数组沿用这套字段规则，另核对数组的请求绑定。交易的区块上下文仍待核对：当前 `DecodeTransaction` 由 blockNumber 是否存在返回 pending，不能简单删掉上下文后把 mined 交易改成 pending。RV2b3b 需要先写明上下文的保护依据及 typed pending 判定，再解除编码。Extensions 差集、Provenance 和 RV3 的任务出口仍需后续单独细化。
 
 ### RV3 及以后
 

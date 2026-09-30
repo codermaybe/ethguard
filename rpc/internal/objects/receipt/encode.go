@@ -130,6 +130,7 @@ func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
 		BlockHash        json.RawMessage   `json:"blockHash"`
 		LogIndex         json.RawMessage   `json:"logIndex"`
 		Removed          json.RawMessage   `json:"removed"`
+		BlockTimestamp   json.RawMessage   `json:"blockTimestamp"`
 	}
 	if err := json.Unmarshal(value, &raw); err != nil {
 		return canonicalReceiptLog{}, fmt.Errorf("expected an object")
@@ -173,11 +174,14 @@ func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
 	if out.BlockHash, err = wire.ValidateWireFixedHex(raw.BlockHash, 64, "hash"); err != nil {
 		return canonicalReceiptLog{}, fmt.Errorf("blockHash: %w", err)
 	}
-	if len(bytes.TrimSpace(raw.Removed)) == 0 {
+	if !PresentNonNull(raw.Removed) {
 		return canonicalReceiptLog{}, fmt.Errorf("missing removed")
 	}
 	if err := json.Unmarshal(raw.Removed, &out.Removed); err != nil {
 		return canonicalReceiptLog{}, fmt.Errorf("removed must be boolean")
+	}
+	if out.BlockTimestamp, err = optionalQuantity(raw.BlockTimestamp); err != nil {
+		return canonicalReceiptLog{}, fmt.Errorf("blockTimestamp: %w", err)
 	}
 	return out, nil
 }
@@ -257,4 +261,5 @@ type canonicalReceiptLog struct {
 	BlockHash        string   `json:"blockHash"`
 	LogIndex         string   `json:"logIndex"`
 	Removed          bool     `json:"removed"`
+	BlockTimestamp   *string  `json:"blockTimestamp,omitempty"`
 }

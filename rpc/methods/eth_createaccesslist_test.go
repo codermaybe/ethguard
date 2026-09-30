@@ -189,3 +189,56 @@ func accessListBody(address string, keys []string, gas, message string) string {
 	}
 	return body + `}`
 }
+
+func TestAccessListHexErrorTextCannotSilentlyMerge(t *testing.T) {
+	policy := CreateAccessListPolicy(nil, rpc.WithQuorum(1))
+	first := json.RawMessage(`{"accessList":[],"error":"0xAB"}`)
+	second := json.RawMessage(`{"accessList":[],"error":"0xab"}`)
+	firstKey, err := policy.Normalize(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondKey, err := policy.Normalize(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstKey == secondKey {
+		t.Fatal("error text casing was folded in the comparison key")
+	}
+	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
+		observation(rpc.SourceRef{ID: "a"}, string(first), ""), observation(rpc.SourceRef{ID: "b"}, string(second), ""),
+	})
+	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 1 || len(decision.Reject) != 1 {
+		t.Fatalf("decision = %+v err %v", decision, err)
+	}
+}
+
+func TestAccessListHexErrorEscapesKeepTextSemantics(t *testing.T) {
+	policy := CreateAccessListPolicy(nil, rpc.WithQuorum(1))
+	first := accessListBody(strings.ToUpper(accessAddress), []string{strings.ToUpper(accessKey)}, "0x5208", "0xAB")
+	second := accessListBody(accessAddress, []string{accessKey}, "0x5208", `0x\u0041B`)
+	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
+		observation(rpc.SourceRef{ID: "a"}, first, ""), observation(rpc.SourceRef{ID: "b"}, second, ""),
+	})
+	if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 || !bytes.Contains(decision.Value, []byte(`"error":"0xAB"`)) {
+		t.Fatalf("decision = %+v err %v", decision, err)
+	}
+}
+
+func TestAccessListNullErrorDoesNotBecomeEmptyText(t *testing.T) {
+	policy := CreateAccessListPolicy(nil, rpc.WithQuorum(1))
+	null := `{"accessList":[],"error":null}`
+	empty := `{"accessList":[],"error":""}`
+	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
+		observation(rpc.SourceRef{ID: "a"}, null, ""), observation(rpc.SourceRef{ID: "b"}, empty, ""),
+	})
+	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 1 || len(decision.Reject) != 1 {
+		t.Fatalf("decision = %+v err %v", decision, err)
+	}
+	decision, err = policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
+		observation(rpc.SourceRef{ID: "a"}, null, ""), observation(rpc.SourceRef{ID: "b"}, null, ""),
+	})
+	if err != nil || decision.Status != rpc.Corroborated || string(decision.Value) != `{"accessList":[]}` {
+		t.Fatalf("decision = %+v err %v", decision, err)
+	}
+}

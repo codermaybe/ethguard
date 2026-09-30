@@ -21,10 +21,10 @@
 1. `Decision.Value` 对已注册方法只表示受保护结果，不再同时充当来源原文。
 2. 受保护结果按方法定义为受保护结果域。Value 是该域的确定性规范编码。
 3. 编码器从已准入载荷生成规范字节，不从比较键反序列化，也不把多个来源的字段拼成一个新对象。
-4. 执行顺序是：逐源 EncodeCheck，再按方法自己的比较键比对，Resolve 只跑一次，最后 EncodeCommit。编码失败不触发第二次投票，本轮分母不缩小。
+4. 执行顺序是：逐源 EncodeCheck，通过后才按方法自己的比较键分簇，以本轮固定分母裁决一次，再提交规范 Value。编码失败记 Fault、不贡献支持，但来源仍留在分母里。这里的「裁决一次」不表示先调用代码中的 `Resolve` 再编码：当前 Strict 的 `Resolve` / `ResolveCorroborated` 入口内部包含编码、分簇、裁决和提交。
 5. 获胜簇内每个支持源的规范字节必须相同。不相同是比较键太窄或编码器越界，是代码缺陷，不是来源分歧。
 6. 逐字节相等是必要条件，不是充分条件。编码器不能靠删掉应受保护的字段来制造相等。字段表、变异测试和往返测试负责补上这一层。
-7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList` 和 `eth_getTransactionReceipt`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。原文不写入 Provenance。
+7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList` 和 `eth_getTransactionReceipt`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。当前尚未实现 Provenance 原文保留；终态保留代表源 Raw，超限按第 14.6 节处理。
 8. 第 14 节是已锁定口径。它不给每个字段另写标准。code 与 message 留在代表源上；区块 Value 只收已经核对过承诺的内容，`from` 默认留在域外。为什么不改成胜者原文透传，也不再加一层最终响应投影，见第 13 节。仍开放、且不挡住阶段 0 的，只有 `from` 的测量后归属和 Provenance 的字节上限。
 
 ## 2. 事实前提
@@ -124,7 +124,7 @@
 
 Execution API 给出形状和约束，给不出唯一字节。数量、成功 DATA、`net_version` 的十进制和 `net_peerCount` 的折合数量，规则正文只在 `rpc/internal/wire/encode.go` 的包注释里。本文不保留第二份标量规则。
 
-对象、地址、浮点和缺失与 null 还没有落地，不在那份注释里：
+对象、地址、浮点和缺失与 null 的规则不在那份标量注释里。已迁移对象由各自的编码器实现；下表也约束后续迁移，不表示所有对象都已接入：
 
 | 项 | 规则 | 依据 |
 |---|---|---|
@@ -152,23 +152,37 @@ Execution API 给出形状和约束，给不出唯一字节。数量、成功 DA
 
 投票分母和门槛在调用开始时固定（0025、0028、0029）。超时、无效响应、EncodeCheck 失败都不缩小分母，也不放低门槛。
 
+下面是语义流程。EncodeCheck 和规范 Value 已接入的方法见本文开头；Provenance 和 Extensions 差集仍是后续目标。图中的「裁决」是一次门槛与 Status 判定，不是 Go `Policy.Resolve` 的函数调用边界。
+
 ```text
 collect（按捕获成员顺序）
   → jsonsafe.Validate
-  → Admit（必填、请求绑定、已验证承诺）          现状
-  → EncodeCheck（逐源；失败则 Fault，不进入分簇）  已定
-  → 比较键（只用通过 EncodeCheck 的来源）         已定
-  → Resolve（分簇、门槛、Status，只此一次）       已定
-  → EncodeCommit（提交已相等的规范字节）          已定
-  → Provenance、Extensions
+  → Admit（必填、请求绑定、已验证承诺）
+  → EncodeCheck（逐源；失败则 Fault，不进入分簇）
+  → 方法比较键、分簇（只用通过 EncodeCheck 的来源）
+  → 裁决（分母保持 N，按门槛判定 Status，只此一次）
+  → EncodeCommit（检查获胜簇规范字节相等并提交 Value）
+  → Provenance、Extensions 差集（后续目标）
   → typed decode（只读 Value）
 ```
 
 Admit 仍在 EncodeCheck 之前。先编码、再比对，指的是比对投票之前完成编码检查，不是把 JSON 合法性或必填检查挪到编码之后。
 
-EncodeCheck 属于准入的效果：单源无法给出不改变原值的规范编码时，记 Fault，不贡献支持，来源仍占着分母里的位置（0020）。然后只用剩余的可编码来源做唯一一次 Resolve。不要先 Resolve，再因为编码失败把人拿掉重算门槛。
+EncodeCheck 属于准入的效果：单源无法给出不改变原值的规范编码时，记 Fault，不贡献支持，来源仍占着分母里的位置（0020）。只有通过编码检查的来源进入比较簇，但完整 observations 仍用于确定分母，裁决只做一次。不要先裁决，再因为编码失败把人拿掉重算门槛。
+
+当前代码可逐段核对：
+
+- `aggregator/aggregator.go` 在调用开始时捕获成员、mode 和 floor，佐证路径调用 `pool.CollectVoting`。`pool/collect.go` 为每个捕获成员保留一个 emission，未发出请求或请求失败的成员也占一个位置。JSON 检查与 Admit 失败会标记错误、清空载荷，但不删除 emission；随后构造等长的 observations。
+- `rpc/strict.go` 的 `cluster` 对可用载荷先调用方法编码器。编码失败追加 `encode:` Fault，然后 `continue`，只是不进入 `groups`，不会缩短传入的 `obs`。标量用规范字节作键；对象编码通过后，仍用方法 normalizer 生成比较键。
+- 同文件的 `resolve` 调用 `c.adjudicate(len(obs), ranked, faults)`。`rpc/adjudicate.go` 用 `Q = max(H, floor(N/2)+1)` 计算门槛，N 是完整 observations 的长度，不是编码成功数或簇内人数。之后 `finish` 用 `CommitCanonical` 检查排名第一簇的规范字节并写入 Value；不重新编码、不第二次投票。
+
+逐源 EncodeCheck 失败与簇内字节不一致是两种情况。前者在分簇前排除计票；后者表示每份载荷都编码成功，但同键的规范输出不一致，在提交处按第 6.4 节失败。不能把后者再当作单源失败，剔除一个来源后重算结果。
+
+这段代码核对针对当前 Strict 佐证路径。`eth_call` 的 `admit` 同样先编码再生成执行键，门槛仍取 `c.Required(len(obs))`；成功 DATA 当前在执行簇排名后、门槛判定前提交，因为其执行键就是规范字节。revert 返回 `ErrNotCanonicalScalar` 表示尚未迁移，不记编码 Fault，继续按既有执行与 data 维度规则处理。Median 先编码再进入中位数样本，Local 对选中的来源编码；两者维持 Selected，不套用 Strict 的佐证门槛。未挂编码器的方法仍按原有键和代表源原文处理。
 
 具体场景：三人，门槛 2。A 的 `gasUsedRatio` 是 `0.5`，B 是 `0.50`，C 是 `0.30000000000000001`。C 在 EncodeCheck 失败，不投票，分母仍是 3，门槛仍是 2。A 和 B 的规范值都是 `0.5`，进入同一簇。不能把分母改成 2，也不能先宣布成功再收回。若只有 A 能编码，支持数是 1，这一次就是失败，不能缩成分母 1 之后变成功。
+
+已有 `TestFeeHistoryUnencodableRatioStaysInTheDenominator` 用四源把这一点钉住：A、B 同键且可编码，D 可编码但异键，C 编码失败。N 仍是 4，H 为 2 时 Q 为 3，A、B 两票返回 Unknown / `ErrConflict`，C 留下编码 Fault。若错误地删掉 C，N 会变成 3、Q 变成 2，使这两票误获成功。
 
 ### 6.2 比对用什么
 
@@ -207,6 +221,8 @@ EncodeCheck 属于准入的效果：单源无法给出不改变原值的规范�
 
 非获胜簇里的同类不一致，口径见第 14.1 节：记入 Faults，不否决已达门槛且自身字节一致的获胜簇。不能靠忽略它来触发第二次投票。获胜簇自己不一致仍按本节 Unknown。
 
+当前实现范围：挂编码器的 Strict 在 `finish` 中只对排名第一的簇调用 `CommitCanonical`，不检查落选簇的规范字节，也没有把各支持源的编码摘要写入 Faults；它追加的是提交错误。第 14.1 节的落选簇诊断和本节的摘要仍是目标要求。这些方法的所有可计票来源已经逐源编码，这个诊断缺口不表示落选来源没有做 EncodeCheck，也不改变固定分母。当前 `finish` 在门槛判定返回错误后仍会检查排名第一簇，若该簇编码不一致，则返回编码错误；这也不触发重新投票。
+
 ### 6.5 证据通道
 
 ```text
@@ -216,7 +232,7 @@ Admission        该来源的准入证据（原先 Decision.Evidence 里的 uncl
 Withheld         4e 扣下的字节
 ```
 
-Raw、Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。未迁移方法的 Value 仍是这个人的原始载荷（4e 删减除外）。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList` 和 `eth_getTransactionReceipt` 不再从某一个人的原文里挑；这个人只提供上面这一条证据通道。原文不写入 Provenance。
+Raw、Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。未迁移方法的 Value 仍是这个人的原始载荷（4e 删减除外）。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList` 和 `eth_getTransactionReceipt` 不再从某一个人的原文里挑；这个人是上面这一条证据通道的审计锚点。当前尚未实现 Provenance 原文保留；下面的常开通道和代表源 Raw 保留规则是终态，不表示已迁移方法的域外字段现在已经保存。
 
 Provenance 常开，不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获（0034）。迁移期间可以保留 `Decision.Evidence`，语义收窄为准入证据，最终并入 Provenance。证据预算若存在，耗尽只能减少审计材料，不能改变 Admit、Resolve 或 Status。
 
@@ -360,7 +376,7 @@ aggregator
 - 不因编码失败缩小本轮分母或降低门槛。
 - 不在 Resolve 之后再裁决一次。
 - 不把 Median 或 Local 的 Selected 升成 Corroborated。
-- 不改比较键的含义来迁就编码器。键太窄时扩大的是域的声明和编码器，不是临时换一份额外 JSON 去投票。
+- 不改比较键的含义来迁就编码器。同键却有不同规范输出时，核对受保护域、准入约束与编码器是否符合方法契约，按第 6.4 节失败；不能在本轮临时换一份额外 JSON 作键，也不能剔除来源后重新投票。仅扩大输出域不能证明同键输出相同。
 - 不把 EthGuard 改成后台共识组，也不在网关里把 `latest` 重写成块号。0026 不跨调用缓存引用，0033 把新鲜度和一致分开；高度对齐不能替代本次调用的裁决。
 - 不因 header hash 或 `transactionsRoot` 已经核对通过，就把 `from`、`size` 或整份代表源 JSON 当成受保护结果。
 - 不新增最终响应投影层，也不公开 Strict/Compatible、污点标记、字段掩码或投影器接口。

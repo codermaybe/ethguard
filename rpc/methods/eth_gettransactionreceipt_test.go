@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"ethguard/internal/rpcsample/replay"
 	"ethguard/rpc"
@@ -216,4 +220,114 @@ func deleteReceiptField(t *testing.T, raw json.RawMessage, key string) json.RawM
 func injectReceiptField(t *testing.T, raw json.RawMessage, key, value string) json.RawMessage {
 	t.Helper()
 	return replaceReceiptField(t, raw, key, value)
+}
+
+// Real captured receipt bytes are reused in memory; these benchmarks do not
+// introduce provider samples or infer resource limits.
+func BenchmarkReceiptCanonicalValue(b *testing.B) {
+	raw := benchmarkReceipt(b)
+	for _, size := range []int{0, 100, 1000} {
+		b.Run(fmt.Sprintf("logs-%d", size), func(b *testing.B) {
+			var r types.Receipt
+			if err := json.Unmarshal(raw, &r); err != nil {
+				b.Fatal(err)
+			}
+			r.Logs = make([]*types.Log, size)
+			for i := range r.Logs {
+				r.Logs[i] = &types.Log{Address: common.HexToAddress("0x1234"), Topics: []common.Hash{common.HexToHash("0xab")}, Data: make([]byte, 32), BlockNumber: r.BlockNumber.Uint64(), TxHash: r.TxHash, BlockHash: r.BlockHash, Index: uint(i)}
+			}
+			r.Bloom = types.CreateBloom(&r)
+			body, err := json.Marshal(&r)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.SetBytes(int64(len(body)))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := receiptobj.Encode(body); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func benchmarkReceipt(b *testing.B) json.RawMessage {
+	b.Helper()
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, record := range records {
+		if record.RequestID != "receipt-one" || record.Source.ID != "s1" {
+			continue
+		}
+		_, body, err := replay.BodyOf(record)
+		if err != nil {
+			b.Fatal(err)
+		}
+		var doc struct {
+			Result json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal(body, &doc); err != nil {
+			b.Fatal(err)
+		}
+		return doc.Result
+	}
+	b.Fatal("receipt sample missing")
+	return nil
+}
+
+func TestReceiptEncodingOptionalFieldsAndStatusRoot(t *testing.T) {
+	raw := sampleReceipt(t)
+	for _, name := range []string{"contractAddress", "to", "blobGasUsed", "blobGasPrice", "effectiveGasPrice", "type"} {
+		t.Run(name, func(t *testing.T) {
+			missing := deleteReceiptField(t, raw, name)
+			encoded, err := receiptobj.Encode(missing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(encoded, []byte(`"`+name+`"`)) {
+				t.Fatalf("missing optional entered Value: %s", encoded)
+			}
+			encoded, err = receiptobj.Encode(replaceReceiptField(t, missing, name, "null"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(encoded, []byte(`"`+name+`"`)) {
+				t.Fatalf("null optional entered Value: %s", encoded)
+			}
+		})
+	}
+	both := replaceReceiptField(t, raw, "root", `"0x`+strings.Repeat("ab", 32)+`"`)
+	encoded, err := receiptobj.Encode(both)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(`"root"`)) || !bytes.Contains(encoded, []byte(`"status"`)) {
+		t.Fatalf("status priority = %s", encoded)
+	}
+	rootOnly := deleteReceiptField(t, both, "status")
+	encoded, err = receiptobj.Encode(rootOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(`"root"`)) || bytes.Contains(encoded, []byte(`"status"`)) {
+		t.Fatalf("root = %s", encoded)
+	}
+	if _, err := receiptobj.Encode(deleteReceiptField(t, rootOnly, "root")); err == nil {
+		t.Fatal("missing status and root encoded")
+	}
+}
+
+func TestReceiptBloomMismatchIsEncodeFault(t *testing.T) {
+	raw := replaceReceiptField(t, sampleReceipt(t), "logsBloom", `"0x`+strings.Repeat("00", 255)+`01"`)
+	policy := TransactionReceiptPolicy(rpc.WithQuorum(1))
+	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
+		observation(rpc.SourceRef{ID: "a"}, string(raw), ""),
+	})
+	if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), "logsBloom disagrees with logs") {
+		t.Fatalf("decision = %+v err %v", decision, err)
+	}
 }
