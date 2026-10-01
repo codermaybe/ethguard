@@ -43,18 +43,6 @@ func normalizeReceiptObject(value json.RawMessage) (string, error) {
 		return "", err
 	}
 	delete(obj, "from")
-	var decoded any
 	encoded, err := json.Marshal(obj)
-	if err != nil {
-		return "", err
-	}
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		return "", err
-	}
-	wire.CanonicalizeHex(&decoded)
-	folded, err := json.Marshal(decoded)
-	if err != nil {
-		return "", err
-	}
-	return string(folded), nil
+	return string(encoded), err
 }
