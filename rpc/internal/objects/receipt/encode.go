@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+
 	"ethguard/rpc/internal/wire"
 )
 
@@ -41,10 +45,12 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 // blobGasUsed, and blobGasPrice are omitted when absent. A JSON null
 // contractAddress is omitted. An empty logs array stays [].
 //
-// Admission is section 4.2 of return-value-design.md. Fields retained by the
-// comparison mask enter the value, except from. Section 14.3 keeps from
-// outside both the comparison key and the protected value. logsBloom must
-// equal CreateBloom(logs).
+// Every protected field is checked here, so a missing or malformed one is a
+// fault rather than a default. Each log must carry the receipt's own
+// transactionHash and blockHash, and logsBloom must equal CreateBloom over
+// the logs this function just built: the bloom that ships is the bloom that
+// was checked. Binding a receipt to the request it answers is AdmitTransaction
+// and AdmitBlock, not this function.
 // Addresses and hashes are lowercase. Quantities are canonical QUANTITY.
 // Log data keeps leading zeros. Array order is unchanged. JSON is compact,
 // HTML escaping is off, and field order is the encoder struct order.
@@ -76,9 +82,6 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	}
 	if err := json.Unmarshal(trimmed, &raw); err != nil || raw.Logs == nil {
 		return nil, fmt.Errorf("receipt: malformed response")
-	}
-	if err := Validate(trimmed); err != nil {
-		return nil, err
 	}
 	logs := make([]canonicalReceiptLog, len(raw.Logs))
 	for i, row := range raw.Logs {
@@ -114,6 +117,12 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if out.LogsBloom, err = wire.ValidateWireFixedHex(raw.LogsBloom, 512, "logsBloom"); err != nil {
 		return nil, fmt.Errorf("receipt logsBloom: %w", err)
 	}
+	if err := checkLogBindings(logs, out.TransactionHash, out.BlockHash); err != nil {
+		return nil, err
+	}
+	if out.LogsBloom != canonicalBloom(logs) {
+		return nil, fmt.Errorf("receipt: logsBloom disagrees with logs")
+	}
 	if PresentNonNull(raw.Status) {
 		status, err := canonicalQuantity(raw.Status)
 		if err != nil {
@@ -143,6 +152,37 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 		return nil, fmt.Errorf("receipt blobGasPrice: %w", err)
 	}
 	return marshal(out)
+}
+
+// checkLogBindings binds every log to the receipt that carries it. Both sides
+// are already canonical, so a mismatch is a source disagreeing with itself
+// rather than two spellings of one value.
+func checkLogBindings(logs []canonicalReceiptLog, transactionHash, blockHash string) error {
+	for i, item := range logs {
+		if item.TransactionHash != transactionHash {
+			return fmt.Errorf("receipt logs[%d]: transactionHash %s does not match receipt transactionHash %s", i, item.TransactionHash, transactionHash)
+		}
+		if item.BlockHash != blockHash {
+			return fmt.Errorf("receipt logs[%d]: blockHash %s does not match receipt blockHash %s", i, item.BlockHash, blockHash)
+		}
+	}
+	return nil
+}
+
+// canonicalBloom builds the bloom of the logs this encoder just produced, so
+// the emitted logsBloom is checked against the value EthGuard ships rather
+// than against a second decoding of the source payload.
+func canonicalBloom(logs []canonicalReceiptLog) string {
+	decoded := make([]*types.Log, len(logs))
+	for i, item := range logs {
+		entry := &types.Log{Address: common.HexToAddress(item.Address)}
+		entry.Topics = make([]common.Hash, len(item.Topics))
+		for j, topic := range item.Topics {
+			entry.Topics[j] = common.HexToHash(topic)
+		}
+		decoded[i] = entry
+	}
+	return hexutil.Encode(types.CreateBloom(&types.Receipt{Logs: decoded}).Bytes())
 }
 
 func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {

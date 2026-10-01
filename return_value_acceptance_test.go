@@ -85,6 +85,9 @@ func TestReturnValueFaultKeepsClientDenominator(t *testing.T) {
 			if method == methods.MethodCreateAccessList && !strings.Contains(decision.Faults[0].Error(), "encode:") {
 				t.Fatalf("fault = %v", decision.Faults)
 			}
+			if method == methods.MethodGetTransactionReceipt && !strings.Contains(decision.Faults[0].Error(), "admission: rpc: malformed response: receipt: missing logs") {
+				t.Fatalf("receipt fault lost its admission wording: %v", decision.Faults)
+			}
 		})
 	}
 }

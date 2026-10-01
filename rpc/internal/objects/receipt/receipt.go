@@ -37,11 +37,11 @@ func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	if err := Validate(value); err != nil {
+	r, err := validateAndDecode(value)
+	if err != nil {
 		return fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
 	}
-	r, err := decodeReceipt(value)
-	if err != nil || r == nil || r.TxHash != want {
+	if r == nil || r.TxHash != want {
 		return fmt.Errorf("%w: receipt transaction hash does not match requested hash", rpc.ErrMalformedResponse)
 	}
 	return nil
@@ -64,10 +64,7 @@ func AdmitBlock(req rpc.Request, value json.RawMessage) error {
 		return err
 	}
 	for i, row := range rows {
-		if err := Validate(row); err != nil {
-			return fmt.Errorf("%w: receipt %d: %v", rpc.ErrMalformedResponse, i, err)
-		}
-		r, err := decodeReceipt(row)
+		r, err := validateAndDecode(row)
 		if err != nil || r == nil {
 			return fmt.Errorf("%w: receipt %d: %v", rpc.ErrMalformedResponse, i, err)
 		}
@@ -160,65 +157,76 @@ func Normalize(value json.RawMessage, prune Pruner, method string) (string, erro
 	return prune(method, value)
 }
 
+// Validate reports whether one receipt is admissible in isolation. It is the
+// thin form of validateAndDecode for callers that need the verdict but not
+// the decoded receipt.
 func Validate(value json.RawMessage) error {
+	_, err := validateAndDecode(value)
+	return err
+}
+
+// validateAndDecode runs every wire check and returns the decoded receipt, so
+// a caller that must bind the receipt to its request does not decode the same
+// bytes a second time.
+func validateAndDecode(value json.RawMessage) (*types.Receipt, error) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(value, &obj); err != nil || obj == nil {
-		return fmt.Errorf("receipt: expected object")
+		return nil, fmt.Errorf("receipt: expected object")
 	}
 	for _, f := range []string{"transactionHash", "transactionIndex", "blockHash", "blockNumber", "cumulativeGasUsed", "gasUsed", "logsBloom", "logs"} {
 		if !PresentNonNull(obj[f]) {
-			return fmt.Errorf("receipt: missing %s", f)
+			return nil, fmt.Errorf("receipt: missing %s", f)
 		}
 	}
 	for _, f := range []string{"transactionHash", "blockHash"} {
 		if _, err := wire.ValidateWireFixedHex(obj[f], 64, f); err != nil {
-			return fmt.Errorf("receipt: %s: %w", f, err)
+			return nil, fmt.Errorf("receipt: %s: %w", f, err)
 		}
 	}
 	for _, f := range []string{"transactionIndex", "blockNumber", "cumulativeGasUsed", "gasUsed"} {
 		if _, err := wire.NormalizeWireQuantity(obj[f]); err != nil {
-			return fmt.Errorf("receipt: %s: %w", f, err)
+			return nil, fmt.Errorf("receipt: %s: %w", f, err)
 		}
 	}
 	if _, err := wire.ValidateWireFixedHex(obj["logsBloom"], 512, "logsBloom"); err != nil {
-		return fmt.Errorf("receipt: logsBloom: %w", err)
+		return nil, fmt.Errorf("receipt: logsBloom: %w", err)
 	}
 	status, root := PresentNonNull(obj["status"]), PresentNonNull(obj["root"])
 	if !status && !root {
-		return fmt.Errorf("receipt: missing status or root")
+		return nil, fmt.Errorf("receipt: missing status or root")
 	}
 	if status {
 		if _, err := wire.NormalizeWireQuantity(obj["status"]); err != nil {
-			return fmt.Errorf("receipt: status: %w", err)
+			return nil, fmt.Errorf("receipt: status: %w", err)
 		}
 	} else if _, err := wire.ValidateWireFixedHex(obj["root"], 64, "root"); err != nil {
-		return fmt.Errorf("receipt: root: %w", err)
+		return nil, fmt.Errorf("receipt: root: %w", err)
 	}
 	if s := strings.TrimSpace(string(obj["logs"])); len(s) == 0 || s[0] != '[' {
-		return fmt.Errorf("receipt: logs must be an array")
+		return nil, fmt.Errorf("receipt: logs must be an array")
 	}
 	r, err := decodeReceipt(value)
 	if err != nil || r == nil {
-		return fmt.Errorf("receipt: invalid payload")
+		return nil, fmt.Errorf("receipt: invalid payload")
 	}
 	if r.TxHash == (common.Hash{}) || r.BlockHash == (common.Hash{}) {
-		return fmt.Errorf("receipt: missing transaction or block hash")
+		return nil, fmt.Errorf("receipt: missing transaction or block hash")
 	}
 	for i, l := range r.Logs {
 		if l == nil {
-			return fmt.Errorf("receipt: null log %d", i)
+			return nil, fmt.Errorf("receipt: null log %d", i)
 		}
 		if l.TxHash != (common.Hash{}) && l.TxHash != r.TxHash {
-			return fmt.Errorf("receipt: log %d transaction hash mismatch", i)
+			return nil, fmt.Errorf("receipt: log %d transaction hash mismatch", i)
 		}
 		if l.BlockHash != (common.Hash{}) && l.BlockHash != r.BlockHash {
-			return fmt.Errorf("receipt: log %d block hash mismatch", i)
+			return nil, fmt.Errorf("receipt: log %d block hash mismatch", i)
 		}
 	}
 	if r.Bloom != types.CreateBloom(r) {
-		return fmt.Errorf("receipt: logsBloom disagrees with logs")
+		return nil, fmt.Errorf("receipt: logsBloom disagrees with logs")
 	}
-	return nil
+	return r, nil
 }
 
 // decodeReceipt decodes JSON string escapes before geth's hex codecs see the
