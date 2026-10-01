@@ -4,7 +4,7 @@
 
 2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据，不再标成不定档。第 13 节仍只是外部意见对照。阶段 3a、3b 的方向已锁，阶段 0 不实现，也不据此给每个字段另写标准。
 
-仍开放、且不挡住阶段 0 的只有两项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。Provenance 的字节上限没有数字，不在这里补。
+仍开放、且不挡住阶段 0 的只有一项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。原先并列的「Provenance 字节上限没有数字」随代表源 Raw 一起撤销，见第 14.6 节。
 
 未迁移对象的 Value 仍是某一份原始载荷（4e 删减除外）。`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码。`eth_feeHistory` 的 Value 是受保护字段的规范对象，键外字段不进 Value。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组，掩码外字段不进 Value。`eth_createAccessList` 的 Value 是掩码留下的 access list 字段的规范对象，掩码外字段不进 Value。`eth_getTransactionReceipt` 的 Value 是受保护收据字段的规范对象，`from` 不进 Value。`eth_getBlockReceipts` 的 Value 是相同字段模型的规范数组，每项 `from` 不进 Value，顶层 null 与空数组分别保留。这不表示区块已经语义安全：那些字段要到阶段 3b 才从区块 Value 去掉。
 
@@ -24,8 +24,8 @@
 4. 执行顺序是：逐源 EncodeCheck，通过后才按方法自己的比较键分簇，以本轮固定分母裁决一次，再提交规范 Value。编码失败记 Fault、不贡献支持，但来源仍留在分母里。这里的「裁决一次」不表示先调用代码中的 `Resolve` 再编码：当前 Strict 的 `Resolve` / `ResolveCorroborated` 入口内部包含编码、分簇、裁决和提交。
 5. 获胜簇内每个支持源的规范字节必须相同。不相同是比较键太窄或编码器越界，是代码缺陷，不是来源分歧。
 6. 逐字节相等是必要条件，不是充分条件。编码器不能靠删掉应受保护的字段来制造相等。字段表、变异测试和往返测试负责补上这一层。
-7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。当前尚未实现 Provenance 原文保留；终态保留代表源 Raw，超限按第 14.6 节处理。
-8. 第 14 节是已锁定口径。它不给每个字段另写标准。code 与 message 留在代表源上；区块 Value 只收已经核对过承诺的内容，`from` 默认留在域外。为什么不改成胜者原文透传，也不再加一层最终响应投影，见第 13 节。仍开放、且不挡住阶段 0 的，只有 `from` 的测量后归属和 Provenance 的字节上限。
+7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。该通道不保留代表源 Raw，也不设字节上限：域外字段的可见性由 `Decision.Observed` 承担，它覆盖全部来源的全部路径并带 quorum，比单份原文信息更多。口径见第 6.5 节。
+8. 第 14 节是已锁定口径。它不给每个字段另写标准。code 与 message 不再对外暴露，随 `eth_call` 的信封一起留在受保护结果之外；区块 Value 只收已经核对过承诺的内容，`from` 默认留在域外。为什么不改成胜者原文透传，也不再加一层最终响应投影，见第 13 节。仍开放、且不挡住阶段 0 的，只有 `from` 的测量后归属。
 
 ## 2. 事实前提
 
@@ -152,7 +152,7 @@ Execution API 给出形状和约束，给不出唯一字节。数量、成功 DA
 
 投票分母和门槛在调用开始时固定（0025、0028、0029）。超时、无效响应、EncodeCheck 失败都不缩小分母，也不放低门槛。
 
-下面是语义流程。EncodeCheck 和规范 Value 已接入的方法见本文开头；Provenance 和 Extensions 差集仍是后续目标。图中的「裁决」是一次门槛与 Status 判定，不是 Go `Policy.Resolve` 的函数调用边界。
+下面是语义流程。EncodeCheck 和规范 Value 已接入的方法见本文开头；Extensions 的路径归类仍是后续目标。图中的「裁决」是一次门槛与 Status 判定，不是 Go `Policy.Resolve` 的函数调用边界。
 
 ```text
 collect（按捕获成员顺序）
@@ -162,7 +162,7 @@ collect（按捕获成员顺序）
   → 方法比较键、分簇（只用通过 EncodeCheck 的来源）
   → 裁决（分母保持 N，按门槛判定 Status，只此一次）
   → EncodeCommit（检查获胜簇规范字节相等并提交 Value）
-  → Provenance、Extensions 差集（后续目标）
+  → Provenance 装配、Extensions 归类（后续目标）
   → typed decode（只读 Value）
 ```
 
@@ -228,23 +228,24 @@ EncodeCheck 属于准入的效果：单源无法给出不改变原值的规范�
 
 ```text
 Representative   第 7 节选出的来源
-Raw              该来源已准入的原始载荷
-Admission        该来源的准入证据（原先 Decision.Evidence 里的 uncle 头等）
+Admission        该来源的准入证据（区块的 uncle 头等）
 Withheld         4e 扣下的字节
 ```
 
-Raw、Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。未迁移方法的 Value 仍是这个人的原始载荷（4e 删减除外）。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts` 不再从某一个人的原文里挑；这个人是上面这一条证据通道的审计锚点。当前尚未实现 Provenance 原文保留；下面的常开通道和代表源 Raw 保留规则是终态，不表示已迁移方法的域外字段现在已经保存。
+Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。
 
-Provenance 常开，不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获（0034）。迁移期间可以保留 `Decision.Evidence`，语义收窄为准入证据，最终并入 Provenance。证据预算若存在，耗尽只能减少审计材料，不能改变 Admit、Resolve 或 Status。
+这个通道里**没有代表源原文**。域外字段的可见性由 `Decision.Observed` 承担：它对每个路径给出全部来源的取值、按 quorum 分成 `Common`/`Residuals`/`Conflicts`，是一份比单份原文信息更多的视图。已迁移方法不保留 Raw，也不设字节上限；超限、截断标记、原始长度与 SHA-256 这些口径随 Raw 一起不存在。
 
-默认只保留一个代表源的原始载荷。其他来源的完整原文仍走 Uncertain。大对象超限时的口径见第 14.6 节：可见标记、原始长度和 SHA-256，不保留截断后的字节。触发截断的字节上限没有数字，仍开放，不挡住阶段 0。
+`eth_call` 的 `RevertError` 不再暴露 `Code` 与 `Message`。它们是捕获顺序第一个人的 provider 写法，没有佐证，`ErrorCode()` 还会让调用方误以为那是 geth 的语义码。`Data` 与 `DataRaw` 保留，它们来自受保护结果。
+
+Provenance 不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获（0034），保留前 N 字节的策略与本通道无关，两者互不知情。`Decision.Evidence` 在迁移期作为别名，语义收窄为准入证据。
 
 ### 6.6 Decision 上的结果
 
 | 字段 | 现状 | 设计后 |
 |---|---|---|
 | `Value` | 某一个来源的原始字节；4e 时是删减后的重序列化 | 受保护结果域的规范编码 |
-| `Evidence` | 准入证据加 4e 扣下的字节，可以和 Value 不同源 | 过渡字段，最终进入 Provenance，且与代表源同源 |
+| `Evidence` | 准入证据加 4e 扣下的字节，可以和 Value 不同源 | 语义收窄为准入证据，与代表源同源；通道不再保留代表源原文 |
 | `Extensions` | 指纹依赖代表源拼写 | 指纹取规范 Value；域外字段是 Raw 相对 Value 的路径差集 |
 | `DeletedFields` | 4e 删除的字段 | 保留，语义不变 |
 | `Representative` | 没有这个字段。Strict、CallRevert 在簇内取最后一人，Median 取等值样本里的第一个，而且可以和 Evidence 不同源 | 阶段 0 起就写入：Strict、CallRevert、Median 在带出获胜簇 Value 时记下捕获顺序第一人。Local 与 Forward 保持零值。规范编码落地后这个人只标审计锚点 |
@@ -462,7 +463,7 @@ data 未达门槛时，阶段 0 的 4e 仍用代表源信封，再删掉 data。
 
 ### 14.4 名字与 `ResultKind`
 
-口径：证据通道叫 Provenance。`Decision.Evidence` 只在迁移期作为别名，最终并入 Provenance，并且和代表源同源。`ResultKind` 不出现在公开的 `Decision` 上。方法规则索引的 result 列仍只记录迁移状态，取值照旧是 `canonical`、`raw` 或 `redacted`。
+口径：证据通道叫 Provenance。`Decision.Evidence` 在迁移期作为别名，语义收窄为准入证据，并且和代表源同源。`ResultKind` 不出现在公开的 `Decision` 上。方法规则索引的 result 列仍只记录迁移状态，取值照旧是 `canonical`、`raw` 或 `redacted`；键从哪来由同一张表的 `键来源` 列单独记录（`canonical-bytes` / `normalizer` / `none`，见决策 0047 与 `project-roadmap.md` 的 RV2b）。
 
 三人，门槛 2。`eth_call` 的执行维度达到门槛，data 只有一票，被 4e 扣下。调用方看 Status、Value、`DeletedFields` 和 Provenance。不用一个 `canonical` 或 `redacted` 概括整份结果。
 
@@ -476,13 +477,25 @@ data 未达门槛时，阶段 0 的 4e 仍用代表源信封，再删掉 data。
 
 这是检查范围，不是字段标准。第 13 节否掉只编码代表源：那样会漏掉上面的 C。也否掉为 D、E 的拼写再打一轮分；它们不在获胜键上时，按第 14.1 节记 Fault，不否决胜者。EncodeCheck 只覆盖受保护域，不把留在域外的 `size`、`from` 或厂商字段再序列化一遍。不写 64KiB、2ms、8MiB 这类没有测量的配额。输入界限仍是现有的 JSON 限制。
 
-### 14.6 Provenance 超限
+### 14.6 已撤销:Provenance 超限
 
-口径：做法甲，已锁定。代表源原文放不下时，不保留前 N 字节。Provenance 放可见标记、原始字节长度和 SHA-256。Value、Status、代表源序号不变。截断体不得再进入 Admit、EncodeCheck 或 Resolve。
+**本节整节撤销。** 它规定的是"代表源原文放不下时"怎么办,而 Provenance 不再保留代表源
+原文(第 6.5 节),所以没有可超限的对象。随之消失的还有:Provenance 的字节上限这个
+开放参数、可见截断标记、原始长度与 SHA-256 的诊断,以及"截断体不得再进入 Admit、
+EncodeCheck 或 Resolve"这一族约束。
 
-五人，门槛 3。五份区块各 2MB，代表源是 A。B、C、D、E 的全文本来就不在常开 Provenance 里，仍只走 opt-in 的 Uncertain。A 的原文若超过限额，这条 Decision 里不留下半截 JSON，只留下截断标记、长度和 SHA-256。
+仍然存在的两件事与本节无关,不要混淆:
 
-触发截断的字节上限没有数字，仍开放，不挡住阶段 0。不在这里补一个数。这是容量参数，不是字段标准。
+- **Uncertain 有自己的预算**(`internal/uncertain/capture.go` 的 1MiB 总额、64KiB 单项,
+  不可配置),超限时的行为是**保留前 N 字节并置 `Truncated`**,与本节撤销的策略相反。
+  它是 opt-in 的调用级捕获,不是本文件的证据通道。
+- **输入界限不变**,仍是现有的 JSON 限制(键数、深度、单条大小)。第 12 节"不把未测量的
+  字节上限或编码时限写进本文"继续成立。
+
+**为什么撤销**:这一节是为一个从未实现的通道写的。它的触发条件是"代表源原文超过限额",
+而保留原文这件事本身在功能域验伪里就被否掉了——域外字段的可见性已由 `Decision.Observed`
+以更强的方式承担(全部来源 × 全部路径 × quorum),单份原文是它的严格子集。为不存在的
+消费者定义容量参数,只会让后续读者以为存在一个待实现的配额。
 
 ### 14.7 WSS 上的缺失与 null
 
