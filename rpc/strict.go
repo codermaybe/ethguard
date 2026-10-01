@@ -87,19 +87,23 @@ func WithRuleCompareKind(kind string) StrictOption {
 	return func(s *strictConfig) { s.compareKind = kind }
 }
 
-// WithCanonicalValue attaches a scalar encoder at method assembly. It is not
+// WithCanonicalValue declares that the comparison key is the encoder's output,
+// so one method's clusters are decided by the bytes it will return. It is not
 // a registry. EncodeCheck runs before the single resolve; EncodeCommit writes
-// the canonical bytes. A nil encoder is not this option. A migrated scalar's
-// comparison key is those same bytes.
+// the same bytes, which makes the within-cluster encoding guard in finish
+// always true for such a method. A method that keeps a narrower key than its
+// value attaches its encoder with WithCanonicalObject instead.
 func WithCanonicalValue(encode CanonicalEncoder) StrictOption {
 	return func(s *strictConfig) { s.encode = encode }
 }
 
-// WithCanonicalObject attaches an object encoder at method assembly. It is not
-// a registry and it is not WithCanonicalValue: EncodeCheck still runs first,
-// but the comparison key stays the normalizer's key. EncodeCommit writes the
-// canonical object. eth_feeHistory, eth_getLogs, eth_createAccessList,
-// eth_getTransactionReceipt and eth_getBlockReceipts use it. A migrated scalar does not.
+// WithCanonicalObject declares that the comparison key stays the normalizer's,
+// which is what a method whose key is deliberately narrower than its value
+// needs: a block key states which block was read, not the whole body. It is
+// not a registry. EncodeCheck still runs first and a failure stays a Fault
+// inside the denominator, but the key is not the canonical bytes, so the
+// within-cluster encoding guard in finish still carries weight. It has no
+// production caller today, and block re-encoding is what it is reserved for.
 func WithCanonicalObject(encode CanonicalEncoder) StrictOption {
 	return func(s *strictConfig) { s.objectEncode = encode }
 }
@@ -232,6 +236,14 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 // within-cluster disagreement does not select another original and does not
 // vote again. Rejected-cluster disagreements are diagnostics only and do not
 // change the adjudication, membership, or denominator (design section 14.1).
+//
+// The guard below is always true for a method whose key is its canonical
+// bytes, because clustering on the key puts byte-equal values in one cluster;
+// it fires only for a method that keeps a narrower key than its value, such
+// as a block method wired with WithCanonicalObject. If it ever fires for a
+// WithCanonicalValue method, some path computed that method's key from
+// something other than its encoder, and the clusters were not decided by the
+// bytes being committed.
 func (f strictFunc) finish(decision Decision, err error, ranked []cluster) (Decision, error) {
 	if f.canonicalEncoder() == nil {
 		return decision, err
@@ -267,16 +279,17 @@ func encodingDiagnostic(cl cluster, err error) error {
 
 // cluster groups admissible answers and ranks the clusters by size, breaking
 // ties by key, so identical inputs always yield identical Support and Reject
-// regardless of arrival order or map iteration. A migrated scalar's key is
-// the canonical JSON from EncodeCheck. EncodeCommit writes those same bytes.
-// An object encoder does not take that branch: EncodeCheck still runs first
-// and a failure stays a Fault inside the denominator, but the key still comes
-// from the normalizer and EncodeCommit writes the object's own canonical
-// bytes. Unmigrated methods keep the normalizer key, including block
-// number|hash. The cluster's Value and Evidence both come from the first
-// supporter in the captured member order, which is the order of obs; when
-// that supporter has no evidence the cluster's evidence stays empty instead
-// of borrowing a later supporter's.
+// regardless of arrival order or map iteration. The key source is the
+// declaration made at assembly, not an inference: a method that declared
+// WithCanonicalValue clusters on the canonical JSON EncodeCheck produced, and
+// EncodeCommit writes those same bytes. A method that declared
+// WithCanonicalObject still runs EncodeCheck first and keeps a failure as a
+// Fault inside the denominator, but its key comes from the normalizer, and
+// EncodeCommit writes the value's own canonical bytes. Unmigrated methods keep
+// the normalizer key, including block number|hash. The cluster's Value and
+// Evidence both come from the first supporter in the captured member order,
+// which is the order of obs; when that supporter has no evidence the
+// cluster's evidence stays empty instead of borrowing a later supporter's.
 func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 	var faults []error
 	groups := make(map[string][]representativeCandidate)

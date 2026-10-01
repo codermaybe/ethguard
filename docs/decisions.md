@@ -1738,3 +1738,76 @@ and log-data values without projecting fields during admission.
 The method-rule index changes only this method's result
 to canonical. Fields outside the protected domain have no newly retained
 channel; that gap remains open.
+
+## 0047. One comparison key: the canonical bytes
+
+Status: Accepted (2026-10-01). `eth_feeHistory`, `eth_getLogs`,
+`eth_createAccessList`, `eth_getTransactionReceipt`, and
+`eth_getBlockReceipts`. Decisions 0042–0046 are amended as named below and
+otherwise stand.
+
+The comparison key of these five methods is the canonical result JSON itself.
+Each method moves from `WithCanonicalObject` to `WithCanonicalValue`, so
+`cluster()` takes the key from the encoder's output rather than from the
+normalizer's. Key and Value are one product instead of two: a disagreement is
+a disagreement about the bytes the caller will receive, not about an
+intermediate projection that may be coarser or stricter than what ships.
+A migrated scalar (0041) already clustered this way, so this extends the same
+rule to these five object results rather than introducing a new one.
+
+This supersedes exactly one sentence in each of the five prior decisions, the
+sentence that named the retained key:
+
+- 0042, "The comparison key stays the method's existing feeHistory key"
+- 0043, "The comparison key stays the method's existing `normalizeLogs` /
+  `PruneMethod`"
+- 0044, "The comparison key stays the method's existing `normalizeAccessList`
+  / …"
+- 0045, "The comparison key stays the method's existing
+  `normalizeReceiptObject` / …"
+- 0046, "The comparison key stays `normalizeBlockReceiptList` /
+  `PruneMethod`"
+
+Nothing else in 0042–0046 changes. Their protected field sets, canonical
+rules, the treatment of `from`, the section 4e projection, and their admission
+bindings all stand as written. `from` is now excluded from key and Value by
+construction rather than by a separate deletion step, because the encoders do
+not collect it; the observable result is the one 0045 and 0046 already
+specified. The normalizers themselves, and `Normalize`'s signature and
+semantics, are untouched: `usableAnswer`, the anchor validation paths, the
+pending path, and the public `Client.Normalize` all still call them, and
+`pending.go` still depends on `Normalize` failing softly where
+`CanonicalOf` fails hard.
+
+The block methods are the constraint that makes this safe to state. When
+`eth_getBlockByHash` and `eth_getBlockByNumber` are wired to an encoder, they
+attach it with `WithCanonicalObject` and keep their `number|hash`
+comparison key. A block key states which block was read, not the whole block
+body, and two sources that agree on the block identity are expected to differ
+in the body's vendor fields. Making the key the canonical bytes would split
+every such pair. So `WithCanonicalObject` stays, `cluster()` keeps reading
+`f.encode` rather than inferring the key source, and the encoding guard in
+`finish()` stays load-bearing for a method that needs it. A decision to move
+the block methods onto canonical bytes is a separate decision with its own
+argument about block bodies.
+
+Two obligations come with the change and are recorded here because the key is
+now the encoder's output.
+
+Classification equivalence. For any two payloads the cluster must be the same
+before and after, and the same as the encoder's own classification. The field
+sets are already equal to the protected field sets. The value normalizations
+are not identical in form, so each method is argued separately: the receipt
+encoders are stricter than `PruneMethod` on quantities, and the log, access
+list, and feeHistory encoders normalize the same values the same way.
+
+Acceptance-domain containment. Anything the encoder accepts, the normalizer
+must also accept, because `cluster()` stops calling the normalizer and the
+admission set would otherwise widen. Each normalizer's rejection surface is
+narrower than its encoder's, checked per method below.
+
+The consequence worth stating: because the key is computed only for payloads
+that were admitted and that passed EncodeCheck, the key never sees a payload
+the encoder rejected. The guard that used to be a second, independent
+classification is now the first one, and the normalizer is no longer part of
+the clustering path for these five methods.

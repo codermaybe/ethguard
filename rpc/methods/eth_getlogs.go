@@ -38,7 +38,7 @@ const MethodGetLogs = "eth_getLogs"
 func LogsPolicy(height rpc.AnchorHeightFunc, opts ...rpc.StrictOption) rpc.Policy {
 	// Validation wraps anchoring so a pending or malformed bound returns
 	// before WithAnchorHeightFields resolves a height.
-	anchored := rpc.WithAnchorHeightFields(height, 0, "fromBlock", "toBlock")(rpc.Strict(normalizeLogs, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalObject(log.Encode)}, opts...))...))
+	anchored := rpc.WithAnchorHeightFields(height, 0, "fromBlock", "toBlock")(rpc.Strict(normalizeLogs, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalValue(log.Encode)}, opts...))...))
 	return logsPolicy{Policy: anchored}
 }
 

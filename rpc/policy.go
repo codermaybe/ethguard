@@ -132,14 +132,12 @@ type LocalObservationPolicy interface {
 //
 // Result records whether this method writes a canonical result. It is
 // "canonical" or "raw". The index does not explain fields and does not
-// generate tests. Request handling does not read it. A canonical scalar
-// clusters on its canonical JSON. eth_feeHistory is canonical too, and
-// its comparison key stays the feeHistory key. eth_getLogs is canonical
-// too, and its comparison key stays the existing log key.
-// eth_createAccessList is canonical too, and its comparison key stays the
-// existing access-list key. eth_getTransactionReceipt is canonical too, and
-// its comparison key stays the existing receipt key. eth_getBlockReceipts uses
-// the existing array key. Both exclude from from the key and protected Value.
+// generate tests. Request handling does not read it. Where the key is the
+// canonical bytes, one method clusters on what it will return, so a canonical
+// scalar and a canonical object result read the same. A method may also keep a
+// deliberately narrower key, such as a block's number|hash, and then the
+// index says nothing about the key. The key source is readable from the
+// assembly, and the generated method-rule index does not need to restate it.
 type MethodRule struct {
 	Anchor      string
 	BlockRef    string

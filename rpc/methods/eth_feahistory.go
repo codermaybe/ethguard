@@ -30,7 +30,7 @@ const MethodFeeHistory = "eth_feeHistory"
 // differences fail closed as conflict. Pending resolves as a node-local
 // observation (decision 0035), never Corroborated through agreement.
 func FeeHistoryPolicy(height rpc.AnchorHeightFunc, opts ...rpc.StrictOption) rpc.Policy {
-	inner := feeHistoryPolicy{Policy: rpc.Strict(normalizeFeeHistory, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalObject(feehistory.Encode)}, opts...))...)}
+	inner := feeHistoryPolicy{Policy: rpc.Strict(normalizeFeeHistory, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalValue(feehistory.Encode)}, opts...))...)}
 	return PendingLocal(1)(rpc.WithAnchorHeight(height, 1)(inner))
 }
 

@@ -67,7 +67,7 @@
 
 | 术语 | 含义 |
 |---|---|
-| 比较键 | 方法用来分簇的键。EncodeCheck 之后才使用。数量和 DATA 的键就是规范编码；区块的键仍是 `number\|hash`。整段规范 JSON 不代替比较键 |
+| 比较键 | 方法用来分簇的键。EncodeCheck 之后才使用。数量和 DATA 的键就是规范编码；已迁移对象方法的键也是规范编码（0047）；区块的键仍是 `number\|hash`。整段规范 JSON 不代替比较键，刻意保留窄键的方法除外 |
 | 受保护结果域 | 方法声明返回、并且能被佐证覆盖的字段。构成见第 4 节 |
 | 规范编码 | 按第 5 节把受保护结果域写成确定的 JSON 字节 |
 | EncodeCheck | 裁决前，逐个来源回答：这份载荷能否在不改变原值的前提下编成规范字节。失败记 Fault |
@@ -186,17 +186,17 @@ EncodeCheck 属于准入的效果：单源无法给出不改变原值的规范�
 
 ### 6.2 比对用什么
 
-比对键仍然是方法自己的比较键，不是最终那一整段 JSON。
+比对键是方法自己的比较键。已迁移的方法，比较键就是那一整段规范 JSON（0047）；刻意保留窄键的方法维持自己的键。
 
 | 方法 | EncodeCheck | 比对 | EncodeCommit |
 |---|---|---|---|
 | 数量、成功的 DATA（chainId、balance、nonce、code、storage、成功的 eth_call 结果） | 规范编码就是比较键 | 比这份规范字节 | 同一份字节。三步看见的是同一结果 |
 | Median | 不能规范编码的数量先排除，不进入样本 | 在剩下的样本里按现有中位数规则取一次 | 把取中的那个数写成规范 QUANTITY。Status 维持 Selected，不因为编码一致升成 Corroborated（0012） |
-| feeHistory | 数量按 QUANTITY；`gasUsedRatio` 按第 5 节。比较键里的比例必须使用规范十进制，不再经 `[]float64` 把不同原值折成同一键 | 方法现有的 feeHistory 键，其中的比例已是规范十进制 | 获胜簇的规范对象。簇内字节不同则按 6.4 |
-| eth_getLogs | 掩码留下的字段按第 5 节。`log.Validate` 要求的字段缺失则失败。`blockTimestamp` 没有时省略 | 现有 `normalizeLogs` / `PruneMethod` 键，不是整段规范 JSON | 获胜簇的规范数组。簇内字节不同则按 6.4 |
-| eth_createAccessList | 掩码留下的 `accessList`、`error`、`gasUsed`。缺 `address` 或 `storageKeys` 则失败。`error` 和 `gasUsed` 没有时省略 | 现有 `normalizeAccessList` / `PruneMethod` 键，不是整段规范 JSON | 获胜簇的规范对象。簇内字节不同则按 6.4 |
-| eth_getTransactionReceipt | 比较键留下的收据字段，但 `from` 先从键中去掉，也不进 Value。缺必填字段或 `logsBloom` 与 logs 不一致则失败。`contractAddress`、`to`、blob 字段没有时省略 | 现有 `normalizeReceiptObject` / `PruneMethod` 键去掉 `from`，不是整段规范 JSON | 获胜簇的规范对象。JSON null 编码为 `null`。簇内字节不同则按 6.4 |
-| eth_getBlockReceipts | 复用收据编码规则，元素 null 或任一元素无效则整份来源失败，仍占分母；顺序保留 | 现有 `normalizeBlockReceiptList` / `PruneMethod` 键，从每项去掉 `from`，不是整段规范数组 JSON | 获胜簇规范数组；顶层 null 编为 `null`，空数组保留 `[]`。簇内字节不同则按 6.4 |
+| feeHistory | 数量按 QUANTITY；`gasUsedRatio` 按第 5 节。比较键里的比例必须使用规范十进制，不再经 `[]float64` 把不同原值折成同一键 | 规范编码 | 获胜簇的规范对象。簇内字节不同则按 6.4 |
+| eth_getLogs | 掩码留下的字段按第 5 节。`log.Validate` 要求的字段缺失则失败。`blockTimestamp` 没有时省略 | 规范编码 | 获胜簇的规范数组。簇内字节不同则按 6.4 |
+| eth_createAccessList | 掩码留下的 `accessList`、`error`、`gasUsed`。缺 `address` 或 `storageKeys` 则失败。`error` 和 `gasUsed` 没有时省略 | 规范编码 | 获胜簇的规范对象。簇内字节不同则按 6.4 |
+| eth_getTransactionReceipt | 比较键留下的收据字段，但 `from` 不进键也不进 Value。缺必填字段或 `logsBloom` 与 logs 不一致则失败。`contractAddress`、`to`、blob 字段没有时省略 | 规范编码 | 获胜簇的规范对象。JSON null 编码为 `null`。簇内字节不同则按 6.4 |
+| eth_getBlockReceipts | 复用收据编码规则，元素 null 或任一元素无效则整份来源失败，仍占分母；顺序保留 | 规范编码 | 获胜簇规范数组；顶层 null 编为 `null`，空数组保留 `[]`。簇内字节不同则按 6.4 |
 | eth_call 的 data 维度、区块 | 只回答受保护内容能不能编码。此时还不知道 4e 会不会扣下 data，也不在这里重做区块承诺 | data 维度或 `number\|hash` 维持现行键。不用整段最终 JSON 投票 | 裁决之后才生成最终字节。data 未达门槛时由编码器省略，不再用 `deleteObjectField` 重序列化 |
 | Local | 被选中的那一个来源能否编码 | 不改 Local 的选取 | 该来源的规范编码。Status 仍为 Selected |
 | Forward（未注册） | 无编码器 | 现状 | 保持原值，Status 为 Forwarded，不作受保护声明 |

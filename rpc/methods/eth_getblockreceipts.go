@@ -20,7 +20,7 @@ const MethodGetBlockReceipts = "eth_getBlockReceipts"
 // moving tags are rewritten to the corroborated reference. pending is rejected in
 // Prepare because this method has no stable pending-block receipt semantics.
 func BlockReceiptsPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	prepared := rpc.RejectPending(0)(rpc.WithAnchor(anchor, 0)(rpc.Strict(normalizeBlockReceiptList, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalObject(receipt.EncodeBlock)}, opts...))...)))
+	prepared := rpc.RejectPending(0)(rpc.WithAnchor(anchor, 0)(rpc.Strict(normalizeBlockReceiptList, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalValue(receipt.EncodeBlock)}, opts...))...)))
 	return policy.WithAdmission(prepared, admitBlockReceipts)
 }
 

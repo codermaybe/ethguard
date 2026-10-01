@@ -23,7 +23,7 @@ const MethodCreateAccessList = "eth_createAccessList"
 // call. Pending, including {blockNumber: pending}, resolves as a node-local
 // observation (decision 0035), never Corroborated through agreement.
 func CreateAccessListPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, normalizeAccessList, anchor, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalObject(accesslist.Encode)}, opts...))...)))
+	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.Anchored(1, normalizeAccessList, anchor, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalValue(accesslist.Encode)}, opts...))...)))
 }
 
 // normalizeAccessList reduces one access-list answer to its pruned comparison
