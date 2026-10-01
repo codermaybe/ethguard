@@ -112,7 +112,10 @@ type LocalObservationPolicy interface {
 // fills Resolver and CompareKind and is the end of the chain.
 //
 // The index is a read-only projection. Nothing in request handling reads it.
-// Allowed values, and no finer classification:
+// Allowed values, and no finer classification. That phrase bounds the
+// vocabulary of each column, not the key itself: the key's own internals are
+// not classified here, and the one fact about a key that is recorded is
+// where it came from.
 //
 //	Anchor:      "hash@<positions>", "height@<positions>",
 //	             "height@<pos>.<field>,<field>", empty renders "none"
@@ -120,6 +123,7 @@ type LocalObservationPolicy interface {
 //	Pending:     "local-observation", "local-reject", empty renders "none"
 //	Resolver:    "strict", "call-revert", "median", "local"
 //	CompareKind: "quantity", "object", "method-specific"
+//	KeySource:   "canonical-bytes", "normalizer", empty renders "none"
 //	Result:      "canonical", "raw"
 //
 // Pending is the layer's own pending semantics, not the presence of a
@@ -130,20 +134,30 @@ type LocalObservationPolicy interface {
 // CompareKind stays a coarse class. eth_call revert-data states and any
 // other comparison-key internals do not belong in the index.
 //
+// KeySource records where the comparison key comes from, not how the key is
+// built. The key source is a declaration read straight off the assembly, the
+// option the method was given, so it is a fact about the method rather than
+// an internal structure of its key. canonical-bytes means the key is the
+// encoder's output. normalizer means the key stays the normalizer's even
+// though an encoder is attached, which is how a method keeps a key narrower
+// than its value. Only Strict declares this column: median samples by number
+// without clustering, local does not cluster, and call-revert has a
+// multi-dimensional key, so none of them has one key source to report.
+//
 // Result records whether this method writes a canonical result. It is
 // "canonical" or "raw". The index does not explain fields and does not
 // generate tests. Request handling does not read it. Where the key is the
 // canonical bytes, one method clusters on what it will return, so a canonical
 // scalar and a canonical object result read the same. A method may also keep a
-// deliberately narrower key, such as a block's number|hash, and then the
-// index says nothing about the key. The key source is readable from the
-// assembly, and the generated method-rule index does not need to restate it.
+// deliberately narrower key, such as a block's number|hash, and then Result
+// still says canonical while KeySource says normalizer.
 type MethodRule struct {
 	Anchor      string
 	BlockRef    string
 	Pending     string
 	Resolver    string
 	CompareKind string
+	KeySource   string
 	Result      string
 }
 
@@ -155,6 +169,7 @@ func (rule MethodRule) WithInner(inner MethodRule) MethodRule {
 		Pending:     pickMethodRule(rule.Pending, inner.Pending),
 		Resolver:    pickMethodRule(rule.Resolver, inner.Resolver),
 		CompareKind: pickMethodRule(rule.CompareKind, inner.CompareKind),
+		KeySource:   pickMethodRule(rule.KeySource, inner.KeySource),
 		Result:      pickMethodRule(rule.Result, inner.Result),
 	}
 }
@@ -190,6 +205,8 @@ const (
 	RuleCompareQuantity         = "quantity"
 	RuleCompareObject           = "object"
 	RuleCompareMethodSpecific   = "method-specific"
+	RuleKeyCanonicalBytes       = "canonical-bytes"
+	RuleKeyNormalizer           = "normalizer"
 	RuleResultCanonical         = "canonical"
 	RuleResultRaw               = "raw"
 )

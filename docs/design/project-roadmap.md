@@ -53,7 +53,7 @@ T06.0、T06.1、Anchor Transport Seam、T06.2、T06.3、T06.4 和 T06.5 已验�
 
 - 0039 规则 4e 采用方案 (i)：返回已佐证的 revert 行为，未佐证的 data 通过删减式投影扣除，只在 Uncertain / 审计证据中保留原始字节。
 - dimension evidence 至少区分每个维度的 `Support`、`Reject` 和 `Abstain`，golden 同步记录删减字段。
-- `Decision.Value` 允许方法契约声明的删减式投影；禁止新增、替换或跨来源拼装字段。架构记录与 `rpc.Decision` 已按此修订：`eth_call` 的 revert `data` 已投影。未迁移且未声明投影的方法仍返回来源原值。已迁移的数量和成功 DATA 写规范编码。`eth_feeHistory` 写受保护字段的规范对象，比较键仍是 feeHistory 键。
+- `Decision.Value` 允许方法契约声明的删减式投影；禁止新增、替换或跨来源拼装字段。架构记录与 `rpc.Decision` 已按此修订：`eth_call` 的 revert `data` 已投影。未迁移且未声明投影的方法仍返回来源原值。已迁移的数量和成功 DATA 写规范编码。`eth_feeHistory` 写受保护字段的规范对象。已迁移对象方法的比较键按 0047 也是规范编码，即编码器的输出；刻意保留窄键的方法（区块重编码）维持自己的键。
 - Policy 组合和真实测试仍是执行事实；不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`（决策 0040）。
 - `rpc.RPCError` 已有 `Data`。冻结时的缺口是 `rpctest` 的原样 error-body，以及 `observationRPCError` 对缺失 / `null` 的保留。HTTP 上该缺口已由 T06.2 关闭；WSS 仍不能区分缺失和 `null`，限制记在 T06.2。
 
@@ -168,6 +168,8 @@ T06.5 读方法批次扩展      已验收，已提交：block-receipt-tx 与 ei
 
 规则只在 `return-value-design.md`。本节约执行顺序、范围和出口，不另写字段标准，也不把第 14 节展开成字段表。2026-09-27 起这一节优先于未捕获读方法的批次。
 
+本节各任务的状态行与正文记录的是各自验收当时的比较键。`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt`、`eth_getBlockReceipts` 五个方法的比较键已由 0047 改为规范编码，即编码器的输出；正文里「比较键仍是……键」的句子是当时的验收事实，按仓库惯例不改写，只以本行与各任务的行内指向为准。
+
 一次只开工一个已解除的任务。后一个任务在前一个出口核对通过之前不得改代码。每个任务单独提交。提交说明写变更摘要、`go test` 命令、失败路径、样本或 golden 变化、未解决风险。
 
 这些任务都不做：规范编码提前进 RV0、0041 提前于 RV0 出口、阶段 3a/3b 的实现、`from` 进域、给 Provenance 补字节上限、合成样本、把 `internal/rpcsample/probe/` 升成 golden 批次。BLS、sync committee、checkpoint 仍见暂不推进。
@@ -253,7 +255,7 @@ replay 仍以 `index.json` 的来源顺序为捕获顺序。三批 `expect.json`
 
 顺序沿用第 6.1 节：逐源 EncodeCheck，失败记 Fault，留在分母，不投票；再用通过者的 feeHistory 键做唯一一次 Resolve；最后 EncodeCommit。簇内规范对象字节不同则是 Unknown，`ErrMalformedResponse`，原因含 `result encoding disagrees within cluster`。不第二次投票。
 
-和 RV1 标量的差别必须保住。标量的分簇键仍是规范 JSON，回归由 `TestMigratedQuantityTieUsesCanonicalKey` 守住。`eth_feeHistory` 不得走那条「有编码器就把键换成规范 JSON」的分支。比较键继续来自 Normalize；Value 来自编码器，不从键反序列化再拼对象。
+和 RV1 标量的差别必须保住。标量的分簇键仍是规范 JSON，回归由 `TestMigratedQuantityTieUsesCanonicalKey` 守住。`eth_feeHistory` 不得走那条「有编码器就把键换成规范 JSON」的分支。此禁令由 0047 取代：五个方法的键就是规范 JSON，`eth_feeHistory` 在内。Value 仍来自编码器，不从键反序列化再拼对象，这一点未变。
 
 比例按第 5 节，用 `json.Number` 读十进制原文，输出 `strconv.FormatFloat(f, 'f', -1, 64)`：
 

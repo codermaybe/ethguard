@@ -1811,3 +1811,28 @@ that were admitted and that passed EncodeCheck, the key never sees a payload
 the encoder rejected. The guard that used to be a second, independent
 classification is now the first one, and the normalizer is no longer part of
 the clustering path for these five methods.
+
+### 0047 unresolved
+
+The block constraint is recorded but not yet tested against a real policy.
+0047 states that `eth_getBlockByHash` and `eth_getBlockByNumber` will attach an
+encoder with `WithCanonicalObject` and keep the `number|hash` key, and that is
+what makes the encoding guard in `finish()` worth keeping. No block method is
+wired to an encoder yet, so nothing exercises that constraint through a block
+policy; only `TestClusterKeySourceGuardrail` covers the mechanism, with a
+synthetic folding normalizer. Whoever wires block re-encoding must add a test
+that goes through the real block policy and shows a narrower key clustering
+two payloads that encode differently.
+
+The `KeySource` column is review friction, not an unbypassable guard. It holds
+because `TestMethodRulesMatchIndex` compares the generated table against the
+committed `method-rules.md` byte for byte, so changing the wiring without
+regenerating the table turns the test red. Someone who changes the wiring *and*
+regenerates the table in the same commit leaves it green, and the only thing
+left is the diff a reviewer reads. This column must not be described as
+guaranteeing that the wiring is correct.
+
+The resolve path has no committed benchmark. The roughly 54 percent figure
+recorded with 2b came from a throwaway benchmark that was not committed, so it
+cannot be reproduced from this repository. Benchmarking that path needs a
+decision about what to keep, not a number copied forward.

@@ -77,8 +77,8 @@ func feeHistory(oldest, ratio, reward string) string {
 // TestFeeHistoryRatioSpellingsShareOneCanonicalValue pins the decimal rule.
 // 0.5 and 0.50 are one cluster. Swapping capture order changes the
 // representative and leaves the canonical Value untouched. The comparison key
-// stays the feeHistory key: a field outside it does not split the cluster and
-// does not enter Value.
+// is the canonical bytes (0047): a field outside the protected domain does
+// not split the cluster and does not enter Value.
 func TestFeeHistoryRatioSpellingsShareOneCanonicalValue(t *testing.T) {
 	policy := FeeHistoryPolicy(func(context.Context) (uint64, error) { return 1, nil }, rpc.WithQuorum(1))
 	a := rpc.SourceRef{Name: "a", ID: "a"}

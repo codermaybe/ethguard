@@ -1,6 +1,6 @@
 # 返回值设计：受保护结果域与规范编码
 
-状态：阶段 0 已在 8aac099 验收。阶段 1 已在 48e2c64 验收，0041 只接入数量和成功 DATA：`rpc/result.go` 与 `rpc/internal/wire/encode.go`。0042 已在 dee2208 验收，只接入 `eth_feeHistory`。0043 已在 f8b4280 验收，只接入 `eth_getLogs`。0044 只接入 `eth_createAccessList`：比较键仍是现有的 `normalizeAccessList` / `PruneMethod` 结果，不是整段规范 JSON；Value 是掩码留下的 access list 字段的规范对象，编码器在 `rpc/internal/objects/accesslist/encode.go`。0045 只接入 `eth_getTransactionReceipt`：比较键仍是现有的 `normalizeReceiptObject` / `PruneMethod` 结果，不是整段规范 JSON；Value 是受保护收据字段的规范对象，`from` 不进 Value，编码器在 `rpc/internal/objects/receipt/encode.go`。0046 只接入 `eth_getBlockReceipts`：比较键仍是 `normalizeBlockReceiptList` / `PruneMethod`，从每项去掉 `from`；Value 复用收据编码器生成规范数组，顶层 null 与空数组保持区别。共享收据准入解析先解 JSON 字符串转义，以 UseNumber 保留数字，再做 geth 验证；源原文和受保护域不变。交易、eth_call 信封和区块重编码仍不实现。执行顺序、任务出口和核对清单只写在 `project-roadmap.md` 的「返回值框架」；本文不另写一套任务。
+状态：阶段 0 已在 8aac099 验收。阶段 1 已在 48e2c64 验收，0041 只接入数量和成功 DATA：`rpc/result.go` 与 `rpc/internal/wire/encode.go`。0042 已在 dee2208 验收，只接入 `eth_feeHistory`。0043 已在 f8b4280 验收，只接入 `eth_getLogs`。0044 只接入 `eth_createAccessList`：Value 是掩码留下的 access list 字段的规范对象，编码器在 `rpc/internal/objects/accesslist/encode.go`。0045 只接入 `eth_getTransactionReceipt`：Value 是受保护收据字段的规范对象，`from` 不进 Value，编码器在 `rpc/internal/objects/receipt/encode.go`。0046 只接入 `eth_getBlockReceipts`：Value 复用收据编码器生成规范数组，顶层 null 与空数组保持区别。这五个方法的比较键按 0047 改为规范编码，即编码器的输出；受保护字段集与 canonical 规则不变。共享收据准入解析先解 JSON 字符串转义，以 UseNumber 保留数字，再做 geth 验证；源原文和受保护域不变。交易、eth_call 信封和区块重编码仍不实现。执行顺序、任务出口和核对清单只写在 `project-roadmap.md` 的「返回值框架」；本文不另写一套任务。
 
 2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据，不再标成不定档。第 13 节仍只是外部意见对照。阶段 3a、3b 的方向已锁，阶段 0 不实现，也不据此给每个字段另写标准。
 
@@ -16,7 +16,7 @@
 
 ## 1. 结论
 
-下面第 1 点到第 8 点是规范编码全部落地后的结论。阶段 0 已完成，没有把全部方法改成规范编码。阶段 1 只让数量和成功 DATA 的 Value 变成规范编码。0042 再让 `eth_feeHistory` 的 Value 变成受保护字段的规范对象，比较键仍是 feeHistory 键。0043 再让 `eth_getLogs` 的 Value 变成掩码留下的日志字段的规范数组，比较键仍是现有日志键。0044 再让 `eth_createAccessList` 的 Value 变成掩码留下的 access list 字段的规范对象，比较键仍是现有 access-list 键。0045 再让 `eth_getTransactionReceipt` 的 Value 变成受保护收据字段的规范对象，比较键仍是现有收据键，`from` 不进 Value。0046 再让 `eth_getBlockReceipts` 的 Value 变成规范收据数组，比较键仍是现有数组键，每项 `from` 排除。其余未迁移方法的 Value 仍是代表源原文。阶段 0 做的是：代表源改成捕获顺序第一个；Value、Evidence、Withheld 与这个来源同源；StrictHeadAnchor 发出的区块 hash 改成小写。见第 7 节和第 11 节。
+下面第 1 点到第 8 点是规范编码全部落地后的结论。阶段 0 已完成，没有把全部方法改成规范编码。阶段 1 只让数量和成功 DATA 的 Value 变成规范编码。0042 再让 `eth_feeHistory` 的 Value 变成受保护字段的规范对象。0043 再让 `eth_getLogs` 的 Value 变成掩码留下的日志字段的规范数组。0044 再让 `eth_createAccessList` 的 Value 变成掩码留下的 access list 字段的规范对象。0045 再让 `eth_getTransactionReceipt` 的 Value 变成受保护收据字段的规范对象，`from` 不进 Value。0046 再让 `eth_getBlockReceipts` 的 Value 变成规范收据数组，每项 `from` 排除。0047 再把这五个方法的比较键改为规范编码，键与 Value 成为一个产物；`from` 不在键里是构造使然，因为编码器不收它。其余未迁移方法的 Value 仍是代表源原文。阶段 0 做的是：代表源改成捕获顺序第一个；Value、Evidence、Withheld 与这个来源同源；StrictHeadAnchor 发出的区块 hash 改成小写。见第 7 节和第 11 节。
 
 1. `Decision.Value` 对已注册方法只表示受保护结果，不再同时充当来源原文。
 2. 受保护结果按方法定义为受保护结果域。Value 是该域的确定性规范编码。
@@ -303,7 +303,7 @@ aggregator
 - aggregator 了解某个方法的字段语义；
 - 每个方法复制一套 Resolve、Provenance 或 evidence 类型。
 
-比较键继续用现有的 `normalize.go` 和 `prune.go`。`prune.go` 不做序列化器。对象编码和准入共用同一个 typed 模型。派生字段只在编码器里计算一次，typed 层只解码 Value。
+比较键继续用现有的 `normalize.go` 和 `prune.go`，但只对未迁移方法与刻意保留窄键的方法成立；已迁移方法的键是编码器的输出（0047），`usableAnswer`、锚定校验与 pending 路径仍走 normalizer，所以 `normalize.go` 没有被取代。`prune.go` 不做序列化器。对象编码和准入共用同一个 typed 模型。派生字段只在编码器里计算一次，typed 层只解码 Value。
 
 新增文件限于 `rpc/result.go`、`wire/encode.go`，以及每个需要编码的对象 slice 一个 `encode.go`。再往外拆之前先检查是不是越界。
 

@@ -133,11 +133,11 @@ func TestMigratedEncodersAreDeterministic(t *testing.T) {
 		encode func(json.RawMessage) (json.RawMessage, error)
 		value  json.RawMessage
 	}{
-		"receipt":      {receiptobj.Encode, receipt},
+		"receipt":       {receiptobj.Encode, receipt},
 		"blockReceipts": {receiptobj.EncodeBlock, receiptArray(t, receipt)},
-		"logs":         {logobj.Encode, json.RawMessage("[" + logEntry("0x0000000000000000000000000000000000000001", "0x00ff", "0xa", "false", `"mark":1,"vendor":"0xFF"`) + "]")},
-		"accessList":   {accesslistobj.Encode, json.RawMessage(`{"accessList":[{"storageKeys":["` + accessKey + `","` + accessKeyTwo + `"],"address":"` + accessAddress + `"}],"error":"reverted","gasUsed":"0x5208","mark":1,"vendor":"0xFF"}`)},
-		"feeHistory":   {feehistoryobj.Encode, json.RawMessage(feeHistory("0xa", "0.5", "0x10"))},
+		"logs":          {logobj.Encode, json.RawMessage("[" + logEntry("0x0000000000000000000000000000000000000001", "0x00ff", "0xa", "false", `"mark":1,"vendor":"0xFF"`) + "]")},
+		"accessList":    {accesslistobj.Encode, json.RawMessage(`{"accessList":[{"storageKeys":["` + accessKey + `","` + accessKeyTwo + `"],"address":"` + accessAddress + `"}],"error":"reverted","gasUsed":"0x5208","mark":1,"vendor":"0xFF"}`)},
+		"feeHistory":    {feehistoryobj.Encode, json.RawMessage(feeHistory("0xa", "0.5", "0x10"))},
 	}
 	for name, item := range cases {
 		t.Run(name, func(t *testing.T) {

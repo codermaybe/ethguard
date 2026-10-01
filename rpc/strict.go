@@ -155,8 +155,19 @@ func (f strictFunc) IncludeRPCError() bool { return f.includeRPCError }
 
 // MethodRule reports strict resolution and the coarse comparison-key class
 // supplied at construction. It does not participate in request handling.
+// KeySource reads the same declaration cluster() reads: WithCanonicalValue
+// means the key is this encoder's output, and WithCanonicalObject means the
+// key stays the normalizer's. Only this resolver declares the column, so a
+// median, local, or call-revert method leaves it empty and renders as none.
 func (f strictFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind, Result: resultRule(f.canonicalEncoder())}, nil
+	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind, KeySource: f.keySource(), Result: resultRule(f.canonicalEncoder())}, nil
+}
+
+func (f strictFunc) keySource() string {
+	if f.encode != nil {
+		return RuleKeyCanonicalBytes
+	}
+	return ""
 }
 
 func (f strictFunc) canonicalEncoder() CanonicalEncoder {

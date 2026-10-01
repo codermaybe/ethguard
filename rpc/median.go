@@ -141,6 +141,14 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 	if f.encode == nil {
 		return decision, nil
 	}
+	// This check holds because equal is selected by number, above, and the
+	// encoder is a function of that number alone, so every member of equal
+	// encodes to the same bytes. The five median methods satisfy it: all of
+	// them attach WithMedianCanonical(wire.EncodeQuantity), which renders a
+	// quantity and depends on nothing else in the payload. If a median method
+	// ever attached an encoder that is not a function of the number alone, this
+	// check would start rejecting a result it used to commit, and the guard
+	// would carry the weight again.
 	canonical := make([]json.RawMessage, len(equal))
 	for i, candidate := range equal {
 		canonical[i] = append(json.RawMessage(nil), candidate.canonical...)

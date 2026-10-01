@@ -202,16 +202,17 @@ func renderMethodRules(rows []methodRuleRow) string {
 	var b strings.Builder
 	b.WriteString("由 TestMethodRulesMatchIndex 生成，勿手动编辑。\n")
 	b.WriteString("\n")
-	b.WriteString("| 方法 | 锚定 | 区块引用形态 | pending 处理 | resolver | 比较键种类 | result |\n")
-	b.WriteString("| --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| 方法 | 锚定 | 区块引用形态 | pending 处理 | resolver | 比较键种类 | 键来源 | result |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, row := range rows {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
 			row.Method,
 			ruleOrNone(row.Rule.Anchor),
 			ruleOrNone(row.Rule.BlockRef),
 			ruleOrNone(row.Rule.Pending),
 			row.Rule.Resolver,
 			row.Rule.CompareKind,
+			ruleOrNone(row.Rule.KeySource),
 			row.Rule.Result,
 		)
 	}
