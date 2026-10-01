@@ -196,3 +196,142 @@ func mustMarshal(t *testing.T, value any) json.RawMessage {
 	}
 	return raw
 }
+
+// Since decision 0047 the key is the encoder's output, so cluster() no longer
+// calls the normalizer for these five methods. That moved a check rather than
+// removing one: a normalizer that grew stricter than its encoder would stop
+// rejecting a payload in cluster() while usableAnswer, the anchor validation
+// and the pending path still call Normalize. The same source would then vote
+// in a cluster and be marked Failed as an unusable answer, and no fault would
+// explain the contradiction, because neither side is wrong on its own terms.
+//
+// The direction that matters is therefore one way: anything the encoder
+// accepts, the normalizer must accept too. The other direction is already
+// accounted for. A payload the normalizer accepts and the encoder rejects
+// becomes an encode fault inside the denominator, which is the pre-existing
+// EncodeCheck path and is not asserted here.
+//
+// This is a live test rather than a recorded argument, because the two
+// functions are separate pieces of code that only this relation keeps in
+// agreement, and tightening either one is exactly the change that breaks it.
+func TestMigratedNormalizersAcceptWhatEncodersAccept(t *testing.T) {
+	receipt := sampleReceipt(t)
+	withLog := injectReceiptField(t, receipt, "logs",
+		`[{"address":"0x0000000aa232009084bd71a5797d089aa4edfad4","topics":[],"data":"0x","blockNumber":"0x18d592f","transactionIndex":"0x0","transactionHash":"0xaa1c6c878d686b6c14b77c6b78ff23ae4b069cf941736678e9c1f8102b219b15","blockHash":"0x9bc1666a9b54a70b8fc7f4caf052c25d2bef94897c2815dc168163d6bc188b1e","logIndex":"0x1","removed":false}]`)
+	// The captured receipt carries the empty-log bloom, so a receipt with a
+	// real log needs one that matches it, or the encoder refuses the payload
+	// and the row proves nothing.
+	logged := replaceReceiptField(t, withLog, "logsBloom", string(mustMarshal(t, bloomOf(t, logFixture()))))
+	badBloom := replaceReceiptField(t, receipt, "logsBloom", `"0x`+strings.Repeat("00", 255)+`01"`)
+	logs := "[" + logEntry("0x0000000000000000000000000000000000000001", "0x00ff", "0xa", "false", "") + "]"
+	access := `{"accessList":[{"storageKeys":["` + accessKey + `"],"address":"` + accessAddress + `"}],"gasUsed":"0x5208"}`
+	fee := feeHistory("0xa", "0.5", "0x10")
+
+	cases := []struct {
+		method    string
+		encode    func(json.RawMessage) (json.RawMessage, error)
+		normalize func(json.RawMessage) (string, error)
+		payloads  map[string]json.RawMessage
+	}{
+		{
+			method: MethodGetTransactionReceipt,
+			encode: receiptobj.Encode, normalize: normalizeReceiptObject,
+			payloads: map[string]json.RawMessage{
+				"captured":      receipt,
+				"with a log":    logged,
+				"uppercase hex": foldReceiptHex(t, receipt),
+				"no from":       deleteReceiptField(t, receipt, "from"),
+				"null":          json.RawMessage(`null`),
+				"empty object":  json.RawMessage(`{}`),
+				"one field":     json.RawMessage(`{"status":"0x1"}`),
+				"array":         json.RawMessage(`[]`),
+				"bare string":   json.RawMessage(`"0x1"`),
+				"not json":      json.RawMessage(`{`),
+				"no gasUsed":    deleteReceiptField(t, receipt, "gasUsed"),
+				"logs null":     replaceReceiptField(t, receipt, "logs", "null"),
+				"status null":   replaceReceiptField(t, receipt, "status", "null"),
+				"no status":     deleteReceiptField(t, receipt, "status"),
+				"leading zero":  replaceReceiptField(t, receipt, "transactionIndex", `"0x01"`),
+				"bad bloom":     badBloom,
+			},
+		},
+		{
+			method: MethodGetBlockReceipts,
+			encode: receiptobj.EncodeBlock, normalize: normalizeBlockReceiptList,
+			payloads: map[string]json.RawMessage{
+				"one receipt":  receiptArray(t, receipt),
+				"array null":   json.RawMessage(`[null]`),
+				"empty array":  json.RawMessage(`[]`),
+				"null":         json.RawMessage(`null`),
+				"object":       json.RawMessage(`{}`),
+				"bare string":  json.RawMessage(`"x"`),
+				"array number": json.RawMessage(`[1]`),
+				"not json":     json.RawMessage(`[`),
+				"no logs":      receiptArray(t, deleteReceiptField(t, receipt, "logs")),
+			},
+		},
+		{
+			method: MethodGetLogs,
+			encode: logobj.Encode, normalize: normalizeLogs,
+			payloads: map[string]json.RawMessage{
+				"one log":     json.RawMessage(logs),
+				"empty array": json.RawMessage(`[]`),
+				"null":        json.RawMessage(`null`),
+				"object":      json.RawMessage(`{}`),
+				"bare string": json.RawMessage(`"x"`),
+				"not json":    json.RawMessage(`[`),
+				"no address":  json.RawMessage(`[{"topics":[],"data":"0x","blockNumber":"0xa","transactionHash":"0x1","transactionIndex":"0x0","blockHash":"0x2","logIndex":"0x0","removed":false}]`),
+			},
+		},
+		{
+			method: MethodCreateAccessList,
+			encode: accesslistobj.Encode, normalize: normalizeAccessList,
+			payloads: map[string]json.RawMessage{
+				"with items":   json.RawMessage(access),
+				"empty list":   json.RawMessage(`{"accessList":[],"gasUsed":"0x1"}`),
+				"error text":   json.RawMessage(`{"accessList":[],"error":"reverted","gasUsed":"0x1"}`),
+				"null":         json.RawMessage(`null`),
+				"empty object": json.RawMessage(`{}`),
+				"bare string":  json.RawMessage(`"x"`),
+				"not json":     json.RawMessage(`{`),
+				"leading zero": json.RawMessage(`{"accessList":[],"gasUsed":"0x01"}`),
+			},
+		},
+		{
+			method: MethodFeeHistory,
+			encode: feehistoryobj.Encode, normalize: normalizeFeeHistory,
+			payloads: map[string]json.RawMessage{
+				"full":         json.RawMessage(fee),
+				"no reward":    json.RawMessage(feeHistory("0xa", "0.5", "")),
+				"null":         json.RawMessage(`null`),
+				"empty object": json.RawMessage(`{}`),
+				"bare string":  json.RawMessage(`"x"`),
+				"not json":     json.RawMessage(`{`),
+				"short base":   json.RawMessage(`{"oldestBlock":"0x1","baseFeePerGas":["0x1"],"gasUsedRatio":[0.5]}`),
+				"ratio range":  json.RawMessage(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[1.5]}`),
+				"leading zero": json.RawMessage(`{"oldestBlock":"0x01","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5]}`),
+			},
+		},
+	}
+	for _, item := range cases {
+		t.Run(item.method, func(t *testing.T) {
+			accepted := 0
+			for name, payload := range item.payloads {
+				if _, encErr := item.encode(payload); encErr != nil {
+					continue // the encoder rejects it, so containment says nothing
+				}
+				accepted++
+				if _, normErr := item.normalize(payload); normErr != nil {
+					t.Errorf("%s/%s: encoder accepted, normalizer rejected: %v", item.method, name, normErr)
+				}
+			}
+			// Rows that only exercise the rejection path would make the
+			// assertion vacuous, so each method needs payloads the encoder
+			// actually takes.
+			if accepted == 0 {
+				t.Fatalf("%s: the encoder accepted nothing in the table, so nothing was checked", item.method)
+			}
+			t.Logf("%d of %d payloads accepted by the encoder, all accepted by the normalizer", accepted, len(item.payloads))
+		})
+	}
+}

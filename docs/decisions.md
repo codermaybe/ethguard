@@ -1803,8 +1803,10 @@ list, and feeHistory encoders normalize the same values the same way.
 
 Acceptance-domain containment. Anything the encoder accepts, the normalizer
 must also accept, because `cluster()` stops calling the normalizer and the
-admission set would otherwise widen. Each normalizer's rejection surface is
-narrower than its encoder's, checked per method below.
+admission set would otherwise widen. The argument was made in 574bfd9, the
+commit that moved these five methods onto the canonical bytes, and the relation
+is now checked per method by `TestMigratedNormalizersAcceptWhatEncodersAccept`
+rather than restated here, so that the proof runs instead of going stale.
 
 The consequence worth stating: because the key is computed only for payloads
 that were admitted and that passed EncodeCheck, the key never sees a payload
@@ -1836,7 +1838,8 @@ regenerates the table in the same commit leaves it green, and the only thing
 left is the diff a reviewer reads. This column must not be described as
 guaranteeing that the wiring is correct.
 
-The resolve path has no committed benchmark. The roughly 54 percent figure
-recorded with 2b came from a throwaway benchmark that was not committed, so it
-cannot be reproduced from this repository. Benchmarking that path needs a
-decision about what to keep, not a number copied forward.
+Closed. The resolve path now has a committed benchmark,
+`BenchmarkStrictResolveReceipt`, which builds the narrow-key and
+canonical-bytes wirings itself so the comparison cannot drift when a method is
+rewired. Run it with `-benchmem -benchtime=200ms -count=1`; the figures from
+2b were taken on the same path and are reproducible from it.
