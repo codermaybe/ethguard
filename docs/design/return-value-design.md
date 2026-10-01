@@ -4,7 +4,7 @@
 
 2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据，不再标成不定档。第 13 节仍只是外部意见对照。阶段 3a、3b 的方向已锁，阶段 0 不实现，也不据此给每个字段另写标准。
 
-仍开放、且不挡住阶段 0 的只有一项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。原先并列的「Provenance 字节上限没有数字」随代表源 Raw 一起撤销，见第 14.6 节。
+仍开放、且不挡住阶段 0 的只有一项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。原先并列的「Provenance 字节上限没有数字」随代表源 Raw 一起撤销，见第 14.6 节与决策 0048。
 
 未迁移对象的 Value 仍是某一份原始载荷（4e 删减除外）。`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码。`eth_feeHistory` 的 Value 是受保护字段的规范对象，键外字段不进 Value。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组，掩码外字段不进 Value。`eth_createAccessList` 的 Value 是掩码留下的 access list 字段的规范对象，掩码外字段不进 Value。`eth_getTransactionReceipt` 的 Value 是受保护收据字段的规范对象，`from` 不进 Value。`eth_getBlockReceipts` 的 Value 是相同字段模型的规范数组，每项 `from` 不进 Value，顶层 null 与空数组分别保留。这不表示区块已经语义安全：那些字段要到阶段 3b 才从区块 Value 去掉。
 
@@ -24,8 +24,8 @@
 4. 执行顺序是：逐源 EncodeCheck，通过后才按方法自己的比较键分簇，以本轮固定分母裁决一次，再提交规范 Value。编码失败记 Fault、不贡献支持，但来源仍留在分母里。这里的「裁决一次」不表示先调用代码中的 `Resolve` 再编码：当前 Strict 的 `Resolve` / `ResolveCorroborated` 入口内部包含编码、分簇、裁决和提交。
 5. 获胜簇内每个支持源的规范字节必须相同。不相同是比较键太窄或编码器越界，是代码缺陷，不是来源分歧。
 6. 逐字节相等是必要条件，不是充分条件。编码器不能靠删掉应受保护的字段来制造相等。字段表、变异测试和往返测试负责补上这一层。
-7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。该通道不保留代表源 Raw，也不设字节上限：域外字段的可见性由 `Decision.Observed` 承担，它覆盖全部来源的全部路径并带 quorum，比单份原文信息更多。口径见第 6.5 节。
-8. 第 14 节是已锁定口径。它不给每个字段另写标准。code 与 message 不再对外暴露，随 `eth_call` 的信封一起留在受保护结果之外；区块 Value 只收已经核对过承诺的内容，`from` 默认留在域外。为什么不改成胜者原文透传，也不再加一层最终响应投影，见第 13 节。仍开放、且不挡住阶段 0 的，只有 `from` 的测量后归属。
+7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。该通道不保留代表源 Raw，也不设字节上限：域外字段的可见性由 `Decision.Observed` 承担，它不存在的三种情况见第 6.5 节（0048）。
+8. 第 14 节是已锁定口径，0048 修订了其中的 14.2、14.3、14.6。它不给每个字段另写标准。code 与 message 在阶段 3a 之后不再对外暴露，随 `eth_call` 的信封一起留在受保护结果之外；区块 Value 只收已经核对过承诺的内容，`from` 默认留在域外。为什么不改成胜者原文透传，也不再加一层最终响应投影，见第 13 节。仍开放、且不挡住阶段 0 的，只有 `from` 的测量后归属。
 
 ## 2. 事实前提
 
@@ -97,7 +97,7 @@
 字段在比较键里？                         → 进域
 不在，但被请求绑定或已验证承诺约束？     → 进域
 不在，但能由域内内容按公开规则派生？     → 进域（本地计算，不取来源给出的值）
-都不是                                   → 域外：Extensions / Raw / Uncertain
+都不是                                   → 域外：Extensions / Observed / Uncertain
 ```
 
 到第四步就停。不为这个字段再写一条专用标准，也不把第 14 节变成字段登记表。方法契约可以记下某个字段走了哪一步，那是编码器测试的依据，不是第二份标准。下一个字段若这四步已经能判定，就不要再开一节。
@@ -234,9 +234,9 @@ Withheld         4e 扣下的字节
 
 Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。
 
-这个通道里**没有代表源原文**。域外字段的可见性由 `Decision.Observed` 承担：它对每个路径给出全部来源的取值、按 quorum 分成 `Common`/`Residuals`/`Conflicts`，是一份比单份原文信息更多的视图。已迁移方法不保留 Raw，也不设字节上限；超限、截断标记、原始长度与 SHA-256 这些口径随 Raw 一起不存在。
+这个通道里**没有代表源原文**（决策 0048）。域外字段的可见性由 `Decision.Observed` 承担：它对每个路径给出全部来源的取值、按 quorum 分成 `Common`/`Residuals`/`Conflicts`。它在三种情况下不存在：Forwarded 模式、`AggregateFields` 失败、绕过 Aggregator 直接调用 `Policy.Resolve`；这时域外字段不可见。已迁移方法不保留 Raw，也不设字节上限。
 
-`eth_call` 的 `RevertError` 不再暴露 `Code` 与 `Message`。它们是捕获顺序第一个人的 provider 写法，没有佐证，`ErrorCode()` 还会让调用方误以为那是 geth 的语义码。`Data` 与 `DataRaw` 保留，它们来自受保护结果。
+`eth_call` 的 `RevertError.Code` 与 `Message` 是捕获顺序第一个人的 provider 写法，没有佐证。阶段 3a 之后不再暴露，`ErrorCode()` 随之删除，作为一次记录在案的 API 破坏（0048）；当前代码仍保留它们。`Data` 与 `DataRaw` 保留，它们来自受保护结果。
 
 Provenance 不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获（0034），保留前 N 字节的策略与本通道无关，两者互不知情。`Decision.Evidence` 在迁移期作为别名，语义收窄为准入证据。
 
@@ -246,7 +246,7 @@ Provenance 不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获�
 |---|---|---|
 | `Value` | 某一个来源的原始字节；4e 时是删减后的重序列化 | 受保护结果域的规范编码 |
 | `Evidence` | 准入证据加 4e 扣下的字节，可以和 Value 不同源 | 语义收窄为准入证据，与代表源同源；通道不再保留代表源原文 |
-| `Extensions` | 指纹依赖代表源拼写 | 指纹取规范 Value；域外字段是 Raw 相对 Value 的路径差集 |
+| `Extensions` | 指纹依赖代表源拼写 | 指纹取规范 Value；域外字段由 `Observed` 相对 Value 归类 |
 | `DeletedFields` | 4e 删除的字段 | 保留，语义不变 |
 | `Representative` | 没有这个字段。Strict、CallRevert 在簇内取最后一人，Median 取等值样本里的第一个，而且可以和 Evidence 不同源 | 阶段 0 起就写入：Strict、CallRevert、Median 在带出获胜簇 Value 时记下捕获顺序第一人。Local 与 Forward 保持零值。规范编码落地后这个人只标审计锚点 |
 
@@ -263,7 +263,7 @@ Provenance 不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获�
 - Strict、CallRevert、Median 共用 `rpc.representative`。Local 的“第一个健康源”保持为选取策略。Forward 不选代表源。
 - 它替换 `cluster` 的 map 覆盖、`call_revert.representative`，以及 Median 里各自的选法。
 
-代表源、Raw、准入证据、Withheld 四者同源。代表源的准入证据为空时就保持空，不得改用簇内后一个来源的证据。测试若要证明“输入任意重排，规范 Value 仍相同”，必须显式重排后断言编码，不能借机改掉生产中的成员优先级。
+代表源、准入证据、Withheld 三者同源。代表源的准入证据为空时就保持空，不得改用簇内后一个来源的证据。测试若要证明“输入任意重排，规范 Value 仍相同”，必须显式重排后断言编码，不能借机改掉生产中的成员优先级。
 
 阶段 0 不改「Value 取哪一簇」，只把该簇内部从最后一人改成捕获顺序第一人。`eth_call` 的 4e 仍按现实现选簇：data 有具体值时，Value 来自 data 排名第一的那一簇（人数多的在前，人数相同再按键排序）；这一簇没达到门槛时，仍用它的信封，再删掉 data。全部在 data 上弃权时，才用执行簇。代表源是这一簇的第一人。Withheld 只放这一人扣下的 data，不收集其他来源的 data。
 
@@ -436,12 +436,12 @@ eRPC 用语义键分簇，达到门槛后返回获胜簇里一份上游原文，
 
 口径：做法甲，已锁定。code 与 message 不进受保护域，也不按 geth 规则合成信封。做法乙（合成固定信封）不是未决项。要改成乙必须另立决策，不能在实现时选择。
 
-Raw、Admission、Withheld 与代表源是同一个来源。两段时期不要写成同一句：
+Admission、Withheld 与代表源是同一个来源。两段时期不要写成同一句：
 
 - 成功 DATA 的 Value 已是规范编码，不含 `ok|`。revert 的 Value 仍是这个人的整份原文（4e 删减除外），所以 code 与 message 还在 revert 的 Value 里。下面例子里，顺序 A、B、C 时 Value 的 code 是 A 的 3；换成 B、A、C 时变成 B 的 -32000。这是选源结果，不是又一个未决项。
-- 阶段 3a 之后：Value 是受保护域的规范字节。簇内规范字节已经相等，代表源不再决定 Value。code 与 message 只留在这个人的 Raw 上。
+- 阶段 3a 之后：Value 是受保护域的规范字节。簇内规范字节已经相等，代表源不再决定 Value。code 与 message 不再对外暴露（0048）。
 
-三人，门槛 2。三份都是 revert，data 都是 `0xdead`，data 达到门槛。A 的 code 是 3，message 是 `execution reverted`。B 的 code 是 -32000，message 是 `execution reverted: revert`。阶段 3a 之后，Value 是 revert 加 data `0xdead`，两种捕获顺序下逐字节相同。顺序 A、B、C 时，代表源 Raw 上是 A 的 3 和 `execution reverted`；改成 B、A、C 时，Raw 上变成 B 的 -32000 和 B 的句子。阶段 3a 之前，revert 的 Value 仍是代表源整份原文，code 与 message 随第一人改变。成功结果不是这句：它的 Value 已是规范 DATA。
+三人，门槛 2。三份都是 revert，data 都是 `0xdead`，data 达到门槛。A 的 code 是 3，message 是 `execution reverted`。B 的 code 是 -32000，message 是 `execution reverted: revert`。阶段 3a 之后，Value 是 revert 加 data `0xdead`，两种捕获顺序下逐字节相同。两人的 code 与 message 都不进 Value，也不对外暴露（0048）。阶段 3a 之前，revert 的 Value 仍是代表源整份原文，code 与 message 随第一人改变。成功结果不是这句：它的 Value 已是规范 DATA。
 
 data 未达门槛时，阶段 0 的 4e 仍用代表源信封，再删掉 data。code 与 message 还在这份 Value 里。不从别的来源补 data，也不合成 message。阶段 3a 才改为由编码器省略 data，并且 code 与 message 不进入 Value。
 
@@ -451,11 +451,11 @@ data 未达门槛时，阶段 0 的 4e 仍用代表源信封，再删掉 data。
 
 口径有两句。重编码方向已锁，阶段 0 不实现。`from` 测量之后的归属仍开放。
 
-区块 Value 按做法乙重编码。只收第 4.1 节已经写过的、准入核对过承诺的内容：头受 header hash 约束，交易签名内容受交易根约束，withdrawals 受 withdrawals root 约束，uncle 受 uncle hash 约束。不另列一份根字段清单。`size`、`totalDifficulty` 和厂商字段不进 Value，留在代表源 Raw 相对 Value 的差集里。
+区块 Value 按做法乙重编码。只收第 4.1 节已经写过的、准入核对过承诺的内容：头受 header hash 约束，交易签名内容受交易根约束，withdrawals 受 withdrawals root 约束，uncle 受 uncle hash 约束。不另列一份根字段清单。`size`、`totalDifficulty` 和厂商字段不进 Value，只经 `Observed` 可见，由 Extensions 归类。
 
 重编码落地之后：三人，门槛 2。三份的 `number|hash` 相同，捕获顺序 A、B、C，代表源是 A。A 的 `size` 是 `0x100`，B 的 `size` 是 `0x200`。比较键不分叉。Corroborated 的 Value 里没有这两份 `size`，也没有只在 A 上出现的 `totalDifficulty`。区块重编码还没有做，那两份 `size` 仍留在代表源原文里。
 
-`from` 先不进域。交易 hash 约束不了它，第 4.2 节的派生一步现在不成立。A 写 `0xaaa`、B 写 `0xbbb` 时，B 不因此被排除，两份都不进 Value。本地能够恢复出 `0xaaa`，也不把一次失败改成成功。代表源 Raw 里可以看见 A 写下的 `from`，那不是第二条投票。要不要在 CPU 测量之后把它定义成派生字段，仍开放。默认留在域外。没有测量就不能进域，也不能为此把整票判掉。未迁移的区块 Value 仍是代表源原文，所以 `from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 没有这些字段。这是已知缺口，要到阶段 3b 才从区块 Value 去掉。现在不能把区块写成已经语义安全。
+`from` 先不进域。交易 hash 约束不了它，第 4.2 节的派生一步现在不成立。A 写 `0xaaa`、B 写 `0xbbb` 时，B 不因此被排除，两份都不进 Value。本地能够恢复出 `0xaaa`，也不把一次失败改成成功。`Observed` 里可以看见 A、B 各自写下的 `from`，那不是投票。要不要在 CPU 测量之后把它定义成派生字段，仍开放。默认留在域外。没有测量就不能进域，也不能为此把整票判掉。未迁移的区块 Value 仍是代表源原文，所以 `from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 没有这些字段。这是已知缺口，要到阶段 3b 才从区块 Value 去掉。现在不能把区块写成已经语义安全。
 
 第 13 节的透传意见在这里不成立。三人，门槛 2。三份 `number|hash` 相同，交易根也通过。A 的 `from` 是 `0xaaa`，B 的是 `0xbbb`。捕获顺序 A、B、C 时，若把 A 的原文当作 Value，Corroborated 里的付款人只是 A 的断言；顺序改成 B、A、C，就变成 `0xbbb`。`size` 同样可以在块哈希不变时一个是 `0x100`、一个是 `0x200`。根核对通过，这两项仍停在第 4.2 节第四步。
 
@@ -492,10 +492,9 @@ EncodeCheck 或 Resolve"这一族约束。
 - **输入界限不变**,仍是现有的 JSON 限制(键数、深度、单条大小)。第 12 节"不把未测量的
   字节上限或编码时限写进本文"继续成立。
 
-**为什么撤销**:这一节是为一个从未实现的通道写的。它的触发条件是"代表源原文超过限额",
-而保留原文这件事本身在功能域验伪里就被否掉了——域外字段的可见性已由 `Decision.Observed`
-以更强的方式承担(全部来源 × 全部路径 × quorum),单份原文是它的严格子集。为不存在的
-消费者定义容量参数,只会让后续读者以为存在一个待实现的配额。
+**为什么撤销**(决策 0048):这一节是为一个从未实现、也没有消费者的通道写的。域外字段的
+可见性由 `Decision.Observed` 承担,它不存在的情况见第 6.5 节。为不存在的消费者定义容量
+参数,只会让后续读者以为存在一个待实现的配额。
 
 ### 14.7 WSS 上的缺失与 null
 

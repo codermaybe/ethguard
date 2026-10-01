@@ -67,7 +67,7 @@ func admissionCases(t *testing.T) []admissionCase {
 	// two against each other.
 	loggedLog := map[string]any{
 		"address":          "0x0000000aa232009084bd71a5797d089aa4edfad4",
-		"topics":           []string{},
+		"topics":           []string{"0x" + strings.Repeat("11", 32), "0x" + strings.Repeat("22", 32)},
 		"data":             "0x",
 		"blockNumber":      "0x18d592f",
 		"transactionIndex": "0x0",
@@ -462,21 +462,26 @@ func TestAdmissionAcceptanceDomain(t *testing.T) {
 // payload alone. Go randomizes map iteration order, so an encoder that built
 // its result by ranging a map would pass a single-shot check and fail under
 // repetition. These bytes are the comparison key, so a key that moved between
-// two otherwise identical sources would split a corroborated cluster.
+// two otherwise identical sources would split a corroborated cluster. Every
+// accepted payload in the row is repeated, not only valid: the captured
+// receipt has no logs, so only the logged receipt in more exercises the log
+// and topic encoding.
 func TestAdmissionEncoderDeterminism(t *testing.T) {
 	for _, item := range admissionCases(t) {
 		t.Run(item.method, func(t *testing.T) {
-			first, err := item.encode(item.valid)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for i := 0; i < 100; i++ {
-				again, err := item.encode(item.valid)
+			for n, payload := range append([]json.RawMessage{item.valid}, item.more...) {
+				first, err := item.encode(payload)
 				if err != nil {
-					t.Fatal(err)
+					t.Fatalf("payload %d: %v", n, err)
 				}
-				if !bytes.Equal(again, first) {
-					t.Fatalf("encoding %d of 100 moved the bytes\nfirst %s\nagain  %s", i+2, first, again)
+				for i := 0; i < 100; i++ {
+					again, err := item.encode(payload)
+					if err != nil {
+						t.Fatalf("payload %d: %v", n, err)
+					}
+					if !bytes.Equal(again, first) {
+						t.Fatalf("payload %d: encoding %d of 100 moved the bytes\nfirst %s\nagain  %s", n, i+2, first, again)
+					}
 				}
 			}
 		})

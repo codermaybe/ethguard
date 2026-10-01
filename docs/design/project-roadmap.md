@@ -3,7 +3,7 @@
 本规划记录 T02 之后的方向。`docs/` 已纳入版本管理；moving-tag matrix
 的可执行来源仍是测试，文档只作对照。
 
-当前优先事项是返回值框架。规则在 `return-value-design.md`，任务和出口只写在下面那一节。未捕获读方法的批次排在它后面，不并进返回值任务。
+返回值框架已推进到键值合一（0047）与证据通道收缩（0048）。规则在 `return-value-design.md`，任务和出口只写在下面那一节；之后的顺序见该节末尾的「后续规划」。未捕获读方法的批次排在它后面，不并进返回值任务。
 
 ## 当前基线
 
@@ -172,9 +172,9 @@ T06.5 读方法批次扩展      已验收，已提交：block-receipt-tx 与 ei
 
 一次只开工一个已解除的任务。后一个任务在前一个出口核对通过之前不得改代码。每个任务单独提交。提交说明写变更摘要、`go test` 命令、失败路径、样本或 golden 变化、未解决风险。
 
-这些任务都不做：规范编码提前进 RV0、0041 提前于 RV0 出口、阶段 3a/3b 的实现、`from` 进域、给 Provenance 补字节上限、合成样本、把 `internal/rpcsample/probe/` 升成 golden 批次。BLS、sync committee、checkpoint 仍见暂不推进。
+这些任务都不做：规范编码提前进 RV0、0041 提前于 RV0 出口、阶段 3a/3b 的实现、`from` 进域、合成样本、把 `internal/rpcsample/probe/` 升成 golden 批次。BLS、sync committee、checkpoint 仍见暂不推进。
 
-不挡住 RV0 的开放项只有两项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。Provenance 截断上限没有数字，不在任务里补。
+不挡住 RV0 的开放项只有一项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。原先的「Provenance 截断上限」随代表源 Raw 一起撤销（0048）。
 
 已知缺口不能写成已经语义安全：未迁移对象的 Value 仍是代表源原文（4e 删减除外），`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码，`eth_feeHistory` 的 Value 是受保护字段的规范对象。这不表示区块已经语义安全。`eth_feeHistory` 的键外字段这一刀不进 Value，也没有 Extensions 或 Provenance 可去，这个缺口还开着。
 
@@ -201,6 +201,9 @@ RV2b3c blockReceipts           已验收：2026-09-30；0046 复用收据编码�
 RV2b3b transaction             未解除：上下文调查完成，保护依据与 typed pending 口径待决策
 RV2c 落选簇编码诊断            已验收：2026-09-30；按第 14.1 节保留裁决
 RV2d 不一致簇编码摘要          已验收：2026-09-30；Source ID、长度及 SHA-256
+        |
+        v
+键值合一与证据通道收缩         已完成：2026-10-01；0047、0048，见下文
         |
         v
 RV3a eth_call 信封             方向已锁，未解除
@@ -458,11 +461,46 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 
 本轮已明确的编码管线诊断缺口已完成。后续 transaction 仍先统一上下文保护依据与 typed pending 口径；Provenance/Extensions 和 RV3 的接口及出口另行细化，不因 RV2c/RV2d 验收自动解除。
 
-### RV3 及以后
+### 键值合一与证据通道收缩（2026-10-01）
 
-状态：未解除。
+状态：已完成。决策 0047、0048。
 
-RV3a：`eth_call` 的 code 与 message 留在代表源，不进受保护域，不合成信封。RV3b：区块 Value 只重编码已经核对过承诺的内容。两段方向已锁，都没有开工出口。RV4：方法规则索引断言已注册方法没有 `raw`。
+| 提交 | 内容 |
+| --- | --- |
+| 836df66、27631e6 | 收据编码器从自己的规范日志计算 bloom 与逐日志绑定，不再重复调用 `Validate`；保留零哈希容忍 |
+| 89786a8 | 删掉收据键路径的第二遍加工，键字节不变 |
+| 574bfd9 | 0047：五个对象方法换到 `WithCanonicalValue`，比较键即规范字节；`strict.go` 的键选择不动 |
+| f6fe088、5a529d2 | 方法规则索引新增「键来源」列；Strict 总是声明（`canonical-bytes` / `normalizer`） |
+| 0502708 | 接受域包含测试与 `BenchmarkStrictResolveReceipt` |
+| 7967e7b | 接入测试套件 `rpc/methods/admission_suite_test.go`：每个方法一行 |
+| 5a0f53b | 证据通道不保留代表源 Raw，撤销第 14.6 节；决策记录为 0048 |
+
+要点：
+
+- 守卫保留。`finish()` 的簇内字节检查对键即字节的方法恒真，对刻意保留窄键的方法承重；删掉它，窄键回归会静默产出 Corroborated。`median.go` 的同类检查依赖「编码器只由数值决定」，同样保留。
+- 「键来源」列是评审摩擦级护栏，不保证接线正确（0047 Unresolved）。
+- 成本结构：一次收据调用曾对同一份字节解析约九遍（jsonsafe、准入、EncodeCheck、比较键两遍、`AggregateFields`、Extensions 指纹、typed 解码）。本轮去掉了重复校验与第二遍键加工，键值合一又让聚类不再调用 normalizer。仍在的是 `AggregateFields`、Extensions 指纹对规范 Value 的再规范化、`usableAnswer` 对 normalizer 的调用，Step 4–6 会再碰到它们。
+- `PruneMethod` 与 spec 掩码仍不能删：已迁移方法的 normalizer 仍服务 `usableAnswer`、anchor 与 pending。
+
+### 后续规划
+
+按方法原型推进。键即字节的对象原型已定型，新方法加接入套件一行即可；其余三种原型各先做透一个代表方法。
+
+| 原型 | 代表方法 | 卡在哪里 |
+| --- | --- | --- |
+| 键即字节的对象 | 已迁移的五个方法 | 已定型 |
+| 窄键对象 | 区块（RV3b） | 承诺核对；必须经真实区块 policy 证明窄键与守卫（0047 Unresolved） |
+| 准入绑定 | `eth_getTransactionByHash`（RV2b3b） | 上下文保护依据与 typed pending 口径，先做决策 |
+| 多维键 | `eth_call`（RV3a） | revert 信封与多维键；附带 0048 的 API 破坏 |
+
+顺序沿用 2026-09-12 的选择，两条线之间没有代码依赖：
+
+1. **写路径契约固化**（decision-map #4）。`write.go` 与 `rpc/write.go` 已有广播与 `ResolveWriteBroadcast`，`pool/broadcast_test.go` 只测 pool 层；`SendRawTransaction`、`WriteQuorum`、`ResolveWriteBroadcast` 没有测试，广播语义也没有决策条目（0003 只划了范围）。出口：决策记录 + 状态矩阵测试（Accepted / Disputed / Rejected / Unreachable、forwarded、本地 hash 不符时 fail-closed）+ 进程内端到端测试。
+2. **WSS 事件锚点**（#5）。
+3. **读路径原型**：RV3b 区块 → RV2b3b 交易 → Step 4（删 `projection.StandardFields`，前置是区块与交易重编码）→ `eth_call` 一族（RV3a、多维键合流、0048 的 `RevertError` 与 `Evidence` 改名，作为一次记录在案的 API 破坏）→ Step 6（准入、EncodeCheck、normalize 等逐源闸门合成一段，最后做）→ RV4（已注册方法不再有 `raw`）。
+4. **批量扩张只读方法**：每个方法套用对应原型与接入套件。
+
+开放项，不挡住上面任何一步：`from` 的测量后归属；`median.go` 的 `equal` 是否改为按键筛选；接入套件的形状变体能否从 `internal/spec/methods.json` 生成，代替手工补语料；是否存在经 `replace` / `go.work` 引用本库的外部使用者（决定 API 破坏要不要弃用窗口）。
 
 ## 排后：未捕获读方法的捕获批次
 
@@ -490,4 +528,5 @@ RV3a：`eth_call` 的 code 与 message 留在代表源，不进受保护域，�
 3. admission 与 normalization 边界；
 4. 成功、冲突、无效、pending 和 provider error 测试；
 5. 明确的 provider sample 状态；
-6. 对外说明它提供的是 corroboration evidence，而非 Ethereum consensus proof。
+6. 对外说明它提供的是 corroboration evidence，而非 Ethereum consensus proof；
+7. 进入规范编码的方法在 `rpc/methods/admission_suite_test.go` 加一行，并在方法规则索引声明键来源。

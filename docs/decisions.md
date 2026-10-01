@@ -1805,8 +1805,9 @@ Acceptance-domain containment. Anything the encoder accepts, the normalizer
 must also accept, because `cluster()` stops calling the normalizer and the
 admission set would otherwise widen. The argument was made in 574bfd9, the
 commit that moved these five methods onto the canonical bytes, and the relation
-is now checked per method by `TestMigratedNormalizersAcceptWhatEncodersAccept`
-rather than restated here, so that the proof runs instead of going stale.
+is now checked per method by `TestAdmissionAcceptanceDomain` in
+`rpc/methods/admission_suite_test.go` rather than restated here, so that the
+proof runs instead of going stale.
 
 The consequence worth stating: because the key is computed only for payloads
 that were admitted and that passed EncodeCheck, the key never sees a payload
@@ -1841,5 +1842,30 @@ guaranteeing that the wiring is correct.
 Closed. The resolve path now has a committed benchmark,
 `BenchmarkStrictResolveReceipt`, which builds the narrow-key and
 canonical-bytes wirings itself so the comparison cannot drift when a method is
-rewired. Run it with `-benchmem -benchtime=200ms -count=1`; the figures from
-2b were taken on the same path and are reproducible from it.
+rewired. Run it with `-benchmem -benchtime=200ms -count=1`. The committed
+benchmark is the reference, not the figures quoted in 574bfd9: its
+canonical-bytes side reproduces their 388 allocs/op, but its narrow-key side
+reports about 1,130 allocs/op against the 901 quoted there, so the throwaway
+run did not measure the same narrow-key path.
+
+## 0048. The evidence channel keeps no representative-source Raw
+
+Status: Accepted (2026-10-01). Amends the locked sections 6.5, 6.6, 14.2,
+14.3 and 14.6 of `docs/design/return-value-design.md`. The documentation
+change is 5a0f53b; this entry is its decision record. The `RevertError` part
+below is a direction, not implemented.
+
+Provenance holds only `Representative`, that source's admission evidence, and
+the bytes 4e withheld. It keeps no raw payload, so it has no byte limit;
+section 14.6 is withdrawn. Out-of-domain fields are visible through
+`Decision.Observed`, except where it is absent: Forwarded mode, an
+`AggregateFields` failure, and a direct `Policy.Resolve` outside the
+Aggregator. Extensions are classified from `Observed` against Value, which is
+what `projector.ProjectObservation` already does.
+
+With no Raw, `eth_call` revert code and message have no place after stage 3a.
+The direction is to drop `RevertError.Code`, `Message` and `ErrorCode()`, and
+rename `Decision.Evidence` to `Provenance`, as one recorded API break.
+Dropping `ErrorCode()` stops `RevertError` satisfying geth `rpc.Error`;
+`ErrorData()` stays, so `ethclient.RevertErrorData` keeps working. Until then
+both fields and `Evidence` are unchanged.
