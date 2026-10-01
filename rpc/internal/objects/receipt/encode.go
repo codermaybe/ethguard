@@ -154,15 +154,22 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	return marshal(out)
 }
 
+// zeroHash is the spelling a source writes when it leaves a hash out. The
+// admission check this replaces compared a log's hashes only when they were
+// non-zero, so Encode keeps that tolerance: a zero is an omission, not a
+// claim about a different transaction. Without it this step would silently
+// turn a Corroborated receipt into an encoding fault.
+var zeroHash = common.Hash{}.Hex()
+
 // checkLogBindings binds every log to the receipt that carries it. Both sides
 // are already canonical, so a mismatch is a source disagreeing with itself
 // rather than two spellings of one value.
 func checkLogBindings(logs []canonicalReceiptLog, transactionHash, blockHash string) error {
 	for i, item := range logs {
-		if item.TransactionHash != transactionHash {
+		if item.TransactionHash != zeroHash && item.TransactionHash != transactionHash {
 			return fmt.Errorf("receipt logs[%d]: transactionHash %s does not match receipt transactionHash %s", i, item.TransactionHash, transactionHash)
 		}
-		if item.BlockHash != blockHash {
+		if item.BlockHash != zeroHash && item.BlockHash != blockHash {
 			return fmt.Errorf("receipt logs[%d]: blockHash %s does not match receipt blockHash %s", i, item.BlockHash, blockHash)
 		}
 	}

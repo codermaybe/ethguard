@@ -149,11 +149,29 @@ func TestEncodeBloomSpellingAgreesWithCanonicalLogs(t *testing.T) {
 	}
 }
 
-func TestEncodeRejectsBloomAndLogBindingFaults(t *testing.T) {
+func TestEncodeRejectsBloomMismatch(t *testing.T) {
 	raw := receiptFixture(t, logFixture())
 	wrongBloom := replaceField(t, raw, "logsBloom", "0x"+strings.Repeat("00", 255)+"01")
 	if _, err := Encode(wrongBloom); err == nil || !strings.Contains(err.Error(), "logsBloom disagrees with logs") {
 		t.Fatalf("bloom = %v", err)
+	}
+}
+
+// A log that omits its hashes states nothing about another transaction, and
+// admission has always accepted that. Encode has to accept it too and carry
+// the omission into Value verbatim: rejecting it would turn a Corroborated
+// answer into a conflict over a payload no source produces by accident. A
+// non-zero foreign hash is a claim, and stays a fault.
+func TestEncodeTreatsZeroLogHashAsOmission(t *testing.T) {
+	omitted := logFixture()
+	omitted["transactionHash"] = zeroHash
+	omitted["blockHash"] = zeroHash
+	encoded, err := Encode(receiptFixture(t, omitted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bytes.Count(encoded, []byte(`"`+zeroHash+`"`)); got != 2 {
+		t.Fatalf("omitted hashes entered Value %d times: %s", got, encoded)
 	}
 	foreignTx := logFixture()
 	foreignTx["transactionHash"] = "0x" + strings.Repeat("34", 32)

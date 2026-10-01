@@ -23,7 +23,7 @@ func Admit(ctxReq rpc.Request, value json.RawMessage, pruner Pruner) error {
 	if IsJSONNull(value) {
 		return nil
 	}
-	if err := Validate(value); err != nil {
+	if _, err := validateAndDecode(value); err != nil {
 		return fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
 	}
 	return nil
@@ -142,7 +142,8 @@ func ParseBlockHeight(value any) (*common.Hash, *big.Int, error) {
 
 // Normalize chooses the comparison key. Vendor fields disappear in the
 // whitelist prune and are not rejected here. A value with no canonical
-// form errors. Required-field rejection belongs to Validate and Admit.
+// form errors. Required-field rejection belongs to validateAndDecode and
+// the Admit functions.
 func Normalize(value json.RawMessage, prune Pruner, method string) (string, error) {
 	if IsJSONNull(value) {
 		return "null", nil
@@ -155,14 +156,6 @@ func Normalize(value json.RawMessage, prune Pruner, method string) (string, erro
 		return "", fmt.Errorf("receipt: incomplete object")
 	}
 	return prune(method, value)
-}
-
-// Validate reports whether one receipt is admissible in isolation. It is the
-// thin form of validateAndDecode for callers that need the verdict but not
-// the decoded receipt.
-func Validate(value json.RawMessage) error {
-	_, err := validateAndDecode(value)
-	return err
 }
 
 // validateAndDecode runs every wire check and returns the decoded receipt, so
