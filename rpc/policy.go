@@ -138,11 +138,14 @@ type LocalObservationPolicy interface {
 // built. The key source is a declaration read straight off the assembly, the
 // option the method was given, so it is a fact about the method rather than
 // an internal structure of its key. canonical-bytes means the key is the
-// encoder's output. normalizer means the key stays the normalizer's even
-// though an encoder is attached, which is how a method keeps a key narrower
-// than its value. Only Strict declares this column: median samples by number
-// without clustering, local does not cluster, and call-revert has a
-// multi-dimensional key, so none of them has one key source to report.
+// encoder's output. normalizer means the key comes from the normalizer,
+// whether or not an encoder is attached. Two cases share it: a method that
+// deliberately keeps a key narrower than its value, and a method that has no
+// encoder yet. Result tells them apart — a narrow-key migrated method is
+// canonical, an unmigrated one is raw. Only Strict declares this column:
+// median samples by number without clustering, local does not cluster, and
+// call-revert has a multi-dimensional key, so none of them has one key source
+// to report.
 //
 // Result records whether this method writes a canonical result. It is
 // "canonical" or "raw". The index does not explain fields and does not

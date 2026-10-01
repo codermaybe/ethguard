@@ -32,6 +32,9 @@ func TestClusterKeySourceGuardrail(t *testing.T) {
 		if !errors.Is(err, ErrConflict) || decision.Status != Unknown || len(decision.Support) != 1 || len(decision.Reject) != 1 || len(decision.Faults) != 0 {
 			t.Fatalf("key came from the folding normalizer, not the encoder: %+v err %v", decision, err)
 		}
+		if rule, _ := policy.(MethodRuleSource).MethodRule(); rule.KeySource != RuleKeyCanonicalBytes {
+			t.Fatalf("key source = %q, want %q", rule.KeySource, RuleKeyCanonicalBytes)
+		}
 	})
 
 	t.Run("narrow key clusters then refuses to commit", func(t *testing.T) {
@@ -47,6 +50,35 @@ func TestClusterKeySourceGuardrail(t *testing.T) {
 		// guard refused the result without re-voting.
 		if len(decision.Support) != 2 || len(decision.Reject) != 0 {
 			t.Fatalf("guard changed membership: %+v", decision)
+		}
+		rule, _ := policy.(MethodRuleSource).MethodRule()
+		if rule.KeySource != RuleKeyNormalizer {
+			t.Fatalf("key source = %q, want %q", rule.KeySource, RuleKeyNormalizer)
+		}
+		// A narrow key on a method that does have an encoder is the case where
+		// Result=canonical and KeySource=normalizer appear together.
+		if rule.Result != RuleResultCanonical {
+			t.Fatalf("result = %q, want %q", rule.Result, RuleResultCanonical)
+		}
+	})
+
+	// The third case, and the one the column used to get wrong: a method with
+	// no encoder at all. Its key is still the normalizer's, so it declares
+	// normalizer, and Result=raw is what tells it apart from the narrow-key
+	// case above.
+	t.Run("no encoder declares normalizer and raw", func(t *testing.T) {
+		policy := Strict(fold, WithQuorum(1))
+		rule, _ := policy.(MethodRuleSource).MethodRule()
+		if rule.KeySource != RuleKeyNormalizer {
+			t.Fatalf("key source = %q, want %q", rule.KeySource, RuleKeyNormalizer)
+		}
+		if rule.Result != RuleResultRaw {
+			t.Fatalf("result = %q, want %q", rule.Result, RuleResultRaw)
+		}
+		// Nothing to commit, so a single answer is Selected.
+		decision, err := policy.(CorroboratingPolicy).ResolveCorroborated(Corroboration{Floor: 1}, []Observation{first})
+		if err != nil || decision.Status != Selected {
+			t.Fatalf("decision = %+v err %v", decision, err)
 		}
 	})
 }

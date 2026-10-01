@@ -1817,12 +1817,16 @@ the clustering path for these five methods.
 The block constraint is recorded but not yet tested against a real policy.
 0047 states that `eth_getBlockByHash` and `eth_getBlockByNumber` will attach an
 encoder with `WithCanonicalObject` and keep the `number|hash` key, and that is
-what makes the encoding guard in `finish()` worth keeping. No block method is
-wired to an encoder yet, so nothing exercises that constraint through a block
-policy; only `TestClusterKeySourceGuardrail` covers the mechanism, with a
-synthetic folding normalizer. Whoever wires block re-encoding must add a test
-that goes through the real block policy and shows a narrower key clustering
-two payloads that encode differently.
+what makes the encoding guard in `finish()` worth keeping. The `KeySource`
+column already tells the two cases apart, a migrated method keeping a narrow
+key as normalizer with a canonical result against an unmigrated one as
+normalizer with a raw result, so the column does not have to wait for the
+wiring. What is missing is a test: no block method is wired to an encoder yet,
+so nothing exercises the constraint through a block policy, and only
+`TestClusterKeySourceGuardrail` covers the mechanism, with a synthetic folding
+normalizer. Whoever wires block re-encoding must add a test that goes through
+the real block policy and shows a narrower key clustering two payloads that
+encode differently.
 
 The `KeySource` column is review friction, not an unbypassable guard. It holds
 because `TestMethodRulesMatchIndex` compares the generated table against the
