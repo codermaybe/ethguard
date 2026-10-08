@@ -5,6 +5,18 @@
 
 返回值框架已推进到键值合一（0047）与证据通道收缩（0048）。规则在 `return-value-design.md`，任务和出口只写在下面那一节；之后的顺序见该节末尾的「后续规划」。未捕获读方法的批次排在它后面，不并进返回值任务。
 
+本路线图新增一条总约束：对外提供的值必须是方法契约定义的**聚合结论**。
+它是多源观察经过请求绑定、准入、规范化、受保护域编码和裁决后的产物，
+天然可能不完美，但不能用某个 provider 的“相对可靠值”替代。代表源只能
+作为审计锚点；它不能把来源原值伪装成聚合结论。若观察无法形成满足契约的
+结论，返回 `Unknown` / 冲突错误并保留证据，不能降低门槛、缩小分母或改走
+单源值来制造成功。
+
+`Selected` 和 `Forwarded` 是显式的较弱状态，不属于上述聚合结论。它们只在
+已有方法契约明确允许时保留，并且必须让调用方看见状态差异；新方法的默认
+出口不以它们替代 `Corroborated`。这条约束优先于“尽量返回一个值”的兼容性
+目标。
+
 ## 当前基线
 
 - EthGuard 是多源 Ethereum Execution RPC 客户端，不是轻客户端。
@@ -176,7 +188,7 @@ T06.5 读方法批次扩展      已验收，已提交：block-receipt-tx 与 ei
 
 不挡住 RV0 的开放项只有一项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。原先的「Provenance 截断上限」随代表源 Raw 一起撤销（0048）。
 
-已知缺口不能写成已经语义安全：未迁移对象的 Value 仍是代表源原文（4e 删减除外），`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码，`eth_feeHistory` 的 Value 是受保护字段的规范对象。这不表示区块已经语义安全。`eth_feeHistory` 的键外字段这一刀不进 Value，也没有 Extensions 或 Provenance 可去，这个缺口还开着。
+已知缺口不能写成已经语义安全：未迁移对象的 Value 仍是代表源原文（4e 删减除外），`from` 和 `size` 还会出现在这些 Corroborated 结果里。它们是迁移期间的已知缺口，不是目标形态，也不能成为后续方法的实现模板。数量和成功 DATA 的 Value 是规范编码，`eth_feeHistory` 的 Value 是受保护字段的规范对象。这不表示区块已经语义安全。`eth_feeHistory` 的键外字段这一刀不进 Value，也没有 Extensions 或 Provenance 可去，这个缺口还开着。
 
 ```text
 RV0 代表源、同源、锚点 hash    已验收：8aac099
@@ -484,21 +496,30 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 
 ### 后续规划
 
-按方法原型推进。键即字节的对象原型已定型，新方法加接入套件一行即可；其余三种原型各先做透一个代表方法。
+按方法原型推进，但每个原型都必须以聚合结论为出口。键即字节的对象原型
+已定型，新方法加接入套件一行即可；其余三种原型各先做透一个代表方法。
+不能因为对象难以完整重编码，就回退为代表源原文或“最可靠来源”的值。
 
 | 原型 | 代表方法 | 卡在哪里 |
 | --- | --- | --- |
 | 键即字节的对象 | 已迁移的五个方法 | 已定型 |
-| 窄键对象 | 区块（RV3b） | 承诺核对；必须经真实区块 policy 证明窄键与守卫（0047 Unresolved） |
-| 准入绑定 | `eth_getTransactionByHash`（RV2b3b） | 上下文保护依据与 typed pending 口径，先做决策 |
-| 多维键 | `eth_call`（RV3a） | revert 信封与多维键；附带 0048 的 API 破坏 |
+| 窄键对象 | 区块（RV3b） | 承诺核对；必须经真实区块 policy 证明窄键与守卫（0047 Unresolved），并证明 Value 仍是聚合产物 |
+| 准入绑定 | `eth_getTransactionByHash`（RV2b3b） | 上下文保护依据与 typed pending 口径，先做决策；不能以代表交易替代 inclusion 结论 |
+| 多维键 | `eth_call`（RV3a） | revert 信封与多维键；附带 0048 的 API 破坏；各维度必须聚合或明确弃权 |
 
 顺序沿用 2026-09-12 的选择，两条线之间没有代码依赖：
 
 1. **写路径契约固化**（decision-map #4）。已完成：决策 0049，`WriteQuorum` / `ResolveWriteBroadcast` 状态矩阵，forwarded 与本地 hash fail-closed 测试，以及通过 `rpctest` 进程内节点的广播端到端测试。协议拒绝保留为 `Rejected`，不把 “already known” 等错误文本升级为接受；回执等待和交易生命周期仍在调用方。
 2. **WSS 事件锚点**（#5）。写路径出口已解除。
-3. **读路径原型**：RV3b 区块 → RV2b3b 交易 → Step 4（删 `projection.StandardFields`，前置是区块与交易重编码）→ `eth_call` 一族（RV3a、多维键合流、0048 的 `RevertError` 与 `Evidence` 改名，作为一次记录在案的 API 破坏）→ Step 6（准入、EncodeCheck、normalize 等逐源闸门合成一段，最后做）→ RV4（已注册方法不再有 `raw`）。
+3. **读路径原型**：RV3b 区块 → RV2b3b 交易 → Step 4（删 `projection.StandardFields`，前置是区块与交易重编码）→ `eth_call` 一族（RV3a、多维键合流、0048 的 `RevertError` 与 `Evidence` 改名，作为一次记录在案的 API 破坏）→ Step 6（准入、EncodeCheck、normalize 等逐源闸门合成一段，最后做）→ RV4（已注册方法不再有 `raw`）。每一步都以“聚合结论或明确 Unknown/Conflict”为出口，不允许把单源 Selected/Forwarded 伪装成已聚合值。
 4. **批量扩张只读方法**：每个方法套用对应原型与接入套件。
+
+后续每个方法按同一条验收路线推进：先定义哪些字段能够进入聚合域，
+再定义缺失、分歧和无法编码时的弃权规则；随后让所有候选来源经过同一套
+请求绑定、准入和编码，进行一次固定分母的裁决；最后只从裁决产物做 typed
+projection，并用真实 `Aggregator` / adapter 测试验证成功、冲突、无效、
+pending 和 provider fault。任何只在 Policy 层成立、或靠替换为单源值才变绿
+的实现都不能解除下一阶段。
 
 开放项，不挡住上面任何一步：`from` 的测量后归属；`median.go` 的 `equal` 是否改为按键筛选；接入套件的形状变体能否从 `internal/spec/methods.json` 生成，代替手工补语料；是否存在经 `replace` / `go.work` 引用本库的外部使用者（决定 API 破坏要不要弃用窗口）。
 
