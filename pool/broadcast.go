@@ -14,12 +14,27 @@ type BroadcastOption func(*broadcastConfig)
 
 type broadcastConfig struct {
 	timeout time.Duration
+	sources []*Source
 }
 
 // WithBroadcastTimeout bounds the whole fan-out per attempt round. Zero uses
 // the collection default.
 func WithBroadcastTimeout(timeout time.Duration) BroadcastOption {
 	return func(c *broadcastConfig) { c.timeout = timeout }
+}
+
+// WithBroadcastSources fixes the membership for one broadcast invocation.
+// The caller owns the snapshot; closed members remain in the returned
+// emissions so the write denominator cannot change during the request.
+func WithBroadcastSources(sources []*Source) BroadcastOption {
+	return func(c *broadcastConfig) {
+		if sources == nil {
+			c.sources = nil
+			return
+		}
+		c.sources = make([]*Source, len(sources))
+		copy(c.sources, sources)
+	}
 }
 
 // Broadcast sends one idempotent request to every requestable source in
@@ -64,13 +79,18 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 	// request: closed sources are still visible as failed emissions so the
 	// caller sees the full membership outcome, while identity-invalid members
 	// fail fast without a wire round.
-	p.mu.RLock()
-	members := make([]*Source, len(p.sources))
-	copy(members, p.sources)
-	closed := p.closed
-	p.mu.RUnlock()
-	if closed {
-		return nil, ErrClosed
+	var members []*Source
+	if cfg.sources != nil {
+		members = append([]*Source(nil), cfg.sources...)
+	} else {
+		p.mu.RLock()
+		members = make([]*Source, len(p.sources))
+		copy(members, p.sources)
+		closed := p.closed
+		p.mu.RUnlock()
+		if closed {
+			return nil, ErrClosed
+		}
 	}
 	if len(members) == 0 {
 		return nil, ErrNoEligibleSource

@@ -495,8 +495,8 @@ result 列只有 `eth_getTransactionReceipt` 改为 canonical。Representative �
 
 顺序沿用 2026-09-12 的选择，两条线之间没有代码依赖：
 
-1. **写路径契约固化**（decision-map #4）。`write.go` 与 `rpc/write.go` 已有广播与 `ResolveWriteBroadcast`，`pool/broadcast_test.go` 只测 pool 层；`SendRawTransaction`、`WriteQuorum`、`ResolveWriteBroadcast` 没有测试，广播语义也没有决策条目（0003 只划了范围）。出口：决策记录 + 状态矩阵测试（Accepted / Disputed / Rejected / Unreachable、forwarded、本地 hash 不符时 fail-closed）+ 进程内端到端测试。
-2. **WSS 事件锚点**（#5）。
+1. **写路径契约固化**（decision-map #4）。已完成：决策 0049，`WriteQuorum` / `ResolveWriteBroadcast` 状态矩阵，forwarded 与本地 hash fail-closed 测试，以及通过 `rpctest` 进程内节点的广播端到端测试。协议拒绝保留为 `Rejected`，不把 “already known” 等错误文本升级为接受；回执等待和交易生命周期仍在调用方。
+2. **WSS 事件锚点**（#5）。写路径出口已解除。
 3. **读路径原型**：RV3b 区块 → RV2b3b 交易 → Step 4（删 `projection.StandardFields`，前置是区块与交易重编码）→ `eth_call` 一族（RV3a、多维键合流、0048 的 `RevertError` 与 `Evidence` 改名，作为一次记录在案的 API 破坏）→ Step 6（准入、EncodeCheck、normalize 等逐源闸门合成一段，最后做）→ RV4（已注册方法不再有 `raw`）。
 4. **批量扩张只读方法**：每个方法套用对应原型与接入套件。
 

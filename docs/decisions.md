@@ -1869,3 +1869,37 @@ rename `Decision.Evidence` to `Provenance`, as one recorded API break.
 Dropping `ErrorCode()` stops `RevertError` satisfying geth `rpc.Error`;
 `ErrorData()` stays, so `ethclient.RevertErrorData` keeps working. Until then
 both fields and `Evidence` are unchanged.
+
+## 0049. Raw transaction broadcast uses relative trust without lifecycle management
+
+Status: Accepted (2026-10-08). This records the write-path contract that was
+previously only present in `write.go`, `rpc/write.go`, and the pool broadcast
+implementation. It stays within 0003: EthGuard broadcasts signed bytes and
+classifies provider responses; it does not sign, retry, replace, queue, or
+wait for a receipt.
+
+`eth_sendRawTransaction` is the only write method in this contract. The client
+decodes the signed bytes and derives their transaction hash before contacting a
+source. In majority or unanimity mode, `pool.Broadcast` contacts the full
+requestable membership in one wave without the read freshness gate. The client
+passes the membership snapshot into that broadcast, so the voting basis and
+contacted members stay fixed for the invocation. The required support is
+`max(floor(n/2)+1, H)`. A hash cluster that reaches that bound is `Accepted`;
+other hash answers remain `Dissent`, protocol error objects remain `Rejected`,
+and transport silence remains `Silent` or a collection fault. A dissenting
+minority does not overturn an accepted cluster. Error text such as “already
+known” is never promoted into acceptance without a hash answer.
+
+Forwarded mode uses `pool.Forward`, which tries one source at a time and stops
+on the first protocol answer. Its write basis and required support are one, so
+a matching hash is a successful forwarded write with no corroboration claim;
+a protocol error is `Rejected`, and transport failure is `Unreachable`.
+Regardless of mode, a winning hash that differs from the locally derived hash
+fails closed with `ErrConflict`; the foreign hash is retained in the decision
+for diagnosis and is never used as a receipt binding.
+
+The zero `WriteStatus` is `Unknown`, and `WriteResult.Accepted()` also requires
+a concrete hash, so local input errors cannot look like successful writes.
+
+The public result describes propagation only. Receipt lookup and any retry or
+confirmation policy remain separate caller operations.

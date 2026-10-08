@@ -19,9 +19,12 @@ const WriteMethodEthSendRawTransaction = "eth_sendRawTransaction"
 type WriteStatus int
 
 const (
+	// WriteUnknown is the zero value used when no write decision was made, for
+	// example because request validation failed before contacting a source.
+	WriteUnknown WriteStatus = iota
 	// WriteAccepted means an agreeing hash cluster met the write quorum over
 	// the full voting basis.
-	WriteAccepted WriteStatus = iota
+	WriteAccepted
 	// WriteDisputed means sources answered with disagreeing hashes and no
 	// cluster met the write quorum. Nothing can be claimed about acceptance.
 	WriteDisputed
@@ -57,7 +60,8 @@ func (s WriteStatus) String() string {
 type SourceAnswer struct {
 	Source SourceRef
 	// Hash is the accepted transaction hash this source reported. Empty when
-	// Rejected or unreachable. RawMessage is the untouched wire hash value.
+	// Rejected or unreachable. The wire value is normalized to lower-case by
+	// the client before it reaches the resolver.
 	Hash string
 	// Rejection is a structured protocol error body from the source —
 	// "nonce too low", replacement underpricing, an execution revert, and
@@ -75,6 +79,10 @@ type WriteDecision struct {
 	Status   WriteStatus
 	Hash     string
 	Accepted []SourceAnswer
+	// Dissent preserves hash answers outside the winning cluster. A dissenting
+	// hash is evidence about propagation disagreement even when another cluster
+	// reaches the write quorum; it is never treated as a protocol rejection.
+	Dissent  []SourceAnswer
 	Rejected []SourceAnswer
 	Silent   []SourceRef
 	// Agreement is the size of the winning hash cluster.
@@ -130,6 +138,7 @@ func ResolveWriteBroadcast(basis int, floor int, answers []SourceAnswer, faults 
 		}
 	}
 	decision.Accepted = nil
+	decision.Dissent = nil
 	decision.Rejected = rejected
 	decision.Silent = silent
 
@@ -154,6 +163,8 @@ func ResolveWriteBroadcast(basis int, floor int, answers []SourceAnswer, faults 
 		for _, answer := range answers {
 			if answer.Hash == winner {
 				decision.Accepted = append(decision.Accepted, answer)
+			} else if answer.Hash != "" {
+				decision.Dissent = append(decision.Dissent, answer)
 			}
 		}
 	}

@@ -30,8 +30,12 @@ type WriteResult struct {
 	Decision rpc.WriteDecision
 }
 
-// Accepted reports whether the broadcast reached its support bound.
-func (w WriteResult) Accepted() bool { return w.Decision.Status == rpc.WriteAccepted }
+// Accepted reports whether the broadcast reached its support bound and has a
+// concrete transaction hash. The hash check keeps a zero or partially built
+// result from being mistaken for a successful write.
+func (w WriteResult) Accepted() bool {
+	return w.Decision.Status == rpc.WriteAccepted && w.Decision.Hash != ""
+}
 
 // Hash is the winning transaction hash; empty when no hash cluster formed.
 func (w WriteResult) Hash() common.Hash { return common.HexToHash(w.Decision.Hash) }
@@ -76,8 +80,8 @@ func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err erro
 //     safe to retry at the caller level too.
 //   - The voting basis is captured before any request (decision 0025): the
 //     membership snapshot, the corroboration mode, and the support floor.
-//     Forwarded mode broadcasts to the single member and reports WriteAccepted
-//     with Basis=1 without claiming corroboration.
+//     Forwarded mode tries one member at a time and reports a matching
+//     WriteAccepted with Basis=1 without claiming corroboration.
 //   - A quorum-reaching hash cluster is WriteAccepted; minority dissent and
 //     rejections are evidence, not failure. Rejection bodies never join the
 //     hash cluster, even when their text suggests the transaction is already
@@ -104,19 +108,24 @@ func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (WriteRes
 	hash := strings.ToLower(tx.Hash().Hex())
 
 	snap := c.corrob.Snapshot()
-	basis := c.pool.Len()
+	members := c.pool.VotingMembers()
+	basis := len(members)
+	// Forwarded mode is an intentional single-source path even when the pool
+	// contains more than one configured fallback member. The write decision is
+	// therefore adjudicated with a one-source requirement and makes no
+	// corroboration claim.
+	if snap.Mode == rpc.CorroborationForwarded && basis > 0 {
+		basis = 1
+	}
 	params := []any{hexutil.Encode(rawTx)}
 
 	var emissions []pool.Emission
 	var collectErr error
 	if snap.Mode == rpc.CorroborationForwarded {
-		emissions, collectErr = c.pool.Forward(ctx, methods.MethodSendRawTransaction, params, pool.CollectOptions{Timeout: c.collectTimeoutValue()})
+		emissions, collectErr = c.pool.Forward(ctx, methods.MethodSendRawTransaction, params, pool.CollectOptions{Sources: members, Timeout: c.collectTimeoutValue()})
 	} else {
-		emissions, collectErr = c.pool.Broadcast(ctx, methods.MethodSendRawTransaction, params, pool.WithBroadcastTimeout(c.collectTimeoutValue()))
-	}
-	if collectErr != nil && !hasBroadcastAnswer(emissions) {
-		return WriteResult{Decision: rpc.WriteDecision{Status: rpc.WriteUnreachable, Basis: basis}},
-			fmt.Errorf("write broadcast: %w", collectErr)
+		emissions, collectErr = c.pool.Broadcast(ctx, methods.MethodSendRawTransaction, params,
+			pool.WithBroadcastTimeout(c.collectTimeoutValue()), pool.WithBroadcastSources(members))
 	}
 
 	answers := make([]rpc.SourceAnswer, 0, len(emissions))
@@ -132,21 +141,10 @@ func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (WriteRes
 		}
 		answers = append(answers, answer)
 	}
-
-	// In forwarded mode the single answer is locally validated only: the
-	// hash must match the sent bytes, and no corroboration claim is made.
-	if snap.Mode == rpc.CorroborationForwarded {
-		for _, answer := range answers {
-			if answer.Hash != "" {
-				if answer.Hash != hash {
-					return WriteResult{Decision: rpc.WriteDecision{Status: rpc.WriteDisputed, Basis: basis, Hash: answer.Hash}},
-						fmt.Errorf("write: source hash %s does not match signed payload %s: %w", answer.Hash, hash, rpc.ErrConflict)
-				}
-				return WriteResult{Decision: rpc.WriteDecision{Status: rpc.WriteAccepted, Hash: answer.Hash, Agreement: 1, Basis: basis, Required: 1}}, nil
-			}
-		}
-		return WriteResult{Decision: rpc.WriteDecision{Status: rpc.WriteUnreachable, Basis: basis}},
-			fmt.Errorf("write: forwarded source did not accept: %w", rpc.ErrNoValidResponse)
+	if collectErr != nil && !hasBroadcastAnswer(emissions) {
+		decision, _ := rpc.ResolveWriteBroadcast(basis, snap.Floor, answers, faults)
+		decision.Status = rpc.WriteUnreachable
+		return WriteResult{Decision: decision}, fmt.Errorf("write broadcast: %w", collectErr)
 	}
 
 	decision, err := rpc.ResolveWriteBroadcast(basis, snap.Floor, answers, faults)
