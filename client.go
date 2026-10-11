@@ -258,23 +258,32 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if err := methods.ValidateRegistry(policies); err != nil {
 		return nil, fmt.Errorf("ethguard: %w", err)
 	}
+	projectors := map[string]rpc.ObservationProjector{
+		methods.MethodGetBalance: projection.ScalarStandardProjector(),
+		methods.MethodCall:       projection.ScalarStandardProjector(),
+	}
+	for _, method := range []string{
+		methods.MethodGetTransactionReceipt,
+		methods.MethodGetBlockReceipts,
+		methods.MethodGetBlockByHash,
+		methods.MethodGetBlockByNumber,
+		methods.MethodGetTransactionByHash,
+		methods.MethodGetLogs,
+		methods.MethodFeeHistory,
+	} {
+		projector, err := projection.NewSchemaProjector(method)
+		if err != nil {
+			return nil, fmt.Errorf("ethguard: build %s projector: %w", method, err)
+		}
+		projectors[method] = projector
+	}
 	return &Client{
 		pool: rpcPool,
 		aggregator: aggregator.New(rpcPool, policies,
 			aggregator.WithRecorder(rec),
 			aggregator.WithCollectTimeout(co.collectTimeout),
 			aggregator.WithCorroboration(corrob),
-			aggregator.WithProjectors(map[string]rpc.ObservationProjector{
-				methods.MethodGetTransactionReceipt: projection.NewStandardProjector(projection.TransactionReceiptStandardFields()),
-				methods.MethodGetBlockReceipts:      projection.NewStandardProjector(projection.TransactionReceiptStandardFields()),
-				methods.MethodGetBlockByHash:        projection.NewStandardProjector(projection.BlockStandardFields()),
-				methods.MethodGetBlockByNumber:      projection.NewStandardProjector(projection.BlockStandardFields()),
-				methods.MethodGetTransactionByHash:  projection.NewStandardProjector(projection.TransactionStandardFields()),
-				methods.MethodGetBalance:            projection.ScalarStandardProjector(),
-				methods.MethodCall:                  projection.ScalarStandardProjector(),
-				methods.MethodGetLogs:               projection.NewStandardProjector(projection.LogsStandardFields()),
-				methods.MethodFeeHistory:            projection.NewStandardProjector(projection.FeeHistoryStandardFields()),
-			})),
+			aggregator.WithProjectors(projectors)),
 		policies:       policies,
 		resolver:       resolver,
 		corrob:         corrob,

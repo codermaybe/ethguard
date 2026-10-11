@@ -228,7 +228,7 @@ func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
 	decision.Faults = faults
 	winner := ranked[0]
 	decision.Value = winner.value
-	decision.Evidence = append(json.RawMessage(nil), winner.evidence...)
+	decision.Provenance = append(json.RawMessage(nil), winner.evidence...)
 	decision.Representative = winner.sources[0]
 	decision.Support = winner.sources
 	for _, cl := range ranked[1:] {
@@ -302,7 +302,7 @@ func encodingDiagnostic(cl cluster, err error) error {
 // Fault inside the denominator, but its key comes from the normalizer, and
 // EncodeCommit writes the value's own canonical bytes. Unmigrated methods keep
 // the normalizer key, including block number|hash. The cluster's Value and
-// Evidence both come from the first supporter in the captured member order,
+// Provenance both come from the first supporter in the captured member order,
 // which is the order of obs; when that supporter has no evidence the
 // cluster's evidence stays empty instead of borrowing a later supporter's.
 func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {

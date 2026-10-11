@@ -48,7 +48,7 @@ func TestBlockReceiptSpellingsAndFromShareCanonicalValue(t *testing.T) {
 			} else if !bytes.Equal(baseline, decision.Value) {
 				t.Fatal("capture order/spelling changed Value")
 			}
-			if decision.Representative != order[0].Source || !bytes.Equal(decision.Evidence, order[0].Evidence) {
+			if decision.Representative != order[0].Source || !bytes.Equal(decision.Provenance, order[0].Evidence) {
 				t.Fatalf("representative/evidence = %+v", decision)
 			}
 		}

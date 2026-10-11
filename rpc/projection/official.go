@@ -69,6 +69,9 @@ func collectSchemaPaths(schema any, path string, required bool, paths map[string
 	if typeName, _ := m["type"].(string); typeName == "null" {
 		return
 	}
+	if path != "" && (m["properties"] != nil || m["items"] != nil) {
+		paths[path] = paths[path] || required
+	}
 	if properties, ok := m["properties"].(map[string]any); ok {
 		requiredNames := map[string]bool{}
 		if requiredList, ok := m["required"].([]any); ok {

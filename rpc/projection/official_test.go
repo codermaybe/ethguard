@@ -29,6 +29,13 @@ func TestExecutionAPIStandardFieldsDerivesPinnedPaths(t *testing.T) {
 	if containsStandardPath(logs, "") {
 		t.Fatalf("composite array schema introduced a false root field: %#v", logs)
 	}
+	receipt, err := ExecutionAPIStandardFields("eth_getTransactionReceipt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsStandardPath(receipt, "/logs") {
+		t.Fatalf("receipt container path missing: %#v", receipt)
+	}
 }
 
 func TestProductionProjectorsCoverPinnedOfficialPaths(t *testing.T) {

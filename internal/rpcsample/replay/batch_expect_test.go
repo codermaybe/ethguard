@@ -3,6 +3,8 @@ package replay_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -327,8 +329,17 @@ func replayCapturedCase(t *testing.T, mode string, floor int, records []rpcsampl
 			Status:         policyDecision.Status.String(),
 			Error:          decisionError(policyErr),
 			Representative: representativeOf(policyDecision, records),
+			ValueSHA256:    capturedValueSHA256(method, policyDecision.Value),
 		},
 	}, nil
+}
+
+func capturedValueSHA256(method string, value json.RawMessage) string {
+	if method != methods.MethodGetBlockByHash && method != methods.MethodGetBlockByNumber || len(value) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(value)
+	return hex.EncodeToString(sum[:])
 }
 
 func unusableAnswers(policy rpc.Policy, obs []rpc.Observation) int {

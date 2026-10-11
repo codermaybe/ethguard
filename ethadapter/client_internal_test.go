@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
@@ -53,15 +52,15 @@ func TestDecodeCallResultPreservesGethRevertData(t *testing.T) {
 				t.Fatalf("expected RevertError, got %T: %v", err, err)
 			}
 			var rpcErr gethrpc.Error
-			if !errors.As(err, &rpcErr) || rpcErr.ErrorCode() != 3 {
-				t.Fatalf("expected geth rpc.Error code 3, got %v", err)
+			if errors.As(err, &rpcErr) {
+				t.Fatalf("RevertError must no longer expose provider rpc.Error context: %v", err)
 			}
 			var dataErr gethrpc.DataError
 			if !errors.As(err, &dataErr) {
 				t.Fatal("expected geth rpc.DataError")
 			}
-			if got, ok := ethclient.RevertErrorData(err); !ok || len(got) != len(revert.Data) {
-				t.Fatalf("expected geth RevertErrorData compatibility, got %x (ok=%v)", got, ok)
+			if got, ok := dataErr.ErrorData().(string); revert.Data != nil && (!ok || got == "") {
+				t.Fatalf("expected DataError data, got %#v (ok=%v)", dataErr.ErrorData(), ok)
 			}
 		})
 	}
@@ -113,13 +112,6 @@ func TestDecodeCallResultKeepsRevertDataStates(t *testing.T) {
 				if !ok || asMap["reason"] != "nope" {
 					t.Fatalf("structured ErrorData = %#v", got)
 				}
-			}
-			_, hexOK := ethclient.RevertErrorData(err)
-			if tc.wantHex != "" && !hexOK {
-				t.Fatalf("hex data was not visible to RevertErrorData: %#v", got)
-			}
-			if tc.wantHex == "" && hexOK {
-				t.Fatalf("RevertErrorData accepted non-hex data %s", tc.name)
 			}
 		})
 	}

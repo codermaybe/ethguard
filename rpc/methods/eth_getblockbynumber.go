@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ethguard/rpc"
+	blockobject "ethguard/rpc/internal/objects/block"
 )
 
 // MethodGetBlockByNumber is the JSON-RPC method name resolved by
@@ -22,7 +23,8 @@ const MethodGetBlockByNumber = "eth_getBlockByNumber"
 // BlockByNumber(-1) before fan-out; this policy does not project that tag
 // into an ordinary block.
 func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return PendingLocal(0)(blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, opts)...), byHash: false})
+	strictOpts := append([]rpc.StrictOption{rpc.WithCanonicalObject(blockobject.EncodeByNumber)}, opts...)
+	return PendingLocal(0)(blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, strictOpts)...), byHash: false})
 }
 
 // normalizeBlockIdentity reduces a block object to its comparable identity.

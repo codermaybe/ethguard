@@ -234,6 +234,7 @@ func (p anchorHeadPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Req
 
 func (p anchorHeadPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
 	d, err := p.Policy.Resolve(obs)
+	d = restoreAnchorSourceValue(d, obs)
 	return p.requireCorroborated(d, err)
 }
 
@@ -247,7 +248,24 @@ func (p anchorHeadPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Obs
 	} else {
 		d, err = p.Policy.Resolve(obs)
 	}
+	d = restoreAnchorSourceValue(d, obs)
 	return p.requireCorroborated(d, err)
+}
+
+// Anchor comparison uses the canonical head encoder, but the anchor decision
+// is an internal reference observation and must preserve the winning source's
+// wire spelling. The request path lowercases the derived hash separately.
+func restoreAnchorSourceValue(d rpc.Decision, obs []rpc.Observation) rpc.Decision {
+	if d.Status != rpc.Corroborated || d.Representative.ID == "" {
+		return d
+	}
+	for _, item := range obs {
+		if item.Source.ID == d.Representative.ID {
+			d.Value = append(json.RawMessage(nil), item.Value...)
+			break
+		}
+	}
+	return d
 }
 
 func (p anchorHeadPolicy) requireCorroborated(d rpc.Decision, err error) (rpc.Decision, error) {

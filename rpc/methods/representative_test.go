@@ -18,7 +18,7 @@ var errExecutionReverted = errors.New("execution reverted")
 
 // TestRepresentativeIsFirstCapturedSource pins the source selection rule:
 // when two sources share a comparison key but spell the payload differently,
-// Value, Evidence, and the withheld data all come from the first source in
+// Value, Provenance, and the withheld data all come from the first source in
 // the captured order. Swapping the order must change the Value bytes. The
 // test must not assert that reordering leaves the bytes unchanged.
 func TestRepresentativeIsFirstCapturedSource(t *testing.T) {
@@ -68,19 +68,19 @@ func TestRepresentativeIsFirstCapturedSource(t *testing.T) {
 		if decision.Representative != a {
 			t.Fatalf("representative = %+v, want a", decision.Representative)
 		}
-		if !bytes.Contains(decision.Evidence, []byte("0xAAAA")) || bytes.Contains(decision.Evidence, []byte("0xaaaa")) || bytes.Contains(decision.Evidence, []byte("0xBEEF")) {
-			t.Fatalf("withheld = %s, want only a's data", decision.Evidence)
+		if !bytes.Contains(decision.Provenance, []byte("0xAAAA")) || bytes.Contains(decision.Provenance, []byte("0xaaaa")) || bytes.Contains(decision.Provenance, []byte("0xBEEF")) {
+			t.Fatalf("withheld = %s, want only a's data", decision.Provenance)
 		}
 
 		swapped := resolvePair(t, policy, second, first, other, fourth)
 		if swapped.Representative != b {
 			t.Fatalf("swapped representative = %+v, want b", swapped.Representative)
 		}
-		if !bytes.Contains(swapped.Evidence, []byte("0xaaaa")) || bytes.Contains(swapped.Evidence, []byte("0xAAAA")) {
-			t.Fatalf("swapped withheld = %s, want only b's data", swapped.Evidence)
+		if !bytes.Contains(swapped.Provenance, []byte("0xaaaa")) || bytes.Contains(swapped.Provenance, []byte("0xAAAA")) {
+			t.Fatalf("swapped withheld = %s, want only b's data", swapped.Provenance)
 		}
-		if bytes.Equal(decision.Evidence, swapped.Evidence) {
-			t.Fatalf("swapping the captured order left the withheld bytes unchanged: %s", swapped.Evidence)
+		if bytes.Equal(decision.Provenance, swapped.Provenance) {
+			t.Fatalf("swapping the captured order left the withheld bytes unchanged: %s", swapped.Provenance)
 		}
 	})
 }
@@ -98,8 +98,8 @@ func TestRepresentativeWithoutEvidenceStaysEmpty(t *testing.T) {
 			observation(a, `"0xA"`, ""),
 			observation(b, `"0xa"`, `{"from":"b"}`),
 		)
-		if len(decision.Evidence) != 0 {
-			t.Fatalf("evidence = %s, want empty", decision.Evidence)
+		if len(decision.Provenance) != 0 {
+			t.Fatalf("evidence = %s, want empty", decision.Provenance)
 		}
 		if decision.Representative != a {
 			t.Fatalf("representative = %+v, want a", decision.Representative)
@@ -112,8 +112,8 @@ func TestRepresentativeWithoutEvidenceStaysEmpty(t *testing.T) {
 			revertObservation(a, `"0xDEAD"`, ""),
 			revertObservation(b, `"0xdead"`, `{"from":"b"}`),
 		)
-		if len(decision.Evidence) != 0 {
-			t.Fatalf("evidence = %s, want empty", decision.Evidence)
+		if len(decision.Provenance) != 0 {
+			t.Fatalf("evidence = %s, want empty", decision.Provenance)
 		}
 		if decision.Representative != a {
 			t.Fatalf("representative = %+v, want a", decision.Representative)
@@ -163,8 +163,8 @@ func assertFirstSource(t *testing.T, policy rpc.Policy, first, second rpc.Observ
 	if !bytes.Equal(decision.Value, payloadOf(first)) {
 		t.Fatalf("value = %s, want first source %s", decision.Value, payloadOf(first))
 	}
-	if !bytes.Equal(decision.Evidence, first.Evidence) {
-		t.Fatalf("evidence = %s, want %s", decision.Evidence, first.Evidence)
+	if !bytes.Equal(decision.Provenance, first.Evidence) {
+		t.Fatalf("evidence = %s, want %s", decision.Provenance, first.Evidence)
 	}
 	if decision.Representative != first.Source {
 		t.Fatalf("representative = %+v, want %+v", decision.Representative, first.Source)
@@ -246,8 +246,8 @@ func TestMigratedScalarValueIsCanonical(t *testing.T) {
 			if decision.Representative != a || swapped.Representative != b {
 				t.Fatalf("representative = %+v / %+v, want a then b", decision.Representative, swapped.Representative)
 			}
-			if !bytes.Equal(decision.Evidence, first.Evidence) || !bytes.Equal(swapped.Evidence, second.Evidence) {
-				t.Fatalf("evidence did not follow the first supporter: %s / %s", decision.Evidence, swapped.Evidence)
+			if !bytes.Equal(decision.Provenance, first.Evidence) || !bytes.Equal(swapped.Provenance, second.Evidence) {
+				t.Fatalf("evidence did not follow the first supporter: %s / %s", decision.Provenance, swapped.Provenance)
 			}
 		})
 	}
@@ -416,8 +416,8 @@ func TestMigratedQuantityTieUsesCanonicalKey(t *testing.T) {
 	if string(decision.Value) != `"0x2"` || decision.Representative != a {
 		t.Fatalf("value = %s representative = %+v, want canonical 0x2 from a", decision.Value, decision.Representative)
 	}
-	if !bytes.Equal(decision.Evidence, json.RawMessage(`{"from":"a"}`)) {
-		t.Fatalf("evidence = %s", decision.Evidence)
+	if !bytes.Equal(decision.Provenance, json.RawMessage(`{"from":"a"}`)) {
+		t.Fatalf("evidence = %s", decision.Provenance)
 	}
 }
 

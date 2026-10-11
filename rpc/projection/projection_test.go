@@ -61,12 +61,33 @@ func TestProjectionExtensionsBindFingerprintAndEvidenceKind(t *testing.T) {
 	}
 }
 
+func TestSchemaProjectorKeepsReceiptContainersCore(t *testing.T) {
+	fields, err := ExecutionAPIStandardFields("eth_getTransactionReceipt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := ProjectStandard(rpc.Evaluation{Accepted: []rpc.FieldObservation{
+		{Path: "/logs", Value: json.RawMessage(`[]`)},
+		{Path: "/l1Fee", Value: json.RawMessage(`"0x10"`)},
+	}}, fields)
+	if len(result.Core) != 1 || result.Core[0].Path != "/logs" {
+		t.Fatalf("core = %#v, want receipt logs", result.Core)
+	}
+	if len(result.AcceptedExtensions) != 1 || result.AcceptedExtensions[0].Path != "/l1Fee" {
+		t.Fatalf("extensions = %#v, want l1Fee", result.AcceptedExtensions)
+	}
+}
+
 func TestProjectStandardMatchesArrayPathPatterns(t *testing.T) {
+	fields, err := ExecutionAPIStandardFields("eth_getLogs")
+	if err != nil {
+		t.Fatal(err)
+	}
 	result := ProjectStandard(rpc.Evaluation{Accepted: []rpc.FieldObservation{
 		{Path: "/0/address", Value: json.RawMessage(`"0x01"`)},
-		{Path: "/1/topics", Value: json.RawMessage(`[]`)},
+		{Path: "/1/topics/0", Value: json.RawMessage(`"0x02"`)},
 		{Path: "/0/vendor", Value: json.RawMessage(`true`)},
-	}}, LogsStandardFields())
+	}}, fields)
 	if len(result.Core) != 2 {
 		t.Fatalf("core = %#v, want two wildcard matches", result.Core)
 	}

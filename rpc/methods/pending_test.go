@@ -150,8 +150,8 @@ func TestPendingLocalSlice(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(decision.Evidence) != `{"admitted":true}` {
-			t.Fatalf("evidence = %s, want winner evidence", decision.Evidence)
+		if string(decision.Provenance) != `{"admitted":true}` {
+			t.Fatalf("evidence = %s, want winner evidence", decision.Provenance)
 		}
 	})
 

@@ -123,7 +123,7 @@ func TestFeeHistoryRatioSpellingsShareOneCanonicalValue(t *testing.T) {
 	if forward.Representative != a || backward.Representative != b {
 		t.Fatalf("representatives = %+v %+v", forward.Representative, backward.Representative)
 	}
-	if !bytes.Equal(forward.Evidence, json.RawMessage(`{"from":"a"}`)) || !bytes.Equal(backward.Evidence, json.RawMessage(`{"from":"b"}`)) {
+	if !bytes.Equal(forward.Provenance, json.RawMessage(`{"from":"a"}`)) || !bytes.Equal(backward.Provenance, json.RawMessage(`{"from":"b"}`)) {
 		t.Fatal("evidence did not follow the first captured supporter")
 	}
 	if bytes.Contains(forward.Value, []byte("vendor")) {

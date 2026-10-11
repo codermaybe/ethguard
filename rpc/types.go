@@ -158,11 +158,11 @@ type Decision struct {
 	Support     []SourceRef
 	Reject      []SourceRef
 	Faults      []error
-	// Evidence belongs to the selected value and is populated by an
+	// Provenance belongs to the selected value and is populated by an
 	// AdmissionPolicy. It is opaque to generic callers. eth_call also stores
 	// withheld revert-data bytes here when rule 4e removes them from Value;
 	// those bytes are audit material, not a corroborated field.
-	Evidence json.RawMessage
+	Provenance json.RawMessage
 	// Representative is the first supporter of the winning cluster in this
 	// call's captured member order. For a method that has not migrated, Value
 	// is that source's admitted payload. For a migrated quantity, successful

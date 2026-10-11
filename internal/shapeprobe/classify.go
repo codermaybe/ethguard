@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"ethguard/rpc"
-	"ethguard/rpc/methods"
 	"ethguard/rpc/projection"
 )
 
@@ -47,19 +46,10 @@ func standardFields(method string) []projection.StandardField {
 	if fields, err := projection.ExecutionAPIStandardFields(method); err == nil {
 		return fields
 	}
-	switch method {
-	case methods.MethodFeeHistory:
-		return projection.FeeHistoryStandardFields()
-	case methods.MethodGetLogs:
-		return projection.LogsStandardFields()
-	default:
-		// The remaining probe methods return scalar values or local objects
-		// whose shape is not yet registered in the compile-time projection.
-		// Scalar results use the empty JSON Pointer path. Local object methods
-		// therefore remain extension observations until a method declaration is
-		// added; this fallback never promotes their nested fields to Core.
-		return []projection.StandardField{{Path: "", Required: true}}
-	}
+	// Scalar results use the empty JSON Pointer path. Local object methods
+	// remain extension observations until their official result schema is
+	// registered; this fallback never promotes nested fields to Core.
+	return []projection.StandardField{{Path: "", Required: true}}
 }
 
 func formatClassification(method string, samples []FieldSample) (string, error) {

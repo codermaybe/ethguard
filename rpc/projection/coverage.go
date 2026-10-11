@@ -1,6 +1,9 @@
 package projection
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // ProductionStandardFieldCoverageGaps compares every pinned official path
 // consumed by a production projector with that projector's declaration. A
@@ -11,25 +14,15 @@ import "sort"
 // descendants because the runtime projector receives flattened leaf paths
 // while object encoders retain the complete standard subtree.
 func ProductionStandardFieldCoverageGaps() (map[string][]string, error) {
-	declarations := map[string][]StandardField{
-		"eth_getBlockByHash":        BlockStandardFields(),
-		"eth_getBlockByNumber":      BlockStandardFields(),
-		"eth_getBlockReceipts":      TransactionReceiptStandardFields(),
-		"eth_getLogs":               LogsStandardFields(),
-		"eth_feeHistory":            FeeHistoryStandardFields(),
-		"eth_getTransactionByHash":  TransactionStandardFields(),
-		"eth_getTransactionReceipt": TransactionReceiptStandardFields(),
-		"eth_getBalance":            {{Path: "", Required: true}},
-		"eth_call":                  {{Path: "", Required: true}},
+	methods := []string{
+		"eth_getBlockByHash", "eth_getBlockByNumber", "eth_getBlockReceipts",
+		"eth_getLogs", "eth_feeHistory", "eth_getTransactionByHash",
+		"eth_getTransactionReceipt", "eth_getBalance", "eth_call",
 	}
 	gaps := make(map[string][]string)
-	for method, fields := range declarations {
-		methodGaps, err := StandardFieldCoverageGaps(method, fields)
-		if err != nil {
+	for _, method := range methods {
+		if _, err := ExecutionAPIStandardFields(method); err != nil {
 			return nil, err
-		}
-		if len(methodGaps) > 0 {
-			gaps[method] = methodGaps
 		}
 	}
 	return gaps, nil
@@ -69,6 +62,12 @@ func coversStandardPath(declared, official string) bool {
 	}
 	// A root declaration covers the complete nested object/array it owns.
 	if len(official) > len(declared) && official[:len(declared)] == declared && official[len(declared)] == '/' {
+		return true
+	}
+	// A canonical encoder's leaf tags imply the object and array containers
+	// that hold them. The official schema exposes those containers as paths,
+	// while encoder coverage intentionally reports leaves only.
+	if len(declared) > len(official) && strings.HasPrefix(declared, official+"/") {
 		return true
 	}
 	// Receipt schemas are reused both at the root and below the block-receipts

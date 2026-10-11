@@ -129,7 +129,7 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 
 	decision.Status = Selected // variable result: corroboration proves nothing
 	decision.Value = rep.value
-	decision.Evidence = rep.evidence
+	decision.Provenance = rep.evidence
 	decision.Representative = rep.source
 	for _, s := range samples {
 		if s.value.Cmp(medianValue) == 0 {

@@ -52,7 +52,7 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash, fullTx bool)
 	}
 	var block *types.Block
 	if fullTx {
-		block, err = DecodeBlockWithEvidence(decision.Value, decision.Evidence)
+		block, err = DecodeBlockWithEvidence(decision.Value, decision.Provenance)
 	} else {
 		block, err = DecodeBlockHeaderOnly(decision.Value)
 	}
@@ -270,7 +270,7 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	block, err := DecodeBlockWithEvidence(decision.Value, decision.Evidence)
+	block, err := DecodeBlockWithEvidence(decision.Value, decision.Provenance)
 	if err != nil {
 		return 0, err
 	}

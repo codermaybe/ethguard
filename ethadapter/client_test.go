@@ -745,8 +745,8 @@ func TestAdapterCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
 	if !errors.As(err, &revert) {
 		t.Fatalf("expected RevertError, got %v", err)
 	}
-	if revert.Message != "execution reverted: no funds" {
-		t.Fatalf("unexpected revert message %q", revert.Message)
+	if !strings.Contains(err.Error(), "execution reverted: no funds") {
+		t.Fatalf("unexpected revert error %q", err)
 	}
 	if !strings.Contains(err.Error(), "corroborated observation") {
 		t.Fatalf("revert error should state its standing: %v", err)

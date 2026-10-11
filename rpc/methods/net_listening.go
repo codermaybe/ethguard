@@ -10,5 +10,5 @@ const MethodListening = "net_listening"
 // ListeningPolicy resolves net_listening as an upstream-local result: whether
 // a node accepts inbound peers describes one provider alone (see rpc.Local).
 func ListeningPolicy() rpc.Policy {
-	return rpc.Local(rpc.CanonicalJSON, rpc.WithLocalRuleCompareKind(rpc.RuleCompareObject))
+	return rpc.Local(rpc.CanonicalJSON, rpc.WithLocalRuleCompareKind(rpc.RuleCompareObject), rpc.WithLocalCanonical(rpc.EncodeCanonicalJSON))
 }

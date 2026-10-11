@@ -99,11 +99,11 @@ func (p pendingLocalPolicy) ResolveLocal(obs []rpc.Observation) (rpc.Decision, e
 			return rpc.Decision{Status: rpc.Unknown, Faults: faults}, fmt.Errorf("pending: %w", err)
 		}
 		return rpc.Decision{
-			Status:   rpc.Selected,
-			Value:    value,
-			Support:  []rpc.SourceRef{item.Source},
-			Faults:   faults,
-			Evidence: append(json.RawMessage(nil), item.Evidence...),
+			Status:     rpc.Selected,
+			Value:      value,
+			Support:    []rpc.SourceRef{item.Source},
+			Faults:     faults,
+			Provenance: append(json.RawMessage(nil), item.Evidence...),
 		}, nil
 	}
 	return rpc.Decision{Status: rpc.Unknown, Faults: faults}, fmt.Errorf(

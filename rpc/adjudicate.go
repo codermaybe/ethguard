@@ -62,7 +62,7 @@ func (c Corroboration) Required(n int) int {
 // adjudicate resolves size-ranked clusters (ties broken by canonical key)
 // against a voting basis of n members. The winner's evidence is reported
 // whether the decision succeeds or fails, so identical inputs always yield
-// identical Support and Reject. Value, Evidence, and Representative come from
+// identical Support and Reject. Value, Provenance, and Representative come from
 // the first supporter of the winning cluster in the captured member order.
 func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Decision, error) {
 	var decision Decision
@@ -70,7 +70,7 @@ func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Deci
 	decision.Faults = faults
 	winner := ranked[0]
 	decision.Value = winner.value
-	decision.Evidence = append(json.RawMessage(nil), winner.evidence...)
+	decision.Provenance = append(json.RawMessage(nil), winner.evidence...)
 	decision.Representative = winner.sources[0]
 	decision.Support = winner.sources
 	for _, cl := range ranked[1:] {

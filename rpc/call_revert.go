@@ -110,7 +110,7 @@ func (p callRevertFunc) resolve(c Corroboration, legacy bool, obs []Observation)
 		Status:         Unknown,
 		Faults:         faults,
 		Value:          rep.value,
-		Evidence:       rep.evidence,
+		Provenance:     rep.evidence,
 		Representative: rep.source,
 		Revert:         cloneRevertContext(rep.revert),
 		Support:        sourcesOf(winner),
@@ -276,7 +276,7 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 		decision.Value = value
 		decision.Revert = cloneRevertContext(rep.revert)
 		decision.DeletedFields = deleted
-		decision.Evidence = rep.evidence
+		decision.Provenance = rep.evidence
 		decision.Representative = rep.source
 		decision.Dimensions = []DimensionEvidence{
 			execution,
@@ -291,7 +291,7 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 		rep := representative(dataWinner)
 		decision.Value = revertValue(rep.value, true)
 		decision.Revert = cloneRevertContext(rep.revert)
-		decision.Evidence = rep.evidence
+		decision.Provenance = rep.evidence
 		decision.Representative = rep.source
 		decision.Dimensions = []DimensionEvidence{
 			execution,
@@ -304,7 +304,7 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 	decision.Value = value
 	decision.Revert = cloneRevertContext(rep.revert)
 	decision.DeletedFields = deleted
-	decision.Evidence = withheldRevertData(dataWinner)
+	decision.Provenance = withheldRevertData(dataWinner)
 	decision.Representative = rep.source
 	decision.Dimensions = []DimensionEvidence{
 		execution,

@@ -454,11 +454,7 @@ func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]type
 // provider's own context and are carried separately from Decision.Value. None of the
 // classified pipeline sentinels apply.
 type RevertError struct {
-	// Code is the JSON-RPC error code supplied by the provider. Geth uses
-	// code 3 for execution reverts while a number of providers use -32000;
-	// retaining the wire value lets callers distinguish those dialects.
-	Code    int
-	Message string
+	message string
 	// Data is set only when the provider data is a hex string. Missing and
 	// JSON null leave it nil; empty bytes ("0x") are a non-nil empty slice.
 	Data []byte
@@ -470,18 +466,9 @@ type RevertError struct {
 
 func (e *RevertError) Error() string {
 	if len(e.Data) > 0 {
-		return fmt.Sprintf("ethguard: call reverted (corroborated observation): %s: 0x%x", e.Message, e.Data)
+		return fmt.Sprintf("ethguard: call reverted (corroborated observation): %s: 0x%x", e.message, e.Data)
 	}
-	return fmt.Sprintf("ethguard: call reverted (corroborated observation): %s", e.Message)
-}
-
-// ErrorCode makes RevertError compatible with go-ethereum's rpc.Error. The
-// original provider code remains available through Code.
-func (e *RevertError) ErrorCode() int {
-	if e == nil {
-		return 0
-	}
-	return e.Code
+	return fmt.Sprintf("ethguard: call reverted (corroborated observation): %s", e.message)
 }
 
 // ErrorData makes RevertError compatible with go-ethereum's rpc.DataError.
@@ -518,7 +505,7 @@ func decodeCallResult(raw json.RawMessage) ([]byte, error) {
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err == nil && (envelope.Code != 0 || envelope.Message != "") {
-		revert := &RevertError{Code: envelope.Code, Message: envelope.Message, DataRaw: append(json.RawMessage(nil), envelope.Data...)}
+		revert := &RevertError{message: envelope.Message, DataRaw: append(json.RawMessage(nil), envelope.Data...)}
 		var hexData string
 		if len(envelope.Data) > 0 && json.Unmarshal(envelope.Data, &hexData) == nil {
 			if data, err := hexutil.Decode(hexData); err == nil {
@@ -541,7 +528,7 @@ func decodeCallDecision(decision rpc.Decision) ([]byte, error) {
 	if decision.Revert == nil {
 		return decodeCallResult(decision.Value)
 	}
-	revert := &RevertError{Code: decision.Revert.Code, Message: decision.Revert.Message}
+	revert := &RevertError{message: decision.Revert.Message}
 	var payload struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -666,7 +653,7 @@ func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, error) 
 	if err != nil {
 		return nil, err
 	}
-	block, err := ethguard.DecodeBlockWithEvidence(decision.Value, decision.Evidence)
+	block, err := ethguard.DecodeBlockWithEvidence(decision.Value, decision.Provenance)
 	if err != nil {
 		return nil, err
 	}

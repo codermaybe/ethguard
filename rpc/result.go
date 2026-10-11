@@ -13,6 +13,16 @@ import (
 // no encoder registry; the method file passes the function at assembly.
 type CanonicalEncoder func(json.RawMessage) (json.RawMessage, error)
 
+// EncodeCanonicalJSON adapts the generic canonical JSON normalizer to the
+// encoder seam used by selected local results.
+func EncodeCanonicalJSON(value json.RawMessage) (json.RawMessage, error) {
+	canonical, err := CanonicalJSON(value)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(canonical), nil
+}
+
 // ErrNotCanonicalScalar means the payload is outside the scalar encoder.
 // eth_call reverts use it. The caller keeps the representative source's
 // original payload and does not record a Fault.

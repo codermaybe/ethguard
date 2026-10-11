@@ -216,8 +216,8 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 		kept = tc.absentBytes
 	}
 	for _, needle := range kept {
-		if !bytes.Contains(aggDecision.Evidence, []byte(needle)) {
-			t.Fatalf("evidence lost %s: %s", needle, aggDecision.Evidence)
+		if !bytes.Contains(aggDecision.Provenance, []byte(needle)) {
+			t.Fatalf("evidence lost %s: %s", needle, aggDecision.Provenance)
 		}
 	}
 	for _, needle := range tc.absentBytes {
@@ -227,8 +227,8 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 				withheld = true
 			}
 		}
-		if !withheld && bytes.Contains(aggDecision.Evidence, []byte(needle)) {
-			t.Fatalf("evidence spliced in %s from another source: %s", needle, aggDecision.Evidence)
+		if !withheld && bytes.Contains(aggDecision.Provenance, []byte(needle)) {
+			t.Fatalf("evidence spliced in %s from another source: %s", needle, aggDecision.Provenance)
 		}
 	}
 	_, err := adapter.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)

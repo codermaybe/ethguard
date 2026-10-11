@@ -11,5 +11,5 @@ const MethodSyncing = "eth_syncing"
 // answer describes one provider's own sync state, so it is selected, not
 // compared (see rpc.Local).
 func SyncingPolicy() rpc.Policy {
-	return rpc.Local(rpc.CanonicalJSON, rpc.WithLocalRuleCompareKind(rpc.RuleCompareObject))
+	return rpc.Local(rpc.CanonicalJSON, rpc.WithLocalRuleCompareKind(rpc.RuleCompareObject), rpc.WithLocalCanonical(rpc.EncodeCanonicalJSON))
 }

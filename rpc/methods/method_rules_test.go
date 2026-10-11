@@ -40,6 +40,18 @@ func TestMethodRulesMatchIndex(t *testing.T) {
 	}
 }
 
+func TestRegisteredMethodsHaveCanonicalResults(t *testing.T) {
+	rows, err := methodRuleRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Rule.Result == rpc.RuleResultRaw {
+			t.Fatalf("%s still declares raw result", row.Method)
+		}
+	}
+}
+
 func methodRuleRows() ([]methodRuleRow, error) {
 	var rows []methodRuleRow
 	for _, method := range Catalog() {

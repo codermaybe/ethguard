@@ -462,6 +462,9 @@ func payloadMatches(t *testing.T, value json.RawMessage, payloads []json.RawMess
 // replay does not add a new must-match-an-original assertion for it.
 func replayValueAgrees(t *testing.T, policy rpc.Policy, decision rpc.Decision, payloads []json.RawMessage, sources []expectSource, deleted []string, allowEmpty bool) error {
 	t.Helper()
+	if isCallRevertPolicy(policy) && len(decision.Value) > 0 && containsObjectFields(t, decision.Value, []string{"code", "message"}) {
+		return fmt.Errorf("eth_call decision Value contains provider envelope fields")
+	}
 	if decision.Revert != nil {
 		// Revert code/message are provider context carried separately from the
 		// protected Value. Compare the remaining envelope fields against one
@@ -486,6 +489,46 @@ func replayValueAgrees(t *testing.T, policy rpc.Policy, decision rpc.Decision, p
 		return fmt.Errorf("decision value is not one source payload with %v removed", deleted)
 	}
 	return nil
+}
+
+func TestReplayValueAgreesAllowsEmptyCallValue(t *testing.T) {
+	if err := replayValueAgrees(t, methods.CallPolicy(nil), rpc.Decision{}, nil, nil, nil, true); err != nil {
+		t.Fatalf("empty call decision was rejected: %v", err)
+	}
+}
+
+func TestReplayValueAgreesAllowsCanonicalCallData(t *testing.T) {
+	value := json.RawMessage(`"0xdead"`)
+	if err := replayValueAgrees(t, methods.CallPolicy(nil), rpc.Decision{Value: value}, []json.RawMessage{value}, nil, nil, false); err != nil {
+		t.Fatalf("canonical call data was rejected: %v", err)
+	}
+}
+
+func isCallRevertPolicy(policy rpc.Policy) bool {
+	for policy != nil {
+		source, ok := policy.(rpc.MethodRuleSource)
+		if !ok {
+			return false
+		}
+		rule, next := source.MethodRule()
+		if rule.Resolver == rpc.RuleResolverCallRevert {
+			return true
+		}
+		if next == policy {
+			return false
+		}
+		policy = next
+	}
+	return false
+}
+
+func containsObjectFields(t *testing.T, raw json.RawMessage, fields []string) bool {
+	t.Helper()
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return false
+	}
+	return containsFields(t, trimmed, fields)
 }
 
 func replaySourcePayload(decision rpc.Decision, payloads []json.RawMessage, sources []expectSource) json.RawMessage {
@@ -713,6 +756,7 @@ type expectDecision struct {
 	Status         string                `json:"status"`
 	Error          string                `json:"error"`
 	Representative *expectRepresentative `json:"representative"`
+	ValueSHA256    string                `json:"value_sha256,omitempty"`
 }
 
 // expectRepresentative names the source whose payload the decision carried.

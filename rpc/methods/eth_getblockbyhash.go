@@ -2,6 +2,7 @@ package methods
 
 import (
 	"ethguard/rpc"
+	blockobject "ethguard/rpc/internal/objects/block"
 )
 
 // MethodGetBlockByHash is the JSON-RPC method name resolved by
@@ -13,5 +14,6 @@ const MethodGetBlockByHash = "eth_getBlockByHash"
 // canonical-object normalizer: encoding differences are erased, everything
 // still differing between sources is dissent.
 func BlockByHashPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	return blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, opts)...), byHash: true}
+	strictOpts := append([]rpc.StrictOption{rpc.WithCanonicalObject(blockobject.Encode)}, opts...)
+	return blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, strictOpts)...), byHash: true}
 }
