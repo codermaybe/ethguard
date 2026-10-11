@@ -31,6 +31,16 @@ func TestExecutionAPIStandardFieldsDerivesPinnedPaths(t *testing.T) {
 	}
 }
 
+func TestProductionProjectorsCoverPinnedOfficialPaths(t *testing.T) {
+	gaps, err := ProductionStandardFieldCoverageGaps()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gaps) != 0 {
+		t.Fatalf("production projector coverage gaps: %#v", gaps)
+	}
+}
+
 func containsStandardPath(fields []StandardField, path string) bool {
 	for _, field := range fields {
 		if field.Path == path {

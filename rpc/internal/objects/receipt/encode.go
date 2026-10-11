@@ -40,8 +40,7 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 }
 
 // Encode checks one eth_getTransactionReceipt result and returns the canonical
-// JSON of the protected fields. JSON null stays null. from is removed from
-// the comparison key and does not enter the value. contractAddress, to,
+// JSON of the protected fields. JSON null stays null. contractAddress, to,
 // blobGasUsed, and blobGasPrice are omitted when absent. A JSON null
 // contractAddress is omitted. An empty logs array stays [].
 //
@@ -67,6 +66,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 		TransactionIndex  json.RawMessage   `json:"transactionIndex"`
 		BlockHash         json.RawMessage   `json:"blockHash"`
 		BlockNumber       json.RawMessage   `json:"blockNumber"`
+		From              json.RawMessage   `json:"from"`
 		CumulativeGasUsed json.RawMessage   `json:"cumulativeGasUsed"`
 		GasUsed           json.RawMessage   `json:"gasUsed"`
 		EffectiveGasPrice json.RawMessage   `json:"effectiveGasPrice"`
@@ -104,6 +104,9 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	}
 	if out.BlockNumber, err = canonicalQuantity(raw.BlockNumber); err != nil {
 		return nil, fmt.Errorf("receipt blockNumber: %w", err)
+	}
+	if out.From, err = optionalAddress(raw.From); err != nil {
+		return nil, fmt.Errorf("receipt from: %w", err)
 	}
 	if out.CumulativeGasUsed, err = canonicalQuantity(raw.CumulativeGasUsed); err != nil {
 		return nil, fmt.Errorf("receipt cumulativeGasUsed: %w", err)
@@ -304,12 +307,13 @@ func marshal(value any) (json.RawMessage, error) {
 }
 
 // canonicalReceipt is the protected eth_getTransactionReceipt object. Field
-// order is fixed. from is not a field. Absent optional fields are omitted.
+// order is fixed. Absent optional fields are omitted.
 type canonicalReceipt struct {
 	TransactionHash   string                `json:"transactionHash"`
 	TransactionIndex  string                `json:"transactionIndex"`
 	BlockHash         string                `json:"blockHash"`
 	BlockNumber       string                `json:"blockNumber"`
+	From              *string               `json:"from,omitempty"`
 	CumulativeGasUsed string                `json:"cumulativeGasUsed"`
 	GasUsed           string                `json:"gasUsed"`
 	EffectiveGasPrice *string               `json:"effectiveGasPrice,omitempty"`

@@ -33,7 +33,7 @@ func TestReceiptSpellingsShareOneCanonicalValue(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decision.Status != rpc.Corroborated || bytes.Contains(decision.Value, []byte(`"from"`)) {
+		if decision.Status != rpc.Corroborated || !bytes.Contains(decision.Value, []byte(`"from"`)) {
 			t.Fatalf("decision = %s status %v", decision.Value, decision.Status)
 		}
 		return decision
@@ -51,7 +51,7 @@ func TestReceiptSpellingsShareOneCanonicalValue(t *testing.T) {
 	}
 }
 
-func TestReceiptFromDisagreementStaysOneCluster(t *testing.T) {
+func TestReceiptFromDisagreementSplitsTheCluster(t *testing.T) {
 	policy := TransactionReceiptPolicy(rpc.WithQuorum(1))
 	raw := sampleReceipt(t)
 	other := replaceReceiptField(t, raw, "from", `"0x0000000000000000000000000000000000000002"`)
@@ -59,8 +59,8 @@ func TestReceiptFromDisagreementStaysOneCluster(t *testing.T) {
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, string(raw), ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, string(other), ""),
 	})
-	if err != nil || decision.Status != rpc.Corroborated || bytes.Contains(decision.Value, []byte(`"from"`)) {
-		t.Fatalf("from split the receipt or entered Value: %s %v", decision.Value, err)
+	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
+		t.Fatalf("from disagreement was accepted: decision=%+v err=%v", decision, err)
 	}
 }
 

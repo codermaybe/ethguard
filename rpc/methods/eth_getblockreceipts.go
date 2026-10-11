@@ -40,9 +40,6 @@ func normalizeBlockReceiptList(value json.RawMessage) (string, error) {
 	if err := json.Unmarshal([]byte(key), &rows); err != nil {
 		return "", err
 	}
-	for _, row := range rows {
-		delete(row, "from")
-	}
 	encoded, err := json.Marshal(rows)
 	return string(encoded), err
 }

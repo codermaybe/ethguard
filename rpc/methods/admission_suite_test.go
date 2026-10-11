@@ -334,23 +334,18 @@ func admissionCases(t *testing.T) []admissionCase {
 			},
 			keySource: rpc.RuleKeyCanonicalBytes,
 			edges: map[string]func(*testing.T){
-				"from stays out of both the key and the Value": func(t *testing.T) {
-					// The key is the Value's bytes, so checking the Value
-					// covers the key for every migrated method. The normalizer
-					// is checked too, because it deletes from by its own line
-					// and that line is the reason from is absent rather than
-					// an accident of the mask.
+				"from stays in both the key and the Value": func(t *testing.T) {
 					raw := injectReceiptField(t, receipt, "from", `"0x`+strings.Repeat("ab", 20)+`"`)
 					encoded, err := receiptobj.Encode(raw)
 					if err != nil {
 						t.Fatal(err)
 					}
-					if bytes.Contains(encoded, []byte(`"from"`)) {
-						t.Fatalf("from entered Value: %s", encoded)
+					if !bytes.Contains(encoded, []byte(`"from"`)) {
+						t.Fatalf("from was dropped from Value: %s", encoded)
 					}
 					key, err := normalizeReceiptObject(raw)
-					if err != nil || strings.Contains(key, `"from"`) {
-						t.Fatalf("key = %s err %v", key, err)
+					if err != nil || !strings.Contains(key, `"from"`) {
+						t.Fatalf("key dropped from = %s err %v", key, err)
 					}
 				},
 				"null encodes as null": func(t *testing.T) {

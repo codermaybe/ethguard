@@ -163,6 +163,9 @@ var blockStandardFields = []StandardField{
 	{Path: "/excessBlobGas", Required: false},
 	{Path: "/parentBeaconBlockRoot", Required: false},
 	{Path: "/requestsHash", Required: false},
+	{Path: "/size", Required: true},
+	{Path: "/blockAccessListHash", Required: false},
+	{Path: "/withdrawals", Required: false},
 }
 
 // BlockStandardFields returns the compile-time core projection for block
@@ -195,6 +198,8 @@ var transactionStandardFields = []StandardField{
 	{Path: "/yParity", Required: false},
 	{Path: "/blobVersionedHashes", Required: false},
 	{Path: "/maxFeePerBlobGas", Required: false},
+	{Path: "/blockTimestamp", Required: true},
+	{Path: "/authorizationList", Required: false},
 }
 
 // TransactionStandardFields returns the compile-time core projection for
@@ -204,6 +209,7 @@ func TransactionStandardFields() []StandardField {
 }
 
 var logsStandardFields = []StandardField{
+	{Path: "/*", Required: false},
 	{Path: "/*/address", Required: true},
 	{Path: "/*/topics", Required: true},
 	{Path: "/*/data", Required: true},
@@ -213,6 +219,7 @@ var logsStandardFields = []StandardField{
 	{Path: "/*/blockHash", Required: true},
 	{Path: "/*/logIndex", Required: true},
 	{Path: "/*/removed", Required: false},
+	{Path: "/*/blockTimestamp", Required: false},
 }
 
 // LogsStandardFields describes each log entry in an eth_getLogs result.

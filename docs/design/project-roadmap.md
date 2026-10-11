@@ -621,7 +621,8 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 
 ### T07.4 官方标准升级闭环
 
-依赖：T07.2、T07.3。状态：进行中（2026-10-11，conformance/diff 初版已完成）。
+依赖：T07.2、T07.3。状态：进行中（2026-10-11，官方 schema、projector 和
+canonical encoder 覆盖门禁已完成；待目标环境重跑完整批次后关闭）。
 出口：上游 `execution-apis` release 变化能产生可审阅 diff、触发兼容测试，并将
 疑似标准滞后字段报告出来。
 
@@ -640,6 +641,11 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 - `internal/spec/vectors` 全部接入离线 conformance harness。官方向量验证 wire
   形状；`eth_sendRawTransaction` 的 32 字节交易哈希 result 已纳入 pinned bundle，
   向量不再留在 Uncovered；真实 Chainlist 批次验证 provider 变体；两者不互相替代。
+- `rpc/projection` 的 coverage gate 把所有生产 projector 与 pinned schema 的
+  JSON 路径逐项比较，新增官方字段若没有 projector 声明会直接使 CI 失败；
+  `eth_getBlockReceipts` 复用 receipt projector。receipt、log、feeHistory 和
+  access-list 的 canonical encoder 也通过同一条路径覆盖门禁；receipt 的官方
+  `from` 已进入 canonical value。
 
 ### T07.5 端到端验收与默认化
 
@@ -694,8 +700,10 @@ T07.5 已关闭后，下一切片回到 T07.4 的剩余出口，目标是让标�
 2. ~~为 `cmd/specdiff` 增加 CI gate：候选 bundle 出现方法、字段、类型或 required
    变化而没有对应迁移记录和 conformance/replay 结果时，CI 失败。~~ 已完成：
    `-check -migration` 精确校验 diff 与 manifest，并要求两类验证证据。
-3. 将标准字段迁移检查扩展到所有当前生产 projector/encoder，确保官方新增字段不会
-   只在 shape report 中变成 Core，却在生产 `Decision.Value` 中静默丢失。
+3. ~~将标准字段迁移检查从 projector 扩展到所有当前手写 canonical encoder，确保官方
+   新增字段不会只在 shape report 中变成 Core，却在生产 `Decision.Value` 中静默丢失。~~
+   已完成：projector 与 receipt/log/feeHistory/access-list encoder 统一由 pinned
+   schema 路径门禁检查，receipt 官方 `from` 不再被静默删除。
 4. 重新运行 pinned vectors、Chainlist 离线批次和全量测试；通过后关闭 T07.4，
    再进入 T08 的 revert envelope 与多维比较键工作。
 

@@ -42,7 +42,6 @@ func normalizeReceiptObject(value json.RawMessage) (string, error) {
 	if err := json.Unmarshal([]byte(key), &obj); err != nil {
 		return "", err
 	}
-	delete(obj, "from")
 	encoded, err := json.Marshal(obj)
 	return string(encoded), err
 }

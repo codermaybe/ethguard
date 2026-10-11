@@ -44,8 +44,8 @@ func TestPrunedReceiptKeyIsAlreadyCanonical(t *testing.T) {
 		t.Fatalf("CanonicalizeHex is not a fixed point on the key\nbefore %s\nafter  %s", refolded, folded)
 	}
 
-	// The key the method returns is that same key with from dropped, so
-	// dropping the second pass removed no bytes.
+	// The key the method returns retains every official receipt field, including
+	// from, while still using the same canonical spellings as the spec mask.
 	stripped := foldReceiptHex(t, raw)
 	pruned, err := wire.PruneMethod(MethodGetTransactionReceipt, stripped)
 	if err != nil {
@@ -58,7 +58,6 @@ func TestPrunedReceiptKeyIsAlreadyCanonical(t *testing.T) {
 	if _, present := obj["from"]; !present {
 		t.Fatal("mask no longer retains from, so deleting it proves nothing")
 	}
-	delete(obj, "from")
 	want, err := json.Marshal(obj)
 	if err != nil {
 		t.Fatal(err)
@@ -67,8 +66,16 @@ func TestPrunedReceiptKeyIsAlreadyCanonical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != string(want) {
-		t.Fatalf("key is not the pruned key minus from\nwant %s\ngot  %s", want, got)
+	var gotObj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(got), &gotObj); err != nil {
+		t.Fatal(err)
+	}
+	gotSorted, err := json.Marshal(gotObj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotSorted) != string(want) {
+		t.Fatalf("key is not the pruned key\nwant %s\ngot  %s", want, gotSorted)
 	}
 }
 
