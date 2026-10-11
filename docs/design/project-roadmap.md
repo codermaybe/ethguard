@@ -707,10 +707,10 @@ T07.4 与 T07.5 已关闭；本节保留每个出口的审计结果，后续工�
    再进入 T08 的 revert envelope 与多维比较键工作。~~ 已完成：目标环境
    `go test ./...` 通过，进入 T08。
 
-### T08 下一步：revert envelope 与多维比较键
+### T08：revert envelope 与多维比较键
 
-依赖：T07 全部完成。状态：进行中（2026-10-11；T08.1 revert context/value
-分离已完成）。出口：把仍依赖代表源原文的
+依赖：T07 全部完成。状态：暂停开发（2026-10-11；T08.1 revert context/value
+分离已完成，后续切片未开始）。出口：把仍依赖代表源原文的
 revert/错误结果和未迁移对象，按方法契约拆成可审计的多维比较键；不把错误文本、
 厂商扩展或来源原文误当成官方 Core。
 
@@ -723,6 +723,10 @@ revert/错误结果和未迁移对象，按方法契约拆成可审计的多维�
   quorum/mode 配置，不得跨来源拼接业务对象。
 - 为每个迁移方法先补官方 schema/conformance、admission、encoder、replay 和
   typed adapter 断言，再接入生产路径；每个切片保留 Git 检查点。
+
+暂停记录：本次开发在提交 `9c00b87` 后暂停。当前工作区应保持干净，恢复时从
+T08.2（固定多维键与 typed adapter 边界）继续；不回退 T07 的标准生成、schema
+门禁、projector/encoder coverage gate 或 T08.1 的 `Decision.Revert` 分离。
 
 ## 排后：未捕获读方法的捕获批次
 
