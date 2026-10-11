@@ -55,7 +55,8 @@
         "representative": {
           "id": "s1",
           "ordinal": 0
-        }
+        },
+        "value_sha256": "0adae4b6d3ba7b65362d195c2d0d2fc6282909d99ecab7144bc9c8c66454b493"
       }
     },
     {
@@ -109,7 +110,8 @@
         "representative": {
           "id": "s1",
           "ordinal": 0
-        }
+        },
+        "value_sha256": "0adae4b6d3ba7b65362d195c2d0d2fc6282909d99ecab7144bc9c8c66454b493"
       }
     },
     {
@@ -163,7 +165,8 @@
         "representative": {
           "id": "s1",
           "ordinal": 0
-        }
+        },
+        "value_sha256": "47923859f962dbdf16bab5d1dee46033a760ca0e5367b9a2a503f7cdd970266e"
       }
     },
     {
@@ -217,7 +220,8 @@
         "representative": {
           "id": "s1",
           "ordinal": 0
-        }
+        },
+        "value_sha256": "47923859f962dbdf16bab5d1dee46033a760ca0e5367b9a2a503f7cdd970266e"
       }
     },
     {
@@ -271,7 +275,8 @@
         "representative": {
           "id": "s1",
           "ordinal": 0
-        }
+        },
+        "value_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
       }
     },
     {
@@ -325,7 +330,8 @@
         "representative": {
           "id": "s1",
           "ordinal": 0
-        }
+        },
+        "value_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
       }
     },
     {
