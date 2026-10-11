@@ -26,6 +26,9 @@ func TestExecutionAPIStandardFieldsDerivesPinnedPaths(t *testing.T) {
 	if !containsStandardPath(logs, "/*/address") {
 		t.Fatalf("log wildcard path missing: %#v", logs)
 	}
+	if containsStandardPath(logs, "") {
+		t.Fatalf("composite array schema introduced a false root field: %#v", logs)
+	}
 }
 
 func containsStandardPath(fields []StandardField, path string) bool {

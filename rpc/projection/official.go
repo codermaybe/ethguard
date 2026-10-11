@@ -88,7 +88,7 @@ func collectSchemaPaths(schema any, path string, required bool, paths map[string
 		}
 	} else if items, ok := m["items"]; ok {
 		collectSchemaPaths(items, path+"/*", required, paths)
-	} else {
+	} else if !hasSchemaComposition(m) {
 		paths[path] = paths[path] || required
 	}
 	for _, key := range []string{"oneOf", "anyOf", "allOf"} {
@@ -98,6 +98,15 @@ func collectSchemaPaths(schema any, path string, required bool, paths map[string
 			}
 		}
 	}
+}
+
+func hasSchemaComposition(schema map[string]any) bool {
+	for _, key := range []string{"oneOf", "anyOf", "allOf"} {
+		if _, ok := schema[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func escapePointer(token string) string {
