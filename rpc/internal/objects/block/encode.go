@@ -23,18 +23,17 @@ import (
 // are present, while withdrawals are included only after the header commits
 // to them.
 func Encode(raw json.RawMessage) (json.RawMessage, error) {
-	return encode(raw, false)
+	return encode(raw)
 }
 
-// EncodeByNumber preserves the source spelling for a header-only
-// eth_getBlockByNumber response. The number policy deliberately keeps that
-// narrow, source-shaped Value while its comparison key folds number and hash;
-// complete typed block responses still use canonical header encoding.
+// EncodeByNumber is the canonical encoder for eth_getBlockByNumber. The
+// method policy restores source spelling only after canonical comparison for
+// a header-only response.
 func EncodeByNumber(raw json.RawMessage) (json.RawMessage, error) {
-	return encode(raw, true)
+	return Encode(raw)
 }
 
-func encode(raw json.RawMessage, preserveHeadSpelling bool) (json.RawMessage, error) {
+func encode(raw json.RawMessage) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if bytes.Equal(trimmed, []byte("null")) {
 		return json.RawMessage("null"), nil
@@ -46,7 +45,7 @@ func encode(raw json.RawMessage, preserveHeadSpelling bool) (json.RawMessage, er
 	var header *types.Header
 	if err := json.Unmarshal(trimmed, &header); err != nil || header == nil {
 		if hasBlockHead(source) {
-			return encodeHeaderOnly(source, preserveHeadSpelling)
+			return encodeHeaderOnly(source)
 		}
 		// Let the block normalizer report a missing identity for malformed or
 		// incomplete responses. Header-only anchor reads intentionally need only
@@ -101,7 +100,7 @@ func hasBlockHead(source map[string]json.RawMessage) bool {
 	return number && hash
 }
 
-func encodeHeaderOnly(source map[string]json.RawMessage, preserveSpelling bool) (json.RawMessage, error) {
+func encodeHeaderOnly(source map[string]json.RawMessage) (json.RawMessage, error) {
 	var number, hash string
 	if err := json.Unmarshal(source["number"], &number); err != nil {
 		return json.Marshal(source)
@@ -112,9 +111,6 @@ func encodeHeaderOnly(source map[string]json.RawMessage, preserveSpelling bool) 
 	height, err := rpc.ParseHexQuantity(number)
 	if err != nil {
 		return json.Marshal(source)
-	}
-	if preserveSpelling {
-		return json.Marshal(map[string]string{"hash": hash, "number": number})
 	}
 	return json.Marshal(map[string]string{
 		"hash":   strings.ToLower(hash),

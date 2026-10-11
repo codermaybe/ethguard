@@ -444,6 +444,51 @@ func TestAnchorRequestHashIsLowercase(t *testing.T) {
 	}
 }
 
+func TestAnchorRequestHashStableWhenSourceOrderSwaps(t *testing.T) {
+	const (
+		upper = "0Xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		lower = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	run := func(spellings []string) string {
+		t.Helper()
+		client, nodes := newAnchorFleet(t, transportHTTP, len(spellings))
+		for i, node := range nodes {
+			spelling := spellings[i]
+			node.setHandler(func(method string, args []any) (any, error) {
+				switch method {
+				case "eth_getBlockByNumber":
+					return map[string]any{"number": "0x10", "hash": spelling}, nil
+				case "eth_getBalance":
+					return "0x64", nil
+				default:
+					return nil, errScriptPass
+				}
+			})
+		}
+		decision, err := callMethod(context.Background(), client, methods.MethodGetBalance, "0xaddr", "latest")
+		if err != nil {
+			t.Fatalf("source spellings %v: %v", spellings, err)
+		}
+		for _, node := range nodes {
+			for _, call := range node.snapshot() {
+				if call.Method == "eth_getBalance" && len(call.Args) > 1 {
+					if hash, ok := call.Args[1].(string); ok {
+						return hash
+					}
+				}
+			}
+		}
+		t.Fatalf("source spellings %v: no balance request in decision %+v", spellings, decision)
+		return ""
+	}
+	if got := run([]string{upper, lower}); got != lower {
+		t.Fatalf("upper-first anchor request hash = %q, want %q", got, lower)
+	}
+	if got := run([]string{lower, upper}); got != lower {
+		t.Fatalf("lower-first anchor request hash = %q, want %q", got, lower)
+	}
+}
+
 func TestAnchorTransportReferenceMatchesAcrossHTTPAndWSS(t *testing.T) {
 	kinds := []anchorTransport{transportHTTP, transportWS}
 	clients := make(map[anchorTransport]*ethguard.Client, len(kinds))

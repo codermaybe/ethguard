@@ -22,9 +22,44 @@ func (p blockPolicy) RequiresAgreement() bool {
 
 func (p blockPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
 	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
-		return cp.ResolveCorroborated(c, obs)
+		d, err := cp.ResolveCorroborated(c, obs)
+		return p.restoreHeaderOnlyValue(d, obs), err
 	}
-	return p.Policy.Resolve(obs)
+	d, err := p.Policy.Resolve(obs)
+	return p.restoreHeaderOnlyValue(d, obs), err
+}
+
+func (p blockPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
+	d, err := p.Policy.Resolve(obs)
+	return p.restoreHeaderOnlyValue(d, obs), err
+}
+
+// Header-only eth_getBlockByNumber keeps the source spelling in its public
+// Value for compatibility, while strict resolution still clusters on the
+// canonical head bytes. Full block responses remain canonical committed Value.
+func (p blockPolicy) restoreHeaderOnlyValue(d rpc.Decision, obs []rpc.Observation) rpc.Decision {
+	if p.byHash || d.Status != rpc.Corroborated || d.Representative.ID == "" {
+		return d
+	}
+	for _, item := range obs {
+		if item.Source.ID != d.Representative.ID || !headerOnlyBlock(item.Value) {
+			continue
+		}
+		d.Value = append(json.RawMessage(nil), item.Value...)
+		break
+	}
+	return d
+}
+
+func headerOnlyBlock(raw json.RawMessage) bool {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return false
+	}
+	_, hasNumber := object["number"]
+	_, hasHash := object["hash"]
+	_, hasParentHash := object["parentHash"]
+	return hasNumber && hasHash && !hasParentHash
 }
 
 // MethodRule forwards the inner rule composition. Block admission is not a
