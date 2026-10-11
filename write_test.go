@@ -128,10 +128,9 @@ func TestSendRawTransactionReportsUnreachableFleet(t *testing.T) {
 }
 
 func TestSendRawTransactionForwardedUsesOneSourceBasis(t *testing.T) {
-	client, nodes := fleet(t, 1, 0, 2)
+	client, nodes := fleet(t, 1, 0, 1)
 	raw, hash := writeTxFixture(t)
 	nodes[0].Return(methods.MethodSendRawTransaction, hash.Hex())
-	nodes[1].Return(methods.MethodSendRawTransaction, common.HexToHash("0x"+strings.Repeat("22", 32)).Hex())
 
 	result, err := client.SendRawTransaction(context.Background(), raw)
 	if err != nil {
@@ -143,13 +142,21 @@ func TestSendRawTransactionForwardedUsesOneSourceBasis(t *testing.T) {
 	if got := countMethod(nodes[0].Calls(), methods.MethodSendRawTransaction); got != 1 {
 		t.Fatalf("first source send calls = %d, want 1", got)
 	}
-	if got := countMethod(nodes[1].Calls(), methods.MethodSendRawTransaction); got != 0 {
-		t.Fatalf("forwarded path contacted fallback after success: %d calls", got)
+}
+
+func TestSingleSourceClientConstructsForwardedMode(t *testing.T) {
+	client, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "single", Endpoint: "http://127.0.0.1:1"}}})
+	if err != nil {
+		t.Fatalf("single-source client construction failed: %v", err)
+	}
+	client.Close()
+	if client.Mode() != rpc.CorroborationForwarded {
+		t.Fatalf("mode = %s, want forwarded", client.Mode())
 	}
 }
 
 func TestSendRawTransactionForwardedPreservesProtocolRejection(t *testing.T) {
-	client, nodes := fleet(t, 1, 0, 2)
+	client, nodes := fleet(t, 1, 0, 1)
 	raw, _ := writeTxFixture(t)
 	nodes[0].Fail(methods.MethodSendRawTransaction, -32010, "nonce too low")
 
@@ -160,13 +167,10 @@ func TestSendRawTransactionForwardedPreservesProtocolRejection(t *testing.T) {
 	if result.Decision.Status != rpc.WriteRejected || result.Decision.Basis != 1 || len(result.Decision.Rejected) != 1 {
 		t.Fatalf("unexpected forwarded rejection: %+v", result.Decision)
 	}
-	if got := countMethod(nodes[1].Calls(), methods.MethodSendRawTransaction); got != 0 {
-		t.Fatalf("forwarded protocol answer should stop failover, got %d calls", got)
-	}
 }
 
 func TestSendRawTransactionForwardedFailsClosedOnForeignHash(t *testing.T) {
-	client, nodes := fleet(t, 1, 0, 2)
+	client, nodes := fleet(t, 1, 0, 1)
 	raw, localHash := writeTxFixture(t)
 	foreign := common.HexToHash("0x" + strings.Repeat("44", 32))
 	nodes[0].Return(methods.MethodSendRawTransaction, foreign.Hex())

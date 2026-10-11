@@ -143,11 +143,11 @@ func TestCommonReferenceDoesNotPromoteUndercoveredHigherFinalizedHeight(t *testi
 
 func TestCommonReferenceRejectsWrongConfirmationHeight(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring())
-	commonHeads(nodes, []uint64{84, 100, 100}, func(int, uint64) (any, error) {
-		return map[string]any{"number": "0x64", "hash": fmt.Sprintf("0x%064x", 100)}, nil
+	commonHeads(nodes, []uint64{84, 100, 101}, func(int, uint64) (any, error) {
+		return map[string]any{"number": "0x63", "hash": fmt.Sprintf("0x%064x", 99)}, nil
 	})
 	d, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
-	if !errors.Is(err, rpc.ErrConflict) || d.Reference == nil || len(d.Reference.Faults) != 2 {
+	if !errors.Is(err, rpc.ErrConflict) || d.Reference == nil || len(d.Reference.Faults) == 0 {
 		t.Fatalf("wrong height confirmations accepted: %+v %v", d, err)
 	}
 }

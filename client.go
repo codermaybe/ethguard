@@ -194,6 +194,9 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		mode = rpc.CorroborationForwarded
 	}
 	floor := 2
+	if mode == rpc.CorroborationForwarded {
+		floor = 0
+	}
 	corrob, err := rpc.NewCorroborationShared(mode, floor)
 	if err != nil {
 		return nil, fmt.Errorf("ethguard: %w", err)
@@ -205,7 +208,9 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	// resolved outside a snapshot-bearing aggregator agree with the client
 	// default. The reference-establishment paths keep their own formulas
 	// until T03 aligns them.
-	strictOpts = append(strictOpts, rpc.WithQuorum(floor))
+	if floor > 0 {
+		strictOpts = append(strictOpts, rpc.WithQuorum(floor))
+	}
 	if resolver == nil {
 		if co.anchorFactory != nil {
 			resolver = co.anchorFactory(rpcPool, rec)

@@ -735,13 +735,15 @@ func TestFinalizedAnchoringIsolatesStaleReporter(t *testing.T) {
 // height are a fork signal, not something to vote over.
 func TestFinalizedAnchoringRejectsForkAtPinnedHeight(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring())
+	hashA := "0x" + strings.Repeat("aa", 32)
+	hashB := "0x" + strings.Repeat("bb", 32)
 	scriptFinalizedHeads(nodes,
 		func(int) map[string]any { return map[string]any{"number": "0x66", "hash": "0xtip"} },
 		func(i int) map[string]any {
 			if i < 2 {
-				return map[string]any{"number": "0x64", "hash": "0xaaa"}
+				return map[string]any{"number": "0x64", "hash": hashA}
 			}
-			return map[string]any{"number": "0x64", "hash": "0xbbb"}
+			return map[string]any{"number": "0x64", "hash": hashB}
 		})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

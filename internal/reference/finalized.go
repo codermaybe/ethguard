@@ -115,6 +115,9 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 			candidateHashes[strings.ToLower(view.hash)] = struct{}{}
 		}
 	}
+	if len(candidateHashes) > 1 {
+		return ref, fmt.Errorf("finalized candidate height %d has %d distinct hashes: %w", candidate, len(candidateHashes), rpc.ErrConflict)
+	}
 	reorgDetected := false
 
 	// Preserve all first-round participants as the voting denominator, including

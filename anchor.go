@@ -158,7 +158,9 @@ func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag str
 				mode, floor = snapshot.Mode, snapshot.Floor
 			}
 		}
-		if mode == rpc.CorroborationForwarded || floor < 1 {
+		if mode == rpc.CorroborationForwarded {
+			floor = 0
+		} else if floor < 1 {
 			floor = 2
 		}
 		shared, err := rpc.NewCorroborationShared(mode, floor)
@@ -166,7 +168,9 @@ func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag str
 			return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, err
 		}
 		var opts []rpc.StrictOption
-		opts = append(opts, rpc.WithQuorum(floor))
+		if floor > 0 {
+			opts = append(opts, rpc.WithQuorum(floor))
+		}
 		if mode == rpc.CorroborationUnanimity {
 			opts = append(opts, rpc.WithUnanimity())
 		}
@@ -185,7 +189,9 @@ func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag str
 				mode, floor = snapshot.Mode, snapshot.Floor
 			}
 		}
-		if mode == rpc.CorroborationForwarded || floor < 1 {
+		if mode == rpc.CorroborationForwarded {
+			floor = 0
+		} else if floor < 1 {
 			floor = 2
 		}
 		shared, err := rpc.NewCorroborationShared(mode, floor)
@@ -193,7 +199,9 @@ func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag str
 			return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, err
 		}
 		var opts []rpc.StrictOption
-		opts = append(opts, rpc.WithQuorum(floor))
+		if floor > 0 {
+			opts = append(opts, rpc.WithQuorum(floor))
+		}
 		if mode == rpc.CorroborationUnanimity {
 			opts = append(opts, rpc.WithUnanimity())
 		}
