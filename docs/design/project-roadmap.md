@@ -632,6 +632,9 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
   pinned bundle。
 - 官方 schema 新增字段时，先进入标准 diff 和 Extension/Core 迁移检查；没有
   通过准入、请求绑定、编码和回放测试前，不自动改变生产返回值。
+- 形态报告的 Core 路径现在从 pinned result schema 派生；本轮已把
+  `eth_feeHistory` 的 `baseFeePerBlobGas`、`blobGasUsedRatio` 贯通到准入、规范
+  编码和投影，作为新增官方字段迁移样例。
 - 官方 schema 删除或改变字段时，CI 阻止静默继续使用旧保护规则；需明确迁移、
   兼容窗口和 golden 变化。
 - `internal/spec/vectors` 全部接入离线 conformance harness。官方向量验证 wire
