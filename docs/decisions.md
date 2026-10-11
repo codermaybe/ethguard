@@ -1946,3 +1946,21 @@ T07 supersedes the caller-facing configuration portions of older decisions
 0028–0030. Their fixed-membership and denominator safety constraints remain
 internal invariants; their public mode, floor, and runtime-switch surfaces are
 retired because the project has no released compatibility contract.
+
+## 0051. Official receipt fields stay in the canonical protected result
+
+Status: Accepted (2026-10-11). This amends the receipt portions of 0045, 0046,
+and the corresponding current-result descriptions in the return-value design.
+
+The pinned execution-apis result schema is the authority for protected receipt
+fields. `from` is an official receipt field, so the receipt and block-receipts
+canonical encoders retain its normalized value when a response supplies it;
+the field is part of the comparison result and a disagreement is a conflict.
+The encoders do not delete it after the official mask has retained it. Unknown
+provider fields remain outside the protected result and are handled by the T07
+diagnostic path.
+
+The same schema-driven coverage checks used by production projectors inspect
+the receipt, block-receipts, log, fee-history, and access-list encoders. A
+future official field that is absent from one of these canonical encoders or
+projectors fails the migration check until its path is explicitly handled.

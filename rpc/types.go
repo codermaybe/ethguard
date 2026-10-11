@@ -131,9 +131,9 @@ type Decision struct {
 	// eth_createAccessList writes the canonical object of the fields its mask
 	// retains; its comparison key stays the existing access-list key.
 	// eth_getTransactionReceipt writes the canonical object of its protected
-	// receipt fields. from stays out of that value. Its comparison key stays the
-	// existing receipt key. eth_getBlockReceipts uses the same protected receipt
-	// model in a canonical array, with from excluded from each key and value. Other
+	// receipt fields, including the official from field when present. Its
+	// comparison key is the same canonical object. eth_getBlockReceipts uses the
+	// same protected receipt model in a canonical array. Other
 	// generic Strict decisions copy one admitted source value from the winning
 	// cluster and do not change its fields. A
 	// successful eth_call value is canonical DATA. An eth_call revert may

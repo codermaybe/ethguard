@@ -96,11 +96,12 @@ func TestReturnValueReceiptFromAndSpellingThroughClient(t *testing.T) {
 	hash := "0x" + strings.Repeat("ab", 32)
 	for i, node := range nodes {
 		raw := receiptFixture(hash)
-		raw["from"] = "0x" + strings.Repeat(string(rune('a'+i)), 40)
+		raw["from"] = "0x" + strings.Repeat("aa", 20)
 		raw["vendor"] = i
 		if i == 0 {
 			raw["transactionHash"] = strings.ToUpper(hash)
 			raw["to"] = strings.ToUpper(raw["to"].(string))
+			raw["from"] = strings.ToUpper(raw["from"].(string))
 		}
 		node.Return(methods.MethodGetTransactionReceipt, raw)
 	}
@@ -110,7 +111,7 @@ func TestReturnValueReceiptFromAndSpellingThroughClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || result.TxHash.Hex() != hash || bytes.Contains(decision.Value, []byte(`"from"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"logs":[]`)) || bytes.Contains(decision.Value, []byte(`"contractAddress"`)) {
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || result.TxHash.Hex() != hash || !bytes.Contains(decision.Value, []byte(`"from":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"logs":[]`)) || bytes.Contains(decision.Value, []byte(`"contractAddress"`)) {
 		t.Fatalf("receipt = %+v decision = %+v", result, decision)
 	}
 }

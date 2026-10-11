@@ -525,7 +525,7 @@ pending 和 provider fault。任何只在 Policy 层成立、或靠替换为单�
 
 ## T07：标准驱动的自动兼容闭环（下一阶段主线）
 
-状态：进行中（T07.0–T07.3、T07.5 已完成；T07.4 收口中）。T07 是返回值框架之后的下一项主线工作；它把官方
+状态：已完成（2026-10-11；T07.0–T07.5 全部通过）。T07 是返回值框架之后的主线工作；它把官方
 `execution-apis`、现有多源聚合器和真实 RPC 形态探查接成一个长期可运行的
 兼容性闭环。目标不是让使用方配置 quorum、拜占庭模型或字段策略，而是由
 客户端在每次调用中根据固定来源集合动态计算接受门槛，并向下层隐藏多源细节。
@@ -621,8 +621,8 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 
 ### T07.4 官方标准升级闭环
 
-依赖：T07.2、T07.3。状态：进行中（2026-10-11，官方 schema、projector 和
-canonical encoder 覆盖门禁已完成；待目标环境重跑完整批次后关闭）。
+依赖：T07.2、T07.3。状态：已完成（2026-10-11；官方 schema、projector、canonical
+encoder 覆盖门禁、pinned vectors、离线 replay 和全量测试均通过）。
 出口：上游 `execution-apis` release 变化能产生可审阅 diff、触发兼容测试，并将
 疑似标准滞后字段报告出来。
 
@@ -682,16 +682,15 @@ T07.2  单一 Core/Extension 评估 seam
         |
         +--> T07.3  Chainlist 多 RPC 形态探查与离线报告
         |
-        +--> T07.4  官方 execution-apis 升级与 conformance 闭环
+        +--> T07.4  官方 execution-apis 升级与 conformance 闭环（已完成）
                        |
                        v
                  T07.5  默认化与端到端验收（已完成）
 ```
 
-### T07 下一步：收口 T07.4 官方标准升级闭环
+### T07 收口记录：官方标准升级闭环
 
-T07.5 已关闭后，下一切片回到 T07.4 的剩余出口，目标是让标准升级在 CI 中可审阅、
-可阻断、可回放：
+T07.4 与 T07.5 已关闭；本节保留每个出口的审计结果，后续工作转入 T08：
 
 1. ~~从官方 `execution-apis` release 重新核对 `eth_sendRawTransaction` 的 result
    schema，决定将其纳入 pinned bundle，或把它记录为明确的非 bundle 向量；不得用
@@ -704,8 +703,22 @@ T07.5 已关闭后，下一切片回到 T07.4 的剩余出口，目标是让标�
    新增字段不会只在 shape report 中变成 Core，却在生产 `Decision.Value` 中静默丢失。~~
    已完成：projector 与 receipt/log/feeHistory/access-list encoder 统一由 pinned
    schema 路径门禁检查，receipt 官方 `from` 不再被静默删除。
-4. 重新运行 pinned vectors、Chainlist 离线批次和全量测试；通过后关闭 T07.4，
-   再进入 T08 的 revert envelope 与多维比较键工作。
+4. ~~重新运行 pinned vectors、Chainlist 离线批次和全量测试；通过后关闭 T07.4，
+   再进入 T08 的 revert envelope 与多维比较键工作。~~ 已完成：目标环境
+   `go test ./...` 通过，进入 T08。
+
+### T08 下一步：revert envelope 与多维比较键
+
+依赖：T07 全部完成。状态：规划中（2026-10-11）。出口：把仍依赖代表源原文的
+revert/错误结果和未迁移对象，按方法契约拆成可审计的多维比较键；不把错误文本、
+厂商扩展或来源原文误当成官方 Core。
+
+- 先盘点 `eth_call` revert envelope 的 code/message/data 现状，明确哪些字段属于
+  Core、哪些只进 Diagnostics，以及缺失、null、空 DATA 和具体 DATA 的区别。
+- 把多维键限制在方法内部的固定维度，沿用固定调用分母和动态门槛；不得新增用户
+  quorum/mode 配置，不得跨来源拼接业务对象。
+- 为每个迁移方法先补官方 schema/conformance、admission、encoder、replay 和
+  typed adapter 断言，再接入生产路径；每个切片保留 Git 检查点。
 
 ## 排后：未捕获读方法的捕获批次
 

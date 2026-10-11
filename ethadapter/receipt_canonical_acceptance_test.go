@@ -151,7 +151,10 @@ func TestCanonicalBlockReceiptsThroughAdapter(t *testing.T) {
 		if err := json.Unmarshal(raw, &obj); err != nil {
 			t.Fatal(err)
 		}
-		obj["from"] = json.RawMessage(`"0x` + strings.Repeat(string(rune('a'+i)), 40) + `"`)
+		obj["from"] = json.RawMessage(`"0x` + strings.Repeat("aa", 20) + `"`)
+		if i == 0 {
+			obj["from"] = json.RawMessage(`"0x` + strings.Repeat("AA", 20) + `"`)
+		}
 		obj["vendor"] = json.RawMessage(`1`)
 		encoded, err := json.Marshal(obj)
 		if err != nil {
@@ -172,7 +175,7 @@ func TestCanonicalBlockReceiptsThroughAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || bytes.Contains(decision.Value, []byte(`"from"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"blockTimestamp":"0xab"`)) {
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || !bytes.Contains(decision.Value, []byte(`"from":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"blockTimestamp":"0xab"`)) {
 		t.Fatalf("decision = %+v", decision)
 	}
 }
