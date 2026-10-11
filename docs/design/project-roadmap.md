@@ -149,6 +149,28 @@ Selected/Forwarded 伪装成已聚合值。
 是否存在经 `replace` / `go.work` 引用本库的外部使用者（决定 API 破坏要不要
 弃用窗口）。
 
+## T08 审计遗留（close-out，完成前不新接方法）
+
+状态：未开始。T08 统一审计（全量测试通过）后登记。方向判定：已注册覆盖已
+完整对应目标面（proxyd 重写表 + 本地/变量/身份组）；剩余未注册候选多需新信任
+模型（filter/subscription 有跨调用状态、`eth_getProof` 需证明验证、debug/trace
+属节点本地），或暂无需求。因此下一阶段先收尾证据完整性，不扩方法数。
+
+1. anchor 内部拼写：`restoreAnchorSourceValue` 把 anchor 内部 decision 还原成
+   代表源 wire 拼写。补一条换序测试，证明发出的锚点请求 hash 不随代表源拼写
+   变化（请求路径小写处理已在 RV0 锁定）。
+2. golden 字节可见性：`block-receipt-tx` 现只存 canonical Value 的 SHA-256，
+   能发现变化但看不见内容。确认保留（运行时 `replayValueAgrees` 仍做字节级
+   断言）或改存规范字节，二选一并记录，不悬空。
+3. 0054 半句限定：`Observation.Evidence`（单源准入证据）保留，退役的只是
+   Decision 层旧字段。补半句，避免后人误删。
+4. WSS 缺失/`null` 坍缩：传输层缺口延续，HTTP 已保留、WSS 仍走 geth 解码路径。
+   单独立项，不进方法任务。
+5. 轻客户端对照（方法契约 0.7 / 决策 0024 收尾项）：对照适用版本规则并记录
+   适用/冲突/不适用/未决，仍未执行。排在捕获批次之后。
+
+以上 1–3 为小收尾，可与捕获批次并行；4–5 单独立项。
+
 ## 排后：未捕获读方法的捕获批次
 
 状态：排在 T08 之后。2026-09-26 的形状探查（`internal/rpcsample/probe/`）只是
