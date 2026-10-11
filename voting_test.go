@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -164,15 +163,11 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 	})
 }
 
-// Checklist 3: mode asymmetry on 3×A/2×B, and the floor refusing 2×A with
-// three failed members in both modes.
-func TestModeAsymmetry(t *testing.T) {
-	build := func(t *testing.T, mode rpc.CorroborationMode) (*ethguard.Client, []*rpctest.Node) {
-		return fleet(t, 1, 0, 5, ethguard.WithCorroborationMode(mode), ethguard.WithQuorum(2))
-	}
-
-	t.Run("majority accepts 3A over 2B", func(t *testing.T) {
-		client, nodes := build(t, rpc.CorroborationMajority)
+// Checklist 3: the dynamic majority accepts 3×A/2×B and refuses 2×A with
+// three failed members.
+func TestDynamicMajorityAcceptance(t *testing.T) {
+	t.Run("accepts 3A over 2B", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 0, 5)
 		nodes[3].Return(methods.MethodChainID, "0x2")
 		nodes[4].Return(methods.MethodChainID, "0x2")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -184,32 +179,16 @@ func TestModeAsymmetry(t *testing.T) {
 		}
 	})
 
-	t.Run("unanimity rejects 3A over 2B", func(t *testing.T) {
-		client, nodes := build(t, rpc.CorroborationUnanimity)
-		nodes[3].Return(methods.MethodChainID, "0x2")
-		nodes[4].Return(methods.MethodChainID, "0x2")
+	t.Run("2A with 3 failures refuses", func(t *testing.T) {
+		client, nodes := fleet(t, 1, 0, 5)
+		for _, node := range nodes[2:] {
+			node.Fail(methods.MethodChainID, -32603, "down")
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("unanimity must reject valid dissent, got %v", err)
-		}
-	})
-
-	t.Run("2A with 3 failures refuses in both modes", func(t *testing.T) {
-		for _, mode := range []rpc.CorroborationMode{rpc.CorroborationMajority, rpc.CorroborationUnanimity} {
-			t.Run(mode.String(), func(t *testing.T) {
-				client, nodes := fleet(t, 1, 0, 5, ethguard.WithCorroborationMode(mode))
-				for _, node := range nodes[2:] {
-					node.Fail(methods.MethodChainID, -32603, "down")
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-
-				if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
-					t.Fatalf("2 agreeing of a 5-member basis must refuse in %s, got %v", mode, err)
-				}
-			})
+			t.Fatalf("2 agreeing of a 5-member basis must refuse, got %v", err)
 		}
 	})
 }
@@ -251,65 +230,6 @@ func TestRuntimeMembershipAndModeChanges(t *testing.T) {
 		}
 	})
 
-	t.Run("mode change applies to later invocations", func(t *testing.T) {
-		client, nodes := fleet(t, 1, 0, 3)
-		nodes[2].Return(methods.MethodChainID, "0x2")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if _, _, err := client.ChainID(ctx); err != nil {
-			t.Fatalf("majority must tolerate the dissenter, got %v", err)
-		}
-		if err := client.SetCorroboration(rpc.CorroborationUnanimity, 2); err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("unanimity after Set must reject the dissenter, got %v", err)
-		}
-		if err := client.SetCorroboration(rpc.CorroborationMajority, 2); err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := client.ChainID(ctx); err != nil {
-			t.Fatalf("majority after Set must tolerate the dissenter again, got %v", err)
-		}
-	})
-
-	t.Run("in-flight invocation keeps its snapshot", func(t *testing.T) {
-		// 3 members: 2×A with one delayed, 1×B dissenting. The invocation
-		// captures the majority mode at entry; a switch to unanimity while
-		// the delayed answer is pending must not flip the in-flight result
-		// — unanimity would reject the dissent, majority corroborates 2-of-3.
-		client, nodes := fleet(t, 1, 0, 3)
-		nodes[2].Return(methods.MethodChainID, "0x2")
-		nodes[1].Handle(methods.MethodChainID, func(c rpctest.Call) (any, error) {
-			time.Sleep(400 * time.Millisecond)
-			return "0x1", nil
-		})
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		var wg sync.WaitGroup
-		var firstErr error
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, _, firstErr = client.ChainID(ctx)
-		}()
-		time.Sleep(100 * time.Millisecond) // the call is in flight, answer pending
-		if err := client.SetCorroboration(rpc.CorroborationUnanimity, 2); err != nil {
-			t.Fatal(err)
-		}
-		wg.Wait()
-		if firstErr != nil {
-			t.Fatalf("in-flight call must keep its captured mode, got %v", firstErr)
-		}
-		// The next invocation uses the new mode: unanimity rejects the
-		// dissenting third member.
-		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("unanimity must apply to later invocations, got %v", err)
-		}
-	})
-
 	t.Run("responses cannot add voting members", func(t *testing.T) {
 		client, _ := fleet(t, 1, 1, 2)
 		p := client.Pool()
@@ -328,7 +248,7 @@ func TestRuntimeMembershipAndModeChanges(t *testing.T) {
 	t.Run("insufficient membership for the floor is a construction error path only via T02", func(t *testing.T) {
 		// N=1 can never corroborate under the default floor H=2 (decision 0029);
 		// forwarding is T02 scope.
-		client, _ := fleet(t, 1, 1, 2, ethguard.WithCorroborationMode(rpc.CorroborationMajority))
+		client, _ := fleet(t, 1, 1, 2)
 		if err := client.Pool().Remove("node-b"); err != nil {
 			t.Fatal(err)
 		}
@@ -470,7 +390,7 @@ func TestNoExtraVotes(t *testing.T) {
 // is authoritative over the Status field, whose zero value is Unknown) and
 // the evidence carries the cluster rather than a guessed winner.
 func TestRefusesWithoutDegradation(t *testing.T) {
-	client, _ := fleet(t, 1, 1, 2, ethguard.WithCorroborationMode(rpc.CorroborationMajority))
+	client, _ := fleet(t, 1, 1, 2)
 	if err := client.Pool().Remove("node-b"); err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +412,7 @@ func TestRefusesWithoutDegradation(t *testing.T) {
 // 3 valid answers succeed; 3 cooling, 2 valid answers refuse).
 func TestPoolVotingBasisExample(t *testing.T) {
 	t.Run("explicit floor 3: two cooling, three answer", func(t *testing.T) {
-		client, nodes := fleet(t, 1, 0, 5, ethguard.WithQuorum(3))
+		client, nodes := fleet(t, 1, 0, 5)
 		for _, node := range nodes[:2] {
 			for i := 0; i < 3; i++ {
 				node.Fail(methods.MethodChainID, -32700, "probing outage")
@@ -510,7 +430,7 @@ func TestPoolVotingBasisExample(t *testing.T) {
 	})
 
 	t.Run("explicit floor 3: three cooling, two answer", func(t *testing.T) {
-		client, nodes := fleet(t, 1, 0, 5, ethguard.WithQuorum(3))
+		client, nodes := fleet(t, 1, 0, 5)
 		for _, node := range nodes[:3] {
 			for i := 0; i < 3; i++ {
 				node.Fail(methods.MethodChainID, -32700, "probing outage")

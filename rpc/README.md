@@ -2,8 +2,8 @@
 
 This package holds the normalized JSON-RPC transport and decision model:
 the `Request`/`Observation`/`Decision` types, the `Policy` contract and
-`Registry`, and the shared resolution strategies — strict corroboration with
-quorum options, lower-median selection for variable results, upstream-local
+`Registry`, and the shared resolution strategies — dynamic fixed-basis
+corroboration, lower-median selection for variable results, upstream-local
 selection, transparent forwarding, and the anchor decorators
 (`WithAnchor`, `WithAnchorHeight`, `WithAnchorHeightFields`,
 `RejectPending`).
@@ -16,26 +16,22 @@ never claims `Corroborated`.
 
 ## Generic observation reduction
 
-`AggregateFields` is the first seam of the two-chamber model. It performs
-strict, method-independent JSON observation reduction: nested values are
-indexed by JSON Pointer path, equal values are grouped by source, and only a
-single value that reaches the caller's quorum enters `CommonObservation.Common`.
-Values below quorum are retained as `Residuals`; paths with multiple
-quorum-qualified values are retained as `Conflicts`. The result records source
-identity and raw values, but does not decide whether a field is an Ethereum
-standard field or how a scalar should be interpreted.
+`AggregateFields` is the evaluation seam. It performs strict,
+method-independent JSON observation reduction: nested values are indexed by
+JSON Pointer path, equal values are grouped by source, and only one value that
+reaches the invocation threshold enters `Evaluation.Accepted`. Values below
+the threshold and paths with multiple qualified values remain in
+`Evaluation.Diagnostics`. The evaluator records source identity and raw
+values, but does not decide whether a field is an Ethereum standard field or
+how a scalar should be interpreted.
 
-Method packages can project `Common` into their locked, method-specific core
-fields and carry the remaining observations as extensions. OpenRPC is not a
-runtime dependency of this reduction path.
+Method packages project `Accepted` into their locked, method-specific Core
+fields. Accepted non-core fields become optional extensions; diagnostics never
+become extensions. OpenRPC is not a runtime dependency of this reduction path.
 
-An aggregate `Decision` may expose the same source-backed result through
-`Decision.Observed` when the client is running in corroborated mode. Forwarded
-calls intentionally do not make a common-set claim.
-
-Callers handling an unregistered method can use `Decision.ObservedView()` as
-an explicit observation-only contract. Its dynamic JSON value and CommonSet
-are not a typed or `Corroborated` Ethereum result.
+An aggregate `Decision` exposes only the selected Core value, accepted
+extensions, and optional diagnostics. It does not expose a second observation
+view or require callers to understand per-source field categories.
 
 This package does not select upstreams or own connections; `SourceRef`
 keeps it decoupled from pool's connection and health implementation.

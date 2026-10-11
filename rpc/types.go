@@ -142,18 +142,17 @@ type Decision struct {
 	// replace, or splice fields from another source. Revert payloads, and
 	// methods that have not migrated, keep that source value.
 	Value json.RawMessage
-	// Observed is the optional generic observation-room result for this
-	// invocation. It contains source-backed common fields and residuals; it
-	// carries no Ethereum semantic claim. Method packages may project it into
-	// their compile-time standard field set.
-	Observed *CommonObservation
-	// Extensions contains non-core fields projected by an optional method
-	// semantic projector and bound to Value's core fingerprint.
+	// Extensions contains accepted non-core fields projected by an optional
+	// method semantic projector and bound to Value's core fingerprint.
 	Extensions *ExtensionSet
-	BlockRef   string
-	Support    []SourceRef
-	Reject     []SourceRef
-	Faults     []error
+	// Diagnostics contains source-backed observations that did not enter the
+	// accepted field set. It carries no Ethereum semantic claim and does not
+	// alter the core decision.
+	Diagnostics *FieldDiagnostics
+	BlockRef    string
+	Support     []SourceRef
+	Reject      []SourceRef
+	Faults      []error
 	// Evidence belongs to the selected value and is populated by an
 	// AdmissionPolicy. It is opaque to generic callers. eth_call also stores
 	// withheld revert-data bytes here when rule 4e removes them from Value;
@@ -202,29 +201,6 @@ type DimensionEvidence struct {
 // not rewritten into a conflict.
 func (d Decision) IsCorroborated(err error) bool {
 	return err == nil && d.Status == Corroborated
-}
-
-// ObservedResult is the explicit dynamic result shape for callers handling
-// methods without a semantic projection. It must not be decoded as a Geth
-// core type or treated as Corroborated standard data.
-type ObservedResult struct {
-	Value       json.RawMessage
-	Status      Status
-	Observation CommonObservation
-}
-
-// ObservedView exposes a decision as an observation-only result when the
-// aggregator collected a CommonSet. Forwarded calls or failed collections
-// return false when no observation set is available.
-func (d Decision) ObservedView() (ObservedResult, bool) {
-	if d.Observed == nil {
-		return ObservedResult{}, false
-	}
-	return ObservedResult{
-		Value:       append(json.RawMessage(nil), d.Value...),
-		Status:      d.Status,
-		Observation: *d.Observed,
-	}, true
 }
 
 // String names the confidence class for observability sinks.

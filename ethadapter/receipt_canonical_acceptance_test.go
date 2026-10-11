@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"ethguard"
 	"ethguard/rpc"
 	"ethguard/rpc/methods"
 )
@@ -87,7 +86,7 @@ func TestCanonicalReceiptLogTimestampThroughAdapter(t *testing.T) {
 }
 
 func TestCanonicalReceiptTimestampDisagreementIsConflict(t *testing.T) {
-	client, nodes := fleet(t, 2, ethguard.WithQuorum(1))
+	client, nodes := fleet(t, 2)
 	hash := common.HexToHash("0x" + strings.Repeat("ab", 32))
 	for i, node := range nodes {
 		timestamp := json.RawMessage(`"0x1"`)
@@ -181,7 +180,7 @@ func TestCanonicalBlockReceiptsThroughAdapter(t *testing.T) {
 func TestCanonicalBlockReceiptsBadElementKeepsDenominator(t *testing.T) {
 	for _, badKind := range []string{"null", "missing-logs", "null-removed"} {
 		t.Run(badKind, func(t *testing.T) {
-			client, nodes := fleet(t, 4, ethguard.WithQuorum(2))
+			client, nodes := fleet(t, 4)
 			hash := common.HexToHash("0x" + strings.Repeat("ab", 32))
 			good := fixtureReceipt(t, hash, 16)
 			var other map[string]json.RawMessage

@@ -11,9 +11,7 @@ import (
 type ExtensionKind string
 
 const (
-	CorroboratedExtension ExtensionKind = "corroborated_extension"
-	ProviderResidual      ExtensionKind = "provider_residual"
-	ConflictExtension     ExtensionKind = "conflict_field"
+	AcceptedExtension ExtensionKind = "accepted_extension"
 )
 
 // ExtensionField is source-backed data attached to a selected core object.
@@ -34,22 +32,14 @@ type ExtensionSet struct {
 }
 
 // NewExtensionSet binds fields to the canonical fingerprint of coreValue.
-func NewExtensionSet(coreValue json.RawMessage, common []FieldObservation, residuals []FieldObservation, conflicts []ConflictField) (ExtensionSet, error) {
+func NewExtensionSet(coreValue json.RawMessage, accepted []FieldObservation) (ExtensionSet, error) {
 	fingerprint, err := CoreObjectFingerprint(coreValue)
 	if err != nil {
 		return ExtensionSet{}, err
 	}
 	set := ExtensionSet{}
-	for _, field := range common {
-		set.Fields = append(set.Fields, cloneExtension(CorroboratedExtension, field, fingerprint))
-	}
-	for _, field := range residuals {
-		set.Fields = append(set.Fields, cloneExtension(ProviderResidual, field, fingerprint))
-	}
-	for _, conflict := range conflicts {
-		for _, field := range conflict.Values {
-			set.Fields = append(set.Fields, cloneExtension(ConflictExtension, field, fingerprint))
-		}
+	for _, field := range accepted {
+		set.Fields = append(set.Fields, cloneExtension(AcceptedExtension, field, fingerprint))
 	}
 	return set, nil
 }

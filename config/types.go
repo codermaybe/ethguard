@@ -17,14 +17,6 @@ type Config struct {
 	AnchorCacheTTL string `yaml:"anchor_cache_ttl,omitempty" json:"anchor_cache_ttl,omitempty"`
 	// TipTracking enables freshness-based source eligibility when present.
 	TipTracking *TipTrackingConfig `yaml:"tip_tracking,omitempty" json:"tip_tracking,omitempty"`
-	// Quorum is the corroboration support floor H. Zero selects the default
-	// floor (DefaultSupportFloor, currently 2); positive values raise or
-	// lower it explicitly.
-	Quorum int `yaml:"quorum,omitempty" json:"quorum,omitempty"`
-	// Corroboration selects the adjudication mode: "majority" (default),
-	// "unanimity", or intentional single-source "forwarded". Spelling is case-insensitive and surrounding whitespace
-	// is ignored. An empty value selects majority.
-	Corroboration string `yaml:"corroboration,omitempty" json:"corroboration,omitempty"`
 	// CollectTimeout bounds one aggregate collection. Empty uses 30 seconds.
 	CollectTimeout string `yaml:"collect_timeout,omitempty" json:"collect_timeout,omitempty"`
 }

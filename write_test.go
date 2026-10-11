@@ -128,7 +128,7 @@ func TestSendRawTransactionReportsUnreachableFleet(t *testing.T) {
 }
 
 func TestSendRawTransactionForwardedUsesOneSourceBasis(t *testing.T) {
-	client, nodes := fleet(t, 1, 0, 2, ethguard.WithForwardingMode())
+	client, nodes := fleet(t, 1, 0, 2)
 	raw, hash := writeTxFixture(t)
 	nodes[0].Return(methods.MethodSendRawTransaction, hash.Hex())
 	nodes[1].Return(methods.MethodSendRawTransaction, common.HexToHash("0x"+strings.Repeat("22", 32)).Hex())
@@ -149,7 +149,7 @@ func TestSendRawTransactionForwardedUsesOneSourceBasis(t *testing.T) {
 }
 
 func TestSendRawTransactionForwardedPreservesProtocolRejection(t *testing.T) {
-	client, nodes := fleet(t, 1, 0, 2, ethguard.WithForwardingMode())
+	client, nodes := fleet(t, 1, 0, 2)
 	raw, _ := writeTxFixture(t)
 	nodes[0].Fail(methods.MethodSendRawTransaction, -32010, "nonce too low")
 
@@ -166,7 +166,7 @@ func TestSendRawTransactionForwardedPreservesProtocolRejection(t *testing.T) {
 }
 
 func TestSendRawTransactionForwardedFailsClosedOnForeignHash(t *testing.T) {
-	client, nodes := fleet(t, 1, 0, 2, ethguard.WithForwardingMode())
+	client, nodes := fleet(t, 1, 0, 2)
 	raw, localHash := writeTxFixture(t)
 	foreign := common.HexToHash("0x" + strings.Repeat("44", 32))
 	nodes[0].Return(methods.MethodSendRawTransaction, foreign.Hex())

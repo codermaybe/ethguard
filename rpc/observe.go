@@ -27,28 +27,34 @@ type ConflictField struct {
 	Values []FieldObservation
 }
 
-// CommonObservation is the output of the generic observation room. Common
-// contains paths with exactly one value meeting quorum. Residuals contains
-// values that did not meet quorum. Conflicts contains paths with multiple
-// quorum-qualified values. Method packages may project Common into their
-// standard fields and attach the remaining observations as extensions.
-type CommonObservation struct {
-	Common    []FieldObservation
+// Evaluation is the output of the generic observation evaluator. Accepted
+// contains paths with exactly one value meeting the invocation threshold.
+// Diagnostics retains values below that threshold and paths with multiple
+// threshold-qualified values. Method packages project Accepted into Core and
+// Accepted Extensions; diagnostics never changes the core result.
+type Evaluation struct {
+	Accepted    []FieldObservation
+	Diagnostics FieldDiagnostics
+}
+
+// FieldDiagnostics contains source-backed observations that were not eligible
+// for the accepted field set. It is an audit view, not a protocol verdict.
+type FieldDiagnostics struct {
 	Residuals []FieldObservation
 	Conflicts []ConflictField
 }
 
 // AggregateFields flattens object and array responses into JSON Pointer paths
-// and groups equal values by source. A path enters Common only when exactly
+// and groups equal values by source. A path enters Accepted only when exactly
 // one value reaches quorum. Multiple values reaching quorum are reported as a
 // conflict rather than choosing arbitrarily. Quorum must be positive.
 //
 // This function performs only generic JSON work. It does not know Ethereum
 // field names, scalar kinds, method semantics, or whether a field is part of
 // a standard response.
-func AggregateFields(observations []Observation, quorum int) (CommonObservation, error) {
+func AggregateFields(observations []Observation, quorum int) (Evaluation, error) {
 	if quorum <= 0 {
-		return CommonObservation{}, fmt.Errorf("rpc: observation quorum must be positive")
+		return Evaluation{}, fmt.Errorf("rpc: observation quorum must be positive")
 	}
 
 	type candidate struct {
@@ -60,10 +66,10 @@ func AggregateFields(observations []Observation, quorum int) (CommonObservation,
 	for i, observation := range observations {
 		id := observation.Source.ID
 		if id == "" {
-			return CommonObservation{}, fmt.Errorf("rpc: observation %d has no source identity", i)
+			return Evaluation{}, fmt.Errorf("rpc: observation %d has no source identity", i)
 		}
 		if first, ok := seen[id]; ok {
-			return CommonObservation{}, fmt.Errorf("rpc: duplicate observation source %q at %d and %d", id, first, i)
+			return Evaluation{}, fmt.Errorf("rpc: duplicate observation source %q at %d and %d", id, first, i)
 		}
 		seen[id] = i
 		if observation.Err != nil || observation.Value == nil {
@@ -72,7 +78,7 @@ func AggregateFields(observations []Observation, quorum int) (CommonObservation,
 
 		value, err := decodeObservedJSON(observation.Value)
 		if err != nil {
-			return CommonObservation{}, fmt.Errorf("rpc: source %q: %w: %v", id, ErrMalformedResponse, err)
+			return Evaluation{}, fmt.Errorf("rpc: source %q: %w: %v", id, ErrMalformedResponse, err)
 		}
 		fields := make(map[string]json.RawMessage)
 		flattenJSON("", value, fields)
@@ -92,7 +98,7 @@ func AggregateFields(observations []Observation, quorum int) (CommonObservation,
 		}
 	}
 
-	var result CommonObservation
+	var result Evaluation
 	for path, byValue := range groups {
 		var qualified []FieldObservation
 		var residuals []FieldObservation
@@ -118,20 +124,36 @@ func AggregateFields(observations []Observation, quorum int) (CommonObservation,
 		sort.Slice(residuals, func(i, j int) bool { return string(residuals[i].Value) < string(residuals[j].Value) })
 		switch len(qualified) {
 		case 0:
-			result.Residuals = append(result.Residuals, residuals...)
+			result.Diagnostics.Residuals = append(result.Diagnostics.Residuals, residuals...)
 		case 1:
-			result.Common = append(result.Common, qualified[0])
-			result.Residuals = append(result.Residuals, residuals...)
+			result.Accepted = append(result.Accepted, qualified[0])
+			result.Diagnostics.Residuals = append(result.Diagnostics.Residuals, residuals...)
 		default:
-			result.Conflicts = append(result.Conflicts, ConflictField{Path: path, Values: qualified})
-			result.Residuals = append(result.Residuals, residuals...)
+			result.Diagnostics.Conflicts = append(result.Diagnostics.Conflicts, ConflictField{Path: path, Values: qualified})
+			result.Diagnostics.Residuals = append(result.Diagnostics.Residuals, residuals...)
 		}
 	}
 
-	sortFieldObservations(result.Common)
-	sortFieldObservations(result.Residuals)
-	sort.Slice(result.Conflicts, func(i, j int) bool { return result.Conflicts[i].Path < result.Conflicts[j].Path })
+	sortFieldObservations(result.Accepted)
+	sortFieldObservations(result.Diagnostics.Residuals)
+	sort.Slice(result.Diagnostics.Conflicts, func(i, j int) bool {
+		return result.Diagnostics.Conflicts[i].Path < result.Diagnostics.Conflicts[j].Path
+	})
 	return result, nil
+}
+
+// AggregateFieldsWithCorroboration applies the invocation's fixed voting
+// basis to field observations. The caller supplies the captured
+// corroboration snapshot; this keeps support-threshold calculation in one
+// place instead of making each aggregation path turn a basis size into a
+// quorum independently.
+//
+// The function is intentionally a thin seam over AggregateFields. It does
+// not change the generic observation model or assign Ethereum meaning to a
+// field. A future internal acceptance calculator can replace the snapshot's
+// Required implementation without changing callers that collect fields.
+func AggregateFieldsWithCorroboration(observations []Observation, c Corroboration) (Evaluation, error) {
+	return AggregateFields(observations, c.Required(len(observations)))
 }
 
 func decodeObservedJSON(raw []byte) (any, error) {

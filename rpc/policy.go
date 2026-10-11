@@ -33,7 +33,7 @@ type AdmissionPolicy interface {
 // value. Policies that do not implement it retain the existing decision
 // shape.
 type ObservationProjector interface {
-	ProjectObservation(json.RawMessage, CommonObservation) (ExtensionSet, error)
+	ProjectObservation(json.RawMessage, Evaluation) (ExtensionSet, error)
 }
 
 // CorroboratingPolicy is the optional capability of a policy whose resolution

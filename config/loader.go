@@ -15,7 +15,6 @@ const (
 	defaultTipInterval    = 10 * time.Second
 	defaultTipMaxBehind   = 32
 	defaultFinalizedLag   = 32
-	defaultSupportFloor   = 2
 )
 
 // LoadFile reads and parses a YAML configuration file.
@@ -72,18 +71,6 @@ func (c Config) Validate() error {
 		}
 		seenEndpoints[upstream.Endpoint] = struct{}{}
 	}
-	if c.Quorum < 0 {
-		return fmt.Errorf("config: quorum must be non-negative")
-	}
-	if c.Corroboration != "" {
-		preset := strings.ToLower(strings.TrimSpace(c.Corroboration))
-		if preset != "majority" && preset != "unanimity" && preset != "forwarded" {
-			return fmt.Errorf("config: corroboration must be majority or unanimity (or forwarded), got %q", c.Corroboration)
-		}
-		if preset == "forwarded" && c.Quorum != 0 {
-			return fmt.Errorf("config: forwarded corroboration cannot specify quorum")
-		}
-	}
 	if c.Anchoring != nil {
 		preset := strings.ToLower(strings.TrimSpace(c.Anchoring.Preset))
 		if preset != "" && preset != "strict" && preset != "finalized" {
@@ -125,8 +112,3 @@ func DefaultTipMaxBehind() uint64 { return defaultTipMaxBehind }
 // reference that an anchored read may lag when configuration omits
 // anchoring.max_lag.
 func DefaultFinalizedLag() uint64 { return defaultFinalizedLag }
-
-// DefaultSupportFloor is the corroboration floor H applied when
-// configuration omits quorum (decision 0029). Callers relating H to their
-// fault assumptions should read it here rather than duplicating the constant.
-func DefaultSupportFloor() int { return defaultSupportFloor }

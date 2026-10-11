@@ -3,7 +3,7 @@
 本规划记录 T02 之后的方向。`docs/` 已纳入版本管理；moving-tag matrix
 的可执行来源仍是测试，文档只作对照。
 
-返回值框架已推进到键值合一（0047）与证据通道收缩（0048）。规则在 `return-value-design.md`，任务和出口只写在下面那一节；之后的顺序见该节末尾的「后续规划」。未捕获读方法的批次排在它后面，不并进返回值任务。
+返回值框架已推进到键值合一（0047）与证据通道收缩（0048）。规则在 `return-value-design.md`，任务和出口只写在下面那一节；之后的顺序见该节末尾的「后续规划」。标准驱动的自动兼容闭环是返回值框架之后的下一项主线；未捕获读方法的批次排在它后面，不并进返回值任务。
 
 本路线图新增一条总约束：对外提供的值必须是方法契约定义的**聚合结论**。
 它是多源观察经过请求绑定、准入、规范化、受保护域编码和裁决后的产物，
@@ -523,9 +523,156 @@ pending 和 provider fault。任何只在 Policy 层成立、或靠替换为单�
 
 开放项，不挡住上面任何一步：`from` 的测量后归属；`median.go` 的 `equal` 是否改为按键筛选；接入套件的形状变体能否从 `internal/spec/methods.json` 生成，代替手工补语料；是否存在经 `replace` / `go.work` 引用本库的外部使用者（决定 API 破坏要不要弃用窗口）。
 
+## T07：标准驱动的自动兼容闭环（下一阶段主线）
+
+状态：规划中。T07 是返回值框架之后的下一项主线工作；它把官方
+`execution-apis`、现有多源聚合器和真实 RPC 形态探查接成一个长期可运行的
+兼容性闭环。目标不是让使用方配置 quorum、拜占庭模型或字段策略，而是由
+客户端在每次调用中根据固定来源集合动态计算接受门槛，并向下层隐藏多源细节。
+
+### T07.0 先冻结简化后的结果模型
+
+依赖：当前返回值框架的 Core 投影出口。状态：已冻结（2026-10-11，决策
+0050）；实现迁移仍由 T07.1–T07.2 完成。出口：新增 ADR 或修订现有架构记录，
+删除相互重叠的字段保护、来源分类和公开裁决概念。
+
+- **Core** 只包含当前锁定版本的 `execution-apis` result schema 中、适用于该
+  方法和分叉的官方字段。未知字段不得因为出现而进入 Core；手写方法逻辑只
+  能补充请求绑定、分叉适用性和完整性校验，不能自行扩大受保护字段集合。
+- **Extension** 是 Core 之外的响应字段。它们不参与普通结果的核心比较，也不
+  因为多个来源同时返回就被宣称为标准字段。
+- **Diagnostics** 保存扩展字段的观测和来源证据。普通 RPC/typed 表面不返回
+  多源列表、Support/Reject/Abstain 维度或 provider 原文；高级诊断入口才可
+  查看这些信息。
+- Extension 只保留一个内部接受判定：同一路径、同一规范值的支持数达到本次
+  调用的动态门槛时，才允许作为可选扩展结果；否则只留在 Diagnostics。全部、
+  部分或单一来源返回只是支持数与固定分母的计算结果，不再成为对外概念。
+- `Corroborated` 继续表示 provider-backed cross-source evidence。T07 不引入
+  Ethereum consensus、BFT 或链上最终性的对外声明。
+
+### T07.1 把接受门槛收回客户端内部
+
+依赖：T07.0、现有 `Aggregator` / `Corroboration.Required`。状态：已完成
+（2026-10-11）；字段观察聚合已接收固定调用快照，固定分母门槛已集中到内部
+计算器，旧的用户配置入口已直接移除。出口：
+使用方只提供来源和连接配置；quorum、corroboration mode、拜占庭参数和字段
+接受门槛不出现在公开配置或普通构造路径中。
+
+- 调用开始时固定本次 voting basis；失败、超时和未发出的成员仍占分母。
+- 由内部 acceptance calculator 根据固定 basis、方法类别和调用形态计算 `Q(N)`。
+  现有的动态 `Required(n)`、单源不晋升为 Corroborated、pending/local
+  observation 分流作为基线，不复制第二套 resolver。
+- Core 字段沿用方法级准入和现有 Strict/Median/Local 语义；Extension 值只在
+  `k >= Q(N)` 且 `k` 个来源的规范值相同的时候可接受。
+- N 不足以形成多源佐证时，普通表面返回已有明确的 Selected/Forwarded/错误
+  语义，不把单源结果伪装成聚合结论。
+- 直接删除根客户端的 `ethguard.WithQuorum`、`WithCorroborationMode`、
+  `WithForwardingMode`、`SetCorroboration` 以及配置文件中的 `quorum` /
+  `corroboration` 字段；低层 `rpc` policy 构造器仍只供库内部方法组装和测试，
+  不进入根客户端配置。测试、示例和文档同步改为库内部动态策略。项目尚未
+  对外发布，不设置弃用窗口。
+
+### T07.2 建立 Core / Extension 单一评估模块
+
+依赖：T07.0、T07.1。状态：已完成（2026-10-11）。generic field aggregation
+已重塑为 `Evaluation{Accepted, Diagnostics}`，投影只消费已接受字段；
+`Decision.Extensions` 只携带达到门槛的扩展，其他字段进入
+`Decision.Diagnostics`。旧的 Common/Residuals/Conflicts 对外 observation view
+已移除。出口：Aggregator 通过一个内部 seam 得到统一评估结果，方法包不再分别
+维护多套扩展字段分类逻辑。
+
+建议的内部结果形状：
+
+```text
+Evaluation {
+    CoreValue
+    CoreStatus
+    AcceptedExtensions
+    Diagnostics
+}
+```
+
+- 输入是方法、请求、标准版本和原始多源 observations。
+- 输出只有一个 Core 结论；AcceptedExtensions 是可选、受门槛保护的附加值；
+  Diagnostics 不改变 CoreStatus。
+- 未知字段、规范版本之外的字段、厂商字段和新客户端字段统一走 Extension，
+  不再分别建立 `raw/canonical`、`provenance`、`withheld` 等互相重叠的公开域。
+- 现有 `Decision.Value` 继续是下层唯一业务值；扩展证据通过既有诊断/Uncertain
+  通道提供，不新增第二套 quorum、evidence 或 resolver 类型。
+
+### T07.3 Chainlist 多 RPC 形态探查
+
+依赖：T07.0、T07.2；允许复用当前 `internal/chainlist`、`internal/shapeprobe`
+和 `cmd/shapeprobe`。状态：未开始。出口：可重复生成脱敏的 provider-shape
+批次和 Core/Extension 差异报告，但不直接修改生产策略或标准数据。
+
+- 从 Chainlist 发现候选端点，去重并做 `chainId`、`eth_blockNumber` 等最小预检；
+  Chainlist 只提供发现来源，不提供独立性、信誉或共识成员资格。
+- 按方法、合法请求形态、固定区块高度和适用分叉采集原始 JSON-RPC 响应；记录
+  chain、method、request、source label、HTTP/WSS transport、client version、
+  observation time、spec version 和原始字节 hash。
+- 采集结果先走统一 JSON 安全检查、Execution API Core schema 投影和现有方法
+  normalizer，再把未知字段分流到 Extension；不把探查结果直接写成 quorum golden。
+- 报告 Core 字段的规范化成功/失败、核心分歧、扩展字段支持比例、值分歧和
+  transport/provider fault。报告是观察和回归输入，不替代方法契约。
+- 对同一锚点的重复采样必须可重放；外部网络采集和离线 replay 分开，CI 只消费
+  已脱敏、带 hash 的批次。
+
+### T07.4 官方标准升级闭环
+
+依赖：T07.2、T07.3。状态：未开始。出口：上游 `execution-apis` release 变化能
+产生可审阅 diff、触发兼容测试，并将疑似标准滞后字段报告出来。
+
+- 升级只从官方固定 release 进入，不从 provider 反馈自动生成或提升 Core 字段。
+- 自动重建完整方法 schema 或当前支持方法的投影、字段 mask 和版本互锁；变更
+  必须显示新增、删除、类型和 required 变化。
+- 官方 schema 新增字段时，先进入标准 diff 和 Extension/Core 迁移检查；没有
+  通过准入、请求绑定、编码和回放测试前，不自动改变生产返回值。
+- 官方 schema 删除或改变字段时，CI 阻止静默继续使用旧保护规则；需明确迁移、
+  兼容窗口和 golden 变化。
+- `internal/spec/vectors` 全部接入离线 conformance harness。官方向量验证 wire
+  形状；真实 Chainlist 批次验证 provider 变体；两者不互相替代。
+
+### T07.5 端到端验收与默认化
+
+依赖：T07.1–T07.4。状态：未开始。出口：普通调用者无需配置多源共识参数，且
+完整生产路径的 Core/Extension 行为可由批次重放和进程内 RPC 复现。
+
+- Policy、Aggregator、typed projection 和 adapter 都必须走同一套 Core 评估结果；
+  只通过 Policy 层的测试不能解除任务。
+- 覆盖固定 basis、失败占分母、N=1/2/3/4/5、核心值冲突、扩展值达到门槛、
+  扩展值低于门槛、扩展值分歧、标准版本升级和未知字段注入。
+- 未知字段不制造 Core 冲突；核心字段不满足门槛时返回既有 Unknown/Conflict，
+  不降低门槛、不缩小分母、不改走代表源。
+- typed/ethclient 表面只看到单一结果或错误；来源比例、字段路径和原始响应只
+  在显式诊断路径可见。
+- 验收材料包括离线 replay、进程内端到端测试、schema diff、扩展字段报告和
+  `go test ./...`；禁止以外部实时 RPC 的一次成功代替可重放证据。
+
+T07 的非目标：不实现轻客户端、BLS、sync committee、provider 权重、failure
+domain 模型或新的公开 quorum 模式；不根据多 RPC 反馈自动修改官方标准；不把
+provider-backed evidence 写成链上共识或链上最终性。
+
+```text
+T07.0  Core / Extension / Diagnostics 简化模型
+        |
+        v
+T07.1  内部门槛动态计算，移除用户共识配置负担
+        |
+        v
+T07.2  单一 Core/Extension 评估 seam
+        |
+        +--> T07.3  Chainlist 多 RPC 形态探查与离线报告
+        |
+        +--> T07.4  官方 execution-apis 升级与 conformance 闭环
+                       |
+                       v
+                 T07.5  默认化与端到端验收
+```
+
 ## 排后：未捕获读方法的捕获批次
 
-状态：排在返回值框架之后。2026-09-25 的「未采集」已过时：`internal/rpcsample/probe/mainnet/2026-09-26/` 有一次形状探查，报告只陈述观察，不判断如何处理。它不是 `testdata` 批次，没有 `expect.json`，不解除 `eth_chainId`，也不改变 `TestRegisteredMethodSampleStatus` 钉住的名单。返回值任务不得把这批探针升成 golden，不得合成样本。
+状态：排在 T07 标准驱动闭环之后。2026-09-25 的「未采集」已过时：`internal/rpcsample/probe/mainnet/2026-09-26/` 有一次形状探查，报告只陈述观察，不判断如何处理。它不是 `testdata` 批次，没有 `expect.json`，不解除 `eth_chainId`，也不改变 `TestRegisteredMethodSampleStatus` 钉住的名单。返回值和 T07 任务不得把这批探针直接升成 golden，不得合成样本。
 
 - 11 个读方法仍无正式捕获批次：`eth_getLogs`、`eth_feeHistory`、`eth_chainId`、`net_version`、`eth_gasPrice`、`eth_maxPriorityFeePerGas`、`eth_blobBaseFee`、`eth_blockNumber`、`eth_syncing`、`net_peerCount`、`net_listening`。
 - 契约、matrix 行和既有 httptest 仍在。补批次时仍须满足六项进入条件，`safe`/`finalized` 各自锚定，不落到 `latest`。

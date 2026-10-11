@@ -17,15 +17,13 @@ type StandardField struct {
 	Required bool
 }
 
-// Projection is the result of projecting a generic observation into one
-// method's compile-time standard field set. Extensions remain source-backed
-// common observations; they are never synthesized from conflicting values.
+// Projection is the result of projecting an evaluation into one method's
+// compile-time standard field set. Extensions contain only accepted
+// source-backed values; they are never synthesized from diagnostics.
 type Projection struct {
-	Core       []rpc.FieldObservation
-	Extensions []rpc.FieldObservation
-	Residuals  []rpc.FieldObservation
-	Missing    []string
-	Conflicts  []rpc.ConflictField
+	Core               []rpc.FieldObservation
+	AcceptedExtensions []rpc.FieldObservation
+	Missing            []string
 }
 
 type standardProjector struct{ fields []StandardField }
@@ -36,33 +34,30 @@ func NewStandardProjector(fields []StandardField) rpc.ObservationProjector {
 	return standardProjector{fields: append([]StandardField(nil), fields...)}
 }
 
-func (p standardProjector) ProjectObservation(value json.RawMessage, observed rpc.CommonObservation) (rpc.ExtensionSet, error) {
-	return ProjectStandard(observed, p.fields).Carrier(value)
+func (p standardProjector) ProjectObservation(value json.RawMessage, evaluation rpc.Evaluation) (rpc.ExtensionSet, error) {
+	return ProjectStandard(evaluation, p.fields).Carrier(value)
 }
 
-// ProjectStandard classifies already-reduced observations into a method's
+// ProjectStandard classifies already-accepted observations into a method's
 // declared fields. It does not admit responses and it does not choose the
-// comparison key. A common field is core only when its path is declared. Common
-// fields outside the declaration become extensions. Required fields absent
-// from Common are reported in Missing; conflicts are preserved for the method
-// policy to decide whether to fail, retry, or degrade.
-func ProjectStandard(observation rpc.CommonObservation, fields []StandardField) Projection {
+// comparison key. An accepted field is core only when its path is declared;
+// accepted fields outside the declaration become extensions. Required fields
+// absent from Accepted are reported in Missing. Diagnostics stay on the
+// evaluation and do not become extensions.
+func ProjectStandard(evaluation rpc.Evaluation, fields []StandardField) Projection {
 	declared := make(map[string]StandardField, len(fields))
 	for _, field := range fields {
 		declared[field.Path] = field
 	}
 
-	result := Projection{
-		Conflicts: append([]rpc.ConflictField(nil), observation.Conflicts...),
-		Residuals: append([]rpc.FieldObservation(nil), observation.Residuals...),
-	}
-	seen := make(map[string]struct{}, len(observation.Common))
-	for _, field := range observation.Common {
+	result := Projection{}
+	seen := make(map[string]struct{}, len(evaluation.Accepted))
+	for _, field := range evaluation.Accepted {
 		seen[field.Path] = struct{}{}
 		if _, ok := standardFieldForPath(field.Path, declared); ok {
 			result.Core = append(result.Core, field)
 		} else {
-			result.Extensions = append(result.Extensions, field)
+			result.AcceptedExtensions = append(result.AcceptedExtensions, field)
 		}
 	}
 	for _, field := range fields {
@@ -76,9 +71,8 @@ func ProjectStandard(observation rpc.CommonObservation, fields []StandardField) 
 		}
 	}
 	sort.Slice(result.Core, func(i, j int) bool { return result.Core[i].Path < result.Core[j].Path })
-	sort.Slice(result.Extensions, func(i, j int) bool { return result.Extensions[i].Path < result.Extensions[j].Path })
+	sort.Slice(result.AcceptedExtensions, func(i, j int) bool { return result.AcceptedExtensions[i].Path < result.AcceptedExtensions[j].Path })
 	sort.Strings(result.Missing)
-	sort.Slice(result.Conflicts, func(i, j int) bool { return result.Conflicts[i].Path < result.Conflicts[j].Path })
 	return result
 }
 
@@ -108,11 +102,10 @@ func matchJSONPointerPattern(pattern, path string) bool {
 	return true
 }
 
-// Carrier binds the non-core portion of a projection to the selected
-// core response. The returned fields retain their evidence level and source
-// identity; no extension is interpreted as a standard Ethereum field.
+// Carrier binds accepted non-core fields to the selected core response. No
+// extension is interpreted as a standard Ethereum field.
 func (p Projection) Carrier(coreValue []byte) (rpc.ExtensionSet, error) {
-	return rpc.NewExtensionSet(coreValue, p.Extensions, p.Residuals, p.Conflicts)
+	return rpc.NewExtensionSet(coreValue, p.AcceptedExtensions)
 }
 
 // TransactionReceiptStandardFields is the compile-time core projection for

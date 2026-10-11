@@ -203,7 +203,7 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 	opts := []ethguard.Option{}
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	if tc.mode == rpc.CorroborationUnanimity {
-		opts = append(opts, ethguard.WithCorroborationMode(rpc.CorroborationUnanimity))
+		opts = append(opts)
 		snap.Mode = rpc.CorroborationUnanimity
 	}
 	adapter, nodes := fleet(t, len(tc.answers), opts...)

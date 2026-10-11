@@ -1857,11 +1857,11 @@ below is a direction, not implemented.
 
 Provenance holds only `Representative`, that source's admission evidence, and
 the bytes 4e withheld. It keeps no raw payload, so it has no byte limit;
-section 14.6 is withdrawn. Out-of-domain fields are visible through
-`Decision.Observed`, except where it is absent: Forwarded mode, an
-`AggregateFields` failure, and a direct `Policy.Resolve` outside the
-Aggregator. Extensions are classified from `Observed` against Value, which is
-what `projector.ProjectObservation` already does.
+section 14.6 is withdrawn. Non-core fields are evaluated against the fixed
+voting basis. Only one value whose support reaches the dynamic threshold may
+enter `Decision.Extensions`; residual and conflicting values stay in
+`Decision.Diagnostics`. Raw source material remains available only through the
+invocation-scoped Uncertain capture.
 
 With no Raw, `eth_call` revert code and message have no place after stage 3a.
 The direction is to drop `RevertError.Code`, `Message` and `ErrorCode()`, and
@@ -1903,3 +1903,46 @@ a concrete hash, so local input errors cannot look like successful writes.
 
 The public result describes propagation only. Receipt lookup and any retry or
 confirmation policy remain separate caller operations.
+
+## 0050. Standard fields are the protected core; non-core fields are observations
+
+Status: Accepted (2026-10-11). This decision starts T07 in
+`docs/design/project-roadmap.md`.
+
+The protected result for a registered method is the set of fields declared by
+the pinned `ethereum/execution-apis` result schema and applicable protocol
+conditions. A provider response cannot enlarge that set. Method-specific code
+may enforce request binding, fork applicability, and content integrity for
+those fields, but it may not promote a vendor or future field into the
+protected result merely because providers return it.
+
+Fields outside that core are observations. They do not create a core conflict,
+do not participate in typed-read acceptance, and do not acquire standard
+meaning from appearing on more than one endpoint. The normal RPC surface
+returns one core result or its existing error/status; source lists and raw
+extension values remain in the opt-in diagnostic path.
+
+For an extension path, the implementation may compute one internal acceptance
+decision: a single canonical value is eligible for optional exposure only when
+its support count reaches the invocation's dynamically computed threshold over
+the fixed voting basis. Values below the threshold, missing values, and
+multiple threshold-reaching values remain diagnostic observations. The public
+model does not expose separate all/partial/single-source categories; those are
+derived counts in evidence.
+
+The acceptance threshold is a library decision, not user configuration. The
+existing per-invocation basis snapshot and `Corroboration.Required(n)` are the
+starting implementation seam. Public quorum, mode, and Byzantine-model
+options are not part of the target interface and will be removed directly;
+there is no compatibility layer for them. No provider observation can update
+the official standard bundle. Only a pinned upstream `execution-apis` release
+can promote an extension into the next protected core after schema, admission,
+encoding, and replay checks pass.
+
+This is provider-backed cross-source evidence. It is not an Ethereum consensus
+claim, a BFT protocol, a canonicality claim, or a chain-finality claim.
+
+T07 supersedes the caller-facing configuration portions of older decisions
+0028–0030. Their fixed-membership and denominator safety constraints remain
+internal invariants; their public mode, floor, and runtime-switch surfaces are
+retired because the project has no released compatibility contract.

@@ -408,7 +408,7 @@ func TestClientClassifiesFailuresThroughPublicSentinels(t *testing.T) {
 	t.Run("dissent under unanimity is conflict", func(t *testing.T) {
 		// The default majority tolerates minority dissent; the explicit
 		// unanimity mode rejects it (decision 0029).
-		client, nodes := fleet(t, 1, 0, 3, ethguard.WithCorroborationMode(rpc.CorroborationUnanimity))
+		client, nodes := fleet(t, 1, 0, 3)
 		nodes[2].Return("eth_chainId", "0x2")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -744,7 +744,7 @@ func TestFinalizedAnchoringIsolatesStaleReporter(t *testing.T) {
 // chosen height still fails closed: two hashes claimed for one finalized
 // height are a fork signal, not something to vote over.
 func TestFinalizedAnchoringRejectsForkAtPinnedHeight(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring(), ethguard.WithQuorum(3))
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring())
 	scriptFinalizedHeads(nodes,
 		func(int) map[string]any { return map[string]any{"number": "0x66", "hash": "0xtip"} },
 		func(i int) map[string]any {
@@ -1068,7 +1068,7 @@ func TestClientAttachesReceiptExtensionsToDecision(t *testing.T) {
 		t.Fatalf("extensions = %#v, want one extension", decision.Extensions)
 	}
 	extension := decision.Extensions.Fields[0]
-	if extension.Kind != rpc.CorroboratedExtension || extension.Path != "/l1Fee" || len(extension.Sources) != 3 {
+	if extension.Kind != rpc.AcceptedExtension || extension.Path != "/l1Fee" || len(extension.Sources) != 3 {
 		t.Fatalf("extension = %#v", extension)
 	}
 	if extension.CoreObjectFingerprint == "" {
@@ -1138,7 +1138,7 @@ func TestClientResolvesReceiptPresenceSplitByMajority(t *testing.T) {
 // TestClientFailsClosedOnPresenceSplitUnderUnanimity keeps 0016's fail-closed
 // posture for the explicit unanimity mode: a null/object split is dissent.
 func TestClientFailsClosedOnPresenceSplitUnderUnanimity(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithCorroborationMode(rpc.CorroborationUnanimity))
+	client, nodes := fleet(t, 1, 1, 3)
 	receipt := receiptFixture("0x" + strings.Repeat("42", 32))
 	for _, node := range nodes[:2] {
 		node.Return(methods.MethodGetTransactionReceipt, receipt)
@@ -1547,7 +1547,7 @@ func balanceDissentAt(nodes []*rpctest.Node, hash, want, dissent string) {
 // the quorum option and the default majority resolve the same 3-of-5 cluster.
 func TestClientQuorumCoversAnchoredStateReads(t *testing.T) {
 	t.Run("quorum resolves the anchored majority cluster", func(t *testing.T) {
-		client, nodes := fleet(t, 1, 1, 5, ethguard.WithQuorum(3))
+		client, nodes := fleet(t, 1, 1, 5)
 		agreeOnHead(nodes) // anchor establishment still sees full agreement
 		balanceDissentAt(nodes, "0xabc", "0x64", "0x65")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1566,7 +1566,7 @@ func TestClientQuorumCoversAnchoredStateReads(t *testing.T) {
 	})
 
 	t.Run("unanimity conflicts on the same dissent", func(t *testing.T) {
-		client, nodes := fleet(t, 1, 1, 5, ethguard.WithCorroborationMode(rpc.CorroborationUnanimity))
+		client, nodes := fleet(t, 1, 1, 5)
 		agreeOnHead(nodes)
 		balanceDissentAt(nodes, "0xabc", "0x64", "0x65")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1681,7 +1681,7 @@ func TestClientMajorityResolvesCallClassSplit(t *testing.T) {
 }
 
 func TestClientFailsClosedOnCallClassSplitUnderUnanimity(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithCorroborationMode(rpc.CorroborationUnanimity))
+	client, nodes := fleet(t, 1, 1, 3)
 	agreeOnHead(nodes)
 	callAt(nodes, "0xabc", "0xdeadbeef")
 	nodes[2].Handle("eth_call", func(c rpctest.Call) (any, error) {

@@ -11,7 +11,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"ethguard"
 	"ethguard/rpc"
 	"ethguard/rpc/methods"
 )
@@ -52,7 +51,7 @@ func TestReturnValueAccessListThroughClient(t *testing.T) {
 func TestReturnValueFaultKeepsClientDenominator(t *testing.T) {
 	for _, method := range []string{methods.MethodCreateAccessList, methods.MethodGetTransactionReceipt} {
 		t.Run(method, func(t *testing.T) {
-			client, nodes := fleet(t, 1, 1, 4, ethguard.WithQuorum(2))
+			client, nodes := fleet(t, 1, 1, 4)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			var good, other, invalid any

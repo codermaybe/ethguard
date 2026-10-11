@@ -38,7 +38,7 @@ collect → bounded JSON validation → method admission → method normalizatio
 → fixed-basis resolution → Decision → typed projection
 ```
 
-`Decision.Value`：已迁移的数量和成功 DATA 由 Encode 写成规范编码，不跟随代表源拼写。`eth_feeHistory` 的 Value 是受保护字段的规范对象。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组。`eth_createAccessList` 的 Value 是掩码留下的 access list 字段的规范对象。`eth_getTransactionReceipt` 的 Value 是受保护收据字段的规范对象，`from` 不进 Value。这四个方法连同 `eth_getBlockReceipts` 的比较键按 0047 也是规范编码，即编码器的输出，所以键与 Value 相同。其余 generic Strict 与显式 quorum 仍写入获胜簇里捕获顺序第一人的原始值，不改字段。决策 0039 规则 4e 方案 (i)（见 `method-verification-pipeline.md` 第 1.1 节）允许方法契约声明删减式投影：只能从已准入结果中删除未佐证字段，不能新增、替换或跨来源拼装字段。`eth_call` 的成功结果是规范 DATA；revert `data` 已按 4e 投影。未迁移且未声明投影的方法仍返回来源原值。投影来源和被扣除维度进入 `Decision.Dimensions`；被扣除的原始字节留在 `Decision.Evidence`，原始响应仍可经 Uncertain 查看。未知或 vendor 字段由 `UncertainCapture` 作为调用级诊断材料保留，不自动提升为 VerifiedCore。
+`Decision.Value` 是受保护 Core 的聚合产物：已迁移的数量和成功 DATA 由 Encode 写成规范编码，不跟随代表源拼写；`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts` 写各自受保护字段的规范对象或数组。其余方法也不得用单一 provider 的“相对可靠值”替代聚合结论。`Decision.Extensions` 只包含达到本次调用动态门槛的非 Core 字段，并绑定到 Core 指纹；未达到门槛或存在多个值的字段进入 `Decision.Diagnostics`，不进入普通返回值。未知或 vendor 字段由 `UncertainCapture` 作为调用级诊断材料保留，不自动提升为 Core。
 
 ## 目录职责
 

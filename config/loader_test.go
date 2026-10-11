@@ -37,10 +37,7 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 			{ID: "a", Endpoint: "https://a.example"},
 			{ID: "b", Endpoint: "https://a.example"},
 		}}, "duplicate endpoint"},
-		{"negative quorum", Config{Upstreams: upstreams, Quorum: -1}, "non-negative"},
 		{"unknown preset", Config{Upstreams: upstreams, Anchoring: &AnchoringConfig{Preset: "aggressive"}}, "must be strict or finalized"},
-		{"unknown corroboration", Config{Upstreams: upstreams, Corroboration: "weighted"}, "majority or unanimity"},
-		{"valid corroboration spellings", Config{Upstreams: upstreams, Corroboration: " UNANIMITY "}, ""},
 		{"non-positive anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "-5s"}, "anchor_cache_ttl"},
 		{"garbage anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "soon"}, "anchor_cache_ttl"},
 		{"non-positive collect timeout", Config{Upstreams: upstreams, CollectTimeout: "0s"}, "collect_timeout"},
@@ -54,8 +51,6 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 			Anchoring:      &AnchoringConfig{Preset: "strict", MaxLag: 16},
 			AnchorCacheTTL: "30s",
 			TipTracking:    &TipTrackingConfig{Interval: "5s", MaxBehind: 8},
-			Quorum:         2,
-			Corroboration:  "majority",
 			CollectTimeout: "10s",
 		}, ""},
 	}
@@ -95,11 +90,5 @@ func TestParseYAMLRejectsUnknownFields(t *testing.T) {
 	input := "chain_id: 1\ncorroboratin: majority\nupstreams:\n  - id: a\n    endpoint: https://a.example\n"
 	if _, err := ParseYAML([]byte(input)); err == nil || !strings.Contains(err.Error(), "parse yaml") {
 		t.Fatalf("expected unknown-field YAML to fail parsing, got %v", err)
-	}
-}
-
-func TestDefaultSupportFloorIsTwo(t *testing.T) {
-	if got := DefaultSupportFloor(); got != 2 {
-		t.Fatalf("decision 0029's default H is 2, got %d", got)
 	}
 }

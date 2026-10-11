@@ -33,9 +33,6 @@ func TestReviewDecoratedMethods(t *testing.T) {
 				n.Return(tc.name, []any{})
 			}
 			nodes[2].Return(tc.name, []any{map[string]any{"different": true}})
-			if err := c.SetCorroboration(rpc.CorroborationUnanimity, 2); err != nil {
-				t.Fatal(err)
-			}
 			d, err := c.Call(context.Background(), tc.name, tc.params...)
 			if err == nil && d.Status == rpc.Corroborated && len(d.Faults) == 0 {
 				t.Fatalf("malformed source was not recorded: %+v", d)
@@ -74,21 +71,15 @@ func TestReviewDuplicateObservationCannotCorroborate(t *testing.T) {
 }
 
 func TestReviewInFlightChanges(t *testing.T) {
-	for _, action := range []string{"add", "remove", "replace", "mode", "floor"} {
+	for _, action := range []string{"add", "remove", "replace"} {
 		t.Run(action, func(t *testing.T) {
 			n := 3
 			if action == "remove" || action == "replace" {
 				n = 5
 			}
 			c, nodes := fleet(t, 1, 0, n)
-			if action != "floor" {
-				for _, node := range nodes[2:] {
-					if action == "mode" {
-						node.Return(methods.MethodChainID, "0x2")
-					} else {
-						node.Fail(methods.MethodChainID, -32603, "unavailable")
-					}
-				}
+			for _, node := range nodes[2:] {
+				node.Fail(methods.MethodChainID, -32603, "unavailable")
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -143,14 +134,6 @@ func TestReviewInFlightChanges(t *testing.T) {
 					if action == "replace" {
 						join(name)
 					}
-				}
-			case "mode":
-				if err := c.SetCorroboration(rpc.CorroborationUnanimity, 2); err != nil {
-					t.Fatal(err)
-				}
-			case "floor":
-				if err := c.SetCorroboration(rpc.CorroborationMajority, 4); err != nil {
-					t.Fatal(err)
 				}
 			}
 			unblock()

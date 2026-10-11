@@ -268,14 +268,17 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		}
 		participants = append(participants, observations[i].Source)
 	}
-	var observed *rpc.CommonObservation
+	var evaluation *rpc.Evaluation
 	if snapOK && snap.Mode != rpc.CorroborationForwarded {
-		if common, observationErr := rpc.AggregateFields(observations, snap.Required(len(observations))); observationErr == nil {
-			observed = &common
+		if common, observationErr := rpc.AggregateFieldsWithCorroboration(observations, snap); observationErr == nil {
+			evaluation = &common
 		}
 	}
 	if collectErr != nil && !hasUsableEmission(emissions) {
-		decision := rpc.Decision{Status: rpc.Unknown, Faults: collectionFaults(policy, collectErr, emissions), Reference: capture.Reference(), Participants: participants, Observed: observed}
+		decision := rpc.Decision{Status: rpc.Unknown, Faults: collectionFaults(policy, collectErr, emissions), Reference: capture.Reference(), Participants: participants}
+		if evaluation != nil {
+			decision.Diagnostics = &evaluation.Diagnostics
+		}
 		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions)
 		return decision, collectErr
 	}
@@ -285,7 +288,10 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// typed callers instead of replacing it with ErrNoValidResponse.
 	if collectErr == nil && !hasUsableEmission(emissions) && hasMalformedAdmission(emissions) {
 		admissionErr := firstMalformedAdmission(emissions)
-		decision := rpc.Decision{Status: rpc.Unknown, Faults: sourceFaults(policy, emissions), Reference: capture.Reference(), Participants: participants, Observed: observed}
+		decision := rpc.Decision{Status: rpc.Unknown, Faults: sourceFaults(policy, emissions), Reference: capture.Reference(), Participants: participants}
+		if evaluation != nil {
+			decision.Diagnostics = &evaluation.Diagnostics
+		}
 		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
 		a.recordDecision(started, req.Method, policy, decision, err, emissions)
 		return decision, err
@@ -300,14 +306,16 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	}
 	decision.Reference = capture.Reference()
 	decision.Participants = participants
-	decision.Observed = observed
-	if resolveErr == nil && observed != nil {
+	if evaluation != nil {
+		decision.Diagnostics = &evaluation.Diagnostics
+	}
+	if resolveErr == nil && evaluation != nil {
 		projector, ok := a.projectors[req.Method]
 		if !ok {
 			projector, ok = policy.(rpc.ObservationProjector)
 		}
 		if ok {
-			if extensions, projectionErr := projector.ProjectObservation(decision.Value, *observed); projectionErr == nil {
+			if extensions, projectionErr := projector.ProjectObservation(decision.Value, *evaluation); projectionErr == nil {
 				decision.Extensions = &extensions
 			} else {
 				decision.Faults = append(decision.Faults, fmt.Errorf("projection: %w", projectionErr))

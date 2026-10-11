@@ -56,11 +56,7 @@ type Corroboration struct {
 // Every member of the basis counts, including those that answered invalidly
 // or were not requested at all.
 func (c Corroboration) Required(n int) int {
-	q := n/2 + 1
-	if c.Floor > q {
-		q = c.Floor
-	}
-	return q
+	return newAcceptanceCalculator(c).required(n)
 }
 
 // adjudicate resolves size-ranked clusters (ties broken by canonical key)
@@ -85,7 +81,9 @@ func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Deci
 	if c.Mode == CorroborationUnanimity && len(ranked) > 1 {
 		return decision, fmt.Errorf("strict: %d disagreeing values: %w", len(ranked), ErrConflict)
 	}
-	if required := c.Required(n); size < required {
+	calculator := newAcceptanceCalculator(c)
+	if !calculator.accepts(n, size) {
+		required := calculator.required(n)
 		return decision, fmt.Errorf("strict: required support %d, winning cluster %d of %d voting members: %w",
 			required, size, n, ErrConflict)
 	}

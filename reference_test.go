@@ -44,7 +44,7 @@ func TestCommonReferenceConfirmsDifferentHeightsAndCachesEvidence(t *testing.T) 
 			events := make(decisionEvents, 8)
 			opts := []ethguard.Option{ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(16)), ethguard.WithRecorder(events)}
 			if quorum > 0 {
-				opts = append(opts, ethguard.WithQuorum(quorum))
+				opts = append(opts)
 			}
 			client, nodes := fleet(t, 1, 1, 3, opts...)
 			commonHeads(nodes, []uint64{84, 100, 100}, nil)
@@ -101,7 +101,7 @@ func TestCommonReferenceConfirmsDifferentHeightsAndCachesEvidence(t *testing.T) 
 }
 
 func TestCommonReferenceConfirmationCannotShrinkQuorum(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 5, ethguard.WithFinalizedAnchoring(), ethguard.WithQuorum(2))
+	client, nodes := fleet(t, 1, 1, 5, ethguard.WithFinalizedAnchoring())
 	commonHeads(nodes, []uint64{84, 100, 101, 102, 103}, func(i int, height uint64) (any, error) {
 		if i == 4 {
 			return nil, rpctest.RPCError(-32603, "confirmation unavailable")
@@ -125,7 +125,7 @@ func TestCommonReferenceConfirmationCannotShrinkQuorum(t *testing.T) {
 }
 
 func TestCommonReferenceChoosesHighestFinalizedHeightCoveredByQuorum(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 4, ethguard.WithFinalizedAnchoring(), ethguard.WithQuorum(3))
+	client, nodes := fleet(t, 1, 1, 4, ethguard.WithFinalizedAnchoring())
 	commonHeads(nodes, []uint64{10000, 9999, 10001, 9999}, nil)
 	decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
 	if err != nil {
@@ -137,7 +137,7 @@ func TestCommonReferenceChoosesHighestFinalizedHeightCoveredByQuorum(t *testing.
 }
 
 func TestCommonReferenceDoesNotPromoteUndercoveredHigherFinalizedHeight(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 5, ethguard.WithFinalizedAnchoring(), ethguard.WithQuorum(3))
+	client, nodes := fleet(t, 1, 1, 5, ethguard.WithFinalizedAnchoring())
 	commonHeads(nodes, []uint64{10000, 10000, 9999, 9999, 9999}, nil)
 	decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
 	if err != nil {
@@ -149,7 +149,7 @@ func TestCommonReferenceDoesNotPromoteUndercoveredHigherFinalizedHeight(t *testi
 }
 
 func TestCommonReferenceRejectsWrongConfirmationHeight(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring(), ethguard.WithQuorum(3))
+	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring())
 	commonHeads(nodes, []uint64{84, 100, 100}, func(int, uint64) (any, error) {
 		return map[string]any{"number": "0x64", "hash": fmt.Sprintf("0x%064x", 100)}, nil
 	})

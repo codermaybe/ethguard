@@ -137,11 +137,12 @@ go run ./examples/basic -config /path/to/config.yaml
 evidence and pool inspection. The adapter retains method-shaped compatibility
 for the supported subset; it does not claim the complete `ethclient` interface.
 
-Deterministic adapter reads require corroboration even when `quorum=1`:
-insufficient support returns `ErrConflict`, since these methods cannot expose
-`Selected` to their callers. Advanced root `Call` still returns `Selected` with
-evidence. Median/local methods retain their selection semantics, and unknown
-methods remain forwarded. `Wrap` applies the same safety checks as `New`.
+Deterministic adapter reads require the library's dynamically computed
+corroboration threshold: insufficient support returns `ErrConflict`, since
+these methods cannot expose `Selected` to their callers. Advanced root `Call`
+still returns the selected status where the method contract allows it.
+Median/local methods retain their selection semantics, and unknown methods
+remain forwarded. `Wrap` applies the same safety checks as `New`.
 
 With finalized anchoring, divergent provider heights are reconciled at one
 common height. Existing matching heads are reused; otherwise one bounded
@@ -198,7 +199,7 @@ a reliability guarantee or a recent-client cache. Retention is bounded during
 collection and cancellation may leave a partial snapshot. A fresh capture is
 required for each logical call; returned values are defensive copies.
 
-The library API and corroboration policies are still evolving. See the
+The library API and standard-driven evaluation rules are still evolving. See the
 [architecture record](docs/design/architecture-record.md), [architecture](docs/architecture.md),
 [aggregation design](docs/design/rpc-aggregation.md), the [proxyd comparison](docs/design/proxyd-comparison.md),
 and [threat model](docs/threat-model.md) before relying on security properties.
@@ -209,8 +210,8 @@ provider-fault-tolerance evidence rather than a proof of Ethereum chain consensu
 canonical membership, or independent finality.
 
 The library currently provides: configuration loading; multi-upstream
-lifecycle with lazy dialing and health-driven recovery; strict corroboration and
-quorum corroboration with deterministic conflict evidence; block-anchored
+lifecycle with lazy dialing and health-driven recovery; dynamically computed
+fixed-basis corroboration with deterministic conflict evidence; block-anchored
 reads (strict or conservative finalized selection); a freshness gate that
 quarantines lagging providers; classified sentinel errors; and a passive
 observability seam with an optional Prometheus adapter. Corroboration covers

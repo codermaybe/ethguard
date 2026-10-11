@@ -24,7 +24,7 @@
 4. 执行顺序是：逐源 EncodeCheck，通过后才按方法自己的比较键分簇，以本轮固定分母裁决一次，再提交规范 Value。编码失败记 Fault、不贡献支持，但来源仍留在分母里。这里的「裁决一次」不表示先调用代码中的 `Resolve` 再编码：当前 Strict 的 `Resolve` / `ResolveCorroborated` 入口内部包含编码、分簇、裁决和提交。
 5. 获胜簇内每个支持源的规范字节必须相同。不相同是比较键太窄或编码器越界，是代码缺陷，不是来源分歧。
 6. 逐字节相等是必要条件，不是充分条件。编码器不能靠删掉应受保护的字段来制造相等。字段表、变异测试和往返测试负责补上这一层。
-7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。该通道不保留代表源 Raw，也不设字节上限：域外字段的可见性由 `Decision.Observed` 承担，它不存在的三种情况见第 6.5 节（0048）。
+7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。该通道不保留代表源 Raw，也不设字节上限：非 Core 字段只有达到动态门槛的单一值才进入 `Decision.Extensions`，其余观察进入 `Decision.Diagnostics`。
 8. 第 14 节是已锁定口径，0048 修订了其中的 14.2、14.3、14.6。它不给每个字段另写标准。code 与 message 在阶段 3a 之后不再对外暴露，随 `eth_call` 的信封一起留在受保护结果之外；区块 Value 只收已经核对过承诺的内容，`from` 默认留在域外。为什么不改成胜者原文透传，也不再加一层最终响应投影，见第 13 节。仍开放、且不挡住阶段 0 的，只有 `from` 的测量后归属。
 
 ## 2. 事实前提
@@ -234,7 +234,10 @@ Withheld         4e 扣下的字节
 
 Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。
 
-这个通道里**没有代表源原文**（决策 0048）。域外字段的可见性由 `Decision.Observed` 承担：它对每个路径给出全部来源的取值、按 quorum 分成 `Common`/`Residuals`/`Conflicts`。它在三种情况下不存在：Forwarded 模式、`AggregateFields` 失败、绕过 Aggregator 直接调用 `Policy.Resolve`；这时域外字段不可见。已迁移方法不保留 Raw，也不设字节上限。
+这个通道里**没有代表源原文**（决策 0048）。域外字段的可见性由
+`Decision.Extensions` 和 `Decision.Diagnostics` 承担：前者只包含达到动态
+门槛的单一值，后者保留低支持和多值分歧。普通 typed 表面不需要读取这些
+诊断结构；已迁移方法不保留 Raw，也不设字节上限。
 
 `eth_call` 的 `RevertError.Code` 与 `Message` 是捕获顺序第一个人的 provider 写法，没有佐证。阶段 3a 之后不再暴露，`ErrorCode()` 随之删除，作为一次记录在案的 API 破坏（0048）；当前代码仍保留它们。`Data` 与 `DataRaw` 保留，它们来自受保护结果。
 
@@ -493,7 +496,7 @@ EncodeCheck 或 Resolve"这一族约束。
   字节上限或编码时限写进本文"继续成立。
 
 **为什么撤销**(决策 0048):这一节是为一个从未实现、也没有消费者的通道写的。域外字段的
-可见性由 `Decision.Observed` 承担,它不存在的情况见第 6.5 节。为不存在的消费者定义容量
+可见性由 `Decision.Extensions` 与 `Decision.Diagnostics` 承担。为不存在的消费者定义容量
 参数,只会让后续读者以为存在一个待实现的配额。
 
 ### 14.7 WSS 上的缺失与 null

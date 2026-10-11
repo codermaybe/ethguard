@@ -27,8 +27,8 @@ type Client struct {
 	aggregator *aggregator.Aggregator
 	policies   rpc.Registry
 	resolver   AnchorResolver
-	// corrob is the shared, runtime-mutable adjudication configuration
-	// behind SetCorroboration; every invocation snapshots it at its start.
+	// corrob is the internal adjudication snapshot source; callers do not
+	// configure its mode or support floor.
 	corrob *rpc.CorroborationShared
 	// collectTimeout bounds each write fan-out; the read aggregator owns its
 	// own copy supplied at construction.
@@ -44,10 +44,6 @@ type clientOptions struct {
 	anchor         AnchorResolver
 	anchorSet      bool
 	anchorCache    time.Duration
-	quorum         int
-	quorumSet      bool
-	corroboration  rpc.CorroborationMode
-	modeSet        bool
 	tipEnabled     bool
 	tipInterval    time.Duration
 	tipMaxBehind   uint64
@@ -78,41 +74,6 @@ func WithAnchorResolver(r AnchorResolver) Option {
 			o.anchor, o.anchorSet = r, true
 		}
 	}
-}
-
-// WithQuorum sets the corroboration support floor H for every strict method
-// and strict head anchoring (decision 0029). Callers relating H to their
-// fault assumptions should compare it against config.DefaultSupportFloor. A
-// non-positive n is a configuration error.
-func WithQuorum(n int) Option {
-	if n <= 0 {
-		panic("ethguard: WithQuorum: n must be positive")
-	}
-	return func(o *clientOptions) { o.quorum, o.quorumSet = n, true }
-}
-
-// WithCorroborationMode selects the adjudication mode for every corroborated
-// read (decision 0028): fixed-membership majority by default, or the explicit
-// unanimity mode with the same support floor. It wins over the YAML
-// corroboration preset.
-func WithCorroborationMode(m rpc.CorroborationMode) Option {
-	return func(o *clientOptions) { o.corroboration, o.modeSet = m, true }
-}
-
-// WithForwardingMode selects intentional single-source forwarding. It is
-// useful for an explicitly trusted one-member deployment and never occurs as
-// an automatic response to health or membership changes.
-func WithForwardingMode() Option {
-	return WithCorroborationMode(rpc.CorroborationForwarded)
-}
-
-// SetCorroboration atomically changes the adjudication mode and support floor
-// for invocations that start after this call returns. An invocation already
-// in flight keeps the mode, floor, and voting basis captured at its start;
-// configuration never changes mid-invocation (decisions 0025 and 0027).
-// Membership changes are separate, explicit pool operations.
-func (c *Client) SetCorroboration(mode rpc.CorroborationMode, floor int) error {
-	return c.corrob.Set(mode, floor)
 }
 
 // WithCollectTimeout bounds each aggregate collection or forwarded attempt.
@@ -170,26 +131,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	co := clientOptions{collectTimeout: config.DefaultCollectTimeout(), corroboration: rpc.CorroborationMajority}
-	if cfg.Quorum > 0 {
-		co.quorum = cfg.Quorum
-	}
-	// The preset comparison mirrors config.Validate's normalization exactly:
-	// a case-spelling that passes validation must select the same mode here,
-	// or the YAML path silently changes adjudication behavior (decision
-	// 0004's failure mode).
-	if cfg.Corroboration != "" {
-		switch strings.ToLower(strings.TrimSpace(cfg.Corroboration)) {
-		case "majority":
-			co.corroboration = rpc.CorroborationMajority
-		case "unanimity":
-			co.corroboration = rpc.CorroborationUnanimity
-		case "forwarded":
-			co.corroboration = rpc.CorroborationForwarded
-		default:
-			return nil, fmt.Errorf("ethguard: corroboration must be majority or unanimity (or forwarded), got %q", cfg.Corroboration)
-		}
-	}
+	co := clientOptions{collectTimeout: config.DefaultCollectTimeout()}
 	if cfg.CollectTimeout != "" {
 		co.collectTimeout, _ = time.ParseDuration(cfg.CollectTimeout)
 	}
@@ -227,16 +169,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if co.anchorSet {
 		return nil, fmt.Errorf("ethguard: WithAnchorResolver is retired; reference establishment is library-owned under decision 0036")
 	}
-	explicitSingleMode := cfg.Corroboration != "" || cfg.Quorum > 0 || co.modeSet || co.quorumSet
-	if len(cfg.Upstreams) == 1 && !explicitSingleMode && co.corroboration == rpc.CorroborationMajority {
-		co.corroboration = rpc.CorroborationForwarded
-	}
-	if len(cfg.Upstreams) == 1 && explicitSingleMode && co.corroboration != rpc.CorroborationForwarded {
-		return nil, fmt.Errorf("ethguard: explicit corroboration mode %s requires at least two configured voting sources", co.corroboration)
-	}
-	if co.corroboration == rpc.CorroborationForwarded && co.quorum > 0 {
-		return nil, fmt.Errorf("ethguard: forwarded mode cannot specify quorum %d", co.quorum)
-	}
 	if co.tipEnabled {
 		co.poolOpts = append(co.poolOpts, pool.WithTipTracking(co.tipInterval, co.tipMaxBehind))
 	}
@@ -255,14 +187,14 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		}
 	}
 
-	// One shared corroboration configuration (decision 0025): the floor
-	// defaults to the config package's single source, and every invocation
-	// snapshots mode and floor before any request is issued.
-	floor := co.quorum
-	if floor == 0 && co.corroboration != rpc.CorroborationForwarded {
-		floor = config.DefaultSupportFloor()
+	// The library owns the corroboration policy. It snapshots the fixed basis
+	// for each invocation and derives the support threshold internally.
+	mode := rpc.CorroborationMajority
+	if len(cfg.Upstreams) == 1 {
+		mode = rpc.CorroborationForwarded
 	}
-	corrob, err := rpc.NewCorroborationShared(co.corroboration, floor)
+	floor := 2
+	corrob, err := rpc.NewCorroborationShared(mode, floor)
 	if err != nil {
 		return nil, fmt.Errorf("ethguard: %w", err)
 	}
@@ -273,12 +205,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	// resolved outside a snapshot-bearing aggregator agree with the client
 	// default. The reference-establishment paths keep their own formulas
 	// until T03 aligns them.
-	if floor > 0 {
-		strictOpts = append(strictOpts, rpc.WithQuorum(floor))
-	}
-	if co.corroboration == rpc.CorroborationUnanimity {
-		strictOpts = append(strictOpts, rpc.WithUnanimity())
-	}
+	strictOpts = append(strictOpts, rpc.WithQuorum(floor))
 	if resolver == nil {
 		if co.anchorFactory != nil {
 			resolver = co.anchorFactory(rpcPool, rec)
@@ -287,11 +214,11 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		}
 	}
 	if finalized, ok := resolver.(*FinalizedHeadAnchor); ok && co.anchor == nil {
-		finalized.quorum = co.quorum
+		finalized.quorum = floor
 		finalized.timeout = co.collectTimeout
 	}
 	if co.anchor != nil {
-		resolver = &confirmedAnchor{inner: co.anchor, pool: rpcPool, rec: rec, quorum: co.quorum, timeout: co.collectTimeout}
+		resolver = &confirmedAnchor{inner: co.anchor, pool: rpcPool, rec: rec, quorum: floor, timeout: co.collectTimeout}
 	}
 	// Unreachable. A non-zero duration already returned above (decision 0026).
 	// CachedAnchor stays unwired so Client cannot reuse a reference across calls.
@@ -348,14 +275,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		collectTimeout: co.collectTimeout,
 	}, nil
 }
-
-// Corroboration returns the currently configured invocation mode and support
-// floor. A forwarded snapshot has no corroboration requirement and reports a
-// zero floor.
-func (c *Client) Corroboration() rpc.Corroboration { return c.corrob.Snapshot() }
-
-// Mode is a concise startup/runtime visibility hook for operators.
-func (c *Client) Mode() rpc.CorroborationMode { return c.corrob.Snapshot().Mode }
 
 // VotingMembers reports the currently configured membership. It is a
 // diagnostic snapshot; an invocation already in flight keeps its own basis.
@@ -427,3 +346,7 @@ func (c *Client) Pool() *pool.Pool {
 func (c *Client) Close() {
 	c.pool.Close()
 }
+
+// Mode reports the internally selected adapter route. It is derived from the
+// configured source count and cannot be changed by callers.
+func (c *Client) Mode() rpc.CorroborationMode { return c.corrob.Snapshot().Mode }
