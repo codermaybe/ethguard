@@ -13,7 +13,9 @@
   `version` 自描述。约 100KB。这里包含 `eth_getProof`，即使它目前仍是
   `UnsupportedMethod`。
 * `vectors/`：官方 `tests/*.io` 抽取的 conformance 向量（21 个方法目录）。
-  它们是标准参考输入，尚未全部接入自动回归 harness。
+  `internal/spec/conformance` 会离线解析每个 request/response 对，并按 pinned
+  result schema 检查 result 的类型、required、pattern、数组约束和未知字段。
+  结果 schema 尚未纳入 bundle 的官方向量会在报告的 `Uncovered` 中显式列出。
 * `spec.go`：唯一的例外手写代码——`go:embed` 访问器（embed 必须与文件同目录，
   别无他法）。无逻辑、无判断，只暴露字节。
 
@@ -60,8 +62,10 @@ assert len(out["results"]) == len(wanted)
 json.dump(out, open("methods.json", "w"), indent=1, sort_keys=True)
 ```
 
-升级流程：上游发版 → 重跑上面两步 → 看 `methods.json` 的 `git diff`
-（精确的上游变更面：某方法多了/少了哪个字段）→ 逐字段定政策
+升级流程：上游发版 → 重跑上面两步 → 用
+`go run ./cmd/specdiff -before old/methods.json -after new/methods.json` 看
+方法和字段级 diff（含 type/required 变化）→ 跑
+`go test ./internal/spec/conformance` 和向量回放 → 逐字段定政策
 （进投票还是忽略，这是人才能做的决定）→ 按需改对象切片的手写门 →
 跑向量 + R4 + 全量测试。
 
@@ -78,6 +82,5 @@ json.dump(out, open("methods.json", "w"), indent=1, sort_keys=True)
 * 不生成 Go 文件进构建（零生成物，零新鲜度缺口；一致性靠结构而非流程保证）。
 * 不在运行时做 JSON-Schema 全量校验（热路径只跑白名单剪枝；`santhosh-tekuri`
   系库仅为官方构建工具的依赖，不进本模块）。
-* `vectors/` 尚未被测试消费——conformance 回归 harness 是明确的下一步。
 * `net_listening` / `net_peerCount` 无官方条目，暂由项目自己的方法契约覆盖；
   上游一旦收录，再评估是否迁入标准数据包。

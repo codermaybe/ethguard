@@ -7,7 +7,8 @@
 package spec
 
 import (
-	_ "embed"
+	"embed"
+	"io/fs"
 	"strings"
 )
 
@@ -17,9 +18,16 @@ var methodsJSON []byte
 //go:embed VERSION
 var version string
 
+//go:embed vectors
+var vectors embed.FS
+
 // MethodsJSON returns the vendored bundle: {"version": ..., "results":
 // {method: resultSchema}}. Callers must treat it as read-only.
 func MethodsJSON() []byte { return methodsJSON }
 
 // Version returns the pinned execution-apis release (trimmed).
 func Version() string { return strings.TrimSpace(version) }
+
+// VectorsFS returns the embedded official .io conformance vectors. Callers
+// must treat the returned filesystem as read-only.
+func VectorsFS() fs.FS { return vectors }

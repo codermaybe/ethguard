@@ -621,8 +621,9 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 
 ### T07.4 官方标准升级闭环
 
-依赖：T07.2、T07.3。状态：未开始。出口：上游 `execution-apis` release 变化能
-产生可审阅 diff、触发兼容测试，并将疑似标准滞后字段报告出来。
+依赖：T07.2、T07.3。状态：进行中（2026-10-11，conformance/diff 初版已完成）。
+出口：上游 `execution-apis` release 变化能产生可审阅 diff、触发兼容测试，并将
+疑似标准滞后字段报告出来。
 
 - 升级只从官方固定 release 进入，不从 provider 反馈自动生成或提升 Core 字段。
 - 自动重建完整方法 schema 或当前支持方法的投影、字段 mask 和版本互锁；变更
@@ -632,7 +633,9 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 - 官方 schema 删除或改变字段时，CI 阻止静默继续使用旧保护规则；需明确迁移、
   兼容窗口和 golden 变化。
 - `internal/spec/vectors` 全部接入离线 conformance harness。官方向量验证 wire
-  形状；真实 Chainlist 批次验证 provider 变体；两者不互相替代。
+  形状；当前 pinned bundle 已接入 harness，暂未纳入 bundle 的
+  `eth_sendRawTransaction` 向量会作为 Uncovered 显式报告；真实 Chainlist 批次
+  验证 provider 变体；两者不互相替代。
 
 ### T07.5 端到端验收与默认化
 
