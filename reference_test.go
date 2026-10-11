@@ -38,7 +38,7 @@ func commonHeads(nodes []*rpctest.Node, heights []uint64, confirm func(int, uint
 	}
 }
 
-func TestCommonReferenceConfirmsDifferentHeightsAndCachesEvidence(t *testing.T) {
+func TestCommonReferenceConfirmsDifferentHeightsAndKeepsEvidenceScoped(t *testing.T) {
 	events := make(decisionEvents, 8)
 	opts := []ethguard.Option{ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(16)), ethguard.WithRecorder(events)}
 	client, nodes := fleet(t, 1, 1, 3, opts...)
