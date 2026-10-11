@@ -2029,3 +2029,15 @@ no longer exposes provider `Code` or `Message`, and it no longer implements
 go-ethereum's `rpc.Error` or `ErrorCode()`. `ErrorData()` remains available for
 protected revert data, and the provider context remains available only through
 the internal decision evidence path and `Decision.Revert`.
+`rpc.Observation.Evidence` remains the per-source admission-evidence channel;
+only the Decision-layer `Evidence` field was retired.
+
+## 0055. Replay goldens retain canonical Value digests
+
+Status: Accepted (2026-10-11). This closes T08 audit leftover 2.
+
+The `block-receipt-tx` replay golden keeps SHA-256 digests for canonical block
+Values rather than embedding the full bytes. The digest makes byte changes
+reviewable without duplicating large payloads; the runtime replay path still
+compares the exact canonical bytes through `replayValueAgrees`. The choice does
+not weaken the source records or typed/policy assertions.
