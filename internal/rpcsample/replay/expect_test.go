@@ -462,6 +462,16 @@ func payloadMatches(t *testing.T, value json.RawMessage, payloads []json.RawMess
 // replay does not add a new must-match-an-original assertion for it.
 func replayValueAgrees(t *testing.T, policy rpc.Policy, decision rpc.Decision, payloads []json.RawMessage, sources []expectSource, deleted []string, allowEmpty bool) error {
 	t.Helper()
+	if decision.Revert != nil {
+		// Revert code/message are provider context carried separately from the
+		// protected Value. Compare the remaining envelope fields against one
+		// source payload, then apply the data projection if rule 4e withheld it.
+		contextDeleted := append([]string{"code", "message"}, deleted...)
+		if projectionMatches(t, decision.Value, payloads, contextDeleted) {
+			return nil
+		}
+		return fmt.Errorf("revert decision value is not one source payload without provider context and %v", deleted)
+	}
 	if len(decision.Value) == 0 {
 		if allowEmpty {
 			return nil

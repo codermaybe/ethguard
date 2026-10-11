@@ -89,6 +89,38 @@ func TestCallRevertDataConflictIsNotSwallowed(t *testing.T) {
 	}
 }
 
+func TestCallRevertContextStaysOutsideProtectedValue(t *testing.T) {
+	policy := CallPolicy(nil, rpc.WithQuorum(2))
+	first := rpc.Observation{
+		Source: rpc.SourceRef{ID: "a"},
+		Err:    errors.New("execution reverted"),
+		RPCError: &rpc.RPCError{
+			Code:    3,
+			Message: "execution reverted: provider-a",
+			Data:    json.RawMessage(`"0xdead"`),
+		},
+	}
+	second := rpc.Observation{
+		Source: rpc.SourceRef{ID: "b"},
+		Err:    errors.New("execution reverted"),
+		RPCError: &rpc.RPCError{
+			Code:    -32000,
+			Message: "execution reverted: provider-b",
+			Data:    json.RawMessage(`"0xDEAD"`),
+		},
+	}
+	decision, err := policy.Resolve([]rpc.Observation{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decision.Value) != `{"data":"0xdead"}` {
+		t.Fatalf("protected value = %s", decision.Value)
+	}
+	if decision.Revert == nil || decision.Revert.Code != 3 || decision.Revert.Message != "execution reverted: provider-a" {
+		t.Fatalf("revert context = %+v", decision.Revert)
+	}
+}
+
 func TestCallProviderErrorDoesNotEnterRevertKey(t *testing.T) {
 	policy := CallPolicy(nil)
 	obs := []rpc.Observation{

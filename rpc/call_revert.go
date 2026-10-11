@@ -90,6 +90,7 @@ type callAnswer struct {
 	data      string
 	abstain   bool
 	success   bool
+	revert    *RevertContext
 }
 
 func (p callRevertFunc) resolve(c Corroboration, legacy bool, obs []Observation) (Decision, error) {
@@ -111,6 +112,7 @@ func (p callRevertFunc) resolve(c Corroboration, legacy bool, obs []Observation)
 		Value:          rep.value,
 		Evidence:       rep.evidence,
 		Representative: rep.source,
+		Revert:         cloneRevertContext(rep.revert),
 		Support:        sourcesOf(winner),
 		Reject:         sourcesOf(rejected),
 	}
@@ -232,6 +234,15 @@ func classifyCall(source SourceRef, value, evidence json.RawMessage, flat string
 	default:
 		return callAnswer{}, fmt.Errorf("call: unrecognized comparison %q", flat)
 	}
+	if !answer.success {
+		var envelope struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(value, &envelope); err == nil {
+			answer.revert = &RevertContext{Code: envelope.Code, Message: envelope.Message}
+		}
+	}
 	return answer, nil
 }
 
@@ -252,8 +263,9 @@ func callComparisonKey(flat string) string {
 
 // projectRevertData applies rule 4e to a corroborated revert. Abstainers stay
 // in the voting denominator and out of data Reject. Concrete data is returned
-// only when its own cluster meets the invocation quorum; otherwise one
-// admitted envelope loses the data field and the bytes move to Evidence.
+// only when its own cluster meets the invocation quorum; otherwise the
+// protected Value loses the data field and the bytes move to Evidence. Error
+// code/message remain in RevertContext rather than Value.
 func projectRevertData(c Corroboration, legacy bool, voters int, decision Decision, winner []callAnswer) (Decision, error) {
 	concrete, abstain := dataSplit(winner)
 	decision.Status = Corroborated
@@ -262,6 +274,7 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 		rep := representative(winner)
 		value, deleted := withoutData(rep)
 		decision.Value = value
+		decision.Revert = cloneRevertContext(rep.revert)
 		decision.DeletedFields = deleted
 		decision.Evidence = rep.evidence
 		decision.Representative = rep.source
@@ -276,7 +289,8 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 	dataRejected := flattenCall(ranked[1:])
 	if revertDataReturned(c, legacy, voters, ranked) {
 		rep := representative(dataWinner)
-		decision.Value = rep.value
+		decision.Value = revertValue(rep.value, true)
+		decision.Revert = cloneRevertContext(rep.revert)
 		decision.Evidence = rep.evidence
 		decision.Representative = rep.source
 		decision.Dimensions = []DimensionEvidence{
@@ -288,6 +302,7 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 	rep := representative(dataWinner)
 	value, deleted := withoutData(rep)
 	decision.Value = value
+	decision.Revert = cloneRevertContext(rep.revert)
 	decision.DeletedFields = deleted
 	decision.Evidence = withheldRevertData(dataWinner)
 	decision.Representative = rep.source
@@ -400,27 +415,42 @@ func representative(answers []callAnswer) callAnswer {
 }
 
 func withoutData(answer callAnswer) (json.RawMessage, []string) {
-	raw, removed := deleteObjectField(answer.value, "data")
-	if !removed {
-		return answer.value, nil
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(answer.value, &fields); err != nil || fields == nil {
+		return append(json.RawMessage(nil), answer.value...), nil
 	}
-	return raw, []string{"data"}
+	_, present := fields["data"]
+	return revertValue(answer.value, false), func() []string {
+		if present {
+			return []string{"data"}
+		}
+		return nil
+	}()
 }
 
-func deleteObjectField(raw json.RawMessage, field string) (json.RawMessage, bool) {
+func revertValue(raw json.RawMessage, keepData bool) json.RawMessage {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return append(json.RawMessage(nil), raw...), false
+		return append(json.RawMessage(nil), raw...)
 	}
-	if _, ok := fields[field]; !ok {
-		return append(json.RawMessage(nil), raw...), false
+	delete(fields, "code")
+	delete(fields, "message")
+	if !keepData {
+		delete(fields, "data")
 	}
-	delete(fields, field)
 	out, err := json.Marshal(fields)
 	if err != nil {
-		return append(json.RawMessage(nil), raw...), false
+		return append(json.RawMessage(nil), raw...)
 	}
-	return out, true
+	return out
+}
+
+func cloneRevertContext(value *RevertContext) *RevertContext {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
 }
 
 // withheldRevertData records the data the representative withheld. Only that

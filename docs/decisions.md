@@ -1964,3 +1964,24 @@ The same schema-driven coverage checks used by production projectors inspect
 the receipt, block-receipts, log, fee-history, and access-list encoders. A
 future official field that is absent from one of these canonical encoders or
 projectors fails the migration check until its path is explicitly handled.
+
+## 0052. eth_call revert context is separate from the protected Value
+
+Status: Accepted (2026-10-11). This starts T08 and supersedes the current-result
+wording that treated the full JSON-RPC revert envelope as `Decision.Value`.
+
+`eth_call` keeps its two internal dimensions: execution agreement and the
+abstainable data dimension. A successful call still returns canonical DATA.
+For a corroborated revert, `Decision.Value` contains only the accepted data
+projection: a `data` member when the data cluster reaches the dynamic
+threshold, or an empty object when data is missing, null, split, or withheld.
+The provider error `code` and `message` are carried in `Decision.Revert` as
+context selected from the winning representative. They do not participate in
+the comparison key and do not become protected Core fields.
+
+`RevertContext` preserves typed adapter compatibility by rebuilding the public
+`RevertError` without reintroducing provider context into the protected Value.
+Missing data, JSON null, empty `0x`, structured data, and concrete hex data keep
+their existing distinct dimension semantics. Replay checks compare the
+context-free Value against one source payload after applying the data
+projection; they never splice fields across sources.

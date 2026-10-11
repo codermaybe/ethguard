@@ -1642,8 +1642,8 @@ func TestClientCorroboratedRevertIsAnObservation(t *testing.T) {
 	if decision.Status != rpc.Corroborated {
 		t.Fatalf("expected corroborated revert observation, got %+v", decision)
 	}
-	if !strings.Contains(string(decision.Value), "execution reverted") {
-		t.Fatalf("expected the revert envelope as value, got %s", decision.Value)
+	if string(decision.Value) != "{}" || decision.Revert == nil || decision.Revert.Message != "execution reverted" {
+		t.Fatalf("expected protected empty revert value and separate context, got value=%s context=%+v", decision.Value, decision.Revert)
 	}
 	callEvents := 0
 	for len(events) > 0 {

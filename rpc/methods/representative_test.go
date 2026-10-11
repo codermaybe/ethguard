@@ -36,7 +36,17 @@ func TestRepresentativeIsFirstCapturedSource(t *testing.T) {
 		policy := CallPolicy(nil, rpc.WithQuorum(2))
 		first := revertObservation(a, `"0xDEAD"`, `{"from":"a"}`)
 		second := revertObservation(b, `"0xdead"`, `{"from":"b"}`)
-		assertFirstSource(t, policy, first, second)
+		decision := resolvePair(t, policy, first, second)
+		if string(decision.Value) != `{"data":"0xDEAD"}` || decision.Revert == nil || decision.Revert.Code != 3 {
+			t.Fatalf("value/context = %s/%+v", decision.Value, decision.Revert)
+		}
+		swapped := resolvePair(t, policy, second, first)
+		if string(swapped.Value) != `{"data":"0xdead"}` || swapped.Revert == nil || swapped.Revert.Code != 3 {
+			t.Fatalf("swapped value/context = %s/%+v", swapped.Value, swapped.Revert)
+		}
+		if decision.Representative != a || swapped.Representative != b {
+			t.Fatalf("representatives = %+v/%+v", decision.Representative, swapped.Representative)
+		}
 	})
 
 	t.Run("call revert data withheld", func(t *testing.T) {

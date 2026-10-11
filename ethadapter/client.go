@@ -404,7 +404,7 @@ func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNu
 	if err != nil {
 		return nil, err
 	}
-	return decodeCallResult(decision.Value)
+	return decodeCallDecision(decision)
 }
 
 // EstimateGas returns the fleet's lower-median gas estimate for msg at the
@@ -451,7 +451,7 @@ func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]type
 // RevertError reports a fleet-corroborated execution revert of an eth_call.
 // The corroborated observation is the data-aware comparison key (missing,
 // null, empty, hex, or raw JSON). Code and Message are the winning
-// provider's own context and are not part of that key. None of the
+// provider's own context and are carried separately from Decision.Value. None of the
 // classified pipeline sentinels apply.
 type RevertError struct {
 	// Code is the JSON-RPC error code supplied by the provider. Geth uses
@@ -535,6 +535,26 @@ func decodeCallResult(raw json.RawMessage) ([]byte, error) {
 		return nil, fmt.Errorf("%w: decode call result: %v", rpc.ErrMalformedResponse, err)
 	}
 	return out, nil
+}
+
+func decodeCallDecision(decision rpc.Decision) ([]byte, error) {
+	if decision.Revert == nil {
+		return decodeCallResult(decision.Value)
+	}
+	revert := &RevertError{Code: decision.Revert.Code, Message: decision.Revert.Message}
+	var payload struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(decision.Value, &payload); err == nil && len(payload.Data) > 0 {
+		revert.DataRaw = append(json.RawMessage(nil), payload.Data...)
+		var hexData string
+		if json.Unmarshal(payload.Data, &hexData) == nil {
+			if data, err := hexutil.Decode(hexData); err == nil {
+				revert.Data = data
+			}
+		}
+	}
+	return nil, revert
 }
 
 // toCallArg mirrors go-ethereum's own client-side shape of an eth_call

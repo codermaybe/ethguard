@@ -139,9 +139,14 @@ type Decision struct {
 	// successful eth_call value is canonical DATA. An eth_call revert may
 	// apply a reductive projection (decision 0039 rule 4e, option (i)): it
 	// may delete a field that lacks corroboration, and it may not add,
-	// replace, or splice fields from another source. Revert payloads, and
-	// methods that have not migrated, keep that source value.
+	// replace, or splice fields from another source. Revert code/message are
+	// carried in RevertContext; the protected Value keeps only accepted data.
+	// Methods that have not migrated keep their source value.
 	Value json.RawMessage
+	// Revert carries provider error context for a corroborated eth_call
+	// revert. Code and Message are diagnostics, not protected result fields;
+	// the canonical Value keeps only the accepted data dimension.
+	Revert *RevertContext
 	// Extensions contains accepted non-core fields projected by an optional
 	// method semantic projector and bound to Value's core fingerprint.
 	Extensions *ExtensionSet
@@ -176,6 +181,14 @@ type Decision struct {
 	// DeletedFields lists top-level fields a reductive projection removed
 	// from Value. Nil means this resolver did not delete anything.
 	DeletedFields []string
+}
+
+// RevertContext is the source-selected context of an eth_call execution
+// revert. It is kept separate from Decision.Value because JSON-RPC error code
+// and message are provider dialect, not execution-apis result fields.
+type RevertContext struct {
+	Code    int
+	Message string
 }
 
 // DimensionEvidence is one method-declared dimension of a decision.

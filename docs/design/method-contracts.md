@@ -18,6 +18,9 @@
 - 已迁移方法（方法规则索引的 result 为 canonical）的 Value 是规范编码，不随代表源拼写变化。数量和成功 DATA 的比较键就是规范 JSON。`eth_feeHistory` 的 Value 是受保护字段的规范对象（0042）。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组（0043）。`eth_createAccessList` 的 Value 是掩码留下的 access list 字段的规范对象（0044）。`eth_getTransactionReceipt` 与 `eth_getBlockReceipts` 的 Value 是官方 schema 字段的规范对象/数组，`from` 在存在时保留并参与比较（0051）。这些方法的比较键按 0047 改为规范编码，即编码器的输出，所以键与 Value 是同一串字节。受保护字段集与 canonical 规则由 pinned schema 和 encoder coverage gate 互锁。其余 Strict 方法的 Value 仍是获胜簇里捕获顺序第一个成员的原始回答：确定性，但不是“多数负载”，也不承诺由多数派提供。Representative 仍是这一人。
 - 类型化读取（ethadapter）以 refcontext.RequireCorroborated 强制佐证，Selected 不静默替代（[ethadapter/client.go](../../ethadapter/client.go)、[aggregator/aggregator.go](../../aggregator/aggregator.go)）。
 - Corroborated 表示方法策略得到满足的 provider-backed cross-source evidence，不是 Ethereum consensus，也不是密码学结论（治理文档第 2 节）。
+- `eth_call` 的 revert 仍按 execution/data 两个内部维度裁决；0052 起，`code` 和
+  `message` 只在 `Decision.Revert` 上作为 provider context 返回，`Decision.Value`
+  只保留达到门槛的 `data` 投影。
 
 ## 0.1 已接受边界：完整区块内容保护
 

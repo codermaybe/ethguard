@@ -709,12 +709,16 @@ T07.4 与 T07.5 已关闭；本节保留每个出口的审计结果，后续工�
 
 ### T08 下一步：revert envelope 与多维比较键
 
-依赖：T07 全部完成。状态：规划中（2026-10-11）。出口：把仍依赖代表源原文的
+依赖：T07 全部完成。状态：进行中（2026-10-11；T08.1 revert context/value
+分离已完成）。出口：把仍依赖代表源原文的
 revert/错误结果和未迁移对象，按方法契约拆成可审计的多维比较键；不把错误文本、
 厂商扩展或来源原文误当成官方 Core。
 
 - 先盘点 `eth_call` revert envelope 的 code/message/data 现状，明确哪些字段属于
   Core、哪些只进 Diagnostics，以及缺失、null、空 DATA 和具体 DATA 的区别。
+- T08.1 已完成：`Decision.Revert` 承载 code/message，`Decision.Value` 只保留
+  accepted data projection；typed adapter 通过 context 恢复 `RevertError`，并由
+  replay 断言禁止 provider envelope 重新进入 Core Value。
 - 把多维键限制在方法内部的固定维度，沿用固定调用分母和动态门槛；不得新增用户
   quorum/mode 配置，不得跨来源拼接业务对象。
 - 为每个迁移方法先补官方 schema/conformance、admission、encoder、replay 和
