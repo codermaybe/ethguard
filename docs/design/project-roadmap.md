@@ -627,7 +627,9 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 
 - 升级只从官方固定 release 进入，不从 provider 反馈自动生成或提升 Core 字段。
 - 自动重建完整方法 schema 或当前支持方法的投影、字段 mask 和版本互锁；变更
-  必须显示新增、删除、类型和 required 变化。
+  必须显示新增、删除、类型和 required 变化。当前已提供
+  `cmd/specbundle`，从官方 dereferenced `openrpc.json` 按现有方法集合重建
+  pinned bundle。
 - 官方 schema 新增字段时，先进入标准 diff 和 Extension/Core 迁移检查；没有
   通过准入、请求绑定、编码和回放测试前，不自动改变生产返回值。
 - 官方 schema 删除或改变字段时，CI 阻止静默继续使用旧保护规则；需明确迁移、

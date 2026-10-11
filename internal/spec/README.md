@@ -62,6 +62,17 @@ assert len(out["results"]) == len(wanted)
 json.dump(out, open("methods.json", "w"), indent=1, sort_keys=True)
 ```
 
+仓库内的等价可重复入口会从现有 bundle 读取方法集合，避免把 provider 反馈带入
+标准边界：
+
+```bash
+go run ./cmd/specbundle \
+  -openrpc /tmp/openrpc.json \
+  -version <VERSION> \
+  -methods-from internal/spec/methods.json \
+  -out /tmp/methods.json
+```
+
 升级流程：上游发版 → 重跑上面两步 → 用
 `go run ./cmd/specdiff -before old/methods.json -after new/methods.json` 看
 方法和字段级 diff（含 type/required 变化）→ 跑
