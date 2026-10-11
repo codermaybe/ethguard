@@ -50,3 +50,16 @@ func TestMethodsFromBundleIsSorted(t *testing.T) {
 		t.Fatalf("methods = %#v", methods)
 	}
 }
+
+func TestMethodsFromListIgnoresCommentsAndRejectsDuplicates(t *testing.T) {
+	methods, err := MethodsFromList([]byte("# policy\nz\n\na\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(methods, ",") != "a,z" {
+		t.Fatalf("methods = %#v", methods)
+	}
+	if _, err := MethodsFromList([]byte("eth_x\neth_x\n")); err == nil {
+		t.Fatal("duplicate method accepted")
+	}
+}

@@ -628,8 +628,8 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 - 升级只从官方固定 release 进入，不从 provider 反馈自动生成或提升 Core 字段。
 - 自动重建完整方法 schema 或当前支持方法的投影、字段 mask 和版本互锁；变更
   必须显示新增、删除、类型和 required 变化。当前已提供
-  `cmd/specbundle`，从官方 dereferenced `openrpc.json` 按现有方法集合重建
-  pinned bundle。
+  `cmd/specbundle`，从官方 dereferenced `openrpc.json` 按
+  `internal/spec/methods.list` 重建 pinned bundle；生成物不再承担方法选择职责。
 - 官方 schema 新增字段时，先进入标准 diff 和 Extension/Core 迁移检查；没有
   通过准入、请求绑定、编码和回放测试前，不自动改变生产返回值。
 - 形态报告的 Core 路径现在从 pinned result schema 派生；本轮已把
@@ -638,9 +638,8 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 - 官方 schema 删除或改变字段时，CI 阻止静默继续使用旧保护规则；需明确迁移、
   兼容窗口和 golden 变化。
 - `internal/spec/vectors` 全部接入离线 conformance harness。官方向量验证 wire
-  形状；当前 pinned bundle 已接入 harness，暂未纳入 bundle 的
-  `eth_sendRawTransaction` 向量会作为 Uncovered 显式报告；真实 Chainlist 批次
-  验证 provider 变体；两者不互相替代。
+  形状；`eth_sendRawTransaction` 的 32 字节交易哈希 result 已纳入 pinned bundle，
+  向量不再留在 Uncovered；真实 Chainlist 批次验证 provider 变体；两者不互相替代。
 
 ### T07.5 端到端验收与默认化
 
@@ -688,11 +687,13 @@ T07.2  单一 Core/Extension 评估 seam
 T07.5 已关闭后，下一切片回到 T07.4 的剩余出口，目标是让标准升级在 CI 中可审阅、
 可阻断、可回放：
 
-1. 从官方 `execution-apis` release 重新核对 `eth_sendRawTransaction` 的 result
+1. ~~从官方 `execution-apis` release 重新核对 `eth_sendRawTransaction` 的 result
    schema，决定将其纳入 pinned bundle，或把它记录为明确的非 bundle 向量；不得用
-   provider 样本替代官方 schema。
-2. 为 `cmd/specdiff` 增加 CI gate：候选 bundle 出现方法、字段、类型或 required
-   变化而没有对应迁移记录和 conformance/replay 结果时，CI 失败。
+   provider 样本替代官方 schema。~~ 已完成：官方 schema 通过生成边界纳入
+   `methods.json`，方法选择由 `methods.list` 明确记录。
+2. ~~为 `cmd/specdiff` 增加 CI gate：候选 bundle 出现方法、字段、类型或 required
+   变化而没有对应迁移记录和 conformance/replay 结果时，CI 失败。~~ 已完成：
+   `-check -migration` 精确校验 diff 与 manifest，并要求两类验证证据。
 3. 将标准字段迁移检查扩展到所有当前生产 projector/encoder，确保官方新增字段不会
    只在 shape report 中变成 Core，却在生产 `Decision.Value` 中静默丢失。
 4. 重新运行 pinned vectors、Chainlist 离线批次和全量测试；通过后关闭 T07.4，

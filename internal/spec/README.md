@@ -8,14 +8,17 @@
 必须存在以及如何绑定请求，仍由 `rpc/methods` 中的人工方法契约决定。
 
 * `VERSION`：pin 住的标准 release（单源）。当前 `v1.0.0-beta.7`。
-* `methods.json`：22 个参考方法的**结果契约裁剪**——每个方法名映射到它在官方
+* `methods.list`：项目主动纳入标准边界的方法名清单；它只选择方法，不定义结果
+  schema。结果 schema 必须由官方 dereferenced OpenRPC 生成。
+* `methods.json`：23 个参考方法的**结果契约裁剪**——每个方法名映射到它在官方
   `openrpc.json` 中的 `result.schema` 原文（verbatim，无变换），外加顶层
   `version` 自描述。约 100KB。这里包含 `eth_getProof`，即使它目前仍是
   `UnsupportedMethod`。
 * `vectors/`：官方 `tests/*.io` 抽取的 conformance 向量（21 个方法目录）。
   `internal/spec/conformance` 会离线解析每个 request/response 对，并按 pinned
   result schema 检查 result 的类型、required、pattern、数组约束和未知字段。
-  结果 schema 尚未纳入 bundle 的官方向量会在报告的 `Uncovered` 中显式列出。
+  结果 schema 尚未纳入 bundle 的官方向量会在报告的 `Uncovered` 中显式列出；当前
+  官方向量已全部覆盖，包括 `eth_sendRawTransaction` 的 32 字节交易哈希结果。
 * `spec.go`：唯一的例外手写代码——`go:embed` 访问器（embed 必须与文件同目录，
   别无他法）。无逻辑、无判断，只暴露字节。
 
@@ -24,7 +27,7 @@
 ```text
 上游 YAML (ethereum/execution-apis @ VERSION)
    │  官方构建：tools/specgen -deref  →  openrpc.json (78 方法全消解, ~2.5MB)
-   │  verbatim 裁剪：取 22 个参考方法的 result.schema  →  methods.json (~100KB)
+   │  verbatim 裁剪：取 23 个参考方法的 result.schema  →  methods.json (~100KB)
    ▼
 go:embed 进二进制 → New() 时通用编译器建成内存 Mask Tree → 每请求 Prune 动态匹配
 ```
@@ -54,7 +57,7 @@ go -C /tmp/execapis/tools build -o /tmp/specgen ./cmd/specgen
 ```python
 import json
 doc = json.load(open('/tmp/openrpc.json'))
-wanted = [<22 个方法名，见 methods.json 的键>]
+wanted = [<methods.list 中的方法名>]
 out = {"version": "<VERSION>",
        "results": {m["name"]: m["result"]["schema"]
                    for m in doc["methods"] if m["name"] in wanted}}
@@ -62,23 +65,30 @@ assert len(out["results"]) == len(wanted)
 json.dump(out, open("methods.json", "w"), indent=1, sort_keys=True)
 ```
 
-仓库内的等价可重复入口会从现有 bundle 读取方法集合，避免把 provider 反馈带入
+仓库内的等价可重复入口从 `methods.list` 读取方法集合，避免把 provider 反馈带入
 标准边界：
 
 ```bash
 go run ./cmd/specbundle \
   -openrpc /tmp/openrpc.json \
   -version <VERSION> \
-  -methods-from internal/spec/methods.json \
+  -methods internal/spec/methods.list \
   -out /tmp/methods.json
 ```
 
+旧 bundle 也可以通过 `-methods-from` 读取方法名，但升级时应优先使用
+`methods.list`，让生成物中的 schema 变化全部来自官方 OpenRPC 输入。
+
 升级流程：上游发版 → 重跑上面两步 → 用
 `go run ./cmd/specdiff -before old/methods.json -after new/methods.json` 看
-方法和字段级 diff（含 type/required 变化）→ 跑
-`go test ./internal/spec/conformance` 和向量回放 → 逐字段定政策
-（进投票还是忽略，这是人才能做的决定）→ 按需改对象切片的手写门 →
-跑向量 + R4 + 全量测试。
+方法和字段级 diff（含 type/required 变化）→ 为每一项变化填写迁移 manifest，标记
+conformance 与 replay 已通过 → 用
+`go run ./cmd/specdiff -check -before old/methods.json -after new/methods.json \
+  -migration spec-migration.json` 作为 CI 门禁 → 跑对象切片、向量、R4 与全量测试。
+
+`-check` 要求 manifest 精确列出每个新增、删除或字段变化的 method/path/kind，且
+同时提供 `conformancePassed` 和 `replayPassed`。因此候选 bundle 不能只更新标准数据，
+必须留下可审计的迁移记录和验证证据。
 
 ## 审计指引
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // BundleDiff is a review-oriented comparison of two methods.json bundles.
@@ -35,6 +36,90 @@ type SchemaChange struct {
 	AfterRequired  bool
 	Before         string
 	After          string
+}
+
+// MigrationManifest is the review record required for a schema upgrade.
+// Changes must enumerate the complete BundleDiff, while both checks document
+// that the candidate passed the offline vectors and the provider replay suite.
+type MigrationManifest struct {
+	BeforeVersion     string           `json:"beforeVersion"`
+	AfterVersion      string           `json:"afterVersion"`
+	Changes           []MigrationEntry `json:"changes"`
+	ConformancePassed bool             `json:"conformancePassed"`
+	ReplayPassed      bool             `json:"replayPassed"`
+}
+
+// MigrationEntry identifies one method or field-level change from a diff.
+// Method additions and removals use path "$" and kinds "method-added" and
+// "method-removed" respectively.
+type MigrationEntry struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+}
+
+// ValidateMigration checks that a schema diff has an exact migration record
+// and evidence from both conformance and replay. An unchanged bundle needs no
+// manifest, but a non-empty diff cannot pass with a partial record.
+func ValidateMigration(diff BundleDiff, manifestJSON []byte) error {
+	if len(diff.Methods) == 0 {
+		return nil
+	}
+	if len(manifestJSON) == 0 {
+		return fmt.Errorf("schema changes require a migration manifest")
+	}
+	var manifest MigrationManifest
+	if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
+		return fmt.Errorf("migration manifest: %w", err)
+	}
+	if manifest.BeforeVersion != diff.BeforeVersion || manifest.AfterVersion != diff.AfterVersion {
+		return fmt.Errorf("migration versions %q -> %q do not match diff %q -> %q", manifest.BeforeVersion, manifest.AfterVersion, diff.BeforeVersion, diff.AfterVersion)
+	}
+	if !manifest.ConformancePassed {
+		return fmt.Errorf("migration manifest must set conformancePassed=true")
+	}
+	if !manifest.ReplayPassed {
+		return fmt.Errorf("migration manifest must set replayPassed=true")
+	}
+	expected := make(map[string]bool)
+	for _, method := range diff.Methods {
+		switch {
+		case method.Added:
+			expected[migrationKey(method.Method, "$", "method-added")] = true
+		case method.Removed:
+			expected[migrationKey(method.Method, "$", "method-removed")] = true
+		default:
+			for _, change := range method.Changed {
+				expected[migrationKey(method.Method, change.Path, change.Kind)] = true
+			}
+		}
+	}
+	seen := make(map[string]bool, len(manifest.Changes))
+	for _, change := range manifest.Changes {
+		key := migrationKey(change.Method, change.Path, change.Kind)
+		if !expected[key] {
+			return fmt.Errorf("migration manifest contains unexpected change %q", key)
+		}
+		if seen[key] {
+			return fmt.Errorf("migration manifest contains duplicate change %q", key)
+		}
+		seen[key] = true
+	}
+	if len(seen) != len(expected) {
+		missing := make([]string, 0, len(expected)-len(seen))
+		for key := range expected {
+			if !seen[key] {
+				missing = append(missing, key)
+			}
+		}
+		sort.Strings(missing)
+		return fmt.Errorf("migration manifest is missing changes: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func migrationKey(method, path, kind string) string {
+	return method + "\x00" + path + "\x00" + kind
 }
 
 // DiffBundles compares two methods.json-shaped documents. It is intended for

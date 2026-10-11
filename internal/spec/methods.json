@@ -3308,6 +3308,11 @@
    "title": "Max priority fee per gas",
    "type": "string"
   },
+  "eth_sendRawTransaction": {
+   "pattern": "^0x[0-9a-f]{64}$",
+   "title": "32 byte hex value",
+   "type": "string"
+  },
   "eth_syncing": {
    "oneOf": [
     {

@@ -19,7 +19,7 @@ func TestEmbeddedExecutionAPIVectors(t *testing.T) {
 	if report.BundleVersion != spec.Version() {
 		t.Fatalf("bundle version %q, want %q", report.BundleVersion, spec.Version())
 	}
-	if len(report.Uncovered) != 1 || report.Uncovered[0] != "eth_sendRawTransaction" {
+	if len(report.Uncovered) != 0 {
 		t.Fatalf("unexpected uncovered official vector methods: %#v", report.Uncovered)
 	}
 }
@@ -84,5 +84,36 @@ func TestDiffBundlesReportsMethodAndFieldChanges(t *testing.T) {
 	}
 	if diff.Methods[1].Method != "eth_y" || !diff.Methods[1].Added {
 		t.Fatalf("unexpected eth_y change: %#v", diff.Methods[1])
+	}
+}
+
+func TestValidateMigrationRequiresExactChangesAndEvidence(t *testing.T) {
+	before := []byte(`{"version":"old","results":{"eth_x":{"type":"string"}}}`)
+	after := []byte(`{"version":"new","results":{"eth_x":{"type":"number"},"eth_y":{"type":"string"}}}`)
+	diff, err := DiffBundles(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing := []byte(`{"beforeVersion":"old","afterVersion":"new","conformancePassed":true,"replayPassed":true,"changes":[]}`)
+	if err := ValidateMigration(diff, missing); err == nil || !strings.Contains(err.Error(), "missing changes") {
+		t.Fatalf("missing migration entries accepted: %v", err)
+	}
+	complete := []byte(`{"beforeVersion":"old","afterVersion":"new","conformancePassed":true,"replayPassed":true,"changes":[{"method":"eth_x","path":"$","kind":"changed"},{"method":"eth_y","path":"$","kind":"method-added"}]}`)
+	if err := ValidateMigration(diff, complete); err != nil {
+		t.Fatalf("complete migration rejected: %v", err)
+	}
+}
+
+func TestValidateMigrationRejectsMissingReplayEvidence(t *testing.T) {
+	diff, err := DiffBundles(
+		[]byte(`{"version":"old","results":{"eth_x":{"type":"string"}}}`),
+		[]byte(`{"version":"new","results":{"eth_x":{"type":"number"}}}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := []byte(`{"beforeVersion":"old","afterVersion":"new","conformancePassed":true,"changes":[{"method":"eth_x","path":"$","kind":"changed"}]}`)
+	if err := ValidateMigration(diff, manifest); err == nil || !strings.Contains(err.Error(), "replayPassed") {
+		t.Fatalf("missing replay evidence accepted: %v", err)
 	}
 }

@@ -13,10 +13,11 @@ import (
 func main() {
 	openRPCPath := flag.String("openrpc", "", "dereferenced official openrpc.json (required)")
 	version := flag.String("version", "", "official release tag (required)")
-	methodsPath := flag.String("methods-from", "", "existing methods.json whose method set is preserved (required)")
+	methodsPath := flag.String("methods-from", "", "existing methods.json whose method set is preserved")
+	methodsListPath := flag.String("methods", "", "newline-delimited project method policy (alternative to -methods-from)")
 	outPath := flag.String("out", "", "output methods.json (required)")
 	flag.Parse()
-	if *openRPCPath == "" || *version == "" || *methodsPath == "" || *outPath == "" {
+	if *openRPCPath == "" || *version == "" || *outPath == "" || (*methodsPath == "" && *methodsListPath == "") || (*methodsPath != "" && *methodsListPath != "") {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -24,13 +25,25 @@ func main() {
 	if err != nil {
 		fail("read openrpc: %v", err)
 	}
-	base, err := os.ReadFile(*methodsPath)
-	if err != nil {
-		fail("read methods bundle: %v", err)
-	}
-	methods, err := builder.MethodsFromBundle(base)
-	if err != nil {
-		fail("read method set: %v", err)
+	var methods []string
+	if *methodsListPath != "" {
+		list, err := os.ReadFile(*methodsListPath)
+		if err != nil {
+			fail("read method list: %v", err)
+		}
+		methods, err = builder.MethodsFromList(list)
+		if err != nil {
+			fail("read method list: %v", err)
+		}
+	} else {
+		base, err := os.ReadFile(*methodsPath)
+		if err != nil {
+			fail("read methods bundle: %v", err)
+		}
+		methods, err = builder.MethodsFromBundle(base)
+		if err != nil {
+			fail("read method set: %v", err)
+		}
 	}
 	bundle, err := builder.Build(openRPC, *version, methods)
 	if err != nil {

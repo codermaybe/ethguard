@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Build selects result schemas from a dereferenced OpenRPC document. Methods
@@ -82,6 +83,33 @@ func MethodsFromBundle(bundleJSON []byte) ([]string, error) {
 	}
 	methods := make([]string, 0, len(bundle.Results))
 	for name := range bundle.Results {
+		methods = append(methods, name)
+	}
+	sort.Strings(methods)
+	return methods, nil
+}
+
+// MethodsFromList returns a sorted method set from a newline-delimited policy
+// file. Blank lines and lines beginning with # are ignored. The list is the
+// project's explicit standard boundary; result schemas still come only from
+// the official OpenRPC input passed to Build.
+func MethodsFromList(raw []byte) ([]string, error) {
+	seen := make(map[string]bool)
+	for _, line := range strings.Split(string(raw), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" || strings.HasPrefix(name, "#") {
+			continue
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("duplicate method %q", name)
+		}
+		seen[name] = true
+	}
+	if len(seen) == 0 {
+		return nil, errors.New("method list is empty")
+	}
+	methods := make([]string, 0, len(seen))
+	for name := range seen {
 		methods = append(methods, name)
 	}
 	sort.Strings(methods)

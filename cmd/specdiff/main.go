@@ -13,6 +13,8 @@ import (
 func main() {
 	beforePath := flag.String("before", "", "previous methods.json (required)")
 	afterPath := flag.String("after", "", "candidate methods.json (required)")
+	check := flag.Bool("check", false, "fail unless schema changes have an exact migration manifest and both verification checks")
+	migrationPath := flag.String("migration", "", "migration manifest used by -check")
 	flag.Parse()
 	if *beforePath == "" || *afterPath == "" {
 		flag.Usage()
@@ -30,10 +32,28 @@ func main() {
 	if err != nil {
 		fail("diff: %v", err)
 	}
+	if *check {
+		var manifest []byte
+		if *migrationPath != "" {
+			manifest, err = os.ReadFile(*migrationPath)
+			if err != nil {
+				fail("read migration: %v", err)
+			}
+		}
+		if err := conformance.ValidateMigration(diff, manifest); err != nil {
+			fail("migration gate: %v", err)
+		}
+	}
 	fmt.Printf("# execution-apis result schema diff\n\n- before: %s\n- after: %s\n", diff.BeforeVersion, diff.AfterVersion)
 	if len(diff.Methods) == 0 {
 		fmt.Println("\n- no result schema changes")
+		if *check {
+			fmt.Println("- migration gate: passed")
+		}
 		return
+	}
+	if *check {
+		fmt.Println("\n- migration gate: passed")
 	}
 	for _, method := range diff.Methods {
 		switch {
