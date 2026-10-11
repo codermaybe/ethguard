@@ -1,0 +1,26 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-26T04:41:14.647509112Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s1",
+    "endpoint": "https://0xrpc.io"
+  },
+  "request_id": "net_peerCount",
+  "method": "net_peerCount",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"net_peerCount\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json; charset=utf-8",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":8,\"error\":{\"code\":-32601,\"message\":\"Request contains unsupported method\"}}"
+  },
+  "errors": [
+    {
+      "kind": "jsonrpc",
+      "message": "response contains a JSON-RPC error"
+    }
+  ]
+}

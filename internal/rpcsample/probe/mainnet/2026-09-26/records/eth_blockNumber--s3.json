@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-26T04:41:13.988218924Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s3",
+    "endpoint": "https://api.zan.top"
+  },
+  "request_id": "eth_blockNumber",
+  "method": "eth_blockNumber",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"eth_blockNumber\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"result\":\"0x18da227\",\"id\":6,\"jsonrpc\":\"2.0\"}"
+  }
+}

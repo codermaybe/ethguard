@@ -1,0 +1,30 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-26T04:41:15.072133957Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s3",
+    "endpoint": "https://api.zan.top"
+  },
+  "request_id": "net_peerCount",
+  "method": "net_peerCount",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"net_peerCount\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"timestamp\":\"2026-09-26T04:41:16.585542231Z\",\"status\":200,\"error\":\"method error; invalid method: net_peerCount\",\"path\":\"/[REDACTED]\",\"trace_id\":\"1a0dc047c2673a01\"}"
+  },
+  "errors": [
+    {
+      "kind": "protocol",
+      "message": "missing or unsupported jsonrpc version"
+    },
+    {
+      "kind": "jsonrpc",
+      "message": "response contains a JSON-RPC error"
+    }
+  ]
+}

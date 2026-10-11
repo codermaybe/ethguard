@@ -603,8 +603,8 @@ Evaluation {
 ### T07.3 Chainlist 多 RPC 形态探查
 
 依赖：T07.0、T07.2；允许复用当前 `internal/chainlist`、`internal/shapeprobe`
-和 `cmd/shapeprobe`。状态：未开始。出口：可重复生成脱敏的 provider-shape
-批次和 Core/Extension 差异报告，但不直接修改生产策略或标准数据。
+和 `cmd/shapeprobe`。状态：已完成（2026-10-11）。出口：可重复生成脱敏的
+provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产策略或标准数据。
 
 - 从 Chainlist 发现候选端点，去重并做 `chainId`、`eth_blockNumber` 等最小预检；
   Chainlist 只提供发现来源，不提供独立性、信誉或共识成员资格。
@@ -613,7 +613,8 @@ Evaluation {
   observation time、spec version 和原始字节 hash。
 - 采集结果先走统一 JSON 安全检查、Execution API Core schema 投影和现有方法
   normalizer，再把未知字段分流到 Extension；不把探查结果直接写成 quorum golden。
-- 报告 Core 字段的规范化成功/失败、核心分歧、扩展字段支持比例、值分歧和
+- 报告现在复用统一 `Evaluation` seam：按固定调用分母输出 Core、达到门槛的
+  Extension、residual/conflict，以及现有 normalizer 的成功/失败、值分歧和
   transport/provider fault。报告是观察和回归输入，不替代方法契约。
 - 对同一锚点的重复采样必须可重放；外部网络采集和离线 replay 分开，CI 只消费
   已脱敏、带 hash 的批次。

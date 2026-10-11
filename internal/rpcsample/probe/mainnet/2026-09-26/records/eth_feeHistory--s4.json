@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-09-26T04:41:16.213217084Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s4",
+    "endpoint": "https://eth-mainnet.nodereal.io"
+  },
+  "request_id": "eth_feeHistory",
+  "method": "eth_feeHistory",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"eth_feeHistory\",\"params\":[2,\"0x18da226\",[25,50,75]]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json; charset=utf-8",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"oldestBlock\":\"0x18da225\",\"reward\":[[\"0x2dc6c0\",\"0x4b3cfee\",\"0x1aa25a15\"],[\"0x3a04\",\"0x989680\",\"0x50d3b33\"]],\"baseFeePerGas\":[\"0x3a9122a\",\"0x36f081c\",\"0x3714cfa\"],\"gasUsedRatio\":[0.25225231666666664,0.5103251],\"baseFeePerBlobGas\":[\"0x367848\",\"0x367848\",\"0x399cb9\"],\"blobGasUsedRatio\":[0,0.7142857142857143]}}"
+  }
+}
