@@ -525,7 +525,7 @@ pending 和 provider fault。任何只在 Policy 层成立、或靠替换为单�
 
 ## T07：标准驱动的自动兼容闭环（下一阶段主线）
 
-状态：规划中。T07 是返回值框架之后的下一项主线工作；它把官方
+状态：进行中（T07.0–T07.3、T07.5 已完成；T07.4 收口中）。T07 是返回值框架之后的下一项主线工作；它把官方
 `execution-apis`、现有多源聚合器和真实 RPC 形态探查接成一个长期可运行的
 兼容性闭环。目标不是让使用方配置 quorum、拜占庭模型或字段策略，而是由
 客户端在每次调用中根据固定来源集合动态计算接受门槛，并向下层隐藏多源细节。
@@ -644,7 +644,7 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 
 ### T07.5 端到端验收与默认化
 
-依赖：T07.1–T07.4。状态：进行中（2026-10-11，统一 seam 的端到端验收已开始）。
+依赖：T07.1–T07.4。状态：已完成（2026-10-11；全量 `go test ./...` 已在目标环境通过）。
 出口：普通调用者无需配置多源共识参数，且
 完整生产路径的 Core/Extension 行为可由批次重放和进程内 RPC 复现。
 
@@ -654,7 +654,7 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
   扩展值低于门槛、扩展值分歧、标准版本升级和未知字段注入。
 - 未知字段不制造 Core 冲突；核心字段不满足门槛时返回既有 Unknown/Conflict，
   不降低门槛、不缩小分母、不改走代表源。
-- 当前集成验收已覆盖默认动态 majority 的少数分歧、低支持 Extension 进入
+- 集成验收覆盖默认动态 majority 的少数分歧、低支持 Extension 进入
   Diagnostics、达到门槛 Extension 进入 Decision.Extensions，以及 typed adapter
   只返回单一业务值的边界；测试不再依赖调用者设置 unanimity/quorum 模式。
 - typed/ethclient 表面只看到单一结果或错误；来源比例、字段路径和原始响应只
@@ -680,8 +680,23 @@ T07.2  单一 Core/Extension 评估 seam
         +--> T07.4  官方 execution-apis 升级与 conformance 闭环
                        |
                        v
-                 T07.5  默认化与端到端验收
+                 T07.5  默认化与端到端验收（已完成）
 ```
+
+### T07 下一步：收口 T07.4 官方标准升级闭环
+
+T07.5 已关闭后，下一切片回到 T07.4 的剩余出口，目标是让标准升级在 CI 中可审阅、
+可阻断、可回放：
+
+1. 从官方 `execution-apis` release 重新核对 `eth_sendRawTransaction` 的 result
+   schema，决定将其纳入 pinned bundle，或把它记录为明确的非 bundle 向量；不得用
+   provider 样本替代官方 schema。
+2. 为 `cmd/specdiff` 增加 CI gate：候选 bundle 出现方法、字段、类型或 required
+   变化而没有对应迁移记录和 conformance/replay 结果时，CI 失败。
+3. 将标准字段迁移检查扩展到所有当前生产 projector/encoder，确保官方新增字段不会
+   只在 shape report 中变成 Core，却在生产 `Decision.Value` 中静默丢失。
+4. 重新运行 pinned vectors、Chainlist 离线批次和全量测试；通过后关闭 T07.4，
+   再进入 T08 的 revert envelope 与多维比较键工作。
 
 ## 排后：未捕获读方法的捕获批次
 
