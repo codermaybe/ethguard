@@ -27,6 +27,26 @@ func TestNormalizeFeeHistoryChecksArrayRelationships(t *testing.T) {
 	}
 }
 
+func TestNormalizeFeeHistoryPreservesOfficialBlobFields(t *testing.T) {
+	value := []byte(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5],"baseFeePerBlobGas":["0x0","0x2"],"blobGasUsedRatio":[0.25]}`)
+	got, err := normalizeFeeHistory(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"oldestBlock":"1","baseFeePerGas":["1","2"],"gasUsedRatio":[0.5],"baseFeePerBlobGas":["0","2"],"blobGasUsedRatio":[0.25]}`
+	if got != want {
+		t.Fatalf("normalized = %s, want %s", got, want)
+	}
+	for _, invalid := range []string{
+		`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5],"baseFeePerBlobGas":["0x0"],"blobGasUsedRatio":[0.25]}`,
+		`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5],"baseFeePerBlobGas":["0x0","0x2"],"blobGasUsedRatio":[0.25,0.5]}`,
+	} {
+		if _, err := normalizeFeeHistory([]byte(invalid)); err == nil {
+			t.Fatalf("invalid blob field lengths accepted: %s", invalid)
+		}
+	}
+}
+
 func TestNormalizeFeeHistoryRejectsInconsistentRewards(t *testing.T) {
 	bad := []byte(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2","0x3"],"gasUsedRatio":[0.1,0.2],"reward":[["0x1"],["0x1","0x2"]]}`)
 	if _, err := normalizeFeeHistory(bad); err == nil {

@@ -19,14 +19,22 @@ func ValidateRange(req rpc.Request, value json.RawMessage) error {
 		return fmt.Errorf("invalid block count")
 	}
 	var response struct {
-		Oldest json.RawMessage   `json:"oldestBlock"`
-		Gas    []json.RawMessage `json:"gasUsedRatio"`
+		Oldest       json.RawMessage   `json:"oldestBlock"`
+		BaseBlob     []json.RawMessage `json:"baseFeePerBlobGas"`
+		Gas          []json.RawMessage `json:"gasUsedRatio"`
+		BlobGasRatio []json.RawMessage `json:"blobGasUsedRatio"`
 	}
 	if err := json.Unmarshal(value, &response); err != nil {
 		return fmt.Errorf("malformed response")
 	}
 	if uint64(len(response.Gas)) != count {
 		return fmt.Errorf("gasUsedRatio length %d does not match requested block count %d", len(response.Gas), count)
+	}
+	if response.BaseBlob != nil && len(response.BaseBlob) != len(response.Gas)+1 {
+		return fmt.Errorf("baseFeePerBlobGas length %d does not match gasUsedRatio length %d", len(response.BaseBlob), len(response.Gas))
+	}
+	if response.BlobGasRatio != nil && len(response.BlobGasRatio) != len(response.Gas) {
+		return fmt.Errorf("blobGasUsedRatio length %d does not match gasUsedRatio length %d", len(response.BlobGasRatio), len(response.Gas))
 	}
 	if _, err := wire.NormalizeWireQuantity(response.Oldest); err != nil {
 		return fmt.Errorf("oldestBlock: %w", err)
@@ -41,10 +49,12 @@ func Normalize(value json.RawMessage) (string, error) {
 		return "", fmt.Errorf("feeHistory: expected an object")
 	}
 	var raw struct {
-		Oldest json.RawMessage     `json:"oldestBlock"`
-		Base   []json.RawMessage   `json:"baseFeePerGas"`
-		Gas    []json.RawMessage   `json:"gasUsedRatio"`
-		Reward [][]json.RawMessage `json:"reward"`
+		Oldest       json.RawMessage     `json:"oldestBlock"`
+		Base         []json.RawMessage   `json:"baseFeePerGas"`
+		Gas          []json.RawMessage   `json:"gasUsedRatio"`
+		Reward       [][]json.RawMessage `json:"reward"`
+		BaseBlob     []json.RawMessage   `json:"baseFeePerBlobGas"`
+		BlobGasRatio []json.RawMessage   `json:"blobGasUsedRatio"`
 	}
 	if err := json.Unmarshal(value, &raw); err != nil || len(raw.Oldest) == 0 {
 		return "", fmt.Errorf("feeHistory: malformed response")
@@ -53,11 +63,24 @@ func Normalize(value json.RawMessage) (string, error) {
 	if err != nil || len(raw.Base) != len(raw.Gas)+1 {
 		return "", fmt.Errorf("feeHistory: baseFeePerGas must have gasUsedRatio length plus one")
 	}
+	if raw.BaseBlob != nil && len(raw.BaseBlob) != len(raw.Gas)+1 {
+		return "", fmt.Errorf("feeHistory: baseFeePerBlobGas must have gasUsedRatio length plus one")
+	}
+	if raw.BlobGasRatio != nil && len(raw.BlobGasRatio) != len(raw.Gas) {
+		return "", fmt.Errorf("feeHistory: blobGasUsedRatio must have gasUsedRatio length")
+	}
 	base := make([]string, len(raw.Base))
 	for i, item := range raw.Base {
 		base[i], err = wire.NormalizeWireQuantity(item)
 		if err != nil {
 			return "", fmt.Errorf("feeHistory: baseFeePerGas[%d]: %w", i, err)
+		}
+	}
+	baseBlob := make([]string, len(raw.BaseBlob))
+	for i, item := range raw.BaseBlob {
+		baseBlob[i], err = wire.NormalizeWireQuantity(item)
+		if err != nil {
+			return "", fmt.Errorf("feeHistory: baseFeePerBlobGas[%d]: %w", i, err)
 		}
 	}
 	gas := make([]json.Number, len(raw.Gas))
@@ -67,6 +90,14 @@ func Normalize(value json.RawMessage) (string, error) {
 			return "", fmt.Errorf("feeHistory: gasUsedRatio[%d]: %w", i, err)
 		}
 		gas[i] = ratio
+	}
+	blobGasRatio := make([]json.Number, len(raw.BlobGasRatio))
+	for i, item := range raw.BlobGasRatio {
+		ratio, ratioErr := canonicalRatio(item)
+		if ratioErr != nil {
+			return "", fmt.Errorf("feeHistory: blobGasUsedRatio[%d]: %w", i, ratioErr)
+		}
+		blobGasRatio[i] = ratio
 	}
 	if raw.Reward != nil && len(raw.Reward) != len(raw.Gas) {
 		return "", fmt.Errorf("feeHistory: reward must have gasUsedRatio length")
@@ -88,11 +119,13 @@ func Normalize(value json.RawMessage) (string, error) {
 		}
 	}
 	projection := struct {
-		Oldest string        `json:"oldestBlock"`
-		Base   []string      `json:"baseFeePerGas"`
-		Gas    []json.Number `json:"gasUsedRatio"`
-		Reward [][]string    `json:"reward,omitempty"`
-	}{oldest, base, gas, reward}
+		Oldest       string        `json:"oldestBlock"`
+		Base         []string      `json:"baseFeePerGas"`
+		Gas          []json.Number `json:"gasUsedRatio"`
+		Reward       [][]string    `json:"reward,omitempty"`
+		BaseBlob     []string      `json:"baseFeePerBlobGas,omitempty"`
+		BlobGasRatio []json.Number `json:"blobGasUsedRatio,omitempty"`
+	}{oldest, base, gas, reward, baseBlob, blobGasRatio}
 	encoded, err := json.Marshal(projection)
 	return string(encoded), err
 }

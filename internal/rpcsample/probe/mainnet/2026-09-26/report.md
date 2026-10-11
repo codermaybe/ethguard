@@ -188,15 +188,20 @@
 - 没有 JSON-RPC result: 无
 - 现有归一化未接受: 无
 - 端点观察:
-  - s1 sha256=3f7cddce71976a3633380f1b482a3f2f59fa81ab4116befb86e4f17acbb11e48 endpoint=https://0xrpc.io observed_at=2026-09-26T04:41:15.730515496Z 比较键=`{"oldestBlock":"26059301","baseFeePerGas":["61411882","57608220","57756922"],"ga…(len 202)`
-  - s2 sha256=7f6634e4f54921363acc79d986aebfa54fe0e53a8454489343f4f68aa531ae99 endpoint=https://1.rpc.thirdweb.com observed_at=2026-09-26T04:41:15.937161132Z 比较键=`{"oldestBlock":"26059301","baseFeePerGas":["61411882","57608220","57756922"],"ga…(len 202)`
-  - s3 sha256=052e98122d52ecb6a89db544f7b78f9dd30dc20f1cffd800eaebb9f9d97f811c endpoint=https://api.zan.top observed_at=2026-09-26T04:41:16.159802978Z 比较键=`{"oldestBlock":"26059301","baseFeePerGas":["61411882","57608220","57756922"],"ga…(len 202)`
-  - s4 sha256=689f7572f25f64a44985d600c9c57309a9129ea8144b8be57ec98dd2b9728717 endpoint=https://eth-mainnet.nodereal.io observed_at=2026-09-26T04:41:16.213217084Z 比较键=`{"oldestBlock":"26059301","baseFeePerGas":["61411882","57608220","57756922"],"ga…(len 202)`
-- 字段分类（按原始 JSON 叶值、固定调用门槛）: Core=12 Extension=5 residual=0 conflict=0
+  - s1 sha256=3f7cddce71976a3633380f1b482a3f2f59fa81ab4116befb86e4f17acbb11e48 endpoint=https://0xrpc.io observed_at=2026-09-26T04:41:15.730515496Z 比较键=`{"oldestBlock":"26059301","baseFeePerGas":["61411882","57608220","57756922"],"ga…(len 296)`
+  - s2 sha256=7f6634e4f54921363acc79d986aebfa54fe0e53a8454489343f4f68aa531ae99 endpoint=https://1.rpc.thirdweb.com observed_at=2026-09-26T04:41:15.937161132Z 比较键=`{"oldestBlock":"26059301","baseFeePerGas":["61411882","57608220","57756922"],"ga…(len 296)`
+  - s3 sha256=052e98122d52ecb6a89db544f7b78f9dd30dc20f1cffd800eaebb9f9d97f811c endpoint=https://api.zan.top observed_at=2026-09-26T04:41:16.159802978Z 比较键=`{"oldestBlock":"26059301","baseFeePerGas":["61411882","57608220","57756922"],"ga…(len 296)`
+  - s4 sha256=689f7572f25f64a44985d600c9c57309a9129ea8144b8be57ec98dd2b9728717 endpoint=https://eth-mainnet.nodereal.io observed_at=2026-09-26T04:41:16.213217084Z 比较键=`{"oldestBlock":"26059301","baseFeePerGas":["61411882","57608220","57756922"],"ga…(len 296)`
+- 字段分类（按原始 JSON 叶值、固定调用门槛）: Core=17 Extension=0 residual=0 conflict=0
   - Core:
+    - `/baseFeePerBlobGas/0` sources=s1,s2,s3,s4 value="0x367848"
+    - `/baseFeePerBlobGas/1` sources=s1,s2,s3,s4 value="0x367848"
+    - `/baseFeePerBlobGas/2` sources=s1,s2,s3,s4 value="0x399cb9"
     - `/baseFeePerGas/0` sources=s1,s2,s3,s4 value="0x3a9122a"
     - `/baseFeePerGas/1` sources=s1,s2,s3,s4 value="0x36f081c"
     - `/baseFeePerGas/2` sources=s1,s2,s3,s4 value="0x3714cfa"
+    - `/blobGasUsedRatio/0` sources=s1,s2,s3,s4 value=0
+    - `/blobGasUsedRatio/1` sources=s1,s2,s3,s4 value=0.7142857142857143
     - `/gasUsedRatio/0` sources=s1,s2,s3,s4 value=0.25225231666666664
     - `/gasUsedRatio/1` sources=s1,s2,s3,s4 value=0.5103251
     - `/oldestBlock` sources=s1,s2,s3,s4 value="0x18da225"
@@ -206,12 +211,6 @@
     - `/reward/1/0` sources=s1,s2,s3,s4 value="0x3a04"
     - `/reward/1/1` sources=s1,s2,s3,s4 value="0x989680"
     - `/reward/1/2` sources=s1,s2,s3,s4 value="0x50d3b33"
-  - Extension:
-    - `/baseFeePerBlobGas/0` sources=s1,s2,s3,s4 value="0x367848"
-    - `/baseFeePerBlobGas/1` sources=s1,s2,s3,s4 value="0x367848"
-    - `/baseFeePerBlobGas/2` sources=s1,s2,s3,s4 value="0x399cb9"
-    - `/blobGasUsedRatio/0` sources=s1,s2,s3,s4 value=0
-    - `/blobGasUsedRatio/1` sources=s1,s2,s3,s4 value=0.7142857142857143
 - 字段差异:
   - 无
 

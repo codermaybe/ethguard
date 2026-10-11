@@ -225,6 +225,8 @@ var feeHistoryStandardFields = []StandardField{
 	{Path: "/baseFeePerGas/*", Required: true},
 	{Path: "/gasUsedRatio/*", Required: true},
 	{Path: "/reward/*/*", Required: false},
+	{Path: "/baseFeePerBlobGas/*", Required: false},
+	{Path: "/blobGasUsedRatio/*", Required: false},
 }
 
 // FeeHistoryStandardFields describes the stable object and array members of

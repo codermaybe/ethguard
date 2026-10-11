@@ -44,6 +44,9 @@ func ClassifyFields(method string, samples []FieldSample) (FieldClassification, 
 }
 
 func standardFields(method string) []projection.StandardField {
+	if fields, err := projection.ExecutionAPIStandardFields(method); err == nil {
+		return fields
+	}
 	switch method {
 	case methods.MethodFeeHistory:
 		return projection.FeeHistoryStandardFields()
