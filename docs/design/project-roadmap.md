@@ -644,7 +644,8 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
 
 ### T07.5 端到端验收与默认化
 
-依赖：T07.1–T07.4。状态：未开始。出口：普通调用者无需配置多源共识参数，且
+依赖：T07.1–T07.4。状态：进行中（2026-10-11，统一 seam 的端到端验收已开始）。
+出口：普通调用者无需配置多源共识参数，且
 完整生产路径的 Core/Extension 行为可由批次重放和进程内 RPC 复现。
 
 - Policy、Aggregator、typed projection 和 adapter 都必须走同一套 Core 评估结果；
@@ -653,6 +654,9 @@ provider-shape 批次和 Core/Extension 差异报告，但不直接修改生产�
   扩展值低于门槛、扩展值分歧、标准版本升级和未知字段注入。
 - 未知字段不制造 Core 冲突；核心字段不满足门槛时返回既有 Unknown/Conflict，
   不降低门槛、不缩小分母、不改走代表源。
+- 当前集成验收已覆盖默认动态 majority 的少数分歧、低支持 Extension 进入
+  Diagnostics、达到门槛 Extension 进入 Decision.Extensions，以及 typed adapter
+  只返回单一业务值的边界；测试不再依赖调用者设置 unanimity/quorum 模式。
 - typed/ethclient 表面只看到单一结果或错误；来源比例、字段路径和原始响应只
   在显式诊断路径可见。
 - 验收材料包括离线 replay、进程内端到端测试、schema diff、扩展字段报告和

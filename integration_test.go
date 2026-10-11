@@ -150,6 +150,9 @@ func TestClientMajorityToleratesMinorityDissentOnChainID(t *testing.T) {
 	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 {
 		t.Fatalf("expected corroborated 2-source majority with one reject, got %+v", decision)
 	}
+	if decision.Diagnostics == nil || len(decision.Diagnostics.Residuals) != 1 {
+		t.Fatalf("expected one residual field diagnostic, got %+v", decision.Diagnostics)
+	}
 	if string(decision.Value) != `"0x1"` {
 		t.Fatalf("expected majority value in evidence, got %s", decision.Value)
 	}
@@ -402,19 +405,6 @@ func TestClientClassifiesFailuresThroughPublicSentinels(t *testing.T) {
 		_, err := client.Call(ctx, methods.MethodGetBlockByHash, common.Hash{}.Hex(), false)
 		if !errors.Is(err, ethguard.ErrNoValidResponse) {
 			t.Fatalf("expected ErrNoValidResponse, got %v", err)
-		}
-	})
-
-	t.Run("dissent under unanimity is conflict", func(t *testing.T) {
-		// The default majority tolerates minority dissent; the explicit
-		// unanimity mode rejects it (decision 0029).
-		client, nodes := fleet(t, 1, 0, 3)
-		nodes[2].Return("eth_chainId", "0x2")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("expected ErrConflict, got %v", err)
 		}
 	})
 
@@ -877,8 +867,9 @@ func TestGasPriceIsSelectedWithOutlierEvidence(t *testing.T) {
 }
 
 // TestGasPriceUnanimousStaysSelected proves the honesty ceiling through the
-// public API: unanimity on a moving value must not upgrade the class.
-func TestGasPriceUnanimousStaysSelected(t *testing.T) {
+// The moving gas-price method stays Selected even when all sources agree;
+// source agreement does not turn a local estimate into a corroborated fact.
+func TestGasPriceAgreementStaysSelected(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	for _, node := range nodes {
 		node.Return("eth_gasPrice", "0x3b9aca00")
@@ -1076,6 +1067,39 @@ func TestClientAttachesReceiptExtensionsToDecision(t *testing.T) {
 	}
 }
 
+func TestClientWithholdsBelowThresholdReceiptExtension(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 3)
+	txHash := "0x" + strings.Repeat("44", 32)
+	object := receiptFixture(txHash)
+	object["l1Fee"] = "0x10"
+	for i, node := range nodes {
+		if i == 0 {
+			node.Return(methods.MethodGetTransactionReceipt, object)
+			continue
+		}
+		node.Return(methods.MethodGetTransactionReceipt, receiptFixture(txHash))
+	}
+	decision, err := client.Call(context.Background(), methods.MethodGetTransactionReceipt, txHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Extensions == nil || len(decision.Extensions.Fields) != 0 {
+		t.Fatalf("below-threshold extension was accepted: %#v", decision.Extensions)
+	}
+	if decision.Diagnostics == nil || !hasDiagnosticPath(decision.Diagnostics.Residuals, "/l1Fee") {
+		t.Fatalf("below-threshold extension was not retained in diagnostics: %#v", decision.Diagnostics)
+	}
+}
+
+func hasDiagnosticPath(fields []rpc.FieldObservation, path string) bool {
+	for _, field := range fields {
+		if field.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
 func TestClientRejectsReceiptThatDoesNotMatchRequestedTransaction(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	returnedHash := "0x" + strings.Repeat("42", 32)
@@ -1135,9 +1159,9 @@ func TestClientResolvesReceiptPresenceSplitByMajority(t *testing.T) {
 	}
 }
 
-// TestClientFailsClosedOnPresenceSplitUnderUnanimity keeps 0016's fail-closed
-// posture for the explicit unanimity mode: a null/object split is dissent.
-func TestClientFailsClosedOnPresenceSplitUnderUnanimity(t *testing.T) {
+// TestClientKeepsPresenceSplitOnTheDynamicMajorityPath preserves the object
+// cluster while retaining the null source as reject evidence.
+func TestClientKeepsPresenceSplitOnTheDynamicMajorityPath(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	receipt := receiptFixture("0x" + strings.Repeat("42", 32))
 	for _, node := range nodes[:2] {
@@ -1148,10 +1172,10 @@ func TestClientFailsClosedOnPresenceSplitUnderUnanimity(t *testing.T) {
 	defer cancel()
 
 	_, decision, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
-	if !errors.Is(err, rpc.ErrConflict) {
-		t.Fatalf("expected conflict on split presence under unanimity, got %v", err)
+	if err != nil {
+		t.Fatalf("expected dynamic majority to accept the object cluster, got %v", err)
 	}
-	if len(decision.Support) != 2 || len(decision.Reject) != 1 {
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 {
 		t.Fatalf("expected 2 support and 1 reject, got %+v", decision)
 	}
 }
@@ -1540,43 +1564,26 @@ func balanceDissentAt(nodes []*rpctest.Node, hash, want, dissent string) {
 	}
 }
 
-// TestClientQuorumCoversAnchoredStateReads pins decision 0028's reach: the
-// client-level corroboration configuration must reach the anchored state
-// reads, not only the plainly strict methods. Three of five sources agree at
-// the corroborated anchor while two dissent — under the default floor H=2 both
-// the quorum option and the default majority resolve the same 3-of-5 cluster.
-func TestClientQuorumCoversAnchoredStateReads(t *testing.T) {
-	t.Run("quorum resolves the anchored majority cluster", func(t *testing.T) {
-		client, nodes := fleet(t, 1, 1, 5)
-		agreeOnHead(nodes) // anchor establishment still sees full agreement
-		balanceDissentAt(nodes, "0xabc", "0x64", "0x65")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+// TestClientDynamicMajorityCoversAnchoredStateReads pins the fixed-basis
+// majority path for anchored reads. Three of five sources agree at the
+// corroborated anchor while two dissent, so the 3-source cluster is accepted.
+func TestClientDynamicMajorityCoversAnchoredStateReads(t *testing.T) {
+	client, nodes := fleet(t, 1, 1, 5)
+	agreeOnHead(nodes) // anchor establishment still sees full agreement
+	balanceDissentAt(nodes, "0xabc", "0x64", "0x65")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-		decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
-		if err != nil {
-			t.Fatalf("quorum should resolve the anchored read over dissent: %v", err)
-		}
-		if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
-			t.Fatalf("expected a corroborated 3-source cluster, got %+v", decision)
-		}
-		if string(decision.Value) != `"0x64"` {
-			t.Fatalf("expected the majority cluster's balance, got %s", decision.Value)
-		}
-	})
-
-	t.Run("unanimity conflicts on the same dissent", func(t *testing.T) {
-		client, nodes := fleet(t, 1, 1, 5)
-		agreeOnHead(nodes)
-		balanceDissentAt(nodes, "0xabc", "0x64", "0x65")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		_, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
-		if !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("expected unanimity mode to conflict on dissent, got %v", err)
-		}
-	})
+	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	if err != nil {
+		t.Fatalf("dynamic majority should resolve the anchored read over dissent: %v", err)
+	}
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("expected a corroborated 3-source cluster, got %+v", decision)
+	}
+	if string(decision.Value) != `"0x64"` {
+		t.Fatalf("expected the majority cluster's balance, got %s", decision.Value)
+	}
 }
 
 // callAt scripts eth_call to answer want only at the anchored hash and
@@ -1660,7 +1667,7 @@ func TestClientCorroboratedRevertIsAnObservation(t *testing.T) {
 // TestClientMajorityResolvesCallClassSplit pins how the default mode treats a
 // result/revert split: a revert envelope is a comparable class whose key
 // includes revert data, so the split is ordinary dissent and the 2-of-3
-// result cluster corroborates. Unanimity fails closed on the same split.
+// result cluster corroborates.
 func TestClientMajorityResolvesCallClassSplit(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	agreeOnHead(nodes)
@@ -1677,22 +1684,6 @@ func TestClientMajorityResolvesCallClassSplit(t *testing.T) {
 	}
 	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 {
 		t.Fatalf("expected corroborated 2-source result cluster, got %+v", decision)
-	}
-}
-
-func TestClientFailsClosedOnCallClassSplitUnderUnanimity(t *testing.T) {
-	client, nodes := fleet(t, 1, 1, 3)
-	agreeOnHead(nodes)
-	callAt(nodes, "0xabc", "0xdeadbeef")
-	nodes[2].Handle("eth_call", func(c rpctest.Call) (any, error) {
-		return nil, rpctest.RPCError(-32000, "execution reverted")
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest")
-	if !errors.Is(err, ethguard.ErrConflict) {
-		t.Fatalf("expected a result/revert split to conflict under unanimity, got %v", err)
 	}
 }
 

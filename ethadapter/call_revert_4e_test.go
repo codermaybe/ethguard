@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
-	"ethguard"
 	"ethguard/ethadapter"
 	"ethguard/rpc"
 	"ethguard/rpc/methods"
@@ -108,37 +107,6 @@ func TestCallRevertRule4eMatrix(t *testing.T) {
 			wantDeleted: []string{"data"},
 		},
 		{
-			name: "unanimity concrete quorum",
-			mode: rpc.CorroborationUnanimity,
-			answers: []revertAnswer{
-				{name: "node-a", kind: "hex", data: `"0xdead"`},
-				{name: "node-b", kind: "hex", data: `"0xdead"`},
-				{name: "node-c", kind: "missing"},
-			},
-			wantStatus:          rpc.Corroborated,
-			wantData:            dataHex,
-			wantHex:             "0xdead",
-			wantAbstain:         []string{"node-c"},
-			wantDataRejectEmpty: true,
-		},
-		{
-			name: "unanimity data split",
-			mode: rpc.CorroborationUnanimity,
-			answers: []revertAnswer{
-				{name: "node-a", kind: "hex", data: `"0xdead"`},
-				{name: "node-b", kind: "hex", data: `"0xbeef"`},
-				{name: "node-c", kind: "missing"},
-			},
-			wantStatus:  rpc.Corroborated,
-			wantData:    dataAbsent,
-			wantAbstain: []string{"node-c"},
-			wantDeleted: []string{"data"},
-			absentBytes: []string{"0xdead", "0xbeef"},
-			// Same ranking as the majority split above: the beef cluster is
-			// first, so only node-b's data is withheld.
-			withheldBytes: []string{"0xbeef"},
-		},
-		{
 			name: "concrete data quorum",
 			answers: []revertAnswer{
 				{name: "node-a", kind: "hex", data: `"0xdead"`},
@@ -183,7 +151,6 @@ type revertAnswer struct {
 
 type rule4eCase struct {
 	name                 string
-	mode                 rpc.CorroborationMode
 	answers              []revertAnswer
 	wantStatus           rpc.Status
 	wantErr              error
@@ -200,13 +167,8 @@ type rule4eCase struct {
 
 func assertRule4e(t *testing.T, tc rule4eCase) {
 	t.Helper()
-	opts := []ethguard.Option{}
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
-	if tc.mode == rpc.CorroborationUnanimity {
-		opts = append(opts)
-		snap.Mode = rpc.CorroborationUnanimity
-	}
-	adapter, nodes := fleet(t, len(tc.answers), opts...)
+	adapter, nodes := fleet(t, len(tc.answers))
 	headFixture(nodes)
 	for i, answer := range tc.answers {
 		scriptRevertAnswer(nodes[i], answer)

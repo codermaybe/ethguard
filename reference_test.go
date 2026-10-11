@@ -39,64 +39,57 @@ func commonHeads(nodes []*rpctest.Node, heights []uint64, confirm func(int, uint
 }
 
 func TestCommonReferenceConfirmsDifferentHeightsAndCachesEvidence(t *testing.T) {
-	for _, quorum := range []int{0, 2} {
-		t.Run(fmt.Sprint(quorum), func(t *testing.T) {
-			events := make(decisionEvents, 8)
-			opts := []ethguard.Option{ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(16)), ethguard.WithRecorder(events)}
-			if quorum > 0 {
-				opts = append(opts)
-			}
-			client, nodes := fleet(t, 1, 1, 3, opts...)
-			commonHeads(nodes, []uint64{84, 100, 100}, nil)
-			decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
-			if err != nil {
-				t.Fatal(err)
-			}
-			wantHeight, wantSupport, wantCalls := uint64(100), 2, 3
-			ref := decision.Reference
-			if ref == nil || ref.Height != wantHeight || ref.Status != rpc.Corroborated || len(ref.Support) != wantSupport || len(ref.Participants) != 3 {
-				t.Fatalf("unexpected reference: %+v", ref)
-			}
-			if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
-				t.Fatalf("unexpected answer: %+v", decision)
-			}
-			if got := anchorEstablishments(nodes); got != wantCalls {
-				t.Fatalf("head calls=%d want=%d", got, wantCalls)
-			}
-			for _, node := range nodes {
-				for _, call := range node.Calls() {
-					if call.Method == methods.MethodGetBalance {
-						var pin string
-						json.Unmarshal(call.Params[1], &pin)
-						if pin != ref.Hash {
-							t.Fatalf("business read escaped pin: %s", pin)
-						}
-					}
+	events := make(decisionEvents, 8)
+	opts := []ethguard.Option{ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(16)), ethguard.WithRecorder(events)}
+	client, nodes := fleet(t, 1, 1, 3, opts...)
+	commonHeads(nodes, []uint64{84, 100, 100}, nil)
+	decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHeight, wantSupport, wantCalls := uint64(100), 2, 3
+	ref := decision.Reference
+	if ref == nil || ref.Height != wantHeight || ref.Status != rpc.Corroborated || len(ref.Support) != wantSupport || len(ref.Participants) != 3 {
+		t.Fatalf("unexpected reference: %+v", ref)
+	}
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("unexpected answer: %+v", decision)
+	}
+	if got := anchorEstablishments(nodes); got != wantCalls {
+		t.Fatalf("head calls=%d want=%d", got, wantCalls)
+	}
+	for _, node := range nodes {
+		for _, call := range node.Calls() {
+			if call.Method == methods.MethodGetBalance {
+				var pin string
+				json.Unmarshal(call.Params[1], &pin)
+				if pin != ref.Hash {
+					t.Fatalf("business read escaped pin: %s", pin)
 				}
 			}
-			anchors := 0
-			for len(events) > 0 {
-				event := <-events
-				if event.Method == "anchor" {
-					anchors++
-					if event.Status != "corroborated" || len(event.Attempts) != wantCalls {
-						t.Fatalf("incomplete establishment event: %+v", event)
-					}
-				}
+		}
+	}
+	anchors := 0
+	for len(events) > 0 {
+		event := <-events
+		if event.Method == "anchor" {
+			anchors++
+			if event.Status != "corroborated" || len(event.Attempts) != wantCalls {
+				t.Fatalf("incomplete establishment event: %+v", event)
 			}
-			if anchors != 1 {
-				t.Fatalf("anchor events=%d", anchors)
-			}
-			observed := ref.ObservedAt
-			ref.Support[0].Name = "caller mutation"
-			again, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if again.Reference.Support[0].Name == "caller mutation" || again.Reference.ObservedAt.Equal(observed) || anchorEstablishments(nodes) <= wantCalls {
-				t.Fatalf("cross-call cache was retained or evidence was exposed: %+v", again.Reference)
-			}
-		})
+		}
+	}
+	if anchors != 1 {
+		t.Fatalf("anchor events=%d", anchors)
+	}
+	observed := ref.ObservedAt
+	ref.Support[0].Name = "caller mutation"
+	again, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Reference.Support[0].Name == "caller mutation" || again.Reference.ObservedAt.Equal(observed) || anchorEstablishments(nodes) <= wantCalls {
+		t.Fatalf("cross-call cache was retained or evidence was exposed: %+v", again.Reference)
 	}
 }
 
