@@ -77,12 +77,11 @@ collect → bounded JSON validation → method admission → method normalizatio
 是 Ethereum wire semantics 的唯一归属：
 
 - `eth_*.go`：方法级 request preparation、policy assembly 和方法独有形状；
-- `receipt.go`：Receipt 字段表、requiredness、receipt admission；
-- `transaction.go`：Transaction 字段表、hash/signature/context gates；
-- `block.go`：Block header commitments、transaction/withdrawals/uncle root 和 request binding；
-- `logs.go`：Log 字段表、字段 requiredness 和 projection；
-- `normalize.go`：Quantity、Data、Hash、Address、Bloom 等 wire primitive；
-- `prune.go`：spec mask compiler 和 core projection；
+- `block.go` / `receipt.go` / `transaction.go` / `logs.go`：各对象字段表、
+  requiredness、admission 与 commitments（`from` 口径以决策 0051 为准）；
+- wire primitive（Quantity/Data/Hash/Address/Bloom）与 spec mask compiler、
+  core projection 位于 `rpc/internal/wire` 与 `rpc/internal/objects`，
+  不在 `rpc/methods` 下另设 `normalize.go`/`prune.go`；
 - `catalog.go`：方法覆盖 inventory。
 
 对象 slice 只为跨方法复用或携带 cryptographic commitment 的对象建立。单方法的 fee history、syncing、access list、call/estimate 和简单 quantity 逻辑留在对应 `eth_*.go`。

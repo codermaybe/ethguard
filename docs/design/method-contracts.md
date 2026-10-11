@@ -12,10 +12,16 @@
 
 本文件全部 Strict 方法共享以下第 4 问答案，各方法条目只写偏差：
 
-- 默认（未启用 quorum）：全部有效回答一致且至少两源 → Corroborated；单个有效回答 → Selected；两个及以上不同值 → ErrConflict（携带 Support/Reject 证据）；零有效回答 → ErrNoValidResponse（[rpc/strict.go](../../rpc/strict.go)）。
-- 显式 quorum（WithQuorum(n)）：获胜簇需 size ≥ H 且 2·size > N，N 为本次观察集合——含入选后失败与未获本地并发槽的成员；size == 1 永不 Corroborated（决策 0006）。
-- 分母时间边界：请求前已过滤的来源不进入本次分母；入选后失败的来源保留；下一请求重新筛选（治理文档第 3 节）。
-- 已迁移方法（方法规则索引的 result 为 canonical）的 Value 是规范编码，不随代表源拼写变化。数量和成功 DATA 的比较键就是规范 JSON。`eth_feeHistory` 的 Value 是受保护字段的规范对象（0042）。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组（0043）。`eth_createAccessList` 的 Value 是掩码留下的 access list 字段的规范对象（0044）。`eth_getTransactionReceipt` 与 `eth_getBlockReceipts` 的 Value 是官方 schema 字段的规范对象/数组，`from` 在存在时保留并参与比较（0051）。这些方法的比较键按 0047 改为规范编码，即编码器的输出，所以键与 Value 是同一串字节。受保护字段集与 canonical 规则由 pinned schema 和 encoder coverage gate 互锁。其余 Strict 方法的 Value 仍是获胜簇里捕获顺序第一个成员的原始回答：确定性，但不是“多数负载”，也不承诺由多数派提供。Representative 仍是这一人。
+- 默认（未启用一致模式）：固定投票基准上的多数佐证 `Q = max(H, floor(N/2)+1)`，
+  默认 `H=2`，且 Corroborated 至少两源；单个有效回答 → Selected；
+  两个及以上不同值 → ErrConflict（携带 Support/Reject 证据）；
+  零有效回答 → ErrNoValidResponse。历史“默认全体有效回答一致”表述已被
+  决策 0028/0029 取代，实现以 `rpc/adjudicate.go` 为准。
+- 显式一致模式（WithUnanimity）：在同一 `Q` 门槛上额外要求全部有效回答一致。
+  调用方 mode/floor 配置面按 T07/0050 进入退役，固定分母约束保留为内部不变量。
+- 分母时间边界：一次逻辑调用开始时固定投票成员与门槛（决策 0025/0027）；
+  请求前已过滤的来源不进入本次分母；入选后失败的来源保留；下一请求重新筛选（治理文档第 3 节）。
+- 已注册方法（方法规则索引的 result 为 canonical）的 Value 是规范编码，不随代表源拼写变化。数量和成功 DATA 的比较键就是规范 JSON；对象方法由各自 typed/schema encoder 生成 Value，窄键的区块和交易仍保留方法声明的 normalizer key。受保护字段集与 canonical 规则由 pinned schema、准入和 encoder coverage gate 互锁。Representative 仍只记录捕获顺序第一人，不把来源原文伪装成聚合结果。
 - 类型化读取（ethadapter）以 refcontext.RequireCorroborated 强制佐证，Selected 不静默替代（[ethadapter/client.go](../../ethadapter/client.go)、[aggregator/aggregator.go](../../aggregator/aggregator.go)）。
 - Corroborated 表示方法策略得到满足的 provider-backed cross-source evidence，不是 Ethereum consensus，也不是密码学结论（治理文档第 2 节）。
 - `eth_call` 的 revert 仍按 execution/data 两个内部维度裁决；0052 起，`code` 和
@@ -86,7 +92,7 @@ T04 已用离线样本锁住现有检查，没有把本条收成完备性结论�
 
 ## 0.5 已接受边界：revert 数据保护与兼容验证
 
-状态：已实现，含决策 0039 规则 4e。`eth_call` 用方法专属 resolver，不走 generic Strict。执行维度比较成功结果与 revert，成功返回数据留在执行键里。revert 的 `data` 可弃权：缺失与 JSON null 是弃权，不是空字节；空字节（`0x`）、非空 hex 与非 hex JSON 仍是不同的 data 断言，比较键不把它们并成同一个值。弃权源留在投票分母，不进入 data 的 Reject，也不用其他来源的值补全。具体 data 达到门槛才进入 `Decision.Value`；短簇或一致性模式下的 data 分裂保持已佐证的 revert，并从一份已准入信封删掉 `data`。`DeletedFields` 只记录这次删掉的字段。被删字节留在 `Decision.Evidence`，不作为已佐证字段。厂商 code（3 与 -32000）和 message 不进入比较键，只保留在这份信封上，不表示文案已获佐证。传输失败、-32002、-32003、-32603 和限流仍是 fault，不进入 revert 键。`RevertError.Data` 只承接已返回的 hex；删减后的 revert 没有 data，`ErrorData` 为 nil，不伪装成空字节。结构化 data 在被返回时留在 `DataRaw`。
+状态：已实现，含决策 0039、0052 和 0054。`eth_call` 用方法专属 resolver，不走 generic Strict。执行维度比较成功结果与 revert，成功返回数据留在执行键里。revert 的 `data` 可弃权：缺失与 JSON null 是弃权，不是空字节；空字节（`0x`）、非空 hex 与非 hex JSON 仍是不同的 data 断言，比较键不把它们并成同一个值。弃权源留在投票分母，不进入 data 的 Reject，也不用其他来源的值补全。具体 data 达到门槛才进入 `Decision.Value`；短簇或一致性模式下的 data 分裂保持已佐证的 revert，并从一份已准入信封删掉 `data`。`DeletedFields` 只记录这次删掉的字段。被删字节留在 `Decision.Provenance`，不作为已佐证字段。厂商 code（3 与 -32000）和 message 不进入比较键，只保留在 `Decision.Revert` 上，不表示文案已获佐证。传输失败、-32002、-32003、-32603 和限流仍是 fault，不进入 revert 键。`RevertError` 只承接受保护 data，不再暴露 provider code/message 或 `rpc.Error`。
 
 见 [决策 0023](../decisions.md#0023-revert-data-protection-precedes-provider-error-normalization) 与 [决策 0039](../decisions.md#0039-treat-partial-information-absence-as-abstention-rather-than-conflict)。测试：`TestNormalizeCallOutcomeClustersResultsAndReverts`、`TestNormalizeCallOutcomeSeparatesRevertDataStates`、`TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees`、`TestCallRevertDataConflictIsNotSwallowed`、`TestCallProviderErrorDoesNotEnterRevertKey`、`TestCallRPCErrorRawPreservesDataAbsence`、`TestDecodeCallResultKeepsRevertDataStates`、`TestRevertSamplesUseDistinctDataKeys`、`TestRevertDataSamplesReplayWithoutEndpoints`、`TestCallRevertRule4eMatrix`。样本：`internal/rpcsample/testdata/revert-data/2026-09-23`。该样本只证明 code 3 下缺失、`0x`、`0xdeadbeef` 与 `Error(string)` 同时出现，不是普遍性结论；code -32000 与结构化 data 由单元测试锁定，不在这次样本里。
 
@@ -326,7 +332,7 @@ T03-A 已固定、但尚未写成完整六问条目的边界：
 - 2026-09-23 的 chainlist 对象样本只证明部分公开端点的响应形状：有的接受 `{blockNumber: pending}` 和 `{blockHash}`，有的对历史状态返回 pruned，有的拒绝 `requireCanonical` 或未知字段，也有端点接受未知字段。样本不能写成“provider 普遍支持”或“provider 普遍拒绝”。
 
 
-按注册表（[client.go](../../client.go)）推进，每批以本文档新增条目闭环：
+按注册表（[client.go](../../client.go)）推进，每批以本文档新增条目闭环（以下为历史分批，已按决策 0015/0017 落地；当前覆盖以 `catalog.go` 与 moving-tag 矩阵为准）：
 
 1. 锚定状态读取：eth_getBalance、eth_getTransactionCount、eth_getStorageAt、eth_getCode
 2. 不可变对象读取：eth_getTransactionReceipt、eth_getTransactionByHash、eth_getBlockReceipts

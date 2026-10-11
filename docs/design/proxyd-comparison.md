@@ -79,12 +79,14 @@ the reorg/freshness phase projected here has landed in two pieces:
 
 - **Anchored reads (decision 0007):** moving tags are rewritten to a corroborated
   block hash inside `Policy.Prepare` before fan-out — the same primitive as
-  proxyd's tag rewrite, but the anchor itself is cross-corroborated first. Two
-  strategies exist behind the `AnchorResolver` seam: strict latest-head
-  corroboration (default, fail-closed on divergent tips) and conservative
-  finalized selection (`WithFinalizedAnchoring`), which adopts proxyd's rule
-  of never placing the reference ahead of true finality: lowest fresh
-  finalized height, fork-at-height fails closed.
+  proxyd's tag rewrite, but the anchor itself is cross-corroborated first.
+  Reference establishment is library-owned (decisions 0026/0036): strict
+  latest-head corroboration (default, fail-closed on divergent tips) and
+  conservative finalized selection (`WithFinalizedAnchoring`), which adopts
+  proxyd's rule of never placing the reference ahead of true finality:
+  lowest fresh finalized height, fork-at-height fails closed. The former
+  custom-resolver injection surface is retired and returns a migration error;
+  it is not a second supported strategy.
 - **Tip tracking (0007 amendment):** the pool samples block tips at a low
   rate and quarantines sources trailing a lower-median freshness reference —
   the eligibility-gate form of proxyd's lag thresholds, made collusion-

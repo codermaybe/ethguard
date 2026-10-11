@@ -65,13 +65,13 @@ EthGuard 的目标是在不预先信任某个 RPC 来源的前提下，提供符
 | 新鲜度 | 启用 tip tracking 时，以来源报告的下中位数为参考过滤过度落后来源 | [pool/tip.go](../../pool/tip.go) |
 | 收集 | Collect 对选定来源对称 fan-out，每个选定来源保留 emission，包括超时和未获本地并发槽的成员 | [pool/collect.go](../../pool/collect.go) |
 | 转发 | Forward 顺序请求；传输失败换源，JSON-RPC 回答错误会停止该序列 | [pool/collect.go](../../pool/collect.go) |
-| 默认 Strict | 所有有效回答必须一致；单个有效回答为 Selected | [rpc/strict.go](../../rpc/strict.go) |
-| 显式 quorum | 支持数满足硬下界且严格超过本次观察集合的一半；单支持不成为 Corroborated | [rpc/strict.go](../../rpc/strict.go) |
+| 默认 Strict | 固定投票基准上的多数佐证（`Q = max(H, floor(N/2)+1)`，默认 `H=2`）；单个有效回答为 Selected。历史“全体有效回答一致”表述已被 0028/0029 取代 | [rpc/adjudicate.go](../../rpc/adjudicate.go)、[rpc/strict.go](../../rpc/strict.go) |
+| 显式 quorum | 历史术语，现为显式一致模式或调用方 floor 配置；按 T07/0050，调用方 mode/floor 面进入退役，固定分母约束保留为内部不变量 | [rpc/adjudicate.go](../../rpc/adjudicate.go) |
 | 共同参考 | finalized 路径先选共同候选高度，再按需确认；确认失败不缩小原始观察集合 | [internal/reference/finalized.go](../../internal/reference/finalized.go) |
-| 参数改写与缓存 | 已有 hash／height／日志范围改写；可缓存完整参考证据，不是通用 RPC 响应缓存 | [rpc/anchor.go](../../rpc/anchor.go)、[anchor.go](../../anchor.go) |
+| 参数改写与缓存 | 已有 hash／height／日志范围改写；移动参考每次调用重新建立、无跨调用缓存（决策 0026）；`WithAnchorCaching`/正 TTL 仅作迁移错误保留 | [rpc/anchor.go](../../rpc/anchor.go)、[anchor.go](../../anchor.go) |
 | Chainlist | 内部解析工具供 soak 使用，不自动进入运行时投票池，不验证独立性 | [internal/chainlist/chainlist.go](../../internal/chainlist/chainlist.go) |
 
-显式 quorum 的集合和门槛：
+显式 quorum 的集合和门槛（历史 eligible-set 表述，已被固定投票基准取代）：
 
 ```text
 N = 传给策略的本次观察集合大小

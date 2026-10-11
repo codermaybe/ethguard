@@ -1,6 +1,9 @@
 # RPC Aggregation Design
 
-Status: Draft
+Status: Historical overview; normative quorum/reference rules live in
+`docs/decisions.md` (0025/0028/0029/0032/0036/0050) and
+`docs/design/return-value-design.md`. Do not quote this file for default
+quorum or anchor-extension behavior.
 
 ## Context
 
@@ -59,9 +62,11 @@ the required confidence. The caller receives an explicit conflict error.
 3. Normalize values by Ethereum semantics, not JSON bytes.
 4. Cluster semantically equivalent responses.
 5. Apply the method policy to choose a winning cluster or an upstream.
-6. Choose the best upstream inside a winning cluster.
+6. Record the winning cluster's first captured supporter as Representative;
+   Representative is an audit anchor only and does not re-decide Value for
+   migrated methods.
 7. Return value, quality, block reference, and evidence.
-8. Feed semantic agreement back only when the decision is sufficiently confident.
+8. Agreement feedback into source scoring stays unwired (see decision 0010).
 ```
 
 For `latest` and similar moving references, the policy should first establish a
@@ -99,10 +104,10 @@ winner") is designed but not yet wired into source scoring.
 ## Open questions
 
 - What quorum is required for each deterministic policy group?
-  (Partially resolved, see `docs/decisions.md` 0006: default is full
-  agreement with at least two respondents; `WithQuorum(n)` requires n
-  agreeing sources plus a majority of the attempted fleet. Per-group tuning
-  remains open.)
+  (Resolved direction: fixed-membership majority `Q = max(H, floor(N/2)+1)`
+  with `H=2` default, see decisions 0028/0029; unanimity survives only as an
+  explicit mode. Caller-facing mode/floor surfaces are retired under T07/0050;
+  fixed-basis and denominator invariants stay internal.)
 - Should evidence be exposed in the public result or only in diagnostics?
 - How should provider independence be configured to reduce correlated trust?
 - Which methods can be safely transformed from `latest` to an explicit block

@@ -1,4 +1,4 @@
-// Package ethguard is a trusted, security-focused wrapper around go-ethereum's
+// Package ethguard is a corroborating, security-focused wrapper around go-ethereum's
 // ethclient. It aggregates multiple RPC endpoints so applications can import a
 // single client instead of running a standalone RPC proxy.
 //

@@ -71,7 +71,12 @@ where they were.
 
 ## 0006. Quorum semantics and participation-shrinking defense
 
-Status: Accepted
+Status: Superseded as default direction by 0028/0029/0050 (historical record below)
+
+> 现状：本条描述的“默认全体有效回答一致”不再是默认方向。默认固定多数
+> `Q = max(H, floor(N/2)+1)` 见 0028，默认 `H=2` 见 0029；调用方面向的
+> mode/floor/运行时切换面按 0050 进入 T07 退役，固定成员与分母安全约束保留为
+> 内部不变量。实现以 `rpc/adjudicate.go` 与 `rpc/strict.go` 为准。
 
 Strict corroboration comes in two modes. The default requires every valid
 response to agree, with at least two respondents: a single uncorroborated
@@ -96,6 +101,11 @@ operator endpoints count as separate votes today), adaptive quorum.
 ## 0007. Anchored reads establish a corroborated block reference first
 
 Status: Accepted (spike implementation shipped; refinements open)
+> 生效范围说明：本条 0007 的锚定机制与新鲜度门思路保留；其中“可注入自定义
+> AnchorResolver”“跨调用 anchor 缓存（CachedAnchor/TTL）”两段已分别被
+> 0026/0036/0037 取代：引用建立为库拥有，`WithAnchorResolver` 与正 TTL 缓存
+> 仅作迁移错误保留，不再是可用扩展面。`WithTipTracking`/`WithFinalizedAnchoring`
+> 仍为可用选项，实现以 `client.go`/`anchor.go`/`pool/tip.go` 为准。
 
 Methods whose answers depend on chain state at a moving tag (`latest`,
 `safe`, `finalized`) must not be compared across sources at their natural
@@ -1852,8 +1862,8 @@ run did not measure the same narrow-key path.
 
 Status: Accepted (2026-10-01). Amends the locked sections 6.5, 6.6, 14.2,
 14.3 and 14.6 of `docs/design/return-value-design.md`. The documentation
-change is 5a0f53b; this entry is its decision record. The `RevertError` part
-below is a direction, not implemented.
+change is 5a0f53b; this entry is its decision record. The API-break direction
+below was completed during T08.6 and is recorded concretely by 0054.
 
 Provenance holds only `Representative`, that source's admission evidence, and
 the bytes 4e withheld. It keeps no raw payload, so it has no byte limit;
@@ -1866,9 +1876,11 @@ invocation-scoped Uncertain capture.
 With no Raw, `eth_call` revert code and message have no place after stage 3a.
 The direction is to drop `RevertError.Code`, `Message` and `ErrorCode()`, and
 rename `Decision.Evidence` to `Provenance`, as one recorded API break.
-Dropping `ErrorCode()` stops `RevertError` satisfying geth `rpc.Error`;
-`ErrorData()` stays, so `ethclient.RevertErrorData` keeps working. Until then
-both fields and `Evidence` are unchanged.
+Dropping `ErrorCode()` stops `RevertError` satisfying geth `rpc.Error`; it still
+implements the narrower geth `rpc.DataError` interface, while helpers that
+require both interfaces (such as `ethclient.RevertErrorData`) no longer match.
+`ErrorData()` stays as EthGuard's protected-data accessor. `Decision.Provenance`
+is the current evidence-channel name; the old `Evidence` field is not retained.
 
 ## 0049. Raw transaction broadcast uses relative trust without lifecycle management
 
@@ -1985,3 +1997,35 @@ Missing data, JSON null, empty `0x`, structured data, and concrete hex data keep
 their existing distinct dimension semantics. Replay checks compare the
 context-free Value against one source payload after applying the data
 projection; they never splice fields across sources.
+
+## 0053. Transaction Value keeps the existing context key without claiming inclusion proof
+
+Status: Accepted (2026-10-11). This resolves T08.4's transaction encoding
+choice in favor of the existing comparison key.
+
+`eth_getTransactionByHash` retains its method-specific comparison key, which
+includes the transaction's execution fields and the response's block context
+when that context is present. The canonical Value is produced from the same
+pinned execution-apis result shape after typed transaction admission; unknown
+provider fields do not enter Value. The block hash, block number, and
+transaction index in that Value are provider-backed context corroboration, not
+an inclusion proof and not Ethereum consensus evidence. EthGuard does not
+fetch a block proof or derive one from the transaction response.
+
+Pending remains a response-shape distinction: a missing or JSON-null
+`blockNumber` means the typed `DecodeTransaction` result is pending. The
+encoder preserves that context shape, so pending does not become a mined
+transaction and mined context is not synthesized for it. The adapter continues
+to return the existing `(transaction, pending, error)` contract.
+
+## 0054. Complete the evidence-channel API break
+
+Status: Accepted (2026-10-11). This records the T08.6 compatibility break
+described by 0048.
+
+`rpc.Decision.Evidence` is now `Provenance`, carrying the selected source's
+admission evidence and any rule-4e withheld bytes. `ethadapter.RevertError`
+no longer exposes provider `Code` or `Message`, and it no longer implements
+go-ethereum's `rpc.Error` or `ErrorCode()`. `ErrorData()` remains available for
+protected revert data, and the provider context remains available only through
+the internal decision evidence path and `Decision.Revert`.

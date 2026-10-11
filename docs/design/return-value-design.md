@@ -1,6 +1,6 @@
 # 返回值设计：受保护结果域与规范编码
 
-状态：阶段 0 已在 8aac099 验收。阶段 1 已在 48e2c64 验收，0041 只接入数量和成功 DATA：`rpc/result.go` 与 `rpc/internal/wire/encode.go`。0042 已在 dee2208 验收，只接入 `eth_feeHistory`。0043 已在 f8b4280 验收，只接入 `eth_getLogs`。0044 只接入 `eth_createAccessList`：Value 是掩码留下的 access list 字段的规范对象，编码器在 `rpc/internal/objects/accesslist/encode.go`。0045/0046 的当前实现由 0051 修订：`eth_getTransactionReceipt` 与 `eth_getBlockReceipts` 的 Value 复用收据编码器生成规范对象/数组，官方 `from` 字段在存在时保留并参与比较，顶层 null 与空数组保持区别。这些方法的比较键按 0047 改为规范编码，即编码器的输出；未知 provider 字段不进入 Value。共享收据准入解析先解 JSON 字符串转义，以 UseNumber 保留数字，再做 geth 验证；源原文和受保护域不变。交易、eth_call 信封和区块重编码仍不实现。执行顺序、任务出口和核对清单只写在 `project-roadmap.md` 的「返回值框架」；本文不另写一套任务。
+状态：T08 的区块、交易、eth_call revert context/value 和证据通道实现已完成；阶段 1、RV2 及 T07 的标准/coverage 闭环保持有效。数量、对象和成功 DATA 的 Value 均由方法 encoder 生成规范结果；窄键区块和交易保留各自的 normalizer key。执行顺序与任务出口只写在 `project-roadmap.md`；本文保留设计依据与历史决策。
 
 0051 supersedes the older receipt-specific `from` exclusion wording below.
 0052 additionally separates `eth_call` revert `code`/`message` into
@@ -8,11 +8,11 @@
 projection. The older sections describing the full revert envelope in Value
 are historical statements of the pre-T08 implementation.
 
-2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据，不再标成不定档。第 13 节仍只是外部意见对照。阶段 3a、3b 的方向已锁，阶段 0 不实现，也不据此给每个字段另写标准。
+2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据。T08 已落地其中的 eth_call、区块、交易和证据通道边界；下文保留的“阶段 0/3a/3b 尚未实现”句子是当时的历史快照，不描述当前代码。
 
 仍开放、且不挡住阶段 0 的只有一项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。原先并列的「Provenance 字节上限没有数字」随代表源 Raw 一起撤销，见第 14.6 节与决策 0048。
 
-未迁移对象的 Value 仍是某一份原始载荷（4e 删减除外）。`from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 的 Value 是规范编码。`eth_feeHistory` 的 Value 是受保护字段的规范对象，键外字段不进 Value。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组，掩码外字段不进 Value。`eth_createAccessList` 的 Value 是掩码留下的 access list 字段的规范对象，掩码外字段不进 Value。`eth_getTransactionReceipt` 的 Value 是受保护收据字段的规范对象，`from` 不进 Value。`eth_getBlockReceipts` 的 Value 是相同字段模型的规范数组，每项 `from` 不进 Value，顶层 null 与空数组分别保留。这不表示区块已经语义安全：那些字段要到阶段 3b 才从区块 Value 去掉。
+未注册的 Forward 路径仍可返回来源原文；已注册方法的 Value 均为规范结果。区块 Value 已按 T08.3 排除 `size`、`totalDifficulty` 和厂商字段。数量和成功 DATA 的 Value 是规范编码。`eth_feeHistory` 的 Value 是受保护字段的规范对象，键外字段不进 Value。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组，掩码外字段不进 Value。`eth_createAccessList` 的 Value 是掩码留下的 access list 字段的规范对象，掩码外字段不进 Value。收据类方法的 `from` 口径以决策 0051 为准（官方收据字段留在规范受保护结果内并参与比较）。`eth_getBlockReceipts` 的 Value 是相同字段模型的规范数组，顶层 null 与空数组分别保留。
 
 `return-value-normalization.md` 里的问题记录、事实核对和执行标准已并入本文。模型意见不再单独成文，避免和正文分成两套设计。
 
@@ -22,7 +22,7 @@ are historical statements of the pre-T08 implementation.
 
 ## 1. 结论
 
-下面第 1 点到第 8 点是规范编码全部落地后的结论。阶段 0 已完成，没有把全部方法改成规范编码。阶段 1 只让数量和成功 DATA 的 Value 变成规范编码。0042 再让 `eth_feeHistory` 的 Value 变成受保护字段的规范对象。0043 再让 `eth_getLogs` 的 Value 变成掩码留下的日志字段的规范数组。0044 再让 `eth_createAccessList` 的 Value 变成掩码留下的 access list 字段的规范对象。0045 再让 `eth_getTransactionReceipt` 的 Value 变成受保护收据字段的规范对象，`from` 不进 Value。0046 再让 `eth_getBlockReceipts` 的 Value 变成规范收据数组，每项 `from` 排除。0047 再把这五个方法的比较键改为规范编码，键与 Value 成为一个产物；`from` 不在键里是构造使然，因为编码器不收它。其余未迁移方法的 Value 仍是代表源原文。阶段 0 做的是：代表源改成捕获顺序第一个；Value、Evidence、Withheld 与这个来源同源；StrictHeadAnchor 发出的区块 hash 改成小写。见第 7 节和第 11 节。
+下面第 1 点到第 8 点是规范编码全部落地后的结论。阶段 0 已完成，没有把全部方法改成规范编码。阶段 1 只让数量和成功 DATA 的 Value 变成规范编码。0042 再让 `eth_feeHistory` 的 Value 变成受保护字段的规范对象。0043 再让 `eth_getLogs` 的 Value 变成掩码留下的日志字段的规范数组。0044 再让 `eth_createAccessList` 的 Value 变成掩码留下的 access list 字段的规范对象。0045/0046 的收据口径以 0051 修订为准：官方 `from` 字段在存在时保留并参与比较，不再按旧文删除。0047 再把这五个方法的比较键改为规范编码，键与 Value 成为一个产物。其余未迁移方法的 Value 仍是代表源原文。阶段 0 做的是：代表源改成捕获顺序第一个；Value、Evidence、Withheld 与这个来源同源；StrictHeadAnchor 发出的区块 hash 改成小写。见第 7 节和第 11 节。
 
 1. `Decision.Value` 对已注册方法只表示受保护结果，不再同时充当来源原文。
 2. 受保护结果按方法定义为受保护结果域。Value 是该域的确定性规范编码。
@@ -245,9 +245,9 @@ Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 
 门槛的单一值，后者保留低支持和多值分歧。普通 typed 表面不需要读取这些
 诊断结构；已迁移方法不保留 Raw，也不设字节上限。
 
-`eth_call` 的 `RevertError.Code` 与 `Message` 是捕获顺序第一个人的 provider 写法，没有佐证。阶段 3a 之后不再暴露，`ErrorCode()` 随之删除，作为一次记录在案的 API 破坏（0048）；当前代码仍保留它们。`Data` 与 `DataRaw` 保留，它们来自受保护结果。
+`eth_call` 的 `RevertError.Code` 与 `Message` 是捕获顺序第一个人的 provider 写法，没有佐证。T08.6 已按 0054 删除这两个字段及 `ErrorCode()`；`RevertError` 不再实现 geth `rpc.Error`。`Data` 与 `DataRaw` 保留，它们来自受保护结果。
 
-Provenance 不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获（0034），保留前 N 字节的策略与本通道无关，两者互不知情。`Decision.Evidence` 在迁移期作为别名，语义收窄为准入证据。
+Provenance 不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获（0034），保留前 N 字节的策略与本通道无关，两者互不知情。`Decision.Provenance` 携带准入证据与规则 4e withheld bytes。
 
 ### 6.6 Decision 上的结果
 
@@ -443,7 +443,7 @@ eRPC 用语义键分簇，达到门槛后返回获胜簇里一份上游原文，
 
 ### 14.2 `eth_call` 的 code 与 message
 
-口径：做法甲，已锁定。code 与 message 不进受保护域，也不按 geth 规则合成信封。做法乙（合成固定信封）不是未决项。要改成乙必须另立决策，不能在实现时选择。
+口径：做法甲，已锁定。code 与 message 不进受保护域，也不按 geth 规则合成信封。做法乙（合成固定信封）不是未决项。要改成乙必须另立决策，不能在实现时选择。0052 进一步明确： corroborated revert 的 `Decision.Value` 只保留已接受的 data 投影，provider 的 code/message 改由 `Decision.Revert` 承载为上下文，不进入比较键与受保护 Core。
 
 Admission、Withheld 与代表源是同一个来源。两段时期不要写成同一句：
 
@@ -464,15 +464,15 @@ data 未达门槛时，阶段 0 的 4e 仍用代表源信封，再删掉 data。
 
 重编码落地之后：三人，门槛 2。三份的 `number|hash` 相同，捕获顺序 A、B、C，代表源是 A。A 的 `size` 是 `0x100`，B 的 `size` 是 `0x200`。比较键不分叉。Corroborated 的 Value 里没有这两份 `size`，也没有只在 A 上出现的 `totalDifficulty`。区块重编码还没有做，那两份 `size` 仍留在代表源原文里。
 
-`from` 先不进域。交易 hash 约束不了它，第 4.2 节的派生一步现在不成立。A 写 `0xaaa`、B 写 `0xbbb` 时，B 不因此被排除，两份都不进 Value。本地能够恢复出 `0xaaa`，也不把一次失败改成成功。`Observed` 里可以看见 A、B 各自写下的 `from`，那不是投票。要不要在 CPU 测量之后把它定义成派生字段，仍开放。默认留在域外。没有测量就不能进域，也不能为此把整票判掉。未迁移的区块 Value 仍是代表源原文，所以 `from` 和 `size` 还会出现在这些 Corroborated 结果里。数量和成功 DATA 没有这些字段。这是已知缺口，要到阶段 3b 才从区块 Value 去掉。现在不能把区块写成已经语义安全。
+`from` 口径以决策 0051 为准：它是官方收据字段，编码器在存在时保留其规范值并参与比较，不再默认留在域外。旧文“默认留在域外/不进 Value”仅适用于 0051 之前的实现快照。交易 `from` 与区块上下文口径见决策 0053：交易保留现有比较键作上下文佐证，明确非 inclusion proof。区块 Value 已按 T08.3 重编码，未约束字段不再随代表源原文进入结果。
 
 第 13 节的透传意见在这里不成立。三人，门槛 2。三份 `number|hash` 相同，交易根也通过。A 的 `from` 是 `0xaaa`，B 的是 `0xbbb`。捕获顺序 A、B、C 时，若把 A 的原文当作 Value，Corroborated 里的付款人只是 A 的断言；顺序改成 B、A、C，就变成 `0xbbb`。`size` 同样可以在块哈希不变时一个是 `0x100`、一个是 `0x200`。根核对通过，这两项仍停在第 4.2 节第四步。
 
-`projection.StandardFields` 是与编码器平行的字段清单。它不作为区块 Value 的依据。代码里先不删，阶段 0 也不动它。
+官方 schema projector 直接从 pinned result schema 生成，不再维护与 encoder 平行的 `StandardFields` 方法字段清单。
 
 ### 14.4 名字与 `ResultKind`
 
-口径：证据通道叫 Provenance。`Decision.Evidence` 在迁移期作为别名，语义收窄为准入证据，并且和代表源同源。`ResultKind` 不出现在公开的 `Decision` 上。方法规则索引的 result 列仍只记录迁移状态，取值照旧是 `canonical`、`raw` 或 `redacted`；键从哪来由同一张表的 `键来源` 列单独记录（`canonical-bytes` / `normalizer` / `none`，见决策 0047 与 `project-roadmap.md` 的 RV2b）。
+口径：证据通道叫 Provenance。`Decision.Provenance` 携带准入证据与规则 4e withheld bytes，并且和代表源同源。`ResultKind` 不出现在公开的 `Decision` 上。已注册方法规则索引的 result 列全部为 `canonical`；键从哪来由同一张表的 `键来源` 列记录（`canonical-bytes` / `normalizer` / `none`）。
 
 三人，门槛 2。`eth_call` 的执行维度达到门槛，data 只有一票，被 4e 扣下。调用方看 Status、Value、`DeletedFields` 和 Provenance。不用一个 `canonical` 或 `redacted` 概括整份结果。
 

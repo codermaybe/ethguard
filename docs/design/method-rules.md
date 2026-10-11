@@ -3,11 +3,11 @@
 | 方法 | 锚定 | 区块引用形态 | pending 处理 | resolver | 比较键种类 | 键来源 | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | eth_chainId | none | none | none | strict | quantity | canonical-bytes | canonical |
-| eth_getBlockByHash | none | none | none | strict | method-specific | normalizer | raw |
-| eth_getBlockByNumber | none | none | local-observation | strict | method-specific | normalizer | raw |
+| eth_getBlockByHash | none | none | none | strict | method-specific | normalizer | canonical |
+| eth_getBlockByNumber | none | none | local-observation | strict | method-specific | normalizer | canonical |
 | eth_getBalance | hash@1 | eip1898 | local-observation | strict | quantity | canonical-bytes | canonical |
 | eth_getTransactionReceipt | none | none | none | strict | method-specific | canonical-bytes | canonical |
-| eth_getTransactionByHash | none | none | none | strict | method-specific | normalizer | raw |
+| eth_getTransactionByHash | none | none | none | strict | method-specific | normalizer | canonical |
 | eth_getBlockReceipts | hash@0 | none | local-reject | strict | method-specific | canonical-bytes | canonical |
 | eth_getTransactionCount | hash@1 | eip1898 | local-observation | strict | quantity | canonical-bytes | canonical |
 | eth_getStorageAt | hash@2 | eip1898 | local-observation | strict | method-specific | canonical-bytes | canonical |
@@ -22,6 +22,6 @@
 | eth_blockNumber | none | none | none | median | quantity | none | canonical |
 | eth_createAccessList | hash@1 | eip1898 | local-observation | strict | method-specific | canonical-bytes | canonical |
 | net_peerCount | none | none | none | local | quantity | none | canonical |
-| eth_syncing | none | none | none | local | object | none | raw |
+| eth_syncing | none | none | none | local | object | none | canonical |
 | net_version | none | none | none | strict | quantity | canonical-bytes | canonical |
-| net_listening | none | none | none | local | object | none | raw |
+| net_listening | none | none | none | local | object | none | canonical |
