@@ -1,17 +1,27 @@
 # EthGuard
 
-> Status: early-stage design and implementation
+[**English**](README.md) · [简体中文](README.zh-CN.md)
 
-EthGuard is a multi-source Ethereum RPC client. Its primary entry point is
-`ethguard/ethadapter`: supported methods keep the names, arguments, return
-types and calling style of `ethclient`. Change construction and dependency
-injection; ordinary business calls do not need an anchor/confirm/read workflow.
+> Status: early-stage implementation. The core aggregation model and main
+> execution paths are in place, while method coverage, API boundaries, and
+> implementation quality still need further hardening.
 
-The library establishes a common reference internally, corroborates method-specific
-answers, and returns a value or a classified error. Agreement is evidence from
-providers, not an Ethereum consensus proof, and multiple URLs need not be independent.
-Corroborated means provider-backed cross-source evidence: it is not Ethereum
-consensus, a canonical proof, cryptographic finality, or light-client verification.
+EthGuard is a multi-source Ethereum JSON-RPC aggregation client. It queries
+multiple upstreams, validates responses against pinned Ethereum execution-apis
+contracts, normalizes official standard fields, and aggregates supported
+extension fields. Official fields form the protected core result; feature and
+vendor fields remain extension data under their method contract. Cross-source
+agreement evaluates response reliability, and the client exposes the result
+with status and diagnostic evidence fields.
+
+EthGuard favors reliability over latency. For reads that need a moving
+reference, it establishes one provider-backed reference before evaluating the
+business response. The `ethguard/ethadapter` surface keeps the method names,
+arguments, return types, and calling style of `go-ethereum/ethclient`, so
+ordinary calls use the same shape without an explicit anchor/confirm/read
+workflow. Cross-source agreement is provider evidence; it is not Ethereum
+consensus, canonical proof, cryptographic finality, or light-client
+verification. Multiple URLs need not be independent.
 
 ## Layout
 
@@ -54,7 +64,7 @@ ethguard/                   # public Client facade
 │       └── README.md       # provenance, upgrade procedure, audit guide
 ├── ethadapter/             # ethclient-shaped surface over the corroborated core
 ├── rpctest/                # in-process scriptable Ethereum nodes for tests
-├── cmd/                    # executable entries (soak, rpcsample)
+├── cmd/                    # executable entries (soak, rpcsample, shapeprobe, specbundle, specdiff)
 ├── docs/                   # architecture, threat model, and design notes
 │   └── design/             # accepted architecture and aggregation records
 └── examples/               # small import demos
@@ -113,23 +123,30 @@ in `rpc/internal`; standard projection is exposed through `rpc/projection`.
 ## Usage
 
 ```go
-client, err := ethadapter.New(config.Config{
-    ChainID: 1,
-    Upstreams: []config.Upstream{
-        {ID: "a", Endpoint: "https://your-provider-a"},
-        {ID: "b", Endpoint: "https://your-provider-b"},
-    },
-})
+cfg, err := config.LoadFile("config.yaml")
+if err != nil { return err }
+client, err := ethadapter.New(cfg)
 if err != nil { return err }
 defer client.Close()
 
 balance, err := client.BalanceAt(ctx, account, nil)
 ```
 
-For a runnable example, supply your own configuration:
+`config.yaml` can be a normal YAML configuration file:
+
+```yaml
+chain_id: 1
+upstreams:
+  - id: primary
+    endpoint: https://your-provider-a
+  - id: secondary
+    endpoint: https://your-provider-b
+```
+
+For a runnable example, save that file and run:
 
 ```bash
-go run ./examples/basic -config /path/to/config.yaml
+go run ./examples/basic -config ./config.yaml
 ```
 
 `ethadapter` is the main supported-method interface, not an optional demo.
@@ -147,21 +164,17 @@ remain forwarded. `Wrap` applies the same safety checks as `New`.
 With finalized anchoring, divergent provider heights are reconciled at one
 common height. Existing matching heads are reused; otherwise one bounded
 confirmation round fills in missing responses. Default agreement requires the
-fresh first-round views to confirm that candidate; explicit quorum uses the
-original first-round participation count. Confirmation failures never shrink
-that count or silently lower the requirement. `Decision.Reference` retains the
-reference's origin, height, hash, participants, support and faults alongside
-business-answer evidence. Published evidence owns independent copies of its
-mutable slices.
+fresh first-round views to confirm that candidate. The internally computed
+support threshold keeps the original first-round participation count through
+confirmation; failures never shrink that count or silently lower the
+requirement. `Decision.Reference` retains the reference's origin, height, hash,
+participants, support and faults alongside business-answer evidence. Published
+evidence owns independent copies of its mutable slices.
 
 This can add a header lookup, and insufficient reference support now fails
-before the business read. The library never treats knowing a historical block
-as proof of finality: finalized coverage remains a provider-reported claim.
-Reference establishment is library-owned and preserves the requested moving
-tag in its evidence. The former custom resolver injection and cross-call
-anchor cache settings are retired; configuring either now returns a migration
-error. Provider-reported finalized coverage remains evidence, not independent
-Ethereum consensus finality.
+before the business read. Reference establishment is library-owned and
+preserves the requested moving tag in its evidence. Finalized coverage remains
+a provider-reported claim, not independent Ethereum consensus finality.
 
 Complete block reads (`eth_getBlockByNumber` and `eth_getBlockByHash` with
 full transactions) validate request binding and protocol commitments before a
@@ -197,19 +210,21 @@ Fields preserve each source's raw value, including equal values and explicit
 response records when budget permits. The data is compatibility evidence, not
 a reliability guarantee or a recent-client cache. Retention is bounded during
 collection and cancellation may leave a partial snapshot. A fresh capture is
-required for each logical call; returned values are defensive copies.
+required for each logical call; returned values are defensive copies. HTTP
+captures preserve the distinction between missing error data and JSON `null`;
+the WSS path does not distinguish those two cases.
 
-The library API and standard-driven evaluation rules are still evolving. See the
-[architecture record](docs/design/architecture-record.md), [architecture](docs/architecture.md),
-[aggregation design](docs/design/rpc-aggregation.md), the [proxyd comparison](docs/design/proxyd-comparison.md),
-and [threat model](docs/threat-model.md) before relying on security properties.
+See the [architecture record](docs/design/architecture-record.md),
+[architecture](docs/architecture.md), [aggregation design](docs/design/rpc-aggregation.md),
+the [proxyd comparison](docs/design/proxyd-comparison.md), and [threat model](docs/threat-model.md)
+for the security properties and method boundaries.
 
 Sources are treated as equal voting members. EthGuard does not model provider,
 region, client-family, or weight-based independence, and a matching result is
 provider-fault-tolerance evidence rather than a proof of Ethereum chain consensus,
 canonical membership, or independent finality.
 
-The library currently provides: configuration loading; multi-upstream
+The library provides: configuration loading; multi-upstream
 lifecycle with lazy dialing and health-driven recovery; dynamically computed
 fixed-basis corroboration with deterministic conflict evidence; block-anchored
 reads (strict or conservative finalized selection); a freshness gate that

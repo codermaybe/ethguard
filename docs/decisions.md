@@ -2041,3 +2041,26 @@ Values rather than embedding the full bytes. The digest makes byte changes
 reviewable without duplicating large payloads; the runtime replay path still
 compares the exact canonical bytes through `replayValueAgrees`. The choice does
 not weaken the source records or typed/policy assertions.
+
+## 0056. WSS raw error-data preservation is not feasible at the current seam
+
+Status: Accepted (2026-10-11). This closes T08 audit leftover 4 with the
+infeasible branch of its two-way exit.
+
+HTTP preserves the raw JSON-RPC response body through `capturingTransport` and
+`preservedDataError`, so missing `error.data`, JSON `null`, and concrete data
+remain distinguishable before `observationRPCError` builds `rpc.RPCError`.
+`TestPreserveErrorDataDistinguishesMissingAndNull` locks that HTTP input seam
+together with the existing replay assertions.
+
+The WSS path uses go-ethereum's private `websocketCodec` behind
+`ethclient.DialContext`. Its public client options expose a dialer and message
+limit, but no per-call raw-frame hook. A wrapper around the shared socket
+cannot safely associate response frames with concurrent `CallContext` calls,
+and a second socket/request would change the observed RPC operation and violate
+the single long-lived source connection contract. Replacing the source client
+abstraction with a raw-frame-aware WSS transport is a new transport seam and
+trust-model project, outside T08.
+
+The WSS missing/`null` collapse therefore remains an explicit limitation:
+WSS goldens stay rejected, while HTTP retains the four-state replay contract.
