@@ -1,0 +1,58 @@
+{
+  "schema": "ethguard.rpc-sample-plan/v1",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "redact_env": ["ETHGUARD_SOURCE_TOKEN"],
+  "sources": [
+    {
+      "id": "s1",
+      "endpoint_env": "ETHGUARD_READ_VOLATILE_S1",
+      "header_env": {
+        "Authorization": "ETHGUARD_READ_VOLATILE_S1_AUTH"
+      }
+    },
+    {
+      "id": "s2",
+      "endpoint_env": "ETHGUARD_READ_VOLATILE_S2",
+      "header_env": {
+        "Authorization": "ETHGUARD_READ_VOLATILE_S2_AUTH"
+      }
+    },
+    {
+      "id": "s3",
+      "endpoint_env": "ETHGUARD_READ_VOLATILE_S3",
+      "header_env": {
+        "Authorization": "ETHGUARD_READ_VOLATILE_S3_AUTH"
+      }
+    }
+  ],
+  "requests": [
+    {
+      "id": "gas-price",
+      "method": "eth_gasPrice",
+      "params": []
+    },
+    {
+      "id": "max-tip",
+      "method": "eth_maxPriorityFeePerGas",
+      "params": []
+    },
+    {
+      "id": "blob-fee",
+      "method": "eth_blobBaseFee",
+      "params": []
+    },
+    {
+      "id": "syncing",
+      "method": "eth_syncing",
+      "params": []
+    },
+    {
+      "id": "syncing-active",
+      "method": "eth_syncing",
+      "params": []
+    }
+  ]
+}

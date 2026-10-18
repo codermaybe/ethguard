@@ -332,6 +332,17 @@ func newReplayAggregator(t *testing.T, count int) (*aggregator.Aggregator, []*rp
 
 func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node) {
 	t.Helper()
+	agg, nodes, _ := newSharedReplayAggregator(t, names, corrob)
+	return agg, nodes
+}
+
+// newSharedReplayAggregator builds one pool-backed reference resolver and
+// returns its AnchorHeightFunc next to the aggregator. Both replay layers
+// (Policy Prepare and Aggregate) take this one function, so a moving tag
+// resolves to the same reference height in both layers, against the same
+// member order and the same pool.
+func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, rpc.AnchorHeightFunc) {
+	t.Helper()
 	sources := pool.NewPoolWithChainID(1)
 	t.Cleanup(sources.Close)
 	nodes := make([]*rpctest.Node, 0, len(names))
@@ -375,7 +386,7 @@ func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobor
 		ref, err := reference(ctx)
 		return ref.Height, err
 	}
-	return aggregator.New(sources, replayRegistry(anchor, height), opts...), nodes
+	return aggregator.New(sources, replayRegistry(anchor, height), opts...), nodes, height
 }
 
 func replayRegistry(anchor rpc.AnchorFunc, height rpc.AnchorHeightFunc) rpc.Registry {

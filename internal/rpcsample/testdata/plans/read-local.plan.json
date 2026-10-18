@@ -1,0 +1,58 @@
+{
+  "schema": "ethguard.rpc-sample-plan/v1",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "redact_env": ["ETHGUARD_SOURCE_TOKEN"],
+  "sources": [
+    {
+      "id": "s1",
+      "endpoint_env": "ETHGUARD_READ_LOCAL_S1",
+      "header_env": {
+        "Authorization": "ETHGUARD_READ_LOCAL_S1_AUTH"
+      }
+    },
+    {
+      "id": "s2",
+      "endpoint_env": "ETHGUARD_READ_LOCAL_S2",
+      "header_env": {
+        "Authorization": "ETHGUARD_READ_LOCAL_S2_AUTH"
+      }
+    },
+    {
+      "id": "s3",
+      "endpoint_env": "ETHGUARD_READ_LOCAL_S3",
+      "header_env": {
+        "Authorization": "ETHGUARD_READ_LOCAL_S3_AUTH"
+      }
+    }
+  ],
+  "requests": [
+    {
+      "id": "chain-id",
+      "method": "eth_chainId",
+      "params": []
+    },
+    {
+      "id": "net-version",
+      "method": "net_version",
+      "params": []
+    },
+    {
+      "id": "block-number",
+      "method": "eth_blockNumber",
+      "params": []
+    },
+    {
+      "id": "peer-count",
+      "method": "net_peerCount",
+      "params": []
+    },
+    {
+      "id": "listening",
+      "method": "net_listening",
+      "params": []
+    }
+  ]
+}
