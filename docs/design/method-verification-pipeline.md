@@ -209,3 +209,51 @@ internal/rpcsample/testdata/<feature-or-method>/<batch-id>/
 这个模式当前没有第二个使用者。receipt 的可选字段已被 fork 规则解释，feeHistory 与 logs 用单键加准入即够。为一个使用者提取模式，接口形状是猜的；等第二个具体案例出现再定接口，比凭 `eth_call` 一个案例推测更可靠。在那之前，特例是更诚实的做法：复杂度留在唯一拥有它的地方。
 
 触发条件：出现第二个其字段缺席无法被响应之外的规则解释的方法。届时用两个具体案例决定接口，并另立决策；本节不替代该决策。
+
+## 7. 方法规则索引：生成投影的设计归档（自 method-rule-index.md 并入，2026-10-18）
+
+状态：已实现（2026-09-26）。本节是设计归档，不是第二份规则，不改变生成表的地位。生成物 `docs/design/method-rules.md` 由 `rpc/methods/method_rules_test.go` 的 `TestMethodRulesMatchIndex` 生成并与代码逐字节锁定。`TestAdmissionIndexRow` 对 admission suite 的声明与运行时 Policy 构成做额外互锁；它不直接生成或比较 method-rules.md。关联：决策 0040、`rpc/policy.go`、`rpc/methods/catalog.go`。
+
+### 7.1 要解决的问题
+
+方法规则的验收是集中的，规则的索引是没有的。`rpc/methods` 的测试按规则维度组织（归一化与锚定在 `methods_test.go`，内容绑定在 `content_compat_test.go`，pending 在 `pending_test.go`，EIP-1898 在 `eip1898_test.go`，revert data 在 `eth_call_revert_test.go`），适合验收一条规则，不适合回答"一个方法的规则是什么"。`catalog.go` 的 `MethodDescriptor` 只登记到 Policy 函数名，函数内部的构成不可见。这是可见性问题，不是验证问题，缺的是导航。
+
+### 7.2 为什么用生成的表，而不是目录或手写文档
+
+- 目录只能表达归属，表达不了跨文件关系；按方法分目录会打散按规则维度集中的验收，并制造第二份规则断言，与决策 0040 冲突。
+- 手写文档会立即成为第二事实源：代码改了文档没改时，无法判断以谁为准。
+- 所以索引必须是代码的只读投影，人读不写，与 `expect.json` 地位相同（投影的维度不同）。
+
+### 7.3 数据来源：可选内省接口，测试强制完备
+
+不解析 Go 源码。给 `rpc.Policy` 体系加一个只用于内省的可选接口，返回锚定方式、区块引用形态、pending 处理、resolver 类型、比较键种类；每个装饰器填自己那一层并委托内层，最内层 resolver 填自己的类型。事实源是构造代码本身，改装饰器顺序或换 resolver，内省自动跟随。
+
+沿用 `rpc.Policy` 的可选能力组合模式（`BlockRefProvider`、`LocalObservationPolicy` 等），不采用必选方法：必选会迫使 `ForwardPolicy` 等与规则无关的实现表态，并把可见性需求焊死在核心接口。也不用无约束的可选：静默缺与"本来就没有"无法区分。完备性的强制点放在测试里——遍历 `Catalog()` 每个 `RegisteredMethod` 沿装饰器链逐层内省，任何一层未实现即失败并指明方法与层。由此完备性与必选等价，而接口代价恒定。
+
+### 7.4 表的列与边界
+
+一方法一行，只含能从构造中读出的列：
+
+| 列 | 来源 |
+|---|---|
+| 方法 | `Catalog()` |
+| 锚定（`hash@1`、`height@1`、`height@0.fromBlock,toBlock`、`none`） | `WithAnchor`、`WithAnchorHeight`、`WithAnchorHeightFields` |
+| 区块引用形态（`eip1898`、`none`） | `EIP1898BlockRef` |
+| pending 处理（`local-observation`、`local-reject`、`none`） | 拥有该语义的层，不由装饰器有无推断 |
+| resolver（`strict`、`call-revert`、`median`、`local`） | 最内层 Policy |
+| 比较键种类（`quantity`、`object`、`method-specific`） | resolver |
+
+`pending` 取值只有三种语义，同一个词不得同时表示放行和拒绝：`local-observation`（`PendingLocal` 专属：节点本地观察，Selected 封顶，永不 Corroborated）、`local-reject`（`RejectPending` 与 `eth_getLogs` 请求校验：本地拒绝、零上游、不触 anchor）、`none`。
+
+比较键列只标种类，不展开内部分类：`eth_call` revert data 的五种状态、`normalizeCallOutcome` 对 code 与 message 的判断是普通 Go 控制流，没有可提取的结构，不进表。表的职责是导航（方法 → `CallPolicy` → `normalizeCallOutcome`），显化到此为止。
+
+### 7.5 锁定与不解决的事
+
+锁定方式（与生成表机制相同，不可改）：测试收集内省结果渲染为 `docs/design/method-rules.md`，与已提交版本逐字节比对，不一致即失败；更新必须显式触发（环境变量），测试不得默认改写文件；生成文件人只读。
+
+不解决的事：比较键的内部分类细节；是否及何时搬迁根包目录结构（物理布局与本索引的可见性分开，可后续独立判断）；内省接口只报告构成，不新增任何裁决行为，不参与 `Prepare`、`Normalize`、`Resolve`。
+
+### 7.6 两条不可放宽的约束
+
+1. 生成的 `docs/design/method-rules.md` 人只读，不得手改。手改即使其成为第二事实源，违反决策 0040。
+2. 遍历测试不得为任何注册方法开"允许未声明"的例外。一旦放行，静默缺层的口子重新打开，索引可信度不可恢复。

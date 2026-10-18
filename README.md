@@ -215,7 +215,7 @@ captures preserve the distinction between missing error data and JSON `null`;
 the WSS path does not distinguish those two cases.
 
 See the [architecture record](docs/design/architecture-record.md),
-[architecture](docs/architecture.md), [aggregation design](docs/design/rpc-aggregation.md),
+[architecture](docs/architecture.md), [aggregation overview (historical)](docs/design/rpc-aggregation.md),
 the [proxyd comparison](docs/design/proxyd-comparison.md), and [threat model](docs/threat-model.md)
 for the security properties and method boundaries.
 

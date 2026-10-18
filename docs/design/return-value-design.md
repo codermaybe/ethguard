@@ -14,7 +14,7 @@ are historical statements of the pre-T08 implementation.
 
 未注册的 Forward 路径仍可返回来源原文；已注册方法的 Value 均为规范结果。区块 Value 已按 T08.3 排除 `size`、`totalDifficulty` 和厂商字段。数量和成功 DATA 的 Value 是规范编码。`eth_feeHistory` 的 Value 是受保护字段的规范对象，键外字段不进 Value。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组，掩码外字段不进 Value。`eth_createAccessList` 的 Value 是掩码留下的 access list 字段的规范对象，掩码外字段不进 Value。收据类方法的 `from` 口径以决策 0051 为准（官方收据字段留在规范受保护结果内并参与比较）。`eth_getBlockReceipts` 的 Value 是相同字段模型的规范数组，顶层 null 与空数组分别保留。
 
-`return-value-normalization.md` 里的问题记录、事实核对和执行标准已并入本文。模型意见不再单独成文，避免和正文分成两套设计。
+问题记录、事实核对和执行标准已并入本文（2026-09-26）；返回值归一化设计不再单独成文，避免和正文分成两套设计。模型意见同样并入正文。
 
 关联：`architecture-record.md`、`method-verification-pipeline.md`、决策 0020、0024、0025、0028、0029、0039、0040。
 
