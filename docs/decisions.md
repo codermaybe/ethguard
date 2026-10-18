@@ -2104,3 +2104,39 @@ adding a new comparison key. If an `RPCError` field is ever chosen, its default
 value and compatibility with existing `RPCError{}` literals must be defined
 first. Full analysis: `docs/design/wss-error-data-presence.md`; roadmap
 dependencies: `docs/design/project-roadmap.md` T08 audit leftovers 3.1 and 4.
+
+## 0057. No external consumers exist; API breaks need no deprecation window
+
+Status: Accepted (2026-10-18). This closes the T08 open item "does any external
+user reference this module via `replace` / `go.work` (decides whether API
+breaks need a deprecation window)" with a written negative conclusion.
+
+Verification performed (2026-10-18):
+
+1. `go.mod` declares `module github.com/codermaybe/ethguard` and contains no
+   `replace` directive, neither pointing at this repository nor at any other
+   consumer path.
+2. No `go.work` file exists in this repository or its parent directories; the
+   development setup is a single main module.
+3. The local module cache `$(go env GOPATH)/pkg/mod/cache/download/` contains
+   zero occurrences of the string `ethguard`. This module has never been
+   published to a module proxy and has never been fetched as a dependency by
+   any other module on this machine.
+4. The repository carries no git tags, so no released version exists for an
+   external consumer to pin.
+5. The only importers of the module path are packages inside `ethguard` itself
+   (README and `examples/` use `github.com/codermaybe/ethguard/...` as
+   documented usage, not external consumption).
+
+Conclusion: there are no external consumers of this module. The API breaks
+recorded in 0048 and 0054 (`rpc.Decision.Evidence` renamed to `Provenance`,
+`RevertError` losing `Code`, `Message`, and `ErrorCode()`/`rpc.Error`) needed
+no deprecation window, and none was granted.
+
+This conclusion is conditional, not permanent. It holds only while (a) the
+module remains unpublished and (b) no external `replace` / `go.work` consumer
+appears. The first release of this module, or the first appearance of an
+external consumer, invalidates both premises; from that point on, subsequent
+API breaks must re-apply standard deprecation-window discipline (retain the
+removed identifiers for one release cycle with a deprecation marker before
+deletion).

@@ -32,8 +32,10 @@
 - T08.1–T08.7 已完成实现（`Decision.Revert` 承载 code/message，`Decision.Value`
   只保留 accepted data 投影，区块/交易 canonical encoder、Provenance API break
   和全注册方法 canonical 结果均已落地）；统一实现审计与全量测试已完成。
-- 已知缺口：WSS 仍不能区分 error data 缺失与 `null`。含 `httptest` 本地监听在内的
-  全量测试已在本机运行通过（`go test ./... -count=1`），replay 端到端批次无跳过。
+- WSS 不能区分 error data 缺失与 `null`：这是决策 0056/0056.1 记录的显式限制
+  （评估已结案：在当前 seam 不可行，属显式限制而非待办缺口，不阻塞捕获批次）。
+  含 `httptest` 本地监听在内的全量测试已在本机运行通过
+  （`go test ./... -count=1`），replay 端到端批次无跳过。
 
 ## 已完成里程碑
 
@@ -145,9 +147,17 @@ Selected/Forwarded 伪装成已聚合值。
 - 出口：第 9 节断言生效；纯包测试、全量编译、`go vet` 与全量运行验收均已通过。
 
 开放项（不挡住上面任何一步）：`median.go` 的 `equal` 是否改为按键筛选；
-接入套件的形状变体能否从 `internal/spec/methods.json` 生成代替手工补语料；
-是否存在经 `replace` / `go.work` 引用本库的外部使用者（决定 API 破坏要不要
-弃用窗口）。
+接入套件的形状变体能否从 `internal/spec/methods.json` 生成代替手工补语料。
+
+已关闭：是否存在经 `replace` / `go.work` 引用本库的外部使用者（决定 API 破坏
+要不要弃用窗口）。核实结论：不存在外部使用者。依据：`go.mod` module 为
+`github.com/codermaybe/ethguard` 且无任何 `replace` 指令；本仓库及工作目录
+不存在 `go.work`；本机 `$(go env GOPATH)/pkg/mod/cache/download/` 中无任何
+`ethguard` 命中（本模块从未被发布到 module proxy，也从未被其他模块拉取）；
+仓库无任何版本 tag。因此本库是唯一导入自身包的模块，API 破坏（0048/0054：
+`Decision.Evidence` 改名 `Provenance`、`RevertError` 收缩）无需弃用窗口。
+结论与有效期约束见决策 0057：一旦本模块未来被发布或出现外部使用者，该
+前提失效，后续破坏须重新适用弃用窗口纪律。
 
 ## T08 审计遗留（close-out）
 
