@@ -1,6 +1,8 @@
 # EthGuard 后续推进规划
 
-本文件是唯一持久化计划，不另建执行计划文件。规则正文只在各自的设计文档
+本文件是唯一持久化计划，不另建执行计划文件。进度与状态只在本文件维护；
+派发给执行者的任务清单（如 `capture-tasks.md`）是**派发副本**，不是计划，
+不承担进度记录。规则正文只在各自的设计文档
 （`return-value-design.md`、`method-verification-pipeline.md`、`decisions.md`）；
 本文件只记录方向、顺序、依赖和出口。moving-tag matrix 的可执行来源仍是测试，
 文档只作对照。
@@ -216,13 +218,18 @@ WSS 保真和轻客户端复核均不阻塞新方法捕获。方向判定：已�
    相关规则按不适用/未证实/待办分类，不形成轻客户端合规或最终性声明。只有未来
    改变产品角色时，才另立 T12 复核。
 
-### HTTP capture hardening（下一项小任务）
+### HTTP capture hardening（已完成）
 
-状态：待开工，优先于 WSS transport 和未捕获方法批次。当前
-`pool/capturingTransport` 用无界 `io.ReadAll` 保存响应体；普通聚合请求通常有
-调用上下文超时，但 `CallSource` 等路径可能继承无界 context。该任务只收紧资源
-边界，不改变 error-data 的 presence 语义、HTTP 证据范围或裁决门槛。
+状态：**已完成**（提交 `a318263`）。`pool/capturingTransport` 的响应体捕获
+已改为有界读取（`defaultCapturedBodyBytes = 32 MiB`，测试可用
+`dialHTTPPreservingErrorDataWithLimit` 缩小）；超限产生可分类错误
+`ErrBodyTooLarge`，截断 body 不进入 `preserveErrorData`；错误优先级为
+① ctx 取消/deadline ② 超限 ③ 连接失败；`rawBodyBox` 单槽不变量显式化
+（二次写入返回 `errRawBodySlotTaken`）。该改动只收紧资源边界，**未改变**
+error-data 的 presence 语义、HTTP 证据范围或裁决门槛。下文保留原任务边界
+说明作为历史记录。
 
+<!-- 原任务边界（已实现）：
 - 为响应体捕获设置明确上限；超限必须产生可分类的截断/捕获错误，不能把截断的
   body 当作完整 JSON-RPC error。
 - 明确请求 context、读取上限和连接关闭之间的错误优先级；为无界调用路径补充
@@ -230,6 +237,7 @@ WSS 保真和轻客户端复核均不阻塞新方法捕获。方向判定：已�
 - 仅增加进程内 HTTP 测试：正常四态、超限、读取失败、取消和错误 body 恢复。
 - 不顺手引入完整 raw-wire `Observation`，也不改变成功结果的 `json.RawMessage`
   路径。
+-->
 
 ### WSS 原生 transport 后续立项（不进入 T08）
 
@@ -288,7 +296,19 @@ WebSocket 四态测试验收前不升级决策，也不增加 WSS 四态 golden�
 
 ## 排后：未捕获读方法的捕获批次
 
-状态：排在 HTTP capture hardening 和 golden 契约决策之后。2026-09-26 的形状探查（`internal/rpcsample/probe/`）只是
+状态：**尚未开工**（契约已落、待修订后冻结）。契约见
+`docs/design/capture-golden-contract.md`（G1–G5：transport 只捕获 HTTP、anchor 按方法分类、
+断言类型显式声明、replay 离线、分母语义）。派发任务清单见
+`docs/design/capture-tasks.md`（派发副本，不是计划）。契约已明确：WSS presence 缺口
+**不阻塞**本批（默认 policy 未开启 `WithRPCErrorBodies()`），11 个方法均按 `transport: "http"`
+捕获；但**这不证明 WSS 传输已验收**。
+
+**开工前置（阻塞项）**：组 3（`eth_getLogs`/`eth_feeHistory`）的 replay 尚未就绪——
+`replayCapturedCase` 向 Policy 层传 `nil` height resolver，与 Aggregator 层不对齐；
+`assertCapturedFanout` 尚未覆盖 logs 过滤器字段与 feeHistory 高度参数。另需先定义
+「真实捕获如何取得共同 reference」（契约 §2.1bis）。详见 `capture-tasks.md` 阶段 0。
+
+2026-09-26 的形状探查（`internal/rpcsample/probe/`）只是
 观察报告，不是 `testdata` 批次，没有 `expect.json`，不解除任何方法，
 不得直接升成 golden，不得合成样本。
 
@@ -309,10 +329,15 @@ WebSocket 四态测试验收前不升级决策，也不增加 WSS 四态 golden�
   断言、expect 文件和样本状态互锁；`noCapture` 清单和批次 ID 也必须随批次更新，
   不得盲目 `-update`。
 
+## 已拒绝（原则性，不是待办）
+
+- **provider 权重**：默认所有源均不可信，权重会给攻击者一条「不靠伪造、靠塑造
+  信誉」的信任杠杆，因此**主动拒绝**，不是「暂未做到」。规则见决策 0058。
+
 ## 暂不推进
 
 - Ethereum light client、BLS、sync committee、trusted checkpoint。
-- provider 权重、信誉和 failure-domain 模型。
+- provider **信誉**和 **failure-domain 模型**（独立事项，未决定拒绝，见决策 0058）。
 - pool 大规模重构。
 - 跨调用 anchor cache。
 - 仅为扩大方法数量而新增 RPC 方法。

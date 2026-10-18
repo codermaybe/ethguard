@@ -2140,3 +2140,27 @@ external consumer, invalidates both premises; from that point on, subsequent
 API breaks must re-apply standard deprecation-window discipline (retain the
 removed identifiers for one release cycle with a deprecation marker before
 deletion).
+
+## 0058. Provider weighting is rejected; reputation and failure-domain stay deferred
+
+Status: Accepted (2026-10-12).
+
+EthGuard treats every configured source as equally untrusted. Provider
+weighting is therefore **rejected as a matter of principle**, not deferred as
+an unfinished feature. Weights create a trust lever an attacker can exploit
+without forging a value: by shaping which source looks "more reliable", an
+attacker needs fewer resources to steer the decision. Removing weights removes
+that lever entirely, so no source can earn extra influence through observed
+behavior. This is also what keeps the `Unknown`/`Conflict` boundary honest —
+with weights there is always a "the weighted majority passed anyway" argument
+that would pressure a fabricated conclusion into place.
+
+This is distinct from two related but separate items, which remain **deferred**
+and are not decided against here:
+
+- provider **reputation** models;
+- **failure-domain** models (independent-failure grouping).
+
+Both are open trust-model questions; rejecting weighting does not reject them.
+They stay under "暂不推进" in `project-roadmap.md`. The roadmap carries the
+conclusion and the pointer; this decision is the rule body.
