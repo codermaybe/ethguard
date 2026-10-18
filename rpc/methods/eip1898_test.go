@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 const (

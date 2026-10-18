@@ -13,9 +13,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"ethguard/pool"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Client's collectTimeout is unexported in client.go; the write pipeline

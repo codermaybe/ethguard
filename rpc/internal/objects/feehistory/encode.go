@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"strconv"
 
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // canonical 是 eth_feeHistory 的规范对象。字段顺序固定。可选字段缺失就省略，

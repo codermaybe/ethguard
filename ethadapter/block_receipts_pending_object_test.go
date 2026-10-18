@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"ethguard"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // TestBlockReceiptsPendingObjectSendsNoUpstreamRequest locks choice (a):

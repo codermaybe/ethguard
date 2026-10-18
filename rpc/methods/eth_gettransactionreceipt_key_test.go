@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // The second pass over the comparison key used to fold hex a second time.

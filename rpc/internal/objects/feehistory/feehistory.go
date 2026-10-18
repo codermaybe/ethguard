@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"ethguard/rpc"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // ValidateRange binds a fee-history response to the requested block count.

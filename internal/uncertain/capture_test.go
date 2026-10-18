@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestCaptureKeepsSourceFieldArraysAndMalformedResponses(t *testing.T) {

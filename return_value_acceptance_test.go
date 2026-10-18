@@ -11,8 +11,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // These exercise the public client and Aggregator, including the frozen

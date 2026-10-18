@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // TestBlockByNumberPendingTagIsNotRewrittenToAnchor locks the policy half of

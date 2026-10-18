@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // StandardField declares one method-level field in the semantic projection

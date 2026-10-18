@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // TestMethodRulesMatchIndex locks docs/design/method-rules.md to runtime

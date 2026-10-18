@@ -35,11 +35,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"ethguard"
-	"ethguard/config"
-	"ethguard/internal/refcontext"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Client is the primary supported-method client, with ethclient-shaped calls.

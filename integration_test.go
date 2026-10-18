@@ -19,14 +19,14 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	promclient "github.com/prometheus/client_golang/prometheus"
 
-	"ethguard"
-	"ethguard/config"
-	"ethguard/observe"
-	dprom "ethguard/observe/prometheus"
-	"ethguard/pool"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/observe"
+	dprom "github.com/codermaybe/ethguard/observe/prometheus"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // fleet spins up count fake nodes answering eth_chainId with nodeChainID by
@@ -1910,12 +1910,10 @@ func TestTipTrackingConfigPathMatchesGoOptionPath(t *testing.T) {
 	for name, path := range paths {
 		t.Run(name, func(t *testing.T) {
 			cfg := config.Config{ChainID: 1}
-			var nodes []*rpctest.Node
 			for i, addr := range addresses {
 				node := rpctest.NewNode(1)
 				t.Cleanup(node.Close)
 				node.Return("eth_blockNumber", addr)
-				nodes = append(nodes, node)
 				cfg.Upstreams = append(cfg.Upstreams, config.Upstream{
 					ID:       fmt.Sprintf("node-%c", 'a'+i),
 					Endpoint: node.URL(),

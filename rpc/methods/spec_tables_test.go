@@ -3,8 +3,8 @@ package methods
 import (
 	"testing"
 
-	"ethguard/internal/spec"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/internal/spec"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // specAbsentAllow lists registered methods with no execution-apis entry, with

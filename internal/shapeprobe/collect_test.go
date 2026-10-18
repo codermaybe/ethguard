@@ -3,7 +3,7 @@ package shapeprobe
 import (
 	"testing"
 
-	"ethguard/internal/chainlist"
+	"github.com/codermaybe/ethguard/internal/chainlist"
 )
 
 func TestFilterPublicHTTPSAndMinHeight(t *testing.T) {

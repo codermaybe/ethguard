@@ -8,13 +8,13 @@ import (
 	"sync"
 	"time"
 
-	"ethguard/aggregator"
-	"ethguard/internal/refcontext"
-	"ethguard/internal/reference"
-	"ethguard/observe"
-	"ethguard/pool"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/internal/reference"
+	"github.com/codermaybe/ethguard/observe"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 const anchorMethod = "anchor"

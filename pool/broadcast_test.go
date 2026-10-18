@@ -8,7 +8,7 @@ import (
 
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 func TestBroadcastContactsAllSourcesWithoutFreshnessGate(t *testing.T) {

@@ -12,12 +12,12 @@ import (
 
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"ethguard/internal/jsonsafe"
-	"ethguard/internal/refcontext"
-	"ethguard/internal/uncertain"
-	"ethguard/observe"
-	"ethguard/pool"
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
+	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/internal/uncertain"
+	"github.com/codermaybe/ethguard/observe"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // Aggregator is the small orchestration seam between pool and method policy.
@@ -226,7 +226,6 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 			if emissions[i].Err != nil || emissions[i].Val == nil {
 				continue
 			}
-			i := i
 			wg.Add(1)
 			go func() {
 				defer wg.Done()

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestLogsPolicyRejectsMixedBlockSelectors(t *testing.T) {

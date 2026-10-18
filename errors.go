@@ -1,8 +1,8 @@
 package ethguard
 
 import (
-	"ethguard/pool"
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // Sentinel errors classify every failure mode of an aggregate call.

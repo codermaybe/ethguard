@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"ethguard/internal/spec/conformance"
+	"github.com/codermaybe/ethguard/internal/spec/conformance"
 )
 
 func main() {

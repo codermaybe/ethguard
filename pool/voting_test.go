@@ -157,7 +157,7 @@ func TestPoolRemoveThenRejoinIsANewMember(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
 	p := newPoolWithDialerAndChainID(d, 0)
 	first, err := p.Join("a", "https://a.example")
-	if err != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := p.Remove("a"); err != nil {

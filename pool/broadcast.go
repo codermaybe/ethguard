@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"ethguard/config"
+	"github.com/codermaybe/ethguard/config"
 )
 
 // BroadcastOption tunes one broadcast fan-out.

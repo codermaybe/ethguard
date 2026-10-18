@@ -1,8 +1,8 @@
 package methods
 
 import (
-	"ethguard/rpc"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodBlobBaseFee is the JSON-RPC method name resolved by BlobBaseFeePolicy.

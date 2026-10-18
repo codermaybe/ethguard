@@ -2064,3 +2064,43 @@ trust-model project, outside T08.
 
 The WSS missing/`null` collapse therefore remains an explicit limitation:
 WSS goldens stay rejected, while HTTP retains the four-state replay contract.
+
+### 0056.1 Supplement: the collapse is at `decodeError`, not the codec
+
+Status: Accepted supplement (2026-10-12). Same decision, corrected technical
+scope. Does not change 0056's exit conditions: WSS goldens stay rejected and
+HTTP keeps the four-state replay contract until a fidelity fix is implemented
+and this decision is upgraded.
+
+The root cause analysis above must be narrowed. The collapse does not happen in
+go-ethereum's `websocketCodec`: `jsonrpcMessage.Error` is a `json.RawMessage`
+(`rpc/json.go`), and the raw error bytes stay present through
+`handler.handleResponses` -> `op.resp` all the way back to the caller goroutine
+in `Client.CallContext`. The precision is lost one step later, when
+`resp.decodeError()` unmarshals `error` into `jsonError.Data interface{}`, which
+maps both a missing member and a JSON `null` to `nil`.
+
+However, "the raw bytes exist inside geth" does not mean EthGuard can obtain
+them through public API. `rpc.ServerCodec` is exported in name, but its methods
+(`readBatch`/`close`/`peerInfo`) and the `*jsonrpcMessage` parameter type are
+all unexported, so an external package cannot implement it (`rpc/types.go`,
+`rpc/json.go`). `DialOptions(...)` returns a geth `Client`, and `decodeError()`
+is executed inside `Client.CallContext`, so replacing `WithWebsocketDialer` does
+not bypass that step. The earlier "implement the public ServerCodec / 100-150
+lines" reading was wrong and must not be used as an implementation basis.
+
+The accurate statement is therefore: the loss point is at `decodeError`; the
+repair direction is to establish EthGuard's own call interface inside pool and
+then evaluate self-managed WSS request/response handling or an upstream
+extension point, with cost still to be assessed. No line-count estimate is
+valid before that evaluation. Establishing the seam does not itself mean
+missing/null is recovered.
+
+The near-term minimal slice is to express the unknown correctly: when
+`ErrorData() == nil`, the fact is "cannot tell whether the upstream omitted
+`data` or returned an explicit `null`", not "confirmed missing". This belongs
+in call-level diagnostics first, without changing verdict behavior and without
+adding a new comparison key. If an `RPCError` field is ever chosen, its default
+value and compatibility with existing `RPCError{}` literals must be defined
+first. Full analysis: `docs/design/wss-error-data-presence.md`; roadmap
+dependencies: `docs/design/project-roadmap.md` T08 audit leftovers 3.1 and 4.

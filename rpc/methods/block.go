@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"ethguard/rpc"
-	blockobject "ethguard/rpc/internal/objects/block"
+	"github.com/codermaybe/ethguard/rpc"
+	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
 type blockPolicy struct {

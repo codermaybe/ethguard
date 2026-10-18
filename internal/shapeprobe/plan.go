@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"ethguard/internal/rpcsample"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/internal/rpcsample"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 const (

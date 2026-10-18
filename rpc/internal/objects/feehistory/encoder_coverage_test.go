@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc/internal/objects/coverage"
-	"ethguard/rpc/projection"
+	"github.com/codermaybe/ethguard/rpc/internal/objects/coverage"
+	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 func TestCanonicalFeeHistoryEncoderCoversOfficialPaths(t *testing.T) {

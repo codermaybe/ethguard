@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // Encode checks one eth_getLogs result and returns the canonical JSON of the

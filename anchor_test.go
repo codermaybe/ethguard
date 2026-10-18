@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"ethguard"
+	"github.com/codermaybe/ethguard"
 )
 
 type stubResolver struct {

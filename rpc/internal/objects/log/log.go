@@ -9,8 +9,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"ethguard/rpc"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // Validate checks the required fields and wire shapes of one log object.

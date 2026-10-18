@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"ethguard/aggregator"
-	"ethguard/internal/refcontext"
-	"ethguard/internal/rpcsample"
-	"ethguard/internal/rpcsample/replay"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/internal/rpcsample"
+	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 func TestBlockReceiptTxBatchMatchesExpect(t *testing.T) {

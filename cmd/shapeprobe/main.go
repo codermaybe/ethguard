@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"ethguard/internal/chainlist"
-	"ethguard/internal/rpcsample"
-	"ethguard/internal/rpcsample/replay"
-	"ethguard/internal/shapeprobe"
+	"github.com/codermaybe/ethguard/internal/chainlist"
+	"github.com/codermaybe/ethguard/internal/rpcsample"
+	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/internal/shapeprobe"
 )
 
 const registryURL = "https://chainlist.org/rpcs.json"

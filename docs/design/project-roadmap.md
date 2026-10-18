@@ -31,7 +31,7 @@
   探查、官方标准升级与 conformance 闭环、端到端默认化验收。
 - T08.1–T08.7 已完成实现（`Decision.Revert` 承载 code/message，`Decision.Value`
   只保留 accepted data 投影，区块/交易 canonical encoder、Provenance API break
-  和全注册方法 canonical 结果均已落地）；当前进入统一审计。
+  和全注册方法 canonical 结果均已落地）；统一实现审计与全量测试已完成。
 - 已知缺口：WSS 仍不能区分 error data 缺失与 `null`。含 `httptest` 本地监听在内的
   全量测试已在本机运行通过（`go test ./... -count=1`），replay 端到端批次无跳过。
 
@@ -71,9 +71,9 @@ T05 已完成。reference 的新鲜度与失败语义由决策 0026 固定：每
 `TestStatusStringSetExcludesFailed`。Prometheus label 迁移由
 `TestDocumentedDecisionStatusLabelsMatchEmissions` 固定；决策 0038 记录了不新增通用 evidence helper 的选择。
 
-## T08：revert Envelope 与多维比较键（实现完成，待统一审计）
+## T08：revert Envelope 与多维比较键（已完成）
 
-依赖：T07 全部完成。状态：T08.1–T08.7 实现已完成，待统一审计；
+依赖：T07 全部完成。状态：T08.1–T08.7 实现、统一审计与全量测试均已完成。
 不回退 T07 的标准生成、schema 门禁、projector/encoder coverage gate 或
 T08.1 的 `Decision.Revert` 分离。
 
@@ -149,9 +149,11 @@ Selected/Forwarded 伪装成已聚合值。
 是否存在经 `replace` / `go.work` 引用本库的外部使用者（决定 API 破坏要不要
 弃用窗口）。
 
-## T08 审计遗留（close-out，完成前不新接方法）
+## T08 审计遗留（close-out）
 
-状态：1–3 已完成；4（WSS）已完成评估（当前架构不可行，缺口保留），5 未开始。T08 统一审计（全量测试通过）后登记。方向判定：已注册覆盖已
+状态：1–3 已完成；4（WSS）已完成评估并由决策 0056 结案，5 以既有
+`spec-baseline.md` 第 7 节初审结论结案。T08 统一实现审计与全量测试已完成；
+WSS 保真和轻客户端复核均不阻塞新方法捕获。方向判定：已注册覆盖已
 完整对应目标面（proxyd 重写表 + 本地/变量/身份组）；剩余未注册候选多需新信任
 模型（filter/subscription 有跨调用状态、`eth_getProof` 需证明验证、debug/trace
 属节点本地），或暂无需求。因此下一阶段先收尾证据完整性，不扩方法数。
@@ -163,21 +165,120 @@ Selected/Forwarded 伪装成已聚合值。
    由决策 0055 固定；运行时 `replayValueAgrees` 继续做精确字节断言。
 3. 0054 半句限定：已补充 `Observation.Evidence` 保留，退役的只是 Decision
    层旧字段，见决策 0054。
-4. WSS 缺失/`null` 坍缩（已完成评估，单独立项，不进方法任务）：HTTP 已在收集层保留
-   原始 error 对象（缺失记 `Data == nil`，JSON `null` 记 `Data` 为 `null`）；WSS
-   仍走 geth 解码路径，两者在进入观察前坍缩。目标二选一并记录：WSS 同样保留
-   原始帧并通过四态回放，或书面确认不可行、缺口继续携带。已选择并记录后者，见
-   决策 0056；WSS golden 继续拒绝，HTTP 四态回放保持有效。
-5. 轻客户端对照（方法契约 0.7 / 决策 0024 收尾项）：对照适用版本规则并记录
-   适用/冲突/不适用/未决，仍未执行。排在捕获批次之后。
+3.1 待改动字段清算（与 WSS 相关的讨论登记，不设前置闸门）：见
+   `docs/design/wss-error-data-presence.md` 第 2 节。当前没有确定字段，
+   因此不设出口闸门，也不阻塞 WSS 或任何其它工作；登记是信息性的，
+   不构成排期承诺。
+4. WSS 缺失/`null` 坍缩（已完成评估，单独立项，不进方法任务）：
 
-以上 1–3 为小收尾，可与捕获批次并行；4–5 单独立项。执行顺序为：先完成
-close-out 1–3，再完成 11 个未捕获读方法的正式捕获批次，随后做轻客户端对照，
-最后再议是否开启 filter/subscription、`eth_getProof`、debug/trace 等新方法主线。
+   **先承认**（根因，逐帧核实 geth v1.17.5）：坍缩不发生在 `websocketCodec`，
+   而发生在响应解码的类型化步骤。`jsonrpcMessage.Error` 是 `json.RawMessage`
+   （`rpc/json.go`），原始 error 字节直到 `Client.CallContext` 取回 `op.resp`
+   时都完整存在；是 `resp.decodeError()` 把 `error` 反序列化进
+   `jsonError.Data interface{}`，才让“字段缺失”和“JSON null”同时变成 `nil`。
+
+   **关键限定**：原始字节在 geth 内部存在，**不等于 EthGuard 能通过公开接口
+   取得**。`rpc.ServerCodec` 方法/参数类型全部未导出（`rpc/types.go`、
+   `rpc/json.go`），外部包无法实现；`DialOptions` 返回的仍是 geth `Client`，
+   `decodeError()` 由它内部执行，替换 WebSocket dialer 绕不过这一步。
+
+   **后改造**（分步，未开工）：方向是先在 pool 内建立自己的调用接口，再评估
+   自行管理 WSS 请求响应或采用上游扩展点的成本，决定是否实现。
+   **不预设实现行数，也不把“seam 建立”等同于 presence 已恢复。**
+   完整分析见 `docs/design/wss-error-data-presence.md`。
+
+   **当前业务影响**（不变）：在 `eth_call` 中，缺失和 `null` 都只对 revert 的
+   `data` 维度弃权，不会进入 `Decision.Value`，也不会互相补全；execution/revert
+   维度仍可正常聚合。混合 HTTP/WSS 时同一个线上 `data: null` 可能分别表现为
+   `reverted|null` 和 `reverted|missing`，两者都不为 `data` 投票，核心结果语义
+   不变；损失的是 wire presence、诊断和 replay 精度。不能把 `null` 当作空 bytes，
+   也不能据此生成 WSS 四态 golden。
+   - 近期最小切片（路线 1）：把 `ErrorData() == nil` 准确表述为“无法判断上游是
+     省略了 `data` 还是显式 `null`”，不再声称“已确认缺失”；优先放在调用级
+     诊断信息中，**不改裁决行为、不加新比较键**。若最终改 `RPCError` 字段，
+     必须先定默认值与既有 `RPCError{}` 构造的兼容性。未知状态按是否取得保真
+     信息判定，不能只看 URL 是 WSS。
+   - 决策 0056 的结案边界（不引入第二套 WSS resolver、raw-frame 关联层或新的
+     长连接信任模型，WSS golden 继续拒绝、HTTP 四态回放保持有效）在保真实现
+     验收前继续有效；seam 建立本身不代表 missing/null 已恢复。
+5. 轻客户端对照（方法契约 0.7 / 决策 0024 收尾项）：以
+   `spec-baseline.md` 第 7 节已有初审结论结案——EthGuard 当前不是轻客户端，
+   相关规则按不适用/未证实/待办分类，不形成轻客户端合规或最终性声明。只有未来
+   改变产品角色时，才另立 T12 复核。
+
+### HTTP capture hardening（下一项小任务）
+
+状态：待开工，优先于 WSS transport 和未捕获方法批次。当前
+`pool/capturingTransport` 用无界 `io.ReadAll` 保存响应体；普通聚合请求通常有
+调用上下文超时，但 `CallSource` 等路径可能继承无界 context。该任务只收紧资源
+边界，不改变 error-data 的 presence 语义、HTTP 证据范围或裁决门槛。
+
+- 为响应体捕获设置明确上限；超限必须产生可分类的截断/捕获错误，不能把截断的
+  body 当作完整 JSON-RPC error。
+- 明确请求 context、读取上限和连接关闭之间的错误优先级；为无界调用路径补充
+  防御性超时或明确要求调用方提供 deadline。
+- 仅增加进程内 HTTP 测试：正常四态、超限、读取失败、取消和错误 body 恢复。
+- 不顺手引入完整 raw-wire `Observation`，也不改变成功结果的 `json.RawMessage`
+  路径。
+
+### WSS 原生 transport 后续立项（不进入 T08）
+
+状态：后续候选，不进入当前执行顺序。决策 0056 已结案；本项目当前不因 WSS 的
+`error.data` presence 缺口阻塞 T08，也不把完整 raw-wire 证据、订阅或写路径
+重构提前并入本立项。
+
+结论：**先承认、后改造。** 承认现状（决策 0056 的结案边界继续有效：不引入
+第二套 WSS resolver、raw-frame 关联层或新的长连接信任模型），但把“不可行”
+收窄为“授权根因已核实，修复机制与成本待评估”。缺口只影响 JSON-RPC error body
+的字段 presence：`error.data` 缺失与显式 `null` 在 geth WSS 解码后都变成 `nil`
+（精确根因见上文 4 与 `docs/design/wss-error-data-presence.md`）。成功结果仍以
+`json.RawMessage` 进入聚合层；`eth_call` 是当前唯一把结构化 RPC error body
+纳入方法级裁决的核心路径。候选设计边界（待单独立项确认，不视为已冻结的承诺）：WSS raw client
+的接口位于 pool 的 transport seam，不向 Aggregator、Policy 或 typed
+adapter 暴露传输类型。
+
+前置说明：不再设“字段清算冻结前禁止改造”的硬前置；HTTP capture hardening
+保持既定优先级，但不是研究 WSS seam 的技术前提。
+
+后续评估可按三个阶段展开；具体实现顺序、代价和外部约束待单独立项确认：
+
+1. **可先成立内部 transport seam。** 把 Source 对具体 `*ethclient.Client` 的依赖
+   收窄为内部调用接口，接口返回 raw result、structured RPC error、`error.data`
+   presence，以及可选的有界诊断捕获。当前生产代码中 Source 只依赖
+   `Close`、`ChainID` 和一次 `Client().CallContext`；HTTP 的 presence-preserving
+   adapter 与现有 geth WSS 路径先接入该 seam，保持业务语义不变。不得改变
+   Quorum/动态门槛、Aggregator、Policy 或方法数量。
+2. **只实现 WSS error-data 保真。** 新 adapter 只承担长连接、并发 request/response
+   demux、缺失/`null`/具体 data 保留、context 取消、inflight 清理、read limit、
+   close、乱序和断连错误传播。先不实现订阅，不改变写路径，不把 RawWire 放入
+   `Observation`、比较键或 `Decision.Value`。进程内 WebSocket 测试必须覆盖四态、
+   乱序、错误 ID、超时清理、连接关闭、malformed frame 和读上限。
+   该阶段的 ROI 仅是诊断、证据和 replay 保真；`reverted|missing` 与
+   `reverted|null` 都是 `data` 维度弃权，当前裁决结果不因此改变。
+3. **最后决定 raw-wire 证据。** 若产品确实需要传输级审计，再让 HTTP/WSS 共享
+   有界的可选 raw-wire capture；raw-wire digest 只属于诊断/replay，不属于规范
+   Value 或投票键。完整响应字节包含 ID、空白和字段顺序，不能直接作为 canonical
+   结果。通过同一套调用、取消、关闭和错误契约后，才升级决策 0056 并增加 WSS
+   四态 golden。
+
+额外审计项：HTTP 的 `capturingTransport` 当前通过 `io.ReadAll` 捕获完整响应体，
+需要单独评估有界捕获、超限和截断语义。该项与 WSS presence 修复分开，不顺手改变
+HTTP 的证据范围。
+
+方案边界：不使用“快速扫描 ID”替代完整 JSON envelope 校验；不以 `sync.Pool` 的
+零拷贝优化优先于证据切片的防御性拷贝；不为当前没有订阅接口的项目预先设计
+Call/Subscribe 双连接池；不以 300–500 行实现量作为生产可行性的证明。写路径的
+重连和未知结果语义必须单独验收，不能因 WSS 读取保真而改变交易广播契约。
+
+决策 0056 已结案；以上 1–3 仅是后续评估框架，尚未实施。当前顺序：近期先把
+“不知道”准确表达出来（不改裁决行为），后续再评估 transport seam；
+HTTP capture hardening 保持既定优先级。WSS transport 在保真实现经进程内
+WebSocket 四态测试验收前不升级决策，也不增加 WSS 四态 golden。最后再议
+是否开启 filter/subscription、`eth_getProof`、debug/trace 等新方法主线。
 
 ## 排后：未捕获读方法的捕获批次
 
-状态：排在 T08 之后。2026-09-26 的形状探查（`internal/rpcsample/probe/`）只是
+状态：排在 HTTP capture hardening 和 golden 契约决策之后。2026-09-26 的形状探查（`internal/rpcsample/probe/`）只是
 观察报告，不是 `testdata` 批次，没有 `expect.json`，不解除任何方法，
 不得直接升成 golden，不得合成样本。
 
@@ -185,9 +286,18 @@ close-out 1–3，再完成 11 个未捕获读方法的正式捕获批次，随�
   `net_version`、`eth_gasPrice`、`eth_maxPriorityFeePerGas`、`eth_blobBaseFee`、
   `eth_blockNumber`、`eth_syncing`、`net_peerCount`、`net_listening`
   （以 `TestRegisteredMethodSampleStatus` 钉住的名单为准）。
-- 补批次时仍须满足六项进入条件，`safe`/`finalized` 各自锚定，不落到 `latest`。
+- 先冻结按方法分类的 golden 规则：具有 block-reference 参数的方法（当前是
+  `eth_getLogs`、`eth_feeHistory`）才要求 `safe`/`finalized` 各自锚定；无参数的
+  chain/local/variable 方法不虚构 anchor。replay 回放冻结的 record，因此 gas、tip、
+  blob fee、block number 等随时间变化的值可以做精确离线回放；golden 需要同时声明
+  它断言的是 wire/shape、Selected/local 语义、Fault/Forwarded 状态还是跨源结果，
+  不把跨批次数值相等当成契约。
 - `balance-safe-canonical` 本批捕获达不到 quorum，补采达标批次前保持冲突结论，
   不降 floor。
+- 捕获工作不是单纯补数据：仓库已有通用 `replayCapturedCase` 和
+  `replayRegistry`，但仍需为每个方法补正式请求、policy/admission 装配、状态/形状
+  断言、expect 文件和样本状态互锁；`noCapture` 清单和批次 ID 也必须随批次更新，
+  不得盲目 `-update`。
 
 ## 暂不推进
 

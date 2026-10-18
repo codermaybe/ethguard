@@ -3,7 +3,7 @@ package transaction
 import (
 	"encoding/json"
 
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // Encode returns the canonical protected transaction result. The execution

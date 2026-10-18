@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"ethguard/rpc"
-	transactionobject "ethguard/rpc/internal/objects/transaction"
+	"github.com/codermaybe/ethguard/rpc"
+	transactionobject "github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
 )
 
 func TestTransactionPolicyCanonicalizesValueWithoutSplicingSources(t *testing.T) {

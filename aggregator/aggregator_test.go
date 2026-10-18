@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"ethguard/observe"
-	"ethguard/pool"
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/observe"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 type captureRecorder struct {

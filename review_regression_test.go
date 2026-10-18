@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"ethguard/pool"
-	"ethguard/rpctest"
 	"fmt"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpctest"
 	"sync"
 	"testing"
 	"time"
 
-	"ethguard"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Regression counterexamples added during T01 acceptance review.

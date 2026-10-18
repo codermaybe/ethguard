@@ -35,8 +35,8 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
-	"ethguard/config"
-	"ethguard/ethadapter"
+	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethadapter"
 )
 
 func main() {

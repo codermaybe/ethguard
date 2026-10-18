@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // NormalizeResult calls the method's existing Policy.Normalize. It does not

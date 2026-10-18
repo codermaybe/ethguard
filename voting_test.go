@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"ethguard"
-	"ethguard/config"
-	"ethguard/pool"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // --- T01 acceptance: fixed voting basis and default majority (decisions 0025,
@@ -132,13 +132,11 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		// Distinct dead ports, so identity dedup does not collapse them into
 		// one member: three members fail in-collection, two answer.
 		cfg := config.Config{}
-		nodes := make([]*rpctest.Node, 0, 2)
 		for i := 0; i < 5; i++ {
 			endpoint := fmt.Sprintf("http://127.0.0.1:%d", i+1) // closed ports
 			if i < 2 {
 				node := rpctest.NewNode(1)
 				t.Cleanup(node.Close)
-				nodes = append(nodes, node)
 				endpoint = node.URL()
 			}
 			cfg.Upstreams = append(cfg.Upstreams, config.Upstream{

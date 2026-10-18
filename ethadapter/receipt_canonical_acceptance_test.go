@@ -12,8 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 func receiptLogField(t *testing.T, raw json.RawMessage, field string, value json.RawMessage) json.RawMessage {

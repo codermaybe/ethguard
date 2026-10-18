@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // EIP1898BlockRef decorates a string-anchored policy (built with rpc.Anchored

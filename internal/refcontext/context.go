@@ -3,7 +3,7 @@ package refcontext
 
 import (
 	"context"
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 	"sync"
 )
 

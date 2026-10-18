@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"ethguard/aggregator"
-	"ethguard/config"
-	"ethguard/internal/refcontext"
-	"ethguard/observe"
-	"ethguard/pool"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
-	"ethguard/rpc/projection"
+	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/observe"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 // Client is the advanced entry point for generic calls and decision evidence.

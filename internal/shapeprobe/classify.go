@@ -2,10 +2,9 @@ package shapeprobe
 
 import (
 	"encoding/json"
-	"fmt"
 
-	"ethguard/rpc"
-	"ethguard/rpc/projection"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 // FieldClassification is a report-only projection of one observation batch.
@@ -50,14 +49,4 @@ func standardFields(method string) []projection.StandardField {
 	// remain extension observations until their official result schema is
 	// registered; this fallback never promotes nested fields to Core.
 	return []projection.StandardField{{Path: "", Required: true}}
-}
-
-func formatClassification(method string, samples []FieldSample) (string, error) {
-	classification, err := ClassifyFields(method, samples)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", method, err)
-	}
-	return fmt.Sprintf("core=%d extensions=%d residuals=%d conflicts=%d",
-		len(classification.Core), len(classification.Extensions),
-		len(classification.Diagnostics.Residuals), len(classification.Diagnostics.Conflicts)), nil
 }

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc"
-	receiptobj "ethguard/rpc/internal/objects/receipt"
+	"github.com/codermaybe/ethguard/rpc"
+	receiptobj "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
 )
 
 func receiptArray(t *testing.T, rows ...json.RawMessage) json.RawMessage {

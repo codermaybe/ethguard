@@ -48,7 +48,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"ethguard/observe"
+	"github.com/codermaybe/ethguard/observe"
 )
 
 // Metrics aggregates decision and per-source events into six metric

@@ -10,7 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/rpc"
 
-	"ethguard/config"
+	"github.com/codermaybe/ethguard/config"
 )
 
 // Emission is the result of a single upstream fan-out request.

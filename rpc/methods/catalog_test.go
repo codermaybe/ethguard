@@ -3,7 +3,7 @@ package methods
 import (
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestCatalogHasUniqueNamesAndStableRegistrationSet(t *testing.T) {

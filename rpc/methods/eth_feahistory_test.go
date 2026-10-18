@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc"
-	"ethguard/rpc/internal/objects/feehistory"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
 
 func TestNormalizeFeeHistoryChecksArrayRelationships(t *testing.T) {

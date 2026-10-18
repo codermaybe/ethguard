@@ -13,10 +13,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
-	"ethguard/ethadapter"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard/ethadapter"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // TestCallRevertRule4eMatrix is the decision-0039 matrix for eth_call.

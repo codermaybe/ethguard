@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestClassifyFieldsSeparatesCoreAcceptedExtensionAndResidual(t *testing.T) {

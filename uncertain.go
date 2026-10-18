@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	internaluncertain "ethguard/internal/uncertain"
+	internaluncertain "github.com/codermaybe/ethguard/internal/uncertain"
 )
 
 // UncertainCapture collects untrusted upstream material for one logical call.

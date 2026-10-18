@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"ethguard/config"
+	"github.com/codermaybe/ethguard/config"
 )
 
 // Tip-tracking defaults live in config (DefaultTipInterval,

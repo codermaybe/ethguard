@@ -11,8 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
-	"ethguard/rpc"
-	blockobject "ethguard/rpc/internal/objects/block"
+	"github.com/codermaybe/ethguard/rpc"
+	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
 func TestBlockPolicyCanonicalizesNarrowKeyValue(t *testing.T) {

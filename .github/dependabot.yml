@@ -1,0 +1,26 @@
+# Dependabot: weekly grouped bumps so the running PR list stays small.
+# A PR is only worth reviewing once our 4-gate CI (check/test/build/lint)
+# has already exercised it — failures there mean "decide", not "debug".
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 3

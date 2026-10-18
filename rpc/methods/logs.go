@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"ethguard/rpc"
-	logobject "ethguard/rpc/internal/objects/log"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc"
+	logobject "github.com/codermaybe/ethguard/rpc/internal/objects/log"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // This file is the Log object slice: Log validation (requiredness) and the

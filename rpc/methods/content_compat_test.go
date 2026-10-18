@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/internal/rpcsample/replay"
-	"ethguard/rpc"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 func TestRealShapesAgreeAfterPruneAndCaseFold(t *testing.T) {
@@ -151,9 +151,10 @@ func TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected(t *testing.T) {
 
 func TestReceiptFromAnotherTransactionIsRejected(t *testing.T) {
 	raw := sampleResults(t, "block-receipt-tx", "receipt-one")[0]
-	other := txHash(t, sampleResults(t, "block-receipt-tx", "tx-one")[0])
-	// The captured tx and its receipt share a hash. Use a different hash.
-	other = "0x" + strings.Repeat("12", 32)
+	// The captured tx and its receipt share a hash (txHash parses it, which
+	// also verifies the fixture); substitute a different hash.
+	_ = txHash(t, sampleResults(t, "block-receipt-tx", "tx-one")[0])
+	other := "0x" + strings.Repeat("12", 32)
 	_, err := admitReceipt(context.Background(), rpc.Request{Method: MethodGetTransactionReceipt, Params: []any{other}}, raw, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("err = %v, want ErrMalformedResponse", err)

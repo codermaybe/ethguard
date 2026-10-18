@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // TestPendingExtendedMethodsAreSelectedNotCorroborated extends R1 past the

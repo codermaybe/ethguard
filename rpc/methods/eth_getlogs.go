@@ -3,9 +3,9 @@ package methods
 import (
 	"context"
 	"encoding/json"
-	"ethguard/rpc"
-	"ethguard/rpc/internal/objects/log"
 	"fmt"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/objects/log"
 )
 
 // MethodGetLogs is the JSON-RPC method name resolved by LogsPolicy.

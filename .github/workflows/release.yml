@@ -1,0 +1,109 @@
+# EthGuard release
+#
+# Tag-driven. Cross-compiles the cmd/ tools (soak, rpcsample, shapeprobe,
+# specbundle, specdiff) for Linux amd64/arm64 and macOS arm64, produces
+# SHA-256 checksums, and attaches everything to a GitHub Release on the tag.
+#
+# The Go module itself is consumed via `go get`, which needs no release step;
+# binaries are shipped only so the cmd/ utilities can run without a toolchain.
+#
+# Publishing expectations (no action required, just awareness): pushing an
+# unmodified tag 且 without a GitHub Release makes the module visible to the
+# proxy with `unpublished` warning state; this workflow creates the Release
+# immediately, so the window is seconds. First tag on the repo is similarly
+# fine — the proxy treats it as a brand-new module path under /v0.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # apidiff needs the previous tagged module version to compare
+          # against; fetch history so the runner has it.
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # Same gates as CI so a hot-fix tag cannot skip them.
+      - name: gofmt / tidy / vet
+        run: |
+          test -z "$(gofmt -l .)"
+          go mod tidy -diff
+          go vet ./...
+      - name: smoke test (race)
+        run: go test -race ./...
+
+      # Public-surface guard, informed by the previous tag (v0 chain only):
+      # `ethguard` and `ethguard/ethadapter` are typed API promises; the
+      # command prints incompatible changes and fails the release on any.
+      # Only wired for major version zero, where INCOMPATIBLE reports can
+      # legitimately occur alongside minor bumps.
+      - name: apidiff vs previous tag
+        run: |
+          set -euo pipefail
+          go install golang.org/x/exp/cmd/apidiff@latest
+          prev_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [ -z "${prev_tag}" ]; then
+            echo "no previous tag; first release, skipping apidiff"
+            exit 0
+          fi
+          for pkg in . ethadapter; do
+            go run golang.org/x/exp/cmd/apidiff \
+              -pkg "${pkg}" \
+              -from "refs/tags/${prev_tag}" -to "HEAD" || {
+                echo "::error::INCOMPATIBLE public API change in ${pkg} since ${prev_tag}"
+                echo "If intended, bump the major path per Go module semver; if not, revert."
+                exit 1
+              }
+          done
+
+      - name: cross-compile
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for cmd in soak rpcsample shapeprobe specbundle specdiff; do
+            for platform in linux-amd64 linux-arm64 darwin-arm64; do
+              goos="${platform%%-*}"
+              goarch="${platform#*-}"
+              output="dist/${cmd}_${goos}_${goarch}"
+              if [ "${goos}" = "windows" ]; then
+                output="${output}.exe"
+              fi
+              GOOS="${goos}" GOARCH="${goarch}" \
+                go build -trimpath -ldflags="-s -w" \
+                -o "${output}" "./cmd/${cmd}"
+            done
+          done
+          cd dist
+          sha256sum ./* > checksums.sha256
+
+      # Fuzz sprint (P4): every tag burns ~5 min on the two untrusted-input
+      # packages (jsonsafe, wire). Deliberately NOT on push/PR — fuzzer cost
+      # is only justified at the release boundary.
+      - name: fuzz sprint (jsonsafe)
+        run: go test -race -fuzz=FuzzValidate -fuzztime=120s ./internal/jsonsafe/
+      - name: fuzz sprint (wire)
+        run: go test -race -fuzz=FuzzNormalize -fuzztime=120s ./rpc/internal/wire/
+
+      - name: publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          generate_release_notes: true

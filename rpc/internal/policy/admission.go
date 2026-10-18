@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // AdmissionFunc validates one source response and may return opaque

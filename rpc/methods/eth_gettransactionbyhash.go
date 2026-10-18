@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 
-	"ethguard/rpc"
-	"ethguard/rpc/internal/objects/transaction"
-	"ethguard/rpc/internal/policy"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
+	"github.com/codermaybe/ethguard/rpc/internal/policy"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodGetTransactionByHash is the JSON-RPC method name resolved by

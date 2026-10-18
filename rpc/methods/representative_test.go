@@ -10,8 +10,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
-	"ethguard/rpc"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 var errExecutionReverted = errors.New("execution reverted")

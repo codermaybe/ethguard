@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"ethguard/rpc"
-	blockobject "ethguard/rpc/internal/objects/block"
+	"github.com/codermaybe/ethguard/rpc"
+	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
 // MethodGetBlockByNumber is the JSON-RPC method name resolved by

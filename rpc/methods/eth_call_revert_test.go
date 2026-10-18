@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/internal/rpcsample/replay"
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestNormalizeCallOutcomeSeparatesRevertDataStates(t *testing.T) {

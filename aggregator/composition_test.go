@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"ethguard/pool"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 func TestDecoratedForwardContactsOneSourceAndAcceptsProtocolAnswer(t *testing.T) {

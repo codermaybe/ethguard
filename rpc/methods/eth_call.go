@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"ethguard/rpc"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodCall is the JSON-RPC method name resolved by CallPolicy.

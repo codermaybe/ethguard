@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestBlockNumberAndBlobBaseFeeLowerMedian(t *testing.T) {

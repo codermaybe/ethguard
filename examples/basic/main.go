@@ -10,8 +10,8 @@ import (
 	"log"
 	"time"
 
-	"ethguard/config"
-	"ethguard/ethadapter"
+	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethadapter"
 )
 
 func main() {

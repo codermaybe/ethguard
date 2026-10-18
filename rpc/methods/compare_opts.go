@@ -1,6 +1,6 @@
 package methods
 
-import "ethguard/rpc"
+import "github.com/codermaybe/ethguard/rpc"
 
 // compareOpts pins the coarse comparison-key class beside the normalizer.
 // WithRuleCompareKind is not read by Prepare, Normalize, or Resolve.

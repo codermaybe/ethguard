@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func pendingObs(values ...string) []rpc.Observation {

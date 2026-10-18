@@ -39,13 +39,13 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"ethguard"
-	"ethguard/config"
-	"ethguard/ethadapter"
-	"ethguard/internal/chainlist"
-	"ethguard/pool"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethadapter"
+	"github.com/codermaybe/ethguard/internal/chainlist"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Well-known, stable mainnet fixtures. These are observation targets, not

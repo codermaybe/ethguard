@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc"
-	accesslistobj "ethguard/rpc/internal/objects/accesslist"
-	feehistoryobj "ethguard/rpc/internal/objects/feehistory"
-	logobj "ethguard/rpc/internal/objects/log"
-	receiptobj "ethguard/rpc/internal/objects/receipt"
+	"github.com/codermaybe/ethguard/rpc"
+	accesslistobj "github.com/codermaybe/ethguard/rpc/internal/objects/accesslist"
+	feehistoryobj "github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
+	logobj "github.com/codermaybe/ethguard/rpc/internal/objects/log"
+	receiptobj "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
 )
 
 // admissionCase is everything a method must satisfy once it is admitted to

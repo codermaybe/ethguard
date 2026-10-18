@@ -1,7 +1,7 @@
 package methods
 
 import (
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // MethodSyncing is the JSON-RPC method name resolved by SyncingPolicy.

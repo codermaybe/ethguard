@@ -3,9 +3,9 @@ package methods
 import (
 	"encoding/json"
 
-	"ethguard/rpc"
-	accesslist "ethguard/rpc/internal/objects/accesslist"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc"
+	accesslist "github.com/codermaybe/ethguard/rpc/internal/objects/accesslist"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodCreateAccessList is the JSON-RPC method name resolved by

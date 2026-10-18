@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/rpc"
-	accesslist "ethguard/rpc/internal/objects/accesslist"
+	"github.com/codermaybe/ethguard/rpc"
+	accesslist "github.com/codermaybe/ethguard/rpc/internal/objects/accesslist"
 )
 
 const (

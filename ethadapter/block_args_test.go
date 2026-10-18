@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	"ethguard"
+	"github.com/codermaybe/ethguard"
 )
 
 func TestBlockNumberArgumentMatchesGethTags(t *testing.T) {

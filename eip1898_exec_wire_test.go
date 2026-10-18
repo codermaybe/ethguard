@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"ethguard"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 func TestEstimateAndAccessListObjectsOnTheWire(t *testing.T) {

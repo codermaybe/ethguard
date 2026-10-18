@@ -5,7 +5,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"ethguard/internal/spec"
+	"github.com/codermaybe/ethguard/internal/spec"
 )
 
 func TestEmbeddedExecutionAPIVectors(t *testing.T) {

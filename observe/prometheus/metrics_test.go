@@ -9,7 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"ethguard/observe"
+	"github.com/codermaybe/ethguard/observe"
 )
 
 func TestRecordDecisionPopulatesFamilies(t *testing.T) {

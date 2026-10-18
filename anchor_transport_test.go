@@ -15,10 +15,10 @@ import (
 
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
-	"ethguard"
-	"ethguard/config"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Anchor transport tests pin the production seam: HTTP and WSS are both dialed

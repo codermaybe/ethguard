@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"ethguard/internal/jsonsafe"
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
 )
 
 // CanonicalJSON reduces any JSON value to a comparable canonical form by

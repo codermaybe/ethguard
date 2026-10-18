@@ -6,8 +6,8 @@ import (
 	"sort"
 	"sync"
 
-	"ethguard/internal/spec"
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/internal/spec"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // MaskNode is a whitelist tree compiled from the official execution-apis

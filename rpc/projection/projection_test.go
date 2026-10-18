@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestProjectStandardSeparatesCoreExtensionsAndMissing(t *testing.T) {

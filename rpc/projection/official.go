@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"ethguard/internal/spec"
+	"github.com/codermaybe/ethguard/internal/spec"
 )
 
 var officialFields = struct {

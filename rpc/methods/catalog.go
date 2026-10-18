@@ -3,7 +3,7 @@ package methods
 import (
 	"fmt"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // MethodKind describes how a JSON-RPC method is exposed by EthGuard.  A

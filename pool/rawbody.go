@@ -57,7 +57,9 @@ func (t capturingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		return resp, nil
 	}
 	raw, readErr := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	// The read already captured the outcome; a close error here carries no
+	// additional decision, so it is dropped deliberately.
+	_ = resp.Body.Close()
 	if readErr != nil {
 		return nil, readErr
 	}

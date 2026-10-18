@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"ethguard"
-	"ethguard/rpc/methods"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // TestBlockByNumberRejectsPendingLocally locks the typed -1 contract:

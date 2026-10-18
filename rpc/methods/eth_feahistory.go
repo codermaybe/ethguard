@@ -3,9 +3,9 @@ package methods
 import (
 	"context"
 	"encoding/json"
-	"ethguard/rpc"
-	"ethguard/rpc/internal/objects/feehistory"
 	"fmt"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 	"math"
 	"math/big"
 	"reflect"

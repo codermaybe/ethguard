@@ -2,6 +2,7 @@ package pool
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -25,8 +26,8 @@ func TestPreserveErrorDataDistinguishesMissingAndNull(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := preserveErrorData(rawBodyTestRPCError{code: 3}, []byte(tc.body))
-			preserved, ok := err.(*preservedDataError)
-			if !ok {
+			var preserved *preservedDataError
+			if !errors.As(err, &preserved) {
 				t.Fatalf("error type = %T, want preservedDataError", err)
 			}
 			got, gotPresent := preserved.ErrorDataJSON()

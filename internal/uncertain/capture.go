@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 const (

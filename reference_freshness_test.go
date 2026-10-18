@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 func TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestEstimateGasObjectForms(t *testing.T) {

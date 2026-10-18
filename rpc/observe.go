@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"ethguard/internal/jsonsafe"
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
 )
 
 // FieldObservation is one JSON path/value pair observed from one or more

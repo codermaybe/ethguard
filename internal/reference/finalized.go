@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"ethguard/internal/refcontext"
-	"ethguard/observe"
-	"ethguard/pool"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/observe"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 type view struct {

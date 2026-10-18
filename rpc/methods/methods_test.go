@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"ethguard/rpc"
-	"ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 func TestStateReadPoliciesPinMovingTagsAndPreserveExplicitReferences(t *testing.T) {

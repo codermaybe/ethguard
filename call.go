@@ -11,8 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
-	"ethguard/internal/jsonsafe"
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // Call forwards or aggregates an arbitrary JSON-RPC method according to the

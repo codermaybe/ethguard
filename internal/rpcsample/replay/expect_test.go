@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"ethguard/internal/refcontext"
-	"ethguard/internal/rpcsample"
-	"ethguard/internal/rpcsample/replay"
-	"ethguard/rpc"
-	"ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/internal/rpcsample"
+	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // expectSchemaV1 is the golden data format. The file pins a request, the
@@ -447,11 +447,6 @@ func sameRequest(records []rpcsample.Record) (json.RawMessage, error) {
 		}
 	}
 	return json.RawMessage(first), nil
-}
-
-func payloadMatches(t *testing.T, value json.RawMessage, payloads []json.RawMessage) bool {
-	t.Helper()
-	return projectionMatches(t, value, payloads, nil)
 }
 
 // replayValueAgrees keeps the source-payload check for unmigrated methods and

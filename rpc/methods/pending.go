@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // PendingLocal decorates a default-block policy with method-specific pending

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"ethguard/internal/rpcsample"
+	"github.com/codermaybe/ethguard/internal/rpcsample"
 )
 
 // EIP-1898 object samples live in testdata, not in rpctest and not inline in

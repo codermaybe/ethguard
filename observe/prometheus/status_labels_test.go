@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"ethguard/aggregator"
-	"ethguard/pool"
-	"ethguard/rpc"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 func TestDocumentedDecisionStatusLabelsMatchEmissions(t *testing.T) {

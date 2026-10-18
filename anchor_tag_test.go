@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"ethguard"
-	"ethguard/rpctest"
+	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // TestAnchorBlockHashForTagKeepsTagLevels pins the D5 adapter seam at the
