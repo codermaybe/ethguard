@@ -196,7 +196,7 @@ func referenceContext(tag string) map[string]BatchReferenceContext {
 }
 
 func TestBatchMetaHistoryCompatibility(t *testing.T) {
-	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object"} {
+	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local"} {
 		t.Run(feature, func(t *testing.T) {
 			meta, err := LoadBatchMeta(batchDir(feature))
 			if err != nil {

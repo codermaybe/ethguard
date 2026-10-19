@@ -34,8 +34,17 @@ func TestEIP1898ObjectBatchMatchesExpect(t *testing.T) {
 	}
 }
 
+// TestReadLocalBatchMatchesExpect runs the read-local batch's own expect
+// replay entry. Without this entry the expect.json would exist but never be
+// executed (capture-tasks.md T1.5).
+func TestReadLocalBatchMatchesExpect(t *testing.T) {
+	if err := matchCapturedExpect(t, "read-local"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCapturedExpectTamperProducesReviewableDiff(t *testing.T) {
-	for _, feature := range []string{"block-receipt-tx", "eip1898-object"} {
+	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local"} {
 		t.Run(feature, func(t *testing.T) {
 			dir := batchDir(feature)
 			raw, err := os.ReadFile(filepath.Join(dir, "expect.json"))
@@ -94,7 +103,7 @@ func TestCapturedExpectTamperProducesReviewableDiff(t *testing.T) {
 }
 
 func TestCapturedExpectTransportRejectsWSS(t *testing.T) {
-	for _, feature := range []string{"block-receipt-tx", "eip1898-object"} {
+	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local"} {
 		err := validateExpectHeader(feature, "2026-09-23", expectFile{
 			SchemaVersion: expectSchemaV1,
 			BatchID:       "2026-09-23",
@@ -113,7 +122,7 @@ func TestCapturedExpectTransportRejectsWSS(t *testing.T) {
 // expect.json; a synthetic body must not be described as a provider capture.
 func TestRegisteredMethodSampleStatus(t *testing.T) {
 	archived := map[string]string{}
-	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object"} {
+	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local"} {
 		_, records, err := replay.LoadBatch(batchDir(feature))
 		if err != nil {
 			t.Fatal(err)
@@ -125,15 +134,10 @@ func TestRegisteredMethodSampleStatus(t *testing.T) {
 	noCapture := map[string]bool{
 		methods.MethodGetLogs:              true,
 		methods.MethodFeeHistory:           true,
-		methods.MethodChainID:              true,
-		methods.MethodNetVersion:           true,
 		methods.MethodGasPrice:             true,
 		methods.MethodMaxPriorityFeePerGas: true,
 		methods.MethodBlobBaseFee:          true,
-		methods.MethodBlockNumber:          true,
 		methods.MethodSyncing:              true,
-		methods.MethodPeerCount:            true,
-		methods.MethodListening:            true,
 	}
 	for _, name := range methods.RegisteredNames() {
 		feature, has := archived[name]

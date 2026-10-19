@@ -1,0 +1,13 @@
+{
+  "schema_version": "ethguard.batch/v1",
+  "batch_id": "2026-10-19",
+  "feature": "read-local",
+  "captured_at": "2026-10-18T16:50:18Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "block_height": null,
+  "web3_client_version": null,
+  "note": "Group 1 of the uncaptured-read-method batches (capture-tasks.md stage 1): eth_chainId, net_version, eth_blockNumber, net_peerCount, net_listening over three mainnet HTTPS endpoints (publicnode, drpc, 1rpc), chain ID 0x1 verified per source before the single capture run. No block-reference parameters, so no anchor evidence was recorded and reference_context is absent. Only HTTP transport is captured; no WSS variant exists for this batch."
+}

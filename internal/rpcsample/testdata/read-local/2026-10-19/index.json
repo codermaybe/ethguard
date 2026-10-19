@@ -1,0 +1,131 @@
+{
+  "schema": "ethguard.rpc-sample-index/v1",
+  "plan_schema": "ethguard.rpc-sample-plan/v1",
+  "generated_at": "2026-10-18T16:50:18.983009698Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "records": [
+    {
+      "request_id": "chain-id",
+      "method": "eth_chainId",
+      "source_id": "s1",
+      "observed_at": "2026-10-18T16:50:18.98300998Z",
+      "file": "records/chain-id--s1.json",
+      "sha256": "b033257816b2c558fbe385382a5609a8fed0fa68a4cc30c8a71be737bb70121c"
+    },
+    {
+      "request_id": "chain-id",
+      "method": "eth_chainId",
+      "source_id": "s2",
+      "observed_at": "2026-10-18T16:50:19.154184622Z",
+      "file": "records/chain-id--s2.json",
+      "sha256": "82e974e86ccfa3de0c5f7042e4e19f5f74879deb0a78241ec3ebb8cfc0fd8b67"
+    },
+    {
+      "request_id": "chain-id",
+      "method": "eth_chainId",
+      "source_id": "s3",
+      "observed_at": "2026-10-18T16:50:19.293991481Z",
+      "file": "records/chain-id--s3.json",
+      "sha256": "dd2dcf06169025e84cbe450c402122c05cc8f5add9d82f394ee7a8c52df857bf"
+    },
+    {
+      "request_id": "net-version",
+      "method": "net_version",
+      "source_id": "s1",
+      "observed_at": "2026-10-18T16:50:19.694141286Z",
+      "file": "records/net-version--s1.json",
+      "sha256": "35a2f0902258add1f04201d481cb2d57f075a8ca341f60544c4642ac3c8a2705"
+    },
+    {
+      "request_id": "net-version",
+      "method": "net_version",
+      "source_id": "s2",
+      "observed_at": "2026-10-18T16:50:19.791913057Z",
+      "file": "records/net-version--s2.json",
+      "sha256": "8c893c4d0cbba7ad5c0975ea593970d1c0fed6f815273a148ce2255fefc6fc87"
+    },
+    {
+      "request_id": "net-version",
+      "method": "net_version",
+      "source_id": "s3",
+      "observed_at": "2026-10-18T16:50:19.872166256Z",
+      "file": "records/net-version--s3.json",
+      "sha256": "e489f1d0bc9e28c3b2fdd5c785f37aa2509cca9cdc9cbf9bcf508405e7bff1bc"
+    },
+    {
+      "request_id": "block-number",
+      "method": "eth_blockNumber",
+      "source_id": "s1",
+      "observed_at": "2026-10-18T16:50:20.146587253Z",
+      "file": "records/block-number--s1.json",
+      "sha256": "39792960331bba3ab8c7f7c7cf12b7c14aa92a9fc1e31d6cdd4a07984fd4a710"
+    },
+    {
+      "request_id": "block-number",
+      "method": "eth_blockNumber",
+      "source_id": "s2",
+      "observed_at": "2026-10-18T16:50:20.243107413Z",
+      "file": "records/block-number--s2.json",
+      "sha256": "68d751b485c3350bf6b3cdd5073e99fd261431c0e03df4536f0d0c52545e78c2"
+    },
+    {
+      "request_id": "block-number",
+      "method": "eth_blockNumber",
+      "source_id": "s3",
+      "observed_at": "2026-10-18T16:50:20.324545003Z",
+      "file": "records/block-number--s3.json",
+      "sha256": "672c8e6933b8ddd28dcc101c000e9a19b4a3909a801a1b0003c46992eb795404"
+    },
+    {
+      "request_id": "peer-count",
+      "method": "net_peerCount",
+      "source_id": "s1",
+      "observed_at": "2026-10-18T16:50:20.647506189Z",
+      "file": "records/peer-count--s1.json",
+      "sha256": "5a8ac4e609c59c6b9cb2cd148b43512f2a2fa6e04fa08de2afe5c814d47b8bbf"
+    },
+    {
+      "request_id": "peer-count",
+      "method": "net_peerCount",
+      "source_id": "s2",
+      "observed_at": "2026-10-18T16:50:20.7437619Z",
+      "file": "records/peer-count--s2.json",
+      "sha256": "f8e4625c26cde02135058d642e19a2a99e52ac4d4e30e1817c2d2ebf3484df6b"
+    },
+    {
+      "request_id": "peer-count",
+      "method": "net_peerCount",
+      "source_id": "s3",
+      "observed_at": "2026-10-18T16:50:20.826227372Z",
+      "file": "records/peer-count--s3.json",
+      "sha256": "b13bb8acef738f8ebaf0f6c3af93faf980613a5ece30145040bd0bebebaea9b9"
+    },
+    {
+      "request_id": "listening",
+      "method": "net_listening",
+      "source_id": "s1",
+      "observed_at": "2026-10-18T16:50:21.138123803Z",
+      "file": "records/listening--s1.json",
+      "sha256": "0f84a110df45f3222059dff60503c56916553ff08088b67f3ff32f4c44c02411"
+    },
+    {
+      "request_id": "listening",
+      "method": "net_listening",
+      "source_id": "s2",
+      "observed_at": "2026-10-18T16:50:21.23704467Z",
+      "file": "records/listening--s2.json",
+      "sha256": "5387ebb92f8b09a5e59119735f9186cff1872ef15cb18ddc3e8f52a89538bac0"
+    },
+    {
+      "request_id": "listening",
+      "method": "net_listening",
+      "source_id": "s3",
+      "observed_at": "2026-10-18T16:50:21.326269724Z",
+      "file": "records/listening--s3.json",
+      "sha256": "b473b862bf55b6d901fda1317c09b5e0f41a9c69adb772cb028639e06355351a"
+    }
+  ]
+}

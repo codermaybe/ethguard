@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-18T16:50:21.326269724Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s3",
+    "endpoint": "https://1rpc.io"
+  },
+  "request_id": "listening",
+  "method": "net_listening",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"net_listening\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":5,\"result\":true}"
+  }
+}

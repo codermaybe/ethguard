@@ -1,0 +1,288 @@
+{
+  "schema_version": "ethguard.expect/v1",
+  "batch_id": "2026-10-19",
+  "feature": "read-local",
+  "transport": "http",
+  "cases": [
+    {
+      "request_id": "chain-id",
+      "method": "eth_chainId",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_chainId",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "1",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "1",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s3",
+          "comparison_key": "1",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2",
+            "s3"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": "",
+        "representative": {
+          "id": "s1",
+          "ordinal": 0
+        }
+      }
+    },
+    {
+      "request_id": "net-version",
+      "method": "net_version",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "net_version",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "1",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "1",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s3",
+          "comparison_key": "1",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2",
+            "s3"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "corroborated",
+        "error": "",
+        "representative": {
+          "id": "s1",
+          "ordinal": 0
+        }
+      }
+    },
+    {
+      "request_id": "block-number",
+      "method": "eth_blockNumber",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "eth_blockNumber",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "26220751",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "26220751",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s3",
+          "comparison_key": "26220751",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2",
+            "s3"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "selected",
+        "error": "",
+        "representative": {
+          "id": "s1",
+          "ordinal": 0
+        }
+      }
+    },
+    {
+      "request_id": "peer-count",
+      "method": "net_peerCount",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "net_peerCount",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "43",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "42",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s3",
+          "comparison_key": "40",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "selected",
+        "error": "",
+        "representative": null
+      }
+    },
+    {
+      "request_id": "listening",
+      "method": "net_listening",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "net_listening",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "true",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "true",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s3",
+          "comparison_key": "true",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "selected",
+        "error": "",
+        "representative": null
+      }
+    }
+  ]
+}

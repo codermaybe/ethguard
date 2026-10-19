@@ -10,12 +10,31 @@ const (
 	sampleBatchID = "2026-09-23"
 )
 
+// featureBatchIDs pins each capture feature's authoritative batch id. The
+// three historical batches keep sampleBatchID; a new capture batch adds its
+// own entry here and never moves sampleBatchID, which would repoint the
+// historical batches. This map is the authoritative feature↔batch-id
+// correspondence (capture-golden-contract §4.0).
+var featureBatchIDs = map[string]string{
+	"read-local": "2026-10-19",
+}
+
+func featureBatchID(feature string) string {
+	if id, ok := featureBatchIDs[feature]; ok {
+		return id
+	}
+	return sampleBatchID
+}
+
 func batchDir(feature string) string {
+	if id, ok := featureBatchIDs[feature]; ok {
+		return filepath.Join("..", "testdata", feature, id)
+	}
 	return filepath.Join("..", "testdata", feature, sampleBatchID)
 }
 
 func TestLoadBatchVerifiesRecordSHA256(t *testing.T) {
-	for _, name := range []string{"revert-data", "block-receipt-tx", "eip1898-object"} {
+	for _, name := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local"} {
 		t.Run(name, func(t *testing.T) {
 			index, records, err := LoadBatch(batchDir(name))
 			if err != nil {
@@ -59,7 +78,7 @@ func TestLoadBatchRejectsChangedRecordBytes(t *testing.T) {
 }
 
 func TestBatchLayoutKeepsIndexAndExpect(t *testing.T) {
-	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object"} {
+	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local"} {
 		t.Run(feature, func(t *testing.T) {
 			dir := batchDir(feature)
 			if _, records, err := LoadBatch(dir); err != nil || len(records) == 0 {
@@ -69,7 +88,7 @@ func TestBatchLayoutKeepsIndexAndExpect(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if meta.BatchID != sampleBatchID || meta.Feature != feature {
+			if meta.BatchID != featureBatchID(feature) || meta.Feature != feature {
 				t.Fatalf("batch header = %+v", meta)
 			}
 			if meta.CapturedAt == "" || meta.Network.ChainID != 1 || meta.Network.Fork == "" || meta.Note == "" {

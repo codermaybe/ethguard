@@ -30,7 +30,18 @@ const replayFinalizedHash = "0xccccccccccccccccccccccccccccccccccccccccccccccccc
 
 const sampleBatchID = "2026-09-23"
 
+// featureBatchIDs pins each capture feature's authoritative batch id, in the
+// same correspondence as the package-replay copy in replay_test.go. The three
+// historical batches keep sampleBatchID; a new capture batch adds its own
+// entry and never moves sampleBatchID (capture-golden-contract §4.0).
+var featureBatchIDs = map[string]string{
+	"read-local": "2026-10-19",
+}
+
 func batchDir(feature string) string {
+	if id, ok := featureBatchIDs[feature]; ok {
+		return filepath.Join("..", "testdata", feature, id)
+	}
 	return filepath.Join("..", "testdata", feature, sampleBatchID)
 }
 
