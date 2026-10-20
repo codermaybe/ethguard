@@ -1,0 +1,34 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-20T17:50:54.089872765Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s3",
+    "endpoint": "https://1rpc.io"
+  },
+  "request_id": "fee-safe",
+  "method": "eth_feeHistory",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"eth_feeHistory\",\"params\":[2,\"0x19051d1\",[25,50,75]]}",
+  "response": {
+    "http_status": 410,
+    "content_type": "application/json",
+    "body": "{\"error\":\"This endpoint has been discontinued.\",\"message\":\"For an up to date list of available endpoints, visit https://gateway.lavanet.xyz\"}"
+  },
+  "errors": [
+    {
+      "kind": "http",
+      "message": "410 Gone"
+    },
+    {
+      "kind": "protocol",
+      "message": "missing or unsupported jsonrpc version"
+    },
+    {
+      "kind": "jsonrpc",
+      "message": "response contains a JSON-RPC error"
+    }
+  ]
+}

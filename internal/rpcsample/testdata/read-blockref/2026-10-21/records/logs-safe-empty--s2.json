@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-20T17:50:33.712476076Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s2",
+    "endpoint": "https://eth.drpc.org"
+  },
+  "request_id": "logs-safe-empty",
+  "method": "eth_getLogs",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0000000000000000000000000000000000000001\",\"fromBlock\":\"0x19051d1\",\"toBlock\":\"0x19051d1\"}]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"id\":4,\"jsonrpc\":\"2.0\",\"result\":[]}"
+  }
+}

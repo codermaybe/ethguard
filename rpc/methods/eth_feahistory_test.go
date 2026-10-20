@@ -61,6 +61,9 @@ func TestFeeHistoryRequestValidatesTypedAndRawInputs(t *testing.T) {
 	if err := validateFeeHistoryRequest(rpc.Request{Params: []any{"0x2", "latest", []any{float64(0), float64(50)}}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := validateFeeHistoryRequest(rpc.Request{Params: []any{json.Number("2"), "latest", []any{json.Number("0.5")}}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := validateFeeHistoryRequest(rpc.Request{Params: []any{uint64(0), "latest", nil}}); !errors.Is(err, rpc.ErrInvalidRequest) {
 		t.Fatalf("expected invalid zero count, got %v", err)
 	}

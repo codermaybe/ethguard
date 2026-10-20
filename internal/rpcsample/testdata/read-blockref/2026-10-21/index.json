@@ -1,0 +1,298 @@
+{
+  "schema": "ethguard.rpc-sample-index/v1",
+  "plan_schema": "ethguard.rpc-sample-plan/v1",
+  "generated_at": "2026-10-20T17:50:18.621519135Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "records": [
+    {
+      "request_id": "ref-safe",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:18.621519383Z",
+      "file": "records/ref-safe--s1.json",
+      "sha256": "527d10b65317e5a912c888455e23bc91e736385f2fc206a9233a81df6edd9970"
+    },
+    {
+      "request_id": "ref-safe",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:50:19.988158913Z",
+      "file": "records/ref-safe--s2.json",
+      "sha256": "643f8c59cefa9da053a958483112df2fb7680efef2f8a9d3fb9dc80e17577bdd"
+    },
+    {
+      "request_id": "ref-safe",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:50:21.485930363Z",
+      "file": "records/ref-safe--s3.json",
+      "sha256": "8187dabdffacefa35ee802591fc14997f653c7cf8bade96786b16f703477d5ab"
+    },
+    {
+      "request_id": "ref-finalized",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:23.215327146Z",
+      "file": "records/ref-finalized--s1.json",
+      "sha256": "edbf1e061e2e4124120f4b9850f4b9d6ade4da97ba7e2874133d8feb74a44e5f"
+    },
+    {
+      "request_id": "ref-finalized",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:50:24.516250569Z",
+      "file": "records/ref-finalized--s2.json",
+      "sha256": "c9426efb4f38148cea02feeb962396c4cb19fafeb46d979c014b69c4df5cb641"
+    },
+    {
+      "request_id": "ref-finalized",
+      "method": "eth_getBlockByNumber",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:50:25.959121454Z",
+      "file": "records/ref-finalized--s3.json",
+      "sha256": "0e3796e58f2081f37782e5b7f84c9c117b84e8cc0f69d8f38c1e071fe8508e9f"
+    },
+    {
+      "request_id": "logs-safe-nonempty",
+      "method": "eth_getLogs",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:27.446834131Z",
+      "file": "records/logs-safe-nonempty--s1.json",
+      "sha256": "769e6a2728349a5a329fb19adc4f71684934675f0438a1f4dbce07fa931dea92"
+    },
+    {
+      "request_id": "logs-safe-nonempty",
+      "method": "eth_getLogs",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:50:29.009159311Z",
+      "file": "records/logs-safe-nonempty--s2.json",
+      "sha256": "edebce17d3b35fcb4150ba8e094ecddae351f21d049043ff0705a2fe9c80074a"
+    },
+    {
+      "request_id": "logs-safe-nonempty",
+      "method": "eth_getLogs",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:50:30.532346501Z",
+      "file": "records/logs-safe-nonempty--s3.json",
+      "sha256": "c5e955c4997c16069db7824e4b3abf405a5f27c78a30ed98db12555f7d2c6eb9",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "logs-safe-empty",
+      "method": "eth_getLogs",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:32.185544299Z",
+      "file": "records/logs-safe-empty--s1.json",
+      "sha256": "02d843b25796777f85522e50dfb95c78473fcaf8bc4a9ab5ae6ffcd7ea4220b6"
+    },
+    {
+      "request_id": "logs-safe-empty",
+      "method": "eth_getLogs",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:50:33.712476076Z",
+      "file": "records/logs-safe-empty--s2.json",
+      "sha256": "7adecfb95308ed6b5b295b4577940ec4bd5056deb796e85d7a477fd4ffaa9eae"
+    },
+    {
+      "request_id": "logs-safe-empty",
+      "method": "eth_getLogs",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:50:35.384839374Z",
+      "file": "records/logs-safe-empty--s3.json",
+      "sha256": "15e44d0bbe2fa8f2a14d2d80c18a51261ee55b2df63f9be947c484c80a5d396a",
+      "error_kinds": [
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "logs-finalized-nonempty",
+      "method": "eth_getLogs",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:36.90578405Z",
+      "file": "records/logs-finalized-nonempty--s1.json",
+      "sha256": "7d0bcbfd8f4acd9f6d374ac5907d6fd238e792fc19febf7a648fb01392b37d23"
+    },
+    {
+      "request_id": "logs-finalized-nonempty",
+      "method": "eth_getLogs",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:50:38.424922217Z",
+      "file": "records/logs-finalized-nonempty--s2.json",
+      "sha256": "fcc2778202be493389bce5cf03c84bac9c005fad87b22ef8ead62a51dfdab5b7"
+    },
+    {
+      "request_id": "logs-finalized-nonempty",
+      "method": "eth_getLogs",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:50:39.861685743Z",
+      "file": "records/logs-finalized-nonempty--s3.json",
+      "sha256": "936cc03e77a5ac650430d889445ddb97a90f3038dc77522fed2d788e7a1d87b4"
+    },
+    {
+      "request_id": "logs-finalized-empty",
+      "method": "eth_getLogs",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:41.642257713Z",
+      "file": "records/logs-finalized-empty--s1.json",
+      "sha256": "8410de001ce16bd7d8408319e20b6735ecf686eaa70f740eb95a8f7b5734f319"
+    },
+    {
+      "request_id": "logs-finalized-empty",
+      "method": "eth_getLogs",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:50:43.16236905Z",
+      "file": "records/logs-finalized-empty--s2.json",
+      "sha256": "1ae4aefa77275dd1f66e079804cdfdbd94a57ba9bb917ae6851647b2cb2bcdad"
+    },
+    {
+      "request_id": "logs-finalized-empty",
+      "method": "eth_getLogs",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:50:44.919816515Z",
+      "file": "records/logs-finalized-empty--s3.json",
+      "sha256": "02a1688477a0cef0f993f276db3d62c0645b6645786b6403679cebdba8029578"
+    },
+    {
+      "request_id": "logs-safe-hash",
+      "method": "eth_getLogs",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:46.597836223Z",
+      "file": "records/logs-safe-hash--s1.json",
+      "sha256": "5339282b30de9c023b47e474c59dbc61cb054e2fe617f9a197cb8018ae1833ce"
+    },
+    {
+      "request_id": "logs-safe-hash",
+      "method": "eth_getLogs",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:50:48.122507362Z",
+      "file": "records/logs-safe-hash--s2.json",
+      "sha256": "3dd17dfba76d82f8e4488f65e6303775edf3942cb5e582164ccb1a98464c7173"
+    },
+    {
+      "request_id": "logs-safe-hash",
+      "method": "eth_getLogs",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:50:49.582188966Z",
+      "file": "records/logs-safe-hash--s3.json",
+      "sha256": "941122cf93676a97ca33bc5d15900e2372e28133438ccabe217f5db9fdf567c8"
+    },
+    {
+      "request_id": "fee-safe",
+      "method": "eth_feeHistory",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:51.361298822Z",
+      "file": "records/fee-safe--s1.json",
+      "sha256": "6710e562e095a03cba56ca5207891b7bec44c5282f9e60867dce59dc95b8b041"
+    },
+    {
+      "request_id": "fee-safe",
+      "method": "eth_feeHistory",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:50:52.653498218Z",
+      "file": "records/fee-safe--s2.json",
+      "sha256": "88395a020634e368fbbaf4893da17e1a8266ea0a692b63eb58d4c7462cc4de6e"
+    },
+    {
+      "request_id": "fee-safe",
+      "method": "eth_feeHistory",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:50:54.089872765Z",
+      "file": "records/fee-safe--s3.json",
+      "sha256": "186f95000f3921724227884fa23ccd584a387c596bf5ff5f3f72815b4d40e089",
+      "error_kinds": [
+        "http",
+        "protocol",
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "fee-finalized",
+      "method": "eth_feeHistory",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:55.633928876Z",
+      "file": "records/fee-finalized--s1.json",
+      "sha256": "2f849ac99378fbe2518d0e007a46e17af87280f40695c6fcf82957635b83b5ec"
+    },
+    {
+      "request_id": "fee-finalized",
+      "method": "eth_feeHistory",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:50:56.945694397Z",
+      "file": "records/fee-finalized--s2.json",
+      "sha256": "7bcc3407b9b89c8347d907be3e674bcc3ae53d19a66666eb3f1b4df14ab6a46f"
+    },
+    {
+      "request_id": "fee-finalized",
+      "method": "eth_feeHistory",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:50:58.399790222Z",
+      "file": "records/fee-finalized--s3.json",
+      "sha256": "e241cfebe74460a6cb2cbec88f73b8c1102d20f327c1feab7958e981894ea075"
+    },
+    {
+      "request_id": "fee-finalized-noPct",
+      "method": "eth_feeHistory",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:50:59.915179778Z",
+      "file": "records/fee-finalized-noPct--s1.json",
+      "sha256": "8b931cad57c7ddcc7c22c95f9680c2e9045f9bb8ee06fcbbfbb635d50fd75b1d"
+    },
+    {
+      "request_id": "fee-finalized-noPct",
+      "method": "eth_feeHistory",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:51:01.536859982Z",
+      "file": "records/fee-finalized-noPct--s2.json",
+      "sha256": "d276ceace7497d6118c14e05f74616ba04d5dc9700d3e4d066c5c5e5c517b954"
+    },
+    {
+      "request_id": "fee-finalized-noPct",
+      "method": "eth_feeHistory",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:51:02.976137076Z",
+      "file": "records/fee-finalized-noPct--s3.json",
+      "sha256": "053c1e208a8736622cdd7f51b9d132e0d809d7b32c9bb520d618f944e2b9307d",
+      "error_kinds": [
+        "http",
+        "malformed_json"
+      ]
+    },
+    {
+      "request_id": "fee-short",
+      "method": "eth_feeHistory",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:51:04.62071756Z",
+      "file": "records/fee-short--s1.json",
+      "sha256": "4ecd4c7a5dfbce28ee47618662a3b5dd47a42c0a86046359a0ed484b0d41fca2",
+      "error_kinds": [
+        "http",
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "fee-short",
+      "method": "eth_feeHistory",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:51:05.912380974Z",
+      "file": "records/fee-short--s2.json",
+      "sha256": "e2fd78c891139252f4aca2a51ba7fd3e2169a3afc921a3c71b98bdfb45846dea"
+    },
+    {
+      "request_id": "fee-short",
+      "method": "eth_feeHistory",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:51:07.350174525Z",
+      "file": "records/fee-short--s3.json",
+      "sha256": "94ae2a799e68aeeca42c89b3a7baf862e05ddca7d7b67dfe358252cf92f809a8",
+      "error_kinds": [
+        "http",
+        "jsonrpc"
+      ]
+    }
+  ]
+}

@@ -37,6 +37,7 @@ const sampleBatchID = "2026-09-23"
 var featureBatchIDs = map[string]string{
 	"read-local":    "2026-10-19",
 	"read-volatile": "2026-10-21",
+	"read-blockref": "2026-10-21",
 }
 
 func batchDir(feature string) string {
@@ -370,15 +371,21 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobo
 	if corrob != nil {
 		opts = append(opts, aggregator.WithCorroboration(corrob))
 	}
-	resolver := ethguard.NewStrictHeadAnchor(sources, observe.Nop)
+	strictHead := ethguard.NewStrictHeadAnchor(sources, observe.Nop)
+	// safe/finalized use the production finalized-anchoring path: a strict
+	// majority for safe and reference.Finalized for finalized. The legacy
+	// strict anchor requires every valid head to agree, which would reject a
+	// lagging source before the business policy's majority snapshot is applied.
+	finalizedHead := ethguard.NewFinalizedHeadAnchor(sources, observe.Nop)
 	reference := func(ctx context.Context) (rpc.ReferenceEvidence, error) {
 		tag := rpc.AnchorTag(ctx)
 		var ref rpc.ReferenceEvidence
 		var err error
-		if tag != "" && tag != "latest" {
-			ref, err = resolver.AnchorReferenceForTag(ctx, tag)
-		} else {
-			ref, err = resolver.AnchorReference(ctx)
+		switch tag {
+		case "safe", "finalized":
+			ref, err = finalizedHead.AnchorReferenceForTag(ctx, tag)
+		default:
+			ref, err = strictHead.AnchorReference(ctx)
 		}
 		ref.Tag = tag
 		refcontext.Publish(ctx, ref)
@@ -462,7 +469,14 @@ func scriptRecord(t *testing.T, node *rpctest.Node, record rpcsample.Record) {
 	}
 	isError, body, err := replay.BodyOf(record)
 	if err != nil {
-		t.Fatal(err)
+		// Non-JSON bodies are real transport/protocol failures (for example
+		// an HTML 429 page). Replay the status, not a fabricated JSON error.
+		if record.Response.HTTPStatus >= 400 {
+			node.FailHTTP(record.Method, record.Response.HTTPStatus)
+			return
+		}
+		node.Fail(record.Method, -32603, "non-JSON response body")
+		return
 	}
 	var doc struct {
 		Result json.RawMessage `json:"result"`
@@ -475,8 +489,18 @@ func scriptRecord(t *testing.T, node *rpctest.Node, record rpcsample.Record) {
 		node.ReturnRaw(record.Method, doc.Result)
 		return
 	}
-	code, message, data, present := errorParts(t, doc.Error)
-	node.FailWithData(record.Method, code, message, data, present)
+	if code, message, data, present, ok := errorObject(doc.Error); ok {
+		node.FailWithData(record.Method, code, message, data, present)
+		return
+	}
+	// Some providers return a non-object error body (for example a plain
+	// string). Replay it as a transport/protocol failure rather than
+	// pretending it is a JSON-RPC error with a code and message.
+	if record.Response.HTTPStatus >= 400 {
+		node.FailHTTP(record.Method, record.Response.HTTPStatus)
+		return
+	}
+	node.Fail(record.Method, -32603, "non-object error body")
 }
 
 func observationFromRecord(t *testing.T, record rpcsample.Record) rpc.Observation {
@@ -487,7 +511,7 @@ func observationFromRecord(t *testing.T, record rpcsample.Record) rpc.Observatio
 	}
 	isError, body, err := replay.BodyOf(record)
 	if err != nil {
-		t.Fatal(err)
+		return rpc.Observation{Source: source, Err: errors.New("non-JSON response body")}
 	}
 	var doc struct {
 		Result json.RawMessage `json:"result"`
@@ -527,7 +551,13 @@ func transportFault(record rpcsample.Record) string {
 }
 
 func observationFromError(id string, raw json.RawMessage) rpc.Observation {
-	code, message, data, present := errorParts(nil, raw)
+	code, message, data, present, ok := errorObject(raw)
+	if !ok {
+		return rpc.Observation{
+			Source: rpc.SourceRef{Name: id, ID: id},
+			Err:    errors.New("non-object error body"),
+		}
+	}
 	rpcErr := &rpc.RPCError{Code: code, Message: message}
 	if present {
 		rpcErr.Data = append(json.RawMessage(nil), data...)
@@ -555,38 +585,57 @@ func errorRaw(t *testing.T, code int, message string, data json.RawMessage, pres
 	return raw
 }
 
-func errorParts(t *testing.T, raw json.RawMessage) (int, string, json.RawMessage, bool) {
-	if t != nil {
-		t.Helper()
-	}
+func errorObject(raw json.RawMessage) (int, string, json.RawMessage, bool, bool) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		panic(err)
+		return 0, "", nil, false, false
 	}
 	var code int
-	var message string
 	if err := json.Unmarshal(fields["code"], &code); err != nil {
-		panic(err)
+		return 0, "", nil, false, false
 	}
+	var message string
 	if err := json.Unmarshal(fields["message"], &message); err != nil {
-		panic(err)
+		return 0, "", nil, false, false
 	}
 	data, present := fields["data"]
 	if present {
 		data = append(json.RawMessage(nil), data...)
 	}
-	return code, message, data, present
+	return code, message, data, present, true
 }
 
 func requestOf(t *testing.T, record rpcsample.Record) rpc.Request {
 	t.Helper()
 	var wire struct {
-		Params []any `json:"params"`
+		Params json.RawMessage `json:"params"`
 	}
 	if err := json.Unmarshal([]byte(record.Request), &wire); err != nil {
 		t.Fatal(err)
 	}
-	return rpc.Request{Method: record.Method, Params: wire.Params}
+	params, err := decodeParams(wire.Params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rpc.Request{Method: record.Method, Params: params}
+}
+
+// decodeParams preserves JSON numbers as json.Number so a recorded numeric
+// parameter stays an exact integer instead of becoming float64.
+func decodeParams(raw json.RawMessage) ([]any, error) {
+	if len(raw) == 0 {
+		return []any{}, nil
+	}
+	var params []any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&params); err != nil {
+		return nil, err
+	}
+	if params == nil {
+		params = []any{}
+	}
+	return params, nil
 }
 
 func dataField(t *testing.T, raw json.RawMessage) (bool, string) {

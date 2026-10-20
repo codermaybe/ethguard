@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-20T17:50:41.642257713Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s1",
+    "endpoint": "https://ethereum-rpc.publicnode.com"
+  },
+  "request_id": "logs-finalized-empty",
+  "method": "eth_getLogs",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0000000000000000000000000000000000000001\",\"fromBlock\":\"0x19051b1\",\"toBlock\":\"0x19051b1\"}]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":6,\"result\":[]}\n"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-20T17:51:02.976137076Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s3",
+    "endpoint": "https://1rpc.io"
+  },
+  "request_id": "fee-finalized-noPct",
+  "method": "eth_feeHistory",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"eth_feeHistory\",\"params\":[2,\"0x19051b1\",[]]}",
+  "response": {
+    "http_status": 429,
+    "content_type": "text/html",
+    "body": "\u003chtml\u003e\r\n\u003chead\u003e\u003ctitle\u003e429 Too Many Requests\u003c/title\u003e\u003c/head\u003e\r\n\u003cbody\u003e\r\n\u003ccenter\u003e\u003ch1\u003e429 Too Many Requests\u003c/h1\u003e\u003c/center\u003e\r\n\u003chr\u003e\u003ccenter\u003enginx\u003c/center\u003e\r\n\u003cscript type=\"module\" src=\"https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092\" integrity=\"sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==\" data-cf-beacon='{\"version\":\"2024.11.0\",\"token\":\"00f634569aec4452841d2cd96dd0dce4\",\"spa\":2}' crossorigin=\"anonymous\"\u003e\u003c/script\u003e\n\u003c/body\u003e\r\n\u003c/html\u003e\r\n"
+  },
+  "errors": [
+    {
+      "kind": "http",
+      "message": "429 Too Many Requests"
+    },
+    {
+      "kind": "malformed_json",
+      "message": "response is not a JSON object"
+    }
+  ]
+}

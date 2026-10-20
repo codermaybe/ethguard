@@ -49,8 +49,14 @@ func TestReadVolatileBatchMatchesExpect(t *testing.T) {
 	}
 }
 
+func TestReadBlockrefBatchMatchesExpect(t *testing.T) {
+	if err := matchCapturedExpect(t, "read-blockref"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCapturedExpectTamperProducesReviewableDiff(t *testing.T) {
-	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
+	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local", "read-volatile", "read-blockref"} {
 		t.Run(feature, func(t *testing.T) {
 			dir := batchDir(feature)
 			raw, err := os.ReadFile(filepath.Join(dir, "expect.json"))
@@ -109,7 +115,7 @@ func TestCapturedExpectTamperProducesReviewableDiff(t *testing.T) {
 }
 
 func TestCapturedExpectTransportRejectsWSS(t *testing.T) {
-	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
+	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local", "read-volatile", "read-blockref"} {
 		err := validateExpectHeader(feature, "2026-09-23", expectFile{
 			SchemaVersion: expectSchemaV1,
 			BatchID:       "2026-09-23",
@@ -128,7 +134,7 @@ func TestCapturedExpectTransportRejectsWSS(t *testing.T) {
 // expect.json; a synthetic body must not be described as a provider capture.
 func TestRegisteredMethodSampleStatus(t *testing.T) {
 	archived := map[string]string{}
-	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
+	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local", "read-volatile", "read-blockref"} {
 		_, records, err := replay.LoadBatch(batchDir(feature))
 		if err != nil {
 			t.Fatal(err)
@@ -137,10 +143,7 @@ func TestRegisteredMethodSampleStatus(t *testing.T) {
 			archived[record.Method] = feature
 		}
 	}
-	noCapture := map[string]bool{
-		methods.MethodGetLogs:    true,
-		methods.MethodFeeHistory: true,
-	}
+	noCapture := map[string]bool{}
 	for _, name := range methods.RegisteredNames() {
 		feature, has := archived[name]
 		if noCapture[name] == has {
@@ -579,7 +582,7 @@ func assertCapturedFanout(nodes []*rpctest.Node, req rpc.Request, prepErr error)
 	if prepErr != nil {
 		for _, node := range nodes {
 			if methodCount(node, req.Method) != 0 || methodCount(node, methods.MethodGetBlockByNumber) != 0 {
-				return fmt.Errorf("invalid request still fanned out: %v", node.Calls())
+				return fmt.Errorf("invalid request still fanned out (prepare: %v): %v", prepErr, node.Calls())
 			}
 		}
 		return nil
@@ -772,14 +775,9 @@ func canonicalParamBytes(t *testing.T, raw json.RawMessage) string {
 // correlation labels, never part of a prepared comparison.
 func logicalRequest(t *testing.T, doc replay.BatchLogicalRequest) (rpc.Request, error) {
 	t.Helper()
-	var params []any
-	if len(doc.Params) > 0 {
-		if err := json.Unmarshal(doc.Params, &params); err != nil {
-			return rpc.Request{}, fmt.Errorf("logical params: %w", err)
-		}
-	}
-	if params == nil {
-		params = []any{}
+	params, err := decodeParams(doc.Params)
+	if err != nil {
+		return rpc.Request{}, fmt.Errorf("logical params: %w", err)
 	}
 	return rpc.Request{Method: doc.Method, Params: params}, nil
 }

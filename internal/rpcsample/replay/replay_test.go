@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/codermaybe/ethguard/internal/rpcsample"
 )
 
 const (
@@ -18,6 +20,7 @@ const (
 var featureBatchIDs = map[string]string{
 	"read-local":    "2026-10-19",
 	"read-volatile": "2026-10-21",
+	"read-blockref": "2026-10-21",
 }
 
 func featureBatchID(feature string) string {
@@ -35,7 +38,7 @@ func batchDir(feature string) string {
 }
 
 func TestLoadBatchVerifiesRecordSHA256(t *testing.T) {
-	for _, name := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
+	for _, name := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local", "read-volatile", "read-blockref"} {
 		t.Run(name, func(t *testing.T) {
 			index, records, err := LoadBatch(batchDir(name))
 			if err != nil {
@@ -52,12 +55,21 @@ func TestLoadBatchVerifiesRecordSHA256(t *testing.T) {
 					}
 					continue
 				}
-				if err != nil {
+				if err != nil && !hasRecordedError(record, "malformed_json") {
 					t.Fatalf("%s/%s: %v", record.RequestID, record.Source.ID, err)
 				}
 			}
 		})
 	}
+}
+
+func hasRecordedError(record rpcsample.Record, kind string) bool {
+	for _, item := range record.Errors {
+		if item.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLoadBatchRejectsChangedRecordBytes(t *testing.T) {
@@ -79,7 +91,7 @@ func TestLoadBatchRejectsChangedRecordBytes(t *testing.T) {
 }
 
 func TestBatchLayoutKeepsIndexAndExpect(t *testing.T) {
-	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
+	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local", "read-volatile", "read-blockref"} {
 		t.Run(feature, func(t *testing.T) {
 			dir := batchDir(feature)
 			if _, records, err := LoadBatch(dir); err != nil || len(records) == 0 {
@@ -98,10 +110,14 @@ func TestBatchLayoutKeepsIndexAndExpect(t *testing.T) {
 			if meta.BlockHeight != nil || meta.Web3ClientVersion != nil {
 				t.Fatalf("batch invented height or client version: %+v", meta)
 			}
-			// Historical batches carry no reference_context; the field is
-			// optional and stays nil here.
-			if len(meta.ReferenceContext) != 0 {
-				t.Fatalf("historical batch invented reference context: %+v", meta)
+			// Only block-reference batches carry a reference_context; the
+			// other features keep the optional field nil.
+			if feature == "read-blockref" {
+				if len(meta.ReferenceContext) == 0 {
+					t.Fatal("read-blockref batch has no reference_context")
+				}
+			} else if len(meta.ReferenceContext) != 0 {
+				t.Fatalf("batch invented reference context: %+v", meta)
 			}
 			if _, err = os.Stat(filepath.Join(dir, "expect.json")); err != nil {
 				t.Fatal(err)

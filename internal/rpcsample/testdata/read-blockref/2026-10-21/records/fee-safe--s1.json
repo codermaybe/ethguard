@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-20T17:50:51.361298822Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s1",
+    "endpoint": "https://ethereum-rpc.publicnode.com"
+  },
+  "request_id": "fee-safe",
+  "method": "eth_feeHistory",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"eth_feeHistory\",\"params\":[2,\"0x19051d1\",[25,50,75]]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"baseFeePerGas\":[\"0x15a2f25b\",\"0x151e2659\",\"0x1330ab8e\"],\"gasUsedRatio\":[0.40409951666666666,0.13487533333333335],\"baseFeePerBlobGas\":[\"0x152efb7\",\"0x152efb7\",\"0x13ce00a\"],\"blobGasUsedRatio\":[0.0,0.38095238095238093],\"oldestBlock\":\"0x19051d0\",\"reward\":[[\"0x2255100\",\"0x8082ea3\",\"0x3b9aca00\"],[\"0x989680\",\"0x8082ea3\",\"0x267ca3a7\"]]}}"
+  }
+}

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"strconv"
 
 	"github.com/codermaybe/ethguard/rpc"
@@ -143,8 +144,37 @@ func requestQuantity(value any) (uint64, error) {
 	if s, ok := value.(string); ok && len(s) >= 3 && s[:2] == "0x" {
 		return strconv.ParseUint(s[2:], 16, 64)
 	}
-	if n, ok := value.(uint64); ok {
+	switch n := value.(type) {
+	case uint64:
 		return n, nil
+	case uint:
+		return uint64(n), nil
+	case uint32:
+		return uint64(n), nil
+	case uint16:
+		return uint64(n), nil
+	case uint8:
+		return uint64(n), nil
+	case int:
+		if n < 0 {
+			return 0, fmt.Errorf("invalid block count")
+		}
+		return uint64(n), nil
+	case int64:
+		if n < 0 {
+			return 0, fmt.Errorf("invalid block count")
+		}
+		return uint64(n), nil
+	case *big.Int:
+		if n == nil || n.Sign() < 0 || !n.IsUint64() {
+			return 0, fmt.Errorf("invalid block count")
+		}
+		return n.Uint64(), nil
+	case json.Number:
+		parsed, err := strconv.ParseUint(string(n), 10, 64)
+		if err == nil {
+			return parsed, nil
+		}
 	}
 	return 0, fmt.Errorf("invalid block count")
 }

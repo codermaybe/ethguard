@@ -1,0 +1,335 @@
+{
+  "schema_version": "ethguard.batch/v1",
+  "batch_id": "2026-10-21",
+  "feature": "read-blockref",
+  "captured_at": "2026-10-20T17:50:18.621519135Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "block_height": null,
+  "web3_client_version": null,
+  "note": "Group 3 of the uncaptured-read-method batches (capture-tasks.md stage 3): eth_getLogs and eth_feeHistory over three mainnet HTTPS endpoints (publicnode, drpc, 1rpc), chain ID 0x1 verified per source before the single capture run. Eleven requests x three sources = 33 HTTP records. reference_context pins the safe and finalized majority views: safe was 26235345 on all three sources; finalized was 26235313 on s1/s2 while s3 reported 26235123 (kept as the lagging reference record). s3 rejected range getLogs with \"method not available\" but served blockHash getLogs; those outcomes are preserved. The short-range feeHistory case (blockCount 10 at height 0x1) returned fewer intervals than requested and is kept as a rejection case. Only HTTP transport is captured; no WSS variant exists for this batch.",
+  "reference_context": {
+    "logs-safe-nonempty": {
+      "logical_request": {
+        "method": "eth_getLogs",
+        "params": [
+          {
+            "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            "fromBlock": "safe",
+            "toBlock": "safe"
+          }
+        ]
+      },
+      "tag": "safe",
+      "established_at": "2026-10-20T17:50:18.621519383Z",
+      "members": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "reference_records": [
+        {
+          "request_id": "ref-safe",
+          "source_id": "s1",
+          "sha256": "527d10b65317e5a912c888455e23bc91e736385f2fc206a9233a81df6edd9970"
+        },
+        {
+          "request_id": "ref-safe",
+          "source_id": "s2",
+          "sha256": "643f8c59cefa9da053a958483112df2fb7680efef2f8a9d3fb9dc80e17577bdd"
+        },
+        {
+          "request_id": "ref-safe",
+          "source_id": "s3",
+          "sha256": "8187dabdffacefa35ee802591fc14997f653c7cf8bade96786b16f703477d5ab"
+        }
+      ],
+      "expected_reference": {
+        "height": 26235345,
+        "hash": "0x5bca66c9d98f567312ddacac670cdfd8a97f1f3aee58d2b38c989e6151daa77a",
+        "status": "corroborated",
+        "support": [
+          "s1",
+          "s2",
+          "s3"
+        ]
+      }
+    },
+    "logs-safe-empty": {
+      "logical_request": {
+        "method": "eth_getLogs",
+        "params": [
+          {
+            "address": "0x0000000000000000000000000000000000000001",
+            "fromBlock": "safe",
+            "toBlock": "safe"
+          }
+        ]
+      },
+      "tag": "safe",
+      "established_at": "2026-10-20T17:50:18.621519383Z",
+      "members": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "reference_records": [
+        {
+          "request_id": "ref-safe",
+          "source_id": "s1",
+          "sha256": "527d10b65317e5a912c888455e23bc91e736385f2fc206a9233a81df6edd9970"
+        },
+        {
+          "request_id": "ref-safe",
+          "source_id": "s2",
+          "sha256": "643f8c59cefa9da053a958483112df2fb7680efef2f8a9d3fb9dc80e17577bdd"
+        },
+        {
+          "request_id": "ref-safe",
+          "source_id": "s3",
+          "sha256": "8187dabdffacefa35ee802591fc14997f653c7cf8bade96786b16f703477d5ab"
+        }
+      ],
+      "expected_reference": {
+        "height": 26235345,
+        "hash": "0x5bca66c9d98f567312ddacac670cdfd8a97f1f3aee58d2b38c989e6151daa77a",
+        "status": "corroborated",
+        "support": [
+          "s1",
+          "s2",
+          "s3"
+        ]
+      }
+    },
+    "logs-finalized-nonempty": {
+      "logical_request": {
+        "method": "eth_getLogs",
+        "params": [
+          {
+            "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            "fromBlock": "finalized",
+            "toBlock": "finalized"
+          }
+        ]
+      },
+      "tag": "finalized",
+      "established_at": "2026-10-20T17:50:23.215327146Z",
+      "members": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "reference_records": [
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s1",
+          "sha256": "edbf1e061e2e4124120f4b9850f4b9d6ade4da97ba7e2874133d8feb74a44e5f"
+        },
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s2",
+          "sha256": "c9426efb4f38148cea02feeb962396c4cb19fafeb46d979c014b69c4df5cb641"
+        },
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s3",
+          "sha256": "0e3796e58f2081f37782e5b7f84c9c117b84e8cc0f69d8f38c1e071fe8508e9f"
+        }
+      ],
+      "expected_reference": {
+        "height": 26235313,
+        "hash": "0x68c1c0ba809d2eaff022d9fd822c2386ead57135e672d9e32850d255b99e0e58",
+        "status": "corroborated",
+        "support": [
+          "s1",
+          "s2"
+        ]
+      }
+    },
+    "logs-finalized-empty": {
+      "logical_request": {
+        "method": "eth_getLogs",
+        "params": [
+          {
+            "address": "0x0000000000000000000000000000000000000001",
+            "fromBlock": "finalized",
+            "toBlock": "finalized"
+          }
+        ]
+      },
+      "tag": "finalized",
+      "established_at": "2026-10-20T17:50:23.215327146Z",
+      "members": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "reference_records": [
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s1",
+          "sha256": "edbf1e061e2e4124120f4b9850f4b9d6ade4da97ba7e2874133d8feb74a44e5f"
+        },
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s2",
+          "sha256": "c9426efb4f38148cea02feeb962396c4cb19fafeb46d979c014b69c4df5cb641"
+        },
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s3",
+          "sha256": "0e3796e58f2081f37782e5b7f84c9c117b84e8cc0f69d8f38c1e071fe8508e9f"
+        }
+      ],
+      "expected_reference": {
+        "height": 26235313,
+        "hash": "0x68c1c0ba809d2eaff022d9fd822c2386ead57135e672d9e32850d255b99e0e58",
+        "status": "corroborated",
+        "support": [
+          "s1",
+          "s2"
+        ]
+      }
+    },
+    "fee-safe": {
+      "logical_request": {
+        "method": "eth_feeHistory",
+        "params": [
+          2,
+          "safe",
+          [
+            25,
+            50,
+            75
+          ]
+        ]
+      },
+      "tag": "safe",
+      "established_at": "2026-10-20T17:50:18.621519383Z",
+      "members": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "reference_records": [
+        {
+          "request_id": "ref-safe",
+          "source_id": "s1",
+          "sha256": "527d10b65317e5a912c888455e23bc91e736385f2fc206a9233a81df6edd9970"
+        },
+        {
+          "request_id": "ref-safe",
+          "source_id": "s2",
+          "sha256": "643f8c59cefa9da053a958483112df2fb7680efef2f8a9d3fb9dc80e17577bdd"
+        },
+        {
+          "request_id": "ref-safe",
+          "source_id": "s3",
+          "sha256": "8187dabdffacefa35ee802591fc14997f653c7cf8bade96786b16f703477d5ab"
+        }
+      ],
+      "expected_reference": {
+        "height": 26235345,
+        "hash": "0x5bca66c9d98f567312ddacac670cdfd8a97f1f3aee58d2b38c989e6151daa77a",
+        "status": "corroborated",
+        "support": [
+          "s1",
+          "s2",
+          "s3"
+        ]
+      }
+    },
+    "fee-finalized": {
+      "logical_request": {
+        "method": "eth_feeHistory",
+        "params": [
+          2,
+          "finalized",
+          [
+            25,
+            50,
+            75
+          ]
+        ]
+      },
+      "tag": "finalized",
+      "established_at": "2026-10-20T17:50:23.215327146Z",
+      "members": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "reference_records": [
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s1",
+          "sha256": "edbf1e061e2e4124120f4b9850f4b9d6ade4da97ba7e2874133d8feb74a44e5f"
+        },
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s2",
+          "sha256": "c9426efb4f38148cea02feeb962396c4cb19fafeb46d979c014b69c4df5cb641"
+        },
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s3",
+          "sha256": "0e3796e58f2081f37782e5b7f84c9c117b84e8cc0f69d8f38c1e071fe8508e9f"
+        }
+      ],
+      "expected_reference": {
+        "height": 26235313,
+        "hash": "0x68c1c0ba809d2eaff022d9fd822c2386ead57135e672d9e32850d255b99e0e58",
+        "status": "corroborated",
+        "support": [
+          "s1",
+          "s2"
+        ]
+      }
+    },
+    "fee-finalized-noPct": {
+      "logical_request": {
+        "method": "eth_feeHistory",
+        "params": [
+          2,
+          "finalized",
+          []
+        ]
+      },
+      "tag": "finalized",
+      "established_at": "2026-10-20T17:50:23.215327146Z",
+      "members": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "reference_records": [
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s1",
+          "sha256": "edbf1e061e2e4124120f4b9850f4b9d6ade4da97ba7e2874133d8feb74a44e5f"
+        },
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s2",
+          "sha256": "c9426efb4f38148cea02feeb962396c4cb19fafeb46d979c014b69c4df5cb641"
+        },
+        {
+          "request_id": "ref-finalized",
+          "source_id": "s3",
+          "sha256": "0e3796e58f2081f37782e5b7f84c9c117b84e8cc0f69d8f38c1e071fe8508e9f"
+        }
+      ],
+      "expected_reference": {
+        "height": 26235313,
+        "hash": "0x68c1c0ba809d2eaff022d9fd822c2386ead57135e672d9e32850d255b99e0e58",
+        "status": "corroborated",
+        "support": [
+          "s1",
+          "s2"
+        ]
+      }
+    }
+  }
+}

@@ -155,6 +155,12 @@ func requestQuantity(value any, allowTag bool) (uint64, error) {
 			return 0, fmt.Errorf("invalid quantity")
 		}
 		return v.Uint64(), nil
+	case json.Number:
+		n, err := strconv.ParseUint(string(v), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid quantity")
+		}
+		return n, nil
 	default:
 		return 0, fmt.Errorf("unsupported quantity type %T", value)
 	}

@@ -404,3 +404,86 @@ func TestMatchesPreparedRecordComparesMethodAndParams(t *testing.T) {
 		t.Fatal("a bare tag passed as prepared")
 	}
 }
+
+// TestReadBlockrefBatchPinsReferenceAndPreparedRequests checks the first real
+// block-reference batch: every moving-tag case names the captured reference
+// records, the expected reference is the majority view, and the business wire
+// requests carry the rewritten heights rather than bare tags.
+func TestReadBlockrefBatchPinsReferenceAndPreparedRequests(t *testing.T) {
+	index, records, err := LoadBatch(batchDir("read-blockref"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := LoadBatchMeta(batchDir("read-blockref"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateReferenceContext(meta, index, records); err != nil {
+		t.Fatal(err)
+	}
+	if len(meta.ReferenceContext) != 7 {
+		t.Fatalf("reference contexts = %d, want 7", len(meta.ReferenceContext))
+	}
+	safe := meta.ReferenceContext["logs-safe-nonempty"]
+	if safe.Tag != "safe" || safe.ExpectedReference.Height != 26235345 || len(safe.ExpectedReference.Support) != 3 {
+		t.Fatalf("safe context = %+v", safe)
+	}
+	finalized := meta.ReferenceContext["logs-finalized-nonempty"]
+	if finalized.Tag != "finalized" || finalized.ExpectedReference.Height != 26235313 || len(finalized.ExpectedReference.Support) != 2 {
+		t.Fatalf("finalized context = %+v", finalized)
+	}
+	business, err := BusinessRecords(meta, index, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(business) != 27 {
+		t.Fatalf("business records = %d, want 27", len(business))
+	}
+	for _, record := range business {
+		if record.RequestID == "ref-safe" || record.RequestID == "ref-finalized" {
+			t.Fatalf("reference record %s leaked into business cases", record.RequestID)
+		}
+	}
+	assertHexParam(t, business, "logs-safe-nonempty", "s1", 0, "fromBlock", heightHex(26235345))
+	assertHexParam(t, business, "logs-safe-nonempty", "s1", 0, "toBlock", heightHex(26235345))
+	assertHexParam(t, business, "logs-finalized-nonempty", "s1", 0, "fromBlock", heightHex(26235313))
+	assertHexParam(t, business, "fee-safe", "s1", 1, "", heightHex(26235345))
+	assertHexParam(t, business, "fee-finalized", "s1", 1, "", heightHex(26235313))
+}
+
+func assertHexParam(t *testing.T, records []rpcsample.Record, requestID, sourceID string, pos int, field, want string) {
+	t.Helper()
+	var business *rpcsample.Record
+	for i := range records {
+		if records[i].RequestID == requestID && records[i].Source.ID == sourceID {
+			business = &records[i]
+			break
+		}
+	}
+	if business == nil {
+		t.Fatalf("missing business record %s/%s", requestID, sourceID)
+	}
+	var wire struct {
+		Params []json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(business.Request), &wire); err != nil {
+		t.Fatalf("%s/%s request: %v", requestID, sourceID, err)
+	}
+	if pos >= len(wire.Params) {
+		t.Fatalf("%s/%s params = %s", requestID, sourceID, business.Request)
+	}
+	if field == "" {
+		var got string
+		if err := json.Unmarshal(wire.Params[pos], &got); err != nil || got != want {
+			t.Fatalf("%s/%s param %d = %q, want %q", requestID, sourceID, pos, got, want)
+		}
+		return
+	}
+	var object map[string]string
+	if err := json.Unmarshal(wire.Params[pos], &object); err != nil {
+		t.Fatalf("%s/%s param %d: %v", requestID, sourceID, pos, err)
+	}
+	if got := object[field]; got != want {
+		t.Fatalf("%s/%s param %d.%s = %q, want %q", requestID, sourceID, pos, field, got, want)
+	}
+}

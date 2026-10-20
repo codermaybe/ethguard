@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-20T17:51:01.536859982Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s2",
+    "endpoint": "https://eth.drpc.org"
+  },
+  "request_id": "fee-finalized-noPct",
+  "method": "eth_feeHistory",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"eth_feeHistory\",\"params\":[2,\"0x19051b1\",[]]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"id\":10,\"jsonrpc\":\"2.0\",\"result\":{\"baseFeePerGas\":[\"0x1d11981f\",\"0x1ba364b7\",\"0x1e33e3a3\"],\"gasUsedRatio\":[0.30316001666666664,0.8711430666666666],\"baseFeePerBlobGas\":[\"0x1dfe36c\",\"0x1b1ce3f\",\"0x1b1ce3f\"],\"blobGasUsedRatio\":[0.23809523809523808,0.0],\"oldestBlock\":\"0x19051b0\",\"reward\":[[],[]]}}"
+  }
+}
