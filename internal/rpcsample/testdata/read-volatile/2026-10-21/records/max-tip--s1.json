@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-20T17:19:52.715239579Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s1",
+    "endpoint": "https://ethereum-rpc.publicnode.com"
+  },
+  "request_id": "max-tip",
+  "method": "eth_maxPriorityFeePerGas",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":\"0x0\",\"id\":2}\n"
+  }
+}

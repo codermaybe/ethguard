@@ -1,0 +1,20 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-20T17:19:54.462459356Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s2",
+    "endpoint": "https://eth.drpc.org"
+  },
+  "request_id": "syncing-active",
+  "method": "eth_syncing",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"eth_syncing\",\"params\":[]}",
+  "response": {
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": "{\"id\":5,\"jsonrpc\":\"2.0\",\"result\":false}"
+  }
+}

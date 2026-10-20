@@ -1,0 +1,13 @@
+{
+  "schema_version": "ethguard.batch/v1",
+  "batch_id": "2026-10-21",
+  "feature": "read-volatile",
+  "captured_at": "2026-10-20T17:19:51Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "block_height": null,
+  "web3_client_version": null,
+  "note": "Group 2 of the uncaptured-read-method batches (capture-tasks.md stage 2): eth_gasPrice, eth_maxPriorityFeePerGas, eth_blobBaseFee, eth_syncing (two requests) over three mainnet HTTPS endpoints (publicnode, drpc, 1rpc), chain ID 0x1 verified per source before the single capture run. drpc returned HTTP 400 for eth_blobBaseFee (method not available on free plan); that failure is preserved. All three sources returned false for both eth_syncing requests, so the syncing-object state is not covered by this batch. No block-reference parameters, so reference_context is absent. Only HTTP transport is captured; no WSS variant exists for this batch."
+}

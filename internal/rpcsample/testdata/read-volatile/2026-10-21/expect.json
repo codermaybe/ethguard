@@ -1,0 +1,291 @@
+{
+  "schema_version": "ethguard.expect/v1",
+  "batch_id": "2026-10-21",
+  "feature": "read-volatile",
+  "transport": "http",
+  "cases": [
+    {
+      "request_id": "gas-price",
+      "method": "eth_gasPrice",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_gasPrice",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "500474856",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "500529614",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s3",
+          "comparison_key": "500474856",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s3"
+          ],
+          "reject": [
+            "s2"
+          ],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "selected",
+        "error": "",
+        "representative": {
+          "id": "s1",
+          "ordinal": 0
+        }
+      }
+    },
+    {
+      "request_id": "max-tip",
+      "method": "eth_maxPriorityFeePerGas",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "eth_maxPriorityFeePerGas",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "0",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "0",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s3",
+          "comparison_key": "54758",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s2"
+          ],
+          "reject": [
+            "s3"
+          ],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "selected",
+        "error": "",
+        "representative": {
+          "id": "s1",
+          "ordinal": 0
+        }
+      }
+    },
+    {
+      "request_id": "blob-fee",
+      "method": "eth_blobBaseFee",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "eth_blobBaseFee",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "28966445",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "",
+          "admission": "not_applicable",
+          "faults": [
+            "hex quantity: expected string: json: cannot unmarshal object into Go value of type string"
+          ]
+        },
+        {
+          "id": "s3",
+          "comparison_key": "28966445",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1",
+            "s3"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "selected",
+        "error": "",
+        "representative": {
+          "id": "s1",
+          "ordinal": 0
+        }
+      }
+    },
+    {
+      "request_id": "syncing",
+      "method": "eth_syncing",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "eth_syncing",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "false",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "false",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s3",
+          "comparison_key": "false",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "selected",
+        "error": "",
+        "representative": null
+      }
+    },
+    {
+      "request_id": "syncing-active",
+      "method": "eth_syncing",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "eth_syncing",
+        "params": []
+      },
+      "mode": "majority",
+      "floor": 2,
+      "n": 3,
+      "sources": [
+        {
+          "id": "s1",
+          "comparison_key": "false",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s2",
+          "comparison_key": "false",
+          "admission": "passed",
+          "faults": []
+        },
+        {
+          "id": "s3",
+          "comparison_key": "false",
+          "admission": "passed",
+          "faults": []
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "value",
+          "support": [
+            "s1"
+          ],
+          "reject": [],
+          "abstain": [],
+          "returned": true
+        }
+      ],
+      "projection": {
+        "reductive": false,
+        "deleted_fields": []
+      },
+      "decision": {
+        "status": "selected",
+        "error": "",
+        "representative": null
+      }
+    }
+  ]
+}

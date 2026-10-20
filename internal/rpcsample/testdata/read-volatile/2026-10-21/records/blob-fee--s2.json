@@ -1,0 +1,30 @@
+{
+  "schema": "ethguard.rpc-sample-record/v1",
+  "observed_at": "2026-10-20T17:19:53.475856413Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "source": {
+    "id": "s2",
+    "endpoint": "https://eth.drpc.org"
+  },
+  "request_id": "blob-fee",
+  "method": "eth_blobBaseFee",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"eth_blobBaseFee\",\"params\":[]}",
+  "response": {
+    "http_status": 400,
+    "content_type": "application/json",
+    "body": "{\"id\":3,\"jsonrpc\":\"2.0\",\"error\":{\"message\":\"method is not available on free plan, please upgrade to paid plan\",\"code\":35}}"
+  },
+  "errors": [
+    {
+      "kind": "http",
+      "message": "400 Bad Request"
+    },
+    {
+      "kind": "jsonrpc",
+      "message": "response contains a JSON-RPC error"
+    }
+  ]
+}

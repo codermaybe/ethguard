@@ -16,7 +16,8 @@ const (
 // historical batches. This map is the authoritative feature↔batch-id
 // correspondence (capture-golden-contract §4.0).
 var featureBatchIDs = map[string]string{
-	"read-local": "2026-10-19",
+	"read-local":    "2026-10-19",
+	"read-volatile": "2026-10-21",
 }
 
 func featureBatchID(feature string) string {
@@ -34,7 +35,7 @@ func batchDir(feature string) string {
 }
 
 func TestLoadBatchVerifiesRecordSHA256(t *testing.T) {
-	for _, name := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local"} {
+	for _, name := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
 		t.Run(name, func(t *testing.T) {
 			index, records, err := LoadBatch(batchDir(name))
 			if err != nil {
@@ -78,7 +79,7 @@ func TestLoadBatchRejectsChangedRecordBytes(t *testing.T) {
 }
 
 func TestBatchLayoutKeepsIndexAndExpect(t *testing.T) {
-	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local"} {
+	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
 		t.Run(feature, func(t *testing.T) {
 			dir := batchDir(feature)
 			if _, records, err := LoadBatch(dir); err != nil || len(records) == 0 {

@@ -43,8 +43,14 @@ func TestReadLocalBatchMatchesExpect(t *testing.T) {
 	}
 }
 
+func TestReadVolatileBatchMatchesExpect(t *testing.T) {
+	if err := matchCapturedExpect(t, "read-volatile"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCapturedExpectTamperProducesReviewableDiff(t *testing.T) {
-	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local"} {
+	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
 		t.Run(feature, func(t *testing.T) {
 			dir := batchDir(feature)
 			raw, err := os.ReadFile(filepath.Join(dir, "expect.json"))
@@ -103,7 +109,7 @@ func TestCapturedExpectTamperProducesReviewableDiff(t *testing.T) {
 }
 
 func TestCapturedExpectTransportRejectsWSS(t *testing.T) {
-	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local"} {
+	for _, feature := range []string{"block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
 		err := validateExpectHeader(feature, "2026-09-23", expectFile{
 			SchemaVersion: expectSchemaV1,
 			BatchID:       "2026-09-23",
@@ -122,7 +128,7 @@ func TestCapturedExpectTransportRejectsWSS(t *testing.T) {
 // expect.json; a synthetic body must not be described as a provider capture.
 func TestRegisteredMethodSampleStatus(t *testing.T) {
 	archived := map[string]string{}
-	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local"} {
+	for _, feature := range []string{"revert-data", "block-receipt-tx", "eip1898-object", "read-local", "read-volatile"} {
 		_, records, err := replay.LoadBatch(batchDir(feature))
 		if err != nil {
 			t.Fatal(err)
@@ -132,12 +138,8 @@ func TestRegisteredMethodSampleStatus(t *testing.T) {
 		}
 	}
 	noCapture := map[string]bool{
-		methods.MethodGetLogs:              true,
-		methods.MethodFeeHistory:           true,
-		methods.MethodGasPrice:             true,
-		methods.MethodMaxPriorityFeePerGas: true,
-		methods.MethodBlobBaseFee:          true,
-		methods.MethodSyncing:              true,
+		methods.MethodGetLogs:    true,
+		methods.MethodFeeHistory: true,
 	}
 	for _, name := range methods.RegisteredNames() {
 		feature, has := archived[name]

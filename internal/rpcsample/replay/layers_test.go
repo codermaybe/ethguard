@@ -35,7 +35,8 @@ const sampleBatchID = "2026-09-23"
 // historical batches keep sampleBatchID; a new capture batch adds its own
 // entry and never moves sampleBatchID (capture-golden-contract §4.0).
 var featureBatchIDs = map[string]string{
-	"read-local": "2026-10-19",
+	"read-local":    "2026-10-19",
+	"read-volatile": "2026-10-21",
 }
 
 func batchDir(feature string) string {

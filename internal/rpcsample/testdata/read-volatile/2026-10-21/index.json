@@ -1,0 +1,135 @@
+{
+  "schema": "ethguard.rpc-sample-index/v1",
+  "plan_schema": "ethguard.rpc-sample-plan/v1",
+  "generated_at": "2026-10-20T17:19:51.340460577Z",
+  "network": {
+    "chain_id": 1,
+    "fork": "unspecified"
+  },
+  "records": [
+    {
+      "request_id": "gas-price",
+      "method": "eth_gasPrice",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:19:51.340461182Z",
+      "file": "records/gas-price--s1.json",
+      "sha256": "c7c25beb03f0e3699e7d7df6dc80076b8dc15cdb3a7db936786f27fdee606346"
+    },
+    {
+      "request_id": "gas-price",
+      "method": "eth_gasPrice",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:19:51.513559897Z",
+      "file": "records/gas-price--s2.json",
+      "sha256": "881870e753c5d915a7e2c332cc48934ade6dbb68e409277c4669f6876e6a526e"
+    },
+    {
+      "request_id": "gas-price",
+      "method": "eth_gasPrice",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:19:51.830515021Z",
+      "file": "records/gas-price--s3.json",
+      "sha256": "b1daad5beb54f5f9322de77e0a671390a40f38346e5c18a271c37dee50973f78"
+    },
+    {
+      "request_id": "max-tip",
+      "method": "eth_maxPriorityFeePerGas",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:19:52.715239579Z",
+      "file": "records/max-tip--s1.json",
+      "sha256": "25e5f3126b01e88f82c8389fc068a088ee3b820dcfa1080f451532975b232606"
+    },
+    {
+      "request_id": "max-tip",
+      "method": "eth_maxPriorityFeePerGas",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:19:52.813000831Z",
+      "file": "records/max-tip--s2.json",
+      "sha256": "8a5ad5be8161160188c00b9adaaaf820766d44ea285962dd30145dc6fbab318f"
+    },
+    {
+      "request_id": "max-tip",
+      "method": "eth_maxPriorityFeePerGas",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:19:53.056027098Z",
+      "file": "records/max-tip--s3.json",
+      "sha256": "05a3b1692dbee5f365bdf6e6cfd6f27a3a882e0b16d695e26599894356aaff84"
+    },
+    {
+      "request_id": "blob-fee",
+      "method": "eth_blobBaseFee",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:19:53.370809558Z",
+      "file": "records/blob-fee--s1.json",
+      "sha256": "debbd0d3f52622f44421f218d4770b3f024ca212161223c967623903cd768660"
+    },
+    {
+      "request_id": "blob-fee",
+      "method": "eth_blobBaseFee",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:19:53.475856413Z",
+      "file": "records/blob-fee--s2.json",
+      "sha256": "e9f4020b36c119c5374c75e9185cc326bd452f6d37715cd88415410aa1468449",
+      "error_kinds": [
+        "http",
+        "jsonrpc"
+      ]
+    },
+    {
+      "request_id": "blob-fee",
+      "method": "eth_blobBaseFee",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:19:53.555368837Z",
+      "file": "records/blob-fee--s3.json",
+      "sha256": "647c43b87af7752593990b25c6d846090045cde0fda1c049ab615a3eaf8c6048"
+    },
+    {
+      "request_id": "syncing",
+      "method": "eth_syncing",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:19:53.843818855Z",
+      "file": "records/syncing--s1.json",
+      "sha256": "0e9dafddbd46684e197c564a454e7fa481a94f4a298076d2f2e175a15f63c41b"
+    },
+    {
+      "request_id": "syncing",
+      "method": "eth_syncing",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:19:53.938095965Z",
+      "file": "records/syncing--s2.json",
+      "sha256": "d1eaca4599b268828fc1c176518404a0f5eb29d38a183eec157a9f74d3892e90"
+    },
+    {
+      "request_id": "syncing",
+      "method": "eth_syncing",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:19:54.01896129Z",
+      "file": "records/syncing--s3.json",
+      "sha256": "c503944623ea233711a9d789eeae9f201cce0762ccc79f4cfa4a576034197d9c"
+    },
+    {
+      "request_id": "syncing-active",
+      "method": "eth_syncing",
+      "source_id": "s1",
+      "observed_at": "2026-10-20T17:19:54.367655684Z",
+      "file": "records/syncing-active--s1.json",
+      "sha256": "394953ca99ace4dd00cb338a443ac7d9c73f2fc1586e4d7c23973f86474e03d5"
+    },
+    {
+      "request_id": "syncing-active",
+      "method": "eth_syncing",
+      "source_id": "s2",
+      "observed_at": "2026-10-20T17:19:54.462459356Z",
+      "file": "records/syncing-active--s2.json",
+      "sha256": "5d1d39e07dda1a48a326b4cc287dc1335a01bb6df1bcade1919fd292812c4e2d"
+    },
+    {
+      "request_id": "syncing-active",
+      "method": "eth_syncing",
+      "source_id": "s3",
+      "observed_at": "2026-10-20T17:19:54.548216698Z",
+      "file": "records/syncing-active--s3.json",
+      "sha256": "c1b8d3ead4c51642150ce34fabdaf00010374d873321b4574de34bd9cf761993"
+    }
+  ]
+}
