@@ -41,7 +41,9 @@
 - 读方法捕获：阶段 0（`reference_context` 契约、共享 replay height resolver、
   prepared-request 断言）已落地（`2cd069e`）；组 1 `read-local` 已完成——批次
   `acf3578`（`internal/rpcsample/testdata/read-local/2026-10-19`）加 2026-10-20
-  真实三源端到端整合验收（实测状态与契约 §5.1 一致）。剩余 6 个方法待捕获。
+  真实三源端到端整合验收（实测状态与契约 §5.1 一致）；组 2 `read-volatile`
+  已完成（批次 `internal/rpcsample/testdata/read-volatile/2026-10-21`，真实源
+  复跑状态一致；`eth_syncing` 对象态未覆盖、已登记）。剩余组 3 的 2 个方法。
 
 ## 已完成里程碑
 
@@ -331,19 +333,33 @@ HTTP、anchor 按方法分类、断言类型显式声明、replay 离线、分�
 local 语义。离线批次的 `expect` 回放与全量 `go test ./internal/rpcsample/... -count=1`
 通过：真实响应与冻结记录不矛盾，组 1 至此结束。
 
+**组 2 状态：已完成（2026-10-20）**。`read-volatile` 批次
+`internal/rpcsample/testdata/read-volatile/2026-10-21` 由 5 个请求 × 3 源组成
+（15 条 HTTP 记录），`noCapture` 已移除这 4 个方法，expect 回放入口已接入。
+replay 实测与 expect：
+
+- `eth_gasPrice`：`Selected`，support=2、reject=1（drpc 报价更高被拒）；
+- `eth_maxPriorityFeePerGas`：`Selected`，support=2、reject=1（1rpc 非零值被拒）；
+- `eth_blobBaseFee`：`Selected`，support=2、faults=1（drpc 免费档返回 HTTP 400，
+  失败被保留，未补合成值）；
+- `eth_syncing`（两个请求）：`Selected`（local，support=1），三源均为 `false`。
+
+真实源整合复跑（同一组端点、`Client.Call`）得到同向状态：gas/tip 各拒 1 个
+离群源，blobBaseFee 在 drpc 报错下仍由两个源选中，syncing 为 local `Selected`。
+`eth_syncing` 的对象态在所有源均未出现，**本批未覆盖该形状**，按契约登记为
+覆盖缺口，禁止合成 record。组 2 至此结束。
+
 范围外发现（未修复）：`cmd/soak` 的默认 `-anchor-ttl 1m` 与决策 0026
-（禁止跨调用 anchor cache）冲突，直接运行会失败；本次验收显式使用
+（禁止跨调用 anchor cache）冲突，直接运行会失败；组 1 验收显式使用
 `-anchor-ttl 0`。该工具的默认值需后续单独修正，不并入捕获批次。
 
 2026-09-26 的形状探查（`internal/rpcsample/probe/`）只是
 观察报告，不是 `testdata` 批次，没有 `expect.json`，不解除任何方法，
 不得直接升成 golden，不得合成样本。
 
-- 剩余 6 个读方法仍无正式捕获批次：组 2 的 `eth_gasPrice`、
-  `eth_maxPriorityFeePerGas`、`eth_blobBaseFee`、`eth_syncing`（plan 已备），
-  组 3 的 `eth_getLogs`、`eth_feeHistory`（plan 待写）。以
-  `TestRegisteredMethodSampleStatus` 的 `noCapture` 名单为准。组 1 的
-  `read-local` 5 个方法已完成捕获与真实源整合验收。
+- 剩余 2 个读方法仍无正式捕获批次：组 3 的 `eth_getLogs`、`eth_feeHistory`
+  （plan 待写）。以 `TestRegisteredMethodSampleStatus` 的 `noCapture` 名单为准。
+  组 1 与组 2 共 9 个方法已完成捕获与真实源整合验收。
 - 先冻结按方法分类的 golden 规则：具有 block-reference 参数的方法（当前是
   `eth_getLogs`、`eth_feeHistory`）才要求 `safe`/`finalized` 各自锚定；无参数的
   chain/local/variable 方法不虚构 anchor。replay 回放冻结的 record，因此 gas、tip、
