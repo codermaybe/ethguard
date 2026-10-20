@@ -39,11 +39,10 @@
   含 `httptest` 本地监听在内的全量测试已在本机运行通过
   （`go test ./... -count=1`），replay 端到端批次无跳过。
 - 读方法捕获：阶段 0（`reference_context` 契约、共享 replay height resolver、
-  prepared-request 断言）已落地（`2cd069e`）；组 1 `read-local` 已完成——批次
-  `acf3578`（`internal/rpcsample/testdata/read-local/2026-10-19`）加 2026-10-20
-  真实三源端到端整合验收（实测状态与契约 §5.1 一致）；组 2 `read-volatile`
-  已完成（批次 `internal/rpcsample/testdata/read-volatile/2026-10-21`，真实源
-  复跑状态一致；`eth_syncing` 对象态未覆盖、已登记）。剩余组 3 的 2 个方法。
+  prepared-request 断言）已落地（`2cd069e`）；组 1 `read-local`、组 2
+  `read-volatile`、组 3 `read-blockref` 均已完成真实捕获与真实源整合验收。
+  `noCapture` 已清空，11 个读方法 L1 全部完成；L2 仍缺 `eth_syncing` 对象态，
+  批次级 L2 保持未完成。
 
 ## 已完成里程碑
 
@@ -302,7 +301,7 @@ WebSocket 四态测试验收前不升级决策，也不增加 WSS 四态 golden�
 
 ## 排后：未捕获读方法的捕获批次
 
-状态：**进行中**。阶段 0 已完成（`2cd069e`）：`batch.json` 的
+状态：**已收口（L1 完成；L2 缺 `eth_syncing` 对象态）**。阶段 0 已完成（`2cd069e`）：`batch.json` 的
 `reference_context` 契约落地，replay 的 Policy 层与 Aggregator 层改用同一份
 height resolver，prepared-request 断言覆盖“两层一致且等于 record 实际请求”。
 组 3 的原阻塞项（nil resolver、logs/feeHistory 参数断言、共同 reference 载体）
@@ -349,6 +348,40 @@ replay 实测与 expect：
 `eth_syncing` 的对象态在所有源均未出现，**本批未覆盖该形状**，按契约登记为
 覆盖缺口，禁止合成 record。组 2 至此结束。
 
+**组 3 状态：已完成（2026-10-20）**。`read-blockref` 批次
+`internal/rpcsample/testdata/read-blockref/2026-10-21` 由 11 个请求 × 3 源组成
+（33 条 HTTP 记录），`noCapture` 已移除 `eth_getLogs` 与 `eth_feeHistory`
+（现为空）。reference_context 固定了两个 tag 的多数视图：safe 三源一致
+（26235345）；finalized 为 s1/s2（26235313），s3 的 26235123 作为落后参考记录
+保留。replay 实测与 expect：
+
+- `logs-safe-*`：`Corroborated`，support=2；s3 对 range getLogs 返回
+  "method not available"；
+- `logs-finalized-*`：`Corroborated`，support=3；
+- `logs-safe-hash`：`Corroborated`，support=3（blockHash pin 不经高度改写）；
+- `fee-safe`：`Corroborated`，support=2（s3 HTTP 410）；
+- `fee-finalized`：`Corroborated`，support=3；
+- `fee-finalized-noPct`：`Corroborated`，support=2（s3 429 HTML）；
+- `fee-short`：`Unknown`/`no_valid_response`；s2 的短区间被 admission 拒绝
+  （`gasUsedRatio length 2 != requested 10`），s1/s3 归档错误。
+
+真实源整合复跑（`WithFinalizedAnchoring` + `Client.Call`）得到同向状态：
+logs 四类均 `Corroborated`（2 支持 + 1 fault），fee safe/finalized 3/0/0，
+short 区间 `Unknown` 且保留 admission 拒绝。
+
+本轮暴露并修复了三类跨阶段问题：
+
+1. replay 的 safe/finalized reference 曾使用 legacy 全员一致严格锚，现改为
+   `FinalizedHeadAnchor`（safe 多数、finalized 共同 reference），与生产一致；
+2. 非对象 JSON error 与 HTML 429 body 现在按 transport/protocol fault 回放，
+   不再 panic 或当作 JSON-RPC error；
+3. `eth_feeHistory` 的 blockCount 只接受 hex/uint64 的旧口径会在 `int` 入参
+   （真实 `Client.Call` 的常见写法）下 admission 失败；现与 methods 层一致，
+   接受整数类型与 `json.Number`，并加回归测试。
+
+组 3 至此结束。L1（每方法有真实归档并回放）对全部 11 个方法完成；
+L2 仍缺 `eth_syncing` 对象态，批次级 L2 不能宣称完成。
+
 范围外发现（未修复）：`cmd/soak` 的默认 `-anchor-ttl 1m` 与决策 0026
 （禁止跨调用 anchor cache）冲突，直接运行会失败；组 1 验收显式使用
 `-anchor-ttl 0`。该工具的默认值需后续单独修正，不并入捕获批次。
@@ -357,9 +390,9 @@ replay 实测与 expect：
 观察报告，不是 `testdata` 批次，没有 `expect.json`，不解除任何方法，
 不得直接升成 golden，不得合成样本。
 
-- 剩余 2 个读方法仍无正式捕获批次：组 3 的 `eth_getLogs`、`eth_feeHistory`
-  （plan 待写）。以 `TestRegisteredMethodSampleStatus` 的 `noCapture` 名单为准。
-  组 1 与组 2 共 9 个方法已完成捕获与真实源整合验收。
+- 11 个读方法均已有正式捕获批次，`noCapture` 为空，L1 完成。L2 唯一缺口是
+  `eth_syncing` 对象态（组 2 未出现），不得用合成 record 补；批次级 L2 保持
+  未完成。
 - 先冻结按方法分类的 golden 规则：具有 block-reference 参数的方法（当前是
   `eth_getLogs`、`eth_feeHistory`）才要求 `safe`/`finalized` 各自锚定；无参数的
   chain/local/variable 方法不虚构 anchor。replay 回放冻结的 record，因此 gas、tip、
