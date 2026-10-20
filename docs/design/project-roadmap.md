@@ -38,6 +38,10 @@
   （评估已结案：在当前 seam 不可行，属显式限制而非待办缺口，不阻塞捕获批次）。
   含 `httptest` 本地监听在内的全量测试已在本机运行通过
   （`go test ./... -count=1`），replay 端到端批次无跳过。
+- 读方法捕获：阶段 0（`reference_context` 契约、共享 replay height resolver、
+  prepared-request 断言）已落地（`2cd069e`）；组 1 `read-local` 已完成——批次
+  `acf3578`（`internal/rpcsample/testdata/read-local/2026-10-19`）加 2026-10-20
+  真实三源端到端整合验收（实测状态与契约 §5.1 一致）。剩余 6 个方法待捕获。
 
 ## 已完成里程碑
 
@@ -296,26 +300,50 @@ WebSocket 四态测试验收前不升级决策，也不增加 WSS 四态 golden�
 
 ## 排后：未捕获读方法的捕获批次
 
-状态：**尚未开工**（契约已落、待修订后冻结）。契约见
-`docs/design/capture-golden-contract.md`（G1–G5：transport 只捕获 HTTP、anchor 按方法分类、
-断言类型显式声明、replay 离线、分母语义）。派发任务清单见
+状态：**进行中**。阶段 0 已完成（`2cd069e`）：`batch.json` 的
+`reference_context` 契约落地，replay 的 Policy 层与 Aggregator 层改用同一份
+height resolver，prepared-request 断言覆盖“两层一致且等于 record 实际请求”。
+组 3 的原阻塞项（nil resolver、logs/feeHistory 参数断言、共同 reference 载体）
+全部解除。契约见 `docs/design/capture-golden-contract.md`（G1–G5：transport 只捕获
+HTTP、anchor 按方法分类、断言类型显式声明、replay 离线、分母语义）。派发任务清单见
 `docs/design/capture-tasks.md`（派发副本，不是计划）。契约已明确：WSS presence 缺口
-**不阻塞**本批（默认 policy 未开启 `WithRPCErrorBodies()`），11 个方法均按 `transport: "http"`
-捕获；但**这不证明 WSS 传输已验收**。
+**不阻塞**本批（默认 policy 未开启 `WithRPCErrorBodies()`），新捕获一律按
+`transport: "http"`；但**这不证明 WSS 传输已验收**。
 
-**开工前置（阻塞项）**：组 3（`eth_getLogs`/`eth_feeHistory`）的 replay 尚未就绪——
-`replayCapturedCase` 向 Policy 层传 `nil` height resolver，与 Aggregator 层不对齐；
-`assertCapturedFanout` 尚未覆盖 logs 过滤器字段与 feeHistory 高度参数。另需先定义
-「真实捕获如何取得共同 reference」（契约 §2.1bis）。详见 `capture-tasks.md` 阶段 0。
+**组 1 状态：已完成（2026-10-20）**。`read-local` 已提交（`acf3578`，批次
+`internal/rpcsample/testdata/read-local/2026-10-19`，5 方法 × 3 源，15 条 HTTP
+记录），`noCapture` 已移除这 5 个方法，expect 回放入口已接入。真实源数据整合
+验收（2026-10-20UTC，同一组端点 publicnode/drpc/1rpc，经 `ethguard.New` +
+`Client.Call` 走注册策略；未用 typed `Client.BlockNumber` 的 anchor 派生路径
+代替本批 `eth_blockNumber` 的 lower-median 语义）：
+
+- `eth_chainId`：`Corroborated`，support=3；
+- `net_version`：`Corroborated`，support=3；
+- `eth_blockNumber`：`Selected`，support=2、reject=1，值 `26235191`；归档批次
+  为 `26220751`，相差 14,440 块（约 2 天，符合两次捕获的时间差）。差异来自区块
+  传播时序，policy 按 lower median 拒掉落后的源，未升为 `Corroborated`；
+- `net_peerCount`：`Selected`（local，support=1、faults=1），符合 §5.1；
+- `net_listening`：`Selected`（local，support=1），符合 §5.1。
+
+复跑 `cmd/soak`（3 源、finalized anchoring、`-anchor-ttl 0`）得到同向结果：
+`eth_chainId`/`net_version` 均 3/0/0 corroborated，`net_peerCount`/
+`net_listening` 为 Selected；1rpc 在该轮出现 429 与瞬时 HTTP 410，未改变
+local 语义。离线批次的 `expect` 回放与全量 `go test ./internal/rpcsample/... -count=1`
+通过：真实响应与冻结记录不矛盾，组 1 至此结束。
+
+范围外发现（未修复）：`cmd/soak` 的默认 `-anchor-ttl 1m` 与决策 0026
+（禁止跨调用 anchor cache）冲突，直接运行会失败；本次验收显式使用
+`-anchor-ttl 0`。该工具的默认值需后续单独修正，不并入捕获批次。
 
 2026-09-26 的形状探查（`internal/rpcsample/probe/`）只是
 观察报告，不是 `testdata` 批次，没有 `expect.json`，不解除任何方法，
 不得直接升成 golden，不得合成样本。
 
-- 11 个读方法仍无正式捕获批次：`eth_getLogs`、`eth_feeHistory`、`eth_chainId`、
-  `net_version`、`eth_gasPrice`、`eth_maxPriorityFeePerGas`、`eth_blobBaseFee`、
-  `eth_blockNumber`、`eth_syncing`、`net_peerCount`、`net_listening`
-  （以 `TestRegisteredMethodSampleStatus` 钉住的名单为准）。
+- 剩余 6 个读方法仍无正式捕获批次：组 2 的 `eth_gasPrice`、
+  `eth_maxPriorityFeePerGas`、`eth_blobBaseFee`、`eth_syncing`（plan 已备），
+  组 3 的 `eth_getLogs`、`eth_feeHistory`（plan 待写）。以
+  `TestRegisteredMethodSampleStatus` 的 `noCapture` 名单为准。组 1 的
+  `read-local` 5 个方法已完成捕获与真实源整合验收。
 - 先冻结按方法分类的 golden 规则：具有 block-reference 参数的方法（当前是
   `eth_getLogs`、`eth_feeHistory`）才要求 `safe`/`finalized` 各自锚定；无参数的
   chain/local/variable 方法不虚构 anchor。replay 回放冻结的 record，因此 gas、tip、
