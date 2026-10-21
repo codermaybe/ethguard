@@ -456,6 +456,16 @@ presence，也不改变裁决门槛、分母或方法数量。
 建议顺序：T09.2 先覆盖已注册方法（不等待组 3）→ 组 3 捕获按同一字段 gate
 审阅 → T09.1 全注册方法矩阵。两条轨道独立提交，均不与捕获批次混合。
 
+## 参考方案（未立项）：Reference Policy 统一
+
+`docs/design/reference-policy-proposal.md` 暂存一个候选：把 reference 拆成
+Selection（reported tag + depth / pinned hash）与 Confirmation（统一
+majority/floor + hash 确认），`head`/`depth`/`safe`/`finalized` 都成为参数
+组合；tag 是 provider 报告，depth 是确认深度，均非 finality。状态为临时
+参考方案，**不是决策、不授权实现**；待比较 TargetSelector、pinned-target-only、
+两段 evidence、候选规则等替代形状后再决定是否立项。T09.2 在确认前不把
+tag 作为固定前提。
+
 ## 已拒绝（原则性，不是待办）
 
 - **provider 权重**：默认所有源均不可信，权重会给攻击者一条「不靠伪造、靠塑造
