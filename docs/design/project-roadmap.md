@@ -491,6 +491,16 @@ shape drift 的既有断言均由新增 `invariants_test.go` 的进程内失败�
 shape drift 只记录 `value_kind`、`shape_matches_plan=false` 和 `degraded`，不产生
 state reason；可用性 fault 与 quorum 不足只产生 `inconclusive`。未修改生产裁决
 语义，未用 mock 替代 live 采集路径。T10.5 继续批量执行。
+T10.5 实现完成（2026-10-23，待审计）：新增
+`.github/workflows/live-canary.yml`，PR/push 仍只走 `ci.yml` 的离线门禁；live
+canary 只在 schedule、release tag 和手动触发时运行，checkout 固定
+`github.sha`，权限仅 `contents: read`，单 job 15 分钟超时，artifact 保留 90 天。
+live job 先执行 `livecanary run`，无论状态都写
+manifest/registry(可选)/report/run.log/SHA256SUMS 并上传；新增
+`livecanary verify -dir` 离线核对 manifest/report digest、run_id、plan hash 和
+registry artifact digest。非 passed 观察会在 artifact 上传后使 job 失败，
+`inconclusive` 不会被显示为 passed。workflow 结构由解析 YAML 的离线测试
+覆盖，不触网。T10.6 继续批量执行。
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的

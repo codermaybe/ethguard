@@ -2,9 +2,9 @@
 // subcommand is offline and consumes a verified snapshot descriptor; fetch
 // performs one Chainlist acquisition and fixes the run's membership; run
 // acquires once, executes the fixed plan, and writes manifest, registry
-// artifact, and report. Exit code 2 means no conclusion (pre-plan failure or an
-// inconclusive run); exit code 1 means the run failed or the tool itself
-// failed.
+// artifact, and report. verify checks a published artifact directory offline.
+// Exit code 2 means no conclusion (pre-plan failure or an inconclusive run);
+// exit code 1 means the run failed or the tool itself failed.
 package main
 
 import (
@@ -79,7 +79,7 @@ func defaultDependencies() dependencies {
 
 func runWith(args []string, stdout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json> | livecanary run -out <manifest.json>")
+		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json> | livecanary run -out <manifest.json> | livecanary verify -dir <artifact-dir>")
 	}
 	switch args[0] {
 	case "manifest":
@@ -88,9 +88,40 @@ func runWith(args []string, stdout io.Writer, deps dependencies) error {
 		return runFetch(args[1:], stdout, deps)
 	case "run":
 		return runLive(args[1:], stdout, deps)
+	case "verify":
+		return runVerify(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runVerify(args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	dir := flags.String("dir", "", "artifact directory")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *dir == "" {
+		return errors.New("verify: -dir is required")
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("verify: unexpected arguments: %v", flags.Args())
+	}
+	artifacts, err := livecanary.VerifyArtifacts(*dir)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "run_id=%s\nstate=%s\nmanifest_sha256=%s\nreport_sha256=%s\n",
+		artifacts.RunID, artifacts.State, artifacts.ManifestSHA256, artifacts.ReportSHA256); err != nil {
+		return err
+	}
+	if artifacts.RegistrySHA256 != "" {
+		if _, err := fmt.Fprintf(stdout, "registry_sha256=%s\n", artifacts.RegistrySHA256); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runManifest(args []string, stdout io.Writer, deps dependencies) error {

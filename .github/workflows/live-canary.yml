@@ -1,0 +1,112 @@
+# EthGuard live canary
+#
+# This workflow is an observation pipeline, not an offline code gate:
+#   - PR/push CI stays in ci.yml and never contacts a live provider.
+#   - schedule/tag runs acquire Chainlist once, execute the fixed plan, and
+#     publish the manifest, registry copy, report, and digests.
+#   - A non-passed observation fails the job, but the artifact is uploaded
+#     first. GitHub-hosted execution proves the runner is not the author's
+#     machine; it is not an independent audit.
+
+name: live-canary
+
+on:
+  schedule:
+    # Daily observation. The exact time is not a freshness promise.
+    - cron: '17 3 * * *'
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-canary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  live-canary:
+    name: live canary (observation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: checkout exact commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: assert exact commit
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: build livecanary
+        run: go build -trimpath -o "${RUNNER_TEMP}/livecanary" ./cmd/livecanary
+
+      - name: run live canary
+        id: canary
+        continue-on-error: true
+        env:
+          OUT_DIR: ${{ runner.temp }}/live-canary
+        run: |
+          set -euo pipefail
+          mkdir -p "${OUT_DIR}"
+          "${RUNNER_TEMP}/livecanary" run -out "${OUT_DIR}/manifest.json" 2>&1 | tee "${OUT_DIR}/run.log"
+
+      - name: write artifact checksums
+        if: always()
+        env:
+          OUT_DIR: ${{ runner.temp }}/live-canary
+        run: |
+          set -euo pipefail
+          cd "${OUT_DIR}"
+          : > SHA256SUMS
+          for file in manifest.json registry.json report.json run.log; do
+            if [ -f "${file}" ]; then
+              sha256sum "${file}" >> SHA256SUMS
+            fi
+          done
+
+      - name: verify artifact coherence
+        if: always()
+        env:
+          OUT_DIR: ${{ runner.temp }}/live-canary
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/livecanary" verify -dir "${OUT_DIR}" | tee "${OUT_DIR}/verify.txt"
+          cat "${OUT_DIR}/verify.txt" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: record observation state
+        if: always()
+        env:
+          OUT_DIR: ${{ runner.temp }}/live-canary
+        run: |
+          set -euo pipefail
+          if [ -f "${OUT_DIR}/report.json" ]; then
+            state="$(sed -n 's/^state=//p' "${OUT_DIR}/verify.txt")"
+            echo "live canary state: ${state}" >> "${GITHUB_STEP_SUMMARY}"
+            echo '```' >> "${GITHUB_STEP_SUMMARY}"
+            cat "${OUT_DIR}/SHA256SUMS" >> "${GITHUB_STEP_SUMMARY}"
+            echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "live canary produced no report" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: upload immutable observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-canary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/live-canary
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: enforce observation result
+        if: steps.canary.outcome != 'success'
+        run: |
+          echo "::error::live canary did not pass; state and failure classification are in the uploaded artifact"
+          exit 1

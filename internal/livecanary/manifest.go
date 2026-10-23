@@ -24,6 +24,7 @@ const (
 	SelectionAlgorithm    = "chainlist-sorted-v1"
 	PlanID                = "mainnet-canary-v1"
 	ArtifactName          = "registry.json"
+	ManifestArtifactName  = "manifest.json"
 
 	// ChainlistURL is the only registry source accepted by v1.
 	ChainlistURL = "https://chainlist.org/rpcs.json"

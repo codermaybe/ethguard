@@ -646,6 +646,77 @@ func TestRunLiveRequiresOut(t *testing.T) {
 	}
 }
 
+func TestRunVerifyReportsArtifactState(t *testing.T) {
+	dir := t.TempDir()
+	manifestData, err := os.ReadFile(filepath.Join("..", "..", "docs", "design", "live-canary", "manifest.example.json"))
+	if err != nil {
+		t.Fatalf("read manifest example: %v", err)
+	}
+	manifest, err := livecanary.ParseManifest(manifestData)
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	artifact := []byte(`[{"chainId":1,"rpc":["https://rpc-a.example","https://rpc-b.example","https://rpc-c.example"]}]`)
+	digest := livecanary.ManifestSHA256(artifact)
+	manifest.Registry.RawSHA256 = &digest
+	manifest.Registry.ArtifactSHA256 = &digest
+	manifestBytes, err := manifest.Marshal()
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	reportData, err := os.ReadFile(filepath.Join("..", "..", "docs", "design", "live-canary", "report.example.json"))
+	if err != nil {
+		t.Fatalf("read report example: %v", err)
+	}
+	report, err := livecanary.ParseReport(reportData)
+	if err != nil {
+		t.Fatalf("ParseReport: %v", err)
+	}
+	report.ManifestSHA256 = livecanary.ManifestSHA256(manifestBytes)
+	reportBytes, err := report.Marshal()
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	for name, data := range map[string][]byte{
+		livecanary.ManifestArtifactName: manifestBytes,
+		livecanary.ReportArtifactName:   reportBytes,
+		livecanary.ArtifactName:         artifact,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	var stdout bytes.Buffer
+	if err := runWith([]string{"verify", "-dir", dir}, &stdout, testDependencies(commandProvenance())); err != nil {
+		t.Fatalf("runWith verify: %v", err)
+	}
+	for _, want := range []string{
+		"run_id=" + manifest.RunID,
+		"state=passed",
+		"manifest_sha256=" + livecanary.ManifestSHA256(manifestBytes),
+		"report_sha256=",
+		"registry_sha256=" + digest,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("verify output does not contain %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestRunVerifyRequiresDirAndRejectsTampering(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runWith([]string{"verify"}, &stdout, testDependencies(commandProvenance())); err == nil {
+		t.Error("runVerify accepted a missing -dir")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, livecanary.ManifestArtifactName), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if err := runWith([]string{"verify", "-dir", dir}, &stdout, testDependencies(commandProvenance())); err == nil {
+		t.Error("runVerify accepted an invalid manifest")
+	}
+}
+
 func commandHasReason(reasons []livecanary.StateReason, category string) bool {
 	for _, reason := range reasons {
 		if reason.Category == category {
