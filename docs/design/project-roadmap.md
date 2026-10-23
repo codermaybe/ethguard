@@ -518,6 +518,11 @@ verify` 校验通过。详细记录见
 由于本机没有 GitHub API token，维护者选择仅本地取证，本次未生成远端 run 链接
 或可公开下载的 artifact；T10.6 的 external live observation 验收仍未完成，不把
 本地诊断写成 attested evidence。T10.7 外部复核同样保持待办。
+T10.6 审计结论（2026-10-23）：**阻塞，未通过**。本地 bundle 的
+`SHA256SUMS`、manifest/report/run_id/plan/registry digest 与 `verify` 结果均已独立
+复核，状态保持 `inconclusive`，但它们位于作者机器的 `/tmp`，没有外部 runner 的
+run 链接和可下载 artifact，不能满足 T10.6 的硬性出口。补齐外部 workflow run、
+公开 artifact 与第三方可下载复核前，不得解除 T10.6，也不开始 T10.7 审计。
 T10.7 本地复跑完成（2026-10-23，代码 `63d5ac7`）：在干净 clone 的 exact commit
 上用 `livecanary rerun` 执行 T10.6 的同一 manifest，不重新抓取 Chainlist；
 manifest/registry digest、run_id、state、各步骤 decision 值、step reference、
