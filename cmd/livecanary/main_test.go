@@ -5,6 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,6 +33,43 @@ func testDependencies(provenance livecanary.Provenance) dependencies {
 		loadSnapshot: livecanary.LoadSnapshot,
 		detect:       func() (livecanary.Provenance, error) { return provenance, nil },
 	}
+}
+
+type commandTransport struct {
+	status int
+	body   []byte
+	count  int
+}
+
+func (t *commandTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	t.count++
+	return &http.Response{
+		StatusCode: t.status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(t.body)),
+	}, nil
+}
+
+func fetchRegistryBody(members ...string) []byte {
+	quoted := make([]string, len(members))
+	for i, member := range members {
+		quoted[i] = `"` + member + `"`
+	}
+	return []byte(`[{"chainId":1,"rpc":[` + strings.Join(quoted, ",") + `]}]`)
+}
+
+func fetchDependencies(transport http.RoundTripper, provenance livecanary.Provenance) dependencies {
+	deps := testDependencies(provenance)
+	deps.newFetcher = func() livecanary.Fetcher {
+		return livecanary.Fetcher{
+			Transport: transport,
+			Now: func() time.Time {
+				return time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+			},
+			Timeout: time.Second,
+		}
+	}
+	return deps
 }
 
 func writeRegistrySnapshot(t *testing.T, dir string, raw []byte) string {
@@ -235,5 +275,192 @@ func TestRunManifestRejectsZeroGeneratedAt(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); !os.IsNotExist(statErr) {
 		t.Error("zero generated_at still wrote an artifact")
+	}
+}
+
+func TestRunFetchFixedMembership(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "manifest.json")
+	transport := &commandTransport{
+		status: http.StatusOK,
+		body:   fetchRegistryBody("https://a.example", "https://b.example", "https://c.example"),
+	}
+	var stdout bytes.Buffer
+	if err := runWith([]string{"fetch", "-out", outPath}, &stdout, fetchDependencies(transport, commandProvenance())); err != nil {
+		t.Fatalf("runFetch: %v", err)
+	}
+	manifestData, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	manifest, err := livecanary.ParseManifest(manifestData)
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	if manifest.Registry.Status != "ok" || manifest.Selection == nil || len(manifest.Selection.Selected) != 3 {
+		t.Errorf("unexpected manifest: status=%s selection=%+v", manifest.Registry.Status, manifest.Selection)
+	}
+	if _, err := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); err != nil {
+		t.Errorf("artifact: %v", err)
+	}
+	if transport.count != 1 {
+		t.Errorf("requests = %d, want 1", transport.count)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "membership=fixed") {
+		t.Errorf("stdout missing fixed membership:\n%s", output)
+	}
+	if strings.Contains(output, "state=inconclusive") {
+		t.Errorf("fixed membership reported inconclusive:\n%s", output)
+	}
+}
+
+func TestRunFetchInsufficientMembers(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "manifest.json")
+	transport := &commandTransport{
+		status: http.StatusOK,
+		body:   fetchRegistryBody("https://a.example", "https://b.example"),
+	}
+	var stdout bytes.Buffer
+	err := runWith([]string{"fetch", "-out", outPath}, &stdout, fetchDependencies(transport, commandProvenance()))
+	var inconclusive *inconclusiveError
+	if !errors.As(err, &inconclusive) {
+		t.Fatalf("runFetch error = %v, want inconclusive", err)
+	}
+	if inconclusive.reason != string(livecanary.MembershipInsufficient) {
+		t.Errorf("reason = %s", inconclusive.reason)
+	}
+	manifestData, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatalf("insufficient membership must still write a manifest: %v", readErr)
+	}
+	manifest, parseErr := livecanary.ParseManifest(manifestData)
+	if parseErr != nil {
+		t.Fatalf("ParseManifest: %v", parseErr)
+	}
+	if manifest.Selection == nil || len(manifest.Selection.Selected) != 2 {
+		t.Errorf("selected = %+v", manifest.Selection)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); statErr != nil {
+		t.Errorf("artifact: %v", statErr)
+	}
+	if !strings.Contains(stdout.String(), "state=inconclusive") ||
+		!strings.Contains(stdout.String(), "membership=insufficient_members") {
+		t.Errorf("stdout does not report inconclusive membership:\n%s", stdout.String())
+	}
+}
+
+func TestRunFetchRegistryFailure(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "manifest.json")
+	transport := &commandTransport{status: http.StatusInternalServerError, body: []byte(`{}`)}
+	var stdout bytes.Buffer
+	err := runWith([]string{"fetch", "-out", outPath}, &stdout, fetchDependencies(transport, commandProvenance()))
+	var inconclusive *inconclusiveError
+	if !errors.As(err, &inconclusive) {
+		t.Fatalf("runFetch error = %v, want inconclusive", err)
+	}
+	if inconclusive.reason != string(livecanary.MembershipRegistryUnavailable) {
+		t.Errorf("reason = %s", inconclusive.reason)
+	}
+	manifestData, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatalf("registry failure must still write a manifest: %v", readErr)
+	}
+	manifest, parseErr := livecanary.ParseManifest(manifestData)
+	if parseErr != nil {
+		t.Fatalf("ParseManifest: %v", parseErr)
+	}
+	if manifest.Registry.Status != "unavailable" || manifest.Selection != nil {
+		t.Errorf("unexpected unavailable manifest: %+v", manifest)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); !os.IsNotExist(statErr) {
+		t.Error("registry failure wrote an artifact")
+	}
+	if !strings.Contains(stdout.String(), "state=inconclusive") ||
+		!strings.Contains(stdout.String(), "membership=registry_unavailable") {
+		t.Errorf("stdout does not report registry failure:\n%s", stdout.String())
+	}
+}
+
+func TestRunFetchMissingTargetChain(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "manifest.json")
+	transport := &commandTransport{
+		status: http.StatusOK,
+		body:   []byte(`[{"chainId":2,"rpc":["https://other.example"]}]`),
+	}
+	var stdout bytes.Buffer
+	err := runWith([]string{"fetch", "-out", outPath}, &stdout, fetchDependencies(transport, commandProvenance()))
+	var inconclusive *inconclusiveError
+	if !errors.As(err, &inconclusive) {
+		t.Fatalf("runFetch error = %v, want inconclusive", err)
+	}
+	if inconclusive.reason != string(livecanary.MembershipRegistryUnavailable) {
+		t.Errorf("reason = %s", inconclusive.reason)
+	}
+	manifestData, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatalf("read manifest: %v", readErr)
+	}
+	manifest, parseErr := livecanary.ParseManifest(manifestData)
+	if parseErr != nil {
+		t.Fatalf("ParseManifest: %v", parseErr)
+	}
+	if manifest.Registry.Status != "ok" || manifest.Selection == nil || manifest.Selection.CandidateCount != 0 {
+		t.Errorf("unexpected manifest: status=%s selection=%+v", manifest.Registry.Status, manifest.Selection)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); statErr != nil {
+		t.Errorf("target-chain failure should still publish registry bytes: %v", statErr)
+	}
+	if !strings.Contains(stdout.String(), "registry_status=ok") ||
+		!strings.Contains(stdout.String(), "membership=registry_unavailable") {
+		t.Errorf("stdout does not classify the missing target chain:\n%s", stdout.String())
+	}
+}
+
+func TestRunFetchRejectsZeroGeneratedAtBeforeNetwork(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "manifest.json")
+	transport := &commandTransport{status: http.StatusOK, body: fetchRegistryBody("https://a.example")}
+	provenance := commandProvenance()
+	provenance.GeneratedAt = time.Time{}
+	var stdout bytes.Buffer
+	if err := runWith([]string{"fetch", "-out", outPath}, &stdout, fetchDependencies(transport, provenance)); err == nil {
+		t.Fatal("runFetch accepted a zero generated_at")
+	}
+	if transport.count != 0 {
+		t.Errorf("requests = %d, want 0", transport.count)
+	}
+	if _, statErr := os.Stat(outPath); !os.IsNotExist(statErr) {
+		t.Error("zero generated_at still wrote a manifest")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); !os.IsNotExist(statErr) {
+		t.Error("zero generated_at still wrote an artifact")
+	}
+}
+
+func TestRunFetchRequiresOut(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runWith([]string{"fetch"}, &stdout, fetchDependencies(&commandTransport{status: http.StatusOK}, commandProvenance())); err == nil {
+		t.Error("runFetch accepted a missing -out")
+	}
+}
+
+func TestExitCode(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"success", nil, 0},
+		{"failure", errors.New("boom"), 1},
+		{"inconclusive", &inconclusiveError{reason: "insufficient_members"}, 2},
+	}
+	for _, test := range tests {
+		if got := exitCode(test.err); got != test.want {
+			t.Errorf("%s: exitCode = %d, want %d", test.name, got, test.want)
+		}
 	}
 }

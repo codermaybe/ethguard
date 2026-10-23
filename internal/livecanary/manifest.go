@@ -544,6 +544,13 @@ func ManifestSHA256(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func formatProvenanceTime(field string, value time.Time) (string, error) {
+	if value.IsZero() {
+		return "", fmt.Errorf("%s: required", field)
+	}
+	return value.UTC().Truncate(time.Second).Format(time.RFC3339), nil
+}
+
 func validateTimestamp(field, value string) error {
 	if !timestampRE.MatchString(value) {
 		return fmt.Errorf("%s: must be RFC3339 UTC with second precision", field)

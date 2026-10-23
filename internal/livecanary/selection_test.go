@@ -148,6 +148,29 @@ func TestSelectMissingTargetChain(t *testing.T) {
 	}
 }
 
+func TestSelectWithTargetReportsPresence(t *testing.T) {
+	selection, found, err := SelectWithTarget(ChainID, []byte(`[{"chainId":2,"rpc":["https://other.example"]}]`))
+	if err != nil {
+		t.Fatalf("SelectWithTarget: %v", err)
+	}
+	if found {
+		t.Error("missing target chain reported as present")
+	}
+	if selection.CandidateCount != 0 {
+		t.Errorf("candidate count = %d", selection.CandidateCount)
+	}
+	selection, found, err = SelectWithTarget(ChainID, []byte(`[{"chainId":1,"rpc":[]}]`))
+	if err != nil {
+		t.Fatalf("SelectWithTarget: %v", err)
+	}
+	if !found {
+		t.Error("present target chain reported as missing")
+	}
+	if selection.CandidateCount != 0 {
+		t.Errorf("candidate count = %d", selection.CandidateCount)
+	}
+}
+
 func TestSelectRejectsMalformedRegistry(t *testing.T) {
 	for _, raw := range []string{
 		"",

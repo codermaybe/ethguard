@@ -3,7 +3,6 @@ package livecanary
 import (
 	"fmt"
 	"slices"
-	"time"
 )
 
 type BuildInput struct {
@@ -14,9 +13,10 @@ type BuildInput struct {
 }
 
 type BuildResult struct {
-	Manifest      Manifest
-	Artifact      []byte
-	RegistryError error
+	Manifest         Manifest
+	Artifact         []byte
+	RegistryError    error
+	TargetChainFound bool
 }
 
 // Build derives the manifest from registry bytes, a verified snapshot
@@ -27,65 +27,68 @@ func Build(input BuildInput) (BuildResult, error) {
 	if input.ChainID != ChainID {
 		return BuildResult{}, fmt.Errorf("chain_id: got %d, want %d", input.ChainID, ChainID)
 	}
-	if input.Provenance.GeneratedAt.IsZero() {
-		return BuildResult{}, fmt.Errorf("generated_at: required")
-	}
 	if err := input.Snapshot.Validate(); err != nil {
 		return BuildResult{}, err
 	}
 	if actual := sha256Hex(input.Raw); actual != input.Snapshot.RawSHA256 {
 		return BuildResult{}, fmt.Errorf("snapshot: raw_sha256 mismatch: got %s, want %s", actual, input.Snapshot.RawSHA256)
 	}
+	return BuildRegistry(input.Snapshot.FetchedAt, input.Raw, input.Provenance)
+}
 
-	manifest := Manifest{
-		SchemaVersion: SchemaVersion,
-		RunID:         input.Provenance.RunID,
-		GeneratedAt:   input.Provenance.GeneratedAt.UTC().Truncate(time.Second).Format(time.RFC3339),
-		SourceCommit:  input.Provenance.SourceCommit,
-		ToolVersion:   ToolVersion,
-		GoVersion:     input.Provenance.GoVersion,
-		Environment:   input.Provenance.Environment,
-		ChainID:       input.ChainID,
-		Reference: Reference{
-			Policy:       ReferencePolicy,
-			MaxLagBlocks: MaxLagBlocks,
-		},
-		Timeouts: Timeouts{
-			RunMS:       RunTimeoutMS,
-			RegistryMS:  RegistryTimeoutMS,
-			ReferenceMS: ReferenceTimeoutMS,
-			StepMS:      StepTimeoutMS,
-		},
-		Limits: Limits{RegistryMaxBytes: RegistryMaxBytes},
-		Plan:   FixedPlan(),
+// BuildRegistry builds the manifest from registry bytes fetched by the live
+// path, where no on-disk snapshot descriptor exists. The source URL is fixed.
+func BuildRegistry(fetchedAt string, raw []byte, provenance Provenance) (BuildResult, error) {
+	if err := validateTimestamp("registry.fetched_at", fetchedAt); err != nil {
+		return BuildResult{}, err
 	}
+	return buildFromRegistry(fetchedAt, raw, provenance)
+}
 
+// BuildUnavailable records a fetch failure as a valid pre-plan manifest. It
+// never produces an artifact.
+func BuildUnavailable(fetchedAt string, provenance Provenance) (BuildResult, error) {
+	if err := validateTimestamp("registry.fetched_at", fetchedAt); err != nil {
+		return BuildResult{}, err
+	}
+	manifest, err := baseManifest(provenance)
+	if err != nil {
+		return BuildResult{}, err
+	}
+	manifest.Registry = unavailableRegistry(fetchedAt)
+	if err := manifest.Validate(); err != nil {
+		return BuildResult{}, err
+	}
+	return BuildResult{Manifest: manifest}, nil
+}
+
+func buildFromRegistry(fetchedAt string, raw []byte, provenance Provenance) (BuildResult, error) {
+	manifest, err := baseManifest(provenance)
+	if err != nil {
+		return BuildResult{}, err
+	}
 	result := BuildResult{}
-	selection, selectionErr := Select(input.ChainID, input.Raw)
+	selection, found, selectionErr := SelectWithTarget(ChainID, raw)
+	result.TargetChainFound = found
 	if selectionErr != nil {
-		manifest.Registry = Registry{
-			Status:    "unavailable",
-			URL:       input.Snapshot.URL,
-			FetchedAt: input.Snapshot.FetchedAt,
-			Redaction: RedactionNone,
-		}
+		manifest.Registry = unavailableRegistry(fetchedAt)
 		manifest.Selection = nil
 		result.RegistryError = selectionErr
 	} else {
-		artifact, mode, err := redactRegistry(input.Raw)
+		artifact, mode, err := redactRegistry(raw)
 		if err != nil {
 			return BuildResult{}, err
 		}
 		if err := verifyRedaction(selection, artifact, mode); err != nil {
 			return BuildResult{}, err
 		}
-		rawSHA := sha256Hex(input.Raw)
+		rawSHA := sha256Hex(raw)
 		artifactSHA := sha256Hex(artifact)
 		artifactName := ArtifactName
 		manifest.Registry = Registry{
 			Status:         "ok",
-			URL:            input.Snapshot.URL,
-			FetchedAt:      input.Snapshot.FetchedAt,
+			URL:            ChainlistURL,
+			FetchedAt:      fetchedAt,
 			RawSHA256:      &rawSHA,
 			Artifact:       &artifactName,
 			ArtifactSHA256: &artifactSHA,
@@ -100,6 +103,44 @@ func Build(input BuildInput) (BuildResult, error) {
 	}
 	result.Manifest = manifest
 	return result, nil
+}
+
+func baseManifest(provenance Provenance) (Manifest, error) {
+	generatedAt, err := formatProvenanceTime("generated_at", provenance.GeneratedAt)
+	if err != nil {
+		return Manifest{}, err
+	}
+	return Manifest{
+		SchemaVersion: SchemaVersion,
+		RunID:         provenance.RunID,
+		GeneratedAt:   generatedAt,
+		SourceCommit:  provenance.SourceCommit,
+		ToolVersion:   ToolVersion,
+		GoVersion:     provenance.GoVersion,
+		Environment:   provenance.Environment,
+		ChainID:       ChainID,
+		Reference: Reference{
+			Policy:       ReferencePolicy,
+			MaxLagBlocks: MaxLagBlocks,
+		},
+		Timeouts: Timeouts{
+			RunMS:       RunTimeoutMS,
+			RegistryMS:  RegistryTimeoutMS,
+			ReferenceMS: ReferenceTimeoutMS,
+			StepMS:      StepTimeoutMS,
+		},
+		Limits: Limits{RegistryMaxBytes: RegistryMaxBytes},
+		Plan:   FixedPlan(),
+	}, nil
+}
+
+func unavailableRegistry(fetchedAt string) Registry {
+	return Registry{
+		Status:    "unavailable",
+		URL:       ChainlistURL,
+		FetchedAt: fetchedAt,
+		Redaction: RedactionNone,
+	}
 }
 
 // verifyRedaction proves that publishing the safe copy cannot change which

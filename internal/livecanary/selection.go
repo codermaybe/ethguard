@@ -46,15 +46,24 @@ type candidate struct {
 // other chains are ignored, including malformed ones; only the target chain's
 // RPC list can make selection fail.
 func Select(chainID uint64, raw []byte) (*Selection, error) {
+	selection, _, err := SelectWithTarget(chainID, raw)
+	return selection, err
+}
+
+// SelectWithTarget also reports whether the target chain was present. T10.2
+// needs that distinction: a missing target chain is registry_unavailable,
+// while a present chain with too few valid members is insufficient_members.
+func SelectWithTarget(chainID uint64, raw []byte) (*Selection, bool, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || trimmed[0] != '[' {
-		return nil, fmt.Errorf("registry: top-level JSON must be an array")
+		return nil, false, fmt.Errorf("registry: top-level JSON must be an array")
 	}
 	var chains []json.RawMessage
 	if err := json.Unmarshal(trimmed, &chains); err != nil {
-		return nil, fmt.Errorf("registry: parse: %w", err)
+		return nil, false, fmt.Errorf("registry: parse: %w", err)
 	}
 	var entries []json.RawMessage
+	found := false
 	for i, chain := range chains {
 		var parsed registryChain
 		if err := json.Unmarshal(chain, &parsed); err != nil {
@@ -64,16 +73,17 @@ func Select(chainID uint64, raw []byte) (*Selection, error) {
 		if !ok || id != chainID {
 			continue
 		}
+		found = true
 		if len(parsed.RPC) == 0 || bytes.Equal(bytes.TrimSpace(parsed.RPC), []byte("null")) {
-			return nil, fmt.Errorf("registry: chain %d entry %d: missing rpc list", chainID, i)
+			return nil, false, fmt.Errorf("registry: chain %d entry %d: missing rpc list", chainID, i)
 		}
 		var rpc []json.RawMessage
 		if err := json.Unmarshal(parsed.RPC, &rpc); err != nil {
-			return nil, fmt.Errorf("registry: chain %d entry %d: rpc: %w", chainID, i, err)
+			return nil, false, fmt.Errorf("registry: chain %d entry %d: rpc: %w", chainID, i, err)
 		}
 		entries = append(entries, rpc...)
 	}
-	return selectCandidates(entries), nil
+	return selectCandidates(entries), found, nil
 }
 
 func parseChainID(raw json.RawMessage) (uint64, bool) {
