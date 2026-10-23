@@ -513,6 +513,15 @@ verify` 校验通过。详细记录见
 由于本机没有 GitHub API token，维护者选择仅本地取证，本次未生成远端 run 链接
 或可公开下载的 artifact；T10.6 的 external live observation 验收仍未完成，不把
 本地诊断写成 attested evidence。T10.7 外部复核同样保持待办。
+T10.7 本地复跑完成（2026-10-23，代码 `63d5ac7`）：在干净 clone 的 exact commit
+上用 `livecanary rerun` 执行 T10.6 的同一 manifest，不重新抓取 Chainlist；
+manifest/registry digest、run_id、state、各步骤 decision 值、step reference、
+typed 结果和全部适用不变量与原始 run 一致。差异仅为部分成员的
+support/fault 归属和 7 与 6 条限流原因，归类为 provider 波动；报告 digest 因
+时间窗口和证据不同而不同。记录见
+`docs/design/live-canary/runs/2026-10-23-t10.7-local.md`。干净 clone 仍运行在
+同一主机，且无 GitHub API credential，因此外部 workflow/repository 的独立复核
+仍未完成，T10.7 不标记为通过。T10.8 文档收口继续进行。
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的
