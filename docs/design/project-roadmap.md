@@ -562,7 +562,8 @@ T10.8 预审结论（2026-10-23）：文档边界无阻塞。README、README.zh-
 matrix、wire-forms 和 roadmap 均把离线回归、本地观察、external live observation
 与 attested evidence 分层，明确 `inconclusive` 不是成功，也未把一次 live run
 写成兼容性、共识、finality 或 provider 独立性证明。最终验收仍依赖 T10.6 外部
-artifact，保持挂起，不得视为通过。
+artifact；该 artifact 已于 2026-10-24 由 run `39983945116` 补齐，文档收口不再
+依赖新的 live 请求。
 
 T10 当前证据状态：
 
@@ -570,12 +571,27 @@ T10 当前证据状态：
 | --- | --- |
 | Offline regression | `ci.yml` + `go test`/`rpctest`/replay；T10.4/T10.5 门禁已提交 |
 | Live observation（本地诊断） | 2026-10-23 本地 run，state `inconclusive`（可用性 fault），全部不变量为 true；记录已提交 |
-| External live observation | 未生成：无 GitHub API credential，维护者选择仅本地取证 |
-| Attested evidence | 无 |
+| External live observation | GitHub run `39983945116`，state `inconclusive`；artifact digest 与 report/manifest/registry 绑定已复核 |
+| Attested evidence | 首次 GitHub-hosted artifact 已下载并校验；独立 runner/repository 复核仍待 T10.7 |
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的
 临时参考方案，不因 T10 自动定案。
+
+### 架构负债：规范来源与客户端依赖（决策 0060）
+
+Execution APIs 是方法、参数、响应字段和官方标准边界的规范依据；它不定义
+provider transport、WSS 细节、错误解码、typed client 行为或完整兼容性。当前
+go-ethereum 是事实上的实现和类型参考，不是上游真值的规范来源。这个差距必须
+作为架构负债保留：一方面是 provider 行为缺少同等完整的规范，另一方面是 pool
+和 transport seam 仍暴露具体 `ethclient.Client`，而 typed value/codec 依赖
+go-ethereum 类型。
+
+需求已记录但方案未冻结：保持公开 ethclient-shaped 兼容，先建立小型内部 RPC
+连接 seam，再逐步评估 transport、wire-error 和类型替换；不得在 T10 证据期间
+进行大爆炸重写，也不得把自有实现冒充更强的上游标准。完整迁移必须单独量化
+transport、WSS、Ethereum 类型、密码学和测试 fixture 的成本，并逐片通过现有
+offline、adapter 和 live evidence 门禁。
 
 ### 背景
 

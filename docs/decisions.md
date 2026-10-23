@@ -2226,3 +2226,40 @@ schema, no method count, no WSS presence behavior, and no production
 adjudication. Even an externally published live artifact with digests is
 provider-backed observation: it is not consensus, finality, canonicality,
 provider independence, or proof of future reliability.
+
+## 0060. Execution API is normative; client-library dependence is a tracked migration debt
+
+Status: Recorded requirement, solution open (2026-10-24).
+
+The Execution APIs specifications are the normative reference for Ethereum
+Execution JSON-RPC method names, parameter forms, response fields, and the
+standard boundary. They are the reliable source for what EthGuard may claim as
+an official method contract.
+
+There is no equally complete, normative specification for the provider-side
+transport behavior, error decoding, WebSocket details, typed client behavior,
+or compatibility conventions that sit below that method contract. EthGuard
+therefore uses go-ethereum as a de facto implementation and type reference,
+not as an authority that defines upstream truth. `ethclient` and the related
+go-ethereum packages are useful adapters, but their behavior and dependency
+graph can change independently of the Execution APIs contract.
+
+This creates a tracked architecture debt with two separate parts:
+
+1. **semantic reference debt**: provider behavior outside the Execution APIs
+   is observed and classified, not standardized by the library;
+2. **implementation coupling debt**: the pool and transport seam currently
+   expose concrete go-ethereum client types, while typed values and codecs use
+   go-ethereum packages across the adapter and object encoders.
+
+The required direction is gradual: keep the public ethclient-shaped
+compatibility surface, establish a small internal RPC connection seam, and
+evaluate transport and type replacement behind that seam. A full removal of
+go-ethereum is not approved by this record. It must not be started as a
+big-bang rewrite, and it must not be mixed into T10 evidence or used to claim
+that a new implementation is a stronger upstream standard.
+
+Any future migration proposal must separately quantify transport, wire-error,
+WebSocket, Ethereum-type, cryptographic, and test-fixture replacement; keep
+the Execution APIs contract as the normative oracle; and pass the existing
+offline, adapter, and external live evidence gates at each slice.
