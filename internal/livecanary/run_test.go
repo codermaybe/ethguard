@@ -506,14 +506,20 @@ func TestExecutorManifestDigestMismatchIsFailedReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal manifest: %v", err)
 	}
+	inputBytes := append(append([]byte(nil), manifestBytes...), '\n')
+	claimed := ManifestSHA256(manifestBytes)
+	actual := ManifestSHA256(inputBytes)
+	if claimed == actual {
+		t.Fatal("test setup: claimed and actual digests must differ")
+	}
 	executor := Executor{NewClient: func(Manifest) (*ethguard.Client, error) {
 		t.Fatal("digest mismatch must not build a client")
 		return nil, nil
 	}}
 	report, err := executor.Run(context.Background(), RunInput{
 		Manifest:       manifest,
-		ManifestBytes:  append(manifestBytes, '\n'),
-		ManifestSHA256: ManifestSHA256(manifestBytes),
+		ManifestBytes:  inputBytes,
+		ManifestSHA256: claimed,
 		Membership:     MembershipFixed,
 	})
 	if err != nil {
@@ -522,8 +528,48 @@ func TestExecutorManifestDigestMismatchIsFailedReport(t *testing.T) {
 	if report.State != StateFailed || !hasReason(report.StateReasons, "schema_error", "") {
 		t.Fatalf("state=%s reasons=%+v", report.State, report.StateReasons)
 	}
+	if report.ManifestSHA256 != actual {
+		t.Fatalf("report manifest_sha256 = %s, want the actual manifest bytes digest %s",
+			report.ManifestSHA256, actual)
+	}
 	if len(report.Steps) != 0 {
 		t.Fatalf("digest failure must not execute the plan")
+	}
+}
+
+func TestExecutorManifestArgumentMismatchIsFailedReport(t *testing.T) {
+	manifest := testManifest(t)
+	manifestBytes, err := manifest.Marshal()
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	digest := ManifestSHA256(manifestBytes)
+	disagreeing := testManifest(t)
+	disagreeing.RunID = "01JAZ3K4M5N6P7Q8R9S0T1V2WY"
+	executor := Executor{NewClient: func(Manifest) (*ethguard.Client, error) {
+		t.Fatal("manifest mismatch must not build a client")
+		return nil, nil
+	}}
+	report, err := executor.Run(context.Background(), RunInput{
+		Manifest:       disagreeing,
+		ManifestBytes:  manifestBytes,
+		ManifestSHA256: digest,
+		Membership:     MembershipFixed,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if report.State != StateFailed || !hasReason(report.StateReasons, "schema_error", "") {
+		t.Fatalf("state=%s reasons=%+v", report.State, report.StateReasons)
+	}
+	if report.ManifestSHA256 != digest {
+		t.Fatalf("report manifest_sha256 = %s, want %s", report.ManifestSHA256, digest)
+	}
+	if report.RunID != manifest.RunID {
+		t.Fatalf("report run_id = %s, want the manifest bytes run_id %s", report.RunID, manifest.RunID)
+	}
+	if len(report.Steps) != 0 {
+		t.Fatalf("manifest mismatch must not execute the plan")
 	}
 }
 

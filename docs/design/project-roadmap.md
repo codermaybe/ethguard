@@ -477,7 +477,11 @@ seam（observed prepared request、source-attributed faults、collection faults�
 anchoring、固定成员、30s step / 300s run、typed adapter、notfound 错误路径）和
 `livecanary run`。报告由本次 manifest、响应和 evidence 直接生成；失败与
 inconclusive 也写 `report.json`。执行器测试全部使用 `rpctest` 进程内节点或注入
-client，不触网。T10.4 暂停等待审计。
+client，不触网。T10.3 审计修正（2026-10-23）：报告中的 `manifest_sha256` 绑定
+`ManifestBytes` 的实际 SHA-256，不再采用调用方传入的 claimed digest；执行器以
+`ParseManifest` 的解析结果作为唯一执行 manifest，并校验传入 `Manifest` 与字节
+结构一致，digest 或结构不一致时仍生成记录实际 digest 的 `schema_error` failed
+报告，并新增两项回归测试。T10.4 继续暂停等待复审。
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的

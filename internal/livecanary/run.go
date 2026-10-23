@@ -1,6 +1,7 @@
 package livecanary
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -61,22 +62,28 @@ func (e Executor) Run(ctx context.Context, input RunInput) (report Report, err e
 			report, err = state.finish()
 		}
 	}()
-	if len(input.ManifestBytes) == 0 || input.ManifestSHA256 == "" {
-		return Report{}, fmt.Errorf("run: manifest bytes and digest are required")
+	if len(input.ManifestBytes) == 0 {
+		return Report{}, fmt.Errorf("run: manifest bytes are required")
 	}
-	manifest := input.Manifest
-	if err := manifest.Validate(); err != nil {
+	actualManifestSHA := ManifestSHA256(input.ManifestBytes)
+	parsed, err := ParseManifest(input.ManifestBytes)
+	if err != nil {
 		return Report{}, fmt.Errorf("run: %w", err)
 	}
+	manifest := *parsed
 	state = &runState{
 		manifest:       manifest,
-		manifestSHA256: input.ManifestSHA256,
+		manifestSHA256: actualManifestSHA,
 		started:        started,
 		now:            now,
 	}
-	if got := ManifestSHA256(input.ManifestBytes); got != input.ManifestSHA256 {
+	if input.ManifestSHA256 != actualManifestSHA {
 		state.addReason("schema_error", nil, "",
-			fmt.Sprintf("manifest_sha256 %s does not bind the manifest bytes (%s)", input.ManifestSHA256, got))
+			fmt.Sprintf("manifest_sha256 %q does not bind the manifest bytes (%s)", input.ManifestSHA256, actualManifestSHA))
+		return state.finish()
+	}
+	if !manifestStructureMatches(manifest, input.Manifest) {
+		state.addReason("schema_error", nil, "", "manifest argument does not match the manifest bytes")
 		return state.finish()
 	}
 	if input.Membership != MembershipFixed {
@@ -114,6 +121,18 @@ func (e Executor) Run(ctx context.Context, input RunInput) (report Report, err e
 	state.execute(ctx)
 	state.collectSourceHealth()
 	return state.finish()
+}
+
+func manifestStructureMatches(a, b Manifest) bool {
+	left, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+	right, err := json.Marshal(b)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(left, right)
 }
 
 func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
