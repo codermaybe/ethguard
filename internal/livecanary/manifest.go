@@ -25,6 +25,9 @@ const (
 	PlanID                = "mainnet-canary-v1"
 	ArtifactName          = "registry.json"
 
+	// ChainlistURL is the only registry source accepted by v1.
+	ChainlistURL = "https://chainlist.org/rpcs.json"
+
 	// FrozenPlanSHA256 is the canonical hash of FixedPlan without its own
 	// sha256 field. Changing the plan requires a new plan ID and schema.
 	FrozenPlanSHA256 = "d99a78e6a56ffe34ee5351fbd74b14951afb5fef31023280d9d9412b3b2124d8"
@@ -347,8 +350,8 @@ func (c CIEnvironment) validate() error {
 }
 
 func (r Registry) validate() error {
-	if err := validateHTTPSURL("registry.url", r.URL); err != nil {
-		return err
+	if r.URL != ChainlistURL {
+		return fmt.Errorf("registry.url: got %q, want %q", r.URL, ChainlistURL)
 	}
 	if err := validateTimestamp("registry.fetched_at", r.FetchedAt); err != nil {
 		return err
@@ -545,8 +548,12 @@ func validateTimestamp(field, value string) error {
 	if !timestampRE.MatchString(value) {
 		return fmt.Errorf("%s: must be RFC3339 UTC with second precision", field)
 	}
-	if _, err := time.Parse(time.RFC3339, value); err != nil {
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
 		return fmt.Errorf("%s: %w", field, err)
+	}
+	if parsed.IsZero() {
+		return fmt.Errorf("%s: zero timestamp is not provenance", field)
 	}
 	return nil
 }

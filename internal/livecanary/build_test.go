@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestBuildMarksUnparsableRegistryUnavailable(t *testing.T) {
@@ -59,7 +60,11 @@ func TestBuildRejectsProvenanceAndSnapshotMismatch(t *testing.T) {
 	}{
 		{"raw hash", func(in *BuildInput) { in.Snapshot.RawSHA256 = sha256Hex([]byte("other")) }},
 		{"snapshot url", func(in *BuildInput) { in.Snapshot.URL = "http://chainlist.org/rpcs.json" }},
+		{"non-chainlist snapshot url", func(in *BuildInput) {
+			in.Snapshot.URL = "https://attacker.example/registry.json"
+		}},
 		{"snapshot schema", func(in *BuildInput) { in.Snapshot.SchemaVersion = "v0" }},
+		{"zero generated at", func(in *BuildInput) { in.Provenance.GeneratedAt = time.Time{} }},
 		{"chain id", func(in *BuildInput) { in.ChainID = 5 }},
 		{"run id", func(in *BuildInput) { in.Provenance.RunID = "" }},
 		{"source commit", func(in *BuildInput) { in.Provenance.SourceCommit = "deadbeef" }},

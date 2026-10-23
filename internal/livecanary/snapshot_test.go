@@ -36,7 +36,7 @@ func TestLoadSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSnapshot: %v", err)
 	}
-	if loaded.URL != "https://chainlist.org/rpcs.json" {
+	if loaded.URL != ChainlistURL {
 		t.Errorf("url = %s", loaded.URL)
 	}
 	if string(loaded.Raw) != string(raw) {
@@ -52,6 +52,8 @@ func TestLoadSnapshotRejectsInvalidProvenance(t *testing.T) {
 	}{
 		{"schema", func(s *Snapshot) { s.SchemaVersion = "ethguard.registry-snapshot/v0" }},
 		{"url", func(s *Snapshot) { s.URL = "http://chainlist.org/rpcs.json" }},
+		{"non-chainlist url", func(s *Snapshot) { s.URL = "https://attacker.example/registry.json" }},
+		{"zero fetched_at", func(s *Snapshot) { s.FetchedAt = "0001-01-01T00:00:00Z" }},
 		{"fetched_at", func(s *Snapshot) { s.FetchedAt = "yesterday" }},
 		{"raw_file traversal", func(s *Snapshot) { s.RawFile = "../raw.json" }},
 		{"raw hash", func(s *Snapshot) { s.RawSHA256 = sha256Hex([]byte("other")) }},

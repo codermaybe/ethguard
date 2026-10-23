@@ -27,6 +27,9 @@ func Build(input BuildInput) (BuildResult, error) {
 	if input.ChainID != ChainID {
 		return BuildResult{}, fmt.Errorf("chain_id: got %d, want %d", input.ChainID, ChainID)
 	}
+	if input.Provenance.GeneratedAt.IsZero() {
+		return BuildResult{}, fmt.Errorf("generated_at: required")
+	}
 	if err := input.Snapshot.Validate(); err != nil {
 		return BuildResult{}, err
 	}

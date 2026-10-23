@@ -34,13 +34,18 @@ func testDependencies(provenance livecanary.Provenance) dependencies {
 
 func writeRegistrySnapshot(t *testing.T, dir string, raw []byte) string {
 	t.Helper()
+	return writeRegistrySnapshotAtURL(t, dir, raw, livecanary.ChainlistURL)
+}
+
+func writeRegistrySnapshotAtURL(t *testing.T, dir string, raw []byte, registryURL string) string {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "raw.json"), raw, 0o644); err != nil {
 		t.Fatalf("write raw registry: %v", err)
 	}
 	sum := sha256.Sum256(raw)
 	snapshot := livecanary.Snapshot{
 		SchemaVersion: livecanary.SnapshotSchemaVersion,
-		URL:           "https://chainlist.org/rpcs.json",
+		URL:           registryURL,
 		FetchedAt:     "2026-10-23T11:59:00Z",
 		RawFile:       "raw.json",
 		RawSHA256:     hex.EncodeToString(sum[:]),
@@ -196,5 +201,39 @@ func TestRunManifestRejectsUnverifiedSnapshot(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); !os.IsNotExist(statErr) {
 		t.Error("failed verification still wrote an artifact")
+	}
+}
+
+func TestRunManifestRejectsNonChainlistSnapshotURL(t *testing.T) {
+	dir := t.TempDir()
+	snapshotPath := writeRegistrySnapshotAtURL(t, dir, []byte(`[]`), "https://attacker.example/registry.json")
+	outPath := filepath.Join(dir, "manifest.json")
+	var stdout bytes.Buffer
+	if err := runWith([]string{"manifest", "-snapshot", snapshotPath, "-out", outPath}, &stdout, testDependencies(commandProvenance())); err == nil {
+		t.Fatal("runManifest accepted a non-Chainlist snapshot URL")
+	}
+	if _, statErr := os.Stat(outPath); !os.IsNotExist(statErr) {
+		t.Error("rejected snapshot still wrote a manifest")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); !os.IsNotExist(statErr) {
+		t.Error("rejected snapshot still wrote an artifact")
+	}
+}
+
+func TestRunManifestRejectsZeroGeneratedAt(t *testing.T) {
+	dir := t.TempDir()
+	snapshotPath := writeRegistrySnapshot(t, dir, []byte(`[]`))
+	outPath := filepath.Join(dir, "manifest.json")
+	provenance := commandProvenance()
+	provenance.GeneratedAt = time.Time{}
+	var stdout bytes.Buffer
+	if err := runWith([]string{"manifest", "-snapshot", snapshotPath, "-out", outPath}, &stdout, testDependencies(provenance)); err == nil {
+		t.Fatal("runManifest accepted a zero generated_at")
+	}
+	if _, statErr := os.Stat(outPath); !os.IsNotExist(statErr) {
+		t.Error("zero generated_at still wrote a manifest")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); !os.IsNotExist(statErr) {
+		t.Error("zero generated_at still wrote an artifact")
 	}
 }

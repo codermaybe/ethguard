@@ -141,6 +141,15 @@ func TestManifestSchemaRejectsInconsistentProvenance(t *testing.T) {
 		{"unavailable registry with selection", func(t *testing.T, manifest map[string]any) {
 			objectField(t, manifest, "registry")["status"] = "unavailable"
 		}},
+		{"non-chainlist registry url", func(t *testing.T, manifest map[string]any) {
+			objectField(t, manifest, "registry")["url"] = "https://attacker.example/registry.json"
+		}},
+		{"zero generated at", func(_ *testing.T, manifest map[string]any) {
+			manifest["generated_at"] = "0001-01-01T00:00:00Z"
+		}},
+		{"zero fetched at", func(t *testing.T, manifest map[string]any) {
+			objectField(t, manifest, "registry")["fetched_at"] = "0001-01-01T00:00:00Z"
+		}},
 		{"missing raw hash", func(t *testing.T, manifest map[string]any) {
 			objectField(t, manifest, "registry")["raw_sha256"] = nil
 		}},

@@ -22,7 +22,7 @@ func testProvenance() Provenance {
 func testSnapshot(raw []byte) Snapshot {
 	return Snapshot{
 		SchemaVersion: SnapshotSchemaVersion,
-		URL:           "https://chainlist.org/rpcs.json",
+		URL:           ChainlistURL,
 		FetchedAt:     "2026-10-23T11:59:00Z",
 		RawFile:       "raw.json",
 		RawSHA256:     sha256Hex(raw),

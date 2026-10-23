@@ -55,7 +55,8 @@
   "$defs": {
     "timestamp": {
       "type": "string",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "not": {"const": "0001-01-01T00:00:00Z"}
     },
     "sha256": {
       "type": "string",
@@ -127,7 +128,7 @@
       ],
       "properties": {
         "status": {"enum": ["ok", "unavailable"]},
-        "url": {"$ref": "#/$defs/https_url"},
+        "url": {"const": "https://chainlist.org/rpcs.json"},
         "fetched_at": {"$ref": "#/$defs/timestamp"},
         "raw_sha256": {
           "anyOf": [

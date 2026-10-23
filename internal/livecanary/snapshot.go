@@ -29,8 +29,8 @@ func (s Snapshot) Validate() error {
 	if s.SchemaVersion != SnapshotSchemaVersion {
 		return fmt.Errorf("snapshot.schema_version: got %q, want %q", s.SchemaVersion, SnapshotSchemaVersion)
 	}
-	if err := validateHTTPSURL("snapshot.url", s.URL); err != nil {
-		return err
+	if s.URL != ChainlistURL {
+		return fmt.Errorf("snapshot.url: got %q, want %q", s.URL, ChainlistURL)
 	}
 	if err := validateTimestamp("snapshot.fetched_at", s.FetchedAt); err != nil {
 		return err
