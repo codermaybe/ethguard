@@ -717,6 +717,76 @@ func TestRunVerifyRequiresDirAndRejectsTampering(t *testing.T) {
 	}
 }
 
+func TestRunRerunWritesReportFromManifest(t *testing.T) {
+	dir := t.TempDir()
+	manifestData, err := os.ReadFile(filepath.Join("..", "..", "docs", "design", "live-canary", "manifest.example.json"))
+	if err != nil {
+		t.Fatalf("read manifest example: %v", err)
+	}
+	manifestPath := filepath.Join(dir, "manifest.json")
+	if err := os.WriteFile(manifestPath, manifestData, 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	manifest, err := livecanary.ParseManifest(manifestData)
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	deps := testDependencies(commandProvenance())
+	deps.rerunPlan = func(_ context.Context, bytes []byte) (livecanary.Report, error) {
+		report, err := livecanary.ParseReport(mustReadFile(t, filepath.Join("..", "..", "docs", "design", "live-canary", "report.example.json")))
+		if err != nil {
+			t.Fatalf("ParseReport: %v", err)
+		}
+		report.RunID = manifest.RunID
+		report.ManifestSHA256 = livecanary.ManifestSHA256(bytes)
+		report.PlanSHA256 = manifest.Plan.SHA256
+		return *report, nil
+	}
+	reportPath := filepath.Join(dir, "report.json")
+	var stdout bytes.Buffer
+	if err := runWith([]string{"rerun", "-manifest", manifestPath, "-out", reportPath}, &stdout, deps); err != nil {
+		t.Fatalf("rerun: %v", err)
+	}
+	reportData, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	report, err := livecanary.ParseReport(reportData)
+	if err != nil {
+		t.Fatalf("ParseReport: %v", err)
+	}
+	if report.RunID != manifest.RunID || report.ManifestSHA256 != livecanary.ManifestSHA256(manifestData) {
+		t.Fatalf("report identity = run %s manifest %s", report.RunID, report.ManifestSHA256)
+	}
+	if !strings.Contains(stdout.String(), "state=passed") {
+		t.Fatalf("stdout does not report passed:\n%s", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, livecanary.ManifestArtifactName)); err != nil {
+		t.Fatalf("rerun must leave the input manifest in place: %v", err)
+	}
+}
+
+func TestRunRerunRequiresFlags(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runWith([]string{"rerun"}, &stdout, testDependencies(commandProvenance())); err == nil {
+		t.Fatal("rerun accepted missing flags")
+	}
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "missing.json")
+	if err := runWith([]string{"rerun", "-manifest", manifestPath, "-out", filepath.Join(dir, "report.json")}, &stdout, testDependencies(commandProvenance())); err == nil {
+		t.Fatal("rerun accepted a missing manifest")
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return data
+}
+
 func commandHasReason(reasons []livecanary.StateReason, category string) bool {
 	for _, reason := range reasons {
 		if reason.Category == category {

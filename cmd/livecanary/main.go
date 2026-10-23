@@ -2,9 +2,11 @@
 // subcommand is offline and consumes a verified snapshot descriptor; fetch
 // performs one Chainlist acquisition and fixes the run's membership; run
 // acquires once, executes the fixed plan, and writes manifest, registry
-// artifact, and report. verify checks a published artifact directory offline.
-// Exit code 2 means no conclusion (pre-plan failure or an inconclusive run);
-// exit code 1 means the run failed or the tool itself failed.
+// artifact, and report. rerun executes the plan and membership fixed by an
+// existing manifest without another registry acquisition. verify checks a
+// published artifact directory offline. Exit code 2 means no conclusion
+// (pre-plan failure or an inconclusive run); exit code 1 means the run failed
+// or the tool itself failed.
 package main
 
 import (
@@ -24,6 +26,7 @@ type dependencies struct {
 	detect       func() (livecanary.Provenance, error)
 	newFetcher   func() livecanary.Fetcher
 	runPlan      func(context.Context, livecanary.RunInput) (livecanary.Report, error)
+	rerunPlan    func(context.Context, []byte) (livecanary.Report, error)
 }
 
 type inconclusiveError struct {
@@ -79,7 +82,7 @@ func defaultDependencies() dependencies {
 
 func runWith(args []string, stdout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json> | livecanary run -out <manifest.json> | livecanary verify -dir <artifact-dir>")
+		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json> | livecanary run -out <manifest.json> | livecanary rerun -manifest <manifest.json> -out <report.json> | livecanary verify -dir <artifact-dir>")
 	}
 	switch args[0] {
 	case "manifest":
@@ -88,6 +91,8 @@ func runWith(args []string, stdout io.Writer, deps dependencies) error {
 		return runFetch(args[1:], stdout, deps)
 	case "run":
 		return runLive(args[1:], stdout, deps)
+	case "rerun":
+		return runRerun(args[1:], stdout, deps)
 	case "verify":
 		return runVerify(args[1:], stdout)
 	default:
@@ -287,6 +292,56 @@ func runLive(args []string, stdout io.Writer, deps dependencies) error {
 		return &inconclusiveError{reason: "run state inconclusive"}
 	default:
 		return &failedError{reason: "run state " + report.State}
+	}
+}
+
+func runRerun(args []string, stdout io.Writer, deps dependencies) error {
+	flags := flag.NewFlagSet("rerun", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	manifestPath := flags.String("manifest", "", "existing manifest path")
+	outPath := flags.String("out", "", "report output path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *manifestPath == "" || *outPath == "" {
+		return errors.New("rerun: -manifest and -out are required")
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("rerun: unexpected arguments: %v", flags.Args())
+	}
+	manifestBytes, err := os.ReadFile(*manifestPath)
+	if err != nil {
+		return fmt.Errorf("rerun: read manifest: %w", err)
+	}
+	rerunPlan := deps.rerunPlan
+	if rerunPlan == nil {
+		rerunPlan = func(ctx context.Context, bytes []byte) (livecanary.Report, error) {
+			return livecanary.Rerun(ctx, bytes, livecanary.Executor{})
+		}
+	}
+	report, err := rerunPlan(context.Background(), manifestBytes)
+	if err != nil {
+		return err
+	}
+	reportBytes, err := report.Marshal()
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(*outPath, reportBytes); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "manifest=%s\nmanifest_sha256=%s\nreport=%s\nreport_sha256=%s\nstate=%s\n",
+		*manifestPath, livecanary.ManifestSHA256(manifestBytes), *outPath,
+		livecanary.ReportSHA256(reportBytes), report.State); err != nil {
+		return err
+	}
+	switch report.State {
+	case livecanary.StatePassed:
+		return nil
+	case livecanary.StateInconclusive:
+		return &inconclusiveError{reason: "rerun state inconclusive"}
+	default:
+		return &failedError{reason: "rerun state " + report.State}
 	}
 }
 
