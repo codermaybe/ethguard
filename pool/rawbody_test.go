@@ -101,12 +101,6 @@ func dialCaptureServer(t *testing.T, rawURL string, limit int64) *ethclient.Clie
 	return client
 }
 
-func callCapture(t *testing.T, client *ethclient.Client, ctx context.Context) (json.RawMessage, error) {
-	var result json.RawMessage
-	err := client.Client().CallContext(ctx, &result, "eth_chainId")
-	return result, err
-}
-
 // callWithCapture mirrors collectOne's calling convention: every call gets a
 // fresh single-slot box bound to its own context, so the transport actually
 // captures (a box-less call is a transparent pass-through).

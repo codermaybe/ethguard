@@ -259,10 +259,8 @@ func (s *runState) execute(parent context.Context) {
 	runCtx, cancel := context.WithTimeout(parent, time.Duration(s.manifest.Timeouts.RunMS)*time.Millisecond)
 	defer cancel()
 	adapter := ethadapter.Wrap(s.client)
-	runTimedOut := false
 	for _, planStep := range s.manifest.Plan.Steps {
 		if runCtx.Err() != nil {
-			runTimedOut = true
 			s.addReason("run_timeout", &planStep.ID, "", sanitizeDetail(runCtx.Err().Error()))
 			break
 		}
@@ -290,8 +288,7 @@ func (s *runState) execute(parent context.Context) {
 				s.runReference = &ref
 			}
 		}
-		if runCtx.Err() != nil && !runTimedOut {
-			runTimedOut = true
+		if runCtx.Err() != nil {
 			s.addReason("run_timeout", &planStep.ID, "", sanitizeDetail(runCtx.Err().Error()))
 			break
 		}

@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+const ChainID uint64 = 1
+
 const (
 	SchemaVersion         = "ethguard.live-manifest/v1"
 	SnapshotSchemaVersion = "ethguard.registry-snapshot/v1"
@@ -33,9 +35,8 @@ const (
 	// sha256 field. Changing the plan requires a new plan ID and schema.
 	FrozenPlanSHA256 = "d99a78e6a56ffe34ee5351fbd74b14951afb5fef31023280d9d9412b3b2124d8"
 
-	ChainID    uint64 = 1
-	MinMembers        = 3
-	MaxMembers        = 12
+	MinMembers = 3
+	MaxMembers = 12
 
 	ReferencePolicy = "finalized"
 	MaxLagBlocks    = 32
