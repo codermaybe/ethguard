@@ -312,10 +312,23 @@ func boundParams(prepared, logical []any, hash string, height *string) bool {
 	return replaced > 0 && !containsMovingTag(prepared)
 }
 
-func containsMovingTag(params []any) bool {
-	for _, param := range params {
-		if tag, ok := param.(string); ok && movingTagSet[strings.ToLower(tag)] {
-			return true
+// containsMovingTag scans nested params so a moving tag hidden in an object or
+// array cannot pass the prepared-request binding check.
+func containsMovingTag(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return movingTagSet[strings.ToLower(typed)]
+	case []any:
+		for _, item := range typed {
+			if containsMovingTag(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, item := range typed {
+			if containsMovingTag(item) {
+				return true
+			}
 		}
 	}
 	return false
@@ -359,7 +372,27 @@ func statusAllowed(execution stepExecution) *bool {
 	if status == "unknown" {
 		return boolPointer(false)
 	}
-	return boolPointer(stringIn(execution.plan.Expect.Statuses, status))
+	allowed := stringIn(execution.plan.Expect.Statuses, status)
+	if allowed && execution.decision.Status == rpc.Corroborated &&
+		len(execution.decision.Support) < requiredSupport(len(execution.decision.Participants)) {
+		// A corroborated status below the fixed quorum means the production
+		// support threshold changed or the decision is corrupt.
+		return boolPointer(false)
+	}
+	return boolPointer(allowed)
+}
+
+// requiredSupport mirrors the production acceptance threshold for the fixed
+// canary basis: max(floor=2, strict majority).
+func requiredSupport(basis int) int {
+	if basis <= 0 {
+		return 1
+	}
+	required := basis/2 + 1
+	if required < 2 {
+		required = 2
+	}
+	return required
 }
 
 func (s *runState) evidenceConservation(execution stepExecution) *bool {
@@ -388,6 +421,9 @@ func (s *runState) referenceStatus(execution stepExecution) *bool {
 		return boolPointer(false)
 	}
 	if ref.Status != rpc.Corroborated || ref.Hash == "" || ref.Height == 0 {
+		return boolPointer(false)
+	}
+	if len(ref.Support) < requiredSupport(len(ref.Participants)) {
 		return boolPointer(false)
 	}
 	if strings.ToLower(ref.Tag) != requestedTag(execution.logical.Params) {

@@ -252,10 +252,10 @@ v1 固定值：
 | 不变量 | 检查 |
 | --- | --- |
 | `request_binding` | 需要绑定时，prepared request 的区块参数必须等于**该步骤自己的 reference** hash（按字节比较）或 height（按数值比较）；`business.fee-history.finalized` 使用它的 step reference，`reference.finalized-balance` 的 step reference 同时是 run reference。moving tag 不得留在 prepared request 中。`binding=none` 的 `client_call` 步骤，prepared 必须与 logical 一致（占位符替换后）；typed-only 步骤不适用。 |
-| `status_allowed` | `decision.status` 必须属于 plan 的 `expect.statuses`；error 路径按 `expect.error` 检查。 |
+| `status_allowed` | `decision.status` 必须属于 plan 的 `expect.statuses`；error 路径按 `expect.error` 检查。`corroborated` 的 support 还必须达到固定门槛 `Q = max(2, floor(N/2)+1)`；低于 Q 视为门槛被改动或 decision 损坏。 |
 | `evidence_conservation` | `n == len(participants)`；`support`、`reject`、source-attributed `faults` 两两不相交，并集等于 `participants`；`collection_faults` 单独记录；`participants` 数量与顺序等于 manifest selected basis。 |
 | `representative_in_support` | `representative` 必须等于 `support` 的第一个来源；`support` 顺序保持本次 basis 顺序。 |
-| `reference_status` | 需要 reference 的步骤必须携带**该步骤自己的** `ReferenceEvidence`；`status == corroborated`；`tag` 等于请求的 moving tag；`hash`/`height` 非空（按方法需要）；reference 的 support/reject/source faults 与 participants 按同一规则检查，collection-level fault 单独记录。`reference.finalized-balance` 的这一对象同时是 run reference。 |
+| `reference_status` | 需要 reference 的步骤必须携带**该步骤自己的** `ReferenceEvidence`；`status == corroborated`；`tag` 等于请求的 moving tag；`hash`/`height` 非空（按方法需要）；reference 的 support 达到固定门槛 `Q`；reference 的 support/reject/source faults 与 participants 按同一规则检查，collection-level fault 单独记录。`reference.finalized-balance` 的这一对象同时是 run reference。 |
 | `error_status_exclusive` | `rpc.Call` 返回 error 时 decision status 必须是 `unknown`；成功 status 不得携带 error；不得把 provider error 包成成功。该不变量不约束 typed decode 的预期 `not_found`，后者由 `typed_decode` 检查。 |
 | `basis_unchanged` | 本次 run 的 members 始终等于 manifest selected；不得替换、缩小或重排分母；`voting_basis_sha256` 必须一致。 |
 | `typed_decode` | typed adapter 必须成功解码，且 hash/height 与本次 run reference 一致（typed block 不要求步骤自带 reference 对象）；negative 路径必须得到预期 `not_found`。 |
