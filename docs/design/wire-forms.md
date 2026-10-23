@@ -6,13 +6,21 @@ position (`invalid argument 0: hex number > 64 bits`). Parameter shape ×
 provider family is an independent divergence axis from response shape, and
 it bites before any corroboration happens — a request a source refuses is
 a fault, not a dissent. This file records, per method, which request forms
-exist, which are exercised by tests, which are corroborated against real
-fleets, and which remain assumptions.
+exist, which are exercised by tests, which were accepted by one historical
+local fleet, and which remain assumptions.
+
+T10 status (2026-10-23): the entries below are historical local soak
+observations and unauthenticated shape captures. They are not external live
+evidence, attested artifacts, or compatibility guarantees. The T10 live canary
+added a fixed plan, machine report, and artifact verification, but its first
+run was local and `inconclusive` because of provider availability faults. No
+externally published canary has re-validated any row. Offline regression
+(`go test`, `rpctest`, replay) remains the only CI-backed evidence class.
 
 ## Matrix
 
-Legend: ✅ corroborated against the live soak fleet · ⚠ caught failing in the
-wild · · assumed, unverified.
+Legend: ✅ accepted by the healthy subset of one historical local soak fleet ·
+⚠ caught failing in that local sample · · assumed, unverified.
 
 Evidence rules (T02, binding on every row below):
 
@@ -57,10 +65,11 @@ Evidence rules (T02, binding on every row below):
 | eth_getLogs | filter object, height-pinned bounds | ✅ | same round: corroborated 2/0/0 over 70 logs with from/to pinned to the corroborated height — the bounds are BlockNumbers and reject hashes, so the height spelling is the portable one |
 | eth_feeHistory | count + height + percentiles | ✅ | same round: corroborated 3/0/0 with newest = the corroborated height (oldest 25911850, 3 base fees) and reward percentiles agreeing canonically — the rounding liveness gate passed on this fleet |
 
-Caveat that keeps this honest: ✅ means the healthy subset of one soak
-fleet accepted the form on one day. Provider families beyond those
-endpoints are covered only insofar as the endpoints represented them —
-the matrix records evidence, not guarantees, and rows grow with every
+Caveat that keeps this honest: ✅ means the healthy subset of one historical
+local soak fleet accepted the form on one day. It is not external live
+evidence, attestation, or a compatibility guarantee. Provider families beyond
+those endpoints are covered only insofar as the endpoints represented them —
+the matrix records observations, not guarantees, and rows grow with every
 soak run.
 
 ## Checklist for new methods

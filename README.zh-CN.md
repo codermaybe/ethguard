@@ -196,6 +196,19 @@ if snapshot.Truncated {
 带来的独立性；匹配结果是 provider 故障容忍证据，而不是 Ethereum 链共识、规范链归属
 或独立最终性的证明。
 
+## 验证证据
+
+- **离线回归**：`go test`、进程内 `rpctest` fleet 和 replay 证明固定输入下的确定性
+  行为，不证明真实 provider 行为、方言覆盖或长期可用性。
+- **形状观察**：历史 capture 和 `cmd/soak` 探针是某一天、某一 fleet 的未认证观察，
+  不是外部 live 证据、attestation 或兼容性保证。
+- **Live canary**：`cmd/livecanary` 固定 Chainlist 快照、voting basis、请求计划和失败
+  分类，并生成带 digest 绑定的机器报告。`passed` 只表示本次 run 满足契约；
+  `inconclusive` 不是成功。2026-10-23 的首次运行是本地诊断，因可用性 fault 为
+  `inconclusive`；尚不存在外部发布、可 attest 的 live artifact。
+- `latest` / `safe` / `finalized` 是 provider 报告的 tag，不是 Ethereum finality。
+  `Corroborated` 是 provider-backed 跨来源证据，不是共识或规范链证明。
+
 库提供：配置加载；带惰性拨号和健康恢复的多上游生命周期；基于固定调用分母动态计算
 的交叉验证和确定性冲突证据；区块锚定读取（严格或保守的 finalized 选择）；隔离落后
 来源的新鲜度闸门；分类哨兵错误；以及带可选 Prometheus adapter 的被动可观测性接口。

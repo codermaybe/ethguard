@@ -522,6 +522,23 @@ support/fault 归属和 7 与 6 条限流原因，归类为 provider 波动；�
 `docs/design/live-canary/runs/2026-10-23-t10.7-local.md`。干净 clone 仍运行在
 同一主机，且无 GitHub API credential，因此外部 workflow/repository 的独立复核
 仍未完成，T10.7 不标记为通过。T10.8 文档收口继续进行。
+T10.8 完成（2026-10-23，待审计）：README 与 README.zh-CN 增加证据分层说明；
+`moving-tag-matrix.md` 把 soak/capture 列改名为 observation evidence，并明确其
+为历史本地观察/形状证据；`wire-forms.md` 同样标注重命名为历史本地样本，更新
+legend 与 caveat。文档统一声明：离线 regression 是唯一 CI-backed 类别，
+`Corroborated`/`finalized` 不是共识或 finality，单次 live run 不构成兼容性、
+独立性或长期可靠性结论。未新增方法，未修改 WSS presence 或 reference policy。
+已知非目标仍是：不证明 consensus、canonicality、finality、provider 独立性或未来
+可用性；不把本地 capture/soak/单次 live run 升格为外部证明。
+
+T10 当前证据状态：
+
+| 层 | 状态 |
+| --- | --- |
+| Offline regression | `ci.yml` + `go test`/`rpctest`/replay；T10.4/T10.5 门禁已提交 |
+| Live observation（本地诊断） | 2026-10-23 本地 run，state `inconclusive`（可用性 fault），全部不变量为 true；记录已提交 |
+| External live observation | 未生成：无 GitHub API credential，维护者选择仅本地取证 |
+| Attested evidence | 无 |
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的

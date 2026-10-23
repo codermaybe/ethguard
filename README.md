@@ -224,6 +224,24 @@ region, client-family, or weight-based independence, and a matching result is
 provider-fault-tolerance evidence rather than a proof of Ethereum chain consensus,
 canonical membership, or independent finality.
 
+## Verification evidence
+
+- **Offline regression** — `go test`, in-process `rpctest` fleets, and replay
+  prove deterministic behavior under fixed inputs. They do not prove provider
+  behavior, dialect coverage, or long-term availability.
+- **Shape observations** — historical captures and `cmd/soak` probes are
+  unauthenticated observations of one fleet on one day. They are not external
+  live evidence, attestation, or a compatibility guarantee.
+- **Live canary** — `cmd/livecanary` fixes a Chainlist snapshot, a voting basis,
+  a request plan, and failure classes, and emits a machine report with digest
+  binding. A `passed` result means only that this run satisfied the contract;
+  `inconclusive` is not success. The first run (2026-10-23) was local and
+  `inconclusive` because of availability faults; no externally published,
+  attested live artifact exists yet.
+- `latest` / `safe` / `finalized` are provider-reported tags, not Ethereum
+  finality. `Corroborated` is provider-backed cross-source evidence, not
+  consensus or a canonical-chain proof.
+
 The library provides: configuration loading; multi-upstream
 lifecycle with lazy dialing and health-driven recovery; dynamically computed
 fixed-basis corroboration with deterministic conflict evidence; block-anchored

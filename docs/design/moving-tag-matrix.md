@@ -21,6 +21,13 @@ proof, not cryptographic finality, and not light-client verification.
 tag-aware reference; agreement about them proves that the configured
 sources reported consistently, nothing more.
 
+Evidence status (2026-10-23): the `soak` and `rpcsample` entries below are
+historical local observations and shape captures, not external live evidence,
+attestation, or compatibility guarantees. The only CI-backed evidence class is
+offline regression (`go test`, `rpctest`, replay). T10 added a local live
+canary diagnostic (state `inconclusive` because of provider availability
+faults); no externally published, attested live artifact exists yet.
+
 ## Reading the columns
 
 - **Reference position**: zero-based `params` index of the block reference,
@@ -38,15 +45,14 @@ sources reported consistently, nothing more.
 - **Evidence meaning**: what the status proves — and explicitly what it
   does not prove.
 - **Tests**: exact wire-form / negative tests pinning the row. Each entry is one complete `func Test*` name, comma-separated. Wildcards, `as above`, and prose aliases are not names.
-- **Live evidence**: `soak <date>` = accepted by the healthy subset of one
-  soak fleet on one day (request-shape acceptance only, never a
-  compatibility guarantee); `assumed` / `unverified` = no real-provider
-  sample yet, see `wire-forms.md`. Object-form captures from 2026-09-23
-  live in `internal/rpcsample/testdata/eip1898-object/2026-09-23`. Endpoints are
-  redacted. Those records are replayed offline and are shape evidence
-  only, not a compatibility guarantee. `eth_getLogs` pending remains a
-  local `ErrInvalidRequest`; field-level pending observation is not
-  implemented.
+- **Observation evidence**: `soak <date>` = accepted by the healthy subset of
+  one historical local soak fleet on one day (request-shape acceptance only,
+  never a compatibility guarantee); `assumed` / `unverified` = no real-provider
+  sample yet, see `wire-forms.md`. Object-form captures from 2026-09-23 live in
+  `internal/rpcsample/testdata/eip1898-object/2026-09-23`. Endpoints are
+  redacted. Those records are replayed offline and are shape evidence only,
+  not a compatibility guarantee. `eth_getLogs` pending remains a local
+  `ErrInvalidRequest`; field-level pending observation is not implemented.
 
 ## A. Default-block state reads (T02 first vertical slice)
 
@@ -55,7 +61,7 @@ upstream). Their reference position accepts the full EIP-1898
 `BlockNumberOrHash`: hex quantity, tag string, or object
 `{blockHash}` / `{blockNumber[, requireCanonical]}`.
 
-| Method | Reference position | earliest | number | hash | latest | safe | finalized | pending | requireCanonical | EthGuard action | Wire form | Result status | Evidence meaning | Tests | Live evidence |
+| Method | Reference position | earliest | number | hash | latest | safe | finalized | pending | requireCanonical | EthGuard action | Wire form | Result status | Evidence meaning | Tests | Observation evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | eth_getBalance | 1 | yes, passthrough (`earliest` or `0x0`; genesis is immutable, no pin needed) | yes, passthrough (quantity spelling preserved) | yes, two forms: bare hash string (provider-accepted, non-standard) or `{blockHash}` object (standard); both pass through | yes, corroborated reference rewrite (tag-aware; string rewrites to bare anchor hash) | yes, same as latest but anchored at the `safe` reference, never silently latest | yes, same as latest but anchored at the `finalized` reference, never silently latest | yes, single-source local observation (Selected at best; unanimous agreement never Corroborated) | preserved on object forms, including across tag→hash rewrites | corroborated reference rewrite + single-source local observation (pending) | `eth_getBalance [address, hash-or-object]`; moving-tag strings become the anchor hash, `{blockNumber: tag}` objects become `{blockHash: anchor[, requireCanonical]}` | Corroborated (mined) / Selected (pending) | Sources agreed on state at one provider-backed reference. Not a proof the reference is canonical or final. Pending reads resolve as single-source local observations (Selected at best). | TestEIP1898BlockRefSlice, TestPendingLocalSlice, TestPendingAgreementIsSelectedNotCorroborated, TestPendingViaAdapterSucceedsDespiteCorroborationGate, TestPendingDissentSelectsFirst, TestPendingAllFailIsUnknown, TestPendingObjectFormIsLocalObservation, TestStateRefMovingTagsRewriteToAnchorHash, TestStateRefSafeFinalizedKeepTheirLevel, TestStateRefEIP1898ObjectPreservedOnWire, TestStateRefObjectTagRewritesToHashObject, TestStateRefPendingPassesThroughUnrewritten, TestStateRefAnchorFailureSendsNoBusinessRequest, TestStateRefContradictoryObjectRejectedLocally, TestStateRefEarliestAndNumberPassThrough, TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout, TestReferenceEstablishedFreshPerCall, TestReferenceFailureEvidenceIsUnknownWithObservedAt , TestEIP1898ObjectBatchMatchesExpect | soak 2026-09-05 bare-hash form ✅ (3/0); object form assumed (new in T02) |
 | eth_getTransactionCount | 1 | yes, passthrough | yes, passthrough | yes, bare or `{blockHash}` (as above) | yes, rewrite (tag-aware) | yes, anchored at `safe` | yes, anchored at `finalized` | yes, single-source local observation (Selected at best; unanimous agreement never Corroborated) | preserved | corroborated reference rewrite + single-source local observation (pending) | `eth_getTransactionCount [address, hash-or-object]` | Corroborated (mined) / Selected (pending) | As above; pending is a single-source local observation. | TestEIP1898BlockRefSlice, TestPendingLocalSlice, TestPendingAgreementIsSelectedNotCorroborated, TestPendingViaAdapterSucceedsDespiteCorroborationGate, TestPendingDissentSelectsFirst, TestPendingAllFailIsUnknown, TestPendingObjectFormIsLocalObservation, TestStateRefMovingTagsRewriteToAnchorHash, TestStateRefSafeFinalizedKeepTheirLevel, TestStateRefEIP1898ObjectPreservedOnWire, TestStateRefObjectTagRewritesToHashObject, TestStateRefPendingPassesThroughUnrewritten, TestStateRefAnchorFailureSendsNoBusinessRequest, TestStateRefContradictoryObjectRejectedLocally, TestStateRefEarliestAndNumberPassThrough, TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout, TestReferenceEstablishedFreshPerCall, TestReferenceFailureEvidenceIsUnknownWithObservedAt , TestEIP1898ObjectBatchMatchesExpect | soak 2026-09-05 bare-hash ✅ (3/0); object form assumed |
@@ -71,7 +77,7 @@ tags across positions are rejected by the shared anchor layer.
 
 ## B. Blocks, receipts, transactions (immutable content)
 
-| Method | Reference position | earliest | number | hash | latest | safe | finalized | pending | requireCanonical | EthGuard action | Wire form | Result status | Evidence meaning | Tests | Live evidence |
+| Method | Reference position | earliest | number | hash | latest | safe | finalized | pending | requireCanonical | EthGuard action | Wire form | Result status | Evidence meaning | Tests | Observation evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | eth_getBlockByNumber | 0 | yes, passthrough (`earliest` / `0x0`) | yes, passthrough | no: a 32-byte hash in the number position is rejected by providers (`hex number > 64 bits`); the adapter dispatches hash lookups to `eth_getBlockByHash` instead | `nil` and explicit `-2` pin via the latest anchor, then fetch by hash | explicit `-4` pins via the safe anchor, then fetches by hash (never downgraded to latest) | explicit `-3` pins via the finalized anchor, then fetches by hash (never downgraded to latest) | policy: single-source local observation for the pending tag (Selected at best; never rewritten into an anchor); adapter BlockByNumber(-1) rejects locally before any anchor or business request (pending block typed projection is not supported). That rejection is ErrInvalidRequest, not a provider failure and not a business Unknown adjudication | n/a (number position takes no object) | hash pin via the tag-aware anchor seam (`AnchorBlockHashForTag` + `blockAt`) | `eth_getBlockByNumber [quantity-or-tag, fullTx]` for explicit tags only at the policy level; the adapter never sends a moving tag on a business call | Corroborated (mined) / Selected (pending) | Head agreement over number and hash. `nil` and `-2`/`-3`/`-4` carry a pinned-reference claim at their own level. Body content beyond the head is outside the comparison. Full-body checks (uncle root, empty uncle list legal for an empty root) are admission, not a canonicity claim. Tests include TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected. | TestAdapterBlockByNumberNeverFetchesAMovingTag, TestAdapterBlockByHashUsesDedicatedMethod, TestAdapterBlockByNumberNegativeTagsAnchorFirst, TestAdapterBlockByNumberRejectsUnknownNegativesLocally, TestAdapterBlockByNumberTagAnchorFailureSendsNoBusinessRequest, TestAnchorBlockHashForTagKeepsTagLevels, TestPendingLocalExtendedMethods, TestPendingExtendedMethodsAreSelectedNotCorroborated, TestBlockByNumberRejectsPendingLocally, TestBlockByNumberPendingSendsNoBusinessRequest, TestBlockByNumberPreservesKnownNegativeTagMeaning , TestBlockReceiptTxBatchMatchesExpect | soak: anchor establishment every round ✅; hash-in-number-position ⚠ (3/4 reject) |
 | eth_getBlockByHash | 0 (hash) + fullTx | n/a | n/a | yes, hash-addressed immutable content, no rewrite | n/a | n/a | n/a | n/a | n/a | passthrough | `eth_getBlockByHash [hash, fullTx]` | Corroborated | Sources hold identical content for the hash. `null` is a comparable answer (→ `ethereum.NotFound` at the typed boundary). | TestAdapterBlockByHashUsesDedicatedMethod, TestAdapterBlockByHashRejectsAnotherSelfConsistentBlock, TestTypedRealHeaderRejectsAnotherBlocksContent, TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected, TestNullAnswersStayDistinct , TestBlockReceiptTxBatchMatchesExpect | internal/rpcsample/testdata/block-receipt-tx/2026-09-23: header shapes, empty block, null block. Not a census |
@@ -81,7 +87,7 @@ tags across positions are rejected by the shared anchor layer.
 
 ## C. Execution, ranges, fee history
 
-| Method | Reference position | earliest | number | hash | latest | safe | finalized | pending | requireCanonical | EthGuard action | Wire form | Result status | Evidence meaning | Tests | Live evidence |
+| Method | Reference position | earliest | number | hash | latest | safe | finalized | pending | requireCanonical | EthGuard action | Wire form | Result status | Evidence meaning | Tests | Observation evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | eth_estimateGas | 1 | yes, passthrough | yes, passthrough | yes, bare hash or `{blockHash}` object, both passthrough | yes, string rewrites to the bare anchor hash; `{blockNumber: latest}` rewrites to `{blockHash: anchor[, requireCanonical]}` | yes, anchored at `safe` | yes, anchored at `finalized` | yes, string or `{blockNumber: pending}` passthrough; `PendingLocal`, first healthy source, Selected ceiling (never Corroborated). Non-pending stays the anchored lower median | preserved on object forms, including across tag→hash rewrites. The adapter still sends a string tag. A 2026-09-23 chainlist sample both accepted and rejected `requireCanonical`; that split is not a reason to drop the flag | corroborated reference rewrite; malformed objects are local `ErrInvalidRequest` before anchor | `eth_estimateGas [callObject, hash-or-object]` | Selected (at best) | Anchored estimates are the lower median at one provider-backed reference. Agreement is coincidence, never corroboration. Pending support is the first healthy source, not the agreeing fleet. | TestAdapterEstimateGasPinsTagAndTakesMedian, TestEstimateGasObjectForms, TestEstimateAndAccessListObjectsOnTheWire , TestEIP1898ObjectBatchMatchesExpect | soak 2026-09-05 string hash ✅; object sample 2026-09-23 (`internal/rpcsample/testdata/eip1898-object/2026-09-23`) shape evidence only |
 | eth_createAccessList | 1 (optional) | yes, passthrough | yes, passthrough | yes, bare hash or `{blockHash}` object, both passthrough | yes, string rewrites to the bare anchor hash; object moving tags rewrite to `{blockHash: anchor[, requireCanonical]}` | yes, anchored at `safe` | yes, anchored at `finalized` | yes, string or `{blockNumber: pending}` is a single-source local observation (Selected at best; unanimous agreement never Corroborated) | preserved on object forms. No adapter channel. Sample 2026-09-23 shows providers disagree on `requireCanonical`; the flag is still preserved | corroborated reference rewrite + single-source local observation (pending); malformed objects are local `ErrInvalidRequest` before anchor | `eth_createAccessList [callObject, hash-or-object?]` | Corroborated (mined) / Selected (pending) | Sources agreed on the access-list payload at one provider-backed reference. Pending resolves as a single-source local observation. | TestCreateAccessListPolicyAnchoringAndNormalization, TestPendingLocalExtendedMethods, TestCreateAccessListObjectForms, TestEstimateAndAccessListObjectsOnTheWire , TestEIP1898ObjectBatchMatchesExpect | object sample 2026-09-23 (`internal/rpcsample/testdata/eip1898-object/2026-09-23`) shape evidence only, not a compatibility verdict |
@@ -90,7 +96,7 @@ tags across positions are rejected by the shared anchor layer.
 
 ## D. No block reference (identity, variables, local observations)
 
-| Method | Reference position | earliest | number | hash | latest | safe | finalized | pending | requireCanonical | EthGuard action | Wire form | Result status | Evidence meaning | Tests | Live evidence |
+| Method | Reference position | earliest | number | hash | latest | safe | finalized | pending | requireCanonical | EthGuard action | Wire form | Result status | Evidence meaning | Tests | Observation evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | eth_chainId | none | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | passthrough | `eth_chainId []` | Corroborated | Same chain identity across sources. | TestAdapterChainIDIsCorroborated , TestRegisteredMethodSampleStatus | soak census ✅ |
 | net_version | none | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | passthrough | `net_version []` | Corroborated | Same legacy decimal identity. Not cross-checked against `eth_chainId`. | TestNormalizeDecimalStringComparesNumerically, TestClientCorroboratesNetVersionAcrossSpellings , TestRegisteredMethodSampleStatus | soak census ✅ |
