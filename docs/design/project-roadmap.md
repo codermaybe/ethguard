@@ -501,6 +501,18 @@ manifest/registry(可选)/report/run.log/SHA256SUMS 并上传；新增
 registry artifact digest。非 passed 观察会在 artifact 上传后使 job 失败，
 `inconclusive` 不会被显示为 passed。workflow 结构由解析 YAML 的离线测试
 覆盖，不触网。T10.6 继续批量执行。
+T10.6 本地 live 诊断完成（2026-10-23，代码 `63d5ac7`，修复 `0fc22eb`）：首次
+真实 Chainlist/RPC 运行发现 v1 会把 path 内嵌凭据选入并发布，已按契约升级为
+`chainlist-sorted-v2`（path 过滤、artifact 脱敏、可重建性测试）。修复后的本地
+run 完成全部 6 个步骤，identity/reference/两条 business/negative 均达到
+`corroborated`，typed block 与 notfound 路径正确，所有适用不变量为 true；
+22 条 `provider_unavailable`/`provider_rate_limited` 可用性原因使 state 为
+`inconclusive`，没有 failed 原因。manifest/report/registry 由 `livecanary
+verify` 校验通过。详细记录见
+`docs/design/live-canary/runs/2026-10-23-t10.6-local.md`。
+由于本机没有 GitHub API token，维护者选择仅本地取证，本次未生成远端 run 链接
+或可公开下载的 artifact；T10.6 的 external live observation 验收仍未完成，不把
+本地诊断写成 attested evidence。T10.7 外部复核同样保持待办。
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的
