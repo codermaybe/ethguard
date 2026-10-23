@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/codermaybe/ethguard/docs/design/live-canary/manifest.schema.json",
+  "title": "EthGuard live canary manifest v1",
+  "description": "Machine-generated provenance for one live canary run. Registry SHA-256 values bind fetched bytes; they are not operator signatures.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "source_commit",
+    "tool_version",
+    "go_version",
+    "environment",
+    "chain_id",
+    "registry",
+    "selection",
+    "reference",
+    "timeouts",
+    "limits",
+    "plan"
+  ],
+  "properties": {
+    "schema_version": {"const": "ethguard.live-manifest/v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "generated_at": {"$ref": "#/$defs/timestamp"},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "tool_version": {"const": "ethguard-live-canary/v1"},
+    "go_version": {"type": "string", "pattern": "^go[0-9]"},
+    "environment": {"$ref": "#/$defs/environment"},
+    "chain_id": {"const": 1},
+    "registry": {"$ref": "#/$defs/registry"},
+    "selection": {
+      "anyOf": [
+        {"$ref": "#/$defs/selection"},
+        {"type": "null"}
+      ]
+    },
+    "reference": {"$ref": "#/$defs/reference"},
+    "timeouts": {"$ref": "#/$defs/timeouts"},
+    "limits": {"$ref": "#/$defs/limits"},
+    "plan": {"$ref": "#/$defs/plan"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"registry": {"properties": {"status": {"const": "ok"}}}}},
+      "then": {"properties": {"selection": {"$ref": "#/$defs/selection"}}}
+    },
+    {
+      "if": {"properties": {"registry": {"properties": {"status": {"const": "unavailable"}}}}},
+      "then": {"properties": {"selection": {"type": "null"}}}
+    }
+  ],
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "https_url": {
+      "type": "string",
+      "pattern": "^[hH][tT][tT][pP][sS]://.+$"
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "runner_class", "ci"],
+      "properties": {
+        "kind": {"enum": ["ci", "local"]},
+        "runner_class": {"enum": ["github-hosted", "self-hosted", "local"]},
+        "ci": {
+          "anyOf": [
+            {"$ref": "#/$defs/ci"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "local"}}},
+          "then": {
+            "properties": {
+              "runner_class": {"const": "local"},
+              "ci": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "ci"}}},
+          "then": {
+            "properties": {
+              "runner_class": {"enum": ["github-hosted", "self-hosted"]},
+              "ci": {"$ref": "#/$defs/ci"}
+            }
+          }
+        }
+      ]
+    },
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "repository", "workflow_ref", "run_id", "run_attempt", "job"],
+      "properties": {
+        "provider": {"const": "github-actions"},
+        "repository": {"type": "string", "minLength": 1},
+        "workflow_ref": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "minLength": 1},
+        "run_attempt": {"type": "string", "minLength": 1},
+        "job": {"type": "string", "minLength": 1}
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "url",
+        "fetched_at",
+        "raw_sha256",
+        "artifact",
+        "artifact_sha256",
+        "redaction"
+      ],
+      "properties": {
+        "status": {"enum": ["ok", "unavailable"]},
+        "url": {"$ref": "#/$defs/https_url"},
+        "fetched_at": {"$ref": "#/$defs/timestamp"},
+        "raw_sha256": {
+          "anyOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "artifact": {
+          "anyOf": [
+            {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+            {"type": "null"}
+          ]
+        },
+        "artifact_sha256": {
+          "anyOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "redaction": {"enum": ["none", "url_credentials"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "ok"}}},
+          "then": {
+            "properties": {
+              "raw_sha256": {"$ref": "#/$defs/sha256"},
+              "artifact": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+              "artifact_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "unavailable"}}},
+          "then": {
+            "properties": {
+              "raw_sha256": {"type": "null"},
+              "artifact": {"type": "null"},
+              "artifact_sha256": {"type": "null"},
+              "redaction": {"const": "none"}
+            }
+          }
+        }
+      ]
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "min_members",
+        "max_members",
+        "candidate_count",
+        "selected",
+        "filtered",
+        "voting_basis_sha256"
+      ],
+      "properties": {
+        "algorithm": {"const": "chainlist-sorted-v1"},
+        "min_members": {"const": 3},
+        "max_members": {"const": 12},
+        "candidate_count": {"type": "integer", "minimum": 0},
+        "selected": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {"$ref": "#/$defs/selected_member"}
+        },
+        "filtered": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/filtered_entry"}
+        },
+        "voting_basis_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "selected_member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "url"],
+      "properties": {
+        "source_id": {"type": "string", "pattern": "^node-(0[1-9]|1[0-2])$"},
+        "url": {"$ref": "#/$defs/https_url"}
+      }
+    },
+    "filtered_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url_sha256", "reason"],
+      "properties": {
+        "url_sha256": {"$ref": "#/$defs/sha256"},
+        "reason": {"enum": ["invalid_url", "non_https", "credentials", "duplicate", "cap_exceeded"]}
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "max_lag_blocks"],
+      "properties": {
+        "policy": {"const": "finalized"},
+        "max_lag_blocks": {"const": 32}
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_ms", "registry_ms", "reference_ms", "step_ms"],
+      "properties": {
+        "run_ms": {"const": 300000},
+        "registry_ms": {"const": 60000},
+        "reference_ms": {"const": 30000},
+        "step_ms": {"const": 30000}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_max_bytes"],
+      "properties": {
+        "registry_max_bytes": {"const": 33554432}
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256", "steps"],
+      "properties": {
+        "id": {"const": "mainnet-canary-v1"},
+        "sha256": {"const": "d99a78e6a56ffe34ee5351fbd74b14951afb5fef31023280d9d9412b3b2124d8"},
+        "steps": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {"$ref": "#/$defs/plan_step"}
+        }
+      }
+    },
+    "plan_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "phase", "path", "method", "params", "expect"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "phase": {"enum": ["identity", "reference", "business", "typed", "negative"]},
+        "path": {"enum": ["client_call", "typed_block", "typed_receipt"]},
+        "method": {"type": "string", "minLength": 1},
+        "params": {"type": "array"},
+        "expect": {"$ref": "#/$defs/plan_expect"}
+      }
+    },
+    "plan_expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "statuses", "error", "reference", "binding", "value_kind"],
+      "properties": {
+        "decision": {"enum": ["required", "none"]},
+        "statuses": {"type": "array", "items": {"const": "corroborated"}},
+        "error": {"enum": ["none", "not_found", "invalid_request"]},
+        "reference": {"enum": ["none", "corroborated"]},
+        "binding": {"enum": ["none", "reference_hash", "reference_height"]},
+        "value_kind": {"enum": ["quantity", "object", "null", "none"]}
+      }
+    }
+  }
+}

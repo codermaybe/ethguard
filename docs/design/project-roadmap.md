@@ -461,6 +461,9 @@ presence，也不改变裁决门槛、分母或方法数量。
 状态：**优先立项，证据边界已确认，按下表分阶段执行**（2026-10-23 核查）。
 T10.0 审计通过（2026-10-23，`f5b989b`）：提交范围、证据、示例和 run/step
 reference scope 均已复核；T10.1 已解除暂停。
+T10.1 实现完成（2026-10-23，待审计）：新增离线 `internal/livecanary`、
+`cmd/livecanary manifest`、`manifest.schema.json` 和 schema/脱敏/可重建性
+测试；T10.1 只消费本地 snapshot descriptor，远端抓取仍属 T10.2。T10.2 未开启。
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的

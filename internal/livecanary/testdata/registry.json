@@ -1,0 +1,31 @@
+[
+  {
+    "name": "Ethereum Mainnet",
+    "chainId": 1,
+    "rpc": [
+      {"url": "https://zeta.example/rpc", "tracking": "none"},
+      "https://alpha.example",
+      {"url": "http://plain.example"},
+      {"url": "https://user:secret@auth.example"},
+      {"url": "https://query.example/?apikey=SECRET"},
+      {"url": "https://alpha.example/"},
+      {"url": "https://beta.example/rpc"},
+      {"url": "https://gamma.example/rpc#frag"},
+      {"url": 42},
+      "not a url",
+      {"url": "https://delta.example"},
+      {"url": "https://epsilon.example"},
+      {"url": "https://zeta.example/rpc?token=SECRET"}
+    ]
+  },
+  {
+    "name": "Other chain",
+    "chainId": 2,
+    "rpc": [{"not": "an endpoint"}, 123]
+  },
+  {
+    "name": "Broken other chain",
+    "chainId": "not-a-number",
+    "rpc": []
+  }
+]
