@@ -231,8 +231,8 @@ func TestEndpointIdentityMatchesPool(t *testing.T) {
 func TestSelectFiltersPathCredentials(t *testing.T) {
 	raw := []byte(`[{"chainId":1,"rpc":[
 		"https://alpha.example/eth",
-		"https://dwellir.example/2ccf18bf-2916-4198-8856-42172854353c",
-		"https://nodereal.example/v1/1659dfb40aa24bbb8153a677b98064d7",
+		"https://dwellir.example/11111111-2222-3333-4444-555555555555",
+		"https://nodereal.example/v1/0123456789abcdef0123456789abcdef",
 		"https://alchemy.example/v2/demo",
 		"https://template.example/${ALCHEMY_API_KEY}",
 		"https://redacted.example/REDACTED"
@@ -273,8 +273,8 @@ func TestSelectFiltersPathCredentials(t *testing.T) {
 		}
 	}
 	for _, secret := range []string{
-		"2ccf18bf-2916-4198-8856-42172854353c",
-		"1659dfb40aa24bbb8153a677b98064d7",
+		"11111111-2222-3333-4444-555555555555",
+		"0123456789abcdef0123456789abcdef",
 		"${ALCHEMY_API_KEY}",
 	} {
 		if strings.Contains(string(artifact), secret) {
