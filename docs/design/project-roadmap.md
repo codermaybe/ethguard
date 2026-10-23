@@ -524,6 +524,19 @@ T10.6 审计结论（2026-10-23）：**阻塞，未通过**。本地 bundle 的
 run 链接和可下载 artifact，不能满足 T10.6 的硬性出口。补齐外部 workflow run、
 公开 artifact 与第三方可下载复核前，不得解除 T10.6，也不得把后续阶段记为最终
 通过。
+T10.6 外部验收补齐（2026-10-24，GitHub run
+`39983945116`）：workflow_dispatch 在 GitHub-hosted runner 上以 exact commit
+`7d99c72967e4252b498d810ea12b74f496c53d58` 执行，checkout 断言、构建、live plan、
+artifact coherence verify 和上传均通过。下载的
+`live-canary-39983945116-1` 未读取完整 registry；`SHA256SUMS` 对 manifest、
+registry、report、run.log 全部校验通过，离线 `livecanary verify` 也通过。manifest
+记录 run_id `01M5MR7W787F2CPPY3N5G1BF64`、github-hosted provenance、Chainlist
+raw/artifact digest 和 `chainlist-sorted-v2` 的 66/12/54 选择；report 状态为
+`inconclusive`，16 条原因全部是 13 条 `provider_unavailable` 与 3 条
+`provider_rate_limited`，没有 `failed` 原因，六个步骤均执行且适用不变量均为 true。
+最后的 non-passed enforcement 按契约使 job 为 failure，但 artifact 已先上传并可下载。
+T10.6 的 external live observation 出口已满足；这不是 passed，也不证明 provider
+长期可靠性。T10.7 仍等待不同 workflow/repository 或独立 runner 的复核。
 T10.7 本地复跑完成（2026-10-23，代码 `63d5ac7`）：在干净 clone 的 exact commit
 上用 `livecanary rerun` 执行 T10.6 的同一 manifest，不重新抓取 Chainlist；
 manifest/registry digest、run_id、state、各步骤 decision 值、step reference、
