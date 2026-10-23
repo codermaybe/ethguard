@@ -482,7 +482,7 @@ client，不触网。T10.3 审计修正（2026-10-23）：报告中的 `manifest
 `ParseManifest` 的解析结果作为唯一执行 manifest，并校验传入 `Manifest` 与字节
 结构一致，digest 或结构不一致时仍生成记录实际 digest 的 `schema_error` failed
 报告，并新增两项回归测试。T10.4 已解除暂停。
-T10.4 实现完成（2026-10-23，待审计）：canary 不变量在 report 路径强制执行。moving
+T10.4 实现完成（2026-10-23，已审计，`9df9df1`）：canary 不变量在 report 路径强制执行。moving
 tag 检查递归覆盖嵌套 params，prepared request 中残留任何 moving tag 都记为
 `request_binding`；`corroborated` decision 与 step reference 的 support 必须达到
 固定门槛 `Q = max(2, floor(N/2)+1)`，低于 Q 记为 `illegal_state` /
@@ -490,7 +490,9 @@ tag 检查递归覆盖嵌套 params，prepared request 中残留任何 moving ta
 shape drift 的既有断言均由新增 `invariants_test.go` 的进程内失败样例覆盖。
 shape drift 只记录 `value_kind`、`shape_matches_plan=false` 和 `degraded`，不产生
 state reason；可用性 fault 与 quorum 不足只产生 `inconclusive`。未修改生产裁决
-语义，未用 mock 替代 live 采集路径。T10.5 继续批量执行。
+语义，未用 mock 替代 live 采集路径。审计复跑 `go test ./... -count=1`、
+`go vet ./...`、livecanary/aggregator/rpc 定向测试及 race 全部通过；未触网、未修改
+历史 capture/expect/rpcsample。T10.5 继续批量执行，尚未审计。
 T10.5 实现完成（2026-10-23，待审计）：新增
 `.github/workflows/live-canary.yml`，PR/push 仍只走 `ci.yml` 的离线门禁；live
 canary 只在 schedule、release tag 和手动触发时运行，checkout 固定
