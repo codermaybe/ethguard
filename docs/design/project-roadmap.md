@@ -522,7 +522,8 @@ T10.6 审计结论（2026-10-23）：**阻塞，未通过**。本地 bundle 的
 `SHA256SUMS`、manifest/report/run_id/plan/registry digest 与 `verify` 结果均已独立
 复核，状态保持 `inconclusive`，但它们位于作者机器的 `/tmp`，没有外部 runner 的
 run 链接和可下载 artifact，不能满足 T10.6 的硬性出口。补齐外部 workflow run、
-公开 artifact 与第三方可下载复核前，不得解除 T10.6，也不开始 T10.7 审计。
+公开 artifact 与第三方可下载复核前，不得解除 T10.6，也不得把后续阶段记为最终
+通过。
 T10.7 本地复跑完成（2026-10-23，代码 `63d5ac7`）：在干净 clone 的 exact commit
 上用 `livecanary rerun` 执行 T10.6 的同一 manifest，不重新抓取 Chainlist；
 manifest/registry digest、run_id、state、各步骤 decision 值、step reference、
@@ -532,6 +533,10 @@ support/fault 归属和 7 与 6 条限流原因，归类为 provider 波动；�
 `docs/design/live-canary/runs/2026-10-23-t10.7-local.md`。干净 clone 仍运行在
 同一主机，且无 GitHub API credential，因此外部 workflow/repository 的独立复核
 仍未完成，T10.7 不标记为通过。T10.8 文档收口继续进行。
+T10.7 预审结论（2026-10-23）：实现边界无阻塞。`rerun` 只解析既有 manifest，
+固定原 selected basis，明确不重新抓取 Chainlist，并保留原 run_id/manifest digest；
+本地复跑的差异已正确归类为 provider 波动。由于 T10.6 尚无外部 runner/artifact，
+且 T10.7 自身也尚无独立 runner/repository，最终验收保持挂起，不得视为通过。
 T10.8 完成（2026-10-23，待审计）：README 与 README.zh-CN 增加证据分层说明；
 `moving-tag-matrix.md` 把 soak/capture 列改名为 observation evidence，并明确其
 为历史本地观察/形状证据；`wire-forms.md` 同样标注重命名为历史本地样本，更新
