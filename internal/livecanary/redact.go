@@ -73,11 +73,16 @@ func redactValue(value any) (any, bool) {
 	}
 }
 
-// redactString removes URL userinfo and credential-named query values. It
-// avoids URL round-tripping so malformed-but-obvious credential strings are
-// still scrubbed without publishing the secret.
+// redactString removes URL userinfo, path-embedded credentials, and
+// credential-named query values. It avoids URL round-tripping so
+// malformed-but-obvious credential strings are still scrubbed without
+// publishing the secret.
 func redactString(value string) (string, bool) {
 	out, changed := redactUserinfo(value)
+	if pathRedacted, pathChanged := redactPath(out); pathChanged {
+		out = pathRedacted
+		changed = true
+	}
 	if queryRedacted, queryChanged := redactQuery(out); queryChanged {
 		out = queryRedacted
 		changed = true
@@ -108,6 +113,57 @@ func redactUserinfo(value string) (string, bool) {
 		return value, false
 	}
 	return value[:start] + "redacted@" + authority[at+1:] + value[end:], true
+}
+
+// redactPath replaces credential-bearing path segments with REDACTED. The
+// segment rules match selection's chainlist-sorted-v2 path rules.
+func redactPath(value string) (string, bool) {
+	scheme := strings.Index(value, "://")
+	if scheme < 0 {
+		return value, false
+	}
+	start := scheme + 3
+	pathStart := -1
+	for i := start; i < len(value); i++ {
+		switch value[i] {
+		case '/':
+			pathStart = i
+		case '?', '#':
+			return value, false
+		}
+		if pathStart >= 0 {
+			break
+		}
+	}
+	if pathStart < 0 {
+		return value, false
+	}
+	pathEnd := len(value)
+	for i := pathStart; i < len(value); i++ {
+		if value[i] == '?' || value[i] == '#' {
+			pathEnd = i
+			break
+		}
+	}
+	segments := strings.Split(value[pathStart:pathEnd], "/")
+	changed := false
+	keySlot := false
+	for i, segment := range segments {
+		if segment == "" {
+			continue
+		}
+		replace := keySlot || pathSegmentHasCredentials(segment)
+		keySlot = strings.EqualFold(segment, "v2") || strings.EqualFold(segment, "v3")
+		if !replace || segment == "REDACTED" {
+			continue
+		}
+		segments[i] = "REDACTED"
+		changed = true
+	}
+	if !changed {
+		return value, false
+	}
+	return value[:pathStart] + strings.Join(segments, "/") + value[pathEnd:], true
 }
 
 func redactQuery(value string) (string, bool) {

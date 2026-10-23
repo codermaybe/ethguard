@@ -2186,6 +2186,11 @@ basis and denominator are frozen before the first business RPC; failed members
 stay in the denominator and are never replaced. Chainlist remains discovery
 only and never a trust ranking or weight (0058).
 
+Amendment (2026-10-23, T10.6): the first real run found selected URLs carrying
+path-embedded credentials. The contract required an algorithm-version bump, so
+selection is now `chainlist-sorted-v2`, which adds the path credential rule
+without changing the trust model, denominator semantics, or plan.
+
 The fixed plan `mainnet-canary-v1` covers chain identity, a provider-reported
 finalized-tag reference establishment and state read, a pinned block, a
 feeHistory height rewrite, a typed block adapter, and a corroborated-null

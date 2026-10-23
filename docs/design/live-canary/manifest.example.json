@@ -28,7 +28,7 @@
     "redaction": "none"
   },
   "selection": {
-    "algorithm": "chainlist-sorted-v1",
+    "algorithm": "chainlist-sorted-v2",
     "min_members": 3,
     "max_members": 12,
     "candidate_count": 6,

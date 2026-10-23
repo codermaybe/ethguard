@@ -187,7 +187,7 @@
         "voting_basis_sha256"
       ],
       "properties": {
-        "algorithm": {"const": "chainlist-sorted-v1"},
+        "algorithm": {"const": "chainlist-sorted-v2"},
         "min_members": {"const": 3},
         "max_members": {"const": 12},
         "candidate_count": {"type": "integer", "minimum": 0},

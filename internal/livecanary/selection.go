@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,40 @@ const (
 	filterDuplicate   = "duplicate"
 	filterCapExceeded = "cap_exceeded"
 )
+
+var (
+	uuidPathSegmentRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	hexPathSegmentRE  = regexp.MustCompile(`^[0-9a-fA-F]{32,}$`)
+)
+
+// pathHasCredentials reports path-embedded credentials introduced by
+// chainlist-sorted-v2: URL templates, UUID/key-length hex segments, and the
+// provider key slot after /v2/ or /v3/.
+func pathHasCredentials(parsed *url.URL) bool {
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	keySlot := false
+	for _, segment := range segments {
+		if segment == "" {
+			continue
+		}
+		if keySlot || pathSegmentHasCredentials(segment) {
+			return true
+		}
+		keySlot = strings.EqualFold(segment, "v2") || strings.EqualFold(segment, "v3")
+	}
+	return false
+}
+
+func pathSegmentHasCredentials(segment string) bool {
+	if strings.EqualFold(segment, "REDACTED") {
+		// Redacted artifacts must reproduce the same credentials filter.
+		return true
+	}
+	if strings.ContainsAny(segment, "{}") || strings.Contains(segment, "${") {
+		return true
+	}
+	return uuidPathSegmentRE.MatchString(segment) || hexPathSegmentRE.MatchString(segment)
+}
 
 func validFilterReason(reason string) bool {
 	switch reason {
@@ -42,9 +77,9 @@ type candidate struct {
 	identity string
 }
 
-// Select applies chainlist-sorted-v1 to the target chain. Registry entries for
-// other chains are ignored, including malformed ones; only the target chain's
-// RPC list can make selection fail.
+// Select applies the fixed chainlist-sorted selection algorithm to the target
+// chain. Registry entries for other chains are ignored, including malformed
+// ones; only the target chain's RPC list can make selection fail.
 func Select(chainID uint64, raw []byte) (*Selection, error) {
 	selection, _, err := SelectWithTarget(chainID, raw)
 	return selection, err
@@ -125,7 +160,7 @@ func selectCandidates(entries []json.RawMessage) *Selection {
 			current.reason = filterNonHTTPS
 			continue
 		}
-		if parsed.User != nil || queryHasSensitiveName(parsed.RawQuery) {
+		if parsed.User != nil || queryHasSensitiveName(parsed.RawQuery) || pathHasCredentials(parsed) {
 			current.reason = filterCredentials
 			continue
 		}
@@ -276,7 +311,7 @@ func validateSelectedURL(field, raw string) error {
 	if strings.ContainsRune(raw, '#') {
 		return fmt.Errorf("%s: must not contain a fragment", field)
 	}
-	if parsed.User != nil || queryHasSensitiveName(parsed.RawQuery) {
+	if parsed.User != nil || queryHasSensitiveName(parsed.RawQuery) || pathHasCredentials(parsed) {
 		return fmt.Errorf("%s: must not contain credentials", field)
 	}
 	return nil

@@ -60,6 +60,12 @@ func TestRedactString(t *testing.T) {
 	}{
 		{"https://user:pass@host/rpc", "https://redacted@host/rpc", true},
 		{"https://user:pass@host/rpc#fragment", "https://redacted@host/rpc#fragment", true},
+		{"https://host/2ccf18bf-2916-4198-8856-42172854353c", "https://host/REDACTED", true},
+		{"https://host/v1/1659dfb40aa24bbb8153a677b98064d7", "https://host/v1/REDACTED", true},
+		{"https://host/v2/demo", "https://host/v2/REDACTED", true},
+		{"https://host/${ALCHEMY_API_KEY}", "https://host/REDACTED", true},
+		{"https://host/REDACTED", "https://host/REDACTED", false},
+		{"https://host/eth-mainnet", "https://host/eth-mainnet", false},
 		{"https://host/rpc?api_key=abc&x=1", "https://host/rpc?api_key=REDACTED&x=1", true},
 		{"https://host/rpc?KEY=abc", "https://host/rpc?KEY=REDACTED", true},
 		{"https://host/rpc?apikey", "https://host/rpc?apikey=REDACTED", true},

@@ -21,7 +21,7 @@ const (
 	SchemaVersion         = "ethguard.live-manifest/v1"
 	SnapshotSchemaVersion = "ethguard.registry-snapshot/v1"
 	ToolVersion           = "ethguard-live-canary/v1"
-	SelectionAlgorithm    = "chainlist-sorted-v1"
+	SelectionAlgorithm    = "chainlist-sorted-v2"
 	PlanID                = "mainnet-canary-v1"
 	ArtifactName          = "registry.json"
 	ManifestArtifactName  = "manifest.json"

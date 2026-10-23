@@ -228,6 +228,61 @@ func TestEndpointIdentityMatchesPool(t *testing.T) {
 	}
 }
 
+func TestSelectFiltersPathCredentials(t *testing.T) {
+	raw := []byte(`[{"chainId":1,"rpc":[
+		"https://alpha.example/eth",
+		"https://dwellir.example/2ccf18bf-2916-4198-8856-42172854353c",
+		"https://nodereal.example/v1/1659dfb40aa24bbb8153a677b98064d7",
+		"https://alchemy.example/v2/demo",
+		"https://template.example/${ALCHEMY_API_KEY}",
+		"https://redacted.example/REDACTED"
+	]}]`)
+	selection, err := Select(ChainID, raw)
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if len(selection.Selected) != 1 || selection.Selected[0].URL != "https://alpha.example/eth" {
+		t.Fatalf("selected = %+v", selection.Selected)
+	}
+	if len(selection.Filtered) != 5 {
+		t.Fatalf("filtered = %d, want 5", len(selection.Filtered))
+	}
+	for i, entry := range selection.Filtered {
+		if entry.Reason != filterCredentials {
+			t.Errorf("filtered[%d].reason = %q, want %q", i, entry.Reason, filterCredentials)
+		}
+	}
+	artifact, mode, err := redactRegistry(raw)
+	if err != nil {
+		t.Fatalf("redactRegistry: %v", err)
+	}
+	if mode != RedactionURLCredentials {
+		t.Fatalf("redaction mode = %q", mode)
+	}
+	replayed, err := Select(ChainID, artifact)
+	if err != nil {
+		t.Fatalf("Select redacted: %v", err)
+	}
+	if !slices.Equal(replayed.Selected, selection.Selected) {
+		t.Errorf("selected changed after redaction:\nraw: %+v\nartifact: %+v", selection.Selected, replayed.Selected)
+	}
+	for i := range selection.Filtered {
+		if replayed.Filtered[i].Reason != selection.Filtered[i].Reason {
+			t.Errorf("filtered[%d].reason changed: %s -> %s",
+				i, selection.Filtered[i].Reason, replayed.Filtered[i].Reason)
+		}
+	}
+	for _, secret := range []string{
+		"2ccf18bf-2916-4198-8856-42172854353c",
+		"1659dfb40aa24bbb8153a677b98064d7",
+		"${ALCHEMY_API_KEY}",
+	} {
+		if strings.Contains(string(artifact), secret) {
+			t.Errorf("artifact still contains %q", secret)
+		}
+	}
+}
+
 func TestSelectionReproducibleOnRedactedArtifact(t *testing.T) {
 	raw := readTestdata(t, "registry.json")
 	original, err := Select(ChainID, raw)

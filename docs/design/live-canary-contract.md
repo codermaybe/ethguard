@@ -72,9 +72,11 @@ failed > inconclusive > passed
 - 一次 run 的成员集合在发出第一个业务 RPC 前固定；之后不得替换、添加、
   删除或缩小分母。成员失败仍占分母。
 
-### 3.2 固定选择算法 `chainlist-sorted-v1`
+### 3.2 固定选择算法 `chainlist-sorted-v2`
 
-T10.1/T10.2 必须按以下顺序实现，selection 算法版本写入 manifest：
+T10.1/T10.2 必须按以下顺序实现，selection 算法版本写入 manifest。v2 是 v1 的
+安全升级：T10.6 首次真实运行发现 v1 会把 path 内嵌凭据的 URL 选入并发布，
+因此新增 path 凭据过滤；selected 或 filtering 规则不得在同一版本内静默改变。
 
 1. 解析 registry 顶层 JSON；只取 `chainId == manifest.chain_id` 的条目；多个
    条目按 registry 原顺序合并。目标 chain 不存在时，run 为 `inconclusive`。
@@ -86,13 +88,16 @@ T10.1/T10.2 必须按以下顺序实现，selection 算法版本写入 manifest�
 4. scheme 不是 `https` 的条目记为 `non_https`（含 `http`、`ws`、`wss`）。
 5. URL 含 userinfo，或 query 参数名（大小写不敏感）为 `apikey`、`api_key`、
    `key`、`token` 的条目记为 `credentials`。
-6. 计算 endpoint identity，规则与 `pool` 的 endpoint 去重键一致：
+6. path 含 URL template placeholder（`${...}` 或未展开的 `{...}`）、UUID
+   segment、32 位以上十六进制 segment，或位于 `/v2/`、`/v3/` 之后的 provider
+   key segment，记为 `credentials`。
+7. 计算 endpoint identity，规则与 `pool` 的 endpoint 去重键一致：
    scheme/host 小写、去默认端口、裸 `/` 路径归一为空；path/query 保留。
    endpoint identity 已出现时，保留 registry 顺序中的第一个，其余记为
    `duplicate`。
-7. 按 endpoint identity 的字节序升序排序；取前 `max_members`（v1 为 12）个
+8. 按 endpoint identity 的字节序升序排序；取前 `max_members`（v1 为 12）个
    作为 selected，其余合法条目记为 `cap_exceeded`。
-8. 按 selected 顺序编号 `node-01` … `node-N`；计算 `voting_basis_sha256`：
+9. 按 selected 顺序编号 `node-01` … `node-N`；计算 `voting_basis_sha256`：
    对每个 selected 成员按顺序取 `source_id + "\t" + url + "\n"`，UTF-8 编码
    后求 SHA-256。
 
@@ -113,9 +118,9 @@ T10.1/T10.2 必须按以下顺序实现，selection 算法版本写入 manifest�
 - selected URL 必须可公开且不含凭据；若无法在不泄露凭据的前提下发布 selected
   basis，run 为 `failed`（`evidence_missing`），不得脱敏 selected URL 后仍声称
   可重建。
-- v1 只按上述明确规则过滤，不对 path 做高熵 token 启发式。若发现 selected
-  URL 的 path 含凭据，必须升级 selection 算法版本并重新选择，不得在同一版本
-  静默改变过滤规则。
+- v2 只按上述明确规则过滤，不对 path 做其他高熵 token 启发式。v1 曾只过滤
+  query/userinfo；T10.6 首次真实运行发现 selected path 含凭据，按本约束升级为
+  v2 并新增 path 规则，未在同一版本内静默改变过滤规则。
 - v1 只选择 HTTPS；WSS 的 error-data presence 缺口按决策 0056 处理，不把 WSS
   纳入本 canary 的传输证据。
 - 本契约不引入 provider 权重、动态替换或信誉排序（决策 0058）。
@@ -408,7 +413,7 @@ run，也不是证据。
 
 | 字段 | 生产用途 |
 | --- | --- |
-| `algorithm` | `chainlist-sorted-v1`；重建设择 |
+| `algorithm` | `chainlist-sorted-v2`；重建选择 |
 | `min_members` | 固定 3；不足即 `insufficient_members` |
 | `max_members` | 固定 12；限制运行成本与公开端点负载 |
 | `candidate_count` | 目标 chain 的原始 RPC 条目数；校验 selected+filtered |
