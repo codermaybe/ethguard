@@ -466,11 +466,11 @@ T10.1 实现完成（2026-10-23，已审计，`9848bd5`）：新增离线 `inter
 测试；T10.1 只消费本地 snapshot descriptor，远端抓取仍属 T10.2。T10.1 复审
 修正了零值时间与非 Chainlist snapshot URL，并在 schema、snapshot、manifest 和
 Build 路径一律拒绝。T10.2 已解除暂停。
-T10.2 实现完成（2026-10-23，待审计）：新增 `livecanary fetch`，对固定
+T10.2 实现完成（2026-10-23，已审计，`cd888ed`）：新增 `livecanary fetch`，对固定
 Chainlist URL 单次抓取（60s、32 MiB、无重试、拒绝 redirect），固定 selected
 basis；registry 不可用或 selected 少于 3 时仍写 manifest，并以
 `state=inconclusive`（exit 2）结束，不执行 plan。远端抓取与成员不足测试均
-使用注入 transport，不触网。T10.3 未开启。
+使用注入 transport，不触网。T10.3 已解除暂停。
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的
