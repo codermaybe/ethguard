@@ -457,7 +457,8 @@ Manifest 生成纪律：
 
 ## 9. Report 契约
 
-Schema 版本：`ethguard.live-report/v1`。示例见
+Schema 版本：`ethguard.live-report/v1`。Schema 见
+`docs/design/live-canary/report.schema.json`。示例见
 `docs/design/live-canary/report.example.json`；示例是合成形状，不是真实
 run，也不是证据。
 

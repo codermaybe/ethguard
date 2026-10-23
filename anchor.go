@@ -64,13 +64,15 @@ func newStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, timeout time.Durati
 func (a *StrictHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
 	d, err := a.aggregate.Aggregate(ctx, rpc.Request{Method: anchorMethod, Params: []any{"latest", false}})
 	ref := rpc.ReferenceEvidence{
-		Status:       d.Status,
-		Origin:       "strict-head",
-		ObservedAt:   time.Now(),
-		Participants: d.Participants,
-		Support:      d.Support,
-		Reject:       d.Reject,
-		Faults:       d.Faults,
+		Status:           d.Status,
+		Origin:           "strict-head",
+		ObservedAt:       time.Now(),
+		Participants:     d.Participants,
+		Support:          d.Support,
+		Reject:           d.Reject,
+		Faults:           d.Faults,
+		SourceFaults:     d.SourceFaults,
+		CollectionFaults: d.CollectionFaults,
 	}
 	if err != nil {
 		return ref, err
@@ -85,14 +87,16 @@ func (a *StrictHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string
 	}
 	d, err := a.aggregate.Aggregate(ctx, rpc.Request{Method: anchorMethod, Params: []any{tag, false}})
 	ref := rpc.ReferenceEvidence{
-		Tag:          tag,
-		Status:       d.Status,
-		Origin:       "tagged-head",
-		ObservedAt:   time.Now(),
-		Participants: d.Participants,
-		Support:      d.Support,
-		Reject:       d.Reject,
-		Faults:       d.Faults,
+		Tag:              tag,
+		Status:           d.Status,
+		Origin:           "tagged-head",
+		ObservedAt:       time.Now(),
+		Participants:     d.Participants,
+		Support:          d.Support,
+		Reject:           d.Reject,
+		Faults:           d.Faults,
+		SourceFaults:     d.SourceFaults,
+		CollectionFaults: d.CollectionFaults,
 	}
 	if err != nil {
 		return ref, err

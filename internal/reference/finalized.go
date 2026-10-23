@@ -47,7 +47,9 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 	}
 	emissions, collectErr := p.Collect(ctx, methods.MethodGetBlockByNumber, []any{"finalized", false}, firstOpts)
 	if collectErr != nil {
-		ref.Faults = append(ref.Faults, fmt.Errorf("collect: %w", collectErr))
+		err := fmt.Errorf("collect: %w", collectErr)
+		ref.Faults = append(ref.Faults, err)
+		ref.CollectionFaults = append(ref.CollectionFaults, err)
 	}
 	views := make([]view, 0, len(emissions))
 	for _, emission := range emissions {
@@ -64,6 +66,7 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 			if emission.Attempted {
 				ref.Faults = append(ref.Faults, fmt.Errorf("source %q: %w", source.Name, err))
 			}
+			ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: source, Err: err})
 			continue
 		}
 		v.source = source
@@ -87,7 +90,9 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 	fresh := make([]view, 0, len(views))
 	for _, v := range views {
 		if v.height < reference && reference-v.height > maxLag {
-			ref.Faults = append(ref.Faults, fmt.Errorf("source %q: finalized height %d trails reference %d beyond %d blocks", v.source.Name, v.height, reference, maxLag))
+			err := fmt.Errorf("finalized height %d trails reference %d beyond %d blocks", v.height, reference, maxLag)
+			ref.Faults = append(ref.Faults, fmt.Errorf("source %q: %w", v.source.Name, err))
+			ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: v.source, Err: err})
 			continue
 		}
 		fresh = append(fresh, v)
@@ -168,7 +173,9 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 			}
 			confirmations, err := p.Collect(ctx, methods.MethodGetBlockByNumber, []any{fmt.Sprintf("0x%x", candidate), false}, confirmOpts)
 			if err != nil {
-				ref.Faults = append(ref.Faults, fmt.Errorf("confirm: %w", err))
+				err = fmt.Errorf("confirm: %w", err)
+				ref.Faults = append(ref.Faults, err)
+				ref.CollectionFaults = append(ref.CollectionFaults, err)
 			}
 			for _, emission := range confirmations {
 				source := sourceRef(emission)
@@ -193,6 +200,7 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 					if emission.Attempted {
 						ref.Faults = append(ref.Faults, fmt.Errorf("source %q confirm: %w", source.Name, decodeErr))
 					}
+					ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: source, Err: decodeErr})
 					continue
 				}
 				observations[indexes[source.ID]] = rpc.Observation{Source: source, Value: v.raw}

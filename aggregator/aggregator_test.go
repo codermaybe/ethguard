@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -236,4 +237,31 @@ func namedSources(t *testing.T, names ...string) []*pool.Source {
 		out = append(out, src)
 	}
 	return out
+}
+
+// A scheduling gate skips the request but keeps the member in the voting
+// basis. The structured diagnostic seam must still attribute that member as
+// unavailable even though no call was attempted and the human-readable Faults
+// list intentionally stays empty.
+func TestStructuredSourceFaultsIncludeGatedMember(t *testing.T) {
+	p := pool.NewPoolWithChainID(1)
+	source, err := p.Join("node-01", "https://rpc-a.example")
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	emissions := []pool.Emission{{
+		Src:       source,
+		Err:       pool.ErrSourceGated,
+		Attempted: false,
+	}}
+	faults := structuredSourceFaults(nil, emissions)
+	if len(faults) != 1 {
+		t.Fatalf("faults=%d, want 1", len(faults))
+	}
+	if faults[0].Source.Name != "node-01" || !errors.Is(faults[0].Err, pool.ErrSourceGated) {
+		t.Fatalf("unexpected fault: %+v", faults[0])
+	}
+	if !errors.Is(emissions[0].Err, pool.ErrSourceGated) {
+		t.Fatal("gate evidence was rewritten")
+	}
 }

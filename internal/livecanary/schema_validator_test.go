@@ -22,7 +22,17 @@ type jsonSchema struct {
 
 func loadManifestSchema(t *testing.T) *jsonSchema {
 	t.Helper()
-	path := filepath.Join("..", "..", "docs", "design", "live-canary", "manifest.schema.json")
+	return loadLiveCanarySchema(t, "manifest.schema.json")
+}
+
+func loadReportSchema(t *testing.T) *jsonSchema {
+	t.Helper()
+	return loadLiveCanarySchema(t, "report.schema.json")
+}
+
+func loadLiveCanarySchema(t *testing.T, name string) *jsonSchema {
+	t.Helper()
+	path := filepath.Join("..", "..", "docs", "design", "live-canary", name)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read schema: %v", err)

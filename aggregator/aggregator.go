@@ -274,7 +274,15 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		}
 	}
 	if collectErr != nil && !hasUsableEmission(emissions) {
-		decision := rpc.Decision{Status: rpc.Unknown, Faults: collectionFaults(policy, collectErr, emissions), Reference: capture.Reference(), Participants: participants}
+		decision := rpc.Decision{
+			Status:           rpc.Unknown,
+			Faults:           collectionFaults(policy, collectErr, emissions),
+			SourceFaults:     structuredSourceFaults(policy, emissions),
+			CollectionFaults: collectionFaultList(collectErr),
+			Reference:        capture.Reference(),
+			Participants:     participants,
+			Prepared:         preparedRequest(prepared),
+		}
 		if evaluation != nil {
 			decision.Diagnostics = &evaluation.Diagnostics
 		}
@@ -287,7 +295,14 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// typed callers instead of replacing it with ErrNoValidResponse.
 	if collectErr == nil && !hasUsableEmission(emissions) && hasMalformedAdmission(emissions) {
 		admissionErr := firstMalformedAdmission(emissions)
-		decision := rpc.Decision{Status: rpc.Unknown, Faults: sourceFaults(policy, emissions), Reference: capture.Reference(), Participants: participants}
+		decision := rpc.Decision{
+			Status:       rpc.Unknown,
+			Faults:       sourceFaults(policy, emissions),
+			SourceFaults: structuredSourceFaults(policy, emissions),
+			Reference:    capture.Reference(),
+			Participants: participants,
+			Prepared:     preparedRequest(prepared),
+		}
 		if evaluation != nil {
 			decision.Diagnostics = &evaluation.Diagnostics
 		}
@@ -305,6 +320,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	}
 	decision.Reference = capture.Reference()
 	decision.Participants = participants
+	decision.Prepared = preparedRequest(prepared)
 	if evaluation != nil {
 		decision.Diagnostics = &evaluation.Diagnostics
 	}
@@ -326,10 +342,25 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	}
 	if collectErr != nil {
 		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", collectErr))
+		decision.CollectionFaults = collectionFaultList(collectErr)
 	}
+	decision.SourceFaults = structuredSourceFaults(policy, emissions)
 	decision.Faults = append(decision.Faults, sourceFaults(policy, emissions)...)
 	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions)
 	return decision, resolveErr
+}
+
+// preparedRequest copies the request observed at the policy boundary so later
+// mutation cannot rewrite recorded evidence.
+func preparedRequest(req rpc.Request) *rpc.Request {
+	return &rpc.Request{Method: req.Method, Params: append([]any(nil), req.Params...)}
+}
+
+func collectionFaultList(collectErr error) []error {
+	if collectErr == nil {
+		return nil
+	}
+	return []error{fmt.Errorf("collect: %w", collectErr)}
 }
 
 func hasMalformedAdmission(emissions []pool.Emission) bool {
@@ -436,6 +467,29 @@ func sourceFaults(policy rpc.Policy, emissions []pool.Emission) []error {
 		if emission.Attempted && emission.Err != nil && !usableAnswer(policy, emission) {
 			faults = append(faults, fmt.Errorf("source %q: %w", emission.Src.Name(), emission.Err))
 		}
+	}
+	return faults
+}
+
+// structuredSourceFaults mirrors sourceFaults with source attribution kept
+// outside the error text, and additionally records unattempted members that
+// failed a scheduling gate. Gated members keep their voting-basis slot, so a
+// report must classify them as availability faults even though Calls never
+// started; the human-readable Faults list intentionally stays unchanged.
+// Report generation must use this seam rather than parsing error strings.
+func structuredSourceFaults(policy rpc.Policy, emissions []pool.Emission) []rpc.SourceFault {
+	var faults []rpc.SourceFault
+	for _, emission := range emissions {
+		if emission.Err == nil {
+			continue
+		}
+		if emission.Attempted && usableAnswer(policy, emission) {
+			continue
+		}
+		faults = append(faults, rpc.SourceFault{
+			Source: rpc.SourceRef{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()},
+			Err:    emission.Err,
+		})
 	}
 	return faults
 }

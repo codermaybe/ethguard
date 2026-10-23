@@ -1,0 +1,408 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/codermaybe/ethguard/docs/design/live-canary/report.schema.json",
+  "title": "EthGuard live canary report v1",
+  "description": "Machine-generated observation report for one live canary run. Values are bound by digests and evidence, never operator-filled expectations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "manifest_sha256",
+    "plan_sha256",
+    "started_at",
+    "finished_at",
+    "duration_ms",
+    "state",
+    "state_reasons",
+    "reference_step_id",
+    "steps",
+    "source_health"
+  ],
+  "properties": {
+    "schema_version": {"const": "ethguard.live-report/v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "plan_sha256": {"const": "d99a78e6a56ffe34ee5351fbd74b14951afb5fef31023280d9d9412b3b2124d8"},
+    "started_at": {"$ref": "#/$defs/timestamp"},
+    "finished_at": {"$ref": "#/$defs/timestamp"},
+    "duration_ms": {"type": "integer", "minimum": 0},
+    "state": {"enum": ["passed", "failed", "inconclusive"]},
+    "state_reasons": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/state_reason"}
+    },
+    "reference_step_id": {
+      "anyOf": [
+        {"const": "reference.finalized-balance"},
+        {"type": "null"}
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/step"}
+    },
+    "source_health": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/source_health"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"state": {"const": "passed"}}},
+      "then": {
+        "properties": {
+          "state_reasons": {"maxItems": 0},
+          "reference_step_id": {"const": "reference.finalized-balance"},
+          "steps": {"minItems": 6, "maxItems": 6}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"state": {"enum": ["failed", "inconclusive"]}}},
+      "then": {
+        "properties": {
+          "state_reasons": {"minItems": 1}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$",
+      "not": {"const": "0001-01-01T00:00:00Z"}
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_ids": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/source_id"}
+    },
+    "category": {
+      "enum": [
+        "code_error",
+        "request_binding",
+        "evidence_missing",
+        "illegal_state",
+        "identity_mismatch",
+        "denominator_changed",
+        "schema_error",
+        "typed_decode",
+        "registry_unavailable",
+        "insufficient_members",
+        "identity_basis_invalid",
+        "reference_not_corroborated",
+        "provider_unavailable",
+        "provider_rate_limited",
+        "provider_timeout",
+        "provider_malformed",
+        "provider_error",
+        "provider_divergence",
+        "quorum_unmet",
+        "run_timeout"
+      ]
+    },
+    "state_reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "step_id", "detail"],
+      "properties": {
+        "category": {"$ref": "#/$defs/category"},
+        "step_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "identity.chain-id",
+                "reference.finalized-balance",
+                "pinned.block",
+                "business.fee-history.finalized",
+                "typed.block",
+                "negative.notfound-receipt"
+              ]
+            },
+            {"type": "null"}
+          ]
+        },
+        "source_id": {"$ref": "#/$defs/source_id"},
+        "detail": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "params"],
+      "properties": {
+        "method": {"type": "string", "minLength": 1},
+        "params": {"type": "array"}
+      }
+    },
+    "source_fault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "category", "detail"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/source_id"},
+        "category": {"$ref": "#/$defs/category"},
+        "detail": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "collection_fault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "detail"],
+      "properties": {
+        "category": {"$ref": "#/$defs/category"},
+        "detail": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "error_class",
+        "error_detail",
+        "n",
+        "participants",
+        "support",
+        "reject",
+        "faults",
+        "collection_faults",
+        "representative",
+        "value_sha256",
+        "value_kind"
+      ],
+      "properties": {
+        "status": {"enum": ["unknown", "corroborated", "selected", "forwarded"]},
+        "error_class": {
+          "anyOf": [
+            {"$ref": "#/$defs/category"},
+            {"const": ""}
+          ]
+        },
+        "error_detail": {"type": "string", "maxLength": 1024},
+        "n": {"type": "integer", "minimum": 0},
+        "participants": {"$ref": "#/$defs/source_ids"},
+        "support": {"$ref": "#/$defs/source_ids"},
+        "reject": {"$ref": "#/$defs/source_ids"},
+        "faults": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/source_fault"}
+        },
+        "collection_faults": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/collection_fault"}
+        },
+        "representative": {"type": "string"},
+        "value_sha256": {
+          "anyOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"const": ""}
+          ]
+        },
+        "value_kind": {
+          "enum": ["quantity", "data", "array", "object", "null", "bool", "string", ""]
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "tag",
+        "height",
+        "hash",
+        "origin",
+        "observed_at",
+        "n",
+        "participants",
+        "support",
+        "reject",
+        "faults",
+        "collection_faults"
+      ],
+      "properties": {
+        "status": {"enum": ["unknown", "corroborated", "selected", "forwarded"]},
+        "tag": {"type": "string"},
+        "height": {"type": "integer", "minimum": 0},
+        "hash": {
+          "anyOf": [
+            {"type": "string", "pattern": "^0x[0-9a-f]{64}$"},
+            {"const": ""}
+          ]
+        },
+        "origin": {"type": "string"},
+        "observed_at": {"$ref": "#/$defs/timestamp"},
+        "n": {"type": "integer", "minimum": 0},
+        "participants": {"$ref": "#/$defs/source_ids"},
+        "support": {"$ref": "#/$defs/source_ids"},
+        "reject": {"$ref": "#/$defs/source_ids"},
+        "faults": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/source_fault"}
+        },
+        "collection_faults": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/collection_fault"}
+        }
+      }
+    },
+    "typed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ok", "height", "hash", "error_class"],
+      "properties": {
+        "kind": {"enum": ["block", "receipt_absence"]},
+        "ok": {"type": "boolean"},
+        "height": {
+          "anyOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "hash": {
+          "anyOf": [
+            {"type": "string"},
+            {"type": "null"}
+          ]
+        },
+        "error_class": {
+          "anyOf": [
+            {"$ref": "#/$defs/category"},
+            {"const": ""},
+            {"const": "not_found"}
+          ]
+        }
+      }
+    },
+    "invariants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_binding",
+        "status_allowed",
+        "evidence_conservation",
+        "representative_in_support",
+        "reference_status",
+        "error_status_exclusive",
+        "basis_unchanged",
+        "typed_decode",
+        "shape_matches_plan"
+      ],
+      "properties": {
+        "request_binding": {"$ref": "#/$defs/nullable_bool"},
+        "status_allowed": {"$ref": "#/$defs/nullable_bool"},
+        "evidence_conservation": {"$ref": "#/$defs/nullable_bool"},
+        "representative_in_support": {"$ref": "#/$defs/nullable_bool"},
+        "reference_status": {"$ref": "#/$defs/nullable_bool"},
+        "error_status_exclusive": {"$ref": "#/$defs/nullable_bool"},
+        "basis_unchanged": {"$ref": "#/$defs/nullable_bool"},
+        "typed_decode": {"$ref": "#/$defs/nullable_bool"},
+        "shape_matches_plan": {"$ref": "#/$defs/nullable_bool"}
+      }
+    },
+    "nullable_bool": {
+      "anyOf": [
+        {"type": "boolean"},
+        {"type": "null"}
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "phase",
+        "path",
+        "method",
+        "logical_request",
+        "prepared_request",
+        "reference",
+        "decision",
+        "typed",
+        "invariants",
+        "outcome"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "identity.chain-id",
+            "reference.finalized-balance",
+            "pinned.block",
+            "business.fee-history.finalized",
+            "typed.block",
+            "negative.notfound-receipt"
+          ]
+        },
+        "phase": {"enum": ["identity", "reference", "business", "typed", "negative"]},
+        "path": {"enum": ["client_call", "typed_block", "typed_receipt"]},
+        "method": {"type": "string", "minLength": 1},
+        "logical_request": {"$ref": "#/$defs/request"},
+        "prepared_request": {
+          "anyOf": [
+            {"$ref": "#/$defs/request"},
+            {"type": "null"}
+          ]
+        },
+        "reference": {
+          "anyOf": [
+            {"$ref": "#/$defs/reference"},
+            {"type": "null"}
+          ]
+        },
+        "decision": {
+          "anyOf": [
+            {"$ref": "#/$defs/decision"},
+            {"type": "null"}
+          ]
+        },
+        "typed": {
+          "anyOf": [
+            {"$ref": "#/$defs/typed"},
+            {"type": "null"}
+          ]
+        },
+        "invariants": {"$ref": "#/$defs/invariants"},
+        "outcome": {"enum": ["ok", "degraded", "provider_inconclusive", "invariant_failed"]}
+      }
+    },
+    "source_health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "url",
+        "successes",
+        "failures",
+        "rate_limited",
+        "protocol_server_errors",
+        "p95_ms",
+        "last_error_class"
+      ],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/source_id"},
+        "url": {"type": "string", "minLength": 1},
+        "successes": {"type": "integer", "minimum": 0},
+        "failures": {"type": "integer", "minimum": 0},
+        "rate_limited": {"type": "integer", "minimum": 0},
+        "protocol_server_errors": {"type": "integer", "minimum": 0},
+        "p95_ms": {"type": "integer", "minimum": 0},
+        "last_error_class": {
+          "anyOf": [
+            {"$ref": "#/$defs/category"},
+            {"const": ""}
+          ]
+        }
+      }
+    }
+  }
+}

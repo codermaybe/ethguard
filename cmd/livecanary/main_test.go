@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -463,4 +464,193 @@ func TestExitCode(t *testing.T) {
 			t.Errorf("%s: exitCode = %d, want %d", test.name, got, test.want)
 		}
 	}
+}
+
+func exampleReport(t *testing.T, input livecanary.RunInput) livecanary.Report {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "design", "live-canary", "report.example.json"))
+	if err != nil {
+		t.Fatalf("read report example: %v", err)
+	}
+	report, err := livecanary.ParseReport(data)
+	if err != nil {
+		t.Fatalf("ParseReport: %v", err)
+	}
+	report.RunID = input.Manifest.RunID
+	report.ManifestSHA256 = input.ManifestSHA256
+	report.PlanSHA256 = input.Manifest.Plan.SHA256
+	return *report
+}
+
+func TestRunLiveWritesManifestAndReport(t *testing.T) {
+	dir := t.TempDir()
+	deps := fetchDependencies(&commandTransport{
+		status: http.StatusOK,
+		body:   fetchRegistryBody("https://a.example", "https://b.example", "https://c.example"),
+	}, commandProvenance())
+	deps.runPlan = func(_ context.Context, input livecanary.RunInput) (livecanary.Report, error) {
+		if input.Membership != livecanary.MembershipFixed {
+			t.Fatalf("membership=%s, want fixed", input.Membership)
+		}
+		if got := livecanary.ManifestSHA256(input.ManifestBytes); got != input.ManifestSHA256 {
+			t.Fatalf("manifest digest mismatch: %s != %s", got, input.ManifestSHA256)
+		}
+		return exampleReport(t, input), nil
+	}
+	outPath := filepath.Join(dir, "manifest.json")
+	var stdout bytes.Buffer
+	if err := runWith([]string{"run", "-out", outPath}, &stdout, deps); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	manifestData, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	reportPath := filepath.Join(dir, livecanary.ReportArtifactName)
+	reportData, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	report, err := livecanary.ParseReport(reportData)
+	if err != nil {
+		t.Fatalf("ParseReport: %v", err)
+	}
+	if report.State != livecanary.StatePassed {
+		t.Fatalf("state=%s", report.State)
+	}
+	if report.ManifestSHA256 != livecanary.ManifestSHA256(manifestData) {
+		t.Fatal("report is not bound to the written manifest bytes")
+	}
+	if _, err := os.Stat(filepath.Join(dir, livecanary.ArtifactName)); err != nil {
+		t.Fatalf("registry artifact: %v", err)
+	}
+	output := stdout.String()
+	for _, want := range []string{
+		"state=passed",
+		"report_sha256=" + livecanary.ReportSHA256(reportData),
+		"report=" + reportPath,
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("stdout missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunLiveRegistryFailureWritesInconclusiveReport(t *testing.T) {
+	dir := t.TempDir()
+	deps := fetchDependencies(&commandTransport{
+		status: http.StatusInternalServerError,
+		body:   []byte(`{"error":"unavailable"}`),
+	}, commandProvenance())
+	outPath := filepath.Join(dir, "manifest.json")
+	var stdout bytes.Buffer
+	err := runWith([]string{"run", "-out", outPath}, &stdout, deps)
+	var inconclusive *inconclusiveError
+	if !errors.As(err, &inconclusive) {
+		t.Fatalf("err=%v, want inconclusive", err)
+	}
+	if exitCode(err) != 2 {
+		t.Fatalf("exit=%d, want 2", exitCode(err))
+	}
+	reportData, readErr := os.ReadFile(filepath.Join(dir, livecanary.ReportArtifactName))
+	if readErr != nil {
+		t.Fatalf("read report: %v", readErr)
+	}
+	report, parseErr := livecanary.ParseReport(reportData)
+	if parseErr != nil {
+		t.Fatalf("ParseReport: %v", parseErr)
+	}
+	if report.State != livecanary.StateInconclusive || len(report.Steps) != 0 {
+		t.Fatalf("unexpected report: state=%s steps=%d", report.State, len(report.Steps))
+	}
+	if !commandHasReason(report.StateReasons, "registry_unavailable") {
+		t.Fatalf("reasons=%+v", report.StateReasons)
+	}
+	if !strings.Contains(stdout.String(), "state=inconclusive") {
+		t.Fatalf("stdout: %s", stdout.String())
+	}
+}
+
+func TestRunLiveInsufficientMembersIsInconclusive(t *testing.T) {
+	dir := t.TempDir()
+	deps := fetchDependencies(&commandTransport{
+		status: http.StatusOK,
+		body:   fetchRegistryBody("https://a.example", "https://b.example"),
+	}, commandProvenance())
+	outPath := filepath.Join(dir, "manifest.json")
+	var stdout bytes.Buffer
+	err := runWith([]string{"run", "-out", outPath}, &stdout, deps)
+	var inconclusive *inconclusiveError
+	if !errors.As(err, &inconclusive) {
+		t.Fatalf("err=%v, want inconclusive", err)
+	}
+	reportData, readErr := os.ReadFile(filepath.Join(dir, livecanary.ReportArtifactName))
+	if readErr != nil {
+		t.Fatalf("read report: %v", readErr)
+	}
+	report, parseErr := livecanary.ParseReport(reportData)
+	if parseErr != nil {
+		t.Fatalf("ParseReport: %v", parseErr)
+	}
+	if !commandHasReason(report.StateReasons, "insufficient_members") {
+		t.Fatalf("reasons=%+v", report.StateReasons)
+	}
+}
+
+func TestRunLiveFailedStateUsesExitOne(t *testing.T) {
+	dir := t.TempDir()
+	deps := fetchDependencies(&commandTransport{
+		status: http.StatusOK,
+		body:   fetchRegistryBody("https://a.example", "https://b.example", "https://c.example"),
+	}, commandProvenance())
+	deps.runPlan = func(_ context.Context, input livecanary.RunInput) (livecanary.Report, error) {
+		report := exampleReport(t, input)
+		report.State = livecanary.StateFailed
+		report.StateReasons = []livecanary.StateReason{{
+			Category: "code_error",
+			StepID:   nil,
+			Detail:   "synthetic command failure",
+		}}
+		return report, nil
+	}
+	outPath := filepath.Join(dir, "manifest.json")
+	var stdout bytes.Buffer
+	err := runWith([]string{"run", "-out", outPath}, &stdout, deps)
+	var failed *failedError
+	if !errors.As(err, &failed) {
+		t.Fatalf("err=%v, want failed", err)
+	}
+	if exitCode(err) != 1 {
+		t.Fatalf("exit=%d, want 1", exitCode(err))
+	}
+	reportData, readErr := os.ReadFile(filepath.Join(dir, livecanary.ReportArtifactName))
+	if readErr != nil {
+		t.Fatalf("read report: %v", readErr)
+	}
+	report, parseErr := livecanary.ParseReport(reportData)
+	if parseErr != nil {
+		t.Fatalf("ParseReport: %v", parseErr)
+	}
+	if report.State != livecanary.StateFailed {
+		t.Fatalf("state=%s", report.State)
+	}
+}
+
+func TestRunLiveRequiresOut(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runWith([]string{"run"}, &stdout, testDependencies(commandProvenance())); err == nil {
+		t.Fatal("run accepted missing -out")
+	}
+	if err := runWith([]string{"run", "-out", "manifest.json", "extra"}, &stdout, testDependencies(commandProvenance())); err == nil {
+		t.Fatal("run accepted unexpected arguments")
+	}
+}
+
+func commandHasReason(reasons []livecanary.StateReason, category string) bool {
+	for _, reason := range reasons {
+		if reason.Category == category {
+			return true
+		}
+	}
+	return false
 }

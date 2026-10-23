@@ -34,7 +34,17 @@ func Custom(ctx context.Context, p *pool.Pool, hash string, quorum int, timeout 
 	started := time.Now()
 	a := aggregator.New(p, rpc.Registry{"anchor": policy}, aggregator.WithRecorder(rec), aggregator.WithCollectTimeout(timeout))
 	d, err := a.Aggregate(ctx, rpc.Request{Method: "anchor", Params: []any{hash, false}})
-	ref := rpc.ReferenceEvidence{Status: d.Status, Origin: "custom-reference", ObservedAt: started, Participants: d.Participants, Support: d.Support, Reject: d.Reject, Faults: d.Faults}
+	ref := rpc.ReferenceEvidence{
+		Status:           d.Status,
+		Origin:           "custom-reference",
+		ObservedAt:       started,
+		Participants:     d.Participants,
+		Support:          d.Support,
+		Reject:           d.Reject,
+		Faults:           d.Faults,
+		SourceFaults:     d.SourceFaults,
+		CollectionFaults: d.CollectionFaults,
+	}
 	if err != nil {
 		return ref, err
 	}

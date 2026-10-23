@@ -24,6 +24,15 @@ type SourceRef struct {
 	ID   string
 }
 
+// SourceFault attributes one collection-phase error to the source that
+// produced it. It is diagnostic evidence, not an adjudication input: Faults
+// stays the human-readable list, while SourceFaults lets report generators
+// attribute failures without parsing error strings.
+type SourceFault struct {
+	Source SourceRef
+	Err    error
+}
+
 // RPCError is the structured protocol error returned by a JSON-RPC upstream.
 // Data is retained verbatim because contract-specific callers may need it.
 type RPCError struct {
@@ -103,6 +112,11 @@ type ReferenceEvidence struct {
 	Support      []SourceRef
 	Reject       []SourceRef
 	Faults       []error
+	// SourceFaults is the structured attribution of Faults that belong to a
+	// single source. CollectionFaults holds pool-level failures that cannot
+	// be attributed to one source.
+	SourceFaults     []SourceFault
+	CollectionFaults []error
 }
 
 // Clone isolates evidence held by a cache from callers and recorders.
@@ -111,6 +125,8 @@ func (r ReferenceEvidence) Clone() ReferenceEvidence {
 	r.Support = append([]SourceRef(nil), r.Support...)
 	r.Reject = append([]SourceRef(nil), r.Reject...)
 	r.Faults = append([]error(nil), r.Faults...)
+	r.SourceFaults = append([]SourceFault(nil), r.SourceFaults...)
+	r.CollectionFaults = append([]error(nil), r.CollectionFaults...)
 	return r
 }
 
@@ -158,6 +174,15 @@ type Decision struct {
 	Support     []SourceRef
 	Reject      []SourceRef
 	Faults      []error
+	// Prepared is the request observed at the policy boundary after moving-tag
+	// rewriting. It is nil when Prepare failed before producing a request.
+	// Diagnostic callers must record this value rather than reconstructing it.
+	Prepared *Request
+	// SourceFaults attributes each Fault that belongs to one source;
+	// CollectionFaults holds pool-level failures. Faults remains the
+	// human-readable union of both.
+	SourceFaults     []SourceFault
+	CollectionFaults []error
 	// Provenance belongs to the selected value and is populated by an
 	// AdmissionPolicy. It is opaque to generic callers. eth_call also stores
 	// withheld revert-data bytes here when rule 4e removes them from Value;

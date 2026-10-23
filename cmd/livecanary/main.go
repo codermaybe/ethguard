@@ -1,8 +1,10 @@
-// Command livecanary generates live-canary manifests. The manifest subcommand
-// is offline and consumes a verified snapshot descriptor; fetch performs one
-// Chainlist acquisition and fixes the run's membership. Exit code 2 means the
-// pre-plan acquisition is inconclusive (registry unavailable or too few
-// members), with manifest/artifact still written when available.
+// Command livecanary generates live-canary manifests and reports. The manifest
+// subcommand is offline and consumes a verified snapshot descriptor; fetch
+// performs one Chainlist acquisition and fixes the run's membership; run
+// acquires once, executes the fixed plan, and writes manifest, registry
+// artifact, and report. Exit code 2 means no conclusion (pre-plan failure or an
+// inconclusive run); exit code 1 means the run failed or the tool itself
+// failed.
 package main
 
 import (
@@ -21,6 +23,7 @@ type dependencies struct {
 	loadSnapshot func(string) (*livecanary.LoadedSnapshot, error)
 	detect       func() (livecanary.Provenance, error)
 	newFetcher   func() livecanary.Fetcher
+	runPlan      func(context.Context, livecanary.RunInput) (livecanary.Report, error)
 }
 
 type inconclusiveError struct {
@@ -29,6 +32,14 @@ type inconclusiveError struct {
 
 func (e *inconclusiveError) Error() string {
 	return "inconclusive: " + e.reason
+}
+
+type failedError struct {
+	reason string
+}
+
+func (e *failedError) Error() string {
+	return "failed: " + e.reason
 }
 
 func main() {
@@ -68,13 +79,15 @@ func defaultDependencies() dependencies {
 
 func runWith(args []string, stdout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json>")
+		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json> | livecanary run -out <manifest.json>")
 	}
 	switch args[0] {
 	case "manifest":
 		return runManifest(args[1:], stdout, deps)
 	case "fetch":
 		return runFetch(args[1:], stdout, deps)
+	case "run":
+		return runLive(args[1:], stdout, deps)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -112,8 +125,11 @@ func runManifest(args []string, stdout io.Writer, deps dependencies) error {
 	if err != nil {
 		return err
 	}
-	manifestBytes, err := writeArtifacts(*outPath, result.Manifest, result.Artifact)
+	manifestBytes, err := result.Manifest.Marshal()
 	if err != nil {
+		return err
+	}
+	if err := writeArtifacts(*outPath, manifestBytes, result.Artifact); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(stdout, "manifest=%s\nmanifest_sha256=%s\nregistry_status=%s\n",
@@ -149,8 +165,11 @@ func runFetch(args []string, stdout io.Writer, deps dependencies) error {
 	if err != nil {
 		return err
 	}
-	manifestBytes, err := writeArtifacts(*outPath, result.Manifest, result.Artifact)
+	manifestBytes, err := result.Manifest.Marshal()
 	if err != nil {
+		return err
+	}
+	if err := writeArtifacts(*outPath, manifestBytes, result.Artifact); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(stdout, "manifest=%s\nmanifest_sha256=%s\nregistry_status=%s\nmembership=%s\n",
@@ -166,22 +185,89 @@ func runFetch(args []string, stdout io.Writer, deps dependencies) error {
 	return nil
 }
 
-func writeArtifacts(outPath string, manifest livecanary.Manifest, artifact []byte) ([]byte, error) {
-	manifestBytes, err := manifest.Marshal()
-	if err != nil {
-		return nil, err
+func runLive(args []string, stdout io.Writer, deps dependencies) error {
+	flags := flag.NewFlagSet("run", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	outPath := flags.String("out", "", "manifest output path")
+	if err := flags.Parse(args); err != nil {
+		return err
 	}
+	if *outPath == "" {
+		return errors.New("run: -out is required")
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("run: unexpected arguments: %v", flags.Args())
+	}
+
+	provenance, err := deps.detect()
+	if err != nil {
+		return err
+	}
+	newFetcher := deps.newFetcher
+	if newFetcher == nil {
+		newFetcher = func() livecanary.Fetcher { return livecanary.Fetcher{} }
+	}
+	result, err := newFetcher().Acquire(context.Background(), provenance)
+	if err != nil {
+		return err
+	}
+	manifestBytes, err := result.Manifest.Marshal()
+	if err != nil {
+		return err
+	}
+	if err := writeArtifacts(*outPath, manifestBytes, result.Artifact); err != nil {
+		return err
+	}
+	input := livecanary.RunInput{
+		Manifest:       result.Manifest,
+		ManifestBytes:  manifestBytes,
+		ManifestSHA256: livecanary.ManifestSHA256(manifestBytes),
+		Membership:     result.Membership,
+	}
+	runPlan := deps.runPlan
+	if runPlan == nil {
+		runPlan = livecanary.Executor{}.Run
+	}
+	report, err := runPlan(context.Background(), input)
+	if err != nil {
+		if _, printErr := fmt.Fprintf(stdout, "manifest=%s\nmanifest_sha256=%s\nregistry_status=%s\nmembership=%s\nreport_error=%v\n",
+			*outPath, input.ManifestSHA256, result.Manifest.Registry.Status, result.Membership, err); printErr != nil {
+			return printErr
+		}
+		return err
+	}
+	reportBytes, err := report.Marshal()
+	if err != nil {
+		return err
+	}
+	reportPath := filepath.Join(filepath.Dir(*outPath), livecanary.ReportArtifactName)
+	if err := writeFileAtomic(reportPath, reportBytes); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "manifest=%s\nmanifest_sha256=%s\nregistry_status=%s\nmembership=%s\nreport=%s\nreport_sha256=%s\nstate=%s\n",
+		*outPath, input.ManifestSHA256, result.Manifest.Registry.Status, result.Membership,
+		reportPath, livecanary.ReportSHA256(reportBytes), report.State); err != nil {
+		return err
+	}
+	switch report.State {
+	case livecanary.StatePassed:
+		return nil
+	case livecanary.StateInconclusive:
+		return &inconclusiveError{reason: "run state inconclusive"}
+	default:
+		return &failedError{reason: "run state " + report.State}
+	}
+}
+
+func writeArtifacts(outPath string, manifestBytes, artifact []byte) error {
 	outDir := filepath.Dir(outPath)
 	if len(artifact) > 0 {
 		artifactPath := filepath.Join(outDir, livecanary.ArtifactName)
 		if err := writeFileAtomic(artifactPath, artifact); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	if err := writeFileAtomic(outPath, manifestBytes); err != nil {
-		return nil, err
-	}
-	return manifestBytes, nil
+	return writeFileAtomic(outPath, manifestBytes)
 }
 
 func writeFileAtomic(path string, data []byte) error {
