@@ -2164,3 +2164,52 @@ and are not decided against here:
 Both are open trust-model questions; rejecting weighting does not reject them.
 They stay under "暂不推进" in `project-roadmap.md`. The roadmap carries the
 conclusion and the pointer; this decision is the rule body.
+
+## 0059. Live canary is an observation contract, not a proof
+
+Status: Accepted (2026-10-23). Freezes T10.0. The rule body is
+`docs/design/live-canary-contract.md`.
+
+A live canary has exactly three run states: `passed`, `failed`, and
+`inconclusive`, with precedence `failed > inconclusive > passed`. `inconclusive`
+is not success: a workflow that uploads an inconclusive artifact does not
+produce a passed canary and cannot satisfy a release gate. `passed` means the
+fixed plan completed, expected statuses were met, evidence conservation held,
+and no failed or inconclusive reason exists. It does not mean providers agreed,
+values are correct, or the result is canonical.
+
+Membership is fixed per run at a minimum of 3 and a maximum of 12. Members are
+selected once from a Chainlist snapshot by the closed `chainlist-sorted-v1`
+algorithm: HTTPS only, credential filtering, pool-equivalent endpoint
+deduplication, normalized-endpoint-ID byte-order sort, then a cap. The voting
+basis and denominator are frozen before the first business RPC; failed members
+stay in the denominator and are never replaced. Chainlist remains discovery
+only and never a trust ranking or weight (0058).
+
+The fixed plan `mainnet-canary-v1` covers chain identity, a provider-reported
+finalized-tag reference establishment and state read, a pinned block, a
+feeHistory height rewrite, a typed block adapter, and a corroborated-null
+receipt that maps to typed `NotFound`. Each moving-tag read establishes its own
+reference; cross-call anchor caching remains forbidden (0026/0037). The
+`finalized` tag is a provider report, not finality.
+
+Failure classification is closed. Code or contract failures (request binding,
+illegal state, missing evidence, denominator change, identity mismatch,
+schema/typed decode) make the run `failed`. External availability conditions
+(registry, member count, provider unreachable/429/timeout, reference/identity
+not corroborated, quorum, run timeout) make it `inconclusive`; semantic or
+shape faults make it inconclusive only when the expected status is not met. A
+minority reject is a recorded observation and does not by itself make the run
+inconclusive; provider availability faults do, even when the decision still met
+its expected status.
+
+The report must record observed prepared requests and reference evidence, not
+reconstructed ones. Per-source fault attribution must come from a structured
+evidence channel, never error-string guessing. The manifest/report examples are
+synthetic shapes, not evidence.
+
+This decision changes no reference policy, no `expect/v1` or `batch.json`
+schema, no method count, no WSS presence behavior, and no production
+adjudication. Even an externally published live artifact with digests is
+provider-backed observation: it is not consensus, finality, canonicality,
+provider independence, or proof of future reliability.

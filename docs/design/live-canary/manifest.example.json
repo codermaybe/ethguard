@@ -1,0 +1,202 @@
+{
+  "schema_version": "ethguard.live-manifest/v1",
+  "run_id": "01JAZ3K4M5N6P7Q8R9S0T1V2WX",
+  "generated_at": "2026-10-23T12:00:00Z",
+  "source_commit": "0123456789abcdef0123456789abcdef01234567",
+  "tool_version": "ethguard-live-canary/v1",
+  "go_version": "go1.25.3",
+  "environment": {
+    "kind": "ci",
+    "runner_class": "github-hosted",
+    "ci": {
+      "provider": "github-actions",
+      "repository": "codermaybe/ethguard",
+      "workflow_ref": "codermaybe/ethguard/.github/workflows/live-canary.yml@refs/heads/master",
+      "run_id": "12345678901",
+      "run_attempt": "1",
+      "job": "live-canary"
+    }
+  },
+  "chain_id": 1,
+  "registry": {
+    "status": "ok",
+    "url": "https://chainlist.org/rpcs.json",
+    "fetched_at": "2026-10-23T12:00:00Z",
+    "raw_sha256": "6fe2c391832a3ed1d02554ce44a5a12335c51e83cff57081a5bee7e26fd5d4c7",
+    "artifact": "registry.json",
+    "artifact_sha256": "6fe2c391832a3ed1d02554ce44a5a12335c51e83cff57081a5bee7e26fd5d4c7",
+    "redaction": "none"
+  },
+  "selection": {
+    "algorithm": "chainlist-sorted-v1",
+    "min_members": 3,
+    "max_members": 12,
+    "candidate_count": 6,
+    "selected": [
+      {
+        "source_id": "node-01",
+        "url": "https://rpc-a.example"
+      },
+      {
+        "source_id": "node-02",
+        "url": "https://rpc-b.example"
+      },
+      {
+        "source_id": "node-03",
+        "url": "https://rpc-c.example"
+      }
+    ],
+    "filtered": [
+      {
+        "url_sha256": "a7ceb3e5bf6496c8b3c629c3ca9e22a95b5c097947544ab290e80a2e0b804aaa",
+        "reason": "non_https"
+      },
+      {
+        "url_sha256": "68cd962e2d5c44a333cadf6fa5aaed1748329d0ea54ffad8e6d5be648fd8f082",
+        "reason": "credentials"
+      },
+      {
+        "url_sha256": "7c5b8ba59aa038c1229328717bedfcd9c3904339378ba9b2bcfe282bf2dda91b",
+        "reason": "duplicate"
+      }
+    ],
+    "voting_basis_sha256": "b39909215627518615f98e7ec3623e90d78cdaa32415ed5e491aa24373d7ff85"
+  },
+  "reference": {
+    "policy": "finalized",
+    "max_lag_blocks": 32
+  },
+  "timeouts": {
+    "run_ms": 300000,
+    "registry_ms": 60000,
+    "reference_ms": 30000,
+    "step_ms": 30000
+  },
+  "limits": {
+    "registry_max_bytes": 33554432
+  },
+  "plan": {
+    "id": "mainnet-canary-v1",
+    "sha256": "d99a78e6a56ffe34ee5351fbd74b14951afb5fef31023280d9d9412b3b2124d8",
+    "steps": [
+      {
+        "id": "identity.chain-id",
+        "phase": "identity",
+        "path": "client_call",
+        "method": "eth_chainId",
+        "params": [],
+        "expect": {
+          "decision": "required",
+          "statuses": [
+            "corroborated"
+          ],
+          "error": "none",
+          "reference": "none",
+          "binding": "none",
+          "value_kind": "quantity"
+        }
+      },
+      {
+        "id": "reference.finalized-balance",
+        "phase": "reference",
+        "path": "client_call",
+        "method": "eth_getBalance",
+        "params": [
+          "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+          "finalized"
+        ],
+        "expect": {
+          "decision": "required",
+          "statuses": [
+            "corroborated"
+          ],
+          "error": "none",
+          "reference": "corroborated",
+          "binding": "reference_hash",
+          "value_kind": "quantity"
+        }
+      },
+      {
+        "id": "pinned.block",
+        "phase": "business",
+        "path": "client_call",
+        "method": "eth_getBlockByHash",
+        "params": [
+          "$reference.hash",
+          false
+        ],
+        "expect": {
+          "decision": "required",
+          "statuses": [
+            "corroborated"
+          ],
+          "error": "none",
+          "reference": "none",
+          "binding": "none",
+          "value_kind": "object"
+        }
+      },
+      {
+        "id": "business.fee-history.finalized",
+        "phase": "business",
+        "path": "client_call",
+        "method": "eth_feeHistory",
+        "params": [
+          2,
+          "finalized",
+          [
+            25,
+            50,
+            75
+          ]
+        ],
+        "expect": {
+          "decision": "required",
+          "statuses": [
+            "corroborated"
+          ],
+          "error": "none",
+          "reference": "corroborated",
+          "binding": "reference_height",
+          "value_kind": "object"
+        }
+      },
+      {
+        "id": "typed.block",
+        "phase": "typed",
+        "path": "typed_block",
+        "method": "eth_getBlockByHash",
+        "params": [
+          "$reference.hash"
+        ],
+        "expect": {
+          "decision": "none",
+          "statuses": [],
+          "error": "none",
+          "reference": "none",
+          "binding": "none",
+          "value_kind": "none"
+        }
+      },
+      {
+        "id": "negative.notfound-receipt",
+        "phase": "negative",
+        "path": "typed_receipt",
+        "method": "eth_getTransactionReceipt",
+        "params": [
+          "0x0000000000000000000000000000000000000000000000000000000000000000"
+        ],
+        "expect": {
+          "decision": "required",
+          "statuses": [
+            "corroborated"
+          ],
+          "error": "not_found",
+          "reference": "none",
+          "binding": "none",
+          "value_kind": "null"
+        }
+      }
+    ]
+  }
+}

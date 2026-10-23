@@ -456,6 +456,261 @@ presence，也不改变裁决门槛、分母或方法数量。
 建议顺序：T09.2 先覆盖已注册方法（不等待组 3）→ 组 3 捕获按同一字段 gate
 审阅 → T09.1 全注册方法矩阵。两条轨道独立提交，均不与捕获批次混合。
 
+## T10（优先立项，分析阶段）：外部可验证测试与 live 证据边界
+
+状态：**优先立项，证据边界已确认，按下表分阶段执行**（2026-10-23 核查）。
+T10.0 已冻结 live canary 契约（`live-canary-contract.md`，决策 0059），
+machine-readable 示例见 `live-canary/`；等待维护者审计后再开启 T10.1。
+T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
+但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
+本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的
+临时参考方案，不因 T10 自动定案。
+
+### 背景
+
+外部反馈提出：`latest`/`safe`/`finalized` 是 provider 报告，不是 finality；
+anchor 协商与业务断言应分层；测试应确定、可控；并建议 pinned
+ReferenceContext、MockChainState、五类异常和 TestBatch 三元组。
+
+需要保留的方向：anchor 与业务测试分层；anchor 作为一等测试对象；少量
+端到端 canary。不能直接采纳的点：把 pinned ReferenceContext 注入 resolver；
+用 Chainlist 实时成员替代固定分母；把 silent stagnation / provider tag
+downgrade 写成可检测；用 live 测试替代 replay；新增 ConfirmationSnapshot
+作为第二事实源。
+
+真正待评估的问题：本地捕获 + replay 的信任模型是否足以支撑“实践可靠”的
+测试流程？live canary、Chainlist 发现和 capture provenance 应放在哪一层？
+T10 是独立里程碑，还是 T09.1 的扩展？
+
+### 本轮核验结论（2026-10-23）
+
+外部反馈的核心问题是真实的，但其中几项需要按“公开远端”和“本地工作树”
+分开判断：
+
+1. 当前公开 `origin/master` 仍为 `8ea250b`，没有 `.github/workflows`；本地
+   工作树已有 CI 文件，但它位于尚未推送的提交中。因此“公开远端没有 CI”目前
+   成立，不能用本地未发布文件反驳。
+2. `cmd/soak` 确实会实时读取 Chainlist 并请求公共 RPC，但当前只输出 stdout，
+   没有把 commit、Chainlist 原文/hash、完整候选和选中成员、工具版本、运行结果
+   绑定成不可变 artifact。它是 live 开发探针，不是可独立复核的质量证据。
+3. 现有 `index.json` 与 record SHA-256 只证明提交文件彼此一致；它们没有证明
+   响应由真实 provider 在指定时间产生，也没有防止事后由人工或 AI 生成/改写
+   record 与 expect。因此现有样本只能称为**未认证历史观察**，不能称为第三方
+   真实验证。
+4. `go test`、`go vet`、replay 和 `rpctest` 能证明实现路径在固定输入下的确定性
+   与内部不变量；它们不能证明 provider 方言、限流、漂移、长期可用性或多源
+   对抗行为。这个边界即使 CI 补齐也不会消失。
+5. “AI 读取响应后自己填文件”是否发生，单靠仓库内容无法追溯；但当前产物缺少
+   外部生成证明，因而验证流程必须按**无法证明来源**处理，而不是按真实捕获处理。
+
+结论：反馈不是要求删除本地 replay，而是要求停止把不同证据类型混写。replay
+保留为 regression oracle；live canary 负责 reality observation；只有在外部
+runner 生成并发布带 provenance 的 artifact 后，才可称为外部可复核的 live 证据。
+
+### T10 已确认的证据规范
+
+T10 后续实现必须同时维护以下三层，不得用上一层冒充下一层：
+
+| 层 | 证明什么 | 最低产物 | 不能证明什么 |
+| --- | --- | --- | --- |
+| Offline regression | 固定源码、依赖和输入下，生产路径可重复 | 外部 CI 的 commit 绑定日志、测试结果、覆盖/构建 artifact | 真实 provider 行为、长期稳定性 |
+| Live observation | 指定时间、指定 Chainlist 快照和指定 RPC 集合上的实际行为 | 外部 runner 生成的 registry 原文/hash、候选/选中成员、plan、commit、工具和运行报告 | 共识、canonicality、finality、provider 独立性 |
+| Attested evidence | 上述 live 产物没有被本地手工替换，且可由第三方复核 | 不可变 artifact、文件 digest、CI run/身份和保留链接 | 对抗共谋、统一错误、未来时刻的可靠性 |
+
+具体规则：
+
+1. PR/push CI 只跑离线测试、静态检查、构建和 replay；不得把实时 RPC 放进普通
+   `go test`，避免把不确定的 provider 状态伪装成确定性回归。
+2. 定时或 release live job 必须在远端 runner 上运行，实时获取 Chainlist，保存
+   原始 registry、registry SHA-256、过滤理由、完整候选列表、确定性选中列表、
+   请求计划、源码 commit、Go/tool 版本、运行时间、每步结果和失败分类。
+   GitHub-hosted runner 能证明执行环境脱离作者本机，但本身不等于独立审计；若
+   需要更强的第三方属性，应允许独立 workflow/repository 按同一 manifest 重跑。
+3. Chainlist 只负责发现，不负责信任和投票。一次 live run 在启动时固定成员快照
+   和分母；列表变化产生新 observation，不能与另一轮直接合并或比较。
+4. live job 不得让 AI 或人工填写 expect。报告必须由可审计的程序从本次响应直接
+   生成；人工只能审阅 artifact，不能修改后再上传为通过结果。
+5. 代码错误、请求绑定失败、静默回退、缩小分母、非法状态和证据缺失必须使
+   live run 失败。公共 endpoint 限流、不可达或有效成员不足只能标为
+   `inconclusive`，不能标成通过；release 门禁不能把 `inconclusive` 当成功。
+6. live canary 断言业务请求等于本次 reference、状态属于方法允许集合、成员和
+   门槛保持固定、失败保留在证据中，并记录 shape drift；它不承诺检测 uniform
+   stagnation、colluding majority 或 provider tag downgrade。
+
+### T10 第一阶段出口（分析完成后才实现）
+
+第一阶段不修改 reference policy、方法数量或 `expect/v1`，先完成以下设计和
+最小实现边界：
+
+1. 定义 machine-generated live manifest/report 的 schema，并让 `cmd/soak` 或其
+   独立包装器输出完整 provenance；stdout 不能作为唯一证据。
+2. 增加远端定时 workflow：离线 CI 作为代码门禁，live job 作为单独 artifact
+   产出；两者状态和含义分开显示。
+3. 让 live job 固定最小成员数、超时、请求计划和失败分类；Chainlist 变化、
+   provider 限流和不足 quorum 不得静默转为成功。
+4. 为 artifact 提供 digest、run 链接和保留策略，确保第三方可以下载并按 commit
+   重跑离线部分；不把 live 响应直接写回仓库的 golden。
+5. 用一次真实远端 run 验证流程本身，再决定是否把 T09 的本地矩阵完成标记为
+   “实现验证通过”。在此之前，T09 只能标记为本地 regression evidence。
+
+### T10 行动规划表（交给执行 agent）
+
+下表是 T10 的唯一执行顺序。每一行完成后暂停，由维护者审计提交、artifact 和
+失败分类，再开启下一行。任何一行都不得通过修改历史 capture、手填 expect 或
+降低门槛来“变绿”。
+
+| ID | 目标与 agent 必须完成的工作 | 必须提交的产物 | 硬性验收 | 依赖与禁止范围 |
+| --- | --- | --- | --- | --- |
+| T10.0 | 冻结 live canary 契约：定义 run 状态（`passed` / `failed` / `inconclusive`）、最小成员数、超时、请求计划、失败分类，以及“观察”与“证明”的文字边界 | 规范补丁；一份 machine-readable manifest/report 示例 | 每个字段有生产用途；`inconclusive` 不可成为成功；不含 finality/consensus 声明 | 先于代码；不改 reference policy、`expect/v1`、`batch.json` |
+| T10.1 | 建立 provenance 生成器：绑定源码 commit、workflow/run、Go/tool 版本、Chainlist URL、抓取时间、原始 registry SHA-256、候选/过滤/选中成员、selection 算法版本、plan hash | `manifest.json` schema、生成代码、schema 测试、脱敏测试 | 同一输入可重建 selection；artifact 缺关键 provenance 即失败；不得由人工或 AI 填字段 | 依赖 T10.0；不把 sha256 当来源签名，不写入历史 golden |
+| T10.2 | 实现 Chainlist 采集与成员固定：远端抓取原文，解析指定 chain，过滤非 HTTPS/明显凭据/不支持项，去重并按固定规则排序，固定本次 voting basis | registry 原文或安全脱敏副本、registry hash、候选/过滤/选中清单、过滤原因 | 运行开始后成员集合不可变；有效成员不足返回 `inconclusive`；列表变化不跨 run 合并 | 依赖 T10.1；Chainlist 只作 discovery，不作信任排序；不引入 provider 权重 |
+| T10.3 | 将 live canary 从 stdout 升级为机器报告：执行 identity、anchor、pinned business、height/hash reference、typed adapter 和错误路径；记录每次 prepared request 与 reference | `report.json`、报告 schema、报告生成代码、离线报告解析测试 | 报告由本次响应直接生成；能核对 request/reference、状态、N、support/reject/fault、代表源和错误状态 | 依赖 T10.1/T10.2；不把实时值写成固定 expect，不在普通 `go test` 触网 |
+| T10.4 | 增加 canary 不变量检查：业务请求必须等于本次 reference；不得静默回落 `latest`、缩小分母、改门槛或把错误带成功状态；记录 shape drift | 生产路径断言、失败样例（进程内构造即可）、live report 中的 invariant 结果 | 代码错误/请求绑定错误/非法状态/证据缺失使 run `failed`；provider 限流、不可达、不足 quorum 只能 `inconclusive` | 依赖 T10.3；不修改生产裁决语义，不用 mock 替代 live 采集路径 |
+| T10.5 | 编写外部 workflow：PR/push 运行离线 CI；schedule/release 运行 live canary；上传不可变 artifact，分离代码门禁和 live 观察状态 | workflow、artifact 清单、权限最小化、超时/取消策略、保留策略 | workflow 使用 exact commit；live job 保存 manifest/registry/report/digest；失败分类可在 UI 和 artifact 中复核 | 依赖 T10.1–T10.4；不让 live provider 波动阻塞普通 PR；不把 `inconclusive` 标为通过 |
+| T10.6 | 首次真实远端验收：用 Chainlist 实时列表运行固定 plan，检查 artifact 完整性、redaction、请求绑定和状态分类 | 一次完整 run 链接、artifact digest、审计记录、发现的问题及修复提交 | 第三方可下载 artifact，按 commit 重跑离线部分；没有手工改写；最低成员数和失败边界生效 | 依赖 T10.5；不把一次成功 run 推广成长期可靠性或 provider 独立性证明 |
+| T10.7 | 独立复核：在不同 workflow/repository 或独立 runner 按同一 manifest 重跑；比较 schema、selection、报告和失败分类 | 独立复核 run、差异报告、重复性结论 | 复核方无需作者本机状态即可重跑；差异必须分类为代码、registry 漂移、provider 波动或环境问题 | 依赖 T10.6；不引入第二套业务裁决或第二事实源 |
+| T10.8 | 对外声明收口：更新 README、moving-tag matrix、wire-form 和 roadmap 的证据措辞；标明哪些只是 regression、哪些是 live observation | 文档 diff、证据等级说明、已知非目标 | 不再把 soak、capture 或一次 live run 写成普遍兼容、canonical、finality 或 consensus 证据 | 依赖 T10.6；不新增方法，不顺手修 WSS/reference policy |
+
+#### Live canary 的固定执行行为
+
+每次 live run 必须按同一顺序执行：
+
+1. 记录 workflow、commit、工具链和 runner 信息；抓取并 hash Chainlist 原文。
+2. 解析目标 chain，保存完整候选与过滤原因；按固定算法去重、排序、选取成员，
+   固定 voting basis 和动态门槛，之后不得换成员或缩小分母。
+3. 先跑 identity 与 reference establishment，再跑带 moving-tag 的业务请求；
+   记录逻辑请求、prepared request、reference evidence 和实际响应之间的绑定。
+4. 跑固定的 pinned business 集合：至少包括 block/state、logs 或 feeHistory、
+   一个 typed adapter 路径和一个错误/不可用路径；具体方法由 T10.0 plan 固定。
+5. 对每个结果检查状态允许集合、完整 voting basis 与各维度
+   `support`/`reject`/`abstain`/`faults` 的证据守恒、代表源顺序、错误与成功状态
+   互斥，以及是否发生静默回退或字段漂移；不得把跨维度计数简单相加冒充一个
+   统一分母。
+6. 生成报告和 digest；provider 层的不可达、429、超时和 quorum 不足进入
+   `inconclusive`，代码不变量失败进入 `failed`，两者都不能写成 `passed`。
+
+Live canary 不要求每次出现冲突，也不把没有冲突当作安全证明；它检验的是生产
+路径在真实网络、真实 provider 方言和真实故障下是否保持既定边界。
+
+#### Agent 交付纪律
+
+- 一次只执行一个 ID；每个 ID 一个独立提交。
+- 提交说明必须列出变更文件、运行命令、失败路径、artifact 位置、是否触碰真实
+  网络，以及未解决风险。
+- 不修改既有 record/expect 来制造通过；不把 live 输出复制成新的 golden。
+- 不在测试中依赖开发者本机环境、未声明 secret、动态工作树状态或人工输入。
+- 每个 agent 完成后由维护者审计；审计通过前不得开始下一个 ID。
+
+### 已核查事实
+
+**归档状态**
+
+- 截至本节写入前，仓库不存在 T10 文档、分支、决策或历史提交；工作树干净，
+  分支只有 `master`、`backup-t06-stack`、`origin/master`，无 stash/tag。
+- T09 是当前唯一已立项但未开工的测试里程碑（见上文 T09.1 / T09.2 /
+  T09.3）。
+- Reference Policy 仍是临时参考方案，不是决策、不授权实现
+  （`reference-policy-proposal.md`）。
+- 此前对话中的 T10-A/T10-B 是提案，不是已归档范围。
+
+**Replay 实际行为**
+
+- 离线测试 harness，不联网；用进程内 `rpctest.Node` 装冻结响应，再走生产
+  policy / aggregator / anchor 代码；`expect.json` 是断言目标，不是执行输入。
+- 加载时校验 index sha256、batch.json 严格字段、`reference_context` 成员的
+  sha256/tag，以及 expect header（transport 只能 `http`）。
+- 历史批次没有 `reference_context` 时，用 `scriptTaggedHeads` 固定模拟
+  latest/safe/finalized 头（`0x10`/`0x0e`/`0x0c`）；这是确定性模拟 anchor，
+  不是捕获 anchor。
+- 有 `reference_context` 时，`reference_records` 的捕获响应驱动真实
+  `StrictHeadAnchor`/`FinalizedHeadAnchor` 重算 reference；
+  `expected_reference` 不注入 resolver。当前强断言的是 height；Hash/Status/
+  Support 只做格式/成员校验，未与重算出的 `ReferenceEvidence` 逐项比较。
+- 当前 `reference_context` 实际只覆盖高度改写的方法（`eth_getLogs`、
+  `eth_feeHistory`）；hash 改写状态读取仍用固定 `taggedAnchor` fixture。
+  `reference_records` 按 method 安装 handler，不是有序 transcript；同一来源
+  同一 method 的多轮确认会覆盖，因此 fork/reorg 的多轮 confirmation 还不能
+  被忠实回放。
+- policy 层与 aggregator 层分开跑：hash 型方法 policy 层用固定
+  `taggedAnchor`，aggregator 层用真实 anchor；height 型方法两层共用真实
+  anchor height resolver；最后断言两层 prepared request 和决策一致。
+- 不接收 WSS golden；不做 live capability probing；不证明 canonicality 或
+  finality。
+
+**Live 工具与 Chainlist**
+
+- `cmd/soak` 和 `cmd/shapeprobe` 会直接请求 `https://chainlist.org/rpcs.json`；
+  live 能力存在，但没有进入 `go test` 门禁，也没有与 replay 批次形成闭环。
+- Chainlist 是社区列表，不是信任锚；动态成员会改变分母，破坏固定成员
+  quorum 的可比性（G5）。固定成员测试必须使用 pinned snapshot 或 curated
+  fleet。
+- `cmd/soak` 的默认 `-anchor-ttl 1m` 与决策 0026 冲突，使用前需要修正。
+
+**存储与 provenance**
+
+- 当前 `internal/rpcsample/testdata` 约 1.4 MB、193 个 JSON，records 约
+  832 KB；`docs/samples` 约 2.6 MB。存储不是主要矛盾，维护和审阅才是。
+- `sha256` 只证明文件与 index 一致，不证明文件来自真实 provider；agent
+  手工清理/写入的 record 仍然可能是伪造或过期的。当前没有 capture
+  manifest、签名或 CI attestation。
+
+### 候选边界（待评估，不是已同意方案）
+
+- **D1 oracle 分层**：replay = regression oracle；live canary = reality
+  oracle；Chainlist = discovery input；本地文件 = 带 provenance 的历史观察，
+  不是真理。三层都不能单独构成“可靠流程”。
+- **D2 测试分层**：pinned business（显式 hash/height，绕过 anchor）与
+  anchor negotiation（真实 anchor + `rpctest` 舰队）分开；不注入 resolver
+  输出，不新增 test-only 生产 API；少量进程内 canary 串联完整链路。
+- **D3 anchor 场景矩阵**：all-agree、少数派高度分歧、同高 hash split、
+  lagging（maxLag 内外）、tag `null`/`-32601`、all-fault、support 不足、
+  confirmation mismatch、n=1/2/3/4 边界；按 `StrictHeadAnchor` 与
+  `FinalizedHeadAnchor` 分别写期望，不把两者统一成一个语义。
+- **D4 live canary**：使用 Chainlist 快照或 curated fleet，断言不变量
+  （业务请求等于本次 reference、状态在允许集合、不静默回退/缩分母、证据
+  保留），记录原始响应和 shape 漂移；作为发布/定时门禁，不替代离线
+  regression。
+- **D5 provenance**：capture manifest 记录 capture 命令/plan hash、endpoint
+  身份 hash、Chainlist 快照 hash、时间、区块高度、工具版本；禁止 agent
+  手工清理后直接写 testdata；必要时签名或加 CI attestation。
+- **D6 replay/schema 边界**：保持 `expected_reference` 不注入 resolver；
+  不改 `expect/v1`；`reference_policy` 等 reference policy 定案后再加；
+  合成矩阵不写入 testdata。
+- **D7 非目标**：不改生产 reference policy；不新增方法；不修 WSS；不承诺
+  finality/canonicality/BFT；不承诺检测 silent stagnation 或 provider tag
+  downgrade；不在 quorum 测试中动态改变成员。
+
+### 外援综合评估问题
+
+1. T10 是独立里程碑，还是 T09.1 的扩展？是否包含 T10-B（reference policy
+   的 Selection/Confirmation/depth/pinned）？
+2. replay 作为 regression oracle 是否可接受？release 的最低 live 门禁是什么？
+3. live canary 用 Chainlist 实时列表、pinned snapshot，还是 curated fleet？
+   如何固定成员、处理 key/限流、避免动态分母？
+4. capture provenance 的最低要求是什么？manifest 足够，还是需要签名/CI
+   attestation？
+5. “实践可靠”的验收标准是什么？离线全绿 + live 报告 + drift 后重采 +
+   real-source closure，是否足够？
+6. replay 批次和 live 证据的保留策略是什么？每方法/链一个 canonical 批次，
+   旧批次只留 manifest/digest，是否可行？
+7. 当前 replay 边界（context 只覆盖 height 改写、expected_reference 只强断言
+   height、多轮 confirmation 无 transcript）应纳入 T10，还是另立任务？
+8. 哪些失败必须 fail-closed，哪些只能报告？是否接受“uniform stagnation /
+   colluding majority / tag downgrade 不可检测”的产品边界？
+
+### 依赖与出口
+
+- T10 是当前优先项；T09.2 可以继续作为本地 regression，但不得作为真实环境
+  验证的替代。T09.1 若依赖统一 anchor/business harness，则需等 T10 第一阶段
+  范围确认。
+- 不把 T10 当作 reference policy 的决策渠道；后者仍需按
+  `reference-policy-proposal.md` 比较替代形状后另行立项。
+- 第一阶段分析完成前：不改生产 reference policy、不改 `expect/v1` 或
+  `batch.json` schema，不把 live 结果直接写入仓库 golden。
+- 若评估后立项，出口至少包括：明确的 oracle/门禁定义；anchor 场景矩阵；
+  pinned business 覆盖；live canary + provenance 方案；离线全量测试通过；
+  real-source 验收报告；非目标与失败边界写清。
+
 ## 参考方案（未立项）：Reference Policy 统一
 
 `docs/design/reference-policy-proposal.md` 暂存一个候选：把 reference 拆成
