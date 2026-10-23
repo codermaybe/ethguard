@@ -545,6 +545,11 @@ legend 与 caveat。文档统一声明：离线 regression 是唯一 CI-backed �
 独立性或长期可靠性结论。未新增方法，未修改 WSS presence 或 reference policy。
 已知非目标仍是：不证明 consensus、canonicality、finality、provider 独立性或未来
 可用性；不把本地 capture/soak/单次 live run 升格为外部证明。
+T10.8 预审结论（2026-10-23）：文档边界无阻塞。README、README.zh-CN、moving-tag
+matrix、wire-forms 和 roadmap 均把离线回归、本地观察、external live observation
+与 attested evidence 分层，明确 `inconclusive` 不是成功，也未把一次 live run
+写成兼容性、共识、finality 或 provider 独立性证明。最终验收仍依赖 T10.6 外部
+artifact，保持挂起，不得视为通过。
 
 T10 当前证据状态：
 
