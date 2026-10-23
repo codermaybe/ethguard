@@ -2193,6 +2193,14 @@ receipt that maps to typed `NotFound`. Each moving-tag read establishes its own
 reference; cross-call anchor caching remains forbidden (0026/0037). The
 `finalized` tag is a provider report, not finality.
 
+Reference scope is frozen: the **run reference** is the one established by
+`reference.finalized-balance`, and `$reference.hash` always means that hash.
+Other moving-tag steps (for example feeHistory) establish their own **step
+reference**, bound only within that step; they do not refresh or replace the
+run reference. Equality between a step reference and the run reference is
+permitted but is not required and must not be asserted. No second placeholder
+is added in v1.
+
 Failure classification is closed. Code or contract failures (request binding,
 illegal state, missing evidence, denominator change, identity mismatch,
 schema/typed decode) make the run `failed`. External availability conditions

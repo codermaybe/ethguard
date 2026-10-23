@@ -161,18 +161,37 @@ v1 固定值：
   `{id, steps}` 的 SHA-256；不包含 `sha256` 字段本身。
 - plan 是固定常量，不读取环境变量、不按 run 动态生成、不因 provider 结果
   增减步骤。plan 内联进 manifest，report 只引用 `plan_sha256`。
-- `$reference.hash` 是唯一允许的占位符，由 runner 用本次 run 的 reference
+- `$reference.hash` 是唯一允许的占位符，由 runner 用 **run reference** 的
   hash 替换；report 必须记录替换后的逻辑请求和实际 prepared request。
+
+### 5.1.1 Reference scope：run reference 与 step reference
+
+本契约冻结两个名字，执行时不得互换：
+
+- **run reference**：`reference.finalized-balance` 建立的 corroborated
+  reference。`$reference.hash` 永远指向这个 hash；`pinned.block` 和
+  `typed.block` 只使用它。report 顶层 `reference_step_id` 必须指向该步骤。
+- **step reference**：每个 moving-tag 调用在自身 Prepare 内建立的 reference。
+  `business.fee-history.finalized` 等后续步骤各自建立 step reference，只在
+  该步骤内与 prepared request、`decision.reference` 绑定；它不替换 run
+  reference，也不被后续步骤复用。
+- `reference.finalized-balance` 的 step reference 同时就是 run reference。
+- 任何步骤都不得跨步骤复用 reference（决策 0026/0037）；report 不得把
+  feeHistory 等步骤的 step reference 写入顶层 run reference。
+- step reference 与 run reference 在数值上相等是允许的，但不是要求；report
+  和测试不得断言两者相等，也不得因两者不同而失败。
+- v1 不增加 `$step_reference.*` 占位符。需要 step reference 的步骤用自身的
+  moving tag（例如 `"finalized"`）建立它，不通过占位符注入。
 
 ### 5.2 步骤
 
 | ID | phase | path | method | params | 期望 |
 | --- | --- | --- | --- | --- | --- |
 | `identity.chain-id` | identity | client_call | `eth_chainId` | `[]` | decision；`corroborated`；值等于 `chain_id` |
-| `reference.finalized-balance` | reference | client_call | `eth_getBalance` | `[vitalik, "finalized"]` | decision；`corroborated`；reference `corroborated`；prepared 区块参数等于 reference hash |
-| `pinned.block` | business | client_call | `eth_getBlockByHash` | `[$reference.hash, false]` | decision；`corroborated`；值 kind 为 object |
-| `business.fee-history.finalized` | business | client_call | `eth_feeHistory` | `[2, "finalized", [25, 50, 75]]` | decision；`corroborated`；reference `corroborated`；prepared newestBlock 等于 reference height |
-| `typed.block` | typed | typed_block | `eth_getBlockByHash` | `[$reference.hash]` | 无 decision；typed block hash/height 等于本次 reference |
+| `reference.finalized-balance` | reference | client_call | `eth_getBalance` | `[vitalik, "finalized"]` | decision；`corroborated`；step reference `corroborated`，并成为 run reference；prepared 区块参数等于该 reference hash |
+| `pinned.block` | business | client_call | `eth_getBlockByHash` | `[$reference.hash, false]` | decision；`corroborated`；值 kind 为 object；参数使用 run reference hash |
+| `business.fee-history.finalized` | business | client_call | `eth_feeHistory` | `[2, "finalized", [25, 50, 75]]` | decision；`corroborated`；step reference `corroborated`；prepared newestBlock 等于该 step reference height |
+| `typed.block` | typed | typed_block | `eth_getBlockByHash` | `[$reference.hash]` | 无 decision；typed block hash/height 等于 run reference |
 | `negative.notfound-receipt` | negative | typed_receipt | `eth_getTransactionReceipt` | `[zeroHash]` | decision `corroborated` 且 value 为 null；typed decode 返回 `not_found` |
 
 固定 fixture：
@@ -187,13 +206,20 @@ v1 固定值：
   pinned state。reference evidence 与 business decision 在 report 中是两个独立
   对象，必须分别审计。`finalized` 是 provider-reported tag，本次 reference 是
   provider-backed corroboration。
-- `pinned.block`、`typed.block` 使用同一个 `$reference.hash`，把 block/state、
-  typed adapter 和 reference 绑定串起来。`typed.block` 走 `ethadapter`，不产生
-  新的 decision；它的 typed hash/height 必须与 reference 和被 pin 的区块一致。
-  `pinned.block` 的 header-only decision 已通过 block hash 承诺完整区块内容；
-  typed step 只新增 typed decode 断言，不另行制造第二份 block 证据。
+- `pinned.block`、`typed.block` 使用同一个 `$reference.hash`，即
+  `reference.finalized-balance` 建立的 **run reference**，不是它们自己的
+  step reference。`typed.block` 走 `ethadapter`，不产生新的 decision；它的
+  typed hash/height 必须与 run reference 和被 pin 的区块一致。`pinned.block`
+  的 header-only decision 已通过 block hash 承诺完整区块内容；typed step 只
+  新增 typed decode 断言，不另行制造第二份 block 证据。
 - `business.fee-history.finalized` 覆盖需要高度改写的 block-reference 方法：
-  prepared request 的 newestBlock 必须是 hex height，不能仍是 `finalized`。
+  它自己建立 **step reference**，prepared request 的 newestBlock 必须是该
+  step reference 的 hex height，不能仍是 `finalized`；该 step reference 不得
+  被后续步骤复用，也不影响 run reference。
+- 示例中 `reference.finalized-balance` 与 `business.fee-history.finalized`
+  的 reference 恰好同高同 hash；这只是一次合成 run 的形状，不是相等要求。
+  执行 agent 不得把 feeHistory 的 step reference 写入顶层 run reference，
+  也不得断言两者必须一致。
 - `negative.notfound-receipt` 使用零值交易哈希，期望 fleet 对 null 达成
   corroborated absence，再由 typed 边界映射为 `ethereum.NotFound`。它是
   “错误/不可用路径”中的确定性 notfound 分支，不保证每次 run 触发 provider
@@ -225,11 +251,11 @@ v1 固定值：
 
 | 不变量 | 检查 |
 | --- | --- |
-| `request_binding` | 需要绑定时，prepared request 的区块参数必须等于本次 reference hash（按字节比较）或 reference height（按数值比较）；moving tag 不得留在 prepared request 中。`binding=none` 的 `client_call` 步骤，prepared 必须与 logical 一致（占位符替换后）；typed-only 步骤不适用。 |
+| `request_binding` | 需要绑定时，prepared request 的区块参数必须等于**该步骤自己的 reference** hash（按字节比较）或 height（按数值比较）；`business.fee-history.finalized` 使用它的 step reference，`reference.finalized-balance` 的 step reference 同时是 run reference。moving tag 不得留在 prepared request 中。`binding=none` 的 `client_call` 步骤，prepared 必须与 logical 一致（占位符替换后）；typed-only 步骤不适用。 |
 | `status_allowed` | `decision.status` 必须属于 plan 的 `expect.statuses`；error 路径按 `expect.error` 检查。 |
 | `evidence_conservation` | `n == len(participants)`；`support`、`reject`、source-attributed `faults` 两两不相交，并集等于 `participants`；`collection_faults` 单独记录；`participants` 数量与顺序等于 manifest selected basis。 |
 | `representative_in_support` | `representative` 必须等于 `support` 的第一个来源；`support` 顺序保持本次 basis 顺序。 |
-| `reference_status` | 需要 reference 的步骤必须携带 `ReferenceEvidence`；`status == corroborated`；`tag` 等于请求的 moving tag；`hash`/`height` 非空（按方法需要）；reference 的 support/reject/source faults 与 participants 按同一规则检查，collection-level fault 单独记录。 |
+| `reference_status` | 需要 reference 的步骤必须携带**该步骤自己的** `ReferenceEvidence`；`status == corroborated`；`tag` 等于请求的 moving tag；`hash`/`height` 非空（按方法需要）；reference 的 support/reject/source faults 与 participants 按同一规则检查，collection-level fault 单独记录。`reference.finalized-balance` 的这一对象同时是 run reference。 |
 | `error_status_exclusive` | `rpc.Call` 返回 error 时 decision status 必须是 `unknown`；成功 status 不得携带 error；不得把 provider error 包成成功。该不变量不约束 typed decode 的预期 `not_found`，后者由 `typed_decode` 检查。 |
 | `basis_unchanged` | 本次 run 的 members 始终等于 manifest selected；不得替换、缩小或重排分母；`voting_basis_sha256` 必须一致。 |
 | `typed_decode` | typed adapter 必须成功解码，且 hash/height 与本次 run reference 一致（typed block 不要求步骤自带 reference 对象）；negative 路径必须得到预期 `not_found`。 |
@@ -241,6 +267,11 @@ v1 固定值：
   反推后冒充证据。若当前 seam 无法取得 prepared request，T10.3 必须增加
   不改变裁决语义的诊断 seam；仍无法取得时，run 为 `failed`
   （`evidence_missing`），不得降低要求。
+- run reference 只能来自 `reference.finalized-balance` 的 step reference；
+  不得从 feeHistory 或其他步骤的 step reference 推导、替换或刷新 run
+  reference。step reference 只在该步骤内有效。
+- 不得断言 step reference 与 run reference 相等；两者相同是允许的观察，
+  不是 canary 契约。
 - per-source fault 归属必须来自结构化证据通道（例如 `WithUncertain` 的
   per-source response/error、pool source health，或 T10.3 增加的等价诊断
   seam），不得靠错误字符串猜来源。
@@ -442,7 +473,7 @@ run，也不是证据。
 | `duration_ms` | integer | 超时与审计 |
 | `state` | `passed`/`failed`/`inconclusive` | release/观察门禁 |
 | `state_reasons[]` | array | 解释非 passed 状态；`category`、`step_id`（pre-plan 失败为 `null`）、可选 `source_id`、脱敏 `detail` |
-| `reference_step_id` | string 或 `null` | 指向提供本次 run reference 的步骤；未建立 corroborated reference 时为 `null` |
+| `reference_step_id` | string 或 `null` | 固定指向 `reference.finalized-balance`（run reference 来源）；未建立 corroborated run reference 时为 `null`。其他步骤的 step reference 不改变此字段。 |
 | `steps[]` | array | 已执行步骤的完整证据；提前结束时可以少于 plan |
 | `source_health[]` | array | 限流/不可达/延迟分类与审计；client 未建立时为空 |
 
@@ -460,7 +491,7 @@ run，也不是证据。
 | `method` | 逻辑方法 |
 | `logical_request` | 调用方请求（替换占位符后的逻辑值） |
 | `prepared_request` | 观察到的 fan-out 请求；typed-only 步骤可为 `null`，但 `client_call` 步骤必需 |
-| `reference` | 本次调用携带的 reference evidence；不需要时为 `null` |
+| `reference` | 该步骤自己的 step reference evidence；不需要时为 `null`。`reference.finalized-balance` 的这一对象同时是 run reference；feeHistory 的仅是该步骤的 step reference。 |
 | `decision` | decision 证据；typed-only 为 `null` |
 | `typed` | typed adapter 结果；无 typed 路径为 `null` |
 | `invariants` | §6 的布尔/`null` 结果 |
@@ -473,6 +504,10 @@ run，也不是证据。
 - `degraded`：期望结果达成，但存在少数派 `reject` 或语义/形状 fault；
   不包含可用性 fault；
 - `ok`：期望结果达成、无 fault、无 reject。
+
+`business.fee-history.finalized` 的 `reference` 是 step reference；它可以与
+顶层 run reference 不同。示例中两者相同只是合成 run 的巧合，report 解析和
+后续断言不得把它们合并或要求相等。
 
 ### 9.3 decision 字段
 
