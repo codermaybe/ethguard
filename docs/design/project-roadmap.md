@@ -471,7 +471,7 @@ Chainlist URL 单次抓取（60s、32 MiB、无重试、拒绝 redirect），固
 basis；registry 不可用或 selected 少于 3 时仍写 manifest，并以
 `state=inconclusive`（exit 2）结束，不执行 plan。远端抓取与成员不足测试均
 使用注入 transport，不触网。T10.3 已解除暂停。
-T10.3 实现完成（2026-10-23，待维护者审计）：新增不改变裁决语义的结构化诊断
+T10.3 实现完成（2026-10-23，已审计，`1291773`）：新增不改变裁决语义的结构化诊断
 seam（observed prepared request、source-attributed faults、collection faults）、
 `ethguard.live-report/v1` 报告类型/schema/严格解析、fixed plan 执行器（finalized
 anchoring、固定成员、30s step / 300s run、typed adapter、notfound 错误路径）和
@@ -481,7 +481,7 @@ client，不触网。T10.3 审计修正（2026-10-23）：报告中的 `manifest
 `ManifestBytes` 的实际 SHA-256，不再采用调用方传入的 claimed digest；执行器以
 `ParseManifest` 的解析结果作为唯一执行 manifest，并校验传入 `Manifest` 与字节
 结构一致，digest 或结构不一致时仍生成记录实际 digest 的 `schema_error` failed
-报告，并新增两项回归测试。T10.4 继续暂停等待复审。
+报告，并新增两项回归测试。T10.4 已解除暂停。
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的
