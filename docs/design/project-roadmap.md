@@ -493,7 +493,7 @@ state reason；可用性 fault 与 quorum 不足只产生 `inconclusive`。未�
 语义，未用 mock 替代 live 采集路径。审计复跑 `go test ./... -count=1`、
 `go vet ./...`、livecanary/aggregator/rpc 定向测试及 race 全部通过；未触网、未修改
 历史 capture/expect/rpcsample。T10.5 继续批量执行，尚未审计。
-T10.5 实现完成（2026-10-23，待审计）：新增
+T10.5 实现完成（2026-10-23，已审计，`ddbd78a`）：新增
 `.github/workflows/live-canary.yml`，PR/push 仍只走 `ci.yml` 的离线门禁；live
 canary 只在 schedule、release tag 和手动触发时运行，checkout 固定
 `github.sha`，权限仅 `contents: read`，单 job 15 分钟超时，artifact 保留 90 天。
@@ -502,7 +502,10 @@ manifest/registry(可选)/report/run.log/SHA256SUMS 并上传；新增
 `livecanary verify -dir` 离线核对 manifest/report digest、run_id、plan hash 和
 registry artifact digest。非 passed 观察会在 artifact 上传后使 job 失败，
 `inconclusive` 不会被显示为 passed。workflow 结构由解析 YAML 的离线测试
-覆盖，不触网。T10.6 继续批量执行。
+覆盖，不触网。审计直接在 `ddbd78a` 临时 worktree 复跑 `go test ./... -count=1`、
+`go vet ./...` 和 livecanary/cmd race 测试全部通过；workflow 的 exact commit、
+最小权限、超时/并发策略、90 天保留、失败后上传和非 passed 强制失败均已复核。
+未触网、未修改历史 capture/expect/rpcsample。T10.6 继续批量执行，尚未审计。
 T10.6 本地 live 诊断完成（2026-10-23，代码 `63d5ac7`，修复 `0fc22eb`）：首次
 真实 Chainlist/RPC 运行发现 v1 会把 path 内嵌凭据选入并发布，已按契约升级为
 `chainlist-sorted-v2`（path 过滤、artifact 脱敏、可重建性测试）。修复后的本地
