@@ -459,9 +459,8 @@ presence，也不改变裁决门槛、分母或方法数量。
 ## T10（优先立项，分析阶段）：外部可验证测试与 live 证据边界
 
 状态：**优先立项，证据边界已确认，按下表分阶段执行**（2026-10-23 核查）。
-T10.0 审计有条件通过（2026-10-23）：提交范围、证据和示例通过。run reference
-与 step reference 的 scope 歧义已在 `live-canary-contract.md` 和决策 0059 中
-冻结；等待复审后再开启 T10.1。
+T10.0 审计通过（2026-10-23，`f5b989b`）：提交范围、证据、示例和 run/step
+reference scope 均已复核；T10.1 已解除暂停。
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的
@@ -534,7 +533,7 @@ T10 后续实现必须同时维护以下三层，不得用上一层冒充下一�
 5. 代码错误、请求绑定失败、静默回退、缩小分母、非法状态和证据缺失必须使
    live run 失败。公共 endpoint 限流、不可达或有效成员不足只能标为
    `inconclusive`，不能标成通过；release 门禁不能把 `inconclusive` 当成功。
-6. live canary 断言业务请求等于本次 reference、状态属于方法允许集合、成员和
+6. live canary 断言业务请求等于对应的 run/step reference、状态属于方法允许集合、成员和
    门槛保持固定、失败保留在证据中，并记录 shape drift；它不承诺检测 uniform
    stagnation、colluding majority 或 provider tag downgrade。
 
@@ -566,7 +565,7 @@ T10 后续实现必须同时维护以下三层，不得用上一层冒充下一�
 | T10.1 | 建立 provenance 生成器：绑定源码 commit、workflow/run、Go/tool 版本、Chainlist URL、抓取时间、原始 registry SHA-256、候选/过滤/选中成员、selection 算法版本、plan hash | `manifest.json` schema、生成代码、schema 测试、脱敏测试 | 同一输入可重建 selection；artifact 缺关键 provenance 即失败；不得由人工或 AI 填字段 | 依赖 T10.0；不把 sha256 当来源签名，不写入历史 golden |
 | T10.2 | 实现 Chainlist 采集与成员固定：远端抓取原文，解析指定 chain，过滤非 HTTPS/明显凭据/不支持项，去重并按固定规则排序，固定本次 voting basis | registry 原文或安全脱敏副本、registry hash、候选/过滤/选中清单、过滤原因 | 运行开始后成员集合不可变；有效成员不足返回 `inconclusive`；列表变化不跨 run 合并 | 依赖 T10.1；Chainlist 只作 discovery，不作信任排序；不引入 provider 权重 |
 | T10.3 | 将 live canary 从 stdout 升级为机器报告：执行 identity、anchor、pinned business、height/hash reference、typed adapter 和错误路径；记录每次 prepared request 与 reference | `report.json`、报告 schema、报告生成代码、离线报告解析测试 | 报告由本次响应直接生成；能核对 request/reference、状态、N、support/reject/fault、代表源和错误状态 | 依赖 T10.1/T10.2；不把实时值写成固定 expect，不在普通 `go test` 触网 |
-| T10.4 | 增加 canary 不变量检查：业务请求必须等于本次 reference；不得静默回落 `latest`、缩小分母、改门槛或把错误带成功状态；记录 shape drift | 生产路径断言、失败样例（进程内构造即可）、live report 中的 invariant 结果 | 代码错误/请求绑定错误/非法状态/证据缺失使 run `failed`；provider 限流、不可达、不足 quorum 只能 `inconclusive` | 依赖 T10.3；不修改生产裁决语义，不用 mock 替代 live 采集路径 |
+| T10.4 | 增加 canary 不变量检查：业务请求必须绑定对应的 run/step reference；不得静默回落 `latest`、缩小分母、改门槛或把错误带成功状态；记录 shape drift | 生产路径断言、失败样例（进程内构造即可）、live report 中的 invariant 结果 | 代码错误/请求绑定错误/非法状态/证据缺失使 run `failed`；provider 限流、不可达、不足 quorum 只能 `inconclusive` | 依赖 T10.3；不修改生产裁决语义，不用 mock 替代 live 采集路径 |
 | T10.5 | 编写外部 workflow：PR/push 运行离线 CI；schedule/release 运行 live canary；上传不可变 artifact，分离代码门禁和 live 观察状态 | workflow、artifact 清单、权限最小化、超时/取消策略、保留策略 | workflow 使用 exact commit；live job 保存 manifest/registry/report/digest；失败分类可在 UI 和 artifact 中复核 | 依赖 T10.1–T10.4；不让 live provider 波动阻塞普通 PR；不把 `inconclusive` 标为通过 |
 | T10.6 | 首次真实远端验收：用 Chainlist 实时列表运行固定 plan，检查 artifact 完整性、redaction、请求绑定和状态分类 | 一次完整 run 链接、artifact digest、审计记录、发现的问题及修复提交 | 第三方可下载 artifact，按 commit 重跑离线部分；没有手工改写；最低成员数和失败边界生效 | 依赖 T10.5；不把一次成功 run 推广成长期可靠性或 provider 独立性证明 |
 | T10.7 | 独立复核：在不同 workflow/repository 或独立 runner 按同一 manifest 重跑；比较 schema、selection、报告和失败分类 | 独立复核 run、差异报告、重复性结论 | 复核方无需作者本机状态即可重跑；差异必须分类为代码、registry 漂移、provider 波动或环境问题 | 依赖 T10.6；不引入第二套业务裁决或第二事实源 |
