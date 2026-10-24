@@ -123,7 +123,7 @@ func TestTypedLogsNullIsMalformed(t *testing.T) {
 
 func sampleResult(t *testing.T, requestID string) json.RawMessage {
 	t.Helper()
-	_, records, err := replay.LoadBatch(filepath.Join("internal", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "..", "internal", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
 	if err != nil {
 		t.Fatal(err)
 	}
