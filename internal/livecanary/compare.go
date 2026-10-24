@@ -188,7 +188,7 @@ func compareSteps(manifest *Manifest, original, recheck []StepReport, add func(*
 		add(id, "path", left.Path, right.Path, DiffCodeMismatch)
 		add(id, "method", left.Method, right.Method, DiffCodeMismatch)
 		add(id, "logical_request.method", left.LogicalRequest.Method, right.LogicalRequest.Method, DiffCodeMismatch)
-		add(id, "logical_request.params", jsonText(left.LogicalRequest.Params), jsonText(right.LogicalRequest.Params), DiffCodeMismatch)
+		add(id, "logical_request.params", jsonText(left.LogicalRequest.Params), jsonText(right.LogicalRequest.Params), requestParamsDifferenceClass(manifest, left.ID))
 		comparePrepared(manifest, left, right, id, add)
 		compareInvariants(id, left.Invariants, right.Invariants, add)
 		compareDecision(id, left.Decision, right.Decision, add)
@@ -207,11 +207,39 @@ func comparePrepared(manifest *Manifest, left, right StepReport, id *string, add
 		return
 	}
 	add(id, "prepared_request.method", a.Method, b.Method, DiffCodeMismatch)
-	class := DiffProviderFluctuation
-	if step, ok := manifestPlanStep(manifest, left.ID); ok && step.Expect.Binding == "none" {
-		class = DiffCodeMismatch
-	}
+	class := requestParamsDifferenceClass(manifest, left.ID)
 	add(id, "prepared_request.params", jsonText(a.Params), jsonText(b.Params), class)
+}
+
+func requestParamsDifferenceClass(manifest *Manifest, stepID string) string {
+	step, ok := manifestPlanStep(manifest, stepID)
+	if !ok {
+		return DiffCodeMismatch
+	}
+	if step.Expect.Binding != "none" || containsRunReferencePlaceholder(step.Params) {
+		return DiffProviderFluctuation
+	}
+	return DiffCodeMismatch
+}
+
+func containsRunReferencePlaceholder(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return typed == "$reference.hash"
+	case []any:
+		for _, item := range typed {
+			if containsRunReferencePlaceholder(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, item := range typed {
+			if containsRunReferencePlaceholder(item) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func compareInvariants(id *string, a, b InvariantReport, add func(*string, string, string, string, string)) {

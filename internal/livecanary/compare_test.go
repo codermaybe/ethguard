@@ -105,6 +105,27 @@ func TestCompareReferenceDriftIsProviderFluctuation(t *testing.T) {
 	}
 }
 
+func TestCompareRunReferenceDriftIsProviderFluctuation(t *testing.T) {
+	manifestBytes, reportBytes := compareExample(t)
+	changed := mutateReport(t, reportBytes, func(report *Report) {
+		step := compareReportStep(t, report, "pinned.block")
+		step.LogicalRequest.Params[0] = strings.Repeat("0x", 1) + strings.Repeat("b", 64)
+		step.PreparedRequest.Params[0] = strings.Repeat("0x", 1) + strings.Repeat("b", 64)
+	})
+	comparison, err := CompareReports(manifestBytes, reportBytes, changed)
+	if err != nil {
+		t.Fatalf("CompareReports: %v", err)
+	}
+	if comparison.Classification != DiffProviderFluctuation || !comparison.Repeatable {
+		t.Fatalf("comparison = %+v", comparison)
+	}
+	for _, difference := range comparison.Differences {
+		if difference.Classification == DiffCodeMismatch {
+			t.Fatalf("run-reference drift was classified as code mismatch: %+v", difference)
+		}
+	}
+}
+
 func TestCompareFalseInvariantIsCodeMismatch(t *testing.T) {
 	manifestBytes, reportBytes := compareExample(t)
 	changed := mutateReport(t, reportBytes, func(report *Report) {
