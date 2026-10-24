@@ -1,0 +1,190 @@
+# EthGuard live canary recheck (T10.7)
+#
+# This is a separate, manually dispatched workflow. It downloads the artifact
+# from an earlier live-canary run, checks out the exact commit recorded in that
+# manifest, re-executes the same fixed basis with `rerun` (no Chainlist
+# acquisition), and compares the two reports. Provider-only differences are
+# recorded but do not fail the job; code, manifest, or invariant differences do.
+#
+# The maintainer supplies the source run/artifact and reviews the uploaded
+# recheck artifact. This workflow does not publish a passed state.
+
+name: live-canary-recheck
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: GitHub run id that produced the original live-canary artifact
+        required: true
+        type: string
+      source_artifact:
+        description: Original artifact name, e.g. live-canary-39983945116-1
+        required: true
+        type: string
+      expected_manifest_sha256:
+        description: Optional expected manifest SHA-256
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: live-canary-recheck-${{ inputs.source_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  recheck:
+    name: live canary recheck (same manifest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SOURCE_DIR: ${{ runner.temp }}/live-canary-source
+      RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
+      EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+    steps:
+      - name: checkout workflow commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: download original artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT: ${{ inputs.source_artifact }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${SOURCE_DIR}"
+          gh run download "${SOURCE_RUN_ID}" -n "${SOURCE_ARTIFACT}" -D "${SOURCE_DIR}"
+          ls -la "${SOURCE_DIR}"
+
+      - name: verify original artifact
+        run: |
+          set -euo pipefail
+          cd "${SOURCE_DIR}"
+          test -f SHA256SUMS
+          sha256sum -c SHA256SUMS
+          test -f manifest.json
+          test -f report.json
+          if [ -n "${EXPECTED_MANIFEST_SHA256}" ]; then
+            actual="$(sha256sum manifest.json | cut -d' ' -f1)"
+            test "${actual}" = "${EXPECTED_MANIFEST_SHA256}"
+          fi
+          source_state="$(jq -r '.state' report.json)"
+          if [ "${source_state}" = "failed" ]; then
+            echo "::error::source artifact is a failed observation"
+            exit 1
+          fi
+
+      - name: build current tool
+        run: go build -trimpath -o "${RUNNER_TEMP}/livecanary-current" ./cmd/livecanary
+
+      - name: verify original coherence
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/livecanary-current" verify -dir "${SOURCE_DIR}" | tee "${SOURCE_DIR}/verify.txt"
+
+      - name: checkout manifest source commit
+        run: |
+          set -euo pipefail
+          source_commit="$(jq -r '.source_commit // empty' "${SOURCE_DIR}/manifest.json")"
+          if ! [[ "${source_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::manifest source_commit is not a 40-character git SHA"
+            exit 1
+          fi
+          if ! git cat-file -e "${source_commit}^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "${source_commit}"
+          fi
+          git checkout --detach "${source_commit}"
+          test "$(git rev-parse HEAD)" = "${source_commit}"
+          echo "source_commit=${source_commit}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: build source code
+        run: go build -trimpath -o "${RUNNER_TEMP}/livecanary-source" ./cmd/livecanary
+
+      - name: prepare recheck bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "${RECHECK_DIR}"
+          cp "${SOURCE_DIR}/manifest.json" "${RECHECK_DIR}/manifest.json"
+          if [ -f "${SOURCE_DIR}/registry.json" ]; then
+            cp "${SOURCE_DIR}/registry.json" "${RECHECK_DIR}/registry.json"
+          fi
+          cp "${SOURCE_DIR}/report.json" "${RECHECK_DIR}/original-report.json"
+
+      - name: rerun the same manifest
+        id: rerun
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          "${RUNNER_TEMP}/livecanary-source" rerun \
+            -manifest "${RECHECK_DIR}/manifest.json" \
+            -out "${RECHECK_DIR}/report.json" 2>&1 | tee "${RECHECK_DIR}/rerun.log"
+
+      - name: verify recheck coherence
+        if: always()
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/livecanary-current" verify -dir "${RECHECK_DIR}" | tee "${RECHECK_DIR}/verify.txt"
+
+      - name: compare observations
+        id: compare
+        if: always()
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          "${RUNNER_TEMP}/livecanary-current" compare \
+            -manifest "${RECHECK_DIR}/manifest.json" \
+            -original "${RECHECK_DIR}/original-report.json" \
+            -recheck "${RECHECK_DIR}/report.json" \
+            -out "${RECHECK_DIR}/comparison.json" 2>&1 | tee "${RECHECK_DIR}/compare.log"
+
+      - name: write recheck checksums
+        if: always()
+        run: |
+          set -euo pipefail
+          cd "${RECHECK_DIR}"
+          : > SHA256SUMS
+          for file in manifest.json registry.json original-report.json report.json comparison.json rerun.log compare.log verify.txt; do
+            if [ -f "${file}" ]; then
+              sha256sum "${file}" >> SHA256SUMS
+            fi
+          done
+
+      - name: record recheck state
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "### live canary recheck"
+            echo "- source run: ${{ inputs.source_run_id }}"
+            echo "- source artifact: ${{ inputs.source_artifact }}"
+            if [ -f "${RECHECK_DIR}/comparison.json" ]; then
+              jq -r '"", "- original state: `" + .original_state + "`", "- recheck state: `" + .recheck_state + "`", "- repeatable: `" + (.repeatable|tostring) + "`", "- classification: `" + .classification + "`", "- differences: `" + (.differences|length|tostring) + "`"' "${RECHECK_DIR}/comparison.json"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: upload recheck artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-canary-recheck-${{ inputs.source_run_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/live-canary-recheck
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: enforce repeatability
+        if: steps.compare.outcome != 'success'
+        run: |
+          echo "::error::recheck is not repeatable; inspect comparison.json and the uploaded artifact"
+          exit 1

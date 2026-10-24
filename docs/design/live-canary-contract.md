@@ -552,6 +552,35 @@ pool-level。
   证据出现，完整原始响应留在受控 artifact 中。
 - 人工只能审阅 artifact；任何人工改写都必须使 attestation 失效。
 
+### 9.5 T10.7 差异报告
+
+`livecanary compare` 对同一 manifest 的 original report 与 recheck report 生成
+`ethguard.live-comparison/v1`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `manifest_sha256` / `plan_sha256` | 两次观察共同绑定的 manifest 与 plan |
+| `original_report_sha256` / `recheck_report_sha256` | 被比较的报告字节 digest |
+| `original_state` / `recheck_state` | 两次观察的顶层 state |
+| `repeatable` | 是否不存在 code/registry 差异；provider 波动不使其为 false |
+| `classification` | `identical`、`provider_fluctuation`、`code_mismatch`、`registry_drift` |
+| `differences[]` | `step_id`（可空）、`field`、`original`、`recheck`、`classification` |
+
+规则：
+
+- schema、plan、manifest、run identity、step 结构、logical request、decision
+  status/denominator、非 shape/reference 不变量和 typed decode 的差异属于
+  `code_mismatch`；manifest/registry 绑定差异属于 `registry_drift`；这两类使
+  `repeatable=false`，workflow 必须失败。
+- support/reject/fault 归属、state reasons、source health、reference 高度/hash、
+  decision value、typed height/hash、shape drift 和 `reference_status` 的差异属于
+  `provider_fluctuation`；只要 code/registry 无不一致，`repeatable` 仍为 true，
+  但差异必须完整保留供人工审计。
+- diff 只记录可审计摘要（digest/kind/成员/分类），不复制原始响应；时间窗口和
+  报告 digest 本身不作为差异。
+- 差异报告不是第二裁决源：它比较两次 observation 是否保持契约边界，不判断
+  链上值是否正确。
+
 ---
 
 ## 10. 观察与证明的边界

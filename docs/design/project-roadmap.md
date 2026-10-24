@@ -550,6 +550,16 @@ T10.7 预审结论（2026-10-23）：实现边界无阻塞。`rerun` 只解析�
 固定原 selected basis，明确不重新抓取 Chainlist，并保留原 run_id/manifest digest；
 本地复跑的差异已正确归类为 provider 波动。由于 T10.6 尚无外部 runner/artifact，
 且 T10.7 自身也尚无独立 runner/repository，最终验收保持挂起，不得视为通过。
+T10.7 CI 实现完成（2026-10-24，待维护者人工触发）：新增 `livecanary compare`，
+生成 `ethguard.live-comparison/v1`，把 code/registry 差异与 provider 波动分开并
+保留全部差异；新增 `.github/workflows/live-canary-recheck.yml`，通过
+`workflow_dispatch` 接收 source run/artifact，校验源 artifact 的 SHA256SUMS
+和 `verify`，checkout manifest 记录的 exact source_commit，使用该 commit 的
+`rerun` 执行同一 manifest，再用当前 workflow commit 的 `compare` 生成差异报告，
+上传 recheck bundle（90 天保留）。compare 遇到 code/registry 差异或不可重复时
+使 job 失败；仅 provider 波动时保留差异但允许 job 通过。最终 T10.7 验收仍需
+维护者手动 dispatch（例如 source_run_id `39983945116`、artifact
+`live-canary-39983945116-1`）并下载复核 recheck artifact；在此之前不标记通过。
 T10.8 完成（2026-10-23，待审计）：README 与 README.zh-CN 增加证据分层说明；
 `moving-tag-matrix.md` 把 soak/capture 列改名为 observation evidence，并明确其
 为历史本地观察/形状证据；`wire-forms.md` 同样标注重命名为历史本地样本，更新
@@ -572,7 +582,7 @@ T10 当前证据状态：
 | Offline regression | `ci.yml` + `go test`/`rpctest`/replay；T10.4/T10.5 门禁已提交 |
 | Live observation（本地诊断） | 2026-10-23 本地 run，state `inconclusive`（可用性 fault），全部不变量为 true；记录已提交 |
 | External live observation | GitHub run `39983945116`，state `inconclusive`；artifact digest 与 report/manifest/registry 绑定已复核 |
-| Attested evidence | 首次 GitHub-hosted artifact 已下载并校验；独立 runner/repository 复核仍待 T10.7 |
+| Attested evidence | 首次 GitHub-hosted artifact 已下载并校验；T10.7 独立 workflow 已实现，等待维护者手动 dispatch 与 artifact 复核 |
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的

@@ -778,6 +778,95 @@ func TestRunRerunRequiresFlags(t *testing.T) {
 	}
 }
 
+func TestRunCompareWritesRepeatabilityReport(t *testing.T) {
+	dir := t.TempDir()
+	manifestData := mustReadFile(t, filepath.Join("..", "..", "docs", "design", "live-canary", "manifest.example.json"))
+	reportData := mustReadFile(t, filepath.Join("..", "..", "docs", "design", "live-canary", "report.example.json"))
+	report, err := livecanary.ParseReport(reportData)
+	if err != nil {
+		t.Fatalf("ParseReport: %v", err)
+	}
+	report.SourceHealth[0].Successes++
+	recheckData, err := report.Marshal()
+	if err != nil {
+		t.Fatalf("marshal recheck: %v", err)
+	}
+	for name, data := range map[string][]byte{
+		"manifest.json": manifestData,
+		"original.json": reportData,
+		"recheck.json":  recheckData,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	outPath := filepath.Join(dir, "comparison.json")
+	var stdout bytes.Buffer
+	if err := runWith([]string{
+		"compare", "-manifest", filepath.Join(dir, "manifest.json"),
+		"-original", filepath.Join(dir, "original.json"),
+		"-recheck", filepath.Join(dir, "recheck.json"),
+		"-out", outPath,
+	}, &stdout, testDependencies(commandProvenance())); err != nil {
+		t.Fatalf("compare: %v", err)
+	}
+	var comparison livecanary.ComparisonReport
+	if err := json.Unmarshal(mustReadFile(t, outPath), &comparison); err != nil {
+		t.Fatalf("decode comparison: %v", err)
+	}
+	if !comparison.Repeatable || comparison.Classification != livecanary.DiffProviderFluctuation {
+		t.Fatalf("comparison = %+v", comparison)
+	}
+	if !strings.Contains(stdout.String(), "repeatable=true") {
+		t.Fatalf("stdout does not report repeatability:\n%s", stdout.String())
+	}
+}
+
+func TestRunCompareFailsOnCodeMismatch(t *testing.T) {
+	dir := t.TempDir()
+	manifestData := mustReadFile(t, filepath.Join("..", "..", "docs", "design", "live-canary", "manifest.example.json"))
+	reportData := mustReadFile(t, filepath.Join("..", "..", "docs", "design", "live-canary", "report.example.json"))
+	report, err := livecanary.ParseReport(reportData)
+	if err != nil {
+		t.Fatalf("ParseReport: %v", err)
+	}
+	report.Steps[0].Invariants.RequestBinding = new(bool)
+	recheckData, err := report.Marshal()
+	if err != nil {
+		t.Fatalf("marshal recheck: %v", err)
+	}
+	for name, data := range map[string][]byte{
+		"manifest.json": manifestData,
+		"original.json": reportData,
+		"recheck.json":  recheckData,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	var stdout bytes.Buffer
+	err = runWith([]string{
+		"compare", "-manifest", filepath.Join(dir, "manifest.json"),
+		"-original", filepath.Join(dir, "original.json"),
+		"-recheck", filepath.Join(dir, "recheck.json"),
+		"-out", filepath.Join(dir, "comparison.json"),
+	}, &stdout, testDependencies(commandProvenance()))
+	var failed *failedError
+	if !errors.As(err, &failed) {
+		t.Fatalf("err=%v, want failed", err)
+	}
+	if exitCode(err) != 1 {
+		t.Fatalf("exit=%d, want 1", exitCode(err))
+	}
+}
+
+func TestRunCompareRequiresFlags(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runWith([]string{"compare"}, &stdout, testDependencies(commandProvenance())); err == nil {
+		t.Fatal("compare accepted missing flags")
+	}
+}
+
 func mustReadFile(t *testing.T, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)

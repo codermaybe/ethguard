@@ -3,10 +3,11 @@
 // performs one Chainlist acquisition and fixes the run's membership; run
 // acquires once, executes the fixed plan, and writes manifest, registry
 // artifact, and report. rerun executes the plan and membership fixed by an
-// existing manifest without another registry acquisition. verify checks a
-// published artifact directory offline. Exit code 2 means no conclusion
-// (pre-plan failure or an inconclusive run); exit code 1 means the run failed
-// or the tool itself failed.
+// existing manifest without another registry acquisition. compare checks two
+// observations of the same manifest. verify checks a published artifact
+// directory offline. Exit code 2 means no conclusion (pre-plan failure or an
+// inconclusive run); exit code 1 means the run failed or the tool itself
+// failed.
 package main
 
 import (
@@ -82,7 +83,7 @@ func defaultDependencies() dependencies {
 
 func runWith(args []string, stdout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json> | livecanary run -out <manifest.json> | livecanary rerun -manifest <manifest.json> -out <report.json> | livecanary verify -dir <artifact-dir>")
+		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json> | livecanary run -out <manifest.json> | livecanary rerun -manifest <manifest.json> -out <report.json> | livecanary compare -manifest <manifest.json> -original <report.json> -recheck <report.json> -out <comparison.json> | livecanary verify -dir <artifact-dir>")
 	}
 	switch args[0] {
 	case "manifest":
@@ -93,11 +94,63 @@ func runWith(args []string, stdout io.Writer, deps dependencies) error {
 		return runLive(args[1:], stdout, deps)
 	case "rerun":
 		return runRerun(args[1:], stdout, deps)
+	case "compare":
+		return runCompare(args[1:], stdout)
 	case "verify":
 		return runVerify(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runCompare(args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("compare", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	manifestPath := flags.String("manifest", "", "manifest shared by both reports")
+	originalPath := flags.String("original", "", "original report path")
+	recheckPath := flags.String("recheck", "", "recheck report path")
+	outPath := flags.String("out", "", "comparison output path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *manifestPath == "" || *originalPath == "" || *recheckPath == "" || *outPath == "" {
+		return errors.New("compare: -manifest, -original, -recheck, and -out are required")
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("compare: unexpected arguments: %v", flags.Args())
+	}
+	manifestBytes, err := os.ReadFile(*manifestPath)
+	if err != nil {
+		return fmt.Errorf("compare: read manifest: %w", err)
+	}
+	originalBytes, err := os.ReadFile(*originalPath)
+	if err != nil {
+		return fmt.Errorf("compare: read original report: %w", err)
+	}
+	recheckBytes, err := os.ReadFile(*recheckPath)
+	if err != nil {
+		return fmt.Errorf("compare: read recheck report: %w", err)
+	}
+	comparison, err := livecanary.CompareReports(manifestBytes, originalBytes, recheckBytes)
+	if err != nil {
+		return err
+	}
+	comparisonBytes, err := comparison.Marshal()
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(*outPath, comparisonBytes); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "comparison=%s\ncomparison_sha256=%s\noriginal_state=%s\nrecheck_state=%s\nrepeatable=%t\nclassification=%s\ndifferences=%d\n",
+		*outPath, livecanary.ReportSHA256(comparisonBytes), comparison.OriginalState, comparison.RecheckState,
+		comparison.Repeatable, comparison.Classification, len(comparison.Differences)); err != nil {
+		return err
+	}
+	if !comparison.Repeatable {
+		return &failedError{reason: "comparison " + comparison.Classification}
+	}
+	return nil
 }
 
 func runVerify(args []string, stdout io.Writer) error {
