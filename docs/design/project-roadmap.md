@@ -560,6 +560,15 @@ T10.7 CI 实现完成（2026-10-24，待维护者人工触发）：新增 `livec
 使 job 失败；仅 provider 波动时保留差异但允许 job 通过。最终 T10.7 验收仍需
 维护者手动 dispatch（例如 source_run_id `39983945116`、artifact
 `live-canary-39983945116-1`）并下载复核 recheck artifact；在此之前不标记通过。
+T10.7 最终审计通过（2026-10-24，GitHub run `40078416681`）：source artifact
+下载、SHA256SUMS、原始 verify、manifest source commit checkout、同 manifest
+rerun、recheck verify、compare 和 recheck artifact 上传全部成功；最终
+`enforce repeatability` 被跳过，表示 `comparison.json` 的 `repeatable=true`，
+没有 code/registry mismatch。rerun 日志中的 `inconclusive`/exit 2 属 provider
+可用性结果，已由 workflow 的 continue-on-error 保留，不是代码失败。artifact
+`live-canary-recheck-39983945116-40078416681-1` 保留为 T10.7 复核证据；该 run
+使用不同 workflow 的 GitHub-hosted runner，满足独立 workflow 出口。T10.7 不宣称
+provider 长期可靠性或独立性。
 T10.8 完成（2026-10-23，待审计）：README 与 README.zh-CN 增加证据分层说明；
 `moving-tag-matrix.md` 把 soak/capture 列改名为 observation evidence，并明确其
 为历史本地观察/形状证据；`wire-forms.md` 同样标注重命名为历史本地样本，更新
@@ -574,6 +583,10 @@ matrix、wire-forms 和 roadmap 均把离线回归、本地观察、external liv
 写成兼容性、共识、finality 或 provider 独立性证明。最终验收仍依赖 T10.6 外部
 artifact；该 artifact 已于 2026-10-24 由 run `39983945116` 补齐，文档收口不再
 依赖新的 live 请求。
+T10.8 最终审计通过（2026-10-24）：T10.6 external artifact 与 T10.7 独立
+workflow 复核均已记录；README、README.zh-CN、moving-tag matrix、wire-forms
+和 roadmap 的证据措辞没有把 regression、本地观察、单次 live run 或
+`Corroborated`/`finalized` 升格为兼容性、共识、finality 或 provider 独立性证明。
 
 T10 当前证据状态：
 
