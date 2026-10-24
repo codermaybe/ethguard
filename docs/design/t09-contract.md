@@ -1,6 +1,7 @@
 # T09：场景矩阵与字段生命周期不变量
 
-状态：**设计完成，待实现**（2026-10-24）  
+状态：**实现完成，待整体审计**（2026-10-24）
+
 维护方式：本文件是 T09 的自包含执行契约。新的 agent 只需读取本文件、代码和
 引用的冻结规范即可恢复进度；`project-roadmap.md` 只维护摘要、提交号和最终状态。
 
@@ -29,7 +30,9 @@ T09 只有在 T09.2、T09.1 和最终审计全部通过后才算完成。完成�
 - 固定分母、门槛、代表源、Support/Reject/Abstain、Faults、状态和 Value 均有
   可审阅断言；准入或编码失败不得缩小分母或降低门槛。
 - 变形、变异、往返和字段守恒四类不变量均有回归覆盖；不变量失败时错误指向
-  方法和字段，而不是只报告一个总计数。
+  方法和字段，而不是只报告一个总计数。上游本地整答案方法只对顶层 wire 形状
+  负责；对象内部的坏字段由 typed projection 拒绝，不在 T09 的 Admit/EncodeCheck
+  断言范围内（决策 0061）。
 - 全部测试离线、可重复，且 `go test ./... -count=1`、`go vet ./...` 通过。
 - 没有修改历史 capture、`expect/v1`、`batch.json`、reference policy、WSS
   transport、方法目录、生产裁决语义或 ethclient transport。
@@ -108,8 +111,11 @@ net_listening
 2. 为每个方法补齐四类性质：表示变形、受保护字段变异、往返、字段守恒。
 3. 将每种变体放到不同 pool 位置，验证 Value 不随捕获顺序变化；代表源仍按既有
    捕获顺序选择，不能把代表源当成第二个投票结果。
-4. 对必填字段删除、受保护字段篡改、错误请求绑定和坏 typed payload，断言在
-   Admit 或 EncodeCheck 失败，来源仍在分母，不能退回其他来源的字段。
+4. 对必填字段删除、受保护字段篡改和错误请求绑定，断言在 Admit 或 EncodeCheck
+   失败，来源仍在分母，不能退回其他来源的字段。上游本地整答案方法的嵌套字段
+   类型是 typed-projection 边界，不要求 Admit 失败；T09 只合成其合法顶层形态
+   （`eth_syncing` 仅 `false`，`net_listening` 为布尔），progress object 不补样本
+   （pipeline 5.1.1）。
 5. 对通过检查的 payload，验证 `typed(raw)` 与 `typed(Encode(raw))` 等价；派生
    字段按公开派生规则重新计算，不从另一来源复制。
 6. 对每份 observation 检查字段最终落入 `Value`、`Extensions`、`Diagnostics`、
@@ -163,6 +169,13 @@ net_listening
 矩阵不得因为某方法没有某种语义而删掉场景。对不适用场景必须断言契约规定的
 本地拒绝、notfound 或其他明确结果，并写出原因。不能把所有方法强行套同一个
 `Corroborated`/`Unknown` 期望。
+
+实现把契约八类拆成九个显式行：`pending`、`quorum-boundary` 各成一行，每个方法
+测试逐行调用同一断言 helper，且不存在遍历方法或场景的通用 runner。`Unknown`
+行只有在显式声明 `ValueFrom`（conflict 保留获胜簇证据）时才能携带 Value；
+all-fault、notfound 和本地拒绝必须断言 Value 为空。`eth_syncing` 只使用合法
+`false` 形态；progress object 不合成（决策 0061、pipeline 5.1.1），因此其
+minority/outlier/conflict 行明确写出“没有第二合法形态”，不伪造 provider 拒绝。
 
 **T09.1 交付物**：覆盖全部注册方法的显式矩阵测试、注册表↔矩阵互锁、失败路径
 测试、提交说明和测试日志。仍不得修改 provider capture 或 golden。
@@ -223,10 +236,71 @@ T09 必须增加或复用以下互锁：
 
 | 阶段 | 状态 | 提交 | 审计信息 |
 | --- | --- | --- | --- |
-| T09.2 字段生命周期不变量 | 未开始 | — | — |
-| T09.1 决策场景矩阵 | 未开始 | — | — |
-| T09.3 最终收口 | 未开始 | — | — |
+| 前置修复（决策 0061） | 完成 | `d254dc0`、`e2b91ac` | 隔离 T09 暴露的生产语义修复：revert data 规范拼写、`eth_syncing`/`net_listening` 整答案形状准入；`e2b91ac` 补充 syncing 对象成员属 typed 边界；未改门槛、分母或模式；不混入 T09 测试提交 |
+| T09.2 字段生命周期不变量 | 完成 | `663c9dd` | 23/23 注册方法；往返经生产 Client/adapter probe；表示变形、受保护变异、逐 observation/嵌套守恒；官方 schema 精确路径集（含嵌套 tx/log/receipt/fee 字段）与 `schemaOmitted` 互锁；独立检出后 `TestT092` 与 `go vet ./...` 通过 |
+| T09.1 决策场景矩阵 | 完成 | `69bdb3c` | 23 个方法 × 9 个显式场景行（契约八类 + quorum 边界）；固定 N=5、H=2、Q=3；每个测试逐行调用，无通用 runner；Faults/SourceFaults/Abstain/typed、Unknown 空 Value、floor 行为与 exact-scenario AST 互锁；`TestT09 -race -count=2 -shuffle=on` 通过 |
+| T09.3 最终收口 | 完成 | 本次文档提交 | 进度表、路线图摘要、命令结果和残余风险已登记；未新增生产语义、capture 或 golden |
 | T09 整体审计 | 未开始 | — | 维护者在全部实现提交后执行 |
 
 状态更新规则：agent 完成一个阶段后只更新对应行和路线图摘要，不改历史结果；维护者
 整体审计通过后将本表和路线图一并标记为完成。
+
+### T09.3 实施记录与残余风险
+
+覆盖与命令（本地离线，2026-10-24）：
+
+- 前置提交 `d254dc0` 只包含决策 0061、规范更新和聚焦测试；`e2b91ac` 只补充
+  0061 的 syncing 对象成员边界。T09.2/T09.1 提交不含生产语义、capture、golden
+  或 testdata。
+- 两个实现提交分别在独立 worktree 中检出验证：`663c9dd` 上
+  `go test . -run 'TestT092' -count=1` 与 `go vet ./...` 通过；`69bdb3c` 上
+  `go test . -run 'TestT09' -race -count=2 -shuffle=on` 与 `go vet ./...`
+  通过，证明提交边界可独立构建。
+- 最终审计命令：`go test ./... -count=1`、`go vet ./...`、
+  `go test ./... -race -count=1`、`go test . -run 'TestT09' -race -count=2
+  -shuffle=on`、`git diff --check` 全部通过。
+- T09.2 + T09.1 均通过真实 `ethguard.Client`、Aggregator、Policy、projection
+  和 typed adapter/decoder 路径；往返不变量直接比较生产 Client/adapter 对 raw
+  与 canonical 的 typed 结果，不再使用测试侧摘要解码。无 `testdata` 写入、
+  无 golden 更新、无外部网络。
+- 全程未修改历史 capture、`expect/v1`、`batch.json`、reference policy、WSS
+  transport、方法目录或 ethclient transport。
+
+残余风险和明确边界：
+
+1. T09 是合成 regression，不构成 provider 兼容性、canonicality、consensus 或
+   finality 证据；T10 的外部证据边界保持不变。
+2. 每个方法有九个显式场景行（契约八类 + quorum-boundary）。没有 pending 形式
+   的方法用注册 policy 的 `MethodRule().Pending == ""` 给出显式证据，不伪造
+   上游拒绝；支持 pending 的方法只走既有生产 seam。
+3. 区块和交易准入沿用 geth typed wire decoder，JSON 转义 hex 是方法边界的
+   admission fault（`TestT092EscapedHexAdmissionBoundary`），不是稳定性缺口。
+4. 上游本地整答案方法只做顶层 wire 形状准入；`eth_syncing` 对象成员不逐个
+   Admit 校验，坏嵌套类型由 typed projection 报告（决策 0061）。T09 不合成
+   progress object（pipeline 5.1.1），只使用合法 `false`；本地形状测试覆盖
+   顶层合法/非法边界。若未来需要逐字段 syncing 契约，必须另立决策，不扩大
+   0061。
+5. `eth_blockNumber` 矩阵断言注册 policy 的 canonical Value；公开 typed
+   `Client.BlockNumber` 仍从 anchor 引用派生，不消费该 Value。
+6. 区块 canonical encoder 会省略 `size`、`blockNumber`、`transactionIndex`、
+   `blockHash`、`from`；测试将其声明为 omitted，其中交易内嵌元数据列入
+   `schemaOmitted`，允许出现在 Diagnostics residual，但绝不进入 Value。官方
+   schema 互锁使用精确路径集（含嵌套 tx/log/receipt/fee/access 字段），新增
+   嵌套字段会使集合比较失败；不建立第二份运行时字段表。`net_peerCount` 和
+   `net_listening` 没有 pinned result schema，显式标记 `noSchema`。
+7. 守恒按每份 observation 和每个数组元素递归追踪；被声明为域外或 omitted 的
+   字段只能出现在 Extensions/Diagnostics 或明确 fault，不得进入 Value。
+8. 前置修复 `d254dc0`（决策 0061）把 `eth_call` revert data 的 Value 拼写改为
+   规范拼写，并把 `eth_syncing`/`net_listening` 的 null/错误类型改为准入 fault；
+   `e2b91ac` 明确 syncing 对象成员属 typed 边界。未改变裁决门槛、分母或模式。
+   如果维护者不接受 0061，T09.2 的 revert/call 与本地形状期望需随决策回退
+   同步调整。
+9. T09.1 没有遍历方法或场景的通用 runner：每个测试逐行调用 `t09CheckScenario`，
+   AST 互锁要求恰好九个预期 `Scenario:` 名称、每个一次、恰好九次调用，并拒绝
+   任何 `t09RunMatrix`/`t09RunRow`。场景行内语义仍由运行时断言保证，静态检查
+   不替代语义审计。`TestT091QuorumFloorInterlock` 独立计算 N=5/floor=2 的 Q，
+   并分别验证 2 个支持者冲突、3 个支持者 corroborated，避免 floor 回退只改
+   错误文本时漏检。`ValueFrom < 0` 的行必须产生空 Value；只有 conflict 行可
+   显式声明保留簇 Value。
+10. 工作树中既有的 `docs/design/method-verification-pipeline.md` 修改和未跟踪
+    `.gitignore` 不属于 T09，未被修改或提交。

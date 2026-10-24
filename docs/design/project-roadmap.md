@@ -406,7 +406,19 @@ L2 仍缺 `eth_syncing` 对象态，批次级 L2 不能宣称完成。
   断言、expect 文件和样本状态互锁；`noCapture` 清单和批次 ID 也必须随批次更新，
   不得盲目 `-update`。
 
-## T09（立项，未开工）：场景矩阵与字段生命周期不变量
+## T09（实现完成，待整体审计）：场景矩阵与字段生命周期不变量
+
+状态：**T09.2、T09.1、T09.3 完成**（2026-10-24，提交 `663c9dd`、`69bdb3c`）。
+23/23 注册方法均有字段生命周期行和显式九场景矩阵行（契约八类 + quorum
+边界）；固定 N=5、H=2、Q=3；每个矩阵测试逐行调用、无通用 runner；
+`typed(raw) == typed(Encode(raw))` 走生产 Client/adapter；官方 schema 互锁
+使用包含嵌套字段的精确路径集；floor 有独立行为互锁，Unknown 行不得携带
+未声明的 Value。`go test ./... -count=1`、`go vet ./...`、
+`go test ./... -race -count=1` 和 T09 双次 shuffled `-race` 通过。T09 暴露的
+两处生产语义修复已按决策 0061 隔离在独立前置提交 `d254dc0`，syncing 对象
+成员边界由 `e2b91ac` 补充，均不混入测试提交。实现记录、残余风险和维护者
+最终审计清单见 [`docs/design/t09-contract.md`](t09-contract.md) 第 8、9 节；
+整体审计尚未执行，因此本里程碑不提前写成已审计完成。
 
 完整的自包含执行契约、方法全集、阶段顺序、agent 纪律和最终审计清单见
 [`docs/design/t09-contract.md`](t09-contract.md)。本节只保留路线图摘要和状态，
@@ -421,18 +433,19 @@ L2 仍缺 `eth_syncing` 对象态，批次级 L2 不能宣称完成。
 解码”的每一段处置都可枚举、可断言、可审计。测试只作为证据；闭包由结构
 约束和 coverage interlock 保证，不试图用有限用例证明全部字段永远稳定。
 
-### T09.1 决策场景矩阵（合成、进程内）
+### T09.1 决策场景矩阵（合成、进程内，已完成）
 
 - 每个 `RegisteredMethod` 按 resolver 适用场景跑固定矩阵：all-agree、
   minority-dissent、outlier、single-fault、all-fault、conflict、notfound、
-  pending/local。
+  pending/local；实现另加 quorum-boundary 行，共九个显式场景行。
 - 用 `rpctest.Node`/现有 Policy seam 构造响应；断言 `Status`、`Support`、
-  `Reject`、`Faults`、dimensions、representative 与 typed 结果。
+  `Reject`、`Faults`、dimensions、representative 与 typed 结果；每个测试
+  显式调用九个场景行，无通用 runner；floor 与 Unknown 空 Value 另有互锁。
 - 无外部网络；不写入 `testdata`，不冒充 provider capture；不新增 DSL、
   代码生成或 `suite.RunAll`（0040）。
 - 出口：矩阵覆盖全部 `RegisteredNames()`；新增方法缺矩阵行即失败。
 
-### T09.2 字段生命周期不变量（重点）
+### T09.2 字段生命周期不变量（已完成）
 
 - 每个方法的受保护字段在方法契约中列出进入依据（已有口径），并在每一阶段
   登记处置：required/optional、是否进比较键、是否进 Value、是否派生、
@@ -442,24 +455,28 @@ L2 仍缺 `eth_syncing` 对象态，批次级 L2 不能宣称完成。
   逐字节不变，代表源按第 7 节变化。
 - 变异测试：删除或篡改受保护字段必须使 Admit/EncodeCheck 失败；不得靠省略
   字段制造簇内字节相等，不得回退到其他来源的值。
-- 往返：`typed(raw_i) == typed(Encode(raw_i))`；派生字段用
+- 往返：`typed(raw_i) == typed(Encode(raw_i))`，两边的 typed 结果都来自生产
+  Client/adapter probe，不用测试侧摘要解码；派生字段用
   `derive(protected(raw_i))` 校验编码结果。
 - 守恒：每份 observation 的字段去向可追踪（Value / Extensions / Diagnostics /
   reductive deletion / admission-or-encode fault），不得无记录消失。
-- 静态互锁：schema/encoder 新增字段而契约或测试未声明处置时 CI 失败；
-  复用现有 coverage gate 与 admission index，不建第二份字段表。
+- 静态互锁：schema/encoder 新增字段（含嵌套 tx/log/receipt/fee 路径）而契约
+  或测试未声明处置时 CI 失败；复用现有 coverage gate 与 admission index，
+  不建第二份字段表。
 - 出口：上述不变量覆盖全部已注册方法；WSS missing/null 仍按决策 0056 显式
   标注，不把传输缺口写成字段稳定。
 
-### T09.3 证据边界
+### T09.3 证据边界（已完成）
 
 真实捕获仍是 wire 形状、限流、方言和字段缺失的唯一证据；T09 的合成场景
 不进入 `testdata/*/<batch>`，不产生 provider 兼容结论。T09 不修 WSS
-presence，也不改变裁决门槛、分母或方法数量。
+presence，也不改变裁决门槛、分母或方法数量。`eth_syncing` 的 progress
+object 不进入 T09 合成证据（决策 0061、pipeline 5.1.1）；T09 只覆盖其合法
+顶层形态，对象态仍是 capture gap。
 
-建议顺序：T09.2 先覆盖已注册方法（不等待组 3）→ T09.1 全注册方法矩阵 →
-T09.3 整体收口审计。两条实现轨道独立提交，均不与捕获批次混合；组 3 捕获只
-能按同一字段 gate 审阅，不能替代 T09 合成不变量。
+实际执行顺序：T09.2 先覆盖已注册方法（不等待组 3）→ T09.1 全注册方法矩阵 →
+T09.3 收口。两条实现轨道独立提交，均不与捕获批次混合；组 3 捕获只能按同一
+字段 gate 审阅，不能替代 T09 合成不变量。
 
 ## T10（已结项）：外部可验证测试与 live 证据边界
 
@@ -776,8 +793,8 @@ Live canary 不要求每次出现冲突，也不把没有冲突当作安全证�
 
 - 截至本节写入前，仓库不存在 T10 文档、分支、决策或历史提交；工作树干净，
   分支只有 `master`、`backup-t06-stack`、`origin/master`，无 stash/tag。
-- T09 是当前唯一已立项但未开工的测试里程碑（见上文 T09.1 / T09.2 /
-  T09.3）。
+- （历史快照，写于 T10 结项时）当时 T09 是唯一已立项但未开工的测试里程碑。
+  T09 已于 2026-10-24 实现完成，状态以上文 T09 节为准。
 - Reference Policy 仍是临时参考方案，不是决策、不授权实现
   （`reference-policy-proposal.md`）。
 - 此前对话中的 T10-A/T10-B 是提案，不是已归档范围。
