@@ -151,7 +151,7 @@ func (a *FinalizedHeadAnchor) AnchorReference(ctx context.Context) (rpc.Referenc
 			quorum, mode = snapshot.Floor, snapshot.Mode
 		}
 	}
-	return reference.Finalized(ctx, reference.PoolHeadReader{Pool: a.pool}, a.maxLag, quorum, mode, a.timeout, a.rec)
+	return reference.Finalized(ctx, &reference.PoolHeadReader{Pool: a.pool}, a.maxLag, quorum, mode, a.timeout, a.rec)
 }
 
 func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {

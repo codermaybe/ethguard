@@ -32,10 +32,15 @@ type HeadReader interface {
 }
 
 // PoolHeadReader adapts the current pool to HeadReader. It is the only place
-// in this package that knows the pool's collection API.
-type PoolHeadReader struct{ Pool *pool.Pool }
+// in this package that knows the pool's collection API. A reader is created
+// per reference invocation so it can retain the first-round member snapshot
+// for confirmation, even if the pool changes concurrently.
+type PoolHeadReader struct {
+	Pool    *pool.Pool
+	members []*pool.Source
+}
 
-func (r PoolHeadReader) Read(ctx context.Context, tag string, timeout time.Duration) ([]HeadObservation, error) {
+func (r *PoolHeadReader) Read(ctx context.Context, tag string, timeout time.Duration) ([]HeadObservation, error) {
 	if r.Pool == nil {
 		return nil, fmt.Errorf("reference: nil head pool")
 	}
@@ -43,16 +48,32 @@ func (r PoolHeadReader) Read(ctx context.Context, tag string, timeout time.Durat
 	if value, ok := refcontext.Members(ctx); ok {
 		opts.Sources, _ = value.([]*pool.Source)
 	}
+	if opts.Sources != nil {
+		r.members = append([]*pool.Source(nil), opts.Sources...)
+	}
 	emissions, err := r.Pool.Collect(ctx, methods.MethodGetBlockByNumber, []any{tag, false}, opts)
 	return observations(emissions), err
 }
 
-func (r PoolHeadReader) Confirm(ctx context.Context, height uint64, sourceIDs []string, timeout time.Duration) ([]HeadObservation, error) {
+func (r *PoolHeadReader) Confirm(ctx context.Context, height uint64, sourceIDs []string, timeout time.Duration) ([]HeadObservation, error) {
 	if r.Pool == nil {
 		return nil, fmt.Errorf("reference: nil head pool")
 	}
+	opts := pool.CollectOptions{Timeout: timeout, SourceIDs: sourceIDs}
+	if r.members != nil {
+		byID := make(map[string]*pool.Source, len(r.members))
+		for _, source := range r.members {
+			byID[source.ID()] = source
+		}
+		opts.SourceIDs = nil
+		for _, id := range sourceIDs {
+			if source := byID[id]; source != nil {
+				opts.Sources = append(opts.Sources, source)
+			}
+		}
+	}
 	emissions, err := r.Pool.Collect(ctx, methods.MethodGetBlockByNumber,
-		[]any{fmt.Sprintf("0x%x", height), false}, pool.CollectOptions{Timeout: timeout, SourceIDs: sourceIDs})
+		[]any{fmt.Sprintf("0x%x", height), false}, opts)
 	return observations(emissions), err
 }
 
