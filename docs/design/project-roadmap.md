@@ -66,7 +66,7 @@
 | T07.0–T07.2 | Core/Extension/Diagnostics 模型；门槛内部化，用户 quorum 配置移除；单一评估 seam | 决策 0050 |
 | T07.3–T07.5 | Chainlist 形态探查；`cmd/specbundle` + specdiff CI 门禁 + projector/encoder coverage gate；端到端默认化验收 | 决策 0051（含 receipt `from` 回归官方字段） |
 | T08.1 | revert context/value 分离：`Decision.Revert` + context-free Value + replay 禁止 envelope 回流 | `9c00b87`、决策 0052 |
-| 代码库拓扑迁移 M0–M4 | 目录按 Module ownership、verification seam、唯一 runtime、typed、Transport 和 Head-Reading 边界收敛；root 外部验证已移入 `internal/verification/integration` | `cb86a34`、`72d2153`、`eca3534`、`8f9c4e1`；终审基线见 `docs/design/tmp/codebase-topology-synthesis.md` |
+| 代码库拓扑迁移 M0–M4 | 目录按 Module ownership、verification seam、唯一 runtime、typed、Transport 和 Head-Reading 边界收敛；root 外部验证已移入 `internal/verification/integration` | `cb86a34`、`72d2153`、`eca3534`、`8f9c4e1`、`807e0ba`；终审基线见 `docs/design/tmp/codebase-topology-synthesis.md` |
 
 ## T05：运行期证据与可观测性
 
