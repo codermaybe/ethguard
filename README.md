@@ -229,7 +229,7 @@ the WSS path does not distinguish those two cases.
 
 See the [architecture record](docs/design/architecture-record.md),
 [architecture](docs/architecture.md), [aggregation overview (historical)](docs/design/rpc-aggregation.md),
-[codebase topology](docs/design/codebase-topology.md), the [proxyd comparison](docs/design/proxyd-comparison.md), and [threat model](docs/threat-model.md)
+[architecture recovery](docs/design/architecture-recovery.md), [codebase topology](docs/design/codebase-topology.md), the [proxyd comparison](docs/design/proxyd-comparison.md), and [threat model](docs/threat-model.md)
 for the security properties and method boundaries.
 
 Sources are treated as equal voting members. EthGuard does not model provider,

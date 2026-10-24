@@ -200,7 +200,7 @@ if snapshot.Truncated {
 与 JSON `null` 的区别；WSS 路径无法区分这两种情况。
 
 参见[架构记录](docs/design/architecture-record.md)、[架构说明](docs/architecture.md)、
-[代码库拓扑](docs/design/codebase-topology.md)、[聚合概览(历史综述)](docs/design/rpc-aggregation.md)、[proxyd 对比](docs/design/proxyd-comparison.md)
+[架构恢复记忆](docs/design/architecture-recovery.md)、[代码库拓扑](docs/design/codebase-topology.md)、[聚合概览(历史综述)](docs/design/rpc-aggregation.md)、[proxyd 对比](docs/design/proxyd-comparison.md)
 和[威胁模型](docs/threat-model.md)，了解安全属性和方法边界。
 
 所有来源都被视为相同的投票成员。EthGuard 不建模 provider、区域、客户端家族或权重
