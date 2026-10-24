@@ -216,3 +216,33 @@ func TestRevertSamplesUseDistinctDataKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestCallRevertCanonicalDataValue pins 0061: the accepted data projection
+// has one spelling, while the representative still follows capture order.
+func TestCallRevertCanonicalDataValue(t *testing.T) {
+	policy := CallPolicy(nil, rpc.WithQuorum(2))
+	a := rpc.SourceRef{Name: "a", ID: "a"}
+	b := rpc.SourceRef{Name: "b", ID: "b"}
+	hexA := rpcErrorObs("a", 3, "execution reverted", `"0xDEAD"`)
+	hexB := rpcErrorObs("b", -32000, "execution reverted", `"0xdead"`)
+	for _, order := range [][]rpc.Observation{{hexA, hexB}, {hexB, hexA}} {
+		decision := resolvePair(t, policy, order...)
+		if string(decision.Value) != `{"data":"0xdead"}` {
+			t.Fatalf("hex data Value = %s", decision.Value)
+		}
+	}
+	objectA := rpcErrorObs("a", 3, "execution reverted", `{"b":2,"a":1}`)
+	objectB := rpcErrorObs("b", 3, "execution reverted", `{ "a": 1, "b": 2 }`)
+	objectC := rpcErrorObs("c", 3, "execution reverted", `{"a":1.0,"b":2}`)
+	for _, order := range [][]rpc.Observation{{objectA, objectB, objectC}, {objectC, objectA, objectB}} {
+		decision := resolvePair(t, policy, order...)
+		if string(decision.Value) != `{"data":{"a":1,"b":2}}` {
+			t.Fatalf("non-hex data Value = %s", decision.Value)
+		}
+	}
+	first := resolvePair(t, policy, hexA, hexB)
+	second := resolvePair(t, policy, hexB, hexA)
+	if first.Representative != a || second.Representative != b {
+		t.Fatalf("representatives = %+v/%+v, want a/b", first.Representative, second.Representative)
+	}
+}

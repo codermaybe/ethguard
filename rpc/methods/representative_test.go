@@ -18,9 +18,10 @@ var errExecutionReverted = errors.New("execution reverted")
 
 // TestRepresentativeIsFirstCapturedSource pins the source selection rule:
 // when two sources share a comparison key but spell the payload differently,
-// Value, Provenance, and the withheld data all come from the first source in
-// the captured order. Swapping the order must change the Value bytes. The
-// test must not assert that reordering leaves the bytes unchanged.
+// Representative, Provenance, and withheld data come from the first source in
+// captured order. A non-canonical value (identityKey) also keeps that source's
+// bytes in Value, so swapping moves the bytes. eth_call's accepted data
+// projection is canonical (0061): Representative moves but Value does not.
 func TestRepresentativeIsFirstCapturedSource(t *testing.T) {
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
@@ -37,7 +38,7 @@ func TestRepresentativeIsFirstCapturedSource(t *testing.T) {
 		first := revertObservation(a, `"0xDEAD"`, `{"from":"a"}`)
 		second := revertObservation(b, `"0xdead"`, `{"from":"b"}`)
 		decision := resolvePair(t, policy, first, second)
-		if string(decision.Value) != `{"data":"0xDEAD"}` || decision.Revert == nil || decision.Revert.Code != 3 {
+		if string(decision.Value) != `{"data":"0xdead"}` || decision.Revert == nil || decision.Revert.Code != 3 {
 			t.Fatalf("value/context = %s/%+v", decision.Value, decision.Revert)
 		}
 		swapped := resolvePair(t, policy, second, first)

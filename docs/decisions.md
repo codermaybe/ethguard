@@ -2274,3 +2274,45 @@ presence, and source-attributed evidence. That seam must preserve the
 go-ethereum-facing API and types while allowing EthGuard to control and test
 the provider-facing behavior. This is an ownership boundary, not a claim that
 EthGuard's transport becomes a new Ethereum standard.
+
+## 0061. Revert data spelling and local whole-answer shape are canonical/admissible
+
+Status: Accepted (2026-10-24). This is a representation and admission fix, not
+a change to clustering, thresholds, voting modes, or the protected field set.
+It supersedes the pre-3a wording in `return-value-design.md` section 14.2 that
+let an accepted revert data spelling follow the representative source.
+
+`eth_call` already separates provider `code`/`message` into `Decision.Revert`
+(0052). For a corroborated revert whose data cluster reaches the threshold, the
+`data` member of `Decision.Value` is now rendered in one canonical spelling:
+valid hex bytes are lowercased while preserving the `0x` prefix, and non-hex
+JSON data is reduced through the same generic JSON decode already used by the
+data comparison key. The representative still selects which admitted envelope
+supplies the accepted data projection; it no longer decides whether `0xDEAD`
+or `0xdead` appears in Value. Withheld, missing, null, split, and empty data
+keep rule 4e's existing deletion/abstain behavior; `code` and `message` stay
+out of Value.
+
+`eth_syncing` and `net_listening` are upstream-local whole-answer methods.
+Their policies now admit only the wire shapes the method contract defines:
+`eth_syncing` accepts `false` or a progress object, and `net_listening` accepts
+a boolean. JSON `null`, `true` for syncing, scalars, and other top-level shapes
+are normalization faults. Legal answers still resolve as `Selected` and never
+become `Corroborated`; no threshold or denominator changes.
+
+Why: T09.2's protected-Value invariant cannot hold if rotating capture order
+moves the `eth_call` data spelling, and T09.1's notfound scenario cannot
+distinguish absence from a negative local state if `null` unmarshals to
+`false`. Alternatives considered: keep representative spelling and mark the
+gap (rejected: contradicts the canonical-Value direction of 0041/0047 and the
+T09 invariant); add a second runtime field registry (rejected by 0040); change
+the generic Local resolver for every method (rejected: peer counts and future
+local methods have their own shape gates). The fix stays at the method's
+normalizer/canonical data projection.
+
+Focused evidence:
+`TestCallRevertCanonicalDataValue` (rotated hex/non-hex spellings produce one
+Value, representative still moves), `TestLocalWholeAnswerShapeAdmission`
+(`eth_syncing`/`net_listening` admit legal shapes and fault null/wrong types),
+and `TestRepresentativeIsFirstCapturedSource` (representative/provenance rules
+unchanged where the value key is not canonical).

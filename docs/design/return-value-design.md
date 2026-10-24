@@ -5,8 +5,10 @@
 0051 supersedes the older receipt-specific `from` exclusion wording below.
 0052 additionally separates `eth_call` revert `code`/`message` into
 `Decision.Revert`; the protected Value carries only the accepted data
-projection. The older sections describing the full revert envelope in Value
-are historical statements of the pre-T08 implementation.
+projection. 0061 canonicalizes that accepted data spelling so Value no longer
+follows the representative's hex case or JSON formatting. The older sections
+describing the full revert envelope or representative-spelling data in Value
+are historical statements of the pre-T08/pre-0061 implementation.
 
 2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据。T08 已落地其中的 eth_call、区块、交易和证据通道边界；下文保留的“阶段 0/3a/3b 尚未实现”句子是当时的历史快照，不描述当前代码。
 
@@ -443,7 +445,7 @@ eRPC 用语义键分簇，达到门槛后返回获胜簇里一份上游原文，
 
 ### 14.2 `eth_call` 的 code 与 message
 
-口径：做法甲，已锁定。code 与 message 不进受保护域，也不按 geth 规则合成信封。做法乙（合成固定信封）不是未决项。要改成乙必须另立决策，不能在实现时选择。0052 进一步明确： corroborated revert 的 `Decision.Value` 只保留已接受的 data 投影，provider 的 code/message 改由 `Decision.Revert` 承载为上下文，不进入比较键与受保护 Core。
+口径：做法甲，已锁定。code 与 message 不进受保护域，也不按 geth 规则合成信封。做法乙（合成固定信封）不是未决项。要改成乙必须另立决策，不能在实现时选择。0052 进一步明确： corroborated revert 的 `Decision.Value` 只保留已接受的 data 投影，provider 的 code/message 改由 `Decision.Revert` 承载为上下文，不进入比较键与受保护 Core。0061 (2026-10-24) 进一步规定该 data 投影使用单一规范拼写：hex 小写且保留 `0x`，非 hex JSON 走与比较键相同的通用解码；代表源仍选择接受哪一份 data，但不再决定 Value 的拼写。下面的“阶段 3a 之前 / 之后”叙述保留为历史，其中“revert Value 随代表源整份原文改变”的拼写部分已被 0061 取代。
 
 Admission、Withheld 与代表源是同一个来源。两段时期不要写成同一句：
 

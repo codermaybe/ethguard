@@ -1,7 +1,9 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -437,12 +439,54 @@ func revertValue(raw json.RawMessage, keepData bool) json.RawMessage {
 	delete(fields, "message")
 	if !keepData {
 		delete(fields, "data")
+	} else if data, ok := fields["data"]; ok {
+		fields["data"] = canonicalRevertData(data)
 	}
 	out, err := json.Marshal(fields)
 	if err != nil {
 		return append(json.RawMessage(nil), raw...)
 	}
 	return out
+}
+
+// canonicalRevertData renders the accepted data projection in one spelling.
+// Hex bytes are lowercased; a non-hex JSON value is re-marshaled compactly.
+// This keeps Decision.Value independent of the representative source's
+// spelling without changing the data comparison key (which already
+// canonicalizes the same distinctions before adjudication).
+func canonicalRevertData(raw json.RawMessage) json.RawMessage {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return append(json.RawMessage(nil), raw...)
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return json.RawMessage("null")
+	}
+	var text string
+	if err := json.Unmarshal(trimmed, &text); err == nil {
+		if strings.EqualFold(text, "0x") {
+			encoded, _ := json.Marshal("0x")
+			return encoded
+		}
+		if len(text) >= 4 && strings.EqualFold(text[:2], "0x") && len(text[2:])%2 == 0 {
+			if _, err := hex.DecodeString(text[2:]); err == nil {
+				encoded, _ := json.Marshal("0x" + strings.ToLower(text[2:]))
+				return encoded
+			}
+		}
+		encoded, _ := json.Marshal(text)
+		return encoded
+	}
+	// The comparison key already reduced non-string data through the same
+	// generic decode; reuse that spelling so Value cannot follow the
+	// representative's whitespace, key order, or numeric formatting.
+	var value any
+	if err := json.Unmarshal(trimmed, &value); err == nil {
+		if encoded, err := json.Marshal(value); err == nil {
+			return encoded
+		}
+	}
+	return append(json.RawMessage(nil), trimmed...)
 }
 
 func cloneRevertContext(value *RevertContext) *RevertContext {
