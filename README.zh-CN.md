@@ -22,15 +22,15 @@ provider 提供的证据，不是 Ethereum 共识、规范链证明、密码学�
 
 ```text
 ethguard/                   # 公共 Client 外观
-├── client.go               # 组合根：Client、New、Pool、Close
-├── call.go                 # 通用调用流水线和类型化解码（Call、CallInto[T]）
+├── client.go               # 公共 Client facade、New、Pool、Close
+├── call.go                 # 通用调用入口和兼容性委托（Call、CallInto[T]）
 ├── eth.go                  # 类型化便捷方法
 ├── anchor.go               # 移动标签读取背后的锚定策略
 ├── write.go                # 写入流水线（独立的裁决流程）
 ├── errors.go               # 分类哨兵错误
 ├── uncertain.go            # 按调用选择的捕获（包括厂商方言证据）
 ├── config/                 # Go 配置和 YAML 配置
-├── pool/                   # 上游生命周期、健康度、tip 和准入资格
+├── pool/                   # 上游生命周期、Transport Port、健康度和准入资格
 ├── observe/                # 被动可观测性接口
 │   └── prometheus/         # 可选指标适配器（不放入核心）
 ├── aggregator/             # 只负责编排：Collect → Admit → Resolve
@@ -46,18 +46,22 @@ ethguard/                   # 公共 Client 外观
 │       ├── objects/        # 区块、收据、交易、日志、feeHistory 规则
 │       └── policy/         # 共享准入装饰器
 ├── internal/
+│   ├── runtime/            # 唯一 Composition Root：methods、projector、aggregator 装配
+│   ├── typed/              # 唯一生产 typed projection；root 和 ethadapter 共用
 │   ├── jsonsafe/           # 有界 JSON 校验（重复键/大小限制）
-│   ├── reference/          # 内部 finalized/reference 建立
+│   ├── reference/          # reference 建立和 Head-Reading Port
 │   ├── refcontext/         # 每次调用的 reference 传播
 │   ├── uncertain/          # 按调用捕获原始证据
 │   ├── chainlist/          # chain list 数据和加载
 │   ├── rpcsample/          # 采样计划和记录支持
-│   └── spec/               # 固定的规范参考数据（不是手写代码）
+│   ├── spec/               # 固定的规范参考数据（不是手写代码）
 │       ├── VERSION         # execution-apis 版本固定点，唯一来源
 │       ├── methods.json    # 精简后的方法结果契约（约 100KB）
 │       ├── vectors/        # 从 tests/*.io 提取的符合性向量
 │       └── README.md       # 来源、升级流程和审计指南
-├── ethadapter/             # 面向 ethclient 的类型化接口
+│   └── verification/       # 面向公开 seam 的跨模块验证
+│       └── integration/    # 首阶段集成验证；后续按 contracts/scenarios/replay 细分
+├── ethadapter/             # 只委托 root facade 的 ethclient 形态接口
 ├── rpctest/                # 基于真实 HTTP 的进程内可编排 Ethereum 节点测试工具
 ├── cmd/                    # 可执行入口（soak、rpcsample、shapeprobe、specbundle、specdiff）
 ├── docs/                   # 架构、威胁模型和设计说明
@@ -67,16 +71,20 @@ ethguard/                   # 公共 Client 外观
 
 | 包 | 作用 |
 | --- | --- |
-| `ethguard/ethadapter` | 支持方法的主要 ethclient 形态客户端 |
-| `ethguard` | 高级 `Client`、组合根、通用调用和证据 |
+| `ethguard/ethadapter` | 通过 root facade 提供支持方法的 ethclient 形态客户端 |
+| `ethguard` | 公共 `Client` facade、通用调用和证据 |
 | `ethguard/config` | Go 构造和 YAML 加载共用的一套配置模型 |
-| `ethguard/pool` | 共享上游连接、采集、健康度、tip 和准入资格 |
+| `ethguard/pool` | 共享上游连接、Transport Port、采集、健康度和准入资格 |
 | `ethguard/observe` | 可观测性事件（`Recorder`），不参与安全决策 |
 | `ethguard/aggregator` | 语义门槛、冲突和证据 |
 | `ethguard/rpc` | 公共请求、裁决、策略、观察和证据模型 |
 | `ethguard/rpc/projection` | 标准字段投影和扩展 Carrier 组装 |
 | `ethguard/rpc/methods` | 具体 Ethereum JSON-RPC 方法、策略和目录 |
 | `ethguard/rpc/internal` | 内部 wire、对象和准入实现 |
+| `ethguard/internal/runtime` | 唯一 Composition Root，绑定 methods、projector 和 aggregator |
+| `ethguard/internal/typed` | 唯一生产 typed decoder/projection |
+| `ethguard/internal/reference` | reference 算法和 Head-Reading Port |
+| `ethguard/internal/verification` | 面向公开 seam 的契约、场景、集成和回放验证 |
 | `ethguard/internal/spec` | 固定的 execution-apis 参考数据（版本、schema、向量） |
 | `ethguard/rpctest` | 基于真实 HTTP 的可编排多源测试工具 |
 
@@ -84,10 +92,13 @@ ethguard/                   # 公共 Client 外观
 不应为每个请求重新拨号，也不应为每个 goroutine 克隆 pool。Client 生命周期结束
 时应由所有者调用 `Close`。
 
-分层规则：`aggregator` 只了解 `rpc.Policy` / `AdmissionPolicy` 接口，不导入
-`methods`；`rpc` 也不导入 `methods`（已通过 `go build ./...` 保持无循环依赖）。
-Ethereum 方法入口和方法级绑定位于 `rpc/methods`。共享的 wire 规范化、裁剪、对象
-语义和准入辅助位于 `rpc/internal`；标准投影通过 `rpc/projection` 暴露。
+分层规则：`internal/runtime` 是唯一 Composition Root，负责把 methods、projector、
+aggregator 和 reference seam 绑定起来；`ethadapter` 只委托 root facade，不导入
+runtime。`aggregator` 只了解 `rpc.Policy` / `AdmissionPolicy` 接口，不导入
+`methods`；`rpc` 也不导入 `methods`。Ethereum 方法入口和方法级策略位于
+`rpc/methods`；共享的 wire 规范化、裁剪、对象语义和准入辅助位于 `rpc/internal`。
+`pool` 定义最小 Transport Port，`internal/reference` 定义 Head-Reading Port，
+两者都不承载方法 policy 组装或业务裁决。标准投影通过 `rpc/projection` 暴露。
 
 - **R1 – 切片准入。** 只由一个方法使用的形状（feeHistory、syncing、accessList、
   call/estimateGas、quantity 读取）留在 `eth_*.go` 中；只有被至少两个方法共享或
@@ -98,13 +109,13 @@ Ethereum 方法入口和方法级绑定位于 `rpc/methods`。共享的 wire 规
 - **R3 – 数据而非生成代码。** `internal/spec` 保存固定的 execution-apis 参考数据
   （VERSION、精简的 `methods.json`、符合性向量），除了 embed accessor 外不包含
   手写逻辑。白名单树在 init 时由同一个 bundle 编译，测试也校验该 bundle；没有
-  生成 Go 代码和新鲜度缺口。解码（`call.go`）和准入共享编译后的 mask；严格的
-  requiredness 仍由各切片按 fork 手写。
+  生成 Go 代码和新鲜度缺口。生产 typed 解码位于 `internal/typed`，root 和
+  `ethadapter` 共用；严格的 requiredness 仍由各切片按 fork 手写。
 - **R4 – 清单互锁。** 测试确保 `catalog.go` 中的每个已注册方法都在
   `spec_tables.go` 中有 schema 映射。
-- **Anchor 分层。** 公共 anchor 接口（`ReferenceResolver`、`StrictHeadAnchor`、
-  options）位于根目录 `anchor.go`；具体机制位于 `internal/reference` 和
-  `internal/refcontext`。
+- **Anchor 分层。** 公共 anchor facade（`ReferenceResolver`、`StrictHeadAnchor`、
+  options）位于根目录 `anchor.go`；reference 算法和 Head-Reading Port 位于
+  `internal/reference`，调用内传播位于 `internal/refcontext`。
 - **两种类型化接口。** `eth.go`（根 `Client`）为高级调用方返回带有 `rpc.Decision`
   证据的值；`ethadapter` 返回 ethclient 形态的值供直接替换使用。adapter 只做
   形状转换并委托根能力，不能再实现第二套解码器。

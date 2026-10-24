@@ -66,6 +66,7 @@
 | T07.0–T07.2 | Core/Extension/Diagnostics 模型；门槛内部化，用户 quorum 配置移除；单一评估 seam | 决策 0050 |
 | T07.3–T07.5 | Chainlist 形态探查；`cmd/specbundle` + specdiff CI 门禁 + projector/encoder coverage gate；端到端默认化验收 | 决策 0051（含 receipt `from` 回归官方字段） |
 | T08.1 | revert context/value 分离：`Decision.Revert` + context-free Value + replay 禁止 envelope 回流 | `9c00b87`、决策 0052 |
+| 代码库拓扑迁移 M0–M4 | 目录按 Module ownership、verification seam、唯一 runtime、typed、Transport 和 Head-Reading 边界收敛；root 外部验证已移入 `internal/verification/integration` | `cb86a34`、`72d2153`、`eca3534`、`8f9c4e1`；终审基线见 `docs/design/tmp/codebase-topology-synthesis.md` |
 
 ## T05：运行期证据与可观测性
 
@@ -919,6 +920,21 @@ tag 作为固定前提。
 - pool 大规模重构。
 - 跨调用 anchor cache。
 - 仅为扩大方法数量而新增 RPC 方法。
+
+## 结构迁移后的下一步
+
+代码库拓扑迁移 M0–M4 已完成并通过全量离线验证。下一阶段不再扩大方法覆盖，按以下
+顺序继续架构收敛：
+
+1. 在 `internal/testkit` 稳定后，将现有 `internal/verification/integration` 中共享
+   fixture 的测试按 `contracts`、`scenarios`、`replay` 细分；不为填目录而导出测试专用
+   生产 API。
+2. 以已落地的 `internal/runtime`、`internal/typed`、`pool.Transport` 和
+   `internal/reference.HeadReader` 为边界，清理 README、旧架构说明和重复术语。
+3. 在 seam 稳定后，再评估 rpc/methods 内部文件是否存在真实的功能所有权聚类；不因文件
+   数量本身拆成浅层 package。
+4. 之后才进入现有对接代码的实现层优化，为未来 RPC/ethclient seam 对接减少冗余；不得
+   在这一步重新定义 quorum、Decision、reference policy 或方法契约。
 
 ## 每个新方法的进入条件
 

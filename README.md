@@ -27,15 +27,15 @@ verification. Multiple URLs need not be independent.
 
 ```text
 ethguard/                   # public Client facade
-├── client.go               # composition root: Client, New, Pool, Close
-├── call.go                 # generic call pipeline + typed decode (Call, CallInto[T])
+├── client.go               # public Client facade, New, Pool, Close
+├── call.go                 # generic call entrypoints and compatibility delegates
 ├── eth.go                  # typed convenience methods
 ├── anchor.go               # anchoring strategies behind moving-tag reads
 ├── write.go                # write pipeline (independent decision flow)
 ├── errors.go               # classified sentinel errors
 ├── uncertain.go            # opt-in per-invocation capture (incl. vendor-dialect evidence)
 ├── config/                 # programmatic and YAML configuration
-├── pool/                   # upstream lifecycle, health, tips, and eligibility
+├── pool/                   # upstream lifecycle, Transport Port, health, eligibility
 ├── observe/                # passive observability seam
 │   └── prometheus/         # optional metrics adapter (kept out of core)
 ├── aggregator/             # orchestration only: Collect → Admit → Resolve
@@ -51,18 +51,22 @@ ethguard/                   # public Client facade
 │       ├── objects/        # block, receipt, transaction, log, feeHistory rules
 │       └── policy/         # shared admission decorator
 ├── internal/
+│   ├── runtime/            # sole Composition Root for methods, projectors, aggregator
+│   ├── typed/              # sole production typed projection shared by facades
 │   ├── jsonsafe/           # bounded JSON validation (duplicate keys/limits)
-│   ├── reference/          # internal finalized/reference establishment
+│   ├── reference/          # reference algorithm and Head-Reading Port
 │   ├── refcontext/         # per-invocation reference propagation
 │   ├── uncertain/          # invocation-scoped raw evidence capture
 │   ├── chainlist/           # chain-list data and loading
 │   ├── rpcsample/           # sampling plan/recording support
-│   └── spec/               # pinned standard reference data (not hand code)
+│   ├── spec/               # pinned standard reference data (not hand code)
 │       ├── VERSION         # execution-apis release pin, single source
 │       ├── methods.json    # trimmed per-method result contracts (~100KB)
 │       ├── vectors/        # conformance vectors extracted from tests/*.io
 │       └── README.md       # provenance, upgrade procedure, audit guide
-├── ethadapter/             # ethclient-shaped surface over the corroborated core
+│   └── verification/       # cross-module verification through public seams
+│       └── integration/    # first safe slice; later contracts/scenarios/replay split
+├── ethadapter/             # ethclient-shaped surface delegating to the root facade
 ├── rpctest/                # in-process scriptable Ethereum nodes for tests
 ├── cmd/                    # executable entries (soak, rpcsample, shapeprobe, specbundle, specdiff)
 ├── docs/                   # architecture, threat model, and design notes
@@ -72,16 +76,20 @@ ethguard/                   # public Client facade
 
 | Package | Role |
 |---------|------|
-| `ethguard/ethadapter` | Primary ethclient-shaped client for supported methods |
-| `ethguard` | Advanced `Client`, composition root, generic calls and evidence |
+| `ethguard/ethadapter` | Primary ethclient-shaped client through the root facade |
+| `ethguard` | Public `Client` facade, generic calls and evidence |
 | `ethguard/config` | One configuration model for Go construction and YAML loading |
-| `ethguard/pool` | Shared upstream connections, collection, health, tips, eligibility |
+| `ethguard/pool` | Shared upstream connections, Transport Port, collection, health, eligibility |
 | `ethguard/observe` | Observability events (`Recorder`); never a source of security decisions |
 | `ethguard/aggregator` | Semantic quorum, conflicts, and evidence |
 | `ethguard/rpc` | Public request, decision, policy, observation, and evidence model |
 | `ethguard/rpc/projection` | Standard-field projection and extension Carrier assembly |
 | `ethguard/rpc/methods` | Concrete Ethereum JSON-RPC methods, policies, and catalog |
 | `ethguard/rpc/internal` | Internal wire, object, and admission implementations |
+| `ethguard/internal/runtime` | Sole Composition Root binding methods, projectors, and aggregator |
+| `ethguard/internal/typed` | Sole production typed decoder/projection |
+| `ethguard/internal/reference` | Reference algorithm and Head-Reading Port |
+| `ethguard/internal/verification` | Contract, scenario, integration, and replay verification through seams |
 | `ethguard/internal/spec` | Pinned execution-apis reference data (version, schemas, vectors) |
 | `ethguard/rpctest` | Scriptable multi-source test harness over real HTTP |
 
@@ -89,11 +97,15 @@ Concurrency model: one shared `Client` / `pool.Pool` per process use-case;
 sources keep long-lived connections. Callers should not dial per request or
 clone pools per goroutine. Owners should close the Client when its lifetime ends.
 
-Layering rules: `aggregator` only knows the `rpc.Policy` / `AdmissionPolicy`
-interfaces and never imports `methods`; `rpc` never imports `methods`
-(corroborated: no import cycle, `go build ./...` passes). Ethereum method entrypoints and method-specific binding live in `rpc/methods`.
-Shared wire normalization, pruning, object semantics, and admission helpers live
-in `rpc/internal`; standard projection is exposed through `rpc/projection`.
+Layering rules: `internal/runtime` is the sole Composition Root. It binds methods,
+projectors, the aggregator, and reference seams; `ethadapter` delegates through
+the root facade and does not import runtime. `aggregator` only knows the
+`rpc.Policy` / `AdmissionPolicy` interfaces and never imports `methods`; `rpc`
+never imports `methods`. Ethereum method entrypoints and method-specific policy
+live in `rpc/methods`. `pool` owns the minimal Transport Port and
+`internal/reference` owns the Head-Reading Port; neither carries method policy
+assembly or business adjudication. Shared wire normalization, pruning, object
+semantics, and admission helpers live in `rpc/internal`.
 
 - **R1 – slice admission.** Shapes used by one method only (feeHistory,
   syncing, accessList, call/estimateGas, quantity reads) stay in `eth_*.go`;
@@ -107,14 +119,15 @@ in `rpc/internal`; standard projection is exposed through `rpc/projection`.
   execution-apis reference data (VERSION, trimmed `methods.json`, conformance
   vectors) and contains no hand-written logic beyond the embed accessor.
   Whitelist trees compile at init from the same bundle tests validate against —
-  there is no generated Go and no freshness gap. Decode (`call.go`) and
-  admission share the compiled masks; strict requiredness stays fork-aware and
-  hand-written in the slices.
+  there is no generated Go and no freshness gap. Production typed projection
+  lives in `internal/typed` and is shared by the root facade and `ethadapter`;
+  strict requiredness stays fork-aware and hand-written in the slices.
 - **R4 – inventory interlock.** Tests enforce that every registered method in
   `catalog.go` has a schema mapping in `spec_tables.go`.
-- **Anchor layering.** Public anchor surface (`ReferenceResolver`,
-  `StrictHeadAnchor`, options) lives in the root `anchor.go`; mechanics live in
-  `internal/reference` and `internal/refcontext`.
+- **Anchor layering.** The public anchor facade (`ReferenceResolver`,
+  `StrictHeadAnchor`, options) lives in root `anchor.go`; the reference
+  algorithm and Head-Reading Port live in `internal/reference`, with
+  per-invocation propagation in `internal/refcontext`.
 - **Two typed surfaces.** `eth.go` (root `Client`) returns values with
   `rpc.Decision` evidence for advanced callers; `ethadapter` returns
   ethclient-shaped values for drop-in use. The adapter translates shape only
