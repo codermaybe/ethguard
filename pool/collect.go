@@ -455,7 +455,7 @@ func collectOne(ctx context.Context, src *Source, method string, params []any) (
 
 	ctx, body := withRawBody(ctx)
 	var result json.RawMessage
-	err = client.Client().CallContext(ctx, &result, method, params...)
+	err = client.CallContext(ctx, &result, method, params...)
 	if src.isClosed() {
 		return nil, ErrClosed
 	}

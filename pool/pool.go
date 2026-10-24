@@ -26,12 +26,10 @@ var (
 	ErrAllSourcesDown = errors.New("pool: all upstream sources failed to respond")
 )
 
-// dialer establishes long-lived RPC connections to upstream endpoints.
-//
-// It is an interface so that tests can inject a fake dialer instead of reaching
-// a real network. The production dialer dials over the wire and returns a
-// *ethclient.Client owned by a single Source. A source reuses its client for
-// every request; it never dials per call (see architecture.md).
+// dialer establishes long-lived RPC connections to upstream endpoints. It is
+// an internal adapter boundary so tests can inject a fake dialer instead of
+// reaching a real network. The concrete geth client is wrapped in Transport
+// before it enters Source; callers of pool never see that client type.
 type dialer interface {
 	DialContext(ctx context.Context, rawURL string) (*ethclient.Client, error)
 }

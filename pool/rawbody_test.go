@@ -106,7 +106,7 @@ func dialCaptureServer(t *testing.T, rawURL string, limit int64) *ethclient.Clie
 // captures (a box-less call is a transparent pass-through).
 func callWithCapture(t *testing.T, client *ethclient.Client, base context.Context) (json.RawMessage, error) {
 	t.Helper()
-	src := &Source{client: client}
+	src := &Source{client: newTransport(client)}
 	return collectOne(base, src, "eth_chainId", nil)
 }
 

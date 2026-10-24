@@ -7,15 +7,12 @@ import (
 	"math/big"
 	"sync"
 	"time"
-
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 var errWaitingForDial = errors.New("pool: waiting for shared dial")
 
-// Source is a single managed RPC endpoint backed by ethclient only.
-// One Source owns at most one long-lived *ethclient.Client; request paths
-// must reuse it rather than dialing per call.
+// Source is a single managed RPC endpoint backed by one long-lived Transport.
+// Request paths reuse it rather than dialing per call.
 type Source struct {
 	mu sync.RWMutex
 
@@ -41,7 +38,7 @@ type Source struct {
 	// it is closed when that dial settles, waking all waiters.
 	dialing chan struct{}
 
-	client *ethclient.Client
+	client Transport
 	stats  monitor
 	state  SourceState
 	closed bool
@@ -52,7 +49,7 @@ type Source struct {
 // performs the dial while the others wait on dialing; a waiter can give up
 // via its own ctx and then receives errWaitingForDial, which callers must
 // not record as a source failure.
-func (s *Source) clientForCall(ctx context.Context) (*ethclient.Client, error) {
+func (s *Source) clientForCall(ctx context.Context) (Transport, error) {
 	if client, err, ok := s.cachedClient(); ok {
 		return client, err
 	}
@@ -88,7 +85,7 @@ func (s *Source) clientForCall(ctx context.Context) (*ethclient.Client, error) {
 	}
 }
 
-func (s *Source) cachedClient() (client *ethclient.Client, err error, ok bool) {
+func (s *Source) cachedClient() (client Transport, err error, ok bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {
@@ -102,7 +99,7 @@ func (s *Source) cachedClient() (client *ethclient.Client, err error, ok bool) {
 
 // dial establishes the shared client without holding mu across network I/O.
 // The caller becomes the single dialer (it set dialing before calling).
-func (s *Source) dial(ctx context.Context) (*ethclient.Client, error) {
+func (s *Source) dial(ctx context.Context) (Transport, error) {
 	// Cancel this attempt if the caller gives up or the source is closed.
 	dialCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -131,13 +128,14 @@ func (s *Source) dial(ctx context.Context) (*ethclient.Client, error) {
 		s.mu.Unlock()
 		return nil, errors.New("pool: dial returned nil client")
 	}
-	s.client = client
+	transport := newTransport(client)
+	s.client = transport
 	s.state = SourceReady
 	s.mu.Unlock()
-	return client, nil
+	return transport, nil
 }
 
-func (s *Source) discardClient(client *ethclient.Client) {
+func (s *Source) discardClient(client Transport) {
 	s.mu.Lock()
 	if s.client != client || s.closed {
 		s.mu.Unlock()
@@ -307,7 +305,7 @@ func (s *Source) requestable(now time.Time) bool {
 
 var ErrChainIDMismatch = errors.New("pool: upstream chain ID mismatch")
 
-func (s *Source) verifyChainID(ctx context.Context, client *ethclient.Client) error {
+func (s *Source) verifyChainID(ctx context.Context, client Transport) error {
 	if s.expectedChainID == 0 {
 		return nil
 	}

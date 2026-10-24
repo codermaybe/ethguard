@@ -27,7 +27,6 @@ var zeroDirectTestAllowlist = map[string]string{
 	"github.com/codermaybe/ethguard/cmd/specdiff":                  "spec utility; output compared against pinned VERSION",
 	"github.com/codermaybe/ethguard/examples/basic":                "README runnable demo",
 	"github.com/codermaybe/ethguard/examples/migration":            "README runnable demo",
-	"github.com/codermaybe/ethguard/internal/reference":            "finalized/reference establishment covered via root anchor integration tests",
 	"github.com/codermaybe/ethguard/internal/refcontext":           "per-invocation reference propagation covered via root anchor tests",
 	"github.com/codermaybe/ethguard/internal/spec":                 "data-only embed accessor; validated by spec/builder and spec/conformance",
 	"github.com/codermaybe/ethguard/rpc/internal/objects/coverage": "table coverage; enforced by the methods inventory interlock",

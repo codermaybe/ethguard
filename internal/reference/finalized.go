@@ -10,9 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -27,7 +25,7 @@ type view struct {
 // Finalized observes once and, if necessary, confirms one common height once.
 // Membership and the required support are fixed before confirmation. It never
 // retries successively older candidates or relaxes the caller's quorum.
-func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mode rpc.CorroborationMode, timeout time.Duration, rec observe.Recorder) (ref rpc.ReferenceEvidence, resultErr error) {
+func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int, mode rpc.CorroborationMode, timeout time.Duration, rec observe.Recorder) (ref rpc.ReferenceEvidence, resultErr error) {
 	started := time.Now()
 	ref.Origin, ref.ObservedAt, ref.Status = "reported-finalized", started, rpc.Unknown
 	var attempts []observe.SourceEvent
@@ -41,11 +39,7 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 		}
 		rec.RecordDecision(observe.DecisionEvent{Method: "anchor", Status: status, Conflict: errors.Is(resultErr, rpc.ErrConflict), Faults: len(ref.Faults), Duration: time.Since(started), Attempts: attempts})
 	}()
-	firstOpts := pool.CollectOptions{Timeout: timeout}
-	if value, ok := refcontext.Members(ctx); ok {
-		firstOpts.Sources, _ = value.([]*pool.Source)
-	}
-	emissions, collectErr := p.Collect(ctx, methods.MethodGetBlockByNumber, []any{"finalized", false}, firstOpts)
+	emissions, collectErr := reader.Read(ctx, "finalized", timeout)
 	if collectErr != nil {
 		err := fmt.Errorf("collect: %w", collectErr)
 		ref.Faults = append(ref.Faults, err)
@@ -53,9 +47,9 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 	}
 	views := make([]view, 0, len(emissions))
 	for _, emission := range emissions {
-		source := sourceRef(emission)
+		source := emission.Source
 		ref.Participants = append(ref.Participants, source)
-		v, err := decode(emission.Val)
+		v, err := decode(emission.Value)
 		if emission.Err != nil {
 			err = emission.Err
 		}
@@ -130,7 +124,7 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 	observations := make([]rpc.Observation, len(emissions))
 	indexes := make(map[string]int, len(emissions))
 	for i, emission := range emissions {
-		source := sourceRef(emission)
+		source := emission.Source
 		indexes[source.ID] = i
 		observations[i] = rpc.Observation{Source: source, Err: fmt.Errorf("no finalized support for height %d", candidate)}
 	}
@@ -158,28 +152,15 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 	// Reuse an already corroborated candidate; no redundant header fan-out.
 	if initialErr != nil || len(initial.Support) < required {
 		if len(missing) > 0 {
-			confirmOpts := pool.CollectOptions{Timeout: timeout, SourceIDs: missing}
-			if firstOpts.Sources != nil {
-				byID := make(map[string]*pool.Source, len(firstOpts.Sources))
-				for _, source := range firstOpts.Sources {
-					byID[source.ID()] = source
-				}
-				confirmOpts.SourceIDs = nil
-				for _, id := range missing {
-					if source := byID[id]; source != nil {
-						confirmOpts.Sources = append(confirmOpts.Sources, source)
-					}
-				}
-			}
-			confirmations, err := p.Collect(ctx, methods.MethodGetBlockByNumber, []any{fmt.Sprintf("0x%x", candidate), false}, confirmOpts)
+			confirmations, err := reader.Confirm(ctx, candidate, missing, timeout)
 			if err != nil {
 				err = fmt.Errorf("confirm: %w", err)
 				ref.Faults = append(ref.Faults, err)
 				ref.CollectionFaults = append(ref.CollectionFaults, err)
 			}
 			for _, emission := range confirmations {
-				source := sourceRef(emission)
-				v, decodeErr := decode(emission.Val)
+				source := emission.Source
+				v, decodeErr := decode(emission.Value)
 				if emission.Err != nil {
 					decodeErr = emission.Err
 				}
@@ -242,9 +223,6 @@ func Finalized(ctx context.Context, p *pool.Pool, maxLag uint64, quorum int, mod
 	return ref, nil
 }
 
-func sourceRef(e pool.Emission) rpc.SourceRef {
-	return rpc.SourceRef{Name: e.Src.Name(), URL: e.Src.URL(), ID: e.Src.ID()}
-}
 func decode(raw json.RawMessage) (view, error) {
 	if _, err := methods.BlockByNumberPolicy().Normalize(raw); err != nil {
 		return view{}, err
