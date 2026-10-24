@@ -38,6 +38,7 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -192,7 +193,7 @@ func (c *Client) TransactionByHash(ctx context.Context, txHash common.Hash) (*ty
 	if err != nil {
 		return nil, false, err
 	}
-	tx, pending, err := ethguard.DecodeTransaction(decision.Value)
+	tx, pending, err := typed.DecodeTransaction(decision.Value)
 	if err != nil {
 		return nil, false, err
 	}
@@ -246,7 +247,7 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 	if err != nil {
 		return nil, err
 	}
-	receipts, err := ethguard.DecodeReceipts(decision.Value)
+	receipts, err := typed.DecodeReceipts(decision.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -653,7 +654,7 @@ func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, error) 
 	if err != nil {
 		return nil, err
 	}
-	block, err := ethguard.DecodeBlockWithEvidence(decision.Value, decision.Provenance)
+	block, err := typed.DecodeBlockWithEvidence(decision.Value, decision.Provenance)
 	if err != nil {
 		return nil, err
 	}
