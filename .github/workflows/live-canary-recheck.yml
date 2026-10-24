@@ -40,10 +40,6 @@ jobs:
     name: live canary recheck (same manifest)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      SOURCE_DIR: ${{ runner.temp }}/live-canary-source
-      RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
-      EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
     steps:
       - name: checkout workflow commit
         uses: actions/checkout@v5
@@ -58,6 +54,7 @@ jobs:
 
       - name: download original artifact
         env:
+          SOURCE_DIR: ${{ runner.temp }}/live-canary-source
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
@@ -69,6 +66,9 @@ jobs:
           ls -la "${SOURCE_DIR}"
 
       - name: verify original artifact
+        env:
+          SOURCE_DIR: ${{ runner.temp }}/live-canary-source
+          EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
         run: |
           set -euo pipefail
           cd "${SOURCE_DIR}"
@@ -90,11 +90,15 @@ jobs:
         run: go build -trimpath -o "${RUNNER_TEMP}/livecanary-current" ./cmd/livecanary
 
       - name: verify original coherence
+        env:
+          SOURCE_DIR: ${{ runner.temp }}/live-canary-source
         run: |
           set -euo pipefail
           "${RUNNER_TEMP}/livecanary-current" verify -dir "${SOURCE_DIR}" | tee "${SOURCE_DIR}/verify.txt"
 
       - name: checkout manifest source commit
+        env:
+          SOURCE_DIR: ${{ runner.temp }}/live-canary-source
         run: |
           set -euo pipefail
           source_commit="$(jq -r '.source_commit // empty' "${SOURCE_DIR}/manifest.json")"
@@ -113,6 +117,9 @@ jobs:
         run: go build -trimpath -o "${RUNNER_TEMP}/livecanary-source" ./cmd/livecanary
 
       - name: prepare recheck bundle
+        env:
+          SOURCE_DIR: ${{ runner.temp }}/live-canary-source
+          RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
         run: |
           set -euo pipefail
           mkdir -p "${RECHECK_DIR}"
@@ -125,6 +132,8 @@ jobs:
       - name: rerun the same manifest
         id: rerun
         continue-on-error: true
+        env:
+          RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
         run: |
           set -o pipefail
           "${RUNNER_TEMP}/livecanary-source" rerun \
@@ -133,6 +142,8 @@ jobs:
 
       - name: verify recheck coherence
         if: always()
+        env:
+          RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
         run: |
           set -euo pipefail
           "${RUNNER_TEMP}/livecanary-current" verify -dir "${RECHECK_DIR}" | tee "${RECHECK_DIR}/verify.txt"
@@ -141,6 +152,8 @@ jobs:
         id: compare
         if: always()
         continue-on-error: true
+        env:
+          RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
         run: |
           set -o pipefail
           "${RUNNER_TEMP}/livecanary-current" compare \
@@ -151,6 +164,8 @@ jobs:
 
       - name: write recheck checksums
         if: always()
+        env:
+          RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
         run: |
           set -euo pipefail
           cd "${RECHECK_DIR}"
@@ -163,6 +178,8 @@ jobs:
 
       - name: record recheck state
         if: always()
+        env:
+          RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
         run: |
           set -euo pipefail
           {
