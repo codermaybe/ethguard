@@ -2298,7 +2298,13 @@ Their policies now admit only the wire shapes the method contract defines:
 `eth_syncing` accepts `false` or a progress object, and `net_listening` accepts
 a boolean. JSON `null`, `true` for syncing, scalars, and other top-level shapes
 are normalization faults. Legal answers still resolve as `Selected` and never
-become `Corroborated`; no threshold or denominator changes.
+become `Corroborated`; no threshold or denominator changes. The syncing
+progress object is admitted as a whole answer: its members are not
+individually validated at the policy boundary, and a wrong-typed nested member
+is reported by the typed projection (`Client.Syncing` returns
+`ErrMalformedResponse`). T09 does not synthesize the object form; pipeline
+5.1.1 keeps it a capture gap. This boundary is therefore pinned by the focused
+shape test and the existing typed decoder, not by a T09 field-lifecycle claim.
 
 Why: T09.2's protected-Value invariant cannot hold if rotating capture order
 moves the `eth_call` data spelling, and T09.1's notfound scenario cannot
