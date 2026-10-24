@@ -172,6 +172,92 @@ internal/rpcsample/testdata/<feature-or-method>/<batch-id>/
 
 ---
 
+## 5.1 T09 执行规范：场景矩阵与字段生命周期不变量
+
+状态：**已完成**。T09 是验证扩展，不改变生产裁决、门槛、分母、方法数量或
+`expect/v1`。规则正文在本节；实现证据见 T09 close-out 提交和
+`internal/verification/integration`。
+
+### 5.1.1 固定顺序与范围
+
+1. **先做 T09.2**：覆盖全部已注册方法的字段生命周期不变量；不等待新的真实
+   捕获，也不把 `eth_syncing` 对象态用合成样本补齐。
+2. 复核 `read-blockref` 捕获时，使用与 T09.2 相同的字段进入依据和变异门槛；
+   捕获只证明真实 provider 的 wire 形状，不能替代合成不变量测试。
+3. **再做 T09.1**：为 `RegisteredNames()` 的每个方法补齐决策场景矩阵。新增
+   方法缺少矩阵行时，静态测试必须失败。
+4. T09.2 与 T09.1 分开提交，不与 provider capture、WSS transport 或
+   reference-policy 改造混合。
+
+### 5.1.2 字段生命周期不变量
+
+每个方法的测试必须能回答每个受保护字段在以下阶段的处置：
+
+```text
+raw response → Admit → Normalize / comparison key → EncodeCommit
+             → Decision.Value / typed projection
+```
+
+字段处置只能归入以下类别：`required`、`optional`、`derived`、`Extensions`、
+`Diagnostics`，或明确的 `admission/encode fault`。不得出现没有记录的字段消失；
+不得把编码器输出重新当作第二份字段表。字段进入依据沿用
+`return-value-design.md` 第 4 节：比较键、请求绑定、已验证承诺、公开派生规则，
+四者之外的字段不得进入受保护 Value。
+
+每个已注册方法至少覆盖四类不变量：
+
+- **表示变形不变量**：JSON 键顺序、空白、允许的 hex 大小写、`0X` 形式和厂商
+  附加字段重排，不改变比较键和规范 Value；同一变体放在每个 pool 位置时，
+  Value 逐字节相同，代表源仍按捕获顺序选择。
+- **受保护字段变异不变量**：删除或篡改受保护字段必须在 Admit 或 EncodeCheck
+  失败；不能靠省略字段制造簇内相等，不能用另一来源的值补回。
+- **往返不变量**：对每个通过检查的来源，`typed(raw)` 与
+  `typed(Encode(raw))` 相等；派生字段另以公开规则从受保护内容重新计算并比较。
+- **守恒不变量**：每份 observation 的字段最终都能追踪到 Value、Extensions、
+  Diagnostics、删减式投影，或可分类的 admission/encode fault。
+
+测试应优先使用现有方法编码器、Policy、Aggregator 和 typed adapter；不得引入
+`MethodContract` DSL、代码生成、通用 `suite.RunAll` 或第二份运行时字段注册表。
+
+### 5.1.3 决策场景矩阵
+
+T09.1 对每个 `RegisteredMethod` 使用现有 `rpctest.Node` 与 Policy seam，至少
+覆盖以下场景：`all-agree`、`minority-dissent`、`outlier`、`single-fault`、
+`all-fault`、`conflict`、`notfound`、`pending/local`。断言必须同时覆盖：
+
+- `Decision.Status`（包括 `Unknown`、`Conflict`、`Selected` 和方法契约允许的
+  `Corroborated`）；
+- 固定分母下的 `Support`、`Reject`、`Faults` 和各维度 `Abstain`；
+- 代表源与 `Value` 的同源/规范编码关系；
+- 通过真实 Aggregator 和 typed adapter 后的公开结果。
+
+场景矩阵是进程内合成证据，不写入 `internal/rpcsample/testdata`，不产生 provider
+兼容性结论，也不允许外部网络 I/O。测试必须沿生产路径构造错误、准入失败和
+anchor 结果；不能只直接调用 Policy 或用 mock 绕过生产边界。
+
+### 5.1.4 失败与证据边界
+
+- EncodeCheck、Admit 或 typed decode 失败不能缩小投票分母、降低动态门槛、改走
+  单源值或跨来源拼装；结果必须保持 `Unknown`/冲突错误，并保留故障证据。
+- `Selected`、`Forwarded` 只能在已有方法契约允许时出现，不能因矩阵场景方便而
+  升格为 `Corroborated`。
+- 合成测试不能把 provider-backed evidence 写成 canonical、consensus 或 finality
+  证明；WSS missing/null 继续按决策 0056 标注，不得把传输限制改写成字段规则。
+- 不因 T09 修改 golden、capture schema、reference policy、WSS seam 或方法目录。
+
+### 5.1.5 T09 验收出口
+
+每个 T09 切片的提交说明必须包含：覆盖的方法集合、失败路径、实际执行的测试
+命令、是否修改样本/golden，以及未解决风险。T09.2 和 T09.1 均须满足：
+
+1. 全部 `RegisteredNames()` 覆盖，且新增方法缺行会失败；
+2. Policy、Aggregator、typed adapter 三层均有可审阅断言；
+3. 固定分母、动态门槛、代表源和错误状态的失败路径有回归测试；
+4. `go test ./... -count=1` 与 `go vet ./...` 通过；
+5. 离线运行可复现，无外部网络 I/O，工作树中没有未登记的样本或文档副本。
+
+---
+
 ## 6. 参考笔记：可缺席字段模式（未采纳，不构成决策）
 
 记录日期：2026-09-25。本节是设计参考，不是验收规则，也不是决策。它不修改第 1.1 节的冻结不变量，不修改决策 0039、0040 的边界，不授权任何实现。触发条件出现之前不得据此写代码。
