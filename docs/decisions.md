@@ -2263,3 +2263,14 @@ Any future migration proposal must separately quantify transport, wire-error,
 WebSocket, Ethereum-type, cryptographic, and test-fixture replacement; keep
 the Execution APIs contract as the normative oracle; and pass the existing
 offline, adapter, and external live evidence gates at each slice.
+
+Scope clarification (2026-10-24): the compatibility surface and Ethereum
+semantic types remain aligned with go-ethereum. EthGuard does not create a
+parallel `Block`/`Receipt`/`Transaction` type system, hex codec, or consensus
+encoding merely to remove a dependency. The migration target is the internal
+connection and RPC transport seam used to interact with upstream nodes:
+connection lifetime, HTTP/WSS behavior, request deadlines, raw error-data
+presence, and source-attributed evidence. That seam must preserve the
+go-ethereum-facing API and types while allowing EthGuard to control and test
+the provider-facing behavior. This is an ownership boundary, not a claim that
+EthGuard's transport becomes a new Ethereum standard.

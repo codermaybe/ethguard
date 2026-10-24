@@ -592,6 +592,10 @@ go-ethereum 类型。
 进行大爆炸重写，也不得把自有实现冒充更强的上游标准。完整迁移必须单独量化
 transport、WSS、Ethereum 类型、密码学和测试 fixture 的成本，并逐片通过现有
 offline、adapter 和 live evidence 门禁。
+范围澄清：API 与 Ethereum 语义类型继续跟随 go-ethereum；不自建平行的
+Block/Receipt/Transaction、hex、共识编码或密码学类型系统。迁移只优先掌控
+连接生命周期、HTTP/WSS、deadline、raw error-data presence 和来源证据归属，
+并通过内部 seam 保持现有 go-ethereum-facing 兼容表面。
 
 ### 背景
 
