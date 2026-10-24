@@ -11,11 +11,10 @@ import (
 	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 // Client is the advanced entry point for generic calls and decision evidence.
@@ -230,61 +229,22 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if co.anchorCache > 0 {
 		resolver = NewCachedAnchor(resolver, co.anchorCache)
 	}
-	policies := rpc.Registry{
-		methods.MethodChainID:               methods.ChainIDPolicy(strictOpts...),
-		methods.MethodGetBlockByHash:        methods.BlockByHashPolicy(strictOpts...),
-		methods.MethodGetBlockByNumber:      methods.BlockByNumberPolicy(strictOpts...),
-		methods.MethodGetBalance:            methods.GetBalancePolicy(anchorHashOf(resolver), strictOpts...),
-		methods.MethodGetTransactionReceipt: methods.TransactionReceiptPolicy(strictOpts...),
-		methods.MethodGetTransactionByHash:  methods.TransactionByHashPolicy(strictOpts...),
-		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(anchorHashOf(resolver), strictOpts...),
-		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(anchorHashOf(resolver), strictOpts...),
-		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(anchorHashOf(resolver), strictOpts...),
-		methods.MethodGetCode:               methods.GetCodePolicy(anchorHashOf(resolver), strictOpts...),
-		methods.MethodCall:                  methods.CallPolicy(anchorHashOf(resolver), strictOpts...),
-		methods.MethodEstimateGas:           methods.EstimateGasPolicy(anchorHashOf(resolver)),
-		methods.MethodGetLogs:               methods.LogsPolicy(anchorHeightOf(resolver), strictOpts...),
-		methods.MethodFeeHistory:            methods.FeeHistoryPolicy(anchorHeightOf(resolver), strictOpts...),
-		methods.MethodGasPrice:              methods.GasPricePolicy(),
-		methods.MethodMaxPriorityFeePerGas:  methods.MaxPriorityFeePerGasPolicy(),
-		methods.MethodBlobBaseFee:           methods.BlobBaseFeePolicy(),
-		methods.MethodBlockNumber:           methods.BlockNumberPolicy(),
-		methods.MethodCreateAccessList:      methods.CreateAccessListPolicy(anchorHashOf(resolver), strictOpts...),
-		methods.MethodPeerCount:             methods.PeerCountPolicy(),
-		methods.MethodSyncing:               methods.SyncingPolicy(),
-		methods.MethodNetVersion:            methods.NetVersionPolicy(strictOpts...),
-		methods.MethodListening:             methods.ListeningPolicy(),
-	}
-	if err := methods.ValidateRegistry(policies); err != nil {
+	runtimeBundle, err := runtime.Build(runtime.Inputs{
+		Pool:           rpcPool,
+		AnchorHash:     anchorHashOf(resolver),
+		AnchorHeight:   anchorHeightOf(resolver),
+		StrictOptions:  strictOpts,
+		Recorder:       rec,
+		CollectTimeout: co.collectTimeout,
+		Corroboration:  corrob,
+	})
+	if err != nil {
 		return nil, fmt.Errorf("ethguard: %w", err)
 	}
-	projectors := map[string]rpc.ObservationProjector{
-		methods.MethodGetBalance: projection.ScalarStandardProjector(),
-		methods.MethodCall:       projection.ScalarStandardProjector(),
-	}
-	for _, method := range []string{
-		methods.MethodGetTransactionReceipt,
-		methods.MethodGetBlockReceipts,
-		methods.MethodGetBlockByHash,
-		methods.MethodGetBlockByNumber,
-		methods.MethodGetTransactionByHash,
-		methods.MethodGetLogs,
-		methods.MethodFeeHistory,
-	} {
-		projector, err := projection.NewSchemaProjector(method)
-		if err != nil {
-			return nil, fmt.Errorf("ethguard: build %s projector: %w", method, err)
-		}
-		projectors[method] = projector
-	}
 	return &Client{
-		pool: rpcPool,
-		aggregator: aggregator.New(rpcPool, policies,
-			aggregator.WithRecorder(rec),
-			aggregator.WithCollectTimeout(co.collectTimeout),
-			aggregator.WithCorroboration(corrob),
-			aggregator.WithProjectors(projectors)),
-		policies:       policies,
+		pool:           rpcPool,
+		aggregator:     runtimeBundle.Aggregator,
+		policies:       runtimeBundle.Policies,
 		resolver:       resolver,
 		corrob:         corrob,
 		collectTimeout: co.collectTimeout,
