@@ -204,8 +204,10 @@ if snapshot.Truncated {
   不是外部 live 证据、attestation 或兼容性保证。
 - **Live canary**：`cmd/livecanary` 固定 Chainlist 快照、voting basis、请求计划和失败
   分类，并生成带 digest 绑定的机器报告。`passed` 只表示本次 run 满足契约；
-  `inconclusive` 不是成功。2026-10-23 的首次运行是本地诊断，因可用性 fault 为
-  `inconclusive`；尚不存在外部发布、可 attest 的 live artifact。
+  `inconclusive` 不是成功。现有一次本地诊断、首次外部观察（run `39983945116`）与
+  独立 workflow 对同一 manifest 的复核（run `40078416681`，`repeatable=true`，
+  差异归为 provider 波动）。这些观察均为 `inconclusive`，不构成兼容性、共识、
+  finality、provider 独立性或长期可靠性证明。
 - `latest` / `safe` / `finalized` 是 provider 报告的 tag，不是 Ethereum finality。
   `Corroborated` 是 provider-backed 跨来源证据，不是共识或规范链证明。
 

@@ -587,6 +587,11 @@ T10.8 最终审计通过（2026-10-24）：T10.6 external artifact 与 T10.7 独
 workflow 复核均已记录；README、README.zh-CN、moving-tag matrix、wire-forms
 和 roadmap 的证据措辞没有把 regression、本地观察、单次 live run 或
 `Corroborated`/`finalized` 升格为兼容性、共识、finality 或 provider 独立性证明。
+T10.8 证据状态收口（2026-10-24）：T10.7 外部复核通过后，README、README.zh-CN、
+moving-tag matrix 与 wire-forms 中原先“尚无外部发布 artifact”的表述更新为已存在
+GitHub-hosted artifact，并明确它们只是一次 `inconclusive` 观察和同 manifest 复核，
+不升级历史 capture/soak 行，也不构成兼容性、共识、finality、provider 独立性或
+长期可靠性证明。路线图证据表同步更新。
 
 T10 当前证据状态：
 
@@ -595,7 +600,7 @@ T10 当前证据状态：
 | Offline regression | `ci.yml` + `go test`/`rpctest`/replay；T10.4/T10.5 门禁已提交 |
 | Live observation（本地诊断） | 2026-10-23 本地 run，state `inconclusive`（可用性 fault），全部不变量为 true；记录已提交 |
 | External live observation | GitHub run `39983945116`，state `inconclusive`；artifact digest 与 report/manifest/registry 绑定已复核 |
-| Attested evidence | 首次 GitHub-hosted artifact 已下载并校验；T10.7 独立 workflow 已实现，等待维护者手动 dispatch 与 artifact 复核 |
+| Attested evidence | T10.6 artifact（run `39983945116`）已下载并校验；T10.7 独立 workflow 复核（run `40078416681`，artifact `live-canary-recheck-39983945116-40078416681-1`）为 `repeatable=true`，差异仅为 provider 波动 |
 T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
 但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的

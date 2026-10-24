@@ -234,10 +234,13 @@ canonical membership, or independent finality.
   live evidence, attestation, or a compatibility guarantee.
 - **Live canary** — `cmd/livecanary` fixes a Chainlist snapshot, a voting basis,
   a request plan, and failure classes, and emits a machine report with digest
-  binding. A `passed` result means only that this run satisfied the contract;
-  `inconclusive` is not success. The first run (2026-10-23) was local and
-  `inconclusive` because of availability faults; no externally published,
-  attested live artifact exists yet.
+  binding. A `passed` state means only that this run satisfied the contract;
+  `inconclusive` is not success. A local diagnostic, the first external
+  observation (run `39983945116`), and a separate recheck workflow run of the
+  same manifest (run `40078416681`, `repeatable=true`, differences classified
+  as provider fluctuation) now exist. All of these observations were
+  `inconclusive`; they do not establish compatibility, consensus, finality,
+  provider independence, or long-term reliability.
 - `latest` / `safe` / `finalized` are provider-reported tags, not Ethereum
   finality. `Corroborated` is provider-backed cross-source evidence, not
   consensus or a canonical-chain proof.

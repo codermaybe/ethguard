@@ -9,13 +9,15 @@ a fault, not a dissent. This file records, per method, which request forms
 exist, which are exercised by tests, which were accepted by one historical
 local fleet, and which remain assumptions.
 
-T10 status (2026-10-23): the entries below are historical local soak
+T10 status (2026-10-24): the entries below are historical local soak
 observations and unauthenticated shape captures. They are not external live
 evidence, attested artifacts, or compatibility guarantees. The T10 live canary
-added a fixed plan, machine report, and artifact verification, but its first
-run was local and `inconclusive` because of provider availability faults. No
-externally published canary has re-validated any row. Offline regression
-(`go test`, `rpctest`, replay) remains the only CI-backed evidence class.
+added a fixed plan, machine report, and artifact verification; GitHub-hosted
+run `39983945116` was `inconclusive` because of provider availability faults,
+and recheck run `40078416681` re-ran the same manifest with
+`repeatable=true` and provider-only differences. Neither run re-validates the
+rows below. Offline regression (`go test`, `rpctest`, replay) remains the only
+CI-backed evidence class.
 
 ## Matrix
 

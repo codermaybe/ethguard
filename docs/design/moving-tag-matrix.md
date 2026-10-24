@@ -21,12 +21,14 @@ proof, not cryptographic finality, and not light-client verification.
 tag-aware reference; agreement about them proves that the configured
 sources reported consistently, nothing more.
 
-Evidence status (2026-10-23): the `soak` and `rpcsample` entries below are
+Evidence status (2026-10-24): the `soak` and `rpcsample` entries below are
 historical local observations and shape captures, not external live evidence,
 attestation, or compatibility guarantees. The only CI-backed evidence class is
-offline regression (`go test`, `rpctest`, replay). T10 added a local live
-canary diagnostic (state `inconclusive` because of provider availability
-faults); no externally published, attested live artifact exists yet.
+offline regression (`go test`, `rpctest`, replay). T10 added GitHub-hosted live
+observations: run `39983945116` (state `inconclusive` because of provider
+availability faults) and recheck run `40078416681` (`repeatable=true`,
+provider-only differences). Those runs exercised the production path, not the
+historical rows below, and do not upgrade any row's evidence level.
 
 ## Reading the columns
 
