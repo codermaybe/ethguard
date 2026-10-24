@@ -456,9 +456,10 @@ presence，也不改变裁决门槛、分母或方法数量。
 建议顺序：T09.2 先覆盖已注册方法（不等待组 3）→ 组 3 捕获按同一字段 gate
 审阅 → T09.1 全注册方法矩阵。两条轨道独立提交，均不与捕获批次混合。
 
-## T10（优先立项，分析阶段）：外部可验证测试与 live 证据边界
+## T10（已结项）：外部可验证测试与 live 证据边界
 
-状态：**优先立项，证据边界已确认，按下表分阶段执行**（2026-10-23 核查）。
+状态：**T10.0–T10.8 全部完成并通过逐项审计**（2026-10-24）。证据边界已确认，
+执行记录保留在下表，当前不再有 T10 待办。
 T10.0 审计通过（2026-10-23，`f5b989b`）：提交范围、证据、示例和 run/step
 reference scope 均已复核；T10.1 已解除暂停。
 T10.1 实现完成（2026-10-23，已审计，`9848bd5`）：新增离线 `internal/livecanary`、
@@ -601,8 +602,8 @@ T10 当前证据状态：
 | Live observation（本地诊断） | 2026-10-23 本地 run，state `inconclusive`（可用性 fault），全部不变量为 true；记录已提交 |
 | External live observation | GitHub run `39983945116`，state `inconclusive`；artifact digest 与 report/manifest/registry 绑定已复核 |
 | Attested evidence | T10.6 artifact（run `39983945116`）已下载并校验；T10.7 独立 workflow 复核（run `40078416681`，artifact `live-canary-recheck-39983945116-40078416681-1`）为 `repeatable=true`，差异仅为 provider 波动 |
-T10 现在是路线图的优先问题；T09 的本地场景和字段不变量仍是实现正确性验证，
-但不能单独关闭真实环境验证，也不能把本地回放结论写成外部可信证据。
+T10 已结项；T09 的本地场景和字段不变量继续作为实现正确性验证，不能把本地
+回放结论写成外部可信证据。T10 的外部观察和复核也不替代 T09 的方法级覆盖。
 本节记录已核实的问题、证据分层和第一阶段出口；reference policy 仍是独立的
 临时参考方案，不因 T10 自动定案。
 
@@ -696,7 +697,7 @@ T10 后续实现必须同时维护以下三层，不得用上一层冒充下一�
    门槛保持固定、失败保留在证据中，并记录 shape drift；它不承诺检测 uniform
    stagnation、colluding majority 或 provider tag downgrade。
 
-### T10 第一阶段出口（分析完成后才实现）
+### T10 第一阶段出口（历史执行记录）
 
 第一阶段不修改 reference policy、方法数量或 `expect/v1`，先完成以下设计和
 最小实现边界：
@@ -712,7 +713,7 @@ T10 后续实现必须同时维护以下三层，不得用上一层冒充下一�
 5. 用一次真实远端 run 验证流程本身，再决定是否把 T09 的本地矩阵完成标记为
    “实现验证通过”。在此之前，T09 只能标记为本地 regression evidence。
 
-### T10 行动规划表（交给执行 agent）
+### T10 行动规划表（已完成的执行记录）
 
 下表是 T10 的唯一执行顺序。经维护者授权后，T10.4–T10.8 可以连续执行，最后
 统一进行逐项审计；每个 ID 仍必须独立提交并保留自己的 artifact、测试命令和失败
@@ -863,16 +864,16 @@ Live canary 不要求每次出现冲突，也不把没有冲突当作安全证�
 
 ### 依赖与出口
 
-- T10 是当前优先项；T09.2 可以继续作为本地 regression，但不得作为真实环境
-  验证的替代。T09.1 若依赖统一 anchor/business harness，则需等 T10 第一阶段
-  范围确认。
+- T10 已结项；T09.2 作为本地 regression 里程碑立即恢复，随后按路线图顺序推进
+  T09.1。T09 的合成证据不得替代真实环境验证，也不得反向改写 T10 的外部证据。
+- T09.1 不再等待 T10 第一阶段范围确认；它应复用已存在的 anchor/business seam，
+  若发现 seam 不足，另立小范围实现提交，不改变 T10 产物。
 - 不把 T10 当作 reference policy 的决策渠道；后者仍需按
   `reference-policy-proposal.md` 比较替代形状后另行立项。
-- 第一阶段分析完成前：不改生产 reference policy、不改 `expect/v1` 或
-  `batch.json` schema，不把 live 结果直接写入仓库 golden。
-- 若评估后立项，出口至少包括：明确的 oracle/门禁定义；anchor 场景矩阵；
-  pinned business 覆盖；live canary + provenance 方案；离线全量测试通过；
-  real-source 验收报告；非目标与失败边界写清。
+- T09 实施期间仍不改生产 reference policy、不改 `expect/v1` 或 `batch.json`
+  schema，不把 live 结果直接写入仓库 golden；reference policy 另立决策任务。
+- T09 的出口是全部已注册方法的字段生命周期不变量与决策场景矩阵通过离线
+  regression，并保留与 T10 外部证据的边界说明。
 
 ## 参考方案（未立项）：Reference Policy 统一
 
