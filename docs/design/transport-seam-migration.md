@@ -46,6 +46,27 @@ type Transport interface {
 go-ethereum v1.17.5；风险是版本升级、HTTP/WSS 行为和 `ethereum/rpc` 内部语义
 变化会直接影响 pool 的证据输入。
 
+### go-ethereum v1.17.5 的行为清单
+
+这次审计还确认了一个不能在自有 WSS Adapter 中顺手删掉的语义：HTTP 与 WSS
+在 Geth client 内部不是同一种生命周期。
+
+- HTTP client 建立时不发起网络连接；每次 `CallContext` 都通过带 context 的
+  `http.Client.Do` 发出独立 POST。HTTP 非 2xx 会变成带状态码和 body 的
+  `HTTPError`，JSON-RPC envelope 再由 client 解码。HTTP client 的 `Close` 是
+  no-op，正在进行的请求由请求 context 结束。
+- WSS client 建立 dispatch/read/write goroutine，按 JSON-RPC ID 管理 pending
+  calls，设置 32 MiB 默认读取上限，维护 ping/pong，并在写失败后自动重连；重连
+  后会把尚未完成的最后一个 request 重新登记到新连接。`Close` 会等待 dispatch
+  停止并结束 pending calls。
+- Geth 的 WSS `decodeError` 只保留解码后的 `interface{}`，因此缺失
+  `error.data` 与显式 JSON `null` 最终都表现为 nil；当前 HTTP capture 是额外
+  的 pool 逻辑，WSS 没有对应的 raw presence 通道。
+
+因此，“只实现一次请求/一次响应、没有重连”的自有 WSS Adapter 不能直接作为
+当前 Geth WSS 的替换品：它会改变写失败、pending request、断线和未知写结果的
+语义。除非另立连接失败契约并完成全量差分验收，否则 Slice 3 不得切换生产路径。
+
 ## 2. 不可改变的边界
 
 迁移必须保持：
@@ -127,19 +148,22 @@ malformed JSON、超限、取消、连接复用和关闭。
 
 在差分结果稳定前，不删除 Geth HTTP Adapter，也不把自有实现写成更强的标准实现。
 
-### Slice 3：WSS request/response Adapter（HTTP 稳定后）
+### Slice 3：WSS request/response Adapter（HTTP 稳定后，当前不授权切换）
 
-WSS 只实现一次请求/一次响应的 transport：
+WSS 的最低审计清单仍包括：
 
 - request ID demux 和乱序响应；
 - context cancellation；
 - 有界 message；
 - error envelope presence（缺失、null、具体 data）；
 - malformed frame、错误 ID、断连、超时和 Close 时 pending call 清理；
-- 明确 ping/pong 与读写 goroutine 生命周期。
+- 明确 ping/pong 与读写 goroutine 生命周期；并额外决定是否保留 Geth 的写失败
+  自动重连和 pending request 重登记。
 
-不实现 subscription、filter、自动重连、自动重放、未知写结果恢复。进程内 WebSocket
-测试全部通过后，才评估升级决策 0056 和加入 WSS 四态 golden。
+subscription 和 filter 不属于当前 `Transport` 接口，可以排除在 Adapter 之外；但
+自动重连、自动重放和未知写结果恢复不能无声排除，因为 Geth WSS 当前已经提供了
+其中一部分行为。只有完成行为决策、差分测试和 race 验收后，才评估是否切换；再
+评估决策 0056 和加入 WSS 四态 golden。
 
 ### Slice 4：可选的依赖收窄
 
@@ -169,9 +193,19 @@ go-ethereum `ethclient`/`ethereum/rpc` 的直接依赖。该片必须分别量�
 
 ## 6. 推荐决策
 
-当前只授权 **Slice 0：contract 和基线设计**。不立即实现自有 HTTP/WSS client，
+当前只授权 **Slice 0/1：contract 和 Geth compatibility seam**。它们不立即实现
+自有 HTTP/WSS client，
 不改变 `rpc.RPCError`、`Emission`、`Observation` 或 Decision。
 
-Slice 0 完成后，由主维护者审查是否进入 Slice 1；只有 Slice 1 的 Geth compatibility
-Adapter 通过，才有资格评估自有 HTTP 和 WSS 实现。这样替换风险被隔离在 pool 的
-Transport Adapter，而不会同时改变方法、聚合、reference、typed 或公开 adapter 语义。
+Slice 0/1 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连语义；没有这两项
+审查，不进入自有 HTTP/WSS 实现。这样替换风险被隔离在 pool 的 Transport Adapter，
+而不会同时改变方法、聚合、reference、typed 或公开 adapter 语义。
+
+## 7. 执行记录
+
+- `2642551`：Slice 0，加入不依赖 `ethclient.Client` 的 fake Transport 契约测试，
+  覆盖复用、ChainID admission、关闭和关闭后的请求拒绝。
+- `acae29f`：Slice 1，将内部 dialer 改为返回 `Transport`；Geth HTTP/WSS client
+  仍由 compatibility Adapter 创建和持有，Source 不再认识具体 client 类型。
+- 当前没有自有 HTTP 或 WSS client，也没有修改 `RPCError`、`Emission`、
+  `Observation`、Decision 或公开 ethadapter 表面。

@@ -85,7 +85,8 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 这是逐方法对接的前置阶段。当前 `pool.Transport` 已经提供最小调用 seam，但 dialer、
 HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereum/rpc`
 行为填充；`CallContext` 也只返回 `error`，无法表达 raw error envelope 的
-`error.data` presence。这是依赖债务的实际风险点。
+`error.data` presence。这是依赖债务的实际风险点。Slice 0 的独立 fake Transport
+基线和 Slice 1 的 Geth compatibility seam 已完成；自有 HTTP/WSS Adapter 尚未开始。
 
 本阶段的目标是建立一个由 EthGuard 控制的内部 connection/RPC 调用契约，同时保持
 公开 ethclient-shaped 表面和 Ethereum 类型不变：
@@ -102,13 +103,15 @@ HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereu
 
 - 不移除 go-ethereum；
 - 不创建平行 Block/Receipt/Transaction 类型、hex codec 或共识编码；
-- 不实现 WSS subscription/filter/reconnect；
+- 不实现 WSS Adapter、subscription 或 filter；Geth 当前已有的 WSS 自动重连语义
+  不得在替换时无声丢失，需另立契约后再决定；
 - 不把 raw wire 放入 `Decision.Value`、比较键或普通 Observation；
 - 不把 transport seam 的建立写成 WSS missing/null 已修复。
 
-出口是 HTTP adapter 和 fake adapter 都能通过同一内部契约驱动现有生产路径，且完整
-offline、adapter、race 门通过。需要重新定义错误、连接生命周期或 evidence 语义的
-部分由主维护者设计，不交给 agent 自主决定。
+出口是 fake adapter 和 Geth compatibility adapter 都能通过同一内部契约驱动现有
+生产路径，且完整 offline、adapter、race 门通过；自有 HTTP Adapter 是否进入下一片，
+由主维护者在行为差分审计后决定。需要重新定义错误、连接生命周期或 evidence 语义
+的部分由主维护者设计，不交给 agent 自主决定。
 
 事实审计、最小 seam、分片顺序和风险矩阵见
 [HTTP/WSS connection 与 RPC transport seam 迁移设计](transport-seam-migration.md)。
