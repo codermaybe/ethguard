@@ -239,27 +239,7 @@ func t09TypedWantFee(t *testing.T, raw json.RawMessage) string {
 	if err := json.Unmarshal(t09SemanticJSON(t, raw), &wire); err != nil {
 		t.Fatalf("decode expected fee history: %v", err)
 	}
-	out := struct {
-		OldestBlock   string
-		BaseFeePerGas []string
-		GasUsedRatio  []float64
-		Reward        [][]string
-	}{OldestBlock: (*big.Int)(wire.OldestBlock).String(), GasUsedRatio: wire.GasUsedRatio}
-	for _, fee := range wire.BaseFeePerGas {
-		out.BaseFeePerGas = append(out.BaseFeePerGas, (*big.Int)(fee).String())
-	}
-	for _, row := range wire.Reward {
-		var rewards []string
-		for _, reward := range row {
-			rewards = append(rewards, (*big.Int)(reward).String())
-		}
-		out.Reward = append(out.Reward, rewards)
-	}
-	encoded, err := json.Marshal(out)
-	if err != nil {
-		t.Fatalf("encode expected fee history: %v", err)
-	}
-	return string(encoded)
+	return t09FeeWireSummary(wire)
 }
 
 func t09TypedWantAccess(t *testing.T, raw json.RawMessage) string {

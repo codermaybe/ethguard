@@ -28,7 +28,7 @@ func TestT092ConservationPerObservation(t *testing.T) {
 					if err != nil {
 						t.Fatalf("variant %d: %v", index, err)
 					}
-					t09TraceConservation(t, row, variant, decision.Value, decision, 0)
+					t09TraceConservation(t, row, variant, decision.Value, decision)
 				}
 				return
 			}
@@ -40,8 +40,8 @@ func TestT092ConservationPerObservation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("variants: %v", err)
 			}
-			for index, variant := range row.variants {
-				t09TraceConservation(t, row, variant, decision.Value, decision, index)
+			for _, variant := range row.variants {
+				t09TraceConservation(t, row, variant, decision.Value, decision)
 			}
 		})
 	}
@@ -134,7 +134,7 @@ func TestT092NestedDerivedFieldRecomputation(t *testing.T) {
 }
 
 // t09TraceConservation recursively compares one observation with Value.
-func t09TraceConservation(t *testing.T, row t09FieldRow, payload, value json.RawMessage, decision rpc.Decision, sourceIndex int) {
+func t09TraceConservation(t *testing.T, row t09FieldRow, payload, value json.RawMessage, decision rpc.Decision) {
 	t.Helper()
 	rawTree := decodeJSONTree(t, t09SemanticJSON(t, payload))
 	valueTree := decodeJSONTree(t, value)
@@ -197,15 +197,8 @@ func t09TraceConservation(t *testing.T, row t09FieldRow, payload, value json.Raw
 	}
 	walk("", rawTree, valueTree)
 	if row.whole {
-		canonical, err := rpc.CanonicalJSON(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(decision.Value) != canonical {
-			t.Fatalf("whole local answer = %s, want canonical %s", decision.Value, canonical)
-		}
+		t09AssertWholeCanonical(t, row.method, payload, decision.Value)
 	}
-	_ = sourceIndex
 }
 
 func t09OutsideField(row t09FieldRow, key string) bool {

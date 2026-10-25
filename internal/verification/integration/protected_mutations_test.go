@@ -383,29 +383,10 @@ func t09RunMutation(t *testing.T, mc t09MutationCase, mutation t09Mutation) {
 	} else if len(decision.SourceFaults) != 0 {
 		t.Fatalf("%s/%s: source faults = %+v, want none for a normalize/encode fault", mc.method, mutation.field, decision.SourceFaults)
 	}
-	for _, source := range append(append([]rpc.SourceRef(nil), decision.Support...), decision.Reject...) {
-		if source.Name == fleet.names[mutantIndex] {
-			t.Fatalf("%s/%s: mutated source entered Support or Reject", mc.method, mutation.field)
-		}
-	}
-	if mutation.hint != "" {
-		joined := ""
-		for _, fault := range decision.Faults {
-			joined += fault.Error() + "\n"
-		}
-		if !strings.Contains(strings.ToLower(joined), strings.ToLower(mutation.hint)) {
-			t.Fatalf("%s/%s: fault does not name %q:\n%s", mc.method, mutation.field, mutation.hint, joined)
-		}
-	}
+	t09AssertSourceAbsent(t, mc.method+"/"+mutation.field, fleet.names[mutantIndex], decision.Support, decision.Reject)
+	t09AssertFaultNames(t, mc.method+"/"+mutation.field, mutation.hint, decision.Faults)
 	if len(decision.Value) == 0 {
 		t.Fatalf("%s/%s: success Value is empty", mc.method, mutation.field)
 	}
-	want, err := t09FieldRowFor(t, mc.method).decode(t09SemanticJSON(t, mc.healthy))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := t09FieldRowFor(t, mc.method).decode(decision.Value)
-	if err != nil || got != want {
-		t.Fatalf("%s/%s: Value = %s (%v), want %q", mc.method, mutation.field, trimValue(decision.Value), err, want)
-	}
+	t09AssertDecodedValue(t, mc.method+"/"+mutation.field, t09FieldRowFor(t, mc.method).decode, mc.healthy, decision.Value)
 }

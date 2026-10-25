@@ -192,22 +192,8 @@ func t09AssertWant(t *testing.T, mc t09MethodCase, row t09Row, decision rpc.Deci
 	if len(decision.Participants) != want.Participants {
 		t.Fatalf("%s: participants = %d, want %d", label, len(decision.Participants), want.Participants)
 	}
-	if len(decision.Support) != len(want.Support) {
-		t.Fatalf("%s: support = %v, want %v", label, t09SourceNames(decision.Support), want.Support)
-	}
-	for i, index := range want.Support {
-		if decision.Support[i].Name != fleet.names[index] {
-			t.Fatalf("%s: support[%d] = %q, want %q", label, i, decision.Support[i].Name, fleet.names[index])
-		}
-	}
-	if len(decision.Reject) != len(want.Reject) {
-		t.Fatalf("%s: reject = %v, want %v", label, t09SourceNames(decision.Reject), want.Reject)
-	}
-	for i, index := range want.Reject {
-		if decision.Reject[i].Name != fleet.names[index] {
-			t.Fatalf("%s: reject[%d] = %q, want %q", label, i, decision.Reject[i].Name, fleet.names[index])
-		}
-	}
+	t09AssertSourceRefs(t, label, "support", decision.Support, fleet, want.Support)
+	t09AssertSourceRefs(t, label, "reject", decision.Reject, fleet, want.Reject)
 	if len(decision.Faults) != want.Faults {
 		t.Fatalf("%s: %d faults, want %d: %v", label, len(decision.Faults), want.Faults, decision.Faults)
 	}
@@ -239,17 +225,7 @@ func t09AssertWant(t *testing.T, mc t09MethodCase, row t09Row, decision rpc.Deci
 		if len(decision.Value) == 0 {
 			t.Fatalf("%s: success Value is empty", label)
 		}
-		wantValue, err := t09FieldRowFor(t, mc.Method).decode(t09SemanticJSON(t, row.Answers[want.ValueFrom]))
-		if err != nil {
-			t.Fatalf("%s: decode expected answer: %v", label, err)
-		}
-		gotValue, err := t09FieldRowFor(t, mc.Method).decode(decision.Value)
-		if err != nil {
-			t.Fatalf("%s: decode Value %s: %v", label, decision.Value, err)
-		}
-		if gotValue != wantValue {
-			t.Fatalf("%s: typed(Value) = %q, want %q (Value %s)", label, gotValue, wantValue, decision.Value)
-		}
+		t09AssertDecodedValue(t, label, t09FieldRowFor(t, mc.Method).decode, row.Answers[want.ValueFrom], decision.Value)
 		if want.ValueExact != "" && string(decision.Value) != want.ValueExact {
 			t.Fatalf("%s: Value = %s, want exact %s", label, decision.Value, want.ValueExact)
 		}
@@ -272,14 +248,17 @@ func t09AssertWant(t *testing.T, mc t09MethodCase, row t09Row, decision rpc.Deci
 			if dim.Name != dimWant.Name || dim.Returned != dimWant.Returned {
 				t.Fatalf("%s: dimension %d = %+v, want %+v", label, i, dim, dimWant)
 			}
-			t09AssertDimensionSources(t, label, dim.Name+" support", dim.Support, fleet, dimWant.Support)
-			t09AssertDimensionSources(t, label, dim.Name+" reject", dim.Reject, fleet, dimWant.Reject)
-			t09AssertDimensionSources(t, label, dim.Name+" abstain", dim.Abstain, fleet, dimWant.Abstain)
+			t09AssertSourceRefs(t, label, dim.Name+" support", dim.Support, fleet, dimWant.Support)
+			t09AssertSourceRefs(t, label, dim.Name+" reject", dim.Reject, fleet, dimWant.Reject)
+			t09AssertSourceRefs(t, label, dim.Name+" abstain", dim.Abstain, fleet, dimWant.Abstain)
 		}
 	}
 }
 
-func t09AssertDimensionSources(t *testing.T, label, field string, got []rpc.SourceRef, fleet *t09Fleet, want []int) {
+// t09AssertSourceRefs requires the group to name exactly the fleet sources at
+// the given indices, in order. It backs the Decision membership fields and the
+// per-dimension membership assertions.
+func t09AssertSourceRefs(t *testing.T, label, field string, got []rpc.SourceRef, fleet *t09Fleet, want []int) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s: %s = %v, want %v", label, field, t09SourceNames(got), want)
@@ -288,6 +267,68 @@ func t09AssertDimensionSources(t *testing.T, label, field string, got []rpc.Sour
 		if got[i].Name != fleet.names[index] {
 			t.Fatalf("%s: %s[%d] = %q, want %q", label, field, i, got[i].Name, fleet.names[index])
 		}
+	}
+}
+
+// t09AssertDecodedValue requires the canonical Value to decode, through a
+// row's lossless decoder, to the same summary as the scripted raw answer. The
+// expected side is decoded from the semantic re-encoding, so wire spelling is
+// not the claim.
+func t09AssertDecodedValue(t *testing.T, label string, decode func(json.RawMessage) (string, error), raw, value json.RawMessage) {
+	t.Helper()
+	want, err := decode(t09SemanticJSON(t, raw))
+	if err != nil {
+		t.Fatalf("%s: decode expected answer: %v", label, err)
+	}
+	got, err := decode(value)
+	if err != nil {
+		t.Fatalf("%s: decode Value %s: %v", label, value, err)
+	}
+	if got != want {
+		t.Fatalf("%s: typed(Value) = %q, want %q (Value %s)", label, got, want, value)
+	}
+}
+
+// t09AssertFaultNames requires some fault message to contain hint,
+// case-insensitively, so the rejected field stays identifiable in the
+// evidence.
+func t09AssertFaultNames(t *testing.T, label, hint string, faults []error) {
+	t.Helper()
+	if hint == "" {
+		return
+	}
+	joined := ""
+	for _, fault := range faults {
+		joined += fault.Error() + "\n"
+	}
+	if !strings.Contains(strings.ToLower(joined), strings.ToLower(hint)) {
+		t.Fatalf("%s: fault does not name %q:\n%s", label, hint, joined)
+	}
+}
+
+// t09AssertSourceAbsent requires the named source to appear in none of the
+// membership groups: a faulty source must not vote.
+func t09AssertSourceAbsent(t *testing.T, label, name string, groups ...[]rpc.SourceRef) {
+	t.Helper()
+	for _, group := range groups {
+		for _, source := range group {
+			if source.Name == name {
+				t.Fatalf("%s: source %q entered Support or Reject", label, name)
+			}
+		}
+	}
+}
+
+// t09AssertWholeCanonical pins an upstream-local whole answer: the Value must
+// be the canonical re-encoding of the selected raw answer.
+func t09AssertWholeCanonical(t *testing.T, label string, raw, value json.RawMessage) {
+	t.Helper()
+	canonical, err := rpc.CanonicalJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != canonical {
+		t.Fatalf("%s: whole local answer = %s, want canonical %s", label, value, canonical)
 	}
 }
 

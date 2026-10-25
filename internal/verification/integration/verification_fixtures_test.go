@@ -339,7 +339,7 @@ func t09Variants(t *testing.T, base json.RawMessage) []json.RawMessage {
 // separately by TestT092EscapedHexAdmissionBoundary.
 func t09VariantsNoEscape(t *testing.T, base json.RawMessage) []json.RawMessage {
 	t.Helper()
-	reordered := t09Reorder(t, base)
+	reordered := t09SemanticJSON(t, base)
 	indented := t09Indent(t, reordered)
 	upper := t09UpperHex(t, base)
 	return []json.RawMessage{base, indented, upper}
@@ -358,21 +358,6 @@ func t09SemanticJSON(t *testing.T, raw json.RawMessage) json.RawMessage {
 		t.Fatal(err)
 	}
 	return t09JSON(value)
-}
-
-func t09Reorder(t *testing.T, raw json.RawMessage) json.RawMessage {
-	t.Helper()
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		t.Fatal(err)
-	}
-	out, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
 }
 
 func t09Indent(t *testing.T, raw json.RawMessage) json.RawMessage {

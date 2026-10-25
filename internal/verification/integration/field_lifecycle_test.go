@@ -1030,23 +1030,11 @@ func TestT092ProtectedMutationFails(t *testing.T) {
 					t.Fatalf("local membership = support %d reject %d, want 1/0", len(decision.Support), len(decision.Reject))
 				}
 			}
-			for _, source := range append(append([]rpc.SourceRef(nil), decision.Support...), decision.Reject...) {
-				if source.Name == fleet.names[faulty] {
-					t.Fatalf("mutated source %q entered Support or Reject", source.Name)
-				}
-			}
+			t09AssertSourceAbsent(t, row.method, fleet.names[faulty], decision.Support, decision.Reject)
 			if len(decision.Faults) == 0 {
 				t.Fatal("mutated source left no fault")
 			}
-			if row.fieldHint != "" {
-				joined := ""
-				for _, fault := range decision.Faults {
-					joined += fault.Error() + "\n"
-				}
-				if !strings.Contains(strings.ToLower(joined), strings.ToLower(row.fieldHint)) {
-					t.Fatalf("fault does not name the field %q:\n%s", row.fieldHint, joined)
-				}
-			}
+			t09AssertFaultNames(t, row.method, row.fieldHint, decision.Faults)
 			if row.mutationExpect == t09MutationLocal && row.mutationFault {
 				found := false
 				for _, fault := range decision.SourceFaults {
@@ -1059,14 +1047,7 @@ func TestT092ProtectedMutationFails(t *testing.T) {
 				}
 			}
 			if len(decision.Value) != 0 {
-				want, err := row.decode(t09SemanticJSON(t, row.variants[0]))
-				if err != nil {
-					t.Fatal(err)
-				}
-				got, err := row.decode(decision.Value)
-				if err != nil || got != want {
-					t.Fatalf("mutated decision Value = %s (%v), want canonical %q", decision.Value, err, want)
-				}
+				t09AssertDecodedValue(t, row.method, row.decode, row.variants[0], decision.Value)
 			}
 		})
 	}
@@ -1113,26 +1094,8 @@ func TestT092EscapedHexAdmissionBoundary(t *testing.T) {
 			if len(decision.Faults) != 1 || !strings.Contains(strings.ToLower(decision.Faults[0].Error()), tc.field) {
 				t.Fatalf("escaped source fault = %v, want %q admission fault", decision.Faults, tc.field)
 			}
-			want, err := t09DecodeForMethod(tc.method)(t09SemanticJSON(t, tc.legal))
-			if err != nil {
-				t.Fatal(err)
-			}
-			got, err := t09DecodeForMethod(tc.method)(decision.Value)
-			if err != nil || got != want {
-				t.Fatalf("Value = %s (%v), want %q", decision.Value, err, want)
-			}
+			t09AssertDecodedValue(t, tc.method, t09FieldRowFor(t, tc.method).decode, tc.legal, decision.Value)
 		})
-	}
-}
-
-func t09DecodeForMethod(method string) func(json.RawMessage) (string, error) {
-	switch method {
-	case methods.MethodGetBlockByHash, methods.MethodGetBlockByNumber:
-		return t09DecodeBlock
-	case methods.MethodGetTransactionByHash:
-		return t09DecodeTransaction
-	default:
-		panic("unexpected method " + method)
 	}
 }
 
@@ -1187,13 +1150,7 @@ func t09AssertTypedRoundTrip(t *testing.T, row t09FieldRow, raw, canonical json.
 func t09AssertConservation(t *testing.T, row t09FieldRow, raw json.RawMessage, decision rpc.Decision) {
 	t.Helper()
 	if row.whole {
-		canonical, err := rpc.CanonicalJSON(raw)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(decision.Value) != canonical {
-			t.Fatalf("local whole answer = %s, want canonical %s", decision.Value, canonical)
-		}
+		t09AssertWholeCanonical(t, row.method, raw, decision.Value)
 		return
 	}
 	if row.protected[0] == "$" {

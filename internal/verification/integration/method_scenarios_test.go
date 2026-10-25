@@ -473,8 +473,8 @@ func TestT091CallRevertDimensionMatrix(t *testing.T) {
 	if data.Name != "data" || len(data.Support) != 3 || len(data.Reject) != 0 || len(data.Abstain) != 2 || !data.Returned {
 		t.Fatalf("data dimension = %+v", data)
 	}
-	t09AssertDimensionSources(t, "call revert", "data support", data.Support, fleet, []int{0, 1, 2})
-	t09AssertDimensionSources(t, "call revert", "data abstain", data.Abstain, fleet, []int{3, 4})
+	t09AssertSourceRefs(t, "call revert", "data support", data.Support, fleet, []int{0, 1, 2})
+	t09AssertSourceRefs(t, "call revert", "data abstain", data.Abstain, fleet, []int{3, 4})
 }
 
 // TestT091QuorumFloorInterlock pins the floor behavior from both sides at the
