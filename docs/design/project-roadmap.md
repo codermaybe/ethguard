@@ -1,61 +1,58 @@
 # EthGuard 当前路线图
 
-状态：**拓扑迁移、架构收敛与 T09 整体审计已完成，进入逐方法对接阶段**（2026-10-25）
+状态：**拓扑迁移、架构收敛与 T09 整体审计已完成，进入逐方法对接和依赖边界收敛阶段**（2026-10-25）
 
-本文件只描述当前事实、下一阶段和验收出口。已经完成的功能任务、历史审计过程和
-被否决的候选方案以 Git 历史及各专题设计文档为准，不在这里重复展开。
+本文件是 EthGuard 唯一的路线与阶段状态来源，记录当前事实、方向、顺序、依赖、
+遗留问题和阶段出口。设计文档只记录某个契约、决策或证据的详细内容，不维护第二
+份路线或阶段状态；历史执行过程和已否决方案以 Git 历史为准。
 
 恢复上下文请先读 [架构恢复记忆](architecture-recovery.md)，再读
-[代码库拓扑与模块所有权](codebase-topology.md)。本文只负责路线和阶段出口。
+[代码库拓扑与模块所有权](codebase-topology.md)。
 
 ## 当前基线
 
-EthGuard 的运行时语义已经冻结在现有实现中：
+EthGuard 的运行时语义已经冻结：
 
 - `Corroborated` 是 provider-backed cross-source evidence，不是 Ethereum
   consensus、canonical proof 或 cryptographic finality；
-- Decision、quorum、reference policy 和方法契约不因目录迁移改变；
-- T09 的方法场景矩阵、字段生命周期和 typed 边界已完成；
-- T10 的离线/live 证据分层已完成，live observation 不被写成普遍兼容性证明；
-- WSS 无法区分 error data 缺失与 JSON `null`，这是当前 transport 限制；
-- reference policy 统一方案仍是未立项的候选，不授权实现。
+- Decision、quorum、reference policy、方法契约和方法数量不因目录迁移改变；
+- T09 的字段生命周期、决策矩阵、typed 边界和整体审计已完成；
+- T10 的离线/live 证据分层已完成，live observation 不写成普遍兼容性证明；
+- WSS 的 `error.data` 缺失与 JSON `null` 仍无法区分，这是决策 0056 的显式限制；
+- reference policy 统一方案、freshness 余量和 adaptive congestion 仍按各自决策保留，
+  不由方法对接阶段隐式改写。
 
-拓扑迁移已完成：
+### 结构基线
 
-- root 外部验证位于 `internal/verification/integration`；
-- `internal/runtime` 集中方法、projector 和 aggregator 的生产装配；
+- `internal/runtime` 是唯一生产 Composition Root；
 - `internal/typed` 是唯一生产 typed projection；
-- `pool.Transport` 是 pool 消费者拥有的最小 transport seam；
-- `internal/reference.HeadReader` 是 reference 消费者拥有的最小 head-reading seam；
-- root facade 与 `ethadapter` 不存在第二套 typed decoder 或平行执行链；
-- 架构依赖互锁已进入根测试并由 CI 执行。
-- T09 测试入口已完成语义化重命名，专项门使用 `^TestVerification`；
-- T09 整体审计已完成，当前 23 个已注册方法进入逐方法对接准备；
-- verification 当前保持单一 `integration` Module，不创建 `testkit` 或浅层验证 package；
-- `rpc/methods` 保持单一生产 Module，已有对象、wire 和 policy 深模块继续拥有共享语义；
-- root facade 与 `ethadapter` 的对接边界已审查，暂无真实重复转换或第二个 Adapter seam。
+- `pool.Transport` 和 `internal/reference.HeadReader` 是消费者拥有的最小 seam；
+- verification 当前保持单一 `internal/verification/integration` Module；
+- `rpc/methods` 保持单一生产 Module，`rpc/internal/objects`、`wire`、`policy` 拥有
+  各自的深语义；
+- root facade 与 `ethadapter` 不存在第二套 typed decoder、policy registry 或执行链；
+- T09 测试入口使用 `^TestVerification` 专项门。
 
-正式拓扑规格见 [codebase-topology.md](codebase-topology.md)，迁移执行记录见
-[codebase-topology-migration.md](codebase-topology-migration.md)。
+### 规范和依赖基线
 
-本阶段提交：
+- Execution APIs 是方法名、参数形态、响应字段和官方边界的规范来源；
+- 当前 go-ethereum `v1.17.5` 是兼容性、Geth 类型和 wire 行为的对照基线，不是
+  Ethereum 上游真值的规范来源；
+- `go.mod` 固定 go-ethereum 版本以保证可复现，但这形成实现耦合债务：pool 的
+  dialer/raw-body 路径仍接触具体 Geth client，typed values/codecs 也使用 Geth 类型；
+- 依赖迁移只允许渐进地收窄内部 connection/transport seam，不启动移除 go-ethereum
+  类型的大爆炸重写，不建立平行 Block/Receipt/Transaction 类型系统；
+- T00 的版本、分叉和 ethclient 兼容矩阵见 [spec-baseline.md](spec-baseline.md)，
+  该文件是历史基线，逐方法对接必须引用并更新当前状态，不把历史快照当现状。
 
-```text
-cb86a34  verification topology
-72d2153  runtime composition
-eca3534 typed projection
-8f9c4e1 transport/reference seams
-807e0ba reference member snapshot preservation
-058f52c topology guards and README
-ec1fe66 roadmap pointer
-```
-
-架构收敛审查记录：
+架构审查记录：
 
 ```text
 4cffdeb verification topology split timing
 04ee039 rpc/methods boundary review
 31f60b3 adapter boundary review
+a4c2ac9 architecture convergence close-out
+c58fe40 T09 audit and method-integration roadmap
 ```
 
 当前基线命令：
@@ -67,91 +64,141 @@ go test ./... -race -count=1
 go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
 ```
 
-## 下一阶段：逐方法对接
+## 路线总账
 
-逐方法对接的目标是把每个已注册 read method 的 policy、root facade、ethadapter
-形状、typed projection、错误映射和验证入口闭合起来，不新增方法，也不改变裁决语义。
+| 轨道 | 当前状态 | 下一出口 | 约束 |
+| --- | --- | --- | --- |
+| 拓扑迁移、架构收敛、T09 审计 | 已完成 | 只在出现真实新 Seam 或维护负担时重新审查 | 不按目录整齐度拆包 |
+| 逐方法 HTTP/root/ethadapter 对接 | 下一阶段 | 23 个 RegisteredMethod 各有对接卡片和独立验收 | 不新增方法，不改变裁决语义 |
+| go-ethereum/connection 依赖债务 | 已记录，待逐步收敛 | pool connection/Transport 不再把具体 Geth client 作为长期内部依赖 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
+| WSS transport | 评估排在方法对接和 connection seam 之后 | 契约、最小 Adapter、四态进程内验收后再议 golden | 不先改 quorum、policy、typed 或写路径 |
+| T11 自适应拥塞控制 | 决策方向已接受，算法待设计 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
+| reference freshness | 0032/0033 已接受边界，余量和对齐待专门决策 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
+| provider compatibility evidence | 按方法逐步补齐 | capture/replay/live 状态登记并保持证据等级 | 不用合成样本冒充 provider 兼容性 |
+| 外部消费者纪律 | 当前无外部消费者 | 首次发布/tag/import 后重启 API break 评估 | 依据决策 0057 |
 
-每个方法是一个独立切片和独立提交，至少核对：
+上述每条轨道的细节、验收和停止条件都在本文后续章节；链接的设计文档提供依据，
+不替代本表的顺序和状态。
 
-1. `rpc/methods` catalog、root `Client` 和 `ethadapter` 是否有唯一对应关系；
-2. 请求参数和 wire form 是否与 policy 的 Prepare/EIP-1898/pending 规则一致；
-3. Decision.Value、typed projection、`ethereum.NotFound`、sentinel 和 revert/error
-   形状是否在两种 facade 中一致；
-4. anchor、pending、local/median/strict 状态和完整参与分母是否由现有 seam 处理；
-5. 是否已有 root/adapter/verification 覆盖，缺口属于测试、文档还是实际实现。
+## 第一阶段：逐方法对接
 
-建议顺序：
+目标是闭合每个已注册 read method 的 policy、root facade、ethadapter、typed projection、
+错误形状和验证入口。当前注册表固定为 23 个方法；本阶段不新增 RPC 方法、不改变裁决
+语义、不修 reference policy 或 WSS。
 
-- 简单确定性与本地方法：chain ID、gas/fee scalar、net、peer/listening、block number；
-- anchored state：balance、nonce、storage、code、call、estimate gas；
-- 对象与数组：block、transaction、receipt、block receipts、logs、fee history、
-  access list；
-- 兼容性边界：revert data、pending、EIP-1898 object、NotFound 和错误形状。
+### 每个方法的对接卡片
 
-agent 只接手已有契约下的局部 Adapter/测试切片；需要重新定义 reference、错误、
-并发、Transport 或 evidence 语义的判断由主维护者完成。每个切片保持离线、可回滚，
-并运行全量和 `^TestVerification` 专项验收。
+每个方法一个独立切片、一个可回滚提交，至少记录：
 
-## 后续阶段：WSS transport 设计
+1. `rpc/methods` catalog、root `Client`、ethclient-shaped adapter 的对应关系；
+2. 对照 go-ethereum v1.17.5 的参数、返回类型和已接受语义差异；
+3. Prepare、EIP-1898、moving tag、pending、admission、normalization 和 canonical Value；
+4. Decision.Value 到 typed projection、`ethereum.NotFound`、sentinel、revert/error 的映射；
+5. anchor、local/median/strict、固定分母和 fault 归属；
+6. root/adapter/verification 覆盖状态；
+7. provider compatibility evidence 状态：HTTP capture、replay、live observation 或
+   明确未验证。离线测试不能替代 provider evidence，也不因缺样本合成 golden。
 
-WSS 只在 HTTP 查询路径逐方法对接稳定、Adapter 边界没有未决语义后进入。第一步是
-单独的 transport 契约和 Adapter 设计，不直接修现有 geth WSS 行为。
+### 对接顺序
 
-必须先明确：
+1. **确定性与本地方法**：chain ID、gas/fee scalar、net、peer/listening、block number；
+2. **anchored state**：balance、nonce、storage、code、call、estimate gas；
+3. **对象和数组**：block、transaction、receipt、block receipts、logs、fee history、
+   access list；
+4. **兼容性边界**：revert data、pending、EIP-1898 object、NotFound、负 block number、
+   `requireCanonical` 和错误形状。
 
-- 单请求/单响应生命周期和 request ID demux；
-- context cancellation、bounded message 和 error envelope 保真，尤其是
-  error data 缺失与 JSON `null` 的区分；
-- Close 时释放 pending call；
-- `pool.Transport` 替换点与现有 aggregator/reference/Decision 的不变关系。
+`HeaderByHash`/`HeaderByNumber`、Pending* 全族、hash-specific 便捷方法、订阅、
+`SimulateV1`、`eth_getProof`、debug/trace 和交易生命周期方法不因对接阶段自动加入；
+它们按 [spec-baseline.md](spec-baseline.md) 的缺口分类保持 root `Call`/Unsupported/
+WriteMethod 的诚实边界。
 
-subscription、filter 生命周期、自动重连、自动重放和未知结果恢复不属于第一阶段，
-需要另立契约。WSS 不得改变 quorum、method policy、typed projection 或 evidence
-语义。
+### 方法对接出口
 
-架构收敛记录仍见[验证拓扑拆分决策](verification-topology-decision.md)、
-[`rpc/methods` Module 边界审查](rpc-methods-boundary-review.md)和
-[root facade 与 `ethadapter` 对接边界审查](adapter-boundary-review.md)。
-
-## 不进入下一阶段的内容
-
-以下事项保持明确排除：
-
-- 新增 RPC 方法或扩大方法覆盖；
-- provider 权重、信誉和 failure-domain 模型；
-- Ethereum light client、BLS、sync committee 或 trusted checkpoint；
-- 把 provider-backed evidence 宣传为 consensus、canonicality 或 finality；
-- 修复 WSS missing/null 能力缺口；
-- 重新定义 quorum、Decision、reference policy 或 `expect/v1`；
-- 为视觉整齐拆出浅层转发 package；
-- 在普通测试中联网或把 live 结果写入 capture/golden/testdata。
-
-## 执行规则与出口
-
-每个结构切片独立提交，只包含一个结构意图。提交说明记录：
-
-- 变更的 Module 和所有权边界；
-- 保持不变的运行时语义；
-- 实际验证命令和失败路径；
-- 是否触碰样本、golden、testdata 或网络；
-- 尚未迁移的文件和剩余风险。
-
-每个切片至少运行：
+- 23 个 RegisteredMethod 都有一张当前对接卡片；没有隐含的“方法存在即完全兼容”；
+- adapter 的支持、root-only、Forwarded、Unsupported 和 WriteMethod 状态明确；
+- 每个已支持方法的请求形状、typed 返回和错误语义有离线回归；
+- provider 证据缺口单独登记，不通过修改阈值、golden 或测试语义关闭；
+- 每个切片运行：
 
 ```text
-gofmt -w <changed-go-files>
 go test ./... -count=1
+go test ./... -race -count=1
+go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
 go vet ./...
+gofmt -l .
 git diff --check
 ```
 
-阶段出口还必须通过：
+主维护者负责方法契约、reference、错误、Transport 或 evidence 语义；agent 只接手
+已有契约下的局部 Adapter/测试对接。
 
-```text
-go test ./... -race -count=1
-go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
-```
+## 第二阶段：依赖债务与 connection/transport seam
 
-官方 `gopls` Rename 用于 package path 的闭合移动；同一 package 内的文件移动使用
-`git mv`。任何无法证明为纯结构变化的操作都单独设计、单独提交、单独审计。
+这条轨道不等于移除 go-ethereum。它解决的是“库升级或替换 transport 时，业务 Module
+不被第三方内部实现牵动”。
+
+顺序：
+
+1. 维护 go-ethereum v1.17.5 对照基线和 Execution APIs 版本锚点；升级前先生成
+   版本差异、方法/类型/错误行为影响清单；
+2. 完成 `pool.Transport` 的真正接入面，逐步收窄 `pool` 对具体 `*ethclient.Client`
+   dialer/raw-body 实现的依赖；
+3. HTTP adapter 先接入内部 connection seam，保持当前请求、取消、关闭、错误和健康
+   语义；
+4. 每一片分别验证方法对接、typed、replay、race 和 live evidence 门；
+5. 不创建平行 Ethereum 类型、hex codec、共识编码或第二套客户端语义。
+
+决策 0060 是这条轨道的权威记录。完整迁移成本必须分别量化 transport、wire-error、
+WebSocket、Ethereum types、cryptographic 和 test fixtures；不以“代码行数少”证明可行。
+
+## 第三阶段：WSS transport 设计与分片实现
+
+WSS 只在逐方法 HTTP 对接和内部 connection seam 稳定后进入。WSS 首先是独立 transport
+契约，不是方法 policy 或 quorum 项目。
+
+### WSS 顺序
+
+1. **先承认限制**：当 Geth WSS `ErrorData() == nil` 时，把状态表达为“无法判断
+   `error.data` 缺失还是显式 null”，不改裁决行为、不新增比较键、不生成 WSS 四态 golden；
+2. **评估 transport seam**：比较自建最小 WSS 调用层、上游扩展点和维护成本；
+3. **实现最小 Adapter（若评估通过）**：单请求/单响应、request ID demux、context
+   cancellation、bounded message、error envelope presence、乱序、断连、超时清理和
+   Close 释放 pending call；
+4. **进程内验收后再升级决策 0056**：四态、malformed frame、read limit、close 和
+   cancellation 全部验证后，才考虑 WSS 四态 golden；
+5. subscription、filter、自动重连、自动重放、未知结果恢复和写路径重连另立契约。
+
+WSS Adapter 只替换 `pool.Transport`，不得改变 aggregator、reference、Decision、
+method policy、typed projection、quorum 或方法数量。详细事实和候选路线见
+[wss-error-data-presence.md](wss-error-data-presence.md)。
+
+## 并行但不混入方法对接的遗留轨道
+
+- **T11 自适应拥塞控制**：决策 0031 方向已接受，但算法、参数、队列边界和恢复策略
+  仍待设计。它必须保持固定成员、分母、权重、模式和 acceptance threshold 不变，
+  不与单个方法对接混合；
+- **reference freshness**：决策 0032/0033 的 freshness bounds 和实现对齐仍是
+  reference 专题，不由方法 adapter 默默解决；
+- **provider compatibility evidence**：T00/T10 的 capture/replay/live 证据按方法
+  逐步补齐。`eth_syncing` progress object 等缺口不能用合成样本补成 provider 结论；
+- **外部消费者纪律**：决策 0057 的“当前无外部消费者”会在首次发布、tag 或外部
+  import 出现时失效，届时 API break 必须重新评估弃用窗口。
+
+## 不进入当前路线图
+
+- provider 权重、信誉和 failure-domain 模型；
+- Ethereum light client、BLS、sync committee、trusted checkpoint；
+- 把 provider-backed evidence 写成 consensus、canonicality、finality 或 provider
+  independence；
+- 仅为扩大方法数量新增 RPC；
+- 为目录整齐创建浅层 forwarding package；
+- 普通测试联网，或把 live 结果直接写入 capture/golden/testdata；
+- 大爆炸移除 go-ethereum 或自建平行 Ethereum 类型系统。
+
+## 执行规则
+
+每个切片只包含一个结构或实现意图，提交说明记录 Module、所有权、不变语义、命令、
+失败路径、网络/sample 状态和剩余风险。任何无法证明为纯结构变化的操作都单独设计、
+单独提交、单独审计；需要重新定义并发、错误、连接生命周期或 evidence 语义的核心 seam
+由主维护者设计，局部且可回滚的 Adapter/测试整理才交给 agent。
