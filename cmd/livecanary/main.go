@@ -279,8 +279,8 @@ func runLive(args []string, stdout io.Writer, deps dependencies) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	outPath := flags.String("out", "", "manifest output path")
-	httpAdapter := flags.String("http-adapter", string(ethguard.HTTPAdapterGeth),
-		"connection adapter: geth (default) | native")
+	httpAdapter := flags.String("http-adapter", "",
+		"connection adapter: empty derives from manifest | geth | native")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -303,6 +303,11 @@ func runLive(args []string, stdout io.Writer, deps dependencies) error {
 	if err != nil {
 		return err
 	}
+	adapter, err := livecanary.NormalizeHTTPAdapter(*httpAdapter)
+	if err != nil {
+		return err
+	}
+	result.Manifest.HTTPAdapter = adapter
 	manifestBytes, err := result.Manifest.Marshal()
 	if err != nil {
 		return err
@@ -356,8 +361,8 @@ func runRerun(args []string, stdout io.Writer, deps dependencies) error {
 	flags.SetOutput(io.Discard)
 	manifestPath := flags.String("manifest", "", "existing manifest path")
 	outPath := flags.String("out", "", "report output path")
-	httpAdapter := flags.String("http-adapter", string(ethguard.HTTPAdapterGeth),
-		"connection adapter: geth (default) | native")
+	httpAdapter := flags.String("http-adapter", "",
+		"connection adapter: empty derives from manifest | geth | native")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

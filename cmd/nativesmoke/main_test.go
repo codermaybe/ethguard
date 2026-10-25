@@ -119,3 +119,34 @@ func TestTruncateSanitizesControlCharacters(t *testing.T) {
 		t.Fatalf("truncate = %q", long)
 	}
 }
+
+func TestRedactProviderURL(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "userinfo-query-path", in: "https://user:secret@example.invalid/rpc/key?api_key=topsecret&chain=1#frag", want: "https://example.invalid/%3Credacted%3E"},
+		{name: "plain-host", in: "https://example.invalid", want: "https://example.invalid"},
+		{name: "invalid", in: "://bad", want: "[invalid-url]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := redactProviderURL(tc.in); got != tc.want {
+				t.Fatalf("redactProviderURL = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRedactErrorRemovesProviderURL(t *testing.T) {
+	raw := "https://user:secret@example.invalid/rpc/key?api_key=topsecret"
+	err := errors.New("Post \"" + raw + "\": connection refused")
+	got := redactError(raw, err)
+	if strings.Contains(got, "secret") || strings.Contains(got, "topsecret") || strings.Contains(got, raw) {
+		t.Fatalf("redactError leaked provider URL: %q", got)
+	}
+	if !strings.Contains(got, "example.invalid") {
+		t.Fatalf("redactError removed provider identity: %q", got)
+	}
+}

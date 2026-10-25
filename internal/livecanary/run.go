@@ -144,6 +144,22 @@ func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 	if e.NewClient != nil {
 		return e.NewClient(manifest)
 	}
+	manifestAdapter, err := NormalizeHTTPAdapter(manifest.HTTPAdapter)
+	if err != nil {
+		return nil, err
+	}
+	selectedAdapter := string(e.HTTPAdapter)
+	if selectedAdapter == "" {
+		selectedAdapter = manifestAdapter
+	} else {
+		selectedAdapter, err = NormalizeHTTPAdapter(selectedAdapter)
+		if err != nil {
+			return nil, err
+		}
+		if selectedAdapter != manifestAdapter {
+			return nil, fmt.Errorf("livecanary: adapter %q does not match manifest adapter %q", selectedAdapter, manifestAdapter)
+		}
+	}
 	selected := manifest.Selection.Selected
 	upstreams := make([]config.Upstream, 0, len(selected))
 	for _, member := range selected {
@@ -162,9 +178,7 @@ func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 		ethguard.WithCollectTimeout(time.Duration(manifest.Timeouts.StepMS) * time.Millisecond),
 		ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(manifest.Reference.MaxLagBlocks)),
 	}
-	if e.HTTPAdapter != "" {
-		opts = append(opts, ethguard.WithHTTPAdapter(e.HTTPAdapter))
-	}
+	opts = append(opts, ethguard.WithHTTPAdapter(ethguard.HTTPAdapter(selectedAdapter)))
 	client, err := ethguard.New(cfg, opts...)
 	if err != nil {
 		return nil, err

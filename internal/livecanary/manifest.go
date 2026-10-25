@@ -46,6 +46,8 @@ const (
 	ReferenceTimeoutMS = 30000
 	StepTimeoutMS      = 30000
 	RegistryMaxBytes   = 33554432
+	HTTPAdapterGeth    = "geth"
+	HTTPAdapterNative  = "native"
 )
 
 const (
@@ -61,20 +63,39 @@ var (
 )
 
 type Manifest struct {
-	SchemaVersion string      `json:"schema_version"`
-	RunID         string      `json:"run_id"`
-	GeneratedAt   string      `json:"generated_at"`
-	SourceCommit  string      `json:"source_commit"`
-	ToolVersion   string      `json:"tool_version"`
-	GoVersion     string      `json:"go_version"`
-	Environment   Environment `json:"environment"`
-	ChainID       uint64      `json:"chain_id"`
-	Registry      Registry    `json:"registry"`
-	Selection     *Selection  `json:"selection"`
-	Reference     Reference   `json:"reference"`
-	Timeouts      Timeouts    `json:"timeouts"`
-	Limits        Limits      `json:"limits"`
-	Plan          Plan        `json:"plan"`
+	SchemaVersion string `json:"schema_version"`
+	RunID         string `json:"run_id"`
+	GeneratedAt   string `json:"generated_at"`
+	SourceCommit  string `json:"source_commit"`
+	ToolVersion   string `json:"tool_version"`
+	GoVersion     string `json:"go_version"`
+	// HTTPAdapter binds the connection implementation to this observation.
+	// Empty is accepted only for legacy manifests and means HTTPAdapterGeth.
+	HTTPAdapter string      `json:"http_adapter,omitempty"`
+	Environment Environment `json:"environment"`
+	ChainID     uint64      `json:"chain_id"`
+	Registry    Registry    `json:"registry"`
+	Selection   *Selection  `json:"selection"`
+	Reference   Reference   `json:"reference"`
+	Timeouts    Timeouts    `json:"timeouts"`
+	Limits      Limits      `json:"limits"`
+	Plan        Plan        `json:"plan"`
+}
+
+// NormalizeHTTPAdapter returns the canonical adapter name. An empty value is
+// the legacy/default Geth adapter; native is opt-in and must be bound into the
+// manifest before the first report is written.
+func NormalizeHTTPAdapter(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return HTTPAdapterGeth, nil
+	}
+	switch value {
+	case HTTPAdapterGeth, HTTPAdapterNative:
+		return value, nil
+	default:
+		return "", fmt.Errorf("http_adapter: unknown adapter %q", value)
+	}
 }
 
 type Environment struct {
@@ -467,6 +488,9 @@ func (m *Manifest) Validate() error {
 	}
 	if m.ToolVersion != ToolVersion {
 		return fmt.Errorf("tool_version: got %q, want %q", m.ToolVersion, ToolVersion)
+	}
+	if _, err := NormalizeHTTPAdapter(m.HTTPAdapter); err != nil {
+		return err
 	}
 	if !strings.HasPrefix(m.GoVersion, "go") || len(m.GoVersion) < 3 {
 		return fmt.Errorf("go_version: %q is not a Go toolchain version", m.GoVersion)

@@ -106,6 +106,7 @@ func TestManifestValidationRejectsMissingOrInconsistentProvenance(t *testing.T) 
 		name   string
 		mutate func(*Manifest)
 	}{
+		{"http adapter", func(m *Manifest) { m.HTTPAdapter = "websocket" }},
 		{"schema version", func(m *Manifest) { m.SchemaVersion = "ethguard.live-manifest/v2" }},
 		{"run id", func(m *Manifest) { m.RunID = "" }},
 		{"generated at", func(m *Manifest) { m.GeneratedAt = "2026-10-23T12:00:00+00:00" }},

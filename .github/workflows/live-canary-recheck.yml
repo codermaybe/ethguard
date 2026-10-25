@@ -27,9 +27,9 @@ on:
         required: false
         type: string
       http_adapter:
-        description: 'Adapter for the rerun; must match the adapter that produced the source artifact. Requires a source commit that understands -http-adapter.'
+        description: 'Optional adapter override; empty derives from the source manifest. A non-empty value must match it.'
         required: false
-        default: 'geth'
+        default: ''
         type: string
 
 permissions:
@@ -90,6 +90,13 @@ jobs:
             echo "::error::source artifact is a failed observation"
             exit 1
           fi
+          source_adapter="$(jq -r '.http_adapter // "geth"' manifest.json)"
+          requested_adapter="${{ inputs.http_adapter }}"
+          if [ -n "${requested_adapter}" ] && [ "${requested_adapter}" != "${source_adapter}" ]; then
+            echo "::error::requested adapter ${requested_adapter} does not match source adapter ${source_adapter}"
+            exit 1
+          fi
+          echo "source_adapter=${source_adapter}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: build current tool
         run: go build -trimpath -o "${RUNNER_TEMP}/livecanary-current" ./cmd/livecanary
@@ -139,13 +146,19 @@ jobs:
         continue-on-error: true
         env:
           RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
-          HTTP_ADAPTER: ${{ inputs.http_adapter || 'geth' }}
+          HTTP_ADAPTER: ${{ inputs.http_adapter }}
         run: |
           set -o pipefail
-          "${RUNNER_TEMP}/livecanary-source" rerun \
-            -http-adapter "${HTTP_ADAPTER}" \
-            -manifest "${RECHECK_DIR}/manifest.json" \
-            -out "${RECHECK_DIR}/report.json" 2>&1 | tee "${RECHECK_DIR}/rerun.log"
+          if [ -n "${HTTP_ADAPTER}" ]; then
+            "${RUNNER_TEMP}/livecanary-source" rerun \
+              -http-adapter "${HTTP_ADAPTER}" \
+              -manifest "${RECHECK_DIR}/manifest.json" \
+              -out "${RECHECK_DIR}/report.json" 2>&1 | tee "${RECHECK_DIR}/rerun.log"
+          else
+            "${RUNNER_TEMP}/livecanary-source" rerun \
+              -manifest "${RECHECK_DIR}/manifest.json" \
+              -out "${RECHECK_DIR}/report.json" 2>&1 | tee "${RECHECK_DIR}/rerun.log"
+          fi
 
       - name: verify recheck coherence
         if: always()

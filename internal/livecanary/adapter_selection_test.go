@@ -46,7 +46,9 @@ func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 
 	t.Run("native-selected", func(t *testing.T) {
 		e := Executor{HTTPAdapter: ethguard.HTTPAdapterNative}
-		client, err := e.clientFor(manifest)
+		nativeManifest := manifest
+		nativeManifest.HTTPAdapter = string(ethguard.HTTPAdapterNative)
+		client, err := e.clientFor(nativeManifest)
 		if err != nil {
 			t.Fatal(err)
 		}

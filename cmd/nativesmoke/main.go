@@ -28,6 +28,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -143,12 +144,32 @@ func run(args []string) error {
 }
 
 func smokeProvider(rawURL string, adapters []string, timeout time.Duration) providerReport {
-	pr := providerReport{URL: rawURL, Adapters: map[string]*adapterReport{}}
+	pr := providerReport{URL: redactProviderURL(rawURL), Adapters: map[string]*adapterReport{}}
 	for _, a := range adapters {
 		pr.Adapters[a] = smokeAdapter(rawURL, a, timeout)
 	}
 	pr.Conflicts, pr.Verdict = compare(pr)
 	return pr
+}
+
+// redactProviderURL keeps a provider identity useful for diagnostics while
+// ensuring userinfo, query tokens, fragments, and path-embedded credentials
+// never enter smoke reports or stdout. The raw URL remains in memory only for
+// the dial operation.
+func redactProviderURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "[invalid-url]"
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.ForceQuery = false
+	u.Fragment = ""
+	if u.Path != "" && u.Path != "/" {
+		u.Path = "/<redacted>"
+		u.RawPath = ""
+	}
+	return u.String()
 }
 
 func smokeAdapter(rawURL, adapter string, timeout time.Duration) *adapterReport {
@@ -161,10 +182,29 @@ func smokeAdapter(rawURL, adapter string, timeout time.Duration) *adapterReport 
 	tr, err := dialer.DialContext(ctx, rawURL)
 	ar := &adapterReport{}
 	if err != nil {
-		ar.DialErr = err.Error()
+		ar.DialErr = redactError(rawURL, err)
 		return ar
 	}
 	defer tr.Close()
+	recordError := func(res *callResult, err error) {
+		var pe rpc.ProtocolError
+		if errors.As(err, &pe) {
+			res.ErrClass = "jsonrpc_error"
+			code := pe.ErrorCode()
+			res.ErrCode = &code
+			res.ErrMsg = truncate(pe.Error(), 240)
+			var presence rpc.ErrorDataPresence
+			if errors.As(err, &presence) {
+				if d, ok := presence.ErrorDataJSON(); ok {
+					res.DataPresent = true
+					res.DataRaw = truncate(string(d), 240)
+				}
+			}
+			return
+		}
+		res.ErrClass = classify(err)
+		res.ErrMsg = redactError(rawURL, err)
+	}
 
 	run := func(name string, method string, args ...any) callResult {
 		cctx, ccancel := context.WithTimeout(ctx, timeout)
@@ -173,33 +213,30 @@ func smokeAdapter(rawURL, adapter string, timeout time.Duration) *adapterReport 
 		start := time.Now()
 		err := tr.CallContext(cctx, &raw, method, args...)
 		res := callResult{Call: name, MS: time.Since(start).Milliseconds()}
-		switch {
-		case err == nil:
+		if err == nil {
 			res.OK = true
 			res.Value = truncate(string(raw), 240)
-		default:
-			var pe rpc.ProtocolError
-			if errors.As(err, &pe) {
-				res.ErrClass = "jsonrpc_error"
-				code := pe.ErrorCode()
-				res.ErrCode = &code
-				res.ErrMsg = truncate(pe.Error(), 240)
-				var presence rpc.ErrorDataPresence
-				if errors.As(err, &presence) {
-					if d, ok := presence.ErrorDataJSON(); ok {
-						res.DataPresent = true
-						res.DataRaw = truncate(string(d), 240)
-					}
-				}
-			} else {
-				res.ErrClass = classify(err)
-				res.ErrMsg = truncate(err.Error(), 240)
-			}
+		} else {
+			recordError(&res, err)
 		}
 		return res
 	}
+	runChainID := func() callResult {
+		cctx, ccancel := context.WithTimeout(ctx, timeout)
+		defer ccancel()
+		start := time.Now()
+		chainID, err := tr.ChainID(cctx)
+		res := callResult{Call: "eth_chainId", MS: time.Since(start).Milliseconds()}
+		if err != nil {
+			recordError(&res, err)
+			return res
+		}
+		res.OK = true
+		res.Value = fmt.Sprintf("%q", "0x"+chainID.Text(16))
+		return res
+	}
 
-	chain := run("eth_chainId", "eth_chainId")
+	chain := runChainID()
 	ar.Calls = append(ar.Calls, chain)
 	block := run("eth_blockNumber", "eth_blockNumber")
 	ar.Calls = append(ar.Calls, block)
@@ -339,4 +376,12 @@ func truncate(s string, n int) string {
 		return s[:n] + "…"
 	}
 	return s
+}
+
+func redactError(rawURL string, err error) string {
+	if err == nil {
+		return ""
+	}
+	message := strings.ReplaceAll(err.Error(), rawURL, redactProviderURL(rawURL))
+	return truncate(message, 240)
 }
