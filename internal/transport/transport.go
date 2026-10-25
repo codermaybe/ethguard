@@ -11,6 +11,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // Transport is one long-lived upstream connection. It deliberately exposes
@@ -116,9 +118,13 @@ func adaptError(err error) error {
 	return err
 }
 
-var _ interface {
-	error
-	HTTPStatusCode() int
-	IsRateLimit() bool
-	Unwrap() error
-} = (*httpStatusError)(nil)
+// The Adapter's error wrappers satisfy the project-owned protocol-error
+// capabilities, so pool, aggregator, write and livecanary never need the
+// go-ethereum error interfaces. Geth's decoded jsonError satisfies
+// rpc.ProtocolError and rpc.DataError structurally without a wrapper;
+// HTTP status needs this one because gethrpc.HTTPError is a struct, not a
+// capability.
+var (
+	_ rpc.HTTPStatusError = (*httpStatusError)(nil)
+	_ rpc.RateLimitError  = (*httpStatusError)(nil)
+)

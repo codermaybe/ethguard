@@ -10,7 +10,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
@@ -706,6 +705,14 @@ func TestGatedMemberMakesStepInconclusive(t *testing.T) {
 	}
 }
 
+// fakeHTTPStatus is a project-owned HTTP status fixture. Fault
+// classification consumes the rpc.HTTPStatusError capability, so the
+// vocabulary is exercised without any third-party error type.
+type fakeHTTPStatus struct{ status int }
+
+func (e fakeHTTPStatus) Error() string       { return fmt.Sprintf("http %d", e.status) }
+func (e fakeHTTPStatus) HTTPStatusCode() int { return e.status }
+
 func TestFaultClassificationVocabulary(t *testing.T) {
 	tests := []struct {
 		name string
@@ -713,10 +720,10 @@ func TestFaultClassificationVocabulary(t *testing.T) {
 		want string
 	}{
 		{"gated member", pool.ErrSourceGated, "provider_unavailable"},
-		{"rate limit", gethrpc.HTTPError{StatusCode: 429}, "provider_rate_limited"},
-		{"server error", gethrpc.HTTPError{StatusCode: 503}, "provider_unavailable"},
-		{"access denied", gethrpc.HTTPError{StatusCode: 403}, "provider_unavailable"},
-		{"bad request", gethrpc.HTTPError{StatusCode: 400}, "provider_error"},
+		{"rate limit", fakeHTTPStatus{status: 429}, "provider_rate_limited"},
+		{"server error", fakeHTTPStatus{status: 503}, "provider_unavailable"},
+		{"access denied", fakeHTTPStatus{status: 403}, "provider_unavailable"},
+		{"bad request", fakeHTTPStatus{status: 400}, "provider_error"},
 		{"conflict", rpc.ErrConflict, "provider_divergence"},
 		{"no usable response", rpc.ErrNoValidResponse, "quorum_unmet"},
 		{"malformed", rpc.ErrMalformedResponse, "provider_malformed"},

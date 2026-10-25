@@ -12,6 +12,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // ErrBodyTooLarge classifies a captured response body that exceeded the
@@ -187,7 +189,13 @@ func dialHTTPPreservingErrorDataWithLimit(ctx context.Context, rawURL string, li
 
 // preservedDataError carries the raw JSON of error.data without implementing
 // geth's DataError. ethclient.RevertErrorData uses errors.As to find that
-// interface and must keep landing on geth's own error.
+// interface and must keep landing on geth's own error. It satisfies the
+// project-owned code and presence capabilities instead:
+var (
+	_ rpc.ProtocolError     = (*preservedDataError)(nil)
+	_ rpc.ErrorDataPresence = (*preservedDataError)(nil)
+)
+
 type preservedDataError struct {
 	err     error
 	data    json.RawMessage

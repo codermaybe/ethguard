@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -52,12 +51,12 @@ func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err erro
 		}
 		return rpc.SourceAnswer{Source: source}
 	}
-	var protocolErr gethrpc.Error
+	var protocolErr rpc.ProtocolError
 	if !errors.As(err, &protocolErr) {
 		return rpc.SourceAnswer{Source: source}
 	}
 	rejection := &rpc.RPCError{Code: protocolErr.ErrorCode(), Message: protocolErr.Error()}
-	var dataErr gethrpc.DataError
+	var dataErr rpc.DataError
 	if errors.As(err, &dataErr) {
 		if data := dataErr.ErrorData(); data != nil {
 			if raw, marshalErr := json.Marshal(data); marshalErr == nil {
@@ -172,7 +171,7 @@ func hasBroadcastAnswer(emissions []pool.Emission) bool {
 		if emission.Val != nil {
 			return true
 		}
-		var protocolErr gethrpc.Error
+		var protocolErr rpc.ProtocolError
 		if errors.As(emission.Err, &protocolErr) {
 			return true
 		}

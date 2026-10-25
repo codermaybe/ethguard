@@ -10,6 +10,7 @@ import (
 
 	"github.com/codermaybe/ethguard/config"
 	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // Emission is the result of a single upstream fan-out request.
@@ -425,7 +426,7 @@ func shouldRecordFailure(parent context.Context, err error) bool {
 }
 
 func isJSONRPCResponseError(err error) bool {
-	var rpcErr protocolError
+	var rpcErr rpc.ProtocolError
 	return errors.As(err, &rpcErr)
 }
 
@@ -433,7 +434,7 @@ func isHealthyRPCResponse(err error) bool {
 	if err == nil {
 		return true
 	}
-	var rpcErr protocolError
+	var rpcErr rpc.ProtocolError
 	if !errors.As(err, &rpcErr) {
 		return false
 	}

@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
-
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/uncertain"
@@ -447,8 +445,8 @@ func hasUsableEmission(emissions []pool.Emission) bool {
 		if emission.Val != nil {
 			return true
 		}
-		var rpcErr gethrpc.Error
-		if errors.As(emission.Err, &rpcErr) {
+		var protocolErr rpc.ProtocolError
+		if errors.As(emission.Err, &protocolErr) {
 			return true
 		}
 	}
@@ -494,30 +492,29 @@ func structuredSourceFaults(policy rpc.Policy, emissions []pool.Emission) []rpc.
 	return faults
 }
 
-// errorDataPresence is the raw JSON form of a protocol error's data field.
-// present is false when the field was absent and true when it was JSON null
-// or any other value. geth's DataError cannot say which of those happened.
-type errorDataPresence interface {
-	ErrorDataJSON() (json.RawMessage, bool)
-}
-
+// observationRPCError converts a source-attributed error into the structured
+// value policies read, using only the project-owned protocol-error
+// capabilities. Presence-preserving Adapters answer through
+// rpc.ErrorDataPresence; every other Adapter falls back to the decoded
+// rpc.DataError value, where an absent field and a JSON null are
+// indistinguishable and stay unknown presence.
 func observationRPCError(err error) *rpc.RPCError {
 	if err == nil {
 		return nil
 	}
-	var protocolErr gethrpc.Error
+	var protocolErr rpc.ProtocolError
 	if !errors.As(err, &protocolErr) {
 		return nil
 	}
 	structured := &rpc.RPCError{Code: protocolErr.ErrorCode(), Message: protocolErr.Error()}
-	var preserved errorDataPresence
+	var preserved rpc.ErrorDataPresence
 	if errors.As(err, &preserved) {
 		if raw, present := preserved.ErrorDataJSON(); present {
 			structured.Data = append(json.RawMessage(nil), raw...)
 		}
 		return structured
 	}
-	var dataErr gethrpc.DataError
+	var dataErr rpc.DataError
 	if errors.As(err, &dataErr) {
 		if data := dataErr.ErrorData(); data != nil {
 			if raw, marshalErr := json.Marshal(data); marshalErr == nil {

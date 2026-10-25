@@ -6,8 +6,7 @@ import (
 	"testing"
 	"time"
 
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
-
+	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -169,8 +168,8 @@ func TestBroadcastProtocolErrorIsUsableAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("protocol rejection must not surface as transport error: %v", err)
 	}
-	var rpcErr gethrpc.Error
-	if !errors.As(emissions[0].Err, &rpcErr) {
+	var protocolErr rpc.ProtocolError
+	if !errors.As(emissions[0].Err, &protocolErr) {
 		t.Fatalf("emission err = %v, want structured JSON-RPC error", emissions[0].Err)
 	}
 }

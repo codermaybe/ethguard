@@ -106,8 +106,9 @@ func TestAggregateDefaultsToNopRecorder(t *testing.T) {
 	_, _ = a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 }
 
-// fakeRPCError mimics a structured JSON-RPC error as the pool's client
-// surfaces it, so errors.As against geth's rpc.Error interface matches.
+// fakeRPCError is a project-owned structured JSON-RPC error fixture: the
+// aggregator recognizes protocol errors through the rpc.ProtocolError
+// capability, so domain tests stay free of third-party error types.
 type fakeRPCError struct {
 	code int
 	msg  string

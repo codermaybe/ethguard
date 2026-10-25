@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	ethereum "github.com/ethereum/go-ethereum"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -939,17 +938,18 @@ func classifyFaultError(err error) string {
 	case errors.Is(err, rpc.ErrInvalidRequest):
 		return "code_error"
 	}
-	var httpErr gethrpc.HTTPError
-	if errors.As(err, &httpErr) {
+	var statusErr rpc.HTTPStatusError
+	if errors.As(err, &statusErr) {
 		// Access-denied and missing-endpoint responses mean the provider is
 		// not serving this client; other 4xx responses are protocol errors.
-		if httpErr.StatusCode >= 500 || httpErr.StatusCode == 401 ||
-			httpErr.StatusCode == 403 || httpErr.StatusCode == 404 {
+		status := statusErr.HTTPStatusCode()
+		if status >= 500 || status == 401 ||
+			status == 403 || status == 404 {
 			return "provider_unavailable"
 		}
 		return "provider_error"
 	}
-	var protocolErr gethrpc.Error
+	var protocolErr rpc.ProtocolError
 	if errors.As(err, &protocolErr) {
 		return "provider_error"
 	}
@@ -972,7 +972,7 @@ func classifyTypedError(err error) string {
 	case "provider_unavailable", "provider_rate_limited", "provider_timeout":
 		return category
 	case "provider_error":
-		var protocolErr gethrpc.Error
+		var protocolErr rpc.ProtocolError
 		if errors.As(err, &protocolErr) {
 			return "provider_error"
 		}
@@ -986,11 +986,11 @@ func isRateLimit(err error) bool {
 	if err == nil {
 		return false
 	}
-	var httpErr gethrpc.HTTPError
-	if errors.As(err, &httpErr) && httpErr.StatusCode == 429 {
+	var statusErr rpc.HTTPStatusError
+	if errors.As(err, &statusErr) && statusErr.HTTPStatusCode() == 429 {
 		return true
 	}
-	var rpcErr gethrpc.Error
+	var rpcErr rpc.ProtocolError
 	if errors.As(err, &rpcErr) {
 		switch rpcErr.ErrorCode() {
 		case -32005, -32016, 429:
