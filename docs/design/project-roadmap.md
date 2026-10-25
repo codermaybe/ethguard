@@ -69,8 +69,9 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | 轨道 | 当前状态 | 下一出口 | 约束 |
 | --- | --- | --- | --- |
 | 拓扑迁移、架构收敛、T09 审计 | 已完成 | 只在出现真实新 Seam 或维护负担时重新审查 | 不按目录整齐度拆包 |
-| 逐方法 HTTP/root/ethadapter 对接 | 下一阶段 | 23 个 RegisteredMethod 各有对接卡片和独立验收 | 不新增方法，不改变裁决语义 |
-| go-ethereum/connection 依赖债务 | 已记录，待逐步收敛 | pool connection/Transport 不再把具体 Geth client 作为长期内部依赖 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
+| HTTP connection 行为差分审计 | 当前下一出口 | 冻结 Geth HTTP baseline、差分矩阵和自有 Adapter 准入条件 | 只审计和补 baseline，不实现自有 HTTP client |
+| 逐方法 HTTP/root/ethadapter 对接 | 等待 connection 审计出口 | 23 个 RegisteredMethod 各有对接卡片和独立验收 | 不新增方法，不改变裁决语义 |
+| go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c 已收敛，待 HTTP 审计 | 评估自有 HTTP Adapter 是否值得实现 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
 | WSS transport | 评估排在方法对接和 connection seam 之后 | 契约、最小 Adapter、四态进程内验收后再议 golden | 不先改 quorum、policy、typed 或写路径 |
 | T11 自适应拥塞控制 | 决策方向已接受，算法待设计 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
 | reference freshness | 0032/0033 已接受边界，余量和对齐待专门决策 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
@@ -87,8 +88,8 @@ HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereu
 行为填充；`CallContext` 也只返回 `error`，无法表达 raw error envelope 的
 `error.data` presence。这是依赖债务的实际风险点。Slice 0 的独立 fake Transport
 基线、Slice 1 的 Geth compatibility seam、Slice 1b 的 Adapter relocation 和
-Slice 1c 的中性 protocol-error capability 已完成；自有 HTTP/WSS Adapter 尚未
-开始。
+Slice 1c 的中性 protocol-error capability 已完成；当前进入 HTTP 行为差分审计，
+自有 HTTP/WSS Adapter 尚未开始。
 
 本阶段的目标是建立一个由 EthGuard 控制的内部 connection/RPC 调用契约，同时保持
 公开 ethclient-shaped 表面和 Ethereum 类型不变：

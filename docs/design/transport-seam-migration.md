@@ -220,7 +220,23 @@ Adapter relocation 之后，继续去除生产路径对 `go-ethereum/rpc.Error` 
 该片完成后，替换连接 Adapter 不需要让上层认识第三方 error 类型；它仍不涉及
 自有 HTTP/WSS client、自动重连或 error presence 四态裁决。
 
-### Slice 2：自有 HTTP request/response Adapter（单独评估后实施）
+### Slice 1d：HTTP behavior differential audit（当前下一出口）
+
+这一片只冻结当前 Geth HTTP compatibility Adapter 的可观察基线，不实现自有 client：
+
+- 建立 request envelope、ID/params、result、JSON-RPC error、HTTP status、body
+  limit、malformed/empty response、cancel/deadline、connection reuse、concurrency
+  和 Close 的测试矩阵；
+- 对每个场景记录 result/error、`errors.Is`、protocol capability、health accounting
+  和 raw error presence 的可观察结果；
+- 标明“必须兼容的现有语义”“Geth 私有实现”“pool 不承诺的行为”和“需主维护者
+  裁决的行为”；
+- 不改变 `Transport`、`Emission`、`Observation`、`RPCError`、Decision 或健康分类，
+  不引入自有 HTTP/WSS 实现。
+
+出口：差分矩阵完成并经主维护者审查；所有未决语义均有明确裁决或被明确排除。
+
+### Slice 2：自有 HTTP request/response Adapter（审计通过后单独评估）
 
 HTTP 自有 Adapter 需要自行承担：连接池、request ID、JSON-RPC envelope、context
 取消、response body 上限、HTTP status、structured error、error data presence 和
@@ -274,14 +290,12 @@ go-ethereum `ethclient`/`ethereum/rpc` 的直接依赖。该片必须分别量�
 
 ## 6. 推荐决策
 
-当前只授权 **Slice 0/1/1b/1c：contract、Geth compatibility seam、Adapter relocation
-和中性 protocol-error capability**。
-这些切片不立即实现
-自有 HTTP/WSS client，
-不改变 `rpc.RPCError`、`Emission`、`Observation` 或 Decision。
+Slice 0/1/1b/1c 已完成。当前只授权 **Slice 1d：HTTP behavior differential audit**；
+不实现自有 HTTP/WSS client，不改变 `rpc.RPCError`、`Emission`、`Observation` 或
+Decision。
 
-Slice 0/1/1b/1c 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连语义；没有这两项
-审查，不进入自有 HTTP/WSS 实现。这样替换风险被隔离在独立的 Transport Adapter，
+Slice 1d 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连语义；没有这两项审查，
+不进入自有 HTTP/WSS 实现。这样替换风险被隔离在独立的 Transport Adapter，
 而不会同时改变方法、聚合、reference、typed 或公开 adapter 语义。
 
 ## 7. 执行记录
@@ -303,6 +317,7 @@ Slice 0/1/1b/1c 通过后，由主维护者单独审查 HTTP 行为差分和 WSS
   `rpc.RateLimitError` capability 检查（与 pool 的退避判定同构）；纯
   capability 的限流错误不再依赖 HTTP status、已知错误码或错误文本才被归类为
   `provider_rate_limited`。
-- 下一片：HTTP 行为差分审计；在该审计完成前不开始自有 HTTP/WSS 客户端实现。
+- 下一片：Slice 1d，HTTP 行为差分审计；在该审计完成前不开始自有 HTTP/WSS
+  客户端实现。
 - 当前没有自有 HTTP 或 WSS client，也没有修改 `RPCError`、`Emission`、
   `Observation`、Decision 或公开 ethadapter 表面。
