@@ -599,11 +599,11 @@ func TestT091MatrixCoverage(t *testing.T) {
 	if got, want := len(methods.RegisteredNames()), len(t09MatrixTestNames); got != want {
 		t.Fatalf("%d registered methods, %d matrix tests", got, want)
 	}
-	source, err := os.ReadFile("t09_scenarios_test.go")
+	source, err := os.ReadFile("method_scenarios_test.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := parser.ParseFile(token.NewFileSet(), "t09_scenarios_test.go", source, 0)
+	parsed, err := parser.ParseFile(token.NewFileSet(), "method_scenarios_test.go", source, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
