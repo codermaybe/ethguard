@@ -986,6 +986,13 @@ func isRateLimit(err error) bool {
 	if err == nil {
 		return false
 	}
+	// The explicit capability first, mirroring pool's isRateLimitError: a
+	// custom Adapter can mark throttling with rpc.RateLimitError alone,
+	// without an HTTP status, a known code, or a recognizable message.
+	var rateLimit rpc.RateLimitError
+	if errors.As(err, &rateLimit) && rateLimit.IsRateLimit() {
+		return true
+	}
 	var statusErr rpc.HTTPStatusError
 	if errors.As(err, &statusErr) && statusErr.HTTPStatusCode() == 429 {
 		return true

@@ -713,6 +713,15 @@ type fakeHTTPStatus struct{ status int }
 func (e fakeHTTPStatus) Error() string       { return fmt.Sprintf("http %d", e.status) }
 func (e fakeHTTPStatus) HTTPStatusCode() int { return e.status }
 
+// fakeRateLimit exercises the rpc.RateLimitError capability in isolation: a
+// custom Adapter can mark throttling without an HTTP status, a known code,
+// or a message the text fallback would recognize. limited false proves the
+// capability answer is honored even when the interface is implemented.
+type fakeRateLimit struct{ limited bool }
+
+func (e fakeRateLimit) Error() string     { return "slow down" }
+func (e fakeRateLimit) IsRateLimit() bool { return e.limited }
+
 func TestFaultClassificationVocabulary(t *testing.T) {
 	tests := []struct {
 		name string
@@ -721,6 +730,8 @@ func TestFaultClassificationVocabulary(t *testing.T) {
 	}{
 		{"gated member", pool.ErrSourceGated, "provider_unavailable"},
 		{"rate limit", fakeHTTPStatus{status: 429}, "provider_rate_limited"},
+		{"capability rate limit", fakeRateLimit{limited: true}, "provider_rate_limited"},
+		{"capability declines rate limit", fakeRateLimit{limited: false}, "provider_error"},
 		{"server error", fakeHTTPStatus{status: 503}, "provider_unavailable"},
 		{"access denied", fakeHTTPStatus{status: 403}, "provider_unavailable"},
 		{"bad request", fakeHTTPStatus{status: 400}, "provider_error"},
