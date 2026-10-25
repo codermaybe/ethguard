@@ -87,7 +87,7 @@ HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereu
 行为填充；`CallContext` 也只返回 `error`，无法表达 raw error envelope 的
 `error.data` presence。这是依赖债务的实际风险点。Slice 0 的独立 fake Transport
 基线、Slice 1 的 Geth compatibility seam 和 Slice 1b 的 Adapter relocation 已
-完成；自有 HTTP/WSS Adapter 尚未开始。
+完成；Slice 1c 正在进入；自有 HTTP/WSS Adapter 尚未开始。
 
 本阶段的目标是建立一个由 EthGuard 控制的内部 connection/RPC 调用契约，同时保持
 公开 ethclient-shaped 表面和 Ethereum 类型不变：
@@ -97,8 +97,10 @@ HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereu
 2. 先把现有 Geth/HTTP Adapter 移出 pool，保持现有请求、健康、错误分类和有界
    body capture 语义；
 3. 使 fake Transport 可以独立驱动 pool → aggregator → policy 路径；
-4. 记录 go-ethereum `v1.17.5` 与 Execution APIs 版本的兼容基线和升级影响清单；
-5. 不改变 quorum、Decision、reference、method policy、typed projection 或方法数量。
+4. 让 protocol errors 通过项目拥有的最小 capability 进入 pool/aggregator/write，
+   而不是由上层识别 Geth error interface；
+5. 记录 go-ethereum `v1.17.5` 与 Execution APIs 版本的兼容基线和升级影响清单；
+6. 不改变 quorum、Decision、reference、method policy、typed projection 或方法数量。
 
 不在本阶段做：
 

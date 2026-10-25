@@ -195,11 +195,30 @@ Adapter 在取得保真 envelope 后提供它。这样可在不改变 `Emission`
 - 原有 HTTP/WSS、body limit、context precedence、health、Close 和 error 分类测试
   必须原样通过，新增的 pool contract tests 继续保持与 Geth 无关。
 - pool 的健康判断和 aggregator 的 protocol-error normalization 不能继续直接
-  依赖 Geth `rpc.Error`；应在后续中性错误契约片中改为项目拥有的最小接口，Adapter
-  负责把 Geth/custom 错误映射到该接口。
+  依赖 Geth `rpc.Error`；Slice 1c 将其改为项目拥有的最小接口，Adapter 负责把
+  Geth/custom 错误映射到该接口。
 
 这是模块归属片，不是自有客户端片。若迁移导致任何错误分类、Close 阻塞、WSS
 重连或 raw presence 变化，必须停止并回滚该片。
+
+### Slice 1c：中性 protocol-error capability
+
+Adapter relocation 之后，继续去除生产路径对 `go-ethereum/rpc.Error` 和
+`DataError` 的结构依赖：
+
+- 在项目自己的 `rpc` domain 包中定义最小的 `ProtocolError`、data capability 和
+  rate-limit capability；
+- pool、aggregator、write 和 livecanary 只依赖这些 capability，不直接导入
+  Geth RPC error interface；
+- Geth Adapter 通过现有 error chain 和 wrapper 实现这些 capability，自有 HTTP/WSS
+  Adapter 也只需实现项目契约；
+- `rpc.RPCError` 仍是 observation/policy 使用的结构化值，不把它强行变成 error，
+  不改变 `Decision`、fault、revert 或 write rejection 语义；
+- Geth-specific test fixtures 只保留在 Adapter 测试，domain/aggregator 测试使用
+  project-owned fake errors。
+
+该片完成后，替换连接 Adapter 不需要让上层认识第三方 error 类型；它仍不涉及
+自有 HTTP/WSS client、自动重连或 error presence 四态裁决。
 
 ### Slice 2：自有 HTTP request/response Adapter（单独评估后实施）
 
@@ -255,12 +274,13 @@ go-ethereum `ethclient`/`ethereum/rpc` 的直接依赖。该片必须分别量�
 
 ## 6. 推荐决策
 
-当前只授权 **Slice 0/1/1b：contract、Geth compatibility seam 和 Adapter relocation**。
+当前只授权 **Slice 0/1/1b/1c：contract、Geth compatibility seam、Adapter relocation
+和中性 protocol-error capability**。
 这些切片不立即实现
 自有 HTTP/WSS client，
 不改变 `rpc.RPCError`、`Emission`、`Observation` 或 Decision。
 
-Slice 0/1/1b 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连语义；没有这两项
+Slice 0/1/1b/1c 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连语义；没有这两项
 审查，不进入自有 HTTP/WSS 实现。这样替换风险被隔离在独立的 Transport Adapter，
 而不会同时改变方法、聚合、reference、typed 或公开 adapter 语义。
 
@@ -273,6 +293,7 @@ Slice 0/1/1b 通过后，由主维护者单独审查 HTTP 行为差分和 WSS �
 - `7370988`：Slice 1b，将 Geth/HTTP compatibility Adapter、body capture 和
   presence 恢复移到 `internal/transport`；pool 生产代码不再依赖 ethclient、
   Geth rpc 或 HTTP RoundTripper。
-- 下一片：HTTP 行为差分审计；在该审计完成前不开始自有 HTTP/WSS 客户端实现。
+- 下一片：Slice 1c，中性 protocol-error capability；在该片和 HTTP 行为差分审计
+  完成前不开始自有 HTTP/WSS 客户端实现。
 - 当前没有自有 HTTP 或 WSS client，也没有修改 `RPCError`、`Emission`、
   `Observation`、Decision 或公开 ethadapter 表面。
