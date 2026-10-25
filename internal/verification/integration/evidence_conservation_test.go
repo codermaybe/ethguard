@@ -14,10 +14,10 @@ import (
 // array element and nested object, to one declared destination. Nothing is
 // checked only on payload[0] or only at the top level.
 
-// TestT092ConservationPerObservation assigns one representation variant to
+// TestVerificationEvidenceConservationPerObservation assigns one representation variant to
 // each source and traces each source's own payload into the canonical Value.
 // Local methods select one source, so each variant is exercised alone.
-func TestT092ConservationPerObservation(t *testing.T) {
+func TestVerificationEvidenceConservationPerObservation(t *testing.T) {
 	for _, row := range t09FieldRows(t) {
 		t.Run(row.method, func(t *testing.T) {
 			if row.resolution == t09Local {
@@ -47,11 +47,11 @@ func TestT092ConservationPerObservation(t *testing.T) {
 	}
 }
 
-// TestT092OutsideDiagnosticsPerObservation gives each source a distinct
+// TestVerificationEvidenceOutsideDiagnosticsPerObservation gives each source a distinct
 // out-of-domain value. Every value must stay out of Value and appear in
 // Diagnostics with exactly its own source, so attribution is per observation,
 // not borrowed from the winning response.
-func TestT092OutsideDiagnosticsPerObservation(t *testing.T) {
+func TestVerificationEvidenceOutsideDiagnosticsPerObservation(t *testing.T) {
 	for _, row := range t09FieldRows(t) {
 		if !row.projector || !containsString(row.outside, "vendor") {
 			continue
@@ -97,12 +97,12 @@ func TestT092OutsideDiagnosticsPerObservation(t *testing.T) {
 	}
 }
 
-// TestT092NestedDerivedFieldRecomputation covers a nested protected object
+// TestVerificationEvidenceNestedDerivedFieldRecomputation covers a nested protected object
 // whose JSON hash is derived, not authored: a tampered transaction hash inside
 // a block body does not enter Value. The canonical encoder recomputes it from
 // the signed transaction, and the source remains a supporter because the
 // transaction root still agrees.
-func TestT092NestedDerivedFieldRecomputation(t *testing.T) {
+func TestVerificationEvidenceNestedDerivedFieldRecomputation(t *testing.T) {
 	chain := t09NewChain(t)
 	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
 	tampered := "0x" + strings.Repeat("77", 32)

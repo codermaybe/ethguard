@@ -405,7 +405,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 0,
-			notes:          "a different block cannot satisfy the requested hash; the second dissent is an admission fault, not a legal Reject. JSON-escaped hex is covered by TestT092EscapedHexAdmissionBoundary",
+			notes:          "a different block cannot satisfy the requested hash; the second dissent is an admission fault, not a legal Reject. JSON-escaped hex is covered by TestVerificationEscapedHexAdmissionBoundary",
 		},
 		{
 			method:         methods.MethodGetBlockByNumber,
@@ -426,7 +426,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
-			notes:          "JSON-escaped hex is covered by TestT092EscapedHexAdmissionBoundary",
+			notes:          "JSON-escaped hex is covered by TestVerificationEscapedHexAdmissionBoundary",
 		},
 		{
 			method:         methods.MethodGetBalance,
@@ -475,7 +475,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			projector:      true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
-			notes:          "JSON-escaped hex is covered by TestT092EscapedHexAdmissionBoundary; null fee fields are dropped as absence",
+			notes:          "JSON-escaped hex is covered by TestVerificationEscapedHexAdmissionBoundary; null fee fields are dropped as absence",
 		},
 		{
 			method:         methods.MethodGetBlockReceipts,
@@ -725,10 +725,10 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 	}
 }
 
-// TestT092FieldLifecycleCoverage keeps the T09.2 table and the registered
+// TestVerificationFieldLifecycleCoverage keeps the T09.2 table and the registered
 // method inventory in lockstep in both directions. A new registered method or
 // a stale row fails with the method name.
-func TestT092FieldLifecycleCoverage(t *testing.T) {
+func TestVerificationFieldLifecycleCoverage(t *testing.T) {
 	rows := t09FieldRows(t)
 	seen := make(map[string]bool, len(rows))
 	for _, row := range rows {
@@ -870,11 +870,11 @@ func topLevelField(path string) string {
 	return ""
 }
 
-// TestT092RepresentationStability places every spelling in every pool
+// TestVerificationFieldRepresentationStability places every spelling in every pool
 // position. The canonical Value must not move, while the representative (or
 // local Support) follows capture order. The same run checks that protected
 // fields are present and declared outside fields are absent.
-func TestT092RepresentationStability(t *testing.T) {
+func TestVerificationFieldRepresentationStability(t *testing.T) {
 	for _, row := range t09FieldRows(t) {
 		t.Run(row.method, func(t *testing.T) {
 			var canonical json.RawMessage
@@ -933,10 +933,10 @@ func TestT092RepresentationStability(t *testing.T) {
 	}
 }
 
-// TestT092DiagnosticsConservation sends one source whose out-of-domain vendor
+// TestVerificationEvidenceDiagnosticsConservation sends one source whose out-of-domain vendor
 // value differs from the quorum. The value must stay in Diagnostics, must not
 // enter Value or Extensions, and its source still supports the core answer.
-func TestT092DiagnosticsConservation(t *testing.T) {
+func TestVerificationEvidenceDiagnosticsConservation(t *testing.T) {
 	base := t09FeeHistory()
 	outlier := t09SetField(t, base, "vendor", "other")
 	fleet := t09NewFleet(t, 4)
@@ -976,10 +976,10 @@ func TestT092DiagnosticsConservation(t *testing.T) {
 	}
 }
 
-// TestT092ProtectedMutationFails mutates or deletes a protected field in one
+// TestVerificationProtectedMutationFails mutates or deletes a protected field in one
 // source of a four-member basis. The faulty source must not vote or shrink
 // the denominator: two matching answers cannot reach Q = max(2, N/2+1) = 3.
-func TestT092ProtectedMutationFails(t *testing.T) {
+func TestVerificationProtectedMutationFails(t *testing.T) {
 	for _, row := range t09FieldRows(t) {
 		t.Run(row.method, func(t *testing.T) {
 			fleet := t09NewFleet(t, 4)
@@ -1053,12 +1053,12 @@ func TestT092ProtectedMutationFails(t *testing.T) {
 	}
 }
 
-// TestT092EscapedHexAdmissionBoundary records the method boundary for the
+// TestVerificationEscapedHexAdmissionBoundary records the method boundary for the
 // three responses admitted through geth's typed wire decoders: those decoders
 // require a literal 0x prefix, so JSON-escaped hex is an admission fault, not
 // a silent variant. The fault stays in the fixed basis and the cluster still
 // reaches Q from the two literal sources without borrowing their fields.
-func TestT092EscapedHexAdmissionBoundary(t *testing.T) {
+func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 	chain := t09NewChain(t)
 	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
 	tx := chain.txObject(true, hash, t09AnchorHeight, 0)
@@ -1099,11 +1099,11 @@ func TestT092EscapedHexAdmissionBoundary(t *testing.T) {
 	}
 }
 
-// TestT092RoundTrip compares typed(raw) with typed(canonical) through the
+// TestVerificationTypedRoundTrip compares typed(raw) with typed(canonical) through the
 // production Client/adapter. The canonical value comes from the production
 // EncodeCheck/EncodeCommit path, not from a test-side encoder, and each source
 // is exercised alone so no cluster can hide a per-source encoding difference.
-func TestT092RoundTrip(t *testing.T) {
+func TestVerificationTypedRoundTrip(t *testing.T) {
 	for _, row := range t09FieldRows(t) {
 		t.Run(row.method, func(t *testing.T) {
 			for index, variant := range row.variants {
@@ -1237,11 +1237,11 @@ func t09FirstObject(t *testing.T, raw json.RawMessage) map[string]json.RawMessag
 	return object
 }
 
-// TestT092CallRevertValueAndContext pins the T08 split: provider code and
+// TestVerificationCallRevertValueAndContext pins the T08 split: provider code and
 // message are context in Decision.Revert, while Value carries only the
 // accepted data projection. Reordering the captured sources must not move
 // Value; it moves the context and representative.
-func TestT092CallRevertValueAndContext(t *testing.T) {
+func TestVerificationCallRevertValueAndContext(t *testing.T) {
 	const data = `"0xdead"`
 	payloads := []struct {
 		code    int
@@ -1295,11 +1295,11 @@ func TestT092CallRevertValueAndContext(t *testing.T) {
 	}
 }
 
-// TestT092CallRevertNonHexDataCanonical extends the Value invariant to
+// TestVerificationCallRevertNonHexDataCanonical extends the Value invariant to
 // non-hex revert data: key order, whitespace, and numeric spelling are
 // comparison-only differences, so rotating them through the pool must not
 // move the canonical data bytes.
-func TestT092CallRevertNonHexDataCanonical(t *testing.T) {
+func TestVerificationCallRevertNonHexDataCanonical(t *testing.T) {
 	payloads := []json.RawMessage{
 		json.RawMessage(`{"b":2,"a":1}`),
 		json.RawMessage(`{ "a": 1, "b": 2 }`),
@@ -1324,10 +1324,10 @@ func TestT092CallRevertNonHexDataCanonical(t *testing.T) {
 	}
 }
 
-// TestT092CallRevertWithheldDataConservation covers the reductive deletion
+// TestVerificationCallRevertWithheldDataConservation covers the reductive deletion
 // destination: a short data cluster is removed from Value, its bytes stay in
 // Provenance, and the sources remain in the fixed denominator.
-func TestT092CallRevertWithheldDataConservation(t *testing.T) {
+func TestVerificationCallRevertWithheldDataConservation(t *testing.T) {
 	fleet := t09NewFleet(t, 4)
 	fleet.nodes[0].FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(`"0xaaaa"`), true)
 	fleet.nodes[1].FailWithData(methods.MethodCall, -32000, "execution reverted", json.RawMessage(`"0xAAAA"`), true)
@@ -1362,10 +1362,10 @@ func TestT092CallRevertWithheldDataConservation(t *testing.T) {
 	}
 }
 
-// TestT092CallRevertAbstainConservation separates missing, JSON null, empty
+// TestVerificationCallRevertAbstainConservation separates missing, JSON null, empty
 // bytes, and concrete data. Missing/null abstain and stay out of data Reject;
 // the concrete split cannot reach Q, so data is withheld.
-func TestT092CallRevertAbstainConservation(t *testing.T) {
+func TestVerificationCallRevertAbstainConservation(t *testing.T) {
 	fleet := t09NewFleet(t, 4)
 	fleet.nodes[0].FailWithData(methods.MethodCall, 3, "execution reverted", nil, false)
 	fleet.nodes[1].FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(`null`), true)
@@ -1396,14 +1396,14 @@ func TestT092CallRevertAbstainConservation(t *testing.T) {
 	}
 }
 
-// TestT092LocalWholeAnswerShapeBoundary records the method-specific limit of
+// TestVerificationLocalWholeAnswerShapeBoundary records the method-specific limit of
 // the mutation invariant for upstream-local whole answers. T09 exercises only
 // the top-level shapes each method declares (boolean for net_listening, false
 // for eth_syncing); an illegal top-level shape is a policy fault and the typed
 // path reports the same no-valid-response boundary. The syncing progress
 // object is deliberately not synthesized here; pipeline 5.1.1 keeps that state
 // a capture gap.
-func TestT092LocalWholeAnswerShapeBoundary(t *testing.T) {
+func TestVerificationLocalWholeAnswerShapeBoundary(t *testing.T) {
 	t.Run(methods.MethodListening, func(t *testing.T) {
 		fleet := t09NewFleet(t, 1)
 		fleet.returnOne(methods.MethodListening, json.RawMessage(`"yes"`))
@@ -1447,12 +1447,12 @@ func t09SourceNames(refs []rpc.SourceRef) []string {
 	return out
 }
 
-// TestT092UpperPrefixSpelling covers the `0X` form where the method contract
+// TestVerificationUpperPrefixSpelling covers the `0X` form where the method contract
 // accepts it. Both eth_chainId and eth_getBalance use NormalizeWireQuantity,
 // whose prefix comparison is case-insensitive; the canonical Value must still
 // be the lowercase 0x form. Methods whose wire grammar requires the literal
 // "0x" prefix are deliberately not extended here.
-func TestT092UpperPrefixSpelling(t *testing.T) {
+func TestVerificationUpperPrefixSpelling(t *testing.T) {
 	for _, tc := range []struct {
 		method string
 		params []any

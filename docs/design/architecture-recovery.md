@@ -198,7 +198,7 @@ eca3534  typed projection → internal/typed
 go test ./... -count=1
 go vet ./...
 go test ./... -race -count=1
-go test ./internal/verification/integration -run 'TestT09' -race -count=2 -shuffle=on
+go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
 ```
 
 ## 后续路线

@@ -1,6 +1,6 @@
 # T09 验证代码迁移前置契约
 
-状态：**切片 A/B/C 已执行，测试函数名保持 TestT09 前缀**（2026-10-25）
+状态：**切片 A/B/C 与 P2 函数语义化改名已执行；专项命令使用 `^TestVerification`**（2026-10-25）
 
 本文是交给后续 agent 的工作边界。它不改变 T09 的方法矩阵、字段生命周期、
 Decision、quorum、typed projection 或 reference 语义。
@@ -70,7 +70,7 @@ internal/verification/replay/      # capture/golden 离线回放
 
 ```text
 gofmt -w <changed-go-files>
-go test ./internal/verification/integration -run 'TestT09' -count=1
+go test ./internal/verification/integration -run '^TestVerification' -count=1
 go test ./... -count=1
 go vet ./...
 git diff --check
@@ -81,15 +81,16 @@ git diff --find-renames --stat
 
 ```text
 go test ./... -race -count=1
-go test ./internal/verification/integration -run 'TestT09' -race -count=2 -shuffle=on
+go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
 ```
 
 ## 执行记录（2026-10-25）
 
 - 切片 A（`52eafd2`）：7 个文件按上表 `git mv`，Git 全部识别为 rename。
-  唯一伴随代码变更是 `TestT091MatrixCoverage` 读取自身源码的两处路径字符串
+  唯一伴随代码变更是 `TestVerificationMethodScenarioCoverage`（当时名
+  `TestT091MatrixCoverage`）读取自身源码的两处路径字符串
   同步——该 AST interlock 按文件名解析本文件，重命名后必须同步，不构成行为
-  变化。测试函数名保持 `TestT09` 前缀，专项命令继续有效。
+  变化。当轮测试函数名保持 `TestT09` 前缀（P2 已语义化改名，见下）。
 - 切片 B（`4cacb51`）：package 内 helper 局部收敛——合并 Support/Reject/
   Dimension 来源断言，新增 decoded-value、fault-name、source-absence、
   whole-canonical 四个共享断言，删除重复的 `t09DecodeForMethod` 与等价的
@@ -100,6 +101,11 @@ go test ./internal/verification/integration -run 'TestT09' -race -count=2 -shuff
   无关；该失败自 roadmap 重置提交起预先存在，另列任务处理，不混入 T09。
 - T05 收口（`11aa0b6`）：互锁改为检查当前路线图的安全措辞、架构阶段和验收出口；
   不恢复历史 T05 路线图章节。全量 race 门因此恢复通过。
+- P2 函数语义化改名（本提交）：45 个测试入口按
+  [重命名映射](verification-test-rename-map.md) 从 `TestT09...` 改为
+  `TestVerification...`，同步 `t09MatrixTestNames`、AST 互锁前缀与例外表、
+  注释交叉引用和当前文档中的专项命令（`^TestVerification`）。测试体、fixture
+  与断言未动；历史提交锚定的运行记录保留旧名。
 
 ## 不变量和停止条件
 
@@ -115,7 +121,7 @@ go test ./internal/verification/integration -run 'TestT09' -race -count=2 -shuff
 
 ## 已验证基线
 
-前置库存完成时执行了：
+前置库存完成时（入口仍为 `TestT09` 前缀，P2 之前）执行了：
 
 ```text
 go test ./internal/verification/integration -run 'TestT09' -count=1

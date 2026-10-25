@@ -336,7 +336,7 @@ func t09Variants(t *testing.T, base json.RawMessage) []json.RawMessage {
 // variation without JSON string escapes. Block and transaction admission hand
 // their wire values to geth's typed decoders, which require literal 0x-prefixed
 // strings; escaped hex is an admission fault for those methods and is covered
-// separately by TestT092EscapedHexAdmissionBoundary.
+// separately by TestVerificationEscapedHexAdmissionBoundary.
 func t09VariantsNoEscape(t *testing.T, base json.RawMessage) []json.RawMessage {
 	t.Helper()
 	reordered := t09SemanticJSON(t, base)

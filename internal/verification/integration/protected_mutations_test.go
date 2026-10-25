@@ -35,7 +35,7 @@ type t09MutationCase struct {
 	mutations  []t09Mutation
 }
 
-func TestT092ProtectedMutationClasses(t *testing.T) {
+func TestVerificationProtectedMutationClasses(t *testing.T) {
 	chain := t09NewChain(t)
 	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
 	fork, _ := chain.block(t09AnchorHeight, 1_700_000_100, 42_000)

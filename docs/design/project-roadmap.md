@@ -51,7 +51,7 @@ ec1fe66 roadmap pointer
 go test ./... -count=1
 go vet ./...
 go test ./... -race -count=1
-go test ./internal/verification/integration -run 'TestT09' -race -count=2 -shuffle=on
+go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
 ```
 
 ## 下一阶段：架构收敛
@@ -146,7 +146,7 @@ git diff --check
 
 ```text
 go test ./... -race -count=1
-go test ./internal/verification/integration -run 'TestT09' -race -count=2 -shuffle=on
+go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
 ```
 
 官方 `gopls` Rename 用于 package path 的闭合移动；同一 package 内的文件移动使用

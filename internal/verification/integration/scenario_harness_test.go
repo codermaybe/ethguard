@@ -107,7 +107,7 @@ var t09ScenarioNames = []string{
 }
 
 // t09CheckScenario runs one row that the method test has named explicitly.
-// Scenario membership is enforced by TestT091MatrixCoverage at the AST level;
+// Scenario membership is enforced by TestVerificationMethodScenarioCoverage at the AST level;
 // this helper deliberately cannot decide which rows a method runs.
 func t09CheckScenario(t *testing.T, mc t09MethodCase, row t09Row) {
 	t.Helper()

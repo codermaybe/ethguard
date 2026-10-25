@@ -274,7 +274,7 @@ T09 必须增加或复用以下互锁：
    的方法用注册 policy 的 `MethodRule().Pending == ""` 给出显式证据，不伪造
    上游拒绝；支持 pending 的方法只走既有生产 seam。
 3. 区块和交易准入沿用 geth typed wire decoder，JSON 转义 hex 是方法边界的
-   admission fault（`TestT092EscapedHexAdmissionBoundary`），不是稳定性缺口。
+   admission fault（`TestVerificationEscapedHexAdmissionBoundary`），不是稳定性缺口。
 4. 上游本地整答案方法只做顶层 wire 形状准入；`eth_syncing` 对象成员不逐个
    Admit 校验，坏嵌套类型由 typed projection 报告（决策 0061）。T09 不合成
    progress object（pipeline 5.1.1），只使用合法 `false`；本地形状测试覆盖
@@ -298,7 +298,7 @@ T09 必须增加或复用以下互锁：
 9. T09.1 没有遍历方法或场景的通用 runner：每个测试逐行调用 `t09CheckScenario`，
    AST 互锁要求恰好九个预期 `Scenario:` 名称、每个一次、恰好九次调用，并拒绝
    任何 `t09RunMatrix`/`t09RunRow`。场景行内语义仍由运行时断言保证，静态检查
-   不替代语义审计。`TestT091QuorumFloorInterlock` 独立计算 N=5/floor=2 的 Q，
+   不替代语义审计。`TestVerificationQuorumFloorInterlock` 独立计算 N=5/floor=2 的 Q，
    并分别验证 2 个支持者冲突、3 个支持者 corroborated，避免 floor 回退只改
    错误文本时漏检。`ValueFrom < 0` 的行必须产生空 Value；只有 conflict 行可
    显式声明保留簇 Value。

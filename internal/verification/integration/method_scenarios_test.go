@@ -24,7 +24,7 @@ import (
 // dimensions, and request shape are written per row. There is no matrix loop,
 // no method dispatch, and no shared scenario list.
 
-func TestT091ChainID(t *testing.T) {
+func TestVerificationMethodScenarioChainID(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodChainID)
 	a, b := row.variants[0], row.other
 	mc := t09MethodCase{Method: row.method, Typed: t09TypedChainID, TypedWant: t09TypedWantBig}
@@ -39,7 +39,7 @@ func TestT091ChainID(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GetBlockByHash(t *testing.T) {
+func TestVerificationMethodScenarioGetBlockByHash(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodGetBlockByHash)
 	a, b := row.variants[0], row.other
 	null := json.RawMessage(`null`)
@@ -55,7 +55,7 @@ func TestT091GetBlockByHash(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GetBlockByNumber(t *testing.T) {
+func TestVerificationMethodScenarioGetBlockByNumber(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodGetBlockByNumber)
 	a, b := row.variants[0], row.other
 	null := json.RawMessage(`null`)
@@ -71,7 +71,7 @@ func TestT091GetBlockByNumber(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GetBalance(t *testing.T) {
+func TestVerificationMethodScenarioGetBalance(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodGetBalance)
 	a, b := row.variants[0], row.other
 	// A conflict value whose canonical spelling sorts after a, so the 2|2
@@ -89,7 +89,7 @@ func TestT091GetBalance(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GetTransactionReceipt(t *testing.T) {
+func TestVerificationMethodScenarioGetTransactionReceipt(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodGetTransactionReceipt)
 	a, b := row.variants[0], row.other
 	// gasUsed sorts after the canonical answer, so a 2|2 tie retains the
@@ -107,7 +107,7 @@ func TestT091GetTransactionReceipt(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GetTransactionByHash(t *testing.T) {
+func TestVerificationMethodScenarioGetTransactionByHash(t *testing.T) {
 	chain := t09NewChain(t)
 	row := t09FieldRowFor(t, methods.MethodGetTransactionByHash)
 	a, b := row.variants[0], row.other
@@ -124,7 +124,7 @@ func TestT091GetTransactionByHash(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GetBlockReceipts(t *testing.T) {
+func TestVerificationMethodScenarioGetBlockReceipts(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodGetBlockReceipts)
 	a, b := row.variants[0], row.other
 	// gasUsed sorts after the canonical answer, so a 2|2 tie retains the
@@ -142,7 +142,7 @@ func TestT091GetBlockReceipts(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GetTransactionCount(t *testing.T) {
+func TestVerificationMethodScenarioGetTransactionCount(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodGetTransactionCount)
 	a, b := row.variants[0], row.other
 	mc := t09MethodCase{Method: row.method, Params: row.params, Typed: t09TypedNonce, TypedWant: t09TypedWantQuantity}
@@ -157,7 +157,7 @@ func TestT091GetTransactionCount(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GetStorageAt(t *testing.T) {
+func TestVerificationMethodScenarioGetStorageAt(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodGetStorageAt)
 	a, b := row.variants[0], row.other
 	mc := t09MethodCase{Method: row.method, Params: row.params, Typed: t09TypedStorage, TypedWant: t09TypedWantBytes}
@@ -172,7 +172,7 @@ func TestT091GetStorageAt(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GetCode(t *testing.T) {
+func TestVerificationMethodScenarioGetCode(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodGetCode)
 	a, b := row.variants[0], row.other
 	mc := t09MethodCase{Method: row.method, Params: row.params, Typed: t09TypedCode, TypedWant: t09TypedWantBytes}
@@ -187,7 +187,7 @@ func TestT091GetCode(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091Call(t *testing.T) {
+func TestVerificationMethodScenarioCall(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodCall)
 	a, b := row.variants[0], row.other
 	// Sorts after the canonical answer, so a 2|2 tie retains the a-cluster.
@@ -207,7 +207,7 @@ func TestT091Call(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning execution 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1, Dimensions: exec([]int{0, 1}, nil, false)}})
 }
 
-func TestT091EstimateGas(t *testing.T) {
+func TestVerificationMethodScenarioEstimateGas(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodEstimateGas)
 	a, b, c := row.variants[0], row.other, json.RawMessage(`"0x520a"`)
 	mc := t09MethodCase{Method: row.method, Params: row.params, Typed: t09TypedEstimateGas, TypedWant: t09TypedWantQuantity}
@@ -222,7 +222,7 @@ func TestT091EstimateGas(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0, Note: "median is not gated by the corroboration floor"}})
 }
 
-func TestT091GetLogs(t *testing.T) {
+func TestVerificationMethodScenarioGetLogs(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodGetLogs)
 	a, b := row.variants[0], row.other
 	// The data word sorts after the canonical answer, so a 2|2 tie retains
@@ -240,7 +240,7 @@ func TestT091GetLogs(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091FeeHistory(t *testing.T) {
+func TestVerificationMethodScenarioFeeHistory(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodFeeHistory)
 	a, b := row.variants[0], row.other
 	// The ratio sorts after the canonical answer, so a 2|2 tie retains the
@@ -258,7 +258,7 @@ func TestT091FeeHistory(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091GasPrice(t *testing.T) {
+func TestVerificationMethodScenarioGasPrice(t *testing.T) {
 	a, b, c := json.RawMessage(`"0x3b9aca00"`), json.RawMessage(`"0x3b9aca01"`), json.RawMessage(`"0x3b9aca02"`)
 	mc := t09MethodCase{Method: methods.MethodGasPrice, Typed: t09TypedGasPrice, TypedWant: t09TypedWantBig}
 	t09CheckScenario(t, mc, t09Row{Scenario: "all-agree", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
@@ -272,7 +272,7 @@ func TestT091GasPrice(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0, Note: "median is not gated by the corroboration floor"}})
 }
 
-func TestT091MaxPriorityFeePerGas(t *testing.T) {
+func TestVerificationMethodScenarioMaxPriorityFeePerGas(t *testing.T) {
 	a, b, c := json.RawMessage(`"0x5f5e100"`), json.RawMessage(`"0x5f5e101"`), json.RawMessage(`"0x5f5e102"`)
 	mc := t09MethodCase{Method: methods.MethodMaxPriorityFeePerGas, Typed: t09TypedMaxPriorityFee, TypedWant: t09TypedWantBig}
 	t09CheckScenario(t, mc, t09Row{Scenario: "all-agree", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
@@ -286,7 +286,7 @@ func TestT091MaxPriorityFeePerGas(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0, Note: "median is not gated by the corroboration floor"}})
 }
 
-func TestT091BlobBaseFee(t *testing.T) {
+func TestVerificationMethodScenarioBlobBaseFee(t *testing.T) {
 	a, b, c := json.RawMessage(`"0x1"`), json.RawMessage(`"0x2"`), json.RawMessage(`"0x3"`)
 	mc := t09MethodCase{Method: methods.MethodBlobBaseFee, Typed: t09TypedBlobBaseFee, TypedWant: t09TypedWantBig}
 	t09CheckScenario(t, mc, t09Row{Scenario: "all-agree", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
@@ -300,7 +300,7 @@ func TestT091BlobBaseFee(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0, Note: "median is not gated by the corroboration floor"}})
 }
 
-func TestT091BlockNumber(t *testing.T) {
+func TestVerificationMethodScenarioBlockNumber(t *testing.T) {
 	a, b, c := json.RawMessage(`"0x10"`), json.RawMessage(`"0x11"`), json.RawMessage(`"0x12"`)
 	mc := t09MethodCase{Method: methods.MethodBlockNumber, Typed: t09TypedBlockNumber, TypedWant: t09TypedWantQuantity}
 	t09CheckScenario(t, mc, t09Row{Scenario: "all-agree", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
@@ -314,7 +314,7 @@ func TestT091BlockNumber(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0, Note: "median is not gated by the corroboration floor"}})
 }
 
-func TestT091CreateAccessList(t *testing.T) {
+func TestVerificationMethodScenarioCreateAccessList(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodCreateAccessList)
 	a, b := row.variants[0], row.other
 	mc := t09MethodCase{Method: row.method, Params: row.params, Typed: t09TypedAccessList, TypedWant: t09TypedWantAccess}
@@ -329,7 +329,7 @@ func TestT091CreateAccessList(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091PeerCount(t *testing.T) {
+func TestVerificationMethodScenarioPeerCount(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodPeerCount)
 	a, b, c := json.RawMessage(`"0x5"`), json.RawMessage(`"0x6"`), json.RawMessage(`"0x7"`)
 	mc := t09MethodCase{Method: row.method, Typed: t09TypedPeerCount, TypedWant: t09TypedWantQuantity}
@@ -344,7 +344,7 @@ func TestT091PeerCount(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: -1, ValueFrom: 0, TypedFrom: 0}})
 }
 
-func TestT091Syncing(t *testing.T) {
+func TestVerificationMethodScenarioSyncing(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodSyncing)
 	a := row.variants[0]
 	mc := t09MethodCase{Method: row.method, Typed: t09TypedSyncing, TypedWant: t09TypedWantSync}
@@ -359,7 +359,7 @@ func TestT091Syncing(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: -1, ValueFrom: 0, TypedFrom: 0}})
 }
 
-func TestT091NetVersion(t *testing.T) {
+func TestVerificationMethodScenarioNetVersion(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodNetVersion)
 	a, b, c := json.RawMessage(`"1"`), json.RawMessage(`"2"`), json.RawMessage(`"3"`)
 	_ = c
@@ -375,7 +375,7 @@ func TestT091NetVersion(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
-func TestT091Listening(t *testing.T) {
+func TestVerificationMethodScenarioListening(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodListening)
 	a, b := json.RawMessage(`true`), json.RawMessage(`false`)
 	_ = b
@@ -399,9 +399,9 @@ func TestT091Listening(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: -1, ValueFrom: 0, TypedFrom: 0}})
 }
 
-// TestT091LocalShapeRejection pins the boundary between a legal local zero and
+// TestVerificationMethodScenarioLocalShapeRejection pins the boundary between a legal local zero and
 // an illegal JSON null for the three upstream-local methods.
-func TestT091LocalShapeRejection(t *testing.T) {
+func TestVerificationMethodScenarioLocalShapeRejection(t *testing.T) {
 	for _, tc := range []struct {
 		method string
 		typed  func(*testing.T, *t09Fleet, []any) (string, error)
@@ -426,9 +426,9 @@ func TestT091LocalShapeRejection(t *testing.T) {
 	}
 }
 
-// TestT091GetLogsNullIsMalformed separates an empty result from JSON null:
+// TestVerificationMethodScenarioGetLogsNullIsMalformed separates an empty result from JSON null:
 // empty logs are legal, null is an admission fault on every source.
-func TestT091GetLogsNullIsMalformed(t *testing.T) {
+func TestVerificationMethodScenarioGetLogsNullIsMalformed(t *testing.T) {
 	fleet := t09NewFleet(t, t09MatrixN)
 	for _, node := range fleet.nodes {
 		node.ReturnRaw(methods.MethodGetLogs, json.RawMessage(`null`))
@@ -446,7 +446,7 @@ func TestT091GetLogsNullIsMalformed(t *testing.T) {
 // matrix: three sources carry the same data, two omit it. Execution is
 // unanimous; missing data abstains rather than rejecting empty bytes, and the
 // data cluster reaches Q=3.
-func TestT091CallRevertDimensionMatrix(t *testing.T) {
+func TestVerificationMethodScenarioCallRevertDimensions(t *testing.T) {
 	fleet := t09NewFleet(t, t09MatrixN)
 	for i, node := range fleet.nodes {
 		if i < 3 {
@@ -477,11 +477,11 @@ func TestT091CallRevertDimensionMatrix(t *testing.T) {
 	t09AssertSourceRefs(t, "call revert", "data abstain", data.Abstain, fleet, []int{3, 4})
 }
 
-// TestT091QuorumFloorInterlock pins the floor behavior from both sides at the
+// TestVerificationQuorumFloorInterlock pins the floor behavior from both sides at the
 // fixed N=5 basis. It computes the expected quorum independently of
 // rpc.Corroboration.Required, then proves that two supporters conflict while
 // three corroborate, so a floor regression cannot hide behind error text.
-func TestT091QuorumFloorInterlock(t *testing.T) {
+func TestVerificationQuorumFloorInterlock(t *testing.T) {
 	want := t09MatrixN/2 + 1
 	if want < t09MatrixFloor {
 		want = t09MatrixFloor
@@ -523,11 +523,11 @@ func TestT091QuorumFloorInterlock(t *testing.T) {
 	}
 }
 
-// TestT091AnchorSeam exercises the moving-tag production seam once, outside
+// TestVerificationAnchorSeam exercises the moving-tag production seam once, outside
 // the per-method matrix: eth_getBalance("latest") first resolves a corroborated
 // head through eth_getBlockByNumber, then all five sources are asked for the
 // same rewritten hash. Explicit-reference rows do not contact the anchor.
-func TestT091AnchorSeam(t *testing.T) {
+func TestVerificationAnchorSeam(t *testing.T) {
 	chain := t09NewChain(t)
 	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
 	fleet := t09NewFleet(t, t09MatrixN)
@@ -564,38 +564,38 @@ func TestT091AnchorSeam(t *testing.T) {
 }
 
 var t09MatrixTestNames = map[string]string{
-	methods.MethodChainID:               "TestT091ChainID",
-	methods.MethodGetBlockByHash:        "TestT091GetBlockByHash",
-	methods.MethodGetBlockByNumber:      "TestT091GetBlockByNumber",
-	methods.MethodGetBalance:            "TestT091GetBalance",
-	methods.MethodGetTransactionReceipt: "TestT091GetTransactionReceipt",
-	methods.MethodGetTransactionByHash:  "TestT091GetTransactionByHash",
-	methods.MethodGetBlockReceipts:      "TestT091GetBlockReceipts",
-	methods.MethodGetTransactionCount:   "TestT091GetTransactionCount",
-	methods.MethodGetStorageAt:          "TestT091GetStorageAt",
-	methods.MethodGetCode:               "TestT091GetCode",
-	methods.MethodCall:                  "TestT091Call",
-	methods.MethodEstimateGas:           "TestT091EstimateGas",
-	methods.MethodGetLogs:               "TestT091GetLogs",
-	methods.MethodFeeHistory:            "TestT091FeeHistory",
-	methods.MethodGasPrice:              "TestT091GasPrice",
-	methods.MethodMaxPriorityFeePerGas:  "TestT091MaxPriorityFeePerGas",
-	methods.MethodBlobBaseFee:           "TestT091BlobBaseFee",
-	methods.MethodBlockNumber:           "TestT091BlockNumber",
-	methods.MethodCreateAccessList:      "TestT091CreateAccessList",
-	methods.MethodPeerCount:             "TestT091PeerCount",
-	methods.MethodSyncing:               "TestT091Syncing",
-	methods.MethodNetVersion:            "TestT091NetVersion",
-	methods.MethodListening:             "TestT091Listening",
+	methods.MethodChainID:               "TestVerificationMethodScenarioChainID",
+	methods.MethodGetBlockByHash:        "TestVerificationMethodScenarioGetBlockByHash",
+	methods.MethodGetBlockByNumber:      "TestVerificationMethodScenarioGetBlockByNumber",
+	methods.MethodGetBalance:            "TestVerificationMethodScenarioGetBalance",
+	methods.MethodGetTransactionReceipt: "TestVerificationMethodScenarioGetTransactionReceipt",
+	methods.MethodGetTransactionByHash:  "TestVerificationMethodScenarioGetTransactionByHash",
+	methods.MethodGetBlockReceipts:      "TestVerificationMethodScenarioGetBlockReceipts",
+	methods.MethodGetTransactionCount:   "TestVerificationMethodScenarioGetTransactionCount",
+	methods.MethodGetStorageAt:          "TestVerificationMethodScenarioGetStorageAt",
+	methods.MethodGetCode:               "TestVerificationMethodScenarioGetCode",
+	methods.MethodCall:                  "TestVerificationMethodScenarioCall",
+	methods.MethodEstimateGas:           "TestVerificationMethodScenarioEstimateGas",
+	methods.MethodGetLogs:               "TestVerificationMethodScenarioGetLogs",
+	methods.MethodFeeHistory:            "TestVerificationMethodScenarioFeeHistory",
+	methods.MethodGasPrice:              "TestVerificationMethodScenarioGasPrice",
+	methods.MethodMaxPriorityFeePerGas:  "TestVerificationMethodScenarioMaxPriorityFeePerGas",
+	methods.MethodBlobBaseFee:           "TestVerificationMethodScenarioBlobBaseFee",
+	methods.MethodBlockNumber:           "TestVerificationMethodScenarioBlockNumber",
+	methods.MethodCreateAccessList:      "TestVerificationMethodScenarioCreateAccessList",
+	methods.MethodPeerCount:             "TestVerificationMethodScenarioPeerCount",
+	methods.MethodSyncing:               "TestVerificationMethodScenarioSyncing",
+	methods.MethodNetVersion:            "TestVerificationMethodScenarioNetVersion",
+	methods.MethodListening:             "TestVerificationMethodScenarioListening",
 }
 
-// TestT091MatrixCoverage interlocks the registered inventory with the method
+// TestVerificationMethodScenarioCoverage interlocks the registered inventory with the method
 // tests. Each method maps to one function that names exactly the nine expected
 // scenario rows and invokes t09CheckScenario once per row. The AST check
 // rejects a missing, duplicate, unknown, or unexecuted row, and rejects any
 // call to a generic matrix runner. A test that delegates to a shared scenario
 // function therefore fails the row-literal check.
-func TestT091MatrixCoverage(t *testing.T) {
+func TestVerificationMethodScenarioCoverage(t *testing.T) {
 	if got, want := len(methods.RegisteredNames()), len(t09MatrixTestNames); got != want {
 		t.Fatalf("%d registered methods, %d matrix tests", got, want)
 	}
@@ -685,9 +685,9 @@ func TestT091MatrixCoverage(t *testing.T) {
 		}
 	}
 	for name := range functions {
-		if !strings.HasPrefix(name, "TestT091") || name == "TestT091MatrixCoverage" || name == "TestT091AnchorSeam" ||
-			name == "TestT091CallRevertDimensionMatrix" || name == "TestT091LocalShapeRejection" ||
-			name == "TestT091GetLogsNullIsMalformed" || name == "TestT091QuorumFloorInterlock" {
+		if !strings.HasPrefix(name, "TestVerificationMethodScenario") || name == "TestVerificationMethodScenarioCoverage" || name == "TestVerificationAnchorSeam" ||
+			name == "TestVerificationMethodScenarioCallRevertDimensions" || name == "TestVerificationMethodScenarioLocalShapeRejection" ||
+			name == "TestVerificationMethodScenarioGetLogsNullIsMalformed" || name == "TestVerificationQuorumFloorInterlock" {
 			continue
 		}
 		if _, ok := used[name]; !ok {
