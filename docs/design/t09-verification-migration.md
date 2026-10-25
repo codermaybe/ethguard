@@ -120,7 +120,8 @@ go test ./internal/verification/integration -run 'TestT09' -count=1
 go test ./... -count=1
 ```
 
-切片收口时复跑了完整验收：T09 专项（含 `-race -count=2 -shuffle=on`）、
-`go test ./... -race -count=1`、`go vet ./...`、`go fmt`、`git diff --check`
-全部通过；全量测试仅失败于上文记录的既有 T05 文档互锁（与 T09 无关）。
+切片收口时复跑了验收：T09 专项（含 `-race -count=2 -shuffle=on`）、
+`go vet ./...`、`gofmt -l .` 和 `git diff --check` 通过；
+`go test ./... -race -count=1` 仍仅失败于上文记录的既有 T05 文档互锁
+（与 T09 无关）。
 本文之后的变更应把 T09 专项命令的结果作为比较基线。

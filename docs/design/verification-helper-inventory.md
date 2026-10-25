@@ -49,7 +49,7 @@ TP=typed_projection。
 | --- | --- | --- | --- |
 | `t09Want` / `t09Row` / `t09MethodCase` / `t09DimensionWant` / `t09ScenarioNames` / `t09Matrix*` | 场景行的期望结构与固定基组 N=5/H=2/Q=3 | SH、MS | scenarios |
 | `t09CheckScenario` / `t09RunScenarioRow` / `t09AssertWant` | 单场景执行与 Decision 维度断言 | SH（MS 经 t09CheckScenario） | scenarios |
-| `t09AssertSourceRefs` / `t09SourceNames`（FL 定义） | 来源成员与 fleet 索引精确匹配 | SH、MS、FL、PM、EC | scenarios |
+| `t09AssertSourceRefs`（SH 定义） / `t09SourceNames`（FL 定义） | 来源成员与 fleet 索引精确匹配 | SH、MS、FL、PM、EC | scenarios |
 | `t09AssertDecodedValue` / `t09AssertFaultNames` / `t09AssertSourceAbsent` / `t09AssertWholeCanonical` | 跨文件收敛出的四个共享断言 | SH、FL、PM、EC | scenarios（守恒类断言与 EC 共用） |
 | `t09AssertNoPendingForm` / `t09Repeat` / `t09HasPendingParam` | 场景行辅助 | SH、MS | scenarios |
 
