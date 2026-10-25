@@ -86,8 +86,9 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereum/rpc`
 行为填充；`CallContext` 也只返回 `error`，无法表达 raw error envelope 的
 `error.data` presence。这是依赖债务的实际风险点。Slice 0 的独立 fake Transport
-基线、Slice 1 的 Geth compatibility seam 和 Slice 1b 的 Adapter relocation 已
-完成；Slice 1c 正在进入；自有 HTTP/WSS Adapter 尚未开始。
+基线、Slice 1 的 Geth compatibility seam、Slice 1b 的 Adapter relocation 和
+Slice 1c 的中性 protocol-error capability 已完成；自有 HTTP/WSS Adapter 尚未
+开始。
 
 本阶段的目标是建立一个由 EthGuard 控制的内部 connection/RPC 调用契约，同时保持
 公开 ethclient-shaped 表面和 Ethereum 类型不变：

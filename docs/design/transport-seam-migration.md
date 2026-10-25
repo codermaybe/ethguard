@@ -293,7 +293,12 @@ Slice 0/1/1b/1c 通过后，由主维护者单独审查 HTTP 行为差分和 WSS
 - `7370988`：Slice 1b，将 Geth/HTTP compatibility Adapter、body capture 和
   presence 恢复移到 `internal/transport`；pool 生产代码不再依赖 ethclient、
   Geth rpc 或 HTTP RoundTripper。
-- 下一片：Slice 1c，中性 protocol-error capability；在该片和 HTTP 行为差分审计
-  完成前不开始自有 HTTP/WSS 客户端实现。
+- `7c10b1e`：Slice 1c，在 `rpc` domain 包定义项目拥有的 `ProtocolError`、
+  `DataError`、`ErrorDataPresence`、`RateLimitError` 和 `HTTPStatusError`
+  capability；pool、aggregator、write、livecanary 和 rpc policy 不再导入
+  Geth RPC error interface。Geth Adapter 的错误链、HTTP status、rate-limit 和
+  error.data presence 行为不变；`rpc.RPCError`、`Emission`、`Observation`、
+  Decision、fault、revert 和 write rejection 语义不变。
+- 下一片：HTTP 行为差分审计；在该审计完成前不开始自有 HTTP/WSS 客户端实现。
 - 当前没有自有 HTTP 或 WSS client，也没有修改 `RPCError`、`Emission`、
   `Observation`、Decision 或公开 ethadapter 表面。
