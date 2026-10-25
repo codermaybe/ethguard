@@ -106,29 +106,28 @@ func (s *Source) dial(ctx context.Context) (Transport, error) {
 	stop := context.AfterFunc(s.life, cancel)
 	defer stop()
 
-	client, err := s.dialer.DialContext(dialCtx, s.url)
+	transport, err := s.dialer.DialContext(dialCtx, s.url)
 
 	s.mu.Lock()
 	s.dialing = nil
 	if s.closed {
 		s.mu.Unlock()
-		if client != nil {
-			client.Close()
+		if transport != nil {
+			transport.Close()
 		}
 		return nil, ErrClosed
 	}
 	if err != nil {
 		s.mu.Unlock()
-		if client != nil {
-			client.Close()
+		if transport != nil {
+			transport.Close()
 		}
 		return nil, err
 	}
-	if client == nil {
+	if transport == nil {
 		s.mu.Unlock()
-		return nil, errors.New("pool: dial returned nil client")
+		return nil, errors.New("pool: dial returned nil transport")
 	}
-	transport := newTransport(client)
 	s.client = transport
 	s.state = SourceReady
 	s.mu.Unlock()

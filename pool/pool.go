@@ -31,17 +31,27 @@ var (
 // reaching a real network. The concrete geth client is wrapped in Transport
 // before it enters Source; callers of pool never see that client type.
 type dialer interface {
-	DialContext(ctx context.Context, rawURL string) (*ethclient.Client, error)
+	DialContext(ctx context.Context, rawURL string) (Transport, error)
 }
 
 // standardDialer is the default production dialer.
 type standardDialer struct{}
 
-func (standardDialer) DialContext(ctx context.Context, rawURL string) (*ethclient.Client, error) {
+func (standardDialer) DialContext(ctx context.Context, rawURL string) (Transport, error) {
 	if client, ok, err := dialHTTPPreservingErrorData(ctx, rawURL); ok {
-		return client, err
+		if err != nil {
+			if client != nil {
+				client.Close()
+			}
+			return nil, err
+		}
+		return newTransport(client), nil
 	}
-	return ethclient.DialContext(ctx, rawURL)
+	client, err := ethclient.DialContext(ctx, rawURL)
+	if err != nil {
+		return nil, err
+	}
+	return newTransport(client), nil
 }
 
 // Pool is the concurrent-safe multi-source RPC manager.

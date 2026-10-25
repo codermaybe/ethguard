@@ -107,7 +107,7 @@ func (d *newFakeDialer) setOffset(rawURL string, off int64) {
 	}
 }
 
-func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (*ethclient.Client, error) {
+func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (Transport, error) {
 	d.mu.Lock()
 	d.dials[rawURL]++
 	dialNumber := d.dials[rawURL]
@@ -151,7 +151,7 @@ func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (*ethcli
 		d.clients[rawURL] = append(d.clients[rawURL], client)
 	}
 	d.mu.Unlock()
-	return client, nil
+	return newTransport(client), nil
 }
 
 // --- Tests -------------------------------------------------------------------
