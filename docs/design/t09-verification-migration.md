@@ -98,6 +98,8 @@ go test ./internal/verification/integration -run 'TestT09' -race -count=2 -shuff
 - 维护者审计确认了上述切片与既有 `rpc/methods` 文档互锁失败
   （`TestRuntimeEvidenceDocsForbiddenClaims`：roadmap lost the T05 section）
   无关；该失败自 roadmap 重置提交起预先存在，另列任务处理，不混入 T09。
+- T05 收口（`11aa0b6`）：互锁改为检查当前路线图的安全措辞、架构阶段和验收出口；
+  不恢复历史 T05 路线图章节。全量 race 门因此恢复通过。
 
 ## 不变量和停止条件
 
@@ -120,8 +122,6 @@ go test ./internal/verification/integration -run 'TestT09' -count=1
 go test ./... -count=1
 ```
 
-切片收口时复跑了验收：T09 专项（含 `-race -count=2 -shuffle=on`）、
-`go vet ./...`、`gofmt -l .` 和 `git diff --check` 通过；
-`go test ./... -race -count=1` 仍仅失败于上文记录的既有 T05 文档互锁
-（与 T09 无关）。
-本文之后的变更应把 T09 专项命令的结果作为比较基线。
+当前收口复跑已通过：`go test ./... -race -count=1`、T09 专项
+（`-race -count=2 -shuffle=on`）、`go vet ./...`、`gofmt -l .` 和
+`git diff --check`。本文之后的变更应把这些命令的结果作为比较基线。
