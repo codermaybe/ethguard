@@ -270,7 +270,9 @@ Slice 0/1/1b 通过后，由主维护者单独审查 HTTP 行为差分和 WSS �
   覆盖复用、ChainID admission、关闭和关闭后的请求拒绝。
 - `acae29f`：Slice 1，将内部 dialer 改为返回 `Transport`；Geth HTTP/WSS client
   仍由 compatibility Adapter 创建和持有，Source 不再认识具体 client 类型。
-- 下一片：Slice 1b，只移动 Adapter 模块归属；在该片完成前不开始自有 HTTP/WSS
-  客户端实现。
+- `7370988`：Slice 1b，将 Geth/HTTP compatibility Adapter、body capture 和
+  presence 恢复移到 `internal/transport`；pool 生产代码不再依赖 ethclient、
+  Geth rpc 或 HTTP RoundTripper。
+- 下一片：HTTP 行为差分审计；在该审计完成前不开始自有 HTTP/WSS 客户端实现。
 - 当前没有自有 HTTP 或 WSS client，也没有修改 `RPCError`、`Emission`、
   `Observation`、Decision 或公开 ethadapter 表面。
