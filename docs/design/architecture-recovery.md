@@ -203,16 +203,19 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 
 ## 后续路线
 
-下一阶段按以下顺序：
+架构收敛边界已经收口：
 
-1. **验证所有权收敛**：稳定 testkit，再拆 contracts/scenarios/replay；
-2. **概念与文档收敛**：以本文和 topology 文档为术语来源，删除重复和过期解释；
-3. **rpc/methods 边界审查**：只处理真实深 Module，不按文件数量拆包；
-4. **HTTP 查询路径和对接代码优化**：在 seam 稳定后，逐个减少 facade/adapter 冗余；
-5. **稳定后交给 agent 做局部优化**：每个 agent 只负责一个明确 Module 和一个可回滚提交。
+- verification 保持单一 `integration` Module；只有出现第二个真实验证 seam，才重新
+  评估 `testkit`、`contracts` 或 `scenarios`；
+- `rpc/methods` 保持单一生产 Module；对象、wire 和 policy 深模块继续由各自拥有者
+  维护；
+- root facade 与 `ethadapter` 保持单向委托和单一 typed projection；没有第二个 Adapter
+  或已证明的重复转换时，不抽公共 forwarding 层；
+- 后续工作以具体故障、重复事实来源、维护负担或新 Seam 证据为入口，不按目录整齐度
+  继续迁移。
 
 需要重新定义并发、错误、连接生命周期或 evidence 语义的核心 seam，由主维护者直接
-设计和实现；简单 facade 转发、重复转换和局部整理才交给 agent。
+设计和实现；有明确边界且可回滚的局部整理才交给 agent。
 
 ## WSS 的位置
 

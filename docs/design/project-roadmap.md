@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**拓扑迁移完成，进入架构收敛阶段**（2026-10-25）
+状态：**拓扑迁移与架构收敛边界已完成，进入证据驱动的维护阶段**（2026-10-25）
 
 本文件只描述当前事实、下一阶段和验收出口。已经完成的功能任务、历史审计过程和
 被否决的候选方案以 Git 历史及各专题设计文档为准，不在这里重复展开。
@@ -29,6 +29,10 @@ EthGuard 的运行时语义已经冻结在现有实现中：
 - `internal/reference.HeadReader` 是 reference 消费者拥有的最小 head-reading seam；
 - root facade 与 `ethadapter` 不存在第二套 typed decoder 或平行执行链；
 - 架构依赖互锁已进入根测试并由 CI 执行。
+- T09 测试入口已完成语义化重命名，专项门使用 `^TestVerification`；
+- verification 当前保持单一 `integration` Module，不创建 `testkit` 或浅层验证 package；
+- `rpc/methods` 保持单一生产 Module，已有对象、wire 和 policy 深模块继续拥有共享语义；
+- root facade 与 `ethadapter` 的对接边界已审查，暂无真实重复转换或第二个 Adapter seam。
 
 正式拓扑规格见 [codebase-topology.md](codebase-topology.md)，迁移执行记录见
 [codebase-topology-migration.md](codebase-topology-migration.md)。
@@ -45,6 +49,14 @@ eca3534 typed projection
 ec1fe66 roadmap pointer
 ```
 
+架构收敛审查记录：
+
+```text
+4cffdeb verification topology split timing
+04ee039 rpc/methods boundary review
+31f60b3 adapter boundary review
+```
+
 当前基线命令：
 
 ```text
@@ -54,69 +66,25 @@ go test ./... -race -count=1
 go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
 ```
 
-## 下一阶段：架构收敛
+## 当前阶段：证据驱动的维护
 
-下一阶段的目标是继续降低人类掌握和分配代码的成本，保持运行时语义不变。
+架构收敛已完成决策收口。后续变更只有在出现具体证据时才开始：
 
-### 1. 收敛验证所有权
+- 已证明的重复转换、第二份事实来源或局部维护负担；
+- 第二个验证 Module 或第二个 Adapter 实现，形成真实可替换 Seam；
+- 新的 Interface 能显著增加 Depth、Leverage 或 Locality；
+- 现有测试或静态守卫暴露出明确缺口。
 
-先稳定共享 fixture，再细分验证目录：
+没有这些证据时：
 
-1. 识别跨模块 fixture、测试 Adapter 和生产路径辅助函数；
-2. 只有确实被多个验证 Module 复用时才建立 `internal/testkit`；
-3. 将现有 integration 验证按公开 seam 逐步细分为：
-   `contracts`、`scenarios`、`integration`、`replay`；
-4. 必须访问未导出实现的白盒测试留在生产 package；
-5. 生产代码不得导入 verification 或 testkit。
+- 不创建 `internal/testkit`、`contracts`、`scenarios` 或新的 forwarding package；
+- 不按文件数量拆 `rpc/methods`；
+- 不为了“减少行数”抽取 root/adapter 公共转发层；
+- 不把 agent 分配到需要重新定义并发、错误、连接生命周期或 evidence 语义的工作。
 
-T09 验证测试的语义化文件结构（已应用）、helper/seam 消费者库存和验收边界见
-[T09 验证代码迁移前置契约](t09-verification-migration.md)与
-[验证测试 helper 与 seam 库存](verification-helper-inventory.md)。
-当前是否创建 `testkit` 或拆分验证 package 的决策见
-[验证拓扑拆分决策](verification-topology-decision.md)。
-
-出口是维护者可以按 seam 分配测试任务，而不需要阅读整个 root 集成测试文件。
-不为了填满目录而导出测试专用生产 API。
-
-### 2. 收敛文档概念
-
-以正式拓扑规格为唯一结构术语来源，清理 README、旧架构说明和方法验证文档中的：
-
-- 过期目录名称；
-- 已完成任务的执行日志；
-- 重复的 quorum、typed、anchor 和 evidence 定义；
-- 把历史观察写成当前承诺的措辞。
-
-专题文档保留设计依据和当前边界；roadmap 只保留当前状态、下一步和出口。
-
-### 3. 审查 `rpc/methods` 的真实功能边界
-
-保持 `rpc/methods` 为一个生产 Module。只有在出现独立 Interface、稳定所有权和
-明显更深 Module 时才拆 package。文件数量本身不是拆分理由。
-
-本轮审查结论见
-[rpc/methods Module 边界审查](rpc-methods-boundary-review.md)。
-
-审查顺序：
-
-1. 列出现有文件的知识所有者和共享字段表；
-2. 找出真正跨方法共享的对象、wire 和 admission seam；
-3. 删除重复的转发层或第二份事实来源；
-4. 不改方法注册表、比较键、Value 编码和错误语义。
-
-### 4. 优化对接实现层
-
-在 runtime、typed、Transport 和 Head-Reading seam 稳定后，再优化 root facade 与
-ethclient-shaped adapter 的实现层：
-
-当前对接边界审查见
-[root facade 与 `ethadapter` 对接边界审查](adapter-boundary-review.md)。
-
-- adapter 只做调用形状和返回形状转换；
-- typed projection 继续只有一条生产路径；
-- transport 生命周期与方法 policy 分离；
-- 为后续 RPC/ethclient seam 对接减少冗余；
-- 不在这一阶段重新设计 reference policy 或新增网络能力。
+验证拓扑的拆分条件见[验证拓扑拆分决策](verification-topology-decision.md)，
+`rpc/methods` 的边界条件见 [rpc/methods Module 边界审查](rpc-methods-boundary-review.md)，
+对接层条件见 [root facade 与 `ethadapter` 对接边界审查](adapter-boundary-review.md)。
 
 ## 不进入下一阶段的内容
 
