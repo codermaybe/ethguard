@@ -69,8 +69,9 @@ go test ./internal/verification/integration -run 'TestT09' -race -count=2 -shuff
 4. 必须访问未导出实现的白盒测试留在生产 package；
 5. 生产代码不得导入 verification 或 testkit。
 
-T09 任务标记测试的当前库存、语义化文件名建议和 agent 验收边界见
-[T09 验证代码迁移前置契约](t09-verification-migration.md)。
+T09 验证测试的语义化文件结构（已应用）、helper/seam 消费者库存和验收边界见
+[T09 验证代码迁移前置契约](t09-verification-migration.md)与
+[验证测试 helper 与 seam 库存](verification-helper-inventory.md)。
 
 出口是维护者可以按 seam 分配测试任务，而不需要阅读整个 root 集成测试文件。
 不为了填满目录而导出测试专用生产 API。
