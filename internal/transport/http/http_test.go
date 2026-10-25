@@ -632,6 +632,73 @@ func TestNativeClose(t *testing.T) {
 	}
 }
 
+// TestNativeHTTPStatusContextPrecedence locks precedence layer 1 on the
+// non-2xx path (Slice 2 review fix): when a 4xx/5xx body stalls after its
+// headers and the call context fires, the context error wins and the status
+// classification is discarded.
+func TestNativeHTTPStatusContextPrecedence(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+	}{
+		{name: "429", status: nethttp.StatusTooManyRequests},
+		{name: "500", status: nethttp.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		t.Run("cancel-"+tc.name, func(t *testing.T) {
+			srv := newNativeServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				rc := nethttp.NewResponseController(w)
+				rc.Flush()
+				select {
+				case <-time.After(300 * time.Millisecond):
+					w.Write([]byte(`{"error":"late"}`))
+				case <-r.Context().Done():
+				}
+			}))
+			tr := dialNative(t, srv.srv.URL, 0)
+			ctx, cancel := context.WithCancel(context.Background())
+			time.AfterFunc(50*time.Millisecond, cancel)
+			defer cancel()
+			var raw json.RawMessage
+			err := call(t, tr, ctx, &raw, "eth_chainId")
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("err = %v, want context.Canceled to dominate the status outcome", err)
+			}
+			var status rpc.HTTPStatusError
+			if errors.As(err, &status) {
+				t.Fatalf("cancellation was overridden by the status classification: %v", err)
+			}
+		})
+		t.Run("deadline-"+tc.name, func(t *testing.T) {
+			srv := newNativeServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				rc := nethttp.NewResponseController(w)
+				rc.Flush()
+				select {
+				case <-time.After(300 * time.Millisecond):
+					w.Write([]byte(`{"error":"late"}`))
+				case <-r.Context().Done():
+				}
+			}))
+			tr := dialNative(t, srv.srv.URL, 0)
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+			var raw json.RawMessage
+			err := call(t, tr, ctx, &raw, "eth_chainId")
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("err = %v, want context.DeadlineExceeded to dominate the status outcome", err)
+			}
+			var status rpc.HTTPStatusError
+			if errors.As(err, &status) {
+				t.Fatalf("deadline was overridden by the status classification: %v", err)
+			}
+		})
+	}
+}
+
 // TestNativeChainID locks the identity probe: a plain eth_chainId call with
 // the project-owned quantity decoder.
 func TestNativeChainID(t *testing.T) {

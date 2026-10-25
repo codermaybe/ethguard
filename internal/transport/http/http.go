@@ -133,7 +133,7 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return statusErrorFromBody(resp)
+		return statusErrorFromBody(ctx, resp)
 	}
 
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, t.limit+1))
@@ -216,12 +216,23 @@ type statusError struct {
 	truncated bool
 }
 
-func statusErrorFromBody(resp *nethttp.Response) error {
+// statusErrorFromBody retains a bounded prefix of a non-2xx body and
+// classifies the exchange by its HTTP status. The body read is subject to the
+// frozen context precedence: if the call context has fired by the time the
+// outcome is known — including while a stalled error body is still being
+// read — the status outcome is discarded and the context error is returned
+// (contract §6). A plain read failure without context cancellation does not
+// change the classification: the status is the outcome, and the retained
+// prefix (possibly empty) stays available for diagnostics and text rules.
+func statusErrorFromBody(ctx context.Context, resp *nethttp.Response) error {
 	// Retain a bounded prefix of the body for diagnostics and text rules;
 	// reading one extra byte detects truncation. The remainder is never
 	// pulled in and the connection is abandoned on Close.
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxStatusBody+1))
 	_ = resp.Body.Close()
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
 	e := &statusError{status: resp.Status, code: resp.StatusCode}
 	if len(raw) > maxStatusBody {
 		e.body = raw[:maxStatusBody]

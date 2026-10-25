@@ -400,6 +400,16 @@ Adapter 与 Geth baseline 的差分结论，作为默认切换审查的输入。
 | 连接复用（每 adapter 一条 keep-alive 连接） | `http:TestDifferentialConnectionReuseParity`、`http:TestNativeConnectionReuse` |
 | pool health / rate-limit / usable-answer | `pool:TestNativeAdapterPoolHealthyAnswer`、`pool:TestNativeAdapterPoolRateLimitClassifiesThrottling`、`pool:TestNativeAdapterPoolMalformedIsFailure` |
 | ChainID 走普通 JSON-RPC + 项目 quantity decoder | `http:TestNativeChainID`、`http:TestDecodeHexQuantity`、`http:TestNativeChainIDQuantityRejections` |
+| 非 2xx body 读取同样受 context 优先级支配（429/500 阻塞 body 期间 cancel/deadline → context error，status 分类被丢弃） | `http:TestNativeHTTPStatusContextPrecedence`、`http:TestDifferentialStalledStatusBodyContextParity`（Slice 2 审查修正） |
+
+Slice 2 审查修正记录：`statusErrorFromBody` 最初在不检查 context 的情况下
+读取非 2xx body，阻塞的 4xx/5xx body 会让 `HTTPStatusError` 覆盖已取消的
+context。修正后该路径与 2xx 路径共用同一套层序（context > 超限/分类 > 读
+失败）。差分测试同时确认：Geth compatibility Adapter 经 capturing
+transport 的读后 context 检查在此场景同样返回 context error；裸 Geth（无
+capture 层）才会返回 status error，该行为保持 baseline-only。回归测试在修
+正前运行会失败（返回 `429 Too Many Requests`/`500 Internal Server Error`），
+修正后通过。
 
 ### 8.2 有意改变的 B 类行为（EthGuard contract 优先于 Geth baseline）
 

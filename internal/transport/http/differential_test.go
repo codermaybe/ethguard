@@ -532,6 +532,70 @@ func TestDifferentialConnectionReuseParity(t *testing.T) {
 	}
 }
 
+// TestDifferentialStalledStatusBodyContextParity locks precedence layer 1
+// across both production adapters (Slice 2 review fix): with a non-2xx body
+// stalled after its headers, context cancellation and deadlines return the
+// context error on the native adapter and — through the capturing transport's
+// own post-read context check — on the Geth compatibility adapter as well.
+// Raw Geth (without the capture layer) would surface the status error; that
+// behavior is baseline-only and must not be reintroduced.
+func TestDifferentialStalledStatusBodyContextParity(t *testing.T) {
+	cases := []struct {
+		name string
+		want error
+	}{
+		{name: "cancel", want: context.Canceled},
+		{name: "deadline", want: context.DeadlineExceeded},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newNativeServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(nethttp.StatusInternalServerError)
+				rc := nethttp.NewResponseController(w)
+				rc.Flush()
+				select {
+				case <-time.After(300 * time.Millisecond):
+					w.Write([]byte(`{"error":"late"}`))
+				case <-r.Context().Done():
+				}
+			}))
+			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
+			// The cancel case fires an explicit cancel timer; the deadline
+			// case relies on the timeout alone, so the two cancellation
+			// causes never race for which error the context reports.
+			setupCtx := func() (context.Context, context.CancelFunc) {
+				if tc.want == context.Canceled {
+					ctx, cancel := context.WithCancel(context.Background())
+					time.AfterFunc(50*time.Millisecond, cancel)
+					return ctx, cancel
+				}
+				return context.WithTimeout(context.Background(), 50*time.Millisecond)
+			}
+			nctx, ncancel := setupCtx()
+			defer ncancel()
+			var nativeSink json.RawMessage
+			nativeErr := call(t, nativeTr, nctx, &nativeSink, "eth_chainId")
+			if !errors.Is(nativeErr, tc.want) {
+				t.Fatalf("native err = %v, want %v", nativeErr, tc.want)
+			}
+			gctx, gcancel := setupCtx()
+			defer gcancel()
+			var gethSink json.RawMessage
+			gethErr := gethTr.CallContext(gctx, &gethSink, "eth_chainId")
+			if !errors.Is(gethErr, tc.want) {
+				t.Fatalf("geth err = %v, want %v (capture-layer context precedence)", gethErr, tc.want)
+			}
+			for label, err := range map[string]error{"native": nativeErr, "geth": gethErr} {
+				var status rpc.HTTPStatusError
+				if errors.As(err, &status) {
+					t.Fatalf("%s let the status classification override the context: %v", label, err)
+				}
+			}
+		})
+	}
+}
+
 // TestDifferentialCloseLifecycle asserts maintainer ruling 3: the Geth
 // baseline's Close is a no-op (B quirk); the native Close is idempotent,
 // rejects new calls, and leaves in-flight calls to finish.
