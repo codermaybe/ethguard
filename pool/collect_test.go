@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	upstream "github.com/codermaybe/ethguard/internal/transport"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 )
@@ -151,7 +152,7 @@ func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (Transpo
 		d.clients[rawURL] = append(d.clients[rawURL], client)
 	}
 	d.mu.Unlock()
-	return newTransport(client), nil
+	return upstream.NewGethTransport(client), nil
 }
 
 // --- Tests -------------------------------------------------------------------

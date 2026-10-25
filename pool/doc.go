@@ -2,7 +2,7 @@
 //
 // Responsibilities:
 //   - Pool: shared, concurrent-safe management of RPC sources
-//   - Source: one long-lived ethclient wrapper per endpoint
+//   - Source: one long-lived Transport Adapter per endpoint
 //   - HealthSnapshot: read-only latency and availability observations
 //
 // Application code should prefer package ethguard's Client. Import pool

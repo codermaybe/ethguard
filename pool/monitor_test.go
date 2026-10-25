@@ -4,9 +4,12 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/ethereum/go-ethereum/rpc"
 )
+
+type monitorHTTPStatusError struct{ status int }
+
+func (e monitorHTTPStatusError) Error() string     { return "HTTP status" }
+func (e monitorHTTPStatusError) IsRateLimit() bool { return e.status == 429 }
 
 func TestMonitorPercentilesAreNearestRank(t *testing.T) {
 	m := &monitor{}
@@ -49,7 +52,7 @@ func TestMonitorEmptyWindowReportsZeroPercentiles(t *testing.T) {
 
 func TestMonitorCountsRateLimitsDistinctly(t *testing.T) {
 	m := &monitor{}
-	m.observeFailure(rpc.HTTPError{StatusCode: 429, Status: "429 Too Many Requests"})
+	m.observeFailure(monitorHTTPStatusError{status: 429})
 	m.observeFailure(errors.New("connection reset"))
 	m.observeSuccess(time.Millisecond)
 

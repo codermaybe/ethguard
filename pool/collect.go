@@ -8,9 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/rpc"
-
 	"github.com/codermaybe/ethguard/config"
+	upstream "github.com/codermaybe/ethguard/internal/transport"
 )
 
 // Emission is the result of a single upstream fan-out request.
@@ -426,7 +425,7 @@ func shouldRecordFailure(parent context.Context, err error) bool {
 }
 
 func isJSONRPCResponseError(err error) bool {
-	var rpcErr rpc.Error
+	var rpcErr protocolError
 	return errors.As(err, &rpcErr)
 }
 
@@ -434,7 +433,7 @@ func isHealthyRPCResponse(err error) bool {
 	if err == nil {
 		return true
 	}
-	var rpcErr rpc.Error
+	var rpcErr protocolError
 	if !errors.As(err, &rpcErr) {
 		return false
 	}
@@ -453,7 +452,6 @@ func collectOne(ctx context.Context, src *Source, method string, params []any) (
 		return nil, err
 	}
 
-	ctx, body := withRawBody(ctx)
 	var result json.RawMessage
 	err = client.CallContext(ctx, &result, method, params...)
 	if src.isClosed() {
@@ -463,14 +461,11 @@ func collectOne(ctx context.Context, src *Source, method string, params []any) (
 		if shouldDiscardClient(err) {
 			src.discardClient(client)
 		}
-		if raw, ok := body.bytes(); ok {
-			err = preserveErrorData(err, raw)
-		}
 		return nil, err
 	}
 	return result, nil
 }
 
 func shouldDiscardClient(err error) bool {
-	return errors.Is(err, rpc.ErrClientQuit)
+	return upstream.IsClientQuit(err)
 }

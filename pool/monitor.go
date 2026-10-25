@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/ethereum/go-ethereum/rpc"
 )
 
 // latencyWindow is the number of recent successful RTTs kept for percentile
@@ -251,11 +249,11 @@ func isRateLimitError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var httpErr rpc.HTTPError
-	if errors.As(err, &httpErr) && httpErr.StatusCode == 429 {
+	var rateLimit rateLimitMarker
+	if errors.As(err, &rateLimit) && rateLimit.IsRateLimit() {
 		return true
 	}
-	var rpcErr rpc.Error
+	var rpcErr protocolError
 	if errors.As(err, &rpcErr) {
 		switch rpcErr.ErrorCode() {
 		case -32005, -32016, 429:
@@ -355,7 +353,7 @@ func nearestRank(p float64, n int) int {
 // errors. In particular, contract execution reverts commonly use -32000 and
 // remain healthy responses rather than being treated as node failures.
 func isProtocolServerError(err error) bool {
-	var rpcErr rpc.Error
+	var rpcErr protocolError
 	if !errors.As(err, &rpcErr) {
 		return false
 	}

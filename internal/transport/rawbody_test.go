@@ -1,4 +1,4 @@
-package pool
+package transport
 
 import (
 	"context"
@@ -101,13 +101,14 @@ func dialCaptureServer(t *testing.T, rawURL string, limit int64) *ethclient.Clie
 	return client
 }
 
-// callWithCapture mirrors collectOne's calling convention: every call gets a
-// fresh single-slot box bound to its own context, so the transport actually
-// captures (a box-less call is a transparent pass-through).
+// callWithCapture drives the compatibility adapter directly: every call gets
+// a fresh single-slot box bound to its own context, so the adapter actually
+// captures one response body.
 func callWithCapture(t *testing.T, client *ethclient.Client, base context.Context) (json.RawMessage, error) {
 	t.Helper()
-	src := &Source{client: newTransport(client)}
-	return collectOne(base, src, "eth_chainId", nil)
+	var result json.RawMessage
+	err := newGethTransport(client, true).CallContext(base, &result, "eth_chainId")
+	return result, err
 }
 
 // preservedBodyText details the data of a preserved error for failure
@@ -187,8 +188,8 @@ func TestCaptureHTTPBodyTooLargeIsClassifiedErr(t *testing.T) {
 		t.Fatalf("err = %v, want ErrBodyTooLarge", err)
 	}
 	// The truncated prefix must never reach preserveErrorData: because the
-	// oversized read refuses to install a body, the box stays empty and
-	// collectOne's body.bytes() lookup finds nothing to vouch for. That the
+	// oversized read refuses to install a body, the adapter's body.bytes()
+	// lookup finds nothing to vouch for. That the
 	// returned error still classifies as ErrBodyTooLarge — and never parses
 	// back into a revert (code 3) error — is asserted above and below.
 	var preserved *preservedDataError

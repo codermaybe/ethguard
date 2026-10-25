@@ -22,8 +22,8 @@ import (
 )
 
 // Anchor transport tests pin the production seam: HTTP and WSS are both dialed
-// by pool.standardDialer through ethclient.DialContext. The resolver never
-// inspects the URL scheme, and these tests do not add a second one.
+// by the configured connection Adapter. The resolver never inspects the URL
+// scheme, and these tests do not add a second one.
 
 type anchorTransport string
 

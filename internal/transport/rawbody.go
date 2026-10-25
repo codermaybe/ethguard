@@ -1,4 +1,4 @@
-package pool
+package transport
 
 import (
 	"bytes"
@@ -35,10 +35,10 @@ const defaultCapturedBodyBytes = 32 << 20
 // geth decodes a JSON-RPC error's data into interface{}. A missing field and
 // a JSON null therefore arrive as the same nil, and observationRPCError can
 // no longer tell them apart. HTTP is the transport rpctest and recorded
-// samples use, so the production dialer keeps the raw response body for the
-// call that is in flight and lets collectOne restore presence before the
-// error is classified. WebSocket frames stay on geth's codec; they do not
-// pass through this body.
+// samples use, so the HTTP compatibility Adapter keeps the raw response body
+// for the call that is in flight and restores presence before returning the
+// error to pool. WebSocket frames stay on geth's codec; they do not pass
+// through this body.
 type rawBodyBox struct {
 	body []byte
 	ok   bool

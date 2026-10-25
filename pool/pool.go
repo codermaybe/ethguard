@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/ethclient"
+	upstream "github.com/codermaybe/ethguard/internal/transport"
 )
 
 var (
@@ -26,33 +26,9 @@ var (
 	ErrAllSourcesDown = errors.New("pool: all upstream sources failed to respond")
 )
 
-// dialer establishes long-lived RPC connections to upstream endpoints. It is
-// an internal adapter boundary so tests can inject a fake dialer instead of
-// reaching a real network. The concrete geth client is wrapped in Transport
-// before it enters Source; callers of pool never see that client type.
-type dialer interface {
-	DialContext(ctx context.Context, rawURL string) (Transport, error)
-}
-
-// standardDialer is the default production dialer.
-type standardDialer struct{}
-
-func (standardDialer) DialContext(ctx context.Context, rawURL string) (Transport, error) {
-	if client, ok, err := dialHTTPPreservingErrorData(ctx, rawURL); ok {
-		if err != nil {
-			if client != nil {
-				client.Close()
-			}
-			return nil, err
-		}
-		return newTransport(client), nil
-	}
-	client, err := ethclient.DialContext(ctx, rawURL)
-	if err != nil {
-		return nil, err
-	}
-	return newTransport(client), nil
-}
+// standardDialer is the default connection Adapter. Its implementation lives
+// outside pool; this alias preserves the package's internal construction sites.
+type standardDialer = upstream.StandardDialer
 
 // Pool is the concurrent-safe multi-source RPC manager.
 // One Pool is shared by a single ethguard.Client and all caller goroutines.
