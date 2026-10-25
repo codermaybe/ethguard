@@ -94,6 +94,9 @@ T09 验证测试的语义化文件结构（已应用）、helper/seam 消费者�
 保持 `rpc/methods` 为一个生产 Module。只有在出现独立 Interface、稳定所有权和
 明显更深 Module 时才拆 package。文件数量本身不是拆分理由。
 
+本轮审查结论见
+[rpc/methods Module 边界审查](rpc-methods-boundary-review.md)。
+
 审查顺序：
 
 1. 列出现有文件的知识所有者和共享字段表；
