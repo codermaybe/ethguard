@@ -109,6 +109,9 @@ T09 验证测试的语义化文件结构（已应用）、helper/seam 消费者�
 在 runtime、typed、Transport 和 Head-Reading seam 稳定后，再优化 root facade 与
 ethclient-shaped adapter 的实现层：
 
+当前对接边界审查见
+[root facade 与 `ethadapter` 对接边界审查](adapter-boundary-review.md)。
+
 - adapter 只做调用形状和返回形状转换；
 - typed projection 继续只有一条生产路径；
 - transport 生命周期与方法 policy 分离；
