@@ -189,9 +189,9 @@ func TestVerificationMethodScenarioGetCode(t *testing.T) {
 
 func TestVerificationMethodScenarioCall(t *testing.T) {
 	row := t09FieldRowFor(t, methods.MethodCall)
-	a, b := row.variants[0], row.other
+	a := row.variants[0]
 	// Sorts after the canonical answer, so a 2|2 tie retains the a-cluster.
-	b = json.RawMessage(`"0xdeadbf00"`)
+	b := json.RawMessage(`"0xdeadbf00"`)
 	exec := func(support, reject []int, returned bool) []t09DimensionWant {
 		return []t09DimensionWant{{Name: "execution", Support: support, Reject: reject, Returned: returned}}
 	}

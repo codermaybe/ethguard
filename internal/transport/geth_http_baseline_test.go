@@ -42,7 +42,6 @@ type baselineServer struct {
 
 	mu       sync.Mutex
 	requests []capturedRequest
-	conns    int
 }
 
 // countingListener counts accepted connections on the way through Accept,

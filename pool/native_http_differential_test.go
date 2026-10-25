@@ -51,12 +51,6 @@ func (l *poolCountingListener) Accept() (net.Conn, error) {
 	return c, err
 }
 
-func (l *poolCountingListener) count() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.n
-}
-
 // newPoolEchoServerHandler starts the loopback server with an explicit
 // handler, configured before Start so nothing is written on a live server.
 func newPoolEchoServerHandler(t *testing.T, handler nethttp.Handler) *poolEchoServer {
@@ -90,12 +84,6 @@ func newPoolEchoServer(t *testing.T, respond func(n int, req poolCapturedRequest
 		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,%s}`, parsed.ID, respond(n, req))
 	}))
 	return s
-}
-
-func (s *poolEchoServer) requestCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.requests)
 }
 
 // TestNativeAdapterPoolHealthyAnswer runs a success and a revert (a healthy

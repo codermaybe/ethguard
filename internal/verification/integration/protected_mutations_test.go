@@ -283,7 +283,6 @@ func TestVerificationProtectedMutationClasses(t *testing.T) {
 
 	seen := map[string]bool{}
 	for _, mc := range cases {
-		mc := mc
 		if seen[mc.method] {
 			t.Fatalf("%s: duplicate mutation case", mc.method)
 		}
@@ -293,7 +292,6 @@ func TestVerificationProtectedMutationClasses(t *testing.T) {
 				t.Fatal("no mutation classes")
 			}
 			for _, mutation := range mc.mutations {
-				mutation := mutation
 				t.Run(mutation.class+"/"+mutation.field, func(t *testing.T) {
 					t09RunMutation(t, mc, mutation)
 				})

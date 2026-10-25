@@ -636,10 +636,6 @@ func t09DecodeReceipt(raw json.RawMessage) (string, error) {
 	return t09ReceiptFull(receipt, context)
 }
 
-func t09DecodeReceipts(raw json.RawMessage) ([]*types.Receipt, error) {
-	return ethguard.DecodeReceipts(raw)
-}
-
 type t09ReceiptsRecord struct {
 	Receipts []string `json:"receipts"`
 }

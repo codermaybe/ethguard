@@ -27,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"os"
@@ -241,6 +242,9 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 			return classify(dec, err, fmt.Sprintf("%d receipts", len(rs)))
 		}},
 		{"getBlockReceipts(number)", methods.MethodGetBlockReceipts, []any{f.heightRef()}, true, func(ctx context.Context) (stepReport, error) {
+			if f.anchorHeight > uint64(math.MaxInt64) {
+				return stepReport{}, fmt.Errorf("anchor height %d exceeds geth block number range", f.anchorHeight)
+			}
 			rs, err := f.adapter.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.BlockNumber(f.anchorHeight)))
 			if err != nil {
 				return stepReport{}, err
