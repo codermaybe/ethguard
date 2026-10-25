@@ -69,9 +69,10 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | 轨道 | 当前状态 | 下一出口 | 约束 |
 | --- | --- | --- | --- |
 | 拓扑迁移、架构收敛、T09 审计 | 已完成 | 只在出现真实新 Seam 或维护负担时重新审查 | 不按目录整齐度拆包 |
-| HTTP connection 行为差分审计 | 当前下一出口 | 冻结 Geth HTTP baseline、差分矩阵和自有 Adapter 准入条件 | 只审计和补 baseline，不实现自有 HTTP client |
-| 逐方法 HTTP/root/ethadapter 对接 | 等待 connection 审计出口 | 23 个 RegisteredMethod 各有对接卡片和独立验收 | 不新增方法，不改变裁决语义 |
-| go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c 已收敛，待 HTTP 审计 | 评估自有 HTTP Adapter 是否值得实现 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
+| HTTP connection 行为差分审计 | 已完成，规范契约待裁决 | 冻结 EthGuard HTTP contract，评估自有 Adapter 准入 | v1.17.5 仅为版本化 baseline，不是长期标准 |
+| 自有 HTTP Adapter | 尚未实现，等待规范裁决 | 项目-owned HTTP codec、错误和生命周期实现 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
+| 逐方法 HTTP/root/ethadapter 对接 | 等待 connection Adapter 出口 | 23 个 RegisteredMethod 各有对接卡片和独立验收 | 不新增方法，不改变裁决语义 |
+| go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c/1d 已完成 | 替换 rpc/ethclient 实现，保留官方 Ethereum 类型 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
 | WSS transport | 评估排在方法对接和 connection seam 之后 | 契约、最小 Adapter、四态进程内验收后再议 golden | 不先改 quorum、policy、typed 或写路径 |
 | T11 自适应拥塞控制 | 决策方向已接受，算法待设计 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
 | reference freshness | 0032/0033 已接受边界，余量和对齐待专门决策 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
@@ -87,9 +88,9 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereum/rpc`
 行为填充；`CallContext` 也只返回 `error`，无法表达 raw error envelope 的
 `error.data` presence。这是依赖债务的实际风险点。Slice 0 的独立 fake Transport
-基线、Slice 1 的 Geth compatibility seam、Slice 1b 的 Adapter relocation 和
-Slice 1c 的中性 protocol-error capability 已完成；当前进入 HTTP 行为差分审计，
-自有 HTTP/WSS Adapter 尚未开始。
+基线、Slice 1 的 Geth compatibility seam、Slice 1b 的 Adapter relocation、Slice 1c
+的中性 protocol-error capability 和 Slice 1d 的 HTTP 行为差分审计已完成。当前
+等待主维护者裁决 EthGuard HTTP contract；自有 HTTP/WSS Adapter 尚未开始。
 
 本阶段的目标是建立一个由 EthGuard 控制的内部 connection/RPC 调用契约，同时保持
 公开 ethclient-shaped 表面和 Ethereum 类型不变：
@@ -114,8 +115,9 @@ Slice 1c 的中性 protocol-error capability 已完成；当前进入 HTTP 行�
 - 不把 transport seam 的建立写成 WSS missing/null 已修复。
 
 出口是 fake adapter 和独立的 Geth compatibility adapter 都能通过同一内部契约驱动
-现有生产路径，且完整 offline、adapter、race 门通过；自有 HTTP Adapter 是否进入
-下一片，由主维护者在行为差分审计后决定。需要重新定义错误、连接生命周期或 evidence 语义
+现有生产路径，且完整 offline、adapter、race 门通过；下一步由主维护者裁决 EthGuard
+规范 contract，再决定是否实现自有 HTTP Adapter。需要重新定义错误、连接生命周期
+或 evidence 语义的部分由主维护者设计，不交给 agent 自主决定。
 的部分由主维护者设计，不交给 agent 自主决定。
 
 事实审计、最小 seam、分片顺序和风险矩阵见

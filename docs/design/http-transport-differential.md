@@ -1,7 +1,8 @@
 # HTTP Transport 行为差分审计（Slice 1d）
 
-状态：审计完成，未实现自有 HTTP client。本文冻结当前 Geth HTTP compatibility
-Adapter 的可观察行为，作为将来自有 HTTP Adapter 的兼容矩阵与差分基线。
+状态：审计完成，未实现自有 HTTP client。本文记录当前 Geth HTTP compatibility
+Adapter 的可观察行为，作为版本化兼容证据和差分输入；它不是自有 HTTP Adapter
+必须永久复制的规范。
 
 - 代码基线：ethguard `3781b93`（Slice 1c 之后，工作树干净）。
 - 依赖基线：go-ethereum `v1.17.5`（`go.mod` 固定）。
@@ -22,6 +23,21 @@ Adapter 的可观察行为，作为将来自有 HTTP Adapter 的兼容矩阵与�
    **不需要**复制 go-ethereum 的具体错误类型，只需要复刻行为与 capability。
 3. 共 6 项进入"需主维护者裁决"（见 §4），其中影响最大的是：响应 ID/版本
    不校验（2.8）与 degenerate error 成员的健康语义（3.10）。
+
+### 基线与规范的分离
+
+本矩阵绑定 go-ethereum `v1.17.5`。截至 2026-10-25，官方最新发布已是
+`v1.17.10`；其 `rpc/http.go` 和 `rpc/json.go` 已调整 HTTP server 的 frame
+读取、body limit 和 JSON frame 解析路径，而公开 client 的 `CallContext` 形状仍
+相近。参见 [v1.17.10 release](https://github.com/ethereum/go-ethereum/releases/tag/v1.17.10)、
+[v1.17.10 rpc/http.go](https://github.com/ethereum/go-ethereum/blob/v1.17.10/rpc/http.go)
+和 [v1.17.10 rpc/json.go](https://github.com/ethereum/go-ethereum/blob/v1.17.10/rpc/json.go)。
+
+因此，v1.17.5 baseline 只回答“当前兼容 Adapter 在这一依赖版本下做什么”；升级
+Geth 时应重跑 baseline 并生成版本差异。矩阵中的 B 类行为（响应 ID/版本不校验、
+degenerate error、具体 EOF/JSON 错误形态、HTTP Close no-op）不自动成为自有
+Adapter 的长期契约。A 类中的 pool、health、capability 和 `error.data` presence
+语义才是 EthGuard 需要明确维护的稳定接口。
 
 ---
 
@@ -45,6 +61,10 @@ Adapter 的可观察行为，作为将来自有 HTTP Adapter 的兼容矩阵与�
   偏差不算破坏。
 - **D 需要主维护者裁决的行为**：兼容性要求与"最小实现"冲突，或收紧/放宽都会
   改变可观察行为。
+
+A 类是当前 compatibility Adapter 的替换安全线；自有 Adapter 只有在 §4 明确裁决
+后，才可以在 D 类行为上采用更严格的 EthGuard 规范。baseline 本身不自动成为
+长期标准。
 
 ## 2. 差分矩阵
 
@@ -163,22 +183,23 @@ Adapter 的可观察行为，作为将来自有 HTTP Adapter 的兼容矩阵与�
 
 ## 4. 需要主维护者裁决的问题
 
+本节裁决的是自有 Adapter 的规范契约，不是要求继续复制 Geth 的偶然行为。
+
 1. **响应 ID/版本校验（2.2）**。Geth HTTP 单调用路径完全不校验响应 id 与
-   jsonrpc 版本，按位置接受。自有 Adapter "顺手"实现严格匹配会在代理/网关
-   改写 ID 的上游引入新失败模式。建议：第一版保持不校验（行为等价、差分面
-   最小）；若要收紧，作为独立裁决并同步 baseline 测试。
+   jsonrpc 版本，按位置接受。建议自有 Adapter 默认严格校验 `jsonrpc == "2.0"`
+   且响应 ID 必须匹配请求 ID；若 provider evidence 证明存在合法代理改写，再
+   单独提供兼容模式。Geth compatibility Adapter 保持现状，不把两者混为一谈。
 2. **degenerate error 成员语义（2.3）**。code 0/"json-rpc error 0" 的错误被
-   pool 视为可用答案并计健康成功。这是 geth 解码缺陷经 capability 泄漏成的
-   事实契约。建议：自有 Adapter 原样复刻（不改 `decodeError` 行为）；任何
-   "更严格"的规范化必须同时改 pool 分类，属于独立变更。
-3. **HTTP Close 的契约（2.6）**。现状：no-op、不中止在途请求、close 后仍可
-   调用。pool 的生命周期保证并不依赖 Close 中断请求（pool 侧 closed gate +
-   完成后 isClosed 检查已覆盖）。建议：自有 Adapter 保持 Close 为低成本
-   no-op（或仅关闭空闲连接），并把"Close 不中止在途调用"写为 Adapter 契约；
-   若将来要主动 abort，需先裁决。
-4. **request ID 规则（2.1）**。硬约束只有唯一性/并发安全/JSON number 形态；
-   起始值与单调性是私有细节。建议原样复刻（一个从 1 开始的原子计数器），
-   成本为零且让 baseline 测试直接复用。
+   pool 视为可用答案并计健康成功。这是 Geth 解码行为泄漏出来的事实，不应成为
+   自有 Adapter 的规范。建议自有 Adapter 将非对象、缺少 code/message 或无法
+   形成合法 JSON-RPC error 的成员归为 malformed response；若要兼容旧 provider，
+   通过明确的 compatibility mode 处理，并单独评估 health 影响。
+3. **HTTP Close 的契约（2.6）**。Geth 现状是 no-op、不中止在途请求、close 后
+   仍可调用。建议自有 Adapter 的 Close 幂等、关闭空闲连接并拒绝新调用；在途
+   调用是否取消由 pool 的 context/lifecycle 契约决定，不能依赖 Geth 的 no-op。
+4. **request ID 规则（2.1）**。自有 Adapter 的规范约束是每个 client 内并发安全、
+   唯一、可序列化为 JSON-RPC ID；起始值与单调性不是公共语义。可以复刻 Geth
+   的从 1 开始计数，但不应让上层依赖它。
 5. **错误形态的具体类型（2.2）**。`io.EOF`、`*json.SyntaxError`、
    `gethrpc.ErrNoResult` 等具体类型目前被 baseline 测试断言，但生产上层只
    依赖"失败且非 ProtocolError"。建议：自有 Adapter 可用自有错误类型，但
@@ -187,6 +208,11 @@ Adapter 的可观察行为，作为将来自有 HTTP Adapter 的兼容矩阵与�
 6. **204/空 body 的形态（2.2/2.4）**。与第 5 点同理：必须失败，是否把
    `io.EOF` 换成自有"空响应"错误由裁决定。
 
+7. **官方类型与自有 RPC 实现的边界**。自有 Adapter 可以替换 `rpc.Client`、
+   `ethclient.Client`、JSON-RPC codec 和 HTTP/WSS lifecycle；`common`、`hexutil`、
+   `core/types` 以及公开 `ethclient-shaped` 方法的类型仍遵从 go-ethereum 官方
+   定义。类型兼容和连接实现解耦，不要求移除 go-ethereum module。
+
 ### §4 附：七个特别问题的直接回答
 
 - **是否需要复制 Geth HTTP 的错误链**：复制行为与 capability，不复制具体
@@ -194,9 +220,10 @@ Adapter 的可观察行为，作为将来自有 HTTP Adapter 的兼容矩阵与�
   为零（`ethadapter` 只用 `gethrpc.BlockNumberOrHash` 请求参数类型）；
   `upstream.IsClientQuit(gethrpc.ErrClientQuit)` 在 HTTP 路径永不触发，自有
   Adapter 不产生该哨兵即等价。
-- **HTTP Close no-op 与 Source close 的关系**：两层独立。Adapter 的 Close
+- **HTTP Close no-op 与 Source close 的关系**：Geth baseline 的 Adapter Close
   是 no-op；pool 的 Source close 语义完全由 pool 自己的 closed gate 与
-  `collectOne` 的 isClosed 检查提供，不依赖 Close 做任何事。
+  `collectOne` 的 isClosed 检查提供。自有 Adapter 不必复制 no-op，但必须保持
+  pool 关闭后的拒绝和在途调用的明确 context/lifecycle 语义。
 - **body capture 是否属于 Adapter 内部**：是。capture 的全部机制（box、
   RoundTrip 包装、presence 恢复）都在 `internal/transport` 内，seam 上唯一
   可见产物是错误值实现 `ErrorDataPresence`。自有实现应整体重做该机制，不得
@@ -235,8 +262,9 @@ Adapter 的可观察行为，作为将来自有 HTTP Adapter 的兼容矩阵与�
 1. **文本敏感的分类规则**。pool 的限流判定有文本分支（"rate limit"/"too
    many requests"/"throttl"），而非 2xx 的 body 全文在错误消息里。自有实现
    改变消息拼接（如丢掉 body 或截断）会静默改变限流归类。
-2. **degenerate 形态的涟漪**。对 degenerate error 成员做任何"规范化"都会
-   改变 health 与可用答案判定（§4.2）。
+2. **degenerate 形态的涟漪**。对 Geth compatibility baseline 的 degenerate error
+   成员做任何规范化都会改变 health 与可用答案判定；自有 Adapter 若采用严格
+   malformed 规范，必须把它写进独立契约并提供对应 health 测试（§4.2）。
 3. **presence 管线的归属假设**。单槽 box 假设一个调用恰好一个响应体；若
    自有实现引入重定向跟随或内部重试，presence 可能声称错误归属的 body。
    禁止在自有实现里加入自动重试/重放（与本次 slice 禁令一致）。

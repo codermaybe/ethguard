@@ -317,7 +317,10 @@ Slice 1d 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连
   `rpc.RateLimitError` capability 检查（与 pool 的退避判定同构）；纯
   capability 的限流错误不再依赖 HTTP status、已知错误码或错误文本才被归类为
   `provider_rate_limited`。
-- 下一片：Slice 1d，HTTP 行为差分审计；在该审计完成前不开始自有 HTTP/WSS
+- `21eedd7`：Slice 1d，锁定 go-ethereum v1.17.5 HTTP compatibility baseline，
+  明确 Geth 行为与 EthGuard 规范的分层；baseline 不授权复制响应 ID 不校验、
+  degenerate error 健康语义或 HTTP Close no-op 等偶然行为。
+- 下一片：主维护者裁决 EthGuard HTTP contract；裁决完成前不开始自有 HTTP/WSS
   客户端实现。
 - 当前没有自有 HTTP 或 WSS client，也没有修改 `RPCError`、`Emission`、
   `Observation`、Decision 或公开 ethadapter 表面。
