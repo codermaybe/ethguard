@@ -110,6 +110,9 @@ HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereu
 offline、adapter、race 门通过。需要重新定义错误、连接生命周期或 evidence 语义的
 部分由主维护者设计，不交给 agent 自主决定。
 
+事实审计、最小 seam、分片顺序和风险矩阵见
+[HTTP/WSS connection 与 RPC transport seam 迁移设计](transport-seam-migration.md)。
+
 决策 0060、`pool.Transport` 现状和 WSS 根因分别见
 [架构负债与客户端依赖](../decisions.md#0060-execution-api-is-normative-client-library-dependence-is-a-tracked-migration-debt)、
 [codebase-topology.md](codebase-topology.md) 和
