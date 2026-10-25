@@ -376,3 +376,63 @@ go-ethereum 的 `common`、`hexutil`、`core/types` 和公开 ethclient-shaped �
 | `git diff --check` | 无输出 |
 
 本文档只描述审计结论，不改变任何生产行为。
+
+---
+
+## 8. Native HTTP Adapter 差分记录（Slice 2）
+
+状态：`internal/rpcwire`（project-owned JSON-RPC codec）与
+`internal/transport/http`（native HTTP Adapter）已实现并通过全量验收；
+默认生产路径未切换（仍是 Geth compatibility Adapter）。本节记录 native
+Adapter 与 Geth baseline 的差分结论，作为默认切换审查的输入。
+
+### 8.1 A 类语义对齐（与 baseline 完全一致）
+
+| 场景 | 证据 |
+| --- | --- |
+| request envelope（POST、固定 headers、params nil/`[]`/args 规则、wire 字节一致） | `http:TestDifferentialEnvelopeParity`、`http:TestNativeRequestEnvelope`、`rpcwire:TestEncodeRequestEnvelope` |
+| `result:null` 成功；缺 result 失败且非可用答案 | `http:TestDifferentialResultSemantics` |
+| error.data 三态 presence（absent/null/具体值，raw 字节一致） | `http:TestDifferentialErrorDataPresence`、`rpcwire:TestDecodeResponseErrorVariants` |
+| 非 2xx → 项目 HTTPStatusError + body 入链 + 429 rate-limit、非 2xx body 不解析为 ProtocolError | `http:TestDifferentialHTTPStatusParity`、`http:TestNativeHTTPStatus` |
+| body limit（恰达上限成功、超限共享 `ErrBodyTooLarge`、截断前缀不解码） | `http:TestDifferentialBodyLimitNativeMatchesGethClassification`（Geth 侧由 baseline 测试 `TestHTTPBaselineBodyExactLimitSucceeds`、`TestCaptureHTTPBodyTooLargeIsClassifiedErr` 锁定） |
+| context cancel/deadline 支配 body 结果（层 1 > 超限 > 读失败） | `http:TestDifferentialContextPrecedence`、`http:TestNativeContextPrecedence` |
+| 并发调用（独立 POST、每 adapter 内 ID 唯一） | `http:TestDifferentialConcurrentCallsParity`、`http:TestNativeConcurrentCalls`、`rpcwire:TestIDGenUniqueConcurrencySafe` |
+| 连接复用（每 adapter 一条 keep-alive 连接） | `http:TestDifferentialConnectionReuseParity`、`http:TestNativeConnectionReuse` |
+| pool health / rate-limit / usable-answer | `pool:TestNativeAdapterPoolHealthyAnswer`、`pool:TestNativeAdapterPoolRateLimitClassifiesThrottling`、`pool:TestNativeAdapterPoolMalformedIsFailure` |
+| ChainID 走普通 JSON-RPC + 项目 quantity decoder | `http:TestNativeChainID`、`http:TestDecodeHexQuantity`、`http:TestNativeChainIDQuantityRejections` |
+
+### 8.2 有意改变的 B 类行为（EthGuard contract 优先于 Geth baseline）
+
+| Geth v1.17.5 baseline | Native Adapter | 裁决依据 | 证据 |
+| --- | --- | --- | --- |
+| 响应 id / jsonrpc 版本不校验，按位置接受 | 严格校验：id 不匹配 → `ErrIDMismatch`；版本缺失/不符 → `ErrMalformedResponse`；均非 ProtocolError | contract §2；ruling 1 | `http:TestDifferentialResponseValidationIsNativeStrict` |
+| degenerate error 成员（`{}`、`null`、非对象、缺 code/message）→ code 0 protocol error，pool 记健康成功 | 一律 `ErrMalformedResponse`，非 ProtocolError，pool 记失败 | contract §4；ruling 2 | `http:TestDifferentialDegenerateErrorsRejectedNatively`、`pool:TestDegenerateErrorMemberHealthDifference` |
+| result 与 error 并存 → error 优先 | 互斥校验，违反 → `ErrMalformedResponse` | contract §2 | `http:TestDifferentialResultSemantics` |
+| 空 body → `io.EOF`；malformed → `*json.SyntaxError` 等原始类型 | `ErrEmptyResponse` / `ErrMalformedResponse` 项目哨兵 | contract §3；ruling 5/6 | `http:TestDifferentialEmptyAndMalformedClassification`、`http:TestNativeEmptyAndMalformedBodies` |
+| HTTP Close 为 no-op，close 后仍可调用 | Close 幂等、关闭 idle 连接、拒绝新调用（`ErrTransportClosed`）；在途调用不受影响 | contract §7；ruling 3 | `http:TestDifferentialCloseLifecycle`、`http:TestNativeClose` |
+| 缺 result → `gethrpc.ErrNoResult` 哨兵 | `ErrMalformedResponse`（neither result nor error） | ruling 5 | `http:TestDifferentialResultSemantics` |
+| ID 从 1 单调递增为事实契约 | 仍为从 1 开始的原子计数器，但契约只是并发安全 + 唯一 + 合法 JSON-RPC ID | contract §8；ruling 4 | `rpcwire:TestIDGenUniqueConcurrencySafe` |
+
+未重新引入清单（逐项核对）：response ID 不校验 ✗、degenerate error 健康成功 ✗、
+HTTP Close no-op ✗、Geth concrete error 类型 ✗、Geth exact EOF/sentinel 类型 ✗。
+
+### 8.3 Provider compatibility evidence
+
+- 严格响应校验与 degenerate rejection 可能与"改写响应 ID 的代理"或返回非规范
+  error 成员的 provider 冲突。截至本 slice，仓库内没有记录到这类上游：
+  `wire-forms.md` 的 T10 行均为 request-shape 证据，live canary 运行
+  （`inconclusive`）未覆盖响应形态。若未来 live 证据与 contract 冲突，按
+  ruling 1/2 以显式 compatibility mode 处理，并单独评估 health 影响，不得
+  静默放宽。
+- 本 slice 未新增外部 provider 验证；默认切换前的 live 证据要求由主维护者
+  按 T10 流程决定。
+
+### 8.4 接入与回滚
+
+- Geth compatibility Adapter（`internal/transport.StandardDialer`，pool 的
+  `standardDialer` 别名）仍是唯一默认生产路径；native Adapter 通过
+  `internal/transport/http.NewDialer()` 提供，目前只有测试引用。
+- 默认切换：单独提交中把 pool 的 `standardDialer` 别名指向
+  `nativehttp.NewDialer()`（或按配置选择 adapter）；回滚 = revert 该单个
+  提交，Geth Adapter 保持可用，无双路径状态残留。
+- 双 Adapter 并存期间无共享状态；差分测试同时拨号两者，保证行为可比。
