@@ -80,6 +80,41 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 上述每条轨道的细节、验收和停止条件都在本文后续章节；链接的设计文档提供依据，
 不替代本表的顺序和状态。
 
+## 第零阶段：connection/RPC transport seam 与依赖边界
+
+这是逐方法对接的前置阶段。当前 `pool.Transport` 已经提供最小调用 seam，但 dialer、
+HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereum/rpc`
+行为填充；`CallContext` 也只返回 `error`，无法表达 raw error envelope 的
+`error.data` presence。这是依赖债务的实际风险点。
+
+本阶段的目标是建立一个由 EthGuard 控制的内部 connection/RPC 调用契约，同时保持
+公开 ethclient-shaped 表面和 Ethereum 类型不变：
+
+1. 明确一次 request/response 的 raw result、structured RPC error、presence 信息、
+   deadline、取消、关闭和来源归属如何进入 `pool.Transport`；
+2. 让 HTTP adapter 先接入该 seam，保持现有请求、健康、错误分类和有界 body capture
+   语义；
+3. 使 fake Transport 可以独立驱动 pool → aggregator → policy 路径；
+4. 记录 go-ethereum `v1.17.5` 与 Execution APIs 版本的兼容基线和升级影响清单；
+5. 不改变 quorum、Decision、reference、method policy、typed projection 或方法数量。
+
+不在本阶段做：
+
+- 不移除 go-ethereum；
+- 不创建平行 Block/Receipt/Transaction 类型、hex codec 或共识编码；
+- 不实现 WSS subscription/filter/reconnect；
+- 不把 raw wire 放入 `Decision.Value`、比较键或普通 Observation；
+- 不把 transport seam 的建立写成 WSS missing/null 已修复。
+
+出口是 HTTP adapter 和 fake adapter 都能通过同一内部契约驱动现有生产路径，且完整
+offline、adapter、race 门通过。需要重新定义错误、连接生命周期或 evidence 语义的
+部分由主维护者设计，不交给 agent 自主决定。
+
+决策 0060、`pool.Transport` 现状和 WSS 根因分别见
+[架构负债与客户端依赖](../decisions.md#0060-execution-api-is-normative-client-library-dependence-is-a-tracked-migration-debt)、
+[codebase-topology.md](codebase-topology.md) 和
+[wss-error-data-presence.md](wss-error-data-presence.md)。
+
 ## 第一阶段：逐方法对接
 
 目标是闭合每个已注册 read method 的 policy、root facade、ethadapter、typed projection、
@@ -133,26 +168,7 @@ git diff --check
 主维护者负责方法契约、reference、错误、Transport 或 evidence 语义；agent 只接手
 已有契约下的局部 Adapter/测试对接。
 
-## 第二阶段：依赖债务与 connection/transport seam
-
-这条轨道不等于移除 go-ethereum。它解决的是“库升级或替换 transport 时，业务 Module
-不被第三方内部实现牵动”。
-
-顺序：
-
-1. 维护 go-ethereum v1.17.5 对照基线和 Execution APIs 版本锚点；升级前先生成
-   版本差异、方法/类型/错误行为影响清单；
-2. 完成 `pool.Transport` 的真正接入面，逐步收窄 `pool` 对具体 `*ethclient.Client`
-   dialer/raw-body 实现的依赖；
-3. HTTP adapter 先接入内部 connection seam，保持当前请求、取消、关闭、错误和健康
-   语义；
-4. 每一片分别验证方法对接、typed、replay、race 和 live evidence 门；
-5. 不创建平行 Ethereum 类型、hex codec、共识编码或第二套客户端语义。
-
-决策 0060 是这条轨道的权威记录。完整迁移成本必须分别量化 transport、wire-error、
-WebSocket、Ethereum types、cryptographic 和 test fixtures；不以“代码行数少”证明可行。
-
-## 第三阶段：WSS transport 设计与分片实现
+## 第二阶段：WSS transport 设计与分片实现
 
 WSS 只在逐方法 HTTP 对接和内部 connection seam 稳定后进入。WSS 首先是独立 transport
 契约，不是方法 policy 或 quorum 项目。
