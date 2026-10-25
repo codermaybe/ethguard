@@ -339,8 +339,11 @@ func TestMethodContractsForbiddenClaims(t *testing.T) {
 }
 
 // TestRuntimeEvidenceDocsForbiddenClaims covers the T05 documents that sit
-// outside the method matrix: the decision record, the roadmap section, and
-// the metrics migration comment.
+// outside the method matrix: the decision record, the current roadmap hub,
+// and the metrics migration comment. T05's historical execution section was
+// intentionally removed when the roadmap was reset around architecture
+// convergence; the current roadmap keeps only its safety wording, phase, and
+// acceptance exit.
 func TestRuntimeEvidenceDocsForbiddenClaims(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "decisions.md"),
@@ -349,25 +352,13 @@ func TestRuntimeEvidenceDocsForbiddenClaims(t *testing.T) {
 		assertNoForbiddenClaims(t, rel, readRepoDoc(t, rel))
 	}
 	roadmap := readRepoDoc(t, filepath.Join("docs", "design", "project-roadmap.md"))
-	start := strings.Index(roadmap, "## T05：")
-	end := strings.Index(roadmap, "## 暂不推进")
-	if start < 0 || end < start {
-		t.Fatal("roadmap lost the T05 section")
-	}
-	section := roadmap[start:end]
-	assertNoForbiddenClaims(t, "roadmap T05", section)
-	for _, name := range []string{
-		"TestDecisionEventStatusMatchesSuccessClass",
-		"TestDecisionEventFailedStatusForClassifiedErrors",
-		"TestStatusStringSetExcludesFailed",
-		"TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout",
-		"TestReferenceEstablishedFreshPerCall",
-		"TestReferenceFailureEvidenceIsUnknownWithObservedAt",
-		"TestDocumentedDecisionStatusLabelsMatchEmissions",
-		"0038",
+	for _, wording := range []string{
+		"provider-backed cross-source evidence",
+		"架构收敛",
+		"go test ./... -race -count=1",
 	} {
-		if !strings.Contains(section, name) {
-			t.Fatalf("roadmap T05 does not link %s", name)
+		if !strings.Contains(roadmap, wording) {
+			t.Fatalf("roadmap lost current safety or acceptance wording %q", wording)
 		}
 	}
 	decisions := readRepoDoc(t, filepath.Join("docs", "decisions.md"))
