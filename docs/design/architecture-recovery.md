@@ -91,8 +91,7 @@ internal/verification ──消费公开 seam──> production Modules
 
 Transport Port 只表达：
 
-``
-go
+```go
 CallContext(ctx, result, method, args...) error
 ChainID(ctx) (*big.Int, error)
 Close()

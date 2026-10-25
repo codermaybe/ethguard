@@ -1,8 +1,11 @@
 # EthGuard 架构记录
 
-状态：Accepted，2026-09-18
+状态：Accepted，2026-09-18；2026-10-25 按拓扑终审稿同步目录描述
 
-这份记录描述当前实现中稳定的目录边界、数据流和安全职责。它取代阶段性任务清单；后续目录调整应先更新这里，再修改代码。
+这份记录描述当前实现中稳定的数据流、安全职责和方法覆盖策略。目录、Module
+所有权和依赖方向的权威规格是
+[代码库拓扑与模块所有权](codebase-topology.md)（2026-10-25 终审）；本文与其
+保持一致，先更新拓扑规格，再同步本文。
 
 ## 目标
 
@@ -44,10 +47,12 @@ collect → bounded JSON validation → method admission → method normalizatio
 
 ### 根包 `ethguard`
 
-根包是 composition root 和高级客户端表面：
+根包是公共 root facade 和高级客户端表面，不持有具体装配细节：
 
-- `client.go`：Pool、Aggregator、Policy Registry 和 anchor 的组合；
-- `call.go`：通用 Call、typed decode 和对象投影；
+- `client.go`：公共 `Client` 构造、生命周期与 Option 入口；生产装配委托
+  `internal/runtime`（唯一 Composition Root）；
+- `call.go`：通用 Call 入口和兼容性委托；typed 解码委托
+  `internal/typed`（唯一生产 typed projection）；
 - `eth.go`：带 Decision 的高级 typed methods；
 - `anchor.go`：公开 reference/anchor surface；
 - `write.go`：独立的广播与写入裁决；
@@ -88,13 +93,22 @@ collect → bounded JSON validation → method admission → method normalizatio
 
 ### `internal`
 
+- `internal/runtime`：唯一 Composition Root，集中方法 policy registry、
+  projector、aggregator 与 seam 的生产装配；
+- `internal/typed`：唯一生产 typed decoder/projection，root facade 与
+  `ethadapter` 共用；
+- `internal/verification`：面向公开 seam 的跨模块验证（当前含
+  `integration`，后续按 contracts/scenarios/replay 细分）；生产代码不得导入；
 - `internal/jsonsafe`：统一 bounded JSON 输入检查；不包含 RPC 或 Ethereum 业务知识；
-- `internal/reference`：finalized/common reference 的内部建立机制；
+- `internal/reference`：finalized/common reference 的内部建立机制，拥有
+  Head-Reading Port；
 - `internal/refcontext`：一次调用内传播 reference、members 和 corroboration flags；
 - `internal/uncertain`：调用级 raw response/field capture；
 - `internal/spec`：锁定的 execution-apis 数据、schema 和 vectors；
 - `internal/chainlist`：链列表及其测试资料；
-- `internal/rpcsample`：采样计划和记录工具。
+- `internal/rpcsample`：采样计划和记录工具；
+- `internal/livecanary`：live canary 的工作流、清单与报告逻辑；
+- `internal/shapeprobe`：观测响应的字段分类与形状比对报告。
 
 这些目录都不能成为新的公共 API 层。`internal/reference` 与 `internal/refcontext` 虽然都服务 anchor，但前者建立 reference，后者只传播 invocation state，保持分开。
 
@@ -127,11 +141,19 @@ record format 也属于该 CLI 的操作文档，不应混入核心 `docs/design
 
 Geth 类型解码是 typed boundary 的投影和第二层校验，不替代 admission。未知 typed object 返回结构化错误，并可通过 `WithUncertain` 读取原始响应，但不得作为普通 Geth 类型继续返回。
 
-## 目录审计结论
+## 目录审计结论（2026-09-18 时点记录）
 
-README 原有主干目录与实际目录一致，当前不需要大规模移动文件。需要修正的只是目录说明：补充 `internal/jsonsafe`、`internal/reference`、`internal/refcontext`、`internal/uncertain`、`internal/chainlist` 和 `internal/rpcsample`，并把 `docs/design/architecture-record.md` 作为长期设计记录。
+以下为本文 Accepted 时的审计结论，保留作设计依据；其后 2026-10 的拓扑迁移
+（见 [codebase-topology-migration.md](codebase-topology-migration.md)）已把
+root 外部验证移入 `internal/verification`，并抽出 `internal/runtime` 与
+`internal/typed`，目录状态以拓扑规格为准：
 
-暂不做以下重构：
+- README 原有主干目录与当时目录一致，未进行大规模移动；
+- 需要修正的只是目录说明：补充 `internal/jsonsafe`、`internal/reference`、
+  `internal/refcontext`、`internal/uncertain`、`internal/chainlist` 和
+  `internal/rpcsample`，并把本文件作为长期设计记录。
+
+当时明确不做、且拓扑终审同样排除的重构：
 
 - 不把 `internal/reference` 和 `internal/refcontext` 合并；
 - 不把 `rpc/methods` 拆成更多顶层包；

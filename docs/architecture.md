@@ -1,9 +1,11 @@
 # Architecture
 
-This file is a hub, not a second record. The stable directory boundaries,
-data flow, and safety responsibilities live in
-[design/architecture-record.md](design/architecture-record.md), which is the
-single source of truth — update it before moving code, not this file.
+This file is a hub, not a second record. The frozen module topology and
+dependency rules live in
+[design/codebase-topology.md](design/codebase-topology.md); the stable data
+flow, safety responsibilities, and method coverage strategy live in
+[design/architecture-record.md](design/architecture-record.md) — update those
+before moving code, not this file.
 
 - Package layout and public surfaces: [../README.md](../README.md) (Layout).
 - Accepted behavior and guarantees: [decisions.md](decisions.md).
