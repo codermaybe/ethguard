@@ -299,6 +299,10 @@ Slice 0/1/1b/1c 通过后，由主维护者单独审查 HTTP 行为差分和 WSS
   Geth RPC error interface。Geth Adapter 的错误链、HTTP status、rate-limit 和
   error.data presence 行为不变；`rpc.RPCError`、`Emission`、`Observation`、
   Decision、fault、revert 和 write rejection 语义不变。
+- `69d19f8`：Slice 1c 审查修正，livecanary 的 `isRateLimit` 补充
+  `rpc.RateLimitError` capability 检查（与 pool 的退避判定同构）；纯
+  capability 的限流错误不再依赖 HTTP status、已知错误码或错误文本才被归类为
+  `provider_rate_limited`。
 - 下一片：HTTP 行为差分审计；在该审计完成前不开始自有 HTTP/WSS 客户端实现。
 - 当前没有自有 HTTP 或 WSS client，也没有修改 `RPCError`、`Emission`、
   `Observation`、Decision 或公开 ethadapter 表面。
