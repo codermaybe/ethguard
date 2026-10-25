@@ -41,6 +41,10 @@ type Transport interface {
 - `CallContext` 只向上返回 error，raw error envelope 和 presence 没有独立的
   transport 结果类型。
 
+此外，HTTP body capture、Geth client wrapper 和 error-data 恢复目前仍位于
+`pool` 包内。它们属于 connection Adapter 的实现，不应成为 pool 调度模块的
+协议知识；这是进入自有 HTTP/WSS 实现之前必须先修正的模块归属问题。
+
 因此，当前风险是“Transport Port 名义存在，但连接和 RPC 调用的 Adapter 仍被
 第三方 client 类型和错误解码绑定”。这不是未固定版本风险：`go.mod` 已固定
 go-ethereum v1.17.5；风险是版本升级、HTTP/WSS 行为和 `ethereum/rpc` 内部语义
@@ -83,6 +87,42 @@ go-ethereum v1.17.5；风险是版本升级、HTTP/WSS 行为和 `ethereum/rpc` 
 7. WSS presence 保真不自动改变 `eth_call` data 维度的裁决行为；在决策 0056 升级前，
    missing/null 仍按未知 presence 表达，不生成 WSS 四态 golden；
 8. 交易广播、subscription、filter、自动重连、自动重放和未知结果恢复另立契约。
+
+### 边界裁决
+
+“pool 负责多 RPC 管理和建立连接”这个方向是正确的，但“建立连接”应理解为
+**持有 Source、调用注入的 Dialer、复用 Transport、关闭 Transport**，而不是在
+pool 内实现 HTTP、WebSocket 或 Geth RPC codec。网络协议和第三方 client 都应在
+Adapter 内部完成。
+
+目标依赖方向应保持为：
+
+```text
+HTTP/WSS/Geth/custom Adapter
+          ↓ satisfies
+      Transport/Dialer seam
+          ↓ used by
+          pool
+          ↓ emits
+       raw Emission
+          ↓ consumed by
+   aggregator orchestration
+          ↓ converts to
+      rpc.Observation
+          ↓ resolved by
+  pure rpc policy / decision logic
+```
+
+因此，`ethclient` 与自有 client、Geth WebSocket 与自有 WebSocket 可以并列存在，
+但它们是同一个 `Dialer` 选择点上的 Adapter，不应由 pool 同时理解或互相回退。
+切换策略、fallback、灰度和 provider-specific capability 应由 composition root
+或独立的 Adapter factory 决定。
+
+当前 `aggregator.Aggregator` 还同时承担 collection orchestration 和 decision
+resolution；最终纯逻辑目标应是把接收 `pool.Emission` 的编排层与接收
+`rpc.Observation` 的 policy/resolution 层分开。这个拆分不属于本次 transport
+relocation 的机械片，但必须保持为后续架构债务，不能把更多连接知识继续塞进
+aggregator。
 
 ## 3. 最小迁移形状
 
@@ -139,6 +179,28 @@ Adapter 在取得保真 envelope 后提供它。这样可在不改变 `Emission`
 
 这是低风险结构片，不是替换 Geth。它先证明 Transport seam 真的拥有连接实现。
 
+### Slice 1b：Adapter relocation（当前下一步）
+
+先把现有行为完整搬到独立的 `internal/transport` 模块，不改变任何 wire 或错误
+语义：
+
+- `internal/transport` 持有中性的 `Transport`、`Dialer` 契约，以及 Geth
+  compatibility Adapter；
+- HTTP body capture、`preservedDataError`、body limit 和 raw error presence 恢复
+  全部归入该模块；
+- `pool` 只依赖中性契约，`collectOne` 不再创建 raw-body box 或解析 HTTP body；
+- 为兼容现有调用，`pool.Transport` 可以暂时保留为中性契约的 type alias，
+  但 pool 不再持有 `ethclient.Client`、`ethereum/rpc` 或 HTTP 实现；
+- pool 的默认构造只选择一个 Dialer Adapter，不把协议实现重新放回 pool；
+- 原有 HTTP/WSS、body limit、context precedence、health、Close 和 error 分类测试
+  必须原样通过，新增的 pool contract tests 继续保持与 Geth 无关。
+- pool 的健康判断和 aggregator 的 protocol-error normalization 不能继续直接
+  依赖 Geth `rpc.Error`；应在后续中性错误契约片中改为项目拥有的最小接口，Adapter
+  负责把 Geth/custom 错误映射到该接口。
+
+这是模块归属片，不是自有客户端片。若迁移导致任何错误分类、Close 阻塞、WSS
+重连或 raw presence 变化，必须停止并回滚该片。
+
 ### Slice 2：自有 HTTP request/response Adapter（单独评估后实施）
 
 HTTP 自有 Adapter 需要自行承担：连接池、request ID、JSON-RPC envelope、context
@@ -193,12 +255,13 @@ go-ethereum `ethclient`/`ethereum/rpc` 的直接依赖。该片必须分别量�
 
 ## 6. 推荐决策
 
-当前只授权 **Slice 0/1：contract 和 Geth compatibility seam**。它们不立即实现
+当前只授权 **Slice 0/1/1b：contract、Geth compatibility seam 和 Adapter relocation**。
+这些切片不立即实现
 自有 HTTP/WSS client，
 不改变 `rpc.RPCError`、`Emission`、`Observation` 或 Decision。
 
-Slice 0/1 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连语义；没有这两项
-审查，不进入自有 HTTP/WSS 实现。这样替换风险被隔离在 pool 的 Transport Adapter，
+Slice 0/1/1b 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连语义；没有这两项
+审查，不进入自有 HTTP/WSS 实现。这样替换风险被隔离在独立的 Transport Adapter，
 而不会同时改变方法、聚合、reference、typed 或公开 adapter 语义。
 
 ## 7. 执行记录
@@ -207,5 +270,7 @@ Slice 0/1 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重�
   覆盖复用、ChainID admission、关闭和关闭后的请求拒绝。
 - `acae29f`：Slice 1，将内部 dialer 改为返回 `Transport`；Geth HTTP/WSS client
   仍由 compatibility Adapter 创建和持有，Source 不再认识具体 client 类型。
+- 下一片：Slice 1b，只移动 Adapter 模块归属；在该片完成前不开始自有 HTTP/WSS
+  客户端实现。
 - 当前没有自有 HTTP 或 WSS client，也没有修改 `RPCError`、`Emission`、
   `Observation`、Decision 或公开 ethadapter 表面。

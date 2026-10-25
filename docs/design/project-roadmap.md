@@ -93,8 +93,8 @@ HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereu
 
 1. 明确一次 request/response 的 raw result、structured RPC error、presence 信息、
    deadline、取消、关闭和来源归属如何进入 `pool.Transport`；
-2. 让 HTTP adapter 先接入该 seam，保持现有请求、健康、错误分类和有界 body capture
-   语义；
+2. 先把现有 Geth/HTTP Adapter 移出 pool，保持现有请求、健康、错误分类和有界
+   body capture 语义；
 3. 使 fake Transport 可以独立驱动 pool → aggregator → policy 路径；
 4. 记录 go-ethereum `v1.17.5` 与 Execution APIs 版本的兼容基线和升级影响清单；
 5. 不改变 quorum、Decision、reference、method policy、typed projection 或方法数量。
@@ -108,9 +108,9 @@ HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereu
 - 不把 raw wire 放入 `Decision.Value`、比较键或普通 Observation；
 - 不把 transport seam 的建立写成 WSS missing/null 已修复。
 
-出口是 fake adapter 和 Geth compatibility adapter 都能通过同一内部契约驱动现有
-生产路径，且完整 offline、adapter、race 门通过；自有 HTTP Adapter 是否进入下一片，
-由主维护者在行为差分审计后决定。需要重新定义错误、连接生命周期或 evidence 语义
+出口是 fake adapter 和独立的 Geth compatibility adapter 都能通过同一内部契约驱动
+现有生产路径，且完整 offline、adapter、race 门通过；自有 HTTP Adapter 是否进入
+下一片，由主维护者在行为差分审计后决定。需要重新定义错误、连接生命周期或 evidence 语义
 的部分由主维护者设计，不交给 agent 自主决定。
 
 事实审计、最小 seam、分片顺序和风险矩阵见
