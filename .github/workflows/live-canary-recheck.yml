@@ -74,6 +74,7 @@ jobs:
         env:
           SOURCE_DIR: ${{ runner.temp }}/live-canary-source
           EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+          REQUESTED_ADAPTER: ${{ inputs.http_adapter }}
         run: |
           set -euo pipefail
           cd "${SOURCE_DIR}"
@@ -91,7 +92,7 @@ jobs:
             exit 1
           fi
           source_adapter="$(jq -r '.http_adapter // "geth"' manifest.json)"
-          requested_adapter="${{ inputs.http_adapter }}"
+          requested_adapter="${REQUESTED_ADAPTER}"
           if [ -n "${requested_adapter}" ] && [ "${requested_adapter}" != "${source_adapter}" ]; then
             echo "::error::requested adapter ${requested_adapter} does not match source adapter ${source_adapter}"
             exit 1
@@ -200,12 +201,14 @@ jobs:
         if: always()
         env:
           RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT: ${{ inputs.source_artifact }}
         run: |
           set -euo pipefail
           {
             echo "### live canary recheck"
-            echo "- source run: ${{ inputs.source_run_id }}"
-            echo "- source artifact: ${{ inputs.source_artifact }}"
+            echo "- source run: ${SOURCE_RUN_ID}"
+            echo "- source artifact: ${SOURCE_ARTIFACT}"
             if [ -f "${RECHECK_DIR}/comparison.json" ]; then
               jq -r '"", "- original state: `" + .original_state + "`", "- recheck state: `" + .recheck_state + "`", "- repeatable: `" + (.repeatable|tostring) + "`", "- classification: `" + .classification + "`", "- differences: `" + (.differences|length|tostring) + "`"' "${RECHECK_DIR}/comparison.json"
             fi
