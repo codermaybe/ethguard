@@ -203,16 +203,19 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 
 ## 后续路线
 
-架构收敛边界已经收口：
+架构收敛和 T09 整体审计已经收口。下一阶段按已注册方法逐个核对 root facade、
+`ethadapter`、typed projection、请求 wire、anchor/pending 规则和错误形状；每个方法
+独立提交，不新增方法，不改变 quorum、Decision、reference 或 evidence 语义。
 
-- verification 保持单一 `integration` Module；只有出现第二个真实验证 seam，才重新
-  评估 `testkit`、`contracts` 或 `scenarios`；
-- `rpc/methods` 保持单一生产 Module；对象、wire 和 policy 深模块继续由各自拥有者
-  维护；
-- root facade 与 `ethadapter` 保持单向委托和单一 typed projection；没有第二个 Adapter
-  或已证明的重复转换时，不抽公共 forwarding 层；
-- 后续工作以具体故障、重复事实来源、维护负担或新 Seam 证据为入口，不按目录整齐度
-  继续迁移。
+方法对接稳定后，WSS 才进入独立 transport 契约设计，替换点是 `pool.Transport`，
+而不是 aggregator、reference、Decision 或 method policy。第一阶段只处理单请求/单响应、
+request ID demux、取消、有界消息、error envelope 保真和 Close 时释放 pending call。
+subscription、filter、自动重连、自动重放和未知结果恢复另立契约。
+
+verification 拆分、`rpc/methods` 拆包和公共 Adapter forwarding 仍保持条件触发：只有
+出现真实独立 Module、第二个 Adapter 或已证明的重复事实来源时才重新审查。需要重新
+定义并发、错误、连接生命周期或 evidence 语义的核心 seam，由主维护者直接设计；
+局部且可回滚的 Adapter/测试整理才交给 agent。
 
 需要重新定义并发、错误、连接生命周期或 evidence 语义的核心 seam，由主维护者直接
 设计和实现；有明确边界且可回滚的局部整理才交给 agent。

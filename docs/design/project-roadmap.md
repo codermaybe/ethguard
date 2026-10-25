@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**拓扑迁移与架构收敛边界已完成，进入证据驱动的维护阶段**（2026-10-25）
+状态：**拓扑迁移、架构收敛与 T09 整体审计已完成，进入逐方法对接阶段**（2026-10-25）
 
 本文件只描述当前事实、下一阶段和验收出口。已经完成的功能任务、历史审计过程和
 被否决的候选方案以 Git 历史及各专题设计文档为准，不在这里重复展开。
@@ -30,6 +30,7 @@ EthGuard 的运行时语义已经冻结在现有实现中：
 - root facade 与 `ethadapter` 不存在第二套 typed decoder 或平行执行链；
 - 架构依赖互锁已进入根测试并由 CI 执行。
 - T09 测试入口已完成语义化重命名，专项门使用 `^TestVerification`；
+- T09 整体审计已完成，当前 23 个已注册方法进入逐方法对接准备；
 - verification 当前保持单一 `integration` Module，不创建 `testkit` 或浅层验证 package；
 - `rpc/methods` 保持单一生产 Module，已有对象、wire 和 policy 深模块继续拥有共享语义；
 - root facade 与 `ethadapter` 的对接边界已审查，暂无真实重复转换或第二个 Adapter seam。
@@ -66,25 +67,52 @@ go test ./... -race -count=1
 go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
 ```
 
-## 当前阶段：证据驱动的维护
+## 下一阶段：逐方法对接
 
-架构收敛已完成决策收口。后续变更只有在出现具体证据时才开始：
+逐方法对接的目标是把每个已注册 read method 的 policy、root facade、ethadapter
+形状、typed projection、错误映射和验证入口闭合起来，不新增方法，也不改变裁决语义。
 
-- 已证明的重复转换、第二份事实来源或局部维护负担；
-- 第二个验证 Module 或第二个 Adapter 实现，形成真实可替换 Seam；
-- 新的 Interface 能显著增加 Depth、Leverage 或 Locality；
-- 现有测试或静态守卫暴露出明确缺口。
+每个方法是一个独立切片和独立提交，至少核对：
 
-没有这些证据时：
+1. `rpc/methods` catalog、root `Client` 和 `ethadapter` 是否有唯一对应关系；
+2. 请求参数和 wire form 是否与 policy 的 Prepare/EIP-1898/pending 规则一致；
+3. Decision.Value、typed projection、`ethereum.NotFound`、sentinel 和 revert/error
+   形状是否在两种 facade 中一致；
+4. anchor、pending、local/median/strict 状态和完整参与分母是否由现有 seam 处理；
+5. 是否已有 root/adapter/verification 覆盖，缺口属于测试、文档还是实际实现。
 
-- 不创建 `internal/testkit`、`contracts`、`scenarios` 或新的 forwarding package；
-- 不按文件数量拆 `rpc/methods`；
-- 不为了“减少行数”抽取 root/adapter 公共转发层；
-- 不把 agent 分配到需要重新定义并发、错误、连接生命周期或 evidence 语义的工作。
+建议顺序：
 
-验证拓扑的拆分条件见[验证拓扑拆分决策](verification-topology-decision.md)，
-`rpc/methods` 的边界条件见 [rpc/methods Module 边界审查](rpc-methods-boundary-review.md)，
-对接层条件见 [root facade 与 `ethadapter` 对接边界审查](adapter-boundary-review.md)。
+- 简单确定性与本地方法：chain ID、gas/fee scalar、net、peer/listening、block number；
+- anchored state：balance、nonce、storage、code、call、estimate gas；
+- 对象与数组：block、transaction、receipt、block receipts、logs、fee history、
+  access list；
+- 兼容性边界：revert data、pending、EIP-1898 object、NotFound 和错误形状。
+
+agent 只接手已有契约下的局部 Adapter/测试切片；需要重新定义 reference、错误、
+并发、Transport 或 evidence 语义的判断由主维护者完成。每个切片保持离线、可回滚，
+并运行全量和 `^TestVerification` 专项验收。
+
+## 后续阶段：WSS transport 设计
+
+WSS 只在 HTTP 查询路径逐方法对接稳定、Adapter 边界没有未决语义后进入。第一步是
+单独的 transport 契约和 Adapter 设计，不直接修现有 geth WSS 行为。
+
+必须先明确：
+
+- 单请求/单响应生命周期和 request ID demux；
+- context cancellation、bounded message 和 error envelope 保真，尤其是
+  error data 缺失与 JSON `null` 的区分；
+- Close 时释放 pending call；
+- `pool.Transport` 替换点与现有 aggregator/reference/Decision 的不变关系。
+
+subscription、filter 生命周期、自动重连、自动重放和未知结果恢复不属于第一阶段，
+需要另立契约。WSS 不得改变 quorum、method policy、typed projection 或 evidence
+语义。
+
+架构收敛记录仍见[验证拓扑拆分决策](verification-topology-decision.md)、
+[`rpc/methods` Module 边界审查](rpc-methods-boundary-review.md)和
+[root facade 与 `ethadapter` 对接边界审查](adapter-boundary-review.md)。
 
 ## 不进入下一阶段的内容
 

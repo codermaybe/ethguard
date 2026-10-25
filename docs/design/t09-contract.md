@@ -1,6 +1,6 @@
 # T09：场景矩阵与字段生命周期不变量
 
-状态：**实现完成，待整体审计**（2026-10-24）
+状态：**实现完成，整体审计通过**（2026-10-25）
 
 维护方式：本文件是 T09 的自包含执行契约。新的 agent 只需读取本文件、代码和
 引用的冻结规范即可恢复进度；`project-roadmap.md` 只维护摘要、提交号和最终状态。
@@ -219,18 +219,18 @@ T09 必须增加或复用以下互锁：
 
 维护者在全部实现提交后一次性执行：
 
-- [ ] T09.2、T09.1 各自有独立提交，提交范围没有混入 T10、ethclient、WSS、
+- [x] T09.2、T09.1 各自有独立提交，提交范围没有混入 T10、ethclient、WSS、
   reference policy、capture 或 golden。
-- [ ] 23 个注册方法全部覆盖，注册表和测试互锁双向通过。
-- [ ] 四类字段生命周期不变量全部有失败断言，且能定位方法/字段。
-- [ ] 八类决策场景全部覆盖，状态、分母、门槛、代表源、Faults 和 typed 结果均
+- [x] 23 个注册方法全部覆盖，注册表和测试互锁双向通过。
+- [x] 四类字段生命周期不变量全部有失败断言，且能定位方法/字段。
+- [x] 八类决策场景全部覆盖，状态、分母、门槛、代表源、Faults 和 typed 结果均
   有断言。
-- [ ] 不存在跨来源拼接、静默删字段、故障分母缩小、动态门槛下降或错误升格成功。
-- [ ] `go test ./... -count=1`、`go vet ./...`、必要的 `go test -race` 通过。
-- [ ] 离线测试无网络 I/O，工作树没有未登记样本或人工生成证据。
-- [ ] 文档没有把 T09 合成 regression 写成 provider 兼容性、共识、canonicality
+- [x] 不存在跨来源拼接、静默删字段、故障分母缩小、动态门槛下降或错误升格成功。
+- [x] `go test ./... -count=1`、`go vet ./...`、必要的 `go test -race` 通过。
+- [x] 离线测试无网络 I/O，工作树没有未登记样本或人工生成证据。
+- [x] 文档没有把 T09 合成 regression 写成 provider 兼容性、共识、canonicality
   或 finality 证明。
-- [ ] 进度表、路线图和提交说明一致，未解决问题已转为后续任务。
+- [x] 进度表、路线图和提交说明一致，未解决问题已转为后续任务。
 
 ## 9. 进度表（唯一状态记录）
 
@@ -240,10 +240,28 @@ T09 必须增加或复用以下互锁：
 | T09.2 字段生命周期不变量 | 完成 | `663c9dd` | 23/23 注册方法；往返经生产 Client/adapter probe；表示变形、受保护变异、逐 observation/嵌套守恒；官方 schema 精确路径集（含嵌套 tx/log/receipt/fee 字段）与 `schemaOmitted` 互锁；独立检出后 `TestT092` 与 `go vet ./...` 通过 |
 | T09.1 决策场景矩阵 | 完成 | `69bdb3c` | 23 个方法 × 9 个显式场景行（契约八类 + quorum 边界）；固定 N=5、H=2、Q=3；每个测试逐行调用，无通用 runner；Faults/SourceFaults/Abstain/typed、Unknown 空 Value、floor 行为与 exact-scenario AST 互锁；`TestT09 -race -count=2 -shuffle=on` 通过 |
 | T09.3 最终收口 | 完成 | 本次文档提交 | 进度表、路线图摘要、命令结果和残余风险已登记；未新增生产语义、capture 或 golden |
-| T09 整体审计 | 未开始 | — | 维护者在全部实现提交后执行 |
+| T09 整体审计 | 完成 | `5f5d190`、`a4c2ac9` | 维护者审查了 T09.2/T09.1、P2 入口重命名、拓扑/adapter 边界和阶段收口；全量 normal/race、`^TestVerification` shuffle、vet、gofmt、diff check 均通过 |
 
 状态更新规则：agent 完成一个阶段后只更新对应行和路线图摘要，不改历史结果；维护者
-整体审计通过后将本表和路线图一并标记为完成。
+整体审计已完成，后续方法对接和 WSS 设计不得回写历史实现记录。
+
+### T09 整体审计记录（2026-10-25）
+
+- 审计范围覆盖 T09.2 字段生命周期、T09.1 决策矩阵、T09.3 证据边界、P2
+  测试入口语义化重命名，以及当前拓扑/adapter 边界审查。
+- 当前验收命令通过：
+
+  ```text
+  go test ./... -count=1
+  go test ./... -race -count=1
+  go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
+  go vet ./...
+  gofmt -l .
+  git diff --check
+  ```
+
+- 未发现跨来源拼接、门槛/分母降低、第二套 typed projection、测试联网或未登记
+  capture/golden 变更。剩余内容转入逐方法对接和 WSS transport 设计阶段。
 
 ### T09.3 实施记录与残余风险
 
