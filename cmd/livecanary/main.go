@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/internal/livecanary"
 )
 
@@ -278,6 +279,8 @@ func runLive(args []string, stdout io.Writer, deps dependencies) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	outPath := flags.String("out", "", "manifest output path")
+	httpAdapter := flags.String("http-adapter", string(ethguard.HTTPAdapterGeth),
+		"connection adapter: geth (default) | native")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -315,7 +318,7 @@ func runLive(args []string, stdout io.Writer, deps dependencies) error {
 	}
 	runPlan := deps.runPlan
 	if runPlan == nil {
-		runPlan = livecanary.Executor{}.Run
+		runPlan = livecanary.Executor{HTTPAdapter: ethguard.HTTPAdapter(*httpAdapter)}.Run
 	}
 	report, err := runPlan(context.Background(), input)
 	if err != nil {
@@ -353,6 +356,8 @@ func runRerun(args []string, stdout io.Writer, deps dependencies) error {
 	flags.SetOutput(io.Discard)
 	manifestPath := flags.String("manifest", "", "existing manifest path")
 	outPath := flags.String("out", "", "report output path")
+	httpAdapter := flags.String("http-adapter", string(ethguard.HTTPAdapterGeth),
+		"connection adapter: geth (default) | native")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -369,7 +374,7 @@ func runRerun(args []string, stdout io.Writer, deps dependencies) error {
 	rerunPlan := deps.rerunPlan
 	if rerunPlan == nil {
 		rerunPlan = func(ctx context.Context, bytes []byte) (livecanary.Report, error) {
-			return livecanary.Rerun(ctx, bytes, livecanary.Executor{})
+			return livecanary.Rerun(ctx, bytes, livecanary.Executor{HTTPAdapter: ethguard.HTTPAdapter(*httpAdapter)})
 		}
 	}
 	report, err := rerunPlan(context.Background(), manifestBytes)

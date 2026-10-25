@@ -31,6 +31,11 @@ var errBasisChanged = errors.New("livecanary: client voting basis differs from m
 type Executor struct {
 	Now       func() time.Time
 	NewClient func(Manifest) (*ethguard.Client, error)
+	// HTTPAdapter selects the connection adapter for the built client. The
+	// zero value keeps the default Geth compatibility adapter; the native
+	// HTTP adapter is selected explicitly for verification runs (see
+	// ethguard.WithHTTPAdapter). It never changes what the plan executes.
+	HTTPAdapter ethguard.HTTPAdapter
 }
 
 type RunInput struct {
@@ -153,10 +158,14 @@ func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 		},
 		CollectTimeout: fmt.Sprintf("%dms", manifest.Timeouts.StepMS),
 	}
-	client, err := ethguard.New(cfg,
-		ethguard.WithCollectTimeout(time.Duration(manifest.Timeouts.StepMS)*time.Millisecond),
+	opts := []ethguard.Option{
+		ethguard.WithCollectTimeout(time.Duration(manifest.Timeouts.StepMS) * time.Millisecond),
 		ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(manifest.Reference.MaxLagBlocks)),
-	)
+	}
+	if e.HTTPAdapter != "" {
+		opts = append(opts, ethguard.WithHTTPAdapter(e.HTTPAdapter))
+	}
+	client, err := ethguard.New(cfg, opts...)
 	if err != nil {
 		return nil, err
 	}

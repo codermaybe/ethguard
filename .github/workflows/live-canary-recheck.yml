@@ -26,6 +26,11 @@ on:
         description: Optional expected manifest SHA-256
         required: false
         type: string
+      http_adapter:
+        description: 'Adapter for the rerun; must match the adapter that produced the source artifact. Requires a source commit that understands -http-adapter.'
+        required: false
+        default: 'geth'
+        type: string
 
 permissions:
   contents: read
@@ -134,9 +139,11 @@ jobs:
         continue-on-error: true
         env:
           RECHECK_DIR: ${{ runner.temp }}/live-canary-recheck
+          HTTP_ADAPTER: ${{ inputs.http_adapter || 'geth' }}
         run: |
           set -o pipefail
           "${RUNNER_TEMP}/livecanary-source" rerun \
+            -http-adapter "${HTTP_ADAPTER}" \
             -manifest "${RECHECK_DIR}/manifest.json" \
             -out "${RECHECK_DIR}/report.json" 2>&1 | tee "${RECHECK_DIR}/rerun.log"
 

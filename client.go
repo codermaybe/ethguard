@@ -12,6 +12,7 @@ import (
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/runtime"
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -34,6 +35,26 @@ type Client struct {
 	collectTimeout time.Duration
 }
 
+// HTTPAdapter names the connection adapter a Client's pool dials upstreams
+// with. HTTPAdapterGeth is the audited go-ethereum compatibility adapter and
+// the unchanged default; HTTPAdapterNative selects the project-owned HTTP
+// adapter (internal/transport/http). The selection entry exists so
+// verification runs and the future default switch can pick an adapter
+// explicitly and reversibly — a Client without this option behaves exactly
+// as before.
+type HTTPAdapter string
+
+const (
+	HTTPAdapterGeth   HTTPAdapter = "geth"
+	HTTPAdapterNative HTTPAdapter = "native"
+)
+
+// WithHTTPAdapter selects the connection adapter for this Client. An empty
+// name keeps the default Geth adapter; an unknown name fails construction.
+func WithHTTPAdapter(a HTTPAdapter) Option {
+	return func(o *clientOptions) { o.httpAdapter = a }
+}
+
 // Option tunes a Client at construction time.
 type Option func(*clientOptions)
 
@@ -49,6 +70,7 @@ type clientOptions struct {
 	collectTimeout time.Duration
 	anchorFactory  func(*pool.Pool, observe.Recorder) AnchorResolver
 	poolOpts       []pool.PoolOption
+	httpAdapter    HTTPAdapter
 }
 
 // WithLogger injects a structured logger receiving one event per aggregate
@@ -170,6 +192,15 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	}
 	if co.tipEnabled {
 		co.poolOpts = append(co.poolOpts, pool.WithTipTracking(co.tipInterval, co.tipMaxBehind))
+	}
+	switch co.httpAdapter {
+	case "", HTTPAdapterGeth:
+		// Default: the audited Geth compatibility dialer, unchanged.
+	case HTTPAdapterNative:
+		co.poolOpts = append(co.poolOpts, pool.WithDialer(nativehttp.NewDialer()))
+	default:
+		return nil, fmt.Errorf("ethguard: unknown HTTP adapter %q (want %q or %q)",
+			co.httpAdapter, HTTPAdapterGeth, HTTPAdapterNative)
 	}
 	rec := co.recorder
 	if rec == nil && co.logger != nil {

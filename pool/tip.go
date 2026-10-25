@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/config"
+	upstream "github.com/codermaybe/ethguard/internal/transport"
 )
 
 // Tip-tracking defaults live in config (DefaultTipInterval,
@@ -24,6 +25,16 @@ type poolConfig struct {
 	tipEnabled  bool
 	tipInterval time.Duration
 	maxTipLag   uint64
+	dialer      upstream.Dialer
+}
+
+// WithDialer overrides the connection adapter the pool dials sources with.
+// The zero value keeps the standard (Geth compatibility) dialer, so the
+// default production path is unchanged until the composition root explicitly
+// selects an alternative — such as the native HTTP adapter for verification
+// runs or the maintainer-approved default switch.
+func WithDialer(d upstream.Dialer) PoolOption {
+	return func(c *poolConfig) { c.dialer = d }
 }
 
 // WithTipTracking enables block-tip sampling and the freshness eligibility
@@ -56,11 +67,15 @@ func newPoolWithDialerAndOptions(d dialer, chainID uint64, opts ...PoolOption) *
 	cfg := poolConfig{
 		tipInterval: config.DefaultTipInterval(),
 		maxTipLag:   config.DefaultTipMaxBehind(),
+		dialer:      d,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	p := newPoolWithDialerAndChainID(d, chainID)
+	if cfg.dialer == nil {
+		cfg.dialer = standardDialer{}
+	}
+	p := newPoolWithDialerAndChainID(cfg.dialer, chainID)
 	p.maxTipLag = cfg.maxTipLag
 	if cfg.tipEnabled {
 		p.tipInterval = cfg.tipInterval
