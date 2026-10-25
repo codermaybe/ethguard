@@ -70,7 +70,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | --- | --- | --- | --- |
 | 拓扑迁移、架构收敛、T09 审计 | 已完成 | 只在出现真实新 Seam 或维护负担时重新审查 | 不按目录整齐度拆包 |
 | HTTP connection 行为差分审计 | 已完成，规范契约待裁决 | 冻结 EthGuard HTTP contract，评估自有 Adapter 准入 | v1.17.5 仅为版本化 baseline，不是长期标准 |
-| 自有 HTTP Adapter | 尚未实现，等待规范裁决 | 项目-owned HTTP codec、错误和生命周期实现 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
+| 自有 HTTP Adapter | 规范 contract 已定义，尚未实现 | project-owned wire decoder、HTTP Adapter、差分接入 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
 | 逐方法 HTTP/root/ethadapter 对接 | 等待 connection Adapter 出口 | 23 个 RegisteredMethod 各有对接卡片和独立验收 | 不新增方法，不改变裁决语义 |
 | go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c/1d 已完成 | 替换 rpc/ethclient 实现，保留官方 Ethereum 类型 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
 | WSS transport | 评估排在方法对接和 connection seam 之后 | 契约、最小 Adapter、四态进程内验收后再议 golden | 不先改 quorum、policy、typed 或写路径 |

@@ -213,6 +213,36 @@ A 类是当前 compatibility Adapter 的替换安全线；自有 Adapter 只有�
    `core/types` 以及公开 `ethclient-shaped` 方法的类型仍遵从 go-ethereum 官方
    定义。类型兼容和连接实现解耦，不要求移除 go-ethereum module。
 
+### EthGuard 自有 HTTP contract
+
+在实现自有 Adapter 时，以下是 EthGuard 的规范契约；它优先于 Geth v1.17.5 的
+B 类行为：
+
+1. **Wire envelope**：发送 JSON-RPC 2.0 request；`params == nil` 时省略成员，
+   非 nil 空切片发送 `[]`；每个请求只对应一个 response。
+2. **Response validation**：必须校验 `jsonrpc == "2.0"`、response ID 与 request
+   ID 匹配、`result` 与 `error` 互斥。违反时返回 malformed transport error，
+   不生成 `ProtocolError`，也不写入 error-data presence。
+3. **Result semantics**：`result: null` 是成功的 raw JSON `null`；缺失 result
+   是 malformed/empty-result failure，不是可用答案。
+4. **Error semantics**：合法 error 必须有整数 code 和字符串 message；data 可选，
+   但必须保留 absent、JSON null、具体 JSON value 三态。Adapter 返回项目自有
+   `ProtocolError`、`DataError`、`ErrorDataPresence` capability。
+5. **HTTP status**：非 2xx 返回项目自有 `HTTPStatusError`，保留有限 body；不将
+   非 2xx body 解析成 `ProtocolError`。429 可实现 `RateLimitError`。
+6. **Limits and cancellation**：所有 response body 都受有界读取保护；context
+   cancellation/deadline 优先于 body limit 和 read failure；不自动 retry、重放或
+   猜测未知写结果。
+7. **Lifecycle**：Adapter Close 幂等、阻止新调用并可关闭 idle connections；在途
+   调用的完成或取消由 context/lifecycle 规定，pool 关闭后的结果必须丢弃并返回
+   `ErrClosed`。
+8. **Request IDs**：只要求并发安全、唯一和可序列化为合法 JSON-RPC ID；不让上层
+   依赖 Geth 的起始值或单调性。
+
+这组规则让实现可以替换 `go-ethereum/rpc` 和 `ethclient`，同时继续使用
+go-ethereum 的 `common`、`hexutil`、`core/types` 和公开 ethclient-shaped 类型。
+官方库成为类型与生态兼容来源，不再成为连接实现的稳定性来源。
+
 ### §4 附：七个特别问题的直接回答
 
 - **是否需要复制 Geth HTTP 的错误链**：复制行为与 capability，不复制具体
@@ -274,7 +304,41 @@ A 类是当前 compatibility Adapter 的替换安全线；自有 Adapter 只有�
 6. **Geth 版本升级**。本矩阵绑定 v1.17.5；升级前应重跑 baseline 测试并
    diff 本文矩阵（风险已在 transport-seam-migration.md §5 登记）。
 
-## 6. 本次新增/引用的测试
+## 6. 自有 HTTP Adapter 执行计划
+
+### Slice 2a：project-owned wire decoder
+
+- 新增 `internal/rpcwire`，只处理 JSON-RPC 2.0 envelope、ID、result/error、
+  malformed response 和 error-data presence；不导入 `ethclient`、Geth `rpc` 或
+  Ethereum object types；
+- 先写 table/fuzz tests，覆盖 contract 的所有正负路径；
+- 生成项目自有错误和 capability，不暴露 Geth concrete error。
+
+### Slice 2b：native HTTP Adapter
+
+- 新增 `internal/transport/http`，使用 `net/http.Client` 和受控连接复用；
+- 实现 request ID、context、body limit、HTTP status、Close、ProtocolError 和
+  presence；
+- `ChainID` 通过普通 JSON-RPC call 和项目-owned quantity decoder 实现；
+- 与现有 Geth Adapter 并列，暂不改变默认选择。
+
+### Slice 2c：差分和接入
+
+- 用本矩阵的 A 类语义和 EthGuard contract 对照 native Adapter；B 类差异必须
+  明确记录，不得为了通过 baseline 重新引入 Geth quirks；
+- 运行 pool/aggregator/livecanary 全量测试、race、vet 和 provider evidence；
+- 主维护者审查通过后，才决定是否切换 HTTP 默认 Adapter；
+- WSS 复用 `rpcwire`，另立 Slice 3，不在 HTTP 实现中顺便加入。
+
+### 停止条件
+
+- 需要扩大 `Transport` 接口；
+- 需要修改 `Emission`、`Observation`、`RPCError`、Decision 或 policy；
+- 为兼容 Geth 而放弃 response ID/version 校验或 malformed rejection；
+- 引入自动 retry、重放、订阅、filter 或隐式 fallback；
+- 发现 provider evidence 与规范 contract 冲突但没有主维护者裁决。
+
+## 7. 本次新增/引用的测试
 
 新增（`internal/transport/geth_http_baseline_test.go`，全部 loopback）：
 
