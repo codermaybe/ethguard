@@ -32,7 +32,17 @@ func TestBlockNumberArgumentMatchesGethTags(t *testing.T) {
 }
 
 func TestBlockNumberArgumentRejectsUnknownNegative(t *testing.T) {
-	if _, err := checkedBlockNumArg(big.NewInt(-6)); err == nil || !errors.Is(err, ethguard.ErrInvalidRequest) {
-		t.Fatalf("unknown negative: got %v", err)
+	// -(2^64+2) sits outside int64; a truncated Int64() would alias the
+	// "latest" tag (-2), so it must be rejected before any switch on it.
+	beyondInt64 := new(big.Int).Sub(
+		new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), 64)),
+		big.NewInt(2))
+	for _, n := range []*big.Int{big.NewInt(-6), beyondInt64} {
+		if _, err := checkedBlockNumArg(n); err == nil || !errors.Is(err, ethguard.ErrInvalidRequest) {
+			t.Fatalf("unknown negative %v: got %v", n, err)
+		}
+		if got := toBlockNumArg(n); got != "" {
+			t.Fatalf("toBlockNumArg(%v) = %q, want the empty rejection marker", n, got)
+		}
 	}
 }

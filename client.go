@@ -252,6 +252,11 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		finalized.quorum = floor
 		finalized.timeout = co.collectTimeout
 	}
+	// Unreachable. WithAnchorResolver is the only writer of co.anchor and it
+	// always sets anchorSet at the same time, which New already rejected
+	// above (decision 0036). The branch is kept as the sketch for how a
+	// custom resolver would be wrapped in the confirmation shim; whether
+	// that wrapper ever ships is a decision left for later.
 	if co.anchor != nil {
 		resolver = &confirmedAnchor{inner: co.anchor, pool: rpcPool, rec: rec, quorum: floor, timeout: co.collectTimeout}
 	}

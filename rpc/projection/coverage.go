@@ -5,14 +5,16 @@ import (
 	"strings"
 )
 
-// ProductionStandardFieldCoverageGaps compares every pinned official path
-// consumed by a production projector with that projector's declaration. A
-// gap is a migration obligation: the field may be valid in an official
-// response, but it must not silently remain an Extension in Decision.Value.
-//
-// The comparison treats a declared object or array root as covering its
-// descendants because the runtime projector receives flattened leaf paths
-// while object encoders retain the complete standard subtree.
+// ProductionStandardFieldCoverageGaps verifies that the pinned official
+// result schema loads for every production method and that the schema
+// bundle's version matches the spec pin. It performs no per-projector
+// comparison: the production projectors are themselves driven by that same
+// pinned schema through NewSchemaProjector (see official.go and
+// projection.go), so there is no separate projector declaration that could
+// drift from the official paths and the returned gaps map is structurally
+// empty. A non-nil error means the schema bundle is unloadable or its
+// version pin inconsistent, which is the only failure this check can
+// surface.
 func ProductionStandardFieldCoverageGaps() (map[string][]string, error) {
 	methods := []string{
 		"eth_getBlockByHash", "eth_getBlockByNumber", "eth_getBlockReceipts",

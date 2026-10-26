@@ -234,9 +234,7 @@ func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src 
 					// Released by defer: a panic below must not leak the
 					// scheduling slot and slowly wedge this source.
 					defer release()
-					start := time.Now()
-					val, err = collectOne(callCtx, src, method, params)
-					rtt = time.Since(start)
+					val, rtt, err = collectOne(callCtx, src, method, params)
 				}
 			}
 			<-sem
@@ -311,16 +309,23 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
 	}
 	wg.Wait()
+
+	// Adjudication is a two-pass scan so the verdict cannot depend on member
+	// order, with the same priority as Broadcast: a usable answer outranks the
+	// fan-out deadline, which outranks the identity sentinel, which outranks
+	// fleet silence. CollectVoting keeps its own callCtx-first contract: its
+	// caller adjudicates usable emissions alongside the timeout fault.
+	for _, emission := range emissions {
+		if emission.Val != nil || isJSONRPCResponseError(emission.Err) {
+			return emissions, nil
+		}
+	}
 	if err := callCtx.Err(); err != nil {
 		return emissions, err
 	}
-
 	for _, emission := range emissions {
 		if errors.Is(emission.Err, ErrChainIDMismatch) {
 			return emissions, emission.Err
-		}
-		if emission.Val != nil || isJSONRPCResponseError(emission.Err) {
-			return emissions, nil
 		}
 	}
 	return emissions, ErrAllSourcesDown
@@ -378,9 +383,7 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 			}
 			continue
 		}
-		start := time.Now()
-		val, callErr := collectOne(callCtx, src, method, params)
-		rtt := time.Since(start)
+		val, rtt, callErr := collectOne(callCtx, src, method, params)
 		release()
 		emission := Emission{Src: src, Val: val, Err: callErr, RTT: rtt, Attempted: true}
 		if isHealthyRPCResponse(callErr) {
@@ -415,7 +418,8 @@ func (p *Pool) CallSource(ctx context.Context, src *Source, method string, param
 		return nil, err
 	}
 	defer release()
-	return collectOne(ctx, src, method, params)
+	val, _, err := collectOne(ctx, src, method, params)
+	return val, err
 }
 
 func shouldRecordFailure(parent context.Context, err error) bool {
@@ -443,28 +447,33 @@ func isHealthyRPCResponse(err error) bool {
 }
 
 // collectOne performs a single JSON-RPC call on one source, dialing lazily if
-// needed. It returns the raw result value (or an error for transport/timeout).
-func collectOne(ctx context.Context, src *Source, method string, params []any) (json.RawMessage, error) {
+// needed. It returns the raw result value (or an error for transport/timeout)
+// and the round-trip time of the CallContext exchange alone: lazy dialing and
+// the first-use chain-ID verification stay outside the measured window, so
+// health percentiles describe the wire rather than connection setup.
+func collectOne(ctx context.Context, src *Source, method string, params []any) (json.RawMessage, time.Duration, error) {
 	client, err := src.clientForCall(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := src.verifyChainID(ctx, client); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	var result json.RawMessage
+	start := time.Now()
 	err = client.CallContext(ctx, &result, method, params...)
+	rtt := time.Since(start)
 	if src.isClosed() {
-		return nil, ErrClosed
+		return nil, rtt, ErrClosed
 	}
 	if err != nil {
 		if shouldDiscardClient(err) {
 			src.discardClient(client)
 		}
-		return nil, err
+		return nil, rtt, err
 	}
-	return result, nil
+	return result, rtt, nil
 }
 
 func shouldDiscardClient(err error) bool {

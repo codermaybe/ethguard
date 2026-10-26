@@ -265,10 +265,17 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		}
 		participants = append(participants, observations[i].Source)
 	}
+	// A field-aggregation failure only degrades this invocation to a decision
+	// without diagnostics; the error itself is kept so every return path
+	// below can attach it to Faults instead of dropping it silently.
 	var evaluation *rpc.Evaluation
+	var aggregateErr error
 	if snapOK && snap.Mode != rpc.CorroborationForwarded {
-		if common, observationErr := rpc.AggregateFieldsWithCorroboration(observations, snap); observationErr == nil {
+		common, observationErr := rpc.AggregateFieldsWithCorroboration(observations, snap)
+		if observationErr == nil {
 			evaluation = &common
+		} else {
+			aggregateErr = observationErr
 		}
 	}
 	if collectErr != nil && !hasUsableEmission(emissions) {
@@ -280,6 +287,9 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 			Reference:        capture.Reference(),
 			Participants:     participants,
 			Prepared:         preparedRequest(prepared),
+		}
+		if aggregateErr != nil {
+			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
 		}
 		if evaluation != nil {
 			decision.Diagnostics = &evaluation.Diagnostics
@@ -301,6 +311,9 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 			Participants: participants,
 			Prepared:     preparedRequest(prepared),
 		}
+		if aggregateErr != nil {
+			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
+		}
 		if evaluation != nil {
 			decision.Diagnostics = &evaluation.Diagnostics
 		}
@@ -312,7 +325,16 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	if resolveErr == nil && snapOK && snap.Mode == rpc.CorroborationForwarded {
 		decision.Status = rpc.Forwarded
 	}
-	if agreement, ok := policy.(rpc.AgreementPolicy); ok && agreement.RequiresAgreement() && refcontext.CorroborationRequired(ctx) && !(snapOK && snap.Mode == rpc.CorroborationForwarded) && !isPendingLocalRoute(policy, prepared, snap, snapOK) && resolveErr == nil && decision.Status != rpc.Corroborated {
+	requiresAgreement := false
+	if agreement, ok := policy.(rpc.AgreementPolicy); ok {
+		requiresAgreement = agreement.RequiresAgreement()
+	}
+	// All named conditions are pure queries, so hoisting them out of the
+	// short-circuit chain below cannot change behavior; the remaining checks
+	// keep their original order.
+	gatedByForwarded := snapOK && snap.Mode == rpc.CorroborationForwarded
+	pendingLocal := isPendingLocalRoute(policy, prepared, snap, snapOK)
+	if requiresAgreement && refcontext.CorroborationRequired(ctx) && !gatedByForwarded && !pendingLocal && resolveErr == nil && decision.Status != rpc.Corroborated {
 		decision.Status = rpc.Unknown
 		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
 	}
@@ -337,6 +359,9 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	}
 	if provider, ok := policy.(rpc.BlockRefProvider); ok {
 		decision.BlockRef = provider.BlockRef(req, prepared)
+	}
+	if aggregateErr != nil {
+		decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
 	}
 	if collectErr != nil {
 		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", collectErr))

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -18,7 +17,7 @@ import (
 // empty block. Null or invalid elements invalidate the whole source response.
 func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(value)
-	if bytes.Equal(trimmed, []byte("null")) {
+	if wire.IsJSONNull(trimmed) {
 		return json.RawMessage("null"), nil
 	}
 	var rows []json.RawMessage
@@ -27,7 +26,7 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 	}
 	encoded := make([]json.RawMessage, len(rows))
 	for i, row := range rows {
-		if IsJSONNull(row) {
+		if wire.IsJSONNull(row) {
 			return nil, fmt.Errorf("block receipts[%d]: null receipt", i)
 		}
 		var err error
@@ -36,7 +35,7 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 			return nil, fmt.Errorf("block receipts[%d]: %w", i, err)
 		}
 	}
-	return marshal(encoded)
+	return wire.MarshalNoEscape(encoded)
 }
 
 // Encode checks one eth_getTransactionReceipt result and returns the canonical
@@ -55,7 +54,7 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 // HTML escaping is off, and field order is the encoder struct order.
 func Encode(value json.RawMessage) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(value)
-	if bytes.Equal(trimmed, []byte("null")) {
+	if wire.IsJSONNull(trimmed) {
 		return json.RawMessage("null"), nil
 	}
 	if len(trimmed) == 0 || trimmed[0] != '{' {
@@ -96,22 +95,22 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if out.TransactionHash, err = wire.ValidateWireFixedHex(raw.TransactionHash, 64, "hash"); err != nil {
 		return nil, fmt.Errorf("receipt transactionHash: %w", err)
 	}
-	if out.TransactionIndex, err = canonicalQuantity(raw.TransactionIndex); err != nil {
+	if out.TransactionIndex, err = wire.CanonicalQuantity(raw.TransactionIndex); err != nil {
 		return nil, fmt.Errorf("receipt transactionIndex: %w", err)
 	}
 	if out.BlockHash, err = wire.ValidateWireFixedHex(raw.BlockHash, 64, "hash"); err != nil {
 		return nil, fmt.Errorf("receipt blockHash: %w", err)
 	}
-	if out.BlockNumber, err = canonicalQuantity(raw.BlockNumber); err != nil {
+	if out.BlockNumber, err = wire.CanonicalQuantity(raw.BlockNumber); err != nil {
 		return nil, fmt.Errorf("receipt blockNumber: %w", err)
 	}
 	if out.From, err = optionalAddress(raw.From); err != nil {
 		return nil, fmt.Errorf("receipt from: %w", err)
 	}
-	if out.CumulativeGasUsed, err = canonicalQuantity(raw.CumulativeGasUsed); err != nil {
+	if out.CumulativeGasUsed, err = wire.CanonicalQuantity(raw.CumulativeGasUsed); err != nil {
 		return nil, fmt.Errorf("receipt cumulativeGasUsed: %w", err)
 	}
-	if out.GasUsed, err = canonicalQuantity(raw.GasUsed); err != nil {
+	if out.GasUsed, err = wire.CanonicalQuantity(raw.GasUsed); err != nil {
 		return nil, fmt.Errorf("receipt gasUsed: %w", err)
 	}
 	if out.EffectiveGasPrice, err = optionalQuantity(raw.EffectiveGasPrice); err != nil {
@@ -126,8 +125,8 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if out.LogsBloom != canonicalBloom(logs) {
 		return nil, fmt.Errorf("receipt: logsBloom disagrees with logs")
 	}
-	if PresentNonNull(raw.Status) {
-		status, err := canonicalQuantity(raw.Status)
+	if wire.PresentNonNull(raw.Status) {
+		status, err := wire.CanonicalQuantity(raw.Status)
 		if err != nil {
 			return nil, fmt.Errorf("receipt status: %w", err)
 		}
@@ -154,7 +153,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if out.BlobGasPrice, err = optionalQuantity(raw.BlobGasPrice); err != nil {
 		return nil, fmt.Errorf("receipt blobGasPrice: %w", err)
 	}
-	return marshal(out)
+	return wire.MarshalNoEscape(out)
 }
 
 // zeroHash is the spelling a source writes when it leaves a hash out. The
@@ -238,7 +237,7 @@ func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
 		{"transactionIndex", raw.TransactionIndex, &out.TransactionIndex},
 		{"logIndex", raw.LogIndex, &out.LogIndex},
 	} {
-		text, err := canonicalQuantity(item.value)
+		text, err := wire.CanonicalQuantity(item.value)
 		if err != nil {
 			return canonicalReceiptLog{}, fmt.Errorf("%s: %w", item.name, err)
 		}
@@ -250,7 +249,7 @@ func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
 	if out.BlockHash, err = wire.ValidateWireFixedHex(raw.BlockHash, 64, "hash"); err != nil {
 		return canonicalReceiptLog{}, fmt.Errorf("blockHash: %w", err)
 	}
-	if !PresentNonNull(raw.Removed) {
+	if !wire.PresentNonNull(raw.Removed) {
 		return canonicalReceiptLog{}, fmt.Errorf("missing removed")
 	}
 	if err := json.Unmarshal(raw.Removed, &out.Removed); err != nil {
@@ -263,10 +262,10 @@ func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
 }
 
 func optionalQuantity(value json.RawMessage) (*string, error) {
-	if !PresentNonNull(value) {
+	if !wire.PresentNonNull(value) {
 		return nil, nil
 	}
-	text, err := canonicalQuantity(value)
+	text, err := wire.CanonicalQuantity(value)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +273,7 @@ func optionalQuantity(value json.RawMessage) (*string, error) {
 }
 
 func optionalAddress(value json.RawMessage) (*string, error) {
-	if !PresentNonNull(value) {
+	if !wire.PresentNonNull(value) {
 		return nil, nil
 	}
 	text, err := wire.ValidateWireFixedHex(value, 40, "address")
@@ -282,28 +281,6 @@ func optionalAddress(value json.RawMessage) (*string, error) {
 		return nil, err
 	}
 	return &text, nil
-}
-
-func canonicalQuantity(value json.RawMessage) (string, error) {
-	decimal, err := wire.NormalizeWireQuantity(value)
-	if err != nil {
-		return "", err
-	}
-	number, ok := new(big.Int).SetString(decimal, 10)
-	if !ok {
-		return "", fmt.Errorf("invalid quantity %q", decimal)
-	}
-	return "0x" + number.Text(16), nil
-}
-
-func marshal(value any) (json.RawMessage, error) {
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 // canonicalReceipt is the protected eth_getTransactionReceipt object. Field

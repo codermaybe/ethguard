@@ -682,6 +682,12 @@ func toBlockNumArg(number *big.Int) string {
 		return "latest"
 	}
 	if number.Sign() < 0 {
+		// Int64 on a value outside int64 range truncates, which could fold an
+		// out-of-range negative onto a known tag (-2..-5). Reject it here so
+		// checkedBlockNumArg fails the request locally instead.
+		if !number.IsInt64() {
+			return ""
+		}
 		switch number.Int64() {
 		case -1:
 			return "pending"

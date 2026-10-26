@@ -9,6 +9,7 @@ import (
 	"time"
 
 	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/rpctest"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 )
@@ -90,6 +91,7 @@ type newFakeDialer struct {
 	dials       map[string]int
 	fails       map[string]error
 	closeFirst  map[string]bool
+	dialDelay   time.Duration
 	track       *callTracker
 	clients     map[string][]*ethclient.Client
 	dialEntered chan<- struct{}
@@ -117,6 +119,9 @@ func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (Transpo
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err
+	}
+	if d.dialDelay > 0 {
+		time.Sleep(d.dialDelay)
 	}
 	if d.dialEntered != nil {
 		d.dialEntered <- struct{}{}
@@ -542,6 +547,58 @@ func TestCollectLatencyExcludesConcurrencyQueueTime(t *testing.T) {
 	}
 }
 
+func TestCollectLatencyExcludesLazyDialOnFirstSample(t *testing.T) {
+	// The first call through a source pays the lazy dial and the first-use
+	// chain-ID verification before its CallContext; neither may inflate the
+	// RTT sample that health percentiles keep. A 100ms dial must not appear
+	// in the first sample of either fan-out path.
+	const (
+		dialDelay    = 100 * time.Millisecond
+		rttAllowance = 50 * time.Millisecond
+	)
+	d := &newFakeDialer{dials: make(map[string]int), dialDelay: dialDelay}
+	p := newPoolWithDialerAndChainID(d, 1) // first call also pays eth_chainId
+	for _, name := range []string{"a", "b"} {
+		if _, err := p.Join(name, "https://"+name+".example"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ems, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{
+		Sources: p.Sources()[:1],
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(ems) != 1 || ems[0].Err != nil || ems[0].Val == nil {
+		t.Fatalf("unexpected first emission: %+v", ems)
+	}
+	if got := ems[0].RTT; got > rttAllowance {
+		t.Fatalf("first Collect sample includes lazy dial: RTT=%v", got)
+	}
+	if got := p.Sources()[0].Health().LatencyEWMA; got > rttAllowance {
+		t.Fatalf("first health sample includes lazy dial: EWMA=%v", got)
+	}
+
+	forwardEms, err := p.Forward(context.Background(), "eth_blockNumber", nil, CollectOptions{
+		Sources: p.Sources()[1:],
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Forward: %v", err)
+	}
+	if len(forwardEms) == 0 || forwardEms[0].Err != nil || forwardEms[0].Val == nil {
+		t.Fatalf("unexpected Forward emission: %+v", forwardEms)
+	}
+	if got := forwardEms[0].RTT; got > rttAllowance {
+		t.Fatalf("first Forward sample includes lazy dial: RTT=%v", got)
+	}
+	if got := d.dials["https://a.example"]; got != 1 {
+		t.Fatalf("expected the lazy dial to actually happen, got %d dials", got)
+	}
+}
+
 func TestPoolCloseReleasesConnectionsAndRejectsFurtherUse(t *testing.T) {
 	d := &newFakeDialer{
 		dials:   make(map[string]int),
@@ -732,6 +789,93 @@ func TestPoolJoinRejectsUnsupportedScheme(t *testing.T) {
 	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
 	if _, err := p.Join("bad", "ftp://example.com"); err == nil {
 		t.Fatal("expected unsupported scheme to be rejected")
+	}
+}
+
+func TestCollectVerdictIsIndependentOfMemberOrder(t *testing.T) {
+	// Adjudication must not depend on which member happens to sit first in
+	// the slice: a usable answer outranks the identity sentinel in both
+	// arrangements. Previously the sentinel won whenever it came first, so
+	// the same fleet answered differently after a re-order.
+	mismatched := rpctest.NewNode(1) // pool below expects chain 5
+	defer mismatched.Close()
+	mismatched.Return("eth_blockNumber", "0x10")
+	honest := rpctest.NewNode(5)
+	defer honest.Close()
+	honest.Return("eth_blockNumber", "0x11")
+
+	for _, tc := range []struct {
+		name   string
+		first  *rpctest.Node
+		second *rpctest.Node
+	}{
+		{"sentinel first", mismatched, honest},
+		{"sentinel last", honest, mismatched},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewPoolWithChainID(5)
+			defer p.Close()
+			if _, err := p.Join("a", tc.first.URL()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.Join("b", tc.second.URL()); err != nil {
+				t.Fatal(err)
+			}
+			emissions, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 5 * time.Second})
+			if err != nil {
+				t.Fatalf("usable answer must outrank the identity sentinel: %v", err)
+			}
+			usable, mismatchedSentinel := 0, 0
+			for _, em := range emissions {
+				if em.Val != nil {
+					usable++
+				}
+				if errors.Is(em.Err, ErrChainIDMismatch) {
+					mismatchedSentinel++
+				}
+			}
+			if usable != 1 || mismatchedSentinel != 1 {
+				t.Fatalf("want one usable answer and one identity sentinel, got %d/%d in %+v",
+					usable, mismatchedSentinel, emissions)
+			}
+		})
+	}
+}
+
+func TestCollectUsableAnswerOutranksFanoutTimeout(t *testing.T) {
+	// A member that answered before the fan-out deadline must not be
+	// discarded by the timeout verdict: the usable answer wins and the
+	// laggard keeps its timeout on its own emission.
+	fast := rpctest.NewNode(1)
+	defer fast.Close()
+	fast.Handle("eth_blockNumber", rpctest.After(30*time.Millisecond, rpctest.Value("0x11")))
+	laggard := rpctest.NewNode(1)
+	defer laggard.Close()
+	laggard.Hang("eth_blockNumber", time.Second)
+
+	p := NewPoolWithChainID(1)
+	defer p.Close()
+	if _, err := p.Join("fast", fast.URL()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Join("laggard", laggard.URL()); err != nil {
+		t.Fatal(err)
+	}
+	emissions, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 150 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("answered member must outrank the fan-out timeout: %v", err)
+	}
+	usable, timedOut := 0, 0
+	for _, em := range emissions {
+		if em.Val != nil {
+			usable++
+		}
+		if errors.Is(em.Err, context.DeadlineExceeded) {
+			timedOut++
+		}
+	}
+	if usable != 1 || timedOut != 1 {
+		t.Fatalf("want one answer and one per-source timeout, got %d/%d in %+v", usable, timedOut, emissions)
 	}
 }
 

@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 	"math"
 	"math/big"
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
 
 // MethodFeeHistory is the JSON-RPC method name resolved by FeeHistoryPolicy.

@@ -3,6 +3,7 @@ package feehistory
 import (
 	"encoding/json"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard/rpc"
@@ -25,5 +26,26 @@ func TestRequestCountAcceptsIntegerTypes(t *testing.T) {
 	valid := []byte(`{"oldestBlock":"0x1","gasUsedRatio":[0.1,0.2],"baseFeePerGas":["0x1","0x2","0x3"]}`)
 	if err := ValidateRange(rpc.Request{Params: []any{2, "latest", []any{}}}, valid); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestErrorsAttributeToOldestBlockNotBaseLength(t *testing.T) {
+	// An otherwise-valid payload whose only defect is oldestBlock must say
+	// so: the merged condition it replaced blamed the baseFeePerGas length
+	// rule for an oldestBlock it never parsed.
+	onlyOldestBad := []byte(`{"oldestBlock":"123","gasUsedRatio":[0.5],"baseFeePerGas":["0x1","0x2"]}`)
+	if _, err := Normalize(onlyOldestBad); err == nil || !strings.Contains(err.Error(), "oldestBlock") {
+		t.Fatalf("Normalize: got %v, want oldestBlock attribution", err)
+	}
+	if _, err := Encode(onlyOldestBad); err == nil || !strings.Contains(err.Error(), "oldestBlock") {
+		t.Fatalf("Encode: got %v, want oldestBlock attribution", err)
+	}
+	// A genuinely wrong baseFeePerGas length keeps its own message.
+	badLength := []byte(`{"oldestBlock":"0x1","gasUsedRatio":[0.5],"baseFeePerGas":["0x1"]}`)
+	if _, err := Normalize(badLength); err == nil || !strings.Contains(err.Error(), "baseFeePerGas") {
+		t.Fatalf("Normalize: got %v, want baseFeePerGas length attribution", err)
+	}
+	if _, err := Encode(badLength); err == nil || !strings.Contains(err.Error(), "baseFeePerGas") {
+		t.Fatalf("Encode: got %v, want baseFeePerGas length attribution", err)
 	}
 }

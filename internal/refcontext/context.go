@@ -3,8 +3,9 @@ package refcontext
 
 import (
 	"context"
-	"github.com/codermaybe/ethguard/rpc"
 	"sync"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 type key struct{}
@@ -19,9 +20,9 @@ func New(ctx context.Context) (context.Context, *Capture) {
 }
 func Publish(ctx context.Context, ref rpc.ReferenceEvidence) {
 	if c, ok := ctx.Value(key{}).(*Capture); ok {
-		copy := ref.Clone()
+		clone := ref.Clone()
 		c.mu.Lock()
-		c.value = &copy
+		c.value = &clone
 		c.mu.Unlock()
 	}
 }
@@ -31,8 +32,8 @@ func (c *Capture) Reference() *rpc.ReferenceEvidence {
 	if c.value == nil {
 		return nil
 	}
-	copy := c.value.Clone()
-	return &copy
+	clone := c.value.Clone()
+	return &clone
 }
 
 type corroborationRequiredKey struct{}

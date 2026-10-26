@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math/big"
 
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -40,7 +39,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 		}
 		out[i] = encoded
 	}
-	return marshal(out)
+	return wire.MarshalNoEscape(out)
 }
 
 func encodeLog(value json.RawMessage) (canonicalLog, error) {
@@ -77,7 +76,7 @@ func encodeLog(value json.RawMessage) (canonicalLog, error) {
 	if err != nil {
 		return canonicalLog{}, fmt.Errorf("data: %w", err)
 	}
-	blockNumber, err := canonicalQuantity(raw.BlockNumber)
+	blockNumber, err := wire.CanonicalQuantity(raw.BlockNumber)
 	if err != nil {
 		return canonicalLog{}, fmt.Errorf("blockNumber: %w", err)
 	}
@@ -85,7 +84,7 @@ func encodeLog(value json.RawMessage) (canonicalLog, error) {
 	if err != nil {
 		return canonicalLog{}, fmt.Errorf("transactionHash: %w", err)
 	}
-	transactionIndex, err := canonicalQuantity(raw.TransactionIndex)
+	transactionIndex, err := wire.CanonicalQuantity(raw.TransactionIndex)
 	if err != nil {
 		return canonicalLog{}, fmt.Errorf("transactionIndex: %w", err)
 	}
@@ -93,7 +92,7 @@ func encodeLog(value json.RawMessage) (canonicalLog, error) {
 	if err != nil {
 		return canonicalLog{}, fmt.Errorf("blockHash: %w", err)
 	}
-	logIndex, err := canonicalQuantity(raw.LogIndex)
+	logIndex, err := wire.CanonicalQuantity(raw.LogIndex)
 	if err != nil {
 		return canonicalLog{}, fmt.Errorf("logIndex: %w", err)
 	}
@@ -103,7 +102,7 @@ func encodeLog(value json.RawMessage) (canonicalLog, error) {
 	}
 	var timestamp *string
 	if len(bytes.TrimSpace(raw.BlockTimestamp)) != 0 && !bytes.Equal(bytes.TrimSpace(raw.BlockTimestamp), []byte("null")) {
-		text, err := canonicalQuantity(raw.BlockTimestamp)
+		text, err := wire.CanonicalQuantity(raw.BlockTimestamp)
 		if err != nil {
 			return canonicalLog{}, fmt.Errorf("blockTimestamp: %w", err)
 		}
@@ -121,28 +120,6 @@ func encodeLog(value json.RawMessage) (canonicalLog, error) {
 		Removed:          removed,
 		BlockTimestamp:   timestamp,
 	}, nil
-}
-
-func canonicalQuantity(value json.RawMessage) (string, error) {
-	decimal, err := wire.NormalizeWireQuantity(value)
-	if err != nil {
-		return "", err
-	}
-	number, ok := new(big.Int).SetString(decimal, 10)
-	if !ok {
-		return "", fmt.Errorf("invalid quantity %q", decimal)
-	}
-	return "0x" + number.Text(16), nil
-}
-
-func marshal(value any) (json.RawMessage, error) {
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 // canonicalLog is the protected eth_getLogs object. Field order is fixed.

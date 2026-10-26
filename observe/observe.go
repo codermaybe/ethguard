@@ -50,7 +50,9 @@ type SourceEvent struct {
 	// Source is the display name of the endpoint. Names come from caller
 	// configuration, never from responses, keeping label cardinality bounded.
 	Source string
-	// RTT is the observed round-trip time; zero means the call never started.
+	// RTT is the observed round-trip time; zero when the attempt never
+	// started or failed before reaching the wire (for example a failed
+	// dial).
 	RTT time.Duration
 	// Failed means the attempt supplied no answer usable by the method policy.
 	// Valid dissent and accepted execution reverts are not source failures.

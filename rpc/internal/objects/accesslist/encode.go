@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math/big"
 
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -35,7 +34,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(trimmed, &raw); err != nil {
 		return nil, fmt.Errorf("accessList: malformed response")
 	}
-	if len(bytes.TrimSpace(raw.AccessList)) == 0 || bytes.Equal(bytes.TrimSpace(raw.AccessList), []byte("null")) {
+	if !wire.PresentNonNull(raw.AccessList) {
 		return nil, fmt.Errorf("accessList: missing accessList")
 	}
 	var rows []json.RawMessage
@@ -51,21 +50,21 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 		items[i] = item
 	}
 	out := canonical{AccessList: items}
-	if present(raw.Error) {
+	if wire.PresentNonNull(raw.Error) {
 		var text string
 		if err := json.Unmarshal(raw.Error, &text); err != nil {
 			return nil, fmt.Errorf("accessList: error must be a string")
 		}
 		out.Error = &text
 	}
-	if present(raw.GasUsed) {
-		gas, err := canonicalQuantity(raw.GasUsed)
+	if wire.PresentNonNull(raw.GasUsed) {
+		gas, err := wire.CanonicalQuantity(raw.GasUsed)
 		if err != nil {
 			return nil, fmt.Errorf("accessList: gasUsed: %w", err)
 		}
 		out.GasUsed = &gas
 	}
-	return marshal(out)
+	return wire.MarshalNoEscape(out)
 }
 
 func encodeItem(value json.RawMessage) (canonicalItem, error) {
@@ -76,7 +75,7 @@ func encodeItem(value json.RawMessage) (canonicalItem, error) {
 	if err := json.Unmarshal(value, &raw); err != nil {
 		return canonicalItem{}, fmt.Errorf("expected an object")
 	}
-	if len(bytes.TrimSpace(raw.Address)) == 0 || bytes.Equal(bytes.TrimSpace(raw.Address), []byte("null")) {
+	if !wire.PresentNonNull(raw.Address) {
 		return canonicalItem{}, fmt.Errorf("missing address")
 	}
 	if raw.StorageKeys == nil {
@@ -94,33 +93,6 @@ func encodeItem(value json.RawMessage) (canonicalItem, error) {
 		}
 	}
 	return canonicalItem{Address: address, StorageKeys: keys}, nil
-}
-
-func present(value json.RawMessage) bool {
-	trimmed := bytes.TrimSpace(value)
-	return len(trimmed) != 0 && !bytes.Equal(trimmed, []byte("null"))
-}
-
-func canonicalQuantity(value json.RawMessage) (string, error) {
-	decimal, err := wire.NormalizeWireQuantity(value)
-	if err != nil {
-		return "", err
-	}
-	number, ok := new(big.Int).SetString(decimal, 10)
-	if !ok {
-		return "", fmt.Errorf("invalid quantity %q", decimal)
-	}
-	return "0x" + number.Text(16), nil
-}
-
-func marshal(value any) (json.RawMessage, error) {
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 // canonical is the protected eth_createAccessList object. Field order is

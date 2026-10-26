@@ -61,7 +61,10 @@ func Normalize(value json.RawMessage) (string, error) {
 		return "", fmt.Errorf("feeHistory: malformed response")
 	}
 	oldest, err := wire.NormalizeWireQuantity(raw.Oldest)
-	if err != nil || len(raw.Base) != len(raw.Gas)+1 {
+	if err != nil {
+		return "", fmt.Errorf("feeHistory: oldestBlock: %w", err)
+	}
+	if len(raw.Base) != len(raw.Gas)+1 {
 		return "", fmt.Errorf("feeHistory: baseFeePerGas must have gasUsedRatio length plus one")
 	}
 	if raw.BaseBlob != nil && len(raw.BaseBlob) != len(raw.Gas)+1 {

@@ -81,7 +81,9 @@ type HealthSnapshot struct {
 	ProtocolServerErrors uint64
 	LatencyEWMA          time.Duration
 	// LatencyP95 and LatencyP99 are nearest-rank percentiles over the recent
-	// sample window; zero while fewer samples than the rank exist.
+	// sample window; while fewer samples than the rank requires exist they
+	// degrade to the window's largest available rank estimate, and they are
+	// zero only before the first sample.
 	LatencyP95 time.Duration
 	LatencyP99 time.Duration
 	// RequestPace is the current per-source inter-request target selected by

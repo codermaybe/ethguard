@@ -16,8 +16,14 @@ import (
 // Pruner removes fields outside a method's comparison shape.
 type Pruner func(method string, raw json.RawMessage) (string, error)
 
-// IsJSONNull reports whether value is the protocol's null absence.
-func IsJSONNull(value json.RawMessage) bool { return string(value) == "null" }
+// IsJSONNull and presentNonNull forward to the shared wire spellings: the
+// former local copy skipped whitespace trimming, so " null " read as an
+// object; every object package now answers the null/presence question
+// identically.
+func IsJSONNull(value json.RawMessage) bool { return wire.IsJSONNull(value) }
+func presentNonNull(value json.RawMessage) bool {
+	return wire.PresentNonNull(value)
+}
 
 // Admit validates a transaction and checks it matches the requested hash.
 func Admit(req rpc.Request, value json.RawMessage) error {
@@ -131,4 +137,3 @@ func requestedHash(req rpc.Request) (common.Hash, error) {
 	}
 	return common.HexToHash(s), nil
 }
-func presentNonNull(value json.RawMessage) bool { return len(value) > 0 && string(value) != "null" }

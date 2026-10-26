@@ -18,17 +18,6 @@ import (
 // Pruner removes fields that are outside the method's comparison shape.
 type Pruner func(method string, raw json.RawMessage) (string, error)
 
-func Admit(ctxReq rpc.Request, value json.RawMessage, pruner Pruner) error {
-	_ = ctxReq
-	if IsJSONNull(value) {
-		return nil
-	}
-	if _, err := validateAndDecode(value); err != nil {
-		return fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-	}
-	return nil
-}
-
 func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
 	if IsJSONNull(value) {
 		return nil
@@ -141,18 +130,16 @@ func ParseBlockHeight(value any) (*common.Hash, *big.Int, error) {
 }
 
 // Normalize chooses the comparison key. Vendor fields disappear in the
-// whitelist prune and are not rejected here. A value with no canonical
-// form errors. Required-field rejection belongs to validateAndDecode and
-// the Admit functions.
+// whitelist prune and are not rejected here. Any non-object payload and an
+// object carrying at most one field are incomplete answers, not votes. A
+// value with no canonical form errors. Required-field rejection belongs to
+// validateAndDecode and the Admit functions.
 func Normalize(value json.RawMessage, prune Pruner, method string) (string, error) {
 	if IsJSONNull(value) {
 		return "null", nil
 	}
 	var shape map[string]json.RawMessage
-	if json.Unmarshal(value, &shape) == nil && shape != nil && len(shape) > 1 && shape["blockHash"] == nil && shape["blockNumber"] == nil && shape["logsBloom"] == nil {
-		return prune(method, value)
-	}
-	if len(shape) <= 1 {
+	if err := json.Unmarshal(value, &shape); err != nil || shape == nil || len(shape) <= 1 {
 		return "", fmt.Errorf("receipt: incomplete object")
 	}
 	return prune(method, value)
@@ -264,8 +251,9 @@ func NormalizeBlock(value json.RawMessage, prune Pruner, method string) (string,
 	return prune(method, value)
 }
 
-func IsJSONNull(value json.RawMessage) bool { return strings.TrimSpace(string(value)) == "null" }
+// IsJSONNull and PresentNonNull forward to the shared wire spellings so every
+// object package answers the null/presence question identically.
+func IsJSONNull(value json.RawMessage) bool { return wire.IsJSONNull(value) }
 func PresentNonNull(value json.RawMessage) bool {
-	s := strings.TrimSpace(string(value))
-	return len(s) > 0 && s != "null"
+	return wire.PresentNonNull(value)
 }

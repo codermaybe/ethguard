@@ -49,8 +49,11 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(value, &raw); err != nil || len(raw.Oldest) == 0 {
 		return nil, fmt.Errorf("feeHistory: malformed response")
 	}
-	oldest, err := canonicalQuantity(raw.Oldest)
-	if err != nil || len(raw.Base) != len(raw.Gas)+1 {
+	oldest, err := wire.CanonicalQuantity(raw.Oldest)
+	if err != nil {
+		return nil, fmt.Errorf("feeHistory: oldestBlock: %w", err)
+	}
+	if len(raw.Base) != len(raw.Gas)+1 {
 		return nil, fmt.Errorf("feeHistory: baseFeePerGas must have gasUsedRatio length plus one")
 	}
 	if raw.BaseBlob != nil && len(raw.BaseBlob) != len(raw.Gas)+1 {
@@ -61,14 +64,14 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	}
 	base := make([]string, len(raw.Base))
 	for i, item := range raw.Base {
-		base[i], err = canonicalQuantity(item)
+		base[i], err = wire.CanonicalQuantity(item)
 		if err != nil {
 			return nil, fmt.Errorf("feeHistory: baseFeePerGas[%d]: %w", i, err)
 		}
 	}
 	baseBlob := make([]string, len(raw.BaseBlob))
 	for i, item := range raw.BaseBlob {
-		baseBlob[i], err = canonicalQuantity(item)
+		baseBlob[i], err = wire.CanonicalQuantity(item)
 		if err != nil {
 			return nil, fmt.Errorf("feeHistory: baseFeePerBlobGas[%d]: %w", i, err)
 		}
@@ -104,14 +107,14 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 			}
 			reward[i] = make([]string, len(row))
 			for j, item := range row {
-				reward[i][j], err = canonicalQuantity(item)
+				reward[i][j], err = wire.CanonicalQuantity(item)
 				if err != nil {
 					return nil, fmt.Errorf("feeHistory: reward[%d][%d]: %w", i, j, err)
 				}
 			}
 		}
 	}
-	return marshal(canonical{oldest, base, gas, reward, baseBlob, blobGasRatio})
+	return wire.MarshalNoEscape(canonical{oldest, base, gas, reward, baseBlob, blobGasRatio})
 }
 
 // canonicalRatio 读十进制原文。0.50 与 0.5 同值。最短形式改变十进制原值时失败。
@@ -138,26 +141,4 @@ func canonicalRatio(value json.RawMessage) (json.Number, error) {
 		return "", fmt.Errorf("decimal %s is not the shortest form %s", number, shortest)
 	}
 	return json.Number(shortest), nil
-}
-
-func canonicalQuantity(value json.RawMessage) (string, error) {
-	decimal, err := wire.NormalizeWireQuantity(value)
-	if err != nil {
-		return "", err
-	}
-	number, ok := new(big.Int).SetString(decimal, 10)
-	if !ok {
-		return "", fmt.Errorf("invalid quantity %q", decimal)
-	}
-	return "0x" + number.Text(16), nil
-}
-
-func marshal(value canonical) (json.RawMessage, error) {
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
