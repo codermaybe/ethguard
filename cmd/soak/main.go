@@ -85,7 +85,6 @@ func main() {
 		chainFlag  = flag.Uint64("chain", 1, "chain id to soak")
 		maxSources = flag.Int("max-sources", 12, "endpoint cap, 0 = all")
 		timeout    = flag.Duration("timeout", 20*time.Second, "per-step request timeout")
-		anchorTTL  = flag.Duration("anchor-ttl", time.Minute, "anchor cache ttl (0 = re-establish per read)")
 		anchoring  = flag.String("anchoring", "finalized", "anchoring preset: finalized | strict")
 		asJSON     = flag.Bool("json", false, "emit machine-readable JSON")
 	)
@@ -100,9 +99,6 @@ func main() {
 		})
 	}
 	var opts []ethguard.Option
-	if *anchorTTL > 0 {
-		opts = append(opts, ethguard.WithAnchorCaching(*anchorTTL))
-	}
 	if *anchoring == "finalized" {
 		opts = append(opts, ethguard.WithFinalizedAnchoring())
 	}
