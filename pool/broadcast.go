@@ -2,7 +2,6 @@ package pool
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -145,18 +144,5 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 	// its own emission (parity with the collection paths' callCtx behavior is
 	// deliberately not copied here — a broadcast's verdict needs every
 	// emission, and the caller's ctx remains the outer bound).
-	for _, emission := range emissions {
-		if emission.Val != nil || isJSONRPCResponseError(emission.Err) {
-			return emissions, nil
-		}
-	}
-	if err := callCtx.Err(); err != nil {
-		return emissions, err
-	}
-	for _, emission := range emissions {
-		if errors.Is(emission.Err, ErrChainIDMismatch) {
-			return emissions, emission.Err
-		}
-	}
-	return emissions, ErrAllSourcesDown
+	return emissions, fanoutVerdict(emissions, callCtx, true)
 }

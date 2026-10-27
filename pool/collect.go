@@ -168,23 +168,9 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 	wg.Wait()
 	// Usable answers ride alongside a fan-out timeout: the caller adjudicates
 	// over the emissions and records the timeout as a fault rather than
-	// discarding answered sources.
-	if err := callCtx.Err(); err != nil {
-		return emissions, err
-	}
-	for _, emission := range emissions {
-		if emission.Val != nil || isJSONRPCResponseError(emission.Err) {
-			return emissions, nil
-		}
-	}
-	// Nothing usable: a known-off-chain member names the identity sentinel;
-	// otherwise the fleet was contacted but stayed silent.
-	for _, emission := range emissions {
-		if errors.Is(emission.Err, ErrChainIDMismatch) {
-			return emissions, emission.Err
-		}
-	}
-	return emissions, ErrAllSourcesDown
+	// discarding answered sources. The deadline still outranks them — this
+	// callCtx-first order is the deliberate mirror of collect's.
+	return emissions, fanoutVerdict(emissions, callCtx, false)
 }
 
 // votingGate reports why a member's request is currently paused, or nil when
@@ -310,25 +296,11 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 	}
 	wg.Wait()
 
-	// Adjudication is a two-pass scan so the verdict cannot depend on member
-	// order, with the same priority as Broadcast: a usable answer outranks the
-	// fan-out deadline, which outranks the identity sentinel, which outranks
-	// fleet silence. CollectVoting keeps its own callCtx-first contract: its
-	// caller adjudicates usable emissions alongside the timeout fault.
-	for _, emission := range emissions {
-		if emission.Val != nil || isJSONRPCResponseError(emission.Err) {
-			return emissions, nil
-		}
-	}
-	if err := callCtx.Err(); err != nil {
-		return emissions, err
-	}
-	for _, emission := range emissions {
-		if errors.Is(emission.Err, ErrChainIDMismatch) {
-			return emissions, emission.Err
-		}
-	}
-	return emissions, ErrAllSourcesDown
+	// Priority as Broadcast's: a usable answer outranks the fan-out deadline,
+	// which outranks the identity sentinel, which outranks fleet silence.
+	// CollectVoting keeps its own callCtx-first contract: its caller
+	// adjudicates usable emissions alongside the timeout fault.
+	return emissions, fanoutVerdict(emissions, callCtx, true)
 }
 
 // Forward sends a request to one eligible source at a time, in deterministic
@@ -426,6 +398,40 @@ func shouldRecordFailure(parent context.Context, err error) bool {
 		parent.Err() == nil &&
 		!errors.Is(err, ErrClosed) &&
 		!errors.Is(err, errWaitingForDial)
+}
+
+// fanoutVerdict reduces one completed fan-out's emissions to the call's
+// verdict. The four tiers are shared by Collect, CollectVoting and
+// Broadcast, so the verdict cannot depend on member order. usableFirst
+// orders the top two tiers: Collect and Broadcast accept a usable answer
+// that landed before the fan-out deadline, while CollectVoting keeps its
+// callCtx-first contract — its caller adjudicates usable emissions
+// alongside the timeout fault. The identity sentinel outranks fleet
+// silence in both orders.
+func fanoutVerdict(emissions []Emission, callCtx context.Context, usableFirst bool) error {
+	hasUsable := func() bool {
+		for _, emission := range emissions {
+			if emission.Val != nil || isJSONRPCResponseError(emission.Err) {
+				return true
+			}
+		}
+		return false
+	}
+	if usableFirst && hasUsable() {
+		return nil
+	}
+	if err := callCtx.Err(); err != nil {
+		return err
+	}
+	if !usableFirst && hasUsable() {
+		return nil
+	}
+	for _, emission := range emissions {
+		if errors.Is(emission.Err, ErrChainIDMismatch) {
+			return emission.Err
+		}
+	}
+	return ErrAllSourcesDown
 }
 
 func isJSONRPCResponseError(err error) bool {
