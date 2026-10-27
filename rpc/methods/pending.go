@@ -1,7 +1,6 @@
 package methods
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +40,7 @@ func PendingLocal(pos int) func(rpc.Policy) rpc.Policy {
 		if policy == nil {
 			policy = rpc.ForwardPolicy{}
 		}
-		base := pendingLocalPolicy{policy: policy, pos: pos}
+		base := pendingLocalPolicy{Decorator: rpc.Decorator{Policy: policy}, pos: pos}
 		if _, ok := policy.(rpc.CorroboratingPolicy); ok {
 			return corroboratingPendingLocalPolicy{base}
 		}
@@ -50,8 +49,8 @@ func PendingLocal(pos int) func(rpc.Policy) rpc.Policy {
 }
 
 type pendingLocalPolicy struct {
-	policy rpc.Policy
-	pos    int
+	rpc.Decorator
+	pos int
 }
 
 // IsLocalObservation reports whether the prepared request addresses pending
@@ -76,7 +75,7 @@ func (p pendingLocalPolicy) IsLocalObservation(prepared rpc.Request) bool {
 // node views, not corroboration of a deterministic truth.
 func (p pendingLocalPolicy) ResolveLocal(obs []rpc.Observation) (rpc.Decision, error) {
 	includeRPCError := false
-	if provider, ok := p.policy.(rpc.RPCErrorPolicy); ok {
+	if provider, ok := p.Policy.(rpc.RPCErrorPolicy); ok {
 		includeRPCError = provider.IncludeRPCError()
 	}
 	var faults []error
@@ -88,11 +87,11 @@ func (p pendingLocalPolicy) ResolveLocal(obs []rpc.Observation) (rpc.Decision, e
 			}
 			value = item.RPCError.Raw()
 		}
-		if _, err := p.policy.Normalize(value); err != nil {
+		if _, err := p.Policy.Normalize(value); err != nil {
 			faults = append(faults, fmt.Errorf("normalize: %w", err))
 			continue
 		}
-		if canonical, err := rpc.CanonicalOf(p.policy, value); err == nil {
+		if canonical, err := rpc.CanonicalOf(p.Policy, value); err == nil {
 			value = canonical
 		} else if !errors.Is(err, rpc.ErrNotCanonicalScalar) {
 			faults = append(faults, fmt.Errorf("encode: %w", err))
@@ -110,46 +109,13 @@ func (p pendingLocalPolicy) ResolveLocal(obs []rpc.Observation) (rpc.Decision, e
 		"pending: no source produced a valid response (%d attempted): %w", len(obs), rpc.ErrNoValidResponse)
 }
 
-func (p pendingLocalPolicy) Admit(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
-	if inner, ok := p.policy.(rpc.AdmissionPolicy); ok {
-		return inner.Admit(ctx, req, value, call)
-	}
-	return nil, nil
-}
-
-func (p pendingLocalPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
-	return p.policy.Prepare(ctx, req)
-}
-
 // BlockRef reports no pin for pending: nothing was rewritten. All other
 // shapes defer to the inner anchored policy.
 func (p pendingLocalPolicy) BlockRef(original, prepared rpc.Request) string {
 	if p.IsLocalObservation(prepared) {
 		return ""
 	}
-	if provider, ok := p.policy.(rpc.BlockRefProvider); ok {
-		return provider.BlockRef(original, prepared)
-	}
-	return ""
-}
-
-func (p pendingLocalPolicy) RequiresAgreement() bool {
-	inner, ok := p.policy.(rpc.AgreementPolicy)
-	return ok && inner.RequiresAgreement()
-}
-
-func (p pendingLocalPolicy) SingleSource() bool {
-	inner, ok := p.policy.(rpc.SingleSourcePolicy)
-	return ok && inner.SingleSource()
-}
-
-func (p pendingLocalPolicy) IncludeRPCError() bool {
-	provider, ok := p.policy.(rpc.RPCErrorPolicy)
-	return ok && provider.IncludeRPCError()
-}
-
-func (p pendingLocalPolicy) Normalize(value json.RawMessage) (string, error) {
-	return p.policy.Normalize(value)
+	return p.Decorator.BlockRef(original, prepared)
 }
 
 // MethodRule reports this decorator's pending semantics: a node-local
@@ -158,23 +124,14 @@ func (p pendingLocalPolicy) Normalize(value json.RawMessage) (string, error) {
 // shared with rejection. It does not decide a request. The corroborating
 // wrapper promotes this method.
 func (p pendingLocalPolicy) MethodRule() (rpc.MethodRule, rpc.Policy) {
-	rule := rpc.MethodRule{Pending: rpc.RulePendingLocalObservation}
-	if inner, ok := p.policy.(rpc.MethodRuleSource); ok {
-		innerRule, _ := inner.MethodRule()
-		rule = rule.WithInner(innerRule)
-	}
-	return rule, p.policy
-}
-
-func (p pendingLocalPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
-	return p.policy.Resolve(obs)
+	return p.MethodRuleWith(rpc.MethodRule{Pending: rpc.RulePendingLocalObservation})
 }
 
 type corroboratingPendingLocalPolicy struct{ pendingLocalPolicy }
 
 func (p corroboratingPendingLocalPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
-	if inner, ok := p.policy.(rpc.CorroboratingPolicy); ok {
+	if inner, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
 		return inner.ResolveCorroborated(c, obs)
 	}
-	return p.policy.Resolve(obs)
+	return p.Policy.Resolve(obs)
 }

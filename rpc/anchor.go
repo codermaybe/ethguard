@@ -66,7 +66,7 @@ func WithAnchor(anchor AnchorFunc, positions ...int) func(Policy) Policy {
 		if policy == nil {
 			policy = ForwardPolicy{}
 		}
-		base := anchoredPolicy{policy: policy, anchor: anchor, positions: append([]int(nil), positions...)}
+		base := anchoredPolicy{Decorator: Decorator{Policy: policy}, anchor: anchor, positions: append([]int(nil), positions...)}
 		if _, ok := corroboratingPolicy(policy); ok {
 			return corroboratingAnchoredPolicy{base}
 		}
@@ -75,16 +75,9 @@ func WithAnchor(anchor AnchorFunc, positions ...int) func(Policy) Policy {
 }
 
 type anchoredPolicy struct {
-	policy    Policy
+	Decorator
 	anchor    AnchorFunc
 	positions []int
-}
-
-func (a anchoredPolicy) Admit(ctx context.Context, req Request, value json.RawMessage, call AdmissionCaller) (json.RawMessage, error) {
-	if p, ok := a.policy.(AdmissionPolicy); ok {
-		return p.Admit(ctx, req, value, call)
-	}
-	return nil, nil
 }
 
 func (a anchoredPolicy) Prepare(ctx context.Context, req Request) (Request, error) {
@@ -100,7 +93,7 @@ func (a anchoredPolicy) Prepare(ctx context.Context, req Request) (Request, erro
 		}
 	}
 	if !rewrite {
-		return a.policy.Prepare(ctx, req)
+		return a.Policy.Prepare(ctx, req)
 	}
 	if a.anchor == nil {
 		return Request{}, fmt.Errorf("anchor: missing anchor function")
@@ -135,7 +128,7 @@ func (a anchoredPolicy) Prepare(ctx context.Context, req Request) (Request, erro
 			params[pos] = hash
 		}
 	}
-	return a.policy.Prepare(ctx, Request{Method: req.Method, Params: params})
+	return a.Policy.Prepare(ctx, Request{Method: req.Method, Params: params})
 }
 
 // BlockRef reports the anchor hash when this request actually rewrote at least
@@ -152,39 +145,13 @@ func (a anchoredPolicy) BlockRef(original, prepared Request) string {
 			}
 		}
 	}
-	if provider, ok := a.policy.(BlockRefProvider); ok {
-		return provider.BlockRef(original, prepared)
-	}
-	return ""
-}
-
-func (a anchoredPolicy) RequiresAgreement() bool {
-	inner, ok := a.policy.(AgreementPolicy)
-	return ok && inner.RequiresAgreement()
-}
-
-func (a anchoredPolicy) SingleSource() bool {
-	inner, ok := a.policy.(SingleSourcePolicy)
-	return ok && inner.SingleSource()
-}
-
-func (a anchoredPolicy) IncludeRPCError() bool {
-	return includesRPCError(a.policy)
-}
-
-func (a anchoredPolicy) Normalize(value json.RawMessage) (string, error) {
-	return a.policy.Normalize(value)
+	return a.Decorator.BlockRef(original, prepared)
 }
 
 // MethodRule reports hash anchoring at this decorator's positions. It does
 // not prepare or resolve the request. The corroborating wrapper promotes it.
 func (a anchoredPolicy) MethodRule() (MethodRule, Policy) {
-	rule := MethodRule{Anchor: anchorRule("hash", a.positions)}
-	if inner, ok := a.policy.(MethodRuleSource); ok {
-		innerRule, _ := inner.MethodRule()
-		rule = rule.WithInner(innerRule)
-	}
-	return rule, a.policy
+	return a.MethodRuleWith(MethodRule{Anchor: anchorRule("hash", a.positions)})
 }
 
 func anchorRule(kind string, positions []int) string {
@@ -199,7 +166,7 @@ func anchorRule(kind string, positions []int) string {
 }
 
 func (a anchoredPolicy) Resolve(obs []Observation) (Decision, error) {
-	return a.policy.Resolve(obs)
+	return a.Policy.Resolve(obs)
 }
 
 // corroboratingAnchoredPolicy is the WithAnchor wrapper around an inner
@@ -209,7 +176,7 @@ func (a anchoredPolicy) Resolve(obs []Observation) (Decision, error) {
 type corroboratingAnchoredPolicy struct{ anchoredPolicy }
 
 func (a corroboratingAnchoredPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
-	return resolveCorroborated(a.policy, c, obs)
+	return resolveCorroborated(a.Policy, c, obs)
 }
 
 // Anchored binds a normalizer to strict resolution and rewrites a moving block
@@ -238,7 +205,7 @@ func RejectPending(positions ...int) func(Policy) Policy {
 		if policy == nil {
 			policy = ForwardPolicy{}
 		}
-		base := pendingRejectingPolicy{policy: policy, positions: append([]int(nil), positions...)}
+		base := pendingRejectingPolicy{Decorator: Decorator{Policy: policy}, positions: append([]int(nil), positions...)}
 		if _, ok := corroboratingPolicy(policy); ok {
 			return corroboratingPendingPolicy{base}
 		}
@@ -247,15 +214,8 @@ func RejectPending(positions ...int) func(Policy) Policy {
 }
 
 type pendingRejectingPolicy struct {
-	policy    Policy
+	Decorator
 	positions []int
-}
-
-func (p pendingRejectingPolicy) Admit(ctx context.Context, req Request, value json.RawMessage, call AdmissionCaller) (json.RawMessage, error) {
-	if inner, ok := p.policy.(AdmissionPolicy); ok {
-		return inner.Admit(ctx, req, value, call)
-	}
-	return nil, nil
 }
 
 func (p pendingRejectingPolicy) Prepare(ctx context.Context, req Request) (Request, error) {
@@ -267,7 +227,7 @@ func (p pendingRejectingPolicy) Prepare(ctx context.Context, req Request) (Reque
 			return Request{}, fmt.Errorf("rpc: pending is not supported for %s: %w", req.Method, ErrInvalidRequest)
 		}
 	}
-	return p.policy.Prepare(ctx, req)
+	return p.Policy.Prepare(ctx, req)
 }
 
 // pendingReference reports pending spellings at one block-reference position.
@@ -292,50 +252,16 @@ func pendingReference(value any) bool {
 	}
 }
 
-func (p pendingRejectingPolicy) BlockRef(original, prepared Request) string {
-	if provider, ok := p.policy.(BlockRefProvider); ok {
-		return provider.BlockRef(original, prepared)
-	}
-	return ""
-}
-
-func (p pendingRejectingPolicy) RequiresAgreement() bool {
-	inner, ok := p.policy.(AgreementPolicy)
-	return ok && inner.RequiresAgreement()
-}
-
-func (p pendingRejectingPolicy) SingleSource() bool {
-	inner, ok := p.policy.(SingleSourcePolicy)
-	return ok && inner.SingleSource()
-}
-
-func (p pendingRejectingPolicy) IncludeRPCError() bool {
-	return includesRPCError(p.policy)
-}
-
-func (p pendingRejectingPolicy) Normalize(value json.RawMessage) (string, error) {
-	return p.policy.Normalize(value)
-}
-
 // MethodRule reports a local pending rejection. This decorator fails the
 // request before any anchor or upstream call. It does not resolve a value.
 func (p pendingRejectingPolicy) MethodRule() (MethodRule, Policy) {
-	rule := MethodRule{Pending: RulePendingLocalReject}
-	if inner, ok := p.policy.(MethodRuleSource); ok {
-		innerRule, _ := inner.MethodRule()
-		rule = rule.WithInner(innerRule)
-	}
-	return rule, p.policy
-}
-
-func (p pendingRejectingPolicy) Resolve(obs []Observation) (Decision, error) {
-	return p.policy.Resolve(obs)
+	return p.MethodRuleWith(MethodRule{Pending: RulePendingLocalReject})
 }
 
 type corroboratingPendingPolicy struct{ pendingRejectingPolicy }
 
 func (p corroboratingPendingPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
-	return resolveCorroborated(p.policy, c, obs)
+	return resolveCorroborated(p.Policy, c, obs)
 }
 
 // WithAnchorHeight decorates a policy with moving-tag rewriting to the
@@ -351,7 +277,7 @@ func WithAnchorHeight(height AnchorHeightFunc, positions ...int) func(Policy) Po
 		if policy == nil {
 			policy = ForwardPolicy{}
 		}
-		base := anchoredHeightPolicy{policy: policy, height: height, positions: append([]int(nil), positions...)}
+		base := anchoredHeightPolicy{Decorator: Decorator{Policy: policy}, height: height, positions: append([]int(nil), positions...)}
 		if _, ok := corroboratingPolicy(policy); ok {
 			return corroboratingHeightPolicy{base}
 		}
@@ -360,16 +286,9 @@ func WithAnchorHeight(height AnchorHeightFunc, positions ...int) func(Policy) Po
 }
 
 type anchoredHeightPolicy struct {
-	policy    Policy
+	Decorator
 	height    AnchorHeightFunc
 	positions []int
-}
-
-func (a anchoredHeightPolicy) Admit(ctx context.Context, req Request, value json.RawMessage, call AdmissionCaller) (json.RawMessage, error) {
-	if p, ok := a.policy.(AdmissionPolicy); ok {
-		return p.Admit(ctx, req, value, call)
-	}
-	return nil, nil
 }
 
 func (a anchoredHeightPolicy) Prepare(ctx context.Context, req Request) (Request, error) {
@@ -385,7 +304,7 @@ func (a anchoredHeightPolicy) Prepare(ctx context.Context, req Request) (Request
 		}
 	}
 	if !rewrite {
-		return a.policy.Prepare(ctx, req)
+		return a.Policy.Prepare(ctx, req)
 	}
 	if a.height == nil {
 		return Request{}, fmt.Errorf("anchor: missing height function")
@@ -421,7 +340,7 @@ func (a anchoredHeightPolicy) Prepare(ctx context.Context, req Request) (Request
 			params[pos] = "0x" + ref
 		}
 	}
-	return a.policy.Prepare(ctx, Request{Method: req.Method, Params: params})
+	return a.Policy.Prepare(ctx, Request{Method: req.Method, Params: params})
 }
 
 // BlockRef reports the pinned height (hex spelling) when this request
@@ -438,49 +357,19 @@ func (a anchoredHeightPolicy) BlockRef(original, prepared Request) string {
 			}
 		}
 	}
-	if provider, ok := a.policy.(BlockRefProvider); ok {
-		return provider.BlockRef(original, prepared)
-	}
-	return ""
-}
-
-func (a anchoredHeightPolicy) RequiresAgreement() bool {
-	inner, ok := a.policy.(AgreementPolicy)
-	return ok && inner.RequiresAgreement()
-}
-
-func (a anchoredHeightPolicy) SingleSource() bool {
-	inner, ok := a.policy.(SingleSourcePolicy)
-	return ok && inner.SingleSource()
-}
-
-func (a anchoredHeightPolicy) IncludeRPCError() bool {
-	return includesRPCError(a.policy)
-}
-
-func (a anchoredHeightPolicy) Normalize(value json.RawMessage) (string, error) {
-	return a.policy.Normalize(value)
+	return a.Decorator.BlockRef(original, prepared)
 }
 
 // MethodRule reports height anchoring at this decorator's positions. It does
 // not prepare or resolve the request. The corroborating wrapper promotes it.
 func (a anchoredHeightPolicy) MethodRule() (MethodRule, Policy) {
-	rule := MethodRule{Anchor: anchorRule("height", a.positions)}
-	if inner, ok := a.policy.(MethodRuleSource); ok {
-		innerRule, _ := inner.MethodRule()
-		rule = rule.WithInner(innerRule)
-	}
-	return rule, a.policy
-}
-
-func (a anchoredHeightPolicy) Resolve(obs []Observation) (Decision, error) {
-	return a.policy.Resolve(obs)
+	return a.MethodRuleWith(MethodRule{Anchor: anchorRule("height", a.positions)})
 }
 
 type corroboratingHeightPolicy struct{ anchoredHeightPolicy }
 
 func (a corroboratingHeightPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
-	return resolveCorroborated(a.policy, c, obs)
+	return resolveCorroborated(a.Policy, c, obs)
 }
 
 // WithAnchorHeightFields decorates a policy so that named string fields of
@@ -501,7 +390,7 @@ func anchorFields(resolve func(context.Context) (string, error), paramPos int, f
 		if policy == nil {
 			policy = ForwardPolicy{}
 		}
-		base := anchoredFieldsPolicy{policy: policy, resolve: resolve, paramPos: paramPos, fields: append([]string(nil), fields...)}
+		base := anchoredFieldsPolicy{Decorator: Decorator{Policy: policy}, resolve: resolve, paramPos: paramPos, fields: append([]string(nil), fields...)}
 		if _, ok := corroboratingPolicy(policy); ok {
 			return corroboratingFieldsPolicy{base}
 		}
@@ -523,26 +412,19 @@ func heightRef(height AnchorHeightFunc) func(context.Context) (string, error) {
 }
 
 type anchoredFieldsPolicy struct {
-	policy   Policy
+	Decorator
 	resolve  func(context.Context) (string, error)
 	paramPos int
 	fields   []string
 }
 
-func (a anchoredFieldsPolicy) Admit(ctx context.Context, req Request, value json.RawMessage, call AdmissionCaller) (json.RawMessage, error) {
-	if p, ok := a.policy.(AdmissionPolicy); ok {
-		return p.Admit(ctx, req, value, call)
-	}
-	return nil, nil
-}
-
 func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request, error) {
 	if a.paramPos < 0 || a.paramPos >= len(req.Params) {
-		return a.policy.Prepare(ctx, req)
+		return a.Policy.Prepare(ctx, req)
 	}
 	obj, ok := req.Params[a.paramPos].(map[string]any)
 	if !ok {
-		return a.policy.Prepare(ctx, req) // not an object (hash-pin form, malformed): upstream judges
+		return a.Policy.Prepare(ctx, req) // not an object (hash-pin form, malformed): upstream judges
 	}
 	if _, pinned := obj["blockHash"]; pinned {
 		// blockHash addresses the range explicitly and excludes fromBlock/
@@ -555,7 +437,7 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 					req.Method, field, ErrInvalidRequest)
 			}
 		}
-		return a.policy.Prepare(ctx, req) // explicit pin without range fields: complete, untouched
+		return a.Policy.Prepare(ctx, req) // explicit pin without range fields: complete, untouched
 	}
 	var rewrite bool
 	anchorTag := ""
@@ -575,7 +457,7 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 		}
 	}
 	if !rewrite {
-		return a.policy.Prepare(ctx, req)
+		return a.Policy.Prepare(ctx, req)
 	}
 	if a.resolve == nil {
 		return Request{}, fmt.Errorf("anchor: missing anchor function")
@@ -604,7 +486,7 @@ func (a anchoredFieldsPolicy) Prepare(ctx context.Context, req Request) (Request
 	}
 	params := append([]any(nil), req.Params...)
 	params[a.paramPos] = filtered
-	return a.policy.Prepare(ctx, Request{Method: req.Method, Params: params})
+	return a.Policy.Prepare(ctx, Request{Method: req.Method, Params: params})
 }
 
 // BlockRef reports the pinned reference spelling when this request actually
@@ -631,59 +513,23 @@ func (a anchoredFieldsPolicy) BlockRef(original, prepared Request) string {
 			}
 		}
 	}
-	if provider, ok := a.policy.(BlockRefProvider); ok {
-		return provider.BlockRef(original, prepared)
-	}
-	return ""
-}
-
-func (a anchoredFieldsPolicy) RequiresAgreement() bool {
-	inner, ok := a.policy.(AgreementPolicy)
-	return ok && inner.RequiresAgreement()
-}
-
-func (a anchoredFieldsPolicy) SingleSource() bool {
-	inner, ok := a.policy.(SingleSourcePolicy)
-	return ok && inner.SingleSource()
-}
-
-func (a anchoredFieldsPolicy) IncludeRPCError() bool {
-	return includesRPCError(a.policy)
-}
-
-func (a anchoredFieldsPolicy) Normalize(value json.RawMessage) (string, error) {
-	return a.policy.Normalize(value)
+	return a.Decorator.BlockRef(original, prepared)
 }
 
 // MethodRule reports height anchoring of named fields. It does not prepare
 // or resolve the request. The corroborating wrapper promotes it.
 func (a anchoredFieldsPolicy) MethodRule() (MethodRule, Policy) {
-	rule := MethodRule{Anchor: anchorFieldsRule(a.paramPos, a.fields)}
-	if inner, ok := a.policy.(MethodRuleSource); ok {
-		innerRule, _ := inner.MethodRule()
-		rule = rule.WithInner(innerRule)
-	}
-	return rule, a.policy
+	return a.MethodRuleWith(MethodRule{Anchor: anchorFieldsRule(a.paramPos, a.fields)})
 }
 
 func anchorFieldsRule(pos int, fields []string) string {
 	return "height@" + strconv.Itoa(pos) + "." + strings.Join(fields, ",")
 }
 
-func (a anchoredFieldsPolicy) Resolve(obs []Observation) (Decision, error) {
-	return a.policy.Resolve(obs)
-}
-
 type corroboratingFieldsPolicy struct{ anchoredFieldsPolicy }
 
 func (a corroboratingFieldsPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
-	return resolveCorroborated(a.policy, c, obs)
-}
-
-// includesRPCError preserves the inner answer domain through Prepare decorators.
-func includesRPCError(policy Policy) bool {
-	provider, ok := policy.(RPCErrorPolicy)
-	return ok && provider.IncludeRPCError()
+	return resolveCorroborated(a.Policy, c, obs)
 }
 
 // resolveCorroborated forwards an invocation snapshot to the inner

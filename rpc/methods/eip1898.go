@@ -2,7 +2,6 @@ package methods
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -55,7 +54,7 @@ func EIP1898BlockRef(anchor rpc.AnchorFunc, pos int) func(rpc.Policy) rpc.Policy
 		if policy == nil {
 			policy = rpc.ForwardPolicy{}
 		}
-		base := eip1898Policy{policy: policy, anchor: anchor, pos: pos}
+		base := eip1898Policy{Decorator: rpc.Decorator{Policy: policy}, anchor: anchor, pos: pos}
 		if _, ok := policy.(rpc.CorroboratingPolicy); ok {
 			return corroboratingEIP1898Policy{base}
 		}
@@ -64,32 +63,25 @@ func EIP1898BlockRef(anchor rpc.AnchorFunc, pos int) func(rpc.Policy) rpc.Policy
 }
 
 type eip1898Policy struct {
-	policy rpc.Policy
+	rpc.Decorator
 	anchor rpc.AnchorFunc
 	pos    int
 }
 
-func (p eip1898Policy) Admit(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
-	if inner, ok := p.policy.(rpc.AdmissionPolicy); ok {
-		return inner.Admit(ctx, req, value, call)
-	}
-	return nil, nil
-}
-
 func (p eip1898Policy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
 	if p.pos < 0 || p.pos >= len(req.Params) {
-		return p.policy.Prepare(ctx, req)
+		return p.Policy.Prepare(ctx, req)
 	}
 	obj, ok := req.Params[p.pos].(map[string]any)
 	if !ok {
-		return p.policy.Prepare(ctx, req) // strings and anything else: inner owns them
+		return p.Policy.Prepare(ctx, req) // strings and anything else: inner owns them
 	}
 	pinned, needAnchor, tag, err := validateEIP1898Object(req.Method, obj)
 	if err != nil {
 		return rpc.Request{}, err
 	}
 	if !needAnchor {
-		return p.policy.Prepare(ctx, req) // explicit or pending pin: complete, untouched
+		return p.Policy.Prepare(ctx, req) // explicit or pending pin: complete, untouched
 	}
 	if p.anchor == nil {
 		return rpc.Request{}, fmt.Errorf("anchor: missing anchor function")
@@ -104,7 +96,7 @@ func (p eip1898Policy) Prepare(ctx context.Context, req rpc.Request) (rpc.Reques
 	}
 	params := append([]any(nil), req.Params...)
 	params[p.pos] = out
-	return p.policy.Prepare(ctx, rpc.Request{Method: req.Method, Params: params})
+	return p.Policy.Prepare(ctx, rpc.Request{Method: req.Method, Params: params})
 }
 
 // validateEIP1898Object checks one EIP-1898 BlockNumberOrHash object.
@@ -190,10 +182,7 @@ func (p eip1898Policy) BlockRef(original, prepared rpc.Request) string {
 			}
 		}
 	}
-	if provider, ok := p.policy.(rpc.BlockRefProvider); ok {
-		return provider.BlockRef(original, prepared)
-	}
-	return ""
+	return p.Decorator.BlockRef(original, prepared)
 }
 
 func isMovingTag(s string) bool {
@@ -204,45 +193,17 @@ func isMovingTag(s string) bool {
 	return false
 }
 
-func (p eip1898Policy) RequiresAgreement() bool {
-	inner, ok := p.policy.(rpc.AgreementPolicy)
-	return ok && inner.RequiresAgreement()
-}
-
-func (p eip1898Policy) SingleSource() bool {
-	inner, ok := p.policy.(rpc.SingleSourcePolicy)
-	return ok && inner.SingleSource()
-}
-
-func (p eip1898Policy) IncludeRPCError() bool {
-	provider, ok := p.policy.(rpc.RPCErrorPolicy)
-	return ok && provider.IncludeRPCError()
-}
-
-func (p eip1898Policy) Normalize(value json.RawMessage) (string, error) {
-	return p.policy.Normalize(value)
-}
-
 // MethodRule reports the EIP-1898 block-reference form. It does not rewrite
 // a request. The corroborating wrapper promotes this method.
 func (p eip1898Policy) MethodRule() (rpc.MethodRule, rpc.Policy) {
-	rule := rpc.MethodRule{BlockRef: rpc.RuleBlockRefEIP1898}
-	if inner, ok := p.policy.(rpc.MethodRuleSource); ok {
-		innerRule, _ := inner.MethodRule()
-		rule = rule.WithInner(innerRule)
-	}
-	return rule, p.policy
-}
-
-func (p eip1898Policy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
-	return p.policy.Resolve(obs)
+	return p.MethodRuleWith(rpc.MethodRule{BlockRef: rpc.RuleBlockRefEIP1898})
 }
 
 type corroboratingEIP1898Policy struct{ eip1898Policy }
 
 func (p corroboratingEIP1898Policy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
-	if inner, ok := p.policy.(rpc.CorroboratingPolicy); ok {
+	if inner, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
 		return inner.ResolveCorroborated(c, obs)
 	}
-	return p.policy.Resolve(obs)
+	return p.Policy.Resolve(obs)
 }

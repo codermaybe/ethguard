@@ -24,7 +24,7 @@ const MethodGetBlockByNumber = "eth_getBlockByNumber"
 // into an ordinary block.
 func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
 	strictOpts := append([]rpc.StrictOption{rpc.WithCanonicalObject(blockobject.EncodeByNumber)}, opts...)
-	return PendingLocal(0)(blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, strictOpts)...), byHash: false})
+	return PendingLocal(0)(blockPolicy{Decorator: rpc.Decorator{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, strictOpts)...)}, byHash: false})
 }
 
 // normalizeBlockIdentity reduces a block object to its comparable identity.

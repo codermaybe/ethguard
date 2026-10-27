@@ -31,14 +31,14 @@ const MethodFeeHistory = "eth_feeHistory"
 // differences fail closed as conflict. Pending resolves as a node-local
 // observation (decision 0035), never Corroborated through agreement.
 func FeeHistoryPolicy(height rpc.AnchorHeightFunc, opts ...rpc.StrictOption) rpc.Policy {
-	inner := feeHistoryPolicy{Policy: rpc.Strict(normalizeFeeHistory, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalValue(feehistory.Encode)}, opts...))...)}
+	inner := feeHistoryPolicy{Decorator: rpc.Decorator{Policy: rpc.Strict(normalizeFeeHistory, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalValue(feehistory.Encode)}, opts...))...)}}
 	return PendingLocal(1)(rpc.WithAnchorHeight(height, 1)(inner))
 }
 
 // feeHistoryPolicy validates the request shape and normalizes only the
 // protocol fields of the response. Array relationships are checked without
 // silently shrinking a requested range.
-type feeHistoryPolicy struct{ rpc.Policy }
+type feeHistoryPolicy struct{ rpc.Decorator }
 
 func (p feeHistoryPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
 	if err := validateFeeHistoryRequest(req); err != nil {
@@ -50,19 +50,6 @@ func (p feeHistoryPolicy) Normalize(value json.RawMessage) (string, error) {
 	return normalizeFeeHistory(value)
 }
 
-// MethodRule forwards the inner rule composition. Fee-history validation is
-// not a column in the method-rule index.
-func (p feeHistoryPolicy) MethodRule() (rpc.MethodRule, rpc.Policy) {
-	rule := rpc.MethodRule{}
-	if inner, ok := p.Policy.(rpc.MethodRuleSource); ok {
-		innerRule, _ := inner.MethodRule()
-		rule = rule.WithInner(innerRule)
-	}
-	return rule, p.Policy
-}
-func (p feeHistoryPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
-	return p.Policy.Resolve(obs)
-}
 func (p feeHistoryPolicy) RequiresAgreement() bool { return true }
 func (p feeHistoryPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
 	if policy, ok := p.Policy.(rpc.CorroboratingPolicy); ok {

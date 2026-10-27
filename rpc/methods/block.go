@@ -9,7 +9,7 @@ import (
 )
 
 type blockPolicy struct {
-	rpc.Policy
+	rpc.Decorator
 	byHash bool
 }
 
@@ -60,17 +60,6 @@ func headerOnlyBlock(raw json.RawMessage) bool {
 	_, hasHash := object["hash"]
 	_, hasParentHash := object["parentHash"]
 	return hasNumber && hasHash && !hasParentHash
-}
-
-// MethodRule forwards the inner rule composition. Block admission is not a
-// column in the method-rule index.
-func (p blockPolicy) MethodRule() (rpc.MethodRule, rpc.Policy) {
-	rule := rpc.MethodRule{}
-	if inner, ok := p.Policy.(rpc.MethodRuleSource); ok {
-		innerRule, _ := inner.MethodRule()
-		rule = rule.WithInner(innerRule)
-	}
-	return rule, p.Policy
 }
 
 // Admit validates full block responses through the shared block object

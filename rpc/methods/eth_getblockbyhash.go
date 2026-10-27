@@ -15,5 +15,5 @@ const MethodGetBlockByHash = "eth_getBlockByHash"
 // still differing between sources is dissent.
 func BlockByHashPolicy(opts ...rpc.StrictOption) rpc.Policy {
 	strictOpts := append([]rpc.StrictOption{rpc.WithCanonicalObject(blockobject.Encode)}, opts...)
-	return blockPolicy{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, strictOpts)...), byHash: true}
+	return blockPolicy{Decorator: rpc.Decorator{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, strictOpts)...)}, byHash: true}
 }
