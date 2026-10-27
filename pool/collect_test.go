@@ -956,3 +956,54 @@ func TestServerErrorsHaveDedicatedHealthBucket(t *testing.T) {
 		t.Fatalf("unexpected server-error health: %+v", health)
 	}
 }
+
+func TestForwardGatedKeepsDeadlineCause(t *testing.T) {
+	// The pacing gate's wait is bounded by the fan-out deadline. When the
+	// source's in-flight slots are saturated, a caller whose parent context
+	// is still alive must see a gate error carrying BOTH the sentinel (a
+	// local scheduling gate, not a transport failure) and the deadline
+	// cause — neither may be replaced by the other.
+	node := rpctest.NewNode(1)
+	defer node.Close()
+	node.Hang("eth_blockNumber", 2*time.Second)
+
+	p := NewPoolWithChainID(1)
+	defer p.Close()
+	if _, err := p.Join("a", node.URL()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Saturate both in-flight slots with hung calls; each holds its pacing
+	// slot until the hang ends. Count only the hung method: the node also
+	// sees the first-use eth_chainId exchange.
+	hung := func() int {
+		n := 0
+		for _, c := range node.Calls() {
+			if c.Method == "eth_blockNumber" {
+				n++
+			}
+		}
+		return n
+	}
+	for i := 0; i < maxSourceInFlight; i++ {
+		go p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 10 * time.Second})
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for hung() < maxSourceInFlight {
+		if time.Now().After(deadline) {
+			t.Fatal("saturating calls never reached the node")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	emissions, err := p.Forward(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 250 * time.Millisecond})
+	if !errors.Is(err, ErrSourceGated) {
+		t.Fatalf("err = %v, want ErrSourceGated", err)
+	}
+	if len(emissions) != 1 || !errors.Is(emissions[0].Err, ErrSourceGated) {
+		t.Fatalf("emission err = %v, want ErrSourceGated", emissions[0].Err)
+	}
+	if !errors.Is(emissions[0].Err, context.DeadlineExceeded) {
+		t.Fatalf("gated emission dropped the deadline cause: %v", emissions[0].Err)
+	}
+}

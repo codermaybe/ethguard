@@ -227,7 +227,7 @@ func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src 
 				var release func()
 				release, err = src.acquireRequest(callCtx)
 				if err != nil && parent.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
-					err = ErrSourceGated
+					err = fmt.Errorf("%w: %w", ErrSourceGated, err)
 				}
 				if err == nil {
 					attempted = true
@@ -373,7 +373,7 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 		release, waitErr := src.acquireRequest(callCtx)
 		if waitErr != nil {
 			if ctx.Err() == nil && errors.Is(waitErr, context.DeadlineExceeded) {
-				waitErr = ErrSourceGated
+				waitErr = fmt.Errorf("%w: %w", ErrSourceGated, waitErr)
 			}
 			emissions = append(emissions, Emission{Src: src, Err: waitErr})
 			// A local scheduling gate is not an upstream transport failure;
@@ -383,8 +383,7 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 			}
 			continue
 		}
-		val, rtt, callErr := collectOne(callCtx, src, method, params)
-		release()
+		val, rtt, callErr := collectWithSlot(callCtx, src, method, params, release)
 		emission := Emission{Src: src, Val: val, Err: callErr, RTT: rtt, Attempted: true}
 		if isHealthyRPCResponse(callErr) {
 			src.recordSuccessfulCall(rtt)
@@ -444,6 +443,16 @@ func isHealthyRPCResponse(err error) bool {
 	}
 	// These codes mean the peer could not process a valid JSON-RPC exchange.
 	return !isProtocolServerError(err) && rpcErr.ErrorCode() != -32700 && rpcErr.ErrorCode() != -32600
+}
+
+// collectWithSlot runs collectOne with the source's pacing slot held,
+// releasing it even when collectOne panics — parity with dispatchOne's
+// defer release, so a panicking adapter cannot permanently wedge the
+// source's scheduling budget. The caller records health after the call so
+// recording still happens with the slot already freed.
+func collectWithSlot(ctx context.Context, src *Source, method string, params []any, release func()) (json.RawMessage, time.Duration, error) {
+	defer release()
+	return collectOne(ctx, src, method, params)
 }
 
 // collectOne performs a single JSON-RPC call on one source, dialing lazily if
