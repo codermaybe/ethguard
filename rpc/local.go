@@ -77,14 +77,14 @@ func (f localFunc) Resolve(obs []Observation) (Decision, error) {
 			continue
 		}
 		if _, err := f.normalize(item.Value); err != nil {
-			faults = append(faults, fmt.Errorf("normalize: %w", err))
+			faults = append(faults, sourceFault(item.Source, "normalize", err))
 			continue
 		}
 		value := item.Value
 		if f.encode != nil {
 			canonical, err := f.encode(item.Value)
 			if err != nil {
-				faults = append(faults, fmt.Errorf("encode: %w", err))
+				faults = append(faults, sourceFault(item.Source, "encode", err))
 				return Decision{Status: Unknown, Faults: faults}, fmt.Errorf("local: %w", err)
 			}
 			value = canonical

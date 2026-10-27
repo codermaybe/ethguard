@@ -83,14 +83,14 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 		if f.encode != nil {
 			encoded, err := f.encode(item.Value)
 			if err != nil {
-				decision.Faults = append(decision.Faults, fmt.Errorf("encode: %w", err))
+				decision.Faults = append(decision.Faults, sourceFault(item.Source, "encode", err))
 				continue
 			}
 			canonical = encoded
 		}
 		key, err := f.normalize(item.Value)
 		if err != nil {
-			decision.Faults = append(decision.Faults, fmt.Errorf("normalize: %w", err))
+			decision.Faults = append(decision.Faults, sourceFault(item.Source, "normalize", err))
 			continue
 		}
 		value, ok := new(big.Int).SetString(key, 10)

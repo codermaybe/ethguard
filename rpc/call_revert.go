@@ -184,7 +184,7 @@ func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []error, error) 
 		if p.encode != nil {
 			encoded, err := p.encode(value)
 			if err != nil && !errors.Is(err, ErrNotCanonicalScalar) {
-				faults = append(faults, fmt.Errorf("encode: %w", err))
+				faults = append(faults, sourceFault(item.Source, "encode", err))
 				continue
 			}
 			if err == nil {
@@ -193,17 +193,17 @@ func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []error, error) 
 		}
 		flat, err := p.normalize(value)
 		if err != nil {
-			faults = append(faults, fmt.Errorf("normalize: %w", err))
+			faults = append(faults, sourceFault(item.Source, "normalize", err))
 			continue
 		}
 		answer, err := classifyCall(item.Source, value, item.Evidence, flat)
 		if err != nil {
-			faults = append(faults, fmt.Errorf("normalize: %w", err))
+			faults = append(faults, sourceFault(item.Source, "normalize", err))
 			continue
 		}
 		if answer.success && p.encode != nil {
 			if len(canonical) == 0 {
-				faults = append(faults, fmt.Errorf("encode: %w", ErrNotCanonicalScalar))
+				faults = append(faults, sourceFault(item.Source, "encode", ErrNotCanonicalScalar))
 				continue
 			}
 			answer.canonical = append(json.RawMessage(nil), canonical...)

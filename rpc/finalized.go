@@ -58,12 +58,12 @@ func (p finalizedHeadPolicy) Resolve(obs []Observation) (Decision, error) {
 		}
 		head, err := decodeFinalizedHead(item.Value)
 		if err != nil {
-			decision.Faults = append(decision.Faults, fmt.Errorf("normalize: %w", err))
+			decision.Faults = append(decision.Faults, sourceFault(item.Source, "normalize", err))
 			continue
 		}
 		height, err := parseFinalizedHeight(head.Number)
 		if err != nil {
-			decision.Faults = append(decision.Faults, fmt.Errorf("normalize: %w", err))
+			decision.Faults = append(decision.Faults, sourceFault(item.Source, "normalize", err))
 			continue
 		}
 		views = append(views, view{source: item.Source, height: height, hash: strings.ToLower(head.Hash), value: item.Value})

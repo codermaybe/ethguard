@@ -79,6 +79,15 @@ func (p pendingLocalPolicy) ResolveLocal(obs []rpc.Observation) (rpc.Decision, e
 		includeRPCError = provider.IncludeRPCError()
 	}
 	var faults []error
+	// faultSource mirrors rpc's resolver fault attribution so pending's
+	// node-local path reads identically in Decision.Faults.
+	faultSource := func(source rpc.SourceRef, cause string, err error) error {
+		id := source.ID
+		if id == "" {
+			id = source.Name
+		}
+		return fmt.Errorf("source %q: %s: %w", id, cause, err)
+	}
 	for _, item := range obs {
 		value := item.Value
 		if item.Err != nil {
@@ -88,13 +97,13 @@ func (p pendingLocalPolicy) ResolveLocal(obs []rpc.Observation) (rpc.Decision, e
 			value = item.RPCError.Raw()
 		}
 		if _, err := p.Policy.Normalize(value); err != nil {
-			faults = append(faults, fmt.Errorf("normalize: %w", err))
+			faults = append(faults, faultSource(item.Source, "normalize", err))
 			continue
 		}
 		if canonical, err := rpc.CanonicalOf(p.Policy, value); err == nil {
 			value = canonical
 		} else if !errors.Is(err, rpc.ErrNotCanonicalScalar) {
-			faults = append(faults, fmt.Errorf("encode: %w", err))
+			faults = append(faults, faultSource(item.Source, "encode", err))
 			return rpc.Decision{Status: rpc.Unknown, Faults: faults}, fmt.Errorf("pending: %w", err)
 		}
 		return rpc.Decision{

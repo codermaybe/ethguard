@@ -331,7 +331,7 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 		if encode := f.canonicalEncoder(); encode != nil {
 			encoded, err := encode(value)
 			if err != nil {
-				faults = append(faults, fmt.Errorf("encode: %w", err))
+				faults = append(faults, sourceFault(item.Source, "encode", err))
 				continue
 			}
 			canonical = append(json.RawMessage(nil), encoded...)
@@ -343,7 +343,7 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []error, error) {
 			var err error
 			key, err = f.normalize(value)
 			if err != nil {
-				faults = append(faults, fmt.Errorf("normalize: %w", err))
+				faults = append(faults, sourceFault(item.Source, "normalize", err))
 				continue
 			}
 		}

@@ -44,6 +44,19 @@ type FieldDiagnostics struct {
 	Conflicts []ConflictField
 }
 
+// sourceFault prefixes a resolver-phase encode/normalize failure with the
+// observation's source, so Decision.Faults attributes per-source failures
+// without relying on a post-hoc mirror over the pool emissions. The ID is
+// preferred because it is the voting identity; a nameless fallback keeps
+// hand-built observations readable.
+func sourceFault(source SourceRef, cause string, err error) error {
+	id := source.ID
+	if id == "" {
+		id = source.Name
+	}
+	return fmt.Errorf("source %q: %s: %w", id, cause, err)
+}
+
 // AggregateFields flattens object and array responses into JSON Pointer paths
 // and groups equal values by source. A path enters Accepted only when exactly
 // one value reaches quorum. Multiple values reaching quorum are reported as a
