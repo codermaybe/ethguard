@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // --- CollectVoting: the fixed voting-basis collection path (decision 0027) ---
@@ -169,5 +171,42 @@ func TestPoolRemoveThenRejoinIsANewMember(t *testing.T) {
 	}
 	if first == second {
 		t.Fatal("rejoined URL must not resurrect the removed member")
+	}
+}
+
+// CollectVoting keeps its callCtx-first contract — the deliberate mirror
+// image of collect's usable-first verdict: a member that answered before
+// the fan-out deadline does not upgrade the verdict past the timeout, and
+// the caller adjudicates usable emissions alongside the timeout fault.
+// The answer must still ride along on its own emission. Without this pin,
+// unifying the three fan-out verdicts would silently flip the priority.
+func TestCollectVotingTimeoutOutranksUsableAnswer(t *testing.T) {
+	fast := rpctest.NewNode(1)
+	defer fast.Close()
+	fast.Handle("eth_blockNumber", rpctest.After(30*time.Millisecond, rpctest.Value("0x11")))
+	laggard := rpctest.NewNode(1)
+	defer laggard.Close()
+	laggard.Hang("eth_blockNumber", time.Second)
+
+	p := NewPoolWithChainID(1)
+	defer p.Close()
+	if _, err := p.Join("fast", fast.URL()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Join("laggard", laggard.URL()); err != nil {
+		t.Fatal(err)
+	}
+	emissions, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 150 * time.Millisecond})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want the fan-out deadline to outrank the usable answer", err)
+	}
+	answered := 0
+	for _, em := range emissions {
+		if em.Val != nil {
+			answered++
+		}
+	}
+	if answered != 1 {
+		t.Fatalf("want the answered member's emission to ride along, got %d answers in %+v", answered, emissions)
 	}
 }
