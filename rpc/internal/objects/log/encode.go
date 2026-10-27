@@ -31,9 +31,9 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(trimmed, &rows); err != nil || rows == nil {
 		return nil, fmt.Errorf("logs: expected an array")
 	}
-	out := make([]canonicalLog, len(rows))
+	out := make([]CanonicalLog, len(rows))
 	for i, row := range rows {
-		encoded, err := encodeLog(row)
+		encoded, err := EncodeOne(row)
 		if err != nil {
 			return nil, fmt.Errorf("logs[%d]: %w", i, err)
 		}
@@ -42,9 +42,14 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	return wire.MarshalNoEscape(out)
 }
 
-func encodeLog(value json.RawMessage) (canonicalLog, error) {
+// EncodeOne checks and canonicalizes one log object. It is the shared per-log
+// encoder for eth_getLogs and for the log embedded in a transaction receipt:
+// requiredness and wire shapes come from Validate, so both callers accept and
+// reject the same payloads with the same messages. The returned canonical
+// field order is the CanonicalLog struct order.
+func EncodeOne(value json.RawMessage) (CanonicalLog, error) {
 	if err := Validate(value); err != nil {
-		return canonicalLog{}, err
+		return CanonicalLog{}, err
 	}
 	var raw struct {
 		Address          json.RawMessage   `json:"address"`
@@ -59,56 +64,56 @@ func encodeLog(value json.RawMessage) (canonicalLog, error) {
 		BlockTimestamp   json.RawMessage   `json:"blockTimestamp"`
 	}
 	if err := json.Unmarshal(value, &raw); err != nil {
-		return canonicalLog{}, fmt.Errorf("malformed response")
+		return CanonicalLog{}, fmt.Errorf("malformed response")
 	}
 	address, err := wire.ValidateWireFixedHex(raw.Address, 40, "address")
 	if err != nil {
-		return canonicalLog{}, fmt.Errorf("address: %w", err)
+		return CanonicalLog{}, fmt.Errorf("address: %w", err)
 	}
 	topics := make([]string, len(raw.Topics))
 	for i, topic := range raw.Topics {
 		topics[i], err = wire.ValidateWireFixedHex(topic, 64, "hash")
 		if err != nil {
-			return canonicalLog{}, fmt.Errorf("topics[%d]: %w", i, err)
+			return CanonicalLog{}, fmt.Errorf("topics[%d]: %w", i, err)
 		}
 	}
 	data, err := wire.NormalizeWireData(raw.Data)
 	if err != nil {
-		return canonicalLog{}, fmt.Errorf("data: %w", err)
+		return CanonicalLog{}, fmt.Errorf("data: %w", err)
 	}
 	blockNumber, err := wire.CanonicalQuantity(raw.BlockNumber)
 	if err != nil {
-		return canonicalLog{}, fmt.Errorf("blockNumber: %w", err)
+		return CanonicalLog{}, fmt.Errorf("blockNumber: %w", err)
 	}
 	transactionHash, err := wire.ValidateWireFixedHex(raw.TransactionHash, 64, "hash")
 	if err != nil {
-		return canonicalLog{}, fmt.Errorf("transactionHash: %w", err)
+		return CanonicalLog{}, fmt.Errorf("transactionHash: %w", err)
 	}
 	transactionIndex, err := wire.CanonicalQuantity(raw.TransactionIndex)
 	if err != nil {
-		return canonicalLog{}, fmt.Errorf("transactionIndex: %w", err)
+		return CanonicalLog{}, fmt.Errorf("transactionIndex: %w", err)
 	}
 	blockHash, err := wire.ValidateWireFixedHex(raw.BlockHash, 64, "hash")
 	if err != nil {
-		return canonicalLog{}, fmt.Errorf("blockHash: %w", err)
+		return CanonicalLog{}, fmt.Errorf("blockHash: %w", err)
 	}
 	logIndex, err := wire.CanonicalQuantity(raw.LogIndex)
 	if err != nil {
-		return canonicalLog{}, fmt.Errorf("logIndex: %w", err)
+		return CanonicalLog{}, fmt.Errorf("logIndex: %w", err)
 	}
 	var removed bool
 	if err := json.Unmarshal(raw.Removed, &removed); err != nil {
-		return canonicalLog{}, fmt.Errorf("removed must be boolean")
+		return CanonicalLog{}, fmt.Errorf("removed must be boolean")
 	}
 	var timestamp *string
-	if len(bytes.TrimSpace(raw.BlockTimestamp)) != 0 && !bytes.Equal(bytes.TrimSpace(raw.BlockTimestamp), []byte("null")) {
+	if wire.PresentNonNull(raw.BlockTimestamp) {
 		text, err := wire.CanonicalQuantity(raw.BlockTimestamp)
 		if err != nil {
-			return canonicalLog{}, fmt.Errorf("blockTimestamp: %w", err)
+			return CanonicalLog{}, fmt.Errorf("blockTimestamp: %w", err)
 		}
 		timestamp = &text
 	}
-	return canonicalLog{
+	return CanonicalLog{
 		Address:          address,
 		Topics:           topics,
 		Data:             data,
@@ -122,9 +127,10 @@ func encodeLog(value json.RawMessage) (canonicalLog, error) {
 	}, nil
 }
 
-// canonicalLog is the protected eth_getLogs object. Field order is fixed.
-// blockTimestamp is omitted when the source did not provide it.
-type canonicalLog struct {
+// CanonicalLog is the protected log object shared by eth_getLogs and the log
+// embedded in a transaction receipt. Field order is fixed; blockTimestamp is
+// omitted when the source did not provide it.
+type CanonicalLog struct {
 	Address          string   `json:"address"`
 	Topics           []string `json:"topics"`
 	Data             string   `json:"data"`

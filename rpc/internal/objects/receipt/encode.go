@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/rpc/internal/objects/log"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
@@ -194,69 +195,15 @@ func canonicalBloom(logs []canonicalReceiptLog) string {
 	return hexutil.Encode(types.CreateBloom(&types.Receipt{Logs: decoded}).Bytes())
 }
 
+// encodeReceiptLog canonicalizes one log embedded in a receipt through the
+// shared log encoder: the receipt-side requiredness (missing topics, missing
+// removed, field shapes) is exactly log.Validate's rule set, with identical
+// messages, so both call sites of the log object accept and reject the same
+// payloads.
 func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
-	var raw struct {
-		Address          json.RawMessage   `json:"address"`
-		Topics           []json.RawMessage `json:"topics"`
-		Data             json.RawMessage   `json:"data"`
-		BlockNumber      json.RawMessage   `json:"blockNumber"`
-		TransactionHash  json.RawMessage   `json:"transactionHash"`
-		TransactionIndex json.RawMessage   `json:"transactionIndex"`
-		BlockHash        json.RawMessage   `json:"blockHash"`
-		LogIndex         json.RawMessage   `json:"logIndex"`
-		Removed          json.RawMessage   `json:"removed"`
-		BlockTimestamp   json.RawMessage   `json:"blockTimestamp"`
-	}
-	if err := json.Unmarshal(value, &raw); err != nil {
-		return canonicalReceiptLog{}, fmt.Errorf("expected an object")
-	}
-	var out canonicalReceiptLog
-	var err error
-	if out.Address, err = wire.ValidateWireFixedHex(raw.Address, 40, "address"); err != nil {
+	out, err := log.EncodeOne(value)
+	if err != nil {
 		return canonicalReceiptLog{}, err
-	}
-	if raw.Topics == nil {
-		return canonicalReceiptLog{}, fmt.Errorf("missing topics")
-	}
-	out.Topics = make([]string, len(raw.Topics))
-	for i, topic := range raw.Topics {
-		out.Topics[i], err = wire.ValidateWireFixedHex(topic, 64, "hash")
-		if err != nil {
-			return canonicalReceiptLog{}, fmt.Errorf("topics[%d]: %w", i, err)
-		}
-	}
-	if out.Data, err = wire.NormalizeWireData(raw.Data); err != nil {
-		return canonicalReceiptLog{}, fmt.Errorf("data: %w", err)
-	}
-	for _, item := range []struct {
-		name  string
-		value json.RawMessage
-		dest  *string
-	}{
-		{"blockNumber", raw.BlockNumber, &out.BlockNumber},
-		{"transactionIndex", raw.TransactionIndex, &out.TransactionIndex},
-		{"logIndex", raw.LogIndex, &out.LogIndex},
-	} {
-		text, err := wire.CanonicalQuantity(item.value)
-		if err != nil {
-			return canonicalReceiptLog{}, fmt.Errorf("%s: %w", item.name, err)
-		}
-		*item.dest = text
-	}
-	if out.TransactionHash, err = wire.ValidateWireFixedHex(raw.TransactionHash, 64, "hash"); err != nil {
-		return canonicalReceiptLog{}, fmt.Errorf("transactionHash: %w", err)
-	}
-	if out.BlockHash, err = wire.ValidateWireFixedHex(raw.BlockHash, 64, "hash"); err != nil {
-		return canonicalReceiptLog{}, fmt.Errorf("blockHash: %w", err)
-	}
-	if !wire.PresentNonNull(raw.Removed) {
-		return canonicalReceiptLog{}, fmt.Errorf("missing removed")
-	}
-	if err := json.Unmarshal(raw.Removed, &out.Removed); err != nil {
-		return canonicalReceiptLog{}, fmt.Errorf("removed must be boolean")
-	}
-	if out.BlockTimestamp, err = optionalQuantity(raw.BlockTimestamp); err != nil {
-		return canonicalReceiptLog{}, fmt.Errorf("blockTimestamp: %w", err)
 	}
 	return out, nil
 }
@@ -305,15 +252,7 @@ type canonicalReceipt struct {
 	BlobGasPrice      *string               `json:"blobGasPrice,omitempty"`
 }
 
-type canonicalReceiptLog struct {
-	Address          string   `json:"address"`
-	Topics           []string `json:"topics"`
-	Data             string   `json:"data"`
-	BlockNumber      string   `json:"blockNumber"`
-	TransactionHash  string   `json:"transactionHash"`
-	TransactionIndex string   `json:"transactionIndex"`
-	BlockHash        string   `json:"blockHash"`
-	LogIndex         string   `json:"logIndex"`
-	Removed          bool     `json:"removed"`
-	BlockTimestamp   *string  `json:"blockTimestamp,omitempty"`
-}
+// canonicalReceiptLog is the shared protected log object; the receipt log's
+// JSON shape is byte-identical to the eth_getLogs log, so the field set and
+// its fixed order live once in the log package.
+type canonicalReceiptLog = log.CanonicalLog

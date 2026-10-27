@@ -9,7 +9,7 @@ import (
 )
 
 func TestCanonicalLogEncoderCoversOfficialPaths(t *testing.T) {
-	paths := coverage.JSONPaths(canonicalLog{})
+	paths := coverage.JSONPaths(CanonicalLog{})
 	declared := []projection.StandardField{{Path: "/*"}}
 	for _, path := range paths {
 		declared = append(declared, projection.StandardField{Path: "/*" + path})
