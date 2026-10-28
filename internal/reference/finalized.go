@@ -22,6 +22,19 @@ type view struct {
 	raw    json.RawMessage
 }
 
+// selection is what the first observation round established: one candidate
+// height with a single agreed hash, and the frozen voting basis every later
+// resolve runs against. Membership and the required support are fixed before
+// confirmation; confirmation can only fill the basis, never shrink it.
+type selection struct {
+	candidate       uint64
+	candidateHashes map[string]struct{}
+	observations    []rpc.Observation
+	indexes         map[string]int
+	missing         []string
+	required        int
+}
+
 // Finalized observes once and, if necessary, confirms one common height once.
 // Membership and the required support are fixed before confirmation. It never
 // retries successively older candidates or relaxes the caller's quorum.
@@ -45,6 +58,60 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 		ref.Faults = append(ref.Faults, err)
 		ref.CollectionFaults = append(ref.CollectionFaults, err)
 	}
+	views := decodeViews(emissions, &ref, &attempts)
+	if ctx.Err() != nil {
+		return ref, ctx.Err()
+	}
+	if len(views) == 0 {
+		if collectErr != nil {
+			return ref, collectErr
+		}
+		return ref, fmt.Errorf("no valid finalized view: %w", rpc.ErrNoValidResponse)
+	}
+
+	sel, err := selectCandidate(emissions, views, maxLag, quorum, &ref)
+	if err != nil {
+		return ref, err
+	}
+	policy, reorgDetected := confirmSelection(ctx, reader, sel, quorum, mode, timeout, &ref, &attempts)
+	if ctx.Err() != nil {
+		return ref, ctx.Err()
+	}
+	decision, err := policy.Resolve(sel.observations)
+	ref.Support = decision.Support
+	supported := make(map[string]bool, len(ref.Support))
+	for _, source := range ref.Support {
+		supported[source.ID] = true
+	}
+	for _, source := range ref.Participants {
+		if !supported[source.ID] {
+			ref.Reject = append(ref.Reject, source)
+		}
+	}
+	if err != nil {
+		if reorgDetected {
+			return ref, errors.Join(rpc.ErrReorgDetected, err)
+		}
+		return ref, err
+	}
+	if len(decision.Support) < sel.required || decision.Status != rpc.Corroborated {
+		err := fmt.Errorf("common reference needs %d supporters, got %d: %w", sel.required, len(decision.Support), rpc.ErrConflict)
+		if reorgDetected {
+			return ref, errors.Join(rpc.ErrReorgDetected, err)
+		}
+		return ref, err
+	}
+	winner, err := decode(decision.Value)
+	if err != nil {
+		return ref, fmt.Errorf("winning reference: %w", rpc.ErrMalformedResponse)
+	}
+	ref.Hash, ref.Status = winner.hash, rpc.Corroborated
+	return ref, nil
+}
+
+// decodeViews turns the first-round emissions into decodable finalized-head
+// views, recording every participant and attributing per-source failures.
+func decodeViews(emissions []HeadObservation, ref *rpc.ReferenceEvidence, attempts *[]observe.SourceEvent) []view {
 	views := make([]view, 0, len(emissions))
 	for _, emission := range emissions {
 		source := emission.Source
@@ -54,7 +121,7 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 			err = emission.Err
 		}
 		if emission.Attempted {
-			attempts = append(attempts, observe.SourceEvent{Source: source.Name, RTT: emission.RTT, Failed: err != nil})
+			*attempts = append(*attempts, observe.SourceEvent{Source: source.Name, RTT: emission.RTT, Failed: err != nil})
 		}
 		if err != nil {
 			if emission.Attempted {
@@ -66,15 +133,16 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 		v.source = source
 		views = append(views, v)
 	}
-	if ctx.Err() != nil {
-		return ref, ctx.Err()
-	}
-	if len(views) == 0 {
-		if collectErr != nil {
-			return ref, collectErr
-		}
-		return ref, fmt.Errorf("no valid finalized view: %w", rpc.ErrNoValidResponse)
-	}
+	return views
+}
+
+// selectCandidate reduces the first-round views to one candidate height under
+// the lag filter and freezes the voting basis: all first-round participants
+// stay in the denominator with a placeholder rejection, each source that
+// observed the candidate height carries its raw head, and sources above the
+// candidate are named for the confirmation round. It fails on insufficient
+// support and on the candidate height carrying more than one hash.
+func selectCandidate(emissions []HeadObservation, views []view, maxLag uint64, quorum int, ref *rpc.ReferenceEvidence) (selection, error) {
 	heights := make([]uint64, 0, len(views))
 	for _, v := range views {
 		heights = append(heights, v.height)
@@ -96,7 +164,7 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 		required = max(2, quorum, len(emissions)/2+1)
 	}
 	if required < 2 || len(fresh) < required {
-		return ref, fmt.Errorf("insufficient finalized support: need %d, have %d: %w", max(2, required), len(fresh), rpc.ErrConflict)
+		return selection{}, fmt.Errorf("insufficient finalized support: need %d, have %d: %w", max(2, required), len(fresh), rpc.ErrConflict)
 	}
 	heights = heights[:0]
 	for _, v := range fresh {
@@ -115,31 +183,43 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 		}
 	}
 	if len(candidateHashes) > 1 {
-		return ref, fmt.Errorf("finalized candidate height %d has %d distinct hashes: %w", candidate, len(candidateHashes), rpc.ErrConflict)
+		return selection{}, fmt.Errorf("finalized candidate height %d has %d distinct hashes: %w", candidate, len(candidateHashes), rpc.ErrConflict)
 	}
-	reorgDetected := false
 
+	sel := selection{
+		candidate:       candidate,
+		candidateHashes: candidateHashes,
+		observations:    make([]rpc.Observation, len(emissions)),
+		indexes:         make(map[string]int, len(emissions)),
+		required:        required,
+	}
 	// Preserve all first-round participants as the voting denominator, including
 	// failures and views that cannot support the selected finalized height.
-	observations := make([]rpc.Observation, len(emissions))
-	indexes := make(map[string]int, len(emissions))
 	for i, emission := range emissions {
 		source := emission.Source
-		indexes[source.ID] = i
-		observations[i] = rpc.Observation{Source: source, Err: fmt.Errorf("no finalized support for height %d", candidate)}
+		sel.indexes[source.ID] = i
+		sel.observations[i] = rpc.Observation{Source: source, Err: fmt.Errorf("no finalized support for height %d", candidate)}
 	}
-	var missing []string
 	for _, v := range fresh {
 		if v.height < candidate {
 			continue
 		}
 		if v.height == candidate {
-			observations[indexes[v.source.ID]].Value = v.raw
-			observations[indexes[v.source.ID]].Err = nil
+			sel.observations[sel.indexes[v.source.ID]].Value = v.raw
+			sel.observations[sel.indexes[v.source.ID]].Err = nil
 		} else {
-			missing = append(missing, v.source.ID)
+			sel.missing = append(sel.missing, v.source.ID)
 		}
 	}
+	return sel, nil
+}
+
+// confirmSelection reuses an already-corroborated candidate, or fans the
+// confirmation request to the members that could not support the candidate
+// height, detecting a reorg by hash mismatch against the established
+// candidate set. It returns the resolve policy the caller's final vote runs
+// on and whether any confirmation contradicted the candidate hash.
+func confirmSelection(ctx context.Context, reader HeadReader, sel selection, quorum int, mode rpc.CorroborationMode, timeout time.Duration, ref *rpc.ReferenceEvidence, attempts *[]observe.SourceEvent) (rpc.Policy, bool) {
 	var opts []rpc.StrictOption
 	if quorum > 0 {
 		opts = append(opts, rpc.WithQuorum(quorum))
@@ -148,11 +228,12 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 		opts = append(opts, rpc.WithUnanimity())
 	}
 	policy := rpc.Strict(methods.BlockByNumberPolicy().Normalize, opts...)
-	initial, initialErr := policy.Resolve(observations)
+	initial, initialErr := policy.Resolve(sel.observations)
+	reorgDetected := false
 	// Reuse an already corroborated candidate; no redundant header fan-out.
-	if initialErr != nil || len(initial.Support) < required {
-		if len(missing) > 0 {
-			confirmations, err := reader.Confirm(ctx, candidate, missing, timeout)
+	if initialErr != nil || len(initial.Support) < sel.required {
+		if len(sel.missing) > 0 {
+			confirmations, err := reader.Confirm(ctx, sel.candidate, sel.missing, timeout)
 			if err != nil {
 				err = fmt.Errorf("confirm: %w", err)
 				ref.Faults = append(ref.Faults, err)
@@ -164,18 +245,18 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 				if emission.Err != nil {
 					decodeErr = emission.Err
 				}
-				if decodeErr == nil && v.height != candidate {
-					decodeErr = fmt.Errorf("confirmation height %d does not match %d: %w", v.height, candidate, rpc.ErrMalformedResponse)
+				if decodeErr == nil && v.height != sel.candidate {
+					decodeErr = fmt.Errorf("confirmation height %d does not match %d: %w", v.height, sel.candidate, rpc.ErrMalformedResponse)
 				}
 				if decodeErr == nil {
-					if _, same := candidateHashes[strings.ToLower(v.hash)]; !same {
+					if _, same := sel.candidateHashes[strings.ToLower(v.hash)]; !same {
 						reorgDetected = true
 						decodeErr = errors.Join(rpc.ErrAnchorMismatch, rpc.ErrReorgDetected,
 							fmt.Errorf("confirmation hash %s differs from the established candidate", v.hash))
 					}
 				}
 				if emission.Attempted {
-					attempts = append(attempts, observe.SourceEvent{Source: source.Name, RTT: emission.RTT, Failed: decodeErr != nil})
+					*attempts = append(*attempts, observe.SourceEvent{Source: source.Name, RTT: emission.RTT, Failed: decodeErr != nil})
 				}
 				if decodeErr != nil {
 					if emission.Attempted {
@@ -184,43 +265,11 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 					ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: source, Err: decodeErr})
 					continue
 				}
-				observations[indexes[source.ID]] = rpc.Observation{Source: source, Value: v.raw}
+				sel.observations[sel.indexes[source.ID]] = rpc.Observation{Source: source, Value: v.raw}
 			}
 		}
 	}
-	if ctx.Err() != nil {
-		return ref, ctx.Err()
-	}
-	decision, err := policy.Resolve(observations)
-	ref.Support = decision.Support
-	supported := make(map[string]bool, len(ref.Support))
-	for _, source := range ref.Support {
-		supported[source.ID] = true
-	}
-	for _, source := range ref.Participants {
-		if !supported[source.ID] {
-			ref.Reject = append(ref.Reject, source)
-		}
-	}
-	if err != nil {
-		if reorgDetected {
-			return ref, errors.Join(rpc.ErrReorgDetected, err)
-		}
-		return ref, err
-	}
-	if len(decision.Support) < required || decision.Status != rpc.Corroborated {
-		err := fmt.Errorf("common reference needs %d supporters, got %d: %w", required, len(decision.Support), rpc.ErrConflict)
-		if reorgDetected {
-			return ref, errors.Join(rpc.ErrReorgDetected, err)
-		}
-		return ref, err
-	}
-	winner, err := decode(decision.Value)
-	if err != nil {
-		return ref, fmt.Errorf("winning reference: %w", rpc.ErrMalformedResponse)
-	}
-	ref.Hash, ref.Status = winner.hash, rpc.Corroborated
-	return ref, nil
+	return policy, reorgDetected
 }
 
 func decode(raw json.RawMessage) (view, error) {

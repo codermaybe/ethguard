@@ -11,7 +11,8 @@ import (
 )
 
 type fakeHeadReader struct {
-	observations []HeadObservation
+	observations  []HeadObservation
+	confirmations []HeadObservation
 }
 
 func (f fakeHeadReader) Read(context.Context, string, time.Duration) ([]HeadObservation, error) {
@@ -19,7 +20,7 @@ func (f fakeHeadReader) Read(context.Context, string, time.Duration) ([]HeadObse
 }
 
 func (f fakeHeadReader) Confirm(context.Context, uint64, []string, time.Duration) ([]HeadObservation, error) {
-	return nil, nil
+	return f.confirmations, nil
 }
 
 func TestFinalizedConsumesHeadReaderSeam(t *testing.T) {
