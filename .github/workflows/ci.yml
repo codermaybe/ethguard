@@ -89,6 +89,34 @@ jobs:
       - name: go build
         run: go build ./...
 
+  # Link-time gate: the default build must not link the go-ethereum client,
+  # and the geth compatibility channel (gethcompat) must build and run its
+  # own tests. Both channels share one interlock, so the tests run here too.
+  linktime:
+    name: link-time channels (native default + gethcompat)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: default build excludes ethclient
+        run: |
+          if go list -deps . | grep -q 'go-ethereum/ethclient'; then
+            echo "::error::the default build links ethclient"
+            go list -deps . | grep 'go-ethereum/ethclient'
+            exit 1
+          fi
+      - name: gethcompat links the compatibility adapter
+        run: |
+          if ! go list -deps ./gethcompat | grep -q 'go-ethereum/ethclient'; then
+            echo "::error::gethcompat does not link the adapter it exposes"
+            exit 1
+          fi
+      - name: compatibility channel tests
+        run: go test ./gethcompat/... ./internal/transport/geth/... ./internal/transport/http/...
+
   # Lint gate: .golangci.yml is tuned to zero baseline noise on the current
   # tree, so it blocks PRs. Policy rationale lives in .golangci.yml itself.
   lint:
