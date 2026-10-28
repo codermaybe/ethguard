@@ -36,6 +36,33 @@ func (c *Capture) Reference() *rpc.ReferenceEvidence {
 	return &clone
 }
 
+// invocationKey carries the in-flight invocation value. It is the
+// transitional carrier until every establishment path takes the invocation
+// explicitly; new code should prefer the invocation parameter.
+type invocationKey struct{}
+
+func WithInvocation(ctx context.Context, invocation rpc.Invocation) context.Context {
+	return context.WithValue(ctx, invocationKey{}, invocation)
+}
+
+func Invocation(ctx context.Context) (rpc.Invocation, bool) {
+	invocation, ok := ctx.Value(invocationKey{}).(rpc.Invocation)
+	return invocation, ok
+}
+
+// referenceStageKey carries the in-flight establishment stage for the anchor
+// readers that policy Prepare invokes. Transitional: the R4 declarative
+// requirement replaces it with aggregator-owned establishment.
+type referenceStageKey struct{}
+
+func WithReferenceStage(ctx context.Context, stage any) context.Context {
+	return context.WithValue(ctx, referenceStageKey{}, stage)
+}
+
+func ReferenceStage(ctx context.Context) any {
+	return ctx.Value(referenceStageKey{})
+}
+
 type corroborationRequiredKey struct{}
 
 type membersKey struct{}

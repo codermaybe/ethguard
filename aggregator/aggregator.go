@@ -7,10 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/observe"
@@ -29,6 +27,10 @@ type Aggregator struct {
 	// client's aggregators; nil leaves policies on construction-time
 	// defaults (direct construction, legacy tests).
 	corrob *rpc.CorroborationShared
+	// stage is the reference establishment seam. When set, the anchor readers
+	// inside policy Prepare resolve it from the invocation context, so
+	// establishment runs on the aggregator's invocation.
+	stage ReferenceStage
 }
 
 // Option tunes an Aggregator at construction time.
@@ -57,6 +59,17 @@ func WithCorroboration(c *rpc.CorroborationShared) Option {
 	return func(a *Aggregator) {
 		if c != nil {
 			a.corrob = c
+		}
+	}
+}
+
+// WithReferenceStage installs the reference establishment seam. The stage is
+// what the anchor readers resolve while preparing a moving-tag read, so the
+// reference rounds run on the aggregator's invocation.
+func WithReferenceStage(stage ReferenceStage) Option {
+	return func(a *Aggregator) {
+		if stage != nil {
+			a.stage = stage
 		}
 	}
 }
@@ -166,6 +179,11 @@ func resolveWithPending(policy rpc.Policy, prepared rpc.Request, snap rpc.Corrob
 // to Decision.Faults instead, keeping partial fan-outs diagnosable. A terminal
 // collection error with no usable emission is returned directly so the pool's
 // public sentinel is not masked by a policy's empty-input error.
+//
+// The phases run in fixed order over one invocation (see invocation.go):
+// Prepare → ReferenceStage → PrepareWithReference → Collect → Admit →
+// Resolve → Project. A moving-tag read's establishment rounds run inside the
+// same invocation — one ID, one frozen basis, no nested aggregate.
 func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decision, error) {
 	started := time.Now()
 	ctx, uncertainDone := uncertain.Begin(ctx)
@@ -195,212 +213,27 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// member occupies the denominator even when a scheduling gate skipped
 	// its request (decisions 0025 and 0027).
 	_, corroborating := policy.(rpc.CorroboratingPolicy)
-	corroborating = snapOK && corroborating
-	prepared, err := policy.Prepare(ctx, req)
-	if err != nil {
-		if c := uncertain.FromContext(ctx); c != nil {
-			c.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
-		}
-		decision := rpc.Decision{Status: rpc.Unknown, Reference: capture.Reference()}
-		a.recordDecision(started, req.Method, policy, decision, err, nil, nil)
-		return decision, err
+	state := &invocationState{
+		ctx:           ctx,
+		policy:        policy,
+		snap:          snap,
+		snapOK:        snapOK,
+		corroborating: snapOK && corroborating,
+		members:       members,
+		capture:       capture,
 	}
-	var emissions []pool.Emission
-	var collectErr error
-	if snapOK && snap.Mode == rpc.CorroborationForwarded {
-		emissions, collectErr = a.pool.Forward(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout, Sources: members})
-	} else if single, ok := policy.(rpc.SingleSourcePolicy); ok && single.SingleSource() {
-		emissions, collectErr = a.pool.Forward(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout, Sources: members})
-	} else if corroborating {
-		emissions, collectErr = a.pool.CollectVoting(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout, Sources: members})
-	} else {
-		emissions, collectErr = a.pool.Collect(ctx, prepared.Method, prepared.Params, pool.CollectOptions{Timeout: a.collectTimeout, Sources: members})
+	state.ctx, state.invocation = beginInvocation(state.ctx, snap, snapOK, members, uncertain.FromContext(ctx))
+
+	if exit := a.prepareWithReference(state, started, req); exit != nil {
+		return exit.decision, exit.err
 	}
-	// Preserve every primary response before admission is allowed to clear a
-	// malformed value. This is the raw per-source record used by Uncertain;
-	// admission and resolver outcomes are recorded as separate stages below.
-	if c := uncertain.FromContext(ctx); c != nil {
-		for _, emission := range emissions {
-			source := sourceRefOf(emission.Src)
-			errText := ""
-			if emission.Err != nil {
-				errText = emission.Err.Error()
-			}
-			c.Record("response", prepared.Method, source, emission.Val, errText)
-		}
-		if collectErr != nil {
-			c.Record("collect", prepared.Method, rpc.SourceRef{}, nil, collectErr.Error())
-		}
+	a.collectPhase(state)
+	a.admitPhase(state)
+	if exit := a.resolvePhase(state, started); exit != nil {
+		return exit.decision, exit.err
 	}
-	// Reject structurally unsafe JSON before any method-specific admission or
-	// normalization. The raw response has already been captured above so the
-	// caller can still inspect the offending source through UncertainCapture.
-	for i := range emissions {
-		if emissions[i].Err != nil || emissions[i].Val == nil {
-			continue
-		}
-		if err := jsonsafe.Validate(emissions[i].Val); err != nil {
-			emissions[i].Err = fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-			emissions[i].Val = nil
-		}
-	}
-	// Admission runs before normalization and clustering. A malformed body
-	// cannot win a cluster, and dependent content is always fetched from the
-	// source that supplied the primary response.
-	if admission, ok := policy.(rpc.AdmissionPolicy); ok {
-		var wg sync.WaitGroup
-		for i := range emissions {
-			if emissions[i].Err != nil || emissions[i].Val == nil {
-				continue
-			}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				evidence, admissionErr := admission.Admit(ctx, prepared, emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
-					raw, callErr := a.pool.CallSource(callCtx, emissions[i].Src, method, params)
-					if c := uncertain.FromContext(ctx); c != nil {
-						source := sourceRefOf(emissions[i].Src)
-						errText := ""
-						if callErr != nil {
-							errText = callErr.Error()
-						}
-						c.Record("dependency", method, source, raw, errText)
-					}
-					return raw, callErr
-				})
-				if admissionErr != nil {
-					if c := uncertain.FromContext(ctx); c != nil {
-						c.Record("admission", prepared.Method, sourceRefOf(emissions[i].Src), nil, admissionErr.Error())
-					}
-					emissions[i].Err = fmt.Errorf("admission: %w", admissionErr)
-					emissions[i].Val = nil
-					return
-				}
-				emissions[i].Evidence = evidence
-			}()
-		}
-		wg.Wait()
-	}
-	observations := make([]rpc.Observation, len(emissions))
-	participants := make([]rpc.SourceRef, 0, len(emissions))
-	for i, emission := range emissions {
-		observations[i] = rpc.Observation{
-			Source:   sourceRefOf(emission.Src),
-			Value:    emission.Val,
-			Err:      emission.Err,
-			RPCError: observationRPCError(emission.Err),
-			Evidence: emission.Evidence,
-		}
-		participants = append(participants, observations[i].Source)
-	}
-	// A field-aggregation failure only degrades this invocation to a decision
-	// without diagnostics; the error itself is kept so every return path
-	// below can attach it to Faults instead of dropping it silently.
-	var evaluation *rpc.Evaluation
-	var aggregateErr error
-	var aggregateFaults []error
-	if snapOK && snap.Mode != rpc.CorroborationForwarded {
-		common, observationErr := rpc.AggregateFieldsWithCorroboration(observations, snap)
-		if observationErr == nil {
-			evaluation = &common
-			// A source whose value failed generic JSON validation abstains
-			// from field votes; its abstention still belongs in Faults so the
-			// degraded participation stays visible.
-			for _, m := range common.Malformed {
-				aggregateFaults = append(aggregateFaults, fmt.Errorf("aggregate fields: %w", sourceFaultOf(m)))
-			}
-		} else {
-			aggregateErr = observationErr
-		}
-	}
-	if collectErr != nil && !hasUsableEmission(emissions) {
-		decision := unknownDecision(capture.Reference(), participants, preparedRequest(prepared))
-		decision.Faults = collectionFaults(policy, collectErr, emissions, nil)
-		decision.SourceFaults = structuredSourceFaults(policy, emissions, nil)
-		decision.CollectionFaults = collectionFaultList(collectErr)
-		if aggregateErr != nil {
-			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
-		}
-		decision.Faults = append(decision.Faults, aggregateFaults...)
-		if evaluation != nil {
-			decision.Diagnostics = &evaluation.Diagnostics
-		}
-		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions, nil)
-		return decision, collectErr
-	}
-	// Admission runs before clustering, so when every delivered response is
-	// malformed there is no usable cluster from which Strict could preserve
-	// the more specific malformed-response class. Keep that class visible to
-	// typed callers instead of replacing it with ErrNoValidResponse.
-	if collectErr == nil && !hasUsableEmission(emissions) && hasMalformedAdmission(emissions) {
-		admissionErr := firstMalformedAdmission(emissions)
-		decision := unknownDecision(capture.Reference(), participants, preparedRequest(prepared))
-		decision.Faults = sourceFaults(policy, emissions, nil)
-		decision.SourceFaults = structuredSourceFaults(policy, emissions, nil)
-		if aggregateErr != nil {
-			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
-		}
-		decision.Faults = append(decision.Faults, aggregateFaults...)
-		if evaluation != nil {
-			decision.Diagnostics = &evaluation.Diagnostics
-		}
-		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
-		a.recordDecision(started, req.Method, policy, decision, err, emissions, nil)
-		return decision, err
-	}
-	res := resolveWithPending(policy, prepared, snap, snapOK, observations)
-	decision, resolveErr := res.decision, res.err
-	verdicts := finalizeVerdicts(res.verdicts, emissions)
-	if resolveErr == nil && snapOK && snap.Mode == rpc.CorroborationForwarded {
-		decision.Status = rpc.Forwarded
-	}
-	requiresAgreement := false
-	if agreement, ok := policy.(rpc.AgreementPolicy); ok {
-		requiresAgreement = agreement.RequiresAgreement()
-	}
-	// All named conditions are pure queries, so hoisting them out of the
-	// short-circuit chain below cannot change behavior; the remaining checks
-	// keep their original order.
-	gatedByForwarded := snapOK && snap.Mode == rpc.CorroborationForwarded
-	pendingLocal := isPendingLocalRoute(policy, prepared, snap, snapOK)
-	if requiresAgreement && refcontext.CorroborationRequired(ctx) && !gatedByForwarded && !pendingLocal && resolveErr == nil && decision.Status != rpc.Corroborated {
-		decision.Status = rpc.Unknown
-		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
-	}
-	decision.Reference = capture.Reference()
-	decision.Participants = participants
-	decision.Prepared = preparedRequest(prepared)
-	if evaluation != nil {
-		decision.Diagnostics = &evaluation.Diagnostics
-	}
-	if resolveErr == nil && evaluation != nil {
-		projector, ok := a.projectors[req.Method]
-		if !ok {
-			projector, ok = policy.(rpc.ObservationProjector)
-		}
-		if ok {
-			if extensions, projectionErr := projector.ProjectObservation(decision.Value, *evaluation); projectionErr == nil {
-				decision.Extensions = &extensions
-			} else {
-				decision.Faults = append(decision.Faults, fmt.Errorf("projection: %w", projectionErr))
-			}
-		}
-	}
-	if provider, ok := policy.(rpc.BlockRefProvider); ok {
-		decision.BlockRef = provider.BlockRef(req, prepared)
-	}
-	if aggregateErr != nil {
-		decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
-	}
-	decision.Faults = append(decision.Faults, aggregateFaults...)
-	if collectErr != nil {
-		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", collectErr))
-		decision.CollectionFaults = collectionFaultList(collectErr)
-	}
-	decision.SourceFaults = structuredSourceFaults(policy, emissions, verdicts)
-	decision.Faults = append(decision.Faults, sourceFaults(policy, emissions, verdicts)...)
-	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions, verdicts)
-	return decision, resolveErr
+	decision, resolveErr := state.resolveValue()
+	return a.projectPhase(state, started, req, decision, resolveErr)
 }
 
 // sourceRefOf copies a pool source's identity for observation records; a

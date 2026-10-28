@@ -3,11 +3,14 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
+	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/reference"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
@@ -22,6 +25,10 @@ type ReferenceStageConfig struct {
 	MaxLag   uint64
 	Timeout  time.Duration
 	Recorder observe.Recorder
+	// FinalizedStrategy selects the candidate-selection algorithm for the
+	// finalized tag. The default (false) establishes every tag through the
+	// strict head algorithm, which is the strict-anchor client's behavior.
+	FinalizedStrategy bool
 }
 
 // ReferenceStage implements the aggregator-owned establishment seam over the
@@ -31,15 +38,16 @@ type ReferenceStageConfig struct {
 // error assembly. Establishment failure returns the invocation unchanged:
 // the business fan-out never starts without its reference.
 type ReferenceStage struct {
-	pool    *pool.Pool
-	maxLag  uint64
-	timeout time.Duration
-	rec     observe.Recorder
+	pool      *pool.Pool
+	maxLag    uint64
+	timeout   time.Duration
+	rec       observe.Recorder
+	finalized bool
 }
 
 // NewReferenceStage builds the client's establishment stage.
 func NewReferenceStage(cfg ReferenceStageConfig) *ReferenceStage {
-	return &ReferenceStage{pool: cfg.Pool, maxLag: cfg.MaxLag, timeout: cfg.Timeout, rec: cfg.Recorder}
+	return &ReferenceStage{pool: cfg.Pool, maxLag: cfg.MaxLag, timeout: cfg.Timeout, rec: cfg.Recorder, finalized: cfg.FinalizedStrategy}
 }
 
 var _ aggregator.ReferenceStage = (*ReferenceStage)(nil)
@@ -57,21 +65,126 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocatio
 	var (
 		ref rpc.ReferenceEvidence
 	)
-	switch request.Kind {
-	case rpc.ReferenceFinalized:
+	// The finalized strategy pins the default reference (latest) at the
+	// finalized level too — that is the conservative preset's whole point.
+	useFinalizedAlgorithm := s.finalized && request.Kind != rpc.ReferenceSafe
+	switch {
+	case useFinalizedAlgorithm:
 		// The finalized establishment keeps the snapshot's floor and mode,
 		// exactly as the facade path does.
 		snapshot := invocation.Basis().Corroboration
 		ref, err = reference.Finalized(ctx, reader, MethodHeadCodec{}, s.maxLag, snapshot.Floor, snapshot.Mode, s.timeout, s.rec)
-	case rpc.ReferenceLatest, rpc.ReferenceSafe:
+	case request.Kind == rpc.ReferenceLatest || request.Kind == rpc.ReferenceSafe || request.Kind == rpc.ReferenceFinalized:
 		ref, err = s.establishStrict(ctx, invocation, string(request.Kind))
 	default:
 		err = fmt.Errorf("reference: unknown reference kind %q: %w", request.Kind, rpc.ErrInvalidRequest)
 	}
 	if err != nil {
+		// A failed establishment keeps its evidence visible to the decision:
+		// the business fan-out never starts, and the recorded faults stay on
+		// the reference the caller sees. The evidence records the requested
+		// tag; the caller's wrapper owns the "anchor:" prefix.
+		ref.Tag = taggedOriginTag(string(request.Kind))
+		refcontext.Publish(ctx, ref)
 		return invocation, err
 	}
+	// The evidence records the requested tag: latest rides as the default
+	// reference with no tag, every other level names itself.
+	ref.Tag = taggedOriginTag(string(request.Kind))
 	return invocation.WithReference(ref)
+}
+
+// AnchorHashReader returns the consumption-only hash reader method policies
+// rewrite moving tags with. It reads an already-established reference from
+// the in-flight invocation, or establishes one once through the invocation's
+// establishment stage — on the same invocation, with no nested aggregate and
+// no facade resolver call.
+func (s *ReferenceStage) AnchorHashReader() rpc.AnchorFunc {
+	return func(ctx context.Context) (string, error) {
+		ref, err := s.establishedForTag(ctx)
+		if err != nil {
+			return "", err
+		}
+		return ref.Hash, nil
+	}
+}
+
+// AnchorHeightReader is the height spelling of the same seam, for methods
+// whose wire form cannot carry a hash.
+func (s *ReferenceStage) AnchorHeightReader() rpc.AnchorHeightFunc {
+	return func(ctx context.Context) (uint64, error) {
+		ref, err := s.establishedForTag(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return ref.Height, nil
+	}
+}
+
+// establishedForTag returns the established reference for the anchor tag,
+// establishing it through the invocation's stage when the invocation does
+// not carry one yet. The raw tag is what the evidence records (latest rides
+// as the default reference with no tag).
+
+// establishedForTag returns the established reference for the anchor tag,
+// establishing it through the stage when the invocation does not carry one
+// yet. The raw tag is what the evidence records (latest rides as the default
+// reference with no tag).
+func (s *ReferenceStage) establishedForTag(ctx context.Context) (rpc.ReferenceEvidence, error) {
+	tag := rpc.AnchorTag(ctx)
+	invocation, ok := refcontext.Invocation(ctx)
+	if !ok {
+		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: no in-flight invocation for tag %q: %w", tag, rpc.ErrInvalidRequest)
+	}
+	if ref, ok := invocation.Reference(); ok && referenceMatchesTag(ref, tag) {
+		if ref.Status != rpc.Corroborated {
+			return ref, fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
+		}
+		return ref, nil
+	}
+	kind := referenceKindForTag(tag)
+	// The aggregator injects the establishment stage for its invocations, so
+	// a wrapping stage observes the rounds; direct construction falls back to
+	// this stage.
+	var establish establishFunc = s.Establish
+	if wrapped, ok := refcontext.ReferenceStage(ctx).(aggregator.ReferenceStage); ok {
+		establish = wrapped.Establish
+	}
+	completed, err := establish(ctx, invocation, rpc.ReferenceRequest{Kind: kind})
+	if err != nil {
+		return rpc.ReferenceEvidence{}, err
+	}
+	ref, _ := completed.Reference()
+	// The transitional capture stays the decision's evidence source until the
+	// invocation flows through every assembly path.
+	refcontext.Publish(ctx, ref)
+	return ref, nil
+}
+
+// establishFunc is the establishment entry the anchor readers call.
+type establishFunc func(context.Context, rpc.Invocation, rpc.ReferenceRequest) (rpc.Invocation, error)
+
+// referenceKindForTag maps the wire tag to the declared reference kind.
+func referenceKindForTag(tag string) rpc.ReferenceKind {
+	switch strings.ToLower(tag) {
+	case string(rpc.ReferenceSafe):
+		return rpc.ReferenceSafe
+	case string(rpc.ReferenceFinalized):
+		return rpc.ReferenceFinalized
+	default:
+		return rpc.ReferenceLatest
+	}
+}
+
+// referenceMatchesTag reports whether established evidence serves this tag:
+// each level keeps its meaning, so safe never reuses latest and vice versa.
+func referenceMatchesTag(ref rpc.ReferenceEvidence, tag string) bool {
+	kind := referenceKindForTag(tag)
+	if kind == rpc.ReferenceLatest {
+		// The default reference records no tag; anything else names its level.
+		return ref.Tag == "" || strings.EqualFold(ref.Tag, string(rpc.ReferenceLatest))
+	}
+	return strings.EqualFold(ref.Tag, string(kind))
 }
 
 // establishStrict runs the strict head algorithm on the invocation's frozen
@@ -134,6 +247,12 @@ func (s *ReferenceStage) establishStrict(ctx context.Context, invocation rpc.Inv
 	if snapshot.Mode == rpc.CorroborationUnanimity {
 		opts = append(opts, rpc.WithUnanimity())
 	}
+	// A terminal collection failure with nothing usable returns the pool's
+	// own sentinel instead of a resolver's empty-input error.
+	if collectErr != nil && !hasUsableHeadEmission(emissions) {
+		s.recordStageEvent(started, ref, emissions, nil, collectErr)
+		return ref, collectErr
+	}
 	strict := rpc.Strict(MethodHeadCodec{}.Normalize, opts...)
 	outcome, resolveErr := strict.(rpc.CorroboratingOutcomeResolver).ResolveOutcomeCorroborated(snapshot, observations)
 	decision := outcome.Decision
@@ -147,22 +266,42 @@ func (s *ReferenceStage) establishStrict(ctx context.Context, invocation rpc.Inv
 			ref.Reject = append(ref.Reject, source)
 		}
 	}
-	// Per-source faults from the resolution's own statement; unattempted
-	// members are availability faults (their basis slot was kept).
-	verdicts := finalizeStageVerdicts(outcome.Verdicts, emissions)
-	for _, verdict := range verdicts {
-		if verdict.Kind != rpc.VerdictUnusable {
-			continue
+	// Fault assembly mirrors the aggregate-owned establishment: the
+	// resolution's per-source statement classifies attempted sources when it
+	// is available, and the resolver's own fault list plus the per-source
+	// response faults carry the rest.
+	if verdicts := finalizeStageVerdicts(outcome.Verdicts, emissions); verdicts != nil {
+		attempted := make(map[string]bool, len(emissions))
+		for _, emission := range emissions {
+			if emission.Src != nil {
+				attempted[emission.Src.ID()] = emission.Attempted
+			}
 		}
-		if verdict.Err != nil {
-			ref.Faults = append(ref.Faults, fmt.Errorf("source %q: %w", verdict.Source.Name, verdict.Err))
+		for _, verdict := range verdicts {
+			if verdict.Kind != rpc.VerdictUnusable {
+				continue
+			}
+			ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: verdict.Source, Err: verdict.Err})
+			if attempted[verdict.Source.ID] && verdict.Err != nil {
+				ref.Faults = append(ref.Faults, fmt.Errorf("source %q: %w", verdict.Source.Name, verdict.Err))
+			}
 		}
-		ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: verdict.Source, Err: verdict.Err})
+	} else {
+		ref.Faults = append(ref.Faults, decision.Faults...)
+		for _, emission := range emissions {
+			if !emission.Attempted || emission.Err == nil {
+				continue
+			}
+			source := sourceRefOf(emission.Src)
+			ref.Faults = append(ref.Faults, fmt.Errorf("source %q: %w", source.Name, emission.Err))
+			ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: source, Err: emission.Err})
+		}
 	}
 	if resolveErr == nil && decision.Status != rpc.Corroborated {
 		resolveErr = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrConflict)
 	}
 	if resolveErr != nil {
+		s.recordStageEvent(started, ref, emissions, verdictsForEvent(outcome.Verdicts, emissions), resolveErr)
 		return ref, resolveErr
 	}
 	// Preserve the winning source's wire spelling in the evidence value, the
@@ -177,9 +316,11 @@ func (s *ReferenceStage) establishStrict(ctx context.Context, invocation rpc.Inv
 	}
 	hash, height, err := blockRefFromDecision(decision)
 	if err != nil {
+		s.recordStageEvent(started, ref, emissions, verdictsForEvent(outcome.Verdicts, emissions), err)
 		return ref, err
 	}
 	ref.Hash, ref.Height, ref.Status = hash, height, rpc.Corroborated
+	s.recordStageEvent(started, ref, emissions, verdictsForEvent(outcome.Verdicts, emissions), nil)
 	return ref, nil
 }
 
@@ -229,4 +370,66 @@ func sourceRefOf(src *pool.Source) rpc.SourceRef {
 		return rpc.SourceRef{}
 	}
 	return rpc.SourceRef{Name: src.Name(), URL: src.URL(), ID: src.ID()}
+}
+
+// hasUsableHeadEmission reports whether any emission delivered a value.
+func hasUsableHeadEmission(emissions []pool.Emission) bool {
+	for _, emission := range emissions {
+		if emission.Val != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// verdictsForEvent reclassifies unattempted members for the observability
+// event, mirroring the coordinator's absent marking.
+func verdictsForEvent(verdicts []rpc.SourceVerdict, emissions []pool.Emission) []rpc.SourceVerdict {
+	return finalizeStageVerdicts(verdicts, emissions)
+}
+
+// recordStageEvent folds one establishment round into exactly one
+// observability event under the anchor method label, matching the event the
+// establishment aggregate used to emit.
+func (s *ReferenceStage) recordStageEvent(started time.Time, ref rpc.ReferenceEvidence, emissions []pool.Emission, verdicts []rpc.SourceVerdict, resolveErr error) {
+	if s.rec == nil || s.rec == observe.Nop {
+		return
+	}
+	classifier := func(emission pool.Emission) bool {
+		if verdicts == nil {
+			return emission.Err == nil && emission.Val != nil
+		}
+		for _, verdict := range verdicts {
+			if emission.Src != nil && verdict.Source.ID == emission.Src.ID() {
+				return verdict.Kind == rpc.VerdictSupported || verdict.Kind == rpc.VerdictDissented
+			}
+		}
+		return false
+	}
+	event := observe.DecisionEvent{
+		Method:   anchorMethodName,
+		Duration: time.Since(started),
+		Faults:   len(ref.Faults),
+	}
+	if resolveErr != nil {
+		event.Status = "failed"
+		event.Conflict = errors.Is(resolveErr, rpc.ErrConflict)
+	} else {
+		event.Status = ref.Status.String()
+	}
+	for _, emission := range emissions {
+		if !emission.Attempted {
+			continue
+		}
+		source := "unknown"
+		if emission.Src != nil {
+			source = emission.Src.Name()
+		}
+		event.Attempts = append(event.Attempts, observe.SourceEvent{
+			Source: source,
+			RTT:    emission.RTT,
+			Failed: !classifier(emission),
+		})
+	}
+	s.rec.RecordDecision(event)
 }

@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
@@ -177,35 +176,6 @@ func resolveReference(ctx context.Context, resolver AnchorResolver, tag string) 
 		ref.Status = rpc.Unknown
 	}
 	return ref, err
-}
-
-func anchorHashOf(resolver AnchorResolver) rpc.AnchorFunc {
-	return func(ctx context.Context) (string, error) {
-		tag := rpc.AnchorTag(ctx)
-		ref, err := resolveReference(ctx, resolver, tag)
-		ref.Tag = tag
-		refcontext.Publish(ctx, ref)
-		if err == nil && ref.Status != rpc.Corroborated {
-			err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
-		}
-		return ref.Hash, err
-	}
-}
-
-func anchorHeightOf(resolver AnchorResolver) rpc.AnchorHeightFunc {
-	return func(ctx context.Context) (uint64, error) {
-		if !hasAnchorHeight(resolver) {
-			return 0, fmt.Errorf("anchor resolver %T does not implement AnchorHeightProvider: %w", resolver, rpc.ErrInvalidRequest)
-		}
-		tag := rpc.AnchorTag(ctx)
-		ref, err := resolveReference(ctx, resolver, tag)
-		ref.Tag = tag
-		refcontext.Publish(ctx, ref)
-		if err == nil && ref.Status != rpc.Corroborated {
-			err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
-		}
-		return ref.Height, err
-	}
 }
 
 // CachedAnchor retains one complete reference and its evidence for a bounded TTL.

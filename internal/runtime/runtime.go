@@ -1,11 +1,12 @@
 // Package runtime owns the production composition of the RPC method catalog,
-// typed observation projectors, and aggregate execution pipeline.
+// typed observation projectors, the reference establishment stage, and the
+// aggregate execution pipeline.
 //
-// It deliberately does not expose a public client and does not construct
-// references or make business decisions. The root facade supplies the small
-// reference functions needed by method policies; this keeps the package
-// independent from the facade while making method binding visible in the
-// single Composition Root.
+// It deliberately does not expose a public client. Method binding, the
+// reference stage, and the anchor readers all live here, which makes the
+// assembly visible in the single Composition Root: method policies receive
+// consumption-only anchor readers bound to the stage, so no method holds a
+// callback that fans out its own network round.
 package runtime
 
 import (
@@ -20,17 +21,29 @@ import (
 	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
+// AnchoringStrategy selects the establishment strategy for moving-tag reads.
+// The zero value keeps the strict-head strategy for every tag.
+type AnchoringStrategy struct {
+	// Finalized establishes the finalized tag through the candidate-selection
+	// algorithm instead of the strict head algorithm.
+	Finalized bool
+	// MaxLag bounds how far a reported finalized view may trail the fleet's
+	// lower median (finalized strategy only).
+	MaxLag uint64
+}
+
 // Inputs are the non-business dependencies required to assemble one client
-// runtime. Anchor functions are supplied by the reference owner; runtime only
-// binds them to the methods that need them.
+// runtime. The reference stage is constructed here; method policies receive
+// its consumption-only anchor readers.
 type Inputs struct {
 	Pool           *pool.Pool
-	AnchorHash     rpc.AnchorFunc
-	AnchorHeight   rpc.AnchorHeightFunc
 	StrictOptions  []rpc.StrictOption
 	Recorder       observe.Recorder
 	CollectTimeout time.Duration
 	Corroboration  *rpc.CorroborationShared
+	// Anchoring is nil for the strict-head strategy; the finalized preset
+	// passes the strategy with its lag bound.
+	Anchoring *AnchoringStrategy
 }
 
 // Bundle is the internal execution graph consumed by the root facade. It is
@@ -38,35 +51,45 @@ type Inputs struct {
 type Bundle struct {
 	Policies   rpc.Registry
 	Aggregator *aggregator.Aggregator
+	Stage      *ReferenceStage
 }
 
-// Build assembles the method catalog, typed observation projectors, and the
-// aggregator. Method policy binding lives here; reference establishment and
-// policy implementation remain owned by their respective modules.
+// Build assembles the method catalog, the reference stage, typed observation
+// projectors, and the aggregator. Method policy binding lives here; the
+// establishment algorithms remain owned by their respective modules.
 func Build(in Inputs) (*Bundle, error) {
 	if in.Pool == nil {
 		return nil, fmt.Errorf("runtime: nil pool")
 	}
+	stage := NewReferenceStage(ReferenceStageConfig{
+		Pool:              in.Pool,
+		Timeout:           in.CollectTimeout,
+		Recorder:          in.Recorder,
+		FinalizedStrategy: in.Anchoring != nil && in.Anchoring.Finalized,
+		MaxLag:            anchoringMaxLag(in.Anchoring),
+	})
+	anchorHash := stage.AnchorHashReader()
+	anchorHeight := stage.AnchorHeightReader()
 	policies := rpc.Registry{
 		methods.MethodChainID:               methods.ChainIDPolicy(in.StrictOptions...),
 		methods.MethodGetBlockByHash:        methods.BlockByHashPolicy(in.StrictOptions...),
 		methods.MethodGetBlockByNumber:      methods.BlockByNumberPolicy(in.StrictOptions...),
-		methods.MethodGetBalance:            methods.GetBalancePolicy(in.AnchorHash, in.StrictOptions...),
+		methods.MethodGetBalance:            methods.GetBalancePolicy(anchorHash, in.StrictOptions...),
 		methods.MethodGetTransactionReceipt: methods.TransactionReceiptPolicy(in.StrictOptions...),
 		methods.MethodGetTransactionByHash:  methods.TransactionByHashPolicy(in.StrictOptions...),
-		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(in.AnchorHash, in.StrictOptions...),
-		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(in.AnchorHash, in.StrictOptions...),
-		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(in.AnchorHash, in.StrictOptions...),
-		methods.MethodGetCode:               methods.GetCodePolicy(in.AnchorHash, in.StrictOptions...),
-		methods.MethodCall:                  methods.CallPolicy(in.AnchorHash, in.StrictOptions...),
-		methods.MethodEstimateGas:           methods.EstimateGasPolicy(in.AnchorHash),
-		methods.MethodGetLogs:               methods.LogsPolicy(in.AnchorHeight, in.StrictOptions...),
-		methods.MethodFeeHistory:            methods.FeeHistoryPolicy(in.AnchorHeight, in.StrictOptions...),
+		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(anchorHash, in.StrictOptions...),
+		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(anchorHash, in.StrictOptions...),
+		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(anchorHash, in.StrictOptions...),
+		methods.MethodGetCode:               methods.GetCodePolicy(anchorHash, in.StrictOptions...),
+		methods.MethodCall:                  methods.CallPolicy(anchorHash, in.StrictOptions...),
+		methods.MethodEstimateGas:           methods.EstimateGasPolicy(anchorHash),
+		methods.MethodGetLogs:               methods.LogsPolicy(anchorHeight, in.StrictOptions...),
+		methods.MethodFeeHistory:            methods.FeeHistoryPolicy(anchorHeight, in.StrictOptions...),
 		methods.MethodGasPrice:              methods.GasPricePolicy(),
 		methods.MethodMaxPriorityFeePerGas:  methods.MaxPriorityFeePerGasPolicy(),
 		methods.MethodBlobBaseFee:           methods.BlobBaseFeePolicy(),
 		methods.MethodBlockNumber:           methods.BlockNumberPolicy(),
-		methods.MethodCreateAccessList:      methods.CreateAccessListPolicy(in.AnchorHash),
+		methods.MethodCreateAccessList:      methods.CreateAccessListPolicy(anchorHash),
 		methods.MethodPeerCount:             methods.PeerCountPolicy(),
 		methods.MethodSyncing:               methods.SyncingPolicy(),
 		methods.MethodNetVersion:            methods.NetVersionPolicy(in.StrictOptions...),
@@ -100,6 +123,15 @@ func Build(in Inputs) (*Bundle, error) {
 			aggregator.WithRecorder(in.Recorder),
 			aggregator.WithCollectTimeout(in.CollectTimeout),
 			aggregator.WithCorroboration(in.Corroboration),
+			aggregator.WithReferenceStage(stage),
 			aggregator.WithProjectors(projectors)),
+		Stage: stage,
 	}, nil
+}
+
+func anchoringMaxLag(strategy *AnchoringStrategy) uint64 {
+	if strategy == nil {
+		return 0
+	}
+	return strategy.MaxLag
 }

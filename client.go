@@ -71,6 +71,11 @@ type clientOptions struct {
 	anchorFactory  func(*pool.Pool, observe.Recorder) AnchorResolver
 	poolOpts       []pool.PoolOption
 	httpAdapter    HTTPAdapter
+	// anchoring carries the business-read establishment strategy: the
+	// finalized preset selects the candidate-selection algorithm with its
+	// lag bound. The facade resolver keeps its own configuration.
+	useFinalizedAnchoring bool
+	finalizedMaxLag       uint64
 }
 
 // WithLogger injects a structured logger receiving one event per aggregate
@@ -112,6 +117,11 @@ func WithCollectTimeout(timeout time.Duration) Option {
 // knobs.
 func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
 	return func(o *clientOptions) {
+		cfg := finalizedAnchorConfig{defaultMaxFinalizedLag}
+		for _, opt := range opts {
+			opt(&cfg)
+		}
+		o.useFinalizedAnchoring, o.finalizedMaxLag = true, cfg.maxLag
 		o.anchorFactory = func(p *pool.Pool, rec observe.Recorder) AnchorResolver {
 			return NewFinalizedHeadAnchor(p, rec, opts...)
 		}
@@ -177,6 +187,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		if maxLag == 0 {
 			maxLag = config.DefaultFinalizedLag()
 		}
+		co.useFinalizedAnchoring, co.finalizedMaxLag = true, maxLag
 		co.anchorFactory = func(p *pool.Pool, rec observe.Recorder) AnchorResolver {
 			return NewFinalizedHeadAnchor(p, rec, WithMaxFinalizedLag(maxLag))
 		}
@@ -251,14 +262,17 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if finalized, ok := resolver.(*FinalizedHeadAnchor); ok && co.anchor == nil {
 		finalized.tuneForRuntime(floor, co.collectTimeout)
 	}
+	var anchoring *runtime.AnchoringStrategy
+	if co.useFinalizedAnchoring {
+		anchoring = &runtime.AnchoringStrategy{Finalized: true, MaxLag: co.finalizedMaxLag}
+	}
 	runtimeBundle, err := runtime.Build(runtime.Inputs{
 		Pool:           rpcPool,
-		AnchorHash:     anchorHashOf(resolver),
-		AnchorHeight:   anchorHeightOf(resolver),
 		StrictOptions:  strictOpts,
 		Recorder:       rec,
 		CollectTimeout: co.collectTimeout,
 		Corroboration:  corrob,
+		Anchoring:      anchoring,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ethguard: %w", err)
