@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/codermaybe/ethguard/internal/limits"
 	"net/http"
 	"net/url"
 
@@ -32,7 +34,7 @@ var errRawBodySlotTaken = errors.New("pool: raw response body already captured f
 // cannot stop a body that dribbles its bytes slowly, which is what a deadline
 // on the call context is for (see the precedence note in
 // capturingTransport.RoundTrip).
-const defaultCapturedBodyBytes = 32 << 20
+const defaultCapturedBodyBytes = limits.MaxBodyBytes
 
 // geth decodes a JSON-RPC error's data into interface{}. A missing field and
 // a JSON null therefore arrive as the same nil, and observationRPCError can

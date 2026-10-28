@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/codermaybe/ethguard/internal/limits"
 	"math/big"
 	nethttp "net/http"
 	"net/url"
@@ -33,7 +35,7 @@ import (
 
 // DefaultBodyLimit bounds one response body read. It matches the audited
 // capture limit of the Geth compatibility adapter (class A).
-const DefaultBodyLimit = 32 << 20
+const DefaultBodyLimit = limits.MaxBodyBytes
 
 // maxStatusBody caps how much of a non-2xx body is retained in the error
 // chain. The body stays available for diagnostics and text-based

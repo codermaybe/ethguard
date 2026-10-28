@@ -205,7 +205,9 @@ func (m *monitor) adaptSuccessLocked() {
 	if m.scheduleSuccesses%requestPaceStep != 0 {
 		return
 	}
-	// Add capacity slowly: reduce pace by at most five percent per step.
+	// Add capacity slowly: a nominal five-percent cut per step, floored at
+	// minRequestPace so already-fast paces (below 20x the floor) shed capacity
+	// proportionally faster.
 	step := m.schedulePace / 20
 	if step < minRequestPace {
 		step = minRequestPace

@@ -197,67 +197,76 @@ func TestBroadcastRemovalRacingFanoutLeavesNoZeroEmission(t *testing.T) {
 	victims := map[string]bool{"m00": true, "m16": true, "m32": true, "m48": true}
 
 	for round := 0; round < rounds; round++ {
-		// Two slow real nodes keep the fan-out observably in progress when
-		// Remove fires; the remaining members are distinct unreachable
-		// endpoints — cheap, but they still pass the precheck gates and widen
-		// the precheck/dispatch loop window.
-		slow := make([]*rpctest.Node, 2)
-		for i := range slow {
-			slow[i] = rpctest.NewNode(1)
-			slow[i].Handle("eth_sendRawTransaction",
-				rpctest.After(25*time.Millisecond, rpctest.Value("0x"+"02")))
-		}
+		runRemovalRaceRound(t, round, rng, victims, members)
+	}
+}
 
-		p := NewPoolWithChainID(1)
-		port := 10 // two-digit unreachable loopback ports; every member must be a distinct endpoint
-		for i := 0; i < members; i++ {
-			name := "m" + string(rune('0'+i/10)) + string(rune('0'+i%10))
-			url := "http://127.0.0.1:" + string(rune('0'+port/10)) + string(rune('0'+port%10))
-			if i >= members-len(slow) {
-				url = slow[i-(members-len(slow))].URL()
-			} else {
-				port++
-			}
-			if _, err := p.Join(name, url); err != nil {
-				t.Fatalf("round %d: join %s: %v", round, name, err)
-			}
-		}
-
-		type broadcastResult struct {
-			emissions []Emission
-			err       error
-		}
-		done := make(chan broadcastResult, 1)
-		go func() {
-			emissions, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x02"},
-				WithBroadcastTimeout(time.Second))
-			done <- broadcastResult{emissions: emissions, err: err}
-		}()
-
-		// Jittered removals aimed at the precheck->dispatch window; busy-wait
-		// keeps sub-100µs precision that time.Sleep cannot deliver.
-		deadline := time.Now().Add(time.Duration(rng.Intn(500)) * time.Microsecond)
-		for time.Now().Before(deadline) {
-		}
-		for name := range victims {
-			_ = p.Remove(name) // absent when this round removed it pre-snapshot
-		}
-
-		result := <-done
-		if len(result.emissions) == 0 {
-			t.Fatalf("round %d: broadcast returned no emissions (err=%v)", round, result.err)
-		}
-		for i, emission := range result.emissions {
-			if emission.Src == nil {
-				t.Fatalf("round %d: emission %d is zero-valued (no Src); removal raced the fan-out window", round, i)
-			}
-			if emission.Val == nil && emission.Err == nil {
-				t.Fatalf("round %d: emission %d carries neither a value nor an error", round, i)
-			}
-		}
-		p.Close()
+// runRemovalRaceRound is one amplification round, split out so its pool and
+// nodes close via defer even when t.Fatalf exits the test mid-round.
+func runRemovalRaceRound(t *testing.T, round int, rng *rand.Rand, victims map[string]bool, members int) {
+	t.Helper()
+	// Two slow real nodes keep the fan-out observably in progress when
+	// Remove fires; the remaining members are distinct unreachable
+	// endpoints — cheap, but they still pass the precheck gates and widen
+	// the precheck/dispatch loop window.
+	slow := make([]*rpctest.Node, 2)
+	defer func() {
 		for _, n := range slow {
 			n.Close()
+		}
+	}()
+	for i := range slow {
+		slow[i] = rpctest.NewNode(1)
+		slow[i].Handle("eth_sendRawTransaction",
+			rpctest.After(25*time.Millisecond, rpctest.Value("0x"+"02")))
+	}
+
+	p := NewPoolWithChainID(1)
+	defer p.Close()
+	port := 10 // two-digit unreachable loopback ports; every member must be a distinct endpoint
+	for i := 0; i < members; i++ {
+		name := "m" + string(rune('0'+i/10)) + string(rune('0'+i%10))
+		url := "http://127.0.0.1:" + string(rune('0'+port/10)) + string(rune('0'+port%10))
+		if i >= members-len(slow) {
+			url = slow[i-(members-len(slow))].URL()
+		} else {
+			port++
+		}
+		if _, err := p.Join(name, url); err != nil {
+			t.Fatalf("round %d: join %s: %v", round, name, err)
+		}
+	}
+
+	type broadcastResult struct {
+		emissions []Emission
+		err       error
+	}
+	done := make(chan broadcastResult, 1)
+	go func() {
+		emissions, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x02"},
+			WithBroadcastTimeout(time.Second))
+		done <- broadcastResult{emissions: emissions, err: err}
+	}()
+
+	// Jittered removals aimed at the precheck->dispatch window; busy-wait
+	// keeps sub-100µs precision that time.Sleep cannot deliver.
+	deadline := time.Now().Add(time.Duration(rng.Intn(500)) * time.Microsecond)
+	for time.Now().Before(deadline) {
+	}
+	for name := range victims {
+		_ = p.Remove(name) // absent when this round removed it pre-snapshot
+	}
+
+	result := <-done
+	if len(result.emissions) == 0 {
+		t.Fatalf("round %d: broadcast returned no emissions (err=%v)", round, result.err)
+	}
+	for i, emission := range result.emissions {
+		if emission.Src == nil {
+			t.Fatalf("round %d: emission %d is zero-valued (no Src); removal raced the fan-out window", round, i)
+		}
+		if emission.Val == nil && emission.Err == nil {
+			t.Fatalf("round %d: emission %d carries neither a value nor an error", round, i)
 		}
 	}
 }

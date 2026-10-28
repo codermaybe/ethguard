@@ -189,10 +189,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// admission and resolver outcomes are recorded as separate stages below.
 	if c := uncertain.FromContext(ctx); c != nil {
 		for _, emission := range emissions {
-			source := rpc.SourceRef{}
-			if emission.Src != nil {
-				source = rpc.SourceRef{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()}
-			}
+			source := sourceRefOf(emission.Src)
 			errText := ""
 			if emission.Err != nil {
 				errText = emission.Err.Error()
@@ -230,7 +227,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 				evidence, admissionErr := admission.Admit(ctx, prepared, emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
 					raw, callErr := a.pool.CallSource(callCtx, emissions[i].Src, method, params)
 					if c := uncertain.FromContext(ctx); c != nil {
-						source := rpc.SourceRef{Name: emissions[i].Src.Name(), URL: emissions[i].Src.URL(), ID: emissions[i].Src.ID()}
+						source := sourceRefOf(emissions[i].Src)
 						errText := ""
 						if callErr != nil {
 							errText = callErr.Error()
@@ -241,8 +238,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 				})
 				if admissionErr != nil {
 					if c := uncertain.FromContext(ctx); c != nil {
-						source := rpc.SourceRef{Name: emissions[i].Src.Name(), URL: emissions[i].Src.URL(), ID: emissions[i].Src.ID()}
-						c.Record("admission", prepared.Method, source, nil, admissionErr.Error())
+						c.Record("admission", prepared.Method, sourceRefOf(emissions[i].Src), nil, admissionErr.Error())
 					}
 					emissions[i].Err = fmt.Errorf("admission: %w", admissionErr)
 					emissions[i].Val = nil
@@ -257,7 +253,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	participants := make([]rpc.SourceRef, 0, len(emissions))
 	for i, emission := range emissions {
 		observations[i] = rpc.Observation{
-			Source:   rpc.SourceRef{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()},
+			Source:   sourceRefOf(emission.Src),
 			Value:    emission.Val,
 			Err:      emission.Err,
 			RPCError: observationRPCError(emission.Err),
@@ -286,15 +282,10 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		}
 	}
 	if collectErr != nil && !hasUsableEmission(emissions) {
-		decision := rpc.Decision{
-			Status:           rpc.Unknown,
-			Faults:           collectionFaults(policy, collectErr, emissions),
-			SourceFaults:     structuredSourceFaults(policy, emissions),
-			CollectionFaults: collectionFaultList(collectErr),
-			Reference:        capture.Reference(),
-			Participants:     participants,
-			Prepared:         preparedRequest(prepared),
-		}
+		decision := unknownDecision(capture.Reference(), participants, preparedRequest(prepared))
+		decision.Faults = collectionFaults(policy, collectErr, emissions)
+		decision.SourceFaults = structuredSourceFaults(policy, emissions)
+		decision.CollectionFaults = collectionFaultList(collectErr)
 		if aggregateErr != nil {
 			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
 		}
@@ -311,14 +302,9 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// typed callers instead of replacing it with ErrNoValidResponse.
 	if collectErr == nil && !hasUsableEmission(emissions) && hasMalformedAdmission(emissions) {
 		admissionErr := firstMalformedAdmission(emissions)
-		decision := rpc.Decision{
-			Status:       rpc.Unknown,
-			Faults:       sourceFaults(policy, emissions),
-			SourceFaults: structuredSourceFaults(policy, emissions),
-			Reference:    capture.Reference(),
-			Participants: participants,
-			Prepared:     preparedRequest(prepared),
-		}
+		decision := unknownDecision(capture.Reference(), participants, preparedRequest(prepared))
+		decision.Faults = sourceFaults(policy, emissions)
+		decision.SourceFaults = structuredSourceFaults(policy, emissions)
 		if aggregateErr != nil {
 			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
 		}
@@ -381,6 +367,27 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	decision.Faults = append(decision.Faults, sourceFaults(policy, emissions)...)
 	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions)
 	return decision, resolveErr
+}
+
+// sourceRefOf copies a pool source's identity for observation records; a
+// nil source (an unattempted emission) yields the zero reference.
+func sourceRefOf(src *pool.Source) rpc.SourceRef {
+	if src == nil {
+		return rpc.SourceRef{}
+	}
+	return rpc.SourceRef{Name: src.Name(), URL: src.URL(), ID: src.ID()}
+}
+
+// unknownDecision builds the shared shape of the two degraded early-return
+// decisions — everything the invocation knows without a resolved value. Each
+// caller attaches its phase-specific fault lists after it.
+func unknownDecision(reference *rpc.ReferenceEvidence, participants []rpc.SourceRef, prepared *rpc.Request) rpc.Decision {
+	return rpc.Decision{
+		Status:       rpc.Unknown,
+		Reference:    reference,
+		Participants: participants,
+		Prepared:     prepared,
+	}
 }
 
 // sourceFaultOf renders one field-aggregation abstention with the source
@@ -530,7 +537,7 @@ func structuredSourceFaults(policy rpc.Policy, emissions []pool.Emission) []rpc.
 			continue
 		}
 		faults = append(faults, rpc.SourceFault{
-			Source: rpc.SourceRef{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()},
+			Source: sourceRefOf(emission.Src),
 			Err:    emission.Err,
 		})
 	}

@@ -18,6 +18,11 @@ import (
 // deliberately low-rate: probes ride the ordinary collection path and must
 // never compete with traffic.
 
+// maxTipProbeTimeout caps one RefreshTips probe regardless of how rarely the
+// fleet is polled: the poll interval paces the sampler, not how long one
+// manual probe may hold a caller.
+const maxTipProbeTimeout = 30 * time.Second
+
 // PoolOption tunes a Pool at construction time.
 type PoolOption func(*poolConfig)
 
@@ -120,7 +125,14 @@ func (p *Pool) RefreshTips(ctx context.Context) {
 		return // tip sampling not enabled
 	}
 
-	probeCtx, cancel := context.WithTimeout(ctx, interval)
+	// The probe timeout is bounded independently of the poll interval: a
+	// rarely-polled fleet (WithTipTracking with an hour-scale interval) must
+	// not turn one manual RefreshTips call into an hour-long block.
+	probeTimeout := interval
+	if probeTimeout > maxTipProbeTimeout {
+		probeTimeout = maxTipProbeTimeout
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	emissions, _ := p.collect(probeCtx, "eth_blockNumber", nil, CollectOptions{}, collectPlan{
 		warmOnly: true,

@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/codermaybe/ethguard/internal/limits"
 )
 
 const (
-	MaxBodyBytes    int64 = 32 << 20
+	MaxBodyBytes    int64 = limits.MaxBodyBytes
 	MaxNestingDepth       = 32
 	MaxObjectKeys         = 4096
 )
