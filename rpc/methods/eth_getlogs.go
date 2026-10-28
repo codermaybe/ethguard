@@ -100,6 +100,14 @@ func (p logsPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observati
 	return p.Policy.Resolve(obs)
 }
 
+func (p logsPolicy) ResolveOutcome(obs []rpc.Observation) (rpc.Outcome, error) {
+	if inner, ok := p.Policy.(rpc.OutcomeResolver); ok {
+		return inner.ResolveOutcome(obs)
+	}
+	d, err := p.Resolve(obs)
+	return rpc.Outcome{Decision: d}, err
+}
+
 func (p logsPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
 	if policy, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
 		return policy.ResolveOutcomeCorroborated(c, obs)
