@@ -201,6 +201,9 @@ func (s *FinalizedHeadService) Reference(ctx context.Context) (rpc.ReferenceEvid
 // algorithm under the snapshot's adjudication, finalized rides the
 // candidate-selection algorithm, anything else fails.
 func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
+	// latest and safe ride the strict head algorithm under the snapshot's
+	// adjudication — one routing for both, differing only in the requested
+	// tag the evidence records.
 	if tag == "latest" || tag == "safe" {
 		mode, floor := rpc.CorroborationMajority, s.quorum
 		if value, ok := refcontext.Corroboration(ctx); ok {
@@ -224,14 +227,14 @@ func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) 
 		if mode == rpc.CorroborationUnanimity {
 			opts = append(opts, rpc.WithUnanimity())
 		}
-		resolver := NewStrictHeadService(StrictHeadConfig{
+		strict := NewStrictHeadService(StrictHeadConfig{
 			Pool:           s.pool,
 			Recorder:       s.rec,
 			CollectTimeout: s.timeout,
 			Corroboration:  shared,
 			StrictOptions:  opts,
 		})
-		return resolver.ReferenceForTag(ctx, tag)
+		return strict.ReferenceForTag(ctx, tag)
 	}
 	if tag == "finalized" || tag == "" {
 		ref, err := s.Reference(ctx)

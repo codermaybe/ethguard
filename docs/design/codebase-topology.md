@@ -132,13 +132,13 @@ Locality，不因为文件数量增长就按业务名词拆成大量浅层 packa
 | --- | --- | --- | --- |
 | root facade | 公共 Client 形状、Decision 入口 | root `Client` 方法 | 具体 transport、方法字段表、第二套装配 |
 | `ethadapter` | ethclient 调用形状 | ethclient-shaped methods | 第二套 decoder、第二套 quorum、业务裁决 |
-| `internal/runtime` | 唯一组合与装配 | root 构造器使用的内部入口 | 公共 API、方法字段语义、请求级执行状态 |
+| `internal/runtime` | 唯一组合与装配（方法 catalog、ReferenceStage、projector、aggregator） | root 构造器使用的内部入口 | 公共 API、方法字段语义、请求级执行状态 |
 | `pool` | 来源生命周期、健康度、调度和 Transport Port | Pool/Source 与 Transport Port | Ethereum 字段语义、裁决规则 |
 | `aggregator` | 单次调用的编排顺序和 evidence 装配 | Aggregate 与 collection Interface | 方法字段、Ethereum schema、具体 transport |
 | `rpc` | 通用裁决模型和策略 Interface | Policy、Decision、Observation | 具体 Ethereum 方法知识 |
 | `rpc/methods` | 方法请求形态、准入、比较键和策略装配 | 方法 policy constructors、catalog | transport 生命周期、通用 quorum 循环 |
 | `rpc/internal/objects` + `wire` | 共享对象字段、编码、承诺和规范化 | 内部 encoder/admission helper | pool、client facade、连接管理 |
-| `internal/reference` | reference 建立算法 | reference resolver、Head-Reading Port | 直接构造具体方法 policy |
+| `internal/reference` | reference 建立算法与 head seam（HeadReader/HeadCodec） | reference.Finalized、HeadReader、HeadCodec | import pool、rpc/methods，构造 policy 或 aggregator |
 | `internal/typed` | Decision.Value 到公开 Go 类型的唯一投影 | typed decoder/projection Interface | source collection、投票仲裁、网络传输 |
 | `internal/verification` | 公开 seam 的契约、场景、集成和回放验证 | 测试入口与报告 | 被生产代码反向导入、充当生产事实来源 |
 | `observe` | 被动事件记录 | Recorder | retry、quorum、安全决策 |
@@ -263,27 +263,37 @@ HTTP、现有 geth client、未来 raw WSS 都是 Adapter。该 seam 不向 `agg
 
 ### 7.3 Reference seam
 
-reference 建立只依赖由 `internal/reference` 定义的 Head-Reading Port：
+reference 建立按三层拆分（ReferenceStage 迁移后的形态）：
 
-- Port 只暴露建立参考点所需的最小 head 信息；
-- reference Module 不构造具体方法 policy；
-- 方法绑定和策略选择在 `internal/runtime` 完成。
+- `internal/reference` 定义并只依赖两个 consumer-owned 接口：`HeadReader`
+  （原始 head 读取）与 `HeadCodec`（head 解码与比较键）；它拥有 HeadView、
+  选择、确认与 reorg 算法，不 import `pool`、`rpc/methods` 或 `aggregator`，
+  不构造任何 policy 或 aggregator；
+- `internal/runtime` 拥有生产装配：`PoolHeadReader`（绑定 block-by-number
+  wire 请求与 invocation 的冻结 Basis 成员）、`MethodHeadCodec`（绑定 block
+  方法自身的 head 契约）、`ReferenceStage`（ReferenceStage seam 的实现）与
+  `StrictHeadService`/`FinalizedHeadService`（root facade 的建立服务）；
+- root `anchor.go` 保留公共 facade 类型，只转发给 runtime-owned services，
+  不构造 aggregator、不解析 head decision；
+- 一次移动标签读取的 reference 轮次是 Read invocation 的内部阶段：一个
+  Invocation、一个冻结 Basis、无嵌套 Aggregate（阶段编排见 7.4）。
 
 ### 7.4 Runtime pipeline（概念模型）
 
-读取类请求的概念顺序是：
+读取类请求的概念顺序是（aggregator 的命名阶段，一次逻辑调用一个 Invocation）：
 
 ```text
-Prepare / optional Reference
+Prepare / ReferenceStage（reference 轮次在同一 Invocation 内）
     → Collect
     → Admit
-    → Normalize / Resolve
-    → Decision
-    → Typed Projection
+    → Resolve
+    → Project / Observe
+    → Typed Projection（typed facade 侧）
 ```
 
-这是执行顺序模型，不是要求所有方法都拥有完全相同的物理路径。移动标签的 reference
-由现有方法契约和 reference seam 决定；结构迁移阶段不把 anchoring 重新定义成全局新语义。
+这是执行顺序模型，不是要求所有方法都拥有完全相同的物理路径。移动标签的
+reference 由方法声明的需求与 reference stage 决定；结构迁移阶段不把 anchoring
+重新定义成全局新语义。
 
 ## 8. 明确不做的事
 
