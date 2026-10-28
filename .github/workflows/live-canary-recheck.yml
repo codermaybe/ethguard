@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: checkout workflow commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
