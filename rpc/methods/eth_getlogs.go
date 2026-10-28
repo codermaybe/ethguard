@@ -54,6 +54,15 @@ func (p logsPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, 
 	return p.Policy.Prepare(ctx, req)
 }
 
+// ReferenceFor forwards the wrapped field-anchoring declaration; the local
+// request validation above still runs first in Prepare.
+func (p logsPolicy) ReferenceFor(req rpc.Request) (rpc.ReferenceRequest, bool) {
+	if inner, ok := p.Policy.(rpc.ReferenceRequirement); ok {
+		return inner.ReferenceFor(req)
+	}
+	return rpc.ReferenceRequest{}, false
+}
+
 func (p logsPolicy) BlockRef(original, prepared rpc.Request) string {
 	if provider, ok := p.Policy.(rpc.BlockRefProvider); ok {
 		return provider.BlockRef(original, prepared)

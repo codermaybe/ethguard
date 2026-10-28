@@ -91,6 +91,16 @@ func (d Decorator) ResolveOutcome(obs []Observation) (Outcome, error) {
 	return Outcome{Decision: decision}, err
 }
 
+// ReferenceFor forwards the wrapped policy's declared reference need. A
+// wrapped policy that declares none reports "not needed", which is exact: a
+// chain without an anchoring layer never needs a reference.
+func (d Decorator) ReferenceFor(req Request) (ReferenceRequest, bool) {
+	if inner, ok := d.Policy.(ReferenceRequirement); ok {
+		return inner.ReferenceFor(req)
+	}
+	return ReferenceRequest{}, false
+}
+
 // MethodRule composes the inner policy's rule without adding a column of its
 // own. Decorators that contribute a rule column use MethodRuleWith instead.
 func (d Decorator) MethodRule() (MethodRule, Policy) {

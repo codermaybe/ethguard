@@ -106,6 +106,15 @@ type LocalObservationPolicy interface {
 	ResolveLocal([]Observation) (Decision, error)
 }
 
+// ReferenceRequirement is the declarative capability of a policy whose wire
+// form can ride a moving tag: it states which reference level the request
+// needs, without performing any network work. The aggregator consults it
+// when a preparing decorator reports that the read needs its reference, and
+// the reference stage performs the establishment rounds.
+type ReferenceRequirement interface {
+	ReferenceFor(Request) (ReferenceRequest, bool)
+}
+
 // MethodRule is one layer of the method-rule index. Zero strings mean this
 // layer does not declare that column. A decorator fills only its own fields
 // and adopts the rest from the inner layer through WithInner. A resolver

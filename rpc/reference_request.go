@@ -1,5 +1,7 @@
 package rpc
 
+import "strings"
+
 // ReferenceKind names the moving tag a read's reference is established at.
 // Each kind keeps its level: safe is anchored at the safe reference,
 // finalized at the finalized reference, never silently latest.
@@ -17,6 +19,19 @@ const (
 // evidence to the invocation.
 type ReferenceRequest struct {
 	Kind ReferenceKind
+}
+
+// ReferenceKindForTag maps a wire moving tag to its reference kind; the
+// empty tag and unknown spellings map to the default reference.
+func ReferenceKindForTag(tag string) ReferenceKind {
+	switch strings.ToLower(tag) {
+	case string(ReferenceSafe):
+		return ReferenceSafe
+	case string(ReferenceFinalized):
+		return ReferenceFinalized
+	default:
+		return ReferenceLatest
+	}
 }
 
 // IsValid reports whether the kind names a known establishment level.

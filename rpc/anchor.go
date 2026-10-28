@@ -154,6 +154,41 @@ func (a anchoredPolicy) MethodRule() (MethodRule, Policy) {
 	return a.MethodRuleWith(MethodRule{Anchor: anchorRule("hash", a.positions)})
 }
 
+// ReferenceFor declares the reference this request needs: a moving tag at
+// one of the anchored positions names its level. Mixed tags are a request
+// error that Prepare raises, so the declaration reports "not needed" and
+// lets the local rejection happen first. Explicit numbers, hashes, and
+// pending need no reference.
+func (a anchoredPolicy) ReferenceFor(req Request) (ReferenceRequest, bool) {
+	tag, needed := singleMovingTag(req, a.positions)
+	if !needed {
+		return ReferenceRequest{}, false
+	}
+	return ReferenceRequest{Kind: ReferenceKindForTag(tag)}, true
+}
+
+// singleMovingTag reports the one moving tag present at the positions, or
+// that no rewrite is needed. Two different tags make the request invalid;
+// the declaration stays silent so Prepare owns the rejection.
+func singleMovingTag(req Request, positions []int) (string, bool) {
+	tag := ""
+	for _, pos := range positions {
+		if pos < 0 || pos >= len(req.Params) {
+			continue
+		}
+		value, ok := req.Params[pos].(string)
+		if !ok || !movingTags[strings.ToLower(value)] {
+			continue
+		}
+		lowered := strings.ToLower(value)
+		if tag != "" && tag != lowered {
+			return "", false
+		}
+		tag = lowered
+	}
+	return tag, tag != ""
+}
+
 func anchorRule(kind string, positions []int) string {
 	if len(positions) == 0 {
 		return kind
@@ -374,6 +409,16 @@ func (a anchoredHeightPolicy) MethodRule() (MethodRule, Policy) {
 	return a.MethodRuleWith(MethodRule{Anchor: anchorRule("height", a.positions)})
 }
 
+// ReferenceFor declares the height reference this request needs; the wire
+// form takes a height, so the established evidence is read at its height.
+func (a anchoredHeightPolicy) ReferenceFor(req Request) (ReferenceRequest, bool) {
+	tag, needed := singleMovingTag(req, a.positions)
+	if !needed {
+		return ReferenceRequest{}, false
+	}
+	return ReferenceRequest{Kind: ReferenceKindForTag(tag)}, true
+}
+
 type corroboratingHeightPolicy struct{ anchoredHeightPolicy }
 
 func (a corroboratingHeightPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
@@ -536,6 +581,43 @@ func (a anchoredFieldsPolicy) MethodRule() (MethodRule, Policy) {
 
 func anchorFieldsRule(pos int, fields []string) string {
 	return "height@" + strconv.Itoa(pos) + "." + strings.Join(fields, ",")
+}
+
+// ReferenceFor declares the reference the filter fields need: a missing
+// bound defaults to a moving tag, and an explicit moving tag names its
+// level. A blockHash pin needs no reference; contradictory input stays
+// Prepare's local rejection.
+func (a anchoredFieldsPolicy) ReferenceFor(req Request) (ReferenceRequest, bool) {
+	if a.paramPos < 0 || a.paramPos >= len(req.Params) {
+		return ReferenceRequest{}, false
+	}
+	obj, ok := req.Params[a.paramPos].(map[string]any)
+	if !ok {
+		return ReferenceRequest{}, false
+	}
+	if _, pinned := obj["blockHash"]; pinned {
+		return ReferenceRequest{}, false
+	}
+	tag := ""
+	for _, field := range a.fields {
+		value, present := obj[field]
+		if !present {
+			// A provider's implicit default is a moving tag in field clothing.
+			tag = "latest"
+			continue
+		}
+		if value, isStr := value.(string); isStr && movingTags[strings.ToLower(value)] {
+			lowered := strings.ToLower(value)
+			if tag != "" && tag != "latest" && tag != lowered {
+				return ReferenceRequest{}, false
+			}
+			tag = lowered
+		}
+	}
+	if tag == "" {
+		return ReferenceRequest{}, false
+	}
+	return ReferenceRequest{Kind: ReferenceKindForTag(tag)}, true
 }
 
 type corroboratingFieldsPolicy struct{ anchoredFieldsPolicy }

@@ -50,19 +50,6 @@ func Invocation(ctx context.Context) (rpc.Invocation, bool) {
 	return invocation, ok
 }
 
-// referenceStageKey carries the in-flight establishment stage for the anchor
-// readers that policy Prepare invokes. Transitional: the R4 declarative
-// requirement replaces it with aggregator-owned establishment.
-type referenceStageKey struct{}
-
-func WithReferenceStage(ctx context.Context, stage any) context.Context {
-	return context.WithValue(ctx, referenceStageKey{}, stage)
-}
-
-func ReferenceStage(ctx context.Context) any {
-	return ctx.Value(referenceStageKey{})
-}
-
 type corroborationRequiredKey struct{}
 
 type membersKey struct{}

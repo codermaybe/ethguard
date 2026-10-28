@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -108,16 +109,21 @@ func harvestReference(ctx context.Context, invocation rpc.Invocation, capture *r
 	return ctx, invocation
 }
 
-// prepareWithReference is the Prepare and ReferenceStage phases: for a
-// moving-tag read the anchor readers establish the reference through the
-// ReferenceStage on this same invocation, and the harvest moves that evidence
-// into the invocation value. A non-nil early exit reports the Prepare failure
-// decision.
+// prepareWithReference is the Prepare and ReferenceStage phases. A preparing
+// decorator that needs its reference reports the pipeline sentinel; the
+// aggregator answers it by running the declared establishment on this same
+// invocation and preparing again. Validation-before-anchor stays intact: the
+// first Prepare runs every outer validator before the anchor layer asks for
+// its reference. A non-nil early exit reports the Prepare or establishment
+// failure decision.
 func (a *Aggregator) prepareWithReference(state *invocationState, started time.Time, req rpc.Request) *earlyExit {
-	if a.stage != nil {
-		state.ctx = refcontext.WithReferenceStage(state.ctx, a.stage)
-	}
 	prepared, err := state.policy.Prepare(state.ctx, req)
+	if errors.Is(err, rpc.ErrReferenceRequired) {
+		if exit := a.establishReferencePhase(state, started, req); exit != nil {
+			return exit
+		}
+		prepared, err = state.policy.Prepare(state.ctx, req)
+	}
 	if ref := state.capture.Reference(); ref != nil {
 		state.ctx, state.invocation = harvestReference(state.ctx, state.invocation, state.capture)
 	}
@@ -131,6 +137,45 @@ func (a *Aggregator) prepareWithReference(state *invocationState, started time.T
 	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
 	a.recordDecision(started, req.Method, state.policy, decision, err, nil, nil)
 	return &earlyExit{decision: decision, err: err}
+}
+
+// establishReferencePhase runs the declared establishment once per
+// invocation: the policy declares which reference level it needs, the stage
+// performs the network rounds, and the evidence lands on the invocation and
+// the transitional capture. A nil return means the invocation now carries
+// its reference and Prepare can run again.
+func (a *Aggregator) establishReferencePhase(state *invocationState, started time.Time, req rpc.Request) *earlyExit {
+	if a.stage == nil {
+		// No establishment seam is installed: the declared reference cannot
+		// be established, so the read fails before any fan-out.
+		err := fmt.Errorf("reference: no establishment stage for a read that requires one: %w", rpc.ErrReferenceRequired)
+		decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
+		a.recordDecision(started, req.Method, state.policy, decision, err, nil, nil)
+		return &earlyExit{decision: decision, err: err}
+	}
+	request := rpc.ReferenceRequest{Kind: rpc.ReferenceLatest}
+	if requirement, ok := state.policy.(rpc.ReferenceRequirement); ok {
+		if declared, needed := requirement.ReferenceFor(req); needed {
+			request = declared
+		}
+	}
+	completed, err := a.stage.Establish(state.ctx, state.invocation, request)
+	if err != nil {
+		// A failed establishment keeps its evidence on the capture (the
+		// stage publishes it); the business fan-out never starts. The error
+		// carries the same "anchor:" prefix the preparing decorator used to
+		// wrap its establishment cause with.
+		err = fmt.Errorf("anchor: %w", err)
+		decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
+		a.recordDecision(started, req.Method, state.policy, decision, err, nil, nil)
+		return &earlyExit{decision: decision, err: err}
+	}
+	if ref, ok := completed.Reference(); ok {
+		// The transitional capture stays the decision's evidence source.
+		refcontext.Publish(state.ctx, ref)
+	}
+	state.ctx, state.invocation = refcontext.WithInvocation(state.ctx, completed), completed
+	return nil
 }
 
 // collectPhase fans the prepared request out under the invocation's collection

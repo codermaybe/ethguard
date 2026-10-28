@@ -121,48 +121,27 @@ func (s *ReferenceStage) AnchorHeightReader() rpc.AnchorHeightFunc {
 	}
 }
 
-// establishedForTag returns the established reference for the anchor tag,
-// establishing it through the invocation's stage when the invocation does
-// not carry one yet. The raw tag is what the evidence records (latest rides
-// as the default reference with no tag).
-
-// establishedForTag returns the established reference for the anchor tag,
-// establishing it through the stage when the invocation does not carry one
-// yet. The raw tag is what the evidence records (latest rides as the default
-// reference with no tag).
+// establishedForTag reads the established reference for the anchor tag from
+// the in-flight invocation. The reader never establishes and never touches
+// the network: a missing or non-matching reference reports the pipeline
+// sentinel, and the aggregator answers it by running the reference stage on
+// the same invocation. The raw tag is what the evidence records (latest
+// rides as the default reference with no tag).
 func (s *ReferenceStage) establishedForTag(ctx context.Context) (rpc.ReferenceEvidence, error) {
 	tag := rpc.AnchorTag(ctx)
 	invocation, ok := refcontext.Invocation(ctx)
 	if !ok {
 		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: no in-flight invocation for tag %q: %w", tag, rpc.ErrInvalidRequest)
 	}
-	if ref, ok := invocation.Reference(); ok && referenceMatchesTag(ref, tag) {
-		if ref.Status != rpc.Corroborated {
-			return ref, fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
-		}
-		return ref, nil
+	ref, ok := invocation.Reference()
+	if !ok || !referenceMatchesTag(ref, tag) {
+		return rpc.ReferenceEvidence{}, rpc.ErrReferenceRequired
 	}
-	kind := referenceKindForTag(tag)
-	// The aggregator injects the establishment stage for its invocations, so
-	// a wrapping stage observes the rounds; direct construction falls back to
-	// this stage.
-	var establish establishFunc = s.Establish
-	if wrapped, ok := refcontext.ReferenceStage(ctx).(aggregator.ReferenceStage); ok {
-		establish = wrapped.Establish
+	if ref.Status != rpc.Corroborated {
+		return ref, fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
 	}
-	completed, err := establish(ctx, invocation, rpc.ReferenceRequest{Kind: kind})
-	if err != nil {
-		return rpc.ReferenceEvidence{}, err
-	}
-	ref, _ := completed.Reference()
-	// The transitional capture stays the decision's evidence source until the
-	// invocation flows through every assembly path.
-	refcontext.Publish(ctx, ref)
 	return ref, nil
 }
-
-// establishFunc is the establishment entry the anchor readers call.
-type establishFunc func(context.Context, rpc.Invocation, rpc.ReferenceRequest) (rpc.Invocation, error)
 
 // referenceKindForTag maps the wire tag to the declared reference kind.
 func referenceKindForTag(tag string) rpc.ReferenceKind {

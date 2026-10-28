@@ -158,12 +158,16 @@ func TestLatestReferenceTraceSharesOneInvocation(t *testing.T) {
 	if len(ids) != 1 || kinds[0] != rpc.ReferenceLatest {
 		t.Fatalf("establishment rounds = %v/%v, want one latest round", ids, kinds)
 	}
+	// Prepare runs twice for a moving-tag read: once to validate and detect
+	// the tag (the decorator reports the pipeline sentinel), once after the
+	// stage established the reference, to rewrite. Both observations share
+	// the invocation; the second carries the established reference.
 	seen := recorded.snapshot()
-	if len(seen) != 1 {
-		t.Fatalf("Prepare observed %d invocations, want one", len(seen))
+	if len(seen) != 2 {
+		t.Fatalf("Prepare observed %d invocations, want the prepare and prepare-with-reference pair", len(seen))
 	}
-	if seen[0].ID() != ids[0] {
-		t.Fatalf("business invocation %s != establishment invocation %s", seen[0].ID(), ids[0])
+	if seen[0].ID() != ids[0] || seen[1].ID() != ids[0] {
+		t.Fatalf("business invocations %v/%v != establishment invocation %s", seen[0].ID(), seen[1].ID(), ids[0])
 	}
 	// One frozen basis, captured before any request: every member occupies it.
 	if seen[0].Basis().Size() != 3 {
@@ -172,13 +176,14 @@ func TestLatestReferenceTraceSharesOneInvocation(t *testing.T) {
 	if seen[0].Basis().Required() != 2 {
 		t.Fatalf("basis required = %d, want the snapshot floor", seen[0].Basis().Required())
 	}
-	// The prepare-time invocation carries the frozen basis and no reference:
-	// establishment runs inside this Prepare through the stage.
+	// The first Prepare observes no reference; the second observes the
+	// established one.
 	if seen[0].HasReference() {
 		t.Fatal("the prepare-time invocation already carries a reference")
 	}
-	if seen[0].Basis().Size() != 3 || seen[0].Basis().Required() != 2 {
-		t.Fatalf("prepare-time basis = %d/%d, want 3 members requiring 2", seen[0].Basis().Size(), seen[0].Basis().Required())
+	completed, ok := seen[1].Reference()
+	if !ok || completed.Hash != headHash {
+		t.Fatalf("prepare-with-reference invocation reference = %+v, want the established head", completed)
 	}
 	// The establishment round is the only head read; the business round is
 	// the only balance read. A nested aggregate would multiply the rounds.
@@ -259,8 +264,8 @@ func TestFinalizedReferenceTraceConfirmsAndPins(t *testing.T) {
 	if decision.Reference.Origin != "reported-finalized" {
 		t.Fatalf("origin = %q, want the finalized algorithm's evidence", decision.Reference.Origin)
 	}
-	if seen := recorded.snapshot(); len(seen) != 1 || seen[0].ID() != ids[0] {
-		t.Fatalf("business invocation does not share the establishment ID: %v vs %s", seen, ids[0])
+	if seen := recorded.snapshot(); len(seen) != 2 || seen[0].ID() != ids[0] || seen[1].ID() != ids[0] {
+		t.Fatalf("business invocations %v do not share the establishment ID %s", seen, ids[0])
 	}
 }
 
@@ -297,6 +302,8 @@ func TestReferenceFailureKeepsBusinessFanOutAtZero(t *testing.T) {
 		t.Fatal("the establishment round was not observable")
 	}
 	if seen := recorded.snapshot(); len(seen) != 1 || seen[0].HasReference() {
+		// A failed establishment never reaches the second Prepare, so the
+		// only observation is the reference-less prepare-time invocation.
 		t.Fatalf("a failed establishment must not leave a reference on the invocation: %+v", seen)
 	}
 	for i, node := range nodes {

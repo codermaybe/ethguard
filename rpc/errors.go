@@ -15,3 +15,10 @@ var ErrReorgDetected = errors.New("rpc: reorg detected")
 // ErrUnsupportedTypedObject means the upstream object was structurally
 // present but this go-ethereum build does not know its transaction type.
 var ErrUnsupportedTypedObject = errors.New("rpc: unsupported typed object")
+
+// ErrReferenceRequired reports that a prepared read needs its reference
+// established before the request can be rewritten. The preparing decorator
+// returns it when the invocation carries no usable reference; the aggregator
+// answers it by running the reference stage and preparing again. It is a
+// pipeline-internal protocol, never a user-facing classification.
+var ErrReferenceRequired = errors.New("rpc: reference required for moving-tag read")

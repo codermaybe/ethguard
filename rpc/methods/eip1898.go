@@ -193,6 +193,27 @@ func isMovingTag(s string) bool {
 	return false
 }
 
+// ReferenceFor declares the reference this request needs. An EIP-1898
+// object carrying a moving blockNumber names its level; a string at the
+// position belongs to the inner anchored layer, so the declaration forwards.
+// Explicit pins, pending, earliest, and quantities need none.
+func (p eip1898Policy) ReferenceFor(req rpc.Request) (rpc.ReferenceRequest, bool) {
+	if p.pos < 0 || p.pos >= len(req.Params) {
+		return rpc.ReferenceRequest{}, false
+	}
+	if obj, ok := req.Params[p.pos].(map[string]any); ok {
+		number, isStr := obj["blockNumber"].(string)
+		if !isStr || !isMovingTag(number) {
+			return rpc.ReferenceRequest{}, false
+		}
+		return rpc.ReferenceRequest{Kind: rpc.ReferenceKindForTag(number)}, true
+	}
+	if inner, ok := p.Policy.(rpc.ReferenceRequirement); ok {
+		return inner.ReferenceFor(req)
+	}
+	return rpc.ReferenceRequest{}, false
+}
+
 // MethodRule reports the EIP-1898 block-reference form. It does not rewrite
 // a request. The corroborating wrapper promotes this method.
 func (p eip1898Policy) MethodRule() (rpc.MethodRule, rpc.Policy) {
