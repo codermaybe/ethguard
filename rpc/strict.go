@@ -117,9 +117,10 @@ func WithCanonicalObject(encode CanonicalEncoder) StrictOption {
 // legacy decision-0006 default applies: every valid response must agree, and
 // a single uncorroborated response is Selected rather than Corroborated. The
 // legacy default is retained for direct construction — the reference
-// establishment paths depend on it until T03 aligns them — while the
-// client's default path always resolves under a captured corroboration
-// snapshot through ResolveCorroborated.
+// establishment paths depend on it by recorded decision
+// (docs/design/acceptance-thresholds.md) — while the client's default path
+// always resolves under a captured corroboration snapshot through
+// ResolveCorroborated.
 func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOption) Policy {
 	cfg := strictConfig{}
 	for _, opt := range opts {

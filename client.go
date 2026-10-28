@@ -274,8 +274,8 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	var strictOpts []rpc.StrictOption
 	// Construction-time defaults mirror the shared configuration so policies
 	// resolved outside a snapshot-bearing aggregator agree with the client
-	// default. The reference-establishment paths keep their own formulas
-	// until T03 aligns them.
+	// default. Reference establishment keeps its own threshold formulas by
+	// recorded decision (docs/design/acceptance-thresholds.md).
 	if floor > 0 {
 		strictOpts = append(strictOpts, rpc.WithQuorum(floor))
 	}
