@@ -23,15 +23,47 @@ const (
 	WriteMethod
 )
 
+// MethodFamily is the execution family a method belongs to. The family —
+// not the method count — decides the execution model: read runs the
+// one-shot fan-out pipeline, write runs the broadcast pipeline, stream and
+// verification are separate families, and derivation needs no RPC.
+type MethodFamily string
+
+const (
+	FamilyRead         MethodFamily = "read"
+	FamilyWrite        MethodFamily = "write"
+	FamilyStream       MethodFamily = "stream"
+	FamilyVerification MethodFamily = "verification"
+	FamilyDerivation   MethodFamily = "derivation"
+)
+
+// MethodCoverage is the independent coverage classification: registered
+// methods have a method-aware policy, unsupported methods are listed
+// explicitly so an omission cannot masquerade as a guarantee, and forwarded
+// methods are unregistered transparent passthroughs. It deliberately does
+// not extend MethodKind: Kind is the registry shape, Coverage is the
+// safety-contract evidence state.
+type MethodCoverage string
+
+const (
+	CoverageRegistered  MethodCoverage = "registered"
+	CoverageUnsupported MethodCoverage = "unsupported"
+	CoverageForwarded   MethodCoverage = "forwarded"
+)
+
 // MethodDescriptor is the public inventory of method coverage.  Adapter is
 // the ethclient-shaped method when one exists; an empty Adapter means callers
-// use Client.Call or the root Client wrapper instead.
+// use Client.Call or the root Client wrapper instead. Alignment records the
+// go-ethereum version the adapter mapping was last reviewed against.
 type MethodDescriptor struct {
-	Name    string
-	Kind    MethodKind
-	Policy  string
-	Adapter string
-	Notes   string
+	Name      string
+	Kind      MethodKind
+	Family    MethodFamily
+	Coverage  MethodCoverage
+	Policy    string
+	Adapter   string
+	Alignment string
+	Notes     string
 }
 
 // Catalog returns a fresh copy of the method coverage inventory.  Returning a
@@ -70,32 +102,40 @@ func ValidateRegistry(registry rpc.Registry) error {
 }
 
 var methodCatalog = []MethodDescriptor{
-	{Name: MethodChainID, Kind: RegisteredMethod, Policy: "ChainIDPolicy", Adapter: "ChainID"},
-	{Name: MethodGetBlockByHash, Kind: RegisteredMethod, Policy: "BlockByHashPolicy", Adapter: "BlockByHash"},
-	{Name: MethodGetBlockByNumber, Kind: RegisteredMethod, Policy: "BlockByNumberPolicy", Adapter: "BlockByNumber"},
-	{Name: MethodGetBalance, Kind: RegisteredMethod, Policy: "GetBalancePolicy", Adapter: "BalanceAt"},
-	{Name: MethodGetTransactionReceipt, Kind: RegisteredMethod, Policy: "TransactionReceiptPolicy", Adapter: "TransactionReceipt"},
-	{Name: MethodGetTransactionByHash, Kind: RegisteredMethod, Policy: "TransactionByHashPolicy", Adapter: "TransactionByHash"},
-	{Name: MethodGetBlockReceipts, Kind: RegisteredMethod, Policy: "BlockReceiptsPolicy", Adapter: "BlockReceipts"},
-	{Name: MethodGetTransactionCount, Kind: RegisteredMethod, Policy: "GetTransactionCountPolicy", Adapter: "NonceAt"},
-	{Name: MethodGetStorageAt, Kind: RegisteredMethod, Policy: "GetStorageAtPolicy", Adapter: "StorageAt"},
-	{Name: MethodGetCode, Kind: RegisteredMethod, Policy: "GetCodePolicy", Adapter: "CodeAt"},
-	{Name: MethodCall, Kind: RegisteredMethod, Policy: "CallPolicy", Adapter: "CallContract"},
-	{Name: MethodEstimateGas, Kind: RegisteredMethod, Policy: "EstimateGasPolicy", Adapter: "EstimateGas"},
-	{Name: MethodGetLogs, Kind: RegisteredMethod, Policy: "LogsPolicy", Adapter: "FilterLogs"},
-	{Name: MethodFeeHistory, Kind: RegisteredMethod, Policy: "FeeHistoryPolicy"},
-	{Name: MethodGasPrice, Kind: RegisteredMethod, Policy: "GasPricePolicy", Adapter: "SuggestGasPrice"},
-	{Name: MethodMaxPriorityFeePerGas, Kind: RegisteredMethod, Policy: "MaxPriorityFeePerGasPolicy", Adapter: "SuggestGasTipCap"},
-	{Name: MethodBlobBaseFee, Kind: RegisteredMethod, Policy: "BlobBaseFeePolicy"},
-	{Name: MethodBlockNumber, Kind: RegisteredMethod, Policy: "BlockNumberPolicy", Adapter: "BlockNumber"},
-	{Name: MethodCreateAccessList, Kind: RegisteredMethod, Policy: "CreateAccessListPolicy"},
-	{Name: MethodPeerCount, Kind: RegisteredMethod, Policy: "PeerCountPolicy", Adapter: "PeerCount"},
-	{Name: MethodSyncing, Kind: RegisteredMethod, Policy: "SyncingPolicy", Adapter: "SyncProgress"},
-	{Name: MethodNetVersion, Kind: RegisteredMethod, Policy: "NetVersionPolicy", Notes: "Root Client.NetVersion; adapter has no ethclient-shaped method."},
-	{Name: MethodListening, Kind: RegisteredMethod, Policy: "ListeningPolicy", Notes: "Root Client.Listening; adapter has no ethclient-shaped method."},
+	{Name: MethodChainID, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "ChainIDPolicy", Adapter: "ChainID", Alignment: "v1.17.5"},
+	{Name: MethodGetBlockByHash, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "BlockByHashPolicy", Adapter: "BlockByHash", Alignment: "v1.17.5"},
+	{Name: MethodGetBlockByNumber, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "BlockByNumberPolicy", Adapter: "BlockByNumber", Alignment: "v1.17.5"},
+	{Name: MethodGetBalance, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "GetBalancePolicy", Adapter: "BalanceAt", Alignment: "v1.17.5"},
+	{Name: MethodGetTransactionReceipt, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "TransactionReceiptPolicy", Adapter: "TransactionReceipt", Alignment: "v1.17.5"},
+	{Name: MethodGetTransactionByHash, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "TransactionByHashPolicy", Adapter: "TransactionByHash", Alignment: "v1.17.5"},
+	{Name: MethodGetBlockReceipts, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "BlockReceiptsPolicy", Adapter: "BlockReceipts", Alignment: "v1.17.5"},
+	{Name: MethodGetTransactionCount, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "GetTransactionCountPolicy", Adapter: "NonceAt", Alignment: "v1.17.5"},
+	{Name: MethodGetStorageAt, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "GetStorageAtPolicy", Adapter: "StorageAt", Alignment: "v1.17.5"},
+	{Name: MethodGetCode, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "GetCodePolicy", Adapter: "CodeAt", Alignment: "v1.17.5"},
+	{Name: MethodCall, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CallPolicy", Adapter: "CallContract", Alignment: "v1.17.5"},
+	{Name: MethodEstimateGas, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "EstimateGasPolicy", Adapter: "EstimateGas", Alignment: "v1.17.5"},
+	{Name: MethodGetLogs, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "LogsPolicy", Adapter: "FilterLogs", Alignment: "v1.17.5"},
+	{Name: MethodFeeHistory, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "FeeHistoryPolicy", Alignment: "v1.17.5"},
+	{Name: MethodGasPrice, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "GasPricePolicy", Adapter: "SuggestGasPrice", Alignment: "v1.17.5"},
+	{Name: MethodMaxPriorityFeePerGas, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "MaxPriorityFeePerGasPolicy", Adapter: "SuggestGasTipCap", Alignment: "v1.17.5"},
+	{Name: MethodBlobBaseFee, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "BlobBaseFeePolicy", Alignment: "v1.17.5"},
+	{Name: MethodBlockNumber, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "BlockNumberPolicy", Adapter: "BlockNumber", Alignment: "v1.17.5"},
+	{Name: MethodCreateAccessList, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CreateAccessListPolicy", Alignment: "v1.17.5"},
+	{Name: MethodPeerCount, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "PeerCountPolicy", Adapter: "PeerCount", Alignment: "v1.17.5"},
+	{Name: MethodSyncing, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "SyncingPolicy", Adapter: "SyncProgress", Alignment: "v1.17.5"},
+	{Name: MethodNetVersion, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "NetVersionPolicy", Notes: "Root Client.NetVersion; adapter has no ethclient-shaped method."},
+	{Name: MethodListening, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "ListeningPolicy", Notes: "Root Client.Listening; adapter has no ethclient-shaped method."},
 	// Write path (decision-map #4): a dedicated pipeline outside the read
 	// registry. Broadcast to the full voting basis + relative-trust
 	// adjudication; WriteMethod entries are skipped by ValidateRegistry.
-	{Name: MethodSendRawTransaction, Kind: WriteMethod, Policy: "WritePipeline", Adapter: "SendTransaction", Notes: "Root Client.SendRawTransaction; broadcast + relative-trust, no read registry policy."},
-	{Name: "eth_getProof", Kind: UnsupportedMethod, Notes: "Not registered; no account/storage proof admission contract yet."},
+	{Name: MethodSendRawTransaction, Kind: WriteMethod, Family: FamilyWrite, Coverage: CoverageRegistered, Policy: "WritePipeline", Adapter: "SendTransaction", Alignment: "v1.17.5", Notes: "Root Client.SendRawTransaction; broadcast + relative-trust, no read registry policy."},
+	// Verification family: eth_getProof stays explicitly unsupported until a
+	// real-provider evidence contract exists (proposal section 8); it is
+	// never a silent omission.
+	{Name: "eth_getProof", Kind: UnsupportedMethod, Family: FamilyVerification, Coverage: CoverageUnsupported, Notes: "Not registered; no account/storage proof admission contract yet."},
+	// Stream family: subscriptions are deferred until the native WSS design
+	// lands; the transport Port deliberately carries no Subscribe (frozen
+	// decision D12/D13).
+	// Derivation family: TransactionSender and header projection are local
+	// derivations on the facade side; they register no RPC policy.
 }
