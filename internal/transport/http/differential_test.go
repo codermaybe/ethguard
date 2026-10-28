@@ -92,17 +92,20 @@ func TestDifferentialEnvelopeParity(t *testing.T) {
 	}
 }
 
-// TestDifferentialResponseValidationIsNativeStrict asserts the headline
-// intentional B-class difference (maintainer ruling 1): the Geth baseline
-// accepts responses with a wrong id and wrong jsonrpc version, the native
-// adapter rejects both.
-func TestDifferentialResponseValidationIsNativeStrict(t *testing.T) {
+// TestDifferentialResponseValidationIsStrictEverywhere asserts the
+// post-alignment parity: both adapters reject wrong-version and
+// missing-version envelopes with the project sentinels. The id-mismatch
+// cases stay baseline quirks on the compatibility channel — its single-call
+// HTTP path matches responses by position and cannot see them — while the
+// native adapter rejects them.
+func TestDifferentialResponseValidationIsStrictEverywhere(t *testing.T) {
 	cases := []struct {
-		name string
-		body string
+		name         string
+		body         string
+		gethAccepted bool
 	}{
-		{name: "mismatched-id", body: `{"jsonrpc":"2.0","id":999,"result":"0x2a"}`},
-		{name: "absent-id", body: `{"jsonrpc":"2.0","result":"0x2a"}`},
+		{name: "mismatched-id", body: `{"jsonrpc":"2.0","id":999,"result":"0x2a"}`, gethAccepted: true},
+		{name: "absent-id", body: `{"jsonrpc":"2.0","result":"0x2a"}`, gethAccepted: true},
 		{name: "wrong-version", body: `{"jsonrpc":"1.0","id":1,"result":"0x2a"}`},
 		{name: "missing-version", body: `{"id":1,"result":"0x2a"}`},
 	}
@@ -112,20 +115,23 @@ func TestDifferentialResponseValidationIsNativeStrict(t *testing.T) {
 				return []byte(tc.body)
 			})
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
-			// Geth quirk (B): accepts by position without validation.
 			var sink json.RawMessage
-			if err := gethTr.CallContext(context.Background(), &sink, "eth_chainId"); err != nil {
-				t.Fatalf("geth err = %v, want baseline acceptance", err)
+			gethErr := gethTr.CallContext(context.Background(), &sink, "eth_chainId")
+			if tc.gethAccepted {
+				if gethErr != nil {
+					t.Fatalf("geth err = %v, want the positional baseline to accept %s", gethErr, tc.name)
+				}
+			} else if !errors.Is(gethErr, rpcwire.ErrMalformedResponse) {
+				t.Fatalf("geth err = %v, want the malformed sentinel after alignment", gethErr)
 			}
-			// Native contract: reject with sentinels, never a protocol error.
 			var raw json.RawMessage
-			err := call(t, nativeTr, context.Background(), &raw, "eth_chainId")
-			if !errors.Is(err, rpcwire.ErrIDMismatch) && !errors.Is(err, rpcwire.ErrMalformedResponse) {
-				t.Fatalf("native err = %v, want ErrIDMismatch or ErrMalformedResponse", err)
+			nativeErr := call(t, nativeTr, context.Background(), &raw, "eth_chainId")
+			if !errors.Is(nativeErr, rpcwire.ErrIDMismatch) && !errors.Is(nativeErr, rpcwire.ErrMalformedResponse) {
+				t.Fatalf("native err = %v, want ErrIDMismatch or ErrMalformedResponse", nativeErr)
 			}
 			var protocol rpc.ProtocolError
-			if errors.As(err, &protocol) {
-				t.Fatalf("native rejection leaked a ProtocolError: %v", err)
+			if errors.As(nativeErr, &protocol) {
+				t.Fatalf("native rejection leaked a ProtocolError: %v", nativeErr)
 			}
 		})
 	}
@@ -265,15 +271,18 @@ func TestDifferentialDegenerateErrorsRejectedNatively(t *testing.T) {
 				return echoID(req, fmt.Sprintf(`"error":%s`, tc.body))
 			})
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
-			// Geth quirk (B): decodes to a code-0 protocol error, which pool
-			// would count as a healthy usable answer.
+			// Both adapters now classify degenerate error members as
+			// malformed: a code-0 protocol error would count as a healthy
+			// usable answer downstream.
 			var sink json.RawMessage
 			gethErr := gethTr.CallContext(context.Background(), &sink, "eth_chainId")
-			var gethProtocol rpc.ProtocolError
-			if !errors.As(gethErr, &gethProtocol) || gethProtocol.ErrorCode() != 0 {
-				t.Fatalf("geth err = %v, want code-0 protocol error", gethErr)
+			if !errors.Is(gethErr, rpcwire.ErrMalformedResponse) {
+				t.Fatalf("geth err = %v, want the malformed sentinel after alignment", gethErr)
 			}
-			// Native: malformed, never a protocol error, never healthy.
+			var gethProtocol rpc.ProtocolError
+			if errors.As(gethErr, &gethProtocol) {
+				t.Fatalf("geth degenerate error leaked a ProtocolError: %v", gethErr)
+			}
 			var nativeRaw json.RawMessage
 			nativeErr := call(t, nativeTr, context.Background(), &nativeRaw, "eth_chainId")
 			if !errors.Is(nativeErr, rpcwire.ErrMalformedResponse) {
@@ -598,9 +607,9 @@ func TestDifferentialStalledStatusBodyContextParity(t *testing.T) {
 	}
 }
 
-// TestDifferentialCloseLifecycle asserts maintainer ruling 3: the Geth
-// baseline's Close is a no-op (B quirk); the native Close is idempotent,
-// rejects new calls, and leaves in-flight calls to finish.
+// TestDifferentialCloseLifecycle asserts lifecycle parity after alignment:
+// both adapters' Close is idempotent, rejects new calls with the neutral
+// sentinel, and leaves in-flight calls to finish under their own context.
 func TestDifferentialCloseLifecycle(t *testing.T) {
 	started := make(chan struct{})
 	var once sync.Once
@@ -610,7 +619,7 @@ func TestDifferentialCloseLifecycle(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`))
 	}))
-	nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
+	nativeTr, _ := dialAdapters(t, srv.srv.URL)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -631,10 +640,28 @@ func TestDifferentialCloseLifecycle(t *testing.T) {
 		t.Fatalf("native post-close err = %v, want ErrTransportClosed", err)
 	}
 
-	// Geth quirk (B): Close is a no-op and the adapter stays usable after it.
+	// Post-alignment parity: the compatibility adapter blocks new calls with
+	// the same neutral sentinel and keeps in-flight calls running.
+	gethStarted := make(chan struct{})
+	gethSrv := newNativeServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		close(gethStarted)
+		time.Sleep(100 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`))
+	}))
+	_, gethTr := dialAdapters(t, gethSrv.srv.URL)
+	gethErrCh := make(chan error, 1)
+	go func() {
+		var raw json.RawMessage
+		gethErrCh <- gethTr.CallContext(context.Background(), &raw, "eth_chainId")
+	}()
+	<-gethStarted
 	gethTr.Close()
-	var gethRaw json.RawMessage
-	if err := gethTr.CallContext(context.Background(), &gethRaw, "eth_chainId"); err != nil {
-		t.Fatalf("geth post-close err = %v, want success (baseline Close is a no-op)", err)
+	if err := <-gethErrCh; err != nil {
+		t.Fatalf("geth in-flight call failed after Close: %v", err)
+	}
+	var closedRaw json.RawMessage
+	if err := gethTr.CallContext(context.Background(), &closedRaw, "eth_chainId"); !errors.Is(err, transport.ErrConnectionClosed) {
+		t.Fatalf("geth post-close err = %v, want the neutral connection-closed sentinel", err)
 	}
 }

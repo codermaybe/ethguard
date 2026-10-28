@@ -62,18 +62,21 @@
 14. **无方法知识**：Transport/Dialer 不参与 anchor、quorum、admission——这是
     结构性条款，由依赖 interlock（L2 阶段的 import 矩阵）保证，不进本 suite。
 
-## 3. 已记录的实现差异（L2/L3）
+## 3. 已记录的实现差异（G0 对齐后，L2/L3）
 
 | 差异 | native | geth 兼容 | 层 |
 | --- | --- | --- | --- |
-| Close 后调用 | 立即失败（中立哨兵） | HTTP Close 是 no-op，连接继续可用 | L1 差异，G0 对齐 geth |
-| 错误文本 | project sentinels（`rpcwire`） | geth 原生 io.EOF / json 错误文本 | L3 |
-| 退化 error 成员 | malformed 哨兵 | geth 基线解码为 code-0 协议错误（已记录的 quirk） | L1 差异，G0 对齐 |
+| 错误文本 | project sentinels（`rpcwire`） | 同一哨兵 + geth 原始错误文本（wrap 链） | L3 |
 | 非 2xx body 保留 | 4KiB 截断前缀 | 完整捕获（受 32MiB 上限） | L2 |
+| 尾随垃圾（HTTP） | 拒绝（单值解码） | 拒绝（捕获路径以 `rpcwire.ValidateBody` 复检原始 body） | 已对齐 |
+| 尾随垃圾（WSS） | 不适用（native 无 WSS） | geth codec 逐帧解码，无法复检 —— 已记录偏差 | L2 |
+| 响应 id 匹配 | 校验 | 不校验（单调用 HTTP 按位置匹配；suite 不钉此差异，契约 §2.1 的 id 存在性仍成立） | L2 |
 | ws/wss | dial 时拒绝 | 经 geth 支持（直到 native WSS 设计落地） | 构造期差异，见提案 §9.1 |
 
-G0 的门禁：geth 适配器跑同一 suite，仅允许上表 L2/L3 差异；L1 差异必须修掉或
-回锁到文档记录。
+G0 已修掉的 L1 差异（原基线 quirk，现为契约行为）：Close 后调用（中立哨兵）、
+退化 error 成员（malformed，非 code-0 协议错误）、空/坏 body（project 哨兵）、
+错误版本 envelope（malformed）、HTTP 尾随垃圾（拒绝）。两个 adapter 现在跑同一
+contract suite（`internal/transport/geth/contract_test.go`）。
 
 ## 4. 与既有测试的关系
 

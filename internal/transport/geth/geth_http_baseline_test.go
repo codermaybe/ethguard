@@ -16,6 +16,7 @@ import (
 
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/codermaybe/ethguard/internal/rpcwire"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -108,7 +109,7 @@ func baselineClient(t *testing.T, rawURL string, limit int64) transport.Transpor
 	if err != nil || !ok {
 		t.Fatalf("dialHTTPPreservingErrorDataWithLimit: ok=%v err=%v, want HTTP branch with nil err", ok, err)
 	}
-	tr := newGethTransport(client, true)
+	tr := newGethTransport(client, true, 0)
 	t.Cleanup(tr.Close)
 	return tr
 }
@@ -311,7 +312,11 @@ func TestHTTPBaselineEmptyBodyAndStatus204AreEOF(t *testing.T) {
 			tr := baselineClient(t, srv.URL, 0)
 			_, err := baselineCall(t, tr, context.Background(), "eth_chainId")
 			if !errors.Is(err, io.EOF) {
-				t.Fatalf("err = %v, want io.EOF from decoding an empty 2xx body", err)
+				// The contract wins over the baseline: an empty 2xx body fails
+				// with the project's empty-response sentinel.
+				if !errors.Is(err, rpcwire.ErrEmptyResponse) {
+					t.Fatalf("err = %v, want the empty-response sentinel", err)
+				}
 			}
 			var httpErr gethrpc.HTTPError
 			if errors.As(err, &httpErr) {
@@ -355,7 +360,11 @@ func TestHTTPBaselineMalformedBodySurfacesJSONError(t *testing.T) {
 				t.Fatal("err = nil, want a decoding error")
 			}
 			if !tc.match(err) {
-				t.Fatalf("err = %v (%T), want the raw encoding/json decode error", err, err)
+				// The contract wins over the baseline: a malformed body fails
+				// with the project's malformed-response sentinel.
+				if !errors.Is(err, rpcwire.ErrMalformedResponse) {
+					t.Fatalf("err = %v, want the malformed-response sentinel", err)
+				}
 			}
 			var protocol rpc.ProtocolError
 			if errors.As(err, &protocol) {
@@ -369,19 +378,24 @@ func TestHTTPBaselineMalformedBodySurfacesJSONError(t *testing.T) {
 	}
 }
 
-// TestHTTPBaselineResponseIDAndVersionNotValidated locks a geth HTTP quirk:
-// the single-call HTTP path matches responses by position (one response body
-// per call) and never checks the response's id or jsonrpc version against the
-// request. A future adapter may tighten this only with a maintainer ruling.
-func TestHTTPBaselineResponseIDAndVersionNotValidated(t *testing.T) {
+// TestHTTPBaselineEnvelopeStrictness locks the contract's envelope rules on
+// the compatibility adapter's capturing path. The baseline accepted a
+// mismatched id, a null id, a wrong version, and a missing version (the
+// single-call HTTP path matched responses by position); the capturing path
+// now validates the body it owns, so version-less and mis-versioned
+// envelopes fail with the malformed sentinel, while the id mismatch stays a
+// baseline quirk the position-matched call cannot see.
+func TestHTTPBaselineEnvelopeStrictness(t *testing.T) {
 	cases := []struct {
-		name string
-		body string
+		name     string
+		body     string
+		wantErr  error
+		wantText string
 	}{
-		{name: "mismatched-id", body: `{"jsonrpc":"2.0","id":999,"result":"0x2a"}`},
-		{name: "null-id", body: `{"jsonrpc":"2.0","id":null,"result":"0x2a"}`},
-		{name: "wrong-version", body: `{"jsonrpc":"1.0","id":1,"result":"0x2a"}`},
-		{name: "no-version", body: `{"id":1,"result":"0x2a"}`},
+		{name: "mismatched-id", body: `{"jsonrpc":"2.0","id":999,"result":"0x2a"}`, wantText: "0x2a"},
+		{name: "null-id", body: `{"jsonrpc":"2.0","id":null,"result":"0x2a"}`, wantText: "0x2a"},
+		{name: "wrong-version", body: `{"jsonrpc":"1.0","id":1,"result":"0x2a"}`, wantErr: rpcwire.ErrMalformedResponse},
+		{name: "no-version", body: `{"id":1,"result":"0x2a"}`, wantErr: rpcwire.ErrMalformedResponse},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -390,11 +404,17 @@ func TestHTTPBaselineResponseIDAndVersionNotValidated(t *testing.T) {
 			})
 			tr := baselineClient(t, srv.srv.URL, 0)
 			val, err := baselineCall(t, tr, context.Background(), "eth_chainId")
-			if err != nil {
-				t.Fatalf("err = %v, want success despite %s", err, tc.name)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("err = %v, want %v", err, tc.wantErr)
+				}
+				return
 			}
-			if string(val) != `"0x2a"` {
-				t.Fatalf("result = %s, want \"0x2a\"", val)
+			if err != nil {
+				t.Fatalf("err = %v, want success for %s", err, tc.name)
+			}
+			if string(val) != `"`+tc.wantText+`"` {
+				t.Fatalf("result = %s, want %q", val, tc.wantText)
 			}
 		})
 	}
@@ -470,20 +490,24 @@ func TestHTTPBaselineErrorDataVariants(t *testing.T) {
 	}
 }
 
-// TestHTTPBaselineErrorMemberDegenerateForms locks how the adapter classifies
-// error members that geth's jsonError decode cannot populate: code 0 and the
-// "json-rpc error 0" message. These still satisfy ProtocolError, so pool
-// counts them as usable answers and (code 0 not being a server-error code)
-// records them as healthy observations.
+// TestHTTPBaselineErrorMemberDegenerateForms locks the contract's
+// classification of degenerate error members on the capturing path: an
+// error member whose code geth's decode cannot populate (code 0) is a
+// malformed response, never a healthy protocol error — a code-0 "usable
+// answer" would let a broken envelope win a cluster. A well-formed error
+// member with a real code keeps its protocol classification even when a
+// result is also present (geth's decode order: error wins).
 func TestHTTPBaselineErrorMemberDegenerateForms(t *testing.T) {
 	cases := []struct {
-		name string
-		body string
+		name     string
+		body     string
+		wantErr  error
+		wantCode int
 	}{
-		{name: "empty-error-object", body: `{"jsonrpc":"2.0","id":1,"error":{}}`},
-		{name: "error-null", body: `{"jsonrpc":"2.0","id":1,"error":null}`},
-		{name: "error-non-object", body: `{"jsonrpc":"2.0","id":1,"error":"boom"}`},
-		{name: "error-and-result-both-present", body: `{"jsonrpc":"2.0","id":1,"error":{"code":7,"message":"bad"},"result":"0x2a"}`},
+		{name: "empty-error-object", body: `{"jsonrpc":"2.0","id":1,"error":{}}`, wantErr: rpcwire.ErrMalformedResponse},
+		{name: "error-null", body: `{"jsonrpc":"2.0","id":1,"error":null}`, wantErr: rpcwire.ErrMalformedResponse},
+		{name: "error-non-object", body: `{"jsonrpc":"2.0","id":1,"error":"boom"}`, wantErr: rpcwire.ErrMalformedResponse},
+		{name: "error-and-result-both-present", body: `{"jsonrpc":"2.0","id":1,"error":{"code":7,"message":"bad"},"result":"0x2a"}`, wantCode: 7},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -492,32 +516,24 @@ func TestHTTPBaselineErrorMemberDegenerateForms(t *testing.T) {
 			})
 			tr := baselineClient(t, srv.srv.URL, 0)
 			_, err := baselineCall(t, tr, context.Background(), "eth_chainId")
-			if err == nil {
-				t.Fatalf("err = nil, want a JSON-RPC error for %s", tc.name)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("err = %v, want %v", err, tc.wantErr)
+				}
+				var protocol rpc.ProtocolError
+				if errors.As(err, &protocol) {
+					t.Fatalf("degenerate error member surfaced as a protocol error: %v", err)
+				}
+				return
 			}
 			var protocol rpc.ProtocolError
-			if !errors.As(err, &protocol) {
-				t.Fatalf("err = %v (%T), want ProtocolError", err, err)
-			}
-			wantCode := 0
-			if tc.name == "error-and-result-both-present" {
-				wantCode = 7 // error wins over result in geth's decode order
-			}
-			if protocol.ErrorCode() != wantCode {
-				t.Fatalf("code = %d, want %d", protocol.ErrorCode(), wantCode)
-			}
-			if wantCode == 0 && err.Error() != "json-rpc error 0" {
-				t.Fatalf("message = %q, want geth's \"json-rpc error 0\"", err.Error())
+			if !errors.As(err, &protocol) || protocol.ErrorCode() != tc.wantCode {
+				t.Fatalf("err = %v, want a protocol error with code %d", err, tc.wantCode)
 			}
 		})
 	}
 }
 
-// TestHTTPBaselineNon2xxBecomesHTTPErrorWithBody locks the HTTP status layer:
-// every non-2xx status becomes gethrpc.HTTPError (status text + body in the
-// chain, wrapped with the project's status/rate-limit capabilities). The body
-// is carried verbatim but never parsed as a JSON-RPC error: even a body with
-// error.data yields no preservedDataError.
 func TestHTTPBaselineNon2xxBecomesHTTPErrorWithBody(t *testing.T) {
 	cases := []struct {
 		status     int
@@ -660,11 +676,10 @@ func TestHTTPBaselineDeadlineExceededDominates(t *testing.T) {
 	}
 }
 
-// TestHTTPBaselineHTTPCloseIsNoOp locks the lifecycle difference between HTTP
-// and WSS: rpc.Client.Close returns immediately for HTTP, aborts nothing, and
-// leaves the adapter usable. A call that is in flight when Close runs still
-// completes successfully, and later calls keep working.
-func TestHTTPBaselineHTTPCloseIsNoOp(t *testing.T) {
+// TestHTTPBaselineCloseBlocksNewCalls locks the contract's lifecycle clause:
+// Close is idempotent and blocks new calls with the neutral sentinel, while a
+// call already in flight still completes (Close aborts nothing in flight).
+func TestHTTPBaselineCloseBlocksNewCalls(t *testing.T) {
 	started := make(chan struct{})
 	var once sync.Once
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -686,15 +701,13 @@ func TestHTTPBaselineHTTPCloseIsNoOp(t *testing.T) {
 	if err := <-errCh; err != nil {
 		t.Fatalf("in-flight call aborted by Close: %v", err)
 	}
-	val, err := baselineCall(t, tr, context.Background(), "eth_chainId")
-	if err != nil || string(val) != `"0x2a"` {
-		t.Fatalf("post-close call = %s/%v, want success (HTTP close is a no-op)", val, err)
+	var result json.RawMessage
+	if err := tr.CallContext(context.Background(), &result, "eth_chainId"); !errors.Is(err, transport.ErrConnectionClosed) {
+		t.Fatalf("post-close call = %v, want the neutral connection-closed sentinel", err)
 	}
+	tr.Close() // idempotent
 }
 
-// TestHTTPBaselineConnectionReuseAcrossCalls locks the transport-layer
-// lifecycle: the adapter dials once at construction, and sequential calls
-// ride HTTP keep-alive instead of opening a fresh TCP connection each time.
 func TestHTTPBaselineConnectionReuseAcrossCalls(t *testing.T) {
 	srv := newBaselineServer(t, func(n int, req capturedRequest) []byte {
 		return []byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`)

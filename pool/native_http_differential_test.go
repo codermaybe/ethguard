@@ -11,7 +11,6 @@ import (
 	"net"
 	nethttp "net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 
@@ -213,56 +212,44 @@ func TestNativeAdapterPoolMalformedIsFailure(t *testing.T) {
 	}
 }
 
-// TestDegenerateErrorMemberHealthDifference is the deliberate B-class
-// divergence, asserted side by side at pool level: the Geth baseline counts a
-// degenerate error member as a healthy usable answer; the native adapter
-// rejects it as malformed, so the pool records a failure and no usable
-// answer. This is maintainer ruling 2 of the HTTP contract, not a bug.
-func TestDegenerateErrorMemberHealthDifference(t *testing.T) {
+// TestDegenerateErrorMemberMalformedEverywhere asserts post-alignment
+// parity at pool level: both adapters classify a degenerate error member as
+// a malformed transport failure, so the pool records one plain failure and
+// no usable answer — a code-0 protocol error would have counted as a
+// healthy usable answer and could win a cluster.
+func TestDegenerateErrorMemberMalformedEverywhere(t *testing.T) {
 	srv := newPoolEchoServer(t, func(n int, req poolCapturedRequest) []byte {
 		return []byte(`"error":{}`)
 	})
 
-	// Geth baseline: healthy usable answer (documented quirk).
-	gethPool := newPoolWithDialerAndChainID(gethadapter.StandardDialer{}, 0)
-	t.Cleanup(gethPool.Close)
-	gethSrc, err := gethPool.Join("geth", srv.srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gethEmissions, err := gethPool.Collect(context.Background(), "eth_chainId", nil, CollectOptions{Sources: []*Source{gethSrc}})
-	if err != nil {
-		t.Fatalf("geth Collect err = %v, want the baseline healthy answer", err)
-	}
-	if len(gethEmissions) != 1 {
-		t.Fatalf("geth emissions = %+v", gethEmissions)
-	}
-	var gethProtocol rpc.ProtocolError
-	if !errors.As(gethEmissions[0].Err, &gethProtocol) || gethProtocol.ErrorCode() != 0 {
-		t.Fatalf("geth emission err = %v, want code-0 protocol error", gethEmissions[0].Err)
-	}
-	if got := gethSrc.Health(); got.Successes != 1 || got.Failures != 0 {
-		t.Fatalf("geth health = %+v, want the healthy quirk", got)
-	}
-
-	// Native contract: malformed transport failure.
-	nativePool := newPoolWithDialerAndChainID(nativehttp.NewDialer(), 0)
-	t.Cleanup(nativePool.Close)
-	nativeSrc, err := nativePool.Join("native", srv.srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	nativeEmissions, err := nativePool.Collect(context.Background(), "eth_chainId", nil, CollectOptions{Sources: []*Source{nativeSrc}})
-	if !errors.Is(err, ErrAllSourcesDown) {
-		t.Fatalf("native Collect err = %v, want ErrAllSourcesDown", err)
-	}
-	if len(nativeEmissions) != 1 || nativeEmissions[0].Err == nil {
-		t.Fatalf("native emissions = %+v", nativeEmissions)
-	}
-	if !strings.Contains(nativeEmissions[0].Err.Error(), "malformed JSON-RPC response") {
-		t.Fatalf("native emission err = %v, want malformed response classification", nativeEmissions[0].Err)
-	}
-	if got := nativeSrc.Health(); got.Successes != 0 || got.Failures != 1 {
-		t.Fatalf("native health = %+v, want one failure (contract health semantics)", got)
+	for _, tc := range []struct {
+		name   string
+		dialer dialer
+	}{
+		{name: "geth", dialer: gethadapter.StandardDialer{}},
+		{name: "native", dialer: nativehttp.NewDialer()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newPoolWithDialerAndChainID(tc.dialer, 0)
+			t.Cleanup(p.Close)
+			src, err := p.Join(tc.name, srv.srv.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			emissions, err := p.Collect(context.Background(), "eth_chainId", nil, CollectOptions{Sources: []*Source{src}})
+			if !errors.Is(err, ErrAllSourcesDown) {
+				t.Fatalf("Collect err = %v, want ErrAllSourcesDown", err)
+			}
+			if len(emissions) != 1 || emissions[0].Err == nil {
+				t.Fatalf("emissions = %+v, want one failed emission", emissions)
+			}
+			var protocol rpc.ProtocolError
+			if errors.As(emissions[0].Err, &protocol) {
+				t.Fatalf("degenerate error member surfaced as a protocol error: %v", emissions[0].Err)
+			}
+			if got := src.Health(); got.Failures != 1 || got.Successes != 0 || got.RateLimited != 0 {
+				t.Fatalf("health = %+v, want one plain failure", got)
+			}
+		})
 	}
 }

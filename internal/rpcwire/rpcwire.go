@@ -135,6 +135,38 @@ type Response struct {
 	Error *Error
 }
 
+// ValidateBody checks the wire shape of one response body without matching
+// the request id. It exists for adapters that capture the raw body and must
+// refuse degenerate envelopes and trailing garbage even when the underlying
+// client decoded a value, so an adapter's leniency cannot vouch for a body
+// the contract rejects. It applies the same empty/malformed classification
+// as DecodeResponse.
+func ValidateBody(body []byte) error {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return ErrEmptyResponse
+	}
+	var wire wireResponse
+	if err := json.Unmarshal(body, &wire); err != nil {
+		return malformedf("body is not a JSON object: %v", err)
+	}
+	if string(wire.Version) != strconv.Quote(Version) {
+		return malformedf("unsupported or missing jsonrpc version %s", wire.Version)
+	}
+	switch {
+	case wire.Result != nil && wire.Error != nil:
+		return malformedf("result and error are mutually exclusive")
+	case wire.Error != nil:
+		if _, err := decodeError(wire.Error); err != nil {
+			return err
+		}
+	case wire.Result != nil:
+		// A success body only needs the members checked above.
+	default:
+		return malformedf("response has neither result nor error")
+	}
+	return nil
+}
+
 // DecodeResponse parses one response body against the request ID and
 // validates the EthGuard native contract. It returns either a Response
 // (success or provider error) or an error wrapping one of the sentinels:

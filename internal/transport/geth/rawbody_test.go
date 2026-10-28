@@ -109,7 +109,7 @@ func dialCaptureServer(t *testing.T, rawURL string, limit int64) *ethclient.Clie
 func callWithCapture(t *testing.T, client *ethclient.Client, base context.Context) (json.RawMessage, error) {
 	t.Helper()
 	var result json.RawMessage
-	err := newGethTransport(client, true).CallContext(base, &result, "eth_chainId")
+	err := newGethTransport(client, true, 0).CallContext(base, &result, "eth_chainId")
 	return result, err
 }
 
