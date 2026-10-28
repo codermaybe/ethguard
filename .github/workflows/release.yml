@@ -36,7 +36,7 @@ jobs:
           # apidiff needs the previous tagged module version to compare
           # against; fetch history so the runner has it.
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
