@@ -144,3 +144,11 @@ func (p corroboratingPendingLocalPolicy) ResolveCorroborated(c rpc.Corroboration
 	}
 	return p.Policy.Resolve(obs)
 }
+
+func (p corroboratingPendingLocalPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
+	if inner, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
+		return inner.ResolveOutcomeCorroborated(c, obs)
+	}
+	decision, err := p.ResolveCorroborated(c, obs)
+	return rpc.Outcome{Decision: decision}, err
+}

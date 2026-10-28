@@ -29,6 +29,26 @@ func (p blockPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observat
 	return p.restoreHeaderOnlyValue(d, obs), err
 }
 
+func (p blockPolicy) ResolveOutcome(obs []rpc.Observation) (rpc.Outcome, error) {
+	if inner, ok := p.Policy.(rpc.OutcomeResolver); ok {
+		outcome, err := inner.ResolveOutcome(obs)
+		outcome.Decision = p.restoreHeaderOnlyValue(outcome.Decision, obs)
+		return outcome, err
+	}
+	d, err := p.Resolve(obs)
+	return rpc.Outcome{Decision: d}, err
+}
+
+func (p blockPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
+	if inner, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
+		outcome, err := inner.ResolveOutcomeCorroborated(c, obs)
+		outcome.Decision = p.restoreHeaderOnlyValue(outcome.Decision, obs)
+		return outcome, err
+	}
+	d, err := p.ResolveCorroborated(c, obs)
+	return rpc.Outcome{Decision: d}, err
+}
+
 func (p blockPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
 	d, err := p.Policy.Resolve(obs)
 	return p.restoreHeaderOnlyValue(d, obs), err

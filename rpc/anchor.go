@@ -179,6 +179,10 @@ func (a corroboratingAnchoredPolicy) ResolveCorroborated(c Corroboration, obs []
 	return resolveCorroborated(a.Policy, c, obs)
 }
 
+func (a corroboratingAnchoredPolicy) ResolveOutcomeCorroborated(c Corroboration, obs []Observation) (Outcome, error) {
+	return resolveOutcomeCorroborated(a.Policy, c, obs)
+}
+
 // Anchored binds a normalizer to strict resolution and rewrites a moving block
 // tag at position tagPos to a corroborated block hash before fan-out. Strict
 // options (for example WithQuorum) pass through to the underlying resolution.
@@ -262,6 +266,10 @@ type corroboratingPendingPolicy struct{ pendingRejectingPolicy }
 
 func (p corroboratingPendingPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
 	return resolveCorroborated(p.Policy, c, obs)
+}
+
+func (p corroboratingPendingPolicy) ResolveOutcomeCorroborated(c Corroboration, obs []Observation) (Outcome, error) {
+	return resolveOutcomeCorroborated(p.Policy, c, obs)
 }
 
 // WithAnchorHeight decorates a policy with moving-tag rewriting to the
@@ -370,6 +378,10 @@ type corroboratingHeightPolicy struct{ anchoredHeightPolicy }
 
 func (a corroboratingHeightPolicy) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
 	return resolveCorroborated(a.Policy, c, obs)
+}
+
+func (a corroboratingHeightPolicy) ResolveOutcomeCorroborated(c Corroboration, obs []Observation) (Outcome, error) {
+	return resolveOutcomeCorroborated(a.Policy, c, obs)
 }
 
 // WithAnchorHeightFields decorates a policy so that named string fields of
@@ -532,6 +544,10 @@ func (a corroboratingFieldsPolicy) ResolveCorroborated(c Corroboration, obs []Ob
 	return resolveCorroborated(a.Policy, c, obs)
 }
 
+func (a corroboratingFieldsPolicy) ResolveOutcomeCorroborated(c Corroboration, obs []Observation) (Outcome, error) {
+	return resolveOutcomeCorroborated(a.Policy, c, obs)
+}
+
 // resolveCorroborated forwards an invocation snapshot to the inner
 // CorroboratingPolicy without bypassing intermediate decorators.
 func resolveCorroborated(policy Policy, c Corroboration, obs []Observation) (Decision, error) {
@@ -539,6 +555,18 @@ func resolveCorroborated(policy Policy, c Corroboration, obs []Observation) (Dec
 		return inner.ResolveCorroborated(c, obs)
 	}
 	return policy.Resolve(obs)
+}
+
+// resolveOutcomeCorroborated mirrors resolveCorroborated for the per-source
+// outcome statement: the inner resolver states verdicts when it can, and a
+// wrapped policy that cannot state them still resolves, without inventing a
+// corroboration capability it never had.
+func resolveOutcomeCorroborated(policy Policy, c Corroboration, obs []Observation) (Outcome, error) {
+	if inner, ok := policy.(CorroboratingOutcomeResolver); ok {
+		return inner.ResolveOutcomeCorroborated(c, obs)
+	}
+	decision, err := resolveCorroborated(policy, c, obs)
+	return Outcome{Decision: decision}, err
 }
 
 // corroboratingPolicy reports the capability of the immediate wrapped policy.

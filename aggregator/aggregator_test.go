@@ -156,7 +156,7 @@ func TestEventMarksOnlyUnusableAttemptsFailed(t *testing.T) {
 		{Src: sources[4], Err: fakeRPCError{-32603, "panic"}, Attempted: true},              // opt-in: still rejected by the normalizer
 		{Src: sources[5]}, // never acquired a slot: absent from attempts
 	}
-	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated}, nil, emissions)
+	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated}, nil, emissions, nil)
 
 	if len(rec.events) != 1 {
 		t.Fatalf("expected exactly one event, got %d", len(rec.events))
@@ -184,7 +184,7 @@ func TestEventMarksRevertAsFailureForPoliciesWithoutErrorBodies(t *testing.T) {
 	sources := namedSources(t, "a")
 	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated}, nil, []pool.Emission{
 		{Src: sources[0], Err: fakeRPCError{-32000, "execution reverted"}, Attempted: true},
-	})
+	}, nil)
 	if !rec.events[0].Attempts[0].Failed {
 		t.Fatalf("expected a revert to count as failed for a policy without error bodies")
 	}
@@ -200,7 +200,7 @@ func TestEventMarksConflictAsFailed(t *testing.T) {
 	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated},
 		fmt.Errorf("strict: %w", rpc.ErrConflict), []pool.Emission{
 			{Src: sources[0], Val: json.RawMessage(`"2"`), Attempted: true},
-		})
+		}, nil)
 	event := rec.events[0]
 	if event.Status != "failed" || !event.Conflict {
 		t.Fatalf("expected failed conflict event, got %+v", event)
@@ -255,7 +255,7 @@ func TestStructuredSourceFaultsIncludeGatedMember(t *testing.T) {
 		Err:       pool.ErrSourceGated,
 		Attempted: false,
 	}}
-	faults := structuredSourceFaults(nil, emissions)
+	faults := structuredSourceFaults(nil, emissions, nil)
 	if len(faults) != 1 {
 		t.Fatalf("faults=%d, want 1", len(faults))
 	}

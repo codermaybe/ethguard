@@ -104,6 +104,41 @@ func resolve(policy rpc.Policy, snap rpc.Corroboration, snapOK bool, obs []rpc.O
 	return policy.Resolve(obs)
 }
 
+// invocationResolution is one resolution's complete statement: the decision
+// plus, when the policy stated them, every source's verdict. Nil verdicts
+// mean the policy cannot speak per-source outcomes, and classification falls
+// back to the policy's own validity contract.
+type invocationResolution struct {
+	decision rpc.Decision
+	verdicts []rpc.SourceVerdict
+	err      error
+}
+
+// resolveInvocation resolves one observation set, preferring the policy's
+// per-source outcome statement. The corroborated form is offered only to
+// policies that corroborate — the outcome capability is checked the same way
+// the plain one is, so wrapping a Median cannot acquire a corroboration claim
+// it never had (the composition test pins this). A policy without either
+// outcome capability resolves exactly as before.
+func resolveInvocation(policy rpc.Policy, prepared rpc.Request, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) invocationResolution {
+	if isPendingLocalRoute(policy, prepared, snap, snapOK) {
+		decision, err := policy.(rpc.LocalObservationPolicy).ResolveLocal(obs)
+		return invocationResolution{decision: decision, err: err}
+	}
+	if snapOK {
+		if corrob, ok := policy.(rpc.CorroboratingOutcomeResolver); ok {
+			outcome, err := corrob.ResolveOutcomeCorroborated(snap, obs)
+			return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}
+		}
+	}
+	if outcomeResolver, ok := policy.(rpc.OutcomeResolver); ok {
+		outcome, err := outcomeResolver.ResolveOutcome(obs)
+		return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}
+	}
+	decision, err := resolve(policy, snap, snapOK, obs)
+	return invocationResolution{decision: decision, err: err}
+}
+
 // isPendingLocalRoute is the single pending-local routing check. Both
 // resolution and the corroboration-required gate use it: a pending request
 // on a LocalObservationPolicy resolves as a node-local observation, except
@@ -119,11 +154,8 @@ func isPendingLocalRoute(policy rpc.Policy, prepared rpc.Request, snap rpc.Corro
 // agreement can never become Corroborated. Every other shape resolves
 // through the ordinary path. Intentional single-source forwarding keeps its
 // own contract: in Forwarded mode the pending shape still forwards.
-func resolveWithPending(policy rpc.Policy, prepared rpc.Request, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) (rpc.Decision, error) {
-	if isPendingLocalRoute(policy, prepared, snap, snapOK) {
-		return policy.(rpc.LocalObservationPolicy).ResolveLocal(obs)
-	}
-	return resolve(policy, snap, snapOK, obs)
+func resolveWithPending(policy rpc.Policy, prepared rpc.Request, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) invocationResolution {
+	return resolveInvocation(policy, prepared, snap, snapOK, obs)
 }
 
 // Aggregate collects one request and resolves it according to its policy.
@@ -170,7 +202,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 			c.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
 		}
 		decision := rpc.Decision{Status: rpc.Unknown, Reference: capture.Reference()}
-		a.recordDecision(started, req.Method, policy, decision, err, nil)
+		a.recordDecision(started, req.Method, policy, decision, err, nil, nil)
 		return decision, err
 	}
 	var emissions []pool.Emission
@@ -283,8 +315,8 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	}
 	if collectErr != nil && !hasUsableEmission(emissions) {
 		decision := unknownDecision(capture.Reference(), participants, preparedRequest(prepared))
-		decision.Faults = collectionFaults(policy, collectErr, emissions)
-		decision.SourceFaults = structuredSourceFaults(policy, emissions)
+		decision.Faults = collectionFaults(policy, collectErr, emissions, nil)
+		decision.SourceFaults = structuredSourceFaults(policy, emissions, nil)
 		decision.CollectionFaults = collectionFaultList(collectErr)
 		if aggregateErr != nil {
 			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
@@ -293,7 +325,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		if evaluation != nil {
 			decision.Diagnostics = &evaluation.Diagnostics
 		}
-		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions)
+		a.recordDecision(started, req.Method, policy, decision, collectErr, emissions, nil)
 		return decision, collectErr
 	}
 	// Admission runs before clustering, so when every delivered response is
@@ -303,8 +335,8 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	if collectErr == nil && !hasUsableEmission(emissions) && hasMalformedAdmission(emissions) {
 		admissionErr := firstMalformedAdmission(emissions)
 		decision := unknownDecision(capture.Reference(), participants, preparedRequest(prepared))
-		decision.Faults = sourceFaults(policy, emissions)
-		decision.SourceFaults = structuredSourceFaults(policy, emissions)
+		decision.Faults = sourceFaults(policy, emissions, nil)
+		decision.SourceFaults = structuredSourceFaults(policy, emissions, nil)
 		if aggregateErr != nil {
 			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
 		}
@@ -313,10 +345,12 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 			decision.Diagnostics = &evaluation.Diagnostics
 		}
 		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
-		a.recordDecision(started, req.Method, policy, decision, err, emissions)
+		a.recordDecision(started, req.Method, policy, decision, err, emissions, nil)
 		return decision, err
 	}
-	decision, resolveErr := resolveWithPending(policy, prepared, snap, snapOK, observations)
+	res := resolveWithPending(policy, prepared, snap, snapOK, observations)
+	decision, resolveErr := res.decision, res.err
+	verdicts := finalizeVerdicts(res.verdicts, emissions)
 	if resolveErr == nil && snapOK && snap.Mode == rpc.CorroborationForwarded {
 		decision.Status = rpc.Forwarded
 	}
@@ -363,9 +397,9 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", collectErr))
 		decision.CollectionFaults = collectionFaultList(collectErr)
 	}
-	decision.SourceFaults = structuredSourceFaults(policy, emissions)
-	decision.Faults = append(decision.Faults, sourceFaults(policy, emissions)...)
-	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions)
+	decision.SourceFaults = structuredSourceFaults(policy, emissions, verdicts)
+	decision.Faults = append(decision.Faults, sourceFaults(policy, emissions, verdicts)...)
+	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions, verdicts)
 	return decision, resolveErr
 }
 
@@ -431,13 +465,42 @@ func firstMalformedAdmission(emissions []pool.Emission) error {
 	return rpc.ErrMalformedResponse
 }
 
+// finalizeVerdicts reclassifies skipped members from the coordinator's attempt
+// bookkeeping. The resolver sees only observations, so a member whose request
+// a scheduling gate paused reads as unusable to it; the coordinator knows the
+// call never started and marks it absent. Verdicts stay ordered by source ID.
+func finalizeVerdicts(verdicts []rpc.SourceVerdict, emissions []pool.Emission) []rpc.SourceVerdict {
+	if verdicts == nil {
+		return nil
+	}
+	absent := make(map[string]struct{}, len(emissions))
+	for _, emission := range emissions {
+		if !emission.Attempted && emission.Src != nil {
+			absent[emission.Src.ID()] = struct{}{}
+		}
+	}
+	if len(absent) == 0 {
+		return verdicts
+	}
+	out := make([]rpc.SourceVerdict, len(verdicts))
+	copy(out, verdicts)
+	for i, verdict := range out {
+		if _, skipped := absent[verdict.Source.ID]; skipped && verdict.Kind == rpc.VerdictUnusable {
+			out[i].Kind = rpc.VerdictAbsent
+		}
+	}
+	return out
+}
+
 // recordDecision folds one completed aggregation into exactly one
 // observability event (decision 0008). It lives here — the call site that
-// owns policies — so the per-attempt Failed flag reuses the policy's own
-// validity contract instead of a second answer classifier living in the
-// observability seam. The no-op sink skips assembly entirely, keeping the
-// default call path free of event-building costs.
-func (a *Aggregator) recordDecision(started time.Time, method string, policy rpc.Policy, decision rpc.Decision, resolveErr error, emissions []pool.Emission) {
+// owns policies — so the per-attempt Failed flag reuses the resolution's own
+// per-source statement when the policy stated one, instead of a second
+// answer classifier living in the observability seam. Policies without the
+// outcome capability keep the validity-contract classification. The no-op
+// sink skips assembly entirely, keeping the default call path free of
+// event-building costs.
+func (a *Aggregator) recordDecision(started time.Time, method string, policy rpc.Policy, decision rpc.Decision, resolveErr error, emissions []pool.Emission, verdicts []rpc.SourceVerdict) {
 	if a.rec == observe.Nop {
 		return
 	}
@@ -455,6 +518,7 @@ func (a *Aggregator) recordDecision(started time.Time, method string, policy rpc
 	} else {
 		event.Status = decision.Status.String()
 	}
+	attemptClass := attemptClassifier(policy, verdicts)
 	for _, emission := range emissions {
 		if !emission.Attempted {
 			continue // never acquired a slot: no attempt, no observation
@@ -462,10 +526,35 @@ func (a *Aggregator) recordDecision(started time.Time, method string, policy rpc
 		event.Attempts = append(event.Attempts, observe.SourceEvent{
 			Source: emission.Src.Name(),
 			RTT:    emission.RTT,
-			Failed: !usableAnswer(policy, emission),
+			Failed: !attemptClass(emission),
 		})
 	}
 	a.rec.RecordDecision(event)
+}
+
+// attemptClassifier fixes how one attempted emission is judged usable: from
+// the resolution's verdicts when the policy stated them, otherwise from the
+// policy's validity contract.
+func attemptClassifier(policy rpc.Policy, verdicts []rpc.SourceVerdict) func(pool.Emission) bool {
+	if verdicts == nil {
+		return func(emission pool.Emission) bool { return usableAnswer(policy, emission) }
+	}
+	index := verdictIndexByID(verdicts)
+	return func(emission pool.Emission) bool {
+		verdict, stated := index[emission.Src.ID()]
+		if !stated {
+			return usableAnswer(policy, emission)
+		}
+		return verdict.Kind == rpc.VerdictSupported || verdict.Kind == rpc.VerdictDissented
+	}
+}
+
+func verdictIndexByID(verdicts []rpc.SourceVerdict) map[string]rpc.SourceVerdict {
+	index := make(map[string]rpc.SourceVerdict, len(verdicts))
+	for _, verdict := range verdicts {
+		index[verdict.Source.ID] = verdict
+	}
+	return index
 }
 
 // usableAnswer reports whether an attempted call provided an answer the
@@ -505,16 +594,18 @@ func hasUsableEmission(emissions []pool.Emission) bool {
 	return false
 }
 
-func collectionFaults(policy rpc.Policy, collectErr error, emissions []pool.Emission) []error {
-	return append([]error{fmt.Errorf("collect: %w", collectErr)}, sourceFaults(policy, emissions)...)
+func collectionFaults(policy rpc.Policy, collectErr error, emissions []pool.Emission, verdicts []rpc.SourceVerdict) []error {
+	return append([]error{fmt.Errorf("collect: %w", collectErr)}, sourceFaults(policy, emissions, verdicts)...)
 }
 
 // sourceFaults preserves rejected protocol answers as diagnostics, without
-// changing pool health or blaming calls that never started.
-func sourceFaults(policy rpc.Policy, emissions []pool.Emission) []error {
+// changing pool health or blaming calls that never started. A stated verdict
+// is authoritative for its source; without one the validity contract judges.
+func sourceFaults(policy rpc.Policy, emissions []pool.Emission, verdicts []rpc.SourceVerdict) []error {
+	attemptClass := attemptClassifier(policy, verdicts)
 	var faults []error
 	for _, emission := range emissions {
-		if emission.Attempted && emission.Err != nil && !usableAnswer(policy, emission) {
+		if emission.Attempted && emission.Err != nil && !attemptClass(emission) {
 			faults = append(faults, fmt.Errorf("source %q: %w", emission.Src.Name(), emission.Err))
 		}
 	}
@@ -527,13 +618,14 @@ func sourceFaults(policy rpc.Policy, emissions []pool.Emission) []error {
 // report must classify them as availability faults even though Calls never
 // started; the human-readable Faults list intentionally stays unchanged.
 // Report generation must use this seam rather than parsing error strings.
-func structuredSourceFaults(policy rpc.Policy, emissions []pool.Emission) []rpc.SourceFault {
+func structuredSourceFaults(policy rpc.Policy, emissions []pool.Emission, verdicts []rpc.SourceVerdict) []rpc.SourceFault {
+	attemptClass := attemptClassifier(policy, verdicts)
 	var faults []rpc.SourceFault
 	for _, emission := range emissions {
 		if emission.Err == nil {
 			continue
 		}
-		if emission.Attempted && usableAnswer(policy, emission) {
+		if emission.Attempted && attemptClass(emission) {
 			continue
 		}
 		faults = append(faults, rpc.SourceFault{

@@ -72,6 +72,25 @@ func (d Decorator) BlockRef(original, prepared Request) string {
 	return ""
 }
 
+// ResolveOutcome forwards the wrapped policy's per-source outcome statement.
+// A wrapped policy that cannot state verdicts resolves through plain Resolve
+// with no verdicts attached; the coordinator falls back to its own
+// classification for those, so the two shapes stay observationally identical.
+//
+// A decorator that changes Resolve's output (value restoration, status
+// overrides) must override ResolveOutcome with the same transformation, or
+// the outcome path would bypass it. The method deliberately forwards only the
+// non-corroborated form: ResolveOutcomeCorroborated stays with the resolver
+// and the corroborating wrapper types, so wrapping a non-corroborating policy
+// cannot acquire a corroboration claim it never had.
+func (d Decorator) ResolveOutcome(obs []Observation) (Outcome, error) {
+	if inner, ok := d.Policy.(OutcomeResolver); ok {
+		return inner.ResolveOutcome(obs)
+	}
+	decision, err := d.Policy.Resolve(obs)
+	return Outcome{Decision: decision}, err
+}
+
 // MethodRule composes the inner policy's rule without adding a column of its
 // own. Decorators that contribute a rule column use MethodRuleWith instead.
 func (d Decorator) MethodRule() (MethodRule, Policy) {

@@ -91,6 +91,14 @@ func (p logsPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observati
 	return p.Policy.Resolve(obs)
 }
 
+func (p logsPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
+	if policy, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
+		return policy.ResolveOutcomeCorroborated(c, obs)
+	}
+	d, err := p.ResolveCorroborated(c, obs)
+	return rpc.Outcome{Decision: d}, err
+}
+
 // Admit enforces the log response schema before the response can enter a
 // voting cluster.  The normalizer deliberately runs later as well: admission
 // protects the security boundary, while normalization only chooses the

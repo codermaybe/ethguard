@@ -30,6 +30,14 @@ func (p admissionPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Obse
 	}
 	return p.Policy.Resolve(obs)
 }
+
+func (p admissionPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
+	if corrob, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
+		return corrob.ResolveOutcomeCorroborated(c, obs)
+	}
+	d, err := p.ResolveCorroborated(c, obs)
+	return rpc.Outcome{Decision: d}, err
+}
 func (p admissionPolicy) Admit(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
 	return p.admit(ctx, req, value, call)
 }

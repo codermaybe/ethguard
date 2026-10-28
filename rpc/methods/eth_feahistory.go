@@ -58,6 +58,14 @@ func (p feeHistoryPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Obs
 	return p.Policy.Resolve(obs)
 }
 
+func (p feeHistoryPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
+	if policy, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
+		return policy.ResolveOutcomeCorroborated(c, obs)
+	}
+	d, err := p.ResolveCorroborated(c, obs)
+	return rpc.Outcome{Decision: d}, err
+}
+
 // Admit applies the same request-independent response checks used by the
 // normalizer before a fee-history answer can participate in voting.
 func (p feeHistoryPolicy) Admit(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {

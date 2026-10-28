@@ -207,3 +207,11 @@ func (p corroboratingEIP1898Policy) ResolveCorroborated(c rpc.Corroboration, obs
 	}
 	return p.Policy.Resolve(obs)
 }
+
+func (p corroboratingEIP1898Policy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
+	if inner, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
+		return inner.ResolveOutcomeCorroborated(c, obs)
+	}
+	decision, err := p.ResolveCorroborated(c, obs)
+	return rpc.Outcome{Decision: decision}, err
+}
