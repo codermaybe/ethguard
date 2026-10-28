@@ -1,6 +1,8 @@
 package replay_test
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"bytes"
 	"context"
 	"encoding/json"
@@ -356,7 +358,7 @@ func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobor
 // member order and the same pool.
 func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, rpc.AnchorHeightFunc) {
 	t.Helper()
-	sources := pool.NewPoolWithChainID(1)
+	sources := pool.NewPoolWithOptions(1, pool.WithDialer(nativehttp.NewDialer()))
 	t.Cleanup(sources.Close)
 	nodes := make([]*rpctest.Node, 0, len(names))
 	for _, name := range names {

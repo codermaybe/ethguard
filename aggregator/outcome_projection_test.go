@@ -1,6 +1,8 @@
 package aggregator
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,7 +60,7 @@ func TestOutcomePathMatchesLegacyPath(t *testing.T) {
 		{name: "legacy path hides the outcome capability", hidden: true},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
-			p := pool.NewPool()
+			p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 			for i, node := range nodes {
 				if _, err := p.Join(fmt.Sprintf("node-%d", i), node.URL()); err != nil {
 					t.Fatal(err)
@@ -111,7 +113,7 @@ func TestOutcomePathMatchesLegacyPath(t *testing.T) {
 // attribution the legacy classification produced, including gated members
 // recorded as availability faults.
 func TestVerdictProjectionMatchesLegacyFaults(t *testing.T) {
-	p := pool.NewPoolWithChainID(1)
+	p := pool.NewPoolWithOptions(1, pool.WithDialer(nativehttp.NewDialer()))
 	source, err := p.Join("node-01", "https://rpc-a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +137,7 @@ func TestVerdictProjectionMatchesLegacyFaults(t *testing.T) {
 // A scheduling-gated member is absent, not unusable: the resolver saw no
 // observation from it, the coordinator knows the call never started.
 func TestFinalizeVerdictsMarksGatedMembersAbsent(t *testing.T) {
-	p := pool.NewPoolWithChainID(1)
+	p := pool.NewPoolWithOptions(1, pool.WithDialer(nativehttp.NewDialer()))
 	source, err := p.Join("node-01", "https://rpc-a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +161,7 @@ func TestStatedVerdictsSkipSecondNormalize(t *testing.T) {
 		var s string
 		return s, json.Unmarshal(v, &s)
 	})
-	p := pool.NewPool()
+	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	rec := &captureRecorder{}
 	a := New(p, nil, WithRecorder(rec))
 	sources := namedSources(t, "a")

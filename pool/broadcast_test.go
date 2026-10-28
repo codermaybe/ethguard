@@ -1,6 +1,8 @@
 package pool
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"context"
 	"errors"
 	"math/rand"
@@ -25,7 +27,7 @@ func TestBroadcastContactsAllSourcesWithoutFreshnessGate(t *testing.T) {
 	// the other two answers are returned alongside its timeout emission.
 	nodes[2].Hang("eth_sendRawTransaction", 2*time.Second)
 
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	for i, u := range urls {
 		if _, err := p.Join(string(rune('a'+i)), u); err != nil {
 			t.Fatal(err)
@@ -64,7 +66,7 @@ func TestBroadcastShortCircuitNeverStopsFleet(t *testing.T) {
 		defer nodes[i].Close()
 		nodes[i].Return("eth_sendRawTransaction", "0xabc")
 	}
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	for i, n := range nodes {
 		if _, err := p.Join(string(rune('a'+i)), n.URL()); err != nil {
 			t.Fatal(err)
@@ -86,7 +88,7 @@ func TestBroadcastCoolingSourceIsGatedNotFailed(t *testing.T) {
 	defer node.Close()
 	node.Fail("eth_sendRawTransaction", -32010, "nonce too low")
 
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	src, err := p.Join("a", node.URL())
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +116,7 @@ func TestBroadcastCoolingSourceIsGatedNotFailed(t *testing.T) {
 }
 
 func TestBroadcastClosedPool(t *testing.T) {
-	p := NewPool()
+	p := NewPoolWithOptions(0, WithDialer(nativehttp.NewDialer()))
 	p.Close()
 	_, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x01"})
 	if !errors.Is(err, ErrClosed) {
@@ -123,7 +125,7 @@ func TestBroadcastClosedPool(t *testing.T) {
 }
 
 func TestBroadcastEmptyPool(t *testing.T) {
-	p := NewPool()
+	p := NewPoolWithOptions(0, WithDialer(nativehttp.NewDialer()))
 	_, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x01"})
 	if !errors.Is(err, ErrNoEligibleSource) {
 		t.Fatalf("err = %v, want ErrNoEligibleSource", err)
@@ -137,7 +139,7 @@ func TestBroadcastTrailingSourceStillContacted(t *testing.T) {
 	defer node.Close()
 	node.Return("eth_sendRawTransaction", "0xabc")
 
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	if _, err := p.Join("a", node.URL()); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +164,7 @@ func TestBroadcastProtocolErrorIsUsableAnswer(t *testing.T) {
 	defer node.Close()
 	node.Fail("eth_sendRawTransaction", -32010, "nonce too low")
 
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	if _, err := p.Join("a", node.URL()); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +224,7 @@ func runRemovalRaceRound(t *testing.T, round int, rng *rand.Rand, victims map[st
 			rpctest.After(25*time.Millisecond, rpctest.Value("0x"+"02")))
 	}
 
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	port := 10 // two-digit unreachable loopback ports; every member must be a distinct endpoint
 	for i := 0; i < members; i++ {
@@ -295,7 +297,7 @@ func TestBroadcastMaxConcurrentPacesWithoutShrinking(t *testing.T) {
 		defer nodes[i].Close()
 	}
 
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	for i, n := range nodes {
 		if _, err := p.Join(string(rune('a'+i)), n.URL()); err != nil {

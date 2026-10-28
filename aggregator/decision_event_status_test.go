@@ -1,6 +1,8 @@
 package aggregator
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -127,7 +129,7 @@ func quantityPolicy() rpc.Policy {
 
 func scriptedAggregate(t *testing.T, count int, rec observe.Recorder, forwarded bool, policy rpc.Policy, script func(int, *rpctest.Node)) (*Aggregator, []*rpctest.Node) {
 	t.Helper()
-	p := pool.NewPool()
+	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	t.Cleanup(p.Close)
 	nodes := make([]*rpctest.Node, 0, count)
 	for i := range count {

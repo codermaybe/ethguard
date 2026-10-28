@@ -1,24 +1,42 @@
 package transport
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"math/big"
 	"testing"
-
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
-func TestAdaptErrorPreservesHTTPStatusCapability(t *testing.T) {
-	got := adaptError(gethrpc.HTTPError{StatusCode: 429, Status: "429 Too Many Requests"})
-	var status interface{ HTTPStatusCode() int }
-	if !errors.As(got, &status) || status.HTTPStatusCode() != 429 {
-		t.Fatalf("adapted error status = %v, want 429", got)
+// The Port is the seam every adapter implements and core packages consume.
+// Its shape and its neutral sentinels are contract surface: the interlock
+// keeps adapters out of this package, and these assertions keep the
+// sentinel identity stable for the classification seams that wrap it.
+func TestPortSurface(t *testing.T) {
+	var (
+		_ Transport = portStub{}
+		_ Dialer    = dialerStub{}
+	)
+	if ErrBodyTooLarge == nil || ErrConnectionClosed == nil {
+		t.Fatal("neutral sentinels must be defined")
 	}
-	var rateLimit interface{ IsRateLimit() bool }
-	if !errors.As(got, &rateLimit) || !rateLimit.IsRateLimit() {
-		t.Fatalf("adapted error lost rate-limit capability: %v", got)
+	if errors.Is(ErrBodyTooLarge, ErrConnectionClosed) {
+		t.Fatal("the body-limit and lifecycle sentinels must stay distinct")
 	}
-	var original gethrpc.HTTPError
-	if !errors.As(got, &original) || original.StatusCode != 429 {
-		t.Fatalf("adapted error lost original HTTPError: %v", got)
+	// Wrapping preserves the neutral identity, which is how adapters attach
+	// their own diagnostics without leaking their types to core packages.
+	wrapped := fmt.Errorf("adapter detail: %w", ErrConnectionClosed)
+	if !errors.Is(wrapped, ErrConnectionClosed) {
+		t.Fatal("wrapped close errors must keep the neutral identity")
 	}
 }
+
+type portStub struct{}
+
+func (portStub) CallContext(context.Context, any, string, ...any) error { return nil }
+func (portStub) ChainID(context.Context) (*big.Int, error)              { return nil, nil }
+func (portStub) Close()                                                 {}
+
+type dialerStub struct{}
+
+func (dialerStub) DialContext(context.Context, string) (Transport, error) { return nil, nil }

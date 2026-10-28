@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	upstream "github.com/codermaybe/ethguard/internal/transport"
 )
 
 var (
@@ -25,10 +23,6 @@ var (
 	// remain available on the returned emissions and on Decision.Faults.
 	ErrAllSourcesDown = errors.New("pool: all upstream sources failed to respond")
 )
-
-// standardDialer is the default connection Adapter. Its implementation lives
-// outside pool; this alias preserves the package's internal construction sites.
-type standardDialer = upstream.StandardDialer
 
 // Pool is the concurrent-safe multi-source RPC manager.
 // One Pool is shared by a single ethguard.Client and all caller goroutines.
@@ -51,8 +45,10 @@ type Pool struct {
 	stopTips    chan struct{}
 }
 
-// NewPool creates an empty pool.
-// Sources dialed by the pool use the standard network dialer.
+// NewPool creates an empty pool. No dialer is installed: sources joined into
+// such a pool fail at dial time until a connection adapter is configured with
+// WithDialer — the root facade and ethadapter always install one (native by
+// default, the go-ethereum compatibility adapter through gethcompat).
 func NewPool() *Pool {
 	return NewPoolWithChainID(0)
 }
@@ -60,7 +56,7 @@ func NewPool() *Pool {
 // NewPoolWithChainID creates a pool that rejects sources reporting another
 // Ethereum chain. A zero chain ID disables the check for compatibility.
 func NewPoolWithChainID(chainID uint64) *Pool {
-	return newPoolWithDialerAndChainID(standardDialer{}, chainID)
+	return newPoolWithDialerAndChainID(nil, chainID)
 }
 
 func newPoolWithDialerAndChainID(d dialer, chainID uint64) *Pool {

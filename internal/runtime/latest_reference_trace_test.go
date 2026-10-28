@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -136,7 +138,7 @@ func TestLatestReferenceTraceSharesOneInvocation(t *testing.T) {
 			return "0xdeadbeef", nil
 		})
 	}
-	p := pool.NewPool()
+	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	for i, node := range nodes {
 		if _, err := p.Join(fmt.Sprintf("node-%d", i), node.URL()); err != nil {
 			t.Fatal(err)
@@ -241,7 +243,7 @@ func TestFinalizedReferenceTraceConfirmsAndPins(t *testing.T) {
 			return "0xdeadbeef", nil
 		})
 	}
-	p := pool.NewPool()
+	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	for i, node := range nodes {
 		if _, err := p.Join(fmt.Sprintf("node-%d", i), node.URL()); err != nil {
 			t.Fatal(err)
@@ -281,7 +283,7 @@ func TestReferenceFailureKeepsBusinessFanOutAtZero(t *testing.T) {
 	for _, node := range nodes {
 		node.Fail("eth_getBlockByNumber", -32000, "head unavailable")
 	}
-	p := pool.NewPool()
+	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	for i, node := range nodes {
 		if _, err := p.Join(fmt.Sprintf("node-%d", i), node.URL()); err != nil {
 			t.Fatal(err)

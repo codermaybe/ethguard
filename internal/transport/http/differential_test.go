@@ -1,6 +1,8 @@
 package http
 
 import (
+	gethadapter "github.com/codermaybe/ethguard/internal/transport/geth"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,7 +19,7 @@ import (
 )
 
 // The differential suite runs the native adapter and the Geth compatibility
-// adapter (transport.StandardDialer, the audited baseline) against the same
+// adapter (geth.StandardDialer, the audited baseline) against the same
 // loopback server. Class A behavior must match exactly; every intentional
 // B-class divergence is asserted here and documented in
 // docs/design/http-transport-differential.md §8. Geth quirks are never
@@ -30,7 +32,7 @@ func dialAdapters(t *testing.T, rawURL string) (*Transport, transport.Transport)
 	if err != nil {
 		t.Fatalf("native dial: %v", err)
 	}
-	gethTr, err := transport.StandardDialer{}.DialContext(context.Background(), rawURL)
+	gethTr, err := gethadapter.StandardDialer{}.DialContext(context.Background(), rawURL)
 	if err != nil {
 		t.Fatalf("geth dial: %v", err)
 	}

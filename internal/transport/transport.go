@@ -1,18 +1,15 @@
-// Package transport contains the connection adapters used by pool.
-//
-// The package owns protocol-specific implementations; pool only consumes the
-// small Transport and Dialer seams defined here.
+// Package transport is the Port-only physical home of the connection seam:
+// the Transport and Dialer interfaces pool consumes, and the neutral
+// sentinels core packages classify on. It owns no adapter implementation —
+// the native HTTP adapter lives in internal/transport/http and the go-ethereum
+// compatibility adapter in internal/transport/geth — so the default build
+// never links ethclient.
 package transport
 
 import (
 	"context"
 	"errors"
 	"math/big"
-
-	"github.com/ethereum/go-ethereum/ethclient"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
-
-	"github.com/codermaybe/ethguard/rpc"
 )
 
 // Transport is one long-lived upstream connection. It deliberately exposes
@@ -25,6 +22,11 @@ type Transport interface {
 	Close()
 }
 
+// Dialer creates one long-lived Transport for an endpoint.
+type Dialer interface {
+	DialContext(context.Context, string) (Transport, error)
+}
+
 // ErrConnectionClosed is the neutral sentinel for a call attempted on a
 // transport after Close. Every adapter maps its own closed-connection error
 // onto this sentinel so core packages classify the lifecycle without knowing
@@ -32,106 +34,8 @@ type Transport interface {
 // by their own context, not by Close.
 var ErrConnectionClosed = errors.New("transport: connection closed")
 
-// Dialer creates one long-lived Transport for an endpoint.
-type Dialer interface {
-	DialContext(context.Context, string) (Transport, error)
-}
-
-// StandardDialer is the current go-ethereum compatibility adapter. HTTP uses
-// the body-capturing path in this package; WebSocket and other supported
-// schemes continue through go-ethereum's DialContext unchanged.
-type StandardDialer struct{}
-
-func (StandardDialer) DialContext(ctx context.Context, rawURL string) (Transport, error) {
-	if client, ok, err := dialHTTPPreservingErrorData(ctx, rawURL); ok {
-		if err != nil {
-			if client != nil {
-				client.Close()
-			}
-			return nil, err
-		}
-		return newGethTransport(client, true), nil
-	}
-	client, err := ethclient.DialContext(ctx, rawURL)
-	if err != nil {
-		return nil, err
-	}
-	return newGethTransport(client, false), nil
-}
-
-// NewGethTransport wraps an existing go-ethereum client without enabling the
-// HTTP body-capture path. It is used by in-process test adapters and keeps the
-// concrete client inside this package.
-func NewGethTransport(client *ethclient.Client) Transport {
-	return newGethTransport(client, false)
-}
-
-type gethTransport struct {
-	client  *ethclient.Client
-	capture bool
-}
-
-func newGethTransport(client *ethclient.Client, capture bool) Transport {
-	return &gethTransport{client: client, capture: capture}
-}
-
-func (t *gethTransport) CallContext(ctx context.Context, result any, method string, args ...any) error {
-	if !t.capture {
-		return adaptError(t.client.Client().CallContext(ctx, result, method, args...))
-	}
-	ctx, body := withRawBody(ctx)
-	err := t.client.Client().CallContext(ctx, result, method, args...)
-	if err != nil {
-		if raw, ok := body.bytes(); ok {
-			err = preserveErrorData(err, raw)
-		}
-	}
-	return adaptError(err)
-}
-
-func (t *gethTransport) ChainID(ctx context.Context) (*big.Int, error) {
-	chainID, err := t.client.ChainID(ctx)
-	return chainID, adaptError(err)
-}
-
-func (t *gethTransport) Close() { t.client.Close() }
-
-// IsClientQuit reports the compatibility adapter's closed-connection error
-// without exposing go-ethereum's sentinel to pool.
-func IsClientQuit(err error) bool { return errors.Is(err, gethrpc.ErrClientQuit) }
-
-type httpStatusError struct {
-	err    error
-	status int
-}
-
-func (e *httpStatusError) Error() string       { return e.err.Error() }
-func (e *httpStatusError) Unwrap() error       { return e.err }
-func (e *httpStatusError) HTTPStatusCode() int { return e.status }
-func (e *httpStatusError) IsRateLimit() bool   { return e.status == 429 }
-
-func adaptError(err error) error {
-	if err == nil {
-		return nil
-	}
-	var existing interface{ HTTPStatusCode() int }
-	if errors.As(err, &existing) {
-		return err
-	}
-	var httpErr gethrpc.HTTPError
-	if errors.As(err, &httpErr) {
-		return &httpStatusError{err: err, status: httpErr.StatusCode}
-	}
-	return err
-}
-
-// The Adapter's error wrappers satisfy the project-owned protocol-error
-// capabilities, so pool, aggregator, write and livecanary never need the
-// go-ethereum error interfaces. Geth's decoded jsonError satisfies
-// rpc.ProtocolError and rpc.DataError structurally without a wrapper;
-// HTTP status needs this one because gethrpc.HTTPError is a struct, not a
-// capability.
-var (
-	_ rpc.HTTPStatusError = (*httpStatusError)(nil)
-	_ rpc.RateLimitError  = (*httpStatusError)(nil)
-)
+// ErrBodyTooLarge classifies a response body that exceeded the capture or
+// read byte-count limit. An oversized body is never handed to a decoder as if
+// it were a complete JSON-RPC response: the transport fails the call with
+// this error instead, so no adapter vouches for truncated bytes.
+var ErrBodyTooLarge = errors.New("transport: response body exceeds limit")

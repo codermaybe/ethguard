@@ -1,6 +1,8 @@
 package pool
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"context"
 	"errors"
 	"testing"
@@ -188,7 +190,7 @@ func TestCollectVotingTimeoutOutranksUsableAnswer(t *testing.T) {
 	defer laggard.Close()
 	laggard.Hang("eth_blockNumber", time.Second)
 
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	if _, err := p.Join("fast", fast.URL()); err != nil {
 		t.Fatal(err)

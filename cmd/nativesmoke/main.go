@@ -23,6 +23,8 @@
 package main
 
 import (
+	gethadapter "github.com/codermaybe/ethguard/internal/transport/geth"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -255,7 +257,7 @@ func dialerFor(adapter string) transport.Dialer {
 	case "native":
 		return nativehttp.NewDialer()
 	case "geth":
-		return transport.StandardDialer{}
+		return gethadapter.StandardDialer{}
 	}
 	return nil
 }

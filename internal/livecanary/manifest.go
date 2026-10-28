@@ -70,7 +70,8 @@ type Manifest struct {
 	ToolVersion   string `json:"tool_version"`
 	GoVersion     string `json:"go_version"`
 	// HTTPAdapter binds the connection implementation to this observation.
-	// Empty is accepted only for legacy manifests and means HTTPAdapterGeth.
+	// Empty is accepted only for legacy manifests and means the client's own
+	// default adapter (the native HTTP adapter).
 	HTTPAdapter string      `json:"http_adapter,omitempty"`
 	Environment Environment `json:"environment"`
 	ChainID     uint64      `json:"chain_id"`
@@ -82,13 +83,13 @@ type Manifest struct {
 	Plan        Plan        `json:"plan"`
 }
 
-// NormalizeHTTPAdapter returns the canonical adapter name. An empty value is
-// the legacy/default Geth adapter; native is opt-in and must be bound into the
-// manifest before the first report is written.
+// NormalizeHTTPAdapter returns the canonical adapter name. An empty value
+// maps to the client's own default adapter spelling; both names must be
+// bound into the manifest before the first report is written.
 func NormalizeHTTPAdapter(value string) (string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value == "" {
-		return HTTPAdapterGeth, nil
+		return HTTPAdapterNative, nil
 	}
 	switch value {
 	case HTTPAdapterGeth, HTTPAdapterNative:

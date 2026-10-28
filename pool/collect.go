@@ -491,6 +491,9 @@ func collectOne(ctx context.Context, src *Source, method string, params []any) (
 	return result, rtt, nil
 }
 
+// shouldDiscardClient reports whether the connection is finished and must be
+// dropped, classified on the neutral lifecycle sentinel every adapter maps
+// its own closed-connection error onto.
 func shouldDiscardClient(err error) bool {
-	return upstream.IsClientQuit(err)
+	return errors.Is(err, upstream.ErrConnectionClosed)
 }

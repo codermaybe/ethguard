@@ -13,10 +13,11 @@ import (
 )
 
 // The selection tests use a response both adapters classify differently: a
-// well-formed 2.0 response whose id does not match the request. The default
-// Geth compatibility adapter accepts it (audited baseline quirk); the native
-// HTTP adapter rejects it by contract. That makes adapter selection
-// observable without protocol-specific types.
+// well-formed 2.0 response whose id does not match the request. The native
+// HTTP adapter — the strategic default — rejects it by contract; the go-ethereum
+// compatibility adapter accepts it (audited baseline quirk) and is reachable
+// only through gethcompat. That makes adapter selection observable without
+// protocol-specific types.
 
 func wrongIDServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -33,18 +34,18 @@ func collectOnce(t *testing.T, c *Client) ([]pool.Emission, error) {
 	return c.Pool().Collect(context.Background(), "eth_chainId", nil, pool.CollectOptions{})
 }
 
-func TestDefaultClientKeepsGethAdapter(t *testing.T) {
+func TestDefaultClientUsesNativeAdapter(t *testing.T) {
 	c, err := New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: wrongIDServer(t).URL}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(c.Close)
 	emissions, err := collectOnce(t, c)
-	if err != nil {
-		t.Fatalf("Collect err = %v, want the default client to keep the Geth adapter", err)
+	if err == nil {
+		t.Fatalf("Collect = %+v, want the default client to run the native adapter (mismatched id rejected)", emissions)
 	}
-	if len(emissions) != 1 || string(emissions[0].Val) != `"0x2a"` {
-		t.Fatalf("emissions = %+v, want the baseline usable answer", emissions)
+	if len(emissions) != 1 || emissions[0].Val != nil {
+		t.Fatalf("emissions = %+v, want the mismatched-id rejection", emissions)
 	}
 }
 

@@ -1,6 +1,8 @@
 package pool
 
 import (
+	"strings"
+
 	"context"
 	"errors"
 	"net/http"
@@ -24,19 +26,25 @@ func TestPoolOptionWithDialerSelectsAdapter(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	t.Run("default-dialer-accepts-baseline-quirk", func(t *testing.T) {
+	t.Run("no-dialer-fails-before-contact", func(t *testing.T) {
+		// A pool without a configured adapter fails every call before any
+		// dial bookkeeping; the root facade and gethcompat always install
+		// one (native by default).
 		p := NewPoolWithOptions(0)
 		t.Cleanup(p.Close)
-		src, err := p.Join("geth", srv.URL)
+		src, err := p.Join("none", srv.URL)
 		if err != nil {
 			t.Fatal(err)
 		}
 		emissions, err := p.Collect(context.Background(), "eth_chainId", nil, CollectOptions{Sources: []*Source{src}})
-		if err != nil {
-			t.Fatalf("Collect err = %v, want the baseline usable answer", err)
+		if !errors.Is(err, ErrAllSourcesDown) {
+			t.Fatalf("Collect err = %v, want ErrAllSourcesDown", err)
 		}
-		if len(emissions) != 1 || string(emissions[0].Val) != `"0x2a"` {
-			t.Fatalf("emissions = %+v, want the value despite the mismatched id", emissions)
+		if len(emissions) != 1 {
+			t.Fatalf("emissions = %+v, want one per member", emissions)
+		}
+		if emissions[0].Err == nil || !strings.Contains(emissions[0].Err.Error(), "no connection adapter configured") {
+			t.Fatalf("emission err = %v, want the explicit no-adapter cause", emissions[0].Err)
 		}
 	})
 

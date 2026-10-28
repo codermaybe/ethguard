@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"context"
 	"encoding/json"
 	"testing"
@@ -27,7 +29,7 @@ func TestPoolHeadReaderAddressesBasisMembers(t *testing.T) {
 	for _, node := range nodes {
 		node.ReturnRaw("eth_getBlockByNumber", raw)
 	}
-	p := pool.NewPool()
+	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	joined := make([]*pool.Source, 0, len(nodes))
 	for _, node := range nodes {
 		source, err := p.Join(node.URL(), node.URL())
@@ -71,7 +73,7 @@ func TestPoolHeadReaderAddressesBasisMembers(t *testing.T) {
 
 // A basis naming an unregistered member fails before any network round.
 func TestPoolHeadReaderRejectsUnknownBasisMember(t *testing.T) {
-	p := pool.NewPool()
+	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	_, err := PoolHeadReaderForBasis(p, rpc.FreezeBasis([]rpc.SourceRef{{ID: "missing"}}, rpc.Corroboration{}))
 	if err == nil {
 		t.Fatal("unknown basis member must fail construction")

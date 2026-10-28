@@ -1,4 +1,4 @@
-package transport
+package geth
 
 import (
 	"bytes"
@@ -15,15 +15,9 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 )
-
-// ErrBodyTooLarge classifies a captured response body that exceeded the
-// capture byte-count limit. An oversized body is never handed to geth as if
-// it were a complete JSON-RPC response: the transport fails the call with
-// this error instead, so the error-data preservation path never parses bytes
-// that may be truncated.
-var ErrBodyTooLarge = errors.New("pool: captured response body exceeds limit")
 
 // errRawBodySlotTaken reports a second capture write into one slot. See
 // rawBodyBox.set for why the invariant is enforced rather than assumed.
@@ -109,7 +103,7 @@ func (t capturingTransport) bodyLimit() int64 {
 //     context.Canceled / context.DeadlineExceeded even when the body was
 //     simultaneously oversized and the connection broke mid-read.
 //  2. Byte-count overrun: more than bodyLimit() bytes arrived. The captured
-//     prefix is discarded and an error wrapping ErrBodyTooLarge is returned.
+//     prefix is discarded and an error wrapping the neutral body-limit sentinel is returned.
 //     A truncated prefix must never reach geth, where it could parse as a
 //     complete JSON-RPC error object and let preserveErrorData vouch for
 //     data it truncated.
@@ -146,7 +140,7 @@ func (t capturingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	}
 	if int64(len(raw)) > t.bodyLimit() {
 		return nil, fmt.Errorf("pool: captured %d bytes of response body, limit is %d: %w",
-			len(raw), t.bodyLimit(), ErrBodyTooLarge)
+			len(raw), t.bodyLimit(), transport.ErrBodyTooLarge)
 	}
 	if readErr != nil {
 		return nil, readErr

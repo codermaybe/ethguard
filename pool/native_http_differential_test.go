@@ -1,6 +1,8 @@
 package pool
 
 import (
+	gethadapter "github.com/codermaybe/ethguard/internal/transport/geth"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -222,7 +224,7 @@ func TestDegenerateErrorMemberHealthDifference(t *testing.T) {
 	})
 
 	// Geth baseline: healthy usable answer (documented quirk).
-	gethPool := newPoolWithDialerAndChainID(standardDialer{}, 0)
+	gethPool := newPoolWithDialerAndChainID(gethadapter.StandardDialer{}, 0)
 	t.Cleanup(gethPool.Close)
 	gethSrc, err := gethPool.Join("geth", srv.srv.URL)
 	if err != nil {

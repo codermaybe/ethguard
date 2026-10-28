@@ -1,6 +1,8 @@
 package prometheus
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"context"
 	"encoding/json"
 	"os"
@@ -108,7 +110,7 @@ func emitDecisionStatuses(t *testing.T) []string {
 func emitStatus(t *testing.T, count int, forwarded, wantErr bool, script func(int, *rpctest.Node)) string {
 	t.Helper()
 	metrics := New()
-	p := pool.NewPool()
+	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	t.Cleanup(p.Close)
 	for i := range count {
 		node := rpctest.NewNode(0)

@@ -1,6 +1,8 @@
-package transport
+package geth
 
 import (
+	"github.com/codermaybe/ethguard/internal/transport"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -177,20 +179,20 @@ func TestCaptureHTTPNormalStates(t *testing.T) {
 }
 
 // TestCaptureHTTPBodyTooLargeIsClassifiedErr locks the truncation contract:
-// a body beyond the capture limit must surface as ErrBodyTooLarge, and the
+// a body beyond the capture limit must surface as transport.ErrBodyTooLarge, and the
 // truncated prefix must never flow into preserveErrorData, so no JSON-RPC
 // error (revert code 3) may be derived from it.
 func TestCaptureHTTPBodyTooLargeIsClassifiedErr(t *testing.T) {
 	srv := newCaptureErrorServer(t, "", true, 8192)
 	client := dialCaptureServer(t, srv.URL, 512)
 	_, err := callWithCapture(t, client, context.Background())
-	if !errors.Is(err, ErrBodyTooLarge) {
-		t.Fatalf("err = %v, want ErrBodyTooLarge", err)
+	if !errors.Is(err, transport.ErrBodyTooLarge) {
+		t.Fatalf("err = %v, want transport.ErrBodyTooLarge", err)
 	}
 	// The truncated prefix must never reach preserveErrorData: because the
 	// oversized read refuses to install a body, the adapter's body.bytes()
 	// lookup finds nothing to vouch for. That the
-	// returned error still classifies as ErrBodyTooLarge — and never parses
+	// returned error still classifies as transport.ErrBodyTooLarge — and never parses
 	// back into a revert (code 3) error — is asserted above and below.
 	var preserved *preservedDataError
 	if errors.As(err, &preserved) {
@@ -228,8 +230,8 @@ func TestCaptureHTTPReadFailureSurfacesReadError(t *testing.T) {
 	if err == nil {
 		t.Fatal("CallContext err = nil, want the mid-body read failure")
 	}
-	if errors.Is(err, ErrBodyTooLarge) {
-		t.Fatalf("read failure misclassified as ErrBodyTooLarge: %v", err)
+	if errors.Is(err, transport.ErrBodyTooLarge) {
+		t.Fatalf("read failure misclassified as transport.ErrBodyTooLarge: %v", err)
 	}
 	var preserved *preservedDataError
 	if errors.As(err, &preserved) {
@@ -243,7 +245,7 @@ func TestCaptureHTTPReadFailureSurfacesReadError(t *testing.T) {
 // TestCaptureHTTPContextCancelBeatsTruncation checks precedence layer 1: the
 // response header arrives immediately, the oversized body is delayed too
 // long vs the cancel timer, and the caller must see the context error rather
-// than ErrBodyTooLarge, even though the pending body was beyond the limit.
+// than transport.ErrBodyTooLarge, even though the pending body was beyond the limit.
 func TestCaptureHTTPContextCancelBeatsTruncation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -273,7 +275,7 @@ func TestCaptureHTTPContextCancelBeatsTruncation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled to dominate the truncation outcome", err)
 	}
-	if errors.Is(err, ErrBodyTooLarge) {
+	if errors.Is(err, transport.ErrBodyTooLarge) {
 		t.Fatalf("cancellation was overridden by the truncation error: %v", err)
 	}
 }
@@ -296,8 +298,8 @@ func TestCaptureHTTPRecoveryAfterOversizedBody(t *testing.T) {
 		return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"0x2a"}`, id))
 	})
 	client := dialCaptureServer(t, srv.URL, 64)
-	if _, err := callWithCapture(t, client, context.Background()); !errors.Is(err, ErrBodyTooLarge) {
-		t.Fatalf("first call err = %v, want ErrBodyTooLarge", err)
+	if _, err := callWithCapture(t, client, context.Background()); !errors.Is(err, transport.ErrBodyTooLarge) {
+		t.Fatalf("first call err = %v, want transport.ErrBodyTooLarge", err)
 	}
 	result, err := callWithCapture(t, client, context.Background())
 	if err != nil {

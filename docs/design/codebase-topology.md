@@ -66,13 +66,22 @@ ethguard/
 │   └── 配置模型、校验和加载
 │
 ├── pool/
-│   ├── source.go / collect.go / monitor.go / tip.go
-│   │   └── 来源生命周期、成员、健康度、调度和 fan-out
-│   └── transport.go
-│       └── Transport Port（由 pool 定义）与 HTTP/geth/WSS Adapter
+│   └── source.go / collect.go / monitor.go / tip.go / transport.go
+│       └── 来源生命周期、成员、健康度、调度和 fan-out；只消费 Transport Port
+│
+├── internal/transport/
+│   ├── transport.go
+│   │   └── Port-only：Transport、Dialer 与中立 sentinel（ErrBodyTooLarge、ErrConnectionClosed）
+│   ├── http/
+│   │   └── native HTTP adapter（战略默认；transport L1 contract 的规范实现）
+│   └── geth/
+│       └── go-ethereum 兼容 adapter；唯一允许 import ethclient 的生产目录
+│
+├── gethcompat/
+│   └── go-ethereum 通道的显式构造 seam（过渡期；不改变 root 默认行为）
 │
 ├── aggregator/
-│   └── 单次调用执行编排：Collect → Admit → Resolve → Decision
+│   └── 单次调用执行编排：Prepare → ReferenceStage → Collect → Admit → Resolve → Project
 │
 ├── rpc/
 │   ├── types.go / policy.go / result.go / ...
@@ -202,7 +211,10 @@ flowchart TD
   连接生命周期或 HTTP/WSS 传输；
 - `aggregator` 只依赖 `rpc` Interface 和来源 collection Interface，不解释方法字段；
 - `pool` 不依赖 `rpc/methods`，也不解释 Ethereum 对象；
-- Transport Port 由 `pool` 这个消费者定义；HTTP、geth、WSS 是 Adapter；
+- Transport Port 由 `pool` 语义拥有（消费者定义的最小接口），物理包为 Port-only 的
+  `internal/transport`；native HTTP 与 geth 兼容是 Adapter，分别位于
+  `internal/transport/http` 与 `internal/transport/geth`（唯一允许 import
+  ethclient 的生产目录）；geth 通道经 `gethcompat` 显式构造；
 - `internal/reference` 定义并依赖 Head-Reading Port，不直接构造具体方法 policy；
 - `internal/typed` 是唯一生产 typed projection；
 - Transport Port 与 Head-Reading Port 不承载方法 policy 组装或业务裁决；这类绑定只允许出现在 `internal/runtime`；

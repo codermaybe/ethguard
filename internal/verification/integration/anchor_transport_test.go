@@ -2,9 +2,11 @@ package ethguard_test
 
 import (
 	"context"
+
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/codermaybe/ethguard/gethcompat"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -167,7 +169,9 @@ func newAnchorFleet(t *testing.T, kind anchorTransport, count int) (*ethguard.Cl
 			Endpoint: node.URL(),
 		})
 	}
-	client, err := ethguard.New(cfg)
+	// The anchor-transport matrix compares the compatibility channel over
+	// HTTP and WSS, so both fleets dial through gethcompat.
+	client, err := gethcompat.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

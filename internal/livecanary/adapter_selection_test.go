@@ -32,15 +32,19 @@ func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 		Timeouts:  Timeouts{StepMS: 2000},
 	}
 
-	t.Run("default-geth", func(t *testing.T) {
+	t.Run("default-native", func(t *testing.T) {
 		e := Executor{}
 		client, err := e.clientFor(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(client.Close)
-		if _, err := client.Pool().Collect(context.Background(), "eth_chainId", nil, pool.CollectOptions{}); err != nil {
-			t.Fatalf("default executor Collect err = %v, want the baseline usable answer", err)
+		emissions, err := client.Pool().Collect(context.Background(), "eth_chainId", nil, pool.CollectOptions{})
+		if !errors.Is(err, pool.ErrAllSourcesDown) {
+			t.Fatalf("default executor Collect err = %v, want the native adapter's mismatched-id rejection", err)
+		}
+		if len(emissions) != 1 || !errors.Is(emissions[0].Err, rpcwire.ErrIDMismatch) {
+			t.Fatalf("emissions = %+v, want the native rejection", emissions)
 		}
 	})
 

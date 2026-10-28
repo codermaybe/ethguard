@@ -12,6 +12,7 @@ import (
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/runtime"
+	"github.com/codermaybe/ethguard/internal/transport"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
@@ -36,12 +37,12 @@ type Client struct {
 }
 
 // HTTPAdapter names the connection adapter a Client's pool dials upstreams
-// with. HTTPAdapterGeth is the audited go-ethereum compatibility adapter and
-// the unchanged default; HTTPAdapterNative selects the project-owned HTTP
-// adapter (internal/transport/http). The selection entry exists so
-// verification runs and the future default switch can pick an adapter
-// explicitly and reversibly — a Client without this option behaves exactly
-// as before.
+// with. HTTPAdapterNative selects the project-owned HTTP adapter and is the
+// strategic default; HTTPAdapterGeth names the go-ethereum compatibility
+// adapter, which the default build does not link — selecting it fails
+// construction with a pointer to ethguard/gethcompat, the explicit
+// construction entry for that channel. The selection entry is retained for
+// one migration cycle as this diagnostic.
 type HTTPAdapter string
 
 const (
@@ -57,6 +58,20 @@ func WithHTTPAdapter(a HTTPAdapter) Option {
 
 // Option tunes a Client at construction time.
 type Option func(*clientOptions)
+
+// DialerOption installs an explicit connection adapter dialer for the pool.
+// It exists for the gethcompat construction seam, which links the go-ethereum
+// compatibility adapter; production code must not use it to grow a second
+// channel-selection surface. The import interlock pins gethcompat as the only
+// production importer of the compatibility adapter.
+func DialerOption(d transport.Dialer) Option {
+	return func(o *clientOptions) {
+		if d != nil {
+			o.poolOpts = append(o.poolOpts, pool.WithDialer(d))
+			o.explicitDialer = true
+		}
+	}
+}
 
 type clientOptions struct {
 	logger         *slog.Logger
@@ -76,6 +91,9 @@ type clientOptions struct {
 	// lag bound. The facade resolver keeps its own configuration.
 	useFinalizedAnchoring bool
 	finalizedMaxLag       uint64
+	// explicitDialer marks a pool dialer injected by DialerOption (the
+	// gethcompat seam); the default adapter selection yields to it.
+	explicitDialer bool
 }
 
 // WithLogger injects a structured logger receiving one event per aggregate
@@ -205,10 +223,19 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		co.poolOpts = append(co.poolOpts, pool.WithTipTracking(co.tipInterval, co.tipMaxBehind))
 	}
 	switch co.httpAdapter {
-	case "", HTTPAdapterGeth:
-		// Default: the audited Geth compatibility dialer, unchanged.
-	case HTTPAdapterNative:
-		co.poolOpts = append(co.poolOpts, pool.WithDialer(nativehttp.NewDialer()))
+	case "", HTTPAdapterNative:
+		// Strategic default: the project-owned native HTTP adapter (the
+		// transport contract's normative implementation). An explicit dialer
+		// injected through the gethcompat seam wins.
+		if !co.explicitDialer {
+			co.poolOpts = append(co.poolOpts, pool.WithDialer(nativehttp.NewDialer()))
+		}
+	case HTTPAdapterGeth:
+		// The go-ethereum compatibility adapter is not linked into the
+		// default build; construct through ethguard/gethcompat, which
+		// installs it explicitly. The option itself is retained for one
+		// migration cycle as this diagnostic.
+		return nil, fmt.Errorf("ethguard: the %q adapter is not linked into the default build; construct through ethguard/gethcompat", HTTPAdapterGeth)
 	default:
 		return nil, fmt.Errorf("ethguard: unknown HTTP adapter %q (want %q or %q)",
 			co.httpAdapter, HTTPAdapterGeth, HTTPAdapterNative)

@@ -1,4 +1,4 @@
-package transport
+package geth
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -101,7 +102,7 @@ func (b *baselineServer) connections() int {
 
 // baselineClient dials a loopback server through the production HTTP
 // compatibility path with an explicit capture limit (0 selects the default).
-func baselineClient(t *testing.T, rawURL string, limit int64) Transport {
+func baselineClient(t *testing.T, rawURL string, limit int64) transport.Transport {
 	t.Helper()
 	client, ok, err := dialHTTPPreservingErrorDataWithLimit(context.Background(), rawURL, limit)
 	if err != nil || !ok {
@@ -112,7 +113,7 @@ func baselineClient(t *testing.T, rawURL string, limit int64) Transport {
 	return tr
 }
 
-func baselineCall(t *testing.T, tr Transport, ctx context.Context, method string, args ...any) (json.RawMessage, error) {
+func baselineCall(t *testing.T, tr transport.Transport, ctx context.Context, method string, args ...any) (json.RawMessage, error) {
 	t.Helper()
 	var result json.RawMessage
 	err := tr.CallContext(ctx, &result, method, args...)
@@ -600,7 +601,7 @@ func TestHTTPBaseline429CarriesRateLimitCapability(t *testing.T) {
 
 // TestHTTPBaselineBodyExactLimitSucceeds locks the capture boundary: a body
 // of exactly limit bytes is served to geth and succeeds, while the same body
-// against a one-byte-smaller limit is refused as ErrBodyTooLarge (the
+// against a one-byte-smaller limit is refused as transport.ErrBodyTooLarge (the
 // truncated prefix never reaches the decoder).
 func TestHTTPBaselineBodyExactLimitSucceeds(t *testing.T) {
 	const body = `{"jsonrpc":"2.0","id":1,"result":"0x2a"}`
@@ -614,14 +615,14 @@ func TestHTTPBaselineBodyExactLimitSucceeds(t *testing.T) {
 			t.Fatalf("val/err = %s/%v, want success at the exact limit", val, err)
 		}
 	})
-	t.Run("one-byte-over-is-ErrBodyTooLarge", func(t *testing.T) {
+	t.Run("one-byte-over-is-transport.ErrBodyTooLarge", func(t *testing.T) {
 		srv := newBaselineServer(t, func(n int, req capturedRequest) []byte {
 			return []byte(body)
 		})
 		tr := baselineClient(t, srv.srv.URL, int64(len(body)-1))
 		_, err := baselineCall(t, tr, context.Background(), "eth_chainId")
-		if !errors.Is(err, ErrBodyTooLarge) {
-			t.Fatalf("err = %v, want ErrBodyTooLarge one byte over the limit", err)
+		if !errors.Is(err, transport.ErrBodyTooLarge) {
+			t.Fatalf("err = %v, want transport.ErrBodyTooLarge one byte over the limit", err)
 		}
 	})
 }
@@ -650,7 +651,7 @@ func TestHTTPBaselineDeadlineExceededDominates(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 	}
-	if errors.Is(err, ErrBodyTooLarge) {
+	if errors.Is(err, transport.ErrBodyTooLarge) {
 		t.Fatalf("deadline was overridden by the truncation outcome: %v", err)
 	}
 	var preserved *preservedDataError

@@ -1,6 +1,8 @@
 package pool
 
 import (
+	upstream "github.com/codermaybe/ethguard/internal/transport"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -67,11 +69,11 @@ func (t *contractTransport) counts() (calls, chainIDCalls, closeCalls int) {
 
 type contractDialer struct {
 	mu        sync.Mutex
-	transport Transport
+	transport upstream.Transport
 	dials     int
 }
 
-func (d *contractDialer) DialContext(context.Context, string) (Transport, error) {
+func (d *contractDialer) DialContext(context.Context, string) (upstream.Transport, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.dials++

@@ -1,6 +1,10 @@
 package pool
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
+	gethadapter "github.com/codermaybe/ethguard/internal/transport/geth"
+
 	"context"
 	"errors"
 	"sync"
@@ -110,7 +114,7 @@ func (d *newFakeDialer) setOffset(rawURL string, off int64) {
 	}
 }
 
-func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (Transport, error) {
+func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (upstream.Transport, error) {
 	d.mu.Lock()
 	d.dials[rawURL]++
 	dialNumber := d.dials[rawURL]
@@ -157,7 +161,7 @@ func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (Transpo
 		d.clients[rawURL] = append(d.clients[rawURL], client)
 	}
 	d.mu.Unlock()
-	return upstream.NewGethTransport(client), nil
+	return gethadapter.NewGethTransport(client), nil
 }
 
 // --- Tests -------------------------------------------------------------------
@@ -813,7 +817,7 @@ func TestCollectVerdictIsIndependentOfMemberOrder(t *testing.T) {
 		{"sentinel last", honest, mismatched},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := NewPoolWithChainID(5)
+			p := NewPoolWithOptions(5, WithDialer(nativehttp.NewDialer()))
 			defer p.Close()
 			if _, err := p.Join("a", tc.first.URL()); err != nil {
 				t.Fatal(err)
@@ -853,7 +857,7 @@ func TestCollectUsableAnswerOutranksFanoutTimeout(t *testing.T) {
 	defer laggard.Close()
 	laggard.Hang("eth_blockNumber", time.Second)
 
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	if _, err := p.Join("fast", fast.URL()); err != nil {
 		t.Fatal(err)
@@ -967,7 +971,7 @@ func TestForwardGatedKeepsDeadlineCause(t *testing.T) {
 	defer node.Close()
 	node.Hang("eth_blockNumber", 2*time.Second)
 
-	p := NewPoolWithChainID(1)
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	if _, err := p.Join("a", node.URL()); err != nil {
 		t.Fatal(err)

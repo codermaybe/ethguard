@@ -1,6 +1,8 @@
 package aggregator
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -16,7 +18,7 @@ import (
 )
 
 func TestAggregateRejectedEncodingDoesNotChangeVotingBasis(t *testing.T) {
-	sources := pool.NewPoolWithChainID(1)
+	sources := pool.NewPoolWithOptions(1, pool.WithDialer(nativehttp.NewDialer()))
 	t.Cleanup(sources.Close)
 	const method = "test_canonical_object"
 	for i, body := range []string{`{"key":"winner","value":"v1"}`, `{"key":"winner","value":"v1"}`, `{"key":"winner","value":"v1"}`, `{"key":"loser","value":"v2"}`, `{"key":"loser","value":"v3"}`} {

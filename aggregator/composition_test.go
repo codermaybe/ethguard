@@ -1,6 +1,8 @@
 package aggregator
 
 import (
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+
 	"context"
 	"errors"
 	"testing"
@@ -23,7 +25,7 @@ func TestDecoratedForwardContactsOneSourceAndAcceptsProtocolAnswer(t *testing.T)
 			defer b.Close()
 			a.Fail("custom_write", -32000, "authoritative answer")
 			b.Return("custom_write", "unexpected")
-			p := pool.NewPool()
+			p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 			defer p.Close()
 			p.Join("a", a.URL())
 			p.Join("b", b.URL())
@@ -51,7 +53,7 @@ func TestEstimateFailureRetainsSourceCause(t *testing.T) {
 	defer b.Close()
 	a.Return(methods.MethodEstimateGas, "0x5208")
 	b.Fail(methods.MethodEstimateGas, -32000, "estimation rejected")
-	p := pool.NewPool()
+	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	p.Join("good", a.URL())
 	p.Join("bad", b.URL())

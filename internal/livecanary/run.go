@@ -32,9 +32,10 @@ type Executor struct {
 	Now       func() time.Time
 	NewClient func(Manifest) (*ethguard.Client, error)
 	// HTTPAdapter selects the connection adapter for the built client. The
-	// zero value keeps the default Geth compatibility adapter; the native
-	// HTTP adapter is selected explicitly for verification runs (see
-	// ethguard.WithHTTPAdapter). It never changes what the plan executes.
+	// zero value keeps the client's own default (the native HTTP adapter);
+	// the go-ethereum compatibility adapter is selected explicitly through
+	// the manifest for capture runs that need it. It never changes what the
+	// plan executes.
 	HTTPAdapter ethguard.HTTPAdapter
 }
 

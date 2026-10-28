@@ -63,7 +63,7 @@ func WithTipTracking(every time.Duration, maxBehind uint64) PoolOption {
 
 // NewPoolWithOptions creates an empty pool tuned by opts.
 func NewPoolWithOptions(chainID uint64, opts ...PoolOption) *Pool {
-	return newPoolWithDialerAndOptions(standardDialer{}, chainID, opts...)
+	return newPoolWithDialerAndOptions(nil, chainID, opts...)
 }
 
 // newPoolWithDialerAndOptions lets tests combine an injected transport with
@@ -76,9 +76,6 @@ func newPoolWithDialerAndOptions(d dialer, chainID uint64, opts ...PoolOption) *
 	}
 	for _, opt := range opts {
 		opt(&cfg)
-	}
-	if cfg.dialer == nil {
-		cfg.dialer = standardDialer{}
 	}
 	p := newPoolWithDialerAndChainID(cfg.dialer, chainID)
 	p.maxTipLag = cfg.maxTipLag
