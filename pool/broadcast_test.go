@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -267,6 +268,54 @@ func runRemovalRaceRound(t *testing.T, round int, rng *rand.Rand, victims map[st
 		}
 		if emission.Val == nil && emission.Err == nil {
 			t.Fatalf("round %d: emission %d carries neither a value nor an error", round, i)
+		}
+	}
+}
+
+// The concurrency cap only paces the wave: with a cap of one the fleet is
+// contacted serially, but every member is still contacted and the emissions
+// keep pool order — pacing never changes membership or the verdict.
+func TestBroadcastMaxConcurrentPacesWithoutShrinking(t *testing.T) {
+	var concurrent, peak atomic.Int32
+	nodes := make([]*rpctest.Node, 3)
+	for i := range nodes {
+		nodes[i] = rpctest.NewNode(1)
+		nodes[i].Handle("eth_sendRawTransaction", func(c rpctest.Call) (any, error) {
+			now := concurrent.Add(1)
+			for {
+				seen := peak.Load()
+				if now <= seen || peak.CompareAndSwap(seen, now) {
+					break
+				}
+			}
+			time.Sleep(30 * time.Millisecond)
+			concurrent.Add(-1)
+			return "0x" + string(rune('a'+i)), nil
+		})
+		defer nodes[i].Close()
+	}
+
+	p := NewPoolWithChainID(1)
+	defer p.Close()
+	for i, n := range nodes {
+		if _, err := p.Join(string(rune('a'+i)), n.URL()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	emissions, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x02"},
+		WithBroadcastTimeout(2*time.Second), WithBroadcastMaxConcurrent(1))
+	if err != nil {
+		t.Fatalf("Broadcast: %v", err)
+	}
+	if peak.Load() > 1 {
+		t.Fatalf("peak concurrency %d, want the cap of 1 respected", peak.Load())
+	}
+	if len(emissions) != 3 {
+		t.Fatalf("got %d emissions, want one per member despite the cap", len(emissions))
+	}
+	for i, em := range emissions {
+		if em.Src == nil || em.Src.Name() != string(rune('a'+i)) || em.Err != nil {
+			t.Fatalf("emission %d = %+v, want the ordered pool member's answer", i, em)
 		}
 	}
 }

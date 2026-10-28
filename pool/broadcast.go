@@ -12,14 +12,23 @@ import (
 type BroadcastOption func(*broadcastConfig)
 
 type broadcastConfig struct {
-	timeout time.Duration
-	sources []*Source
+	timeout       time.Duration
+	sources       []*Source
+	maxConcurrent int
 }
 
 // WithBroadcastTimeout bounds the whole fan-out per attempt round. Zero uses
 // the collection default.
 func WithBroadcastTimeout(timeout time.Duration) BroadcastOption {
 	return func(c *broadcastConfig) { c.timeout = timeout }
+}
+
+// WithBroadcastMaxConcurrent caps how many members one broadcast contacts at
+// once. Zero or a negative value keeps the default: every member in one wave.
+// The cap only paces the wave — it never changes the membership, the verdict,
+// or which emissions are returned.
+func WithBroadcastMaxConcurrent(n int) BroadcastOption {
+	return func(c *broadcastConfig) { c.maxConcurrent = n }
 }
 
 // WithBroadcastSources fixes the membership for one broadcast invocation.
@@ -124,8 +133,11 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 		return emissions, ErrNoEligibleSource
 	}
 
-	maxConcurrent := len(members)
-	sem := make(chan struct{}, maxConcurrent)
+	wave := len(members)
+	if cfg.maxConcurrent > 0 && cfg.maxConcurrent < wave {
+		wave = cfg.maxConcurrent
+	}
+	sem := make(chan struct{}, wave)
 
 	var wg sync.WaitGroup
 	for i, src := range members {
