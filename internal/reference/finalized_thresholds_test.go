@@ -42,16 +42,16 @@ func runFinalizedThresholdCase(t *testing.T, tc finalizedThresholdCase) {
 		}
 		emissions = append(emissions, HeadObservation{Source: source, Value: raw, Attempted: true})
 	}
-	var views []view
+	var views []HeadView
 	for _, emission := range emissions {
 		if emission.Err != nil {
 			continue
 		}
-		v, err := decode(emission.Value)
+		v, err := fakeHeadCodec{}.Decode(emission.Value)
 		if err != nil {
 			t.Fatalf("decode %s: %v", emission.Value, err)
 		}
-		v.source = emission.Source
+		v.Source = emission.Source
 		views = append(views, v)
 	}
 	var evidence rpc.ReferenceEvidence
@@ -186,10 +186,10 @@ func TestFinalizedEstablishmentThresholdTable(t *testing.T) {
 // "finalized" means; the table pins that this fails closed with the conflict
 // sentinel before any confirmation round runs.
 func TestFinalizedEstablishmentCandidateHashUniqueness(t *testing.T) {
-	views := []view{
-		{source: rpc.SourceRef{ID: "a"}, height: 16, hash: "0xaaa"},
-		{source: rpc.SourceRef{ID: "b"}, height: 16, hash: "0xbbb"},
-		{source: rpc.SourceRef{ID: "c"}, height: 16, hash: "0xaaa"},
+	views := []HeadView{
+		{Source: rpc.SourceRef{ID: "a"}, Height: 16, Hash: "0xaaa"},
+		{Source: rpc.SourceRef{ID: "b"}, Height: 16, Hash: "0xbbb"},
+		{Source: rpc.SourceRef{ID: "c"}, Height: 16, Hash: "0xaaa"},
 	}
 	var evidence rpc.ReferenceEvidence
 	if _, err := selectCandidate(nil, views, 32, 2, &evidence); !errors.Is(err, rpc.ErrConflict) {
@@ -207,16 +207,16 @@ func TestFinalizedEstablishmentRequirementSurvivesResolve(t *testing.T) {
 	heights := []string{"0x10", "0x10", "0x11"}
 	hashes := []string{"0xaaa", "0xaaa", "0xccc"}
 	emissions := make([]HeadObservation, 0, len(heights))
-	var views []view
+	var views []HeadView
 	for i := range heights {
 		source := rpc.SourceRef{Name: fmt.Sprintf("s%d", i), ID: fmt.Sprintf("s%d", i)}
 		raw := headJSON(heights[i], hashes[i])
 		emissions = append(emissions, HeadObservation{Source: source, Value: raw, Attempted: true})
-		v, err := decode(raw)
+		v, err := fakeHeadCodec{}.Decode(raw)
 		if err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		v.source = source
+		v.Source = source
 		views = append(views, v)
 	}
 	var evidence rpc.ReferenceEvidence

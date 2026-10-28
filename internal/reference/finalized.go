@@ -3,7 +3,6 @@ package reference
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -12,15 +11,7 @@ import (
 
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
-
-type view struct {
-	source rpc.SourceRef
-	height uint64
-	hash   string
-	raw    json.RawMessage
-}
 
 // selection is what the first observation round established: one candidate
 // height with a single agreed hash, and the frozen voting basis every later
@@ -38,7 +29,7 @@ type selection struct {
 // Finalized observes once and, if necessary, confirms one common height once.
 // Membership and the required support are fixed before confirmation. It never
 // retries successively older candidates or relaxes the caller's quorum.
-func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int, mode rpc.CorroborationMode, timeout time.Duration, rec observe.Recorder) (ref rpc.ReferenceEvidence, resultErr error) {
+func Finalized(ctx context.Context, reader HeadReader, codec HeadCodec, maxLag uint64, quorum int, mode rpc.CorroborationMode, timeout time.Duration, rec observe.Recorder) (ref rpc.ReferenceEvidence, resultErr error) {
 	started := time.Now()
 	ref.Origin, ref.ObservedAt, ref.Status = "reported-finalized", started, rpc.Unknown
 	var attempts []observe.SourceEvent
@@ -58,7 +49,7 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 		ref.Faults = append(ref.Faults, err)
 		ref.CollectionFaults = append(ref.CollectionFaults, err)
 	}
-	views := decodeViews(emissions, &ref, &attempts)
+	views := decodeViews(emissions, codec, &ref, &attempts)
 	if ctx.Err() != nil {
 		return ref, ctx.Err()
 	}
@@ -73,7 +64,7 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 	if err != nil {
 		return ref, err
 	}
-	policy, reorgDetected := confirmSelection(ctx, reader, sel, quorum, mode, timeout, &ref, &attempts)
+	policy, reorgDetected := confirmSelection(ctx, reader, codec, sel, quorum, mode, timeout, &ref, &attempts)
 	if ctx.Err() != nil {
 		return ref, ctx.Err()
 	}
@@ -101,22 +92,22 @@ func Finalized(ctx context.Context, reader HeadReader, maxLag uint64, quorum int
 		}
 		return ref, err
 	}
-	winner, err := decode(decision.Value)
+	winner, err := codec.Decode(decision.Value)
 	if err != nil {
 		return ref, fmt.Errorf("winning reference: %w", rpc.ErrMalformedResponse)
 	}
-	ref.Hash, ref.Status = winner.hash, rpc.Corroborated
+	ref.Hash, ref.Status = winner.Hash, rpc.Corroborated
 	return ref, nil
 }
 
 // decodeViews turns the first-round emissions into decodable finalized-head
 // views, recording every participant and attributing per-source failures.
-func decodeViews(emissions []HeadObservation, ref *rpc.ReferenceEvidence, attempts *[]observe.SourceEvent) []view {
-	views := make([]view, 0, len(emissions))
+func decodeViews(emissions []HeadObservation, codec HeadCodec, ref *rpc.ReferenceEvidence, attempts *[]observe.SourceEvent) []HeadView {
+	views := make([]HeadView, 0, len(emissions))
 	for _, emission := range emissions {
 		source := emission.Source
 		ref.Participants = append(ref.Participants, source)
-		v, err := decode(emission.Value)
+		v, err := codec.Decode(emission.Value)
 		if emission.Err != nil {
 			err = emission.Err
 		}
@@ -130,7 +121,7 @@ func decodeViews(emissions []HeadObservation, ref *rpc.ReferenceEvidence, attemp
 			ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: source, Err: err})
 			continue
 		}
-		v.source = source
+		v.Source = source
 		views = append(views, v)
 	}
 	return views
@@ -142,19 +133,19 @@ func decodeViews(emissions []HeadObservation, ref *rpc.ReferenceEvidence, attemp
 // observed the candidate height carries its raw head, and sources above the
 // candidate are named for the confirmation round. It fails on insufficient
 // support and on the candidate height carrying more than one hash.
-func selectCandidate(emissions []HeadObservation, views []view, maxLag uint64, quorum int, ref *rpc.ReferenceEvidence) (selection, error) {
+func selectCandidate(emissions []HeadObservation, views []HeadView, maxLag uint64, quorum int, ref *rpc.ReferenceEvidence) (selection, error) {
 	heights := make([]uint64, 0, len(views))
 	for _, v := range views {
-		heights = append(heights, v.height)
+		heights = append(heights, v.Height)
 	}
 	slices.Sort(heights)
 	reference := heights[(len(heights)-1)/2]
-	fresh := make([]view, 0, len(views))
+	fresh := make([]HeadView, 0, len(views))
 	for _, v := range views {
-		if v.height < reference && reference-v.height > maxLag {
-			err := fmt.Errorf("finalized height %d trails reference %d beyond %d blocks", v.height, reference, maxLag)
-			ref.Faults = append(ref.Faults, fmt.Errorf("source %q: %w", v.source.Name, err))
-			ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: v.source, Err: err})
+		if v.Height < reference && reference-v.Height > maxLag {
+			err := fmt.Errorf("finalized height %d trails reference %d beyond %d blocks", v.Height, reference, maxLag)
+			ref.Faults = append(ref.Faults, fmt.Errorf("source %q: %w", v.Source.Name, err))
+			ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: v.Source, Err: err})
 			continue
 		}
 		fresh = append(fresh, v)
@@ -168,7 +159,7 @@ func selectCandidate(emissions []HeadObservation, views []view, maxLag uint64, q
 	}
 	heights = heights[:0]
 	for _, v := range fresh {
-		heights = append(heights, v.height)
+		heights = append(heights, v.Height)
 	}
 	slices.Sort(heights)
 	candidate := heights[0]
@@ -178,8 +169,8 @@ func selectCandidate(emissions []HeadObservation, views []view, maxLag uint64, q
 	ref.Height = candidate
 	candidateHashes := make(map[string]struct{})
 	for _, view := range fresh {
-		if view.height == candidate {
-			candidateHashes[strings.ToLower(view.hash)] = struct{}{}
+		if view.Height == candidate {
+			candidateHashes[strings.ToLower(view.Hash)] = struct{}{}
 		}
 	}
 	if len(candidateHashes) > 1 {
@@ -201,14 +192,14 @@ func selectCandidate(emissions []HeadObservation, views []view, maxLag uint64, q
 		sel.observations[i] = rpc.Observation{Source: source, Err: fmt.Errorf("no finalized support for height %d", candidate)}
 	}
 	for _, v := range fresh {
-		if v.height < candidate {
+		if v.Height < candidate {
 			continue
 		}
-		if v.height == candidate {
-			sel.observations[sel.indexes[v.source.ID]].Value = v.raw
-			sel.observations[sel.indexes[v.source.ID]].Err = nil
+		if v.Height == candidate {
+			sel.observations[sel.indexes[v.Source.ID]].Value = v.Raw
+			sel.observations[sel.indexes[v.Source.ID]].Err = nil
 		} else {
-			sel.missing = append(sel.missing, v.source.ID)
+			sel.missing = append(sel.missing, v.Source.ID)
 		}
 	}
 	return sel, nil
@@ -219,7 +210,7 @@ func selectCandidate(emissions []HeadObservation, views []view, maxLag uint64, q
 // height, detecting a reorg by hash mismatch against the established
 // candidate set. It returns the resolve policy the caller's final vote runs
 // on and whether any confirmation contradicted the candidate hash.
-func confirmSelection(ctx context.Context, reader HeadReader, sel selection, quorum int, mode rpc.CorroborationMode, timeout time.Duration, ref *rpc.ReferenceEvidence, attempts *[]observe.SourceEvent) (rpc.Policy, bool) {
+func confirmSelection(ctx context.Context, reader HeadReader, codec HeadCodec, sel selection, quorum int, mode rpc.CorroborationMode, timeout time.Duration, ref *rpc.ReferenceEvidence, attempts *[]observe.SourceEvent) (rpc.Policy, bool) {
 	var opts []rpc.StrictOption
 	if quorum > 0 {
 		opts = append(opts, rpc.WithQuorum(quorum))
@@ -227,7 +218,7 @@ func confirmSelection(ctx context.Context, reader HeadReader, sel selection, quo
 	if mode == rpc.CorroborationUnanimity {
 		opts = append(opts, rpc.WithUnanimity())
 	}
-	policy := rpc.Strict(methods.BlockByNumberPolicy().Normalize, opts...)
+	policy := rpc.Strict(codec.Normalize, opts...)
 	initial, initialErr := policy.Resolve(sel.observations)
 	reorgDetected := false
 	// Reuse an already corroborated candidate; no redundant header fan-out.
@@ -241,18 +232,18 @@ func confirmSelection(ctx context.Context, reader HeadReader, sel selection, quo
 			}
 			for _, emission := range confirmations {
 				source := emission.Source
-				v, decodeErr := decode(emission.Value)
+				v, decodeErr := codec.Decode(emission.Value)
 				if emission.Err != nil {
 					decodeErr = emission.Err
 				}
-				if decodeErr == nil && v.height != sel.candidate {
-					decodeErr = fmt.Errorf("confirmation height %d does not match %d: %w", v.height, sel.candidate, rpc.ErrMalformedResponse)
+				if decodeErr == nil && v.Height != sel.candidate {
+					decodeErr = fmt.Errorf("confirmation height %d does not match %d: %w", v.Height, sel.candidate, rpc.ErrMalformedResponse)
 				}
 				if decodeErr == nil {
-					if _, same := sel.candidateHashes[strings.ToLower(v.hash)]; !same {
+					if _, same := sel.candidateHashes[strings.ToLower(v.Hash)]; !same {
 						reorgDetected = true
 						decodeErr = errors.Join(rpc.ErrAnchorMismatch, rpc.ErrReorgDetected,
-							fmt.Errorf("confirmation hash %s differs from the established candidate", v.hash))
+							fmt.Errorf("confirmation hash %s differs from the established candidate", v.Hash))
 					}
 				}
 				if emission.Attempted {
@@ -265,24 +256,9 @@ func confirmSelection(ctx context.Context, reader HeadReader, sel selection, quo
 					ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: source, Err: decodeErr})
 					continue
 				}
-				sel.observations[sel.indexes[source.ID]] = rpc.Observation{Source: source, Value: v.raw}
+				sel.observations[sel.indexes[source.ID]] = rpc.Observation{Source: source, Value: v.Raw}
 			}
 		}
 	}
 	return policy, reorgDetected
-}
-
-func decode(raw json.RawMessage) (view, error) {
-	if _, err := methods.BlockByNumberPolicy().Normalize(raw); err != nil {
-		return view{}, err
-	}
-	var head struct {
-		Number string `json:"number"`
-		Hash   string `json:"hash"`
-	}
-	if err := json.Unmarshal(raw, &head); err != nil {
-		return view{}, err
-	}
-	height, err := rpc.ParseHexQuantity(head.Number)
-	return view{height: height, hash: strings.ToLower(head.Hash), raw: raw}, err
 }

@@ -60,6 +60,21 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 			if imports[modulePath+"/internal/runtime"] {
 				t.Error("ethadapter imports internal/runtime; it must delegate through root facade")
 			}
+		case modulePath + "/internal/reference":
+			for banned := range map[string]string{
+				modulePath + "/pool":             "pool",
+				modulePath + "/rpc/methods":      "rpc/methods",
+				modulePath + "/aggregator":       "aggregator",
+				modulePath + "/internal/runtime": "internal/runtime",
+			} {
+				if imports[banned] {
+					t.Errorf("internal/reference imports %s; reference owns only the head seam and the selection algorithms", banned)
+				}
+			}
+		case modulePath + "/aggregator":
+			if imports[modulePath+"/internal/runtime"] {
+				t.Error("aggregator imports internal/runtime; runtime composes aggregator, never the reverse")
+			}
 		}
 	}
 	if err := cmd.Wait(); err != nil {

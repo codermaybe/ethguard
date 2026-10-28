@@ -280,6 +280,17 @@ func isDefaultPort(scheme, port string) bool {
 	}
 }
 
+// SourceByID reports the registered source with this identity. It is the
+// membership seam for invocation-owned basis snapshots: a frozen basis of
+// source references resolves back to the pool's live source objects through
+// this lookup, without exposing pool internals.
+func (p *Pool) SourceByID(id string) (*Source, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	source := p.byID[id]
+	return source, source != nil
+}
+
 func (p *Pool) sourcesByIDs(ids []string) ([]*Source, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

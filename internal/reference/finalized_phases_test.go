@@ -20,9 +20,9 @@ func headJSON(number, hash string) json.RawMessage {
 // what "finalized" means, not a quorum shortfall: selectCandidate must fail
 // closed with the conflict sentinel before any confirmation round runs.
 func TestSelectCandidateRejectsDistinctHashes(t *testing.T) {
-	views := []view{
-		{source: rpc.SourceRef{Name: "a", ID: "a"}, height: 16, hash: "0xaaa"},
-		{source: rpc.SourceRef{Name: "b", ID: "b"}, height: 16, hash: "0xbbb"},
+	views := []HeadView{
+		{Source: rpc.SourceRef{Name: "a", ID: "a"}, Height: 16, Hash: "0xaaa"},
+		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Height: 16, Hash: "0xbbb"},
 	}
 	var ref rpc.ReferenceEvidence
 	if _, err := selectCandidate(nil, views, 32, 2, &ref); !errors.Is(err, rpc.ErrConflict) {
@@ -40,10 +40,10 @@ func TestSelectCandidateFreezesVotingBasis(t *testing.T) {
 		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: headJSON("0x10", "0xaaa"), Attempted: true},
 		{Source: rpc.SourceRef{Name: "c", ID: "c"}, Value: headJSON("0x12", "0xccc"), Attempted: true},
 	}
-	views := []view{
-		{source: emissions[0].Source, height: 16, hash: "0xaaa", raw: emissions[0].Value},
-		{source: emissions[1].Source, height: 16, hash: "0xaaa", raw: emissions[1].Value},
-		{source: emissions[2].Source, height: 18, hash: "0xccc", raw: emissions[2].Value},
+	views := []HeadView{
+		{Source: emissions[0].Source, Height: 16, Hash: "0xaaa", Raw: emissions[0].Value},
+		{Source: emissions[1].Source, Height: 16, Hash: "0xaaa", Raw: emissions[1].Value},
+		{Source: emissions[2].Source, Height: 18, Hash: "0xccc", Raw: emissions[2].Value},
 	}
 	var ref rpc.ReferenceEvidence
 	sel, err := selectCandidate(emissions, views, 32, 2, &ref)
@@ -87,7 +87,7 @@ func TestConfirmSelectionDetectsReorg(t *testing.T) {
 	}}
 	var ref rpc.ReferenceEvidence
 	var attempts []observe.SourceEvent
-	_, reorgDetected := confirmSelection(context.Background(), reader, sel, 2, rpc.CorroborationMajority, time.Second, &ref, &attempts)
+	_, reorgDetected := confirmSelection(context.Background(), reader, fakeHeadCodec{}, sel, 2, rpc.CorroborationMajority, time.Second, &ref, &attempts)
 	if !reorgDetected {
 		t.Fatal("confirmation hash differing from the candidate must flag a reorg")
 	}

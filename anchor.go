@@ -11,6 +11,7 @@ import (
 	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/reference"
+	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -151,7 +152,7 @@ func (a *FinalizedHeadAnchor) AnchorReference(ctx context.Context) (rpc.Referenc
 			quorum, mode = snapshot.Floor, snapshot.Mode
 		}
 	}
-	return reference.Finalized(ctx, &reference.PoolHeadReader{Pool: a.pool}, a.maxLag, quorum, mode, a.timeout, a.rec)
+	return reference.Finalized(ctx, runtime.NewPoolHeadReader(a.pool, nil), runtime.MethodHeadCodec{}, a.maxLag, quorum, mode, a.timeout, a.rec)
 }
 
 func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
@@ -452,54 +453,9 @@ func (c *CachedAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEviden
 	}
 }
 
-// confirmedAnchor adapts custom resolvers.
-type confirmedAnchor struct {
-	inner   AnchorResolver
-	pool    *pool.Pool
-	rec     observe.Recorder
-	quorum  int
-	timeout time.Duration
-}
-
-func (a *confirmedAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	candidate, err := resolveReference(ctx, a.inner, "")
-	if err != nil {
-		return candidate, err
-	}
-	ref, err := reference.Custom(ctx, a.pool, candidate.Hash, a.quorum, a.timeout, a.rec)
-	if err == nil {
-		if hasAnchorHeight(a.inner) && ref.Height != candidate.Height {
-			err = fmt.Errorf("custom reference height mismatch: %w", rpc.ErrMalformedResponse)
-		}
-	}
-	return ref, err
-}
-
-func (a *confirmedAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	if tag == "" || tag == "latest" {
-		return a.AnchorReference(ctx)
-	}
-	return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown, Origin: "custom-reference"}, fmt.Errorf("anchor: custom resolver cannot establish tag %q: %w", tag, rpc.ErrInvalidRequest)
-}
-
-func (a *confirmedAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, e
-}
-
-func (a *confirmedAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
-	if !hasAnchorHeight(a.inner) {
-		return "", 0, fmt.Errorf("anchor resolver %T does not implement AnchorHeightProvider: %w", a.inner, rpc.ErrInvalidRequest)
-	}
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, r.Height, e
-}
-
 func hasAnchorHeight(resolver AnchorResolver) bool {
 	switch r := resolver.(type) {
 	case *CachedAnchor:
-		return hasAnchorHeight(r.inner)
-	case *confirmedAnchor:
 		return hasAnchorHeight(r.inner)
 	default:
 		_, ok := resolver.(AnchorHeightProvider)
