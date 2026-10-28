@@ -70,30 +70,17 @@ func Build(in Inputs) (*Bundle, error) {
 	})
 	anchorHash := stage.AnchorHashReader()
 	anchorHeight := stage.AnchorHeightReader()
-	policies := rpc.Registry{
-		methods.MethodChainID:               methods.ChainIDPolicy(in.StrictOptions...),
-		methods.MethodGetBlockByHash:        methods.BlockByHashPolicy(in.StrictOptions...),
-		methods.MethodGetBlockByNumber:      methods.BlockByNumberPolicy(in.StrictOptions...),
-		methods.MethodGetBalance:            methods.GetBalancePolicy(anchorHash, in.StrictOptions...),
-		methods.MethodGetTransactionReceipt: methods.TransactionReceiptPolicy(in.StrictOptions...),
-		methods.MethodGetTransactionByHash:  methods.TransactionByHashPolicy(in.StrictOptions...),
-		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(anchorHash, in.StrictOptions...),
-		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(anchorHash, in.StrictOptions...),
-		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(anchorHash, in.StrictOptions...),
-		methods.MethodGetCode:               methods.GetCodePolicy(anchorHash, in.StrictOptions...),
-		methods.MethodCall:                  methods.CallPolicy(anchorHash, in.StrictOptions...),
-		methods.MethodEstimateGas:           methods.EstimateGasPolicy(anchorHash),
-		methods.MethodGetLogs:               methods.LogsPolicy(anchorHeight, in.StrictOptions...),
-		methods.MethodFeeHistory:            methods.FeeHistoryPolicy(anchorHeight, in.StrictOptions...),
-		methods.MethodGasPrice:              methods.GasPricePolicy(),
-		methods.MethodMaxPriorityFeePerGas:  methods.MaxPriorityFeePerGasPolicy(),
-		methods.MethodBlobBaseFee:           methods.BlobBaseFeePolicy(),
-		methods.MethodBlockNumber:           methods.BlockNumberPolicy(),
-		methods.MethodCreateAccessList:      methods.CreateAccessListPolicy(anchorHash),
-		methods.MethodPeerCount:             methods.PeerCountPolicy(),
-		methods.MethodSyncing:               methods.SyncingPolicy(),
-		methods.MethodNetVersion:            methods.NetVersionPolicy(in.StrictOptions...),
-		methods.MethodListening:             methods.ListeningPolicy(),
+	// The registry is compiled from the frozen MethodSpec inventory: one
+	// assembly for every registered method, with the equivalence tests
+	// holding the compiled chains to the hand-written constructors. A method
+	// without a spec cannot enter the registry, and a spec without a
+	// registered catalog entry fails validation below.
+	policies := rpc.Registry{}
+	for _, spec := range methods.Specs() {
+		policies[spec.Method] = methods.Compile(spec, methods.CompileDeps{
+			AnchorHash:   anchorHash,
+			AnchorHeight: anchorHeight,
+		}, in.StrictOptions...)
 	}
 	if err := methods.ValidateRegistry(policies); err != nil {
 		return nil, fmt.Errorf("runtime: %w", err)
