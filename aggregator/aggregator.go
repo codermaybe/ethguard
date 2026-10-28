@@ -270,10 +270,17 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// below can attach it to Faults instead of dropping it silently.
 	var evaluation *rpc.Evaluation
 	var aggregateErr error
+	var aggregateFaults []error
 	if snapOK && snap.Mode != rpc.CorroborationForwarded {
 		common, observationErr := rpc.AggregateFieldsWithCorroboration(observations, snap)
 		if observationErr == nil {
 			evaluation = &common
+			// A source whose value failed generic JSON validation abstains
+			// from field votes; its abstention still belongs in Faults so the
+			// degraded participation stays visible.
+			for _, m := range common.Malformed {
+				aggregateFaults = append(aggregateFaults, fmt.Errorf("aggregate fields: %w", sourceFaultOf(m)))
+			}
 		} else {
 			aggregateErr = observationErr
 		}
@@ -291,6 +298,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		if aggregateErr != nil {
 			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
 		}
+		decision.Faults = append(decision.Faults, aggregateFaults...)
 		if evaluation != nil {
 			decision.Diagnostics = &evaluation.Diagnostics
 		}
@@ -314,6 +322,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		if aggregateErr != nil {
 			decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
 		}
+		decision.Faults = append(decision.Faults, aggregateFaults...)
 		if evaluation != nil {
 			decision.Diagnostics = &evaluation.Diagnostics
 		}
@@ -363,6 +372,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	if aggregateErr != nil {
 		decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", aggregateErr))
 	}
+	decision.Faults = append(decision.Faults, aggregateFaults...)
 	if collectErr != nil {
 		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", collectErr))
 		decision.CollectionFaults = collectionFaultList(collectErr)
@@ -371,6 +381,16 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	decision.Faults = append(decision.Faults, sourceFaults(policy, emissions)...)
 	a.recordDecision(started, req.Method, policy, decision, resolveErr, emissions)
 	return decision, resolveErr
+}
+
+// sourceFaultOf renders one field-aggregation abstention with the source
+// identity, matching the resolver faults' attribution shape.
+func sourceFaultOf(m rpc.MalformedSource) error {
+	id := m.Source.ID
+	if id == "" {
+		id = m.Source.Name
+	}
+	return fmt.Errorf("source %q: malformed response: %v", id, m.Err)
 }
 
 // preparedRequest copies the request observed at the policy boundary so later

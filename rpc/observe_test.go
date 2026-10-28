@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -148,4 +149,32 @@ func fieldValue(fields []FieldObservation, path string) string {
 		}
 	}
 	return ""
+}
+
+// A single source whose value fails generic JSON validation abstains from
+// every field vote instead of killing the whole field evaluation — the same
+// fault-and-continue model the strict and median resolvers apply — while the
+// quorum denominator stays the fixed basis size. When every value-bearing
+// source is malformed there is no vote left and the ErrMalformedResponse
+// class is preserved.
+func TestAggregateFieldsMalformedSourceAbstains(t *testing.T) {
+	good := Observation{Source: SourceRef{Name: "a", ID: "a"}, Value: json.RawMessage(`{"blockNumber":"0x1"}`)}
+	alsoGood := Observation{Source: SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(`{"blockNumber":"0x1"}`)}
+	bad := Observation{Source: SourceRef{Name: "c", ID: "c"}, Value: json.RawMessage(`{"blockNumber":NaN}`)}
+
+	observation, err := AggregateFields([]Observation{good, alsoGood, bad}, 2)
+	if err != nil {
+		t.Fatalf("one malformed source must not fail the evaluation: %v", err)
+	}
+	if len(observation.Accepted) != 1 || len(observation.Accepted[0].Sources) != 2 {
+		t.Fatalf("accepted = %+v, want one field backed by the two healthy sources", observation.Accepted)
+	}
+	if len(observation.Malformed) != 1 || observation.Malformed[0].Source.ID != "c" || observation.Malformed[0].Err == nil {
+		t.Fatalf("malformed = %+v, want source c attributed", observation.Malformed)
+	}
+
+	alsoBad := Observation{Source: SourceRef{Name: "d", ID: "d"}, Value: json.RawMessage(`{"blockNumber":NaN}`)}
+	if _, err := AggregateFields([]Observation{bad, alsoBad}, 2); !errors.Is(err, ErrMalformedResponse) {
+		t.Fatalf("err = %v, want ErrMalformedResponse when every value-bearing source is malformed", err)
+	}
 }

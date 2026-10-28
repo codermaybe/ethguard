@@ -35,6 +35,19 @@ type ConflictField struct {
 type Evaluation struct {
 	Accepted    []FieldObservation
 	Diagnostics FieldDiagnostics
+	// Malformed names the sources whose response carried a value that failed
+	// generic JSON validation. They abstain from every field vote while the
+	// quorum denominator stays the fixed basis size, mirroring how strict and
+	// median treat a single undecodable answer as a fault rather than a
+	// verdict. When every value-bearing source is malformed there is no vote
+	// to report and the function still fails with ErrMalformedResponse.
+	Malformed []MalformedSource
+}
+
+// MalformedSource attributes one abstention to its source.
+type MalformedSource struct {
+	Source SourceRef
+	Err    error
 }
 
 // FieldDiagnostics contains source-backed observations that were not eligible
@@ -76,6 +89,7 @@ func AggregateFields(observations []Observation, quorum int) (Evaluation, error)
 	}
 	groups := make(map[string]map[string]*candidate)
 	seen := make(map[string]int, len(observations))
+	var result Evaluation
 	for i, observation := range observations {
 		id := observation.Source.ID
 		if id == "" {
@@ -91,7 +105,8 @@ func AggregateFields(observations []Observation, quorum int) (Evaluation, error)
 
 		value, err := decodeObservedJSON(observation.Value)
 		if err != nil {
-			return Evaluation{}, fmt.Errorf("rpc: source %q: %w: %v", id, ErrMalformedResponse, err)
+			result.Malformed = append(result.Malformed, MalformedSource{Source: observation.Source, Err: err})
+			continue
 		}
 		fields := make(map[string]json.RawMessage)
 		flattenJSON("", value, fields)
@@ -111,7 +126,14 @@ func AggregateFields(observations []Observation, quorum int) (Evaluation, error)
 		}
 	}
 
-	var result Evaluation
+	if len(groups) == 0 && len(result.Malformed) > 0 {
+		first := result.Malformed[0]
+		id := first.Source.ID
+		if id == "" {
+			id = first.Source.Name
+		}
+		return Evaluation{}, fmt.Errorf("rpc: source %q: %w: %v", id, ErrMalformedResponse, first.Err)
+	}
 	for path, byValue := range groups {
 		var qualified []FieldObservation
 		var residuals []FieldObservation
