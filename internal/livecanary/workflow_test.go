@@ -9,6 +9,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// uploadArtifactAction deliberately omits the major version: Dependabot owns
+// the version, while the contract only requires that an artifact is uploaded.
+const uploadArtifactAction = "actions/upload-artifact@v"
+
 func TestLiveCanaryRecheckWorkflowContract(t *testing.T) {
 	path := filepath.Join("..", "..", ".github", "workflows", "live-canary-recheck.yml")
 	data, err := os.ReadFile(path)
@@ -56,7 +60,7 @@ func TestLiveCanaryRecheckWorkflowContract(t *testing.T) {
 		"git checkout --detach",
 		`"${RUNNER_TEMP}/livecanary-source" rerun`,
 		`"${RUNNER_TEMP}/livecanary-current" compare`,
-		"actions/upload-artifact@v4",
+		uploadArtifactAction,
 		"retention-days: 90",
 		"steps.compare.outcome != 'success'",
 	} {
@@ -129,7 +133,7 @@ func TestLiveCanaryWorkflowContract(t *testing.T) {
 			runs.WriteString(command + "\n")
 		}
 	}
-	if !strings.Contains(uses.String(), "actions/upload-artifact@v4") {
+	if !strings.Contains(uses.String(), uploadArtifactAction) {
 		t.Error("workflow does not upload an artifact")
 	}
 	if !strings.Contains(runs.String(), `"${RUNNER_TEMP}/livecanary" run`) {
