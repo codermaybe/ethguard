@@ -2,23 +2,16 @@ package ethguard
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/internal/refcontext"
-	"github.com/codermaybe/ethguard/internal/reference"
 	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
-
-const anchorMethod = "anchor"
 
 // ReferenceResolver establishes a corroborated block reference for moving-state reads.
 type ReferenceResolver interface {
@@ -45,8 +38,10 @@ type AnchorEvidenceProvider interface {
 	AnchorReference(context.Context) (rpc.ReferenceEvidence, error)
 }
 
-// StrictHeadAnchor requires corroborated strict latest-head agreement.
-type StrictHeadAnchor struct{ aggregate *aggregator.Aggregator }
+// StrictHeadAnchor requires corroborated strict latest-head agreement. The
+// establishment algorithm is runtime-owned; the type stays as the public
+// facade of that service.
+type StrictHeadAnchor struct{ service *runtime.StrictHeadService }
 
 // NewStrictHeadAnchor builds the default latest-head resolver.
 func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...rpc.StrictOption) *StrictHeadAnchor {
@@ -55,55 +50,22 @@ func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...rpc.StrictO
 
 func newStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, timeout time.Duration, corrob *rpc.CorroborationShared, opts ...rpc.StrictOption) *StrictHeadAnchor {
 	return &StrictHeadAnchor{
-		aggregate: aggregator.New(p, rpc.Registry{anchorMethod: anchorHeadPolicy{methods.BlockByNumberPolicy(opts...)}},
-			aggregator.WithRecorder(rec),
-			aggregator.WithCollectTimeout(timeout),
-			aggregator.WithCorroboration(corrob)),
+		service: runtime.NewStrictHeadService(runtime.StrictHeadConfig{
+			Pool:           p,
+			Recorder:       rec,
+			CollectTimeout: timeout,
+			Corroboration:  corrob,
+			StrictOptions:  opts,
+		}),
 	}
 }
 
 func (a *StrictHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	d, err := a.aggregate.Aggregate(ctx, rpc.Request{Method: anchorMethod, Params: []any{"latest", false}})
-	ref := rpc.ReferenceEvidence{
-		Status:           d.Status,
-		Origin:           "strict-head",
-		ObservedAt:       time.Now(),
-		Participants:     d.Participants,
-		Support:          d.Support,
-		Reject:           d.Reject,
-		Faults:           d.Faults,
-		SourceFaults:     d.SourceFaults,
-		CollectionFaults: d.CollectionFaults,
-	}
-	if err != nil {
-		return ref, err
-	}
-	ref.Hash, ref.Height, err = blockRefFromDecision(d)
-	return ref, err
+	return a.service.Reference(ctx)
 }
 
 func (a *StrictHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	if tag == "" || tag == "latest" {
-		return a.AnchorReference(ctx)
-	}
-	d, err := a.aggregate.Aggregate(ctx, rpc.Request{Method: anchorMethod, Params: []any{tag, false}})
-	ref := rpc.ReferenceEvidence{
-		Tag:              tag,
-		Status:           d.Status,
-		Origin:           "tagged-head",
-		ObservedAt:       time.Now(),
-		Participants:     d.Participants,
-		Support:          d.Support,
-		Reject:           d.Reject,
-		Faults:           d.Faults,
-		SourceFaults:     d.SourceFaults,
-		CollectionFaults: d.CollectionFaults,
-	}
-	if err != nil {
-		return ref, err
-	}
-	ref.Hash, ref.Height, err = blockRefFromDecision(d)
-	return ref, err
+	return a.service.ReferenceForTag(ctx, tag)
 }
 
 func (a *StrictHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
@@ -121,6 +83,7 @@ func (a *StrictHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, 
 type FinalizedHeadAnchor struct {
 	pool    *pool.Pool
 	rec     observe.Recorder
+	service *runtime.FinalizedHeadService
 	maxLag  uint64
 	quorum  int
 	timeout time.Duration
@@ -142,78 +105,29 @@ func NewFinalizedHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...Finalize
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	return &FinalizedHeadAnchor{pool: p, rec: rec, maxLag: cfg.maxLag}
+	return &FinalizedHeadAnchor{
+		pool:    p,
+		rec:     rec,
+		service: runtime.NewFinalizedHeadService(p, rec, cfg.maxLag, 0, 0),
+		maxLag:  cfg.maxLag,
+	}
+}
+
+// tuneForRuntime applies the client's adjudication floor and collect timeout
+// after construction. The public option set cannot carry them (the floor is
+// derived from the source count at New time), so New re-tunes the service
+// once, before any call.
+func (a *FinalizedHeadAnchor) tuneForRuntime(quorum int, timeout time.Duration) {
+	a.quorum, a.timeout = quorum, timeout
+	a.service = runtime.NewFinalizedHeadService(a.pool, a.rec, a.maxLag, quorum, timeout)
 }
 
 func (a *FinalizedHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	quorum, mode := a.quorum, rpc.CorroborationMajority
-	if value, ok := refcontext.Corroboration(ctx); ok {
-		if snapshot, valid := value.(rpc.Corroboration); valid {
-			quorum, mode = snapshot.Floor, snapshot.Mode
-		}
-	}
-	return reference.Finalized(ctx, runtime.NewPoolHeadReader(a.pool, nil), runtime.MethodHeadCodec{}, a.maxLag, quorum, mode, a.timeout, a.rec)
+	return a.service.Reference(ctx)
 }
 
 func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	if tag == "latest" {
-		mode, floor := rpc.CorroborationMajority, a.quorum
-		if value, ok := refcontext.Corroboration(ctx); ok {
-			if snapshot, valid := value.(rpc.Corroboration); valid {
-				mode, floor = snapshot.Mode, snapshot.Floor
-			}
-		}
-		if mode == rpc.CorroborationForwarded {
-			floor = 0
-		} else if floor < 1 {
-			floor = 2
-		}
-		shared, err := rpc.NewCorroborationShared(mode, floor)
-		if err != nil {
-			return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, err
-		}
-		var opts []rpc.StrictOption
-		if floor > 0 {
-			opts = append(opts, rpc.WithQuorum(floor))
-		}
-		if mode == rpc.CorroborationUnanimity {
-			opts = append(opts, rpc.WithUnanimity())
-		}
-		resolver := newStrictHeadAnchor(a.pool, a.rec, a.timeout, shared, opts...)
-		return resolver.AnchorReferenceForTag(ctx, tag)
-	}
-	if tag == "finalized" || tag == "" {
-		ref, err := a.AnchorReference(ctx)
-		ref.Tag = tag
-		return ref, err
-	}
-	if tag == "safe" {
-		mode, floor := rpc.CorroborationMajority, a.quorum
-		if value, ok := refcontext.Corroboration(ctx); ok {
-			if snapshot, valid := value.(rpc.Corroboration); valid {
-				mode, floor = snapshot.Mode, snapshot.Floor
-			}
-		}
-		if mode == rpc.CorroborationForwarded {
-			floor = 0
-		} else if floor < 1 {
-			floor = 2
-		}
-		shared, err := rpc.NewCorroborationShared(mode, floor)
-		if err != nil {
-			return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, err
-		}
-		var opts []rpc.StrictOption
-		if floor > 0 {
-			opts = append(opts, rpc.WithQuorum(floor))
-		}
-		if mode == rpc.CorroborationUnanimity {
-			opts = append(opts, rpc.WithUnanimity())
-		}
-		resolver := newStrictHeadAnchor(a.pool, a.rec, a.timeout, shared, opts...)
-		return resolver.AnchorReferenceForTag(ctx, tag)
-	}
-	return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown, Origin: "finalized-anchor"}, fmt.Errorf("anchor: tag %q is not supported by finalized resolver: %w", tag, rpc.ErrInvalidRequest)
+	return a.service.ReferenceForTag(ctx, tag)
 }
 
 func (a *FinalizedHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
@@ -224,76 +138,6 @@ func (a *FinalizedHeadAnchor) AnchorBlockHash(ctx context.Context) (string, erro
 func (a *FinalizedHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
 	r, e := a.AnchorReference(ctx)
 	return r.Hash, r.Height, e
-}
-
-type anchorHeadPolicy struct{ rpc.Policy }
-
-func (p anchorHeadPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
-	prepared, err := p.Policy.Prepare(ctx, req)
-	if err != nil {
-		return rpc.Request{}, err
-	}
-	prepared.Method = methods.MethodGetBlockByNumber
-	return prepared, nil
-}
-
-func (p anchorHeadPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
-	d, err := p.Policy.Resolve(obs)
-	d = restoreAnchorSourceValue(d, obs)
-	return p.requireCorroborated(d, err)
-}
-
-func (p anchorHeadPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
-	var (
-		d   rpc.Decision
-		err error
-	)
-	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
-		d, err = cp.ResolveCorroborated(c, obs)
-	} else {
-		d, err = p.Policy.Resolve(obs)
-	}
-	d = restoreAnchorSourceValue(d, obs)
-	return p.requireCorroborated(d, err)
-}
-
-// Anchor comparison uses the canonical head encoder, but the anchor decision
-// is an internal reference observation and must preserve the winning source's
-// wire spelling. The request path lowercases the derived hash separately.
-func restoreAnchorSourceValue(d rpc.Decision, obs []rpc.Observation) rpc.Decision {
-	if d.Status != rpc.Corroborated || d.Representative.ID == "" {
-		return d
-	}
-	for _, item := range obs {
-		if item.Source.ID == d.Representative.ID {
-			d.Value = append(json.RawMessage(nil), item.Value...)
-			break
-		}
-	}
-	return d
-}
-
-func (p anchorHeadPolicy) requireCorroborated(d rpc.Decision, err error) (rpc.Decision, error) {
-	if err == nil && d.Status != rpc.Corroborated {
-		d.Status = rpc.Unknown
-		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrConflict)
-	}
-	return d, err
-}
-
-func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
-	var head struct {
-		Number string `json:"number"`
-		Hash   string `json:"hash"`
-	}
-	if err := json.Unmarshal(d.Value, &head); err != nil || len(head.Hash) < 3 {
-		return "", 0, fmt.Errorf("winning anchor carries no hash: %w", rpc.ErrMalformedResponse)
-	}
-	height, err := rpc.ParseHexQuantity(head.Number)
-	if err != nil {
-		return "", 0, fmt.Errorf("invalid anchor height: %w", rpc.ErrMalformedResponse)
-	}
-	return strings.ToLower(head.Hash), height, nil
 }
 
 // resolveReference establishes the moving reference for this call.

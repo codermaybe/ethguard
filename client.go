@@ -249,8 +249,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		}
 	}
 	if finalized, ok := resolver.(*FinalizedHeadAnchor); ok && co.anchor == nil {
-		finalized.quorum = floor
-		finalized.timeout = co.collectTimeout
+		finalized.tuneForRuntime(floor, co.collectTimeout)
 	}
 	runtimeBundle, err := runtime.Build(runtime.Inputs{
 		Pool:           rpcPool,
