@@ -16,7 +16,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 
@@ -46,8 +45,9 @@ const maxStatusBody = 4 << 10
 // ErrTransportClosed is returned for calls on a closed transport. Unlike the
 // Geth baseline (whose HTTP Close is a no-op and leaves the adapter usable),
 // a native transport blocks new calls once closed (EthGuard contract,
-// lifecycle).
-var ErrTransportClosed = errors.New("http: transport closed")
+// lifecycle). It wraps the neutral lifecycle sentinel, so core packages
+// classify closed-transport calls without importing this adapter.
+var ErrTransportClosed = fmt.Errorf("http: transport closed: %w", transport.ErrConnectionClosed)
 
 // Dialer dials native HTTP JSON-RPC transports for http and https URLs.
 type Dialer struct {

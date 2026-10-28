@@ -25,6 +25,13 @@ type Transport interface {
 	Close()
 }
 
+// ErrConnectionClosed is the neutral sentinel for a call attempted on a
+// transport after Close. Every adapter maps its own closed-connection error
+// onto this sentinel so core packages classify the lifecycle without knowing
+// the adapter. Close is idempotent, and calls already in flight are governed
+// by their own context, not by Close.
+var ErrConnectionClosed = errors.New("transport: connection closed")
+
 // Dialer creates one long-lived Transport for an endpoint.
 type Dialer interface {
 	DialContext(context.Context, string) (Transport, error)
