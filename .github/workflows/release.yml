@@ -31,7 +31,7 @@ jobs:
     name: build and publish
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # apidiff needs the previous tagged module version to compare
           # against; fetch history so the runner has it.
