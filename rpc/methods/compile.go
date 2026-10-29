@@ -1,169 +1,16 @@
 package methods
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/codermaybe/ethguard/rpc"
-	rpcpolicy "github.com/codermaybe/ethguard/rpc/internal/policy"
 )
 
-// CompileDeps carries the static runtime bindings Compile needs: the
-// consumption-only anchor readers bound to the client's reference stage.
-// They never establish anything themselves, so the compiled policy holds no
-// callback that fans out its own network round.
-type CompileDeps struct {
-	AnchorHash   rpc.AnchorFunc
-	AnchorHeight rpc.AnchorHeightFunc
-}
-
-// Compile assembles one MethodSpec into the policy the legacy registry path
-// installs.
-//
-// The composition order is fixed and mirrors every hand-written constructor
-// chain (outermost first): validation, pending, admission, EIP-1898 object
-// form, anchor rewrite, resolver. Capability promotion follows the resolver
-// kind through the existing decorator constructors, so wrapping a
-// non-corroborating resolver never acquires a corroboration claim and the
-// MethodRule source chain survives composition. Compile is the only place a
-// new policy chain is born; the hand-written constructors stay as the public
-// migration-compatible surface and the equivalence tests hold the two
-// shapes together.
-//
-// Compile is the decorator-chain compiler of the migration-era compatible
-// path. The plan compiler is CompilePlan: a registry that drives a method
-// from its explicit execution plan does not call this at all.
-func Compile(spec MethodSpec, deps CompileDeps, opts ...rpc.StrictOption) rpc.Policy {
-	resolver := compileResolver(spec, deps, opts)
-	policy := applyReference(spec, deps, resolver)
-	if spec.Admit != nil {
-		policy = rpcpolicy.WithAdmission(policy, rpcpolicy.AdmissionFunc(spec.Admit))
-	}
-	if spec.Pending.Mode != PendingNone {
-		switch spec.Pending.Mode {
-		case PendingObserve:
-			policy = PendingLocal(spec.Pending.Pos)(policy)
-		case PendingRefuse:
-			if spec.Validate != nil {
-				// The method owns its pre-anchor rejection in the validate
-				// hook; the declaration contributes the rule column without
-				// a second rejection layer.
-				policy = declaredPendingRule{Decorator: rpc.Decorator{Policy: policy}, pending: rpc.RulePendingLocalReject}
-			} else {
-				policy = rpc.RejectPending(spec.Pending.Pos)(policy)
-			}
-		default:
-			panic(fmt.Sprintf("methods: unknown pending mode %q for %s", spec.Pending.Mode, spec.Method))
-		}
-	}
-	if spec.Validate != nil {
-		if spec.Pending.Mode == PendingObserve {
-			policy = validatingLocalPolicy{validatedPolicy{Decorator: rpc.Decorator{Policy: policy}, validate: spec.Validate}}
-		} else {
-			policy = validatedPolicy{Decorator: rpc.Decorator{Policy: policy}, validate: spec.Validate}
-		}
-	}
-	return policy
-}
-
-// declaredPendingRule projects a pending-reject declaration for a method
-// whose rejection lives in its own validate hook; it decides nothing.
-type declaredPendingRule struct {
-	rpc.Decorator
-	pending string
-}
-
-func (p declaredPendingRule) MethodRule() (rpc.MethodRule, rpc.Policy) {
-	return p.MethodRuleWith(rpc.MethodRule{Pending: p.pending})
-}
-
-func (p declaredPendingRule) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
-	return compiledResolveCorroborated(p.Policy, c, obs)
-}
-
-func (p declaredPendingRule) ResolveOutcome(obs []rpc.Observation) (rpc.Outcome, error) {
-	return resolveOutcomeOf(p.Policy, obs)
-}
-
-func (p declaredPendingRule) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
-	return compiledResolveOutcomeCorroborated(p.Policy, c, obs)
-}
-
-// compiledResolveCorroborated forwards an invocation snapshot to the inner
-// CorroboratingPolicy with the plain-resolve fallback, mirroring the
-// corroborating twin wrappers rpc's own decorators use.
-func compiledResolveCorroborated(policy rpc.Policy, c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
-	if cp, ok := policy.(rpc.CorroboratingPolicy); ok {
-		return cp.ResolveCorroborated(c, obs)
-	}
-	return policy.Resolve(obs)
-}
-
-// compiledResolveOutcomeCorroborated is the per-source statement variant of
-// the same fallback.
-func compiledResolveOutcomeCorroborated(policy rpc.Policy, c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
-	if co, ok := policy.(rpc.CorroboratingOutcomeResolver); ok {
-		return co.ResolveOutcomeCorroborated(c, obs)
-	}
-	d, err := compiledResolveCorroborated(policy, c, obs)
-	return rpc.Outcome{Decision: d}, err
-}
-
-// resolveOutcomeOf is the outcome forwarding with the plain-resolve fallback,
-// shared by the compiler wrappers that mirror the method-owned shapes.
-func resolveOutcomeOf(policy rpc.Policy, obs []rpc.Observation) (rpc.Outcome, error) {
-	if inner, ok := policy.(rpc.OutcomeResolver); ok {
-		return inner.ResolveOutcome(obs)
-	}
-	d, err := policy.Resolve(obs)
-	return rpc.Outcome{Decision: d}, err
-}
-
-// applyReference wraps the resolver with the declared anchor layers: the
-// string-form rewrite innermost, the EIP-1898 object form outside it,
-// matching every hand-written chain.
-func applyReference(spec MethodSpec, deps CompileDeps, policy rpc.Policy) rpc.Policy {
-	ref := spec.Reference
-	if ref.Kind == ReferenceShapeNone {
-		return policy
-	}
-	switch ref.Kind {
-	case ReferenceShapeHashAt:
-		policy = rpc.WithAnchor(deps.AnchorHash, ref.Positions...)(policy)
-	case ReferenceShapeHeightAt:
-		policy = rpc.WithAnchorHeight(deps.AnchorHeight, ref.Positions...)(policy)
-	case ReferenceShapeHeightFieldsAt:
-		policy = rpc.WithAnchorHeightFields(deps.AnchorHeight, ref.ParamPos, ref.Fields...)(policy)
-	default:
-		panic(fmt.Sprintf("methods: unknown reference shape %q for %s", ref.Kind, spec.Method))
-	}
-	if ref.EIP1898 {
-		if len(ref.Positions) != 1 {
-			panic(fmt.Sprintf("methods: %s declares EIP-1898 without exactly one position", spec.Method))
-		}
-		policy = EIP1898BlockRef(deps.AnchorHash, ref.Positions[0])(policy)
-	}
-	return policy
-}
-
-// compileResolver builds the resolver the spec names. The strict option
-// plumbing mirrors the constructors: canonical-value methods prepend their
-// encoder, compare-kind is pinned beside the normalizer, and the block and
-// call-revert shapes carry their wrapper-specific identity. The chain
-// compiler panics on an impossible declaration — the spec inventory is
-// frozen and every registered method must assemble; the plan compiler
-// reports the same conditions as errors.
-func compileResolver(spec MethodSpec, deps CompileDeps, opts []rpc.StrictOption) rpc.Policy {
-	resolver, err := assembleResolver(spec, opts)
-	if err != nil {
-		panic(err.Error())
-	}
-	return resolver
-}
-
-// assembleResolver builds the resolver value the spec names, shared by the
-// chain compiler and the plan compiler: one assembly, so the two paths can
-// never diverge on the value domain. The strict option plumbing mirrors the
+// assembleResolver builds the resolver value the spec names. It is the one
+// assembly for the value domain: the plan compiler builds the resolver here,
+// and the hand-written constructors assemble the same resolver shapes at
+// their call sites, so a plan and its constructor cannot diverge on what the
+// method compares and returns. The strict option plumbing mirrors the
 // constructors: canonical-value methods prepend their encoder, compare-kind
 // is pinned beside the normalizer, and the block and call-revert shapes
 // carry their wrapper-specific identity.
@@ -223,9 +70,9 @@ func assembleResolver(spec MethodSpec, opts []rpc.StrictOption) (rpc.Policy, err
 // reference shape, pending handling, hooks, projector binding — and no
 // network callback at all: reference data arrives as established evidence
 // at execution time, and the admission caller is a runtime dependency. The
-// resolver value is the same assembly the chain compiler builds, so the
-// value domain has one owner; the plan replaces the decorator composition
-// with the plan's declared reference and pending semantics.
+// resolver value is the same assembly the hand-written constructors use, so
+// the value domain has one owner; the plan replaces the decorator
+// composition with its declared reference and pending semantics.
 //
 // Compilation rejects an impossible declaration before it can register:
 // a missing comparison key, an unknown resolver class, an illegal
@@ -259,52 +106,4 @@ func CompilePlan(spec MethodSpec) (rpc.ReadPlan, error) {
 		return rpc.ReadPlan{}, err
 	}
 	return plan, nil
-}
-
-// validatedPolicy is the compiled form of a method's Validate hook. It
-// mirrors the method-owned wrappers' capability semantics: the corroborated
-// resolution is exposed with the same inner-first fallback the constructors
-// use, because the aggregator's collection mode follows the capability.
-type validatedPolicy struct {
-	rpc.Decorator
-	validate func(context.Context, rpc.Request) error
-}
-
-func (p validatedPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
-	if err := p.validate(ctx, req); err != nil {
-		return rpc.Request{}, err
-	}
-	return p.Policy.Prepare(ctx, req)
-}
-
-func (p validatedPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
-	return compiledResolveCorroborated(p.Policy, c, obs)
-}
-
-func (p validatedPolicy) ResolveOutcome(obs []rpc.Observation) (rpc.Outcome, error) {
-	return resolveOutcomeOf(p.Policy, obs)
-}
-
-func (p validatedPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
-	return compiledResolveOutcomeCorroborated(p.Policy, c, obs)
-}
-
-// validatingLocalPolicy adds the local-observation forwarding for chains
-// whose pending-local layer sits beneath the validate hook.
-type validatingLocalPolicy struct {
-	validatedPolicy
-}
-
-func (p validatingLocalPolicy) IsLocalObservation(prepared rpc.Request) bool {
-	if inner, ok := p.Policy.(rpc.LocalObservationPolicy); ok {
-		return inner.IsLocalObservation(prepared)
-	}
-	return false
-}
-
-func (p validatingLocalPolicy) ResolveLocal(obs []rpc.Observation) (rpc.Decision, error) {
-	if inner, ok := p.Policy.(rpc.LocalObservationPolicy); ok {
-		return inner.ResolveLocal(obs)
-	}
-	return p.Policy.Resolve(obs)
 }

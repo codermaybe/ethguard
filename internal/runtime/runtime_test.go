@@ -15,20 +15,19 @@ func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
 	if bundle.Aggregator == nil {
 		t.Fatal("runtime bundle has no aggregator")
 	}
-	// Every registered method is driven by either an explicit execution plan
-	// or a compiled policy; a method without either cannot enter the
-	// registry. The planned set grows one method at a time, so the two
-	// shapes partition the catalog.
-	if len(bundle.Plans)+len(bundle.Policies) != len(methods.RegisteredNames()) {
-		t.Fatalf("runtime registered %d plans and %d policies, want %d methods covered",
-			len(bundle.Plans), len(bundle.Policies), len(methods.RegisteredNames()))
+	// The default registry drives every registered method from its explicit
+	// execution plan and generates no decorator chains: the plans partition
+	// the whole catalog, and the policy registry stays empty for unknown
+	// methods' transparent forwarding.
+	if len(bundle.Plans) != len(methods.RegisteredNames()) {
+		t.Fatalf("runtime registered %d plans, want %d", len(bundle.Plans), len(methods.RegisteredNames()))
 	}
-	for _, method := range []string{methods.MethodGetBalance, methods.MethodGetLogs, methods.MethodCall, methods.MethodGetBlockByNumber} {
+	if len(bundle.Policies) != 0 {
+		t.Fatalf("the default registry compiled %d policy chains, want none", len(bundle.Policies))
+	}
+	for _, method := range methods.RegisteredNames() {
 		if bundle.Plans[method].Resolver == nil {
 			t.Fatalf("runtime omitted the %s plan", method)
 		}
-	}
-	if bundle.Policies.PolicyFor(methods.MethodChainID) == nil {
-		t.Fatal("runtime omitted eth_chainId policy")
 	}
 }

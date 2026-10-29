@@ -56,44 +56,13 @@ type Bundle struct {
 	Stage      *ReferenceStage
 }
 
-// plannedReads are the read methods the default registry drives from
-// explicit execution plans. The set grows one admission slice at a time as
-// each method's plan equivalence lands; a method not listed here keeps its
-// compiled policy chain until its slice is accepted. When the set covers
-// the whole registered catalog, the default registry stops compiling
-// decorator chains at all.
-var plannedReads = map[string]bool{
-	methods.MethodChainID:               true,
-	methods.MethodGetBlockByHash:        true,
-	methods.MethodGetBlockByNumber:      true,
-	methods.MethodGetBalance:            true,
-	methods.MethodGetTransactionReceipt: true,
-	methods.MethodGetTransactionByHash:  true,
-	methods.MethodGetBlockReceipts:      true,
-	methods.MethodGetTransactionCount:   true,
-	methods.MethodGetStorageAt:          true,
-	methods.MethodGetCode:               true,
-	methods.MethodCall:                  true,
-	methods.MethodEstimateGas:           true,
-	methods.MethodGetLogs:               true,
-	methods.MethodFeeHistory:            true,
-	methods.MethodGasPrice:              true,
-	methods.MethodMaxPriorityFeePerGas:  true,
-	methods.MethodBlobBaseFee:           true,
-	methods.MethodBlockNumber:           true,
-	methods.MethodCreateAccessList:      true,
-	methods.MethodPeerCount:             true,
-	methods.MethodSyncing:               true,
-	methods.MethodNetVersion:            true,
-	methods.MethodListening:             true,
-}
-
 // Build assembles the method catalog, the reference stage, typed observation
 // projectors, and the aggregator. Method binding lives here; the
-// establishment algorithms remain owned by their respective modules. A
-// planned method is compiled into its explicit execution plan and handed to
-// the aggregator's plan pipeline; every other method is compiled into the
-// decorator chain the legacy path drives.
+// establishment algorithms remain owned by their respective modules. The
+// default registry drives every registered read from its explicit execution
+// plan and generates no decorator chains: read corroboration is governed by
+// the invocation's frozen snapshot, and the strict options input stays with
+// the establishment algorithms that own their own threshold formulas.
 func Build(in Inputs) (*Bundle, error) {
 	if in.Pool == nil {
 		return nil, fmt.Errorf("runtime: nil pool")
@@ -106,27 +75,18 @@ func Build(in Inputs) (*Bundle, error) {
 		MaxLag:            anchoringMaxLag(in.Anchoring),
 		StrictOptions:     in.StrictOptions,
 	})
-	anchorHash := stage.AnchorHashReader()
-	anchorHeight := stage.AnchorHeightReader()
-	// The registry is assembled from the frozen MethodSpec inventory: every
-	// registered method is driven either by its explicit execution plan or
-	// by its compiled chain, and a method without either cannot enter. The
-	// equivalence tests hold both shapes to the hand-written constructors.
+	// The registry is assembled from the frozen MethodSpec inventory: one
+	// explicit plan per registered method. A spec that cannot compose fails
+	// the build, and the coverage gate holds the catalog to its plans; a
+	// method without a plan cannot fall through to transparent forwarding.
 	policies := rpc.Registry{}
-	plans := make(map[string]rpc.ReadPlan, len(plannedReads))
+	plans := make(map[string]rpc.ReadPlan, len(methods.Specs()))
 	for _, spec := range methods.Specs() {
-		if plannedReads[spec.Method] {
-			plan, err := methods.CompilePlan(spec)
-			if err != nil {
-				return nil, fmt.Errorf("runtime: plan for %s: %w", spec.Method, err)
-			}
-			plans[spec.Method] = plan
-			continue
+		plan, err := methods.CompilePlan(spec)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: plan for %s: %w", spec.Method, err)
 		}
-		policies[spec.Method] = methods.Compile(spec, methods.CompileDeps{
-			AnchorHash:   anchorHash,
-			AnchorHeight: anchorHeight,
-		}, in.StrictOptions...)
+		plans[spec.Method] = plan
 	}
 	if err := methods.ValidateReadCoverage(policies, plans); err != nil {
 		return nil, fmt.Errorf("runtime: %w", err)
