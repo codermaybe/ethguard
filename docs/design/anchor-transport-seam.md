@@ -2,6 +2,12 @@
 
 状态：Accepted，2026-09-25
 
+> 拓扑勘误（2026-10-29，pool 去 alias 后）：下图中的 `standardDialer` 已删除。
+> 生产默认拨号是 native HTTP adapter（`internal/transport/http.NewDialer`），
+> go-ethereum compatibility adapter 只经 `gethcompat` 显式 seam 进入。seam
+> 的位置——"发出单次 reference RPC"落在 pool 的 endpoint 调用——不变，本页
+> 其余内容仍然有效。
+
 HTTP 与 WSS 的参考建立共用一条生产路径。本说明只记录这个 seam 的位置、调用链和不变量。它不新增 resolver，也不记录任务步骤。
 
 ## 位置

@@ -383,8 +383,8 @@ go-ethereum 的 `common`、`hexutil`、`core/types` 和公开 ethclient-shaped �
 
 状态：`internal/rpcwire`（project-owned JSON-RPC codec）与
 `internal/transport/http`（native HTTP Adapter）已实现并通过全量验收；
-默认生产路径未切换（仍是 Geth compatibility Adapter）。本节记录 native
-Adapter 与 Geth baseline 的差分结论，作为默认切换审查的输入。
+本节记录 native Adapter 与 Geth baseline 的差分结论。Geth compatibility
+Adapter 现仅为显式兼容通道（经 `gethcompat` seam），生产默认为 native。
 
 ### 8.1 A 类语义对齐（与 baseline 完全一致）
 
@@ -439,10 +439,16 @@ HTTP Close no-op ✗、Geth concrete error 类型 ✗、Geth exact EOF/sentinel 
 
 ### 8.4 接入与回滚
 
-- Geth compatibility Adapter（`internal/transport.StandardDialer`，pool 的
-  `standardDialer` 别名）仍是唯一默认生产路径；native Adapter 通过
-  `internal/transport/http.NewDialer()` 提供，目前只有测试引用。
-- 默认切换：单独提交中把 pool 的 `standardDialer` 别名指向
-  `nativehttp.NewDialer()`（或按配置选择 adapter）；回滚 = revert 该单个
-  提交，Geth Adapter 保持可用，无双路径状态残留。
+> 状态更新（2026-10-29，D5/拆包后）：默认生产路径已切换到 native Adapter
+> (`internal/transport/http.NewDialer()`，决策 0036 之后的 4e50768）；
+> `standardDialer` 别名已随 pool 去别名提交删除。本节降级为兼容性诊断：
+> Geth compatibility Adapter 只能经显式构造 seam `gethcompat.New` 进入
+> （或迁移期内在 gethcompat 组合中保留 `WithHTTPAdapter(HTTPAdapterGeth)`），
+> 默认构建不再链接。回滚形态同样收敛为"默认构建反链回 gethcompat"的这一
+> 个提交，不存在双路径状态。
+
+- 迁移期组合：`gethcompat.New(cfg, opts...)` 内部注入自己的 DialerOption，
+  保留 `WithHTTPAdapter(HTTPAdapterGeth)` 的旧 option 组合亦可构造
+  （root 构造器显式接受"seam 显式拨号器 + geth 选择"的组合）；裸 geth
+  选择仍以 seam 指针失败。
 - 双 Adapter 并存期间无共享状态；差分测试同时拨号两者，保证行为可比。

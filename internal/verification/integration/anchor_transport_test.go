@@ -157,7 +157,16 @@ func (n *scriptNode) reset() {
 	n.mu.Unlock()
 }
 
-func newAnchorFleet(t *testing.T, kind anchorTransport, count int) (*ethguard.Client, []*scriptNode) {
+// anchorChannel names the connection channel under test: the strategic native
+// default or the gethcompat compatibility channel.
+type anchorChannel string
+
+const (
+	channelNative anchorChannel = "native"
+	channelCompat anchorChannel = "compat"
+)
+
+func newAnchorFleetOn(t *testing.T, kind anchorTransport, count int, channel anchorChannel) (*ethguard.Client, []*scriptNode) {
 	t.Helper()
 	nodes := make([]*scriptNode, 0, count)
 	cfg := config.Config{ChainID: 1}
@@ -169,14 +178,33 @@ func newAnchorFleet(t *testing.T, kind anchorTransport, count int) (*ethguard.Cl
 			Endpoint: node.URL(),
 		})
 	}
-	// The anchor-transport matrix compares the compatibility channel over
-	// HTTP and WSS, so both fleets dial through gethcompat.
-	client, err := gethcompat.New(cfg)
+	var (
+		client *ethguard.Client
+		err    error
+	)
+	switch channel {
+	case channelNative:
+		client, err = ethguard.New(cfg)
+	case channelCompat:
+		client, err = gethcompat.New(cfg)
+	default:
+		t.Fatalf("unknown anchor channel %q", channel)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(client.Close)
 	return client, nodes
+}
+
+// newAnchorFleet keeps the historical fleet shape: gethcompat. The
+// cross-transport matrix tests compare HTTP against WSS, and only the
+// compatibility channel serves both schemes through one Adapter, so those
+// tests stay compat-only by design; the HTTP-only spelling tests below
+// exercise both channels.
+func newAnchorFleet(t *testing.T, kind anchorTransport, count int) (*ethguard.Client, []*scriptNode) {
+	t.Helper()
+	return newAnchorFleetOn(t, kind, count, channelCompat)
 }
 
 func newDeadFleet(t *testing.T, scheme string) *ethguard.Client {
@@ -400,51 +428,55 @@ func TestAnchorRequestHashIsLowercase(t *testing.T) {
 		upper  = "0Xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		lower  = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
-	client, nodes := newAnchorFleet(t, transportHTTP, 2)
-	scriptSame(nodes, func(method string, args []any) (any, error) {
-		switch method {
-		case "eth_getBlockByNumber":
-			return map[string]any{"number": number, "hash": upper}, nil
-		case "eth_getBalance":
-			return "0x64", nil
-		default:
-			return nil, errScriptPass
-		}
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	for _, channel := range []anchorChannel{channelNative, channelCompat} {
+		t.Run(string(channel), func(t *testing.T) {
+			client, nodes := newAnchorFleetOn(t, transportHTTP, 2, channel)
+			scriptSame(nodes, func(method string, args []any) (any, error) {
+				switch method {
+				case "eth_getBlockByNumber":
+					return map[string]any{"number": number, "hash": upper}, nil
+				case "eth_getBalance":
+					return "0x64", nil
+				default:
+					return nil, errScriptPass
+				}
+			})
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-	decision, err := callMethod(ctx, client, methods.MethodGetBalance, "0xaddr", "latest")
-	if err != nil {
-		t.Fatalf("getBalance: %v\n%s", err, dumpCalls(nodes))
-	}
-	if decision.Reference == nil || decision.Reference.Hash != lower {
-		t.Fatalf("reference hash = %+v, want %s", decision.Reference, lower)
-	}
-	for _, node := range nodes {
-		for _, call := range node.snapshot() {
-			if call.Method != methods.MethodGetBalance {
-				continue
+			decision, err := callMethod(ctx, client, methods.MethodGetBalance, "0xaddr", "latest")
+			if err != nil {
+				t.Fatalf("getBalance: %v\n%s", err, dumpCalls(nodes))
 			}
-			block, _ := call.Args[1].(string)
-			if block != lower {
-				t.Fatalf("balance block = %q, want lowercase %s", block, lower)
+			if decision.Reference == nil || decision.Reference.Hash != lower {
+				t.Fatalf("reference hash = %+v, want %s", decision.Reference, lower)
 			}
-			if block == upper {
-				t.Fatalf("balance block kept the source spelling %s", upper)
+			for _, node := range nodes {
+				for _, call := range node.snapshot() {
+					if call.Method != methods.MethodGetBalance {
+						continue
+					}
+					block, _ := call.Args[1].(string)
+					if block != lower {
+						t.Fatalf("balance block = %q, want lowercase %s", block, lower)
+					}
+					if block == upper {
+						t.Fatalf("balance block kept the source spelling %s", upper)
+					}
+				}
 			}
-		}
-	}
 
-	block, err := callMethod(ctx, client, methods.MethodGetBlockByNumber, "latest", false)
-	if err != nil {
-		t.Fatalf("getBlockByNumber: %v\n%s", err, dumpCalls(nodes))
-	}
-	if !strings.Contains(string(block.Value), upper) {
-		t.Fatalf("block value = %s, want the source spelling %s", block.Value, upper)
-	}
-	if strings.Contains(string(block.Value), lower) {
-		t.Fatalf("block value was lowercased: %s", block.Value)
+			block, err := callMethod(ctx, client, methods.MethodGetBlockByNumber, "latest", false)
+			if err != nil {
+				t.Fatalf("getBlockByNumber: %v\n%s", err, dumpCalls(nodes))
+			}
+			if !strings.Contains(string(block.Value), upper) {
+				t.Fatalf("block value = %s, want the source spelling %s", block.Value, upper)
+			}
+			if strings.Contains(string(block.Value), lower) {
+				t.Fatalf("block value was lowercased: %s", block.Value)
+			}
+		})
 	}
 }
 
@@ -453,43 +485,47 @@ func TestAnchorRequestHashStableWhenSourceOrderSwaps(t *testing.T) {
 		upper = "0Xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		lower = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
-	run := func(spellings []string) string {
-		t.Helper()
-		client, nodes := newAnchorFleet(t, transportHTTP, len(spellings))
-		for i, node := range nodes {
-			spelling := spellings[i]
-			node.setHandler(func(method string, args []any) (any, error) {
-				switch method {
-				case "eth_getBlockByNumber":
-					return map[string]any{"number": "0x10", "hash": spelling}, nil
-				case "eth_getBalance":
-					return "0x64", nil
-				default:
-					return nil, errScriptPass
+	for _, channel := range []anchorChannel{channelNative, channelCompat} {
+		t.Run(string(channel), func(t *testing.T) {
+			run := func(spellings []string) string {
+				t.Helper()
+				client, nodes := newAnchorFleetOn(t, transportHTTP, len(spellings), channel)
+				for i, node := range nodes {
+					spelling := spellings[i]
+					node.setHandler(func(method string, args []any) (any, error) {
+						switch method {
+						case "eth_getBlockByNumber":
+							return map[string]any{"number": "0x10", "hash": spelling}, nil
+						case "eth_getBalance":
+							return "0x64", nil
+						default:
+							return nil, errScriptPass
+						}
+					})
 				}
-			})
-		}
-		decision, err := callMethod(context.Background(), client, methods.MethodGetBalance, "0xaddr", "latest")
-		if err != nil {
-			t.Fatalf("source spellings %v: %v", spellings, err)
-		}
-		for _, node := range nodes {
-			for _, call := range node.snapshot() {
-				if call.Method == "eth_getBalance" && len(call.Args) > 1 {
-					if hash, ok := call.Args[1].(string); ok {
-						return hash
+				decision, err := callMethod(context.Background(), client, methods.MethodGetBalance, "0xaddr", "latest")
+				if err != nil {
+					t.Fatalf("source spellings %v: %v", spellings, err)
+				}
+				for _, node := range nodes {
+					for _, call := range node.snapshot() {
+						if call.Method == "eth_getBalance" && len(call.Args) > 1 {
+							if hash, ok := call.Args[1].(string); ok {
+								return hash
+							}
+						}
 					}
 				}
+				t.Fatalf("source spellings %v: no balance request in decision %+v", spellings, decision)
+				return ""
 			}
-		}
-		t.Fatalf("source spellings %v: no balance request in decision %+v", spellings, decision)
-		return ""
-	}
-	if got := run([]string{upper, lower}); got != lower {
-		t.Fatalf("upper-first anchor request hash = %q, want %q", got, lower)
-	}
-	if got := run([]string{lower, upper}); got != lower {
-		t.Fatalf("lower-first anchor request hash = %q, want %q", got, lower)
+			if got := run([]string{upper, lower}); got != lower {
+				t.Fatalf("upper-first anchor request hash = %q, want %q", got, lower)
+			}
+			if got := run([]string{lower, upper}); got != lower {
+				t.Fatalf("lower-first anchor request hash = %q, want %q", got, lower)
+			}
+		})
 	}
 }
 

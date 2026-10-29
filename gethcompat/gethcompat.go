@@ -5,6 +5,12 @@
 // compatibility behavior during the transition to the native-only end state —
 // it is not a second Client implementation and adds no channel-selection
 // parameter to the root facade.
+//
+// Migration note: gethcompat.New tolerates a WithHTTPAdapter(HTTPAdapterGeth)
+// in opts — the seam's own dialer wins, both in the default build and in a
+// compatibility build — so a caller can switch to this seam without dropping
+// the old option first. Do not pass the option expecting a channel to appear:
+// without this package a bare geth selection still fails construction.
 package gethcompat
 
 import (

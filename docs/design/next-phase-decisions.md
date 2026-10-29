@@ -34,6 +34,15 @@
   由 `uncertain.Capture` 结构性满足；并发安全仍由实现保证。
 - 命名硬规则（§10.2）适用于全部轨道：生产/测试文件与标识符使用业务语义命名，
   任务编号只出现在提案、分支与提交说明。
+- `refcontext` 的 `invocationKey`（_invocation 过渡载体_）：统一验收指出新增
+  context key 须按 §10.2 退回设计审阅，此处补记。归属 D7 的既有许可范围
+  （context 仅作过渡载体，阶段值显式传递是终点形态）：`aggregator` 在
+  `beginInvocation` 处使用其发布在飞 Invocation，`ReferenceStage` 的
+  anchor reader 在 `establishedForTag` 处消费它。移除条件（记录在此，防止
+  过渡态固化）：当 anchor reader 与建立阶段不再从他处隐式取值——即
+  `aggregator` 的 Prepare–Establish 管线把 invocation/basis/需求全部以显式
+  参数敏感传递、`establishedForTag` 改读显式阶段值时，删除该 key 与
+  `members/corroboration/forwarded` 等过渡键的迁移一并执行。
 
 ## 3. 修订记录
 

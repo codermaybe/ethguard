@@ -52,7 +52,9 @@ const (
 )
 
 // WithHTTPAdapter selects the connection adapter for this Client. An empty
-// name keeps the default Geth adapter; an unknown name fails construction.
+// name keeps the strategic native default; only the native and geth names are
+// known, and a bare geth selection fails construction with the seam pointer
+// above.
 func WithHTTPAdapter(a HTTPAdapter) Option {
 	return func(o *clientOptions) { o.httpAdapter = a }
 }

@@ -5,6 +5,17 @@
 本文是决策 0060 的执行设计。它只处理 pool 如何连接和发起一次 RPC 请求，
 不重新定义方法 policy、quorum、Decision、reference、typed projection 或写路径。
 
+> 实施状态（2026-10-29，pool 去 alias 后）：下文引用的 `standardDialer`
+> 别名已删除。`pool` 持有 `transport.Dialer` 端口；默认装配是 native
+> adapter，Geth compatibility adapter 经 `gethcompat` 显式 seam 进入。
+> 分片文本保留为迁移记录，不再描述当前生产形态。
+>
+> 对直接使用 `pool` 的调用方：`pool.NewPool` 不再默认安装任何拨号器——
+> 未传 `WithDialer` 的 pool 在拨号时对所有源 fail closed（
+> "no connection adapter configured"）。默认安装拨号器的是 root
+> facade（native）与 `gethcompat`；直接 new `pool.Pool` 的迁移调用方必须
+> 显式选择拨号器，两者都是公共构造入口。
+
 ## 1. 当前事实
 
 当前调用链为：
