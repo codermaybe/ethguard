@@ -132,3 +132,21 @@ func TestInvocationIDGenerationIsUnique(t *testing.T) {
 		seen[id] = struct{}{}
 	}
 }
+
+// Basis hands out a private copy: mutating the returned members must never
+// reach the invocation's internal slice — the accessor closes the S0
+// immutability contract that FreezeBasis alone does not.
+func TestInvocationBasisAccessorDoesNotShareMembers(t *testing.T) {
+	in := NewInvocation(NewInvocationID(), FreezeBasis([]SourceRef{{ID: "a"}, {ID: "b"}},
+		Corroboration{Mode: CorroborationMajority, Floor: 2}))
+	basis := in.Basis()
+	basis.Members[0] = SourceRef{ID: "mutated"}
+	basis.Members[1].Name = "mutated"
+	again := in.Basis()
+	if again.Members[0].ID != "a" || again.Members[1].Name != "" {
+		t.Fatalf("Basis() leaked the internal member slice: %+v", again.Members)
+	}
+	if got := again.Size(); got != 2 {
+		t.Fatalf("basis size = %d, want 2", got)
+	}
+}

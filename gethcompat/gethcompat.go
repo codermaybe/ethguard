@@ -24,3 +24,9 @@ func Dialer() transport.Dialer { return gethadapter.StandardDialer{} }
 func New(cfg config.Config, opts ...ethguard.Option) (*ethguard.Client, error) {
 	return ethguard.New(cfg, append(opts, ethguard.DialerOption(Dialer()))...)
 }
+
+// Compose note: gethcompat.New tolerates a WithHTTPAdapter(HTTPAdapterGeth)
+// option in opts — the explicitly injected dialer wins, so migrating callers
+// can keep the old option while switching to this seam. A bare
+// WithHTTPAdapter(HTTPAdapterGeth) without this package still fails
+// construction by design.

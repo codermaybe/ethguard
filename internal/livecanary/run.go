@@ -1,6 +1,8 @@
 package livecanary
 
 import (
+	"github.com/codermaybe/ethguard/gethcompat"
+
 	"bytes"
 	"context"
 	"encoding/json"
@@ -178,9 +180,17 @@ func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 	opts := []ethguard.Option{
 		ethguard.WithCollectTimeout(time.Duration(manifest.Timeouts.StepMS) * time.Millisecond),
 		ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(manifest.Reference.MaxLagBlocks)),
+		ethguard.WithHTTPAdapter(ethguard.HTTPAdapter(selectedAdapter)),
 	}
-	opts = append(opts, ethguard.WithHTTPAdapter(ethguard.HTTPAdapter(selectedAdapter)))
-	client, err := ethguard.New(cfg, opts...)
+	// The compatibility channel is reachable only through the explicit seam:
+	// the root constructor refuses a bare geth selection, so the geth choice
+	// builds through gethcompat, which links and installs the adapter.
+	var client *ethguard.Client
+	if selectedAdapter == HTTPAdapterGeth {
+		client, err = gethcompat.New(cfg, opts...)
+	} else {
+		client, err = ethguard.New(cfg, opts...)
+	}
 	if err != nil {
 		return nil, err
 	}

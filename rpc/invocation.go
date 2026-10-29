@@ -89,9 +89,13 @@ func NewInvocation(id InvocationID, basis Basis, opts ...InvocationOption) Invoc
 // ID reports the invocation identifier shared by every stage of this call.
 func (in Invocation) ID() InvocationID { return in.id }
 
-// Basis reports the frozen voting basis. The basis is immutable; its member
-// slice is the invocation's own copy.
-func (in Invocation) Basis() Basis { return in.basis }
+// Basis reports the frozen voting basis as a private copy: the slices are
+// cloned on the way out, so a caller mutating the returned value can never
+// rewrite the invocation's internal members. The basis itself is immutable
+// after FreezeBasis; the exported Members field is read-only by contract,
+// and this accessor is what guarantees the invocation's own copy stays that
+// way.
+func (in Invocation) Basis() Basis { return in.basis.Clone() }
 
 // RequireCorroboration reports whether the call boundary requires a
 // corroborated result (named to avoid confusion with a generic agreement

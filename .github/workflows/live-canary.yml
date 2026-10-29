@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       http_adapter:
-        description: 'Connection adapter for the run: geth (default) or native (verification only until the default switch is approved)'
+        description: 'Connection adapter for the run: geth (default, built through gethcompat) or native (strategic default adapter)'
         required: false
         default: 'geth'
         type: string

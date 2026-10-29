@@ -14,8 +14,9 @@ import (
 
 // TestExecutorHTTPAdapterThreadsIntoClient locks that the executor's adapter
 // selection reaches the built client: the same mismatched-id response is
-// accepted by the default Geth adapter and rejected when the executor selects
-// the native adapter.
+// rejected by the native default adapter and would be accepted by the
+// compatibility adapter (the audited baseline quirk), which the executor
+// reaches through the gethcompat seam.
 func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -68,4 +69,38 @@ func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 			t.Fatalf("emission err = %v, want rpcwire.ErrIDMismatch", emissions[0].Err)
 		}
 	})
+}
+
+// The geth selection builds through the compatibility seam: the root
+// constructor refuses a bare geth adapter, so the executor's geth choice
+// must compose the seam's dialer with the adapter option and stay usable.
+func TestExecutorGethSelectionBuildsThroughCompatibilitySeam(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"jsonrpc":"2.0","id":999,"result":"0x2a"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	manifest := Manifest{
+		ChainID: 0,
+		Selection: &Selection{
+			Selected: []SelectedMember{{SourceID: "probe", URL: srv.URL}},
+		},
+		Reference:   Reference{MaxLagBlocks: 8},
+		Timeouts:    Timeouts{StepMS: 2000},
+		HTTPAdapter: HTTPAdapterGeth,
+	}
+	e := Executor{}
+	client, err := e.clientFor(manifest)
+	if err != nil {
+		t.Fatalf("geth selection via seam: %v", err)
+	}
+	t.Cleanup(client.Close)
+	emissions, err := client.Pool().Collect(context.Background(), "eth_chainId", nil, pool.CollectOptions{})
+	if err != nil {
+		t.Fatalf("Collect err = %v, want the compatibility adapter's usable answer", err)
+	}
+	if len(emissions) != 1 || string(emissions[0].Val) != `"0x2a"` {
+		t.Fatalf("emissions = %+v, want the baseline usable answer", emissions)
+	}
 }

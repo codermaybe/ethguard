@@ -39,10 +39,11 @@ type Client struct {
 // HTTPAdapter names the connection adapter a Client's pool dials upstreams
 // with. HTTPAdapterNative selects the project-owned HTTP adapter and is the
 // strategic default; HTTPAdapterGeth names the go-ethereum compatibility
-// adapter, which the default build does not link — selecting it fails
+// adapter, which the default build does not link — a bare selection fails
 // construction with a pointer to ethguard/gethcompat, the explicit
-// construction entry for that channel. The selection entry is retained for
-// one migration cycle as this diagnostic.
+// construction entry for that channel (gethcompat composes this option with
+// its own dialer). The selection entry is retained for one migration cycle
+// as this diagnostic.
 type HTTPAdapter string
 
 const (
@@ -232,10 +233,13 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		}
 	case HTTPAdapterGeth:
 		// The go-ethereum compatibility adapter is not linked into the
-		// default build; construct through ethguard/gethcompat, which
-		// installs it explicitly. The option itself is retained for one
+		// default build. With an explicitly injected dialer (the seam's own
+		// DialerOption), the selection composes; a bare selection fails with
+		// a pointer to ethguard/gethcompat. The option is retained for one
 		// migration cycle as this diagnostic.
-		return nil, fmt.Errorf("ethguard: the %q adapter is not linked into the default build; construct through ethguard/gethcompat", HTTPAdapterGeth)
+		if !co.explicitDialer {
+			return nil, fmt.Errorf("ethguard: the %q adapter is not linked into the default build; construct through ethguard/gethcompat", HTTPAdapterGeth)
+		}
 	default:
 		return nil, fmt.Errorf("ethguard: unknown HTTP adapter %q (want %q or %q)",
 			co.httpAdapter, HTTPAdapterGeth, HTTPAdapterNative)
