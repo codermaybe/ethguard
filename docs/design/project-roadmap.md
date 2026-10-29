@@ -76,6 +76,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | WSS transport | 评估排在方法对接和 connection seam 之后 | 契约、最小 Adapter、四态进程内验收后再议 golden | 不先改 quorum、policy、typed 或写路径 |
 | T11 自适应拥塞控制 | 决策方向已接受，算法待设计 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
 | reference freshness | 0032/0033 已接受边界，余量和对齐待专门决策 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
+| reference raw capture | strict malformed 与 finalized 轮次记录不完整 | 两个独立切片修复并补回归 | 不改裁决、阈值、成员或 reference 语义 |
 | provider compatibility evidence | 按方法逐步补齐 | capture/replay/live 状态登记并保持证据等级 | 不用合成样本冒充 provider 兼容性 |
 | 外部消费者纪律 | 当前无外部消费者 | 首次发布/tag/import 后重启 API break 评估 | 依据决策 0057 |
 
@@ -213,6 +214,39 @@ method policy、typed projection、quorum 或方法数量。详细事实和候�
   逐步补齐。`eth_syncing` progress object 等缺口不能用合成样本补成 provider 结论；
 - **外部消费者纪律**：决策 0057 的“当前无外部消费者”会在首次发布、tag 或外部
   import 出现时失效，届时 API break 必须重新评估弃用窗口。
+
+## reference raw capture 缺口（后置）
+
+`WithUncertain` 的原始响应记录在 reference 建立阶段有两个已知缺口。两者都只影响
+审计与 provider 兼容性证据，不改变 Decision、quorum、frozen basis、成员或 typed
+projection，因此独立排期，不阻塞方法对接，也不随方法 adapter 顺手修改。
+
+1. **strict reference 的 malformed 结果在采集前被清空**：`internal/runtime/strict_head.go`
+   在 `jsonsafe.Validate` 失败时设置 `ErrMalformedResponse` 并同时把
+   `emissions[i].Val` 置为 nil，`ReferenceStage` 随后才在
+   `internal/runtime/reference_stage.go` 中通过 `captureEmission` 记录
+   `emission.Val`，因此 malformed 的 reference 响应只留下错误文本、没有原始字节。
+   业务读取路径的 `admitPhase` 在 admission 清空值之前采集，两类路径的证据等级
+   因此不一致，也与 README 中“malformed responses ... retained in the response
+   records when budget permits”的承诺不符。
+2. **finalized reference 的轮次完全不进入 InvocationCapture**：`ReferenceStage` 的
+   finalized 分支直接调用 `reference.Finalized` 并保持 `emissions` 为 nil，不会
+   触发 `captureEmission`；`internal/reference/finalized.go` 的 `reader.Read` 和
+   `reader.Confirm` 虽然持有 `HeadObservation.Value` 原始字节，但没有采集 seam。
+   启用 `WithFinalizedAnchoring` 时，reference 轮次在响应记录中整体缺席。
+
+修复方向（每个缺口一个可回滚切片）：
+
+- strict：在 `jsonsafe.Validate` 之前保留原始字节的独立副本，让采集读取原始值而
+  不是被清空后的值，并补 malformed 原始字节保留的回归测试；
+- finalized：在 `internal/runtime` 侧用包装的 `reference.HeadReader` 记录
+  `Read`/`Confirm` 的 observation 和 collect error，不改 `HeadReader` 签名、
+  不改 `internal/reference` 算法，补离线回归；
+- 两个切片都沿用 `internal/uncertain` 的有界采集和截断语义，不把 raw wire 放入
+  `Decision.Value`、比较键或普通 Observation。
+
+在修复完成前，对接卡片和 provider 证据登记必须把 reference 轮次的 raw capture
+标为不完整，不能据此声称 malformed reference 响应已被保留。
 
 ## 不进入当前路线图
 
