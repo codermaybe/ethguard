@@ -78,6 +78,17 @@ func TestPlanRequirementObjectFormIsTheObjectLayersJurisdiction(t *testing.T) {
 	if _, needed := plan.ReferenceRequirement(Request{Method: plan.Method, Params: []any{"0x1", "latest"}}); !needed {
 		t.Fatal("string form was not declared")
 	}
+	// An invalid object is the rewrite's local rejection: it declares no
+	// need, so a rejected read never establishes.
+	invalid := [][]any{
+		{"0x1", map[string]any{"blockHash": "0xabc", "blockNumber": "latest"}},
+		{"0x1", map[string]any{"blockNumber": "latest", "requireCanonical": "yes"}},
+	}
+	for _, params := range invalid {
+		if _, needed := plan.ReferenceRequirement(Request{Method: plan.Method, Params: params}); needed {
+			t.Fatalf("invalid object %v declared a reference", params)
+		}
+	}
 }
 
 func TestPlanRequirementFieldsDefaultMissingBoundsToLatest(t *testing.T) {

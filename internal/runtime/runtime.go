@@ -63,10 +63,29 @@ type Bundle struct {
 // the whole registered catalog, the default registry stops compiling
 // decorator chains at all.
 var plannedReads = map[string]bool{
-	methods.MethodGetBalance:       true,
-	methods.MethodGetLogs:          true,
-	methods.MethodCall:             true,
-	methods.MethodGetBlockByNumber: true,
+	methods.MethodChainID:               true,
+	methods.MethodGetBlockByHash:        true,
+	methods.MethodGetBlockByNumber:      true,
+	methods.MethodGetBalance:            true,
+	methods.MethodGetTransactionReceipt: true,
+	methods.MethodGetTransactionByHash:  true,
+	methods.MethodGetBlockReceipts:      true,
+	methods.MethodGetTransactionCount:   true,
+	methods.MethodGetStorageAt:          true,
+	methods.MethodGetCode:               true,
+	methods.MethodCall:                  true,
+	methods.MethodEstimateGas:           true,
+	methods.MethodGetLogs:               true,
+	methods.MethodFeeHistory:            true,
+	methods.MethodGasPrice:              true,
+	methods.MethodMaxPriorityFeePerGas:  true,
+	methods.MethodBlobBaseFee:           true,
+	methods.MethodBlockNumber:           true,
+	methods.MethodCreateAccessList:      true,
+	methods.MethodPeerCount:             true,
+	methods.MethodSyncing:               true,
+	methods.MethodNetVersion:            true,
+	methods.MethodListening:             true,
 }
 
 // Build assembles the method catalog, the reference stage, typed observation

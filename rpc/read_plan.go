@@ -178,15 +178,15 @@ func (p ReadPlan) ReferenceRequirement(req Request) (ReferenceRequest, bool) {
 			return ReferenceRequest{}, false
 		}
 		if obj, ok := req.Params[pos].(map[string]any); ok {
-			// The object is the object layer's jurisdiction: only a moving
-			// blockNumber needs a reference, everything else — hash pins,
-			// quantities, pending, malformed objects — is declared silent
-			// and rejected or passed through by the rewrite.
-			number, isStr := obj["blockNumber"].(string)
-			if !isStr || !IsMovingTag(number) {
+			// The object must compose before its tag can declare a need: an
+			// invalid object is the rewrite's local rejection, and a read
+			// that would reject locally never establishes. Explicit pins,
+			// quantities, pending, and earliest need no reference.
+			_, needAnchor, tag, err := ValidateEIP1898Object(req.Method, obj)
+			if err != nil || !needAnchor {
 				return ReferenceRequest{}, false
 			}
-			return ReferenceRequest{Kind: ReferenceKindForTag(number)}, true
+			return ReferenceRequest{Kind: ReferenceKindForTag(tag)}, true
 		}
 		// A string at the position belongs to the anchored layer below.
 	}
