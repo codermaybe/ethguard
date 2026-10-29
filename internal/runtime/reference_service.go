@@ -7,13 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/reference"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // anchorMethodName is the internal registry key for the strict head read. It
@@ -21,20 +19,10 @@ import (
 const anchorMethodName = "anchor"
 
 // headAnchorPolicy is the strict head policy for reference establishment: it
-// retargets the anchor request at the block-by-number wire shape, preserves
-// the winning source's spelling in the decision value (the anchor evidence
-// keeps the source's own wire form; the request path lowercases the derived
-// hash separately), and requires a corroborated result.
+// preserves the winning source's spelling in the decision value (the anchor
+// evidence keeps the source's own wire form; the request path lowercases the
+// derived hash separately), and requires a corroborated result.
 type headAnchorPolicy struct{ rpc.Policy }
-
-func (p headAnchorPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
-	prepared, err := p.Policy.Prepare(ctx, req)
-	if err != nil {
-		return rpc.Request{}, err
-	}
-	prepared.Method = methods.MethodGetBlockByNumber
-	return prepared, nil
-}
 
 func (p headAnchorPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
 	d, err := p.Policy.Resolve(obs)
@@ -105,84 +93,74 @@ type StrictHeadConfig struct {
 }
 
 // StrictHeadService establishes corroborated latest and safe references
-// through the strict head algorithm: one header fan-out over the voting
-// membership, strict clustering on the head identity, and a Corroborated
-// gate. It is the composition-root owner of the establishment aggregate.
+// through the strict head algorithm. It is the public facade's forwarding
+// target: the algorithm itself is the runtime-owned establishment engine,
+// shared with the invocation's reference stage.
 type StrictHeadService struct {
-	aggregate *aggregator.Aggregator
+	round    *StrictHeadEstablishment
+	corrob   *rpc.CorroborationShared
+	corrobOK bool
 }
 
 // NewStrictHeadService builds the default latest-head establishment service.
 func NewStrictHeadService(cfg StrictHeadConfig) *StrictHeadService {
 	return &StrictHeadService{
-		aggregate: aggregator.New(cfg.Pool, rpc.Registry{anchorMethodName: headAnchorPolicy{methods.BlockByNumberPolicy(cfg.StrictOptions...)}},
-			aggregator.WithRecorder(cfg.Recorder),
-			aggregator.WithCollectTimeout(cfg.CollectTimeout),
-			aggregator.WithCorroboration(cfg.Corroboration)),
+		round:  NewStrictHeadEstablishment(cfg.Pool, cfg.Recorder, cfg.CollectTimeout, cfg.StrictOptions...),
+		corrob: cfg.Corroboration, corrobOK: cfg.Corroboration != nil,
 	}
+}
+
+// snapshot captures the service's shared adjudication configuration for one
+// round.
+func (s *StrictHeadService) snapshot() (rpc.Corroboration, bool) {
+	if !s.corrobOK {
+		return rpc.Corroboration{}, false
+	}
+	return s.corrob.Snapshot(), true
 }
 
 // Reference establishes the default moving reference (latest).
 func (s *StrictHeadService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	d, err := s.aggregate.Aggregate(ctx, rpc.Request{Method: anchorMethodName, Params: []any{"latest", false}})
-	ref := rpc.ReferenceEvidence{
-		Status:           d.Status,
-		Origin:           "strict-head",
-		ObservedAt:       time.Now(),
-		Participants:     d.Participants,
-		Support:          d.Support,
-		Reject:           d.Reject,
-		Faults:           d.Faults,
-		SourceFaults:     d.SourceFaults,
-		CollectionFaults: d.CollectionFaults,
-	}
-	if err != nil {
-		return ref, err
-	}
-	ref.Hash, ref.Height, err = blockRefFromDecision(d)
-	return ref, err
+	snap, snapOK := s.snapshot()
+	round, err := s.round.establish(ctx, nil, snap, snapOK, string(rpc.ReferenceLatest))
+	return round.reference, err
 }
 
 // ReferenceForTag establishes the reference for exactly the requested tag.
 // Each level keeps its meaning — safe is anchored at the safe reference,
 // never silently latest — and the returned evidence records the original tag.
 func (s *StrictHeadService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	if tag == "" || tag == "latest" {
+	if tag == "" || tag == string(rpc.ReferenceLatest) {
 		return s.Reference(ctx)
 	}
-	d, err := s.aggregate.Aggregate(ctx, rpc.Request{Method: anchorMethodName, Params: []any{tag, false}})
-	ref := rpc.ReferenceEvidence{
-		Tag:              tag,
-		Status:           d.Status,
-		Origin:           "tagged-head",
-		ObservedAt:       time.Now(),
-		Participants:     d.Participants,
-		Support:          d.Support,
-		Reject:           d.Reject,
-		Faults:           d.Faults,
-		SourceFaults:     d.SourceFaults,
-		CollectionFaults: d.CollectionFaults,
-	}
-	if err != nil {
-		return ref, err
-	}
-	ref.Hash, ref.Height, err = blockRefFromDecision(d)
-	return ref, err
+	snap, snapOK := s.snapshot()
+	round, err := s.round.establish(ctx, nil, snap, snapOK, tag)
+	return round.reference, err
 }
 
 // FinalizedHeadService establishes a common reference from provider-reported
-// finalized views.
+// finalized views. The strict levels still ride the strict head algorithm
+// through the shared establishment engine.
 type FinalizedHeadService struct {
 	pool    *pool.Pool
 	rec     observe.Recorder
 	maxLag  uint64
 	quorum  int
 	timeout time.Duration
+	strict  *StrictHeadEstablishment
 }
 
 // NewFinalizedHeadService builds the common finalized-reference service.
 func NewFinalizedHeadService(p *pool.Pool, rec observe.Recorder, maxLag uint64, quorum int, timeout time.Duration) *FinalizedHeadService {
-	return &FinalizedHeadService{pool: p, rec: rec, maxLag: maxLag, quorum: quorum, timeout: timeout}
+	return &FinalizedHeadService{
+		pool:   p,
+		rec:    rec,
+		maxLag: maxLag,
+		quorum: quorum,
+		// The finalized preset defaults to the majority floor until the
+		// client re-tunes the resolver with its own corroboration snapshot.
+		strict: NewStrictHeadEstablishment(p, rec, timeout),
+	}
 }
 
 // Reference establishes the finalized reference under the invocation's
@@ -216,25 +194,13 @@ func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) 
 		} else if floor < 1 {
 			floor = 2
 		}
-		shared, err := rpc.NewCorroborationShared(mode, floor)
-		if err != nil {
+		// The same validation the shared snapshot goes through: an invalid
+		// mode or floor fails before any request.
+		if _, err := rpc.NewCorroborationShared(mode, floor); err != nil {
 			return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, err
 		}
-		var opts []rpc.StrictOption
-		if floor > 0 {
-			opts = append(opts, rpc.WithQuorum(floor))
-		}
-		if mode == rpc.CorroborationUnanimity {
-			opts = append(opts, rpc.WithUnanimity())
-		}
-		strict := NewStrictHeadService(StrictHeadConfig{
-			Pool:           s.pool,
-			Recorder:       s.rec,
-			CollectTimeout: s.timeout,
-			Corroboration:  shared,
-			StrictOptions:  opts,
-		})
-		return strict.ReferenceForTag(ctx, tag)
+		round, err := s.strict.establish(ctx, nil, rpc.Corroboration{Mode: mode, Floor: floor}, true, tag)
+		return round.reference, err
 	}
 	if tag == "finalized" || tag == "" {
 		ref, err := s.Reference(ctx)

@@ -2,20 +2,16 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
-	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/reference"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // ReferenceStageConfig carries the establishment configuration shared by one
@@ -29,25 +25,42 @@ type ReferenceStageConfig struct {
 	// finalized tag. The default (false) establishes every tag through the
 	// strict head algorithm, which is the strict-anchor client's behavior.
 	FinalizedStrategy bool
+	// StrictOptions carry the strict head policy options the community's
+	// establishment share with the facade's resolver service: identical
+	// options at both call sites, so the two paths cannot diverge on the
+	// comparison domain.
+	StrictOptions []rpc.StrictOption
 }
 
 // ReferenceStage implements the aggregator-owned establishment seam over the
 // two establishment algorithms. One stage is constructed per client; each
 // establishment runs on the invoking invocation's frozen basis, so the
 // reference rounds and the business round share members, thresholds, and
-// error assembly. Establishment failure returns the invocation unchanged:
-// the business fan-out never starts without its reference.
+// error assembly — the same assembly the facade's resolver service runs,
+// because both drive one StrictHeadEstablishment. Establishment failure
+// returns the invocation unchanged: the business fan-out never starts
+// without its reference.
 type ReferenceStage struct {
-	pool      *pool.Pool
-	maxLag    uint64
-	timeout   time.Duration
-	rec       observe.Recorder
+	pool    *pool.Pool
+	maxLag  uint64
+	timeout time.Duration
+	rec     observe.Recorder
+	// finalized selects the candidate algorithm for the finalized tag.
 	finalized bool
+	// strict is the round the strict levels drive.
+	strict *StrictHeadEstablishment
 }
 
 // NewReferenceStage builds the client's establishment stage.
 func NewReferenceStage(cfg ReferenceStageConfig) *ReferenceStage {
-	return &ReferenceStage{pool: cfg.Pool, maxLag: cfg.MaxLag, timeout: cfg.Timeout, rec: cfg.Recorder, finalized: cfg.FinalizedStrategy}
+	return &ReferenceStage{
+		pool:      cfg.Pool,
+		maxLag:    cfg.MaxLag,
+		timeout:   cfg.Timeout,
+		rec:       cfg.Recorder,
+		finalized: cfg.FinalizedStrategy,
+		strict:    NewStrictHeadEstablishment(cfg.Pool, cfg.Recorder, cfg.Timeout, cfg.StrictOptions...),
+	}
 }
 
 var _ aggregator.ReferenceStage = (*ReferenceStage)(nil)
@@ -58,12 +71,17 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocatio
 	if !request.IsValid() {
 		return invocation, fmt.Errorf("reference: unknown reference kind %q: %w", request.Kind, rpc.ErrInvalidRequest)
 	}
-	reader, err := PoolHeadReaderForBasis(s.pool, invocation.Basis())
+	// The reference rounds address exactly the invocation's frozen basis. A
+	// member removed from the pool since the basis froze stays resolvable as
+	// a closed source and fails closed inside the round.
+	members, err := s.basisSources(invocation.Basis())
 	if err != nil {
 		return invocation, err
 	}
 	var (
-		ref rpc.ReferenceEvidence
+		ref        rpc.ReferenceEvidence
+		emissions  []pool.Emission
+		collectErr error
 	)
 	// The finalized strategy pins the default reference (latest) at the
 	// finalized level too — that is the conservative preset's whole point.
@@ -73,25 +91,73 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocatio
 		// The finalized establishment keeps the snapshot's floor and mode,
 		// exactly as the facade path does.
 		snapshot := invocation.Basis().Corroboration
-		ref, err = reference.Finalized(ctx, reader, MethodHeadCodec{}, s.maxLag, snapshot.Floor, snapshot.Mode, s.timeout, s.rec)
+		ref, err = reference.Finalized(ctx, NewPoolHeadReader(s.pool, members), MethodHeadCodec{}, s.maxLag, snapshot.Floor, snapshot.Mode, s.timeout, s.rec)
 	case request.Kind == rpc.ReferenceLatest || request.Kind == rpc.ReferenceSafe || request.Kind == rpc.ReferenceFinalized:
-		ref, err = s.establishStrict(ctx, invocation, string(request.Kind))
+		// The strict level rides the shared establishment engine: same
+		// members, same snapshot, same assembly as the facade's resolver
+		// service.
+		snapshot := invocation.Basis().Corroboration
+		round, roundErr := s.strict.establish(ctx, members, snapshot, true, string(request.Kind))
+		ref, emissions, err = round.reference, round.emissions, roundErr
+		collectErr = round.collectErr
 	default:
 		err = fmt.Errorf("reference: unknown reference kind %q: %w", request.Kind, rpc.ErrInvalidRequest)
 	}
+	if collectErr != nil || emissions != nil {
+		// The raw responses of the round stay on the invocation's own trail,
+		// exactly the records the pipeline's collect phase would keep.
+		captureEmission(invocation, emissions, collectErr)
+	}
+	// The evidence records the requested tag: latest rides as the default
+	// reference with no tag, every other level names itself.
+	ref.Tag = taggedOriginTag(string(request.Kind))
 	if err != nil {
 		// A failed establishment keeps its evidence visible to the decision:
 		// the business fan-out never starts, and the recorded faults stay on
 		// the reference the caller sees. The evidence records the requested
 		// tag; the caller's wrapper owns the "anchor:" prefix.
-		ref.Tag = taggedOriginTag(string(request.Kind))
 		refcontext.Publish(ctx, ref)
 		return invocation, err
 	}
-	// The evidence records the requested tag: latest rides as the default
-	// reference with no tag, every other level names itself.
-	ref.Tag = taggedOriginTag(string(request.Kind))
+	// The evidence rides the invocation: the business read resolves against
+	// the established reference on the same basis.
 	return invocation.WithReference(ref)
+}
+
+// basisSources resolves the invocation's frozen basis against the pool, so
+// every round addresses exactly the voting basis and nothing else. Unknown
+// members fail before any network round starts.
+func (s *ReferenceStage) basisSources(basis rpc.Basis) ([]*pool.Source, error) {
+	members := make([]*pool.Source, 0, basis.Size())
+	for _, member := range basis.Members {
+		source, ok := s.pool.SourceByID(member.ID)
+		if !ok {
+			return nil, fmt.Errorf("reference: voting member %q is not registered: %w", member.ID, rpc.ErrInvalidRequest)
+		}
+		members = append(members, source)
+	}
+	return members, nil
+}
+
+// captureEmission records the round's raw responses and the collection error
+// into the invocation's own raw-data collector, so a stage inside a business
+// invocation keeps the same raw trail the pipeline's collect phase keeps.
+func captureEmission(invocation rpc.Invocation, emissions []pool.Emission, collectErr error) {
+	capture := invocation.Capture()
+	if capture == nil {
+		return
+	}
+	for _, emission := range emissions {
+		errText := ""
+		if emission.Err != nil {
+			errText = emission.Err.Error()
+		}
+		value := emission.Val
+		capture.Record("response", anchorMethodName, aggregator.SourceRefOf(emission.Src), value, errText)
+	}
+	if collectErr != nil {
+		capture.Record("collect", anchorMethodName, rpc.SourceRef{}, nil, collectErr.Error())
+	}
 }
 
 // AnchorHashReader returns the consumption-only hash reader method policies
@@ -164,251 +230,4 @@ func referenceMatchesTag(ref rpc.ReferenceEvidence, tag string) bool {
 		return ref.Tag == "" || strings.EqualFold(ref.Tag, string(rpc.ReferenceLatest))
 	}
 	return strings.EqualFold(ref.Tag, string(kind))
-}
-
-// establishStrict runs the strict head algorithm on the invocation's frozen
-// basis: one voting fan-out, strict clustering on the head identity under the
-// invocation's corroboration snapshot, and the Corroborated gate. It assembles
-// the same evidence shape the facade establishment produces.
-func (s *ReferenceStage) establishStrict(ctx context.Context, invocation rpc.Invocation, tag string) (rpc.ReferenceEvidence, error) {
-	started := time.Now()
-	ref := rpc.ReferenceEvidence{Tag: taggedOriginTag(tag), Origin: strictOrigin(tag), ObservedAt: started, Status: rpc.Unknown}
-	snapshot := invocation.Basis().Corroboration
-	members := make([]*pool.Source, 0, invocation.Basis().Size())
-	for _, member := range invocation.Basis().Members {
-		source, ok := s.pool.SourceByID(member.ID)
-		if !ok {
-			return ref, fmt.Errorf("reference: voting member %q is not registered: %w", member.ID, rpc.ErrInvalidRequest)
-		}
-		members = append(members, source)
-	}
-	emissions, collectErr := s.pool.CollectVoting(ctx, methods.MethodGetBlockByNumber, []any{tag, false}, pool.CollectOptions{Timeout: s.timeout, Sources: members})
-	capture := invocation.Capture()
-	if capture != nil {
-		for _, emission := range emissions {
-			errText := ""
-			if emission.Err != nil {
-				errText = emission.Err.Error()
-			}
-			capture.Record("response", anchorMethodName, sourceRefOf(emission.Src), emission.Val, errText)
-		}
-		if collectErr != nil {
-			capture.Record("collect", anchorMethodName, rpc.SourceRef{}, nil, collectErr.Error())
-		}
-	}
-	if collectErr != nil {
-		err := fmt.Errorf("collect: %w", collectErr)
-		ref.Faults = append(ref.Faults, err)
-		ref.CollectionFaults = append(ref.CollectionFaults, err)
-	}
-	for i := range emissions {
-		if emissions[i].Err != nil || emissions[i].Val == nil {
-			continue
-		}
-		if err := jsonsafe.Validate(emissions[i].Val); err != nil {
-			emissions[i].Err = fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-			emissions[i].Val = nil
-		}
-	}
-	observations := make([]rpc.Observation, len(emissions))
-	for i, emission := range emissions {
-		observations[i] = rpc.Observation{
-			Source: sourceRefOf(emission.Src),
-			Value:  emission.Val,
-			Err:    emission.Err,
-		}
-		ref.Participants = append(ref.Participants, observations[i].Source)
-	}
-	var opts []rpc.StrictOption
-	if snapshot.Floor > 0 {
-		opts = append(opts, rpc.WithQuorum(snapshot.Floor))
-	}
-	if snapshot.Mode == rpc.CorroborationUnanimity {
-		opts = append(opts, rpc.WithUnanimity())
-	}
-	// A terminal collection failure with nothing usable returns the pool's
-	// own sentinel instead of a resolver's empty-input error.
-	if collectErr != nil && !hasUsableHeadEmission(emissions) {
-		s.recordStageEvent(started, ref, emissions, nil, collectErr)
-		return ref, collectErr
-	}
-	strict := rpc.Strict(MethodHeadCodec{}.Normalize, opts...)
-	outcome, resolveErr := strict.(rpc.CorroboratingOutcomeResolver).ResolveOutcomeCorroborated(snapshot, observations)
-	decision := outcome.Decision
-	ref.Support = decision.Support
-	supported := make(map[string]bool, len(ref.Support))
-	for _, source := range ref.Support {
-		supported[source.ID] = true
-	}
-	for _, source := range ref.Participants {
-		if !supported[source.ID] {
-			ref.Reject = append(ref.Reject, source)
-		}
-	}
-	// Fault assembly mirrors the aggregate-owned establishment: the
-	// resolution's per-source statement classifies attempted sources when it
-	// is available, and the resolver's own fault list plus the per-source
-	// response faults carry the rest.
-	if verdicts := finalizeStageVerdicts(outcome.Verdicts, emissions); verdicts != nil {
-		attempted := make(map[string]bool, len(emissions))
-		for _, emission := range emissions {
-			if emission.Src != nil {
-				attempted[emission.Src.ID()] = emission.Attempted
-			}
-		}
-		for _, verdict := range verdicts {
-			if verdict.Kind != rpc.VerdictUnusable {
-				continue
-			}
-			ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: verdict.Source, Err: verdict.Err})
-			if attempted[verdict.Source.ID] && verdict.Err != nil {
-				ref.Faults = append(ref.Faults, fmt.Errorf("source %q: %w", verdict.Source.Name, verdict.Err))
-			}
-		}
-	} else {
-		ref.Faults = append(ref.Faults, decision.Faults...)
-		for _, emission := range emissions {
-			if !emission.Attempted || emission.Err == nil {
-				continue
-			}
-			source := sourceRefOf(emission.Src)
-			ref.Faults = append(ref.Faults, fmt.Errorf("source %q: %w", source.Name, emission.Err))
-			ref.SourceFaults = append(ref.SourceFaults, rpc.SourceFault{Source: source, Err: emission.Err})
-		}
-	}
-	if resolveErr == nil && decision.Status != rpc.Corroborated {
-		resolveErr = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrConflict)
-	}
-	if resolveErr != nil {
-		s.recordStageEvent(started, ref, emissions, verdictsForEvent(outcome.Verdicts, emissions), resolveErr)
-		return ref, resolveErr
-	}
-	// Preserve the winning source's wire spelling in the evidence value, the
-	// same contract the facade establishment keeps.
-	if decision.Representative.ID != "" {
-		for _, item := range observations {
-			if item.Source.ID == decision.Representative.ID {
-				decision.Value = append(json.RawMessage(nil), item.Value...)
-				break
-			}
-		}
-	}
-	hash, height, err := blockRefFromDecision(decision)
-	if err != nil {
-		s.recordStageEvent(started, ref, emissions, verdictsForEvent(outcome.Verdicts, emissions), err)
-		return ref, err
-	}
-	ref.Hash, ref.Height, ref.Status = hash, height, rpc.Corroborated
-	s.recordStageEvent(started, ref, emissions, verdictsForEvent(outcome.Verdicts, emissions), nil)
-	return ref, nil
-}
-
-// taggedOriginTag keeps the establishment evidence's tag contract: latest
-// rides as the default reference and records no tag.
-func taggedOriginTag(tag string) string {
-	if tag == string(rpc.ReferenceLatest) {
-		return ""
-	}
-	return tag
-}
-
-// strictOrigin names the establishment path the way the facade evidence does.
-func strictOrigin(tag string) string {
-	if tag == string(rpc.ReferenceLatest) {
-		return "strict-head"
-	}
-	return "tagged-head"
-}
-
-// finalizeStageVerdicts reclassifies members the fan-out never attempted as
-// absent, so gate-paused members stay availability faults.
-func finalizeStageVerdicts(verdicts []rpc.SourceVerdict, emissions []pool.Emission) []rpc.SourceVerdict {
-	if verdicts == nil {
-		return nil
-	}
-	unattempted := make(map[string]struct{}, len(emissions))
-	for _, emission := range emissions {
-		if !emission.Attempted && emission.Src != nil {
-			unattempted[emission.Src.ID()] = struct{}{}
-		}
-	}
-	out := make([]rpc.SourceVerdict, len(verdicts))
-	copy(out, verdicts)
-	for i, verdict := range out {
-		if _, skipped := unattempted[verdict.Source.ID]; skipped && verdict.Kind == rpc.VerdictUnusable {
-			out[i].Kind = rpc.VerdictAbsent
-		}
-	}
-	return out
-}
-
-// sourceRefOf copies a pool source's identity for observation records; a nil
-// source (an unattempted emission) yields the zero reference.
-func sourceRefOf(src *pool.Source) rpc.SourceRef {
-	if src == nil {
-		return rpc.SourceRef{}
-	}
-	return rpc.SourceRef{Name: src.Name(), URL: src.URL(), ID: src.ID()}
-}
-
-// hasUsableHeadEmission reports whether any emission delivered a value.
-func hasUsableHeadEmission(emissions []pool.Emission) bool {
-	for _, emission := range emissions {
-		if emission.Val != nil {
-			return true
-		}
-	}
-	return false
-}
-
-// verdictsForEvent reclassifies unattempted members for the observability
-// event, mirroring the coordinator's absent marking.
-func verdictsForEvent(verdicts []rpc.SourceVerdict, emissions []pool.Emission) []rpc.SourceVerdict {
-	return finalizeStageVerdicts(verdicts, emissions)
-}
-
-// recordStageEvent folds one establishment round into exactly one
-// observability event under the anchor method label, matching the event the
-// establishment aggregate used to emit.
-func (s *ReferenceStage) recordStageEvent(started time.Time, ref rpc.ReferenceEvidence, emissions []pool.Emission, verdicts []rpc.SourceVerdict, resolveErr error) {
-	if s.rec == nil || s.rec == observe.Nop {
-		return
-	}
-	classifier := func(emission pool.Emission) bool {
-		if verdicts == nil {
-			return emission.Err == nil && emission.Val != nil
-		}
-		for _, verdict := range verdicts {
-			if emission.Src != nil && verdict.Source.ID == emission.Src.ID() {
-				return verdict.Kind == rpc.VerdictSupported || verdict.Kind == rpc.VerdictDissented
-			}
-		}
-		return false
-	}
-	event := observe.DecisionEvent{
-		Method:   anchorMethodName,
-		Duration: time.Since(started),
-		Faults:   len(ref.Faults),
-	}
-	if resolveErr != nil {
-		event.Status = "failed"
-		event.Conflict = errors.Is(resolveErr, rpc.ErrConflict)
-	} else {
-		event.Status = ref.Status.String()
-	}
-	for _, emission := range emissions {
-		if !emission.Attempted {
-			continue
-		}
-		source := "unknown"
-		if emission.Src != nil {
-			source = emission.Src.Name()
-		}
-		event.Attempts = append(event.Attempts, observe.SourceEvent{
-			Source: source,
-			RTT:    emission.RTT,
-			Failed: !classifier(emission),
-		})
-	}
-	s.rec.RecordDecision(event)
 }

@@ -67,6 +67,7 @@ func Build(in Inputs) (*Bundle, error) {
 		Recorder:          in.Recorder,
 		FinalizedStrategy: in.Anchoring != nil && in.Anchoring.Finalized,
 		MaxLag:            anchoringMaxLag(in.Anchoring),
+		StrictOptions:     in.StrictOptions,
 	})
 	anchorHash := stage.AnchorHashReader()
 	anchorHeight := stage.AnchorHeightReader()

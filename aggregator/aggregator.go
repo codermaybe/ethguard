@@ -236,15 +236,6 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	return a.projectPhase(state, started, req, decision, resolveErr)
 }
 
-// sourceRefOf copies a pool source's identity for observation records; a
-// nil source (an unattempted emission) yields the zero reference.
-func sourceRefOf(src *pool.Source) rpc.SourceRef {
-	if src == nil {
-		return rpc.SourceRef{}
-	}
-	return rpc.SourceRef{Name: src.Name(), URL: src.URL(), ID: src.ID()}
-}
-
 // unknownDecision builds the shared shape of the two degraded early-return
 // decisions — everything the invocation knows without a resolved value. Each
 // caller attaches its phase-specific fault lists after it.
@@ -403,7 +394,7 @@ func usableAnswer(policy rpc.Policy, emission pool.Emission) bool {
 		_, err := policy.Normalize(emission.Val)
 		return err == nil
 	}
-	structured := observationRPCError(emission.Err)
+	structured := ObservationRPCError(emission.Err)
 	if structured == nil {
 		return false
 	}
@@ -462,7 +453,7 @@ func structuredSourceFaults(policy rpc.Policy, emissions []pool.Emission, verdic
 			continue
 		}
 		faults = append(faults, rpc.SourceFault{
-			Source: sourceRefOf(emission.Src),
+			Source: SourceRefOf(emission.Src),
 			Err:    emission.Err,
 		})
 	}
@@ -475,7 +466,7 @@ func structuredSourceFaults(policy rpc.Policy, emissions []pool.Emission, verdic
 // rpc.ErrorDataPresence; every other Adapter falls back to the decoded
 // rpc.DataError value, where an absent field and a JSON null are
 // indistinguishable and stay unknown presence.
-func observationRPCError(err error) *rpc.RPCError {
+func ObservationRPCError(err error) *rpc.RPCError {
 	if err == nil {
 		return nil
 	}

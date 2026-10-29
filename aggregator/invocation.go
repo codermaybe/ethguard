@@ -83,7 +83,7 @@ func (a uncertainCaptureAdapter) Record(stage, method string, source rpc.SourceR
 func beginInvocation(ctx context.Context, snap rpc.Corroboration, snapOK bool, members []*pool.Source, capture *uncertain.Capture) (context.Context, rpc.Invocation) {
 	refs := make([]rpc.SourceRef, 0, len(members))
 	for _, member := range members {
-		refs = append(refs, sourceRefOf(member))
+		refs = append(refs, SourceRefOf(member))
 	}
 	opts := []rpc.InvocationOption{rpc.WithInvocationCapture(uncertainCaptureAdapter{capture: capture})}
 	if refcontext.CorroborationRequired(ctx) {
@@ -213,7 +213,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 	// admission and resolver outcomes are recorded as separate stages below.
 	if c := uncertain.FromContext(state.ctx); c != nil {
 		for _, emission := range state.emissions {
-			source := sourceRefOf(emission.Src)
+			source := SourceRefOf(emission.Src)
 			errText := ""
 			if emission.Err != nil {
 				errText = emission.Err.Error()
@@ -248,7 +248,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 			evidence, admissionErr := admission.Admit(state.ctx, state.prepared, state.emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
 				raw, callErr := a.pool.CallSource(callCtx, state.emissions[i].Src, method, params)
 				if c := uncertain.FromContext(state.ctx); c != nil {
-					source := sourceRefOf(state.emissions[i].Src)
+					source := SourceRefOf(state.emissions[i].Src)
 					errText := ""
 					if callErr != nil {
 						errText = callErr.Error()
@@ -259,7 +259,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 			})
 			if admissionErr != nil {
 				if c := uncertain.FromContext(state.ctx); c != nil {
-					c.Record("admission", state.prepared.Method, sourceRefOf(state.emissions[i].Src), nil, admissionErr.Error())
+					c.Record("admission", state.prepared.Method, SourceRefOf(state.emissions[i].Src), nil, admissionErr.Error())
 				}
 				state.emissions[i].Err = fmt.Errorf("admission: %w", admissionErr)
 				state.emissions[i].Val = nil
@@ -280,10 +280,10 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	state.participants = make([]rpc.SourceRef, 0, len(state.emissions))
 	for i, emission := range state.emissions {
 		state.observations[i] = rpc.Observation{
-			Source:   sourceRefOf(emission.Src),
+			Source:   SourceRefOf(emission.Src),
 			Value:    emission.Val,
 			Err:      emission.Err,
-			RPCError: observationRPCError(emission.Err),
+			RPCError: ObservationRPCError(emission.Err),
 			Evidence: emission.Evidence,
 		}
 		state.participants = append(state.participants, state.observations[i].Source)

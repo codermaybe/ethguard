@@ -59,21 +59,38 @@ func (r *PoolHeadReader) Confirm(ctx context.Context, height uint64, sourceIDs [
 		return nil, fmt.Errorf("reference: nil head pool")
 	}
 	opts := pool.CollectOptions{Timeout: timeout, SourceIDs: sourceIDs}
+	members := make(map[string]*pool.Source, len(r.members))
+	for _, source := range r.members {
+		members[source.ID()] = source
+	}
 	if r.members != nil {
-		byID := make(map[string]*pool.Source, len(r.members))
-		for _, source := range r.members {
-			byID[source.ID()] = source
-		}
 		opts.SourceIDs = nil
 		for _, id := range sourceIDs {
-			if source := byID[id]; source != nil {
+			if source := members[id]; source != nil {
 				opts.Sources = append(opts.Sources, source)
 			}
 		}
 	}
 	emissions, err := r.pool.Collect(ctx, methods.MethodGetBlockByNumber,
 		[]any{fmt.Sprintf("0x%x", height), false}, opts)
-	return headObservations(emissions), err
+	out := headObservations(emissions)
+	// An ID the snapshot cannot resolve is never silently dropped from the
+	// confirmation denominator: it reports fail-closed, in the order it was
+	// requested, so the caller sees a member that could not answer rather
+	// than a member that vanished. The fixed-ID path keeps the pool's own
+	// resolution, which already rejects unknown identities.
+	if r.members != nil {
+		for _, id := range sourceIDs {
+			if _, known := members[id]; known {
+				continue
+			}
+			out = append(out, reference.HeadObservation{
+				Source: rpc.SourceRef{ID: id},
+				Err:    fmt.Errorf("confirm: member %q is not in the frozen voting basis: fail closed", id),
+			})
+		}
+	}
+	return out, err
 }
 
 func headObservations(emissions []pool.Emission) []reference.HeadObservation {
