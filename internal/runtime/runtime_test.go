@@ -23,8 +23,10 @@ func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
 		t.Fatalf("runtime registered %d plans and %d policies, want %d methods covered",
 			len(bundle.Plans), len(bundle.Policies), len(methods.RegisteredNames()))
 	}
-	if bundle.Plans[methods.MethodGetBalance].Resolver == nil {
-		t.Fatal("runtime omitted the eth_getBalance plan")
+	for _, method := range []string{methods.MethodGetBalance, methods.MethodGetLogs} {
+		if bundle.Plans[method].Resolver == nil {
+			t.Fatalf("runtime omitted the %s plan", method)
+		}
 	}
 	if bundle.Policies.PolicyFor(methods.MethodChainID) == nil {
 		t.Fatal("runtime omitted eth_chainId policy")

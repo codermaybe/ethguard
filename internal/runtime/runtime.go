@@ -51,6 +51,7 @@ type Inputs struct {
 type Bundle struct {
 	Policies   rpc.Registry
 	Plans      map[string]rpc.ReadPlan
+	Projectors map[string]rpc.ObservationProjector
 	Aggregator *aggregator.Aggregator
 	Stage      *ReferenceStage
 }
@@ -63,6 +64,7 @@ type Bundle struct {
 // decorator chains at all.
 var plannedReads = map[string]bool{
 	methods.MethodGetBalance: true,
+	methods.MethodGetLogs:    true,
 }
 
 // Build assembles the method catalog, the reference stage, typed observation
@@ -128,8 +130,9 @@ func Build(in Inputs) (*Bundle, error) {
 		projectors[method] = projector
 	}
 	return &Bundle{
-		Policies: policies,
-		Plans:    plans,
+		Policies:   policies,
+		Plans:      plans,
+		Projectors: projectors,
 		Aggregator: aggregator.New(in.Pool, policies,
 			aggregator.WithRecorder(in.Recorder),
 			aggregator.WithCollectTimeout(in.CollectTimeout),
