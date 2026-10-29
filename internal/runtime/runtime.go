@@ -63,9 +63,10 @@ type Bundle struct {
 // the whole registered catalog, the default registry stops compiling
 // decorator chains at all.
 var plannedReads = map[string]bool{
-	methods.MethodGetBalance: true,
-	methods.MethodGetLogs:    true,
-	methods.MethodCall:       true,
+	methods.MethodGetBalance:       true,
+	methods.MethodGetLogs:          true,
+	methods.MethodCall:             true,
+	methods.MethodGetBlockByNumber: true,
 }
 
 // Build assembles the method catalog, the reference stage, typed observation
