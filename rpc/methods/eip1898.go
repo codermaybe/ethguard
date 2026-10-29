@@ -3,7 +3,6 @@ package methods
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -90,81 +89,21 @@ func (p eip1898Policy) Prepare(ctx context.Context, req rpc.Request) (rpc.Reques
 	if err != nil {
 		return rpc.Request{}, fmt.Errorf("anchor: %w", err)
 	}
-	out := map[string]any{"blockHash": ref}
-	if pinned {
-		out["requireCanonical"] = true
-	}
+	out := rpc.EIP1898Rewrite(ref, pinned)
 	params := append([]any(nil), req.Params...)
 	params[p.pos] = out
 	return p.Policy.Prepare(ctx, rpc.Request{Method: req.Method, Params: params})
 }
 
-// validateEIP1898Object checks one EIP-1898 BlockNumberOrHash object.
+// validateEIP1898Object checks one EIP-1898 BlockNumberOrHash object. It is
+// the shared rpc implementation: the same validation serves the
+// compatibility decorator and a planned read, so the object form's contract
+// cannot drift between the two surfaces.
+//
 // It returns whether requireCanonical was set, whether the object carries a
 // moving tag that still needs anchoring, and the tag itself.
 func validateEIP1898Object(method string, obj map[string]any) (pinned, needAnchor bool, tag string, err error) {
-	invalid := func(format string, args ...any) (bool, bool, string, error) {
-		return false, false, "", fmt.Errorf("rpc: %s: %s: %w", method, fmt.Sprintf(format, args...), rpc.ErrInvalidRequest)
-	}
-	var (
-		hash, hasHash     = obj["blockHash"]
-		number, hasNumber = obj["blockNumber"]
-		canon, hasCanon   = obj["requireCanonical"]
-	)
-	for key := range obj {
-		switch key {
-		case "blockHash", "blockNumber", "requireCanonical":
-		default:
-			return invalid("unknown field %q", key)
-		}
-	}
-	if hasHash && hasNumber {
-		return invalid("mixes blockHash with blockNumber")
-	}
-	if !hasHash && !hasNumber {
-		return invalid("requires blockHash or blockNumber")
-	}
-	if hasCanon {
-		canonBool, ok := canon.(bool)
-		if !ok {
-			return invalid("requireCanonical must be a boolean")
-		}
-		pinned = canonBool
-	}
-	if hasHash {
-		hashStr, ok := hash.(string)
-		if !ok || !isBlockHash(hashStr) {
-			return invalid("blockHash must be a 32-byte hash")
-		}
-		return pinned, false, "", nil
-	}
-	numberStr, ok := number.(string)
-	if !ok {
-		return invalid("blockNumber must be a tag or hex quantity string")
-	}
-	lowered := strings.ToLower(numberStr)
-	switch lowered {
-	case "latest", "safe", "finalized":
-		return pinned, true, lowered, nil
-	case "pending", "earliest":
-		return pinned, false, "", nil
-	}
-	if _, err := rpc.ParseHexQuantity(numberStr); err != nil {
-		return invalid("blockNumber %q is not a tag or hex quantity", numberStr)
-	}
-	return pinned, false, "", nil
-}
-
-func isBlockHash(s string) bool {
-	if len(s) != 2+64 || !strings.HasPrefix(s, "0x") {
-		return false
-	}
-	for _, c := range s[2:] {
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
-			return false
-		}
-	}
-	return true
+	return rpc.ValidateEIP1898Object(method, obj)
 }
 
 // BlockRef reports the pinned hash when this request rewrote a
@@ -174,7 +113,7 @@ func (p eip1898Policy) BlockRef(original, prepared rpc.Request) string {
 	if p.pos >= 0 && p.pos < len(original.Params) && p.pos < len(prepared.Params) {
 		if originalObj, ok := original.Params[p.pos].(map[string]any); ok {
 			if preparedObj, ok := prepared.Params[p.pos].(map[string]any); ok {
-				if number, ok := originalObj["blockNumber"].(string); ok && isMovingTag(number) {
+				if number, ok := originalObj["blockNumber"].(string); ok && rpc.IsMovingTag(number) {
 					if hash, ok := preparedObj["blockHash"].(string); ok {
 						return hash
 					}
@@ -183,14 +122,6 @@ func (p eip1898Policy) BlockRef(original, prepared rpc.Request) string {
 		}
 	}
 	return p.Decorator.BlockRef(original, prepared)
-}
-
-func isMovingTag(s string) bool {
-	switch strings.ToLower(s) {
-	case "latest", "safe", "finalized":
-		return true
-	}
-	return false
 }
 
 // ReferenceFor declares the reference this request needs. An EIP-1898
@@ -203,7 +134,7 @@ func (p eip1898Policy) ReferenceFor(req rpc.Request) (rpc.ReferenceRequest, bool
 	}
 	if obj, ok := req.Params[p.pos].(map[string]any); ok {
 		number, isStr := obj["blockNumber"].(string)
-		if !isStr || !isMovingTag(number) {
+		if !isStr || !rpc.IsMovingTag(number) {
 			return rpc.ReferenceRequest{}, false
 		}
 		return rpc.ReferenceRequest{Kind: rpc.ReferenceKindForTag(number)}, true

@@ -1,9 +1,6 @@
 package methods
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/codermaybe/ethguard/rpc"
@@ -72,50 +69,11 @@ func (p pendingLocalPolicy) IsLocalObservation(prepared rpc.Request) bool {
 // ResolveLocal resolves pending observations as node-local: the first
 // source with a normalizable answer stands. Unanimous agreement stays
 // Selected — agreement over pending state is coincidence of independent
-// node views, not corroboration of a deterministic truth.
+// node views, not corroboration of a deterministic truth. The resolution is
+// the shared rpc implementation, so the compatibility decorator and a
+// planned read cannot diverge on the pending path.
 func (p pendingLocalPolicy) ResolveLocal(obs []rpc.Observation) (rpc.Decision, error) {
-	includeRPCError := false
-	if provider, ok := p.Policy.(rpc.RPCErrorPolicy); ok {
-		includeRPCError = provider.IncludeRPCError()
-	}
-	var faults []error
-	// faultSource mirrors rpc's resolver fault attribution so pending's
-	// node-local path reads identically in Decision.Faults.
-	faultSource := func(source rpc.SourceRef, cause string, err error) error {
-		id := source.ID
-		if id == "" {
-			id = source.Name
-		}
-		return fmt.Errorf("source %q: %s: %w", id, cause, err)
-	}
-	for _, item := range obs {
-		value := item.Value
-		if item.Err != nil {
-			if !includeRPCError || item.RPCError == nil {
-				continue
-			}
-			value = item.RPCError.Raw()
-		}
-		if _, err := p.Policy.Normalize(value); err != nil {
-			faults = append(faults, faultSource(item.Source, "normalize", err))
-			continue
-		}
-		if canonical, err := rpc.CanonicalOf(p.Policy, value); err == nil {
-			value = canonical
-		} else if !errors.Is(err, rpc.ErrNotCanonicalScalar) {
-			faults = append(faults, faultSource(item.Source, "encode", err))
-			return rpc.Decision{Status: rpc.Unknown, Faults: faults}, fmt.Errorf("pending: %w", err)
-		}
-		return rpc.Decision{
-			Status:     rpc.Selected,
-			Value:      value,
-			Support:    []rpc.SourceRef{item.Source},
-			Faults:     faults,
-			Provenance: append(json.RawMessage(nil), item.Evidence...),
-		}, nil
-	}
-	return rpc.Decision{Status: rpc.Unknown, Faults: faults}, fmt.Errorf(
-		"pending: no source produced a valid response (%d attempted): %w", len(obs), rpc.ErrNoValidResponse)
+	return rpc.ResolveLocalObservation(p.Policy, obs)
 }
 
 // BlockRef reports no pin for pending: nothing was rewritten. All other

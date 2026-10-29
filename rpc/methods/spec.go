@@ -7,46 +7,44 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// ResolverKind names the resolver a compiled method assembles. The kind —
-// not the number of decorators around it — decides every capability the
-// composed policy exposes: only strict and call-revert corroborate, only
-// median and local sample without clustering, and wrapping a non-corroborating
-// resolver never acquires a corroboration claim.
-type ResolverKind string
+// ResolverKind names the resolver a compiled method assembles. It is the
+// plan-level resolver class in rpc: the kind — not the number of decorators
+// around it — decides every capability the composed policy exposes: only
+// strict and call-revert corroborate, only median and local sample without
+// clustering, and wrapping a non-corroborating resolver never acquires a
+// corroboration claim.
+type ResolverKind = rpc.ResolverKind
 
 const (
-	ResolverStrict     ResolverKind = "strict"
-	ResolverMedian     ResolverKind = "median"
-	ResolverLocal      ResolverKind = "local"
-	ResolverCallRevert ResolverKind = "call-revert"
+	ResolverStrict     = rpc.ResolverStrict
+	ResolverMedian     = rpc.ResolverMedian
+	ResolverLocal      = rpc.ResolverLocal
+	ResolverCallRevert = rpc.ResolverCallRevert
 	// ResolverBlock is the strict resolver under the block wrapper: byHash
 	// identity + header-only source spelling restoration.
-	ResolverBlock ResolverKind = "block"
+	ResolverBlock = rpc.ResolverBlock
 )
 
 // PendingMode declares a method's pending handling at one position.
-type PendingMode string
+type PendingMode = rpc.PendingMode
 
 const (
-	PendingNone    PendingMode = ""
-	PendingObserve PendingMode = "local-observation"
-	PendingRefuse  PendingMode = "local-reject"
+	PendingNone    = rpc.PendingNone
+	PendingObserve = rpc.PendingObserve
+	PendingRefuse  = rpc.PendingRefuse
 )
 
 // PendingSpec is one method's pending declaration.
-type PendingSpec struct {
-	Mode PendingMode
-	Pos  int
-}
+type PendingSpec = rpc.PendingSpec
 
 // ReferenceShape names the request shape that can carry a moving tag.
-type ReferenceShape string
+type ReferenceShape = rpc.ReferenceShape
 
 const (
-	ReferenceShapeNone           ReferenceShape = ""
-	ReferenceShapeHashAt         ReferenceShape = "hash-at"
-	ReferenceShapeHeightAt       ReferenceShape = "height-at"
-	ReferenceShapeHeightFieldsAt ReferenceShape = "height-fields-at"
+	ReferenceShapeNone           = rpc.ReferenceShapeNone
+	ReferenceShapeHashAt         = rpc.ReferenceShapeHashAt
+	ReferenceShapeHeightAt       = rpc.ReferenceShapeHeightAt
+	ReferenceShapeHeightFieldsAt = rpc.ReferenceShapeHeightFieldsAt
 )
 
 // ReferenceSpec declares where a request can ride a moving tag. Declaring is
@@ -54,15 +52,7 @@ const (
 // reference stage on the invocation's frozen basis, and the anchor layers
 // rewrite from the established evidence. A zero spec means the method never
 // needs a reference. See docs/design/method-spec-reference-freeze.md.
-type ReferenceSpec struct {
-	Kind      ReferenceShape
-	Positions []int
-	ParamPos  int
-	Fields    []string
-	// EIP1898 marks the object form {blockNumber: tag} accepted at the
-	// single anchored position, rewritten to {blockHash}.
-	EIP1898 bool
-}
+type ReferenceSpec = rpc.ReferenceSpec
 
 // AdmissionFunc is the method-owned admission hook signature.
 type AdmissionFunc = func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error)
