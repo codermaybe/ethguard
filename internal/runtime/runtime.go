@@ -18,7 +18,6 @@ import (
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 // AnchoringStrategy selects the establishment strategy for moving-tag reads.
@@ -75,40 +74,21 @@ func Build(in Inputs) (*Bundle, error) {
 		MaxLag:            anchoringMaxLag(in.Anchoring),
 		StrictOptions:     in.StrictOptions,
 	})
-	// The registry is assembled from the frozen MethodSpec inventory: one
-	// explicit plan per registered method. A spec that cannot compose fails
-	// the build, and the coverage gate holds the catalog to its plans; a
-	// method without a plan cannot fall through to transparent forwarding.
+	// The registries are assembled from the frozen MethodSpec inventory: one
+	// explicit plan per registered method, and the projector binding the
+	// plans name. The coverage gate holds the catalog to its plans; a method
+	// without a plan cannot fall through to transparent forwarding.
 	policies := rpc.Registry{}
-	plans := make(map[string]rpc.ReadPlan, len(methods.Specs()))
-	for _, spec := range methods.Specs() {
-		plan, err := methods.CompilePlan(spec)
-		if err != nil {
-			return nil, fmt.Errorf("runtime: plan for %s: %w", spec.Method, err)
-		}
-		plans[spec.Method] = plan
+	plans, err := buildMethodRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("runtime: %w", err)
 	}
 	if err := methods.ValidateReadCoverage(policies, plans); err != nil {
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
-	projectors := map[string]rpc.ObservationProjector{
-		methods.MethodGetBalance: projection.ScalarStandardProjector(),
-		methods.MethodCall:       projection.ScalarStandardProjector(),
-	}
-	for _, method := range []string{
-		methods.MethodGetTransactionReceipt,
-		methods.MethodGetBlockReceipts,
-		methods.MethodGetBlockByHash,
-		methods.MethodGetBlockByNumber,
-		methods.MethodGetTransactionByHash,
-		methods.MethodGetLogs,
-		methods.MethodFeeHistory,
-	} {
-		projector, err := projection.NewSchemaProjector(method)
-		if err != nil {
-			return nil, fmt.Errorf("runtime: build %s projector: %w", method, err)
-		}
-		projectors[method] = projector
+	projectors, err := buildProjectorRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("runtime: %w", err)
 	}
 	return &Bundle{
 		Policies:   policies,
