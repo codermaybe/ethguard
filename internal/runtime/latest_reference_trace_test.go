@@ -18,6 +18,20 @@ import (
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
+func tracePool(t *testing.T, nodes []*rpctest.Node) *pool.Pool {
+	t.Helper()
+	members := make([]pool.Member, 0, len(nodes))
+	for i, node := range nodes {
+		members = append(members, pool.Member{Name: fmt.Sprintf("node-%d", i), URL: node.URL()})
+	}
+	p, err := pool.NewWithMembers(0, members, pool.WithDialer(nativehttp.NewDialer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
 // invocationRecordingPolicy records the invocation every Prepare observes, so
 // the trace fixture can prove that the reference stage and the business
 // phases share one invocation.
@@ -138,12 +152,7 @@ func TestLatestReferenceTraceSharesOneInvocation(t *testing.T) {
 			return "0xdeadbeef", nil
 		})
 	}
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-	for i, node := range nodes {
-		if _, err := p.Join(fmt.Sprintf("node-%d", i), node.URL()); err != nil {
-			t.Fatal(err)
-		}
-	}
+	p := tracePool(t, nodes)
 	aggregate, recorded, stage := traceAggregator(t, p, nil)
 	decision, err := aggregate.Aggregate(context.Background(), rpc.Request{Method: "eth_getBalance", Params: []any{"0x1", "latest"}})
 	if err != nil {
@@ -243,12 +252,7 @@ func TestFinalizedReferenceTraceConfirmsAndPins(t *testing.T) {
 			return "0xdeadbeef", nil
 		})
 	}
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-	for i, node := range nodes {
-		if _, err := p.Join(fmt.Sprintf("node-%d", i), node.URL()); err != nil {
-			t.Fatal(err)
-		}
-	}
+	p := tracePool(t, nodes)
 	aggregate, recorded, stage := traceAggregator(t, p, &AnchoringStrategy{Finalized: true, MaxLag: 32})
 	decision, err := aggregate.Aggregate(context.Background(), rpc.Request{Method: "eth_getBalance", Params: []any{"0x1", "latest"}})
 	if err != nil {
@@ -283,12 +287,7 @@ func TestReferenceFailureKeepsBusinessFanOutAtZero(t *testing.T) {
 	for _, node := range nodes {
 		node.Fail("eth_getBlockByNumber", -32000, "head unavailable")
 	}
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-	for i, node := range nodes {
-		if _, err := p.Join(fmt.Sprintf("node-%d", i), node.URL()); err != nil {
-			t.Fatal(err)
-		}
-	}
+	p := tracePool(t, nodes)
 	aggregate, recorded, stage := traceAggregator(t, p, nil)
 	decision, err := aggregate.Aggregate(context.Background(), rpc.Request{Method: "eth_getBalance", Params: []any{"0x1", "latest"}})
 	if err == nil {

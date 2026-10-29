@@ -211,17 +211,21 @@ func TestEndpointIdentityMatchesPool(t *testing.T) {
 		"https://[2001:db8::1]:443/rpc",
 		"https://example.com/rpc?b=2&a=1",
 	}
-	registry := pool.NewPool()
+	members := make([]pool.Member, 0, len(urls))
+	for i, raw := range urls {
+		members = append(members, pool.Member{Name: fmt.Sprintf("node-%02d", i), URL: raw})
+	}
+	registry, err := pool.NewWithMembers(0, members)
+	if err != nil {
+		t.Fatalf("NewWithMembers: %v", err)
+	}
 	defer registry.Close()
 	for i, raw := range urls {
 		want, err := EndpointIdentity(raw)
 		if err != nil {
 			t.Fatalf("EndpointIdentity(%q): %v", raw, err)
 		}
-		source, err := registry.Join(fmt.Sprintf("node-%02d", i), raw)
-		if err != nil {
-			t.Fatalf("pool.Join(%q): %v", raw, err)
-		}
+		source := registry.VotingMembers()[i]
 		if source.ID() != want {
 			t.Errorf("identity drift for %q: pool=%q livecanary=%q", raw, source.ID(), want)
 		}

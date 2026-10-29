@@ -36,7 +36,7 @@ type invocationState struct {
 	snapOK     bool
 	// corroborating selects the fixed-basis collection mode: the full voting
 	// membership occupies the denominator even when a scheduling gate skipped
-	// its request (decisions 0025 and 0027).
+	// its request (decisions 0025 and 0062).
 	corroborating bool
 	members       []*pool.Source
 	capture       *refcontext.Capture

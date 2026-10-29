@@ -33,10 +33,7 @@ func TestAggregateEmptyPoolReturnsCollectionError(t *testing.T) {
 }
 
 func TestAggregateAttachesSourceFaultsToDecision(t *testing.T) {
-	p := pool.NewPool()
-	if _, err := p.Join("dead", "http://127.0.0.1:1"); err != nil {
-		t.Fatal(err)
-	}
+	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
 	a := New(p, nil)
 	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_unknown"})
 	if err == nil {
@@ -51,13 +48,10 @@ func TestAggregateAttachesSourceFaultsToDecision(t *testing.T) {
 }
 
 func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
-	p := pool.NewPool()
-	if _, err := p.Join("a", "http://127.0.0.1:1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.Join("b", "http://127.0.0.1:2"); err != nil {
-		t.Fatal(err)
-	}
+	p := fixedPool(t,
+		pool.Member{Name: "a", URL: "http://127.0.0.1:1"},
+		pool.Member{Name: "b", URL: "http://127.0.0.1:2"},
+	)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -74,10 +68,7 @@ func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
 }
 
 func TestAggregateEmitsDecisionEvent(t *testing.T) {
-	p := pool.NewPool()
-	if _, err := p.Join("dead", "http://127.0.0.1:1"); err != nil {
-		t.Fatal(err)
-	}
+	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
 	rec := &captureRecorder{}
 	a := New(p, nil, WithRecorder(rec))
 	if _, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_unknown"}); err == nil {
@@ -215,29 +206,21 @@ func TestNopRecorderSkipsEventAssembly(t *testing.T) {
 	// The default path must not pay for event building; the guarantee is
 	// observable as no panic and no recorder allocation — Nop discards, so
 	// the assertion is that assembly is skipped entirely.
-	p := pool.NewPool()
-	if _, err := p.Join("dead", "http://127.0.0.1:1"); err != nil {
-		t.Fatal(err)
-	}
+	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
 	if _, err := New(p, nil).Aggregate(context.Background(), rpc.Request{Method: "m"}); err == nil {
 		t.Fatal("expected the call to fail")
 	}
 }
 
-// namedSources joins display names into a real pool so events carry the
+// namedSources admits display names at construction so events carry the
 // configured names; the sources are never dialed.
 func namedSources(t *testing.T, names ...string) []*pool.Source {
 	t.Helper()
-	p := pool.NewPool()
-	out := make([]*pool.Source, 0, len(names))
+	members := make([]pool.Member, 0, len(names))
 	for i, name := range names {
-		src, err := p.Join(name, fmt.Sprintf("http://127.0.0.1:%d", 9100+i))
-		if err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, src)
+		members = append(members, pool.Member{Name: name, URL: fmt.Sprintf("http://127.0.0.1:%d", 9100+i)})
 	}
-	return out
+	return fixedPool(t, members...).VotingMembers()
 }
 
 // A scheduling gate skips the request but keeps the member in the voting
@@ -245,11 +228,8 @@ func namedSources(t *testing.T, names ...string) []*pool.Source {
 // unavailable even though no call was attempted and the human-readable Faults
 // list intentionally stays empty.
 func TestStructuredSourceFaultsIncludeGatedMember(t *testing.T) {
-	p := pool.NewPoolWithChainID(1)
-	source, err := p.Join("node-01", "https://rpc-a.example")
-	if err != nil {
-		t.Fatalf("Join: %v", err)
-	}
+	p := fixedPoolWith(t, 1, nil, pool.Member{Name: "node-01", URL: "https://rpc-a.example"})
+	source := p.VotingMembers()[0]
 	emissions := []pool.Emission{{
 		Src:       source,
 		Err:       pool.ErrSourceGated,

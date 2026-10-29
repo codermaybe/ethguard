@@ -25,10 +25,10 @@ func TestDecoratedForwardContactsOneSourceAndAcceptsProtocolAnswer(t *testing.T)
 			defer b.Close()
 			a.Fail("custom_write", -32000, "authoritative answer")
 			b.Return("custom_write", "unexpected")
-			p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-			defer p.Close()
-			p.Join("a", a.URL())
-			p.Join("b", b.URL())
+			p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
+				pool.Member{Name: "a", URL: a.URL()},
+				pool.Member{Name: "b", URL: b.URL()},
+			)
 			rec := &captureRecorder{}
 			agg := New(p, rpc.Registry{"custom_write": decorate(rpc.ForwardPolicy{})}, WithRecorder(rec))
 			d, err := agg.Aggregate(context.Background(), rpc.Request{Method: "custom_write"})
@@ -53,10 +53,10 @@ func TestEstimateFailureRetainsSourceCause(t *testing.T) {
 	defer b.Close()
 	a.Return(methods.MethodEstimateGas, "0x5208")
 	b.Fail(methods.MethodEstimateGas, -32000, "estimation rejected")
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-	defer p.Close()
-	p.Join("good", a.URL())
-	p.Join("bad", b.URL())
+	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
+		pool.Member{Name: "good", URL: a.URL()},
+		pool.Member{Name: "bad", URL: b.URL()},
+	)
 	rec := &captureRecorder{}
 	d, err := New(p, rpc.Registry{methods.MethodEstimateGas: methods.EstimateGasPolicy(nil)}, WithRecorder(rec)).Aggregate(context.Background(), rpc.Request{Method: methods.MethodEstimateGas, Params: []any{map[string]any{}, "0x10"}})
 	if err != nil || d.Status != rpc.Selected || len(d.Faults) != 1 {

@@ -98,7 +98,7 @@ func TestNativeAdapterPoolHealthyAnswer(t *testing.T) {
 	})
 	p := newPoolWithDialerAndChainID(nativehttp.NewDialer(), 0)
 	t.Cleanup(p.Close)
-	src, err := p.Join("native", srv.srv.URL)
+	src, err := p.join("native", srv.srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestNativeAdapterPoolRateLimitClassifiesThrottling(t *testing.T) {
 	}))
 	p := newPoolWithDialerAndChainID(nativehttp.NewDialer(), 0)
 	t.Cleanup(p.Close)
-	src, err := p.Join("native", srv.srv.URL)
+	src, err := p.join("native", srv.srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestNativeAdapterPoolMalformedIsFailure(t *testing.T) {
 			})
 			p := newPoolWithDialerAndChainID(nativehttp.NewDialer(), 0)
 			t.Cleanup(p.Close)
-			src, err := p.Join("native", srv.srv.URL)
+			src, err := p.join("native", srv.srv.URL)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -232,7 +232,7 @@ func TestDegenerateErrorMemberMalformedEverywhere(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := newPoolWithDialerAndChainID(tc.dialer, 0)
 			t.Cleanup(p.Close)
-			src, err := p.Join(tc.name, srv.srv.URL)
+			src, err := p.join(tc.name, srv.srv.URL)
 			if err != nil {
 				t.Fatal(err)
 			}

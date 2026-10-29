@@ -129,20 +129,18 @@ func quantityPolicy() rpc.Policy {
 
 func scriptedAggregate(t *testing.T, count int, rec observe.Recorder, forwarded bool, policy rpc.Policy, script func(int, *rpctest.Node)) (*Aggregator, []*rpctest.Node) {
 	t.Helper()
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-	t.Cleanup(p.Close)
 	nodes := make([]*rpctest.Node, 0, count)
+	members := make([]pool.Member, 0, count)
 	for i := range count {
 		node := rpctest.NewNode(0)
 		t.Cleanup(node.Close)
 		if script != nil {
 			script(i, node)
 		}
-		if _, err := p.Join(fmt.Sprintf("node-%c", 'a'+i), node.URL()); err != nil {
-			t.Fatal(err)
-		}
+		members = append(members, pool.Member{Name: fmt.Sprintf("node-%c", 'a'+i), URL: node.URL()})
 		nodes = append(nodes, node)
 	}
+	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 	opts := []Option{WithRecorder(rec), WithCollectTimeout(5 * time.Second)}
 	if forwarded {
 		shared, err := rpc.NewCorroborationShared(rpc.CorroborationForwarded, 0)

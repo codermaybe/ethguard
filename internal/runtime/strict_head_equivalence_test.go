@@ -58,17 +58,16 @@ func equivFleet(t *testing.T, serve ...headHandler) []*rpctest.Node {
 
 func equivPool(t *testing.T, nodes []*rpctest.Node) (*pool.Pool, []*pool.Source) {
 	t.Helper()
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-	t.Cleanup(p.Close)
-	sources := make([]*pool.Source, 0, len(nodes))
+	members := make([]pool.Member, 0, len(nodes))
 	for i, node := range nodes {
-		source, err := p.Join(fmt.Sprintf("node-%d", i), node.URL())
-		if err != nil {
-			t.Fatal(err)
-		}
-		sources = append(sources, source)
+		members = append(members, pool.Member{Name: fmt.Sprintf("node-%d", i), URL: node.URL()})
 	}
-	return p, sources
+	p, err := pool.NewWithMembers(0, members, pool.WithDialer(nativehttp.NewDialer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p, p.VotingMembers()
 }
 
 // establishService runs the strict round the facade resolver service way: a

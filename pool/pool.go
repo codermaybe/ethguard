@@ -27,18 +27,15 @@ var (
 // Pool is the concurrent-safe multi-source RPC manager.
 // One Pool is shared by a single ethguard.Client and all caller goroutines.
 //
-// It holds sources and their health observations. Collect fans a single request
-// out to the eligible sources symmetrically and returns raw, unjudged results.
+// Membership is fixed at construction: the pool never adds or removes voting
+// members at runtime. It holds sources and their health observations; health
+// and scheduling may pause requests to a member, but a paused or failed member
+// keeps its place in every voting basis. Collect fans a single request out to
+// the eligible sources symmetrically and returns raw, unjudged results.
 type Pool struct {
 	mu      sync.RWMutex
 	sources []*Source
 	byID    map[string]*Source
-	// removed keeps sources deleted by Remove addressable by identity, so an
-	// invocation that froze its basis before the removal can still resolve its
-	// members by ID. A tombstoned source is closed and stays closed; it is
-	// never a registered member again and never appears in Sources,
-	// VotingMembers, or any fan-out that selects current membership.
-	removed map[string]*Source
 
 	dialer          dialer
 	expectedChainID uint64
@@ -51,16 +48,35 @@ type Pool struct {
 	stopTips    chan struct{}
 }
 
-// NewPool creates an empty pool. No dialer is installed: sources joined into
-// such a pool fail at dial time until a connection adapter is configured with
-// WithDialer — the root facade and ethadapter always install one (native by
-// default, the go-ethereum compatibility adapter through gethcompat).
+// Member is one upstream configured at pool construction.
+type Member struct {
+	Name string
+	URL  string
+}
+
+// NewWithMembers creates a pool whose voting membership is fixed for its
+// lifetime. Membership is admitted here and never changes at runtime; health
+// and scheduling may pause requests to a member, but cannot add, remove, or
+// resize the voting basis.
+func NewWithMembers(chainID uint64, members []Member, opts ...PoolOption) (*Pool, error) {
+	p := newPoolWithDialerAndOptions(nil, chainID, opts...)
+	for _, member := range members {
+		if _, err := p.join(member.Name, member.URL); err != nil {
+			p.Close()
+			return nil, fmt.Errorf("pool: member %q: %w", member.Name, err)
+		}
+	}
+	return p, nil
+}
+
+// NewPool creates an empty pool. Production construction uses
+// NewWithMembers; an empty pool has no membership and cannot fan out.
 func NewPool() *Pool {
 	return NewPoolWithChainID(0)
 }
 
-// NewPoolWithChainID creates a pool that rejects sources reporting another
-// Ethereum chain. A zero chain ID disables the check for compatibility.
+// NewPoolWithChainID creates an empty pool that rejects sources reporting
+// another Ethereum chain. A zero chain ID disables the check for compatibility.
 func NewPoolWithChainID(chainID uint64) *Pool {
 	return newPoolWithDialerAndChainID(nil, chainID)
 }
@@ -68,19 +84,17 @@ func NewPoolWithChainID(chainID uint64) *Pool {
 func newPoolWithDialerAndChainID(d dialer, chainID uint64) *Pool {
 	return &Pool{
 		byID:            make(map[string]*Source),
-		removed:         make(map[string]*Source),
 		dialer:          d,
 		expectedChainID: chainID,
 	}
 }
 
-// Join registers an endpoint if it is not already present. Concurrent calls
-// for the same normalized endpoint always return the same Source. Distinct
-// endpoints must have distinct display names so diagnostics and metric labels
-// cannot collide. A Join whose endpoint is already registered returns the
-// existing Source unchanged, even under a different display name: endpoint
-// identity wins over naming, so callers must not assume one Join per name.
-func (p *Pool) Join(name, rawURL string) (*Source, error) {
+// join registers one construction-time member. Calls for the same normalized
+// endpoint return the same Source. Distinct endpoints must have distinct
+// display names so diagnostics and metric labels cannot collide. An endpoint
+// already registered wins over naming: the existing Source is returned even
+// under a different name.
+func (p *Pool) join(name, rawURL string) (*Source, error) {
 	id, err := normalizeEndpointID(rawURL)
 	if err != nil {
 		return nil, err
@@ -94,11 +108,6 @@ func (p *Pool) Join(name, rawURL string) (*Source, error) {
 	if existing := p.byID[id]; existing != nil {
 		return existing, nil
 	}
-	// The endpoint was removed earlier: the tombstone kept its identity
-	// addressable for in-flight invocations, but a fresh Join registers a
-	// fresh, usable source. The old object stays closed for the invocations
-	// that captured it.
-	delete(p.removed, id)
 	for _, existing := range p.sources {
 		if existing.name == name {
 			return nil, fmt.Errorf("pool: duplicate source name %q", name)
@@ -121,50 +130,18 @@ func (p *Pool) Join(name, rawURL string) (*Source, error) {
 	return src, nil
 }
 
-// Sources returns a snapshot of currently registered sources.
+// Sources returns a snapshot of the configured sources. Membership is fixed at
+// construction, so the snapshot cannot gain or lose members.
 func (p *Pool) Sources() []*Source {
 	out, _ := p.snapshotSources(false)
 	return out
 }
 
-// VotingMembers returns the exact source objects currently configured. The
-// objects are safe to retain for one invocation: removal closes the object but
-// does not mutate its identity, so an outer snapshot can fail it closed.
+// VotingMembers returns the exact source objects configured at construction.
+// The objects are safe to retain for one invocation; a concurrent Close may
+// close them, but it cannot change membership or an invocation's basis.
 func (p *Pool) VotingMembers() []*Source {
 	return p.Sources()
-}
-
-// Remove removes one voting member by its configured display name and
-// releases its connection (decision 0027). An invocation that already
-// captured the member keeps it in its voting basis — its calls fail closed
-// with ErrClosed and count in that invocation's denominator — while
-// invocations starting after the removal exclude it. Runtime removal never
-// follows from upstream behavior; it is always an explicit caller action.
-func (p *Pool) Remove(name string) error {
-	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
-		return ErrClosed
-	}
-	index := -1
-	for i, src := range p.sources {
-		if src.name == name {
-			index = i
-			break
-		}
-	}
-	if index < 0 {
-		p.mu.Unlock()
-		return fmt.Errorf("pool: no source named %q", name)
-	}
-	src := p.sources[index]
-	p.sources = append(p.sources[:index], p.sources[index+1:]...)
-	delete(p.byID, src.id)
-	p.removed[src.id] = src // stays addressable for invocations holding its ID
-	p.mu.Unlock()
-
-	src.close()
-	return nil
 }
 
 func (p *Pool) sourcesForCollect(plan collectPlan) ([]*Source, error) {
@@ -289,20 +266,14 @@ func isDefaultPort(scheme, port string) bool {
 	}
 }
 
-// SourceByID reports the source with this identity, live or closed. It is the
-// membership seam for invocation-owned basis snapshots: a frozen basis of
-// source references resolves back to the pool's objects through this lookup,
-// without exposing pool internals. A member removed between rounds stays
-// resolvable here as a closed source, so the resolution cannot mistake the
-// removal for an unknown member — the invocation's fan-out fails it closed
-// while live members continue answering.
+// SourceByID reports the registered source with this identity. Membership is
+// fixed at construction, so a found source is a live member and a missing ID
+// is an unknown member. A closed pool keeps its objects addressable for
+// callers that still hold them; it does not change membership.
 func (p *Pool) SourceByID(id string) (*Source, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if source := p.byID[id]; source != nil {
-		return source, true
-	}
-	source := p.removed[id]
+	source := p.byID[id]
 	return source, source != nil
 }
 

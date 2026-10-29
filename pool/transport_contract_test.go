@@ -93,7 +93,7 @@ func TestTransportSeamAcceptsIndependentAdapterAndReusesIt(t *testing.T) {
 	}
 	dialer := &contractDialer{transport: transport}
 	p := newPoolWithDialerAndChainID(dialer, 1)
-	src, err := p.Join("contract", "https://contract.example")
+	src, err := p.join("contract", "https://contract.example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestTransportSeamChainIDMismatchStopsCall(t *testing.T) {
 	}
 	dialer := &contractDialer{transport: transport}
 	p := newPoolWithDialerAndChainID(dialer, 1)
-	if _, err := p.Join("contract", "https://contract.example"); err != nil {
+	if _, err := p.join("contract", "https://contract.example"); err != nil {
 		t.Fatal(err)
 	}
 

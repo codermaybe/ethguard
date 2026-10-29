@@ -19,7 +19,7 @@
   决策 0028/0029 取代，实现以 `rpc/adjudicate.go` 为准。
 - 显式一致模式（WithUnanimity）：在同一 `Q` 门槛上额外要求全部有效回答一致。
   调用方 mode/floor 配置面按 T07/0050 进入退役，固定分母约束保留为内部不变量。
-- 分母时间边界：一次逻辑调用开始时固定投票成员与门槛（决策 0025/0027）；
+- 分母时间边界：一次逻辑调用开始时固定投票成员与门槛（决策 0025/0062）；
   请求前已过滤的来源不进入本次分母；入选后失败的来源保留；下一请求重新筛选（治理文档第 3 节）。
 - 已注册方法（方法规则索引的 result 为 canonical）的 Value 是规范编码，不随代表源拼写变化。数量和成功 DATA 的比较键就是规范 JSON；对象方法由各自 typed/schema encoder 生成 Value，窄键的区块和交易仍保留方法声明的 normalizer key。受保护字段集与 canonical 规则由 pinned schema、准入和 encoder coverage gate 互锁。Representative 仍只记录捕获顺序第一人，不把来源原文伪装成聚合结果。
 - 类型化读取（ethadapter）以 refcontext.RequireCorroborated 强制佐证，Selected 不静默替代（[ethadapter/client.go](../../ethadapter/client.go)、[aggregator/aggregator.go](../../aggregator/aggregator.go)）。
@@ -141,17 +141,17 @@ code 与 message 来自一份已准入信封，不跨来源拼装。未佐证的
 
 非零 `anchor_cache_ttl` / `WithAnchorCaching` 在构造期拒绝（决策 0026、0037）。`CachedAnchor` 仍保留，但不从 `Client` 接入，也不在本轮删除。每次调用重新建立参考，无跨调用复用、无 TTL；`ObservedAt` 是本次建立时刻。失败是 Prepare 期错误，包裹 anchor 原因，业务请求零 fan-out；证据 `Status=Unknown`，并保留 `Faults`。以后仅在请求成本与限流实测有充分依据时，重新评估显式可选缓存。测试：`TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout`、`TestReferenceEstablishedFreshPerCall`、`TestReferenceFailureEvidenceIsUnknownWithObservedAt`。
 
-## 0.10 已接受边界：使用方显式管理投票成员
+## 0.10 已接受边界：投票成员在构造期固定
 
-状态：2026-09-07 已接受，见 [决策 0027](../decisions.md#0027-caller-managed-membership-is-independent-of-health-scheduling)；实现对齐待完成。
+状态：2026-10-29 更新，见 [决策 0062](../decisions.md#0062-pool-membership-is-fixed-at-construction-health-only-gates-scheduling)。本条取代决策 0027 的运行时 add/remove 部分；进行中的调用仍保留开始时的集合与门槛，健康仍只影响调度。
 
-配置修改及运行时主动 add 等显式成员操作均可改变投票集合。变化对后续调用生效，进行中的调用保留开始时的集合与门槛。健康、限流、失联及新鲜度过滤只影响请求调度，不自动删除投票成员或缩小多数分母；恢复后可再次请求。
+投票成员在 Client 构造时一次性准入，运行期没有 add/remove API，也没有配置热加载。改变成员只能构造新的 Client 或重启进程。健康、限流、失联、身份失败及新鲜度过滤只影响请求调度，不自动删除或替换投票成员，也不缩小多数分母；失败或被跳过的成员仍占本次调用的槽位，恢复后可再次请求。
 
-来源选择、准入及控制成员操作的职责属于使用方。库不证明 URL 控制者独立，也不负责抵御使用方通过配置或成员接口注入大量恶意身份；新增成员不代表它更可信。仍需执行常规身份去重和方法准入规则，不允许上游回答自动产生投票成员。
+来源选择和准入的职责属于使用方，且只发生在构造期。库不证明 URL 控制者独立，也不负责抵御使用方在配置中注入大量恶意身份；新配置的成员不代表它更可信。仍需执行常规身份去重和方法准入规则，不允许上游回答自动产生投票成员。
 
-例如 5 成员、显式 quorum 硬下界 3：2 源冷却，其他 3 源有效一致可以接受；3 源冷却，仅剩 2 源一致则拒绝。长期失效需使用方维护成员，不能靠健康机制自动删成员恢复成功。
+例如 5 成员、显式 quorum 硬下界 3：2 源冷却，其他 3 源有效一致可以接受；3 源冷却，仅剩 2 源一致则拒绝。长期失效需要更换配置并构造新的 Client，不能靠健康机制自动删成员恢复成功。
 
-本条不确定默认策略或硬下界。当前默认 Strict 仅要求有效回答一致，固定成员本身不会自动使它具备多数门槛；默认方向已按第 0.11 节接受，硬下界默认值待定。当前 eligible 收集路径仍待改造。
+本条不确定默认策略或硬下界。当前默认 Strict 仅要求有效回答一致，固定成员本身不会自动使它具备多数门槛；默认方向已按第 0.11 节接受，硬下界默认值待定。
 
 ## 0.11 已接受方向：固定多数与可切换裁决模块
 

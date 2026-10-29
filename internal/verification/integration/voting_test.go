@@ -16,7 +16,7 @@ import (
 )
 
 // --- T01 acceptance: fixed voting basis and default majority (decisions 0025,
-// 0027, 0028, 0029) through the public ChainID path. ---------------------------
+// 0062, 0028, 0029) through the public ChainID path. ---------------------------
 
 // requiredSupport is the decision-0029 table: Q = max(2, floor(N/2)+1).
 func TestRequiredSupportPerMembership(t *testing.T) {
@@ -191,69 +191,18 @@ func TestDynamicMajorityAcceptance(t *testing.T) {
 	})
 }
 
-// Checklist 4: runtime membership and mode changes take effect for
-// subsequent invocations only; in-flight invocations keep their snapshot.
-// Unknown sources can never join the voting set through responses.
-func TestRuntimeMembershipAndModeChanges(t *testing.T) {
-	t.Run("runtime add then remove changes later invocations", func(t *testing.T) {
-		// Two members split 1×A/1×B: below Q=2. Adding a third member that
-		// answers B lifts the B cluster to a corroborated 2-of-3 majority;
-		// removing it returns the invocation to a conflict. Only explicit
-		// Join/Remove moves the basis (decision 0027).
-		client, nodes := fleet(t, 1, 0, 2)
-		nodes[1].Return(methods.MethodChainID, "0x2")
-		extra := rpctest.NewNode(1)
-		defer extra.Close()
-		extra.Return(methods.MethodChainID, "0x2")
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("1-of-2 split must conflict, got %v", err)
-		}
-
-		p := client.Pool()
-		if _, err := p.Join("extra", extra.URL()); err != nil {
-			t.Fatal(err)
-		}
-		value, decision, err := client.ChainID(ctx)
-		if err != nil || value.Int64() != 2 || decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
-			t.Fatalf("expected the added member to lift the B cluster, got %+v %v", decision, err)
-		}
-		if err := p.Remove("extra"); err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("expected the original split after removal, got %v", err)
-		}
-	})
-
-	t.Run("responses cannot add voting members", func(t *testing.T) {
-		client, _ := fleet(t, 1, 1, 2)
-		p := client.Pool()
-		before := p.Len()
-		// A fleet of answering providers with unknown URLs is not a basis:
-		// only explicit Join changes membership.
-		_, _, err := client.ChainID(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if p.Len() != before {
-			t.Fatalf("membership grew from responses: %d -> %d", before, p.Len())
-		}
-	})
-
-	t.Run("insufficient membership for the floor is a construction error path only via T02", func(t *testing.T) {
-		// N=1 can never corroborate under the default floor H=2 (decision 0029);
-		// forwarding is T02 scope.
-		client, _ := fleet(t, 1, 1, 2)
-		if err := client.Pool().Remove("node-b"); err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := client.ChainID(context.Background()); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("single-member basis cannot corroborate, got %v", err)
-		}
-	})
+// Checklist 4: membership is fixed at construction. Responses cannot add a
+// voting member, and the client's basis count stays what it was configured as.
+func TestFixedMembershipAndModeChanges(t *testing.T) {
+	client, _ := fleet(t, 1, 1, 2)
+	before := client.VotingMembers()
+	_, _, err := client.ChainID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := client.VotingMembers(); got != before {
+		t.Fatalf("membership grew from responses: %d -> %d", before, got)
+	}
 }
 
 // Checklist 5: duplicate URLs collapse to one vote (pool identity dedup);
@@ -388,13 +337,23 @@ func TestNoExtraVotes(t *testing.T) {
 // is authoritative over the Status field, whose zero value is Unknown) and
 // the evidence carries the cluster rather than a guessed winner.
 func TestRefusesWithoutDegradation(t *testing.T) {
-	client, _ := fleet(t, 1, 1, 2)
-	if err := client.Pool().Remove("node-b"); err != nil {
+	// Two configured entries deduplicate to one endpoint, so the fixed basis
+	// has N=1 while the client still selected the two-member majority mode:
+	// the floor stays 2 and the read must refuse rather than degrade.
+	node := rpctest.NewNode(1)
+	t.Cleanup(node.Close)
+	node.Return(methods.MethodChainID, "0x1")
+	client, err := ethguard.New(config.Config{Upstreams: []config.Upstream{
+		{ID: "a", Endpoint: node.URL()},
+		{ID: "b", Endpoint: node.URL() + "/"},
+	}})
+	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(client.Close)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
 	_, decision, err := client.ChainID(ctx)
 	if !errors.Is(err, ethguard.ErrConflict) {
 		t.Fatalf("single member must refuse, got %v", err)
@@ -406,7 +365,7 @@ func TestRefusesWithoutDegradation(t *testing.T) {
 
 // T01 pins the pool-level wiring: the public client resolves through the
 // voting-basis collection, so a cooled member still occupies the basis of
-// every public read (decision 0027's example: 5 members, floor 3, 2 cooling,
+// every public read (decision 0062's example: 5 members, floor 3, 2 cooling,
 // 3 valid answers succeed; 3 cooling, 2 valid answers refuse).
 func TestPoolVotingBasisExample(t *testing.T) {
 	t.Run("explicit floor 3: two cooling, three answer", func(t *testing.T) {
@@ -423,7 +382,7 @@ func TestPoolVotingBasisExample(t *testing.T) {
 
 		value, decision, err := client.ChainID(ctx)
 		if err != nil || value.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
-			t.Fatalf("decision 0027's success example failed: %+v %v", decision, err)
+			t.Fatalf("decision 0062's success example failed: %+v %v", decision, err)
 		}
 	})
 
@@ -440,7 +399,7 @@ func TestPoolVotingBasisExample(t *testing.T) {
 		defer cancel()
 
 		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
-			t.Fatalf("decision 0027's refusal example failed, got %v", err)
+			t.Fatalf("decision 0062's refusal example failed, got %v", err)
 		}
 	})
 }

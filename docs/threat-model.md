@@ -16,17 +16,20 @@ majority of endpoints independent or honest.
 
 ## Configuration and runtime control boundary
 
-Accepted boundary (2026-09-07; decisions 0027 and 0030): authorized configuration
-and explicit membership/mode operations are trusted control inputs. Upstream
-RPC responses are untrusted data inputs. The caller owns source admission and
-protects configuration files, management interfaces, process restart and the
-execution environment through its deployment controls.
+Accepted boundary (2026-09-07; decisions 0027 and 0030; membership amended by
+0062 on 2026-10-29): authorized configuration at construction and explicit mode
+operations are trusted control inputs. There is no runtime membership mutation
+and no configuration hot reload; changing members requires a new Client or
+process. Upstream RPC responses are untrusted data inputs. The caller owns
+source admission and protects configuration files, management interfaces,
+process restart and the execution environment through its deployment controls.
 
 EthGuard must validate configuration consistency, execute the selected mode
 faithfully and expose its actual guarantees. Upstream responses, failures or
 health changes must not automatically lower thresholds, remove voting members
-or switch a corroborated invocation into single-source forwarding. Runtime
-mode/member changes apply to subsequent invocations, not an in-flight snapshot.
+or switch a corroborated invocation into single-source forwarding. A mode
+change applies to subsequent invocations, not an in-flight snapshot; membership
+cannot change at all within a Client lifetime.
 
 If an attacker can alter configuration and restart the application, EthGuard
 cannot distinguish the resulting single-source configuration from one supplied

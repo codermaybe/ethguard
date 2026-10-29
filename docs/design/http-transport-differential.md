@@ -156,7 +156,7 @@ A 类是当前 compatibility Adapter 的替换安全线；自有 Adapter 只有�
 | --- | --- | --- | --- | --- | --- |
 | Emission.Val | 仅当 `Err==nil`；原始 result 字节（`result:null` → `"null"`，非 nil → 计可用答案） | A | yes | pool | `pool/collect.go Emission`；`pool:TestCollectTreatsJSONRPCErrorAsAHealthyResponse` |
 | Emission.Err | Adapter 上抛的错误原样携带（含 capability）；gate 错误为 `ErrSourceGated`/`ErrChainIDMismatch` | A | yes | pool | `pool/collect.go dispatchOne` |
-| Emission.Attempted | 取得调度槽并真正发起才为 true；gate/超时未尝试的成员 false 且无健康记账 | A | yes | pool | `pool/collect.go dispatchOne`（decision 0027） |
+| Emission.Attempted | 取得调度槽并真正发起才为 true；gate/超时未尝试的成员 false 且无健康记账 | A | yes | pool | `pool/collect.go dispatchOne`（decision 0062） |
 | Emission.RTT | 覆盖 dial（首次）+ ChainID admission + 调用本身；未尝试为 0 | B | yes | pool | `pool/collect.go dispatchOne/collectOne` |
 | health success | `err==nil`，或"健康 JSON-RPC error"：code 非服务端错误集且非 -32700/-32600（revert -32000 含 "execution reverted"/"revert" 属于此类）→ 记成功、SourceReady | A | yes | pool | `pool/monitor.go isHealthyRPCResponse`；`pool:TestCollectTreatsJSONRPCErrorAsAHealthyResponse` |
 | health failure | 其余一切（HTTP 状态错误、EOF、malformed、ErrNoResult、-32700/-32600、服务端错误 code）→ Failures++、consecutive++、SourceDown；连续 3 次开冷却闸 | A | yes | pool | `pool:TestCollectRecordsJSONRPCProtocolErrorAsFailure`；`pool:TestCollectTemporarilyExcludesRepeatedlyFailingSource` |

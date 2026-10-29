@@ -358,17 +358,19 @@ func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobor
 // member order and the same pool.
 func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, rpc.AnchorHeightFunc) {
 	t.Helper()
-	sources := pool.NewPoolWithOptions(1, pool.WithDialer(nativehttp.NewDialer()))
-	t.Cleanup(sources.Close)
 	nodes := make([]*rpctest.Node, 0, len(names))
+	members := make([]pool.Member, 0, len(names))
 	for _, name := range names {
 		node := rpctest.NewNode(1)
 		t.Cleanup(node.Close)
-		if _, err := sources.Join(name, node.URL()); err != nil {
-			t.Fatal(err)
-		}
 		nodes = append(nodes, node)
+		members = append(members, pool.Member{Name: name, URL: node.URL()})
 	}
+	sources, err := pool.NewWithMembers(1, members, pool.WithDialer(nativehttp.NewDialer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sources.Close)
 	var opts []aggregator.Option
 	if corrob != nil {
 		opts = append(opts, aggregator.WithCorroboration(corrob))

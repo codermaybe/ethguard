@@ -254,11 +254,13 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		rec = observe.Nop
 	}
 
-	rpcPool := pool.NewPoolWithOptions(cfg.ChainID, co.poolOpts...)
+	members := make([]pool.Member, 0, len(cfg.Upstreams))
 	for _, upstream := range cfg.Upstreams {
-		if _, err := rpcPool.Join(upstream.ID, upstream.Endpoint); err != nil {
-			return nil, fmt.Errorf("ethguard: register %q: %w", upstream.Endpoint, err)
-		}
+		members = append(members, pool.Member{Name: upstream.ID, URL: upstream.Endpoint})
+	}
+	rpcPool, err := pool.NewWithMembers(cfg.ChainID, members, co.poolOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("ethguard: register upstreams: %w", err)
 	}
 
 	// The library owns the corroboration policy. It snapshots the fixed basis
@@ -379,8 +381,10 @@ func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
 	return c.policies.PolicyFor(method).Normalize(raw)
 }
 
-// Pool exposes the underlying multi-source manager for advanced use.
-// Prefer Client methods for normal application code.
+// Pool exposes the underlying multi-source manager for advanced diagnostics.
+// Membership is fixed at construction; the pool exposes no Join/Remove, and
+// health/scheduling can never change the voting basis. Prefer Client methods
+// for normal application code.
 func (c *Client) Pool() *pool.Pool {
 	return c.pool
 }

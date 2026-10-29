@@ -18,17 +18,15 @@ import (
 )
 
 func TestAggregateRejectedEncodingDoesNotChangeVotingBasis(t *testing.T) {
-	sources := pool.NewPoolWithOptions(1, pool.WithDialer(nativehttp.NewDialer()))
-	t.Cleanup(sources.Close)
 	const method = "test_canonical_object"
+	members := make([]pool.Member, 0, 5)
 	for i, body := range []string{`{"key":"winner","value":"v1"}`, `{"key":"winner","value":"v1"}`, `{"key":"winner","value":"v1"}`, `{"key":"loser","value":"v2"}`, `{"key":"loser","value":"v3"}`} {
 		node := rpctest.NewNode(1)
 		t.Cleanup(node.Close)
 		node.Return(method, json.RawMessage(body))
-		if _, err := sources.Join(fmt.Sprintf("source-%d", i), node.URL()); err != nil {
-			t.Fatal(err)
-		}
+		members = append(members, pool.Member{Name: fmt.Sprintf("source-%d", i), URL: node.URL()})
 	}
+	sources := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 	policy := rpc.Strict(func(raw json.RawMessage) (string, error) {
 		var x struct {
 			Key string `json:"key"`

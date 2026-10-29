@@ -61,7 +61,8 @@ func WithTipTracking(every time.Duration, maxBehind uint64) PoolOption {
 	}
 }
 
-// NewPoolWithOptions creates an empty pool tuned by opts.
+// NewPoolWithOptions creates an empty pool tuned by opts. Production
+// construction uses NewWithMembers; an empty pool has no membership.
 func NewPoolWithOptions(chainID uint64, opts ...PoolOption) *Pool {
 	return newPoolWithDialerAndOptions(nil, chainID, opts...)
 }

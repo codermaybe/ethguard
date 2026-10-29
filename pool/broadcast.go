@@ -146,7 +146,7 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 		}
 		// A member closed between the precheck above and this dispatch is not
 		// skipped here: dispatchOne's acquireRequest fails it closed with
-		// ErrClosed, so a Remove racing the fan-out still leaves a non-zero
+		// ErrClosed, so a concurrent Close still leaves a non-zero
 		// emission on every member — parity with CollectVoting's dispatch loop.
 		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
 	}

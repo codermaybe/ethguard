@@ -60,7 +60,7 @@ type CollectOptions struct {
 
 // ErrSourceGated reports that a voting member's request was skipped by a
 // scheduling gate (cooldown circuit or freshness bound). The member still
-// occupies the invocation's voting basis (decision 0027): this error marks a
+// occupies the invocation's voting basis (decision 0062): this error marks a
 // paused request, not a health observation — gated members receive no
 // failure accounting.
 var ErrSourceGated = errors.New("pool: source gated; request paused, voting basis retained")
@@ -86,11 +86,11 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 }
 
 // CollectVoting fans a single request out to the full voting membership and
-// returns one emission per member, in pool order. Membership is captured at
-// entry; a concurrent Join or Remove changes only subsequent invocations.
+// returns one emission per member, in pool order. Membership is fixed at pool
+// construction, so every member of the pool is a member of this basis.
 //
 // Unlike Collect, scheduling gates pause requests rather than removing
-// members (decision 0027): a member whose cooldown circuit is open, whose tip
+// members (decision 0062): a member whose cooldown circuit is open, whose tip
 // trails the freshness bound, or whose identity is known-invalid is not
 // requested, but keeps its place in the returned basis — corroboration is
 // adjudicated against every voting member, so failures and skips can never
@@ -175,8 +175,8 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 
 // votingGate reports why a member's request is currently paused, or nil when
 // it should be dispatched. Closed members are not gated: attempting them
-// fails fast with ErrClosed and no penalty, keeping a member removed
-// mid-invocation visible in its captured basis.
+// fails fast with ErrClosed and no penalty, keeping a closed pool visible in
+// each captured basis instead of silently shrinking it.
 func votingGate(src *Source, floor uint64, now time.Time) error {
 	if src.isIdentityInvalid() {
 		return ErrChainIDMismatch

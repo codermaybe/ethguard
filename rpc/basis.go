@@ -4,7 +4,7 @@ package rpc
 // issued. Members are the sources that occupy the denominator — including
 // members a scheduling gate skipped and members that later fail — so a
 // partially delivered fan-out can never shrink the required support
-// (decisions 0025 and 0027). Basis is immutable after construction.
+// (decisions 0025 and 0062). Basis is immutable after construction.
 //
 // The basis does not know pool sources. Members carry identity only
 // (SourceRef); connection lifecycle and health stay in pool. This keeps the

@@ -5,21 +5,14 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/internal/refcontext"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// When membership changes between the reference round and the business round,
-// the invocation keeps its frozen basis: the new member is not folded into
-// the denominator, and the carrier still hands later phases the same frozen
-// invocation.
-func TestMembershipChangeBetweenRoundsKeepsFrozenBasis(t *testing.T) {
-	p := pool.NewPool()
+// The invocation's basis is frozen at entry: later health or scheduling state
+// cannot fold a new member into the denominator, and the carrier still hands
+// later phases the same frozen invocation.
+func TestInvocationBasisStaysFrozenAcrossRounds(t *testing.T) {
 	sources := namedSources(t, "a", "b", "c")
-	refs := make([]rpc.SourceRef, 0, len(sources))
-	for _, source := range sources {
-		refs = append(refs, rpc.SourceRef{Name: source.Name(), ID: source.ID()})
-	}
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	state := &invocationState{
 		snap:    snap,
@@ -28,10 +21,6 @@ func TestMembershipChangeBetweenRoundsKeepsFrozenBasis(t *testing.T) {
 	}
 	state.ctx, state.invocation = beginInvocation(context.Background(), snap, true, sources, nil)
 
-	// A member joins after the basis was frozen (the reference round ran).
-	if _, err := p.Join("late", "http://127.0.0.1:9199"); err != nil {
-		t.Fatal(err)
-	}
 	basis := state.invocation.Basis()
 	if basis.Size() != 3 {
 		t.Fatalf("basis size = %d, want the three captured members", basis.Size())

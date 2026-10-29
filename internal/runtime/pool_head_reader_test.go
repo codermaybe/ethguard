@@ -29,15 +29,15 @@ func TestPoolHeadReaderAddressesBasisMembers(t *testing.T) {
 	for _, node := range nodes {
 		node.ReturnRaw("eth_getBlockByNumber", raw)
 	}
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-	joined := make([]*pool.Source, 0, len(nodes))
+	members := make([]pool.Member, 0, len(nodes))
 	for _, node := range nodes {
-		source, err := p.Join(node.URL(), node.URL())
-		if err != nil {
-			t.Fatal(err)
-		}
-		joined = append(joined, source)
+		members = append(members, pool.Member{Name: node.URL(), URL: node.URL()})
 	}
+	p, err := pool.NewWithMembers(0, members, pool.WithDialer(nativehttp.NewDialer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := p.VotingMembers()
 	basis := rpc.FreezeBasis([]rpc.SourceRef{
 		{ID: joined[0].ID()},
 		{ID: joined[2].ID()},

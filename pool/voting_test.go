@@ -11,13 +11,13 @@ import (
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
-// --- CollectVoting: the fixed voting-basis collection path (decision 0027) ---
+// --- CollectVoting: the fixed voting-basis collection path (decision 0062) ---
 
 func TestCollectVotingReturnsOneEmissionPerMember(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
 	p := newPoolWithDialerAndChainID(d, 0)
 	for _, name := range []string{"a", "b", "c"} {
-		if _, err := p.Join(name, "https://"+name+".example"); err != nil {
+		if _, err := p.join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -37,7 +37,7 @@ func TestCollectVotingReturnsOneEmissionPerMember(t *testing.T) {
 }
 
 // A member whose cooldown circuit is open is not requested and receives no
-// health penalty (decision 0027): gating is a pause, not an observation. The
+// health penalty (decision 0062): gating is a pause, not an observation. The
 // shared failing method drives both members onto the circuit together, so
 // the final collection proves denominator preservation at the boundary: the
 // fan-out is impossible (both gated), no upstream was contacted, and no
@@ -45,11 +45,11 @@ func TestCollectVotingReturnsOneEmissionPerMember(t *testing.T) {
 func TestCollectVotingKeepsCoolingMemberInBasis(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
 	p := newPoolWithDialerAndChainID(d, 0)
-	src, err := p.Join("a", "https://a.example")
+	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := p.Join("b", "https://b.example")
+	b, err := p.join("b", "https://b.example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestCollectVotingAllGatedIsNoEligibleSource(t *testing.T) {
 	t.Run("identity-gated member", func(t *testing.T) {
 		d := &newFakeDialer{dials: make(map[string]int)}
 		p := newPoolWithDialerAndChainID(d, 5) // pool expects chain 5, node answers 1
-		if _, err := p.Join("a", "https://a.example"); err != nil {
+		if _, err := p.join("a", "https://a.example"); err != nil {
 			t.Fatal(err)
 		}
 		// First contact verifies identity against the wrong answer and
@@ -117,62 +117,12 @@ func TestCollectVotingAllGatedIsNoEligibleSource(t *testing.T) {
 
 func TestCollectVotingRejectsFixedMembershipOption(t *testing.T) {
 	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
-	if _, err := p.Join("a", "https://a.example"); err != nil {
+	if _, err := p.join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
 	_, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{SourceIDs: []string{"https://a.example"}})
 	if err == nil {
 		t.Fatal("expected SourceIDs rejection: the voting basis is pool-managed")
-	}
-}
-
-// --- Remove: explicit membership management (decision 0027) ------------------
-
-func TestPoolRemoveDropsMember(t *testing.T) {
-	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
-	if _, err := p.Join("a", "https://a.example"); err != nil {
-		t.Fatal(err)
-	}
-	src, err := p.Join("b", "https://b.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := p.Remove("b"); err != nil {
-		t.Fatalf("Remove: %v", err)
-	}
-	if got := p.Len(); got != 1 {
-		t.Fatalf("expected one remaining member, got %d", got)
-	}
-	if src.State() != SourceDown {
-		t.Fatal("expected removed source to be closed")
-	}
-	if _, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{}); err != nil {
-		t.Fatalf("remaining member should answer: %v", err)
-	}
-	if err := p.Remove("b"); err == nil {
-		t.Fatal("expected removing an unknown member to fail")
-	}
-}
-
-// A source re-added under the same URL is a new member, not a resurrection:
-// identity dedup keys on currently registered members only.
-func TestPoolRemoveThenRejoinIsANewMember(t *testing.T) {
-	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
-	first, err := p.Join("a", "https://a.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := p.Remove("a"); err != nil {
-		t.Fatal(err)
-	}
-	second, err := p.Join("a", "https://a.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first == second {
-		t.Fatal("rejoined URL must not resurrect the removed member")
 	}
 }
 
@@ -192,10 +142,10 @@ func TestCollectVotingTimeoutOutranksUsableAnswer(t *testing.T) {
 
 	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
-	if _, err := p.Join("fast", fast.URL()); err != nil {
+	if _, err := p.join("fast", fast.URL()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Join("laggard", laggard.URL()); err != nil {
+	if _, err := p.join("laggard", laggard.URL()); err != nil {
 		t.Fatal(err)
 	}
 	emissions, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 150 * time.Millisecond})

@@ -211,7 +211,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	policy := a.policies.PolicyFor(req.Method)
 	// A corroborated read collects over the fixed voting basis — every
 	// member occupies the denominator even when a scheduling gate skipped
-	// its request (decisions 0025 and 0027).
+	// its request (decisions 0025 and 0062).
 	_, corroborating := policy.(rpc.CorroboratingPolicy)
 	state := &invocationState{
 		ctx:           ctx,

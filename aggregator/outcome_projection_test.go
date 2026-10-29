@@ -60,12 +60,11 @@ func TestOutcomePathMatchesLegacyPath(t *testing.T) {
 		{name: "legacy path hides the outcome capability", hidden: true},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
-			p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
+			members := make([]pool.Member, 0, len(nodes))
 			for i, node := range nodes {
-				if _, err := p.Join(fmt.Sprintf("node-%d", i), node.URL()); err != nil {
-					t.Fatal(err)
-				}
+				members = append(members, pool.Member{Name: fmt.Sprintf("node-%d", i), URL: node.URL()})
 			}
+			p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 			policy := quantityStrict(rpc.WithQuorum(2))
 			if variant.hidden {
 				policy = outcomeOpaquePolicy{Policy: policy}
@@ -113,11 +112,9 @@ func TestOutcomePathMatchesLegacyPath(t *testing.T) {
 // attribution the legacy classification produced, including gated members
 // recorded as availability faults.
 func TestVerdictProjectionMatchesLegacyFaults(t *testing.T) {
-	p := pool.NewPoolWithOptions(1, pool.WithDialer(nativehttp.NewDialer()))
-	source, err := p.Join("node-01", "https://rpc-a.example")
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
+		pool.Member{Name: "node-01", URL: "https://rpc-a.example"})
+	source := p.VotingMembers()[0]
 	emissions := []pool.Emission{
 		{Src: source, Err: pool.ErrSourceGated, Attempted: false},
 	}
@@ -137,11 +134,9 @@ func TestVerdictProjectionMatchesLegacyFaults(t *testing.T) {
 // A scheduling-gated member is absent, not unusable: the resolver saw no
 // observation from it, the coordinator knows the call never started.
 func TestFinalizeVerdictsMarksGatedMembersAbsent(t *testing.T) {
-	p := pool.NewPoolWithOptions(1, pool.WithDialer(nativehttp.NewDialer()))
-	source, err := p.Join("node-01", "https://rpc-a.example")
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
+		pool.Member{Name: "node-01", URL: "https://rpc-a.example"})
+	source := p.VotingMembers()[0]
 	emissions := []pool.Emission{{Src: source, Err: pool.ErrSourceGated, Attempted: false}}
 	verdicts := finalizeVerdicts([]rpc.SourceVerdict{
 		{Source: rpc.SourceRef{ID: source.ID()}, Kind: rpc.VerdictUnusable},

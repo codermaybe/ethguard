@@ -32,7 +32,7 @@ func TestPoolOptionWithDialerSelectsAdapter(t *testing.T) {
 		// one (native by default).
 		p := NewPoolWithOptions(0)
 		t.Cleanup(p.Close)
-		src, err := p.Join("none", srv.URL)
+		src, err := p.join("none", srv.URL)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,7 +51,7 @@ func TestPoolOptionWithDialerSelectsAdapter(t *testing.T) {
 	t.Run("native-dialer-rejects-by-contract", func(t *testing.T) {
 		p := NewPoolWithOptions(0, WithDialer(nativehttp.NewDialer()))
 		t.Cleanup(p.Close)
-		src, err := p.Join("native", srv.URL)
+		src, err := p.join("native", srv.URL)
 		if err != nil {
 			t.Fatal(err)
 		}

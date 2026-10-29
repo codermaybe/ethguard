@@ -832,7 +832,10 @@ No implementation or live validation was performed in recording this decision.
 
 ## 0027. Caller-managed membership is independent of health scheduling
 
-Status: Implemented (2026-09-20; `pool.Remove`/`Join` affect later invocations only; an in-flight invocation keeps its captured members in the denominator; health and tip gates only skip requests).
+Status: Superseded by 0062 (2026-10-29) for runtime membership operations.
+Implemented 2026-09-20 for the then-current model; an invocation still keeps
+its captured members in the denominator, and health and tip gates still only
+skip requests.
 
 The caller explicitly supplies voting members through configuration or active
 runtime membership operations, including add. Health, rate limiting,
@@ -2322,3 +2325,33 @@ Value, representative still moves), `TestLocalWholeAnswerShapeAdmission`
 (`eth_syncing`/`net_listening` admit legal shapes and fault null/wrong types),
 and `TestRepresentativeIsFirstCapturedSource` (representative/provenance rules
 unchanged where the value key is not canonical).
+
+## 0062. Pool membership is fixed at construction; health only gates scheduling
+
+Status: Implemented (2026-10-29; `pool.NewWithMembers`, no public `Join`/`Remove`; `CollectVoting` retains every configured member in the basis).
+
+A Client's voting membership is admitted exactly once when its pool is
+constructed. There is no runtime add/remove API and no configuration hot
+reload; changing members requires a new Client or process. The pool may update
+health, cooldown, rate limiting, tip freshness, and request pacing from each
+response, and those signals may pause or resume individual requests, but they
+never add, remove, replace, or reweight a voting member. Every configured
+member keeps its slot in the invocation's frozen basis; failure or a scheduling
+gate reduces support, never the denominator or the threshold.
+
+Why: an external remove can shrink the denominator and lower the effective
+majority; an external add can change N and the trust set. Health-driven
+membership or accuracy weighting would let an upstream, or a colluding
+majority, influence who is eligible to vote. Accuracy is adjudicated from
+untrusted observations, not from a per-source health metric. Per-invocation
+freeze (0025), unit votes (0028), and health-only scheduling remain; only
+0027's runtime membership operations are superseded. The pool remains
+reachable through `Client.Pool` for diagnostics; that surface exposes no
+membership mutation, and no health signal can change the basis.
+
+Focused evidence:
+`TestNewWithMembersAdmitsFixedMembership`,
+`TestNewWithMembersDeduplicatesEndpointsAndRejectsNameCollisions`,
+`TestCollectVotingKeepsCoolingMemberInBasis`,
+`TestFixedMembershipAndModeChanges`, and
+`TestRefusesWithoutDegradation`.

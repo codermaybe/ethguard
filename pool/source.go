@@ -259,15 +259,15 @@ const (
 )
 
 // Name returns the configured display name.
-// Immutable after Join; no lock required.
+// Immutable after construction; no lock required.
 func (s *Source) Name() string { return s.name }
 
 // URL returns the dial URL.
-// Immutable after Join; no lock required.
+// Immutable after construction; no lock required.
 func (s *Source) URL() string { return s.url }
 
 // ID returns the deduplication key.
-// Immutable after Join; no lock required.
+// Immutable after construction; no lock required.
 func (s *Source) ID() string { return s.id }
 
 // State returns the current readiness state.
@@ -301,7 +301,7 @@ func (s *Source) eligible(now time.Time) bool {
 // requestable reports whether the cooldown circuit admits a request to this
 // source, independent of closure and identity gates: the voting-basis
 // collection consults it alone, so paused members stay in the basis while
-// skipping the request (decision 0027).
+// skipping the request (decision 0062).
 func (s *Source) requestable(now time.Time) bool {
 	consecutive, lastFailure := s.stats.circuitState()
 	if consecutive < eligibleFailureThreshold {

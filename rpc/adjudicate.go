@@ -100,7 +100,7 @@ func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Deci
 // CorroborationShared is the runtime-mutable corroboration configuration
 // shared by one client's aggregators. Set takes effect for invocations that
 // start after the call; an invocation in flight keeps the snapshot it
-// captured at its start (decisions 0025 and 0027). Mode and floor change
+// captured at its start (decisions 0025 and 0062). Mode and floor change
 // together or not at all.
 type CorroborationShared struct {
 	v atomic.Pointer[Corroboration]

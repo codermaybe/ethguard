@@ -110,16 +110,18 @@ func emitDecisionStatuses(t *testing.T) []string {
 func emitStatus(t *testing.T, count int, forwarded, wantErr bool, script func(int, *rpctest.Node)) string {
 	t.Helper()
 	metrics := New()
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-	t.Cleanup(p.Close)
+	members := make([]pool.Member, 0, count)
 	for i := range count {
 		node := rpctest.NewNode(0)
 		t.Cleanup(node.Close)
 		script(i, node)
-		if _, err := p.Join(string(rune('a'+i)), node.URL()); err != nil {
-			t.Fatal(err)
-		}
+		members = append(members, pool.Member{Name: string(rune('a' + i)), URL: node.URL()})
 	}
+	p, err := pool.NewWithMembers(0, members, pool.WithDialer(nativehttp.NewDialer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
 	opts := []aggregator.Option{aggregator.WithRecorder(metrics), aggregator.WithCollectTimeout(5 * time.Second)}
 	if forwarded {
 		shared, err := rpc.NewCorroborationShared(rpc.CorroborationForwarded, 0)

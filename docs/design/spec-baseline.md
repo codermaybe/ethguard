@@ -70,7 +70,7 @@ ChainID、BalanceAt、BlockByHash、BlockByNumber、BlockNumber、BlockReceipts�
 | 2 | DecodeBlock 不验交易根、withdrawals 根、叔块承诺；只查 wire hash==header hash 与空叔列表 | 0019 | T04 |
 | 3 | byNumber 将 null 判无效；byHash 将 null 当可比较值（不对称） | 0022（null 统一为合法回答按门槛裁决） | T04 |
 | 4 | 默认 Strict=全一致、单回答 Selected；quorum 为显式选项 | 0028/0029（固定成员多数 + H=2 默认；一致模式为显式模式） | T01/T02 |
-| 5 | eligible 动态分母：健康冷却（3 连败/30s）与 tip 过滤改变每次参与集合 | 0027（使用方管理成员）/0025（调用内固定基准） | T01/T03 |
+| 5 | eligible 动态分母：健康冷却（3 连败/30s）与 tip 过滤改变每次参与集合 | 0062（构造期固定成员）/0025（调用内固定基准） | T01/T03 |
 | 6 | 标签改写与等级丢失：`rpc/anchor.go` 的 movingTags{latest,safe,finalized} 一律改写为同一锚定 hash，且锚定函数不接收原标签——latest/safe/finalized 等级丢失，普通历史块的存在即可冒充 safe/finalized 覆盖；负数参数见 3.3 | 0032（保持标签语义）/0036（库统一标签感知参考）/0033 | T03 |
 | 7 | 跨调用参考缓存可用（WithAnchorCaching/anchor_cache_ttl） | 0026（退出本轮目标） | T03（迁移，见 6.4） |
 | 8 | 调用内快照缺失：Collect 单次固定，参考建立与业务读取不共享分母 | 0025 | T03 |
@@ -129,7 +129,7 @@ ChainID、BalanceAt、BlockByHash、BlockByNumber、BlockNumber、BlockReceipts�
 
 | 规则域 | 轻客户端要求 | 本设计 | 结论 |
 | --- | --- | --- | --- |
-| 可信启动 | 一个 `trusted_block_root` 锚点；bootstrap 的头哈希必须等于它，委员会经 Merkle 证明；此后一切密码学可验证 | 无可信根；信任=使用方管理成员（0027）+ 跨源佐证 | 不适用（不同信任模型）。RPC 佐证不能替代可信启动 |
+| 可信启动 | 一个 `trusted_block_root` 锚点；bootstrap 的头哈希必须等于它，委员会经 Merkle 证明；此后一切密码学可验证 | 无可信根；信任=使用方构造期固定成员（0062）+ 跨源佐证 | 不适用（不同信任模型）。RPC 佐证不能替代可信启动 |
 | 签名验证 | BLS `FastAggregateVerify` + 参与位图 | 无任何签名验证；提供者证言 | 未证实（设计边界，非缺陷）：佐证不含密码学证明，须如此表述 |
 | 法定人数 | 同步委员会 2/3（权益抽样）；跨更新存在交集性质 | Q=max(H, floor(N/2)+1)，单位票、使用方管理身份（0028） | 不适用：身份≠验证者、无跨操作交集；0028 已声明票权相等不使任意共识协议适用 |
 | 最终性 | 验证过 finality 证明才推进；`UPDATE_TIMEOUT` 为有前提的可选恢复路径（见超时降级行） | finalized=来源报告覆盖+候选 hash 一致（0032）；不足即拒绝 | 未证实：非密码学最终性；不足即拒绝。与 LC 恢复路径的信任前提不同，不作保守性比较 |

@@ -5,7 +5,6 @@ import (
 
 	"context"
 	"errors"
-	"math/rand"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,7 +28,7 @@ func TestBroadcastContactsAllSourcesWithoutFreshnessGate(t *testing.T) {
 
 	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	for i, u := range urls {
-		if _, err := p.Join(string(rune('a'+i)), u); err != nil {
+		if _, err := p.join(string(rune('a'+i)), u); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -68,7 +67,7 @@ func TestBroadcastShortCircuitNeverStopsFleet(t *testing.T) {
 	}
 	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	for i, n := range nodes {
-		if _, err := p.Join(string(rune('a'+i)), n.URL()); err != nil {
+		if _, err := p.join(string(rune('a'+i)), n.URL()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -89,7 +88,7 @@ func TestBroadcastCoolingSourceIsGatedNotFailed(t *testing.T) {
 	node.Fail("eth_sendRawTransaction", -32010, "nonce too low")
 
 	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
-	src, err := p.Join("a", node.URL())
+	src, err := p.join("a", node.URL())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +139,7 @@ func TestBroadcastTrailingSourceStillContacted(t *testing.T) {
 	node.Return("eth_sendRawTransaction", "0xabc")
 
 	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
-	if _, err := p.Join("a", node.URL()); err != nil {
+	if _, err := p.join("a", node.URL()); err != nil {
 		t.Fatal(err)
 	}
 	// Record an ancient tip so the freshness gate would exclude this source
@@ -165,7 +164,7 @@ func TestBroadcastProtocolErrorIsUsableAnswer(t *testing.T) {
 	node.Fail("eth_sendRawTransaction", -32010, "nonce too low")
 
 	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
-	if _, err := p.Join("a", node.URL()); err != nil {
+	if _, err := p.join("a", node.URL()); err != nil {
 		t.Fatal(err)
 	}
 	emissions, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x01"})
@@ -175,102 +174,6 @@ func TestBroadcastProtocolErrorIsUsableAnswer(t *testing.T) {
 	var protocolErr rpc.ProtocolError
 	if !errors.As(emissions[0].Err, &protocolErr) {
 		t.Fatalf("emission err = %v, want structured JSON-RPC error", protocolErr)
-	}
-}
-
-// Regression for the precheck-dispatch window: a member closed by Pool.Remove
-// between Broadcast's precheck pass and its dispatch pass was skipped without
-// an emission, leaving a zero-value Emission — Src == nil panics downstream
-// aggregators and Err == nil corrupts the caller's availability verdict. A
-// member closed at any point now fails closed through dispatchOne's
-// acquireRequest, so every emission is non-zero regardless of removal timing.
-//
-// The window itself is scheduler-tiny, so the test amplifies it: a wide
-// membership spreads the two loop passes, several victims tile their
-// precheck-read/dispatch-check windows across them, and repeated rounds
-// jitter the Remove. The race detector's per-lock overhead widens the window
-// further. With the fix the asserted invariants hold structurally, so the
-// test stays stable; without it the window is hit within a few rounds.
-func TestBroadcastRemovalRacingFanoutLeavesNoZeroEmission(t *testing.T) {
-	const (
-		members = 64
-		rounds  = 24
-	)
-	rng := rand.New(rand.NewSource(1))
-	victims := map[string]bool{"m00": true, "m16": true, "m32": true, "m48": true}
-
-	for round := 0; round < rounds; round++ {
-		runRemovalRaceRound(t, round, rng, victims, members)
-	}
-}
-
-// runRemovalRaceRound is one amplification round, split out so its pool and
-// nodes close via defer even when t.Fatalf exits the test mid-round.
-func runRemovalRaceRound(t *testing.T, round int, rng *rand.Rand, victims map[string]bool, members int) {
-	t.Helper()
-	// Two slow real nodes keep the fan-out observably in progress when
-	// Remove fires; the remaining members are distinct unreachable
-	// endpoints — cheap, but they still pass the precheck gates and widen
-	// the precheck/dispatch loop window.
-	slow := make([]*rpctest.Node, 2)
-	defer func() {
-		for _, n := range slow {
-			n.Close()
-		}
-	}()
-	for i := range slow {
-		slow[i] = rpctest.NewNode(1)
-		slow[i].Handle("eth_sendRawTransaction",
-			rpctest.After(25*time.Millisecond, rpctest.Value("0x"+"02")))
-	}
-
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
-	defer p.Close()
-	port := 10 // two-digit unreachable loopback ports; every member must be a distinct endpoint
-	for i := 0; i < members; i++ {
-		name := "m" + string(rune('0'+i/10)) + string(rune('0'+i%10))
-		url := "http://127.0.0.1:" + string(rune('0'+port/10)) + string(rune('0'+port%10))
-		if i >= members-len(slow) {
-			url = slow[i-(members-len(slow))].URL()
-		} else {
-			port++
-		}
-		if _, err := p.Join(name, url); err != nil {
-			t.Fatalf("round %d: join %s: %v", round, name, err)
-		}
-	}
-
-	type broadcastResult struct {
-		emissions []Emission
-		err       error
-	}
-	done := make(chan broadcastResult, 1)
-	go func() {
-		emissions, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x02"},
-			WithBroadcastTimeout(time.Second))
-		done <- broadcastResult{emissions: emissions, err: err}
-	}()
-
-	// Jittered removals aimed at the precheck->dispatch window; busy-wait
-	// keeps sub-100µs precision that time.Sleep cannot deliver.
-	deadline := time.Now().Add(time.Duration(rng.Intn(500)) * time.Microsecond)
-	for time.Now().Before(deadline) {
-	}
-	for name := range victims {
-		_ = p.Remove(name) // absent when this round removed it pre-snapshot
-	}
-
-	result := <-done
-	if len(result.emissions) == 0 {
-		t.Fatalf("round %d: broadcast returned no emissions (err=%v)", round, result.err)
-	}
-	for i, emission := range result.emissions {
-		if emission.Src == nil {
-			t.Fatalf("round %d: emission %d is zero-valued (no Src); removal raced the fan-out window", round, i)
-		}
-		if emission.Val == nil && emission.Err == nil {
-			t.Fatalf("round %d: emission %d carries neither a value nor an error", round, i)
-		}
 	}
 }
 
@@ -300,7 +203,7 @@ func TestBroadcastMaxConcurrentPacesWithoutShrinking(t *testing.T) {
 	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	for i, n := range nodes {
-		if _, err := p.Join(string(rune('a'+i)), n.URL()); err != nil {
+		if _, err := p.join(string(rune('a'+i)), n.URL()); err != nil {
 			t.Fatal(err)
 		}
 	}
