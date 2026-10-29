@@ -33,6 +33,12 @@ type Pool struct {
 	mu      sync.RWMutex
 	sources []*Source
 	byID    map[string]*Source
+	// removed keeps sources deleted by Remove addressable by identity, so an
+	// invocation that froze its basis before the removal can still resolve its
+	// members by ID. A tombstoned source is closed and stays closed; it is
+	// never a registered member again and never appears in Sources,
+	// VotingMembers, or any fan-out that selects current membership.
+	removed map[string]*Source
 
 	dialer          dialer
 	expectedChainID uint64
@@ -62,6 +68,7 @@ func NewPoolWithChainID(chainID uint64) *Pool {
 func newPoolWithDialerAndChainID(d dialer, chainID uint64) *Pool {
 	return &Pool{
 		byID:            make(map[string]*Source),
+		removed:         make(map[string]*Source),
 		dialer:          d,
 		expectedChainID: chainID,
 	}
@@ -87,6 +94,11 @@ func (p *Pool) Join(name, rawURL string) (*Source, error) {
 	if existing := p.byID[id]; existing != nil {
 		return existing, nil
 	}
+	// The endpoint was removed earlier: the tombstone kept its identity
+	// addressable for in-flight invocations, but a fresh Join registers a
+	// fresh, usable source. The old object stays closed for the invocations
+	// that captured it.
+	delete(p.removed, id)
 	for _, existing := range p.sources {
 		if existing.name == name {
 			return nil, fmt.Errorf("pool: duplicate source name %q", name)
@@ -148,6 +160,7 @@ func (p *Pool) Remove(name string) error {
 	src := p.sources[index]
 	p.sources = append(p.sources[:index], p.sources[index+1:]...)
 	delete(p.byID, src.id)
+	p.removed[src.id] = src // stays addressable for invocations holding its ID
 	p.mu.Unlock()
 
 	src.close()
@@ -276,14 +289,20 @@ func isDefaultPort(scheme, port string) bool {
 	}
 }
 
-// SourceByID reports the registered source with this identity. It is the
+// SourceByID reports the source with this identity, live or closed. It is the
 // membership seam for invocation-owned basis snapshots: a frozen basis of
-// source references resolves back to the pool's live source objects through
-// this lookup, without exposing pool internals.
+// source references resolves back to the pool's objects through this lookup,
+// without exposing pool internals. A member removed between rounds stays
+// resolvable here as a closed source, so the resolution cannot mistake the
+// removal for an unknown member — the invocation's fan-out fails it closed
+// while live members continue answering.
 func (p *Pool) SourceByID(id string) (*Source, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	source := p.byID[id]
+	if source := p.byID[id]; source != nil {
+		return source, true
+	}
+	source := p.removed[id]
 	return source, source != nil
 }
 

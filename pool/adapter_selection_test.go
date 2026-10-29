@@ -16,7 +16,7 @@ import (
 // TestPoolOptionWithDialerSelectsAdapter proves the WithDialer construction
 // option actually swaps the connection adapter, using a behavior both
 // adapters can distinguish: a response whose id does not match the request.
-// The default Geth compatibility adapter accepts it (audited baseline quirk);
+// The go-ethereum compatibility adapter accepts it (audited baseline quirk);
 // the native HTTP adapter rejects it by contract.
 func TestPoolOptionWithDialerSelectsAdapter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
