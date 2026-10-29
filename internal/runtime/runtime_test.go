@@ -23,7 +23,7 @@ func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
 		t.Fatalf("runtime registered %d plans and %d policies, want %d methods covered",
 			len(bundle.Plans), len(bundle.Policies), len(methods.RegisteredNames()))
 	}
-	for _, method := range []string{methods.MethodGetBalance, methods.MethodGetLogs} {
+	for _, method := range []string{methods.MethodGetBalance, methods.MethodGetLogs, methods.MethodCall} {
 		if bundle.Plans[method].Resolver == nil {
 			t.Fatalf("runtime omitted the %s plan", method)
 		}

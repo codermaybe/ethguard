@@ -65,6 +65,7 @@ type Bundle struct {
 var plannedReads = map[string]bool{
 	methods.MethodGetBalance: true,
 	methods.MethodGetLogs:    true,
+	methods.MethodCall:       true,
 }
 
 // Build assembles the method catalog, the reference stage, typed observation
