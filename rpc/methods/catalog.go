@@ -101,6 +101,23 @@ func ValidateRegistry(registry rpc.Registry) error {
 	return nil
 }
 
+// ValidateReadCoverage checks that every registered descriptor is driven by
+// either a compiled policy or an explicit execution plan. It is the
+// migration-era coverage gate: as methods move to plans their policies leave
+// the registry, and a method that lost both shapes fails loudly instead of
+// falling through to transparent forwarding.
+func ValidateReadCoverage(policies rpc.Registry, plans map[string]rpc.ReadPlan) error {
+	for _, method := range methodCatalog {
+		if method.Kind != RegisteredMethod {
+			continue
+		}
+		if policies[method.Name] == nil && plans[method.Name].Resolver == nil {
+			return fmt.Errorf("method catalog: registered method %q has neither a policy nor a plan", method.Name)
+		}
+	}
+	return nil
+}
+
 var methodCatalog = []MethodDescriptor{
 	{Name: MethodChainID, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "ChainIDPolicy", Adapter: "ChainID", Alignment: "v1.17.5"},
 	{Name: MethodGetBlockByHash, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "BlockByHashPolicy", Adapter: "BlockByHash", Alignment: "v1.17.5"},

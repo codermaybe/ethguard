@@ -27,7 +27,10 @@ type Client struct {
 	pool       *pool.Pool
 	aggregator *aggregator.Aggregator
 	policies   rpc.Registry
-	resolver   AnchorResolver
+	// plans are the read methods driven by explicit execution plans; their
+	// resolvers own canonical normalization at the facade boundary.
+	plans    map[string]rpc.ReadPlan
+	resolver AnchorResolver
 	// corrob is the internal adjudication snapshot source; callers do not
 	// configure its mode or support floor.
 	corrob *rpc.CorroborationShared
@@ -316,6 +319,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		pool:           rpcPool,
 		aggregator:     runtimeBundle.Aggregator,
 		policies:       runtimeBundle.Policies,
+		plans:          runtimeBundle.Plans,
 		resolver:       resolver,
 		corrob:         corrob,
 		collectTimeout: co.collectTimeout,
@@ -374,10 +378,15 @@ func (c *Client) AnchorBlockHeight(ctx context.Context) (uint64, error) {
 	return height, err
 }
 
-// Normalize reduces one raw response through the owning method policy's
-// canonical form — the single owner of value parsing for a corroborated method.
-// Typed callers use it instead of re-parsing raw JSON.
+// Normalize reduces one raw response through the owning method's canonical
+// form — the single owner of value parsing for a corroborated method.
+// Typed callers use it instead of re-parsing raw JSON. A planned method
+// normalizes through its plan's resolver; every other method through its
+// compiled policy.
 func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
+	if plan, ok := c.plans[method]; ok {
+		return plan.Resolver.Normalize(raw)
+	}
 	return c.policies.PolicyFor(method).Normalize(raw)
 }
 

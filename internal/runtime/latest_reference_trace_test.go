@@ -15,6 +15,7 @@ import (
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -88,8 +89,6 @@ func (s *recordingStage) rounds() ([]rpc.InvocationID, []rpc.ReferenceKind) {
 	return append([]rpc.InvocationID(nil), s.ids...), append([]rpc.ReferenceKind(nil), s.kinds...)
 }
 
-// traceAggregator builds the composed read pipeline with the business policy
-// wrapped for invocation recording.
 func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc.CorroborationShared {
 	t.Helper()
 	shared, err := rpc.NewCorroborationShared(mode, floor)
@@ -99,6 +98,11 @@ func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc
 	return shared
 }
 
+// traceAggregator builds the composed read pipeline for the legacy trace
+// fixtures: the hand-written balance chain wrapped for invocation recording,
+// registered beside the recording establishment stage. These fixtures pin
+// the legacy policy path's invariants — the migration-compatible surface a
+// planned read must keep matching.
 func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (*aggregator.Aggregator, *invocationRecordingPolicy, *recordingStage) {
 	t.Helper()
 	bundle, err := Build(Inputs{
@@ -111,14 +115,9 @@ func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorded := &invocationRecordingPolicy{Policy: bundle.Policies["eth_getBalance"]}
-	registry := rpc.Registry{}
-	for method, policy := range bundle.Policies {
-		registry[method] = policy
-	}
-	registry["eth_getBalance"] = recorded
 	stage := &recordingStage{inner: bundle.Stage}
-	return aggregator.New(p, registry,
+	recorded := &invocationRecordingPolicy{Policy: methods.GetBalancePolicy(bundle.Stage.AnchorHashReader())}
+	return aggregator.New(p, rpc.Registry{methods.MethodGetBalance: recorded},
 		aggregator.WithCorroboration(mustCorroboration(t, rpc.CorroborationMajority, 2)),
 		aggregator.WithCollectTimeout(2*time.Second),
 		aggregator.WithReferenceStage(stage)), recorded, stage
