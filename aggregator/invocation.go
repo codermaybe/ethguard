@@ -27,13 +27,22 @@ import (
 // reference establishment may run several rounds before the business fan-out.
 
 // invocationState is one read invocation's working state across the named
-// phases. Fields fill in phase order; nothing writes backwards.
+// phases. Fields fill in phase order; nothing writes backwards. A read
+// driven by an explicit execution plan carries the plan instead of a
+// compiled policy: the plan path reads its routing decisions from the plan
+// value, the legacy path type-asserts the policy's optional capabilities.
 type invocationState struct {
 	ctx        context.Context
 	invocation rpc.Invocation
 	policy     rpc.Policy
-	snap       rpc.Corroboration
-	snapOK     bool
+	// plan is the explicit execution plan of a planned read; nil selects the
+	// legacy policy path everywhere the two routes diverge.
+	plan *rpc.ReadPlan
+	// planPin is the block reference the plan's rewrite introduced, recorded
+	// at prepare time for the projection phase.
+	planPin string
+	snap    rpc.Corroboration
+	snapOK  bool
 	// corroborating selects the fixed-basis collection mode: the full voting
 	// membership occupies the denominator even when a scheduling gate skipped
 	// its request (decisions 0025 and 0062).
@@ -56,6 +65,56 @@ type invocationState struct {
 	aggregateFaults []error
 
 	verdicts []rpc.SourceVerdict
+}
+
+// validityPolicy is the policy whose validity contract classifies answers
+// and attempts: the plan's resolver value for a planned read, the whole
+// compiled chain otherwise. Normalization and the RPC-error-body opt-in live
+// on the resolver in both shapes.
+func (state *invocationState) validityPolicy() rpc.Policy {
+	if state.plan != nil {
+		return state.plan.Resolver
+	}
+	return state.policy
+}
+
+// admissionHook is the method-owned admission hook, or absent when the read
+// declares none.
+func (state *invocationState) admissionHook() (func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error), bool) {
+	if state.plan != nil {
+		return plannedAdmissionHook(state.plan)
+	}
+	if admission, ok := state.policy.(rpc.AdmissionPolicy); ok {
+		return admission.Admit, true
+	}
+	return nil, false
+}
+
+// requiresAgreement reports whether the read's resolution claims a
+// corroboration-bound agreement: the resolver's own capability for a planned
+// read, the chain's otherwise.
+func (state *invocationState) requiresAgreement() bool {
+	agreement, ok := state.validityPolicy().(rpc.AgreementPolicy)
+	return ok && agreement.RequiresAgreement()
+}
+
+// pendingLocalRoute is the single pending-local routing check for both
+// paths: a pending request on a pending-observation read resolves as a
+// node-local observation, except in Forwarded mode, where the pending shape
+// still forwards.
+func (state *invocationState) pendingLocalRoute() bool {
+	if state.plan != nil {
+		return planPendingLocalRoute(state.plan, state.prepared, state.snap, state.snapOK)
+	}
+	return isPendingLocalRoute(state.policy, state.prepared, state.snap, state.snapOK)
+}
+
+// resolve runs the resolution entry the read's route selects.
+func (state *invocationState) resolve() invocationResolution {
+	if state.plan != nil {
+		return resolvePlannedInvocation(state.plan, state.prepared, state.snap, state.snapOK, state.observations)
+	}
+	return resolveWithPending(state.policy, state.prepared, state.snap, state.snapOK, state.observations)
 }
 
 // earlyExit carries one degraded phase result: a classified decision plus the
@@ -180,6 +239,8 @@ func (a *Aggregator) establishReferencePhase(state *invocationState, started tim
 
 // collectPhase fans the prepared request out under the invocation's collection
 // mode: forwarded, single-source, fixed-basis voting, or symmetric collection.
+// A planned read has no single-source shape; its collection mode follows the
+// declared resolver class.
 func (a *Aggregator) collectPhase(state *invocationState) {
 	opts := pool.CollectOptions{Timeout: a.collectTimeout, Sources: state.members}
 	forward := func() {
@@ -188,6 +249,12 @@ func (a *Aggregator) collectPhase(state *invocationState) {
 	switch {
 	case state.snapOK && state.snap.Mode == rpc.CorroborationForwarded:
 		forward()
+	case state.plan != nil:
+		if state.corroborating {
+			state.emissions, state.collectErr = a.pool.CollectVoting(state.ctx, state.prepared.Method, state.prepared.Params, opts)
+		} else {
+			state.emissions, state.collectErr = a.pool.Collect(state.ctx, state.prepared.Method, state.prepared.Params, opts)
+		}
 	case singleSourcePolicy(state.policy):
 		forward()
 	case state.corroborating:
@@ -233,7 +300,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 			state.emissions[i].Val = nil
 		}
 	}
-	admission, ok := state.policy.(rpc.AdmissionPolicy)
+	admission, ok := state.admissionHook()
 	if !ok {
 		return
 	}
@@ -245,7 +312,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			evidence, admissionErr := admission.Admit(state.ctx, state.prepared, state.emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
+			evidence, admissionErr := admission(state.ctx, state.prepared, state.emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
 				raw, callErr := a.pool.CallSource(callCtx, state.emissions[i].Src, method, params)
 				if c := uncertain.FromContext(state.ctx); c != nil {
 					source := SourceRefOf(state.emissions[i].Src)
@@ -307,11 +374,11 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	}
 	if state.collectErr != nil && !hasUsableEmission(state.emissions) {
 		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared))
-		decision.Faults = collectionFaults(state.policy, state.collectErr, state.emissions, nil)
-		decision.SourceFaults = structuredSourceFaults(state.policy, state.emissions, nil)
+		decision.Faults = collectionFaults(state.validityPolicy(), state.collectErr, state.emissions, nil)
+		decision.SourceFaults = structuredSourceFaults(state.validityPolicy(), state.emissions, nil)
 		decision.CollectionFaults = collectionFaultList(state.collectErr)
 		state.attachFieldAggregateFaults(&decision)
-		a.recordDecision(started, state.prepared.Method, state.policy, decision, state.collectErr, state.emissions, nil)
+		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, state.collectErr, state.emissions, nil)
 		return &earlyExit{decision: decision, err: state.collectErr}
 	}
 	// Admission runs before clustering, so when every delivered response is
@@ -321,34 +388,32 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	if state.collectErr == nil && !hasUsableEmission(state.emissions) && hasMalformedAdmission(state.emissions) {
 		admissionErr := firstMalformedAdmission(state.emissions)
 		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared))
-		decision.Faults = sourceFaults(state.policy, state.emissions, nil)
-		decision.SourceFaults = structuredSourceFaults(state.policy, state.emissions, nil)
+		decision.Faults = sourceFaults(state.validityPolicy(), state.emissions, nil)
+		decision.SourceFaults = structuredSourceFaults(state.validityPolicy(), state.emissions, nil)
 		state.attachFieldAggregateFaults(&decision)
 		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
-		a.recordDecision(started, state.prepared.Method, state.policy, decision, err, state.emissions, nil)
+		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, err, state.emissions, nil)
 		return &earlyExit{decision: decision, err: err}
 	}
 	return nil
 }
 
-// resolveValue resolves the decision through the policy's per-source outcome
-// statement when it offers one, then applies the corroboration-required gate.
+// resolveValue resolves the decision through the read's resolution entry —
+// the plan's declared semantics or the policy's capability chain — then
+// applies the corroboration-required gate.
 func (state *invocationState) resolveValue() (rpc.Decision, error) {
-	res := resolveWithPending(state.policy, state.prepared, state.snap, state.snapOK, state.observations)
+	res := state.resolve()
 	decision, resolveErr := res.decision, res.err
 	state.verdicts = finalizeVerdicts(res.verdicts, state.emissions)
 	if resolveErr == nil && state.snapOK && state.snap.Mode == rpc.CorroborationForwarded {
 		decision.Status = rpc.Forwarded
 	}
-	requiresAgreement := false
-	if agreement, ok := state.policy.(rpc.AgreementPolicy); ok {
-		requiresAgreement = agreement.RequiresAgreement()
-	}
+	requiresAgreement := state.requiresAgreement()
 	// All named conditions are pure queries, so hoisting them out of the
 	// short-circuit chain below cannot change behavior; the remaining checks
 	// keep their original order.
 	gatedByForwarded := state.snapOK && state.snap.Mode == rpc.CorroborationForwarded
-	pendingLocal := isPendingLocalRoute(state.policy, state.prepared, state.snap, state.snapOK)
+	pendingLocal := state.pendingLocalRoute()
 	if requiresAgreement && refcontext.CorroborationRequired(state.ctx) && !gatedByForwarded && !pendingLocal && resolveErr == nil && decision.Status != rpc.Corroborated {
 		decision.Status = rpc.Unknown
 		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
@@ -368,7 +433,11 @@ func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req
 	if resolveErr == nil && state.evaluation != nil {
 		projector, ok := a.projectors[req.Method]
 		if !ok {
-			projector, ok = state.policy.(rpc.ObservationProjector)
+			if state.plan != nil {
+				projector, ok = state.plan.Resolver.(rpc.ObservationProjector)
+			} else {
+				projector, ok = state.policy.(rpc.ObservationProjector)
+			}
 		}
 		if ok {
 			if extensions, projectionErr := projector.ProjectObservation(decision.Value, *state.evaluation); projectionErr == nil {
@@ -378,7 +447,11 @@ func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req
 			}
 		}
 	}
-	if provider, ok := state.policy.(rpc.BlockRefProvider); ok {
+	// The plan records its pin at rewrite time; the legacy path asks the
+	// chain's BlockRef providers what they rewrote.
+	if state.plan != nil {
+		decision.BlockRef = state.planPin
+	} else if provider, ok := state.policy.(rpc.BlockRefProvider); ok {
 		decision.BlockRef = provider.BlockRef(req, state.prepared)
 	}
 	if state.aggregateErr != nil {
@@ -389,9 +462,9 @@ func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req
 		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", state.collectErr))
 		decision.CollectionFaults = collectionFaultList(state.collectErr)
 	}
-	decision.SourceFaults = structuredSourceFaults(state.policy, state.emissions, state.verdicts)
-	decision.Faults = append(decision.Faults, sourceFaults(state.policy, state.emissions, state.verdicts)...)
-	a.recordDecision(started, req.Method, state.policy, decision, resolveErr, state.emissions, state.verdicts)
+	decision.SourceFaults = structuredSourceFaults(state.validityPolicy(), state.emissions, state.verdicts)
+	decision.Faults = append(decision.Faults, sourceFaults(state.validityPolicy(), state.emissions, state.verdicts)...)
+	a.recordDecision(started, req.Method, state.validityPolicy(), decision, resolveErr, state.emissions, state.verdicts)
 	return decision, resolveErr
 }
 

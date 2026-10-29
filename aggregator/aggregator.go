@@ -31,6 +31,10 @@ type Aggregator struct {
 	// inside policy Prepare resolve it from the invocation context, so
 	// establishment runs on the aggregator's invocation.
 	stage ReferenceStage
+	// plans are the read methods driven by explicit execution plans. A
+	// method with a plan runs the plan pipeline; every other method keeps
+	// the compiled policy path.
+	plans map[string]rpc.ReadPlan
 }
 
 // Option tunes an Aggregator at construction time.
@@ -88,7 +92,7 @@ func WithProjectors(projectors map[string]rpc.ObservationProjector) Option {
 }
 
 func New(p *pool.Pool, policies rpc.Registry, opts ...Option) *Aggregator {
-	a := &Aggregator{pool: p, policies: policies, rec: observe.Nop, projectors: make(map[string]rpc.ObservationProjector)}
+	a := &Aggregator{pool: p, policies: policies, rec: observe.Nop, projectors: make(map[string]rpc.ObservationProjector), plans: make(map[string]rpc.ReadPlan)}
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -209,10 +213,19 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		ctx = refcontext.WithMembers(ctx, members)
 	}
 	policy := a.policies.PolicyFor(req.Method)
-	// A corroborated read collects over the fixed voting basis — every
-	// member occupies the denominator even when a scheduling gate skipped
-	// its request (decisions 0025 and 0062).
-	_, corroborating := policy.(rpc.CorroboratingPolicy)
+	// A method with an explicit execution plan runs the plan pipeline; the
+	// compiled policy path stays untouched for every other method.
+	plan, planned := a.plans[req.Method]
+	corroborating := false
+	if planned {
+		policy = nil
+		corroborating = plan.Corroborating()
+	} else {
+		// A corroborated read collects over the fixed voting basis — every
+		// member occupies the denominator even when a scheduling gate skipped
+		// its request (decisions 0025 and 0062).
+		_, corroborating = policy.(rpc.CorroboratingPolicy)
+	}
 	state := &invocationState{
 		ctx:           ctx,
 		policy:        policy,
@@ -222,9 +235,16 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		members:       members,
 		capture:       capture,
 	}
+	if planned {
+		state.plan = &plan
+	}
 	state.ctx, state.invocation = beginInvocation(state.ctx, snap, snapOK, members, uncertain.FromContext(ctx))
 
-	if exit := a.prepareWithReference(state, started, req); exit != nil {
+	if state.plan != nil {
+		if exit := a.planPreparePhase(state, started, req); exit != nil {
+			return exit.decision, exit.err
+		}
+	} else if exit := a.prepareWithReference(state, started, req); exit != nil {
 		return exit.decision, exit.err
 	}
 	a.collectPhase(state)
