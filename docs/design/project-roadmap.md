@@ -127,6 +127,12 @@ Resolver 任务的停止条件：如果 RS0–RS1 证明 `rpc.Policy` 已经是�
 出现 resolver wrapper 继续携带请求阶段、副作用或隐式网络 callback，必须进入 RS2/RS3
 的迁移切片。
 
+RS0 已交付：逐方法 resolver 行为清单见
+[`resolver-behavior-inventory.md`](resolver-behavior-inventory.md)（capability
+按 resolver 本体的 Go 接口登记；`CallRevert` 无 Outcome、legacy wrapper 的
+method-specific capability、plan/chain 不对称等未决问题已登记给 RS1–RS3）。
+后续 RS/WSS 切片以该清单为 resolver 事实基线，新增行为先补清单再动代码。
+
 ### WSS 证据门任务表
 
 WSS 的目标是 EthGuard 专用的最小调用层，不是通用 WebSocket 客户端，也不是把
