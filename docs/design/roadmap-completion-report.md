@@ -16,6 +16,7 @@
 | `c643a97` | W2/W3：最小 WSS raw-call Adapter 与进程内契约证据 |
 | `7e8b1c4` | WSS abort 关闭 socket，避免读循环泄漏 |
 | `b8cc5a0` | WSS 写失败时 context outcome 优先，同时中止不可用连接 |
+| `a317e73` | WSS Close 遵守 Transport Port，在途调用由自身 context 控制 |
 | `2bf447f` | 23 个 RegisteredMethod 的业务语义对接卡片 |
 | `3357f63` | T11 与 reference freshness 的设计不变量（无实现、无默认常数） |
 | 本提交 | 台账收尾分类与完成报告 |
@@ -70,6 +71,8 @@ go test ./internal/transport -run 'TestWSSPrototype' -race -count=5
   进程内原型验证 demux、取消、read limit、Close、断连、presence。
 - W2：`internal/transport/wss` 实现 raw call、`ChainID`、`Close`；复用
   `rpcwire`；不实现订阅、批量、自动重连、写路径重放或 keepalive。
+- Close 只拒绝新调用，等待 pending 各自完成或取消后释放 socket；对端断连、
+  读错误和超限仍立即失败 pending，统一现有 `transport.Transport` 契约。
 - W3：进程内证据覆盖 missing/null/`0x`/具体 data、malformed frame、
   read limit、cancellation、Close、断连、pending 清理、通知、无自动重试和
   pool seam 集成。
