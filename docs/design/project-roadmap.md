@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**拓扑迁移、架构收敛与 T09 整体审计已完成，进入逐方法对接和依赖边界收敛阶段**（2026-10-25）
+状态：**拓扑迁移、架构收敛、T09 审计与 ReadPlan M0–M8 已完成，进入 resolver seam 与 WSS 证据门阶段**（2026-10-31）
 
 本文件是 EthGuard 唯一的路线与阶段状态来源，记录当前事实、方向、顺序、依赖、
 遗留问题和阶段出口。设计文档只记录某个契约、决策或证据的详细内容，不维护第二
@@ -19,6 +19,10 @@ EthGuard 的运行时语义已经冻结：
 - T09 的字段生命周期、决策矩阵、typed 边界和整体审计已完成；
 - T10 的离线/live 证据分层已完成，live observation 不写成普遍兼容性证明；
 - WSS 的 `error.data` 缺失与 JSON `null` 仍无法区分，这是决策 0056 的显式限制；
+- Read 默认 registry 已由显式 `rpc.ReadPlan` 驱动；方法级阶段编排不再以 decorator
+  chain 为事实来源；legacy constructor 保留为兼容与等价验证 seam；
+- resolver 内部仍保留 `rpc.Policy` 深模块、`blockPolicy` 等 resolver-specific
+  wrapper 和 capability seam。这是下一轮边界梳理对象，不应被描述为已完全扁平化；
 - reference policy 统一方案、freshness 余量和 adaptive congestion 仍按各自决策保留，
   不由方法对接阶段隐式改写。
 
@@ -77,11 +81,116 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | T11 自适应拥塞控制 | 决策方向已接受，算法待设计 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
 | reference freshness | 0032/0033 已接受边界，余量和对齐待专门决策 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
 | reference raw capture | strict malformed 与 finalized 轮次记录不完整 | 两个独立切片修复并补回归 | 不改裁决、阈值、成员或 reference 语义 |
+| ReadPlan / resolver seam | M0–M8 已完成；resolver 内部仍是 `rpc.Policy` 深模块 | resolver 行为盘点、最小 seam 契约、legacy quarantine、是否继续扁平化的证据决策 | 不改变 Decision、quorum、reference、typed 或方法数量 |
+| WSS error-data evidence | 当前只能准确表达 missing/null 不可知 | presence 诊断、WSS 调用层可行性评估、四态进程内证据；实现与 golden 后置 | 不先加通用 Subscribe，不改变 `eth_call` 比较键或写路径 |
 | provider compatibility evidence | 按方法逐步补齐 | capture/replay/live 状态登记并保持证据等级 | 不用合成样本冒充 provider 兼容性 |
 | 外部消费者纪律 | 当前无外部消费者 | 首次发布/tag/import 后重启 API break 评估 | 依据决策 0057 |
 
 上述每条轨道的细节、验收和停止条件都在本文后续章节；链接的设计文档提供依据，
 不替代本表的顺序和状态。
+
+## 当前主线：resolver seam 与 WSS 证据门
+
+ReadPlan M0–M8 已经完成了方法级阶段编排迁移，但没有宣称删除所有 Policy 形态。
+当前代码必须按两层理解：
+
+```text
+方法级阶段层（已计划化）
+Validate / Prepare → Reference → Collect → Admit → Resolve → Project
+
+resolver 语义层（下一轮边界）
+Normalize / cluster / Outcome / Corroboration / CallRevert /
+block-specific result / MethodRule resolver columns
+```
+
+`rpc/methods` 中仍存在 `GetBalancePolicy`、`CallPolicy`、`LogsPolicy`、
+`FeeHistoryPolicy`、`CreateAccessListPolicy`、`EIP1898BlockRef`、`PendingLocal`
+等链式 constructor。它们当前是 legacy compatibility surface 和 plan equivalence
+对照实现；默认 runtime registry 不调用它们作为方法事实来源。`ReadPlan.Resolver`
+仍可持有 `rpc.Policy`，因为 strict、median、local、CallRevert 和 block-specific
+resolver 是有深度的语义 Module。下一轮只判断这个 seam 是否足够稳定，不以“零
+Decorator”作为孤立目标。
+
+### Resolver seam 任务表
+
+| 任务 | 内容 | 主要目录 | 前置 | 交付物 | 验收标准 |
+| --- | --- | --- | --- | --- | --- |
+| RS0 | Resolver 行为事实盘点 | `rpc/`、`rpc/methods/`、`internal/runtime/`、设计记录 | M0–M8 | 每个 RegisteredMethod 的 plan resolver、legacy constructor、wrapper、Policy capability、MethodRule resolver 列和默认 runtime 路径清单 | 23 个方法逐项登记；没有方法因“有 constructor”被误判为 runtime 使用 chain；没有方法因“走 plan”被误判为 resolver 已扁平化 |
+| RS1 | Resolver 最小契约 | `rpc/`、`aggregator/` | RS0 | resolver seam 的最小行为契约：Normalize、Resolve/Outcome、Corroborated、错误、canonical value、MethodRule resolver 列 | 计划管线只依赖固定 resolver seam；reference/pending/admission/Projection 不回流到 resolver callback |
+| RS2 | Block result seam 评估 | `rpc/methods/`、`rpc/`、`internal/runtime/` | RS0、RS1 | `blockPolicy` 的 header-only/source-spelling/result-form 行为评估；决定保留深模块或迁移到显式 plan hook | hash/number 两种 block 方法在 header-only、full、null、admission、canonical Value 和 BlockRef 上等价；不改变官方 schema 语义 |
+| RS3 | Capability/MethodRule seam 评估 | `rpc/`、`rpc/methods/`、`aggregator/` | RS0、RS1 | OutcomeResolver、CorroboratingPolicy、AgreementPolicy、MethodRuleSource 的依赖图和最小化方案 | 计划路径没有新增 decorator 层遍历；能力来源可解释；legacy constructor 的 capability 测试保持独立 |
+| RS4 | Legacy constructor quarantine | `internal/runtime/`、架构 interlock、`rpc/methods/` 测试 | RS0–RS3 | runtime 不调用 legacy constructor 的 interlock；legacy constructor 的兼容范围和删除条件 | 默认 runtime 只能从 ReadPlan registry 装配；legacy constructor 只能出现在兼容 facade、对照测试或明确 legacy seam；不存在第二个 registry |
+| RS5 | Resolver 是否继续扁平化的决策 | `docs/design/`、`docs/decisions.md` | RS0–RS4 | 基于真实维护成本和语义证据的修订记录 | 明确保留深模块、迁移部分 wrapper 或继续构造 ResolverPlan 三者之一；记录触发证据、范围、回滚和未决问题 |
+
+Resolver 任务的停止条件：如果 RS0–RS1 证明 `rpc.Policy` 已经是小而深、可测试且不
+携带网络控制的 seam，RS2–RS4 可以作为长期 quarantine 收尾，不强行继续扁平化；如果
+出现 resolver wrapper 继续携带请求阶段、副作用或隐式网络 callback，必须进入 RS2/RS3
+的迁移切片。
+
+### WSS 证据门任务表
+
+WSS 的目标是 EthGuard 专用的最小调用层，不是通用 WebSocket 客户端，也不是把
+`Subscribe` 加入基础 Transport。WSS 任务必须先完成证据门，再决定是否实现。
+
+| 任务 | 内容 | 主要目录 | 前置 | 交付物 | 验收标准 |
+| --- | --- | --- | --- | --- | --- |
+| W0 | Presence 限制准确表达 | `internal/transport/`、`rpc/`、`internal/uncertain/`、诊断文档 | 无 | 把 geth WSS `ErrorData() == nil` 表达为“missing/null 不可知”的调用级诊断 | 不改变 `eth_call` 比较键、弃权语义、分母、门槛或 Decision.Value；HTTP 四态保持原状；WSS 不生成四态 golden |
+| W1 | WSS 调用层可行性评估 | `docs/design/`、`internal/transport/` 只读验证 | W0 | 自建最小 WSS、上游公开扩展点、维护成本三路线比较；明确是否能取得原始 error envelope | 有进程内验证计划；说明 request ID demux、取消、read limit、close、inflight 清理、重连和 presence 的实现责任；不提交生产 WSS 代码 |
+| W2 | 最小 WSS Adapter（仅 W1 通过后） | `internal/transport/wss/` 或等价业务目录 | W1、ReadPlan 稳定 | EthGuard 专用 raw call adapter，接入 `pool.Transport` seam | 单请求/响应、乱序、取消、超时、断连、bounded message、Close 和 pending call 清理通过；不增加基础 Transport 的通用订阅能力 |
+| W3 | WSS 进程内证据 | `internal/transport/contract/`、`internal/transport/wss/`、验证目录 | W2 | 四态 error.data、malformed frame、read limit、close、cancellation、reconnect/reorg/backpressure 场景 | missing/null/`0x`/具体 data 可区分；无资源泄漏；HTTP contract 不回退；不改变 aggregator、reference、Decision、typed 或写路径 |
+| W4 | WSS 决策与 golden 升级 | `docs/decisions.md`、replay/capture 目录 | W3 + 真实 provider capture | 修订 0056，增加 WSS 四态 golden 或明确继续不支持 | 只有真实 provider/进程内证据都通过才升级；seam 建立本身不等于 presence 已恢复 |
+
+WSS 任务的停止条件：W1 无法证明原始 error envelope 可取得，或维护成本会复制完整
+客户端连接层时，停在 W1，保留 W0 的“不可知”诊断，不进入 W2–W4。不得用反射、fork
+geth 未导出类型、快速扫描 ID 或合成样本代替 WSS 证据。
+
+### 两条主线的顺序与分配
+
+```text
+M0–M8（已完成）
+├── RS0 → RS1 → RS2/RS3 → RS4 → RS5
+└── W0 → W1 → W2 → W3 → W4
+```
+
+RS0/RS1 与 W0/W1 可以并行。W2 之后不得与 resolver seam 的行为迁移混在一个提交
+中；WSS 只能填充 Transport adapter 和 contract，不得顺手修改方法 plan、quorum、
+reference、typed 或写路径。
+
+命名规则：任务编号只出现在本路线图、issue、分支和提交说明中。生产文件、测试文件、
+fixture 和类型必须使用业务语义名称，例如 `resolver_behavior_inventory.md`、
+`block_result_projection_test.go`、`resolver_capability_interlock_test.go`、
+`wss_error_presence_test.go`；禁止创建 `rs0.go`、`phase_wss_test.go`、
+`task_rs2_fixture.go` 等按任务阶段命名的文件。
+
+### 统一验收标准
+
+每个 RS/WSS 切片都必须通过：
+
+```text
+gofmt -l .
+go test ./... -count=1
+go vet ./...
+go test ./... -race -count=1
+git diff --check
+```
+
+Resolver seam 还必须通过：
+
+```text
+go test ./rpc/... ./rpc/methods/... ./aggregator/... ./internal/runtime/... -race -count=1
+go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
+```
+
+并提供一个逐方法 resolver inventory，至少包含：
+
+```text
+method / plan resolver kind / resolver implementation / legacy constructor /
+network callback present / Outcome capability / Corroboration capability /
+MethodRule resolver fields / projector ID / typed path / evidence status
+```
+
+WSS 在 W1 之前只允许文档和离线 seam 验证；W2–W4 还必须提供进程内 WebSocket
+证据，禁止普通测试联网或用合成 provider capture 冒充真实兼容性。
 
 ## 第零阶段：connection/RPC transport seam 与依赖边界
 
@@ -119,7 +228,6 @@ HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereu
 现有生产路径，且完整 offline、adapter、race 门通过；下一步由主维护者裁决 EthGuard
 规范 contract，再决定是否实现自有 HTTP Adapter。需要重新定义错误、连接生命周期
 或 evidence 语义的部分由主维护者设计，不交给 agent 自主决定。
-的部分由主维护者设计，不交给 agent 自主决定。
 
 事实审计、最小 seam、分片顺序和风险矩阵见
 [HTTP/WSS connection 与 RPC transport seam 迁移设计](transport-seam-migration.md)。
