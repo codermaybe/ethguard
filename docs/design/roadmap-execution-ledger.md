@@ -157,7 +157,8 @@
   - `eth_getBlockByNumber` hash 位置为 3 个明确拒收 + 1 个限流，无 provider
     接受；
   - `eth_blobBaseFee` 2/4 成功、1 free-plan、1 策略拒绝；
-  - `eth_feeHistory` 3/4 在同一 tip 返回相同 reward，1 个源落后一个区块；
+  - `eth_feeHistory` 3/4 在相同的 `oldestBlock` 返回相同 reward，1 个源
+    `oldestBlock`/区间不同；
   - `eth_getBlockByNumber latest` 4/4 返回同一 26-key 顶层集合，3/4 同一
     block，1 个落后一个区块；
   - `eth_syncing` 4/4 返回 `false`，仍无 progress object。
@@ -205,6 +206,26 @@
   - 外部证据阻塞：长窗口 reorg/回退、tip 样本过期、显式历史读取豁免、
     finalized candidate 与 reference confirmation 的交互、多客户端观测。
 
+## 9a. HTTP connection seam 审计（route: connection seam）
+
+- 状态：已完成；无需新增实现。
+- 证据：
+  - `docs/design/transport-contract.md` 冻结 L1 外部行为；
+  - `internal/transport/http` 的 native adapter 与 `internal/transport/geth`
+    的 compatibility adapter 都通过同一 `contract.RunL1` suite
+    （`TestNativeTransportL1Contract`、`TestGethTransportL1Contract`）；
+  - 默认 root facade 安装 `nativehttp.NewDialer()`；`gethcompat` 是显式
+    compatibility seam；`pool` 生产代码不依赖 go-ethereum；
+  - 默认构建的依赖列表不含 `ethclient` 或 `go-ethereum/rpc`；
+    `TestArchitecture|TestPackage|TestDefaultBuild` 通过；
+  - differential 记录见 `http-transport-differential.md` §8。
+- 风险：contract 的长期有效性取决于 provider 证据和 Geth 版本；升级
+  go-ethereum 前需要重跑 L1 suite 和 baseline。配置层没有 YAML adapter
+  字段，只有 root `WithHTTPAdapter`/`gethcompat` 入口；当前没有新增该字段的
+  需求，不把它写成缺口。
+- 待最终处理问题：无（当前契约内已闭合）。
+- 最终归类：已解决。
+
 ## 10. 已登记的遗留问题
 
 | 问题 | 状态 | 证据/影响 | 处理 |
@@ -212,8 +233,8 @@
 | WSS missing/null presence 仍不可知 | 开放（外部证据阻塞） | 决策 0056；geth 路径只表达 unknown；WSS raw-call Adapter 已能保留四态；2026-10-31 真实 provider 观察到 missing/`0x`/value，null 未观察 | W4 在 null 真实证据或主维护者接受限制后再修订 |
 | geth WSS 自动重连语义 | 开放（需主维护者决策） | 替换 transport 时不得无声丢失；WSS Adapter 明确不重连 | 生产切换前另立重连/失败分类契约 |
 | WSS Close 的 in-flight 语义 | 已解决 | `Close` 标记 closing、拒绝新调用；pending 各自完成或取消后关闭 socket，遵守 Transport Port | 由 `TestCloseLeavesInFlightCallsToTheirContexts` 与 WSS adapter 文档锁定 |
-| `eth_syncing` progress object provider 形状 | 开放（外部证据阻塞） | 只有 sample/assumed 证据 | 保持 capture gap，不用合成样本关闭 |
-| liveness/typed 的对象形状证据 | 开放（外部证据阻塞） | inventory 标注 assumed | 逐方法 provider capture 补齐 |
+| `eth_syncing` progress object provider 形状 | 开放（外部证据阻塞） | 2026-10-21 与 2026-10-31 的样本均只观察到 `false`；progress object 未观察 | 保持 capture gap，不用合成样本关闭 |
+| liveness/typed 的对象形状证据 | 部分解决（外部证据仍有缺口） | 2026-10-31 latest EIP-1898 object 4/4；历史 object 仅单源成功；其他对象形状按 sample | 继续补历史 object、完整内容承诺和跨客户端差异 |
 
 ## 11. 收尾分类（2026-10-31）
 

@@ -55,7 +55,7 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 | `eth_getTransactionByHash` | block-receipt-tx 2026-09-23 | ✅ | sample 2026-09-23 | 未知 typed tx 分布 |
 | `eth_getBlockReceipts` | block-receipt-tx 2026-09-23 | ✅ | sample + soak 2026-09-05 | — |
 | `eth_getLogs` | read-blockref 2026-10-21 | ✅ | soak 2026-09-05（70 logs） | 大范围 split 与 provider 上限 |
-| `eth_feeHistory` | read-blockref 2026-10-21 | ✅ | soak ✅；2026-10-31 3/4 同一 tip 一致，1 个落后 | percentile 舍入的跨客户端普查 |
+| `eth_feeHistory` | read-blockref 2026-10-21 | ✅ | soak ✅；2026-10-31 3/4 同一 oldestBlock 一致，1 个源区间不同 | percentile 舍入的跨客户端普查 |
 
 ## 1. 确定性与本地方法
 
@@ -354,9 +354,9 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - EIP-1898：不适用。
 - Reference：`height-at` pos 1。
 - 证据：`read-blockref 2026-10-21` 的 safe/finalized 捕获中两个源返回相同的
-  reward 数组，第三个端点已停止服务；2026-10-31 live probe 中 3/4 在同一个 tip
-  返回相同 reward，1 个源落后一个区块；`soak ✅`。跨客户端 Reward 舍入仍是
-  liveness gate。
+  reward 数组，第三个端点已停止服务；2026-10-31 live probe 中 3/4 在相同的
+  `oldestBlock` 返回相同 reward，1 个源的 `oldestBlock` 为不同区间；`soak ✅`。
+  跨客户端 Reward 舍入仍是 liveness gate。
 - 待办：percentile 舍入的 provider 证据未普查；不得用一次一致样本关掉舍入缺口。
 
 ## 4. 兼容性边界
@@ -392,7 +392,7 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 5. `eth_createAccessList` 的 hash/canonical 形式与历史状态可用性；latest object
    已 4/4 一致，但不是通用兼容结论；
 6. `eth_feeHistory` 的跨客户端 percentile 舍入（liveness gate；2026-10-31
-   3/4 同一 tip 一致，1 个落后）；
+   3/4 同一 `oldestBlock` 一致，1 个源区间不同）；
 7. WSS 路径的 error.data presence：2026-10-31 真实 provider 观察到
    missing/`0x`/value，`null` 未观察（决策 0056 未修订）；
 8. 完整区块内容承诺（uncle/withdrawals/交易根）的真实多源兼容性
@@ -423,7 +423,7 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
     `{"accessList":[],"gasUsed":"0x539f"}`；
   - hash-position 3 个明确拒收 + 1 个限流，无接受；
   - blobBaseFee 2/4 成功、1 free-plan、1 策略拒绝；
-  - feeHistory 3/4 同一 tip 一致，1 个落后一个区块；
+  - feeHistory 3/4 在相同 `oldestBlock` 一致，1 个源区间不同；
   - latest block 4/4 同一 26-key 顶层集合，3/4 同一 block，1 个落后；
   - syncing 4/4 为 `false`；
 - 该 probe 只补充 live observation，不替代历史 capture/replay，也不把

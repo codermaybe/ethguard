@@ -209,13 +209,18 @@ Module 所有权、固定不变量和 WSS 技术边界，不再复制路线状�
 
 ## WSS 的位置
 
-WSS 暂不接入本阶段。
+WSS 不接入默认 runtime。`internal/transport/wss` 已实现最小 raw-call
+Adapter 并通过进程内契约；native HTTP 仍是默认，Geth compatibility adapter
+仍是显式兼容通道。决策 0056 未修订，WSS 四态 golden 继续禁止。
 
-当前 geth WSS 路径继续作为现状 Adapter 使用，不在本阶段修复 error.data
-missing/null 保真问题，也不新增 WSS golden。
+当前 geth WSS 路径仍不能区分 `error.data` missing 与 JSON null；WSS
+raw-call Adapter 能保留四态，但只有进程内证据和部分真实 provider 证据
+（missing/`0x`/value 已观察，null 未观察），不能据此接入默认 runtime 或
+升级 golden。详见 [wss-provider-evidence.md](wss-provider-evidence.md) 和
+[wss-productionization-decisions.md](wss-productionization-decisions.md)。
 
-未来若需要专有 WSS RPC Adapter，它应替换 `pool.Transport`，而不是改变
-aggregator、reference、Decision 或方法 policy。专有实现只负责：
+未来若生产化 WSS，它应替换 `pool.Transport`，而不是改变 aggregator、
+reference、Decision 或方法 policy。专有实现只负责：
 
 - 单请求/单响应 JSON-RPC；
 - request ID demux；
@@ -224,8 +229,9 @@ aggregator、reference、Decision 或方法 policy。专有实现只负责：
 - error envelope 保真；
 - Close 时释放 pending call。
 
-subscription、filter、自动重连、自动重放和写入未知结果恢复必须另立契约。WSS
-只有在 HTTP 查询路径、adapter 优化和架构边界稳定后才进入路线图。
+subscription、filter、自动重连、自动重放和写入未知结果恢复必须另立契约。
+WSS 的 config/runtime、adapter 选择、reconnect、keepalive、backpressure 和
+health 归属仍是七个独立的未决裁决；在裁决前只作为可替换 Adapter 存在。
 
 ## 明确不做
 
