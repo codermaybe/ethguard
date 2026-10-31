@@ -32,7 +32,9 @@ func WithPlans(plans map[string]rpc.ReadPlan) Option {
 // corroborated or plain outcome capability. The fallback chain mirrors the
 // legacy invocation resolution exactly — the same capabilities, consulted in
 // the same order — with the plan's declarations replacing the type
-// assertions over decorator layers.
+// assertions over decorator layers. Corroboration is gated on the plan's
+// declared class (plan.Corroborating), and the resolver value's own
+// capabilities are read straight off that value, never by walking decorators.
 func resolvePlannedInvocation(plan *rpc.ReadPlan, prepared rpc.Request, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) invocationResolution {
 	if planPendingLocalRoute(plan, prepared, snap, snapOK) {
 		decision, err := rpc.ResolveLocalObservation(plan.Resolver, obs)
@@ -43,8 +45,10 @@ func resolvePlannedInvocation(plan *rpc.ReadPlan, prepared rpc.Request, snap rpc
 			outcome, err := corrob.ResolveOutcomeCorroborated(snap, obs)
 			return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}
 		}
-		decision, err := plan.Resolver.(rpc.CorroboratingPolicy).ResolveCorroborated(snap, obs)
-		return invocationResolution{decision: decision, err: err}
+		if corrob, ok := plan.Resolver.(rpc.CorroboratingPolicy); ok {
+			decision, err := corrob.ResolveCorroborated(snap, obs)
+			return invocationResolution{decision: decision, err: err}
+		}
 	}
 	if outcomeResolver, ok := plan.Resolver.(rpc.OutcomeResolver); ok {
 		outcome, err := outcomeResolver.ResolveOutcome(obs)
