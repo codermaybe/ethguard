@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**拓扑迁移、架构收敛、T09 审计与 ReadPlan M0–M8 已完成，进入 resolver seam 与 WSS 证据门阶段**（2026-10-31）
+状态：**拓扑迁移、架构收敛、T09 审计、ReadPlan M0–M8、resolver seam 收尾、reference 原始采集修复、WSS raw-call Adapter 与方法对接卡片已完成；W4 等待真实 provider 证据**（2026-10-31）
 
 本文件是 EthGuard 唯一的路线与阶段状态来源，记录当前事实、方向、顺序、依赖、
 遗留问题和阶段出口。设计文档只记录某个契约、决策或证据的详细内容，不维护第二
@@ -75,14 +75,14 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | 拓扑迁移、架构收敛、T09 审计 | 已完成 | 只在出现真实新 Seam 或维护负担时重新审查 | 不按目录整齐度拆包 |
 | HTTP connection 行为差分审计 | 已完成，规范契约待裁决 | 冻结 EthGuard HTTP contract，评估自有 Adapter 准入 | v1.17.5 仅为版本化 baseline，不是长期标准 |
 | 自有 HTTP Adapter | 规范 contract 已定义，尚未实现 | project-owned wire decoder、HTTP Adapter、差分接入 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
-| 逐方法 HTTP/root/ethadapter 对接 | 等待 connection Adapter 出口 | 23 个 RegisteredMethod 各有对接卡片和独立验收 | 不新增方法，不改变裁决语义 |
+| 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；provider 证据缺口按卡片登记 | 按卡片补齐真实 capture/replay/live 证据 | 不新增方法，不改变裁决语义 |
 | go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c/1d 已完成 | 替换 rpc/ethclient 实现，保留官方 Ethereum 类型 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
-| WSS transport | 评估排在方法对接和 connection seam 之后 | 契约、最小 Adapter、四态进程内验收后再议 golden | 不先改 quorum、policy、typed 或写路径 |
-| T11 自适应拥塞控制 | 决策方向已接受，算法待设计 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
-| reference freshness | 0032/0033 已接受边界，余量和对齐待专门决策 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
+| WSS transport | W1–W3 已完成：最小 raw-call Adapter 与进程内证据 | W4：真实 provider 证据后再议 0056/golden | 不先改 quorum、policy、typed 或写路径 |
+| T11 自适应拥塞控制 | 设计不变量已补；算法未实现 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
+| reference freshness | 设计不变量已补；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
 | reference raw capture | 两个缺口已按独立切片修复并补回归 | 保持采集语义，出现新清空点时重新审查 | 不改裁决、阈值、成员或 reference 语义 |
 | ReadPlan / resolver seam | M0–M8 已完成；resolver 内部仍是 `rpc.Policy` 深模块 | resolver 行为盘点、最小 seam 契约、legacy quarantine、是否继续扁平化的证据决策 | 不改变 Decision、quorum、reference、typed 或方法数量 |
-| WSS error-data evidence | 当前只能准确表达 missing/null 不可知 | presence 诊断、WSS 调用层可行性评估、四态进程内证据；实现与 golden 后置 | 不先加通用 Subscribe，不改变 `eth_call` 比较键或写路径 |
+| WSS error-data evidence | W0–W3 已完成；WSS raw-call Adapter 保留四态；真实 provider 与 reconnect/backpressure 证据仍缺 | W4 只有在真实 provider/进程内证据都通过后升级 0056 | 不先加通用 Subscribe，不改变 `eth_call` 比较键或写路径 |
 | provider compatibility evidence | 按方法逐步补齐 | capture/replay/live 状态登记并保持证据等级 | 不用合成样本冒充 provider 兼容性 |
 | 外部消费者纪律 | 当前无外部消费者 | 首次发布/tag/import 后重启 API break 评估 | 依据决策 0057 |
 

@@ -114,22 +114,41 @@
 
 ## 7. 逐方法对接卡片与 provider 证据（route: method integration）
 
-- 状态：进行中。
-- 计划：按 roadmap 顺序（确定性/本地、anchored state、对象数组、兼容边界）
-  为 23 个 RegisteredMethod 建立业务语义卡片；provider 证据等级与离线回归
-  分开登记，不用合成样本冒充兼容性证据。
+- 状态：进行中（23 张卡片已建立；provider 证据缺口按卡片登记）。
+- 证据：`docs/design/method-integration-cards.md` 按 23 个 RegisteredMethod
+  记录 root、ethadapter、typed、错误、pending、EIP-1898、reference 与证据
+  等级；区分 adapter 支持、root-only 与未验证项。
+- 风险：卡片中的 `soak`/`sample` 是历史观测，不是长期兼容性证明；
+  `eth_blobBaseFee` 等仍为 unverified。
+- 待最终处理问题：
+  - 外部证据阻塞：`eth_blobBaseFee`、`eth_syncing` progress object、
+    EIP-1898 object 形状、hash 位置 getBlockByNumber、createAccessList、
+    feeHistory percentile 舍入、WSS provider、完整区块内容承诺；
+  - 需要主维护者决策：是否以及何时为这些缺口安排真实 capture。
 
 ## 8. 自适应拥塞控制设计（route: T11）
 
-- 状态：执行中（只补设计与不变量）。
-- 约束：不改固定成员、分母、权重、模式、acceptance threshold；不与方法或
-  WSS 提交混合。
+- 状态：设计不变量已完成；算法未实现。
+- 证据：`docs/design/adaptive-congestion-control.md` 固定成员/分母/权重/
+  模式/门槛不变，定义信号、状态、预算共享、恢复和验收矩阵；不选择参数。
+- 风险：真实 provider 容量与限流形态仍缺；如果实现要求动态成员或权重，
+  必须停止在调度层。
+- 待最终处理问题：
+  - 需要主维护者决策：算法族、margin/冷却/队列参数、跨 endpoint 配额与
+    写路径预算归属；
+  - 外部证据阻塞：真实限流/容量样本。
 
 ## 9. Reference freshness（route: reference policy）
 
-- 状态：执行中（只补设计与不变量）。
-- 约束：不静默改 tag 语义；不改 reference 算法、成员或阈值；
-  freshness 失败意味着拒绝而非降级。
+- 状态：设计不变量已完成；新策略未实现。
+- 证据：`docs/design/reference-freshness-policy.md` 区分调度 tip gate 与
+  finalized 候选 lag，固定 tag 语义、拒绝而非降级、显式历史读取豁免与
+  agreement/freshness 分离；不选择默认 lag。
+- 风险：当前 `maxLag`/tip gate 是实现事实而非新默认承诺；改参数需要专门
+  决策和真实 provider 观测。
+- 待最终处理问题：
+  - 需要主维护者决策：lag 单位、方法适用范围、样本过期语义、是否自适应；
+  - 外部证据阻塞：多 provider 高度/滞后/reorg 观测。
 
 ## 10. 已登记的遗留问题
 
