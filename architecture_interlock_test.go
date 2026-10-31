@@ -116,6 +116,21 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 					t.Errorf("%s imports %s; core packages stay on the transport Port", pkg.ImportPath, imp)
 				}
 			}
+		case modulePath + "/internal/transport/wss":
+			// The WSS adapter is a transport-only seam: it must not reach into
+			// method plans, adjudication, reference establishment, or typed
+			// projection.
+			for banned := range map[string]string{
+				modulePath + "/aggregator":         "aggregator",
+				modulePath + "/rpc/methods":        "rpc/methods",
+				modulePath + "/internal/runtime":   "internal/runtime",
+				modulePath + "/internal/reference": "internal/reference",
+				modulePath + "/internal/typed":     "internal/typed",
+			} {
+				if imports[banned] {
+					t.Errorf("internal/transport/wss imports %s; WSS owns only the raw-call transport seam", banned)
+				}
+			}
 		}
 	}
 	if err := cmd.Wait(); err != nil {

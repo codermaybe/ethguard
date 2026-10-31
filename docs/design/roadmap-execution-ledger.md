@@ -83,16 +83,34 @@
 
 ## 5. 最小 WSS raw-call Adapter（route: WSS evidence gate, W2）
 
-- 状态：等待第 4 项证据。
-- 约束：只实现 raw call；不加入 Subscribe、filter、通用客户端或写路径重连；
-  WSS 代码不得混入 resolver、method plan、quorum 或 reference 提交。
+- 状态：已完成。
+- 证据：
+  - `internal/transport/wss/wss.go`：`transport.Transport`/`Dialer` 实现，
+    复用 `rpcwire` 编解码；只含 raw call、`ChainID`、`Close`；
+  - 进程内契约测试覆盖单请求、乱序、取消、超时、断连、read limit、
+    Close、pending 清理、四态 presence、通知、无自动重试和 pool seam 集成；
+  - 顶层 architecture interlock 禁止 WSS 包导入 aggregator、rpc/methods、
+    internal/runtime、internal/reference、internal/typed。
+- 风险：单 socket 的 Close 无法让在途调用继续；与 `transport.go` 通用注释
+  的偏差已登记，生产切换前需要主维护者裁决。
+- 待最终处理问题：
+  - 需要主维护者决策：Close 的 in-flight 语义、自动重连、keepalive；
+  - 外部证据阻塞：真实 provider 的 WSS 行为尚未采集。
 
 ## 6. WSS 进程内契约证据（route: WSS evidence gate, W3）
 
-- 状态：等待第 5 项。
-- 约束：missing/null/`0x`/具体 data、malformed frame、read limit、
-  cancellation、close、断连和资源释放全部通过后，才允许修订决策 0056 或
-  增加 WSS golden。
+- 状态：已完成（仅 raw-call Adapter 范围）；决策 0056 未修订，WSS 四态
+  golden 继续禁止。
+- 证据：
+  - `internal/transport/wss/wss_contract_test.go`：missing/null/`0x`/具体
+    data、malformed frame、read limit、cancellation、Close、断连、pending
+    清理、资源生命周期；
+  - `docs/design/wss-transport-adapter.md`：语义、非目标、证据与未决问题。
+- 未完成出口：真实 provider/进程内证据都通过才能升级 0056；reconnect、
+  reorg、backpressure 与真实 WSS provider capture 仍缺。
+- 待最终处理问题：
+  - 外部证据阻塞：WSS 四态 golden、真实 provider WSS capture；
+  - 需要主维护者决策：reconnect/reorg/backpressure 的契约归属。
 
 ## 7. 逐方法对接卡片与 provider 证据（route: method integration）
 
