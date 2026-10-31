@@ -21,6 +21,12 @@ Transport Port 的现有语义以 adapter 文档和进程内 contract 为准。
 当前阶段不自动重连。断连、读错误、read limit 和写失败会终止当前 transport，
 所有 pending 收到连接失败，新调用被拒绝。
 
+2026-10-31 的真实 provider capture 观察到一个公开 endpoint 在未知方法和非法
+参数错误后以 `1006` 异常关闭，同连接上的后续 `eth_chainId` 失败；其他 endpoint
+在同一轮保持可调用。该事实只说明 provider 侧可以主动终止连接，以及断连必须由
+transport 生命周期处理；它不授权自动重连，也不改变 pool health 或成员语义。
+证据见 [wss-provider-evidence.md](wss-provider-evidence.md)。
+
 未来若增加重连，必须由 transport 所有者显式管理 transport generation：
 
 1. 旧连接的 pending 全部结束为失败；未知结果不得自动重放；
@@ -79,7 +85,9 @@ pending 数量由上层并发和 deadline 约束。该模型不丢弃、不重�
 任何扩展实现前必须单独提交设计修订、进程内 contract 和失败路径测试；不得与
 resolver、method plan、reference、T11 或决策 0056 混合提交。至少需要：
 
-- 真实 provider capture 或明确的 provider 限制记录；
+- 真实 provider capture 或明确的 provider 限制记录；2026-10-31 的 error.data
+  presence 证据已记录在 [wss-provider-evidence.md](wss-provider-evidence.md)，
+  但不包含 reconnect/backpressure 行为；
 - race 下的取消、Close、断连、旧响应、队列清理和资源释放证据；
 - pool health、source membership、fixed basis 和 error attribution 不变的回归；
 - 明确的配置接线和回滚方式；

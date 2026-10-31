@@ -13,11 +13,13 @@ HTTP 四态回放保持有效。
 2. **后改造**：在 pool 内建立自己的调用接口，再评估自行管理 WSS 请求响应或
    采用上游扩展点的成本，决定是否实现。
 
-本文件当前状态是**W0 诊断切片与 W1 调用层可行性评估已交付（2026-10-31）**：
-根因与边界已核实，路线 1 已落地；W1 结论为自建最小 WSS raw-call 调用层可行，
-go-ethereum v1.17.5 没有取得原始 error envelope 的公开扩展点。W2/W3 尚未实现，
-presence 仍按 unknown 表达，WSS golden 继续禁止。详见
-[wss-call-layer-feasibility.md](wss-call-layer-feasibility.md)。
+本文件当前状态是**W0 诊断、W1 可行性、W2/W3 实现与 W4 真实 provider 证据均已
+推进（2026-10-31）**：根因与边界已核实，自建最小 WSS raw-call 调用层已实现并通过
+进程内契约；真实 provider capture 观察到 missing、`0x` 和具体 data，**`null`
+仍未观察**，因此决策 0056 不变，WSS golden 继续禁止。详见
+[wss-call-layer-feasibility.md](wss-call-layer-feasibility.md)、
+[wss-transport-adapter.md](wss-transport-adapter.md) 和
+[wss-provider-evidence.md](wss-provider-evidence.md)。
 
 ---
 

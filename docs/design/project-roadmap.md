@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**拓扑迁移、架构收敛、T09 审计、ReadPlan M0–M8、resolver seam 收尾、reference 原始采集修复、WSS raw-call Adapter 与方法对接卡片已完成；W4 等待真实 provider 证据**（2026-10-31）
+状态：**拓扑迁移、架构收敛、T09 审计、ReadPlan M0–M8、resolver seam 收尾、reference 原始采集修复、WSS raw-call Adapter 与方法对接卡片已完成；W4 真实 provider 证据已采集，missing/`0x`/value 观察，null 未观察，决策 0056 未修订**（2026-10-31）
 
 本文件是 EthGuard 唯一的路线与阶段状态来源，记录当前事实、方向、顺序、依赖、
 遗留问题和阶段出口。设计文档只记录某个契约、决策或证据的详细内容，不维护第二
@@ -165,8 +165,8 @@ WSS 扩展契约已补齐为设计-only 文档：
 | W0 | Presence 限制准确表达 | `internal/transport/`、`rpc/`、`internal/uncertain/`、诊断文档 | 无 | 把 geth WSS `ErrorData() == nil` 表达为“missing/null 不可知”的调用级诊断 | 不改变 `eth_call` 比较键、弃权语义、分母、门槛或 Decision.Value；HTTP 四态保持原状；WSS 不生成四态 golden |
 | W1 | WSS 调用层可行性评估 | `docs/design/`、`internal/transport/` 只读验证 | W0 | 自建最小 WSS、上游公开扩展点、维护成本三路线比较；明确是否能取得原始 error envelope | 有进程内验证计划；说明 request ID demux、取消、read limit、close、inflight 清理、重连和 presence 的实现责任；不提交生产 WSS 代码。**已完成（2026-10-31）：W1 通过，自建最小调用层可行；见 `wss-call-layer-feasibility.md`** |
 | W2 | 最小 WSS Adapter（仅 W1 通过后） | `internal/transport/wss/` 或等价业务目录 | W1、ReadPlan 稳定 | EthGuard 专用 raw call adapter，接入 `pool.Transport` seam | 单请求/响应、乱序、取消、超时、断连、bounded message、Close 和 pending call 清理通过；不增加基础 Transport 的通用订阅能力。**已完成（2026-10-31）：`internal/transport/wss` 实现 raw call/ChainID/Close；见 `wss-transport-adapter.md`** |
-| W3 | WSS 进程内证据 | `internal/transport/contract/`、`internal/transport/wss/`、验证目录 | W2 | 四态 error.data、malformed frame、read limit、close、cancellation、reconnect/reorg/backpressure 场景 | missing/null/`0x`/具体 data 可区分；无资源泄漏；HTTP contract 不回退；不改变 aggregator、reference、Decision、typed 或写路径。**进程内 raw-call 证据已完成（2026-10-31）；reconnect/reorg/backpressure 与真实 provider 证据仍缺** |
-| W4 | WSS 决策与 golden 升级 | `docs/decisions.md`、replay/capture 目录 | W3 + 真实 provider capture | 修订 0056，增加 WSS 四态 golden 或明确继续不支持 | 只有真实 provider/进程内证据都通过才升级；seam 建立本身不等于 presence 已恢复 |
+| W3 | WSS 进程内证据 | `internal/transport/contract/`、`internal/transport/wss/`、验证目录 | W2 | 四态 error.data、malformed frame、read limit、close、cancellation、reconnect/reorg/backpressure 场景 | missing/null/`0x`/具体 data 可区分；无资源泄漏；HTTP contract 不回退；不改变 aggregator、reference、Decision、typed 或写路径。**进程内 raw-call 证据已完成（2026-10-31）；reconnect/reorg/backpressure 仍缺；真实 provider presence 证据已采集，null 未观察** |
+| W4 | WSS 决策与 golden 升级 | `docs/decisions.md`、replay/capture 目录 | W3 + 真实 provider capture | 修订 0056，增加 WSS 四态 golden 或明确继续不支持 | 只有真实 provider/进程内证据都通过才升级；seam 建立本身不等于 presence 已恢复。**真实 provider 证据已采集（2026-10-31）：missing/`0x`/value 观察，null 未观察，0056 未修订；见 `wss-provider-evidence.md`** |
 
 WSS 任务的停止条件：W1 无法证明原始 error envelope 可取得，或维护成本会复制完整
 客户端连接层时，停在 W1，保留 W0 的“不可知”诊断，不进入 W2–W4。不得用反射、fork

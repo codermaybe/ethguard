@@ -199,7 +199,8 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - EIP-1898：支持。
 - Reference：`hash-at` pos 1。
 - 证据：`soak 2/0/1 ✅`；revert-data sample 2026-09-23（非普查）。
-- 待办：WSS 路径的 missing/null 仍为 unknown（决策 0056）；真实 WSS provider 证据未采集。
+- 待办：WSS 路径的 missing/null 仍为 unknown（决策 0056）；2026-10-31 的真实
+  WSS 证据观察到 missing/`0x`/value，`null` 未观察，因此仍不能升级四态断言。
 
 ### eth_estimateGas
 

@@ -115,6 +115,32 @@
   - 需要主维护者决策：reconnect/reorg/backpressure 的 provider 适用范围与
     配置归属；当前只完成设计契约，不实现扩展。
 
+## 6a. WSS 真实 provider 证据（route: WSS evidence gate, W4）
+
+- 状态：已执行真实 provider capture 与离线 replay；W4 出口未满足，决策 0056
+  未修订，WSS 四态 golden 继续禁止。
+- 证据：
+  - `docs/design/wss-provider-evidence.md`：6 个公开、无需凭据的 WSS
+    endpoint，chain 1，5 个只读 probe；30 条记录中 24 条协议错误；
+  - `cmd/wsscapture`：手动 capture/replay 工具；capture 目录在仓库外，
+    只持久化 `scheme://host`，不进入默认测试或 CI；
+  - 真实形态：missing=13、`0x`=1、value=10、null=0；24 个错误帧通过
+    `rpcwire.DecodeResponse`，`rpc.ErrorDataPresence` 与
+    `RPCError.DataPresence` 一致；12 个 `eth_call` 错误帧通过真实
+    `methods.CallPolicy` 的两源回放（缺失 data 弃权、`0x`/具体 data 返回、
+    比较键不跨形态合并、Support=2）；
+  - 连接行为：一个公开 endpoint 在未知方法和非法参数错误后以 `1006`
+    关闭连接，同连接 follow-up 失败；其他 endpoint 保持可调用。
+- 依赖/阻塞：`null` 未在真实 provider 上观察；rate limit、read limit、
+  response timeout、late response 和 provider 侧重连未触发或未观察。
+- 风险：一次 6-provider 样本不是兼容性普查；capture 客户端是原始
+  WebSocket probe，不是生产 WSS Adapter 的端到端网络测试（后者由进程内
+  contract 覆盖）。不得把本次结论写成 provider 兼容性或四态 golden 授权。
+- 下一步：寻找显式返回 `data:null` 的真实 provider，或由主维护者接受
+  “null 仍不可知”的限制；在证据前不合成、不升级 0056。
+- 最终归类：外部证据阻塞（null 与限流/生命周期行为）；真实 provider 的
+  missing/`0x`/value 已登记为 live observation。
+
 ## 7. 逐方法对接卡片与 provider 证据（route: method integration）
 
 - 状态：进行中（23 张卡片已建立；provider 证据缺口按卡片登记）。
@@ -158,7 +184,7 @@
 
 | 问题 | 状态 | 证据/影响 | 处理 |
 | --- | --- | --- | --- |
-| WSS missing/null presence 仍不可知 | 开放（外部证据阻塞） | 决策 0056；geth 路径只表达 unknown；WSS raw-call Adapter 已能保留四态，但未接入默认 runtime 且无真实 provider 证据 | W4 在 provider 证据完整后再修订 |
+| WSS missing/null presence 仍不可知 | 开放（外部证据阻塞） | 决策 0056；geth 路径只表达 unknown；WSS raw-call Adapter 已能保留四态；2026-10-31 真实 provider 观察到 missing/`0x`/value，null 未观察 | W4 在 null 真实证据或主维护者接受限制后再修订 |
 | geth WSS 自动重连语义 | 开放（需主维护者决策） | 替换 transport 时不得无声丢失；WSS Adapter 明确不重连 | 生产切换前另立重连/失败分类契约 |
 | WSS Close 的 in-flight 语义 | 已解决 | `Close` 标记 closing、拒绝新调用；pending 各自完成或取消后关闭 socket，遵守 Transport Port | 由 `TestCloseLeavesInFlightCallsToTheirContexts` 与 WSS adapter 文档锁定 |
 | `eth_syncing` progress object provider 形状 | 开放（外部证据阻塞） | 只有 sample/assumed 证据 | 保持 capture gap，不用合成样本关闭 |
@@ -195,5 +221,6 @@
     `eth_getBlockByNumber` hash 位置；
   - `eth_createAccessList` 兼容性；`eth_feeHistory` percentile 舍入；
   - 完整区块内容承诺（uncle/withdrawals/交易根）；
-  - WSS 真实 provider 的 error envelope、限流、消息大小与重连；
+  - WSS 真实 provider 的 `error.data:null`、限流、read limit、响应超时、
+    迟到响应与 provider 侧重连（missing/`0x`/value 已观察）；
   - T11 容量/限流样本与 freshness 多 provider 高度/滞后/reorg 观测。

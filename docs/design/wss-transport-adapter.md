@@ -5,6 +5,9 @@
 Subscribe、filter、批量、自动重连或写路径重放。决策 0056 **未**修订，
 WSS 四态 golden 继续禁止。
 
+W4 真实 provider 证据已采集（2026-10-31）：missing、`0x` 和具体 data 被实际
+frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-evidence.md)。
+
 前置证据：[wss-call-layer-feasibility.md](wss-call-layer-feasibility.md)
 （W1 通过：自建最小调用层可行，geth 无公开原始 envelope 扩展点）。
 
@@ -119,12 +122,16 @@ W1 原型 `internal/transport/wss_feasibility_test.go` 保留为可行性证据�
 ## 5. 对决策 0056 的影响
 
 没有修订。W3 的进程内证据只证明 **raw-call Adapter 能保留四态**，不证明
-真实 provider 的 WSS 行为、重连、backpressure 或 golden 可升级。决策 0056
-的出口条件（真实 provider/进程内证据都通过）尚未满足，因此：
+真实 provider 的 WSS 行为、重连、backpressure 或 golden 可升级。W4 的真实
+provider capture（2026-10-31）补充了 missing、`0x` 和具体 data 的实际 frame
+证据，但 `null` 未观察到；决策 0056 的出口条件（真实 provider/进程内证据都
+通过）尚未满足，因此：
 
 - WSS 四态 golden 继续禁止；
 - HTTP 四态 replay 保持有效；
 - `Decision`、quorum、reference、typed 和写路径语义不变。
+
+详见 [wss-provider-evidence.md](wss-provider-evidence.md)。
 
 ## 6. 未决问题（需主维护者裁决）
 
@@ -136,8 +143,10 @@ W1 原型 `internal/transport/wss_feasibility_test.go` 保留为可行性证据�
    ping，连接存活性由 reader 和调用 deadline 决定。
 3. **backpressure / 写队列**：当前无独立队列，依赖调用方并发与 deadline。
    真实 provider 证据显示写阻塞或 pending 增长时再评估。
-4. **provider 证据**：真实 WSS provider 的 error envelope、重连、限流和
-   消息大小行为尚未采集；不得用进程内样本冒充兼容性结论。
+4. **provider 证据**：真实 WSS provider 的 missing、`0x` 和具体 data 已采集
+   （2026-10-31）；`null`、限流、read limit、响应超时和 provider 侧重连仍未
+   观察。不得用进程内样本冒充兼容性结论；见
+   [wss-provider-evidence.md](wss-provider-evidence.md)。
 5. **写阻塞中的取消**：取消发生在 `WriteMessage` 已阻塞时，只有调用
    context 的 deadline 能中断写；没有 deadline 的调用依赖 peer/连接失败
    解除阻塞。pool 的 collect timeout 通常提供该 deadline；若直接使用
