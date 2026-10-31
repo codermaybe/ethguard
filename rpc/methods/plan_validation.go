@@ -102,6 +102,17 @@ func validatePlanBindings(plan rpc.ReadPlan, spec MethodSpec) error {
 		return fmt.Errorf("methods: %s declares resolver %q, but its value corroborates=%v outcomeCorroborates=%v",
 			spec.Method, spec.Resolver, corroborating, outcomeCorroborating)
 	}
+	agreement, hasAgreement := plan.Resolver.(rpc.AgreementPolicy)
+	agreementRequired := plan.Corroborating()
+	if !hasAgreement {
+		if agreementRequired {
+			return fmt.Errorf("methods: %s declares resolver %q, but its value has no agreement capability",
+				spec.Method, spec.Resolver)
+		}
+	} else if agreement.RequiresAgreement() != agreementRequired {
+		return fmt.Errorf("methods: %s declares resolver %q, but its agreement=%v want %v",
+			spec.Method, spec.Resolver, agreement.RequiresAgreement(), agreementRequired)
+	}
 	if rule, ok := plan.Resolver.(rpc.MethodRuleSource); ok {
 		projected, _ := rule.MethodRule()
 		switch spec.Resolver {

@@ -140,6 +140,8 @@ Dimensions/Revert/Provenance）、capability 由计划编译期双向绑定并�
 （不再按 decorator 遍历），legacy constructor 只保留 establishment 两个
 声明 seam。RS2 已将 `blockPolicy` 保留为 block-specific 深模块，并把计划与
 legacy 的 full-block admission 收敛到同一业务 helper；RS4 完成 quarantine 收尾。
+RS3 的 capability interlock 也已补齐：计划编译同时核对 corroboration、Outcome
+和 agreement 三个公共边界，避免固定 basis 与 typed/client agreement 语义分叉。
 
 ### WSS 证据门任务表
 

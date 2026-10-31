@@ -107,4 +107,20 @@ func TestCompilePlanRejectsCapabilityDrift(t *testing.T) {
 	}
 }
 
+func TestCompiledResolverAgreementMatchesItsCorroborationClass(t *testing.T) {
+	for _, spec := range Specs() {
+		plan, err := CompilePlan(spec)
+		if err != nil {
+			t.Fatalf("%s: compile plan: %v", spec.Method, err)
+		}
+		agreement, hasAgreement := plan.Resolver.(rpc.AgreementPolicy)
+		if hasAgreement != plan.Corroborating() {
+			t.Fatalf("%s: agreement capability=%v, corroborating class=%v", spec.Method, hasAgreement, plan.Corroborating())
+		}
+		if hasAgreement && !agreement.RequiresAgreement() {
+			t.Fatalf("%s: corroborating resolver does not require agreement", spec.Method)
+		}
+	}
+}
+
 func feeHistoryNormalizeProbe(json.RawMessage) (string, error) { return "", nil }

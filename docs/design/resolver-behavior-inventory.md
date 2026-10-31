@@ -129,9 +129,8 @@ anchor/pending 的方法级声明（不属 resolver 列，登记处）：
 4. `logsPolicy`/`feeHistoryPolicy` 的 Prepare/reference/blockRef 覆写已由
    计划 hook 替代；删除条件随 RS4 quarantine 的兼容范围一并裁决。
 5. Median/Local 的"无 corroboration 声明"与 `ResolverKind` 的
-   `corroboratingResolvers()` 决定表保持一致；RS1 契约需把该表升级为
-   resolver 接口语义而不是编译器旁的 switch。
-   —— RS1 裁决：保留 switch 为协议级声明；能力=resolver 本体方法集，
-   编译期双向绑定 + 装配期一次性读取，不新增 marker 接口。见契约 §5、
+   `corroboratingResolvers()` 决定表保持一致；agreement capability 也必须与
+   该类别同步。RS1/RS3 裁决：保留 switch 为协议级声明；能力=resolver 本体
+   方法集，编译期双向绑定 + 装配期一次性读取，不新增 marker 接口。见契约 §5、
    `rpc/methods/resolver_capability_interlock_test.go` 与
    `aggregator/resolver_capability_interlock_test.go`。

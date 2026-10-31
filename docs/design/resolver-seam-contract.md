@@ -170,6 +170,10 @@ pending 路由上的 `ResolveLocalObservation` 不受影响（§1 的 pending �
   block wrapper 再次携带 Prepare/reference/network 控制，或 plan/legacy 在上述
   结果矩阵出现无法由共享 helper 消除的分叉——才进入 RS5 修订，评估显式
   result hook 或继续拆分；在此之前不引入第二个 block resolver。
+- RS3 的 capability interlock 现在同时校验 `CorroboratingPolicy`、
+  `CorroboratingOutcomeResolver` 与 `AgreementPolicy`：strict/block/call-revert
+  三类必须具备 agreement 能力，median/local 不得声明 agreement。计划路径的
+  aggregator 仍直接读取 resolver value，legacy capability 测试保持独立。
 - `logsPolicy` / `feeHistoryPolicy` / 兼容 decorator 家族的删除条件归
   RS4（quarantine 已在编译层立柱）；
 - out 展平与否的最终证据决策归 RS5；
