@@ -154,14 +154,40 @@
 
 | 问题 | 状态 | 证据/影响 | 处理 |
 | --- | --- | --- | --- |
-| WSS missing/null presence 仍不可知 | 开放（外部证据阻塞） | 决策 0056；W0 只表达 unknown | W1–W3 完成且真实 provider 证据通过后再修订 |
-| geth WSS 自动重连语义 | 开放（需主维护者决策） | 替换 transport 时不得无声丢失 | WSS Adapter 明确不实现重连，保留为独立契约 |
+| WSS missing/null presence 仍不可知 | 开放（外部证据阻塞） | 决策 0056；geth 路径只表达 unknown；WSS raw-call Adapter 已能保留四态，但未接入默认 runtime 且无真实 provider 证据 | W4 在 provider 证据完整后再修订 |
+| geth WSS 自动重连语义 | 开放（需主维护者决策） | 替换 transport 时不得无声丢失；WSS Adapter 明确不重连 | 生产切换前另立重连/失败分类契约 |
+| WSS Close 的 in-flight 语义 | 开放（需主维护者决策） | 单 socket 关闭使 pending 失败，与 `transport.go` 通用注释不完全一致 | 决定是否保留或另立 WSS 生命周期契约 |
 | `eth_syncing` progress object provider 形状 | 开放（外部证据阻塞） | 只有 sample/assumed 证据 | 保持 capture gap，不用合成样本关闭 |
 | liveness/typed 的对象形状证据 | 开放（外部证据阻塞） | inventory 标注 assumed | 逐方法 provider capture 补齐 |
 
-## 11. 收尾分类（待完成报告汇总）
+## 11. 收尾分类（2026-10-31）
 
-- 已解决：见 §1–§3。
-- 可接受限制：见 §3、§10。
-- 需要主维护者决策：见 §1、§10（WSS 重连）。
-- 外部证据阻塞：见 §10（WSS presence golden、provider 形状）。
+- **已解决**：
+  - resolver 深模块裁决（决策 0063、契约 §8）；
+  - strict-head malformed 原始字节采集；
+  - finalized reference `Read`/`Confirm` 采集；
+  - WSS 调用层可行性（W1）与最小 raw-call Adapter（W2/W3，进程内）；
+  - 23 个方法的业务语义对接卡片；
+  - T11 与 reference freshness 的设计和不变量。
+- **可接受限制**：
+  - WSS Adapter 不实现订阅、批量、自动重连、主动 keepalive；生产切换前另立契约；
+  - WSS 取消发生在已阻塞的写调用时，只有调用 deadline 能中断写；
+  - finalized reference 的 participant/selection 诊断仍只通过
+    `ReferenceEvidence` 暴露；
+  - WSS Adapter 未接入默认 runtime/config，作为独立配置决策保留；
+  - WSS 进程内证据不升级决策 0056，不生成 WSS 四态 golden。
+- **需要主维护者决策**：
+  - WSS Close 对 in-flight 调用的语义（当前失败 pending，与
+    `transport.go` 通用注释存在偏差）；
+  - WSS reconnect/reorg/backpressure 与 keepalive 的契约归属；
+  - 是否以及何时把 WSS 接入配置/runtime；
+  - T11 算法族、margin/冷却/队列参数与预算范围；
+  - reference freshness 的 lag 单位、方法适用范围和是否自适应；
+  - 真实 provider capture 的排期。
+- **外部证据阻塞**：
+  - `eth_blobBaseFee` 存在性/形状、`eth_syncing` progress object；
+  - EIP-1898 object 形状；`eth_getBlockByNumber` hash 位置；
+  - `eth_createAccessList` 兼容性；`eth_feeHistory` percentile 舍入；
+  - 完整区块内容承诺（uncle/withdrawals/交易根）；
+  - WSS 真实 provider 的 error envelope、限流、消息大小与重连；
+  - T11 容量/限流样本与 freshness 多 provider 高度/滞后/reorg 观测。
