@@ -105,12 +105,15 @@
   - `internal/transport/wss/wss_contract_test.go`：missing/null/`0x`/具体
     data、malformed frame、read limit、cancellation、Close、断连、pending
     清理、资源生命周期；
-  - `docs/design/wss-transport-adapter.md`：语义、非目标、证据与未决问题。
+  - `docs/design/wss-transport-adapter.md`：语义、非目标、证据与未决问题；
+  - `docs/design/wss-lifecycle-extension-contract.md`：reconnect、keepalive、
+    backpressure 的设计边界与进入实现的证据门。
 - 未完成出口：真实 provider/进程内证据都通过才能升级 0056；reconnect、
   reorg、backpressure 与真实 WSS provider capture 仍缺。
 - 待最终处理问题：
   - 外部证据阻塞：WSS 四态 golden、真实 provider WSS capture；
-  - 需要主维护者决策：reconnect/reorg/backpressure 的契约归属。
+  - 需要主维护者决策：reconnect/reorg/backpressure 的 provider 适用范围与
+    配置归属；当前只完成设计契约，不实现扩展。
 
 ## 7. 逐方法对接卡片与 provider 证据（route: method integration）
 

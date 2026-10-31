@@ -154,6 +154,11 @@ W0 已交付：`rpc.RPCError.DataPresence` 记录调用级 presence 事实。具
 准确表达。该字段不参与 `RPCError.Raw()` 的业务比较，未改变 `eth_call` 的弃权、
 分母、门槛或 `Decision.Value`；WSS 四态 golden 仍保持禁止。
 
+WSS 扩展契约已补齐为设计-only 文档：
+[`wss-lifecycle-extension-contract.md`](wss-lifecycle-extension-contract.md)。它
+冻结 reconnect、keepalive、backpressure 的边界、错误和资源语义，不进入生产实现；
+真实 provider 证据和配置决策仍是后续入口。
+
 | 任务 | 内容 | 主要目录 | 前置 | 交付物 | 验收标准 |
 | --- | --- | --- | --- | --- | --- |
 | W0 | Presence 限制准确表达 | `internal/transport/`、`rpc/`、`internal/uncertain/`、诊断文档 | 无 | 把 geth WSS `ErrorData() == nil` 表达为“missing/null 不可知”的调用级诊断 | 不改变 `eth_call` 比较键、弃权语义、分母、门槛或 Decision.Value；HTTP 四态保持原状；WSS 不生成四态 golden |

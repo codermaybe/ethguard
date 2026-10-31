@@ -128,6 +128,8 @@ W1 原型 `internal/transport/wss_feasibility_test.go` 保留为可行性证据�
 
 ## 6. 未决问题（需主维护者裁决）
 
+扩展边界见 [wss-lifecycle-extension-contract.md](wss-lifecycle-extension-contract.md)。
+
 1. **自动重连**：geth WSS 当前自动重连；WSS Adapter 明确不重连。生产
    切换前必须决定是否保留、如何保留，以及 pool 健康/失败分类。
 2. **keepalive**：是否主动 ping、pong 超时与空闲连接回收。当前不主动
