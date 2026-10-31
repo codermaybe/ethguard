@@ -122,8 +122,10 @@ anchor/pending 的方法级声明（不属 resolver 列，登记处）：
    verdict 能力是否是 resolver 本体（strict）统一拥有，wrapper 差异只属于
    legacy。
 
-3. `blockPolicy` 的 header-only Value 恢复与 full-block admission：RS2 的
-   专评估对象——深模块保留或迁为显式 plan hook。
+3. `blockPolicy` 的 header-only Value 恢复与 full-block admission：RS2 已裁决
+   当前阶段保留深模块；计划与 legacy admission 共用 `admitBlockResponse`，
+   `byHash` 身份由编译事实绑定，不从请求方法名推断。若后续出现 wrapper
+   携带 Prepare/reference/network 控制或等价矩阵分叉，再由 RS5 修订该裁决。
 4. `logsPolicy`/`feeHistoryPolicy` 的 Prepare/reference/blockRef 覆写已由
    计划 hook 替代；删除条件随 RS4 quarantine 的兼容范围一并裁决。
 5. Median/Local 的"无 corroboration 声明"与 `ResolverKind` 的

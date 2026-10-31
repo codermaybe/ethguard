@@ -16,17 +16,14 @@ import (
 )
 
 // The spec inventory reuses each method's own admission hooks. The block
-// methods share the block object's admission with their byHash identity.
-func admitBlock(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
-	if string(value) == "null" {
-		return nil, nil
-	}
-	fullTx := len(req.Params) > 1 && req.Params[1] == true
-	if !fullTx {
-		return nil, nil
-	}
-	_, byHash := map[string]bool{MethodGetBlockByHash: true}[req.Method]
-	return blockobject.AdmitBlock(ctx, req, value, byHash, call)
+// methods bind their identity explicitly so plan and compatibility admission
+// cannot drift through request-method inference.
+func admitBlockByHashResponse(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
+	return admitBlockResponse(ctx, req, value, true, call)
+}
+
+func admitBlockByNumberResponse(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
+	return admitBlockResponse(ctx, req, value, false, call)
 }
 
 func admitLogs(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
@@ -72,7 +69,7 @@ func Specs() []MethodSpec {
 			Encode:                 blockobject.Encode,
 			KeySource:              rpc.RuleKeyNormalizer,
 			CompareKind:            rpc.RuleCompareMethodSpecific,
-			Admit:                  admitBlock,
+			Admit:                  admitBlockByHashResponse,
 			ObservationProjectorID: ProjectorBlock,
 		},
 		{
@@ -83,7 +80,7 @@ func Specs() []MethodSpec {
 			KeySource:              rpc.RuleKeyNormalizer,
 			CompareKind:            rpc.RuleCompareMethodSpecific,
 			Pending:                PendingSpec{Mode: PendingObserve, Pos: 0},
-			Admit:                  admitBlock,
+			Admit:                  admitBlockByNumberResponse,
 			ObservationProjectorID: ProjectorBlock,
 		},
 		{

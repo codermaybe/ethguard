@@ -153,10 +153,23 @@ pending 路由上的 `ResolveLocalObservation` 不受影响（§1 的 pending �
   会被按文件逐 AST 拒绝；计划 registry 只在 `method_registry.go`
   编译一次，不存在第二个 registry。
 
-## 6. 本轮未动（登记，不裁决）
+## 6. RS2 当前裁决与后续边界
 
-- `blockPolicy` 不迁移：header-only Value 恢复、full-block admission、
-  BlockRef 语义归 RS2 专门评估；
+- `blockPolicy` 在当前架构阶段保留为 resolver 深模块，不迁移成第二套
+  resolver 或额外的 aggregator 阶段。它只拥有 block-specific result 语义：
+  窄的 `number|hash` 比较键下，协商结果恢复代表源的 header-only spelling；
+  full-block admission 仍通过共享的 `admitBlockResponse` 执行。
+- 计划路径的 `Admit` 与 legacy policy 的 `Admit` 现在绑定同一个业务语义 helper，
+  并由编译期 `byHash` 事实显式选择 hash/number 身份；不会再从请求方法名推断
+  admission 形态。admission caller 仍是执行期注入，resolver 不持有网络 callback。
+- 证据由 `rpc/methods/block_encoding_test.go`、`block_admission_test.go`、
+  `internal/runtime/plan_block_equivalence_test.go` 和全量 plan/legacy
+  equivalence 覆盖：header-only、full、null、canonical Value、admission、
+  hash/number identity 与 BlockRef 均保持既有语义。
+- 本裁决是当前阶段的可修订架构记录，不宣称永久不变。只有出现新的证据——例如
+  block wrapper 再次携带 Prepare/reference/network 控制，或 plan/legacy 在上述
+  结果矩阵出现无法由共享 helper 消除的分叉——才进入 RS5 修订，评估显式
+  result hook 或继续拆分；在此之前不引入第二个 block resolver。
 - `logsPolicy` / `feeHistoryPolicy` / 兼容 decorator 家族的删除条件归
   RS4（quarantine 已在编译层立柱）；
 - out 展平与否的最终证据决策归 RS5；

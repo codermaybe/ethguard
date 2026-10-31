@@ -69,6 +69,45 @@ func TestBlockAdmissionFetchesAndBindsUnclesFromSameSource(t *testing.T) {
 	}
 }
 
+func TestBlockAdmissionUsesDeclaredIdentity(t *testing.T) {
+	raw, hash := admissionBlock(t, []json.RawMessage{})
+	findPlan := func(t *testing.T, method string) rpc.ReadPlan {
+		t.Helper()
+		for _, spec := range Specs() {
+			if spec.Method != method {
+				continue
+			}
+			plan, err := CompilePlan(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return plan
+		}
+		t.Fatalf("missing spec for %s", method)
+		return rpc.ReadPlan{}
+	}
+
+	// The plan's hash identity is a compiled fact. A caller-side method label
+	// cannot silently turn the same full-block response into a number request.
+	hashPlan := findPlan(t, MethodGetBlockByHash)
+	if _, err := hashPlan.Admit(context.Background(), rpc.Request{
+		Method: MethodGetBlockByNumber,
+		Params: []any{hash.Hex(), true},
+	}, raw, nil); err != nil {
+		t.Fatalf("hash plan inferred identity from request method: %v", err)
+	}
+
+	// The number identity is equally explicit and accepts the requested
+	// height even when the request label is the hash method.
+	numberPlan := findPlan(t, MethodGetBlockByNumber)
+	if _, err := numberPlan.Admit(context.Background(), rpc.Request{
+		Method: MethodGetBlockByHash,
+		Params: []any{"0x1", true},
+	}, raw, nil); err != nil {
+		t.Fatalf("number plan inferred identity from request method: %v", err)
+	}
+}
+
 func admissionBlock(t *testing.T, txs []json.RawMessage) (json.RawMessage, common.Hash) {
 	head := &types.Header{ParentHash: common.HexToHash("0x03"), UncleHash: types.EmptyUncleHash, TxHash: types.EmptyTxsHash, Number: big.NewInt(1), GasLimit: 1, Time: 1, Difficulty: new(big.Int)}
 	raw := blockRaw(t, head, nil)

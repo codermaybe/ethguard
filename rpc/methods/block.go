@@ -13,6 +13,21 @@ type blockPolicy struct {
 	byHash bool
 }
 
+// admitBlockResponse is the single full-block admission hook shared by the
+// explicit plan and the compatibility policy. The block identity is supplied
+// by the method assembly, so admission never infers hash-versus-number
+// semantics from a request method string.
+func admitBlockResponse(ctx context.Context, req rpc.Request, value json.RawMessage, byHash bool, call rpc.AdmissionCaller) (json.RawMessage, error) {
+	if string(value) == "null" {
+		return nil, nil
+	}
+	fullTx := len(req.Params) > 1 && req.Params[1] == true
+	if !fullTx {
+		return nil, nil
+	}
+	return blockobject.AdmitBlock(ctx, req, value, byHash, call)
+}
+
 func (p blockPolicy) RequiresAgreement() bool {
 	if a, ok := p.Policy.(rpc.AgreementPolicy); ok {
 		return a.RequiresAgreement()
@@ -85,12 +100,5 @@ func headerOnlyBlock(raw json.RawMessage) bool {
 // Admit validates full block responses through the shared block object
 // admission implementation. Header-only calls remain anchor reads.
 func (p blockPolicy) Admit(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
-	if string(value) == "null" {
-		return nil, nil
-	}
-	fullTx := len(req.Params) > 1 && req.Params[1] == true
-	if !fullTx {
-		return nil, nil
-	}
-	return blockobject.AdmitBlock(ctx, req, value, p.byHash, call)
+	return admitBlockResponse(ctx, req, value, p.byHash, call)
 }

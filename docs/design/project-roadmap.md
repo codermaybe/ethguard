@@ -138,7 +138,8 @@ RS1 已交付：resolver 最小 seam 契约冻结在
 CallRevert 的统一 Outcome（execution 维度 verdict，data 状态留在
 Dimensions/Revert/Provenance）、capability 由计划编译期双向绑定并一次性读取
 （不再按 decorator 遍历），legacy constructor 只保留 establishment 两个
-声明 seam。RS2 评估 `blockPolicy`，RS4 完成 quarantine 收尾。
+声明 seam。RS2 已将 `blockPolicy` 保留为 block-specific 深模块，并把计划与
+legacy 的 full-block admission 收敛到同一业务 helper；RS4 完成 quarantine 收尾。
 
 ### WSS 证据门任务表
 
