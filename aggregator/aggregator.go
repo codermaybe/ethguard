@@ -3,6 +3,7 @@
 package aggregator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -505,6 +506,13 @@ func ObservationRPCError(err error) *rpc.RPCError {
 	if errors.As(err, &preserved) {
 		if raw, present := preserved.ErrorDataJSON(); present {
 			structured.Data = append(json.RawMessage(nil), raw...)
+			if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+				structured.DataPresence = rpc.ErrorDataPresenceNull
+			} else {
+				structured.DataPresence = rpc.ErrorDataPresenceValue
+			}
+		} else {
+			structured.DataPresence = rpc.ErrorDataPresenceMissing
 		}
 		return structured
 	}
@@ -513,6 +521,7 @@ func ObservationRPCError(err error) *rpc.RPCError {
 		if data := dataErr.ErrorData(); data != nil {
 			if raw, marshalErr := json.Marshal(data); marshalErr == nil {
 				structured.Data = raw
+				structured.DataPresence = rpc.ErrorDataPresenceValue
 			}
 		}
 	}

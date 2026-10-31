@@ -36,9 +36,10 @@ type SourceFault struct {
 // RPCError is the structured protocol error returned by a JSON-RPC upstream.
 // Data is retained verbatim because contract-specific callers may need it.
 type RPCError struct {
-	Code    int
-	Message string
-	Data    json.RawMessage
+	Code         int
+	Message      string
+	Data         json.RawMessage
+	DataPresence ErrorDataPresenceState
 }
 
 // Raw returns a stable JSON representation of the protocol error body. It is

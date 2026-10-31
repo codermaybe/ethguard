@@ -145,6 +145,12 @@ Dimensions/Revert/Provenance）、capability 由计划编译期双向绑定并�
 WSS 的目标是 EthGuard 专用的最小调用层，不是通用 WebSocket 客户端，也不是把
 `Subscribe` 加入基础 Transport。WSS 任务必须先完成证据门，再决定是否实现。
 
+W0 已交付：`rpc.RPCError.DataPresence` 记录调用级 presence 事实。具备
+`rpc.ErrorDataPresence` 的适配器报告 `missing`、`null` 或 `value`；只有解码后
+`DataError.ErrorData() == nil` 的路径报告 `unknown`，因此当前 geth WSS 的限制被
+准确表达。该字段不参与 `RPCError.Raw()` 的业务比较，未改变 `eth_call` 的弃权、
+分母、门槛或 `Decision.Value`；WSS 四态 golden 仍保持禁止。
+
 | 任务 | 内容 | 主要目录 | 前置 | 交付物 | 验收标准 |
 | --- | --- | --- | --- | --- | --- |
 | W0 | Presence 限制准确表达 | `internal/transport/`、`rpc/`、`internal/uncertain/`、诊断文档 | 无 | 把 geth WSS `ErrorData() == nil` 表达为“missing/null 不可知”的调用级诊断 | 不改变 `eth_call` 比较键、弃权语义、分母、门槛或 Decision.Value；HTTP 四态保持原状；WSS 不生成四态 golden |

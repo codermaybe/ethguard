@@ -13,8 +13,8 @@ HTTP 四态回放保持有效。
 2. **后改造**：在 pool 内建立自己的调用接口，再评估自行管理 WSS 请求响应或
    采用上游扩展点的成本，决定是否实现。
 
-本文件当前状态是**讨论稿**：根因与边界已核实，候选机制与成本仍需进一步验证，
-不作为实施依据。
+本文件当前状态是**W0 诊断切片已交付，WSS 调用层仍待评估**：根因与边界已核实，
+路线 1 已落地，候选调用层机制与成本仍需进一步验证。
 
 ---
 
@@ -73,6 +73,20 @@ geth `DataError.ErrorData() == nil`（根因见 §3），最终 `rpc.RPCError.Da
 
 损失的是 WSS 的 wire presence、诊断和 replay 精度。**不能把 `null` 当作空
 bytes，也不能据此生成 WSS 四态 golden。**
+
+### 1.6 W0 诊断载体（已交付）
+
+`rpc.RPCError` 现在携带 `DataPresence`，其值只描述本次调用能够确认的事实：
+
+- `missing`：适配器提供了原始 envelope，且没有 `data` 成员；
+- `null`：原始成员存在且为 JSON `null`；
+- `value`：原始成员存在且为非 null JSON 值；
+- `unknown`：适配器只有解码后的 `DataError` 视图，无法区分 missing 与 null。
+
+HTTP capture 继续提供前三态，当前 geth WSS 对缺失和 null 都报告 `unknown`。
+`DataPresence` 不进入 `RPCError.Raw()` 的比较语义，也不改变 `eth_call` 的
+弃权、分母、门槛或 `Decision.Value`。它是调用级诊断，不能被解释为 WSS
+presence 已恢复。
 
 ---
 
@@ -213,9 +227,8 @@ HTTP capture hardening 保持既有优先级，但**不是**研究 WSS seam 的�
 
 ## 7. 未决问题
 
-- 路线 1 的载体：调用级诊断的具体形态（日志/`UncertainCapture`/其它）
-  尚未确定。
-- 路线 1 若最终选择 `RPCError` 字段，其默认值与构造兼容性方案尚未确定。
+- 路线 1 已采用 `rpc.RPCError.DataPresence`；后续可再决定是否将该诊断投影到
+  `UncertainCapture` 或其它观测输出。
 - 路线 2 的自建最小 WSS 调用层，是否需要完整接管 ping/pong，还是可复用一个
   更薄的传输封装，需进一步验证可插拔点。
 - geth 是否存在可用的公开扩展点，需在评估阶段确认。
