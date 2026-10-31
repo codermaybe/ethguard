@@ -59,3 +59,13 @@ Reference trace fixture：`internal/runtime/latest_reference_trace_test.go` 覆�
 6. **`eth_getProof`、Stream/WSS、proof 语义**：维持提案 §7/§8 的搁置决定。
 7. **未迁移的缺口方法**（提案 §6.1 的 27 个 ethclient 缺口）：按 D3 以安全契约
    评审集合推进，数量只作结果；本分支未新增注册方法。
+
+## 4. 修订记录（2026-10-31）
+
+上文 §1 的 M0/M1 行描述的是当时的状态：`runtime.Build` 通过 `Specs()+Compile`
+装配 decorator-chain registry。这已经不是当前状态。在下一个执行迁移
+（M2–M8，计划见 `docs/design/method-execution-migration-plan.md`）完成后，
+默认 Read registry 已改为每个注册方法一个显式 `rpc.ReadPlan`，runtime 不再
+生成或检查 decorator chain；编译产物降级为兼容与等价验证 seam。本报告的
+历史行不回改；当前状态、M0–M8 的提交与门禁证据、以及"已计划化/仍保留在
+resolver seam 内"的准确边界见 `docs/design/method-execution-migration-report.md`。

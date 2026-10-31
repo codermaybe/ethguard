@@ -1,6 +1,8 @@
 # Method execution migration plan
 
-状态：执行计划 / 2026-10-30
+状态：执行计划 / 2026-10-30。2026-10-31 更新：M0–M8 已执行并通过门禁，
+实施与验收边界见 `docs/design/method-execution-migration-report.md`；
+resolver 内部 seam 是否继续扁平化是后续边界梳理，不在本计划的验收范围内。
 
 目标执行者：glm5.3flash。完成后由维护者按本文验收，不以“测试通过”替代架构验收。
 

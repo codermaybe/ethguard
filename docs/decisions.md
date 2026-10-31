@@ -1431,6 +1431,44 @@ free-form prose, `Prefix*` wildcards or `as above` aliases. Repetition in the
 matrix is preferred to maintaining a Markdown grammar. References in the
 method contracts and roadmap are explanatory links, not a second test index.
 
+Amendment (2026-10-31, method execution migration M0–M8; triggered by the
+explicit-plan migration recorded in
+`docs/design/method-execution-migration-report.md` after the plan/chain
+equivalence acceptance). One sentence above is superseded: "Policy decorator
+composition and the tests that exercise it remain the executable source of
+method behavior" no longer holds for the methods the default Read registry
+drives.
+
+- What stays valid unchanged: the test discipline (per-method behavioral
+  tests, the moving-tag matrix as a cross-check), the deliberately different
+  registered methods, and the ban on a declarative `MethodContract`
+  structure, code generation, or a universal `suite.RunAll` runner. The
+  `ReadPlan` execution plan is not a second method language: it is the
+  one-plan-per-registered-read executable fact source, compiled from the
+  frozen `MethodSpec` inventory and held to the chain by the plan/chain
+  equivalence gate.
+- What is superseded: decorator composition is no longer the executable
+  fact source of the default Read registry. The runtime registers one
+  explicit `rpc.ReadPlan` per registered method, and the aggregator's fixed
+  phase pipeline (validate/prepare → reference → prepare-with-reference →
+  collect → admit → resolve → project) reads its routing facts from the
+  plan value. The plan is the current fact source for that registry.
+- What is retained: the hand-written Policy constructors remain the public
+  compatibility surface and the equivalence seam the plan-level behavior
+  tests hold the plans to; the not-yet-planned and unknown methods keep the
+  legacy policy path untouched.
+- Scope note: "method-level stage behavior is plan-owned" does not mean all
+  Policy shapes are gone. The resolver a plan carries is still an
+  `rpc.Policy`, and the resolver's own normalization, clustering, revert
+  handling and block-specific resolution still run behind that seam. Whether
+  that inner resolver surface is flattened further is a separate boundary
+  review, not a claim of this migration.
+- Decision governance: this amendment is reproducible. Future evidence from
+  a real resolver-plan, ZK-verification, or WSS migration can supersede the
+  current structure the same way — a dated amendment here, the historical
+  record kept, the triggering evidence named, and the migration scope
+  stated — never a silent rewrite of an accepted decision.
+
 
 ## 0041. Canonical quantity and successful DATA results
 
