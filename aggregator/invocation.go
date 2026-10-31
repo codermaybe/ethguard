@@ -431,11 +431,29 @@ func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req
 		decision.Diagnostics = &state.evaluation.Diagnostics
 	}
 	if resolveErr == nil && state.evaluation != nil {
-		projector, ok := a.projectors[req.Method]
-		if !ok {
-			if state.plan != nil {
+		var (
+			projector rpc.ObservationProjector
+			ok        bool
+		)
+		// The projection resolutions are separate per route: a planned read
+		// looks its projector up by the plan's declared projector ID — the
+		// business identity the runtime binds, which may differ from the
+		// method name and may be shared with other reads — then falls back
+		// to the resolver's own projection capability; the legacy read
+		// keeps the method-name binding plus the chained policy's
+		// capability. A read with no projector ID at all stays
+		// unprojected; neither route falls back to the method name on the
+		// plan path.
+		if state.plan != nil {
+			if state.plan.ProjectorID != "" {
+				projector, ok = a.projectors[state.plan.ProjectorID]
+			}
+			if !ok {
 				projector, ok = state.plan.Resolver.(rpc.ObservationProjector)
-			} else {
+			}
+		} else {
+			projector, ok = a.projectors[req.Method]
+			if !ok {
 				projector, ok = state.policy.(rpc.ObservationProjector)
 			}
 		}

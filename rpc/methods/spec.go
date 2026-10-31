@@ -57,6 +57,30 @@ type ReferenceSpec = rpc.ReferenceSpec
 // AdmissionFunc is the method-owned admission hook signature.
 type AdmissionFunc = func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error)
 
+// Observation projector IDs. A spec declares the projection family its read
+// belongs to by business identity, not by method name: two methods sharing
+// one observation shape share one ID, and the runtime binds what each ID
+// resolves to. An empty declaration keeps the read unprojected — it stays
+// empty instead of falling back to the method name.
+const (
+	// ProjectorScalarStandard is the scalar projection shared by
+	// `eth_getBalance` and `eth_call`.
+	ProjectorScalarStandard = "scalar-standard"
+	// ProjectorBlock is the block-object projection shared by both block
+	// methods.
+	ProjectorBlock = "block"
+	// ProjectorReceipt is the receipt-object projection.
+	ProjectorReceipt = "receipt"
+	// ProjectorBlockReceipts is the block-receipt list projection.
+	ProjectorBlockReceipts = "block-receipts"
+	// ProjectorTransaction is the transaction-object projection.
+	ProjectorTransaction = "transaction"
+	// ProjectorLogs is the log list projection.
+	ProjectorLogs = "logs"
+	// ProjectorFeeHistory is the fee-history range projection.
+	ProjectorFeeHistory = "fee-history"
+)
+
 // MethodSpec is the data form of one read method's contract: resolver, value
 // domain, reference declaration, pending handling, and hooks. Compile turns
 // it into the one policy the registry installs; the field set is frozen —

@@ -81,11 +81,17 @@ func WithReferenceStage(stage ReferenceStage) Option {
 // WithProjectors registers method-level semantic projectors separately from
 // policies. Keeping this assembly map outside Policy preserves every optional
 // policy capability (admission, anchoring, corroboration, forwarding).
+//
+// The map key is the projection's resolution key, which depends on the
+// route: a planned read resolves its projector by the plan's declared
+// projector ID (a business identity that may differ from the method name
+// and may be shared across reads), while a chained legacy read still
+// resolves by method name. Nil projectors are skipped.
 func WithProjectors(projectors map[string]rpc.ObservationProjector) Option {
 	return func(a *Aggregator) {
-		for method, projector := range projectors {
+		for key, projector := range projectors {
 			if projector != nil {
-				a.projectors[method] = projector
+				a.projectors[key] = projector
 			}
 		}
 	}

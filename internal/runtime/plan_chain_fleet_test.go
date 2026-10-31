@@ -33,6 +33,25 @@ func runPlanAndChain(t *testing.T, script scriptNodes, chain chainFor, req rpc.R
 	return
 }
 
+// methodKeyedProjectors re-keys the projector registry under the legacy
+// method keys the chained route resolves by. The production registry binds
+// projection families by the business identity the plans declare; the
+// chained compatibility route has no plan, so the equivalence harness
+// translates each plan's declared identity back to its method key — one
+// translating seam on the test side, not a second production binding.
+func methodKeyedProjectors(bundle *Bundle) map[string]rpc.ObservationProjector {
+	methodKeyed := make(map[string]rpc.ObservationProjector, len(bundle.Plans))
+	for method, plan := range bundle.Plans {
+		if plan.ProjectorID == "" {
+			continue
+		}
+		if projector, ok := bundle.Projectors[plan.ProjectorID]; ok {
+			methodKeyed[method] = projector
+		}
+	}
+	return methodKeyed
+}
+
 // runEquivalenceRoute drives one route. planned=true uses the production
 // bundle's aggregator (the method must be registered as planned); planned=
 // false builds an aggregator around the hand-written chain policy.
@@ -63,7 +82,7 @@ func runEquivalenceRoute(t *testing.T, script scriptNodes, chain chainFor, req r
 			aggregator.WithCorroboration(mustCorroboration(t, rpc.CorroborationMajority, 2)),
 			aggregator.WithCollectTimeout(2*time.Second),
 			aggregator.WithReferenceStage(bundle.Stage),
-			aggregator.WithProjectors(bundle.Projectors))
+			aggregator.WithProjectors(methodKeyedProjectors(bundle)))
 	}
 	decision, aggErr := agg.Aggregate(context.Background(), req)
 	businessServed := false
