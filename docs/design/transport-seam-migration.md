@@ -5,10 +5,10 @@
 本文是决策 0060 的执行设计。它只处理 pool 如何连接和发起一次 RPC 请求，
 不重新定义方法 policy、quorum、Decision、reference、typed projection 或写路径。
 
-> 实施状态（2026-10-29，pool 去 alias 后）：下文引用的 `standardDialer`
-> 别名已删除。`pool` 持有 `transport.Dialer` 端口；默认装配是 native
-> adapter，Geth compatibility adapter 经 `gethcompat` 显式 seam 进入。
-> 分片文本保留为迁移记录，不再描述当前生产形态。
+> 实施状态（2026-10-31）：Slice 2 的 native HTTP adapter 已于 2026-10-29
+> 实现并成为默认装配；Slice 3 的 WSS raw-call adapter 已实现，但未接入默认
+> runtime，也不改变决策 0056。下文 Slice 2/3/4 的描述保留为迁移记录和当时
+> 的授权边界，不再表示“尚未实现”。
 >
 > 对直接使用 `pool` 的调用方：`pool.NewPool` 不再默认安装任何拨号器——
 > 未传 `WithDialer` 的 pool 在拨号时对所有源 fail closed（
@@ -301,13 +301,14 @@ go-ethereum `ethclient`/`ethereum/rpc` 的直接依赖。该片必须分别量�
 
 ## 6. 推荐决策
 
-Slice 0/1/1b/1c 已完成。当前只授权 **Slice 1d：HTTP behavior differential audit**；
-不实现自有 HTTP/WSS client，不改变 `rpc.RPCError`、`Emission`、`Observation` 或
-Decision。
+Slice 0/1/1b/1c/1d/2 已完成；native HTTP 是默认装配，L1 contract 已冻结。WSS
+raw-call adapter 已实现并通过进程内 contract，但未接入默认 runtime，也没有
+reconnect、keepalive 或 backpressure 扩展。
 
-Slice 1d 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连语义；没有这两项审查，
-不进入自有 HTTP/WSS 实现。这样替换风险被隔离在独立的 Transport Adapter，
-而不会同时改变方法、聚合、reference、typed 或公开 adapter 语义。
+当前授权边界是：不因新的 provider 证据重开 HTTP contract；WSS 生命周期扩展和
+默认接线必须先有独立决策与真实 provider 证据。这样替换风险仍被隔离在独立的
+Transport Adapter，而不会同时改变方法、聚合、reference、typed 或公开 adapter
+语义。
 
 ## 7. 执行记录
 
@@ -331,7 +332,11 @@ Slice 1d 通过后，由主维护者单独审查 HTTP 行为差分和 WSS 重连
 - `21eedd7`：Slice 1d，锁定 go-ethereum v1.17.5 HTTP compatibility baseline，
   明确 Geth 行为与 EthGuard 规范的分层；baseline 不授权复制响应 ID 不校验、
   degenerate error 健康语义或 HTTP Close no-op 等偶然行为。
-- 下一片：主维护者裁决 EthGuard HTTP contract；裁决完成前不开始自有 HTTP/WSS
-  客户端实现。
-- 当前没有自有 HTTP 或 WSS client，也没有修改 `RPCError`、`Emission`、
-  `Observation`、Decision 或公开 ethadapter 表面。
+- 迁移记录（2026-10-29）：Slice 2 的 native HTTP adapter 已实现；`internal/rpcwire`
+  和 `internal/transport/http` 通过 L1 contract 与差分测试，生产默认切到 native，
+  Geth compatibility adapter 保留为显式 seam。这完成了本节当时列出的 HTTP 准入
+  条件，不表示 WSS 生命周期扩展已被授权。
+- 迁移记录（2026-10-31）：Slice 3 的 WSS raw-call adapter 已实现并通过进程内
+  contract；它不包含订阅、批量、自动重连或写路径重放，未接入默认 runtime，
+  决策 0056 未修订。真实 provider 证据和 reconnect/keepalive/backpressure 归属
+  仍是独立决策。

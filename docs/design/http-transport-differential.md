@@ -1,8 +1,10 @@
 # HTTP Transport 行为差分审计（Slice 1d）
 
-状态：审计完成，未实现自有 HTTP client。本文记录当前 Geth HTTP compatibility
-Adapter 的可观察行为，作为版本化兼容证据和差分输入；它不是自有 HTTP Adapter
-必须永久复制的规范。
+状态：**历史差分审计记录（Slice 1d）**。本文记录 Geth HTTP compatibility
+Adapter 在 v1.17.5 下的可观察行为，作为版本化兼容证据和差分输入。native HTTP
+Adapter 已在 Slice 2 实现并成为战略默认（见 §8 与
+[transport-contract.md](transport-contract.md)）；本文不是当前实现状态，也不是
+自有 HTTP Adapter 必须永久复制的规范。
 
 - 代码基线：ethguard `3781b93`（Slice 1c 之后，工作树干净）。
 - 依赖基线：go-ethereum `v1.17.5`（`go.mod` 固定）。

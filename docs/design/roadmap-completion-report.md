@@ -124,7 +124,8 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
 
 ### 4.4 外部证据阻塞
 
-- `eth_blobBaseFee`、`eth_syncing` progress object；
+- `eth_blobBaseFee` 的多源普查（已有 2026-10-21 sample，缺普查）、
+  `eth_syncing` progress object；
 - EIP-1898 object 形状；
 - `eth_getBlockByNumber` hash 位置；
 - `eth_createAccessList` 兼容性；

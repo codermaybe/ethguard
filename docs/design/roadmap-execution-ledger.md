@@ -122,10 +122,11 @@
   记录 root、ethadapter、typed、错误、pending、EIP-1898、reference 与证据
   等级；区分 adapter 支持、root-only 与未验证项。
 - 风险：卡片中的 `soak`/`sample` 是历史观测，不是长期兼容性证明；
-  `eth_blobBaseFee` 等仍为 unverified。
+  `eth_blobBaseFee` 已有 2026-10-21 的单次 sample/replay，但仍是单次采样；
+  `eth_syncing` progress object、EIP-1898 多源 object 形状等仍缺。
 - 待最终处理问题：
-  - 外部证据阻塞：`eth_blobBaseFee`、`eth_syncing` progress object、
-    EIP-1898 object 形状、hash 位置 getBlockByNumber、createAccessList、
+  - 外部证据阻塞：`eth_blobBaseFee` 的多源普查、`eth_syncing` progress object、
+    EIP-1898 多源 object 形状、hash 位置 getBlockByNumber、createAccessList、
     feeHistory percentile 舍入、WSS provider、完整区块内容承诺；
   - 需要主维护者决策：是否以及何时为这些缺口安排真实 capture。
 
@@ -171,7 +172,9 @@
   - finalized reference `Read`/`Confirm` 采集；
   - WSS 调用层可行性（W1）与最小 raw-call Adapter（W2/W3，进程内）；
   - 23 个方法的业务语义对接卡片；
-  - T11 与 reference freshness 的设计和不变量。
+  - T11 与 reference freshness 的设计和不变量；
+  - native HTTP adapter 与冻结的 L1 transport contract（2026-10-29 基线；
+    本轮复核默认装配与 `pool` 无 Geth 依赖）。
 - **可接受限制**：
   - WSS Adapter 不实现订阅、批量、自动重连、主动 keepalive；生产切换前另立契约；
   - WSS 取消发生在已阻塞的写调用时，只有调用 deadline 能中断写；
@@ -186,8 +189,10 @@
   - reference freshness 的 lag 单位、方法适用范围和是否自适应；
   - 真实 provider capture 的排期。
 - **外部证据阻塞**：
-  - `eth_blobBaseFee` 存在性/形状、`eth_syncing` progress object；
-  - EIP-1898 object 形状；`eth_getBlockByNumber` hash 位置；
+  - `eth_blobBaseFee` 多源支持面（已有 2026-10-21 sample，缺普查）；
+    `eth_syncing` progress object；
+  - EIP-1898 多源 object 形状（nonce/storage/code 仅单源成功）；
+    `eth_getBlockByNumber` hash 位置；
   - `eth_createAccessList` 兼容性；`eth_feeHistory` percentile 舍入；
   - 完整区块内容承诺（uncle/withdrawals/交易根）；
   - WSS 真实 provider 的 error envelope、限流、消息大小与重连；

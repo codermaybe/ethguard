@@ -42,8 +42,9 @@ EthGuard 的运行时语义已经冻结：
 - Execution APIs 是方法名、参数形态、响应字段和官方边界的规范来源；
 - 当前 go-ethereum `v1.17.5` 是兼容性、Geth 类型和 wire 行为的对照基线，不是
   Ethereum 上游真值的规范来源；
-- `go.mod` 固定 go-ethereum 版本以保证可复现，但这形成实现耦合债务：pool 的
-  dialer/raw-body 路径仍接触具体 Geth client，typed values/codecs 也使用 Geth 类型；
+- `go.mod` 固定 go-ethereum 版本以保证可复现；连接 seam 已由 native HTTP 默认实现
+  承担，pool 生产代码不再接触具体 Geth client，Geth compatibility adapter 只经
+  `gethcompat` 显式进入。typed values/codecs 仍使用 Geth 类型，这是保留的兼容面；
 - 依赖迁移只允许渐进地收窄内部 connection/transport seam，不启动移除 go-ethereum
   类型的大爆炸重写，不建立平行 Block/Receipt/Transaction 类型系统；
 - T00 的版本、分叉和 ethclient 兼容矩阵见 [spec-baseline.md](spec-baseline.md)，
@@ -73,10 +74,10 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | 轨道 | 当前状态 | 下一出口 | 约束 |
 | --- | --- | --- | --- |
 | 拓扑迁移、架构收敛、T09 审计 | 已完成 | 只在出现真实新 Seam 或维护负担时重新审查 | 不按目录整齐度拆包 |
-| HTTP connection 行为差分审计 | 已完成，规范契约待裁决 | 冻结 EthGuard HTTP contract，评估自有 Adapter 准入 | v1.17.5 仅为版本化 baseline，不是长期标准 |
-| 自有 HTTP Adapter | 规范 contract 已定义，尚未实现 | project-owned wire decoder、HTTP Adapter、差分接入 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
+| HTTP connection 行为差分审计 | 已完成；L1 contract 已冻结（`transport-contract.md`），native HTTP 为战略默认 | 只在出现新 provider 证据或 Geth 升级时复核 | v1.17.5 仅为版本化 baseline，不是长期标准 |
+| 自有 HTTP Adapter | 已实现（`internal/transport/http`）并作为默认装配；Geth compatibility adapter 保留为显式 seam | 无；新增 provider 证据只登记为观测，不重开契约 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
 | 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；provider 证据缺口按卡片登记 | 按卡片补齐真实 capture/replay/live 证据 | 不新增方法，不改变裁决语义 |
-| go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c/1d 已完成 | 替换 rpc/ethclient 实现，保留官方 Ethereum 类型 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
+| go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c/1d 与 native HTTP Slice 2 已完成；默认构建不链接 `ethclient` | WSS 生产化决策；typed 类型保留 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
 | WSS transport | W1–W3 已完成：最小 raw-call Adapter 与进程内证据 | W4：真实 provider 证据后再议 0056/golden | 不先改 quorum、policy、typed 或写路径 |
 | T11 自适应拥塞控制 | 设计不变量已补；算法未实现 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
 | reference freshness | 设计不变量已补；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
@@ -221,13 +222,15 @@ WSS 在 W1 之前只允许文档和离线 seam 验证；W2–W4 还必须提供�
 
 ## 第零阶段：connection/RPC transport seam 与依赖边界
 
-这是逐方法对接的前置阶段。当前 `pool.Transport` 已经提供最小调用 seam，但 dialer、
-HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereum/rpc`
-行为填充；`CallContext` 也只返回 `error`，无法表达 raw error envelope 的
-`error.data` presence。这是依赖债务的实际风险点。Slice 0 的独立 fake Transport
+这是逐方法对接的前置阶段。`pool.Transport` 已经是最小调用 seam；native HTTP
+adapter 是该 seam 的战略默认实现，Geth compatibility adapter 和 WSS raw-call
+adapter 是可选实现。`CallContext` 仍只返回 `error`，raw error envelope 的
+`error.data` presence 通过可选 capability 传递。Slice 0 的独立 fake Transport
 基线、Slice 1 的 Geth compatibility seam、Slice 1b 的 Adapter relocation、Slice 1c
-的中性 protocol-error capability 和 Slice 1d 的 HTTP 行为差分审计已完成。当前
-等待主维护者裁决 EthGuard HTTP contract；自有 HTTP/WSS Adapter 尚未开始。
+的中性 protocol-error capability、Slice 1d 的 HTTP 行为差分审计和 native HTTP
+Slice 2 均已完成，L1 contract 已冻结在
+[`transport-contract.md`](transport-contract.md)。WSS raw-call adapter 已实现，
+但尚未接入默认 runtime；其生命周期扩展仍待决策。
 
 本阶段的目标是建立一个由 EthGuard 控制的内部 connection/RPC 调用契约，同时保持
 公开 ethclient-shaped 表面和 Ethereum 类型不变：
@@ -246,15 +249,15 @@ HTTP body capture 和 Geth WSS 路径仍由具体 `*ethclient.Client` / `ethereu
 
 - 不移除 go-ethereum；
 - 不创建平行 Block/Receipt/Transaction 类型、hex codec 或共识编码；
-- 不实现 WSS Adapter、subscription 或 filter；Geth 当前已有的 WSS 自动重连语义
-  不得在替换时无声丢失，需另立契约后再决定；
+- 不把 WSS 接入默认 runtime，不实现 subscription 或 filter；Geth 当前已有的 WSS
+  自动重连语义不得在替换时无声丢失，需另立契约后再决定；
 - 不把 raw wire 放入 `Decision.Value`、比较键或普通 Observation；
 - 不把 transport seam 的建立写成 WSS missing/null 已修复。
 
-出口是 fake adapter 和独立的 Geth compatibility adapter 都能通过同一内部契约驱动
-现有生产路径，且完整 offline、adapter、race 门通过；下一步由主维护者裁决 EthGuard
-规范 contract，再决定是否实现自有 HTTP Adapter。需要重新定义错误、连接生命周期
-或 evidence 语义的部分由主维护者设计，不交给 agent 自主决定。
+出口已满足：fake adapter、native HTTP adapter 和 Geth compatibility adapter 都能
+通过同一内部契约驱动现有生产路径，完整 offline、adapter、race 门通过。下一步是
+WSS 生产化决策，不在本阶段重开已冻结的 HTTP contract。需要重新定义错误、连接
+生命周期或 evidence 语义的部分仍由主维护者设计，不交给 agent 自主决定。
 
 事实审计、最小 seam、分片顺序和风险矩阵见
 [HTTP/WSS connection 与 RPC transport seam 迁移设计](transport-seam-migration.md)。

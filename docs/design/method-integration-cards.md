@@ -82,8 +82,10 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Pending：无。
 - EIP-1898：不适用。
 - Reference：无。
-- 证据：`unverified`。
-- 待办：provider 存在性与返回形状未经真实样本验证；不得按方法存在即宣称兼容。
+- 证据：`sample 2026-10-21`（`read-volatile` 三次抓取：两个源返回 `0x` quantity，
+  一个源返回 free-plan 错误；公开 capture 与 replay case 已归档；不是普查，也
+  不是通用兼容结论）。
+- 待办：该错误证明 provider 支持面存在差异；不得按方法存在即宣称兼容。
 
 ### net_peerCount
 
@@ -105,7 +107,8 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Pending：无。
 - EIP-1898：不适用。
 - Reference：无。
-- 证据：`soak census ✅`（progress object 形状仍是 capture gap，T09 未合成）。
+- 证据：`soak census ✅`；`read-volatile 2026-10-21` 三个源均返回 `false`，未覆盖
+  progress object。progress object 形状仍是 capture gap，T09 未合成。
 - 待办：progress object 的真实 provider 形状不得用合成样本关闭。
 
 ### net_version
@@ -153,8 +156,10 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Pending：`PendingObserve`（pos 1）。
 - EIP-1898：支持。
 - Reference：`hash-at` pos 1。
-- 证据：`soak ✅`；object 形状 `assumed`。
-- 待办：EIP-1898 object 的 provider 证据未单独采集。
+- 证据：`soak ✅`；`eip1898-object 2026-09-23` 已归档 `{"blockNumber":...}` 请求，
+  仅一个源成功返回 quantity，两个源报告 pruned state，一个源为空；多源 object
+  形状仍未确认。
+- 待办：不得把单源成功写成通用 EIP-1898 object 支持；replay 未达到 corroboration。
 
 ### eth_getStorageAt
 
@@ -165,8 +170,10 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Pending：`PendingObserve`（pos 2）。
 - EIP-1898：支持。
 - Reference：`hash-at` pos 2。
-- 证据：`soak ✅`；object 形状 `assumed`。
-- 待办：EIP-1898 object 的 provider 证据未单独采集。
+- 证据：`soak ✅`；`eip1898-object 2026-09-23` 的 `{"blockNumber":...}` 请求只有
+  一个源成功返回 storage word，两个源报告 pruned state，一个源为空；多源 object
+  形状仍未确认。
+- 待办：不得把单源成功写成通用 EIP-1898 object 支持；replay 未达到 corroboration。
 
 ### eth_getCode
 
@@ -177,8 +184,10 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Pending：`PendingObserve`（pos 1）。
 - EIP-1898：支持。
 - Reference：`hash-at` pos 1。
-- 证据：`soak ✅`；object 形状 `assumed`。
-- 待办：EIP-1898 object 的 provider 证据未单独采集。
+- 证据：`soak ✅`；`eip1898-object 2026-09-23` 的 `{"blockHash":...}` 请求只有
+  一个源成功返回 code，两个源报告 pruned state，一个源为空；多源 object 形状
+  仍未确认。
+- 待办：不得把单源成功写成通用 EIP-1898 object 支持；replay 未达到 corroboration。
 
 ### eth_call
 
@@ -213,8 +222,11 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Pending：`PendingObserve`（pos 1）。
 - EIP-1898：支持。
 - Reference：`hash-at` pos 1。
-- 证据：object 形状证据 2026-09-23（非兼容结论）。
-- 待办：真实 provider 兼容性证据未采集；不得以样本关闭。
+- 证据：`eip1898-object 2026-09-23`：latest object 有两个源返回
+  `{"accessList":[],"gasUsed":"0x539f"}`，一个源返回空对象，一个源 fault；
+  hash/canonical 路径被 pruned-state 拒绝。object 形状证据存在，但不是多源
+  兼容结论。
+- 待办：不得以样本关闭 provider 兼容性缺口；hash/canonical 形式仍待真实 capture。
 
 ## 3. 对象与数组
 
@@ -299,8 +311,10 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Pending：`PendingObserve`（pos 1）。
 - EIP-1898：不适用。
 - Reference：`height-at` pos 1。
-- 证据：soak ✅；跨客户端 Reward 舍入仍是 liveness gate。
-- 待办：percentile 舍入的 provider 证据未普查。
+- 证据：`read-blockref 2026-10-21` 的 safe/finalized 捕获中两个源返回相同的
+  reward 数组，第三个端点已停止服务；`soak ✅`。跨客户端 Reward 舍入仍是
+  liveness gate。
+- 待办：percentile 舍入的 provider 证据未普查；不得用一次一致样本关掉舍入缺口。
 
 ## 4. 兼容性边界
 
@@ -310,7 +324,7 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 | --- | --- | --- |
 | revert data | `eth_call` 双维语义；missing/null 弃权，`0x`/具体 data 断言 | 决策 0039/0052/0061；sample 2026-09-23 |
 | pending | observe vs refuse 由方法声明；typed pending 有明确拒绝 | `moving-tag-matrix.md`；`ethadapter/pending_wire_test.go` |
-| EIP-1898 object | balance/nonce/storage/code/call/estimate/createAccessList 支持 | `Specs()` 的 `ReferenceSpec.EIP1898`；object 形状 `assumed` 的项已注明 |
+| EIP-1898 object | balance/nonce/storage/code/call/estimate/createAccessList 支持 | `Specs()` 的 `ReferenceSpec.EIP1898`；nonce/storage/code 仅单源成功（2026-09-23），多源形状未确认 |
 | NotFound | block/receipt/tx/blockReceipts 的 corroborated null → `ethereum.NotFound` | `internal/typed/decoder.go` |
 | 负 block number | adapter `-1` 拒绝；`-2/-3/-4` 各自建立参考；`-5` 为 earliest | `ethadapter/block_number_negative_test.go` |
 | `requireCanonical` | 不在当前接口；显式 hash/height 绑定由方法 admission 负责 | `spec-baseline.md` 缺口分类 |
@@ -320,10 +334,12 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 
 不得用合成样本关闭以下缺口：
 
-1. `eth_blobBaseFee` 的 provider 存在性与形状（`unverified`）；
+1. `eth_blobBaseFee` 的多源支持面：已有 2026-10-21 sample（两源成功、一源
+   free-plan 拒绝），但没有普查或兼容性结论；
 2. `eth_syncing` progress object 的真实 provider 形状（T09 capture gap）；
 3. `eth_getTransactionCount`、`eth_getStorageAt`、`eth_getCode` 的 EIP-1898
-   object 形状（`assumed`）；
+   object 多源形状：2026-09-23 仅一个源成功，两个源 pruned state、一个源为空；
+   不能升级为通用能力；
 4. `eth_getBlockByNumber` 的 hash 位置在真实 provider 上的接受度
    （soak 3/4 拒收，不能升级为通用能力）；
 5. `eth_createAccessList` 的真实 provider 兼容性（仅 object 形状证据）；
