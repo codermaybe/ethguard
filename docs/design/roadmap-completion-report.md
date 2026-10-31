@@ -130,11 +130,16 @@ CI。本报告以续轮门禁为准，前一轮结果保留在对应提交历史
 - 真实 provider 的 `null` 未观察，因此决策 0056 不变，WSS 四态 golden
   继续禁止；详见 `wss-provider-evidence.md`。
 
-### 3.7 WSS 生产化决策输入
+### 3.7 WSS 生产化推荐决策矩阵
 
-- 新增 `wss-productionization-decisions.md`，列出 config/runtime、adapter
-  选择、reconnect、keepalive、backpressure、health 归属和写路径排除七个
-  独立裁决；当前未接入 runtime，未选择任何生命周期参数。
+- `wss-productionization-decisions.md` 已把 config/runtime、adapter 选择、
+  reconnect、keepalive、backpressure、health 归属和写路径排除七个问题收敛为
+  推荐决策矩阵；每项记录当前事实、选项、语义影响、所需证据、回滚、推荐和
+  是否需要主维护者裁决。当前未接入 runtime，未选择任何生命周期参数。
+- 矩阵发现两个接线前必须裁决的事实：`SendRawTransaction` 使用同一 pool 的
+  固定成员，WSS source 进入该 pool 也会收到写广播；raw WSS 的 presence
+  保真会让显式 `null` 产生与 geth WSS `unknown` 不同的 `eth_call` 数据键。
+  因此推荐先裁决写路由和 presence 生产行为，再决定是否接线。
 
 ### 3.8 方法与 freshness/T11 观测
 
@@ -203,8 +208,9 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
 1. **W4（剩余证据）**：missing、`0x` 和具体 data 已由真实 WSS frame 证实；
    继续寻找显式 `data:null` 的 provider，或由主维护者接受“null 仍不可知”。
    在证据前不修订 0056、不增加 WSS 四态 golden。
-2. **WSS 生产化决策**：按 `wss-productionization-decisions.md` 的七个问题
-   单独裁决；未裁决前不接入配置/runtime。
+2. **WSS 生产化决策**：`wss-productionization-decisions.md` 的推荐矩阵已
+   形成，待主维护者裁决写路径路由、WSS presence 生产行为和 source→adapter
+   选择；未裁决前不接入配置/runtime。
 3. **逐方法 provider 证据**：latest EIP-1898 object、createAccessList 和
    block 顶层 key 集合已有 live observation；继续补 syncing progress object、
    EIP-1898 历史 object、feeHistory 舍入、完整内容承诺和 hash 位置。

@@ -147,7 +147,13 @@ provider capture（2026-10-31）补充了 missing、`0x` 和具体 data 的实�
    （2026-10-31）；`null`、限流、read limit、响应超时和 provider 侧重连仍未
    观察。不得用进程内样本冒充兼容性结论；见
    [wss-provider-evidence.md](wss-provider-evidence.md)。
-5. **写阻塞中的取消**：取消发生在 `WriteMessage` 已阻塞时，只有调用
+5. **写路径路由**：adapter 没有写方法不代表写路径已排除；
+   `Client.SendRawTransaction` 使用同一 pool 的固定成员，WSS source 进入该
+   pool 也会收到写广播。接线前必须由独立只读组合或新的成员角色决策保证排除。
+6. **presence 生产行为**：raw WSS 会保留显式 `null`，而 geth WSS 只能表达
+   unknown；接线前必须选择保留四态还是降级 unknown，见
+   [wss-productionization-decisions.md](wss-productionization-decisions.md)。
+7. **写阻塞中的取消**：取消发生在 `WriteMessage` 已阻塞时，只有调用
    context 的 deadline 能中断写；没有 deadline 的调用依赖 peer/连接失败
    解除阻塞。pool 的 collect timeout 通常提供该 deadline；若直接使用
    Adapter 且无 deadline，调用方需自行保证有界写。是否在 Adapter 内增加

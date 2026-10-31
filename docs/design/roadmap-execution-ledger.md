@@ -138,11 +138,20 @@
   contract 覆盖）。不得把本次结论写成 provider 兼容性或四态 golden 授权。
 - 下一步：寻找显式返回 `data:null` 的真实 provider，或由主维护者接受
   “null 仍不可知”的限制；在证据前不合成、不升级 0056。
-- 生产化裁决输入：`docs/design/wss-productionization-decisions.md` 列出
+- 生产化裁决输入：`docs/design/wss-productionization-decisions.md` 已把
   config/runtime、adapter 选择、reconnect、keepalive、backpressure、health
-  归属和写路径排除七个问题；当前均未接线。
+  归属和写路径排除七个问题收敛为推荐决策矩阵（2026-10-31），每项记录事实、
+  选项、语义影响、证据、回滚和推荐；当前均未接线。
+- 矩阵新发现的接线前置问题：
+  - `Client.SendRawTransaction` 使用 `pool.Broadcast` 遍历固定成员，WSS
+    source 进入同一 pool 会收到 `eth_sendRawTransaction`；“adapter 无写方法”
+    不等于写路径已排除。
+  - raw WSS 的 presence 保真会让显式 `data:null` 产生 `reverted|null` 键，
+    而 geth WSS 只能产生 `reverted|missing`；接线 raw WSS 不是无行为变化的
+    连接替换。
 - 最终归类：外部证据阻塞（null 与限流/生命周期行为）；真实 provider 的
-  missing/`0x`/value 已登记为 live observation。
+  missing/`0x`/value 已登记为 live observation；写路由与 presence 生产行为
+  需要主维护者决策。
 
 ## 7. 逐方法对接卡片与 provider 证据（route: method integration）
 
@@ -259,7 +268,10 @@
     但这些仍不是长期兼容性普查。
 - **需要主维护者决策**：
   - WSS reconnect/reorg/backpressure 与 keepalive 的契约归属；
-  - 是否以及何时把 WSS 接入配置/runtime；
+  - WSS 生产化的写路径路由机制（adapter-only、独立只读组合或新的成员角色）；
+  - WSS raw presence 在 production 是保留四态还是降级 unknown；
+  - 是否以及何时把 WSS 接入配置/runtime，采用显式 per-source 字段还是
+    仅 composition root 注入；
   - T11 算法族、margin/冷却/队列参数与预算范围；
   - reference freshness 的 lag 单位、方法适用范围和是否自适应；
   - 真实 provider capture 的排期。

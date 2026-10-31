@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**拓扑迁移、架构收敛、T09 审计、ReadPlan M0–M8、resolver seam 收尾、reference 原始采集修复、WSS raw-call Adapter 与方法对接卡片已完成；W4 真实 provider 证据已采集，missing/`0x`/value 观察，null 未观察，决策 0056 未修订**（2026-10-31）
+状态：**拓扑迁移、架构收敛、T09 审计、ReadPlan M0–M8、resolver seam 收尾、reference 原始采集修复、WSS raw-call Adapter 与方法对接卡片已完成；W4 真实 provider 证据已采集，missing/`0x`/value 观察，null 未观察，决策 0056 未修订；WSS 生产化七个问题已收敛为推荐决策矩阵，待主维护者裁决**（2026-10-31）
 
 本文件是 EthGuard 唯一的路线与阶段状态来源，记录当前事实、方向、顺序、依赖、
 遗留问题和阶段出口。设计文档只记录某个契约、决策或证据的详细内容，不维护第二
@@ -172,10 +172,14 @@ WSS 任务的停止条件：W1 无法证明原始 error envelope 可取得，或
 客户端连接层时，停在 W1，保留 W0 的“不可知”诊断，不进入 W2–W4。不得用反射、fork
 geth 未导出类型、快速扫描 ID 或合成样本代替 WSS 证据。
 
-WSS 生产化的七个独立裁决、当前事实和最小接线顺序见
-[`wss-productionization-decisions.md`](wss-productionization-decisions.md)。
-在 W4 `null` 证据或主维护者接受限制、以及 reconnect/keepalive/backpressure
-决策完成前，WSS 不接入默认 runtime。
+WSS 生产化的七个独立裁决、当前事实和最小接线顺序已收敛为
+[`wss-productionization-decisions.md`](wss-productionization-decisions.md) 的
+推荐决策矩阵（2026-10-31），待主维护者裁决。矩阵明确：WSS 保持显式 opt-in、
+默认 HTTP 不变；第一切片不启用 reconnect/keepalive/队列；不自动重放未知结果；
+写路径排除需要独立于 adapter 的路由机制，因为 `SendRawTransaction` 使用同一
+pool 的固定成员；raw WSS presence 会让显式 `null` 与 geth WSS `unknown`
+产生不同的 `eth_call` 数据键。在 W4 `null` 证据或主维护者接受限制、写路由和
+presence 生产行为裁决完成前，WSS 不接入默认 runtime。
 
 ### 两条主线的顺序与分配
 
