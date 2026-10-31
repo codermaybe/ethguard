@@ -65,13 +65,21 @@
 
 ## 4. WSS 调用层可行性评估（route: WSS evidence gate, W1）
 
-- 状态：执行中（离线审查与进程内验证）。
-- 证据（待补全）：
-  - go-ethereum v1.17.5 `ServerCodec` 的未导出方法集；
-  - `decodeError` 的坍缩点复核；
-  - 进程内最小 WSS 验证（仅测试，不进入生产构建）。
-- 待决问题：request ID demux、取消、read limit、关闭、inflight 清理、
-  断连与 presence 的实现责任归属，以及自建层与 geth 升级的维护成本。
+- 状态：已完成（结论：W1 通过，允许进入 W2）。
+- 证据：
+  - `docs/design/wss-call-layer-feasibility.md`：geth v1.17.5 公开接口复核、
+    三条路线比较、责任矩阵、维护成本与停止条件；
+  - `internal/transport/wss_feasibility_test.go`：进程内最小原型验证
+    demux、取消、read limit、Close、断连、通知、presence 四态与 ChainID；
+  - `go.mod` 将 `gorilla/websocket` 提升为直接依赖（已在 go-ethereum
+    依赖图中，无新增模块）。
+- 裁决：自建最小 WSS raw-call 调用层可行；geth 没有取得原始 error
+  envelope 的公开扩展点；不使用反射、fork 或未导出类型。
+- 风险：自建层拥有连接生命周期与 demux；geth 的自动重连/ping 语义不会
+  自动保留，生产切换前必须另立契约。
+- 待最终处理问题：
+  - 需要主维护者决策：ping/pong keepalive 与自动重连是否进入 W2 或独立契约
+    （当前 W2 明确不实现）。
 
 ## 5. 最小 WSS raw-call Adapter（route: WSS evidence gate, W2）
 

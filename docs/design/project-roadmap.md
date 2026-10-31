@@ -157,7 +157,7 @@ W0 已交付：`rpc.RPCError.DataPresence` 记录调用级 presence 事实。具
 | 任务 | 内容 | 主要目录 | 前置 | 交付物 | 验收标准 |
 | --- | --- | --- | --- | --- | --- |
 | W0 | Presence 限制准确表达 | `internal/transport/`、`rpc/`、`internal/uncertain/`、诊断文档 | 无 | 把 geth WSS `ErrorData() == nil` 表达为“missing/null 不可知”的调用级诊断 | 不改变 `eth_call` 比较键、弃权语义、分母、门槛或 Decision.Value；HTTP 四态保持原状；WSS 不生成四态 golden |
-| W1 | WSS 调用层可行性评估 | `docs/design/`、`internal/transport/` 只读验证 | W0 | 自建最小 WSS、上游公开扩展点、维护成本三路线比较；明确是否能取得原始 error envelope | 有进程内验证计划；说明 request ID demux、取消、read limit、close、inflight 清理、重连和 presence 的实现责任；不提交生产 WSS 代码 |
+| W1 | WSS 调用层可行性评估 | `docs/design/`、`internal/transport/` 只读验证 | W0 | 自建最小 WSS、上游公开扩展点、维护成本三路线比较；明确是否能取得原始 error envelope | 有进程内验证计划；说明 request ID demux、取消、read limit、close、inflight 清理、重连和 presence 的实现责任；不提交生产 WSS 代码。**已完成（2026-10-31）：W1 通过，自建最小调用层可行；见 `wss-call-layer-feasibility.md`** |
 | W2 | 最小 WSS Adapter（仅 W1 通过后） | `internal/transport/wss/` 或等价业务目录 | W1、ReadPlan 稳定 | EthGuard 专用 raw call adapter，接入 `pool.Transport` seam | 单请求/响应、乱序、取消、超时、断连、bounded message、Close 和 pending call 清理通过；不增加基础 Transport 的通用订阅能力 |
 | W3 | WSS 进程内证据 | `internal/transport/contract/`、`internal/transport/wss/`、验证目录 | W2 | 四态 error.data、malformed frame、read limit、close、cancellation、reconnect/reorg/backpressure 场景 | missing/null/`0x`/具体 data 可区分；无资源泄漏；HTTP contract 不回退；不改变 aggregator、reference、Decision、typed 或写路径 |
 | W4 | WSS 决策与 golden 升级 | `docs/decisions.md`、replay/capture 目录 | W3 + 真实 provider capture | 修订 0056，增加 WSS 四态 golden 或明确继续不支持 | 只有真实 provider/进程内证据都通过才升级；seam 建立本身不等于 presence 已恢复 |
