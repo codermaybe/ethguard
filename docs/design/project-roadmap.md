@@ -76,7 +76,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | 拓扑迁移、架构收敛、T09 审计 | 已完成 | 只在出现真实新 Seam 或维护负担时重新审查 | 不按目录整齐度拆包 |
 | HTTP connection 行为差分审计 | 已完成；L1 contract 已冻结（`transport-contract.md`），native HTTP 为战略默认 | 只在出现新 provider 证据或 Geth 升级时复核 | v1.17.5 仅为版本化 baseline，不是长期标准 |
 | 自有 HTTP Adapter | 已实现（`internal/transport/http`）并作为默认装配；Geth compatibility adapter 保留为显式 seam | 无；新增 provider 证据只登记为观测，不重开契约 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
-| 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；provider 证据缺口按卡片登记 | 按卡片补齐真实 capture/replay/live 证据 | 不新增方法，不改变裁决语义 |
+| 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；2026-10-31 增加历史 block 18,000,000 的 EIP-1898/createAccessList/block/feeHistory live 证据 | 按卡片补齐剩余真实 capture/replay/live 证据（syncing progress、其他历史高度、uncle 内容等） | 不新增方法，不改变裁决语义 |
 | go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c/1d 与 native HTTP Slice 2 已完成；默认构建不链接 `ethclient` | WSS 生产化决策；typed 类型保留 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
 | WSS transport | W1–W3 已完成：最小 raw-call Adapter 与进程内证据 | W4：真实 provider 证据后再议 0056/golden | 不先改 quorum、policy、typed 或写路径 |
 | T11 自适应拥塞控制 | 设计不变量已补；算法未实现；2026-10-31 观察到限流/配额信号但无容量曲线 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |

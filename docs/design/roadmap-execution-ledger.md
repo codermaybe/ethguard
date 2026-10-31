@@ -122,15 +122,20 @@
 - 证据：
   - `docs/design/wss-provider-evidence.md`：6 个公开、无需凭据的 WSS
     endpoint，chain 1，5 个只读 probe；30 条记录中 24 条协议错误；
+  - 同日复测 8 个公开 WSS endpoint × 6 个只读 probe（新增
+    `block-hash-position`）：48 条记录，2 个 endpoint 拨号失败，6 个可用
+    endpoint 的 30 条协议错误为 missing=16、`0x`=1、value=13、**null=0**；
   - `cmd/wsscapture`：手动 capture/replay 工具；capture 目录在仓库外，
     只持久化 `scheme://host`，不进入默认测试或 CI；
-  - 真实形态：missing=13、`0x`=1、value=10、null=0；24 个错误帧通过
+  - 真实形态：missing=13、`0x`=1、value=10、null=0（首次 6 provider run）；
+    复测仍无 null；24 个错误帧通过
     `rpcwire.DecodeResponse`，`rpc.ErrorDataPresence` 与
     `RPCError.DataPresence` 一致；12 个 `eth_call` 错误帧通过真实
     `methods.CallPolicy` 的两源回放（缺失 data 弃权、`0x`/具体 data 返回、
     比较键不跨形态合并、Support=2）；
   - 连接行为：一个公开 endpoint 在未知方法和非法参数错误后以 `1006`
-    关闭连接，同连接 follow-up 失败；其他 endpoint 保持可调用。
+    关闭连接，同连接 follow-up 失败；其他 endpoint 保持可调用；复测未重复
+    该 close code。
 - 依赖/阻塞：`null` 未在真实 provider 上观察；rate limit、read limit、
   response timeout、late response 和 provider 侧重连未触发或未观察。
 - 风险：一次 6-provider 样本不是兼容性普查；capture 客户端是原始
@@ -171,13 +176,23 @@
   - `eth_getBlockByNumber latest` 4/4 返回同一 26-key 顶层集合，3/4 同一
     block，1 个落后一个区块；
   - `eth_syncing` 4/4 返回 `false`，仍无 progress object。
+  - 同日定向历史块 probe（4 源 × 11 请求，共 44 条，block 18,000,000）：
+    balance 的 `{blockNumber}`/`{blockHash}` object 4/4；nonce/storage/code/
+    createAccessList 的 `{blockNumber}` object 4/4；createAccessList 全部返回
+    `{"accessList":[],"gasUsed":"0x539f"}`；createAccessList 的
+    `{blockHash}` object 在 `requireCanonical` false/true 下也 4/4；
+  - 同日定向 probe：feeHistory 固定区间 `[1,33,67,99]` 4/4 返回相同
+    `oldestBlock`、base fee 与 reward；历史 block header/full 4/4，header
+    22 个顶层字段、94 笔交易、16 withdrawals、0 uncles，full 交易对象有 1 个
+    源省略 `blockTimestamp`；hash-position 4/4 拒收；syncing 4/4 `false`。
 - 风险：单次 live probe 不是兼容性普查；一个端点在本轮返回限流；历史
-  EIP-1898 object 的状态可用性仍因 provider archive 策略而不同；卡片中的
-  `soak`/`sample` 仍是观测，不是长期承诺。
+  EIP-1898 object 在 block 18,000,000 上 4/4，但其他高度仍受 provider
+  archive 策略影响；feeHistory 舍入只有单区间一致证据；uncle 内容仍无样本；
+  卡片中的 `soak`/`sample` 仍是观测，不是长期承诺。
 - 待最终处理问题：
-  - 外部证据阻塞：`eth_syncing` progress object、EIP-1898 历史 object
-    多源状态、`eth_feeHistory` percentile 舍入、完整区块内容承诺、WSS
-    真实 `null` 与限流/生命周期行为；
+  - 外部证据阻塞：`eth_syncing` progress object、EIP-1898 其他历史高度/
+    archive 策略、`eth_feeHistory` 多区间 percentile 舍入、uncle 内容与
+    full 交易对象字段差异、WSS 真实 `null` 与限流/生命周期行为；
   - 需要主维护者决策：是否以及何时为这些缺口安排更有针对性的 capture。
 
 ## 8. 自适应拥塞控制设计（route: T11）
@@ -243,7 +258,7 @@
 | geth WSS 自动重连语义 | 开放（需主维护者决策） | 替换 transport 时不得无声丢失；WSS Adapter 明确不重连 | 生产切换前另立重连/失败分类契约 |
 | WSS Close 的 in-flight 语义 | 已解决 | `Close` 标记 closing、拒绝新调用；pending 各自完成或取消后关闭 socket，遵守 Transport Port | 由 `TestCloseLeavesInFlightCallsToTheirContexts` 与 WSS adapter 文档锁定 |
 | `eth_syncing` progress object provider 形状 | 开放（外部证据阻塞） | 2026-10-21 与 2026-10-31 的样本均只观察到 `false`；progress object 未观察 | 保持 capture gap，不用合成样本关闭 |
-| liveness/typed 的对象形状证据 | 部分解决（外部证据仍有缺口） | 2026-10-31 latest EIP-1898 object 4/4；历史 object 仅单源成功；其他对象形状按 sample | 继续补历史 object、完整内容承诺和跨客户端差异 |
+| liveness/typed 的对象形状证据 | 部分解决（外部证据仍有缺口） | 2026-10-31 latest EIP-1898 object 4/4；历史 block 18,000,000 的 blockNumber object 4/4；其他高度、uncle 内容和 full 交易字段差异仍按 sample | 继续补其他历史高度、uncle 样本和跨客户端差异 |
 
 ## 11. 收尾分类（2026-10-31）
 
@@ -263,9 +278,11 @@
     `ReferenceEvidence` 暴露；
   - WSS Adapter 未接入默认 runtime/config，作为独立配置决策保留；
   - WSS 进程内证据不升级决策 0056，不生成 WSS 四态 golden；
-  - 2026-10-31 的方法 live probe 是单次 4 源样本：latest EIP-1898 object 与
-    createAccessList 形状一致、block 顶层 key 集合一致、hash 位置无接受者，
-    但这些仍不是长期兼容性普查。
+  - 2026-10-31 的方法 live probe 是单次 4 源样本：latest 与历史 block
+    18,000,000 的 EIP-1898 object 形状一致、createAccessList 的
+    blockHash/canonical 形状一致、block header/full 内容一致、hash 位置无
+    接受者，但这些仍不是长期兼容性普查；full 交易对象存在
+    `blockTimestamp` 字段差异。
 - **需要主维护者决策**：
   - WSS reconnect/reorg/backpressure 与 keepalive 的契约归属；
   - WSS 生产化的写路径路由机制（adapter-only、独立只读组合或新的成员角色）；
@@ -278,12 +295,13 @@
 - **外部证据阻塞**：
   - `eth_blobBaseFee` 多源支持面普查（已有 2026-10-21 sample 与
     2026-10-31 probe）；`eth_syncing` progress object；
-  - EIP-1898 历史 object 的多源状态可用性（latest 已 4/4）；
-    `eth_getBlockByNumber` hash 位置（2026-10-31 无接受者）；
+  - EIP-1898 其他历史高度/archive 策略（block 18,000,000 的
+    blockNumber object 4/4，balance blockHash object 4/4）；
+  - `eth_getBlockByNumber` hash 位置（2026-10-31 4/4 拒收）；
   - `eth_createAccessList` 的 hash/canonical 形式；`eth_feeHistory`
-    percentile 舍入；
-  - 完整区块内容承诺（uncle/withdrawals/交易根；2026-10-31 仅验证顶层
-    key 集合）；
+    多区间 percentile 舍入（固定区间 `[1,33,67,99]` 4/4 一致）；
+  - 完整区块内容承诺：block 18,000,000 的 header/full 4/4、16 withdrawals、
+    0 uncles；uncle 样本与 full 交易对象字段差异仍未验证；
   - WSS 真实 provider 的 `error.data:null`、限流、read limit、响应超时、
     迟到响应与 provider 侧重连（missing/`0x`/value 已观察）；
   - T11 容量/限流样本与 freshness 多 provider 高度/滞后/reorg 观测。

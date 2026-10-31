@@ -52,7 +52,7 @@ Evidence rules (T02, binding on every row below):
 | eth_getTransactionCount | address + block hash | ✅ | corroborated 3/0 in soak — same non-standard-spelling note as eth_getBalance |
 | eth_getStorageAt | address + slot + block hash | ✅ | corroborated 3/0 in soak — same non-standard-spelling note as eth_getBalance |
 | eth_getCode | address + block hash | ✅ | corroborated 3/0 in soak — same non-standard-spelling note as eth_getBalance |
-| eth_getBalance / eth_getTransactionCount / eth_getStorageAt / eth_getCode / eth_call | address/call object + `{blockHash}` or `{blockNumber[, requireCanonical]}` object | · | sample 2026-09-23（eip1898-object；历史状态多数 pruned）；2026-10-31 latest object 4/4 |
+| eth_getBalance / eth_getTransactionCount / eth_getStorageAt / eth_getCode / eth_call | address/call object + `{blockHash}` or `{blockNumber[, requireCanonical]}` object | · | sample 2026-09-23（eip1898-object；历史状态多数 pruned）；2026-10-31 latest object 4/4；同日历史 block 18,000,000 的 blockNumber object 4/4（balance 的 blockHash object 4/4） |
 | eth_getBalance / eth_getTransactionCount / eth_getStorageAt / eth_getCode / eth_call | contradictory `{blockHash, blockNumber}` object | · | local contract, not provider evidence: rejected with ErrInvalidRequest before any upstream contact (`TestStateRefContradictoryObjectRejectedLocally`) |
 | eth_feeHistory | 32-byte hash in newestBlock | · | local contract, not provider evidence: rejected with ErrInvalidRequest before any upstream contact (`TestFeeHistoryRejectsHashBeforeUpstream`, `TestFeeHistoryRejectsHashInNewestBlock`); newestBlock is a BlockNumber, never a hash position |
 | eth_getTransactionByHash | hash | · | step skipped in soak (sampling blocked by the 0016 presence split); request shape is the receipt-class standard |
@@ -65,7 +65,7 @@ Evidence rules (T02, binding on every row below):
 | eth_call | call object + block hash | ✅ | 2026-09-05 soak round: corroborated 2/0/1 at the pinned hash tag (`blockNrOrHash` is hash-portable per geth); call object rides geth's `input`-key spelling — the bare-hash pin is provider-accepted, not the EIP-1898 object spelling |
 | eth_estimateGas | call object + block hash | ✅ | same round: selected lower median 0x5445 with the hash tag on the wire; the adapter always sends the tag explicitly so the pin applies |
 | eth_getLogs | filter object, height-pinned bounds | ✅ | same round: corroborated 2/0/0 over 70 logs with from/to pinned to the corroborated height — the bounds are BlockNumbers and reject hashes, so the height spelling is the portable one |
-| eth_feeHistory | count + height + percentiles | ✅ | same round: corroborated 3/0/0 with newest = the corroborated height (oldest 25911850, 3 base fees) and reward percentiles agreeing canonically — the rounding liveness gate passed on this fleet |
+| eth_feeHistory | count + height + percentiles | ✅ | same round: corroborated 3/0/0 with newest = the corroborated height (oldest 25911850, 3 base fees) and reward percentiles agreeing canonically — the rounding liveness gate passed on this fleet; 2026-10-31 fixed historical block 18,000,000 with percentiles 1/33/67/99 returned identical reward arrays on 4/4 sources, still one range |
 
 Caveat that keeps this honest: ✅ means the healthy subset of one historical
 local soak fleet accepted the form on one day. It is not external live

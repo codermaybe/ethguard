@@ -43,19 +43,19 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 | `net_version` | read-local 2026-10-19 | ✅ | soak census | — |
 | `net_listening` | read-local 2026-10-19 | ✅ | soak census | — |
 | `eth_getBalance` | eip1898-object 2026-09-23 | ✅ | soak 2026-09-05；2026-10-31 latest object 4/4 | — |
-| `eth_getTransactionCount` | eip1898-object 2026-09-23 | 回放未达 corroboration | 2026-10-31 latest object 4/4；历史 object 状态不可用 | 历史 object 的多源状态可用性 |
-| `eth_getStorageAt` | eip1898-object 2026-09-23 | 回放未达 corroboration | 2026-10-31 latest object 4/4；历史 object 状态不可用 | 历史 object 的多源状态可用性 |
-| `eth_getCode` | eip1898-object 2026-09-23 | 回放未达 corroboration | 2026-10-31 latest object 4/4；历史 object 状态不可用 | 历史 object 的多源状态可用性 |
+| `eth_getTransactionCount` | eip1898-object 2026-09-23 | 回放未达 corroboration | 2026-10-31 latest object 4/4；历史 object 4/4（block 18,000,000） | 其他历史高度/archive 策略 |
+| `eth_getStorageAt` | eip1898-object 2026-09-23 | 回放未达 corroboration | 2026-10-31 latest object 4/4；历史 object 4/4（block 18,000,000） | 其他历史高度/archive 策略 |
+| `eth_getCode` | eip1898-object 2026-09-23 | 回放未达 corroboration | 2026-10-31 latest object 4/4；历史 object 4/4（block 18,000,000） | 其他历史高度/archive 策略 |
 | `eth_call` | revert-data 2026-09-23；eip1898-object | ✅ | soak 2/0/1；revert sample；WSS 2026-10-31 missing/`0x`/value | WSS `null`；WSS 四态 golden |
 | `eth_estimateGas` | eip1898-object 2026-09-23 | ✅ | soak ✅；object 形状证据 | latest/历史 object 的多源形状 |
-| `eth_createAccessList` | eip1898-object 2026-09-23 | ✅ | 2026-10-31 latest object 4/4，结果一致 | hash/canonical 形式 |
+| `eth_createAccessList` | eip1898-object 2026-09-23 | ✅ | 2026-10-31 latest object 4/4；历史 object 4/4，结果一致；blockHash/canonical 4/4（单块） | hash/canonical 跨高度普查 |
 | `eth_getBlockByHash` | block-receipt-tx 2026-09-23 | ✅ | sample 2026-09-23 | uncle/withdrawals/交易根内容承诺 |
-| `eth_getBlockByNumber` | block-receipt-tx 2026-09-23 | ✅ | soak 每轮；2026-10-31 hash 位置 3 拒收 + 1 限流 | hash 位置接受度；完整内容承诺 |
+| `eth_getBlockByNumber` | block-receipt-tx 2026-09-23 | ✅ | soak 每轮；2026-10-31 hash 位置 4/4 拒收；历史 header/full 4/4 | hash 位置接受度；uncle 内容；full tx 字段差异 |
 | `eth_getTransactionReceipt` | block-receipt-tx 2026-09-23 | ✅ | sample 2026-09-23 | 跨客户端字段差异 |
 | `eth_getTransactionByHash` | block-receipt-tx 2026-09-23 | ✅ | sample 2026-09-23 | 未知 typed tx 分布 |
 | `eth_getBlockReceipts` | block-receipt-tx 2026-09-23 | ✅ | sample + soak 2026-09-05 | — |
 | `eth_getLogs` | read-blockref 2026-10-21 | ✅ | soak 2026-09-05（70 logs） | 大范围 split 与 provider 上限 |
-| `eth_feeHistory` | read-blockref 2026-10-21 | ✅ | soak ✅；2026-10-31 3/4 同一 oldestBlock 一致，1 个源区间不同 | percentile 舍入的跨客户端普查 |
+| `eth_feeHistory` | read-blockref 2026-10-21 | ✅ | soak ✅；2026-10-31 3/4 同一 oldestBlock 一致，1 个源区间不同；固定历史区间 [1,33,67,99] 4/4 一致 | percentile 舍入的跨客户端普查 |
 
 ## 1. 确定性与本地方法
 
@@ -179,9 +179,12 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - EIP-1898：支持（object 形式）。
 - Reference：`hash-at` pos 1（moving tag 先建立参考）。
 - 证据：`soak 2026-09-05 ✅`；EIP-1898 object 形状证据；2026-10-31 latest
-  object live probe 4/4 成功。
-- 待办：无新增；历史 object 的 provider 状态可用性仍按各 provider 的 archive
-  策略处理，不据此声称所有 provider 支持历史 object 读取。
+  object live probe 4/4 成功；同日历史 block 18,000,000 的 `blockNumber`
+  object 与 `blockHash` object 均 4/4 成功且值一致；`blockHash` 带
+  `requireCanonical:true` 的 captured run 为 3/4，余下 1 个为 HTTP 499
+  空响应（同日直接 probe 为 4/4）。
+- 待办：历史 object 的可用性仍取决于 provider archive 策略，不能据此声称任意
+  历史高度或任意 provider 都支持。
 
 ### eth_getTransactionCount
 
@@ -194,9 +197,10 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Reference：`hash-at` pos 1。
 - 证据：`soak ✅`；`eip1898-object 2026-09-23` 已归档 `{"blockNumber":...}` 请求，
   仅一个源成功返回 quantity，两个源报告 pruned state，一个源为空；2026-10-31
-  latest object live probe 4/4 成功。
-- 待办：latest object 形状已多源；历史 object 的状态可用性仍不一致，不能据此
-  断言所有 provider 支持历史 object 读取。
+  latest object live probe 4/4 成功；同日历史 block 18,000,000 的
+  `blockNumber` object 4/4 成功且值一致。
+- 待办：历史 object 的可用性仍取决于 provider archive 策略，不能据此断言任意
+  历史高度或任意 provider 都支持。
 
 ### eth_getStorageAt
 
@@ -209,9 +213,10 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Reference：`hash-at` pos 2。
 - 证据：`soak ✅`；`eip1898-object 2026-09-23` 的 `{"blockNumber":...}` 请求只有
   一个源成功返回 storage word，两个源报告 pruned state，一个源为空；2026-10-31
-  latest object live probe 4/4 成功。
-- 待办：latest object 形状已多源；历史 object 的状态可用性仍不一致，不能据此
-  断言所有 provider 支持历史 object 读取。
+  latest object live probe 4/4 成功；同日历史 block 18,000,000 的
+  `blockNumber` object 4/4 成功且值一致。
+- 待办：历史 object 的可用性仍取决于 provider archive 策略，不能据此断言任意
+  历史高度或任意 provider 都支持。
 
 ### eth_getCode
 
@@ -224,9 +229,10 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Reference：`hash-at` pos 1。
 - 证据：`soak ✅`；`eip1898-object 2026-09-23` 的 `{"blockHash":...}` 请求只有
   一个源成功返回 code，两个源报告 pruned state，一个源为空；2026-10-31
-  latest object live probe 4/4 成功。
-- 待办：latest object 形状已多源；历史 object 的状态可用性仍不一致，不能据此
-  断言所有 provider 支持历史 object 读取。
+  latest object live probe 4/4 成功；同日历史 block 18,000,000 的
+  `blockNumber` object 4/4 成功且 code 一致。
+- 待办：历史 object 的可用性仍取决于 provider archive 策略，不能据此断言任意
+  历史高度或任意 provider 都支持。
 
 ### eth_call
 
@@ -265,9 +271,12 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - 证据：`eip1898-object 2026-09-23`：latest object 有两个源返回
   `{"accessList":[],"gasUsed":"0x539f"}`，一个源返回空对象，一个源 fault；
   hash/canonical 路径被 pruned-state 拒绝。2026-10-31 latest object live probe
-  4/4 返回相同的 `{"accessList":[],"gasUsed":"0x539f"}`。
-- 待办：hash/canonical 形式和 EIP-1898 object 的历史状态可用性仍待真实 capture；
-  不得把 latest 一致样本写成通用兼容结论。
+  4/4 返回相同的 `{"accessList":[],"gasUsed":"0x539f"}`；同日历史 block
+  18,000,000 的 `blockNumber` object 4/4 返回相同结果；`blockHash` object
+  在 `requireCanonical` false/true 两种形式下均 4/4 返回相同结果。
+- 待办：hash/canonical 只有单块一致证据，不是跨高度/跨 provider 普查；历史
+  object 的可用性仍取决于 provider archive 策略，不得把一次一致样本写成通用
+  兼容结论。
 
 ## 3. 对象与数组
 
@@ -293,8 +302,13 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - EIP-1898：不适用（number/tag 参数）。
 - Reference：block wrapper 的 header-only/full result 语义；moving tag 先建立参考。
 - 证据：soak 建立每轮 ✅；hash-位置 ⚠（soak 3/4 拒收；2026-10-31 live probe
-  为 3 个明确拒收 + 1 个限流，无 provider 接受）。
-- 待办：不得把 hash 位置当作通用 provider 能力；完整内容承诺另见 §4。
+  为 3 个明确拒收 + 1 个限流，无 provider 接受；同日定向 probe 4/4 明确拒收，
+  s1 为 HTTP 400/code 5，其余为 -32602，data 形态含字符串或缺失）。历史
+  block 18,000,000 的 header/full 4/4 成功：header 22 个顶层字段、94 笔交易、
+  16 个 withdrawals、0 uncles，roots 与 hash 一致；full 交易对象在 3/4 源上
+  多出 `blockTimestamp`，1 个源省略该字段。
+- 待办：不得把 hash 位置当作通用 provider 能力；uncle 内容仍无真实样本；
+  full 交易对象字段差异需要按 typed decoder 的忽略/拒绝规则单独确认。
 
 ### eth_getTransactionReceipt
 
@@ -355,9 +369,12 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - Reference：`height-at` pos 1。
 - 证据：`read-blockref 2026-10-21` 的 safe/finalized 捕获中两个源返回相同的
   reward 数组，第三个端点已停止服务；2026-10-31 live probe 中 3/4 在相同的
-  `oldestBlock` 返回相同 reward，1 个源的 `oldestBlock` 为不同区间；`soak ✅`。
-  跨客户端 Reward 舍入仍是 liveness gate。
-- 待办：percentile 舍入的 provider 证据未普查；不得用一次一致样本关掉舍入缺口。
+  `oldestBlock` 返回相同 reward，1 个源的 `oldestBlock` 为不同区间；同日
+  固定历史区间（newest block 18,000,000，count 4，percentiles
+  `[1,33,67,99]`）4/4 返回相同的 `oldestBlock`、base fee 和 reward 数组；
+  `soak ✅`。
+- 待办：跨客户端 percentile 舍入仍只有单区间一致证据，未完成多区间/多客户端
+  普查；不得用一次一致样本关闭该 liveness gate。
 
 ## 4. 兼容性边界
 
@@ -367,10 +384,10 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 | --- | --- | --- |
 | revert data | `eth_call` 双维语义；missing/null 弃权，`0x`/具体 data 断言 | 决策 0039/0052/0061；sample 2026-09-23；WSS 2026-10-31 |
 | pending | observe vs refuse 由方法声明；typed pending 有明确拒绝 | `moving-tag-matrix.md`；`ethadapter/pending_wire_test.go` |
-| EIP-1898 object | balance/nonce/storage/code/call/estimate/createAccessList 支持 | `Specs()` 的 `ReferenceSpec.EIP1898`；2026-10-31 latest object 4/4；历史 object 状态可用性仍按 provider archive 策略 |
+| EIP-1898 object | balance/nonce/storage/code/call/estimate/createAccessList 支持 | `Specs()` 的 `ReferenceSpec.EIP1898`；2026-10-31 latest object 4/4；历史 block 18,000,000 的 blockNumber object 4/4，balance 的 blockHash object 4/4；createAccessList 的 blockHash object（requireCanonical false/true）4/4；其他高度仍按 provider archive 策略 |
 | `eth_blobBaseFee` 支持面 | 方法存在但 provider 支持不一致 | 2026-10-21 sample；2026-10-31 2/4 成功、1 free-plan、1 策略拒绝 |
-| `eth_getBlockByNumber` hash 位置 | 不是通用能力 | soak 3/4 拒收；2026-10-31 3 明确拒收 + 1 限流 |
-| 完整区块内容 | 4/4 返回同一 26-key 顶层集合；3/4 同一 block，1 个落后 | 2026-10-31 live probe；决策 0019 内容承诺仍未验证 |
+| `eth_getBlockByNumber` hash 位置 | 不是通用能力 | soak 3/4 拒收；2026-10-31 3 明确拒收 + 1 限流；同日定向 probe 4/4 拒收 |
+| 完整区块内容 | 历史 block 18,000,000 header/full 4/4；22 个顶层字段、94 笔交易、16 withdrawals、0 uncles；full 交易对象字段存在 provider 差异 | 2026-10-31 定向 probe；决策 0019 内容承诺仍未完成 uncle 样本验证 |
 | NotFound | block/receipt/tx/blockReceipts 的 corroborated null → `ethereum.NotFound` | `internal/typed/decoder.go` |
 | 负 block number | adapter `-1` 拒绝；`-2/-3/-4` 各自建立参考；`-5` 为 earliest | `ethadapter/block_number_negative_test.go` |
 | `requireCanonical` | 不在当前接口；显式 hash/height 绑定由方法 admission 负责 | `spec-baseline.md` 缺口分类 |
@@ -385,18 +402,23 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
    普查或兼容性结论；
 2. `eth_syncing` progress object 的真实 provider 形状（T09 capture gap）；
 3. EIP-1898 object 的历史状态可用性：2026-10-31 latest object 已 4/4 成功，
-   但 2026-09-23 的历史 object 只有单源成功（两个 pruned、一个空）；不能升级为
-   通用历史读取能力；
+   同一日 block 18,000,000 的 blockNumber object 4/4、balance blockHash object
+   4/4；2026-09-23 的历史 object 只有单源成功（两个 pruned、一个空），说明
+   provider archive 策略仍会改变可用性；不能升级为“任意历史高度均支持”；
 4. `eth_getBlockByNumber` 的 hash 位置在真实 provider 上的接受度
-   （soak 3/4 拒收；2026-10-31 3 明确拒收 + 1 限流，不能升级为通用能力）；
-5. `eth_createAccessList` 的 hash/canonical 形式与历史状态可用性；latest object
-   已 4/4 一致，但不是通用兼容结论；
+   （soak 3/4 拒收；2026-10-31 3 明确拒收 + 1 限流，同日定向 probe 4/4 拒收，
+   不能升级为通用能力）；
+5. `eth_createAccessList` 的 hash/canonical 形式：latest 与历史 block
+   18,000,000 的 object 形式已 4/4 一致，`blockHash` 的
+   `requireCanonical` false/true 也 4/4；仍只有单块证据，不是跨高度普查；
 6. `eth_feeHistory` 的跨客户端 percentile 舍入（liveness gate；2026-10-31
-   3/4 同一 `oldestBlock` 一致，1 个源区间不同）；
+   3/4 同一 `oldestBlock` 一致，1 个源区间不同；固定历史区间
+   `[1,33,67,99]` 4/4 一致，但仍只有单区间证据）；
 7. WSS 路径的 error.data presence：2026-10-31 真实 provider 观察到
    missing/`0x`/value，`null` 未观察（决策 0056 未修订）；
 8. 完整区块内容承诺（uncle/withdrawals/交易根）的真实多源兼容性
-   （2026-10-31 4/4 同一 26-key 顶层集合；决策 0019 的验证仍未完成）。
+   （2026-10-31 历史 block 18,000,000 header/full 4/4，16 withdrawals、
+   0 uncles；uncle 样本和 full 交易对象字段差异仍未验证）。
 
 ## 6. 维护规则
 
@@ -428,3 +450,33 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
   - syncing 4/4 为 `false`；
 - 该 probe 只补充 live observation，不替代历史 capture/replay，也不把
   单次一致样本升级为长期兼容性结论；endpoint 和原始记录不进入仓库。
+
+## 8. 2026-10-31 定向历史块 probe
+
+这是同日另一次手动、只读、仓库外的 live observation，使用
+`cmd/rpcsample` 记录 redacted wire 记录，不写成 expect/golden：
+
+- 4 个公开 HTTPS endpoint（无需凭据），每个 11 个请求，共 44 条；
+- 固定历史块：mainnet block 18,000,000（`0x112A880`），hash
+  `0x95b198e154acbfc64109dfd22d8224fe927fd8dfdedfae01587674482ba4baf3`；
+- 请求：balance 的 `{blockNumber}` 与 `{blockHash}` object、
+  nonce/storage/code/createAccessList 的 `{blockNumber}` object、
+  `eth_feeHistory [4, 0x112A880, [1,33,67,99]]`、历史 block 的 header/full、
+  hash-position object、`eth_syncing`；
+- 结果：
+  - balance 的两种 EIP-1898 object 形式均 4/4 成功且值一致；
+  - nonce/storage/code/createAccessList 的历史 `{blockNumber}` object 均 4/4
+    成功且值一致；createAccessList 全部返回
+    `{"accessList":[],"gasUsed":"0x539f"}`；
+  - createAccessList 的 `{blockHash}` object 在 `requireCanonical` false/true
+    两种形式下均 4/4 返回相同结果；同日 balance 的 `blockHash` +
+    `requireCanonical:true` captured run 为 3/4，1 个源返回 HTTP 499 空响应
+    （同日直接 probe 为 4/4）；
+  - feeHistory 固定区间 4/4 返回相同 `oldestBlock`、base fee 和 reward 数组；
+  - 历史 block header 4/4 返回相同 hash、22 个顶层字段、94 笔交易、16 个
+    withdrawals、0 uncles 和相同 roots；full block 4/4 的交易数与首尾 hash
+    一致，但 1 个源的交易对象省略 `blockTimestamp`；
+  - hash-position 4/4 拒绝：1 个源 HTTP 400/code 5，其余为 -32602；
+  - syncing 4/4 为 `false`；
+- 该 probe 只证明这些 provider 在这个历史块上的可用形状，不是历史 archive
+  普查，也不是长期兼容性结论；endpoint 和原始记录不进入仓库。

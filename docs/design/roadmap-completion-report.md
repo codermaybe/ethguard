@@ -127,8 +127,11 @@ CI。本报告以续轮门禁为准，前一轮结果保留在对应提交历史
   missing=13、`0x`=1、value=10、null=0；24 个错误帧通过 `rpcwire` 和
   `RPCError.DataPresence` 检查；12 个 `eth_call` 错误帧通过真实
   `methods.CallPolicy` 的两源回放。
-- 真实 provider 的 `null` 未观察，因此决策 0056 不变，WSS 四态 golden
-  继续禁止；详见 `wss-provider-evidence.md`。
+- 同日复测 8 个 WSS endpoint × 6 个 probe（新增 block-hash-position）：
+  48 条记录、2 个拨号失败、6 个可用 endpoint 的 30 条协议错误为
+  missing=16、`0x`=1、value=13、null=0；未重复 `1006`。`null` 仍未观察，
+  因此决策 0056 不变，WSS 四态 golden 继续禁止；详见
+  `wss-provider-evidence.md`。
 
 ### 3.7 WSS 生产化推荐决策矩阵
 
@@ -147,6 +150,13 @@ CI。本报告以续轮门禁为准，前一轮结果保留在对应提交历史
   createAccessList 4/4 成功；hash-position 3 明确拒收 + 1 限流；
   blobBaseFee 2/4 成功；feeHistory 3/4 同一 `oldestBlock` 一致；latest
   block 4/4 同一 26-key 顶层集合；syncing 4/4 为 `false`。
+- 同日定向历史块 probe（4 源 × 11 请求，block 18,000,000）：balance 的
+  blockNumber/blockHash object 4/4；nonce/storage/code/createAccessList 的
+  blockNumber object 4/4；createAccessList 的 blockHash object
+  （requireCanonical false/true）4/4；feeHistory 固定区间
+  `[1,33,67,99]` 4/4 返回相同 reward；历史 block header/full 4/4（22 个
+  顶层字段、94 笔交易、16 withdrawals、0 uncles）；full 交易对象有 1 个源
+  省略 `blockTimestamp`；hash-position 4/4 拒收；syncing 4/4 `false`。
 - freshness 4 源 × 3 pass：latest 最大差 1 block，safe 最大差 31，
   finalized 最大差 159；同高度未见 hash 分歧，短窗口未见 reorg。
 - T11：观察到一个 endpoint 返回 `-32029 Too Many Requests`，以及
@@ -194,11 +204,13 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
 
 - `eth_blobBaseFee` 的多源普查（已有 sample 与 2026-10-31 probe）；
   `eth_syncing` progress object；
-- EIP-1898 历史 object 的多源状态可用性（latest 已 4/4）；
-- `eth_getBlockByNumber` hash 位置（2026-10-31 无接受者）；
-- `eth_createAccessList` 的 hash/canonical 形式；
-- `eth_feeHistory` percentile 舍入（2026-10-31 3/4 同一 `oldestBlock`）；
-- 完整区块内容承诺（2026-10-31 仅验证顶层 key 集合）；
+- EIP-1898 其他历史高度/archive 策略（block 18,000,000 已 4/4）；
+- `eth_getBlockByNumber` hash 位置（2026-10-31 4/4 拒收）；
+- `eth_createAccessList` 的 hash/canonical 形式：block 18,000,000 的
+  blockHash object（requireCanonical false/true）4/4，但仍单块；
+- `eth_feeHistory` 多区间 percentile 舍入（固定区间 `[1,33,67,99]` 4/4 一致）；
+- 完整区块内容承诺：block 18,000,000 的 header/full 4/4、16 withdrawals、
+  0 uncles；uncle 样本与 full 交易对象字段差异；
 - WSS 真实 provider 的 `error.data:null`、限流、read limit、响应超时、
   迟到响应与 provider 侧重连（missing/`0x`/value 已观察）；
 - T11 容量/限流样本与 freshness 长窗口 reorg/滞后观测。
@@ -211,9 +223,11 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
 2. **WSS 生产化决策**：`wss-productionization-decisions.md` 的推荐矩阵已
    形成，待主维护者裁决写路径路由、WSS presence 生产行为和 source→adapter
    选择；未裁决前不接入配置/runtime。
-3. **逐方法 provider 证据**：latest EIP-1898 object、createAccessList 和
-   block 顶层 key 集合已有 live observation；继续补 syncing progress object、
-   EIP-1898 历史 object、feeHistory 舍入、完整内容承诺和 hash 位置。
+3. **逐方法 provider 证据**：latest EIP-1898 object、createAccessList、
+   历史 block 18,000,000 的 object 形式、feeHistory 固定区间和 block
+   header/full 已有 live observation；继续补 syncing progress object、
+   EIP-1898 其他历史高度、feeHistory 多区间舍入、uncle 内容、full 交易
+   字段差异和 hash 位置。
 4. **T11**：在受控容量/限流样本基础上选择算法族与参数；当前只有配额/
    策略信号，不写默认参数。
 5. **Reference freshness**：先裁决 lag 单位与适用范围；现有短窗口观测
