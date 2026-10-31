@@ -94,4 +94,5 @@ resolver、method plan、reference、T11 或决策 0056 混合提交。至少需
 - 若涉及写路径或未知结果，单独建立决策，不复用本契约。
 
 本文是当前阶段可修订契约。新的 provider 证据、Transport Port 变化或未知结果
-问题可以触发后续决策，但不能把本契约解释为永久禁止扩展。
+问题可以触发后续决策，但不能把本契约解释为永久禁止扩展。生产化接线、配置和
+七个独立裁决见 [wss-productionization-decisions.md](wss-productionization-decisions.md)。

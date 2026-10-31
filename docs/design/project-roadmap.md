@@ -79,8 +79,8 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；provider 证据缺口按卡片登记 | 按卡片补齐真实 capture/replay/live 证据 | 不新增方法，不改变裁决语义 |
 | go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c/1d 与 native HTTP Slice 2 已完成；默认构建不链接 `ethclient` | WSS 生产化决策；typed 类型保留 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
 | WSS transport | W1–W3 已完成：最小 raw-call Adapter 与进程内证据 | W4：真实 provider 证据后再议 0056/golden | 不先改 quorum、policy、typed 或写路径 |
-| T11 自适应拥塞控制 | 设计不变量已补；算法未实现 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
-| reference freshness | 设计不变量已补；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
+| T11 自适应拥塞控制 | 设计不变量已补；算法未实现；2026-10-31 观察到限流/配额信号但无容量曲线 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
+| reference freshness | 设计不变量已补；2026-10-31 完成短窗口 latest/safe/finalized 观测；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义；观测不产生默认 lag |
 | reference raw capture | 两个缺口已按独立切片修复并补回归 | 保持采集语义，出现新清空点时重新审查 | 不改裁决、阈值、成员或 reference 语义 |
 | ReadPlan / resolver seam | M0–M8 已完成；resolver 内部仍是 `rpc.Policy` 深模块 | resolver 行为盘点、最小 seam 契约、legacy quarantine、是否继续扁平化的证据决策 | 不改变 Decision、quorum、reference、typed 或方法数量 |
 | WSS error-data evidence | W0–W3 已完成；WSS raw-call Adapter 保留四态；真实 provider 与 reconnect/backpressure 证据仍缺 | W4 只有在真实 provider/进程内证据都通过后升级 0056 | 不先加通用 Subscribe，不改变 `eth_call` 比较键或写路径 |
@@ -171,6 +171,11 @@ WSS 扩展契约已补齐为设计-only 文档：
 WSS 任务的停止条件：W1 无法证明原始 error envelope 可取得，或维护成本会复制完整
 客户端连接层时，停在 W1，保留 W0 的“不可知”诊断，不进入 W2–W4。不得用反射、fork
 geth 未导出类型、快速扫描 ID 或合成样本代替 WSS 证据。
+
+WSS 生产化的七个独立裁决、当前事实和最小接线顺序见
+[`wss-productionization-decisions.md`](wss-productionization-decisions.md)。
+在 W4 `null` 证据或主维护者接受限制、以及 reconnect/keepalive/backpressure
+决策完成前，WSS 不接入默认 runtime。
 
 ### 两条主线的顺序与分配
 

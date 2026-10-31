@@ -138,6 +138,9 @@
   contract 覆盖）。不得把本次结论写成 provider 兼容性或四态 golden 授权。
 - 下一步：寻找显式返回 `data:null` 的真实 provider，或由主维护者接受
   “null 仍不可知”的限制；在证据前不合成、不升级 0056。
+- 生产化裁决输入：`docs/design/wss-productionization-decisions.md` 列出
+  config/runtime、adapter 选择、reconnect、keepalive、backpressure、health
+  归属和写路径排除七个问题；当前均未接线。
 - 最终归类：外部证据阻塞（null 与限流/生命周期行为）；真实 provider 的
   missing/`0x`/value 已登记为 live observation。
 
@@ -169,27 +172,38 @@
 
 ## 8. 自适应拥塞控制设计（route: T11）
 
-- 状态：设计不变量已完成；算法未实现。
+- 状态：设计不变量已完成；算法未实现；2026-10-31 观察到限流/配额信号，
+  但没有容量曲线。
 - 证据：`docs/design/adaptive-congestion-control.md` 固定成员/分母/权重/
   模式/门槛不变，定义信号、状态、预算共享、恢复和验收矩阵；不选择参数。
-- 风险：真实 provider 容量与限流形态仍缺；如果实现要求动态成员或权重，
-  必须停止在调度层。
+  2026-10-31 的只读方法 probe 中，一个公开 endpoint 返回
+  `-32029 Too Many Requests`，一个 endpoint 对 `eth_blobBaseFee` 返回
+  free-plan 错误，另一个返回非 EVM 策略拒绝。
+- 风险：这些是 provider 配额/策略信号，不一定是容量反馈；真实持续限流、
+  超时、并发上限和队列增长仍缺；如果实现要求动态成员或权重，必须停止在
+  调度层。
 - 待最终处理问题：
   - 需要主维护者决策：算法族、margin/冷却/队列参数、跨 endpoint 配额与
     写路径预算归属；
-  - 外部证据阻塞：真实限流/容量样本。
+  - 外部证据阻塞：受控容量/限流样本、并发上限和超时分布。
 
 ## 9. Reference freshness（route: reference policy）
 
-- 状态：设计不变量已完成；新策略未实现。
+- 状态：设计不变量已完成；2026-10-31 完成一次短窗口 latest/safe/finalized
+  观测；新策略未实现。
 - 证据：`docs/design/reference-freshness-policy.md` 区分调度 tip gate 与
   finalized 候选 lag，固定 tag 语义、拒绝而非降级、显式历史读取豁免与
-  agreement/freshness 分离；不选择默认 lag。
-- 风险：当前 `maxLag`/tip gate 是实现事实而非新默认承诺；改参数需要专门
-  决策和真实 provider 观测。
+  agreement/freshness 分离；`reference-freshness-observations.md` 记录 4 源、
+  3 pass、约 15 秒间隔的观测：latest 最大差 1 block，safe 最大差 31，
+  finalized 最大差 159，同高度未见 hash 分歧，短窗口未见 reorg。
+- 风险：窗口只有约 49 秒，不能证明 reorg 行为或长期 lag 分布；safe/finalized
+  tag 的更新节奏因 provider 而异；同一 provider 的 `eth_blockNumber` 与
+  latest block 可出现 1-block 差异；当前 `maxLag`/tip gate 仍是实现事实而非
+  新默认承诺。
 - 待最终处理问题：
   - 需要主维护者决策：lag 单位、方法适用范围、样本过期语义、是否自适应；
-  - 外部证据阻塞：多 provider 高度/滞后/reorg 观测。
+  - 外部证据阻塞：长窗口 reorg/回退、tip 样本过期、显式历史读取豁免、
+    finalized candidate 与 reference confirmation 的交互、多客户端观测。
 
 ## 10. 已登记的遗留问题
 

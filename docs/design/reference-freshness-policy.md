@@ -77,7 +77,10 @@ EthGuard 目前有两处与 freshness 相关的机制，它们不是同一个策
 
 1. **真实 provider 观测**：多个 provider 在 latest/safe/finalized 上的高度
    分布、滞后分布、采样间隔与异常形态；记录日期与端点类别，不把一次观测
-   写成普遍结论；
+   写成普遍结论；2026-10-31 已完成一次 4 源、3 pass、约 15 秒间隔的短窗口
+   观测：latest 最大差 1 block，safe 最大差 31 blocks，finalized 最大差
+   159 blocks，未观察到 reorg；详见
+   [reference-freshness-observations.md](reference-freshness-observations.md)；
 2. **reorg/回退样本**：短程 reorg 下 finalized/latest 视图的变化，验证
    freshness 失败是否按拒绝处理；
 3. **显式历史读取**：旧高度/旧 hash 不被 freshness 拒绝；
@@ -86,13 +89,16 @@ EthGuard 目前有两处与 freshness 相关的机制，它们不是同一个策
 6. **离线回放**：将真实 capture 转成 replay，不联网运行。
 
 在上述证据完成前，不修改 `maxLag` 默认值、tip gate 参数、reference tag
-语义或 finalized 候选规则。
+语义或 finalized 候选规则。短窗口观测只证明 provider 高度分布不一致，
+不足以选择 lag 单位、适用方法或自适应阈值。
 
 ## 5. 与现有文档/决策的关系
 
 - 决策 0032：保持 tag 语义、稳定共同参考优先；
 - 决策 0033：freshness 与 agreement 分离，固定 lag 不是前置条件；
 - 决策 0037：保留 Geth block-tag 映射；
+- [reference-freshness-observations.md](reference-freshness-observations.md)：
+  2026-10-31 的短窗口 latest/safe/finalized 高度与 lag 观测；
 - [moving-tag-matrix.md](moving-tag-matrix.md)：pending/EIP-1898/tag 的方法
   级矩阵；
 - [adaptive-congestion-control.md](adaptive-congestion-control.md)：调度容量
