@@ -1,11 +1,12 @@
 # Roadmap Completion Report（resolver seam、reference capture、WSS、方法卡片与续轮证据）
 
-状态：**2026-10-31 两段连续执行完成**。前半段记录 resolver seam、reference
+状态：**2026-10-31 三段连续执行完成**。前半段记录 resolver seam、reference
 capture、WSS W1–W3 与方法卡片；续轮记录 HTTP 事实修正、W4 真实 provider
-证据、方法 live probe、freshness/T11 观测和 WSS 生产化决策输入。W4 出口
-仍未满足（真实 provider 的 `error.data:null` 未观察），决策 0056 未修订，
-WSS 四态 golden 继续禁止。执行明细和问题分类见
-[roadmap-execution-ledger.md](roadmap-execution-ledger.md)。
+证据、方法 live probe、freshness/T11 观测和 WSS 生产化决策输入；本轮记录
+WSS 生产化推荐决策矩阵、WSS 复测与方法历史块证据、freshness 扩展窗口。
+W4 出口仍未满足（真实 provider 的 `error.data:null` 未观察），决策 0056
+未修订，WSS 四态 golden 继续禁止；WSS 接线仍待主维护者裁决。执行明细和
+问题分类见 [roadmap-execution-ledger.md](roadmap-execution-ledger.md)。
 
 ## 1. 提交列表
 
@@ -40,6 +41,18 @@ WSS 四态 golden 继续禁止。执行明细和问题分类见
 续轮同样没有 push、`reset --hard`、`clean` 或强制 rebase；W4 capture 目录在
 仓库外，未把 endpoint、凭据或 live 结果写成 golden。
 
+### 本轮续执行（2026-10-31，六阶段）
+
+| 提交 | 意图 |
+| --- | --- |
+| `3b5b135` | WSS 生产化七个问题收敛为推荐决策矩阵（未接线） |
+| `06ef137` | WSS capture 增加 block-hash-position probe；8×6 复测仍无 `null` |
+| `95145a0` | 历史块 18,000,000 的 EIP-1898/createAccessList/block/feeHistory 证据 |
+| 本提交 | freshness 扩展窗口、分类与最终门禁 |
+
+本轮没有 push、`reset --hard`、`clean` 或强制 rebase；没有修改 WSS adapter、
+默认 runtime、pool、aggregator、reference、typed、quorum 或写路径。
+
 ## 2. 验证命令与结果
 
 续轮最终门禁（2026-10-31）全部通过：
@@ -60,6 +73,11 @@ git diff --check                            # 无输出
 `cmd/wsscapture` 的离线测试（本地 WebSocket server、无外部网络）包含在
 `go test ./...` 与 `-race` 中；真实 capture 是手动 opt-in 命令，不进入默认
 CI。本报告以续轮门禁为准，前一轮结果保留在对应提交历史中。
+
+本轮六阶段收尾再次运行同一门禁集合并全部通过；WSS `-race -count=10`、
+verification `-race -count=2 -shuffle=on` 和 architecture interlock 均通过。
+真实 provider probe 仍是手动、仓库外、只读的 live observation，不进入默认
+CI，也不写入 golden。
 
 ## 3. 交付摘要
 
@@ -157,8 +175,11 @@ CI。本报告以续轮门禁为准，前一轮结果保留在对应提交历史
   `[1,33,67,99]` 4/4 返回相同 reward；历史 block header/full 4/4（22 个
   顶层字段、94 笔交易、16 withdrawals、0 uncles）；full 交易对象有 1 个源
   省略 `blockTimestamp`；hash-position 4/4 拒收；syncing 4/4 `false`。
-- freshness 4 源 × 3 pass：latest 最大差 1 block，safe 最大差 31，
-  finalized 最大差 159；同高度未见 hash 分歧，短窗口未见 reorg。
+- freshness 短窗口 4 源 × 3 pass：latest 最大差 1 block，safe 最大差 31，
+  finalized 最大差 159；扩展窗口 4 源 × 8 pass、约 45 秒间隔、约 6 分 22 秒：
+  latest 最大 spread 1，safe 224，finalized 96；一个源的 safe/finalized 在
+  全部 8 pass 固定不动而 latest 仅落后 1 block；未观察到回退、同高度 hash
+  冲突或 reorg；一次 HTTP 503 与 freshness 分开归因。
 - T11：观察到一个 endpoint 返回 `-32029 Too Many Requests`，以及
   free-plan/策略拒绝；没有持续容量曲线，无默认参数。
 
@@ -183,6 +204,8 @@ CI。本报告以续轮门禁为准，前一轮结果保留在对应提交历史
   collect timeout 通常提供该 deadline。
 - finalized reference 的 participant/selection 诊断仍由 `ReferenceEvidence`
   承载，不新增结构化采集字段。
+- reference freshness 只有约 6 分 22 秒的扩展窗口观测；未观察到 reorg，
+  但不足以证明 reorg 分布，也不产生默认 lag。
 - WSS Adapter 未接入默认 runtime/config；这是独立配置决策。
 - 进程内证据不等于 provider 兼容性结论。
 - W4 的 `null` 未在真实 provider 观察到；不能升级四态 golden。
@@ -213,7 +236,8 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
   0 uncles；uncle 样本与 full 交易对象字段差异；
 - WSS 真实 provider 的 `error.data:null`、限流、read limit、响应超时、
   迟到响应与 provider 侧重连（missing/`0x`/value 已观察）；
-- T11 容量/限流样本与 freshness 长窗口 reorg/滞后观测。
+- T11 容量/限流样本与 freshness 更长窗口 reorg/滞后观测（目前约 6 分 22 秒，
+  不足以证明 reorg 分布）。
 
 ## 5. 下一阶段入口
 
@@ -230,8 +254,9 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
    字段差异和 hash 位置。
 4. **T11**：在受控容量/限流样本基础上选择算法族与参数；当前只有配额/
    策略信号，不写默认参数。
-5. **Reference freshness**：先裁决 lag 单位与适用范围；现有短窗口观测
-   不修改 `maxLag`、tip gate 或 tag 语义。
+5. **Reference freshness**：先裁决 lag 单位、样本过期语义、显式历史读取与
+   source-level tip gate 的关系；两次观测（短窗口与约 6 分钟扩展窗口）只
+   证明 provider tag 节奏差异，不修改 `maxLag`、tip gate 或 tag 语义。
 
 ## 6. 约束核对
 

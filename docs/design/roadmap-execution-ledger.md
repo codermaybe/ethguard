@@ -214,21 +214,30 @@
 
 ## 9. Reference freshness（route: reference policy）
 
-- 状态：设计不变量已完成；2026-10-31 完成一次短窗口 latest/safe/finalized
-  观测；新策略未实现。
+- 状态：设计不变量已完成；2026-10-31 完成短窗口与约 6 分 22 秒扩展窗口两次
+  latest/safe/finalized 观测；新策略未实现。
 - 证据：`docs/design/reference-freshness-policy.md` 区分调度 tip gate 与
   finalized 候选 lag，固定 tag 语义、拒绝而非降级、显式历史读取豁免与
-  agreement/freshness 分离；`reference-freshness-observations.md` 记录 4 源、
-  3 pass、约 15 秒间隔的观测：latest 最大差 1 block，safe 最大差 31，
-  finalized 最大差 159，同高度未见 hash 分歧，短窗口未见 reorg。
-- 风险：窗口只有约 49 秒，不能证明 reorg 行为或长期 lag 分布；safe/finalized
-  tag 的更新节奏因 provider 而异；同一 provider 的 `eth_blockNumber` 与
-  latest block 可出现 1-block 差异；当前 `maxLag`/tip gate 仍是实现事实而非
-  新默认承诺。
+  agreement/freshness 分离；`reference-freshness-observations.md` 记录：
+  - 短窗口 4 源 × 3 pass、约 15 秒间隔：latest 最大差 1 block，safe 31，
+    finalized 159，同高度未见 hash 分歧；
+  - 扩展窗口 4 源 × 8 pass、约 45 秒间隔、约 6 分 22 秒：latest 最大 spread
+    1，safe 224，finalized 96；一个源的 safe/finalized 在全部 8 pass 固定
+    不动而 latest 仅落后 1 block；未观察到高度回退、同高度 hash 冲突或
+    reorg；一次 HTTP 503 坏响应与 freshness 分开归因；
+  - 代码复核：tip gate 只看 source tip、不读请求 tag/height；样本不按
+    `tipObservedAt` 年龄过期；gated 成员保留分母，write path 不做 read
+    freshness gating，参见 §3.1 与现有回归测试。
+- 风险：6 分钟窗口仍不能证明 reorg 行为或长期 lag 分布；safe/finalized tag
+  的更新节奏因 provider 而异，且可能在一个窗口内完全不动；同一 provider 的
+  `eth_blockNumber` 与 latest block 可出现 1-block 差异；当前 `maxLag`/tip
+  gate 仍是实现事实而非新默认承诺；显式历史读取仍会被 source-level tip gate
+  影响，是否符合“豁免”语义需要裁决。
 - 待最终处理问题：
-  - 需要主维护者决策：lag 单位、方法适用范围、样本过期语义、是否自适应；
-  - 外部证据阻塞：长窗口 reorg/回退、tip 样本过期、显式历史读取豁免、
-    finalized candidate 与 reference confirmation 的交互、多客户端观测。
+  - 需要主维护者决策：lag 单位、方法适用范围、样本过期语义、显式历史读取
+    与 tip gate 的关系、是否自适应；
+  - 外部证据阻塞：长窗口 reorg/回退、tip 样本过期、finalized candidate 与
+    reference confirmation 的交互、多客户端观测。
 
 ## 9a. HTTP connection seam 审计（route: connection seam）
 
@@ -278,6 +287,8 @@
     `ReferenceEvidence` 暴露；
   - WSS Adapter 未接入默认 runtime/config，作为独立配置决策保留；
   - WSS 进程内证据不升级决策 0056，不生成 WSS 四态 golden；
+  - reference freshness 观测窗口约 6 分 22 秒，未观察到 reorg，但不能证明
+    reorg 分布或长期 lag；
   - 2026-10-31 的方法 live probe 是单次 4 源样本：latest 与历史 block
     18,000,000 的 EIP-1898 object 形状一致、createAccessList 的
     blockHash/canonical 形状一致、block header/full 内容一致、hash 位置无
@@ -290,7 +301,8 @@
   - 是否以及何时把 WSS 接入配置/runtime，采用显式 per-source 字段还是
     仅 composition root 注入；
   - T11 算法族、margin/冷却/队列参数与预算范围；
-  - reference freshness 的 lag 单位、方法适用范围和是否自适应；
+  - reference freshness 的 lag 单位、方法适用范围、样本过期语义、显式历史
+    读取与 source-level tip gate 的关系，以及是否自适应；
   - 真实 provider capture 的排期。
 - **外部证据阻塞**：
   - `eth_blobBaseFee` 多源支持面普查（已有 2026-10-21 sample 与
@@ -298,10 +310,12 @@
   - EIP-1898 其他历史高度/archive 策略（block 18,000,000 的
     blockNumber object 4/4，balance blockHash object 4/4）；
   - `eth_getBlockByNumber` hash 位置（2026-10-31 4/4 拒收）；
-  - `eth_createAccessList` 的 hash/canonical 形式；`eth_feeHistory`
-    多区间 percentile 舍入（固定区间 `[1,33,67,99]` 4/4 一致）；
+  - `eth_createAccessList` 的 hash/canonical 跨高度普查（block 18,000,000
+    单块已 4/4）；`eth_feeHistory` 多区间 percentile 舍入（固定区间
+    `[1,33,67,99]` 4/4 一致）；
   - 完整区块内容承诺：block 18,000,000 的 header/full 4/4、16 withdrawals、
     0 uncles；uncle 样本与 full 交易对象字段差异仍未验证；
   - WSS 真实 provider 的 `error.data:null`、限流、read limit、响应超时、
     迟到响应与 provider 侧重连（missing/`0x`/value 已观察）；
-  - T11 容量/限流样本与 freshness 多 provider 高度/滞后/reorg 观测。
+  - T11 容量/限流样本；freshness 更长窗口的 reorg/滞后观测（当前约
+    6 分 22 秒，未观察到 reorg）。

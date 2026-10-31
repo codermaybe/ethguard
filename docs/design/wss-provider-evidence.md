@@ -1,8 +1,8 @@
 # WSS Provider Evidence（W4 证据门，2026-10-31）
 
-状态：**W4 真实 provider 证据已采集并离线回放；出口未满足，决策 0056 未修订**。
-本记录只登记一次 live observation 及其离线 replay，不把结果升级为 provider
-兼容性结论，也不生成 WSS 四态 golden。
+状态：**两次真实 provider 证据已采集并离线回放（6×5 与 8×6）；出口未满足，
+决策 0056 未修订**。本记录只登记 live observation 及其离线 replay，不把结果
+升级为 provider 兼容性结论，也不生成 WSS 四态 golden。
 
 ## 1. 结论
 
@@ -84,7 +84,8 @@
 `data:null`：
 
 - 48 条记录：8 个 endpoint × 6 个 probe；其中 2 个 endpoint 在拨号阶段
-  失败（`dial-error`，未进入 JSON-RPC），6 个 endpoint 完成 probe；
+  失败（`dial-error`，未进入 JSON-RPC；1 个 HTTP 401，1 个握手 i/o
+  timeout），6 个 endpoint 完成 probe；没有观察到握手 429；
 - 6 个 endpoint 的 chain check 全部通过；30 条协议错误中
   missing=16、`0x`=1、value=13、**null=0**；
 - `block-hash-position` 的拒绝形态是 missing 或字符串 data，没有显式
@@ -108,6 +109,9 @@ W4 exit not met: decision 0056 is unchanged; WSS four-state goldens remain prohi
 - p02 在 `unknown-method` 和 `invalid-params` 后以 close code `1006`
   异常关闭；同一连接上的后续 `eth_chainId` 失败。其他 provider 在这些
   probe 后仍能完成 follow-up `eth_chainId`。
+- 2026-10-31 复测的两个 `dial-error` 分别是握手 HTTP 401 和握手 i/o
+  timeout（约 15 秒）；本轮没有观察到 429、read limit、调用级响应超时或
+  迟到响应。
 - 每个 probe 使用新连接；本轮没有观察到 provider 主动重连，也没有观察到
   旧连接上的迟到响应。capture 客户端和 WSS Adapter 都明确不自动重连。
 - 该断连行为是 provider 侧的生命周期事实，不应由 presence 采集或 Adapter
@@ -150,7 +154,7 @@ W4 exit not met: decision 0056 is unchanged; WSS four-state goldens remain prohi
 | 项 | 状态 | 原因/影响 |
 | --- | --- | --- |
 | `error.data: null` | 未观察 | 公开 provider 本轮全部省略 data 或返回具体值；无法据此升级 0056 |
-| rate limit（WSS 握手 429） | 未触发 | 本轮每个 provider 仅 5 个 probe，不制造负载 |
+| rate limit（WSS 握手 429） | 未触发 | 本轮每个 provider 仅 5–6 个 probe，不制造负载；复测只观察到 1 个 HTTP 401 和 1 个握手 i/o timeout |
 | read limit | 未触发 | 需要超过 Adapter 上限的 provider frame；不对公开端点制造超大请求 |
 | response timeout | 未触发 | 需要 provider 停滞；本轮所有读取在有界 deadline 内完成 |
 | late response on old connection | 未观察 | 需要 provider 在取消后仍发送旧响应；未制造该条件 |

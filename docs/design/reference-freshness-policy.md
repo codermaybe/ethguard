@@ -66,6 +66,24 @@ EthGuard 目前有两处与 freshness 相关的机制，它们不是同一个策
 - freshness 失败是否应触发 source health/cooldown（当前判断：不自动惩罚
   成员，除非属于可用性故障）。
 
+当前实现事实（2026-10-31 复核，未改变行为）：
+
+- corroborating 读取走 `CollectVoting`，在每个 source 上按该 source 的
+  sampled tip 与 fleet lower-median 的 `staleFloor` 比较；被暂停的成员保留
+  在 basis 中并携带 `ErrSourceGated`，不记录 health failure；
+- 非 corroborating 的 `Collect` 若带显式 `Sources`，按契约跳过
+  freshness/cooldown gate；`Broadcast` 明确不做 read freshness gating；
+- tip gate 只看 source tip，不读取本次请求的 tag/height。因此显式历史读取
+  仍可能因为该 source 的 tip 落后而被暂停；调用本身不会因“历史”被拒绝，
+  但可用 source 集合会变化。这是“显式历史读取豁免”需要裁决的边界；
+- `sampledTip`/`staleFloor` 不按 `tipObservedAt` 的年龄过期样本；provider
+  停止更新 tip 时，最后一次采样会一直参与 floor 计算。样本过期语义仍是
+  未决问题；
+- 现有离线证据：`TestTipTrackingQuarantinesLaggingSource`、
+  `TestCollectVotingKeepsCoolingMemberInBasis`、
+  `TestFinalizedAnchoringIsolatesStaleReporter` 和
+  `TestBroadcastTrailingSourceStillContacted`。
+
 ### 3.4 参数与自适应
 
 - 固定 lag 是否足以覆盖真实 provider 差异，还是需要自适应阈值；
@@ -77,20 +95,27 @@ EthGuard 目前有两处与 freshness 相关的机制，它们不是同一个策
 
 1. **真实 provider 观测**：多个 provider 在 latest/safe/finalized 上的高度
    分布、滞后分布、采样间隔与异常形态；记录日期与端点类别，不把一次观测
-   写成普遍结论；2026-10-31 已完成一次 4 源、3 pass、约 15 秒间隔的短窗口
-   观测：latest 最大差 1 block，safe 最大差 31 blocks，finalized 最大差
-   159 blocks，未观察到 reorg；详见
+   写成普遍结论；2026-10-31 已完成两次 4 源观测：3 pass、约 15 秒间隔的
+   短窗口，以及 8 pass、约 45 秒间隔、约 6 分 22 秒的扩展窗口。扩展窗口
+   latest spread 最大 1 block，safe 最大 224，finalized 最大 96；一个源在
+   全部 8 pass 的 safe/finalized 固定不动而 latest 只落后 1 block；未观察到
+   reorg 或同高度 hash 分歧。详见
    [reference-freshness-observations.md](reference-freshness-observations.md)；
 2. **reorg/回退样本**：短程 reorg 下 finalized/latest 视图的变化，验证
-   freshness 失败是否按拒绝处理；
-3. **显式历史读取**：旧高度/旧 hash 不被 freshness 拒绝；
+   freshness 失败是否按拒绝处理；当前 ~6 分钟窗口未观察到，仍需更长窗口；
+3. **显式历史读取**：旧高度/旧 hash 不被 freshness 拒绝；provider 已能返回
+   block 18,000,000 的历史状态，但 orchestrator 的 freshness 路径尚未专项
+   验证；
 4. **tip 样本过期**：停止采样或 provider 不更新时，调度与诊断的行为；
+   当前代码没有按 `tipObservedAt` 年龄过期样本，仍需专项测试和裁决；
 5. **与 reference 算法的交互**：候选 lag 过滤、确认轮次、分母不缩小；
+   离线回归已覆盖 stale reporter，真实 provider 的确认轮交互仍未观察；
 6. **离线回放**：将真实 capture 转成 replay，不联网运行。
 
 在上述证据完成前，不修改 `maxLag` 默认值、tip gate 参数、reference tag
-语义或 finalized 候选规则。短窗口观测只证明 provider 高度分布不一致，
-不足以选择 lag 单位、适用方法或自适应阈值。
+语义或 finalized 候选规则。两次观测只证明 provider 高度分布和 tag 更新
+节奏不一致（safe 最大 spread 224、finalized 最大 96，且一个源在整个
+6 分钟窗口内固定不动），仍不足以选择 lag 单位、适用方法或自适应阈值。
 
 ## 5. 与现有文档/决策的关系
 

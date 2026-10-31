@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**拓扑迁移、架构收敛、T09 审计、ReadPlan M0–M8、resolver seam 收尾、reference 原始采集修复、WSS raw-call Adapter 与方法对接卡片已完成；W4 真实 provider 证据已采集，missing/`0x`/value 观察，null 未观察，决策 0056 未修订；WSS 生产化七个问题已收敛为推荐决策矩阵，待主维护者裁决**（2026-10-31）
+状态：**拓扑迁移、架构收敛、T09 审计、ReadPlan M0–M8、resolver seam 收尾、reference 原始采集修复、WSS raw-call Adapter 与方法对接卡片已完成；W4 真实 provider 证据已采集，missing/`0x`/value 观察，null 未观察，决策 0056 未修订；WSS 生产化七个问题已收敛为推荐决策矩阵，待主维护者裁决；reference freshness 已补约 6 分钟扩展窗口观测**（2026-10-31）
 
 本文件是 EthGuard 唯一的路线与阶段状态来源，记录当前事实、方向、顺序、依赖、
 遗留问题和阶段出口。设计文档只记录某个契约、决策或证据的详细内容，不维护第二
@@ -80,7 +80,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c/1d 与 native HTTP Slice 2 已完成；默认构建不链接 `ethclient` | WSS 生产化决策；typed 类型保留 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
 | WSS transport | W1–W3 已完成：最小 raw-call Adapter 与进程内证据 | W4：真实 provider 证据后再议 0056/golden | 不先改 quorum、policy、typed 或写路径 |
 | T11 自适应拥塞控制 | 设计不变量已补；算法未实现；2026-10-31 观察到限流/配额信号但无容量曲线 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
-| reference freshness | 设计不变量已补；2026-10-31 完成短窗口 latest/safe/finalized 观测；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义；观测不产生默认 lag |
+| reference freshness | 设计不变量已补；2026-10-31 完成短窗口与约 6 分 22 秒扩展窗口 latest/safe/finalized 观测；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义；观测不产生默认 lag |
 | reference raw capture | 两个缺口已按独立切片修复并补回归 | 保持采集语义，出现新清空点时重新审查 | 不改裁决、阈值、成员或 reference 语义 |
 | ReadPlan / resolver seam | M0–M8 已完成；resolver 内部仍是 `rpc.Policy` 深模块 | resolver 行为盘点、最小 seam 契约、legacy quarantine、是否继续扁平化的证据决策 | 不改变 Decision、quorum、reference、typed 或方法数量 |
 | WSS error-data evidence | W0–W3 已完成；WSS raw-call Adapter 保留四态；真实 provider 与 reconnect/backpressure 证据仍缺 | W4 只有在真实 provider/进程内证据都通过后升级 0056 | 不先加通用 Subscribe，不改变 `eth_call` 比较键或写路径 |
