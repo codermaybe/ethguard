@@ -83,30 +83,56 @@ func (p callRevertFunc) ResolveCorroborated(c Corroboration, obs []Observation) 
 	return p.resolve(c, false, obs)
 }
 
-type callAnswer struct {
-	source    SourceRef
-	value     json.RawMessage
-	evidence  json.RawMessage
-	canonical json.RawMessage
-	execution string
-	data      string
-	abstain   bool
-	success   bool
-	revert    *RevertContext
+// ResolveOutcome is Resolve with the per-source statement attached. The
+// statement classifies the execution dimension — the dimension that decides
+// whether an answer was usable at all: sources in the winning execution
+// group supported, sources in losing execution groups dissented, and every
+// answer that failed admission unusable. The data dimension's own states are
+// not second-guessed here: its abstentions and assertions stay on the
+// decision's Dimensions, Revert context, and Provenance, which carry exactly
+// which sources abstained (missing/null) and which asserted (0x/concrete
+// data). The outcome is therefore the ordinary Outcome shape at its one
+// well-defined dimension, and consumers project faults from it instead of
+// re-running the generic comparison key as a usability guess.
+func (p callRevertFunc) ResolveOutcome(obs []Observation) (Outcome, error) {
+	if p.fallback != nil {
+		return p.outcome(*p.fallback, false, obs)
+	}
+	return p.outcome(Corroboration{}, true, obs)
+}
+
+// ResolveOutcomeCorroborated mirrors ResolveCorroborated with the per-source
+// execution statement attached.
+func (p callRevertFunc) ResolveOutcomeCorroborated(c Corroboration, obs []Observation) (Outcome, error) {
+	return p.outcome(c, false, obs)
 }
 
 func (p callRevertFunc) resolve(c Corroboration, legacy bool, obs []Observation) (Decision, error) {
-	admitted, faults, err := p.admit(obs)
+	decision, _, err := p.adjudicated(c, legacy, obs)
+	return decision, err
+}
+
+func (p callRevertFunc) outcome(c Corroboration, legacy bool, obs []Observation) (Outcome, error) {
+	decision, verdicts, err := p.adjudicated(c, legacy, obs)
+	return Outcome{Decision: decision, Verdicts: verdicts}, err
+}
+
+// adjudicated is the shared core of every resolution entry: admit, rank the
+// execution groups, decide, and classify each source once.
+func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observation) (Decision, []SourceVerdict, error) {
+	admitted, skipped, err := p.admit(obs)
+	faults := skippedFaults(skipped)
 	if err != nil {
-		return Decision{Status: Unknown, Faults: faults}, err
+		return Decision{Status: Unknown, Faults: faults}, nil, err
 	}
 	if len(admitted) == 0 {
-		return Decision{Status: Unknown, Faults: faults}, fmt.Errorf(
+		return Decision{Status: Unknown, Faults: faults}, verdictsFromClassified(obs, nil, nil, skipped), fmt.Errorf(
 			"call: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
 	}
 	ranked := rankCallAnswers(admitted, func(a callAnswer) string { return a.execution })
 	winner := ranked[0]
 	rejected := flattenCall(ranked[1:])
+	verdicts := callExecutionVerdicts(obs, winner, rejected, skipped)
 	rep := representative(winner)
 	decision := Decision{
 		Status:         Unknown,
@@ -128,7 +154,7 @@ func (p callRevertFunc) resolve(c Corroboration, legacy bool, obs []Observation)
 			decision.Status = Unknown
 			decision.Value = nil
 			decision.Faults = append(decision.Faults, cerr)
-			return decision, cerr
+			return decision, verdicts, cerr
 		}
 		decision.Value = committed
 	}
@@ -151,31 +177,70 @@ func (p callRevertFunc) resolve(c Corroboration, legacy bool, obs []Observation)
 		decision.Dimensions = []DimensionEvidence{
 			callDimension(callDimensionExecution, decision.Support, decision.Reject, nil, false),
 		}
-		return decision, failed
+		return decision, verdicts, failed
 	}
 	if rep.success || decision.Status == Selected {
 		decision.Dimensions = callExecutionDimensions(decision, winner)
-		return decision, nil
+		return decision, verdicts, nil
 	}
-	return projectRevertData(c, legacy, len(obs), decision, winner)
+	decision, err = projectRevertData(c, legacy, len(obs), decision, winner)
+	return decision, verdicts, err
 }
 
-func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []error, error) {
-	var faults []error
+// callAnswer is one admitted observation. `execution` holds the answer's
+// execution-dimension comparison key and `data` the revert-data state;
+// abstain records a non-assertion (missing or JSON null data) in the data
+// dimension.
+type callAnswer struct {
+	source    SourceRef
+	value     json.RawMessage
+	evidence  json.RawMessage
+	canonical json.RawMessage
+	execution string
+	data      string
+	abstain   bool
+	success   bool
+	revert    *RevertContext
+}
+
+// callExecutionVerdicts classifies each observed source on the execution
+// dimension: winning group supported, losing groups dissented, and every
+// answer that failed admission unusable with its own cause.
+func callExecutionVerdicts(obs []Observation, winner, rejected []callAnswer, skipped []skippedAnswer) []SourceVerdict {
+	supported := make(map[string]struct{}, len(winner))
+	for _, answer := range winner {
+		supported[answer.source.ID] = struct{}{}
+	}
+	dissented := make(map[string]struct{}, len(rejected))
+	for _, answer := range rejected {
+		dissented[answer.source.ID] = struct{}{}
+	}
+	return verdictsFromClassified(obs, supported, dissented, skipped)
+}
+
+// admit turns observations into call answers, recording every answer that
+// could not enter adjudication as a skipped one. A "response" cause is
+// classification-only — the raw transport error stays out of the resolver's
+// fault list because the coordinator attributes those — and "encode" /
+// "normalize" causes are fault-worthy through skippedFaults, the same shape
+// the resolve paths have always produced.
+func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []skippedAnswer, error) {
+	var skipped []skippedAnswer
 	seen := make(map[string]int, len(obs))
 	var admitted []callAnswer
 	for i, item := range obs {
 		id := item.Source.ID
 		if id == "" {
-			return nil, faults, fmt.Errorf("call: observation %d has no source identity: %w", i, ErrConflict)
+			return nil, skipped, fmt.Errorf("call: observation %d has no source identity: %w", i, ErrConflict)
 		}
 		if first, dup := seen[id]; dup {
-			return nil, faults, fmt.Errorf("call: duplicate observation for source %q (first at %d, again at %d): %w", id, first, i, ErrConflict)
+			return nil, skipped, fmt.Errorf("call: duplicate observation for source %q (first at %d, again at %d): %w", id, first, i, ErrConflict)
 		}
 		seen[id] = i
 		value := item.Value
 		if item.Err != nil {
 			if !p.includeRPCError || item.RPCError == nil {
+				skipped = append(skipped, skippedAnswer{source: item.Source, cause: "response", err: item.Err})
 				continue
 			}
 			value = item.RPCError.Raw()
@@ -184,7 +249,7 @@ func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []error, error) 
 		if p.encode != nil {
 			encoded, err := p.encode(value)
 			if err != nil && !errors.Is(err, ErrNotCanonicalScalar) {
-				faults = append(faults, sourceFault(item.Source, "encode", err))
+				skipped = append(skipped, skippedAnswer{source: item.Source, cause: "encode", err: err})
 				continue
 			}
 			if err == nil {
@@ -193,17 +258,17 @@ func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []error, error) 
 		}
 		flat, err := p.normalize(value)
 		if err != nil {
-			faults = append(faults, sourceFault(item.Source, "normalize", err))
+			skipped = append(skipped, skippedAnswer{source: item.Source, cause: "normalize", err: err})
 			continue
 		}
 		answer, err := classifyCall(item.Source, value, item.Evidence, flat)
 		if err != nil {
-			faults = append(faults, sourceFault(item.Source, "normalize", err))
+			skipped = append(skipped, skippedAnswer{source: item.Source, cause: "normalize", err: err})
 			continue
 		}
 		if answer.success && p.encode != nil {
 			if len(canonical) == 0 {
-				faults = append(faults, sourceFault(item.Source, "encode", ErrNotCanonicalScalar))
+				skipped = append(skipped, skippedAnswer{source: item.Source, cause: "encode", err: ErrNotCanonicalScalar})
 				continue
 			}
 			answer.canonical = append(json.RawMessage(nil), canonical...)
@@ -213,7 +278,7 @@ func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []error, error) 
 		}
 		admitted = append(admitted, answer)
 	}
-	return admitted, faults, nil
+	return admitted, skipped, nil
 }
 
 func classifyCall(source SourceRef, value, evidence json.RawMessage, flat string) (callAnswer, error) {

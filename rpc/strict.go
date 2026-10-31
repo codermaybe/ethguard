@@ -216,6 +216,34 @@ func skippedFaults(skipped []skippedAnswer) []error {
 	return faults
 }
 
+// verdictsFromClassified is the shared per-source classification behind the
+// resolvers' outcome statements: a source in the winning set supported, a
+// source in the dissenting set dissented, and every other observed source
+// unusable, carrying its own skip error when one was recorded. The three sets
+// are exactly the fact each resolver's own resolution computes — strict from
+// its clusters, call-revert from its execution groups — so both statements
+// read from the same expression of "who lost what".
+func verdictsFromClassified(obs []Observation, supported, dissented map[string]struct{}, skipped []skippedAnswer) []SourceVerdict {
+	unusable := make(map[string]skippedAnswer, len(skipped))
+	for _, item := range skipped {
+		unusable[item.source.ID] = item
+	}
+	verdicts := make([]SourceVerdict, 0, len(obs))
+	for _, item := range obs {
+		switch {
+		case containsSourceID(supported, item.Source.ID):
+			verdicts = append(verdicts, SourceVerdict{Source: item.Source, Kind: VerdictSupported})
+		case containsSourceID(dissented, item.Source.ID):
+			verdicts = append(verdicts, SourceVerdict{Source: item.Source, Kind: VerdictDissented})
+		default:
+			skip := unusable[item.Source.ID]
+			verdicts = append(verdicts, SourceVerdict{Source: item.Source, Kind: VerdictUnusable, Err: skip.err})
+		}
+	}
+	sortSourceVerdicts(verdicts)
+	return verdicts
+}
+
 // verdictsFromClusters classifies every observation once clustering and
 // adjudication are done: sources in the winning cluster supported, sources in
 // losing clusters dissented, and every remaining attempted source was
@@ -235,24 +263,7 @@ func verdictsFromClusters(obs []Observation, ranked []cluster, skipped []skipped
 			dissented[source.ID] = struct{}{}
 		}
 	}
-	unusable := make(map[string]skippedAnswer, len(skipped))
-	for _, item := range skipped {
-		unusable[item.source.ID] = item
-	}
-	verdicts := make([]SourceVerdict, 0, len(obs))
-	for _, item := range obs {
-		switch {
-		case containsSourceID(supported, item.Source.ID):
-			verdicts = append(verdicts, SourceVerdict{Source: item.Source, Kind: VerdictSupported})
-		case containsSourceID(dissented, item.Source.ID):
-			verdicts = append(verdicts, SourceVerdict{Source: item.Source, Kind: VerdictDissented})
-		default:
-			skip := unusable[item.Source.ID]
-			verdicts = append(verdicts, SourceVerdict{Source: item.Source, Kind: VerdictUnusable, Err: skip.err})
-		}
-	}
-	sortSourceVerdicts(verdicts)
-	return verdicts
+	return verdictsFromClassified(obs, supported, dissented, skipped)
 }
 
 func containsSourceID(set map[string]struct{}, id string) bool {
