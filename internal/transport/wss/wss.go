@@ -150,8 +150,13 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 
 	if !t.write(ctx, body) {
 		t.removePending(string(id))
+		// A failed or interrupted write may have left a partial frame, so the
+		// connection is not reusable regardless of which error wins.
 		writeErr := fmt.Errorf("wss: write request: %w", transport.ErrConnectionClosed)
 		t.abort(writeErr)
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		return writeErr
 	}
 
