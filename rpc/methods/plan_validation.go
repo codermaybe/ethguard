@@ -86,17 +86,21 @@ func validatePlanComposition(spec MethodSpec) error {
 
 // validatePlanBindings rejects a compiled plan whose resolver value does
 // not honor the declared class: a corroborating class must resolve under a
-// frozen corroboration snapshot, a sampling class must not claim one, and
-// the projected key source must be the declared one. These are the ties
-// that keep the declared facts and the executed capabilities from
-// diverging.
+// frozen corroboration snapshot — and state its corroborated outcome through
+// the same value, so per-source verdicts come from the resolver itself and
+// not from a second Normalize guess — a sampling class must claim neither
+// corroboration entry point, and the projected key source must be the
+// declared one. These are the ties that keep the declared facts and the
+// executed capabilities from diverging.
 func validatePlanBindings(plan rpc.ReadPlan, spec MethodSpec) error {
 	if plan.Resolver == nil {
 		return fmt.Errorf("methods: %s compiled no resolver", spec.Method)
 	}
 	_, corroborating := plan.Resolver.(rpc.CorroboratingPolicy)
-	if plan.Corroborating() != corroborating {
-		return fmt.Errorf("methods: %s declares resolver %q but its value corroborates=%v", spec.Method, spec.Resolver, corroborating)
+	_, outcomeCorroborating := plan.Resolver.(rpc.CorroboratingOutcomeResolver)
+	if plan.Corroborating() != corroborating || corroborating != outcomeCorroborating {
+		return fmt.Errorf("methods: %s declares resolver %q, but its value corroborates=%v outcomeCorroborates=%v",
+			spec.Method, spec.Resolver, corroborating, outcomeCorroborating)
 	}
 	if rule, ok := plan.Resolver.(rpc.MethodRuleSource); ok {
 		projected, _ := rule.MethodRule()
