@@ -161,6 +161,8 @@ CI，也不写入 golden。
   固定成员，WSS source 进入该 pool 也会收到写广播；raw WSS 的 presence
   保真会让显式 `null` 产生与 geth WSS `unknown` 不同的 `eth_call` 数据键。
   因此推荐先裁决写路由和 presence 生产行为，再决定是否接线。
+- 本轮没有启动最小 WSS 接线：没有主维护者决策记录，且写路由/presence
+  选择仍未裁决；Phase 3 保持阻塞，不写成已完成。
 
 ### 3.8 方法与 freshness/T11 观测
 
@@ -209,7 +211,8 @@ CI，也不写入 golden。
 - WSS Adapter 未接入默认 runtime/config；这是独立配置决策。
 - 进程内证据不等于 provider 兼容性结论。
 - W4 的 `null` 未在真实 provider 观察到；不能升级四态 golden。
-- 方法 live probe 与 freshness 观测都是单次小样本；不是长期兼容性普查。
+- 方法 live probe 与 freshness 观测都是小样本 live observation（方法为
+  4 源，freshness 为短窗口与约 6 分钟窗口）；不是长期兼容性普查。
 - T11 只有限流/配额信号，没有持续容量曲线、并发上限或队列增长样本。
 
 WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完成或取消后
@@ -217,10 +220,11 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
 
 ### 4.3 需要主维护者决策
 
-- WSS config/runtime、adapter 选择、reconnect、keepalive、backpressure 和
-  health 归属（见 `wss-productionization-decisions.md`）；
+- WSS config/runtime、adapter 选择、reconnect、keepalive、backpressure、
+  health 归属和写路径路由（见 `wss-productionization-decisions.md`）；
 - T11 算法族、参数与预算范围；
-- reference freshness 的 lag 单位、适用范围与自适应；
+- reference freshness 的 lag 单位、样本过期语义、显式历史读取与 tip gate
+  的关系，以及是否自适应；
 - 是否以及何时为剩余 provider 证据安排更有针对性的 capture。
 
 ### 4.4 外部证据阻塞
