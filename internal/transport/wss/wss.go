@@ -250,13 +250,15 @@ func (t *Transport) classifyReadError(err error) error {
 
 // abort marks the connection unusable and fails every pending call with the
 // same cause. It is the single fan-out point for read limits, peer
-// disconnects, and write failures.
+// disconnects, and write failures. Closing the socket here also unblocks a
+// reader still waiting on a broken write path, so the goroutine cannot leak.
 func (t *Transport) abort(err error) {
 	t.mu.Lock()
 	t.closed = true
 	pending := t.pending
 	t.pending = make(map[string]chan frameResult)
 	t.mu.Unlock()
+	_ = t.conn.Close()
 	for _, waiter := range pending {
 		waiter <- frameResult{err: err}
 	}

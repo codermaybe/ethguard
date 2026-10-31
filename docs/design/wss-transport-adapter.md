@@ -147,3 +147,8 @@ W1 原型 `internal/transport/wss_feasibility_test.go` 保留为可行性证据�
    真实 provider 证据显示写阻塞或 pending 增长时再评估。
 5. **provider 证据**：真实 WSS provider 的 error envelope、重连、限流和
    消息大小行为尚未采集；不得用进程内样本冒充兼容性结论。
+6. **写阻塞中的取消**：取消发生在 `WriteMessage` 已阻塞时，只有调用
+   context 的 deadline 能中断写；没有 deadline 的调用依赖 peer/连接失败
+   解除阻塞。pool 的 collect timeout 通常提供该 deadline；若直接使用
+   Adapter 且无 deadline，调用方需自行保证有界写。是否在 Adapter 内增加
+   写超时需要单独决策。
