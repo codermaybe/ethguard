@@ -90,9 +90,11 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocatio
 	switch {
 	case useFinalizedAlgorithm:
 		// The finalized establishment keeps the snapshot's floor and mode,
-		// exactly as the facade path does.
+		// exactly as the facade path does. The reader wrapper records both
+		// selection and confirmation observations on this invocation's trail.
 		snapshot := invocation.Basis().Corroboration
-		ref, err = reference.Finalized(ctx, NewPoolHeadReader(s.pool, members), MethodHeadCodec{}, s.maxLag, snapshot.Floor, snapshot.Mode, s.timeout, s.rec)
+		reader := capturedHeadReader{inner: NewPoolHeadReader(s.pool, members), invocation: invocation}
+		ref, err = reference.Finalized(ctx, reader, MethodHeadCodec{}, s.maxLag, snapshot.Floor, snapshot.Mode, s.timeout, s.rec)
 	case request.Kind == rpc.ReferenceLatest || request.Kind == rpc.ReferenceSafe || request.Kind == rpc.ReferenceFinalized:
 		// The strict level rides the shared establishment engine: same
 		// members, same snapshot, same assembly as the facade's resolver

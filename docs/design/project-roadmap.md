@@ -80,7 +80,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | WSS transport | 评估排在方法对接和 connection seam 之后 | 契约、最小 Adapter、四态进程内验收后再议 golden | 不先改 quorum、policy、typed 或写路径 |
 | T11 自适应拥塞控制 | 决策方向已接受，算法待设计 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
 | reference freshness | 0032/0033 已接受边界，余量和对齐待专门决策 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义 |
-| reference raw capture | strict malformed 与 finalized 轮次记录不完整 | 两个独立切片修复并补回归 | 不改裁决、阈值、成员或 reference 语义 |
+| reference raw capture | 两个缺口已按独立切片修复并补回归 | 保持采集语义，出现新清空点时重新审查 | 不改裁决、阈值、成员或 reference 语义 |
 | ReadPlan / resolver seam | M0–M8 已完成；resolver 内部仍是 `rpc.Policy` 深模块 | resolver 行为盘点、最小 seam 契约、legacy quarantine、是否继续扁平化的证据决策 | 不改变 Decision、quorum、reference、typed 或方法数量 |
 | WSS error-data evidence | 当前只能准确表达 missing/null 不可知 | presence 诊断、WSS 调用层可行性评估、四态进程内证据；实现与 golden 后置 | 不先加通用 Subscribe，不改变 `eth_call` 比较键或写路径 |
 | provider compatibility evidence | 按方法逐步补齐 | capture/replay/live 状态登记并保持证据等级 | 不用合成样本冒充 provider 兼容性 |
@@ -345,7 +345,17 @@ method policy、typed projection、quorum 或方法数量。详细事实和候�
 - **外部消费者纪律**：决策 0057 的“当前无外部消费者”会在首次发布、tag 或外部
   import 出现时失效，届时 API break 必须重新评估弃用窗口。
 
-## reference raw capture 缺口（后置）
+## reference raw capture 缺口（已修复）
+
+修复状态（2026-10-31）：两个缺口已分别以独立提交修复。strict 路径在
+`jsonsafe.Validate` 前保留原始值，记录时把 post-admission fault 与原始字节
+配对；finalized 路径在 runtime 侧用包装的 `reference.HeadReader` 记录
+`Read`/`Confirm` 的 observation 与 collect error。`HeadReader` 签名、
+`reference.Finalized` 算法、阈值、成员、Decision 和 typed 语义均未改变；
+回归见 `internal/runtime/strict_head_raw_capture_test.go`、
+`internal/runtime/finalized_head_raw_capture_test.go` 和
+`internal/runtime/captured_head_reader_test.go`。以下保留原始缺口描述作为
+历史依据。
 
 `WithUncertain` 的原始响应记录在 reference 建立阶段有两个已知缺口。两者都只影响
 审计与 provider 兼容性证据，不改变 Decision、quorum、frozen basis、成员或 typed

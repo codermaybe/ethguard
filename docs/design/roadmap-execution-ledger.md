@@ -47,12 +47,14 @@
 
 ## 3. Finalized reference 轮次的采集（route: reference raw capture）
 
-- 状态：进行中（回归测试先行）。
-- 证据（待补全）：
-  - 目标：runtime 侧包装 `reference.HeadReader`，记录 `Read`/`Confirm`
-    的 observation 与 collect error；
-  - 回归测试：finalized 场景下 first round 与 confirmation 都进入
-    InvocationCapture。
+- 状态：已完成。
+- 证据：
+  - `internal/runtime/captured_head_reader.go` 在 runtime 侧包装
+    `reference.HeadReader`，记录 `Read`/`Confirm` 的 observation 与 collect error；
+  - 回归测试 `internal/runtime/finalized_head_raw_capture_test.go`：selection
+    轮与 confirmation 轮的原始 head 都进入 InvocationCapture，来源与高度按
+    算法顺序登记；`internal/runtime/captured_head_reader_test.go`：两轮
+    observation 与 collect error 的包装契约。
 - 语义：不修改 `reference.HeadReader` 签名、`reference.Finalized` 算法、阈值、
   成员、Decision 或 typed；采集沿用 `internal/uncertain` 的有界预算。
 - 风险：包装器只应记录 observation，不得参与错误分类或决定失败；确认轮次
