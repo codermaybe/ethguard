@@ -108,9 +108,11 @@ go test ./internal/transport -run 'TestWSSPrototype' -race -count=5
 - WSS Adapter 未接入默认 runtime/config；这是独立配置决策。
 - 进程内证据不等于 provider 兼容性结论。
 
+WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完成或取消后
+关闭 socket；对端断连和读错误仍立即失败 pending。
+
 ### 4.3 需要主维护者决策
 
-- WSS Close 的 in-flight 语义与 `transport.go` 通用注释的偏差；
 - WSS reconnect/reorg/backpressure 与 keepalive 契约；
 - 是否以及何时把 WSS 接入配置/runtime；
 - T11 算法族、参数与预算范围；
@@ -133,8 +135,8 @@ go test ./internal/transport -run 'TestWSSPrototype' -race -count=5
 1. **W4（外部证据）**：采集真实 WSS provider 的 error.data presence、
    read limit、限流与断连行为；只有进程内与真实 provider 证据都通过，才
    修订决策 0056 或增加 WSS 四态 golden。
-2. **WSS 生产化决策**：决定 Close 语义、reconnect/backpressure/keepalive
-   和配置接线；在此之前 WSS 只作为可替换 Adapter 存在。
+2. **WSS 生产化决策**：决定 reconnect/backpressure/keepalive 和配置接线；
+   Close 已遵守 Transport Port，在此之前 WSS 只作为可替换 Adapter 存在。
 3. **逐方法 provider 证据**：按 `method-integration-cards.md` §5 的缺口
    顺序采集 capture/replay/live；不用合成样本关闭缺口。
 4. **T11**：在真实容量/限流样本基础上选择算法族与参数；保持成员、分母、

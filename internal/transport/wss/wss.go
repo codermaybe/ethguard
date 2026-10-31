@@ -112,9 +112,10 @@ type Transport struct {
 
 	mu      sync.Mutex
 	pending map[string]chan frameResult
+	closing bool
 	closed  bool
 
-	closeOnce sync.Once
+	socketOnce sync.Once
 }
 
 var _ transport.Transport = (*Transport)(nil)
@@ -129,7 +130,7 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 		return err
 	}
 	t.mu.Lock()
-	closed := t.closed
+	closed := t.closed || t.closing
 	t.mu.Unlock()
 	if closed {
 		return ErrTransportClosed
@@ -141,7 +142,7 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 	}
 	waiter := make(chan frameResult, 1)
 	t.mu.Lock()
-	if t.closed {
+	if t.closed || t.closing {
 		t.mu.Unlock()
 		return ErrTransportClosed
 	}
@@ -205,7 +206,14 @@ func (t *Transport) complete(id json.RawMessage, response frameResult, result an
 func (t *Transport) removePending(id string) {
 	t.mu.Lock()
 	delete(t.pending, id)
+	closeSocket := t.closing && !t.closed && len(t.pending) == 0
+	if closeSocket {
+		t.closed = true
+	}
 	t.mu.Unlock()
+	if closeSocket {
+		t.closeSocket()
+	}
 }
 
 // readLoop owns the socket's read side. A delivered frame is matched to its
@@ -236,6 +244,7 @@ func (t *Transport) readLoop() {
 		t.mu.Unlock()
 		if waiter != nil {
 			waiter <- frameResult{frame: append(json.RawMessage(nil), frame...)}
+			t.finishCloseAfterPending()
 		}
 	}
 }
@@ -260,13 +269,33 @@ func (t *Transport) classifyReadError(err error) error {
 func (t *Transport) abort(err error) {
 	t.mu.Lock()
 	t.closed = true
+	t.closing = true
 	pending := t.pending
 	t.pending = make(map[string]chan frameResult)
 	t.mu.Unlock()
-	_ = t.conn.Close()
+	t.closeSocket()
 	for _, waiter := range pending {
 		waiter <- frameResult{err: err}
 	}
+}
+
+// finishCloseAfterPending closes a socket after Close was requested and the
+// last in-flight call has received its response. Close does not cancel calls;
+// each call's context owns its own deadline and cancellation.
+func (t *Transport) finishCloseAfterPending() {
+	t.mu.Lock()
+	closeSocket := t.closing && !t.closed && len(t.pending) == 0
+	if closeSocket {
+		t.closed = true
+	}
+	t.mu.Unlock()
+	if closeSocket {
+		t.closeSocket()
+	}
+}
+
+func (t *Transport) closeSocket() {
+	t.socketOnce.Do(func() { _ = t.conn.Close() })
 }
 
 // ChainID implements transport.Transport through a plain eth_chainId call.
@@ -282,16 +311,25 @@ func (t *Transport) ChainID(ctx context.Context) (*big.Int, error) {
 	return new(big.Int).SetUint64(value), nil
 }
 
-// Close blocks new calls and releases the socket. A single-socket transport
-// cannot keep in-flight calls alive after the socket closes: they fail with
-// ErrTransportClosed through the reader's abort path. Close is idempotent.
+// Close blocks new calls and releases the socket after all in-flight calls
+// finish or cancel. In-flight calls remain governed by their own contexts,
+// matching the transport Port contract; a peer failure can still abort them
+// immediately. Close is idempotent.
 func (t *Transport) Close() {
-	t.closeOnce.Do(func() {
-		t.mu.Lock()
-		t.closed = true
+	t.mu.Lock()
+	if t.closed {
 		t.mu.Unlock()
-		_ = t.conn.Close()
-	})
+		return
+	}
+	t.closing = true
+	closeSocket := len(t.pending) == 0
+	if closeSocket {
+		t.closed = true
+	}
+	t.mu.Unlock()
+	if closeSocket {
+		t.closeSocket()
+	}
 }
 
 // decodeResult fills the caller's result target from the raw result bytes.

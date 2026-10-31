@@ -91,10 +91,10 @@
     Close、pending 清理、四态 presence、通知、无自动重试和 pool seam 集成；
   - 顶层 architecture interlock 禁止 WSS 包导入 aggregator、rpc/methods、
     internal/runtime、internal/reference、internal/typed。
-- 风险：单 socket 的 Close 无法让在途调用继续；与 `transport.go` 通用注释
-  的偏差已登记，生产切换前需要主维护者裁决。
+- 语义：Close 标记 closing、拒绝新调用，pending 各自完成或取消后关闭
+  socket；对端断连、读错误和超限仍立即 abort pending。
 - 待最终处理问题：
-  - 需要主维护者决策：Close 的 in-flight 语义、自动重连、keepalive；
+  - 需要主维护者决策：自动重连、keepalive；
   - 外部证据阻塞：真实 provider 的 WSS 行为尚未采集。
 
 ## 6. WSS 进程内契约证据（route: WSS evidence gate, W3）
@@ -156,7 +156,7 @@
 | --- | --- | --- | --- |
 | WSS missing/null presence 仍不可知 | 开放（外部证据阻塞） | 决策 0056；geth 路径只表达 unknown；WSS raw-call Adapter 已能保留四态，但未接入默认 runtime 且无真实 provider 证据 | W4 在 provider 证据完整后再修订 |
 | geth WSS 自动重连语义 | 开放（需主维护者决策） | 替换 transport 时不得无声丢失；WSS Adapter 明确不重连 | 生产切换前另立重连/失败分类契约 |
-| WSS Close 的 in-flight 语义 | 开放（需主维护者决策） | 单 socket 关闭使 pending 失败，与 `transport.go` 通用注释不完全一致 | 决定是否保留或另立 WSS 生命周期契约 |
+| WSS Close 的 in-flight 语义 | 已解决 | `Close` 标记 closing、拒绝新调用；pending 各自完成或取消后关闭 socket，遵守 Transport Port | 由 `TestCloseLeavesInFlightCallsToTheirContexts` 与 WSS adapter 文档锁定 |
 | `eth_syncing` progress object provider 形状 | 开放（外部证据阻塞） | 只有 sample/assumed 证据 | 保持 capture gap，不用合成样本关闭 |
 | liveness/typed 的对象形状证据 | 开放（外部证据阻塞） | inventory 标注 assumed | 逐方法 provider capture 补齐 |
 
@@ -177,8 +177,6 @@
   - WSS Adapter 未接入默认 runtime/config，作为独立配置决策保留；
   - WSS 进程内证据不升级决策 0056，不生成 WSS 四态 golden。
 - **需要主维护者决策**：
-  - WSS Close 对 in-flight 调用的语义（当前失败 pending，与
-    `transport.go` 通用注释存在偏差）；
   - WSS reconnect/reorg/backpressure 与 keepalive 的契约归属；
   - 是否以及何时把 WSS 接入配置/runtime；
   - T11 算法族、margin/冷却/队列参数与预算范围；

@@ -292,12 +292,14 @@ func TestReadLimitFailsPendingCallsAndClosesTheTransport(t *testing.T) {
 	}
 }
 
-func TestCloseIsIdempotentAndFailsPendingCalls(t *testing.T) {
+func TestCloseLeavesInFlightCallsToTheirContexts(t *testing.T) {
 	received := make(chan struct{})
+	release := make(chan struct{})
 	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		<-peer.requests
+		request := <-peer.requests
 		close(received)
-		time.Sleep(300 * time.Millisecond)
+		<-release
+		peer.respond(request, `"ok"`)
 	})
 	tr := dialTestTransport(t, peerURL, 0)
 	done := make(chan error, 1)
@@ -310,11 +312,17 @@ func TestCloseIsIdempotentAndFailsPendingCalls(t *testing.T) {
 	tr.Close()
 	select {
 	case err := <-done:
-		if !errors.Is(err, ErrTransportClosed) {
-			t.Fatalf("in-flight err = %v, want the closed transport", err)
+		t.Fatalf("in-flight call returned before its response: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("in-flight call failed after Close: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("in-flight call did not fail on Close")
+		t.Fatal("in-flight call did not complete after its response")
 	}
 	if pending := tr.pendingCount(); pending != 0 {
 		t.Fatalf("pending after Close = %d, want 0", pending)

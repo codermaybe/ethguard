@@ -64,15 +64,9 @@ WSS 四态 golden 继续禁止。
 
 - 读循环退出（对端关闭、网络错误、协议级读失败）时，所有 pending 失败
   为 `transport.ErrConnectionClosed` 包装的错误，新调用被拒绝。
-- `Close` 幂等：标记关闭、关闭 socket；pending 通过读循环的 abort 路径
-  得到 `wss.ErrTransportClosed`。
-
-**已知偏离**：`internal/transport/transport.go` 的通用注释写着
-“calls already in flight are governed by their own context, not by Close”。
-单 socket 的 WSS 无法在关闭 socket 后让在途调用继续；本 Adapter 选择
-“Close 释放 socket 并使 pending 失败”，因为不这样做就必须让没有 deadline
-的调用无限期持有连接。该偏离与 native HTTP 的行为不同，属于需要主维护者
-裁决的 seam 语义问题（见 §6）。
+- `Close` 幂等：标记 closing、拒绝新调用，等待 pending 调用各自完成或取消，
+  然后关闭 socket。该语义与 `internal/transport/transport.go` 的 Port
+  契约一致；对端断连、读错误和超限仍会立即 abort 全部 pending。
 
 ## 3. 非目标（明确不实现）
 
@@ -98,7 +92,7 @@ WSS 四态 golden 继续禁止。
 | 乱序响应 demux | `TestOutOfOrderResponsesAreDemultiplexed` |
 | 取消清理 pending，连接继续可用 | `TestCancellationClearsPendingAndKeepsTheConnection` |
 | read limit → `ErrBodyTooLarge` → 连接关闭 | `TestReadLimitFailsPendingCallsAndClosesTheTransport` |
-| Close 幂等、pending 清理、拒绝新调用 | `TestCloseIsIdempotentAndFailsPendingCalls` |
+| Close 幂等、在途调用完成后释放、拒绝新调用 | `TestCloseLeavesInFlightCallsToTheirContexts` |
 | 对端断连失败 pending，后续调用被拒绝 | `TestPeerDisconnectFailsPendingCalls` |
 | 并发调用共享一条连接 | `TestConcurrentCallsShareOneConnection` |
 | 通知帧不影响 pending | `TestNotificationsAreIgnored` |
@@ -134,20 +128,15 @@ W1 原型 `internal/transport/wss_feasibility_test.go` 保留为可行性证据�
 
 ## 6. 未决问题（需主维护者裁决）
 
-1. **Close 的 in-flight 语义**：WSS 单 socket 无法让在途调用在 Close 后
-   继续。当前实现选择 Close 释放 socket 并使 pending 失败；若要保持
-   `transport.go` 注释的通用原则，需要另立 WSS 生命周期契约（例如
-   “Close 只拒绝新调用，socket 在最后一个 pending 结束后关闭”），并
-   定义无 deadline 调用的资源上限。
-2. **自动重连**：geth WSS 当前自动重连；WSS Adapter 明确不重连。生产
+1. **自动重连**：geth WSS 当前自动重连；WSS Adapter 明确不重连。生产
    切换前必须决定是否保留、如何保留，以及 pool 健康/失败分类。
-3. **keepalive**：是否主动 ping、pong 超时与空闲连接回收。当前不主动
+2. **keepalive**：是否主动 ping、pong 超时与空闲连接回收。当前不主动
    ping，连接存活性由 reader 和调用 deadline 决定。
-4. **backpressure / 写队列**：当前无独立队列，依赖调用方并发与 deadline。
+3. **backpressure / 写队列**：当前无独立队列，依赖调用方并发与 deadline。
    真实 provider 证据显示写阻塞或 pending 增长时再评估。
-5. **provider 证据**：真实 WSS provider 的 error envelope、重连、限流和
+4. **provider 证据**：真实 WSS provider 的 error envelope、重连、限流和
    消息大小行为尚未采集；不得用进程内样本冒充兼容性结论。
-6. **写阻塞中的取消**：取消发生在 `WriteMessage` 已阻塞时，只有调用
+5. **写阻塞中的取消**：取消发生在 `WriteMessage` 已阻塞时，只有调用
    context 的 deadline 能中断写；没有 deadline 的调用依赖 peer/连接失败
    解除阻塞。pool 的 collect timeout 通常提供该 deadline；若直接使用
    Adapter 且无 deadline，调用方需自行保证有界写。是否在 Adapter 内增加
