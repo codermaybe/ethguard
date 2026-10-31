@@ -143,18 +143,29 @@
 
 ## 7. 逐方法对接卡片与 provider 证据（route: method integration）
 
-- 状态：进行中（23 张卡片已建立；provider 证据缺口按卡片登记）。
+- 状态：进行中（23 张卡片已建立；2026-10-31 的 live probe 补齐了若干字段，
+  仍有明确 gap）。
 - 证据：`docs/design/method-integration-cards.md` 按 23 个 RegisteredMethod
   记录 root、ethadapter、typed、错误、pending、EIP-1898、reference 与证据
-  等级；区分 adapter 支持、root-only 与未验证项。
-- 风险：卡片中的 `soak`/`sample` 是历史观测，不是长期兼容性证明；
-  `eth_blobBaseFee` 已有 2026-10-21 的单次 sample/replay，但仍是单次采样；
-  `eth_syncing` progress object、EIP-1898 多源 object 形状等仍缺。
+  等级，并新增 capture/replay/live 矩阵。2026-10-31 的 4 源 × 10 请求
+  live probe 记录：
+  - EIP-1898 latest object 的 balance/nonce/storage/code 与
+    createAccessList 均为 4/4 成功；createAccessList 结果一致；
+  - `eth_getBlockByNumber` hash 位置为 3 个明确拒收 + 1 个限流，无 provider
+    接受；
+  - `eth_blobBaseFee` 2/4 成功、1 free-plan、1 策略拒绝；
+  - `eth_feeHistory` 3/4 在同一 tip 返回相同 reward，1 个源落后一个区块；
+  - `eth_getBlockByNumber latest` 4/4 返回同一 26-key 顶层集合，3/4 同一
+    block，1 个落后一个区块；
+  - `eth_syncing` 4/4 返回 `false`，仍无 progress object。
+- 风险：单次 live probe 不是兼容性普查；一个端点在本轮返回限流；历史
+  EIP-1898 object 的状态可用性仍因 provider archive 策略而不同；卡片中的
+  `soak`/`sample` 仍是观测，不是长期承诺。
 - 待最终处理问题：
-  - 外部证据阻塞：`eth_blobBaseFee` 的多源普查、`eth_syncing` progress object、
-    EIP-1898 多源 object 形状、hash 位置 getBlockByNumber、createAccessList、
-    feeHistory percentile 舍入、WSS provider、完整区块内容承诺；
-  - 需要主维护者决策：是否以及何时为这些缺口安排真实 capture。
+  - 外部证据阻塞：`eth_syncing` progress object、EIP-1898 历史 object
+    多源状态、`eth_feeHistory` percentile 舍入、完整区块内容承诺、WSS
+    真实 `null` 与限流/生命周期行为；
+  - 需要主维护者决策：是否以及何时为这些缺口安排更有针对性的 capture。
 
 ## 8. 自适应拥塞控制设计（route: T11）
 
@@ -207,7 +218,10 @@
   - finalized reference 的 participant/selection 诊断仍只通过
     `ReferenceEvidence` 暴露；
   - WSS Adapter 未接入默认 runtime/config，作为独立配置决策保留；
-  - WSS 进程内证据不升级决策 0056，不生成 WSS 四态 golden。
+  - WSS 进程内证据不升级决策 0056，不生成 WSS 四态 golden；
+  - 2026-10-31 的方法 live probe 是单次 4 源样本：latest EIP-1898 object 与
+    createAccessList 形状一致、block 顶层 key 集合一致、hash 位置无接受者，
+    但这些仍不是长期兼容性普查。
 - **需要主维护者决策**：
   - WSS reconnect/reorg/backpressure 与 keepalive 的契约归属；
   - 是否以及何时把 WSS 接入配置/runtime；
@@ -215,12 +229,14 @@
   - reference freshness 的 lag 单位、方法适用范围和是否自适应；
   - 真实 provider capture 的排期。
 - **外部证据阻塞**：
-  - `eth_blobBaseFee` 多源支持面（已有 2026-10-21 sample，缺普查）；
-    `eth_syncing` progress object；
-  - EIP-1898 多源 object 形状（nonce/storage/code 仅单源成功）；
-    `eth_getBlockByNumber` hash 位置；
-  - `eth_createAccessList` 兼容性；`eth_feeHistory` percentile 舍入；
-  - 完整区块内容承诺（uncle/withdrawals/交易根）；
+  - `eth_blobBaseFee` 多源支持面普查（已有 2026-10-21 sample 与
+    2026-10-31 probe）；`eth_syncing` progress object；
+  - EIP-1898 历史 object 的多源状态可用性（latest 已 4/4）；
+    `eth_getBlockByNumber` hash 位置（2026-10-31 无接受者）；
+  - `eth_createAccessList` 的 hash/canonical 形式；`eth_feeHistory`
+    percentile 舍入；
+  - 完整区块内容承诺（uncle/withdrawals/交易根；2026-10-31 仅验证顶层
+    key 集合）；
   - WSS 真实 provider 的 `error.data:null`、限流、read limit、响应超时、
     迟到响应与 provider 侧重连（missing/`0x`/value 已观察）；
   - T11 容量/限流样本与 freshness 多 provider 高度/滞后/reorg 观测。
