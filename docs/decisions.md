@@ -1469,6 +1469,32 @@ drives.
   record kept, the triggering evidence named, and the migration scope
   stated — never a silent rewrite of an accepted decision.
 
+Amendment (2026-10-31, resolver seam RS1; triggered by the RS0 resolver
+behavior inventory and the aggregator's Normalize fallback on the planned
+`eth_call` path, recorded in
+`docs/design/resolver-seam-contract.md`). The scope note above is made
+operational: the resolver inner surface is now a frozen minimal seam.
+
+- The planned read pipeline depends only on the declared resolver seam:
+  Normalize, Resolve/ResolveCorroborated, the outcome entry points, the
+  optional canonical value, the resolver-side MethodRule columns, and the
+  resolver-owned errors and capability flags. Prepare, moving-tag/reference
+  requirements, the ReferenceStage, pending routing, the admission caller,
+  BlockRef rewrite pins, the projector registry, and any network callback
+  stay owned by ReadPlan, the aggregator, and the runtime.
+- The call-revert resolver now states per-source execution verdicts through
+  the ordinary Outcome seam (resolution semantics unchanged); the
+  aggregator consumes the statement instead of re-running the comparison
+  key as a usability guess. The data dimension's abstention and assertion
+  states remain on the decision's own fields.
+- Corroboration capability stays declared by the resolver class, bound to
+  the assembled resolver value at plan compile time in both directions;
+  no marker interface is added and no decorator-chain traversal returns.
+- Legacy seam: the compatibility constructors gain no runtime role —
+  internal/runtime may call them only in the two declared establishment
+  seam files, and the plan registry is compiled once. The default registry
+  remains the single plan-driven registry.
+
 
 ## 0041. Canonical quantity and successful DATA results
 

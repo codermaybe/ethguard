@@ -133,6 +133,13 @@ RS0 已交付：逐方法 resolver 行为清单见
 method-specific capability、plan/chain 不对称等未决问题已登记给 RS1–RS3）。
 后续 RS/WSS 切片以该清单为 resolver 事实基线，新增行为先补清单再动代码。
 
+RS1 已交付：resolver 最小 seam 契约冻结在
+[`resolver-seam-contract.md`](resolver-seam-contract.md) —— 计划路径已走
+CallRevert 的统一 Outcome（execution 维度 verdict，data 状态留在
+Dimensions/Revert/Provenance）、capability 由计划编译期双向绑定并一次性读取
+（不再按 decorator 遍历），legacy constructor 只保留 establishment 两个
+声明 seam。RS2 评估 `blockPolicy`，RS4 完成 quarantine 收尾。
+
 ### WSS 证据门任务表
 
 WSS 的目标是 EthGuard 专用的最小调用层，不是通用 WebSocket 客户端，也不是把

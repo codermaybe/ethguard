@@ -44,6 +44,10 @@ Go 接口实现为准（不是按方法逐个声明）：
 - `feeHistoryPolicy` 没有 `ResolveOutcome`（只有 corroborated 变体）；
   计划路径的 plain strict 有全部 Outcome capability。等价测试已经覆盖该
   差异不改行为，但它是 seam 需要明确"以哪一侧为准"的实例。
+  （RS1 修订：该差异描述的是 wrapper 层**自行声明**的方法集；组装后的
+  chain 经 `rpc.Decorator` 条件转发同样回答 plain `ResolveOutcome`，
+  公开行为与计划路径等价。裁决见
+  [`resolver-seam-contract.md`](resolver-seam-contract.md) §4。）
 - `IncludeRPCError`：全目录只有 eth_call 的 resolver 开启（strict 与
   call-revert 同一决定）；legacy `logsPolicy` 的转发实现其内层 strict 也
   未开启，两路一致为 false。
@@ -104,12 +108,20 @@ anchor/pending 的方法级声明（不属 resolver 列，登记处）：
 
 ## 5. 交给 RS1–RS3 的未决问题（登记，不裁决）
 
+> RS1 已设 [`resolver-seam-contract.md`](resolver-seam-contract.md) 裁决
+> 1、2、5；3 归 RS2，4 归 RS4。
+
 1. `CallRevert` 缺 `ResolveOutcome`/`ResolveOutcomeCorroborated`：per-source
    verdict 在该类上是否应有统一 Outcome 形态，或由 RS1 的最小契约显式
    "call-revert 无 verdict"化。
+   —— RS1 裁决：统一 Outcome，verdict 按 execution 维度陈述；data 维度
+   状态留在 Dimensions/Revert/Provenance。契约与测试见
+   [`resolver-seam-contract.md`](resolver-seam-contract.md) §3、
+   `rpc/methods/call_revert_outcome_test.go`。
 2. `feeHistoryPolicy` 只有 corroborated Outcome：最小契约应说明 outcome
    verdict 能力是否是 resolver 本体（strict）统一拥有，wrapper 差异只属于
    legacy。
+
 3. `blockPolicy` 的 header-only Value 恢复与 full-block admission：RS2 的
    专评估对象——深模块保留或迁为显式 plan hook。
 4. `logsPolicy`/`feeHistoryPolicy` 的 Prepare/reference/blockRef 覆写已由
@@ -117,3 +129,7 @@ anchor/pending 的方法级声明（不属 resolver 列，登记处）：
 5. Median/Local 的"无 corroboration 声明"与 `ResolverKind` 的
    `corroboratingResolvers()` 决定表保持一致；RS1 契约需把该表升级为
    resolver 接口语义而不是编译器旁的 switch。
+   —— RS1 裁决：保留 switch 为协议级声明；能力=resolver 本体方法集，
+   编译期双向绑定 + 装配期一次性读取，不新增 marker 接口。见契约 §5、
+   `rpc/methods/resolver_capability_interlock_test.go` 与
+   `aggregator/resolver_capability_interlock_test.go`。
