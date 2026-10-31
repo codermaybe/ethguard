@@ -7,7 +7,8 @@
 ## 1. 结论
 
 - 真实 WSS provider 上观察到 `error.data` 的 **missing**、**`0x`** 和
-  **具体 value** 三种形态；**`null` 未观察到**。
+  **具体 value** 三种形态；**`null` 未观察到**。2026-10-31 的第二次
+  8 provider × 6 probe 复测仍未观察到 `null`。
 - 24 个真实错误帧全部通过 `rpcwire.DecodeResponse` 解码；
   `rpc.ErrorDataPresence` 与 `aggregator.ObservationRPCError` 产生的
   `RPCError.DataPresence` 与捕获形态一致。
@@ -74,6 +75,33 @@
   的普查。
 - 错误 code 和 message 拼写存在差异（例如 `-32601`、`-32003` 和不同
   message）；这些仍属于 provider dialect，不进入比较键或 Decision。
+
+### 3.1 2026-10-31 复测：8 provider × 6 probe
+
+在同一天用同一个 opt-in 工具对 8 个公开 WSS endpoint 复测，新增
+`block-hash-position` probe（EIP-1898 object 放在 `eth_getBlockByNumber`
+的 block 位置），用于观察 provider 的拒绝 envelope 是否出现显式
+`data:null`：
+
+- 48 条记录：8 个 endpoint × 6 个 probe；其中 2 个 endpoint 在拨号阶段
+  失败（`dial-error`，未进入 JSON-RPC），6 个 endpoint 完成 probe；
+- 6 个 endpoint 的 chain check 全部通过；30 条协议错误中
+  missing=16、`0x`=1、value=13、**null=0**；
+- `block-hash-position` 的拒绝形态是 missing 或字符串 data，没有显式
+  `null`；没有观察到新的 close code，也没有重复前一轮的 `1006`；
+- 该复测只增加 live observation，不改变 W4 出口、决策 0056 或四态 golden
+  禁令。
+
+回放聚合：
+
+```text
+capture: 8 providers, 48 records, chain=1, class=public-unauthenticated, level=live-observation
+chain checks: 6
+call policy checks: 12
+states: missing=16 null=0 empty-hex=1 value=13
+unobserved state: null
+W4 exit not met: decision 0056 is unchanged; WSS four-state goldens remain prohibited
+```
 
 ## 4. 连接与生命周期观测
 

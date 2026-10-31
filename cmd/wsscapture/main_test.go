@@ -81,6 +81,26 @@ func TestReplayChecksPresenceAndCallPolicy(t *testing.T) {
 	}
 }
 
+func TestBlockHashPositionScenarioIsEIP1898Object(t *testing.T) {
+	for _, sc := range scenarios {
+		if sc.Name != "block-hash-position" {
+			continue
+		}
+		if sc.Method != "eth_getBlockByNumber" || len(sc.Params) != 2 {
+			t.Fatalf("scenario = %s/%v, want eth_getBlockByNumber with two params", sc.Method, sc.Params)
+		}
+		block, ok := sc.Params[0].(map[string]any)
+		if !ok || block["blockHash"] != historicalBlockHash || block["requireCanonical"] != false {
+			t.Fatalf("block param = %#v, want the pinned EIP-1898 object", sc.Params[0])
+		}
+		if full, ok := sc.Params[1].(bool); !ok || full {
+			t.Fatalf("full-block param = %#v, want false", sc.Params[1])
+		}
+		return
+	}
+	t.Fatal("block-hash-position scenario is missing")
+}
+
 func TestCaptureAndReplayLocalFrames(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
@@ -129,7 +149,7 @@ func TestCaptureAndReplayLocalFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "missing=1") || !strings.Contains(got, "value=3") {
+	if !strings.Contains(got, "missing=1") || !strings.Contains(got, "value=4") {
 		t.Fatalf("unexpected local capture summary:\n%s", got)
 	}
 	if !strings.Contains(got, "W4 exit not met") {

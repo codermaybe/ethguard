@@ -28,6 +28,10 @@ const (
 	deadAddress = "0x000000000000000000000000000000000000dEaD"
 	usdcAddress = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 	wethAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+	// historicalBlockHash is mainnet block 18,000,000. The block-hash-position
+	// probe records how a provider rejects or accepts an EIP-1898 object where
+	// eth_getBlockByNumber expects a block parameter.
+	historicalBlockHash = "0x95b198e154acbfc64109dfd22d8224fe927fd8dfdedfae01587674482ba4baf3"
 )
 
 type scenario struct {
@@ -48,6 +52,9 @@ var scenarios = []scenario{
 		"latest",
 	}},
 	{Name: "invalid-params", Method: "eth_getBalance", Params: []any{"not-an-address", "latest"}},
+	{Name: "block-hash-position", Method: "eth_getBlockByNumber", Params: []any{
+		map[string]any{"blockHash": historicalBlockHash, "requireCanonical": false}, false,
+	}},
 }
 
 type captureConfig struct {
