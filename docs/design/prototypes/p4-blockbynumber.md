@@ -47,7 +47,8 @@ HeadCodec 已在 R0 落地为 `reference.HeadCodec` 接口 + `runtime.MethodHead
 本原型验证的等价关系：
 
 - **reference head 解码不依赖编译后 Policy**：`runtime.MethodHeadCodec` 直接绑定
-  方法的 identity 函数（`methods.BlockByNumberPolicy().Normalize`），不经装饰链。
+  方法的 identity 函数（`methods.NormalizeBlockHead`），不经装饰链，也不临时
+  构造 legacy policy。
   因此 MethodSpec/Compile 重排或扁平化装饰链，reference 解码不受影响
   （`internal/runtime/pool_head_reader_test.go` 的 codec 契约测试钉住）。
 - **比较键共享**：business 聚类键（number|hash）与 reference 聚类键是同一个

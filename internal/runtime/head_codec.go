@@ -13,8 +13,9 @@ import (
 // MethodHeadCodec binds the block method's head contract to the reference
 // seam. The composition root owns the binding, so internal/reference decodes
 // heads through this interface without importing method policies: validation
-// and the comparison key stay the block method's own contract, and the
-// height/hash extraction is the codec's.
+// and the comparison key stay the block method's own identity function, and
+// the height/hash extraction is the codec's. It does not construct a legacy
+// policy chain.
 type MethodHeadCodec struct{}
 
 // Decode validates one raw block-head response and extracts its identity.
@@ -22,7 +23,7 @@ type MethodHeadCodec struct{}
 // view; a null response passes method validation but carries no height, so
 // it decodes as malformed for reference purposes.
 func (MethodHeadCodec) Decode(raw json.RawMessage) (reference.HeadView, error) {
-	if _, err := methods.BlockByNumberPolicy().Normalize(raw); err != nil {
+	if _, err := methods.NormalizeBlockHead(raw); err != nil {
 		return reference.HeadView{}, err
 	}
 	var head struct {
@@ -43,7 +44,7 @@ func (MethodHeadCodec) Decode(raw json.RawMessage) (reference.HeadView, error) {
 // agrees on — the same key the block method clusters on at the business
 // boundary.
 func (MethodHeadCodec) Normalize(raw json.RawMessage) (string, error) {
-	return methods.BlockByNumberPolicy().Normalize(raw)
+	return methods.NormalizeBlockHead(raw)
 }
 
 var _ reference.HeadCodec = MethodHeadCodec{}

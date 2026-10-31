@@ -37,7 +37,6 @@ import (
 // decision-0006 default those algorithms depend on (RS4 owns the migration).
 var legacyConstructorSeamAllowlist = map[string]string{
 	"strict_head.go": "strict-head establishment round resolves through the block constructor's anchored policy",
-	"head_codec.go":  "the head contract's identity spelling comes from the block constructor's normalizer",
 }
 
 // formatterPolicyConstructors re-derives the audited constructor set from

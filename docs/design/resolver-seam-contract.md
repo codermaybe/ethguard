@@ -149,7 +149,7 @@ pending 路由上的 `ResolveLocalObservation` 不受影响（§1 的 pending �
   仍 Selected、verdicts 为 nil；
 - `internal/runtime/legacy_quarantine_interlock_test.go`：legacy
   constructor 只能出现在声明的 establishment seam 文件
-  （`strict_head.go` / `head_codec.go`，各带理由），跨包的构造调用
+  （当前仅 `strict_head.go`，各带理由），跨包的构造调用
   会被按文件逐 AST 拒绝；计划 registry 只在 `method_registry.go`
   编译一次，不存在第二个 registry。
 

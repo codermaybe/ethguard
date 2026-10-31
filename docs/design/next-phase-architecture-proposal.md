@@ -187,7 +187,9 @@ gethcompat ──> internal/transport/geth + root facade
 
 ### 3.1 Reference 是第二套装配，且越过了拓扑边界
 
-- `internal/reference` 导入 `rpc/methods`，直接用 `methods.BlockByNumberPolicy().Normalize` 解码 head。
+- **R0 前的历史偏差**：`internal/reference` 曾导入 `rpc/methods`，直接用
+  `methods.BlockByNumberPolicy().Normalize` 解码 head；该依赖已在 R0 拆分中移除，
+  当前由 runtime `MethodHeadCodec` 绑定 `methods.NormalizeBlockHead`。
 - 拓扑终审稿规定 Reference → Pool/RPC，方法绑定只在 Composition Root。
 - `aggregator.New` 有三个构造点：`runtime.Build`、root `anchor.go`、`internal/reference/custom.go`。
 - `reference.Custom` 只被 `confirmedAnchor` 调用，而 `confirmedAnchor` 只在 `New` 已拒绝的 `WithAnchorResolver` 分支安装，生产不可达。

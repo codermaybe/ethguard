@@ -27,6 +27,14 @@ func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
 	return PendingLocal(0)(blockPolicy{Decorator: rpc.Decorator{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, strictOpts)...)}, byHash: false})
 }
 
+// NormalizeBlockHead exposes the block identity contract to the reference
+// head codec without constructing a legacy policy chain. The method resolver
+// and the reference establishment seam therefore share the same business
+// normalizer while keeping their assembly ownership separate.
+func NormalizeBlockHead(value json.RawMessage) (string, error) {
+	return normalizeBlockIdentity(value)
+}
+
 // normalizeBlockIdentity reduces a block object to its comparable identity.
 // Extra fields, including vendor extensions, do not change the key and are
 // not rejected here. Missing number or hash has no identity, so it errors
