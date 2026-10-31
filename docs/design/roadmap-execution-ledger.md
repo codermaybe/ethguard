@@ -31,12 +31,14 @@
 
 ## 2. Strict-head malformed 响应的原始字节采集（route: reference raw capture）
 
-- 状态：进行中（回归测试先行）。
-- 证据（待补全）：
-  - 目标：`internal/runtime/strict_head.go` 在 `jsonsafe.Validate` 清空前保留
-    工作 emission 的原始副本，`internal/runtime/reference_stage.go` 用该副本
-    记录 InvocationCapture；
-  - 回归测试：malformed 场景下原始字节可读、错误分类不变、bounded capture 生效。
+- 状态：已完成。
+- 证据：
+  - `internal/runtime/strict_head.go` 在 `jsonsafe.Validate` 清空前保留
+    emission 的原始值副本；`rawEmissions` 把 post-admission 的 fault 与原始
+    值配对，`reference_stage.go` 用该副本记录 InvocationCapture；
+  - 回归测试 `internal/runtime/strict_head_raw_capture_test.go`：malformed
+    场景原始字节逐成员可读、错误文本保留 admission 分类、业务 fan-out 为零；
+    well-formed 场景每成员恰好一条原始记录。
 - 语义：admission 仍然清空工作值，malformed 响应不能赢得聚类；只影响
   `InvocationCapture` 的证据，不改变 Decision、quorum、reference、typed。
 - 风险：采集副本与工作 emission 的生命周期必须保持对齐；新增 admission

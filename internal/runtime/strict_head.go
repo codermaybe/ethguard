@@ -48,12 +48,13 @@ func NewStrictHeadEstablishment(p *pool.Pool, rec observe.Recorder, timeout time
 }
 
 // strictHeadRound carries the outcome of one establishment round: the
-// reference evidence, every emission the round produced, and the pool-level
-// collection verdict, so a caller with an invocation records the exact raw
-// trail against it.
+// reference evidence, every emission the round produced, the admission-time
+// raw copy of those emissions, and the pool-level collection verdict, so a
+// caller with an invocation records the exact raw trail against it.
 type strictHeadRound struct {
 	reference  rpc.ReferenceEvidence
 	emissions  []pool.Emission
+	raw        []pool.Emission
 	collectErr error
 }
 
@@ -85,7 +86,10 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 		emissions, collectErr = e.pool.Collect(ctx, methods.MethodGetBlockByNumber, []any{tag, false}, collectOptions)
 	}
 	// Admission's shape-reservation stage runs before resolution, exactly as
-	// the pipeline's does: a malformed body can never win a cluster.
+	// the pipeline's does: a malformed body can never win a cluster. The raw
+	// values are preserved first so the invocation's capture trail keeps the
+	// bytes admission is about to clear.
+	rawValues := preserveRawValues(emissions)
 	for i := range emissions {
 		if emissions[i].Err != nil || emissions[i].Val == nil {
 			continue
@@ -95,6 +99,7 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 			emissions[i].Val = nil
 		}
 	}
+	raw := rawEmissions(emissions, rawValues)
 	observations := make([]rpc.Observation, len(emissions))
 	participants := make([]rpc.SourceRef, 0, len(emissions))
 	for i, emission := range emissions {
@@ -108,14 +113,14 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 		// own sentinel, with the round's faults attached.
 		decision = attachRoundFaults(decision, collectErr, nil, policy, emissions)
 		e.record(started, policy, decision, collectErr, emissions, nil)
-		return strictHeadRound{reference: evidenceFromDecision(decision, tag), emissions: emissions, collectErr: collectErr}, collectErr
+		return strictHeadRound{reference: evidenceFromDecision(decision, tag), emissions: emissions, raw: raw, collectErr: collectErr}, collectErr
 	}
 	if collectErr == nil && !aggregator.RoundHasUsable(emissions) {
 		if malformed, malformedErr := aggregator.RoundMalformedFault(emissions); malformed {
 			err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, malformedErr)
 			decision.Faults, decision.SourceFaults = aggregator.RoundFaults(policy, emissions, nil)
 			e.record(started, policy, decision, err, emissions, nil)
-			return strictHeadRound{reference: evidenceFromDecision(decision, tag), emissions: emissions, collectErr: collectErr}, err
+			return strictHeadRound{reference: evidenceFromDecision(decision, tag), emissions: emissions, raw: raw, collectErr: collectErr}, err
 		}
 	}
 
@@ -142,11 +147,42 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 	e.record(started, policy, decision, resolveErr, emissions, verdicts)
 	reference := evidenceFromDecision(decision, tag)
 	if resolveErr != nil {
-		return strictHeadRound{reference: reference, emissions: emissions, collectErr: collectErr}, resolveErr
+		return strictHeadRound{reference: reference, emissions: emissions, raw: raw, collectErr: collectErr}, resolveErr
 	}
 	hash, height, err := blockRefFromDecision(decision)
 	reference.Hash, reference.Height = hash, height
-	return strictHeadRound{reference: reference, emissions: emissions, collectErr: collectErr}, err
+	return strictHeadRound{reference: reference, emissions: emissions, raw: raw, collectErr: collectErr}, err
+}
+
+// preserveRawValues copies the round's delivered values before admission can
+// clear a malformed one. It mirrors the pipeline's admission ordering: the
+// capture trail keeps the wire bytes; the working emissions keep the
+// cleared-value rule.
+func preserveRawValues(emissions []pool.Emission) [][]byte {
+	if emissions == nil {
+		return nil
+	}
+	values := make([][]byte, len(emissions))
+	for i, emission := range emissions {
+		if emission.Val != nil {
+			values[i] = append([]byte(nil), emission.Val...)
+		}
+	}
+	return values
+}
+
+// rawEmissions pairs the post-admission faults with the preserved values, so
+// a capture record shows both the wire bytes and why admission refused them.
+func rawEmissions(emissions []pool.Emission, values [][]byte) []pool.Emission {
+	if emissions == nil {
+		return nil
+	}
+	raw := make([]pool.Emission, len(emissions))
+	for i, emission := range emissions {
+		raw[i] = emission
+		raw[i].Val = values[i]
+	}
+	return raw
 }
 
 // attachRoundFaults folds one completed round's fault tables into the

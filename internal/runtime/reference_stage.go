@@ -81,6 +81,7 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocatio
 	var (
 		ref        rpc.ReferenceEvidence
 		emissions  []pool.Emission
+		trail      []pool.Emission
 		collectErr error
 	)
 	// The finalized strategy pins the default reference (latest) at the
@@ -99,14 +100,20 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocatio
 		snapshot := invocation.Basis().Corroboration
 		round, roundErr := s.strict.establish(ctx, members, snapshot, true, string(request.Kind))
 		ref, emissions, err = round.reference, round.emissions, roundErr
+		// The capture trail is the pre-admission copy: a malformed head is
+		// cleared from the working emissions but its wire bytes stay visible.
+		trail = round.raw
+		if trail == nil {
+			trail = emissions
+		}
 		collectErr = round.collectErr
 	default:
 		err = fmt.Errorf("reference: unknown reference kind %q: %w", request.Kind, rpc.ErrInvalidRequest)
 	}
-	if collectErr != nil || emissions != nil {
+	if collectErr != nil || trail != nil {
 		// The raw responses of the round stay on the invocation's own trail,
 		// exactly the records the pipeline's collect phase would keep.
-		captureEmission(invocation, emissions, collectErr)
+		captureEmission(invocation, trail, collectErr)
 	}
 	// The evidence records the requested tag: latest rides as the default
 	// reference with no tag, every other level names itself.
