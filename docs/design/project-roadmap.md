@@ -120,7 +120,7 @@ Decorator”作为孤立目标。
 | RS2 | Block result seam 评估 | `rpc/methods/`、`rpc/`、`internal/runtime/` | RS0、RS1 | `blockPolicy` 的 header-only/source-spelling/result-form 行为评估；决定保留深模块或迁移到显式 plan hook | hash/number 两种 block 方法在 header-only、full、null、admission、canonical Value 和 BlockRef 上等价；不改变官方 schema 语义 |
 | RS3 | Capability/MethodRule seam 评估 | `rpc/`、`rpc/methods/`、`aggregator/` | RS0、RS1 | OutcomeResolver、CorroboratingPolicy、AgreementPolicy、MethodRuleSource 的依赖图和最小化方案 | 计划路径没有新增 decorator 层遍历；能力来源可解释；legacy constructor 的 capability 测试保持独立 |
 | RS4 | Legacy constructor quarantine | `internal/runtime/`、架构 interlock、`rpc/methods/` 测试 | RS0–RS3 | runtime 不调用 legacy constructor 的 interlock；legacy constructor 的兼容范围和删除条件 | 默认 runtime 只能从 ReadPlan registry 装配；legacy constructor 只能出现在兼容 facade、对照测试或明确 legacy seam；不存在第二个 registry |
-| RS5 | Resolver 是否继续扁平化的决策 | `docs/design/`、`docs/decisions.md` | RS0–RS4 | 基于真实维护成本和语义证据的修订记录 | 明确保留深模块、迁移部分 wrapper 或继续构造 ResolverPlan 三者之一；记录触发证据、范围、回滚和未决问题 |
+| RS5 | Resolver 是否继续扁平化的决策 | `docs/design/`、`docs/decisions.md` | RS0–RS4 | 基于真实维护成本和语义证据的修订记录 | 明确保留深模块、迁移部分 wrapper 或继续构造 ResolverPlan 三者之一；记录触发证据、范围、回滚和未决问题。**已完成（2026-10-31）：保留 `rpc.Policy` 深模块，见决策 0063 与 `resolver-seam-contract.md` §8** |
 
 Resolver 任务的停止条件：如果 RS0–RS1 证明 `rpc.Policy` 已经是小而深、可测试且不
 携带网络控制的 seam，RS2–RS4 可以作为长期 quarantine 收尾，不强行继续扁平化；如果

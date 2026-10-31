@@ -2419,3 +2419,68 @@ Focused evidence:
 `TestCollectVotingKeepsCoolingMemberInBasis`,
 `TestFixedMembershipAndModeChanges`, and
 `TestRefusesWithoutDegradation`.
+
+## 0063. Keep the resolver policy seam as a deep module
+
+Status: Accepted (2026-10-31). This closes the "continue flattening the resolver
+seam" decision with the retain-deep-module branch; it records an architectural
+boundary, not a behavior change.
+
+Method-stage orchestration is already owned by explicit `rpc.ReadPlan` values:
+validate/prepare, reference establishment, collect, admit, resolve, and project
+no longer traverse a decorator chain, and the default runtime registry is
+assembled only from plans. What remains behind `ReadPlan.Resolver` is a small
+number of resolver-owned semantics: normalization into the comparison key,
+plain and corroborated resolution, optional per-source outcome, canonical value
+selection, resolver-domain errors, agreement/RPC-error capabilities, the
+resolver columns of `MethodRule`, and the block-specific result wrapper. These
+are the behaviors RS0 inventoried and RS1 froze; RS2 kept `blockPolicy` as a
+deep module and RS4 quarantined the legacy constructors behind the
+establishment seam.
+
+Decision: keep `rpc.Policy` as the resolver deep module. Do not split it
+further, and do not introduce a parallel ResolverPlan value model, solely to
+reach zero decorator-shaped composition. The plan path reads capabilities once
+from the resolver value and from the plan's declared kind; it neither traverses
+nor reconstructs a decorator chain, and the legacy constructor families remain
+compatibility and plan-equivalence surfaces rather than runtime facts.
+
+Why: the current seam carries no request stage, no side effect, and no network
+callback; it is small, testable, and shared by strict, median, local, call
+revert, and block-specific resolution. Splitting it by capability would move
+knowledge out of the resolver value into a second registry, duplicate the
+`MethodRule` columns, and make the plan/legacy equivalence checks report on two
+different shapes. The maintenance risk that motivated flattening was
+stage-carrying wrappers; RS4's quarantine and RS3's capability interlock pin
+that boundary without forbidding a deep resolver.
+
+Revisit triggers: a resolver wrapper regains Prepare/reference/network control
+or request-scoped side effects; the plan/legacy behavior matrix diverges in a
+way the shared helpers cannot remove; a required capability cannot be expressed
+by the resolver value's method set without decorator traversal; or the optional
+interface surface of `Policy` grows beyond the single checked-read point in the
+plan pipeline. Any of these starts a new decision with its own migration,
+equivalence evidence, and rollback.
+
+Impact: documentation only. No resolver, plan, aggregator, quorum, reference,
+typed, or method-count behavior changes. Decision 0040's amendment (ReadPlan
+supersedes "decorator composition is the only executable fact") and RS2's
+blockPolicy record remain in force.
+
+Rollback: revert this record; there is no behavioral state to restore. A future
+split must be proposed as a new decisions entry and may not cite this decision
+as authorization.
+
+Open questions: the shape of a future ResolverPlan (only if a revisit trigger
+fires); final ownership of `MethodRuleSource` columns; whether the agreement
+and RPC-error capabilities should ever converge into fewer interfaces (no
+current evidence; do not pre-design).
+
+Focused evidence:
+`docs/design/resolver-behavior-inventory.md`,
+`docs/design/resolver-seam-contract.md`,
+`rpc/methods/resolver_capability_interlock_test.go`,
+`aggregator/resolver_capability_interlock_test.go`,
+`internal/runtime/legacy_quarantine_interlock_test.go`,
+`TestFeeHistoryPlanPathOwnsTheFullOutcome`,
+`TestFeeHistoryPlanAndWrapperBehaveAlike`.

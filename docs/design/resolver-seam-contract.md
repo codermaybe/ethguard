@@ -203,3 +203,31 @@ pending 路由上的 `ResolveLocalObservation` 不受影响（§1 的 pending �
   等价对比在回退后仍会通过（该断言早于改动成立）。
 - **未决问题**：§6 登记（blockPolicy 归 RS2，wrapper 删除条件归 RS4，
   扁平化决策归 RS5；W0 诊断独立推进）。
+
+## 8. RS5 修订：resolver 深模块保留为长期 seam
+
+**RS5 修订（2026-10-31）**：
+
+- **触发证据**：RS0–RS4 已证明 `rpc.Policy` 既不携带请求阶段、reference
+  需求或网络回调，也没有在计划路径上被 decorator 遍历。计划路径只读
+  `plan.Corroborating()`、`plan.Resolver` 值自身的 Go 接口和计划编译期
+  绑定的 capability；`blockPolicy` 只拥有 block-specific result 语义；
+  legacy constructor 已由 quarantine interlock 限制在 establishment seam。
+  RS0 登记的不对称（CallRevert 无 Outcome、feeHistory wrapper 方法与
+  chain 表面差异）已分别由 §3 和 §4 裁决，不再构成继续拆分的证据。
+- **裁决**：保留 `rpc.Policy` 为 resolver 深模块，不构造第二套
+  ResolverPlan，不为“零 decorator”拆分 Normalize/Outcome/CanonicalValue/
+  MethodRule/capability。`ReadPlan.Resolver` 继续持有 resolver 值；计划
+  路径的 checked capability read 是唯一能力入口。
+- **影响范围**：文档与决策记录；无生产代码、无 Decision、quorum、
+  reference、typed 或方法数量变化。`ReadPlan` 的方法级阶段事实来源不变。
+- **回滚方式**：撤销本条与决策 0063 即可，无运行时状态需要恢复。若未来
+  真的拆分，必须另立决策，附带 plan/legacy 等价矩阵和 capability interlock
+  的新证据，不能以本条作为授权。
+- **未决问题**：ResolverPlan 的形态（仅在触发条件成立时设计）、
+  `MethodRuleSource` 的最终归属、agreement 与 RPC-error capability 是否
+  收敛为更少接口（当前无证据，不预设计）。
+- **复核触发条件**：resolver wrapper 重新携带 Prepare/reference/网络控制
+  或请求级副作用；plan/legacy 结果矩阵出现共享 helper 无法消除的分叉；
+  某个能力无法由 resolver 值的方法集表达而不遍历 decorator；
+  `Policy` 的可选接口增长超出计划的单点 checked read。
