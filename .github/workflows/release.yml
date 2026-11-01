@@ -128,7 +128,7 @@ jobs:
         run: go test -race -fuzz=FuzzNormalize -fuzztime=120s ./rpc/internal/wire/
 
       - name: publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*
