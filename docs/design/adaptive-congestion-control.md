@@ -1,6 +1,6 @@
 # Adaptive Congestion Control（T11 设计与不变量）
 
-状态：**设计草案（2026-10-31），未实现**。决策 0031 只接受方向；本文件把
+状态：**设计草案（2026-10-31；2026-11-01 补代码基线），新控制器尚未收敛**。决策 0031 只接受方向；本文件把
 方向收敛成可实现的不变量、信号、状态和验收矩阵，不选择最终算法参数，也不
 改变任何现有行为。
 
@@ -154,3 +154,30 @@ capture 中一个 endpoint 在协议错误后直接断连，但没有观察到�
 - 队列是否按方法成本分层（feeHistory/block 对象成本高于标量）；
 - 观测面的具体指标与采样频率；
 - 真实 provider 限流形态与容量估计的证据来源。
+
+## 8. 已有控制器与离线接续入口（2026-11-01）
+
+“T11 未完成”不表示现有 pool 没有自适应调度。`pool/monitor.go` 已有每源
+20ms 初始 pace、2ms/2s 下上界、固定两槽并发、每四次成功缓慢减小 pace、
+限流加倍/其他 failure 乘 1.5，以及三次连续失败后的 30s cooldown。这些数值
+是实现现状，不是本设计新选择的参数，也不代表 provider 的真实容量。
+
+成功业务 rejection（包括合法 revert、method not found）会走健康 success，
+因此也参与 pace 恢复。健康可用性证据是否足以触发容量增长，须在 T1 明确；
+不能一边保留现状、一边声称只有业务成功提供容量证据。
+
+`pool/scheduling_budget_test.go` 的 `TestSourceBudgetSharedByReadWriteAndAdmission`
+以受控 transport 同时占满读/写槽位，再分别驱动 voting read、selected read、
+forward、write 和 same-source admission：等待 deadline 不额外发送、不扣 health，
+已有调用释放后预算恢复，已取消的等待不会重放。它验证共享预算机制，不是容量曲线、
+网络 adapter 证据或完整 T11 验收。tip probe 的具体入口沿用现有 tip 测试，后续
+容量阶跃/恢复实验仍须把 probe 与 reference 确认轮纳入同一竞争场景。
+
+基线实验发现并修复：Forward 在最后一个成员尚未获得 source slot 时遭遇调用方
+deadline，会落成 `ErrAllSourcesDown`。现在保留调用方 context 错误与 unattempted
+emission；不新增发送、重试、failover 或 health 惩罚。该修正不改变真正 fleet
+silence 和内部 fan-out timeout 的既有分类。
+
+下一步在同一离线环境补稳定容量、容量突降、恢复、空闲与持续限流的受控实验，
+再比较已有算法与候选。没有真实容量曲线时，不宣称找到了通用最优参数；也不必
+等待公开 provider 压测才验证算法机制。

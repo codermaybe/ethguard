@@ -352,3 +352,31 @@
   门继续禁止，T11 与 freshness 不因接线或小样本观察完成。未来扩展单独裁决。
 - **检查**：完整命令及结果归档在 `roadmap-completion-report.md` §7；生产默认
   native HTTP、fixed membership/threshold/weight、reference、typed、方法数量不变。
+
+## 13. Freshness 与共享调度预算基线（2026-11-01）
+
+- **范围**：下一轮计划与验收已加入唯一 `project-roadmap.md`。F0 的代码审计和
+  离线基线已交付；T0 仅完成共享预算和等待取消基线，未完成容量阶跃/恢复实验。
+  本轮没有实现 F1/F2 新 freshness 范围、样本 TTL 或 T1 新控制器。
+- **证据**：`pool/freshness_scope_test.go` 复现所有请求共用 tip gate，以及
+  24 小时旧样本和不完整覆盖仍参与 floor；`pool/scheduling_budget_test.go`
+  复现 read/write 占满同一预算后五条调用路径的有界等待、取消、health 和释放。
+  测试与文件均按业务语义命名；现状断言明确不是目标契约，迁移时应同步替换。
+- **已修正**：Forward 在最后一个成员等待 source slot 超时时把调用方 deadline
+  包装为 `ErrAllSourcesDown`。重复测试先复现失败，再在 `pool/collect.go` 保留
+  caller context 错误与 unattempted emission；未新增发送、重试或 source failover。
+- **未闭合风险**：历史/pending/无块引用读取仍可能被 latest tip 暂停；tip 样本
+  不按年龄失效；采样子集的 lower-median 不能声称具有完整固定 basis 的抗少数
+  高 tip 能力。它们影响调度可用性，未使最终投票分母缩小或门槛下降。
+- **调度事实**：已有慢增快减 pace、两槽并发和 cooldown，不能把 T11 描述为
+  从零实现算法；合法 protocol rejection 的 health success 也会推进 pace 恢复。
+  相关现状、目标差异与接续点记录在 freshness 设计 §7、congestion 设计 §8。
+- **接续**：补完 T0 的容量变化、恢复和 probe/reference 竞争实验后进入 F1；
+  gorilla 评估在 WSS 生命周期扩展前进行，W4/provider evidence 独立有界推进。
+  不重开已完成的 resolver seam 工作，不将外部未观察项作为整个主线的阻塞。
+- **检查**：三项新增测试 race×10 通过；`go test ./... -count=1`、
+  `go vet ./...`、`go test ./... -race -count=1`、architecture/package/default-build、
+  `TestVerification` race×2 shuffled 通过；本轮文件 gofmt 与 `git diff --check`
+  无输出。不宣称新增 provider 证据或完整 T11 验收，也没有重跑 WSS 专项×10。
+- **工作树归属**：开始本轮时已有 live-canary workflow、其设计契约与 workflow
+  测试的未提交修改，本轮保留原样且不纳入提交。

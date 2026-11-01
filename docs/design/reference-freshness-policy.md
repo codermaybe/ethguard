@@ -136,3 +136,22 @@ EthGuard 目前有两处与 freshness 相关的机制，它们不是同一个策
 - 不改变固定成员、分母、权重、模式或门槛；
 - 不因某个 provider 更快就给它更高权重；
 - 不在本阶段实现新的默认 lag 常量。
+
+## 7. 请求与样本的离线基线（2026-11-01）
+
+`pool/freshness_scope_test.go` 为后续请求范围和样本有效性迁移提供现状证据，
+不是认可现状的长期契约。修正生产行为时必须同步替换对应断言：
+
+- `TestVotingTipGateCurrentRequestScope`：三个成员 tip 为 100/100/10，lag=16；
+  对 latest/safe/finalized、显式高度、hash object、pending 和无块参数方法，
+  `CollectVoting` 都暂停第三个成员。成员仍占 basis，未发送且不扣 health。
+  配合 aggregator 计划路径直接使用该收集接口的代码事实，确认 F1 必须由请求
+  语义和执行轮次声明范围；不应让 pool 自建方法参数解释器。
+- `TestTipFloorCurrentSampleCoverageAndAge`：五个固定成员仅三个有样本
+  100/10000/10000，样本时间均为 24 小时前；其余两个没有样本。当前 floor 为
+  9984，已采样的低 tip 被 gate，未采样成员仍可请求。说明当前 lower-median
+  抗少数高 tip 的解释只在采样覆盖条件满足时成立；它并不自动继承固定 basis
+  的多数保护。该问题影响可用性，不会改变最终投票分母或降低 acceptance 门槛。
+
+F1 先修正显式历史、pending 和无关请求的 gate 范围；F2 再处理样本年龄、覆盖
+与结构化原因。样本窗口与未知样本处理需单独记录，不从上述 fixture 推导默认值。

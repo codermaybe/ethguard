@@ -348,6 +348,12 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 				waitErr = fmt.Errorf("%w: %w", ErrSourceGated, waitErr)
 			}
 			emissions = append(emissions, Emission{Src: src, Err: waitErr})
+			// The caller's cancellation is not fleet silence. In particular,
+			// the final member may never have acquired a scheduling slot;
+			// preserve that cause instead of falling through to AllSourcesDown.
+			if err := ctx.Err(); err != nil {
+				return emissions, err
+			}
 			// A local scheduling gate is not an upstream transport failure;
 			// Forward must not turn it into an implicit source failover.
 			if errors.Is(waitErr, ErrSourceGated) {
