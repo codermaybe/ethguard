@@ -33,11 +33,9 @@ type poolConfig struct {
 	dialer      upstream.Dialer
 }
 
-// WithDialer overrides the connection adapter the pool dials sources with.
-// The zero value keeps the standard (Geth compatibility) dialer, so the
-// default production path is unchanged until the composition root explicitly
-// selects an alternative — such as the native HTTP adapter for verification
-// runs or the maintainer-approved default switch.
+// WithDialer selects the default connection factory for members without their
+// own Dialer. The composition root supplies native HTTP by default; pool
+// itself has no dependency on a concrete adapter.
 func WithDialer(d upstream.Dialer) PoolOption {
 	return func(c *poolConfig) { c.dialer = d }
 }

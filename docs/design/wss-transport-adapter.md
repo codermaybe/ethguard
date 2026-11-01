@@ -1,9 +1,9 @@
 # WSS Transport Adapter（W2/W3：最小 raw-call 实现与进程内证据）
 
-状态：**W2/W3 已实现（2026-10-31）**。实现位于
+状态：**W2/W3 已实现；统一 Source 接线已实现（2026-11-01）**。实现位于
 `internal/transport/wss`，只实现 raw call、`ChainID` 和 `Close`；不包含
-Subscribe、filter、批量、自动重连或写路径重放。决策 0056 **未**修订，
-WSS 四态 golden 继续禁止。
+Subscribe、filter、批量、自动重连或写路径重放。0056.2 已批准生产四态保真，
+0064 规定统一 Source；WSS provider-backed 四态 golden 继续禁止。
 
 W4 真实 provider 证据已采集（2026-10-31）：missing、`0x` 和具体 data 被实际
 frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-evidence.md)。
@@ -19,8 +19,9 @@ frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-ev
 | 实现 seam | `pool.Transport` / `transport.Dialer` |
 | 编解码 | `internal/rpcwire`（与 native HTTP 共用） |
 | 帧协议 | `gorilla/websocket`（不复制 RFC6455 实现） |
+| 依赖状态 | `gorilla/websocket` 为 raw WSS adapter 的临时直接依赖；不构成公共 API，adapter 替换/退出时重新评估 |
 | 业务裁决 | 无：不导入 aggregator、rpc/methods、runtime、reference、typed |
-| 默认 runtime | 未接入；切换 source 到 WSS 是独立配置决策 |
+| runtime | `config.Upstream.Transport=wss` 显式选择；与 HTTP 共用固定读写 pool；缺省仍 native HTTP |
 
 ## 2. 调用与生命周期语义
 
@@ -29,15 +30,14 @@ frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-ev
 - 只接受 `ws` / `wss`；其他 scheme 在拨号前拒绝。
 - 一次 `DialContext` 建立一条长连接；调用共享该连接。
 - 握手超时默认 10s；入站消息上限默认 `limits.MaxBodyBytes`（32 MiB）。
-- 不自动重连。geth WSS 的自动重连语义不会随 Adapter 保留，生产切换前
-  必须另立契约（见 §6）。
+- 不自动重连。已接受 pool-owned 下一次独立调用惰性重拨；不恢复失败 invocation。
 
 ### 2.2 调用
 
 - 请求 ID 由 `rpcwire.IDGen` 生成，单调、并发安全；不引入第三套 ID 语义。
 - pending 表以请求 ID 为键；响应帧到达后删除对应项并交付调用方。
-- 取消/超时只删除自己的 pending；迟到响应因无 pending 被丢弃，连接保持
-  可用。
+- 等待响应时取消/超时只删除自己的 pending；迟到响应因无 pending 被丢弃，连接
+  保持可用。等待写锁后会再次检查 context，取消且未写 frame 不关闭健康 socket。
 - 写操作由单一写锁串行化；调用 deadline 作为写 deadline，无 deadline 的
   调用清除前一次遗留的 deadline。
 - 写失败视为连接不可用：所有 pending 失败为
@@ -60,8 +60,9 @@ frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-ev
 
 - `SetReadLimit(limit)` 限制单条入站消息；超限时 gorilla 返回
   `websocket.ErrReadLimit` 并关闭连接。
-- pending 调用失败为 `transport.ErrBodyTooLarge`；连接标记不可用，后续
-  调用得到 `wss.ErrTransportClosed`。不保留截断前缀，不尝试重新同步。
+- pending 调用失败同时匹配 `transport.ErrBodyTooLarge` 与
+  `transport.ErrConnectionClosed`，pool 立即丢弃失效 transport，下一次独立调用
+  可重拨；直接复用失效 adapter 会得到 `wss.ErrTransportClosed`。不保留截断前缀。
 
 ### 2.5 断连与 Close
 
@@ -83,8 +84,8 @@ frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-ev
 
 ## 4. 进程内证据
 
-`internal/transport/wss/wss_contract_test.go` 使用进程内 WebSocket server
-（`httptest` + gorilla Upgrader）覆盖：
+`internal/transport/wss/wss_contract_test.go` 与 `lifecycle_test.go` 使用进程内
+WebSocket server（`httptest` + gorilla Upgrader）覆盖：
 
 | 场景 | 测试 |
 | --- | --- |
@@ -95,15 +96,19 @@ frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-ev
 | 乱序响应 demux | `TestOutOfOrderResponsesAreDemultiplexed` |
 | 取消清理 pending，连接继续可用 | `TestCancellationClearsPendingAndKeepsTheConnection` |
 | read limit → `ErrBodyTooLarge` → 连接关闭 | `TestReadLimitFailsPendingCallsAndClosesTheTransport` |
-| Close 幂等、在途调用完成后释放、拒绝新调用 | `TestCloseLeavesInFlightCallsToTheirContexts` |
-| 对端断连失败 pending，后续调用被拒绝 | `TestPeerDisconnectFailsPendingCalls` |
+| Close 幂等、pending 响应/取消后释放、拒绝新调用 | `TestCloseDrainsPendingWithoutAcceptingNewCalls` |
+| 对端断连失败全部 pending，后续调用被拒绝 | `TestReadFailureAbortsEveryPendingCall` |
 | 并发调用共享一条连接 | `TestConcurrentCallsShareOneConnection` |
 | 通知帧不影响 pending | `TestNotificationsAreIgnored` |
 | `ChainID` | `TestChainID` |
 | scheme 拒绝 | `TestDialerRejectsNonWebSocketSchemes` |
 | 已取消上下文不产生请求 | `TestCanceledContextSendsNoRequest` |
-| 不自动重试 | `TestNoAutomaticRetry` |
+| 写 invocation 失败不自动重试 | `TestFailedWriteInvocationIsNeverReplayed` |
 | 驱动现有 pool seam（identity probe + collect） | `TestPoolCollectOverWSSAdapter` |
+| 等待写锁时取消不发请求、不破坏连接 | `TestCancellationWaitingForWriterDoesNotSendOrAbort` |
+| 实际 frame 写失败 abort 其他 pending | `TestFrameWriteFailureAbortsOtherPendingCalls` |
+| pool 关联断连逐 emission 记账与后续重拨 | `pool.TestSharedDisconnectCountsAttemptedEmissionsAndRedials` |
+| read limit 后下一调用直接重拨 | `pool.TestReadLimitDiscardsClosedTransportBeforeNextInvocation` |
 
 验证命令：
 
@@ -121,11 +126,9 @@ W1 原型 `internal/transport/wss_feasibility_test.go` 保留为可行性证据�
 
 ## 5. 对决策 0056 的影响
 
-没有修订。W3 的进程内证据只证明 **raw-call Adapter 能保留四态**，不证明
-真实 provider 的 WSS 行为、重连、backpressure 或 golden 可升级。W4 的真实
-provider capture（2026-10-31）补充了 missing、`0x` 和具体 data 的实际 frame
-证据，但 `null` 未观察到；决策 0056 的出口条件（真实 provider/进程内证据都
-通过）尚未满足，因此：
+0056.2 已接受 raw WSS 的生产四态保真；这是有界的生产行为升级，不是 W4 golden
+出口通过。进程内证据证明 Adapter 保真，真实 provider capture 仍只观察到
+missing、`0x` 和具体 data，`null` 未观察。因此：
 
 - WSS 四态 golden 继续禁止；
 - HTTP 四态 replay 保持有效；
@@ -133,12 +136,12 @@ provider capture（2026-10-31）补充了 missing、`0x` 和具体 data 的实�
 
 详见 [wss-provider-evidence.md](wss-provider-evidence.md)。
 
-## 6. 未决问题（需主维护者裁决）
+## 6. 已接受限制与未来扩展
 
 扩展边界见 [wss-lifecycle-extension-contract.md](wss-lifecycle-extension-contract.md)。
 
-1. **自动重连**：geth WSS 当前自动重连；WSS Adapter 明确不重连。生产
-   切换前必须决定是否保留、如何保留，以及 pool 健康/失败分类。
+1. **自动重连**：本期不启 adapter 后台重连；维持 pool-owned 下一次独立调用
+   惰性重拨，未知结果不自动重放。未来扩展需另立契约。
 2. **keepalive**：是否主动 ping、pong 超时与空闲连接回收。当前不主动
    ping，连接存活性由 reader 和调用 deadline 决定。
 3. **backpressure / 写队列**：当前无独立队列，依赖调用方并发与 deadline。
@@ -147,12 +150,10 @@ provider capture（2026-10-31）补充了 missing、`0x` 和具体 data 的实�
    （2026-10-31）；`null`、限流、read limit、响应超时和 provider 侧重连仍未
    观察。不得用进程内样本冒充兼容性结论；见
    [wss-provider-evidence.md](wss-provider-evidence.md)。
-5. **写路径路由**：adapter 没有写方法不代表写路径已排除；
-   `Client.SendRawTransaction` 使用同一 pool 的固定成员，WSS source 进入该
-   pool 也会收到写广播。接线前必须由独立只读组合或新的成员角色决策保证排除。
-6. **presence 生产行为**：raw WSS 会保留显式 `null`，而 geth WSS 只能表达
-   unknown；接线前必须选择保留四态还是降级 unknown，见
-   [wss-productionization-decisions.md](wss-productionization-decisions.md)。
+5. **写路径路由**：已采用统一 Source。`SendRawTransaction` 使用同一 pool 的
+   固定成员，WSS 与 HTTP 均参与；不增加只读组合、角色或 WSS 专用写分支。
+6. **presence 生产行为**：已接受保留 raw 四态，不降级 unknown；provider-backed
+   golden 的证据门不变，见 [生产化决策矩阵](wss-productionization-decisions.md)。
 7. **写阻塞中的取消**：取消发生在 `WriteMessage` 已阻塞时，只有调用
    context 的 deadline 能中断写；没有 deadline 的调用依赖 peer/连接失败
    解除阻塞。pool 的 collect timeout 通常提供该 deadline；若直接使用

@@ -196,8 +196,30 @@ if snapshot.Truncated {
 字段会保留每个来源的原始值，包括相同值和显式 `null`；在预算允许时，格式错误的
 响应以及传输/协议错误也会保留在 response 记录中。这些数据是兼容性证据，不是可靠性
 保证，也不是最近客户端缓存。采集期间会限制保留量；取消操作可能留下不完整的快照。
-每个逻辑调用都需要重新捕获；返回值是防御性副本。HTTP 捕获会保留 error data 缺失
-与 JSON `null` 的区别；WSS 路径无法区分这两种情况。
+每个逻辑调用都需要重新捕获；返回值是防御性副本。native HTTP 与 raw WSS 都保留
+error data 缺失与 JSON `null` 的区别；显式 geth WSS compatibility 路径仍无法区分。
+
+### HTTP 与 WSS 来源
+
+每个 source 显式选择 transport；省略时仍使用 native HTTP。`transport: wss`
+启用 raw WebSocket adapter，并要求 `ws://` 或 `wss://` endpoint：
+
+```yaml
+upstreams:
+  - id: provider-a
+    endpoint: https://rpc-a.example
+  - id: provider-b
+    endpoint: wss://rpc-b.example
+    transport: wss
+```
+
+两者都作为普通固定成员参与读取和交易广播，不新增只读角色。方法不支持是本次
+请求的协议证据，不是全局 health failure；不提供结果支持票，也不降低门槛。
+限流及可归因的 transport/server failure 影响共享读写 health。未知交易结果不
+自动重放，仅后续独立调用可惰性重拨。raw WSS 保留 missing/null/`0x`/具体 error
+data，不等于真实 provider 普遍兼容性已验证。同一 backend 的 HTTP/WSS endpoint
+不构成两个独立信任来源。显式 per-source transport 不能与 `DialerOption` 或
+`gethcompat.New` 混用。
 
 参见[架构记录](docs/design/architecture-record.md)、[架构说明](docs/architecture.md)、
 [架构恢复记忆](docs/design/architecture-recovery.md)、[代码库拓扑](docs/design/codebase-topology.md)、[聚合概览(历史综述)](docs/design/rpc-aggregation.md)、[proxyd 对比](docs/design/proxyd-comparison.md)

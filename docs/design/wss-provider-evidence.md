@@ -1,8 +1,8 @@
 # WSS Provider Evidence（W4 证据门，2026-10-31）
 
-状态：**两次真实 provider 证据已采集并离线回放（6×5 与 8×6）；出口未满足，
-决策 0056 未修订**。本记录只登记 live observation 及其离线 replay，不把结果
-升级为 provider 兼容性结论，也不生成 WSS 四态 golden。
+状态：**三次真实 provider 采集并离线回放（2026-10-31：6×5、8×6；2026-11-01：
+3×6），W4/provider-backed golden 出口未满足，null 仍未观察**。0056.2 已批准
+raw presence 生产语义，0064 已接入统一 Source；这些决定不关闭本证据门。
 
 ## 1. 结论
 
@@ -15,9 +15,9 @@
 - 12 个 `eth_call` 错误帧在真实 `methods.CallPolicy` 下完成离线回放：
   两源支撑、缺失 data 弃权、`0x`/具体 data 返回、比较键不跨形态合并；
   `Decision.Value` 只按既有 rule 4e 处理，未出现新的裁决行为。
-- 真实 provider 上未观察到显式 `data:null`。WSS 四态 golden 继续禁止；
-  决策 0056 保持原状。进程内四态证据只能证明 Adapter 能保留四态，不能替代
-  真实 provider 的 `null` 证据。
+- 真实 provider 上未观察到显式 `data:null`。WSS provider-backed 四态 golden
+  继续禁止；0056.2 的生产保真批准不是 golden 豁免。进程内四态证据只能证明
+  Adapter 能保留四态，不能替代真实 provider 的 `null` 证据。
 - 观察到 provider 在特定协议错误后直接断连；这支持“连接生命周期不能由
   presence 采集顺手改变”的既有边界，但不构成 reconnect 语义决策。
 
@@ -101,8 +101,27 @@ chain checks: 6
 call policy checks: 12
 states: missing=16 null=0 empty-hex=1 value=13
 unobserved state: null
-W4 exit not met: decision 0056 is unchanged; WSS four-state goldens remain prohibited
+W4 exit not met: provider-backed golden gate remains open; 0056.2 production scope does not admit a golden
 ```
+
+### 3.2 2026-11-01 补采：3 provider × 6 probe
+
+复用已有公开 endpoint 中的 3 个，使用相同 6 个只读 scenario，每个 scenario 新连接，
+主请求后在同一连接尝试一次 `eth_chainId` follow-up；共 18 条主请求记录。
+无交易提交、无负载测试，不诱发限流、超大响应或迟到响应。命令使用 `-timeout 10s`
+和 `-pause 750ms`，capture 保存在仓库外
+`/tmp/ethguard-wss-unified-evidence-20261101`，随后执行离线 replay。
+
+- 18 条记录，3 个 chain check 全部通过；15 个 protocol error frame 均通过回放。
+- missing=10、value=5、null=0、empty-hex=0；6 个 `eth_call` policy check 通过。
+- 18 个 follow-up 中 15 个成功；p02 在 unknown-method、invalid-params 与
+  block-hash-position 响应后的同连接 `eth_chainId` 均失败为 `1006 unexpected EOF`。
+  关闭码保存在 `follow_up.close_code`，不是主请求的顶层 `close_code`；不能仅查
+  顶层字段或 replay presence 摘要就断言“本轮没有断连”。
+- 本轮未观察到 handshake 429、RPC 限流、read limit、响应超时或迟到响应。
+- 真实 null 仍未观察；本轮也未观察到 `0x`，不推翻前两轮已有的 `0x` 观察。
+- 不产生 golden，不关闭 W4/T11/freshness，不证明 provider 独立性或普遍兼容性。
+
 
 ## 4. 连接与生命周期观测
 
@@ -143,7 +162,7 @@ chain checks: 6
 call policy checks: 12
 states: missing=13 null=0 empty-hex=1 value=10
 unobserved state: null
-W4 exit not met: decision 0056 is unchanged; WSS four-state goldens remain prohibited
+W4 exit not met: provider-backed golden gate remains open; 0056.2 production scope does not admit a golden
 ```
 
 第一次真实 run 的原始输出、provider 映射和完整 frame 在仓库外的 capture
@@ -153,7 +172,7 @@ W4 exit not met: decision 0056 is unchanged; WSS four-state goldens remain prohi
 
 | 项 | 状态 | 原因/影响 |
 | --- | --- | --- |
-| `error.data: null` | 未观察 | 公开 provider 本轮全部省略 data 或返回具体值；无法据此升级 0056 |
+| `error.data: null` | 未观察 | 至 2026-11-01 三轮均无真实 null；不能据此升级 provider-backed golden |
 | rate limit（WSS 握手 429） | 未触发 | 本轮每个 provider 仅 5–6 个 probe，不制造负载；复测只观察到 1 个 HTTP 401 和 1 个握手 i/o timeout |
 | read limit | 未触发 | 需要超过 Adapter 上限的 provider frame；不对公开端点制造超大请求 |
 | response timeout | 未触发 | 需要 provider 停滞；本轮所有读取在有界 deadline 内完成 |
@@ -163,21 +182,21 @@ W4 exit not met: decision 0056 is unchanged; WSS four-state goldens remain prohi
 
 ## 7. W4 出口判定
 
-W4 的出口要求真实 provider 与进程内证据都满足，才能修订决策 0056、增加
-WSS 四态 golden，或明确继续禁止。本轮：
+W4 的 provider-backed golden 出口要求真实 provider 与进程内证据同时满足。
+0056.2 只批准生产四态保真，不能以该批准代替真实 provider 的四态证据：
 
 - 进程内：W2/W3 已证明 raw-call Adapter 可保留 missing/null/`0x`/具体 data；
 - 真实 provider：missing、`0x`、具体 data 已被实际 frame 证实；**null 仍未
   被实际 frame 证实**；
-- 因此出口**未满足**；决策 0056 不变，WSS 四态 golden 继续禁止。
+- 因此 W4 出口**未满足**；0056.2/0064 的生产决定不受此阻塞，WSS 四态 golden
+  继续禁止。原始 geth adapter 的 unknown 限制仍存在，不适用于 raw WSS 解码。
 
-这不是“W4 已关闭”。下一步可以寻找会显式返回 `data:null` 的真实 provider，
-或由主维护者接受“null 仍不可知”的限制；在得到证据前不得用合成 provider
-capture 关闭。
+下一步继续寻找真实 `data:null`，并在自然出现时记录限流、read limit、迟到响应或
+断连；不对公开 endpoint 制造负载，也不用合成 capture 填补未观察项。
 
 ## 8. 回滚与影响
 
-- 不改生产代码、默认 runtime、pool、aggregator、reference、typed、quorum
-  或写路径；
-- 新增内容仅为 `cmd/wsscapture` 手动证据工具和本文档；删除两者即可回滚；
-- 决策 0056、WSS golden 禁令、WSS 生产化决策均保持不变。
+- 本证据记录与 capture/replay 只读 probe 本身不改变生产裁决、默认 HTTP、pool
+  成员或写路径，也不提交交易；capture 保留在仓库外。
+- 本轮已独立实施的统一 Source 生产范围见 0056.2/0064；本记录不把该实施状态
+  当作真实 provider 兼容性证据，WSS provider-backed golden 禁令保持。

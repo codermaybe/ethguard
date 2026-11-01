@@ -209,29 +209,29 @@ Module 所有权、固定不变量和 WSS 技术边界，不再复制路线状�
 
 ## WSS 的位置
 
-WSS 不接入默认 runtime。`internal/transport/wss` 已实现最小 raw-call
-Adapter 并通过进程内契约；native HTTP 仍是默认，Geth compatibility adapter
-仍是显式兼容通道。决策 0056 未修订，WSS 四态 golden 继续禁止。
+native HTTP 仍默认；显式 `config.Upstream.Transport=wss` 已通过组合根进入与 HTTP
+相同的固定读写 pool。组合根一次性绑定 `pool.Member.Dialer`，nil 继承 pool 默认；
+业务方法不按 scheme 路由，不新增 source registry 或只读角色。
 
-当前 geth WSS 路径仍不能区分 `error.data` missing 与 JSON null；WSS
-raw-call Adapter 能保留四态，但只有进程内证据和部分真实 provider 证据
-（missing/`0x`/value 已观察，null 未观察），不能据此接入默认 runtime 或
-升级 golden。详见 [wss-provider-evidence.md](wss-provider-evidence.md) 和
-[wss-productionization-decisions.md](wss-productionization-decisions.md)。
+raw WSS 按 0056.2 保留 missing/null/`0x`/value，geth compatibility 的 unknown
+限制仍适用。0064 规定统一证据与共享 health：`-32601` 健康，限流失败并降速；
+每个 attempted emission 分别记账，gate 不改变 basis。未知交易结果不重放。
+真实 provider null 仍未观察，WSS provider-backed 四态 golden 继续禁止，见
+[provider 证据](wss-provider-evidence.md) 与 [统一 Source](wss-unified-source-write-path.md)。
 
-未来若生产化 WSS，它应替换 `pool.Transport`，而不是改变 aggregator、
-reference、Decision 或方法 policy。专有实现只负责：
+WSS 实现只替换 `pool.Transport`，不拥有 aggregator、reference、Decision 或方法
+policy。专有实现只负责：
 
 - 单请求/单响应 JSON-RPC；
 - request ID demux；
 - context cancellation；
 - 有界 message；
 - error envelope 保真；
-- Close 时释放 pending call。
+- Close 拒绝新调用，pending 响应或取消后释放 socket。
 
 subscription、filter、自动重连、自动重放和写入未知结果恢复必须另立契约。
-WSS 的 config/runtime、adapter 选择、reconnect、keepalive、backpressure 和
-health 归属仍是七个独立的未决裁决；在裁决前只作为可替换 Adapter 存在。
+本期不启用后台 reconnect、主动 keepalive 或内部队列。握手 HTTP 429 仍作为通用
+dial error，尚未新增 rate-limit capability 映射；未来扩展与 provider 证据单独裁决。
 
 ## 明确不做
 

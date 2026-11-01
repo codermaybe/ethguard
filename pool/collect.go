@@ -443,6 +443,9 @@ func isHealthyRPCResponse(err error) bool {
 	if err == nil {
 		return true
 	}
+	if isRateLimitError(err) {
+		return false
+	}
 	var rpcErr rpc.ProtocolError
 	if !errors.As(err, &rpcErr) {
 		return false
@@ -472,6 +475,9 @@ func collectOne(ctx context.Context, src *Source, method string, params []any) (
 		return nil, 0, err
 	}
 	if err := src.verifyChainID(ctx, client); err != nil {
+		if shouldDiscardClient(err) {
+			src.discardClient(client)
+		}
 		return nil, 0, err
 	}
 

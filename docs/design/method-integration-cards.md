@@ -244,8 +244,8 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 - EIP-1898：支持。
 - Reference：`hash-at` pos 1。
 - 证据：`soak 2/0/1 ✅`；revert-data sample 2026-09-23（非普查）。
-- 待办：WSS 路径的 missing/null 仍为 unknown（决策 0056）；2026-10-31 的真实
-  WSS 证据观察到 missing/`0x`/value，`null` 未观察，因此仍不能升级四态断言。
+- Presence：raw WSS 生产路径按 0056.2 保留四态，geth compatibility 仍可能为
+  unknown；真实 provider 的 `null` 未观察，WSS provider-backed 四态 golden 仍禁止。
 
 ### eth_estimateGas
 
@@ -414,8 +414,8 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 6. `eth_feeHistory` 的跨客户端 percentile 舍入（liveness gate；2026-10-31
    3/4 同一 `oldestBlock` 一致，1 个源区间不同；固定历史区间
    `[1,33,67,99]` 4/4 一致，但仍只有单区间证据）；
-7. WSS 路径的 error.data presence：2026-10-31 真实 provider 观察到
-   missing/`0x`/value，`null` 未观察（决策 0056 未修订）；
+7. WSS error.data 的真实 provider 证据：missing/`0x`/value 已观察，`null`
+   未观察；0056.2 批准生产保真，不关闭 W4/provider-backed golden 证据门；
 8. 完整区块内容承诺（uncle/withdrawals/交易根）的真实多源兼容性
    （2026-10-31 历史 block 18,000,000 header/full 4/4，16 withdrawals、
    0 uncles；uncle 样本和 full 交易对象字段差异仍未验证）。

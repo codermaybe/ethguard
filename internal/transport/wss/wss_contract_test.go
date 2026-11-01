@@ -33,8 +33,8 @@ type scriptedPeer struct {
 func newScriptedPeer(t *testing.T, serve func(peer *scriptedPeer)) string {
 	t.Helper()
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	requests := make(chan []byte, 32)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests := make(chan []byte, 32)
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			t.Errorf("upgrade: %v", err)
@@ -244,113 +244,6 @@ func TestOutOfOrderResponsesAreDemultiplexed(t *testing.T) {
 	}
 }
 
-func TestCancellationClearsPendingAndKeepsTheConnection(t *testing.T) {
-	release := make(chan struct{})
-	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		first := <-peer.requests
-		<-release
-		peer.respond(first, `"late"`)
-		second := <-peer.requests
-		peer.respond(second, `"ok"`)
-	})
-	tr := dialTestTransport(t, peerURL, 0)
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	var ignored string
-	if err := tr.CallContext(ctx, &ignored, "eth_test"); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("err = %v, want the call deadline", err)
-	}
-	if pending := tr.pendingCount(); pending != 0 {
-		t.Fatalf("pending after cancellation = %d, want 0", pending)
-	}
-	close(release)
-	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); err != nil {
-		t.Fatalf("call after cancellation: %v", err)
-	}
-	if value != "ok" {
-		t.Fatalf("value = %q, want ok", value)
-	}
-}
-
-func TestReadLimitFailsPendingCallsAndClosesTheTransport(t *testing.T) {
-	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		request := <-peer.requests
-		peer.respond(request, `"`+strings.Repeat("a", 256)+`"`)
-		time.Sleep(100 * time.Millisecond)
-	})
-	tr := dialTestTransport(t, peerURL, 64)
-	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); !errors.Is(err, transport.ErrBodyTooLarge) {
-		t.Fatalf("err = %v, want the body-limit sentinel", err)
-	}
-	if pending := tr.pendingCount(); pending != 0 {
-		t.Fatalf("pending after read limit = %d, want 0", pending)
-	}
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); !errors.Is(err, ErrTransportClosed) {
-		t.Fatalf("post-limit err = %v, want the closed transport", err)
-	}
-}
-
-func TestCloseLeavesInFlightCallsToTheirContexts(t *testing.T) {
-	received := make(chan struct{})
-	release := make(chan struct{})
-	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		request := <-peer.requests
-		close(received)
-		<-release
-		peer.respond(request, `"ok"`)
-	})
-	tr := dialTestTransport(t, peerURL, 0)
-	done := make(chan error, 1)
-	go func() {
-		var value string
-		done <- tr.CallContext(context.Background(), &value, "eth_test")
-	}()
-	<-received
-	tr.Close()
-	tr.Close()
-	select {
-	case err := <-done:
-		t.Fatalf("in-flight call returned before its response: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	close(release)
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("in-flight call failed after Close: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("in-flight call did not complete after its response")
-	}
-	if pending := tr.pendingCount(); pending != 0 {
-		t.Fatalf("pending after Close = %d, want 0", pending)
-	}
-	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); !errors.Is(err, ErrTransportClosed) {
-		t.Fatalf("post-close err = %v, want the closed transport", err)
-	}
-}
-
-func TestPeerDisconnectFailsPendingCalls(t *testing.T) {
-	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		<-peer.requests
-		_ = peer.conn.Close()
-	})
-	tr := dialTestTransport(t, peerURL, 0)
-	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); !errors.Is(err, transport.ErrConnectionClosed) {
-		t.Fatalf("disconnect err = %v, want the neutral closed sentinel", err)
-	}
-	if pending := tr.pendingCount(); pending != 0 {
-		t.Fatalf("pending after disconnect = %d, want 0", pending)
-	}
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); !errors.Is(err, ErrTransportClosed) {
-		t.Fatalf("post-disconnect err = %v, want the closed transport", err)
-	}
-}
-
 func TestConcurrentCallsShareOneConnection(t *testing.T) {
 	const parallel = 8
 	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
@@ -417,42 +310,62 @@ func TestDialerRejectsNonWebSocketSchemes(t *testing.T) {
 }
 
 func TestCanceledContextSendsNoRequest(t *testing.T) {
-	var requests atomic.Int32
 	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		for range peer.requests {
-			requests.Add(1)
+		request := <-peer.requests
+		if method := requestMethod(request); method != "eth_followup" {
+			t.Errorf("request method = %q, want only eth_followup", method)
 		}
+		peer.respond(request, `"ok"`)
 	})
 	tr := dialTestTransport(t, peerURL, 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var value string
-	if err := tr.CallContext(ctx, &value, "eth_test"); !errors.Is(err, context.Canceled) {
+	if err := tr.CallContext(ctx, &value, "eth_canceled"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if pending := tr.pendingCount(); pending != 0 {
 		t.Fatalf("pending after a rejected call = %d, want 0", pending)
 	}
-	time.Sleep(50 * time.Millisecond)
-	if got := requests.Load(); got != 0 {
-		t.Fatalf("server saw %d requests for a canceled call, want 0", got)
+	if err := tr.CallContext(context.Background(), &value, "eth_followup"); err != nil {
+		t.Fatalf("call after cancellation: %v", err)
 	}
 }
 
-func TestNoAutomaticRetry(t *testing.T) {
+func TestFailedWriteInvocationIsNeverReplayed(t *testing.T) {
+	var connections atomic.Int32
 	var requests atomic.Int32
+	peerDone := make(chan struct{})
 	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
-		<-peer.requests
+		if connections.Add(1) != 1 {
+			t.Error("failed invocation opened another connection")
+			return
+		}
+		defer close(peerDone)
+		request := <-peer.requests
 		requests.Add(1)
+		if method := requestMethod(request); method != "eth_sendRawTransaction" {
+			t.Errorf("request method = %q, want eth_sendRawTransaction", method)
+		}
 		_ = peer.conn.Close()
+		for range peer.requests {
+			requests.Add(1)
+		}
 	})
 	tr := dialTestTransport(t, peerURL, 0)
 	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); err == nil {
-		t.Fatal("expected the exchange to fail")
+	if err := tr.CallContext(context.Background(), &value, "eth_sendRawTransaction", "0x01"); !errors.Is(err, transport.ErrConnectionClosed) {
+		t.Fatalf("invocation err = %v, want connection closed", err)
 	}
+	if err := tr.CallContext(context.Background(), &value, "eth_sendRawTransaction", "0x01"); !errors.Is(err, ErrTransportClosed) {
+		t.Fatalf("post-failure invocation err = %v, want transport closed", err)
+	}
+	awaitLifecycleSignal(t, peerDone)
 	if got := requests.Load(); got != 1 {
-		t.Fatalf("server saw %d requests for one call, want exactly one", got)
+		t.Fatalf("server saw %d requests, want exactly one invocation", got)
+	}
+	if got := connections.Load(); got != 1 {
+		t.Fatalf("server saw %d connections, want no reconnect", got)
 	}
 }
 

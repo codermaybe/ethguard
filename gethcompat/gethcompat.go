@@ -1,7 +1,7 @@
 // Package gethcompat is the explicit construction seam for the go-ethereum
-// compatibility channel. The default build links only the native HTTP
-// adapter; importing this package pulls in the geth adapter and installs it
-// as the pool's dialer. It exists so existing users can keep the audited
+// compatibility channel. Default construction selects native HTTP and
+// explicitly configured raw WSS; importing this package pulls in the geth
+// adapter as the pool's dialer. Existing users can keep the audited
 // compatibility behavior during the transition to the native-only end state —
 // it is not a second Client implementation and adds no channel-selection
 // parameter to the root facade.
@@ -11,6 +11,8 @@
 // compatibility build — so a caller can switch to this seam without dropping
 // the old option first. Do not pass the option expecting a channel to appear:
 // without this package a bare geth selection still fails construction.
+// Explicit per-source transport settings conflict with the injected dialer
+// and are rejected; omit them when using this compatibility entry point.
 package gethcompat
 
 import (

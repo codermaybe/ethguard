@@ -31,6 +31,8 @@ const (
 	// WriteRejected means every answering source returned an execution-level
 	// rejection (txpool or protocol error). The transaction was not accepted
 	// by any answering source.
+	// Silent sources may already have received it; this status does not
+	// prove transaction invalidity or non-submission to the network.
 	WriteRejected
 	// WriteUnreachable means no source produced a usable answer at all
 	// (transport silence). Acceptance is unknown.

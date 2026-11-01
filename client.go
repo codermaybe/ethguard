@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/internal/transport"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/internal/transport/wss"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -259,7 +261,22 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 
 	members := make([]pool.Member, 0, len(cfg.Upstreams))
 	for _, upstream := range cfg.Upstreams {
-		members = append(members, pool.Member{Name: upstream.ID, URL: upstream.Endpoint})
+		member := pool.Member{Name: upstream.ID, URL: upstream.Endpoint}
+		if upstream.Transport == "" && !co.explicitDialer {
+			if endpoint, parseErr := url.Parse(upstream.Endpoint); parseErr == nil && (endpoint.Scheme == "ws" || endpoint.Scheme == "wss") {
+				return nil, fmt.Errorf("ethguard: source %q: websocket endpoint requires transport: wss", upstream.ID)
+			}
+		}
+		if upstream.Transport != "" && co.explicitDialer {
+			return nil, fmt.Errorf("ethguard: source %q: explicit transport conflicts with injected dialer", upstream.ID)
+		}
+		switch upstream.Transport {
+		case config.TransportNativeHTTP:
+			member.Dialer = nativehttp.NewDialer()
+		case config.TransportWSS:
+			member.Dialer = wss.NewDialer()
+		}
+		members = append(members, member)
 	}
 	rpcPool, err := pool.NewWithMembers(cfg.ChainID, members, co.poolOpts...)
 	if err != nil {

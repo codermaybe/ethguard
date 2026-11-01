@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	upstream "github.com/codermaybe/ethguard/internal/transport"
 )
 
 var (
@@ -52,6 +54,9 @@ type Pool struct {
 type Member struct {
 	Name string
 	URL  string
+	// Dialer selects this member's immutable connection factory. Nil uses
+	// the pool-wide default; it does not change membership or voting weight.
+	Dialer upstream.Dialer
 }
 
 // NewWithMembers creates a pool whose voting membership is fixed for its
@@ -61,7 +66,7 @@ type Member struct {
 func NewWithMembers(chainID uint64, members []Member, opts ...PoolOption) (*Pool, error) {
 	p := newPoolWithDialerAndOptions(nil, chainID, opts...)
 	for _, member := range members {
-		if _, err := p.join(member.Name, member.URL); err != nil {
+		if _, err := p.admit(member); err != nil {
 			p.Close()
 			return nil, fmt.Errorf("pool: member %q: %w", member.Name, err)
 		}
@@ -89,12 +94,12 @@ func newPoolWithDialerAndChainID(d dialer, chainID uint64) *Pool {
 	}
 }
 
-// join registers one construction-time member. Calls for the same normalized
+// admit registers one construction-time member. Calls for the same normalized
 // endpoint return the same Source. Distinct endpoints must have distinct
-// display names so diagnostics and metric labels cannot collide. An endpoint
-// already registered wins over naming: the existing Source is returned even
-// under a different name.
-func (p *Pool) join(name, rawURL string) (*Source, error) {
+// display names so diagnostics and metric labels cannot collide. Adapter
+// selection is immutable and never creates another source registry.
+func (p *Pool) admit(member Member) (*Source, error) {
+	name, rawURL := member.Name, member.URL
 	id, err := normalizeEndpointID(rawURL)
 	if err != nil {
 		return nil, err
@@ -106,6 +111,9 @@ func (p *Pool) join(name, rawURL string) (*Source, error) {
 		return nil, ErrClosed
 	}
 	if existing := p.byID[id]; existing != nil {
+		if member.Dialer != nil {
+			return nil, fmt.Errorf("pool: endpoint %q is already registered; an explicit adapter cannot be silently ignored", rawURL)
+		}
 		return existing, nil
 	}
 	for _, existing := range p.sources {
@@ -114,12 +122,16 @@ func (p *Pool) join(name, rawURL string) (*Source, error) {
 		}
 	}
 
+	selectedDialer := member.Dialer
+	if selectedDialer == nil {
+		selectedDialer = p.dialer
+	}
 	life, cancelLife := context.WithCancel(context.Background())
 	src := &Source{
 		name:            name,
 		url:             rawURL,
 		id:              id,
-		dialer:          p.dialer,
+		dialer:          selectedDialer,
 		expectedChainID: p.expectedChainID,
 		life:            life,
 		cancelLife:      cancelLife,

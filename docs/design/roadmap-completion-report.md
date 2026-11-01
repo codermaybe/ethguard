@@ -1,12 +1,12 @@
 # Roadmap Completion Report（resolver seam、reference capture、WSS、方法卡片与续轮证据）
 
-状态：**2026-10-31 三段连续执行完成**。前半段记录 resolver seam、reference
-capture、WSS W1–W3 与方法卡片；续轮记录 HTTP 事实修正、W4 真实 provider
-证据、方法 live probe、freshness/T11 观测和 WSS 生产化决策输入；本轮记录
-WSS 生产化推荐决策矩阵、WSS 复测与方法历史块证据、freshness 扩展窗口。
-W4 出口仍未满足（真实 provider 的 `error.data:null` 未观察），决策 0056
-未修订，WSS 四态 golden 继续禁止；WSS 接线仍待主维护者裁决。执行明细和
-问题分类见 [roadmap-execution-ledger.md](roadmap-execution-ledger.md)。
+状态：**2026-11-01 统一 Source 已实施**。显式 WSS 与 HTTP 共用固定读写 pool，
+通用限流 health 分类已修复；写结果/未知 delivery、生命周期、固定 basis 与四态
+presence 已有确定性行为覆盖和公开入口 smoke。0056.2/0064 批准并记录生产范围。
+W4/provider-backed 四态 golden 门仍未满足：真实 null 未观察；T11 与 freshness
+新策略未实现。下文 2026-10-31 的提交与阶段结果保留为历史，当前交付见 §7，
+不以旧阶段的“未接线/未修订”覆盖新决策。执行明细见
+[roadmap-execution-ledger.md](roadmap-execution-ledger.md)。
 
 ## 1. 提交列表
 
@@ -141,6 +141,8 @@ CI，也不写入 golden。
 
 - 新增 `cmd/wsscapture`：手动、opt-in 的 WSS capture/replay；不进入默认
   CI，不持久化凭据，不把 live 结果写成 golden。
+- `gorilla/websocket` 记录为 raw WSS adapter 的临时直接依赖；不构成公共协议或
+  长期依赖承诺，WSS adapter 替换或退出时重新评估并移除。
 - 2026-10-31 的 6 个公开无凭据 WSS endpoint × 5 个只读 probe：
   missing=13、`0x`=1、value=10、null=0；24 个错误帧通过 `rpcwire` 和
   `RPCError.DataPresence` 检查；12 个 `eth_call` 错误帧通过真实
@@ -151,7 +153,7 @@ CI，也不写入 golden。
   因此决策 0056 不变，WSS 四态 golden 继续禁止；详见
   `wss-provider-evidence.md`。
 
-### 3.7 WSS 生产化推荐决策矩阵
+### 3.7 历史决策输入（2026-10-31；已由 0056.2/0064 解决）
 
 - `wss-productionization-decisions.md` 已把 config/runtime、adapter 选择、
   reconnect、keepalive、backpressure、health 归属和写路径排除七个问题收敛为
@@ -195,6 +197,8 @@ CI，也不写入 golden。
 - strict malformed 与 finalized reference 的原始采集；
 - HTTP L1 contract 与 native HTTP 默认装配（本轮复核，未新增实现）；
 - WSS 调用层可行性、raw-call Adapter 与进程内证据；
+- 显式 WSS/HTTP per-source 路由与统一读写 Source、common rate-limit health、
+  未知写结果不重放、固定 basis/cooldown、生命周期与 raw 四态生产保真（§7）；
 - 23 张方法卡片及 capture/replay/live 矩阵；
 - W4 capture/replay 工具与真实 provider 的 missing/`0x`/value 证据；
 - T11/freshness 设计不变量、观测记录和决策输入。
@@ -208,7 +212,7 @@ CI，也不写入 golden。
   承载，不新增结构化采集字段。
 - reference freshness 只有约 6 分 22 秒的扩展窗口观测；未观察到 reorg，
   但不足以证明 reorg 分布，也不产生默认 lag。
-- WSS Adapter 未接入默认 runtime/config；这是独立配置决策。
+- WSS 只在显式 `transport: wss` 时启用；缺省仍 native HTTP，不自动 fallback。
 - 进程内证据不等于 provider 兼容性结论。
 - W4 的 `null` 未在真实 provider 观察到；不能升级四态 golden。
 - 方法 live probe 与 freshness 观测都是小样本 live observation（方法为
@@ -220,8 +224,8 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
 
 ### 4.3 需要主维护者决策
 
-- WSS config/runtime、adapter 选择、reconnect、keepalive、backpressure、
-  health 归属和写路径路由（见 `wss-productionization-decisions.md`）；
+- 未来 WSS 后台 reconnect、主动 keepalive、queue 等扩展需另立决策；本期已明确
+  不启用。config/runtime、写路由及 raw presence 生产范围已由 0056.2/0064 解决。
 - T11 算法族、参数与预算范围；
 - reference freshness 的 lag 单位、样本过期语义、显式历史读取与 tip gate
   的关系，以及是否自适应；
@@ -245,12 +249,12 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
 
 ## 5. 下一阶段入口
 
-1. **W4（剩余证据）**：missing、`0x` 和具体 data 已由真实 WSS frame 证实；
-   继续寻找显式 `data:null` 的 provider，或由主维护者接受“null 仍不可知”。
-   在证据前不修订 0056、不增加 WSS 四态 golden。
-2. **WSS 生产化决策**：`wss-productionization-decisions.md` 的推荐矩阵已
-   形成，待主维护者裁决写路径路由、WSS presence 生产行为和 source→adapter
-   选择；未裁决前不接入配置/runtime。
+1. **W4（剩余证据）**：真实 missing/`0x`/value 已观察；2026-11-01 的 3×6
+   补采仍无 null。继续收集自然出现的真实 null、限流、read limit、迟到响应和
+   断连；不制造负载，不以合成 capture 升级 provider-backed golden。
+2. **WSS 生产接线已完成**：显式 per-source transport、统一读写 pool 与 raw
+   presence 保真按 0056.2/0064 落地。后续关注部署方法能力与连接故障分布，
+   不因 transport 类型新增只读角色或动态缩小 basis。
 3. **逐方法 provider 证据**：latest EIP-1898 object、createAccessList、
    历史 block 18,000,000 的 object 形式、feeHistory 固定区间和 block
    header/full 已有 live observation；继续补 syncing progress object、
@@ -262,7 +266,7 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
    source-level tip gate 的关系；两次观测（短窗口与约 6 分钟扩展窗口）只
    证明 provider tag 节奏差异，不修改 `maxLag`、tip gate 或 tag 语义。
 
-## 6. 约束核对
+## 6. 历史约束核对（2026-10-31；当前实施见 §7）
 
 - 每个提交只包含一个结构或实现意图；
 - 文件/测试/类型使用业务语义命名，没有 `rs5.go`、`phase_wss_test.go`、
@@ -277,3 +281,66 @@ WSS `Close` 已遵守 Transport Port：拒绝新调用，等待在途调用完�
   结果写入仓库，也没有把 capture 放进默认 CI；
 - 续轮没有改变默认 runtime；HTTP 事实修正只改文档，native 默认与 L1
   contract 已在代码中验证。
+
+## 7. 统一 Source 实施交付（2026-11-01）
+
+### 生产行为
+
+- `pool/collect.go` 在 protocol error 判定前使用 `isRateLimitError`，code-only
+  `429`/`-32005`/`-32016` 记 failure、限流计数并降速；`-32601` 保持健康并清零
+  连续失败。HTTP/WSS 共用该规则，不新增 WSS health policy。
+- `config.Upstream.Transport` 显式选择 `native-http` / `wss`；组合根将 Dialer
+  固定绑定到既有 `pool.Member`/`Source`，nil 继承默认。配置检查 scheme 匹配，
+  显式 transport 与注入 dialer 冲突时拒绝。业务方法不读 scheme，无第二 registry。
+- `SendRawTransaction` 保持既有 Broadcast/Forward，无 WSS 专用写分支；固定成员、
+  basis、门槛、单位权重不变。unsupported 不支持结果，但不会退出读 health。
+- WSS 等待写锁后检查 context，已取消且尚未写 frame 的调用不发送、不 abort。
+  frame write failure/read failure/read limit 才终止失效连接及相关 pending；
+  Close 拒绝新调用，等待已有 pending 响应或自身 context 结束。
+- read limit 同时保留 body-too-large 与 connection-closed，pool 立即丢弃坏连接。
+  ChainID admission 阶段发生连接失败也按同一规则回收，避免下一调用再次撞上坏 socket。
+- 未知交易不重放；`WriteRejected` 可以包含 silent 的未知 delivery，不能解释成
+  交易无效或未提交。同一 backend 的 HTTP/WSS endpoint 不是两个独立信任源。
+
+### 行为证据与检查
+
+- 共用限流 smoke：三种 code 的 failure/rateLimited 各累计 3 次；中间 `-32601`
+  健康响应清零连续失败，pace 从 40ms 经 80ms 到 160ms。
+- 公开构造入口的混合源 smoke：首次两源 accepted；WSS 收到签名 frame 后断连时
+  disputed，basis=2、required=2、support=1、faults=1，发送数未增加；下一次独立
+  调用建立第二条 socket 后 accepted。混合 null revert 的 data 维度两源均弃权，
+  返回 `{}`，不把 null 当具体 bytes。
+- admission 断连 smoke：首次 `eth_blockNumber` 在 ChainID 阶段失败，未重放；
+  下一次独立调用重拨第二条 socket，返回 Forwarded `"0x1"`，health 为一次
+  failure、一次 success。read-limit admission 回归已观察修复前失败、修复后通过。
+- `pool/rate_limit_health_test.go` 覆盖两种 transport 的 code-only 限流、server
+  error、unsupported reset、三次失败 cooldown、读写 gate、固定成员及恢复。
+- `pool/write_outcome_health_test.go` 覆盖一次断连导致两个 attempted emission
+  分别记失败、无 invocation replay、独立重拨，以及业务/ChainID admission 两个
+  阶段 read-limit 后直接重拨。
+- `unified_source_write_test.go` 覆盖 mixed accepted/disputed/rejected+silent、写
+  health 分层、实际签名 bytes 与单 WSS forwarded basis；
+  `unified_source_presence_test.go` 覆盖真实 loopback wire 四态、比较关系、data
+  支持/弃权/删除边界。`internal/transport/wss/lifecycle_test.go` 覆盖各生命周期。
+- capture/replay 保留离线 presence、scenario 参数和本地采集回放测试；这些测试只
+  验证工具和业务解码边界，不把 CLI 文案当协议合同，也不生成 provider golden。
+
+执行检查集合：`gofmt -l .`、`go test ./... -count=1`、`go vet ./...`、
+`go test ./... -race -count=1`、`go test ./internal/transport/wss -race -count=10`、
+`go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on`、
+`go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1`、
+`git diff --check`。2026-11-01 最终完整序列全部通过：format/diff 无输出，vet
+通过；全量普通与 race 各 42 个测试包通过、11 个无测试包；WSS race×10、
+Verification race×2 shuffled、architecture/package/default-build 检查全部通过。
+
+### 外部证据边界
+
+真实 provider 补采与 replay：3 个公开 endpoint × 6 个只读 scenario，3 次 chain
+check、6 次 call-policy check，15 个错误帧 missing=10、value=5、null=0、empty-hex=0。
+每个 scenario 主请求后有一次同连接 `eth_chainId` follow-up：15 次成功，p02 在
+unknown-method、invalid-params、block-hash-position 后 3 次遇到 `1006 unexpected EOF`，
+证据在各 record 的 `follow_up.close_code`。未观察到限流、read limit、迟到响应或
+响应超时。capture 位于仓库外 `/tmp/ethguard-wss-unified-evidence-20261101`；
+本轮未重复 `0x`，先前观察仍有效。断连证据不代表生产 adapter 重连已经外部验证。
+没有公共网络写交易，也不把进程内 frame failure、限流或 null 测试当外部证据。
+W4、T11、freshness 不因这次生产接线或小样本补采标为完成。

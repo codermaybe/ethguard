@@ -223,9 +223,33 @@ Fields preserve each source's raw value, including equal values and explicit
 response records when budget permits. The data is compatibility evidence, not
 a reliability guarantee or a recent-client cache. Retention is bounded during
 collection and cancellation may leave a partial snapshot. A fresh capture is
-required for each logical call; returned values are defensive copies. HTTP
-captures preserve the distinction between missing error data and JSON `null`;
-the WSS path does not distinguish those two cases.
+required for each logical call; returned values are defensive copies. Native HTTP
+and raw WSS preserve missing error data versus JSON `null`; the explicit geth
+compatibility WSS path still cannot distinguish them.
+
+### HTTP and WSS sources
+
+Transport selection is explicit per source. Omitted `transport` keeps native
+HTTP; `wss` opts into the raw WebSocket adapter with a `ws://` or `wss://` endpoint:
+
+```yaml
+upstreams:
+  - id: provider-a
+    endpoint: https://rpc-a.example
+  - id: provider-b
+    endpoint: wss://rpc-b.example
+    transport: wss
+```
+
+Both are ordinary fixed voting members and participate in reads and transaction
+broadcasts. Unsupported methods remain protocol evidence, not global health
+failures; they contribute no result support and do not lower the threshold.
+Rate limits and attributable transport/server failures affect shared read/write
+health. Unknown transaction outcomes are never automatically replayed; only a
+later independent call may lazily reconnect. Raw WSS retains missing/null/`0x`/
+concrete error data without claiming provider-wide compatibility. Same-backend
+HTTP and WSS endpoints do not establish independent trust. Explicit per-source
+transport cannot be combined with `DialerOption`/`gethcompat.New`.
 
 See the [architecture record](docs/design/architecture-record.md),
 [architecture](docs/architecture.md), [aggregation overview (historical)](docs/design/rpc-aggregation.md),

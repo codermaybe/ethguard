@@ -53,9 +53,8 @@ type Dialer struct {
 	HandshakeTimeout time.Duration
 }
 
-// NewDialer returns the WSS adapter factory. It is not wired into the default
-// production path; switching a source to WSS is a separate configuration
-// decision.
+// NewDialer returns the raw WSS adapter factory. The composition root selects
+// it only for sources explicitly configured with transport: wss.
 func NewDialer() Dialer { return Dialer{} }
 
 // DialContext implements transport.Dialer. The connection is established
@@ -149,16 +148,12 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 	t.pending[string(id)] = waiter
 	t.mu.Unlock()
 
-	if !t.write(ctx, body) {
+	if err := t.write(ctx, body); err != nil {
 		t.removePending(string(id))
-		// A failed or interrupted write may have left a partial frame, so the
-		// connection is not reusable regardless of which error wins.
-		writeErr := fmt.Errorf("wss: write request: %w", transport.ErrConnectionClosed)
-		t.abort(writeErr)
 		if cerr := ctx.Err(); cerr != nil {
 			return cerr
 		}
-		return writeErr
+		return err
 	}
 
 	select {
@@ -175,18 +170,28 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 	}
 }
 
-// write sends one request frame under the single-writer lock. The caller's
-// context deadline bounds the write; a call without a deadline clears any
-// deadline a previous call left behind.
-func (t *Transport) write(ctx context.Context, body []byte) bool {
+// write sends one request frame under the single-writer lock. Cancellation
+// while waiting for that lock must not send a frame or poison the socket.
+// Once a frame write starts, any write failure makes the socket unusable.
+// The caller's context deadline bounds the write; a call without a deadline
+// clears any deadline a previous call left behind.
+func (t *Transport) write(ctx context.Context, body []byte) error {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = t.conn.SetWriteDeadline(deadline)
 	} else {
 		_ = t.conn.SetWriteDeadline(time.Time{})
 	}
-	return t.conn.WriteMessage(websocket.TextMessage, body) == nil
+	if err := t.conn.WriteMessage(websocket.TextMessage, body); err != nil {
+		writeErr := fmt.Errorf("wss: write request: %w", transport.ErrConnectionClosed)
+		t.abort(writeErr)
+		return writeErr
+	}
+	return nil
 }
 
 func (t *Transport) complete(id json.RawMessage, response frameResult, result any) error {
@@ -251,7 +256,7 @@ func (t *Transport) readLoop() {
 
 func (t *Transport) classifyReadError(err error) error {
 	if errors.Is(err, websocket.ErrReadLimit) {
-		return fmt.Errorf("wss: inbound message exceeds limit %d: %w", t.limit, transport.ErrBodyTooLarge)
+		return fmt.Errorf("wss: inbound message exceeds limit %d: %w", t.limit, errors.Join(transport.ErrBodyTooLarge, transport.ErrConnectionClosed))
 	}
 	t.mu.Lock()
 	closed := t.closed

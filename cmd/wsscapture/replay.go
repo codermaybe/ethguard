@@ -255,10 +255,10 @@ func printReplaySummary(out io.Writer, index captureIndex, states map[string]int
 		}
 	}
 	if states["missing"] == 0 || states["null"] == 0 || states["empty-hex"] == 0 || states["value"] == 0 {
-		fmt.Fprintln(out, "W4 exit not met: decision 0056 is unchanged; WSS four-state goldens remain prohibited")
+		fmt.Fprintln(out, "W4 exit not met: provider-backed WSS four-state goldens remain prohibited; production scope is governed separately by decision 0056.2")
 		return
 	}
-	fmt.Fprintln(out, "all four states observed; decision 0056 still requires maintainer review; no golden was written")
+	fmt.Fprintln(out, "all four states observed; provider-backed golden admission still requires maintainer review; no golden was written")
 }
 
 func countProviders(index captureIndex) int {

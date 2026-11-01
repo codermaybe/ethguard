@@ -5,10 +5,10 @@
 本文是决策 0060 的执行设计。它只处理 pool 如何连接和发起一次 RPC 请求，
 不重新定义方法 policy、quorum、Decision、reference、typed projection 或写路径。
 
-> 实施状态（2026-10-31）：Slice 2 的 native HTTP adapter 已于 2026-10-29
-> 实现并成为默认装配；Slice 3 的 WSS raw-call adapter 已实现，但未接入默认
-> runtime，也不改变决策 0056。下文 Slice 2/3/4 的描述保留为迁移记录和当时
-> 的授权边界，不再表示“尚未实现”。
+> 实施状态（2026-11-01）：native HTTP 继续默认；显式 `transport: wss` 已通过
+> composition root 与固定 `pool.Member.Dialer` 接入统一读写 pool。0056.2 批准 raw
+> presence 生产保真，0064 记录统一 Source；WSS provider-backed golden 门仍保留。
+> 下文分片描述与 2026-10-31 执行记录是历史边界，不覆盖上述新决策。
 >
 > 对直接使用 `pool` 的调用方：`pool.NewPool` 不再默认安装任何拨号器——
 > 未传 `WithDialer` 的 pool 在拨号时对所有源 fail closed（
@@ -301,14 +301,12 @@ go-ethereum `ethclient`/`ethereum/rpc` 的直接依赖。该片必须分别量�
 
 ## 6. 推荐决策
 
-Slice 0/1/1b/1c/1d/2 已完成；native HTTP 是默认装配，L1 contract 已冻结。WSS
-raw-call adapter 已实现并通过进程内 contract，但未接入默认 runtime，也没有
-reconnect、keepalive 或 backpressure 扩展。
+native HTTP 默认和 L1 contract 保持不变。raw WSS 已通过显式 per-source transport
+接入统一读写 pool，不新增只读角色或第二套 registry；无后台 reconnect、主动
+keepalive 或内部 queue。默认与显式 adapter 的选择由组合根负责。
 
-当前授权边界是：不因新的 provider 证据重开 HTTP contract；WSS 生命周期扩展和
-默认接线必须先有独立决策与真实 provider 证据。这样替换风险仍被隔离在独立的
-Transport Adapter，而不会同时改变方法、聚合、reference、typed 或公开 adapter
-语义。
+生产范围遵循 0056.2 与 0064。真实 provider `null`、read limit、迟到响应等证据门
+继续独立保留；不因小样本观察重开 HTTP contract 或改变方法/裁决/reference 语义。
 
 ## 7. 执行记录
 

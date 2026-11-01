@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**拓扑迁移、架构收敛、T09 审计、ReadPlan M0–M8、resolver seam 收尾、reference 原始采集修复、WSS raw-call Adapter 与方法对接卡片已完成；W4 真实 provider 证据已采集，missing/`0x`/value 观察，null 未观察，决策 0056 未修订；WSS 生产化七个问题已收敛为推荐决策矩阵，待主维护者裁决；reference freshness 已补约 6 分钟扩展窗口观测**（2026-10-31）
+状态：**统一 Source 已实施（2026-11-01）：显式 WSS 与 HTTP 共用固定读写 pool，通用限流 health 已修复，生命周期/未知写结果/四态 presence 回归已通过；0056.2 批准生产保真，0064 记录统一路由。W4/provider-backed golden 门未通过：真实 null 未观察；本轮 3×6 只读补采与离线 replay 未关闭该门。T11 和 reference freshness 仍仅有原设计及小样本观测，新算法/新策略未实现。**
 
 本文件是 EthGuard 唯一的路线与阶段状态来源，记录当前事实、方向、顺序、依赖、
 遗留问题和阶段出口。设计文档只记录某个契约、决策或证据的详细内容，不维护第二
@@ -18,7 +18,8 @@ EthGuard 的运行时语义已经冻结：
 - Decision、quorum、reference policy、方法契约和方法数量不因目录迁移改变；
 - T09 的字段生命周期、决策矩阵、typed 边界和整体审计已完成；
 - T10 的离线/live 证据分层已完成，live observation 不写成普遍兼容性证明；
-- WSS 的 `error.data` 缺失与 JSON `null` 仍无法区分，这是决策 0056 的显式限制；
+- raw WSS 生产路径保留四态；geth WSS 的 missing/null unknown 限制仍适用。0056.2
+  不豁免真实 provider 四态 golden 证据门；null 仍未观察。
 - Read 默认 registry 已由显式 `rpc.ReadPlan` 驱动；方法级阶段编排不再以 decorator
   chain 为事实来源；legacy constructor 保留为兼容与等价验证 seam；
 - resolver 内部仍保留 `rpc.Policy` 深模块、`blockPolicy` 等 resolver-specific
@@ -45,6 +46,9 @@ EthGuard 的运行时语义已经冻结：
 - `go.mod` 固定 go-ethereum 版本以保证可复现；连接 seam 已由 native HTTP 默认实现
   承担，pool 生产代码不再接触具体 Geth client，Geth compatibility adapter 只经
   `gethcompat` 显式进入。typed values/codecs 仍使用 Geth 类型，这是保留的兼容面；
+- `gorilla/websocket` 是 raw WSS adapter 的临时直接依赖，只由 WSS transport
+  implementation 使用，不构成公共协议或长期依赖承诺；WSS adapter 替换或退出时
+  重新评估并移除；
 - 依赖迁移只允许渐进地收窄内部 connection/transport seam，不启动移除 go-ethereum
   类型的大爆炸重写，不建立平行 Block/Receipt/Transaction 类型系统；
 - T00 的版本、分叉和 ethclient 兼容矩阵见 [spec-baseline.md](spec-baseline.md)，
@@ -77,13 +81,13 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | HTTP connection 行为差分审计 | 已完成；L1 contract 已冻结（`transport-contract.md`），native HTTP 为战略默认 | 只在出现新 provider 证据或 Geth 升级时复核 | v1.17.5 仅为版本化 baseline，不是长期标准 |
 | 自有 HTTP Adapter | 已实现（`internal/transport/http`）并作为默认装配；Geth compatibility adapter 保留为显式 seam | 无；新增 provider 证据只登记为观测，不重开契约 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
 | 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；2026-10-31 增加历史 block 18,000,000 的 EIP-1898/createAccessList/block/feeHistory live 证据 | 按卡片补齐剩余真实 capture/replay/live 证据（syncing progress、其他历史高度、uncle 内容等） | 不新增方法，不改变裁决语义 |
-| go-ethereum/connection 依赖债务 | Slice 0/1/1b/1c/1d 与 native HTTP Slice 2 已完成；默认构建不链接 `ethclient` | WSS 生产化决策；typed 类型保留 | 不移除公开 ethclient-shaped 表面，不做大爆炸重写 |
-| WSS transport | W1–W3 已完成：最小 raw-call Adapter 与进程内证据 | W4：真实 provider 证据后再议 0056/golden | 不先改 quorum、policy、typed 或写路径 |
+| go-ethereum/connection 依赖债务 | native HTTP 默认；显式 raw WSS 已接线；默认构建仍不链接 `ethclient` | 保留官方 typed 类型；compatibility seam 仍显式 | 不移除 ethclient-shaped 表面 |
+| WSS transport | W1–W3 与显式统一 pool 接线已完成；读写、health、cooldown、取消/Close 回归通过 | W4/provider-backed golden：继续补真实 null 等证据 | 不新增只读角色、后台重连、重放或 basis 变化 |
 | T11 自适应拥塞控制 | 设计不变量已补；算法未实现；2026-10-31 观察到限流/配额信号但无容量曲线 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
 | reference freshness | 设计不变量已补；2026-10-31 完成短窗口与约 6 分 22 秒扩展窗口 latest/safe/finalized 观测；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义；观测不产生默认 lag |
 | reference raw capture | 两个缺口已按独立切片修复并补回归 | 保持采集语义，出现新清空点时重新审查 | 不改裁决、阈值、成员或 reference 语义 |
 | ReadPlan / resolver seam | M0–M8 已完成；resolver 内部仍是 `rpc.Policy` 深模块 | resolver 行为盘点、最小 seam 契约、legacy quarantine、是否继续扁平化的证据决策 | 不改变 Decision、quorum、reference、typed 或方法数量 |
-| WSS error-data evidence | W0–W3 已完成；WSS raw-call Adapter 保留四态；真实 provider 与 reconnect/backpressure 证据仍缺 | W4 只有在真实 provider/进程内证据都通过后升级 0056 | 不先加通用 Subscribe，不改变 `eth_call` 比较键或写路径 |
+| WSS error-data evidence | raw WSS 生产四态按 0056.2 保留；真实 missing/`0x`/value 已观察，null 未观察 | W4 golden 门仍需真实 provider 证据 | 不用合成样本关闭 evidence 门 |
 | provider compatibility evidence | 按方法逐步补齐 | capture/replay/live 状态登记并保持证据等级 | 不用合成样本冒充 provider 兼容性 |
 | 外部消费者纪律 | 当前无外部消费者 | 首次发布/tag/import 后重启 API break 评估 | 依据决策 0057 |
 
@@ -166,20 +170,19 @@ WSS 扩展契约已补齐为设计-only 文档：
 | W1 | WSS 调用层可行性评估 | `docs/design/`、`internal/transport/` 只读验证 | W0 | 自建最小 WSS、上游公开扩展点、维护成本三路线比较；明确是否能取得原始 error envelope | 有进程内验证计划；说明 request ID demux、取消、read limit、close、inflight 清理、重连和 presence 的实现责任；不提交生产 WSS 代码。**已完成（2026-10-31）：W1 通过，自建最小调用层可行；见 `wss-call-layer-feasibility.md`** |
 | W2 | 最小 WSS Adapter（仅 W1 通过后） | `internal/transport/wss/` 或等价业务目录 | W1、ReadPlan 稳定 | EthGuard 专用 raw call adapter，接入 `pool.Transport` seam | 单请求/响应、乱序、取消、超时、断连、bounded message、Close 和 pending call 清理通过；不增加基础 Transport 的通用订阅能力。**已完成（2026-10-31）：`internal/transport/wss` 实现 raw call/ChainID/Close；见 `wss-transport-adapter.md`** |
 | W3 | WSS 进程内证据 | `internal/transport/contract/`、`internal/transport/wss/`、验证目录 | W2 | 四态 error.data、malformed frame、read limit、close、cancellation、reconnect/reorg/backpressure 场景 | missing/null/`0x`/具体 data 可区分；无资源泄漏；HTTP contract 不回退；不改变 aggregator、reference、Decision、typed 或写路径。**进程内 raw-call 证据已完成（2026-10-31）；reconnect/reorg/backpressure 仍缺；真实 provider presence 证据已采集，null 未观察** |
-| W4 | WSS 决策与 golden 升级 | `docs/decisions.md`、replay/capture 目录 | W3 + 真实 provider capture | 修订 0056，增加 WSS 四态 golden 或明确继续不支持 | 只有真实 provider/进程内证据都通过才升级；seam 建立本身不等于 presence 已恢复。**真实 provider 证据已采集（2026-10-31）：missing/`0x`/value 观察，null 未观察，0056 未修订；见 `wss-provider-evidence.md`** |
+| W4 | WSS provider-backed golden 升级 | `docs/decisions.md`、replay/capture | W3 + 真实 provider capture | golden 证据门独立于生产接线 | **未完成**：真实 null 未观察，golden 继续禁止；0056.2 仅批准 raw presence 生产语义，0064 接线不关闭 W4。2026-11-01 补采 3×6 只读 probe：missing=10、value=5、null=0、empty-hex=0；详见 `wss-provider-evidence.md` |
 
 WSS 任务的停止条件：W1 无法证明原始 error envelope 可取得，或维护成本会复制完整
 客户端连接层时，停在 W1，保留 W0 的“不可知”诊断，不进入 W2–W4。不得用反射、fork
 geth 未导出类型、快速扫描 ID 或合成样本代替 WSS 证据。
 
-WSS 生产化的七个独立裁决、当前事实和最小接线顺序已收敛为
-[`wss-productionization-decisions.md`](wss-productionization-decisions.md) 的
-推荐决策矩阵（2026-10-31），待主维护者裁决。矩阵明确：WSS 保持显式 opt-in、
-默认 HTTP 不变；第一切片不启用 reconnect/keepalive/队列；不自动重放未知结果；
-写路径排除需要独立于 adapter 的路由机制，因为 `SendRawTransaction` 使用同一
-pool 的固定成员；raw WSS presence 会让显式 `null` 与 geth WSS `unknown`
-产生不同的 `eth_call` 数据键。在 W4 `null` 证据或主维护者接受限制、写路由和
-presence 生产行为裁决完成前，WSS 不接入默认 runtime。
+WSS 生产化采用 [统一 Source 决策](wss-unified-source-write-path.md) 与
+[已接受矩阵](wss-productionization-decisions.md)（0056.2/0064）。`transport: wss`
+显式 opt-in，缺省 native HTTP；组合根绑定每个固定 Member 的 adapter，无第二套
+registry。WSS 与 HTTP 共同参与读写，unsupported 只减少结果支持，不减少 basis。
+通用限流分类、read/write shared health、30 秒 cooldown 与 gated emission 已覆盖；
+未知写结果不重放。pending 取消保持连接，实际 frame 写失败/read failure/read limit
+abort，Close 等在途响应或 context；不启后台 reconnect、keepalive 或 queue。
 
 ### 两条主线的顺序与分配
 
@@ -189,9 +192,9 @@ M0–M8（已完成）
 └── W0 → W1 → W2 → W3 → W4
 ```
 
-RS0/RS1 与 W0/W1 可以并行。W2 之后不得与 resolver seam 的行为迁移混在一个提交
-中；WSS 只能填充 Transport adapter 和 contract，不得顺手修改方法 plan、quorum、
-reference、typed 或写路径。
+WSS adapter/构造根接线与 resolver 行为迁移保持隔离。adapter 只拥有 Transport
+Port，组合根按 0064 选择 per-source Dialer；不修改方法 plan、quorum、reference、
+typed 或写裁决，也不因接线引入 transport 专用业务分支。
 
 命名规则：任务编号只出现在本路线图、issue、分支和提交说明中。生产文件、测试文件、
 fixture 和类型必须使用业务语义名称，例如 `resolver_behavior_inventory.md`、
@@ -238,8 +241,8 @@ adapter 是可选实现。`CallContext` 仍只返回 `error`，raw error envelop
 基线、Slice 1 的 Geth compatibility seam、Slice 1b 的 Adapter relocation、Slice 1c
 的中性 protocol-error capability、Slice 1d 的 HTTP 行为差分审计和 native HTTP
 Slice 2 均已完成，L1 contract 已冻结在
-[`transport-contract.md`](transport-contract.md)。WSS raw-call adapter 已实现，
-但尚未接入默认 runtime；其生命周期扩展仍待决策。
+[`transport-contract.md`](transport-contract.md)。raw WSS 已按 0064 显式接入统一
+pool；后台 reconnect、主动 keepalive、queue 等生命周期扩展不在本期实现范围。
 
 本阶段的目标是建立一个由 EthGuard 控制的内部 connection/RPC 调用契约，同时保持
 公开 ethclient-shaped 表面和 Ethereum 类型不变：
@@ -258,10 +261,10 @@ Slice 2 均已完成，L1 contract 已冻结在
 
 - 不移除 go-ethereum；
 - 不创建平行 Block/Receipt/Transaction 类型、hex codec 或共识编码；
-- 不把 WSS 接入默认 runtime，不实现 subscription 或 filter；Geth 当前已有的 WSS
-  自动重连语义不得在替换时无声丢失，需另立契约后再决定；
+- 不把 WSS 设为默认 transport，不实现 subscription/filter；显式 per-source
+  接线按 0064 实施，不移植 geth 后台重连，不重放未知结果；
 - 不把 raw wire 放入 `Decision.Value`、比较键或普通 Observation；
-- 不把 transport seam 的建立写成 WSS missing/null 已修复。
+- transport seam 本身不是 presence 证据；raw 生产保真按 0056.2，golden 门独立保留。
 
 出口已满足：fake adapter、native HTTP adapter 和 Geth compatibility adapter 都能
 通过同一内部契约驱动现有生产路径，完整 offline、adapter、race 门通过。下一步是

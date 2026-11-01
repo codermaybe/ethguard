@@ -12,6 +12,12 @@ upstreams:
   - id: secondary
     endpoint: https://eth-backup.example.com
 
+# To use raw WebSocket on a source, set both explicitly:
+#   transport: wss
+#   endpoint: wss://your-provider.example
+# Omitted transport stays native HTTP. WSS participates in writes too;
+# two endpoints of the same backend do not imply independent trust.
+
 # Optional knobs with their defaults:
 # collect_timeout: 30s      # per-aggregate collection bound, positive duration
 # anchoring:

@@ -86,6 +86,9 @@ func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err erro
 //     hash cluster, even when their text suggests the transaction is already
 //     in that source's pool; callers that need idempotent-retry semantics
 //     should re-read via TransactionReceipt on the winning hash.
+//     WriteRejected describes answering sources only; silent sources may
+//     already have received the transaction. Neither a rejection nor a
+//     transport fault proves non-submission or transaction invalidity.
 //   - The returned error wraps exactly one classified sentinel
 //     (ErrConflict for disputed, ErrNoValidResponse for rejected/unreachable,
 //     pool sentinels for fan-out impossibility), so errors.Is keeps working.

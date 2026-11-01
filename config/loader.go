@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -56,6 +57,26 @@ func (c Config) Validate() error {
 		}
 		if strings.TrimSpace(upstream.Endpoint) == "" {
 			return fmt.Errorf("config: upstreams[%d]: endpoint is required", i)
+		}
+		endpoint, parseErr := url.Parse(upstream.Endpoint)
+		if parseErr != nil || endpoint.Host == "" {
+			return fmt.Errorf("config: upstreams[%d]: endpoint must include a valid scheme and host", i)
+		}
+		if upstream.Transport != "" {
+			switch upstream.Transport {
+			case TransportNativeHTTP:
+				if endpoint.Scheme != "http" && endpoint.Scheme != "https" {
+					return fmt.Errorf("config: upstreams[%d]: transport %q requires an http(s) endpoint", i, upstream.Transport)
+				}
+			case TransportWSS:
+				if endpoint.Scheme != "ws" && endpoint.Scheme != "wss" {
+					return fmt.Errorf("config: upstreams[%d]: transport %q requires a ws(s) endpoint", i, upstream.Transport)
+				}
+			default:
+				return fmt.Errorf("config: upstreams[%d]: unknown transport %q (want native-http or wss)", i, upstream.Transport)
+			}
+		} else if endpoint.Scheme != "http" && endpoint.Scheme != "https" && endpoint.Scheme != "ws" && endpoint.Scheme != "wss" {
+			return fmt.Errorf("config: upstreams[%d]: endpoint scheme %q requires an explicit supported transport", i, endpoint.Scheme)
 		}
 		if _, exists := seenIDs[upstream.ID]; exists {
 			return fmt.Errorf("config: upstreams[%d]: duplicate id %q", i, upstream.ID)

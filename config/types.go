@@ -39,10 +39,21 @@ type TipTrackingConfig struct {
 	MaxBehind uint64 `yaml:"max_behind,omitempty" json:"max_behind,omitempty"`
 }
 
+// Transport selects a source's raw-call adapter at construction.
+type Transport string
+
+const (
+	TransportNativeHTTP Transport = "native-http"
+	TransportWSS        Transport = "wss"
+)
+
 // Upstream describes a single RPC provider.
 type Upstream struct {
 	// ID is a stable, human-readable identifier for diagnostics and metrics.
 	ID string `yaml:"id" json:"id"`
 	// Endpoint is the RPC dial target (http(s) or ws(s)).
 	Endpoint string `yaml:"endpoint" json:"endpoint"`
+	// Transport is explicit per source. Empty keeps the client's default
+	// native HTTP adapter (or an explicitly injected compatibility dialer).
+	Transport Transport `yaml:"transport,omitempty" json:"transport,omitempty"`
 }

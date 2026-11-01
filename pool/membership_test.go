@@ -3,7 +3,12 @@ package pool
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+
+	upstream "github.com/codermaybe/ethguard/internal/transport"
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/internal/transport/wss"
 )
 
 // NewWithMembers is the only membership admission path: it validates the
@@ -62,6 +67,28 @@ func TestNewWithMembersDeduplicatesEndpointsAndRejectsNameCollisions(t *testing.
 	}
 	if _, err := NewWithMembers(0, []Member{{Name: "bad", URL: "ftp://example.com"}}); err == nil {
 		t.Fatal("expected an unsupported URL scheme to fail construction")
+	}
+}
+
+func TestNewWithMembersRejectsDuplicateEndpointWithExplicitAdapter(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		first   upstream.Dialer
+		second  upstream.Dialer
+		wantErr string
+	}{
+		{name: "native then wss", first: nativehttp.NewDialer(), second: wss.NewDialer(), wantErr: "explicit adapter"},
+		{name: "wss then native", first: wss.NewDialer(), second: nativehttp.NewDialer(), wantErr: "explicit adapter"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewWithMembers(0, []Member{
+				{Name: "first", URL: "https://same.example", Dialer: tc.first},
+				{Name: "second", URL: "https://same.example/", Dialer: tc.second},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }
 

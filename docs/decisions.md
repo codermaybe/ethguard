@@ -2172,6 +2172,56 @@ value and compatibility with existing `RPCError{}` literals must be defined
 first. Full analysis: `docs/design/wss-error-data-presence.md`; roadmap
 dependencies: `docs/design/project-roadmap.md` T08 audit leftovers 3.1 and 4.
 
+### 0056.2 Supplement: approved raw WSS production scope and unified Source
+
+Status: Accepted production-scope supplement (2026-11-01, user authorized).
+This authorizes implementation; it does not assert runtime wiring or passing
+checks. The historical geth limitation above remains applicable to that adapter.
+
+Approve explicit opt-in raw WSS sources in the same read/write pool as HTTP,
+preserving missing, JSON `null`, `"0x"`, and concrete `error.data` values without
+an integration-layer downgrade to unknown. Explicit null may therefore become
+`reverted|null` rather than geth's `reverted|missing`; both abstain in the data
+dimension, but comparison keys and evidence can differ. This finite production
+behavior upgrade does not change the HTTP four-state contract.
+
+The provider-backed WSS golden gate remains separate and in force. Real
+provider null is still unobserved; deterministic in-process or synthetic
+responses are implementation evidence, not provider-backed golden evidence.
+This supplement does not claim that W4 or that evidence gate has passed.
+
+WSS is not readonly. Existing fixed-member write broadcast includes configured
+WSS sources; do not add read-only roles, separate read-only combinations, or
+change fixed members, frozen basis, denominator, thresholds, or unit weights.
+Unify error interpretation and shared read/write health, not fault distribution.
+HTTP and WSS endpoints for the same backend are not independent trust sources.
+
+Unsupported method `-32601` is per-method capability/rejection evidence, not a
+global provider failure: record healthy success and reset consecutive failures.
+RPC `429`, `-32005`, and `-32016` are rate-limit failures and slow scheduling
+pace under common rules. A `WriteRejected` result can coexist with unknown
+transport delivery; it proves neither transaction invalidity nor non-submission.
+Health failure counts are per attempted emission, not per socket disconnect;
+unattempted scheduling gates do not create failures or shrink the basis.
+
+Distinguish explicit Close, pending-response cancellation, failed/interrupted
+frame write, read failure, and read limit. Pending-response cancellation keeps
+the socket; cancellation before an actual frame write also must not break it.
+Only a failed/interrupted actual frame write requires abort for write-integrity
+reasons. Read failure/read limit independently invalidate the connection, and
+explicit Close ends it. Never replay the invocation; pool-owned lazy dialing on
+the next independent call is not background reconnect. Do not add queues,
+active keepalive, background reconnect, automatic fallback, or replay.
+
+Transport selection is explicit per source, defaulting to `native-http`.
+Composition-root dispatch owns adapter selection using the existing source
+identity; no business-method URL-scheme routing or second source registry.
+The approved decisions and implementation acceptance contract are recorded in
+`docs/design/wss-unified-source-write-path.md` and
+`docs/design/wss-productionization-decisions.md`. Earlier recommendations to
+keep WSS adapter-only or use an independent read-only combination are resolved
+in favor of this unified Source direction, not retained as implementation gates.
+
 ## 0057. No external consumers exist; API breaks need no deprecation window
 
 Status: Accepted (2026-10-18). This closes the T08 open item "does any external
@@ -2484,3 +2534,54 @@ Focused evidence:
 `internal/runtime/legacy_quarantine_interlock_test.go`,
 `TestFeeHistoryPlanPathOwnsTheFullOutcome`,
 `TestFeeHistoryPlanAndWrapperBehaveAlike`.
+
+## 0064. HTTP and explicit raw WSS share one fixed Source model
+
+Status: Accepted and implemented (2026-11-01, user authorized).
+
+Transport does not determine read/write roles. Explicit raw WSS sources enter
+the same pool, read plans, write routing, evidence and health classification as
+HTTP. Broadcast includes every requestable fixed member; forwarded mode retains
+its existing one-source behavior. No read-only role, alternate registry,
+transport-specific write branch, membership change or denominator reduction.
+Different transports may have different correlated failure distributions.
+
+`config.Upstream.Transport` selects `native-http` or `wss`; omitted transport
+keeps native HTTP, or the existing explicitly injected compatibility dialer.
+Explicit selections must match their endpoint scheme and cannot coexist with
+an injected pool-wide dialer. The composition root binds `pool.Member.Dialer`
+once; nil inherits `pool.WithDialer`. Source owns that immutable factory through
+its ordinary lazy-dial lifecycle. Business methods do not inspect URL schemes.
+
+An unsupported method is request-level capability evidence, not a global health
+failure. `-32601` is healthy and resets consecutive failures. Recognized rate
+limits, including code-only `429`, `-32005`, `-32016`, fail health and slow pace.
+Read/write health is shared; each attributable attempted emission contributes
+one failure, not one per physical disconnect. Three consecutive failures open
+the existing 30-second gate, without deleting members or reducing thresholds.
+Scheduling gates create no new health failures. Long-term method capability
+mismatch belongs to construction-time source selection, not health eviction.
+
+Unknown transaction delivery is never replayed automatically. `WriteRejected`
+can coexist with silent transport outcomes and proves neither invalidity nor
+non-submission. Close drains existing pending calls; cancellation before a frame
+write or while awaiting a response does not poison a healthy socket. Actual
+frame-write failure, read failure and read limit abort it. Read-limit errors
+retain both body-too-large and connection-closed classifications so pool drops
+the unusable transport immediately and the next independent invocation can dial.
+
+Raw presence production approval is 0056.2; provider-backed WSS four-state
+goldens remain prohibited while real null evidence is absent. Same-backend
+HTTP/WSS endpoints are not independent trust sources. No automatic fallback,
+background reconnect, active keepalive, subscription or internal queue is added.
+
+Behavioral evidence: `TestUnifiedSourceWriteOutcomes`,
+`TestMixedSourcesPreserveCallErrorData`, `TestRateLimitHealthAcrossTransports`,
+`TestRateLimitCooldownRetainsReadWriteMembership`,
+`TestSharedDisconnectCountsAttemptedEmissionsAndRedials`,
+`TestReadLimitDiscardsClosedTransportBeforeNextInvocation`, and
+`internal/transport/wss/lifecycle_test.go`. Full checks and live-observation
+limits are recorded in `docs/design/roadmap-completion-report.md`.
+
+Rollback: remove explicit WSS configuration by constructing a new Client with
+the desired trust set. Never silently drop WSS members from a running Client.

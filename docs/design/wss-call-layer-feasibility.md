@@ -45,7 +45,7 @@ raw-call 调用层可行；go-ethereum v1.17.5 没有可在不放弃原始 error
 | presence | 原始帧直接交给 `rpcwire.DecodeResponse`，三态可辨 | 不可辨（unknown） | 可辨但不可维护 |
 | 订阅 / filter | 不实现（EthGuard 当前无订阅接口） | geth 已支持，但不在本 seam | 可支持 |
 | 维护成本 | 中：连接生命周期 + demux + 有界读 + 错误映射；帧协议由 gorilla 负责 | 低代码、零 presence | 高：与 go.sum 脱钩，随版本失效 |
-| 依赖 | `gorilla/websocket`（已在 go-ethereum 依赖图中，作为直接测试依赖验证） | 无新增 | fork |
+| 依赖 | `gorilla/websocket`（当前为 raw WSS adapter 的临时直接依赖；此前已在 go-ethereum 依赖图中） | 无新增 | fork |
 
 ### 2.1 为什么不选“geth + tee”
 
@@ -138,8 +138,9 @@ W1 通过，允许进入 W2：实现 EthGuard 专用 WSS raw-call Adapter。
    quorum、reference 或 typed；
 4. 单请求、乱序、取消、超时、断连、bounded message、Close 和 pending 清理
    必须由进程内契约测试覆盖后，才进入 W3 的四态 golden 讨论；
-5. `gorilla/websocket` 从间接依赖提升为直接依赖只用于 Adapter；升级策略
-   随 go-ethereum 版本一起审查。
+5. `gorilla/websocket` 从间接依赖提升为 raw WSS Adapter 的临时直接依赖；它只
+   服务 `internal/transport/wss`，不构成公共 API。WSS adapter 替换或退出时
+   重新评估并移除；版本升级随 transport seam 一起审查。
 
 停止条件：如果 W2 的实现需要复制订阅、重连或通用客户端语义才能通过现有
 `pool.Transport`，立即停止在 W1，不进入 W3。

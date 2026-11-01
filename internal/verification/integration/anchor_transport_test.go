@@ -209,9 +209,13 @@ func newAnchorFleet(t *testing.T, kind anchorTransport, count int) (*ethguard.Cl
 
 func newDeadFleet(t *testing.T, scheme string) *ethguard.Client {
 	t.Helper()
+	transport := config.TransportNativeHTTP
+	if scheme == "ws" || scheme == "wss" {
+		transport = config.TransportWSS
+	}
 	client, err := ethguard.New(config.Config{Upstreams: []config.Upstream{
-		{ID: "node-0", Endpoint: scheme + "://127.0.0.1:1"},
-		{ID: "node-1", Endpoint: scheme + "://127.0.0.1:2"},
+		{ID: "node-0", Endpoint: scheme + "://127.0.0.1:1", Transport: transport},
+		{ID: "node-1", Endpoint: scheme + "://127.0.0.1:2", Transport: transport},
 	}})
 	if err != nil {
 		t.Fatal(err)

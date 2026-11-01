@@ -1,7 +1,8 @@
 # Roadmap Execution Ledger
 
-状态：执行中（2026-10-31）。本文件按业务语义记录当前路线图各项工作的证据、
-状态、阻塞、风险和待最终处理问题，是 `project-roadmap.md` 的执行侧台账。
+状态：**2026-11-01 统一 Source 已实施**。本文件登记实施证据，不替代
+`project-roadmap.md`。§1–§11 保留 2026-10-31 历史阶段记录，当时的“未接线、
+未修订、待裁决”由 §12 与 0056.2/0064 的当前范围取代；golden 证据门不受豁免。
 
 纪律：
 
@@ -269,7 +270,7 @@
 | `eth_syncing` progress object provider 形状 | 开放（外部证据阻塞） | 2026-10-21 与 2026-10-31 的样本均只观察到 `false`；progress object 未观察 | 保持 capture gap，不用合成样本关闭 |
 | liveness/typed 的对象形状证据 | 部分解决（外部证据仍有缺口） | 2026-10-31 latest EIP-1898 object 4/4；历史 block 18,000,000 的 blockNumber object 4/4；其他高度、uncle 内容和 full 交易字段差异仍按 sample | 继续补其他历史高度、uncle 样本和跨客户端差异 |
 
-## 11. 收尾分类（2026-10-31）
+## 11. 历史收尾分类（2026-10-31）
 
 - **已解决**：
   - resolver 深模块裁决（决策 0063、契约 §8）；
@@ -319,3 +320,35 @@
     迟到响应与 provider 侧重连（missing/`0x`/value 已观察）；
   - T11 容量/限流样本；freshness 更长窗口的 reorg/滞后观测（当前约
     6 分 22 秒，未观察到 reorg）。
+
+## 12. 统一 Source 实施（2026-11-01）
+
+- **已解决**：显式 per-source transport 选择；`pool.Member.Dialer`/Source 固定
+  绑定，无第二 registry；WSS 与 HTTP 共用读写 pool、固定 basis 和 health；
+  common rate-limit code 分类修复；`-32601` healthy reset；写结果与未知 delivery
+  分层；pending cancel、frame write/read failure、read limit 和 draining Close；
+  admission/business 失败后的失效连接回收与下一次独立重拨；raw presence 保真。
+- **依赖记录**：`gorilla/websocket` 是 raw WSS adapter 的临时直接依赖，仅由
+  `internal/transport/wss` 使用；adapter 替换或退出时重新评估并移除，不构成公共 API。
+- **确定性证据**：`pool/rate_limit_health_test.go`、
+  `pool/write_outcome_health_test.go`、`internal/transport/wss/lifecycle_test.go`、
+  `unified_source_write_test.go`、`unified_source_presence_test.go`、
+  `config/transport_test.go`、`client_transport_test.go`。不使用阶段命名。
+- **实际 smoke**：公开 Client 入口混合 HTTP/WSS 的签名 bytes 广播经历
+  accepted→断连 disputed→独立重拨 accepted，basis 始终 2、无自动重放；混合
+  null revert 保留 data 弃权。ChainID admission 断连首次失败，第二调用第二条
+  socket 成功，health 累计一次 failure、一次 success。
+- **真实补采**：3 个公开 WSS endpoint × 6 个只读 scenario，3 个 chain check、
+  6 个 call-policy check；15 个错误帧 missing=10、value=5、null=0、empty-hex=0。
+  捕获在仓库外 `/tmp/ethguard-wss-unified-evidence-20261101`，已离线 replay；
+  不提交公共网络交易，不制造限流或大响应，不写 golden。
+- **可接受限制**：不启后台 reconnect、主动 keepalive、queue 或 subscription；
+  握手 429 暂不映射 rate-limit capability；阻塞中的 frame write 依赖调用 deadline。
+  同一 backend 的 HTTP/WSS 不建立独立信任，unsupported 不退出全局 health。
+- **真实断连**：18 个同连接 `eth_chainId` follow-up 中 15 次成功，p02 在
+  unknown-method、invalid-params、block-hash-position 后三次遇到 `1006`；
+  原始证据位于 `follow_up.close_code`。这不授权后台 reconnect 或重放。
+- **外部未观察**：真实 null、限流、read limit、迟到响应、响应超时。W4 golden
+  门继续禁止，T11 与 freshness 不因接线或小样本观察完成。未来扩展单独裁决。
+- **检查**：完整命令及结果归档在 `roadmap-completion-report.md` §7；生产默认
+  native HTTP、fixed membership/threshold/weight、reference、typed、方法数量不变。
