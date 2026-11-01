@@ -23,7 +23,7 @@ EthGuard 的运行时语义已经冻结：
 - Read 默认 registry 已由显式 `rpc.ReadPlan` 驱动；方法级阶段编排不再以 decorator
   chain 为事实来源；legacy constructor 保留为兼容与等价验证 seam；
 - resolver 内部仍保留 `rpc.Policy` 深模块、`blockPolicy` 等 resolver-specific
-  wrapper 和 capability seam。这是下一轮边界梳理对象，不应被描述为已完全扁平化；
+  wrapper 和 capability seam。RS5 已裁决保留该深模块（0063），不应被描述为已完全扁平化或仍待重构；
 - reference policy 统一方案、freshness 余量和 adaptive congestion 仍按各自决策保留，
   不由方法对接阶段隐式改写。
 
@@ -46,8 +46,8 @@ EthGuard 的运行时语义已经冻结：
 - `go.mod` 固定 go-ethereum 版本以保证可复现；连接 seam 已由 native HTTP 默认实现
   承担，pool 生产代码不再接触具体 Geth client，Geth compatibility adapter 只经
   `gethcompat` 显式进入。typed values/codecs 仍使用 Geth 类型，这是保留的兼容面；
-- `gorilla/websocket` 是 raw WSS adapter 的临时直接依赖，只由 WSS transport
-  implementation 使用，不构成公共协议或长期依赖承诺；WSS adapter 替换或退出时
+- `gorilla/websocket` 是 raw WSS adapter 的临时直接依赖，在普通 client 的生产路径仅由 WSS transport
+  implementation 使用（手动证据工具/测试引用另计），不构成公共协议或长期依赖承诺；WSS adapter 替换或退出时
   重新评估并移除；
 - 依赖迁移只允许渐进地收窄内部 connection/transport seam，不启动移除 go-ethereum
   类型的大爆炸重写，不建立平行 Block/Receipt/Transaction 类型系统；
@@ -83,10 +83,10 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；2026-10-31 增加历史 block 18,000,000 的 EIP-1898/createAccessList/block/feeHistory live 证据 | 按卡片补齐剩余真实 capture/replay/live 证据（syncing progress、其他历史高度、uncle 内容等） | 不新增方法，不改变裁决语义 |
 | go-ethereum/connection 依赖债务 | native HTTP 默认；显式 raw WSS 已接线；默认构建仍不链接 `ethclient` | 保留官方 typed 类型；compatibility seam 仍显式 | 不移除 ethclient-shaped 表面 |
 | WSS transport | W1–W3 与显式统一 pool 接线已完成；读写、health、cooldown、取消/Close 回归通过 | W4/provider-backed golden：继续补真实 null 等证据 | 不新增只读角色、后台重连、重放或 basis 变化 |
-| T11 自适应拥塞控制 | 设计不变量已补；算法未实现；2026-10-31 观察到限流/配额信号但无容量曲线 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
+| T11 自适应拥塞控制 | 已有 pace 调整、固定并发上限和 cooldown；新控制器未收敛；2026-10-31 观察到限流/配额信号但无容量曲线 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
 | reference freshness | 设计不变量已补；2026-10-31 完成短窗口与约 6 分 22 秒扩展窗口 latest/safe/finalized 观测；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义；观测不产生默认 lag |
 | reference raw capture | 两个缺口已按独立切片修复并补回归 | 保持采集语义，出现新清空点时重新审查 | 不改裁决、阈值、成员或 reference 语义 |
-| ReadPlan / resolver seam | M0–M8 已完成；resolver 内部仍是 `rpc.Policy` 深模块 | resolver 行为盘点、最小 seam 契约、legacy quarantine、是否继续扁平化的证据决策 | 不改变 Decision、quorum、reference、typed 或方法数量 |
+| ReadPlan / resolver seam | M0–M8 与 RS0–RS5 已完成；0063 保留 `rpc.Policy` 深模块 | 只有真实新增能力/维护负担出现时重审 | 不改变 Decision、quorum、reference、typed 或方法数量 |
 | WSS error-data evidence | raw WSS 生产四态按 0056.2 保留；真实 missing/`0x`/value 已观察，null 未观察 | W4 golden 门仍需真实 provider 证据 | 不用合成样本关闭 evidence 门 |
 | provider compatibility evidence | 按方法逐步补齐 | capture/replay/live 状态登记并保持证据等级 | 不用合成样本冒充 provider 兼容性 |
 | 外部消费者纪律 | 当前无外部消费者 | 首次发布/tag/import 后重启 API break 评估 | 依据决策 0057 |
@@ -94,7 +94,85 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 上述每条轨道的细节、验收和停止条件都在本文后续章节；链接的设计文档提供依据，
 不替代本表的顺序和状态。
 
-## 当前主线：resolver seam 与 WSS 证据门
+## 下一轮执行计划：freshness、调度与 transport 依赖
+
+2026-11-01 起按下表单线推进。M0–M8、RS0–RS5、W0–W3 和统一 Source 接线
+均已完成，不重新启动 resolver 扁平化。旧决策可由可复现证据修订；外部样本不足
+只阻塞对应的兼容性声明，不阻塞离线缺陷复现、机制验证和请求范围修正。
+
+### 目标目录与所有权
+
+- `rpc/` 与 `rpc/methods/` 声明请求语义；使用既有 ReadPlan/reference/pending
+  事实，不为 freshness 建立第二方法表，不添加网络 callback。
+- `aggregator/` 决定本轮请求的执行范围；`internal/runtime/` 绑定 reference
+  建立/确认轮。pool 不解析方法参数或根据 transport 选择业务行为。
+- `pool/` 拥有调度预算、健康、tip 样本和 gate 原因；reference 候选算法留在
+  `internal/reference/`。二者不改变成员、basis、门槛、单位权重或请求 tag。
+- `internal/transport/wss/` 拥有帧库绑定与 socket 生命周期；替换底层库不得扩张
+  Transport Port。`cmd/wsscapture/` 仅负责手动只读证据；普通测试不联网。
+- `internal/verification/integration/` 验证公开调用的结果和证据；设计依据记录在
+  现有 freshness、congestion、WSS 文档，执行事实只追加到执行台账。
+
+### 任务与验收
+
+| 任务 | 顺序与目标 | 交付范围 | 验收与出口 |
+| --- | --- | --- | --- |
+| F0 请求 freshness 与调度事实基线 | 先执行 | 复现历史/pending/移动 tag 的 gate 范围、样本年龄、稀疏样本，以及当前共享预算；补充现有设计文档 | 真实执行路径有离线证据；明确当前缺陷与目标，不把现状测试当永久契约；确认现有 pace 调整已存在，T11 未完成的是控制器收敛 |
+| F1 按请求/轮次限制 tip gate | F0 后的首个生产切片 | `rpc/`、`aggregator/`、`internal/runtime/` 向 pool 显式传递本轮的调度事实；先写历史读取失败的回归，再修复 | explicit height/hash、pending、本地/无块引用方法不因 latest tip 落后而被暂停；moving-tag 建立与 pin 后业务轮分别验收；safe/finalized 不以 latest tip 冒充自身 freshness；cooldown/identity/deadline 不被绕开；basis、阈值与 admission 不变。直接 pool/legacy 调用的零值行为须写明 |
+| F2 样本有效性与 gate 诊断 | F1 后 | `pool/` 样本时间、部分覆盖和结构化 gate 原因；相关 reference/capture 诊断 | 过期/缺失样本为未知，不证明 fresh 或 stale；少数已采样高 tip 不可借缩小样本集合暂停诚实成员；expired 样本不参与参考；年龄窗口须显式配置或有依据的决策，无新隐藏默认值；历史请求仍豁免；旧 sentinel 的 errors.Is 保持 |
+| T0 调度预算盘点与受控实验 | F0 可先完成，单线执行 | `pool/`、离线容量 fixture、`adaptive-congestion-control.md` | reference/read/write/admission/probe 共享预算；饱和等待取消无额外发送/health 惩罚；容量下降、恢复、限流、空闲与饥饿有确定性场景；不对公共 provider 压测。输出当前控制器与候选的差异，不能写成真实 provider 容量结论 |
+| T1 控制器选择与最小实现 | F1/F2 稳定、T0 有结果后 | 优先在现有 monitor 内收敛慢增快减与并发上限；需要独立深模块时再拆目录 | 先提交输入信号/状态/参数来源的决策；区分配额拒绝和容量反馈；突降快速收敛、低负载不虚增容量、恢复有界、所有轮次共享预算、队列等待有界；不新增自动重试、动态成员或方法优先级。没有证据时保留现有算法也是有效裁决 |
+| D0 WSS 帧层依赖重新评估 | 生产生命周期扩展之前 | 审查锁定版本的 gorilla 使用面、取消/写阻塞/资源约束和候选实现；记录成本与替换收益 | 明确保留临时依赖、替换库、或局部修正之一；不自行重写 RFC6455；普通 client 生产引用限制在 WSS 包，证据工具与测试引用单列；不将依赖数量本身当替换理由 |
+| D1 WSS 底层替换或局部加固 | 仅 D0 给出具体收益时 | `internal/transport/wss/`，保持现有 adapter 表面 | 同一组 contract 对比 presence、demux、malformed、limit、写锁等待/写中取消、Close、断连、ChainID、无重放；混合 HTTP/WSS 公开入口等价。移除直接依赖后检查 gethcompat/工具是否仍间接需要，不能声称 go.sum 必然无 gorilla |
+| E0 逐方法与 W4 定向证据 | 独立证据队列，不能阻塞 F/T 主线 | 现有 capture/replay 工具与方法卡片；每轮限定方法、预算、时限 | 优先 syncing progress、含 uncle 的历史块、历史 EIP-1898 与 feeHistory；WSS null 仅自然出现时归档。每个缺口区分实现正确性与真实兼容性；未出现即登记未观察，不反复遍历公共 endpoint；捕获可校验 hash、可回放且脱敏，不提交网络交易、不合成 provider golden |
+| L0 WSS 生命周期扩展 | D0 后且存在运维需求 | keepalive、可取消写入/容量限制按独立业务切片推进；后台 reconnect 另行判断 | 每次只新增一种机制，说明故障归属、资源上界和关闭顺序；旧 pending 失败不重放；下一独立调用由 pool 重拨；没有收益证据时保持当前不启用范围，不把全部可选功能列为欠实现 |
+| A0 集成验收与债务收尾 | 每个生产切片后，整轮结束汇总 | 唯一路线图、执行台账、决策修订和适当 gate | 事实/目标/外部未观察分别列出；不重开已完成的 RS 工作；只提交本轮文件，保留他人改动；完整检查通过后标记相应任务完成 |
+
+### 执行顺序与接续规则
+
+单线顺序：`F0 → T0 → F1 → F2 → T1 → D0 → D1（有收益才执行）`；E0 在
+这些切片间以有界证据轮执行；L0 只有真实运维需求时启动，A0 随每个生产切片执行。
+F0/T0 先交付基线，不将整轮计划标记完成。F1 的新范围和 F2 的样本策略必须先记录
+目标及语义差异，再替换旧现状测试，不能为满足旧断言保留已确认问题。
+
+本轮交接状态：F0 已有代码审计和离线基线（见 freshness 设计 §7）；T0 仅完成
+共享预算/等待取消基线并修正 Forward 的错误归属，容量变化与恢复实验尚未完成。
+执行者先补完 T0 的受控场景，再进入 F1；其余任务均不因本轮计划交付而标为完成。
+
+接手先读本节、`architecture-recovery.md`、`codebase-topology.md`、
+`reference-freshness-policy.md`、`adaptive-congestion-control.md`、
+`wss-productionization-decisions.md` 和 `roadmap-execution-ledger.md` 最新条目。
+首个范围迁移目标是 F1；无需重新执行所有 provider 探测，也不先删除 gorilla。
+
+生产切片最终检查：
+
+```text
+gofmt -l .
+git diff --check
+go test ./... -count=1
+go vet ./...
+go test ./... -race -count=1
+go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
+go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
+```
+
+涉及 WSS 再执行 `go test ./internal/transport/wss -race -count=10`；纯文档/测试
+切片只执行对应验证，记录实际运行范围，不借用上一轮结果声称全部门禁复跑。
+
+### 本轮决策和提交纪律
+
+- F1 优先解决已知的请求适用范围；F2 的时间/覆盖策略与 T1 参数单独提交，不能
+  用等待长窗口 provider 观测推迟历史读取问题的离线修复。
+- D0 是重新评估门，不承诺一定换库；gorilla 目前仍为临时直接依赖。W4 是否观察
+  到 null 与底层库替换无依赖关系；正式扩展 keepalive/reconnect/queue 前完成 D0。
+- 每个生产提交只表达一个业务意图；文件、测试、fixture 和类型以业务语义命名，
+  禁止以 F0、T1、D0 等任务号或 phase/stage 名命名。无需为了任务机械新增目录。
+- 局部验证使用相关包及有意义的 race/repeat；生产切片完成后执行全量 test、vet、
+  race、architecture/default-build 和 Verification 专项门，结果无变化时不机械复跑。
+- 本轮新增 ZK/轻客户端证明、订阅、自动写恢复均不在范围；保留 seam 不等于提前
+  实现未来能力。真实 provider 缺口不等于现有功能不可用或已知实现错误。
+
+## 已完成主线与 WSS 证据门记录
 
 ReadPlan M0–M8 已经完成了方法级阶段编排迁移，但没有宣称删除所有 Policy 形态。
 当前代码必须按两层理解：
@@ -103,7 +181,7 @@ ReadPlan M0–M8 已经完成了方法级阶段编排迁移，但没有宣称删
 方法级阶段层（已计划化）
 Validate / Prepare → Reference → Collect → Admit → Resolve → Project
 
-resolver 语义层（下一轮边界）
+resolver 语义层（RS5 已裁决保留的深模块）
 Normalize / cluster / Outcome / Corroboration / CallRevert /
 block-specific result / MethodRule resolver columns
 ```
