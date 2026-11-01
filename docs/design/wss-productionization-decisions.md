@@ -4,6 +4,10 @@
 未修改 WSS adapter**。本文件把原先的七个决策输入收敛为可审阅的推荐方案；
 推荐不等于已接受决策，任何接线都必须先有明确的主维护者决策记录。
 
+补充讨论：[WSS 统一 Source 与写路径语义](wss-unified-source-write-path.md)
+记录了“不因 WSS 默认只读、写请求沿用统一 pool fault/health 机制”的产品意图。
+本文原有的独立只读组合建议仍是待比较选项，不应视为唯一方向。
+
 ## 0. 结论摘要
 
 - 推荐保持 WSS 显式 opt-in，native HTTP 继续是默认 adapter。
