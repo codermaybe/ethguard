@@ -1,9 +1,13 @@
 # WSS Transport Adapter（W2/W3：最小 raw-call 实现与进程内证据）
 
-状态：**W2/W3 已实现；统一 Source 接线已实现（2026-11-01）**。实现位于
-`internal/transport/wss`，只实现 raw call、`ChainID` 和 `Close`；不包含
+状态：**自有 wire 栈已上线（2026-11-03）**。实现位于 `internal/transport/wss`，
+HTTP Upgrade、帧协议与连接生命周期由项目自有代码承担（见
+[wss-wire-contract.md](wss-wire-contract.md)），只依赖 Go 标准库；JSON-RPC 语义
+仍由 `internal/rpcwire` 独占。只实现 raw call、`ChainID` 和 `Close`；不包含
 Subscribe、filter、批量、自动重连或写路径重放。0056.2 已批准生产四态保真，
 0064 规定统一 Source；WSS provider-backed 四态 golden 继续禁止。
+`gorilla/websocket` 已从生产与测试路径移除（2026-11-03），仅作为
+go-ethereum 兼容通道的 indirect 依赖残留在模块图中。
 
 W4 真实 provider 证据已采集（2026-10-31）：missing、`0x` 和具体 data 被实际
 frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-evidence.md)。
@@ -18,8 +22,8 @@ frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-ev
 | 代码位置 | `internal/transport/wss` |
 | 实现 seam | `pool.Transport` / `transport.Dialer` |
 | 编解码 | `internal/rpcwire`（与 native HTTP 共用） |
-| 帧协议 | `gorilla/websocket`（不复制 RFC6455 实现） |
-| 依赖状态 | `gorilla/websocket` 为 raw WSS adapter 的临时直接依赖；不构成公共 API，adapter 替换/退出时重新评估 |
+| 帧协议 | 自有实现（`websocket_handshake.go` / `websocket_frame.go` / `websocket_connection.go`，仅 Go 标准库；见 [wss-wire-contract.md](wss-wire-contract.md)） |
+| 依赖状态 | 无第三方 WebSocket 依赖；go.mod 中 gorilla/websocket 仅作为 go-ethereum 兼容通道的 indirect 残留，默认构建与 WSS 生产构建均不链接 |
 | 业务裁决 | 无：不导入 aggregator、rpc/methods、runtime、reference、typed |
 | runtime | `config.Upstream.Transport=wss` 显式选择；与 HTTP 共用固定读写 pool；缺省仍 native HTTP |
 
@@ -58,11 +62,12 @@ frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-ev
 
 ### 2.4 read limit
 
-- `SetReadLimit(limit)` 限制单条入站消息；超限时 gorilla 返回
-  `websocket.ErrReadLimit` 并关闭连接。
+- 自有帧层在帧头解析阶段执行单条入站消息上限（帧级 + 重组后 message 级
+  双重限制）；超限立即失败并终止连接，不读取剩余 payload、不保留截断
+  前缀、不发送 close 帧（截断流不可再同步）。
 - pending 调用失败同时匹配 `transport.ErrBodyTooLarge` 与
   `transport.ErrConnectionClosed`，pool 立即丢弃失效 transport，下一次独立调用
-  可重拨；直接复用失效 adapter 会得到 `wss.ErrTransportClosed`。不保留截断前缀。
+  可重拨；直接复用失效 adapter 会得到 `wss.ErrTransportClosed`。
 
 ### 2.5 断连与 Close
 
@@ -78,14 +83,16 @@ frame 证实，`null` 未观察；见 [wss-provider-evidence.md](wss-provider-ev
 - JSON-RPC batch；
 - 自动重连、重放、未知结果恢复；
 - 写路径（交易广播）的重连或幂等语义；
-- 主动 ping/pong keepalive（gorilla 自动回应 ping，但不主动发送）；
+- 主动 ping/pong keepalive（reader 内部自动回应入站 ping，但不主动发送）；
 - 通用 Ethereum 客户端方法；
 - 任何 Decision、quorum、reference、method plan 或 typed 逻辑。
 
 ## 4. 进程内证据
 
-`internal/transport/wss/wss_contract_test.go` 与 `lifecycle_test.go` 使用进程内
-WebSocket server（`httptest` + gorilla Upgrader）覆盖：
+进程内 WebSocket 对端由自有测试栈提供：`internal/transport/wss` 包内测试使用
+同包的 raw hijack server + 自有帧编解码（`startRawServer`/`serverFrames`），
+pool 与根测试使用 `internal/testkit/wstest`。`wss_contract_test.go` 与
+`lifecycle_test.go` 覆盖：
 
 | 场景 | 测试 |
 | --- | --- |
@@ -121,8 +128,11 @@ go vet ./...
 git diff --check
 ```
 
-W1 原型 `internal/transport/wss_feasibility_test.go` 保留为可行性证据，不
-参与生产构建；W2 实现不依赖该原型。
+W1 原型 `internal/transport/wss_feasibility_test.go` 与 W6 双实现差分
+`websocket_differential_test.go` 已随 gorilla 移除一并删除（2026-11-03）；
+其裁决与差分结论记录在 [wss-call-layer-feasibility.md](wss-call-layer-feasibility.md)、
+[wss-wire-contract.md](wss-wire-contract.md) 与执行台账 §17，过程证据以
+Git 历史为准。
 
 ## 5. 对决策 0056 的影响
 

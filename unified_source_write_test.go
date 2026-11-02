@@ -16,11 +16,11 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/testkit/wstest"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/gorilla/websocket"
 )
 
 type sourceWireRequest struct {
@@ -58,10 +58,9 @@ func newSourceWirePeer(t *testing.T, ws bool, answer func(sourceWireRequest) str
 		}
 		return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,%s}`, req.ID, result))
 	}
-	upgrader := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ws {
-			conn, err := upgrader.Upgrade(w, r, nil)
+			conn, err := wstest.Upgrade(t, w, r)
 			if err != nil {
 				t.Errorf("upgrade: %v", err)
 				return
@@ -69,7 +68,7 @@ func newSourceWirePeer(t *testing.T, ws bool, answer func(sourceWireRequest) str
 			defer conn.Close()
 			peer.connections.Add(1)
 			for {
-				_, body, err := conn.ReadMessage()
+				body, err := conn.ReadMessage()
 				if err != nil {
 					return
 				}
@@ -77,7 +76,7 @@ func newSourceWirePeer(t *testing.T, ws bool, answer func(sourceWireRequest) str
 				if response == nil {
 					return
 				}
-				if err := conn.WriteMessage(websocket.TextMessage, response); err != nil {
+				if err := conn.WriteText(response); err != nil {
 					return
 				}
 			}

@@ -1,20 +1,19 @@
 package wss
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/codermaybe/ethguard/internal/rpcwire"
 	"github.com/codermaybe/ethguard/internal/transport"
@@ -22,45 +21,47 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// scriptedPeer is one in-process WebSocket endpoint. The handler owns the
-// response script; requests are delivered in wire order.
+// scriptedPeer is one in-process WebSocket endpoint speaking the owned codec
+// from the server side. The handler owns the response script; requests are
+// delivered in wire order.
 type scriptedPeer struct {
 	t        *testing.T
-	conn     *websocket.Conn
+	conn     net.Conn
+	frames   *serverFrames
 	requests <-chan []byte
 }
 
 func newScriptedPeer(t *testing.T, serve func(peer *scriptedPeer)) string {
 	t.Helper()
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests := make(chan []byte, 32)
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			t.Errorf("upgrade: %v", err)
-			return
-		}
-		defer conn.Close()
+	requests := make(chan []byte, 32)
+	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+		writeUpgradeAccept(t, rw, r)
+		frames := &serverFrames{t: t, conn: conn, br: rw.Reader}
 		go func() {
 			defer close(requests)
+			reader := newFrameReader(rw.Reader, serverSide, 1<<20)
 			for {
-				_, frame, err := conn.ReadMessage()
+				frame, err := reader.readFrame()
 				if err != nil {
 					return
 				}
-				requests <- append([]byte(nil), frame...)
+				switch frame.opcode {
+				case opClose:
+					return
+				case opText, opBinary:
+					requests <- append([]byte(nil), frame.payload...)
+				}
 			}
 		}()
-		serve(&scriptedPeer{t: t, conn: conn, requests: requests})
-	}))
+		serve(&scriptedPeer{t: t, conn: conn, frames: frames, requests: requests})
+	})
 	t.Cleanup(srv.Close)
 	return "ws" + strings.TrimPrefix(srv.URL, "http")
 }
 
 func (p *scriptedPeer) writeFrame(frame []byte) {
-	if err := p.conn.WriteMessage(websocket.TextMessage, frame); err != nil {
-		p.t.Errorf("peer write: %v", err)
-	}
+	p.t.Helper()
+	p.frames.write(true, opText, frame)
 }
 
 func (p *scriptedPeer) respond(request []byte, result string) {

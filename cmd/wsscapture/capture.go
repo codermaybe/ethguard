@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/codermaybe/ethguard/internal/transport/wss"
 )
 
 const captureSchema = "ethguard.wss-provider-evidence/v1"
@@ -243,31 +244,33 @@ func probeScenario(ctx context.Context, rawURL, label, endpoint string, sc scena
 	}
 	record.Request = redact.text(string(request))
 
-	dialer := websocket.Dialer{HandshakeTimeout: cfg.Timeout}
 	dialStart := time.Now()
-	conn, resp, err := dialer.DialContext(ctx, rawURL, nil)
+	conn, err := wss.DialRaw(ctx, rawURL, cfg.Timeout, 0)
 	if err != nil {
 		record.DataState = "dial-error"
 		record.LatencyMS = time.Since(dialStart).Milliseconds()
 		record.ReadError = redact.text(err.Error())
-		if resp != nil {
-			record.HTTPStatus = resp.StatusCode
+		var handshakeErr *wss.HandshakeError
+		if errors.As(err, &handshakeErr) && handshakeErr.StatusCode != 0 {
+			record.HTTPStatus = handshakeErr.StatusCode
 		}
 		return record
 	}
 	defer conn.Close()
 
-	_ = conn.SetWriteDeadline(time.Now().Add(cfg.Timeout))
-	if err := conn.WriteMessage(websocket.TextMessage, request); err != nil {
+	writeCtx, cancelWrite := context.WithTimeout(ctx, cfg.Timeout)
+	if err := conn.WriteMessage(writeCtx, request); err != nil {
+		cancelWrite()
 		record.DataState = "write-error"
 		record.ReadError = redact.text(err.Error())
 		record.CloseCode, record.CloseText = closeInfo(err)
 		return record
 	}
+	cancelWrite()
 
 	readStart := time.Now()
 	_ = conn.SetReadDeadline(time.Now().Add(cfg.Timeout))
-	_, frame, err := conn.ReadMessage()
+	frame, err := conn.ReadMessage()
 	record.LatencyMS = time.Since(readStart).Milliseconds()
 	if err != nil {
 		record.DataState = "read-error"
@@ -282,19 +285,20 @@ func probeScenario(ctx context.Context, rawURL, label, endpoint string, sc scena
 	return record
 }
 
-func probeFollowUp(conn *websocket.Conn, cfg captureConfig, redact *redactor) *followUp {
+func probeFollowUp(conn *wss.Conn, cfg captureConfig, redact *redactor) *followUp {
 	const followUpID = 2
 	request, _ := json.Marshal(wireRequest{JSONRPC: "2.0", ID: followUpID, Method: "eth_chainId", Params: []any{}})
 	result := &followUp{Method: "eth_chainId"}
-	_ = conn.SetWriteDeadline(time.Now().Add(cfg.Timeout))
-	if err := conn.WriteMessage(websocket.TextMessage, request); err != nil {
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), cfg.Timeout)
+	defer cancelWrite()
+	if err := conn.WriteMessage(writeCtx, request); err != nil {
 		result.Error = redact.text(err.Error())
 		result.CloseCode, result.CloseText = closeInfo(err)
 		return result
 	}
 	start := time.Now()
 	_ = conn.SetReadDeadline(time.Now().Add(cfg.Timeout))
-	_, frame, err := conn.ReadMessage()
+	frame, err := conn.ReadMessage()
 	result.LatencyMS = time.Since(start).Milliseconds()
 	if err != nil {
 		result.Error = redact.text(err.Error())
@@ -370,9 +374,14 @@ func classifyErrorData(raw json.RawMessage) (state string, present bool, dataRaw
 }
 
 func closeInfo(err error) (int, string) {
-	var closeErr *websocket.CloseError
+	var closeErr wss.CloseError
 	if errors.As(err, &closeErr) {
-		return closeErr.Code, closeErr.Text
+		return closeErr.Code, closeErr.Reason
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		// 1006 is a synthesized state, never a wire value: the connection
+		// ended without a close frame.
+		return 1006, "abnormal closure (connection ended without a close frame)"
 	}
 	return 0, ""
 }

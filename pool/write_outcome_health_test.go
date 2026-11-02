@@ -12,17 +12,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/testkit/wstest"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/internal/transport/wss"
-	"github.com/gorilla/websocket"
 )
 
 func TestSharedDisconnectCountsAttemptedEmissionsAndRedials(t *testing.T) {
 	var sockets atomic.Int32
 	var requests atomic.Int32
-	upgrader := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := wstest.Upgrade(t, w, r)
 		if err != nil {
 			t.Errorf("upgrade: %v", err)
 			return
@@ -30,7 +29,7 @@ func TestSharedDisconnectCountsAttemptedEmissionsAndRedials(t *testing.T) {
 		defer conn.Close()
 		generation := sockets.Add(1)
 		for {
-			_, body, err := conn.ReadMessage()
+			body, err := conn.ReadMessage()
 			if err != nil {
 				return
 			}
@@ -48,7 +47,7 @@ func TestSharedDisconnectCountsAttemptedEmissionsAndRedials(t *testing.T) {
 				}
 				continue
 			}
-			if err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"0x1"}`, req.ID))); err != nil {
+			if err := conn.WriteText([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"0x1"}`, req.ID))); err != nil {
 				return
 			}
 		}
@@ -105,9 +104,8 @@ func TestReadLimitDiscardsClosedTransportBeforeNextInvocation(t *testing.T) {
 func checkReadLimitRedial(t *testing.T, chainID uint64) {
 	t.Helper()
 	var sockets atomic.Int32
-	upgrader := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := wstest.Upgrade(t, w, r)
 		if err != nil {
 			t.Errorf("upgrade: %v", err)
 			return
@@ -115,7 +113,7 @@ func checkReadLimitRedial(t *testing.T, chainID uint64) {
 		defer conn.Close()
 		generation := sockets.Add(1)
 		for {
-			_, body, err := conn.ReadMessage()
+			body, err := conn.ReadMessage()
 			if err != nil {
 				return
 			}
@@ -130,7 +128,7 @@ func checkReadLimitRedial(t *testing.T, chainID uint64) {
 			if generation == 1 {
 				value = `"` + strings.Repeat("a", 512) + `"`
 			}
-			if err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":%s}`, req.ID, value))); err != nil {
+			if err := conn.WriteText([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":%s}`, req.ID, value))); err != nil {
 				return
 			}
 		}

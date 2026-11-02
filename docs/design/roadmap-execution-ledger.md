@@ -471,3 +471,41 @@
   - reference freshness 新策略：§9 的待裁决与外部证据条目。
   这些锚随文档演化保持章节号稳定；若未来启用外部 issue，由维护者建立
   映射后再以 issue 编号取代文件锚。
+
+## 17. 自有 WSS wire 替换（2026-11-03）
+
+- **范围**：按 [wss-wire-contract.md](wss-wire-contract.md)（W0）以七个独立
+  提交完成 W1–W7：依赖互锁（W1）、标准库握手层（W2）、帧编解码 + fuzz
+  （W3）、连接生命周期（W4）、adapter 换绑（W5）、双实现差分（W6）、
+  gorilla 移除（W7）。未触碰 pool、aggregator、ReadPlan、quorum、
+  reference、Decision 或 typed projection。
+- **交付**：
+  - `internal/transport/wss/websocket_handshake.go` — net.Dialer +
+    crypto/tls + 手写 Upgrade 请求 + `http.ReadResponse` 校验（101、
+    Sec-WebSocket-Accept、拒绝重定向/压缩协商/未请求子协议）；
+  - `internal/transport/wss/websocket_frame.go` — RFC6455 帧头、双向
+    mask 方向校验、fragmentation、UTF-8（跨分片）、close code 接收集、
+    帧级 + message 级双重限制、sticky 失败（坏流不得再同步）；
+  - `internal/transport/wss/websocket_connection.go` — 单 reader、
+    ping→pong / close echo 内部处理、控制帧写有界（5s）、读限制直接
+    abort 不发 close 帧；
+  - `internal/transport/wss/wss.go` — Dialer 换绑自有栈；
+    `write` 契约保持：等待写锁时取消不发送 frame、不破坏连接，写开始后
+    任何失败 abort（部分帧不可恢复）；
+  - `internal/testkit/wstest` — 测试专用 server-side 握手与帧对端，
+    接管 pool/root/wsscapture 测试中的 gorilla Upgrader；
+  - `cmd/wsscapture` — 改绑 `wss.DialRaw`；abrupt EOF 由工具侧合成为
+    close 1006 观察值（生产层不合成 1006）。
+- **差分验证（W6，过渡期）**：同一 fixture 经自有与 gorilla 对照实现逐项
+  比较 result bytes、protocol code/message、presence、read-limit/断连/
+  写失败/peer close 分类、pending 生命周期、取消与 deadline；全部一致；
+  差分 oracle 与 gorilla 一并在 W7 移除（见提交历史）。
+- **依赖出口（W7）**：`go list -deps .`、`./internal/transport/wss`、
+  `./cmd/wsscapture` 均无 `gorilla/websocket`；go.mod 中 gorilla 降级为
+  geth 兼容通道（`go-ethereum/rpc`）的 indirect 依赖，直接依赖已删除。
+  架构互锁（`dependencies_test.go`、`TestDefaultBuildExcludesEthclient`）
+  已收紧为最终状态。
+- **检查**：`go test ./... -count=1`、`-race -count=1`、`go vet ./...`、
+  `go test ./internal/transport/wss -race -count=10`、
+  `go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild'` 全部
+  通过；`go list -deps .` 无 gorilla 与 ethclient。

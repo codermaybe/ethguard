@@ -135,6 +135,13 @@ func (c *Conn) writeControl(opcode byte, payload []byte) error {
 	return err
 }
 
+// SetReadDeadline bounds the next read on the connection. The adapter's
+// reader runs without deadlines (a live call waits for its context); the
+// evidence tooling sets one to bound a single probe.
+func (c *Conn) SetReadDeadline(deadline time.Time) error {
+	return c.raw.SetReadDeadline(deadline)
+}
+
 // Close releases the underlying connection. Idempotency and lifecycle
 // bookkeeping stay with the adapter's close-once wrapper.
 func (c *Conn) Close() error {

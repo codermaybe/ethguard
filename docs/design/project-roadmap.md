@@ -46,9 +46,10 @@ EthGuard 的运行时语义已经冻结：
 - `go.mod` 固定 go-ethereum 版本以保证可复现；连接 seam 已由 native HTTP 默认实现
   承担，pool 生产代码不再接触具体 Geth client，Geth compatibility adapter 只经
   `gethcompat` 显式进入。typed values/codecs 仍使用 Geth 类型，这是保留的兼容面；
-- `gorilla/websocket` 是 raw WSS adapter 的临时直接依赖，在普通 client 的生产路径仅由 WSS transport
-  implementation 使用（手动证据工具/测试引用另计），不构成公共协议或长期依赖承诺；WSS adapter 替换或退出时
-  重新评估并移除；
+- 自有 WSS wire 栈已上线（2026-11-03，见 wss-wire-contract.md 与执行台账
+  §17）：HTTP Upgrade、帧协议与连接生命周期由 `internal/transport/wss` 以
+  Go 标准库实现；`gorilla/websocket` 直接依赖已删除，仅作为 go-ethereum
+  兼容通道的 indirect 残留，默认构建与 WSS 生产构建均不链接；
 - 依赖迁移只允许渐进地收窄内部 connection/transport seam，不启动移除 go-ethereum
   类型的大爆炸重写，不建立平行 Block/Receipt/Transaction 类型系统；
 - T00 的版本、分叉和 ethclient 兼容矩阵见 [spec-baseline.md](spec-baseline.md)，

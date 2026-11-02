@@ -34,25 +34,27 @@ const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 // outcome, not the message text.
 var errHandshakeRejected = errors.New("wss: websocket handshake rejected")
 
-// handshakeError reports why an HTTP response failed the upgrade validation.
-type handshakeError struct {
-	// statusCode is the HTTP status the server answered with; 0 when the
+// HandshakeError reports why an HTTP response failed the upgrade validation.
+// StatusCode carries the HTTP status the server answered with, so evidence
+// tooling can record provider handshake refusals without parsing text.
+type HandshakeError struct {
+	// StatusCode is the HTTP status the server answered with; 0 when the
 	// status line itself was unusable.
-	statusCode int
-	// status is the raw status line when one was parsed.
-	status string
-	// detail names the failed validation.
-	detail string
+	StatusCode int
+	// Status is the raw status line when one was parsed.
+	Status string
+	// Detail names the failed validation.
+	Detail string
 }
 
-func (e *handshakeError) Error() string {
-	if e.status != "" {
-		return fmt.Sprintf("%s: %s: %s", errHandshakeRejected, e.status, e.detail)
+func (e *HandshakeError) Error() string {
+	if e.Status != "" {
+		return fmt.Sprintf("%s: %s: %s", errHandshakeRejected, e.Status, e.Detail)
 	}
-	return fmt.Sprintf("%s: %s", errHandshakeRejected, e.detail)
+	return fmt.Sprintf("%s: %s", errHandshakeRejected, e.Detail)
 }
 
-func (e *handshakeError) Unwrap() error { return errHandshakeRejected }
+func (e *HandshakeError) Unwrap() error { return errHandshakeRejected }
 
 // dialOptions bounds and secures one client handshake.
 type dialOptions struct {
@@ -269,29 +271,29 @@ func secWebSocketAccept(key string) string {
 // no negotiated extension or subprotocol the client never offered.
 func validateUpgradeResponse(resp *http.Response, key string) error {
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		return &handshakeError{statusCode: resp.StatusCode, status: resp.Status, detail: "redirection is not part of the handshake contract"}
+		return &HandshakeError{StatusCode: resp.StatusCode, Status: resp.Status, Detail: "redirection is not part of the handshake contract"}
 	}
 	if resp.StatusCode != http.StatusSwitchingProtocols {
-		return &handshakeError{statusCode: resp.StatusCode, status: resp.Status, detail: "the server did not switch protocols"}
+		return &HandshakeError{StatusCode: resp.StatusCode, Status: resp.Status, Detail: "the server did not switch protocols"}
 	}
 	if !tokenListContains(resp.Header, "Upgrade", "websocket") {
-		return &handshakeError{statusCode: resp.StatusCode, status: resp.Status, detail: "missing or wrong Upgrade header"}
+		return &HandshakeError{StatusCode: resp.StatusCode, Status: resp.Status, Detail: "missing or wrong Upgrade header"}
 	}
 	if !tokenListContains(resp.Header, "Connection", "upgrade") {
-		return &handshakeError{statusCode: resp.StatusCode, status: resp.Status, detail: "missing or wrong Connection header"}
+		return &HandshakeError{StatusCode: resp.StatusCode, Status: resp.Status, Detail: "missing or wrong Connection header"}
 	}
 	accept := resp.Header.Get("Sec-WebSocket-Accept")
 	switch {
 	case accept == "":
-		return &handshakeError{statusCode: resp.StatusCode, status: resp.Status, detail: "missing Sec-WebSocket-Accept"}
+		return &HandshakeError{StatusCode: resp.StatusCode, Status: resp.Status, Detail: "missing Sec-WebSocket-Accept"}
 	case accept != secWebSocketAccept(key):
-		return &handshakeError{statusCode: resp.StatusCode, status: resp.Status, detail: "wrong Sec-WebSocket-Accept"}
+		return &HandshakeError{StatusCode: resp.StatusCode, Status: resp.Status, Detail: "wrong Sec-WebSocket-Accept"}
 	}
 	if ext := resp.Header.Get("Sec-WebSocket-Extensions"); ext != "" {
-		return &handshakeError{statusCode: resp.StatusCode, status: resp.Status, detail: "server negotiated an extension the client never offered: " + ext}
+		return &HandshakeError{StatusCode: resp.StatusCode, Status: resp.Status, Detail: "server negotiated an extension the client never offered: " + ext}
 	}
 	if proto := resp.Header.Get("Sec-WebSocket-Protocol"); proto != "" {
-		return &handshakeError{statusCode: resp.StatusCode, status: resp.Status, detail: "server selected a subprotocol the client never offered: " + proto}
+		return &HandshakeError{StatusCode: resp.StatusCode, Status: resp.Status, Detail: "server selected a subprotocol the client never offered: " + proto}
 	}
 	return nil
 }
@@ -307,4 +309,20 @@ func tokenListContains(header http.Header, name, value string) bool {
 		}
 	}
 	return false
+}
+
+// DialRaw performs the owned handshake and returns the raw connection for
+// single-frame exchanges. It is the manual-evidence seam behind
+// cmd/wsscapture: the production path is Dialer.DialContext, which owns the
+// call lifecycle. readLimit bounds inbound messages; zero or less selects
+// DefaultReadLimit.
+func DialRaw(ctx context.Context, rawURL string, handshakeTimeout time.Duration, readLimit int64) (*Conn, error) {
+	if readLimit <= 0 {
+		readLimit = DefaultReadLimit
+	}
+	result, err := dialWebSocket(ctx, rawURL, dialOptions{handshakeTimeout: handshakeTimeout})
+	if err != nil {
+		return nil, fmt.Errorf("wss: dial: %w", err)
+	}
+	return newConn(result, readLimit), nil
 }

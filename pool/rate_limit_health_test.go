@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/testkit/wstest"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/internal/transport/wss"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/gorilla/websocket"
 )
 
 // healthRPCPeer exercises the same provider responses through both adapters.
@@ -39,21 +39,20 @@ func healthRPCPeer(t *testing.T, websocketMode bool, code int) (string, dialer) 
 			return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"error":{"code":%d,"message":"request unavailable"}}`, req.ID, code))
 		}
 	}
-	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if websocketMode {
-			conn, err := upgrader.Upgrade(w, r, nil)
+			conn, err := wstest.Upgrade(t, w, r)
 			if err != nil {
 				t.Errorf("upgrade: %v", err)
 				return
 			}
 			defer conn.Close()
 			for {
-				_, body, err := conn.ReadMessage()
+				body, err := conn.ReadMessage()
 				if err != nil {
 					return
 				}
-				if err := conn.WriteMessage(websocket.TextMessage, respond(body)); err != nil {
+				if err := conn.WriteText(respond(body)); err != nil {
 					return
 				}
 			}

@@ -11,7 +11,8 @@ raw-call 调用层可行；go-ethereum v1.17.5 没有可在不放弃原始 error
 - [transport-contract.md](transport-contract.md)（L1 行为规范）；
 - 决策 0056 / 0056.1、0060；
 - 进程内验证：`internal/transport/wss_feasibility_test.go`（仅测试原型，
-  不是生产实现）。
+  不是生产实现；该原型已随 gorilla 移除于 2026-11-03 删除，裁决与过程
+  证据以 Git 历史与本文件为准）。
 
 ## 1. 复核：坍缩点与公开接口边界
 

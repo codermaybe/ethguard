@@ -247,15 +247,15 @@ func TestHandshakeRejectsNon101Responses(t *testing.T) {
 				_ = rw.Flush()
 			})
 			_, err := dialWebSocket(context.Background(), wsURL(srv), dialOptions{})
-			var handshake *handshakeError
+			var handshake *HandshakeError
 			if !errors.As(err, &handshake) {
 				t.Fatalf("err = %v, want a handshake rejection", err)
 			}
 			if !errors.Is(err, errHandshakeRejected) {
 				t.Fatalf("err = %v, want the rejection sentinel", err)
 			}
-			if handshake.statusCode != tc.wantStatus {
-				t.Fatalf("status = %d, want %d", handshake.statusCode, tc.wantStatus)
+			if handshake.StatusCode != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", handshake.StatusCode, tc.wantStatus)
 			}
 		})
 	}
@@ -271,8 +271,8 @@ func TestHandshakeRefusesRedirects(t *testing.T) {
 		_ = rw.Flush()
 	})
 	_, err := dialWebSocket(context.Background(), wsURL(srv), dialOptions{})
-	var handshake *handshakeError
-	if !errors.As(err, &handshake) || handshake.statusCode != 302 {
+	var handshake *HandshakeError
+	if !errors.As(err, &handshake) || handshake.StatusCode != 302 {
 		t.Fatalf("err = %v, want a redirect rejection", err)
 	}
 	if requests != 1 {

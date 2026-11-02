@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/codermaybe/ethguard/internal/testkit/wstest"
 )
 
 func TestClassifyErrorDataStates(t *testing.T) {
@@ -103,13 +103,13 @@ func TestBlockHashPositionScenarioIsEIP1898Object(t *testing.T) {
 
 func TestCaptureAndReplayLocalFrames(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		conn, err := wstest.Upgrade(t, w, r)
 		if err != nil {
 			return
 		}
 		defer conn.Close()
 		for {
-			_, frame, err := conn.ReadMessage()
+			frame, err := conn.ReadMessage()
 			if err != nil {
 				return
 			}
@@ -131,7 +131,7 @@ func TestCaptureAndReplayLocalFrames(t *testing.T) {
 			default:
 				response = fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"error":{"code":-32602,"message":"invalid params","data":"bad input"}}`, request.ID)
 			}
-			if err := conn.WriteMessage(websocket.TextMessage, []byte(response)); err != nil {
+			if err := conn.WriteText([]byte(response)); err != nil {
 				return
 			}
 		}

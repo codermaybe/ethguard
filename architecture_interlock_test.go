@@ -145,16 +145,30 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 }
 
 // TestDefaultBuildExcludesEthclient is the link-time gate: the default root
-// dependency graph must not link the go-ethereum client. The compatibility
-// channel is reachable only through gethcompat, whose own graph does.
+// dependency graph must not link the go-ethereum client, and neither the
+// default build nor the WSS production path may link a third-party websocket
+// library — the owned wire stack replaced it. The compatibility channel is
+// reachable only through gethcompat, whose own graph does link ethclient.
 func TestDefaultBuildExcludesEthclient(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".").Output()
 	if err != nil {
 		t.Fatalf("go list -deps .: %v", err)
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		if line == "github.com/ethereum/go-ethereum/ethclient" {
+		switch line {
+		case "github.com/ethereum/go-ethereum/ethclient":
 			t.Fatal("the default build links ethclient; the geth channel must stay behind gethcompat")
+		case "github.com/gorilla/websocket":
+			t.Fatal("the default build links gorilla/websocket; the owned WSS wire stack replaced it")
+		}
+	}
+	wire, err := exec.Command("go", "list", "-deps", "./internal/transport/wss", "./cmd/wsscapture").Output()
+	if err != nil {
+		t.Fatalf("go list -deps wss/capture: %v", err)
+	}
+	for _, line := range strings.Split(string(wire), "\n") {
+		if line == "github.com/gorilla/websocket" {
+			t.Fatal("the WSS production path still links gorilla/websocket")
 		}
 	}
 	compat, err := exec.Command("go", "list", "-deps", "./gethcompat").Output()

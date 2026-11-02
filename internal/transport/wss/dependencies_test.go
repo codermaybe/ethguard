@@ -2,12 +2,10 @@ package wss
 
 // The dependency interlock for the owned WSS wire layer. It is the executable
 // form of wire_dependencies.md: production files may import only the Go
-// standard library and the four listed project packages, the only third-party
-// import allowed anywhere in production during the transition is the legacy
-// adapter's gorilla binding in wss.go, and the link graph of this package must
-// never reach the go-ethereum client or its rpc package. When W5 rewires
-// wss.go onto the owned stack the transitional exception disappears on its
-// own: any production third-party import then fails this test.
+// standard library and the four listed project packages, no third-party
+// websocket library may appear anywhere in the package, and the link graph of
+// this package must never reach the go-ethereum client, its rpc package, or
+// the removed gorilla binding.
 
 import (
 	"go/parser"
@@ -41,8 +39,8 @@ func isStdlib(importPath string) bool {
 }
 
 // thirdPartyWebSocketLibraries names the libraries this package must never
-// link. gorilla appears because it is the transitional binding being removed;
-// the others must never appear at all.
+// link again. gorilla was the transitional binding removed by the owned wire
+// replacement; the others were never allowed.
 var thirdPartyWebSocketLibraries = []string{
 	"github.com/gorilla/websocket",
 	"nhooyr.io/websocket",
@@ -84,13 +82,6 @@ func TestWireLayerProductionImports(t *testing.T) {
 					t.Errorf("%s imports %s; the WSS seam owns only the raw-call transport layer (see wire_dependencies.md)", name, imp)
 				}
 			default:
-				// The transitional exception: the legacy adapter file keeps
-				// its gorilla binding until W5 rewires it. No other
-				// production file, and no other third-party package, is
-				// ever allowed.
-				if name == "wss.go" && imp == "github.com/gorilla/websocket" {
-					continue
-				}
 				t.Errorf("%s imports third-party package %s; production WSS code depends only on the standard library and project packages", name, imp)
 			}
 		}
@@ -109,7 +100,7 @@ func TestNoThirdPartyWebSocketLibraryEntersTheWireLayer(t *testing.T) {
 		}
 		for _, imp := range packageFileImports(t, name) {
 			for _, banned := range thirdPartyWebSocketLibraries {
-				if imp == banned && name != "wss.go" {
+				if imp == banned {
 					t.Errorf("%s imports %s; third-party websocket libraries stay out of production WSS code", name, imp)
 				}
 			}
@@ -126,6 +117,8 @@ func TestWireLayerLinkGraph(t *testing.T) {
 		switch line {
 		case "github.com/ethereum/go-ethereum/rpc", "github.com/ethereum/go-ethereum/ethclient":
 			t.Errorf("the WSS package links %s; the transport seam must not reach the go-ethereum client", line)
+		case "github.com/gorilla/websocket":
+			t.Error("the WSS package still links gorilla/websocket; the owned wire stack replaced it")
 		}
 	}
 }
