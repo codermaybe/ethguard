@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**统一 Source 已实施（2026-11-01）：显式 WSS 与 HTTP 共用固定读写 pool，通用限流 health 已修复，生命周期/未知写结果/四态 presence 回归已通过；0056.2 批准生产保真，0064 记录统一路由。W4/provider-backed golden 门未通过：真实 null 未观察；本轮 3×6 只读补采与离线 replay 未关闭该门。T11 和 reference freshness 仍仅有原设计及小样本观测，新算法/新策略未实现。**
+状态：**统一 Source 已实施（2026-11-01）：显式 WSS 与 HTTP 共用固定读写 pool，通用限流 health 已修复，生命周期/未知写结果/四态 presence 回归已通过；0056.2 批准生产保真，0064 记录统一路由。freshness 与调度切片已完成（2026-11-02，提交 6292d73）：T0 受控容量实验、F1/F2 请求范围与样本有效性接线、T1 控制器裁决（保留现有慢增快减、固定两槽、共享预算与 cooldown 控制器）均已交付并通过完整门禁。W4/provider-backed golden 门未通过：真实 null 未观察；本轮 3×6 只读补采与离线 replay 未关闭该门。T11 新容量证据与 reference freshness 新策略仍未实现，出现新证据时单独重审。**
 
 本文件是 EthGuard 唯一的路线与阶段状态来源，记录当前事实、方向、顺序、依赖、
 遗留问题和阶段出口。设计文档只记录某个契约、决策或证据的详细内容，不维护第二
@@ -83,8 +83,8 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；2026-10-31 增加历史 block 18,000,000 的 EIP-1898/createAccessList/block/feeHistory live 证据 | 按卡片补齐剩余真实 capture/replay/live 证据（syncing progress、其他历史高度、uncle 内容等） | 不新增方法，不改变裁决语义 |
 | go-ethereum/connection 依赖债务 | native HTTP 默认；显式 raw WSS 已接线；默认构建仍不链接 `ethclient` | 保留官方 typed 类型；compatibility seam 仍显式 | 不移除 ethclient-shaped 表面 |
 | WSS transport | W1–W3 与显式统一 pool 接线已完成；读写、health、cooldown、取消/Close 回归通过 | W4/provider-backed golden：继续补真实 null 等证据 | 不新增只读角色、后台重连、重放或 basis 变化 |
-| T11 自适应拥塞控制 | 已有 pace 调整、固定并发上限和 cooldown；新控制器未收敛；2026-10-31 观察到限流/配额信号但无容量曲线 | 参数、队列、恢复和容量变化测试 | 不改成员、分母、权重、模式或门槛 |
-| reference freshness | 设计不变量已补；2026-10-31 完成短窗口与约 6 分 22 秒扩展窗口 latest/safe/finalized 观测；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义；观测不产生默认 lag |
+| T11 自适应拥塞控制 | T0 受控容量实验与 T1 控制器裁决已完成（2026-11-02，提交 6292d73）：保留现有慢增快减、固定两槽、共享预算与 cooldown 控制器；受控证据未显示 AIMD 或动态并发足以替换它 | 只在出现新的容量证据时重审控制器输入信号 | 不改成员、分母、权重、模式或门槛 |
+| reference freshness | 设计不变量已补；2026-10-31 完成短窗口与约 6 分 22 秒扩展窗口 latest/safe/finalized 观测；F1/F2 请求范围切片已接线（2026-11-02）：历史/pending/safe/finalized/显式引用读取豁免 latest tip gate，过期样本按 unknown 处理；新策略未实现 | freshness 规则与 reference 实现单独审查 | 不由方法 adapter 默默改 tag 语义；观测不产生默认 lag |
 | reference raw capture | 两个缺口已按独立切片修复并补回归 | 保持采集语义，出现新清空点时重新审查 | 不改裁决、阈值、成员或 reference 语义 |
 | ReadPlan / resolver seam | M0–M8 与 RS0–RS5 已完成；0063 保留 `rpc.Policy` 深模块 | 只有真实新增能力/维护负担出现时重审 | 不改变 Decision、quorum、reference、typed 或方法数量 |
 | WSS error-data evidence | raw WSS 生产四态按 0056.2 保留；真实 missing/`0x`/value 已观察，null 未观察 | W4 golden 门仍需真实 provider 证据 | 不用合成样本关闭 evidence 门 |
@@ -437,9 +437,9 @@ method policy、typed projection、quorum 或方法数量。详细事实和候�
 
 ## 并行但不混入方法对接的遗留轨道
 
-- **T11 自适应拥塞控制**：决策 0031 方向已接受，但算法、参数、队列边界和恢复策略
-  仍待设计。它必须保持固定成员、分母、权重、模式和 acceptance threshold 不变，
-  不与单个方法对接混合；
+- **T11 自适应拥塞控制**：决策 0031 方向已接受；T0 受控实验与 T1 裁决（保留现有
+  控制器）已完成，未新增算法、参数或队列机制。它必须保持固定成员、分母、权重、
+  模式和 acceptance threshold 不变，不与单个方法对接混合；
 - **reference freshness**：决策 0032/0033 的 freshness bounds 和实现对齐仍是
   reference 专题，不由方法 adapter 默默解决；
 - **provider compatibility evidence**：T00/T10 的 capture/replay/live 证据按方法

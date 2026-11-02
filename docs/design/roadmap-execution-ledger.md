@@ -401,6 +401,9 @@
   自动重试、动态成员、权重、方法优先级或 Decision 输入。合法 protocol rejection
   仍按可用性 success 参与 pace 恢复，后续只有新容量证据才重审该输入信号。
 - **验证**：相关 pool/aggregator/runtime/integration 测试通过；pool race 重复
-  通过；修复 integration freshness 回归中对 `Calls()` 快照的切片索引错误。完整
-  test、vet、race、architecture/default-build 与 Verification 专项门待本轮收尾
-  命令完成后登记。
+  通过；修复 integration freshness 回归中对 `Calls()` 快照的切片索引错误。收尾
+  门禁已于 2026-11-02 复核通过并登记：`go test ./... -count=1`、
+  `go test ./... -race -count=1`、`go vet ./...`、
+  `go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1`、
+  `go test ./internal/verification/integration -run '^TestVerification' -race
+  -count=2 -shuffle=on`。
