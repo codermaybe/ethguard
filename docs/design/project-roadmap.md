@@ -135,9 +135,13 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 F0/T0 先交付基线，不将整轮计划标记完成。F1 的新范围和 F2 的样本策略必须先记录
 目标及语义差异，再替换旧现状测试，不能为满足旧断言保留已确认问题。
 
-本轮交接状态：F0 已有代码审计和离线基线（见 freshness 设计 §7）；T0 仅完成
-共享预算/等待取消基线并修正 Forward 的错误归属，容量变化与恢复实验尚未完成。
-执行者先补完 T0 的受控场景，再进入 F1；其余任务均不因本轮计划交付而标为完成。
+本轮接续状态：F0 已有代码审计和离线基线；T0 的共享预算、等待取消、容量变化、
+突降、恢复、空闲和 probe/reference 竞争场景已用进程内 transport 完成，结果只用于
+比较控制器机制，不构成 provider 容量结论。F1/F2 的首个生产切片已接线：请求范围
+显式传入 pool，历史/pending/safe/finalized/无块引用读取豁免 latest tip gate，moving
+latest 在 reference 建立与 pin 后业务轮分别处理；过期样本按 unknown 处理，并保留
+结构化 gate 原因。T1 选择保留现有慢增快减、固定两槽、共享预算和 cooldown 控制器，
+不新增参数、重试、动态成员或优先级；后续只在出现新的容量证据时重审控制器输入信号。
 
 接手先读本节、`architecture-recovery.md`、`codebase-topology.md`、
 `reference-freshness-policy.md`、`adaptive-congestion-control.md`、

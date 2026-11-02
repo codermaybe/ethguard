@@ -237,12 +237,37 @@ func (a *Aggregator) establishReferencePhase(state *invocationState, started tim
 	return nil
 }
 
+// preparedTipFreshness reports whether the prepared business request still
+// depends on the sampled latest tip. A moving tag rewritten by Prepare has
+// become an explicit pin, so the business round is exempt: an explicit
+// height/hash is valid regardless of the source's current tip. A request that
+// never carried a moving tag is exempt for the same reason. Reference
+// establishment is scoped separately by the runtime, where the requested tag
+// is still known.
+func preparedTipFreshness(state *invocationState) pool.TipFreshnessScope {
+	var request rpc.ReferenceRequest
+	var needed bool
+	if state.plan != nil {
+		request, needed = state.plan.ReferenceRequirement(state.prepared)
+	} else if requirement, ok := state.policy.(rpc.ReferenceRequirement); ok {
+		request, needed = requirement.ReferenceFor(state.prepared)
+	}
+	if !needed || request.Kind != rpc.ReferenceLatest {
+		return pool.TipFreshnessExempt
+	}
+	return pool.TipFreshnessLatest
+}
+
 // collectPhase fans the prepared request out under the invocation's collection
 // mode: forwarded, single-source, fixed-basis voting, or symmetric collection.
 // A planned read has no single-source shape; its collection mode follows the
 // declared resolver class.
 func (a *Aggregator) collectPhase(state *invocationState) {
-	opts := pool.CollectOptions{Timeout: a.collectTimeout, Sources: state.members}
+	opts := pool.CollectOptions{
+		Timeout:      a.collectTimeout,
+		Sources:      state.members,
+		TipFreshness: preparedTipFreshness(state),
+	}
 	forward := func() {
 		state.emissions, state.collectErr = a.pool.Forward(state.ctx, state.prepared.Method, state.prepared.Params, opts)
 	}

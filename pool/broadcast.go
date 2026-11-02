@@ -118,8 +118,9 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 		case !src.requestable(now):
 			// A cooling source is paused, not failed: the write may already
 			// have landed through the fleet's other members.
-			emissions[i] = Emission{Src: src, Err: ErrSourceGated}
-			gated[i] = ErrSourceGated
+			gate := &SourceGateError{Reason: GateReasonCooldown}
+			emissions[i] = Emission{Src: src, Err: gate}
+			gated[i] = gate
 		default:
 			attemptable++
 		}

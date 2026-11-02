@@ -181,3 +181,67 @@ silence 和内部 fan-out timeout 的既有分类。
 下一步在同一离线环境补稳定容量、容量突降、恢复、空闲与持续限流的受控实验，
 再比较已有算法与候选。没有真实容量曲线时，不宣称找到了通用最优参数；也不必
 等待公开 provider 压测才验证算法机制。
+
+## 9. 受控离线容量、恢复与竞争实验（2026-11-02）
+
+本节记录 T0 的受控实验和控制器差异，不把测试结果写成 provider 容量结论。
+实验全部使用进程内 transport 和 `monitor` 状态转移，不访问公共 endpoint，也
+不引入新的默认 rate/margin/queue 参数。
+
+### 9.1 当前控制器事实
+
+`pool/monitor.go` 的现有控制器是一个单状态、每源预算：
+
+- 初始 pace 20ms，下界 2ms，上界 2s；
+- 每源最多两个在途请求；
+- 每四次成功（以 `scheduleSuccesses` 计数）把 pace 降低 5%，步长下限 2ms；
+- 显式限流（`RateLimitError` 或已知限流 code/message）把 pace 乘 2，其他
+  failure 乘 1.5，并把下一次 permit 推到 `now + pace`；
+- 连续三次 failure 打开 30s cooldown；一次成功把连续 failure 计数清零；
+- reference 建立、确认、业务读、admission 和 tip probe 共用
+  `Source.acquireRequest` 的同两个槽位；等待以调用 ctx 为界，未获得槽位的
+  emission 不记录 health。
+
+实验证据：
+
+- `pool/scheduling_capacity_test.go`：
+  - 空闲不改变 pace；
+  - 限流从 20ms 乘 2 到 40ms，普通 failure 再乘 1.5 到 60ms；
+  - 连续限流上限为 2s；
+  - 恢复前三次成功不改变 pace，第四次开始降低，最终到 2ms 下界且不越界；
+  - 在途上限固定为 2，成功流量不会提高它；
+  - 连续三次 transport failure 打开 circuit，一次成功重置。
+- `pool/scheduling_budget_test.go`：read/write/admission 共用预算，等待超时
+  不发送、不扣 health，释放后恢复。
+- `pool/scheduling_contention_test.go`：tip probe 与 reference-shaped voting
+  round 同时占满两个槽位，第三条业务读取在 deadline 内等待且不发送；释放后
+  两条路径完成，后续调用恢复，无重放。
+
+### 9.2 与候选算法族的差异
+
+| 维度 | 当前控制器 | AIMD 候选 | 并发上限候选 | 有界队列/混合候选 |
+| --- | --- | --- | --- | --- |
+| 容量下降 | 限流立即乘 2；其他 failure 乘 1.5 | 乘性降低 | 降低并发，突发仍可能 | 先降并发再降速率 |
+| 恢复 | 每四次成功降 5%，从降后值开始 | 加性增加 | 逐步提高并发 | 队列清空后恢复 |
+| 空闲 | 不自动升高 | 通常不升高 | 不升高 | 不升高 |
+| 在途上界 | 固定 2 | 由 pace 间接限制 | 显式上限 | 并发+队列上限 |
+| 排队 | 请求等待 permit，无内部队列 | 无额外队列 | 等待/拒绝策略 | 有界队列 |
+| 饥饿风险 | reference 与业务同权等待 | 同左 | 高成本方法占槽 | 需额外分层 |
+| 可解释性 | pace/in-flight/cooldown 三个字段 | 参数少 | 参数中等 | 参数最多 |
+| 当前证据 | 离线状态转移+共享预算 | 同等离线可验证 | 同等离线可验证 | 需要排队语义证据 |
+
+结论：当前控制器已具备慢增快减、固定并发、共享预算、有界等待、限流与普通
+failure 区分和 cooldown；AIMD/并发上限候选没有显示出足以替换的收益，队列/
+混合候选还缺少排队语义与 reference 饥饿的证据。因此 T1 的最小实现优先保留
+现有控制器，只补输入信号与边界决策，不新增自动重试、动态成员、方法优先级或
+隐藏参数。真实容量曲线仍需受控 provider 证据，不能用本节测试替代。
+
+### 9.3 需要 T1 明确的两个边界
+
+1. **成功信号范围**：当前 `isHealthyRPCResponse` 把合法 JSON-RPC 响应错误
+   （包括合法 revert、method not found）计为 health success，因此它们也参与
+   pace 恢复。T1 必须明确这是“可用性证据”而不是“业务正确性证据”；若改为只
+   让成功值推进恢复，需要单独证据和回归。
+2. **探测与 reference 的竞争**：probe 绕过 freshness/cooldown gate，但不绕过
+   共享预算；reference 确认轮与业务读同权等待。当前没有优先级或预留槽位，
+   这是 T1 保留的行为，不能在大样本证据前引入分层。

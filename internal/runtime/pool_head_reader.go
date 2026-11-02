@@ -49,7 +49,11 @@ func (r *PoolHeadReader) Read(ctx context.Context, tag string, timeout time.Dura
 	if r.pool == nil {
 		return nil, fmt.Errorf("reference: nil head pool")
 	}
-	opts := pool.CollectOptions{Timeout: timeout, Sources: r.members}
+	opts := pool.CollectOptions{
+		Timeout:      timeout,
+		Sources:      r.members,
+		TipFreshness: referenceTipFreshness(tag),
+	}
 	emissions, err := r.pool.Collect(ctx, methods.MethodGetBlockByNumber, []any{tag, false}, opts)
 	return headObservations(emissions), err
 }
@@ -58,7 +62,11 @@ func (r *PoolHeadReader) Confirm(ctx context.Context, height uint64, sourceIDs [
 	if r.pool == nil {
 		return nil, fmt.Errorf("reference: nil head pool")
 	}
-	opts := pool.CollectOptions{Timeout: timeout, SourceIDs: sourceIDs}
+	opts := pool.CollectOptions{
+		Timeout:      timeout,
+		SourceIDs:    sourceIDs,
+		TipFreshness: pool.TipFreshnessExempt,
+	}
 	members := make(map[string]*pool.Source, len(r.members))
 	for _, source := range r.members {
 		members[source.ID()] = source

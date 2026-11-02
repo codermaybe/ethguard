@@ -58,6 +58,17 @@ type strictHeadRound struct {
 	collectErr error
 }
 
+// referenceTipFreshness maps an establishment tag to the scheduling scope the
+// pool applies to that round. The sampler observes latest block numbers, so it
+// can gate latest reads; safe and finalized views are not described by those
+// samples and must not be paused as if latest were their freshness level.
+func referenceTipFreshness(tag string) pool.TipFreshnessScope {
+	if rpc.ReferenceKindForTag(tag) == rpc.ReferenceLatest {
+		return pool.TipFreshnessLatest
+	}
+	return pool.TipFreshnessExempt
+}
+
 // establish runs one round for the requested tag. A nil member snapshot
 // selects the pool's current voting members (direct facade calls); an
 // explicit snapshot is the invocation's frozen basis (establishment stage).
@@ -72,7 +83,11 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 	if members == nil {
 		members = e.pool.VotingMembers()
 	}
-	collectOptions := pool.CollectOptions{Timeout: e.timeout, Sources: members}
+	collectOptions := pool.CollectOptions{
+		Timeout:      e.timeout,
+		Sources:      members,
+		TipFreshness: referenceTipFreshness(tag),
+	}
 	var (
 		emissions  []pool.Emission
 		collectErr error

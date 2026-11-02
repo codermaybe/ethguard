@@ -45,9 +45,12 @@ type Pool struct {
 
 	// Tip tracking (see WithTipTracking). maxTipLag zero disables the
 	// freshness gate; stopTips is non-nil only while sampling runs.
-	maxTipLag   uint64
-	tipInterval time.Duration
-	stopTips    chan struct{}
+	// tipSampleMaxAge is the explicit validity window for one sampled tip;
+	// a sample older than this is unknown to the gate.
+	maxTipLag       uint64
+	tipInterval     time.Duration
+	tipSampleMaxAge time.Duration
+	stopTips        chan struct{}
 }
 
 // Member is one upstream configured at pool construction.
@@ -162,9 +165,9 @@ func (p *Pool) sourcesForCollect(plan collectPlan) ([]*Source, error) {
 		return nil, err
 	}
 	now := time.Now()
-	var floor uint64
-	if plan.applyFreshness {
-		floor = p.staleFloor(sources)
+	reference := tipReference{}
+	if plan.applyFreshness && plan.tipFreshness.gatesLatestTip() {
+		reference = p.tipReference(sources, now)
 	}
 	// Fresh filtering slice: sources is a snapshot other paths may still
 	// read, so never filter it in place.
@@ -179,8 +182,9 @@ func (p *Pool) sourcesForCollect(plan collectPlan) ([]*Source, error) {
 		} else if !src.eligible(now) {
 			continue // user path: identity, circuit, closed gates
 		}
-		if floor > 0 {
-			if tip, ok := src.tipHeight(); ok && tip < floor {
+		if reference.floor > 0 {
+			tip, _, ok := src.freshTip(now, reference.maxAge)
+			if ok && tip < reference.floor {
 				continue // freshness gate: trailing beyond the bound
 			}
 		}

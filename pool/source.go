@@ -248,6 +248,22 @@ func (s *Source) tipHeight() (uint64, bool) {
 	return s.stats.sampledTip()
 }
 
+// freshTip returns the last sampled height only while the observation is
+// younger than maxAge. A sample outside the window (or never observed) is
+// unknown: it is not evidence that the source is fresh or stale. A
+// non-positive maxAge disables expiry for direct low-level callers.
+func (s *Source) freshTip(now time.Time, maxAge time.Duration) (uint64, time.Time, bool) {
+	s.stats.mu.Lock()
+	defer s.stats.mu.Unlock()
+	if s.stats.tipObservedAt.IsZero() {
+		return 0, time.Time{}, false
+	}
+	if maxAge > 0 && now.Sub(s.stats.tipObservedAt) > maxAge {
+		return 0, s.stats.tipObservedAt, false
+	}
+	return s.stats.tipHeight, s.stats.tipObservedAt, true
+}
+
 // SourceState is the readiness of a managed endpoint.
 type SourceState int
 

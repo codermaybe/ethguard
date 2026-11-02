@@ -765,10 +765,11 @@ func TestFinalizedAnchoringRejectsForkAtPinnedHeight(t *testing.T) {
 	}
 }
 
-// TestTipTrackingQuarantinesLaggingSource proves the freshness gate end to
-// end: a provider trailing the fleet's reference height is skipped by
-// ordinary fan-outs while still receiving probes that can readmit it.
-func TestTipTrackingQuarantinesLaggingSource(t *testing.T) {
+// TestTipTrackingScopesLatestEstablishmentSeparatelyFromPinnedBusiness proves
+// the request-level freshness contract end to end. Stateless reads are exempt.
+// A latest reference establishment skips the lagging source, then the prepared
+// business read is pinned and contacts the complete fixed voting basis.
+func TestTipTrackingScopesLatestEstablishmentSeparatelyFromPinnedBusiness(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3, ethguard.WithTipTracking(time.Hour, 16))
 	for i, node := range nodes {
 		height := fmt.Sprintf("0x%x", 100)
@@ -776,39 +777,70 @@ func TestTipTrackingQuarantinesLaggingSource(t *testing.T) {
 			height = "0x10" // 80+ blocks behind
 		}
 		node.Return("eth_blockNumber", height)
+		node.Return("eth_getBlockByNumber", map[string]any{
+			"number": "0x64",
+			"hash":   "0xabc",
+		})
 	}
+	balancePinnedAt(nodes, "0xabc")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// First contact warms every source (probes never dial); one plain read
-	// also proves the gate stays off until tips exist.
-	if _, _, err := client.ChainID(ctx); err != nil {
-		t.Fatal(err)
+	// First contact warms every source because probes never dial. ChainID has
+	// no block reference and therefore remains exempt from latest-tip gating.
+	if _, decision, err := client.ChainID(ctx); err != nil || len(decision.Support) != 3 {
+		t.Fatalf("stateless read did not use the complete basis: %+v %v", decision.Support, err)
 	}
 	client.Pool().RefreshTips(ctx)
-	seenByLaggard := len(nodes[2].Calls())
+	before := make([]int, len(nodes))
+	for i, node := range nodes {
+		before[i] = len(node.Calls())
+	}
 
-	value, decision, err := client.ChainID(ctx)
+	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value.Int64() != 1 || decision.Status != rpc.Corroborated {
-		t.Fatalf("expected corroborated chain id from fresh sources, got %v %+v", value, decision)
-	}
-	if len(decision.Support) != 2 {
-		t.Fatalf("expected the lagging source to be gated out, got %+v", decision.Support)
-	}
-	for _, call := range nodes[2].Calls()[seenByLaggard:] {
-		if call.Method == methods.MethodChainID {
-			t.Fatal("gated source received a user request")
-		}
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+		t.Fatalf("pinned business read did not use the complete basis: %+v", decision)
 	}
 
-	// Recovery: catching up plus one probe readmits the source.
+	var laggingHeadCalls, laggingBalanceCalls int
+	for _, call := range nodes[2].Calls()[before[2]:] {
+		switch call.Method {
+		case methods.MethodGetBlockByNumber:
+			laggingHeadCalls++
+		case methods.MethodGetBalance:
+			laggingBalanceCalls++
+			var tag string
+			if len(call.Params) != 2 || json.Unmarshal(call.Params[1], &tag) != nil || tag != "0xabc" {
+				t.Fatalf("lagging source received unpinned business request: %+v", call)
+			}
+		}
+	}
+	if laggingHeadCalls != 0 {
+		t.Fatalf("latest establishment contacted lagging source %d times", laggingHeadCalls)
+	}
+	if laggingBalanceCalls != 1 {
+		t.Fatalf("pinned business round contacted lagging source %d times, want 1", laggingBalanceCalls)
+	}
+
+	// Catching up plus one probe restores eligibility for the next latest
+	// establishment without changing membership, threshold, or request replay.
 	nodes[2].Return("eth_blockNumber", "0x65")
 	client.Pool().RefreshTips(ctx)
-	if _, decision, err := client.ChainID(ctx); err != nil || len(decision.Support) != 3 {
-		t.Fatalf("expected recovered source to be readmitted, got %+v %v", decision.Support, err)
+	beforeLaggard := len(nodes[2].Calls())
+	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
+		t.Fatal(err)
+	}
+	var recoveredHeadCalls int
+	for _, call := range nodes[2].Calls()[beforeLaggard:] {
+		if call.Method == methods.MethodGetBlockByNumber {
+			recoveredHeadCalls++
+		}
+	}
+	if recoveredHeadCalls == 0 {
+		t.Fatal("recovered source was not readmitted to latest establishment")
 	}
 }
 

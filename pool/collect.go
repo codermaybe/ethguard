@@ -36,6 +36,35 @@ type Emission struct {
 	Evidence json.RawMessage
 }
 
+// TipFreshnessScope tells the pool whether one request's scheduling may
+// depend on the fleet's sampled latest tips. The caller that owns request
+// semantics supplies it; the pool never parses method parameters to infer it.
+//
+// The zero value preserves the historical gate-all behavior for direct pool
+// callers that do not declare request semantics. Production callers — the
+// aggregator's business rounds and the runtime's reference rounds — set an
+// explicit scope.
+type TipFreshnessScope uint8
+
+const (
+	// TipFreshnessUnspecified applies the sampled-latest-tip gate to every
+	// source. It is the compatibility zero value for direct Pool calls.
+	TipFreshnessUnspecified TipFreshnessScope = iota
+	// TipFreshnessLatest applies the sampled-latest-tip gate. Use it for a
+	// request that reads the latest moving tag.
+	TipFreshnessLatest
+	// TipFreshnessExempt skips the tip gate. Use it for explicit heights and
+	// hashes, pending reads, methods with no block reference, and
+	// safe/finalized reads: latest block-number samples do not describe
+	// their freshness.
+	TipFreshnessExempt
+)
+
+// gatesLatestTip reports whether the scope consults the sampled latest tip.
+func (s TipFreshnessScope) gatesLatestTip() bool {
+	return s == TipFreshnessUnspecified || s == TipFreshnessLatest
+}
+
 // CollectOptions configures one fan-out. Zero value is a sensible default.
 type CollectOptions struct {
 	// Sources fixes the exact source objects captured by an outer invocation.
@@ -52,6 +81,10 @@ type CollectOptions struct {
 	// MaxConcurrent caps simultaneous in-flight per-source calls.
 	// Zero uses the number of eligible sources (unbounded symmetric fan-out).
 	MaxConcurrent int
+	// TipFreshness declares whether this request may be paused by the
+	// sampled-latest-tip gate. The zero value keeps the historical gate-all
+	// behavior; see TipFreshnessScope.
+	TipFreshness TipFreshnessScope
 }
 
 // The default fan-out bound lives in config (DefaultCollectTimeout): one
@@ -64,6 +97,40 @@ type CollectOptions struct {
 // paused request, not a health observation — gated members receive no
 // failure accounting.
 var ErrSourceGated = errors.New("pool: source gated; request paused, voting basis retained")
+
+// GateReason identifies the scheduling gate that paused a source.
+type GateReason string
+
+const (
+	// GateReasonCooldown is an open availability circuit.
+	GateReasonCooldown GateReason = "cooldown"
+	// GateReasonTipLag is a fresh sample trailing the fleet's tip reference.
+	GateReasonTipLag GateReason = "tip-lag"
+)
+
+// SourceGateError is the structured form of a scheduling pause. It unwraps to
+// ErrSourceGated, so existing errors.Is checks keep their meaning, while
+// diagnostics can inspect the reason and the freshness inputs that produced
+// it. A tip-lag diagnosis carries the source's sample, the floor, and the
+// sample's age; a cooldown diagnosis carries only the reason.
+type SourceGateError struct {
+	Reason    GateReason
+	TipHeight uint64
+	Floor     uint64
+	SampleAge time.Duration
+}
+
+func (e *SourceGateError) Error() string {
+	switch e.Reason {
+	case GateReasonTipLag:
+		return fmt.Sprintf("%s: source tip %d trails floor %d (sample age %s)",
+			ErrSourceGated, e.TipHeight, e.Floor, e.SampleAge)
+	default:
+		return fmt.Sprintf("%s: source cooldown circuit is open", ErrSourceGated)
+	}
+}
+
+func (e *SourceGateError) Unwrap() error { return ErrSourceGated }
 
 // Collect fans a single request out to all eligible sources symmetrically and
 // returns each source's raw response, unjudged.
@@ -82,7 +149,7 @@ var ErrSourceGated = errors.New("pool: source gated; request paused, voting basi
 //
 // The returned slice has one Emission per eligible source, in pool order.
 func (p *Pool) Collect(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
-	return p.collect(ctx, method, params, opts, collectPlan{applyFreshness: true})
+	return p.collect(ctx, method, params, opts, collectPlan{applyFreshness: true, tipFreshness: opts.TipFreshness})
 }
 
 // CollectVoting fans a single request out to the full voting membership and
@@ -127,13 +194,17 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 
 	// Gates are decided before dispatch so paused members never consume a
 	// concurrency slot. The freshness reference is computed over the whole
-	// basis, as in the eligible path.
+	// basis, as in the eligible path, and only when the request's declared
+	// scope depends on the sampled latest tip.
 	now := time.Now()
-	floor := p.staleFloor(members)
+	reference := tipReference{}
+	if opts.TipFreshness.gatesLatestTip() {
+		reference = p.tipReference(members, now)
+	}
 	gated := make(map[int]error, len(members))
 	attemptable := 0
 	for i, src := range members {
-		if gate := votingGate(src, floor, now); gate != nil {
+		if gate := votingGate(src, reference, now); gate != nil {
 			gated[i] = gate
 			continue
 		}
@@ -177,16 +248,22 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 // it should be dispatched. Closed members are not gated: attempting them
 // fails fast with ErrClosed and no penalty, keeping a closed pool visible in
 // each captured basis instead of silently shrinking it.
-func votingGate(src *Source, floor uint64, now time.Time) error {
+func votingGate(src *Source, reference tipReference, now time.Time) error {
 	if src.isIdentityInvalid() {
 		return ErrChainIDMismatch
 	}
 	if !src.requestable(now) {
-		return ErrSourceGated
+		return &SourceGateError{Reason: GateReasonCooldown}
 	}
-	if floor > 0 {
-		if tip, ok := src.tipHeight(); ok && tip < floor {
-			return ErrSourceGated
+	if reference.floor > 0 {
+		tip, observedAt, ok := src.freshTip(now, reference.maxAge)
+		if ok && tip < reference.floor {
+			return &SourceGateError{
+				Reason:    GateReasonTipLag,
+				TipHeight: tip,
+				Floor:     reference.floor,
+				SampleAge: now.Sub(observedAt),
+			}
 		}
 	}
 	return nil
@@ -246,6 +323,9 @@ func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src 
 type collectPlan struct {
 	// applyFreshness excludes sources trailing the fleet's tip reference.
 	applyFreshness bool
+	// tipFreshness is the request-level scope supplied with the collection.
+	// It is consulted only when applyFreshness is true.
+	tipFreshness TipFreshnessScope
 	// warmOnly skips sources without an established connection instead of
 	// dialing them, keeping first contact caller-driven. It also bypasses
 	// per-source cooldown circuits: a probe verifies recovery proactively.
@@ -328,7 +408,7 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 	} else if opts.SourceIDs != nil {
 		sources, err = p.sourcesByIDs(opts.SourceIDs)
 	} else {
-		sources, err = p.sourcesForCollect(collectPlan{applyFreshness: true})
+		sources, err = p.sourcesForCollect(collectPlan{applyFreshness: true, tipFreshness: opts.TipFreshness})
 	}
 	if err != nil {
 		return nil, err

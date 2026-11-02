@@ -27,10 +27,12 @@ const maxTipProbeTimeout = 30 * time.Second
 type PoolOption func(*poolConfig)
 
 type poolConfig struct {
-	tipEnabled  bool
-	tipInterval time.Duration
-	maxTipLag   uint64
-	dialer      upstream.Dialer
+	tipEnabled         bool
+	tipInterval        time.Duration
+	maxTipLag          uint64
+	tipSampleMaxAge    time.Duration
+	tipSampleMaxAgeSet bool
+	dialer             upstream.Dialer
 }
 
 // WithDialer selects the default connection factory for members without their
@@ -42,11 +44,14 @@ func WithDialer(d upstream.Dialer) PoolOption {
 
 // WithTipTracking enables block-tip sampling and the freshness eligibility
 // gate: every interval the pool probes eth_blockNumber across sources, and
-// requests skip sources whose tip trails the fleet's robust reference height
-// by more than maxBehind blocks. A zero interval or lag selects the default
-// (10s / 32 blocks). Probing reuses the ordinary collection path, so it
-// shares connections, chain-ID checks, and health accounting; it bypasses
-// the freshness gate itself, so a fully stale fleet can still recover.
+// requests declared as latest-tip reads skip sources whose tip trails the
+// fleet's robust reference height by more than maxBehind blocks. A zero
+// interval or lag selects the default (10s / 32 blocks). Probing reuses the
+// ordinary collection path, so it shares connections, chain-ID checks, and
+// health accounting; it bypasses the freshness gate itself, so a fully stale
+// fleet can still recover. A sampled tip is valid for three sampling
+// intervals by default (three missed polls); WithTipSampleMaxAge overrides
+// that window explicitly.
 func WithTipTracking(every time.Duration, maxBehind uint64) PoolOption {
 	return func(c *poolConfig) {
 		c.tipEnabled = true
@@ -55,6 +60,21 @@ func WithTipTracking(every time.Duration, maxBehind uint64) PoolOption {
 		}
 		if maxBehind > 0 {
 			c.maxTipLag = maxBehind
+		}
+	}
+}
+
+// WithTipSampleMaxAge sets how long one sampled tip remains authoritative for
+// the freshness gate. A sample older than the window is unknown: it neither
+// proves the source fresh nor stale, and it does not contribute a height to
+// the reference. A non-positive value is ignored, leaving the derived default
+// (three sampling intervals). The window is a scheduling input only; it does
+// not change membership, the voting basis, or the decision.
+func WithTipSampleMaxAge(age time.Duration) PoolOption {
+	return func(c *poolConfig) {
+		if age > 0 {
+			c.tipSampleMaxAge = age
+			c.tipSampleMaxAgeSet = true
 		}
 	}
 }
@@ -79,7 +99,11 @@ func newPoolWithDialerAndOptions(d dialer, chainID uint64, opts ...PoolOption) *
 	p := newPoolWithDialerAndChainID(cfg.dialer, chainID)
 	p.maxTipLag = cfg.maxTipLag
 	if cfg.tipEnabled {
+		if !cfg.tipSampleMaxAgeSet {
+			cfg.tipSampleMaxAge = 3 * cfg.tipInterval
+		}
 		p.tipInterval = cfg.tipInterval
+		p.tipSampleMaxAge = cfg.tipSampleMaxAge
 		p.stopTips = make(chan struct{})
 		go p.tipLoop(cfg.tipInterval)
 	}
@@ -145,32 +169,48 @@ func (p *Pool) RefreshTips(ctx context.Context) {
 	}
 }
 
-// staleFloor returns the height below which a source counts as lagging, or
-// zero when the gate is off, no tip has been sampled yet, or the reference
-// sits within the bound of genesis. The reference is the lower median of the
-// fleet's tips: a minority of providers lying about their height cannot move
-// it, so they cannot weaponize the gate to vote honest sources out of the
-// fan-out — the participation-shrinking defense of the quorum layer extends
-// to eligibility.
-func (p *Pool) staleFloor(sources []*Source) uint64 {
-	if p.maxTipLag == 0 {
-		return 0
+// tipReference is the scheduling reference derived from the fleet's fresh
+// tip samples. Unknown samples — never observed, or older than the configured
+// validity window — contribute no height and sort below every fresh sample.
+// That makes a nonzero floor require a majority of the full basis to carry
+// fresh samples at or above the reference: a minority of high samples cannot
+// shrink the sample population enough to pause honest members.
+type tipReference struct {
+	floor     uint64
+	reference uint64
+	fresh     int
+	unknown   int
+	maxAge    time.Duration
+}
+
+// tipReference returns the height below which a source counts as lagging, or
+// a zero floor when the gate is off, no fresh sample exists, or the reference
+// sits within the bound of genesis. The reference is the lower median over
+// the whole basis population, with unknown samples contributing zero: the
+// participation-shrinking defense of the quorum layer extends to eligibility.
+func (p *Pool) tipReference(sources []*Source, now time.Time) tipReference {
+	ref := tipReference{maxAge: p.tipSampleMaxAge}
+	if p.maxTipLag == 0 || len(sources) == 0 {
+		return ref
 	}
-	tips := make([]uint64, 0, len(sources))
-	for _, src := range sources {
-		if tip, ok := src.tipHeight(); ok {
-			tips = append(tips, tip)
+	heights := make([]uint64, len(sources))
+	for i, src := range sources {
+		tip, _, ok := src.freshTip(now, p.tipSampleMaxAge)
+		if !ok {
+			ref.unknown++
+			continue
 		}
+		heights[i] = tip
+		ref.fresh++
 	}
-	if len(tips) == 0 {
-		return 0
-	}
-	sort.Slice(tips, func(i, j int) bool { return tips[i] < tips[j] })
-	reference := tips[(len(tips)-1)/2]
+	sort.Slice(heights, func(i, j int) bool { return heights[i] < heights[j] })
+	reference := heights[(len(heights)-1)/2]
+	ref.reference = reference
 	if reference <= p.maxTipLag {
-		return 0
+		return ref
 	}
-	return reference - p.maxTipLag
+	ref.floor = reference - p.maxTipLag
+	return ref
 }
 
 // parseTipValue accepts the wire forms of eth_blockNumber results: the

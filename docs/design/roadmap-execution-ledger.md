@@ -380,3 +380,27 @@
   无输出。不宣称新增 provider 证据或完整 T11 验收，也没有重跑 WSS 专项×10。
 - **工作树归属**：开始本轮时已有 live-canary workflow、其设计契约与 workflow
   测试的未提交修改，本轮保留原样且不纳入提交。
+
+## 14. 受控容量实验与请求范围切片（2026-11-02）
+
+- **T0 已完成**：`pool/scheduling_capacity_test.go` 覆盖空闲不虚增、显式限流
+  快速退让、普通失败退让、上限、慢恢复、固定在途上限和 cooldown 恢复；
+  `pool/scheduling_contention_test.go` 覆盖 tip probe、reference-shaped round
+  与业务读取共享两个 source slot，等待超时不发送、不扣 health，释放后恢复且
+  不重放。所有场景使用进程内 transport，不访问公共 provider。
+- **F1 已接线**：`TipFreshnessScope` 由 aggregator/runtime 显式传入 pool；latest
+  reference 建立使用 sampled latest gate，safe/finalized、pending、显式高度/hash
+  和无块引用读取豁免该 gate；moving latest 在 Prepare 后成为 pinned business
+  request，业务轮使用固定 basis。zero value 保留直接 pool 调用的历史 gate-all
+  兼容行为；cooldown、identity、deadline 和 write path 仍独立生效。
+- **F2 已接线**：tip sample 有显式 `WithTipSampleMaxAge` 窗口；过期/未观察样本
+  作为 unknown，不缩小 basis 或制造 freshness floor；tip/cooldown gate 使用
+  `SourceGateError` 携带结构化 reason，且继续 unwrap 到 `ErrSourceGated`。
+- **T1 裁决**：保留现有每源慢增快减、固定两槽、共享预算和 cooldown 控制器。
+  受控证据没有显示 AIMD、动态并发或有界队列足以替换它；本轮不新增默认参数、
+  自动重试、动态成员、权重、方法优先级或 Decision 输入。合法 protocol rejection
+  仍按可用性 success 参与 pace 恢复，后续只有新容量证据才重审该输入信号。
+- **验证**：相关 pool/aggregator/runtime/integration 测试通过；pool race 重复
+  通过；修复 integration freshness 回归中对 `Calls()` 快照的切片索引错误。完整
+  test、vet、race、architecture/default-build 与 Verification 专项门待本轮收尾
+  命令完成后登记。
