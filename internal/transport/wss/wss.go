@@ -172,17 +172,19 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 // write sends one request frame under the single-writer lock. Cancellation
 // while waiting for that lock must not send a frame or poison the socket —
 // the connection layer rechecks the context before any byte moves and
-// returns the context error untouched, which is the one write outcome that
-// leaves a healthy socket. Once a frame write starts, any write failure
-// makes the socket unusable: a partially written frame can never be
-// resynchronized. The caller's context deadline bounds the write; a call
-// without a deadline clears any deadline a previous call left behind.
+// returns the context error itself, which is the one write outcome that
+// leaves a healthy socket. Identity, not errors.Is: an i/o deadline failure
+// during the write must keep aborting the connection (a partially written
+// frame can never be resynchronized) even if a future standard library makes
+// os.ErrDeadlineExceeded match context.DeadlineExceeded. The caller's
+// context deadline bounds the write; a call without a deadline clears any
+// deadline a previous call left behind.
 func (t *Transport) write(ctx context.Context, body []byte) error {
 	err := t.ws.WriteMessage(ctx, body)
 	if err == nil {
 		return nil
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
+	if ctxErr := ctx.Err(); ctxErr != nil && err == ctxErr {
 		return ctxErr
 	}
 	writeErr := fmt.Errorf("wss: write request: %w", transport.ErrConnectionClosed)
