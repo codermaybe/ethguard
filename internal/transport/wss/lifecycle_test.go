@@ -12,7 +12,6 @@ import (
 
 	"github.com/codermaybe/ethguard/internal/rpcwire"
 	"github.com/codermaybe/ethguard/internal/transport"
-	"github.com/gorilla/websocket"
 )
 
 func requestMethod(frame []byte) string {
@@ -86,7 +85,7 @@ func TestCancellationWaitingForWriterDoesNotSendOrAbort(t *testing.T) {
 	tr := dialTestTransport(t, peerURL, 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	tr.writeMu.Lock()
+	tr.ws.writeMu.Lock()
 	result := make(chan error, 1)
 	go func() { var value string; result <- tr.CallContext(ctx, &value, "eth_queued") }()
 	// The pending entry is installed before waiting on the single-writer lock.
@@ -98,12 +97,12 @@ func TestCancellationWaitingForWriterDoesNotSendOrAbort(t *testing.T) {
 		select {
 		case <-ticker.C:
 		case <-deadline.C:
-			tr.writeMu.Unlock()
+			tr.ws.writeMu.Unlock()
 			t.Fatal("writer did not enter pending table")
 		}
 	}
 	cancel()
-	tr.writeMu.Unlock()
+	tr.ws.writeMu.Unlock()
 	if err := lifecycleResult(t, result); !errors.Is(err, context.Canceled) {
 		t.Fatalf("queued cancel: %v", err)
 	}
@@ -183,32 +182,26 @@ func TestFrameWriteFailureAbortsOtherPendingCalls(t *testing.T) {
 		}
 	})
 	var network *failingWriteConn
-	dialer := websocket.Dialer{NetDialContext: func(ctx context.Context, networkName, address string) (net.Conn, error) {
-		conn, err := (&net.Dialer{}).DialContext(ctx, networkName, address)
-		if err != nil {
-			return nil, err
-		}
-		network = &failingWriteConn{Conn: conn}
-		return network, nil
-	}}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	conn, _, err := dialer.DialContext(ctx, peerURL, nil)
+	result, err := dialWebSocket(context.Background(), peerURL, dialOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tr := &Transport{conn: conn, ids: rpcwire.NewIDGen(), pending: make(map[string]chan frameResult)}
+	network = &failingWriteConn{Conn: result.conn}
+	result.conn = network
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	tr := &Transport{ws: newConn(result, DefaultReadLimit), ids: rpcwire.NewIDGen(), limit: DefaultReadLimit, pending: make(map[string]chan frameResult)}
 	t.Cleanup(tr.Close)
 	go tr.readLoop()
-	result := make(chan error, 1)
-	go func() { var value string; result <- tr.CallContext(ctx, &value, "eth_pending") }()
+	result1 := make(chan error, 1)
+	go func() { var value string; result1 <- tr.CallContext(ctx, &value, "eth_pending") }()
 	awaitLifecycleSignal(t, received)
 	network.fail.Store(true)
 	var value string
 	if err := tr.CallContext(ctx, &value, "eth_write"); !errors.Is(err, transport.ErrConnectionClosed) {
 		t.Fatalf("frame write: %v", err)
 	}
-	if err := lifecycleResult(t, result); !errors.Is(err, transport.ErrConnectionClosed) {
+	if err := lifecycleResult(t, result1); !errors.Is(err, transport.ErrConnectionClosed) {
 		t.Fatalf("other pending survived broken frame: %v", err)
 	}
 	if err := tr.CallContext(ctx, &value, "eth_after"); !errors.Is(err, ErrTransportClosed) {

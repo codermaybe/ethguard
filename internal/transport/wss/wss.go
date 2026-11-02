@@ -4,6 +4,11 @@
 // cleanup. It deliberately has no subscription, filter, batch, reconnect, or
 // write-path replay surface.
 //
+// The WebSocket wire itself — HTTP Upgrade handshake, frame codec, and
+// connection lifecycle — is EthGuard-owned (websocket_handshake.go,
+// websocket_frame.go, websocket_connection.go) and implemented on the Go
+// standard library only; see docs/design/wss-wire-contract.md.
+//
 // Response frames are validated by internal/rpcwire, the same project-owned
 // codec the native HTTP adapter uses, so protocol errors keep the exact
 // error-data presence (missing, null, value) the wire carried. This adapter
@@ -22,8 +27,6 @@ import (
 	"reflect"
 	"sync"
 	"time"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/codermaybe/ethguard/internal/limits"
 	"github.com/codermaybe/ethguard/internal/rpcwire"
@@ -75,8 +78,7 @@ func (d Dialer) DialContext(ctx context.Context, rawURL string) (transport.Trans
 	if handshake <= 0 {
 		handshake = defaultHandshakeTimeout
 	}
-	dialer := websocket.Dialer{HandshakeTimeout: handshake}
-	conn, _, err := dialer.DialContext(ctx, rawURL, nil)
+	result, err := dialWebSocket(ctx, rawURL, dialOptions{handshakeTimeout: handshake})
 	if err != nil {
 		return nil, fmt.Errorf("wss: dial: %w", err)
 	}
@@ -84,9 +86,8 @@ func (d Dialer) DialContext(ctx context.Context, rawURL string) (transport.Trans
 	if limit <= 0 {
 		limit = DefaultReadLimit
 	}
-	conn.SetReadLimit(limit)
 	t := &Transport{
-		conn:    conn,
+		ws:      newConn(result, limit),
 		ids:     rpcwire.NewIDGen(),
 		limit:   limit,
 		pending: make(map[string]chan frameResult),
@@ -103,11 +104,9 @@ type frameResult struct {
 // Transport is one WSS JSON-RPC connection. One reader goroutine decodes
 // inbound frames; calls are safe for concurrent use.
 type Transport struct {
-	conn  *websocket.Conn
+	ws    *Conn
 	ids   *rpcwire.IDGen
 	limit int64
-
-	writeMu sync.Mutex
 
 	mu      sync.Mutex
 	pending map[string]chan frameResult
@@ -171,27 +170,24 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 }
 
 // write sends one request frame under the single-writer lock. Cancellation
-// while waiting for that lock must not send a frame or poison the socket.
-// Once a frame write starts, any write failure makes the socket unusable.
-// The caller's context deadline bounds the write; a call without a deadline
-// clears any deadline a previous call left behind.
+// while waiting for that lock must not send a frame or poison the socket —
+// the connection layer rechecks the context before any byte moves and
+// returns the context error untouched, which is the one write outcome that
+// leaves a healthy socket. Once a frame write starts, any write failure
+// makes the socket unusable: a partially written frame can never be
+// resynchronized. The caller's context deadline bounds the write; a call
+// without a deadline clears any deadline a previous call left behind.
 func (t *Transport) write(ctx context.Context, body []byte) error {
-	t.writeMu.Lock()
-	defer t.writeMu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return err
+	err := t.ws.WriteMessage(ctx, body)
+	if err == nil {
+		return nil
 	}
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = t.conn.SetWriteDeadline(deadline)
-	} else {
-		_ = t.conn.SetWriteDeadline(time.Time{})
+	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
+		return ctxErr
 	}
-	if err := t.conn.WriteMessage(websocket.TextMessage, body); err != nil {
-		writeErr := fmt.Errorf("wss: write request: %w", transport.ErrConnectionClosed)
-		t.abort(writeErr)
-		return writeErr
-	}
-	return nil
+	writeErr := fmt.Errorf("wss: write request: %w", transport.ErrConnectionClosed)
+	t.abort(writeErr)
+	return writeErr
 }
 
 func (t *Transport) complete(id json.RawMessage, response frameResult, result any) error {
@@ -231,7 +227,7 @@ func (t *Transport) removePending(id string) {
 // owns the malformed-response classification.
 func (t *Transport) readLoop() {
 	for {
-		_, frame, err := t.conn.ReadMessage()
+		message, err := t.ws.ReadMessage()
 		if err != nil {
 			t.abort(t.classifyReadError(err))
 			return
@@ -239,7 +235,7 @@ func (t *Transport) readLoop() {
 		var envelope struct {
 			ID json.RawMessage `json:"id"`
 		}
-		if json.NewDecoder(bytes.NewReader(frame)).Decode(&envelope) != nil || len(envelope.ID) == 0 {
+		if json.NewDecoder(bytes.NewReader(message)).Decode(&envelope) != nil || len(envelope.ID) == 0 {
 			continue
 		}
 		id := string(envelope.ID)
@@ -248,14 +244,14 @@ func (t *Transport) readLoop() {
 		delete(t.pending, id)
 		t.mu.Unlock()
 		if waiter != nil {
-			waiter <- frameResult{frame: append(json.RawMessage(nil), frame...)}
+			waiter <- frameResult{frame: append(json.RawMessage(nil), message...)}
 			t.finishCloseAfterPending()
 		}
 	}
 }
 
 func (t *Transport) classifyReadError(err error) error {
-	if errors.Is(err, websocket.ErrReadLimit) {
+	if errors.Is(err, ErrFrameTooLarge) {
 		return fmt.Errorf("wss: inbound message exceeds limit %d: %w", t.limit, errors.Join(transport.ErrBodyTooLarge, transport.ErrConnectionClosed))
 	}
 	t.mu.Lock()
@@ -264,7 +260,7 @@ func (t *Transport) classifyReadError(err error) error {
 	if closed {
 		return ErrTransportClosed
 	}
-	return fmt.Errorf("wss: connection lost: %v: %w", err, transport.ErrConnectionClosed)
+	return fmt.Errorf("wss: connection lost: %w: %w", err, transport.ErrConnectionClosed)
 }
 
 // abort marks the connection unusable and fails every pending call with the
@@ -300,7 +296,7 @@ func (t *Transport) finishCloseAfterPending() {
 }
 
 func (t *Transport) closeSocket() {
-	t.socketOnce.Do(func() { _ = t.conn.Close() })
+	t.socketOnce.Do(func() { _ = t.ws.Close() })
 }
 
 // ChainID implements transport.Transport through a plain eth_chainId call.
