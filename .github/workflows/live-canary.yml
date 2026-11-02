@@ -4,9 +4,9 @@
 #   - PR/push CI stays in ci.yml and never contacts a live provider.
 #   - schedule/tag runs acquire Chainlist once, execute the fixed plan, and
 #     publish the manifest, registry copy, report, and digests.
-#   - A non-passed observation fails the job, but the artifact is uploaded
-#     first. GitHub-hosted execution proves the runner is not the author's
-#     machine; it is not an independent audit.
+#   - Scheduled non-passed observations temporarily count as successful report
+#     delivery, not audit approval. Tag/manual runs retain the strict gate.
+#   - Tool/artifact failures still fail. GitHub hosting is not an independent audit.
 
 name: live-canary
 
@@ -55,14 +55,21 @@ jobs:
 
       - name: run live canary
         id: canary
-        continue-on-error: true
         env:
           OUT_DIR: ${{ runner.temp }}/live-canary
           HTTP_ADAPTER: ${{ inputs.http_adapter || 'geth' }}
         run: |
           set -euo pipefail
           mkdir -p "${OUT_DIR}"
+          set +e
           "${RUNNER_TEMP}/livecanary" run -http-adapter "${HTTP_ADAPTER}" -out "${OUT_DIR}/manifest.json" 2>&1 | tee "${OUT_DIR}/run.log"
+          status=("${PIPESTATUS[@]}")
+          set -e
+          test "${status[1]}" -eq 0
+          case "${status[0]}" in
+            0|1|2) echo "exit_code=${status[0]}" >> "${GITHUB_OUTPUT}" ;;
+            *) echo "::error::livecanary process failed with exit ${status[0]}"; exit 1 ;;
+          esac
 
       - name: write artifact checksums
         if: always()
@@ -79,6 +86,7 @@ jobs:
           done
 
       - name: verify artifact coherence
+        id: verify
         if: always()
         env:
           OUT_DIR: ${{ runner.temp }}/live-canary
@@ -88,20 +96,23 @@ jobs:
           cat "${OUT_DIR}/verify.txt" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: record observation state
-        if: always()
+        id: observation
+        if: always() && steps.verify.outcome == 'success'
         env:
           OUT_DIR: ${{ runner.temp }}/live-canary
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ -f "${OUT_DIR}/report.json" ]; then
-            state="$(sed -n 's/^state=//p' "${OUT_DIR}/verify.txt")"
-            echo "live canary state: ${state}" >> "${GITHUB_STEP_SUMMARY}"
-            echo '```' >> "${GITHUB_STEP_SUMMARY}"
-            cat "${OUT_DIR}/SHA256SUMS" >> "${GITHUB_STEP_SUMMARY}"
-            echo '```' >> "${GITHUB_STEP_SUMMARY}"
-          else
-            echo "live canary produced no report" >> "${GITHUB_STEP_SUMMARY}"
+          state="$(jq -er '.state' "${OUT_DIR}/report.json")"
+          echo "state=${state}" >> "${GITHUB_OUTPUT}"
+          echo "### Live canary observation: ${state}" >> "${GITHUB_STEP_SUMMARY}"
+          if [ "${EVENT_NAME}" = schedule ] && [ "${state}" != passed ]; then
+            echo "Temporary scheduled report-only policy: non-approval is expected; this is not an audit pass or release approval." >> "${GITHUB_STEP_SUMMARY}"
           fi
+          jq -r '.state_reasons[] | "- \(.category): \(.detail)"' "${OUT_DIR}/report.json" >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          cat "${OUT_DIR}/SHA256SUMS" >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
 
       - name: upload immutable observation artifact
         if: always()
@@ -113,7 +124,21 @@ jobs:
           retention-days: 90
 
       - name: enforce observation result
-        if: steps.canary.outcome != 'success'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          OBSERVED_STATE: ${{ steps.observation.outputs.state }}
+          CANARY_EXIT_CODE: ${{ steps.canary.outputs.exit_code }}
         run: |
+          set -euo pipefail
+          case "${OBSERVED_STATE}:${CANARY_EXIT_CODE}" in
+            passed:0) exit 0 ;;
+            failed:1|inconclusive:2)
+              if [ "${EVENT_NAME}" = schedule ]; then
+                echo "::notice::Scheduled non-approval recorded (${OBSERVED_STATE}); see Summary and artifact. No audit or release approval."
+                exit 0
+              fi
+              ;;
+            *) echo "::error::Canary exit code does not match a verified observation"; exit 1 ;;
+          esac
           echo "::error::live canary did not pass; state and failure classification are in the uploaded artifact"
           exit 1

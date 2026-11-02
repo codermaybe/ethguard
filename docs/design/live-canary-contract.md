@@ -60,6 +60,20 @@ failed > inconclusive > passed
   `inconclusive`。少数派 `reject` 是合法观察结果；provider 可用性 fault 按
   §7 归入 `inconclusive`。
 
+### 定时工作流的临时汇报策略（2026-11-01）
+
+按维护者要求，`.github/workflows/live-canary.yml` 的 `schedule` 触发暂按
+report-only 执行：通过产物一致性校验后，`failed`（CLI exit 1）与
+`inconclusive`（CLI exit 2）视为预期的“不予审核通过”观察，工作流成功表示
+报告已交付，不表示 canary passed 或 release 获批；`passed`/exit 0 也正常汇报。
+Summary 保留真实 state、state reasons、文件摘要，并明确非通过为临时预期；
+原始 report、日志及不可变 artifact 不改写。定时非通过仅发 notice，不再重复报错。
+
+构建/进程异常、日志写入失败、产物缺失或 coherence 校验失败仍使工作流失败；
+状态与退出码不匹配也失败。tag、手动触发和 recheck 的既有严格门禁不变。
+恢复定时严格门禁时，删除工作流最终 enforcement 中的 `schedule` 放行分支，
+并移除 Summary 的临时策略说明；不修改 CLI 退出码或 report state 语义。
+
 ---
 
 ## 3. 成员固定与 Chainlist 边界
