@@ -211,8 +211,23 @@ func (r *frameReader) readFrameOnce() (frame, error) {
 // the connection answers pings and observes closes there — and never appear
 // as message payloads. Text messages are validated as UTF-8 after assembly;
 // binary data messages are refused: the raw-call contract carries JSON text
-// only.
+// only. Like readFrame it is sticky after its first error: every
+// message-level failure (UTF-8, fragmentation, message limit, control
+// handling) is a broken stream, and a later read returns the recorded
+// failure instead of parsing whatever follows.
 func (r *frameReader) readMessage(onControl func(opcode byte, payload []byte) error) (byte, []byte, error) {
+	if r.err != nil {
+		return 0, nil, r.err
+	}
+	opcode, data, err := r.readMessageOnce(onControl)
+	if err != nil {
+		r.err = err
+		return 0, nil, err
+	}
+	return opcode, data, nil
+}
+
+func (r *frameReader) readMessageOnce(onControl func(opcode byte, payload []byte) error) (byte, []byte, error) {
 	var assembled []byte
 	started := false
 	var startOpcode byte

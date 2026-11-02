@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -439,6 +440,96 @@ func TestFrameStreamFailsClosedAfterMalformedFrame(t *testing.T) {
 	}
 	if _, _, err := reader.readMessage(nil); !errors.Is(err, ErrFrameProtocol) {
 		t.Fatal("a broken stream must not resynchronize")
+	}
+}
+
+// errorCategory reduces a read failure to the comparable kind the sticky
+// contract is asserted on.
+func errorCategory(err error) string {
+	switch {
+	case err == nil:
+		return "none"
+	default:
+		var frameErr *frameError
+		if errors.As(err, &frameErr) {
+			return fmt.Sprintf("frame-error-%d", frameErr.code)
+		}
+		if errors.Is(err, ErrFrameTooLarge) {
+			return "too-large"
+		}
+		var closeErr CloseError
+		if errors.As(err, &closeErr) {
+			return fmt.Sprintf("close-%d", closeErr.Code)
+		}
+		return "other"
+	}
+}
+
+// Every message-level failure must be sticky: the second read returns the
+// same failure category, never the decoy frame that follows on the wire.
+func TestReadMessageFailureIsSticky(t *testing.T) {
+	decoy := rawServerFrame(true, opText, []byte("decoy"))
+	failingUTF8 := rawServerFrame(true, opText, []byte{0xFF, 0xFE})
+	failingUTF8Split := append(
+		rawServerFrame(false, opText, []byte{0xE6, 0xBC}),
+		rawServerFrame(true, opContinuation, []byte{0xFF})...,
+	)
+	danglingContinuation := rawServerFrame(true, opContinuation, []byte("a"))
+	newDataMidMessage := append(
+		rawServerFrame(false, opText, []byte("a")),
+		rawServerFrame(true, opText, []byte("b"))...,
+	)
+	overLimitMessage := append(
+		rawServerFrame(false, opText, bytes.Repeat([]byte("a"), 90)),
+		rawServerFrame(true, opContinuation, bytes.Repeat([]byte("b"), 20))...,
+	)
+	binaryMessage := rawServerFrame(true, opBinary, []byte{0x01})
+	invalidClose := []byte{0x88, 0x01, 0x03} // one-byte close payload
+	validClose := append([]byte{0x88, 0x05, 0x03, 0xE8}, []byte("bye")...)
+
+	// mimicControl mirrors the connection's control handling: close frames
+	// are parsed (parse failure is a protocol error) and valid closes
+	// surface as CloseError.
+	mimicControl := func(_ byte, payload []byte) error {
+		closeFrame, err := parseCloseFrame(payload)
+		if err != nil {
+			return err
+		}
+		return closeFrame
+	}
+
+	cases := []struct {
+		name         string
+		wire         []byte
+		limit        int64
+		onControl    func(byte, []byte) error
+		wantCategory string
+	}{
+		{name: "invalid utf-8 single frame", wire: append(failingUTF8, decoy...), wantCategory: "frame-error-1007"},
+		{name: "invalid utf-8 across fragments", wire: append(failingUTF8Split, decoy...), wantCategory: "frame-error-1007"},
+		{name: "dangling continuation", wire: append(danglingContinuation, decoy...), wantCategory: "frame-error-1002"},
+		{name: "new data frame mid-message", wire: append(newDataMidMessage, decoy...), wantCategory: "frame-error-1002"},
+		{name: "message limit across fragments", wire: append(overLimitMessage, decoy...), limit: 100, wantCategory: "too-large"},
+		{name: "binary message refused", wire: append(binaryMessage, decoy...), wantCategory: "frame-error-1003"},
+		{name: "invalid close payload", wire: append(invalidClose, decoy...), onControl: mimicControl, wantCategory: "frame-error-1002"},
+		{name: "valid close via control callback", wire: append(validClose, decoy...), onControl: mimicControl, wantCategory: "close-1000"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			reader := frameStream(t, tc.wire, tc.limit)
+			_, _, first := reader.readMessage(tc.onControl)
+			if got := errorCategory(first); got != tc.wantCategory {
+				t.Fatalf("first read = %v (category %q), want %q", first, got, tc.wantCategory)
+			}
+			_, _, second := reader.readMessage(tc.onControl)
+			if got := errorCategory(second); got != tc.wantCategory {
+				t.Fatalf("second read = %v (category %q), want the sticky %q, not a resynchronized frame", second, got, tc.wantCategory)
+			}
+			if !errors.Is(second, first) {
+				t.Fatalf("second read %v is not the recorded first failure %v", second, first)
+			}
+		})
 	}
 }
 
