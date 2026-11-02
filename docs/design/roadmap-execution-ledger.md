@@ -447,3 +447,27 @@
   引入运行时成员变更，必须先重新裁决 0062 的分母语义，再补对应回归。
 - **检查**：本条为审计记录，无生产代码改动；相关包测试随本轮收尾门禁
   复跑通过。
+
+## 16. 问题跟踪核对（2026-11-02）
+
+- **核对结果**：GitHub 仓库 `codermaybe/ethguard` 的 issue tracker 已启用
+  （`has_issues: true`），但不存在任何真实 issue——API 的
+  `open_issues_count: 2` 是两条 dependabot 依赖升级 PR（issues API 把 PR
+  一并计入），不是问题跟踪条目。本核对经 GitHub API 独立完成，未凭计数
+  推断；GitHub Projects 面板需授权访问，未验证，视为未配置。结论：
+  **外部问题跟踪未配置**；问题跟踪当前由库内文档承担（本台账与
+  `project-roadmap.md`），未自动创建外部 issue。
+- **稳定引用**：跟踪条目以台账章节与文件路径为锚，不以 issue 编号为锚：
+  - 故障字段装配契约：本轮已集中（`aggregator/decision_faults.go` 与其
+    测试），语义见 §15 错误归属行；
+  - CI Verification shuffle 门：已接入 `.github/workflows/ci.yml`
+    `verification` job；
+  - tip sampler 生命周期：`pool/sampler_lifecycle_test.go` 与
+    `pool/pool.go` 的 `Close` 契约注释；
+  - 决策实现索引审计：`docs/design/decision-implementation-index.md`
+    （含 0029 待审条目）；
+  - W4/provider golden 门：§6a 与 §10 的开放条目（外部证据阻塞）；
+  - T11 控制器输入信号：§8 与 §14 的裁决记录（新容量证据出现时重审）；
+  - reference freshness 新策略：§9 的待裁决与外部证据条目。
+  这些锚随文档演化保持章节号稳定；若未来启用外部 issue，由维护者建立
+  映射后再以 issue 编号取代文件锚。
