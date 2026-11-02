@@ -81,7 +81,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | 拓扑迁移、架构收敛、T09 审计 | 已完成 | 只在出现真实新 Seam 或维护负担时重新审查 | 不按目录整齐度拆包 |
 | HTTP connection 行为差分审计 | 已完成；L1 contract 已冻结（`transport-contract.md`），native HTTP 为战略默认 | 只在出现新 provider 证据或 Geth 升级时复核 | v1.17.5 仅为版本化 baseline，不是长期标准 |
 | 自有 HTTP Adapter | 已实现（`internal/transport/http`）并作为默认装配；Geth compatibility adapter 保留为显式 seam | 无；新增 provider 证据只登记为观测，不重开契约 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
-| 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；2026-10-31 增加历史 block 18,000,000 的 EIP-1898/createAccessList/block/feeHistory live 证据 | 按卡片补齐剩余真实 capture/replay/live 证据（syncing progress、其他历史高度、uncle 内容等） | 不新增方法，不改变裁决语义 |
+| 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；H0 方法基线冻结完成（2026-11-03，[method-baseline-freeze.md](method-baseline-freeze.md)：23/23 方法 spec↔registry↔catalog 对齐，typed path 与证据缺口逐项登记）；2026-10-31 增加历史 block 18,000,000 的 EIP-1898/createAccessList/block/feeHistory live 证据 | 按卡片补齐剩余真实 capture/replay/live 证据（syncing progress、其他历史高度、uncle 内容等） | 不新增方法，不改变裁决语义 |
 | go-ethereum/connection 依赖债务 | native HTTP 默认；显式 raw WSS 已接线；默认构建仍不链接 `ethclient` | 保留官方 typed 类型；compatibility seam 仍显式 | 不移除 ethclient-shaped 表面 |
 | WSS transport | W1–W3 与显式统一 pool 接线已完成；读写、health、cooldown、取消/Close 回归通过 | W4/provider-backed golden：继续补真实 null 等证据 | 不新增只读角色、后台重连、重放或 basis 变化 |
 | T11 自适应拥塞控制 | T0 受控容量实验与 T1 控制器裁决已完成（2026-11-02，提交 6292d73）：保留现有慢增快减、固定两槽、共享预算与 cooldown 控制器；受控证据未显示 AIMD 或动态并发足以替换它 | 只在出现新的容量证据时重审控制器输入信号 | 不改成员、分母、权重、模式或门槛 |
