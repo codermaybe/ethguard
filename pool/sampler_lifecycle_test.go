@@ -120,6 +120,54 @@ func TestCloseStopsTipSamplerAndRefusesLaterProbes(t *testing.T) {
 	}
 }
 
+// Every concurrent Close caller waits out the sampler lifecycle: only one
+// of them flips the closed flag, but none may return before the pool-owned
+// sampler has exited — including the caller whose probe was still finishing
+// its bounded exit.
+func TestConcurrentCloseWaitsForSamplerLifecycle(t *testing.T) {
+	peer := &samplerPeer{entered: make(chan struct{}, 4), release: make(chan struct{}), returne: make(chan time.Time, 1), cleanup: 150 * time.Millisecond}
+	p := samplerPool(t, 50*time.Millisecond, peer)
+	t.Cleanup(func() { p.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	warmSamplerPool(t, p, peer, ctx)
+	select {
+	case <-peer.entered:
+	case <-ctx.Done():
+		t.Fatal("tip sampler never probed")
+	}
+	const closers = 8
+	closeDone := make(chan time.Time, closers)
+	for i := 0; i < closers; i++ {
+		go func() {
+			p.Close()
+			closeDone <- time.Now()
+		}()
+	}
+	var probeReturned time.Time
+	select {
+	case probeReturned = <-peer.returne:
+	case <-ctx.Done():
+		t.Fatal("in-flight probe never finished its bounded exit")
+	}
+	for i := 0; i < closers; i++ {
+		select {
+		case at := <-closeDone:
+			if at.Before(probeReturned) {
+				t.Fatalf("concurrent Close returned at %v, before the sampler probe finished at %v", at, probeReturned)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("concurrent Close did not return after the sampler exited")
+		}
+	}
+	afterClose := peer.callCount()
+	time.Sleep(5 * 50 * time.Millisecond)
+	if got := peer.callCount(); got != afterClose {
+		t.Fatalf("probes ran after Close: %d -> %d", afterClose, got)
+	}
+}
+
 // Close waits for the pool-owned sampler: while one of its probes is still
 // finishing a bounded exit, Close must not return, and afterwards no probe
 // may run again.

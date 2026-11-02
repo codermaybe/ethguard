@@ -212,11 +212,18 @@ func (p *Pool) snapshotSources(requireOpen bool) ([]*Source, error) {
 // Close releases all source connections and stops the background tip
 // sampler. Closing the sources first aborts any probe in flight, and Close
 // then waits for the sampler goroutine to exit, so no pool-owned probe can
-// start or finish after Close returns. It is safe to call more than once.
+// start or finish after Close returns. The wait is part of the contract for
+// every caller: a concurrent or repeated caller that finds the pool already
+// closing still waits for the sampler lifecycle to end before returning. It
+// is safe to call from any number of goroutines.
 func (p *Pool) Close() {
 	p.mu.Lock()
 	if p.closed {
+		tipsDone := p.tipsDone
 		p.mu.Unlock()
+		if tipsDone != nil {
+			<-tipsDone
+		}
 		return
 	}
 	p.closed = true
