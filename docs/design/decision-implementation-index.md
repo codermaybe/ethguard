@@ -38,7 +38,7 @@ decisions.md 的状态行。
 
 | 决策 | 漂移 | 当前事实 | 处理建议 |
 | --- | --- | --- | --- |
-| 0029 | Status 行声称 `config.DefaultSupportFloor` 返回 2，并由 `TestDefaultSupportFloorIsTwo` 锁定；当前树中两者均不存在 | 默认 floor=2 的语义在组合根实现：`client.go` 对多数模式派生 `floor := 2`（Forwarded 为 0），经 `rpc.NewCorroborationShared` 校验；未见独立锁定该派生默认值的测试 | 需要主维护者裁决：更新 Status 行指向组合根事实并补一条锁定测试，或恢复显式 `config` 默认符号；本索引不代为宣称实现 |
+| 0029 | Status 行声称 `config.DefaultSupportFloor` 返回 2，并由 `TestDefaultSupportFloorIsTwo` 锁定；当前树中两者均不存在 | 默认 floor=2 的语义在组合根实现：`client.go` 对多数模式派生 `floor := 2`（Forwarded 为 0），经 `rpc.NewCorroborationShared` 校验；派生默认值已由 `client_corroboration_default_test.go` 锁定（多数模式 floor=2、单源转发无 floor） | 需要主维护者裁决：更新 Status 行指向组合根事实与现有锁定测试，或恢复显式 `config` 默认符号；本索引不代为宣称实现 |
 
 ## 历史声明（已被取代，不参与映射）
 
