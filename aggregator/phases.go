@@ -97,21 +97,27 @@ func (a *Aggregator) establishPlannedReference(state *invocationState, started t
 
 // prepareFailureExit records one planned prepare-phase failure: the raw-data
 // trail gets the "prepare" record, and the decision carries the reference
-// evidence captured so far.
+// evidence captured so far. The fault tables go through the one invocation
+// assembly point, so the planned path and the legacy path keep the same
+// contract: a request-side failure rides the returned error and the tables
+// stay empty.
 func (a *Aggregator) prepareFailureExit(state *invocationState, started time.Time, req rpc.Request, err error) *earlyExit {
 	if c := uncertain.FromContext(state.ctx); c != nil {
 		c.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
 	}
 	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
+	state.attachFaults(&decision, nil)
 	a.recordDecision(started, req.Method, state.validityPolicy(), decision, err, nil, nil)
 	return &earlyExit{decision: decision, err: err}
 }
 
 // establishmentFailureExit records one establishment failure. The raw
 // establishment trail is already on the capture, so no second "prepare"
-// record is written.
+// record is written. The fault tables go through the one invocation
+// assembly point, matching the legacy establishment exit.
 func (a *Aggregator) establishmentFailureExit(state *invocationState, started time.Time, req rpc.Request, err error) *earlyExit {
 	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
+	state.attachFaults(&decision, nil)
 	a.recordDecision(started, req.Method, state.validityPolicy(), decision, err, nil, nil)
 	return &earlyExit{decision: decision, err: err}
 }

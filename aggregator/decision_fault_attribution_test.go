@@ -12,6 +12,7 @@ import (
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -250,6 +251,63 @@ func TestProjectionErrorAttribution(t *testing.T) {
 	}
 	if decision.Diagnostics == nil {
 		t.Fatal("projection failure must not drop the field diagnostics")
+	}
+}
+
+// plannedFaultAggregator builds a plan-driven aggregator whose Validate hook
+// and establishment stage are under the test's control. The pool member is
+// unreachable on purpose: the fault exits under test happen before any
+// fan-out.
+func plannedFaultAggregator(t *testing.T, mutate func(*rpc.ReadPlan), stage ReferenceStage) *Aggregator {
+	t.Helper()
+	plan, err := methods.CompilePlan(probeSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mutate != nil {
+		mutate(&plan)
+	}
+	p := fixedPool(t, pool.Member{Name: "node-a", URL: "http://127.0.0.1:1"})
+	opts := []Option{WithPlans(map[string]rpc.ReadPlan{probeMethod: plan})}
+	if stage != nil {
+		opts = append(opts, WithReferenceStage(stage))
+	}
+	return New(p, nil, opts...)
+}
+
+// The planned pipeline's two local exits must meet the same fault contract
+// as the legacy path: a request-side failure rides the returned error and
+// keeps every fault table empty, with no diagnostics.
+func TestPlannedPrepareFailureKeepsFaultTablesEmpty(t *testing.T) {
+	validateErr := errors.New("planned validate: request rejected before any source was contacted")
+	agg := plannedFaultAggregator(t, func(plan *rpc.ReadPlan) {
+		plan.Validate = func(context.Context, rpc.Request) error { return validateErr }
+	}, nil)
+	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
+	if !errors.Is(err, validateErr) {
+		t.Fatalf("err = %v, want the validate failure", err)
+	}
+	faults, sourceFaults, collectionFaults := faultTables(t, decision)
+	if faults != "" || sourceFaults != "" || collectionFaults != "" {
+		t.Fatalf("request-side failure must not populate fault tables: %q %q %q", faults, sourceFaults, collectionFaults)
+	}
+	if decision.Diagnostics != nil {
+		t.Fatalf("request-side failure must not carry diagnostics: %+v", decision.Diagnostics)
+	}
+}
+
+func TestPlannedReferenceFailureKeepsFaultTablesEmpty(t *testing.T) {
+	agg := plannedFaultAggregator(t, nil, nil)
+	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
+	if !errors.Is(err, rpc.ErrReferenceRequired) {
+		t.Fatalf("err = %v, want ErrReferenceRequired", err)
+	}
+	faults, sourceFaults, collectionFaults := faultTables(t, decision)
+	if faults != "" || sourceFaults != "" || collectionFaults != "" {
+		t.Fatalf("request-side failure must not populate fault tables: %q %q %q", faults, sourceFaults, collectionFaults)
+	}
+	if decision.Diagnostics != nil {
+		t.Fatalf("request-side failure must not carry diagnostics: %+v", decision.Diagnostics)
 	}
 }
 
