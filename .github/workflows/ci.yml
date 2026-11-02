@@ -75,6 +75,23 @@ jobs:
   # Lint runs only on the weekly schedule until its config is tuned; it does
   # not gate PRs yet. Drop the `if` and commit a .golangci.yml once stable.
 
+  # The roadmap's closing checks declare a dedicated verification gate beyond
+  # the unit suite: the ^TestVerification integration module under the race
+  # detector, run twice with shuffled order, so ordering or repeat-dependent
+  # failures surface. It is its own job so such a failure is distinguishable
+  # from a unit-suite failure in the checks list.
+  verification:
+    name: verification gate (race ×2, shuffled)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: TestVerification race ×2 shuffled
+        run: go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
+
   # Build once so compilation failures are distinguishable from test failures
   # in the required checks list.
   build:
