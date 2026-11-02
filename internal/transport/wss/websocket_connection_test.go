@@ -228,6 +228,50 @@ func TestConnectionReadFailureIsSticky(t *testing.T) {
 	}
 }
 
+// Message-level failures (UTF-8, fragmentation, limits) are sticky at the
+// connection layer too: the second read returns the same violation instead
+// of the decoy frame that follows on the wire.
+func TestConnectionMessageLevelViolationIsSticky(t *testing.T) {
+	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+		// A text message whose payload is not valid UTF-8, then a valid
+		// frame a non-sticky reader would deliver on the second call.
+		frames.write(true, opText, []byte{0xFF, 0xFE})
+		frames.write(true, opText, []byte("decoy"))
+	})
+	conn := dialTestConn(t, wsURL(srv), 1<<20)
+	_, first := conn.ReadMessage()
+	var frameErr *frameError
+	if !errors.As(first, &frameErr) || frameErr.code != closeInvalidPayloadData {
+		t.Fatalf("first read = %v, want the 1007 classification", first)
+	}
+	_, second := conn.ReadMessage()
+	if !errors.Is(second, first) {
+		t.Fatalf("second read = %v, want the recorded 1007 failure, not a resynchronized frame", second)
+	}
+}
+
+// The protocol close reply leaves the wire at most once per connection, no
+// matter how often the caller reads after the first failure.
+func TestConnectionSendsAtMostOneCloseReply(t *testing.T) {
+	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+		frames.write(true, opText, []byte{0xFF, 0xFE}) // invalid UTF-8 message
+		echo := frames.readFrame()
+		parsed, err := parseCloseFrame(echo.payload)
+		if err != nil || parsed.Code != closeInvalidPayloadData {
+			t.Errorf("close echo = %d %v, want 1007", parsed.Code, err)
+		}
+		// The caller reads again below: a second close frame must not appear.
+		frames.expectSilence(300 * time.Millisecond)
+	})
+	conn := dialTestConn(t, wsURL(srv), 1<<20)
+	if _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("first read succeeded on an invalid message")
+	}
+	if _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("second read succeeded on a sticky failure")
+	}
+}
+
 func TestConnectionCloseWithInvalidReasonAnswersClose1007(t *testing.T) {
 	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
 		// Close code 1000 followed by a reason byte that is not UTF-8.

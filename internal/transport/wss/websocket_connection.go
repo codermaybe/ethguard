@@ -38,6 +38,11 @@ type Conn struct {
 	reader *frameReader
 
 	writeMu sync.Mutex
+
+	// closeReplyOnce guards the protocol-violation close reply: a caller
+	// that ignores the first error and reads again must not push a second
+	// close frame onto the wire.
+	closeReplyOnce sync.Once
 }
 
 // newConn binds a handshake result into a connection. The limit bounds one
@@ -53,17 +58,20 @@ func newConn(result *handshakeResult, limit int64) *Conn {
 // goroutine's entry point. Control frames are answered internally: ping →
 // pong, close → close echo (the received code, or an empty payload when the
 // peer sent none). Peer closes surface as CloseError; protocol violations as
-// *frameError, answered with one close frame before the error returns; read
-// limit breaches as ErrFrameTooLarge with the connection aborted directly —
-// a truncated stream can never be resynchronized, so no close-frame
-// handshake is attempted for it.
+// *frameError, answered with at most one close frame per connection before
+// the error returns — a caller that reads again gets the sticky failure, not
+// a second close; read limit breaches as ErrFrameTooLarge with the
+// connection aborted directly — a truncated stream can never be
+// resynchronized, so no close-frame handshake is attempted for it.
 func (c *Conn) ReadMessage() ([]byte, error) {
 	opcode, data, err := c.reader.readMessage(c.handleControl)
 	if err != nil {
 		var frameErr *frameError
 		switch {
 		case errors.As(err, &frameErr):
-			_ = c.writeControl(opClose, closePayload(frameErr.code, ""))
+			c.closeReplyOnce.Do(func() {
+				_ = c.writeControl(opClose, closePayload(frameErr.code, ""))
+			})
 			return nil, err
 		default:
 			return nil, err
