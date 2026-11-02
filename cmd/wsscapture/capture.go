@@ -281,15 +281,15 @@ func probeScenario(ctx context.Context, rawURL, label, endpoint string, sc scena
 	record.ResponseFrame = redact.text(string(frame))
 	record.ResponseBytes = len(frame)
 	record.DataState, record.DataPresent, record.DataRaw, record.Result = classifyResponse(frame, record.RequestID, redact)
-	record.FollowUp = probeFollowUp(conn, cfg, redact)
+	record.FollowUp = probeFollowUp(ctx, conn, cfg, redact)
 	return record
 }
 
-func probeFollowUp(conn *wss.Conn, cfg captureConfig, redact *redactor) *followUp {
+func probeFollowUp(ctx context.Context, conn *wss.Conn, cfg captureConfig, redact *redactor) *followUp {
 	const followUpID = 2
 	request, _ := json.Marshal(wireRequest{JSONRPC: "2.0", ID: followUpID, Method: "eth_chainId", Params: []any{}})
 	result := &followUp{Method: "eth_chainId"}
-	writeCtx, cancelWrite := context.WithTimeout(context.Background(), cfg.Timeout)
+	writeCtx, cancelWrite := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancelWrite()
 	if err := conn.WriteMessage(writeCtx, request); err != nil {
 		result.Error = redact.text(err.Error())
