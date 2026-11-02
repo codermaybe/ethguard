@@ -445,10 +445,6 @@ func hasUsableEmission(emissions []pool.Emission) bool {
 	return false
 }
 
-func collectionFaults(policy rpc.Policy, collectErr error, emissions []pool.Emission, verdicts []rpc.SourceVerdict) []error {
-	return append([]error{fmt.Errorf("collect: %w", collectErr)}, sourceFaults(policy, emissions, verdicts)...)
-}
-
 // sourceFaults preserves rejected protocol answers as diagnostics, without
 // changing pool health or blaming calls that never started. A stated verdict
 // is authoritative for its source; without one the validity contract judges.

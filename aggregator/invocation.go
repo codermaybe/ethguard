@@ -194,6 +194,7 @@ func (a *Aggregator) prepareWithReference(state *invocationState, started time.T
 		c.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
 	}
 	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
+	state.attachFaults(&decision, nil)
 	a.recordDecision(started, req.Method, state.policy, decision, err, nil, nil)
 	return &earlyExit{decision: decision, err: err}
 }
@@ -209,6 +210,7 @@ func (a *Aggregator) establishReferencePhase(state *invocationState, started tim
 		// be established, so the read fails before any fan-out.
 		err := fmt.Errorf("reference: no establishment stage for a read that requires one: %w", rpc.ErrReferenceRequired)
 		decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
+		state.attachFaults(&decision, nil)
 		a.recordDecision(started, req.Method, state.policy, decision, err, nil, nil)
 		return &earlyExit{decision: decision, err: err}
 	}
@@ -226,6 +228,7 @@ func (a *Aggregator) establishReferencePhase(state *invocationState, started tim
 		// wrap its establishment cause with.
 		err = fmt.Errorf("anchor: %w", err)
 		decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
+		state.attachFaults(&decision, nil)
 		a.recordDecision(started, req.Method, state.policy, decision, err, nil, nil)
 		return &earlyExit{decision: decision, err: err}
 	}
@@ -399,10 +402,7 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	}
 	if state.collectErr != nil && !hasUsableEmission(state.emissions) {
 		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared))
-		decision.Faults = collectionFaults(state.validityPolicy(), state.collectErr, state.emissions, nil)
-		decision.SourceFaults = structuredSourceFaults(state.validityPolicy(), state.emissions, nil)
-		decision.CollectionFaults = collectionFaultList(state.collectErr)
-		state.attachFieldAggregateFaults(&decision)
+		state.attachFaults(&decision, nil)
 		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, state.collectErr, state.emissions, nil)
 		return &earlyExit{decision: decision, err: state.collectErr}
 	}
@@ -413,9 +413,7 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	if state.collectErr == nil && !hasUsableEmission(state.emissions) && hasMalformedAdmission(state.emissions) {
 		admissionErr := firstMalformedAdmission(state.emissions)
 		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared))
-		decision.Faults = sourceFaults(state.validityPolicy(), state.emissions, nil)
-		decision.SourceFaults = structuredSourceFaults(state.validityPolicy(), state.emissions, nil)
-		state.attachFieldAggregateFaults(&decision)
+		state.attachFaults(&decision, nil)
 		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
 		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, err, state.emissions, nil)
 		return &earlyExit{decision: decision, err: err}
@@ -452,9 +450,6 @@ func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req
 	decision.Reference = state.capture.Reference()
 	decision.Participants = state.participants
 	decision.Prepared = preparedRequest(state.prepared)
-	if state.evaluation != nil {
-		decision.Diagnostics = &state.evaluation.Diagnostics
-	}
 	if resolveErr == nil && state.evaluation != nil {
 		var (
 			projector rpc.ObservationProjector
@@ -497,26 +492,7 @@ func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req
 	} else if provider, ok := state.policy.(rpc.BlockRefProvider); ok {
 		decision.BlockRef = provider.BlockRef(req, state.prepared)
 	}
-	if state.aggregateErr != nil {
-		decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", state.aggregateErr))
-	}
-	decision.Faults = append(decision.Faults, state.aggregateFaults...)
-	if state.collectErr != nil {
-		decision.Faults = append(decision.Faults, fmt.Errorf("collect: %w", state.collectErr))
-		decision.CollectionFaults = collectionFaultList(state.collectErr)
-	}
-	decision.SourceFaults = structuredSourceFaults(state.validityPolicy(), state.emissions, state.verdicts)
-	decision.Faults = append(decision.Faults, sourceFaults(state.validityPolicy(), state.emissions, state.verdicts)...)
+	state.attachFaults(&decision, state.verdicts)
 	a.recordDecision(started, req.Method, state.validityPolicy(), decision, resolveErr, state.emissions, state.verdicts)
 	return decision, resolveErr
-}
-
-func (state *invocationState) attachFieldAggregateFaults(decision *rpc.Decision) {
-	if state.aggregateErr != nil {
-		decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", state.aggregateErr))
-	}
-	decision.Faults = append(decision.Faults, state.aggregateFaults...)
-	if state.evaluation != nil {
-		decision.Diagnostics = &state.evaluation.Diagnostics
-	}
 }
