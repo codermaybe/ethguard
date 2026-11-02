@@ -509,3 +509,25 @@
   `go test ./internal/transport/wss -race -count=10`、
   `go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild'` 全部
   通过；`go list -deps .` 无 gorilla 与 ethclient。
+
+### 17.1 独立语义验收返工与最终出口（2026-11-03）
+
+- **验收发现与修复**（两个连接层语义问题，各含回归）：
+  1. sticky 失败此前只覆盖 frame 级错误；`readMessage` 的 message 级失败
+     （invalid UTF-8 单帧/跨分片、错误 continuation、fragmented message 中
+     插入新 data frame、message 级 read limit、control 回调错误如 invalid
+     close）不写 `r.err`，第二次读取可能继续解析流。修复：`readMessage` 与
+     `readFrame` 统一 sticky 包装（首次失败后所有后续读取返回记录的错误）；
+     新增 `TestReadMessageFailureIsSticky` 8 类别表（每例尾部带合法诱饵帧，
+     第二次读取必须返回同一错误类别）与连接级
+     `TestConnectionMessageLevelViolationIsSticky`。
+  2. 协议 close 回执在调用方忽略错误重复读取时会重复发送。修复：连接级
+     `closeReplyOnce`，每条连接至多一个协议 close 回执；新增
+     `TestConnectionSendsAtMostOneCloseReply`（服务端读到 1 个 close 后
+     断言静默）。
+- **检查**：`go test ./... -count=1`、`go vet ./...`、
+  `go test ./internal/transport/wss ./internal/testkit/wstest -race -count=10`、
+  staticcheck（v0.8.2，wire/wstest/capture 包零发现）、依赖门
+  （`go list -deps` 无 gorilla）全部通过。
+- **结论**：WSS 自有 wire 栈（W0–W7）最终验收通过；遗留项只有 W4
+  provider-backed golden 证据门（真实 null 未观察，与实现无关）。

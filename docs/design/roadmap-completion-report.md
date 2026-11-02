@@ -141,8 +141,10 @@ CI，也不写入 golden。
 
 - 新增 `cmd/wsscapture`：手动、opt-in 的 WSS capture/replay；不进入默认
   CI，不持久化凭据，不把 live 结果写成 golden。
-- `gorilla/websocket` 记录为 raw WSS adapter 的临时直接依赖；不构成公共协议或
-  长期依赖承诺，WSS adapter 替换或退出时重新评估并移除。
+- `gorilla/websocket` 当时记录为 raw WSS adapter 的临时直接依赖（历史记录）；
+  该承诺已于 2026-11-03 兑现：自有 wire 栈（标准库握手/帧/连接层）替换
+  gorilla，直接依赖删除，仅存 go-ethereum 兼容通道的 indirect 残留；见
+  [wss-wire-contract.md](wss-wire-contract.md) 与执行台账 §17。
 - 2026-10-31 的 6 个公开无凭据 WSS endpoint × 5 个只读 probe：
   missing=13、`0x`=1、value=10、null=0；24 个错误帧通过 `rpcwire` 和
   `RPCError.DataPresence` 检查；12 个 `eth_call` 错误帧通过真实

@@ -1,11 +1,18 @@
 # WSS Call-Layer Feasibility（W1：离线审查与进程内验证）
 
-状态：**已完成（2026-10-31）**。结论：W1 通过。EthGuard 自建最小 WSS
-raw-call 调用层可行；go-ethereum v1.17.5 没有可在不放弃原始 error envelope
-的前提下使用的公开扩展点；自建层的维护成本有界。本文件只做可行性裁决，
+状态：**可行性裁决已完成（2026-10-31）；后续已被执行证实（2026-11-03）**。
+结论：W1 通过。EthGuard 自建最小 WSS raw-call 调用层可行；go-ethereum
+v1.17.5 没有可在不放弃原始 error envelope 的前提下使用的公开扩展点；自建层
+的维护成本有界。
+
+**当前进展（2026-11-03）**：可行性裁决已按 [wss-wire-contract.md](wss-wire-contract.md)
+落地为自有 wire 栈（标准库握手/帧/连接层），gorilla 直接依赖已从生产与测试
+路径移除；本文件的"三条路线比较"和依赖表是**历史记录**（当时 gorilla 为
+过渡期临时依赖），不反映现状；现状以 wss-wire-contract、
+wss-transport-adapter 与执行台账 §17 为准。本文件只做可行性裁决，
 不修订决策 0056，也不宣称 WSS presence golden 已恢复。
 
-事实基线：
+历史事实基线（裁决时点）：
 
 - [wss-error-data-presence.md](wss-error-data-presence.md)（根因与边界）；
 - [transport-contract.md](transport-contract.md)（L1 行为规范）；
@@ -13,6 +20,8 @@ raw-call 调用层可行；go-ethereum v1.17.5 没有可在不放弃原始 error
 - 进程内验证：`internal/transport/wss_feasibility_test.go`（仅测试原型，
   不是生产实现；该原型已随 gorilla 移除于 2026-11-03 删除，裁决与过程
   证据以 Git 历史与本文件为准）。
+- 生产验证：`internal/transport/wss` 的自有握手/帧/连接层及其 contract、
+  sticky 与 close 语义测试（见 wss-wire-contract.md）。
 
 ## 1. 复核：坍缩点与公开接口边界
 
