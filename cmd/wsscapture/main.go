@@ -63,10 +63,7 @@ func main() {
 }
 
 func resolveEndpoints(inline, envNames string) ([]string, error) {
-	var urls []string
-	for _, raw := range splitList(inline) {
-		urls = append(urls, raw)
-	}
+	urls := append([]string(nil), splitList(inline)...)
 	for _, name := range splitList(envNames) {
 		value := os.Getenv(name)
 		if value == "" {
