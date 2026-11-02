@@ -9,7 +9,6 @@ package wss
 // this layer owns only the wire mechanics.
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -31,9 +30,12 @@ const controlWriteTimeout = 5 * time.Second
 // by one lock. Every write error leaves the connection unusable — the
 // adapter owns the abort decision.
 type Conn struct {
-	raw   net.Conn
-	br    *bufio.Reader
-	limit int64
+	raw net.Conn
+	// reader is the connection's one frame reader. It is sticky: after the
+	// first failure every later read returns that failure, so a broken
+	// stream can never be misparsed from its middle, no matter how the
+	// caller treats the first error.
+	reader *frameReader
 
 	writeMu sync.Mutex
 }
@@ -41,20 +43,22 @@ type Conn struct {
 // newConn binds a handshake result into a connection. The limit bounds one
 // inbound frame and one assembled message.
 func newConn(result *handshakeResult, limit int64) *Conn {
-	return &Conn{raw: result.conn, br: result.br, limit: limit}
+	return &Conn{
+		raw:    result.conn,
+		reader: newFrameReader(result.br, clientSide, limit),
+	}
 }
 
 // ReadMessage reads one complete text message. It is the single reader
 // goroutine's entry point. Control frames are answered internally: ping →
 // pong, close → close echo (the received code, or an empty payload when the
 // peer sent none). Peer closes surface as CloseError; protocol violations as
-// *frameError, answered with a close frame before the error returns; read
+// *frameError, answered with one close frame before the error returns; read
 // limit breaches as ErrFrameTooLarge with the connection aborted directly —
 // a truncated stream can never be resynchronized, so no close-frame
 // handshake is attempted for it.
 func (c *Conn) ReadMessage() ([]byte, error) {
-	reader := newFrameReader(c.br, clientSide, c.limit)
-	opcode, data, err := reader.readMessage(c.handleControl)
+	opcode, data, err := c.reader.readMessage(c.handleControl)
 	if err != nil {
 		var frameErr *frameError
 		switch {
@@ -85,10 +89,8 @@ func (c *Conn) handleControl(opcode byte, payload []byte) error {
 	case opClose:
 		closeFrame, parseErr := parseCloseFrame(payload)
 		if parseErr != nil {
-			var frameErr *frameError
-			if errors.As(parseErr, &frameErr) {
-				_ = c.writeControl(opClose, closePayload(frameErr.code, ""))
-			}
+			// The parse error is a frameError: ReadMessage's unified
+			// protocol-violation path sends the single close reply.
 			return parseErr
 		}
 		// Echo the received code; a close without status is answered with an

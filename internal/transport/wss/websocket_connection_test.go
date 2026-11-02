@@ -211,6 +211,23 @@ func TestConnectionProtocolViolationAnswersClose1002(t *testing.T) {
 	}
 }
 
+// A broken stream stays broken: the connection's reader is sticky, so a
+// caller that ignores the first error cannot misparse what follows.
+func TestConnectionReadFailureIsSticky(t *testing.T) {
+	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+		frames.writeRaw([]byte{0x83, 0x00}) // undefined opcode
+		frames.write(true, opText, []byte("decoy"))
+	})
+	conn := dialTestConn(t, wsURL(srv), 1<<20)
+	if _, first := conn.ReadMessage(); !errors.Is(first, ErrFrameProtocol) {
+		t.Fatalf("first read = %v, want the protocol sentinel", first)
+	}
+	_, second := conn.ReadMessage()
+	if !errors.Is(second, ErrFrameProtocol) {
+		t.Fatalf("second read = %v, want the same protocol sentinel, not a resynchronized frame", second)
+	}
+}
+
 func TestConnectionCloseWithInvalidReasonAnswersClose1007(t *testing.T) {
 	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
 		// Close code 1000 followed by a reason byte that is not UTF-8.
