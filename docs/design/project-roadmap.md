@@ -131,7 +131,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 
 ### 执行顺序与接续规则
 
-单线顺序：`F0 → T0 → F1 → F2 → T1 → D0 → D1（有收益才执行）`；E0 在
+单线顺序：`F0 → T0 → F1 → F2 → T1 → D0 → D1`（D0/D1 已完成）；E0 在
 这些切片间以有界证据轮执行；L0 只有真实运维需求时启动，A0 随每个生产切片执行。
 D0/D1 已于 2026-11-03 完成（自有 WSS wire 栈上线，gorilla 直接依赖移除）；
 L0 仍以真实运维需求为前提，进入前完成独立设计切片。
