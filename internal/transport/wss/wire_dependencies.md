@@ -20,16 +20,17 @@ pool 等）都禁止导入；该规则同时由根目录
 ## 2. 允许的标准库依赖（wire 层文件）
 
 `websocket_handshake.go` / `websocket_frame.go` / `websocket_connection.go`
-只允许导入 Go 标准库。按层：
+只允许导入 Go 标准库。下表是当前实际使用的集合；新增标准库导入必须先
+修订本清单（同一业务意图提交内），保持清单与代码同步：
 
-| 层 | 标准库集合 |
+| 层 | 标准库集合（当前实际） |
 | --- | --- |
-| 握手 | `bufio`、`context`、`crypto/rand`、`crypto/sha1`、`crypto/tls`、`encoding/base64`、`encoding/hex`、`errors`、`fmt`、`io`、`net`、`net/http`、`net/http/httptrace`（如需）、`net/url`、`strconv`、`strings`、`time` |
-| 帧编解码 | `bufio`、`crypto/rand`、`encoding/binary`、`errors`、`fmt`、`io`、`math/bits`（如需）、`sync`、`unicode/utf8` |
-| 连接生命周期 | `context`、`encoding/json`、`errors`、`fmt`、`io`、`net`、`sync`、`time` |
+| 握手 | `bufio`、`context`、`crypto/rand`、`crypto/sha1`、`crypto/tls`、`encoding/base64`、`errors`、`fmt`、`net`、`net/http`、`net/url`、`os`、`strings`、`time` |
+| 帧编解码 | `bufio`、`crypto/rand`、`encoding/binary`、`errors`、`fmt`、`io`、`unicode/utf8` |
+| 连接生命周期 | `context`、`encoding/binary`、`errors`、`fmt`、`net`、`sync`、`time` |
 
- adapter 文件 `wss.go` 额外允许 `encoding/json`、`math/big`、`net/url`、
-`reflect`、`bytes` 等既有标准库导入。
+ adapter 文件 `wss.go` 额外使用 `bytes`、`context`、`encoding/json`、
+`errors`、`fmt`、`math/big`、`net/url`、`reflect`、`sync`、`time`。
 
 ## 3. 第三方 WebSocket 库
 
