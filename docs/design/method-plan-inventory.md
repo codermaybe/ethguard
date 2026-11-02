@@ -1,8 +1,8 @@
-# 方法基线冻结（H0：23 个 RegisteredMethod 当前状态）
+# 方法执行计划清单（23 个 RegisteredMethod 的 plan 与 typed path 现状）
 
-状态：**基线冻结（H0，2026-11-03）。本文件是第二部分（HTTP 方法续接与完整
-ethclient 替代）的事实基线：每个 Registered read 方法的 ReadPlan、resolver、
-admission、reference、pending、projector、typed path 与证据指针，逐项来自
+状态：**已登记（2026-11-03）。本文件是方法对接工作的事实基线：每个
+Registered read 方法的 ReadPlan、resolver、admission、reference、pending、
+projector、typed path 与证据指针，逐项来自
 `rpc/methods/spec_inventory.go`、`rpc/methods/catalog.go`、根 facade 与
 `ethadapter` 的当前代码。本文只登记现状，不新增方法、不改变裁决语义。**
 
@@ -62,7 +62,7 @@ ID；typed path 列出 root facade 入口与 ethadapter（ethclient 形状）入
 `Broadcast`（root `SendRawTransaction` / `SendTransaction`；决策 0064），
 不进入 ReadPlan registry。`eth_getProof` 为显式 Unsupported。
 
-## 2. 逐项验收（H0 出口）
+## 2. 逐项验收（基线出口）
 
 | 验收项 | 结论 | 锁定 |
 | --- | --- | --- |
@@ -106,5 +106,6 @@ ID；typed path 列出 root facade 入口与 ethadapter（ethclient 形状）入
   test/race/vet/architecture/Verification 门 ✅；文档、决策、方法卡片、
   roadmap 状态一致 ✅（本文为冻结锚点）。
 
-本文冻结后，H1–H6 的每项推进按"单一业务意图"逐卡提交；证据缺口只由
-真实 capture/replay/live 关闭，不以本文或进程内样本代替。
+本清单登记后，后续推进按"单一业务意图"逐卡提交（对应路线图 H1–H6 各
+行）；证据缺口只由真实 capture/replay/live 关闭，不以本文或进程内样本
+代替。
