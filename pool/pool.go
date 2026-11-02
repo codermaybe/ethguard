@@ -44,13 +44,16 @@ type Pool struct {
 	closed          bool
 
 	// Tip tracking (see WithTipTracking). maxTipLag zero disables the
-	// freshness gate; stopTips is non-nil only while sampling runs.
-	// tipSampleMaxAge is the explicit validity window for one sampled tip;
-	// a sample older than this is unknown to the gate.
+	// freshness gate; stopTips is non-nil only while sampling runs, and
+	// tipsDone is closed by the sampler goroutine on its exit so Close can
+	// wait for the pool-owned cleanup. tipSampleMaxAge is the explicit
+	// validity window for one sampled tip; a sample older than this is
+	// unknown to the gate.
 	maxTipLag       uint64
 	tipInterval     time.Duration
 	tipSampleMaxAge time.Duration
 	stopTips        chan struct{}
+	tipsDone        chan struct{}
 }
 
 // Member is one upstream configured at pool construction.
@@ -206,7 +209,10 @@ func (p *Pool) snapshotSources(requireOpen bool) ([]*Source, error) {
 	return out, nil
 }
 
-// Close releases all source connections. It is safe to call more than once.
+// Close releases all source connections and stops the background tip
+// sampler. Closing the sources first aborts any probe in flight, and Close
+// then waits for the sampler goroutine to exit, so no pool-owned probe can
+// start or finish after Close returns. It is safe to call more than once.
 func (p *Pool) Close() {
 	p.mu.Lock()
 	if p.closed {
@@ -217,12 +223,16 @@ func (p *Pool) Close() {
 	if p.stopTips != nil {
 		close(p.stopTips)
 	}
+	tipsDone := p.tipsDone
 	sources := make([]*Source, len(p.sources))
 	copy(sources, p.sources)
 	p.mu.Unlock()
 
 	for _, src := range sources {
 		src.close()
+	}
+	if tipsDone != nil {
+		<-tipsDone
 	}
 }
 

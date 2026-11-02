@@ -105,6 +105,7 @@ func newPoolWithDialerAndOptions(d dialer, chainID uint64, opts ...PoolOption) *
 		p.tipInterval = cfg.tipInterval
 		p.tipSampleMaxAge = cfg.tipSampleMaxAge
 		p.stopTips = make(chan struct{})
+		p.tipsDone = make(chan struct{})
 		go p.tipLoop(cfg.tipInterval)
 	}
 	return p
@@ -112,10 +113,18 @@ func newPoolWithDialerAndOptions(d dialer, chainID uint64, opts ...PoolOption) *
 
 // tipLoop samples tips until the pool closes. The first sample waits one
 // interval: dialing stays deferred until a caller actually needs a source.
+// The stop signal is checked before every wait so a closed pool never walks
+// into another tick, and the goroutine signals its exit for Close.
 func (p *Pool) tipLoop(every time.Duration) {
+	defer close(p.tipsDone)
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
+		select {
+		case <-p.stopTips:
+			return
+		default:
+		}
 		select {
 		case <-p.stopTips:
 			return
@@ -143,6 +152,11 @@ func (p *Pool) RefreshTips(ctx context.Context) {
 	p.mu.RUnlock()
 	if stop == nil {
 		return // tip sampling not enabled
+	}
+	select {
+	case <-stop:
+		return // pool closed: no probe starts after Close
+	default:
 	}
 
 	// The probe timeout is bounded independently of the poll interval: a
