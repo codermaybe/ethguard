@@ -407,3 +407,43 @@
   `go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1`、
   `go test ./internal/verification/integration -run '^TestVerification' -race
   -count=2 -shuffle=on`。
+
+## 15. 关键不变量覆盖审计（2026-11-02）
+
+- **范围**：审计 basis、Invocation、reference/business 两轮、4e abstain、
+  gated member、取消和错误归属七项不变量的测试是否真实存在，并核对断言
+  检查的是身份与分母而不是长度。本轮在错误归属上补了
+  `aggregator/decision_fault_attribution_test.go`（每个管线出口的故障表
+  义务），在采样生命周期上补了 `pool/sampler_lifecycle_test.go`；其余各项
+  审计确认已有身份级覆盖，未发现"只查长度、不查身份/分母"的伪覆盖。
+- **证据**（测试文件 → 断言内容）：
+  - basis 冻结：`aggregator/invocation_state_test.go` — 冻结 basis 的
+    size、required 阈值、逐成员 ID 和 invocation carrier 身份；
+  - Invocation：`rpc/invocation_reference_test.go` 与
+    `internal/runtime/latest_reference_trace_test.go`、
+    `plan_reference_trace_test.go` — reference 建立轮与业务轮共享同一个
+    invocation ID，失败轮的业务 fan-out 为零；
+  - reference/business 两轮：`internal/runtime/reference_tip_scope_test.go`
+    （建立轮按 tag 定 tip gate，逐节点调用计数）、
+    `aggregator/freshness_scope_test.go`（pin 后业务轮的 scope 由 prepared
+    请求推导，planned 与 legacy 双路）、`pool/freshness_scope_test.go`
+    （零值保留 gate-all 兼容，cooldown/identity 不被绕开）；
+  - 4e abstain：`rpc/methods/call_revert_outcome_test.go` — data 维度的
+    support/abstain 列按源 ID 精确断言，withheld 数据不出现在 Value；
+  - gated member：`pool/voting_test.go` — 全员 gated 时仍返回捕获成员的
+    emission（按对象身份断言）、无健康记账变化；gated 成员保留分母；
+  - 取消：`aggregator/aggregator_test.go` — 取消的收集只报一条
+    collection fault，未尝试的成员不被归咎；
+    `pool/scheduling_budget_test.go`、`scheduling_contention_test.go` —
+    等待取消不发送、不扣健康、不重放；
+  - 错误归属：`aggregator/decision_fault_attribution_test.go` — prepare/
+    reference 失败故障表为空、全源失败/全 malformed/部分成功/正常
+    resolve/projection 错误各自的 Faults、SourceFaults、CollectionFaults
+    身份与一次性；`pool/collect.go` 的 caller deadline 保留见
+    `pool/collect_test.go`。
+- **不适用记录**：Pool 没有运行时 Remove —— 成员在构造时固定
+  （`NewWithMembers`），health 与调度只能暂停成员，不能增删投票基；
+  "成员 Remove 后仍留在分母"类并发场景对当前固定成员模型不适用。若未来
+  引入运行时成员变更，必须先重新裁决 0062 的分母语义，再补对应回归。
+- **检查**：本条为审计记录，无生产代码改动；相关包测试随本轮收尾门禁
+  复跑通过。
