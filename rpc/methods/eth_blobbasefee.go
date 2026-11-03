@@ -5,9 +5,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodBlobBaseFee is the JSON-RPC method name resolved by BlobBaseFeePolicy.
-const MethodBlobBaseFee = "eth_blobBaseFee"
-
 // BlobBaseFeePolicy resolves EIP-4844 blob base fee as a variable result:
 // the fleet's lower median, consistent with fee estimation policies
 // (GasPricePolicy, MaxPriorityFeePerGasPolicy). Sources legitimately observe

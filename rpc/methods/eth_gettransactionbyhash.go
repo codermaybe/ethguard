@@ -10,10 +10,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodGetTransactionByHash is the JSON-RPC method name resolved by
-// TransactionByHashPolicy.
-const MethodGetTransactionByHash = "eth_getTransactionByHash"
-
 // TransactionByHashPolicy corroborates eth_getTransactionByHash by full
 // agreement. The hash addresses immutable content — a mined transaction
 // never changes, and a pending transaction's object is stable while it

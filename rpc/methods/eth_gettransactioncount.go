@@ -5,10 +5,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodGetTransactionCount is the JSON-RPC method name resolved by
-// GetTransactionCountPolicy.
-const MethodGetTransactionCount = "eth_getTransactionCount"
-
 // GetTransactionCountPolicy corroborates eth_getTransactionCount at an agreed
 // block reference — the account nonce is state that moves with the head, so
 // moving tags are rewritten before fan-out (see GetBalancePolicy). Strict

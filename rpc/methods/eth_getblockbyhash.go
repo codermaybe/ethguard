@@ -5,10 +5,6 @@ import (
 	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
-// MethodGetBlockByHash is the JSON-RPC method name resolved by
-// BlockByHashPolicy.
-const MethodGetBlockByHash = "eth_getBlockByHash"
-
 // BlockByHashPolicy corroborates eth_getBlockByHash by full agreement. The block
 // hash addresses immutable content, so comparison rides the shared
 // canonical-object normalizer: encoding differences are erased, everything

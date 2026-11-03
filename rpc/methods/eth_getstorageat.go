@@ -5,10 +5,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodGetStorageAt is the JSON-RPC method name resolved by
-// GetStorageAtPolicy.
-const MethodGetStorageAt = "eth_getStorageAt"
-
 // GetStorageAtPolicy corroborates eth_getStorageAt at an agreed block reference.
 // The answer is exactly one 32-byte data word, not a quantity: its
 // method-specific normalizer rejects null, missing, short, long, and invalid

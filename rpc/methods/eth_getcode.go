@@ -5,9 +5,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodGetCode is the JSON-RPC method name resolved by GetCodePolicy.
-const MethodGetCode = "eth_getCode"
-
 // GetCodePolicy corroborates eth_getCode at an agreed block reference. The
 // answer is arbitrary-length bytecode — hex data, not a quantity; an
 // externally owned account answers "0x", which is valid data and would

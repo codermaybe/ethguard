@@ -10,10 +10,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodGetBlockReceipts is the JSON-RPC method name resolved by
-// BlockReceiptsPolicy.
-const MethodGetBlockReceipts = "eth_getBlockReceipts"
-
 // BlockReceiptsPolicy corroborates eth_getBlockReceipts by full agreement over
 // the whole receipts array. A block hash determines its receipts fully, so
 // the payload is immutable content. Hashes and explicit numbers pass through;

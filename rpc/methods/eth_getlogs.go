@@ -8,9 +8,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/objects/log"
 )
 
-// MethodGetLogs is the JSON-RPC method name resolved by LogsPolicy.
-const MethodGetLogs = "eth_getLogs"
-
 // LogsPolicy corroborates eth_getLogs by full agreement over the whole log
 // array. Once the range is pinned the response is chain-determined and
 // strictly comparable (analysis 2026-09-04): every log is ordered by its

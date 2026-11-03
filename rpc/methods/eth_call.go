@@ -11,9 +11,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodCall is the JSON-RPC method name resolved by CallPolicy.
-const MethodCall = "eth_call"
-
 // CallPolicy corroborates eth_call on two dimensions (decisions 0017, 0023,
 // and 0039 rule 4e). Successful return data stays inside the execution key as canonical DATA JSON, not an ok| prefix.
 // A revert-class error asserts execution and, separately, data: missing and

@@ -8,10 +8,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodCreateAccessList is the JSON-RPC method name resolved by
-// CreateAccessListPolicy.
-const MethodCreateAccessList = "eth_createAccessList"
-
 // CreateAccessListPolicy corroborates EIP-2930 access list creation over an agreed
 // block reference. The block tag at position 1 (if specified) is rewritten to
 // the corroborated block reference before fan-out so sources evaluate identical state.

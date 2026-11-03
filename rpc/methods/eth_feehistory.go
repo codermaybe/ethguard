@@ -14,9 +14,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
 
-// MethodFeeHistory is the JSON-RPC method name resolved by FeeHistoryPolicy.
-const MethodFeeHistory = "eth_feeHistory"
-
 // FeeHistoryPolicy corroborates eth_feeHistory by full agreement over the whole
 // response. The range is chain-determined once newest is pinned: the base
 // fees and gas ratios of historical blocks are immutable, the block count

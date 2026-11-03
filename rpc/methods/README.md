@@ -1,17 +1,18 @@
 # RPC Method Policies
 
 This directory holds the Ethereum wire semantics: thin per-method assembly
-(`eth_*.go`: constant + `XxxPolicy()` + wiring) over per-object vertical
-slices (`receipt.go`, `transaction.go`, `block.go`, `logs.go`); their tests
-collect alongside. Shapes used by one method only stay in `eth_*.go` (R1);
-slices exist only for objects shared by ≥2 methods or carrying cryptographic
-commitments. The comparison whitelists compile at init from the trimmed
-`internal/spec/methods.json` (no generated code, no freshness gap); slices own
-requiredness. The parent `rpc` package owns the `Policy` contract, the
-`Registry`, and shared resolution strategies. This directory owns concrete
-Ethereum method entrypoints and method-specific binding. Shared wire and object
-implementations live in `rpc/internal`; standard projection and Carrier
-assembly live in `rpc/projection`.
+(`eth_*.go`: `XxxPolicy()` + wiring, with method names centralized in
+`method_names.go`) over shared object semantics (`rpc/internal/objects`:
+block, receipt, transaction, log, fee history); their tests collect
+alongside. Shapes used by one method only stay in `eth_*.go` (R1);
+`rpc/internal/objects` exists only for objects shared by ≥2 methods or
+carrying cryptographic commitments. The comparison whitelists compile at init
+from the trimmed `internal/spec/methods.json` (no generated code, no freshness
+gap); the objects own requiredness. The parent `rpc` package owns the
+`Policy` contract, the `Registry`, and shared resolution strategies. This
+directory owns concrete Ethereum method entrypoints and method-specific
+binding. Shared wire and object implementations live in `rpc/internal`;
+standard projection and Carrier assembly live in `rpc/projection`.
 
 Wire and object implementations are deliberately outside this directory:
 `rpc/internal/wire` owns JSON normalization and spec-driven pruning, while

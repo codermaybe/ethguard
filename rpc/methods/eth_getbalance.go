@@ -5,9 +5,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodGetBalance is the JSON-RPC method name resolved by GetBalancePolicy.
-const MethodGetBalance = "eth_getBalance"
-
 // GetBalancePolicy corroborates balances read at an agreed block reference.
 // Sources sit at different heads; comparing their answers to a moving tag is
 // noise. The policy rewrites latest/safe/finalized to a corroborated block hash

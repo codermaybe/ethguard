@@ -4,8 +4,9 @@
 //
 // The parent rpc package owns everything true of any method and any JSON —
 // the Policy contract, the Registry, and the shared resolution strategies.
-// This package owns the Ethereum side: one eth_*.go per method, plus the
-// object slices (block, receipt, transaction, logs) whose field tables and
+// This package owns the Ethereum side: one eth_*.go per method's policy
+// assembly, the method-name table in method_names.go, and the object
+// semantics (block, receipt, transaction, logs) whose field tables and
 // admission rules are shared by more than one method or carry a
 // cryptographic commitment.
 //

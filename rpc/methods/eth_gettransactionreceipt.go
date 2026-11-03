@@ -10,10 +10,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// MethodGetTransactionReceipt is the JSON-RPC method name resolved by
-// TransactionReceiptPolicy.
-const MethodGetTransactionReceipt = "eth_getTransactionReceipt"
-
 // TransactionReceiptPolicy corroborates eth_getTransactionReceipt by full
 // agreement. The transaction hash addresses immutable content: no moving
 // tags, no anchoring, no freshness machinery — honest sources either hold

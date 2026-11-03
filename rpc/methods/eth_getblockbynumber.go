@@ -10,10 +10,6 @@ import (
 	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
-// MethodGetBlockByNumber is the JSON-RPC method name resolved by
-// BlockByNumberPolicy.
-const MethodGetBlockByNumber = "eth_getBlockByNumber"
-
 // BlockByNumberPolicy corroborates eth_getBlockByNumber by full agreement on the
 // block head: number and hash must match across sources, hexadecimal casing
 // and key order aside. It also serves as the anchor policy for pinned reads.
