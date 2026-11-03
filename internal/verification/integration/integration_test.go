@@ -858,22 +858,14 @@ func anchorEstablishments(nodes []*rpctest.Node) int {
 	return total
 }
 
-// TestAnchorCachingSharesOneEstablishment proves the latency win on the
-// wire: consecutive anchored reads reuse one corroborated reference instead of
-// re-fanning the head query per call.
-func TestAnchorCachingSharesOneEstablishment(t *testing.T) {
-	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}}, ethguard.WithAnchorCaching(time.Hour))
+// TestAnchorCacheTTLConfigIsRejected pins decision 0026's boundary on the
+// surviving configuration path: cross-call reference caching is retired, so
+// a configured anchor_cache_ttl must fail construction instead of silently
+// enabling a cache.
+func TestAnchorCacheTTLConfigIsRejected(t *testing.T) {
+	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}, AnchorCacheTTL: time.Hour.String()})
 	if err == nil || !strings.Contains(err.Error(), "anchor_cache_ttl") {
-		t.Fatalf("positive cache TTL must be rejected, got %v", err)
-	}
-}
-
-// TestAnchorCachingReestablishesAfterTTL proves the cache bounds staleness:
-// once the TTL lapses the next read establishes a fresh reference.
-func TestAnchorCachingReestablishesAfterTTL(t *testing.T) {
-	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}}, ethguard.WithAnchorCaching(30*time.Millisecond))
-	if err == nil || !strings.Contains(err.Error(), "anchor_cache_ttl") {
-		t.Fatalf("positive cache TTL must be rejected, got %v", err)
+		t.Fatalf("configured cache TTL must be rejected, got %v", err)
 	}
 }
 
@@ -1813,22 +1805,6 @@ func TestFeeHistoryPinsNewestToTheCorroboratedHeight(t *testing.T) {
 	}
 	if history.OldestBlock.Uint64() != 15 || len(history.BaseFeePerGas) != 4 {
 		t.Fatalf("unexpected decoded history: %+v", history)
-	}
-}
-
-// hashOnlyAnchor is a custom resolver without the height capability.
-type hashOnlyAnchor struct{}
-
-func (hashOnlyAnchor) AnchorBlockHash(context.Context) (string, error) { return "0xabc", nil }
-
-// TestCachedAnchorRejectsHeightReadsWithoutHeightCapability pins the audit
-// fix: a cached resolver whose inner cannot produce heights must fail
-// height-anchored reads with a clear error, never silently pin them to
-// height zero.
-func TestCachedAnchorRejectsHeightReadsWithoutHeightCapability(t *testing.T) {
-	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}}, ethguard.WithAnchorResolver(hashOnlyAnchor{}))
-	if err == nil || !strings.Contains(err.Error(), "WithAnchorResolver") {
-		t.Fatalf("expected retired resolver error, got %v", err)
 	}
 }
 

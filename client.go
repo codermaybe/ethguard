@@ -80,8 +80,6 @@ func DialerOption(d transport.Dialer) Option {
 type clientOptions struct {
 	logger         *slog.Logger
 	recorder       observe.Recorder
-	anchor         AnchorResolver
-	anchorSet      bool
 	anchorCache    time.Duration
 	tipEnabled     bool
 	tipInterval    time.Duration
@@ -111,17 +109,6 @@ func WithRecorder(r observe.Recorder) Option {
 	return func(o *clientOptions) { o.recorder = r }
 }
 
-// WithAnchorResolver is retained only as a migration diagnostic. Decision
-// 0036 makes reference establishment library-owned; supplying this legacy
-// injection causes New to return a configuration error.
-func WithAnchorResolver(r AnchorResolver) Option {
-	return func(o *clientOptions) {
-		if r != nil {
-			o.anchor, o.anchorSet = r, true
-		}
-	}
-}
-
 // WithCollectTimeout bounds each aggregate collection or forwarded attempt.
 func WithCollectTimeout(timeout time.Duration) Option {
 	if timeout <= 0 {
@@ -140,13 +127,6 @@ func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
 		o.useFinalizedAnchoring = true
 		o.finalizedMaxLag = runtime.FinalizedAnchorLag(opts...)
 	}
-}
-
-// WithAnchorCaching is retained only to produce an explicit migration error.
-// Cross-call reference caching is retired by decision 0037; a zero value is
-// disabled and non-zero values are rejected by New.
-func WithAnchorCaching(ttl time.Duration) Option {
-	return func(o *clientOptions) { o.anchorCache = ttl }
 }
 
 // WithTipTracking enables pool-side block-tip sampling and the freshness
@@ -208,9 +188,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	}
 	if co.anchorCache != 0 {
 		return nil, fmt.Errorf("ethguard: anchor_cache_ttl is no longer supported; non-zero duration %s conflicts with decision 0026", co.anchorCache)
-	}
-	if co.anchorSet {
-		return nil, fmt.Errorf("ethguard: WithAnchorResolver is retired; reference establishment is library-owned under decision 0036")
 	}
 	rec := co.recorder
 	if rec == nil && co.logger != nil {

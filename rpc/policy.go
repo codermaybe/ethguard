@@ -198,10 +198,10 @@ func pickMethodRule(own, inner string) string {
 // in the decorator chain. A nil next policy is the resolver.
 //
 // It is not part of Policy. Prepare, Normalize, and Resolve do not consult
-// it. ForwardPolicy, SelectedPolicy, and FinalizedHead are not registered
-// method rules and do not implement it. The methods test fails, naming the
-// method and the concrete type, when a visited layer is missing. A walk of
-// registered methods must not grow an allow-undeclared exception.
+// it. ForwardPolicy is not a registered method rule and does not implement
+// it. The methods test fails, naming the method and the concrete type, when
+// a visited layer is missing. A walk of registered methods must not grow an
+// allow-undeclared exception.
 type MethodRuleSource interface {
 	MethodRule() (MethodRule, Policy)
 }

@@ -326,6 +326,14 @@ that fail closed when dispersion looks adversarial, trimmed-means variants.
 The honest Selected ceiling matters more than any refinement until a fee-
 sensitive consumer exists.
 
+Deletion record (2026-11-04): the demo `rpc.SelectedPolicy` — the only
+policy that resolved a single observation as `Selected` without any group
+semantics — had no production caller and no registered method, so it is
+deleted together with its specimen tests. The `Selected` ceiling itself is
+unchanged: `rpc.Median` still resolves Variable groups to Selected at most,
+and anchored reads may still report Selected evidence for a custom resolver.
+
+
 ## 0013. Local observations stand for their source alone
 
 Status: Accepted
@@ -830,6 +838,13 @@ old reference evidence cannot supply this invocation's fresh establishment.
 No implementation or live validation was performed in recording this decision.
 
 
+Deletion record (2026-11-04): the retired compatibility surface is removed.
+`CachedAnchor` and the `WithAnchorCaching` option are deleted; the
+`anchor_cache_ttl` configuration key keeps failing construction with this
+decision's error, so the YAML-path gate stays. Nothing reintroduces
+cross-invocation caching.
+
+
 ## 0027. Caller-managed membership is independent of health scheduling
 
 Status: Superseded by 0062 (2026-10-29) for runtime membership operations.
@@ -959,6 +974,12 @@ corroboration requirement and must be represented accordingly. Observability
 helps audit configuration but does not authenticate it. See threat-model.md.
 
 This decision does not implement mode switching or change existing defaults.
+
+
+Deletion record (2026-11-04): the unread `refcontext.AllowForwarded`/
+`WithForwarded` context pair is deleted. Forwarded eligibility stays owned by
+the construction-time mode derivation above; no runtime context flag can
+switch a call into forwarding.
 
 
 ## 0031. Health scheduling includes adaptive per-source congestion control
@@ -1209,6 +1230,15 @@ source-reported finality is independent Ethereum consensus finality.
 After implementation and validation, document the feature in README with
 working examples, freshness tradeoffs, insufficient-support failures and the
 pending boundary. Until then, describe it only as an accepted design.
+
+
+Deletion record (2026-11-04): `WithAnchorResolver` is deleted outright —
+the migration diagnostic existed only while the option was present, and the
+library-owned establishment below now has no injection seam to reject. The
+standalone `rpc.FinalizedHead` policy (superseded by the internal/reference
+candidate-selection algorithm behind the runtime's finalized service) is
+deleted with its specimen tests; fork-conflict fail-closed evidence lives in
+`internal/reference`'s selection tests.
 
 
 ## 0037. Preserve Geth block-tag mapping and reject enabled legacy caching

@@ -71,9 +71,6 @@ func Accept(key string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-// Conn exposes the raw connection for deadline and close control.
-func (c *ServerConn) Conn() net.Conn { return c.conn }
-
 // ReadMessage reads one complete client text message. Client pings are
 // answered with pongs; a client close ends the exchange with errClosed.
 func (c *ServerConn) ReadMessage() ([]byte, error) {

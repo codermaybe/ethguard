@@ -114,10 +114,6 @@ func (t *gethTransport) Close() {
 	})
 }
 
-// IsClientQuit reports the compatibility adapter's closed-connection error
-// without exposing go-ethereum's sentinel to callers outside this package.
-func IsClientQuit(err error) bool { return errors.Is(err, gethrpc.ErrClientQuit) }
-
 type httpStatusError struct {
 	err    error
 	status int

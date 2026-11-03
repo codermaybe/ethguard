@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard"
-	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -175,80 +174,6 @@ func TestBuiltInAnchorsHonorCollectTimeout(t *testing.T) {
 	}
 }
 
-type waitingAnchor struct{ started, release chan struct{} }
-
-func (a *waitingAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
-	close(a.started)
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case <-a.release:
-		return "0xabc", nil
-	}
-}
-func TestCachedAnchorWaiterCancelsIndependently(t *testing.T) {
-	inner := &waitingAnchor{make(chan struct{}), make(chan struct{})}
-	cached := ethguard.NewCachedAnchor(inner, time.Minute)
-	leader := make(chan error, 1)
-	go func() { _, err := cached.AnchorBlockHash(context.Background()); leader <- err }()
-	<-inner.started
-	ctx, cancel := context.WithCancel(context.Background())
-	waiter := make(chan error, 1)
-	go func() { _, err := cached.AnchorBlockHash(ctx); waiter <- err }()
-	cancel()
-	select {
-	case err := <-waiter:
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("waiter returned %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Error("waiter ignored cancellation")
-	}
-	close(inner.release)
-	if err := <-leader; err != nil {
-		t.Fatal(err)
-	}
-	if _, err := cached.AnchorBlockHash(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled cache hit returned %v", err)
-	}
-}
-
-func TestCachedLegacyCustomReferenceStillSupportsHashReads(t *testing.T) {
-	inner := ethguard.NewCachedAnchor(hashOnlyAnchor{}, time.Minute)
-	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}}, ethguard.WithAnchorResolver(inner))
-	if err == nil {
-		t.Fatal("expected custom resolver path to be retired")
-	}
-}
-
-type cancellingAnchor struct {
-	cancel context.CancelFunc
-	calls  int
-}
-
-func (a *cancellingAnchor) AnchorBlockHash(context.Context) (string, error) {
-	a.calls++
-	if a.cancel != nil {
-		a.cancel()
-		a.cancel = nil
-	}
-	return "0xabc", nil
-}
-func TestCachedAnchorDoesNotCacheCancelledLeader(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	inner := &cancellingAnchor{cancel: cancel}
-	cached := ethguard.NewCachedAnchor(inner, time.Minute)
-	if _, err := cached.AnchorBlockHash(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled leader succeeded: %v", err)
-	}
-	if _, err := cached.AnchorBlockHash(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if inner.calls != 2 {
-		t.Fatalf("cancelled establishment was cached: calls=%d", inner.calls)
-	}
-}
 func TestFailedStrictAnchorRetainsParticipants(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 2, ethguard.WithCollectTimeout(20*time.Millisecond))
 	for _, node := range nodes {

@@ -73,7 +73,7 @@ func (c *Client) Close() { c.eg.Close() }
 
 func (c *Client) requireContext(ctx context.Context) context.Context {
 	if c.eg.Mode() == rpc.CorroborationForwarded {
-		return refcontext.WithForwarded(ctx)
+		return ctx
 	}
 	return refcontext.RequireCorroborated(ctx)
 }

@@ -33,7 +33,7 @@ func TestCorroborationSurvivesDecoratorComposition(t *testing.T) {
 				if _, err := cp.ResolveCorroborated(Corroboration{Floor: 2}, observations); !errors.Is(err, ErrConflict) {
 					t.Fatalf("lost voting basis: %v", err)
 				}
-				for _, nonCorroborating := range []Policy{Median(func(raw json.RawMessage) (string, error) { return string(raw), nil }), ForwardPolicy{}, SelectedPolicy{}} {
+				for _, nonCorroborating := range []Policy{Median(func(raw json.RawMessage) (string, error) { return string(raw), nil }), ForwardPolicy{}} {
 					if _, ok := outer(inner(nonCorroborating)).(CorroboratingPolicy); ok {
 						t.Fatal("invented capability")
 					}

@@ -32,17 +32,6 @@ func TestCorroboratedRejectsSingleSource(t *testing.T) {
 	}
 }
 
-func TestCorroboratedRejectsSingleSourceFinalized(t *testing.T) {
-	p := FinalizedHead(32)
-	decision, err := p.Resolve([]Observation{finObs("0x64", "0xha")})
-	if err != nil {
-		t.Fatalf("one finalized view resolves, got %v", err)
-	}
-	if decision.Status == Corroborated {
-		t.Fatalf("a single provider-reported finalized view must stay Selected, got %+v", decision)
-	}
-}
-
 func TestCorroboratedQuorumFailureIsConflict(t *testing.T) {
 	p := Strict(CanonicalJSON, WithQuorum(2))
 	decision, err := p.Resolve([]Observation{
@@ -94,29 +83,6 @@ func TestCorroboratedForwardingNeverClaimsAgreement(t *testing.T) {
 	}
 	if forwarded.Status != Forwarded {
 		t.Fatalf("expected Forwarded, got %v", forwarded.Status)
-	}
-	selected, err := SelectedPolicy{}.Resolve(observations)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if selected.Status == Corroborated {
-		t.Fatalf("single-source selection must stay Selected: %+v", selected)
-	}
-}
-
-func TestCorroboratedProviderFinalizedForkFailsClosed(t *testing.T) {
-	p := FinalizedHead(32)
-	decision, err := p.Resolve([]Observation{
-		finObs("0x64", "0xha"),
-		finObs("0x64", "0xhb"),
-	})
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("two provider-reported hashes for one height must fail closed, got %+v %v", decision, err)
-	}
-	// Provider reports disagreeing with each other prove nothing about the
-	// chain: the conflict error — not the Status field — is the verdict.
-	if decision.Status != Unknown {
-		t.Fatalf("fork-conflict decision status = %v, want Unknown", decision.Status)
 	}
 }
 

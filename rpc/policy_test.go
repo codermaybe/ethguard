@@ -30,14 +30,3 @@ func TestForwardMarksDecisionAsForwarded(t *testing.T) {
 		t.Fatalf("expected forwarded status, got %v", decision.Status)
 	}
 }
-
-func TestSelectedMarksDecisionAsSelected(t *testing.T) {
-	p := SelectedPolicy{}
-	decision, err := p.Resolve([]Observation{{Value: json.RawMessage(`true`)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decision.Status != Selected {
-		t.Fatalf("expected selected status, got %v", decision.Status)
-	}
-}
