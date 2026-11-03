@@ -57,8 +57,7 @@ func sameProvenance(a, b json.RawMessage) bool {
 		Source string          `json:"source"`
 		Data   json.RawMessage `json:"data"`
 	}
-	var unwrap func(json.RawMessage) []withheld
-	unwrap = func(raw json.RawMessage) []withheld {
+	unwrap := func(raw json.RawMessage) []withheld {
 		var entries []withheld
 		_ = json.Unmarshal(raw, &entries)
 		if entries == nil {
@@ -145,7 +144,6 @@ func TestPlannedCallMatchesChainOverTheFleet(t *testing.T) {
 		},
 	}
 	for _, scenario := range scenarios {
-		scenario := scenario
 		t.Run(scenario.name, func(t *testing.T) {
 			script := func(t *testing.T, nodes []*rpctest.Node) {
 				for i, node := range nodes {

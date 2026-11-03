@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/codermaybe/ethguard/internal/reference"
@@ -48,13 +47,3 @@ func (MethodHeadCodec) Normalize(raw json.RawMessage) (string, error) {
 }
 
 var _ reference.HeadCodec = MethodHeadCodec{}
-
-// winningHeadOf extracts the corroborated reference identity from a decision
-// value, applying the same codec contract.
-func winningHeadOf(raw json.RawMessage) (reference.HeadView, error) {
-	view, err := MethodHeadCodec{}.Decode(raw)
-	if err != nil {
-		return reference.HeadView{}, fmt.Errorf("winning reference: %w", rpc.ErrMalformedResponse)
-	}
-	return view, nil
-}

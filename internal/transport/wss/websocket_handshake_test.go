@@ -238,7 +238,6 @@ func TestHandshakeRejectsNon101Responses(t *testing.T) {
 		{name: "426-version", response: "HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 8\r\nContent-Length: 0\r\n\r\n", wantStatus: 426},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				if _, err := rw.WriteString(tc.response); err != nil {
@@ -291,7 +290,6 @@ func TestHandshakeRejectsBrokenUpgradeHeaders(t *testing.T) {
 		{name: "missing-connection", extra: []string{"Connection: keep-alive"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				// Write the 101 manually with the accept key but broken
@@ -346,7 +344,6 @@ func TestHandshakeRejectsNegotiatedExtensionAndSubprotocol(t *testing.T) {
 		{name: "unrequested-subprotocol", extra: []string{"Sec-WebSocket-Protocol: chat"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				writeUpgradeAccept(t, rw, r, tc.extra...)
@@ -397,7 +394,6 @@ func TestHandshakeContextDeadlineAndCancellation(t *testing.T) {
 			return ctx, cancel
 		}, want: context.Canceled},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				buf := make([]byte, 1)

@@ -106,7 +106,6 @@ func TestReadFrameRFC6455BasicVectors(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			f, err := frameStream(t, tc.wire, 1<<20).readFrame()
 			if err != nil {
@@ -160,7 +159,6 @@ func TestReadFrameRejectsProtocolViolations(t *testing.T) {
 		{name: "64-bit length high bit", wire: append([]byte{0x82, 127, 0x80, 0, 0, 0, 0, 0, 0, 0}, bytes.Repeat([]byte("b"), 8)...)},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := readOneMessage(t, tc.wire, 1<<20)
 			var frameErr *frameError
@@ -201,7 +199,6 @@ func TestReadFrameTruncatedInputFailsClosed(t *testing.T) {
 		{name: "payload cut", wire: full[:len(full)-3]},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			_, data, err := readOneMessage(t, tc.wire, 1<<20)
 			if err == nil {
@@ -246,7 +243,6 @@ func TestFragmentedMessageRejectsBrokenSequences(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := readOneMessage(t, tc.wire, 1<<20)
 			var frameErr *frameError
@@ -405,7 +401,6 @@ func TestParseCloseFrame(t *testing.T) {
 		{name: "non-utf8 reason", payload: []byte{0x03, 0xE8, 0xFF, 0xFE}, wantErr: true},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := parseCloseFrame(tc.payload)
 			if tc.wantErr {
@@ -515,7 +510,6 @@ func TestReadMessageFailureIsSticky(t *testing.T) {
 		{name: "valid close via control callback", wire: append(validClose, decoy...), onControl: mimicControl, wantCategory: "close-1000"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			reader := frameStream(t, tc.wire, tc.limit)
 			_, _, first := reader.readMessage(tc.onControl)

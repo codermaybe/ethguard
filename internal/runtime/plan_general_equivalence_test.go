@@ -42,7 +42,6 @@ func TestPlannedMedianMatchesChainOverTheFleet(t *testing.T) {
 		},
 	}
 	for _, scenario := range scenarios {
-		scenario := scenario
 		t.Run(scenario.name, func(t *testing.T) {
 			script := func(t *testing.T, nodes []*rpctest.Node) {
 				for i, node := range nodes {

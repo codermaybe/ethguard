@@ -325,12 +325,11 @@ func TestPlannedBalanceMatchesChainOverTheFleet(t *testing.T) {
 		},
 	}
 	for _, scenario := range scenarios {
-		scenario := scenario
 		t.Run(scenario.name, func(t *testing.T) {
 			// The dissent scenario rewrites one node's answer, so the fleet
 			// is scripted per node index.
 			dissentIndex := 2
-			build := func(planned bool) (rpc.Decision, error, []bool) {
+			build := func(planned bool) (rpc.Decision, []bool, error) {
 				nodes := []*rpctest.Node{rpctest.NewNode(1), rpctest.NewNode(1), rpctest.NewNode(1)}
 				defer func() {
 					for _, node := range nodes {
@@ -386,11 +385,11 @@ func TestPlannedBalanceMatchesChainOverTheFleet(t *testing.T) {
 						aggregator.WithReferenceStage(bundle.Stage))
 				}
 				decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: "eth_getBalance", Params: scenario.params})
-				return decision, aggErr, servedBalance
+				return decision, servedBalance, aggErr
 			}
 
-			plannedDecision, plannedErr, plannedServed := build(true)
-			chainDecision, chainErr, chainServed := build(false)
+			plannedDecision, plannedServed, plannedErr := build(true)
+			chainDecision, chainServed, chainErr := build(false)
 
 			if (plannedErr == nil) != (chainErr == nil) {
 				t.Fatalf("error mismatch: plan %v chain %v", plannedErr, chainErr)

@@ -112,12 +112,6 @@ type server struct {
 	handle func(w http.ResponseWriter, r *http.Request, n int, body []byte)
 }
 
-// respondWith builds a handler answering every request with the same raw
-// bytes under a JSON content type.
-func respondWith(body []byte) func(*http.Request) (int, []byte) {
-	return func(*http.Request) (int, []byte) { return 0, body }
-}
-
 func newServer(t *testing.T, respond func(n int, body []byte) (int, []byte)) *server {
 	t.Helper()
 	return newRawServer(t, func(w http.ResponseWriter, r *http.Request, n int, reqBody []byte) {
@@ -150,16 +144,6 @@ func newRawServer(t *testing.T, handle func(w http.ResponseWriter, r *http.Reque
 	}))
 	t.Cleanup(s.Close)
 	return s
-}
-
-// setStatus replaces the response behavior with a bare HTTP status. The
-// exchange still counts as a recorded request.
-func (s *server) setStatus(status int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.handle = func(w http.ResponseWriter, r *http.Request, n int, body []byte) {
-		w.WriteHeader(status)
-	}
 }
 
 // hang makes the server accept the request, flush the head, and stall until
@@ -400,7 +384,8 @@ func testHTTPStatusClassification(t *testing.T, adapter Adapter) {
 				t.Fatalf("429 must carry the RateLimitError capability: %v", err)
 			}
 			if !tc.rateLimit {
-				if rateLimited, isRate := err.(rpc.RateLimitError); isRate && rateLimited.IsRateLimit() {
+				var rateLimited rpc.RateLimitError
+				if errors.As(err, &rateLimited) && rateLimited.IsRateLimit() {
 					t.Fatalf("non-429 status must not claim rate limiting: %v", err)
 				}
 			}

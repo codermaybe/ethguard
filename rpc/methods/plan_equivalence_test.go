@@ -201,7 +201,6 @@ func TestPlansMatchConstructors(t *testing.T) {
 	hash, height := testAnchors()
 	ctx := context.Background()
 	for _, spec := range Specs() {
-		spec := spec
 		t.Run(spec.Method, func(t *testing.T) {
 			plan, err := CompilePlan(spec)
 			if err != nil {

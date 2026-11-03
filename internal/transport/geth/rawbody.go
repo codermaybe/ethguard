@@ -152,14 +152,6 @@ func (t capturingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return resp, nil
 }
 
-// dialHTTPPreservingErrorData dials HTTP and HTTPS with the capturing
-// transport. Other schemes, including WebSocket, return ok=false so the
-// caller keeps the ordinary ethclient dialer. It injects no deadline of its
-// own: the call context handed in by the caller is the only time bound.
-func dialHTTPPreservingErrorData(ctx context.Context, rawURL string) (*ethclient.Client, bool, error) {
-	return dialHTTPPreservingErrorDataWithLimit(ctx, rawURL, 0)
-}
-
 // dialHTTPPreservingErrorDataWithLimit is dialHTTPPreservingErrorData with an
 // explicit capture byte-count limit; limit 0 selects defaultCapturedBodyBytes.
 // Tests use it to shrink the cap and exercise the truncation path without

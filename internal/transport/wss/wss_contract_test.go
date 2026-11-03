@@ -160,7 +160,6 @@ func TestProtocolErrorsKeepErrorDataPresence(t *testing.T) {
 		{name: "object-data", data: `,"data":{"inner":1}`, want: rpc.ErrorDataPresenceValue, raw: `{"inner":1}`},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
 				peer.respondError(<-peer.requests, 3, "execution reverted", tc.data)

@@ -147,7 +147,7 @@ func probeAggregator(t *testing.T, p *pool.Pool, stage *scriptedStage, planned b
 // chain path must agree on the decision, the prepared request, and the
 // recorded block pin, and both must establish exactly once.
 func TestPlannedReadMatchesTheChainPath(t *testing.T) {
-	nodes, p := probeNodes(t, "0x64", 3)
+	_, p := probeNodes(t, "0x64", 3)
 	stage := &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Height: 16, Status: rpc.Corroborated}}
 	plannedDecision, plannedErr := probeAggregator(t, p, stage, true).Aggregate(context.Background(),
 		rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
@@ -155,7 +155,7 @@ func TestPlannedReadMatchesTheChainPath(t *testing.T) {
 		t.Fatalf("planned read failed: %v", plannedErr)
 	}
 
-	nodes, p = probeNodes(t, "0x64", 3)
+	nodes, p := probeNodes(t, "0x64", 3)
 	chainStage := &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Height: 16, Status: rpc.Corroborated}}
 	chainDecision, chainErr := probeAggregator(t, p, chainStage, false).Aggregate(context.Background(),
 		rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})

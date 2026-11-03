@@ -184,7 +184,7 @@ func (t *Transport) write(ctx context.Context, body []byte) error {
 	if err == nil {
 		return nil
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil && err == ctxErr {
+	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
 		return ctxErr
 	}
 	writeErr := fmt.Errorf("wss: write request: %w", transport.ErrConnectionClosed)

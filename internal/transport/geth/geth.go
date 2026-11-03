@@ -181,10 +181,7 @@ func isJSONDecodeFailure(err error) bool {
 		return true
 	}
 	var typeErr *json.UnmarshalTypeError
-	if errors.As(err, &typeErr) {
-		return true
-	}
-	return false
+	return errors.As(err, &typeErr)
 }
 
 // The Adapter's error wrappers satisfy the project-owned protocol-error
