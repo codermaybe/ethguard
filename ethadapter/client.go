@@ -497,51 +497,18 @@ func (e *RevertError) ErrorData() interface{} {
 	return nil
 }
 
-// decodeCallResult separates a corroborated revert envelope from return data.
-func decodeCallResult(raw json.RawMessage) ([]byte, error) {
-	var envelope struct {
-		Code    int             `json:"code"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err == nil && (envelope.Code != 0 || envelope.Message != "") {
-		revert := &RevertError{message: envelope.Message, DataRaw: append(json.RawMessage(nil), envelope.Data...)}
-		var hexData string
-		if len(envelope.Data) > 0 && json.Unmarshal(envelope.Data, &hexData) == nil {
-			if data, err := hexutil.Decode(hexData); err == nil {
-				revert.Data = data
-			}
-		}
-		return nil, revert
-	}
-	if string(raw) == "null" {
-		return nil, fmt.Errorf("%w: null call result", rpc.ErrMalformedResponse)
-	}
-	var out hexutil.Bytes
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("%w: decode call result: %v", rpc.ErrMalformedResponse, err)
-	}
-	return out, nil
-}
-
+// decodeCallDecision projects the corroborated call decision through the
+// typed decoder and maps the neutral revert carrier onto the adapter's own
+// error type. The adapter owns no second call decoder.
 func decodeCallDecision(decision rpc.Decision) ([]byte, error) {
-	if decision.Revert == nil {
-		return decodeCallResult(decision.Value)
+	data, revert, err := typed.DecodeCallDecision(decision)
+	if err != nil {
+		return nil, err
 	}
-	revert := &RevertError{message: decision.Revert.Message}
-	var payload struct {
-		Data json.RawMessage `json:"data"`
+	if revert != nil {
+		return nil, &RevertError{message: revert.Message, Data: revert.Data, DataRaw: revert.DataRaw}
 	}
-	if err := json.Unmarshal(decision.Value, &payload); err == nil && len(payload.Data) > 0 {
-		revert.DataRaw = append(json.RawMessage(nil), payload.Data...)
-		var hexData string
-		if json.Unmarshal(payload.Data, &hexData) == nil {
-			if data, err := hexutil.Decode(hexData); err == nil {
-				revert.Data = data
-			}
-		}
-	}
-	return nil, revert
+	return data, nil
 }
 
 // toCallArg mirrors go-ethereum's own client-side shape of an eth_call

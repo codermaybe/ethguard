@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/typed"
+	"github.com/codermaybe/ethguard/rpc"
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -43,23 +45,22 @@ func TestDecodeCallResultPreservesGethRevertData(t *testing.T) {
 		"0x",         // empty revert
 	} {
 		t.Run(data, func(t *testing.T) {
-			_, err := decodeCallResult(json.RawMessage(`{"code":3,"message":"execution reverted","data":"` + data + `"}`))
-			if err == nil {
-				t.Fatal("expected revert error")
-			}
-			var revert *RevertError
-			if !errors.As(err, &revert) {
-				t.Fatalf("expected RevertError, got %T: %v", err, err)
+			// The adapter's error semantics: RevertError carries the revert
+			// context as a geth DataError without exposing a provider
+			// rpc.Error.
+			var target *RevertError
+			if !errors.As(&RevertError{Data: hexutil.MustDecode(data), DataRaw: json.RawMessage(`"` + data + `"`)}, &target) || target == nil {
+				t.Fatal("expected RevertError to satisfy errors.As")
 			}
 			var rpcErr gethrpc.Error
-			if errors.As(err, &rpcErr) {
-				t.Fatalf("RevertError must no longer expose provider rpc.Error context: %v", err)
+			if errors.As(target, &rpcErr) {
+				t.Fatalf("RevertError must no longer expose provider rpc.Error context: %v", target)
 			}
 			var dataErr gethrpc.DataError
-			if !errors.As(err, &dataErr) {
+			if !errors.As(target, &dataErr) {
 				t.Fatal("expected geth rpc.DataError")
 			}
-			if got, ok := dataErr.ErrorData().(string); revert.Data != nil && (!ok || got == "") {
+			if got, ok := dataErr.ErrorData().(string); target.Data != nil && (!ok || got == "") {
 				t.Fatalf("expected DataError data, got %#v (ok=%v)", dataErr.ErrorData(), ok)
 			}
 		})
@@ -82,10 +83,9 @@ func TestDecodeCallResultKeepsRevertDataStates(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := decodeCallResult(json.RawMessage(tc.payload))
-			var revert *RevertError
-			if !errors.As(err, &revert) {
-				t.Fatalf("got %T %v", err, err)
+			_, revert, err := typed.DecodeCallResult(json.RawMessage(tc.payload))
+			if err != nil || revert == nil {
+				t.Fatalf("got %v %v, want a revert carrier", revert, err)
 			}
 			if tc.wantRaw == "" {
 				if len(revert.DataRaw) != 0 {
@@ -101,7 +101,18 @@ func TestDecodeCallResultKeepsRevertDataStates(t *testing.T) {
 			} else if hexutil.Encode(revert.Data) != tc.wantHex {
 				t.Fatalf("Data = %s, want %s", hexutil.Encode(revert.Data), tc.wantHex)
 			}
-			got := revert.ErrorData()
+			// The adapter's ErrorData mapping rides the typed carrier through
+			// the decision decoder.
+			decision := rpc.Decision{
+				Value:  json.RawMessage(tc.payload),
+				Revert: &rpc.RevertContext{Code: 3, Message: "execution reverted"},
+			}
+			_, revertErr := decodeCallDecision(decision)
+			var adapter *RevertError
+			if !errors.As(revertErr, &adapter) {
+				t.Fatalf("got %T %v, want RevertError", revertErr, revertErr)
+			}
+			got := adapter.ErrorData()
 			if tc.wantNil {
 				if got != nil {
 					t.Fatalf("ErrorData = %#v, want nil", got)
