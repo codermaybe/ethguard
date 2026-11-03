@@ -2,8 +2,9 @@
 
 [English](README.md) · **简体中文**
 
-> 状态：早期实现阶段。核心聚合模型和主要执行路径已经建立，但方法覆盖、
-> API 边界和实现质量仍在持续完善。
+> 状态：早期实现阶段。核心聚合模型、计划驱动的读取路径、native HTTP 和
+> raw WSS 调用路径已经建立。方法形态兼容仍是 `ethclient` 的支持子集，真实
+> provider 证据和实现质量仍在持续完善。
 
 EthGuard 是一个面向多源 Ethereum JSON-RPC 的聚合客户端。它查询多个上游，
 依据固定的 Ethereum execution-apis 契约校验响应，清洗官方标准字段，并聚合
@@ -33,8 +34,8 @@ ethguard/                   # 公共 Client 外观
 ├── pool/                   # 上游生命周期、Transport Port、健康度和准入资格
 ├── observe/                # 被动可观测性接口
 │   └── prometheus/         # 可选指标适配器（不放入核心）
-├── aggregator/             # 只负责编排：Collect → Admit → Resolve
-├── rpc/                    # 公共请求、裁决、策略和证据模型
+├── aggregator/             # Validate → Reference → Collect → Admit → Resolve → Project
+├── rpc/                    # 公共请求、裁决、计划、策略和证据模型
 │   ├── projection/         # 公共标准字段投影和扩展 Carrier
 │   ├── methods/            # 具体 Ethereum JSON-RPC 方法和目录
 │   │   ├── eth_*.go        # 各方法常量、策略和装配
@@ -46,7 +47,7 @@ ethguard/                   # 公共 Client 外观
 │       ├── objects/        # 区块、收据、交易、日志、feeHistory 规则
 │       └── policy/         # 共享准入装饰器
 ├── internal/
-│   ├── runtime/            # 唯一 Composition Root：methods、projector、aggregator 装配
+│   ├── runtime/            # 唯一 Composition Root：plan、projector、aggregator 装配
 │   ├── typed/              # 唯一生产 typed projection；root 和 ethadapter 共用
 │   ├── jsonsafe/           # 有界 JSON 校验（重复键/大小限制）
 │   ├── reference/          # reference 建立和 Head-Reading Port
@@ -59,11 +60,18 @@ ethguard/                   # 公共 Client 外观
 │       ├── methods.json    # 精简后的方法结果契约（约 100KB）
 │       ├── vectors/        # 从 tests/*.io 提取的符合性向量
 │       └── README.md       # 来源、升级流程和审计指南
-│   └── verification/       # 面向公开 seam 的跨模块验证
-│       └── integration/    # 首阶段集成验证；后续按 contracts/scenarios/replay 细分
+│   ├── verification/       # 面向公开 seam 的跨模块验证
+│   │   └── integration/    # 首阶段集成验证；后续按 contracts/scenarios/replay 细分
+│   ├── transport/          # Transport Port 适配器和契约测试
+│   │   ├── http/            # 项目自有 native HTTP 适配器
+│   │   ├── wss/             # 项目自有 raw WebSocket 调用适配器
+│   │   ├── geth/            # 显式 go-ethereum 兼容适配器
+│   │   └── contract/        # transport 无关的 L1 契约套件
+│   └── testkit/wstest/      # WSS 服务端测试对端
 ├── ethadapter/             # 只委托 root facade 的 ethclient 形态接口
+├── gethcompat/              # go-ethereum transport 的显式构造 seam
 ├── rpctest/                # 基于真实 HTTP 的进程内可编排 Ethereum 节点测试工具
-├── cmd/                    # 可执行入口（soak、rpcsample、shapeprobe、specbundle、specdiff）
+├── cmd/                    # 可执行入口（含 wsscapture、livecanary）
 ├── docs/                   # 架构、威胁模型和设计说明
 │   └── design/             # 已接受的架构和聚合记录
 └── examples/               # 简单导入示例
@@ -77,7 +85,7 @@ ethguard/                   # 公共 Client 外观
 | `ethguard/pool` | 共享上游连接、Transport Port、采集、健康度和准入资格 |
 | `ethguard/observe` | 可观测性事件（`Recorder`），不参与安全决策 |
 | `ethguard/aggregator` | 语义门槛、冲突和证据 |
-| `ethguard/rpc` | 公共请求、裁决、策略、观察和证据模型 |
+| `ethguard/rpc` | 公共请求、裁决、ReadPlan、resolver、观察和证据模型 |
 | `ethguard/rpc/projection` | 标准字段投影和扩展 Carrier 组装 |
 | `ethguard/rpc/methods` | 具体 Ethereum JSON-RPC 方法、策略和目录 |
 | `ethguard/rpc/internal` | 内部 wire、对象和准入实现 |
@@ -87,16 +95,19 @@ ethguard/                   # 公共 Client 外观
 | `ethguard/internal/verification` | 面向公开 seam 的契约、场景、集成和回放验证 |
 | `ethguard/internal/spec` | 固定的 execution-apis 参考数据（版本、schema、向量） |
 | `ethguard/rpctest` | 基于真实 HTTP 的可编排多源测试工具 |
+| `ethguard/internal/transport` | Transport Port 实现和中立契约测试 |
+| `ethguard/gethcompat` | 显式 go-ethereum 兼容构造 seam |
 
 并发模型：每个进程用例共享一个 `Client` / `pool.Pool`；上游保持长连接。调用方
 不应为每个请求重新拨号，也不应为每个 goroutine 克隆 pool。Client 生命周期结束
 时应由所有者调用 `Close`。
 
-分层规则：`internal/runtime` 是唯一 Composition Root，负责把 methods、projector、
-aggregator 和 reference seam 绑定起来；`ethadapter` 只委托 root facade，不导入
-runtime。`aggregator` 只了解 `rpc.Policy` / `AdmissionPolicy` 接口，不导入
-`methods`；`rpc` 也不导入 `methods`。Ethereum 方法入口和方法级策略位于
-`rpc/methods`；共享的 wire 规范化、裁剪、对象语义和准入辅助位于 `rpc/internal`。
+分层规则：`internal/runtime` 是唯一 Composition Root，负责把方法清单编译成
+ReadPlan，并绑定 plan、projector、aggregator 和 reference seam；`ethadapter` 只
+委托 root facade，不导入 runtime。`aggregator` 消费 ReadPlan 以及 resolver/admission
+接口，不导入 `methods`；`rpc` 也不导入 `methods`。Ethereum 方法入口和 MethodSpec
+清单位于 `rpc/methods`；共享的 wire 规范化、裁剪、对象语义和准入辅助位于
+`rpc/internal`。
 `pool` 定义最小 Transport Port，`internal/reference` 定义 Head-Reading Port，
 两者都不承载方法 policy 组装或业务裁决。标准投影通过 `rpc/projection` 暴露。
 
@@ -117,8 +128,28 @@ runtime。`aggregator` 只了解 `rpc.Policy` / `AdmissionPolicy` 接口，不�
   options）位于根目录 `anchor.go`；reference 算法和 Head-Reading Port 位于
   `internal/reference`，调用内传播位于 `internal/refcontext`。
 - **两种类型化接口。** `eth.go`（根 `Client`）为高级调用方返回带有 `rpc.Decision`
-  证据的值；`ethadapter` 返回 ethclient 形态的值供直接替换使用。adapter 只做
-  形状转换并委托根能力，不能再实现第二套解码器。
+  证据的值；`ethadapter` 返回 ethclient 形态的值供直接替换使用。adapter 可以做
+  方法兼容性校验和请求绑定；类型解码仍由共享的 `internal/typed` 模块负责，业务裁决
+  仍由 root runtime 负责。
+
+### 执行模型与覆盖范围
+
+默认 runtime 为每个已注册读取方法编译一个 `MethodSpec → rpc.ReadPlan`。plan
+持有规范化、reference/pending、准入、resolver 选择和 projection 绑定等阶段事实。
+执行骨架是：
+
+```text
+Validate / Prepare → Reference → Collect → Admit → Resolve → Project
+```
+
+当前清单包含 23 个已注册读取方法。根 `Client` 提供带证据的类型化方法和通用
+`Call`；`ethadapter` 为支持的子集提供 ethclient 形态封装（当前 18 个方法形态入口）。
+`eth_getProof` 明确为 unsupported。计划已注册不代表真实 provider 的兼容性已经完成，
+provider 证据仍是独立轨道。
+
+旧的逐方法 Policy 构造器保留为 resolver seam、兼容表面和等价测试 oracle；它们不是
+默认 runtime registry，也不能形成第二个组合根。方法级编排已经计划化；strict、median、
+local、call-revert 和 block-specific policy 仍是有意保留的深模块。
 
 ## 使用
 
@@ -220,6 +251,9 @@ upstreams:
 data，不等于真实 provider 普遍兼容性已验证。同一 backend 的 HTTP/WSS endpoint
 不构成两个独立信任来源。显式 per-source transport 不能与 `DialerOption` 或
 `gethcompat.New` 混用。
+
+raw WSS 是 EthGuard 专用的调用 transport，不是通用 WebSocket 客户端。订阅、后台
+重连、主动 keepalive 和内部队列不在当前范围内，需要独立的运维证据后再推进。
 
 参见[架构记录](docs/design/architecture-record.md)、[架构说明](docs/architecture.md)、
 [架构恢复记忆](docs/design/architecture-recovery.md)、[代码库拓扑](docs/design/codebase-topology.md)、[聚合概览(历史综述)](docs/design/rpc-aggregation.md)、[proxyd 对比](docs/design/proxyd-comparison.md)

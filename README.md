@@ -2,9 +2,10 @@
 
 [**English**](README.md) · [简体中文](README.zh-CN.md)
 
-> Status: early-stage implementation. The core aggregation model and main
-> execution paths are in place, while method coverage, API boundaries, and
-> implementation quality still need further hardening.
+> Status: early-stage implementation. The core aggregation model, the
+> plan-driven read path, native HTTP, and the raw WSS call path are in place.
+> Method-shaped compatibility remains a supported subset of `ethclient`, and
+> provider evidence plus implementation quality still need further hardening.
 
 EthGuard is a multi-source Ethereum JSON-RPC aggregation client. It queries
 multiple upstreams, validates responses against pinned Ethereum execution-apis
@@ -38,8 +39,8 @@ ethguard/                   # public Client facade
 ├── pool/                   # upstream lifecycle, Transport Port, health, eligibility
 ├── observe/                # passive observability seam
 │   └── prometheus/         # optional metrics adapter (kept out of core)
-├── aggregator/             # orchestration only: Collect → Admit → Resolve
-├── rpc/                    # public request, decision, policy, and evidence model
+├── aggregator/             # Validate → Reference → Collect → Admit → Resolve → Project
+├── rpc/                    # public request, decision, plan, policy, and evidence model
 │   ├── projection/         # public standard-field projection and extension Carrier
 │   ├── methods/            # concrete Ethereum JSON-RPC methods and catalog
 │   │   ├── eth_*.go        # per-method constants, policies, and wiring
@@ -51,7 +52,7 @@ ethguard/                   # public Client facade
 │       ├── objects/        # block, receipt, transaction, log, feeHistory rules
 │       └── policy/         # shared admission decorator
 ├── internal/
-│   ├── runtime/            # sole Composition Root for methods, projectors, aggregator
+│   ├── runtime/            # sole Composition Root for plans, projectors, aggregator
 │   ├── typed/              # sole production typed projection shared by facades
 │   ├── jsonsafe/           # bounded JSON validation (duplicate keys/limits)
 │   ├── reference/          # reference algorithm and Head-Reading Port
@@ -64,11 +65,18 @@ ethguard/                   # public Client facade
 │       ├── methods.json    # trimmed per-method result contracts (~100KB)
 │       ├── vectors/        # conformance vectors extracted from tests/*.io
 │       └── README.md       # provenance, upgrade procedure, audit guide
-│   └── verification/       # cross-module verification through public seams
-│       └── integration/    # first safe slice; later contracts/scenarios/replay split
+│   ├── verification/       # cross-module verification through public seams
+│   │   └── integration/    # first safe slice; later contracts/scenarios/replay split
+│   ├── transport/          # Transport Port adapters and contract tests
+│   │   ├── http/            # project-owned native HTTP adapter
+│   │   ├── wss/             # project-owned raw WebSocket call adapter
+│   │   ├── geth/            # explicit go-ethereum compatibility adapter
+│   │   └── contract/        # transport-neutral L1 contract suite
+│   └── testkit/wstest/      # server-side WSS test peer
 ├── ethadapter/             # ethclient-shaped surface delegating to the root facade
+├── gethcompat/              # explicit construction seam for go-ethereum transport
 ├── rpctest/                # in-process scriptable Ethereum nodes for tests
-├── cmd/                    # executable entries (soak, rpcsample, shapeprobe, specbundle, specdiff)
+├── cmd/                    # executable entries, including wsscapture and livecanary
 ├── docs/                   # architecture, threat model, and design notes
 │   └── design/             # accepted architecture and aggregation records
 └── examples/               # small import demos
@@ -82,7 +90,7 @@ ethguard/                   # public Client facade
 | `ethguard/pool` | Shared upstream connections, Transport Port, collection, health, eligibility |
 | `ethguard/observe` | Observability events (`Recorder`); never a source of security decisions |
 | `ethguard/aggregator` | Semantic quorum, conflicts, and evidence |
-| `ethguard/rpc` | Public request, decision, policy, observation, and evidence model |
+| `ethguard/rpc` | Public request, decision, ReadPlan, resolver, observation, and evidence model |
 | `ethguard/rpc/projection` | Standard-field projection and extension Carrier assembly |
 | `ethguard/rpc/methods` | Concrete Ethereum JSON-RPC methods, policies, and catalog |
 | `ethguard/rpc/internal` | Internal wire, object, and admission implementations |
@@ -92,17 +100,19 @@ ethguard/                   # public Client facade
 | `ethguard/internal/verification` | Contract, scenario, integration, and replay verification through seams |
 | `ethguard/internal/spec` | Pinned execution-apis reference data (version, schemas, vectors) |
 | `ethguard/rpctest` | Scriptable multi-source test harness over real HTTP |
+| `ethguard/internal/transport` | Transport Port implementations and neutral contract tests |
+| `ethguard/gethcompat` | Explicit go-ethereum compatibility construction seam |
 
 Concurrency model: one shared `Client` / `pool.Pool` per process use-case;
 sources keep long-lived connections. Callers should not dial per request or
 clone pools per goroutine. Owners should close the Client when its lifetime ends.
 
-Layering rules: `internal/runtime` is the sole Composition Root. It binds methods,
-projectors, the aggregator, and reference seams; `ethadapter` delegates through
-the root facade and does not import runtime. `aggregator` only knows the
-`rpc.Policy` / `AdmissionPolicy` interfaces and never imports `methods`; `rpc`
-never imports `methods`. Ethereum method entrypoints and method-specific policy
-live in `rpc/methods`. `pool` owns the minimal Transport Port and
+Layering rules: `internal/runtime` is the sole Composition Root. It compiles the
+method inventory into ReadPlans and binds plans, projectors, the aggregator, and
+reference seams; `ethadapter` delegates through the root facade and does not
+import runtime. `aggregator` consumes ReadPlans and resolver/admission
+interfaces and never imports `methods`; `rpc` never imports `methods`. Ethereum
+method entrypoints and the MethodSpec inventory live in `rpc/methods`. `pool` owns the minimal Transport Port and
 `internal/reference` owns the Head-Reading Port; neither carries method policy
 assembly or business adjudication. Shared wire normalization, pruning, object
 semantics, and admission helpers live in `rpc/internal`.
@@ -130,8 +140,34 @@ semantics, and admission helpers live in `rpc/internal`.
   per-invocation propagation in `internal/refcontext`.
 - **Two typed surfaces.** `eth.go` (root `Client`) returns values with
   `rpc.Decision` evidence for advanced callers; `ethadapter` returns
-  ethclient-shaped values for drop-in use. The adapter translates shape only
-  and must delegate to root capabilities — never a second decoder.
+  ethclient-shaped values for drop-in use. The adapter may perform
+  method-compatibility validation and request binding, while typed decoding
+  remains in the shared `internal/typed` module and business adjudication
+  remains in the root runtime.
+
+### Execution and coverage
+
+The default runtime compiles one `MethodSpec` per registered read method into a
+`rpc.ReadPlan`. The plan owns stage facts such as normalization, reference and
+pending handling, admission, resolver selection, and projection binding. The
+execution skeleton is:
+
+```text
+Validate / Prepare → Reference → Collect → Admit → Resolve → Project
+```
+
+The current inventory contains 23 registered read methods. The root `Client`
+provides typed methods and generic `Call` access; `ethadapter` provides an
+ethclient-shaped wrapper for the supported subset (currently 18 method-shaped
+entries). `eth_getProof` is explicitly unsupported. A registered plan does not
+promise a provider-wide compatibility result: live provider evidence remains a
+separate track.
+
+The old per-method Policy constructors remain as a resolver seam, compatibility
+surface, and equivalence-test oracle. They are not the default runtime registry
+and must not become a second composition root. Method-level orchestration is
+plan-driven; resolver modules such as strict, median, local, call-revert, and
+block-specific policies remain deliberately deep modules.
 
 ## Usage
 
@@ -250,6 +286,10 @@ later independent call may lazily reconnect. Raw WSS retains missing/null/`0x`/
 concrete error data without claiming provider-wide compatibility. Same-backend
 HTTP and WSS endpoints do not establish independent trust. Explicit per-source
 transport cannot be combined with `DialerOption`/`gethcompat.New`.
+
+The raw WSS adapter is an EthGuard call transport, not a general WebSocket
+client. Subscriptions, background reconnect, active keepalive, and an internal
+queue are outside the current scope and require separate operational evidence.
 
 See the [architecture record](docs/design/architecture-record.md),
 [architecture](docs/architecture.md), [aggregation overview (historical)](docs/design/rpc-aggregation.md),
