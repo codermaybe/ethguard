@@ -74,6 +74,66 @@ go test ./... -race -count=1
 go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
 ```
 
+## 接续计划：切片 9–15
+
+状态：**切片 1–8 已完成；切片 9 正在收口，尚未通过全量门禁。** 当前工作区的
+生产删除、计划回放适配和 reference trace 适配必须先恢复到可验证状态，再继续
+后续切片。`go test ./... -count=1` 当前仍有 replay、reference 和 catalog 矩阵失败，
+这些失败不能通过删除断言或放宽预期解决。
+
+下表是原执行计划的接续版本。每个切片单线推进；出口未满足时停止，不进入下一行。
+
+| 顺序 | 业务任务 | 主要改动 | 退出条件 | 提交边界 |
+| --- | --- | --- | --- | --- |
+| 9 | 删除双执行模型并完成 plan 执行收口 | 先修复计划回放、reference evidence 和 catalog 矩阵；再移除剩余 legacy constructor、decorator、双路 aggregator 分支、runtime `Registry` 路径和无效工具引用 | replay、runtime、methods 相关测试全绿；生产路径只由 plan 执行；方法数量、Decision、quorum、reference 和 typed 语义不变 | 测试绿化与生产删除分开提交 |
+| 10 | 收敛 context ownership | 盘点 context key 的读写；保留 invocation/capture 必要事实，将成员和 corroboration 归入 Invocation/Basis；移除 adapter 对内部 context 的直接依赖 | context 只保留必要 key；取消、forward、corroboration、adapter 测试通过；没有隐式模式切换 | 只改 context ownership 与显式业务 option |
+| 11 | 压平 reference facade | 让 facade 与 invocation 共用 ReferenceStage；删除重复 service 路由和 runtime helper | 同一 fleet、tag 和请求下 evidence、参与者、fault 与失败结果一致 | 不改变 reference evidence 语义 |
+| 12 | 统一 reference 单轮执行 | 先补 strict-head 与业务轮次的阶段映射测试，再评估 aggregator 单轮入口；删除重复 round seam | fault、attempt、source identity 和取消规则一致；不引入重试、quorum 或成员变化 | 阶段映射测试与生产改动分开提交 |
+| 13 | 归位 call typed decoding | 将 adapter 内 call/revert 解码归入 `internal/typed`，adapter 只保留兼容参数和错误映射 | adapter 不再拥有第二套 call decoder；revert、data presence 和 typed projection 回归通过 | 只移动 typed 解释逻辑 |
+| 14 | 文档状态收敛 | 同步 roadmap、拓扑、verification 状态、历史提案的 Superseded 关系和 digest 行尾契约；记录切片 9–13 的实际证据 | 本文件仍是唯一路线来源；事实、目标和外部未观察状态分开；不改历史决策正文 | 文档按对应业务切片独立提交 |
+| 15 | 最终代码审计 | 按 Standards/Spec 双轴审计所有切片；检查业务命名、依赖方向、删除范围、测试真实性和未授权语义变化 | gofmt、diff check、build、vet、普通测试、race、架构 interlock、Verification 专项门均有实际结果 | 审计记录独立提交；不混入新功能 |
+
+切片 9–15 的共同门禁：
+
+```text
+gofmt -l .
+git diff --check
+go build ./...
+go vet ./...
+go test <相关业务包> -count=1
+```
+
+涉及 pool、aggregator、WSS 或 reference 时，必须增加对应 `-race` 测试。切片 15
+结束时再执行：
+
+```text
+go test ./... -count=1
+go test ./... -race -count=1
+go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
+go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on
+```
+
+测试失败时保留失败证据并停止；不得用删测试、放宽断言、更新 provider 样本或改写
+Decision 的方式制造绿灯。测试框架设计已经落库，但不插入切片 9–15 的生产收敛链。
+
+## 切片 15 之后：外部 RPC 测试框架实现
+
+测试框架设计见 [external-rpc-test-framework.md](external-rpc-test-framework.md)，
+状态为设计提案，代码实现排在切片 15 和最终审计之后。实现仍需单线推进，并保持
+普通 CI 无公网依赖。
+
+| 顺序 | 业务任务 | 主要改动 | 退出条件 |
+| --- | --- | --- | --- |
+| 1 | HTTP 传输故障场景 | 使用 `httptest` 和 `http.RoundTripper` 覆盖 status、超时、截断、malformed JSON、vendor 字段和 error-data 四态 | HTTP 场景能同时断言 Decision、fault 和来源；无生产接口扩张 |
+| 2 | WSS 生命周期场景 | 扩展既有 `wstest`；必要时在已有 connection seam 使用 `net.Pipe` 覆盖帧切片、半关闭、写取消、Close 和原始 payload | WSS contract 与 HTTP 业务语义分层验证；无第二套 WSS server |
+| 3 | Anvil fork 语义场景 | 固定 chain、block、fork source 和版本；用启动器管理临时端口、就绪检查、snapshot/revert 和 manifest | 固定历史 block、moving tag、EIP-1898 和状态变化场景可复现；生成物有 digest |
+| 4 | 外部证据接线 | 让 livecanary manifest/report 作为外部观察输入，继续区分 passed、failed、inconclusive、not_observed | provider 观察有 provenance；不把 Anvil 或合成 fault 当 provider golden |
+| 5 | 测试分层验收 | 更新命令清单和 CI 边界，运行 contract、WSS race、Anvil 专项、架构和 Verification 门 | 默认 CI 离线通过；外部证据流程独立且失败可解释；W4/null 缺口仍按证据状态记录 |
+
+该后置轨道不建立新的 `internal/verification` package，不把 `rpcsample` 改造成永久
+规范，也不引入后台重连、自动重试或第二套执行链。只有出现现有标准库 seam 无法表达
+的明确缺口时，才另行提交工具评估和决策修订。
+
 ## 路线总账
 
 | 轨道 | 当前状态 | 下一出口 | 约束 |
