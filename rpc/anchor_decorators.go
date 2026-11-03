@@ -1,57 +1,20 @@
 package rpc
 
+// The legacy decorator family: the constructor-era anchoring decorators
+// (WithAnchor, Anchored, RejectPending, WithAnchorHeight,
+// WithAnchorHeightFields) and their corroborating wrappers. Registered read
+// methods no longer execute through them — the plan model in read_plan.go
+// drives every registered method — so this file is the deletion boundary for
+// the legacy execution model. The shared block-reference helpers it consumes
+// live in block_reference.go.
+
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 )
-
-// AnchorFunc establishes a corroborated, immutable block reference. It is called
-// only when a moving tag actually needs rewriting.
-type AnchorFunc func(context.Context) (string, error)
-
-// AnchorHeightFunc establishes a corroborated block height for methods whose
-// wire form accepts a height but not a hash — eth_feeHistory's newestBlock
-// is a BlockNumber, not a BlockNumberOrHash, so a hash cannot ride the wire
-// (the soak caught the same constraint for eth_getBlockByNumber's number
-// position). Both built-in resolvers derive the height from the same
-// establishment response; no extra fan-out is required.
-type AnchorHeightFunc func(context.Context) (uint64, error)
-
-// movingTags is the anchor-rewrite set: latest, safe, and finalized. It is
-// not the spelling authority for every block reference in the repo. The
-// other spellings stay local on purpose:
-//
-//   - methods.validateEIP1898Object / isMovingTag: same three tags are
-//     anchored; pending and earliest pass through on EIP-1898 objects.
-//   - methods.pendingTag: pending only, including case, JSON, and
-//     {blockNumber: pending}. RejectPending uses pendingReference below,
-//     which recognizes that same pending shape.
-//   - ethadapter.toBlockNumArg / blockRefArg: Geth negative numbers
-//     (-1 pending, -2 latest, -3 finalized, -4 safe, -5 earliest as 0x0).
-//     Typed BlockByNumber(-1) is rejected in blockByNegativeNumber and
-//     never reaches this set.
-//
-// Do not fold these into one cross-package table: pending is not a moving
-// tag, and earliest is an explicit height for some entry points.
-var movingTags = map[string]bool{
-	"latest":    true,
-	"safe":      true,
-	"finalized": true,
-}
-
-type anchorTagContextKey struct{}
-
-func WithAnchorTag(ctx context.Context, tag string) context.Context {
-	return context.WithValue(ctx, anchorTagContextKey{}, tag)
-}
-func AnchorTag(ctx context.Context) string {
-	tag, _ := ctx.Value(anchorTagContextKey{}).(string)
-	return tag
-}
 
 // WithAnchor decorates any policy with moving-tag rewriting at one or more
 // parameter positions. The underlying policy still owns normalization and
@@ -167,39 +130,6 @@ func (a anchoredPolicy) ReferenceFor(req Request) (ReferenceRequest, bool) {
 	return ReferenceRequest{Kind: ReferenceKindForTag(tag)}, true
 }
 
-// singleMovingTag reports the one moving tag present at the positions, or
-// that no rewrite is needed. Two different tags make the request invalid;
-// the declaration stays silent so Prepare owns the rejection.
-func singleMovingTag(req Request, positions []int) (string, bool) {
-	tag := ""
-	for _, pos := range positions {
-		if pos < 0 || pos >= len(req.Params) {
-			continue
-		}
-		value, ok := req.Params[pos].(string)
-		if !ok || !movingTags[strings.ToLower(value)] {
-			continue
-		}
-		lowered := strings.ToLower(value)
-		if tag != "" && tag != lowered {
-			return "", false
-		}
-		tag = lowered
-	}
-	return tag, tag != ""
-}
-
-func anchorRule(kind string, positions []int) string {
-	if len(positions) == 0 {
-		return kind
-	}
-	parts := make([]string, len(positions))
-	for i, pos := range positions {
-		parts[i] = strconv.Itoa(pos)
-	}
-	return kind + "@" + strings.Join(parts, ",")
-}
-
 func (a anchoredPolicy) Resolve(obs []Observation) (Decision, error) {
 	return a.Policy.Resolve(obs)
 }
@@ -267,28 +197,6 @@ func (p pendingRejectingPolicy) Prepare(ctx context.Context, req Request) (Reque
 		}
 	}
 	return p.Policy.Prepare(ctx, req)
-}
-
-// pendingReference reports pending spellings at one block-reference position.
-// It matches methods.pendingTag: case-insensitive strings, JSON strings, and
-// EIP-1898 objects whose blockNumber is pending. A blockHash object is not
-// pending.
-func pendingReference(value any) bool {
-	switch typed := value.(type) {
-	case string:
-		return strings.EqualFold(strings.TrimSpace(typed), "pending")
-	case json.RawMessage:
-		var decoded any
-		if err := json.Unmarshal(bytes.TrimSpace(typed), &decoded); err != nil {
-			return false
-		}
-		return pendingReference(decoded)
-	case map[string]any:
-		number, ok := typed["blockNumber"]
-		return ok && pendingReference(number)
-	default:
-		return false
-	}
 }
 
 // MethodRule reports a local pending rejection. This decorator fails the
@@ -577,10 +485,6 @@ func (a anchoredFieldsPolicy) BlockRef(original, prepared Request) string {
 // or resolve the request. The corroborating wrapper promotes it.
 func (a anchoredFieldsPolicy) MethodRule() (MethodRule, Policy) {
 	return a.MethodRuleWith(MethodRule{Anchor: anchorFieldsRule(a.paramPos, a.fields)})
-}
-
-func anchorFieldsRule(pos int, fields []string) string {
-	return "height@" + strconv.Itoa(pos) + "." + strings.Join(fields, ",")
 }
 
 // ReferenceFor declares the reference the filter fields need: a missing

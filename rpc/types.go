@@ -1,5 +1,3 @@
-// Package rpc contains the small transport and decision model shared by the
-// pool, method policies, and aggregator.
 package rpc
 
 import (
