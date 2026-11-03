@@ -150,21 +150,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 	// preparation and any request: a concurrent Set only reaches
 	// invocations that start later (decision 0025).
 	snap, snapOK := a.corroboration()
-	if value, ok := refcontext.Corroboration(ctx); ok {
-		if inherited, valid := value.(rpc.Corroboration); valid {
-			snap, snapOK = inherited, true
-		}
-	} else if snapOK {
-		ctx = refcontext.WithCorroboration(ctx, snap)
-	}
-	var members []*pool.Source
-	if value, ok := refcontext.Members(ctx); ok {
-		members, _ = value.([]*pool.Source)
-	}
-	if members == nil {
-		members = a.pool.VotingMembers()
-		ctx = refcontext.WithMembers(ctx, members)
-	}
+	members := a.pool.VotingMembers()
 	// The plan is the only execution shape. A method outside the registry
 	// rides the explicit forward plan: one bounded single-source attempt, the
 	// first usable answer wins, and no agreement is claimed (decision 0002).

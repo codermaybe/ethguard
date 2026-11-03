@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
@@ -595,7 +594,7 @@ func assertCapturedGate(t *testing.T, agg *aggregator.Aggregator, policy rpc.Pol
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	gated, gatedErr := agg.Aggregate(refcontext.RequireCorroborated(ctx), req)
+	gated, gatedErr := agg.Aggregate(rpc.RequireCorroborated(ctx), req)
 	pending := false
 	if local, ok := policy.(rpc.LocalObservationPolicy); ok {
 		pending = local.IsLocalObservation(prepared)

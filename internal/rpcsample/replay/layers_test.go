@@ -184,7 +184,7 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	openDecision, openErr := aggregateCall(t, agg, false)
 	sameDecision(t, policyDecision, policyErr, openDecision, openErr)
 
-	ctx, cancel := context.WithTimeout(refcontext.RequireCorroborated(context.Background()), 5*time.Second)
+	ctx, cancel := context.WithTimeout(rpc.RequireCorroborated(context.Background()), 5*time.Second)
 	defer cancel()
 	gated, gatedErr := agg.Aggregate(ctx, callRequest())
 	if !errors.Is(gatedErr, rpc.ErrConflict) || gated.Status != rpc.Unknown {
@@ -328,7 +328,7 @@ func aggregateCall(t *testing.T, agg *aggregator.Aggregator, typed bool) (rpc.De
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if typed {
-		ctx = refcontext.RequireCorroborated(ctx)
+		ctx = rpc.RequireCorroborated(ctx)
 	}
 	return agg.Aggregate(ctx, callRequest())
 }

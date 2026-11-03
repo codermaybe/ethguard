@@ -37,7 +37,6 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
@@ -75,7 +74,7 @@ func (c *Client) requireContext(ctx context.Context) context.Context {
 	if c.eg.Mode() == rpc.CorroborationForwarded {
 		return ctx
 	}
-	return refcontext.RequireCorroborated(ctx)
+	return rpc.RequireCorroborated(ctx)
 }
 
 // ChainID returns the fleet-corroborated chain ID.

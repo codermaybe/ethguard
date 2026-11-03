@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
@@ -243,7 +242,7 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 		return expectCase{}, fmt.Errorf("%s representative policy %s aggregator %s", id, policyDecision.Representative.Name, aggDecision.Representative.Name)
 	}
 	if policyErr == nil && policyDecision.Status == rpc.Corroborated {
-		gatedCtx, gatedCancel := context.WithTimeout(refcontext.RequireCorroborated(context.Background()), 5*time.Second)
+		gatedCtx, gatedCancel := context.WithTimeout(rpc.RequireCorroborated(context.Background()), 5*time.Second)
 		defer gatedCancel()
 		gated, gatedErr := agg.Aggregate(gatedCtx, req)
 		if gatedErr != nil || gated.Status != rpc.Corroborated {

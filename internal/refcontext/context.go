@@ -49,33 +49,3 @@ func Invocation(ctx context.Context) (rpc.Invocation, bool) {
 	invocation, ok := ctx.Value(invocationKey{}).(rpc.Invocation)
 	return invocation, ok
 }
-
-type corroborationRequiredKey struct{}
-
-type membersKey struct{}
-type corroborationKey struct{}
-
-func WithMembers(ctx context.Context, members any) context.Context {
-	return context.WithValue(ctx, membersKey{}, members)
-}
-func Members(ctx context.Context) (any, bool) {
-	v := ctx.Value(membersKey{})
-	return v, v != nil
-}
-func WithCorroboration(ctx context.Context, value any) context.Context {
-	return context.WithValue(ctx, corroborationKey{}, value)
-}
-func Corroboration(ctx context.Context) (any, bool) {
-	v := ctx.Value(corroborationKey{})
-	return v, v != nil
-}
-
-// RequireCorroborated marks typed calls that cannot expose a Selected decision.
-func RequireCorroborated(ctx context.Context) context.Context {
-	return context.WithValue(ctx, corroborationRequiredKey{}, true)
-}
-
-func CorroborationRequired(ctx context.Context) bool {
-	value, _ := ctx.Value(corroborationRequiredKey{}).(bool)
-	return value
-}

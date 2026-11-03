@@ -124,7 +124,7 @@ func beginInvocation(ctx context.Context, snap rpc.Corroboration, snapOK bool, m
 		refs = append(refs, SourceRefOf(member))
 	}
 	opts := []rpc.InvocationOption{rpc.WithInvocationCapture(uncertainCaptureAdapter{capture: capture})}
-	if refcontext.CorroborationRequired(ctx) {
+	if rpc.CorroborationRequired(ctx) {
 		opts = append(opts, rpc.WithRequiredCorroboration())
 	}
 	invocation := rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap), opts...)
@@ -322,7 +322,7 @@ func (state *invocationState) resolveValue() (rpc.Decision, error) {
 	// keep their original order.
 	gatedByForwarded := state.snapOK && state.snap.Mode == rpc.CorroborationForwarded
 	pendingLocal := state.pendingLocalRoute()
-	if requiresAgreement && refcontext.CorroborationRequired(state.ctx) && !gatedByForwarded && !pendingLocal && resolveErr == nil && decision.Status != rpc.Corroborated {
+	if requiresAgreement && rpc.CorroborationRequired(state.ctx) && !gatedByForwarded && !pendingLocal && resolveErr == nil && decision.Status != rpc.Corroborated {
 		decision.Status = rpc.Unknown
 		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
 	}

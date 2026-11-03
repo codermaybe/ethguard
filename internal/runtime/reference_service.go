@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/reference"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
@@ -163,16 +162,11 @@ func NewFinalizedHeadService(p *pool.Pool, rec observe.Recorder, maxLag uint64, 
 	}
 }
 
-// Reference establishes the finalized reference under the invocation's
-// corroboration snapshot when one is in flight.
+// Reference establishes the finalized reference under the service's own
+// adjudication: the composition root tunes quorum and mode at construction
+// (slice 2's composition), so no per-call snapshot inheritance exists.
 func (s *FinalizedHeadService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	quorum, mode := s.quorum, rpc.CorroborationMajority
-	if value, ok := refcontext.Corroboration(ctx); ok {
-		if snapshot, valid := value.(rpc.Corroboration); valid {
-			quorum, mode = snapshot.Floor, snapshot.Mode
-		}
-	}
-	return s.finalized(ctx, quorum, mode)
+	return s.finalized(ctx, s.quorum, rpc.CorroborationMajority)
 }
 
 // ReferenceForTag routes the tag: latest and safe ride the strict head
@@ -184,11 +178,6 @@ func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) 
 	// tag the evidence records.
 	if tag == "latest" || tag == "safe" {
 		mode, floor := rpc.CorroborationMajority, s.quorum
-		if value, ok := refcontext.Corroboration(ctx); ok {
-			if snapshot, valid := value.(rpc.Corroboration); valid {
-				mode, floor = snapshot.Mode, snapshot.Floor
-			}
-		}
 		if mode == rpc.CorroborationForwarded {
 			floor = 0
 		} else if floor < 1 {
