@@ -1,0 +1,191 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+
+tone_instructions: |
+  Review as an evidence-first maintainer of a reliability-oriented Ethereum
+  JSON-RPC aggregation client. Prioritize correctness, invariant preservation,
+  and architectural locality over style or speculative redesign.
+
+  Report only actionable findings. Every finding must include the exact file
+  and line, the violated behavior or invariant, why it matters, and a focused
+  fix or regression-test direction. Distinguish confirmed defects from design
+  trade-offs, documentation drift, and missing external evidence. Do not infer
+  a provider guarantee from an offline fixture or from a provider response that
+  was merely not observed.
+
+  Treat the default runtime registry, fixed invocation basis, denominator,
+  transport-neutral Source model, and shared typed projection as existing
+  contracts. Do not recommend broad rewrites, a second registry, transport-
+  specific method behavior, automatic replay of unknown writes, or deletion of
+  legacy Policy constructors unless the change has an explicit decision record
+  and a demonstrated semantic need.
+
+reviews:
+  profile: chill
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  sequence_diagrams: true
+  request_changes_workflow: false
+
+  path_filters:
+    - "!**/*.lock"
+    - "!**/vendor/**"
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/*.pb.go"
+    - "!**/generated/**"
+    - "!docs/archive/**"
+
+  path_instructions:
+    - path: "CONTEXT.md"
+      instructions: |
+        Treat this file as the canonical domain-language glossary. Check every
+        added term against Source, Observation, Corroboration, Evidence,
+        Corroborated result, Selected result, Stable result, Moving tag, and
+        Ethereum consensus. Flag terminology that silently upgrades provider
+        evidence into consensus, finality, or light-client proof.
+
+    - path: "README.md"
+      instructions: |
+        Keep the README factual and user-facing. It must describe the current
+        ReadPlan-driven runtime, the 23 registered read methods, the supported
+        ethclient-shaped subset, native HTTP, and raw WSS call transport.
+        Keep provider evidence gaps and intentionally deferred WSS lifecycle
+        features explicit. Do not describe the project as a complete ethclient
+        replacement or a consensus/light client.
+
+    - path: "README.zh-CN.md"
+      instructions: |
+        Keep this document semantically aligned with README.md. Review the
+        Chinese wording for the same boundaries: ReadPlan is the runtime fact,
+        Policy remains a resolver seam, ethadapter is a supported subset, and
+        WSS is an EthGuard raw-call transport rather than a general WebSocket
+        client.
+
+    - path: "docs/design/**"
+      instructions: |
+        Check whether the document records current facts, an accepted decision,
+        a historical record, or an open evidence gap. Do not let a live
+        observation become a compatibility guarantee, and do not rewrite
+        historical decisions to match newer code. New architecture concepts
+        must identify their owner, seam, invariants, evidence level, and
+        relationship to an existing decision. Flag parallel documents that
+        create a second source of truth.
+
+    - path: "docs/decisions.md"
+      instructions: |
+        Preserve the append-only decision history. A status of Implemented must
+        point to a real production path and a test or gate. Amendments must
+        state the triggering evidence, affected scope, rollback or quarantine
+        boundary, and what remains undecided. Do not silently convert an
+        observation or a proposal into an implementation claim.
+
+    - path: "rpc/read_plan.go"
+      instructions: |
+        ReadPlan is a value description of one method's execution facts. Check
+        that plans do not hold network callbacks, mutable shared state, a
+        second method registry, or hidden reference/basis construction. Stage
+        order must remain Validate/Prepare → Reference → Collect → Admit →
+        Resolve → Project, with invocation-scoped Basis and Outcome semantics.
+
+    - path: "rpc/methods/**"
+      instructions: |
+        MethodSpec is the business-semantic owner of registered read methods.
+        Check normalization, request binding, reference and pending shapes,
+        admission, resolver capability, projector identity, and typed-path
+        inventory together. New behavior must enter the spec inventory and pass
+        plan/legacy equivalence where the legacy seam is still retained.
+        Legacy Policy constructors are allowed as resolver, compatibility, and
+        equivalence seams; do not treat their existence alone as a runtime
+        decorator-chain defect.
+
+    - path: "internal/runtime/**"
+      instructions: |
+        This is the sole production Composition Root. Check that it is the only
+        place that compiles MethodSpec values, binds projectors, and assembles
+        the reference stage and aggregator. Flag any second registry, method
+        name based projector fallback, runtime call into legacy constructors, or
+        method-specific network callback outside the runtime-owned seam.
+
+    - path: "aggregator/**"
+      instructions: |
+        Check the single Invocation/coordinator model, frozen Basis and
+        corroboration snapshot, one reference stage, explicit phase ordering,
+        and uniform Decision fault attribution across every exit path. A source
+        failure must remain diagnosable without silently shrinking the voting
+        denominator or lowering the support threshold.
+
+    - path: "pool/**"
+      instructions: |
+        Check fixed membership, basis and denominator preservation, health and
+        cooldown classification, sampler and Close lifecycle, cancellation,
+        and write-outcome uncertainty. HTTP and WSS are ordinary Source
+        members; transport type must not create an implicit read-only role or a
+        transport-specific quorum rule.
+
+    - path: "internal/transport/**"
+      instructions: |
+        Check the minimal Transport Port and the shared L1 contract. Native
+        HTTP and raw WSS may have different connection failure distributions,
+        but they must preserve the same source, read/write, health, basis, and
+        unknown-write-result semantics. For WSS, review handshake, masking,
+        fragmentation, sticky failures, close behavior, pending cleanup,
+        cancellation, bounded reads, and error-data presence. Do not add
+        subscriptions, reconnect, keepalive, or queue behavior without an
+        explicit design record and lifecycle tests.
+
+    - path: "gethcompat/**"
+      instructions: |
+        Keep this as the explicit go-ethereum compatibility construction seam.
+        It must not create a second Client implementation, registry, policy
+        assembly path, or default-build dependency on ethclient. Check that
+        compatibility behavior remains opt-in and that the default native
+        build boundaries stay enforced.
+
+    - path: "ethadapter/**"
+      instructions: |
+        Check ethclient-shaped signatures and compatibility behavior, including
+        negative block tags, local request rejection, NotFound mapping, request
+        binding, and typed decoding. The adapter may perform compatibility
+        validation, but it must reuse the shared internal/typed decoder and root
+        aggregation semantics rather than implement a second adjudicator.
+
+    - path: "**/*_test.go"
+      instructions: |
+        Prefer tests that assert business invariants and source identity over
+        implementation details. Look for frozen basis and denominator checks,
+        failed-member retention, invocation/reference identity, abstain and
+        error-data presence semantics, cancellation and Close lifecycle, and
+        method-plan equivalence. Require meaningful race coverage for concurrent
+        code. Do not treat a test that only mirrors the implementation as proof
+        of the contract.
+
+    - path: ".github/**"
+      instructions: |
+        Check that declared gates are actually wired into CI: gofmt, tidy, vet,
+        full race tests, Verification shuffle, architecture/default-build
+        interlocks, link-time dependency checks, and transport-specific race
+        gates where required. Do not add live network calls to ordinary CI.
+
+    - path: "go.mod"
+      instructions: |
+        Review dependency additions as attack-surface and audit-surface changes.
+        Standard-library use is acceptable. Third-party transport dependencies
+        require an explicit seam, scope, and dependency-graph test. Preserve
+        the rule that the default build excludes ethclient while gethcompat
+        remains an explicit compatibility channel.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["master"]
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: auto
