@@ -1,12 +1,22 @@
 package ethguard
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard/config"
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/internal/transport"
 )
+
+// stubDialer satisfies the gethcompat construction seam without linking a
+// concrete transport: the composition tests here pin selection *rules*, not
+// adapter behavior.
+type stubDialer struct{}
+
+func (stubDialer) DialContext(context.Context, string) (transport.Transport, error) {
+	return nil, context.Canceled
+}
 
 func TestExplicitSourceTransportCannotBeOverriddenByInjectedDialer(t *testing.T) {
 	for _, upstream := range []config.Upstream{
@@ -18,7 +28,7 @@ func TestExplicitSourceTransportCannotBeOverriddenByInjectedDialer(t *testing.T)
 			if err := cfg.Validate(); err != nil {
 				t.Fatal(err)
 			}
-			client, err := New(cfg, DialerOption(nativehttp.NewDialer()))
+			client, err := New(cfg, DialerOption(stubDialer{}))
 			if client != nil {
 				client.Close()
 				t.Fatal("ambiguous adapter selection returned a client")

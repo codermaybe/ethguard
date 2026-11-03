@@ -13,12 +13,7 @@ import (
 )
 
 // ReferenceResolver establishes a corroborated block reference for moving-state reads.
-type ReferenceResolver interface {
-	AnchorBlockHash(context.Context) (string, error)
-	AnchorBlockRef(context.Context) (string, uint64, error)
-	AnchorReference(context.Context) (rpc.ReferenceEvidence, error)
-	AnchorReferenceForTag(context.Context, string) (rpc.ReferenceEvidence, error)
-}
+type ReferenceResolver = runtime.ReferenceResolver
 
 // Backward-compatible interface aliases.
 type AnchorResolver interface {
@@ -37,106 +32,28 @@ type AnchorEvidenceProvider interface {
 	AnchorReference(context.Context) (rpc.ReferenceEvidence, error)
 }
 
-// StrictHeadAnchor requires corroborated strict latest-head agreement. The
-// establishment algorithm is runtime-owned; the type stays as the public
-// facade of that service.
-type StrictHeadAnchor struct{ service *runtime.StrictHeadService }
+// StrictHeadAnchor and FinalizedHeadAnchor are the runtime's resolver
+// facades; the establishment algorithms and their composition live in
+// internal/runtime. The aliases keep the public construction surface stable.
+type StrictHeadAnchor = runtime.StrictHeadAnchor
 
 // NewStrictHeadAnchor builds the default latest-head resolver.
 func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...rpc.StrictOption) *StrictHeadAnchor {
-	return newStrictHeadAnchor(p, rec, 0, nil, opts...)
+	return runtime.NewStrictHeadAnchor(p, rec, opts...)
 }
 
-func newStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, timeout time.Duration, corrob *rpc.CorroborationShared, opts ...rpc.StrictOption) *StrictHeadAnchor {
-	return &StrictHeadAnchor{
-		service: runtime.NewStrictHeadService(runtime.StrictHeadConfig{
-			Pool:           p,
-			Recorder:       rec,
-			CollectTimeout: timeout,
-			Corroboration:  corrob,
-			StrictOptions:  opts,
-		}),
-	}
-}
+type FinalizedHeadAnchor = runtime.FinalizedHeadAnchor
 
-func (a *StrictHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	return a.service.Reference(ctx)
-}
-
-func (a *StrictHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	return a.service.ReferenceForTag(ctx, tag)
-}
-
-func (a *StrictHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, e
-}
-
-func (a *StrictHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, r.Height, e
-}
-
-// FinalizedHeadAnchor establishes a common reference from provider-reported
-// finalized views.
-type FinalizedHeadAnchor struct {
-	pool    *pool.Pool
-	rec     observe.Recorder
-	service *runtime.FinalizedHeadService
-	maxLag  uint64
-	quorum  int
-	timeout time.Duration
-}
-
-type FinalizedAnchorOption func(*finalizedAnchorConfig)
-type finalizedAnchorConfig struct{ maxLag uint64 }
-
-const defaultMaxFinalizedLag = 32
+type FinalizedAnchorOption = runtime.FinalizedAnchorOption
 
 // WithMaxFinalizedLag bounds lag behind the lower-median reported height.
 func WithMaxFinalizedLag(blocks uint64) FinalizedAnchorOption {
-	return func(c *finalizedAnchorConfig) { c.maxLag = blocks }
+	return runtime.WithMaxFinalizedLag(blocks)
 }
 
 // NewFinalizedHeadAnchor builds a common finalized-reference resolver.
 func NewFinalizedHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...FinalizedAnchorOption) *FinalizedHeadAnchor {
-	cfg := finalizedAnchorConfig{defaultMaxFinalizedLag}
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-	return &FinalizedHeadAnchor{
-		pool:    p,
-		rec:     rec,
-		service: runtime.NewFinalizedHeadService(p, rec, cfg.maxLag, 0, 0),
-		maxLag:  cfg.maxLag,
-	}
-}
-
-// tuneForRuntime applies the client's adjudication floor and collect timeout
-// after construction. The public option set cannot carry them (the floor is
-// derived from the source count at New time), so New re-tunes the service
-// once, before any call.
-func (a *FinalizedHeadAnchor) tuneForRuntime(quorum int, timeout time.Duration) {
-	a.quorum, a.timeout = quorum, timeout
-	a.service = runtime.NewFinalizedHeadService(a.pool, a.rec, a.maxLag, quorum, timeout)
-}
-
-func (a *FinalizedHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	return a.service.Reference(ctx)
-}
-
-func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	return a.service.ReferenceForTag(ctx, tag)
-}
-
-func (a *FinalizedHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, e
-}
-
-func (a *FinalizedHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, r.Height, e
+	return runtime.NewFinalizedHeadAnchor(p, rec, opts...)
 }
 
 // resolveReference establishes the moving reference for this call.

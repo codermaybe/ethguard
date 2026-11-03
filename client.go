@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"strings"
 	"time"
 
@@ -14,8 +13,6 @@ import (
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/internal/transport"
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
-	"github.com/codermaybe/ethguard/internal/transport/wss"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -48,12 +45,12 @@ type Client struct {
 // construction with a pointer to ethguard/gethcompat, the explicit
 // construction entry for that channel (gethcompat composes this option with
 // its own dialer). The selection entry is retained for one migration cycle
-// as this diagnostic.
-type HTTPAdapter string
+// as this diagnostic. The naming is owned by the runtime composition root.
+type HTTPAdapter = runtime.Adapter
 
 const (
-	HTTPAdapterGeth   HTTPAdapter = "geth"
-	HTTPAdapterNative HTTPAdapter = "native"
+	HTTPAdapterGeth   = runtime.AdapterGeth
+	HTTPAdapterNative = runtime.AdapterNative
 )
 
 // WithHTTPAdapter selects the connection adapter for this Client. An empty
@@ -75,8 +72,7 @@ type Option func(*clientOptions)
 func DialerOption(d transport.Dialer) Option {
 	return func(o *clientOptions) {
 		if d != nil {
-			o.poolOpts = append(o.poolOpts, pool.WithDialer(d))
-			o.explicitDialer = true
+			o.dialer = d
 		}
 	}
 }
@@ -91,17 +87,15 @@ type clientOptions struct {
 	tipInterval    time.Duration
 	tipMaxBehind   uint64
 	collectTimeout time.Duration
-	anchorFactory  func(*pool.Pool, observe.Recorder) AnchorResolver
-	poolOpts       []pool.PoolOption
 	httpAdapter    HTTPAdapter
 	// anchoring carries the business-read establishment strategy: the
 	// finalized preset selects the candidate-selection algorithm with its
 	// lag bound. The facade resolver keeps its own configuration.
 	useFinalizedAnchoring bool
 	finalizedMaxLag       uint64
-	// explicitDialer marks a pool dialer injected by DialerOption (the
-	// gethcompat seam); the default adapter selection yields to it.
-	explicitDialer bool
+	// dialer is a pool dialer injected by DialerOption (the gethcompat
+	// seam); the default adapter selection yields to it.
+	dialer transport.Dialer
 }
 
 // WithLogger injects a structured logger receiving one event per aggregate
@@ -138,19 +132,13 @@ func WithCollectTimeout(timeout time.Duration) Option {
 
 // WithFinalizedAnchoring opts into conservative anchor selection: the block
 // reference is pinned at the lowest finalized height that is still fresh
-// across sources (NewFinalizedHeadAnchor), so divergent latest tips no
-// longer fail anchored reads. Options tune the freshness bound and similar
-// knobs.
+// across sources (the runtime's finalized head resolver), so divergent latest
+// tips no longer fail anchored reads. Options tune the freshness bound and
+// similar knobs.
 func WithFinalizedAnchoring(opts ...FinalizedAnchorOption) Option {
 	return func(o *clientOptions) {
-		cfg := finalizedAnchorConfig{defaultMaxFinalizedLag}
-		for _, opt := range opts {
-			opt(&cfg)
-		}
-		o.useFinalizedAnchoring, o.finalizedMaxLag = true, cfg.maxLag
-		o.anchorFactory = func(p *pool.Pool, rec observe.Recorder) AnchorResolver {
-			return NewFinalizedHeadAnchor(p, rec, opts...)
-		}
+		o.useFinalizedAnchoring = true
+		o.finalizedMaxLag = runtime.FinalizedAnchorLag(opts...)
 	}
 }
 
@@ -214,9 +202,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 			maxLag = config.DefaultFinalizedLag()
 		}
 		co.useFinalizedAnchoring, co.finalizedMaxLag = true, maxLag
-		co.anchorFactory = func(p *pool.Pool, rec observe.Recorder) AnchorResolver {
-			return NewFinalizedHeadAnchor(p, rec, WithMaxFinalizedLag(maxLag))
-		}
 	}
 	for _, opt := range opts {
 		opt(&co)
@@ -227,30 +212,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if co.anchorSet {
 		return nil, fmt.Errorf("ethguard: WithAnchorResolver is retired; reference establishment is library-owned under decision 0036")
 	}
-	if co.tipEnabled {
-		co.poolOpts = append(co.poolOpts, pool.WithTipTracking(co.tipInterval, co.tipMaxBehind))
-	}
-	switch co.httpAdapter {
-	case "", HTTPAdapterNative:
-		// Strategic default: the project-owned native HTTP adapter (the
-		// transport contract's normative implementation). An explicit dialer
-		// injected through the gethcompat seam wins.
-		if !co.explicitDialer {
-			co.poolOpts = append(co.poolOpts, pool.WithDialer(nativehttp.NewDialer()))
-		}
-	case HTTPAdapterGeth:
-		// The go-ethereum compatibility adapter is not linked into the
-		// default build. With an explicitly injected dialer (the seam's own
-		// DialerOption), the selection composes; a bare selection fails with
-		// a pointer to ethguard/gethcompat. The option is retained for one
-		// migration cycle as this diagnostic.
-		if !co.explicitDialer {
-			return nil, fmt.Errorf("ethguard: the %q adapter is not linked into the default build; construct through ethguard/gethcompat", HTTPAdapterGeth)
-		}
-	default:
-		return nil, fmt.Errorf("ethguard: unknown HTTP adapter %q (want %q or %q)",
-			co.httpAdapter, HTTPAdapterGeth, HTTPAdapterNative)
-	}
 	rec := co.recorder
 	if rec == nil && co.logger != nil {
 		rec = observe.NewLog(co.logger)
@@ -258,87 +219,34 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if rec == nil {
 		rec = observe.Nop
 	}
-
-	members := make([]pool.Member, 0, len(cfg.Upstreams))
-	for _, upstream := range cfg.Upstreams {
-		member := pool.Member{Name: upstream.ID, URL: upstream.Endpoint}
-		if upstream.Transport == "" && !co.explicitDialer {
-			if endpoint, parseErr := url.Parse(upstream.Endpoint); parseErr == nil && (endpoint.Scheme == "ws" || endpoint.Scheme == "wss") {
-				return nil, fmt.Errorf("ethguard: source %q: websocket endpoint requires transport: wss", upstream.ID)
-			}
-		}
-		if upstream.Transport != "" && co.explicitDialer {
-			return nil, fmt.Errorf("ethguard: source %q: explicit transport conflicts with injected dialer", upstream.ID)
-		}
-		switch upstream.Transport {
-		case config.TransportNativeHTTP:
-			member.Dialer = nativehttp.NewDialer()
-		case config.TransportWSS:
-			member.Dialer = wss.NewDialer()
-		}
-		members = append(members, member)
-	}
-	rpcPool, err := pool.NewWithMembers(cfg.ChainID, members, co.poolOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("ethguard: register upstreams: %w", err)
-	}
-
-	// The library owns the corroboration policy. It snapshots the fixed basis
-	// for each invocation and derives the support threshold internally.
-	mode := rpc.CorroborationMajority
-	if len(cfg.Upstreams) == 1 {
-		mode = rpc.CorroborationForwarded
-	}
-	floor := 2
-	if mode == rpc.CorroborationForwarded {
-		floor = 0
-	}
-	corrob, err := rpc.NewCorroborationShared(mode, floor)
-	if err != nil {
-		return nil, fmt.Errorf("ethguard: %w", err)
-	}
-
-	resolver := co.anchor
-	var strictOpts []rpc.StrictOption
-	// Construction-time defaults mirror the shared configuration so policies
-	// resolved outside a snapshot-bearing aggregator agree with the client
-	// default. Reference establishment keeps its own threshold formulas by
-	// recorded decision (docs/design/acceptance-thresholds.md).
-	if floor > 0 {
-		strictOpts = append(strictOpts, rpc.WithQuorum(floor))
-	}
-	if resolver == nil {
-		if co.anchorFactory != nil {
-			resolver = co.anchorFactory(rpcPool, rec)
-		} else {
-			resolver = newStrictHeadAnchor(rpcPool, rec, co.collectTimeout, corrob, strictOpts...)
-		}
-	}
-	if finalized, ok := resolver.(*FinalizedHeadAnchor); ok && co.anchor == nil {
-		finalized.tuneForRuntime(floor, co.collectTimeout)
-	}
 	var anchoring *runtime.AnchoringStrategy
 	if co.useFinalizedAnchoring {
 		anchoring = &runtime.AnchoringStrategy{Finalized: true, MaxLag: co.finalizedMaxLag}
 	}
-	runtimeBundle, err := runtime.Build(runtime.Inputs{
-		Pool:           rpcPool,
-		StrictOptions:  strictOpts,
+	var tip *runtime.TipTracking
+	if co.tipEnabled {
+		tip = &runtime.TipTracking{Interval: co.tipInterval, MaxBehind: co.tipMaxBehind}
+	}
+	runtimeBundle, err := runtime.Compose(runtime.Composition{
+		ChainID:        cfg.ChainID,
+		Upstreams:      cfg.Upstreams,
+		Adapter:        co.httpAdapter,
+		ExplicitDialer: co.dialer,
+		TipTracking:    tip,
 		Recorder:       rec,
 		CollectTimeout: co.collectTimeout,
-		Corroboration:  corrob,
 		Anchoring:      anchoring,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ethguard: %w", err)
 	}
 	return &Client{
-		pool:           rpcPool,
+		pool:           runtimeBundle.Pool,
 		aggregator:     runtimeBundle.Aggregator,
 		policies:       runtimeBundle.Policies,
 		plans:          runtimeBundle.Plans,
-		resolver:       resolver,
-		corrob:         corrob,
+		resolver:       runtimeBundle.Resolver,
+		corrob:         runtimeBundle.Corroboration,
 		collectTimeout: co.collectTimeout,
 	}, nil
 }

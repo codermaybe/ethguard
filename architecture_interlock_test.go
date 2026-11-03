@@ -87,6 +87,9 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 			if imports[modulePath+"/internal/transport/geth"] {
 				t.Error("root facade imports the geth adapter; the compatibility channel is reachable only through gethcompat")
 			}
+			if imports[modulePath+"/internal/transport/http"] || imports[modulePath+"/internal/transport/wss"] {
+				t.Error("root facade imports a concrete transport; the composition root assembles them in internal/runtime")
+			}
 		case modulePath + "/rpc":
 			if imports[modulePath+"/rpc/methods"] {
 				t.Error("rpc imports rpc/methods")

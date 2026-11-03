@@ -9,11 +9,12 @@ import (
 
 // The composition root owns the corroboration default: a multi-upstream
 // client runs majority with the support floor of two (decision 0029), a
-// single-upstream client forwards with no floor (decision 0030). These tests
-// pin the derivation where it actually lives — client.go — so a silent
-// change to either default fails here first. The decision record still names
-// a config-level default symbol that no longer exists; see
-// docs/design/decision-implementation-index.md (0029 pending review).
+// single-upstream client forwards with no floor (decision 0030). The
+// derivation lives in internal/runtime's composition; these facade tests pin
+// it end to end, so a silent change to either default fails here first. The
+// decision record still names a config-level default symbol that no longer
+// exists; see docs/design/decision-implementation-index.md (0029 pending
+// review).
 func TestDefaultCorroborationFloorIsTwo(t *testing.T) {
 	client, err := New(config.Config{Upstreams: []config.Upstream{
 		{ID: "a", Endpoint: "http://a.example"},

@@ -1,10 +1,12 @@
-// Package runtime owns the production composition of the RPC method catalog,
-// typed observation projectors, the reference establishment stage, and the
+// Package runtime owns the production composition of the source pool with its
+// transport dialers, the corroboration policy, the reference establishment
+// stage, the RPC method catalog, typed observation projectors, and the
 // aggregate execution pipeline.
 //
-// It deliberately does not expose a public client. Method binding, the
-// reference stage, and the anchor readers all live here, which makes the
-// assembly visible in the single Composition Root: method policies receive
+// It deliberately does not expose a public client. The ethguard facade parses
+// business options and hands them to Compose; method binding, the reference
+// stage, and the anchor readers all live here, which makes the assembly
+// visible in the single Composition Root: method policies receive
 // consumption-only anchor readers bound to the stage, so no method holds a
 // callback that fans out its own network round.
 package runtime
@@ -47,12 +49,17 @@ type Inputs struct {
 
 // Bundle is the internal execution graph consumed by the root facade. It is
 // intentionally data-only: callers still use the facade's public Client.
+// Compose fills the pool, corroboration policy, and resolver; Build alone
+// (tests, synthetic fleets) leaves them zero.
 type Bundle struct {
-	Policies   rpc.Registry
-	Plans      map[string]rpc.ReadPlan
-	Projectors map[string]rpc.ObservationProjector
-	Aggregator *aggregator.Aggregator
-	Stage      *ReferenceStage
+	Pool          *pool.Pool
+	Corroboration *rpc.CorroborationShared
+	Resolver      ReferenceResolver
+	Policies      rpc.Registry
+	Plans         map[string]rpc.ReadPlan
+	Projectors    map[string]rpc.ObservationProjector
+	Aggregator    *aggregator.Aggregator
+	Stage         *ReferenceStage
 }
 
 // Build assembles the method catalog, the reference stage, typed observation
