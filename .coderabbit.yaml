@@ -2,24 +2,7 @@
 
 language: en-US
 
-tone_instructions: |
-  Review as an evidence-first maintainer of a reliability-oriented Ethereum
-  JSON-RPC aggregation client. Prioritize correctness, invariant preservation,
-  and architectural locality over style or speculative redesign.
-
-  Report only actionable findings. Every finding must include the exact file
-  and line, the violated behavior or invariant, why it matters, and a focused
-  fix or regression-test direction. Distinguish confirmed defects from design
-  trade-offs, documentation drift, and missing external evidence. Do not infer
-  a provider guarantee from an offline fixture or from a provider response that
-  was merely not observed.
-
-  Treat the default runtime registry, fixed invocation basis, denominator,
-  transport-neutral Source model, and shared typed projection as existing
-  contracts. Do not recommend broad rewrites, a second registry, transport-
-  specific method behavior, automatic replay of unknown writes, or deletion of
-  legacy Policy constructors unless the change has an explicit decision record
-  and a demonstrated semantic need.
+tone_instructions: "Review this Ethereum JSON-RPC client using evidence first. Report only confirmed defects with exact file/line, invariant, impact, and focused fix/test. Avoid speculative redesigns and treating provider observations as consensus guarantees."
 
 reviews:
   profile: chill
