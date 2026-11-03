@@ -40,7 +40,6 @@ import (
 // already so those rows can arrive without reshaping the table.
 type admissionCase struct {
 	method    string
-	policy    func(...rpc.StrictOption) rpc.Policy
 	encode    func(json.RawMessage) (json.RawMessage, error)
 	normalize func(json.RawMessage) (string, error)
 
@@ -91,10 +90,7 @@ func admissionCases(t *testing.T) []admissionCase {
 
 	return []admissionCase{
 		{
-			method: MethodCreateAccessList,
-			policy: func(opts ...rpc.StrictOption) rpc.Policy {
-				return CreateAccessListPolicy(func(context.Context) (string, error) { return accessKey, nil }, opts...)
-			},
+			method:    MethodCreateAccessList,
 			encode:    accesslistobj.Encode,
 			normalize: normalizeAccessList,
 			valid:     json.RawMessage(access),
@@ -135,10 +131,7 @@ func admissionCases(t *testing.T) []admissionCase {
 			},
 		},
 		{
-			method: MethodFeeHistory,
-			policy: func(opts ...rpc.StrictOption) rpc.Policy {
-				return FeeHistoryPolicy(func(context.Context) (uint64, error) { return 1, nil }, opts...)
-			},
+			method:    MethodFeeHistory,
 			encode:    feehistoryobj.Encode,
 			normalize: normalizeFeeHistory,
 			valid:     json.RawMessage(fee),
@@ -183,7 +176,6 @@ func admissionCases(t *testing.T) []admissionCase {
 		},
 		{
 			method:    MethodGetBlockReceipts,
-			policy:    func(opts ...rpc.StrictOption) rpc.Policy { return BlockReceiptsPolicy(nil, opts...) },
 			encode:    receiptobj.EncodeBlock,
 			normalize: normalizeBlockReceiptList,
 			valid:     receiptArray(t, receipt),
@@ -256,10 +248,7 @@ func admissionCases(t *testing.T) []admissionCase {
 			},
 		},
 		{
-			method: MethodGetLogs,
-			policy: func(opts ...rpc.StrictOption) rpc.Policy {
-				return LogsPolicy(func(context.Context) (uint64, error) { return 1, nil }, opts...)
-			},
+			method:    MethodGetLogs,
 			encode:    logobj.Encode,
 			normalize: normalizeLogs,
 			valid:     json.RawMessage(log),
@@ -279,7 +268,7 @@ func admissionCases(t *testing.T) []admissionCase {
 					// The two must not corroborate. If null read as an empty
 					// array, a source that failed to answer would be able to
 					// vouch for a block with no logs.
-					decision, err := LogsPolicy(func(context.Context) (uint64, error) { return 1, nil }, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).
+					decision, err := planResolver(t, MethodGetLogs, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).
 						ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 							observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
 							observation(rpc.SourceRef{Name: "b", ID: "b"}, `[]`, ""),
@@ -306,7 +295,6 @@ func admissionCases(t *testing.T) []admissionCase {
 		},
 		{
 			method:    MethodGetTransactionReceipt,
-			policy:    func(opts ...rpc.StrictOption) rpc.Policy { return TransactionReceiptPolicy(opts...) },
 			encode:    receiptobj.Encode,
 			normalize: normalizeReceiptObject,
 			valid:     receipt,
@@ -370,7 +358,7 @@ func admissionCases(t *testing.T) []admissionCase {
 func TestAdmissionProtectedDomainClustering(t *testing.T) {
 	for _, item := range admissionCases(t) {
 		t.Run(item.method, func(t *testing.T) {
-			policy := item.policy(rpc.WithQuorum(1))
+			policy := planResolver(t, item.method, rpc.WithQuorum(1))
 			resolve := func(a, b string) (rpc.Decision, error) {
 				return policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 					observation(rpc.SourceRef{Name: "a", ID: "a"}, a, ""),
@@ -515,7 +503,7 @@ func TestAdmissionMethodEdges(t *testing.T) {
 func TestAdmissionIndexRow(t *testing.T) {
 	for _, item := range admissionCases(t) {
 		t.Run(item.method, func(t *testing.T) {
-			rule, _ := item.policy().(rpc.MethodRuleSource).MethodRule()
+			rule := compiledPlan(t, item.method).MethodRule()
 			if rule.KeySource != item.keySource {
 				t.Fatalf("key source = %q, want %q", rule.KeySource, item.keySource)
 			}

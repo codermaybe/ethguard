@@ -12,8 +12,8 @@ import (
 )
 
 func TestLogsPolicyRejectsMixedBlockSelectors(t *testing.T) {
-	p := LogsPolicy(func(context.Context) (uint64, error) { return 7, nil })
-	_, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{
+	plan := compiledPlan(t, MethodGetLogs)
+	_, _, err := preparePlanRequest(t, plan, rpc.Request{Method: MethodGetLogs, Params: []any{
 		map[string]any{"blockHash": "0xabc", "fromBlock": "0x1"},
 	}})
 	if !errors.Is(err, rpc.ErrInvalidRequest) {
@@ -22,9 +22,9 @@ func TestLogsPolicyRejectsMixedBlockSelectors(t *testing.T) {
 }
 
 func TestLogsPolicyRejectsPendingBounds(t *testing.T) {
-	p := LogsPolicy(func(context.Context) (uint64, error) { return 7, nil })
+	plan := compiledPlan(t, MethodGetLogs)
 	for _, key := range []string{"fromBlock", "toBlock"} {
-		_, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{
+		_, _, err := preparePlanRequest(t, plan, rpc.Request{Method: MethodGetLogs, Params: []any{
 			map[string]any{key: "pending"},
 		}})
 		if !errors.Is(err, rpc.ErrInvalidRequest) {
@@ -34,10 +34,9 @@ func TestLogsPolicyRejectsPendingBounds(t *testing.T) {
 }
 
 func TestLogsRejectPendingRangeLocally(t *testing.T) {
-	p := LogsPolicy(func(context.Context) (uint64, error) {
-		t.Fatal("pending range consulted the anchor")
-		return 0, nil
-	})
+	// The rejection is the plan's local Validate phase: no establishment
+	// exists on the plan path, so a pending range cannot reach one.
+	plan := compiledPlan(t, MethodGetLogs)
 	filters := []map[string]any{
 		{"fromBlock": "pending"},
 		{"toBlock": "pending"},
@@ -55,7 +54,7 @@ func TestLogsRejectPendingRangeLocally(t *testing.T) {
 		{"fromBlock": map[string]any{"blockNumber": "pending"}},
 	}
 	for _, filter := range filters {
-		_, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{filter}})
+		_, _, err := preparePlanRequest(t, plan, rpc.Request{Method: MethodGetLogs, Params: []any{filter}})
 		if !errors.Is(err, rpc.ErrInvalidRequest) {
 			t.Fatalf("filter %v: got %v, want ErrInvalidRequest", filter, err)
 		}
@@ -69,10 +68,7 @@ func TestLogsRejectPendingRangeLocally(t *testing.T) {
 }
 
 func TestLogsRejectAbnormalPendingBoundsLocally(t *testing.T) {
-	p := LogsPolicy(func(context.Context) (uint64, error) {
-		t.Fatal("abnormal log bound consulted the anchor")
-		return 0, nil
-	})
+	plan := compiledPlan(t, MethodGetLogs)
 	filters := []map[string]any{
 		{"fromBlock": 1},
 		{"toBlock": nil},
@@ -84,44 +80,43 @@ func TestLogsRejectAbnormalPendingBoundsLocally(t *testing.T) {
 		{"fromBlock": json.RawMessage(`not-json`)},
 	}
 	for _, filter := range filters {
-		_, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{filter}})
+		_, _, err := preparePlanRequest(t, plan, rpc.Request{Method: MethodGetLogs, Params: []any{filter}})
 		if !errors.Is(err, rpc.ErrInvalidRequest) {
 			t.Fatalf("filter %v: got %v, want ErrInvalidRequest", filter, err)
 		}
 		if strings.Contains(err.Error(), "no stable corroboration semantics") {
 			t.Fatalf("filter %v: non-pending bound mislabeled as pending: %v", filter, err)
 		}
-		if strings.Contains(err.Error(), "anchor:") {
-			t.Fatalf("filter %v: local rejection escaped into anchor: %v", filter, err)
-		}
 	}
 }
 
 func TestLogsPendingDoesNotConsultAnchor(t *testing.T) {
-	calls := 0
-	p := LogsPolicy(func(context.Context) (uint64, error) {
-		calls++
-		return 7, nil
-	})
-	_, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{
+	// The rejection is the plan's local Validate phase: the pending shape
+	// fails with a request-class error before any establishment could run,
+	// never with a reference or conflict classification.
+	plan := compiledPlan(t, MethodGetLogs)
+	_, _, err := preparePlanRequest(t, plan, rpc.Request{Method: MethodGetLogs, Params: []any{
 		map[string]any{"fromBlock": "latest", "toBlock": "Pending"},
 	}})
 	if !errors.Is(err, rpc.ErrInvalidRequest) {
 		t.Fatalf("got %v, want ErrInvalidRequest", err)
 	}
-	if calls != 0 {
-		t.Fatalf("anchor calls = %d, want 0", calls)
+	if errors.Is(err, rpc.ErrConflict) || errors.Is(err, rpc.ErrReferenceRequired) {
+		t.Fatalf("pending range reached the establishment seam: %v", err)
 	}
 }
 
 func TestLogsHistoricalRangePreparesWithoutPendingRejection(t *testing.T) {
-	p := LogsPolicy(func(context.Context) (uint64, error) {
-		t.Fatal("explicit historical range consulted the anchor")
-		return 0, nil
-	})
-	prepared, err := p.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{
+	// An explicit historical range declares no reference need: it prepares
+	// without establishment and stays untouched.
+	plan := compiledPlan(t, MethodGetLogs)
+	req := rpc.Request{Method: MethodGetLogs, Params: []any{
 		map[string]any{"fromBlock": "0x1", "toBlock": "0x10", "address": "0x0000000000000000000000000000000000000001"},
-	}})
+	}}
+	if _, needed := plan.ReferenceRequirement(req); needed {
+		t.Fatal("an explicit historical range declared a reference need")
+	}
+	prepared, _, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,29 +147,26 @@ func TestNormalizeLogsRejectsMalformedEntries(t *testing.T) {
 }
 
 func TestLogsAdmissionRejectsIncompleteLog(t *testing.T) {
-	p := LogsPolicy(func(context.Context) (uint64, error) { return 1, nil })
-	admit := p.(rpc.AdmissionPolicy)
-	_, err := admit.Admit(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{map[string]any{}}}, json.RawMessage(`[{"address":"0x0000000000000000000000000000000000000001"}]`), nil)
+	plan := compiledPlan(t, MethodGetLogs)
+	_, err := plan.Admit(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{map[string]any{}}}, json.RawMessage(`[{"address":"0x0000000000000000000000000000000000000001"}]`), nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("expected malformed response, got %v", err)
 	}
 }
 
 func TestLogsAdmissionBindsBlockHash(t *testing.T) {
-	p := LogsPolicy(func(context.Context) (uint64, error) { return 1, nil })
+	plan := compiledPlan(t, MethodGetLogs)
 	row := `{"address":"0x0000000000000000000000000000000000000001","topics":[],"data":"0x","blockNumber":"0x1","transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000001","transactionIndex":"0x0","blockHash":"0x0000000000000000000000000000000000000000000000000000000000000002","logIndex":"0x0","removed":false}`
-	admit := p.(rpc.AdmissionPolicy)
-	_, err := admit.Admit(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{map[string]any{"blockHash": "0x0000000000000000000000000000000000000000000000000000000000000003"}}}, json.RawMessage("["+row+"]"), nil)
+	_, err := plan.Admit(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{map[string]any{"blockHash": "0x0000000000000000000000000000000000000000000000000000000000000003"}}}, json.RawMessage("["+row+"]"), nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("expected block binding failure, got %v", err)
 	}
 }
 
 func TestLogsAdmissionBindsRequestedRange(t *testing.T) {
-	p := LogsPolicy(func(context.Context) (uint64, error) { return 1, nil })
+	plan := compiledPlan(t, MethodGetLogs)
 	row := `{"address":"0x0000000000000000000000000000000000000001","topics":[],"data":"0x","blockNumber":"0x5","transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000001","transactionIndex":"0x0","blockHash":"0x0000000000000000000000000000000000000000000000000000000000000002","logIndex":"0x0","removed":false}`
-	admit := p.(rpc.AdmissionPolicy)
-	_, err := admit.Admit(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{map[string]any{"fromBlock": "0x1", "toBlock": "0x4"}}}, json.RawMessage("["+row+"]"), nil)
+	_, err := plan.Admit(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{map[string]any{"fromBlock": "0x1", "toBlock": "0x4"}}}, json.RawMessage("["+row+"]"), nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("expected range binding failure, got %v", err)
 	}
@@ -197,7 +189,7 @@ func canonicalLogValue() string {
 // and leaves the canonical Value untouched. A field outside the mask does not
 // split the cluster and does not enter Value.
 func TestLogsSpellingsShareOneCanonicalValue(t *testing.T) {
-	policy := LogsPolicy(func(context.Context) (uint64, error) { return 1, nil }, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodGetLogs, rpc.WithQuorum(1))
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
 	upper := "[" + logEntry("0x0000000000000000000000000000000000000001", "0x00FF", "0xA", "false", "") + "]"
@@ -236,7 +228,7 @@ func TestLogsSpellingsShareOneCanonicalValue(t *testing.T) {
 // does not vote. Dropping it would shrink the denominator to 3 and let the
 // other three succeed. They must not.
 func TestLogsMissingRequiredFieldStaysInTheDenominator(t *testing.T) {
-	policy := LogsPolicy(func(context.Context) (uint64, error) { return 1, nil }, rpc.WithQuorum(2))
+	policy := planResolver(t, MethodGetLogs, rpc.WithQuorum(2))
 	good := "[" + logEntry("0x0000000000000000000000000000000000000001", "0x00ff", "0xa", "false", "") + "]"
 	other := "[" + logEntry("0x0000000000000000000000000000000000000002", "0x00ff", "0xa", "false", "") + "]"
 	incomplete := `[{"address":"0x0000000000000000000000000000000000000001","topics":[],"data":"0x"}]`
@@ -257,7 +249,7 @@ func TestLogsMissingRequiredFieldStaysInTheDenominator(t *testing.T) {
 }
 
 func TestLogsEncodeOmitsAbsentTimestampAndKeepsEmptyArray(t *testing.T) {
-	policy := LogsPolicy(func(context.Context) (uint64, error) { return 1, nil }, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodGetLogs, rpc.WithQuorum(1))
 	withTime := "[" + logEntry("0x0000000000000000000000000000000000000001", "0x00ff", "0xa", "false", `"blockTimestamp":"0x10"`) + "]"
 	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, withTime, ""),

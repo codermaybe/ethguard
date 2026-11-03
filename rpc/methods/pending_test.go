@@ -1,7 +1,6 @@
 package methods
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -20,61 +19,43 @@ func pendingObs(values ...string) []rpc.Observation {
 	return obs
 }
 
+// resolveLocalThroughPlan resolves pending observations the way the
+// aggregator's pending-local route does: the shared local-observation
+// resolution over the plan's own resolver.
+func resolveLocalThroughPlan(t *testing.T, plan rpc.ReadPlan, obs []rpc.Observation) rpc.Decision {
+	t.Helper()
+	decision, err := rpc.ResolveLocalObservation(plan.Resolver, obs)
+	if err != nil {
+		t.Fatalf("resolve local: %v", err)
+	}
+	return decision
+}
+
 // TestPendingLocalSlice pins decision 0035 for the five default-block state
-// reads: pending keeps its node-state meaning and resolves as a local
-// observation — Selected at best, never Corroborated — while every other
-// shape keeps strict corroboration.
+// reads: pending keeps its node-state meaning — the declaration routes the
+// pending shape to a local observation, Selected at best, never Corroborated
+// — while every other shape keeps strict corroboration.
 func TestPendingLocalSlice(t *testing.T) {
-	t.Run("pending spellings are local observations", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
-			lp, ok := policy.(rpc.LocalObservationPolicy)
-			if !ok {
-				t.Fatalf("%s does not expose LocalObservationPolicy", tc.name)
+	t.Run("pending is a declared local observation at the anchored position", func(t *testing.T) {
+		for _, tc := range slicePlans(t) {
+			if tc.plan.Pending.Mode != rpc.PendingObserve {
+				t.Fatalf("%s pending mode = %q, want local observation", tc.name, tc.plan.Pending.Mode)
 			}
-			for _, ref := range []any{
-				"pending", "Pending", "PENDING",
-				map[string]any{"blockNumber": "pending"},
-				map[string]any{"blockNumber": "pending", "requireCanonical": true},
-			} {
-				prepared, err := policy.Prepare(context.Background(), rpc.Request{
-					Method: tc.name, Params: withRef(tc.prefix, tc.pos, ref),
-				})
-				if err != nil {
-					t.Fatalf("%s %v: %v", tc.name, ref, err)
-				}
-				if !lp.IsLocalObservation(prepared) {
-					t.Fatalf("%s %v: not detected as pending-local", tc.name, ref)
-				}
-				if len(anchor.seen) != 0 {
-					t.Fatalf("%s %v consulted anchor", tc.name, ref)
-				}
+			if tc.plan.Pending.Pos != tc.pos {
+				t.Fatalf("%s pending position = %d, want %d", tc.name, tc.plan.Pending.Pos, tc.pos)
 			}
-			for _, ref := range []any{
-				"latest", "safe", "finalized", "earliest", "0x10", testHashExplicit,
-				map[string]any{"blockHash": testHashExplicit},
-				map[string]any{"blockNumber": "0x10"},
-				map[string]any{"blockNumber": "latest"},
-			} {
-				prepared, err := policy.Prepare(context.Background(), rpc.Request{
-					Method: tc.name, Params: withRef(tc.prefix, tc.pos, ref),
-				})
-				if err != nil {
-					t.Fatalf("%s %v: %v", tc.name, ref, err)
-				}
-				if lp.IsLocalObservation(prepared) {
-					t.Fatalf("%s %v: misdetected as pending-local", tc.name, ref)
+			// The declaration never installs a local pending rejection: the
+			// pending shape must reach the providers untouched.
+			if tc.plan.PendingReject != nil {
+				if err := tc.plan.PendingReject(rpc.Request{Method: tc.name, Params: withRef([]any{"0xabc"}, tc.pos, "pending")}); err != nil {
+					t.Fatalf("%s rejected the pending spelling locally: %v", tc.name, err)
 				}
 			}
 		}
 	})
 
 	t.Run("unanimous pending agreement stays Selected", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
-			lp := policy.(rpc.LocalObservationPolicy)
+		for _, tc := range slicePlans(t) {
 			var value string
 			switch tc.name {
 			case "eth_getStorageAt":
@@ -84,10 +65,7 @@ func TestPendingLocalSlice(t *testing.T) {
 			default:
 				value = `"0x64"`
 			}
-			decision, err := lp.ResolveLocal(pendingObs(value, value, value))
-			if err != nil {
-				t.Fatalf("%s: %v", tc.name, err)
-			}
+			decision := resolveLocalThroughPlan(t, tc.plan, pendingObs(value, value, value))
 			if decision.Status != rpc.Selected {
 				t.Fatalf("%s pending unanimous: status = %v, want selected (never corroborated)", tc.name, decision.Status)
 			}
@@ -98,10 +76,7 @@ func TestPendingLocalSlice(t *testing.T) {
 	})
 
 	t.Run("pending dissent is not conflict", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
-			lp := policy.(rpc.LocalObservationPolicy)
+		for _, tc := range slicePlans(t) {
 			var first, second, third string
 			switch tc.name {
 			case "eth_getStorageAt":
@@ -111,7 +86,8 @@ func TestPendingLocalSlice(t *testing.T) {
 			default:
 				first, second, third = `"0x64"`, `"0x65"`, `"0x66"`
 			}
-			decision, err := lp.ResolveLocal(pendingObs(first, second, third))
+			obs := pendingObs(first, second, third)
+			decision, err := rpc.ResolveLocalObservation(tc.plan.Resolver, obs)
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
@@ -122,15 +98,12 @@ func TestPendingLocalSlice(t *testing.T) {
 	})
 
 	t.Run("pending without a usable source fails Unknown", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
-			lp := policy.(rpc.LocalObservationPolicy)
+		for _, tc := range slicePlans(t) {
 			failed := []rpc.Observation{
 				{Source: rpc.SourceRef{Name: "a", ID: "a"}, Err: errors.New("down")},
 				{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(`"not-hex"`)},
 			}
-			decision, err := lp.ResolveLocal(failed)
+			decision, err := rpc.ResolveLocalObservation(tc.plan.Resolver, failed)
 			if err == nil || !errors.Is(err, rpc.ErrNoValidResponse) {
 				t.Fatalf("%s: got %v, want ErrNoValidResponse", tc.name, err)
 			}
@@ -141,27 +114,20 @@ func TestPendingLocalSlice(t *testing.T) {
 	})
 
 	t.Run("pending keeps winner evidence", func(t *testing.T) {
-		anchor := newTagAnchor(t)
-		policy := rebuildSlicePolicy("eth_getBalance", anchor.fn)
-		lp := policy.(rpc.LocalObservationPolicy)
+		balance := compiledPlan(t, MethodGetBalance)
 		obs := pendingObs(`"0x64"`)
 		obs[0].Evidence = json.RawMessage(`{"admitted":true}`)
-		decision, err := lp.ResolveLocal(obs)
-		if err != nil {
-			t.Fatal(err)
-		}
+		decision := resolveLocalThroughPlan(t, balance, obs)
 		if string(decision.Provenance) != `{"admitted":true}` {
 			t.Fatalf("evidence = %s, want winner evidence", decision.Provenance)
 		}
 	})
 
 	t.Run("pending eth_call keeps revert observations", func(t *testing.T) {
-		anchor := newTagAnchor(t)
-		policy := rebuildSlicePolicy("eth_call", anchor.fn)
-		lp := policy.(rpc.LocalObservationPolicy)
+		call := compiledPlan(t, MethodCall)
 		revert := &rpc.RPCError{Code: -32000, Message: "execution reverted"}
 		obs := []rpc.Observation{{Source: rpc.SourceRef{Name: "a", ID: "a"}, Err: errors.New("execution reverted"), RPCError: revert}}
-		decision, err := lp.ResolveLocal(obs)
+		decision, err := rpc.ResolveLocalObservation(call.Resolver, obs)
 		if err != nil {
 			t.Fatalf("pending revert: %v", err)
 		}
@@ -178,9 +144,7 @@ func TestPendingLocalSlice(t *testing.T) {
 	})
 
 	t.Run("mined shapes keep strict corroboration", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
+		for _, tc := range slicePlans(t) {
 			var value string
 			switch tc.name {
 			case "eth_getStorageAt":
@@ -190,7 +154,11 @@ func TestPendingLocalSlice(t *testing.T) {
 			default:
 				value = `"0x64"`
 			}
-			decision, err := policy.Resolve(pendingObs(value, value))
+			corroborating, ok := tc.plan.Resolver.(rpc.CorroboratingPolicy)
+			if !ok {
+				t.Fatalf("%s lost the corroborating resolver", tc.name)
+			}
+			decision, err := corroborating.ResolveCorroborated(rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}, pendingObs(value, value))
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
@@ -200,21 +168,19 @@ func TestPendingLocalSlice(t *testing.T) {
 		}
 	})
 
-	t.Run("capabilities survive both decorators", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
-			if _, ok := policy.(rpc.CorroboratingPolicy); !ok {
-				t.Fatalf("%s lost CorroboratingPolicy", tc.name)
+	t.Run("capabilities follow the plan's declarations", func(t *testing.T) {
+		for _, tc := range slicePlans(t) {
+			if !tc.plan.Corroborating() {
+				t.Fatalf("%s lost the corroborating class", tc.name)
 			}
-			if _, ok := policy.(rpc.LocalObservationPolicy); !ok {
-				t.Fatalf("%s lost LocalObservationPolicy", tc.name)
+			// The pending capability is the plan's declaration: the
+			// aggregator routes the pending shape to the local-observation
+			// resolution off it, not off a wrapper type.
+			if tc.plan.Pending.Mode != rpc.PendingObserve {
+				t.Fatalf("%s lost the pending-observation declaration", tc.name)
 			}
-			if ap, ok := policy.(rpc.AgreementPolicy); !ok || !ap.RequiresAgreement() {
+			if agreement, ok := tc.plan.Resolver.(rpc.AgreementPolicy); !ok || !agreement.RequiresAgreement() {
 				t.Fatalf("%s lost RequiresAgreement (mined-path adapter gate)", tc.name)
-			}
-			if _, ok := policy.(rpc.BlockRefProvider); !ok {
-				t.Fatalf("%s lost BlockRefProvider", tc.name)
 			}
 		}
 	})
@@ -236,39 +202,36 @@ func repeat00(n int) string {
 // no pending form and stay unwrapped. Logs carries its range in filter
 // fields and stays a documented T03 item.
 func TestPendingLocalExtendedMethods(t *testing.T) {
-	heightCalls := 0
-	height := func(ctx context.Context) (uint64, error) {
-		heightCalls++
-		return 16, nil
-	}
 	cases := []struct {
 		name   string
-		policy rpc.Policy
+		plan   rpc.ReadPlan
 		params []any
 		pos    int
 	}{
-		{"eth_createAccessList", CreateAccessListPolicy(nil), []any{map[string]any{"to": "0xabc"}, "pending"}, 1},
-		{"eth_feeHistory", FeeHistoryPolicy(height), []any{uint64(4), "pending", []float64{}}, 1},
-		{"eth_getBlockByNumber", BlockByNumberPolicy(), []any{"pending", false}, 0},
+		{"eth_createAccessList", compiledPlan(t, MethodCreateAccessList), []any{map[string]any{"to": "0xabc"}, "pending"}, 1},
+		{"eth_feeHistory", compiledPlan(t, MethodFeeHistory), []any{uint64(4), "pending", []float64{}}, 1},
+		{"eth_getBlockByNumber", compiledPlan(t, MethodGetBlockByNumber), []any{"pending", false}, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			lp, ok := tc.policy.(rpc.LocalObservationPolicy)
-			if !ok {
-				t.Fatalf("%s does not expose LocalObservationPolicy", tc.name)
+			if tc.plan.Pending.Mode != rpc.PendingObserve || tc.plan.Pending.Pos != tc.pos {
+				t.Fatalf("%s pending declaration = %+v, want observe at %d", tc.name, tc.plan.Pending, tc.pos)
 			}
-			before := heightCalls
-			prepared, err := tc.policy.Prepare(context.Background(), rpc.Request{Method: tc.name, Params: tc.params})
+			// Pending rides the wire untouched: no establishment is needed to
+			// prepare a pending request, whatever the reference evidence holds.
+			req := rpc.Request{Method: tc.name, Params: tc.params}
+			evidence, needed := establishedEvidence(t, tc.plan, req)
+			if needed {
+				t.Fatalf("%s pending declared a reference need", tc.name)
+			}
+			prepared, _, err := tc.plan.PrepareWithReference(req, evidence, false)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !lp.IsLocalObservation(prepared) {
-				t.Fatalf("%s pending: not detected as pending-local", tc.name)
+			if len(prepared.Params) != len(tc.params) {
+				t.Fatalf("%s pending request reshaped: %#v", tc.name, prepared.Params)
 			}
-			if heightCalls != before {
-				t.Fatalf("%s pending consulted the anchor", tc.name)
-			}
-			if _, ok := tc.policy.(rpc.CorroboratingPolicy); !ok {
+			if _, ok := tc.plan.Resolver.(rpc.CorroboratingPolicy); !ok {
 				t.Fatalf("%s lost CorroboratingPolicy", tc.name)
 			}
 		})

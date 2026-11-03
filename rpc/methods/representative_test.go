@@ -34,7 +34,7 @@ func TestRepresentativeIsFirstCapturedSource(t *testing.T) {
 	})
 
 	t.Run("call revert data returned", func(t *testing.T) {
-		policy := CallPolicy(nil, rpc.WithQuorum(2))
+		policy := planResolver(t, MethodCall, rpc.WithQuorum(2))
 		first := revertObservation(a, `"0xDEAD"`, `{"from":"a"}`)
 		second := revertObservation(b, `"0xdead"`, `{"from":"b"}`)
 		decision := resolvePair(t, policy, first, second)
@@ -51,7 +51,7 @@ func TestRepresentativeIsFirstCapturedSource(t *testing.T) {
 	})
 
 	t.Run("call revert data withheld", func(t *testing.T) {
-		policy := CallPolicy(nil, rpc.WithQuorum(2))
+		policy := planResolver(t, MethodCall, rpc.WithQuorum(2))
 		// a and b assert the same data, so they form one data cluster; c and d
 		// assert different data. N is 4, so the quorum is 3: the cluster of
 		// two ranks first but falls short, and its data is withheld. The
@@ -108,7 +108,7 @@ func TestRepresentativeWithoutEvidenceStaysEmpty(t *testing.T) {
 	})
 
 	t.Run("call revert", func(t *testing.T) {
-		policy := CallPolicy(nil, rpc.WithQuorum(2))
+		policy := planResolver(t, MethodCall, rpc.WithQuorum(2))
 		decision := resolvePair(t, policy,
 			revertObservation(a, `"0xDEAD"`, ""),
 			revertObservation(b, `"0xdead"`, `{"from":"b"}`),
@@ -221,13 +221,13 @@ func TestMigratedScalarValueIsCanonical(t *testing.T) {
 		second string
 		want   string
 	}{
-		{"chain id", ChainIDPolicy(rpc.WithQuorum(2)), `"0xA"`, `"0xa"`, `"0xa"`},
-		{"balance", GetBalancePolicy(nil), `"0xA"`, `"0xa"`, `"0xa"`},
-		{"nonce", GetTransactionCountPolicy(nil), `"0xA"`, `"0xa"`, `"0xa"`},
-		{"code", GetCodePolicy(nil), `"0xAB"`, `"0xab"`, `"0xab"`},
-		{"storage", GetStorageAtPolicy(nil), wordA, wordB, wordCanon},
-		{"net version", NetVersionPolicy(rpc.WithQuorum(2)), `"01"`, `"1"`, `"1"`},
-		{"call success", CallPolicy(nil, rpc.WithQuorum(2)), `"0xAB"`, `"0xab"`, `"0xab"`},
+		{"chain id", planResolver(t, MethodChainID, rpc.WithQuorum(2)), `"0xA"`, `"0xa"`, `"0xa"`},
+		{"balance", planResolver(t, MethodGetBalance), `"0xA"`, `"0xa"`, `"0xa"`},
+		{"nonce", planResolver(t, MethodGetTransactionCount), `"0xA"`, `"0xa"`, `"0xa"`},
+		{"code", planResolver(t, MethodGetCode), `"0xAB"`, `"0xab"`, `"0xab"`},
+		{"storage", planResolver(t, MethodGetStorageAt), wordA, wordB, wordCanon},
+		{"net version", planResolver(t, MethodNetVersion, rpc.WithQuorum(2)), `"01"`, `"1"`, `"1"`},
+		{"call success", planResolver(t, MethodCall, rpc.WithQuorum(2)), `"0xAB"`, `"0xab"`, `"0xab"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -255,7 +255,7 @@ func TestMigratedScalarValueIsCanonical(t *testing.T) {
 }
 
 func TestTypedQuantityReadsCanonicalValue(t *testing.T) {
-	policy := ChainIDPolicy(rpc.WithQuorum(2))
+	policy := planResolver(t, MethodChainID, rpc.WithQuorum(2))
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
 	decision := resolvePair(t, policy,
@@ -273,7 +273,7 @@ func TestTypedQuantityReadsCanonicalValue(t *testing.T) {
 }
 
 func TestTypedDataReadsCanonicalValue(t *testing.T) {
-	policy := GetCodePolicy(nil)
+	policy := planResolver(t, MethodGetCode)
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
 	decision := resolvePair(t, policy,
@@ -291,7 +291,7 @@ func TestTypedDataReadsCanonicalValue(t *testing.T) {
 }
 
 func TestTypedCallSuccessReadsCanonicalData(t *testing.T) {
-	policy := CallPolicy(nil, rpc.WithQuorum(2))
+	policy := planResolver(t, MethodCall, rpc.WithQuorum(2))
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
 	decision := resolvePair(t, policy,
@@ -329,7 +329,7 @@ func TestScalarMutationCannotManufactureEquality(t *testing.T) {
 
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
-	policy := GetCodePolicy(nil)
+	policy := planResolver(t, MethodGetCode)
 	resolver := policy.(rpc.CorroboratingPolicy)
 	decision, err := resolver.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 		observation(a, `"0x00ab"`, ""),
@@ -340,7 +340,7 @@ func TestScalarMutationCannotManufactureEquality(t *testing.T) {
 	}
 
 	broken := rpc.SourceRef{Name: "c", ID: "c"}
-	decision, err = ChainIDPolicy(rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).ResolveCorroborated(
+	decision, err = planResolver(t, MethodChainID, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).ResolveCorroborated(
 		rpc.Corroboration{Floor: 1},
 		[]rpc.Observation{
 			observation(a, `"0x1"`, ""),
@@ -400,7 +400,7 @@ func TestCanonicalDisagreementDoesNotRevote(t *testing.T) {
 }
 
 func TestMigratedQuantityTieUsesCanonicalKey(t *testing.T) {
-	policy := ChainIDPolicy(rpc.WithQuorum(1))
+	policy := planResolver(t, MethodChainID, rpc.WithQuorum(1))
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
 	c := rpc.SourceRef{Name: "c", ID: "c"}
@@ -423,7 +423,7 @@ func TestMigratedQuantityTieUsesCanonicalKey(t *testing.T) {
 }
 
 func TestMedianSkipsUnencodableQuantity(t *testing.T) {
-	policy := BlockNumberPolicy()
+	policy := compiledPlan(t, MethodBlockNumber).Resolver
 	good := rpc.SourceRef{Name: "a", ID: "a"}
 	bad := rpc.SourceRef{Name: "b", ID: "b"}
 	high := rpc.SourceRef{Name: "c", ID: "c"}
@@ -452,7 +452,7 @@ func TestMedianSkipsUnencodableQuantity(t *testing.T) {
 }
 
 func TestLocalPeerCountEncodesOnlyTheSelectedSource(t *testing.T) {
-	policy := PeerCountPolicy()
+	policy := compiledPlan(t, MethodPeerCount).Resolver
 	first := rpc.SourceRef{Name: "a", ID: "a"}
 	second := rpc.SourceRef{Name: "b", ID: "b"}
 	decision, err := policy.Resolve([]rpc.Observation{
@@ -474,9 +474,9 @@ func TestLocalPeerCountEncodesOnlyTheSelectedSource(t *testing.T) {
 }
 
 func TestResolveLocalKeepsRepresentativeZero(t *testing.T) {
-	policy := GetBalancePolicy(nil).(rpc.LocalObservationPolicy)
+	policy := compiledPlan(t, MethodGetBalance).Resolver
 	first := rpc.SourceRef{Name: "a", ID: "a"}
-	decision, err := policy.ResolveLocal([]rpc.Observation{
+	decision, err := rpc.ResolveLocalObservation(policy, []rpc.Observation{
 		{Source: first, Value: json.RawMessage(`"0xA"`)},
 		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(`"0x1"`)},
 	})

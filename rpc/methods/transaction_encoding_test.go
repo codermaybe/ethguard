@@ -11,7 +11,7 @@ import (
 func TestTransactionPolicyCanonicalizesValueWithoutSplicingSources(t *testing.T) {
 	raw := sampleResults(t, "block-receipt-tx", "tx-one")[0]
 	withVendor := injectField(t, raw, "vendorExtension", `"outside"`)
-	policy := TransactionByHashPolicy(rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
+	policy := planResolver(t, MethodGetTransactionByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 		{Source: rpc.SourceRef{ID: "a"}, Value: raw},
 		{Source: rpc.SourceRef{ID: "b"}, Value: withVendor},

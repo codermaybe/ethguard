@@ -15,7 +15,7 @@ import (
 
 func TestBlockAdmissionRejectsMissingRequiredBody(t *testing.T) {
 	raw, hash := admissionBlock(t, nil)
-	p := BlockByHashPolicy().(blockPolicy)
+	p := compiledPlan(t, MethodGetBlockByHash)
 	_, err := p.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{hash.Hex(), true}}, raw, nil)
 	if err == nil || !strings.Contains(err.Error(), "transactions") {
 		t.Fatalf("expected missing transactions rejection, got %v", err)
@@ -32,7 +32,7 @@ func TestBlockAdmissionRejectsTransactionRootMismatch(t *testing.T) {
 	obj["hash"], _ = json.Marshal(head.Hash())
 	// An empty body cannot produce the deliberately non-empty transaction root.
 	raw, _ = json.Marshal(obj)
-	p := BlockByHashPolicy().(blockPolicy)
+	p := compiledPlan(t, MethodGetBlockByHash)
 	_, err := p.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{head.Hash().Hex(), true}}, raw, nil)
 	if err == nil || !strings.Contains(err.Error(), "transactions root") {
 		t.Fatalf("expected transaction-root rejection, got %v", err)
@@ -54,7 +54,7 @@ func TestBlockAdmissionFetchesAndBindsUnclesFromSameSource(t *testing.T) {
 	hash := head.Hash()
 	obj["hash"], _ = json.Marshal(hash)
 	raw, _ = json.Marshal(obj)
-	p := BlockByHashPolicy().(blockPolicy)
+	p := compiledPlan(t, MethodGetBlockByHash)
 	evidence, err := p.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{hash.Hex(), true}}, raw, func(_ context.Context, method string, params []any) (json.RawMessage, error) {
 		if method != "eth_getUncleByBlockHashAndIndex" || len(params) != 2 {
 			t.Fatalf("unexpected uncle request %s %#v", method, params)
@@ -71,25 +71,9 @@ func TestBlockAdmissionFetchesAndBindsUnclesFromSameSource(t *testing.T) {
 
 func TestBlockAdmissionUsesDeclaredIdentity(t *testing.T) {
 	raw, hash := admissionBlock(t, []json.RawMessage{})
-	findPlan := func(t *testing.T, method string) rpc.ReadPlan {
-		t.Helper()
-		for _, spec := range Specs() {
-			if spec.Method != method {
-				continue
-			}
-			plan, err := CompilePlan(spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return plan
-		}
-		t.Fatalf("missing spec for %s", method)
-		return rpc.ReadPlan{}
-	}
-
 	// The plan's hash identity is a compiled fact. A caller-side method label
 	// cannot silently turn the same full-block response into a number request.
-	hashPlan := findPlan(t, MethodGetBlockByHash)
+	hashPlan := compiledPlan(t, MethodGetBlockByHash)
 	if _, err := hashPlan.Admit(context.Background(), rpc.Request{
 		Method: MethodGetBlockByNumber,
 		Params: []any{hash.Hex(), true},
@@ -99,7 +83,7 @@ func TestBlockAdmissionUsesDeclaredIdentity(t *testing.T) {
 
 	// The number identity is equally explicit and accepts the requested
 	// height even when the request label is the hash method.
-	numberPlan := findPlan(t, MethodGetBlockByNumber)
+	numberPlan := compiledPlan(t, MethodGetBlockByNumber)
 	if _, err := numberPlan.Admit(context.Background(), rpc.Request{
 		Method: MethodGetBlockByHash,
 		Params: []any{"0x1", true},

@@ -1,7 +1,6 @@
 package methods
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -16,7 +15,7 @@ func TestBlockNumberAndBlobBaseFeeLowerMedian(t *testing.T) {
 	}
 
 	t.Run("blockNumber median", func(t *testing.T) {
-		policy := BlockNumberPolicy()
+		policy := compiledPlan(t, MethodBlockNumber).Resolver
 		observations := []rpc.Observation{
 			{Source: sources[0], Value: json.RawMessage(`"0x10"`)}, // 16
 			{Source: sources[1], Value: json.RawMessage(`"0x20"`)}, // 32
@@ -36,7 +35,7 @@ func TestBlockNumberAndBlobBaseFeeLowerMedian(t *testing.T) {
 	})
 
 	t.Run("blobBaseFee median", func(t *testing.T) {
-		policy := BlobBaseFeePolicy()
+		policy := compiledPlan(t, MethodBlobBaseFee).Resolver
 		observations := []rpc.Observation{
 			{Source: sources[0], Value: json.RawMessage(`"0x1"`)},
 			{Source: sources[1], Value: json.RawMessage(`"0x3"`)},
@@ -57,21 +56,23 @@ func TestBlockNumberAndBlobBaseFeeLowerMedian(t *testing.T) {
 }
 
 func TestCreateAccessListPolicyAnchoringAndNormalization(t *testing.T) {
-	anchor := func(ctx context.Context) (string, error) {
-		return "0x1122334455667788990011223344556677889900112233445566778899001122", nil
-	}
-	policy := CreateAccessListPolicy(anchor)
+	plan := compiledPlan(t, MethodCreateAccessList)
+	const anchored = "0x1122334455667788990011223344556677889900112233445566778899001122"
 
 	t.Run("prepares latest tag to anchor hash", func(t *testing.T) {
 		req := rpc.Request{
 			Method: MethodCreateAccessList,
 			Params: []any{map[string]any{"to": "0x1234"}, "latest"},
 		}
-		prepared, err := policy.Prepare(context.Background(), req)
+		ref := rpc.ReferenceEvidence{Hash: anchored, Status: rpc.Corroborated}
+		prepared, pin, err := plan.PrepareWithReference(req, ref, true)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(prepared.Params) != 2 || prepared.Params[1] != "0x1122334455667788990011223344556677889900112233445566778899001122" {
+		if pin != anchored {
+			t.Fatalf("pin = %q, want the established hash", pin)
+		}
+		if len(prepared.Params) != 2 || prepared.Params[1] != anchored {
 			t.Fatalf("prepared params = %+v, want anchored hash", prepared.Params)
 		}
 	})
@@ -88,7 +89,7 @@ func TestCreateAccessListPolicyAnchoringAndNormalization(t *testing.T) {
 			{Source: sources[0], Value: resp1},
 			{Source: sources[1], Value: resp2},
 		}
-		decision, err := policy.Resolve(observations)
+		decision, err := plan.Resolver.Resolve(observations)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

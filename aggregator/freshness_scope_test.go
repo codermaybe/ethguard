@@ -12,13 +12,13 @@ import (
 // derived from the prepared request, not the original tag: a rewritten pin is
 // exempt, while a request that still carries latest keeps the latest gate.
 // Safe/finalized are exempt because latest block-number samples do not
-// describe their freshness.
+// describe their freshness. The scope is read off the plan path's prepared
+// request — the only execution path the registry drives.
 func TestPreparedBusinessRoundTipScope(t *testing.T) {
 	plan, err := methods.CompilePlan(probeSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := probeChainPolicy(contextAnchor())
 	for _, tc := range []struct {
 		name     string
 		prepared rpc.Request
@@ -32,13 +32,9 @@ func TestPreparedBusinessRoundTipScope(t *testing.T) {
 		{"finalized remains", rpc.Request{Method: probeMethod, Params: []any{"0x1", "finalized"}}, pool.TipFreshnessExempt},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			planned := &invocationState{plan: &plan, prepared: tc.prepared}
-			if got := preparedTipFreshness(planned); got != tc.want {
-				t.Fatalf("planned scope = %v, want %v", got, tc.want)
-			}
-			legacyState := &invocationState{policy: legacy, prepared: tc.prepared}
-			if got := preparedTipFreshness(legacyState); got != tc.want {
-				t.Fatalf("legacy scope = %v, want %v", got, tc.want)
+			state := &invocationState{plan: &plan, prepared: tc.prepared}
+			if got := preparedTipFreshness(state); got != tc.want {
+				t.Fatalf("prepared scope = %v, want %v", got, tc.want)
 			}
 		})
 	}

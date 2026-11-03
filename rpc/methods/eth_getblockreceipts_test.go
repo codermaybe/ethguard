@@ -33,7 +33,7 @@ func TestBlockReceiptSpellingsAndFromShareCanonicalValue(t *testing.T) {
 		// Equivalent JSON string escape spelling.
 		json.RawMessage(strings.Replace(string(receiptArray(t, raw)), `"0x`, `"\u0030x`, 1)),
 	}
-	policy := BlockReceiptsPolicy(nil, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodGetBlockReceipts, rpc.WithQuorum(1))
 	var baseline json.RawMessage
 	for i := range variants {
 		a := observation(rpc.SourceRef{ID: "a"}, string(variants[0]), `{"source":"a"}`)
@@ -58,7 +58,7 @@ func TestBlockReceiptSpellingsAndFromShareCanonicalValue(t *testing.T) {
 func TestBlockReceiptsNullEmptyAndArrayOrder(t *testing.T) {
 	first := sampleReceipt(t)
 	second := replaceReceiptField(t, first, "gasUsed", `"0x1"`)
-	policy := BlockReceiptsPolicy(nil, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy)
+	policy := planResolver(t, MethodGetBlockReceipts, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy)
 	for _, body := range []string{`null`, `[]`} {
 		d, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{observation(rpc.SourceRef{ID: "a"}, body, ""), observation(rpc.SourceRef{ID: "b"}, body, "")})
 		if err != nil || string(d.Value) != body || d.Status != rpc.Corroborated {
@@ -92,7 +92,7 @@ func TestBlockReceiptInvalidElementKeepsWholeSourceInDenominator(t *testing.T) {
 	good := receiptArray(t, sampleReceipt(t))
 	other := receiptArray(t, replaceReceiptField(t, sampleReceipt(t), "gasUsed", `"0x1"`))
 	for _, bad := range []json.RawMessage{receiptArray(t, sampleReceipt(t), json.RawMessage(`null`)), receiptArray(t, sampleReceipt(t), deleteReceiptField(t, sampleReceipt(t), "logs"))} {
-		d, err := BlockReceiptsPolicy(nil, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
+		d, err := planResolver(t, MethodGetBlockReceipts, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 			observation(rpc.SourceRef{ID: "a"}, string(good), ""), observation(rpc.SourceRef{ID: "b"}, string(good), ""), observation(rpc.SourceRef{ID: "c"}, string(other), ""), observation(rpc.SourceRef{ID: "d"}, string(bad), ""),
 		})
 		if !errors.Is(err, rpc.ErrConflict) || d.Status != rpc.Unknown || len(d.Support) != 2 || len(d.Reject) != 1 || len(d.Faults) != 1 || !strings.Contains(d.Faults[0].Error(), "encode:") {

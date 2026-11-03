@@ -11,61 +11,63 @@ import (
 )
 
 func TestStateReadPoliciesPinMovingTagsAndPreserveExplicitReferences(t *testing.T) {
-	anchorCalls := 0
-	anchor := func(ctx context.Context) (string, error) {
-		anchorCalls++
-		if got := rpc.AnchorTag(ctx); got != "latest" {
-			t.Fatalf("anchor tag = %q, want latest", got)
-		}
-		return "0x" + "11" + "22", nil
-	}
+	const pinned = "0x" + "11" + "22"
 	cases := []struct {
 		name   string
-		policy rpc.Policy
+		method string
 		params []any
 		pos    int
 	}{
-		{"balance", GetBalancePolicy(anchor), []any{"0xabc", "latest"}, 1},
-		{"nonce", GetTransactionCountPolicy(anchor), []any{"0xabc", "latest"}, 1},
-		{"code", GetCodePolicy(anchor), []any{"0xabc", "latest"}, 1},
-		{"storage", GetStorageAtPolicy(anchor), []any{"0xabc", "0x01", "latest"}, 2},
+		{"balance", MethodGetBalance, []any{"0xabc", "latest"}, 1},
+		{"nonce", MethodGetTransactionCount, []any{"0xabc", "latest"}, 1},
+		{"code", MethodGetCode, []any{"0xabc", "latest"}, 1},
+		{"storage", MethodGetStorageAt, []any{"0xabc", "0x01", "latest"}, 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			prepared, err := tc.policy.Prepare(context.Background(), rpc.Request{Method: tc.name, Params: tc.params})
+			plan := compiledPlan(t, tc.method)
+			req := rpc.Request{Method: tc.name, Params: tc.params}
+			evidence, needed := establishedEvidence(t, plan, req)
+			if !needed {
+				t.Fatal("the anchored state read declared no reference need")
+			}
+			evidence.Hash = pinned
+			prepared, pin, err := plan.PrepareWithReference(req, evidence, true)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := prepared.Params[tc.pos]; got != "0x1122" {
+			if pin != pinned {
+				t.Fatalf("pin = %q, want the established hash", pin)
+			}
+			if got := prepared.Params[tc.pos]; got != pinned {
 				t.Fatalf("moving reference = %v, want pinned hash", got)
 			}
 		})
 	}
-	if anchorCalls != len(cases) {
-		t.Fatalf("anchor calls = %d, want %d", anchorCalls, len(cases))
-	}
 
 	for _, tc := range cases {
-		for _, ref := range []string{"0x" + "33" + "44", "pending"} {
-			before := anchorCalls
-			params := append([]any(nil), tc.params...)
-			params[tc.pos] = ref
-			prepared, err := tc.policy.Prepare(context.Background(), rpc.Request{Method: tc.name, Params: params})
-			if err != nil {
-				t.Fatalf("%s %s: %v", tc.name, ref, err)
+		t.Run(tc.name+" explicit", func(t *testing.T) {
+			plan := compiledPlan(t, tc.method)
+			for _, ref := range []string{"0x" + "33" + "44", "pending"} {
+				params := append([]any(nil), tc.params...)
+				params[tc.pos] = ref
+				req := rpc.Request{Method: tc.name, Params: params}
+				// refOK=false: explicit references and pending need no
+				// establishment, and none may be demanded.
+				prepared, _, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false)
+				if err != nil {
+					t.Fatalf("%s %s: %v", tc.name, ref, err)
+				}
+				if got := prepared.Params[tc.pos]; got != ref {
+					t.Fatalf("%s %s rewritten to %v", tc.name, ref, got)
+				}
 			}
-			if got := prepared.Params[tc.pos]; got != ref {
-				t.Fatalf("%s %s rewritten to %v", tc.name, ref, got)
-			}
-			if anchorCalls != before {
-				t.Fatalf("%s %s consulted anchor", tc.name, ref)
-			}
-		}
+		})
 	}
 }
 
 func TestChainIDPolicyNormalizesQuantities(t *testing.T) {
-	p := ChainIDPolicy()
+	p := compiledPlan(t, MethodChainID).Resolver
 	first, err := p.Normalize(json.RawMessage(`"0x1"`))
 	if err != nil {
 		t.Fatal(err)
@@ -115,11 +117,11 @@ func TestQuantityPoliciesRejectNonCanonicalWireValues(t *testing.T) {
 		name   string
 		policy rpc.Policy
 	}{
-		{"chain id", ChainIDPolicy()},
-		{"block number", BlockNumberPolicy()},
-		{"blob base fee", BlobBaseFeePolicy()},
-		{"gas price", GasPricePolicy()},
-		{"priority fee", MaxPriorityFeePerGasPolicy()},
+		{"chain id", compiledPlan(t, MethodChainID).Resolver},
+		{"block number", compiledPlan(t, MethodBlockNumber).Resolver},
+		{"blob base fee", compiledPlan(t, MethodBlobBaseFee).Resolver},
+		{"gas price", compiledPlan(t, MethodGasPrice).Resolver},
+		{"priority fee", compiledPlan(t, MethodMaxPriorityFeePerGas).Resolver},
 	}
 	for _, tc := range policies {
 		t.Run(tc.name, func(t *testing.T) {
@@ -131,8 +133,8 @@ func TestQuantityPoliciesRejectNonCanonicalWireValues(t *testing.T) {
 }
 
 func TestTransactionAdmissionClassifiesUnsupportedTypedObject(t *testing.T) {
-	policy := TransactionByHashPolicy().(rpc.AdmissionPolicy)
-	_, err := policy.Admit(context.Background(), rpc.Request{
+	plan := compiledPlan(t, MethodGetTransactionByHash)
+	_, err := plan.Admit(context.Background(), rpc.Request{
 		Method: MethodGetTransactionByHash,
 		Params: []any{"0x0000000000000000000000000000000000000000000000000000000000000001"},
 	}, json.RawMessage(`{"type":"0x7f"}`), nil)
@@ -145,7 +147,7 @@ func TestTransactionAdmissionClassifiesUnsupportedTypedObject(t *testing.T) {
 }
 
 func TestBlockByHashPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
-	p := BlockByHashPolicy()
+	p := compiledPlan(t, MethodGetBlockByHash).Resolver
 	first, err := p.Normalize(json.RawMessage(`{"hash":"0xAB","number":"0x1","transactions":[]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +162,7 @@ func TestBlockByHashPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
 }
 
 func TestBlockByNumberPolicyComparesHeightsNumerically(t *testing.T) {
-	p := BlockByNumberPolicy()
+	p := compiledPlan(t, MethodGetBlockByNumber).Resolver
 	first, err := p.Normalize(json.RawMessage(`{"number":"0x010f","hash":"0xAB"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +177,7 @@ func TestBlockByNumberPolicyComparesHeightsNumerically(t *testing.T) {
 }
 
 func TestTransactionReceiptPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
-	p := TransactionReceiptPolicy()
+	p := compiledPlan(t, MethodGetTransactionReceipt).Resolver
 	first, err := p.Normalize(json.RawMessage(`{"transactionHash":"0xAB","status":"0x1","gasUsed":"0x10","logs":[]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -190,16 +192,16 @@ func TestTransactionReceiptPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
 }
 
 func TestTransactionPoliciesRejectIncompleteObjectsBeforeClustering(t *testing.T) {
-	if _, err := TransactionByHashPolicy().Normalize(json.RawMessage(`{"hash":"0x01"}`)); err == nil {
+	if _, err := compiledPlan(t, MethodGetTransactionByHash).Resolver.Normalize(json.RawMessage(`{"hash":"0x01"}`)); err == nil {
 		t.Fatal("expected incomplete transaction context to be rejected")
 	}
-	if _, err := TransactionReceiptPolicy().Normalize(json.RawMessage(`{"transactionHash":"0x01"}`)); err == nil {
+	if _, err := compiledPlan(t, MethodGetTransactionReceipt).Resolver.Normalize(json.RawMessage(`{"transactionHash":"0x01"}`)); err == nil {
 		t.Fatal("expected incomplete receipt to be rejected")
 	}
 }
 
 func TestBlockReceiptsPolicyPreservesEmptyArrayAndRejectsNullElement(t *testing.T) {
-	p := BlockReceiptsPolicy(nil)
+	p := compiledPlan(t, MethodGetBlockReceipts).Resolver
 	if got, err := p.Normalize(json.RawMessage(`[]`)); err != nil || got != `[]` {
 		t.Fatalf("expected empty receipt list to remain valid, got %q: %v", got, err)
 	}

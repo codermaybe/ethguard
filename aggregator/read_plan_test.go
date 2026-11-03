@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -18,9 +17,7 @@ import (
 // The plan-execution fixtures. probeMethod is a synthetic default-block
 // state read with the full reference and pending shape: hash anchored at
 // position 1, the EIP-1898 object form at the same position, and pending
-// observed node-locally. The plan and the chain are the same method
-// assembled twice — once as an explicit execution plan, once as the
-// compiled decorator chain — over the same scripted nodes.
+// observed node-locally. The plan is the only assembly under test.
 const probeMethod = "eth_planProbe"
 
 // probeNormalize and probeEncode are the probe's synthetic value domain: a
@@ -37,13 +34,6 @@ func probeEncode(value json.RawMessage) (json.RawMessage, error) {
 	return value, nil
 }
 
-func probeChainPolicy(anchor rpc.AnchorFunc) rpc.Policy {
-	return methods.PendingLocal(1)(methods.EIP1898BlockRef(anchor, 1)(rpc.WithAnchor(anchor, 1)(
-		rpc.Strict(probeNormalize,
-			rpc.WithCanonicalValue(probeEncode),
-			rpc.WithRuleCompareKind(rpc.RuleCompareQuantity)))))
-}
-
 func probeSpec() methods.MethodSpec {
 	return methods.MethodSpec{
 		Method:      probeMethod,
@@ -54,27 +44,6 @@ func probeSpec() methods.MethodSpec {
 		CompareKind: rpc.RuleCompareQuantity,
 		Reference:   methods.ReferenceSpec{Kind: methods.ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
 		Pending:     methods.PendingSpec{Mode: methods.PendingObserve, Pos: 1},
-	}
-}
-
-// contextAnchor is the consumption-only anchor reader the chain side binds:
-// it reads an already-established reference from the in-flight invocation
-// and never establishes anything itself, exactly like the composition
-// root's stage readers.
-func contextAnchor() rpc.AnchorFunc {
-	return func(ctx context.Context) (string, error) {
-		invocation, ok := refcontext.Invocation(ctx)
-		if !ok {
-			return "", rpc.ErrReferenceRequired
-		}
-		ref, ok := invocation.Reference()
-		if !ok || !rpc.EvidenceServesTag(ref, rpc.AnchorTag(ctx)) {
-			return "", rpc.ErrReferenceRequired
-		}
-		if ref.Status != rpc.Corroborated {
-			return "", rpc.ErrConflict
-		}
-		return ref.Hash, nil
 	}
 }
 
@@ -118,70 +87,55 @@ func probeNodes(t *testing.T, value string, n int) ([]*rpctest.Node, *pool.Pool)
 	return nodes, p
 }
 
-func probeAggregator(t *testing.T, p *pool.Pool, stage *scriptedStage, planned bool) *Aggregator {
+func probeAggregator(t *testing.T, p *pool.Pool, stage *scriptedStage) *Aggregator {
 	t.Helper()
 	shared, err := rpc.NewCorroborationShared(rpc.CorroborationMajority, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := []Option{
+	plan, err := methods.CompilePlan(probeSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(p, nil,
 		WithCorroboration(shared),
-		WithCollectTimeout(2 * time.Second),
+		WithCollectTimeout(2*time.Second),
 		WithReferenceStage(stage),
-	}
-	registry := rpc.Registry{}
-	if planned {
-		plan, err := methods.CompilePlan(probeSpec())
-		if err != nil {
-			t.Fatal(err)
-		}
-		opts = append(opts, WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
-	} else {
-		registry[probeMethod] = probeChainPolicy(contextAnchor())
-	}
-	return New(p, registry, opts...)
+		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
 }
 
-// TestPlannedReadMatchesTheChainPath drives the same probe method through
-// both routes over the same scripted fleet: the plan path and the compiled
-// chain path must agree on the decision, the prepared request, and the
-// recorded block pin, and both must establish exactly once.
-func TestPlannedReadMatchesTheChainPath(t *testing.T) {
-	_, p := probeNodes(t, "0x64", 3)
-	stage := &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Height: 16, Status: rpc.Corroborated}}
-	plannedDecision, plannedErr := probeAggregator(t, p, stage, true).Aggregate(context.Background(),
-		rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
-	if plannedErr != nil {
-		t.Fatalf("planned read failed: %v", plannedErr)
-	}
-
+// TestPlannedReadExecutesTheFleetFixture drives the probe method through
+// the plan path over a scripted fleet and verifies the outcome directly:
+// the decision corroborates, the prepared request is pinned to the
+// established hash, establishment runs exactly once, and every source
+// answered for the same rewritten request.
+func TestPlannedReadExecutesTheFleetFixture(t *testing.T) {
 	nodes, p := probeNodes(t, "0x64", 3)
-	chainStage := &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Height: 16, Status: rpc.Corroborated}}
-	chainDecision, chainErr := probeAggregator(t, p, chainStage, false).Aggregate(context.Background(),
+	stage := &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Height: 16, Status: rpc.Corroborated}}
+	decision, aggErr := probeAggregator(t, p, stage).Aggregate(context.Background(),
 		rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
-	if chainErr != nil {
-		t.Fatalf("chain read failed: %v", chainErr)
+	if aggErr != nil {
+		t.Fatalf("planned read failed: %v", aggErr)
 	}
 
-	if plannedDecision.Status != chainDecision.Status || plannedDecision.Status != rpc.Corroborated {
-		t.Fatalf("status mismatch: plan %v chain %v", plannedDecision.Status, chainDecision.Status)
+	if decision.Status != rpc.Corroborated {
+		t.Fatalf("status = %v, want Corroborated", decision.Status)
 	}
-	if string(plannedDecision.Value) != string(chainDecision.Value) {
-		t.Fatalf("value mismatch: plan %s chain %s", plannedDecision.Value, chainDecision.Value)
+	if string(decision.Value) != `"0x64"` {
+		t.Fatalf("value = %s, want the fleet's unanimous answer", decision.Value)
 	}
-	if plannedDecision.BlockRef != chainDecision.BlockRef || plannedDecision.BlockRef != "0xabc" {
-		t.Fatalf("block pin mismatch: plan %q chain %q", plannedDecision.BlockRef, chainDecision.BlockRef)
+	if decision.BlockRef != "0xabc" {
+		t.Fatalf("block pin = %q, want the established hash", decision.BlockRef)
 	}
-	if len(plannedDecision.Support) != len(chainDecision.Support) {
-		t.Fatalf("support mismatch: plan %v chain %v", plannedDecision.Support, chainDecision.Support)
+	if len(decision.Support) != 3 {
+		t.Fatalf("support = %v, want the whole corroborating fleet", decision.Support)
 	}
-	// The prepared request is pinned to the established hash on both paths.
-	if plannedDecision.Prepared.Params[1] != "0xabc" || chainDecision.Prepared.Params[1] != "0xabc" {
-		t.Fatalf("prepared request mismatch: plan %v chain %v", plannedDecision.Prepared.Params, chainDecision.Prepared.Params)
+	if decision.Prepared.Params[1] != "0xabc" {
+		t.Fatalf("prepared request = %v, want the established hash", decision.Prepared.Params)
 	}
-	// One establishment round per read, on both routes.
-	if len(stage.rounds) != 1 || len(chainStage.rounds) != 1 {
-		t.Fatalf("establishment rounds: plan %d chain %d, want one each", len(stage.rounds), len(chainStage.rounds))
+	// One establishment round per read.
+	if len(stage.rounds) != 1 {
+		t.Fatalf("establishment rounds = %d, want one", len(stage.rounds))
 	}
 	// Every source answered for the same rewritten request: exactly one
 	// probe call per node (the pool's own chain-id handshake does not count).

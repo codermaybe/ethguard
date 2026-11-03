@@ -18,7 +18,7 @@ import (
 )
 
 func TestReceiptSpellingsShareOneCanonicalValue(t *testing.T) {
-	policy := TransactionReceiptPolicy(rpc.WithQuorum(1))
+	policy := planResolver(t, MethodGetTransactionReceipt, rpc.WithQuorum(1))
 	raw := sampleReceipt(t)
 	reordered := reorderReceipt(t, raw)
 	upper := foldReceiptHex(t, raw)
@@ -52,7 +52,7 @@ func TestReceiptSpellingsShareOneCanonicalValue(t *testing.T) {
 }
 
 func TestReceiptFromDisagreementSplitsTheCluster(t *testing.T) {
-	policy := TransactionReceiptPolicy(rpc.WithQuorum(1))
+	policy := planResolver(t, MethodGetTransactionReceipt, rpc.WithQuorum(1))
 	raw := sampleReceipt(t)
 	other := replaceReceiptField(t, raw, "from", `"0x0000000000000000000000000000000000000002"`)
 	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
@@ -65,7 +65,7 @@ func TestReceiptFromDisagreementSplitsTheCluster(t *testing.T) {
 }
 
 func TestReceiptMissingLogsStaysInTheDenominator(t *testing.T) {
-	policy := TransactionReceiptPolicy(rpc.WithQuorum(2))
+	policy := planResolver(t, MethodGetTransactionReceipt, rpc.WithQuorum(2))
 	good := string(sampleReceipt(t))
 	other := string(replaceReceiptField(t, sampleReceipt(t), "gasUsed", `"0x1"`))
 	incomplete := string(deleteReceiptField(t, sampleReceipt(t), "logs"))
@@ -87,7 +87,7 @@ func TestReceiptMissingLogsStaysInTheDenominator(t *testing.T) {
 }
 
 func TestReceiptNullEncodesAsNull(t *testing.T) {
-	policy := TransactionReceiptPolicy(rpc.WithQuorum(1))
+	policy := planResolver(t, MethodGetTransactionReceipt, rpc.WithQuorum(1))
 	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, `null`, ""),
@@ -323,7 +323,7 @@ func TestReceiptEncodingOptionalFieldsAndStatusRoot(t *testing.T) {
 
 func TestReceiptBloomMismatchIsEncodeFault(t *testing.T) {
 	raw := replaceReceiptField(t, sampleReceipt(t), "logsBloom", `"0x`+strings.Repeat("00", 255)+`01"`)
-	policy := TransactionReceiptPolicy(rpc.WithQuorum(1))
+	policy := planResolver(t, MethodGetTransactionReceipt, rpc.WithQuorum(1))
 	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{ID: "a"}, string(raw), ""),
 	})

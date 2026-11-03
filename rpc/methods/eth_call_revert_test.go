@@ -2,7 +2,6 @@ package methods
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -64,9 +63,9 @@ func TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees(t *testing.T) {
 }
 
 func TestCallRevertDataConflictIsNotSwallowed(t *testing.T) {
-	policy := CallPolicy(func(ctx context.Context) (string, error) {
-		return "", errors.New("anchor should not run")
-	})
+	// The plan's resolver receives established evidence as a value: no
+	// anchor callback exists to run.
+	policy := planResolver(t, MethodCall)
 	obs := []rpc.Observation{
 		rpcErrorObs("a", -32000, "execution reverted", `"0xdead"`),
 		rpcErrorObs("b", 3, "execution reverted", `"0xbeef"`),
@@ -90,7 +89,7 @@ func TestCallRevertDataConflictIsNotSwallowed(t *testing.T) {
 }
 
 func TestCallRevertContextStaysOutsideProtectedValue(t *testing.T) {
-	policy := CallPolicy(nil, rpc.WithQuorum(2))
+	policy := planResolver(t, MethodCall, rpc.WithQuorum(2))
 	first := rpc.Observation{
 		Source: rpc.SourceRef{ID: "a"},
 		Err:    errors.New("execution reverted"),
@@ -122,7 +121,7 @@ func TestCallRevertContextStaysOutsideProtectedValue(t *testing.T) {
 }
 
 func TestCallProviderErrorDoesNotEnterRevertKey(t *testing.T) {
-	policy := CallPolicy(nil)
+	policy := planResolver(t, MethodCall)
 	obs := []rpc.Observation{
 		rpcErrorObs("a", -32002, "request timed out", ""),
 		rpcErrorObs("b", -32003, "response too large", ""),
@@ -220,7 +219,7 @@ func TestRevertSamplesUseDistinctDataKeys(t *testing.T) {
 // TestCallRevertCanonicalDataValue pins 0061: the accepted data projection
 // has one spelling, while the representative still follows capture order.
 func TestCallRevertCanonicalDataValue(t *testing.T) {
-	policy := CallPolicy(nil, rpc.WithQuorum(2))
+	policy := planResolver(t, MethodCall, rpc.WithQuorum(2))
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
 	hexA := rpcErrorObs("a", 3, "execution reverted", `"0xDEAD"`)

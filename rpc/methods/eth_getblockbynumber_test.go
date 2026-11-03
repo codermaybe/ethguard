@@ -1,7 +1,6 @@
 package methods
 
 import (
-	"context"
 	"testing"
 
 	"github.com/codermaybe/ethguard/rpc"
@@ -11,20 +10,28 @@ import (
 // T03-A: the pending tag stays a local observation and is not rewritten into
 // an anchored block read. Typed rejection of -1 lives in the adapter.
 func TestBlockByNumberPendingTagIsNotRewrittenToAnchor(t *testing.T) {
-	policy := BlockByNumberPolicy()
+	plan := compiledPlan(t, MethodGetBlockByNumber)
 	original := rpc.Request{Method: MethodGetBlockByNumber, Params: []any{"PeNdInG", true}}
-	prepared, err := policy.Prepare(context.Background(), original)
+	// The pending tag is observed, never rewritten: no reference need, no
+	// pin, and the request rides the fan-out untouched.
+	if _, needed := plan.ReferenceRequirement(original); needed {
+		t.Fatal("pending tag declared a reference need")
+	}
+	evidence, needed := establishedEvidence(t, plan, original)
+	if needed {
+		t.Fatal("pending tag established a reference")
+	}
+	prepared, pin, err := plan.PrepareWithReference(original, evidence, false)
 	if err != nil {
-		t.Fatalf("pending tag rejected by policy: %v", err)
+		t.Fatalf("pending tag rejected by plan: %v", err)
 	}
 	if len(prepared.Params) != 2 || prepared.Params[0] != "PeNdInG" || prepared.Params[1] != true {
 		t.Fatalf("pending tag rewritten: %+v", prepared.Params)
 	}
-	local, ok := policy.(rpc.LocalObservationPolicy)
-	if !ok || !local.IsLocalObservation(prepared) {
-		t.Fatal("pending tag was not kept as a local observation")
+	if pin != "" {
+		t.Fatalf("pending tag invented anchor pin %q", pin)
 	}
-	if ref := policy.(rpc.BlockRefProvider).BlockRef(original, prepared); ref != "" {
-		t.Fatalf("pending tag invented anchor ref %q", ref)
+	if plan.Pending.Mode != rpc.PendingObserve || plan.Pending.Pos != 0 {
+		t.Fatalf("pending declaration = %+v, want observe at 0", plan.Pending)
 	}
 }

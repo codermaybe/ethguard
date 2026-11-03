@@ -58,13 +58,20 @@ func methodRuleRows() ([]methodRuleRow, error) {
 		if method.Kind != RegisteredMethod {
 			continue
 		}
-		policy, err := policyForRuleIndex(method.Name)
+		spec, ok := specForName(method.Name)
+		if !ok {
+			return nil, fmt.Errorf("%s: no spec for a registered method", method.Name)
+		}
+		plan, err := CompilePlan(spec)
 		if err != nil {
 			return nil, err
 		}
-		rule, err := inspectMethodRule(method.Name, policy)
-		if err != nil {
-			return nil, err
+		rule := plan.MethodRule()
+		if rule.Resolver == "" || rule.CompareKind == "" {
+			return nil, fmt.Errorf("%s: resolver or comparison-key class is empty", method.Name)
+		}
+		if rule.Result != rpc.RuleResultCanonical && rule.Result != rpc.RuleResultRaw {
+			return nil, fmt.Errorf("%s: result = %q, want canonical or raw", method.Name, rule.Result)
 		}
 		rows = append(rows, methodRuleRow{Method: method.Name, Rule: rule})
 	}
@@ -117,92 +124,15 @@ func assertPendingSemantics(rows []methodRuleRow) error {
 	return nil
 }
 
-// policyForRuleIndex constructs the registered policy. A name without a case
-// fails the walk; it is not skipped.
-func policyForRuleIndex(name string) (rpc.Policy, error) {
-	var anchor rpc.AnchorFunc
-	var height rpc.AnchorHeightFunc
-	switch name {
-	case MethodChainID:
-		return ChainIDPolicy(), nil
-	case MethodGetBlockByHash:
-		return BlockByHashPolicy(), nil
-	case MethodGetBlockByNumber:
-		return BlockByNumberPolicy(), nil
-	case MethodGetBalance:
-		return GetBalancePolicy(anchor), nil
-	case MethodGetTransactionReceipt:
-		return TransactionReceiptPolicy(), nil
-	case MethodGetTransactionByHash:
-		return TransactionByHashPolicy(), nil
-	case MethodGetBlockReceipts:
-		return BlockReceiptsPolicy(anchor), nil
-	case MethodGetTransactionCount:
-		return GetTransactionCountPolicy(anchor), nil
-	case MethodGetStorageAt:
-		return GetStorageAtPolicy(anchor), nil
-	case MethodGetCode:
-		return GetCodePolicy(anchor), nil
-	case MethodCall:
-		return CallPolicy(anchor), nil
-	case MethodEstimateGas:
-		return EstimateGasPolicy(anchor), nil
-	case MethodGetLogs:
-		return LogsPolicy(height), nil
-	case MethodFeeHistory:
-		return FeeHistoryPolicy(height), nil
-	case MethodGasPrice:
-		return GasPricePolicy(), nil
-	case MethodMaxPriorityFeePerGas:
-		return MaxPriorityFeePerGasPolicy(), nil
-	case MethodBlobBaseFee:
-		return BlobBaseFeePolicy(), nil
-	case MethodBlockNumber:
-		return BlockNumberPolicy(), nil
-	case MethodCreateAccessList:
-		return CreateAccessListPolicy(anchor), nil
-	case MethodPeerCount:
-		return PeerCountPolicy(), nil
-	case MethodSyncing:
-		return SyncingPolicy(), nil
-	case MethodNetVersion:
-		return NetVersionPolicy(), nil
-	case MethodListening:
-		return ListeningPolicy(), nil
-	default:
-		return nil, fmt.Errorf("%s: no policy constructor for rule introspection", name)
-	}
-}
-
-// inspectMethodRule visits each concrete decorator. The outer MethodRule
-// already includes the inner composition; the loop still type-asserts every
-// layer so a missing implementation names that layer.
-func inspectMethodRule(method string, policy rpc.Policy) (rpc.MethodRule, error) {
-	if policy == nil {
-		return rpc.MethodRule{}, fmt.Errorf("%s: nil policy", method)
-	}
-	var composed rpc.MethodRule
-	for depth := 0; policy != nil; depth++ {
-		if depth > 16 {
-			return rpc.MethodRule{}, fmt.Errorf("%s: rule chain did not terminate at %T", method, policy)
+// specForName looks up the registered spec. A registered method without a
+// spec is a registration error, not a skip.
+func specForName(name string) (MethodSpec, bool) {
+	for _, spec := range Specs() {
+		if spec.Method == name {
+			return spec, true
 		}
-		source, ok := policy.(rpc.MethodRuleSource)
-		if !ok {
-			return rpc.MethodRule{}, fmt.Errorf("%s: %T does not implement rule introspection", method, policy)
-		}
-		layer, inner := source.MethodRule()
-		if depth == 0 {
-			composed = layer
-		}
-		policy = inner
 	}
-	if composed.Resolver == "" || composed.CompareKind == "" {
-		return rpc.MethodRule{}, fmt.Errorf("%s: resolver or comparison-key class is empty", method)
-	}
-	if composed.Result != rpc.RuleResultCanonical && composed.Result != rpc.RuleResultRaw {
-		return rpc.MethodRule{}, fmt.Errorf("%s: result = %q, want canonical or raw", method, composed.Result)
-	}
-	return composed, nil
+	return MethodSpec{}, false
 }
 
 type methodRuleRow struct {

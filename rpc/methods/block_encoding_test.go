@@ -31,7 +31,7 @@ func TestBlockPolicyCanonicalizesNarrowKeyValue(t *testing.T) {
 	second := injectField(t, first, "size", `"0x200"`)
 	second = injectField(t, second, "totalDifficulty", `"0x300"`)
 	second = injectField(t, second, "vendor", `true`)
-	policy := BlockByHashPolicy(rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
+	policy := planResolver(t, MethodGetBlockByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 		{Source: rpc.SourceRef{ID: "a"}, Value: first},
 		{Source: rpc.SourceRef{ID: "b"}, Value: second},
@@ -69,7 +69,7 @@ func TestBlockPolicyFinishRejectsSameKeyDifferentCommittedHeader(t *testing.T) {
 	secondHeader.ParentHash = common.HexToHash("0x4")
 	first := blockRaw(t, firstHeader, nil)
 	second := injectField(t, blockRaw(t, &secondHeader, nil), "hash", string(mustMarshal(t, firstHeader.Hash())))
-	policy := BlockByHashPolicy(rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
+	policy := planResolver(t, MethodGetBlockByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 		{Source: rpc.SourceRef{ID: "a"}, Value: first},
 		{Source: rpc.SourceRef{ID: "b"}, Value: second},
@@ -99,7 +99,7 @@ func TestBlockPolicyKeepsCommittedUncleHashes(t *testing.T) {
 		Time:        1,
 	}
 	raw := blockRaw(t, header, []common.Hash{uncle.Hash()})
-	policy := BlockByHashPolicy(rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
+	policy := planResolver(t, MethodGetBlockByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 		{Source: rpc.SourceRef{ID: "a"}, Value: raw},
 		{Source: rpc.SourceRef{ID: "b"}, Value: raw},
@@ -127,7 +127,7 @@ func TestBlockPolicyKeepsCommittedWithdrawals(t *testing.T) {
 		WithdrawalsHash: &withdrawalsHash,
 	}
 	raw := injectField(t, blockRaw(t, header, nil), "withdrawals", `[]`)
-	policy := BlockByHashPolicy(rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
+	policy := planResolver(t, MethodGetBlockByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 		{Source: rpc.SourceRef{ID: "a"}, Value: raw},
 		{Source: rpc.SourceRef{ID: "b"}, Value: raw},
@@ -141,7 +141,7 @@ func TestBlockPolicyKeepsCommittedWithdrawals(t *testing.T) {
 }
 
 func TestBlockPolicyPreservesMissingHeadDiagnostic(t *testing.T) {
-	policy := BlockByNumberPolicy(rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
+	policy := planResolver(t, MethodGetBlockByNumber, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 		{Source: rpc.SourceRef{ID: "a"}, Value: json.RawMessage(`{"unexpected":true}`)},
 		{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`{"unexpected":true}`)},

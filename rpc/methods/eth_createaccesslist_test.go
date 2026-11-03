@@ -2,7 +2,6 @@ package methods
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -19,7 +18,7 @@ const (
 )
 
 func TestAccessListSpellingsShareOneCanonicalValue(t *testing.T) {
-	policy := CreateAccessListPolicy(func(context.Context) (string, error) { return accessKey, nil }, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodCreateAccessList, rpc.WithQuorum(1))
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
 	upper := `{"vendor":"kept-out","gasUsed":"0x5208","error":"execution reverted","accessList":[{"storageKeys":["0x0000000000000000000000000000000000000000000000000000000000000001","0x0000000000000000000000000000000000000000000000000000000000000002"],"address":"0x0000000000000000000000000000000000000ABC"}]}`
@@ -53,7 +52,7 @@ func TestAccessListSpellingsShareOneCanonicalValue(t *testing.T) {
 }
 
 func TestAccessListMissingStorageKeysStaysInTheDenominator(t *testing.T) {
-	policy := CreateAccessListPolicy(func(context.Context) (string, error) { return accessKey, nil }, rpc.WithQuorum(2))
+	policy := planResolver(t, MethodCreateAccessList, rpc.WithQuorum(2))
 	good := accessListBody(accessAddress, []string{accessKey}, "0x5208", "")
 	other := accessListBody(accessAddress, []string{accessKeyTwo}, "0x5208", "")
 	incomplete := `{"accessList":[{"address":"` + accessAddress + `"}],"gasUsed":"0x5208"}`
@@ -74,7 +73,7 @@ func TestAccessListMissingStorageKeysStaysInTheDenominator(t *testing.T) {
 }
 
 func TestAccessListMissingAddressIsAnEncodeFault(t *testing.T) {
-	policy := CreateAccessListPolicy(func(context.Context) (string, error) { return accessKey, nil }, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodCreateAccessList, rpc.WithQuorum(1))
 	incomplete := `{"accessList":[{"storageKeys":["` + accessKey + `"]}],"gasUsed":"0x5208"}`
 	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, incomplete, ""),
@@ -88,7 +87,7 @@ func TestAccessListMissingAddressIsAnEncodeFault(t *testing.T) {
 }
 
 func TestAccessListEncodeOmitsAbsentFieldsAndKeepsEmptyArrays(t *testing.T) {
-	policy := CreateAccessListPolicy(func(context.Context) (string, error) { return accessKey, nil }, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodCreateAccessList, rpc.WithQuorum(1))
 	empty := `{"accessList":[{"address":"` + accessAddress + `","storageKeys":[]}],"gasUsed":"0x0"}`
 	split, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, empty, ""),
@@ -145,10 +144,9 @@ func TestAccessListCanonicalBytesDisagreeWithinCluster(t *testing.T) {
 }
 
 func TestAccessListPendingEncodesTheSelectedSource(t *testing.T) {
-	policy := CreateAccessListPolicy(func(context.Context) (string, error) { return accessKey, nil })
-	local := policy.(rpc.LocalObservationPolicy)
+	plan := compiledPlan(t, MethodCreateAccessList)
 	selected := accessListBody(strings.ToUpper(accessAddress), []string{strings.ToUpper(accessKey)}, "0x5208", "")
-	decision, err := local.ResolveLocal([]rpc.Observation{
+	decision, err := rpc.ResolveLocalObservation(plan.Resolver, []rpc.Observation{
 		{Source: rpc.SourceRef{Name: "a", ID: "a"}, Value: json.RawMessage(selected)},
 		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(accessListBody(accessAddress, []string{accessKeyTwo}, "0x1", ""))},
 	})
@@ -165,7 +163,7 @@ func TestAccessListPendingEncodesTheSelectedSource(t *testing.T) {
 }
 
 func TestAccessListRejectsLeadingZeroQuantity(t *testing.T) {
-	policy := CreateAccessListPolicy(func(context.Context) (string, error) { return accessKey, nil }, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodCreateAccessList, rpc.WithQuorum(1))
 	bad := accessListBody(accessAddress, []string{accessKey}, "0x05208", "")
 	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, bad, ""),
@@ -191,7 +189,7 @@ func accessListBody(address string, keys []string, gas, message string) string {
 }
 
 func TestAccessListHexErrorTextCannotSilentlyMerge(t *testing.T) {
-	policy := CreateAccessListPolicy(nil, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodCreateAccessList, rpc.WithQuorum(1))
 	first := json.RawMessage(`{"accessList":[],"error":"0xAB"}`)
 	second := json.RawMessage(`{"accessList":[],"error":"0xab"}`)
 	firstKey, err := policy.Normalize(first)
@@ -214,7 +212,7 @@ func TestAccessListHexErrorTextCannotSilentlyMerge(t *testing.T) {
 }
 
 func TestAccessListHexErrorEscapesKeepTextSemantics(t *testing.T) {
-	policy := CreateAccessListPolicy(nil, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodCreateAccessList, rpc.WithQuorum(1))
 	first := accessListBody(strings.ToUpper(accessAddress), []string{strings.ToUpper(accessKey)}, "0x5208", "0xAB")
 	second := accessListBody(accessAddress, []string{accessKey}, "0x5208", `0x\u0041B`)
 	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
@@ -226,7 +224,7 @@ func TestAccessListHexErrorEscapesKeepTextSemantics(t *testing.T) {
 }
 
 func TestAccessListNullErrorDoesNotBecomeEmptyText(t *testing.T) {
-	policy := CreateAccessListPolicy(nil, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodCreateAccessList, rpc.WithQuorum(1))
 	null := `{"accessList":[],"error":null}`
 	empty := `{"accessList":[],"error":""}`
 	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{

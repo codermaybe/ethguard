@@ -70,20 +70,18 @@ func TestFeeHistoryRequestValidatesTypedAndRawInputs(t *testing.T) {
 }
 
 func TestFeeHistoryAdmissionRejectsMalformedResponse(t *testing.T) {
-	p := FeeHistoryPolicy(func(context.Context) (uint64, error) { return 1, nil })
+	plan := compiledPlan(t, MethodFeeHistory)
 	bad := json.RawMessage(`{"oldestBlock":"0x1","baseFeePerGas":["0x1"],"gasUsedRatio":[0.5]}`)
-	admit := p.(rpc.AdmissionPolicy)
-	_, err := admit.Admit(context.Background(), rpc.Request{Method: MethodFeeHistory, Params: []any{uint64(1), "latest", []float64{}}}, bad, nil)
+	_, err := plan.Admit(context.Background(), rpc.Request{Method: MethodFeeHistory, Params: []any{uint64(1), "latest", []float64{}}}, bad, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("expected malformed response, got %v", err)
 	}
 }
 
 func TestFeeHistoryAdmissionRequiresRequestedBlockCount(t *testing.T) {
-	p := FeeHistoryPolicy(func(context.Context) (uint64, error) { return 1, nil })
-	admit := p.(rpc.AdmissionPolicy)
+	plan := compiledPlan(t, MethodFeeHistory)
 	value := json.RawMessage(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2","0x3"],"gasUsedRatio":[0.5],"reward":[[]]}`)
-	_, err := admit.Admit(context.Background(), rpc.Request{Method: MethodFeeHistory, Params: []any{uint64(2), "0x2", []float64{}}}, value, nil)
+	_, err := plan.Admit(context.Background(), rpc.Request{Method: MethodFeeHistory, Params: []any{uint64(2), "0x2", []float64{}}}, value, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("expected block-count mismatch, got %v", err)
 	}
@@ -103,7 +101,7 @@ func feeHistory(oldest, ratio, reward string) string {
 // is the canonical bytes (0047): a field outside the protected domain does
 // not split the cluster and does not enter Value.
 func TestFeeHistoryRatioSpellingsShareOneCanonicalValue(t *testing.T) {
-	policy := FeeHistoryPolicy(func(context.Context) (uint64, error) { return 1, nil }, rpc.WithQuorum(1))
+	policy := planResolver(t, MethodFeeHistory, rpc.WithQuorum(1))
 	a := rpc.SourceRef{Name: "a", ID: "a"}
 	b := rpc.SourceRef{Name: "b", ID: "b"}
 	first := observation(a, feeHistory("0xA", "0.50", "0x10"), `{"from":"a"}`)
@@ -140,7 +138,7 @@ func TestFeeHistoryRatioSpellingsShareOneCanonicalValue(t *testing.T) {
 // vote. Dropping it would shrink the denominator to 3 and let the other three
 // succeed. They must not: the denominator stays 4 and two votes are short.
 func TestFeeHistoryUnencodableRatioStaysInTheDenominator(t *testing.T) {
-	policy := FeeHistoryPolicy(func(context.Context) (uint64, error) { return 1, nil }, rpc.WithQuorum(2))
+	policy := planResolver(t, MethodFeeHistory, rpc.WithQuorum(2))
 	a := observation(rpc.SourceRef{Name: "a", ID: "a"}, feeHistory("0x1", "0.5", ""), "")
 	b := observation(rpc.SourceRef{Name: "b", ID: "b"}, feeHistory("0x1", "0.50", ""), "")
 	d := observation(rpc.SourceRef{Name: "d", ID: "d"}, feeHistory("0x2", "0.1", ""), "")
@@ -192,9 +190,8 @@ func TestFeeHistoryCanonicalBytesDisagreeWithinCluster(t *testing.T) {
 // selected source is encoded, the representative stays zero, and the status
 // stays Selected.
 func TestFeeHistoryPendingEncodesTheSelectedSource(t *testing.T) {
-	policy := FeeHistoryPolicy(func(context.Context) (uint64, error) { return 1, nil })
-	local := policy.(rpc.LocalObservationPolicy)
-	decision, err := local.ResolveLocal([]rpc.Observation{
+	plan := compiledPlan(t, MethodFeeHistory)
+	decision, err := rpc.ResolveLocalObservation(plan.Resolver, []rpc.Observation{
 		{Source: rpc.SourceRef{Name: "a", ID: "a"}, Value: json.RawMessage(feeHistory("0xA", "0.50", ""))},
 		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(feeHistory("0x1", "0.1", ""))},
 	})

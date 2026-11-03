@@ -20,13 +20,13 @@ func TestLocalWholeAnswerShapeAdmission(t *testing.T) {
 	}{
 		{
 			name:     "eth_syncing",
-			policy:   SyncingPolicy(),
+			policy:   compiledPlan(t, MethodSyncing).Resolver,
 			accepted: []string{`false`, `{"startingBlock":"0x1","currentBlock":"0x2","highestBlock":"0x3"}`},
 			rejected: []string{`null`, `true`, `[]`, `"false"`, `0`, `{} trailing`},
 		},
 		{
 			name:     "net_listening",
-			policy:   ListeningPolicy(),
+			policy:   compiledPlan(t, MethodListening).Resolver,
 			accepted: []string{`true`, `false`, ` true `},
 			rejected: []string{`null`, `"true"`, `1`, `[]`},
 		},

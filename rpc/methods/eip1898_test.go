@@ -16,52 +16,23 @@ const (
 	testHashExplicit  = "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 )
 
-type tagAnchor struct {
-	t      *testing.T
-	seen   []string
-	fail   bool
-	hashes map[string]string
+// slicePlans are the five default-block state reads whose EIP-1898 object
+// form rides position 1 (position 2 for storage): the T02 first vertical
+// slice, assembled through their compiled plans.
+type slicePlan struct {
+	name string
+	plan rpc.ReadPlan
+	pos  int
 }
 
-func (a *tagAnchor) fn(ctx context.Context) (string, error) {
-	tag := rpc.AnchorTag(ctx)
-	a.seen = append(a.seen, tag)
-	if a.fail {
-		return "", errors.New("anchor down")
-	}
-	if h, ok := a.hashes[tag]; ok {
-		return h, nil
-	}
-	a.t.Fatalf("anchor called for unexpected tag %q", tag)
-	return "", nil
-}
-
-func newTagAnchor(t *testing.T) *tagAnchor {
+func slicePlans(t *testing.T) []slicePlan {
 	t.Helper()
-	return &tagAnchor{t: t, hashes: map[string]string{
-		"latest":    testHashLatest,
-		"safe":      testHashSafe,
-		"finalized": testHashFinalized,
-	}}
-}
-
-func slicePolicies(anchor rpc.AnchorFunc) []struct {
-	name   string
-	policy rpc.Policy
-	prefix []any
-	pos    int
-} {
-	return []struct {
-		name   string
-		policy rpc.Policy
-		prefix []any
-		pos    int
-	}{
-		{"eth_getBalance", GetBalancePolicy(anchor), []any{"0xabc"}, 1},
-		{"eth_getTransactionCount", GetTransactionCountPolicy(anchor), []any{"0xabc"}, 1},
-		{"eth_getCode", GetCodePolicy(anchor), []any{"0xabc"}, 1},
-		{"eth_getStorageAt", GetStorageAtPolicy(anchor), []any{"0xabc", "0x01"}, 2},
-		{"eth_call", CallPolicy(anchor), []any{map[string]any{"to": "0xabc"}}, 1},
+	return []slicePlan{
+		{"eth_getBalance", compiledPlan(t, MethodGetBalance), 1},
+		{"eth_getTransactionCount", compiledPlan(t, MethodGetTransactionCount), 1},
+		{"eth_getCode", compiledPlan(t, MethodGetCode), 1},
+		{"eth_getStorageAt", compiledPlan(t, MethodGetStorageAt), 2},
+		{"eth_call", compiledPlan(t, MethodCall), 1},
 	}
 }
 
@@ -74,69 +45,101 @@ func withRef(prefix []any, pos int, ref any) []any {
 	return params
 }
 
+// sliceReference is the established evidence for one request: the fixture
+// hash at height 16, corroborated, tagged with the level the request's
+// requirement declares. Tests that need a specific level's hash pin it in
+// the evidence they serve.
+func sliceReference(t *testing.T, plan rpc.ReadPlan, req rpc.Request, hash string) (rpc.ReferenceEvidence, bool) {
+	t.Helper()
+	request, needed := plan.ReferenceRequirement(req)
+	if !needed {
+		return rpc.ReferenceEvidence{}, false
+	}
+	tag := string(request.Kind)
+	if tag == string(rpc.ReferenceLatest) {
+		tag = ""
+	}
+	return rpc.ReferenceEvidence{Hash: hash, Height: 16, Status: rpc.Corroborated, Tag: tag}, true
+}
+
+// prepareSliceRequest prepares one request through the plan's rewrite with
+// the requested tag's hash as the established reference.
+func prepareSliceRequest(t *testing.T, tc slicePlan, params []any, hash string) (rpc.Request, string, error) {
+	t.Helper()
+	req := rpc.Request{Method: tc.name, Params: params}
+	if tc.plan.Validate != nil {
+		if err := tc.plan.Validate(context.Background(), req); err != nil {
+			return rpc.Request{}, "", err
+		}
+	}
+	if tc.plan.PendingReject != nil {
+		if err := tc.plan.PendingReject(req); err != nil {
+			return rpc.Request{}, "", err
+		}
+	}
+	ref, ok := sliceReference(t, tc.plan, req, hash)
+	return tc.plan.PrepareWithReference(req, ref, ok)
+}
+
 // TestEIP1898BlockRefSlice covers the T02 first vertical slice: moving tags,
 // explicit numbers/hashes, pending, EIP-1898 objects, requireCanonical, the
-// exact anchor interaction, and local rejection of malformed requests.
+// tag-serving establishment contract, and local rejection of malformed
+// requests — all through the compiled plans.
 func TestEIP1898BlockRefSlice(t *testing.T) {
-	t.Run("string moving tags rewrite tag-aware without downgrade", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
+	t.Run("string moving tags rewrite to their own level's reference", func(t *testing.T) {
+		for _, tc := range slicePlans(t) {
 			for tag, want := range map[string]string{
 				"latest": testHashLatest, "safe": testHashSafe, "finalized": testHashFinalized,
 			} {
-				anchor.seen = nil
-				prepared, err := policy.Prepare(context.Background(), rpc.Request{
-					Method: tc.name, Params: withRef(tc.prefix, tc.pos, tag),
-				})
+				prepared, _, err := prepareSliceRequest(t, tc, withRef([]any{"0xabc"}, tc.pos, tag), want)
 				if err != nil {
 					t.Fatalf("%s %s: %v", tc.name, tag, err)
 				}
 				if got := prepared.Params[tc.pos]; got != want {
 					t.Fatalf("%s %s rewrote to %v, want %s (downgrade?)", tc.name, tag, got, want)
 				}
-				if len(anchor.seen) != 1 || anchor.seen[0] != tag {
-					t.Fatalf("%s %s: anchor saw %v, want [%s]", tc.name, tag, anchor.seen, tag)
-				}
 			}
 		}
 	})
 
-	t.Run("explicit strings pass through without anchor", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
+	t.Run("evidence for another level does not serve the request", func(t *testing.T) {
+		for _, tc := range slicePlans(t) {
+			req := rpc.Request{Method: tc.name, Params: withRef([]any{"0xabc"}, tc.pos, "safe")}
+			if _, ok := sliceReference(t, tc.plan, req, testHashSafe); !ok {
+				t.Fatalf("%s declared no reference need for safe", tc.name)
+			}
+			// The safe read is served the latest establishment: the evidence
+			// carries the wrong level, so the rewrite refuses it.
+			wrong := rpc.ReferenceEvidence{Hash: testHashSafe, Height: 16, Status: rpc.Corroborated, Tag: "latest"}
+			if _, _, err := tc.plan.PrepareWithReference(req, wrong, true); !errors.Is(err, rpc.ErrReferenceRequired) {
+				t.Fatalf("%s: safe read accepted latest evidence: %v", tc.name, err)
+			}
+		}
+	})
+
+	t.Run("explicit strings pass through without establishment", func(t *testing.T) {
+		for _, tc := range slicePlans(t) {
 			for _, ref := range []string{"0x10", testHashExplicit, "pending", "earliest", "0x0"} {
-				anchor.seen = nil
-				prepared, err := policy.Prepare(context.Background(), rpc.Request{
-					Method: tc.name, Params: withRef(tc.prefix, tc.pos, ref),
-				})
+				// refOK=false: no establishment exists, and none is needed.
+				prepared, _, err := prepareSliceRequest(t, tc, withRef([]any{"0xabc"}, tc.pos, ref), "")
 				if err != nil {
 					t.Fatalf("%s %v: %v", tc.name, ref, err)
 				}
 				if got := prepared.Params[tc.pos]; got != ref {
 					t.Fatalf("%s %v rewritten to %v", tc.name, ref, got)
 				}
-				if len(anchor.seen) != 0 {
-					t.Fatalf("%s %v consulted anchor: %v", tc.name, ref, anchor.seen)
-				}
 			}
 		}
 	})
 
 	t.Run("explicit hash objects pass through with requireCanonical preserved", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
+		for _, tc := range slicePlans(t) {
 			for _, obj := range []map[string]any{
 				{"blockHash": testHashExplicit},
 				{"blockHash": testHashExplicit, "requireCanonical": true},
 				{"blockHash": testHashExplicit, "requireCanonical": false},
 			} {
-				anchor.seen = nil
-				prepared, err := policy.Prepare(context.Background(), rpc.Request{
-					Method: tc.name, Params: withRef(tc.prefix, tc.pos, obj),
-				})
+				prepared, _, err := prepareSliceRequest(t, tc, withRef([]any{"0xabc"}, tc.pos, obj), "")
 				if err != nil {
 					t.Fatalf("%s %v: %v", tc.name, obj, err)
 				}
@@ -147,27 +150,19 @@ func TestEIP1898BlockRefSlice(t *testing.T) {
 				if wantCanon, hasCanon := obj["requireCanonical"]; hasCanon && got["requireCanonical"] != wantCanon {
 					t.Fatalf("%s requireCanonical dropped: %v", tc.name, got)
 				}
-				if len(anchor.seen) != 0 {
-					t.Fatalf("%s %v consulted anchor", tc.name, obj)
-				}
 			}
 		}
 	})
 
 	t.Run("explicit number objects pass through with requireCanonical preserved", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
+		for _, tc := range slicePlans(t) {
 			for _, obj := range []map[string]any{
 				{"blockNumber": "0x10"},
 				{"blockNumber": "0x10", "requireCanonical": true},
 				{"blockNumber": "pending"},
 				{"blockNumber": "earliest"},
 			} {
-				anchor.seen = nil
-				prepared, err := policy.Prepare(context.Background(), rpc.Request{
-					Method: tc.name, Params: withRef(tc.prefix, tc.pos, obj),
-				})
+				prepared, _, err := prepareSliceRequest(t, tc, withRef([]any{"0xabc"}, tc.pos, obj), "")
 				if err != nil {
 					t.Fatalf("%s %v: %v", tc.name, obj, err)
 				}
@@ -178,29 +173,21 @@ func TestEIP1898BlockRefSlice(t *testing.T) {
 				if want, ok := obj["requireCanonical"]; ok && got["requireCanonical"] != want {
 					t.Fatalf("%s requireCanonical dropped: %v", tc.name, got)
 				}
-				if len(anchor.seen) != 0 {
-					t.Fatalf("%s %v consulted anchor", tc.name, obj)
-				}
 			}
 		}
 	})
 
 	t.Run("object moving tags rewrite to hash objects without downgrade", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
+		for _, tc := range slicePlans(t) {
 			for tag, want := range map[string]string{
 				"latest": testHashLatest, "safe": testHashSafe, "finalized": testHashFinalized,
 			} {
 				for _, canon := range []bool{false, true} {
-					anchor.seen = nil
 					obj := map[string]any{"blockNumber": tag}
 					if canon {
 						obj["requireCanonical"] = true
 					}
-					prepared, err := policy.Prepare(context.Background(), rpc.Request{
-						Method: tc.name, Params: withRef(tc.prefix, tc.pos, obj),
-					})
+					prepared, _, err := prepareSliceRequest(t, tc, withRef([]any{"0xabc"}, tc.pos, obj), want)
 					if err != nil {
 						t.Fatalf("%s %v: %v", tc.name, obj, err)
 					}
@@ -213,9 +200,6 @@ func TestEIP1898BlockRefSlice(t *testing.T) {
 					}
 					if canon && got["requireCanonical"] != true {
 						t.Fatalf("%s requireCanonical dropped across rewrite: %v", tc.name, got)
-					}
-					if len(anchor.seen) != 1 || anchor.seen[0] != tag {
-						t.Fatalf("%s %v: anchor saw %v, want [%s]", tc.name, obj, anchor.seen, tag)
 					}
 				}
 			}
@@ -235,105 +219,61 @@ func TestEIP1898BlockRefSlice(t *testing.T) {
 			{"blockHash": testHashExplicit, "requireCanonical": "yes"}, // non-bool flag
 			{"blockHash": testHashExplicit, "extra": 1},                // unknown field
 		}
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
+		for _, tc := range slicePlans(t) {
 			for _, obj := range bad {
-				anchor.seen = nil
-				_, err := policy.Prepare(context.Background(), rpc.Request{
-					Method: tc.name, Params: withRef(tc.prefix, tc.pos, obj),
-				})
+				_, _, err := prepareSliceRequest(t, tc, withRef([]any{"0xabc"}, tc.pos, obj), testHashSafe)
 				if err == nil || !errors.Is(err, rpc.ErrInvalidRequest) {
 					t.Fatalf("%s %v: got %v, want ErrInvalidRequest", tc.name, obj, err)
 				}
-				if len(anchor.seen) != 0 {
-					t.Fatalf("%s %v consulted anchor before failing", tc.name, obj)
-				}
 			}
 		}
 	})
 
-	t.Run("anchor failure fails the request", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			anchor.fail = true
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
+	t.Run("missing establishment fails the request", func(t *testing.T) {
+		for _, tc := range slicePlans(t) {
 			for _, ref := range []any{"latest", map[string]any{"blockNumber": "finalized"}} {
-				_, err := policy.Prepare(context.Background(), rpc.Request{
-					Method: tc.name, Params: withRef(tc.prefix, tc.pos, ref),
-				})
-				if err == nil || !strings.Contains(err.Error(), "anchor") {
-					t.Fatalf("%s %v: got %v, want anchor failure", tc.name, ref, err)
+				// refOK=false: the read declared a moving tag but no
+				// established reference exists.
+				req := rpc.Request{Method: tc.name, Params: withRef([]any{"0xabc"}, tc.pos, ref)}
+				if _, _, err := tc.plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false); err == nil || !strings.Contains(err.Error(), "anchor") {
+					t.Fatalf("%s %v: got %v, want an anchor failure", tc.name, ref, err)
 				}
 			}
 		}
 	})
 
-	t.Run("BlockRef reports object pins", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
-			original := rpc.Request{Method: tc.name, Params: withRef(tc.prefix, tc.pos, map[string]any{"blockNumber": "safe"})}
-			prepared, err := policy.Prepare(context.Background(), original)
+	t.Run("the rewrite records the object pin", func(t *testing.T) {
+		for _, tc := range slicePlans(t) {
+			original := rpc.Request{Method: tc.name, Params: withRef([]any{"0xabc"}, tc.pos, map[string]any{"blockNumber": "safe"})}
+			prepared, pin, err := prepareSliceRequest(t, tc, original.Params, testHashSafe)
 			if err != nil {
 				t.Fatal(err)
 			}
-			provider, ok := policy.(rpc.BlockRefProvider)
-			if !ok {
-				t.Fatalf("%s does not report BlockRef", tc.name)
+			if pin != testHashSafe {
+				t.Fatalf("%s pin = %v, want %s", tc.name, pin, testHashSafe)
 			}
-			if got := provider.BlockRef(original, prepared); got != testHashSafe {
-				t.Fatalf("%s BlockRef = %v, want %s", tc.name, got, testHashSafe)
-			}
-			explicit := rpc.Request{Method: tc.name, Params: withRef(tc.prefix, tc.pos, "0x10")}
-			preparedExplicit, err := policy.Prepare(context.Background(), explicit)
+			explicit := rpc.Request{Method: tc.name, Params: withRef([]any{"0xabc"}, tc.pos, "0x10")}
+			_, explicitPin, err := prepareSliceRequest(t, tc, explicit.Params, testHashSafe)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := provider.BlockRef(explicit, preparedExplicit); got != "" {
-				t.Fatalf("%s explicit BlockRef = %v, want empty", tc.name, got)
+			if explicitPin != "" {
+				t.Fatalf("%s explicit pin = %v, want empty", tc.name, explicitPin)
 			}
+			_ = prepared
 		}
 	})
-
-	t.Run("corroborating capability survives the decorator", func(t *testing.T) {
-		for _, tc := range slicePolicies(nil) {
-			anchor := newTagAnchor(t)
-			policy := rebuildSlicePolicy(tc.name, anchor.fn)
-			if _, ok := policy.(rpc.CorroboratingPolicy); !ok {
-				t.Fatalf("%s lost CorroboratingPolicy across EIP1898BlockRef", tc.name)
-			}
-		}
-	})
-}
-
-func rebuildSlicePolicy(name string, anchor rpc.AnchorFunc) rpc.Policy {
-	switch name {
-	case "eth_getBalance":
-		return GetBalancePolicy(anchor)
-	case "eth_getTransactionCount":
-		return GetTransactionCountPolicy(anchor)
-	case "eth_getCode":
-		return GetCodePolicy(anchor)
-	case "eth_getStorageAt":
-		return GetStorageAtPolicy(anchor)
-	case "eth_call":
-		return CallPolicy(anchor)
-	}
-	panic("unknown slice method " + name)
 }
 
 // TestFeeHistoryRejectsHashInNewestBlock pins the quantity-only contract: a
 // 32-byte hash must fail locally instead of riding the BlockNumber position
 // to providers.
 func TestFeeHistoryRejectsHashInNewestBlock(t *testing.T) {
-	policy := FeeHistoryPolicy(func(ctx context.Context) (uint64, error) { return 1, nil })
+	plan := compiledPlan(t, MethodFeeHistory)
 	hash := "0x" + strings.Repeat("ab", 32)
 	for _, newest := range []any{hash, map[string]any{"blockHash": hash}, map[string]any{"blockNumber": "0x10"}} {
-		_, err := policy.Prepare(context.Background(), rpc.Request{
-			Method: MethodFeeHistory, Params: []any{uint64(4), newest, []any{}},
-		})
-		if err == nil || !errors.Is(err, rpc.ErrInvalidRequest) {
+		req := rpc.Request{Method: MethodFeeHistory, Params: []any{uint64(4), newest, []any{}}}
+		if err := plan.Validate(context.Background(), req); err == nil || !errors.Is(err, rpc.ErrInvalidRequest) {
 			t.Fatalf("newestBlock %v: got %v, want ErrInvalidRequest", newest, err)
 		}
 	}
