@@ -33,37 +33,30 @@ func tracePool(t *testing.T, nodes []*rpctest.Node) *pool.Pool {
 	return p
 }
 
-// invocationRecordingPolicy records the invocation every Prepare observes, so
-// the trace fixture can prove that the reference stage and the business
-// phases share one invocation.
-type invocationRecordingPolicy struct {
-	rpc.Policy
-
+// invocationRecorder records the invocation the plan's Validate phase
+// observes, so the trace fixture can prove that the business phases run on
+// the invocation the reference stage establishes against. The plan pipeline
+// validates once, before establishment; the rewrite after establishment is
+// the plan's own pure function, so the sharing proof is this recorded
+// invocation's identity against the stage's.
+type invocationRecorder struct {
 	mu          sync.Mutex
 	invocations []rpc.Invocation
 }
 
-func (p *invocationRecordingPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
-	// The prepare-time invocation carries the frozen basis and no reference
-	// yet: establishment runs inside this Prepare through the stage.
+func (r *invocationRecorder) observe(ctx context.Context, req rpc.Request) error {
 	if invocation, ok := refcontext.Invocation(ctx); ok {
-		p.mu.Lock()
-		p.invocations = append(p.invocations, invocation)
-		p.mu.Unlock()
+		r.mu.Lock()
+		r.invocations = append(r.invocations, invocation)
+		r.mu.Unlock()
 	}
-	return p.Policy.Prepare(ctx, req)
+	return nil
 }
 
-// Resolve observes the completed invocation: the reference established during
-// Prepare is attached by then.
-func (p *invocationRecordingPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
-	return p.Policy.Resolve(obs)
-}
-
-func (p *invocationRecordingPolicy) snapshot() []rpc.Invocation {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]rpc.Invocation(nil), p.invocations...)
+func (r *invocationRecorder) snapshot() []rpc.Invocation {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]rpc.Invocation(nil), r.invocations...)
 }
 
 // recordingStage records every establishment round the aggregator runs.
@@ -98,12 +91,10 @@ func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc
 	return shared
 }
 
-// traceAggregator builds the composed read pipeline for the legacy trace
-// fixtures: the hand-written balance chain wrapped for invocation recording,
-// registered beside the recording establishment stage. These fixtures pin
-// the legacy policy path's invariants — the migration-compatible surface a
-// planned read must keep matching.
-func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (*aggregator.Aggregator, *invocationRecordingPolicy, *recordingStage) {
+// traceAggregator builds the composed read pipeline for the trace fixtures:
+// the compiled balance plan with a Validate hook recording the invocation,
+// registered beside the recording establishment stage.
+func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (*aggregator.Aggregator, *invocationRecorder, *recordingStage) {
 	t.Helper()
 	bundle, err := Build(Inputs{
 		Pool:           p,
@@ -116,8 +107,15 @@ func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (
 		t.Fatal(err)
 	}
 	stage := &recordingStage{inner: bundle.Stage}
-	recorded := &invocationRecordingPolicy{Policy: methods.GetBalancePolicy(bundle.Stage.AnchorHashReader())}
-	return aggregator.New(p, rpc.Registry{methods.MethodGetBalance: recorded},
+	plan, err := methods.PlanFor(methods.MethodGetBalance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := &invocationRecorder{}
+	plan.Validate = recorded.observe
+	return aggregator.New(p, aggregator.WithPlans(map[string]rpc.ReadPlan{
+		methods.MethodGetBalance: plan,
+	}),
 		aggregator.WithCorroboration(mustCorroboration(t, rpc.CorroborationMajority, 2)),
 		aggregator.WithCollectTimeout(2*time.Second),
 		aggregator.WithReferenceStage(stage)), recorded, stage
@@ -168,16 +166,17 @@ func TestLatestReferenceTraceSharesOneInvocation(t *testing.T) {
 	if len(ids) != 1 || kinds[0] != rpc.ReferenceLatest {
 		t.Fatalf("establishment rounds = %v/%v, want one latest round", ids, kinds)
 	}
-	// Prepare runs twice for a moving-tag read: once to validate and detect
-	// the tag (the decorator reports the pipeline sentinel), once after the
-	// stage established the reference, to rewrite. Both observations share
-	// the invocation; the second carries the established reference.
+	// The plan pipeline validates once, before establishment: the recorded
+	// invocation is the one the stage establishes against. The rewrite after
+	// establishment is the plan's own pure function — the decorator path's
+	// prepare pair becomes this identity check plus the decision's attached
+	// reference (asserted above).
 	seen := recorded.snapshot()
-	if len(seen) != 2 {
-		t.Fatalf("Prepare observed %d invocations, want the prepare and prepare-with-reference pair", len(seen))
+	if len(seen) != 1 {
+		t.Fatalf("Validate observed %d invocations, want the one pre-establishment invocation", len(seen))
 	}
-	if seen[0].ID() != ids[0] || seen[1].ID() != ids[0] {
-		t.Fatalf("business invocations %v/%v != establishment invocation %s", seen[0].ID(), seen[1].ID(), ids[0])
+	if seen[0].ID() != ids[0] {
+		t.Fatalf("business invocation %v != establishment invocation %s", seen[0].ID(), ids[0])
 	}
 	// One frozen basis, captured before any request: every member occupies it.
 	if seen[0].Basis().Size() != 3 {
@@ -186,14 +185,10 @@ func TestLatestReferenceTraceSharesOneInvocation(t *testing.T) {
 	if seen[0].Basis().Required() != 2 {
 		t.Fatalf("basis required = %d, want the snapshot floor", seen[0].Basis().Required())
 	}
-	// The first Prepare observes no reference; the second observes the
-	// established one.
+	// The validate-time invocation predates establishment: no reference yet.
+	// The established reference rides the decision (asserted above).
 	if seen[0].HasReference() {
-		t.Fatal("the prepare-time invocation already carries a reference")
-	}
-	completed, ok := seen[1].Reference()
-	if !ok || completed.Hash != headHash {
-		t.Fatalf("prepare-with-reference invocation reference = %+v, want the established head", completed)
+		t.Fatal("the validate-time invocation already carries a reference")
 	}
 	// The establishment round is the only head read; the business round is
 	// the only balance read. A nested aggregate would multiply the rounds.
@@ -269,7 +264,7 @@ func TestFinalizedReferenceTraceConfirmsAndPins(t *testing.T) {
 	if decision.Reference.Origin != "reported-finalized" {
 		t.Fatalf("origin = %q, want the finalized algorithm's evidence", decision.Reference.Origin)
 	}
-	if seen := recorded.snapshot(); len(seen) != 2 || seen[0].ID() != ids[0] || seen[1].ID() != ids[0] {
+	if seen := recorded.snapshot(); len(seen) != 1 || seen[0].ID() != ids[0] {
 		t.Fatalf("business invocations %v do not share the establishment ID %s", seen, ids[0])
 	}
 }

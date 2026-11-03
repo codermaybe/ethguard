@@ -125,7 +125,7 @@ func TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected(t *testing.T) {
 	if err := json.Unmarshal(empty, &head); err != nil {
 		t.Fatal(err)
 	}
-	policy := BlockByHashPolicy().(rpc.AdmissionPolicy)
+	policy := compiledPlan(t, MethodGetBlockByHash).Resolver.(rpc.AdmissionPolicy)
 	if _, err := policy.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{head.Hash, true}}, empty, nil); err != nil {
 		t.Fatalf("empty uncle list and empty transaction list must be legal: %v", err)
 	}

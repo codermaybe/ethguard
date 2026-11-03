@@ -338,33 +338,12 @@ func t09AssertWholeCanonical(t *testing.T, label string, raw, value json.RawMess
 // repeated normal request.
 func t09AssertNoPendingForm(t *testing.T, method string) {
 	t.Helper()
-	var policy rpc.Policy
-	switch method {
-	case methods.MethodChainID:
-		policy = methods.ChainIDPolicy()
-	case methods.MethodGetBlockByHash:
-		policy = methods.BlockByHashPolicy()
-	case methods.MethodGetTransactionReceipt:
-		policy = methods.TransactionReceiptPolicy()
-	case methods.MethodGasPrice:
-		policy = methods.GasPricePolicy()
-	case methods.MethodMaxPriorityFeePerGas:
-		policy = methods.MaxPriorityFeePerGasPolicy()
-	case methods.MethodBlobBaseFee:
-		policy = methods.BlobBaseFeePolicy()
-	case methods.MethodBlockNumber:
-		policy = methods.BlockNumberPolicy()
-	case methods.MethodNetVersion:
-		policy = methods.NetVersionPolicy()
-	case methods.MethodPeerCount:
-		policy = methods.PeerCountPolicy()
-	case methods.MethodSyncing:
-		policy = methods.SyncingPolicy()
-	case methods.MethodListening:
-		policy = methods.ListeningPolicy()
-	default:
-		t.Fatalf("%s: no pending-form probe declared", method)
+	plan, err := methods.PlanFor(method)
+	if err != nil {
+		t.Fatal(err)
 	}
+	policy := plan.Resolver
+	_ = policy
 	source, ok := policy.(rpc.MethodRuleSource)
 	if !ok {
 		t.Fatalf("%s: policy %T does not report a method rule", method, policy)

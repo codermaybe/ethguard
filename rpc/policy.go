@@ -47,18 +47,6 @@ type CorroboratingPolicy interface {
 	ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error)
 }
 
-// Registry maps JSON-RPC method names to policies. An empty or nil registry
-// forwards every method transparently.
-type Registry map[string]Policy
-
-// PolicyFor returns a registered policy or transparent forwarding.
-func (r Registry) PolicyFor(method string) Policy {
-	if p := r[method]; p != nil {
-		return p
-	}
-	return ForwardPolicy{}
-}
-
 // BlockRefProvider is an optional policy capability. It reports the block
 // reference introduced while preparing a request, if any. The aggregator uses
 // it to retain the security-relevant pin in Decision.BlockRef without making

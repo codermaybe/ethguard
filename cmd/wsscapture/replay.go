@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -71,7 +70,11 @@ func replayDirectory(dir string, out io.Writer) error {
 		if record.Method != "eth_call" || response.Error.ErrorCode() != 3 {
 			continue
 		}
-		policy := methods.CallPolicy(fixedAnchor)
+		plan, err := methods.PlanFor(methods.MethodCall)
+		if err != nil {
+			return fmt.Errorf("%s/%s: eth_call plan: %w", record.Provider, record.Scenario, err)
+		}
+		policy := plan.Resolver
 		observations := []rpc.Observation{
 			{Source: rpc.SourceRef{ID: "s1"}, Err: response.Error, RPCError: structured},
 			{Source: rpc.SourceRef{ID: "s2"}, Err: response.Error, RPCError: structured},
@@ -267,8 +270,4 @@ func countProviders(index captureIndex) int {
 		seen[entry.Provider] = true
 	}
 	return len(seen)
-}
-
-func fixedAnchor(context.Context) (string, error) {
-	return "0x" + strings.Repeat("a", 64), nil
 }

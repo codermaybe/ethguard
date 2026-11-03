@@ -32,7 +32,7 @@ func assembleResolver(spec MethodSpec, opts []rpc.StrictOption) (rpc.Policy, err
 	case ResolverStrict:
 		return rpc.Strict(spec.Normalize, opts...), nil
 	case ResolverBlock:
-		return blockPolicy{Decorator: rpc.Decorator{Policy: rpc.Strict(spec.Normalize, opts...)}, byHash: spec.ByHash}, nil
+		return blockPolicy{Policy: rpc.Strict(spec.Normalize, opts...), byHash: spec.ByHash}, nil
 	case ResolverMedian:
 		// The median resolver pins its comparison-key class internally; the
 		// spec's declaration is informational and must agree.

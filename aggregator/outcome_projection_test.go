@@ -70,7 +70,7 @@ func TestOutcomePathMatchesLegacyPath(t *testing.T) {
 				policy = outcomeOpaquePolicy{Policy: policy}
 			}
 			rec := &captureRecorder{}
-			aggregate := New(p, rpc.Registry{"eth_chainId": policy},
+			aggregate := New(p, WithPlans(map[string]rpc.ReadPlan{"eth_chainId": {Method: "eth_chainId", Resolver: policy}}),
 				WithRecorder(rec), WithCorroboration(corrob), WithCollectTimeout(2*time.Second))
 			decision, err := aggregate.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 			if err != nil {
@@ -158,7 +158,7 @@ func TestStatedVerdictsSkipSecondNormalize(t *testing.T) {
 	})
 	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	rec := &captureRecorder{}
-	a := New(p, nil, WithRecorder(rec))
+	a := New(p, WithRecorder(rec))
 	sources := namedSources(t, "a")
 	obs := []rpc.Observation{
 		{Source: rpc.SourceRef{Name: sources[0].Name(), ID: sources[0].ID()}, Value: json.RawMessage(`"1"`)},

@@ -23,22 +23,6 @@ import (
 // failures attribute every source exactly once, and a resolved decision
 // never duplicates a fault across the human-readable and structured tables.
 
-type prepareFailingPolicy struct{ rpc.Policy }
-
-func (p prepareFailingPolicy) Prepare(context.Context, rpc.Request) (rpc.Request, error) {
-	return rpc.Request{}, errors.New("prepare: request rejected before any source was contacted")
-}
-
-type referenceRequiringPolicy struct{ rpc.Policy }
-
-func (p referenceRequiringPolicy) Prepare(context.Context, rpc.Request) (rpc.Request, error) {
-	return rpc.Request{}, fmt.Errorf("anchor: %w", rpc.ErrReferenceRequired)
-}
-
-func (p referenceRequiringPolicy) ReferenceFor(rpc.Request) (rpc.ReferenceRequest, bool) {
-	return rpc.ReferenceRequest{Kind: rpc.ReferenceLatest}, true
-}
-
 type failingProjector struct{}
 
 func (failingProjector) ProjectObservation(json.RawMessage, rpc.Evaluation) (rpc.ExtensionSet, error) {
@@ -69,7 +53,7 @@ func faultAggregator(t *testing.T, policy rpc.Policy, corroborated bool, script 
 		}
 		opts = append(opts, WithCorroboration(shared))
 	}
-	return New(p, rpc.Registry{"m": policy}, opts...), nodes
+	return New(p, append([]Option{WithPlans(map[string]rpc.ReadPlan{"m": {Method: "m", Resolver: policy}})}, opts...)...), nodes
 }
 
 func faultTables(t *testing.T, decision rpc.Decision) (faults, sourceFaults, collectionFaults string) {
@@ -94,35 +78,6 @@ func assertNoDuplicateFaults(t *testing.T, decision rpc.Decision) {
 		if seen[fault.Error()] > 1 {
 			t.Fatalf("duplicate fault %q in Faults: %+v", fault.Error(), decision.Faults)
 		}
-	}
-}
-
-// A Prepare failure prevents the decision before any source was contacted:
-// the cause rides the returned error and the source fault tables stay empty
-// by contract.
-func TestPrepareFailureKeepsFaultTablesEmpty(t *testing.T) {
-	agg, _ := faultAggregator(t, prepareFailingPolicy{eventPolicy()}, false, nil)
-	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
-	if err == nil {
-		t.Fatal("expected the prepare failure to fail the call")
-	}
-	faults, sourceFaults, collectionFaults := faultTables(t, decision)
-	if faults != "" || sourceFaults != "" || collectionFaults != "" {
-		t.Fatalf("request-side failure must not populate fault tables: %q %q %q", faults, sourceFaults, collectionFaults)
-	}
-}
-
-// A reference establishment failure likewise rides the error; with no stage
-// installed the declared reference cannot be established and no fan-out ran.
-func TestReferenceFailureKeepsFaultTablesEmpty(t *testing.T) {
-	agg, _ := faultAggregator(t, referenceRequiringPolicy{eventPolicy()}, false, nil)
-	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
-	if !errors.Is(err, rpc.ErrReferenceRequired) {
-		t.Fatalf("err = %v, want ErrReferenceRequired", err)
-	}
-	faults, sourceFaults, collectionFaults := faultTables(t, decision)
-	if faults != "" || sourceFaults != "" || collectionFaults != "" {
-		t.Fatalf("request-side failure must not populate fault tables: %q %q %q", faults, sourceFaults, collectionFaults)
 	}
 }
 
@@ -236,9 +191,19 @@ func TestCorroboratedResolveCarriesDiagnosticsWithoutFaults(t *testing.T) {
 // A projection failure is stated once on the resolved decision without
 // touching the source fault tables or the field diagnostics.
 func TestProjectionErrorAttribution(t *testing.T) {
-	agg, _ := faultAggregator(t, eventPolicy(rpc.WithRPCErrorBodies()), true, func(i int, node *rpctest.Node) {
-		node.Return("m", "v1")
-	}, WithProjectors(map[string]rpc.ObservationProjector{"m": failingProjector{}}))
+	a, b := rpctest.NewNode(1), rpctest.NewNode(1)
+	defer a.Close()
+	defer b.Close()
+	a.Return("m", "v1")
+	b.Return("m", "v1")
+	p := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
+		pool.Member{Name: "a", URL: a.URL()},
+		pool.Member{Name: "b", URL: b.URL()},
+	)
+	plan := rpc.ReadPlan{Method: "m", Resolver: eventPolicy(rpc.WithRPCErrorBodies()), ResolverKind: methods.ResolverStrict, ProjectorID: "m"}
+	agg := New(p, WithCorroboration(mustShared(t)),
+		WithProjectors(map[string]rpc.ObservationProjector{"m": failingProjector{}}),
+		WithPlans(map[string]rpc.ReadPlan{"m": plan}))
 	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
 	if err != nil || decision.Status != rpc.Corroborated {
 		t.Fatalf("a projection failure must not fail the read: %+v %v", decision.Status, err)
@@ -272,7 +237,7 @@ func plannedFaultAggregator(t *testing.T, mutate func(*rpc.ReadPlan), stage Refe
 	if stage != nil {
 		opts = append(opts, WithReferenceStage(stage))
 	}
-	return New(p, nil, opts...)
+	return New(p, opts...)
 }
 
 // The planned pipeline's two local exits must meet the same fault contract
@@ -316,7 +281,9 @@ func TestPlannedReferenceFailureKeepsFaultTablesEmpty(t *testing.T) {
 // degraded tables carry them together with the collection failure.
 func TestFaultSeamAttachesEachStatementOnce(t *testing.T) {
 	aggregateErr := fmt.Errorf("aggregate: %w", rpc.ErrNoValidResponse)
+	forward := forwardPlan("m")
 	state := &invocationState{
+		plan:            &forward,
 		aggregateErr:    aggregateErr,
 		aggregateFaults: []error{errors.New("aggregate fields: source \"node-b\": malformed response: bad json")},
 		collectErr:      pool.ErrAllSourcesDown,

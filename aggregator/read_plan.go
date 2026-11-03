@@ -13,6 +13,15 @@ import (
 // capabilities off a decorator chain. A method without a plan — known but
 // not yet migrated, or unknown — keeps the legacy policy path untouched.
 
+// forwardPlan is the explicit forward semantics for a method outside the
+// registry: one bounded single-source attempt, the first usable answer wins,
+// and no agreement is claimed (decision 0002). It rides the same fixed phase
+// pipeline with an empty declaration set — no validation, no reference, no
+// admission hook, no projection.
+func forwardPlan(method string) rpc.ReadPlan {
+	return rpc.ReadPlan{Method: method, Resolver: rpc.ForwardPolicy{}}
+}
+
 // WithPlans installs the read plans the aggregator executes through the
 // fixed phase pipeline. A method with a plan runs the plan path; every
 // other method keeps the compiled policy path. Plans without a resolver
@@ -20,7 +29,10 @@ import (
 func WithPlans(plans map[string]rpc.ReadPlan) Option {
 	return func(a *Aggregator) {
 		for method, plan := range plans {
-			if plan.Resolver != nil {
+			// A plan without a resolver and without a local hook is not
+			// executable and is skipped; a validate-or-reject-only plan is
+			// the local rejection shape and installs fine.
+			if plan.Resolver != nil || plan.Validate != nil || plan.PendingReject != nil {
 				a.plans[method] = plan
 			}
 		}

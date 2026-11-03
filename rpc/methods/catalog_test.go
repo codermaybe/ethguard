@@ -2,8 +2,6 @@ package methods
 
 import (
 	"testing"
-
-	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestCatalogHasUniqueNamesAndStableRegistrationSet(t *testing.T) {
@@ -29,18 +27,5 @@ func TestCatalogHasUniqueNamesAndStableRegistrationSet(t *testing.T) {
 	}
 	if len(RegisteredNames()) != 23 {
 		t.Fatalf("registered method count = %d, want 23", len(RegisteredNames()))
-	}
-}
-
-func TestValidateRegistryDetectsMissingRegisteredPolicy(t *testing.T) {
-	registry := make(rpc.Registry)
-	if err := ValidateRegistry(registry); err == nil {
-		t.Fatal("expected an incomplete registry to be rejected")
-	}
-	for _, name := range RegisteredNames() {
-		registry[name] = rpc.ForwardPolicy{}
-	}
-	if err := ValidateRegistry(registry); err != nil {
-		t.Fatalf("complete registry rejected: %v", err)
 	}
 }

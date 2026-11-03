@@ -9,8 +9,34 @@ import (
 )
 
 type blockPolicy struct {
-	rpc.Decorator
+	// Policy is the inner strict resolver the block wrapper restores
+	// header-only shapes over; the plan path reads its resolution and
+	// normalization capabilities directly.
+	Policy rpc.Policy
 	byHash bool
+}
+
+// Prepare forwards the inner resolver's prepare: the plan pipeline never
+// calls it (the plan owns preparation), but the value satisfies rpc.Policy.
+func (p blockPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
+	return p.Policy.Prepare(ctx, req)
+}
+
+// Normalize forwards the inner resolver's canonical form: the block wrapper
+// changes identity handling, not the value encoding.
+func (p blockPolicy) Normalize(value json.RawMessage) (string, error) {
+	return p.Policy.Normalize(value)
+}
+
+// MethodRule composes the inner resolver's rule column and reports the
+// block wrapper as its owner, so capability walks (CanonicalOf and the
+// method-rule index) keep reaching the wrapped resolver.
+func (p blockPolicy) MethodRule() (rpc.MethodRule, rpc.Policy) {
+	var rule rpc.MethodRule
+	if inner, ok := p.Policy.(rpc.MethodRuleSource); ok {
+		rule, _ = inner.MethodRule()
+	}
+	return rule, p.Policy
 }
 
 // admitBlockResponse is the single full-block admission hook shared by the

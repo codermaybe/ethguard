@@ -324,7 +324,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	if err != nil {
 		return expectCase{}, err
 	}
-	agg, nodes, sharedHeight := newSharedReplayAggregator(t, names, shared)
+	agg, nodes, _, taggedEvidence := newSharedReplayAggregator(t, names, shared)
 	bySource := map[string]*rpctest.Node{}
 	for i, name := range names {
 		bySource[name] = nodes[i]
@@ -342,13 +342,46 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	for _, record := range group {
 		scriptRecord(t, bySource[record.Source.ID], record)
 	}
-	policy := replayRegistry(taggedAnchor, sharedHeight)[method]
-	if policy == nil {
-		return expectCase{}, fmt.Errorf("%s has no replay policy", method)
+	plan, err := methods.PlanFor(method)
+	if err != nil {
+		return expectCase{}, fmt.Errorf("%s has no replay plan: %w", method, err)
 	}
+	policy := plan.Resolver
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	prepared, prepErr := policy.Prepare(ctx, req)
+	// The plan's rewrite consumes the established reference as a value: the
+	// recompute serves the reference context's expected reference (or the
+	// harness's latest head for historical batches). A request that declares
+	// no reference need gets no establishment at all — no head round may run
+	// for an explicit pin.
+	_, needed := plan.ReferenceRequirement(req)
+	ref := rpc.ReferenceEvidence{Status: rpc.Corroborated, Hash: replayHeadHash}
+	if needed {
+		if entry != nil {
+			ref.Hash = entry.ExpectedReference.Hash
+			ref.Height = entry.ExpectedReference.Height
+			ref.Tag = entry.Tag
+		} else {
+			// Historical batches: the recompute resolves the request's own
+			// tag through the same establishment the aggregator's stage
+			// runs, so both layers rewrite from one reference.
+			tag := ""
+			if request, ok := plan.ReferenceRequirement(req); ok {
+				switch request.Kind {
+				case rpc.ReferenceSafe:
+					tag = "safe"
+				case rpc.ReferenceFinalized:
+					tag = "finalized"
+				}
+			}
+			established, rerr := taggedEvidence(tag)
+			if rerr != nil {
+				return expectCase{}, fmt.Errorf("%s reference: %w", id, rerr)
+			}
+			ref = established
+		}
+	}
+	prepared, _, prepErr := plan.PrepareWithReference(req, ref, needed)
 	if entry != nil && prepErr == nil {
 		// Three prepared-consistency gates, in contract terms:
 		//  - the recorded request itself equals the prepared request built
@@ -386,18 +419,18 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	}
 	for i, record := range group {
 		item := observationFromRecord(t, record)
-		payload, admission, faults, key := classifySource(t, policy, admitReq, item)
+		payload, admission, faults, key := classifySource(t, plan, admitReq, item)
 		payloads[i] = payload
 		if requestDiffers(record, requestRaw) {
 			faults = append(append([]string{}, faults...), "request_differs")
 		}
 		sources[i] = expectSource{ID: record.Source.ID, ComparisonKey: key, Admission: admission, Faults: faults}
 		if prepErr == nil {
-			item = admitCaptured(t, policy, prepared, item)
+			item = admitCaptured(t, plan, prepared, item)
 		}
 		obs[i] = item
 	}
-	policyDecision, policyErr := resolveCaptured(policy, prepared, prepErr, snap, obs)
+	policyDecision, policyErr := resolveCaptured(plan, prepared, prepErr, snap, obs)
 
 	aggDecision, aggErr := agg.Aggregate(ctx, req)
 	if policyDecision.Status != aggDecision.Status || decisionError(policyErr) != decisionError(aggErr) {
@@ -492,29 +525,47 @@ func unusableAnswers(policy rpc.Policy, obs []rpc.Observation) int {
 	return count
 }
 
-func resolveCaptured(policy rpc.Policy, prepared rpc.Request, prepErr error, snap rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
+func resolveCaptured(plan rpc.ReadPlan, prepared rpc.Request, prepErr error, snap rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
 	if prepErr != nil {
 		return rpc.Decision{Status: rpc.Unknown}, prepErr
 	}
-	if local, ok := policy.(rpc.LocalObservationPolicy); ok && local.IsLocalObservation(prepared) {
-		return local.ResolveLocal(obs)
+	// The plan's pending-local route: a pending shape on a pending-
+	// observation read resolves node-locally, except in Forwarded mode —
+	// the same routing the aggregator's pipeline applies.
+	if plan.Pending.Mode == rpc.PendingObserve && snap.Mode != rpc.CorroborationForwarded &&
+		pendingShapeAt(plan.Pending.Pos, prepared) {
+		return rpc.ResolveLocalObservation(plan.Resolver, obs)
 	}
-	if resolver, ok := policy.(rpc.CorroboratingPolicy); ok {
-		return resolver.ResolveCorroborated(snap, obs)
+	if plan.Corroborating() {
+		if resolver, ok := plan.Resolver.(rpc.CorroboratingPolicy); ok {
+			return resolver.ResolveCorroborated(snap, obs)
+		}
 	}
-	return policy.Resolve(obs)
+	return plan.Resolver.Resolve(obs)
 }
 
-func admitCaptured(t *testing.T, policy rpc.Policy, prepared rpc.Request, item rpc.Observation) rpc.Observation {
+// pendingShapeAt reports whether the prepared request addresses pending
+// state at the declared position, in string or EIP-1898 object spelling.
+func pendingShapeAt(pos int, prepared rpc.Request) bool {
+	if pos < 0 || pos >= len(prepared.Params) {
+		return false
+	}
+	switch ref := prepared.Params[pos].(type) {
+	case string:
+		return strings.EqualFold(ref, "pending")
+	case map[string]any:
+		number, ok := ref["blockNumber"].(string)
+		return ok && strings.EqualFold(number, "pending")
+	}
+	return false
+}
+
+func admitCaptured(t *testing.T, plan rpc.ReadPlan, prepared rpc.Request, item rpc.Observation) rpc.Observation {
 	t.Helper()
-	if item.Err != nil || len(item.Value) == 0 {
+	if item.Err != nil || len(item.Value) == 0 || plan.Admit == nil {
 		return item
 	}
-	admit, ok := policy.(rpc.AdmissionPolicy)
-	if !ok {
-		return item
-	}
-	if _, err := admit.Admit(context.Background(), prepared, item.Value, refuseCaller(t)); err != nil {
+	if _, err := plan.Admit(context.Background(), prepared, item.Value, refuseCaller(t)); err != nil {
 		item.Err = fmt.Errorf("admission: %w", err)
 		item.Value = nil
 		item.RPCError = nil

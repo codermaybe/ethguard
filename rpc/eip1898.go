@@ -81,16 +81,6 @@ func isBlockHash(s string) bool {
 	return true
 }
 
-// IsMovingTag reports the moving-tag spellings the anchor layers rewrite:
-// latest, safe, and finalized. Pending and earliest are not moving tags.
-func IsMovingTag(s string) bool {
-	switch strings.ToLower(s) {
-	case "latest", "safe", "finalized":
-		return true
-	}
-	return false
-}
-
 // EIP1898Rewrite returns the rewritten object for a moving blockNumber at an
 // anchored position: {blockHash: hash[, requireCanonical]}. The tag is never
 // downgraded and requireCanonical is never dropped. It is the shared rewrite

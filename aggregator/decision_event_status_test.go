@@ -30,7 +30,7 @@ func TestDecisionEventStatusMatchesSuccessClass(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := &captureRecorder{}
-			a, _ := scriptedAggregate(t, tc.nodes, rec, tc.forwarded, quantityPolicy(), func(i int, n *rpctest.Node) {
+			a, _ := scriptedAggregate(t, tc.nodes, rec, tc.forwarded, quantityPlan(), func(i int, n *rpctest.Node) {
 				n.Return("m", "0x1")
 			})
 			decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "m"})
@@ -53,7 +53,7 @@ func TestDecisionEventStatusMatchesSuccessClass(t *testing.T) {
 
 func TestDecisionEventFailedStatusForClassifiedErrors(t *testing.T) {
 	t.Run("conflict", func(t *testing.T) {
-		assertFailedEvent(t, rpc.ErrConflict, true, quantityPolicy(), func(i int, n *rpctest.Node) {
+		assertFailedEvent(t, rpc.ErrConflict, true, quantityPlan(), func(i int, n *rpctest.Node) {
 			if i == 0 {
 				n.Return("m", "0x1")
 			} else {
@@ -62,17 +62,17 @@ func TestDecisionEventFailedStatusForClassifiedErrors(t *testing.T) {
 		})
 	})
 	t.Run("no-valid-response", func(t *testing.T) {
-		assertFailedEvent(t, rpc.ErrNoValidResponse, true, quantityPolicy(), nil)
+		assertFailedEvent(t, rpc.ErrNoValidResponse, true, quantityPlan(), nil)
 	})
 	t.Run("invalid-request", func(t *testing.T) {
-		assertFailedEvent(t, rpc.ErrInvalidRequest, false, prepareReject{}, nil)
+		assertFailedEvent(t, rpc.ErrInvalidRequest, false, prepareRejectPlan(), nil)
 	})
 }
 
-func assertFailedEvent(t *testing.T, want error, wantCalls bool, policy rpc.Policy, script func(int, *rpctest.Node)) {
+func assertFailedEvent(t *testing.T, want error, wantCalls bool, plan rpc.ReadPlan, script func(int, *rpctest.Node)) {
 	t.Helper()
 	rec := &captureRecorder{}
-	a, nodes := scriptedAggregate(t, 2, rec, false, policy, script)
+	a, nodes := scriptedAggregate(t, 2, rec, false, plan, script)
 	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "m"})
 	if !errors.Is(err, want) {
 		t.Fatalf("got %v, want %v", err, want)
@@ -111,23 +111,25 @@ func assertFailedEvent(t *testing.T, want error, wantCalls bool, policy rpc.Poli
 	}
 }
 
-type prepareReject struct{ rpc.ForwardPolicy }
-
-func (prepareReject) Prepare(context.Context, rpc.Request) (rpc.Request, error) {
-	return rpc.Request{}, fmt.Errorf("rejected before fan-out: %w", rpc.ErrInvalidRequest)
+// prepareRejectPlan is the plan-level local rejection: the Validate phase
+// fails the read before any fan-out.
+func prepareRejectPlan() rpc.ReadPlan {
+	return rpc.ReadPlan{Method: "m", Validate: func(context.Context, rpc.Request) error {
+		return fmt.Errorf("rejected before fan-out: %w", rpc.ErrInvalidRequest)
+	}}
 }
 
-func quantityPolicy() rpc.Policy {
-	return rpc.Strict(func(v json.RawMessage) (string, error) {
+func quantityPlan() rpc.ReadPlan {
+	return rpc.ReadPlan{Method: "m", Resolver: rpc.Strict(func(v json.RawMessage) (string, error) {
 		var s string
 		if err := json.Unmarshal(v, &s); err != nil {
 			return "", err
 		}
 		return s, nil
-	})
+	})}
 }
 
-func scriptedAggregate(t *testing.T, count int, rec observe.Recorder, forwarded bool, policy rpc.Policy, script func(int, *rpctest.Node)) (*Aggregator, []*rpctest.Node) {
+func scriptedAggregate(t *testing.T, count int, rec observe.Recorder, forwarded bool, plan rpc.ReadPlan, script func(int, *rpctest.Node)) (*Aggregator, []*rpctest.Node) {
 	t.Helper()
 	nodes := make([]*rpctest.Node, 0, count)
 	members := make([]pool.Member, 0, count)
@@ -149,7 +151,7 @@ func scriptedAggregate(t *testing.T, count int, rec observe.Recorder, forwarded 
 		}
 		opts = append(opts, WithCorroboration(shared))
 	}
-	return New(p, rpc.Registry{"m": policy}, opts...), nodes
+	return New(p, append([]Option{WithPlans(map[string]rpc.ReadPlan{"m": plan})}, opts...)...), nodes
 }
 
 func oneEvent(t *testing.T, rec *captureRecorder) observe.DecisionEvent {

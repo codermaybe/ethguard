@@ -3,6 +3,7 @@ package methods
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -117,4 +118,33 @@ type MethodSpec struct {
 	// ObservationProjectorID names the runtime-bound projector; the spec
 	// never carries a factory (rpc/methods stays clear of projection/typed).
 	ObservationProjectorID string
+}
+
+// SpecFor returns the registered spec for one method name. It is the lookup
+// behind PlanFor and the coverage gates.
+func SpecFor(method string) (MethodSpec, bool) {
+	for _, spec := range Specs() {
+		if spec.Method == method {
+			return spec, true
+		}
+	}
+	return MethodSpec{}, false
+}
+
+// PlanFor compiles the registered spec for one method. Tools and offline
+// verifiers use it to run exactly the resolver the registry installs.
+func PlanFor(method string) (rpc.ReadPlan, error) {
+	spec, ok := SpecFor(method)
+	if !ok {
+		return rpc.ReadPlan{}, fmt.Errorf("methods: %s is not a registered read method", method)
+	}
+	return CompilePlan(spec)
+}
+
+// CompileResolver assembles one spec's resolver with explicit strict options
+// — the same assembly CompilePlan runs. The establishment algorithms keep
+// their own threshold formulas by recorded decision, so they compile the
+// head resolver directly instead of riding the plan's defaults.
+func CompileResolver(spec MethodSpec, opts []rpc.StrictOption) (rpc.Policy, error) {
+	return assembleResolver(spec, opts)
 }

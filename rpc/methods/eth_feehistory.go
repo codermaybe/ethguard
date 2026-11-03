@@ -1,7 +1,6 @@
 package methods
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -13,70 +12,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
-
-// FeeHistoryPolicy corroborates eth_feeHistory by full agreement over the whole
-// response. The range is chain-determined once newest is pinned: the base
-// fees and gas ratios of historical blocks are immutable, the block count
-// is the caller's fixed input, and the newest+1 entry is the EIP-1559
-// prediction derived from the newest block itself.
-//
-// The wire form constrains the anchor shape: feeHistory's newestBlock is a
-// BlockNumber, not a BlockNumberOrHash, so a 32-byte hash cannot ride the
-// wire — the moving tag is rewritten to the corroborated reference's height
-// instead (see rpc.AnchorHeightFunc). Cross-client rounding of the reward
-// percentiles is the known liveness gate: until a soak measures it, rounding
-// differences fail closed as conflict. Pending resolves as a node-local
-// observation (decision 0035), never Corroborated through agreement.
-func FeeHistoryPolicy(height rpc.AnchorHeightFunc, opts ...rpc.StrictOption) rpc.Policy {
-	inner := feeHistoryPolicy{Decorator: rpc.Decorator{Policy: rpc.Strict(normalizeFeeHistory, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalValue(feehistory.Encode)}, opts...))...)}}
-	return PendingLocal(1)(rpc.WithAnchorHeight(height, 1)(inner))
-}
-
-// feeHistoryPolicy validates the request shape and normalizes only the
-// protocol fields of the response. Array relationships are checked without
-// silently shrinking a requested range.
-type feeHistoryPolicy struct{ rpc.Decorator }
-
-func (p feeHistoryPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
-	if err := validateFeeHistoryRequest(req); err != nil {
-		return rpc.Request{}, err
-	}
-	return p.Policy.Prepare(ctx, req)
-}
-func (p feeHistoryPolicy) Normalize(value json.RawMessage) (string, error) {
-	return normalizeFeeHistory(value)
-}
-
-func (p feeHistoryPolicy) RequiresAgreement() bool { return true }
-func (p feeHistoryPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
-	if policy, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
-		return policy.ResolveCorroborated(c, obs)
-	}
-	return p.Policy.Resolve(obs)
-}
-
-func (p feeHistoryPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
-	if policy, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
-		return policy.ResolveOutcomeCorroborated(c, obs)
-	}
-	d, err := p.ResolveCorroborated(c, obs)
-	return rpc.Outcome{Decision: d}, err
-}
-
-// Admit applies the same request-independent response checks used by the
-// normalizer before a fee-history answer can participate in voting.
-func (p feeHistoryPolicy) Admit(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	if err := validateFeeHistoryRequest(req); err != nil {
-		return nil, fmt.Errorf("%w: %v", rpc.ErrInvalidRequest, err)
-	}
-	if _, err := normalizeFeeHistory(value); err != nil {
-		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-	}
-	if err := validateFeeHistoryRange(req, value); err != nil {
-		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-	}
-	return nil, nil
-}
 
 func validateFeeHistoryRange(req rpc.Request, value json.RawMessage) error {
 	return feehistory.ValidateRange(req, value)

@@ -173,11 +173,13 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 	for i, answer := range tc.answers {
 		scriptRevertAnswer(nodes[i], answer)
 	}
-	policy := methods.CallPolicy(func(context.Context) (string, error) {
-		t.Fatal("policy resolve must not anchor")
-		return "", errors.New("anchor")
-	})
-	resolver, ok := policy.(rpc.CorroboratingPolicy)
+	// The plan's resolver receives established evidence as a value: resolve
+	// must never anchor.
+	plan, planErr := methods.PlanFor(methods.MethodCall)
+	if planErr != nil {
+		t.Fatal(planErr)
+	}
+	resolver, ok := plan.Resolver.(rpc.CorroboratingPolicy)
 	if !ok {
 		t.Fatal("eth_call lost ResolveCorroborated")
 	}

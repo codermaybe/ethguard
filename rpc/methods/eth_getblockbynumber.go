@@ -7,21 +7,7 @@ import (
 	"strings"
 
 	"github.com/codermaybe/ethguard/rpc"
-	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
-
-// BlockByNumberPolicy corroborates eth_getBlockByNumber by full agreement on the
-// block head: number and hash must match across sources, hexadecimal casing
-// and key order aside. It also serves as the anchor policy for pinned reads.
-// The pending tag resolves as a node-local observation (decision 0035), never
-// Corroborated through agreement and never rewritten into an anchored read.
-// Anchor establishment never uses pending. The typed adapter rejects
-// BlockByNumber(-1) before fan-out; this policy does not project that tag
-// into an ordinary block.
-func BlockByNumberPolicy(opts ...rpc.StrictOption) rpc.Policy {
-	strictOpts := append([]rpc.StrictOption{rpc.WithCanonicalObject(blockobject.EncodeByNumber)}, opts...)
-	return PendingLocal(0)(blockPolicy{Decorator: rpc.Decorator{Policy: rpc.Strict(normalizeBlockIdentity, compareOpts(rpc.RuleCompareMethodSpecific, strictOpts)...)}, byHash: false})
-}
 
 // NormalizeBlockHead exposes the block identity contract to the reference
 // head codec without constructing a legacy policy chain. The method resolver

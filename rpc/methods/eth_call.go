@@ -11,27 +11,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// CallPolicy corroborates eth_call on two dimensions (decisions 0017, 0023,
-// and 0039 rule 4e). Successful return data stays inside the execution key as canonical DATA JSON, not an ok| prefix.
-// A revert-class error asserts execution and, separately, data: missing and
-// JSON null abstain, while empty ("0x"), non-empty hex, and non-hex JSON
-// stay distinct assertions and are not pre-merged into one another. A short
-// or non-unanimous data cluster keeps the corroborated revert and deletes
-// data from one admitted envelope. Vendor code (3 versus -32000) and message
-// text stay out of the key; they remain uncorroborated context on that
-// envelope. Provider failures that are not execution observations —
-// transport faults, -32002, -32003, -32603, rate limits — ride as faults and
-// never enter a revert key. Agreement is provider-backed evidence of that
-// outcome, not a claim about Ethereum consensus. Generic Strict is not used
-// here and keeps its single-key semantics.
-// The block tag at position 1 is rewritten to the corroborated reference.
-// EIP-1898 object forms ride EIP1898BlockRef (see GetBalancePolicy).
-// Pending resolves as a node-local observation (see GetBalancePolicy).
-func CallPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	inner := rpc.NewCallRevertPolicy(normalizeCallOutcome, append([]rpc.StrictOption{rpc.WithRPCErrorBodies(), rpc.WithCanonicalValue(encodeCallSuccess)}, opts...)...)
-	return PendingLocal(1)(EIP1898BlockRef(anchor, 1)(rpc.WithAnchor(anchor, 1)(inner)))
-}
-
 // normalizeCallOutcome reduces one eth_call answer to a comparable key.
 // It canonicalizes return data and revert data. It does not admit the call:
 // a payload with no canonical form errors, and a non-revert protocol error

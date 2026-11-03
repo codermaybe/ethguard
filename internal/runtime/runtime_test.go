@@ -22,9 +22,6 @@ func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
 	if len(bundle.Plans) != len(methods.RegisteredNames()) {
 		t.Fatalf("runtime registered %d plans, want %d", len(bundle.Plans), len(methods.RegisteredNames()))
 	}
-	if len(bundle.Policies) != 0 {
-		t.Fatalf("the default registry compiled %d policy chains, want none", len(bundle.Policies))
-	}
 	for _, method := range methods.RegisteredNames() {
 		if bundle.Plans[method].Resolver == nil {
 			t.Fatalf("runtime omitted the %s plan", method)

@@ -22,7 +22,7 @@ func (c *captureRecorder) RecordDecision(e observe.DecisionEvent) {
 }
 
 func TestAggregateEmptyPoolReturnsCollectionError(t *testing.T) {
-	a := New(pool.NewPool(), nil)
+	a := New(pool.NewPool())
 	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 	if err == nil {
 		t.Fatal("expected empty pool to fail")
@@ -34,7 +34,7 @@ func TestAggregateEmptyPoolReturnsCollectionError(t *testing.T) {
 
 func TestAggregateAttachesSourceFaultsToDecision(t *testing.T) {
 	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
-	a := New(p, nil)
+	a := New(p)
 	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_unknown"})
 	if err == nil {
 		t.Fatal("expected unreachable source to fail the call")
@@ -55,7 +55,7 @@ func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	decision, err := New(p, nil).Aggregate(ctx, rpc.Request{Method: "eth_unknown"})
+	decision, err := New(p).Aggregate(ctx, rpc.Request{Method: "eth_unknown"})
 	if err == nil {
 		t.Fatal("expected canceled collection to fail")
 	}
@@ -70,7 +70,7 @@ func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
 func TestAggregateEmitsDecisionEvent(t *testing.T) {
 	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
 	rec := &captureRecorder{}
-	a := New(p, nil, WithRecorder(rec))
+	a := New(p, WithRecorder(rec))
 	if _, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_unknown"}); err == nil {
 		t.Fatal("expected call to fail")
 	}
@@ -93,7 +93,7 @@ func TestAggregateDefaultsToNopRecorder(t *testing.T) {
 		}
 	}()
 	p := pool.NewPool()
-	a := New(p, nil)
+	a := New(p)
 	_, _ = a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 }
 
@@ -134,7 +134,7 @@ func eventPolicy(opts ...rpc.StrictOption) rpc.Policy {
 
 func TestEventMarksOnlyUnusableAttemptsFailed(t *testing.T) {
 	policy := eventPolicy(rpc.WithRPCErrorBodies())
-	a := New(pool.NewPool(), rpc.Registry{"m": policy})
+	a := New(pool.NewPool(), WithPlans(map[string]rpc.ReadPlan{"m": {Method: "m", Resolver: policy}}))
 	rec := &captureRecorder{}
 	a.rec = rec
 
@@ -168,7 +168,7 @@ func TestEventMarksRevertAsFailureForPoliciesWithoutErrorBodies(t *testing.T) {
 	// Without WithRPCErrorBodies the protocol error is not part of the value
 	// domain, so the attempt provided no usable answer.
 	policy := eventPolicy()
-	a := New(pool.NewPool(), rpc.Registry{"m": policy})
+	a := New(pool.NewPool(), WithPlans(map[string]rpc.ReadPlan{"m": {Method: "m", Resolver: policy}}))
 	rec := &captureRecorder{}
 	a.rec = rec
 
@@ -183,7 +183,7 @@ func TestEventMarksRevertAsFailureForPoliciesWithoutErrorBodies(t *testing.T) {
 
 func TestEventMarksConflictAsFailed(t *testing.T) {
 	policy := eventPolicy()
-	a := New(pool.NewPool(), rpc.Registry{"m": policy})
+	a := New(pool.NewPool(), WithPlans(map[string]rpc.ReadPlan{"m": {Method: "m", Resolver: policy}}))
 	rec := &captureRecorder{}
 	a.rec = rec
 
@@ -207,7 +207,7 @@ func TestNopRecorderSkipsEventAssembly(t *testing.T) {
 	// observable as no panic and no recorder allocation — Nop discards, so
 	// the assertion is that assembly is skipped entirely.
 	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
-	if _, err := New(p, nil).Aggregate(context.Background(), rpc.Request{Method: "m"}); err == nil {
+	if _, err := New(p).Aggregate(context.Background(), rpc.Request{Method: "m"}); err == nil {
 		t.Fatal("expected the call to fail")
 	}
 }

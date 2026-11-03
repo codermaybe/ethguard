@@ -38,13 +38,23 @@ type StrictHeadEstablishment struct {
 	pool    *pool.Pool
 	rec     observe.Recorder
 	timeout time.Duration
-	opts    []rpc.StrictOption
+	// head is the getBlockByNumber resolver the round's head identity rides:
+	// the plan compiler's own assembly, with the establishment's strict
+	// options.
+	head rpc.Policy
 }
 
 // NewStrictHeadEstablishment builds the strict head establishment engine over
 // one pool. A zero timeout selects the pool's conservative collect default.
 func NewStrictHeadEstablishment(p *pool.Pool, rec observe.Recorder, timeout time.Duration, opts ...rpc.StrictOption) *StrictHeadEstablishment {
-	return &StrictHeadEstablishment{pool: p, rec: rec, timeout: timeout, opts: opts}
+	spec, _ := methods.SpecFor(methods.MethodGetBlockByNumber)
+	head, err := methods.CompileResolver(spec, opts)
+	if err != nil {
+		// The registered spec always compiles; a failure here is a
+		// programmer error, not a runtime condition.
+		panic("runtime: compile the strict head resolver: " + err.Error())
+	}
+	return &StrictHeadEstablishment{pool: p, rec: rec, timeout: timeout, head: head}
 }
 
 // strictHeadRound carries the outcome of one establishment round: the
@@ -79,7 +89,7 @@ func referenceTipFreshness(tag string) pool.TipFreshnessScope {
 // error: the faults stay on the reference the caller sees.
 func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool.Source, snap rpc.Corroboration, snapOK bool, tag string) (strictHeadRound, error) {
 	started := time.Now()
-	policy := headAnchorPolicy{methods.BlockByNumberPolicy(e.opts...)}
+	policy := headAnchorPolicy{e.head}
 	if members == nil {
 		members = e.pool.VotingMembers()
 	}

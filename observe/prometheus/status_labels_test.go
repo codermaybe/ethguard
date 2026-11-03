@@ -130,7 +130,7 @@ func emitStatus(t *testing.T, count int, forwarded, wantErr bool, script func(in
 		}
 		opts = append(opts, aggregator.WithCorroboration(shared))
 	}
-	a := aggregator.New(p, rpc.Registry{"m": quantityPolicy()}, opts...)
+	a := aggregator.New(p, append([]aggregator.Option{aggregator.WithPlans(map[string]rpc.ReadPlan{"m": {Method: "m", Resolver: quantityPolicy()}})}, opts...)...)
 	if _, err := a.Aggregate(context.Background(), rpc.Request{Method: "m"}); (err != nil) != wantErr {
 		t.Fatalf("aggregate error = %v, wantErr %v", err, wantErr)
 	}

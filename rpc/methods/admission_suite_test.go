@@ -2,7 +2,6 @@ package methods
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -159,7 +158,7 @@ func admissionCases(t *testing.T) []admissionCase {
 						{`{"oldestBlock":"0xa","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5]}`, `{"oldestBlock":"0xa","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.50]}`},
 						{`{"oldestBlock":"0xa","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[1e-1]}`, `{"oldestBlock":"0xa","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.1]}`},
 					} {
-						decision, err := FeeHistoryPolicy(func(context.Context) (uint64, error) { return 1, nil }, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).
+						decision, err := planResolver(t, MethodFeeHistory, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).
 							ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 								observation(rpc.SourceRef{Name: "a", ID: "a"}, pair[0], ""),
 								observation(rpc.SourceRef{Name: "b", ID: "b"}, pair[1], ""),
@@ -197,7 +196,7 @@ func admissionCases(t *testing.T) []admissionCase {
 					// An absent block and an empty block are different answers.
 					// Folding them together would let a source report no
 					// receipts for a block that has them.
-					decision, err := BlockReceiptsPolicy(nil, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).
+					decision, err := planResolver(t, MethodGetBlockReceipts, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).
 						ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 							observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
 							observation(rpc.SourceRef{Name: "b", ID: "b"}, `[]`, ""),
@@ -215,7 +214,7 @@ func admissionCases(t *testing.T) []admissionCase {
 					good := receiptArray(t, receipt)
 					other := receiptArray(t, replaceReceiptField(t, receipt, "gasUsed", `"0x1"`))
 					broken := receiptArray(t, receipt, json.RawMessage("null"))
-					decision, err := BlockReceiptsPolicy(nil, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy).
+					decision, err := planResolver(t, MethodGetBlockReceipts, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy).
 						ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 							observation(rpc.SourceRef{Name: "a", ID: "a"}, string(good), ""),
 							observation(rpc.SourceRef{Name: "b", ID: "b"}, string(good), ""),
@@ -236,7 +235,7 @@ func admissionCases(t *testing.T) []admissionCase {
 					other := replaceReceiptField(t, receipt, "gasUsed", `"0x1"`)
 					first := receiptArray(t, receipt, other)
 					second := receiptArray(t, other, receipt)
-					decision, err := BlockReceiptsPolicy(nil, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).
+					decision, err := planResolver(t, MethodGetBlockReceipts, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).
 						ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 							observation(rpc.SourceRef{Name: "a", ID: "a"}, string(first), ""),
 							observation(rpc.SourceRef{Name: "b", ID: "b"}, string(second), ""),

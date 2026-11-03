@@ -3,7 +3,6 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -28,15 +27,12 @@ import (
 
 // invocationState is one read invocation's working state across the named
 // phases. Fields fill in phase order; nothing writes backwards. A read
-// driven by an explicit execution plan carries the plan instead of a
-// compiled policy: the plan path reads its routing decisions from the plan
-// value, the legacy path type-asserts the policy's optional capabilities.
 type invocationState struct {
 	ctx        context.Context
 	invocation rpc.Invocation
-	policy     rpc.Policy
-	// plan is the explicit execution plan of a planned read; nil selects the
-	// legacy policy path everywhere the two routes diverge.
+	// plan is the explicit execution plan of one read: the plan value owns
+	// every routing decision (prepare, reference, pending, collection,
+	// resolution, projection).
 	plan *rpc.ReadPlan
 	// planPin is the block reference the plan's rewrite introduced, recorded
 	// at prepare time for the projection phase.
@@ -68,53 +64,36 @@ type invocationState struct {
 }
 
 // validityPolicy is the policy whose validity contract classifies answers
-// and attempts: the plan's resolver value for a planned read, the whole
-// compiled chain otherwise. Normalization and the RPC-error-body opt-in live
-// on the resolver in both shapes.
+// and attempts: the plan's resolver value. Normalization and the
+// RPC-error-body opt-in live on it.
 func (state *invocationState) validityPolicy() rpc.Policy {
-	if state.plan != nil {
-		return state.plan.Resolver
-	}
-	return state.policy
+	return state.plan.Resolver
 }
 
 // admissionHook is the method-owned admission hook, or absent when the read
 // declares none.
 func (state *invocationState) admissionHook() (func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error), bool) {
-	if state.plan != nil {
-		return plannedAdmissionHook(state.plan)
-	}
-	if admission, ok := state.policy.(rpc.AdmissionPolicy); ok {
-		return admission.Admit, true
-	}
-	return nil, false
+	return plannedAdmissionHook(state.plan)
 }
 
 // requiresAgreement reports whether the read's resolution claims a
-// corroboration-bound agreement: the resolver's own capability for a planned
-// read, the chain's otherwise.
+// corroboration-bound agreement: the resolver's own capability.
 func (state *invocationState) requiresAgreement() bool {
 	agreement, ok := state.validityPolicy().(rpc.AgreementPolicy)
 	return ok && agreement.RequiresAgreement()
 }
 
-// pendingLocalRoute is the single pending-local routing check for both
-// paths: a pending request on a pending-observation read resolves as a
-// node-local observation, except in Forwarded mode, where the pending shape
-// still forwards.
+// pendingLocalRoute is the single pending-local routing check: a pending
+// request on a pending-observation read resolves as a node-local
+// observation, except in Forwarded mode, where the pending shape still
+// forwards.
 func (state *invocationState) pendingLocalRoute() bool {
-	if state.plan != nil {
-		return planPendingLocalRoute(state.plan, state.prepared, state.snap, state.snapOK)
-	}
-	return isPendingLocalRoute(state.policy, state.prepared, state.snap, state.snapOK)
+	return planPendingLocalRoute(state.plan, state.prepared, state.snap, state.snapOK)
 }
 
-// resolve runs the resolution entry the read's route selects.
+// resolve runs the plan's declared resolution semantics.
 func (state *invocationState) resolve() invocationResolution {
-	if state.plan != nil {
-		return resolvePlannedInvocation(state.plan, state.prepared, state.snap, state.snapOK, state.observations)
-	}
-	return resolveWithPending(state.policy, state.prepared, state.snap, state.snapOK, state.observations)
+	return resolvePlannedInvocation(state.plan, state.prepared, state.snap, state.snapOK, state.observations)
 }
 
 // earlyExit carries one degraded phase result: a classified decision plus the
@@ -152,94 +131,6 @@ func beginInvocation(ctx context.Context, snap rpc.Corroboration, snapOK bool, m
 	return refcontext.WithInvocation(ctx, invocation), invocation
 }
 
-// harvestReference moves establishment evidence from the transitional capture
-// into the invocation, so the completed value carries the reference the
-// reference stage recorded during Prepare. It runs even when Prepare failed:
-// a failed establishment's evidence is part of the decision.
-func harvestReference(ctx context.Context, invocation rpc.Invocation, capture *refcontext.Capture) (context.Context, rpc.Invocation) {
-	if capture == nil {
-		return ctx, invocation
-	}
-	if ref := capture.Reference(); ref != nil {
-		if completed, err := invocation.WithReference(*ref); err == nil {
-			return refcontext.WithInvocation(ctx, completed), completed
-		}
-	}
-	return ctx, invocation
-}
-
-// prepareWithReference is the Prepare and ReferenceStage phases. A preparing
-// decorator that needs its reference reports the pipeline sentinel; the
-// aggregator answers it by running the declared establishment on this same
-// invocation and preparing again. Validation-before-anchor stays intact: the
-// first Prepare runs every outer validator before the anchor layer asks for
-// its reference. A non-nil early exit reports the Prepare or establishment
-// failure decision.
-func (a *Aggregator) prepareWithReference(state *invocationState, started time.Time, req rpc.Request) *earlyExit {
-	prepared, err := state.policy.Prepare(state.ctx, req)
-	if errors.Is(err, rpc.ErrReferenceRequired) {
-		if exit := a.establishReferencePhase(state, started, req); exit != nil {
-			return exit
-		}
-		prepared, err = state.policy.Prepare(state.ctx, req)
-	}
-	if ref := state.capture.Reference(); ref != nil {
-		state.ctx, state.invocation = harvestReference(state.ctx, state.invocation, state.capture)
-	}
-	if err == nil {
-		state.prepared = prepared
-		return nil
-	}
-	if c := uncertain.FromContext(state.ctx); c != nil {
-		c.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
-	}
-	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
-	state.attachFaults(&decision, nil)
-	a.recordDecision(started, req.Method, state.policy, decision, err, nil, nil)
-	return &earlyExit{decision: decision, err: err}
-}
-
-// establishReferencePhase runs the declared establishment once per
-// invocation: the policy declares which reference level it needs, the stage
-// performs the network rounds, and the evidence lands on the invocation and
-// the transitional capture. A nil return means the invocation now carries
-// its reference and Prepare can run again.
-func (a *Aggregator) establishReferencePhase(state *invocationState, started time.Time, req rpc.Request) *earlyExit {
-	if a.stage == nil {
-		// No establishment seam is installed: the declared reference cannot
-		// be established, so the read fails before any fan-out.
-		err := fmt.Errorf("reference: no establishment stage for a read that requires one: %w", rpc.ErrReferenceRequired)
-		decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
-		state.attachFaults(&decision, nil)
-		a.recordDecision(started, req.Method, state.policy, decision, err, nil, nil)
-		return &earlyExit{decision: decision, err: err}
-	}
-	request := rpc.ReferenceRequest{Kind: rpc.ReferenceLatest}
-	if requirement, ok := state.policy.(rpc.ReferenceRequirement); ok {
-		if declared, needed := requirement.ReferenceFor(req); needed {
-			request = declared
-		}
-	}
-	completed, err := a.stage.Establish(state.ctx, state.invocation, request)
-	if err != nil {
-		// A failed establishment keeps its evidence on the capture (the
-		// stage publishes it); the business fan-out never starts. The error
-		// carries the same "anchor:" prefix the preparing decorator used to
-		// wrap its establishment cause with.
-		err = fmt.Errorf("anchor: %w", err)
-		decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
-		state.attachFaults(&decision, nil)
-		a.recordDecision(started, req.Method, state.policy, decision, err, nil, nil)
-		return &earlyExit{decision: decision, err: err}
-	}
-	if ref, ok := completed.Reference(); ok {
-		// The transitional capture stays the decision's evidence source.
-		refcontext.Publish(state.ctx, ref)
-	}
-	state.ctx, state.invocation = refcontext.WithInvocation(state.ctx, completed), completed
-	return nil
-}
-
 // preparedTipFreshness reports whether the prepared business request still
 // depends on the sampled latest tip. A moving tag rewritten by Prepare has
 // become an explicit pin, so the business round is exempt: an explicit
@@ -248,13 +139,7 @@ func (a *Aggregator) establishReferencePhase(state *invocationState, started tim
 // establishment is scoped separately by the runtime, where the requested tag
 // is still known.
 func preparedTipFreshness(state *invocationState) pool.TipFreshnessScope {
-	var request rpc.ReferenceRequest
-	var needed bool
-	if state.plan != nil {
-		request, needed = state.plan.ReferenceRequirement(state.prepared)
-	} else if requirement, ok := state.policy.(rpc.ReferenceRequirement); ok {
-		request, needed = requirement.ReferenceFor(state.prepared)
-	}
+	request, needed := state.plan.ReferenceRequirement(state.prepared)
 	if !needed || request.Kind != rpc.ReferenceLatest {
 		return pool.TipFreshnessExempt
 	}
@@ -276,16 +161,16 @@ func (a *Aggregator) collectPhase(state *invocationState) {
 	}
 	switch {
 	case state.snapOK && state.snap.Mode == rpc.CorroborationForwarded:
+		// Intentional single-source forwarding: the configured mode, not the
+		// method's declaration, decides.
 		forward()
-	case state.plan != nil:
-		if state.corroborating {
-			state.emissions, state.collectErr = a.pool.CollectVoting(state.ctx, state.prepared.Method, state.prepared.Params, opts)
-		} else {
-			state.emissions, state.collectErr = a.pool.Collect(state.ctx, state.prepared.Method, state.prepared.Params, opts)
-		}
-	case singleSourcePolicy(state.policy):
+	case singleSourcePolicy(state.plan.Resolver):
+		// The explicit forward plan (or a single-source declaration).
 		forward()
 	case state.corroborating:
+		// A corroborated read collects over the fixed voting basis — every
+		// member occupies the denominator even when a scheduling gate
+		// skipped its request (decisions 0025 and 0062).
 		state.emissions, state.collectErr = a.pool.CollectVoting(state.ctx, state.prepared.Method, state.prepared.Params, opts)
 	default:
 		state.emissions, state.collectErr = a.pool.Collect(state.ctx, state.prepared.Method, state.prepared.Params, opts)
@@ -464,18 +349,11 @@ func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req
 		// capability. A read with no projector ID at all stays
 		// unprojected; neither route falls back to the method name on the
 		// plan path.
-		if state.plan != nil {
-			if state.plan.ProjectorID != "" {
-				projector, ok = a.projectors[state.plan.ProjectorID]
-			}
-			if !ok {
-				projector, ok = state.plan.Resolver.(rpc.ObservationProjector)
-			}
-		} else {
-			projector, ok = a.projectors[req.Method]
-			if !ok {
-				projector, ok = state.policy.(rpc.ObservationProjector)
-			}
+		if state.plan.ProjectorID != "" {
+			projector, ok = a.projectors[state.plan.ProjectorID]
+		}
+		if !ok {
+			projector, ok = state.plan.Resolver.(rpc.ObservationProjector)
 		}
 		if ok {
 			if extensions, projectionErr := projector.ProjectObservation(decision.Value, *state.evaluation); projectionErr == nil {
@@ -485,13 +363,8 @@ func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req
 			}
 		}
 	}
-	// The plan records its pin at rewrite time; the legacy path asks the
-	// chain's BlockRef providers what they rewrote.
-	if state.plan != nil {
-		decision.BlockRef = state.planPin
-	} else if provider, ok := state.policy.(rpc.BlockRefProvider); ok {
-		decision.BlockRef = provider.BlockRef(req, state.prepared)
-	}
+	// The plan records its pin at rewrite time.
+	decision.BlockRef = state.planPin
 	state.attachFaults(&decision, state.verdicts)
 	a.recordDecision(started, req.Method, state.validityPolicy(), decision, resolveErr, state.emissions, state.verdicts)
 	return decision, resolveErr

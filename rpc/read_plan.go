@@ -254,7 +254,10 @@ func (p ReadPlan) fieldsRequirement(req Request) (ReferenceRequest, bool) {
 // upstream contact, and established evidence that does not serve the
 // request's tag fails the read the way a missing reference would.
 func (p ReadPlan) PrepareWithReference(req Request, ref ReferenceEvidence, refOK bool) (Request, string, error) {
-	params := append([]any(nil), req.Params...)
+	// The copy preserves the parameter list's shape: an empty list stays
+	// empty (and marshals as [] on the wire), never collapses to nil.
+	params := make([]any, len(req.Params))
+	copy(params, req.Params)
 	if p.Reference.EIP1898 {
 		pos := p.Reference.Positions[0]
 		if pos >= 0 && pos < len(params) {

@@ -8,13 +8,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// SyncingPolicy resolves eth_syncing as an upstream-local result: the
-// answer describes one provider's own sync state, so it is selected, not
-// compared (see rpc.Local).
-func SyncingPolicy() rpc.Policy {
-	return rpc.Local(normalizeSyncing, rpc.WithLocalRuleCompareKind(rpc.RuleCompareObject), rpc.WithLocalCanonical(rpc.EncodeCanonicalJSON))
-}
-
 // normalizeSyncing admits the two wire shapes the method defines: false for a
 // fully synced node, or a progress object. JSON null, booleans other than
 // false, and scalars are malformed answers, not local truth.

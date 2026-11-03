@@ -25,7 +25,6 @@ import (
 type Client struct {
 	pool       *pool.Pool
 	aggregator *aggregator.Aggregator
-	policies   rpc.Registry
 	// plans are the read methods driven by explicit execution plans; their
 	// resolvers own canonical normalization at the facade boundary.
 	plans    map[string]rpc.ReadPlan
@@ -220,7 +219,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	return &Client{
 		pool:           runtimeBundle.Pool,
 		aggregator:     runtimeBundle.Aggregator,
-		policies:       runtimeBundle.Policies,
 		plans:          runtimeBundle.Plans,
 		resolver:       runtimeBundle.Resolver,
 		corrob:         runtimeBundle.Corroboration,
@@ -282,14 +280,15 @@ func (c *Client) AnchorBlockHeight(ctx context.Context) (uint64, error) {
 
 // Normalize reduces one raw response through the owning method's canonical
 // form — the single owner of value parsing for a corroborated method.
-// Typed callers use it instead of re-parsing raw JSON. A planned method
-// normalizes through its plan's resolver; every other method through its
-// compiled policy.
+// Typed callers use it instead of re-parsing raw JSON. Every registered
+// method normalizes through its plan's resolver; an unregistered method has
+// no canonical form and fails the call.
 func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
-	if plan, ok := c.plans[method]; ok {
-		return plan.Resolver.Normalize(raw)
+	plan, ok := c.plans[method]
+	if !ok {
+		return "", fmt.Errorf("ethguard: %s has no canonical normalizer: %w", method, rpc.ErrInvalidRequest)
 	}
-	return c.policies.PolicyFor(method).Normalize(raw)
+	return plan.Resolver.Normalize(raw)
 }
 
 // Pool exposes the underlying multi-source manager for advanced diagnostics.

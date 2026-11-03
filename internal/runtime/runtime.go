@@ -55,7 +55,6 @@ type Bundle struct {
 	Pool          *pool.Pool
 	Corroboration *rpc.CorroborationShared
 	Resolver      ReferenceResolver
-	Policies      rpc.Registry
 	Plans         map[string]rpc.ReadPlan
 	Projectors    map[string]rpc.ObservationProjector
 	Aggregator    *aggregator.Aggregator
@@ -81,16 +80,15 @@ func Build(in Inputs) (*Bundle, error) {
 		MaxLag:            anchoringMaxLag(in.Anchoring),
 		StrictOptions:     in.StrictOptions,
 	})
-	// The registries are assembled from the frozen MethodSpec inventory: one
-	// explicit plan per registered method, and the projector binding the
-	// plans name. The coverage gate holds the catalog to its plans; a method
+	// The plan registry is assembled from the frozen MethodSpec inventory:
+	// one explicit plan per registered method, and the projector binding the
+	// plan's name. The coverage gate holds the catalog to its plans; a method
 	// without a plan cannot fall through to transparent forwarding.
-	policies := rpc.Registry{}
 	plans, err := buildMethodRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
-	if err := methods.ValidateReadCoverage(policies, plans); err != nil {
+	if err := methods.ValidatePlanCoverage(plans); err != nil {
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
 	projectors, err := buildProjectorRegistry()
@@ -98,10 +96,9 @@ func Build(in Inputs) (*Bundle, error) {
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
 	return &Bundle{
-		Policies:   policies,
 		Plans:      plans,
 		Projectors: projectors,
-		Aggregator: aggregator.New(in.Pool, policies,
+		Aggregator: aggregator.New(in.Pool,
 			aggregator.WithRecorder(in.Recorder),
 			aggregator.WithCollectTimeout(in.CollectTimeout),
 			aggregator.WithCorroboration(in.Corroboration),

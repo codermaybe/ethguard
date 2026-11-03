@@ -186,7 +186,11 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 	if err != nil {
 		return expectCase{}, err
 	}
-	policy := methods.CallPolicy(fixedAnchor)
+	plan, err := methods.PlanFor(methods.MethodCall)
+	if err != nil {
+		return expectCase{}, err
+	}
+	policy := plan.Resolver
 	resolver, ok := policy.(rpc.CorroboratingPolicy)
 	if !ok {
 		return expectCase{}, errors.New("eth_call policy lost ResolveCorroborated")
@@ -198,7 +202,7 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 	for i, record := range records {
 		item := observationFromRecord(t, record)
 		obs[i] = item
-		payload, admission, faults, key := classifySource(t, policy, req, item)
+		payload, admission, faults, key := classifySource(t, plan, req, item)
 		payloads[i] = payload
 		sources[i] = expectSource{ID: record.Source.ID, ComparisonKey: key, Admission: admission, Faults: faults}
 	}
@@ -280,17 +284,17 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 	}, nil
 }
 
-func classifySource(t *testing.T, policy rpc.Policy, req rpc.Request, item rpc.Observation) (json.RawMessage, string, []string, string) {
+func classifySource(t *testing.T, plan rpc.ReadPlan, req rpc.Request, item rpc.Observation) (json.RawMessage, string, []string, string) {
 	t.Helper()
 	faults := []string{}
 	if item.Err == nil {
 		payload := append(json.RawMessage(nil), item.Value...)
-		if admit, ok := policy.(rpc.AdmissionPolicy); ok {
-			if _, err := admit.Admit(context.Background(), req, item.Value, refuseCaller(t)); err != nil {
+		if plan.Admit != nil {
+			if _, err := plan.Admit(context.Background(), req, item.Value, refuseCaller(t)); err != nil {
 				return payload, "rejected", []string{err.Error()}, ""
 			}
 		}
-		key, err := policy.Normalize(item.Value)
+		key, err := plan.Resolver.Normalize(item.Value)
 		if err != nil {
 			return payload, "passed", []string{err.Error()}, ""
 		}
@@ -300,7 +304,7 @@ func classifySource(t *testing.T, policy rpc.Policy, req rpc.Request, item rpc.O
 		return nil, "not_applicable", []string{"fault"}, ""
 	}
 	payload := item.RPCError.Raw()
-	key, err := policy.Normalize(payload)
+	key, err := plan.Resolver.Normalize(payload)
 	if err != nil {
 		return payload, "not_applicable", []string{err.Error()}, ""
 	}
@@ -487,14 +491,22 @@ func replayValueAgrees(t *testing.T, policy rpc.Policy, decision rpc.Decision, p
 }
 
 func TestReplayValueAgreesAllowsEmptyCallValue(t *testing.T) {
-	if err := replayValueAgrees(t, methods.CallPolicy(nil), rpc.Decision{}, nil, nil, nil, true); err != nil {
+	plan, err := methods.PlanFor(methods.MethodCall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := replayValueAgrees(t, plan.Resolver, rpc.Decision{}, nil, nil, nil, true); err != nil {
 		t.Fatalf("empty call decision was rejected: %v", err)
 	}
 }
 
 func TestReplayValueAgreesAllowsCanonicalCallData(t *testing.T) {
 	value := json.RawMessage(`"0xdead"`)
-	if err := replayValueAgrees(t, methods.CallPolicy(nil), rpc.Decision{Value: value}, []json.RawMessage{value}, nil, nil, false); err != nil {
+	plan, planErr := methods.PlanFor(methods.MethodCall)
+	if planErr != nil {
+		t.Fatal(planErr)
+	}
+	if err := replayValueAgrees(t, plan.Resolver, rpc.Decision{Value: value}, []json.RawMessage{value}, nil, nil, false); err != nil {
 		t.Fatalf("canonical call data was rejected: %v", err)
 	}
 }

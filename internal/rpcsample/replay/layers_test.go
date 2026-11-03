@@ -53,14 +53,22 @@ func TestSameFixtureReplaysThroughPolicyAndAggregator(t *testing.T) {
 	revert := loadBatch(t, "revert-data")
 	objects := loadBatch(t, "block-receipt-tx")
 
+	callPlan, err := methods.PlanFor(methods.MethodCall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txPlan, err := methods.PlanFor(methods.MethodGetTransactionByHash)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Run("revert hex agrees", func(t *testing.T) {
 		records := recordsByID(revert, "revert-hex")
-		assertReplay(t, records, methods.CallPolicy(fixedAnchor), true)
+		assertReplay(t, records, callPlan, true)
 	})
 	t.Run("revert empty withholds data", func(t *testing.T) {
 		records := recordsByID(revert, "revert-empty-1")
-		policy := methods.CallPolicy(fixedAnchor)
-		assertReplay(t, records, policy, true)
+		policy := callPlan.Resolver
+		assertReplay(t, records, callPlan, true)
 		assertDataStatesDiffer(t, policy, records)
 		obs := []rpc.Observation{observationFromRecord(t, records[0]), observationFromRecord(t, records[1])}
 		decision, err := policy.Resolve(obs)
@@ -76,12 +84,12 @@ func TestSameFixtureReplaysThroughPolicyAndAggregator(t *testing.T) {
 	})
 	t.Run("transaction admits and agrees", func(t *testing.T) {
 		records := recordsByID(objects, "tx-one")
-		assertReplay(t, records, methods.TransactionByHashPolicy(), false)
+		assertReplay(t, records, txPlan, false)
 	})
 }
 
 func TestReplayErrorDataStatesStayDistinct(t *testing.T) {
-	policy := methods.CallPolicy(fixedAnchor)
+	policy := callPlan(t)
 	states := []struct {
 		name    string
 		present bool
@@ -146,17 +154,22 @@ func TestReplayErrorDataStatesStayDistinct(t *testing.T) {
 }
 
 func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
-	policy := methods.CallPolicy(fixedAnchor)
+	plan, err := methods.PlanFor(methods.MethodCall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := plan.Resolver
 	success := rpc.Observation{Source: rpc.SourceRef{Name: "s1", ID: "s1"}, Value: json.RawMessage(`"0x01"`)}
 	fault := rpc.Observation{
 		Source:   rpc.SourceRef{Name: "s2", ID: "s2"},
 		Err:      errors.New("panic"),
 		RPCError: &rpc.RPCError{Code: -32603, Message: "panic"},
 	}
-	if admit, ok := policy.(rpc.AdmissionPolicy); !ok {
-		t.Fatal("eth_call policy lost Admit")
-	} else if _, err := admit.Admit(context.Background(), callRequest(), success.Value, refuseCaller(t)); err != nil {
-		t.Fatal(err)
+	// eth_call declares no admission hook: its payload contract is the
+	// normalizer's (a payload with no canonical form errors and stays a
+	// fault). The typed gate below is the assertion under test.
+	if plan.Admit != nil {
+		t.Fatal("eth_call plan grew an admission hook")
 	}
 	policyDecision, policyErr := policy.Resolve([]rpc.Observation{success, fault})
 	if policyErr != nil || policyDecision.Status != rpc.Selected {
@@ -193,7 +206,11 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 }
 
 func TestReplayChainIDAgreesWithoutAnchor(t *testing.T) {
-	policy := methods.ChainIDPolicy()
+	chainPlan, err := methods.PlanFor(methods.MethodChainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := chainPlan.Resolver
 	value := json.RawMessage(`"0x1"`)
 	obs := []rpc.Observation{
 		{Source: rpc.SourceRef{Name: "s1", ID: "s1"}, Value: value},
@@ -218,7 +235,7 @@ func TestReplayChainIDAgreesWithoutAnchor(t *testing.T) {
 	}
 }
 
-func assertReplay(t *testing.T, records []rpcsample.Record, policy rpc.Policy, anchored bool) {
+func assertReplay(t *testing.T, records []rpcsample.Record, plan rpc.ReadPlan, anchored bool) {
 	t.Helper()
 	if len(records) != 2 {
 		t.Fatalf("records = %d, want 2", len(records))
@@ -227,12 +244,12 @@ func assertReplay(t *testing.T, records []rpcsample.Record, policy rpc.Policy, a
 	req := requestOf(t, records[0])
 	for _, item := range obs {
 		if item.Err == nil {
-			if admit, ok := policy.(rpc.AdmissionPolicy); ok {
-				if _, err := admit.Admit(context.Background(), req, item.Value, refuseCaller(t)); err != nil {
+			if plan.Admit != nil {
+				if _, err := plan.Admit(context.Background(), req, item.Value, refuseCaller(t)); err != nil {
 					t.Fatalf("admit %s: %v", item.Source.ID, err)
 				}
 			}
-			if _, err := policy.Normalize(item.Value); err != nil {
+			if _, err := plan.Resolver.Normalize(item.Value); err != nil {
 				t.Fatal(err)
 			}
 			continue
@@ -240,11 +257,11 @@ func assertReplay(t *testing.T, records []rpcsample.Record, policy rpc.Policy, a
 		if item.RPCError == nil {
 			t.Fatal("error observation lost RPCError")
 		}
-		if _, err := policy.Normalize(item.RPCError.Raw()); err != nil {
+		if _, err := plan.Resolver.Normalize(item.RPCError.Raw()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	policyDecision, policyErr := policy.Resolve(obs)
+	policyDecision, policyErr := plan.Resolver.Resolve(obs)
 
 	agg, nodes := newReplayAggregator(t, 2)
 	if anchored {
@@ -323,19 +340,6 @@ func callRequest() rpc.Request {
 	}
 }
 
-func fixedAnchor(context.Context) (string, error) { return replayHeadHash, nil }
-
-func taggedAnchor(ctx context.Context) (string, error) {
-	switch rpc.AnchorTag(ctx) {
-	case "safe":
-		return replaySafeHash, nil
-	case "finalized":
-		return replayFinalizedHash, nil
-	default:
-		return replayHeadHash, nil
-	}
-}
-
 func newReplayAggregator(t *testing.T, count int) (*aggregator.Aggregator, []*rpctest.Node) {
 	t.Helper()
 	names := make([]string, count)
@@ -347,8 +351,30 @@ func newReplayAggregator(t *testing.T, count int) (*aggregator.Aggregator, []*rp
 
 func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node) {
 	t.Helper()
-	agg, nodes, _ := newSharedReplayAggregator(t, names, corrob)
+	agg, nodes, _, _ := newSharedReplayAggregator(t, names, corrob)
 	return agg, nodes
+}
+
+// replayStage adapts the harness's reference resolver to the aggregator's
+// establishment seam: one established, corroborated reference per
+// invocation, tagged with the requested level.
+type replayStage struct {
+	reference func(ctx context.Context) (rpc.ReferenceEvidence, error)
+}
+
+func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
+	tag := ""
+	switch request.Kind {
+	case rpc.ReferenceSafe:
+		tag = "safe"
+	case rpc.ReferenceFinalized:
+		tag = "finalized"
+	}
+	ref, err := s.reference(rpc.WithAnchorTag(ctx, tag))
+	if err != nil {
+		return invocation, err
+	}
+	return invocation.WithReference(ref)
 }
 
 // newSharedReplayAggregator builds one pool-backed reference resolver and
@@ -356,7 +382,7 @@ func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobor
 // (Policy Prepare and Aggregate) take this one function, so a moving tag
 // resolves to the same reference height in both layers, against the same
 // member order and the same pool.
-func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, rpc.AnchorHeightFunc) {
+func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, rpc.AnchorHeightFunc, func(string) (rpc.ReferenceEvidence, error)) {
 	t.Helper()
 	nodes := make([]*rpctest.Node, 0, len(names))
 	members := make([]pool.Member, 0, len(names))
@@ -401,43 +427,44 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobo
 		}
 		return ref, nil
 	}
-	anchor := func(ctx context.Context) (string, error) {
-		ref, err := reference(ctx)
-		return ref.Hash, err
-	}
+	_ = reference
 	height := func(ctx context.Context) (uint64, error) {
 		ref, err := reference(ctx)
 		return ref.Height, err
 	}
-	return aggregator.New(sources, replayRegistry(anchor, height), opts...), nodes, height
+	// The plan pipeline establishes through the stage seam: the harness's
+	// reference resolver becomes the stage, so a moving tag resolves to the
+	// same established reference the replay expectations pin.
+	opts = append(opts, aggregator.WithReferenceStage(replayStage{reference: reference}))
+	tagged := func(tag string) (rpc.ReferenceEvidence, error) {
+		return reference(rpc.WithAnchorTag(context.Background(), tag))
+	}
+	return aggregator.New(sources, append([]aggregator.Option{aggregator.WithPlans(replayPlans(t))}, opts...)...), nodes, height, tagged
 }
 
-func replayRegistry(anchor rpc.AnchorFunc, height rpc.AnchorHeightFunc) rpc.Registry {
-	return rpc.Registry{
-		methods.MethodChainID:               methods.ChainIDPolicy(),
-		methods.MethodGetBlockByHash:        methods.BlockByHashPolicy(),
-		methods.MethodGetBlockByNumber:      methods.BlockByNumberPolicy(),
-		methods.MethodGetBalance:            methods.GetBalancePolicy(anchor),
-		methods.MethodGetTransactionReceipt: methods.TransactionReceiptPolicy(),
-		methods.MethodGetTransactionByHash:  methods.TransactionByHashPolicy(),
-		methods.MethodGetBlockReceipts:      methods.BlockReceiptsPolicy(anchor),
-		methods.MethodGetTransactionCount:   methods.GetTransactionCountPolicy(anchor),
-		methods.MethodGetStorageAt:          methods.GetStorageAtPolicy(anchor),
-		methods.MethodGetCode:               methods.GetCodePolicy(anchor),
-		methods.MethodCall:                  methods.CallPolicy(anchor),
-		methods.MethodEstimateGas:           methods.EstimateGasPolicy(anchor),
-		methods.MethodGetLogs:               methods.LogsPolicy(height),
-		methods.MethodFeeHistory:            methods.FeeHistoryPolicy(height),
-		methods.MethodGasPrice:              methods.GasPricePolicy(),
-		methods.MethodMaxPriorityFeePerGas:  methods.MaxPriorityFeePerGasPolicy(),
-		methods.MethodBlobBaseFee:           methods.BlobBaseFeePolicy(),
-		methods.MethodBlockNumber:           methods.BlockNumberPolicy(),
-		methods.MethodCreateAccessList:      methods.CreateAccessListPolicy(anchor),
-		methods.MethodPeerCount:             methods.PeerCountPolicy(),
-		methods.MethodSyncing:               methods.SyncingPolicy(),
-		methods.MethodNetVersion:            methods.NetVersionPolicy(),
-		methods.MethodListening:             methods.ListeningPolicy(),
+// callPlan compiles the eth_call plan for the replay assertions.
+func callPlan(t *testing.T) rpc.Policy {
+	t.Helper()
+	plan, err := methods.PlanFor(methods.MethodCall)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return plan.Resolver
+}
+
+// replayPlans compiles the full registered plan inventory: the replay layer
+// drives exactly the plans the runtime registry installs.
+func replayPlans(t *testing.T) map[string]rpc.ReadPlan {
+	t.Helper()
+	plans := make(map[string]rpc.ReadPlan, len(methods.RegisteredNames()))
+	for _, name := range methods.RegisteredNames() {
+		plan, err := methods.PlanFor(name)
+		if err != nil {
+			t.Fatalf("%s: compile plan: %v", name, err)
+		}
+		plans[name] = plan
+	}
+	return plans
 }
 
 func scriptLatest(nodes []*rpctest.Node) { scriptTaggedHeads(nodes) }

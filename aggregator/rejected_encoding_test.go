@@ -14,6 +14,7 @@ import (
 
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -46,7 +47,7 @@ func TestAggregateRejectedEncodingDoesNotChangeVotingBasis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := New(sources, rpc.Registry{method: policy}, WithCorroboration(corrob))
+	agg := New(sources, WithPlans(map[string]rpc.ReadPlan{method: {Method: method, Resolver: policy, ResolverKind: methods.ResolverStrict}}), WithCorroboration(corrob))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, floor := range []int{3, 4} {

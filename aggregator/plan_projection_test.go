@@ -50,7 +50,7 @@ func TestPlannedReadResolvesTheDeclaredProjectorID(t *testing.T) {
 	_, p := probeNodes(t, "0x64", 3)
 	plan := probeProjectorPlan(t, projectorAlias)
 	projector := &probeProjector{}
-	agg := New(p, nil, WithCorroboration(mustShared(t)), WithReferenceStage(&scriptedStage{}),
+	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(&scriptedStage{}),
 		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}),
 		WithProjectors(map[string]rpc.ObservationProjector{projectorAlias: projector}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
@@ -73,7 +73,7 @@ func TestPlannedReadWithoutProjectorIDStaysUnprojected(t *testing.T) {
 	_, p := probeNodes(t, "0x64", 3)
 	plan := probeProjectorPlan(t, "")
 	projector := &probeProjector{}
-	agg := New(p, nil, WithCorroboration(mustShared(t)), WithReferenceStage(&scriptedStage{}),
+	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(&scriptedStage{}),
 		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}),
 		WithProjectors(map[string]rpc.ObservationProjector{probeMethod: projector}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})

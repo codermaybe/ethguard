@@ -97,7 +97,7 @@ func probeAggregator(t *testing.T, p *pool.Pool, stage *scriptedStage) *Aggregat
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(p, nil,
+	return New(p,
 		WithCorroboration(shared),
 		WithCollectTimeout(2*time.Second),
 		WithReferenceStage(stage),
@@ -169,7 +169,7 @@ func TestPlannedValidationFailsBeforeAnyFanOut(t *testing.T) {
 	plan.Validate = func(context.Context, rpc.Request) error {
 		return errors.New("rpc: probe rejects everything: rpc invalid request")
 	}
-	agg := New(p, nil, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
+	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
 		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if aggErr == nil || decision.Status != rpc.Unknown {
@@ -199,7 +199,7 @@ func TestPlannedPendingRejectFailsBeforeEstablishment(t *testing.T) {
 	// without a validate hook the pipeline owns the rejection.
 	plan.Pending.Mode = methods.PendingRefuse
 	plan.PendingReject = rpc.PendingRejectAt(plan.Pending.Pos, plan.Method)
-	agg := New(p, nil, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
+	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
 		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
 	if aggErr == nil || decision.Status != rpc.Unknown {
@@ -228,7 +228,7 @@ func TestPlannedPendingObservationStaysSelected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := New(p, nil, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
+	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
 		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
 	if aggErr != nil {
@@ -273,7 +273,7 @@ func TestPlannedEstablishmentFailureKeepsZeroBusinessFanOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := New(p, nil, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
+	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
 		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if aggErr == nil || decision.Status != rpc.Unknown {
@@ -298,7 +298,7 @@ func TestPlannedReadRequiresAnEstablishmentStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := New(p, nil, WithCorroboration(mustShared(t)), WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
+	agg := New(p, WithCorroboration(mustShared(t)), WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if aggErr == nil || decision.Status != rpc.Unknown {
 		t.Fatalf("missing stage did not fail the read: %+v %v", decision, aggErr)
@@ -313,32 +313,34 @@ func TestPlannedReadRequiresAnEstablishmentStage(t *testing.T) {
 	}
 }
 
-// TestUnplannedMethodKeepsTheLegacyPath pins the fallback: a method with a
-// compiled policy and no plan resolves through the legacy policy path, on
-// the same aggregator that drives other methods from plans.
-func TestUnplannedMethodKeepsTheLegacyPath(t *testing.T) {
+// TestUnregisteredMethodForwardsBesidePlans pins the explicit forward
+// branch beside installed plans: a method outside the registry rides the
+// forward plan — one bounded attempt, no agreement claim — while the
+// registered plans keep driving their own methods.
+func TestUnregisteredMethodForwardsBesidePlans(t *testing.T) {
 	a, b := rpctest.NewNode(1), rpctest.NewNode(1)
 	defer a.Close()
 	defer b.Close()
-	a.Return("eth_other", "0x64")
+	a.Return(probeMethod, "0x64")
 	b.Return("eth_other", "0x64")
 	p := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
 		pool.Member{Name: "a", URL: a.URL()},
 		pool.Member{Name: "b", URL: b.URL()},
 	)
 	shared := mustShared(t)
-	planAgg := New(p, rpc.Registry{"eth_other": rpc.Strict(probeNormalize, rpc.WithCanonicalValue(probeEncode))},
-		WithCorroboration(shared), WithPlans(nil))
-	decision, aggErr := planAgg.Aggregate(context.Background(), rpc.Request{Method: "eth_other"})
-	if aggErr != nil || decision.Status != rpc.Corroborated {
-		t.Fatalf("legacy path broken beside plans: %+v %v", decision, aggErr)
+	plan, err := methods.CompilePlan(probeSpec())
+	if err != nil {
+		t.Fatal(err)
 	}
-	// An unknown method still forwards transparently: no plan, no policy.
-	dead := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
-	forwardAgg := New(dead, nil, WithCorroboration(shared), WithReferenceStage(&scriptedStage{}))
-	_, forwardErr := forwardAgg.Aggregate(context.Background(), rpc.Request{Method: "eth_unregistered"})
-	if forwardErr == nil {
-		t.Fatal("unregistered method should not silently corroborate")
+	agg := New(p, WithCorroboration(shared),
+		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
+	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
+	if aggErr != nil || decision.Status != rpc.Selected {
+		t.Fatalf("planned read broken beside the forward branch: %+v %v", decision, aggErr)
+	}
+	forwarded, forwardErr := agg.Aggregate(context.Background(), rpc.Request{Method: "eth_other"})
+	if forwardErr == nil || forwarded.Status == rpc.Corroborated {
+		t.Fatalf("unregistered method claimed agreement: %+v %v", forwarded, forwardErr)
 	}
 }
 

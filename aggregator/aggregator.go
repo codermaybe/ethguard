@@ -20,7 +20,6 @@ import (
 // Aggregator is the small orchestration seam between pool and method policy.
 type Aggregator struct {
 	pool           *pool.Pool
-	policies       rpc.Registry
 	rec            observe.Recorder
 	collectTimeout time.Duration
 	projectors     map[string]rpc.ObservationProjector
@@ -98,8 +97,8 @@ func WithProjectors(projectors map[string]rpc.ObservationProjector) Option {
 	}
 }
 
-func New(p *pool.Pool, policies rpc.Registry, opts ...Option) *Aggregator {
-	a := &Aggregator{pool: p, policies: policies, rec: observe.Nop, projectors: make(map[string]rpc.ObservationProjector), plans: make(map[string]rpc.ReadPlan)}
+func New(p *pool.Pool, opts ...Option) *Aggregator {
+	a := &Aggregator{pool: p, rec: observe.Nop, projectors: make(map[string]rpc.ObservationProjector), plans: make(map[string]rpc.ReadPlan)}
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -119,15 +118,6 @@ func (a *Aggregator) corroboration() (rpc.Corroboration, bool) {
 // resolve applies the invocation's frozen corroboration snapshot when the
 // policy supports it; policies without the capability resolve with their
 // construction-time configuration.
-func resolve(policy rpc.Policy, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) (rpc.Decision, error) {
-	if snapOK {
-		if cp, ok := policy.(rpc.CorroboratingPolicy); ok {
-			return cp.ResolveCorroborated(snap, obs)
-		}
-	}
-	return policy.Resolve(obs)
-}
-
 // invocationResolution is one resolution's complete statement: the decision
 // plus, when the policy stated them, every source's verdict. Nil verdicts
 // mean the policy cannot speak per-source outcomes, and classification falls
@@ -136,50 +126,6 @@ type invocationResolution struct {
 	decision rpc.Decision
 	verdicts []rpc.SourceVerdict
 	err      error
-}
-
-// resolveInvocation resolves one observation set, preferring the policy's
-// per-source outcome statement. The corroborated form is offered only to
-// policies that corroborate — the outcome capability is checked the same way
-// the plain one is, so wrapping a Median cannot acquire a corroboration claim
-// it never had (the composition test pins this). A policy without either
-// outcome capability resolves exactly as before.
-func resolveInvocation(policy rpc.Policy, prepared rpc.Request, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) invocationResolution {
-	if isPendingLocalRoute(policy, prepared, snap, snapOK) {
-		decision, err := policy.(rpc.LocalObservationPolicy).ResolveLocal(obs)
-		return invocationResolution{decision: decision, err: err}
-	}
-	if snapOK {
-		if corrob, ok := policy.(rpc.CorroboratingOutcomeResolver); ok {
-			outcome, err := corrob.ResolveOutcomeCorroborated(snap, obs)
-			return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}
-		}
-	}
-	if outcomeResolver, ok := policy.(rpc.OutcomeResolver); ok {
-		outcome, err := outcomeResolver.ResolveOutcome(obs)
-		return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}
-	}
-	decision, err := resolve(policy, snap, snapOK, obs)
-	return invocationResolution{decision: decision, err: err}
-}
-
-// isPendingLocalRoute is the single pending-local routing check. Both
-// resolution and the corroboration-required gate use it: a pending request
-// on a LocalObservationPolicy resolves as a node-local observation, except
-// in Forwarded mode, where the pending shape still forwards.
-func isPendingLocalRoute(policy rpc.Policy, prepared rpc.Request, snap rpc.Corroboration, snapOK bool) bool {
-	lp, ok := policy.(rpc.LocalObservationPolicy)
-	return ok && lp.IsLocalObservation(prepared) && !(snapOK && snap.Mode == rpc.CorroborationForwarded)
-}
-
-// resolveWithPending routes one prepared request shape — pending — to
-// node-local observation instead of cross-source corroboration (decision
-// 0035): the pending tag keeps its node-state meaning and unanimous pending
-// agreement can never become Corroborated. Every other shape resolves
-// through the ordinary path. Intentional single-source forwarding keeps its
-// own contract: in Forwarded mode the pending shape still forwards.
-func resolveWithPending(policy rpc.Policy, prepared rpc.Request, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) invocationResolution {
-	return resolveInvocation(policy, prepared, snap, snapOK, obs)
 }
 
 // Aggregate collects one request and resolves it according to its policy.
@@ -219,39 +165,25 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		members = a.pool.VotingMembers()
 		ctx = refcontext.WithMembers(ctx, members)
 	}
-	policy := a.policies.PolicyFor(req.Method)
-	// A method with an explicit execution plan runs the plan pipeline; the
-	// compiled policy path stays untouched for every other method.
+	// The plan is the only execution shape. A method outside the registry
+	// rides the explicit forward plan: one bounded single-source attempt, the
+	// first usable answer wins, and no agreement is claimed (decision 0002).
 	plan, planned := a.plans[req.Method]
-	corroborating := false
-	if planned {
-		policy = nil
-		corroborating = plan.Corroborating()
-	} else {
-		// A corroborated read collects over the fixed voting basis — every
-		// member occupies the denominator even when a scheduling gate skipped
-		// its request (decisions 0025 and 0062).
-		_, corroborating = policy.(rpc.CorroboratingPolicy)
+	if !planned {
+		plan = forwardPlan(req.Method)
 	}
 	state := &invocationState{
 		ctx:           ctx,
-		policy:        policy,
+		plan:          &plan,
 		snap:          snap,
 		snapOK:        snapOK,
-		corroborating: snapOK && corroborating,
+		corroborating: snapOK && plan.Corroborating(),
 		members:       members,
 		capture:       capture,
 	}
-	if planned {
-		state.plan = &plan
-	}
 	state.ctx, state.invocation = beginInvocation(state.ctx, snap, snapOK, members, uncertain.FromContext(ctx))
 
-	if state.plan != nil {
-		if exit := a.planPreparePhase(state, started, req); exit != nil {
-			return exit.decision, exit.err
-		}
-	} else if exit := a.prepareWithReference(state, started, req); exit != nil {
+	if exit := a.planPreparePhase(state, started, req); exit != nil {
 		return exit.decision, exit.err
 	}
 	a.collectPhase(state)

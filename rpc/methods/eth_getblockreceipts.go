@@ -6,19 +6,8 @@ import (
 
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
-	"github.com/codermaybe/ethguard/rpc/internal/policy"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
-
-// BlockReceiptsPolicy corroborates eth_getBlockReceipts by full agreement over
-// the whole receipts array. A block hash determines its receipts fully, so
-// the payload is immutable content. Hashes and explicit numbers pass through;
-// moving tags are rewritten to the corroborated reference. pending is rejected in
-// Prepare because this method has no stable pending-block receipt semantics.
-func BlockReceiptsPolicy(anchor rpc.AnchorFunc, opts ...rpc.StrictOption) rpc.Policy {
-	prepared := rpc.RejectPending(0)(rpc.WithAnchor(anchor, 0)(rpc.Strict(normalizeBlockReceiptList, compareOpts(rpc.RuleCompareMethodSpecific, append([]rpc.StrictOption{rpc.WithCanonicalValue(receipt.EncodeBlock)}, opts...))...)))
-	return policy.WithAdmission(prepared, admitBlockReceipts)
-}
 
 func admitBlockReceipts(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
 	if err := receipt.AdmitBlock(req, value); err != nil {
