@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
@@ -91,39 +90,6 @@ func establishService(t *testing.T, nodes []*rpctest.Node, shared *rpc.Corrobora
 	return service.ReferenceForTag(context.Background(), tag)
 }
 
-// establishStage runs the same round the establishment stage way: reference
-// rounds on the invocation's frozen basis inside a business-ready context.
-func establishStage(t *testing.T, nodes []*rpctest.Node, shared *rpc.CorroborationShared, opts []rpc.StrictOption, tag string) (rpc.ReferenceEvidence, error) {
-	t.Helper()
-	invPool, sources := equivPool(t, nodes)
-	stage := NewReferenceStage(ReferenceStageConfig{
-		Pool:          invPool,
-		Timeout:       equivTimeout,
-		MaxLag:        32,
-		Recorder:      observe.Nop,
-		StrictOptions: opts,
-	})
-	refs := make([]rpc.SourceRef, 0, len(sources))
-	for _, source := range sources {
-		refs = append(refs, rpc.SourceRef{Name: source.Name(), URL: source.URL(), ID: source.ID()})
-	}
-	invocation := rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, shared.Snapshot()))
-	ctx, capture := refcontext.New(context.Background())
-	kind := rpc.ReferenceKind(tag)
-	completed, err := stage.Establish(ctx, invocation, rpc.ReferenceRequest{Kind: kind})
-	if err != nil {
-		if published := capture.Reference(); published != nil {
-			return *published, err
-		}
-		return rpc.ReferenceEvidence{}, err
-	}
-	ref, ok := completed.Reference()
-	if !ok {
-		t.Fatal("the established round left no reference on the invocation")
-	}
-	return ref, nil
-}
-
 // assertEvidenceAg mirror asserts that the service round and the stage round
 // produce the same evidence shape for the same fleet: identity, thresholds,
 // and fault assembly. ObservedAt is wall-clock by contract and compared for
@@ -135,57 +101,6 @@ func assertEvidenceShape(t *testing.T, name string, service rpc.ReferenceEvidenc
 	if service.ObservedAt.IsZero() {
 		t.Fatalf("%s: missing observation timestamp", name)
 	}
-}
-
-func sameErrorShape(a, b error) bool { return a.Error() == b.Error() }
-
-func sameSourceSets(a, b []rpc.SourceRef) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	seen := make(map[string]int, len(a))
-	for _, ref := range a {
-		seen[ref.ID]++
-	}
-	for _, ref := range b {
-		if seen[ref.ID] == 0 {
-			return false
-		}
-		seen[ref.ID]--
-	}
-	for _, count := range seen {
-		if count != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func sameFaultTexts(a, b []error) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Error() != b[i].Error() {
-			return false
-		}
-	}
-	return true
-}
-
-func sameSourceFaults(a, b []rpc.SourceFault) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Source.ID != b[i].Source.ID {
-			return false
-		}
-		if a[i].Err.Error() != b[i].Err.Error() {
-			return false
-		}
-	}
-	return true
 }
 
 func sharedCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc.CorroborationShared {
