@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/internal/reference"
+	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -42,10 +43,14 @@ func TestPoolHeadReaderAddressesBasisMembers(t *testing.T) {
 		{ID: joined[0].ID()},
 		{ID: joined[2].ID()},
 	}, rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2})
-	reader, err := PoolHeadReaderForBasis(p, basis)
+	// The frozen-basis resolution lives on the reference stage; the reader
+	// consumes its member snapshot.
+	stage := NewReferenceStage(ReferenceStageConfig{Pool: p, Recorder: observe.Nop})
+	sources, err := stage.basisSources(basis)
 	if err != nil {
-		t.Fatalf("PoolHeadReaderForBasis: %v", err)
+		t.Fatalf("basisSources: %v", err)
 	}
+	reader := NewPoolHeadReader(p, sources)
 	observations, err := reader.Read(context.Background(), "finalized", 2*time.Second)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
@@ -74,9 +79,9 @@ func TestPoolHeadReaderAddressesBasisMembers(t *testing.T) {
 // A basis naming an unregistered member fails before any network round.
 func TestPoolHeadReaderRejectsUnknownBasisMember(t *testing.T) {
 	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
-	_, err := PoolHeadReaderForBasis(p, rpc.FreezeBasis([]rpc.SourceRef{{ID: "missing"}}, rpc.Corroboration{}))
-	if err == nil {
-		t.Fatal("unknown basis member must fail construction")
+	stage := NewReferenceStage(ReferenceStageConfig{Pool: p, Recorder: observe.Nop})
+	if _, err := stage.basisSources(rpc.FreezeBasis([]rpc.SourceRef{{ID: "missing"}}, rpc.Corroboration{})); err == nil {
+		t.Fatal("unknown basis member must fail resolution")
 	}
 }
 

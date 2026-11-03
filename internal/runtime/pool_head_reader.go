@@ -24,25 +24,10 @@ type PoolHeadReader struct {
 }
 
 // NewPoolHeadReader binds one reference invocation to the pool. The member
-// snapshot is explicit: callers pass the invocation's frozen basis members
-// (see PoolHeadReaderForBasis) or nil to let the pool select.
+// snapshot is explicit: callers pass the invocation's frozen basis members,
+// so the reference rounds address exactly the voting basis and nothing else.
 func NewPoolHeadReader(p *pool.Pool, members []*pool.Source) *PoolHeadReader {
 	return &PoolHeadReader{pool: p, members: members}
-}
-
-// PoolHeadReaderForBasis resolves the invocation's frozen basis against the
-// pool, so the reference rounds address exactly the voting basis and nothing
-// else. Unknown members fail before any network round starts.
-func PoolHeadReaderForBasis(p *pool.Pool, basis rpc.Basis) (*PoolHeadReader, error) {
-	members := make([]*pool.Source, 0, basis.Size())
-	for _, ref := range basis.Members {
-		source, ok := p.SourceByID(ref.ID)
-		if !ok {
-			return nil, fmt.Errorf("reference: voting member %q is not registered: %w", ref.ID, rpc.ErrInvalidRequest)
-		}
-		members = append(members, source)
-	}
-	return NewPoolHeadReader(p, members), nil
 }
 
 func (r *PoolHeadReader) Read(ctx context.Context, tag string, timeout time.Duration) ([]reference.HeadObservation, error) {
