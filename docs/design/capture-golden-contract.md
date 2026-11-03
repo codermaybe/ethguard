@@ -129,7 +129,7 @@
   **只出现在参数位置 1 的 `newestBlock`**，`blockCount` 与
   `rewardPercentiles` 不是 block-reference。
 - `FeeHistoryPolicy(height)` 的语义**已确定**：参数 1 的移动标签重写为
-  **reference 高度**，**不是 hash**。依据 `rpc/methods/eth_feahistory.go`：
+  **reference 高度**，**不是 hash**。依据 `rpc/methods/eth_feehistory.go`：
   `feeHistory` 的 `newestBlock` 是 `BlockNumber`，32 字节 hash 上不了 wire。
 - 因此 expect 断言的是「移动标签被改写为 corroborated reference 的高度」，
   **不得**断言为 hash 改写。

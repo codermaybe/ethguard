@@ -106,6 +106,25 @@ jobs:
       - name: go build
         run: go build ./...
 
+  # Cross-platform baseline: the tree must build and vet on Windows too.
+  # .gitattributes pins LF checkouts, so the working tree is byte-identical
+  # to the Linux jobs. Tests stay Linux-only: the timing-sensitive wire and
+  # scheduling tests are calibrated to the Linux runners, and the race run
+  # doubles their cost.
+  windows:
+    name: build / vet (windows)
+    runs-on: windows-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go build
+        run: go build ./...
+      - name: go vet
+        run: go vet ./...
+
   # Link-time gate: the default build must not link the go-ethereum client,
   # and the geth compatibility channel (gethcompat) must build and run its
   # own tests. Both channels share one interlock, so the tests run here too.

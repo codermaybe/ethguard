@@ -1,0 +1,11 @@
+# Repository-fixed line endings: every text file is LF in the index and LF
+# in the working tree on every platform. JSON evidence, .io spec vectors and
+# golden captures are digest-compared byte-for-byte, so a platform checkout
+# must never rewrite them; source, docs and configuration follow the same
+# rule so diffs and patches stay byte-stable across operating systems.
+* text=auto eol=lf
+
+# Evidence compared byte-for-byte: the strict-encoding digest and the spec
+# bundle pin these files' exact bytes.
+*.json text eol=lf
+*.io text eol=lf

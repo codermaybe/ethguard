@@ -363,8 +363,13 @@ func TestConnectionWriteFailsAfterPeerClose(t *testing.T) {
 }
 
 func TestConnectionWriteDeadlineBoundsAndClears(t *testing.T) {
-	// A server that never reads: a large write must hit the context
-	// deadline instead of blocking forever.
+	// A server that never reads: writes must hit the context deadline once
+	// the kernel buffers are full instead of blocking forever. How much a
+	// loopback absorbs before blocking is a platform property — Linux caps
+	// its buffers low, Windows loopback can take many megabytes — so no
+	// single payload size is guaranteed to stall. The test writes one-megabyte
+	// frames until a write does not complete inside its context, and requires
+	// that first blocked write to fail with a deadline error, not a hang.
 	stall := make(chan struct{})
 	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		writeUpgradeAccept(t, rw, r)
@@ -372,16 +377,28 @@ func TestConnectionWriteDeadlineBoundsAndClears(t *testing.T) {
 	})
 	conn := dialTestConn(t, wsURL(srv), 1<<20)
 	defer close(stall)
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	if err := conn.WriteMessage(ctx, make([]byte, 16<<20)); err == nil {
-		t.Fatal("unbounded write into a stalled connection succeeded")
-	} else if !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("err = %v, want an i/o deadline failure", err)
-	}
-	if elapsed := time.Since(start); elapsed > 3*time.Second {
-		t.Fatalf("write returned after %v, the deadline did not bound it", elapsed)
+	frame := make([]byte, 1<<20)
+	// The overall guard bounds the buffering loop itself: a platform whose
+	// loopback never fills would otherwise spin past the suite's budget.
+	overall := time.Now().Add(30 * time.Second)
+	for {
+		start := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+		err := conn.WriteMessage(ctx, frame)
+		cancel()
+		if err == nil {
+			if time.Now().After(overall) {
+				t.Fatal("writes into a stalled connection never blocked")
+			}
+			continue
+		}
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("err = %v, want an i/o deadline failure", err)
+		}
+		if elapsed := time.Since(start); elapsed > 3*time.Second {
+			t.Fatalf("write returned after %v, the deadline did not bound it", elapsed)
+		}
+		break
 	}
 	// A following small write on a fresh connection must not inherit the
 	// stale deadline: a context without a deadline clears it.
