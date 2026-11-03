@@ -10,6 +10,48 @@ import (
 
 const modulePath = "github.com/codermaybe/ethguard"
 
+// toolPackages are the evidence and probe layers: consumers of the core
+// runtime, never dependencies of it (docs/design/tooling.md). cmd/* binaries
+// are unimportable by construction, so only the internal tool packages need
+// the ban.
+var toolPackages = []string{
+	modulePath + "/internal/livecanary",
+	modulePath + "/internal/shapeprobe",
+	modulePath + "/internal/rpcsample",
+	modulePath + "/internal/rpcsample/replay",
+}
+
+// corePackages is the production core set the tool-import ban applies to:
+// the facade and every package below it except the tools themselves.
+var corePackages = map[string]bool{
+	modulePath:                              true,
+	modulePath + "/rpc":                     true,
+	modulePath + "/rpc/methods":             true,
+	modulePath + "/pool":                    true,
+	modulePath + "/aggregator":              true,
+	modulePath + "/ethadapter":              true,
+	modulePath + "/config":                  true,
+	modulePath + "/observe":                 true,
+	modulePath + "/gethcompat":              true,
+	modulePath + "/internal/runtime":        true,
+	modulePath + "/internal/reference":      true,
+	modulePath + "/internal/typed":          true,
+	modulePath + "/internal/transport":      true,
+	modulePath + "/internal/transport/http": true,
+	modulePath + "/internal/transport/wss":  true,
+	modulePath + "/internal/refcontext":     true,
+	modulePath + "/internal/rpcwire":        true,
+}
+
+func banToolImports(t *testing.T, pkg packageImports, imports map[string]bool) {
+	t.Helper()
+	for _, tool := range toolPackages {
+		if imports[tool] {
+			t.Errorf("%s imports tool package %s; the core runtime is never a tool consumer's dependency", pkg.ImportPath, tool)
+		}
+	}
+}
+
 type packageImports struct {
 	ImportPath string
 	Imports    []string
@@ -79,6 +121,13 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 			default:
 				t.Errorf("%s imports gethrpc; it is confined to internal/transport/geth, ethadapter, and cmd/*", pkg.ImportPath)
 			}
+		}
+
+		// The core runtime is strictly downstream of no tool: tools and
+		// evidence layers consume it (docs/design/tooling.md). A reverse edge
+		// would let probe or canary concerns steer production behavior.
+		if corePackages[pkg.ImportPath] {
+			banToolImports(t, pkg, imports)
 		}
 
 		switch pkg.ImportPath {
