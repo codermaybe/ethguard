@@ -65,6 +65,17 @@ func NewReferenceStage(cfg ReferenceStageConfig) *ReferenceStage {
 
 var _ aggregator.ReferenceStage = (*ReferenceStage)(nil)
 
+// memberRefs freezes the pool's current voting membership as the basis refs
+// one facade establishment runs against.
+func (s *ReferenceStage) memberRefs() []rpc.SourceRef {
+	members := s.pool.VotingMembers()
+	refs := make([]rpc.SourceRef, 0, len(members))
+	for _, member := range members {
+		refs = append(refs, aggregator.SourceRefOf(member))
+	}
+	return refs
+}
+
 // Establish performs the reference rounds for the declared kind and returns
 // the invocation carrying the evidence.
 func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {

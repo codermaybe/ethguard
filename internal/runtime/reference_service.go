@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/codermaybe/ethguard/internal/reference"
-	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -82,31 +79,20 @@ func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
 	return strings.ToLower(head.Hash), height, nil
 }
 
-// StrictHeadConfig carries the strict-head establishment configuration.
-type StrictHeadConfig struct {
-	Pool           *pool.Pool
-	Recorder       observe.Recorder
-	CollectTimeout time.Duration
-	Corroboration  *rpc.CorroborationShared
-	StrictOptions  []rpc.StrictOption
-}
-
 // StrictHeadService establishes corroborated latest and safe references
-// through the strict head algorithm. It is the public facade's forwarding
-// target: the algorithm itself is the runtime-owned establishment engine,
-// shared with the invocation's reference stage.
+// through the client's reference stage: the facade and the invocation's
+// business reads share one establishment, so the same fleet, tag, and request
+// produce the same evidence on both paths.
 type StrictHeadService struct {
-	round    *StrictHeadEstablishment
+	stage    *ReferenceStage
 	corrob   *rpc.CorroborationShared
 	corrobOK bool
 }
 
-// NewStrictHeadService builds the default latest-head establishment service.
-func NewStrictHeadService(cfg StrictHeadConfig) *StrictHeadService {
-	return &StrictHeadService{
-		round:  NewStrictHeadEstablishment(cfg.Pool, cfg.Recorder, cfg.CollectTimeout, cfg.StrictOptions...),
-		corrob: cfg.Corroboration, corrobOK: cfg.Corroboration != nil,
-	}
+// NewStrictHeadService builds the default latest-head establishment service
+// over the shared stage.
+func NewStrictHeadService(stage *ReferenceStage, corrob *rpc.CorroborationShared) *StrictHeadService {
+	return &StrictHeadService{stage: stage, corrob: corrob, corrobOK: corrob != nil}
 }
 
 // snapshot captures the service's shared adjudication configuration for one
@@ -118,11 +104,11 @@ func (s *StrictHeadService) snapshot() (rpc.Corroboration, bool) {
 	return s.corrob.Snapshot(), true
 }
 
-// Reference establishes the default moving reference (latest).
+// Reference establishes the default moving reference (latest). Each facade
+// call runs its own invocation: freshness is per call (decision 0026), and
+// the invocation's frozen basis is the pool's current voting membership.
 func (s *StrictHeadService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	snap, snapOK := s.snapshot()
-	round, err := s.round.establish(ctx, nil, snap, snapOK, string(rpc.ReferenceLatest))
-	return round.reference, err
+	return s.establish(ctx, rpc.ReferenceLatest)
 }
 
 // ReferenceForTag establishes the reference for exactly the requested tag.
@@ -132,73 +118,88 @@ func (s *StrictHeadService) ReferenceForTag(ctx context.Context, tag string) (rp
 	if tag == "" || tag == string(rpc.ReferenceLatest) {
 		return s.Reference(ctx)
 	}
-	snap, snapOK := s.snapshot()
-	round, err := s.round.establish(ctx, nil, snap, snapOK, tag)
-	return round.reference, err
+	return s.establish(ctx, rpc.ReferenceKindForTag(tag))
+}
+
+// establish runs one stage round on a fresh invocation: the stage reads the
+// frozen basis's members and corroboration snapshot, exactly the inputs the
+// invocation path's business reads establish against.
+func (s *StrictHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
+	snap, _ := s.snapshot()
+	refs := s.stage.memberRefs()
+	// The facade establishment carries the same capture the invocation path
+	// does: a failed round's partial evidence stays visible on the reference
+	// the caller sees.
+	ctx, capture := refcontext.New(ctx)
+	completed, err := s.stage.Establish(ctx, newFacadeInvocation(refs, snap), rpc.ReferenceRequest{Kind: kind})
+	if err != nil {
+		if ref := capture.Reference(); ref != nil {
+			return *ref, err
+		}
+		return rpc.ReferenceEvidence{}, err
+	}
+	ref, ok := completed.Reference()
+	if !ok {
+		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: establishment completed without evidence: %w", rpc.ErrReferenceRequired)
+	}
+	return ref, nil
 }
 
 // FinalizedHeadService establishes a common reference from provider-reported
-// finalized views. The strict levels still ride the strict head algorithm
-// through the shared establishment engine.
+// finalized views through the client's finalized-strategy stage. The strict
+// levels still ride the strict head algorithm through the same stage.
 type FinalizedHeadService struct {
-	pool    *pool.Pool
-	rec     observe.Recorder
-	maxLag  uint64
-	quorum  int
-	timeout time.Duration
-	strict  *StrictHeadEstablishment
+	stage *ReferenceStage
 }
 
-// NewFinalizedHeadService builds the common finalized-reference service.
-func NewFinalizedHeadService(p *pool.Pool, rec observe.Recorder, maxLag uint64, quorum int, timeout time.Duration) *FinalizedHeadService {
-	return &FinalizedHeadService{
-		pool:   p,
-		rec:    rec,
-		maxLag: maxLag,
-		quorum: quorum,
-		// The finalized preset defaults to the majority floor until the
-		// client re-tunes the resolver with its own corroboration snapshot.
-		strict: NewStrictHeadEstablishment(p, rec, timeout),
-	}
+// NewFinalizedHeadService builds the common finalized-reference service over
+// the shared stage. The stage's strategy (finalized preset with its lag
+// bound) and the composition-tuned collect timeout are the stage's own.
+func NewFinalizedHeadService(stage *ReferenceStage) *FinalizedHeadService {
+	return &FinalizedHeadService{stage: stage}
 }
 
-// Reference establishes the finalized reference under the service's own
-// adjudication: the composition root tunes quorum and mode at construction
-// (slice 2's composition), so no per-call snapshot inheritance exists.
+// Reference establishes the finalized reference: the finalized strategy pins
+// the default reference at the finalized level — the conservative preset's
+// whole point.
 func (s *FinalizedHeadService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	return s.finalized(ctx, s.quorum, rpc.CorroborationMajority)
+	return s.establish(ctx, rpc.ReferenceLatest)
 }
 
 // ReferenceForTag routes the tag: latest and safe ride the strict head
-// algorithm under the snapshot's adjudication, finalized rides the
-// candidate-selection algorithm, anything else fails.
+// algorithm, finalized rides the candidate-selection algorithm (the stage's
+// finalized strategy), anything else fails.
 func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	// latest and safe ride the strict head algorithm under the snapshot's
-	// adjudication — one routing for both, differing only in the requested
-	// tag the evidence records.
-	if tag == "latest" || tag == "safe" {
-		mode, floor := rpc.CorroborationMajority, s.quorum
-		if mode == rpc.CorroborationForwarded {
-			floor = 0
-		} else if floor < 1 {
-			floor = 2
-		}
-		// The same validation the shared snapshot goes through: an invalid
-		// mode or floor fails before any request.
-		if _, err := rpc.NewCorroborationShared(mode, floor); err != nil {
-			return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown}, err
-		}
-		round, err := s.strict.establish(ctx, nil, rpc.Corroboration{Mode: mode, Floor: floor}, true, tag)
-		return round.reference, err
+	if tag == "" || tag == "latest" {
+		return s.Reference(ctx)
 	}
-	if tag == "finalized" || tag == "" {
-		ref, err := s.Reference(ctx)
-		ref.Tag = tag
-		return ref, err
-	}
-	return rpc.ReferenceEvidence{Tag: tag, Status: rpc.Unknown, Origin: "finalized-anchor"}, fmt.Errorf("anchor: tag %q is not supported by finalized resolver: %w", tag, rpc.ErrInvalidRequest)
+	return s.establish(ctx, rpc.ReferenceKindForTag(tag))
 }
 
-func (s *FinalizedHeadService) finalized(ctx context.Context, quorum int, mode rpc.CorroborationMode) (rpc.ReferenceEvidence, error) {
-	return reference.Finalized(ctx, NewPoolHeadReader(s.pool, nil), MethodHeadCodec{}, s.maxLag, quorum, mode, s.timeout, s.rec)
+func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
+	// The finalized preset defaults to the majority floor with the
+	// documented lag bound: the stage's own configuration.
+	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
+	refs := s.stage.memberRefs()
+	ctx, capture := refcontext.New(ctx)
+	completed, err := s.stage.Establish(ctx, newFacadeInvocation(refs, snap), rpc.ReferenceRequest{Kind: kind})
+	if err != nil {
+		if ref := capture.Reference(); ref != nil {
+			return *ref, err
+		}
+		return rpc.ReferenceEvidence{}, err
+	}
+	ref, ok := completed.Reference()
+	if !ok {
+		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: establishment completed without evidence: %w", rpc.ErrReferenceRequired)
+	}
+	return ref, nil
+}
+
+// newFacadeInvocation freezes one facade establishment's basis: the pool's
+// current voting members and the service's adjudication snapshot. Freshness
+// is per call, so the invocation is created and completed within one
+// establish round.
+func newFacadeInvocation(refs []rpc.SourceRef, snap rpc.Corroboration) rpc.Invocation {
+	return rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap))
 }

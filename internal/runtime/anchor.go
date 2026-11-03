@@ -29,15 +29,16 @@ type ReferenceResolver interface {
 // facade of that service.
 type StrictHeadAnchor struct{ service *StrictHeadService }
 
-// NewStrictHeadAnchor builds the default latest-head resolver.
+// NewStrictHeadAnchor builds the default latest-head resolver: its own
+// stage, the strict-head strategy, and no shared snapshot (each round
+// adjudicates at the establishment's own thresholds).
 func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...rpc.StrictOption) *StrictHeadAnchor {
-	return &StrictHeadAnchor{
-		service: NewStrictHeadService(StrictHeadConfig{
-			Pool:          p,
-			Recorder:      rec,
-			StrictOptions: opts,
-		}),
-	}
+	stage := NewReferenceStage(ReferenceStageConfig{
+		Pool:          p,
+		Recorder:      rec,
+		StrictOptions: opts,
+	})
+	return &StrictHeadAnchor{service: NewStrictHeadService(stage, nil)}
 }
 
 func (a *StrictHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
@@ -87,11 +88,16 @@ func FinalizedAnchorLag(opts ...FinalizedAnchorOption) uint64 {
 	return cfg.MaxLag
 }
 
-// NewFinalizedHeadAnchor builds a common finalized-reference resolver.
+// NewFinalizedHeadAnchor builds a common finalized-reference resolver: its
+// own stage with the finalized strategy and the selected lag bound.
 func NewFinalizedHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...FinalizedAnchorOption) *FinalizedHeadAnchor {
-	return &FinalizedHeadAnchor{
-		service: NewFinalizedHeadService(p, rec, FinalizedAnchorLag(opts...), 0, 0),
-	}
+	stage := NewReferenceStage(ReferenceStageConfig{
+		Pool:              p,
+		Recorder:          rec,
+		FinalizedStrategy: true,
+		MaxLag:            FinalizedAnchorLag(opts...),
+	})
+	return &FinalizedHeadAnchor{service: NewFinalizedHeadService(stage)}
 }
 
 func (a *FinalizedHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {

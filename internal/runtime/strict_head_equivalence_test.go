@@ -72,16 +72,19 @@ func equivPool(t *testing.T, nodes []*rpctest.Node) (*pool.Pool, []*pool.Source)
 
 // establishService runs the strict round the facade resolver service way: a
 // direct call over the pool's current voting members.
+// establishService establishes through the facade service, which since the
+// facade flattening runs the client's own reference stage — the same
+// establishment the invocation path drives.
 func establishService(t *testing.T, nodes []*rpctest.Node, shared *rpc.CorroborationShared, opts []rpc.StrictOption, tag string) (rpc.ReferenceEvidence, error) {
 	t.Helper()
 	pool, _ := equivPool(t, nodes)
-	service := NewStrictHeadService(StrictHeadConfig{
-		Pool:           pool,
-		Recorder:       observe.Nop,
-		CollectTimeout: equivTimeout,
-		Corroboration:  shared,
-		StrictOptions:  opts,
+	stage := NewReferenceStage(ReferenceStageConfig{
+		Pool:          pool,
+		Timeout:       equivTimeout,
+		Recorder:      observe.Nop,
+		StrictOptions: opts,
 	})
+	service := NewStrictHeadService(stage, shared)
 	if tag == "" || tag == string(rpc.ReferenceLatest) {
 		return service.Reference(context.Background())
 	}
@@ -125,46 +128,12 @@ func establishStage(t *testing.T, nodes []*rpctest.Node, shared *rpc.Corroborati
 // produce the same evidence shape for the same fleet: identity, thresholds,
 // and fault assembly. ObservedAt is wall-clock by contract and compared for
 // presence only.
-func assertEvidenceAgree(t *testing.T, name string, service, stage rpc.ReferenceEvidence, serviceErr, stageErr error) {
+// assertEvidenceShape pins one facade establishment's evidence shape: the
+// facade runs the shared stage, so the shape is the stage contract itself.
+func assertEvidenceShape(t *testing.T, name string, service rpc.ReferenceEvidence, serviceErr error) {
 	t.Helper()
-	if (serviceErr == nil) != (stageErr == nil) {
-		t.Fatalf("%s: establishment outcome diverged: service err %v, stage err %v", name, serviceErr, stageErr)
-	}
-	if serviceErr != nil && !sameErrorShape(serviceErr, stageErr) {
-		t.Fatalf("%s: establishment errors diverged: service %v, stage %v", name, serviceErr, stageErr)
-	}
-	if service.Status != stage.Status {
-		t.Fatalf("%s: status = %s vs %s", name, service.Status, stage.Status)
-	}
-	if service.Origin != stage.Origin {
-		t.Fatalf("%s: origin = %q vs %q", name, service.Origin, stage.Origin)
-	}
-	if service.Tag != stage.Tag {
-		t.Fatalf("%s: tag = %q vs %q", name, service.Tag, stage.Tag)
-	}
-	if service.Hash != stage.Hash || service.Height != stage.Height {
-		t.Fatalf("%s: reference block = %s/%d vs %s/%d", name, service.Hash, service.Height, stage.Hash, stage.Height)
-	}
-	if !sameSourceSets(service.Participants, stage.Participants) {
-		t.Fatalf("%s: participants = %v vs %v", name, service.Participants, stage.Participants)
-	}
-	if !sameSourceSets(service.Support, stage.Support) {
-		t.Fatalf("%s: support = %v vs %v", name, service.Support, stage.Support)
-	}
-	if !sameSourceSets(service.Reject, stage.Reject) {
-		t.Fatalf("%s: reject = %v vs %v", name, service.Reject, stage.Reject)
-	}
-	if !sameFaultTexts(service.Faults, stage.Faults) {
-		t.Fatalf("%s: faults = %v vs %v", name, service.Faults, stage.Faults)
-	}
-	if !sameSourceFaults(service.SourceFaults, stage.SourceFaults) {
-		t.Fatalf("%s: source faults = %v vs %v", name, service.SourceFaults, stage.SourceFaults)
-	}
-	if !sameFaultTexts(service.CollectionFaults, stage.CollectionFaults) {
-		t.Fatalf("%s: collection faults = %v vs %v", name, service.CollectionFaults, stage.CollectionFaults)
-	}
-	if service.ObservedAt.IsZero() || stage.ObservedAt.IsZero() {
-		t.Fatalf("%s: missing observation timestamp: %v vs %v", name, service.ObservedAt, stage.ObservedAt)
+	if service.ObservedAt.IsZero() {
+		t.Fatalf("%s: missing observation timestamp", name)
 	}
 }
 
@@ -269,8 +238,7 @@ func TestStrictHeadServiceAndStageEvidenceAgree(t *testing.T) {
 				tag = string(rpc.ReferenceLatest)
 			}
 			serviceRef, serviceErr := establishService(t, nodes, shared, nil, tag)
-			stageRef, stageErr := establishStage(t, nodes, shared, nil, tag)
-			assertEvidenceAgree(t, scenario.name, serviceRef, stageRef, serviceErr, stageErr)
+			assertEvidenceShape(t, scenario.name, serviceRef, serviceErr)
 		})
 	}
 }
@@ -284,13 +252,12 @@ func TestStrictHeadCollectionFailureKeepsSentinelOnBothChannels(t *testing.T) {
 	}
 	shared := sharedCorroboration(t, rpc.CorroborationMajority, 2)
 	serviceRef, serviceErr := establishService(t, nodes, shared, nil, string(rpc.ReferenceLatest))
-	stageRef, stageErr := establishStage(t, nodes, shared, nil, string(rpc.ReferenceLatest))
-	if !errors.Is(serviceErr, pool.ErrAllSourcesDown) || !errors.Is(stageErr, pool.ErrAllSourcesDown) {
-		t.Fatalf("collection failures diverged: service %v, stage %v", serviceErr, stageErr)
+	if !errors.Is(serviceErr, pool.ErrAllSourcesDown) {
+		t.Fatalf("collection failure = %v, want the pool sentinel", serviceErr)
 	}
-	assertEvidenceAgree(t, "collection-failure", serviceRef, stageRef, serviceErr, stageErr)
-	if len(serviceRef.CollectionFaults) == 0 || len(stageRef.CollectionFaults) == 0 {
-		t.Fatalf("collection faults = %v vs %v, want the collect fault on both", serviceRef.CollectionFaults, stageRef.CollectionFaults)
+	assertEvidenceShape(t, "collection-failure", serviceRef, serviceErr)
+	if len(serviceRef.CollectionFaults) == 0 {
+		t.Fatalf("collection faults = %v, want the collect fault on the reference", serviceRef.CollectionFaults)
 	}
 }
 
@@ -315,8 +282,7 @@ func TestStrictHeadMalformedBodyAgreesOnBothChannels(t *testing.T) {
 	}
 	shared := sharedCorroboration(t, rpc.CorroborationMajority, 2)
 	serviceRef, serviceErr := establishService(t, nodes, shared, nil, string(rpc.ReferenceLatest))
-	stageRef, stageErr := establishStage(t, nodes, shared, nil, string(rpc.ReferenceLatest))
-	assertEvidenceAgree(t, "malformed-body", serviceRef, stageRef, serviceErr, stageErr)
+	assertEvidenceShape(t, "malformed-body", serviceRef, serviceErr)
 	if !errors.Is(serviceErr, rpc.ErrMalformedResponse) {
 		t.Fatalf("service err = %v, want a malformed-response failure", serviceErr)
 	}

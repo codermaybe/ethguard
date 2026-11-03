@@ -152,8 +152,6 @@ func Compose(in Composition) (*Bundle, error) {
 	if floor > 0 {
 		strictOpts = append(strictOpts, rpc.WithQuorum(floor))
 	}
-	resolver := composeResolver(in, rpcPool, corrob, floor, strictOpts)
-
 	bundle, err := Build(Inputs{
 		Pool:           rpcPool,
 		StrictOptions:  strictOpts,
@@ -165,30 +163,22 @@ func Compose(in Composition) (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
+	resolver := composeResolver(in, bundle.Stage, corrob, floor)
 	bundle.Pool = rpcPool
 	bundle.Corroboration = corrob
 	bundle.Resolver = resolver
 	return bundle, nil
 }
 
-// composeResolver selects the reference resolver for the composed runtime:
-// the finalized preset constructs the candidate-selection service directly
-// with its adjudication floor and collect bound; the default constructs the
-// strict head service. Reference establishment keeps its own threshold
-// formulas by recorded decision (docs/design/acceptance-thresholds.md).
-func composeResolver(in Composition, rpcPool *pool.Pool, corrob *rpc.CorroborationShared, floor int, strictOpts []rpc.StrictOption) ReferenceResolver {
+// composeResolver selects the reference resolver for the composed runtime
+// over the one shared stage: the finalized preset hands the stage's
+// candidate-selection strategy to the finalized service; the default hands
+// the stage's strict head rounds to the strict head service. The facade and
+// the invocation's business reads therefore establish through one
+// establishment with one configuration.
+func composeResolver(in Composition, stage *ReferenceStage, corrob *rpc.CorroborationShared, floor int) ReferenceResolver {
 	if in.Anchoring != nil && in.Anchoring.Finalized {
-		return &FinalizedHeadAnchor{
-			service: NewFinalizedHeadService(rpcPool, in.Recorder, in.Anchoring.MaxLag, floor, in.CollectTimeout),
-		}
+		return &FinalizedHeadAnchor{service: NewFinalizedHeadService(stage)}
 	}
-	return &StrictHeadAnchor{
-		service: NewStrictHeadService(StrictHeadConfig{
-			Pool:           rpcPool,
-			Recorder:       in.Recorder,
-			CollectTimeout: in.CollectTimeout,
-			Corroboration:  corrob,
-			StrictOptions:  strictOpts,
-		}),
-	}
+	return &StrictHeadAnchor{service: NewStrictHeadService(stage, corrob)}
 }
