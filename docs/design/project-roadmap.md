@@ -20,10 +20,14 @@ EthGuard 的运行时语义已经冻结：
 - T10 的离线/live 证据分层已完成，live observation 不写成普遍兼容性证明；
 - raw WSS 生产路径保留四态；geth WSS 的 missing/null unknown 限制仍适用。0056.2
   不豁免真实 provider 四态 golden 证据门；null 仍未观察。
-- Read 默认 registry 已由显式 `rpc.ReadPlan` 驱动；方法级阶段编排不再以 decorator
-  chain 为事实来源；legacy constructor 保留为兼容与等价验证 seam；
-- resolver 内部仍保留 `rpc.Policy` 深模块、`blockPolicy` 等 resolver-specific
-  wrapper 和 capability seam。RS5 已裁决保留该深模块（0063），不应被描述为已完全扁平化或仍待重构；
+- Read 默认 registry 由显式 `rpc.ReadPlan` 驱动，且这是唯一执行模型（2026-11-04
+  完成，提交 e2849cf）：23 个方法级 constructor、decorator 家族、`rpc.Registry`
+  runtime 路径与 aggregator 双分支已删除；未注册方法走 aggregator 的显式 forward
+  分支；
+- resolver 内部仍保留 `rpc.Policy` 深模块（RS5 裁决，0063）。`blockPolicy` 收敛为
+  block resolver 的值包装并持有链尾（CanonicalOf 可达）；可选 capability 接口收敛；
+  `block`/`strict`/`median`/`local`/`call-revert` 的 resolver 装配由
+  `CompilePlan`/`assembleResolver` 单点拥有；
 - reference policy 统一方案、freshness 余量和 adaptive congestion 仍按各自决策保留，
   不由方法对接阶段隐式改写。
 
@@ -256,13 +260,11 @@ Normalize / cluster / Outcome / Corroboration / CallRevert /
 block-specific result / MethodRule resolver columns
 ```
 
-`rpc/methods` 中仍存在 `GetBalancePolicy`、`CallPolicy`、`LogsPolicy`、
-`FeeHistoryPolicy`、`CreateAccessListPolicy`、`EIP1898BlockRef`、`PendingLocal`
-等链式 constructor。它们当前是 legacy compatibility surface 和 plan equivalence
-对照实现；默认 runtime registry 不调用它们作为方法事实来源。`ReadPlan.Resolver`
-仍可持有 `rpc.Policy`，因为 strict、median、local、CallRevert 和 block-specific
-resolver 是有深度的语义 Module。下一轮只判断这个 seam 是否足够稳定，不以“零
-Decorator”作为孤立目标。
+`rpc/methods` 的方法级链式 constructor（`GetBalancePolicy`、`CallPolicy`、
+`LogsPolicy`、`FeeHistoryPolicy`、`CreateAccessListPolicy`、`EIP1898BlockRef`、
+`PendingLocal` 等）已于 2026-11-04 删除：`ReadPlan.Resolver` 由 `CompilePlan` 单点
+装配，`rpc.Policy` 深模块保留为 resolver 语义层（0063），reference 轮次的阶段映射
+契约由 `internal/runtime/round_phases_test.go` 固化。
 
 ### Resolver seam 任务表
 

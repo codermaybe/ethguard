@@ -119,6 +119,13 @@ ethguard/
 │   ├── uncertain/
 │   ├── rpcsample/
 │   ├── livecanary/
+│   ├── runtime/           # 唯一生产 Composition Root：Compose 装配
+│   │                      # pool/corroboration/reference stage/method
+│   │                      # catalog/aggregator；ReferenceStage 供 facade
+│   │                      # 与 invocation 共用
+│   ├── reference/         # HeadReader seam + finalized 候选选择算法
+│   ├── refcontext/        # invocation/capture 两个必要 context 事实
+│   ├── typed/             # 唯一 typed projection（含 call 结果/revert）
 │   └── ...
 │
 ├── observe/

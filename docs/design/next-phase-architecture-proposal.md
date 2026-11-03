@@ -1,6 +1,14 @@
 # EthGuard 下一阶段架构提案
 
-> **状态：提案（Proposal）/ 2026-10-29 收敛草稿。** 本文综合 2026-10-28/29 的架构讨论与外部评审，用于多方比对与后续决策；不构成已接受契约，不改变 `docs/design/codebase-topology.md`、`docs/design/architecture-record.md` 或已冻结的方法契约。基本方向待引入 GPT 参考后定稿。
+> **状态：已实施（Superseded by implementation）/ 2026-11-04。** 本文的方向已按
+> 其自身计划落地：Read family 以 `MethodSpec`/`CompilePlan` 为唯一执行模型
+> （constructor 与 decorator 家族已删除，见 roadmap 当前基线）；`Invocation`
+> 阶段值与 reference 建立作为 Read invocation 内部阶段已实现；Verification 保持
+> 正交。尚未实现的部分（Stream family、订阅、`eth_getProof` 证据语义、link-time
+> 隔离的进一步收紧）以 `project-roadmap.md` 的当前基线为准。正文保留为历史提案，
+> 不再描述当前代码。
+
+> 原状态：提案（Proposal）/ 2026-10-29 收敛草稿。 本文综合 2026-10-28/29 的架构讨论与外部评审，用于多方比对与后续决策；不构成已接受契约，不改变 `docs/design/codebase-topology.md`、`docs/design/architecture-record.md` 或已冻结的方法契约。基本方向待引入 GPT 参考后定稿。
 >
 > 基线：`master` @ `a6aa940`（审计修复已合并，`fix/audit-findings` 已回归；临时 fixlist 已删除）。
 >
