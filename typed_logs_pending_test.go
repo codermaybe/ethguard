@@ -1,4 +1,4 @@
-package ethadapter_test
+package ethguard_test
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func TestLogsPendingRangeSendsNoProviderRequest(t *testing.T) {
 		map[string]any{"fromBlock": ""},
 	}
 	for _, filter := range filters {
-		decision, err := client.Unwrap().Call(ctx, methods.MethodGetLogs, filter)
+		decision, err := client.Call(ctx, methods.MethodGetLogs, filter)
 		if !errors.Is(err, ethguard.ErrInvalidRequest) {
 			t.Fatalf("filter %v: got %v, want ErrInvalidRequest", filter, err)
 		}

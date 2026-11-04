@@ -1,4 +1,4 @@
-package ethadapter_test
+package ethguard_test
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
-	"github.com/codermaybe/ethguard/ethadapter"
+	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -193,7 +193,7 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 	defer cancel()
 	to := common.HexToAddress("0x1")
 	arg := map[string]any{"to": to.Hex()}
-	aggDecision, aggErr := adapter.Unwrap().Call(ctx, methods.MethodCall, arg, "latest")
+	aggDecision, aggErr := adapter.Call(ctx, methods.MethodCall, arg, "latest")
 	if policyDecision.Status != aggDecision.Status || !errors.Is(policyErr, tc.wantErr) || !errors.Is(aggErr, tc.wantErr) {
 		t.Fatalf("policy %s/%v aggregator %s/%v, want %s/%v", policyDecision.Status, policyErr, aggDecision.Status, aggErr, tc.wantStatus, tc.wantErr)
 	}
@@ -234,7 +234,7 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 		}
 	}
 	_, err := adapter.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
-	var revert *ethadapter.RevertError
+	var revert *ethguard.RevertError
 	if !errors.As(err, &revert) {
 		t.Fatalf("typed err = %v, want RevertError", err)
 	}

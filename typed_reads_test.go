@@ -1,4 +1,4 @@
-package ethadapter_test
+package ethguard_test
 
 import (
 	"context"
@@ -18,13 +18,12 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/ethadapter"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // fleet spins up count scripted nodes behind one adapter client.
-func fleet(t *testing.T, count int, opts ...ethguard.Option) (*ethadapter.Client, []*rpctest.Node) {
+func fleet(t *testing.T, count int, opts ...ethguard.Option) (*ethguard.Client, []*rpctest.Node) {
 	t.Helper()
 	nodes := make([]*rpctest.Node, 0, count)
 	cfg := config.Config{ChainID: 1}
@@ -37,7 +36,7 @@ func fleet(t *testing.T, count int, opts ...ethguard.Option) (*ethadapter.Client
 			Endpoint: node.URL(),
 		})
 	}
-	client, err := ethadapter.New(cfg, opts...)
+	client, err := ethguard.New(cfg, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +79,7 @@ func fixtureBlock(t *testing.T, number int64) json.RawMessage {
 	return out
 }
 
-func TestAdapterChainIDIsCorroborated(t *testing.T) {
+func TestTypedChainIDIsCorroborated(t *testing.T) {
 	client, _ := fleet(t, 3)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -94,7 +93,7 @@ func TestAdapterChainIDIsCorroborated(t *testing.T) {
 	}
 }
 
-func TestAdapterBalanceAtPinsMovingTag(t *testing.T) {
+func TestTypedBalanceAtPinsMovingTag(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	const pinned = "0xabc"
 	for i, node := range nodes {
@@ -119,7 +118,7 @@ func TestAdapterBalanceAtPinsMovingTag(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockByNumberNeverFetchesAMovingTag(t *testing.T) {
+func TestTypedBlockByNumberNeverFetchesAMovingTag(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	pinned := fixtureBlock(t, 16)
 	for _, node := range nodes {
@@ -161,7 +160,7 @@ func TestAdapterBlockByNumberNeverFetchesAMovingTag(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockByHashUsesDedicatedMethod(t *testing.T) {
+func TestTypedBlockByHashUsesDedicatedMethod(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	pinned := fixtureBlock(t, 16)
 	for _, node := range nodes {
@@ -185,7 +184,7 @@ func TestAdapterBlockByHashUsesDedicatedMethod(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockByHashRejectsAnotherSelfConsistentBlock(t *testing.T) {
+func TestTypedBlockByHashRejectsAnotherSelfConsistentBlock(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	pinned := fixtureBlock(t, 16)
 	for _, node := range nodes {
@@ -200,7 +199,7 @@ func TestAdapterBlockByHashRejectsAnotherSelfConsistentBlock(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockNumberMatchesCorroboratedReference(t *testing.T) {
+func TestTypedBlockNumberMatchesCorroboratedReference(t *testing.T) {
 	client, nodes := fleet(t, 3, ethguard.WithFinalizedAnchoring())
 	fin := fixtureBlock(t, 42)
 	pin := blockHashOf(fin)
@@ -228,7 +227,7 @@ func TestAdapterBlockNumberMatchesCorroboratedReference(t *testing.T) {
 	}
 }
 
-func TestAdapterSurfacesMalformedClass(t *testing.T) {
+func TestTypedSurfacesMalformedClass(t *testing.T) {
 	client, nodes := fleet(t, 2)
 	// Passes head normalization (number and hash present) but cannot become
 	// a block: the failure must surface as the typed-boundary class.
@@ -243,7 +242,7 @@ func TestAdapterSurfacesMalformedClass(t *testing.T) {
 	}
 }
 
-func TestAdapterSuggestGasPriceTakesMedian(t *testing.T) {
+func TestTypedSuggestGasPriceTakesMedian(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	nodes[0].Return("eth_gasPrice", "0x3b9aca00") // 1 gwei
 	nodes[1].Return("eth_gasPrice", "0x3b9aca00")
@@ -260,7 +259,7 @@ func TestAdapterSuggestGasPriceTakesMedian(t *testing.T) {
 	}
 }
 
-func TestAdapterLocalObservations(t *testing.T) {
+func TestTypedLocalObservations(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	for i, node := range nodes {
 		node.Return("net_peerCount", "0xa")
@@ -330,7 +329,7 @@ func fixtureReceipt(t *testing.T, txHash common.Hash, height int64) json.RawMess
 	return raw
 }
 
-func TestAdapterTransactionReceiptReturnsCorroboratedReceipt(t *testing.T) {
+func TestTypedTransactionReceiptReturnsCorroboratedReceipt(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
 	raw := fixtureReceipt(t, txHash, 16)
@@ -352,7 +351,7 @@ func TestAdapterTransactionReceiptReturnsCorroboratedReceipt(t *testing.T) {
 	}
 }
 
-func TestAdapterTransactionReceiptMapsCorroboratedAbsenceToNotFound(t *testing.T) {
+func TestTypedTransactionReceiptMapsCorroboratedAbsenceToNotFound(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionReceipt, nil)
@@ -399,7 +398,7 @@ func signedTxFixture(t *testing.T, mined bool) json.RawMessage {
 	return out
 }
 
-func TestAdapterTransactionByHashReportsPendingFlag(t *testing.T) {
+func TestTypedTransactionByHashReportsPendingFlag(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -433,7 +432,7 @@ func TestAdapterTransactionByHashReportsPendingFlag(t *testing.T) {
 	}
 }
 
-func TestAdapterTransactionByHashRejectsAnotherTransaction(t *testing.T) {
+func TestTypedTransactionByHashRejectsAnotherTransaction(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	raw := signedTxFixture(t, true)
 	for _, node := range nodes {
@@ -448,7 +447,7 @@ func TestAdapterTransactionByHashRejectsAnotherTransaction(t *testing.T) {
 	}
 }
 
-func TestAdapterAnchoredStateReads(t *testing.T) {
+func TestTypedAnchoredStateReads(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	pinned := "0x" + strings.Repeat("11", 32)
 	for i, node := range nodes {
@@ -508,7 +507,7 @@ func TestAdapterAnchoredStateReads(t *testing.T) {
 	}
 }
 
-func TestAdapterSuggestGasTipCapTakesMedian(t *testing.T) {
+func TestTypedSuggestGasTipCapTakesMedian(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	nodes[0].Return(methods.MethodMaxPriorityFeePerGas, "0x3b9aca00") // 1 gwei
 	nodes[1].Return(methods.MethodMaxPriorityFeePerGas, "0x3b9aca00")
@@ -525,7 +524,7 @@ func TestAdapterSuggestGasTipCapTakesMedian(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
+func TestTypedBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	pin := "0x" + strings.Repeat("11", 32)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
@@ -558,7 +557,7 @@ func TestAdapterBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
+func TestTypedBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
 	raw := fixtureReceipt(t, txHash, 16)
@@ -579,7 +578,7 @@ func TestAdapterBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 // half of the request-answer binding: a unanimous, self-consistent fleet
 // returning another block's legitimate receipts still fails, because
 // agreement cannot substitute for the binding.
-func TestAdapterBlockReceiptsNumberFormBindsRequestedHeight(t *testing.T) {
+func TestTypedBlockReceiptsNumberFormBindsRequestedHeight(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
 	foreign := fixtureReceipt(t, txHash, 17) // legitimate receipts, wrong block
@@ -595,7 +594,7 @@ func TestAdapterBlockReceiptsNumberFormBindsRequestedHeight(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockReceiptsNumberFormRejectsTruncatedHeight(t *testing.T) {
+func TestTypedBlockReceiptsNumberFormRejectsTruncatedHeight(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	var receipt map[string]json.RawMessage
 	if err := json.Unmarshal(fixtureReceipt(t, common.HexToHash("0x42"), 16), &receipt); err != nil {
@@ -612,7 +611,7 @@ func TestAdapterBlockReceiptsNumberFormRejectsTruncatedHeight(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockReceiptsNumberFormBindsEveryReceipt(t *testing.T) {
+func TestTypedBlockReceiptsNumberFormBindsEveryReceipt(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
 	good := fixtureReceipt(t, txHash, 16)
@@ -629,7 +628,7 @@ func TestAdapterBlockReceiptsNumberFormBindsEveryReceipt(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockReceiptsNumberFormRejectsMissingHeight(t *testing.T) {
+func TestTypedBlockReceiptsNumberFormRejectsMissingHeight(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
 	var receipt map[string]json.RawMessage
@@ -656,7 +655,7 @@ func TestAdapterBlockReceiptsNumberFormRejectsMissingHeight(t *testing.T) {
 // TestAdapterBlockReceiptsTagFormBindsToThePinnedReference proves the
 // tag-form binding rides decision.BlockRef: receipts whose block hash
 // differs from the corroborated pin fail without a second anchor call.
-func TestAdapterBlockReceiptsTagFormBindsToThePinnedReference(t *testing.T) {
+func TestTypedBlockReceiptsTagFormBindsToThePinnedReference(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
 	// fixtureReceipt's BlockHash is the pin (0x11…), so reroute the pin:
@@ -688,7 +687,7 @@ func TestAdapterBlockReceiptsTagFormBindsToThePinnedReference(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockReceiptsNumberFormAcceptsEmptyBlock(t *testing.T) {
+func TestTypedBlockReceiptsNumberFormAcceptsEmptyBlock(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{})
@@ -710,7 +709,7 @@ func headFixture(nodes []*rpctest.Node) {
 	}
 }
 
-func TestAdapterCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
+func TestTypedCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
 	adapter, nodes := fleet(t, 3)
 	headFixture(nodes)
 	for _, node := range nodes {
@@ -741,7 +740,7 @@ func TestAdapterCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
 		node.Fail("eth_call", -32000, "execution reverted: no funds")
 	}
 	_, err = adapter.CallContract(ctx, msg, nil)
-	var revert *ethadapter.RevertError
+	var revert *ethguard.RevertError
 	if !errors.As(err, &revert) {
 		t.Fatalf("expected RevertError, got %v", err)
 	}
@@ -753,7 +752,7 @@ func TestAdapterCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
 	}
 }
 
-func TestAdapterEstimateGasPinsTagAndTakesMedian(t *testing.T) {
+func TestTypedEstimateGasPinsTagAndTakesMedian(t *testing.T) {
 	adapter, nodes := fleet(t, 3)
 	headFixture(nodes)
 	estimates := []string{"0x64", "0x66", "0x68"}
@@ -780,7 +779,7 @@ func TestAdapterEstimateGasPinsTagAndTakesMedian(t *testing.T) {
 	}
 }
 
-func TestAdapterFilterLogsPinsTheFilterRange(t *testing.T) {
+func TestTypedFilterLogsPinsTheFilterRange(t *testing.T) {
 	adapter, nodes := fleet(t, 3)
 	headFixture(nodes)
 	logs := []map[string]any{{
@@ -822,7 +821,7 @@ func TestAdapterFilterLogsPinsTheFilterRange(t *testing.T) {
 // half of the request-answer binding: a coherent foreign block (self-
 // consistent payload, unanimous fleet) is rejected at the typed boundary
 // for both the hash-addressed and the height-addressed forms.
-func TestAdapterBlockAtBindsAnswersToTheRequestedReference(t *testing.T) {
+func TestTypedBlockAtBindsAnswersToTheRequestedReference(t *testing.T) {
 	t.Run("foreign block by hash", func(t *testing.T) {
 		adapter, nodes := fleet(t, 3)
 		for _, node := range nodes {
@@ -880,7 +879,7 @@ func TestReceiptNullLogReturnsMalformed(t *testing.T) {
 	}
 }
 
-func TestAdapterBlockByNumberRejectsOverflowBeforeDispatch(t *testing.T) {
+func TestTypedBlockByNumberRejectsOverflowBeforeDispatch(t *testing.T) {
 	client, nodes := fleet(t, 2)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetBlockByNumber, fixtureBlock(t, 16))
@@ -907,7 +906,7 @@ func TestDecodeTransactionRejectsUnsigned(t *testing.T) {
 	}
 }
 
-func TestAdapterRequiresCorroborationWithoutChangingMethodSignatures(t *testing.T) {
+func TestTypedRequiresCorroborationWithoutChangingMethodSignatures(t *testing.T) {
 	client, nodes := fleet(t, 2)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetBlockByNumber, map[string]any{"number": "0x10", "hash": "0xabc"})
@@ -920,16 +919,12 @@ func TestAdapterRequiresCorroborationWithoutChangingMethodSignatures(t *testing.
 	// The advanced API reports the unmet majority as a conflict with the
 	// surviving cluster in evidence (decision 0029): a 1-of-2 answer is no
 	// longer surfaced as Selected under the default support floor.
-	d, err := client.Unwrap().Call(context.Background(), methods.MethodGetBalance, common.Address{}, "0x10")
+	d, err := client.Call(context.Background(), methods.MethodGetBalance, common.Address{}, "0x10")
 	if !errors.Is(err, ethguard.ErrConflict) {
 		t.Fatalf("advanced call hid the unmet majority: %v", err)
 	}
 	if len(d.Support) != 1 || string(d.Value) != `"0x1"` {
 		t.Fatalf("expected the surviving cluster in evidence, got %+v", d)
-	}
-	wrapped := ethadapter.Wrap(client.Unwrap())
-	if _, err := wrapped.BalanceAt(context.Background(), common.Address{}, big.NewInt(16)); !errors.Is(err, ethguard.ErrConflict) {
-		t.Fatalf("Wrap bypassed corroboration: %v", err)
 	}
 }
 

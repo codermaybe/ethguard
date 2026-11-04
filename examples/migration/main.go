@@ -1,27 +1,28 @@
 // Minimal migration example: switch code written against go-ethereum's
-// ethclient to EthGuard's corroborated, ethclient-shaped adapter.
+// ethclient to EthGuard's corroborated client.
 //
-// go run ./examples/migration -config /path/to/config.yaml
+// go run ./examples/migration -endpoint-a https://a.example:8545 -endpoint-b https://b.example:8545
 //
 // What changes: initialization only. ethclient.Dial(url) becomes
-// ethadapter.New(cfg) with an explicit upstream list; read calls keep their
-// names, signatures and Geth return types (types.Block, *big.Int, ...).
+// ethguard.Dial(endpointA, endpointB) with two or more distinct endpoints;
+// read calls keep their names, signatures and Geth return types
+// (types.Block, *big.Int, ...).
 //
 // Semantics that differ even where the method exists — read
-// docs/design/spec-baseline.md §3 before relying on them:
+// docs/design/method-contracts.md before relying on them:
 //
 //   - BlockByNumber(ctx, nil) resolves "latest" through a cross-corroborated
 //     reference, not one provider's natural head.
-//   - Negative block numbers (ethclient: -1 pending, -2 latest, -3 finalized,
-//     -4 safe, -5 earliest) are currently NOT mapped the same way here.
-//   - ethclient-only methods have no adapter counterpart, and their
-//     reachability differs: typed methods that exist only at the root client
-//     (NetVersion, FeeHistory) and raw JSON-RPC calls (e.g.
-//     SendRawTransaction — forwarded uncorroborated, no transaction lifecycle
-//     per decision 0003) go through Unwrap(); Header* reads are approximated
-//     by BlockByHash + block.Header(); subscriptions (SubscribeNewHead,
-//     SubscribeFilterLogs, ...) have no path at all — the pool is
-//     request/response only. See spec-baseline.md §3.2 for the full matrix.
+//   - Negative block numbers map to their own level: -1 pending is rejected
+//     locally (no typed pending block projection), -2 latest, -3 finalized
+//     and -4 safe each establish their own level's reference, -5 earliest is
+//     the explicit height 0x0.
+//   - A single endpoint must opt into Forwarded mode explicitly with
+//     ethguard.DialUncorroborated(url); Dial requires two or more distinct
+//     endpoints.
+//   - Header* reads are approximated by BlockByHash + block.Header();
+//     subscriptions (SubscribeNewHead, SubscribeFilterLogs, ...) have no
+//     path at all — the pool is request/response only.
 package main
 
 import (
@@ -35,19 +36,15 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/ethadapter"
+	"github.com/codermaybe/ethguard"
 )
 
 func main() {
-	path := flag.String("config", "config/sample.yaml", "provider configuration file")
+	endpointA := flag.String("endpoint-a", "https://a.example:8545", "first RPC endpoint")
+	endpointB := flag.String("endpoint-b", "https://b.example:8545", "second RPC endpoint")
 	flag.Parse()
-	cfg, err := config.LoadFile(*path)
-	if err != nil {
-		log.Fatal(err)
-	}
 	// Was: client, err := ethclient.Dial("https://rpc.example")
-	client, err := ethadapter.New(cfg)
+	client, err := ethguard.Dial(*endpointA, *endpointB)
 	if err != nil {
 		log.Fatal(err)
 	}

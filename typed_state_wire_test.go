@@ -1,4 +1,4 @@
-package ethadapter_test
+package ethguard_test
 
 import (
 	"context"
@@ -214,7 +214,6 @@ func TestStateRefEIP1898ObjectPreservedOnWire(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	eg := client.Unwrap()
 	addr := common.HexToAddress("0xdad").Hex()
 
 	for _, obj := range []map[string]any{
@@ -223,7 +222,7 @@ func TestStateRefEIP1898ObjectPreservedOnWire(t *testing.T) {
 		{"blockNumber": "0x10", "requireCanonical": true},
 		{"blockNumber": "0x10"},
 	} {
-		decision, err := eg.Call(ctx, methods.MethodGetBalance, addr, obj)
+		decision, err := client.Call(ctx, methods.MethodGetBalance, addr, obj)
 		if err != nil {
 			t.Fatalf("%v: %v", obj, err)
 		}
@@ -272,14 +271,13 @@ func TestStateRefObjectTagRewritesToHashObject(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	eg := client.Unwrap()
 	addr := common.HexToAddress("0xdad").Hex()
 
 	for _, obj := range []map[string]any{
 		{"blockNumber": "finalized"},
 		{"blockNumber": "safe", "requireCanonical": true},
 	} {
-		if _, err := eg.Call(ctx, methods.MethodGetBalance, addr, obj); err != nil {
+		if _, err := client.Call(ctx, methods.MethodGetBalance, addr, obj); err != nil {
 			t.Fatalf("%v: %v", obj, err)
 		}
 	}
@@ -344,7 +342,7 @@ func TestStateRefAnchorFailureSendsNoBusinessRequest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	decision, err := client.Unwrap().Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "latest")
+	decision, err := client.Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "latest")
 	if err == nil {
 		t.Fatal("expected anchor failure, got nil")
 	}
@@ -365,7 +363,7 @@ func TestStateRefContradictoryObjectRejectedLocally(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := client.Unwrap().Call(ctx, methods.MethodGetBalance,
+	_, err := client.Call(ctx, methods.MethodGetBalance,
 		common.HexToAddress("0xdad").Hex(),
 		map[string]any{"blockHash": wireHashExplicit, "blockNumber": "0x1"})
 	if err == nil || !errors.Is(err, ethguard.ErrInvalidRequest) {
@@ -420,7 +418,7 @@ func TestFeeHistoryRejectsHashBeforeUpstream(t *testing.T) {
 	defer cancel()
 
 	hashAsNewest := "0x" + strings.Repeat("ab", 32)
-	_, err := client.Unwrap().Call(ctx, methods.MethodFeeHistory, uint64(4), hashAsNewest, []float64{})
+	_, err := client.Call(ctx, methods.MethodFeeHistory, uint64(4), hashAsNewest, []float64{})
 	if err == nil || !errors.Is(err, ethguard.ErrInvalidRequest) {
 		t.Fatalf("hash in newestBlock: got %v, want ErrInvalidRequest", err)
 	}
@@ -436,7 +434,7 @@ func TestFeeHistoryRejectsHashBeforeUpstream(t *testing.T) {
 // anchor seam and fetch by hash. Levels are never downgraded (each tag pins
 // a different block), no moving tag reaches a business call, and the anchor
 // request carries the original tag.
-func TestAdapterBlockByNumberNegativeTagsAnchorFirst(t *testing.T) {
+func TestTypedBlockByNumberNegativeTagsAnchorFirst(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	latestFixture := fixtureBlock(t, 16)
 	safeFixture := fixtureBlock(t, 17)
@@ -524,7 +522,7 @@ func TestAdapterBlockByNumberNegativeTagsAnchorFirst(t *testing.T) {
 
 // TestAdapterBlockByNumberRejectsUnknownNegativesLocally: unknown or
 // out-of-range negatives fail before any upstream contact.
-func TestAdapterBlockByNumberRejectsUnknownNegativesLocally(t *testing.T) {
+func TestTypedBlockByNumberRejectsUnknownNegativesLocally(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -544,7 +542,7 @@ func TestAdapterBlockByNumberRejectsUnknownNegativesLocally(t *testing.T) {
 
 // TestAdapterBlockByNumberTagAnchorFailureSendsNoBusinessRequest: a failed
 // tag-aware establishment fails the call before any business fan-out.
-func TestAdapterBlockByNumberTagAnchorFailureSendsNoBusinessRequest(t *testing.T) {
+func TestTypedBlockByNumberTagAnchorFailureSendsNoBusinessRequest(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	for _, node := range nodes {
 		node.Fail(methods.MethodGetBlockByNumber, -32000, "anchor down")
@@ -578,17 +576,16 @@ func TestTypedDecodeFailureClearsSuccessStatus(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	eg := client.Unwrap()
 	msg := map[string]any{"to": common.HexToAddress("0xdad").Hex()}
 
-	decision, err := eg.Call(ctx, methods.MethodCall, msg, "latest")
+	decision, err := client.Call(ctx, methods.MethodCall, msg, "latest")
 	if err != nil {
 		t.Fatalf("setup call failed: %v", err)
 	}
 	if decision.Status != rpc.Corroborated {
 		t.Fatalf("setup status = %v, want corroborated", decision.Status)
 	}
-	out, bad, err := ethguard.CallInto[bool](ctx, eg, methods.MethodCall, msg, "latest")
+	out, bad, err := ethguard.CallInto[bool](ctx, client, methods.MethodCall, msg, "latest")
 	if err == nil || !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("typed decode: got %v, %v; want ErrMalformedResponse", out, err)
 	}

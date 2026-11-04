@@ -1,11 +1,9 @@
-package ethadapter
+package ethguard
 
 import (
 	"errors"
 	"math/big"
 	"testing"
-
-	"github.com/codermaybe/ethguard"
 )
 
 func TestBlockNumberArgumentMatchesGethTags(t *testing.T) {
@@ -38,7 +36,7 @@ func TestBlockNumberArgumentRejectsUnknownNegative(t *testing.T) {
 		new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), 64)),
 		big.NewInt(2))
 	for _, n := range []*big.Int{big.NewInt(-6), beyondInt64} {
-		if _, err := checkedBlockNumArg(n); err == nil || !errors.Is(err, ethguard.ErrInvalidRequest) {
+		if _, err := checkedBlockNumArg(n); err == nil || !errors.Is(err, ErrInvalidRequest) {
 			t.Fatalf("unknown negative %v: got %v", n, err)
 		}
 		if got := toBlockNumArg(n); got != "" {
