@@ -31,6 +31,22 @@ EthGuard 的运行时语义已经冻结：
 - reference policy 统一方案、freshness 余量和 adaptive congestion 仍按各自决策保留，
   不由方法对接阶段隐式改写。
 
+### 唯一 Client 合并（2026-11-05 完成，决策 0065）
+
+按 `docs/design/tmp/optimize-execution-plan.md` 单线执行完毕：`ethadapter`
+生产包、`Wrap`/`Unwrap` 与全部 shim 删除；Geth-shaped typed 方法、绑定、
+`RevertError` 与参数转换迁入根 `Client`；协证要求改由 invocation 承载
+（`aggregator.AggregateStrict`，门读 `Invocation.RequireCorroboration`）；
+`rpc.RequireCorroborated`、`rpc.WithAnchorTag`/`AnchorTag`、
+`establishedForTag`、死掉的 `AnchorFunc`/`AnchorHeightFunc` reader 与
+`refcontext.WithInvocation`/`Invocation` 删除（`refcontext.Capture` 保留）；
+root resolver 注入面删除；新增 `config.FromEndpoints`、根 `Dial`、
+`DialContext`、`DialUncorroborated`、`LoadFile`、`WithChainID`。adapter
+语义测试整体迁移为根包 `typed_*_test.go`。迁移中记录的冲突：根 facade 因
+冻结的 `gethrpc.BlockNumberOrHash` 参数链接 go-ethereum/rpc（传递引入
+gorilla/websocket），link gate 将该例外钉在 go-ethereum 类型面上，WSS 生产
+路径禁令保持绝对。
+
 ### 结构基线
 
 - `internal/runtime` 是唯一生产 Composition Root；
@@ -39,7 +55,8 @@ EthGuard 的运行时语义已经冻结：
 - verification 当前保持单一 `internal/verification/integration` Module；
 - `rpc/methods` 保持单一生产 Module，`rpc/internal/objects`、`wire`、`policy` 拥有
   各自的深语义；
-- root facade 与 `ethadapter` 不存在第二套 typed decoder、policy registry 或执行链；
+- root facade 不存在第二套 typed decoder、policy registry 或执行链；唯一公开
+  client 是 `ethguard.Client`（2026-11-05 决策 0065）；
 - T09 测试入口使用 `^TestVerification` 专项门。
 
 ### 规范和依赖基线
@@ -147,7 +164,7 @@ WSS 独立互操作测试与定时原生 fuzz 已部分接线；WSS 时间敏感
 | 拓扑迁移、架构收敛、T09 审计 | 已完成 | 只在出现真实新 Seam 或维护负担时重新审查 | 不按目录整齐度拆包 |
 | HTTP connection 行为差分审计 | 已完成；L1 contract 已冻结（`transport-contract.md`），native HTTP 为战略默认 | 只在出现新 provider 证据或 Geth 升级时复核 | v1.17.5 仅为版本化 baseline，不是长期标准 |
 | 自有 HTTP Adapter | 已实现（`internal/transport/http`）并作为默认装配；Geth compatibility adapter 保留为显式 seam | 无；新增 provider 证据只登记为观测，不重开契约 | 不改变 pool/Decision；保留官方 Ethereum 类型 |
-| 逐方法 HTTP/root/ethadapter 对接 | 23 张业务语义卡片已建立；H0 方法基线冻结完成（2026-11-03，[method-plan-inventory.md](method-plan-inventory.md)：23/23 方法 spec↔registry↔catalog 对齐，typed path 与证据缺口逐项登记）；2026-10-31 增加历史 block 18,000,000 的 EIP-1898/createAccessList/block/feeHistory live 证据 | 按卡片补齐剩余真实 capture/replay/live 证据（syncing progress、其他历史高度、uncle 内容等） | 不新增方法，不改变裁决语义 |
+| 逐方法 HTTP/root 对接 | 23 张业务语义卡片已建立；H0 方法基线冻结完成（2026-11-03，[method-plan-inventory.md](method-plan-inventory.md)：23/23 方法 spec↔registry↔catalog 对齐，typed path 与证据缺口逐项登记）；2026-10-31 增加历史 block 18,000,000 的 EIP-1898/createAccessList/block/feeHistory live 证据 | 按卡片补齐剩余真实 capture/replay/live 证据（syncing progress、其他历史高度、uncle 内容等） | 不新增方法，不改变裁决语义 |
 | go-ethereum/connection 依赖债务 | native HTTP 默认；显式 raw WSS 已接线；默认构建仍不链接 `ethclient` | 保留官方 typed 类型；compatibility seam 仍显式 | 不移除 ethclient-shaped 表面 |
 | WSS transport | 自有 wire 栈已上线（2026-11-03）：标准库握手/帧/连接层替换 gorilla；sticky 失败与单 close 回执语义修复完成；显式统一 pool 接线、读写/health/cooldown/取消/Close 回归通过 | W4/provider-backed golden：继续补真实 null 等证据 | 不新增只读角色、后台重连、重放或 basis 变化 |
 | T11 自适应拥塞控制 | T0 受控容量实验与 T1 控制器裁决已完成（2026-11-02，提交 6292d73）：保留现有慢增快减、固定两槽、共享预算与 cooldown 控制器；受控证据未显示 AIMD 或动态并发足以替换它 | 只在出现新的容量证据时重审控制器输入信号 | 不改成员、分母、权重、模式或门槛 |
@@ -290,7 +307,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 | R4 工作流文本与死代码清理 | 独立 | `release.yml` 的过期注释（1.25.3 baseline、`GOTOOLCHAIN: auto` 的必要性）与 `cross-compile` 的 windows 死分支；`release_check.sh` 头部 "offline" 措辞按 §5.4 修正 | 4 个工作流 YAML 均可解析；除注释与死分支外无行为差异；`git diff --check` 干净 |
 | R5 预发布语义与消费方说明 | 独立 | `release.yml` publish 步骤按 tag 名设置 prerelease（稳定版另明确 `make_latest`）；README（中英）登记发布入口、tag 前置条件与消费方工具链下限；顺带核对 dependabot 的 action-gh-release v3 PR 是否同批升级（由主维护者决定） | 表达式在预发布/稳定 tag 上求值正确并离线核对；文档写明"真实 tag 未验证"；不改已有 Release 的预发布标记；不推送 tag |
 | R6 文档收敛与悬空引用 | R4/R5 后 | release-contract.md 定稿（补执行事实）；清理 `c339b5f` 删除设计文档留下的悬空引用（本文件与 `wss-transport-adapter.md` 中的 `roadmap-execution-ledger.md`、`spec-baseline.md`、`transport-seam-migration.md` 等），统一改为"见 Git 历史 `c339b5f^` 的路径"或指向现行文档 | 内部链接检查不再报不可达目标；被删文件承载的现行事实已落到可达文档；不产生第二份路线或状态台账 |
-| R7 决策 0057 前提复核证据包 | 独立，只出证据与选项 | 发布事实（tag、Release、代理可取用性）、root 与 `ethadapter` 的导出符号清单、apidiff 在 v0 阶段"严格门禁"与"预发布放宽"两种政策的影响 | 命令与输出可复现；不修改 `decisions.md` 状态行；结论写成待裁决项，不写成已决定 |
+| R7 决策 0057 前提复核证据包 | 已由决策 0065 的预发布 break 政策承接（2026-11-05） | 发布事实（tag、Release、代理可取用性）、唯一 root 导出符号清单、预发布窗口政策 | 政策正文见 decisions.md 0065；后续 v1 之前 break 遵循该政策 |
 | R8 发布与 canary 联动选项 | 独立，只出选项 | tag 时 release 不等待 canary 后果说明；2–3 个可选方案（workflow_run 触发 / 合并 job / 保持现状并登记）与各自代价 | 不改工作流行为；每个选项写明失败模式、证据来源与未验证项；结论写成待裁决项 |
 
 ### 执行顺序与接续规则
@@ -534,7 +551,7 @@ WSS 生产化决策，不在本阶段重开已冻结的 HTTP contract。需要�
 
 ## 第一阶段：逐方法对接
 
-目标是闭合每个已注册 read method 的 policy、root facade、ethadapter、typed projection、
+目标是闭合每个已注册 read method 的 policy、root facade、typed projection、
 错误形状和验证入口。当前注册表固定为 23 个方法；本阶段不新增 RPC 方法、不改变裁决
 语义、不修 reference policy 或 WSS。
 

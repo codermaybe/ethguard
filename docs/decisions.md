@@ -2615,3 +2615,78 @@ limits are recorded in `docs/design/roadmap-completion-report.md`.
 
 Rollback: remove explicit WSS configuration by constructing a new Client with
 the desired trust set. Never silently drop WSS members from a running Client.
+
+## 0065. One Client, Geth-shaped typed reads, and the pre-release break policy
+
+Status: Accepted and implemented (2026-11-05).
+
+`ethguard.Client` is the module's only public client. The `ethadapter`
+package, `Wrap`, `Unwrap` and every shim or alias surface are deleted with no
+deprecation window; the adapter's Geth-shaped methods, parameter conversion,
+request-answer binding and `RevertError` mapping moved onto the root Client
+verbatim. This supersedes the surface split of decisions 0011 and 0018: the
+call shapes they froze survive, their two-surface carrier does not. Decision
+0057's "no external consumers" premise is void — the pre-release policy below
+replaces it.
+
+The public typed surface is Geth-shaped per the frozen execution-plan matrix:
+`ChainID`, `BalanceAt`, `BlockByHash`, `BlockByNumber`, `BlockNumber`,
+`BlockReceipts(gethrpc.BlockNumberOrHash)`, `TransactionReceipt`,
+`TransactionByHash` (with the pending flag), `NonceAt`, `StorageAt`, `CodeAt`,
+`SuggestGasTipCap`, `SuggestGasPrice`, `CallContract`, `EstimateGas`,
+`FilterLogs`, `PeerCount`, `SyncProgress`, `FeeHistory(*ethereum.FeeHistory)`,
+`BlobBaseFee`, `NetworkID`, and the retained EthGuard extension
+`CreateAccessList` without decision evidence in its return value.
+`net_listening` has no typed method — its full decision comes from `Call`.
+The old decision-bearing typed methods are deleted; `Call` stays the generic
+decision entry. Classification keeps the EthGuard sentinel surface and
+fail-closed semantics: `ethereum.NotFound` for corroborated absence,
+`ErrConflict` under an unmet corroboration requirement, `RevertError` as a
+`gethrpc.DataError` that is not a `gethrpc.Error`.
+
+Evidence stays a four-layer API with no new parallel entry points: (1)
+typed classified errors on clean-value returns, (2) generic `Call` returning
+the full `rpc.Decision`, (3) opt-in invocation-scoped `WithUncertain` raw
+source material, (4) `observe.Recorder` events for audit and operations — the
+recorder is never a synchronous business return channel. No
+`*WithDecision`, `*WithEvidence` or `LastDecision` API exists.
+
+The typed corroboration requirement rides the invocation, not the context and
+not the request: typed facade methods aggregate through
+`aggregator.AggregateStrict`, which records the requirement when the
+invocation is built, and the resolution gate reads
+`Invocation.RequireCorroboration()`. `Call` never sets it. Forwarded mode and
+the pending-local route keep their exemptions. The `rpc.RequireCorroborated`
+context input is removed; `refcontext` keeps only the `Capture` that carries
+partial reference evidence on establishment failure.
+
+Construction gains the multi-source entries: `config.FromEndpoints` (errors
+carry the field path, endpoint index and a fix hint), root `Dial` (two or
+more distinct endpoints, default configuration, no implicit ChainID, lazy),
+`DialContext` (context bounds construction), `DialUncorroborated` (the
+explicit single-source Forwarded entry per 0030), `LoadFile`, and
+`WithChainID` with Go-option precedence. The anchor facade is query-only:
+the resolver injection aliases and constructors are deleted; `Client` owns
+its runtime-built resolver, and `AnchorBlockHashForTag` passes its tag
+explicitly.
+
+`gethcompat` and `internal/transport/geth` remain the explicit transport
+compatibility seam and nothing more: default construction does not link
+them, they cannot alter pool/Decision/reference/quorum semantics, they own no
+second typed decoder, and they do not reintroduce a second client surface.
+The frozen `BlockNumberOrHash` parameter makes the root facade link
+go-ethereum/rpc — and transitively gorilla/websocket — for the type only;
+the link gate pins that exception to go-ethereum's type surface while the
+WSS production path stays absolute.
+
+Pre-release break policy: until the first stable (v1) release, a beta or
+minor-version increment may break the public API without a deprecation
+window, provided the break lands in the release notes with a migration note
+and the release gate passes. Decision 0057's no-consumer rationale no longer
+applies, so post-v1 breaks follow ordinary semver with a deprecation window.
+
+Behavioral evidence: the root typed suite (`typed_*_test.go`), the
+architecture interlocks (`TestArchitectureDependencyInterlock`,
+`TestDefaultBuildExcludesEthclient`), the corroboration-gate replay fixtures
+(`TestReplayTypedReadGateRejectsUncorroboratedCall`), and the verification
+integration matrix.

@@ -22,7 +22,7 @@ EthGuard 是一个平权多源 Ethereum RPC 客户端。来源按本次调用的
 
 ```mermaid
 flowchart LR
-    A[ethadapter / root Client] --> B[aggregator]
+    A[root Client] --> B[aggregator]
     B --> C[pool collection]
     C --> D[raw source emissions]
     D --> E[internal/jsonsafe]
@@ -61,9 +61,10 @@ collect → bounded JSON validation → method admission → method normalizatio
 
 根包不承载来源连接细节，也不承载具体 Ethereum wire 字段表。
 
-### `ethadapter`
+### root Client（唯一公开表面）
 
-只负责 ethclient-shaped API 和输入输出形状转换。它必须委托根客户端能力，不得建立第二套 decoder、anchor 或 Quorum 管线。
+Geth-shaped 类型化读取、通用 `Call`、anchor 查询、写入广播与多源构造全部在
+`ethguard.Client` 上；无第二个 client 表面。
 
 ### `pool`
 
@@ -96,7 +97,7 @@ collect → bounded JSON validation → method admission → method normalizatio
 - `internal/runtime`：唯一 Composition Root，集中方法 policy registry、
   projector、aggregator 与 seam 的生产装配；
 - `internal/typed`：唯一生产 typed decoder/projection，root facade 与
-  `ethadapter` 共用；
+  root facade 的类型化读取共用；
 - `internal/verification`：面向公开 seam 的跨模块验证（当前含
   `integration`，后续按 contracts/scenarios/replay 细分）；生产代码不得导入；
 - `internal/jsonsafe`：统一 bounded JSON 输入检查；不包含 RPC 或 Ethereum 业务知识；

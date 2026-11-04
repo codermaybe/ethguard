@@ -9,7 +9,7 @@
 ```
 cmd/* 与 internal/{livecanary,shapeprobe,rpcsample}  ──导入──▶  核心运行时
 核心运行时（root、rpc、rpc/methods、pool、aggregator、
-ethadapter、internal/runtime、internal/reference、
+internal/runtime、internal/reference、
 config、observe、gethcompat、internal/transport、internal/typed） ──✗──▶ 工具/证据包
 ```
 

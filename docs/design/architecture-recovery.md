@@ -53,7 +53,7 @@ internal/runtime（方法、projector、aggregator 的唯一生产装配）
     ├── internal/reference + Head-Reading Port
     └── internal/typed
 
-ethadapter ──单向委托──> root facade
+root facade（唯一 Client）──唯一组合──> internal/runtime
 internal/verification ──消费公开 seam──> production Modules
 ```
 
@@ -131,18 +131,19 @@ reference 复用。
 
 - block、receipt、transaction 等对象解码；
 - Decision.Value 到公开 Go 类型的投影；
-- root facade 和 ethadapter 共用同一实现。
+- root facade 的类型化读取与 Decision 入口共用同一实现。
 
 不引入公共 `TypedValue`。每个方法继续保留自己的 concrete return type。
 
-### ethadapter
+### root facade（唯一 Client）
 
-`ethadapter` 只做 ethclient-shaped 调用形状和返回形状转换：
+`ethguard.Client` 是唯一公开 client：Geth-shaped 类型化读取（含负 block
+number 映射、EIP-1898、请求-响应绑定）、RevertError 错误形状、通用 `Call`
+决策入口和多源构造入口都在它上面：
 
-- 不直接访问 `internal/runtime`；
-- 不维护第二套 decoder；
-- 不做 quorum、admit、conflict 或 reference 选择；
-- 需要高级能力时通过 root Client 的 `Unwrap` 暴露。
+- 类型解码只发生在 `internal/typed`；
+- 业务裁决只在 root runtime（internal/runtime 装配的 pipeline）；
+- 不存在 shim、别名包或 deprecated re-export。
 
 ### verification
 
@@ -174,7 +175,7 @@ replay/
 4. Value 是方法契约定义的聚合结果，不是代表源原文伪装；
 5. adapter 不拥有业务裁决；
 6. Transport、Head-Reading、Typed 三个 seam 可以替换实现而无需改变调用方；
-7. root facade 和 ethadapter 不产生第二套语义路径；
+7. root facade 不产生第二套语义路径；
 8. provider-backed evidence 不写成 consensus、canonicality 或 finality；
 9. 测试默认离线，不把 live 结果写入 capture、golden 或 testdata。
 

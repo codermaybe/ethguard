@@ -4,7 +4,7 @@
 Registered read 方法的 ReadPlan、resolver、admission、reference、pending、
 projector、typed path 与证据指针，逐项来自
 `rpc/methods/spec_inventory.go`、`rpc/methods/catalog.go`、根 facade 与
-`ethadapter` 的当前代码。本文只登记现状，不新增方法、不改变裁决语义。**
+根包的当前代码。本文只登记现状，不新增方法、不改变裁决语义。**
 
 ## 0. 归属规则（验收前提）
 
@@ -29,34 +29,34 @@ projector、typed path 与证据指针，逐项来自
 约定：resolver `strict`（单值共识路径）/`median`（数值中位数）/
 `local`（本地观察）/`call-revert`（revert 语义感知）；admission `—` 表示
 仅默认 wire 校验；reference/pending 列为 spec 声明；projector 为观察投影
-ID；typed path 列出 root facade 入口与 ethadapter（ethclient 形状）入口，
-`通用 Call` 表示仅经 `Client.Call`/ethadapter `Call` 到达。
+ID；typed path 列出 root facade 的类型化入口，
+`通用 Call` 表示仅经 `Client.Call` 到达。
 
-| 方法 | resolver | normalize/encode | admission | reference | pending | projector | ethadapter typed | root facade typed |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `eth_chainId` | strict | quantity | — | — | — | — | `ChainID` | `ChainID` |
-| `eth_blockNumber` | median | quantity | — | — | — | — | `BlockNumber` | `BlockNumber` |
-| `eth_gasPrice` | median | quantity | — | — | — | — | `SuggestGasPrice` | `GasPrice` |
-| `eth_maxPriorityFeePerGas` | median | quantity | — | — | — | — | `SuggestGasTipCap` | `MaxPriorityFeePerGas` |
-| `eth_blobBaseFee` | median | quantity | — | — | — | — | — | `BlobBaseFee` |
-| `net_version` | strict | decimal string | — | — | — | — | — | `NetVersion` |
-| `net_peerCount` | local | folded quantity | — | — | — | — | `PeerCount` | `PeerCount` |
-| `net_listening` | local | canonical bool | — | — | — | — | — | `Listening` |
-| `eth_syncing` | local | progress object | — | — | — | — | `SyncProgress` | `Syncing` |
-| `eth_getBalance` | strict | quantity | — | hash@pos1 (EIP-1898) | observe pos1 | scalar-standard | `BalanceAt` | 通用 Call |
-| `eth_getTransactionCount` | strict | quantity | — | hash@pos1 (EIP-1898) | observe pos1 | — | `NonceAt` | 通用 Call |
-| `eth_getStorageAt` | strict | storage word | — | hash@pos2 (EIP-1898) | observe pos2 | — | `StorageAt` | 通用 Call |
-| `eth_getCode` | strict | hex data | — | hash@pos1 (EIP-1898) | observe pos1 | — | `CodeAt` | 通用 Call |
-| `eth_call` | call-revert | call outcome | — | hash@pos1 (EIP-1898) | observe pos1 | scalar-standard | `CallContract` | 通用 `Call` |
-| `eth_estimateGas` | median | quantity | — | hash@pos1 (EIP-1898) | observe pos1 | — | `EstimateGas` | 通用 Call |
-| `eth_createAccessList` | strict | access list object | — | hash@pos1 (EIP-1898) | observe pos1 | — | — | `CreateAccessList` |
-| `eth_getBlockByHash` | block | block identity | block admission | — | — | block | `BlockByHash` | `BlockByHash` |
-| `eth_getBlockByNumber` | block | block identity | block admission | — | observe pos0 | block | `BlockByNumber`（含负数分支） | 通用 Call |
-| `eth_getTransactionByHash` | strict | tx object | tx admission | — | — | transaction | `TransactionByHash` | `TransactionByHash` |
-| `eth_getTransactionReceipt` | strict | receipt object | receipt admission | — | — | receipt | `TransactionReceipt` | `TransactionReceipt` |
-| `eth_getBlockReceipts` | strict | block receipt list | block-receipts admission | hash@pos0 | refuse pos0 | block-receipts | `BlockReceipts` | `BlockReceipts` |
-| `eth_getLogs` | strict | logs list | logs admission | height fields@param0 | refuse pos0 | logs | `FilterLogs` | 通用 Call |
-| `eth_feeHistory` | strict | fee history object | request+response admission | height@pos1 | observe pos1 | fee-history | — | `FeeHistory` |
+| 方法 | resolver | normalize/encode | admission | reference | pending | projector | root typed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `eth_chainId` | strict | quantity | — | — | — | — | `ChainID` |
+| `eth_blockNumber` | median | quantity | — | — | — | — | `BlockNumber` |
+| `eth_gasPrice` | median | quantity | — | — | — | — | `SuggestGasPrice` |
+| `eth_maxPriorityFeePerGas` | median | quantity | — | — | — | — | `SuggestGasTipCap` |
+| `eth_blobBaseFee` | median | quantity | — | — | — | — | `BlobBaseFee` |
+| `net_version` | strict | decimal string | — | — | — | — | `NetworkID` |
+| `net_peerCount` | local | folded quantity | — | — | — | — | `PeerCount` |
+| `net_listening` | local | canonical bool | — | — | — | — | —（通用 `Call`） |
+| `eth_syncing` | local | progress object | — | — | — | — | `SyncProgress` |
+| `eth_getBalance` | strict | quantity | — | hash@pos1 (EIP-1898) | observe pos1 | scalar-standard | `BalanceAt` |
+| `eth_getTransactionCount` | strict | quantity | — | hash@pos1 (EIP-1898) | observe pos1 | — | `NonceAt` |
+| `eth_getStorageAt` | strict | storage word | — | hash@pos2 (EIP-1898) | observe pos2 | — | `StorageAt` |
+| `eth_getCode` | strict | hex data | — | hash@pos1 (EIP-1898) | observe pos1 | — | `CodeAt` |
+| `eth_call` | call-revert | call outcome | — | hash@pos1 (EIP-1898) | observe pos1 | scalar-standard | `CallContract` |
+| `eth_estimateGas` | median | quantity | — | hash@pos1 (EIP-1898) | observe pos1 | — | `EstimateGas` |
+| `eth_createAccessList` | strict | access list object | — | hash@pos1 (EIP-1898) | observe pos1 | — | — |
+| `eth_getBlockByHash` | block | block identity | block admission | — | — | block | `BlockByHash` |
+| `eth_getBlockByNumber` | block | block identity | block admission | — | observe pos0 | block | `BlockByNumber`（含负数分支） |
+| `eth_getTransactionByHash` | strict | tx object | tx admission | — | — | transaction | `TransactionByHash` |
+| `eth_getTransactionReceipt` | strict | receipt object | receipt admission | — | — | receipt | `TransactionReceipt` |
+| `eth_getBlockReceipts` | strict | block receipt list | block-receipts admission | hash@pos0 | refuse pos0 | block-receipts | `BlockReceipts` |
+| `eth_getLogs` | strict | logs list | logs admission | height fields@param0 | refuse pos0 | logs | `FilterLogs` |
+| `eth_feeHistory` | strict | fee history object | request+response admission | height@pos1 | observe pos1 | fee-history | `FeeHistory` |
 
 写路径（非本表 read 范围）：`eth_sendRawTransaction` 走统一 Source 固定成员
 `Broadcast`（root `SendRawTransaction` / `SendTransaction`；决策 0064），
@@ -97,7 +97,7 @@ ID；typed path 列出 root facade 入口与 ethadapter（ethclient 形状）入
   分级、不用合成 capture 关 provider gap、不提交公共网络交易、未观察项
   显式标记。provider evidence 不改变 method semantics、quorum 或
   threshold。
-- **H7 完整替代出口**：逐项核对——23/23 稳定 ReadPlan ✅；root/ethadapter/
+- **H7 完整替代出口**：逐项核对——23/23 稳定 ReadPlan ✅；root/
   typed 路径逐项可运行 ✅；HTTP 与 WSS 共用同一业务语义（同一 rpcwire/
   ReadPlan；WSS wire 已自有化，2026-11-03）✅；错误类别、NotFound、
   pending、EIP-1898、presence、typed projection 有测试 ✅；legacy

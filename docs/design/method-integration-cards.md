@@ -1,7 +1,7 @@
 # 方法对接卡片（23 个 RegisteredMethod）
 
 状态：**卡片已建立（2026-10-31）**。本文件按业务语义为每个已注册
-read 方法维护一张对接卡片，记录 root、ethadapter、typed、错误、pending、
+read 方法维护一张对接卡片，记录 root、typed、错误、pending、
 EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语义，也不把
 离线测试或进程内样本升级为 provider 兼容性结论。
 
@@ -383,13 +383,13 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 | 边界 | 当前事实 | 证据/位置 |
 | --- | --- | --- |
 | revert data | `eth_call` 双维语义；missing/null 弃权，`0x`/具体 data 断言 | 决策 0039/0052/0061；sample 2026-09-23；WSS 2026-10-31 |
-| pending | observe vs refuse 由方法声明；typed pending 有明确拒绝 | `moving-tag-matrix.md`；`ethadapter/pending_wire_test.go` |
+| pending | observe vs refuse 由方法声明；typed pending 有明确拒绝 | `moving-tag-matrix.md`；根包 `typed_pending_wire_test.go` |
 | EIP-1898 object | balance/nonce/storage/code/call/estimate/createAccessList 支持 | `Specs()` 的 `ReferenceSpec.EIP1898`；2026-10-31 latest object 4/4；历史 block 18,000,000 的 blockNumber object 4/4，balance 的 blockHash object 4/4；createAccessList 的 blockHash object（requireCanonical false/true）4/4；其他高度仍按 provider archive 策略 |
 | `eth_blobBaseFee` 支持面 | 方法存在但 provider 支持不一致 | 2026-10-21 sample；2026-10-31 2/4 成功、1 free-plan、1 策略拒绝 |
 | `eth_getBlockByNumber` hash 位置 | 不是通用能力 | soak 3/4 拒收；2026-10-31 3 明确拒收 + 1 限流；同日定向 probe 4/4 拒收 |
 | 完整区块内容 | 历史 block 18,000,000 header/full 4/4；22 个顶层字段、94 笔交易、16 withdrawals、0 uncles；full 交易对象字段存在 provider 差异 | 2026-10-31 定向 probe；决策 0019 内容承诺仍未完成 uncle 样本验证 |
 | NotFound | block/receipt/tx/blockReceipts 的 corroborated null → `ethereum.NotFound` | `internal/typed/decoder.go` |
-| 负 block number | adapter `-1` 拒绝；`-2/-3/-4` 各自建立参考；`-5` 为 earliest | `ethadapter/block_number_negative_test.go` |
+| 负 block number | 类型化 `-1` 本地拒绝；`-2/-3/-4` 各自建立参考；`-5` 为 earliest | 根包 `typed_block_number_test.go` |
 | `requireCanonical` | 不在当前接口；显式 hash/height 绑定由方法 admission 负责 | `spec-baseline.md` 缺口分类 |
 | 错误形状 | `ErrConflict`/`ErrNoValidResponse`/`ErrMalformedResponse`/`ErrInvalidRequest`；HTTP/WSS presence 分层 | `rpc/errors.go`、决策 0056 |
 
@@ -426,7 +426,7 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
   生产代码；
 - provider 证据只能登记 capture/replay/live 的日期与等级，不能用离线测试
   或合成样本替代；
-- 卡片中的“支持/root-only”状态以 `ethadapter` 公开方法为准；新增 adapter
+- 卡片中的“支持/root-only”状态以 `ethguard.Client` 公开方法为准；新增公开方法
   方法需要独立切片；
 - 本文件不改变 Decision、quorum、reference、typed 或方法数量。
 

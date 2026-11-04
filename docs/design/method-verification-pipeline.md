@@ -99,7 +99,7 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
   1. 不支持的 pending 请求（如 `BlockByNumber(-1)`、`eth_getLogs` 的 pending 范围、`eth_getBlockReceipts` 的各种 pending 形态）必须在本地立即返回 `ErrInvalidRequest`；
   2. 本地拒绝必须零开销：不发起上游请求，不触发 anchor；
   3. 本地拒绝记为 `failed` 事件，`Decision.Status` 为 `Unknown`，不得带成功置信状态。
-- **代码实现**：`rpc/methods/*_test.go`、`ethadapter/*_test.go`。
+- **代码实现**：`rpc/methods/*_test.go`、根包 `typed_*_test.go`。
 
 ### 阶段 4：异构报文归一与内容解耦（Wire Normalization & Pruning）
 - **依据**：各节点返回的原始 JSON。
