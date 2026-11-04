@@ -221,11 +221,12 @@ jobs:
         with:
           version: v2.6.2
 
-  # Report-only: found vulnerabilities open a ticket, they do not fail CI.
-  # Weekly cadence so the dashboard stays meaningful without PR latency.
+  # Report-only on every CI run: public packages should surface known
+  # vulnerabilities before the next weekly schedule, but findings do not
+  # block this beta line while the baseline is being established.
   govulncheck:
     name: govulncheck (report-only)
-    if: github.event_name == 'schedule'
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -237,12 +238,14 @@ jobs:
           go-version-input: ''
           go-version-file: go.mod
 
-  # Report-only dead-code inventory. Library exports are normally unreachable
-  # from tests (external consumers reach them): findings only count when they
-  # land in internal packages — those get an entry in the decision ledger.
+  # Weekly report-only dead-code inventory. Library exports are normally
+  # unreachable from tests because external consumers reach them, so running
+  # this on every push would add noise without acting as a correctness gate.
+  # The tool is pinned to keep the scheduled job compatible and reproducible.
   deadcode:
     name: deadcode inventory (report-only)
     if: github.event_name == 'schedule'
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -250,6 +253,6 @@ jobs:
         with:
           go-version-file: go.mod
       - name: install deadcode
-        run: go install golang.org/x/tools/cmd/deadcode@latest
+        run: go install golang.org/x/tools/cmd/deadcode@v0.41.0
       - name: unreachable funcs
         run: ~/go/bin/deadcode -test ./...

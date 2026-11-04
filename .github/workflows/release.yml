@@ -49,28 +49,52 @@ jobs:
       - name: smoke test (race)
         run: go test -race ./...
 
-      # Public-surface guard, informed by the previous tag (v0 chain only):
-      # `ethguard` and `ethguard/ethadapter` are typed API promises; the
-      # command prints incompatible changes and fails the release on any.
-      # Only wired for major version zero, where INCOMPATIBLE reports can
-      # legitimately occur alongside minor bumps.
+      # Public-surface guard, informed by the previous tag. The first tag has
+      # no comparison basis and therefore skips before installing the tool.
+      # Pin apidiff for reproducibility. It currently requires Go 1.26, so this
+      # isolated release step permits Go's toolchain selection instead of
+      # changing the project's Go 1.25.3 build and test baseline.
       - name: apidiff vs previous tag
+        env:
+          APIDIFF_VERSION: v0.0.0-20261014143641-f0251eb4aa3e
+          GOTOOLCHAIN: auto
+          MODULE_PATH: github.com/codermaybe/ethguard
         run: |
           set -euo pipefail
-          go install golang.org/x/exp/cmd/apidiff@latest
           prev_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
           if [ -z "${prev_tag}" ]; then
             echo "no previous tag; first release, skipping apidiff"
             exit 0
           fi
+
+          tool_dir="${RUNNER_TEMP}/tools"
+          old_tree="${RUNNER_TEMP}/ethguard-${prev_tag}"
+          mkdir -p "${tool_dir}"
+          GOBIN="${tool_dir}" go install "golang.org/x/exp/cmd/apidiff@${APIDIFF_VERSION}"
+          git worktree add --detach "${old_tree}" "refs/tags/${prev_tag}"
+          trap 'git worktree remove --force "${old_tree}"' EXIT
+
           for pkg in . ethadapter; do
-            go run golang.org/x/exp/cmd/apidiff \
-              -pkg "${pkg}" \
-              -from "refs/tags/${prev_tag}" -to "HEAD" || {
-                echo "::error::INCOMPATIBLE public API change in ${pkg} since ${prev_tag}"
-                echo "If intended, bump the major path per Go module semver; if not, revert."
-                exit 1
-              }
+            package_path="${MODULE_PATH}"
+            package_dir="."
+            artifact_name="root"
+            if [ "${pkg}" != "." ]; then
+              package_path="${MODULE_PATH}/${pkg}"
+              package_dir="${pkg}"
+              artifact_name="${pkg}"
+            fi
+
+            (
+              cd "${old_tree}/${package_dir}"
+              "${tool_dir}/apidiff" -w "${RUNNER_TEMP}/${artifact_name}-old.api" "${package_path}"
+            )
+            (
+              cd "${GITHUB_WORKSPACE}/${package_dir}"
+              "${tool_dir}/apidiff" -w "${RUNNER_TEMP}/${artifact_name}-new.api" "${package_path}"
+            )
+            "${tool_dir}/apidiff" -incompatible \
+              "${RUNNER_TEMP}/${artifact_name}-old.api" \
+              "${RUNNER_TEMP}/${artifact_name}-new.api"
           done
 
       - name: cross-compile

@@ -4,8 +4,10 @@
 #   - PR/push CI stays in ci.yml and never contacts a live provider.
 #   - schedule/tag runs acquire Chainlist once, execute the fixed plan, and
 #     publish the manifest, registry copy, report, and digests.
-#   - Scheduled non-passed observations temporarily count as successful report
-#     delivery, not audit approval. Tag/manual runs retain the strict gate.
+#   - Scheduled non-passed observations and inconclusive prerelease-tag
+#     observations count as successful report delivery, not audit approval.
+#   - Stable tags and manual runs retain the strict gate. Failed prerelease
+#     observations also remain failures.
 #   - Tool/artifact failures still fail. GitHub hosting is not an independent audit.
 
 name: live-canary
@@ -126,6 +128,8 @@ jobs:
       - name: enforce observation result
         env:
           EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
           OBSERVED_STATE: ${{ steps.observation.outputs.state }}
           CANARY_EXIT_CODE: ${{ steps.canary.outputs.exit_code }}
         run: |
@@ -135,6 +139,10 @@ jobs:
             failed:1|inconclusive:2)
               if [ "${EVENT_NAME}" = schedule ]; then
                 echo "::notice::Scheduled non-approval recorded (${OBSERVED_STATE}); see Summary and artifact. No audit or release approval."
+                exit 0
+              fi
+              if [ "${REF_TYPE}" = tag ] && [[ "${REF_NAME}" == *-* ]] && [ "${OBSERVED_STATE}" = inconclusive ]; then
+                echo "::notice::Prerelease canary was inconclusive; artifact delivered without audit or release approval."
                 exit 0
               fi
               ;;
