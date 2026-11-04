@@ -204,6 +204,27 @@ basis」。测试框架若允许个人端点进入证据链，等于把「某人
 顺序 1–3 全部离线、零新依赖，应先行；顺序 4 只有出现「本地 fixture 无法回答的
 具名问题」时才启动。
 
+### 9.1 当前实现状态（2026-11-04）
+
+截至本次审计，顺序 1–3 只有部分验收项落地；不得标记这些顺序或整个框架为完成：
+
+- HTTP 故障测试位于 `aggregator/external_rpc_http_scenarios_test.go`，覆盖 malformed JSON、真实 HTTP body 中途 EOF、429/限流能力、error-data missing/null/empty/value、vendor 扩展字段和取消中的请求；异常 Decision 与 source fault 均有断言。
+- HTTP 延迟/deadline 场景位于 `internal/transport/http/delayed_response_synctest_test.go`，使用 Go 1.25 标准库 `testing/synctest` 的假时钟固定 deadline 分类，并断言底层 RoundTripper 已观察到请求取消、没有产生业务结果。该测试已连续运行 `-count=200`，不依赖真实睡眠。
+- WSS 独立实现交叉校验位于 `internal/transport/wss/gorilla_interop_test.go`，检查握手、JSON-RPC id、方法、两个参数值及响应解码。`gorilla/websocket v1.5.3` 已提升为 go.mod 直接测试依赖，生产 WSS 导入/依赖门不变。
+- 定时 fuzz job 只在 schedule 运行，现覆盖仓库全部 11 个原生 fuzz 函数（JSON safety、response decoder、WSS 两个 frame targets、六个 RPC object encoder、wire normalizer），每个预算 30 秒。定时 job 尚无实际运行结果；本地 smoke 不能替代该退出条件。
+- WSS 已有生命周期与帧 contract 测试，但本轮尚未把相关时间敏感场景改为 `testing/synctest`；既有测试仍含真实睡眠/定时等待，因此顺序 2 仍未满足增补件 §3 和 §9 的全部要求，外部 RPC 测试框架整体不得标记为完成。
+
+本轮实际验证与审计补充：
+
+- `go test ./aggregator -run '^TestExternalRPCHTTP' -race -count=20`：通过。
+- `go test ./internal/transport/wss -run 'TestGorillaInteroperability|TestWireLayerLinkGraph|TestNoThirdPartyWebSocketLibraryEntersTheWireLayer' -race -count=10`：通过；另见完整包 race 复核结果后补记。
+- 原报告的四个 fuzz target 各 2 秒 smoke 通过；本次补跑其余七个 target 各 2 秒，结果见本记录最终验证条目。schedule 30 秒 job 尚未实际运行。
+- `go test ./... -count=1 -timeout=300s`、`go vet ./...`、架构/default-build interlock：本次均通过。
+- `go mod tidy -diff`：修正 gorilla 依赖分组后通过。
+- `go test ./internal/transport/http -run 'TestDelayedResponseDeadlineUsesFakeTimeAndCancelsRequest|TestNativeContextPrecedence|TestNativeHTTPStatusContextPrecedence' -race -count=200 -timeout=180s`：通过。
+
+顺序 4（Anvil 离线 fixture）仍按停止规则保持未启动：当前本地 fixture 尚无必须由 Anvil 回答的具名问题，不能将未运行记为通过。主文档 §10 所需 Anvil 场景和完整证据矩阵仍未完成；本轮仅交付离线顺序的增量部分。
+
 ---
 
 ## 10. 停止规则（沿用主文档 §10 并追加）

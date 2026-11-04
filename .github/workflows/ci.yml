@@ -221,22 +221,19 @@ jobs:
         with:
           version: v2.6.2
 
-  # Report-only on every CI run: public packages should surface known
-  # vulnerabilities before the next weekly schedule, but findings do not
-  # block this beta line while the baseline is being established.
+  # Reachable vulnerabilities are a release gate. The repository-owned script
+  # pins the scanner version so @latest cannot silently raise the Go toolchain
+  # requirement, and keeps local preflight and CI behavior identical.
   govulncheck:
-    name: govulncheck (report-only)
-    continue-on-error: true
+    name: govulncheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: golang/govulncheck-action@v1
-        with:
-          go-version-input: ''
-          go-version-file: go.mod
+      - name: Scan reachable vulnerabilities
+        run: ./scripts/govulncheck.sh
 
   # Weekly report-only dead-code inventory. Library exports are normally
   # unreachable from tests because external consumers reach them, so running
