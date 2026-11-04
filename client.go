@@ -276,7 +276,7 @@ func (c *Client) AnchorBlockHashForTag(ctx context.Context, tag string) (string,
 	default:
 		return "", fmt.Errorf("ethguard: anchor tag %q is not an anchorable moving tag: %w", tag, rpc.ErrInvalidRequest)
 	}
-	ref, err := resolveReference(rpc.WithAnchorTag(ctx, lowered), c.resolver, lowered)
+	ref, err := resolveReference(ctx, c.resolver, lowered)
 	ref.Tag = lowered
 	refcontext.Publish(ctx, ref)
 	if err == nil && ref.Status != rpc.Corroborated {

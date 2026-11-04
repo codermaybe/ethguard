@@ -47,7 +47,7 @@ func TestPendingAgreementIsSelectedNotCorroborated(t *testing.T) {
 }
 
 // TestPendingViaAdapterSucceedsDespiteCorroborationGate proves the adapter's
-// RequireCorroborated context does not reject a pending-local Selected
+// The typed corroboration requirement does not reject a pending-local Selected
 // result: the corroboration gate applies to mined reads, not to pending
 // observations.
 func TestPendingViaAdapterSucceedsDespiteCorroborationGate(t *testing.T) {

@@ -182,7 +182,7 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 		members:       members,
 		capture:       capture,
 	}
-	state.ctx, state.invocation = beginInvocation(state.ctx, snap, snapOK, members, uncertain.FromContext(ctx), requireCorroboration)
+	state.invocation = beginInvocation(snap, snapOK, members, uncertain.FromContext(ctx), requireCorroboration)
 
 	if exit := a.planPreparePhase(state, started, req); exit != nil {
 		return exit.decision, exit.err
