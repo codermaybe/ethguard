@@ -80,8 +80,7 @@ func (c *Client) requireContext(ctx context.Context) context.Context {
 // ChainID returns the fleet-corroborated chain ID.
 func (c *Client) ChainID(ctx context.Context) (*big.Int, error) {
 	ctx = c.requireContext(ctx)
-	id, _, err := c.eg.ChainID(ctx)
-	return id, err
+	return c.eg.ChainID(ctx)
 }
 
 // BalanceAt returns the corroborated balance of account at blockNumber; nil
@@ -103,8 +102,7 @@ func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNum
 // BlockByHash returns the corroborated block with the given hash.
 func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
 	ctx = c.requireContext(ctx)
-	block, _, err := c.eg.BlockByHash(ctx, hash, true)
-	return block, err
+	return c.eg.BlockByHash(ctx, hash)
 }
 
 // BlockByNumber returns the corroborated block at number. nil and explicit
@@ -177,8 +175,7 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 // content, so no anchoring or freshness machinery applies.
 func (c *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
 	ctx = c.requireContext(ctx)
-	receipt, _, err := c.eg.TransactionReceipt(ctx, txHash)
-	return receipt, err
+	return c.eg.TransactionReceipt(ctx, txHash)
 }
 
 // TransactionByHash returns the fleet-corroborated transaction for txHash and
@@ -347,8 +344,7 @@ func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber
 // a variable result resolved by robust selection, never claimed corroborated.
 func (c *Client) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
 	ctx = c.requireContext(ctx)
-	tip, _, err := c.eg.MaxPriorityFeePerGas(ctx)
-	return tip, err
+	return c.eg.SuggestGasTipCap(ctx)
 }
 
 // blockRefArg converts go-ethereum's BlockNumberOrHash into the plain
@@ -385,8 +381,7 @@ func blockRefArg(blockNrOrHash gethrpc.BlockNumberOrHash) (string, error) {
 // result resolved by robust selection, never claimed corroborated.
 func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 	ctx = c.requireContext(ctx)
-	price, _, err := c.eg.GasPrice(ctx)
-	return price, err
+	return c.eg.SuggestGasPrice(ctx)
 }
 
 // CallContract returns the fleet-corroborated result of executing msg at
@@ -581,16 +576,14 @@ func toFilterArg(q ethereum.FilterQuery) (map[string]any, error) {
 // PeerCount returns one healthy source's count of its own peers.
 func (c *Client) PeerCount(ctx context.Context) (uint64, error) {
 	ctx = c.requireContext(ctx)
-	count, _, err := c.eg.PeerCount(ctx)
-	return count, err
+	return c.eg.PeerCount(ctx)
 }
 
 // SyncProgress reports the consulted source's sync state; nil means it
 // considers itself fully synced.
 func (c *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, error) {
 	ctx = c.requireContext(ctx)
-	progress, _, err := c.eg.Syncing(ctx)
-	return progress, err
+	return c.eg.SyncProgress(ctx)
 }
 
 // blockAt fetches and strictly compares one block identified explicitly by

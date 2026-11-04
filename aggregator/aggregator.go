@@ -142,6 +142,21 @@ type invocationResolution struct {
 // Resolve → Project. A moving-tag read's establishment rounds run inside the
 // same invocation — one ID, one frozen basis, no nested aggregate.
 func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decision, error) {
+	return a.aggregate(ctx, req, false)
+}
+
+// AggregateStrict is the typed facade's entry point. It records the
+// corroboration requirement on the invocation itself — not on the request,
+// not on the context — so the resolved value of a determinism-claiming read
+// must be Corroborated or the call fails closed. The requirement is
+// invocation-scoped: it is set when the invocation is built here and read
+// once at resolution; Forwarded mode and the pending-local route keep their
+// documented exemptions (see resolveValue).
+func (a *Aggregator) AggregateStrict(ctx context.Context, req rpc.Request) (rpc.Decision, error) {
+	return a.aggregate(ctx, req, true)
+}
+
+func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorroboration bool) (rpc.Decision, error) {
 	started := time.Now()
 	ctx, uncertainDone := uncertain.Begin(ctx)
 	defer uncertainDone()
@@ -167,7 +182,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		members:       members,
 		capture:       capture,
 	}
-	state.ctx, state.invocation = beginInvocation(state.ctx, snap, snapOK, members, uncertain.FromContext(ctx))
+	state.ctx, state.invocation = beginInvocation(state.ctx, snap, snapOK, members, uncertain.FromContext(ctx), requireCorroboration)
 
 	if exit := a.planPreparePhase(state, started, req); exit != nil {
 		return exit.decision, exit.err

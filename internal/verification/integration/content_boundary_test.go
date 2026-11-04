@@ -11,6 +11,9 @@ import (
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/ethereum/go-ethereum/core/types"
+	gethrpc "github.com/ethereum/go-ethereum/rpc"
+
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
@@ -36,7 +39,15 @@ func TestTypedRealHeaderRejectsAnotherBlocksContent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	block, decision, err := client.BlockByHash(ctx, common.HexToHash(emptyHead.Hash), false)
+	// Header-only block reads are a wire form of the generic entry now: the
+	// typed facade exposes the full-block read, so the test drives the same
+	// wire shape through Call and applies the header projection and hash
+	// binding the way the typed layer does.
+	decision, err := client.Call(ctx, methods.MethodGetBlockByHash, emptyHead.Hash, false)
+	var block *types.Block
+	if err == nil {
+		block, err = ethguard.DecodeBlockHeaderOnly(decision.Value)
+	}
 	if err != nil {
 		t.Fatalf("real empty header: %v", err)
 	}
@@ -44,15 +55,12 @@ func TestTypedRealHeaderRejectsAnotherBlocksContent(t *testing.T) {
 		t.Fatalf("status %v hash %s", decision.Status, block.Hash())
 	}
 
-	_, decision, err = client.BlockByHash(ctx, common.HexToHash(filledHead.Hash), false)
-	if !errors.Is(err, ethguard.ErrMalformedResponse) {
-		t.Fatalf("foreign header err = %v, want ethguard.ErrMalformedResponse", err)
+	_, typedErr := client.BlockByHash(ctx, common.HexToHash(filledHead.Hash))
+	if !errors.Is(typedErr, ethguard.ErrMalformedResponse) {
+		t.Fatalf("foreign header err = %v, want ethguard.ErrMalformedResponse", typedErr)
 	}
-	if errors.Is(err, ethguard.ErrConflict) || errors.Is(err, ethguard.ErrNoValidResponse) || errors.Is(err, ethguard.ErrInvalidRequest) {
-		t.Fatalf("foreign header swallowed as %v", err)
-	}
-	if decision.Status != rpc.Unknown {
-		t.Fatalf("typed failure status = %v, want Unknown", decision.Status)
+	if errors.Is(typedErr, ethguard.ErrConflict) || errors.Is(typedErr, ethguard.ErrNoValidResponse) || errors.Is(typedErr, ethguard.ErrInvalidRequest) {
+		t.Fatalf("foreign header swallowed as %v", typedErr)
 	}
 }
 
@@ -68,21 +76,23 @@ func TestTypedNullAndEmptyReceiptsStayDistinct(t *testing.T) {
 	defer cancel()
 	hash := common.HexToHash("0x" + repeatHex(32))
 
-	_, decision, err := client.BlockByHash(ctx, hash, false)
-	if !errors.Is(err, ethereum.NotFound) || decision.Status != rpc.Unknown {
-		t.Fatalf("block null = %v status %v", err, decision.Status)
+	// Corroborated absence maps to ethereum.NotFound at the typed boundary;
+	// the classified error travels without a decision (clean-value facade).
+	if _, err := client.BlockByHash(ctx, hash); !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("block null = %v, want NotFound", err)
 	}
-	_, decision, err = client.TransactionReceipt(ctx, hash)
-	if !errors.Is(err, ethereum.NotFound) || decision.Status != rpc.Unknown {
-		t.Fatalf("receipt null = %v status %v", err, decision.Status)
+	if _, err := client.TransactionReceipt(ctx, hash); !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("receipt null = %v, want NotFound", err)
 	}
-	_, decision, err = client.TransactionByHash(ctx, hash)
-	if !errors.Is(err, ethereum.NotFound) || decision.Status != rpc.Unknown {
-		t.Fatalf("tx null = %v status %v", err, decision.Status)
+	if _, _, err := client.TransactionByHash(ctx, hash); !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("tx null = %v, want NotFound", err)
 	}
-	receipts, decision, err := client.BlockReceipts(ctx, hash)
-	if err != nil || len(receipts) != 0 || decision.Status != rpc.Corroborated {
-		t.Fatalf("empty receipts = %v len %d status %v", err, len(receipts), decision.Status)
+	receipts, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(hash, false))
+	if err != nil || len(receipts) != 0 {
+		t.Fatalf("empty receipts = %v len %d", err, len(receipts))
+	}
+	if decision, err := client.Call(ctx, methods.MethodGetBlockReceipts, hash.Hex()); err != nil || decision.Status != rpc.Corroborated {
+		t.Fatalf("empty receipts decision = %v status %v, want corroborated", err, decision.Status)
 	}
 }
 
@@ -94,11 +104,9 @@ func TestTypedReceiptFromAnotherHashIsMalformed(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, decision, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+repeatHex(32)))
-	if !errors.Is(err, ethguard.ErrMalformedResponse) || decision.Status != rpc.Unknown {
-		t.Fatalf("err = %v status %v", err, decision.Status)
-	}
-	if errors.Is(err, ethguard.ErrConflict) || errors.Is(err, ethguard.ErrNoValidResponse) || errors.Is(err, ethereum.NotFound) {
+	if _, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+repeatHex(32))); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("err = %v, want ethguard.ErrMalformedResponse", err)
+	} else if errors.Is(err, ethguard.ErrConflict) || errors.Is(err, ethguard.ErrNoValidResponse) || errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("receipt impersonation swallowed as %v", err)
 	}
 }
