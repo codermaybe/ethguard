@@ -13,8 +13,8 @@ EthGuard 是一个面向多源 Ethereum JSON-RPC 的聚合客户端。它查询�
 状态和诊断证据字段的结果。
 
 EthGuard 优先考虑相对可靠性，而不是性能和低延迟。对于需要移动参考的读取，
-它会先建立一个由多个上游提供证据的共同参考，再评估业务响应。`ethguard/ethadapter`
-保持 `go-ethereum/ethclient` 的方法名、参数、返回类型和调用方式，因此普通调用
+它会先建立一个由多个上游提供证据的共同参考，再评估业务响应。`ethguard.Client`
+的类型化方法保持 `go-ethereum/ethclient` 的方法名、参数、返回类型和调用方式，因此普通调用
 可以保持相同形态，不需要调用方显式编排 anchor/confirm/read 流程。跨源一致性是
 provider 提供的证据，不是 Ethereum 共识、规范链证明、密码学最终性或轻客户端
 验证；多个 URL 也不代表彼此独立。
@@ -48,7 +48,7 @@ ethguard/                   # 公共 Client 外观
 │       └── policy/         # 共享准入装饰器
 ├── internal/
 │   ├── runtime/            # 唯一 Composition Root：plan、projector、aggregator 装配
-│   ├── typed/              # 唯一生产 typed projection；root 和 ethadapter 共用
+│   ├── typed/              # 唯一生产 typed projection；root 类型化读取共用
 │   ├── jsonsafe/           # 有界 JSON 校验（重复键/大小限制）
 │   ├── reference/          # reference 建立和 Head-Reading Port
 │   ├── refcontext/         # 每次调用的 reference 传播
@@ -68,7 +68,6 @@ ethguard/                   # 公共 Client 外观
 │   │   ├── geth/            # 显式 go-ethereum 兼容适配器
 │   │   └── contract/        # transport 无关的 L1 契约套件
 │   └── testkit/wstest/      # WSS 服务端测试对端
-├── ethadapter/             # 只委托 root facade 的 ethclient 形态接口
 ├── gethcompat/              # go-ethereum transport 的显式构造 seam
 ├── rpctest/                # 基于真实 HTTP 的进程内可编排 Ethereum 节点测试工具
 ├── cmd/                    # 可执行入口（含 wsscapture、livecanary）
@@ -79,7 +78,7 @@ ethguard/                   # 公共 Client 外观
 
 | 包 | 作用 |
 | --- | --- |
-| `ethguard/ethadapter` | 通过 root facade 提供支持方法的 ethclient 形态客户端 |
+| `ethguard` | 唯一公开 `Client`：Geth 形态类型化读取、通用调用、证据与写入 |
 | `ethguard` | 公共 `Client` facade、通用调用和证据 |
 | `ethguard/config` | Go 构造和 YAML 加载共用的一套配置模型 |
 | `ethguard/pool` | 共享上游连接、Transport Port、采集、健康度和准入资格 |
@@ -103,8 +102,8 @@ ethguard/                   # 公共 Client 外观
 时应由所有者调用 `Close`。
 
 分层规则：`internal/runtime` 是唯一 Composition Root，负责把方法清单编译成
-ReadPlan，并绑定 plan、projector、aggregator 和 reference seam；`ethadapter` 只
-委托 root facade，不导入 runtime。`aggregator` 消费 ReadPlan 以及 resolver/admission
+ReadPlan，并绑定 plan、projector、aggregator 和 reference seam；根 `Client` 是
+其上的唯一公开表面。`aggregator` 消费 ReadPlan 以及 resolver/admission
 接口，不导入 `methods`；`rpc` 也不导入 `methods`。Ethereum 方法入口和 MethodSpec
 清单位于 `rpc/methods`；共享的 wire 规范化、裁剪、对象语义和准入辅助位于
 `rpc/internal`。
@@ -120,17 +119,19 @@ ReadPlan，并绑定 plan、projector、aggregator 和 reference seam；`ethadap
 - **R3 – 数据而非生成代码。** `internal/spec` 保存固定的 execution-apis 参考数据
   （VERSION、精简的 `methods.json`、符合性向量），除了 embed accessor 外不包含
   手写逻辑。白名单树在 init 时由同一个 bundle 编译，测试也校验该 bundle；没有
-  生成 Go 代码和新鲜度缺口。生产 typed 解码位于 `internal/typed`，root 和
-  `ethadapter` 共用；严格的 requiredness 仍由各切片按 fork 手写。
+  生成 Go 代码和新鲜度缺口。生产 typed 解码位于 `internal/typed`，支撑根
+  `Client` 的类型化读取；严格的 requiredness 仍由各切片按 fork 手写。
 - **R4 – 清单互锁。** 测试确保 `catalog.go` 中的每个已注册方法都在
   `spec_tables.go` 中有 schema 映射。
-- **Anchor 分层。** 公共 anchor facade（`ReferenceResolver`、`StrictHeadAnchor`、
-  options）位于根目录 `anchor.go`；reference 算法和 Head-Reading Port 位于
-  `internal/reference`，调用内传播位于 `internal/refcontext`。
-- **两种类型化接口。** `eth.go`（根 `Client`）为高级调用方返回带有 `rpc.Decision`
-  证据的值；`ethadapter` 返回 ethclient 形态的值供直接替换使用。adapter 可以做
-  方法兼容性校验和请求绑定；类型解码仍由共享的 `internal/typed` 模块负责，业务裁决
-  仍由 root runtime 负责。
+- **Anchor 分层。** anchor facade 只查询：`Client` 拥有 runtime 构建的
+  resolver，并从根 `anchor.go` 暴露 `AnchorBlockHash`/`AnchorBlockHashForTag`/
+  `AnchorBlockHeight`；reference 算法和 Head-Reading Port 位于
+  `internal/reference`，调用内证据传播位于 `internal/refcontext`（`Capture`）。
+- **单一类型化接口、四层证据。** `ethguard.Client` 是唯一 client。其类型化方法
+  返回干净的 Geth 形态值和分类错误；四条证据通道相互独立：(1) 类型化分类错误，
+  (2) 返回完整 `rpc.Decision` 的通用 `Call`，(3) 按调用可选的 `WithUncertain`
+  原始 source 材料，(4) 审计与运维用的 `observe.Recorder` 事件。recorder 绝不是
+  同步业务返回通道。
 
 ### 执行模型与覆盖范围
 
@@ -142,10 +143,9 @@ ReadPlan，并绑定 plan、projector、aggregator 和 reference seam；`ethadap
 Validate / Prepare → Reference → Collect → Admit → Resolve → Project
 ```
 
-当前清单包含 23 个已注册读取方法。根 `Client` 提供带证据的类型化方法和通用
-`Call`；`ethadapter` 为支持的子集提供 ethclient 形态封装（当前 18 个方法形态入口）。
-`eth_getProof` 明确为 unsupported。计划已注册不代表真实 provider 的兼容性已经完成，
-provider 证据仍是独立轨道。
+当前清单包含 23 个已注册读取方法。根 `Client` 在该清单之上提供 Geth 形态的
+类型化方法和通用 `Call`。`eth_getProof` 明确为 unsupported。计划已注册不代表真实
+provider 的兼容性已经完成，provider 证据仍是独立轨道。
 
 旧的逐方法 Policy 构造器保留为 resolver seam、兼容表面和等价测试 oracle；它们不是
 默认 runtime registry，也不能形成第二个组合根。方法级编排已经计划化；strict、median、
@@ -206,14 +206,13 @@ endpoint，`DialContext` 的 context 只约束构造本身。
 go run ./examples/basic -config ./config.yaml
 ```
 
-`ethadapter` 是主要的支持方法接口，不是可有可无的演示。`Unwrap()` 暴露高级的
-`ethguard.Client`，用于通用 `Call`、裁决证据和 pool 检查。adapter 只对支持的子集
-提供保持方法形态的兼容性，并不声称实现完整的 `ethclient` 接口。
+`ethguard.Client` 是唯一的支持方法接口，不是可有可无的演示。通用 `Call`、完整
+裁决证据和 pool 检查都在同一个 client 上。类型化方法只对支持的子集提供保持方法
+形态的兼容性，并不声称实现完整的 `ethclient` 接口。
 
-确定性 adapter 读取需要库内部动态计算的交叉验证门槛：支持不足时返回 `ErrConflict`，
+确定性类型化读取需要库内部动态计算的交叉验证门槛：支持不足时返回 `ErrConflict`，
 因为这些方法不能向调用方暴露 `Selected`。在方法契约允许时，高级根 `Call` 仍会返回
-selected 状态。Median/local 方法保留其选择语义，未知方法继续转发。`Wrap` 与 `New`
-执行相同的安全检查。
+selected 状态。Median/local 方法保留其选择语义，未知方法继续转发。
 
 使用 finalized anchoring 时，不同上游的区块高度会被协调到一个共同高度。已经匹配的
 头会复用；否则通过一次有界的确认轮次补齐缺失响应。默认一致性要求第一轮的新鲜视图

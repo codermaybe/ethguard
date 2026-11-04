@@ -56,11 +56,8 @@ Adapter、依赖方向、验证拓扑和未来 seam；不定义文件迁移顺�
 
 ```text
 ethguard/
-├── client.go / eth.go / call.go / anchor.go / write.go / uncertain.go
-│   └── 公共 root facade：公开调用形状、Decision 入口；不持有具体装配细节
-│
-├── ethadapter/
-│   └── ethclient-shaped Adapter：只做调用形状转换，委托 root facade
+├── client.go / dial.go / eth.go / call.go / anchor.go / write.go / uncertain.go
+│   └── 唯一公开 Client：Geth 形态类型化读取、Decision 入口、多源构造；不持有具体装配细节
 │
 ├── config/
 │   └── 配置模型、校验和加载
@@ -146,8 +143,7 @@ Locality，不因为文件数量增长就按业务名词拆成大量浅层 packa
 
 | Module | 所有知识 | 对外 Interface | 不应拥有的知识 |
 | --- | --- | --- | --- |
-| root facade | 公共 Client 形状、Decision 入口 | root `Client` 方法 | 具体 transport、方法字段表、第二套装配 |
-| `ethadapter` | ethclient 调用形状 | ethclient-shaped methods | 第二套 decoder、第二套 quorum、业务裁决 |
+| root facade | 公共 Client 形状、Geth 调用形状、Decision 入口 | root `Client` 方法 | 具体 transport、方法字段表、第二套装配、第二套 decoder |
 | `internal/runtime` | 唯一组合与装配（方法 catalog、ReferenceStage、projector、aggregator） | root 构造器使用的内部入口 | 公共 API、方法字段语义、请求级执行状态 |
 | `pool` | 来源生命周期、健康度、调度和 Transport Port | Pool/Source 与 Transport Port | Ethereum 字段语义、裁决规则 |
 | `aggregator` | 单次调用的编排顺序和 evidence 装配 | Aggregate 与 collection Interface | 方法字段、Ethereum schema、具体 transport |
@@ -166,18 +162,17 @@ Locality，不因为文件数量增长就按业务名词拆成大量浅层 packa
    只需满足该 Interface。
 2. **Adapter 纯洁性**：Adapter 只负责外部协议对话、传输/形态校验和格式转换；不做
    admit、quorum、conflict 或其他业务裁决。
-3. **单向 facade**：`ethadapter` 只消费 root `ethguard.Client`，不与
-   `internal/runtime` 建立平行执行链。
+3. **唯一 Client**：`ethguard.Client` 是唯一公开 client；无 shim、无别名包、无
+   deprecated re-export。
 4. **唯一 Composition Root**：全库只有 `internal/runtime` 负责依赖组装；生产代码
    不绕过它建立第二套 Client。
-5. **唯一 typed 实现**：root facade 和 `ethadapter` 共享 `internal/typed`，不得各自
+5. **唯一 typed 实现**：root facade 的类型化读取共享 `internal/typed`，不得另行
    建立 decode 路径。
 
 ## 5. 允许的依赖方向
 
 ```mermaid
 flowchart TD
-    Adapter[ethadapter]
     RootFacade[Root facade: ethguard.Client]
     Runtime[internal/runtime 唯一 Composition Root]
     Pool[pool + Transport Port]
@@ -236,7 +231,7 @@ flowchart TD
 internal/verification/
 ├── contracts/     # 方法契约、准入、编码、typed 一致性
 ├── scenarios/     # 决策场景与字段生命周期矩阵
-├── integration/   # root facade、ethadapter、pool、aggregator 联合
+├── integration/   # root facade、pool、aggregator 联合
 └── replay/        # capture/golden 离线回放
 ```
 
@@ -275,8 +270,8 @@ HTTP、现有 geth client、未来 raw WSS 都是 Adapter。该 seam 不向 `agg
 
 `Decision.Value` 到公开 Go 类型的解码只有一个生产实现，位于 `internal/typed`。
 
-- root facade 可返回 Decision 和证据；
-- `ethadapter` 可隐藏证据，只返回 ethclient 形状；
+- root facade 的类型化方法返回干净的 Geth 形状值和分类错误，不携带 Decision；
+- 完整 Decision 证据走通用 `Call` 入口；
 - 两者调用同一 typed implementation；
 - 各方法继续保留自己的具体 Go 返回类型，不预先引入泛化 `TypedValue` 公共类型。
 
@@ -333,7 +328,7 @@ reference 由方法声明的需求与 reference stage 决定；结构迁移阶�
 
 1. 每个目录有明确的 Module 所有者和 Interface；Interface 由消费者定义；
 2. 生产代码和大规模跨模块验证代码在目录上可区分；
-3. root facade、ethadapter、typed decoder 不存在第二套语义实现；
+3. root facade 与 typed decoder 不存在第二套语义实现；
 4. `internal/runtime` 是唯一 Composition Root；
 5. pool、aggregator、rpc、methods、reference 的依赖方向符合第 5 节；
 6. Transport、Typed、Reference 三个 seam 可以替换 Adapter 而无需改调用方；
@@ -342,12 +337,12 @@ reference 由方法声明的需求与 reference stage 决定；结构迁移阶�
 9. 结构提交不改变运行时行为；
 10. `go test ./...`、`go vet ./...` 和必要的 race 验证继续通过；
 11. CI 有静态依赖守卫，至少覆盖：`rpc` ↛ `rpc/methods`、生产 ↛ `internal/verification`、
-    `ethadapter` ↛ `internal/runtime`。
+    gethrpc 白名单（transport/geth、root typed facade、cmd/*）。
 
 建议的最小可替换性烟雾验证：
 
 - fake Transport Adapter 驱动 pool → aggregator 路径；
-- 同一 typed 实现同时服务 root facade 和 ethadapter；
+- 同一 typed 实现同时服务 facade 的 Decision 入口与类型化读取；
 - mock Head-Reading Port 驱动 reference 建立流程。
 
 迁移顺序、具体提交拆分和工具操作另立执行计划，不在本文冻结。

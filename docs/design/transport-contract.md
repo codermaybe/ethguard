@@ -20,7 +20,7 @@
 - native HTTP（`internal/transport/http`）是战略默认；geth 兼容适配器经
   `gethcompat` 显式构造（L1 阶段落地）。
 - 默认构建不得链接 `ethclient`；`gethrpc` 只允许出现在
-  `internal/transport/geth`、`ethadapter`、`cmd/*`。
+  `internal/transport/geth`、根 typed facade、`cmd/*`。
 
 ## 2. L1 条款（suite 逐条对应）
 

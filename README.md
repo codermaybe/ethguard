@@ -17,7 +17,7 @@ with status and diagnostic evidence fields.
 
 EthGuard favors reliability over latency. For reads that need a moving
 reference, it establishes one provider-backed reference before evaluating the
-business response. The `ethguard/ethadapter` surface keeps the method names,
+business response. The `ethguard.Client` typed methods keep the method names,
 arguments, return types, and calling style of `go-ethereum/ethclient`, so
 ordinary calls use the same shape without an explicit anchor/confirm/read
 workflow. Cross-source agreement is provider evidence; it is not Ethereum
@@ -73,7 +73,6 @@ ethguard/                   # public Client facade
 │   │   ├── geth/            # explicit go-ethereum compatibility adapter
 │   │   └── contract/        # transport-neutral L1 contract suite
 │   └── testkit/wstest/      # server-side WSS test peer
-├── ethadapter/             # ethclient-shaped surface delegating to the root facade
 ├── gethcompat/              # explicit construction seam for go-ethereum transport
 ├── rpctest/                # in-process scriptable Ethereum nodes for tests
 ├── cmd/                    # executable entries, including wsscapture and livecanary
@@ -84,8 +83,7 @@ ethguard/                   # public Client facade
 
 | Package | Role |
 |---------|------|
-| `ethguard/ethadapter` | Primary ethclient-shaped client through the root facade |
-| `ethguard` | Public `Client` facade, generic calls and evidence |
+| `ethguard` | The public `Client`: Geth-shaped typed reads, generic calls, evidence, writes |
 | `ethguard/config` | One configuration model for Go construction and YAML loading |
 | `ethguard/pool` | Shared upstream connections, Transport Port, collection, health, eligibility |
 | `ethguard/observe` | Observability events (`Recorder`); never a source of security decisions |
@@ -109,8 +107,8 @@ clone pools per goroutine. Owners should close the Client when its lifetime ends
 
 Layering rules: `internal/runtime` is the sole Composition Root. It compiles the
 method inventory into ReadPlans and binds plans, projectors, the aggregator, and
-reference seams; `ethadapter` delegates through the root facade and does not
-import runtime. `aggregator` consumes ReadPlans and resolver/admission
+reference seams; the root `Client` is the only public surface over it.
+`aggregator` consumes ReadPlans and resolver/admission
 interfaces and never imports `methods`; `rpc` never imports `methods`. Ethereum
 method entrypoints and the MethodSpec inventory live in `rpc/methods`. `pool` owns the minimal Transport Port and
 `internal/reference` owns the Head-Reading Port; neither carries method policy
@@ -130,20 +128,22 @@ semantics, and admission helpers live in `rpc/internal`.
   vectors) and contains no hand-written logic beyond the embed accessor.
   Whitelist trees compile at init from the same bundle tests validate against —
   there is no generated Go and no freshness gap. Production typed projection
-  lives in `internal/typed` and is shared by the root facade and `ethadapter`;
+  lives in `internal/typed` behind the root facade's typed reads;
   strict requiredness stays fork-aware and hand-written in the slices.
 - **R4 – inventory interlock.** Tests enforce that every registered method in
   `catalog.go` has a schema mapping in `spec_tables.go`.
-- **Anchor layering.** The public anchor facade (`ReferenceResolver`,
-  `StrictHeadAnchor`, options) lives in root `anchor.go`; the reference
-  algorithm and Head-Reading Port live in `internal/reference`, with
-  per-invocation propagation in `internal/refcontext`.
-- **Two typed surfaces.** `eth.go` (root `Client`) returns values with
-  `rpc.Decision` evidence for advanced callers; `ethadapter` returns
-  ethclient-shaped values for drop-in use. The adapter may perform
-  method-compatibility validation and request binding, while typed decoding
-  remains in the shared `internal/typed` module and business adjudication
-  remains in the root runtime.
+- **Anchor layering.** The anchor facade is query-only: a `Client` owns its
+  runtime-built resolver and exposes `AnchorBlockHash`/`AnchorBlockHashForTag`/
+  `AnchorBlockHeight` from root `anchor.go`; the reference algorithm and
+  Head-Reading Port live in `internal/reference`, with per-invocation evidence
+  propagation in `internal/refcontext` (`Capture`).
+- **One typed surface, four evidence layers.** `ethguard.Client` is the only
+  client. Its typed methods return clean Geth-shaped values with classified
+  errors; the four evidence channels stay separate: (1) typed classified
+  errors, (2) generic `Call` returning the full `rpc.Decision`, (3) opt-in
+  `WithUncertain` raw source material per invocation, (4) `observe.Recorder`
+  events for audit and operations. The recorder is never a synchronous
+  business return channel.
 
 ### Execution and coverage
 
@@ -157,9 +157,8 @@ Validate / Prepare → Reference → Collect → Admit → Resolve → Project
 ```
 
 The current inventory contains 23 registered read methods. The root `Client`
-provides typed methods and generic `Call` access; `ethadapter` provides an
-ethclient-shaped wrapper for the supported subset (currently 18 method-shaped
-entries). `eth_getProof` is explicitly unsupported. A registered plan does not
+provides the Geth-shaped typed methods and generic `Call` access over that
+inventory. `eth_getProof` is explicitly unsupported. A registered plan does not
 promise a provider-wide compatibility result: live provider evidence remains a
 separate track.
 
@@ -226,17 +225,17 @@ For a runnable example, save that file and run:
 go run ./examples/basic -config ./config.yaml
 ```
 
-`ethadapter` is the main supported-method interface, not an optional demo.
-`Unwrap()` exposes the advanced `ethguard.Client` for generic `Call`, decision
-evidence and pool inspection. The adapter retains method-shaped compatibility
-for the supported subset; it does not claim the complete `ethclient` interface.
+`ethguard.Client` is the only supported-method interface, not an optional
+demo. Generic `Call`, the full decision evidence and pool inspection ride the
+same client. The typed methods keep method-shaped compatibility for the
+supported subset; they do not claim the complete `ethclient` interface.
 
-Deterministic adapter reads require the library's dynamically computed
+Deterministic typed reads require the library's dynamically computed
 corroboration threshold: insufficient support returns `ErrConflict`, since
 these methods cannot expose `Selected` to their callers. Advanced root `Call`
 still returns the selected status where the method contract allows it.
 Median/local methods retain their selection semantics, and unknown methods
-remain forwarded. `Wrap` applies the same safety checks as `New`.
+remain forwarded.
 
 With finalized anchoring, divergent provider heights are reconciled at one
 common height. Existing matching heads are reused; otherwise one bounded
