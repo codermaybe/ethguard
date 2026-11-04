@@ -1,4 +1,4 @@
-package ethadapter_test
+package ethguard_test
 
 import (
 	"context"

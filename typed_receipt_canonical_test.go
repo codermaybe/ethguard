@@ -1,4 +1,4 @@
-package ethadapter_test
+package ethguard_test
 
 import (
 	"bytes"
@@ -70,7 +70,7 @@ func TestCanonicalReceiptLogTimestampThroughAdapter(t *testing.T) {
 			if result.Logs[0].BlockTimestamp != timestamp.want {
 				t.Fatalf("timestamp = %d", result.Logs[0].BlockTimestamp)
 			}
-			decision, err := client.Unwrap().Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
+			decision, err := client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,7 +97,7 @@ func TestCanonicalReceiptTimestampDisagreementIsConflict(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	decision, err := client.Unwrap().Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
+	decision, err := client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
 	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 1 || len(decision.Reject) != 1 {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
@@ -134,7 +134,7 @@ func TestCanonicalReceiptRemovedCannotDefaultFromNull(t *testing.T) {
 			if !errors.Is(err, rpc.ErrNoValidResponse) {
 				t.Fatalf("err = %v", err)
 			}
-			decision, err := client.Unwrap().Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
+			decision, err := client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
 			if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Support) != 0 || len(decision.Faults) != 3 {
 				t.Fatalf("decision = %+v err %v", decision, err)
 			}
@@ -171,7 +171,7 @@ func TestCanonicalBlockReceiptsThroughAdapter(t *testing.T) {
 	if len(result) != 1 || result[0].TxHash != hash || result[0].Logs[0].BlockTimestamp != 171 {
 		t.Fatalf("result = %+v", result)
 	}
-	decision, err := client.Unwrap().Call(ctx, methods.MethodGetBlockReceipts, "0x10")
+	decision, err := client.Call(ctx, methods.MethodGetBlockReceipts, "0x10")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestCanonicalBlockReceiptsBadElementKeepsDenominator(t *testing.T) {
 			nodes[3].Return(methods.MethodGetBlockReceipts, []any{good, bad})
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			decision, err := client.Unwrap().Call(ctx, methods.MethodGetBlockReceipts, "0x10")
+			decision, err := client.Call(ctx, methods.MethodGetBlockReceipts, "0x10")
 			if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 1 {
 				t.Fatalf("decision = %+v err %v", decision, err)
 			}
@@ -258,7 +258,7 @@ func TestCanonicalReceiptsAcceptProtectedStringEscapes(t *testing.T) {
 			if method == methods.MethodGetBlockReceipts {
 				ref = "0x10"
 			}
-			decision, err := client.Unwrap().Call(ctx, method, ref)
+			decision, err := client.Call(ctx, method, ref)
 			if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 3 || bytes.Contains(decision.Value, []byte(`\u0030x`)) {
 				t.Fatalf("decision = %+v err %v", decision, err)
 			}

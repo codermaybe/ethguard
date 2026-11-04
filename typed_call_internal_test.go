@@ -1,4 +1,4 @@
-package ethadapter
+package ethguard
 
 import (
 	"encoding/json"

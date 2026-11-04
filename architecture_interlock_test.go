@@ -30,7 +30,6 @@ var corePackages = map[string]bool{
 	modulePath + "/rpc/methods":             true,
 	modulePath + "/pool":                    true,
 	modulePath + "/aggregator":              true,
-	modulePath + "/ethadapter":              true,
 	modulePath + "/config":                  true,
 	modulePath + "/observe":                 true,
 	modulePath + "/gethcompat":              true,
@@ -117,11 +116,10 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		if importsGethRPC {
 			switch {
 			case pkg.ImportPath == modulePath+"/internal/transport/geth",
-				pkg.ImportPath == modulePath+"/ethadapter",
 				pkg.ImportPath == modulePath,
 				strings.HasPrefix(pkg.ImportPath, modulePath+"/cmd/"):
 			default:
-				t.Errorf("%s imports gethrpc; it is confined to internal/transport/geth, the root typed facade, ethadapter, and cmd/*", pkg.ImportPath)
+				t.Errorf("%s imports gethrpc; it is confined to internal/transport/geth, the root typed facade, and cmd/*", pkg.ImportPath)
 			}
 		}
 
@@ -144,10 +142,6 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		case modulePath + "/rpc":
 			if imports[modulePath+"/rpc/methods"] {
 				t.Error("rpc imports rpc/methods")
-			}
-		case modulePath + "/ethadapter":
-			if imports[modulePath+"/internal/runtime"] {
-				t.Error("ethadapter imports internal/runtime; it must delegate through root facade")
 			}
 		case modulePath + "/internal/reference":
 			for banned := range map[string]string{

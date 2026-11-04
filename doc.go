@@ -10,7 +10,7 @@
 //	github.com/codermaybe/ethguard/internal/runtime  — sole Composition Root binding
 //	                       methods, projectors, aggregator, and seams
 //	github.com/codermaybe/ethguard/internal/typed    — sole production typed
-//	                       projection shared by the root facade and ethadapter
+//	                       projection behind the root facade's typed reads
 //	github.com/codermaybe/ethguard/internal/reference — reference algorithm and
 //	                       the Head-Reading Port it consumes
 //	github.com/codermaybe/ethguard/internal/verification — cross-module
@@ -26,6 +26,5 @@
 //	github.com/codermaybe/ethguard/rpc         — generic request, decision, policy,
 //	                       and evidence model shared across modules
 //	github.com/codermaybe/ethguard/rpc/methods — one policy file per corroborated method
-//	github.com/codermaybe/ethguard/ethadapter  — ethclient-shaped surface over the corroborated subset
 //	github.com/codermaybe/ethguard/rpctest     — scriptable in-process Ethereum nodes for tests
 package ethguard

@@ -1,4 +1,4 @@
-package ethadapter_test
+package ethguard_test
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func TestBlockReceiptsPendingObjectSendsNoUpstreamRequest(t *testing.T) {
 		"pending",
 	}
 	for _, ref := range refs {
-		decision, err := client.Unwrap().Call(ctx, methods.MethodGetBlockReceipts, ref)
+		decision, err := client.Call(ctx, methods.MethodGetBlockReceipts, ref)
 		if !errors.Is(err, ethguard.ErrInvalidRequest) {
 			t.Fatalf("%v: got %v, want ErrInvalidRequest", ref, err)
 		}

@@ -18,7 +18,6 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/ethadapter"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -292,7 +291,6 @@ func (s *runState) selectedIDs() []string {
 func (s *runState) execute(parent context.Context) {
 	runCtx, cancel := context.WithTimeout(parent, time.Duration(s.manifest.Timeouts.RunMS)*time.Millisecond)
 	defer cancel()
-	adapter := ethadapter.Wrap(s.client)
 	for _, planStep := range s.manifest.Plan.Steps {
 		if runCtx.Err() != nil {
 			s.addReason("run_timeout", &planStep.ID, "", sanitizeDetail(runCtx.Err().Error()))
@@ -311,7 +309,7 @@ func (s *runState) execute(parent context.Context) {
 		}
 		logical := RequestReport{Method: planStep.Method, Params: logicalParams}
 		stepCtx, cancelStep := context.WithTimeout(runCtx, time.Duration(s.manifest.Timeouts.StepMS)*time.Millisecond)
-		execution := executeStep(stepCtx, s.client, adapter, planStep, logical)
+		execution := executeStep(stepCtx, s.client, planStep, logical)
 		stepReport, stepReasons := s.evaluateStep(execution, stepCtx, runCtx)
 		cancelStep()
 		s.steps = append(s.steps, stepReport)
@@ -352,7 +350,7 @@ type stepExecution struct {
 	identity    *big.Int
 }
 
-func executeStep(ctx context.Context, client *ethguard.Client, adapter *ethadapter.Client, planStep PlanStep, logical RequestReport) stepExecution {
+func executeStep(ctx context.Context, client *ethguard.Client, planStep PlanStep, logical RequestReport) stepExecution {
 	execution := stepExecution{plan: planStep, logical: logical}
 	switch planStep.Path {
 	case "client_call":

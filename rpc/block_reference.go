@@ -35,7 +35,7 @@ type AnchorHeightFunc func(context.Context) (uint64, error)
 //   - methods.pendingTag: pending only, including case, JSON, and
 //     {blockNumber: pending}. RejectPending uses pendingReference below,
 //     which recognizes that same pending shape.
-//   - ethadapter.toBlockNumArg / blockRefArg: Geth negative numbers
+//   - the facade's toBlockNumArg / blockRefArg: Geth negative numbers
 //     (-1 pending, -2 latest, -3 finalized, -4 safe, -5 earliest as 0x0).
 //     Typed BlockByNumber(-1) is rejected in blockByNegativeNumber and
 //     never reaches this set.

@@ -1,4 +1,4 @@
-package ethadapter_test
+package ethguard_test
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func TestPendingAgreementIsSelectedNotCorroborated(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	decision, err := client.Unwrap().Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "pending")
+	decision, err := client.Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "pending")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestPendingDissentSelectsFirst(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	decision, err := client.Unwrap().Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "pending")
+	decision, err := client.Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "pending")
 	if err != nil {
 		t.Fatalf("pending split: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestPendingAllFailIsUnknown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	decision, err := client.Unwrap().Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "pending")
+	decision, err := client.Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "pending")
 	if err == nil || !errors.Is(err, ethguard.ErrNoValidResponse) {
 		t.Fatalf("pending all-fail: got %v, want ErrNoValidResponse", err)
 	}
@@ -129,7 +129,7 @@ func TestPendingObjectFormIsLocalObservation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	decision, err := client.Unwrap().Call(ctx, methods.MethodGetBalance,
+	decision, err := client.Call(ctx, methods.MethodGetBalance,
 		common.HexToAddress("0xdad").Hex(),
 		map[string]any{"blockNumber": "pending", "requireCanonical": true})
 	if err != nil {

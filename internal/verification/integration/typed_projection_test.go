@@ -2,7 +2,7 @@ package ethguard_test
 
 // Production typed probes and summaries used by T09.2 round trips and the
 // T09.1 matrix. There is no test-side typed decoder in these paths: every
-// summary comes from the same ethguard Client or ethadapter result a caller
+// summary comes from the same ethguard Client result a caller
 // receives.
 
 import (
@@ -290,7 +290,7 @@ func t09TypedBlockByHash(t *testing.T, f *t09Fleet, params []any) (string, error
 func t09TypedBlockByNumber(t *testing.T, f *t09Fleet, params []any) (string, error) {
 	ctx := f.context(t)
 	if strings.EqualFold(t09ParamString(t, params, 0), "pending") {
-		if _, err := f.adapter.BlockByNumber(ctx, big.NewInt(-1)); !errors.Is(err, ethguard.ErrInvalidRequest) {
+		if _, err := f.client.BlockByNumber(ctx, big.NewInt(-1)); !errors.Is(err, ethguard.ErrInvalidRequest) {
 			return "", fmt.Errorf("pending adapter boundary = %v, want invalid request", err)
 		}
 		header, _, err := ethguard.CallInto[types.Header](ctx, f.client, methods.MethodGetBlockByNumber, params...)

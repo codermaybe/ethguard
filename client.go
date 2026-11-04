@@ -18,10 +18,10 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// Client is the advanced entry point for generic calls and decision evidence.
-// Prefer ethadapter.Client for ethclient-shaped application reads.
-// Multiple goroutines may use one Client concurrently; connections are owned
-// and reused by the internal RPC management pool.
+// Client is EthGuard's only client: corroborated typed reads with
+// ethclient-shaped signatures, the generic Call decision entry, and the
+// write broadcast. Multiple goroutines may use one Client concurrently;
+// connections are owned and reused by the internal RPC management pool.
 type Client struct {
 	pool       *pool.Pool
 	aggregator *aggregator.Aggregator
