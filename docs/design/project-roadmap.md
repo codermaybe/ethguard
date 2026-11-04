@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**统一 Source 已实施（2026-11-01）：显式 WSS 与 HTTP 共用固定读写 pool，通用限流 health 已修复，生命周期/未知写结果/四态 presence 回归已通过；0056.2 批准生产保真，0064 记录统一路由。freshness 与调度切片已完成（2026-11-02，提交 6292d73）：T0 受控容量实验、F1/F2 请求范围与样本有效性接线、T1 控制器裁决（保留现有慢增快减、固定两槽、共享预算与 cooldown 控制器）均已交付并通过完整门禁。W4/provider-backed golden 门未通过：真实 null 未观察；本轮 3×6 只读补采与离线 replay 未关闭该门。T11 新容量证据与 reference freshness 新策略仍未实现，出现新证据时单独重审。**
+状态：**统一 Source 已实施（2026-11-01）：显式 WSS 与 HTTP 共用固定读写 pool，通用限流 health 已修复，生命周期/未知写结果/四态 presence 回归已通过；0056.2 批准生产保真，0064 记录统一路由。freshness 与调度切片已完成（2026-11-02，提交 6292d73）：T0 受控容量实验、F1/F2 请求范围与样本有效性接线、T1 控制器裁决（保留现有慢增快减、固定两槽、共享预算与 cooldown 控制器）均已交付并通过完整门禁。W4/provider-backed golden 门未通过：真实 null 未观察；本轮 3×6 只读补采与离线 replay 未关闭该门。T11 新容量证据与 reference freshness 新策略仍未实现，出现新证据时单独重审。发布状态：`v0.0.1-beta.2` 是唯一已发布的 Release（2026-11-04），发布门禁入口与 `go 1.26.10` 基线已实现但尚未提交，收敛计划见「发布门禁与发布流程（R0–R8）」。**
 
 本文件是 EthGuard 唯一的路线与阶段状态来源，记录当前事实、方向、顺序、依赖、
 遗留问题和阶段出口。设计文档只记录某个契约、决策或证据的详细内容，不维护第二
@@ -50,8 +50,8 @@ EthGuard 的运行时语义已经冻结：
 - `go.mod` 固定 go-ethereum 版本以保证可复现；连接 seam 已由 native HTTP 默认实现
   承担，pool 生产代码不再接触具体 Geth client，Geth compatibility adapter 只经
   `gethcompat` 显式进入。typed values/codecs 仍使用 Geth 类型，这是保留的兼容面；
-- 自有 WSS wire 栈已上线（2026-11-03，见 wss-wire-contract.md 与执行台账
-  §17）：HTTP Upgrade、帧协议与连接生命周期由 `internal/transport/wss` 以
+- 自有 WSS wire 栈已上线（2026-11-03，见 wss-wire-contract.md；执行记录见 Git 历史
+  `c339b5f^` 的 `docs/design/roadmap-execution-ledger.md`）：HTTP Upgrade、帧协议与连接生命周期由 `internal/transport/wss` 以
   Go 标准库实现；`gorilla/websocket` 直接依赖已删除，仅作为 go-ethereum
   兼容通道的 indirect 残留，默认构建与 WSS 生产构建均不链接；
 - 依赖迁移只允许渐进地收窄内部 connection/transport seam，不启动移除 go-ethereum
@@ -122,9 +122,11 @@ Decision 的方式制造绿灯。测试框架设计已经落库，但不插入�
 
 ## 切片 15 之后：外部 RPC 测试框架实现
 
-测试框架设计见 [external-rpc-test-framework.md](external-rpc-test-framework.md)，
-状态为设计提案，代码实现排在切片 15 和最终审计之后。实现仍需单线推进，并保持
-普通 CI 无公网依赖。
+测试框架设计见 [external-rpc-test-framework.md](external-rpc-test-framework.md)，实现已进入
+增量落地阶段：HTTP 故障场景、HTTP 延迟/deadline 的 `testing/synctest` 验收、
+WSS 独立互操作测试与定时原生 fuzz 已部分接线；WSS 时间敏感场景的 `synctest`
+迁移、定时 fuzz 实际结果、Anvil 离线 fixture 和完整证据矩阵仍未完成。
+详细范围和本次验证见测试框架增补说明；实现仍需单线推进，普通 CI 不得依赖公网。
 
 | 顺序 | 业务任务 | 主要改动 | 退出条件 |
 | --- | --- | --- | --- |
@@ -154,7 +156,8 @@ Decision 的方式制造绿灯。测试框架设计已经落库，但不插入�
 | ReadPlan / resolver seam | M0–M8 与 RS0–RS5 已完成；0063 保留 `rpc.Policy` 深模块 | 只有真实新增能力/维护负担出现时重审 | 不改变 Decision、quorum、reference、typed 或方法数量 |
 | WSS error-data evidence | raw WSS 生产四态按 0056.2 保留；真实 missing/`0x`/value 已观察，null 未观察 | W4 golden 门仍需真实 provider 证据 | 不用合成样本关闭 evidence 门 |
 | provider compatibility evidence | 按方法逐步补齐 | capture/replay/live 状态登记并保持证据等级 | 不用合成样本冒充 provider 兼容性 |
-| 外部消费者纪律 | 当前无外部消费者 | 首次发布/tag/import 后重启 API break 评估 | 依据决策 0057 |
+| 外部消费者纪律 | **前提已失效**：`v0.0.1-beta.1` / `v0.0.1-beta.2` 已发布（2026-11-04），模块可被 `go get` 取用；决策 0057 的"模块未发布"前提不再成立 | 重启 API break 评估并明确弃用窗口（R7 只准备证据，裁决归主维护者） | 依据决策 0057 与 [release-contract.md](release-contract.md) |
+| 发布门禁与发布流程 | `v0.0.1-beta.2` 是唯一已发布的 Release；门禁入口、固定版本工具与 `go 1.26.10` 基线已实现并本地通过，尚未提交；覆盖缺口见 [release-contract.md](release-contract.md) §5 | 按 R0–R8 收敛：先提交现状，再补齐 apidiff/fuzz 的本地覆盖与门禁锚定 | 门禁是唯一入口；不删除或移动 tag；预发布与稳定 tag 语义分开 |
 
 上述每条轨道的细节、验收和停止条件都在本文后续章节；链接的设计文档提供依据，
 不替代本表的顺序和状态。
@@ -176,7 +179,7 @@ Decision 的方式制造绿灯。测试框架设计已经落库，但不插入�
 - `internal/transport/wss/` 拥有帧库绑定与 socket 生命周期；替换底层库不得扩张
   Transport Port。`cmd/wsscapture/` 仅负责手动只读证据；普通测试不联网。
 - `internal/verification/integration/` 验证公开调用的结果和证据；设计依据记录在
-  现有 freshness、congestion、WSS 文档，执行事实只追加到执行台账。
+  现有 freshness、congestion、WSS 文档，执行事实只追加到对应设计文档。
 
 ### 任务与验收
 
@@ -187,11 +190,11 @@ Decision 的方式制造绿灯。测试框架设计已经落库，但不插入�
 | F2 样本有效性与 gate 诊断 | F1 后 | `pool/` 样本时间、部分覆盖和结构化 gate 原因；相关 reference/capture 诊断 | 过期/缺失样本为未知，不证明 fresh 或 stale；少数已采样高 tip 不可借缩小样本集合暂停诚实成员；expired 样本不参与参考；年龄窗口须显式配置或有依据的决策，无新隐藏默认值；历史请求仍豁免；旧 sentinel 的 errors.Is 保持 |
 | T0 调度预算盘点与受控实验 | F0 可先完成，单线执行 | `pool/`、离线容量 fixture、`adaptive-congestion-control.md` | reference/read/write/admission/probe 共享预算；饱和等待取消无额外发送/health 惩罚；容量下降、恢复、限流、空闲与饥饿有确定性场景；不对公共 provider 压测。输出当前控制器与候选的差异，不能写成真实 provider 容量结论 |
 | T1 控制器选择与最小实现 | F1/F2 稳定、T0 有结果后 | 优先在现有 monitor 内收敛慢增快减与并发上限；需要独立深模块时再拆目录 | 先提交输入信号/状态/参数来源的决策；区分配额拒绝和容量反馈；突降快速收敛、低负载不虚增容量、恢复有界、所有轮次共享预算、队列等待有界；不新增自动重试、动态成员或方法优先级。没有证据时保留现有算法也是有效裁决 |
-| D0 WSS 帧层依赖重新评估 | **已完成（2026-11-03）**：结论为自有实现替换（非保留临时依赖），依据与成本见 [wss-wire-contract.md](wss-wire-contract.md) 与执行台账 §17 | HTTP Upgrade、帧协议、连接生命周期由 Go 标准库实现；不复制第三方库内部，不扩张 Transport Port | 同一组 contract 全部保持（见 D1 验收）；架构互锁锁定生产无第三方 WS 依赖 |
+| D0 WSS 帧层依赖重新评估 | **已完成（2026-11-03）**：结论为自有实现替换（非保留临时依赖），依据与成本见 [wss-wire-contract.md](wss-wire-contract.md)（执行记录见 Git 历史 `c339b5f^` 的 `docs/design/roadmap-execution-ledger.md`） | HTTP Upgrade、帧协议、连接生命周期由 Go 标准库实现；不复制第三方库内部，不扩张 Transport Port | 同一组 contract 全部保持（见 D1 验收）；架构互锁锁定生产无第三方 WS 依赖 |
 | D1 WSS 底层替换或局部加固 | **已完成（2026-11-03，W1–W7 单线执行）** | `internal/transport/wss/` 自有 handshake/frame/connection；adapter 表面不变；差分验证（过渡期 oracle）后移除 gorilla | presence、demux、malformed、limit、写锁等待/写中取消、Close、断连、ChainID、无重放逐项保持；message 级 sticky 失败与"每连接至多一个协议 close 回执"已修复并测试；`go list -deps . ./internal/transport/wss ./cmd/wsscapture` 无 gorilla（geth 兼容通道的 indirect 残留除外） |
 | E0 逐方法与 W4 定向证据 | 独立证据队列，不能阻塞 F/T 主线 | 现有 capture/replay 工具与方法卡片；每轮限定方法、预算、时限 | 优先 syncing progress、含 uncle 的历史块、历史 EIP-1898 与 feeHistory；WSS null 仅自然出现时归档。每个缺口区分实现正确性与真实兼容性；未出现即登记未观察，不反复遍历公共 endpoint；捕获可校验 hash、可回放且脱敏，不提交网络交易、不合成 provider golden |
 | L0 WSS 生命周期扩展 | D0 后且存在运维需求 | keepalive、可取消写入/容量限制按独立业务切片推进；后台 reconnect 另行判断 | 每次只新增一种机制，说明故障归属、资源上界和关闭顺序；旧 pending 失败不重放；下一独立调用由 pool 重拨；没有收益证据时保持当前不启用范围，不把全部可选功能列为欠实现 |
-| A0 集成验收与债务收尾 | 每个生产切片后，整轮结束汇总 | 唯一路线图、执行台账、决策修订和适当 gate | 事实/目标/外部未观察分别列出；不重开已完成的 RS 工作；只提交本轮文件，保留他人改动；完整检查通过后标记相应任务完成 |
+| A0 集成验收与债务收尾 | 每个生产切片后，整轮结束汇总 | 唯一路线图、设计文档、决策修订和适当 gate | 事实/目标/外部未观察分别列出；不重开已完成的 RS 工作；只提交本轮文件，保留他人改动；完整检查通过后标记相应任务完成 |
 
 ### 执行顺序与接续规则
 
@@ -211,8 +214,9 @@ latest 在 reference 建立与 pin 后业务轮分别处理；过期样本按 un
 不新增参数、重试、动态成员或优先级；后续只在出现新的容量证据时重审控制器输入信号。
 
 接手先读本节、`architecture-recovery.md`、`codebase-topology.md`、
-`reference-freshness-policy.md`、`adaptive-congestion-control.md`、
-`wss-productionization-decisions.md` 和 `roadmap-execution-ledger.md` 最新条目。
+`reference-freshness-policy.md`、`adaptive-congestion-control.md` 和
+`wss-productionization-decisions.md`；该轮的执行记录在 Git 历史
+（`c339b5f^` 的 `docs/design/roadmap-execution-ledger.md`），本文件不重建台账。
 首个范围迁移目标 F1 已完成；provider 探测仍按需执行，gorilla 直接依赖已删除
 （2026-11-03），无需再以删除依赖为前置目标。
 
@@ -245,6 +249,105 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
   race、architecture/default-build 和 Verification 专项门，结果无变化时不机械复跑。
 - 本轮新增 ZK/轻客户端证明、订阅、自动写恢复均不在范围；保留 seam 不等于提前
   实现未来能力。真实 provider 缺口不等于现有功能不可用或已知实现错误。
+
+## 发布门禁与发布流程（R0–R8）
+
+状态：**首个公开 tag 已发布（2026-11-04）**：`v0.0.1-beta.1`（tag 存在、无 Release，
+发布工作流失败）、`v0.0.1-beta.2`（Release 已发布，16 个资产）。门禁入口
+`./scripts/release_check.sh`、固定版本工具与 `go 1.26.10` 基线均已实现并本地跑通，
+但**尚未提交**；`ci.yml` 与 `release.yml` 已改为引用仓库内脚本。契约与证据见
+[release-contract.md](release-contract.md)；本节只维护任务顺序、状态和裁决项。
+
+事实要点（证据与复现命令见 release-contract.md §6）：
+
+- beta.1 的 release 失败在 `apidiff vs previous tag` 步：`@latest` 安装撞上
+  `actions/setup-go` 强制的 `GOTOOLCHAIN=local` 与当时的 `go 1.25.3`；同一根因类
+  还造成 2026-11-02 定时 CI 的 govulncheck 与 deadcode 失败。release 工作流没有
+  govulncheck 步骤，所以"发版失败"不是 govulncheck 造成的。
+- go 指令从 `1.25.3` 提升到 `1.26.10` 的依据是清除 **30 个可达标准库漏洞**
+  （含 GO-2026-6809，其修复版本即 go1.26.10），不是跟随最新版本。
+- 决策 0057 的前提 (a)"模块未发布"已失效：模块已可被 `go get` 取用，后续 API
+  break 需要弃用窗口。R7 只准备证据，裁决归主维护者。
+
+### 目标与所有权
+
+- `scripts/release_check.sh` 与 `scripts/govulncheck.sh` 拥有发布门禁语义；
+  `.github/workflows/{ci,release}.yml` 只做编排，不内联第二份检查命令。工作流里
+  出现的同一语义必须指向仓库内脚本。
+- `go.mod` 的 go 指令拥有工具链下限；固定版本工具清单登记在
+  release-contract.md §3，所有引用点必须与之一致。
+- tag、Release 与 canary 的语义由 release-contract.md 冻结。本轨道是交付/工具层
+  工作，不改变 Decision、quorum、reference、typed、方法数量或任何运行时语义。
+
+### 任务与验收
+
+| 任务 | 顺序与目标 | 交付范围 | 验收与出口 |
+| --- | --- | --- | --- |
+| R0 提交发布门禁现状 | 先执行，其余任务的前置 | `scripts/govulncheck.sh`、`scripts/release_check.sh`（新增，保持可执行位）、`.github/workflows/ci.yml`、`.github/workflows/release.yml`、`go.mod`；提交前先把既有测试框架文档改动单独落地 | 提交后 `./scripts/release_check.sh` 仍通过；`git show --stat HEAD` 只含上述文件；`git status --porcelain` 只剩测试框架轨道改动（或该轨道已单独提交） |
+| R1 tag 步骤的本地覆盖 | R0 后 | 把 apidiff 比较抽成仓库内脚本（如 `scripts/api_check.sh`）并纳入 `release_check.sh`；fuzz 提供可手工执行的入口（时长可参数化）；`release.yml` 调用同一来源 | 无上一 tag 时干净跳过；有上一 tag 时按同一工具版本、同一模块路径与同一包列表比较；本地实跑一次并保留输出；不改变比较语义 |
+| R2 门禁锚定提交与工具链 | R1 后 | `release_check.sh` 增加工作区脏时拒绝（信息可解释）、打印 `git rev-parse --short HEAD`、分别打印 `go version`、`GOTOOLCHAIN=local go version` 与 go 指令 | 故意留下未提交改动时门禁失败；干净时通过且输出含三项版本信息；不新增联网依赖（既有 vuln DB 与模块代理除外） |
+| R3 门禁与 CI 的一致性登记 | 独立 | 按 release-contract.md §2/§3 核对每个引用点的步骤与工具版本；`ci.yml` 中与脚本重复的 job 加注释指向脚本作为语义来源 | grep 可核的工具版本在各引用点与 §3 清单完全一致；无行为变化；不合并 CI 的矩阵/shuffle/artifact job |
+| R4 工作流文本与死代码清理 | 独立 | `release.yml` 的过期注释（1.25.3 baseline、`GOTOOLCHAIN: auto` 的必要性）与 `cross-compile` 的 windows 死分支；`release_check.sh` 头部 "offline" 措辞按 §5.4 修正 | 4 个工作流 YAML 均可解析；除注释与死分支外无行为差异；`git diff --check` 干净 |
+| R5 预发布语义与消费方说明 | 独立 | `release.yml` publish 步骤按 tag 名设置 prerelease（稳定版另明确 `make_latest`）；README（中英）登记发布入口、tag 前置条件与消费方工具链下限；顺带核对 dependabot 的 action-gh-release v3 PR 是否同批升级（由主维护者决定） | 表达式在预发布/稳定 tag 上求值正确并离线核对；文档写明"真实 tag 未验证"；不改已有 Release 的预发布标记；不推送 tag |
+| R6 文档收敛与悬空引用 | R4/R5 后 | release-contract.md 定稿（补执行事实）；清理 `c339b5f` 删除设计文档留下的悬空引用（本文件与 `wss-transport-adapter.md` 中的 `roadmap-execution-ledger.md`、`spec-baseline.md`、`transport-seam-migration.md` 等），统一改为"见 Git 历史 `c339b5f^` 的路径"或指向现行文档 | 内部链接检查不再报不可达目标；被删文件承载的现行事实已落到可达文档；不产生第二份路线或状态台账 |
+| R7 决策 0057 前提复核证据包 | 独立，只出证据与选项 | 发布事实（tag、Release、代理可取用性）、root 与 `ethadapter` 的导出符号清单、apidiff 在 v0 阶段"严格门禁"与"预发布放宽"两种政策的影响 | 命令与输出可复现；不修改 `decisions.md` 状态行；结论写成待裁决项，不写成已决定 |
+| R8 发布与 canary 联动选项 | 独立，只出选项 | tag 时 release 不等待 canary 后果说明；2–3 个可选方案（workflow_run 触发 / 合并 job / 保持现状并登记）与各自代价 | 不改工作流行为；每个选项写明失败模式、证据来源与未验证项；结论写成待裁决项 |
+
+### 执行顺序与接续规则
+
+单线顺序：`R0 → R1 → R2 → R3 → R4 → R5 → R6`，其中 R3/R4/R5 都改 workflow 文本，
+必须串行；R7/R8 只产出证据与选项，可在 R0 之后任意时刻执行，不修改工作流行为或
+`decisions.md` 状态行。每个任务一个业务意图、一个提交；出口未满足时不得标记完成。
+
+### 验收清单
+
+共同门禁（每个任务收尾按改动范围选择）：
+
+```text
+./scripts/release_check.sh   # 脚本、workflow 或 go.mod 有改动时
+git diff --check
+gofmt -l .
+python3 -c "import glob,yaml; [yaml.safe_load(open(f)) for f in glob.glob('.github/workflows/*.yml')]"
+git show --stat HEAD         # 只含该任务的交付范围
+```
+
+文档改动时另外执行内部链接可达性检查（对 `docs/` 下所有 `[...](...)` 目标逐个
+`os.path.exists`）；`c339b5f` 删除文档后本文件仍有三处不可达链接，属 R6 范围。
+
+逐任务必须留存的证据：
+
+- R0：门禁通过输出、`git show --stat`、`git status --porcelain` 三条。
+- R1：无上一 tag 的跳过输出；有上一 tag 的比较输出（含工具版本与包列表）。
+- R2：脏工作区被拒的实际输出；干净工作区通过输出（含 HEAD 与两个工具链版本）。
+- R3：工具版本一致性的 grep 输出。
+- R4：YAML 解析结果；`git diff` 仅含注释与死分支。
+- R5：表达式核对记录与文档改动位置；明确写"真实 tag 未验证"。
+- R6：内部链接检查的实际输出；被删文件对应的现行事实落点。
+- R7/R8：命令与原始输出；结论列为待裁决，不含"已决定"表述。
+
+停止条件：出口未满足时保留失败证据、不标记完成、不删除测试、不放宽断言、不合成
+证据；若该项阻塞依赖它的后续任务，跳过被阻塞项并继续无依赖任务，在报告中列出。
+
+### 提交纪律与边界
+
+- 既有未提交的两份测试框架文档改动（`external-rpc-test-framework-addendum.md` 与
+  本文件的测试框架段落）属于测试框架轨道：先用独立提交（或用 `git add -p` 精确
+  暂存该段落）落地，再进入 R0；无法干净分离时停止并报告，不混合提交。
+- 不推 tag、不推送远端（主维护者明确授权除外）、不改或删除已有 tag/Release、
+  不改模块版本号、不动 `docs/decisions.md` 状态行。
+- 提交信息以业务语义命名，不以任务号给文件或类型命名；结尾不添加 Claude 署名
+  或 Co-Authored-By trailer。
+- 联网边界：只允许 Go 模块代理、工具链下载与 `vuln.go.dev`；不得访问公共 RPC
+  provider；live evidence 只能由工作流触发。
+
+### 待主维护者裁决（不在本轨道内自行决定）
+
+1. v0 阶段 apidiff 的 `-incompatible` 是否继续硬挡发布，还是对预发布 tag 降级为
+   报告（R7 提供选项与影响）。
+2. 决策 0057 前提失效后，弃用窗口政策是否即刻生效，预发布 tag 是否计入"首次发布"
+   （R7 提供证据）。
+3. release 是否等待 canary 结论（R8 提供选项）。
+4. `v0.0.1-beta.1` tag 的最终处置（默认保留现状、不补发）。
 
 ## 已完成主线与 WSS 证据门记录
 

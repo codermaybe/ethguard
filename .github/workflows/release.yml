@@ -40,14 +40,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Same gates as CI so a hot-fix tag cannot skip them.
-      - name: gofmt / tidy / vet
-        run: |
-          test -z "$(gofmt -l .)"
-          go mod tidy -diff
-          go vet ./...
-      - name: smoke test (race)
-        run: go test -race ./...
+      # Re-run the same offline gate maintainers execute before tagging. A tag
+      # therefore cannot bypass formatting, module, static-analysis, build,
+      # race-test, or reachable-vulnerability checks.
+      - name: release preflight
+        run: ./scripts/release_check.sh
 
       # Public-surface guard, informed by the previous tag. The first tag has
       # no comparison basis and therefore skips before installing the tool.
