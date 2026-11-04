@@ -19,7 +19,7 @@ func TestInvocationBasisStaysFrozenAcrossRounds(t *testing.T) {
 		snapOK:  true,
 		members: sources,
 	}
-	state.ctx, state.invocation = beginInvocation(context.Background(), snap, true, sources, nil)
+	state.ctx, state.invocation = beginInvocation(context.Background(), snap, true, sources, nil, false)
 
 	basis := state.invocation.Basis()
 	if basis.Size() != 3 {

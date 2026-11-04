@@ -357,15 +357,22 @@ func executeStep(ctx context.Context, client *ethguard.Client, adapter *ethadapt
 	switch planStep.Path {
 	case "client_call":
 		if planStep.ID == "identity.chain-id" {
-			value, decision, err := client.ChainID(ctx)
-			execution.decision, execution.decisionErr, execution.identity = &decision, err, value
+			decision, err := client.Call(ctx, planStep.Method)
+			execution.decision, execution.decisionErr = &decision, err
+			if err == nil {
+				if canonical, nerr := client.Normalize(planStep.Method, decision.Value); nerr == nil {
+					if id, ok := new(big.Int).SetString(canonical, 10); ok {
+						execution.identity = id
+					}
+				}
+			}
 		} else {
 			decision, err := client.Call(ctx, planStep.Method, callParams(planStep, logical.Params)...)
 			execution.decision, execution.decisionErr = &decision, err
 		}
 	case "typed_block":
 		hash := common.HexToHash(paramText(logical.Params, 0))
-		block, err := adapter.BlockByHash(ctx, hash)
+		block, err := client.BlockByHash(ctx, hash)
 		execution.typed = typedBlockReport(block, err)
 		execution.typedErr = err
 		execution.typedOK = err == nil && block != nil

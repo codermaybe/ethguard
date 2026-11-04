@@ -30,10 +30,11 @@ func TestReturnValueAccessListThroughClient(t *testing.T) {
 			nodes[2].Return(methods.MethodCreateAccessList, json.RawMessage(canonical))
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			result, decision, err := client.CreateAccessList(ctx, map[string]any{"to": address}, ref)
+			result, err := client.CreateAccessList(ctx, map[string]any{"to": address}, ref)
 			if err != nil {
 				t.Fatal(err)
 			}
+			decision, _ := client.Call(ctx, methods.MethodCreateAccessList, map[string]any{"to": address}, ref)
 			if string(decision.Value) != canonical || result.GasUsed != 171 || result.Error != "<denied>" || len(result.AccessList) != 1 || len(result.AccessList[0].StorageKeys) != 1 {
 				t.Fatalf("result = %+v decision = %+v", result, decision)
 			}
@@ -107,10 +108,11 @@ func TestReturnValueReceiptFromAndSpellingThroughClient(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, decision, err := client.TransactionReceipt(ctx, common.HexToHash(hash))
+	result, err := client.TransactionReceipt(ctx, common.HexToHash(hash))
 	if err != nil {
 		t.Fatal(err)
 	}
+	decision, _ := client.Call(ctx, methods.MethodGetTransactionReceipt, common.HexToHash(hash).Hex())
 	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || result.TxHash.Hex() != hash || !bytes.Contains(decision.Value, []byte(`"from":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"logs":[]`)) || bytes.Contains(decision.Value, []byte(`"contractAddress"`)) {
 		t.Fatalf("receipt = %+v decision = %+v", result, decision)
 	}

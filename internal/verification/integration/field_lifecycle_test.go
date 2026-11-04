@@ -1411,8 +1411,8 @@ func TestVerificationLocalWholeAnswerShapeBoundary(t *testing.T) {
 		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
 			t.Fatalf("non-boolean listening = status %v value %s err %v", decision.Status, decision.Value, err)
 		}
-		if _, _, err := fleet.client.Listening(fleet.context(t)); !errors.Is(err, rpc.ErrNoValidResponse) {
-			t.Fatalf("typed boundary error = %v, want no valid response", err)
+		if _, err := fleet.client.Call(fleet.context(t), methods.MethodListening); !errors.Is(err, rpc.ErrNoValidResponse) {
+			t.Fatalf("call boundary error = %v, want no valid response", err)
 		}
 	})
 	t.Run(methods.MethodSyncing, func(t *testing.T) {
@@ -1422,7 +1422,7 @@ func TestVerificationLocalWholeAnswerShapeBoundary(t *testing.T) {
 		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
 			t.Fatalf("true syncing = status %v value %s err %v", decision.Status, decision.Value, err)
 		}
-		if _, _, err := fleet.client.Syncing(fleet.context(t)); !errors.Is(err, rpc.ErrNoValidResponse) {
+		if _, err := fleet.client.SyncProgress(fleet.context(t)); !errors.Is(err, rpc.ErrNoValidResponse) {
 			t.Fatalf("typed boundary error = %v, want no valid response", err)
 		}
 	})

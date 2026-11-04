@@ -116,15 +116,15 @@ func (a uncertainCaptureAdapter) Record(stage, method string, source rpc.SourceR
 
 // beginInvocation freezes the read invocation: one ID, the voting basis
 // captured before any request, the corroboration snapshot, and the raw-data
-// capture. The invocation rides the context as the transitional carrier until
-// every establishment path takes it explicitly.
-func beginInvocation(ctx context.Context, snap rpc.Corroboration, snapOK bool, members []*pool.Source, capture *uncertain.Capture) (context.Context, rpc.Invocation) {
+// capture. The typed facade's corroboration requirement rides the invocation
+// itself (AggregateStrict); the context carries nothing.
+func beginInvocation(ctx context.Context, snap rpc.Corroboration, snapOK bool, members []*pool.Source, capture *uncertain.Capture, requireCorroboration bool) (context.Context, rpc.Invocation) {
 	refs := make([]rpc.SourceRef, 0, len(members))
 	for _, member := range members {
 		refs = append(refs, SourceRefOf(member))
 	}
 	opts := []rpc.InvocationOption{rpc.WithInvocationCapture(uncertainCaptureAdapter{capture: capture})}
-	if rpc.CorroborationRequired(ctx) {
+	if requireCorroboration {
 		opts = append(opts, rpc.WithRequiredCorroboration())
 	}
 	invocation := rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap), opts...)
@@ -308,7 +308,9 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 
 // resolveValue resolves the decision through the read's resolution entry —
 // the plan's declared semantics or the policy's capability chain — then
-// applies the corroboration-required gate.
+// applies the corroboration-required gate. The requirement rides the
+// invocation (AggregateStrict); a read that claims agreement must resolve
+// Corroborated or fail closed.
 func (state *invocationState) resolveValue() (rpc.Decision, error) {
 	res := state.resolve()
 	decision, resolveErr := res.decision, res.err
@@ -322,7 +324,7 @@ func (state *invocationState) resolveValue() (rpc.Decision, error) {
 	// keep their original order.
 	gatedByForwarded := state.snapOK && state.snap.Mode == rpc.CorroborationForwarded
 	pendingLocal := state.pendingLocalRoute()
-	if requiresAgreement && rpc.CorroborationRequired(state.ctx) && !gatedByForwarded && !pendingLocal && resolveErr == nil && decision.Status != rpc.Corroborated {
+	if requiresAgreement && state.invocation.RequireCorroboration() && !gatedByForwarded && !pendingLocal && resolveErr == nil && decision.Status != rpc.Corroborated {
 		decision.Status = rpc.Unknown
 		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
 	}

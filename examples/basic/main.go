@@ -23,7 +23,7 @@ func main() {
 	defer client.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	id, _, err := client.ChainID(ctx)
+	id, err := client.ChainID(ctx)
 	if err != nil {
 		log.Printf("chain ID corroboration failed: %v", err)
 		return

@@ -184,9 +184,9 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	openDecision, openErr := aggregateCall(t, agg, false)
 	sameDecision(t, policyDecision, policyErr, openDecision, openErr)
 
-	ctx, cancel := context.WithTimeout(rpc.RequireCorroborated(context.Background()), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	gated, gatedErr := agg.Aggregate(ctx, callRequest())
+	gated, gatedErr := agg.AggregateStrict(ctx, callRequest())
 	if !errors.Is(gatedErr, rpc.ErrConflict) || gated.Status != rpc.Unknown {
 		t.Fatalf("gated status %v err %v", gated.Status, gatedErr)
 	}
@@ -197,7 +197,7 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	if before < 1 {
 		t.Fatal("first call did not establish latest")
 	}
-	if _, err := agg.Aggregate(ctx, callRequest()); !errors.Is(err, rpc.ErrConflict) {
+	if _, err := agg.AggregateStrict(ctx, callRequest()); !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("second typed call err = %v", err)
 	}
 	if methodCount(nodes[0], methods.MethodGetBlockByNumber) <= before {
@@ -328,7 +328,9 @@ func aggregateCall(t *testing.T, agg *aggregator.Aggregator, typed bool) (rpc.De
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if typed {
-		ctx = rpc.RequireCorroborated(ctx)
+		// The typed gate rides the invocation (AggregateStrict), not the
+		// context and not the request.
+		return agg.AggregateStrict(ctx, callRequest())
 	}
 	return agg.Aggregate(ctx, callRequest())
 }

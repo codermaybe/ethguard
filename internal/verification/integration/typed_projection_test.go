@@ -81,17 +81,17 @@ func t09SummaryLogs(logs []types.Log) string {
 	return string(raw)
 }
 
-func t09SummaryFee(fee *ethguard.FeeHistory) string {
+func t09SummaryFee(fee *ethereum.FeeHistory) string {
 	raw, err := json.Marshal(struct {
-		OldestBlock   string
-		BaseFeePerGas []string
-		GasUsedRatio  []float64
-		Reward        [][]string
+		OldestBlock  string
+		BaseFee      []string
+		GasUsedRatio []float64
+		Reward       [][]string
 	}{
-		OldestBlock:   fee.OldestBlock.String(),
-		BaseFeePerGas: t09BigStrings(fee.BaseFeePerGas),
-		GasUsedRatio:  fee.GasUsedRatio,
-		Reward:        t09BigRows(fee.Reward),
+		OldestBlock:  fee.OldestBlock.String(),
+		BaseFee:      t09BigStrings(fee.BaseFee),
+		GasUsedRatio: fee.GasUsedRatio,
+		Reward:       t09BigRows(fee.Reward),
 	})
 	if err != nil {
 		panic(err)
@@ -272,7 +272,7 @@ func t09TypedWantSync(t *testing.T, raw json.RawMessage) string {
 // the public typed result.
 
 func t09TypedChainID(t *testing.T, f *t09Fleet, _ []any) (string, error) {
-	value, _, err := f.client.ChainID(f.context(t))
+	value, err := f.client.ChainID(f.context(t))
 	if err != nil {
 		return "", err
 	}
@@ -280,7 +280,7 @@ func t09TypedChainID(t *testing.T, f *t09Fleet, _ []any) (string, error) {
 }
 
 func t09TypedBlockByHash(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	block, _, err := f.client.BlockByHash(f.context(t), common.HexToHash(t09ParamString(t, params, 0)), true)
+	block, err := f.client.BlockByHash(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
 	if err != nil {
 		return "", err
 	}
@@ -299,7 +299,7 @@ func t09TypedBlockByNumber(t *testing.T, f *t09Fleet, params []any) (string, err
 		}
 		return t09SummaryHeader(header), nil
 	}
-	block, err := f.adapter.BlockByNumber(ctx, big.NewInt(int64(t09ParamUint64(t, params, 0))))
+	block, err := f.client.BlockByNumber(ctx, big.NewInt(int64(t09ParamUint64(t, params, 0))))
 	if err != nil {
 		return "", err
 	}
@@ -315,7 +315,7 @@ func t09TypedBalance(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryBig((*big.Int)(value)), nil
 	}
-	value, err := f.adapter.BalanceAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, err := f.client.BalanceAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
 	if err != nil {
 		return "", err
 	}
@@ -323,7 +323,7 @@ func t09TypedBalance(t *testing.T, f *t09Fleet, params []any) (string, error) {
 }
 
 func t09TypedReceipt(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	receipt, err := f.adapter.TransactionReceipt(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
+	receipt, err := f.client.TransactionReceipt(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
 	if err != nil {
 		return "", err
 	}
@@ -331,7 +331,7 @@ func t09TypedReceipt(t *testing.T, f *t09Fleet, params []any) (string, error) {
 }
 
 func t09TypedTransaction(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	tx, pending, err := f.adapter.TransactionByHash(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
+	tx, pending, err := f.client.TransactionByHash(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
 	if err != nil {
 		return "", err
 	}
@@ -340,7 +340,7 @@ func t09TypedTransaction(t *testing.T, f *t09Fleet, params []any) (string, error
 
 func t09TypedBlockReceipts(t *testing.T, f *t09Fleet, params []any) (string, error) {
 	ref := gethrpc.BlockNumberOrHashWithHash(common.HexToHash(t09ParamString(t, params, 0)), false)
-	receipts, err := f.adapter.BlockReceipts(f.context(t), ref)
+	receipts, err := f.client.BlockReceipts(f.context(t), ref)
 	if err != nil {
 		return "", err
 	}
@@ -356,7 +356,7 @@ func t09TypedNonce(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryQuantity(uint64(*value)), nil
 	}
-	value, err := f.adapter.NonceAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, err := f.client.NonceAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
 	if err != nil {
 		return "", err
 	}
@@ -372,7 +372,7 @@ func t09TypedStorage(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryBytes(*value), nil
 	}
-	value, err := f.adapter.StorageAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)),
+	value, err := f.client.StorageAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)),
 		common.HexToHash(t09ParamString(t, params, 1)), big.NewInt(int64(t09ParamUint64(t, params, 2))))
 	if err != nil {
 		return "", err
@@ -389,7 +389,7 @@ func t09TypedCode(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryBytes(*value), nil
 	}
-	value, err := f.adapter.CodeAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, err := f.client.CodeAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
 	if err != nil {
 		return "", err
 	}
@@ -406,7 +406,7 @@ func t09TypedCall(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		return t09SummaryBytes(*value), nil
 	}
 	to := common.HexToAddress(t09Address)
-	value, err := f.adapter.CallContract(ctx, ethereum.CallMsg{To: &to}, big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, err := f.client.CallContract(ctx, ethereum.CallMsg{To: &to}, big.NewInt(int64(t09ParamUint64(t, params, 1))))
 	if err != nil {
 		return "", err
 	}
@@ -428,7 +428,7 @@ func t09TypedLogs(t *testing.T, f *t09Fleet, params []any) (string, error) {
 	}
 	hash := common.HexToHash(object["blockHash"].(string))
 	q := ethereum.FilterQuery{BlockHash: &hash}
-	logs, err := f.adapter.FilterLogs(f.context(t), q)
+	logs, err := f.client.FilterLogs(f.context(t), q)
 	if err != nil {
 		return "", err
 	}
@@ -444,7 +444,7 @@ func t09TypedFeeHistory(t *testing.T, f *t09Fleet, params []any) (string, error)
 		}
 		return t09FeeWireSummary(*wire), nil
 	}
-	fee, _, err := f.client.FeeHistory(ctx, uint64(t09ParamInt(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))), []float64{50})
+	fee, err := f.client.FeeHistory(ctx, uint64(t09ParamInt(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))), []float64{50})
 	if err != nil {
 		return "", err
 	}
@@ -453,13 +453,13 @@ func t09TypedFeeHistory(t *testing.T, f *t09Fleet, params []any) (string, error)
 
 func t09FeeWireSummary(wire t09FeeWantWire) string {
 	out := struct {
-		OldestBlock   string
-		BaseFeePerGas []string
-		GasUsedRatio  []float64
-		Reward        [][]string
+		OldestBlock  string
+		BaseFee      []string
+		GasUsedRatio []float64
+		Reward       [][]string
 	}{OldestBlock: (*big.Int)(wire.OldestBlock).String(), GasUsedRatio: wire.GasUsedRatio}
 	for _, fee := range wire.BaseFeePerGas {
-		out.BaseFeePerGas = append(out.BaseFeePerGas, (*big.Int)(fee).String())
+		out.BaseFee = append(out.BaseFee, (*big.Int)(fee).String())
 	}
 	for _, row := range wire.Reward {
 		var rewards []string
@@ -476,7 +476,7 @@ func t09FeeWireSummary(wire t09FeeWantWire) string {
 }
 
 func t09TypedGasPrice(t *testing.T, f *t09Fleet, _ []any) (string, error) {
-	value, _, err := f.client.GasPrice(f.context(t))
+	value, err := f.client.SuggestGasPrice(f.context(t))
 	if err != nil {
 		return "", err
 	}
@@ -484,7 +484,7 @@ func t09TypedGasPrice(t *testing.T, f *t09Fleet, _ []any) (string, error) {
 }
 
 func t09TypedMaxPriorityFee(t *testing.T, f *t09Fleet, _ []any) (string, error) {
-	value, _, err := f.client.MaxPriorityFeePerGas(f.context(t))
+	value, err := f.client.SuggestGasTipCap(f.context(t))
 	if err != nil {
 		return "", err
 	}
@@ -492,7 +492,7 @@ func t09TypedMaxPriorityFee(t *testing.T, f *t09Fleet, _ []any) (string, error) 
 }
 
 func t09TypedBlobBaseFee(t *testing.T, f *t09Fleet, _ []any) (string, error) {
-	value, _, err := f.client.BlobBaseFee(f.context(t))
+	value, err := f.client.BlobBaseFee(f.context(t))
 	if err != nil {
 		return "", err
 	}
@@ -508,7 +508,7 @@ func t09TypedBlockNumber(t *testing.T, f *t09Fleet, params []any) (string, error
 }
 
 func t09TypedAccessList(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	result, _, err := f.client.CreateAccessList(f.context(t), params[0], params[1:]...)
+	result, err := f.client.CreateAccessList(f.context(t), params[0], params[1:]...)
 	if err != nil {
 		return "", err
 	}
@@ -516,7 +516,7 @@ func t09TypedAccessList(t *testing.T, f *t09Fleet, params []any) (string, error)
 }
 
 func t09TypedPeerCount(t *testing.T, f *t09Fleet, _ []any) (string, error) {
-	value, _, err := f.client.PeerCount(f.context(t))
+	value, err := f.client.PeerCount(f.context(t))
 	if err != nil {
 		return "", err
 	}
@@ -524,7 +524,7 @@ func t09TypedPeerCount(t *testing.T, f *t09Fleet, _ []any) (string, error) {
 }
 
 func t09TypedSyncing(t *testing.T, f *t09Fleet, _ []any) (string, error) {
-	progress, _, err := f.client.Syncing(f.context(t))
+	progress, err := f.client.SyncProgress(f.context(t))
 	if err != nil {
 		return "", err
 	}
@@ -532,7 +532,7 @@ func t09TypedSyncing(t *testing.T, f *t09Fleet, _ []any) (string, error) {
 }
 
 func t09TypedNetVersion(t *testing.T, f *t09Fleet, _ []any) (string, error) {
-	value, _, err := f.client.NetVersion(f.context(t))
+	value, err := f.client.NetworkID(f.context(t))
 	if err != nil {
 		return "", err
 	}
@@ -540,8 +540,12 @@ func t09TypedNetVersion(t *testing.T, f *t09Fleet, _ []any) (string, error) {
 }
 
 func t09TypedListening(t *testing.T, f *t09Fleet, _ []any) (string, error) {
-	value, _, err := f.client.Listening(f.context(t))
+	decision, err := f.client.Call(f.context(t), methods.MethodListening)
 	if err != nil {
+		return "", err
+	}
+	var value bool
+	if err := json.Unmarshal(decision.Value, &value); err != nil {
 		return "", err
 	}
 	return fmt.Sprint(value), nil
