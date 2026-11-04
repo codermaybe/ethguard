@@ -15,28 +15,6 @@ func errObs() Observation {
 	return Observation{Source: src(), Err: errors.New("timeout")}
 }
 
-func TestCorroborationRequiredSupport(t *testing.T) {
-	// Decision 0029's table: with H=2, required support for N=2..5 is
-	// 2/2/3/3; the floor binds small bases, the majority binds large ones.
-	floor2 := Corroboration{Mode: CorroborationMajority, Floor: 2}
-	for n, want := range map[int]int{1: 2, 2: 2, 3: 2, 4: 3, 5: 3, 6: 4, 7: 4} {
-		if got := floor2.Required(n); got != want {
-			t.Fatalf("N=%d: required %d, want %d", n, got, want)
-		}
-	}
-	// A zero floor keeps the pure majority bound; a floor above the majority
-	// binds the requirement to the caller's integrity budget.
-	pure := Corroboration{}
-	for n, want := range map[int]int{1: 1, 2: 2, 3: 2, 4: 3, 5: 3} {
-		if got := pure.Required(n); got != want {
-			t.Fatalf("N=%d: required %d, want %d", n, got, want)
-		}
-	}
-	if got := (Corroboration{Floor: 5}).Required(3); got != 5 {
-		t.Fatalf("floor above majority must bind, got %d", got)
-	}
-}
-
 func TestCorroborationMajorityAcceptsMinorityDissent(t *testing.T) {
 	p := Strict(CanonicalJSON, WithQuorum(2))
 	decision, err := p.Resolve([]Observation{

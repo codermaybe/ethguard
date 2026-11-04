@@ -91,7 +91,7 @@ func (a *Aggregator) establishPlannedReference(state *invocationState, started t
 		// The transitional capture stays the decision's evidence source.
 		refcontext.Publish(state.ctx, established)
 	}
-	state.ctx, state.invocation = refcontext.WithInvocation(state.ctx, completed), completed
+	state.invocation = completed
 	return nil
 }
 

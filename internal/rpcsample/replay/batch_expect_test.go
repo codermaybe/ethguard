@@ -323,7 +323,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	if err != nil {
 		return expectCase{}, err
 	}
-	agg, nodes, _, taggedEvidence := newSharedReplayAggregator(t, names, shared)
+	agg, nodes, taggedEvidence := newSharedReplayAggregator(t, names, shared)
 	bySource := map[string]*rpctest.Node{}
 	for i, name := range names {
 		bySource[name] = nodes[i]
@@ -594,7 +594,7 @@ func assertCapturedGate(t *testing.T, agg *aggregator.Aggregator, policy rpc.Pol
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	gated, gatedErr := agg.Aggregate(rpc.RequireCorroborated(ctx), req)
+	gated, gatedErr := agg.AggregateStrict(ctx, req)
 	pending := false
 	if local, ok := policy.(rpc.LocalObservationPolicy); ok {
 		pending = local.IsLocalObservation(prepared)

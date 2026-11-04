@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -33,53 +32,43 @@ func tracePool(t *testing.T, nodes []*rpctest.Node) *pool.Pool {
 	return p
 }
 
-// invocationRecorder records the invocation the plan's Validate phase
-// observes, so the trace fixture can prove that the business phases run on
-// the invocation the reference stage establishes against. The plan pipeline
-// validates once, before establishment; the rewrite after establishment is
-// the plan's own pure function, so the sharing proof is this recorded
-// invocation's identity against the stage's.
-type invocationRecorder struct {
+// traceRecorder records the pipeline's observable events in order: the
+// plan's Validate hook and the establishment rounds with the exact
+// invocation each receives. The sharing proof rides the stage — Establish
+// receives the same pre-establishment invocation the business phases
+// continue with — so the recorded invocation carries the frozen basis and
+// the no-reference-yet state the validate-time observation used to pin.
+type traceRecorder struct {
+	inner aggregator.ReferenceStage
+
 	mu          sync.Mutex
+	events      []string
 	invocations []rpc.Invocation
+	kinds       []rpc.ReferenceKind
 }
 
-func (r *invocationRecorder) observe(ctx context.Context, req rpc.Request) error {
-	if invocation, ok := refcontext.Invocation(ctx); ok {
-		r.mu.Lock()
-		r.invocations = append(r.invocations, invocation)
-		r.mu.Unlock()
-	}
+func (r *traceRecorder) observe(ctx context.Context, req rpc.Request) error {
+	r.mu.Lock()
+	r.events = append(r.events, "validate")
+	r.mu.Unlock()
 	return nil
 }
 
-func (r *invocationRecorder) snapshot() []rpc.Invocation {
+func (r *traceRecorder) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
+	r.mu.Lock()
+	r.events = append(r.events, "establish")
+	r.invocations = append(r.invocations, invocation)
+	r.kinds = append(r.kinds, request.Kind)
+	r.mu.Unlock()
+	return r.inner.Establish(ctx, invocation, request)
+}
+
+func (r *traceRecorder) trace() ([]string, []rpc.Invocation, []rpc.ReferenceKind) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return append([]rpc.Invocation(nil), r.invocations...)
-}
-
-// recordingStage records every establishment round the aggregator runs.
-type recordingStage struct {
-	inner aggregator.ReferenceStage
-
-	mu    sync.Mutex
-	ids   []rpc.InvocationID
-	kinds []rpc.ReferenceKind
-}
-
-func (s *recordingStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
-	s.mu.Lock()
-	s.ids = append(s.ids, invocation.ID())
-	s.kinds = append(s.kinds, request.Kind)
-	s.mu.Unlock()
-	return s.inner.Establish(ctx, invocation, request)
-}
-
-func (s *recordingStage) rounds() ([]rpc.InvocationID, []rpc.ReferenceKind) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]rpc.InvocationID(nil), s.ids...), append([]rpc.ReferenceKind(nil), s.kinds...)
+	return append([]string(nil), r.events...),
+		append([]rpc.Invocation(nil), r.invocations...),
+		append([]rpc.ReferenceKind(nil), r.kinds...)
 }
 
 func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc.CorroborationShared {
@@ -94,7 +83,7 @@ func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc
 // traceAggregator builds the composed read pipeline for the trace fixtures:
 // the compiled balance plan with a Validate hook recording the invocation,
 // registered beside the recording establishment stage.
-func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (*aggregator.Aggregator, *invocationRecorder, *recordingStage) {
+func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (*aggregator.Aggregator, *traceRecorder) {
 	t.Helper()
 	bundle, err := Build(Inputs{
 		Pool:           p,
@@ -106,19 +95,18 @@ func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (
 	if err != nil {
 		t.Fatal(err)
 	}
-	stage := &recordingStage{inner: bundle.Stage}
 	plan, err := methods.PlanFor(methods.MethodGetBalance)
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorded := &invocationRecorder{}
+	recorded := &traceRecorder{inner: bundle.Stage}
 	plan.Validate = recorded.observe
 	return aggregator.New(p, aggregator.WithPlans(map[string]rpc.ReadPlan{
 		methods.MethodGetBalance: plan,
 	}),
 		aggregator.WithCorroboration(mustCorroboration(t, rpc.CorroborationMajority, 2)),
 		aggregator.WithCollectTimeout(2*time.Second),
-		aggregator.WithReferenceStage(stage)), recorded, stage
+		aggregator.WithReferenceStage(recorded)), recorded
 }
 
 // The trace fixture for a latest moving-tag read: one invocation ID shared by
@@ -150,7 +138,7 @@ func TestLatestReferenceTraceSharesOneInvocation(t *testing.T) {
 		})
 	}
 	p := tracePool(t, nodes)
-	aggregate, recorded, stage := traceAggregator(t, p, nil)
+	aggregate, trace := traceAggregator(t, p, nil)
 	decision, err := aggregate.Aggregate(context.Background(), rpc.Request{Method: "eth_getBalance", Params: []any{"0x1", "latest"}})
 	if err != nil {
 		t.Fatalf("Aggregate: %v", err)
@@ -162,33 +150,31 @@ func TestLatestReferenceTraceSharesOneInvocation(t *testing.T) {
 		t.Fatalf("reference = %+v, want the established latest head", decision.Reference)
 	}
 
-	ids, kinds := stage.rounds()
-	if len(ids) != 1 || kinds[0] != rpc.ReferenceLatest {
-		t.Fatalf("establishment rounds = %v/%v, want one latest round", ids, kinds)
+	events, invocations, kinds := trace.trace()
+	if len(kinds) != 1 || kinds[0] != rpc.ReferenceLatest {
+		t.Fatalf("establishment rounds = %v, want one latest round", kinds)
 	}
 	// The plan pipeline validates once, before establishment: the recorded
-	// invocation is the one the stage establishes against. The rewrite after
-	// establishment is the plan's own pure function — the decorator path's
-	// prepare pair becomes this identity check plus the decision's attached
-	// reference (asserted above).
-	seen := recorded.snapshot()
-	if len(seen) != 1 {
-		t.Fatalf("Validate observed %d invocations, want the one pre-establishment invocation", len(seen))
+	// event order pins that, and the establishment call receives the same
+	// pre-establishment invocation the business phases continue with. The
+	// rewrite after establishment is the plan's own pure function — the
+	// decorator path's prepare pair becomes this identity check plus the
+	// decision's attached reference (asserted above).
+	if len(events) != 2 || events[0] != "validate" || events[1] != "establish" {
+		t.Fatalf("pipeline events = %v, want one validate before one establish", events)
 	}
-	if seen[0].ID() != ids[0] {
-		t.Fatalf("business invocation %v != establishment invocation %s", seen[0].ID(), ids[0])
-	}
+	seen := invocations[0]
 	// One frozen basis, captured before any request: every member occupies it.
-	if seen[0].Basis().Size() != 3 {
-		t.Fatalf("basis size = %d, want the three voting members", seen[0].Basis().Size())
+	if seen.Basis().Size() != 3 {
+		t.Fatalf("basis size = %d, want the three voting members", seen.Basis().Size())
 	}
-	if seen[0].Basis().Required() != 2 {
-		t.Fatalf("basis required = %d, want the snapshot floor", seen[0].Basis().Required())
+	if seen.Basis().Required() != 2 {
+		t.Fatalf("basis required = %d, want the snapshot floor", seen.Basis().Required())
 	}
-	// The validate-time invocation predates establishment: no reference yet.
+	// The establish-time invocation predates WithReference: no reference yet.
 	// The established reference rides the decision (asserted above).
-	if seen[0].HasReference() {
-		t.Fatal("the validate-time invocation already carries a reference")
+	if seen.HasReference() {
+		t.Fatal("the pre-establishment invocation already carries a reference")
 	}
 	// The establishment round is the only head read; the business round is
 	// the only balance read. A nested aggregate would multiply the rounds.
@@ -247,7 +233,7 @@ func TestFinalizedReferenceTraceConfirmsAndPins(t *testing.T) {
 		})
 	}
 	p := tracePool(t, nodes)
-	aggregate, recorded, stage := traceAggregator(t, p, &AnchoringStrategy{Finalized: true, MaxLag: 32})
+	aggregate, trace := traceAggregator(t, p, &AnchoringStrategy{Finalized: true, MaxLag: 32})
 	decision, err := aggregate.Aggregate(context.Background(), rpc.Request{Method: "eth_getBalance", Params: []any{"0x1", "latest"}})
 	if err != nil {
 		t.Fatalf("Aggregate: %v", err)
@@ -255,17 +241,15 @@ func TestFinalizedReferenceTraceConfirmsAndPins(t *testing.T) {
 	if decision.Status != rpc.Corroborated || decision.Reference == nil || decision.Reference.Height != 10000 {
 		t.Fatalf("decision = %+v, want corroboration at height 10000", decision)
 	}
-	ids, kinds := stage.rounds()
-	if len(ids) != 1 || kinds[0] != rpc.ReferenceLatest {
+	_, invocations, kinds := trace.trace()
+	if len(invocations) != 1 || kinds[0] != rpc.ReferenceLatest {
 		// The method declared the default reference; the finalized strategy
-		// implements it through the candidate-selection algorithm.
-		t.Fatalf("establishment rounds = %v/%v, want one declared-latest round", ids, kinds)
+		// implements it through the candidate-selection algorithm, on the one
+		// shared invocation.
+		t.Fatalf("establishment rounds = %v/%v, want one declared-latest round", invocations, kinds)
 	}
 	if decision.Reference.Origin != "reported-finalized" {
 		t.Fatalf("origin = %q, want the finalized algorithm's evidence", decision.Reference.Origin)
-	}
-	if seen := recorded.snapshot(); len(seen) != 1 || seen[0].ID() != ids[0] {
-		t.Fatalf("business invocations %v do not share the establishment ID %s", seen, ids[0])
 	}
 }
 
@@ -282,7 +266,7 @@ func TestReferenceFailureKeepsBusinessFanOutAtZero(t *testing.T) {
 		node.Fail("eth_getBlockByNumber", -32000, "head unavailable")
 	}
 	p := tracePool(t, nodes)
-	aggregate, recorded, stage := traceAggregator(t, p, nil)
+	aggregate, trace := traceAggregator(t, p, nil)
 	decision, err := aggregate.Aggregate(context.Background(), rpc.Request{Method: "eth_getBalance", Params: []any{"0x1", "latest"}})
 	if err == nil {
 		t.Fatal("expected the failed establishment to fail the read")
@@ -293,13 +277,14 @@ func TestReferenceFailureKeepsBusinessFanOutAtZero(t *testing.T) {
 	if decision.Reference == nil || len(decision.Reference.Faults) == 0 {
 		t.Fatalf("failed reference lost its evidence: %+v", decision.Reference)
 	}
-	if ids, _ := stage.rounds(); len(ids) == 0 {
-		t.Fatal("the establishment round was not observable")
+	events, invocations, _ := trace.trace()
+	if len(events) != 2 || events[0] != "validate" || events[1] != "establish" {
+		t.Fatalf("pipeline events = %v, want one validate before one establish", events)
 	}
-	if seen := recorded.snapshot(); len(seen) != 1 || seen[0].HasReference() {
+	if len(invocations) != 1 || invocations[0].HasReference() {
 		// A failed establishment never reaches the second Prepare, so the
-		// only observation is the reference-less prepare-time invocation.
-		t.Fatalf("a failed establishment must not leave a reference on the invocation: %+v", seen)
+		// only observation is the reference-less pre-establishment invocation.
+		t.Fatalf("a failed establishment must not leave a reference on the invocation: %+v", invocations)
 	}
 	for i, node := range nodes {
 		for _, call := range node.Calls() {

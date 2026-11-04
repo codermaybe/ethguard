@@ -117,8 +117,8 @@ func (a uncertainCaptureAdapter) Record(stage, method string, source rpc.SourceR
 // beginInvocation freezes the read invocation: one ID, the voting basis
 // captured before any request, the corroboration snapshot, and the raw-data
 // capture. The typed facade's corroboration requirement rides the invocation
-// itself (AggregateStrict); the context carries nothing.
-func beginInvocation(ctx context.Context, snap rpc.Corroboration, snapOK bool, members []*pool.Source, capture *uncertain.Capture, requireCorroboration bool) (context.Context, rpc.Invocation) {
+// itself (AggregateStrict); nothing rides the context.
+func beginInvocation(snap rpc.Corroboration, snapOK bool, members []*pool.Source, capture *uncertain.Capture, requireCorroboration bool) rpc.Invocation {
 	refs := make([]rpc.SourceRef, 0, len(members))
 	for _, member := range members {
 		refs = append(refs, SourceRefOf(member))
@@ -127,8 +127,7 @@ func beginInvocation(ctx context.Context, snap rpc.Corroboration, snapOK bool, m
 	if requireCorroboration {
 		opts = append(opts, rpc.WithRequiredCorroboration())
 	}
-	invocation := rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap), opts...)
-	return refcontext.WithInvocation(ctx, invocation), invocation
+	return rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap), opts...)
 }
 
 // preparedTipFreshness reports whether the prepared business request still
