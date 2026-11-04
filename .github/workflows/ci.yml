@@ -153,6 +153,60 @@ jobs:
       - name: compatibility channel tests
         run: go test ./gethcompat/... ./internal/transport/geth/... ./internal/transport/http/...
 
+  # Scheduled fuzzing exercises untrusted JSON and WebSocket frame parsers
+  # outside the pull-request critical path. Any discovered input is emitted by
+  # Go as a corpus file and must be committed as a deterministic regression.
+  fuzz:
+    name: scheduled fuzz (short budget)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: JSON safety
+        run: go test ./internal/jsonsafe -run=^$ -fuzz=FuzzValidateClassifies -fuzztime=30s
+      - name: JSON-RPC response decoder
+        run: go test ./internal/rpcwire -run=^$ -fuzz=FuzzDecodeResponse -fuzztime=30s
+      - name: WebSocket frame stream
+        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzFrameStream -fuzztime=30s
+      - name: WebSocket frame writer
+        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzWriteFrameRoundTrip -fuzztime=30s
+      - name: access-list encoder
+        run: go test ./rpc/internal/objects/accesslist -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+      - name: block encoder
+        run: go test ./rpc/internal/objects/block -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+      - name: fee-history encoder
+        run: go test ./rpc/internal/objects/feehistory -run=^$ -fuzz=FuzzEncodeIdempotentAndNormalizeAgrees -fuzztime=30s
+      - name: log encoder
+        run: go test ./rpc/internal/objects/log -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+      - name: receipt encoder
+        run: go test ./rpc/internal/objects/receipt -run=^$ -fuzz=FuzzEncodeKeyStableAndIdempotent -fuzztime=30s
+      - name: transaction encoder
+        run: go test ./rpc/internal/objects/transaction -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+      - name: canonical wire normalizer
+        run: go test ./rpc/internal/wire -run=^$ -fuzz=FuzzNormalize -fuzztime=30s
+      - name: archive discovered fuzz corpus
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-corpus-${{ github.run_id }}
+          path: |
+            internal/jsonsafe/testdata/fuzz/
+            internal/rpcwire/testdata/fuzz/
+            internal/transport/wss/testdata/fuzz/
+            rpc/internal/objects/accesslist/testdata/fuzz/
+            rpc/internal/objects/block/testdata/fuzz/
+            rpc/internal/objects/feehistory/testdata/fuzz/
+            rpc/internal/objects/log/testdata/fuzz/
+            rpc/internal/objects/receipt/testdata/fuzz/
+            rpc/internal/objects/transaction/testdata/fuzz/
+            rpc/internal/wire/testdata/fuzz/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Lint gate: .golangci.yml is tuned to zero baseline noise on the current
   # tree, so it blocks PRs. Policy rationale lives in .golangci.yml itself.
   lint:
