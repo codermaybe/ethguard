@@ -27,6 +27,58 @@ func LoadFile(path string) (Config, error) {
 	return ParseYAML(data)
 }
 
+// FromEndpoints builds a Config whose upstreams dial exactly the given RPC
+// endpoints — the programmatic counterpart of a minimal YAML file. Every
+// entry gets a derived display id ("rpc-1", "rpc-2", ...) and the transport
+// its scheme implies (http(s) → native-http, ws(s) → wss), then the result
+// passes the same Validate as the YAML path, so a Config returned here is
+// usable by ethguard.New without a second failure mode.
+//
+// Errors carry the field path, the offending endpoint's index, and a fix
+// hint: "config: upstreams[1]: endpoint scheme "ftp" is not an Ethereum RPC
+// transport: use http, https, ws, or wss". Duplicate endpoints fail for the
+// same reason the YAML path rejects them — exact duplicates silently shrink
+// the voting basis below what the caller believes it configured.
+func FromEndpoints(urls ...string) (Config, error) {
+	if len(urls) == 0 {
+		return Config{}, fmt.Errorf("config: upstreams: at least one endpoint is required: list two or more distinct endpoints for corroboration, or dial one endpoint explicitly with ethguard.DialUncorroborated")
+	}
+	cfg := Config{Upstreams: make([]Upstream, 0, len(urls))}
+	seen := make(map[string]struct{}, len(urls))
+	for i, raw := range urls {
+		endpoint := strings.TrimSpace(raw)
+		if endpoint == "" {
+			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint is empty: provide an http(s) or ws(s) RPC URL, e.g. https://node.example:8545", i)
+		}
+		parsed, err := url.Parse(endpoint)
+		if err != nil || parsed.Host == "" {
+			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint %q is not a valid URL: include a scheme and host, e.g. https://node.example:8545", i, endpoint)
+		}
+		var transport Transport
+		switch parsed.Scheme {
+		case "http", "https":
+			transport = TransportNativeHTTP
+		case "ws", "wss":
+			transport = TransportWSS
+		default:
+			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint scheme %q is not an Ethereum RPC transport: use http, https, ws, or wss", i, parsed.Scheme)
+		}
+		if _, dup := seen[endpoint]; dup {
+			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint %q duplicates an earlier entry: use distinct independent providers — a repeated URL shrinks the voting basis without adding a source", i, endpoint)
+		}
+		seen[endpoint] = struct{}{}
+		cfg.Upstreams = append(cfg.Upstreams, Upstream{
+			ID:        fmt.Sprintf("rpc-%d", i+1),
+			Endpoint:  endpoint,
+			Transport: transport,
+		})
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
 // ParseYAML unmarshals YAML bytes into Config and runs basic validation.
 // Unknown fields are rejected: silently ignoring a misspelled security
 // knob (decision 0004) is worse than failing fast at startup.
