@@ -417,11 +417,7 @@ func (c *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64,
 	if err != nil {
 		return 0, err
 	}
-	var gas hexutil.Uint64
-	if err := json.Unmarshal(decision.Value, &gas); err != nil {
-		return 0, fmt.Errorf("%w: decode gas estimate: %v", rpc.ErrMalformedResponse, err)
-	}
-	return uint64(gas), nil
+	return typed.DecodeGasEstimate(decision.Value)
 }
 
 // FilterLogs returns the fleet-corroborated logs matching q. Range filters are
@@ -438,14 +434,7 @@ func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]type
 	if err != nil {
 		return nil, err
 	}
-	if string(decision.Value) == "null" {
-		return nil, fmt.Errorf("%w: log array is JSON null", rpc.ErrMalformedResponse)
-	}
-	var logs []types.Log
-	if err := json.Unmarshal(decision.Value, &logs); err != nil {
-		return nil, fmt.Errorf("%w: decode logs: %v", rpc.ErrMalformedResponse, err)
-	}
-	return logs, nil
+	return typed.DecodeLogs(decision.Value)
 }
 
 // RevertError reports a fleet-corroborated execution revert of an eth_call.

@@ -27,8 +27,10 @@ type Client struct {
 	aggregator *aggregator.Aggregator
 	// plans are the read methods driven by explicit execution plans; their
 	// resolvers own canonical normalization at the facade boundary.
-	plans    map[string]rpc.ReadPlan
-	resolver AnchorResolver
+	plans map[string]rpc.ReadPlan
+	// resolver is the runtime-owned anchor establishment strategy; the facade
+	// only queries it (AnchorBlockHash and friends), never replaces it.
+	resolver runtime.ReferenceResolver
 	// corrob is the internal adjudication snapshot source; callers do not
 	// configure its mode or support floor.
 	corrob *rpc.CorroborationShared
@@ -289,14 +291,9 @@ func (c *Client) AnchorBlockHashForTag(ctx context.Context, tag string) (string,
 // AnchorBlockHeight returns the height of the currently corroborated block
 // reference. It rides the same establishment as AnchorBlockHash — the
 // response carries number and hash together, so no extra fan-out is
-// needed — and errors clearly when a custom resolver cannot produce
-// heights (AnchorHeightProvider).
+// needed.
 func (c *Client) AnchorBlockHeight(ctx context.Context) (uint64, error) {
-	hp, ok := c.resolver.(AnchorHeightProvider)
-	if !ok {
-		return 0, fmt.Errorf("ethguard: anchor resolver %T does not implement AnchorHeightProvider", c.resolver)
-	}
-	_, height, err := hp.AnchorBlockRef(ctx)
+	_, height, err := c.resolver.AnchorBlockRef(ctx)
 	return height, err
 }
 

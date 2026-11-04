@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -401,12 +401,12 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobo
 	if corrob != nil {
 		opts = append(opts, aggregator.WithCorroboration(corrob))
 	}
-	strictHead := ethguard.NewStrictHeadAnchor(sources, observe.Nop)
+	strictHead := runtime.NewStrictHeadAnchor(sources, observe.Nop)
 	// safe/finalized use the production finalized-anchoring path: a strict
 	// majority for safe and reference.Finalized for finalized. The legacy
 	// strict anchor requires every valid head to agree, which would reject a
 	// lagging source before the business policy's majority snapshot is applied.
-	finalizedHead := ethguard.NewFinalizedHeadAnchor(sources, observe.Nop)
+	finalizedHead := runtime.NewFinalizedHeadAnchor(sources, observe.Nop)
 	reference := func(ctx context.Context) (rpc.ReferenceEvidence, error) {
 		tag := rpc.AnchorTag(ctx)
 		var ref rpc.ReferenceEvidence

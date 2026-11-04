@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -319,56 +320,11 @@ func (c *Client) Syncing(ctx context.Context) (*ethereum.SyncProgress, rpc.Decis
 	if err != nil {
 		return nil, unknownDecision(decision), err
 	}
-	var flag bool
-	if json.Unmarshal(decision.Value, &flag) == nil {
-		if !flag {
-			return nil, decision, nil
-		}
-		return nil, unknownDecision(decision), fmt.Errorf("%w: syncing boolean true is not a shape sources return",
-			rpc.ErrMalformedResponse)
+	progress, err := typed.DecodeSyncProgress(decision.Value)
+	if err != nil {
+		return nil, unknownDecision(decision), err
 	}
-	var wire syncProgressWire
-	if err := json.Unmarshal(decision.Value, &wire); err != nil {
-		return nil, unknownDecision(decision), fmt.Errorf("%w: decode sync progress: %w", rpc.ErrMalformedResponse, err)
-	}
-	return wire.toSyncProgress(), decision, nil
-}
-
-// syncProgressWire mirrors go-ethereum's own client-side decoding of the
-// eth_syncing object form; the snap-era optional fields ride as pointers and
-// stay zero when absent.
-type syncProgressWire struct {
-	StartingBlock   hexutil.Uint64  `json:"startingBlock"`
-	CurrentBlock    hexutil.Uint64  `json:"currentBlock"`
-	HighestBlock    hexutil.Uint64  `json:"highestBlock"`
-	PulledStates    *hexutil.Uint64 `json:"pulledStates"`
-	KnownStates     *hexutil.Uint64 `json:"knownStates"`
-	SyncedAccounts  *hexutil.Uint64 `json:"syncedAccounts"`
-	SyncedBytecodes *hexutil.Uint64 `json:"syncedBytecodes"`
-	SyncedStorage   *hexutil.Uint64 `json:"syncedStorage"`
-	HealedTrienodes *hexutil.Uint64 `json:"healedTrienodes"`
-	HealedBytecodes *hexutil.Uint64 `json:"healedBytecodes"`
-}
-
-func (w syncProgressWire) toSyncProgress() *ethereum.SyncProgress {
-	pick := func(v *hexutil.Uint64) uint64 {
-		if v == nil {
-			return 0
-		}
-		return uint64(*v)
-	}
-	return &ethereum.SyncProgress{
-		StartingBlock:   uint64(w.StartingBlock),
-		CurrentBlock:    uint64(w.CurrentBlock),
-		HighestBlock:    uint64(w.HighestBlock),
-		PulledStates:    pick(w.PulledStates),
-		KnownStates:     pick(w.KnownStates),
-		SyncedAccounts:  pick(w.SyncedAccounts),
-		SyncedBytecodes: pick(w.SyncedBytecodes),
-		SyncedStorage:   pick(w.SyncedStorage),
-		HealedTrienodes: pick(w.HealedTrienodes),
-		HealedBytecodes: pick(w.HealedBytecodes),
-	}
+	return progress, decision, nil
 }
 
 // BlobBaseFee returns the fleet's lower-median blob base fee (EIP-4844) — a
@@ -386,18 +342,10 @@ func (c *Client) BlobBaseFee(ctx context.Context) (*big.Int, rpc.Decision, error
 	return value, decision, nil
 }
 
-// AccessListResult represents the outcome of eth_createAccessList.
-type AccessListResult struct {
-	AccessList types.AccessList `json:"accessList"`
-	GasUsed    uint64           `json:"gasUsed"`
-	Error      string           `json:"error,omitempty"`
-}
-
-type accessListResultWire struct {
-	AccessList types.AccessList `json:"accessList"`
-	GasUsed    hexutil.Uint64   `json:"gasUsed"`
-	Error      string           `json:"error,omitempty"`
-}
+// AccessListResult represents the outcome of eth_createAccessList. The type
+// and its decode are owned by internal/typed; the root facade re-exports the
+// name so callers keep one import.
+type AccessListResult = typed.AccessListResult
 
 // CreateAccessList creates an EIP-2930 access list for a transaction at the
 // corroborated reference block or an explicitly provided block argument.
@@ -410,13 +358,9 @@ func (c *Client) CreateAccessList(ctx context.Context, msg any, blockNrOrHash ..
 	if err != nil {
 		return nil, unknownDecision(decision), err
 	}
-	var wire accessListResultWire
-	if err := json.Unmarshal(decision.Value, &wire); err != nil {
-		return nil, unknownDecision(decision), fmt.Errorf("%w: decode access list result: %w", rpc.ErrMalformedResponse, err)
+	result, err := typed.DecodeAccessListResult(decision.Value)
+	if err != nil {
+		return nil, unknownDecision(decision), err
 	}
-	return &AccessListResult{
-		AccessList: wire.AccessList,
-		GasUsed:    uint64(wire.GasUsed),
-		Error:      wire.Error,
-	}, decision, nil
+	return result, decision, nil
 }
