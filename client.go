@@ -93,6 +93,10 @@ type clientOptions struct {
 	// dialer is a pool dialer injected by DialerOption (the gethcompat
 	// seam); the default adapter selection yields to it.
 	dialer transport.Dialer
+	// chainID pins the client to one Ethereum network when WithChainID was
+	// used. A Go option always wins over the configuration value; nil leaves
+	// cfg.ChainID untouched.
+	chainID *uint64
 }
 
 // WithLogger injects a structured logger receiving one event per aggregate
@@ -142,6 +146,15 @@ func WithTipTracking(every time.Duration, maxBehind uint64) Option {
 	}
 }
 
+// WithChainID pins the client to one Ethereum network: sources reporting a
+// foreign chain are rejected before business fan-out (ErrChainIDMismatch).
+// Zero leaves chain identity validation to the caller, matching the
+// configuration field's meaning. The Go option wins over a chain_id in the
+// configuration (New's documented precedence).
+func WithChainID(chainID uint64) Option {
+	return func(o *clientOptions) { o.chainID = &chainID }
+}
+
 // New builds a Client from an already-loaded configuration.
 // Upstreams are registered into the RPC pool with endpoint deduplication.
 // Dialing each source is deferred until its first call.
@@ -152,17 +165,20 @@ func WithTipTracking(every time.Duration, maxBehind uint64) Option {
 // in the configuration were validated by cfg.Validate; the parses below
 // cannot fail for a Config that passed validation.
 func New(cfg config.Config, opts ...Option) (*Client, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, err
+	co := clientOptions{}
+	for _, opt := range opts {
+		opt(&co)
 	}
-	co := clientOptions{collectTimeout: config.DefaultCollectTimeout()}
-	if cfg.CollectTimeout != "" {
+	// The Go option always wins over a value derived from the configuration;
+	// a zero option value falls through to the documented default, never to
+	// the configuration (decision 0004's precedence rule).
+	if co.collectTimeout == 0 && cfg.CollectTimeout != "" {
 		co.collectTimeout, _ = time.ParseDuration(cfg.CollectTimeout)
 	}
-	if cfg.AnchorCacheTTL != "" {
-		co.anchorCache, _ = time.ParseDuration(cfg.AnchorCacheTTL)
+	if co.collectTimeout == 0 {
+		co.collectTimeout = config.DefaultCollectTimeout()
 	}
-	if cfg.TipTracking != nil {
+	if !co.tipEnabled && cfg.TipTracking != nil {
 		co.tipEnabled = true
 		// Empty strings and a zero bound fall through to pool's defaults,
 		// the same ones the Go option path relies on.
@@ -175,15 +191,21 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	// a case-spelling that passes validation must select the same strategy
 	// here, or the YAML path silently changes anchoring behavior (decision
 	// 0004's failure mode).
-	if cfg.Anchoring != nil && strings.EqualFold(strings.TrimSpace(cfg.Anchoring.Preset), "finalized") {
+	if cfg.Anchoring != nil && !co.useFinalizedAnchoring && strings.EqualFold(strings.TrimSpace(cfg.Anchoring.Preset), "finalized") {
 		maxLag := cfg.Anchoring.MaxLag
 		if maxLag == 0 {
 			maxLag = config.DefaultFinalizedLag()
 		}
 		co.useFinalizedAnchoring, co.finalizedMaxLag = true, maxLag
 	}
-	for _, opt := range opts {
-		opt(&co)
+	if co.chainID != nil {
+		cfg.ChainID = *co.chainID
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	if cfg.AnchorCacheTTL != "" {
+		co.anchorCache, _ = time.ParseDuration(cfg.AnchorCacheTTL)
 	}
 	if co.anchorCache != 0 {
 		return nil, fmt.Errorf("ethguard: anchor_cache_ttl is no longer supported; non-zero duration %s conflicts with decision 0026", co.anchorCache)

@@ -171,14 +171,28 @@ block-specific policies remain deliberately deep modules.
 
 ## Usage
 
+The supported way in: two or more distinct endpoints, default configuration:
+
 ```go
-cfg, err := config.LoadFile("config.yaml")
-if err != nil { return err }
-client, err := ethadapter.New(cfg)
+client, err := ethguard.Dial("https://your-provider-a", "https://your-provider-b")
 if err != nil { return err }
 defer client.Close()
 
 balance, err := client.BalanceAt(ctx, account, nil)
+```
+
+Exactly one endpoint must opt into Forwarded mode explicitly — `Dial` refuses
+a single URL, and a repeated URL fails (a duplicate shrinks the voting basis
+without adding a source):
+
+```go
+client, err := ethguard.DialUncorroborated("https://your-provider")
+```
+
+Operators who configure EthGuard in YAML load the file directly:
+
+```go
+client, err := ethguard.LoadFile("config.yaml")
 ```
 
 `config.yaml` can be a normal YAML configuration file:
@@ -191,6 +205,20 @@ upstreams:
   - id: secondary
     endpoint: https://your-provider-b
 ```
+
+Advanced control (anchoring presets, tip tracking, collect window) builds the
+config programmatically and constructs with `New`:
+
+```go
+cfg, err := config.FromEndpoints("https://a.example:8545", "https://b.example:8545")
+if err != nil { return err }
+client, err := ethguard.New(cfg, ethguard.WithFinalizedAnchoring())
+```
+
+`Dial` never sets a chain identity implicitly — pin one with
+`ethguard.WithChainID(chainID)` (the Go option wins over `chain_id` in the
+file). Construction is lazy: no endpoint is contacted until the first call,
+and `DialContext`'s context bounds construction only.
 
 For a runnable example, save that file and run:
 

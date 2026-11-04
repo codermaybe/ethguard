@@ -153,14 +153,27 @@ local、call-revert 和 block-specific policy 仍是有意保留的深模块。
 
 ## 使用
 
+支持的入口：两个或更多互异 endpoint，默认配置：
+
 ```go
-cfg, err := config.LoadFile("config.yaml")
-if err != nil { return err }
-client, err := ethadapter.New(cfg)
+client, err := ethguard.Dial("https://your-provider-a", "https://your-provider-b")
 if err != nil { return err }
 defer client.Close()
 
 balance, err := client.BalanceAt(ctx, account, nil)
+```
+
+单 endpoint 必须显式进入 Forwarded 模式——`Dial` 拒绝单个 URL，重复 URL 也会
+失败（重复只会缩小投票基数，不增加来源）：
+
+```go
+client, err := ethguard.DialUncorroborated("https://your-provider")
+```
+
+以 YAML 配置 EthGuard 的运维入口直接加载文件：
+
+```go
+client, err := ethguard.LoadFile("config.yaml")
 ```
 
 `config.yaml` 可以是普通的 YAML 配置文件：
@@ -173,6 +186,19 @@ upstreams:
   - id: secondary
     endpoint: https://your-provider-b
 ```
+
+高级控制（锚定 preset、tip 跟踪、collect 窗口）以编程方式构建配置并用 `New`
+构造：
+
+```go
+cfg, err := config.FromEndpoints("https://a.example:8545", "https://b.example:8545")
+if err != nil { return err }
+client, err := ethguard.New(cfg, ethguard.WithFinalizedAnchoring())
+```
+
+`Dial` 不会隐式设置链身份——用 `ethguard.WithChainID(chainID)` 显式固定（Go
+option 赢过文件中的 `chain_id`）。构造保持 lazy：首次调用前不联系任何
+endpoint，`DialContext` 的 context 只约束构造本身。
 
 保存该文件后，可以运行示例：
 
