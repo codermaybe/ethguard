@@ -36,7 +36,7 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 		{"duplicate endpoint", Config{Upstreams: []Upstream{
 			{ID: "a", Endpoint: "https://a.example"},
 			{ID: "b", Endpoint: "https://a.example"},
-		}}, "duplicate endpoint"},
+		}}, "same member as upstreams[0]"},
 		{"unknown preset", Config{Upstreams: upstreams, Anchoring: &AnchoringConfig{Preset: "aggressive"}}, "must be strict or finalized"},
 		{"non-positive anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "-5s"}, "anchor_cache_ttl"},
 		{"garbage anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "soon"}, "anchor_cache_ttl"},

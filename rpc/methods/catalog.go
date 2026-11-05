@@ -124,8 +124,8 @@ var methodCatalog = []MethodDescriptor{
 	{Name: MethodCreateAccessList, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Alignment: "v1.17.5"},
 	{Name: MethodPeerCount, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "PeerCount", Alignment: "v1.17.5"},
 	{Name: MethodSyncing, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "SyncProgress", Alignment: "v1.17.5"},
-	{Name: MethodNetVersion, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Notes: "Root Client.NetVersion; adapter has no ethclient-shaped method."},
-	{Name: MethodListening, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Notes: "Root Client.Listening; adapter has no ethclient-shaped method."},
+	{Name: MethodNetVersion, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Notes: "Root Client.NetworkID (net_version)."},
+	{Name: MethodListening, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Notes: "No typed method; the full decision comes from Client.Call(\"net_listening\")."},
 	// Write path (decision-map #4): a dedicated pipeline outside the read
 	// registry. Broadcast to the full voting basis + relative-trust
 	// adjudication; WriteMethod entries are skipped by ValidateRegistry.

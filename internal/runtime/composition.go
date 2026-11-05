@@ -129,6 +129,15 @@ func Compose(in Composition) (*Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("register upstreams: %w", err)
 	}
+	// The voting basis must stay exactly what the configuration declared:
+	// pool folds spelling variants of one endpoint (case, default port,
+	// trailing slash) into one member, and a silent fold would shrink the
+	// basis below the operator's declared trust set. Config rejects
+	// normalized duplicates first; this check is the composition-side
+	// backstop against drift between the two identity rules.
+	if got, want := rpcPool.Len(), len(in.Upstreams); got != want {
+		return nil, fmt.Errorf("register upstreams: %d configured upstreams collapsed to %d pool members: remove duplicate endpoints after normalization (scheme/host case, default ports, trailing slash)", want, got)
+	}
 
 	// The library owns the corroboration policy. It snapshots the fixed basis
 	// for each invocation and derives the support threshold internally.

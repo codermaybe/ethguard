@@ -5,6 +5,7 @@
 package typed
 
 import (
+	"bytes"
 	"encoding/json"
 	"math/big"
 
@@ -12,6 +13,14 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 )
+
+// jsonNull reports whether the raw value is JSON null (whitespace tolerated).
+// A method answer that is null is a shape question, not a decode default:
+// decoders that own a null rule must see through surrounding whitespace, or a
+// padded null would slip past the check and take the zero-value path.
+func jsonNull(raw json.RawMessage) bool {
+	return string(bytes.TrimSpace(raw)) == "null"
+}
 
 // AccessListResult represents the outcome of eth_createAccessList. The root
 // facade re-exports the type; the decode owns the hex gas spelling.
@@ -28,7 +37,12 @@ type accessListResultWire struct {
 }
 
 // DecodeAccessListResult shapes one corroborated eth_createAccessList value.
+// The method answers with an object, so JSON null fails malformed instead of
+// collapsing into an empty result.
 func DecodeAccessListResult(raw json.RawMessage) (*AccessListResult, error) {
+	if jsonNull(raw) {
+		return nil, wrapMalformed("decode access list result: JSON null", nil)
+	}
 	var wire accessListResultWire
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return nil, wrapMalformed("decode access list result", err)
@@ -87,33 +101,47 @@ func DecodeGasEstimate(raw json.RawMessage) (uint64, error) {
 }
 
 // DecodeLogs shapes one corroborated eth_getLogs array. A JSON null payload
-// is not an empty result: a log query answers with an array, so null fails
-// malformed instead of collapsing into an empty slice.
+// is not an empty result: a log query answers with an array, so null —
+// including whitespace-padded spellings, which the trim check sees through —
+// fails malformed instead of collapsing into an empty slice.
 func DecodeLogs(raw json.RawMessage) ([]types.Log, error) {
-	if string(raw) == "null" {
+	if jsonNull(raw) {
 		return nil, wrapMalformed("log array is JSON null", nil)
 	}
 	var logs []types.Log
 	if err := json.Unmarshal(raw, &logs); err != nil {
 		return nil, wrapMalformed("decode logs", err)
 	}
+	if logs == nil {
+		return nil, wrapMalformed("log array is JSON null", nil)
+	}
 	return logs, nil
 }
 
 // syncProgressWire mirrors go-ethereum's own client-side decoding of the
-// eth_syncing object form; the snap-era optional fields ride as pointers and
-// stay zero when absent.
+// eth_syncing object form (ethclient's rpcProgress, v1.17.5 field set), so
+// EthGuard projects exactly the fields go-ethereum's client would. Optional
+// snap-era fields ride as pointers and stay zero when absent: a provider that
+// does not report a byte-count or healing field yields zero, and no field is
+// claimed beyond the wire's own evidence.
 type syncProgressWire struct {
-	StartingBlock   hexutil.Uint64  `json:"startingBlock"`
-	CurrentBlock    hexutil.Uint64  `json:"currentBlock"`
-	HighestBlock    hexutil.Uint64  `json:"highestBlock"`
-	PulledStates    *hexutil.Uint64 `json:"pulledStates"`
-	KnownStates     *hexutil.Uint64 `json:"knownStates"`
-	SyncedAccounts  *hexutil.Uint64 `json:"syncedAccounts"`
-	SyncedBytecodes *hexutil.Uint64 `json:"syncedBytecodes"`
-	SyncedStorage   *hexutil.Uint64 `json:"syncedStorage"`
-	HealedTrienodes *hexutil.Uint64 `json:"healedTrienodes"`
-	HealedBytecodes *hexutil.Uint64 `json:"healedBytecodes"`
+	StartingBlock       hexutil.Uint64  `json:"startingBlock"`
+	CurrentBlock        hexutil.Uint64  `json:"currentBlock"`
+	HighestBlock        hexutil.Uint64  `json:"highestBlock"`
+	PulledStates        *hexutil.Uint64 `json:"pulledStates"`
+	KnownStates         *hexutil.Uint64 `json:"knownStates"`
+	SyncedAccounts      *hexutil.Uint64 `json:"syncedAccounts"`
+	SyncedAccountBytes  *hexutil.Uint64 `json:"syncedAccountBytes"`
+	SyncedBytecodes     *hexutil.Uint64 `json:"syncedBytecodes"`
+	SyncedBytecodeBytes *hexutil.Uint64 `json:"syncedBytecodeBytes"`
+	SyncedStorage       *hexutil.Uint64 `json:"syncedStorage"`
+	SyncedStorageBytes  *hexutil.Uint64 `json:"syncedStorageBytes"`
+	HealedTrienodes     *hexutil.Uint64 `json:"healedTrienodes"`
+	HealedTrienodeBytes *hexutil.Uint64 `json:"healedTrienodeBytes"`
+	HealedBytecodes     *hexutil.Uint64 `json:"healedBytecodes"`
+	HealedBytecodeBytes *hexutil.Uint64 `json:"healedBytecodeBytes"`
+	HealingTrienodes    *hexutil.Uint64 `json:"healingTrienodes"`
+	HealingBytecode     *hexutil.Uint64 `json:"healingBytecode"`
 }
 
 func (w syncProgressWire) toSyncProgress() *ethereum.SyncProgress {
@@ -124,24 +152,34 @@ func (w syncProgressWire) toSyncProgress() *ethereum.SyncProgress {
 		return uint64(*v)
 	}
 	return &ethereum.SyncProgress{
-		StartingBlock:   uint64(w.StartingBlock),
-		CurrentBlock:    uint64(w.CurrentBlock),
-		HighestBlock:    uint64(w.HighestBlock),
-		PulledStates:    pick(w.PulledStates),
-		KnownStates:     pick(w.KnownStates),
-		SyncedAccounts:  pick(w.SyncedAccounts),
-		SyncedBytecodes: pick(w.SyncedBytecodes),
-		SyncedStorage:   pick(w.SyncedStorage),
-		HealedTrienodes: pick(w.HealedTrienodes),
-		HealedBytecodes: pick(w.HealedBytecodes),
+		StartingBlock:       uint64(w.StartingBlock),
+		CurrentBlock:        uint64(w.CurrentBlock),
+		HighestBlock:        uint64(w.HighestBlock),
+		PulledStates:        pick(w.PulledStates),
+		KnownStates:         pick(w.KnownStates),
+		SyncedAccounts:      pick(w.SyncedAccounts),
+		SyncedAccountBytes:  pick(w.SyncedAccountBytes),
+		SyncedBytecodes:     pick(w.SyncedBytecodes),
+		SyncedBytecodeBytes: pick(w.SyncedBytecodeBytes),
+		SyncedStorage:       pick(w.SyncedStorage),
+		SyncedStorageBytes:  pick(w.SyncedStorageBytes),
+		HealedTrienodes:     pick(w.HealedTrienodes),
+		HealedTrienodeBytes: pick(w.HealedTrienodeBytes),
+		HealedBytecodes:     pick(w.HealedBytecodes),
+		HealedBytecodeBytes: pick(w.HealedBytecodeBytes),
+		HealingTrienodes:    pick(w.HealingTrienodes),
+		HealingBytecode:     pick(w.HealingBytecode),
 	}
 }
 
 // DecodeSyncProgress shapes one eth_syncing value: a false boolean means the
 // source considers itself fully synced and projects to a nil progress; a
-// true boolean is not a shape sources return and fails malformed; the object
-// form decodes through go-ethereum's field spelling.
+// true boolean and JSON null are not shapes sources return and fail
+// malformed; the object form decodes through go-ethereum's field spelling.
 func DecodeSyncProgress(raw json.RawMessage) (*ethereum.SyncProgress, error) {
+	if jsonNull(raw) {
+		return nil, wrapMalformed("decode sync progress: JSON null", nil)
+	}
 	var flag bool
 	if json.Unmarshal(raw, &flag) == nil {
 		if !flag {

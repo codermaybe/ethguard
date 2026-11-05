@@ -76,7 +76,7 @@ M0 的等价性说明必备项。
 
 - `eth_call_revert_test.go`（聚类与 revert envelope）、`call_revert_4e_test.go`
   （reductive 投影 + Provenance）、`exec_object_test.go`（对象参数）、
-  `moving_tag_matrix_test.go`（anchor×pending）、`ethadapter/call_revert_4e_test.go`
+  `moving_tag_matrix_test.go`（anchor×pending）、根包 `typed_call_revert_4e_test.go`
   （typed 面）。
 - 编译链逐层同构 ⇒ 行为等价不依赖新语义。
 

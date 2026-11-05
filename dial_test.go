@@ -3,6 +3,7 @@ package ethguard
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -182,4 +183,82 @@ func TestWithChainIDOptionWinsOverConfig(t *testing.T) {
 func resourceUnavailableURL(t *testing.T) string {
 	t.Helper()
 	return "http://127.0.0.1:1"
+}
+
+// TestNewRejectsNormalizedDuplicateUpstreams is the composition backstop's
+// pin: pool folds spelling variants of one endpoint into one member, so a
+// hand-written or YAML configuration whose upstreams collapse must fail
+// construction instead of silently shrinking the voting basis (decision 0065's
+// declared-basis rule).
+func TestNewRejectsNormalizedDuplicateUpstreams(t *testing.T) {
+	cfg := config.Config{Upstreams: []config.Upstream{
+		{ID: "a", Endpoint: "https://node.example"},
+		{ID: "b", Endpoint: "https://node.example:443"},
+	}}
+	// New validates the config first, so the config layer's normalized-
+	// duplicate error fires before composition sees the fold.
+	_, err := New(cfg)
+	if err == nil {
+		t.Fatal("expected construction to reject the collapsed basis")
+	}
+	if !strings.Contains(err.Error(), "same member as upstreams[0]") {
+		t.Fatalf("error must name the fold, got %v", err)
+	}
+
+	// The YAML path shares the same domain rule.
+	path := t.TempDir() + "/dup.yaml"
+	yaml := "upstreams:\n" +
+		"  - id: a\n    endpoint: https://node.example\n" +
+		"  - id: b\n    endpoint: HTTPS://NODE.EXAMPLE/\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFile(path); err == nil || !strings.Contains(err.Error(), "same member as upstreams[0]") {
+		t.Fatalf("LoadFile must reject normalized duplicates, got %v", err)
+	}
+
+	// Distinct spellings that address distinct listeners stay valid, and a
+	// trailing slash on a single upstream does not fold against itself.
+	okCfg, err := config.FromEndpoints("http://127.0.0.1:1", "http://127.0.0.1:2", "http://127.0.0.1:3/")
+	if err != nil {
+		t.Fatalf("distinct ports and a trailing slash must stay valid: %v", err)
+	}
+	client, err := New(okCfg)
+	if err != nil {
+		t.Fatalf("construction failed: %v", err)
+	}
+	t.Cleanup(client.Close)
+	if client.VotingMembers() != 3 {
+		t.Fatalf("voting members = %d, want the three declared upstreams", client.VotingMembers())
+	}
+}
+
+// TestDialUncorroboratedPassesOptions pins the option passthrough on the
+// explicit single-source entry: the chain pin rides the option, not the URL.
+func TestDialUncorroboratedPassesOptions(t *testing.T) {
+	node := rpctest.NewNode(1)
+	t.Cleanup(node.Close)
+	client, err := DialUncorroborated(node.URL(), WithChainID(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	if client.Mode() != rpc.CorroborationForwarded {
+		t.Fatalf("mode = %v, want forwarded", client.Mode())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if id, err := client.ChainID(ctx); err != nil || id.Int64() != 1 {
+		t.Fatalf("WithChainID must apply through DialUncorroborated, got id=%v err=%v", id, err)
+	}
+
+	// A foreign pin still fails the read on the single source.
+	mismatched, err := DialUncorroborated(node.URL(), WithChainID(999))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mismatched.Close)
+	if _, err := mismatched.ChainID(ctx); err == nil {
+		t.Fatal("pinned foreign chain must fail the read")
+	}
 }

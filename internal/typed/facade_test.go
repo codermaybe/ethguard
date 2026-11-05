@@ -54,8 +54,10 @@ func TestDecodeGasEstimate(t *testing.T) {
 }
 
 func TestDecodeLogsNullIsMalformedNot(t *testing.T) {
-	if logs, err := DecodeLogs(json.RawMessage(`null`)); err == nil || !errors.Is(err, rpc.ErrMalformedResponse) {
-		t.Fatalf("null array must fail malformed, got logs=%v err=%v", logs, err)
+	for _, spelling := range []string{"null", "  null  ", "\tnull\n"} {
+		if logs, err := DecodeLogs(json.RawMessage(spelling)); err == nil || !errors.Is(err, rpc.ErrMalformedResponse) {
+			t.Fatalf("null array (%q) must fail malformed, got logs=%v err=%v", spelling, logs, err)
+		}
 	}
 	logs, err := DecodeLogs(json.RawMessage(`[]`))
 	if err != nil || logs == nil || len(logs) != 0 {
@@ -74,6 +76,9 @@ func TestDecodeAccessListResultHexGas(t *testing.T) {
 	}
 	if _, err := DecodeAccessListResult(json.RawMessage(`{"gasUsed":21}`)); !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("decimal gas must fail malformed, got %v", err)
+	}
+	if _, err := DecodeAccessListResult(json.RawMessage(` null `)); !errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("null access list must fail malformed, got %v", err)
 	}
 }
 
@@ -95,6 +100,14 @@ func TestDecodeSyncProgressShapes(t *testing.T) {
 	}
 	if progress.StartingBlock != 1 || progress.CurrentBlock != 2 || progress.HighestBlock != 3 || progress.PulledStates != 64 {
 		t.Fatalf("progress = %+v", progress)
+	}
+	// Absent optional fields decode to zero, and JSON null is not a legal
+	// syncing shape.
+	if progress.SyncedAccountBytes != 0 || progress.HealingBytecode != 0 {
+		t.Fatalf("absent optional fields = %+v", progress)
+	}
+	if _, err := DecodeSyncProgress(json.RawMessage(` null `)); !errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("null syncing must fail malformed, got %v", err)
 	}
 }
 

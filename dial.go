@@ -52,13 +52,14 @@ func DialContext(ctx context.Context, rawurls ...string) (*Client, error) {
 // explicitly — the single-source construction decision 0030 reserves for
 // trusted configuration control. Reads ride that one source and are reported
 // as Forwarded, never claimed corroborated. Two or more sources belong in
-// Dial.
-func DialUncorroborated(rawurl string) (*Client, error) {
+// Dial. Options pass through to New; an explicit Go option wins over the
+// derived configuration per New's documented precedence.
+func DialUncorroborated(rawurl string, opts ...Option) (*Client, error) {
 	cfg, err := config.FromEndpoints(rawurl)
 	if err != nil {
 		return nil, err
 	}
-	return New(cfg)
+	return New(cfg, opts...)
 }
 
 // LoadFile loads a YAML configuration file and builds a Client from it —

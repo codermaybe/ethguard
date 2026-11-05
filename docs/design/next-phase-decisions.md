@@ -43,7 +43,12 @@
   `aggregator` 的 Prepare–Establish 管线把 invocation/basis/需求全部以显式
   参数敏感传递、`establishedForTag` 改读显式阶段值时，删除该 key 与
   `members/corroboration/forwarded` 等过渡键的迁移一并执行。
+  **（2026-11-05 条件已满足并执行：anchor reader/`establishedForTag` 删除，
+  Establish 显式接收 invocation，`refcontext.WithInvocation`/`Invocation`
+  一并删除；见 decisions.md 0065。）**
 
 ## 3. 修订记录
 
-（空；统一验收后的任何推翻在此追加。）
+- 2026-11-05：`invocationKey` 过渡载体的移除条件满足并执行（唯一 Client 合并，
+  决策 0065）；`rpc.RequireCorroborated` context 输入随 typed 面改由
+  `Invocation.RequireCorroboration` 承载而删除。

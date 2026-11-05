@@ -20,7 +20,8 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
   写/订阅/trace 方法保持 Forwarded 或 Unsupported 边界；
 - root `Client.Call` 是通用入口；下文的 root 类型化入口只是便捷封装，
   共享同一 Decision；
-- typed 边界要求 Corroborated（`refcontext.RequireCorroborated`）；
+- typed 边界要求 Corroborated（协证要求由 invocation 承载：类型化方法经
+  `aggregator.AggregateStrict`，门读 `Invocation.RequireCorroboration`）；
   Selected 不静默替代；
 - 固定分母、quorum、reference、EIP-1898 改写和 pending 语义由 ReadPlan
   声明，卡片只登记现状，不重新定义。

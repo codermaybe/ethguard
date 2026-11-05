@@ -53,14 +53,19 @@ Go 接口实现为准（不是按方法逐个声明）：
   未开启，两路一致为 false。
 
 **网络 callback**：计划不携带任何网络回调——reference 数据以 established
-evidence 值到达，admission caller 由 coordinator 注入。legacy constructor
-签名中的 `AnchorFunc`/`AnchorHeightFunc` 是 stage 发放的消费型 reader，
-仍属 seam 携带的 callback 形态；这正是 quarantine(RS4) 要钉住的边界。
+evidence 值到达，admission caller 由 coordinator 注入。曾经的
+`AnchorFunc`/`AnchorHeightFunc` 消费型 reader 与 `establishedForTag` 已随
+唯一 Client 合并（2026-11-05）删除：tag 建立走显式参数，不存在 seam 携带的
+callback 形态；quarantine(RS4) 钉住的“计划不持有网络回调”边界由 ReadPlan
+的纯函数声明继续保证。
 
 ## 3. 逐方法清单
 
 列含义：plan resolver kind/value 为计划路径事实；legacy constructor 为 chain
-对照实现；callback 指构造参数携带的网络回调；Out./Corr. 为 Outcome 与
+对照实现；callback 列记录计划声明的参考位置（hash@pos / height@pos /
+字段组），即原 legacy `AnchorFunc`/`AnchorHeightFunc` 消费型 reader 的现役
+替代——reader 已随唯一 Client 合并删除，参考以 established evidence 值到达，
+不存在构造参数携带的网络回调；Out./Corr. 为 Outcome 与
 Corroboration capability（按 §2，取 resolver 本体 + 计划 hook 后的等效）；
 resolver rule 列 = `MethodRule` 的 `Resolver/CompareKind/KeySource/Result`；
 anchor/pending 由计划声明（`ReadPlan.MethodRule()` 投影），不在 resolver 列内。
@@ -70,22 +75,22 @@ anchor/pending 由计划声明（`ReadPlan.MethodRule()` 投影），不在 reso
 | eth_chainId | strict | `Strict(NormalizeWireQuantity; EncodeQuantity)` | `ChainIDPolicy`（无 decorator 层） | 无 | ✓ | ✓ | strict/quantity/canonical-bytes/canonical | — | `Client.ChainID` | soak census ✅ |
 | eth_getBlockByHash | block | `blockPolicy{byHash}∘Strict(normalizeBlockIdentity; canonicalObject blockobject.Encode)` | `BlockByHashPolicy`（同构） | 无 | ✓ | ✓ | strict/method-specific/normalizer/canonical | `block` | `Client.BlockByHash`（adapter 分流专用方法） | sample 2026-09-23 block 形状，非普查 |
 | eth_getBlockByNumber | block | `blockPolicy{byHash:false}∘Strict(normalizeBlockIdentity; canonicalObject blockobject.EncodeByNumber)` + pending observe 0 | `BlockByNumberPolicy`（PendingLocal(0)∘blockPolicy） | 无 | ✓ | ✓ | strict/method-specific/normalizer/canonical | `block` | `Client.BlockByNumber`（负 tag 先建立后取 hash） | soak 建立每轮 ✅；hash-位置 ⚠（3/4 拒收；2026-10-31 3 拒收 + 1 限流） |
-| eth_getBalance | strict | `Strict(NormalizeWireQuantity; EncodeQuantity)` | `GetBalancePolicy`(Anchored∘EIP1898∘PendingLocal) | legacy `AnchorFunc` | ✓ | ✓ | strict/quantity/canonical-bytes/canonical | `scalar-standard` | `Client.BalanceAt` | soak 2026-09-05 ✅；object 形状证据；2026-10-31 latest object 4/4 |
+| eth_getBalance | strict | `Strict(NormalizeWireQuantity; EncodeQuantity)` | `GetBalancePolicy`(Anchored∘EIP1898∘PendingLocal) | plan-declared ref | ✓ | ✓ | strict/quantity/canonical-bytes/canonical | `scalar-standard` | `Client.BalanceAt` | soak 2026-09-05 ✅；object 形状证据；2026-10-31 latest object 4/4 |
 | eth_getTransactionReceipt | strict | `Strict(normalizeReceiptObject; receipt.Encode)` | `TransactionReceiptPolicy` + `policy.WithAdmission` | 无（admission 运行期注入） | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | `receipt` | `Client.TransactionReceipt` | sample 2026-09-23 |
 | eth_getTransactionByHash | strict | `Strict(normalizeTransactionObject; canonicalObject transaction.Encode)` | `TransactionByHashPolicy` + `WithAdmission` | 无 | ✓ | ✓ | strict/method-specific/normalizer/canonical | `transaction` | `Client.TransactionByHash` | sample 2026-09-23 |
-| eth_getBlockReceipts | strict | `Strict(normalizeBlockReceiptList; receipt.EncodeBlock)` | `BlockReceiptsPolicy`(RejectPending(0)∘Anchored(0)∘WithAdmission) | legacy `AnchorFunc` | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | `block-receipts` | `Client.BlockReceipts` | sample + soak 2026-09-05 ✅ |
-| eth_getTransactionCount | strict | 同 getBalance | `GetTransactionCountPolicy` | legacy `AnchorFunc` | ✓ | ✓ | strict/quantity/canonical-bytes/canonical | — | `Client.NonceAt` | soak ✅；object 形状 sample 2026-09-23（单源成功）；2026-10-31 latest object 4/4 |
-| eth_getStorageAt | strict | `Strict(NormalizeStorageWord; EncodeStorageWord)` | `GetStorageAtPolicy`(pos 2) | legacy `AnchorFunc` | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | — | `Client.StorageAt` | soak ✅；object 形状 sample 2026-09-23（单源成功）；2026-10-31 latest object 4/4 |
-| eth_getCode | strict | `Strict(NormalizeHexData; EncodeData)` | `GetCodePolicy` | legacy `AnchorFunc` | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | — | `Client.CodeAt` | soak ✅；object 形状 sample 2026-09-23（单源成功）；2026-10-31 latest object 4/4 |
-| eth_call | call-revert | `NewCallRevertPolicy(normalizeCallOutcome; RPCErrorBodies + canonical encodeCallSuccess)` | `CallPolicy`(WithAnchor∘EIP1898∘PendingLocal) | legacy `AnchorFunc` | Resolve/Corroborated ✓，Outcome ✗（§2） | ✓（agreement） | call-revert/method-specific/—(call-revert 不声明 key source)/canonical | `scalar-standard` | `Client.CallContract`/`Call` | soak 2/0/1 ✅；revert-data sample 2026-09-23；WSS 2026-10-31 missing/`0x`/value |
-| eth_estimateGas | median | `Median(NormalizeWireQuantity; canonical EncodeQuantity)` | `EstimateGasPolicy`(WithAnchor∘EIP1898∘PendingLocal) | legacy `AnchorFunc` | ✗ | ✗ | median/quantity/—/canonical | — | `Client.EstimateGas` | soak ✅；object 形状证据 |
+| eth_getBlockReceipts | strict | `Strict(normalizeBlockReceiptList; receipt.EncodeBlock)` | `BlockReceiptsPolicy`(RejectPending(0)∘Anchored(0)∘WithAdmission) | plan-declared ref | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | `block-receipts` | `Client.BlockReceipts` | sample + soak 2026-09-05 ✅ |
+| eth_getTransactionCount | strict | 同 getBalance | `GetTransactionCountPolicy` | plan-declared ref | ✓ | ✓ | strict/quantity/canonical-bytes/canonical | — | `Client.NonceAt` | soak ✅；object 形状 sample 2026-09-23（单源成功）；2026-10-31 latest object 4/4 |
+| eth_getStorageAt | strict | `Strict(NormalizeStorageWord; EncodeStorageWord)` | `GetStorageAtPolicy`(pos 2) | plan-declared ref | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | — | `Client.StorageAt` | soak ✅；object 形状 sample 2026-09-23（单源成功）；2026-10-31 latest object 4/4 |
+| eth_getCode | strict | `Strict(NormalizeHexData; EncodeData)` | `GetCodePolicy` | plan-declared ref | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | — | `Client.CodeAt` | soak ✅；object 形状 sample 2026-09-23（单源成功）；2026-10-31 latest object 4/4 |
+| eth_call | call-revert | `NewCallRevertPolicy(normalizeCallOutcome; RPCErrorBodies + canonical encodeCallSuccess)` | `CallPolicy`(WithAnchor∘EIP1898∘PendingLocal) | plan-declared ref | Resolve/Corroborated ✓，Outcome ✗（§2） | ✓（agreement） | call-revert/method-specific/—(call-revert 不声明 key source)/canonical | `scalar-standard` | `Client.CallContract`/`Call` | soak 2/0/1 ✅；revert-data sample 2026-09-23；WSS 2026-10-31 missing/`0x`/value |
+| eth_estimateGas | median | `Median(NormalizeWireQuantity; canonical EncodeQuantity)` | `EstimateGasPolicy`(WithAnchor∘EIP1898∘PendingLocal) | plan-declared ref | ✗ | ✗ | median/quantity/—/canonical | — | `Client.EstimateGas` | soak ✅；object 形状证据 |
 | eth_getLogs | strict | `Strict(normalizeLogs; log.Encode)` | `LogsPolicy`（logsPolicy wrapper 全套覆写） | legacy `AnchorHeightFunc` | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | `logs` | `Client.FilterLogs` | soak 2026-09-05 ✅（70 logs） |
 | eth_feeHistory | strict | `Strict(normalizeFeeHistory; feehistory.Encode)` | `FeeHistoryPolicy`(PendingLocal∘WithAnchorHeight(feeHistoryPolicy∘Strict)) | legacy `AnchorHeightFunc` | 仅 corroborated 变体（wrapper 无 `ResolveOutcome`） | ✓（agreement） | strict/method-specific/canonical-bytes/canonical | `fee-history` | `Client.FeeHistory` | soak ✅；2026-10-31 3/4 同一 `oldestBlock` 一致，1 个源区间不同；固定历史区间 [1,33,67,99] 4/4 一致 |
 | eth_gasPrice | median | `Median(NormalizeWireQuantity; canonical EncodeQuantity)` | `GasPricePolicy`（无层） | 无 | ✗ | ✗ | median/quantity/—/canonical | — | `Client.SuggestGasPrice`（typed `GasPrice`） | soak census ✅ |
 | eth_maxPriorityFeePerGas | median | `Median(同上)` | `MaxPriorityFeePerGasPolicy` | 无 | ✗ | ✗ | median/quantity/—/canonical | — | `Client.SuggestGasTipCap` | soak census ✅ |
 | eth_blobBaseFee | median | `Median(同上)` | `BlobBaseFeePolicy` | 无 | ✗ | ✗ | median/quantity/—/canonical | — | `Client.BlobBaseFee` | sample 2026-10-21；2026-10-31 live probe 2/4 成功、1 free-plan、1 策略拒绝 |
 | eth_blockNumber | median | `Median(同上)` | `BlockNumberPolicy` | 无 | ✗ | ✗ | median/quantity/—/canonical | — | `Client.BlockNumber`（派生按 corroborated reference） | soak ✅ |
-| eth_createAccessList | strict | `Strict(normalizeAccessList; canonical accesslist.Encode)` | `CreateAccessListPolicy`(Anchored∘EIP1898∘PendingLocal) | legacy `AnchorFunc` | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | — | `Client.CreateAccessList` | object 形状 2026-09-23；2026-10-31 latest object 4/4，非兼容结论 |
+| eth_createAccessList | strict | `Strict(normalizeAccessList; canonical accesslist.Encode)` | `CreateAccessListPolicy`(Anchored∘EIP1898∘PendingLocal) | plan-declared ref | ✓ | ✓ | strict/method-specific/canonical-bytes/canonical | — | `Client.CreateAccessList` | object 形状 2026-09-23；2026-10-31 latest object 4/4，非兼容结论 |
 | net_peerCount | local | `Local(NormalizeHexQuantity; quantity; folded canonical)` | `PeerCountPolicy` | 无 | ✗ | ✗ | local/quantity/—/canonical | — | `Client.PeerCount` | soak census ✅ |
 | eth_syncing | local | `Local(normalizeSyncing; object; EncodeCanonicalJSON)` | `SyncingPolicy` | 无 | ✗ | ✗ | local/object/—/canonical | — | `Client.SyncProgress` | soak census ✅；2026-10-31 4/4 为 `false`，progress object 未观察 |
 | net_version | strict | `Strict(NormalizeDecimalString; EncodeDecimal)` | `NetVersionPolicy`（无层） | 无 | ✓ | ✓ | strict/quantity/canonical-bytes/canonical | — | `Client.NetVersion`（root-only） | soak census ✅ |
