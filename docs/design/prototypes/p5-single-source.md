@@ -41,7 +41,7 @@ MethodSpec{
 
 - 执行模式由**运行时 corroboration snapshot**（Mode=Forwarded）与 pool 的
   Forward 通道决定，是 invocation 属性，不是方法属性；
-- 需要显式单源转发的方法（`SingleSourcePolicy`，如 ethadapter 的部分直通面）
+- 需要显式单源转发的方法（`SingleSourcePolicy`，如 root facade 的部分直通面）
   由 ResolverSpec.Kind 或显式执行族声明派生，不由 Spec 字段表达；
 - Selected/Forwarded 语义保持现状：local 封顶 Selected；Forwarded 是刻意的
   单源转发标注，由 aggregator 在 Forwarded snapshot 下覆写 Status。
@@ -71,7 +71,7 @@ MethodSpec{
 
 - `local_shape_test.go`：local resolver 的 Selected 封顶与首源选择。
 - `rpc/local_test.go`：local 语义。
-- `ethadapter` 的单上游 Forwarded 路径（state_ref_wire_test 等）：
+- root facade 的单上游 Forwarded 路径（typed_state_wire_test 等）：
   Forwarded 覆写不变。
 - `pool/voting_test.go`：Forward 通道。
 

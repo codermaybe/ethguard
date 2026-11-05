@@ -3,8 +3,10 @@ package runtime
 import (
 	"testing"
 
+	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc/methods"
+	"strings"
 )
 
 func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
@@ -26,5 +28,24 @@ func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
 		if bundle.Plans[method].Resolver == nil {
 			t.Fatalf("runtime omitted the %s plan", method)
 		}
+	}
+}
+
+// TestComposeRejectsCollapsedBasis exercises the composition backstop
+// directly: Compose receives Inputs without config.Validate, so a caller that
+// bypasses the configuration layer must still fail construction when pool
+// folds spelling variants of one endpoint into fewer members than declared.
+func TestComposeRejectsCollapsedBasis(t *testing.T) {
+	_, err := Compose(Composition{
+		Upstreams: []config.Upstream{
+			{ID: "a", Endpoint: "https://node.example"},
+			{ID: "b", Endpoint: "https://node.example:443"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected Compose to reject the collapsed basis")
+	}
+	if !strings.Contains(err.Error(), "collapsed to 1 pool members") || !strings.Contains(err.Error(), "2 configured upstreams") {
+		t.Fatalf("backstop must name the fold, got %v", err)
 	}
 }

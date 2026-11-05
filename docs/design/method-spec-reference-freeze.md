@@ -41,7 +41,7 @@ type ReferenceSpec struct {
    同一 spec 派生 —— 一个位置要么同时声明并改写，要么都不。编译器不得让二者分叉。
 2. **kind 来自请求**：spec 声明的是「哪里能骑 moving tag」；具体 level
    （latest/safe/finalized）来自请求中的 tag（`ReferenceKindForTag`），不是 spec 常量。
-3. **无网络回调**：spec 不携带任何 `AnchorFunc`；改写数据来自 invocation 上已建立的
+3. **无网络回调**：spec 不携带任何网络回调（原 `AnchorFunc` reader 已删除）；改写数据来自 invocation 上已建立的
    reference，建立只由 aggregator 通过 ReferenceStage 执行。
 4. **字段集只减不增**：新的 reference 形态先走 Custom 逃生口评审，不为单方法扩列。
 5. `WithAnchor`/`WithAnchorHeight`/`WithAnchorHeightFields`/`EIP1898BlockRef` 装饰器

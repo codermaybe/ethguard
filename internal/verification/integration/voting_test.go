@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -208,24 +209,21 @@ func TestFixedMembershipAndModeChanges(t *testing.T) {
 	}
 }
 
-// Checklist 5: duplicate URLs collapse to one vote (pool identity dedup);
+// Checklist 5: duplicate URLs never reach the pool — configuration rejects
+// normalized duplicates, so the declared voting basis cannot silently shrink;
 // duplicate results and repeated requests produce no extra votes; pool order
 // does not change the outcome.
 func TestNoExtraVotes(t *testing.T) {
-	t.Run("duplicate URL joins collapse to one member", func(t *testing.T) {
+	t.Run("duplicate URL joins are rejected, not folded", func(t *testing.T) {
 		node := rpctest.NewNode(1)
 		defer node.Close()
 		cfg := config.Config{Upstreams: []config.Upstream{
 			{ID: "a", Endpoint: node.URL()},
 			{ID: "b", Endpoint: node.URL() + "/"}, // same endpoint after normalization
 		}}
-		client, err := ethguard.New(cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(client.Close)
-		if got := client.Pool().Len(); got != 1 {
-			t.Fatalf("expected one member after dedup, got %d", got)
+		if _, err := ethguard.New(cfg); err == nil ||
+			!strings.Contains(err.Error(), "same member as upstreams[0]") {
+			t.Fatalf("expected normalized-duplicate rejection, got %v", err)
 		}
 	})
 
@@ -342,26 +340,19 @@ func TestNoExtraVotes(t *testing.T) {
 // is authoritative over the Status field, whose zero value is Unknown) and
 // the evidence carries the cluster rather than a guessed winner.
 func TestRefusesWithoutDegradation(t *testing.T) {
-	// Two configured entries deduplicate to one endpoint, so the fixed basis
-	// has N=1 while the client still selected the two-member majority mode:
-	// the floor stays 2 and the read must refuse rather than degrade.
-	node := rpctest.NewNode(1)
-	t.Cleanup(node.Close)
-	node.Return(methods.MethodChainID, "0x1")
-	client, err := ethguard.New(config.Config{Upstreams: []config.Upstream{
-		{ID: "a", Endpoint: node.URL()},
-		{ID: "b", Endpoint: node.URL() + "/"},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(client.Close)
+	// The fold-to-N=1 misconfiguration is unreachable: entries that normalize
+	// to one endpoint are rejected at construction (see Checklist 5), so the
+	// declared basis always matches the pool. The refusal-below-the-floor
+	// shape is pinned with a live two-member basis whose answering cluster is
+	// one source: the typed read refuses instead of degrading to Selected,
+	// and the evidence still names the surviving cluster.
+	client, nodes := fleet(t, 1, 1, 2)
+	nodes[1].Fail(methods.MethodChainID, -32603, "down")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = client.ChainID(ctx)
-	if !errors.Is(err, ethguard.ErrConflict) {
-		t.Fatalf("single member must refuse, got %v", err)
+	if _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+		t.Fatalf("one answering member cannot outvote the floor-2 basis, got %v", err)
 	}
 	decision, _ := client.Call(ctx, methods.MethodChainID)
 	if len(decision.Support) != 1 || string(decision.Value) != `"0x1"` {
