@@ -261,15 +261,31 @@ Anvil 测试不默认访问公网。需要 fork URL 时放在显式的本地或�
 中增加测试专用接口、需要把 Anvil 状态转换成大量手写 JSON、需要在默认 CI 中访问
 公网，或同一故障无法区分 transport 与 business 归属。
 
+## 10.1 当前证据约束
+
+以下约束是本框架的当前执行规则，不再由阶段性增补文档单独维护：
+
+- 外部 endpoint 只能来自 Chainlist 公共注册表，并通过去凭据过滤；私有、自建或带凭据
+  的 endpoint 不能进入 provider-backed 证据。
+- Anvil 语义测试使用已抓取、带 manifest 和 digest 的离线 fixture；普通 CI 不因缺少
+  fork 网络而静默把跳过算作通过。抓取阶段和执行阶段分开。
+- 延迟、取消、WSS 写阻塞和关闭时序优先使用 Go 标准库的 `testing/synctest`；不能用
+  真实睡眠作为正确性断言。
+- 至少一条 WSS 交叉校验使用独立成熟实现（当前为测试专用的 gorilla/websocket）；
+  它不能进入生产依赖或默认构建。
+- schema 尚未支持独立的 `not_observed` 顶层状态时，用 `inconclusive` 加
+  `state_reason` 表达未观察到的目标形态；不能伪造 provider 证据关闭缺口。
+- 原生 Go fuzz 只使用短预算的定时 job，失败语料进入回归；不在普通 PR 关键路径引入
+  第三方属性测试框架。
+
 ## 11. 与现有文档的关系
 
 - [tooling.md](tooling.md) 规定工具与证据包的依赖方向；本文补充测试层如何使用它们。
-- [verification-topology-decision.md](verification-topology-decision.md) 继续保持单一
-  `internal/verification/integration` Module；本文不新增 `testkit` package。
+- [codebase-topology.md](codebase-topology.md) 继续保持单一
+  `internal/verification` Module；本文不新增阶段编号的测试 package。
 - [capture-golden-contract.md](capture-golden-contract.md) 继续约束 HTTP capture 和
   WSS golden 边界；本文解释 WSS 为什么由 contract/wstest 覆盖。
-- [wss-error-data-presence.md](wss-error-data-presence.md) 和
-  [wss-wire-contract.md](wss-wire-contract.md) 继续拥有 WSS presence、帧和连接语义。
+- [wss-wire-contract.md](wss-wire-contract.md) 继续拥有 WSS presence、帧和连接语义。
 - [project-roadmap.md](project-roadmap.md) 仍是路线状态唯一来源；本文不把测试框架
   提案写入路线完成状态。
 

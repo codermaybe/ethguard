@@ -4,8 +4,8 @@
 决策见 `decisions.md` 0059。T10.1 起按本契约生成 schema、manifest 和 report。
 本文件不改变 reference policy、`expect/v1`、`batch.json` 或生产裁决语义。
 
-关联：`project-roadmap.md` T10、`capture-golden-contract.md` G1–G5、
-`reference-policy-proposal.md`、决策 0026/0037/0056/0058。
+关联：`project-roadmap.md`、`capture-golden-contract.md` G1–G5、
+`reference-freshness-policy.md`、决策 0026/0037/0056/0058。
 
 ---
 

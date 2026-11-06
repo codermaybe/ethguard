@@ -116,14 +116,11 @@ ethguard/
 │   ├── uncertain/
 │   ├── rpcsample/
 │   ├── livecanary/
-│   ├── runtime/           # 唯一生产 Composition Root：Compose 装配
-│   │                      # pool/corroboration/reference stage/method
-│   │                      # catalog/aggregator；ReferenceStage 供 facade
-│   │                      # 与 invocation 共用
-│   ├── reference/         # HeadReader seam + finalized 候选选择算法
-│   ├── refcontext/        # invocation/capture 两个必要 context 事实
-│   ├── typed/             # 唯一 typed projection（含 call 结果/revert）
-│   └── ...
+    │   ├── runtime/           # 唯一生产 Composition Root：Compose 装配
+    │   ├── reference/         # HeadReader seam + finalized 候选选择算法
+    │   ├── refcontext/        # invocation/capture 两个必要 context 事实
+    │   ├── typed/             # 唯一 typed projection（含 call 结果/revert）
+    │   └── ...
 │
 ├── observe/
 │   └── 被动事件记录（Recorder）；不参与安全决策
@@ -138,6 +135,26 @@ Locality。
 
 `rpc/methods` 保持一个生产 Module。当前一方法一入口的文件组织有利于方法语义的
 Locality，不因为文件数量增长就按业务名词拆成大量浅层 package。
+
+## 3.1 当前运行时数据流
+
+稳定的读取管线是：
+
+```text
+Prepare / optional Reference
+    → Collect
+    → bounded JSON validation
+    → method admission
+    → method normalization / Resolve
+    → Decision and evidence
+    → typed projection
+```
+
+`Decision.Value` 是聚合后的受保护值，由方法契约规定的编码产生；它不是某个
+provider 的原始拼写。`Decision.Extensions` 只接纳达到本次调用门槛并绑定到 Core
+指纹的字段；其余未知字段和未达门槛的差异保留为诊断材料。多源
+`Corroborated` 是 provider-backed evidence，不代表 Ethereum consensus、canonical
+proof 或 cryptographic finality。
 
 ## 4. Module 所有权
 

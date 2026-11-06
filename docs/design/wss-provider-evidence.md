@@ -135,7 +135,7 @@ W4 exit not met: provider-backed golden gate remains open; 0056.2 production sco
   旧连接上的迟到响应。capture 客户端和 WSS Adapter 都明确不自动重连。
 - 该断连行为是 provider 侧的生命周期事实，不应由 presence 采集或 Adapter
   静默改写；reconnect、pending 归属和旧响应处理仍是独立契约
-  （`wss-lifecycle-extension-contract.md`）。
+  （`wss-wire-contract.md`）。
 
 ## 5. 离线回放
 

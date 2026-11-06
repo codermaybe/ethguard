@@ -70,7 +70,8 @@ ethguard/                   # public Client facade
 │       ├── vectors/        # conformance vectors extracted from tests/*.io
 │       └── README.md       # provenance, upgrade procedure, audit guide
 │   ├── verification/       # cross-module verification through public seams
-│   │   └── integration/    # first safe slice; later contracts/scenarios/replay split
+│   │   ├── facade/         # black-box root Client/EthClient verification
+│   │   └── integration/    # cross-module integration verification
 │   ├── transport/          # Transport Port adapters and contract tests
 │   │   ├── http/            # project-owned native HTTP adapter
 │   │   ├── wss/             # project-owned raw WebSocket call adapter
@@ -351,10 +352,11 @@ The raw WSS adapter is an EthGuard call transport, not a general WebSocket
 client. Subscriptions, background reconnect, active keepalive, and an internal
 queue are outside the current scope and require separate operational evidence.
 
-See the [architecture record](docs/design/architecture-record.md),
-[architecture](docs/architecture.md), [aggregation overview (historical)](docs/design/rpc-aggregation.md),
-[architecture recovery](docs/design/architecture-recovery.md), [codebase topology](docs/design/codebase-topology.md), the [proxyd comparison](docs/design/proxyd-comparison.md), and [threat model](docs/threat-model.md)
-for the security properties and method boundaries.
+See the [architecture hub](docs/architecture.md),
+[codebase topology](docs/design/codebase-topology.md), the
+[go-ethereum compatibility policy](docs/design/go-ethereum-compatibility-policy.md),
+and [threat model](docs/threat-model.md) for the security properties and
+method boundaries.
 
 Sources are treated as equal voting members. EthGuard does not model provider,
 region, client-family, or weight-based independence, and a matching result is

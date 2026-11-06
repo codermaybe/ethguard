@@ -2,7 +2,7 @@
 
 状态：**当前 v1.17.5 完整兼容目标的中间矩阵（2026-11-07）；尚未达到完整 ethclient 发布门槛**。
 
-F0 前逐项核对见 [`f0-method-matrix-review.md`](f0-method-matrix-review.md)。本文仍保留方法级实现与证据索引；当前缺失方法必须在完整兼容发布前关闭，不能从“Registered”或普通 HTTP/WSS request 能力推导为已支持。
+本文是锁定 go-ethereum 版本的方法级实现与证据索引；当前缺失方法必须在完整兼容发布前关闭，不能从“Registered”或普通 HTTP/WSS request 能力推导为已支持。
 
 本清单以仓库锁定的 go-ethereum `v1.17.5`、`rpc/methods` catalog/ReadPlan、根 `Client` 和 `EthClient` 视图为事实源。它只记录当前代码事实和缺口，不授权单个方法任务修改公共接口。公共接口变更统一留给 roadmap 的 R0/F0。
 
