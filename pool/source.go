@@ -286,6 +286,21 @@ func (s *Source) URL() string { return s.url }
 // Immutable after construction; no lock required.
 func (s *Source) ID() string { return s.id }
 
+// Subscribe opens an optional streaming capability on this source. Unary
+// transports remain unchanged; adapters without a subscription capability
+// return a local error before any notification state is created.
+func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstream.Subscription, error) {
+	client, err := s.clientForCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	subscriber, ok := client.(upstream.Subscriber)
+	if !ok {
+		return nil, fmt.Errorf("pool: source %q does not support subscriptions", s.name)
+	}
+	return subscriber.SubscribeCapability(ctx, kind, args...)
+}
+
 // State returns the current readiness state.
 func (s *Source) State() SourceState {
 	s.mu.RLock()

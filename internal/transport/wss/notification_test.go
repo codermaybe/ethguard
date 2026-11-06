@@ -98,7 +98,12 @@ func TestNotificationQueueOverflowTerminatesOnlyStream(t *testing.T) {
 
 func TestNotificationContextCancellationAndOwnerCloseAreBounded(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {})
+	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+		// Keep the socket alive until the client closes it after cancelling the
+		// stream; returning here would race stream establishment.
+		for range peer.requests {
+		}
+	})
 	tr, stream := openNotificationTestStream(t, peerURL, ctx, 1)
 	cancel()
 	select {
@@ -121,9 +126,18 @@ func TestNotificationContextCancellationAndOwnerCloseAreBounded(t *testing.T) {
 
 func TestNotificationPeerDisconnectClosesStreamWithTransportError(t *testing.T) {
 	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+		// Keep the connection alive until the client has opened its
+		// notification stream.  The follow-up call below is the explicit
+		// trigger for the peer disconnect; closing immediately after the
+		// handshake races stream establishment and makes the test flaky.
+		<-peer.requests
 		_ = peer.conn.Close()
 	})
-	_, stream := openNotificationTestStream(t, peerURL, context.Background(), 1)
+	tr, stream := openNotificationTestStream(t, peerURL, context.Background(), 1)
+	var value string
+	if err := tr.CallContext(context.Background(), &value, "eth_disconnect"); err == nil {
+		t.Fatal("disconnecting call unexpectedly succeeded")
+	}
 	select {
 	case err := <-stream.Err():
 		if !errors.Is(err, transport.ErrConnectionClosed) {
@@ -139,4 +153,47 @@ func TestDecodeNotificationRequiresSubscriptionPayload(t *testing.T) {
 	if err == nil {
 		t.Fatal("missing subscription payload accepted")
 	}
+}
+
+func TestSubscribeBindsIDAndUnsubscribesServerSide(t *testing.T) {
+	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+		subscribe := <-peer.requests
+		var wire struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		if err := json.Unmarshal(subscribe, &wire); err != nil {
+			peer.t.Errorf("decode subscribe: %v", err)
+			return
+		}
+		if wire.Method != "eth_subscribe" || len(wire.Params) != 1 || string(wire.Params[0]) != `"newHeads"` {
+			peer.t.Errorf("subscribe request = %s", subscribe)
+		}
+		peer.respond(subscribe, `"sub-1"`)
+		peer.writeFrame(notificationFrame("sub-1", `{"number":"0x2"}`))
+		unsubscribe := <-peer.requests
+		var unsub struct {
+			Method string `json:"method"`
+		}
+		_ = json.Unmarshal(unsubscribe, &unsub)
+		if unsub.Method != "eth_unsubscribe" {
+			peer.t.Errorf("unsubscribe request = %s", unsubscribe)
+		}
+		peer.respond(unsubscribe, `true`)
+	})
+	tr := dialTestTransport(t, peerURL, 0)
+	sub, err := tr.Subscribe(context.Background(), "newHeads")
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	select {
+	case event := <-sub.stream.Events():
+		if event.SubscriptionID != "sub-1" || string(event.Result) != `{"number":"0x2"}` {
+			t.Fatalf("event = %+v", event)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("subscription event was not delivered")
+	}
+	sub.Unsubscribe()
+	sub.Unsubscribe()
 }

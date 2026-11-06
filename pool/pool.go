@@ -13,7 +13,9 @@ import (
 )
 
 var (
-	ErrClosed = errors.New("pool: closed")
+	ErrClosed             = errors.New("pool: closed")
+	ErrNoWSSSource        = errors.New("pool: no WSS source configured")
+	ErrMultipleWSSSources = errors.New("pool: subscriptions require one explicit WSS source")
 
 	// ErrNoEligibleSource reports that a fan-out was impossible: the pool has
 	// no registered source, or none passed its eligibility gates (open
@@ -25,6 +27,30 @@ var (
 	// remain available on the returned emissions and on Decision.Faults.
 	ErrAllSourcesDown = errors.New("pool: all upstream sources failed to respond")
 )
+
+// SubscriptionSource returns the sole explicitly configured WebSocket source.
+// Transport selection stays inside the pool composition boundary; the root
+// facade receives only the capability-bearing source and never parses URLs.
+func (p *Pool) SubscriptionSource() (*Source, error) {
+	p.mu.RLock()
+	sources := append([]*Source(nil), p.sources...)
+	p.mu.RUnlock()
+	var selected *Source
+	for _, source := range sources {
+		e, err := url.Parse(source.URL())
+		if err != nil || (e.Scheme != "ws" && e.Scheme != "wss") {
+			continue
+		}
+		if selected != nil {
+			return nil, ErrMultipleWSSSources
+		}
+		selected = source
+	}
+	if selected == nil {
+		return nil, ErrNoWSSSource
+	}
+	return selected, nil
+}
 
 // Pool is the concurrent-safe multi-source RPC manager.
 // One Pool is shared by a single ethguard.Client and all caller goroutines.

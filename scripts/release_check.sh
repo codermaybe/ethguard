@@ -27,7 +27,10 @@ echo "==> building all packages"
 go build ./...
 
 echo "==> running race-enabled test suite"
-go test -race ./...
+# The locked-version method-set contract is intentionally soft during
+# development but must be hard at release time. This prevents an intermediate
+# facade subset from passing the release gate.
+ETHGUARD_REQUIRE_COMPLETE=1 go test -race ./...
 
 echo "==> scanning reachable vulnerabilities"
 ./scripts/govulncheck.sh
