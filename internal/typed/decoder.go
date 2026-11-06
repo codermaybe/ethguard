@@ -145,6 +145,17 @@ func validateReceipt(receipt *types.Receipt) error {
 		if log == nil {
 			return wrapMalformed(fmt.Sprintf("decode receipt log %d: null element", i), nil)
 		}
+		// A receipt's embedded logs are part of the same response object.
+		// Preserve the wire convention that an omitted hash decodes to zero,
+		// while rejecting a non-zero hash that claims another transaction or
+		// block. Method admission performs the same check before clustering;
+		// keeping it here protects direct typed projection callers as well.
+		if log.TxHash != (common.Hash{}) && log.TxHash != receipt.TxHash {
+			return wrapMalformed(fmt.Sprintf("decode receipt log %d: transaction hash %s does not match receipt transaction hash %s", i, log.TxHash, receipt.TxHash), nil)
+		}
+		if log.BlockHash != (common.Hash{}) && log.BlockHash != receipt.BlockHash {
+			return wrapMalformed(fmt.Sprintf("decode receipt log %d: block hash %s does not match receipt block hash %s", i, log.BlockHash, receipt.BlockHash), nil)
+		}
 	}
 	if receipt.Bloom != types.CreateBloom(receipt) {
 		return wrapMalformed("logsBloom disagrees with the receipt's logs", nil)
