@@ -1,7 +1,7 @@
 # EthGuard current roadmap
 
-Status: **topology and document consolidation in progress; external target is
-the complete `ethclient.Client` method set for go-ethereum v1.17.5** (2026-11-07).
+Status: **topology and document consolidation completed; next work is the
+complete `ethclient.Client` method set for go-ethereum v1.17.5** (2026-11-07).
 
 The external contract is defined only by the
 [go-ethereum compatibility policy](go-ethereum-compatibility-policy.md). A
