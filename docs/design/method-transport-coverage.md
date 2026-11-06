@@ -1,6 +1,8 @@
 # 方法与传输覆盖清单
 
-状态：**M0 完成；M1/M2 状态 Hash 与 M3/T0 代表 transport 切片完成（2026-11-07）**。
+状态：**M0 完成；M1/M2 状态 Hash、M3/M4 与 T0 代表 transport 切片完成；F0 前矩阵核对完成（2026-11-07）**。
+
+F0 前逐项核对见 [`f0-method-matrix-review.md`](f0-method-matrix-review.md)。本文仍保留方法级实现与证据索引；Pending、订阅、同步发送和扩展方法的未承诺边界不能从“Registered”或普通 HTTP/WSS request 能力推导为已支持。
 
 本清单以仓库锁定的 go-ethereum `v1.17.5`、`rpc/methods` catalog/ReadPlan、根 `Client` 和 `EthClient` 视图为事实源。它只记录当前代码事实和缺口，不授权单个方法任务修改公共接口。公共接口变更统一留给 roadmap 的 R0/F0。
 

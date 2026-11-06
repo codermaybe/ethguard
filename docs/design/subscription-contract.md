@@ -1,8 +1,8 @@
 # WSS 订阅契约
 
-状态：S0 设计草案，未实现（2026-11-06）。
+状态：S0 契约候选已冻结，生产实现未开始（2026-11-07）。
 
-本文把 docs/design/tmp/wss-sub-design.md 的探索内容收敛为可审查的订阅契约。它不改变当前 raw-call WSS adapter，也不扩展 pool.Transport。S1/S2 只有在本文的未决项冻结、进程内测试完成后才能开始。
+本文把 docs/design/tmp/wss-sub-design.md 的探索内容收敛为可审查的订阅契约。它不改变当前 raw-call WSS adapter，也不扩展 pool.Transport。下面的事件、快照、单源、背压和生命周期规则是 S1/S2 的实现输入；公开方法名称仍需 R0/F0 做一次最终签名审查。
 
 当前 internal/transport/wss 是单连接、单 reader、request-ID demux 的 raw-call adapter，只提供 CallContext、ChainID 和 Close。它明确不提供 Subscribe、filter streaming、batch、后台 reconnect、重放或写路径恢复。订阅是一个新的 transport 能力和业务模块，不能通过未知 Call 或临时通知分支实现。
 
@@ -47,9 +47,19 @@
         Value     T
         Decision  *rpc.Decision
         Uncertain *UncertainResult
+        EventID   EventID
+        Snapshot  SourceSnapshot
     }
 
-根订阅保留 ethereum.Subscription 的生命周期接口，同时通过独立的事件 channel 交付裁决事件。具体构造签名在 R0 统一冻结；S1/S2 不得自行引入第二种 capture 或修改现有 unary 返回值。
+根订阅使用独立的事件 channel 和生命周期句柄，不复用 `ResultCapture`：
+
+    type RootSubscription[T any] interface {
+        Events() <-chan SubscriptionEvent[T]
+        Err() <-chan error
+        Unsubscribe()
+    }
+
+上面的名称和泛型形状仍是内部候选，S1 可以用非泛型的 newHeads/logs 实现，但必须保留同样的字段和语义。EthClient 只把已经交付的事件转换为官方 channel，并返回 `ethereum.Subscription`；它不暴露 `Decision`、source 票数或原始材料。
 
 事件一旦出现在根订阅 channel 中，Decision.Status 必须表示该事件已经通过订阅门槛。未达成门槛的候选值不能作为普通事件发送。超时、分歧、隔离、连接终止和不可恢复的背压错误通过 Err() 交付。
 
@@ -64,12 +74,32 @@
 - 同一 endpoint 通过不同传输接入时，默认不形成两个独立信任源；
 - source 的 URL、transport、订阅能力和 Pull 能力属于配置事实，不进入业务 payload hash。
 
+实现至少需要两个内部标识：
+
+    type SourceSnapshot struct {
+        SnapshotID string
+        Generation uint64
+        Members    []string
+        Quorum     int
+    }
+
+    type EventID struct {
+        Kind       string
+        Fingerprint string
+        SnapshotID string
+        Generation uint64
+    }
+
+`Generation` 单调递增且只在一个 source 的连接会话重建时变化；旧 generation 的迟到帧必须在 session 层丢弃。`EventID` 的 fingerprint 使用 canonical typed payload 计算，不能使用原始 JSON 字符串。
+
 一次订阅事件开始时固定 source snapshot：
 
     members = {source identities eligible when the event context starts}
     quorum  = policy(snapshot.members)
 
-订阅期间 source 上下线、health cooldown 或重拨不能修改已经开始的事件的分母和门槛。新事件可以使用新的 snapshot。当前 unary 的单源 Forwarded 语义不能自动套用到订阅；严格订阅默认要求达到配置门槛，单源策略必须另行明确并记录风险。
+订阅期间 source 上下线、health cooldown 或重拨不能修改已经开始的事件的分母和门槛。新事件可以使用新的 snapshot。当前 unary 的单源 Forwarded 语义不能自动套用到订阅。默认策略为 `Strict`：事件必须达到事件开始时快照的 quorum。只有调用方显式选择 `SingleSourceSelected` 时才允许单源交付；该事件的 `Decision.Status` 固定为 `Selected`，不得标为 `Corroborated`，并在事件诊断中记录降级原因。没有显式选择时，单源 source snapshot 仍可建立连接，但事件保持 `Quarantined`。
+
+`SourceSnapshot` 在订阅创建时分配稳定的 `SnapshotID`，在每个事件首次观察时复制成员集合、generation 和 quorum；连接重拨不会改写已经开始的事件。
 
 ## 4. 事件身份与规范化
 
@@ -192,11 +222,10 @@ Logs 必须支持 provider 的 removed 语义。收到 removed 事件时，需�
 - per-subscription pending/event queue 上限；
 - subscription lifetime 的 evidence/material budget。
 
-队列满时的行为必须是显式策略：
-
-- 阻塞内部交付并受 owner/context deadline 约束；
-- 以可分类的 backpressure error 终止订阅；
-- 或由调用方选择丢弃候选，但不能默认丢弃已决定事件。
+本轮冻结的策略是：队列满时以可分类的 backpressure error 终止该订阅。实现不得
+阻塞 source reader，也不得静默丢弃已经达到 quorum 的事件；终止前已经进入业务
+channel 的事件保持有效，尚未交付的候选只留在错误材料中。队列容量、单事件 payload
+上限和 lifetime evidence budget 必须由订阅配置提供，任一为零时在建立阶段拒绝。
 
 WithSourceEvidence 当前是单次调用预算，不直接延长为无限订阅预算。订阅若采集原始材料，必须有每事件和总生命周期预算，并保证 snapshot 与队列不会引用调用方的大对象。
 
@@ -214,7 +243,16 @@ WithSourceEvidence 当前是单次调用预算，不直接延长为无限订阅�
 | queue overflow | 不静默丢事件；按明确 backpressure 策略终止或阻塞 |
 | terminal error | Err channel 至少交付一次，并最终关闭；事件 channel 只关闭一次 |
 
-Err() 是异步终止事实，不代替已经交付事件的 Decision，也不把 transport error 伪装成 RPC business error。错误必须保留 source、generation、事件身份和阶段信息，便于审计。
+Err() 是异步终止事实，不代替已经交付事件的 Decision，也不把 transport error 伪装成 RPC business error。错误必须保留 source、generation、事件身份和阶段信息，便于审计。每个订阅最多发送一个 terminal error，然后关闭 Err channel；`Unsubscribe` 和 owner `Close` 是无错误的正常终止（除非底层 worker 已报告更早的错误）。事件 channel 和 Err channel 都只关闭一次，关闭顺序固定为先停止生产、再关闭事件 channel、最后发送并关闭 Err channel。
+
+### 本轮冻结与最小阻塞项
+
+S1/S2 可以据此实现内部 seam：Strict 是默认单源策略，SingleSourceSelected 是显式
+降级，generation 过滤旧帧，队列溢出终止订阅，事件和错误 channel 各关闭一次。仍需
+F0 最终确认的只有根 Client 的公开构造函数名称、是否导出 `SubscriptionEvent` 的
+类型参数，以及具体配置字段名称；这些都不影响内部事件身份、quorum、Pull、reorg
+或生命周期测试。若 F0 不导出根事件切面，EthClient 官方 channel 仍可独立实现，根
+事件保持内部测试接口。
 
 ## 10. 探索稿中需要修正的实现问题
 
@@ -236,7 +274,9 @@ wss-sub-design.md 的方向可作为输入，但参考代码不能直接执行�
 S1（WSS 订阅 transport seam）只有在以下条件满足后开始：
 
 - M0 方法/传输清单完成；
-- EthClient 官方订阅方法和根 Client 事件方法名称/签名在 R0 前冻结为候选；
+- EthClient 官方订阅方法保持 go-ethereum 的 `SubscribeNewHead` 和
+  `SubscribeFilterLogs` 形状；根事件先使用内部 `RootSubscription[T]` 候选，公开
+  名称和泛型细节留给 F0 一次签名审查；
 - source identity、snapshot generation、事件 ID、订阅 Close/Unsubscribe/Err 语义有测试；
 - raw-call Transport 不扩张为隐式订阅接口；
 - 进程内 WSS server 能验证请求 ID 与通知 demux、断连、取消、Close 和资源回收。
@@ -245,7 +285,7 @@ S2（订阅聚合与补查）只有在以下条件满足后开始：
 
 - S1 transport seam 和事件通知接收通过 race；
 - newHeads/logs 的 canonicalization、reorg、removed、重复和缺口测试齐全；
-- quorum 和单源政策形成正式决策；
+- quorum 和单源政策采用本文的 Strict 默认、显式 SingleSourceSelected 降级规则；
 - source Pull 能力及同源 identity 映射可验证；
 - 背压、per-event/lifetime budget 和异步错误矩阵通过；
 - 未决定的 exactly-once、重连和恢复语义不被实现伪造。
