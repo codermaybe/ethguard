@@ -4,7 +4,37 @@
 
 本文是锁定 go-ethereum 版本的方法级实现与证据索引；当前缺失方法必须在完整兼容发布前关闭，不能从“Registered”或普通 HTTP/WSS request 能力推导为已支持。
 
+文中保留的 M1/M2/M3 等标签只指向历史证据或已完成切片，不构成发布版本、兼容子集或
+当前优先级。当前状态以本矩阵的 `Current View`、`Root/项目映射`、缺口和 transport
+证据列为准。
+
 本清单以仓库锁定的 go-ethereum `v1.17.5`、`rpc/methods` catalog/ReadPlan、根 `Client` 和 `EthClient` 视图为事实源。它只记录当前代码事实和缺口，不授权单个方法任务修改公共接口。公共接口变更统一留给 roadmap 的 R0/F0。
+
+### v1.17.5 方法差异基线
+
+基线直接对锁定 module 的 `*ethclient.Client` 做 Go reflection，并与本仓库
+`*EthClient` 的导出方法集合比较。结果是上游 48 个导出方法（其中
+`Client()` 是底层 `*rpc.Client` 访问器）与当前 42 个方法；排除该访问器后的业务目标为
+47 个，当前业务缺口为 5 个方法。
+该检查点只说明代码事实，不把 29 个方法解释为兼容版本。可复现命令为：
+
+```text
+scripts/ethclient-method-diff.sh
+```
+
+脚本内临时程序的核心是 `reflect.TypeOf((*ethclient.Client)(nil)).NumMethod()`
+和 `reflect.TypeOf((*ethguard.EthClient)(nil)).NumMethod()`，并按方法名计算
+集合差异。若上游版本变化，必须重新生成该差异后再更新本节、下表和锁定版本。
+
+当前业务缺失集合为：
+
+`PendingTransactionCount`, `SimulateV1`, `TransactionCount`, `TransactionInBlock`,
+`TransactionSender`。其余 pending state、同步写入和三类订阅均已暴露 facade；仍需
+逐项补齐跨传输 fixture、错误和证据矩阵，暂不代表最终兼容发布已闭合。
+
+`Client()` 不是业务 RPC 方法，明确排除在 `EthClient` facade 之外；它不能通过
+忽略而把业务差异伪装成已闭合。该缺口必须给出 Root、typed、错误、
+生命周期和 HTTP/WSS 证据，订阅方法还要满足独立订阅契约。
 
 ## 覆盖分类
 
@@ -12,7 +42,7 @@
 - **View**：`Client.EthClient()` 是否提供官方 go-ethereum 形态的方法。
 - **RPC**：是否有项目 catalog/ReadPlan 或 write pipeline 的明确执行路径。
 - **HTTP/WSS**：现有 transport 是否有请求/应答能力；“WSS request”不是订阅。
-- **Subscription**：是否有订阅能力。当前没有生产订阅实现。
+- **Subscription**：是否有订阅能力。当前生产 facade 支持单个显式 WSS source；多源聚合仍未完成。
 - **Evidence**：当前测试是否覆盖值、裁决、错误、材料和生命周期，而不仅是返回值。
 
 ## 项目 catalog 与现有切面
@@ -31,7 +61,7 @@
 | `eth_getCode` | Registered | `CodeAt` | `CodeAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | empty code、历史引用和跨 transport |
 | `eth_call` | Registered | `CallContract` | `CallContract` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, call rules | overrides、provider golden `error.data=null` |
 | `eth_estimateGas` | Registered | `EstimateGas` | `EstimateGas` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | provider revert golden、边界参数 |
-| `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | 订阅未实现 | `eth.go`, `typed` | reorg、订阅契约和大范围成本 |
+| `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | 单 WSS source 已有 | `eth.go`, `typed`, `subscription.go` | reorg、订阅契约和大范围成本 |
 | `eth_feeHistory` | Registered | `FeeHistory` | `FeeHistory` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 历史高度、percentile 边界和跨 transport |
 | `eth_gasPrice` | Registered | `SuggestGasPrice` | `SuggestGasPrice` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
 | `eth_maxPriorityFeePerGas` | Registered | `SuggestGasTipCap` | `SuggestGasTipCap` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
@@ -49,11 +79,15 @@
 
 ## go-ethereum v1.17.5 官方 ethclient 方法
 
-下面列出锁定版本 `ethclient.Client` 的公开业务方法。当前 EthClient 承诺方法契约冻结表中的 27 个 typed reads（含 HeaderBy* 与四个 `*AtHash`）、`SendTransaction` 和 `Close`；其余方法必须逐项决定为待接入、明确不支持或不属于当前 facade。
+下面列出锁定版本 `ethclient.Client` 的公开方法。当前 `EthClient` 的 42
+方法仍是内部检查点（已覆盖原 29 项并接入 13 个 unary/订阅方法）；上游
+`Client()` 只作为显式排除项记录。其余业务方法必须逐项接入并闭合证据，在兼容发布前
+不能把“待接入”当作已实现。
 
 | 官方方法 | 当前 View | Root/项目映射 | 分类 |
 | --- | --- | --- | --- |
 | `Close()` | 已有 | `Client.Close` | 生命周期 |
+| `Client()` | 明确排除 | 无映射 | 上游基础设施访问器，不属于业务兼容面 |
 | `ChainID` | 已有 | `Client.ChainID` | 已覆盖 |
 | `BlockByHash` | 已有 | `Client.BlockByHash` | 已覆盖 |
 | `BlockByNumber` | 已有 | `Client.BlockByNumber` | 已覆盖 |
@@ -78,28 +112,28 @@
 | `NonceAt` | 已有 | `Client.NonceAt` | 已覆盖 |
 | `NonceAtHash` | 已有（M1/M2） | `Client.NonceAtHash` | 已接入；EIP-1898 hash object |
 | `FilterLogs` | 已有 | `Client.FilterLogs` | 已覆盖 |
-| `SubscribeTransactionReceipts` | 未有 | 无订阅实现 | 订阅待设计 |
-| `SubscribeNewHead` | 未有 | 无订阅实现 | 订阅待设计 |
-| `SubscribeFilterLogs` | 未有 | 无订阅实现 | 订阅待设计 |
-| `PendingBalanceAt` | 未有 | 无 root typed 映射 | 待决定 |
-| `PendingStorageAt` | 未有 | 无 root typed 映射 | 待决定 |
-| `PendingCodeAt` | 未有 | 无 root typed 映射 | 待决定 |
-| `PendingNonceAt` | 未有 | 无 root typed 映射 | 待决定 |
-| `PendingTransactionCount` | 未有 | 无 root typed 映射 | 待决定 |
+| `SubscribeTransactionReceipts` | 已有（单 WSS source） | `Client.SubscribeTransactionReceipts` | 单源 facade；quorum/reorg 证据待补 |
+| `SubscribeNewHead` | 已有（单 WSS source） | `Client.SubscribeNewHead` | 单源 facade；quorum/reorg 证据待补 |
+| `SubscribeFilterLogs` | 已有（单 WSS source） | `Client.SubscribeFilterLogs` | 单源 facade；quorum/removed 证据待补 |
+| `PendingBalanceAt` | 已有 | `Client.PendingBalanceAt` | pending-local；跨 transport 证据待补 |
+| `PendingStorageAt` | 已有 | `Client.PendingStorageAt` | pending-local；跨 transport 证据待补 |
+| `PendingCodeAt` | 已有 | `Client.PendingCodeAt` | pending-local；跨 transport 证据待补 |
+| `PendingNonceAt` | 已有 | `Client.PendingNonceAt` | pending-local；跨 transport 证据待补 |
+| `PendingTransactionCount` | 未有 | 无 root typed 映射 | 需要独立 pending count plan |
 | `CallContract` | 已有 | `Client.CallContract` | 已覆盖 |
-| `CallContractAtHash` | 未有 | 无 root typed 映射 | 待决定 |
-| `PendingCallContract` | 未有 | 无 root typed 映射 | 待决定 |
+| `CallContractAtHash` | 已有 | `Client.CallContractAtHash` | EIP-1898/跨 transport 证据待补 |
+| `PendingCallContract` | 已有 | `Client.PendingCallContract` | pending-local/错误证据待补 |
 | `SuggestGasPrice` | 已有 | `Client.SuggestGasPrice` | 已覆盖 |
 | `SuggestGasTipCap` | 已有 | `Client.SuggestGasTipCap` | 已覆盖 |
 | `BlobBaseFee` | 已有 | `Client.BlobBaseFee` | 已覆盖 |
 | `FeeHistory` | 已有 | `Client.FeeHistory` | 已覆盖 |
 | `EstimateGas` | 已有 | `Client.EstimateGas` | 已覆盖 |
-| `EstimateGasAtBlock` | 未有 | 无 root typed 映射 | 待决定 |
-| `EstimateGasAtBlockHash` | 未有 | 无 root typed 映射 | 待决定 |
+| `EstimateGasAtBlock` | 已有 | `Client.EstimateGasAtBlock` | 参数/错误/跨 transport 证据待补 |
+| `EstimateGasAtBlockHash` | 已有 | `Client.EstimateGasAtBlockHash` | EIP-1898/跨 transport 证据待补 |
 | `SendTransaction` | 已有 | `Client.SendRawTransaction` / view SendTransaction | 已覆盖 |
-| `SendTransactionSync` | 未有 | 无 root typed 映射 | 待决定 |
-| `SendRawTransactionSync` | 未有 | 无 root typed 映射 | 待决定 |
-| `SimulateV1` | 未有 | 无 root typed 映射 | 待决定 |
+| `SendTransactionSync` | 已有 | `Client.SendTransactionSync` | broadcast+receipt polling；语义证据待补 |
+| `SendRawTransactionSync` | 已有 | `Client.SendRawTransactionSync` | broadcast+receipt polling；语义证据待补 |
+| `SimulateV1` | 明确阻塞 | 无映射 | 默认构建禁止导入 ethclient；需 R0/F0 决策 |
 
 `go-ethereum/ethclient/gethclient` 还提供扩展方法，例如 `GetProof`、`CallContract` overrides、`Trace*`、`SubscribePendingTransactions` 和调试统计。它们不自动进入 EthClient；必须单独决定是否属于项目的生态承诺。
 
@@ -111,7 +145,7 @@
 | request ID demux | HTTP 请求级 | 已有 | 由 geth | WSS raw-call 已测试乱序和 pending 清理 |
 | `ChainID` / `Close` | 已有 | 已有 | 显式 adapter | 共享 owner 生命周期 |
 | `error.data` presence | 已有四态 | native raw 可保留；provider golden 未闭合 | 受 adapter 限制 | missing/null/value/unknown 必须分开记录 |
-| 普通订阅 | 不适用 | 未实现 | 未承诺 | Transport Port 不包含 Subscribe |
+| 普通订阅 | 不适用 | 已有显式 capability；单 WSS source facade | 未承诺 | capability 不扩张 unary Transport；多源聚合待 S2 |
 | HTTP Pull 补查 | 可用 | 仅当同一 source 有配置 | 依 adapter | 不得把任意 HTTP endpoint 当作同一 source |
 | reconnect / keepalive / queue | 未作为通用能力 | 未实现 | 不统一承诺 | 需订阅契约后单独决定 |
 
@@ -161,7 +195,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - `HeaderByHash` 和 `HeaderByNumber` 复用 `eth_getBlockByHash` / `eth_getBlockByNumber` 的既有 ReadPlan、admission 和 block projector；只把 `fullTx` 固定为 `false`，再由 `DecodeBlockHeaderOnly` 交付 `*types.Header`。
 - 根 Client 返回 `(* types.Header, CallResult, error)`，EthClient 视图保持官方 `(* types.Header, error)`。
 - `HeaderByNumber(nil)`、`-2/-3/-4` 通过已建立 reference 读取并附带 reference 事实；`-5` 映射高度 `0x0`；`-1` 及未知负数在本地拒绝，不宣称 pending header 已支持。
-- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合 29 项（27 个 typed reads、`SendTransaction`、`Close`）。
+- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合会随锁定版本反射检查更新；当前已暴露 42 个方法，仍只是接入检查点；与上游 48 个导出方法的完整差异见本文件“v1.17.5 方法差异基线”。
 
 ## 未决项
 
@@ -181,7 +215,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - 当前 `rpc/methods` 的 `ReferenceSpec{EIP1898:true}` 和 EIP-1898 rewrite 测试继续覆盖对象校验、显式 hash、`requireCanonical` 保留和 moving tag 改写；AtHash facade 通过同一 plan 执行。
 - AtHash 接入使用受控的 EIP-1898 map 参数和现有 plan，不通过未知 `Call`。
 - `PendingBalanceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingNonceAt` 的 plan 已有 `PendingObserve` 声明，但当前公开 facade 没有对应方法。pending 是节点本地状态，不能直接套用 moving reference；是否允许多源严格比较、是否接受单源本地观察、以及最终 Decision 状态必须由 R0 冻结。
-- `PendingTransactionCount`、`PendingCallContract` 还缺少对应的公开 plan/typed 交付闭环；不能只增加一个薄 wrapper。
+- `PendingTransactionCount`、`TransactionCount`、`TransactionInBlock`、`TransactionSender` 尚未注册 method-aware plan；`SimulateV1` 还受默认构建导入边界阻塞。
 - 因此 M1/M3 的下一步准入仅剩 pending：先冻结其 source-local、quorum 与 Decision 语义，再决定是否扩展 facade；本轮 AtHash 不改变 pending/CallResult/订阅边界。
 
 建议的回归矩阵：
@@ -191,7 +225,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 | `*AtHash` | hash 对象编码、`requireCanonical=false`、显式 hash 绑定、缺块、冲突、跨 HTTP/WSS | root/view facade 已接入；跨 HTTP/WSS 事实待 T0 |
 | `Pending*` 状态读取 | pending 本地观察、不同 source 的 pending 差异、空值、取消、材料和 source-local 诊断 | 计划声明存在；公开结果和严格策略待 R0 |
 | `PendingCallContract` | revert/data presence、pending 参数、source-local 与 quorum 关系 | plan/typed/facade 均待补齐 |
-| `PendingTransactionCount` | `eth_getBlockTransactionCountByNumber` catalog、quantity 解码、source-local 语义 | 当前只有官方 ethclient 参考，无项目执行路径 |
+| `PendingTransactionCount` | `eth_getBlockTransactionCountByNumber` catalog、quantity 解码、source-local 语义 | 尚未注册 plan；不能用未知 Call 补齐 |
 
 验证命令（本轮只读）：
 

@@ -3,15 +3,21 @@
 状态：执行政策（2026-11-07）。
 
 EthGuard 对外的 `EthClient` 契约按仓库锁定的 go-ethereum 版本定义。发布目标不是
-“当前已经接入的 ethclient 子集”，而是完整实现该版本 `ethclient.Client` 的公开方法
-集合。当前 `v1.17.5` 下的 29 方法集合只是接入过程中的内部检查点，不能作为最终兼容
-版本发布或对外能力承诺。
+“当前已经接入的 ethclient 子集”，而是完整实现该版本 `ethclient.Client` 的业务方法
+集合。`v1.17.5` 导出的 48 个 receiver 中，`Client()` 只是返回底层 `*rpc.Client`
+的具体类型访问器，不属于 EthGuard 的业务 facade；因此当前锁定版本的兼容目标是
+47 个业务方法。当前 `EthClient` 已接入 42 个方法；`PendingTransactionCount`、
+`TransactionCount`、`TransactionInBlock`、`TransactionSender` 尚需 method-aware
+plan 与验证，`SimulateV1` 因默认构建明确禁止
+生产根包导入 `go-ethereum/ethclient` 而暂缓，不能把该缺口伪装成已完成。当前集合只是
+接入过程中的内部检查点，不能作为最终兼容版本发布或对外能力承诺。
 
 每个兼容版本必须满足：
 
-1. 从锁定的 go-ethereum 源码生成或核对完整 `ethclient.Client` 方法清单；
-2. `EthClient` 的公开方法集合与该清单完全一致，包含 unary、pending、写入派生和订阅
-   方法；
+1. 从锁定的 go-ethereum 源码生成或核对完整 `ethclient.Client` 方法清单，并明确排除
+   `Client()` 这个底层 rpc 访问器；
+2. `EthClient` 的公开业务方法集合与该清单完全一致，包含 unary、pending、写入派生和
+   订阅方法；
 3. 每个方法都有 Root execution 映射、typed projection、参数与返回绑定、错误分层、
    生命周期和 HTTP/WSS 证据；订阅方法还必须有 `ethereum.Subscription`、取消、重连、
    背压、异步错误和 race 矩阵；
@@ -23,6 +29,11 @@ EthGuard 对外的 `EthClient` 契约按仓库锁定的 go-ethereum 版本定义
 Root `Client` 继续提供带 `CallResult` 的证据型接口和必要的控制面；它可以比官方视图
 更丰富，但不替代 `EthClient` 的完整兼容承诺。`CallResult` 只用于单次 unary 调用，
 订阅使用独立事件结果和生命周期类型。
+
+`EthClient` 不暴露 `Client()`。调用底层 go-ethereum `*rpc.Client` 会绕过 EthGuard 的
+runtime、quorum、typed projection、证据和生命周期边界；需要底层访问的内部 adapter
+仍由生产组合根持有。方法差异脚本和 API contract test 都把该访问器标成显式排除项，
+不能用它把 47 个业务方法的缺口隐藏起来。
 
 外部反馈只发布一个版本化兼容声明：
 

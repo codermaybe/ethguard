@@ -8,8 +8,10 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math/big"
+	"time"
 )
 
 // Transport is one long-lived upstream connection. It deliberately exposes
@@ -25,6 +27,34 @@ type Transport interface {
 // Dialer creates one long-lived Transport for an endpoint.
 type Dialer interface {
 	DialContext(context.Context, string) (Transport, error)
+}
+
+// Notification is one decoded JSON-RPC subscription notification. It is an
+// optional capability beside the unary Transport surface; adapters that do
+// not support subscriptions need not implement Subscriber.
+type Notification struct {
+	SourceID       string
+	Generation     uint64
+	Method         string
+	SubscriptionID string
+	Result         json.RawMessage
+	Raw            json.RawMessage
+	ReceivedAt     time.Time
+}
+
+// Subscription is the transport-neutral lifecycle surface used by the root
+// facade. Event payloads stay raw until the typed facade projects them.
+type Subscription interface {
+	Events() <-chan Notification
+	Err() <-chan error
+	Unsubscribe()
+}
+
+// Subscriber is an optional transport capability. It deliberately lives
+// beside Transport so adding subscriptions does not widen every unary fake
+// and adapter in the repository.
+type Subscriber interface {
+	SubscribeCapability(context.Context, string, ...any) (Subscription, error)
 }
 
 // ErrConnectionClosed is the neutral sentinel for a call attempted on a

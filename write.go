@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -198,5 +199,69 @@ func (c *Client) SendTransaction(ctx context.Context, tx *types.Transaction) (Ca
 			return CallResult{}, fmt.Errorf("%w: encode transaction: %v", rpc.ErrInvalidRequest, err)
 		}
 		return c.sendRawTransaction(opCtx, raw)
+	})
+}
+
+// sendRawTransactionSyncExec broadcasts a transaction through the normal
+// write quorum and then polls the shared receipt execution until it is mined
+// or the caller's optional timeout/context ends. The write decision remains
+// attached to the returned CallResult; receipt absence is an expected polling
+// state and is never treated as a successful receipt.
+func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, CallResult, error) {
+	if timeout != nil && *timeout < 0 {
+		return nil, CallResult{}, fmt.Errorf("%w: negative receipt timeout", rpc.ErrInvalidRequest)
+	}
+	writeResult, err := c.sendRawTransaction(ctx, rawTx)
+	if err != nil {
+		return nil, writeResult, err
+	}
+	if writeResult.WriteDecision == nil || writeResult.WriteDecision.Status != rpc.WriteAccepted || writeResult.WriteDecision.Hash == "" {
+		return nil, writeResult, fmt.Errorf("%w: transaction was not accepted for synchronous receipt", rpc.ErrNoValidResponse)
+	}
+	waitCtx := ctx
+	cancel := func() {}
+	if timeout != nil && *timeout > 0 {
+		waitCtx, cancel = context.WithTimeout(ctx, *timeout)
+	}
+	defer cancel()
+	hash := common.HexToHash(writeResult.WriteDecision.Hash)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		receipt, _, receiptErr := c.transactionReceiptExec(waitCtx, hash)
+		if receiptErr == nil {
+			return receipt, writeResult, nil
+		}
+		if !errors.Is(receiptErr, ethereum.NotFound) {
+			return nil, writeResult, receiptErr
+		}
+		select {
+		case <-waitCtx.Done():
+			return nil, writeResult, waitCtx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// SendTransactionSync broadcasts a signed transaction and waits for its
+// receipt, preserving the normal write decision and lifecycle semantics.
+func (c *Client) SendTransactionSync(ctx context.Context, tx *types.Transaction, timeout *time.Duration) (*types.Receipt, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
+		if tx == nil {
+			return nil, CallResult{}, fmt.Errorf("%w: nil transaction", rpc.ErrInvalidRequest)
+		}
+		raw, err := tx.MarshalBinary()
+		if err != nil {
+			return nil, CallResult{}, fmt.Errorf("%w: encode transaction: %v", rpc.ErrInvalidRequest, err)
+		}
+		return c.sendRawTransactionSyncExec(opCtx, raw, timeout)
+	})
+}
+
+// SendRawTransactionSync broadcasts raw signed bytes and waits for the
+// corresponding receipt.
+func (c *Client) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
+		return c.sendRawTransactionSyncExec(opCtx, rawTx, timeout)
 	})
 }

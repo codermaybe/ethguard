@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -288,4 +289,98 @@ func (ec *EthClient) SendTransaction(ctx context.Context, tx *types.Transaction)
 		return ec.owner.sendRawTransaction(opCtx, raw)
 	})
 	return err
+}
+
+func (ec *EthClient) SendTransactionSync(ctx context.Context, tx *types.Transaction, timeout *time.Duration) (*types.Receipt, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
+		if tx == nil {
+			return nil, CallResult{}, fmt.Errorf("%w: nil transaction", rpc.ErrInvalidRequest)
+		}
+		raw, marshalErr := tx.MarshalBinary()
+		if marshalErr != nil {
+			return nil, CallResult{}, fmt.Errorf("%w: encode transaction: %v", rpc.ErrInvalidRequest, marshalErr)
+		}
+		return ec.owner.sendRawTransactionSyncExec(opCtx, raw, timeout)
+	})
+	return value, err
+}
+
+func (ec *EthClient) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
+		return ec.owner.sendRawTransactionSyncExec(opCtx, rawTx, timeout)
+	})
+	return value, err
+}
+
+// PendingBalanceAt returns the node-local pending balance.
+func (ec *EthClient) PendingBalanceAt(ctx context.Context, account common.Address) (*big.Int, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*big.Int, CallResult, error) {
+		return ec.owner.pendingBalanceAtExec(opCtx, account)
+	})
+	return value, err
+}
+
+func (ec *EthClient) PendingStorageAt(ctx context.Context, account common.Address, key common.Hash) ([]byte, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return ec.owner.pendingStorageAtExec(opCtx, account, key)
+	})
+	return value, err
+}
+
+func (ec *EthClient) PendingCodeAt(ctx context.Context, account common.Address) ([]byte, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return ec.owner.pendingCodeAtExec(opCtx, account)
+	})
+	return value, err
+}
+
+func (ec *EthClient) PendingNonceAt(ctx context.Context, account common.Address) (uint64, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
+		return ec.owner.pendingNonceAtExec(opCtx, account)
+	})
+	return value, err
+}
+
+func (ec *EthClient) CallContractAtHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return ec.owner.callContractAtHashExec(opCtx, msg, blockHash)
+	})
+	return value, err
+}
+
+func (ec *EthClient) PendingCallContract(ctx context.Context, msg ethereum.CallMsg) ([]byte, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return ec.owner.pendingCallContractExec(opCtx, msg)
+	})
+	return value, err
+}
+
+func (ec *EthClient) EstimateGasAtBlock(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) (uint64, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
+		arg, localErr := checkedBlockNumArg(blockNumber)
+		if localErr != nil {
+			return 0, CallResult{Err: localErr}, localErr
+		}
+		return ec.owner.estimateGasWithArgExec(opCtx, toCallArg(msg), arg)
+	})
+	return value, err
+}
+
+func (ec *EthClient) EstimateGasAtBlockHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) (uint64, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
+		return ec.owner.estimateGasWithArgExec(opCtx, toCallArg(msg), hashBlockArg(blockHash))
+	})
+	return value, err
+}
+
+func (ec *EthClient) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
+	return ec.owner.SubscribeNewHead(ctx, ch)
+}
+
+func (ec *EthClient) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+	return ec.owner.SubscribeFilterLogs(ctx, q, ch)
+}
+
+func (ec *EthClient) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.TransactionReceiptsQuery, ch chan<- []*types.Receipt) (ethereum.Subscription, error) {
+	return ec.owner.SubscribeTransactionReceipts(ctx, q, ch)
 }
