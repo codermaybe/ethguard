@@ -1,8 +1,9 @@
 // Package wss implements EthGuard's minimal WebSocket JSON-RPC transport
 // adapter. It is a raw-call connection: one long-lived socket, request-ID
 // demultiplexing, bounded inbound frames, per-call cancellation, and lifecycle
-// cleanup. It deliberately has no subscription, filter, batch, reconnect, or
-// write-path replay surface.
+// cleanup. It has no business subscription, filter, batch, reconnect, or
+// write-path replay surface; its opt-in NotificationStream is only the
+// internal notification seam used by the separate subscription state machine.
 //
 // The WebSocket wire itself — HTTP Upgrade handshake, frame codec, and
 // connection lifecycle — is EthGuard-owned (websocket_handshake.go,
