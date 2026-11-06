@@ -70,13 +70,13 @@ EstimateGas。Pending 仍先由 R0 冻结 source-local、quorum 和 Decision 语
 | M0 | 方法与传输事实清单 | `docs/design/method-transport-coverage.md`；逐项列出官方版本方法、catalog/ReadPlan、根切面、EthClient、HTTP、WSS request/response、订阅、不支持项和测试缺口 | 无 | 官方方法与项目方法无漏项；每项能指向实现和测试；未知方法不会静默绕过 catalog | 完成（2026-11-06；method_inventory） |
 | M1 | 标量、费用和节点状态 | 方法卡片、根/视图调用、HTTP/WSS fixture、CallResult 状态与错误分层测试 | M0 | lower-median/selected/corroborated 语义明确；null、空值、同步状态和本地错误有反例 | AtHash 与标量 transport 切片完成（2026-11-07；`typed_scalar_transport_test.go`）；Pending 语义审计完成（`pending-semantics-review.md`），实现仍待 R0 |
 | M2 | 区块与 reference | block、BlockNumber、EIP-1898、moving tag、pending-local、full/header-only、reference 附带证据的测试矩阵 | M0 | hash/number/tag 语义一致；业务失败不丢 reference；跨传输请求和结果一致 | Header + AtHash 切片完成；其余 reference/pending 与跨 transport 事实待补 |
-| M3 | 交易、收据与日志 | Transaction、Receipt、BlockReceipts、Call、EstimateGas、FilterLogs 的方法卡片和测试 | M0 | null/NotFound、pending、receipt bloom、log binding、revert、范围边界和 typed 错误分层闭合 | 语义审计、receipt slice、Call/Logs/EstimateGas 与 TransactionByHash HTTP/WSS transport slice 完成；大数组成本仍待补 |
+| M3 | 交易、收据与日志 | Transaction、Receipt、BlockReceipts、Call、EstimateGas、FilterLogs 的方法卡片和测试 | M0 | null/NotFound、pending、receipt bloom、log binding、revert、范围边界和 typed 错误分层闭合 | 语义审计、receipt slice、Call/Logs/EstimateGas、TransactionByHash transport 和大数组成本审计完成（`m3-cost-audit.md`）；provider error-data 仍 `not_observed` |
 | M4 | 写入与扩展方法 | SendTransaction、SendRawTransaction、CreateAccessList 及视图隐藏边界 | M0 | 广播接受与 mined 明确分开；未知写方法拒绝；raw 与 typed 写入材料一致 | 边界审计完成（2026-11-07；`m4-boundary-review.md`）；fixture/transport 回归待补 |
-| T0 | HTTP/WSS request-response 覆盖 | 同一 fixture 下的 HTTP、native WSS、显式 gethcompat 对照结果 | M1–M4 按方法族推进 | 值、错误、Decision、reference、材料和 Close 语义一致；不新增 transport-specific 业务分支 | ChainID/Header/Receipt/BlockReceipts/Call/Logs/EstimateGas、标量状态、FeeHistory、TransactionByHash 已完成；CreateAccessList 与显式 gethcompat 细化待补 |
+| T0 | HTTP/WSS request-response 覆盖 | 同一 fixture 下的 HTTP、native WSS、显式 gethcompat 对照结果 | M1–M4 按方法族推进 | 值、错误、Decision、reference、材料和 Close 语义一致；不新增 transport-specific 业务分支 | ChainID/Header/Receipt/BlockReceipts/Call/Logs/EstimateGas、标量状态、FeeHistory、TransactionByHash、CreateAccessList 和三方法 gethcompat differential 已完成；provider 事实与 typed facade 集成仍待 F0 |
 | S0 | 订阅契约冻结 | `docs/design/subscription-contract.md`；新头、logs、reorg、quorum、source snapshot、补查、背压、重连、取消和异步错误契约 | M0、T0 初步结果 | 明确事件身份、法定人数、单源政策、事件交付和 `Subscription.Err()`；不把未验证推送标为 Corroborated | 设计草案与 S1/S2 准入审计完成（2026-11-07；`subscription-architecture-review.md`）；公共接口和单源策略仍待 R0 |
 | S1 | WSS 订阅 transport seam | 订阅能力接口、source 生命周期、请求 ID 与通知隔离、关闭和取消测试 | S0 | 不影响现有 raw-call Transport；连接断裂、Unsubscribe、owner Close 和 goroutine 退出有界 | 待开始 |
 | S2 | 订阅聚合与补查 | newHeads/logs 多源聚合、软超时 Pull、隔离、reorg、重复和缺口处理 | S0、S1 | 不静默丢事件；Pull 只使用同一 source 的已配置能力；事件 source snapshot 和 quorum 可重放 | 待开始 |
-| R0 | 返回值与接口统一审查 | `return-value-design.md` 更新；单次调用与异步事件的最小结果类型对照 | M1–M4、S0 | 业务值、业务 error、网络裁决、证据材料四者职责清楚；不引入无必要的泛型包装；订阅不强塞 CallResult | 待开始 |
+| R0 | 返回值与接口统一审查 | `return-value-design.md` 更新；单次调用与异步事件的最小结果类型对照 | M1–M4、S0 | 业务值、业务 error、网络裁决、证据材料四者职责清楚；不引入无必要的泛型包装；订阅不强塞 CallResult | unary 结果与现有 API 审查完成（2026-11-07；`r0-interface-review.md`）；订阅签名、单源策略、reorg/backpressure/reconnect 仍 needs-review |
 | F0 | 总体验收与决策收敛 | 完整方法矩阵、订阅矩阵、未支持项、性能数据、接口变更建议和最终 ADR | M1–R0 | 所有声明能力有可运行证据；未观察 provider 事实单独标记；公共接口只在此任务统一调整 | 待开始 |
 
 ## Agent 分配
@@ -102,6 +102,9 @@ agent 按垂直切片工作；共享的 `eth.go`、`ethclient_view.go`、`CallRe
 | `m4_fixture_regression` | M4/T0 写入与扩展 | 已完成 CreateAccessList、SendTransaction 的 HTTP/WSS fixture、错误和签名字节一致性回归；未改公共 API |
 | `pending_semantics` | M1/M3 Pending 语义审计 | 已完成 `pending-semantics-review.md`；冻结 source-local/Selected 边界，PendingTransactionCount/PendingCallContract 保持 unsupported |
 | `subscription_architecture` | S1/S2 订阅准入审计 | 已完成 `subscription-architecture-review.md`（needs-review）；明确 transport seam、事件身份、quorum、补查、背压和生命周期准入 |
+| `gethcompat_matrix` | T0 显式兼容层 | 已完成 `internal/transport/http/differential_test.go`：TransactionByHash、FeeHistory、CreateAccessList 的 native/geth envelope 与 raw-result parity；未改业务层 |
+| `m3_cost_audit` | M3/F0 成本与预算审计 | 已完成 `m3-cost-audit.md`；核对大数组、材料预算、取消/Close 和 provider `not_observed` 边界 |
+| `r0_interface_review` | R0 返回值与接口审查 | 已完成 `r0-interface-review.md`；确认 unary API 保持不变，订阅独立事件类型和候选签名仍需冻结 |
 | 后续 agent | M1–M4、T0、S1–S2、R0 | M0/S0 已满足准入；方法 agent 仍不得局部改写公共返回值 |
 
 每个 agent 的交付必须包含：实现或文档 diff、方法特性卡片、正反例测试、实际命令、未决问题和对下一任务的准入条件。不得以“代码能编译”代替方法闭环。
