@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,10 +31,13 @@ type sourceWireRequest struct {
 }
 
 type sourceWirePeer struct {
-	endpoint    string
-	connections atomic.Int32
-	requests    atomic.Int32
-	writes      atomic.Int32
+	endpoint        string
+	connections     atomic.Int32 // accepted WebSocket connections
+	httpConnections atomic.Int32 // accepted native HTTP TCP connections
+	requests        atomic.Int32 // all decoded JSON-RPC requests/frames
+	chainIDRequests atomic.Int32 // eth_chainId requests, including identity probes
+	headerRequests  atomic.Int32 // eth_getBlockByNumber requests
+	writes          atomic.Int32
 }
 
 func newSourceWirePeer(t *testing.T, ws bool, answer func(sourceWireRequest) string) *sourceWirePeer {
@@ -45,6 +49,12 @@ func newSourceWirePeer(t *testing.T, ws bool, answer func(sourceWireRequest) str
 		if err := json.Unmarshal(body, &req); err != nil {
 			t.Errorf("decode: %v", err)
 			return nil
+		}
+		switch req.Method {
+		case "eth_chainId":
+			peer.chainIDRequests.Add(1)
+		case "eth_getBlockByNumber":
+			peer.headerRequests.Add(1)
 		}
 		var result string
 		if req.Method == "eth_chainId" {
@@ -60,7 +70,7 @@ func newSourceWirePeer(t *testing.T, ws bool, answer func(sourceWireRequest) str
 		}
 		return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,%s}`, req.ID, result))
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ws {
 			conn, err := wstest.Upgrade(t, w, r)
 			if err != nil {
@@ -96,6 +106,16 @@ func newSourceWirePeer(t *testing.T, ws bool, answer func(sourceWireRequest) str
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(response)
 	}))
+	// ConnState observes accepted TCP connections, rather than pretending each
+	// HTTP handler invocation is a new connection. Native HTTP keep-alive can
+	// serve several requests on one connection, so request and connection
+	// evidence stay in separate counters.
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if !ws && state == http.StateNew {
+			peer.httpConnections.Add(1)
+		}
+	}
+	srv.Start()
 	t.Cleanup(srv.Close)
 	peer.endpoint = srv.URL
 	if ws {

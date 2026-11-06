@@ -50,15 +50,17 @@ func TestTypedTransportMatrix(t *testing.T) {
 	if err != nil || header == nil || header.Number.Uint64() != 17 {
 		t.Fatalf("HeaderByNumber = %v, err=%v", header, err)
 	}
-	if peers[0].connections.Load() == 0 || peers[1].connections.Load() == 0 {
-		t.Fatalf("transport connections = http:%d wss:%d", peers[0].connections.Load(), peers[1].connections.Load())
+	if peers[0].httpConnections.Load() == 0 || peers[1].connections.Load() == 0 {
+		t.Fatalf("transport connections = http:%d wss:%d", peers[0].httpConnections.Load(), peers[1].connections.Load())
 	}
 	// Both transports must have received the identity probe and the typed
-	// header request. The WSS peer uses the same JSON-RPC request bytes as HTTP;
-	// its frame lifecycle is covered by internal/transport/wss contract tests.
+	// header request. Track those methods independently from the aggregate
+	// request total, so a connection or unrelated request cannot satisfy this
+	// seam test accidentally. The WSS peer uses the same JSON-RPC request bytes
+	// as HTTP; its frame lifecycle is covered by internal/transport/wss tests.
 	for i, peer := range peers {
-		if peer.requests.Load() < 2 {
-			t.Fatalf("peer %d request count = %d, want identity + header", i, peer.requests.Load())
+		if peer.chainIDRequests.Load() == 0 || peer.headerRequests.Load() == 0 {
+			t.Fatalf("peer %d method counts = chainID:%d header:%d total:%d, want identity + header", i, peer.chainIDRequests.Load(), peer.headerRequests.Load(), peer.requests.Load())
 		}
 	}
 }
