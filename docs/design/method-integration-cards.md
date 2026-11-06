@@ -262,7 +262,7 @@ EIP-1898、reference 与证据等级。它不新增方法、不改变裁决语�
 
 ### eth_createAccessList
 
-- Root：`Client.CreateAccessList`（typed `*AccessListResult`）。
+- Root：`Client.CreateAccessList`（typed `*AccessListResult` + `CallResult`；不进入 `EthClient` 视图，决策 0066）。
 - Adapter：无（root-only）。
 - Typed：`accesslist.Encode` + root wire 解码。
 - 错误：strict/MethodSpecific；`ErrMalformedResponse`。

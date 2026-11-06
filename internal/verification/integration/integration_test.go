@@ -22,6 +22,7 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/observe"
 	dprom "github.com/codermaybe/ethguard/observe/prometheus"
 	"github.com/codermaybe/ethguard/pool"
@@ -50,8 +51,8 @@ func chainIDOf(t *testing.T, client *ethguard.Client, decision rpc.Decision) *bi
 // (NotFound, malformed, sentinel); the Call decision shows what the
 // aggregation layer concluded for the identical wire request.
 func typedReceiptProbe(ctx context.Context, client *ethguard.Client, hash common.Hash) (*types.Receipt, rpc.Decision, error) {
-	receipt, err := client.TransactionReceipt(ctx, hash)
-	decision, _ := client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
+	receipt, _, err := client.TransactionReceipt(ctx, hash)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
 	return receipt, decision, err
 }
 
@@ -126,33 +127,40 @@ func TestClientCorroboratesChainIDAcrossSources(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	value, err := client.ChainID(ctx)
+	value, _, err := client.ChainID(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if value.Int64() != 1 {
 		t.Fatalf("expected chain id 1, got %v", value)
 	}
-	decision, _ := client.Call(ctx, methods.MethodChainID)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
 	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 		t.Fatalf("expected corroborated decision with three supporters, got %+v", decision)
 	}
 }
 
-func TestUncertainCaptureIsInvocationScopedAndDefensive(t *testing.T) {
+func TestResultCaptureMaterialIsInvocationScopedAndDefensive(t *testing.T) {
 	client, _ := fleet(t, 1, 1, 3)
-	ctx, capture := ethguard.WithUncertain(context.Background())
-	if _, err := client.ChainID(ctx); err != nil {
+	base, err := ethguard.WithSourceEvidence(context.Background(), 1<<20)
+	if err != nil {
 		t.Fatal(err)
 	}
-	first := capture.Result()
-	if len(first.Raw) != 3 || first.Truncated {
-		t.Fatalf("unexpected uncertain snapshot: %+v", first)
+	ctx, capture := ethguard.WithResult(base)
+	if _, _, err := client.ChainID(ctx); err != nil {
+		t.Fatal(err)
 	}
-	first.Raw[0].Value[0] = 'X'
-	second := capture.Result()
-	if len(second.Raw) != 3 || second.Raw[0].Value[0] == 'X' {
-		t.Fatalf("capture exposed mutable response storage: %+v", second)
+	result, published, err := capture.Result()
+	if !published || err != nil {
+		t.Fatalf("delivery = %v, %v", published, err)
+	}
+	if result.Uncertain == nil || len(result.Uncertain.Raw) != 3 || result.Uncertain.Truncated {
+		t.Fatalf("unexpected material snapshot: %+v", result.Uncertain)
+	}
+	result.Uncertain.Raw[0].Value[0] = 'X'
+	second, _, _ := capture.Result()
+	if len(second.Uncertain.Raw) != 3 || second.Uncertain.Raw[0].Value[0] == 'X' {
+		t.Fatalf("capture exposed mutable response storage: %+v", second.Uncertain)
 	}
 }
 
@@ -167,14 +175,14 @@ func TestClientMajorityToleratesMinorityDissentOnChainID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	value, err := client.ChainID(ctx)
+	value, _, err := client.ChainID(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if value.Int64() != 1 {
 		t.Fatalf("expected chain id 1, got %v", value)
 	}
-	decision, _ := client.Call(ctx, methods.MethodChainID)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
 	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 {
 		t.Fatalf("expected corroborated 2-source majority with one reject, got %+v", decision)
 	}
@@ -195,7 +203,7 @@ func TestClientSurvivesHungSourceWithFaultEvidence(t *testing.T) {
 	// One fan-out: the decision view carries both the fault evidence and the
 	// value, so the hung source's collection fault is not split across two
 	// invocations.
-	decision, err := client.Call(ctx, methods.MethodChainID)
+	decision, err := callDecision(client.Call(ctx, methods.MethodChainID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +229,7 @@ func TestClientQuarantinesPoisonedChainIdentity(t *testing.T) {
 
 	// One fan-out: the poisoned source's rejection rides the same decision
 	// the value decodes from.
-	decision, err := client.Call(ctx, methods.MethodChainID)
+	decision, err := callDecision(client.Call(ctx, methods.MethodChainID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +250,7 @@ func TestClientAnchorsBalanceReadsAcrossDivergentHeads(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +314,7 @@ func TestClientMajorityAnchorPinsTwoOfThreeHeads(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +336,7 @@ func TestClientNormalizesBlockResponsesAcrossSources(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetBlockByHash, "0xab", false)
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBlockByHash, "0xab", false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +355,7 @@ func TestClientRejectsBlockThatDoesNotMatchRequestedHash(t *testing.T) {
 	defer cancel()
 
 	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
-	if _, err := client.BlockByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, err := client.BlockByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested block, got %v", err)
 	}
 }
@@ -381,11 +389,11 @@ func TestMalformedFullBlockCannotJoinTheWinningCluster(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	block, err := client.BlockByHash(ctx, requested)
+	block, _, err := client.BlockByHash(ctx, requested)
 	if err != nil {
 		t.Fatalf("valid majority should survive one malformed body: %v", err)
 	}
-	decision, _ := client.Call(ctx, methods.MethodGetBlockByHash, requested.Hex(), true)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodGetBlockByHash, requested.Hex(), true))
 	if block == nil || len(decision.Support) != 2 {
 		t.Fatalf("expected two valid supporters, got block=%v decision=%+v", block, decision)
 	}
@@ -455,7 +463,7 @@ func TestClientClassifiesFailuresThroughPublicSentinels(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		decision, err := client.Call(ctx, methods.MethodGetBlockByNumber, "0x10", false)
+		decision, err := callDecision(client.Call(ctx, methods.MethodGetBlockByNumber, "0x10", false))
 		if !errors.Is(err, ethguard.ErrNoValidResponse) {
 			t.Fatalf("expected ErrNoValidResponse, got %v", err)
 		}
@@ -465,13 +473,12 @@ func TestClientClassifiesFailuresThroughPublicSentinels(t *testing.T) {
 	})
 
 	t.Run("typed decode miss is malformed response", func(t *testing.T) {
-		client, _ := fleet(t, 1, 1, 2)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		_, _, err := ethguard.CallInto[struct{ X int }](ctx, client, methods.MethodChainID)
-		if !errors.Is(err, ethguard.ErrMalformedResponse) {
-			t.Fatalf("expected ErrMalformedResponse, got %v", err)
+		// The pure JSON decoder owns this classification: the same decode the
+		// typed boundary runs misses on a non-object canonical value.
+		canonical := json.RawMessage(`"0x1"`)
+		var out struct{ X int }
+		if err := jsonsafe.Decode(canonical, &out); err == nil {
+			t.Fatal("expected the decoder to miss on a non-object value")
 		}
 	})
 
@@ -481,7 +488,7 @@ func TestClientClassifiesFailuresThroughPublicSentinels(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		decision, err := client.Call(ctx, methods.MethodChainID)
+		decision, err := callDecision(client.Call(ctx, methods.MethodChainID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -504,7 +511,7 @@ func TestClientEmitsOneDecisionEventToLogger(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := client.ChainID(ctx); err != nil {
+	if _, _, err := client.ChainID(ctx); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -533,7 +540,7 @@ func TestRecorderWinsOverLogger(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := client.ChainID(ctx); err != nil {
+	if _, _, err := client.ChainID(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if out := buf.String(); out != "" {
@@ -594,7 +601,7 @@ func TestClientExposesDecisionsThroughPrometheus(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := client.ChainID(ctx); err != nil {
+	if _, _, err := client.ChainID(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := sampleValue(t, reg, "ethguard_decisions_total",
@@ -607,7 +614,7 @@ func TestClientExposesDecisionsThroughPrometheus(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()
 	// A 3-way split leaves every cluster below Q=2: the invocation conflicts.
-	if _, err := client.ChainID(ctx2); !errors.Is(err, rpc.ErrConflict) {
+	if _, _, err := client.ChainID(ctx2); !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("expected conflict on second call, got %v", err)
 	}
 	if got := sampleValue(t, reg, "ethguard_conflicts_total",
@@ -711,7 +718,7 @@ func TestFinalizedAnchoringToleratesDivergentTips(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 	if err != nil {
 		t.Fatalf("expected divergent tips to anchor at agreed finalized head, got %v", err)
 	}
@@ -827,7 +834,7 @@ func TestTipTrackingScopesLatestEstablishmentSeparatelyFromPinnedBusiness(t *tes
 
 	// First contact warms every source because probes never dial. ChainID has
 	// no block reference and therefore remains exempt from latest-tip gating.
-	if decision, err := client.Call(ctx, methods.MethodChainID); err != nil || len(decision.Support) != 3 {
+	if decision, err := callDecision(client.Call(ctx, methods.MethodChainID)); err != nil || len(decision.Support) != 3 {
 		t.Fatalf("stateless read did not use the complete basis: %+v %v", decision.Support, err)
 	}
 	client.Pool().RefreshTips(ctx)
@@ -836,7 +843,7 @@ func TestTipTrackingScopesLatestEstablishmentSeparatelyFromPinnedBusiness(t *tes
 		before[i] = len(node.Calls())
 	}
 
-	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -919,14 +926,14 @@ func TestGasPriceIsSelectedWithOutlierEvidence(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	value, err := client.SuggestGasPrice(ctx)
+	value, _, err := client.SuggestGasPrice(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if value.Int64() != 1_000_000_000 {
 		t.Fatalf("expected median 1 gwei, got %v", value)
 	}
-	decision, _ := client.Call(ctx, methods.MethodGasPrice)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodGasPrice))
 	if decision.Status != rpc.Selected || len(decision.Support) != 2 || len(decision.Reject) != 1 {
 		t.Fatalf("expected selected median with outlier evidence, got %+v", decision)
 	}
@@ -943,11 +950,11 @@ func TestGasPriceAgreementStaysSelected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	value, err := client.SuggestGasPrice(ctx)
+	value, _, err := client.SuggestGasPrice(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, _ := client.Call(ctx, methods.MethodGasPrice)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodGasPrice))
 	if decision.Status != rpc.Selected {
 		t.Fatalf("unanimous variable result must stay selected, got %v", decision.Status)
 	}
@@ -970,14 +977,14 @@ func TestPeerCountIsUpstreamLocalSelected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	count, err := client.PeerCount(ctx)
+	count, _, err := client.PeerCount(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if count != 5 {
 		t.Fatalf("expected the first source's local count, got %d", count)
 	}
-	decision, _ := client.Call(ctx, methods.MethodPeerCount)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodPeerCount))
 	if decision.Status != rpc.Selected || len(decision.Support) != 1 || len(decision.Reject) != 0 {
 		t.Fatalf("expected a selected local read naming its one source, got %+v", decision)
 	}
@@ -993,11 +1000,11 @@ func TestSyncingReportsConsultedSourceState(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	progress, err := client.SyncProgress(ctx)
+	progress, _, err := client.SyncProgress(ctx)
 	if err != nil || progress != nil {
 		t.Fatalf("expected synced-fleet nil progress, got %v %v", progress, err)
 	}
-	decision, _ := client.Call(ctx, methods.MethodSyncing)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodSyncing))
 	if decision.Status != rpc.Selected {
 		t.Fatalf("expected selected local read, got %v", decision.Status)
 	}
@@ -1005,7 +1012,7 @@ func TestSyncingReportsConsultedSourceState(t *testing.T) {
 	nodes[0].Return("eth_syncing", map[string]any{
 		"startingBlock": "0x0", "currentBlock": "0x64", "highestBlock": "0xc8",
 	})
-	progress, err = client.SyncProgress(ctx)
+	progress, _, err = client.SyncProgress(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1040,7 @@ func TestClientHandlesConcurrentCallsUnderSharedRecorder(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				var err error
 				if i%2 == 0 {
-					_, err = client.ChainID(ctx)
+					_, _, err = client.ChainID(ctx)
 				} else {
 					_, err = client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
 				}
@@ -1088,11 +1095,11 @@ func TestClientCorroboratesReceiptAcrossSources(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	receipt, err := client.TransactionReceipt(ctx, common.HexToHash(txHash))
+	receipt, _, err := client.TransactionReceipt(ctx, common.HexToHash(txHash))
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, _ := client.Call(ctx, methods.MethodGetTransactionReceipt, common.HexToHash(txHash).Hex())
+	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, common.HexToHash(txHash).Hex()))
 	if receipt.TxHash != common.HexToHash(txHash) || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 		t.Fatalf("expected corroborated receipt across three sources, got %+v %+v", receipt, decision)
 	}
@@ -1124,7 +1131,7 @@ func TestClientAttachesReceiptExtensionsToDecision(t *testing.T) {
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionReceipt, object)
 	}
-	decision, err := client.Call(context.Background(), methods.MethodGetTransactionReceipt, txHash)
+	decision, err := callDecision(client.Call(context.Background(), methods.MethodGetTransactionReceipt, txHash))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1152,7 +1159,7 @@ func TestClientWithholdsBelowThresholdReceiptExtension(t *testing.T) {
 		}
 		node.Return(methods.MethodGetTransactionReceipt, receiptFixture(txHash))
 	}
-	decision, err := client.Call(context.Background(), methods.MethodGetTransactionReceipt, txHash)
+	decision, err := callDecision(client.Call(context.Background(), methods.MethodGetTransactionReceipt, txHash))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1183,7 +1190,7 @@ func TestClientRejectsReceiptThatDoesNotMatchRequestedTransaction(t *testing.T) 
 	defer cancel()
 
 	requested := common.HexToHash("0x" + strings.Repeat("43", 32))
-	if _, err := client.TransactionReceipt(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, err := client.TransactionReceipt(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested receipt, got %v", err)
 	}
 }
@@ -1325,11 +1332,11 @@ func TestClientCorroboratesTransactionByHash(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	tx, _, err := client.TransactionByHash(ctx, want.Hash())
+	tx, _, _, err := client.TransactionByHash(ctx, want.Hash())
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, _ := client.Call(ctx, methods.MethodGetTransactionByHash, want.Hash().Hex())
+	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionByHash, want.Hash().Hex()))
 	if tx.Hash() != want.Hash() || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 		t.Fatalf("expected corroborated transaction across three sources, got %+v %+v", tx, decision)
 	}
@@ -1345,7 +1352,7 @@ func TestClientRejectsTransactionThatDoesNotMatchRequestedHash(t *testing.T) {
 	defer cancel()
 
 	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
-	if _, _, err := client.TransactionByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, _, err := client.TransactionByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested transaction, got %v", err)
 	}
 }
@@ -1370,7 +1377,7 @@ func TestClientRejectsTransactionWithFabricatedHash(t *testing.T) {
 
 	// The fleet agrees, so corroboration passes; the wire hash disagrees with
 	// the recomputed signature hash, so the typed boundary rejects it.
-	if _, _, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, _, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for fabricated wire hash, got %v", err)
 	}
 }
@@ -1383,13 +1390,13 @@ func TestClientMapsTransactionAbsenceToNotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, _, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	_, _, _, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
 	if !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
 	// Same boundary rule as receipts: corroborated absence maps to NotFound
 	// at the typed boundary, and the decision view retains the agreement.
-	if decision, err := client.Call(ctx, methods.MethodGetTransactionByHash, common.HexToHash("0x"+strings.Repeat("42", 32)).Hex()); err != nil || decision.Status != rpc.Corroborated {
+	if decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionByHash, common.HexToHash("0x"+strings.Repeat("42", 32)).Hex())); err != nil || decision.Status != rpc.Corroborated {
 		t.Fatalf("expected corroborated null agreement behind the NotFound mapping, got %+v %v", decision, err)
 	}
 }
@@ -1414,7 +1421,7 @@ func TestClientPinsBlockReceiptsToCorroboratedReference(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetBlockReceipts, "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBlockReceipts, "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1442,7 +1449,7 @@ func TestClientMapsUnknownBlockReceiptsToNotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(common.HexToHash("0x"+strings.Repeat("11", 32)), false)); !errors.Is(err, ethereum.NotFound) {
+	if _, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(common.HexToHash("0x"+strings.Repeat("11", 32)), false)); !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
 }
@@ -1458,7 +1465,7 @@ func TestClientRejectsBlockReceiptsFromAnotherBlock(t *testing.T) {
 	defer cancel()
 
 	requested := common.HexToHash("0x" + strings.Repeat("22", 32))
-	if _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(requested, false)); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(requested, false)); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for receipts from another block, got %v", err)
 	}
 }
@@ -1471,14 +1478,14 @@ func TestMaxPriorityFeePerGasTakesLowerMedian(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	tip, err := client.SuggestGasTipCap(ctx)
+	tip, _, err := client.SuggestGasTipCap(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tip.Int64() != 1_000_000_000 {
 		t.Fatalf("expected lower median 1 gwei, got %v", tip)
 	}
-	decision, _ := client.Call(ctx, methods.MethodMaxPriorityFeePerGas)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodMaxPriorityFeePerGas))
 	if decision.Status != rpc.Selected {
 		t.Fatalf("expected Selected ceiling for a variable result, got %+v", decision)
 	}
@@ -1492,11 +1499,11 @@ func TestClientCorroboratesNetVersionAcrossSpellings(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	version, err := client.NetworkID(ctx)
+	version, _, err := client.NetworkID(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, _ := client.Call(ctx, methods.MethodNetVersion)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodNetVersion))
 	if version.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 		t.Fatalf("expected cross-spelling net_version agreement to corroborate, got %v %+v", version, decision)
 	}
@@ -1512,7 +1519,7 @@ func TestListeningIsUpstreamLocalSelected(t *testing.T) {
 
 	// net_listening has no typed facade method: its full decision comes from
 	// the generic entry, and the local answer decodes from the decision value.
-	decision, err := client.Call(ctx, methods.MethodListening)
+	decision, err := callDecision(client.Call(ctx, methods.MethodListening))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1542,7 +1549,7 @@ func TestClientBlockNumberDerivesFromCorroboratedReference(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		height, err := client.BlockNumber(ctx)
+		height, _, err := client.BlockNumber(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1571,7 +1578,7 @@ func TestClientBlockNumberDerivesFromCorroboratedReference(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, err := client.BlockNumber(ctx); !errors.Is(err, ethguard.ErrMalformedResponse) {
+		if _, _, err := client.BlockNumber(ctx); !errors.Is(err, ethguard.ErrMalformedResponse) {
 			t.Fatalf("expected ErrMalformedResponse for block outside the anchor, got %v", err)
 		}
 	})
@@ -1586,7 +1593,7 @@ func TestClientBlockNumberDerivesFromCorroboratedReference(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, err := client.BlockNumber(ctx); !errors.Is(err, rpc.ErrConflict) {
+		if _, _, err := client.BlockNumber(ctx); !errors.Is(err, rpc.ErrConflict) {
 			t.Fatalf("expected anchor failure on divergent tips, got %v", err)
 		}
 	})
@@ -1656,7 +1663,7 @@ func TestClientDynamicMajorityCoversAnchoredStateReads(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 	if err != nil {
 		t.Fatalf("dynamic majority should resolve the anchored read over dissent: %v", err)
 	}
@@ -1689,7 +1696,7 @@ func TestClientCorroboratesCallOutcomeAcrossSources(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1715,7 +1722,7 @@ func TestClientCorroboratedRevertIsAnObservation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest"))
 	if err != nil {
 		t.Fatalf("a unanimous revert is a corroborated observation, not a failure: %v", err)
 	}
@@ -1760,7 +1767,7 @@ func TestClientMajorityResolvesCallClassSplit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodCall, map[string]any{"to": "0x1", "input": "0x00"}, "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1786,7 +1793,7 @@ func TestEstimateGasIsAnchoredMedian(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodEstimateGas, map[string]any{"to": "0x1", "gas": 21000}, "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodEstimateGas, map[string]any{"to": "0x1", "gas": 21000}, "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1823,7 +1830,7 @@ func TestGetLogsPinsTheFilterRangeOnTheWire(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetLogs, map[string]any{"fromBlock": "latest", "toBlock": "latest"})
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetLogs, map[string]any{"fromBlock": "latest", "toBlock": "latest"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1852,11 +1859,11 @@ func TestFeeHistoryPinsNewestToTheCorroboratedHeight(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	history, err := client.FeeHistory(ctx, 3, nil, nil)
+	history, _, err := client.FeeHistory(ctx, 3, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, _ := client.Call(ctx, methods.MethodFeeHistory, uint64(3), "latest", []float64(nil))
+	decision, _ := callDecision(client.Call(ctx, methods.MethodFeeHistory, uint64(3), "latest", []float64(nil)))
 	if decision.Status != rpc.Corroborated || decision.BlockRef != "0x10" {
 		t.Fatalf("expected corroborated height-pinned history, got %+v", decision)
 	}
@@ -1909,7 +1916,7 @@ func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	height, err := client.AnchorBlockHeight(ctx)
+	height, _, err := client.AnchorBlockHeight(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1921,7 +1928,7 @@ func TestClientAnchorBlockHeightRidesTheEstablishment(t *testing.T) {
 	for _, node := range nodes {
 		callsBefore += len(node.Calls())
 	}
-	if _, err := client.AnchorBlockHeight(ctx); err != nil {
+	if _, _, err := client.AnchorBlockHeight(ctx); err != nil {
 		t.Fatal(err)
 	}
 	callsAfter := 0
@@ -2020,7 +2027,7 @@ func TestClientResolvesNewMethods(t *testing.T) {
 		nodes[1].Return("eth_blockNumber", "0x20")
 		nodes[2].Return("eth_blockNumber", "0x18")
 
-		d, err := client.Call(ctx, "eth_blockNumber")
+		d, err := callDecision(client.Call(ctx, "eth_blockNumber"))
 		if err != nil {
 			t.Fatalf("call failed: %v", err)
 		}
@@ -2037,11 +2044,11 @@ func TestClientResolvesNewMethods(t *testing.T) {
 		nodes[1].Return("eth_blobBaseFee", "0x3")
 		nodes[2].Return("eth_blobBaseFee", "0x2")
 
-		fee, err := client.BlobBaseFee(ctx)
+		fee, _, err := client.BlobBaseFee(ctx)
 		if err != nil {
 			t.Fatalf("blobBaseFee failed: %v", err)
 		}
-		d, _ := client.Call(ctx, methods.MethodBlobBaseFee)
+		d, _ := callDecision(client.Call(ctx, methods.MethodBlobBaseFee))
 		if d.Status != rpc.Selected {
 			t.Fatalf("status = %v, want Selected", d.Status)
 		}
@@ -2069,11 +2076,11 @@ func TestClientResolvesNewMethods(t *testing.T) {
 			})
 		}
 
-		res, err := client.CreateAccessList(ctx, map[string]any{"to": "0x0000000000000000000000000000000000000001"}, "latest")
+		res, _, err := client.CreateAccessList(ctx, map[string]any{"to": "0x0000000000000000000000000000000000000001"}, "latest")
 		if err != nil {
 			t.Fatalf("createAccessList failed: %v", err)
 		}
-		d, _ := client.Call(ctx, methods.MethodCreateAccessList, map[string]any{"to": "0x0000000000000000000000000000000000000001"}, "latest")
+		d, _ := callDecision(client.Call(ctx, methods.MethodCreateAccessList, map[string]any{"to": "0x0000000000000000000000000000000000000001"}, "latest"))
 		if d.Status != rpc.Corroborated {
 			t.Fatalf("status = %v, want Corroborated", d.Status)
 		}

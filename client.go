@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/observe"
@@ -37,6 +38,20 @@ type Client struct {
 	// collectTimeout bounds each write fan-out; the read aggregator owns its
 	// own copy supplied at construction.
 	collectTimeout time.Duration
+	// lifeCtx is the owner lifecycle signal: Close cancels it with the
+	// ErrPoolClosed cause, every public operation's merged context watches
+	// it, and in-flight network work converges without depending on what
+	// the caller passed as its own context.
+	lifeCtx context.Context
+	// cancelLife fires the lifecycle signal exactly once.
+	cancelLife context.CancelCauseFunc
+	// closeOnce makes the close sequence — the closed mark, the lifecycle
+	// cancellation, and the shared pool close — a single atomic step;
+	// concurrent and repeated calls all wait on the pool's one completion
+	// signal.
+	closeOnce sync.Once
+	// closed is the closed mark new operations gate on.
+	closed atomic.Bool
 }
 
 // HTTPAdapter names the connection adapter a Client's pool dials upstreams
@@ -240,6 +255,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ethguard: %w", err)
 	}
+	lifeCtx, cancelLife := context.WithCancelCause(context.Background())
 	return &Client{
 		pool:           runtimeBundle.Pool,
 		aggregator:     runtimeBundle.Aggregator,
@@ -247,55 +263,14 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		resolver:       runtimeBundle.Resolver,
 		corrob:         runtimeBundle.Corroboration,
 		collectTimeout: co.collectTimeout,
+		lifeCtx:        lifeCtx,
+		cancelLife:     cancelLife,
 	}, nil
 }
 
 // VotingMembers reports the currently configured membership. It is a
 // diagnostic snapshot; an invocation already in flight keeps its own basis.
 func (c *Client) VotingMembers() int { return c.pool.Len() }
-
-// AnchorBlockHash returns a newly established corroborated block reference behind
-// moving-tag reads through the library-owned anchor strategy.
-func (c *Client) AnchorBlockHash(ctx context.Context) (string, error) {
-	return c.resolver.AnchorBlockHash(ctx)
-}
-
-// AnchorBlockHashForTag is the tag-aware adapter seam behind moving-tag
-// reads: it establishes the corroborated block reference for exactly the
-// requested tag ("latest", "safe", or "finalized") and returns its hash.
-// Each level keeps its meaning — safe is anchored at the safe reference,
-// finalized at the finalized reference, never silently latest — and the
-// returned evidence records the original tag. A reference that cannot reach
-// Corroborated fails instead of returning an uncorroborated hash; pending
-// and earliest are not moving tags and are rejected here (pending keeps its
-// node-state path, earliest is an explicit height).
-func (c *Client) AnchorBlockHashForTag(ctx context.Context, tag string) (string, error) {
-	lowered := strings.ToLower(tag)
-	switch lowered {
-	case "latest", "safe", "finalized":
-	default:
-		return "", fmt.Errorf("ethguard: anchor tag %q is not an anchorable moving tag: %w", tag, rpc.ErrInvalidRequest)
-	}
-	ref, err := resolveReference(ctx, c.resolver, lowered)
-	ref.Tag = lowered
-	refcontext.Publish(ctx, ref)
-	if err == nil && ref.Status != rpc.Corroborated {
-		err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
-	}
-	if err != nil {
-		return "", err
-	}
-	return ref.Hash, nil
-}
-
-// AnchorBlockHeight returns the height of the currently corroborated block
-// reference. It rides the same establishment as AnchorBlockHash — the
-// response carries number and hash together, so no extra fan-out is
-// needed.
-func (c *Client) AnchorBlockHeight(ctx context.Context) (uint64, error) {
-	_, height, err := c.resolver.AnchorBlockRef(ctx)
-	return height, err
-}
 
 // Normalize reduces one raw response through the owning method's canonical
 // form — the single owner of value parsing for a corroborated method.
@@ -318,11 +293,27 @@ func (c *Client) Pool() *pool.Pool {
 	return c.pool
 }
 
-// Close releases all upstream connections owned by the client.
-// It is safe to call more than once.
+// Close stops the client: it marks the client closed, cancels the owner
+// lifecycle (in-flight operations converge — their merged contexts carry a
+// recognizable ErrPoolClosed cause), and closes the shared pool. New
+// operations fail with ErrPoolClosed before any network contact. Results
+// already delivered to a caller are never rewritten.
+//
+// It is safe to call from any number of goroutines: the mark and the
+// cancellation happen exactly once, and every caller — first or concurrent —
+// waits on the pool's single completion signal, so Close returns only when
+// the pool's background commitments (the tip sampler) have ended. It does
+// not wait for callers to finish processing their received results.
 func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		c.closed.Store(true)
+		c.cancelLife(pool.ErrClosed)
+	})
 	c.pool.Close()
 }
+
+// isClosed reports the closed mark new operations gate on.
+func (c *Client) isClosed() bool { return c.closed.Load() }
 
 // Mode reports the internally selected adapter route. It is derived from the
 // configured source count and cannot be changed by callers.

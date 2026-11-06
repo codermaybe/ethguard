@@ -264,22 +264,28 @@ func (s *runState) requestBinding(execution stepExecution) *bool {
 	if prepared.Method != execution.logical.Method {
 		return boolPointer(false)
 	}
+	// The prepared request records frozen parameter JSON; binding checks
+	// compare the decoded array against the logical params.
+	params := []any{}
+	if prepared.Params != nil {
+		_ = json.Unmarshal(prepared.Params, &params)
+	}
 	switch execution.plan.Expect.Binding {
 	case "none":
-		return boolPointer(paramsEqual(prepared.Params, execution.logical.Params))
+		return boolPointer(paramsEqual(params, execution.logical.Params))
 	case "reference_hash":
 		ref := execution.reference
 		if ref == nil || ref.Status != rpc.Corroborated || ref.Hash == "" {
 			return boolPointer(false)
 		}
-		return boolPointer(boundParams(prepared.Params, execution.logical.Params, strings.ToLower(ref.Hash), nil))
+		return boolPointer(boundParams(params, execution.logical.Params, strings.ToLower(ref.Hash), nil))
 	case "reference_height":
 		ref := execution.reference
 		if ref == nil || ref.Status != rpc.Corroborated || ref.Height == 0 {
 			return boolPointer(false)
 		}
 		height := "0x" + strconv.FormatUint(ref.Height, 16)
-		return boolPointer(boundParams(prepared.Params, execution.logical.Params, "", &height))
+		return boolPointer(boundParams(params, execution.logical.Params, "", &height))
 	default:
 		return boolPointer(false)
 	}
@@ -799,13 +805,16 @@ func collectionFaultsOf(execution stepExecution) []error {
 	return faults
 }
 
-func requestReport(request *rpc.Request) *RequestReport {
+func requestReport(request *rpc.PreparedRequest) *RequestReport {
 	if request == nil {
 		return nil
 	}
-	params := request.Params
-	if params == nil {
-		params = []any{}
+	// The prepared request records frozen parameter JSON; the report shape
+	// keeps the decoded array so comparisons run against the same value
+	// space as the logical request.
+	params := []any{}
+	if request.Params != nil {
+		_ = json.Unmarshal(request.Params, &params)
 	}
 	return &RequestReport{Method: request.Method, Params: params}
 }

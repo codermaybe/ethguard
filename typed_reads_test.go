@@ -84,7 +84,7 @@ func TestTypedChainIDIsCorroborated(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	id, err := client.ChainID(ctx)
+	id, _, err := client.ChainID(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestTypedBalanceAtPinsMovingTag(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	balance, err := client.BalanceAt(ctx, common.HexToAddress("0xdad"), nil)
+	balance, _, err := client.BalanceAt(ctx, common.HexToAddress("0xdad"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestTypedBlockByNumberNeverFetchesAMovingTag(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	block, err := client.BlockByNumber(ctx, nil)
+	block, _, err := client.BlockByNumber(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestTypedBlockByHashUsesDedicatedMethod(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	block, err := client.BlockByHash(ctx, common.HexToHash(blockHashOf(pinned)))
+	block, _, err := client.BlockByHash(ctx, common.HexToHash(blockHashOf(pinned)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestTypedBlockByHashRejectsAnotherSelfConsistentBlock(t *testing.T) {
 	defer cancel()
 
 	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
-	if _, err := client.BlockByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, err := client.BlockByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested block, got %v", err)
 	}
 }
@@ -218,7 +218,7 @@ func TestTypedBlockNumberMatchesCorroboratedReference(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	height, err := client.BlockNumber(ctx)
+	height, _, err := client.BlockNumber(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestTypedSurfacesMalformedClass(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := client.BlockByNumber(ctx, big.NewInt(16)); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, err := client.BlockByNumber(ctx, big.NewInt(16)); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse, got %v", err)
 	}
 }
@@ -250,7 +250,7 @@ func TestTypedSuggestGasPriceTakesMedian(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	price, err := client.SuggestGasPrice(ctx)
+	price, _, err := client.SuggestGasPrice(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,11 +272,11 @@ func TestTypedLocalObservations(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	peers, err := client.PeerCount(ctx)
+	peers, _, err := client.PeerCount(ctx)
 	if err != nil || peers != 10 {
 		t.Fatalf("expected peer count 10, got %d %v", peers, err)
 	}
-	progress, err := client.SyncProgress(ctx)
+	progress, _, err := client.SyncProgress(ctx)
 	if err != nil || progress != nil {
 		t.Fatalf("expected nil progress from the first source, got %+v %v", progress, err)
 	}
@@ -339,7 +339,7 @@ func TestTypedTransactionReceiptReturnsCorroboratedReceipt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	receipt, err := client.TransactionReceipt(ctx, txHash)
+	receipt, _, err := client.TransactionReceipt(ctx, txHash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestTypedTransactionReceiptMapsCorroboratedAbsenceToNotFound(t *testing.T) 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethereum.NotFound) {
+	if _, _, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
 }
@@ -413,7 +413,7 @@ func TestTypedTransactionByHashReportsPendingFlag(t *testing.T) {
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionByHash, minedRaw)
 	}
-	tx, pending, err := client.TransactionByHash(ctx, txHash)
+	tx, pending, _, err := client.TransactionByHash(ctx, txHash)
 	if err != nil || pending {
 		t.Fatalf("expected mined transaction without pending flag, got %+v pending=%v err=%v", tx, pending, err)
 	}
@@ -427,7 +427,7 @@ func TestTypedTransactionByHashReportsPendingFlag(t *testing.T) {
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionByHash, pendingRaw)
 	}
-	if _, pending, err := client.TransactionByHash(ctx, txHash); err != nil || !pending {
+	if _, pending, _, err := client.TransactionByHash(ctx, txHash); err != nil || !pending {
 		t.Fatalf("expected pending flag from blockless payload, got pending=%v err=%v", pending, err)
 	}
 }
@@ -442,7 +442,7 @@ func TestTypedTransactionByHashRejectsAnotherTransaction(t *testing.T) {
 	defer cancel()
 
 	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
-	if _, _, err := client.TransactionByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, _, err := client.TransactionByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested transaction, got %v", err)
 	}
 }
@@ -477,15 +477,15 @@ func TestTypedAnchoredStateReads(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	nonce, err := client.NonceAt(ctx, common.HexToAddress("0xdad"), nil)
+	nonce, _, err := client.NonceAt(ctx, common.HexToAddress("0xdad"), nil)
 	if err != nil || nonce != 7 {
 		t.Fatalf("expected pinned nonce 7, got %d %v", nonce, err)
 	}
-	storage, err := client.StorageAt(ctx, common.HexToAddress("0xdad"), common.HexToHash("0x0"), nil)
+	storage, _, err := client.StorageAt(ctx, common.HexToAddress("0xdad"), common.HexToHash("0x0"), nil)
 	if err != nil || string(storage) != string(common.Hex2Bytes(strings.Repeat("ab", 32))) {
 		t.Fatalf("expected pinned storage word, got %x %v", storage, err)
 	}
-	code, err := client.CodeAt(ctx, common.HexToAddress("0xdad"), nil)
+	code, _, err := client.CodeAt(ctx, common.HexToAddress("0xdad"), nil)
 	if err != nil || len(code) != 0 {
 		t.Fatalf("expected empty corroborated code for the EOA answer, got %x %v", code, err)
 	}
@@ -515,7 +515,7 @@ func TestTypedSuggestGasTipCapTakesMedian(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	tip, err := client.SuggestGasTipCap(ctx)
+	tip, _, err := client.SuggestGasTipCap(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,15 +543,15 @@ func TestTypedBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	byHash, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(common.HexToHash(pin), false))
+	byHash, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(common.HexToHash(pin), false))
 	if err != nil || len(byHash) != 1 || byHash[0].TxHash != txHash {
 		t.Fatalf("expected hash-addressed receipts, got %v", err)
 	}
-	byNumber, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	byNumber, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
 	if err != nil || len(byNumber) != 1 {
 		t.Fatalf("expected explicit-number receipts to pass through, got %v", err)
 	}
-	byTag, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.LatestBlockNumber))
+	byTag, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.LatestBlockNumber))
 	if err != nil || len(byTag) != 1 {
 		t.Fatalf("expected moving tag to be pinned before fan-out, got %v", err)
 	}
@@ -568,7 +568,7 @@ func TestTypedBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 	defer cancel()
 
 	requested := common.HexToHash("0x" + strings.Repeat("22", 32))
-	_, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(requested, false))
+	_, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(requested, false))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for receipts from another block, got %v", err)
 	}
@@ -588,7 +588,7 @@ func TestTypedBlockReceiptsNumberFormBindsRequestedHeight(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	_, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for coherent receipts of another height, got %v", err)
 	}
@@ -606,7 +606,7 @@ func TestTypedBlockReceiptsNumberFormRejectsTruncatedHeight(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16)); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16)); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected full-height mismatch to fail, got %v", err)
 	}
 }
@@ -622,7 +622,7 @@ func TestTypedBlockReceiptsNumberFormBindsEveryReceipt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	_, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected one mismatched element to fail the whole array, got %v", err)
 	}
@@ -646,7 +646,7 @@ func TestTypedBlockReceiptsNumberFormRejectsMissingHeight(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	_, _, err = client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected receipts without a height to fail the number-form binding, got %v", err)
 	}
@@ -669,7 +669,7 @@ func TestTypedBlockReceiptsTagFormBindsToThePinnedReference(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.LatestBlockNumber))
+	_, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.LatestBlockNumber))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected receipts from another block than the pin to fail, got %v", err)
 	}
@@ -695,7 +695,7 @@ func TestTypedBlockReceiptsNumberFormAcceptsEmptyBlock(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	receipts, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	receipts, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
 	if err != nil || len(receipts) != 0 {
 		t.Fatalf("an empty block stays a legal answer, got %+v err=%v", receipts, err)
 	}
@@ -726,7 +726,7 @@ func TestTypedCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
 
 	to := common.HexToAddress("0x1")
 	msg := ethereum.CallMsg{To: &to, Data: []byte{0x00}}
-	data, err := adapter.CallContract(ctx, msg, nil)
+	data, _, err := adapter.CallContract(ctx, msg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +739,7 @@ func TestTypedCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
 	for _, node := range nodes {
 		node.Fail("eth_call", -32000, "execution reverted: no funds")
 	}
-	_, err = adapter.CallContract(ctx, msg, nil)
+	_, _, err = adapter.CallContract(ctx, msg, nil)
 	var revert *ethguard.RevertError
 	if !errors.As(err, &revert) {
 		t.Fatalf("expected RevertError, got %v", err)
@@ -770,7 +770,7 @@ func TestTypedEstimateGasPinsTagAndTakesMedian(t *testing.T) {
 	defer cancel()
 
 	to := common.HexToAddress("0x1")
-	gas, err := adapter.EstimateGas(ctx, ethereum.CallMsg{To: &to})
+	gas, _, err := adapter.EstimateGas(ctx, ethereum.CallMsg{To: &to})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -808,7 +808,7 @@ func TestTypedFilterLogsPinsTheFilterRange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	got, err := adapter.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: big.NewInt(0)})
+	got, _, err := adapter.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: big.NewInt(0)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -831,7 +831,7 @@ func TestTypedBlockAtBindsAnswersToTheRequestedReference(t *testing.T) {
 		defer cancel()
 
 		requested := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
-		_, err := adapter.BlockByHash(ctx, requested)
+		_, _, err := adapter.BlockByHash(ctx, requested)
 		if !errors.Is(err, ethguard.ErrMalformedResponse) {
 			t.Fatalf("expected malformed-response binding failure, got %v", err)
 		}
@@ -845,7 +845,7 @@ func TestTypedBlockAtBindsAnswersToTheRequestedReference(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		_, err := adapter.BlockByNumber(ctx, big.NewInt(5))
+		_, _, err := adapter.BlockByNumber(ctx, big.NewInt(5))
 		if !errors.Is(err, ethguard.ErrMalformedResponse) {
 			t.Fatalf("expected malformed-response binding failure, got %v", err)
 		}
@@ -868,9 +868,9 @@ func TestReceiptNullLogReturnsMalformed(t *testing.T) {
 			}
 			var err error
 			if batch {
-				_, err = client.BlockReceipts(context.Background(), gethrpc.BlockNumberOrHashWithNumber(16))
+				_, _, err = client.BlockReceipts(context.Background(), gethrpc.BlockNumberOrHashWithNumber(16))
 			} else {
-				_, err = client.TransactionReceipt(context.Background(), hash)
+				_, _, err = client.TransactionReceipt(context.Background(), hash)
 			}
 			if !errors.Is(err, ethguard.ErrMalformedResponse) {
 				t.Fatalf("expected malformed null log, got %v", err)
@@ -885,7 +885,7 @@ func TestTypedBlockByNumberRejectsOverflowBeforeDispatch(t *testing.T) {
 		node.Return(methods.MethodGetBlockByNumber, fixtureBlock(t, 16))
 	}
 	number := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 64), big.NewInt(16))
-	if _, err := client.BlockByNumber(context.Background(), number); !errors.Is(err, ethguard.ErrInvalidRequest) {
+	if _, _, err := client.BlockByNumber(context.Background(), number); !errors.Is(err, ethguard.ErrInvalidRequest) {
 		t.Fatalf("expected unsupported request height, got %v", err)
 	}
 	for _, node := range nodes {
@@ -913,18 +913,21 @@ func TestTypedRequiresCorroborationWithoutChangingMethodSignatures(t *testing.T)
 	}
 	nodes[0].Return(methods.MethodGetBalance, "0x1")
 	nodes[1].Fail(methods.MethodGetBalance, -32603, "unavailable")
-	if value, err := client.BalanceAt(context.Background(), common.Address{}, nil); !errors.Is(err, ethguard.ErrConflict) || value != nil {
+	if value, _, err := client.BalanceAt(context.Background(), common.Address{}, nil); !errors.Is(err, ethguard.ErrConflict) || value != nil {
 		t.Fatalf("typed read hid unmet corroboration: %v %v", value, err)
 	}
 	// The advanced API reports the unmet majority as a conflict with the
 	// surviving cluster in evidence (decision 0029): a 1-of-2 answer is no
 	// longer surfaced as Selected under the default support floor.
-	d, err := client.Call(context.Background(), methods.MethodGetBalance, common.Address{}, "0x10")
+	d, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, common.Address{}, "0x10"))
 	if !errors.Is(err, ethguard.ErrConflict) {
 		t.Fatalf("advanced call hid the unmet majority: %v", err)
 	}
-	if len(d.Support) != 1 || string(d.Value) != `"0x1"` {
-		t.Fatalf("expected the surviving cluster in evidence, got %+v", d)
+	// The public value is cleared on the aggregation failure (decision 0066);
+	// the surviving cluster stays visible through Support and the source
+	// verdict tables.
+	if len(d.Support) != 1 || d.Value != nil {
+		t.Fatalf("expected the surviving cluster in sources with a cleared public value, got %+v", d)
 	}
 }
 

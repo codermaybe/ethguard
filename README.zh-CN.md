@@ -24,7 +24,7 @@ provider 提供的证据，不是 Ethereum 共识、规范链证明、密码学�
 ```text
 ethguard/                   # 公共 Client 外观
 ├── client.go               # 公共 Client facade、New、Pool、Close
-├── call.go                 # 通用调用入口和兼容性委托（Call、CallInto[T]）
+├── call.go                 # 通用只读 Call 入口和解码委托（CallInto 已删除）
 ├── eth.go                  # 类型化便捷方法
 ├── anchor.go               # 移动标签读取背后的锚定策略
 ├── write.go                # 写入流水线（独立的裁决流程）
@@ -127,11 +127,13 @@ ReadPlan，并绑定 plan、projector、aggregator 和 reference seam；根 `Cli
   resolver，并从根 `anchor.go` 暴露 `AnchorBlockHash`/`AnchorBlockHashForTag`/
   `AnchorBlockHeight`；reference 算法和 Head-Reading Port 位于
   `internal/reference`，调用内证据传播位于 `internal/refcontext`（`Capture`）。
-- **单一类型化接口、四层证据。** `ethguard.Client` 是唯一 client。其类型化方法
-  返回干净的 Geth 形态值和分类错误；四条证据通道相互独立：(1) 类型化分类错误，
-  (2) 返回完整 `rpc.Decision` 的通用 `Call`，(3) 按调用可选的 `WithUncertain`
-  原始 source 材料，(4) 审计与运维用的 `observe.Recorder` 事件。recorder 绝不是
-  同步业务返回通道。
+- **双切面、单执行、四层证据。** `ethguard.Client` 拥有全部业务方法，每个操作返回
+  `CallResult`：业务值由方法自身返回携带，决策（或写决策）与已采集材料在结果上，
+  `CallResult.Err` 是调用的最终业务结论。ethclient 形状的 `EthClient` 视图以官方
+  签名投影同一执行。四条证据通道相互独立：(1) 类型化分类错误加结果上的决策证据，
+  (2) 通用只读 `Call`（成功 JSON 在决策 Value 上），(3) 按调用可选的
+  `WithResult`/`WithSourceEvidence` 原始 source 材料（每次调用独立预算），(4) 审计
+  与运维用的 `observe.Recorder` 事件。recorder 绝不是同步业务返回通道。
 
 ### 执行模型与覆盖范围
 
@@ -230,30 +232,44 @@ root 以及 uncle commitment。历史 uncle header 从同一来源获取，并�
 这保护内容与区块头的一致性，但不证明规范链归属或链上最终性。真实上游和 fork 兼容性
 样本仍是独立的交叉验证步骤。
 
-不确定数据按调用选择，并且只属于一次调用。普通方法签名保持不变；传入由
-`WithUncertain` 创建的 context，然后在成功或失败后读取稳定的防御性快照：
+结果交付与原始来源材料按调用选择，并且只属于一次调用。`WithResult` 在 context 上
+放置一个全新的 capture——被绑定的调用只在那里发布一次完成结果——`WithSourceEvidence`
+为派生 context 上的每次调用配置原始上游材料的保留预算：
 
 ```go
-callCtx, uncertain := ethguard.WithUncertain(ctx)
-block, err := client.BlockByNumber(callCtx, number)
+base, err := ethguard.WithSourceEvidence(ctx, 64<<10) // 一次调用可保留的总字节数
+if err != nil { return err }                          // 非正预算本地失败，不触网
+callCtx, capture := ethguard.WithResult(base)
+block, _, err := client.BlockByNumber(callCtx, nil)
 _ = block // 普通结果和错误保持原有语义
-snapshot := uncertain.Result()
-for _, field := range uncertain.Fields("vendorField") {
-	log.Printf("%s %s: %s", field.Source.ID, field.Path, field.Value)
-}
-for _, response := range uncertain.Responses() {
-	log.Printf("%s %s: %s", response.Source.ID, response.Method, response.Error)
-}
-if snapshot.Truncated {
-	log.Printf("uncertain data truncated: retained=%d dropped=%d", snapshot.Bytes, snapshot.Dropped)
+result, published, err := capture.Result()
+if published {
+	for _, field := range result.Uncertain.FieldsFor("vendorField") {
+		log.Printf("%s %s: %s", field.Source.ID, field.Path, field.Value)
+	}
+	for _, response := range result.Uncertain.Raw {
+		log.Printf("%s %s: %s", response.Source.ID, response.Method, response.Error)
+	}
+	if result.Uncertain.Truncated {
+		log.Printf("材料截断: retained=%d dropped=%d", result.Uncertain.Bytes, result.Uncertain.Dropped)
+	}
 }
 ```
 
-字段会保留每个来源的原始值，包括相同值和显式 `null`；在预算允许时，格式错误的
-响应以及传输/协议错误也会保留在 response 记录中。这些数据是兼容性证据，不是可靠性
-保证，也不是最近客户端缓存。采集期间会限制保留量；取消操作可能留下不完整的快照。
-每个逻辑调用都需要重新捕获；返回值是防御性副本。native HTTP 与 raw WSS 都保留
-error data 缺失与 JSON `null` 的区别；显式 geth WSS compatibility 路径仍无法区分。
+`result.Err` 与尾随错误一致；`result.Decision` 携带该调用实际形成的聚合事实。聚合
+失败清空公开值但来源表保留；协证收据 null 与协证 revert 保留载荷并携带分类业务
+错误。本版保留规则固定：参数指定的总字节预算、每条原始响应最多 64 KiB、Raw 与
+Fields 合计最多 256 条记录、每项可变元数据文本最多 4 KiB。预算耗尽只停止保留——
+绝不取消请求、法定人数或投票——transport 响应上限保持独立。进入第二次独立调用的
+capture 永久失效（`ErrCaptureReused`）；经 panic 异常退出的调用把 capture 标记为
+异常（`ErrCaptureAborted`）。捕获错误是交付事实，永不进入业务错误。
+
+ethclient 形状的视图走同一执行：`client.EthClient()` 暴露官方读取签名、
+`SendTransaction(ctx, tx) error` 和 `Close`——再无其他。它满足
+`bind/v2.ContractCaller` 与 `bind/v2.DeployBackend`；它不是 `*ethclient.Client`。
+未绑定 capture 的视图调用省略原始材料采集（没有消费者）；业务行为不变。任一切面上
+的一次 `Close` 同时停止两者：在途操作以可识别的 `ErrPoolClosed` 原因收敛，新操作在
+任何网络接触之前失败。
 
 ### HTTP 与 WSS 来源
 

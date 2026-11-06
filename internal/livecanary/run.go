@@ -342,7 +342,7 @@ type stepExecution struct {
 	logical     RequestReport
 	decision    *rpc.Decision
 	decisionErr error
-	prepared    *rpc.Request
+	prepared    *rpc.PreparedRequest
 	reference   *rpc.ReferenceEvidence
 	typed       *TypedReport
 	typedErr    error
@@ -355,9 +355,10 @@ func executeStep(ctx context.Context, client *ethguard.Client, planStep PlanStep
 	switch planStep.Path {
 	case "client_call":
 		if planStep.ID == "identity.chain-id" {
-			decision, err := client.Call(ctx, planStep.Method)
-			execution.decision, execution.decisionErr = &decision, err
-			if err == nil {
+			result, err := client.Call(ctx, planStep.Method)
+			decision := result.Decision
+			execution.decision, execution.decisionErr = decision, err
+			if err == nil && decision != nil {
 				if canonical, nerr := client.Normalize(planStep.Method, decision.Value); nerr == nil {
 					if id, ok := new(big.Int).SetString(canonical, 10); ok {
 						execution.identity = id
@@ -365,21 +366,21 @@ func executeStep(ctx context.Context, client *ethguard.Client, planStep PlanStep
 				}
 			}
 		} else {
-			decision, err := client.Call(ctx, planStep.Method, callParams(planStep, logical.Params)...)
-			execution.decision, execution.decisionErr = &decision, err
+			result, err := client.Call(ctx, planStep.Method, callParams(planStep, logical.Params)...)
+			execution.decision, execution.decisionErr = result.Decision, err
 		}
 	case "typed_block":
 		hash := common.HexToHash(paramText(logical.Params, 0))
-		block, err := client.BlockByHash(ctx, hash)
+		block, _, err := client.BlockByHash(ctx, hash)
 		execution.typed = typedBlockReport(block, err)
 		execution.typedErr = err
 		execution.typedOK = err == nil && block != nil
 	case "typed_receipt":
 		hash := common.HexToHash(paramText(logical.Params, 0))
-		decision, err := client.Call(ctx, planStep.Method, hash.Hex())
-		execution.decision, execution.decisionErr = &decision, err
-		if err == nil {
-			receipt, decodeErr := ethguard.DecodeReceipt(decision.Value)
+		result, err := client.Call(ctx, planStep.Method, hash.Hex())
+		execution.decision, execution.decisionErr = result.Decision, err
+		if err == nil && result.Decision != nil {
+			receipt, decodeErr := ethguard.DecodeReceipt(result.Decision.Value)
 			execution.typed = typedReceiptReport(receipt, decodeErr)
 			execution.typedErr = decodeErr
 		} else {

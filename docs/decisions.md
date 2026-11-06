@@ -2690,3 +2690,129 @@ architecture interlocks (`TestArchitectureDependencyInterlock`,
 `TestDefaultBuildExcludesEthclient`), the corroboration-gate replay fixtures
 (`TestReplayTypedReadGateRejectsUncorroboratedCall`), and the verification
 integration matrix.
+
+## 0066. Dual facade with one execution owner: CallResult, ResultCapture, and the EthClient view
+
+Status: Accepted and implemented (2026-11-06).
+
+This decision partially supersedes 0065. One runtime owner, the pre-release
+break policy, and the gethcompat transport-seam boundaries remain. The single
+public Client surface is replaced by two independent method facades: native
+result-bearing methods and a view with official Geth signatures. The former
+four-layer evidence API is replaced by one CallResult model and two delivery
+forms; raw-material capture and generic read routing also change.
+Where 0065 said the typed methods return clean values with classified errors
+and evidence stays behind `Call` and `WithUncertain`, this decision replaces
+that carrier split with one execution result delivered at every public
+operation, and it narrows the generic entry to declared reads.
+
+### Root native and the private view
+
+The root `Client` keeps every business method and gains result-bearing
+signatures: each of the 21 Geth-shaped typed reads appends a `CallResult`
+before the final error, the writes return `(CallResult, error)`, and the
+native extensions (`CreateAccessList`, the three anchor methods) carry the
+result too. A second facade `EthClient` is reachable through
+`(*Client).EthClient()` and holds a private `owner *Client` field — never an
+anonymous embedding — exposing exactly the official go-ethereum-shaped
+surface: the 21 typed reads with their locked-version signatures,
+`SendTransaction(ctx, tx) error`, and `Close`. It adds no anchor, Call, Pool,
+Mode, Normalize, raw-write, or CreateAccessList surface. The view performs no
+networking of its own and builds no second pool; it is a thin projection of
+the same shared execution path, and no pointer-identity or zero-allocation
+promise is made for it. `Close` exists on both; both reach the same
+lifecycle. The view satisfies `bind/v2.ContractCaller` and
+`bind/v2.DeployBackend` at the locked go-ethereum version and nothing more —
+it is not `*ethclient.Client`, and documentation must not promise universal
+SDK drop-in.
+
+### CallResult and the two-layer fact split
+
+`CallResult` carries at most one of `Decision` (reads) or `WriteDecision`
+(writes), an optional `UncertainResult` when source-evidence collection is
+enabled, and `Err` — the call's final business conclusion, identical to the
+method's trailing error. `IsCorroborated` tests only `Decision.Status`;
+`IsWriteAccepted` tests status plus a non-empty hash and never claims mining.
+Read and write decisions never mix in one result. The `Decision` inside a
+failed call keeps the aggregation facts that actually formed — a failed
+establishment keeps its reference evidence, a confirmed receipt-null keeps
+its corroborated null, a revert keeps its aggregated classification and
+data — while the public failure path clears only `Value` on a main
+aggregation failure. The old outer rule "any error forces Unknown" is
+retired: `Status` states what the invocation established, the trailing error
+states why the business call did not succeed, and `CallResult.Err` equals
+that trailing error.
+
+### One execution owner
+
+Every public operation runs through one shared implementation that owns
+validation, reference establishment, aggregation, adjudication, typed
+projection, capture binding, and the single final publication of the result.
+The two facades differ only in input shape and delivery; internal helpers
+call shared private implementations with explicit state, never re-enter a
+public facade. A capture binds atomically at the public entry: a second
+independent call on the same `ResultCapture` handle permanently invalidates
+it (`ErrCaptureReused` on subsequent `Result`), while the second call itself
+still executes under the normal contract. A call that exits abnormally —
+panic — propagates and marks the capture aborted (`ErrCaptureAborted`);
+capture errors never enter business errors and never replace
+`CallResult.Err`. A zero-value or nil capture reads as zero result, false,
+nil.
+
+### Raw material and budgets
+
+`WithResult(ctx)` creates the opt-in `ResultCapture` on the context;
+`WithSourceEvidence(ctx, budgetBytes)` only configures immutable retention
+(budget > 0, else a wrapped `ErrInvalidRequest`; last configuration on a
+derived chain wins). Collection stays opt-in and invocation-scoped, replaces
+the `WithUncertain`/`UncertainCapture` public surface, and never changes
+business outcomes: budget exhaustion stops retention only, never a source
+request, a quorum, or a vote. The retention budget and the transport response
+limits stay independent. Enabled collection yields a non-nil (possibly
+empty) `UncertainResult`; without it the field is nil.
+
+### Isolation and request facts
+
+Every known mutable result graph — `ReferenceEvidence`, `Decision`,
+`WriteDecision`, `UncertainResult`, extensions, diagnostics, dimensions,
+write rejections — gets an explicit recursive `Clone`; top-level slice copies
+and reflect deep-copies are banned. `Decision.Prepared` becomes
+`*rpc.PreparedRequest` carrying `Method` and the frozen parameter JSON
+(`Params json.RawMessage`) captured from the actually prepared request —
+including reference rewrites and one controlled serialization for custom
+marshalers — never a reconstruction or the caller's live objects. Errors
+stay uncloned interfaces with `errors.Is/As` preserved; library-owned errors
+with mutable payloads freeze before publication. The `IsCorroborated(err)`
+helper is deleted; callers check the aggregation error and `Status`
+explicitly.
+
+### Lifecycle
+
+The root `Client` owns a cancellation signal. Every public operation derives
+its context from both the caller's context and the owner's lifecycle, so an
+owner `Close` converges in-flight HTTP, WSS, reference, read, and broadcast
+work; new calls fail with the pool's existing `ErrPoolClosed` before any
+network contact. User cancellation that wins first keeps its `context`
+cause. Completed results are never rewritten by a later close. Concurrent
+and repeated `Close` share one completion signal and wait for the pool's own
+background commitments (the tip sampler) — without holding locks across RPC
+or rewriting correct pool internals.
+
+### Generic Call routing
+
+`Call(ctx, method, params...)` becomes a result-bearing read-only operation:
+the allow-list is the existing catalog/read-plan registry (one source of
+truth), acceptance is checked before any network contact, and write,
+subscription, and unknown methods fail locally with `ErrInvalidRequest`
+(`eth_sendRawTransaction` points at `SendRawTransaction`). Declared reads
+keep their own selection, pending-local, and explicit single-source
+Forwarded semantics. `CallInto` and the public uncertain-capture aliases are
+deleted with no shims; repository consumers and the documentation set
+migrate in the same change.
+
+Evidence: the dual-facade execution plan
+(`docs/design/dual-facade-execution-plan.md`, the acceptance matrix A01—A15
+with its review-fix round), the API-contract and view-surface tests
+(`ethclient_view_test.go`, `call_result_facts_test.go`, `call_route_test.go`,
+`client_lifecycle_test.go`, `result_capture_test.go`, the budget collector
+suite), and the full G2/G3 gate results recorded in the execution plan.

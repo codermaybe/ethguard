@@ -1,6 +1,8 @@
 package ethguard
 
 import (
+	"errors"
+
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -22,9 +24,14 @@ import (
 //	ErrNoValidResponse    sources answered but no response survived
 //	                      normalization
 //	ErrMalformedResponse  a resolved value cannot be shaped at a typed
-//	                      boundary (CallInto, anchor head)
+//	                      typed boundary, anchor head)
 //	ErrInvalidRequest     the request cannot be prepared at all (pending on
 //	                      incomparable methods, contradictory anchors)
+//	ErrCaptureReused      a ResultCapture handle entered a second independent
+//	                      call; its result delivery is permanently invalid
+//	ErrCaptureAborted     the call bound to a ResultCapture exited abnormally
+//	                      (a propagated panic), so no normal result was
+//	                      published
 var (
 	ErrNoEligibleSource       = pool.ErrNoEligibleSource
 	ErrAllSourcesDown         = pool.ErrAllSourcesDown
@@ -37,4 +44,6 @@ var (
 	ErrAnchorMismatch         = rpc.ErrAnchorMismatch
 	ErrReorgDetected          = rpc.ErrReorgDetected
 	ErrUnsupportedTypedObject = rpc.ErrUnsupportedTypedObject
+	ErrCaptureReused          = errors.New("ethguard: result capture already bound to another call")
+	ErrCaptureAborted         = errors.New("ethguard: result capture bound to an abnormally terminated call")
 )

@@ -158,8 +158,17 @@ func (a *Aggregator) AggregateStrict(ctx context.Context, req rpc.Request) (rpc.
 
 func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorroboration bool) (rpc.Decision, error) {
 	started := time.Now()
-	ctx, uncertainDone := uncertain.Begin(ctx)
-	defer uncertainDone()
+	// Material collection is opt-in: a per-call collector already installed
+	// by the public entry wins; otherwise the context's evidence
+	// configuration creates this call's collector. Without either, no
+	// material is recorded and no business path changes.
+	collector := uncertain.CollectorFromContext(ctx)
+	if collector == nil {
+		if cfg, ok := uncertain.ConfigFromContext(ctx); ok {
+			collector = uncertain.NewCollector(cfg)
+			ctx = uncertain.WithCollector(ctx, collector)
+		}
+	}
 	ctx, capture := refcontext.New(ctx)
 	// The corroboration mode and support floor are frozen here, before
 	// preparation and any request: a concurrent Set only reaches
@@ -182,7 +191,7 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 		members:       members,
 		capture:       capture,
 	}
-	state.invocation = beginInvocation(snap, snapOK, members, uncertain.FromContext(ctx), requireCorroboration)
+	state.invocation = beginInvocation(snap, snapOK, members, uncertain.CollectorFromContext(ctx), requireCorroboration)
 
 	if exit := a.planPreparePhase(state, started, req); exit != nil {
 		return exit.decision, exit.err
@@ -199,7 +208,7 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 // unknownDecision builds the shared shape of the two degraded early-return
 // decisions — everything the invocation knows without a resolved value. Each
 // caller attaches its phase-specific fault lists after it.
-func unknownDecision(reference *rpc.ReferenceEvidence, participants []rpc.SourceRef, prepared *rpc.Request) rpc.Decision {
+func unknownDecision(reference *rpc.ReferenceEvidence, participants []rpc.SourceRef, prepared *rpc.PreparedRequest) rpc.Decision {
 	return rpc.Decision{
 		Status:       rpc.Unknown,
 		Reference:    reference,
@@ -218,10 +227,12 @@ func sourceFaultOf(m rpc.MalformedSource) error {
 	return fmt.Errorf("source %q: malformed response: %v", id, m.Err)
 }
 
-// preparedRequest copies the request observed at the policy boundary so later
-// mutation cannot rewrite recorded evidence.
-func preparedRequest(req rpc.Request) *rpc.Request {
-	return &rpc.Request{Method: req.Method, Params: append([]any(nil), req.Params...)}
+// preparedRequest snapshots the frozen request fact observed at the policy
+// boundary. The bytes come from the one controlled prepare-time
+// serialization (rpc.FreezeParams), so the record and the wire never carry
+// two marshaler executions of the same parameter.
+func preparedRequest(method string, snapshot json.RawMessage) *rpc.PreparedRequest {
+	return &rpc.PreparedRequest{Method: method, Params: snapshot}
 }
 
 func collectionFaultList(collectErr error) []error {

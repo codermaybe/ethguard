@@ -328,7 +328,7 @@ func t09RunMutation(t *testing.T, mc t09MutationCase, mutation t09Mutation) {
 			fleet.nodes[index].ReturnRaw(mc.method, mc.other)
 		}
 	}
-	decision, err := fleet.client.Call(fleet.context(t), mc.method, mc.params...)
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), mc.method, mc.params...))
 	switch mc.resolution {
 	case t09Strict:
 		if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
@@ -383,8 +383,17 @@ func t09RunMutation(t *testing.T, mc t09MutationCase, mutation t09Mutation) {
 	}
 	t09AssertSourceAbsent(t, mc.method+"/"+mutation.field, fleet.names[mutantIndex], decision.Support, decision.Reject)
 	t09AssertFaultNames(t, mc.method+"/"+mutation.field, mutation.hint, decision.Faults)
-	if len(decision.Value) == 0 {
-		t.Fatalf("%s/%s: success Value is empty", mc.method, mutation.field)
+	if err != nil {
+		// The strict conflict is a main-aggregation failure: the public
+		// value is cleared (decision 0066) and the surviving cluster stays
+		// visible through Support/Reject above.
+		if len(decision.Value) != 0 {
+			t.Fatalf("%s/%s: failed aggregation carries %s", mc.method, mutation.field, decision.Value)
+		}
+	} else {
+		if len(decision.Value) == 0 {
+			t.Fatalf("%s/%s: success Value is empty", mc.method, mutation.field)
+		}
+		t09AssertDecodedValue(t, mc.method+"/"+mutation.field, t09FieldRowFor(t, mc.method).decode, mc.healthy, decision.Value)
 	}
-	t09AssertDecodedValue(t, mc.method+"/"+mutation.field, t09FieldRowFor(t, mc.method).decode, mc.healthy, decision.Value)
 }

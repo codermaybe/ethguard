@@ -12,32 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
-
-// Client's collectTimeout is unexported in client.go; the write pipeline
-// reads it through the constructor-supplied field directly.
-
-// WriteResult is the broadcast phase outcome of SendRawTransaction. The
-// receipt phase (TransactionReceipt on the winning hash) is a separate read
-// and stays out of this struct: nothing here claims the transaction has been
-// mined, only that the fleet's pools accepted propagation.
-type WriteResult struct {
-	// Decision is the relative-trust classification of the broadcast.
-	Decision rpc.WriteDecision
-}
-
-// Accepted reports whether the broadcast reached its support bound and has a
-// concrete transaction hash. The hash check keeps a zero or partially built
-// result from being mistaken for a successful write.
-func (w WriteResult) Accepted() bool {
-	return w.Decision.Status == rpc.WriteAccepted && w.Decision.Hash != ""
-}
-
-// Hash is the winning transaction hash; empty when no hash cluster formed.
-func (w WriteResult) Hash() common.Hash { return common.HexToHash(w.Decision.Hash) }
 
 // writeAnswerClassified converts one broadcast emission into a classified
 // SourceAnswer. A hash-shaped value is an acceptance candidate; a structured
@@ -69,7 +48,8 @@ func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err erro
 
 // SendRawTransaction broadcasts signed transaction bytes to the full voting
 // basis and adjudicates the outcome as relative trust (decision-map #4, the
-// write-path prototype).
+// write-path prototype). The completion result carries WriteDecision — the
+// CallResult.Err and the trailing error are the same conclusion.
 //
 // Semantics:
 //
@@ -96,16 +76,25 @@ func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err erro
 // Receipt waiting is deliberately separate: follow up with TransactionReceipt
 // on the winning hash once the caller's confirmation policy decides the
 // window.
-func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (WriteResult, error) {
+func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (CallResult, error) {
+	return writeOperation(c, ctx, false, func(opCtx context.Context) (CallResult, error) {
+		result, err := c.sendRawTransaction(opCtx, rawTx)
+		return result, err
+	})
+}
+
+// sendRawTransaction is the shared write implementation both public entries
+// run. It owns the local validation, the broadcast, and the adjudication.
+func (c *Client) sendRawTransaction(ctx context.Context, rawTx []byte) (CallResult, error) {
 	if len(rawTx) == 0 {
-		return WriteResult{}, fmt.Errorf("%w: empty raw transaction", rpc.ErrInvalidRequest)
+		return CallResult{}, fmt.Errorf("%w: empty raw transaction", rpc.ErrInvalidRequest)
 	}
 	// Verify the signed payload locally before any wire contact: the hash the
 	// fleet must agree on is derived here, so a fabricated hash answer can
 	// never win the cluster.
 	tx := new(types.Transaction)
 	if err := tx.UnmarshalBinary(rawTx); err != nil {
-		return WriteResult{}, fmt.Errorf("%w: decode signed transaction: %v", rpc.ErrInvalidRequest, err)
+		return CallResult{}, fmt.Errorf("%w: decode signed transaction: %v", rpc.ErrInvalidRequest, err)
 	}
 	hash := strings.ToLower(tx.Hash().Hex())
 
@@ -132,10 +121,18 @@ func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (WriteRes
 
 	answers := make([]rpc.SourceAnswer, 0, len(emissions))
 	var faults []error
+	collector := uncertain.CollectorFromContext(ctx)
 	for _, emission := range emissions {
 		source := rpc.SourceRef{}
 		if emission.Src != nil {
 			source = rpc.SourceRef{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()}
+		}
+		if collector != nil {
+			errText := ""
+			if emission.Err != nil {
+				errText = emission.Err.Error()
+			}
+			collector.Record("broadcast", methods.MethodSendRawTransaction, source, emission.Val, errText)
 		}
 		answer := writeAnswerClassified(source, emission.Val, emission.Err)
 		if emission.Attempted && answer.Hash == "" && answer.Rejection == nil && emission.Err != nil {
@@ -143,10 +140,13 @@ func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (WriteRes
 		}
 		answers = append(answers, answer)
 	}
+	if collector != nil && collectErr != nil {
+		collector.Record("broadcast", methods.MethodSendRawTransaction, rpc.SourceRef{}, nil, collectErr.Error())
+	}
 	if collectErr != nil && !hasBroadcastAnswer(emissions) {
 		decision, _ := rpc.ResolveWriteBroadcast(basis, snap.Floor, answers, faults)
 		decision.Status = rpc.WriteUnreachable
-		return WriteResult{Decision: decision}, fmt.Errorf("write broadcast: %w", collectErr)
+		return CallResult{WriteDecision: &decision}, fmt.Errorf("write broadcast: %w", collectErr)
 	}
 
 	decision, err := rpc.ResolveWriteBroadcast(basis, snap.Floor, answers, faults)
@@ -164,7 +164,7 @@ func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (WriteRes
 				decision.Hash, hash, err)
 		}
 	}
-	return WriteResult{Decision: decision}, err
+	return CallResult{WriteDecision: &decision}, err
 }
 
 // hasBroadcastAnswer reports whether any emission carried a usable wire
@@ -188,10 +188,15 @@ func (c *Client) collectTimeoutValue() time.Duration { return c.collectTimeout }
 
 // SendTransaction mirrors go-ethereum's ethclient.SendTransaction: encode the
 // signed transaction and broadcast its raw bytes.
-func (c *Client) SendTransaction(ctx context.Context, tx *types.Transaction) (WriteResult, error) {
-	raw, err := tx.MarshalBinary()
-	if err != nil {
-		return WriteResult{}, fmt.Errorf("%w: encode transaction: %v", rpc.ErrInvalidRequest, err)
-	}
-	return c.SendRawTransaction(ctx, raw)
+func (c *Client) SendTransaction(ctx context.Context, tx *types.Transaction) (CallResult, error) {
+	return writeOperation(c, ctx, false, func(opCtx context.Context) (CallResult, error) {
+		if tx == nil {
+			return CallResult{}, fmt.Errorf("%w: nil transaction", rpc.ErrInvalidRequest)
+		}
+		raw, err := tx.MarshalBinary()
+		if err != nil {
+			return CallResult{}, fmt.Errorf("%w: encode transaction: %v", rpc.ErrInvalidRequest, err)
+		}
+		return c.sendRawTransaction(opCtx, raw)
+	})
 }

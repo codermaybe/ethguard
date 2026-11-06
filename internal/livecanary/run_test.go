@@ -688,7 +688,7 @@ func TestGatedMemberMakesStepInconclusive(t *testing.T) {
 		plan:     FixedPlan().Steps[0],
 		logical:  RequestReport{Method: "eth_chainId", Params: []any{}},
 		decision: &decision,
-		prepared: &rpc.Request{Method: "eth_chainId", Params: []any{}},
+		prepared: &rpc.PreparedRequest{Method: "eth_chainId"},
 		identity: big.NewInt(1),
 	}
 	step, reasons := state.evaluateStep(execution, context.Background(), context.Background())

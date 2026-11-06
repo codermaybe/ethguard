@@ -2,6 +2,11 @@
 
 状态：T08 的区块、交易、eth_call revert context/value 和证据通道实现已完成；阶段 1、RV2 及 T07 的标准/coverage 闭环保持有效。数量、对象和成功 DATA 的 Value 均由方法 encoder 生成规范结果；窄键区块和交易保留各自的 normalizer key。执行顺序与任务出口只写在 `project-roadmap.md`；本文保留设计依据与历史决策。
 
+0066 changes the public carrier only: every operation delivers its decision
+on `CallResult`, and a failed aggregation clears the public `Value` while the
+internal canonical-encoding rules below keep governing what successful
+decisions carry.
+
 0051 supersedes the older receipt-specific `from` exclusion wording below.
 0052 additionally separates `eth_call` revert `code`/`message` into
 `Decision.Revert`; the protected Value carries only the accepted data

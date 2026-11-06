@@ -36,11 +36,11 @@ func TestEstimateAndAccessListObjectsOnTheWire(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		estimate, err := client.Call(ctx, methods.MethodEstimateGas, call, map[string]any{"blockNumber": "latest", "requireCanonical": true})
+		estimate, err := callDecision(client.Call(ctx, methods.MethodEstimateGas, call, map[string]any{"blockNumber": "latest", "requireCanonical": true}))
 		if err != nil || estimate.Status != rpc.Selected || string(estimate.Value) != `"0x66"` {
 			t.Fatalf("estimate = %+v %v", estimate, err)
 		}
-		list, err := client.Call(ctx, methods.MethodCreateAccessList, call, map[string]any{"blockNumber": "safe"})
+		list, err := callDecision(client.Call(ctx, methods.MethodCreateAccessList, call, map[string]any{"blockNumber": "safe"}))
 		if err != nil || list.Status != rpc.Corroborated {
 			t.Fatalf("access list = %+v %v", list, err)
 		}
@@ -67,7 +67,7 @@ func TestEstimateAndAccessListObjectsOnTheWire(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		decision, err := client.Call(ctx, methods.MethodEstimateGas, call, map[string]any{"blockNumber": "pending"})
+		decision, err := callDecision(client.Call(ctx, methods.MethodEstimateGas, call, map[string]any{"blockNumber": "pending"}))
 		if err != nil || decision.Status != rpc.Selected {
 			t.Fatalf("pending estimate = %+v %v", decision, err)
 		}
@@ -90,9 +90,9 @@ func TestEstimateAndAccessListObjectsOnTheWire(t *testing.T) {
 		client, nodes := fleet(t, 1, 1, 2)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		decision, err := client.Call(ctx, methods.MethodCreateAccessList, call, map[string]any{
+		decision, err := callDecision(client.Call(ctx, methods.MethodCreateAccessList, call, map[string]any{
 			"blockHash": "0x" + "ab", "blockNumber": "latest",
-		})
+		}))
 		if !errors.Is(err, ethguard.ErrInvalidRequest) || decision.Status != rpc.Unknown {
 			t.Fatalf("invalid = %+v %v", decision, err)
 		}
@@ -113,14 +113,14 @@ func TestEstimateAndAccessListObjectsOnTheWire(t *testing.T) {
 		nodes[1].Return(methods.MethodCreateAccessList, map[string]any{"accessList": []any{}, "gasUsed": "0x5209"})
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		estimate, err := client.Call(ctx, methods.MethodEstimateGas, call, map[string]any{"blockNumber": "latest"})
+		estimate, err := callDecision(client.Call(ctx, methods.MethodEstimateGas, call, map[string]any{"blockNumber": "latest"}))
 		if !errors.Is(err, ethguard.ErrNoValidResponse) || estimate.Status != rpc.Unknown {
 			t.Fatalf("provider error = %+v %v", estimate, err)
 		}
 		if errors.Is(err, ethguard.ErrConflict) {
 			t.Fatalf("provider error swallowed as conflict: %v", err)
 		}
-		list, err := client.Call(ctx, methods.MethodCreateAccessList, call, "0x10")
+		list, err := callDecision(client.Call(ctx, methods.MethodCreateAccessList, call, "0x10"))
 		if !errors.Is(err, ethguard.ErrConflict) || list.Status != rpc.Unknown {
 			t.Fatalf("conflict = %+v %v", list, err)
 		}

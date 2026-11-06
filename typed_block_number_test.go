@@ -26,7 +26,7 @@ func TestBlockByNumberRejectsPendingLocally(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	block, err := client.BlockByNumber(ctx, big.NewInt(-1))
+	block, _, err := client.BlockByNumber(ctx, big.NewInt(-1))
 	if block != nil {
 		t.Fatalf("pending block was projected: height %d", block.NumberU64())
 	}
@@ -39,7 +39,7 @@ func TestBlockByNumberRejectsPendingLocally(t *testing.T) {
 	if errors.Is(err, ethguard.ErrConflict) || errors.Is(err, ethguard.ErrNoValidResponse) || errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("pending rejection swallowed by corroboration: %v", err)
 	}
-	again, errAgain := client.BlockByNumber(ctx, big.NewInt(-1))
+	again, _, errAgain := client.BlockByNumber(ctx, big.NewInt(-1))
 	if again != nil || errAgain == nil || errAgain.Error() != err.Error() {
 		t.Fatalf("pending rejection unstable: %v / %v", err, errAgain)
 	}
@@ -62,7 +62,7 @@ func TestBlockByNumberPendingSendsNoBusinessRequest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err := client.BlockByNumber(ctx, big.NewInt(-1)); !errors.Is(err, ethguard.ErrInvalidRequest) {
+	if _, _, err := client.BlockByNumber(ctx, big.NewInt(-1)); !errors.Is(err, ethguard.ErrInvalidRequest) {
 		t.Fatalf("BlockByNumber(-1): got %v, want ErrInvalidRequest", err)
 	}
 	for _, node := range nodes {
@@ -134,7 +134,7 @@ func TestBlockByNumberPreservesKnownNegativeTagMeaning(t *testing.T) {
 	defer cancel()
 
 	for num, want := range map[int64]uint64{-2: 16, -4: 17, -3: 18, -5: 0} {
-		block, err := client.BlockByNumber(ctx, big.NewInt(num))
+		block, _, err := client.BlockByNumber(ctx, big.NewInt(num))
 		if err != nil {
 			t.Fatalf("BlockByNumber(%d): %v", num, err)
 		}
@@ -181,7 +181,7 @@ func TestBlockByNumberPreservesKnownNegativeTagMeaning(t *testing.T) {
 		before[node.URL()] = len(node.Calls())
 	}
 	for _, n := range []*big.Int{big.NewInt(-6), new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), 100))} {
-		if _, err := client.BlockByNumber(ctx, n); !errors.Is(err, ethguard.ErrInvalidRequest) {
+		if _, _, err := client.BlockByNumber(ctx, n); !errors.Is(err, ethguard.ErrInvalidRequest) {
 			t.Fatalf("BlockByNumber(%v): got %v, want ErrInvalidRequest", n, err)
 		}
 	}

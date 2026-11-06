@@ -647,6 +647,10 @@ method policy、typed projection、quorum 或方法数量。详细事实和候�
 `internal/runtime/captured_head_reader_test.go`。以下保留原始缺口描述作为
 历史依据。
 
+（历史说明，superseded 2026-11-06：`WithUncertain` 公共面已由决策 0066 的
+`WithSourceEvidence` + `CallResult.Uncertain` 取代；缺口的采集语义描述仍适用于
+现行的统一 collector。）
+
 `WithUncertain` 的原始响应记录在 reference 建立阶段有两个已知缺口。两者都只影响
 审计与 provider 兼容性证据，不改变 Decision、quorum、frozen basis、成员或 typed
 projection，因此独立排期，不阻塞方法对接，也不随方法 adapter 顺手修改。

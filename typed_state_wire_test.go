@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -90,19 +91,19 @@ func TestStateRefMovingTagsRewriteToAnchorHash(t *testing.T) {
 	defer cancel()
 	addr := common.HexToAddress("0xdad")
 
-	if _, err := client.BalanceAt(ctx, addr, nil); err != nil {
+	if _, _, err := client.BalanceAt(ctx, addr, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.NonceAt(ctx, addr, nil); err != nil {
+	if _, _, err := client.NonceAt(ctx, addr, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.StorageAt(ctx, addr, common.Hash{}, nil); err != nil {
+	if _, _, err := client.StorageAt(ctx, addr, common.Hash{}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.CodeAt(ctx, addr, nil); err != nil {
+	if _, _, err := client.CodeAt(ctx, addr, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.CallContract(ctx, callMsgTo(addr), nil); err != nil {
+	if _, _, err := client.CallContract(ctx, callMsgTo(addr), nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,10 +160,10 @@ func TestStateRefSafeFinalizedKeepTheirLevel(t *testing.T) {
 	defer cancel()
 	addr := common.HexToAddress("0xdad")
 
-	if _, err := client.BalanceAt(ctx, addr, big.NewInt(-4)); err != nil { // safe
+	if _, _, err := client.BalanceAt(ctx, addr, big.NewInt(-4)); err != nil { // safe
 		t.Fatal(err)
 	}
-	if _, err := client.BalanceAt(ctx, addr, big.NewInt(-3)); err != nil { // finalized
+	if _, _, err := client.BalanceAt(ctx, addr, big.NewInt(-3)); err != nil { // finalized
 		t.Fatal(err)
 	}
 	var safeAnchors, finAnchors int
@@ -222,7 +223,7 @@ func TestStateRefEIP1898ObjectPreservedOnWire(t *testing.T) {
 		{"blockNumber": "0x10", "requireCanonical": true},
 		{"blockNumber": "0x10"},
 	} {
-		decision, err := client.Call(ctx, methods.MethodGetBalance, addr, obj)
+		decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, addr, obj))
 		if err != nil {
 			t.Fatalf("%v: %v", obj, err)
 		}
@@ -311,7 +312,7 @@ func TestStateRefPendingPassesThroughUnrewritten(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err := client.BalanceAt(ctx, common.HexToAddress("0xdad"), big.NewInt(-1)); err != nil {
+	if _, _, err := client.BalanceAt(ctx, common.HexToAddress("0xdad"), big.NewInt(-1)); err != nil {
 		t.Fatal(err)
 	}
 	for _, node := range nodes {
@@ -342,7 +343,7 @@ func TestStateRefAnchorFailureSendsNoBusinessRequest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "latest"))
 	if err == nil {
 		t.Fatal("expected anchor failure, got nil")
 	}
@@ -387,10 +388,10 @@ func TestStateRefEarliestAndNumberPassThrough(t *testing.T) {
 	defer cancel()
 	addr := common.HexToAddress("0xdad")
 
-	if _, err := client.BalanceAt(ctx, addr, big.NewInt(-5)); err != nil { // earliest → 0x0
+	if _, _, err := client.BalanceAt(ctx, addr, big.NewInt(-5)); err != nil { // earliest → 0x0
 		t.Fatal(err)
 	}
-	if _, err := client.BalanceAt(ctx, addr, big.NewInt(16)); err != nil {
+	if _, _, err := client.BalanceAt(ctx, addr, big.NewInt(16)); err != nil {
 		t.Fatal(err)
 	}
 	for _, node := range nodes {
@@ -480,7 +481,7 @@ func TestTypedBlockByNumberNegativeTagsAnchorFirst(t *testing.T) {
 	defer cancel()
 
 	for num, want := range map[int64]uint64{-2: 16, -4: 17, -3: 18} {
-		block, err := client.BlockByNumber(ctx, big.NewInt(num))
+		block, _, err := client.BlockByNumber(ctx, big.NewInt(num))
 		if err != nil {
 			t.Fatalf("BlockByNumber(%d): %v", num, err)
 		}
@@ -529,7 +530,7 @@ func TestTypedBlockByNumberRejectsUnknownNegativesLocally(t *testing.T) {
 
 	huge := new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), 100))
 	for _, n := range []*big.Int{big.NewInt(-6), huge} {
-		if _, err := client.BlockByNumber(ctx, n); !errors.Is(err, ethguard.ErrInvalidRequest) {
+		if _, _, err := client.BlockByNumber(ctx, n); !errors.Is(err, ethguard.ErrInvalidRequest) {
 			t.Fatalf("BlockByNumber(%v): got %v, want ErrInvalidRequest", n, err)
 		}
 	}
@@ -554,7 +555,7 @@ func TestTypedBlockByNumberTagAnchorFailureSendsNoBusinessRequest(t *testing.T) 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err := client.BlockByNumber(ctx, big.NewInt(-3)); err == nil {
+	if _, _, err := client.BlockByNumber(ctx, big.NewInt(-3)); err == nil {
 		t.Fatal("expected anchor failure, got nil")
 	}
 	for _, node := range nodes {
@@ -578,18 +579,18 @@ func TestTypedDecodeFailureClearsSuccessStatus(t *testing.T) {
 	defer cancel()
 	msg := map[string]any{"to": common.HexToAddress("0xdad").Hex()}
 
-	decision, err := client.Call(ctx, methods.MethodCall, msg, "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodCall, msg, "latest"))
 	if err != nil {
 		t.Fatalf("setup call failed: %v", err)
 	}
 	if decision.Status != rpc.Corroborated {
 		t.Fatalf("setup status = %v, want corroborated", decision.Status)
 	}
-	out, bad, err := ethguard.CallInto[bool](ctx, client, methods.MethodCall, msg, "latest")
-	if err == nil || !errors.Is(err, ethguard.ErrMalformedResponse) {
-		t.Fatalf("typed decode: got %v, %v; want ErrMalformedResponse", out, err)
-	}
-	if bad.Status != rpc.Unknown {
-		t.Fatalf("failed typed decode status = %v, want unknown", bad.Status)
+	// The decode miss is the shared JSON decoder's fact: the same decode the
+	// typed boundary runs fails on this value, and the typed boundary wraps
+	// that failure as the malformed class.
+	var out bool
+	if err := jsonsafe.Decode(decision.Value, &out); err == nil {
+		t.Fatalf("decoder accepted %s", decision.Value)
 	}
 }

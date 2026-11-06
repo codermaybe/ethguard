@@ -233,7 +233,12 @@ code 与 message 来自一份已准入信封，不跨来源拼装。未佐证的
 
 ## 0.17 已接受入口：Context 收集器获取 Uncertain
 
-状态：2026-09-07 已接受 API 方向，见 [决策 0034](../decisions.md#0034-opt-in-uncertain-capture-uses-the-invocation-context)；收集器类型、访问方法与实现待完成。
+状态：**superseded（2026-11-06）**——本节记录 2026-09-07 接受的 API 方向；实现由
+[决策 0066](../decisions.md) 交付并随后收敛：`WithUncertain`/`UncertainCapture`
+公共面已删除，现行为 `WithResult`（交付句柄）+ `WithSourceEvidence`（预算配置），
+材料随 `CallResult.Uncertain` 交付。以下保留原始决定文字作为历史依据。
+
+原始状态：2026-09-07 已接受 API 方向，见 [决策 0034](../decisions.md#0034-opt-in-uncertain-capture-uses-the-invocation-context)；收集器类型、访问方法与实现待完成。
 
 普通调用保持原 context、方法签名和 Geth 返回类型。需要扩展数据的用户显式为一次逻辑调用创建收集器：
 

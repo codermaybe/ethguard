@@ -63,14 +63,14 @@ func TestCanonicalReceiptLogTimestampThroughAdapter(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			result, err := client.TransactionReceipt(ctx, hash)
+			result, _, err := client.TransactionReceipt(ctx, hash)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if result.Logs[0].BlockTimestamp != timestamp.want {
 				t.Fatalf("timestamp = %d", result.Logs[0].BlockTimestamp)
 			}
-			decision, err := client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
+			decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,13 +97,31 @@ func TestCanonicalReceiptTimestampDisagreementIsConflict(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	decision, err := client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
 	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 1 || len(decision.Reject) != 1 {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
-	// The protected timestamp remains in the selected cluster's diagnostic Value.
-	if !bytes.Contains(decision.Value, []byte(`"blockTimestamp"`)) {
-		t.Fatalf("value = %s", decision.Value)
+	// The public value is cleared on the aggregation failure (decision 0066);
+	// the protected-field disagreement stays visible in the conflict
+	// diagnostics with both sources' values.
+	if decision.Value != nil {
+		t.Fatalf("failed aggregation carries %s", decision.Value)
+	}
+	found := false
+	if decision.Diagnostics != nil {
+		for _, conflict := range decision.Diagnostics.Conflicts {
+			if conflict.Path == "blockTimestamp" {
+				found = true
+			}
+		}
+		for _, residual := range decision.Diagnostics.Residuals {
+			if residual.Path == "/logs/0/blockTimestamp" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("timestamp disagreement left no diagnostics: %+v", decision.Diagnostics)
 	}
 }
 
@@ -124,7 +142,7 @@ func TestCanonicalReceiptRemovedCannotDefaultFromNull(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			result, err := client.TransactionReceipt(ctx, hash)
+			result, _, err := client.TransactionReceipt(ctx, hash)
 			if test.valid {
 				if err != nil || result.Logs[0].Removed {
 					t.Fatalf("result = %+v err %v", result, err)
@@ -134,7 +152,7 @@ func TestCanonicalReceiptRemovedCannotDefaultFromNull(t *testing.T) {
 			if !errors.Is(err, rpc.ErrNoValidResponse) {
 				t.Fatalf("err = %v", err)
 			}
-			decision, err := client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
+			decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
 			if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Support) != 0 || len(decision.Faults) != 3 {
 				t.Fatalf("decision = %+v err %v", decision, err)
 			}
@@ -164,14 +182,14 @@ func TestCanonicalBlockReceiptsThroughAdapter(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	result, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(result) != 1 || result[0].TxHash != hash || result[0].Logs[0].BlockTimestamp != 171 {
 		t.Fatalf("result = %+v", result)
 	}
-	decision, err := client.Call(ctx, methods.MethodGetBlockReceipts, "0x10")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBlockReceipts, "0x10"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +229,7 @@ func TestCanonicalBlockReceiptsBadElementKeepsDenominator(t *testing.T) {
 			nodes[3].Return(methods.MethodGetBlockReceipts, []any{good, bad})
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			decision, err := client.Call(ctx, methods.MethodGetBlockReceipts, "0x10")
+			decision, err := callDecision(client.Call(ctx, methods.MethodGetBlockReceipts, "0x10"))
 			if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 1 {
 				t.Fatalf("decision = %+v err %v", decision, err)
 			}
@@ -244,12 +262,12 @@ func TestCanonicalReceiptsAcceptProtectedStringEscapes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if method == methods.MethodGetBlockReceipts {
-				result, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+				result, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
 				if err != nil || len(result) != 1 || result[0].TxHash != hash || !bytes.Equal(result[0].Logs[0].Data, []byte{1, 2}) {
 					t.Fatalf("result = %+v err %v", result, err)
 				}
 			} else {
-				result, err := client.TransactionReceipt(ctx, hash)
+				result, _, err := client.TransactionReceipt(ctx, hash)
 				if err != nil || result.TxHash != hash || !bytes.Equal(result.Logs[0].Data, []byte{1, 2}) {
 					t.Fatalf("result = %+v err %v", result, err)
 				}
@@ -258,7 +276,7 @@ func TestCanonicalReceiptsAcceptProtectedStringEscapes(t *testing.T) {
 			if method == methods.MethodGetBlockReceipts {
 				ref = "0x10"
 			}
-			decision, err := client.Call(ctx, method, ref)
+			decision, err := callDecision(client.Call(ctx, method, ref))
 			if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 3 || bytes.Contains(decision.Value, []byte(`\u0030x`)) {
 				t.Fatalf("decision = %+v err %v", decision, err)
 			}

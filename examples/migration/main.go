@@ -1,28 +1,9 @@
-// Minimal migration example: switch code written against go-ethereum's
-// ethclient to EthGuard's corroborated client.
+// Migration example: the dual-facade story. The same client drives the
+// native result-bearing reads, the ethclient-shaped view, a WithResult
+// capture, bounded source evidence, the official SendTransaction with the
+// write decision delivered through the capture, and one shared Close.
 //
-// go run ./examples/migration -endpoint-a https://a.example:8545 -endpoint-b https://b.example:8545
-//
-// What changes: initialization only. ethclient.Dial(url) becomes
-// ethguard.Dial(endpointA, endpointB) with two or more distinct endpoints;
-// read calls keep their names, signatures and Geth return types
-// (types.Block, *big.Int, ...).
-//
-// Semantics that differ even where the method exists — read
-// docs/design/method-contracts.md before relying on them:
-//
-//   - BlockByNumber(ctx, nil) resolves "latest" through a cross-corroborated
-//     reference, not one provider's natural head.
-//   - Negative block numbers map to their own level: -1 pending is rejected
-//     locally (no typed pending block projection), -2 latest, -3 finalized
-//     and -4 safe each establish their own level's reference, -5 earliest is
-//     the explicit height 0x0.
-//   - A single endpoint must opt into Forwarded mode explicitly with
-//     ethguard.DialUncorroborated(url); Dial requires two or more distinct
-//     endpoints.
-//   - Header* reads are approximated by BlockByHash + block.Header();
-//     subscriptions (SubscribeNewHead, SubscribeFilterLogs, ...) have no
-//     path at all — the pool is request/response only.
+// go run ./examples/migration -config /path/to/config.yaml
 package main
 
 import (
@@ -33,53 +14,80 @@ import (
 	"log"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard"
 )
 
 func main() {
-	endpointA := flag.String("endpoint-a", "https://a.example:8545", "first RPC endpoint")
-	endpointB := flag.String("endpoint-b", "https://b.example:8545", "second RPC endpoint")
+	path := flag.String("config", "config/sample.yaml", "provider configuration file")
 	flag.Parse()
-	// Was: client, err := ethclient.Dial("https://rpc.example")
-	client, err := ethguard.Dial(*endpointA, *endpointB)
+	client, err := ethguard.LoadFile(*path)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Same call shape and Geth types as ethclient.
-	id, err := client.ChainID(ctx)
-	if err != nil {
-		log.Fatalf("chain ID corroboration failed: %v", err)
-	}
-	fmt.Printf("corroborated chain ID: %s\n", id)
-
-	// was: block, err := ec.BlockByNumber(ctx, nil)
-	block, err := client.BlockByNumber(ctx, nil)
+	// --- the ethclient-shaped view: official signatures, same execution ---
+	// was: ec, _ := ethclient.Dial(...); ec.BalanceAt(ctx, account, nil)
+	ec := client.EthClient()
+	balance, err := ec.BalanceAt(ctx, common.Address{}, nil)
 	if err != nil {
 		// ethguard classifies failures; sentinels answer to errors.Is.
-		switch {
-		case errors.Is(err, ethereum.NotFound):
-			log.Print("no block at the corroborated reference")
-			return
-		default:
-			log.Fatalf("corroborated block read failed: %v", err)
+		if errors.Is(err, ethereum.NotFound) {
+			log.Print("no balance at the corroborated reference")
+		} else {
+			log.Fatalf("view balance read failed: %v", err)
 		}
+	} else {
+		fmt.Printf("view corroborated zero-address balance: %s wei\n", balance)
 	}
-	fmt.Printf("corroborated block %d (%s), %d transactions\n",
-		block.NumberU64(), block.Hash(), len(block.Transactions()))
 
-	// was: balance, err := ec.BalanceAt(ctx, account, nil)
-	var account common.Address // zero address; works for any account
-	balance, err := client.BalanceAt(ctx, account, nil)
+	// --- WithResult: a delivery handle for exactly one call ---
+	base, err := ethguard.WithSourceEvidence(ctx, 64<<10) // bounded raw material
 	if err != nil {
-		log.Fatalf("corroborated balance read failed: %v", err)
+		log.Fatalf("evidence configuration: %v", err)
 	}
-	fmt.Printf("corroborated zero-address balance: %s wei\n", balance)
+	callCtx, capture := ethguard.WithResult(base)
+	head, _, err := client.BlockByNumber(callCtx, nil)
+	if err != nil {
+		log.Fatalf("native block read failed: %v", err)
+	}
+	fmt.Printf("native corroborated head %d (%s)\n", head.NumberU64(), head.Hash())
+	// The capture holds the decision evidence and the budget-bounded raw
+	// material of exactly that call; the business result is untouched.
+	if result, published, err := capture.Result(); published && err == nil {
+		fmt.Printf("  decision status: %s, retained material: %d/%d bytes\n",
+			result.Decision.Status, result.Uncertain.Bytes, result.Uncertain.Limit)
+	}
+
+	// --- official SendTransaction; the write decision rides the capture ---
+	// (a real caller signs here; this example stops before broadcast)
+	_ = types.NewTx(&types.LegacyTx{})
+	tx, err := signExampleTransaction()
+	if err != nil {
+		log.Fatalf("sign: %v", err)
+	}
+	writeCtx, writeCapture := ethguard.WithResult(ctx)
+	if err := ec.SendTransaction(writeCtx, tx); err != nil {
+		// Acceptance is propagation, not mining; classify with errors.Is.
+		log.Printf("broadcast failed: %v", err)
+	} else if result, published, _ := writeCapture.Result(); published {
+		fmt.Printf("broadcast outcome: accepted=%v hash=%s basis=%d\n",
+			result.IsWriteAccepted(), result.WriteDecision.Hash, result.WriteDecision.Basis)
+	}
+
+	// --- one Close stops both surfaces ---
+	ec.Close()
+	fmt.Println("client closed through the view")
+}
+
+// signExampleTransaction stands in for the caller's own signing stack; this
+// example never broadcasts a real transaction.
+func signExampleTransaction() (*types.Transaction, error) {
+	return types.NewTx(&types.LegacyTx{Nonce: 0, Gas: 21000}), nil
 }

@@ -1,26 +1,18 @@
 package ethguard
 
 import (
-	"context"
 	"encoding/json"
 
 	internaluncertain "github.com/codermaybe/ethguard/internal/uncertain"
 )
 
-// UncertainCapture collects untrusted upstream material for one logical call.
-// It is opt-in and invocation-scoped: use a fresh capture for every call.
-// Reading the capture never changes the primary result or error.
-type UncertainCapture struct {
-	inner *internaluncertain.Capture
-}
-
-// UncertainField is one source's unnormalized value for a top-level response field.
-type UncertainField = internaluncertain.Field
-
-// UncertainResponse is one source's original response or error.
-type UncertainResponse = internaluncertain.Response
-
-// UncertainResult is an immutable snapshot from one capture.
+// UncertainResult is an immutable snapshot of one call's collected source
+// evidence: the retained raw responses, their top-level field expansion, and
+// the retention counters. It is delivered on CallResult.Uncertain when the
+// call ran with WithSourceEvidence and a consumer (a bound ResultCapture, or
+// the native result itself) existed. Every slice and byte in a delivered
+// snapshot is owned by the receiver — mutating one can never reach the
+// capture or another copy.
 type UncertainResult struct {
 	Fields    []UncertainField
 	Raw       []UncertainResponse
@@ -30,35 +22,27 @@ type UncertainResult struct {
 	Truncated bool
 }
 
-// WithUncertain enables collection for one logical invocation.
-func WithUncertain(ctx context.Context) (context.Context, *UncertainCapture) {
-	inner := internaluncertain.New()
-	return internaluncertain.WithContext(ctx, inner), &UncertainCapture{inner: inner}
+// UncertainField is one source's unnormalized value for a top-level response
+// field.
+type UncertainField = internaluncertain.Field
+
+// UncertainResponse is one source's original response or error.
+type UncertainResponse = internaluncertain.Response
+
+// cloneUncertainResult isolates a snapshot's nested value bytes.
+func cloneUncertainResult(r UncertainResult) UncertainResult {
+	r.Fields = cloneUncertainFields(r.Fields)
+	raw := make([]UncertainResponse, len(r.Raw))
+	copy(raw, r.Raw) // copy from the original backing before it is replaced
+	r.Raw = raw
+	for i := range r.Raw {
+		r.Raw[i].Value = append(json.RawMessage(nil), r.Raw[i].Value...)
+	}
+	return r
 }
 
-// Result returns a defensive snapshot of all retained fields and responses.
-func (c *UncertainCapture) Result() UncertainResult {
-	if c == nil || c.inner == nil {
-		return UncertainResult{}
-	}
-	snapshot := c.inner.Snapshot()
-	return UncertainResult{
-		Fields:    snapshot.Fields,
-		Raw:       snapshot.Raw,
-		Bytes:     snapshot.Bytes,
-		Limit:     snapshot.Limit,
-		Dropped:   snapshot.Dropped,
-		Truncated: snapshot.Truncated,
-	}
-}
-
-// Snapshot is an alias for Result.
-func (c *UncertainCapture) Snapshot() UncertainResult { return c.Result() }
-
-// Uncertain is an alias for Result.
-func (c *UncertainCapture) Uncertain() UncertainResult { return c.Result() }
-
-// FieldsFor returns only the retained entries matching path.
+// FieldsFor returns only the retained entries matching path; every returned
+// value is an independent copy.
 func (r UncertainResult) FieldsFor(path string) []UncertainField {
 	if path == "" {
 		return cloneUncertainFields(r.Fields)
@@ -70,16 +54,6 @@ func (r UncertainResult) FieldsFor(path string) []UncertainField {
 		}
 	}
 	return cloneUncertainFields(out)
-}
-
-// Fields returns all retained fields for path from the capture.
-func (c *UncertainCapture) Fields(path string) []UncertainField {
-	return c.Result().FieldsFor(path)
-}
-
-// Responses returns all retained original response/error records.
-func (c *UncertainCapture) Responses() []UncertainResponse {
-	return c.Result().Raw
 }
 
 func cloneUncertainFields(in []UncertainField) []UncertainField {

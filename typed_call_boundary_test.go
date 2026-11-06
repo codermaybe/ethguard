@@ -29,7 +29,7 @@ func TestT082CallSuccessUsesCanonicalDataThroughAdapter(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	to := common.HexToAddress("0x1")
-	data, err := client.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
+	data, _, err := client.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestT082CallRevertKeepsContextOutOfCoreValue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	to := common.HexToAddress("0x1")
-	decision, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": to.Hex()}, "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodCall, map[string]any{"to": to.Hex()}, "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestT082CallRevertKeepsContextOutOfCoreValue(t *testing.T) {
 		t.Fatalf("revert context = %+v", decision.Revert)
 	}
 
-	_, err = client.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
+	_, _, err = client.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
 	var revert *ethguard.RevertError
 	if !errors.As(err, &revert) {
 		t.Fatalf("typed error = %v, want RevertError", err)
@@ -87,7 +87,7 @@ func TestT082CallRevertWithheldDataKeepsProviderEnvelopeOutOfValue(t *testing.T)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	to := common.HexToAddress("0x1")
-	decision, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": to.Hex()}, "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodCall, map[string]any{"to": to.Hex()}, "latest"))
 	if err != nil || decision.Status != rpc.Corroborated {
 		t.Fatalf("decision = %s/%v, want corroborated revert", decision.Status, err)
 	}
@@ -97,7 +97,7 @@ func TestT082CallRevertWithheldDataKeepsProviderEnvelopeOutOfValue(t *testing.T)
 	if bytes.Contains(decision.Value, []byte("code")) || bytes.Contains(decision.Value, []byte("message")) {
 		t.Fatalf("provider envelope leaked into Value: %s", decision.Value)
 	}
-	_, err = client.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
+	_, _, err = client.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
 	var revert *ethguard.RevertError
 	if !errors.As(err, &revert) || revert.Data != nil || revert.ErrorData() != nil {
 		t.Fatalf("typed withheld revert = %v", err)
@@ -117,11 +117,11 @@ func TestT082CallConflictStaysUnknownThroughAdapter(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	to := common.HexToAddress("0x1")
-	decision, err := client.Call(ctx, methods.MethodCall, map[string]any{"to": to.Hex()}, "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodCall, map[string]any{"to": to.Hex()}, "latest"))
 	if !errors.Is(err, ethguard.ErrConflict) || decision.Status != rpc.Unknown {
 		t.Fatalf("decision = %s/%v, want unknown conflict", decision.Status, err)
 	}
-	_, typedErr := client.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
+	_, _, typedErr := client.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
 	if !errors.Is(typedErr, ethguard.ErrConflict) {
 		t.Fatalf("typed error = %v, want conflict", typedErr)
 	}
@@ -137,8 +137,8 @@ func TestT082CallPendingRemainsSelected(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	decision, err := client.Call(ctx, methods.MethodCall,
-		map[string]any{"to": common.HexToAddress("0x1").Hex()}, "pending")
+	decision, err := callDecision(client.Call(ctx, methods.MethodCall,
+		map[string]any{"to": common.HexToAddress("0x1").Hex()}, "pending"))
 	if err != nil || decision.Status != rpc.Selected || string(decision.Value) != `"0xab"` {
 		t.Fatalf("pending decision = %s/%s/%v, want selected canonical DATA", decision.Status, decision.Value, err)
 	}

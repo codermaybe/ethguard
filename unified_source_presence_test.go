@@ -68,7 +68,7 @@ func TestMixedSourcesPreserveCallErrorData(t *testing.T) {
 			if (keys[0] == keys[1]) != tc.sameKey {
 				t.Fatalf("wire presence/data comparison collapsed or split incorrectly: %q", keys)
 			}
-			decision, err := client.Call(ctx, "eth_call", params...)
+			decision, err := callDecision(client.Call(ctx, "eth_call", params...))
 			if err != nil || decision.Status != rpc.Corroborated || string(decision.Value) != tc.wantValue || len(decision.Participants) != 2 || len(decision.Support) != 2 {
 				t.Fatalf("call=%+v value=%s err=%v", decision, decision.Value, err)
 			}

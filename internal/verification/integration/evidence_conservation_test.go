@@ -24,7 +24,7 @@ func TestVerificationEvidenceConservationPerObservation(t *testing.T) {
 				for index, variant := range row.variants {
 					fleet := t09NewFleet(t, 1)
 					fleet.returnOne(row.method, variant)
-					decision, err := fleet.client.Call(fleet.context(t), row.method, row.params...)
+					decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 					if err != nil {
 						t.Fatalf("variant %d: %v", index, err)
 					}
@@ -36,7 +36,7 @@ func TestVerificationEvidenceConservationPerObservation(t *testing.T) {
 			for index, variant := range row.variants {
 				fleet.nodes[index].ReturnRaw(row.method, variant)
 			}
-			decision, err := fleet.client.Call(fleet.context(t), row.method, row.params...)
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 			if err != nil {
 				t.Fatalf("variants: %v", err)
 			}
@@ -68,7 +68,7 @@ func TestVerificationEvidenceOutsideDiagnosticsPerObservation(t *testing.T) {
 				}
 				fleet.nodes[index].ReturnRaw(row.method, variant)
 			}
-			decision, err := fleet.client.Call(fleet.context(t), row.method, row.params...)
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -110,7 +110,7 @@ func TestVerificationEvidenceNestedDerivedFieldRecomputation(t *testing.T) {
 	payload := t09SetField(t, block, "transactions", transactions)
 	fleet := t09NewFleet(t, 3)
 	fleet.returnOne(t09FieldRowFor(t, "eth_getBlockByHash").method, payload)
-	decision, err := fleet.client.Call(fleet.context(t), "eth_getBlockByHash", hash, true)
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), "eth_getBlockByHash", hash, true))
 	if err != nil {
 		t.Fatal(err)
 	}
