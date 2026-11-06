@@ -61,10 +61,11 @@ shared request IDs, and parity of JSON request bytes.
 
 ## Gaps and sequencing
 
-There is no current single test that drives a typed `Client` through WSS while
-also inspecting the business parameters; the raw WSS contract tests stop at
-`Transport.CallContext`. A small adapter-level harness (estimated 1–2 days,
-mostly fixture plumbing) closes that gap. Method policy, anchoring, quorum, and
-AtHash behavior are already covered above the transport seam and should remain
-unchanged. Subscription support is out of scope.
+`typed_transport_matrix_test.go` now drives one typed `Client` through native
+HTTP and raw WSS together, and checks `ChainID` plus `HeaderByNumber` reach both
+sources. This closes the first transport-to-execution seam without changing
+method policy, anchoring, quorum, AtHash behavior, or adding subscriptions. The
+remaining work is to extend the same harness to the other four representative
+methods and add explicit gethcompat envelope assertions; estimate remains
+medium because the fixture plumbing is reusable.
 

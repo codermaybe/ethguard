@@ -32,6 +32,7 @@ type sourceWireRequest struct {
 type sourceWirePeer struct {
 	endpoint    string
 	connections atomic.Int32
+	requests    atomic.Int32
 	writes      atomic.Int32
 }
 
@@ -39,6 +40,7 @@ func newSourceWirePeer(t *testing.T, ws bool, answer func(sourceWireRequest) str
 	t.Helper()
 	peer := &sourceWirePeer{}
 	respond := func(body []byte) []byte {
+		peer.requests.Add(1)
 		var req sourceWireRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			t.Errorf("decode: %v", err)
