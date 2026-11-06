@@ -1,6 +1,6 @@
 # 方法与传输覆盖清单
 
-状态：**M0 完成；M2 区块 Header 首个切片完成（2026-11-06）**。
+状态：**M0 完成；M1/M2 状态 Hash 首个切片完成（2026-11-07）**。
 
 本清单以仓库锁定的 go-ethereum `v1.17.5`、`rpc/methods` catalog/ReadPlan、根 `Client` 和 `EthClient` 视图为事实源。它只记录当前代码事实和缺口，不授权单个方法任务修改公共接口。公共接口变更统一留给 roadmap 的 R0/F0。
 
@@ -47,7 +47,7 @@
 
 ## go-ethereum v1.17.5 官方 ethclient 方法
 
-下面列出锁定版本 `ethclient.Client` 的公开业务方法。当前 EthClient 承诺方法契约冻结表中的 23 个 typed reads（本轮新增 HeaderByHash/HeaderByNumber）、`SendTransaction` 和 `Close`；其余方法必须逐项决定为待接入、明确不支持或不属于当前 facade。
+下面列出锁定版本 `ethclient.Client` 的公开业务方法。当前 EthClient 承诺方法契约冻结表中的 27 个 typed reads（含 HeaderBy* 与四个 `*AtHash`）、`SendTransaction` 和 `Close`；其余方法必须逐项决定为待接入、明确不支持或不属于当前 facade。
 
 | 官方方法 | 当前 View | Root/项目映射 | 分类 |
 | --- | --- | --- | --- |
@@ -68,13 +68,13 @@
 | `SyncProgress` | 已有 | `Client.SyncProgress` | 已覆盖 |
 | `NetworkID` | 已有 | `Client.NetworkID` | 已覆盖 |
 | `BalanceAt` | 已有 | `Client.BalanceAt` | 已覆盖 |
-| `BalanceAtHash` | 未有 | 无 root typed 映射 | 待决定 |
+| `BalanceAtHash` | 已有（M1/M2） | `Client.BalanceAtHash` | 已接入；EIP-1898 hash object |
 | `StorageAt` | 已有 | `Client.StorageAt` | 已覆盖 |
-| `StorageAtHash` | 未有 | 无 root typed 映射 | 待决定 |
+| `StorageAtHash` | 已有（M1/M2） | `Client.StorageAtHash` | 已接入；EIP-1898 hash object |
 | `CodeAt` | 已有 | `Client.CodeAt` | 已覆盖 |
-| `CodeAtHash` | 未有 | 无 root typed 映射 | 待决定 |
+| `CodeAtHash` | 已有（M1/M2） | `Client.CodeAtHash` | 已接入；EIP-1898 hash object |
 | `NonceAt` | 已有 | `Client.NonceAt` | 已覆盖 |
-| `NonceAtHash` | 未有 | 无 root typed 映射 | 待决定 |
+| `NonceAtHash` | 已有（M1/M2） | `Client.NonceAtHash` | 已接入；EIP-1898 hash object |
 | `FilterLogs` | 已有 | `Client.FilterLogs` | 已覆盖 |
 | `SubscribeTransactionReceipts` | 未有 | 无订阅实现 | 订阅待设计 |
 | `SubscribeNewHead` | 未有 | 无订阅实现 | 订阅待设计 |
@@ -148,16 +148,22 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 
 订阅实现还必须增加取消、Unsubscribe、backpressure、reorg、重复事件、缺口、source snapshot 和 goroutine 泄漏测试。
 
-## M2 首个切片结果
+## M1/M2 状态 Hash 切片结果
+
+- `BalanceAtHash`、`NonceAtHash`、`StorageAtHash`、`CodeAtHash` 复用各自既有 ReadPlan、typed projection、请求冻结和执行入口；最后一个参数在 wire 上固定为 `{blockHash, requireCanonical:false}`。
+- 根 Client 返回 `(T, CallResult, error)`，EthClient 视图返回 go-ethereum v1.17.5 的 `(T, error)`；四个 view 方法只投影同一 owner execution。
+- 显式 hash 不建立 moving reference，也不走未知 `Call`；上游缺块/RPC 错误、冲突、解码错误和取消沿既有 Decision/错误/材料/Close 规则返回。
+
+## M2 区块首个切片结果
 
 - `HeaderByHash` 和 `HeaderByNumber` 复用 `eth_getBlockByHash` / `eth_getBlockByNumber` 的既有 ReadPlan、admission 和 block projector；只把 `fullTx` 固定为 `false`，再由 `DecodeBlockHeaderOnly` 交付 `*types.Header`。
 - 根 Client 返回 `(* types.Header, CallResult, error)`，EthClient 视图保持官方 `(* types.Header, error)`。
 - `HeaderByNumber(nil)`、`-2/-3/-4` 通过已建立 reference 读取并附带 reference 事实；`-5` 映射高度 `0x0`；`-1` 及未知负数在本地拒绝，不宣称 pending header 已支持。
-- 定向测试：`typed_block_headers_test.go`、`ethclient_view_test.go` 方法集合 25 项。
+- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合 29 项（27 个 typed reads、`SendTransaction`、`Close`）。
 
 ## 未决项
 
-- 官方 `HeaderBy*`、`*AtHash`、pending 族、交易派生方法是否进入 EthClient；
+- 官方 pending 族、交易派生方法是否进入 EthClient；
 - `eth_getProof`、`SimulateV1`、gethclient 扩展是否属于项目承诺；
 - root 订阅事件类型与官方视图订阅 channel 的关系；
 - subscription 的 quorum、source membership、reorg/removed、Pull 补查和异步错误；
@@ -167,20 +173,20 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 
 ## M1/M3 前置复核：state hash 与 pending
 
-本轮没有直接修改公共方法或 `eth.go`。复核结论如下：
+本轮未接入 pending 方法；复核结论如下：
 
 - `BalanceAtHash`、`StorageAtHash`、`CodeAtHash`、`NonceAtHash` 在 go-ethereum v1.17.5 中仍调用现有四个 RPC 方法，只是把最后一个 block 参数编码成 EIP-1898 的 `{blockHash, requireCanonical:false}` 对象。
-- 当前 `rpc/methods` 的 `ReferenceSpec{EIP1898:true}` 和 EIP-1898 rewrite 测试已经覆盖对象校验、显式 hash、`requireCanonical` 保留和 moving tag 改写；这证明了底层 plan 能力，不等于 root/View 的 AtHash 方法已经实现。
-- 接入 AtHash 不能通过未知 `Call` 绕过 plan。应在 execution 内增加受控 block-reference 参数入口，复用现有四个 typed projection 和请求绑定，然后同时增加 root `(T, CallResult, error)` 与 View 官方 `(T, error)` 方法及 API 集合测试。
+- 当前 `rpc/methods` 的 `ReferenceSpec{EIP1898:true}` 和 EIP-1898 rewrite 测试继续覆盖对象校验、显式 hash、`requireCanonical` 保留和 moving tag 改写；AtHash facade 通过同一 plan 执行。
+- AtHash 接入使用受控的 EIP-1898 map 参数和现有 plan，不通过未知 `Call`。
 - `PendingBalanceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingNonceAt` 的 plan 已有 `PendingObserve` 声明，但当前公开 facade 没有对应方法。pending 是节点本地状态，不能直接套用 moving reference；是否允许多源严格比较、是否接受单源本地观察、以及最终 Decision 状态必须由 R0 冻结。
 - `PendingTransactionCount`、`PendingCallContract` 还缺少对应的公开 plan/typed 交付闭环；不能只增加一个薄 wrapper。
-- 因此 M1/M3 的下一步准入是：先在私有 execution 设计中验证 EIP-1898 / pending 参数和 Decision 语义，再一次性扩展 root/View；在此之前不修改官方 View 的精确方法集合测试。
+- 因此 M1/M3 的下一步准入仅剩 pending：先冻结其 source-local、quorum 与 Decision 语义，再决定是否扩展 facade；本轮 AtHash 不改变 pending/CallResult/订阅边界。
 
 建议的回归矩阵：
 
 | 方法族 | 必须覆盖 | 当前结论 |
 | --- | --- | --- |
-| `*AtHash` | hash 对象编码、`requireCanonical=false`、显式 hash 绑定、缺块、冲突、跨 HTTP/WSS | 底层 plan 已有基础；facade 待接入 |
+| `*AtHash` | hash 对象编码、`requireCanonical=false`、显式 hash 绑定、缺块、冲突、跨 HTTP/WSS | root/view facade 已接入；跨 HTTP/WSS 事实待 T0 |
 | `Pending*` 状态读取 | pending 本地观察、不同 source 的 pending 差异、空值、取消、材料和 source-local 诊断 | 计划声明存在；公开结果和严格策略待 R0 |
 | `PendingCallContract` | revert/data presence、pending 参数、source-local 与 quorum 关系 | plan/typed/facade 均待补齐 |
 | `PendingTransactionCount` | `eth_getBlockTransactionCountByNumber` catalog、quantity 解码、source-local 语义 | 当前只有官方 ethclient 参考，无项目执行路径 |

@@ -20,15 +20,15 @@ var (
 	_ bind.DeployBackend  = (*ethguard.EthClient)(nil)
 )
 
-// TestEthClientMethodSetIsExact pins the view's exported surface at 25
-// methods: the 23 currently supported official typed reads, SendTransaction,
+// TestEthClientMethodSetIsExact pins the view's exported surface at 29
+// methods: the 27 currently supported official typed reads, SendTransaction,
 // and Close. Anything
 // else — Call, Pool, anchors, Mode, Normalize, SendRawTransaction,
 // CreateAccessList — is a leak.
 func TestEthClientMethodSetIsExact(t *testing.T) {
 	want := map[string]bool{}
 	for _, name := range []string{
-		"ChainID", "NetworkID", "BalanceAt", "NonceAt", "StorageAt", "CodeAt",
+		"ChainID", "NetworkID", "BalanceAt", "BalanceAtHash", "NonceAt", "NonceAtHash", "StorageAt", "StorageAtHash", "CodeAt", "CodeAtHash",
 		"BlockByHash", "HeaderByHash", "BlockByNumber", "HeaderByNumber", "BlockNumber", "BlockReceipts",
 		"TransactionReceipt", "TransactionByHash", "SuggestGasTipCap",
 		"SuggestGasPrice", "CallContract", "EstimateGas", "FilterLogs",
