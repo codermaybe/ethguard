@@ -54,7 +54,7 @@ EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，�
 | M2 | 区块与 reference | block、BlockNumber、EIP-1898、moving tag、pending-local、full/header-only、reference 附带证据的测试矩阵 | M0 | hash/number/tag 语义一致；业务失败不丢 reference；跨传输请求和结果一致 | Header + AtHash 切片完成；其余 reference/pending 与跨 transport 事实待补 |
 | M3 | 交易、收据与日志 | Transaction、Receipt、BlockReceipts、Call、EstimateGas、FilterLogs 的方法卡片和测试 | M0 | null/NotFound、pending、receipt bloom、log binding、revert、范围边界和 typed 错误分层闭合 | 待开始 |
 | M4 | 写入与扩展方法 | SendTransaction、SendRawTransaction、CreateAccessList 及视图隐藏边界 | M0 | 广播接受与 mined 明确分开；未知写方法拒绝；raw 与 typed 写入材料一致 | 待开始 |
-| T0 | HTTP/WSS request-response 覆盖 | 同一 fixture 下的 HTTP、native WSS、显式 gethcompat 对照结果 | M1–M4 按方法族推进 | 值、错误、Decision、reference、材料和 Close 语义一致；不新增 transport-specific 业务分支 | 待开始 |
+| T0 | HTTP/WSS request-response 覆盖 | 同一 fixture 下的 HTTP、native WSS、显式 gethcompat 对照结果 | M1–M4 按方法族推进 | 值、错误、Decision、reference、材料和 Close 语义一致；不新增 transport-specific 业务分支 | 前置调查完成（2026-11-07；transport_matrix）；待实现跨 transport typed harness |
 | S0 | 订阅契约冻结 | `docs/design/subscription-contract.md`；新头、logs、reorg、quorum、source snapshot、补查、背压、重连、取消和异步错误契约 | M0、T0 初步结果 | 明确事件身份、法定人数、单源政策、事件交付和 `Subscription.Err()`；不把未验证推送标为 Corroborated | 完成设计草案（2026-11-06；wss_contract），待 R0 统一冻结 |
 | S1 | WSS 订阅 transport seam | 订阅能力接口、source 生命周期、请求 ID 与通知隔离、关闭和取消测试 | S0 | 不影响现有 raw-call Transport；连接断裂、Unsubscribe、owner Close 和 goroutine 退出有界 | 待开始 |
 | S2 | 订阅聚合与补查 | newHeads/logs 多源聚合、软超时 Pull、隔离、reorg、重复和缺口处理 | S0、S1 | 不静默丢事件；Pull 只使用同一 source 的已配置能力；事件 source snapshot 和 quorum 可重放 | 待开始 |
@@ -72,6 +72,7 @@ agent 按垂直切片工作；共享的 `eth.go`、`ethclient_view.go`、`CallRe
 | `block_methods` | M2 首个切片 | 已接入 HeaderByHash/HeaderByNumber，补 header-only 请求、root/view 对照和 pending 本地拒绝；未改 CallResult/订阅 |
 | `state_methods` | M1/M3 前置复核 | 已确认 `*AtHash` 可复用 EIP-1898，但 pending 语义和 public facade 仍待 R0；未改生产代码 |
 | `at_hash_methods` | M1/M2 首个切片 | 已接入四个 `*AtHash` root/view 方法；验证 EIP-1898 hash object、冲突、缺块和方法集合；未改公共结果模型 |
+| `transport_matrix` | T0 前置调查 | 已完成 `docs/design/t0-transport-matrix.md`；确认 rpctest/native HTTP/WSS scripted peer/gethcompat 夹具和六个代表方法的最小矩阵；未改 API 或订阅 |
 | 后续 agent | M1–M4、T0、S1–S2、R0 | M0/S0 已满足准入；方法 agent 仍不得局部改写公共返回值 |
 
 每个 agent 的交付必须包含：实现或文档 diff、方法特性卡片、正反例测试、实际命令、未决问题和对下一任务的准入条件。不得以“代码能编译”代替方法闭环。
