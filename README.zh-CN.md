@@ -2,9 +2,9 @@
 
 [English](README.md) · **简体中文**
 
-> 状态：早期实现阶段。核心聚合模型、计划驱动的读取路径、native HTTP 和
-> raw WSS 调用路径已经建立。方法形态兼容仍是 `ethclient` 的支持子集，真实
-> provider 证据和实现质量仍在持续完善。
+> 状态：早期实现阶段。对外兼容目标是 `go.mod` 锁定的 go-ethereum 版本对应的
+> 完整 `ethclient` 方法集合；当前代码仍在追平该目标，不能把中间子集当作完整
+> 兼容版本发布。
 
 EthGuard 是一个面向多源 Ethereum JSON-RPC 的聚合客户端。它查询多个上游，
 依据固定的 Ethereum execution-apis 契约校验响应，清洗官方标准字段，并聚合
@@ -208,9 +208,9 @@ endpoint，`DialContext` 的 context 只约束构造本身。
 go run ./examples/basic -config ./config.yaml
 ```
 
-`ethguard.Client` 是唯一的支持方法接口，不是可有可无的演示。通用 `Call`、完整
-裁决证据和 pool 检查都在同一个 client 上。类型化方法只对支持的子集提供保持方法
-形态的兼容性，并不声称实现完整的 `ethclient` 接口。
+`ethguard.Client` 是承载裁决证据的根接口，不是可有可无的演示。通用 `Call`、完整
+裁决证据和 pool 检查都在同一个 client 上。对外兼容目标是 `go.mod` 锁定版本对应的
+完整 `ethclient` 方法集合；当前代码仍是追平该矩阵的内部检查点。
 
 确定性类型化读取需要库内部动态计算的交叉验证门槛：支持不足时返回 `ErrConflict`，
 因为这些方法不能向调用方暴露 `Selected`。在方法契约允许时，高级根 `Call` 仍会返回

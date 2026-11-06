@@ -1,6 +1,9 @@
 # EthGuard 当前路线图
 
-状态：**方法覆盖与订阅内部闭环已验收；公共订阅 facade 与 provider 事实仍未承诺（2026-11-07）**。
+状态：**版本化完整 ethclient 兼容目标已冻结；当前仍在追平 go-ethereum v1.17.5 的完整方法集合（2026-11-07）**。
+
+完整兼容目标和发布规则见 [go-ethereum 版本兼容政策](go-ethereum-compatibility-policy.md)。
+内部阶段仍用于并行开发和验收，但不形成对外的子集版本承诺。
 
 EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，不是 Ethereum consensus、canonical proof 或 cryptographic finality。架构收敛仍以 execution、quorum、reference 和 typed 边界为约束。
 
@@ -24,7 +27,7 @@ EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，�
 
 - 当前基线 HEAD：`3b242c5`；工作区应保持干净。
 - 最近完成的代表提交：`8cfe5c3`（`eth_call` transport）、`8468354`（`eth_getLogs` transport）、`42e8198`（`eth_estimateGas` transport）。
-- 当前 29 个 EthClient 导出方法 = 27 个 typed reads + `SendTransaction` + `Close`。
+- 当前内部检查点为 29 个 EthClient 导出方法；这不是完整兼容版本的对外承诺。
 - 项目 catalog 的约 23 个 RPC 条目不是官方 ethclient 的完整方法数；官方未承诺项见 `method-transport-coverage.md` 的官方方法表。
 - 下一执行游标：先补 `TransactionByHash`、`FeeHistory` 和剩余标量的跨 transport 事实；随后进入 M4 写入/扩展边界；Pending、订阅和公共接口统一审查必须由高推理轨处理。
 - 当前 full-access 基线门禁：`go test ./... -count=1`、`go test ./... -race -count=1`、`go vet ./...` 均通过。
