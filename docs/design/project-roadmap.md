@@ -54,9 +54,9 @@ EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，�
 | M0 | 方法与传输事实清单 | `docs/design/method-transport-coverage.md`；逐项列出官方版本方法、catalog/ReadPlan、根切面、EthClient、HTTP、WSS request/response、订阅、不支持项和测试缺口 | 无 | 官方方法与项目方法无漏项；每项能指向实现和测试；未知方法不会静默绕过 catalog | 完成（2026-11-06；method_inventory） |
 | M1 | 标量、费用和节点状态 | 方法卡片、根/视图调用、HTTP/WSS fixture、CallResult 状态与错误分层测试 | M0 | lower-median/selected/corroborated 语义明确；null、空值、同步状态和本地错误有反例 | AtHash 首个切片完成（2026-11-07）；pending 仍待 R0 冻结 |
 | M2 | 区块与 reference | block、BlockNumber、EIP-1898、moving tag、pending-local、full/header-only、reference 附带证据的测试矩阵 | M0 | hash/number/tag 语义一致；业务失败不丢 reference；跨传输请求和结果一致 | Header + AtHash 切片完成；其余 reference/pending 与跨 transport 事实待补 |
-| M3 | 交易、收据与日志 | Transaction、Receipt、BlockReceipts、Call、EstimateGas、FilterLogs 的方法卡片和测试 | M0 | null/NotFound、pending、receipt bloom、log binding、revert、范围边界和 typed 错误分层闭合 | 语义审计、receipt slice、logs 逆序范围与 gas null/overflow 回归完成；Call/Logs/EstimateGas 跨 transport 仍待补 |
+| M3 | 交易、收据与日志 | Transaction、Receipt、BlockReceipts、Call、EstimateGas、FilterLogs 的方法卡片和测试 | M0 | null/NotFound、pending、receipt bloom、log binding、revert、范围边界和 typed 错误分层闭合 | 语义审计、receipt slice、Call/Logs/EstimateGas 回归与 HTTP/WSS transport slice 完成；TransactionByHash 边界和大数组成本仍待补 |
 | M4 | 写入与扩展方法 | SendTransaction、SendRawTransaction、CreateAccessList 及视图隐藏边界 | M0 | 广播接受与 mined 明确分开；未知写方法拒绝；raw 与 typed 写入材料一致 | 待开始 |
-| T0 | HTTP/WSS request-response 覆盖 | 同一 fixture 下的 HTTP、native WSS、显式 gethcompat 对照结果 | M1–M4 按方法族推进 | 值、错误、Decision、reference、材料和 Close 语义一致；不新增 transport-specific 业务分支 | 最小 seam + receipt/block receipts 完成（2026-11-07）；Call/Logs/EstimateGas 等代表方法仍待扩展 |
+| T0 | HTTP/WSS request-response 覆盖 | 同一 fixture 下的 HTTP、native WSS、显式 gethcompat 对照结果 | M1–M4 按方法族推进 | 值、错误、Decision、reference、材料和 Close 语义一致；不新增 transport-specific 业务分支 | ChainID/Header/Receipt/BlockReceipts/Call/Logs/EstimateGas 已完成；FeeHistory、TransactionByHash 和其余方法待补 |
 | S0 | 订阅契约冻结 | `docs/design/subscription-contract.md`；新头、logs、reorg、quorum、source snapshot、补查、背压、重连、取消和异步错误契约 | M0、T0 初步结果 | 明确事件身份、法定人数、单源政策、事件交付和 `Subscription.Err()`；不把未验证推送标为 Corroborated | 完成设计草案（2026-11-06；wss_contract），待 R0 统一冻结 |
 | S1 | WSS 订阅 transport seam | 订阅能力接口、source 生命周期、请求 ID 与通知隔离、关闭和取消测试 | S0 | 不影响现有 raw-call Transport；连接断裂、Unsubscribe、owner Close 和 goroutine 退出有界 | 待开始 |
 | S2 | 订阅聚合与补查 | newHeads/logs 多源聚合、软超时 Pull、隔离、reorg、重复和缺口处理 | S0、S1 | 不静默丢事件；Pull 只使用同一 source 的已配置能力；事件 source snapshot 和 quorum 可重放 | 待开始 |
@@ -78,6 +78,9 @@ agent 按垂直切片工作；共享的 `eth.go`、`ethclient_view.go`、`CallRe
 | `m3_semantics` | M3 高推理探索 | 已完成 `docs/design/m3-semantics-review.md`；冻结六个 M3 方法的现有事实、可执行回归范围和 R0 未决项；未改公共 API |
 | `receipt_slice` | M3/T0 receipt slice | 已完成 receipt/log/bloom typed binding、root/view null 对照和 TransactionReceipt/BlockReceipts HTTP/WSS 测试；未改公共 API。根包测试已在 full-access 环境复验通过 |
 | `call_logs_slice` | M3/T0 Call/Logs/EstimateGas | 已完成 logs 逆序范围本地拒绝、gas null/overflow 回归；错误的 zero-value call-object 断言未纳入提交。跨 transport 代表方法仍待后续高推理切片 |
+| `call_transport_slice` | M3/T0 CallContract | 已完成 `eth_call` replay fixture、call object 字段省略、pinned hash 和 HTTP/WSS 对照；提交 `8cfe5c3` |
+| `logs_transport_slice` | M3/T0 FilterLogs | 已完成 `eth_getLogs` HTTP/WSS 请求形状、null/[]、range/pending 拒绝和 blockHash/range binding；提交 `8468354` |
+| `gas_transport_slice` | M3/T0 EstimateGas | 已完成 `eth_estimateGas` HTTP/WSS 请求对象、pinned ref、Selected lower median、null/overflow/all-error 契约；提交 `42e8198` |
 | 后续 agent | M1–M4、T0、S1–S2、R0 | M0/S0 已满足准入；方法 agent 仍不得局部改写公共返回值 |
 
 每个 agent 的交付必须包含：实现或文档 diff、方法特性卡片、正反例测试、实际命令、未决问题和对下一任务的准入条件。不得以“代码能编译”代替方法闭环。
