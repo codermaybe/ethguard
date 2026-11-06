@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**方法覆盖与订阅闭环验证进行中（2026-11-06）**。
+状态：**方法覆盖与订阅闭环验证进行中（2026-11-07）**。
 
 EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，不是 Ethereum consensus、canonical proof 或 cryptographic finality。架构收敛仍以 execution、quorum、reference 和 typed 边界为约束。
 
@@ -17,6 +17,21 @@ EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，�
 本文件是当前唯一的路线与执行记录来源。旧的阶段台账、被取代的接口探索和历史执行细节保留在 Git 历史中，不在本文重复维护。临时探索稿继续放在 `docs/design/tmp/`，不作为当前执行契约。
 
 执行分工见 [双轨执行计划](flash-execution-plan.md)：高推理 agent 负责语义探索和接口收敛，Flash agent 只执行边界已冻结的机械实现、测试和文档任务。
+
+## 重启接续摘要
+
+新 agent 接续时以以下事实为准，不依赖对话历史：
+
+- 当前基线 HEAD：`3b242c5`；工作区应保持干净。
+- 最近完成的代表提交：`8cfe5c3`（`eth_call` transport）、`8468354`（`eth_getLogs` transport）、`42e8198`（`eth_estimateGas` transport）。
+- 当前 29 个 EthClient 导出方法 = 27 个 typed reads + `SendTransaction` + `Close`。
+- 项目 catalog 的约 23 个 RPC 条目不是官方 ethclient 的完整方法数；官方未承诺项见 `method-transport-coverage.md` 的官方方法表。
+- 下一执行游标：先补 `TransactionByHash`、`FeeHistory` 和剩余标量的跨 transport 事实；随后进入 M4 写入/扩展边界；Pending、订阅和公共接口统一审查必须由高推理轨处理。
+- 当前 full-access 基线门禁：`go test ./... -count=1`、`go test ./... -race -count=1`、`go vet ./...` 均通过。
+
+agent 按语义族或垂直切片分配，不按单个方法机械拆分。一个切片通常覆盖一个方法族及其 root/view、typed、transport 和反例测试；只有存在独立高风险语义时才单独拆 agent。
+
+Flash 任务只允许在独立工作区执行已冻结的测试、fixture、覆盖矩阵和文档任务。不得让 Flash 修改公共 API、Pending 语义、订阅协议、aggregator/reference 或 transport seam；若发现这些需求，标记 `needs-review` 并停止。
 
 ## 当前边界
 
@@ -41,9 +56,10 @@ EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，�
 | 缺 plan/typed/绑定闭环 | TransactionSender、TransactionInBlock、PendingCall、Simulate、同步发送 | 至少两个切片，可能需要新方法契约 | 不做薄包装；先补 catalog、admission、typed 和错误模型 |
 | 持续事件模块 | WSS newHeads、logs、transaction receipts | 独立 transport、聚合、生命周期和故障矩阵 | S0 之后至少拆 S1/S2；不与 unary 方法任务并行改共享接口 |
 
-`at_hash_methods` 已验证 EIP-1898 plan 可以直接复用，未引入新的公共返回形态；下一步
-转入 transport 对照测试。Pending 仍先由 R0 冻结 source-local、quorum 和 Decision
-语义。订阅实现暂不进入生产代码阶段。
+`at_hash_methods` 已验证 EIP-1898 plan 可以直接复用，未引入新的公共返回形态；代表性的
+HTTP/WSS transport 切片已覆盖 ChainID、Header、Receipt、BlockReceipts、Call、Logs 和
+EstimateGas。Pending 仍先由 R0 冻结 source-local、quorum 和 Decision 语义；订阅实现
+暂不进入生产代码阶段。
 
 ## 执行任务表
 
@@ -77,7 +93,7 @@ agent 按垂直切片工作；共享的 `eth.go`、`ethclient_view.go`、`CallRe
 | `transport_matrix` | T0 前置调查 + 最小实现 | 已完成 `docs/design/t0-transport-matrix.md`，并以 `typed_transport_matrix_test.go` 覆盖同一 Client 的 native HTTP + raw WSS `ChainID`/`HeaderByNumber`；未改 API 或订阅。HTTP/WSS 连接证据已在 `88b0ea5` 修正，full-access 环境复验通过 |
 | `m3_semantics` | M3 高推理探索 | 已完成 `docs/design/m3-semantics-review.md`；冻结六个 M3 方法的现有事实、可执行回归范围和 R0 未决项；未改公共 API |
 | `receipt_slice` | M3/T0 receipt slice | 已完成 receipt/log/bloom typed binding、root/view null 对照和 TransactionReceipt/BlockReceipts HTTP/WSS 测试；未改公共 API。根包测试已在 full-access 环境复验通过 |
-| `call_logs_slice` | M3/T0 Call/Logs/EstimateGas | 已完成 logs 逆序范围本地拒绝、gas null/overflow 回归；错误的 zero-value call-object 断言未纳入提交。跨 transport 代表方法仍待后续高推理切片 |
+| `call_logs_slice` | M3/T0 Call/Logs/EstimateGas | 已完成 logs 逆序范围本地拒绝、gas null/overflow 回归；错误的 zero-value call-object 断言未纳入提交 |
 | `call_transport_slice` | M3/T0 CallContract | 已完成 `eth_call` replay fixture、call object 字段省略、pinned hash 和 HTTP/WSS 对照；提交 `8cfe5c3` |
 | `logs_transport_slice` | M3/T0 FilterLogs | 已完成 `eth_getLogs` HTTP/WSS 请求形状、null/[]、range/pending 拒绝和 blockHash/range binding；提交 `8468354` |
 | `gas_transport_slice` | M3/T0 EstimateGas | 已完成 `eth_estimateGas` HTTP/WSS 请求对象、pinned ref、Selected lower median、null/overflow/all-error 契约；提交 `42e8198` |
