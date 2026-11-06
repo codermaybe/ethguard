@@ -77,7 +77,7 @@ agent 按垂直切片工作；共享的 `eth.go`、`ethclient_view.go`、`CallRe
 | `transport_matrix` | T0 前置调查 + 最小实现 | 已完成 `docs/design/t0-transport-matrix.md`，并以 `typed_transport_matrix_test.go` 覆盖同一 Client 的 native HTTP + raw WSS `ChainID`/`HeaderByNumber`；未改 API 或订阅。HTTP/WSS 连接证据已在 `88b0ea5` 修正，full-access 环境复验通过 |
 | `m3_semantics` | M3 高推理探索 | 已完成 `docs/design/m3-semantics-review.md`；冻结六个 M3 方法的现有事实、可执行回归范围和 R0 未决项；未改公共 API |
 | `receipt_slice` | M3/T0 receipt slice | 已完成 receipt/log/bloom typed binding、root/view null 对照和 TransactionReceipt/BlockReceipts HTTP/WSS 测试；未改公共 API。根包测试已在 full-access 环境复验通过 |
-| `call_logs_slice` | M3/T0 Call/Logs/EstimateGas | 正在补现有契约的回归证据；不得修改公共返回模型、pending 语义或订阅契约 |
+| `call_logs_slice` | M3/T0 Call/Logs/EstimateGas | 已完成 logs 逆序范围本地拒绝、gas null/overflow 回归；错误的 zero-value call-object 断言未纳入提交。跨 transport 代表方法仍待后续高推理切片 |
 | 后续 agent | M1–M4、T0、S1–S2、R0 | M0/S0 已满足准入；方法 agent 仍不得局部改写公共返回值 |
 
 每个 agent 的交付必须包含：实现或文档 diff、方法特性卡片、正反例测试、实际命令、未决问题和对下一任务的准入条件。不得以“代码能编译”代替方法闭环。
