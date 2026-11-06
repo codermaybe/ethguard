@@ -101,6 +101,15 @@ func (ec *EthClient) BlockByHash(ctx context.Context, hash common.Hash) (*types.
 	return block, err
 }
 
+// HeaderByHash returns the corroborated header with the given hash.
+func (ec *EthClient) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
+	header, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Header, CallResult, error) {
+		h, decision, headerErr := ec.owner.headerAt(opCtx, hash.Hex())
+		return h, CallResult{Decision: decisionOf(decision)}, headerErr
+	})
+	return header, err
+}
+
 // BlockByNumber returns the corroborated block at number, with go-ethereum's
 // negative-tag contract: -1 pending is rejected locally, -2/-3/-4 establish
 // their own level's reference, -5 is earliest (height 0), nil pins the
@@ -110,6 +119,15 @@ func (ec *EthClient) BlockByNumber(ctx context.Context, number *big.Int) (*types
 		return ec.owner.blockByNumberExec(opCtx, number)
 	})
 	return block, err
+}
+
+// HeaderByNumber returns a corroborated header at number. The moving-tag and
+// pending rules match the root Client's HeaderByNumber contract.
+func (ec *EthClient) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+	header, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Header, CallResult, error) {
+		return ec.owner.headerByNumberExec(opCtx, number)
+	})
+	return header, err
 }
 
 // BlockNumber returns the height of the currently corroborated block

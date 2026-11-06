@@ -255,6 +255,71 @@ func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*t
 	}
 }
 
+// HeaderByHash returns the corroborated header with the given hash. It uses
+// the same block admission and request binding as BlockByHash, but asks the
+// provider for a header-only response so transaction and uncle bodies are not
+// required or downloaded.
+func (c *Client) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*types.Header, CallResult, error) {
+		header, decision, err := c.headerAt(opCtx, hash.Hex())
+		return header, CallResult{Decision: decisionOf(decision)}, err
+	})
+}
+
+// HeaderByNumber returns a corroborated header at number. Moving tags are
+// pinned through the same reference establishment as BlockByNumber; pending
+// remains a local rejection because a pending header has no stable typed
+// inclusion reference in EthGuard's current contract.
+func (c *Client) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*types.Header, CallResult, error) {
+		return c.headerByNumberExec(opCtx, number)
+	})
+}
+
+func (c *Client) headerByNumberExec(ctx context.Context, number *big.Int) (*types.Header, CallResult, error) {
+	if number != nil && number.Sign() >= 0 && !number.IsUint64() {
+		return nil, CallResult{}, fmt.Errorf("block number exceeds supported height range: %w", ErrInvalidRequest)
+	}
+	if number == nil {
+		ref, err := c.establishAnchor(ctx, "")
+		if err != nil {
+			return nil, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
+		}
+		header, decision, headerErr := c.headerAt(ctx, ref.Hash)
+		attachEstablishedReference(&decision, ref)
+		return header, CallResult{Decision: decisionOf(decision)}, headerErr
+	}
+	if number.Sign() < 0 {
+		if !number.IsInt64() {
+			return nil, CallResult{}, fmt.Errorf("ethguard: unsupported block number %s: %w", number.String(), ErrInvalidRequest)
+		}
+		switch number.Int64() {
+		case -1:
+			return nil, CallResult{}, fmt.Errorf("ethguard: pending header typed projection is not supported: %w", ErrInvalidRequest)
+		case -2, -3, -4:
+			tags := map[int64]string{-2: "latest", -3: "finalized", -4: "safe"}
+			ref, err := c.establishAnchor(ctx, tags[number.Int64()])
+			if err != nil {
+				return nil, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
+			}
+			header, decision, headerErr := c.headerAt(ctx, ref.Hash)
+			attachEstablishedReference(&decision, ref)
+			return header, CallResult{Decision: decisionOf(decision)}, headerErr
+		case -5:
+			header, decision, headerErr := c.headerAt(ctx, "0x0")
+			return header, CallResult{Decision: decisionOf(decision)}, headerErr
+		default:
+			return nil, CallResult{}, fmt.Errorf("ethguard: unsupported block number %s: %w", number.String(), ErrInvalidRequest)
+		}
+	}
+	blockArg, err := checkedBlockNumArg(number)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	header, decision, headerErr := c.headerAt(ctx, blockArg)
+	return header, CallResult{Decision: decisionOf(decision)}, headerErr
+}
+
 // BlockNumber returns the height of the currently corroborated block reference.
 // It is a derivation over corroborated primitives, not an independent read, and
 // the selection reasoning is stated here rather than left implicit:
@@ -332,6 +397,39 @@ func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, rpc.Dec
 			rpc.ErrMalformedResponse, block.NumberU64(), ref)
 	}
 	return block, decision, nil
+}
+
+// headerAt fetches and strictly compares one header identified explicitly by
+// hash or height. It shares the block plans and admission rules with blockAt,
+// changing only the fullTx wire flag and the typed projection.
+func (c *Client) headerAt(ctx context.Context, ref string) (*types.Header, rpc.Decision, error) {
+	method := methods.MethodGetBlockByNumber
+	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
+		method = methods.MethodGetBlockByHash
+	}
+	decision, err := c.callTyped(ctx, method, ref, false)
+	if err != nil {
+		decision.Value = nil
+		return nil, decision, err
+	}
+	headerBlock, err := typed.DecodeBlockHeaderOnly(decision.Value)
+	if err != nil {
+		return nil, decision, err
+	}
+	header := headerBlock.Header()
+	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
+		if header.Hash() != common.HexToHash(ref) {
+			return nil, decision, fmt.Errorf("%w: header hash %s does not match requested hash %s",
+				rpc.ErrMalformedResponse, header.Hash(), ref)
+		}
+		return header, decision, nil
+	}
+	number, ok := new(big.Int).SetString(strings.TrimPrefix(ref, "0x"), 16)
+	if !ok || header.Number == nil || header.Number.Cmp(number) != 0 {
+		return nil, decision, fmt.Errorf("%w: header height does not match requested reference %s",
+			rpc.ErrMalformedResponse, ref)
+	}
+	return header, decision, nil
 }
 
 // BlockReceipts returns the fleet-corroborated receipts of one block. Numbers
