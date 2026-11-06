@@ -16,6 +16,8 @@ EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，�
 
 本文件是当前唯一的路线与执行记录来源。旧的阶段台账、被取代的接口探索和历史执行细节保留在 Git 历史中，不在本文重复维护。临时探索稿继续放在 `docs/design/tmp/`，不作为当前执行契约。
 
+执行分工见 [双轨执行计划](flash-execution-plan.md)：高推理 agent 负责语义探索和接口收敛，Flash agent 只执行边界已冻结的机械实现、测试和文档任务。
+
 ## 当前边界
 
 本轮先验证方法事实，再决定是否调整公共接口：
@@ -148,5 +150,6 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 - [方法集成卡片](method-integration-cards.md)
 - [WSS raw transport 契约](wss-wire-contract.md)
 - [WSS 订阅探索稿](tmp/wss-sub-design.md)
+- [双轨执行计划](flash-execution-plan.md)
 - [后续传输与收敛分析](tmp/transport-coverage-and-simplification-plan.md)
 - 决策记录：[docs/decisions.md](../decisions.md)
