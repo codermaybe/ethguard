@@ -3,6 +3,7 @@ package ethguard_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"strings"
 	"sync/atomic"
@@ -92,6 +93,155 @@ func TestTypedTransportMatrix(t *testing.T) {
 	for i, peer := range peers {
 		if peer.chainIDRequests.Load() == 0 || peer.headerRequests.Load() == 0 {
 			t.Fatalf("peer %d method counts = chainID:%d header:%d total:%d, want identity + header", i, peer.chainIDRequests.Load(), peer.headerRequests.Load(), peer.requests.Load())
+		}
+	}
+}
+
+// TestTypedTransactionByHashTransportFixture drives the same signed
+// transaction through native HTTP and raw WSS.  The transaction hash and
+// inclusion context are decoded identically on both transports, while the
+// request must carry exactly one hash parameter.
+func TestTypedTransactionByHashTransportFixture(t *testing.T) {
+	rawTx := signedTxFixture(t, true)
+	var wireTx struct {
+		Hash string `json:"hash"`
+	}
+	if err := json.Unmarshal(rawTx, &wireTx); err != nil {
+		t.Fatal(err)
+	}
+	txHash := common.HexToHash(wireTx.Hash)
+	var requests [2]atomic.Value
+	answer := func(slot *atomic.Value) func(sourceWireRequest) string {
+		return func(req sourceWireRequest) string {
+			if req.Method == methods.MethodGetTransactionByHash {
+				slot.Store(req)
+				return `"result":` + string(rawTx)
+			}
+			return `"result":"0x1"`
+		}
+	}
+	peers := []*sourceWirePeer{
+		newSourceWirePeer(t, false, answer(&requests[0])),
+		newSourceWirePeer(t, true, answer(&requests[1])),
+	}
+	client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+		{ID: "http", Endpoint: peers[0].endpoint},
+		{ID: "wss", Endpoint: peers[1].endpoint, Transport: config.TransportWSS},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, pending, result, err := client.TransactionByHash(ctx, txHash)
+	if err != nil || pending || got == nil || got.Hash() != txHash {
+		t.Fatalf("TransactionByHash = tx:%v pending:%v result:%+v err:%v", got, pending, result, err)
+	}
+	if result.Decision == nil || result.Decision.Status != rpc.Corroborated {
+		t.Fatalf("decision = %+v, want corroborated", result.Decision)
+	}
+	for i, slot := range requests {
+		loaded := slot.Load()
+		if loaded == nil {
+			t.Fatalf("transport %d did not receive eth_getTransactionByHash", i)
+		}
+		req := loaded.(sourceWireRequest)
+		if len(req.Params) != 1 || wireString(t, req.Params[0]) != txHash.Hex() {
+			t.Fatalf("transport %d request = %+v, want one hash parameter %q", i, req, txHash.Hex())
+		}
+	}
+}
+
+// TestTypedTransactionByHashTransportNullParity locks the method-specific
+// null rule through both transport paths: a corroborated JSON null is
+// ethereum.NotFound, rather than a malformed transaction or an empty value.
+func TestTypedTransactionByHashTransportNullParity(t *testing.T) {
+	peers := []*sourceWirePeer{
+		newSourceWirePeer(t, false, func(req sourceWireRequest) string {
+			if req.Method == methods.MethodGetTransactionByHash {
+				return `"result":null`
+			}
+			return `"result":"0x1"`
+		}),
+		newSourceWirePeer(t, true, func(req sourceWireRequest) string {
+			if req.Method == methods.MethodGetTransactionByHash {
+				return `"result":null`
+			}
+			return `"result":"0x1"`
+		}),
+	}
+	client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+		{ID: "http", Endpoint: peers[0].endpoint},
+		{ID: "wss", Endpoint: peers[1].endpoint, Transport: config.TransportWSS},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _, result, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	if !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("TransactionByHash null err = %v, want ethereum.NotFound", err)
+	}
+	if result.Decision == nil || result.Decision.Status != rpc.Corroborated {
+		t.Fatalf("decision = %+v, want corroborated null", result.Decision)
+	}
+}
+
+// TestTypedFeeHistoryTransportFixture checks the typed projection and exact
+// parameter order on native HTTP and raw WSS.  An explicit block number keeps
+// this transport seam independent of the moving-head anchor path.
+func TestTypedFeeHistoryTransportFixture(t *testing.T) {
+	var requests [2]atomic.Value
+	const rawHistory = `{"oldestBlock":"0x10","baseFeePerGas":["0x1","0x2","0x3"],"gasUsedRatio":[0.5,0.25],"reward":[["0x3"],["0x4"]]}`
+	answer := func(slot *atomic.Value) func(sourceWireRequest) string {
+		return func(req sourceWireRequest) string {
+			if req.Method == methods.MethodFeeHistory {
+				slot.Store(req)
+				return `"result":` + rawHistory
+			}
+			return `"result":"0x1"`
+		}
+	}
+	peers := []*sourceWirePeer{
+		newSourceWirePeer(t, false, answer(&requests[0])),
+		newSourceWirePeer(t, true, answer(&requests[1])),
+	}
+	client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+		{ID: "http", Endpoint: peers[0].endpoint},
+		{ID: "wss", Endpoint: peers[1].endpoint, Transport: config.TransportWSS},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	history, result, err := client.FeeHistory(ctx, 2, big.NewInt(16), []float64{50})
+	if err != nil || history == nil || history.OldestBlock.Int64() != 16 || len(history.BaseFee) != 3 || len(history.Reward) != 2 || history.Reward[0][0].Int64() != 3 {
+		t.Fatalf("FeeHistory = %+v result=%+v err=%v", history, result, err)
+	}
+	if result.Decision == nil || result.Decision.Status != rpc.Corroborated {
+		t.Fatalf("decision = %+v, want corroborated", result.Decision)
+	}
+	for i, slot := range requests {
+		loaded := slot.Load()
+		if loaded == nil {
+			t.Fatalf("transport %d did not receive eth_feeHistory", i)
+		}
+		req := loaded.(sourceWireRequest)
+		if len(req.Params) != 3 || wireString(t, req.Params[1]) != "0x10" {
+			t.Fatalf("transport %d params = %s, want [count, 0x10, percentiles]", i, req.Params)
+		}
+		var count uint64
+		if err := json.Unmarshal(req.Params[0], &count); err != nil || count != 2 {
+			t.Fatalf("transport %d block count = %s", i, req.Params[0])
+		}
+		var percentiles []float64
+		if err := json.Unmarshal(req.Params[2], &percentiles); err != nil || len(percentiles) != 1 || percentiles[0] != 50 {
+			t.Fatalf("transport %d percentiles = %s", i, req.Params[2])
 		}
 	}
 }
