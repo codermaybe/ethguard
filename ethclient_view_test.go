@@ -2,14 +2,19 @@ package ethguard_test
 
 import (
 	"context"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpctest"
+	"github.com/ethereum/go-ethereum"
 	bind "github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
+	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
 // The interface commitments of the ethclient-shaped view: exactly bind/v2's
@@ -143,5 +148,31 @@ func TestViewReadWithCaptureDeliversMaterial(t *testing.T) {
 	}
 	if !result.IsCorroborated() || result.Uncertain == nil || len(result.Uncertain.Raw) != 3 {
 		t.Fatalf("view capture = %+v, material %+v", result.Decision, result.Uncertain)
+	}
+}
+
+// TestViewReceiptAbsenceMatchesNative pins the root/view projection boundary
+// for both receipt methods: a corroborated JSON null remains ethereum.NotFound
+// and is never converted into a zero receipt or an empty receipt list.
+func TestViewReceiptAbsenceMatchesNative(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	for _, node := range nodes {
+		node.Handle(methods.MethodGetTransactionReceipt, func(rpctest.Call) (any, error) { return nil, nil })
+		node.Handle(methods.MethodGetBlockReceipts, func(rpctest.Call) (any, error) { return nil, nil })
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	hash := common.HexToHash("0x" + strings.Repeat("42", 32))
+
+	rootReceipt, _, rootReceiptErr := client.TransactionReceipt(ctx, hash)
+	viewReceipt, viewReceiptErr := client.EthClient().TransactionReceipt(ctx, hash)
+	if rootReceipt != nil || viewReceipt != nil || !errors.Is(rootReceiptErr, ethereum.NotFound) || !errors.Is(viewReceiptErr, ethereum.NotFound) {
+		t.Fatalf("receipt root/view = %v/%v, errors = %v/%v", rootReceipt, viewReceipt, rootReceiptErr, viewReceiptErr)
+	}
+
+	rootReceipts, _, rootBlockErr := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(hash, false))
+	viewReceipts, viewBlockErr := client.EthClient().BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(hash, false))
+	if rootReceipts != nil || viewReceipts != nil || !errors.Is(rootBlockErr, ethereum.NotFound) || !errors.Is(viewBlockErr, ethereum.NotFound) {
+		t.Fatalf("block receipts root/view = %v/%v, errors = %v/%v", rootReceipts, viewReceipts, rootBlockErr, viewBlockErr)
 	}
 }
