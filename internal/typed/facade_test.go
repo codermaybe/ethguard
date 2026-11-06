@@ -51,6 +51,14 @@ func TestDecodeGasEstimate(t *testing.T) {
 	if _, err := DecodeGasEstimate(json.RawMessage(`"21"`)); !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("decimal spelling must fail malformed, got %v", err)
 	}
+	for _, raw := range []string{"null", " null ", "\tnull\n"} {
+		if gas, err := DecodeGasEstimate(json.RawMessage(raw)); !errors.Is(err, rpc.ErrMalformedResponse) {
+			t.Fatalf("JSON null (%q) must fail malformed, got gas=%d err=%v", raw, gas, err)
+		}
+	}
+	if _, err := DecodeGasEstimate(json.RawMessage(`"0x10000000000000000"`)); !errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("overflow quantity must fail malformed, got %v", err)
+	}
 }
 
 func TestDecodeLogsNullIsMalformedNot(t *testing.T) {

@@ -70,6 +70,13 @@ func TestLogsPendingRangeSendsNoProviderRequest(t *testing.T) {
 	if !errors.Is(err, ethguard.ErrInvalidRequest) || !strings.Contains(err.Error(), "no stable corroboration semantics") {
 		t.Fatalf("FilterLogs mixed pending: got %v, want local pending-range rejection", err)
 	}
+	_, _, err = client.FilterLogs(ctx, ethereum.FilterQuery{
+		FromBlock: big.NewInt(16),
+		ToBlock:   big.NewInt(15),
+	})
+	if !errors.Is(err, ethguard.ErrInvalidRequest) || !strings.Contains(err.Error(), "fromBlock is greater than toBlock") {
+		t.Fatalf("FilterLogs reversed range: got %v, want local ErrInvalidRequest", err)
+	}
 
 	for _, node := range nodes {
 		for _, call := range node.Calls() {
