@@ -2,10 +2,10 @@
 
 [**English**](README.md) · [简体中文](README.zh-CN.md)
 
-> Status: early-stage implementation. The core aggregation model, the
-> plan-driven read path, native HTTP, and the raw WSS call path are in place.
-> Method-shaped compatibility remains a supported subset of `ethclient`, and
-> provider evidence plus implementation quality still need further hardening.
+> Status: early-stage implementation. The compatibility target is the complete
+> `ethclient` method set for the go-ethereum version locked in `go.mod`. The
+> current tree is still converging on that target and must not be advertised as
+> a complete compatibility release.
 
 EthGuard is a multi-source Ethereum JSON-RPC aggregation client. It queries
 multiple upstreams, validates responses against pinned Ethereum execution-apis
@@ -238,10 +238,11 @@ For a runnable example, save that file and run:
 go run ./examples/basic -config ./config.yaml
 ```
 
-`ethguard.Client` is the only supported-method interface, not an optional
-demo. Generic `Call`, the full decision evidence and pool inspection ride the
-same client. The typed methods keep method-shaped compatibility for the
-supported subset; they do not claim the complete `ethclient` interface.
+`ethguard.Client` is the evidence-rich root interface, not an optional demo.
+Generic `Call`, the full decision evidence and pool inspection ride the same
+client. The external compatibility target is the complete `ethclient` method
+set for the go-ethereum version locked in `go.mod`; the current tree remains
+an implementation checkpoint until that matrix is closed.
 
 Deterministic typed reads require the library's dynamically computed
 corroboration threshold: insufficient support returns `ErrConflict`, since
