@@ -32,16 +32,37 @@ func validateLogRequest(req rpc.Request) error {
 		// receives the full filter validation below.
 		return nil
 	}
+	var (
+		fromBlock any
+		toBlock   any
+		hasFrom   bool
+		hasTo     bool
+	)
 	for _, key := range []string{"fromBlock", "toBlock"} {
 		value, present := filter[key]
 		if !present {
 			continue
+		}
+		if key == "fromBlock" {
+			fromBlock, hasFrom = value, true
+		} else {
+			toBlock, hasTo = value, true
 		}
 		if pendingTag(value) {
 			return fmt.Errorf("%w: eth_getLogs %s=pending has no stable corroboration semantics", rpc.ErrInvalidRequest, key)
 		}
 		if err := validateLogBound(key, value); err != nil {
 			return err
+		}
+	}
+	// Numeric ranges have an unambiguous ordering and an inverted range is a
+	// request error. Moving tags (latest/safe/finalized) deliberately stay
+	// incomparable here; the reference preparation phase owns their pinning.
+	if hasFrom && hasTo {
+		from, fromNumeric := logBoundQuantity(fromBlock)
+		to, toNumeric := logBoundQuantity(toBlock)
+		if fromNumeric && toNumeric && from > to {
+			return fmt.Errorf("%w: eth_getLogs fromBlock is greater than toBlock", rpc.ErrInvalidRequest)
 		}
 	}
 	if value, present := filter["blockHash"]; present && pendingTag(value) {
@@ -56,6 +77,29 @@ func validateLogRequest(req rpc.Request) error {
 		}
 	}
 	return nil
+}
+
+// logBoundQuantity extracts a numeric block bound without changing the
+// accepted moving-tag grammar. It is intentionally best-effort: tags are
+// incomparable and continue through the anchor rewrite, while malformed
+// values are reported by validateLogBound.
+func logBoundQuantity(value any) (uint64, bool) {
+	switch typed := value.(type) {
+	case string:
+		if len(typed) < 2 || (typed[:2] != "0x" && typed[:2] != "0X") {
+			return 0, false
+		}
+		quantity, err := rpc.ParseHexQuantity(typed)
+		return quantity, err == nil
+	case json.RawMessage:
+		var decoded any
+		if err := json.Unmarshal(bytes.TrimSpace(typed), &decoded); err != nil {
+			return 0, false
+		}
+		return logBoundQuantity(decoded)
+	default:
+		return 0, false
+	}
 }
 
 // pendingTag reports spellings that mean the pending tag, including case

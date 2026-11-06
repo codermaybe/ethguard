@@ -93,6 +93,9 @@ func DecodeFeeHistory(raw json.RawMessage) (*ethereum.FeeHistory, error) {
 
 // DecodeGasEstimate shapes one corroborated eth_estimateGas quantity.
 func DecodeGasEstimate(raw json.RawMessage) (uint64, error) {
+	if jsonNull(raw) {
+		return 0, wrapMalformed("decode gas estimate: JSON null", nil)
+	}
 	var gas hexutil.Uint64
 	if err := json.Unmarshal(raw, &gas); err != nil {
 		return 0, wrapMalformed("decode gas estimate", err)
