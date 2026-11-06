@@ -64,11 +64,27 @@ func (ec *EthClient) BalanceAt(ctx context.Context, account common.Address, bloc
 	return value, err
 }
 
+// BalanceAtHash returns the corroborated balance of account at blockHash.
+func (ec *EthClient) BalanceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (*big.Int, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*big.Int, CallResult, error) {
+		return ec.owner.balanceAtHashExec(opCtx, account, blockHash)
+	})
+	return value, err
+}
+
 // NonceAt returns the corroborated account nonce of account at blockNumber;
 // nil pins the moving tag to the currently corroborated reference.
 func (ec *EthClient) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
 		return ec.owner.nonceAtExec(opCtx, account, blockNumber)
+	})
+	return value, err
+}
+
+// NonceAtHash returns the corroborated account nonce at blockHash.
+func (ec *EthClient) NonceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (uint64, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
+		return ec.owner.nonceAtHashExec(opCtx, account, blockHash)
 	})
 	return value, err
 }
@@ -82,12 +98,28 @@ func (ec *EthClient) StorageAt(ctx context.Context, account common.Address, key 
 	return value, err
 }
 
+// StorageAtHash returns the corroborated storage value at blockHash.
+func (ec *EthClient) StorageAtHash(ctx context.Context, account common.Address, key common.Hash, blockHash common.Hash) ([]byte, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return ec.owner.storageAtHashExec(opCtx, account, key, blockHash)
+	})
+	return value, err
+}
+
 // CodeAt returns the corroborated contract code of account at blockNumber;
 // nil pins the moving tag to the currently corroborated reference. An
 // externally owned account answers empty code, not an error.
 func (ec *EthClient) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.codeAtExec(opCtx, account, blockNumber)
+	})
+	return value, err
+}
+
+// CodeAtHash returns the corroborated contract code at blockHash.
+func (ec *EthClient) CodeAtHash(ctx context.Context, account common.Address, blockHash common.Hash) ([]byte, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return ec.owner.codeAtHashExec(opCtx, account, blockHash)
 	})
 	return value, err
 }

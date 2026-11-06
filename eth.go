@@ -119,6 +119,23 @@ func (c *Client) balanceAtExec(ctx context.Context, account common.Address, bloc
 	return (*big.Int)(value), CallResult{Decision: decisionOf(decision)}, nil
 }
 
+// BalanceAtHash returns the corroborated balance of account in the state at
+// blockHash. The hash pin is sent as EIP-1898 with requireCanonical=false,
+// matching go-ethereum's BalanceAtHash contract.
+func (c *Client) BalanceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (*big.Int, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*big.Int, CallResult, error) {
+		return c.balanceAtHashExec(opCtx, account, blockHash)
+	})
+}
+
+func (c *Client) balanceAtHashExec(ctx context.Context, account common.Address, blockHash common.Hash) (*big.Int, CallResult, error) {
+	value, decision, err := aggregateInto[hexutil.Big](ctx, c, methods.MethodGetBalance, account.Hex(), hashBlockArg(blockHash))
+	if err != nil {
+		return nil, CallResult{Decision: decisionOf(decision)}, err
+	}
+	return (*big.Int)(value), CallResult{Decision: decisionOf(decision)}, nil
+}
+
 // NonceAt returns the corroborated account nonce of account at blockNumber;
 // nil pins the moving tag to the currently corroborated reference.
 func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, CallResult, error) {
@@ -133,6 +150,22 @@ func (c *Client) nonceAtExec(ctx context.Context, account common.Address, blockN
 		return 0, CallResult{}, err
 	}
 	nonce, decision, err := aggregateInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, account.Hex(), blockArg)
+	if err != nil {
+		return 0, CallResult{Decision: decisionOf(decision)}, err
+	}
+	return uint64(*nonce), CallResult{Decision: decisionOf(decision)}, nil
+}
+
+// NonceAtHash returns the corroborated account nonce in the state at
+// blockHash. The hash pin is sent as EIP-1898 with requireCanonical=false.
+func (c *Client) NonceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (uint64, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
+		return c.nonceAtHashExec(opCtx, account, blockHash)
+	})
+}
+
+func (c *Client) nonceAtHashExec(ctx context.Context, account common.Address, blockHash common.Hash) (uint64, CallResult, error) {
+	nonce, decision, err := aggregateInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, account.Hex(), hashBlockArg(blockHash))
 	if err != nil {
 		return 0, CallResult{Decision: decisionOf(decision)}, err
 	}
@@ -159,6 +192,23 @@ func (c *Client) storageAtExec(ctx context.Context, account common.Address, key 
 	return *value, CallResult{Decision: decisionOf(decision)}, nil
 }
 
+// StorageAtHash returns the corroborated value of key in account's storage
+// at blockHash. The hash pin is sent as EIP-1898 with
+// requireCanonical=false.
+func (c *Client) StorageAtHash(ctx context.Context, account common.Address, key common.Hash, blockHash common.Hash) ([]byte, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return c.storageAtHashExec(opCtx, account, key, blockHash)
+	})
+}
+
+func (c *Client) storageAtHashExec(ctx context.Context, account common.Address, key common.Hash, blockHash common.Hash) ([]byte, CallResult, error) {
+	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetStorageAt, account.Hex(), key.Hex(), hashBlockArg(blockHash))
+	if err != nil {
+		return nil, CallResult{Decision: decisionOf(decision)}, err
+	}
+	return *value, CallResult{Decision: decisionOf(decision)}, nil
+}
+
 // CodeAt returns the corroborated contract code of account at blockNumber; nil
 // pins the moving tag to the currently corroborated reference. An externally
 // owned account answers empty code, not an error.
@@ -178,6 +228,32 @@ func (c *Client) codeAtExec(ctx context.Context, account common.Address, blockNu
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
 	return *code, CallResult{Decision: decisionOf(decision)}, nil
+}
+
+// CodeAtHash returns the corroborated contract code of account at blockHash.
+// The hash pin is sent as EIP-1898 with requireCanonical=false.
+func (c *Client) CodeAtHash(ctx context.Context, account common.Address, blockHash common.Hash) ([]byte, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return c.codeAtHashExec(opCtx, account, blockHash)
+	})
+}
+
+func (c *Client) codeAtHashExec(ctx context.Context, account common.Address, blockHash common.Hash) ([]byte, CallResult, error) {
+	code, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetCode, account.Hex(), hashBlockArg(blockHash))
+	if err != nil {
+		return nil, CallResult{Decision: decisionOf(decision)}, err
+	}
+	return *code, CallResult{Decision: decisionOf(decision)}, nil
+}
+
+// hashBlockArg is the explicit EIP-1898 form used by the hash-specific
+// go-ethereum methods. Keeping the false flag present is part of the wire
+// contract: providers must see {blockHash, requireCanonical:false}.
+func hashBlockArg(blockHash common.Hash) map[string]any {
+	return map[string]any{
+		"blockHash":        blockHash.Hex(),
+		"requireCanonical": false,
+	}
 }
 
 // BlockByHash returns the corroborated block with the given hash.

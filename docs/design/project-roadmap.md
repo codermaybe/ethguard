@@ -27,6 +27,22 @@ EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，�
 - WSS 先完成请求/应答覆盖，再冻结订阅契约；订阅不得直接复用单次 `ResultCapture`；
 - HTTP 普通请求不自动变成订阅；没有明确订阅契约时，方法应标记为不支持或待实现。
 
+## 工程量评估与当前调度
+
+剩余工作没有超出路线预期，但必须按语义复杂度分层调度：
+
+| 类别 | 代表任务 | 估计工程量 | 调度判断 |
+| --- | --- | --- | --- |
+| 已有 plan/typed，只缺 facade 与回归 | `HeaderBy*`、四个 `*AtHash` | 一个垂直切片 | 已按同一 execution 接入；后续只补跨 transport 事实，不改公共结果模型 |
+| 已有方法，只缺跨 transport 事实 | ChainID、Balance、Block/Header、Receipt、Call、FeeHistory | 一个测试切片，随后按方法族扩展 | 不先改 transport seam；用同 fixture 对照 HTTP/WSS/gethcompat |
+| 有 plan 但本地状态语义未冻结 | PendingBalance/Storage/Code/Nonce | 一个设计复核加一个实现切片 | 先由 R0 冻结 source-local、quorum、Decision，再接 facade |
+| 缺 plan/typed/绑定闭环 | TransactionSender、TransactionInBlock、PendingCall、Simulate、同步发送 | 至少两个切片，可能需要新方法契约 | 不做薄包装；先补 catalog、admission、typed 和错误模型 |
+| 持续事件模块 | WSS newHeads、logs、transaction receipts | 独立 transport、聚合、生命周期和故障矩阵 | S0 之后至少拆 S1/S2；不与 unary 方法任务并行改共享接口 |
+
+`at_hash_methods` 已验证 EIP-1898 plan 可以直接复用，未引入新的公共返回形态；下一步
+转入 transport 对照测试。Pending 仍先由 R0 冻结 source-local、quorum 和 Decision
+语义。订阅实现暂不进入生产代码阶段。
+
 ## 执行任务表
 
 每个任务完成后必须更新本表的状态、证据位置、实际命令和遗留问题。任务文件、生产文件和测试文件使用职责命名，不使用阶段编号命名。
@@ -34,8 +50,8 @@ EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，�
 | ID | 任务 | 交付物 | 前置 | 退出条件 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | M0 | 方法与传输事实清单 | `docs/design/method-transport-coverage.md`；逐项列出官方版本方法、catalog/ReadPlan、根切面、EthClient、HTTP、WSS request/response、订阅、不支持项和测试缺口 | 无 | 官方方法与项目方法无漏项；每项能指向实现和测试；未知方法不会静默绕过 catalog | 完成（2026-11-06；method_inventory） |
-| M1 | 标量、费用和节点状态 | 方法卡片、根/视图调用、HTTP/WSS fixture、CallResult 状态与错误分层测试 | M0 | lower-median/selected/corroborated 语义明确；null、空值、同步状态和本地错误有反例 | 前置复核完成；pending/hash 方法待 R0 冻结 |
-| M2 | 区块与 reference | block、BlockNumber、EIP-1898、moving tag、pending-local、full/header-only、reference 附带证据的测试矩阵 | M0 | hash/number/tag 语义一致；业务失败不丢 reference；跨传输请求和结果一致 | 首个切片完成（2026-11-06；block_methods）：HeaderByHash/HeaderByNumber；其余 reference/AtHash 仍待完成 |
+| M1 | 标量、费用和节点状态 | 方法卡片、根/视图调用、HTTP/WSS fixture、CallResult 状态与错误分层测试 | M0 | lower-median/selected/corroborated 语义明确；null、空值、同步状态和本地错误有反例 | AtHash 首个切片完成（2026-11-07）；pending 仍待 R0 冻结 |
+| M2 | 区块与 reference | block、BlockNumber、EIP-1898、moving tag、pending-local、full/header-only、reference 附带证据的测试矩阵 | M0 | hash/number/tag 语义一致；业务失败不丢 reference；跨传输请求和结果一致 | Header + AtHash 切片完成；其余 reference/pending 与跨 transport 事实待补 |
 | M3 | 交易、收据与日志 | Transaction、Receipt、BlockReceipts、Call、EstimateGas、FilterLogs 的方法卡片和测试 | M0 | null/NotFound、pending、receipt bloom、log binding、revert、范围边界和 typed 错误分层闭合 | 待开始 |
 | M4 | 写入与扩展方法 | SendTransaction、SendRawTransaction、CreateAccessList 及视图隐藏边界 | M0 | 广播接受与 mined 明确分开；未知写方法拒绝；raw 与 typed 写入材料一致 | 待开始 |
 | T0 | HTTP/WSS request-response 覆盖 | 同一 fixture 下的 HTTP、native WSS、显式 gethcompat 对照结果 | M1–M4 按方法族推进 | 值、错误、Decision、reference、材料和 Close 语义一致；不新增 transport-specific 业务分支 | 待开始 |
@@ -55,6 +71,7 @@ agent 按垂直切片工作；共享的 `eth.go`、`ethclient_view.go`、`CallRe
 | `wss_contract` | S0 | 已完成 `subscription-contract.md`；确认订阅必须独立于 unary `CallResult` 和 raw-call Transport |
 | `block_methods` | M2 首个切片 | 已接入 HeaderByHash/HeaderByNumber，补 header-only 请求、root/view 对照和 pending 本地拒绝；未改 CallResult/订阅 |
 | `state_methods` | M1/M3 前置复核 | 已确认 `*AtHash` 可复用 EIP-1898，但 pending 语义和 public facade 仍待 R0；未改生产代码 |
+| `at_hash_methods` | M1/M2 首个切片 | 已接入四个 `*AtHash` root/view 方法；验证 EIP-1898 hash object、冲突、缺块和方法集合；未改公共结果模型 |
 | 后续 agent | M1–M4、T0、S1–S2、R0 | M0/S0 已满足准入；方法 agent 仍不得局部改写公共返回值 |
 
 每个 agent 的交付必须包含：实现或文档 diff、方法特性卡片、正反例测试、实际命令、未决问题和对下一任务的准入条件。不得以“代码能编译”代替方法闭环。
