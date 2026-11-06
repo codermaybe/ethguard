@@ -62,6 +62,8 @@ func TestDifferentialEnvelopeParity(t *testing.T) {
 		{name: "no-args-omits-params", method: "eth_chainId", want: `{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}`},
 		{name: "empty-non-nil-slice-sends-empty-array", method: "eth_chainId", args: []any{}, want: `{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}`},
 		{name: "args-become-ordered-array", method: "eth_getBalance", args: []any{"0x1", "latest"}, want: `{"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x1","latest"]}`},
+		{name: "transaction-by-hash-parameter", method: "eth_getTransactionByHash", args: []any{"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, want: `{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionByHash","params":["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}`},
+		{name: "fee-history-ordered-parameters", method: "eth_feeHistory", args: []any{uint64(2), "0x10", []float64{50}}, want: `{"jsonrpc":"2.0","id":1,"method":"eth_feeHistory","params":[2,"0x10",[50]]}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

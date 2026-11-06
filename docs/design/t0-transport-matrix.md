@@ -41,12 +41,19 @@ should depend on this quirk.
 
 | Method | Representative call and wire params | Reusable fixture | Gap / estimate |
 | --- | --- | --- | --- |
-| `ChainID` (`eth_chainId`) | no params (`{method,id}`; an explicitly empty slice is `params:[]`) | `rpctest.Node` default chain ID; `differential_test.go` envelope case | Add one cross-transport smoke assertion of no-params shape and result; **S** |
-| `BalanceAt` (`eth_getBalance`) | `[address, blockRef]`; moving `nil` first anchors with `eth_getBlockByNumber`, then sends anchor hash; pending sends `"pending"`; hash pin may send EIP-1898 object | `typed_state_wire_test.go` (`tagHead`, `businessCalls`, `wireString`/`wireObject`) | Repeat one pinned and one pending request through WSS peer; **S/M** (anchor helper) |
-| `HeaderByNumber` (`eth_getBlockByNumber`) | `[blockRef, false]`; moving tags are anchored and rewritten to hash; pending is rejected locally | `typed_block_headers_test.go`, `typed_block_number_test.go` | WSS only needs frame/params assertion; no new header fixture; **S** |
-| `TransactionReceipt` (`eth_getTransactionReceipt`) | `[txHash]`, immutable (no anchor) | `typed_reads_test.go` receipt fixture and `typed_receipt_canonical_test.go` raw receipt builders | Add native-vs-geth-vs-WSS raw result parity, including `null`/NotFound; **S** |
-| `CallContract` (`eth_call`) | `[callObject, blockRef]`; object is go-ethereum call fields; moving `nil` anchors, pending is allowed for raw call; revert error data presence is significant | `typed_call_boundary_test.go`, `typed_call_revert_4e_test.go`, `typed_state_wire_test.go` `callMsgTo` | Verify exact object field omission and frame payload; preserve revert data states; **M** |
-| `FeeHistory` (`eth_feeHistory`) | `[blockCount, lastBlockRef, rewardPercentiles]`; `nil` maps to `"latest"`; hash newest block is rejected locally | `typed_state_wire_test.go` local hash rejection; `rpc/methods/eth_feehistory_test.go` admission fixtures | Add one valid typed projection and one invalid-hash local rejection across native/WSS; **M** |
+| `ChainID` (`eth_chainId`) | no params (`{method,id}`; an explicitly empty slice is `params:[]`) | `rpctest.Node` default chain ID; `differential_test.go` envelope case | Covered by `typed_transport_matrix_test.go`; **done** |
+| `BalanceAt` (`eth_getBalance`) | `[address, blockRef]`; moving `nil` first anchors with `eth_getBlockByNumber`, then sends anchor hash; pending sends `"pending"`; hash pin may send EIP-1898 object | `typed_state_wire_test.go` (`tagHead`, `businessCalls`, `wireString`/`wireObject`) | Hash-pinned HTTP/WSS request shape covered; pending remains semantic audit input |
+| `HeaderByNumber` (`eth_getBlockByNumber`) | `[blockRef, false]`; moving tags are anchored and rewritten to hash; pending is rejected locally | `typed_block_headers_test.go`, `typed_block_number_test.go` | Covered by existing header transport slice; **done** |
+| `TransactionReceipt` (`eth_getTransactionReceipt`) | `[txHash]`, immutable (no anchor) | `typed_reads_test.go` receipt fixture and `typed_receipt_canonical_test.go` raw receipt builders | Covered by receipt transport slice, including `null`/NotFound; **done** |
+| `CallContract` (`eth_call`) | `[callObject, blockRef]`; object is go-ethereum call fields; moving `nil` anchors, pending is allowed for raw call; revert error data presence is significant | `typed_call_boundary_test.go`, `typed_call_revert_4e_test.go`, `typed_state_wire_test.go` `callMsgTo` | Covered by call transport slice; **done** |
+| `FeeHistory` (`eth_feeHistory`) | `[blockCount, lastBlockRef, rewardPercentiles]`; `nil` maps to `"latest"`; hash newest block is rejected locally | `typed_state_wire_test.go` local hash rejection; `rpc/methods/eth_feehistory_test.go` admission fixtures | Valid typed projection and HTTP/WSS request shape covered; **done** |
+
+The scalar transport slice in `typed_scalar_transport_test.go` now covers
+`net_version`, hash-pinned `eth_getBalance`, `eth_getTransactionCount`,
+`eth_getStorageAt`, and `eth_getCode`, plus selected `eth_gasPrice` and
+`eth_blobBaseFee`, through native HTTP and raw WSS. It asserts the EIP-1898
+object shape for each hash-pinned state request and checks the expected
+`Corroborated` versus `Selected` decision status.
 
 ## Planned test shape
 
@@ -63,9 +70,10 @@ shared request IDs, and parity of JSON request bytes.
 
 `typed_transport_matrix_test.go` now drives one typed `Client` through native
 HTTP and raw WSS together, and checks `ChainID` plus `HeaderByNumber` reach both
-sources. This closes the first transport-to-execution seam without changing
-method policy, anchoring, quorum, AtHash behavior, or adding subscriptions. The
-remaining work is to extend the same harness to the other four representative
-methods and add explicit gethcompat envelope assertions; estimate remains
-medium because the fixture plumbing is reusable.
+sources. `typed_scalar_transport_test.go` extends that seam to the frozen
+hash-pinned state and scalar fee methods without changing method policy,
+anchoring, quorum, AtHash behavior, or adding subscriptions. The same matrix
+now covers `TransactionByHash`, `FeeHistory`, and pending-local
+`CreateAccessList` through native HTTP and raw WSS; remaining representative
+gaps are explicit gethcompat method-level assertions.
 
