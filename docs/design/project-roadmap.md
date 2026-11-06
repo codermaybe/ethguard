@@ -75,7 +75,7 @@ EstimateGas。Pending 仍先由 R0 冻结 source-local、quorum 和 Decision 语
 | T0 | HTTP/WSS request-response 覆盖 | 同一 fixture 下的 HTTP、native WSS、显式 gethcompat 对照结果 | M1–M4 按方法族推进 | 值、错误、Decision、reference、材料和 Close 语义一致；不新增 transport-specific 业务分支 | ChainID/Header/Receipt/BlockReceipts/Call/Logs/EstimateGas、标量状态、FeeHistory、TransactionByHash、CreateAccessList 和三方法 gethcompat differential 已完成；provider 事实与 typed facade 集成仍待 F0 |
 | S0 | 订阅契约冻结 | `docs/design/subscription-contract.md`；新头、logs、reorg、quorum、source snapshot、补查、背压、重连、取消和异步错误契约 | M0、T0 初步结果 | 明确事件身份、法定人数、单源政策、事件交付和 `Subscription.Err()`；不把未验证推送标为 Corroborated | 契约候选冻结（2026-11-07；Strict 默认、显式 SingleSourceSelected、generation、队列溢出和 Err/Close 顺序已写入）；公开构造函数细节留给 F0 |
 | S1 | WSS 订阅 transport seam | 订阅能力接口、source 生命周期、请求 ID 与通知隔离、关闭和取消测试 | S0 | 不影响现有 raw-call Transport；连接断裂、Unsubscribe、owner Close 和 goroutine 退出有界 | 最小内部 notification seam 完成（2026-11-07；`OpenNotificationStream`、bounded queue、generation/source identity、异步错误和 race 测试）；尚未接入业务聚合 |
-| S2 | 订阅聚合与补查 | newHeads/logs 多源聚合、软超时 Pull、隔离、reorg、重复和缺口处理 | S0、S1 | 不静默丢事件；Pull 只使用同一 source 的已配置能力；事件 source snapshot 和 quorum 可重放 | 待开始 |
+| S2 | 订阅聚合与补查 | newHeads/logs 多源聚合、软超时 Pull、隔离、reorg、重复和缺口处理 | S0、S1 | 不静默丢事件；Pull 只使用同一 source 的已配置能力；事件 source snapshot 和 quorum 可重放 | 内部聚合状态机完成（2026-11-07；`internal/subscription`、`s2-event-aggregator-review.md`）；尚未接入 WSS source session 或公共订阅 facade |
 | R0 | 返回值与接口统一审查 | `return-value-design.md` 更新；单次调用与异步事件的最小结果类型对照 | M1–M4、S0 | 业务值、业务 error、网络裁决、证据材料四者职责清楚；不引入无必要的泛型包装；订阅不强塞 CallResult | unary 结果与现有 API 审查完成（2026-11-07；`r0-interface-review.md`）；订阅签名、单源策略、reorg/backpressure/reconnect 仍 needs-review |
 | F0 | 总体验收与决策收敛 | 完整方法矩阵、订阅矩阵、未支持项、性能数据、接口变更建议和最终 ADR | M1–R0 | 所有声明能力有可运行证据；未观察 provider 事实单独标记；公共接口只在此任务统一调整 | 待开始 |
 
@@ -106,6 +106,7 @@ agent 按垂直切片工作；共享的 `eth.go`、`ethclient_view.go`、`CallRe
 | `m3_cost_audit` | M3/F0 成本与预算审计 | 已完成 `m3-cost-audit.md`；核对大数组、材料预算、取消/Close 和 provider `not_observed` 边界 |
 | `r0_interface_review` | R0 返回值与接口审查 | 已完成 `r0-interface-review.md`；确认 unary API 保持不变，订阅独立事件类型和候选签名仍需冻结 |
 | `s1_wss_notification_seam` | S1 WSS notification seam | 已完成 `internal/transport/wss` 独立 notification stream、request/notification demux、backpressure、取消/Close 和 race 回归；未改 unary Transport 接口或公共 API |
+| `s2_event_aggregator` | S2 内部事件聚合 | 已完成 `internal/subscription`：canonical newHeads/logs key、固定 quorum、Strict/Selected、generation、timeout、reorg/removed、Pull 同源校验和 bounded lifecycle；未接入公共 facade |
 | 后续 agent | M1–M4、T0、S1–S2、R0 | M0/S0 已满足准入；方法 agent 仍不得局部改写公共返回值 |
 
 每个 agent 的交付必须包含：实现或文档 diff、方法特性卡片、正反例测试、实际命令、未决问题和对下一任务的准入条件。不得以“代码能编译”代替方法闭环。
