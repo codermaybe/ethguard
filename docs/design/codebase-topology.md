@@ -246,10 +246,8 @@ flowchart TD
 
 ```text
 internal/verification/
-├── contracts/     # 方法契约、准入、编码、typed 一致性
-├── scenarios/     # 决策场景与字段生命周期矩阵
-├── integration/   # root facade、pool、aggregator 联合
-└── replay/        # capture/golden 离线回放
+├── facade/        # root Client 与 EthClient 的黑盒验证
+└── integration/   # root facade、pool、aggregator 联合验证
 ```
 
 生产 package 内只保留：
@@ -261,8 +259,8 @@ internal/verification/
 其他验证通过公开 Interface 进入 `internal/verification`。这样目录可以区分“实现拥有者”
 和“验证拥有者”，测试规模增长时不会淹没生产代码。
 
-长期目录名使用语义名称，例如 `contracts`、`scenarios`、`integration`、`replay`；
-任务编号（如 T09）只出现在测试名称、提交和历史记录中，不作为永久拓扑名称。
+如果未来形成独立的 contracts、scenarios 或 replay Module，再按职责新增目录；不为
+阶段编号创建永久目录。任务编号（如 T09）只出现在测试名称、提交和历史记录中。
 
 ## 7. 稳定 seam 与运行时管线
 
