@@ -61,7 +61,8 @@ ethguard/                   # 公共 Client 外观
 │       ├── vectors/        # 从 tests/*.io 提取的符合性向量
 │       └── README.md       # 来源、升级流程和审计指南
 │   ├── verification/       # 面向公开 seam 的跨模块验证
-│   │   └── integration/    # 首阶段集成验证；后续按 contracts/scenarios/replay 细分
+│   │   ├── facade/         # root Client/EthClient 黑盒验证
+│   │   └── integration/    # 跨模块集成验证
 │   ├── transport/          # Transport Port 适配器和契约测试
 │   │   ├── http/            # 项目自有 native HTTP 适配器
 │   │   ├── wss/             # 项目自有 raw WebSocket 调用适配器
@@ -296,9 +297,9 @@ data，不等于真实 provider 普遍兼容性已验证。同一 backend 的 HT
 raw WSS 是 EthGuard 专用的调用 transport，不是通用 WebSocket 客户端。订阅、后台
 重连、主动 keepalive 和内部队列不在当前范围内，需要独立的运维证据后再推进。
 
-参见[架构记录](docs/design/architecture-record.md)、[架构说明](docs/architecture.md)、
-[架构恢复记忆](docs/design/architecture-recovery.md)、[代码库拓扑](docs/design/codebase-topology.md)、[聚合概览(历史综述)](docs/design/rpc-aggregation.md)、[proxyd 对比](docs/design/proxyd-comparison.md)
-和[威胁模型](docs/threat-model.md)，了解安全属性和方法边界。
+参见[架构入口](docs/architecture.md)、[代码库拓扑](docs/design/codebase-topology.md)、
+[go-ethereum 兼容政策](docs/design/go-ethereum-compatibility-policy.md)和[威胁模型](docs/threat-model.md)，
+了解安全属性和方法边界。
 
 所有来源都被视为相同的投票成员。EthGuard 不建模 provider、区域、客户端家族或权重
 带来的独立性；匹配结果是 provider 故障容忍证据，而不是 Ethereum 链共识、规范链归属

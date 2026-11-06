@@ -2,7 +2,7 @@
 
 状态：方法验证标准（2026-09-24；部分实现，按 T06 收敛）。T06.0 不变量已于 2026-09-25 冻结，见第 1.1 节。
 适用范围：`rpc/methods` 下所有已注册方法（RegisteredMethod）及其后续增改  
-关联基准：`docs/design/project-roadmap.md`、`docs/design/moving-tag-matrix.md`、`docs/design/method-contracts.md`、`docs/design/architecture-record.md`、`docs/decisions.md`（0020、0023、0024、0028、0038、0039、0040）
+关联基准：`docs/design/project-roadmap.md`、`docs/design/moving-tag-matrix.md`、`docs/design/method-contracts.md`、`docs/design/codebase-topology.md`、`docs/decisions.md`（0020、0023、0024、0028、0038、0039、0040）
 
 ---
 
@@ -23,7 +23,7 @@ EthGuard 是多源 Ethereum Execution RPC 客户端，核心价值是在异构�
 目标语义：
 
 1. 决策 0039 规则 4e 采用方案 (i)。`eth_call` 的 revert 行为达到门槛即可保持 `Corroborated`；具体 `data` 达不到门槛时扣下该字段。原始字节只经 Uncertain 或审计证据可见。generic Strict 保持单 key 语义。
-2. 删减式投影只能删除未佐证字段，不能新增、替换或跨来源拼装。`Decision.Value` 允许这种方法契约声明的投影。T08 完成后，已注册方法规则的 result 列全部为 `canonical`：编码器先于分簇检查，成功结果写规范 Value，窄键方法保留自己的 normalizer key。见 `architecture-record.md`、`rpc.Decision` 与各方法 encoder。
+2. 删减式投影只能删除未佐证字段，不能新增、替换或跨来源拼装。`Decision.Value` 允许这种方法契约声明的投影。T08 完成后，已注册方法规则的 result 列全部为 `canonical`：编码器先于分簇检查，成功结果写规范 Value，窄键方法保留自己的 normalizer key。见 `codebase-topology.md`、`rpc.Decision` 与各方法 encoder。
 3. dimension evidence 至少区分每个维度的 `Support`、`Reject`、`Abstain`。弃权源留在投票分母，不进入该维度的 Reject，也不用其他来源的值补全。
 4. golden 记录删减字段。样本回放保持离线；`expect.json` 是数据，不是测试语言（决策 0040）。
 5. 不引入 `MethodContract` DSL、代码生成或通用 `suite.RunAll`。

@@ -2,11 +2,11 @@
 
 状态：增量收敛中的方法语义契约；以现有实现为事实基准，“待明确边界”是待裁决问题，不是已接受决定。
 
-节奏：按 [rpc-governance-discussion.md](rpc-governance-discussion.md) 第 5 节商定（2026-09-07）：每个方法回答其第 2 节的六问完成事实整理，关键语义决定并通过验证后闭环，不要求整表齐动；第 6 节场景随契约推进推演。
+每个方法回答第 2 节的六问完成事实整理，关键语义决定并通过验证后闭环；不要求整表齐动。
 
-定位：本文件管方法语义（共同参考、归一化、结果分类、失败语义）。请求形态可移植性见 [wire-forms.md](wire-forms.md)；裁决机制与既定决策见 [rpc-aggregation.md](rpc-aggregation.md) 与 [../decisions.md](../decisions.md)。
+定位：本文件管方法语义（共同参考、归一化、结果分类、失败语义）。请求形态可移植性见 [method-transport-coverage.md](method-transport-coverage.md)；裁决机制与既定决策见 [../decisions.md](../decisions.md)。
 
-目录职责和聚合/清洗边界见 [architecture-record.md](architecture-record.md)。本文件只记录方法契约，不再承担开发任务清单。0.x 节标题里的“实现待完成”是 2026-09-07 的快照措辞，不再逐节维护——实现状态以 [../decisions.md](../decisions.md) 的 Status 行为准。
+目录职责和聚合/清洗边界见 [codebase-topology.md](codebase-topology.md)。本文件只记录方法契约，不再承担开发任务清单。0.x 节标题里的“实现待完成”是历史快照措辞，不再逐节维护——实现状态以 [../decisions.md](../decisions.md) 的 Status 行为准。
 
 ## 0. Strict 共同裁决语义
 
@@ -285,10 +285,10 @@ block, err := client.BlockByNumber(callCtx, number)
 | --- | --- |
 | 1 结果类别 | 确定性事实：链常量的 legacy 十进制拼写。net ID 与 chain ID 是不同字段（分叉链可同 net ID 异 chain ID），语义不可互换 |
 | 2 共同参考 | 无区块参考。pool 身份预检走 eth_chainId，与 net_version 裁决相互独立 |
-| 3 归一化 | 十进制字符串 → 数值字符串，独立编码器、不与 hex quantity 共享归一化（[rpc/methods/net_version.go](../../rpc/methods/net_version.go)）；null 或非数字 = 无效 |
+| 3 归一化 | 十进制字符串 → 数值字符串，独立编码器、不与 hex quantity 共享归一化（见 `rpc/methods` catalog）；null 或非数字 = 无效 |
 | 4 结果分类 | 无方法偏差，见第 0 节 |
 | 5 失败语义 | 同 eth_chainId：跨源不一致 = ErrConflict |
-| 6 成本 | 单次 fan-out；无参数；请求形态已由 census 验证（[wire-forms.md](wire-forms.md)） |
+| 6 成本 | 单次 fan-out；无参数；请求形态见 [method-transport-coverage.md](method-transport-coverage.md) |
 
 待明确边界：无重大项。net ID 与 chain ID 的语义差异由调用方自行承担——类型化 NetVersion 只返回数值，不解释两者关系。
 
@@ -297,7 +297,7 @@ block, err := client.BlockByNumber(callCtx, number)
 | 六问 | 契约 |
 | --- | --- |
 | 1 结果类别 | 确定性事实：hash 寻址的不可变内容 |
-| 2 共同参考 | 请求参数即参考：hash 定死内容，无锚定、无参数改写；fullTx 布尔透传（[rpc/methods/eth_getblockbyhash.go](../../rpc/methods/eth_getblockbyhash.go)） |
+| 2 共同参考 | 请求参数即参考：hash 定死内容，无锚定、无参数改写；fullTx 布尔透传（见 `rpc/methods/block.go`） |
 | 3 归一化 | 整对象 canonical：递归小写 0x 串、键序擦除，其余逐字比较——良性编码差异全部抹除后仍不同的，就是异见（normalizeCanonicalObject）。JSON null 归一为 "null"，是可比较值 |
 | 4 结果分类 | 第 0 节之外：null 与对象是两个不同值。null 簇满足第 0 节佐证条件后，类型化解码映射 ethereum.NotFound（[call.go](../../call.go)）；默认 Strict 在 null 与对象并存时返回 ErrConflict，显式 quorum 按既有门槛接受获胜簇；语义见第 0.4 节 |
 | 5 失败语义 | 重组不影响本答案（按 hash 寻址的内容不可变）；来源答 null 而其他源有对象时，默认 Strict 冲突，显式 quorum 按门槛裁决；不从 null 推断是否裁剪。类型化路径另有逐响应完整性：wire hash 必须等于计算的 header hash、uncles 一致性、请求-应答绑定（block.Hash() == 请求 hash），违反 = ErrMalformedResponse（[call.go](../../call.go)） |

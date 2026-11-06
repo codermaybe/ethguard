@@ -50,7 +50,7 @@ historical rows below, and do not upgrade any row's evidence level.
 - **Observation evidence**: `soak <date>` = accepted by the healthy subset of
   one historical local soak fleet on one day (request-shape acceptance only,
   never a compatibility guarantee); `assumed` / `unverified` = no real-provider
-  sample yet, see `wire-forms.md`. Object-form captures from 2026-09-23 live in
+  sample yet; object-form captures from 2026-09-23 live in
   `internal/rpcsample/testdata/eip1898-object/2026-09-23`. Endpoints are
   redacted. Those records are replayed offline and are shape evidence only,
   not a compatibility guarantee. `eth_getLogs` pending remains a local
