@@ -11,7 +11,7 @@
 - T0 已覆盖 native HTTP、raw WSS 和显式 gethcompat differential；业务层没有新增 transport-specific 分支。
 - S0 契约已冻结 Strict 默认、显式 `SingleSourceSelected`、source snapshot/generation、事件身份、队列溢出终止和 Err/Close 顺序。
 - S1 已实现独立 `OpenNotificationStream` seam，隔离 unary response 与 notification，覆盖 source identity/generation、异步错误、队列背压、取消、断连、Unsubscribe、owner Close 和 race。
-- S2 已实现与公共 API 解耦的 `internal/subscription` 状态机，覆盖固定 snapshot/quorum、source-local 去重、Strict/SingleSourceSelected、超时隔离、reorg/removed key、同源 Pull 校验、backpressure、Close/Unsubscribe 和 race；removed 事件与原已交付日志的绑定仍需在 F0 复核后再关闭。
+- S2 已实现与公共 API 解耦的 `internal/subscription` 状态机，覆盖固定 snapshot/quorum、source-local 去重、Strict/SingleSourceSelected、超时隔离、reorg/removed key、同源 Pull 校验、backpressure、Close/Unsubscribe 和 race；canonical removed key 已通过与原已交付日志绑定的撤销测试。
 
 ## 尚未关闭的范围
 
