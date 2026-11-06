@@ -1,11 +1,16 @@
 package ethguard_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	ethereum "github.com/ethereum/go-ethereum"
+
+	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -138,7 +143,7 @@ func t09RunScenarioRow(t *testing.T, mc t09MethodCase, row t09Row) {
 	if params == nil {
 		params = mc.Params
 	}
-	decision, err := fleet.client.Call(fleet.context(t), mc.Method, params...)
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), mc.Method, params...))
 	if row.Want.NoProvider && fleet.totalCalls() != 0 {
 		t.Fatalf("%s/%s: %d provider calls, want 0", mc.Method, row.Scenario, fleet.totalCalls())
 	}
@@ -219,20 +224,31 @@ func t09AssertWant(t *testing.T, mc t09MethodCase, row t09Row, decision rpc.Deci
 		t.Fatalf("%s: prepared request present on a pre-dispatch rejection", label)
 	}
 	if want.PreparedPending && !t09HasPendingParam(decision.Prepared.Params) {
-		t.Fatalf("%s: prepared params %v lost the pending tag", label, decision.Prepared.Params)
+		t.Fatalf("%s: prepared params %s lost the pending tag", label, decision.Prepared.Params)
 	}
 	if want.ValueFrom >= 0 {
-		if len(decision.Value) == 0 {
-			t.Fatalf("%s: success Value is empty", label)
+		if err != nil && !errors.Is(err, ethereum.NotFound) {
+			// A main-aggregation failure clears the public value (decision
+			// 0066); the surviving cluster stays visible through the source
+			// tables asserted above. A corroborated-absence answer (NotFound
+			// over a JSON null) keeps its value.
+			if len(decision.Value) != 0 {
+				t.Fatalf("%s: failed aggregation carries %s", label, decision.Value)
+			}
+		} else {
+			if len(decision.Value) == 0 {
+				t.Fatalf("%s: success Value is empty", label)
+			}
+			t09AssertDecodedValue(t, label, t09FieldRowFor(t, mc.Method).decode, row.Answers[want.ValueFrom], decision.Value)
 		}
-		t09AssertDecodedValue(t, label, t09FieldRowFor(t, mc.Method).decode, row.Answers[want.ValueFrom], decision.Value)
 		if want.ValueExact != "" && string(decision.Value) != want.ValueExact {
 			t.Fatalf("%s: Value = %s, want exact %s", label, decision.Value, want.ValueExact)
 		}
-	} else if len(decision.Value) != 0 {
-		// Conflict rows name ValueFrom so their retained cluster value is
-		// checked above. Every other row without a Value expectation must not
-		// smuggle a stale success value through an error path.
+	} else if len(decision.Value) != 0 && err == nil {
+		// Rows without a Value expectation must not smuggle a stale success
+		// value through a success path. Failed aggregations clear the public
+		// value (decision 0066), and corroborated-absence rows name their
+		// own ValueFrom.
 		t.Fatalf("%s: decision without expected Value carries %s", label, decision.Value)
 	}
 	if want.Dimensions == nil {
@@ -362,7 +378,13 @@ func t09Repeat(value json.RawMessage, count int) []json.RawMessage {
 	return out
 }
 
-func t09HasPendingParam(params []any) bool {
+func t09HasPendingParam(raw json.RawMessage) bool {
+	var params []any
+	if raw != nil {
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return false
+		}
+	}
 	for _, param := range params {
 		switch value := param.(type) {
 		case string:
@@ -376,4 +398,28 @@ func t09HasPendingParam(params []any) bool {
 		}
 	}
 	return false
+}
+
+// callDecision adapts a Call outcome to the decision-only shape the
+// scenario assertions read. A locally rejected call carries no decision.
+func callDecision(result ethguard.CallResult, err error) (rpc.Decision, error) {
+	if result.Decision == nil {
+		return rpc.Decision{}, err
+	}
+	return *result.Decision, err
+}
+
+// callIntoJSON is the generic-JSON read the pending and wire scenarios use:
+// the call's decision value, decoded by the caller into the wire shape it
+// inspects. It replaces the deleted CallInto generic (decision 0066): the
+// read rides Call's read-only routing and the decode is the scenario's own.
+func callIntoJSON(ctx context.Context, client *ethguard.Client, method string, params ...any) (json.RawMessage, error) {
+	result, err := client.Call(ctx, method, params...)
+	if err != nil {
+		return nil, err
+	}
+	if result.Decision == nil {
+		return nil, fmt.Errorf("call %s carried no decision", method)
+	}
+	return result.Decision.Value, nil
 }

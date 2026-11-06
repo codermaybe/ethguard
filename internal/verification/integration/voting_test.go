@@ -58,8 +58,8 @@ func TestMajorityThresholdsOnChainID(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			value, err := client.ChainID(ctx)
-			decision, _ := client.Call(ctx, methods.MethodChainID)
+			value, _, err := client.ChainID(ctx)
+			decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
 			if tc.wantOK {
 				if err != nil {
 					t.Fatalf("expected success, got %v", err)
@@ -103,7 +103,7 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		_, err := client.ChainID(ctx)
+		_, _, err := client.ChainID(ctx)
 		if !errors.Is(err, ethguard.ErrConflict) {
 			t.Fatalf("2-of-5 must not succeed while 3 members occupy the basis, got %v", err)
 		}
@@ -121,8 +121,8 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		value, err := client.ChainID(ctx)
-		decision, _ := client.Call(ctx, methods.MethodChainID)
+		value, _, err := client.ChainID(ctx)
+		decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
 		if err != nil {
 			t.Fatalf("3-of-5 must succeed with two members gated, got %v", err)
 		}
@@ -155,7 +155,7 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
 			t.Fatalf("2 agreeing of a 5-member basis must not corroborate, got %v", err)
 		}
 		if len(client.Pool().Sources()) != 5 {
@@ -174,8 +174,8 @@ func TestDynamicMajorityAcceptance(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		value, err := client.ChainID(ctx)
-		decision, _ := client.Call(ctx, methods.MethodChainID)
+		value, _, err := client.ChainID(ctx)
+		decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
 		if err != nil || value.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 			t.Fatalf("majority must accept the 3-source cluster, got %+v %v", decision, err)
 		}
@@ -189,7 +189,7 @@ func TestDynamicMajorityAcceptance(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
 			t.Fatalf("2 agreeing of a 5-member basis must refuse, got %v", err)
 		}
 	})
@@ -200,7 +200,7 @@ func TestDynamicMajorityAcceptance(t *testing.T) {
 func TestFixedMembershipAndModeChanges(t *testing.T) {
 	client, _ := fleet(t, 1, 1, 2)
 	before := client.VotingMembers()
-	_, err := client.ChainID(context.Background())
+	_, _, err := client.ChainID(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestNoExtraVotes(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
 			t.Fatalf("one answering member cannot outvote the basis, got %v", err)
 		}
 	})
@@ -249,11 +249,11 @@ func TestNoExtraVotes(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		for i := 0; i < 3; i++ {
-			_, err := client.ChainID(ctx)
+			_, _, err := client.ChainID(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
-			decision, _ := client.Call(ctx, methods.MethodChainID)
+			decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
 			if len(decision.Support) != 3 {
 				t.Fatalf("call %d: expected exactly the basis as support, got %+v", i, decision)
 			}
@@ -297,8 +297,8 @@ func TestNoExtraVotes(t *testing.T) {
 		for _, order := range [][]string{{"a", "b", "c"}, {"c", "b", "a"}, {"b", "c", "a"}} {
 			client := build(t, order)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_, err := client.ChainID(ctx)
-			decision, _ := client.Call(ctx, methods.MethodChainID)
+			_, _, err := client.ChainID(ctx)
+			decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
 			cancel()
 			if err != nil {
 				t.Fatalf("order %v: expected corroborated majority, got %v", order, err)
@@ -351,12 +351,14 @@ func TestRefusesWithoutDegradation(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+	if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
 		t.Fatalf("one answering member cannot outvote the floor-2 basis, got %v", err)
 	}
-	decision, _ := client.Call(ctx, methods.MethodChainID)
-	if len(decision.Support) != 1 || string(decision.Value) != `"0x1"` {
-		t.Fatalf("evidence must still name the cluster, got %+v", decision)
+	decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
+	// The cluster stays on the source tables; the public value is cleared on
+	// the aggregation failure (decision 0066).
+	if len(decision.Support) != 1 || decision.Value != nil {
+		t.Fatalf("evidence must still name the cluster with a cleared public value, got %+v", decision)
 	}
 }
 
@@ -377,8 +379,8 @@ func TestPoolVotingBasisExample(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		value, err := client.ChainID(ctx)
-		decision, _ := client.Call(ctx, methods.MethodChainID)
+		value, _, err := client.ChainID(ctx)
+		decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
 		if err != nil || value.Int64() != 1 || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 			t.Fatalf("decision 0062's success example failed: %+v %v", decision, err)
 		}
@@ -396,7 +398,7 @@ func TestPoolVotingBasisExample(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
 			t.Fatalf("decision 0062's refusal example failed, got %v", err)
 		}
 	})

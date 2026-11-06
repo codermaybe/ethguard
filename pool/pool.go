@@ -54,6 +54,14 @@ type Pool struct {
 	tipSampleMaxAge time.Duration
 	stopTips        chan struct{}
 	tipsDone        chan struct{}
+
+	// closeOnce runs the close sequence exactly once; closeDone is closed
+	// when the whole sequence — every source transport closed and the tip
+	// sampler exited — has completed. Every Close caller, first or
+	// concurrent, waits on the same signal, so all of them return under the
+	// identical resource-closure conditions.
+	closeOnce sync.Once
+	closeDone chan struct{}
 }
 
 // Member is one upstream configured at pool construction.
@@ -210,37 +218,36 @@ func (p *Pool) snapshotSources(requireOpen bool) ([]*Source, error) {
 }
 
 // Close releases all source connections and stops the background tip
-// sampler. Closing the sources first aborts any probe in flight, and Close
-// then waits for the sampler goroutine to exit, so no pool-owned probe can
-// start or finish after Close returns. The wait is part of the contract for
-// every caller: a concurrent or repeated caller that finds the pool already
-// closing still waits for the sampler lifecycle to end before returning. It
-// is safe to call from any number of goroutines.
+// sampler. The close sequence runs exactly once: it marks the pool closed
+// and stops the sampler synchronously, then closes every source transport
+// and waits for the sampler goroutine to exit on the close goroutine. The
+// shared completion signal closes only after all of that has finished, and
+// every caller — first, concurrent, or repeated — waits on the same signal,
+// so Close returns to all of them under the identical resource-closure
+// conditions. It is safe to call from any number of goroutines.
 func (p *Pool) Close() {
-	p.mu.Lock()
-	if p.closed {
-		tipsDone := p.tipsDone
-		p.mu.Unlock()
-		if tipsDone != nil {
-			<-tipsDone
+	p.closeOnce.Do(func() {
+		p.closeDone = make(chan struct{})
+		p.mu.Lock()
+		p.closed = true
+		if p.stopTips != nil {
+			close(p.stopTips)
 		}
-		return
-	}
-	p.closed = true
-	if p.stopTips != nil {
-		close(p.stopTips)
-	}
-	tipsDone := p.tipsDone
-	sources := make([]*Source, len(p.sources))
-	copy(sources, p.sources)
-	p.mu.Unlock()
-
-	for _, src := range sources {
-		src.close()
-	}
-	if tipsDone != nil {
-		<-tipsDone
-	}
+		tipsDone := p.tipsDone
+		sources := make([]*Source, len(p.sources))
+		copy(sources, p.sources)
+		p.mu.Unlock()
+		go func() {
+			defer close(p.closeDone)
+			for _, src := range sources {
+				src.close()
+			}
+			if tipsDone != nil {
+				<-tipsDone
+			}
+		}()
+	})
+	<-p.closeDone
 }
 
 // Len returns the number of registered sources.

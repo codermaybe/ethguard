@@ -885,7 +885,7 @@ func TestVerificationFieldRepresentationStability(t *testing.T) {
 					payloads[i] = row.variants[(i+rotation)%len(row.variants)]
 				}
 				fleet.returnRaw(row.method, payloads)
-				decision, err := fleet.client.Call(fleet.context(t), row.method, row.params...)
+				decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 				if err != nil {
 					t.Fatalf("rotation %d: %v", rotation, err)
 				}
@@ -944,8 +944,8 @@ func TestVerificationEvidenceDiagnosticsConservation(t *testing.T) {
 	fleet.nodes[1].ReturnRaw(methods.MethodFeeHistory, base)
 	fleet.nodes[2].ReturnRaw(methods.MethodFeeHistory, base)
 	fleet.nodes[3].ReturnRaw(methods.MethodFeeHistory, outlier)
-	decision, err := fleet.client.Call(fleet.context(t), methods.MethodFeeHistory,
-		uint64(2), fmt.Sprintf("0x%x", t09AnchorHeight), []float64{50})
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodFeeHistory,
+		uint64(2), fmt.Sprintf("0x%x", t09AnchorHeight), []float64{50}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1006,7 +1006,7 @@ func TestVerificationProtectedMutationFails(t *testing.T) {
 			if row.mutationFault {
 				fleet.failProvider(row.method, faulty)
 			}
-			decision, err := fleet.client.Call(fleet.context(t), row.method, row.params...)
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 			switch row.mutationExpect {
 			case t09MutationStrict:
 				if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
@@ -1081,7 +1081,7 @@ func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 			fleet.nodes[0].ReturnRaw(tc.method, escaped)
 			fleet.nodes[1].ReturnRaw(tc.method, tc.legal)
 			fleet.nodes[2].ReturnRaw(tc.method, tc.legal)
-			decision, err := fleet.client.Call(fleet.context(t), tc.method, tc.params...)
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), tc.method, tc.params...))
 			if err != nil {
 				t.Fatalf("literal sources did not carry the quorum: %v", err)
 			}
@@ -1109,7 +1109,7 @@ func TestVerificationTypedRoundTrip(t *testing.T) {
 			for index, variant := range row.variants {
 				fleet := t09NewFleet(t, 1)
 				fleet.returnOne(row.method, variant)
-				decision, err := fleet.client.Call(fleet.context(t), row.method, row.params...)
+				decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 				if err != nil {
 					t.Fatalf("variant %d: %v", index, err)
 				}
@@ -1260,7 +1260,7 @@ func TestVerificationCallRevertValueAndContext(t *testing.T) {
 			p := payloads[(i+rotation)%len(payloads)]
 			node.FailWithData(methods.MethodCall, p.code, p.message, p.data, true)
 		}
-		decision, err := fleet.client.Call(fleet.context(t), methods.MethodCall, params...)
+		decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodCall, params...))
 		if err != nil {
 			t.Fatalf("rotation %d: %v", rotation, err)
 		}
@@ -1311,7 +1311,7 @@ func TestVerificationCallRevertNonHexDataCanonical(t *testing.T) {
 		for i, node := range fleet.nodes {
 			node.FailWithData(methods.MethodCall, 3, "execution reverted", payloads[(i+rotation)%len(payloads)], true)
 		}
-		decision, err := fleet.client.Call(fleet.context(t), methods.MethodCall, params...)
+		decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodCall, params...))
 		if err != nil {
 			t.Fatalf("rotation %d: %v", rotation, err)
 		}
@@ -1334,7 +1334,7 @@ func TestVerificationCallRevertWithheldDataConservation(t *testing.T) {
 	fleet.nodes[2].FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(`"0xbbbb"`), true)
 	fleet.nodes[3].FailWithData(methods.MethodCall, -32000, "execution reverted", json.RawMessage(`"0xBBBB"`), true)
 	params := []any{map[string]any{"to": t09Address}, fmt.Sprintf("0x%x", t09AnchorHeight)}
-	decision, err := fleet.client.Call(fleet.context(t), methods.MethodCall, params...)
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodCall, params...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1372,7 +1372,7 @@ func TestVerificationCallRevertAbstainConservation(t *testing.T) {
 	fleet.nodes[2].FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(`"0x"`), true)
 	fleet.nodes[3].FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(`"0xdead"`), true)
 	params := []any{map[string]any{"to": t09Address}, fmt.Sprintf("0x%x", t09AnchorHeight)}
-	decision, err := fleet.client.Call(fleet.context(t), methods.MethodCall, params...)
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodCall, params...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1407,7 +1407,7 @@ func TestVerificationLocalWholeAnswerShapeBoundary(t *testing.T) {
 	t.Run(methods.MethodListening, func(t *testing.T) {
 		fleet := t09NewFleet(t, 1)
 		fleet.returnOne(methods.MethodListening, json.RawMessage(`"yes"`))
-		decision, err := fleet.client.Call(fleet.context(t), methods.MethodListening)
+		decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodListening))
 		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
 			t.Fatalf("non-boolean listening = status %v value %s err %v", decision.Status, decision.Value, err)
 		}
@@ -1418,11 +1418,11 @@ func TestVerificationLocalWholeAnswerShapeBoundary(t *testing.T) {
 	t.Run(methods.MethodSyncing, func(t *testing.T) {
 		fleet := t09NewFleet(t, 1)
 		fleet.returnOne(methods.MethodSyncing, json.RawMessage(`true`))
-		decision, err := fleet.client.Call(fleet.context(t), methods.MethodSyncing)
+		decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodSyncing))
 		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
 			t.Fatalf("true syncing = status %v value %s err %v", decision.Status, decision.Value, err)
 		}
-		if _, err := fleet.client.SyncProgress(fleet.context(t)); !errors.Is(err, rpc.ErrNoValidResponse) {
+		if _, _, err := fleet.client.SyncProgress(fleet.context(t)); !errors.Is(err, rpc.ErrNoValidResponse) {
 			t.Fatalf("typed boundary error = %v, want no valid response", err)
 		}
 	})
@@ -1465,7 +1465,7 @@ func TestVerificationUpperPrefixSpelling(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			fleet := t09NewFleet(t, 3)
 			fleet.returnOne(tc.method, json.RawMessage(tc.raw))
-			decision, err := fleet.client.Call(fleet.context(t), tc.method, tc.params...)
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), tc.method, tc.params...))
 			if err != nil {
 				t.Fatal(err)
 			}

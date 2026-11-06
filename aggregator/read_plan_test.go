@@ -130,8 +130,8 @@ func TestPlannedReadExecutesTheFleetFixture(t *testing.T) {
 	if len(decision.Support) != 3 {
 		t.Fatalf("support = %v, want the whole corroborating fleet", decision.Support)
 	}
-	if decision.Prepared.Params[1] != "0xabc" {
-		t.Fatalf("prepared request = %v, want the established hash", decision.Prepared.Params)
+	if got := preparedParams(t, decision.Prepared)[1]; got != "0xabc" {
+		t.Fatalf("prepared request param = %#v, want the established hash", got)
 	}
 	// One establishment round per read.
 	if len(stage.rounds) != 1 {
@@ -244,8 +244,8 @@ func TestPlannedPendingObservationStaysSelected(t *testing.T) {
 	if len(stage.rounds) != 0 {
 		t.Fatalf("pending observation established a reference: %+v", stage.rounds)
 	}
-	if decision.Prepared.Params[1] != "pending" {
-		t.Fatalf("pending request was rewritten: %+v", decision.Prepared.Params)
+	if got := preparedParams(t, decision.Prepared)[1]; got != "pending" {
+		t.Fatalf("pending request was rewritten: %#v", got)
 	}
 	// The pending shape still fans out under the collection mode; resolution
 	// stands on the first usable source.
@@ -351,4 +351,20 @@ func mustShared(t *testing.T) *rpc.CorroborationShared {
 		t.Fatal(err)
 	}
 	return shared
+}
+
+// preparedParams decodes the frozen parameter JSON recorded on the prepared
+// request; the record is bytes now, and position checks read the array.
+func preparedParams(t *testing.T, prepared *rpc.PreparedRequest) []any {
+	t.Helper()
+	if prepared == nil {
+		t.Fatal("prepared request was not observed")
+	}
+	var params []any
+	if prepared.Params != nil {
+		if err := json.Unmarshal(prepared.Params, &params); err != nil {
+			t.Fatalf("prepared params are not a JSON array: %v", err)
+		}
+	}
+	return params
 }

@@ -27,8 +27,11 @@ func TestAggregateEmptyPoolReturnsCollectionError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected empty pool to fail")
 	}
-	if decision.IsCorroborated(err) {
-		t.Fatalf("failed empty-pool decision must not claim corroboration: %+v", decision)
+	if err == nil {
+		t.Fatal("expected empty pool to fail")
+	}
+	if decision.Status != rpc.Unknown {
+		t.Fatalf("failed empty-pool decision must not claim a success class, got %s: %+v", decision.Status, decision)
 	}
 }
 
@@ -42,8 +45,8 @@ func TestAggregateAttachesSourceFaultsToDecision(t *testing.T) {
 	if len(decision.Faults) == 0 {
 		t.Fatal("expected collection faults on decision, got none")
 	}
-	if decision.IsCorroborated(err) {
-		t.Fatalf("failed collection decision must not claim corroboration: %+v", decision)
+	if decision.Status != rpc.Unknown {
+		t.Fatalf("failed collection decision must not claim a success class, got %s: %+v", decision.Status, decision)
 	}
 }
 
@@ -62,8 +65,8 @@ func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
 	if len(decision.Faults) != 1 {
 		t.Fatalf("expected only the collection fault, got %+v", decision.Faults)
 	}
-	if decision.IsCorroborated(err) {
-		t.Fatalf("canceled collection decision must not claim corroboration: %+v", decision)
+	if decision.Status != rpc.Unknown {
+		t.Fatalf("canceled collection decision must not claim a success class, got %s: %+v", decision.Status, decision)
 	}
 }
 

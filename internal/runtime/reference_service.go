@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/codermaybe/ethguard/internal/refcontext"
+	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -131,7 +132,7 @@ func (s *StrictHeadService) establish(ctx context.Context, kind rpc.ReferenceKin
 	// does: a failed round's partial evidence stays visible on the reference
 	// the caller sees.
 	ctx, capture := refcontext.New(ctx)
-	completed, err := s.stage.Establish(ctx, newFacadeInvocation(refs, snap), rpc.ReferenceRequest{Kind: kind})
+	completed, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
 	if err != nil {
 		if ref := capture.Reference(); ref != nil {
 			return *ref, err
@@ -182,7 +183,7 @@ func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.Reference
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	refs := s.stage.memberRefs()
 	ctx, capture := refcontext.New(ctx)
-	completed, err := s.stage.Establish(ctx, newFacadeInvocation(refs, snap), rpc.ReferenceRequest{Kind: kind})
+	completed, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
 	if err != nil {
 		if ref := capture.Reference(); ref != nil {
 			return *ref, err
@@ -196,10 +197,16 @@ func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.Reference
 	return ref, nil
 }
 
-// newFacadeInvocation freezes one facade establishment's basis: the pool's
+// facadeInvocation freezes one facade establishment's basis: the pool's
 // current voting members and the service's adjudication snapshot. Freshness
 // is per call, so the invocation is created and completed within one
-// establish round.
-func newFacadeInvocation(refs []rpc.SourceRef, snap rpc.Corroboration) rpc.Invocation {
-	return rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap))
+// establish round. When the operation's context carries a material
+// collector, the round's raw responses record into it — the establishment
+// is this call's material like any other source round.
+func facadeInvocation(ctx context.Context, refs []rpc.SourceRef, snap rpc.Corroboration) rpc.Invocation {
+	opts := []rpc.InvocationOption(nil)
+	if collector := uncertain.CollectorFromContext(ctx); collector != nil {
+		opts = []rpc.InvocationOption{rpc.WithInvocationCapture(collector.InvocationCapture())}
+	}
+	return rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap), opts...)
 }

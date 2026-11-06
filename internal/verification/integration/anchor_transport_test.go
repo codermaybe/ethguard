@@ -418,7 +418,7 @@ func filterField(value any, key string) (string, bool) {
 }
 
 func callMethod(ctx context.Context, client *ethguard.Client, method string, params ...any) (rpc.Decision, error) {
-	return client.Call(ctx, method, params...)
+	return callDecision(client.Call(ctx, method, params...))
 }
 
 // TestAnchorRequestHashIsLowercase pins the request spelling separately from
@@ -564,7 +564,7 @@ func exerciseTag(t *testing.T, ctx context.Context, client *ethguard.Client, nod
 	views := make(map[string]referenceView)
 
 	resetNodes(nodes)
-	gotHash, err := client.AnchorBlockHashForTag(ctx, tag)
+	gotHash, _, err := client.AnchorBlockHashForTag(ctx, tag)
 	if err != nil {
 		t.Fatalf("AnchorBlockHashForTag(%s): %v\n%s", tag, err, dumpCalls(nodes))
 	}
@@ -714,10 +714,10 @@ func compareScripted(t *testing.T, class string, faultText string, handlerFor fu
 		if class == "canceled" {
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			decision, err = client.Call(ctx, methods.MethodGetBalance, "0xaddr", "safe")
+			decision, err = callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "safe"))
 		} else {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			decision, err = client.Call(ctx, methods.MethodGetBalance, "0xaddr", "safe")
+			decision, err = callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "safe"))
 			cancel()
 		}
 		if err == nil {
@@ -759,7 +759,7 @@ func failBalance(t *testing.T, client *ethguard.Client, tag string) referenceVie
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", tag)
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", tag))
 	if err == nil {
 		t.Fatal("expected anchor failure")
 	}
@@ -774,11 +774,11 @@ func TestAnchorTransportReestablishesEachCall(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			first, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+			first, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			second, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+			second, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 			if err != nil {
 				t.Fatal(err)
 			}

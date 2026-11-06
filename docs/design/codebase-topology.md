@@ -56,8 +56,8 @@ Adapter、依赖方向、验证拓扑和未来 seam；不定义文件迁移顺�
 
 ```text
 ethguard/
-├── client.go / dial.go / eth.go / call.go / anchor.go / write.go / uncertain.go
-│   └── 唯一公开 Client：Geth 形态类型化读取、Decision 入口、多源构造；不持有具体装配细节
+├── client.go / dial.go / eth.go / call.go / anchor.go / write.go / call_result.go / result_capture.go / execution.go / ethclient_view.go / uncertain.go
+│   └── 唯一公开 Client（CallResult 结果）+ 私有 owner 的 EthClient 视图；共享执行入口与捕获/预算；不持有具体装配细节
 │
 ├── config/
 │   └── 配置模型、校验和加载

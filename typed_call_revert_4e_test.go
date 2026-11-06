@@ -193,7 +193,10 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 	defer cancel()
 	to := common.HexToAddress("0x1")
 	arg := map[string]any{"to": to.Hex()}
-	aggDecision, aggErr := adapter.Call(ctx, methods.MethodCall, arg, "latest")
+	aggDecision, aggErr := callDecision(adapter.Call(ctx, methods.MethodCall, arg, "latest"))
+	if aggErr == nil && aggDecision.Status != rpc.Corroborated {
+		// callDecision returns the zero decision for a local rejection.
+	}
 	if policyDecision.Status != aggDecision.Status || !errors.Is(policyErr, tc.wantErr) || !errors.Is(aggErr, tc.wantErr) {
 		t.Fatalf("policy %s/%v aggregator %s/%v, want %s/%v", policyDecision.Status, policyErr, aggDecision.Status, aggErr, tc.wantStatus, tc.wantErr)
 	}
@@ -233,7 +236,7 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 			t.Fatalf("evidence spliced in %s from another source: %s", needle, aggDecision.Provenance)
 		}
 	}
-	_, err := adapter.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
+	_, _, err := adapter.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
 	var revert *ethguard.RevertError
 	if !errors.As(err, &revert) {
 		t.Fatalf("typed err = %v, want RevertError", err)

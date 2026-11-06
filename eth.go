@@ -30,18 +30,48 @@ func (c *Client) callTyped(ctx context.Context, method string, params ...any) (r
 	return c.aggregator.AggregateStrict(ctx, rpc.Request{Method: method, Params: params})
 }
 
-// typedInto aggregates one gated request and decodes the resolved value into
-// T. The returned pointer is nil whenever the error is non-nil.
-func typedInto[T any](ctx context.Context, c *Client, method string, params ...any) (*T, error) {
+// aggregateInto runs one corroborated read and decodes the resolved value
+// into T. On an aggregation failure the public value is cleared while every
+// other formed fact stays; a decode failure keeps the aggregated value — the
+// failure came after the aggregation succeeded.
+func aggregateInto[T any](ctx context.Context, c *Client, method string, params ...any) (*T, rpc.Decision, error) {
 	decision, err := c.callTyped(ctx, method, params...)
 	if err != nil {
-		return nil, err
+		decision.Value = nil
+		return nil, decision, err
 	}
 	var out T
 	if err := jsonsafe.Decode(decision.Value, &out); err != nil {
-		return nil, fmt.Errorf("%w: decode %s: %w", rpc.ErrMalformedResponse, method, err)
+		return nil, decision, fmt.Errorf("%w: decode %s: %w", rpc.ErrMalformedResponse, method, err)
 	}
-	return &out, nil
+	return &out, decision, nil
+}
+
+// decisionOf snapshots the aggregator-produced decision onto the result.
+// A local rejection before any adjudication constructs an empty CallResult
+// directly; this helper is only called with an aggregator outcome, so the
+// pointer always carries that outcome's facts.
+func decisionOf(decision rpc.Decision) *rpc.Decision {
+	return &decision
+}
+
+// readQuantity is the shared shape of the quantity reads: validate inside
+// the operation, aggregate, project through the owning method's normalizer.
+// The projection failure keeps the aggregated facts.
+func readQuantity(ctx context.Context, c *Client, view bool, method string, params ...any) (*big.Int, CallResult, error) {
+	return operation(c, ctx, view, func(opCtx context.Context) (*big.Int, CallResult, error) {
+		return readQuantityExec(opCtx, c, method, params...)
+	})
+}
+
+func readQuantityExec(ctx context.Context, c *Client, method string, params ...any) (*big.Int, CallResult, error) {
+	decision, err := c.callTyped(ctx, method, params...)
+	if err != nil {
+		decision.Value = nil
+		return nil, CallResult{Decision: decisionOf(decision)}, err
+	}
+	value, projectErr := c.decodedQuantity(method, decision)
+	return value, CallResult{Decision: decisionOf(decision)}, projectErr
 }
 
 // decodedQuantity reduces one decision's canonical quantity spelling into a
@@ -59,84 +89,103 @@ func (c *Client) decodedQuantity(method string, decision rpc.Decision) (*big.Int
 }
 
 // ChainID returns the fleet-corroborated chain ID.
-func (c *Client) ChainID(ctx context.Context) (*big.Int, error) {
-	decision, err := c.callTyped(ctx, methods.MethodChainID)
-	if err != nil {
-		return nil, err
-	}
-	return c.decodedQuantity(methods.MethodChainID, decision)
+func (c *Client) ChainID(ctx context.Context) (*big.Int, CallResult, error) {
+	return readQuantity(ctx, c, false, methods.MethodChainID)
 }
 
 // NetworkID returns the corroborated legacy chain identity (net_version
 // spells in decimal what eth_chainId spells in hex).
-func (c *Client) NetworkID(ctx context.Context) (*big.Int, error) {
-	decision, err := c.callTyped(ctx, methods.MethodNetVersion)
-	if err != nil {
-		return nil, err
-	}
-	return c.decodedQuantity(methods.MethodNetVersion, decision)
+func (c *Client) NetworkID(ctx context.Context) (*big.Int, CallResult, error) {
+	return readQuantity(ctx, c, false, methods.MethodNetVersion)
 }
 
 // BalanceAt returns the corroborated balance of account at blockNumber; nil
 // means the currently corroborated reference behind "latest".
-func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error) {
+func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*big.Int, CallResult, error) {
+		return c.balanceAtExec(opCtx, account, blockNumber)
+	})
+}
+
+func (c *Client) balanceAtExec(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, CallResult, error) {
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{}, err
 	}
-	value, err := typedInto[hexutil.Big](ctx, c, methods.MethodGetBalance, account.Hex(), blockArg)
+	value, decision, err := aggregateInto[hexutil.Big](ctx, c, methods.MethodGetBalance, account.Hex(), blockArg)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	return (*big.Int)(value), nil
+	return (*big.Int)(value), CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // NonceAt returns the corroborated account nonce of account at blockNumber;
 // nil pins the moving tag to the currently corroborated reference.
-func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error) {
+func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
+		return c.nonceAtExec(opCtx, account, blockNumber)
+	})
+}
+
+func (c *Client) nonceAtExec(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, CallResult, error) {
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
-		return 0, err
+		return 0, CallResult{}, err
 	}
-	nonce, err := typedInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, account.Hex(), blockArg)
+	nonce, decision, err := aggregateInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, account.Hex(), blockArg)
 	if err != nil {
-		return 0, err
+		return 0, CallResult{Decision: decisionOf(decision)}, err
 	}
-	return uint64(*nonce), nil
+	return uint64(*nonce), CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // StorageAt returns the corroborated value of key in account's storage at
 // blockNumber; nil pins the moving tag to the currently corroborated reference.
-func (c *Client) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, error) {
+func (c *Client) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return c.storageAtExec(opCtx, account, key, blockNumber)
+	})
+}
+
+func (c *Client) storageAtExec(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, CallResult, error) {
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{}, err
 	}
-	value, err := typedInto[hexutil.Bytes](ctx, c, methods.MethodGetStorageAt, account.Hex(), key.Hex(), blockArg)
+	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetStorageAt, account.Hex(), key.Hex(), blockArg)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	return *value, nil
+	return *value, CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // CodeAt returns the corroborated contract code of account at blockNumber; nil
 // pins the moving tag to the currently corroborated reference. An externally
 // owned account answers empty code, not an error.
-func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
+func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return c.codeAtExec(opCtx, account, blockNumber)
+	})
+}
+
+func (c *Client) codeAtExec(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, CallResult, error) {
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{}, err
 	}
-	code, err := typedInto[hexutil.Bytes](ctx, c, methods.MethodGetCode, account.Hex(), blockArg)
+	code, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetCode, account.Hex(), blockArg)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	return *code, nil
+	return *code, CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // BlockByHash returns the corroborated block with the given hash.
-func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
-	return c.blockAt(ctx, hash.Hex())
+func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*types.Block, CallResult, error) {
+		block, decision, err := c.blockAt(opCtx, hash.Hex())
+		return block, CallResult{Decision: decisionOf(decision)}, err
+	})
 }
 
 // BlockByNumber returns the corroborated block at number. nil and explicit
@@ -144,25 +193,34 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Bloc
 // first and fetch by hash. Explicit heights, including earliest (-5 as 0x0),
 // fetch directly. Pending (-1) is rejected locally: there is no pending-block
 // typed projection, and -1 is not rewritten into an anchored or ordinary block.
-func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*types.Block, CallResult, error) {
+		return c.blockByNumberExec(opCtx, number)
+	})
+}
+
+func (c *Client) blockByNumberExec(ctx context.Context, number *big.Int) (*types.Block, CallResult, error) {
 	if number != nil && number.Sign() >= 0 && !number.IsUint64() {
-		return nil, fmt.Errorf("block number exceeds supported height range: %w", ErrInvalidRequest)
+		return nil, CallResult{}, fmt.Errorf("block number exceeds supported height range: %w", ErrInvalidRequest)
 	}
 	if number != nil && number.Sign() < 0 {
 		return c.blockByNegativeNumber(ctx, number)
 	}
 	if number == nil {
-		ref, err := c.AnchorBlockHash(ctx)
+		ref, err := c.establishAnchor(ctx, "")
 		if err != nil {
-			return nil, err
+			return nil, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
 		}
-		return c.blockAt(ctx, ref)
+		block, decision, blockErr := c.blockAt(ctx, ref.Hash)
+		attachEstablishedReference(&decision, ref)
+		return block, CallResult{Decision: decisionOf(decision)}, blockErr
 	}
 	blockArg, err := checkedBlockNumArg(number)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{}, err
 	}
-	return c.blockAt(ctx, blockArg)
+	block, decision, blockErr := c.blockAt(ctx, blockArg)
+	return block, CallResult{Decision: decisionOf(decision)}, blockErr
 }
 
 // blockByNegativeNumber resolves Geth's negative block numbers without
@@ -172,25 +230,28 @@ func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Blo
 // it is not anchored and not sent as a business request or as "-0x1".
 // -5 is earliest, an explicit height 0x0. Anything else — including values
 // outside int64 range — fails locally before any upstream contact.
-func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*types.Block, CallResult, error) {
 	if !number.IsInt64() {
-		return nil, fmt.Errorf("ethguard: unsupported block number %s: %w", number.String(), ErrInvalidRequest)
+		return nil, CallResult{}, fmt.Errorf("ethguard: unsupported block number %s: %w", number.String(), ErrInvalidRequest)
 	}
 	switch number.Int64() {
 	case -1:
-		return nil, fmt.Errorf("ethguard: pending block typed projection is not supported: %w", ErrInvalidRequest)
+		return nil, CallResult{}, fmt.Errorf("ethguard: pending block typed projection is not supported: %w", ErrInvalidRequest)
 	case -2, -3, -4:
 		tags := map[int64]string{-2: "latest", -3: "finalized", -4: "safe"}
 		tag := tags[number.Int64()]
-		ref, err := c.AnchorBlockHashForTag(ctx, tag)
+		ref, err := c.establishAnchor(ctx, tag)
 		if err != nil {
-			return nil, err
+			return nil, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
 		}
-		return c.blockAt(ctx, ref)
+		block, decision, blockErr := c.blockAt(ctx, ref.Hash)
+		attachEstablishedReference(&decision, ref)
+		return block, CallResult{Decision: decisionOf(decision)}, blockErr
 	case -5:
-		return c.blockAt(ctx, "0x0")
+		block, decision, blockErr := c.blockAt(ctx, "0x0")
+		return block, CallResult{Decision: decisionOf(decision)}, blockErr
 	default:
-		return nil, fmt.Errorf("ethguard: unsupported block number %s: %w", number.String(), ErrInvalidRequest)
+		return nil, CallResult{}, fmt.Errorf("ethguard: unsupported block number %s: %w", number.String(), ErrInvalidRequest)
 	}
 }
 
@@ -212,10 +273,14 @@ func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*t
 // This is the source-agreement-override shape proxyd popularized, expressed as
 // derivation. Callers wanting bounded staleness should configure the
 // anchoring presets (WithFinalizedAnchoring) and, optionally, its cache.
-func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
-	ref, err := c.AnchorBlockHash(ctx)
+func (c *Client) BlockNumber(ctx context.Context) (uint64, CallResult, error) {
+	return operation(c, ctx, false, c.blockNumberExec)
+}
+
+func (c *Client) blockNumberExec(ctx context.Context) (uint64, CallResult, error) {
+	ref, err := c.establishAnchor(ctx, "")
 	if err != nil {
-		return 0, err
+		return 0, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown, Reference: anchorReference(ref)}}, err
 	}
 	// The height lookup rides eth_getBlockByHash even though a "height of
 	// this hash" read feels like eth_getBlockByNumber: the first live soak
@@ -223,11 +288,12 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 	// position ("hex number > 64 bits"), so hash lookups use the
 	// hash-addressed method, full stop. blockAt applies the same dispatch and
 	// binds the answer to the requested reference.
-	block, err := c.blockAt(ctx, ref)
-	if err != nil {
-		return 0, err
+	block, decision, blockErr := c.blockAt(ctx, ref.Hash)
+	attachEstablishedReference(&decision, ref)
+	if blockErr != nil {
+		return 0, CallResult{Decision: decisionOf(decision)}, blockErr
 	}
-	return block.NumberU64(), nil
+	return block.NumberU64(), CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // blockAt fetches and strictly compares one block identified explicitly by
@@ -236,32 +302,36 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 // endpoints rejecting a 32-byte hash in eth_getBlockByNumber's number
 // position ("hex number > 64 bits"), so hash-looking references take the
 // hash-addressed method and everything else the number-addressed one.
-func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, error) {
+// blockAt fetches one block by explicit reference and returns the business
+// value with the underlying decision. The projection and binding failures
+// keep the aggregated facts — the aggregation itself succeeded.
+func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, rpc.Decision, error) {
 	method := methods.MethodGetBlockByNumber
 	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
 		method = methods.MethodGetBlockByHash
 	}
 	decision, err := c.callTyped(ctx, method, ref, true)
 	if err != nil {
-		return nil, err
+		decision.Value = nil
+		return nil, decision, err
 	}
 	block, err := typed.DecodeBlockWithEvidence(decision.Value, decision.Provenance)
 	if err != nil {
-		return nil, err
+		return nil, decision, err
 	}
 	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
 		if block.Hash() != common.HexToHash(ref) {
-			return nil, fmt.Errorf("%w: block hash %s does not match requested hash %s",
+			return nil, decision, fmt.Errorf("%w: block hash %s does not match requested hash %s",
 				rpc.ErrMalformedResponse, block.Hash(), ref)
 		}
-		return block, nil
+		return block, decision, nil
 	}
 	number, ok := new(big.Int).SetString(strings.TrimPrefix(ref, "0x"), 16)
 	if !ok || block.Number().Cmp(number) != 0 {
-		return nil, fmt.Errorf("%w: block height %d does not match requested reference %s",
+		return nil, decision, fmt.Errorf("%w: block height %d does not match requested reference %s",
 			rpc.ErrMalformedResponse, block.NumberU64(), ref)
 	}
-	return block, nil
+	return block, decision, nil
 }
 
 // BlockReceipts returns the fleet-corroborated receipts of one block. Numbers
@@ -279,10 +349,16 @@ func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, error) 
 // not a completeness proof: an empty array stays a legal answer for an
 // empty block, and nothing here proves the fleet reported every receipt
 // of the block.
-func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, error) {
+func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) ([]*types.Receipt, CallResult, error) {
+		return c.blockReceiptsExec(opCtx, blockNrOrHash)
+	})
+}
+
+func (c *Client) blockReceiptsExec(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, CallResult, error) {
 	refText, err := blockRefArg(blockNrOrHash)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{}, err
 	}
 	var ref any = refText
 	var canonicalHash *common.Hash
@@ -294,7 +370,7 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 		if _, ok := blockNrOrHash.Number(); ok {
 			number, _ := blockNrOrHash.Number()
 			if number == gethrpc.PendingBlockNumber || number == gethrpc.LatestBlockNumber || number == gethrpc.SafeBlockNumber || number == gethrpc.FinalizedBlockNumber {
-				return nil, fmt.Errorf("ethguard: requireCanonical with moving block tag %s is unsupported: %w", number, ErrInvalidRequest)
+				return nil, CallResult{}, fmt.Errorf("ethguard: requireCanonical with moving block tag %s is unsupported: %w", number, ErrInvalidRequest)
 			}
 			ref = map[string]any{"blockNumber": refText, "requireCanonical": true}
 		} else if hash, ok := blockNrOrHash.Hash(); ok {
@@ -304,39 +380,43 @@ func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockN
 	}
 	decision, err := c.callTyped(ctx, methods.MethodGetBlockReceipts, ref)
 	if err != nil {
-		return nil, err
+		decision.Value = nil
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
 	receipts, err := typed.DecodeReceipts(decision.Value)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
 	if hash, ok := blockNrOrHash.Hash(); ok {
-		return bindReceiptsToHash(receipts, hash)
+		receipts, err = bindReceiptsToHash(receipts, hash)
+		return receipts, CallResult{Decision: decisionOf(decision)}, err
 	}
 	if canonicalHash != nil {
-		return bindReceiptsToHash(receipts, *canonicalHash)
+		receipts, err = bindReceiptsToHash(receipts, *canonicalHash)
+		return receipts, CallResult{Decision: decisionOf(decision)}, err
 	}
 	if number, ok := blockNrOrHash.Number(); ok && number >= 0 {
 		requested := big.NewInt(number.Int64())
 		for i, receipt := range receipts {
 			if receipt.BlockNumber == nil || receipt.BlockNumber.Cmp(requested) != 0 {
-				return nil, errors.Join(
+				return nil, CallResult{Decision: decisionOf(decision)}, errors.Join(
 					ErrMalformedResponse,
 					ErrAnchorMismatch,
 					fmt.Errorf("receipt %d height %v does not match requested number %d", i, receipt.BlockNumber, number.Int64()),
 				)
 			}
 		}
-		return receipts, nil
+		return receipts, CallResult{Decision: decisionOf(decision)}, nil
 	}
 	// Moving tag: the policy rewrote it to the corroborated reference, and
 	// decision.BlockRef carries that pin. Bind against the pin, not against
 	// a fresh anchor call.
 	if decision.BlockRef == "" {
-		return nil, errors.Join(ErrMalformedResponse, ErrAnchorMismatch,
+		return nil, CallResult{Decision: decisionOf(decision)}, errors.Join(ErrMalformedResponse, ErrAnchorMismatch,
 			errors.New("pinned receipts carry no block reference"))
 	}
-	return bindReceiptsToHash(receipts, common.HexToHash(decision.BlockRef))
+	receipts, err = bindReceiptsToHash(receipts, common.HexToHash(decision.BlockRef))
+	return receipts, CallResult{Decision: decisionOf(decision)}, err
 }
 
 // bindReceiptsToHash applies the per-receipt block-hash binding shared by
@@ -388,20 +468,27 @@ func blockRefArg(blockNrOrHash gethrpc.BlockNumberOrHash) (string, error) {
 // hash; ethereum.NotFound when the fleet corroborates the transaction has no
 // receipt yet, matching go-ethereum's own client. The hash addresses immutable
 // content, so no anchoring or freshness machinery applies.
-func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*types.Receipt, error) {
+func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*types.Receipt, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
+		return c.transactionReceiptExec(opCtx, hash)
+	})
+}
+
+func (c *Client) transactionReceiptExec(ctx context.Context, hash common.Hash) (*types.Receipt, CallResult, error) {
 	decision, err := c.callTyped(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
 	if err != nil {
-		return nil, err
+		decision.Value = nil
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
 	receipt, err := typed.DecodeReceipt(decision.Value)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
 	if receipt.TxHash != hash {
-		return nil, fmt.Errorf("%w: receipt transaction hash %s does not match requested hash %s",
+		return nil, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: receipt transaction hash %s does not match requested hash %s",
 			rpc.ErrMalformedResponse, receipt.TxHash, hash)
 	}
-	return receipt, nil
+	return receipt, CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // TransactionByHash returns the fleet-corroborated transaction for the hash and
@@ -409,40 +496,39 @@ func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*typ
 // fleet corroborates no such transaction exists. Pending transactions are
 // ordinary corroborated objects here: while they stay pending, honest sources
 // hold identical payloads.
-func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (*types.Transaction, bool, error) {
+func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (*types.Transaction, bool, CallResult, error) {
+	return operationPair(c, ctx, false, func(opCtx context.Context) (*types.Transaction, bool, CallResult, error) {
+		return c.transactionByHashExec(opCtx, hash)
+	})
+}
+
+func (c *Client) transactionByHashExec(ctx context.Context, hash common.Hash) (*types.Transaction, bool, CallResult, error) {
 	decision, err := c.callTyped(ctx, methods.MethodGetTransactionByHash, hash.Hex())
 	if err != nil {
-		return nil, false, err
+		decision.Value = nil
+		return nil, false, CallResult{Decision: decisionOf(decision)}, err
 	}
 	tx, pending, err := typed.DecodeTransaction(decision.Value)
 	if err != nil {
-		return nil, false, err
+		return nil, false, CallResult{Decision: decisionOf(decision)}, err
 	}
 	if tx.Hash() != hash {
-		return nil, false, fmt.Errorf("%w: transaction hash %s does not match requested hash %s",
+		return nil, false, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: transaction hash %s does not match requested hash %s",
 			rpc.ErrMalformedResponse, tx.Hash(), hash)
 	}
-	return tx, pending, nil
+	return tx, pending, CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // SuggestGasTipCap returns the fleet's lower-median priority-fee estimate —
 // a variable result resolved by robust selection, never claimed corroborated.
-func (c *Client) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
-	decision, err := c.callTyped(ctx, methods.MethodMaxPriorityFeePerGas)
-	if err != nil {
-		return nil, err
-	}
-	return c.decodedQuantity(methods.MethodMaxPriorityFeePerGas, decision)
+func (c *Client) SuggestGasTipCap(ctx context.Context) (*big.Int, CallResult, error) {
+	return readQuantity(ctx, c, false, methods.MethodMaxPriorityFeePerGas)
 }
 
 // SuggestGasPrice returns the fleet's lower-median gas price — a variable
 // result resolved by robust selection, never claimed corroborated.
-func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
-	decision, err := c.callTyped(ctx, methods.MethodGasPrice)
-	if err != nil {
-		return nil, err
-	}
-	return c.decodedQuantity(methods.MethodGasPrice, decision)
+func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, CallResult, error) {
+	return readQuantity(ctx, c, false, methods.MethodGasPrice)
 }
 
 // CallContract returns the fleet-corroborated result of executing msg at
@@ -450,16 +536,24 @@ func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 // A fleet-corroborated revert is an observation, not a pipeline failure: it is
 // returned as a *RevertError carrying the revert context, while the
 // corroboration claim stays on the decision evidence.
-func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
+		return c.callContractExec(opCtx, msg, blockNumber)
+	})
+}
+
+func (c *Client) callContractExec(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, CallResult, error) {
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{}, err
 	}
 	decision, err := c.callTyped(ctx, methods.MethodCall, toCallArg(msg), blockArg)
 	if err != nil {
-		return nil, err
+		decision.Value = nil
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	return decodeCallDecision(decision)
+	data, err := decodeCallDecision(decision)
+	return data, CallResult{Decision: decisionOf(decision)}, err
 }
 
 // RevertError reports a fleet-corroborated execution revert of an eth_call.
@@ -570,28 +664,44 @@ func toCallArg(msg ethereum.CallMsg) map[string]any {
 // currently corroborated reference — a variable result, Selected at best, never
 // claimed corroborated. A fleet that unanimously fails estimation fails as
 // no-valid-response; the revert is never laundered into a number.
-func (c *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
+func (c *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
+		return c.estimateGasExec(opCtx, msg)
+	})
+}
+
+func (c *Client) estimateGasExec(ctx context.Context, msg ethereum.CallMsg) (uint64, CallResult, error) {
 	decision, err := c.callTyped(ctx, methods.MethodEstimateGas, toCallArg(msg), "latest")
 	if err != nil {
-		return 0, err
+		decision.Value = nil
+		return 0, CallResult{Decision: decisionOf(decision)}, err
 	}
-	return typed.DecodeGasEstimate(decision.Value)
+	gas, err := typed.DecodeGasEstimate(decision.Value)
+	return gas, CallResult{Decision: decisionOf(decision)}, err
 }
 
 // FilterLogs returns the fleet-corroborated logs matching q. Range filters are
 // pinned to the corroborated reference exactly like any other anchored read —
 // the policy rewrites moving tags and defaults missing bounds inside the
 // filter object; a blockHash query addresses immutable content directly.
-func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) ([]types.Log, CallResult, error) {
+		return c.filterLogsExec(opCtx, q)
+	})
+}
+
+func (c *Client) filterLogsExec(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, CallResult, error) {
 	arg, err := toFilterArg(q)
 	if err != nil {
-		return nil, err
+		return nil, CallResult{}, err
 	}
 	decision, err := c.callTyped(ctx, methods.MethodGetLogs, arg)
 	if err != nil {
-		return nil, err
+		decision.Value = nil
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	return typed.DecodeLogs(decision.Value)
+	logs, err := typed.DecodeLogs(decision.Value)
+	return logs, CallResult{Decision: decisionOf(decision)}, err
 }
 
 // toFilterArg mirrors go-ethereum's filter-object shape: address and topics
@@ -633,29 +743,40 @@ func toFilterArg(q ethereum.FilterQuery) (map[string]any, error) {
 
 // PeerCount returns one healthy source's count of its own peers — an
 // upstream-local result, selected not compared.
-func (c *Client) PeerCount(ctx context.Context) (uint64, error) {
+func (c *Client) PeerCount(ctx context.Context) (uint64, CallResult, error) {
+	return operation(c, ctx, false, c.peerCountExec)
+}
+
+func (c *Client) peerCountExec(ctx context.Context) (uint64, CallResult, error) {
 	decision, err := c.callTyped(ctx, methods.MethodPeerCount)
 	if err != nil {
-		return 0, err
+		decision.Value = nil
+		return 0, CallResult{Decision: decisionOf(decision)}, err
 	}
-	value, err := c.decodedQuantity(methods.MethodPeerCount, decision)
-	if err != nil {
-		return 0, err
+	value, projectErr := c.decodedQuantity(methods.MethodPeerCount, decision)
+	if projectErr != nil {
+		return 0, CallResult{Decision: decisionOf(decision)}, projectErr
 	}
 	if !value.IsUint64() {
-		return 0, fmt.Errorf("ethguard: invalid %s %q", methods.MethodPeerCount, decision.Value)
+		return 0, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("ethguard: invalid %s %q", methods.MethodPeerCount, decision.Value)
 	}
-	return value.Uint64(), nil
+	return value.Uint64(), CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // SyncProgress reports the consulted source's sync state; nil means it
 // considers itself fully synced.
-func (c *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, error) {
+func (c *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, CallResult, error) {
+	return operation(c, ctx, false, c.syncProgressExec)
+}
+
+func (c *Client) syncProgressExec(ctx context.Context) (*ethereum.SyncProgress, CallResult, error) {
 	decision, err := c.callTyped(ctx, methods.MethodSyncing)
 	if err != nil {
-		return nil, err
+		decision.Value = nil
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	return typed.DecodeSyncProgress(decision.Value)
+	progress, projectErr := typed.DecodeSyncProgress(decision.Value)
+	return progress, CallResult{Decision: decisionOf(decision)}, projectErr
 }
 
 // FeeHistory returns the fleet-corroborated fee history ending at the
@@ -664,27 +785,31 @@ func (c *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, erro
 // lastBlock is pinned, so the decision is Corroborated when sources agree;
 // cross-client percentile rounding of Reward is the known liveness gate and
 // fails closed as conflict until the soak measures it.
-func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error) {
+func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethereum.FeeHistory, CallResult, error) {
+		return c.feeHistoryExec(opCtx, blockCount, lastBlock, rewardPercentiles)
+	})
+}
+
+func (c *Client) feeHistoryExec(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, CallResult, error) {
 	lastRef := "latest"
 	if lastBlock != nil {
 		lastRef = hexutil.EncodeBig(lastBlock)
 	}
 	decision, err := c.callTyped(ctx, methods.MethodFeeHistory, blockCount, lastRef, rewardPercentiles)
 	if err != nil {
-		return nil, err
+		decision.Value = nil
+		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	return typed.DecodeFeeHistory(decision.Value)
+	history, projectErr := typed.DecodeFeeHistory(decision.Value)
+	return history, CallResult{Decision: decisionOf(decision)}, projectErr
 }
 
 // BlobBaseFee returns the fleet's lower-median blob base fee (EIP-4844) — a
 // variable result, so the decision is Selected at best, with outliers kept as
 // evidence.
-func (c *Client) BlobBaseFee(ctx context.Context) (*big.Int, error) {
-	decision, err := c.callTyped(ctx, methods.MethodBlobBaseFee)
-	if err != nil {
-		return nil, err
-	}
-	return c.decodedQuantity(methods.MethodBlobBaseFee, decision)
+func (c *Client) BlobBaseFee(ctx context.Context) (*big.Int, CallResult, error) {
+	return readQuantity(ctx, c, false, methods.MethodBlobBaseFee)
 }
 
 // AccessListResult represents the outcome of eth_createAccessList. The type
@@ -696,16 +821,20 @@ type AccessListResult = typed.AccessListResult
 // corroborated reference block or an explicitly provided block argument.
 // This is an EthGuard typed extension: go-ethereum's client does not expose
 // eth_createAccessList, so the return value carries no decision evidence.
-func (c *Client) CreateAccessList(ctx context.Context, msg any, blockNrOrHash ...any) (*AccessListResult, error) {
-	params := []any{msg}
-	if len(blockNrOrHash) > 0 {
-		params = append(params, blockNrOrHash[0])
-	}
-	decision, err := c.callTyped(ctx, methods.MethodCreateAccessList, params...)
-	if err != nil {
-		return nil, err
-	}
-	return typed.DecodeAccessListResult(decision.Value)
+func (c *Client) CreateAccessList(ctx context.Context, msg any, blockNrOrHash ...any) (*AccessListResult, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*AccessListResult, CallResult, error) {
+		params := []any{msg}
+		if len(blockNrOrHash) > 0 {
+			params = append(params, blockNrOrHash[0])
+		}
+		decision, err := c.callTyped(opCtx, methods.MethodCreateAccessList, params...)
+		if err != nil {
+			decision.Value = nil
+			return nil, CallResult{Decision: decisionOf(decision)}, err
+		}
+		result, err := typed.DecodeAccessListResult(decision.Value)
+		return result, CallResult{Decision: decisionOf(decision)}, err
+	})
 }
 
 // toBlockNumArg mirrors go-ethereum's conversion of a block number argument.

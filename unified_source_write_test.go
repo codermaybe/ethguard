@@ -172,15 +172,15 @@ func TestUnifiedSourceWriteOutcomes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			result, err := client.SendRawTransaction(ctx, raw)
-			d := result.Decision
+			d := result.WriteDecision
 			if d.Status != tc.want || d.Basis != 2 || d.Required != 2 || len(d.Accepted) != tc.wantAccepted || len(d.Rejected) != tc.wantRejected || len(d.Silent) != tc.wantSilent {
 				t.Fatalf("decision=%+v err=%v", d, err)
 			}
 			if tc.want == rpc.WriteAccepted {
-				if err != nil || !result.Accepted() || d.Hash != hash {
+				if err != nil || !result.IsWriteAccepted() || d.Hash != hash {
 					t.Fatalf("accepted result=%+v err=%v", d, err)
 				}
-			} else if err == nil || result.Accepted() {
+			} else if err == nil || result.IsWriteAccepted() {
 				t.Fatalf("non-accepted result=%+v err=%v", d, err)
 			}
 			if tc.want == rpc.WriteDisputed && !errors.Is(err, rpc.ErrConflict) {
@@ -209,7 +209,7 @@ func TestUnifiedSourceWriteOutcomes(t *testing.T) {
 				}
 				// The peer received the signed frame. Rejected cannot mean never submitted.
 				next, nextErr := client.SendRawTransaction(ctx, raw)
-				if next.Decision.Status != rpc.WriteDisputed || !errors.Is(nextErr, rpc.ErrConflict) || wsPeer.writes.Load() != 2 || wsPeer.connections.Load() != 2 {
+				if next.WriteDecision.Status != rpc.WriteDisputed || !errors.Is(nextErr, rpc.ErrConflict) || wsPeer.writes.Load() != 2 || wsPeer.connections.Load() != 2 {
 					t.Fatalf("independent invocation did not redial: %+v err=%v writes=%d sockets=%d", next.Decision, nextErr, wsPeer.writes.Load(), wsPeer.connections.Load())
 				}
 			}
@@ -232,7 +232,7 @@ func TestSingleWSSSourceUsesForwardedWriteBasis(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	result, err := client.SendRawTransaction(ctx, raw)
-	if err != nil || !result.Accepted() || result.Decision.Hash != hash || result.Decision.Basis != 1 || result.Decision.Required != 1 || client.Mode() != rpc.CorroborationForwarded {
+	if err != nil || !result.IsWriteAccepted() || result.WriteDecision.Hash != hash || result.WriteDecision.Basis != 1 || result.WriteDecision.Required != 1 || client.Mode() != rpc.CorroborationForwarded {
 		t.Fatalf("single WSS write=%+v err=%v mode=%s", result.Decision, err, client.Mode())
 	}
 	if peer.writes.Load() != 1 || peer.connections.Load() != 1 {

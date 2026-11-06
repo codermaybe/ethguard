@@ -42,7 +42,7 @@ func TestLogsPendingRangeSendsNoProviderRequest(t *testing.T) {
 		map[string]any{"fromBlock": ""},
 	}
 	for _, filter := range filters {
-		decision, err := client.Call(ctx, methods.MethodGetLogs, filter)
+		decision, err := callDecision(client.Call(ctx, methods.MethodGetLogs, filter))
 		if !errors.Is(err, ethguard.ErrInvalidRequest) {
 			t.Fatalf("filter %v: got %v, want ErrInvalidRequest", filter, err)
 		}
@@ -58,11 +58,11 @@ func TestLogsPendingRangeSendsNoProviderRequest(t *testing.T) {
 		}
 	}
 
-	_, err := client.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: big.NewInt(-1)})
+	_, _, err := client.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: big.NewInt(-1)})
 	if !errors.Is(err, ethguard.ErrInvalidRequest) || !strings.Contains(err.Error(), "no stable corroboration semantics") {
 		t.Fatalf("FilterLogs(-1): got %v, want local pending-range rejection", err)
 	}
-	_, err = client.FilterLogs(ctx, ethereum.FilterQuery{
+	_, _, err = client.FilterLogs(ctx, ethereum.FilterQuery{
 		FromBlock: big.NewInt(1),
 		ToBlock:   big.NewInt(-1),
 		Addresses: []common.Address{common.HexToAddress("0x1")},

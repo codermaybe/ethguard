@@ -28,7 +28,7 @@ func TestReviewDecoratedMethods(t *testing.T) {
 				n.Return(tc.name, []any{})
 			}
 			nodes[2].Return(tc.name, []any{map[string]any{"different": true}})
-			d, err := c.Call(context.Background(), tc.name, tc.params...)
+			d, err := callDecision(c.Call(context.Background(), tc.name, tc.params...))
 			if err == nil && d.Status == rpc.Corroborated && len(d.Faults) == 0 {
 				t.Fatalf("malformed source was not recorded: %+v", d)
 			}
@@ -47,7 +47,7 @@ func TestReviewDecoratedMethods(t *testing.T) {
 			for _, n := range nodes[:3] {
 				n.Return(methods.MethodChainID, "0x1")
 			}
-			d, err := c.Call(context.Background(), tc.name, tc.params...)
+			d, err := callDecision(c.Call(context.Background(), tc.name, tc.params...))
 			if len(d.Participants) != 5 || (err == nil && d.Status == rpc.Corroborated && len(d.Faults) == 0) {
 				t.Fatalf("2-of-5 basis lost: %+v %v", d, err)
 			}
@@ -73,7 +73,7 @@ func TestReviewAllGatedKeepsEvidence(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		_, _ = c.Call(context.Background(), methods.MethodChainID)
 	}
-	d, err := c.Call(context.Background(), methods.MethodChainID)
+	d, err := callDecision(c.Call(context.Background(), methods.MethodChainID))
 	if !errors.Is(err, pool.ErrNoEligibleSource) || len(d.Participants) != 3 {
 		t.Fatalf("all-gated basis disappeared: %+v %v", d, err)
 	}

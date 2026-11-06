@@ -170,152 +170,152 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 	slot0 := common.Hash{}
 	return []step{
 		{"chainId", methods.MethodChainID, nil, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodChainID)
-			return classify(dec, err, identityDetail(canonicalQuantity(f.client, methods.MethodChainID, dec), chainID))
+			result, err := f.client.Call(ctx, methods.MethodChainID)
+			return classify(result.Decision, err, identityDetail(canonicalQuantity(f.client, methods.MethodChainID, result.Decision), chainID))
 		}},
 		{"net_version", methods.MethodNetVersion, nil, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodNetVersion)
-			return classify(dec, err, identityDetail(canonicalQuantity(f.client, methods.MethodNetVersion, dec), chainID))
+			result, err := f.client.Call(ctx, methods.MethodNetVersion)
+			return classify(result.Decision, err, identityDetail(canonicalQuantity(f.client, methods.MethodNetVersion, result.Decision), chainID))
 		}},
 		{"blockNumber(derived)", "", nil, false, func(ctx context.Context) (stepReport, error) {
-			height, err := f.client.BlockNumber(ctx)
+			height, _, err := f.client.BlockNumber(ctx)
 			if err != nil {
 				return stepReport{}, err
 			}
 			return stepReport{outcome: "derived", detail: fmt.Sprintf("height %d", height)}, nil
 		}},
 		{"getBlockByNumber(pinned)", methods.MethodGetBlockByHash, []any{f.anchor, true}, true, func(ctx context.Context) (stepReport, error) {
-			block, err := f.client.BlockByNumber(ctx, nil)
+			block, _, err := f.client.BlockByNumber(ctx, nil)
 			if err != nil {
 				return stepReport{}, err
 			}
 			return stepReport{outcome: "ok", detail: block.Hash().Hex()}, nil
 		}},
 		{"getBlockByHash", methods.MethodGetBlockByHash, []any{f.anchor, true}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodGetBlockByHash, f.anchor, true)
+			result, err := f.client.Call(ctx, methods.MethodGetBlockByHash, f.anchor, true)
 			var block *types.Block
 			if err == nil {
-				block, err = ethguard.DecodeBlock(dec.Value)
+				block, err = ethguard.DecodeBlock(result.Decision.Value)
 			}
-			return classify(dec, err, blockDetail(block))
+			return classify(result.Decision, err, blockDetail(block))
 		}},
 		{"getBalance", methods.MethodGetBalance, []any{addr, f.anchor}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodGetBalance, addr, f.anchor)
-			return classify(dec, err, "")
+			result, err := f.client.Call(ctx, methods.MethodGetBalance, addr, f.anchor)
+			return classify(result.Decision, err, "")
 		}},
 		{"getBalance(typed)", "", nil, false, func(ctx context.Context) (stepReport, error) {
-			bal, err := f.client.BalanceAt(ctx, addr, nil)
+			bal, _, err := f.client.BalanceAt(ctx, addr, nil)
 			if err != nil {
 				return stepReport{}, err
 			}
 			return stepReport{outcome: "ok", detail: bal.String()}, nil
 		}},
 		{"getTransactionCount", methods.MethodGetTransactionCount, []any{addr, f.anchor}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodGetTransactionCount, addr, f.anchor)
-			return classify(dec, err, "")
+			result, err := f.client.Call(ctx, methods.MethodGetTransactionCount, addr, f.anchor)
+			return classify(result.Decision, err, "")
 		}},
 		{"getCode", methods.MethodGetCode, []any{contract, f.anchor}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodGetCode, contract, f.anchor)
-			return classify(dec, err, "")
+			result, err := f.client.Call(ctx, methods.MethodGetCode, contract, f.anchor)
+			return classify(result.Decision, err, "")
 		}},
 		{"getStorageAt", methods.MethodGetStorageAt, []any{contract, slot0, f.anchor}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodGetStorageAt, contract, slot0, f.anchor)
-			return classify(dec, err, "")
+			result, err := f.client.Call(ctx, methods.MethodGetStorageAt, contract, slot0, f.anchor)
+			return classify(result.Decision, err, "")
 		}},
 		{"getTransactionByHash", methods.MethodGetTransactionByHash, []any{f.txHash}, true, func(ctx context.Context) (stepReport, error) {
 			if f.txHash == (common.Hash{}) {
 				return stepReport{outcome: "skipped", detail: "no sampled transaction"}, nil
 			}
-			dec, err := f.client.Call(ctx, methods.MethodGetTransactionByHash, f.txHash)
+			result, err := f.client.Call(ctx, methods.MethodGetTransactionByHash, f.txHash)
 			var tx *types.Transaction
 			if err == nil {
-				tx, _, err = ethguard.DecodeTransaction(dec.Value)
+				tx, _, err = ethguard.DecodeTransaction(result.Decision.Value)
 			}
-			return classify(dec, err, txDetail(tx))
+			return classify(result.Decision, err, txDetail(tx))
 		}},
 		{"getTransactionReceipt", methods.MethodGetTransactionReceipt, []any{f.txHash}, true, func(ctx context.Context) (stepReport, error) {
 			if f.txHash == (common.Hash{}) {
 				return stepReport{outcome: "skipped", detail: "no sampled transaction"}, nil
 			}
-			dec, err := f.client.Call(ctx, methods.MethodGetTransactionReceipt, f.txHash)
+			result, err := f.client.Call(ctx, methods.MethodGetTransactionReceipt, f.txHash)
 			var r *types.Receipt
 			if err == nil {
-				r, err = ethguard.DecodeReceipt(dec.Value)
+				r, err = ethguard.DecodeReceipt(result.Decision.Value)
 			}
-			return classify(dec, err, receiptDetail(r))
+			return classify(result.Decision, err, receiptDetail(r))
 		}},
 		{"getBlockReceipts", methods.MethodGetBlockReceipts, []any{f.anchor}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodGetBlockReceipts, f.anchor)
+			result, err := f.client.Call(ctx, methods.MethodGetBlockReceipts, f.anchor)
 			var rs []*types.Receipt
 			if err == nil {
-				rs, err = ethguard.DecodeReceipts(dec.Value)
+				rs, err = ethguard.DecodeReceipts(result.Decision.Value)
 			}
-			return classify(dec, err, fmt.Sprintf("%d receipts", len(rs)))
+			return classify(result.Decision, err, fmt.Sprintf("%d receipts", len(rs)))
 		}},
 		{"getBlockReceipts(number)", methods.MethodGetBlockReceipts, []any{f.heightRef()}, true, func(ctx context.Context) (stepReport, error) {
 			if f.anchorHeight > uint64(math.MaxInt64) {
 				return stepReport{}, fmt.Errorf("anchor height %d exceeds geth block number range", f.anchorHeight)
 			}
-			rs, err := f.client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.BlockNumber(f.anchorHeight)))
+			rs, _, err := f.client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.BlockNumber(f.anchorHeight)))
 			if err != nil {
 				return stepReport{}, err
 			}
 			return stepReport{outcome: "ok", detail: fmt.Sprintf("%d receipts", len(rs))}, nil
 		}},
 		{"eth_call(totalSupply)", methods.MethodCall, []any{f.totalSupplyCall(), f.anchor}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodCall, f.totalSupplyCall(), f.anchor)
-			return classify(dec, err, callResultDetail(dec))
+			result, err := f.client.Call(ctx, methods.MethodCall, f.totalSupplyCall(), f.anchor)
+			return classify(result.Decision, err, callResultDetail(result.Decision))
 		}},
 		{"estimateGas(totalSupply)", methods.MethodEstimateGas, []any{f.totalSupplyCall(), f.anchor}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodEstimateGas, f.totalSupplyCall(), f.anchor)
-			return classify(dec, err, estimateDetail(dec))
+			result, err := f.client.Call(ctx, methods.MethodEstimateGas, f.totalSupplyCall(), f.anchor)
+			return classify(result.Decision, err, estimateDetail(result.Decision))
 		}},
 		{"getLogs(one-block range)", methods.MethodGetLogs, []any{f.logFilter()}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodGetLogs, f.logFilter())
-			return classify(dec, err, logsDetail(dec))
+			result, err := f.client.Call(ctx, methods.MethodGetLogs, f.logFilter())
+			return classify(result.Decision, err, logsDetail(result.Decision))
 		}},
 		{"feeHistory(percentiles)", methods.MethodFeeHistory, []any{uint64(2), f.heightRef(), []float64{25, 50, 75}}, true, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodFeeHistory, uint64(2), f.heightRef(), []float64{25, 50, 75})
+			result, err := f.client.Call(ctx, methods.MethodFeeHistory, uint64(2), f.heightRef(), []float64{25, 50, 75})
 			var detail string
 			if err == nil {
-				if history, derr := typed.DecodeFeeHistory(dec.Value); derr == nil {
+				if history, derr := typed.DecodeFeeHistory(result.Decision.Value); derr == nil {
 					detail = fmt.Sprintf("oldest %d, %d base fees", history.OldestBlock.Uint64(), len(history.BaseFee))
 				}
 			}
-			return classify(dec, err, detail)
+			return classify(result.Decision, err, detail)
 		}},
 		{"gasPrice", methods.MethodGasPrice, nil, false, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodGasPrice)
-			return classify(dec, err, bigDetail(canonicalQuantity(f.client, methods.MethodGasPrice, dec)))
+			result, err := f.client.Call(ctx, methods.MethodGasPrice)
+			return classify(result.Decision, err, bigDetail(canonicalQuantity(f.client, methods.MethodGasPrice, result.Decision)))
 		}},
 		{"maxPriorityFeePerGas", methods.MethodMaxPriorityFeePerGas, nil, false, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodMaxPriorityFeePerGas)
-			return classify(dec, err, bigDetail(canonicalQuantity(f.client, methods.MethodMaxPriorityFeePerGas, dec)))
+			result, err := f.client.Call(ctx, methods.MethodMaxPriorityFeePerGas)
+			return classify(result.Decision, err, bigDetail(canonicalQuantity(f.client, methods.MethodMaxPriorityFeePerGas, result.Decision)))
 		}},
 		{"net_peerCount", methods.MethodPeerCount, nil, false, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodPeerCount)
-			n := canonicalQuantity(f.client, methods.MethodPeerCount, dec)
+			result, err := f.client.Call(ctx, methods.MethodPeerCount)
+			n := canonicalQuantity(f.client, methods.MethodPeerCount, result.Decision)
 			detail := ""
 			if n != nil {
 				detail = fmt.Sprintf("%d peers", n)
 			}
-			return classify(dec, err, detail)
+			return classify(result.Decision, err, detail)
 		}},
 		{"eth_syncing", methods.MethodSyncing, nil, false, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodSyncing)
+			result, err := f.client.Call(ctx, methods.MethodSyncing)
 			var progress *ethereum.SyncProgress
 			if err == nil {
-				progress, err = typed.DecodeSyncProgress(dec.Value)
+				progress, err = typed.DecodeSyncProgress(result.Decision.Value)
 			}
-			return classify(dec, err, syncingDetail(progress))
+			return classify(result.Decision, err, syncingDetail(progress))
 		}},
 		{"net_listening", methods.MethodListening, nil, false, func(ctx context.Context) (stepReport, error) {
-			dec, err := f.client.Call(ctx, methods.MethodListening)
+			result, err := f.client.Call(ctx, methods.MethodListening)
 			var listening bool
 			if err == nil {
-				err = json.Unmarshal(dec.Value, &listening)
+				err = json.Unmarshal(result.Decision.Value, &listening)
 			}
-			return classify(dec, err, fmt.Sprintf("%v", listening))
+			return classify(result.Decision, err, fmt.Sprintf("%v", listening))
 		}},
 	}
 }
@@ -323,7 +323,10 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 // canonicalQuantity reduces one decision's canonical quantity spelling for
 // the census detail; nil on any decode trouble (the census row keeps the
 // outcome regardless).
-func canonicalQuantity(client *ethguard.Client, method string, dec rpc.Decision) *big.Int {
+func canonicalQuantity(client *ethguard.Client, method string, dec *rpc.Decision) *big.Int {
+	if dec == nil {
+		return nil
+	}
 	canonical, err := client.Normalize(method, dec.Value)
 	if err != nil {
 		return nil
@@ -337,10 +340,15 @@ func canonicalQuantity(client *ethguard.Client, method string, dec rpc.Decision)
 
 // classify turns one decision into a census row. On the conflict path the
 // decision still carries the winning cluster, so the counts stay informative.
-func classify(dec rpc.Decision, err error, detail string) (stepReport, error) {
-	report := stepReport{support: len(dec.Support), reject: len(dec.Reject), faults: len(dec.Faults), detail: detail}
+func classify(dec *rpc.Decision, err error, detail string) (stepReport, error) {
+	report := stepReport{detail: detail}
+	if dec != nil {
+		report.support = len(dec.Support)
+		report.reject = len(dec.Reject)
+		report.faults = len(dec.Faults)
+	}
 	switch {
-	case err == nil:
+	case err == nil && dec != nil:
 		report.outcome = dec.Status.String()
 	case errors.Is(err, rpc.ErrConflict):
 		report.outcome = "conflict"
@@ -459,7 +467,7 @@ func load(file string, chainID uint64, max int) []chainlist.Endpoint {
 func mustAnchor(client *ethguard.Client, timeout time.Duration) string {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	anchor, err := client.AnchorBlockHash(ctx)
+	anchor, _, err := client.AnchorBlockHash(ctx)
 	if err != nil {
 		fail("establish anchor: %v", err)
 	}
@@ -472,7 +480,7 @@ func mustAnchor(client *ethguard.Client, timeout time.Duration) string {
 func sampleTx(client *ethguard.Client, anchor string, timeout time.Duration) (common.Hash, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	block, err := client.BlockByHash(ctx, common.HexToHash(anchor))
+	block, _, err := client.BlockByHash(ctx, common.HexToHash(anchor))
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("fetch pinned block: %w", err)
 	}
@@ -488,7 +496,7 @@ func sampleTx(client *ethguard.Client, anchor string, timeout time.Duration) (co
 func mustAnchorHeight(client *ethguard.Client, timeout time.Duration) uint64 {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	height, err := client.AnchorBlockHeight(ctx)
+	height, _, err := client.AnchorBlockHeight(ctx)
 	if err != nil {
 		fail("establish anchor height: %v", err)
 	}
@@ -576,15 +584,21 @@ func (f fleetState) logFilter() map[string]any {
 	}
 }
 
-func callResultDetail(dec rpc.Decision) string {
-	var result string
-	if json.Unmarshal(dec.Value, &result) == nil {
-		return truncate(result, 40)
+func callResultDetail(dec *rpc.Decision) string {
+	if dec == nil {
+		return ""
+	}
+	var data string
+	if json.Unmarshal(dec.Value, &data) == nil {
+		return truncate(data, 40)
 	}
 	return ""
 }
 
-func estimateDetail(dec rpc.Decision) string {
+func estimateDetail(dec *rpc.Decision) string {
+	if dec == nil {
+		return ""
+	}
 	var gas string
 	if json.Unmarshal(dec.Value, &gas) == nil {
 		return "gas " + gas
@@ -592,7 +606,10 @@ func estimateDetail(dec rpc.Decision) string {
 	return ""
 }
 
-func logsDetail(dec rpc.Decision) string {
+func logsDetail(dec *rpc.Decision) string {
+	if dec == nil {
+		return ""
+	}
 	var logs []json.RawMessage
 	if json.Unmarshal(dec.Value, &logs) == nil {
 		return fmt.Sprintf("%d logs", len(logs))

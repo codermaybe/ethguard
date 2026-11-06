@@ -211,6 +211,10 @@ func TestDefaultBuildExcludesEthclient(t *testing.T) {
 		if line == "github.com/ethereum/go-ethereum/ethclient" {
 			t.Fatal("the default build links ethclient; the geth channel must stay behind gethcompat")
 		}
+		if line == "github.com/ethereum/go-ethereum/accounts/abi/bind" ||
+			line == "github.com/ethereum/go-ethereum/accounts/abi/bind/v2" {
+			t.Fatal("the default build links the abi/bind backend set; the bind/v2 view commitments are a test-only check")
+		}
 	}
 	importers, err := gorillaImporters(".")
 	if err != nil {

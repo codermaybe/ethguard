@@ -28,13 +28,17 @@ verification. Multiple URLs need not be independent.
 
 ```text
 ethguard/                   # public Client facade
-├── client.go               # public Client facade, New, Pool, Close
-├── call.go                 # generic call entrypoints and compatibility delegates
-├── eth.go                  # typed convenience methods
+├── client.go               # public Client facade, New, Pool, Close (owner lifecycle)
+├── call.go                 # generic read-only Call entry and decode delegates
+├── eth.go                  # typed methods and their shared execution bodies
+├── ethclient_view.go       # the ethclient-shaped view (private owner, exact surface)
+├── call_result.go          # CallResult: decision, write decision, material, business error
+├── result_capture.go       # WithResult capture state machine and WithSourceEvidence budget
+├── execution.go            # the shared public-operation entry (bind, lifecycle, publish)
 ├── anchor.go               # anchoring strategies behind moving-tag reads
-├── write.go                # write pipeline (independent decision flow)
+├── write.go                # write pipeline (relative-trust broadcast)
 ├── errors.go               # classified sentinel errors
-├── uncertain.go            # opt-in per-invocation capture (incl. vendor-dialect evidence)
+├── uncertain.go            # UncertainResult material types (delivered on CallResult)
 ├── config/                 # programmatic and YAML configuration
 ├── pool/                   # upstream lifecycle, Transport Port, health, eligibility
 ├── observe/                # passive observability seam
@@ -137,13 +141,18 @@ semantics, and admission helpers live in `rpc/internal`.
   `AnchorBlockHeight` from root `anchor.go`; the reference algorithm and
   Head-Reading Port live in `internal/reference`, with per-invocation evidence
   propagation in `internal/refcontext` (`Capture`).
-- **One typed surface, four evidence layers.** `ethguard.Client` is the only
-  client. Its typed methods return clean Geth-shaped values with classified
-  errors; the four evidence channels stay separate: (1) typed classified
-  errors, (2) generic `Call` returning the full `rpc.Decision`, (3) opt-in
-  `WithUncertain` raw source material per invocation, (4) `observe.Recorder`
-  events for audit and operations. The recorder is never a synchronous
-  business return channel.
+- **Two facades, one execution, four evidence layers.** `ethguard.Client`
+  owns every business method and returns a `CallResult` per operation: the
+  business value rides the method's own return, the decision (or write
+  decision) and collected material ride the result, and `CallResult.Err` is
+  the call's final business conclusion. The ethclient-shaped `EthClient`
+  view projects the same execution with official signatures. The four
+  evidence channels stay separate: (1) typed classified errors plus the
+  result's decision evidence, (2) generic read-only `Call` whose decision
+  value carries the JSON, (3) opt-in `WithResult`/`WithSourceEvidence` raw
+  source material with a per-call budget, (4) `observe.Recorder` events for
+  audit and operations. The recorder is never a synchronous business return
+  channel.
 
 ### Execution and coverage
 
@@ -177,8 +186,12 @@ client, err := ethguard.Dial("https://your-provider-a", "https://your-provider-b
 if err != nil { return err }
 defer client.Close()
 
-balance, err := client.BalanceAt(ctx, account, nil)
+balance, result, err := client.BalanceAt(ctx, account, nil)
 ```
+
+Every operation returns its business value plus a `CallResult` — the decision
+evidence (or write decision), the collected material when enabled, and `Err`,
+the call's final business conclusion (identical to the trailing error):
 
 Exactly one endpoint must opt into Forwarded mode explicitly — `Dial` refuses
 a single URL, and a repeated URL fails (a duplicate shrinks the voting basis
@@ -261,34 +274,53 @@ protects content-to-header consistency; it does not prove canonical chain
 membership or on-chain finality. Real provider and fork compatibility samples
 remain a separate corroboration step.
 
-Uncertain data is opt-in and belongs to one invocation. The ordinary method
-signatures stay unchanged; pass a context created by `WithUncertain`, then read
-the stable defensive snapshot after either success or failure:
+Result delivery and raw source evidence are opt-in and belong to one
+invocation. `WithResult` puts a fresh capture on the context — the bound call
+publishes its completion result there exactly once — and `WithSourceEvidence`
+configures the retention budget for the raw upstream material of each call
+made on the derived context:
 
 ```go
-callCtx, uncertain := ethguard.WithUncertain(ctx)
-block, err := client.BlockByNumber(callCtx, number)
+base, err := ethguard.WithSourceEvidence(ctx, 64<<10) // total bytes one call may retain
+if err != nil { return err }                          // non-positive budget fails locally
+callCtx, capture := ethguard.WithResult(base)
+block, _, err := client.BlockByNumber(callCtx, nil)
 _ = block // the normal result and error keep their usual semantics
-snapshot := uncertain.Result()
-for _, field := range uncertain.Fields("vendorField") {
-	log.Printf("%s %s: %s", field.Source.ID, field.Path, field.Value)
-}
-for _, response := range uncertain.Responses() {
-	log.Printf("%s %s: %s", response.Source.ID, response.Method, response.Error)
-}
-if snapshot.Truncated {
-	log.Printf("uncertain data truncated: retained=%d dropped=%d", snapshot.Bytes, snapshot.Dropped)
+result, published, err := capture.Result()
+if published {
+	for _, field := range result.Uncertain.FieldsFor("vendorField") {
+		log.Printf("%s %s: %s", field.Source.ID, field.Path, field.Value)
+	}
+	for _, response := range result.Uncertain.Raw {
+		log.Printf("%s %s: %s", response.Source.ID, response.Method, response.Error)
+	}
+	if result.Uncertain.Truncated {
+		log.Printf("material truncated: retained=%d dropped=%d", result.Uncertain.Bytes, result.Uncertain.Dropped)
+	}
 }
 ```
 
-Fields preserve each source's raw value, including equal values and explicit
-`null`; malformed responses and transport/protocol errors are retained in the
-response records when budget permits. The data is compatibility evidence, not
-a reliability guarantee or a recent-client cache. Retention is bounded during
-collection and cancellation may leave a partial snapshot. A fresh capture is
-required for each logical call; returned values are defensive copies. Native HTTP
-and raw WSS preserve missing error data versus JSON `null`; the explicit geth
-compatibility WSS path still cannot distinguish them.
+`result.Err` equals the trailing error; `result.Decision` carries the
+aggregation facts the call actually formed. A failed aggregation clears the
+public value while the source tables stay; a corroborated receipt-null or a
+corroborated revert keeps its payload with the classified business error.
+Retention bounds are fixed for this release: the parameter-configured total
+byte budget, at most 64 KiB per raw response, at most 256 records across raw
+and fields, and at most 4 KiB per variable metadata text. A spent budget stops
+retention only — never a request, a quorum, or a vote — and the transport
+response limits stay independent. A capture handle that enters a second call
+is permanently invalidated (`ErrCaptureReused`); a call that exits through a
+panic marks the capture aborted (`ErrCaptureAborted`). Capture errors are
+delivery facts and never enter the business error.
+
+The ethclient-shaped view rides the same execution: `client.EthClient()`
+exposes the official read signatures, `SendTransaction(ctx, tx) error`, and
+`Close` — nothing else. It satisfies `bind/v2.ContractCaller` and
+`bind/v2.DeployBackend`; it is not `*ethclient.Client`. A view call with no
+capture bound omits raw-material collection (nothing would consume it);
+business behavior never changes. One `Close` on either surface stops both:
+in-flight operations converge with a recognizable `ErrPoolClosed` cause, and
+new operations fail before any network contact.
 
 ### HTTP and WSS sources
 

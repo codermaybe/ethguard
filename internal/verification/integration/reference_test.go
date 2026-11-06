@@ -42,7 +42,7 @@ func TestCommonReferenceConfirmsDifferentHeightsAndKeepsEvidenceScoped(t *testin
 	opts := []ethguard.Option{ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(16)), ethguard.WithRecorder(events)}
 	client, nodes := fleet(t, 1, 1, 3, opts...)
 	commonHeads(nodes, []uint64{84, 100, 100}, nil)
-	decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	decision, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestCommonReferenceConfirmsDifferentHeightsAndKeepsEvidenceScoped(t *testin
 	}
 	observed := ref.ObservedAt
 	ref.Support[0].Name = "caller mutation"
-	again, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	again, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestCommonReferenceConfirmationCannotShrinkQuorum(t *testing.T) {
 		}
 		return map[string]any{"number": fmt.Sprintf("0x%x", height), "hash": fmt.Sprintf("0x%064x", height)}, nil
 	})
-	decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	decision, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest"))
 	if !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("two of five must fail, got %+v %v", decision, err)
 	}
@@ -119,7 +119,7 @@ func TestCommonReferenceConfirmationCannotShrinkQuorum(t *testing.T) {
 func TestCommonReferenceChoosesHighestFinalizedHeightCoveredByQuorum(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 4, ethguard.WithFinalizedAnchoring())
 	commonHeads(nodes, []uint64{10000, 9999, 10001, 9999}, nil)
-	decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	decision, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestCommonReferenceChoosesHighestFinalizedHeightCoveredByQuorum(t *testing.
 func TestCommonReferenceDoesNotPromoteUndercoveredHigherFinalizedHeight(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 5, ethguard.WithFinalizedAnchoring())
 	commonHeads(nodes, []uint64{10000, 10000, 9999, 9999, 9999}, nil)
-	decision, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	decision, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestCommonReferenceRejectsWrongConfirmationHeight(t *testing.T) {
 	commonHeads(nodes, []uint64{84, 100, 101}, func(int, uint64) (any, error) {
 		return map[string]any{"number": "0x63", "hash": fmt.Sprintf("0x%064x", 99)}, nil
 	})
-	d, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	d, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest"))
 	if !errors.Is(err, rpc.ErrConflict) || d.Reference == nil || len(d.Reference.Faults) == 0 {
 		t.Fatalf("wrong height confirmations accepted: %+v %v", d, err)
 	}
@@ -179,7 +179,7 @@ func TestFailedStrictAnchorRetainsParticipants(t *testing.T) {
 	for _, node := range nodes {
 		node.Hang(methods.MethodGetBlockByNumber, time.Second)
 	}
-	d, err := client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest")
+	d, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest"))
 	if err == nil || d.Reference == nil || len(d.Reference.Participants) != 2 {
 		t.Fatalf("failed anchor lost membership: %+v %v", d.Reference, err)
 	}

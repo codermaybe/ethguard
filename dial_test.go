@@ -66,7 +66,7 @@ func TestDialBuildsCorroboratedClient(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	id, err := client.ChainID(ctx)
+	id, _, err := client.ChainID(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestDialUncorroboratedIsExplicitForwardedMode(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	id, err := client.ChainID(ctx)
+	id, _, err := client.ChainID(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestWithChainIDOptionWinsOverConfig(t *testing.T) {
 	t.Cleanup(client.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if id, err := client.ChainID(ctx); err != nil || id.Int64() != 1 {
+	if id, _, err := client.ChainID(ctx); err != nil || id.Int64() != 1 {
 		t.Fatalf("WithChainID must override config chain_id, got id=%v err=%v", id, err)
 	}
 
@@ -173,7 +173,7 @@ func TestWithChainIDOptionWinsOverConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(mismatched.Close)
-	if _, err := mismatched.ChainID(ctx); err == nil {
+	if _, _, err := mismatched.ChainID(ctx); err == nil {
 		t.Fatal("pinned foreign chain must fail the read")
 	}
 }
@@ -248,7 +248,7 @@ func TestDialUncorroboratedPassesOptions(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if id, err := client.ChainID(ctx); err != nil || id.Int64() != 1 {
+	if id, _, err := client.ChainID(ctx); err != nil || id.Int64() != 1 {
 		t.Fatalf("WithChainID must apply through DialUncorroborated, got id=%v err=%v", id, err)
 	}
 
@@ -258,7 +258,7 @@ func TestDialUncorroboratedPassesOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(mismatched.Close)
-	if _, err := mismatched.ChainID(ctx); err == nil {
+	if _, _, err := mismatched.ChainID(ctx); err == nil {
 		t.Fatal("pinned foreign chain must fail the read")
 	}
 }

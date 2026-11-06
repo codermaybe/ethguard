@@ -46,9 +46,15 @@ type invocationState struct {
 	members       []*pool.Source
 	capture       *refcontext.Capture
 
-	prepared   rpc.Request
-	emissions  []pool.Emission
-	collectErr error
+	prepared rpc.Request
+	// wireParams is the frozen parameter list the business fan-out sends:
+	// the one controlled serialization from prepare, so the wire and the
+	// recorded prepared-request fact stay the same bytes. preparedJSON is
+	// the joined array snapshot carried on Decision.Prepared.
+	wireParams   []any
+	preparedJSON json.RawMessage
+	emissions    []pool.Emission
+	collectErr   error
 
 	observations []rpc.Observation
 	participants []rpc.SourceRef
@@ -103,17 +109,6 @@ type earlyExit struct {
 	err      error
 }
 
-// uncertainCaptureAdapter routes the invocation's raw-data records into the
-// Uncertain collector. The adapter is the rpc-owned InvocationCapture seam's
-// production binding for aggregator-driven reads.
-type uncertainCaptureAdapter struct{ capture *uncertain.Capture }
-
-func (a uncertainCaptureAdapter) Record(stage, method string, source rpc.SourceRef, value []byte, errText string) {
-	if a.capture != nil {
-		a.capture.Record(stage, method, source, value, errText)
-	}
-}
-
 // beginInvocation freezes the read invocation: one ID, the voting basis
 // captured before any request, the corroboration snapshot, and the raw-data
 // capture. The typed facade's corroboration requirement rides the invocation
@@ -123,7 +118,7 @@ func beginInvocation(snap rpc.Corroboration, snapOK bool, members []*pool.Source
 	for _, member := range members {
 		refs = append(refs, SourceRefOf(member))
 	}
-	opts := []rpc.InvocationOption{rpc.WithInvocationCapture(uncertainCaptureAdapter{capture: capture})}
+	opts := []rpc.InvocationOption{rpc.WithInvocationCapture(capture.InvocationCapture())}
 	if requireCorroboration {
 		opts = append(opts, rpc.WithRequiredCorroboration())
 	}
@@ -156,7 +151,7 @@ func (a *Aggregator) collectPhase(state *invocationState) {
 		TipFreshness: preparedTipFreshness(state),
 	}
 	forward := func() {
-		state.emissions, state.collectErr = a.pool.Forward(state.ctx, state.prepared.Method, state.prepared.Params, opts)
+		state.emissions, state.collectErr = a.pool.Forward(state.ctx, state.prepared.Method, state.wireParams, opts)
 	}
 	switch {
 	case state.snapOK && state.snap.Mode == rpc.CorroborationForwarded:
@@ -170,9 +165,9 @@ func (a *Aggregator) collectPhase(state *invocationState) {
 		// A corroborated read collects over the fixed voting basis — every
 		// member occupies the denominator even when a scheduling gate
 		// skipped its request (decisions 0025 and 0062).
-		state.emissions, state.collectErr = a.pool.CollectVoting(state.ctx, state.prepared.Method, state.prepared.Params, opts)
+		state.emissions, state.collectErr = a.pool.CollectVoting(state.ctx, state.prepared.Method, state.wireParams, opts)
 	default:
-		state.emissions, state.collectErr = a.pool.Collect(state.ctx, state.prepared.Method, state.prepared.Params, opts)
+		state.emissions, state.collectErr = a.pool.Collect(state.ctx, state.prepared.Method, state.wireParams, opts)
 	}
 }
 
@@ -190,7 +185,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 	// Preserve every primary response before admission is allowed to clear a
 	// malformed value. This is the raw per-source record used by Uncertain;
 	// admission and resolver outcomes are recorded as separate stages below.
-	if c := uncertain.FromContext(state.ctx); c != nil {
+	if c := uncertain.CollectorFromContext(state.ctx); c != nil {
 		for _, emission := range state.emissions {
 			source := SourceRefOf(emission.Src)
 			errText := ""
@@ -226,7 +221,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 			defer wg.Done()
 			evidence, admissionErr := admission(state.ctx, state.prepared, state.emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
 				raw, callErr := a.pool.CallSource(callCtx, state.emissions[i].Src, method, params)
-				if c := uncertain.FromContext(state.ctx); c != nil {
+				if c := uncertain.CollectorFromContext(state.ctx); c != nil {
 					source := SourceRefOf(state.emissions[i].Src)
 					errText := ""
 					if callErr != nil {
@@ -237,7 +232,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 				return raw, callErr
 			})
 			if admissionErr != nil {
-				if c := uncertain.FromContext(state.ctx); c != nil {
+				if c := uncertain.CollectorFromContext(state.ctx); c != nil {
 					c.Record("admission", state.prepared.Method, SourceRefOf(state.emissions[i].Src), nil, admissionErr.Error())
 				}
 				state.emissions[i].Err = fmt.Errorf("admission: %w", admissionErr)
@@ -285,7 +280,7 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 		}
 	}
 	if state.collectErr != nil && !hasUsableEmission(state.emissions) {
-		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared))
+		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
 		state.attachFaults(&decision, nil)
 		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, state.collectErr, state.emissions, nil)
 		return &earlyExit{decision: decision, err: state.collectErr}
@@ -296,7 +291,7 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	// typed callers instead of replacing it with ErrNoValidResponse.
 	if state.collectErr == nil && !hasUsableEmission(state.emissions) && hasMalformedAdmission(state.emissions) {
 		admissionErr := firstMalformedAdmission(state.emissions)
-		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared))
+		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
 		state.attachFaults(&decision, nil)
 		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
 		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, err, state.emissions, nil)
@@ -335,7 +330,7 @@ func (state *invocationState) resolveValue() (rpc.Decision, error) {
 func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req rpc.Request, decision rpc.Decision, resolveErr error) (rpc.Decision, error) {
 	decision.Reference = state.capture.Reference()
 	decision.Participants = state.participants
-	decision.Prepared = preparedRequest(state.prepared)
+	decision.Prepared = preparedRequest(state.prepared.Method, state.preparedJSON)
 	if resolveErr == nil && state.evaluation != nil {
 		var (
 			projector rpc.ObservationProjector
