@@ -3,7 +3,6 @@ package ethguard_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,31 +18,39 @@ import (
 
 func TestCallRejectsUnroutableMethodsLocally(t *testing.T) {
 	client, nodes := fleet(t, 3)
+	rejected := []string{
+		methods.MethodSendRawTransaction,
+		"eth_sendTransaction",        // account-managed write
+		"eth_sendRawTransactionSync", // mined/synchronous write extension
+		"eth_getProof",               // explicit unsupported verification method
+		"eth_simulateV1",             // unsupported execution extension
+		"debug_traceCall",            // debug/trace extension
+		"trace_replayTransaction",    // trace extension
+		"eth_subscribe",              // deferred stream family
+	}
 	for _, node := range nodes {
-		node.Handle(methods.MethodSendRawTransaction, func(c rpctest.Call) (any, error) {
-			t.Error("the write method reached a provider through Call")
-			return "0x00", nil
-		})
-		node.Handle("eth_subscribe", func(c rpctest.Call) (any, error) {
-			t.Error("a subscription method reached a provider through Call")
-			return "sub", nil
-		})
+		for _, method := range rejected {
+			node.Handle(method, func(c rpctest.Call) (any, error) {
+				t.Errorf("unsupported method %s reached a provider through Call", c.Method)
+				return "unexpected", nil
+			})
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Write: the error points at the dedicated write entry.
-	result, err := client.Call(ctx, methods.MethodSendRawTransaction, "0x00")
-	if !errors.Is(err, ethguard.ErrInvalidRequest) || !strings.Contains(err.Error(), "SendRawTransaction") {
-		t.Fatalf("write route = %v, want ErrInvalidRequest with the write hint", err)
-	}
-	if result.Decision != nil || result.Err != err {
-		t.Fatalf("route rejection result = %+v", result)
-	}
-
-	// Subscription: same local class, no hint.
-	if _, err := client.Call(ctx, "eth_subscribe", "newHeads"); !errors.Is(err, ethguard.ErrInvalidRequest) {
-		t.Fatalf("subscription route = %v, want ErrInvalidRequest", err)
+	for _, method := range rejected {
+		params := []any(nil)
+		if method == methods.MethodSendRawTransaction {
+			params = []any{"0x00"}
+		}
+		result, err := client.Call(ctx, method, params...)
+		if !errors.Is(err, ethguard.ErrInvalidRequest) {
+			t.Fatalf("%s route = %v, want ErrInvalidRequest", method, err)
+		}
+		if result.Decision != nil || result.Err != err {
+			t.Fatalf("%s route rejection result = %+v", method, result)
+		}
 	}
 	// Unknown method: same local class.
 	if _, err := client.Call(ctx, "eth_madeUpMethod"); !errors.Is(err, ethguard.ErrInvalidRequest) {
