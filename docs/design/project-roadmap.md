@@ -1,6 +1,6 @@
 # EthGuard 当前路线图
 
-状态：**方法覆盖与订阅闭环验证进行中（2026-11-07）**。
+状态：**方法覆盖与订阅内部闭环已验收；公共订阅 facade 与 provider 事实仍未承诺（2026-11-07）**。
 
 EthGuard 的 `Corroborated` 只表示 provider-backed cross-source evidence，不是 Ethereum consensus、canonical proof 或 cryptographic finality。架构收敛仍以 execution、quorum、reference 和 typed 边界为约束。
 
@@ -77,7 +77,7 @@ EstimateGas。Pending 仍先由 R0 冻结 source-local、quorum 和 Decision 语
 | S1 | WSS 订阅 transport seam | 订阅能力接口、source 生命周期、请求 ID 与通知隔离、关闭和取消测试 | S0 | 不影响现有 raw-call Transport；连接断裂、Unsubscribe、owner Close 和 goroutine 退出有界 | 最小内部 notification seam 完成（2026-11-07；`OpenNotificationStream`、bounded queue、generation/source identity、异步错误和 race 测试）；尚未接入业务聚合 |
 | S2 | 订阅聚合与补查 | newHeads/logs 多源聚合、软超时 Pull、隔离、reorg、重复和缺口处理 | S0、S1 | 不静默丢事件；Pull 只使用同一 source 的已配置能力；事件 source snapshot 和 quorum 可重放 | 内部聚合状态机完成（2026-11-07；`internal/subscription`、`s2-event-aggregator-review.md`）；尚未接入 WSS source session 或公共订阅 facade |
 | R0 | 返回值与接口统一审查 | `return-value-design.md` 更新；单次调用与异步事件的最小结果类型对照 | M1–M4、S0 | 业务值、业务 error、网络裁决、证据材料四者职责清楚；不引入无必要的泛型包装；订阅不强塞 CallResult | unary 结果与现有 API 审查完成（2026-11-07；`r0-interface-review.md`）；订阅签名、单源策略、reorg/backpressure/reconnect 仍 needs-review |
-| F0 | 总体验收与决策收敛 | 完整方法矩阵、订阅矩阵、未支持项、性能数据、接口变更建议和最终 ADR | M1–R0 | 所有声明能力有可运行证据；未观察 provider 事实单独标记；公共接口只在此任务统一调整 | 待开始 |
+| F0 | 总体验收与决策收敛 | 完整方法矩阵、订阅矩阵、未支持项、性能数据、接口变更建议和最终 ADR | M1–R0 | 所有声明能力有可运行证据；未观察 provider 事实单独标记；公共接口只在此任务统一调整 | 内部闭环验收完成（2026-11-07；`f0-final-acceptance.md`）；公共订阅 facade、source Pull worker、reconnect/exactly-once 和 provider `not_observed` 仍明确未承诺 |
 
 ## Agent 分配
 
