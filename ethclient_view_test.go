@@ -14,21 +14,22 @@ import (
 
 // The interface commitments of the ethclient-shaped view: exactly bind/v2's
 // ContractCaller and DeployBackend at the locked go-ethereum version — no
-// full ContractBackend, no header/pending/subscription stubs.
+// full ContractBackend or pending/subscription stubs.
 var (
 	_ bind.ContractCaller = (*ethguard.EthClient)(nil)
 	_ bind.DeployBackend  = (*ethguard.EthClient)(nil)
 )
 
-// TestEthClientMethodSetIsExact pins the view's exported surface at 23
-// methods: the 21 official typed reads, SendTransaction, and Close. Anything
+// TestEthClientMethodSetIsExact pins the view's exported surface at 25
+// methods: the 23 currently supported official typed reads, SendTransaction,
+// and Close. Anything
 // else — Call, Pool, anchors, Mode, Normalize, SendRawTransaction,
 // CreateAccessList — is a leak.
 func TestEthClientMethodSetIsExact(t *testing.T) {
 	want := map[string]bool{}
 	for _, name := range []string{
 		"ChainID", "NetworkID", "BalanceAt", "NonceAt", "StorageAt", "CodeAt",
-		"BlockByHash", "BlockByNumber", "BlockNumber", "BlockReceipts",
+		"BlockByHash", "HeaderByHash", "BlockByNumber", "HeaderByNumber", "BlockNumber", "BlockReceipts",
 		"TransactionReceipt", "TransactionByHash", "SuggestGasTipCap",
 		"SuggestGasPrice", "CallContract", "EstimateGas", "FilterLogs",
 		"PeerCount", "SyncProgress", "FeeHistory", "BlobBaseFee",
