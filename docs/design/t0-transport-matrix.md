@@ -74,6 +74,8 @@ sources. `typed_scalar_transport_test.go` extends that seam to the frozen
 hash-pinned state and scalar fee methods without changing method policy,
 anchoring, quorum, AtHash behavior, or adding subscriptions. The same matrix
 now covers `TransactionByHash`, `FeeHistory`, and pending-local
-`CreateAccessList` through native HTTP and raw WSS; remaining representative
-gaps are explicit gethcompat method-level assertions.
+`CreateAccessList` through native HTTP and raw WSS. The HTTP differential suite
+also asserts native versus explicit gethcompat envelope and raw-result parity
+for those three methods; remaining gaps are only typed facade integration and
+provider-backed observations.
 
