@@ -1,7 +1,8 @@
 # EthGuard current roadmap
 
-Status: **topology/document consolidation completed; v1.17.5 business-method
-completion and S2 subscription aggregation are in progress** (2026-11-07).
+Status: **v1.17.5 business-method completion is in progress; WSS
+multi-source aggregation is implemented with evidence gaps remaining**
+(2026-11-07).
 
 The external contract is defined only by the
 [go-ethereum compatibility policy](go-ethereum-compatibility-policy.md). A
@@ -12,8 +13,8 @@ versions.
 
 The retained contract documents (`t09-contract.md`, `live-canary-contract.md`,
 and `return-value-design.md`) preserve executable invariants and evidence rules.
-Their historical stage labels are context only; this roadmap and the current
-method matrix are authoritative for present status and sequencing.
+This roadmap and the current method matrix are authoritative for present status
+and sequencing.
 
 EthGuard's `Corroborated` remains provider-backed cross-source evidence, not
 Ethereum consensus, canonical proof, or cryptographic finality. 架构收敛仍受
@@ -40,7 +41,7 @@ execution、quorum、reference 和 typed 边界约束。
 
 ## Execution plan
 
-1. **R0/F0 method and API lock.** Keep the 47-method target, signatures,
+1. **Method and API contract.** Keep the 47-method target, signatures,
    pending source-local semantics, derived transaction behavior, synchronous
    write behavior, `SimulateV1`, and the three official subscriptions in one
    reviewed contract. Keep `Client()` excluded and test that exclusion.
@@ -50,16 +51,16 @@ execution、quorum、reference 和 typed 边界约束。
    `TransactionInBlock`, and `TransactionSender` now have
    independent plans and facade projections. No unknown `Call` or `ErrUnsupported` placeholder satisfies this
    step.
-3. **S1 subscription transport.** The WSS adapter now has an explicit
+3. **WSS subscription capability.** The WSS adapter now has an explicit
    `eth_subscribe`/`eth_unsubscribe` capability beside (not inside) unary
    `Transport`, with ID-filtered bounded notification streams and race-tested
    cancellation. The capability is now bound to `EthClient`'s
    `ethereum.Subscription` methods for one explicit WSS source; owner `Close`,
-   async errors, and source ownership still need multi-source evidence.
-   `SimulateV1` remains a separate R0/F0 topology decision because its official
-   parameter/result types require importing `go-ethereum/ethclient`, which the
-   native default build currently forbids.
-4. **S2 subscription semantics.** Connect source snapshots, quorum,
+   async errors, and source ownership are covered by the current subscription
+   tests. `SimulateV1` remains a separate compatibility decision because its
+   official parameter/result types require importing `go-ethereum/ethclient`,
+   which the native default build currently forbids.
+4. **Multi-source WSS semantics.** Connect source snapshots, quorum,
    duplicate/reorg/removed handling, bounded backpressure, and per-source
    reconnect generations for new heads, logs, and transaction receipts. The
    root facade now runs fixed-snapshot strict quorum aggregation with stale
@@ -67,8 +68,8 @@ execution、quorum、reference 和 typed 边界约束。
    performs a same-source unary Pull after the soft window, with physical
    session checks before and after the request and a per-context hard
    quarantine. Logs/receipts Pull, root gap diagnostics, and cross-transport
-   evidence remain open gates before S2/T0 completion.
-5. **T0 transport evidence.** Run matching HTTP/WSS fixtures for every
+   evidence remain open items.
+5. **Transport evidence.** Run matching HTTP/WSS fixtures for every
    completed unary method and the subscription lifecycle matrix. Update the
    live method matrix after each method reaches all required gates.
 6. **Release and audit.** Run the full normal/race/vet/release suite and the
@@ -95,7 +96,7 @@ execution、quorum、reference 和 typed 边界约束。
 
 ## Acceptance
 
-The topology/document pass is complete when:
+The roadmap is current when:
 
 - canonical documents link only to current documents;
 - root black-box tests are separated from production ownership without
