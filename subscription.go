@@ -820,6 +820,9 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 			return nil, subErr
 		}
 		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) (types.Log, error) {
+			if err := validateSubscriptionLogIdentity(raw); err != nil {
+				return types.Log{}, err
+			}
 			return typed.DecodeLog(raw)
 		}), nil
 	}
@@ -979,6 +982,10 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 		for _, hash := range query.TransactionHashes {
 			wanted[hash] = struct{}{}
 		}
+		seedHashes := make(map[common.Hash]struct{}, len(seedReceipts))
+		for _, receipt := range seedReceipts {
+			seedHashes[receipt.TxHash] = struct{}{}
+		}
 		filtered := make([]*types.Receipt, 0, len(allReceipts))
 		for _, receipt := range allReceipts {
 			if receipt.BlockHash != blockHash {
@@ -992,15 +999,12 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 				filtered = append(filtered, receipt)
 			}
 		}
-		if len(wanted) > 0 {
-			seen := make(map[common.Hash]struct{}, len(filtered))
-			for _, receipt := range filtered {
-				seen[receipt.TxHash] = struct{}{}
-			}
-			for hash := range wanted {
-				if _, ok := seen[hash]; !ok {
-					return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt Pull missing requested transaction %s", hash)
-				}
+		for _, receipt := range filtered {
+			delete(seedHashes, receipt.TxHash)
+		}
+		if len(seedHashes) > 0 {
+			for hash := range seedHashes {
+				return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt Pull omitted seeded transaction %s", hash)
 			}
 		}
 		if len(filtered) == 0 {

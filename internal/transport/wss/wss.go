@@ -91,11 +91,12 @@ func (d Dialer) DialContext(ctx context.Context, rawURL string) (transport.Trans
 		limit = DefaultReadLimit
 	}
 	t := &Transport{
-		ws:      newConn(result, limit),
-		ids:     rpcwire.NewIDGen(),
-		limit:   limit,
-		pending: make(map[string]chan frameResult),
-		streams: make(map[*NotificationStream]struct{}),
+		ws:              newConn(result, limit),
+		ids:             rpcwire.NewIDGen(),
+		limit:           limit,
+		pending:         make(map[string]chan frameResult),
+		streams:         make(map[*NotificationStream]struct{}),
+		subscriptionIDs: make(map[string]*NotificationStream),
 	}
 	go t.readLoop()
 	return t, nil
@@ -165,6 +166,9 @@ func (s *NotificationStream) deliver(notification Notification) bool {
 		return true
 	}
 	if s.subscriptionID == pendingSubscriptionID {
+		if s.owner.subscriptionActive(notification.SubscriptionID, s) {
+			return true
+		}
 		if len(s.pending) >= cap(s.events) {
 			return false
 		}
@@ -186,6 +190,12 @@ func (s *NotificationStream) bindSubscriptionID(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.subscriptionID = id
+	s.owner.mu.Lock()
+	if s.owner.subscriptionIDs == nil {
+		s.owner.subscriptionIDs = make(map[string]*NotificationStream)
+	}
+	s.owner.subscriptionIDs[id] = s
+	s.owner.mu.Unlock()
 	for _, notification := range s.pending {
 		if notification.SubscriptionID == id {
 			select {
@@ -271,11 +281,12 @@ type Transport struct {
 	ids   *rpcwire.IDGen
 	limit int64
 
-	mu      sync.Mutex
-	pending map[string]chan frameResult
-	streams map[*NotificationStream]struct{}
-	closing bool
-	closed  bool
+	mu              sync.Mutex
+	pending         map[string]chan frameResult
+	streams         map[*NotificationStream]struct{}
+	subscriptionIDs map[string]*NotificationStream
+	closing         bool
+	closed          bool
 
 	socketOnce sync.Once
 }
@@ -359,6 +370,9 @@ func (t *Transport) OpenNotificationStream(ctx context.Context, sourceID string,
 	if t.streams == nil {
 		t.streams = make(map[*NotificationStream]struct{})
 	}
+	if t.subscriptionIDs == nil {
+		t.subscriptionIDs = make(map[string]*NotificationStream)
+	}
 	t.streams[stream] = struct{}{}
 	t.mu.Unlock()
 	go func() {
@@ -374,7 +388,16 @@ func (t *Transport) OpenNotificationStream(ctx context.Context, sourceID string,
 func (t *Transport) removeNotificationStream(stream *NotificationStream) {
 	t.mu.Lock()
 	delete(t.streams, stream)
+	if stream.subscriptionID != "" && t.subscriptionIDs[stream.subscriptionID] == stream {
+		delete(t.subscriptionIDs, stream.subscriptionID)
+	}
 	t.mu.Unlock()
+}
+
+func (t *Transport) subscriptionActive(id string, stream *NotificationStream) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.subscriptionIDs[id] != nil && t.subscriptionIDs[id] != stream
 }
 
 func (t *Transport) notificationStreams() []*NotificationStream {
