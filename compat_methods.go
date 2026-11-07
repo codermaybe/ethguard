@@ -110,6 +110,37 @@ func (c *Client) TransactionInBlock(ctx context.Context, blockHash common.Hash, 
 	})
 }
 
+func (c *Client) transactionSenderExec(ctx context.Context, tx *types.Transaction, blockHash common.Hash, index uint) (common.Address, CallResult, error) {
+	if tx == nil {
+		return common.Address{}, CallResult{}, fmt.Errorf("ethguard: nil transaction: %w", rpc.ErrInvalidRequest)
+	}
+	decision, err := c.callTyped(ctx, methods.MethodGetTransactionByBlockHashAndIndex, blockHash.Hex(), hexutil.Uint64(index))
+	if err != nil {
+		decision.Value = nil
+		return common.Address{}, CallResult{Decision: decisionOf(decision)}, err
+	}
+	decoded, err := typed.DecodeTransactionInBlock(decision.Value, blockHash, uint64(index))
+	if err != nil {
+		return common.Address{}, CallResult{Decision: decisionOf(decision)}, err
+	}
+	if decoded.Tx.Hash() != tx.Hash() {
+		return common.Address{}, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: remote transaction hash %s does not match input %s", rpc.ErrMalformedResponse, decoded.Tx.Hash(), tx.Hash())
+	}
+	if !decoded.HasFrom {
+		return common.Address{}, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: transaction response has no sender", rpc.ErrMalformedResponse)
+	}
+	return decoded.From, CallResult{Decision: decisionOf(decision)}, nil
+}
+
+// TransactionSender returns the sender reported for the transaction at the
+// requested immutable block/index. It deliberately performs a fresh RPC read
+// and never relies on hidden sender state attached to the transaction value.
+func (c *Client) TransactionSender(ctx context.Context, tx *types.Transaction, blockHash common.Hash, index uint) (common.Address, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (common.Address, CallResult, error) {
+		return c.transactionSenderExec(opCtx, tx, blockHash, index)
+	})
+}
+
 func (c *Client) callContractAtHashExec(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, CallResult, error) {
 	decision, err := c.callTyped(ctx, methods.MethodCall, toCallArg(msg), hashBlockArg(blockHash))
 	if err != nil {
