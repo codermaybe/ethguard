@@ -210,6 +210,15 @@ func (ec *EthClient) TransactionCount(ctx context.Context, blockHash common.Hash
 	return value, err
 }
 
+// TransactionInBlock returns the transaction at an index in an immutable
+// block, or ethereum.NotFound when the block/index has no transaction.
+func (ec *EthClient) TransactionInBlock(ctx context.Context, blockHash common.Hash, index uint) (*types.Transaction, error) {
+	tx, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Transaction, CallResult, error) {
+		return ec.owner.transactionInBlockExec(opCtx, blockHash, index)
+	})
+	return tx, err
+}
+
 // SuggestGasTipCap returns the fleet's lower-median priority-fee estimate —
 // a variable result resolved by robust selection, never claimed corroborated.
 func (ec *EthClient) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {

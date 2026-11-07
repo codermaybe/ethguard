@@ -10,6 +10,7 @@ import (
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
@@ -85,6 +86,27 @@ func (c *Client) transactionCountExec(ctx context.Context, blockHash common.Hash
 func (c *Client) TransactionCount(ctx context.Context, blockHash common.Hash) (uint, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint, CallResult, error) {
 		return c.transactionCountExec(opCtx, blockHash)
+	})
+}
+
+func (c *Client) transactionInBlockExec(ctx context.Context, blockHash common.Hash, index uint) (*types.Transaction, CallResult, error) {
+	decision, err := c.callTyped(ctx, methods.MethodGetTransactionByBlockHashAndIndex, blockHash.Hex(), hexutil.Uint64(index))
+	if err != nil {
+		decision.Value = nil
+		return nil, CallResult{Decision: decisionOf(decision)}, err
+	}
+	decoded, err := typed.DecodeTransactionInBlock(decision.Value, blockHash, uint64(index))
+	if err != nil {
+		return nil, CallResult{Decision: decisionOf(decision)}, err
+	}
+	return decoded.Tx, CallResult{Decision: decisionOf(decision)}, nil
+}
+
+// TransactionInBlock returns the transaction at an index in an immutable
+// block, or ethereum.NotFound when the block/index has no transaction.
+func (c *Client) TransactionInBlock(ctx context.Context, blockHash common.Hash, index uint) (*types.Transaction, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*types.Transaction, CallResult, error) {
+		return c.transactionInBlockExec(opCtx, blockHash, index)
 	})
 }
 

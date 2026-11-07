@@ -6,8 +6,8 @@ EthGuard 对外的 `EthClient` 契约按仓库锁定的 go-ethereum 版本定义
 “当前已经接入的 ethclient 子集”，而是完整实现该版本 `ethclient.Client` 的业务方法
 集合。`v1.17.5` 导出的 48 个 receiver 中，`Client()` 只是返回底层 `*rpc.Client`
 的具体类型访问器，不属于 EthGuard 的业务 facade；因此当前锁定版本的兼容目标是
-47 个业务方法。当前 `EthClient` 已接入 44 个方法；`TransactionInBlock`、
-`TransactionSender` 尚需 method-aware plan 与验证，`SimulateV1` 因默认构建明确禁止
+47 个业务方法。当前 `EthClient` 已接入 45 个方法；`TransactionSender` 尚需
+method-aware plan 与验证，`SimulateV1` 因默认构建明确禁止
 生产根包导入 `go-ethereum/ethclient` 而暂缓，不能把该缺口伪装成已完成。当前集合只是
 接入过程中的内部检查点，不能作为最终兼容版本发布或对外能力承诺。
 
