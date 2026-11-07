@@ -44,6 +44,11 @@ jobs:
       # therefore cannot bypass formatting, module, static-analysis, build,
       # race-test, or reachable-vulnerability checks.
       - name: release preflight
+        # The current prerelease line explicitly accepts the documented
+        # external SimulateV1 gap. Stable tags remain strict and must expose
+        # the complete locked business method set before release.
+        env:
+          ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP: ${{ contains(github.ref_name, '-') && '1' || '0' }}
         run: ./scripts/release_check.sh
 
       # Public-surface guard, informed by the previous tag. The first tag has
