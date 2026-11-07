@@ -173,6 +173,13 @@ func (p ReadPlan) Corroborating() bool { return corroboratingResolvers(p.Resolve
 // rejection, exactly as the compat chains do.
 func (p ReadPlan) ReferenceRequirement(req Request) (ReferenceRequest, bool) {
 	if p.Reference.EIP1898 {
+		// A hand-assembled plan can declare EIP1898 without a position: the
+		// compiled-plan validator rejects that combination, but this seam
+		// owns the runtime half of the guard. With no position to carry the
+		// object, no request can need an anchor here.
+		if len(p.Reference.Positions) == 0 {
+			return ReferenceRequest{}, false
+		}
 		pos := p.Reference.Positions[0]
 		if pos < 0 || pos >= len(req.Params) {
 			return ReferenceRequest{}, false
@@ -219,23 +226,36 @@ func (p ReadPlan) fieldsRequirement(req Request) (ReferenceRequest, bool) {
 		return ReferenceRequest{}, false
 	}
 	tag := ""
+	missing := false
 	for _, field := range p.Reference.Fields {
 		value, present := obj[field]
 		if !present {
-			// A provider's implicit default is a moving tag in field clothing.
-			tag = "latest"
+			// A provider's implicit default is a moving tag in field
+			// clothing; the rewrite fills it with the anchor, so it does not
+			// conflict with an explicit tag — it inherits whatever level the
+			// explicit tags declare.
+			missing = true
 			continue
 		}
 		if value, isStr := value.(string); isStr && movingTags[strings.ToLower(value)] {
 			lowered := strings.ToLower(value)
-			if tag != "" && tag != "latest" && tag != lowered {
+			// Same strictness as the rewrite: two different explicit tags
+			// are the rewrite's local rejection, and a read that would
+			// reject locally never establishes. Treating latest as a
+			// wildcard here — the old reading — burned a full anchor round
+			// on {fromBlock: latest, toBlock: safe} before the rewrite
+			// rejected it, in an order-dependent way.
+			if tag != "" && tag != lowered {
 				return ReferenceRequest{}, false
 			}
 			tag = lowered
 		}
 	}
 	if tag == "" {
-		return ReferenceRequest{}, false
+		if !missing {
+			return ReferenceRequest{}, false
+		}
+		tag = "latest"
 	}
 	return ReferenceRequest{Kind: ReferenceKindForTag(tag)}, true
 }
@@ -259,6 +279,12 @@ func (p ReadPlan) PrepareWithReference(req Request, ref ReferenceEvidence, refOK
 	params := make([]any, len(req.Params))
 	copy(params, req.Params)
 	if p.Reference.EIP1898 {
+		// Same empty-declaration guard as ReferenceRequirement: a
+		// hand-assembled EIP1898 plan without positions carries no object,
+		// so the anchored layer below sees the same absence.
+		if len(p.Reference.Positions) == 0 {
+			return Request{Method: req.Method, Params: params}, "", nil
+		}
 		pos := p.Reference.Positions[0]
 		if pos >= 0 && pos < len(params) {
 			if obj, ok := params[pos].(map[string]any); ok {
@@ -489,7 +515,7 @@ func PendingRejectAt(pos int, method string) func(Request) error {
 		if pos < 0 || pos >= len(req.Params) {
 			return nil
 		}
-		if pendingReference(req.Params[pos]) {
+		if IsPendingReference(req.Params[pos]) {
 			return fmt.Errorf("rpc: pending is not supported for %s: %w", method, ErrInvalidRequest)
 		}
 		return nil

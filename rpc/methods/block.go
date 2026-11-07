@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 
@@ -47,11 +48,26 @@ func admitBlockResponse(ctx context.Context, req rpc.Request, value json.RawMess
 	if string(value) == "null" {
 		return nil, nil
 	}
-	fullTx := len(req.Params) > 1 && req.Params[1] == true
+	fullTx := len(req.Params) > 1 && isTrueParam(req.Params[1])
 	if !fullTx {
 		return nil, nil
 	}
 	return blockobject.AdmitBlock(ctx, req, value, byHash, call)
+}
+
+// isTrueParam recognizes the fullTx flag in the spellings a generic Call
+// can carry: the bool literal and its JSON encoding. A wrapper type carrying
+// JSON true must enable the full-block admission exactly like the literal,
+// or a whole-block response would skip its cryptographic checks by spelling.
+func isTrueParam(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case json.RawMessage:
+		return string(bytes.TrimSpace(typed)) == "true"
+	default:
+		return false
+	}
 }
 
 func (p blockPolicy) RequiresAgreement() bool {

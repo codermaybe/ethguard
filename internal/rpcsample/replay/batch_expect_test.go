@@ -602,16 +602,9 @@ func assertCapturedGate(t *testing.T, agg *aggregator.Aggregator, policy rpc.Pol
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	gated, gatedErr := agg.AggregateStrict(ctx, req)
-	pending := false
-	if local, ok := policy.(rpc.LocalObservationPolicy); ok {
-		pending = local.IsLocalObservation(prepared)
-	}
-	if pending {
-		if gatedErr != nil || gated.Status != rpc.Selected {
-			return fmt.Errorf("pending typed gate status %s err %v", gated.Status, gatedErr)
-		}
-		return nil
-	}
+	// Pending routing is the plan model's PendingSpec; the removed
+	// LocalObservationPolicy capability had no implementations, so no
+	// per-request pending branch exists to consult here.
 	if decisionErr == nil && decision.Status == rpc.Corroborated {
 		if gatedErr != nil || gated.Status != rpc.Corroborated {
 			return fmt.Errorf("typed gate status %s err %v", gated.Status, gatedErr)

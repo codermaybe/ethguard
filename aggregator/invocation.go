@@ -319,7 +319,13 @@ func (state *invocationState) resolveValue() (rpc.Decision, error) {
 	gatedByForwarded := state.snapOK && state.snap.Mode == rpc.CorroborationForwarded
 	pendingLocal := state.pendingLocalRoute()
 	if requiresAgreement && state.invocation.RequireCorroboration() && !gatedByForwarded && !pendingLocal && resolveErr == nil && decision.Status != rpc.Corroborated {
-		decision.Status = rpc.Unknown
+		// Fail closed without rewriting the formed Status: the invocation
+		// resolved, so the decision keeps the status its resolution earned
+		// (typically Selected) and the unmet requirement surfaces as the
+		// call error — the exact "failed call may still carry a non-Unknown
+		// Status" case the Decision contract reserves for post-resolution
+		// failures. Rewriting to Unknown here would break the no-rewrite
+		// rule and pair Unknown with a formed Value and Support.
 		resolveErr = fmt.Errorf("typed read requires corroboration: %w", rpc.ErrConflict)
 	}
 	return decision, resolveErr

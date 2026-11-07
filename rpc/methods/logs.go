@@ -105,22 +105,11 @@ func logBoundQuantity(value any) (uint64, bool) {
 // pendingTag reports spellings that mean the pending tag, including case
 // variants and non-string encodings that would otherwise skip the string
 // check and reach an anchor or a provider.
+// pendingTag reports spellings that mean the pending tag. It delegates to
+// the rpc package's single pending-grammar authority so request validation
+// and the plan layers can never drift apart on what counts as pending.
 func pendingTag(value any) bool {
-	switch typed := value.(type) {
-	case string:
-		return strings.EqualFold(strings.TrimSpace(typed), "pending")
-	case json.RawMessage:
-		var decoded any
-		if err := json.Unmarshal(bytes.TrimSpace(typed), &decoded); err != nil {
-			return false
-		}
-		return pendingTag(decoded)
-	case map[string]any:
-		number, ok := typed["blockNumber"]
-		return ok && pendingTag(number)
-	default:
-		return false
-	}
+	return rpc.IsPendingReference(value)
 }
 
 // validateLogBound rejects empty and wrong-typed range fields locally.

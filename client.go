@@ -130,6 +130,9 @@ func WithRecorder(r observe.Recorder) Option {
 }
 
 // WithCollectTimeout bounds each aggregate collection or forwarded attempt.
+// A non-positive timeout panics: an Option cannot return an error, and a
+// silently ignored timeout would trade a loud construction failure for
+// unbounded collections.
 func WithCollectTimeout(timeout time.Duration) Option {
 	if timeout <= 0 {
 		panic("ethguard: WithCollectTimeout: timeout must be positive")

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -140,9 +141,22 @@ func ValidateRequestBinding(req rpc.Request, rows []json.RawMessage) error {
 	return nil
 }
 
+// requestQuantity parses one block-range bound at admission time. It must
+// mirror the request-side grammar (validateLogBound / logBoundQuantity):
+// "earliest" is the genesis bound and compares as height 0, and both hex
+// prefixes are accepted, so a bound the plan layer let through can never
+// resurface here as a per-source response malformation. Pinned moving tags
+// never reach this point — the reference phase rewrites them into heights —
+// and an unpinned tag fails closed below.
 func requestQuantity(value any) (uint64, error) {
 	s, ok := value.(string)
-	if !ok || len(s) < 3 || s[:2] != "0x" {
+	if !ok {
+		return 0, fmt.Errorf("invalid quantity")
+	}
+	if strings.EqualFold(s, "earliest") {
+		return 0, nil
+	}
+	if len(s) < 3 || (s[:2] != "0x" && s[:2] != "0X") {
 		return 0, fmt.Errorf("invalid quantity")
 	}
 	n, ok := new(big.Int).SetString(s[2:], 16)

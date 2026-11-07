@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/codermaybe/ethguard/internal/limits"
 	"net/http"
 	"net/url"
 	"os"
@@ -263,9 +265,12 @@ func (c Collector) collectOne(ctx context.Context, network Network, source Sourc
 }
 
 func readBody(r io.Reader, max int64) ([]byte, bool, error) {
+	// A non-positive limit means "unconfigured", not "unbounded": the
+	// capture target is treated as untrusted, so it falls back to the
+	// cross-package body bound instead of reading a hostile response into
+	// memory without limit.
 	if max <= 0 {
-		b, err := io.ReadAll(r)
-		return b, false, err
+		max = limits.MaxBodyBytes
 	}
 	b, err := io.ReadAll(io.LimitReader(r, max+1))
 	if int64(len(b)) > max {

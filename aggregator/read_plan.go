@@ -1,8 +1,6 @@
 package aggregator
 
 import (
-	"strings"
-
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -85,17 +83,13 @@ func planPendingLocalRoute(plan *rpc.ReadPlan, prepared rpc.Request, snap rpc.Co
 }
 
 // pendingLocalShape reports whether the prepared request addresses pending
-// state at the declared position, in string or EIP-1898 object spelling.
+// state at the declared position. It routes through the rpc package's single
+// pending-grammar authority so the observe mode recognizes exactly the
+// spellings the refuse path and the request validators recognize: raw
+// strings, surrounding space, JSON strings, and EIP-1898 objects.
 func pendingLocalShape(pos int, prepared rpc.Request) bool {
 	if pos < 0 || pos >= len(prepared.Params) {
 		return false
 	}
-	switch ref := prepared.Params[pos].(type) {
-	case string:
-		return strings.EqualFold(ref, "pending")
-	case map[string]any:
-		number, ok := ref["blockNumber"].(string)
-		return ok && strings.EqualFold(number, "pending")
-	}
-	return false
+	return rpc.IsPendingReference(prepared.Params[pos])
 }

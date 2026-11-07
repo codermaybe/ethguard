@@ -195,7 +195,10 @@ func contextOutcome(ctx context.Context, err error, format string, args ...any) 
 }
 
 // hostPortForScheme returns the dial address, applying the scheme's default
-// port when the URL names none.
+// port when the URL names none. The no-port branch joins u.Hostname(), not
+// u.Host: url.Parse keeps the square brackets on an IPv6 literal, and
+// JoinHostPort would double-bracket it into an undialable address. The Host
+// header keeps u.Host elsewhere — RFC 6455/7230 want the brackets there.
 func hostPortForScheme(u *url.URL, secure bool) (string, error) {
 	if u.Host == "" {
 		return "", fmt.Errorf("wss: endpoint URL %q has no host", u)
@@ -203,10 +206,14 @@ func hostPortForScheme(u *url.URL, secure bool) (string, error) {
 	if _, _, err := net.SplitHostPort(u.Host); err == nil {
 		return u.Host, nil
 	}
-	if secure {
-		return net.JoinHostPort(u.Host, "443"), nil
+	host := u.Hostname()
+	if host == "" {
+		return "", fmt.Errorf("wss: endpoint URL %q has no host", u)
 	}
-	return net.JoinHostPort(u.Host, "80"), nil
+	if secure {
+		return net.JoinHostPort(host, "443"), nil
+	}
+	return net.JoinHostPort(host, "80"), nil
 }
 
 // tlsHandshake wraps conn in a TLS client session. The server name comes from

@@ -85,7 +85,10 @@ func TestCancellationWaitingForWriterDoesNotSendOrAbort(t *testing.T) {
 	tr := dialTestTransport(t, peerURL, 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	tr.ws.writeMu.Lock()
+	// The write lock is the capacity-1 channel semaphore now; holding it
+	// from the test goroutine parks the queued call on the lock exactly as
+	// the old mutex did.
+	releaseWriter := tr.ws.writeControlLock()
 	result := make(chan error, 1)
 	go func() { var value string; result <- tr.CallContext(ctx, &value, "eth_queued") }()
 	// The pending entry is installed before waiting on the single-writer lock.
@@ -97,12 +100,12 @@ func TestCancellationWaitingForWriterDoesNotSendOrAbort(t *testing.T) {
 		select {
 		case <-ticker.C:
 		case <-deadline.C:
-			tr.ws.writeMu.Unlock()
+			releaseWriter()
 			t.Fatal("writer did not enter pending table")
 		}
 	}
 	cancel()
-	tr.ws.writeMu.Unlock()
+	releaseWriter()
 	if err := lifecycleResult(t, result); !errors.Is(err, context.Canceled) {
 		t.Fatalf("queued cancel: %v", err)
 	}

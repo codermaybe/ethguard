@@ -25,6 +25,13 @@ import (
 // not a keepalive policy.
 const controlWriteTimeout = 5 * time.Second
 
+// maxWriteWait bounds one frame write even when the caller's context carries
+// no deadline. A write that stalls on a connection the peer stopped draining
+// must fail with a write timeout — and release the write lock — instead of
+// wedging the reader's control replies and every later call behind it
+// forever. Call writes keep their own context deadlines when tighter.
+const maxWriteWait = 30 * time.Second
+
 // Conn is one established WebSocket connection. Reads happen on the single
 // reader goroutine the adapter starts; writes are serialized across callers
 // by one lock. Every write error leaves the connection unusable — the
@@ -37,7 +44,11 @@ type Conn struct {
 	// caller treats the first error.
 	reader *frameReader
 
-	writeMu sync.Mutex
+	// writeSem is the write lock: a capacity-1 channel instead of a mutex
+	// so a caller whose context expires while a stalled writer holds the
+	// lock can give up instead of queueing forever. Acquire with
+	// lockWriter/writeControlLock, release via the returned function.
+	writeSem chan struct{}
 
 	// closeReplyOnce guards the protocol-violation close reply: a caller
 	// that ignores the first error and reads again must not push a second
@@ -49,9 +60,35 @@ type Conn struct {
 // inbound frame and one assembled message.
 func newConn(result *handshakeResult, limit int64) *Conn {
 	return &Conn{
-		raw:    result.conn,
-		reader: newFrameReader(result.br, clientSide, limit),
+		raw:      result.conn,
+		reader:   newFrameReader(result.br, clientSide, limit),
+		writeSem: make(chan struct{}, 1),
 	}
+}
+
+// lockWriter acquires the write lock under the caller's context: a context
+// that expires while another writer stalls returns immediately instead of
+// queueing on the stalled holder.
+func (c *Conn) lockWriter(ctx context.Context) (func(), error) {
+	select {
+	case c.writeSem <- struct{}{}:
+		return func() { <-c.writeSem }, nil
+	default:
+	}
+	select {
+	case c.writeSem <- struct{}{}:
+		return func() { <-c.writeSem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// writeControlLock acquires the write lock without a context. The reader's
+// control replies wait for the current writer, whose own deadline (never
+// unbounded, see maxWriteWait) releases the lock.
+func (c *Conn) writeControlLock() func() {
+	c.writeSem <- struct{}{}
+	return func() { <-c.writeSem }
 }
 
 // ReadMessage reads one complete text message. It is the single reader
@@ -115,28 +152,32 @@ func (c *Conn) handleControl(opcode byte, payload []byte) error {
 }
 
 // WriteMessage writes one masked text frame under the write lock. The
-// context's deadline bounds the write; a context without a deadline clears
-// any deadline a previous call left behind. Cancellation while waiting for
-// the lock is checked before any bytes move.
+// context's deadline bounds the write; a context without one still inherits
+// the maxWriteWait floor, so no caller can hold the lock forever on a
+// connection the peer stopped draining. Cancellation while waiting for the
+// lock — or while a stalled writer holds it — returns before any bytes move.
 func (c *Conn) WriteMessage(ctx context.Context, data []byte) error {
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
+	release, err := c.lockWriter(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = c.raw.SetWriteDeadline(deadline)
-	} else {
-		_ = c.raw.SetWriteDeadline(time.Time{})
+	deadline := time.Now().Add(maxWriteWait)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
 	}
+	_ = c.raw.SetWriteDeadline(deadline)
 	return writeFrame(c.raw, clientSide, opText, data)
 }
 
 // writeControl sends one control frame under the write lock with the bounded
 // control-write deadline.
 func (c *Conn) writeControl(opcode byte, payload []byte) error {
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
+	release := c.writeControlLock()
+	defer release()
 	if err := c.raw.SetWriteDeadline(time.Now().Add(controlWriteTimeout)); err != nil {
 		return fmt.Errorf("wss: set control write deadline: %w", err)
 	}

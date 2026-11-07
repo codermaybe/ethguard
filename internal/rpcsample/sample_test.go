@@ -3,12 +3,15 @@ package rpcsample
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/codermaybe/ethguard/internal/limits"
 	"time"
 )
 
@@ -111,5 +114,54 @@ func TestLoadPlanRejectsUnsafeIDs(t *testing.T) {
 	}
 	if _, err := LoadPlan(path); err == nil {
 		t.Fatal("expected unsafe id error")
+	}
+}
+
+// countingReader yields n bytes of 'x' one chunk at a time without
+// materializing them, so a bound test can exercise multi-megabyte limits
+// cheaply.
+type countingReader struct{ remaining int64 }
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		return 0, errEOF
+	}
+	n := int64(len(p))
+	if n > r.remaining {
+		n = r.remaining
+	}
+	for i := int64(0); i < n; i++ {
+		p[i] = 'x'
+	}
+	r.remaining -= n
+	return int(n), nil
+}
+
+var errEOF = errors.New("eof")
+
+// TestReadBodyBoundsUnconfiguredLimit pins the capture-safety contract: a
+// non-positive MaxResponseBytes means "unconfigured", not "unbounded" — the
+// read falls back to the cross-package body bound so a hostile endpoint
+// cannot stream an unbounded response into memory.
+func TestReadBodyBoundsUnconfiguredLimit(t *testing.T) {
+	body, truncated, err := readBody(&countingReader{remaining: limits.MaxBodyBytes + 1}, 0)
+	if err != nil && err != errEOF {
+		t.Fatalf("readBody: %v", err)
+	}
+	if int64(len(body)) != limits.MaxBodyBytes {
+		t.Fatalf("unconfigured read = %d bytes, want the %d cross-package bound", len(body), limits.MaxBodyBytes)
+	}
+	if !truncated {
+		t.Fatal("body exceeding the bound must be reported truncated")
+	}
+	// An explicit limit keeps its exact behavior: over the limit means
+	// truncated with the capped bytes, under it means untouched.
+	small, truncated, err := readBody(strings.NewReader("hello capture"), 4)
+	if err != nil || !truncated || string(small) != "hell" {
+		t.Fatalf("explicit over-limit read changed: %q truncated=%v err=%v", small, truncated, err)
+	}
+	whole, truncated, err := readBody(strings.NewReader("tiny"), 4)
+	if err != nil || truncated || string(whole) != "tiny" {
+		t.Fatalf("explicit under-limit read changed: %q truncated=%v err=%v", whole, truncated, err)
 	}
 }

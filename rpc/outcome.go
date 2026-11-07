@@ -71,11 +71,6 @@ func (o Outcome) VerdictFor(id string) (SourceVerdict, bool) {
 	return SourceVerdict{}, false
 }
 
-// sortVerdicts orders verdicts by Source.ID (name breaking ties) in place.
-func (o *Outcome) sortVerdicts() {
-	sortSourceVerdicts(o.Verdicts)
-}
-
 func sortSourceVerdicts(verdicts []SourceVerdict) {
 	for i := 1; i < len(verdicts); i++ {
 		for j := i; j > 0 && sourceRefLess(verdicts[j].Source, verdicts[j-1].Source); j-- {

@@ -23,7 +23,7 @@ func TestOutcomeVerdictsOrderedBySourceID(t *testing.T) {
 		{Source: SourceRef{Name: "alpha", ID: "a"}, Kind: VerdictSupported},
 		{Source: SourceRef{Name: "bravo", ID: "b"}, Kind: VerdictUnusable, Err: ErrNoValidResponse},
 	}}
-	outcome.sortVerdicts()
+	sortSourceVerdicts(outcome.Verdicts)
 	want := []string{"a", "b", "c"}
 	for i, id := range want {
 		if outcome.Verdicts[i].Source.ID != id {

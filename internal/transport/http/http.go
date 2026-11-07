@@ -100,13 +100,31 @@ func newTransport(rawURL string, limit int64) *Transport {
 	// One base transport per adapter so CloseIdleConnections stays scoped to
 	// it. Clone keeps net/http defaults (proxy, keep-alive, idle-constraint
 	// behavior), which is the audited connection-reuse baseline.
-	conns := nethttp.DefaultTransport.(*nethttp.Transport).Clone()
+	// DefaultTransport is a documented replaceable global: when the host
+	// application swapped in a custom RoundTripper, fall back to the
+	// library's own conservative transport instead of panicking on the
+	// assertion.
+	conns := &nethttp.Transport{}
+	if base, ok := nethttp.DefaultTransport.(*nethttp.Transport); ok {
+		conns = base.Clone()
+	}
 	return &Transport{
-		url:    rawURL,
-		client: &nethttp.Client{Transport: conns},
-		conns:  conns,
-		ids:    rpcwire.NewIDGen(),
-		limit:  limit,
+		url: rawURL,
+		client: &nethttp.Client{
+			Transport: conns,
+			// One call is exactly one JSON-RPC request: a redirect's second
+			// hop would be a body-less GET to an origin that is not the
+			// configured source, so 3xx is left to the status classification
+			// below instead of being followed. This matches the wss
+			// adapter's contract and keeps every adapter fail-closed on
+			// redirects.
+			CheckRedirect: func(*nethttp.Request, []*nethttp.Request) error {
+				return nethttp.ErrUseLastResponse
+			},
+		},
+		conns: conns,
+		ids:   rpcwire.NewIDGen(),
+		limit: limit,
 	}
 }
 
