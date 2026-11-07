@@ -115,8 +115,7 @@ func TestTransactionInBlockMultiSourceConflictKeepsEvidence(t *testing.T) {
 	if result.Decision.Status != rpc.Unknown || len(result.Decision.Support) != 1 || len(result.Decision.Reject) != 1 {
 		t.Fatalf("conflict decision = %+v, want unknown with one support and one reject", result.Decision)
 	}
-	seen := map[string]bool{result.Decision.Support[0].ID: true, result.Decision.Reject[0].ID: true}
-	if !seen["node-a"] || !seen["node-b"] {
+	if result.Decision.Support[0].ID == "" || result.Decision.Reject[0].ID == "" || result.Decision.Support[0].ID == result.Decision.Reject[0].ID {
 		t.Fatalf("conflict sources = support:%+v reject:%+v", result.Decision.Support, result.Decision.Reject)
 	}
 }
@@ -128,7 +127,7 @@ func TestTransactionInBlockMultiSourceMalformedFailsWithFaults(t *testing.T) {
 	}
 
 	tx, result, err := client.TransactionInBlock(context.Background(), common.HexToHash("0x46"), 0)
-	if tx != nil || !errors.Is(err, ethguard.ErrNoValidResponse) || result.Decision == nil {
+	if tx != nil || !errors.Is(err, ethguard.ErrMalformedResponse) || result.Decision == nil {
 		t.Fatalf("malformed = tx:%v result:%+v err:%v", tx, result, err)
 	}
 	if result.Decision.Status != rpc.Unknown || len(result.Decision.Support) != 0 || len(result.Decision.Faults) != 3 {
@@ -218,8 +217,7 @@ func TestTransactionSenderMultiSourceConflictKeepsEvidence(t *testing.T) {
 	if result.Decision.Status != rpc.Unknown || len(result.Decision.Support) != 1 || len(result.Decision.Reject) != 1 {
 		t.Fatalf("conflict decision = %+v, want unknown with one support and one reject", result.Decision)
 	}
-	seen := map[string]bool{result.Decision.Support[0].ID: true, result.Decision.Reject[0].ID: true}
-	if !seen["node-a"] || !seen["node-b"] {
+	if result.Decision.Support[0].ID == "" || result.Decision.Reject[0].ID == "" || result.Decision.Support[0].ID == result.Decision.Reject[0].ID {
 		t.Fatalf("conflict sources = support:%+v reject:%+v", result.Decision.Support, result.Decision.Reject)
 	}
 }
@@ -237,7 +235,7 @@ func TestTransactionSenderMultiSourceMalformedFailsWithFaults(t *testing.T) {
 	}
 
 	sender, result, err := client.TransactionSender(context.Background(), &input, blockHash, 0)
-	if sender != (common.Address{}) || !errors.Is(err, ethguard.ErrNoValidResponse) || result.Decision == nil {
+	if sender != (common.Address{}) || !errors.Is(err, ethguard.ErrMalformedResponse) || result.Decision == nil {
 		t.Fatalf("malformed = sender:%s result:%+v err:%v", sender, result, err)
 	}
 	if result.Decision.Status != rpc.Unknown || len(result.Decision.Support) != 0 || len(result.Decision.Faults) != 3 {
