@@ -39,6 +39,30 @@ type aggregateTestSubscription struct {
 	once   sync.Once
 }
 
+type reconnectTestSource struct {
+	id    string
+	mu    sync.Mutex
+	count int
+	subs  []transport.Subscription
+}
+
+func (s *reconnectTestSource) ID() string { return s.id }
+func (s *reconnectTestSource) Subscribe(context.Context, string, ...any) (transport.Subscription, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.count >= len(s.subs) {
+		return nil, errors.New("no scripted subscription")
+	}
+	sub := s.subs[s.count]
+	s.count++
+	return sub, nil
+}
+func (s *reconnectTestSource) subscriptions() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.count
+}
+
 func (s *aggregateTestSubscription) Events() <-chan transport.Notification { return s.events }
 func (s *aggregateTestSubscription) Err() <-chan error                     { return s.errs }
 func (s *aggregateTestSubscription) Unsubscribe() {
@@ -165,6 +189,62 @@ func TestAggregatedSubscriptionQuorumDeduplicatesSources(t *testing.T) {
 	case got := <-out:
 		t.Fatalf("duplicate output = %q", got)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestAggregatedSubscriptionReconnectsSourceAndKeepsSnapshot(t *testing.T) {
+	firstA := &aggregateTestSubscription{events: make(chan transport.Notification, 4), errs: make(chan error, 1)}
+	secondA := &aggregateTestSubscription{events: make(chan transport.Notification, 4), errs: make(chan error, 1)}
+	b := &aggregateTestSubscription{events: make(chan transport.Notification, 4), errs: make(chan error, 1)}
+	aSource := &reconnectTestSource{id: "a", subs: []transport.Subscription{firstA, secondA}}
+	bSource := &reconnectTestSource{id: "b", subs: []transport.Subscription{b}}
+	sources := []identifiedSubscriptionSource{aSource, bSource}
+	out := make(chan string, 4)
+	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+		var value struct{ Number, Hash, Parent string }
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return internalsubscription.Observation{}, "", err
+		}
+		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(value.Number, value.Hash, value.Parent)
+		if err != nil {
+			return internalsubscription.Observation{}, "", err
+		}
+		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, value.Number, nil
+	}
+	sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindNewHeads, nil, out, decode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+	first := json.RawMessage(`{"number":"0x1","hash":"0xabc","parent":"0xdef"}`)
+	firstA.events <- transport.Notification{Result: first}
+	b.events <- transport.Notification{Result: first}
+	select {
+	case got := <-out:
+		if got != "0x1" {
+			t.Fatalf("initial output = %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("initial quorum output missing")
+	}
+	firstA.errs <- errors.New("socket lost")
+	deadline := time.Now().Add(time.Second)
+	for aSource.subscriptions() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if aSource.subscriptions() != 2 {
+		t.Fatalf("reconnect attempts = %d, want 2", aSource.subscriptions())
+	}
+	second := json.RawMessage(`{"number":"0x2","hash":"0xabe","parent":"0xabc"}`)
+	secondA.events <- transport.Notification{Result: second}
+	b.events <- transport.Notification{Result: second}
+	select {
+	case got := <-out:
+		if got != "0x2" {
+			t.Fatalf("reconnected output = %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reconnected quorum output missing")
 	}
 }
 

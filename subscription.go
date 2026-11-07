@@ -121,7 +121,7 @@ type subscriptionConnectionResetter interface {
 }
 
 type aggregateEthSubscription[T any] struct {
-	inner       []transport.Subscription
+	inner       map[string]transport.Subscription
 	innerMu     sync.Mutex
 	agg         *internalsubscription.Aggregator
 	stop        chan struct{}
@@ -161,6 +161,19 @@ func makeSubscriptionFault(sourceID string, generation uint64, stage, contextKey
 	return &subscriptionFault{sourceID: sourceID, generation: generation, stage: stage, contextKey: contextKey, err: err}
 }
 
+func waitSubscriptionRetry(stop <-chan struct{}, ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-stop:
+		return false
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 func (s *aggregateEthSubscription[T]) Err() <-chan error { return s.errs }
 
 func (s *aggregateEthSubscription[T]) Unsubscribe() {
@@ -182,7 +195,10 @@ func (s *aggregateEthSubscription[T]) finish(err error) {
 			s.cancel()
 		}
 		s.innerMu.Lock()
-		inners := append([]transport.Subscription(nil), s.inner...)
+		inners := make([]transport.Subscription, 0, len(s.inner))
+		for _, inner := range s.inner {
+			inners = append(inners, inner)
+		}
 		s.innerMu.Unlock()
 		for _, inner := range inners {
 			go inner.Unsubscribe()
@@ -225,7 +241,12 @@ func startAggregatedSubscription[T any](ctx context.Context, sources []identifie
 		return nil, err
 	}
 	merged, cancel := context.WithCancel(ctx)
-	s := &aggregateEthSubscription[T]{agg: state, stop: make(chan struct{}), done: make(chan struct{}), errs: make(chan error, 1), cancel: cancel, out: out, decode: decode, faults: make(chan error, len(sources)), doneSources: make(chan struct{})}
+	sessions, sessionErr := internalsubscription.NewSessionGate(members)
+	if sessionErr != nil {
+		cancel()
+		return nil, sessionErr
+	}
+	s := &aggregateEthSubscription[T]{inner: make(map[string]transport.Subscription, len(sources)), agg: state, stop: make(chan struct{}), done: make(chan struct{}), errs: make(chan error, 1), cancel: cancel, out: out, decode: decode, faults: make(chan error, len(sources)), doneSources: make(chan struct{}), sessions: sessions}
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -233,64 +254,126 @@ func startAggregatedSubscription[T any](ctx context.Context, sources []identifie
 		case <-s.stop:
 		}
 	}()
-	for _, source := range sources {
+	initialSessions := make([]internalsubscription.SourceSession, len(sources))
+	initialSubscriptions := make([]transport.Subscription, len(sources))
+	for i, source := range sources {
 		if err := ctx.Err(); err != nil {
 			s.finish(makeSubscriptionFault("", 1, "lifecycle", "", err))
 			return nil, err
+		}
+		session, openErr := sessions.Open(source.ID())
+		if openErr != nil {
+			s.finish(openErr)
+			return nil, openErr
 		}
 		inner, subErr := source.Subscribe(merged, string(kind), args...)
 		if subErr != nil {
 			s.finish(makeSubscriptionFault(source.ID(), 1, "subscribe", "", subErr))
 			return nil, subErr
 		}
-		s.inner = append(s.inner, inner)
+		if err := ctx.Err(); err != nil {
+			go inner.Unsubscribe()
+			s.finish(makeSubscriptionFault("", 1, "lifecycle", "", err))
+			return nil, err
+		}
+		initialSessions[i] = session
+		initialSubscriptions[i] = inner
+		s.innerMu.Lock()
+		s.inner[source.ID()] = inner
+		s.innerMu.Unlock()
 	}
 	var sourceWG sync.WaitGroup
-	sourceWG.Add(len(s.inner))
-	for i, inner := range s.inner {
+	sourceWG.Add(len(sources))
+	for i, source := range sources {
 		sourceID := members[i]
 		go func() {
 			defer sourceWG.Done()
-			events, errs := inner.Events(), inner.Err()
-			for events != nil || errs != nil {
-				select {
-				case <-s.stop:
-					return
-				case err, ok := <-errs:
-					if ok && err != nil {
-						select {
-						case s.faults <- makeSubscriptionFault(sourceID, 1, "transport", "", err):
-						default:
+			inner := initialSubscriptions[i]
+			session := initialSessions[i]
+			for {
+				events, errs := inner.Events(), inner.Err()
+				reconnect := false
+				for events != nil || errs != nil {
+					select {
+					case <-s.stop:
+						return
+					case err, ok := <-errs:
+						if ok && err != nil {
+							select {
+							case s.faults <- makeSubscriptionFault(sourceID, 1, "transport", "", err):
+							default:
+							}
+						}
+						reconnect = true
+						events, errs = nil, nil
+					case event, ok := <-events:
+						if !ok {
+							events = nil
+							continue
+						}
+						// The current WSS adapter leaves source identity and
+						// generation unset for its initial stream. When an adapter
+						// supplies them, reject frames that belong to another source
+						// or an older physical session before they enter quorum.
+						if event.SourceID != "" && event.SourceID != sourceID {
+							continue
+						}
+						candidateSession := session
+						if event.Generation != 0 {
+							candidateSession.Generation = event.Generation
+						}
+						if errors.Is(s.sessions.Accept(candidateSession), internalsubscription.ErrSessionStale) {
+							continue
+						}
+						observation, _, decodeErr := s.decode(event.Result, sourceID)
+						if decodeErr != nil {
+							s.finish(makeSubscriptionFault(sourceID, 1, "decode", "", decodeErr))
+							return
+						}
+						// The physical session generation is enforced by SessionGate;
+						// the fixed quorum snapshot keeps its logical generation stable.
+						observation.Generation = 1
+						if submitErr := s.agg.Submit(observation); submitErr != nil && !errors.Is(submitErr, internalsubscription.ErrStaleGeneration) && !errors.Is(submitErr, internalsubscription.ErrUnknownSource) {
+							s.finish(makeSubscriptionFault(sourceID, observation.Generation, "aggregate", observation.ContextKey, submitErr))
+							return
 						}
 					}
+					if reconnect {
+						break
+					}
+				}
+				if !reconnect {
+					// Both transport channels closed without an explicit error.
+					reconnect = true
+				}
+				if !reconnect || !waitSubscriptionRetry(s.stop, merged, 50*time.Millisecond) {
 					return
-				case event, ok := <-events:
-					if !ok {
-						events = nil
-						continue
-					}
-					// The current WSS adapter leaves source identity and
-					// generation unset for its initial stream. When an adapter
-					// supplies them, reject frames that belong to another source
-					// or an older physical session before they enter quorum.
-					if event.SourceID != "" && event.SourceID != sourceID {
-						continue
-					}
-					if event.Generation != 0 && event.Generation != 1 {
-						continue
-					}
-					observation, _, decodeErr := s.decode(event.Result, sourceID)
-					if decodeErr != nil {
-						s.finish(makeSubscriptionFault(sourceID, 1, "decode", "", decodeErr))
+				}
+				if resetter, ok := source.(subscriptionConnectionResetter); ok {
+					resetter.ResetConnection()
+				}
+				for {
+					nextSession, openErr := sessions.Open(sourceID)
+					if openErr != nil {
 						return
 					}
-					if event.Generation == 0 {
-						event.Generation = 1
+					nextInner, subErr := source.Subscribe(merged, string(kind), args...)
+					if subErr == nil {
+						session, inner = nextSession, nextInner
+						s.innerMu.Lock()
+						s.inner[sourceID] = inner
+						s.innerMu.Unlock()
+						break
 					}
-					observation.Generation = event.Generation
-					if submitErr := s.agg.Submit(observation); submitErr != nil && !errors.Is(submitErr, internalsubscription.ErrStaleGeneration) && !errors.Is(submitErr, internalsubscription.ErrUnknownSource) {
-						s.finish(makeSubscriptionFault(sourceID, observation.Generation, "aggregate", observation.ContextKey, submitErr))
+					select {
+					case s.faults <- makeSubscriptionFault(sourceID, nextSession.Generation, "reconnect", "", subErr):
+					default:
+					}
+					if !waitSubscriptionRetry(s.stop, merged, 100*time.Millisecond) {
 						return
+					}
+					if resetter, ok := source.(subscriptionConnectionResetter); ok {
+						resetter.ResetConnection()
 					}
 				}
 			}
