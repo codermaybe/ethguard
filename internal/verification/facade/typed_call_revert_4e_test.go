@@ -194,9 +194,6 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 	to := common.HexToAddress("0x1")
 	arg := map[string]any{"to": to.Hex()}
 	aggDecision, aggErr := callDecision(adapter.Call(ctx, methods.MethodCall, arg, "latest"))
-	if aggErr == nil && aggDecision.Status != rpc.Corroborated {
-		// callDecision returns the zero decision for a local rejection.
-	}
 	if policyDecision.Status != aggDecision.Status || !errors.Is(policyErr, tc.wantErr) || !errors.Is(aggErr, tc.wantErr) {
 		t.Fatalf("policy %s/%v aggregator %s/%v, want %s/%v", policyDecision.Status, policyErr, aggDecision.Status, aggErr, tc.wantStatus, tc.wantErr)
 	}
