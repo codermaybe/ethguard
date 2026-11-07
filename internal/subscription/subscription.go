@@ -78,6 +78,7 @@ type Config struct {
 	Queue       int
 	SoftTimeout time.Duration
 	HardTimeout time.Duration
+	Budget      Budget
 }
 
 // Observation is one canonicalized source observation. ContextKey identifies
@@ -138,6 +139,7 @@ type Aggregator struct {
 	errs        chan error
 	closed      bool
 	terminalErr bool
+	evidence    int64
 }
 
 func New(cfg Config) (*Aggregator, error) {
@@ -225,6 +227,10 @@ func (a *Aggregator) Submit(obs Observation) error {
 	if obs.ContextKey == "" || obs.Key == "" {
 		return fmt.Errorf("subscription: event key is required")
 	}
+	if err := a.cfg.Budget.validatePayload(obs.Payload); err != nil {
+		a.reportLocked(err)
+		return err
+	}
 	// Kind is part of event identity. A head and a log may legitimately use
 	// the same caller-provided context key, but they must never share votes or
 	// delivery state.
@@ -277,7 +283,12 @@ func (a *Aggregator) Submit(obs Observation) error {
 	if _, seen := c.sources[obs.SourceID]; seen {
 		return nil
 	}
+	if limit := a.cfg.Budget.MaxEvidenceBytes; limit > 0 && a.evidence+int64(len(obs.Payload)) > limit {
+		a.reportLocked(ErrEvidenceBudget)
+		return ErrEvidenceBudget
+	}
 	c.sources[obs.SourceID] = struct{}{}
+	a.evidence += int64(len(obs.Payload))
 	if a.cfg.Mode == SingleSourceSelected {
 		ctx.status, ctx.delivered = Selected, obs.Key
 		return a.emitLocked(Delivery{Observation: cloneObservation(obs), Snapshot: a.cfg.Snapshot, Status: Selected, Votes: 1})

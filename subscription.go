@@ -116,8 +116,13 @@ type identifiedSubscriptionSource interface {
 	ID() string
 }
 
+type subscriptionConnectionResetter interface {
+	ResetConnection()
+}
+
 type aggregateEthSubscription[T any] struct {
 	inner       []transport.Subscription
+	innerMu     sync.Mutex
 	agg         *internalsubscription.Aggregator
 	stop        chan struct{}
 	done        chan struct{}
@@ -130,6 +135,7 @@ type aggregateEthSubscription[T any] struct {
 	decode      func([]byte, string) (internalsubscription.Observation, T, error)
 	faults      chan error
 	doneSources chan struct{}
+	sessions    *internalsubscription.SessionGate
 }
 
 // subscriptionFault preserves the attribution needed to diagnose an
@@ -175,10 +181,16 @@ func (s *aggregateEthSubscription[T]) finish(err error) {
 		if s.cancel != nil {
 			s.cancel()
 		}
-		for _, inner := range s.inner {
+		s.innerMu.Lock()
+		inners := append([]transport.Subscription(nil), s.inner...)
+		s.innerMu.Unlock()
+		for _, inner := range inners {
 			go inner.Unsubscribe()
 		}
 		s.agg.Close()
+		if s.sessions != nil {
+			s.sessions.Close()
+		}
 	})
 }
 
@@ -207,6 +219,7 @@ func startAggregatedSubscription[T any](ctx context.Context, sources []identifie
 	state, err := internalsubscription.New(internalsubscription.Config{
 		Snapshot: internalsubscription.Snapshot{ID: fmt.Sprintf("subscription-%d", time.Now().UnixNano()), Generation: 1, Generations: generations, Members: members, Quorum: quorum},
 		Mode:     internalsubscription.Strict, Queue: 256, HardTimeout: 30 * time.Second,
+		Budget: internalsubscription.Budget{MaxPayloadBytes: 8 << 20, MaxEvidenceBytes: 64 << 20},
 	})
 	if err != nil {
 		return nil, err
