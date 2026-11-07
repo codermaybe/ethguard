@@ -214,7 +214,8 @@ go run ./examples/basic -config ./config.yaml
 
 确定性类型化读取需要库内部动态计算的交叉验证门槛：支持不足时返回 `ErrConflict`，
 因为这些方法不能向调用方暴露 `Selected`。在方法契约允许时，高级根 `Call` 仍会返回
-selected 状态。Median/local 方法保留其选择语义，未知方法继续转发。
+selected 状态。Median/local 方法保留其选择语义。`Call` 在本地拒绝未知方法，
+并返回 `ErrInvalidRequest`。
 
 使用 finalized anchoring 时，不同上游的区块高度会被协调到一个共同高度。已经匹配的
 头会复用；否则通过一次有界的确认轮次补齐缺失响应。默认一致性要求第一轮的新鲜视图

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
 	internalsubscription "github.com/codermaybe/ethguard/internal/subscription"
@@ -298,7 +299,7 @@ func (s *aggregateEthSubscription[T]) noteObservation(obs internalsubscription.O
 	defer s.pullMu.Unlock()
 	if !obs.Removed {
 		status := s.agg.Status(obs.ContextKey)
-		if status == internalsubscription.Decided || status == internalsubscription.Selected || status == internalsubscription.Delivered {
+		if status == internalsubscription.Decided || status == internalsubscription.Selected || status == internalsubscription.Delivered || status == internalsubscription.Revoked {
 			return
 		}
 	}
@@ -324,7 +325,7 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 	defer s.pullMu.Unlock()
 	for contextKey, state := range s.pending {
 		status := s.agg.Status(contextKey)
-		if status == internalsubscription.Decided || status == internalsubscription.Selected || status == internalsubscription.Delivered {
+		if status == internalsubscription.Decided || status == internalsubscription.Selected || status == internalsubscription.Delivered || status == internalsubscription.Revoked {
 			if state.kind != internalsubscription.KindLogs || !state.observation.Removed {
 				delete(s.pending, contextKey)
 				if probe := s.probes[contextKey]; probe != nil {
@@ -528,6 +529,14 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 		return nil, sessionErr
 	}
 	s := &aggregateEthSubscription[T]{inner: make(map[string]transport.Subscription, len(sources)), agg: state, stop: make(chan struct{}), done: make(chan struct{}), errs: make(chan error, 1), cancel: cancel, out: out, decode: decode, faults: make(chan error, len(sources)), doneSources: make(chan struct{}), sessions: sessions, pullFactory: pullFactory, pending: make(map[string]*pullContext), probes: make(map[string]*internalsubscription.PullProbe), ctx: merged, headGaps: internalsubscription.NewHeadGapTracker(), gapProbes: make(map[string]struct{})}
+	go func() {
+		select {
+		case <-ownerCtx.Done():
+			s.finish(context.Cause(ownerCtx))
+		case <-s.stop:
+		case <-s.done:
+		}
+	}()
 	initialSessions := make([]internalsubscription.SourceSession, len(sources))
 	initialSubscriptions := make([]transport.Subscription, len(sources))
 	for i, source := range sources {
@@ -905,6 +914,10 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 			return typed.DecodeReceipts(raw)
 		}), nil
 	}
+	query := q
+	if query == nil {
+		query = &ethereum.TransactionReceiptsQuery{}
+	}
 	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, []*types.Receipt, error) {
 		receipts, decodeErr := typed.DecodeReceipts(raw)
 		if decodeErr != nil {
@@ -933,7 +946,7 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 		}
 		return internalsubscription.Observation{Kind: internalsubscription.KindTransactionReceipts, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, receipts, nil
 	}
-	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindTransactionReceipts, []any{q}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
+	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindTransactionReceipts, []any{query}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
 		if kind != internalsubscription.KindTransactionReceipts {
 			return internalsubscription.Observation{}, fmt.Errorf("ethguard: invalid transactionReceipts Pull kind %q", kind)
 		}
@@ -948,18 +961,52 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 		if len(seedReceipts) == 0 {
 			return internalsubscription.Observation{}, fmt.Errorf("ethguard: cannot Pull empty receipt batch")
 		}
-		rows := make([]json.RawMessage, len(seedReceipts))
+		blockHash := seedReceipts[0].BlockHash
 		for i, receipt := range seedReceipts {
-			if receipt == nil {
-				return internalsubscription.Observation{}, fmt.Errorf("ethguard: nil seed receipt %d", i)
+			if receipt == nil || receipt.BlockHash != blockHash {
+				return internalsubscription.Observation{}, fmt.Errorf("ethguard: receipt %d has inconsistent block identity", i)
 			}
-			row, callErr := unary.CallContext(pctx, "eth_getTransactionReceipt", receipt.TxHash)
-			if callErr != nil {
-				return internalsubscription.Observation{}, callErr
-			}
-			rows[i] = row
 		}
-		batch, marshalErr := json.Marshal(rows)
+		raw, callErr := unary.CallContext(pctx, "eth_getBlockReceipts", blockHash)
+		if callErr != nil {
+			return internalsubscription.Observation{}, callErr
+		}
+		allReceipts, decodeErr := typed.DecodeReceipts(raw)
+		if decodeErr != nil {
+			return internalsubscription.Observation{}, decodeErr
+		}
+		wanted := make(map[common.Hash]struct{}, len(query.TransactionHashes))
+		for _, hash := range query.TransactionHashes {
+			wanted[hash] = struct{}{}
+		}
+		filtered := make([]*types.Receipt, 0, len(allReceipts))
+		for _, receipt := range allReceipts {
+			if receipt.BlockHash != blockHash {
+				return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt has inconsistent block identity")
+			}
+			if len(wanted) == 0 {
+				filtered = append(filtered, receipt)
+				continue
+			}
+			if _, ok := wanted[receipt.TxHash]; ok {
+				filtered = append(filtered, receipt)
+			}
+		}
+		if len(wanted) > 0 {
+			seen := make(map[common.Hash]struct{}, len(filtered))
+			for _, receipt := range filtered {
+				seen[receipt.TxHash] = struct{}{}
+			}
+			for hash := range wanted {
+				if _, ok := seen[hash]; !ok {
+					return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt Pull missing requested transaction %s", hash)
+				}
+			}
+		}
+		if len(filtered) == 0 {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt Pull returned no matching receipts")
+		}
+		batch, marshalErr := json.Marshal(filtered)
 		if marshalErr != nil {
 			return internalsubscription.Observation{}, marshalErr
 		}

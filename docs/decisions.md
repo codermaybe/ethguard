@@ -2833,3 +2833,11 @@ generation-checked per-source resubscription, and stops on owner close or
 unsubscribe. Transport-level keepalive and replay remain deferred. `SimulateV1`
 remains outside the default `EthClient` surface as recorded by the compatibility
 policy.
+
+Evidence: the production surface is implemented in `ethclient_view.go`,
+`subscription.go`, `internal/subscription`, and `internal/transport/wss`.
+Coverage includes the client view tests, subscription aggregation tests, WSS
+notification tests, and the full CI test, vet, build, and lint gates. Receipt
+Pulls reconstruct the complete block batch with `eth_getBlockReceipts`; transport
+keepalive/replay remain deferred, and `SimulateV1` remains exposed only through
+`gethcompat`.

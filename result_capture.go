@@ -150,7 +150,9 @@ func (r CallResult) Clone() CallResult {
 		r.Uncertain = &u
 	}
 	var revert *RevertError
-	if errors.As(r.Err, &revert) && revert != nil {
+	// Only replace a direct RevertError. A wrapped error keeps its original
+	// chain because cloning an inner value cannot preserve an arbitrary wrapper.
+	if errors.As(r.Err, &revert) && revert != nil && errors.Unwrap(r.Err) == nil {
 		copyRevert := *revert
 		copyRevert.Data = append([]byte(nil), revert.Data...)
 		copyRevert.DataRaw = append(json.RawMessage(nil), revert.DataRaw...)

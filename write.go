@@ -19,6 +19,11 @@ import (
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
+// geth v1.17.5 uses a 20-second default for eth_sendRawTransactionSync when
+// the caller omits a timeout. Keep the local polling path bounded to the same
+// compatibility default while still honoring an explicit positive timeout.
+const defaultTransactionReceiptTimeout = 20 * time.Second
+
 // writeAnswerClassified converts one broadcast emission into a classified
 // SourceAnswer. A hash-shaped value is an acceptance candidate; a structured
 // protocol error body is always a rejection answer kept as evidence. No
@@ -218,11 +223,11 @@ func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, t
 	if writeResult.WriteDecision == nil || writeResult.WriteDecision.Status != rpc.WriteAccepted || writeResult.WriteDecision.Hash == "" {
 		return nil, writeResult, fmt.Errorf("%w: transaction was not accepted for synchronous receipt", rpc.ErrNoValidResponse)
 	}
-	waitCtx := ctx
-	cancel := func() {}
+	effectiveTimeout := defaultTransactionReceiptTimeout
 	if timeout != nil && *timeout > 0 {
-		waitCtx, cancel = context.WithTimeout(ctx, *timeout)
+		effectiveTimeout = *timeout
 	}
+	waitCtx, cancel := context.WithTimeout(ctx, effectiveTimeout)
 	defer cancel()
 	hash := common.HexToHash(writeResult.WriteDecision.Hash)
 	ticker := time.NewTicker(100 * time.Millisecond)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -142,6 +143,27 @@ func TestResultCaptureNilAndZeroValueReadClean(t *testing.T) {
 	byValue.publish(captureResult())
 	if _, published, _ := byValue.Result(); published {
 		t.Fatal("a zero-value capture must not publish")
+	}
+}
+
+func TestCallResultCloneCopiesDirectRevertDataOnly(t *testing.T) {
+	direct := &RevertError{Data: []byte{1, 2}, DataRaw: json.RawMessage(`{"x":1}`)}
+	clone := (CallResult{Err: direct}).Clone()
+	cloned, ok := clone.Err.(*RevertError)
+	if !ok || cloned == direct {
+		t.Fatalf("direct revert clone = %T/%p, want an independent RevertError", clone.Err, cloned)
+	}
+	cloned.Data[0] = 9
+	cloned.DataRaw[1] = '['
+	if direct.Data[0] != 1 || string(direct.DataRaw) != `{"x":1}` {
+		t.Fatalf("direct revert data was aliased: %+v/%s", direct.Data, direct.DataRaw)
+	}
+
+	wrapped := fmt.Errorf("outer: %w", direct)
+	wrappedClone := (CallResult{Err: wrapped}).Clone()
+	var got *RevertError
+	if !errors.As(wrappedClone.Err, &got) || got != direct {
+		t.Fatalf("wrapped error chain changed during clone: %v", wrappedClone.Err)
 	}
 }
 
