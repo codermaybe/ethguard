@@ -38,7 +38,6 @@ func (s *aggregateTestSource) Subscribe(context.Context, string, ...any) (transp
 type aggregateTestSubscription struct {
 	events chan transport.Notification
 	errs   chan error
-	once   sync.Once
 }
 
 type reconnectTestSource struct {
@@ -89,10 +88,9 @@ func (s *reconnectTestSource) subscriptions() int {
 func (s *aggregateTestSubscription) Events() <-chan transport.Notification { return s.events }
 func (s *aggregateTestSubscription) Err() <-chan error                     { return s.errs }
 func (s *aggregateTestSubscription) Unsubscribe() {
-	s.once.Do(func() {
-		close(s.events)
-		close(s.errs)
-	})
+	// The consumer owns neither channel. Closing either one while a test is
+	// injecting a notification would model an invalid transport and race with
+	// the producer; aggregateEthSubscription.stop handles consumer shutdown.
 }
 
 func (s *fakeSubscription) Events() <-chan transport.Notification { return s.events }
