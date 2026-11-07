@@ -14,8 +14,8 @@
 
 基线直接对锁定 module 的 `*ethclient.Client` 做 Go reflection，并与本仓库
 `*EthClient` 的导出方法集合比较。结果是上游 48 个导出方法（其中
-`Client()` 是底层 `*rpc.Client` 访问器）与当前 42 个方法；排除该访问器后的业务目标为
-47 个，当前业务缺口为 3 个方法。
+`Client()` 是底层 `*rpc.Client` 访问器）与当前 45 个方法；排除该访问器后的业务目标为
+47 个，当前业务缺口为 2 个方法。
 该检查点只说明代码事实，不把 29 个方法解释为兼容版本。可复现命令为：
 
 ```text
@@ -28,7 +28,7 @@ scripts/ethclient-method-diff.sh
 
 当前业务缺失集合为：
 
-`SimulateV1`, `TransactionInBlock`, `TransactionSender`。其余 pending state、同步写入和三类订阅均已暴露 facade；仍需
+`SimulateV1`, `TransactionSender`。其余 pending state、同步写入和三类订阅均已暴露 facade；仍需
 逐项补齐跨传输 fixture、错误和证据矩阵，暂不代表最终兼容发布已闭合。
 
 `Client()` 不是业务 RPC 方法，明确排除在 `EthClient` facade 之外；它不能通过
@@ -80,8 +80,8 @@ scripts/ethclient-method-diff.sh
 
 ## go-ethereum v1.17.5 官方 ethclient 方法
 
-下面列出锁定版本 `ethclient.Client` 的公开方法。当前 `EthClient` 的 44
-方法仍是内部检查点（已覆盖原 29 项并接入 15 个 unary/订阅方法）；上游
+下面列出锁定版本 `ethclient.Client` 的公开方法。当前 `EthClient` 的 45
+方法仍是内部检查点（已覆盖原 29 项并接入 16 个 unary/订阅方法）；上游
 `Client()` 只作为显式排除项记录。其余业务方法必须逐项接入并闭合证据，在兼容发布前
 不能把“待接入”当作已实现。
 
@@ -100,7 +100,7 @@ scripts/ethclient-method-diff.sh
 | `TransactionByHash` | 已有 | `Client.TransactionByHash` | 已覆盖 |
 | `TransactionSender` | 未有 | 无 root typed 映射 | 待决定 |
 | `TransactionCount` | 已有 | `Client.TransactionCount` | null/NotFound 与跨 transport 证据待补 |
-| `TransactionInBlock` | 未有 | 无 root typed 映射 | 待决定 |
+| `TransactionInBlock` | 已有 | `Client.TransactionInBlock` | inclusion envelope 与跨 transport 证据待补 |
 | `TransactionReceipt` | 已有 | `Client.TransactionReceipt` | 已覆盖 |
 | `SyncProgress` | 已有 | `Client.SyncProgress` | 已覆盖 |
 | `NetworkID` | 已有 | `Client.NetworkID` | 已覆盖 |
@@ -196,7 +196,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - `HeaderByHash` 和 `HeaderByNumber` 复用 `eth_getBlockByHash` / `eth_getBlockByNumber` 的既有 ReadPlan、admission 和 block projector；只把 `fullTx` 固定为 `false`，再由 `DecodeBlockHeaderOnly` 交付 `*types.Header`。
 - 根 Client 返回 `(* types.Header, CallResult, error)`，EthClient 视图保持官方 `(* types.Header, error)`。
 - `HeaderByNumber(nil)`、`-2/-3/-4` 通过已建立 reference 读取并附带 reference 事实；`-5` 映射高度 `0x0`；`-1` 及未知负数在本地拒绝，不宣称 pending header 已支持。
-- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合会随锁定版本反射检查更新；当前已暴露 44 个方法，仍只是接入检查点；与上游 48 个导出方法的完整差异见本文件“v1.17.5 方法差异基线”。
+- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合会随锁定版本反射检查更新；当前已暴露 45 个方法，仍只是接入检查点；与上游 48 个导出方法的完整差异见本文件“v1.17.5 方法差异基线”。
 
 ## 未决项
 
@@ -216,7 +216,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - 当前 `rpc/methods` 的 `ReferenceSpec{EIP1898:true}` 和 EIP-1898 rewrite 测试继续覆盖对象校验、显式 hash、`requireCanonical` 保留和 moving tag 改写；AtHash facade 通过同一 plan 执行。
 - AtHash 接入使用受控的 EIP-1898 map 参数和现有 plan，不通过未知 `Call`。
 - `PendingBalanceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingNonceAt`、`PendingTransactionCount` 的 plan 已有 `PendingObserve` 声明。pending 是节点本地状态，不能直接套用 moving reference；aggregator 可以收集多个 source，但结果只能是第一个可用本地观察的 `Selected`，不能声称 `Corroborated`。
-- `TransactionInBlock`、`TransactionSender` 尚未注册 method-aware plan；`SimulateV1` 还受默认构建导入边界阻塞。
+- `TransactionSender` 尚未注册 method-aware plan；`SimulateV1` 还受默认构建导入边界阻塞。
 - 因此 M1/M3 的下一步准入仅剩 pending：先冻结其 source-local、quorum 与 Decision 语义，再决定是否扩展 facade；本轮 AtHash 不改变 pending/CallResult/订阅边界。
 
 建议的回归矩阵：

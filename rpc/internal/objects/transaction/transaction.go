@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/rpc"
@@ -46,6 +47,54 @@ func Admit(req rpc.Request, value json.RawMessage) error {
 	return nil
 }
 
+// AdmitInBlock validates a transaction returned by
+// eth_getTransactionByBlockHashAndIndex and binds its inclusion metadata to
+// the requested block hash and index.
+func AdmitInBlock(req rpc.Request, value json.RawMessage) error {
+	if IsJSONNull(value) {
+		return nil
+	}
+	if len(req.Params) != 2 {
+		return fmt.Errorf("%w: expected block hash and transaction index", rpc.ErrInvalidRequest)
+	}
+	wantHash, err := requestBlockHash(req.Params[0])
+	if err != nil {
+		return err
+	}
+	wantIndex, err := requestIndex(req.Params[1])
+	if err != nil {
+		return err
+	}
+	if err := Validate(value); err != nil {
+		return errors.Join(rpc.ErrMalformedResponse, err)
+	}
+	var wireValue struct {
+		Hash             *common.Hash    `json:"hash"`
+		BlockHash        *common.Hash    `json:"blockHash"`
+		TransactionIndex json.RawMessage `json:"transactionIndex"`
+	}
+	if err := json.Unmarshal(value, &wireValue); err != nil {
+		return fmt.Errorf("%w: transaction context: %v", rpc.ErrMalformedResponse, err)
+	}
+	if wireValue.Hash == nil || wireValue.BlockHash == nil || *wireValue.BlockHash != wantHash {
+		return fmt.Errorf("%w: transaction block hash does not match requested block", rpc.ErrMalformedResponse)
+	}
+	if !presentNonNull(wireValue.TransactionIndex) {
+		return fmt.Errorf("%w: transaction missing index", rpc.ErrMalformedResponse)
+	}
+	gotIndex, err := wire.NormalizeWireQuantity(wireValue.TransactionIndex)
+	if err != nil {
+		return fmt.Errorf("%w: transaction index: %v", rpc.ErrMalformedResponse, err)
+	}
+	if gotIndex != fmt.Sprintf("%d", wantIndex) {
+		return fmt.Errorf("%w: transaction index does not match requested index", rpc.ErrMalformedResponse)
+	}
+	if err := Admit(rpc.Request{Method: "eth_getTransactionByHash", Params: []any{wireValue.Hash.Hex()}}, value); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Normalize chooses the comparison key. It rejects only values with no
 // canonical object form. Required fields and hash binding belong to Admit.
 func Normalize(method string, value json.RawMessage, pruner Pruner) (string, error) {
@@ -60,6 +109,12 @@ func Normalize(method string, value json.RawMessage, pruner Pruner) (string, err
 		return "", fmt.Errorf("transaction: incomplete object")
 	}
 	return pruner(method, value)
+}
+
+// NormalizeInBlock uses the same transaction field mask as the by-hash
+// method; admission above supplies the additional block/index binding.
+func NormalizeInBlock(value json.RawMessage, pruner Pruner) (string, error) {
+	return Normalize("eth_getTransactionByHash", value, pruner)
 }
 
 // Validate checks transaction payload, hash/signature, and inclusion context.
@@ -136,4 +191,35 @@ func requestedHash(req rpc.Request) (common.Hash, error) {
 		return hash, fmt.Errorf("%w: transaction hash must be a 32-byte hex string", rpc.ErrInvalidRequest)
 	}
 	return common.HexToHash(s), nil
+}
+
+func requestBlockHash(value any) (common.Hash, error) {
+	s, ok := value.(string)
+	if !ok || !common.IsHexHash(s) {
+		return common.Hash{}, fmt.Errorf("%w: block hash must be a 32-byte hex string", rpc.ErrInvalidRequest)
+	}
+	return common.HexToHash(s), nil
+}
+
+func requestIndex(value any) (uint64, error) {
+	switch v := value.(type) {
+	case uint:
+		return uint64(v), nil
+	case uint64:
+		return v, nil
+	case hexutil.Uint64:
+		return uint64(v), nil
+	case string:
+		decimal, err := wire.NormalizeWireQuantity(json.RawMessage(fmt.Sprintf("%q", v)))
+		if err != nil {
+			return 0, fmt.Errorf("%w: transaction index: %v", rpc.ErrInvalidRequest, err)
+		}
+		var out uint64
+		if _, err := fmt.Sscanf(decimal, "%d", &out); err != nil {
+			return 0, fmt.Errorf("%w: transaction index: %v", rpc.ErrInvalidRequest, err)
+		}
+		return out, nil
+	default:
+		return 0, fmt.Errorf("%w: transaction index has unsupported type %T", rpc.ErrInvalidRequest, value)
+	}
 }

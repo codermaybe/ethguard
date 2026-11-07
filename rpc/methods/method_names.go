@@ -74,6 +74,9 @@ const MethodGetBlockTransactionCountByHash = "eth_getBlockTransactionCountByHash
 // by the block transaction-count policy.
 const MethodGetBlockTransactionCountByNumber = "eth_getBlockTransactionCountByNumber"
 
+// MethodGetTransactionByBlockHashAndIndex is resolved by TransactionInBlock.
+const MethodGetTransactionByBlockHashAndIndex = "eth_getTransactionByBlockHashAndIndex"
+
 // MethodGetTransactionReceipt is the JSON-RPC method name resolved by
 // TransactionReceiptPolicy.
 const MethodGetTransactionReceipt = "eth_getTransactionReceipt"

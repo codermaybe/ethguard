@@ -46,6 +46,13 @@ func admitFeeHistory(_ context.Context, req rpc.Request, value json.RawMessage, 
 	return nil, nil
 }
 
+func admitTransactionInBlock(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
+	if err := transactionobject.AdmitInBlock(req, value); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
 // normalizeTransactionCount admits the protocol's null absence so strict
 // resolution can preserve it for the typed boundary, while applying the
 // canonical wire quantity grammar to actual counts.
@@ -129,6 +136,18 @@ func Specs() []MethodSpec {
 			KeySource:              rpc.RuleKeyNormalizer,
 			CompareKind:            rpc.RuleCompareMethodSpecific,
 			Admit:                  admitTransaction,
+			ObservationProjectorID: ProjectorTransaction,
+		},
+		{
+			Method:   MethodGetTransactionByBlockHashAndIndex,
+			Resolver: ResolverStrict,
+			Normalize: func(value json.RawMessage) (string, error) {
+				return transactionobject.NormalizeInBlock(value, transactionobject.Pruner(wire.PruneMethod))
+			},
+			Encode:                 transactionobject.Encode,
+			KeySource:              rpc.RuleKeyNormalizer,
+			CompareKind:            rpc.RuleCompareMethodSpecific,
+			Admit:                  admitTransactionInBlock,
 			ObservationProjectorID: ProjectorTransaction,
 		},
 		{
