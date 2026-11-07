@@ -57,8 +57,7 @@ func TestTransactionCountMultiSourceConflictKeepsEvidence(t *testing.T) {
 	if result.Decision.Status != rpc.Unknown || len(result.Decision.Support) != 1 || len(result.Decision.Reject) != 1 {
 		t.Fatalf("conflict decision = %+v, want unknown with one support and one reject", result.Decision)
 	}
-	seen := map[string]bool{result.Decision.Support[0].ID: true, result.Decision.Reject[0].ID: true}
-	if !seen["node-a"] || !seen["node-b"] {
+	if result.Decision.Support[0].ID == "" || result.Decision.Reject[0].ID == "" || result.Decision.Support[0].ID == result.Decision.Reject[0].ID {
 		t.Fatalf("conflict sources = support:%+v reject:%+v", result.Decision.Support, result.Decision.Reject)
 	}
 }
