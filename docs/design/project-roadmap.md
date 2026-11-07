@@ -63,9 +63,11 @@ execution、quorum、reference 和 typed 边界约束。
    duplicate/reorg/removed handling, bounded backpressure, and per-source
    reconnect generations for new heads, logs, and transaction receipts. The
    root facade now runs fixed-snapshot strict quorum aggregation with stale
-   session filtering for these three WSS streams; same-source Pull/gap
-   integration and cross-transport evidence remain open gates before S2/T0
-   completion.
+   session filtering for these three WSS streams. The `newHeads` path also
+   performs a same-source unary Pull after the soft window, with physical
+   session checks before and after the request and a per-context hard
+   quarantine. Logs/receipts Pull, root gap diagnostics, and cross-transport
+   evidence remain open gates before S2/T0 completion.
 5. **T0 transport evidence.** Run matching HTTP/WSS fixtures for every
    completed unary method and the subscription lifecycle matrix. Update the
    live method matrix after each method reaches all required gates.

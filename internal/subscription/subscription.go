@@ -344,6 +344,20 @@ func (a *Aggregator) AdvanceContext(kind Kind, contextKey string, now time.Time)
 	}
 }
 
+// QuarantineContext closes one logical event's compensation window without
+// advancing unrelated contexts. It is used by a Pull probe whose deadline is
+// shorter than the aggregator's general hard timeout.
+func (a *Aggregator) QuarantineContext(kind Kind, contextKey string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ctx := a.contexts[string(kind)+"\x00"+contextKey]
+	if ctx == nil || ctx.status == Delivered || ctx.status == Selected || ctx.status == Revoked || ctx.status == Quarantined || ctx.status == Canceled {
+		return
+	}
+	ctx.status = Quarantined
+	a.reportLocked(ErrQuorumTimeout)
+}
+
 func (a *Aggregator) Status(contextKey string) Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()

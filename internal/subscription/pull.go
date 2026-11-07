@@ -153,7 +153,7 @@ func (p *PullProbe) run(ctx context.Context, cancel context.CancelFunc, agg *Agg
 		cancel()
 	case <-hard.C:
 		for _, request := range requests {
-			agg.AdvanceContext(request.Kind, request.ContextKey, firstSeen.Add(cfg.HardTimeout))
+			agg.QuarantineContext(request.Kind, request.ContextKey)
 		}
 		cancel()
 	}
