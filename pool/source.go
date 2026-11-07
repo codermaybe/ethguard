@@ -301,6 +301,22 @@ func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstr
 	return subscriber.SubscribeCapability(ctx, kind, args...)
 }
 
+// ResetConnection discards the cached transport after a streaming failure so
+// the next subscription attempt performs a fresh dial. Membership and source
+// identity remain unchanged; this is a connection-session operation only.
+func (s *Source) ResetConnection() {
+	s.mu.Lock()
+	client := s.client
+	s.client = nil
+	if !s.closed {
+		s.state = SourceDown
+	}
+	s.mu.Unlock()
+	if client != nil {
+		client.Close()
+	}
+}
+
 // State returns the current readiness state.
 func (s *Source) State() SourceState {
 	s.mu.RLock()
