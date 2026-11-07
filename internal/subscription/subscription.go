@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +24,7 @@ var (
 	ErrClosed          = errors.New("subscription: closed")
 	ErrStaleGeneration = errors.New("subscription: stale source generation")
 	ErrUnknownSource   = errors.New("subscription: source is not in snapshot")
+	ErrUnboundRemoval  = errors.New("subscription: removed event has no delivered predecessor")
 )
 
 type Mode uint8
@@ -36,6 +39,10 @@ type Kind string
 const (
 	KindNewHeads Kind = "newHeads"
 	KindLogs     Kind = "logs"
+	// KindTransactionReceipts identifies one notification carrying a batch of
+	// transaction receipts. A batch is one logical event; its candidate key is
+	// computed over the complete canonicalized batch.
+	KindTransactionReceipts Kind = "transactionReceipts"
 )
 
 type Status uint8
@@ -56,8 +63,12 @@ const (
 type Snapshot struct {
 	ID         string
 	Generation uint64
-	Members    []string
-	Quorum     int
+	// Generations optionally records the physical session generation per
+	// source. When absent, Generation is used for backwards compatibility with
+	// the original single-session snapshot shape.
+	Generations map[string]uint64
+	Members     []string
+	Quorum      int
 }
 
 // Config controls an Aggregator. Queue and hard timeout must be positive.
@@ -81,6 +92,19 @@ type Observation struct {
 	Payload    []byte
 	Removed    bool
 	ObservedAt time.Time
+}
+
+// ReceiptIdentity is transport-neutral identity material for one receipt in a
+// transaction-receipts batch. Canonical contains the complete typed receipt
+// representation (including logs and provider-specific fields) after the
+// caller has decoded and normalized it. The routing fields identify the block
+// and transaction independently from that candidate payload.
+type ReceiptIdentity struct {
+	TransactionHash  string
+	BlockHash        string
+	BlockNumber      string
+	TransactionIndex uint64
+	Canonical        []byte
 }
 
 type Delivery struct {
@@ -146,12 +170,34 @@ func New(cfg Config) (*Aggregator, error) {
 		members[member] = struct{}{}
 	}
 	cfg.Snapshot.Members = append([]string(nil), cfg.Snapshot.Members...)
+	if cfg.Snapshot.Generations != nil {
+		generations := cfg.Snapshot.Generations
+		cfg.Snapshot.Generations = make(map[string]uint64, len(generations))
+		for source, generation := range generations {
+			if _, ok := members[source]; !ok {
+				return nil, fmt.Errorf("subscription: generation for unknown source %q", source)
+			}
+			cfg.Snapshot.Generations[source] = generation
+		}
+	}
 	return &Aggregator{cfg: cfg, members: members, contexts: make(map[string]*contextState), events: make(chan Delivery, cfg.Queue), errs: make(chan error, 1)}, nil
 }
 
 func (a *Aggregator) Events() <-chan Delivery { return a.events }
 func (a *Aggregator) Err() <-chan error       { return a.errs }
-func (a *Aggregator) Snapshot() Snapshot      { a.mu.Lock(); defer a.mu.Unlock(); return a.cfg.Snapshot }
+func (a *Aggregator) Snapshot() Snapshot {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	snapshot := a.cfg.Snapshot
+	snapshot.Members = append([]string(nil), snapshot.Members...)
+	if a.cfg.Snapshot.Generations != nil {
+		snapshot.Generations = make(map[string]uint64, len(a.cfg.Snapshot.Generations))
+		for source, generation := range a.cfg.Snapshot.Generations {
+			snapshot.Generations[source] = generation
+		}
+	}
+	return snapshot
+}
 
 // Submit records one source vote. A duplicate source vote is idempotent. A
 // stale generation or source outside the fixed snapshot is rejected.
@@ -164,38 +210,64 @@ func (a *Aggregator) Submit(obs Observation) error {
 	if _, ok := a.members[obs.SourceID]; !ok {
 		return ErrUnknownSource
 	}
-	if obs.Generation != a.cfg.Snapshot.Generation {
+	expectedGeneration := a.cfg.Snapshot.Generation
+	if generations := a.cfg.Snapshot.Generations; generations != nil {
+		if generation, ok := generations[obs.SourceID]; ok {
+			expectedGeneration = generation
+		}
+	}
+	if obs.Generation != expectedGeneration {
 		return ErrStaleGeneration
 	}
-	if obs.Kind != KindNewHeads && obs.Kind != KindLogs {
+	if obs.Kind != KindNewHeads && obs.Kind != KindLogs && obs.Kind != KindTransactionReceipts {
 		return fmt.Errorf("subscription: unknown event kind %q", obs.Kind)
 	}
 	if obs.ContextKey == "" || obs.Key == "" {
 		return fmt.Errorf("subscription: event key is required")
 	}
-	ctx := a.contexts[obs.ContextKey]
+	// Kind is part of event identity. A head and a log may legitimately use
+	// the same caller-provided context key, but they must never share votes or
+	// delivery state.
+	stateKey := string(obs.Kind) + "\x00" + obs.ContextKey
+	ctx := a.contexts[stateKey]
 	if ctx == nil {
 		now := obs.ObservedAt
 		if now.IsZero() {
 			now = time.Now()
 		}
 		ctx = &contextState{first: now, status: Collecting, candidates: make(map[string]*candidate)}
-		a.contexts[obs.ContextKey] = ctx
+		a.contexts[stateKey] = ctx
 	}
 	if ctx.status == Quarantined || ctx.status == Canceled {
 		return nil
 	}
 	if ctx.status == Delivered || ctx.status == Selected || ctx.status == Revoked {
 		if obs.Removed && !ctx.revoked {
+			removedCandidate := ctx.candidates[obs.Key]
+			if removedCandidate == nil {
+				removedCandidate = &candidate{obs: cloneObservation(obs), sources: make(map[string]struct{})}
+				ctx.candidates[obs.Key] = removedCandidate
+			}
+			if _, seen := removedCandidate.sources[obs.SourceID]; seen {
+				return nil
+			}
+			removedCandidate.sources[obs.SourceID] = struct{}{}
+			// A selected single-source subscription has no corroboration
+			// requirement. Strict subscriptions still require the fixed event
+			// quorum before revoking a previously delivered log.
+			if a.cfg.Mode != SingleSourceSelected && len(removedCandidate.sources) < a.cfg.Snapshot.Quorum {
+				return nil
+			}
 			ctx.revoked = true
 			ctx.status = Revoked
-			votes := 0
-			if candidate := ctx.candidates[ctx.delivered]; candidate != nil {
-				votes = len(candidate.sources)
-			}
-			return a.emitLocked(Delivery{Observation: obs, Snapshot: a.cfg.Snapshot, Status: Revoked, Votes: votes})
+			return a.emitLocked(Delivery{Observation: cloneObservation(removedCandidate.obs), Snapshot: a.cfg.Snapshot, Status: Revoked, Votes: len(removedCandidate.sources)})
 		}
 		return nil
+	}
+	if obs.Removed {
+		ctx.status = Quarantined
+		a.reportLocked(ErrUnboundRemoval)
+		return ErrUnboundRemoval
 	}
 	c := ctx.candidates[obs.Key]
 	if c == nil {
@@ -247,13 +319,19 @@ func (a *Aggregator) Advance(now time.Time) {
 func (a *Aggregator) Status(contextKey string) Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if ctx := a.contexts[contextKey]; ctx != nil {
-		return ctx.status
+	for _, kind := range []Kind{KindNewHeads, KindLogs, KindTransactionReceipts} {
+		if ctx := a.contexts[string(kind)+"\x00"+contextKey]; ctx != nil {
+			return ctx.status
+		}
 	}
 	return Canceled
 }
 
-func (a *Aggregator) Unsubscribe() { a.close(ErrCanceled) }
+// Unsubscribe is an intentional, error-free termination. Transport failures
+// and policy errors are reported through Err before this lifecycle action; a
+// caller explicitly stopping a subscription should not observe a synthetic
+// cancellation error.
+func (a *Aggregator) Unsubscribe() { a.close(nil) }
 func (a *Aggregator) Close()       { a.close(nil) }
 func (a *Aggregator) close(err error) {
 	a.mu.Lock()
@@ -340,6 +418,90 @@ func CanonicalLogKey(blockHash, blockNumber, txHash string, index uint64, addres
 		Removed                        bool
 	}{strings.ToLower(blockHash), strings.ToLower(blockNumber), strings.ToLower(txHash), index, strings.ToLower(address), strings.ToLower(data), lowerAll(topics), removed}
 	return fmt.Sprintf("log:%s:%s:%d", v.BlockHash, v.TxHash, index), digest(KindLogs, v), nil
+}
+
+// CanonicalTransactionReceiptsKey returns a stable logical context and
+// candidate key for one transaction-receipts notification. Receipt order is
+// normalized by transaction index and hash, while the candidate retains the
+// complete caller-supplied typed representation. The context contains only
+// block identity, so two providers that disagree on receipt fields still
+// vote in the same event and become a conflict instead of two independent
+// events.
+func CanonicalTransactionReceiptsKey(receipts []ReceiptIdentity) (contextKey, key string, err error) {
+	if len(receipts) == 0 {
+		return "receipts:empty", digest(KindTransactionReceipts, []any{}), nil
+	}
+	type canonicalReceipt struct {
+		TransactionHash  string          `json:"transactionHash"`
+		BlockHash        string          `json:"blockHash"`
+		BlockNumber      string          `json:"blockNumber"`
+		TransactionIndex uint64          `json:"transactionIndex"`
+		Canonical        json.RawMessage `json:"canonical"`
+	}
+	rows := make([]canonicalReceipt, 0, len(receipts))
+	blocks := make([]string, 0, len(receipts))
+	for _, receipt := range receipts {
+		if receipt.TransactionHash == "" || receipt.BlockHash == "" || receipt.BlockNumber == "" {
+			return "", "", fmt.Errorf("subscription: incomplete transaction receipt")
+		}
+		canonical, canonicalErr := canonicalJSON(receipt.Canonical)
+		if canonicalErr != nil {
+			return "", "", fmt.Errorf("subscription: malformed transaction receipt: %w", canonicalErr)
+		}
+		row := canonicalReceipt{
+			TransactionHash:  strings.ToLower(receipt.TransactionHash),
+			BlockHash:        strings.ToLower(receipt.BlockHash),
+			BlockNumber:      strings.ToLower(receipt.BlockNumber),
+			TransactionIndex: receipt.TransactionIndex,
+			Canonical:        canonical,
+		}
+		rows = append(rows, row)
+		blocks = append(blocks, row.BlockNumber+":"+row.BlockHash)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].TransactionIndex != rows[j].TransactionIndex {
+			return rows[i].TransactionIndex < rows[j].TransactionIndex
+		}
+		return rows[i].TransactionHash < rows[j].TransactionHash
+	})
+	sort.Strings(blocks)
+	blocks = compactStrings(blocks)
+	contextKey = "receipts:" + digest(KindTransactionReceipts, blocks)
+	return contextKey, digest(KindTransactionReceipts, rows), nil
+}
+
+func canonicalJSON(raw []byte) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return []byte("null"), nil
+	}
+	var value any
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("trailing JSON data")
+		}
+		return nil, err
+	}
+	out, err := json.Marshal(value)
+	return out, err
+}
+
+func compactStrings(values []string) []string {
+	if len(values) < 2 {
+		return values
+	}
+	out := values[:1]
+	for _, value := range values[1:] {
+		if value != out[len(out)-1] {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func lowerAll(values []string) []string {

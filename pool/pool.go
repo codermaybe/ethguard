@@ -28,28 +28,43 @@ var (
 	ErrAllSourcesDown = errors.New("pool: all upstream sources failed to respond")
 )
 
-// SubscriptionSource returns the sole explicitly configured WebSocket source.
-// Transport selection stays inside the pool composition boundary; the root
-// facade receives only the capability-bearing source and never parses URLs.
-func (p *Pool) SubscriptionSource() (*Source, error) {
+// SubscriptionSources returns a stable snapshot of all explicitly configured
+// WebSocket sources. Membership is fixed for the lifetime of the pool; the
+// returned slice is a copy, so source health and connection state may change
+// without changing the subscription's source denominator. Transport
+// selection stays inside the pool composition boundary; callers receive only
+// capability-bearing sources and never parse URLs.
+func (p *Pool) SubscriptionSources() ([]*Source, error) {
 	p.mu.RLock()
 	sources := append([]*Source(nil), p.sources...)
 	p.mu.RUnlock()
-	var selected *Source
+	out := make([]*Source, 0, len(sources))
 	for _, source := range sources {
 		e, err := url.Parse(source.URL())
 		if err != nil || (e.Scheme != "ws" && e.Scheme != "wss") {
 			continue
 		}
-		if selected != nil {
-			return nil, ErrMultipleWSSSources
-		}
-		selected = source
+		out = append(out, source)
 	}
-	if selected == nil {
+	if len(out) == 0 {
 		return nil, ErrNoWSSSource
 	}
-	return selected, nil
+	return out, nil
+}
+
+// SubscriptionSource returns the sole explicitly configured WebSocket source.
+// It is retained for compatibility with the S1 single-source path. New
+// subscription code should use SubscriptionSources so quorum can keep the
+// complete WSS membership snapshot.
+func (p *Pool) SubscriptionSource() (*Source, error) {
+	sources, err := p.SubscriptionSources()
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) != 1 {
+		return nil, ErrMultipleWSSSources
+	}
+	return sources[0], nil
 }
 
 // Pool is the concurrent-safe multi-source RPC manager.

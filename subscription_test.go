@@ -5,17 +5,47 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	internalsubscription "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/internal/typed"
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 type fakeSubscription struct {
 	events chan transport.Notification
 	errs   chan error
+}
+
+type aggregateTestSource struct {
+	id  string
+	sub transport.Subscription
+}
+
+func (s *aggregateTestSource) ID() string { return s.id }
+func (s *aggregateTestSource) Subscribe(context.Context, string, ...any) (transport.Subscription, error) {
+	return s.sub, nil
+}
+
+type aggregateTestSubscription struct {
+	events chan transport.Notification
+	errs   chan error
+	once   sync.Once
+}
+
+func (s *aggregateTestSubscription) Events() <-chan transport.Notification { return s.events }
+func (s *aggregateTestSubscription) Err() <-chan error                     { return s.errs }
+func (s *aggregateTestSubscription) Unsubscribe() {
+	s.once.Do(func() {
+		close(s.events)
+		close(s.errs)
+	})
 }
 
 func (s *fakeSubscription) Events() <-chan transport.Notification { return s.events }
@@ -40,6 +70,15 @@ func TestSubscriptionFilterArgMatchesGethShape(t *testing.T) {
 	}
 	if _, err := subscriptionFilterArg(ethereum.FilterQuery{BlockHash: ptrHash(common.Hash{1}), FromBlock: big.NewInt(1)}); err == nil {
 		t.Fatal("accepted block hash with range")
+	}
+}
+
+func TestValidateSubscriptionLogIdentityRequiresReorgBinding(t *testing.T) {
+	if err := validateSubscriptionLogIdentity([]byte(`{"address":"0x0000000000000000000000000000000000000001"}`)); err == nil {
+		t.Fatal("accepted log without block/transaction/index identity")
+	}
+	if err := validateSubscriptionLogIdentity([]byte(`{"blockHash":"0x1","transactionHash":"0x2","logIndex":"0x0"}`)); err != nil {
+		t.Fatalf("valid identity rejected: %v", err)
 	}
 }
 
@@ -75,6 +114,143 @@ func TestStartSubscriptionDecodesAndPropagatesErrors(t *testing.T) {
 		t.Fatal("error not forwarded")
 	}
 	sub.Unsubscribe()
+}
+
+func TestAggregatedSubscriptionQuorumDeduplicatesSources(t *testing.T) {
+	aStream := &aggregateTestSubscription{events: make(chan transport.Notification, 4), errs: make(chan error, 1)}
+	bStream := &aggregateTestSubscription{events: make(chan transport.Notification, 4), errs: make(chan error, 1)}
+	sources := []identifiedSubscriptionSource{
+		&aggregateTestSource{id: "a", sub: aStream},
+		&aggregateTestSource{id: "b", sub: bStream},
+	}
+	out := make(chan string, 2)
+	sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+		var value struct {
+			Number string `json:"number"`
+			Hash   string `json:"hash"`
+			Parent string `json:"parent"`
+		}
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return internalsubscription.Observation{}, "", err
+		}
+		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(value.Number, value.Hash, value.Parent)
+		if err != nil {
+			return internalsubscription.Observation{}, "", err
+		}
+		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, value.Number, nil
+	})
+	if err != nil {
+		t.Fatalf("start aggregated: %v", err)
+	}
+	defer sub.Unsubscribe()
+	payload := json.RawMessage(`{"number":"0x1","hash":"0xabc","parent":"0xdef"}`)
+	aStream.events <- transport.Notification{Result: payload}
+	aStream.events <- transport.Notification{Result: payload}
+	bStream.events <- transport.Notification{Generation: 2, Result: payload}
+	select {
+	case got := <-out:
+		t.Fatalf("stale generation delivered: %q", got)
+	default:
+	}
+	bStream.events <- transport.Notification{Result: payload}
+	select {
+	case got := <-out:
+		if got != "0x1" {
+			t.Fatalf("output = %q, want 0x1", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("quorum output not delivered")
+	}
+	select {
+	case got := <-out:
+		t.Fatalf("duplicate output = %q", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestAggregatedTransactionReceiptsQuorumAndConflict(t *testing.T) {
+	newSources := func() ([]identifiedSubscriptionSource, *aggregateTestSubscription, *aggregateTestSubscription) {
+		aStream := &aggregateTestSubscription{events: make(chan transport.Notification, 4), errs: make(chan error, 1)}
+		bStream := &aggregateTestSubscription{events: make(chan transport.Notification, 4), errs: make(chan error, 1)}
+		return []identifiedSubscriptionSource{
+			&aggregateTestSource{id: "a", sub: aStream},
+			&aggregateTestSource{id: "b", sub: bStream},
+		}, aStream, bStream
+	}
+	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, []*types.Receipt, error) {
+		receipts, err := typed.DecodeReceipts(raw)
+		if err != nil {
+			return internalsubscription.Observation{}, nil, err
+		}
+		ids := make([]internalsubscription.ReceiptIdentity, len(receipts))
+		for i, receipt := range receipts {
+			canonical, marshalErr := json.Marshal(receipt)
+			if marshalErr != nil {
+				return internalsubscription.Observation{}, nil, marshalErr
+			}
+			ids[i] = internalsubscription.ReceiptIdentity{TransactionHash: receipt.TxHash.Hex(), BlockHash: receipt.BlockHash.Hex(), BlockNumber: receipt.BlockNumber.String(), TransactionIndex: uint64(receipt.TransactionIndex), Canonical: canonical}
+		}
+		contextKey, key, err := internalsubscription.CanonicalTransactionReceiptsKey(ids)
+		if err != nil {
+			return internalsubscription.Observation{}, nil, err
+		}
+		return internalsubscription.Observation{Kind: internalsubscription.KindTransactionReceipts, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, receipts, nil
+	}
+	receiptPayload := func(status uint64) json.RawMessage {
+		txHash := common.HexToHash("0x" + "11" + strings.Repeat("00", 31))
+		blockHash := common.HexToHash("0x" + "22" + strings.Repeat("00", 31))
+		receipt := &types.Receipt{Status: status, CumulativeGasUsed: 21_000, GasUsed: 21_000, TxHash: txHash, BlockHash: blockHash, BlockNumber: big.NewInt(7), TransactionIndex: 0, Logs: []*types.Log{}}
+		receipt.Bloom = types.CreateBloom(receipt)
+		raw, err := json.Marshal([]*types.Receipt{receipt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+
+	t.Run("same batch reaches quorum once", func(t *testing.T) {
+		sources, aStream, bStream := newSources()
+		out := make(chan []*types.Receipt, 2)
+		sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindTransactionReceipts, nil, out, decode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sub.Unsubscribe()
+		payload := receiptPayload(types.ReceiptStatusSuccessful)
+		aStream.events <- transport.Notification{Result: payload}
+		aStream.events <- transport.Notification{Result: payload}
+		bStream.events <- transport.Notification{Result: payload}
+		select {
+		case got := <-out:
+			if len(got) != 1 || got[0].Status != types.ReceiptStatusSuccessful {
+				t.Fatalf("receipts = %+v", got)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("receipt quorum output missing")
+		}
+		select {
+		case <-out:
+			t.Fatal("duplicate receipt batch delivered")
+		case <-time.After(50 * time.Millisecond):
+		}
+	})
+
+	t.Run("conflicting batch is quarantined", func(t *testing.T) {
+		sources, aStream, bStream := newSources()
+		out := make(chan []*types.Receipt, 2)
+		sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindTransactionReceipts, nil, out, decode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sub.Unsubscribe()
+		aStream.events <- transport.Notification{Result: receiptPayload(types.ReceiptStatusSuccessful)}
+		bStream.events <- transport.Notification{Result: receiptPayload(types.ReceiptStatusFailed)}
+		select {
+		case got := <-out:
+			t.Fatalf("conflicting receipts delivered: %+v", got)
+		case <-time.After(100 * time.Millisecond):
+		}
+	})
 }
 
 func ptrHash(hash common.Hash) *common.Hash { return &hash }

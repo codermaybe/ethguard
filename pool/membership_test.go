@@ -92,6 +92,33 @@ func TestNewWithMembersRejectsDuplicateEndpointWithExplicitAdapter(t *testing.T)
 	}
 }
 
+func TestSubscriptionSourcesReturnsAllWSSMembersAsCopy(t *testing.T) {
+	p, err := NewWithMembers(0, []Member{
+		{Name: "http", URL: "https://a.example"},
+		{Name: "ws-a", URL: "ws://a.example"},
+		{Name: "ws-b", URL: "wss://b.example"},
+	})
+	if err != nil {
+		t.Fatalf("NewWithMembers: %v", err)
+	}
+	defer p.Close()
+	sources, err := p.SubscriptionSources()
+	if err != nil {
+		t.Fatalf("SubscriptionSources: %v", err)
+	}
+	if len(sources) != 2 || sources[0].Name() != "ws-a" || sources[1].Name() != "ws-b" {
+		t.Fatalf("sources = %#v, want ws-a/ws-b", sources)
+	}
+	sources[0] = nil
+	again, err := p.SubscriptionSources()
+	if err != nil || len(again) != 2 || again[0] == nil {
+		t.Fatalf("snapshot was not copied: %#v, err=%v", again, err)
+	}
+	if _, err := p.SubscriptionSource(); !errors.Is(err, ErrMultipleWSSSources) {
+		t.Fatalf("SubscriptionSource err = %v, want ErrMultipleWSSSources", err)
+	}
+}
+
 func TestClosedPoolKeepsConfiguredMembersAddressable(t *testing.T) {
 	p, err := NewWithMembers(0, []Member{{Name: "a", URL: "https://a.example"}})
 	if err != nil {
