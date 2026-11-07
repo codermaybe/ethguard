@@ -18,7 +18,6 @@ import (
 func lifecycleFleet(t *testing.T) *Client {
 	t.Helper()
 	cfg := config.Config{ChainID: 1}
-	var nodes []*rpctest.Node
 	for i := 0; i < 2; i++ {
 		node := rpctest.NewNode(1)
 		t.Cleanup(node.Close)
@@ -36,7 +35,6 @@ func lifecycleFleet(t *testing.T) *Client {
 			}
 			return map[string]any{"number": "0x10", "hash": "0x1111111111111111111111111111111111111111111111111111111111111111"}, nil
 		})
-		nodes = append(nodes, node)
 		cfg.Upstreams = append(cfg.Upstreams, config.Upstream{
 			ID:       fmt.Sprintf("node-%c", 'a'+i),
 			Endpoint: node.URL(),

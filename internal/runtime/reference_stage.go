@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
@@ -178,27 +177,4 @@ func captureEmission(invocation rpc.Invocation, emissions []pool.Emission, colle
 	if collectErr != nil {
 		capture.Record("collect", anchorMethodName, rpc.SourceRef{}, nil, collectErr.Error())
 	}
-}
-
-// referenceKindForTag maps the wire tag to the declared reference kind.
-func referenceKindForTag(tag string) rpc.ReferenceKind {
-	switch strings.ToLower(tag) {
-	case string(rpc.ReferenceSafe):
-		return rpc.ReferenceSafe
-	case string(rpc.ReferenceFinalized):
-		return rpc.ReferenceFinalized
-	default:
-		return rpc.ReferenceLatest
-	}
-}
-
-// referenceMatchesTag reports whether established evidence serves this tag:
-// each level keeps its meaning, so safe never reuses latest and vice versa.
-func referenceMatchesTag(ref rpc.ReferenceEvidence, tag string) bool {
-	kind := referenceKindForTag(tag)
-	if kind == rpc.ReferenceLatest {
-		// The default reference records no tag; anything else names its level.
-		return ref.Tag == "" || strings.EqualFold(ref.Tag, string(rpc.ReferenceLatest))
-	}
-	return strings.EqualFold(ref.Tag, string(kind))
 }

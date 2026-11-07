@@ -122,7 +122,6 @@ func (p *PullProbe) run(ctx context.Context, cancel context.CancelFunc, agg *Agg
 	var pulls sync.WaitGroup
 	startPulls := func() {
 		for _, request := range requests {
-			request := request
 			pulls.Add(1)
 			go func() {
 				defer pulls.Done()

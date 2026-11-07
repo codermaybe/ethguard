@@ -49,14 +49,6 @@ type subscriptionSource interface {
 	Subscribe(context.Context, string, ...any) (transport.Subscription, error)
 }
 
-func (c *Client) subscriptionSource(_ context.Context) (subscriptionSource, error) {
-	source, err := c.pool.SubscriptionSource()
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", rpc.ErrInvalidRequest, err)
-	}
-	return source, nil
-}
-
 func startSubscription[T any](ctx context.Context, inner transport.Subscription, out chan<- T, decode func([]byte) (T, error)) ethereum.Subscription {
 	return startSubscriptionWithOwner(ctx, inner, out, decode)
 }
@@ -354,7 +346,6 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 			if _, ok := state.seen[source.ID()]; ok {
 				continue
 			}
-			source := source
 			session, sessionErr := s.sessions.Current(source.ID())
 			if sessionErr != nil {
 				continue
