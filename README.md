@@ -249,8 +249,8 @@ Deterministic typed reads require the library's dynamically computed
 corroboration threshold: insufficient support returns `ErrConflict`, since
 these methods cannot expose `Selected` to their callers. Advanced root `Call`
 still returns the selected status where the method contract allows it.
-Median/local methods retain their selection semantics, and unknown methods
-remain forwarded.
+Median/local methods retain their selection semantics. `Call` rejects unknown
+methods locally with `ErrInvalidRequest`.
 
 With finalized anchoring, divergent provider heights are reconciled at one
 common height. Existing matching heads are reused; otherwise one bounded
