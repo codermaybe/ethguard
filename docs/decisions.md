@@ -2816,3 +2816,20 @@ with its review-fix round), the API-contract and view-surface tests
 (`ethclient_view_test.go`, `call_result_facts_test.go`, `call_route_test.go`,
 `client_lifecycle_test.go`, `result_capture_test.go`, the budget collector
 suite), and the full G2/G3 gate results recorded in the execution plan.
+
+## 0067. EthClient view includes synchronous writes and subscriptions
+
+Status: Accepted and implemented (2026-11-07).
+
+The implemented view surface is larger than the initial 0066 inventory: in
+addition to the official typed reads, `EthClient` exposes `SendTransactionSync`,
+`SendRawTransactionSync`, `SubscribeNewHead`, `SubscribeFilterLogs`,
+`SubscribeTransactionReceipts`, and `Close`. These methods remain projections
+of the same owner and do not create a second execution or evidence surface.
+
+The WSS transport provides an opt-in bounded notification stream. Root
+subscription aggregation fixes its source snapshot and quorum, performs
+generation-checked per-source resubscription, and stops on owner close or
+unsubscribe. Transport-level keepalive and replay remain deferred. `SimulateV1`
+remains outside the default `EthClient` surface as recorded by the compatibility
+policy.

@@ -58,7 +58,18 @@ func (c *Client) subscriptionSource(_ context.Context) (subscriptionSource, erro
 }
 
 func startSubscription[T any](ctx context.Context, inner transport.Subscription, out chan<- T, decode func([]byte) (T, error)) ethereum.Subscription {
+	return startSubscriptionWithOwner(ctx, inner, out, decode)
+}
+
+func startSubscriptionWithOwner[T any](ownerCtx context.Context, inner transport.Subscription, out chan<- T, decode func([]byte) (T, error)) ethereum.Subscription {
 	s := &ethSubscription{inner: inner, stop: make(chan struct{}), done: make(chan struct{}), errs: make(chan error, 1)}
+	go func() {
+		select {
+		case <-ownerCtx.Done():
+			s.once.Do(func() { close(s.stop); inner.Unsubscribe() })
+		case <-s.done:
+		}
+	}()
 	go func() {
 		defer close(s.done)
 		defer close(s.errs)
@@ -109,6 +120,13 @@ func (c *Client) subscriptionSources() ([]identifiedSubscriptionSource, error) {
 	out := make([]identifiedSubscriptionSource, len(sources))
 	for i, source := range sources {
 		out[i] = source
+	}
+	// A single WSS source inside a multi-source client would silently bypass
+	// the client's strict corroboration mode because HTTP members cannot emit
+	// subscriptions. Keep that setup fail-closed until an explicit
+	// SingleSourceSelected subscription option exists.
+	if len(out) == 1 && c.Mode() != rpc.CorroborationForwarded {
+		return nil, fmt.Errorf("%w: one WSS source cannot satisfy strict subscription corroboration; configure at least two WSS sources", rpc.ErrInvalidRequest)
 	}
 	return out, nil
 }
@@ -286,6 +304,12 @@ func (s *aggregateEthSubscription[T]) noteObservation(obs internalsubscription.O
 	}
 	s.pullMu.Lock()
 	defer s.pullMu.Unlock()
+	if !obs.Removed {
+		status := s.agg.Status(obs.ContextKey)
+		if status == internalsubscription.Decided || status == internalsubscription.Selected || status == internalsubscription.Delivered {
+			return
+		}
+	}
 	state := s.pending[obs.ContextKey]
 	if state == nil {
 		state = &pullContext{firstSeen: obs.ObservedAt, kind: obs.Kind, seen: make(map[string]struct{})}
@@ -307,6 +331,17 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 	s.pullMu.Lock()
 	defer s.pullMu.Unlock()
 	for contextKey, state := range s.pending {
+		status := s.agg.Status(contextKey)
+		if status == internalsubscription.Decided || status == internalsubscription.Selected || status == internalsubscription.Delivered {
+			if state.kind != internalsubscription.KindLogs || !state.observation.Removed {
+				delete(s.pending, contextKey)
+				if probe := s.probes[contextKey]; probe != nil {
+					go probe.Stop()
+					delete(s.probes, contextKey)
+				}
+				continue
+			}
+		}
 		if now.Sub(state.firstSeen) < 100*time.Millisecond {
 			continue
 		}
@@ -468,6 +503,10 @@ func startAggregatedSubscription[T any](ctx context.Context, sources []identifie
 }
 
 func startAggregatedSubscriptionWithPull[T any](ctx context.Context, sources []identifiedSubscriptionSource, kind internalsubscription.Kind, args []any, out chan<- T, decode func([]byte, string) (internalsubscription.Observation, T, error), pullFactory subscriptionPullFactory[T]) (ethereum.Subscription, error) {
+	return startAggregatedSubscriptionWithPullOwner(ctx, ctx, sources, kind, args, out, decode, pullFactory)
+}
+
+func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.Context, sources []identifiedSubscriptionSource, kind internalsubscription.Kind, args []any, out chan<- T, decode func([]byte, string) (internalsubscription.Observation, T, error), pullFactory subscriptionPullFactory[T]) (ethereum.Subscription, error) {
 	if len(sources) < 2 {
 		return nil, fmt.Errorf("ethguard: aggregated subscription requires at least two sources")
 	}
@@ -491,24 +530,17 @@ func startAggregatedSubscriptionWithPull[T any](ctx context.Context, sources []i
 	if err != nil {
 		return nil, err
 	}
-	merged, cancel := context.WithCancel(ctx)
+	merged, cancel := context.WithCancel(context.WithoutCancel(ownerCtx))
 	sessions, sessionErr := internalsubscription.NewSessionGate(members)
 	if sessionErr != nil {
 		cancel()
 		return nil, sessionErr
 	}
 	s := &aggregateEthSubscription[T]{inner: make(map[string]transport.Subscription, len(sources)), agg: state, stop: make(chan struct{}), done: make(chan struct{}), errs: make(chan error, 1), cancel: cancel, out: out, decode: decode, faults: make(chan error, len(sources)), doneSources: make(chan struct{}), sessions: sessions, pullFactory: pullFactory, pending: make(map[string]*pullContext), probes: make(map[string]*internalsubscription.PullProbe), ctx: merged, headGaps: internalsubscription.NewHeadGapTracker(), gapProbes: make(map[string]struct{})}
-	go func() {
-		select {
-		case <-ctx.Done():
-			s.finish(ctx.Err())
-		case <-s.stop:
-		}
-	}()
 	initialSessions := make([]internalsubscription.SourceSession, len(sources))
 	initialSubscriptions := make([]transport.Subscription, len(sources))
 	for i, source := range sources {
-		if err := ctx.Err(); err != nil {
+		if err := setupCtx.Err(); err != nil {
 			s.finish(makeSubscriptionFault("", 1, "lifecycle", "", err))
 			return nil, err
 		}
@@ -517,12 +549,12 @@ func startAggregatedSubscriptionWithPull[T any](ctx context.Context, sources []i
 			s.finish(openErr)
 			return nil, openErr
 		}
-		inner, subErr := source.Subscribe(merged, string(kind), args...)
+		inner, subErr := source.Subscribe(setupCtx, string(kind), args...)
 		if subErr != nil {
 			s.finish(makeSubscriptionFault(source.ID(), 1, "subscribe", "", subErr))
 			return nil, subErr
 		}
-		if err := ctx.Err(); err != nil {
+		if err := setupCtx.Err(); err != nil {
 			go inner.Unsubscribe()
 			s.finish(makeSubscriptionFault("", 1, "lifecycle", "", err))
 			return nil, err
@@ -721,11 +753,11 @@ func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) 
 		if subErr != nil {
 			return nil, subErr
 		}
-		return startSubscription(ctx, inner, ch, func(raw []byte) (*types.Header, error) {
+		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) (*types.Header, error) {
 			return typed.DecodeHeader(raw)
 		}), nil
 	}
-	return startAggregatedSubscriptionWithPull(ctx, sources, internalsubscription.KindNewHeads, nil, ch, func(raw []byte, sourceID string) (internalsubscription.Observation, *types.Header, error) {
+	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindNewHeads, nil, ch, func(raw []byte, sourceID string) (internalsubscription.Observation, *types.Header, error) {
 		header, decodeErr := typed.DecodeHeader(raw)
 		if decodeErr != nil {
 			return internalsubscription.Observation{}, nil, decodeErr
@@ -744,7 +776,11 @@ func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) 
 			return internalsubscription.Observation{}, fmt.Errorf("ethguard: source %q has no same-source head Pull", source.ID())
 		}
 		number := strings.TrimPrefix(contextKey, "head:")
-		raw, err := unary.CallContext(pctx, "eth_getBlockByNumber", number, false)
+		height, err := strconv.ParseUint(number, 10, 64)
+		if err != nil {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: invalid head context %q: %w", contextKey, err)
+		}
+		raw, err := unary.CallContext(pctx, "eth_getBlockByNumber", fmt.Sprintf("0x%x", height), false)
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
@@ -783,7 +819,7 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 		if subErr != nil {
 			return nil, subErr
 		}
-		return startSubscription(ctx, inner, ch, func(raw []byte) (types.Log, error) {
+		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) (types.Log, error) {
 			return typed.DecodeLog(raw)
 		}), nil
 	}
@@ -805,7 +841,7 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 		}
 		return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...), Removed: logValue.Removed}, logValue, nil
 	}
-	return startAggregatedSubscriptionWithPull(ctx, sources, internalsubscription.KindLogs, []any{arg}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
+	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindLogs, []any{arg}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
 		if kind != internalsubscription.KindLogs {
 			return internalsubscription.Observation{}, fmt.Errorf("ethguard: invalid logs Pull kind %q", kind)
 		}
@@ -813,7 +849,15 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 		if !ok {
 			return internalsubscription.Observation{}, fmt.Errorf("ethguard: source %q has no same-source logs Pull", source.ID())
 		}
-		raw, err := unary.CallContext(pctx, "eth_getLogs", arg)
+		seedLog, err := typed.DecodeLog(seed.Payload)
+		if err != nil {
+			return internalsubscription.Observation{}, err
+		}
+		pullArg, err := subscriptionFilterArg(ethereum.FilterQuery{BlockHash: &seedLog.BlockHash, Addresses: q.Addresses, Topics: q.Topics})
+		if err != nil {
+			return internalsubscription.Observation{}, err
+		}
+		raw, err := unary.CallContext(pctx, "eth_getLogs", pullArg)
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
@@ -866,7 +910,7 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 		if subErr != nil {
 			return nil, subErr
 		}
-		return startSubscription(ctx, inner, ch, func(raw []byte) ([]*types.Receipt, error) {
+		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) ([]*types.Receipt, error) {
 			return typed.DecodeReceipts(raw)
 		}), nil
 	}
@@ -898,7 +942,7 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 		}
 		return internalsubscription.Observation{Kind: internalsubscription.KindTransactionReceipts, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, receipts, nil
 	}
-	return startAggregatedSubscriptionWithPull(ctx, sources, internalsubscription.KindTransactionReceipts, []any{q}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
+	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindTransactionReceipts, []any{q}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
 		if kind != internalsubscription.KindTransactionReceipts {
 			return internalsubscription.Observation{}, fmt.Errorf("ethguard: invalid transactionReceipts Pull kind %q", kind)
 		}

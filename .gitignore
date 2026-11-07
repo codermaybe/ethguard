@@ -1,12 +1,12 @@
 docs/design/tmp
 
 # local build artifacts (go build -o <name> dropped in the repo root)
-soak
-nativesmoke
-rpcsample
-shapeprobe
-specbundle
-specdiff
-wsscapture
-livecanary
-ethguard
+/soak
+/nativesmoke
+/rpcsample
+/shapeprobe
+/specbundle
+/specdiff
+/wsscapture
+/livecanary
+/ethguard

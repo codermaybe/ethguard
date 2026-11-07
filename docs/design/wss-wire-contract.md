@@ -10,9 +10,10 @@
 
 ## 0. 边界总纲
 
-- **只实现 request/response raw-call。** 一条长连接、一个 reader、一个 pending
-  表、一个写锁；请求 ID demux；无订阅、无 batch、无重连、无重放。该形态与
-  当前 transport/subscription 契约的已接受边界一致。
+- **实现 request/response raw-call 与 opt-in notification stream。** 一条长连接、一个
+  reader、一个 pending 表、一个写锁；请求 ID demux；订阅使用独立的有界队列和
+  subscription ID 绑定。订阅生命周期、聚合和错误边界见
+  [subscription-contract.md](subscription-contract.md)。不支持 batch、自动重连或重放。
 - **不自下而上重写传输。** 连接建立与字节流使用 Go 标准库（`net`、`crypto/tls`、
   `net/http`、`bufio`）；帧协议与调用生命周期由项目自有代码实现。
 - **不改变上层语义。** 不修改 `pool`、`aggregator`、`ReadPlan`、quorum、
@@ -93,10 +94,11 @@
 
 ## 3. 明确不实现
 
-- subscription / unsubscribe / filter / logs streaming；
+- 通用 WebSocket API；订阅能力仅限当前 transport/subscription 契约定义的
+  `Subscribe`、`Unsubscribe` 和 notification stream；
 - JSON-RPC batch；
 - compression / permessage-deflate 及任何扩展协商；
-- 通用 WebSocket API（任意消息类型、并发 reader、事件回调等）；
+- 任意消息类型、并发 reader、事件回调等通用客户端行为；
 - 自动重连、自动 replay、未知交易结果恢复（决策 0056.2 与生命周期契约继续
   禁止；pool-owned 下一次独立调用惰性重拨不变）；
 - provider-specific close/reconnect 行为适配；

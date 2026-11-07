@@ -29,7 +29,7 @@ const (
 func CanonicalEndpoint(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("parse url: %w", err)
+		return "", fmt.Errorf("endpoint URL is malformed")
 	}
 	if u.Scheme == "" || u.Host == "" {
 		return "", fmt.Errorf("endpoint must include a scheme and host")
@@ -95,7 +95,7 @@ func FromEndpoints(urls ...string) (Config, error) {
 		}
 		parsed, err := url.Parse(endpoint)
 		if err != nil || parsed.Host == "" {
-			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint %q is not a valid URL: include a scheme and host, e.g. https://node.example:8545", i, endpoint)
+			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint is not a valid URL: include a scheme and host, e.g. https://node.example:8545", i)
 		}
 		var transport Transport
 		switch parsed.Scheme {
@@ -108,10 +108,10 @@ func FromEndpoints(urls ...string) (Config, error) {
 		}
 		canonical, err := CanonicalEndpoint(endpoint)
 		if err != nil {
-			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint %q: %v", i, endpoint, err)
+			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint is malformed", i)
 		}
 		if _, dup := seen[canonical]; dup {
-			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint %q duplicates an earlier entry after normalization: use distinct independent providers — a repeated URL (including only case, default-port, or trailing-slash spelling differences) shrinks the voting basis without adding a source", i, endpoint)
+			return Config{}, fmt.Errorf("config: upstreams[%d]: endpoint duplicates an earlier entry after normalization: use distinct independent providers", i)
 		}
 		seen[canonical] = struct{}{}
 		cfg.Upstreams = append(cfg.Upstreams, Upstream{
@@ -191,10 +191,10 @@ func (c Config) Validate() error {
 		// check must mirror it, which TestNormalizeEndpointIDMatchesConfigCanonical pins.
 		canonical, canonErr := CanonicalEndpoint(upstream.Endpoint)
 		if canonErr != nil {
-			return fmt.Errorf("config: upstreams[%d]: endpoint %q: %v", i, upstream.Endpoint, canonErr)
+			return fmt.Errorf("config: upstreams[%d]: endpoint is malformed", i)
 		}
 		if first, exists := seenEndpoints[canonical]; exists {
-			return fmt.Errorf("config: upstreams[%d]: endpoint %q is the same member as upstreams[%d] after normalization: use distinct independent providers — a repeated URL shrinks the voting basis without adding a source", i, upstream.Endpoint, first)
+			return fmt.Errorf("config: upstreams[%d]: endpoint is the same member as upstreams[%d] after normalization: use distinct independent providers", i, first)
 		}
 		seenEndpoints[canonical] = i
 	}

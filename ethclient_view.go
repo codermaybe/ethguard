@@ -16,7 +16,8 @@ import (
 )
 
 // EthClient is the ethclient-shaped view of one Client: the official
-// go-ethereum read signatures, SendTransaction, and Close — nothing else.
+// go-ethereum read signatures, synchronous write methods, subscription
+// methods, and Close.
 // It holds a private owner; it is never an embedded facade, and it adds no
 // anchor, Call, Pool, Mode, Normalize, raw-write, or CreateAccessList
 // surface. The view performs no networking of its own and builds no second

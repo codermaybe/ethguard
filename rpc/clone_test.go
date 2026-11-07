@@ -44,8 +44,7 @@ func TestDecisionCloneIsolatesNestedMaterial(t *testing.T) {
 	clone.Participants[0].Name = "mutated"
 	clone.Support[0].Name = "mutated"
 	clone.Reject[0].Name = "mutated"
-	clone.Value[0] = '{' // same byte position; write a different valid JSON prefix
-	clone.Value = append(clone.Value, ' ')
+	clone.Value[2] = 'b' // {"a":1} -> {"b":1}; catches a shared backing array
 	clone.Provenance[7] = 'f'
 	clone.Revert.Message = "mutated"
 	clone.Extensions.Fields[0].Value = json.RawMessage(`"mutated"`)
@@ -56,7 +55,7 @@ func TestDecisionCloneIsolatesNestedMaterial(t *testing.T) {
 	clone.Diagnostics.Conflicts[0].Values[0].Sources[0].Name = "mutated"
 	clone.Dimensions[0].Support[0].Name = "mutated"
 	clone.Dimensions[0].Abstain[0].Name = "mutated"
-	clone.Prepared.Params[0] = '['
+	clone.Prepared.Params[2] = 'X' // ["0x1",...] -> ["Xx1",...]
 	clone.Prepared.Method = "mutated"
 	clone.Faults[0] = errors.New("mutated")
 	clone.SourceFaults[0].Err = errors.New("mutated")

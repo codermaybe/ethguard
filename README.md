@@ -166,7 +166,7 @@ execution skeleton is:
 Validate / Prepare → Reference → Collect → Admit → Resolve → Project
 ```
 
-The current inventory contains 23 registered read methods. The root `Client`
+The current inventory contains 26 registered read methods. The root `Client`
 provides the Geth-shaped typed methods and generic `Call` access over that
 inventory. `eth_getProof` is explicitly unsupported. A registered plan does not
 promise a provider-wide compatibility result: live provider evidence remains a
@@ -316,8 +316,9 @@ panic marks the capture aborted (`ErrCaptureAborted`). Capture errors are
 delivery facts and never enter the business error.
 
 The ethclient-shaped view rides the same execution: `client.EthClient()`
-exposes the official read signatures, `SendTransaction(ctx, tx) error`, and
-`Close` — nothing else. It satisfies `bind/v2.ContractCaller` and
+exposes the official read signatures, `SendTransaction`,
+`SendTransactionSync`, `SendRawTransactionSync`, the three subscription
+methods, and `Close`. It satisfies `bind/v2.ContractCaller` and
 `bind/v2.DeployBackend`; it is not `*ethclient.Client`. A view call with no
 capture bound omits raw-material collection (nothing would consume it);
 business behavior never changes. One `Close` on either surface stops both:
@@ -348,9 +349,11 @@ concrete error data without claiming provider-wide compatibility. Same-backend
 HTTP and WSS endpoints do not establish independent trust. Explicit per-source
 transport cannot be combined with `DialerOption`/`gethcompat.New`.
 
-The raw WSS adapter is an EthGuard call transport, not a general WebSocket
-client. Subscriptions, background reconnect, active keepalive, and an internal
-queue are outside the current scope and require separate operational evidence.
+The raw WSS adapter is an EthGuard call transport with an opt-in bounded
+notification capability, not a general WebSocket client. Root subscriptions
+perform per-source resubscription with generation checks; transport-level
+keepalive and general queue/replay policy remain deferred and require separate
+operational evidence.
 
 See the [architecture hub](docs/architecture.md),
 [codebase topology](docs/design/codebase-topology.md), the

@@ -53,9 +53,9 @@ jobs:
 
       # Public-surface guard, informed by the previous tag. The first tag has
       # no comparison basis and therefore skips before installing the tool.
-      # Pin apidiff for reproducibility. It currently requires Go 1.26, so this
-      # isolated release step permits Go's toolchain selection instead of
-      # changing the project's Go 1.25.3 build and test baseline.
+      # Pin apidiff for reproducibility. Keep toolchain selection explicit for
+      # this isolated tool install even though the module now requires Go
+      # 1.26.10.
       - name: apidiff vs previous tag
         env:
           APIDIFF_VERSION: v0.0.0-20261014143641-f0251eb4aa3e
