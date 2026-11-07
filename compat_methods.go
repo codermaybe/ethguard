@@ -1,14 +1,18 @@
 package ethguard
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"math/big"
+	"strconv"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/codermaybe/ethguard/internal/typed"
+	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
@@ -54,6 +58,34 @@ func (c *Client) pendingNonceAtExec(ctx context.Context, account common.Address)
 }
 func (c *Client) PendingNonceAt(ctx context.Context, account common.Address) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) { return c.pendingNonceAtExec(opCtx, account) })
+}
+
+func (c *Client) transactionCountExec(ctx context.Context, blockHash common.Hash) (uint, CallResult, error) {
+	decision, err := c.callTyped(ctx, methods.MethodGetBlockTransactionCountByHash, blockHash.Hex())
+	if err != nil {
+		decision.Value = nil
+		return 0, CallResult{Decision: decisionOf(decision)}, err
+	}
+	if bytes.Equal(bytes.TrimSpace(decision.Value), []byte("null")) {
+		return 0, CallResult{Decision: decisionOf(decision)}, ethereum.NotFound
+	}
+	canonical, err := c.Normalize(methods.MethodGetBlockTransactionCountByHash, decision.Value)
+	if err != nil {
+		return 0, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: decode %s: %v", rpc.ErrMalformedResponse, methods.MethodGetBlockTransactionCountByHash, err)
+	}
+	value, ok := new(big.Int).SetString(canonical, 10)
+	if !ok || !value.IsUint64() || (strconv.IntSize == 32 && value.BitLen() > 32) {
+		return 0, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: transaction count out of range %q", rpc.ErrMalformedResponse, canonical)
+	}
+	return uint(value.Uint64()), CallResult{Decision: decisionOf(decision)}, nil
+}
+
+// TransactionCount returns the fleet-corroborated transaction count for an
+// immutable block hash. A corroborated JSON null maps to ethereum.NotFound.
+func (c *Client) TransactionCount(ctx context.Context, blockHash common.Hash) (uint, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (uint, CallResult, error) {
+		return c.transactionCountExec(opCtx, blockHash)
+	})
 }
 
 func (c *Client) callContractAtHashExec(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, CallResult, error) {

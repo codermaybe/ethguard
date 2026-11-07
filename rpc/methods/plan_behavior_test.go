@@ -115,6 +115,15 @@ func planPrepareCases(method string) []planPrepareCase {
 			{name: "pending passes through without establishment", params: []any{uint64(4), "pending", []any{}},
 				want: []any{uint64(4), "pending", []any{}}},
 		}
+	case MethodGetBlockTransactionCountByNumber:
+		return []planPrepareCase{
+			{name: "latest rewrites to the established height", params: []any{"latest"},
+				want: []any{"0x10"}, pin: "0x10", establish: true},
+			{name: "explicit height passes through", params: []any{"0x10"},
+				want: []any{"0x10"}},
+			{name: "pending passes through without establishment", params: []any{"pending"},
+				want: []any{"pending"}},
+		}
 	default:
 		// Methods without a declared reference: every request rides the
 		// fan-out untouched and records no pin.

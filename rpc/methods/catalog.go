@@ -111,6 +111,8 @@ var methodCatalog = []MethodDescriptor{
 	{Name: MethodGetTransactionByHash, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "TransactionByHash", Alignment: "v1.17.5"},
 	{Name: MethodGetBlockReceipts, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "BlockReceipts", Alignment: "v1.17.5"},
 	{Name: MethodGetTransactionCount, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "NonceAt", Alignment: "v1.17.5"},
+	{Name: MethodGetBlockTransactionCountByHash, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "TransactionCount", Alignment: "v1.17.5"},
+	{Name: MethodGetBlockTransactionCountByNumber, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "PendingTransactionCount", Alignment: "v1.17.5"},
 	{Name: MethodGetStorageAt, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "StorageAt", Alignment: "v1.17.5"},
 	{Name: MethodGetCode, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "CodeAt", Alignment: "v1.17.5"},
 	{Name: MethodCall, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "CallContract", Alignment: "v1.17.5"},

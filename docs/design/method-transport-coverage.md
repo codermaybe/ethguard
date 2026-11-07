@@ -15,7 +15,7 @@
 基线直接对锁定 module 的 `*ethclient.Client` 做 Go reflection，并与本仓库
 `*EthClient` 的导出方法集合比较。结果是上游 48 个导出方法（其中
 `Client()` 是底层 `*rpc.Client` 访问器）与当前 42 个方法；排除该访问器后的业务目标为
-47 个，当前业务缺口为 5 个方法。
+47 个，当前业务缺口为 3 个方法。
 该检查点只说明代码事实，不把 29 个方法解释为兼容版本。可复现命令为：
 
 ```text
@@ -28,8 +28,7 @@ scripts/ethclient-method-diff.sh
 
 当前业务缺失集合为：
 
-`PendingTransactionCount`, `SimulateV1`, `TransactionCount`, `TransactionInBlock`,
-`TransactionSender`。其余 pending state、同步写入和三类订阅均已暴露 facade；仍需
+`SimulateV1`, `TransactionInBlock`, `TransactionSender`。其余 pending state、同步写入和三类订阅均已暴露 facade；仍需
 逐项补齐跨传输 fixture、错误和证据矩阵，暂不代表最终兼容发布已闭合。
 
 `Client()` 不是业务 RPC 方法，明确排除在 `EthClient` facade 之外；它不能通过
@@ -57,6 +56,8 @@ scripts/ethclient-method-diff.sh
 | `eth_getTransactionByHash` | Registered | `TransactionByHash` | `TransactionByHash` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending 与 absent 的跨 transport 矩阵 |
 | `eth_getBlockReceipts` | Registered | `BlockReceipts` | `BlockReceipts` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, receipt objects | 大数组、空 block、逐 receipt 绑定成本 |
 | `eth_getTransactionCount` | Registered | `NonceAt` | `NonceAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending-local、历史引用和跨 transport |
+| `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `compat_methods.go`, `typed`, `rpc/methods` | null/NotFound 与跨 transport 证据待补 |
+| `eth_getBlockTransactionCountByNumber` | Registered | `PendingTransactionCount` | `PendingTransactionCount` | native HTTP/WSS raw call | 不适用 | `pending_count.go`, `typed`, `rpc/methods` | PendingObserve、malformed/null 与跨 transport 证据待补 |
 | `eth_getStorageAt` | Registered | `StorageAt` | `StorageAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 空 bytes、EIP-1898 和跨 transport |
 | `eth_getCode` | Registered | `CodeAt` | `CodeAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | empty code、历史引用和跨 transport |
 | `eth_call` | Registered | `CallContract` | `CallContract` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, call rules | overrides、provider golden `error.data=null` |
@@ -75,12 +76,12 @@ scripts/ethclient-method-diff.sh
 | `eth_sendRawTransaction` | Write | `SendRawTransaction` | `SendTransaction` | native HTTP/WSS raw call | 不适用 | `write.go`, write pipeline | accepted/unknown/rejected 与 receipt 关系 |
 | `eth_getProof` | Explicit unsupported | 不支持 | 不支持 | 不应 silent forward | 不适用 | catalog descriptor | 需要独立 proof admission/evidence contract |
 
-项目 catalog 目前登记 23 个方法级条目，另有写入和显式 unsupported 条目。catalog 的注册不等于跨 transport、provider 或订阅证据已经完成。
+项目 catalog 目前登记 25 个方法级条目，另有写入和显式 unsupported 条目。catalog 的注册不等于跨 transport、provider 或订阅证据已经完成。
 
 ## go-ethereum v1.17.5 官方 ethclient 方法
 
-下面列出锁定版本 `ethclient.Client` 的公开方法。当前 `EthClient` 的 42
-方法仍是内部检查点（已覆盖原 29 项并接入 13 个 unary/订阅方法）；上游
+下面列出锁定版本 `ethclient.Client` 的公开方法。当前 `EthClient` 的 44
+方法仍是内部检查点（已覆盖原 29 项并接入 15 个 unary/订阅方法）；上游
 `Client()` 只作为显式排除项记录。其余业务方法必须逐项接入并闭合证据，在兼容发布前
 不能把“待接入”当作已实现。
 
@@ -98,7 +99,7 @@ scripts/ethclient-method-diff.sh
 | `HeaderByNumber` | 已有（M2） | `Client.HeaderByNumber` | 已接入；moving tags 复用 anchor，pending 本地拒绝 |
 | `TransactionByHash` | 已有 | `Client.TransactionByHash` | 已覆盖 |
 | `TransactionSender` | 未有 | 无 root typed 映射 | 待决定 |
-| `TransactionCount` | 未有 | 无 root typed 映射 | 待决定 |
+| `TransactionCount` | 已有 | `Client.TransactionCount` | null/NotFound 与跨 transport 证据待补 |
 | `TransactionInBlock` | 未有 | 无 root typed 映射 | 待决定 |
 | `TransactionReceipt` | 已有 | `Client.TransactionReceipt` | 已覆盖 |
 | `SyncProgress` | 已有 | `Client.SyncProgress` | 已覆盖 |
@@ -119,7 +120,7 @@ scripts/ethclient-method-diff.sh
 | `PendingStorageAt` | 已有 | `Client.PendingStorageAt` | pending-local；跨 transport 证据待补 |
 | `PendingCodeAt` | 已有 | `Client.PendingCodeAt` | pending-local；跨 transport 证据待补 |
 | `PendingNonceAt` | 已有 | `Client.PendingNonceAt` | pending-local；跨 transport 证据待补 |
-| `PendingTransactionCount` | 未有 | 无 root typed 映射 | 需要独立 pending count plan |
+| `PendingTransactionCount` | 已有 | `Client.PendingTransactionCount` | PendingObserve 与跨 transport 证据待补 |
 | `CallContract` | 已有 | `Client.CallContract` | 已覆盖 |
 | `CallContractAtHash` | 已有 | `Client.CallContractAtHash` | EIP-1898/跨 transport 证据待补 |
 | `PendingCallContract` | 已有 | `Client.PendingCallContract` | pending-local/错误证据待补 |
@@ -195,7 +196,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - `HeaderByHash` 和 `HeaderByNumber` 复用 `eth_getBlockByHash` / `eth_getBlockByNumber` 的既有 ReadPlan、admission 和 block projector；只把 `fullTx` 固定为 `false`，再由 `DecodeBlockHeaderOnly` 交付 `*types.Header`。
 - 根 Client 返回 `(* types.Header, CallResult, error)`，EthClient 视图保持官方 `(* types.Header, error)`。
 - `HeaderByNumber(nil)`、`-2/-3/-4` 通过已建立 reference 读取并附带 reference 事实；`-5` 映射高度 `0x0`；`-1` 及未知负数在本地拒绝，不宣称 pending header 已支持。
-- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合会随锁定版本反射检查更新；当前已暴露 42 个方法，仍只是接入检查点；与上游 48 个导出方法的完整差异见本文件“v1.17.5 方法差异基线”。
+- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合会随锁定版本反射检查更新；当前已暴露 44 个方法，仍只是接入检查点；与上游 48 个导出方法的完整差异见本文件“v1.17.5 方法差异基线”。
 
 ## 未决项
 
@@ -209,13 +210,13 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 
 ## M1/M3 前置复核：state hash 与 pending
 
-本轮未接入 pending 方法；复核结论如下：
+本轮补齐了 `PendingTransactionCount`；其余 pending 语义复核结论如下：
 
 - `BalanceAtHash`、`StorageAtHash`、`CodeAtHash`、`NonceAtHash` 在 go-ethereum v1.17.5 中仍调用现有四个 RPC 方法，只是把最后一个 block 参数编码成 EIP-1898 的 `{blockHash, requireCanonical:false}` 对象。
 - 当前 `rpc/methods` 的 `ReferenceSpec{EIP1898:true}` 和 EIP-1898 rewrite 测试继续覆盖对象校验、显式 hash、`requireCanonical` 保留和 moving tag 改写；AtHash facade 通过同一 plan 执行。
 - AtHash 接入使用受控的 EIP-1898 map 参数和现有 plan，不通过未知 `Call`。
-- `PendingBalanceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingNonceAt` 的 plan 已有 `PendingObserve` 声明，但当前公开 facade 没有对应方法。pending 是节点本地状态，不能直接套用 moving reference；是否允许多源严格比较、是否接受单源本地观察、以及最终 Decision 状态必须由 R0 冻结。
-- `PendingTransactionCount`、`TransactionCount`、`TransactionInBlock`、`TransactionSender` 尚未注册 method-aware plan；`SimulateV1` 还受默认构建导入边界阻塞。
+- `PendingBalanceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingNonceAt`、`PendingTransactionCount` 的 plan 已有 `PendingObserve` 声明。pending 是节点本地状态，不能直接套用 moving reference；aggregator 可以收集多个 source，但结果只能是第一个可用本地观察的 `Selected`，不能声称 `Corroborated`。
+- `TransactionInBlock`、`TransactionSender` 尚未注册 method-aware plan；`SimulateV1` 还受默认构建导入边界阻塞。
 - 因此 M1/M3 的下一步准入仅剩 pending：先冻结其 source-local、quorum 与 Decision 语义，再决定是否扩展 facade；本轮 AtHash 不改变 pending/CallResult/订阅边界。
 
 建议的回归矩阵：
@@ -225,7 +226,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 | `*AtHash` | hash 对象编码、`requireCanonical=false`、显式 hash 绑定、缺块、冲突、跨 HTTP/WSS | root/view facade 已接入；跨 HTTP/WSS 事实待 T0 |
 | `Pending*` 状态读取 | pending 本地观察、不同 source 的 pending 差异、空值、取消、材料和 source-local 诊断 | 计划声明存在；公开结果和严格策略待 R0 |
 | `PendingCallContract` | revert/data presence、pending 参数、source-local 与 quorum 关系 | plan/typed/facade 均待补齐 |
-| `PendingTransactionCount` | `eth_getBlockTransactionCountByNumber` catalog、quantity 解码、source-local 语义 | 尚未注册 plan；不能用未知 Call 补齐 |
+| `PendingTransactionCount` | `eth_getBlockTransactionCountByNumber` catalog、quantity 解码、source-local 语义 | 已注册 PendingObserve plan；跨 transport 与 null/malformed 证据仍待补 |
 
 验证命令（本轮只读）：
 
