@@ -162,7 +162,7 @@ client, err := ethguard.Dial("https://your-provider-a", "https://your-provider-b
 if err != nil { return err }
 defer client.Close()
 
-balance, err := client.BalanceAt(ctx, account, nil)
+balance, _, err := client.BalanceAt(ctx, account, nil)
 ```
 
 单 endpoint 必须显式进入 Forwarded 模式——`Dial` 拒绝单个 URL，重复 URL 也会
@@ -294,8 +294,7 @@ data，不等于真实 provider 普遍兼容性已验证。同一 backend 的 HT
 不构成两个独立信任来源。显式 per-source transport 不能与 `DialerOption` 或
 `gethcompat.New` 混用。
 
-raw WSS 是 EthGuard 专用的调用 transport，不是通用 WebSocket 客户端。订阅、后台
-重连、主动 keepalive 和内部队列不在当前范围内，需要独立的运维证据后再推进。
+raw WSS 是 EthGuard 专用的调用 transport，提供受限的订阅通知能力，不是通用 WebSocket 客户端。根订阅按 source 重订阅并检查 generation；transport 层 keepalive 及通用队列/重放策略仍待独立运维证据。
 
 参见[架构入口](docs/architecture.md)、[代码库拓扑](docs/design/codebase-topology.md)、
 [go-ethereum 兼容政策](docs/design/go-ethereum-compatibility-policy.md)和[威胁模型](docs/threat-model.md)，

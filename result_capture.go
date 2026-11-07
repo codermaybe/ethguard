@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"sync"
 
 	internaluncertain "github.com/codermaybe/ethguard/internal/uncertain"
@@ -152,13 +153,19 @@ func (r CallResult) Clone() CallResult {
 	var revert *RevertError
 	// Only replace a direct RevertError. A wrapped error keeps its original
 	// chain because cloning an inner value cannot preserve an arbitrary wrapper.
-	if errors.As(r.Err, &revert) && revert != nil && errors.Unwrap(r.Err) == nil {
+	if errors.As(r.Err, &revert) && revert != nil && directRevertError(r.Err, revert) {
 		copyRevert := *revert
 		copyRevert.Data = append([]byte(nil), revert.Data...)
 		copyRevert.DataRaw = append(json.RawMessage(nil), revert.DataRaw...)
 		r.Err = &copyRevert
 	}
 	return r
+}
+
+func directRevertError(err error, target *RevertError) bool {
+	value := reflect.ValueOf(err)
+	targetValue := reflect.ValueOf(target)
+	return value.IsValid() && targetValue.IsValid() && value.Kind() == reflect.Pointer && targetValue.Kind() == reflect.Pointer && value.Pointer() == targetValue.Pointer()
 }
 
 // WithSourceEvidence configures raw source-evidence retention for the calls
