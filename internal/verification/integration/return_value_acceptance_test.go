@@ -30,10 +30,11 @@ func TestReturnValueAccessListThroughClient(t *testing.T) {
 			nodes[2].Return(methods.MethodCreateAccessList, json.RawMessage(canonical))
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			result, decision, err := client.CreateAccessList(ctx, map[string]any{"to": address}, ref)
+			result, _, err := client.CreateAccessList(ctx, map[string]any{"to": address}, ref)
 			if err != nil {
 				t.Fatal(err)
 			}
+			decision, _ := callDecision(client.Call(ctx, methods.MethodCreateAccessList, map[string]any{"to": address}, ref))
 			if string(decision.Value) != canonical || result.GasUsed != 171 || result.Error != "<denied>" || len(result.AccessList) != 1 || len(result.AccessList[0].StorageKeys) != 1 {
 				t.Fatalf("result = %+v decision = %+v", result, decision)
 			}
@@ -76,7 +77,7 @@ func TestReturnValueFaultKeepsClientDenominator(t *testing.T) {
 			nodes[1].Return(method, good)
 			nodes[2].Return(method, other)
 			nodes[3].Return(method, invalid)
-			decision, err := client.Call(ctx, method, params...)
+			decision, err := callDecision(client.Call(ctx, method, params...))
 			if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 1 {
 				t.Fatalf("2 matching + 1 different + 1 fault must miss majority of 4: %+v err %v", decision, err)
 			}
@@ -107,10 +108,11 @@ func TestReturnValueReceiptFromAndSpellingThroughClient(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, decision, err := client.TransactionReceipt(ctx, common.HexToHash(hash))
+	result, _, err := client.TransactionReceipt(ctx, common.HexToHash(hash))
 	if err != nil {
 		t.Fatal(err)
 	}
+	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, common.HexToHash(hash).Hex()))
 	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || result.TxHash.Hex() != hash || !bytes.Contains(decision.Value, []byte(`"from":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"logs":[]`)) || bytes.Contains(decision.Value, []byte(`"contractAddress"`)) {
 		t.Fatalf("receipt = %+v decision = %+v", result, decision)
 	}

@@ -35,17 +35,3 @@ func (c *Capture) Reference() *rpc.ReferenceEvidence {
 	clone := c.value.Clone()
 	return &clone
 }
-
-// invocationKey carries the in-flight invocation value. It is the
-// transitional carrier until every establishment path takes the invocation
-// explicitly; new code should prefer the invocation parameter.
-type invocationKey struct{}
-
-func WithInvocation(ctx context.Context, invocation rpc.Invocation) context.Context {
-	return context.WithValue(ctx, invocationKey{}, invocation)
-}
-
-func Invocation(ctx context.Context) (rpc.Invocation, bool) {
-	invocation, ok := ctx.Value(invocationKey{}).(rpc.Invocation)
-	return invocation, ok
-}

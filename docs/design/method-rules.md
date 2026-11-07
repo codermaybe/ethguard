@@ -10,6 +10,9 @@
 | eth_getTransactionByHash | none | none | none | strict | method-specific | normalizer | canonical |
 | eth_getBlockReceipts | hash@0 | none | local-reject | strict | method-specific | canonical-bytes | canonical |
 | eth_getTransactionCount | hash@1 | eip1898 | local-observation | strict | quantity | canonical-bytes | canonical |
+| eth_getBlockTransactionCountByHash | none | none | none | strict | quantity | normalizer | canonical |
+| eth_getBlockTransactionCountByNumber | height@0 | none | local-observation | strict | quantity | canonical-bytes | canonical |
+| eth_getTransactionByBlockHashAndIndex | none | none | none | strict | method-specific | normalizer | canonical |
 | eth_getStorageAt | hash@2 | eip1898 | local-observation | strict | method-specific | canonical-bytes | canonical |
 | eth_getCode | hash@1 | eip1898 | local-observation | strict | method-specific | canonical-bytes | canonical |
 | eth_call | hash@1 | eip1898 | local-observation | call-revert | method-specific | none | canonical |

@@ -4,8 +4,8 @@
 决策见 `decisions.md` 0059。T10.1 起按本契约生成 schema、manifest 和 report。
 本文件不改变 reference policy、`expect/v1`、`batch.json` 或生产裁决语义。
 
-关联：`project-roadmap.md` T10、`capture-golden-contract.md` G1–G5、
-`reference-policy-proposal.md`、决策 0026/0037/0056/0058。
+关联：`project-roadmap.md`、`capture-golden-contract.md` G1–G5、
+`reference-freshness-policy.md`、决策 0026/0037/0056/0058。
 
 ---
 
@@ -233,7 +233,7 @@ v1 固定值：
   provider-backed corroboration。
 - `pinned.block`、`typed.block` 使用同一个 `$reference.hash`，即
   `reference.finalized-balance` 建立的 **run reference**，不是它们自己的
-  step reference。`typed.block` 走 `ethadapter`，不产生新的 decision；它的
+  step reference。`typed.block` 走根 Client 的类型化 `BlockByHash`，不产生新的 decision；它的
   typed hash/height 必须与 run reference 和被 pin 的区块一致。`pinned.block`
   的 header-only decision 已通过 block hash 承诺完整区块内容；typed step 只
   新增 typed decode 断言，不另行制造第二份 block 证据。

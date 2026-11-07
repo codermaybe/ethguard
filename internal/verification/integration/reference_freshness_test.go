@@ -24,7 +24,7 @@ func TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout(t *testin
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 	if !errors.Is(err, rpc.ErrNoValidResponse) {
 		t.Fatalf("got %v, want anchor ErrNoValidResponse", err)
 	}
@@ -55,7 +55,7 @@ func TestReferenceEstablishedFreshPerCall(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	first, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	first, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestReferenceEstablishedFreshPerCall(t *testing.T) {
 		t.Fatal("first call did not establish a reference")
 	}
 
-	second, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	second, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestReferenceFailureEvidenceIsUnknownWithObservedAt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"))
 	if err == nil {
 		t.Fatal("expected anchor failure")
 	}

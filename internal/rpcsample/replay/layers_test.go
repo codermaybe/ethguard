@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -184,9 +184,9 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	openDecision, openErr := aggregateCall(t, agg, false)
 	sameDecision(t, policyDecision, policyErr, openDecision, openErr)
 
-	ctx, cancel := context.WithTimeout(rpc.RequireCorroborated(context.Background()), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	gated, gatedErr := agg.Aggregate(ctx, callRequest())
+	gated, gatedErr := agg.AggregateStrict(ctx, callRequest())
 	if !errors.Is(gatedErr, rpc.ErrConflict) || gated.Status != rpc.Unknown {
 		t.Fatalf("gated status %v err %v", gated.Status, gatedErr)
 	}
@@ -197,7 +197,7 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	if before < 1 {
 		t.Fatal("first call did not establish latest")
 	}
-	if _, err := agg.Aggregate(ctx, callRequest()); !errors.Is(err, rpc.ErrConflict) {
+	if _, err := agg.AggregateStrict(ctx, callRequest()); !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("second typed call err = %v", err)
 	}
 	if methodCount(nodes[0], methods.MethodGetBlockByNumber) <= before {
@@ -328,7 +328,9 @@ func aggregateCall(t *testing.T, agg *aggregator.Aggregator, typed bool) (rpc.De
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if typed {
-		ctx = rpc.RequireCorroborated(ctx)
+		// The typed gate rides the invocation (AggregateStrict), not the
+		// context and not the request.
+		return agg.AggregateStrict(ctx, callRequest())
 	}
 	return agg.Aggregate(ctx, callRequest())
 }
@@ -351,7 +353,7 @@ func newReplayAggregator(t *testing.T, count int) (*aggregator.Aggregator, []*rp
 
 func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node) {
 	t.Helper()
-	agg, nodes, _, _ := newSharedReplayAggregator(t, names, corrob)
+	agg, nodes, _ := newSharedReplayAggregator(t, names, corrob)
 	return agg, nodes
 }
 
@@ -359,7 +361,7 @@ func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobor
 // establishment seam: one established, corroborated reference per
 // invocation, tagged with the requested level.
 type replayStage struct {
-	reference func(ctx context.Context) (rpc.ReferenceEvidence, error)
+	reference func(ctx context.Context, tag string) (rpc.ReferenceEvidence, error)
 }
 
 func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
@@ -370,7 +372,7 @@ func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, r
 	case rpc.ReferenceFinalized:
 		tag = "finalized"
 	}
-	ref, err := s.reference(rpc.WithAnchorTag(ctx, tag))
+	ref, err := s.reference(ctx, tag)
 	if err != nil {
 		return invocation, err
 	}
@@ -378,11 +380,11 @@ func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, r
 }
 
 // newSharedReplayAggregator builds one pool-backed reference resolver and
-// returns its AnchorHeightFunc next to the aggregator. Both replay layers
-// (Policy Prepare and Aggregate) take this one function, so a moving tag
-// resolves to the same reference height in both layers, against the same
-// member order and the same pool.
-func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, rpc.AnchorHeightFunc, func(string) (rpc.ReferenceEvidence, error)) {
+// returns its tag-explicit evidence reader next to the aggregator. Both replay
+// layers (Policy Prepare and Aggregate) take this one resolver, so a moving
+// tag resolves to the same reference in both layers, against the same member
+// order and the same pool.
+func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, func(string) (rpc.ReferenceEvidence, error)) {
 	t.Helper()
 	nodes := make([]*rpctest.Node, 0, len(names))
 	members := make([]pool.Member, 0, len(names))
@@ -401,14 +403,13 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobo
 	if corrob != nil {
 		opts = append(opts, aggregator.WithCorroboration(corrob))
 	}
-	strictHead := ethguard.NewStrictHeadAnchor(sources, observe.Nop)
+	strictHead := runtime.NewStrictHeadAnchor(sources, observe.Nop)
 	// safe/finalized use the production finalized-anchoring path: a strict
 	// majority for safe and reference.Finalized for finalized. The legacy
 	// strict anchor requires every valid head to agree, which would reject a
 	// lagging source before the business policy's majority snapshot is applied.
-	finalizedHead := ethguard.NewFinalizedHeadAnchor(sources, observe.Nop)
-	reference := func(ctx context.Context) (rpc.ReferenceEvidence, error) {
-		tag := rpc.AnchorTag(ctx)
+	finalizedHead := runtime.NewFinalizedHeadAnchor(sources, observe.Nop)
+	reference := func(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 		var ref rpc.ReferenceEvidence
 		var err error
 		switch tag {
@@ -427,19 +428,14 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobo
 		}
 		return ref, nil
 	}
-	_ = reference
-	height := func(ctx context.Context) (uint64, error) {
-		ref, err := reference(ctx)
-		return ref.Height, err
-	}
 	// The plan pipeline establishes through the stage seam: the harness's
 	// reference resolver becomes the stage, so a moving tag resolves to the
 	// same established reference the replay expectations pin.
 	opts = append(opts, aggregator.WithReferenceStage(replayStage{reference: reference}))
 	tagged := func(tag string) (rpc.ReferenceEvidence, error) {
-		return reference(rpc.WithAnchorTag(context.Background(), tag))
+		return reference(context.Background(), tag)
 	}
-	return aggregator.New(sources, append([]aggregator.Option{aggregator.WithPlans(replayPlans(t))}, opts...)...), nodes, height, tagged
+	return aggregator.New(sources, append([]aggregator.Option{aggregator.WithPlans(replayPlans(t))}, opts...)...), nodes, tagged
 }
 
 // callPlan compiles the eth_call plan for the replay assertions.

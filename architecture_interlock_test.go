@@ -1,6 +1,7 @@
 package ethguard
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"os/exec"
@@ -29,7 +30,6 @@ var corePackages = map[string]bool{
 	modulePath + "/rpc/methods":             true,
 	modulePath + "/pool":                    true,
 	modulePath + "/aggregator":              true,
-	modulePath + "/ethadapter":              true,
 	modulePath + "/config":                  true,
 	modulePath + "/observe":                 true,
 	modulePath + "/gethcompat":              true,
@@ -93,8 +93,8 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		}
 		// The link-time transport rules: exactly one production package may
 		// import the go-ethereum client, and the geth wire package stays
-		// confined to the compatibility adapter, the ethclient-shaped facade,
-		// and command entry points.
+		// confined to the compatibility adapter, the public gethcompat seam,
+		// the ethclient-shaped facade, and command entry points.
 		if strings.Contains(pkg.ImportPath, "go-ethereum") {
 			continue
 		}
@@ -104,8 +104,8 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 				importsETHClient = true
 			}
 		}
-		if importsETHClient && pkg.ImportPath != modulePath+"/internal/transport/geth" {
-			t.Errorf("%s imports ethclient; only internal/transport/geth may link the go-ethereum client", pkg.ImportPath)
+		if importsETHClient && pkg.ImportPath != modulePath+"/internal/transport/geth" && pkg.ImportPath != modulePath+"/gethcompat" {
+			t.Errorf("%s imports ethclient; only internal/transport/geth and gethcompat may link the go-ethereum client", pkg.ImportPath)
 		}
 		importsGethRPC := false
 		for _, imp := range pkg.Imports {
@@ -116,10 +116,11 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		if importsGethRPC {
 			switch {
 			case pkg.ImportPath == modulePath+"/internal/transport/geth",
-				pkg.ImportPath == modulePath+"/ethadapter",
+				pkg.ImportPath == modulePath+"/gethcompat",
+				pkg.ImportPath == modulePath,
 				strings.HasPrefix(pkg.ImportPath, modulePath+"/cmd/"):
 			default:
-				t.Errorf("%s imports gethrpc; it is confined to internal/transport/geth, ethadapter, and cmd/*", pkg.ImportPath)
+				t.Errorf("%s imports gethrpc; it is confined to internal/transport/geth, the root typed facade, and cmd/*", pkg.ImportPath)
 			}
 		}
 
@@ -142,10 +143,6 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		case modulePath + "/rpc":
 			if imports[modulePath+"/rpc/methods"] {
 				t.Error("rpc imports rpc/methods")
-			}
-		case modulePath + "/ethadapter":
-			if imports[modulePath+"/internal/runtime"] {
-				t.Error("ethadapter imports internal/runtime; it must delegate through root facade")
 			}
 		case modulePath + "/internal/reference":
 			for banned := range map[string]string{
@@ -198,20 +195,35 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 
 // TestDefaultBuildExcludesEthclient is the link-time gate: the default root
 // dependency graph must not link the go-ethereum client, and neither the
-// default build nor the WSS production path may link a third-party websocket
-// library — the owned wire stack replaced it. The compatibility channel is
-// reachable only through gethcompat, whose own graph does link ethclient.
+// default build nor the WSS production path may reach a third-party websocket
+// library on a production execution path — the owned wire stack replaced it.
+// One exception is pinned precisely: the frozen typed read shape takes
+// go-ethereum's BlockNumberOrHash, so the root facade links go-ethereum/rpc
+// for that type, and go-ethereum/rpc transitively links gorilla/websocket.
+// The gate therefore allows gorilla/websocket in the default build only when
+// every importer of it is inside go-ethereum — no EthGuard package may link
+// it directly, and the WSS production path below stays absolute.
 func TestDefaultBuildExcludesEthclient(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".").Output()
 	if err != nil {
 		t.Fatalf("go list -deps .: %v", err)
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		switch line {
-		case "github.com/ethereum/go-ethereum/ethclient":
+		if line == "github.com/ethereum/go-ethereum/ethclient" {
 			t.Fatal("the default build links ethclient; the geth channel must stay behind gethcompat")
-		case "github.com/gorilla/websocket":
-			t.Fatal("the default build links gorilla/websocket; the owned WSS wire stack replaced it")
+		}
+		if line == "github.com/ethereum/go-ethereum/accounts/abi/bind" ||
+			line == "github.com/ethereum/go-ethereum/accounts/abi/bind/v2" {
+			t.Fatal("the default build links the abi/bind backend set; the bind/v2 view commitments are a test-only check")
+		}
+	}
+	importers, err := gorillaImporters(".")
+	if err != nil {
+		t.Fatalf("inspect gorilla/websocket importers: %v", err)
+	}
+	for _, importer := range importers {
+		if !strings.Contains(importer, "go-ethereum") {
+			t.Fatalf("default build links gorilla/websocket from %s; only go-ethereum's frozen BlockNumberOrHash type surface may carry it", importer)
 		}
 	}
 	wire, err := exec.Command("go", "list", "-deps", "./internal/transport/wss", "./cmd/wsscapture").Output()
@@ -236,4 +248,30 @@ func TestDefaultBuildExcludesEthclient(t *testing.T) {
 	if !linked {
 		t.Fatal("gethcompat does not link the compatibility adapter it exists to expose")
 	}
+}
+
+// gorillaImporters names every package in the build graph of the given
+// patterns that imports gorilla/websocket.
+func gorillaImporters(pattern string) ([]string, error) {
+	out, err := exec.Command("go", "list", "-deps", "-json", pattern).Output()
+	if err != nil {
+		return nil, err
+	}
+	var importers []string
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for {
+		var pkg packageImports
+		if err := dec.Decode(&pkg); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+		for _, imp := range pkg.Imports {
+			if imp == "github.com/gorilla/websocket" {
+				importers = append(importers, pkg.ImportPath)
+			}
+		}
+	}
+	return importers, nil
 }

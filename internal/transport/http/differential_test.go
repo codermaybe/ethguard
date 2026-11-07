@@ -62,6 +62,9 @@ func TestDifferentialEnvelopeParity(t *testing.T) {
 		{name: "no-args-omits-params", method: "eth_chainId", want: `{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}`},
 		{name: "empty-non-nil-slice-sends-empty-array", method: "eth_chainId", args: []any{}, want: `{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}`},
 		{name: "args-become-ordered-array", method: "eth_getBalance", args: []any{"0x1", "latest"}, want: `{"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x1","latest"]}`},
+		{name: "transaction-by-hash-parameter", method: "eth_getTransactionByHash", args: []any{"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, want: `{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionByHash","params":["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}`},
+		{name: "fee-history-ordered-parameters", method: "eth_feeHistory", args: []any{uint64(2), "0x10", []float64{50}}, want: `{"jsonrpc":"2.0","id":1,"method":"eth_feeHistory","params":[2,"0x10",[50]]}`},
+		{name: "create-access-list-pending-parameters", method: "eth_createAccessList", args: []any{map[string]any{"to": "0x0000000000000000000000000000000000000001"}, "pending"}, want: `{"jsonrpc":"2.0","id":1,"method":"eth_createAccessList","params":[{"to":"0x0000000000000000000000000000000000000001"},"pending"]}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -87,6 +90,69 @@ func TestDifferentialEnvelopeParity(t *testing.T) {
 			}
 			if string(nativeReq.Body) != tc.want || string(gethReq.Body) != tc.want {
 				t.Fatalf("wire drift:\nnative = %s\ngeth   = %s\nwant   = %s", nativeReq.Body, gethReq.Body, tc.want)
+			}
+		})
+	}
+}
+
+// TestDifferentialTypedMethodResultParity proves that the explicit
+// go-ethereum compatibility adapter and the native HTTP adapter preserve the
+// same raw result payload for the representative typed methods whose request
+// envelopes are covered above. The adapters differ only in response envelope
+// validation quirks; a valid echoed response must project identically.
+func TestDifferentialTypedMethodResultParity(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		args   []any
+		result string
+	}{
+		{
+			name:   "transaction-by-hash-null",
+			method: "eth_getTransactionByHash",
+			args:   []any{"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			result: `null`,
+		},
+		{
+			name:   "fee-history-object",
+			method: "eth_feeHistory",
+			args:   []any{uint64(2), "0x10", []float64{50}},
+			result: `{"oldestBlock":"0x10","baseFeePerGas":["0x1","0x2","0x3"],"gasUsedRatio":[0.5,0.25],"reward":[["0x3"],["0x4"]]}`,
+		},
+		{
+			name:   "create-access-list-object",
+			method: "eth_createAccessList",
+			args:   []any{map[string]any{"to": "0x0000000000000000000000000000000000000001"}, "pending"},
+			result: `{"accessList":[],"gasUsed":"0x5208"}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newNativeServer(t, func(_ int, req capturedCall) []byte {
+				var envelope struct {
+					Method string `json:"method"`
+				}
+				if err := json.Unmarshal(req.Body, &envelope); err != nil {
+					t.Fatalf("request decode: %v", err)
+				}
+				if envelope.Method != tc.method {
+					t.Fatalf("method = %q, want %q", envelope.Method, tc.method)
+				}
+				return echoID(req, `"result":`+tc.result)
+			})
+			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
+			var nativeRaw, gethRaw json.RawMessage
+			if err := call(t, nativeTr, context.Background(), &nativeRaw, tc.method, tc.args...); err != nil {
+				t.Fatalf("native err = %v", err)
+			}
+			if err := gethTr.CallContext(context.Background(), &gethRaw, tc.method, tc.args...); err != nil {
+				t.Fatalf("geth err = %v", err)
+			}
+			if string(nativeRaw) != tc.result || string(gethRaw) != tc.result {
+				t.Fatalf("native/geth result = %s/%s, want %s", nativeRaw, gethRaw, tc.result)
+			}
+			if srv.requestCount() != 2 {
+				t.Fatalf("request count = %d, want one per adapter", srv.requestCount())
 			}
 		})
 	}

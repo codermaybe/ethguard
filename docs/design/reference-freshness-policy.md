@@ -100,7 +100,7 @@ EthGuard 目前有两处与 freshness 相关的机制，它们不是同一个策
    latest spread 最大 1 block，safe 最大 224，finalized 最大 96；一个源在
    全部 8 pass 的 safe/finalized 固定不动而 latest 只落后 1 block；未观察到
    reorg 或同高度 hash 分歧。详见
-   [reference-freshness-observations.md](reference-freshness-observations.md)；
+   历史 observation 已合并到决策记录，不能作为当前契约单独引用；
 2. **reorg/回退样本**：短程 reorg 下 finalized/latest 视图的变化，验证
    freshness 失败是否按拒绝处理；当前 ~6 分钟窗口未观察到，仍需更长窗口；
 3. **显式历史读取**：旧高度/旧 hash 不被 freshness 拒绝；provider 已能返回
@@ -122,12 +122,10 @@ EthGuard 目前有两处与 freshness 相关的机制，它们不是同一个策
 - 决策 0032：保持 tag 语义、稳定共同参考优先；
 - 决策 0033：freshness 与 agreement 分离，固定 lag 不是前置条件；
 - 决策 0037：保留 Geth block-tag 映射；
-- [reference-freshness-observations.md](reference-freshness-observations.md)：
-  2026-10-31 的短窗口 latest/safe/finalized 高度与 lag 观测；
 - [moving-tag-matrix.md](moving-tag-matrix.md)：pending/EIP-1898/tag 的方法
   级矩阵；
-- [adaptive-congestion-control.md](adaptive-congestion-control.md)：调度容量
-  与 freshness 的边界。
+- 调度容量与 freshness 的边界由 `pool` 运行时实现和决策记录维护，不在本文件
+  复制第二份提案。
 
 ## 6. 非目标
 

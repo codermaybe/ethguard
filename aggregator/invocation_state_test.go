@@ -1,16 +1,14 @@
 package aggregator
 
 import (
-	"context"
 	"testing"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
 // The invocation's basis is frozen at entry: later health or scheduling state
-// cannot fold a new member into the denominator, and the carrier still hands
-// later phases the same frozen invocation.
+// cannot fold a new member into the denominator, and the aggregator's phases
+// all run on that one frozen value.
 func TestInvocationBasisStaysFrozenAcrossRounds(t *testing.T) {
 	sources := namedSources(t, "a", "b", "c")
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
@@ -19,7 +17,7 @@ func TestInvocationBasisStaysFrozenAcrossRounds(t *testing.T) {
 		snapOK:  true,
 		members: sources,
 	}
-	state.ctx, state.invocation = beginInvocation(context.Background(), snap, true, sources, nil)
+	state.invocation = beginInvocation(snap, true, sources, nil, false)
 
 	basis := state.invocation.Basis()
 	if basis.Size() != 3 {
@@ -35,8 +33,7 @@ func TestInvocationBasisStaysFrozenAcrossRounds(t *testing.T) {
 	if len(seen) != 3 {
 		t.Fatalf("basis members = %v, want exactly the captured three", seen)
 	}
-	carried, ok := refcontext.Invocation(state.ctx)
-	if !ok || carried.ID() != state.invocation.ID() {
-		t.Fatal("the invocation carrier lost the frozen value")
+	if state.invocation.ID() == "" {
+		t.Fatal("the invocation lost its identity")
 	}
 }

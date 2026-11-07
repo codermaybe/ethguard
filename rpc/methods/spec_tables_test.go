@@ -13,8 +13,11 @@ import (
 // allowlisted method must be promoted out of this map the day the spec (or
 // our bundle) covers it.
 var specAbsentAllow = map[string]string{
-	MethodListening: "no execution-apis entry; upstream-local boolean observation",
-	MethodPeerCount: "no execution-apis entry; upstream-local quantity observation",
+	MethodListening:                         "no execution-apis entry; upstream-local boolean observation",
+	MethodPeerCount:                         "no execution-apis entry; upstream-local quantity observation",
+	MethodGetBlockTransactionCountByHash:    "execution-apis bundle has no method mask; Ethereum client RPC method is still explicitly planned",
+	MethodGetBlockTransactionCountByNumber:  "execution-apis bundle has no method mask; Ethereum client RPC method is still explicitly planned",
+	MethodGetTransactionByBlockHashAndIndex: "execution-apis bundle has no method mask; Ethereum client RPC method is still explicitly planned",
 }
 
 // TestSpecMasksCoverCatalog enforces R4: every registered method compiles to

@@ -64,8 +64,20 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	if err != nil {
 		return a.prepareFailureExit(state, started, req, err)
 	}
+	// Freeze the prepared parameters once: custom marshalers run here and
+	// nowhere else, so the wire and the recorded prepared-request fact carry
+	// the same bytes. An encode failure is an argument error (ErrInvalidRequest
+	// from FreezeParams) before any fan-out. state.prepared keeps the prepared
+	// Go values — plan queries and the admission hook read them — while the
+	// fan-out sends the frozen list and the decision records the snapshot.
+	frozen, snapshot, err := rpc.FreezeParams(prepared.Params)
+	if err != nil {
+		return a.prepareFailureExit(state, started, req, err)
+	}
 	state.prepared = prepared
 	state.planPin = pin
+	state.wireParams = frozen
+	state.preparedJSON = snapshot
 	return nil
 }
 
@@ -91,7 +103,7 @@ func (a *Aggregator) establishPlannedReference(state *invocationState, started t
 		// The transitional capture stays the decision's evidence source.
 		refcontext.Publish(state.ctx, established)
 	}
-	state.ctx, state.invocation = refcontext.WithInvocation(state.ctx, completed), completed
+	state.invocation = completed
 	return nil
 }
 
@@ -102,7 +114,7 @@ func (a *Aggregator) establishPlannedReference(state *invocationState, started t
 // contract: a request-side failure rides the returned error and the tables
 // stay empty.
 func (a *Aggregator) prepareFailureExit(state *invocationState, started time.Time, req rpc.Request, err error) *earlyExit {
-	if c := uncertain.FromContext(state.ctx); c != nil {
+	if c := uncertain.CollectorFromContext(state.ctx); c != nil {
 		c.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
 	}
 	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}

@@ -4,6 +4,7 @@ import (
 	upstream "github.com/codermaybe/ethguard/internal/transport"
 
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -31,6 +32,8 @@ type Source struct {
 	identityChecked  bool
 	identityInvalid  bool
 	identityChecking chan struct{}
+	resetMu          sync.Mutex
+	lastReset        time.Time
 
 	// life is cancelled when the source closes; it aborts any in-flight dial.
 	life       context.Context
@@ -285,6 +288,88 @@ func (s *Source) URL() string { return s.url }
 // ID returns the deduplication key.
 // Immutable after construction; no lock required.
 func (s *Source) ID() string { return s.id }
+
+// Subscribe opens an optional streaming capability on this source. Unary
+// transports remain unchanged; adapters without a subscription capability
+// return a local error before any notification state is created.
+func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstream.Subscription, error) {
+	client, err := s.clientForCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	subscriber, ok := client.(upstream.Subscriber)
+	if !ok {
+		return nil, fmt.Errorf("pool: source %q does not support subscriptions", s.name)
+	}
+	if err := s.verifyChainID(ctx, client); err != nil {
+		if shouldDiscardClient(err) {
+			s.discardClient(client)
+		}
+		s.recordFailedCall(err)
+		return nil, err
+	}
+	return subscriber.SubscribeCapability(ctx, kind, args...)
+}
+
+// CallContext performs one unary request on this source's managed transport.
+// It is the narrow same-source Pull seam for subscription compensation; it
+// does not alter pool membership or quorum state.
+func (s *Source) CallContext(ctx context.Context, method string, args ...any) (json.RawMessage, error) {
+	release, err := s.acquireRequest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	client, err := s.clientForCall(ctx)
+	if err != nil {
+		s.recordFailedCall(err)
+		return nil, err
+	}
+	if err := s.verifyChainID(ctx, client); err != nil {
+		if shouldDiscardClient(err) {
+			s.discardClient(client)
+		}
+		s.recordFailedCall(err)
+		return nil, err
+	}
+	var result json.RawMessage
+	started := time.Now()
+	if err := client.CallContext(ctx, &result, method, args...); err != nil {
+		if shouldDiscardClient(err) {
+			s.discardClient(client)
+		}
+		s.recordFailedCall(err)
+		return nil, err
+	}
+	s.recordSuccessfulCall(time.Since(started))
+	return result, nil
+}
+
+// ResetConnection discards the cached transport after a streaming failure so
+// the next subscription attempt performs a fresh dial. Membership and source
+// identity remain unchanged; this is a connection-session operation only.
+func (s *Source) ResetConnection() {
+	// Several subscription workers can observe the same broken shared
+	// transport. Coalesce their resets so a worker that has already reopened a
+	// session is not immediately torn down by a second worker.
+	s.resetMu.Lock()
+	if !s.lastReset.IsZero() && time.Since(s.lastReset) < 250*time.Millisecond {
+		s.resetMu.Unlock()
+		return
+	}
+	s.lastReset = time.Now()
+	s.resetMu.Unlock()
+	s.mu.Lock()
+	client := s.client
+	s.client = nil
+	if !s.closed {
+		s.state = SourceDown
+	}
+	s.mu.Unlock()
+	if client != nil {
+		client.Close()
+	}
+}
 
 // State returns the current readiness state.
 func (s *Source) State() SourceState {

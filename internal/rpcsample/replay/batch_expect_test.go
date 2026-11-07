@@ -142,7 +142,14 @@ func TestRegisteredMethodSampleStatus(t *testing.T) {
 			archived[record.Method] = feature
 		}
 	}
-	noCapture := map[string]bool{}
+	// These methods were added after the archived capture batches. Keep the
+	// absence explicit until a real provider capture is recorded; synthetic
+	// payloads must not be presented as live evidence.
+	noCapture := map[string]bool{
+		methods.MethodGetBlockTransactionCountByHash:    true,
+		methods.MethodGetBlockTransactionCountByNumber:  true,
+		methods.MethodGetTransactionByBlockHashAndIndex: true,
+	}
 	for _, name := range methods.RegisteredNames() {
 		feature, has := archived[name]
 		if noCapture[name] == has {
@@ -323,7 +330,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	if err != nil {
 		return expectCase{}, err
 	}
-	agg, nodes, _, taggedEvidence := newSharedReplayAggregator(t, names, shared)
+	agg, nodes, taggedEvidence := newSharedReplayAggregator(t, names, shared)
 	bySource := map[string]*rpctest.Node{}
 	for i, name := range names {
 		bySource[name] = nodes[i]
@@ -594,7 +601,7 @@ func assertCapturedGate(t *testing.T, agg *aggregator.Aggregator, policy rpc.Pol
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	gated, gatedErr := agg.Aggregate(rpc.RequireCorroborated(ctx), req)
+	gated, gatedErr := agg.AggregateStrict(ctx, req)
 	pending := false
 	if local, ok := policy.(rpc.LocalObservationPolicy); ok {
 		pending = local.IsLocalObservation(prepared)

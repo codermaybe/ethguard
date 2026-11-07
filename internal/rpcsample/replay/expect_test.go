@@ -242,9 +242,9 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 		return expectCase{}, fmt.Errorf("%s representative policy %s aggregator %s", id, policyDecision.Representative.Name, aggDecision.Representative.Name)
 	}
 	if policyErr == nil && policyDecision.Status == rpc.Corroborated {
-		gatedCtx, gatedCancel := context.WithTimeout(rpc.RequireCorroborated(context.Background()), 5*time.Second)
+		gatedCtx, gatedCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer gatedCancel()
-		gated, gatedErr := agg.Aggregate(gatedCtx, req)
+		gated, gatedErr := agg.AggregateStrict(gatedCtx, req)
 		if gatedErr != nil || gated.Status != rpc.Corroborated {
 			return expectCase{}, fmt.Errorf("%s typed gate status %s err %v", id, gated.Status, gatedErr)
 		}

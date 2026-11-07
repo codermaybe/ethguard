@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
+	"strings"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -145,6 +147,17 @@ func validateReceipt(receipt *types.Receipt) error {
 		if log == nil {
 			return wrapMalformed(fmt.Sprintf("decode receipt log %d: null element", i), nil)
 		}
+		// A receipt's embedded logs are part of the same response object.
+		// Preserve the wire convention that an omitted hash decodes to zero,
+		// while rejecting a non-zero hash that claims another transaction or
+		// block. Method admission performs the same check before clustering;
+		// keeping it here protects direct typed projection callers as well.
+		if log.TxHash != (common.Hash{}) && log.TxHash != receipt.TxHash {
+			return wrapMalformed(fmt.Sprintf("decode receipt log %d: transaction hash %s does not match receipt transaction hash %s", i, log.TxHash, receipt.TxHash), nil)
+		}
+		if log.BlockHash != (common.Hash{}) && log.BlockHash != receipt.BlockHash {
+			return wrapMalformed(fmt.Sprintf("decode receipt log %d: block hash %s does not match receipt block hash %s", i, log.BlockHash, receipt.BlockHash), nil)
+		}
 	}
 	if receipt.Bloom != types.CreateBloom(receipt) {
 		return wrapMalformed("logsBloom disagrees with the receipt's logs", nil)
@@ -258,6 +271,82 @@ func DecodeTransaction(raw json.RawMessage) (*types.Transaction, bool, error) {
 		return nil, false, wrapMalformed("transaction incomplete inclusion context", nil)
 	}
 	return tx, !blockNumberSet, nil
+}
+
+// DecodedTransaction preserves the inclusion metadata needed by
+// TransactionInBlock and TransactionSender. The public transaction value
+// intentionally remains a plain go-ethereum transaction; metadata stays
+// inside this typed boundary so it can be validated before projection.
+type DecodedTransaction struct {
+	Tx               *types.Transaction
+	From             common.Address
+	HasFrom          bool
+	BlockHash        common.Hash
+	HasBlockHash     bool
+	TransactionIndex uint64
+	HasIndex         bool
+}
+
+// DecodeTransactionInBlock decodes one transaction returned by
+// eth_getTransactionByBlockHashAndIndex and binds its inclusion context to
+// the requested block and index.
+func DecodeTransactionInBlock(raw json.RawMessage, blockHash common.Hash, index uint64) (*DecodedTransaction, error) {
+	if jsonNull(raw) {
+		return nil, ethereum.NotFound
+	}
+	tx, _, err := DecodeTransaction(raw)
+	if err != nil {
+		return nil, err
+	}
+	var wire struct {
+		From             *common.Address `json:"from"`
+		BlockHash        *common.Hash    `json:"blockHash"`
+		TransactionIndex json.RawMessage `json:"transactionIndex"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return nil, wrapMalformed("decode transaction inclusion context", err)
+	}
+	if wire.From == nil {
+		return nil, wrapMalformed("transaction missing sender", nil)
+	}
+	if wire.BlockHash == nil || *wire.BlockHash != blockHash {
+		return nil, wrapMalformed("transaction block hash does not match request", nil)
+	}
+	if len(bytes.TrimSpace(wire.TransactionIndex)) == 0 || string(bytes.TrimSpace(wire.TransactionIndex)) == "null" {
+		return nil, wrapMalformed("transaction missing index", nil)
+	}
+	canonical, err := normalizeQuantity(wire.TransactionIndex)
+	if err != nil {
+		return nil, wrapMalformed("decode transaction index", err)
+	}
+	got, ok := new(big.Int).SetString(canonical, 10)
+	if !ok || !got.IsUint64() || got.Uint64() != index {
+		return nil, wrapMalformed("transaction index does not match request", nil)
+	}
+	return &DecodedTransaction{
+		Tx:               tx,
+		From:             *wire.From,
+		HasFrom:          true,
+		BlockHash:        *wire.BlockHash,
+		HasBlockHash:     true,
+		TransactionIndex: index,
+		HasIndex:         true,
+	}, nil
+}
+
+func normalizeQuantity(raw json.RawMessage) (string, error) {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", err
+	}
+	if len(value) < 3 || !strings.EqualFold(value[:2], "0x") {
+		return "", fmt.Errorf("invalid quantity %q", value)
+	}
+	number, ok := new(big.Int).SetString(value[2:], 16)
+	if !ok {
+		return "", fmt.Errorf("invalid quantity %q", value)
+	}
+	return number.String(), nil
 }
 
 // wrapMalformed keeps every block-decode failure inside the malformed

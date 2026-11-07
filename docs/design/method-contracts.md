@@ -2,11 +2,11 @@
 
 状态：增量收敛中的方法语义契约；以现有实现为事实基准，“待明确边界”是待裁决问题，不是已接受决定。
 
-节奏：按 [rpc-governance-discussion.md](rpc-governance-discussion.md) 第 5 节商定（2026-09-07）：每个方法回答其第 2 节的六问完成事实整理，关键语义决定并通过验证后闭环，不要求整表齐动；第 6 节场景随契约推进推演。
+每个方法回答第 2 节的六问完成事实整理，关键语义决定并通过验证后闭环；不要求整表齐动。
 
-定位：本文件管方法语义（共同参考、归一化、结果分类、失败语义）。请求形态可移植性见 [wire-forms.md](wire-forms.md)；裁决机制与既定决策见 [rpc-aggregation.md](rpc-aggregation.md) 与 [../decisions.md](../decisions.md)。
+定位：本文件管方法语义（共同参考、归一化、结果分类、失败语义）。请求形态可移植性见 [method-transport-coverage.md](method-transport-coverage.md)；裁决机制与既定决策见 [../decisions.md](../decisions.md)。
 
-目录职责和聚合/清洗边界见 [architecture-record.md](architecture-record.md)。本文件只记录方法契约，不再承担开发任务清单。0.x 节标题里的“实现待完成”是 2026-09-07 的快照措辞，不再逐节维护——实现状态以 [../decisions.md](../decisions.md) 的 Status 行为准。
+目录职责和聚合/清洗边界见 [codebase-topology.md](codebase-topology.md)。本文件只记录方法契约，不再承担开发任务清单。0.x 节标题里的“实现待完成”是历史快照措辞，不再逐节维护——实现状态以 [../decisions.md](../decisions.md) 的 Status 行为准。
 
 ## 0. Strict 共同裁决语义
 
@@ -22,7 +22,7 @@
 - 分母时间边界：一次逻辑调用开始时固定投票成员与门槛（决策 0025/0062）；
   请求前已过滤的来源不进入本次分母；入选后失败的来源保留；下一请求重新筛选（治理文档第 3 节）。
 - 已注册方法（方法规则索引的 result 为 canonical）的 Value 是规范编码，不随代表源拼写变化。数量和成功 DATA 的比较键就是规范 JSON；对象方法由各自 typed/schema encoder 生成 Value，窄键的区块和交易仍保留方法声明的 normalizer key。受保护字段集与 canonical 规则由 pinned schema、准入和 encoder coverage gate 互锁。Representative 仍只记录捕获顺序第一人，不把来源原文伪装成聚合结果。
-- 类型化读取（ethadapter）以 refcontext.RequireCorroborated 强制佐证，Selected 不静默替代（[ethadapter/client.go](../../ethadapter/client.go)、[aggregator/aggregator.go](../../aggregator/aggregator.go)）。
+- 类型化读取以 invocation 上的协证要求（aggregator.AggregateStrict）强制佐证，Selected 不静默替代（[eth.go](../../eth.go)、[aggregator/aggregator.go](../../aggregator/aggregator.go)）。
 - Corroborated 表示方法策略得到满足的 provider-backed cross-source evidence，不是 Ethereum consensus，也不是密码学结论（治理文档第 2 节）。
 - `eth_call` 的 revert 仍按 execution/data 两个内部维度裁决；0052 起，`code` 和
   `message` 只在 `Decision.Revert` 上作为 provider context 返回，`Decision.Value`
@@ -181,7 +181,7 @@ code 与 message 来自一份已准入信封，不跨来源拼装。未佐证的
 
 初始化仅配置一个投票源且未指定模式时，默认单源转发；显式指定 quorum 而配置不足则报配置错误，不擅自转发。多源运行期间，健康源减少或主动删成员至一个都不自动切换模式，支持不足则拒绝。用户可主动切换模式，从后续调用生效，当前调用保持原模式及集合。
 
-单源模式继续执行已支持方法适用的格式、请求绑定与内容校验，结果为 Forwarded，不能 Corroborated；仍可提供 Uncertain。ethadapter 在明确单源模式下可返回通过本地校验的结果，当前强制佐证入口尚待调整。未知方法不因单源模式获得原本不存在的专用校验保证。
+单源模式继续执行已支持方法适用的格式、请求绑定与内容校验，结果为 Forwarded，不能 Corroborated；仍可提供 Uncertain。类型化方法在单源 Forwarded 模式下可返回通过本地校验的结果（协证门禁按模式豁免）。未知方法不因单源模式获得原本不存在的专用校验保证。
 
 合法配置和主动管理操作属于可信控制输入，上游回答属于不可信数据输入。使用方负责配置权限、管理接口鉴权与进程／运行环境保护；库负责配置一致性检查、准确执行模式和如实表达保证。攻击者篡改配置并以单源重启超出 RPC 裁决的防御范围，库无法据配置本身区分攻击与用户意图。
 
@@ -233,7 +233,12 @@ code 与 message 来自一份已准入信封，不跨来源拼装。未佐证的
 
 ## 0.17 已接受入口：Context 收集器获取 Uncertain
 
-状态：2026-09-07 已接受 API 方向，见 [决策 0034](../decisions.md#0034-opt-in-uncertain-capture-uses-the-invocation-context)；收集器类型、访问方法与实现待完成。
+状态：**superseded（2026-11-06）**——本节记录 2026-09-07 接受的 API 方向；实现由
+[决策 0066](../decisions.md) 交付并随后收敛：`WithUncertain`/`UncertainCapture`
+公共面已删除，现行为 `WithResult`（交付句柄）+ `WithSourceEvidence`（预算配置），
+材料随 `CallResult.Uncertain` 交付。以下保留原始决定文字作为历史依据。
+
+原始状态：2026-09-07 已接受 API 方向，见 [决策 0034](../decisions.md#0034-opt-in-uncertain-capture-uses-the-invocation-context)；收集器类型、访问方法与实现待完成。
 
 普通调用保持原 context、方法签名和 Geth 返回类型。需要扩展数据的用户显式为一次逻辑调用创建收集器：
 
@@ -280,10 +285,10 @@ block, err := client.BlockByNumber(callCtx, number)
 | --- | --- |
 | 1 结果类别 | 确定性事实：链常量的 legacy 十进制拼写。net ID 与 chain ID 是不同字段（分叉链可同 net ID 异 chain ID），语义不可互换 |
 | 2 共同参考 | 无区块参考。pool 身份预检走 eth_chainId，与 net_version 裁决相互独立 |
-| 3 归一化 | 十进制字符串 → 数值字符串，独立编码器、不与 hex quantity 共享归一化（[rpc/methods/net_version.go](../../rpc/methods/net_version.go)）；null 或非数字 = 无效 |
+| 3 归一化 | 十进制字符串 → 数值字符串，独立编码器、不与 hex quantity 共享归一化（见 `rpc/methods` catalog）；null 或非数字 = 无效 |
 | 4 结果分类 | 无方法偏差，见第 0 节 |
 | 5 失败语义 | 同 eth_chainId：跨源不一致 = ErrConflict |
-| 6 成本 | 单次 fan-out；无参数；请求形态已由 census 验证（[wire-forms.md](wire-forms.md)） |
+| 6 成本 | 单次 fan-out；无参数；请求形态见 [method-transport-coverage.md](method-transport-coverage.md) |
 
 待明确边界：无重大项。net ID 与 chain ID 的语义差异由调用方自行承担——类型化 NetVersion 只返回数值，不解释两者关系。
 
@@ -292,11 +297,11 @@ block, err := client.BlockByNumber(callCtx, number)
 | 六问 | 契约 |
 | --- | --- |
 | 1 结果类别 | 确定性事实：hash 寻址的不可变内容 |
-| 2 共同参考 | 请求参数即参考：hash 定死内容，无锚定、无参数改写；fullTx 布尔透传（[rpc/methods/eth_getblockbyhash.go](../../rpc/methods/eth_getblockbyhash.go)） |
+| 2 共同参考 | 请求参数即参考：hash 定死内容，无锚定、无参数改写；fullTx 布尔透传（见 `rpc/methods/block.go`） |
 | 3 归一化 | 整对象 canonical：递归小写 0x 串、键序擦除，其余逐字比较——良性编码差异全部抹除后仍不同的，就是异见（normalizeCanonicalObject）。JSON null 归一为 "null"，是可比较值 |
 | 4 结果分类 | 第 0 节之外：null 与对象是两个不同值。null 簇满足第 0 节佐证条件后，类型化解码映射 ethereum.NotFound（[call.go](../../call.go)）；默认 Strict 在 null 与对象并存时返回 ErrConflict，显式 quorum 按既有门槛接受获胜簇；语义见第 0.4 节 |
 | 5 失败语义 | 重组不影响本答案（按 hash 寻址的内容不可变）；来源答 null 而其他源有对象时，默认 Strict 冲突，显式 quorum 按门槛裁决；不从 null 推断是否裁剪。类型化路径另有逐响应完整性：wire hash 必须等于计算的 header hash、uncles 一致性、请求-应答绑定（block.Hash() == 请求 hash），违反 = ErrMalformedResponse（[call.go](../../call.go)） |
-| 6 成本 | 单次 fan-out；fullTx=true 时大负载且全对象参与比较；fullTx=false 时类型化读取被 DecodeBlock 拒绝（hash-only 交易列表）——根层 Call 传 false 可得 Corroborated 决策但类型化解码失败，当前由调用方避免（ethadapter 恒传 true） |
+| 6 成本 | 单次 fan-out；fullTx=true 时大负载且全对象参与比较；fullTx=false 时类型化读取被 DecodeBlock 拒绝（hash-only 交易列表）——根层 Call 传 false 可得 Corroborated 决策但类型化解码失败，当前由调用方避免（类型化 BlockByHash 恒传 true） |
 
 待明确边界：
 
@@ -308,7 +313,7 @@ block, err := client.BlockByNumber(callCtx, number)
 | 六问 | 契约 |
 | --- | --- |
 | 1 结果类别 | 确定性事实：区块头（number + hash）。体（transactions、uncles、其余字段）不参与跨源比较，见待明确边界 |
-| 2 共同参考 | 显式高度 = 参数即参考。移动标签（latest/safe/finalized）在本策略层不改写（Prepare 恒等）：标签的锚定发生在类型化路径——先建立参考，再按 hash 走 eth_getBlockByHash（[ethadapter/client.go](../../ethadapter/client.go) blockAt、决策 0018）；根层 Call 直传 latest 时按各源自然头回答，头一致即 Corroborated（共识于当时自然头，未钉参考），头分歧即 ErrConflict。策略层 pending 标签透传不改写，作为节点本地观测（Selected 上限），永不因同值成为 Corroborated，也不改写成锚定读取。类型化 BlockByNumber(-1) 在 adapter 本地拒绝：不支持 pending block typed projection（ErrInvalidRequest）。-1 不锚定为 latest/safe/finalized，不发送业务请求，也不编码成 -0x1。这次拒绝不是 provider 不支持，也不是 Unknown 业务裁决；错误返回携带的 Unknown 只是失败决策不得带成功置信，不是冲突或无有效响应裁决。本策略兼任锚定策略：strictHeadAnchor 以 ("latest", false) 建立参考，锚定裁决强制 Corroborated（[anchor.go](../../anchor.go)）。Corroborated 仍只表示 provider-backed cross-source evidence。 |
+| 2 共同参考 | 显式高度 = 参数即参考。移动标签（latest/safe/finalized）在本策略层不改写（Prepare 恒等）：标签的锚定发生在类型化路径——先建立参考，再按 hash 走 eth_getBlockByHash（根包 eth.go 的 blockAt、决策 0018）；根层 Call 直传 latest 时按各源自然头回答，头一致即 Corroborated（共识于当时自然头，未钉参考），头分歧即 ErrConflict。策略层 pending 标签透传不改写，作为节点本地观测（Selected 上限），永不因同值成为 Corroborated，也不改写成锚定读取。类型化 BlockByNumber(-1) 在 facade 本地拒绝：不支持 pending block typed projection（ErrInvalidRequest）。-1 不锚定为 latest/safe/finalized，不发送业务请求，也不编码成 -0x1。这次拒绝不是 provider 不支持，也不是 Unknown 业务裁决；错误返回携带的 Unknown 只是失败决策不得带成功置信，不是冲突或无有效响应裁决。本策略兼任锚定策略：strictHeadAnchor 以 ("latest", false) 建立参考，锚定裁决强制 Corroborated（[anchor.go](../../anchor.go)）。Corroborated 仍只表示 provider-backed cross-source evidence。 |
 | 3 归一化 | 仅头："十进制高度 \| 小写 hash"（等效十六进制拼写一致；高度解析走 hexqty，强制 0x 前缀）；number 或 hash 缺失 = 无效；JSON null 解码为零值头 = 无效。**体不参与跨源比较**；获胜簇 Value 取簇内捕获顺序第一个成员的原始对象，不是规范编码（[rpc/methods/eth_getblockbynumber.go](../../rpc/methods/eth_getblockbynumber.go)） |
 | 4 结果分类 | 第 0 节之外：null = 无效（区别于 byHash 的可比较 null）。高度超前于全部源 tip：全 null → ErrNoValidResponse；部分 null + 部分头：null 记 Fault，持有者成簇可 Corroborated——滞后源的“未见”不构成否决 |
 | 5 失败语义 | 同高分叉 → 头 hash 不同 → ErrConflict（头比较即捕获）。同头异体（诚实执行不可能、恶意负载可能）→ 同簇 → Corroborated；类型化解码仅逐响应完整性（wire hash == header hash、uncle 一致、高度绑定），不校验体对 transactionsRoot |

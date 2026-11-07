@@ -40,7 +40,7 @@ func TestAnchorBlockHashForTagKeepsTagLevels(t *testing.T) {
 	defer cancel()
 
 	for tag, want := range pins {
-		got, err := client.AnchorBlockHashForTag(ctx, tag)
+		got, _, err := client.AnchorBlockHashForTag(ctx, tag)
 		if err != nil {
 			t.Fatalf("AnchorBlockHashForTag(%q): %v", tag, err)
 		}
@@ -66,7 +66,7 @@ func TestAnchorBlockHashForTagKeepsTagLevels(t *testing.T) {
 	}
 
 	for _, tag := range []string{"pending", "earliest", "0x10", "nope", ""} {
-		if _, err := client.AnchorBlockHashForTag(ctx, tag); !errors.Is(err, ethguard.ErrInvalidRequest) {
+		if _, _, err := client.AnchorBlockHashForTag(ctx, tag); !errors.Is(err, ethguard.ErrInvalidRequest) {
 			t.Fatalf("AnchorBlockHashForTag(%q): got %v, want ErrInvalidRequest", tag, err)
 		}
 	}

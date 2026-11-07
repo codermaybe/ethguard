@@ -45,6 +45,7 @@ func TestVerificationProtectedMutationClasses(t *testing.T) {
 	receipts := t09JSON([]json.RawMessage{receipt, chain.receipt2(hash, t09AnchorHeight, "0x5208")})
 	otherReceipts := t09JSON([]json.RawMessage{otherReceipt, chain.receipt2(hash, t09AnchorHeight, "0x1")})
 	tx := chain.txObject(true, hash, t09AnchorHeight, 0)
+	otherInBlockTx := chain.tx2Object(true, hash, t09AnchorHeight, 0)
 	logs := t09Logs(hash, chain.txHash)
 	otherLogs := t09JSON([]json.RawMessage{t09Log(hash, chain.txHash, t09AnchorHeight, 0, "0x00fe")})
 	fee := t09FeeHistory()
@@ -56,6 +57,9 @@ func TestVerificationProtectedMutationClasses(t *testing.T) {
 	blockNumberParams := []any{fmt.Sprintf("0x%x", t09AnchorHeight), true}
 	callParams := []any{map[string]any{"to": t09Address}, fmt.Sprintf("0x%x", t09AnchorHeight)}
 	feeParams := []any{uint64(2), fmt.Sprintf("0x%x", t09AnchorHeight), []float64{50}}
+	transactionCountParams := []any{hash}
+	pendingTransactionCountParams := []any{"pending"}
+	transactionInBlockParams := []any{hash, uint(0)}
 	accessParams := []any{map[string]any{"to": t09Address}, fmt.Sprintf("0x%x", t09AnchorHeight)}
 	logsParams := []any{map[string]any{"blockHash": hash}}
 	receiptLogs := fieldOf(t, receipt, "logs")
@@ -145,6 +149,31 @@ func TestVerificationProtectedMutationClasses(t *testing.T) {
 			mutations: []t09Mutation{
 				{class: "illegal-type", field: "quantity", payload: json.RawMessage(`true`), hint: "hex quantity"},
 				{class: "empty-value", field: "quantity", payload: json.RawMessage(`"0x"`), hint: "invalid quantity"},
+			},
+		},
+		{
+			method: methods.MethodGetBlockTransactionCountByHash, params: transactionCountParams, resolution: t09Strict,
+			healthy: json.RawMessage(`"0xa"`), other: json.RawMessage(`"0xb"`),
+			mutations: []t09Mutation{
+				{class: "illegal-type", field: "quantity", payload: json.RawMessage(`true`), hint: "hex quantity"},
+				{class: "empty-value", field: "quantity", payload: json.RawMessage(`"0x"`), hint: "invalid quantity"},
+			},
+		},
+		{
+			method: methods.MethodGetBlockTransactionCountByNumber, params: pendingTransactionCountParams, resolution: t09Local,
+			healthy: json.RawMessage(`"0xa"`), other: json.RawMessage(`"0xb"`),
+			mutations: []t09Mutation{
+				{class: "illegal-type", field: "quantity", payload: json.RawMessage(`true`), hint: "hex quantity"},
+				{class: "empty-value", field: "quantity", payload: json.RawMessage(`"0x"`), hint: "invalid quantity"},
+			},
+		},
+		{
+			method: methods.MethodGetTransactionByBlockHashAndIndex, params: transactionInBlockParams, resolution: t09Strict,
+			healthy: tx, other: otherInBlockTx,
+			mutations: []t09Mutation{
+				{class: "delete", field: "from", payload: t09DeleteField(t, tx, "from"), hint: "missing sender", sourceFault: true},
+				{class: "wrong-binding", field: "blockHash", payload: t09SetField(t, tx, "blockHash", nextHash), hint: "requested block", sourceFault: true},
+				{class: "wrong-binding", field: "transactionIndex", payload: t09SetField(t, tx, "transactionIndex", "0x1"), hint: "requested index", sourceFault: true},
 			},
 		},
 		{
@@ -328,7 +357,7 @@ func t09RunMutation(t *testing.T, mc t09MutationCase, mutation t09Mutation) {
 			fleet.nodes[index].ReturnRaw(mc.method, mc.other)
 		}
 	}
-	decision, err := fleet.client.Call(fleet.context(t), mc.method, mc.params...)
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), mc.method, mc.params...))
 	switch mc.resolution {
 	case t09Strict:
 		if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
@@ -383,8 +412,17 @@ func t09RunMutation(t *testing.T, mc t09MutationCase, mutation t09Mutation) {
 	}
 	t09AssertSourceAbsent(t, mc.method+"/"+mutation.field, fleet.names[mutantIndex], decision.Support, decision.Reject)
 	t09AssertFaultNames(t, mc.method+"/"+mutation.field, mutation.hint, decision.Faults)
-	if len(decision.Value) == 0 {
-		t.Fatalf("%s/%s: success Value is empty", mc.method, mutation.field)
+	if err != nil {
+		// The strict conflict is a main-aggregation failure: the public
+		// value is cleared (decision 0066) and the surviving cluster stays
+		// visible through Support/Reject above.
+		if len(decision.Value) != 0 {
+			t.Fatalf("%s/%s: failed aggregation carries %s", mc.method, mutation.field, decision.Value)
+		}
+	} else {
+		if len(decision.Value) == 0 {
+			t.Fatalf("%s/%s: success Value is empty", mc.method, mutation.field)
+		}
+		t09AssertDecodedValue(t, mc.method+"/"+mutation.field, t09FieldRowFor(t, mc.method).decode, mc.healthy, decision.Value)
 	}
-	t09AssertDecodedValue(t, mc.method+"/"+mutation.field, t09FieldRowFor(t, mc.method).decode, mc.healthy, decision.Value)
 }

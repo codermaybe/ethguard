@@ -74,10 +74,7 @@ func feeHistoryExecution(t *testing.T, reference *rpc.ReferenceEvidence) stepExe
 		},
 		decision:  canaryDecision("{}"),
 		reference: reference,
-		prepared: &rpc.Request{
-			Method: planStep.Method,
-			Params: []any{2, "0x64", []any{25, 50, 75}},
-		},
+		prepared:  mustPrepared(t, planStep.Method, 2, "0x64", []any{25, 50, 75}),
 	}
 }
 
@@ -119,10 +116,7 @@ func TestRequestBindingMismatchFailsStep(t *testing.T) {
 		},
 		decision:  canaryDecision(`"0x1"`),
 		reference: reference,
-		prepared: &rpc.Request{
-			Method: planStep.Method,
-			Params: []any{testVitalik, "0x2222222222222222222222222222222222222222222222222222222222222222"},
-		},
+		prepared:  mustPrepared(t, planStep.Method, testVitalik, "0x2222222222222222222222222222222222222222222222222222222222222222"),
 	}
 	step, reasons := evaluateSynthetic(t, execution)
 	if step.Invariants.RequestBinding == nil || *step.Invariants.RequestBinding {
@@ -265,7 +259,7 @@ func TestErrorWithSuccessStatusIsIllegal(t *testing.T) {
 		},
 		decision:    canaryDecision(`"0x1"`),
 		decisionErr: errors.New("provider failed after returning a value"),
-		prepared:    &rpc.Request{Method: planStep.Method, Params: []any{}},
+		prepared:    mustPrepared(t, planStep.Method),
 		identity:    big.NewInt(1),
 	}
 	step, reasons := evaluateSynthetic(t, execution)
@@ -389,4 +383,15 @@ func hasStateReason(reasons []StateReason, category string) bool {
 		}
 	}
 	return false
+}
+
+// mustPrepared builds a prepared request from Go params, mirroring the
+// frozen parameter JSON the aggregator records.
+func mustPrepared(t *testing.T, method string, params ...any) *rpc.PreparedRequest {
+	t.Helper()
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal prepared params: %v", err)
+	}
+	return &rpc.PreparedRequest{Method: method, Params: raw}
 }

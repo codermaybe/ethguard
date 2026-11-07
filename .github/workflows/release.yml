@@ -40,20 +40,22 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Same gates as CI so a hot-fix tag cannot skip them.
-      - name: gofmt / tidy / vet
-        run: |
-          test -z "$(gofmt -l .)"
-          go mod tidy -diff
-          go vet ./...
-      - name: smoke test (race)
-        run: go test -race ./...
+      # Re-run the same offline gate maintainers execute before tagging. A tag
+      # therefore cannot bypass formatting, module, static-analysis, build,
+      # race-test, or reachable-vulnerability checks.
+      - name: release preflight
+        # The current prerelease line explicitly accepts the documented
+        # external SimulateV1 gap. Stable tags remain strict and must expose
+        # the complete locked business method set before release.
+        env:
+          ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP: ${{ contains(github.ref_name, '-') && '1' || '0' }}
+        run: ./scripts/release_check.sh
 
       # Public-surface guard, informed by the previous tag. The first tag has
       # no comparison basis and therefore skips before installing the tool.
-      # Pin apidiff for reproducibility. It currently requires Go 1.26, so this
-      # isolated release step permits Go's toolchain selection instead of
-      # changing the project's Go 1.25.3 build and test baseline.
+      # Pin apidiff for reproducibility. Keep toolchain selection explicit for
+      # this isolated tool install even though the module now requires Go
+      # 1.26.10.
       - name: apidiff vs previous tag
         env:
           APIDIFF_VERSION: v0.0.0-20261014143641-f0251eb4aa3e

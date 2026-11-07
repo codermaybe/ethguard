@@ -64,15 +64,18 @@ type Observation struct {
 	Evidence json.RawMessage
 }
 
-// Status describes the confidence class of a successful decision.
-// Unknown is the zero value and carries no claim: it must appear only with
-// a non-nil error (or an uninitialized value). Successful results are always
-// Corroborated, Selected, or Forwarded, set explicitly by the resolving
-// policy. Failed is never a Status: failures are carried by error returns
-// and the observability event's "failed" string. That string is
-// observe.DecisionEvent.Status, not a value of this enum: the event is
-// "failed" when the call returns an error, and Status.String() otherwise.
-// A failed Decision.Status is Unknown.
+// Status describes the confidence class a decision's aggregation reached.
+// Unknown is the zero value and carries no claim: the invocation formed no
+// adjudicated value (local rejection before any verdict, a failed
+// establishment or collection, a policy resolution failure), and such a
+// decision always travels with a non-nil error on the call. Corroborated,
+// Selected, and Forwarded are set explicitly by the resolving policy. A
+// failed call may still carry a non-Unknown Status: when the aggregation
+// itself succeeded and the business failure happened after it — a typed
+// binding failure, a corroborated receipt-null answered as NotFound, a
+// corroborated revert answered as RevertError — the decision keeps the
+// facts it formed and the error carries the business conclusion. No layer
+// rewrites a formed Status to Unknown just because an error exists.
 // Corroborated is provider-backed cross-source evidence: independent
 // sources agreeing under the declared support rule. It is not Ethereum
 // consensus, a canonical proof, cryptographic finality, or light-client
@@ -116,17 +119,6 @@ type ReferenceEvidence struct {
 	// be attributed to one source.
 	SourceFaults     []SourceFault
 	CollectionFaults []error
-}
-
-// Clone isolates evidence held by a cache from callers and recorders.
-func (r ReferenceEvidence) Clone() ReferenceEvidence {
-	r.Participants = append([]SourceRef(nil), r.Participants...)
-	r.Support = append([]SourceRef(nil), r.Support...)
-	r.Reject = append([]SourceRef(nil), r.Reject...)
-	r.Faults = append([]error(nil), r.Faults...)
-	r.SourceFaults = append([]SourceFault(nil), r.SourceFaults...)
-	r.CollectionFaults = append([]error(nil), r.CollectionFaults...)
-	return r
 }
 
 // Decision is the minimal result returned by aggregation. Support and Reject
@@ -173,10 +165,12 @@ type Decision struct {
 	Support     []SourceRef
 	Reject      []SourceRef
 	Faults      []error
-	// Prepared is the request observed at the policy boundary after moving-tag
-	// rewriting. It is nil when Prepare failed before producing a request.
-	// Diagnostic callers must record this value rather than reconstructing it.
-	Prepared *Request
+	// Prepared is the frozen request fact observed at the policy boundary
+	// after moving-tag rewriting: the method and the parameter JSON that
+	// actually went out, owned independently of the caller's objects. It is
+	// nil when Prepare failed before producing a request. Diagnostic callers
+	// must record this value rather than reconstructing it.
+	Prepared *PreparedRequest
 	// SourceFaults attributes each Fault that belongs to one source;
 	// CollectionFaults holds pool-level failures. Faults remains the
 	// human-readable union of both.
@@ -225,19 +219,6 @@ type DimensionEvidence struct {
 	Reject   []SourceRef
 	Abstain  []SourceRef
 	Returned bool
-}
-
-// IsCorroborated reports whether d is a successful corroborated result.
-// The error is part of the result contract: Unknown is the zero value of
-// Status, so a failed call must never be interpreted from Status alone.
-// It remains a defensive convenience predicate, not the validity model
-// itself: error paths must return Status Unknown, success paths must set
-// Corroborated, Selected, or Forwarded explicitly. Decision 0038 keeps
-// this predicate and does not add a general validity helper. Corroboration
-// gates still write the err == nil split inline so an existing error is
-// not rewritten into a conflict.
-func (d Decision) IsCorroborated(err error) bool {
-	return err == nil && d.Status == Corroborated
 }
 
 // String names the confidence class for observability sinks.

@@ -1,30 +1,15 @@
 package rpc
 
-// Block-reference spellings and tags shared by the plan model and the
-// anchoring decorators: the moving-tag set, the tag-carrying context, and the
-// rule spellings. The per-request rewrite mechanics live with their owners
-// (read_plan.go for the plan model, anchor_decorators.go for the legacy
-// decorator family).
+// Block-reference spellings and tags shared by the plan model: the
+// moving-tag set and the rule spellings. The per-request rewrite mechanics
+// live with their owner (read_plan.go for the plan model).
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
 )
-
-// AnchorFunc establishes a corroborated, immutable block reference. It is called
-// only when a moving tag actually needs rewriting.
-type AnchorFunc func(context.Context) (string, error)
-
-// AnchorHeightFunc establishes a corroborated block height for methods whose
-// wire form accepts a height but not a hash — eth_feeHistory's newestBlock
-// is a BlockNumber, not a BlockNumberOrHash, so a hash cannot ride the wire
-// (the soak caught the same constraint for eth_getBlockByNumber's number
-// position). Both built-in resolvers derive the height from the same
-// establishment response; no extra fan-out is required.
-type AnchorHeightFunc func(context.Context) (uint64, error)
 
 // movingTags is the anchor-rewrite set: latest, safe, and finalized. It is
 // not the spelling authority for every block reference in the repo. The
@@ -35,7 +20,7 @@ type AnchorHeightFunc func(context.Context) (uint64, error)
 //   - methods.pendingTag: pending only, including case, JSON, and
 //     {blockNumber: pending}. RejectPending uses pendingReference below,
 //     which recognizes that same pending shape.
-//   - ethadapter.toBlockNumArg / blockRefArg: Geth negative numbers
+//   - the facade's toBlockNumArg / blockRefArg: Geth negative numbers
 //     (-1 pending, -2 latest, -3 finalized, -4 safe, -5 earliest as 0x0).
 //     Typed BlockByNumber(-1) is rejected in blockByNegativeNumber and
 //     never reaches this set.
@@ -46,16 +31,6 @@ var movingTags = map[string]bool{
 	"latest":    true,
 	"safe":      true,
 	"finalized": true,
-}
-
-type anchorTagContextKey struct{}
-
-func WithAnchorTag(ctx context.Context, tag string) context.Context {
-	return context.WithValue(ctx, anchorTagContextKey{}, tag)
-}
-func AnchorTag(ctx context.Context) string {
-	tag, _ := ctx.Value(anchorTagContextKey{}).(string)
-	return tag
 }
 
 // singleMovingTag reports the one moving tag present at the positions, or

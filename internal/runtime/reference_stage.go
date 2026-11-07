@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
@@ -178,76 +177,4 @@ func captureEmission(invocation rpc.Invocation, emissions []pool.Emission, colle
 	if collectErr != nil {
 		capture.Record("collect", anchorMethodName, rpc.SourceRef{}, nil, collectErr.Error())
 	}
-}
-
-// AnchorHashReader returns the consumption-only hash reader method policies
-// rewrite moving tags with. It reads an already-established reference from
-// the in-flight invocation, or establishes one once through the invocation's
-// establishment stage — on the same invocation, with no nested aggregate and
-// no facade resolver call.
-func (s *ReferenceStage) AnchorHashReader() rpc.AnchorFunc {
-	return func(ctx context.Context) (string, error) {
-		ref, err := s.establishedForTag(ctx)
-		if err != nil {
-			return "", err
-		}
-		return ref.Hash, nil
-	}
-}
-
-// AnchorHeightReader is the height spelling of the same seam, for methods
-// whose wire form cannot carry a hash.
-func (s *ReferenceStage) AnchorHeightReader() rpc.AnchorHeightFunc {
-	return func(ctx context.Context) (uint64, error) {
-		ref, err := s.establishedForTag(ctx)
-		if err != nil {
-			return 0, err
-		}
-		return ref.Height, nil
-	}
-}
-
-// establishedForTag reads the established reference for the anchor tag from
-// the in-flight invocation. The reader never establishes and never touches
-// the network: a missing or non-matching reference reports the pipeline
-// sentinel, and the aggregator answers it by running the reference stage on
-// the same invocation. The raw tag is what the evidence records (latest
-// rides as the default reference with no tag).
-func (s *ReferenceStage) establishedForTag(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	tag := rpc.AnchorTag(ctx)
-	invocation, ok := refcontext.Invocation(ctx)
-	if !ok {
-		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: no in-flight invocation for tag %q: %w", tag, rpc.ErrInvalidRequest)
-	}
-	ref, ok := invocation.Reference()
-	if !ok || !referenceMatchesTag(ref, tag) {
-		return rpc.ReferenceEvidence{}, rpc.ErrReferenceRequired
-	}
-	if ref.Status != rpc.Corroborated {
-		return ref, fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
-	}
-	return ref, nil
-}
-
-// referenceKindForTag maps the wire tag to the declared reference kind.
-func referenceKindForTag(tag string) rpc.ReferenceKind {
-	switch strings.ToLower(tag) {
-	case string(rpc.ReferenceSafe):
-		return rpc.ReferenceSafe
-	case string(rpc.ReferenceFinalized):
-		return rpc.ReferenceFinalized
-	default:
-		return rpc.ReferenceLatest
-	}
-}
-
-// referenceMatchesTag reports whether established evidence serves this tag:
-// each level keeps its meaning, so safe never reuses latest and vice versa.
-func referenceMatchesTag(ref rpc.ReferenceEvidence, tag string) bool {
-	kind := referenceKindForTag(tag)
-	if kind == rpc.ReferenceLatest {
-		// The default reference records no tag; anything else names its level.
-		return ref.Tag == "" || strings.EqualFold(ref.Tag, string(rpc.ReferenceLatest))
-	}
-	return strings.EqualFold(ref.Tag, string(kind))
 }

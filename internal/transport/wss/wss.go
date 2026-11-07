@@ -1,8 +1,8 @@
 // Package wss implements EthGuard's minimal WebSocket JSON-RPC transport
-// adapter. It is a raw-call connection: one long-lived socket, request-ID
-// demultiplexing, bounded inbound frames, per-call cancellation, and lifecycle
-// cleanup. It deliberately has no subscription, filter, batch, reconnect, or
-// write-path replay surface.
+// adapter. It is a raw-call connection with an opt-in bounded notification
+// subscription capability. Unary calls retain their request-ID demultiplexing,
+// per-call cancellation, and lifecycle cleanup; subscription delivery is owned
+// by NotificationStream and the separate subscription state machine.
 //
 // The WebSocket wire itself — HTTP Upgrade handshake, frame codec, and
 // connection lifecycle — is EthGuard-owned (websocket_handshake.go,
@@ -45,6 +45,10 @@ const defaultHandshakeTimeout = 10 * time.Second
 // It wraps the neutral lifecycle sentinel so core packages classify the
 // lifecycle without importing this adapter.
 var ErrTransportClosed = fmt.Errorf("wss: transport closed: %w", transport.ErrConnectionClosed)
+
+// ErrNotificationBackpressure identifies a bounded notification queue
+// overflow without changing unary transport errors.
+var ErrNotificationBackpressure = errors.New("wss: notification backpressure")
 
 // Dialer dials one long-lived WebSocket JSON-RPC connection for ws and wss
 // URLs.
@@ -91,6 +95,7 @@ func (d Dialer) DialContext(ctx context.Context, rawURL string) (transport.Trans
 		ids:     rpcwire.NewIDGen(),
 		limit:   limit,
 		pending: make(map[string]chan frameResult),
+		streams: make(map[*NotificationStream]struct{}),
 	}
 	go t.readLoop()
 	return t, nil
@@ -99,6 +104,164 @@ func (d Dialer) DialContext(ctx context.Context, rawURL string) (transport.Trans
 type frameResult struct {
 	frame json.RawMessage
 	err   error
+}
+
+// Notification is the transport-neutral subscription notification. The raw
+// result is copied before delivery so callers cannot retain the frame buffer.
+type Notification = transport.Notification
+
+// NotificationStream is an opt-in notification channel for a single WSS
+// source session. It is separate from Transport's unary call surface;
+// connections without a stream continue to ignore notifications.
+type NotificationStream struct {
+	owner          *Transport
+	sourceID       string
+	generation     uint64
+	subscriptionID string
+	pending        []Notification
+	events         chan Notification
+	errs           chan error
+	done           chan struct{}
+
+	mu     sync.Mutex
+	closed bool
+	once   sync.Once
+}
+
+const pendingSubscriptionID = "\x00pending-subscription"
+
+// Events returns the bounded notification queue.
+func (s *NotificationStream) Events() <-chan Notification { return s.events }
+
+// Err returns the asynchronous terminal error channel. At most one error is
+// delivered; normal Unsubscribe and owner Close close it without an error.
+func (s *NotificationStream) Err() <-chan error { return s.errs }
+
+// Unsubscribe is idempotent and stops delivery of new notifications.
+func (s *NotificationStream) Unsubscribe() { s.finish(nil) }
+
+// Close is an alias for Unsubscribe for internal lifecycle owners.
+func (s *NotificationStream) Close() { s.Unsubscribe() }
+
+func (s *NotificationStream) finish(err error) {
+	s.once.Do(func() {
+		s.owner.removeNotificationStream(s)
+		s.mu.Lock()
+		s.closed = true
+		close(s.done)
+		close(s.events)
+		if err != nil {
+			s.errs <- err
+		}
+		close(s.errs)
+		s.mu.Unlock()
+	})
+}
+
+func (s *NotificationStream) deliver(notification Notification) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return true
+	}
+	if s.subscriptionID == pendingSubscriptionID {
+		if len(s.pending) >= cap(s.events) {
+			return false
+		}
+		s.pending = append(s.pending, notification)
+		return true
+	}
+	if s.subscriptionID != "" && notification.SubscriptionID != s.subscriptionID {
+		return true
+	}
+	select {
+	case s.events <- notification:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *NotificationStream) bindSubscriptionID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.subscriptionID = id
+	for _, notification := range s.pending {
+		if notification.SubscriptionID == id {
+			select {
+			case s.events <- notification:
+			default:
+				s.closed = true
+				break
+			}
+		}
+	}
+	s.pending = nil
+}
+
+// Subscription is the WSS-side handle returned by Subscribe. It keeps the
+// notification stream and the server-side subscription ID together so
+// Unsubscribe can be idempotent and always releases both resources.
+type Subscription struct {
+	transport *Transport
+	stream    *NotificationStream
+	id        string
+	once      sync.Once
+}
+
+func (s *Subscription) Events() <-chan Notification { return s.stream.Events() }
+func (s *Subscription) Err() <-chan error           { return s.stream.Err() }
+
+func (s *Subscription) Unsubscribe() {
+	s.once.Do(func() {
+		// Best effort: the stream is always closed locally even when the
+		// server-side unsubscribe cannot be delivered because the socket died.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var ok bool
+		if s.transport != nil {
+			_ = s.transport.CallContext(ctx, &ok, "eth_unsubscribe", s.id)
+		}
+		s.stream.Unsubscribe()
+	})
+}
+
+// Subscribe opens an eth namespace subscription and binds its notifications
+// to a bounded stream. It is intentionally outside the unary Transport
+// interface; callers must opt into the WSS capability explicitly.
+func (t *Transport) Subscribe(ctx context.Context, kind string, args ...any) (*Subscription, error) {
+	if kind == "" {
+		return nil, fmt.Errorf("wss: empty subscription kind")
+	}
+	// The setup context bounds eth_subscribe only. The stream remains alive
+	// until Unsubscribe, owner Close, or a transport failure.
+	stream, err := t.OpenNotificationStream(context.WithoutCancel(ctx), "", 0, 256)
+	if err != nil {
+		return nil, err
+	}
+	stream.mu.Lock()
+	stream.subscriptionID = pendingSubscriptionID
+	stream.mu.Unlock()
+	var id string
+	params := make([]any, 0, len(args)+1)
+	params = append(params, kind)
+	params = append(params, args...)
+	if err := t.CallContext(ctx, &id, "eth_subscribe", params...); err != nil {
+		stream.Unsubscribe()
+		return nil, err
+	}
+	if id == "" {
+		stream.Unsubscribe()
+		return nil, fmt.Errorf("wss: eth_subscribe returned empty id")
+	}
+	stream.bindSubscriptionID(id)
+	return &Subscription{transport: t, stream: stream, id: id}, nil
+}
+
+// SubscribeCapability adapts the concrete WSS subscription to the optional
+// transport capability without widening the unary Transport interface.
+func (t *Transport) SubscribeCapability(ctx context.Context, kind string, args ...any) (transport.Subscription, error) {
+	return t.Subscribe(ctx, kind, args...)
 }
 
 // Transport is one WSS JSON-RPC connection. One reader goroutine decodes
@@ -110,6 +273,7 @@ type Transport struct {
 
 	mu      sync.Mutex
 	pending map[string]chan frameResult
+	streams map[*NotificationStream]struct{}
 	closing bool
 	closed  bool
 
@@ -167,6 +331,111 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 		t.removePending(string(id))
 		return ctx.Err()
 	}
+}
+
+// OpenNotificationStream opts this raw WSS connection into subscription
+// notifications. The stream is bounded; a full queue terminates only that
+// stream with a backpressure error and never blocks the unary reader.
+func (t *Transport) OpenNotificationStream(ctx context.Context, sourceID string, generation uint64, buffer int) (*NotificationStream, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("wss: nil notification context")
+	}
+	if buffer <= 0 {
+		return nil, fmt.Errorf("wss: notification buffer must be positive")
+	}
+	stream := &NotificationStream{
+		owner:      t,
+		sourceID:   sourceID,
+		generation: generation,
+		events:     make(chan Notification, buffer),
+		errs:       make(chan error, 1),
+		done:       make(chan struct{}),
+	}
+	t.mu.Lock()
+	if t.closed || t.closing {
+		t.mu.Unlock()
+		return nil, ErrTransportClosed
+	}
+	if t.streams == nil {
+		t.streams = make(map[*NotificationStream]struct{})
+	}
+	t.streams[stream] = struct{}{}
+	t.mu.Unlock()
+	go func() {
+		select {
+		case <-ctx.Done():
+			stream.finish(ctx.Err())
+		case <-stream.done:
+		}
+	}()
+	return stream, nil
+}
+
+func (t *Transport) removeNotificationStream(stream *NotificationStream) {
+	t.mu.Lock()
+	delete(t.streams, stream)
+	t.mu.Unlock()
+}
+
+func (t *Transport) notificationStreams() []*NotificationStream {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	streams := make([]*NotificationStream, 0, len(t.streams))
+	for stream := range t.streams {
+		streams = append(streams, stream)
+	}
+	return streams
+}
+
+func (t *Transport) dispatchNotification(message []byte) {
+	streams := t.notificationStreams()
+	if len(streams) == 0 {
+		return
+	}
+	notification, err := decodeNotification(message)
+	if err != nil {
+		for _, stream := range streams {
+			stream.finish(fmt.Errorf("wss: notification: %w", err))
+		}
+		return
+	}
+	for _, stream := range streams {
+		notification.SourceID = stream.sourceID
+		notification.Generation = stream.generation
+		notification.ReceivedAt = time.Now()
+		if !stream.deliver(notification) {
+			stream.finish(ErrNotificationBackpressure)
+		}
+	}
+}
+
+func decodeNotification(message []byte) (Notification, error) {
+	var envelope struct {
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal(message, &envelope); err != nil {
+		return Notification{}, err
+	}
+	if envelope.Method != "eth_subscription" {
+		return Notification{}, fmt.Errorf("unsupported notification method %q", envelope.Method)
+	}
+	var params struct {
+		Subscription string          `json:"subscription"`
+		Result       json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(envelope.Params, &params); err != nil {
+		return Notification{}, err
+	}
+	if params.Subscription == "" || len(params.Result) == 0 {
+		return Notification{}, fmt.Errorf("subscription notification missing subscription or result")
+	}
+	return Notification{
+		Method:         envelope.Method,
+		SubscriptionID: params.Subscription,
+		Result:         append(json.RawMessage(nil), params.Result...),
+		Raw:            append(json.RawMessage(nil), message...),
+	}, nil
 }
 
 // write sends one request frame under the single-writer lock. Cancellation
@@ -238,6 +507,7 @@ func (t *Transport) readLoop() {
 			ID json.RawMessage `json:"id"`
 		}
 		if json.NewDecoder(bytes.NewReader(message)).Decode(&envelope) != nil || len(envelope.ID) == 0 {
+			t.dispatchNotification(message)
 			continue
 		}
 		id := string(envelope.ID)
@@ -275,8 +545,13 @@ func (t *Transport) abort(err error) {
 	t.closing = true
 	pending := t.pending
 	t.pending = make(map[string]chan frameResult)
+	streams := t.streams
+	t.streams = make(map[*NotificationStream]struct{})
 	t.mu.Unlock()
 	t.closeSocket()
+	for stream := range streams {
+		stream.finish(err)
+	}
 	for _, waiter := range pending {
 		waiter <- frameResult{err: err}
 	}
@@ -325,11 +600,16 @@ func (t *Transport) Close() {
 		return
 	}
 	t.closing = true
+	streams := t.streams
+	t.streams = make(map[*NotificationStream]struct{})
 	closeSocket := len(t.pending) == 0
 	if closeSocket {
 		t.closed = true
 	}
 	t.mu.Unlock()
+	for stream := range streams {
+		stream.finish(nil)
+	}
 	if closeSocket {
 		t.closeSocket()
 	}

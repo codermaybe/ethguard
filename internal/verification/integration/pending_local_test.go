@@ -30,21 +30,21 @@ func TestPendingExtendedMethodsAreSelectedNotCorroborated(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	byNumber, err := client.Call(ctx, methods.MethodGetBlockByNumber, "pending", true)
+	byNumber, err := callDecision(client.Call(ctx, methods.MethodGetBlockByNumber, "pending", true))
 	if err != nil {
 		t.Fatalf("pending byNumber: %v", err)
 	}
 	if byNumber.Status != rpc.Selected {
 		t.Fatalf("pending byNumber: status = %v, want selected", byNumber.Status)
 	}
-	fee, err := client.Call(ctx, methods.MethodFeeHistory, uint64(1), "pending", []float64{})
+	fee, err := callDecision(client.Call(ctx, methods.MethodFeeHistory, uint64(1), "pending", []float64{}))
 	if err != nil {
 		t.Fatalf("pending feeHistory: %v", err)
 	}
 	if fee.Status != rpc.Selected {
 		t.Fatalf("pending feeHistory: status = %v, want selected", fee.Status)
 	}
-	list, err := client.Call(ctx, methods.MethodCreateAccessList, map[string]any{"to": "0xdad"}, "pending")
+	list, err := callDecision(client.Call(ctx, methods.MethodCreateAccessList, map[string]any{"to": "0xdad"}, "pending"))
 	if err != nil {
 		t.Fatalf("pending accessList: %v", err)
 	}

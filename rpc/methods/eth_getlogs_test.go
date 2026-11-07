@@ -90,6 +90,34 @@ func TestLogsRejectAbnormalPendingBoundsLocally(t *testing.T) {
 	}
 }
 
+func TestLogsRejectReversedNumericRangeLocally(t *testing.T) {
+	plan := compiledPlan(t, MethodGetLogs)
+	for _, filter := range []map[string]any{
+		{"fromBlock": "0x10", "toBlock": "0xf"},
+		{"fromBlock": "0X10", "toBlock": "0x0f"},
+		{"fromBlock": json.RawMessage(`"0x10"`), "toBlock": json.RawMessage(`"0xf"`)},
+	} {
+		_, _, err := preparePlanRequest(t, plan, rpc.Request{Method: MethodGetLogs, Params: []any{filter}})
+		if !errors.Is(err, rpc.ErrInvalidRequest) {
+			t.Fatalf("filter %v: got %v, want ErrInvalidRequest", filter, err)
+		}
+		if !strings.Contains(err.Error(), "fromBlock is greater than toBlock") {
+			t.Fatalf("filter %v: error %v does not identify the inverted range", filter, err)
+		}
+	}
+
+	// Equal and moving-tag bounds remain valid; their ordering is either
+	// equal or intentionally deferred to the reference rewrite.
+	for _, filter := range []map[string]any{
+		{"fromBlock": "0x10", "toBlock": "0x10"},
+		{"fromBlock": "latest", "toBlock": "latest"},
+	} {
+		if err := plan.Validate(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{filter}}); err != nil {
+			t.Fatalf("filter %v: got %v, want valid range", filter, err)
+		}
+	}
+}
+
 func TestLogsPendingDoesNotConsultAnchor(t *testing.T) {
 	// The rejection is the plan's local Validate phase: the pending shape
 	// fails with a request-class error before any establishment could run,

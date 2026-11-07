@@ -20,7 +20,6 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/ethadapter"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -243,10 +242,9 @@ func t09AccessList() json.RawMessage {
 // verification is disabled so every response fixture stays visible to the
 // policy instead of being rejected at the pool identity gate.
 type t09Fleet struct {
-	client  *ethguard.Client
-	adapter *ethadapter.Client
-	nodes   []*rpctest.Node
-	names   []string
+	client *ethguard.Client
+	nodes  []*rpctest.Node
+	names  []string
 }
 
 func t09NewFleet(t *testing.T, count int) *t09Fleet {
@@ -268,10 +266,9 @@ func t09NewFleet(t *testing.T, count int) *t09Fleet {
 	}
 	t.Cleanup(client.Close)
 	return &t09Fleet{
-		client:  client,
-		adapter: ethadapter.Wrap(client),
-		nodes:   nodes,
-		names:   names,
+		client: client,
+		nodes:  nodes,
+		names:  names,
 	}
 }
 

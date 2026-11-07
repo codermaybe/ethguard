@@ -142,9 +142,33 @@ type invocationResolution struct {
 // Resolve → Project. A moving-tag read's establishment rounds run inside the
 // same invocation — one ID, one frozen basis, no nested aggregate.
 func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decision, error) {
+	return a.aggregate(ctx, req, false)
+}
+
+// AggregateStrict is the typed facade's entry point. It records the
+// corroboration requirement on the invocation itself — not on the request,
+// not on the context — so the resolved value of a determinism-claiming read
+// must be Corroborated or the call fails closed. The requirement is
+// invocation-scoped: it is set when the invocation is built here and read
+// once at resolution; Forwarded mode and the pending-local route keep their
+// documented exemptions (see resolveValue).
+func (a *Aggregator) AggregateStrict(ctx context.Context, req rpc.Request) (rpc.Decision, error) {
+	return a.aggregate(ctx, req, true)
+}
+
+func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorroboration bool) (rpc.Decision, error) {
 	started := time.Now()
-	ctx, uncertainDone := uncertain.Begin(ctx)
-	defer uncertainDone()
+	// Material collection is opt-in: a per-call collector already installed
+	// by the public entry wins; otherwise the context's evidence
+	// configuration creates this call's collector. Without either, no
+	// material is recorded and no business path changes.
+	collector := uncertain.CollectorFromContext(ctx)
+	if collector == nil {
+		if cfg, ok := uncertain.ConfigFromContext(ctx); ok {
+			collector = uncertain.NewCollector(cfg)
+			ctx = uncertain.WithCollector(ctx, collector)
+		}
+	}
 	ctx, capture := refcontext.New(ctx)
 	// The corroboration mode and support floor are frozen here, before
 	// preparation and any request: a concurrent Set only reaches
@@ -167,7 +191,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 		members:       members,
 		capture:       capture,
 	}
-	state.ctx, state.invocation = beginInvocation(state.ctx, snap, snapOK, members, uncertain.FromContext(ctx))
+	state.invocation = beginInvocation(snap, snapOK, members, uncertain.CollectorFromContext(ctx), requireCorroboration)
 
 	if exit := a.planPreparePhase(state, started, req); exit != nil {
 		return exit.decision, exit.err
@@ -184,7 +208,7 @@ func (a *Aggregator) Aggregate(ctx context.Context, req rpc.Request) (rpc.Decisi
 // unknownDecision builds the shared shape of the two degraded early-return
 // decisions — everything the invocation knows without a resolved value. Each
 // caller attaches its phase-specific fault lists after it.
-func unknownDecision(reference *rpc.ReferenceEvidence, participants []rpc.SourceRef, prepared *rpc.Request) rpc.Decision {
+func unknownDecision(reference *rpc.ReferenceEvidence, participants []rpc.SourceRef, prepared *rpc.PreparedRequest) rpc.Decision {
 	return rpc.Decision{
 		Status:       rpc.Unknown,
 		Reference:    reference,
@@ -203,10 +227,12 @@ func sourceFaultOf(m rpc.MalformedSource) error {
 	return fmt.Errorf("source %q: malformed response: %v", id, m.Err)
 }
 
-// preparedRequest copies the request observed at the policy boundary so later
-// mutation cannot rewrite recorded evidence.
-func preparedRequest(req rpc.Request) *rpc.Request {
-	return &rpc.Request{Method: req.Method, Params: append([]any(nil), req.Params...)}
+// preparedRequest snapshots the frozen request fact observed at the policy
+// boundary. The bytes come from the one controlled prepare-time
+// serialization (rpc.FreezeParams), so the record and the wire never carry
+// two marshaler executions of the same parameter.
+func preparedRequest(method string, snapshot json.RawMessage) *rpc.PreparedRequest {
+	return &rpc.PreparedRequest{Method: method, Params: snapshot}
 }
 
 func collectionFaultList(collectErr error) []error {

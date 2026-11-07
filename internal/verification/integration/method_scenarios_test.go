@@ -67,7 +67,7 @@ func TestVerificationMethodScenarioGetBlockByNumber(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "all-fault", Faults: []int{0, 1, 2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{ethguard.ErrAllSourcesDown}, Participants: 5, Faults: 6, SourceFaults: []int{0, 1, 2, 3, 4}, Representative: -1, ValueFrom: -1, TypedFrom: -1}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "conflict", Answers: []json.RawMessage{a, a, b, b, a}, Faults: []int{4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Reject: []int{2, 3}, Faults: 1, SourceFaults: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "notfound", Answers: t09Repeat(null, t09MatrixN), Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1, TypedErr: ethereum.NotFound}})
-	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Params: []any{"pending", true}, Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, TypedWantHeader: true, PreparedPending: true, Note: "pending stays node-local; the typed adapter rejects -1 while the root CallInto reads one header"}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Params: []any{"pending", true}, Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, TypedWantHeader: true, PreparedPending: true, Note: "pending stays node-local; the typed adapter rejects -1 while the generic Call decision value decodes the header"}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
@@ -85,7 +85,7 @@ func TestVerificationMethodScenarioGetBalance(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "all-fault", Faults: []int{0, 1, 2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{ethguard.ErrAllSourcesDown}, Participants: 5, Faults: 6, SourceFaults: []int{0, 1, 2, 3, 4}, Representative: -1, ValueFrom: -1, TypedFrom: -1}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "conflict", Answers: []json.RawMessage{a, a, conflictOther, conflictOther, a}, Faults: []int{4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Reject: []int{2, 3}, Faults: 1, SourceFaults: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "notfound", Answers: t09Repeat(json.RawMessage(`null`), t09MatrixN), Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrNoValidResponse}, Participants: 5, Faults: 5, Representative: -1, ValueFrom: -1, TypedFrom: -1, TypedErr: rpc.ErrNoValidResponse}})
-	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Params: []any{t09Address, "pending"}, Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true, Note: "no adapter method expresses pending; the production CallInto path decodes the selected value"}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Params: []any{t09Address, "pending"}, Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true, Note: "no adapter method expresses pending; the generic Call decision value carries the selected wire object"}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
@@ -154,6 +154,52 @@ func TestVerificationMethodScenarioGetTransactionCount(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "conflict", Answers: []json.RawMessage{a, a, b, b, a}, Faults: []int{4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Reject: []int{2, 3}, Faults: 1, SourceFaults: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "notfound", Answers: t09Repeat(json.RawMessage(`null`), t09MatrixN), Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrNoValidResponse}, Participants: 5, Faults: 5, Representative: -1, ValueFrom: -1, TypedFrom: -1, TypedErr: rpc.ErrNoValidResponse}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Params: []any{t09Address, "pending"}, Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
+}
+
+func TestVerificationMethodScenarioGetBlockTransactionCountByHash(t *testing.T) {
+	row := t09FieldRowFor(t, methods.MethodGetBlockTransactionCountByHash)
+	a, b := row.variants[0], row.other
+	null := json.RawMessage(`null`)
+	mc := t09MethodCase{Method: row.method, Params: row.params, Typed: t09TypedTransactionCount, TypedWant: t09TypedWantQuantity}
+	t09CheckScenario(t, mc, t09Row{Scenario: "all-agree", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "minority-dissent", Answers: []json.RawMessage{a, a, a, b, b}, Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2}, Reject: []int{3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "outlier", Answers: []json.RawMessage{a, a, a, a, b}, Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3}, Reject: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "single-fault", Answers: t09Repeat(a, t09MatrixN), Faults: []int{4}, Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3}, Faults: 1, SourceFaults: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "all-fault", Faults: []int{0, 1, 2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{ethguard.ErrAllSourcesDown}, Participants: 5, Faults: 6, SourceFaults: []int{0, 1, 2, 3, 4}, Representative: -1, ValueFrom: -1, TypedFrom: -1}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "conflict", Answers: []json.RawMessage{a, a, b, b, a}, Faults: []int{4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Reject: []int{2, 3}, Faults: 1, SourceFaults: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "notfound", Answers: t09Repeat(null, t09MatrixN), Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: -1, ValueExact: "null", TypedFrom: -1, TypedErr: ethereum.NotFound}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0, CheckNoPending: true, Note: "hash-addressed count has no pending form"}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
+}
+
+func TestVerificationMethodScenarioGetBlockTransactionCountByNumber(t *testing.T) {
+	row := t09FieldRowFor(t, methods.MethodGetBlockTransactionCountByNumber)
+	a, b := row.variants[0], row.other
+	mc := t09MethodCase{Method: row.method, Params: row.params, Typed: t09TypedPendingTransactionCount, TypedWant: t09TypedWantQuantity}
+	t09CheckScenario(t, mc, t09Row{Scenario: "all-agree", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "minority-dissent", Answers: []json.RawMessage{a, a, a, b, b}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "outlier", Answers: []json.RawMessage{a, a, a, a, b}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "single-fault", Answers: t09Repeat(a, t09MatrixN), Faults: []int{4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Faults: 1, SourceFaults: []int{4}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "all-fault", Faults: []int{0, 1, 2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{ethguard.ErrAllSourcesDown}, Participants: 5, Faults: 6, SourceFaults: []int{0, 1, 2, 3, 4}, Representative: -1, ValueFrom: -1, TypedFrom: -1}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "conflict", Answers: []json.RawMessage{a, a, b, b, a}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "notfound", Answers: t09Repeat(json.RawMessage(`null`), t09MatrixN), Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrNoValidResponse}, Participants: 5, Faults: 5, Representative: -1, ValueFrom: -1, TypedFrom: -1, TypedErr: rpc.ErrNoValidResponse}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true}})
+}
+
+func TestVerificationMethodScenarioGetTransactionByBlockHashAndIndex(t *testing.T) {
+	row := t09FieldRowFor(t, methods.MethodGetTransactionByBlockHashAndIndex)
+	a, b := row.variants[0], row.other
+	mc := t09MethodCase{Method: row.method, Params: row.params, Typed: t09TypedTransactionInBlock, TypedWant: t09TypedWantTransaction}
+	t09CheckScenario(t, mc, t09Row{Scenario: "all-agree", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "minority-dissent", Answers: []json.RawMessage{a, a, a, b, b}, Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2}, Reject: []int{3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "outlier", Answers: []json.RawMessage{a, a, a, a, b}, Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3}, Reject: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "single-fault", Answers: t09Repeat(a, t09MatrixN), Faults: []int{4}, Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3}, Faults: 1, SourceFaults: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: 0}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "all-fault", Faults: []int{0, 1, 2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{ethguard.ErrAllSourcesDown}, Participants: 5, Faults: 6, SourceFaults: []int{0, 1, 2, 3, 4}, Representative: -1, ValueFrom: -1, TypedFrom: -1}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "conflict", Answers: []json.RawMessage{a, a, b, b, a}, Faults: []int{4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Reject: []int{2, 3}, Faults: 1, SourceFaults: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "notfound", Answers: t09Repeat(json.RawMessage(`null`), t09MatrixN), Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1, TypedErr: ethereum.NotFound}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Corroborated, Participants: 5, Support: []int{0, 1, 2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: 0, CheckNoPending: true}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
@@ -254,7 +300,7 @@ func TestVerificationMethodScenarioFeeHistory(t *testing.T) {
 	t09CheckScenario(t, mc, t09Row{Scenario: "all-fault", Faults: []int{0, 1, 2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{ethguard.ErrAllSourcesDown}, Participants: 5, Faults: 6, SourceFaults: []int{0, 1, 2, 3, 4}, Representative: -1, ValueFrom: -1, TypedFrom: -1}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "conflict", Answers: []json.RawMessage{a, a, b, b, a}, Faults: []int{4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Reject: []int{2, 3}, Faults: 1, SourceFaults: []int{4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "notfound", Answers: t09Repeat(json.RawMessage(`null`), t09MatrixN), Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrMalformedResponse}, Participants: 5, Faults: 5, SourceFaults: []int{0, 1, 2, 3, 4}, Representative: -1, ValueFrom: -1, TypedFrom: -1, TypedErr: rpc.ErrMalformedResponse}})
-	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Params: []any{uint64(2), "pending", []float64{50}}, Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true, Note: "the root FeeHistory wrapper has no pending form; production CallInto decodes the selected wire object"}})
+	t09CheckScenario(t, mc, t09Row{Scenario: "pending-local", Params: []any{uint64(2), "pending", []float64{50}}, Answers: t09Repeat(a, t09MatrixN), Want: t09Want{Status: rpc.Selected, Participants: 5, Support: []int{0}, Representative: -1, ValueFrom: 0, TypedFrom: 0, PreparedPending: true, Note: "the root FeeHistory wrapper has no pending form; the generic Call decision value carries the selected wire object"}})
 	t09CheckScenario(t, mc, t09Row{Scenario: "quorum-boundary", Answers: t09Repeat(a, t09MatrixN), Faults: []int{2, 3, 4}, Want: t09Want{Status: rpc.Unknown, ErrIs: []error{rpc.ErrConflict}, ErrText: "required support 3, winning cluster 2 of 5", Participants: 5, Support: []int{0, 1}, Faults: 3, SourceFaults: []int{2, 3, 4}, Representative: 0, ValueFrom: 0, TypedFrom: -1}})
 }
 
@@ -415,7 +461,7 @@ func TestVerificationMethodScenarioLocalShapeRejection(t *testing.T) {
 			for _, node := range fleet.nodes {
 				node.ReturnRaw(tc.method, json.RawMessage(`null`))
 			}
-			decision, err := fleet.client.Call(fleet.context(t), tc.method)
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), tc.method))
 			if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
 				t.Fatalf("null local answer = status %v value %s err %v", decision.Status, decision.Value, err)
 			}
@@ -433,7 +479,7 @@ func TestVerificationMethodScenarioGetLogsNullIsMalformed(t *testing.T) {
 	for _, node := range fleet.nodes {
 		node.ReturnRaw(methods.MethodGetLogs, json.RawMessage(`null`))
 	}
-	decision, err := fleet.client.Call(fleet.context(t), methods.MethodGetLogs, map[string]any{"blockHash": t09AnchorHash})
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodGetLogs, map[string]any{"blockHash": t09AnchorHash}))
 	if !errors.Is(err, rpc.ErrMalformedResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
 		t.Fatalf("null logs = status %v value %s err %v", decision.Status, decision.Value, err)
 	}
@@ -455,8 +501,8 @@ func TestVerificationMethodScenarioCallRevertDimensions(t *testing.T) {
 			node.FailWithData(methods.MethodCall, 3, "execution reverted", nil, false)
 		}
 	}
-	decision, err := fleet.client.Call(fleet.context(t), methods.MethodCall,
-		map[string]any{"to": t09Address}, fmt.Sprintf("0x%x", t09AnchorHeight))
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodCall,
+		map[string]any{"to": t09Address}, fmt.Sprintf("0x%x", t09AnchorHeight)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,12 +542,14 @@ func TestVerificationQuorumFloorInterlock(t *testing.T) {
 	for _, index := range []int{2, 3, 4} {
 		below.failHTTP(methods.MethodChainID, index)
 	}
-	decision, err := below.client.Call(below.context(t), methods.MethodChainID)
+	decision, err := callDecision(below.client.Call(below.context(t), methods.MethodChainID))
 	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
 		t.Fatalf("two supporters = status %v err %v, want conflict", decision.Status, err)
 	}
-	if len(decision.Support) != 2 || string(decision.Value) != `"0x1"` {
-		t.Fatalf("two supporters = support %d value %s, want 2 and the retained cluster value", len(decision.Support), decision.Value)
+	// The public value is cleared on the aggregation failure (decision 0066);
+	// the two supporters stay on the source tables.
+	if len(decision.Support) != 2 || decision.Value != nil {
+		t.Fatalf("two supporters = support %d value %s, want 2 and a cleared public value", len(decision.Support), decision.Value)
 	}
 	if err == nil || !strings.Contains(err.Error(), "required support 3") {
 		t.Fatalf("two supporters error = %v, want the actual quorum", err)
@@ -514,7 +562,7 @@ func TestVerificationQuorumFloorInterlock(t *testing.T) {
 	for _, index := range []int{3, 4} {
 		at.failHTTP(methods.MethodChainID, index)
 	}
-	decision, err = at.client.Call(at.context(t), methods.MethodChainID)
+	decision, err = callDecision(at.client.Call(at.context(t), methods.MethodChainID))
 	if err != nil || decision.Status != rpc.Corroborated {
 		t.Fatalf("three supporters = status %v err %v, want corroborated", decision.Status, err)
 	}
@@ -535,7 +583,7 @@ func TestVerificationAnchorSeam(t *testing.T) {
 		node.ReturnRaw(methods.MethodGetBlockByNumber, block)
 		node.ReturnRaw(methods.MethodGetBalance, json.RawMessage(`"0x64"`))
 	}
-	decision, err := fleet.client.Call(fleet.context(t), methods.MethodGetBalance, t09Address, "latest")
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodGetBalance, t09Address, "latest"))
 	if err != nil {
 		t.Fatalf("anchor seam: %v", err)
 	}
@@ -545,11 +593,15 @@ func TestVerificationAnchorSeam(t *testing.T) {
 	if decision.BlockRef != hash {
 		t.Fatalf("anchor seam: block ref = %q, want %q", decision.BlockRef, hash)
 	}
-	if decision.Prepared == nil || len(decision.Prepared.Params) != 2 {
+	if decision.Prepared == nil || len(decision.Prepared.Params) == 0 {
 		t.Fatalf("anchor seam: prepared = %+v", decision.Prepared)
 	}
-	if got := decision.Prepared.Params[1]; got != hash {
-		t.Fatalf("anchor seam: rewritten param = %#v, want %q", got, hash)
+	var prepared []any
+	if err := json.Unmarshal(decision.Prepared.Params, &prepared); err != nil || len(prepared) != 2 {
+		t.Fatalf("anchor seam: prepared params %s: %v", decision.Prepared.Params, err)
+	}
+	if got, _ := prepared[1].(string); got != hash {
+		t.Fatalf("anchor seam: rewritten param = %#v, want %q", prepared[1], hash)
 	}
 	if got := fleet.calls(methods.MethodGetBlockByNumber); got != t09MatrixN {
 		t.Fatalf("anchor seam: %d anchor calls, want %d", got, t09MatrixN)
@@ -564,29 +616,32 @@ func TestVerificationAnchorSeam(t *testing.T) {
 }
 
 var t09MatrixTestNames = map[string]string{
-	methods.MethodChainID:               "TestVerificationMethodScenarioChainID",
-	methods.MethodGetBlockByHash:        "TestVerificationMethodScenarioGetBlockByHash",
-	methods.MethodGetBlockByNumber:      "TestVerificationMethodScenarioGetBlockByNumber",
-	methods.MethodGetBalance:            "TestVerificationMethodScenarioGetBalance",
-	methods.MethodGetTransactionReceipt: "TestVerificationMethodScenarioGetTransactionReceipt",
-	methods.MethodGetTransactionByHash:  "TestVerificationMethodScenarioGetTransactionByHash",
-	methods.MethodGetBlockReceipts:      "TestVerificationMethodScenarioGetBlockReceipts",
-	methods.MethodGetTransactionCount:   "TestVerificationMethodScenarioGetTransactionCount",
-	methods.MethodGetStorageAt:          "TestVerificationMethodScenarioGetStorageAt",
-	methods.MethodGetCode:               "TestVerificationMethodScenarioGetCode",
-	methods.MethodCall:                  "TestVerificationMethodScenarioCall",
-	methods.MethodEstimateGas:           "TestVerificationMethodScenarioEstimateGas",
-	methods.MethodGetLogs:               "TestVerificationMethodScenarioGetLogs",
-	methods.MethodFeeHistory:            "TestVerificationMethodScenarioFeeHistory",
-	methods.MethodGasPrice:              "TestVerificationMethodScenarioGasPrice",
-	methods.MethodMaxPriorityFeePerGas:  "TestVerificationMethodScenarioMaxPriorityFeePerGas",
-	methods.MethodBlobBaseFee:           "TestVerificationMethodScenarioBlobBaseFee",
-	methods.MethodBlockNumber:           "TestVerificationMethodScenarioBlockNumber",
-	methods.MethodCreateAccessList:      "TestVerificationMethodScenarioCreateAccessList",
-	methods.MethodPeerCount:             "TestVerificationMethodScenarioPeerCount",
-	methods.MethodSyncing:               "TestVerificationMethodScenarioSyncing",
-	methods.MethodNetVersion:            "TestVerificationMethodScenarioNetVersion",
-	methods.MethodListening:             "TestVerificationMethodScenarioListening",
+	methods.MethodChainID:                           "TestVerificationMethodScenarioChainID",
+	methods.MethodGetBlockByHash:                    "TestVerificationMethodScenarioGetBlockByHash",
+	methods.MethodGetBlockByNumber:                  "TestVerificationMethodScenarioGetBlockByNumber",
+	methods.MethodGetBalance:                        "TestVerificationMethodScenarioGetBalance",
+	methods.MethodGetTransactionReceipt:             "TestVerificationMethodScenarioGetTransactionReceipt",
+	methods.MethodGetTransactionByHash:              "TestVerificationMethodScenarioGetTransactionByHash",
+	methods.MethodGetBlockReceipts:                  "TestVerificationMethodScenarioGetBlockReceipts",
+	methods.MethodGetTransactionCount:               "TestVerificationMethodScenarioGetTransactionCount",
+	methods.MethodGetBlockTransactionCountByHash:    "TestVerificationMethodScenarioGetBlockTransactionCountByHash",
+	methods.MethodGetBlockTransactionCountByNumber:  "TestVerificationMethodScenarioGetBlockTransactionCountByNumber",
+	methods.MethodGetTransactionByBlockHashAndIndex: "TestVerificationMethodScenarioGetTransactionByBlockHashAndIndex",
+	methods.MethodGetStorageAt:                      "TestVerificationMethodScenarioGetStorageAt",
+	methods.MethodGetCode:                           "TestVerificationMethodScenarioGetCode",
+	methods.MethodCall:                              "TestVerificationMethodScenarioCall",
+	methods.MethodEstimateGas:                       "TestVerificationMethodScenarioEstimateGas",
+	methods.MethodGetLogs:                           "TestVerificationMethodScenarioGetLogs",
+	methods.MethodFeeHistory:                        "TestVerificationMethodScenarioFeeHistory",
+	methods.MethodGasPrice:                          "TestVerificationMethodScenarioGasPrice",
+	methods.MethodMaxPriorityFeePerGas:              "TestVerificationMethodScenarioMaxPriorityFeePerGas",
+	methods.MethodBlobBaseFee:                       "TestVerificationMethodScenarioBlobBaseFee",
+	methods.MethodBlockNumber:                       "TestVerificationMethodScenarioBlockNumber",
+	methods.MethodCreateAccessList:                  "TestVerificationMethodScenarioCreateAccessList",
+	methods.MethodPeerCount:                         "TestVerificationMethodScenarioPeerCount",
+	methods.MethodSyncing:                           "TestVerificationMethodScenarioSyncing",
+	methods.MethodNetVersion:                        "TestVerificationMethodScenarioNetVersion",
+	methods.MethodListening:                         "TestVerificationMethodScenarioListening",
 }
 
 // TestVerificationMethodScenarioCoverage interlocks the registered inventory with the method

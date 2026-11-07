@@ -72,8 +72,8 @@ type t09FieldRow struct {
 	// schemaOmitted lists nested official paths the encoder deliberately drops
 	// even though their top-level object is protected.
 	schemaOmitted []string
-	// noSchema marks the two local methods with no pinned execution-apis
-	// result schema; the coverage test rejects any other missing schema.
+	// noSchema marks methods with no pinned execution-apis result schema; the
+	// coverage test rejects any other missing schema.
 	noSchema  bool
 	projector bool
 	// nullPreserved declares that the canonical encoder materializes optional
@@ -330,6 +330,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 	otherReceipt2 := chain.receipt2(blockHash, t09AnchorHeight, "0x1")
 	minedTx := chain.txObject(true, blockHash, t09AnchorHeight, 0)
 	otherTx := chain.txObject(true, blockHash, t09AnchorHeight+1, 1)
+	otherInBlockTx := chain.tx2Object(true, blockHash, t09AnchorHeight, 0)
 	logs := t09Logs(blockHash, chain.txHash)
 	otherLogs := t09JSON([]json.RawMessage{t09Log(blockHash, chain.txHash, t09AnchorHeight, 0, "0x00fe")})
 	receipts := t09JSON([]json.RawMessage{receipt, receipt2})
@@ -509,6 +510,36 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			mutationReject: 1,
 		},
 		{
+			method:         methods.MethodGetBlockTransactionCountByHash,
+			params:         []any{blockHash},
+			variants:       t09Variants(t, json.RawMessage(`"0xa"`)),
+			other:          json.RawMessage(`"0xb"`),
+			mutation:       json.RawMessage(`"0x01"`),
+			fieldHint:      "hex quantity",
+			decode:         t09DecodeBig,
+			typed:          t09TypedTransactionCount,
+			resolution:     t09Strict,
+			noSchema:       true,
+			protected:      []string{"$"},
+			mutationExpect: t09MutationStrict,
+			mutationReject: 1,
+		},
+		{
+			method:         methods.MethodGetBlockTransactionCountByNumber,
+			params:         []any{"pending"},
+			variants:       t09Variants(t, json.RawMessage(`"0xa"`)),
+			other:          json.RawMessage(`"0xb"`),
+			mutation:       json.RawMessage(`true`),
+			fieldHint:      "hex quantity",
+			decode:         t09DecodeQuantity,
+			typed:          t09TypedPendingTransactionCount,
+			resolution:     t09Local,
+			noSchema:       true,
+			protected:      []string{"$"},
+			mutationExpect: t09MutationLocal,
+			mutationReject: 1,
+		},
+		{
 			method:         methods.MethodGetStorageAt,
 			params:         []any{t09Address, t09StorageKey, fmt.Sprintf("0x%x", t09AnchorHeight)},
 			variants:       t09Variants(t, json.RawMessage(`"`+wordA+`"`)),
@@ -521,6 +552,24 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			protected:      []string{"$"},
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
+		},
+		{
+			method:         methods.MethodGetTransactionByBlockHashAndIndex,
+			params:         []any{blockHash, uint(0)},
+			variants:       t09VariantsNoEscape(t, minedTx),
+			other:          otherInBlockTx,
+			mutation:       t09DeleteField(t, minedTx, "from"),
+			fieldHint:      "transaction",
+			decode:         t09DecodeTransaction,
+			typed:          t09TypedTransactionInBlock,
+			resolution:     t09Strict,
+			noSchema:       true,
+			protected:      txProtected,
+			outside:        []string{"vendor"},
+			projector:      true,
+			mutationExpect: t09MutationStrict,
+			mutationReject: 1,
+			notes:          "inclusion context is part of the protected transaction envelope; vendor metadata is projected out",
 		},
 		{
 			method:         methods.MethodGetCode,
@@ -885,7 +934,7 @@ func TestVerificationFieldRepresentationStability(t *testing.T) {
 					payloads[i] = row.variants[(i+rotation)%len(row.variants)]
 				}
 				fleet.returnRaw(row.method, payloads)
-				decision, err := fleet.client.Call(fleet.context(t), row.method, row.params...)
+				decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 				if err != nil {
 					t.Fatalf("rotation %d: %v", rotation, err)
 				}
@@ -944,8 +993,8 @@ func TestVerificationEvidenceDiagnosticsConservation(t *testing.T) {
 	fleet.nodes[1].ReturnRaw(methods.MethodFeeHistory, base)
 	fleet.nodes[2].ReturnRaw(methods.MethodFeeHistory, base)
 	fleet.nodes[3].ReturnRaw(methods.MethodFeeHistory, outlier)
-	decision, err := fleet.client.Call(fleet.context(t), methods.MethodFeeHistory,
-		uint64(2), fmt.Sprintf("0x%x", t09AnchorHeight), []float64{50})
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodFeeHistory,
+		uint64(2), fmt.Sprintf("0x%x", t09AnchorHeight), []float64{50}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1006,7 +1055,7 @@ func TestVerificationProtectedMutationFails(t *testing.T) {
 			if row.mutationFault {
 				fleet.failProvider(row.method, faulty)
 			}
-			decision, err := fleet.client.Call(fleet.context(t), row.method, row.params...)
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 			switch row.mutationExpect {
 			case t09MutationStrict:
 				if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
@@ -1081,7 +1130,7 @@ func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 			fleet.nodes[0].ReturnRaw(tc.method, escaped)
 			fleet.nodes[1].ReturnRaw(tc.method, tc.legal)
 			fleet.nodes[2].ReturnRaw(tc.method, tc.legal)
-			decision, err := fleet.client.Call(fleet.context(t), tc.method, tc.params...)
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), tc.method, tc.params...))
 			if err != nil {
 				t.Fatalf("literal sources did not carry the quorum: %v", err)
 			}
@@ -1109,7 +1158,7 @@ func TestVerificationTypedRoundTrip(t *testing.T) {
 			for index, variant := range row.variants {
 				fleet := t09NewFleet(t, 1)
 				fleet.returnOne(row.method, variant)
-				decision, err := fleet.client.Call(fleet.context(t), row.method, row.params...)
+				decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 				if err != nil {
 					t.Fatalf("variant %d: %v", index, err)
 				}
@@ -1260,7 +1309,7 @@ func TestVerificationCallRevertValueAndContext(t *testing.T) {
 			p := payloads[(i+rotation)%len(payloads)]
 			node.FailWithData(methods.MethodCall, p.code, p.message, p.data, true)
 		}
-		decision, err := fleet.client.Call(fleet.context(t), methods.MethodCall, params...)
+		decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodCall, params...))
 		if err != nil {
 			t.Fatalf("rotation %d: %v", rotation, err)
 		}
@@ -1311,7 +1360,7 @@ func TestVerificationCallRevertNonHexDataCanonical(t *testing.T) {
 		for i, node := range fleet.nodes {
 			node.FailWithData(methods.MethodCall, 3, "execution reverted", payloads[(i+rotation)%len(payloads)], true)
 		}
-		decision, err := fleet.client.Call(fleet.context(t), methods.MethodCall, params...)
+		decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodCall, params...))
 		if err != nil {
 			t.Fatalf("rotation %d: %v", rotation, err)
 		}
@@ -1334,7 +1383,7 @@ func TestVerificationCallRevertWithheldDataConservation(t *testing.T) {
 	fleet.nodes[2].FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(`"0xbbbb"`), true)
 	fleet.nodes[3].FailWithData(methods.MethodCall, -32000, "execution reverted", json.RawMessage(`"0xBBBB"`), true)
 	params := []any{map[string]any{"to": t09Address}, fmt.Sprintf("0x%x", t09AnchorHeight)}
-	decision, err := fleet.client.Call(fleet.context(t), methods.MethodCall, params...)
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodCall, params...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1372,7 +1421,7 @@ func TestVerificationCallRevertAbstainConservation(t *testing.T) {
 	fleet.nodes[2].FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(`"0x"`), true)
 	fleet.nodes[3].FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(`"0xdead"`), true)
 	params := []any{map[string]any{"to": t09Address}, fmt.Sprintf("0x%x", t09AnchorHeight)}
-	decision, err := fleet.client.Call(fleet.context(t), methods.MethodCall, params...)
+	decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodCall, params...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1407,22 +1456,22 @@ func TestVerificationLocalWholeAnswerShapeBoundary(t *testing.T) {
 	t.Run(methods.MethodListening, func(t *testing.T) {
 		fleet := t09NewFleet(t, 1)
 		fleet.returnOne(methods.MethodListening, json.RawMessage(`"yes"`))
-		decision, err := fleet.client.Call(fleet.context(t), methods.MethodListening)
+		decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodListening))
 		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
 			t.Fatalf("non-boolean listening = status %v value %s err %v", decision.Status, decision.Value, err)
 		}
-		if _, _, err := fleet.client.Listening(fleet.context(t)); !errors.Is(err, rpc.ErrNoValidResponse) {
-			t.Fatalf("typed boundary error = %v, want no valid response", err)
+		if _, err := fleet.client.Call(fleet.context(t), methods.MethodListening); !errors.Is(err, rpc.ErrNoValidResponse) {
+			t.Fatalf("call boundary error = %v, want no valid response", err)
 		}
 	})
 	t.Run(methods.MethodSyncing, func(t *testing.T) {
 		fleet := t09NewFleet(t, 1)
 		fleet.returnOne(methods.MethodSyncing, json.RawMessage(`true`))
-		decision, err := fleet.client.Call(fleet.context(t), methods.MethodSyncing)
+		decision, err := callDecision(fleet.client.Call(fleet.context(t), methods.MethodSyncing))
 		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
 			t.Fatalf("true syncing = status %v value %s err %v", decision.Status, decision.Value, err)
 		}
-		if _, _, err := fleet.client.Syncing(fleet.context(t)); !errors.Is(err, rpc.ErrNoValidResponse) {
+		if _, _, err := fleet.client.SyncProgress(fleet.context(t)); !errors.Is(err, rpc.ErrNoValidResponse) {
 			t.Fatalf("typed boundary error = %v, want no valid response", err)
 		}
 	})
@@ -1465,7 +1514,7 @@ func TestVerificationUpperPrefixSpelling(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			fleet := t09NewFleet(t, 3)
 			fleet.returnOne(tc.method, json.RawMessage(tc.raw))
-			decision, err := fleet.client.Call(fleet.context(t), tc.method, tc.params...)
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), tc.method, tc.params...))
 			if err != nil {
 				t.Fatal(err)
 			}

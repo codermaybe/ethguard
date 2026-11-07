@@ -67,23 +67,6 @@ type RPCErrorPolicy interface {
 // Prepare decorators preserve this execution requirement.
 type SingleSourcePolicy interface{ SingleSource() bool }
 
-// RequireCorroborated marks one typed call as unable to expose a Selected
-// decision: the aggregator's resolution gate downgrades any non-Corroborated
-// answer to Unknown with the typed conflict error. The ethclient-shaped
-// adapter sets it; the marking is the caller's explicit business intent,
-// carried in the request context.
-type corroborationRequiredKey struct{}
-
-func RequireCorroborated(ctx context.Context) context.Context {
-	return context.WithValue(ctx, corroborationRequiredKey{}, true)
-}
-
-// CorroborationRequired reports the typed call's marking.
-func CorroborationRequired(ctx context.Context) bool {
-	value, _ := ctx.Value(corroborationRequiredKey{}).(bool)
-	return value
-}
-
 // AgreementPolicy identifies deterministic answers that require corroboration
 // at an ethclient-shaped boundary, where callers cannot inspect Selected.
 type AgreementPolicy interface{ RequiresAgreement() bool }

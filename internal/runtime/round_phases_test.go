@@ -39,7 +39,7 @@ func phaseMappingFleet(t *testing.T, serve func(i int, node *rpctest.Node)) ([]*
 // evidence) next to the business decision.
 func phaseMappingAggregate(t *testing.T, p *pool.Pool) (rpc.ReferenceEvidence, rpc.Decision, error) {
 	t.Helper()
-	aggregate, _, _ := traceAggregator(t, p, nil)
+	aggregate, _ := traceAggregator(t, p, nil)
 	decision, err := aggregate.Aggregate(context.Background(), rpc.Request{Method: "eth_getBalance", Params: []any{"0x1", "latest"}})
 	// A failed read still carries the reference round's partial evidence —
 	// that visibility is part of the contract under test.
@@ -135,7 +135,7 @@ func TestReferenceRoundHonorsCancellation(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 	}()
-	aggregate, _, _ := traceAggregator(t, p, nil)
+	aggregate, _ := traceAggregator(t, p, nil)
 	_, err := aggregate.Aggregate(ctx, rpc.Request{Method: "eth_getBalance", Params: []any{"0x1", "latest"}})
 	close(release)
 	if !errors.Is(err, context.Canceled) {

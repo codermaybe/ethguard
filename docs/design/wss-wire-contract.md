@@ -3,18 +3,17 @@
 状态：**设计冻结（W0，2026-11-03）。本文件冻结 EthGuard 自有 WSS 底层的范围、
 分层与验收；后续 W1–W7 的每个提交只实现其中一层，不扩张本契约。**
 
-本文件承接 [WSS Transport Adapter](wss-transport-adapter.md)（当前 gorilla
-绑定实现）、[WSS Call-Layer Feasibility](wss-call-layer-feasibility.md)
-（W1 可行性裁决）与 [WSS 生命周期扩展契约](wss-lifecycle-extension-contract.md)
-（扩展边界）。目标：把 `gorilla/websocket` 从生产依赖中移除，由 EthGuard 自有
+本文件是 WSS wire、连接生命周期和当前实现边界的唯一正文。目标：把
+`gorilla/websocket` 从生产依赖中移除，由 EthGuard 自有
 代码掌握 HTTP Upgrade、WebSocket 帧协议和调用生命周期；JSON-RPC 语义继续由
 `internal/rpcwire` 独占。
 
 ## 0. 边界总纲
 
-- **只实现 request/response raw-call。** 一条长连接、一个 reader、一个 pending
-  表、一个写锁；请求 ID demux；无订阅、无 batch、无重连、无重放。该形态与
-  [生产化决策矩阵](wss-productionization-decisions.md) 的 8 项已接受决策一致。
+- **实现 request/response raw-call 与 opt-in notification stream。** 一条长连接、一个
+  reader、一个 pending 表、一个写锁；请求 ID demux；订阅使用独立的有界队列和
+  subscription ID 绑定。订阅生命周期、聚合和错误边界见
+  [subscription-contract.md](subscription-contract.md)。不支持 batch、自动重连或重放。
 - **不自下而上重写传输。** 连接建立与字节流使用 Go 标准库（`net`、`crypto/tls`、
   `net/http`、`bufio`）；帧协议与调用生命周期由项目自有代码实现。
 - **不改变上层语义。** 不修改 `pool`、`aggregator`、`ReadPlan`、quorum、
@@ -78,8 +77,7 @@
 
 ### 2.3 连接与生命周期层
 
-沿用 [adapter 文档 §2](wss-transport-adapter.md) 与
-[生命周期契约 §5 矩阵](wss-lifecycle-extension-contract.md) 的全部现有语义：
+连接与生命周期语义由本节和 `transport-contract.md` 共同拥有：
 
 - 一个 reader goroutine 拥有全部入站解析；ping 自动回 pong、close 自动回
   close，不占用业务 pending 表与业务 request ID。
@@ -96,10 +94,11 @@
 
 ## 3. 明确不实现
 
-- subscription / unsubscribe / filter / logs streaming；
+- 通用 WebSocket API；订阅能力仅限当前 transport/subscription 契约定义的
+  `Subscribe`、`Unsubscribe` 和 notification stream；
 - JSON-RPC batch；
 - compression / permessage-deflate 及任何扩展协商；
-- 通用 WebSocket API（任意消息类型、并发 reader、事件回调等）；
+- 任意消息类型、并发 reader、事件回调等通用客户端行为；
 - 自动重连、自动 replay、未知交易结果恢复（决策 0056.2 与生命周期契约继续
   禁止；pool-owned 下一次独立调用惰性重拨不变）；
 - provider-specific close/reconnect 行为适配；

@@ -2,6 +2,11 @@
 
 状态：T08 的区块、交易、eth_call revert context/value 和证据通道实现已完成；阶段 1、RV2 及 T07 的标准/coverage 闭环保持有效。数量、对象和成功 DATA 的 Value 均由方法 encoder 生成规范结果；窄键区块和交易保留各自的 normalizer key。执行顺序与任务出口只写在 `project-roadmap.md`；本文保留设计依据与历史决策。
 
+0066 changes the public carrier only: every operation delivers its decision
+on `CallResult`, and a failed aggregation clears the public `Value` while the
+internal canonical-encoding rules below keep governing what successful
+decisions carry.
+
 0051 supersedes the older receipt-specific `from` exclusion wording below.
 0052 additionally separates `eth_call` revert `code`/`message` into
 `Decision.Revert`; the protected Value carries only the accepted data
@@ -18,7 +23,7 @@ are historical statements of the pre-T08/pre-0061 implementation.
 
 问题记录、事实核对和执行标准已并入本文（2026-09-26）；返回值归一化设计不再单独成文，避免和正文分成两套设计。模型意见同样并入正文。
 
-关联：`architecture-record.md`、`method-verification-pipeline.md`、决策 0020、0024、0025、0028、0029、0039、0040。
+关联：`codebase-topology.md`、`method-verification-pipeline.md`、决策 0020、0024、0025、0028、0029、0039、0040。
 
 ---
 
@@ -343,8 +348,8 @@ aggregator
 |---|---|---|
 | 0039 规则 4e | methods that do not declare the projection still return that source value | 已注册且已迁移的方法返回受保护结果域的规范编码 |
 | 0039 第 2 类 | They stay on the winning payload as uncorroborated context | 这一刀不改。未迁移对象上它们仍留在 Value 里 |
-| `architecture-record.md` 的 Value 句 | 写入获胜簇的原始值，不改字段 | 已迁移标量写规范编码；未迁移 Strict 仍写捕获顺序第一人的原文 |
-| `architecture-record.md` 第 127 行 | Normalize 不修改胜出 raw payload | 这句保留。Normalize 仍不改写原始载荷。另加一层：Encode 生成 Value |
+| `codebase-topology.md` 的 Value 约束 | 写入获胜簇的原始值，不改字段 | 已迁移标量写规范编码；未迁移 Strict 仍写捕获顺序第一人的原文 |
+| `codebase-topology.md` 的 Normalize 约束 | Normalize 不修改胜出 raw payload | 这句保留。Normalize 仍不改写原始载荷。另加一层：Encode 生成 Value |
 | `rpc.Decision.Value` 注释 | Generic Strict copies one admitted source value | 已迁移方法写规范编码；未迁移 Strict 仍是捕获顺序第一人的原文。原文不在 Provenance |
 | pipeline 1.1 目标语义第 2 条 | 未声明的方法仍返回来源原值 | 迁移期间 result 列为 `raw` 或 `canonical`。迁移完成前仍允许 `raw` |
 | `method-contracts.md` 第 0 节 | 取簇内最后一个池序成员的原始回答 | 已迁移方法的 Value 是规范编码；其余 Strict 方法仍是捕获顺序第一人的原文 |
@@ -355,7 +360,7 @@ aggregator
 - `method-contracts.md` 第 0 节：「获胜簇的 Value 取簇内最后一个池序成员的原始回答」改为捕获顺序中的第一个。Value 仍是该来源的原始回答，不是规范编码。
 - 同文件 byNumber 归一化行：「获胜簇 Value 取簇内最后池序成员的原始对象」同样改为捕获顺序第一个。
 
-阶段 0 的那两处已经落地。0041 这一刀改成事实的只有这些句子：`method-contracts.md` 第 0 节、`Decision.Value` 注释、`architecture-record.md` 里 Normalize 仍不改原文并补上 Encode、pipeline 1.1 的迁移期 result 列。0039 第 2 类没有改成已经离开 Value。byHash 没有改成「内容由承诺约束」。原文没有写入 Provenance。RV1 已在 48e2c64 验收；下一刀的任务只写在路线图 RV2a，不在这里展开。
+阶段 0 的那两处已经落地。0041 这一刀改成事实的只有这些句子：`method-contracts.md` 第 0 节、`Decision.Value` 注释、`codebase-topology.md` 里 Normalize 仍不改原文并补上 Encode、pipeline 1.1 的迁移期 result 列。0039 第 2 类没有改成已经离开 Value。byHash 没有改成「内容由承诺约束」。原文没有写入 Provenance。历史提交保留完整变更过程，当前路线不再维护阶段游标。
 
 0020 不用改。单源没有规范形式时记 Fault 并留在分母，就是 0020 已经要求的“不得静默进入受保护业务结果”。
 

@@ -18,7 +18,6 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/ethadapter"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -292,7 +291,6 @@ func (s *runState) selectedIDs() []string {
 func (s *runState) execute(parent context.Context) {
 	runCtx, cancel := context.WithTimeout(parent, time.Duration(s.manifest.Timeouts.RunMS)*time.Millisecond)
 	defer cancel()
-	adapter := ethadapter.Wrap(s.client)
 	for _, planStep := range s.manifest.Plan.Steps {
 		if runCtx.Err() != nil {
 			s.addReason("run_timeout", &planStep.ID, "", sanitizeDetail(runCtx.Err().Error()))
@@ -311,7 +309,7 @@ func (s *runState) execute(parent context.Context) {
 		}
 		logical := RequestReport{Method: planStep.Method, Params: logicalParams}
 		stepCtx, cancelStep := context.WithTimeout(runCtx, time.Duration(s.manifest.Timeouts.StepMS)*time.Millisecond)
-		execution := executeStep(stepCtx, s.client, adapter, planStep, logical)
+		execution := executeStep(stepCtx, s.client, planStep, logical)
 		stepReport, stepReasons := s.evaluateStep(execution, stepCtx, runCtx)
 		cancelStep()
 		s.steps = append(s.steps, stepReport)
@@ -344,7 +342,7 @@ type stepExecution struct {
 	logical     RequestReport
 	decision    *rpc.Decision
 	decisionErr error
-	prepared    *rpc.Request
+	prepared    *rpc.PreparedRequest
 	reference   *rpc.ReferenceEvidence
 	typed       *TypedReport
 	typedErr    error
@@ -352,29 +350,37 @@ type stepExecution struct {
 	identity    *big.Int
 }
 
-func executeStep(ctx context.Context, client *ethguard.Client, adapter *ethadapter.Client, planStep PlanStep, logical RequestReport) stepExecution {
+func executeStep(ctx context.Context, client *ethguard.Client, planStep PlanStep, logical RequestReport) stepExecution {
 	execution := stepExecution{plan: planStep, logical: logical}
 	switch planStep.Path {
 	case "client_call":
 		if planStep.ID == "identity.chain-id" {
-			value, decision, err := client.ChainID(ctx)
-			execution.decision, execution.decisionErr, execution.identity = &decision, err, value
+			result, err := client.Call(ctx, planStep.Method)
+			decision := result.Decision
+			execution.decision, execution.decisionErr = decision, err
+			if err == nil && decision != nil {
+				if canonical, nerr := client.Normalize(planStep.Method, decision.Value); nerr == nil {
+					if id, ok := new(big.Int).SetString(canonical, 10); ok {
+						execution.identity = id
+					}
+				}
+			}
 		} else {
-			decision, err := client.Call(ctx, planStep.Method, callParams(planStep, logical.Params)...)
-			execution.decision, execution.decisionErr = &decision, err
+			result, err := client.Call(ctx, planStep.Method, callParams(planStep, logical.Params)...)
+			execution.decision, execution.decisionErr = result.Decision, err
 		}
 	case "typed_block":
 		hash := common.HexToHash(paramText(logical.Params, 0))
-		block, err := adapter.BlockByHash(ctx, hash)
+		block, _, err := client.BlockByHash(ctx, hash)
 		execution.typed = typedBlockReport(block, err)
 		execution.typedErr = err
 		execution.typedOK = err == nil && block != nil
 	case "typed_receipt":
 		hash := common.HexToHash(paramText(logical.Params, 0))
-		decision, err := client.Call(ctx, planStep.Method, hash.Hex())
-		execution.decision, execution.decisionErr = &decision, err
-		if err == nil {
-			receipt, decodeErr := ethguard.DecodeReceipt(decision.Value)
+		result, err := client.Call(ctx, planStep.Method, hash.Hex())
+		execution.decision, execution.decisionErr = result.Decision, err
+		if err == nil && result.Decision != nil {
+			receipt, decodeErr := ethguard.DecodeReceipt(result.Decision.Value)
 			execution.typed = typedReceiptReport(receipt, decodeErr)
 			execution.typedErr = decodeErr
 		} else {

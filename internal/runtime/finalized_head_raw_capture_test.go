@@ -54,8 +54,8 @@ func TestFinalizedHeadRoundsReachTheRawCaptureTrail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture := internaluncertain.New()
-	ctx := internaluncertain.WithContext(context.Background(), capture)
+	capture := internaluncertain.NewCollector(internaluncertain.Config{BudgetBytes: internaluncertain.DefaultBudget})
+	ctx := internaluncertain.WithCollector(context.Background(), capture)
 	decision, err := bundle.Aggregator.Aggregate(ctx, rpc.Request{
 		Method: methods.MethodGetBalance,
 		Params: []any{"0x1", "latest"},

@@ -2615,3 +2615,221 @@ limits are recorded in `docs/design/roadmap-completion-report.md`.
 
 Rollback: remove explicit WSS configuration by constructing a new Client with
 the desired trust set. Never silently drop WSS members from a running Client.
+
+## 0065. One Client, Geth-shaped typed reads, and the pre-release break policy
+
+Status: Accepted and implemented (2026-11-05).
+
+`ethguard.Client` is the module's only public client. The `ethadapter`
+package, `Wrap`, `Unwrap` and every shim or alias surface are deleted with no
+deprecation window; the adapter's Geth-shaped methods, parameter conversion,
+request-answer binding and `RevertError` mapping moved onto the root Client
+verbatim. This supersedes the surface split of decisions 0011 and 0018: the
+call shapes they froze survive, their two-surface carrier does not. Decision
+0057's "no external consumers" premise is void — the pre-release policy below
+replaces it.
+
+The public typed surface is Geth-shaped per the frozen execution-plan matrix:
+`ChainID`, `BalanceAt`, `BlockByHash`, `BlockByNumber`, `BlockNumber`,
+`BlockReceipts(gethrpc.BlockNumberOrHash)`, `TransactionReceipt`,
+`TransactionByHash` (with the pending flag), `NonceAt`, `StorageAt`, `CodeAt`,
+`SuggestGasTipCap`, `SuggestGasPrice`, `CallContract`, `EstimateGas`,
+`FilterLogs`, `PeerCount`, `SyncProgress`, `FeeHistory(*ethereum.FeeHistory)`,
+`BlobBaseFee`, `NetworkID`, and the retained EthGuard extension
+`CreateAccessList` without decision evidence in its return value.
+`net_listening` has no typed method — its full decision comes from `Call`.
+The old decision-bearing typed methods are deleted; `Call` stays the generic
+decision entry. Classification keeps the EthGuard sentinel surface and
+fail-closed semantics: `ethereum.NotFound` for corroborated absence,
+`ErrConflict` under an unmet corroboration requirement, `RevertError` as a
+`gethrpc.DataError` that is not a `gethrpc.Error`.
+
+Evidence stays a four-layer API with no new parallel entry points: (1)
+typed classified errors on clean-value returns, (2) generic `Call` returning
+the full `rpc.Decision`, (3) opt-in invocation-scoped `WithUncertain` raw
+source material, (4) `observe.Recorder` events for audit and operations — the
+recorder is never a synchronous business return channel. No
+`*WithDecision`, `*WithEvidence` or `LastDecision` API exists.
+
+The typed corroboration requirement rides the invocation, not the context and
+not the request: typed facade methods aggregate through
+`aggregator.AggregateStrict`, which records the requirement when the
+invocation is built, and the resolution gate reads
+`Invocation.RequireCorroboration()`. `Call` never sets it. Forwarded mode and
+the pending-local route keep their exemptions. The `rpc.RequireCorroborated`
+context input is removed; `refcontext` keeps only the `Capture` that carries
+partial reference evidence on establishment failure.
+
+Construction gains the multi-source entries: `config.FromEndpoints` (errors
+carry the field path, endpoint index and a fix hint), root `Dial` (two or
+more distinct endpoints, default configuration, no implicit ChainID, lazy),
+`DialContext` (context bounds construction), `DialUncorroborated` (the
+explicit single-source Forwarded entry per 0030), `LoadFile`, and
+`WithChainID` with Go-option precedence. The anchor facade is query-only:
+the resolver injection aliases and constructors are deleted; `Client` owns
+its runtime-built resolver, and `AnchorBlockHashForTag` passes its tag
+explicitly.
+
+`gethcompat` and `internal/transport/geth` remain the explicit transport
+compatibility seam and nothing more: default construction does not link
+them, they cannot alter pool/Decision/reference/quorum semantics, they own no
+second typed decoder, and they do not reintroduce a second client surface.
+The frozen `BlockNumberOrHash` parameter makes the root facade link
+go-ethereum/rpc — and transitively gorilla/websocket — for the type only;
+the link gate pins that exception to go-ethereum's type surface while the
+WSS production path stays absolute.
+
+Pre-release break policy: until the first stable (v1) release, a beta or
+minor-version increment may break the public API without a deprecation
+window, provided the break lands in the release notes with a migration note
+and the release gate passes. Decision 0057's no-consumer rationale no longer
+applies, so post-v1 breaks follow ordinary semver with a deprecation window.
+
+Behavioral evidence: the root typed suite (`typed_*_test.go`), the
+architecture interlocks (`TestArchitectureDependencyInterlock`,
+`TestDefaultBuildExcludesEthclient`), the corroboration-gate replay fixtures
+(`TestReplayTypedReadGateRejectsUncorroboratedCall`), and the verification
+integration matrix.
+
+## 0066. Dual facade with one execution owner: CallResult, ResultCapture, and the EthClient view
+
+Status: Accepted and implemented (2026-11-06).
+
+This decision partially supersedes 0065. One runtime owner, the pre-release
+break policy, and the gethcompat transport-seam boundaries remain. The single
+public Client surface is replaced by two independent method facades: native
+result-bearing methods and a view with official Geth signatures. The former
+four-layer evidence API is replaced by one CallResult model and two delivery
+forms; raw-material capture and generic read routing also change.
+Where 0065 said the typed methods return clean values with classified errors
+and evidence stays behind `Call` and `WithUncertain`, this decision replaces
+that carrier split with one execution result delivered at every public
+operation, and it narrows the generic entry to declared reads.
+
+### Root native and the private view
+
+The root `Client` keeps every business method and gains result-bearing
+signatures: each of the 21 Geth-shaped typed reads appends a `CallResult`
+before the final error, the writes return `(CallResult, error)`, and the
+native extensions (`CreateAccessList`, the three anchor methods) carry the
+result too. A second facade `EthClient` is reachable through
+`(*Client).EthClient()` and holds a private `owner *Client` field — never an
+anonymous embedding — exposing exactly the official go-ethereum-shaped
+surface: the 21 typed reads with their locked-version signatures,
+`SendTransaction(ctx, tx) error`, and `Close`. It adds no anchor, Call, Pool,
+Mode, Normalize, raw-write, or CreateAccessList surface. The view performs no
+networking of its own and builds no second pool; it is a thin projection of
+the same shared execution path, and no pointer-identity or zero-allocation
+promise is made for it. `Close` exists on both; both reach the same
+lifecycle. The view satisfies `bind/v2.ContractCaller` and
+`bind/v2.DeployBackend` at the locked go-ethereum version and nothing more —
+it is not `*ethclient.Client`, and documentation must not promise universal
+SDK drop-in.
+
+### CallResult and the two-layer fact split
+
+`CallResult` carries at most one of `Decision` (reads) or `WriteDecision`
+(writes), an optional `UncertainResult` when source-evidence collection is
+enabled, and `Err` — the call's final business conclusion, identical to the
+method's trailing error. `IsCorroborated` tests only `Decision.Status`;
+`IsWriteAccepted` tests status plus a non-empty hash and never claims mining.
+Read and write decisions never mix in one result. The `Decision` inside a
+failed call keeps the aggregation facts that actually formed — a failed
+establishment keeps its reference evidence, a confirmed receipt-null keeps
+its corroborated null, a revert keeps its aggregated classification and
+data — while the public failure path clears only `Value` on a main
+aggregation failure. The old outer rule "any error forces Unknown" is
+retired: `Status` states what the invocation established, the trailing error
+states why the business call did not succeed, and `CallResult.Err` equals
+that trailing error.
+
+### One execution owner
+
+Every public operation runs through one shared implementation that owns
+validation, reference establishment, aggregation, adjudication, typed
+projection, capture binding, and the single final publication of the result.
+The two facades differ only in input shape and delivery; internal helpers
+call shared private implementations with explicit state, never re-enter a
+public facade. A capture binds atomically at the public entry: a second
+independent call on the same `ResultCapture` handle permanently invalidates
+it (`ErrCaptureReused` on subsequent `Result`), while the second call itself
+still executes under the normal contract. A call that exits abnormally —
+panic — propagates and marks the capture aborted (`ErrCaptureAborted`);
+capture errors never enter business errors and never replace
+`CallResult.Err`. A zero-value or nil capture reads as zero result, false,
+nil.
+
+### Raw material and budgets
+
+`WithResult(ctx)` creates the opt-in `ResultCapture` on the context;
+`WithSourceEvidence(ctx, budgetBytes)` only configures immutable retention
+(budget > 0, else a wrapped `ErrInvalidRequest`; last configuration on a
+derived chain wins). Collection stays opt-in and invocation-scoped, replaces
+the `WithUncertain`/`UncertainCapture` public surface, and never changes
+business outcomes: budget exhaustion stops retention only, never a source
+request, a quorum, or a vote. The retention budget and the transport response
+limits stay independent. Enabled collection yields a non-nil (possibly
+empty) `UncertainResult`; without it the field is nil.
+
+### Isolation and request facts
+
+Every known mutable result graph — `ReferenceEvidence`, `Decision`,
+`WriteDecision`, `UncertainResult`, extensions, diagnostics, dimensions,
+write rejections — gets an explicit recursive `Clone`; top-level slice copies
+and reflect deep-copies are banned. `Decision.Prepared` becomes
+`*rpc.PreparedRequest` carrying `Method` and the frozen parameter JSON
+(`Params json.RawMessage`) captured from the actually prepared request —
+including reference rewrites and one controlled serialization for custom
+marshalers — never a reconstruction or the caller's live objects. Errors
+stay uncloned interfaces with `errors.Is/As` preserved; library-owned errors
+with mutable payloads freeze before publication. The `IsCorroborated(err)`
+helper is deleted; callers check the aggregation error and `Status`
+explicitly.
+
+### Lifecycle
+
+The root `Client` owns a cancellation signal. Every public operation derives
+its context from both the caller's context and the owner's lifecycle, so an
+owner `Close` converges in-flight HTTP, WSS, reference, read, and broadcast
+work; new calls fail with the pool's existing `ErrPoolClosed` before any
+network contact. User cancellation that wins first keeps its `context`
+cause. Completed results are never rewritten by a later close. Concurrent
+and repeated `Close` share one completion signal and wait for the pool's own
+background commitments (the tip sampler) — without holding locks across RPC
+or rewriting correct pool internals.
+
+### Generic Call routing
+
+`Call(ctx, method, params...)` becomes a result-bearing read-only operation:
+the allow-list is the existing catalog/read-plan registry (one source of
+truth), acceptance is checked before any network contact, and write,
+subscription, and unknown methods fail locally with `ErrInvalidRequest`
+(`eth_sendRawTransaction` points at `SendRawTransaction`). Declared reads
+keep their own selection, pending-local, and explicit single-source
+Forwarded semantics. `CallInto` and the public uncertain-capture aliases are
+deleted with no shims; repository consumers and the documentation set
+migrate in the same change.
+
+Evidence: the dual-facade execution plan
+(`docs/design/dual-facade-execution-plan.md`, the acceptance matrix A01—A15
+with its review-fix round), the API-contract and view-surface tests
+(`ethclient_view_test.go`, `call_result_facts_test.go`, `call_route_test.go`,
+`client_lifecycle_test.go`, `result_capture_test.go`, the budget collector
+suite), and the full G2/G3 gate results recorded in the execution plan.
+
+## 0067. EthClient view includes synchronous writes and subscriptions
+
+Status: Accepted and implemented (2026-11-07).
+
+The implemented view surface is larger than the initial 0066 inventory: in
+addition to the official typed reads, `EthClient` exposes `SendTransactionSync`,
+`SendRawTransactionSync`, `SubscribeNewHead`, `SubscribeFilterLogs`,
+`SubscribeTransactionReceipts`, and `Close`. These methods remain projections
+of the same owner and do not create a second execution or evidence surface.
+
+The WSS transport provides an opt-in bounded notification stream. Root
+subscription aggregation fixes its source snapshot and quorum, performs
+generation-checked per-source resubscription, and stops on owner close or
+unsubscribe. Transport-level keepalive and replay remain deferred. `SimulateV1`
+remains outside the default `EthClient` surface as recorded by the compatibility
+policy.

@@ -13,7 +13,9 @@ import (
 )
 
 var (
-	ErrClosed = errors.New("pool: closed")
+	ErrClosed             = errors.New("pool: closed")
+	ErrNoWSSSource        = errors.New("pool: no WSS source configured")
+	ErrMultipleWSSSources = errors.New("pool: subscriptions require one explicit WSS source")
 
 	// ErrNoEligibleSource reports that a fan-out was impossible: the pool has
 	// no registered source, or none passed its eligibility gates (open
@@ -25,6 +27,45 @@ var (
 	// remain available on the returned emissions and on Decision.Faults.
 	ErrAllSourcesDown = errors.New("pool: all upstream sources failed to respond")
 )
+
+// SubscriptionSources returns a stable snapshot of all explicitly configured
+// WebSocket sources. Membership is fixed for the lifetime of the pool; the
+// returned slice is a copy, so source health and connection state may change
+// without changing the subscription's source denominator. Transport
+// selection stays inside the pool composition boundary; callers receive only
+// capability-bearing sources and never parse URLs.
+func (p *Pool) SubscriptionSources() ([]*Source, error) {
+	p.mu.RLock()
+	sources := append([]*Source(nil), p.sources...)
+	p.mu.RUnlock()
+	out := make([]*Source, 0, len(sources))
+	for _, source := range sources {
+		e, err := url.Parse(source.URL())
+		if err != nil || (e.Scheme != "ws" && e.Scheme != "wss") {
+			continue
+		}
+		out = append(out, source)
+	}
+	if len(out) == 0 {
+		return nil, ErrNoWSSSource
+	}
+	return out, nil
+}
+
+// SubscriptionSource returns the sole explicitly configured WebSocket source.
+// It is retained for compatibility with the S1 single-source path. New
+// subscription code should use SubscriptionSources so quorum can keep the
+// complete WSS membership snapshot.
+func (p *Pool) SubscriptionSource() (*Source, error) {
+	sources, err := p.SubscriptionSources()
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) != 1 {
+		return nil, ErrMultipleWSSSources
+	}
+	return sources[0], nil
+}
 
 // Pool is the concurrent-safe multi-source RPC manager.
 // One Pool is shared by a single ethguard.Client and all caller goroutines.
@@ -54,6 +95,14 @@ type Pool struct {
 	tipSampleMaxAge time.Duration
 	stopTips        chan struct{}
 	tipsDone        chan struct{}
+
+	// closeOnce runs the close sequence exactly once; closeDone is closed
+	// when the whole sequence — every source transport closed and the tip
+	// sampler exited — has completed. Every Close caller, first or
+	// concurrent, waits on the same signal, so all of them return under the
+	// identical resource-closure conditions.
+	closeOnce sync.Once
+	closeDone chan struct{}
 }
 
 // Member is one upstream configured at pool construction.
@@ -210,37 +259,36 @@ func (p *Pool) snapshotSources(requireOpen bool) ([]*Source, error) {
 }
 
 // Close releases all source connections and stops the background tip
-// sampler. Closing the sources first aborts any probe in flight, and Close
-// then waits for the sampler goroutine to exit, so no pool-owned probe can
-// start or finish after Close returns. The wait is part of the contract for
-// every caller: a concurrent or repeated caller that finds the pool already
-// closing still waits for the sampler lifecycle to end before returning. It
-// is safe to call from any number of goroutines.
+// sampler. The close sequence runs exactly once: it marks the pool closed
+// and stops the sampler synchronously, then closes every source transport
+// and waits for the sampler goroutine to exit on the close goroutine. The
+// shared completion signal closes only after all of that has finished, and
+// every caller — first, concurrent, or repeated — waits on the same signal,
+// so Close returns to all of them under the identical resource-closure
+// conditions. It is safe to call from any number of goroutines.
 func (p *Pool) Close() {
-	p.mu.Lock()
-	if p.closed {
-		tipsDone := p.tipsDone
-		p.mu.Unlock()
-		if tipsDone != nil {
-			<-tipsDone
+	p.closeOnce.Do(func() {
+		p.closeDone = make(chan struct{})
+		p.mu.Lock()
+		p.closed = true
+		if p.stopTips != nil {
+			close(p.stopTips)
 		}
-		return
-	}
-	p.closed = true
-	if p.stopTips != nil {
-		close(p.stopTips)
-	}
-	tipsDone := p.tipsDone
-	sources := make([]*Source, len(p.sources))
-	copy(sources, p.sources)
-	p.mu.Unlock()
-
-	for _, src := range sources {
-		src.close()
-	}
-	if tipsDone != nil {
-		<-tipsDone
-	}
+		tipsDone := p.tipsDone
+		sources := make([]*Source, len(p.sources))
+		copy(sources, p.sources)
+		p.mu.Unlock()
+		go func() {
+			defer close(p.closeDone)
+			for _, src := range sources {
+				src.close()
+			}
+			if tipsDone != nil {
+				<-tipsDone
+			}
+		}()
+	})
+	<-p.closeDone
 }
 
 // Len returns the number of registered sources.
