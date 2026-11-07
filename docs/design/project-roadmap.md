@@ -25,7 +25,7 @@ execution、quorum、reference 和 typed 边界约束。
 - The locked `ethclient.Client` type has 48 exported receiver methods. `Client()`
   is a concrete rpc accessor and is explicitly outside the EthGuard business
   facade; the compatibility target is the remaining 47 methods. The current
-  45-method check is an internal inventory checkpoint, not a release claim.
+  46-method check is an internal inventory checkpoint, not a release claim.
 - The root `Client` remains the evidence facade. `Client.EthClient()` must
   eventually expose the complete locked-version method set while sharing the
   same runtime, typed projection, transport, and lifecycle implementation.
@@ -45,9 +45,9 @@ execution、quorum、reference 和 typed 边界约束。
    write behavior, `SimulateV1`, and the three official subscriptions in one
    reviewed contract. Keep `Client()` excluded and test that exclusion.
 2. **Unary completion.** Add root execution, typed projection, method plans,
-   error/lifecycle behavior, and focused fixtures for the two remaining
-   business methods. `TransactionCount`, `PendingTransactionCount`, and
-   `TransactionInBlock` now have
+   error/lifecycle behavior, and focused fixtures for the one remaining
+   business method. `TransactionCount`, `PendingTransactionCount`,
+   `TransactionInBlock`, and `TransactionSender` now have
    independent plans and facade projections. No unknown `Call` or `ErrUnsupported` placeholder satisfies this
    step.
 3. **S1 subscription transport.** The WSS adapter now has an explicit

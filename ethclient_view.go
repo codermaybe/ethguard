@@ -219,6 +219,15 @@ func (ec *EthClient) TransactionInBlock(ctx context.Context, blockHash common.Ha
 	return tx, err
 }
 
+// TransactionSender returns the sender reported for the transaction at the
+// requested immutable block/index.
+func (ec *EthClient) TransactionSender(ctx context.Context, tx *types.Transaction, blockHash common.Hash, index uint) (common.Address, error) {
+	sender, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (common.Address, CallResult, error) {
+		return ec.owner.transactionSenderExec(opCtx, tx, blockHash, index)
+	})
+	return sender, err
+}
+
 // SuggestGasTipCap returns the fleet's lower-median priority-fee estimate —
 // a variable result resolved by robust selection, never claimed corroborated.
 func (ec *EthClient) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
