@@ -54,6 +54,9 @@ func TestPullProbeRejectsIdentityMismatchWithoutVoting(t *testing.T) {
 		if !errors.As(err, &probeErr) || !errors.Is(err, ErrUnknownSource) {
 			t.Fatalf("probe err = %v", err)
 		}
+		if probeErr.SourceID != "b" || probeErr.Generation != 4 || probeErr.ContextKey != "head:1" {
+			t.Fatalf("probe attribution = %+v", probeErr)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("identity mismatch was not reported")
 	}
