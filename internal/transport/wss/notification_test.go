@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -196,4 +197,54 @@ func TestSubscribeBindsIDAndUnsubscribesServerSide(t *testing.T) {
 	}
 	sub.Unsubscribe()
 	sub.Unsubscribe()
+}
+func TestConcurrentSubscriptionsIgnoreUnrelatedSetupNotifications(t *testing.T) {
+	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+		firstRequest := <-peer.requests
+		peer.respond(firstRequest, `"sub-1"`)
+
+		secondRequest := <-peer.requests
+		for i := range 300 {
+			peer.writeFrame(notificationFrame("sub-1", fmt.Sprintf(`{"number":%d}`, i)))
+		}
+		peer.respond(secondRequest, `"sub-2"`)
+		peer.writeFrame(notificationFrame("sub-2", `{"number":999}`))
+
+		for range 2 {
+			request := <-peer.requests
+			peer.respond(request, `true`)
+		}
+	})
+	tr := dialTestTransport(t, peerURL, 0)
+	first, err := tr.Subscribe(context.Background(), "newHeads")
+	if err != nil {
+		t.Fatalf("first Subscribe: %v", err)
+	}
+	drained := make(chan struct{})
+	go func() {
+		for range first.stream.Events() {
+		}
+		close(drained)
+	}()
+
+	second, err := tr.Subscribe(context.Background(), "logs")
+	if err != nil {
+		t.Fatalf("second Subscribe after unrelated notifications: %v", err)
+	}
+	select {
+	case event := <-second.stream.Events():
+		if event.SubscriptionID != "sub-2" || string(event.Result) != `{"number":999}` {
+			t.Fatalf("second event = %+v", event)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("second subscription did not receive its notification")
+	}
+
+	second.Unsubscribe()
+	first.Unsubscribe()
+	select {
+	case <-drained:
+	case <-time.After(time.Second):
+		t.Fatal("first subscription stream did not close")
+	}
 }

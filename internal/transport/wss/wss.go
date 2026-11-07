@@ -91,12 +91,13 @@ func (d Dialer) DialContext(ctx context.Context, rawURL string) (transport.Trans
 		limit = DefaultReadLimit
 	}
 	t := &Transport{
-		ws:              newConn(result, limit),
-		ids:             rpcwire.NewIDGen(),
-		limit:           limit,
-		pending:         make(map[string]chan frameResult),
-		streams:         make(map[*NotificationStream]struct{}),
-		subscriptionIDs: make(map[string]*NotificationStream),
+		ws:                   newConn(result, limit),
+		ids:                  rpcwire.NewIDGen(),
+		limit:                limit,
+		pending:              make(map[string]chan frameResult),
+		streams:              make(map[*NotificationStream]struct{}),
+		subscriptionIDs:      make(map[string]*NotificationStream),
+		pendingNotifications: make(map[string][]Notification),
 	}
 	go t.readLoop()
 	return t, nil
@@ -119,7 +120,6 @@ type NotificationStream struct {
 	sourceID       string
 	generation     uint64
 	subscriptionID string
-	pending        []Notification
 	events         chan Notification
 	errs           chan error
 	done           chan struct{}
@@ -165,16 +165,6 @@ func (s *NotificationStream) deliver(notification Notification) bool {
 	if s.closed {
 		return true
 	}
-	if s.subscriptionID == pendingSubscriptionID {
-		if s.owner.subscriptionActive(notification.SubscriptionID, s) {
-			return true
-		}
-		if len(s.pending) >= cap(s.events) {
-			return false
-		}
-		s.pending = append(s.pending, notification)
-		return true
-	}
 	if s.subscriptionID != "" && notification.SubscriptionID != s.subscriptionID {
 		return true
 	}
@@ -186,27 +176,32 @@ func (s *NotificationStream) deliver(notification Notification) bool {
 	}
 }
 
-func (s *NotificationStream) bindSubscriptionID(id string) {
+func (s *NotificationStream) bindSubscriptionID(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
 	s.subscriptionID = id
 	s.owner.mu.Lock()
 	if s.owner.subscriptionIDs == nil {
 		s.owner.subscriptionIDs = make(map[string]*NotificationStream)
 	}
 	s.owner.subscriptionIDs[id] = s
+	pending := s.owner.pendingNotifications[id]
+	delete(s.owner.pendingNotifications, id)
 	s.owner.mu.Unlock()
-	for _, notification := range s.pending {
-		if notification.SubscriptionID == id {
-			select {
-			case s.events <- notification:
-			default:
-				s.closed = true
-				break
-			}
+	for _, notification := range pending {
+		notification.SourceID = s.sourceID
+		notification.Generation = s.generation
+		notification.ReceivedAt = time.Now()
+		select {
+		case s.events <- notification:
+		default:
+			return false
 		}
 	}
-	s.pending = nil
+	return true
 }
 
 // Subscription is the WSS-side handle returned by Subscribe. It keeps the
@@ -264,7 +259,10 @@ func (t *Transport) Subscribe(ctx context.Context, kind string, args ...any) (*S
 		stream.Unsubscribe()
 		return nil, fmt.Errorf("wss: eth_subscribe returned empty id")
 	}
-	stream.bindSubscriptionID(id)
+	if !stream.bindSubscriptionID(id) {
+		stream.finish(ErrNotificationBackpressure)
+		return nil, ErrNotificationBackpressure
+	}
 	return &Subscription{transport: t, stream: stream, id: id}, nil
 }
 
@@ -281,12 +279,13 @@ type Transport struct {
 	ids   *rpcwire.IDGen
 	limit int64
 
-	mu              sync.Mutex
-	pending         map[string]chan frameResult
-	streams         map[*NotificationStream]struct{}
-	subscriptionIDs map[string]*NotificationStream
-	closing         bool
-	closed          bool
+	mu                   sync.Mutex
+	pending              map[string]chan frameResult
+	streams              map[*NotificationStream]struct{}
+	subscriptionIDs      map[string]*NotificationStream
+	pendingNotifications map[string][]Notification
+	closing              bool
+	closed               bool
 
 	socketOnce sync.Once
 }
@@ -394,12 +393,6 @@ func (t *Transport) removeNotificationStream(stream *NotificationStream) {
 	t.mu.Unlock()
 }
 
-func (t *Transport) subscriptionActive(id string, stream *NotificationStream) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.subscriptionIDs[id] != nil && t.subscriptionIDs[id] != stream
-}
-
 func (t *Transport) notificationStreams() []*NotificationStream {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -411,24 +404,50 @@ func (t *Transport) notificationStreams() []*NotificationStream {
 }
 
 func (t *Transport) dispatchNotification(message []byte) {
-	streams := t.notificationStreams()
-	if len(streams) == 0 {
-		return
-	}
 	notification, err := decodeNotification(message)
 	if err != nil {
-		for _, stream := range streams {
+		for _, stream := range t.notificationStreams() {
 			stream.finish(fmt.Errorf("wss: notification: %w", err))
 		}
 		return
 	}
-	for _, stream := range streams {
-		notification.SourceID = stream.sourceID
-		notification.Generation = stream.generation
-		notification.ReceivedAt = time.Now()
-		if !stream.deliver(notification) {
-			stream.finish(ErrNotificationBackpressure)
+
+	t.mu.Lock()
+	bound := t.subscriptionIDs[notification.SubscriptionID]
+	streams := make([]*NotificationStream, 0, len(t.streams))
+	for stream := range t.streams {
+		streams = append(streams, stream)
+	}
+	if bound == nil {
+		pending := t.pendingNotifications[notification.SubscriptionID]
+		if len(pending) < 256 {
+			t.pendingNotifications[notification.SubscriptionID] = append(pending, notification)
 		}
+	}
+	t.mu.Unlock()
+
+	if bound != nil {
+		t.deliverNotification(bound, notification)
+	}
+	for _, stream := range streams {
+		if stream == bound {
+			continue
+		}
+		stream.mu.Lock()
+		generic := stream.subscriptionID == ""
+		stream.mu.Unlock()
+		if generic {
+			t.deliverNotification(stream, notification)
+		}
+	}
+}
+
+func (t *Transport) deliverNotification(stream *NotificationStream, notification Notification) {
+	notification.SourceID = stream.sourceID
+	notification.Generation = stream.generation
+	notification.ReceivedAt = time.Now()
+	if !stream.deliver(notification) {
+		stream.finish(ErrNotificationBackpressure)
 	}
 }
 
