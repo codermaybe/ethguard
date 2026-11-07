@@ -64,8 +64,8 @@ surface remains evidence-backed.
 | `eth_getTransactionByHash` | Registered | `TransactionByHash` | `TransactionByHash` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending 与 absent 的跨 transport 矩阵 |
 | `eth_getBlockReceipts` | Registered | `BlockReceipts` | `BlockReceipts` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, receipt objects | 大数组、空 block、逐 receipt 绑定成本 |
 | `eth_getTransactionCount` | Registered | `NonceAt` | `NonceAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending-local、历史引用和跨 transport |
-| `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `compat_methods.go`, `typed`, `rpc/methods` | conflict 与 malformed 错误证据待补；值与 null/NotFound 跨 transport 路径由 `TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity` 覆盖 |
-| `eth_getBlockTransactionCountByNumber` | Registered | `PendingTransactionCount` | `PendingTransactionCount` | native HTTP/WSS raw call | 不适用 | `pending_count.go`, `typed`, `rpc/methods` | PendingObserve、malformed/null 与跨 transport 证据待补 |
+| `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `compat_methods.go`, `typed`, `rpc/methods` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity`、`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
+| `eth_getBlockTransactionCountByNumber` | Registered | `PendingTransactionCount` | `PendingTransactionCount` | native HTTP/WSS raw call | 不适用 | `pending_count.go`, `typed`, `rpc/methods` | PendingObserve 的多源 dissent/malformed 已由 `TestPendingTransactionCountDissentStaysSelected`、`TestPendingTransactionCountSkipsMalformedSource`、`TestPendingTransactionCountAllMalformedIsUnknown` 覆盖；跨 transport 证据仍待补 |
 | `eth_getStorageAt` | Registered | `StorageAt` | `StorageAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 空 bytes、EIP-1898 和跨 transport |
 | `eth_getCode` | Registered | `CodeAt` | `CodeAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | empty code、历史引用和跨 transport |
 | `eth_call` | Registered | `CallContract` | `CallContract` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, call rules | overrides、provider golden `error.data=null` |
@@ -105,9 +105,9 @@ surface remains evidence-backed.
 | `HeaderByHash` | 已有 | `Client.HeaderByHash` | 已接入；header-only/fullTx=false 与 BlockByHash 共用 plan |
 | `HeaderByNumber` | 已有 | `Client.HeaderByNumber` | 已接入；moving tags 复用 anchor，pending 本地拒绝 |
 | `TransactionByHash` | 已有 | `Client.TransactionByHash` | 已覆盖 |
-| `TransactionSender` | 已有 | `Client.TransactionSender` | envelope 绑定、sender 冲突和 malformed 错误证据待补；值与 null/NotFound 跨 transport 路径由 `TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity` 覆盖 |
-| `TransactionCount` | 已有 | `Client.TransactionCount` | conflict 与 malformed 错误证据待补；值与 null/NotFound 跨 transport 路径由 `TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity` 覆盖 |
-| `TransactionInBlock` | 已有 | `Client.TransactionInBlock` | inclusion envelope conflict/malformed 错误证据待补；值与 null/NotFound 跨 transport 路径由 `TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity` 覆盖 |
+| `TransactionSender` | 已有 | `Client.TransactionSender` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionSenderMultiSourceConflictKeepsEvidence`、`TestTransactionSenderMultiSourceMalformedFailsWithFaults` 及既有 transport/null 测试）；sender 冲突的跨 transport fixture 仍待补 |
+| `TransactionCount` | 已有 | `Client.TransactionCount` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
+| `TransactionInBlock` | 已有 | `Client.TransactionInBlock` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionInBlockMultiSourceConflictKeepsEvidence`、`TestTransactionInBlockMultiSourceMalformedFailsWithFaults`）；inclusion envelope 跨 transport 负向 fixture 仍待补 |
 | `TransactionReceipt` | 已有 | `Client.TransactionReceipt` | 已覆盖 |
 | `SyncProgress` | 已有 | `Client.SyncProgress` | 已覆盖 |
 | `NetworkID` | 已有 | `Client.NetworkID` | 已覆盖 |
@@ -127,7 +127,7 @@ surface remains evidence-backed.
 | `PendingStorageAt` | 已有 | `Client.PendingStorageAt` | pending-local；跨 transport 证据待补 |
 | `PendingCodeAt` | 已有 | `Client.PendingCodeAt` | pending-local；跨 transport 证据待补 |
 | `PendingNonceAt` | 已有 | `Client.PendingNonceAt` | pending-local；跨 transport 证据待补 |
-| `PendingTransactionCount` | 已有 | `Client.PendingTransactionCount` | PendingObserve 与跨 transport 证据待补 |
+| `PendingTransactionCount` | 已有 | `Client.PendingTransactionCount` | PendingObserve 多源负向已覆盖；跨 transport 证据待补 |
 | `CallContract` | 已有 | `Client.CallContract` | 已覆盖 |
 | `CallContractAtHash` | 已有 | `Client.CallContractAtHash` | EIP-1898/跨 transport 证据待补 |
 | `PendingCallContract` | 已有 | `Client.PendingCallContract` | pending-local/错误证据待补 |
@@ -223,7 +223,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - 当前 `rpc/methods` 的 `ReferenceSpec{EIP1898:true}` 和 EIP-1898 rewrite 测试继续覆盖对象校验、显式 hash、`requireCanonical` 保留和 moving tag 改写；AtHash facade 通过同一 plan 执行。
 - AtHash 接入使用受控的 EIP-1898 map 参数和现有 plan，不通过未知 `Call`。
 - `PendingBalanceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingNonceAt`、`PendingTransactionCount` 的 plan 已有 `PendingObserve` 声明。pending 是节点本地状态，不能直接套用 moving reference；aggregator 可以收集多个 source，但结果只能是第一个可用本地观察的 `Selected`，不能声称 `Corroborated`。
-- `TransactionSender` 复用 `eth_getTransactionByBlockHashAndIndex` 的 method-aware plan；sender 的输入 hash 绑定和 envelope 校验已接入，值与 null/NotFound 的 HTTP/WSS 证据已锁定，冲突与 malformed 反例仍待补；`SimulateV1` 还受默认构建导入边界阻塞。
+- `TransactionSender` 复用 `eth_getTransactionByBlockHashAndIndex` 的 method-aware plan；sender 的输入 hash 绑定和 envelope 校验已接入，值与 null/NotFound 的 HTTP/WSS 证据及多源冲突/malformed 反例已锁定；跨 transport 负向 fixture 和 `SimulateV1` 默认构建导入边界仍开放。
 - pending 的 source-local、quorum 与 Decision 语义仍需单独冻结；AtHash 不改变 pending、CallResult 或订阅边界。
 
 建议的回归矩阵：

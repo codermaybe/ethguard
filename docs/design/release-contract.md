@@ -146,3 +146,19 @@ API 完全相同；beta.1 tag 保留为"有 tag、无 Release"状态，不删除
    默认保留现状，并在下一个 Release notes 中说明。
 3. 发布产物 attach 之后视为已发布证据，不得替换 `dist` 内容。
 4. 任何"已通过"的记录必须写清执行范围（第 2 节）、工具链（第 3 节）和未观察项。
+
+## 8. 外部兼容缺口的显式交付模式
+
+当前锁定的 go-ethereum `v1.17.5` 在默认根包架构下无法把官方
+`SimulateV1` 接入 `EthClient`；该事实由兼容性政策记录，不能被中间方法集合掩盖。
+默认 `release_check.sh` 仍以 `ETHGUARD_REQUIRE_COMPLETE=1` 执行并拒绝该缺口。
+
+在本轮已接受该外部边界、但仍需完成代码与安全门禁时，可以显式设置：
+
+```text
+ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP=1 ./scripts/release_check.sh
+```
+
+脚本只接受方法差异恰好为 `business missing: 1 [SimulateV1]` 的情况，运行其余 race、
+构建、静态分析和漏洞门禁，并在成功输出中明确该结果**不是** `EthClient: complete`。
+任何其他缺口都会使脚本失败。稳定兼容发布仍必须使用默认严格模式并关闭该缺口。
