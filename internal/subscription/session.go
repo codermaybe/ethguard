@@ -80,6 +80,25 @@ func (g *SessionGate) Accept(session SourceSession) error {
 	return nil
 }
 
+// Current returns the currently active physical session for one source. A
+// caller can capture it before a Pull and revalidate it after the response so
+// a reconnect cannot make a late unary answer vote in the old session.
+func (g *SessionGate) Current(sourceID string) (SourceSession, error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if g.closed {
+		return SourceSession{}, ErrSessionClosed
+	}
+	generation, ok := g.generations[sourceID]
+	if !ok {
+		return SourceSession{}, ErrUnknownSource
+	}
+	if generation == 0 {
+		return SourceSession{}, ErrSessionStale
+	}
+	return SourceSession{SourceID: sourceID, Generation: generation}, nil
+}
+
 // Close prevents new sessions and rejects all subsequent notifications. It
 // does not alter the caller's fixed source snapshot or emit a quorum result.
 func (g *SessionGate) Close() {

@@ -30,6 +30,9 @@ func TestSessionGateRejectsLateFramesAfterReconnect(t *testing.T) {
 	if err := gate.Accept(second); err != nil {
 		t.Fatalf("current session rejected: %v", err)
 	}
+	if current, err := gate.Current("a"); err != nil || current.Generation != 2 {
+		t.Fatalf("current session = %+v, err=%v", current, err)
+	}
 }
 
 func TestSessionGateGenerationsArePerSource(t *testing.T) {

@@ -327,6 +327,23 @@ func (a *Aggregator) Advance(now time.Time) {
 	}
 }
 
+// AdvanceContext applies the soft/hard deadline to one logical event without
+// advancing unrelated subscription contexts.
+func (a *Aggregator) AdvanceContext(kind Kind, contextKey string, now time.Time) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ctx := a.contexts[string(kind)+"\x00"+contextKey]
+	if ctx == nil || ctx.status == Delivered || ctx.status == Selected || ctx.status == Revoked || ctx.status == Quarantined || ctx.status == Canceled {
+		return
+	}
+	if now.Sub(ctx.first) >= a.cfg.HardTimeout {
+		ctx.status = Quarantined
+		a.reportLocked(ErrQuorumTimeout)
+	} else if a.cfg.SoftTimeout > 0 && now.Sub(ctx.first) >= a.cfg.SoftTimeout {
+		ctx.status = Probing
+	}
+}
+
 func (a *Aggregator) Status(contextKey string) Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
