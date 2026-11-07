@@ -1,10 +1,10 @@
 # WSS 订阅契约
 
-状态：S0 契约候选已冻结，生产实现未开始（2026-11-07）。
+状态：S0 契约候选已冻结；WSS capability 与 root 聚合已部分实现（2026-11-07）。
 
-本文把 docs/design/tmp/wss-sub-design.md 的探索内容收敛为可审查的订阅契约。它不改变当前 raw-call WSS adapter，也不扩展 pool.Transport。下面的事件、快照、单源、背压和生命周期规则是 S1/S2 的实现输入；公开方法名称仍需 R0/F0 做一次最终签名审查。
+本文把 docs/design/tmp/wss-sub-design.md 的探索内容收敛为可审查的订阅契约。订阅 capability 已在 raw-call WSS adapter 旁独立落地，不扩展 pool.Transport。下面的事件、快照、单源、背压和生命周期规则继续约束 root 聚合；公开方法名称仍需 R0/F0 做一次最终签名审查。
 
-当前 internal/transport/wss 是单连接、单 reader、request-ID demux 的 raw-call adapter，只提供 CallContext、ChainID 和 Close。它明确不提供 Subscribe、filter streaming、batch、后台 reconnect、重放或写路径恢复。订阅是一个新的 transport 能力和业务模块，不能通过未知 Call 或临时通知分支实现。
+当前 internal/transport/wss 是单连接、单 reader、request-ID demux 的 raw-call adapter，并在旁边提供独立的 Subscribe/Unsubscribe capability；root 已接入 newHeads、logs 和 transactionReceipts 的单源/多源路径。订阅仍不能通过未知 Call 或临时通知分支实现；后台 reconnect、重放和写路径恢复也不因此成为通用能力。
 
 ## 1. 目标与非目标
 
@@ -206,11 +206,12 @@ Logs 必须支持 provider 的 removed 语义。收到 removed 事件时，需�
 
 缺口是观察事实，不自动等于 reorg：
 
-- NewHeads 跳过高度时，记录 gap；
-- logs 缺少某个 block 的通知时，只有在 filter 和 source 能力允许时才可 Pull 补查；
-- 无法补齐的 gap 通过 Err 或显式诊断交付；
+- NewHeads 跳过高度时，记录 gap，并在同一 source/session 的 Pull 窗口逐个验证缺失头；验证成功只清除诊断状态，不重放历史事件；无法补齐则通过 `Err()` 返回可 `errors.As` 为 `SubscriptionGapError` 的终止错误；
+- logs 缺少某个 block 的通知时，按同源 filter Pull 能力补查；
+- 无法补齐的 newHeads gap 通过 Err 交付结构化终止错误；
+- logs 与 transactionReceipts 不从通知自行推导高度 gap；
 - 不允许以“后续收到了更高高度”掩盖缺口；
-- 是否阻塞后续交付，必须由订阅模式显式配置，不能由实现自行决定。
+- 当前 root fixed-snapshot 模式采用非阻塞验证：gap Pull 运行期间允许后续事件交付；只有缺口无法补齐时才通过结构化 Err() 终止订阅。若未来增加阻塞模式，必须另立配置与契约。
 
 ## 8. 背压、预算与交付
 

@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
@@ -187,6 +188,141 @@ func TestTypedTransactionByHashTransportNullParity(t *testing.T) {
 	}
 	if result.Decision == nil || result.Decision.Status != rpc.Corroborated {
 		t.Fatalf("decision = %+v, want corroborated null", result.Decision)
+	}
+}
+
+// TestTypedTransactionCompatibilityTransportMatrix drives the three
+// block-addressed transaction methods through both native HTTP and raw WSS.
+// These methods do not establish a moving reference, so the fixture isolates
+// request encoding, inclusion binding, and sender projection at the transport
+// boundary.
+func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
+	blockHash := common.HexToHash("0x" + strings.Repeat("33", 32))
+	rawTx := transactionInBlockFixture(t, blockHash, 0)
+	var tx types.Transaction
+	if err := json.Unmarshal(rawTx, &tx); err != nil {
+		t.Fatal(err)
+	}
+	type evidence struct {
+		count   atomic.Value
+		inBlock atomic.Value
+		sender  atomic.Value
+	}
+	var records [2]evidence
+	answer := func(record *evidence) func(sourceWireRequest) string {
+		return func(req sourceWireRequest) string {
+			switch req.Method {
+			case methods.MethodGetBlockTransactionCountByHash:
+				record.count.Store(req)
+				return `"result":"0x2"`
+			case methods.MethodGetTransactionByBlockHashAndIndex:
+				record.inBlock.Store(req)
+				record.sender.Store(req)
+				return `"result":` + string(rawTx)
+			default:
+				return `"result":"0x1"`
+			}
+		}
+	}
+	peers := []*sourceWirePeer{
+		newSourceWirePeer(t, false, answer(&records[0])),
+		newSourceWirePeer(t, true, answer(&records[1])),
+	}
+	client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+		{ID: "http", Endpoint: peers[0].endpoint},
+		{ID: "wss", Endpoint: peers[1].endpoint, Transport: config.TransportWSS},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	count, countResult, err := client.TransactionCount(ctx, blockHash)
+	if err != nil || count != 2 || countResult.Decision == nil || countResult.Decision.Status != rpc.Corroborated {
+		t.Fatalf("TransactionCount = %d result=%+v err=%v", count, countResult, err)
+	}
+	got, inBlockResult, err := client.TransactionInBlock(ctx, blockHash, 0)
+	if err != nil || got == nil || got.Hash() != tx.Hash() || inBlockResult.Decision == nil || inBlockResult.Decision.Status != rpc.Corroborated {
+		t.Fatalf("TransactionInBlock = %v result=%+v err=%v", got, inBlockResult, err)
+	}
+	sender, senderResult, err := client.TransactionSender(ctx, &tx, blockHash, 0)
+	if err != nil || sender == (common.Address{}) || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
+		t.Fatalf("TransactionSender = %s result=%+v err=%v", sender, senderResult, err)
+	}
+
+	for i, record := range records {
+		loaded := record.count.Load()
+		if loaded == nil {
+			t.Fatalf("source %d did not receive transaction count", i)
+		}
+		countReq := loaded.(sourceWireRequest)
+		if len(countReq.Params) != 1 || wireString(t, countReq.Params[0]) != blockHash.Hex() {
+			t.Fatalf("source %d transaction count params=%s", i, countReq.Params)
+		}
+		for name, slot := range map[string]*atomic.Value{
+			"in-block": &record.inBlock,
+			"sender":   &record.sender,
+		} {
+			loaded = slot.Load()
+			if loaded == nil {
+				t.Fatalf("source %d did not receive %s request", i, name)
+			}
+			req := loaded.(sourceWireRequest)
+			if len(req.Params) != 2 || wireString(t, req.Params[0]) != blockHash.Hex() || wireString(t, req.Params[1]) != "0x0" {
+				t.Fatalf("source %d %s params=%s", i, name, req.Params)
+			}
+		}
+	}
+}
+
+// TestTypedTransactionCompatibilityNullParity keeps the protocol null rule
+// identical across native HTTP and raw WSS for the block-addressed transaction
+// family. A corroborated null is a typed NotFound result, not a malformed
+// response or an empty transaction value.
+func TestTypedTransactionCompatibilityNullParity(t *testing.T) {
+	blockHash := common.HexToHash("0x" + strings.Repeat("44", 32))
+	rawTx := transactionInBlockFixture(t, blockHash, 0)
+	var tx types.Transaction
+	if err := json.Unmarshal(rawTx, &tx); err != nil {
+		t.Fatal(err)
+	}
+	answer := func(req sourceWireRequest) string {
+		switch req.Method {
+		case methods.MethodGetBlockTransactionCountByHash,
+			methods.MethodGetTransactionByBlockHashAndIndex:
+			return `"result":null`
+		default:
+			return `"result":"0x1"`
+		}
+	}
+	peers := []*sourceWirePeer{
+		newSourceWirePeer(t, false, answer),
+		newSourceWirePeer(t, true, answer),
+	}
+	client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+		{ID: "http", Endpoint: peers[0].endpoint},
+		{ID: "wss", Endpoint: peers[1].endpoint, Transport: config.TransportWSS},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	count, countResult, countErr := client.TransactionCount(ctx, blockHash)
+	if count != 0 || !errors.Is(countErr, ethereum.NotFound) || countResult.Decision == nil || countResult.Decision.Status != rpc.Corroborated {
+		t.Fatalf("TransactionCount null = %d result=%+v err=%v", count, countResult, countErr)
+	}
+	inBlock, inBlockResult, inBlockErr := client.TransactionInBlock(ctx, blockHash, 0)
+	if inBlock != nil || !errors.Is(inBlockErr, ethereum.NotFound) || inBlockResult.Decision == nil || inBlockResult.Decision.Status != rpc.Corroborated {
+		t.Fatalf("TransactionInBlock null = %v result=%+v err=%v", inBlock, inBlockResult, inBlockErr)
+	}
+	sender, senderResult, senderErr := client.TransactionSender(ctx, &tx, blockHash, 0)
+	if sender != (common.Address{}) || !errors.Is(senderErr, ethereum.NotFound) || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
+		t.Fatalf("TransactionSender null = %s result=%+v err=%v", sender, senderResult, senderErr)
 	}
 }
 
