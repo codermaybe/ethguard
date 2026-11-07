@@ -1,7 +1,7 @@
 # EthGuard current roadmap
 
-Status: **topology and document consolidation completed; v1.17.5 business-method
-completion is in progress** (2026-11-07).
+Status: **topology/document consolidation completed; v1.17.5 business-method
+completion and S2 subscription aggregation are in progress** (2026-11-07).
 
 The external contract is defined only by the
 [go-ethereum compatibility policy](go-ethereum-compatibility-policy.md). A
@@ -60,9 +60,11 @@ execution、quorum、reference 和 typed 边界约束。
    parameter/result types require importing `go-ethereum/ethclient`, which the
    native default build currently forbids.
 4. **S2 subscription semantics.** Connect source snapshots, quorum,
-   generation filtering, duplicate/reorg/removed handling, same-source Pull,
-   backpressure and evidence budgets for new heads, logs, and transaction
-   receipts.
+   duplicate/reorg/removed handling and bounded backpressure for new heads,
+   logs, and transaction receipts. The root facade now runs fixed-snapshot
+   strict quorum aggregation for these three WSS streams; per-source
+   reconnect generations, same-source Pull, and cross-transport evidence
+   remain open gates before S2/T0 completion.
 5. **T0 transport evidence.** Run matching HTTP/WSS fixtures for every
    completed unary method and the subscription lifecycle matrix. Update the
    live method matrix after each method reaches all required gates.
