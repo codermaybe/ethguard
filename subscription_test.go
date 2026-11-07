@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,6 +46,23 @@ type reconnectTestSource struct {
 	count int
 	subs  []transport.Subscription
 }
+
+type pullTestSource struct {
+	id      string
+	stream  transport.Subscription
+	pullRaw json.RawMessage
+	pulls   atomic.Int32
+}
+
+func (s *pullTestSource) ID() string { return s.id }
+func (s *pullTestSource) Subscribe(context.Context, string, ...any) (transport.Subscription, error) {
+	return s.stream, nil
+}
+func (s *pullTestSource) CallContext(context.Context, string, ...any) (json.RawMessage, error) {
+	s.pulls.Add(1)
+	return s.pullRaw, nil
+}
+func (s *pullTestSource) pullCount() int { return int(s.pulls.Load()) }
 
 func (s *reconnectTestSource) ID() string { return s.id }
 func (s *reconnectTestSource) Subscribe(context.Context, string, ...any) (transport.Subscription, error) {
@@ -245,6 +263,54 @@ func TestAggregatedSubscriptionReconnectsSourceAndKeepsSnapshot(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("reconnected quorum output missing")
+	}
+}
+
+func TestAggregatedSubscriptionPullProbeCompletesMissingSource(t *testing.T) {
+	aStream := &aggregateTestSubscription{events: make(chan transport.Notification, 2), errs: make(chan error, 1)}
+	bStream := &aggregateTestSubscription{events: make(chan transport.Notification, 2), errs: make(chan error, 1)}
+	payload := json.RawMessage(`{"number":"0x1","hash":"0xabc","parent":"0xdef"}`)
+	a := &pullTestSource{id: "a", stream: aStream, pullRaw: payload}
+	b := &pullTestSource{id: "b", stream: bStream, pullRaw: payload}
+	sources := []identifiedSubscriptionSource{a, b}
+	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+		var value struct{ Number, Hash, Parent string }
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return internalsubscription.Observation{}, "", err
+		}
+		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(value.Number, value.Hash, value.Parent)
+		if err != nil {
+			return internalsubscription.Observation{}, "", err
+		}
+		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, value.Number, nil
+	}
+	pullFactory := func(ctx context.Context, source identifiedSubscriptionSource, _ internalsubscription.Kind, contextKey string) (internalsubscription.Observation, error) {
+		unary := source.(subscriptionUnarySource)
+		raw, err := unary.CallContext(ctx, "eth_getBlockByNumber", strings.TrimPrefix(contextKey, "head:"), false)
+		if err != nil {
+			return internalsubscription.Observation{}, err
+		}
+		obs, _, err := decode(raw, source.ID())
+		obs.Generation = 1
+		return obs, err
+	}
+	out := make(chan string, 1)
+	sub, err := startAggregatedSubscriptionWithPull(context.Background(), sources, internalsubscription.KindNewHeads, nil, out, decode, pullFactory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+	aStream.events <- transport.Notification{Result: payload}
+	select {
+	case got := <-out:
+		if got != "0x1" {
+			t.Fatalf("pull output = %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("same-source pull did not complete quorum")
+	}
+	if b.pullCount() == 0 {
+		t.Fatal("missing source was not pulled")
 	}
 }
 

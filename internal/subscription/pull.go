@@ -152,7 +152,9 @@ func (p *PullProbe) run(ctx context.Context, cancel context.CancelFunc, agg *Agg
 	case <-ctx.Done():
 		cancel()
 	case <-hard.C:
-		agg.Advance(firstSeen.Add(cfg.HardTimeout))
+		for _, request := range requests {
+			agg.AdvanceContext(request.Kind, request.ContextKey, firstSeen.Add(cfg.HardTimeout))
+		}
 		cancel()
 	}
 	pulls.Wait()

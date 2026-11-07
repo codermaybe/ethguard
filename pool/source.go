@@ -4,6 +4,7 @@ import (
 	upstream "github.com/codermaybe/ethguard/internal/transport"
 
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -299,6 +300,40 @@ func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstr
 		return nil, fmt.Errorf("pool: source %q does not support subscriptions", s.name)
 	}
 	return subscriber.SubscribeCapability(ctx, kind, args...)
+}
+
+// CallContext performs one unary request on this source's managed transport.
+// It is the narrow same-source Pull seam for subscription compensation; it
+// does not alter pool membership or quorum state.
+func (s *Source) CallContext(ctx context.Context, method string, args ...any) (json.RawMessage, error) {
+	release, err := s.acquireRequest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	client, err := s.clientForCall(ctx)
+	if err != nil {
+		s.recordFailedCall(err)
+		return nil, err
+	}
+	if err := s.verifyChainID(ctx, client); err != nil {
+		if shouldDiscardClient(err) {
+			s.discardClient(client)
+		}
+		s.recordFailedCall(err)
+		return nil, err
+	}
+	var result json.RawMessage
+	started := time.Now()
+	if err := client.CallContext(ctx, &result, method, args...); err != nil {
+		if shouldDiscardClient(err) {
+			s.discardClient(client)
+		}
+		s.recordFailedCall(err)
+		return nil, err
+	}
+	s.recordSuccessfulCall(time.Since(started))
+	return result, nil
 }
 
 // ResetConnection discards the cached transport after a streaming failure so
