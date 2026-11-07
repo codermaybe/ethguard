@@ -46,6 +46,22 @@ type reconnectTestSource struct {
 	count int
 	subs  []transport.Subscription
 }
+type blockingReconnectSource struct {
+	id            string
+	first         transport.Subscription
+	replacement   transport.Subscription
+	secondStarted chan struct{}
+	releaseSecond chan struct{}
+	mu            sync.Mutex
+	count         int
+}
+
+type trackedSubscription struct {
+	events       chan transport.Notification
+	errs         chan error
+	unsubscribed chan struct{}
+	once         sync.Once
+}
 
 type pullTestSource struct {
 	id      string
@@ -83,6 +99,28 @@ func (s *reconnectTestSource) subscriptions() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.count
+}
+func (s *blockingReconnectSource) ID() string { return s.id }
+func (s *blockingReconnectSource) Subscribe(ctx context.Context, _ string, _ ...any) (transport.Subscription, error) {
+	s.mu.Lock()
+	s.count++
+	count := s.count
+	s.mu.Unlock()
+	if count == 1 {
+		return s.first, nil
+	}
+	if count == 2 {
+		close(s.secondStarted)
+		<-s.releaseSecond
+		return s.replacement, nil
+	}
+	return nil, errors.New("unexpected subscription attempt")
+}
+
+func (s *trackedSubscription) Events() <-chan transport.Notification { return s.events }
+func (s *trackedSubscription) Err() <-chan error                     { return s.errs }
+func (s *trackedSubscription) Unsubscribe() {
+	s.once.Do(func() { close(s.unsubscribed) })
 }
 
 func (s *aggregateTestSubscription) Events() <-chan transport.Notification { return s.events }
@@ -266,6 +304,90 @@ func TestAggregatedSubscriptionReconnectsSourceAndKeepsSnapshot(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("reconnected quorum output missing")
+	}
+}
+func TestAggregatedSubscriptionUnsubscribeWaitsForReconnectSetup(t *testing.T) {
+	first := &aggregateTestSubscription{events: make(chan transport.Notification), errs: make(chan error, 1)}
+	replacement := &trackedSubscription{
+		events:       make(chan transport.Notification),
+		errs:         make(chan error),
+		unsubscribed: make(chan struct{}),
+	}
+	blocked := &blockingReconnectSource{
+		id:            "a",
+		first:         first,
+		replacement:   replacement,
+		secondStarted: make(chan struct{}),
+		releaseSecond: make(chan struct{}),
+	}
+	other := &aggregateTestSource{
+		id:  "b",
+		sub: &aggregateTestSubscription{events: make(chan transport.Notification), errs: make(chan error)},
+	}
+	out := make(chan string)
+	sub, err := startAggregatedSubscription(context.Background(), []identifiedSubscriptionSource{blocked, other}, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: "head:1", Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...)}, string(raw), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first.errs <- errors.New("socket lost")
+	select {
+	case <-blocked.secondStarted:
+	case <-time.After(time.Second):
+		t.Fatal("replacement subscription setup did not start")
+	}
+
+	unsubscribed := make(chan struct{})
+	go func() {
+		sub.Unsubscribe()
+		close(unsubscribed)
+	}()
+	select {
+	case <-unsubscribed:
+		t.Fatal("Unsubscribe returned before the reconnect worker exited")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(blocked.releaseSecond)
+	select {
+	case <-replacement.unsubscribed:
+	case <-time.After(time.Second):
+		t.Fatal("replacement subscription was not cleaned up")
+	}
+	select {
+	case <-unsubscribed:
+	case <-time.After(time.Second):
+		t.Fatal("Unsubscribe did not wait for reconnect cleanup")
+	}
+}
+
+func TestAggregatedSubscriptionCancellationUnblocksDelivery(t *testing.T) {
+	a := &aggregateTestSubscription{events: make(chan transport.Notification, 1), errs: make(chan error)}
+	b := &aggregateTestSubscription{events: make(chan transport.Notification, 1), errs: make(chan error)}
+	out := make(chan string)
+	sub, err := startAggregatedSubscription(context.Background(), []identifiedSubscriptionSource{
+		&aggregateTestSource{id: "a", sub: a},
+		&aggregateTestSource{id: "b", sub: b},
+	}, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: "head:1", Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...)}, string(raw), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.events <- transport.Notification{Result: json.RawMessage(`"same"`)}
+	b.events <- transport.Notification{Result: json.RawMessage(`"same"`)}
+
+	done := make(chan struct{})
+	go func() {
+		sub.Unsubscribe()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Unsubscribe remained blocked by an unread delivery")
 	}
 }
 

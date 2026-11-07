@@ -129,10 +129,6 @@ type identifiedSubscriptionSource interface {
 	ID() string
 }
 
-type subscriptionConnectionResetter interface {
-	ResetConnection()
-}
-
 type subscriptionUnarySource interface {
 	CallContext(context.Context, string, ...any) (json.RawMessage, error)
 }
@@ -634,9 +630,6 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 				if !reconnect || !waitSubscriptionRetry(s.stop, merged, 50*time.Millisecond) {
 					return
 				}
-				if resetter, ok := source.(subscriptionConnectionResetter); ok {
-					resetter.ResetConnection()
-				}
 				for {
 					nextSession, openErr := sessions.Open(sourceID)
 					if openErr != nil {
@@ -644,10 +637,17 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 					}
 					nextInner, subErr := source.Subscribe(merged, string(kind), args...)
 					if subErr == nil {
-						session, inner = nextSession, nextInner
 						s.innerMu.Lock()
-						s.inner[sourceID] = inner
-						s.innerMu.Unlock()
+						select {
+						case <-s.stop:
+							s.innerMu.Unlock()
+							nextInner.Unsubscribe()
+							return
+						default:
+							session, inner = nextSession, nextInner
+							s.inner[sourceID] = inner
+							s.innerMu.Unlock()
+						}
 						break
 					}
 					select {
@@ -656,9 +656,6 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 					}
 					if !waitSubscriptionRetry(s.stop, merged, 100*time.Millisecond) {
 						return
-					}
-					if resetter, ok := source.(subscriptionConnectionResetter); ok {
-						resetter.ResetConnection()
 					}
 				}
 			}
@@ -671,6 +668,7 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 	go func() {
 		defer close(s.done)
 		defer s.gapWG.Wait()
+		defer func() { <-s.doneSources }()
 		defer func() {
 			if err := s.terminalError(); err != nil {
 				s.errs <- err
