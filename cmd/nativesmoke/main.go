@@ -355,10 +355,14 @@ func printSummary(r smokeReport) {
 	fmt.Println("provider\tverdict\tconflicts\tnative envelope\tchain id")
 	for _, p := range r.Providers {
 		env := "?"
+		chain := "?"
+		// A provider run may legitimately omit the native adapter (the
+		// -adapters selection is caller-controlled), so both columns
+		// degrade to "?" instead of dereferencing a missing entry.
 		if ar := p.Adapters["native"]; ar != nil {
 			env = fmt.Sprintf("%v", ar.EnvelopeOK)
+			chain = ar.ChainID
 		}
-		chain := p.Adapters["native"].ChainID
 		fmt.Printf("%s\t%s\t%d\t%s\t%s\n", p.URL, p.Verdict, len(p.Conflicts), env, chain)
 		for _, c := range p.Conflicts {
 			fmt.Printf("  conflict %s: class=%s geth=%s native=%s\n", c.Call, c.Class, truncate(c.Geth, 90), truncate(c.Native, 90))

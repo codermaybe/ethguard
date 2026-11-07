@@ -187,7 +187,12 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	gated, gatedErr := agg.AggregateStrict(ctx, callRequest())
-	if !errors.Is(gatedErr, rpc.ErrConflict) || gated.Status != rpc.Unknown {
+	// The gate fails the call without rewriting the formed Status: the
+	// invocation resolved (Selected at best on this script), and the
+	// unmet corroboration requirement travels as the call error — the
+	// Decision contract's "failed call may still carry a non-Unknown
+	// Status" case.
+	if !errors.Is(gatedErr, rpc.ErrConflict) || gated.Status != rpc.Selected {
 		t.Fatalf("gated status %v err %v", gated.Status, gatedErr)
 	}
 	if gatedErr == nil || !bytes.Contains([]byte(gatedErr.Error()), []byte("typed read requires corroboration")) {

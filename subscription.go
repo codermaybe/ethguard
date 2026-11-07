@@ -236,6 +236,11 @@ func waitSubscriptionRetry(stop <-chan struct{}, ctx context.Context, delay time
 	}
 }
 
+// maxSubscriptionRetryBackoff caps the reconnect loop's exponential backoff.
+// The cap keeps a recovering source responsive (2s, not minutes); the floor
+// stays at the loop's 50ms first retry.
+const maxSubscriptionRetryBackoff = 2 * time.Second
+
 func (s *aggregateEthSubscription[T]) Err() <-chan error { return s.errs }
 
 func (s *aggregateEthSubscription[T]) Unsubscribe() {
@@ -557,9 +562,26 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 		}
 		initialSessions[i] = session
 		initialSubscriptions[i] = inner
+		// The reconnect worker rechecks s.stop under the inner lock for the
+		// same reason: finish may have snapshotted and torn down s.inner
+		// while this Subscribe was in flight, and an inner published after
+		// that snapshot has no one left to Unsubscribe it. The initial
+		// establish loop owns the same invariant on its own write path.
 		s.innerMu.Lock()
-		s.inner[source.ID()] = inner
-		s.innerMu.Unlock()
+		select {
+		case <-s.stop:
+			s.innerMu.Unlock()
+			go inner.Unsubscribe()
+			cause := context.Cause(ownerCtx)
+			if cause == nil {
+				cause = ErrPoolClosed
+			}
+			s.finish(makeSubscriptionFault("", 1, "lifecycle", "", cause))
+			return nil, cause
+		default:
+			s.inner[source.ID()] = inner
+			s.innerMu.Unlock()
+		}
 	}
 	var sourceWG sync.WaitGroup
 	sourceWG.Add(len(sources))
@@ -630,6 +652,7 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 				if !reconnect || !waitSubscriptionRetry(s.stop, merged, 50*time.Millisecond) {
 					return
 				}
+				retryDelay := 50 * time.Millisecond
 				for {
 					nextSession, openErr := sessions.Open(sourceID)
 					if openErr != nil {
@@ -654,7 +677,14 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 					case s.faults <- makeSubscriptionFault(sourceID, nextSession.Generation, "reconnect", "", subErr):
 					default:
 					}
-					if !waitSubscriptionRetry(s.stop, merged, 100*time.Millisecond) {
+					// Bounded exponential backoff: a dead endpoint must not
+					// be retried at a fixed ~10 Hz forever. The sequence
+					// caps at 2s; the stop channel still cuts every wait.
+					retryDelay *= 2
+					if retryDelay > maxSubscriptionRetryBackoff {
+						retryDelay = maxSubscriptionRetryBackoff
+					}
+					if !waitSubscriptionRetry(s.stop, merged, retryDelay) {
 						return
 					}
 				}
@@ -907,7 +937,15 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 		return nil, err
 	}
 	if len(sources) == 1 {
-		inner, subErr := sources[0].Subscribe(ctx, "transactionReceipts", q)
+		// Normalize the nil query exactly like the multi-source path below:
+		// both routes must put the same wire spelling on the socket, or the
+		// single-source route would send a bare null parameter that
+		// providers may reject.
+		singleQuery := q
+		if singleQuery == nil {
+			singleQuery = &ethereum.TransactionReceiptsQuery{}
+		}
+		inner, subErr := sources[0].Subscribe(ctx, "transactionReceipts", singleQuery)
 		if subErr != nil {
 			return nil, subErr
 		}

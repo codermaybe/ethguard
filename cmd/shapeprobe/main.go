@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/internal/chainlist"
+	"github.com/codermaybe/ethguard/internal/limits"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/shapeprobe"
@@ -151,7 +152,7 @@ func loadCandidates(ctx context.Context, file string, maxScan int) ([]chainlist.
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("chainlist: status %s", resp.Status)
 		}
-		reader = resp.Body
+		reader = io.LimitReader(resp.Body, limits.MaxBodyBytes)
 	}
 	chains, err := chainlist.Parse(reader)
 	if err != nil {

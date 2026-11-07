@@ -41,6 +41,16 @@ const DefaultReadLimit = limits.MaxBodyBytes
 
 const defaultHandshakeTimeout = 10 * time.Second
 
+const (
+	// maxPendingNotificationsPerID bounds the buffered notifications for one
+	// not-yet-bound subscription ID.
+	maxPendingNotificationsPerID = 256
+	// maxPendingSubscriptionIDs bounds how many distinct never-bound
+	// subscription IDs may hold a pending buffer at once, so a hostile or
+	// chatty peer cannot grow the pending map without limit.
+	maxPendingSubscriptionIDs = 256
+)
+
 // ErrTransportClosed is returned for calls on a closed or broken transport.
 // It wraps the neutral lifecycle sentinel so core packages classify the
 // lifecycle without importing this adapter.
@@ -239,14 +249,15 @@ func (t *Transport) Subscribe(ctx context.Context, kind string, args ...any) (*S
 		return nil, fmt.Errorf("wss: empty subscription kind")
 	}
 	// The setup context bounds eth_subscribe only. The stream remains alive
-	// until Unsubscribe, owner Close, or a transport failure.
-	stream, err := t.OpenNotificationStream(context.WithoutCancel(ctx), "", 0, 256)
+	// until Unsubscribe, owner Close, or a transport failure. It registers
+	// with the pending placeholder from birth, so no other subscription's
+	// notification can land here during the eth_subscribe round trip; the
+	// first server push for this subscription (which can outrun the
+	// response) buffers at the transport level and is flushed on bind.
+	stream, err := t.openNotificationStreamWithID(context.WithoutCancel(ctx), "", 0, 256, pendingSubscriptionID)
 	if err != nil {
 		return nil, err
 	}
-	stream.mu.Lock()
-	stream.subscriptionID = pendingSubscriptionID
-	stream.mu.Unlock()
 	var id string
 	params := make([]any, 0, len(args)+1)
 	params = append(params, kind)
@@ -346,7 +357,18 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 // OpenNotificationStream opts this raw WSS connection into subscription
 // notifications. The stream is bounded; a full queue terminates only that
 // stream with a backpressure error and never blocks the unary reader.
+//
+// Until a caller binds a subscription ID, the stream carries the generic ""
+// marker and receives every notification the peer pushes — the documented
+// direct-open semantics. The Subscribe path instead registers through
+// openNotificationStreamWithID so its stream never passes through the
+// generic marker: between registration and the eth_subscribe answer,
+// dispatch must not route other subscriptions' notifications into it.
 func (t *Transport) OpenNotificationStream(ctx context.Context, sourceID string, generation uint64, buffer int) (*NotificationStream, error) {
+	return t.openNotificationStreamWithID(ctx, sourceID, generation, buffer, "")
+}
+
+func (t *Transport) openNotificationStreamWithID(ctx context.Context, sourceID string, generation uint64, buffer int, initialID string) (*NotificationStream, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("wss: nil notification context")
 	}
@@ -354,12 +376,13 @@ func (t *Transport) OpenNotificationStream(ctx context.Context, sourceID string,
 		return nil, fmt.Errorf("wss: notification buffer must be positive")
 	}
 	stream := &NotificationStream{
-		owner:      t,
-		sourceID:   sourceID,
-		generation: generation,
-		events:     make(chan Notification, buffer),
-		errs:       make(chan error, 1),
-		done:       make(chan struct{}),
+		owner:          t,
+		sourceID:       sourceID,
+		generation:     generation,
+		subscriptionID: initialID,
+		events:         make(chan Notification, buffer),
+		errs:           make(chan error, 1),
+		done:           make(chan struct{}),
 	}
 	t.mu.Lock()
 	if t.closed || t.closing {
@@ -389,6 +412,9 @@ func (t *Transport) removeNotificationStream(stream *NotificationStream) {
 	delete(t.streams, stream)
 	if stream.subscriptionID != "" && t.subscriptionIDs[stream.subscriptionID] == stream {
 		delete(t.subscriptionIDs, stream.subscriptionID)
+		// A server that keeps pushing after the unsubscribe must not pin a
+		// pending buffer here forever; the entry dies with the binding.
+		delete(t.pendingNotifications, stream.subscriptionID)
 	}
 	t.mu.Unlock()
 }
@@ -420,7 +446,13 @@ func (t *Transport) dispatchNotification(message []byte) {
 	}
 	if bound == nil {
 		pending := t.pendingNotifications[notification.SubscriptionID]
-		if len(pending) < 256 {
+		// Two bounds keep a hostile or chatty peer from growing this map
+		// without limit: the per-ID buffer below, and a global cap on how
+		// many never-bound subscription IDs may hold a buffer at all. An ID
+		// that already holds a buffer keeps filling it, so an in-flight
+		// subscribe is never starved by unrelated IDs.
+		if len(pending) < maxPendingNotificationsPerID &&
+			(len(pending) > 0 || len(t.pendingNotifications) < maxPendingSubscriptionIDs) {
 			t.pendingNotifications[notification.SubscriptionID] = append(pending, notification)
 		}
 	}
@@ -587,6 +619,7 @@ func (t *Transport) abort(err error) {
 	t.closing = true
 	pending := t.pending
 	t.pending = make(map[string]chan frameResult)
+	t.pendingNotifications = make(map[string][]Notification)
 	streams := t.streams
 	t.streams = make(map[*NotificationStream]struct{})
 	t.mu.Unlock()
@@ -644,6 +677,7 @@ func (t *Transport) Close() {
 	t.closing = true
 	streams := t.streams
 	t.streams = make(map[*NotificationStream]struct{})
+	t.pendingNotifications = make(map[string][]Notification)
 	closeSocket := len(t.pending) == 0
 	if closeSocket {
 		t.closed = true

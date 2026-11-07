@@ -43,6 +43,7 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/internal/chainlist"
+	"github.com/codermaybe/ethguard/internal/limits"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -440,7 +441,7 @@ func load(file string, chainID uint64, max int) []chainlist.Endpoint {
 		if resp.StatusCode != http.StatusOK {
 			fail("fetch registry: status %s", resp.Status)
 		}
-		r = resp.Body
+		r = io.LimitReader(resp.Body, limits.MaxBodyBytes)
 	}
 	chains, err := chainlist.Parse(r)
 	if err != nil {

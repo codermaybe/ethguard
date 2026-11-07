@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -367,4 +368,46 @@ func preparedParams(t *testing.T, prepared *rpc.PreparedRequest) []any {
 		}
 	}
 	return params
+}
+
+// TestPendingLocalShapeRecognizesEveryDocumentedSpelling pins the observe
+// mode to the single pending-grammar authority: every spelling the refuse
+// path rejects locally (raw, padded, upper-case, JSON string, EIP-1898
+// object) must route as a local pending observation too, so one spelling
+// cannot be pending in one mode and a remote fan-out in another.
+func TestPendingLocalShapeRecognizesEveryDocumentedSpelling(t *testing.T) {
+	positives := []any{
+		"pending",
+		" pending ",
+		"PENDING",
+		json.RawMessage(`"pending"`),
+		map[string]any{"blockNumber": "pending"},
+		map[string]any{"blockNumber": json.RawMessage(`"pending"`)},
+	}
+	for _, spelling := range positives {
+		prepared := rpc.Request{Method: "eth_test", Params: []any{"addr", spelling}}
+		if !pendingLocalShape(1, prepared) {
+			t.Fatalf("documented pending spelling not recognized locally: %#v", spelling)
+		}
+	}
+	negatives := []any{
+		"latest",
+		"0x5",
+		"earliest",
+		map[string]any{"blockNumber": "latest"},
+		map[string]any{"blockHash": "0x" + strings.Repeat("ab", 32)},
+		nil,
+	}
+	for _, spelling := range negatives {
+		prepared := rpc.Request{Method: "eth_test", Params: []any{"addr", spelling}}
+		if pendingLocalShape(1, prepared) {
+			t.Fatalf("non-pending reference treated as local pending: %#v", spelling)
+		}
+	}
+	if pendingLocalShape(-1, rpc.Request{Params: []any{"pending"}}) {
+		t.Fatal("out-of-range position must not be local pending")
+	}
+	if pendingLocalShape(3, rpc.Request{Params: []any{"pending"}}) {
+		t.Fatal("missing position must not be local pending")
+	}
 }

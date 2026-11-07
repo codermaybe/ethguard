@@ -780,3 +780,67 @@ func TestNativeChainIDQuantityRejections(t *testing.T) {
 		})
 	}
 }
+
+// TestNewTransportSurvivesReplacedDefaultTransport pins the defensive
+// contract over the replaceable http.DefaultTransport global: a host
+// application that swapped in a custom (or nil) RoundTripper must not turn
+// the adapter's first dial into an assertion panic — the library falls back
+// to its own transport instead of inheriting unknown global state.
+func TestNewTransportSurvivesReplacedDefaultTransport(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+	}))
+	defer srv.Close()
+
+	previous := nethttp.DefaultTransport
+	defer func() { nethttp.DefaultTransport = previous }()
+	nethttp.DefaultTransport = roundTripperFunc(func(*nethttp.Request) (*nethttp.Response, error) {
+		return nil, errors.New("custom round tripper must not be inherited")
+	})
+	tr := newTransport(srv.URL, 1<<20)
+	var result json.RawMessage
+	if err := tr.CallContext(context.Background(), &result, "eth_blockNumber"); err != nil {
+		t.Fatalf("dial with a replaced global transport must not panic and must serve the call: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("no result decoded")
+	}
+}
+
+// roundTripperFunc adapts a function to http.RoundTripper.
+type roundTripperFunc func(*nethttp.Request) (*nethttp.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *nethttp.Request) (*nethttp.Response, error) {
+	return f(r)
+}
+
+// TestCallContextRefusesRedirect pins the one-call-one-request contract:
+// a 3xx must be left to the status classification instead of being followed,
+// because the redirect's second hop is a body-less GET to an origin that is
+// not the configured source. The redirected endpoint's 200 answer must never
+// enter corroboration as this source's observation.
+func TestCallContextRefusesRedirect(t *testing.T) {
+	var secondMethod, secondBody string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/final" {
+			body, _ := io.ReadAll(r.Body)
+			secondMethod, secondBody = r.Method, string(body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"redirected-answer"}`))
+			return
+		}
+		nethttp.Redirect(w, r, "/final", nethttp.StatusMovedPermanently)
+	}))
+	defer srv.Close()
+
+	tr := newTransport(srv.URL, 1<<20)
+	var result json.RawMessage
+	err := tr.CallContext(context.Background(), &result, "eth_blockNumber")
+	if err == nil {
+		t.Fatalf("redirected response accepted as this source's observation: %s", result)
+	}
+	if secondMethod != "" {
+		t.Fatalf("redirect was followed: second hop method=%q body=%q", secondMethod, secondBody)
+	}
+}

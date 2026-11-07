@@ -32,8 +32,6 @@ type Source struct {
 	identityChecked  bool
 	identityInvalid  bool
 	identityChecking chan struct{}
-	resetMu          sync.Mutex
-	lastReset        time.Time
 
 	// life is cancelled when the source closes; it aborts any in-flight dial.
 	life       context.Context
@@ -61,38 +59,39 @@ func (s *Source) clientForCall(ctx context.Context) (upstream.Transport, error) 
 	if s.dialer == nil {
 		return nil, errors.New("pool: no connection adapter configured; set pool.WithDialer")
 	}
-	if client, err, ok := s.cachedClient(); ok {
-		return client, err
-	}
-
-	// Try to become the dialer without blocking on the network.
-	s.mu.Lock()
-	if s.dialing == nil {
-		if s.closed {
-			s.mu.Unlock()
-			return nil, ErrClosed
-		}
-		s.dialing = make(chan struct{})
-		dialDone := s.dialing
-		s.mu.Unlock()
-		client, err := s.dial(ctx)
-		close(dialDone)
-		return client, err
-	}
-	wait := s.dialing
-	s.mu.Unlock()
-
-	// Someone else is dialing. Wait for their result (published as s.client or
-	// s.closed) or for this caller's ctx to give up first.
-	select {
-	case <-wait:
+	for {
 		if client, err, ok := s.cachedClient(); ok {
 			return client, err
 		}
-		// The shared dial failed; this caller retries its own dial attempt.
-		return s.clientForCall(ctx)
-	case <-ctx.Done():
-		return nil, fmt.Errorf("%w: %w", ctx.Err(), errWaitingForDial)
+
+		// Try to become the dialer without blocking on the network.
+		s.mu.Lock()
+		if s.dialing == nil {
+			if s.closed {
+				s.mu.Unlock()
+				return nil, ErrClosed
+			}
+			s.dialing = make(chan struct{})
+			dialDone := s.dialing
+			s.mu.Unlock()
+			client, err := s.dial(ctx)
+			close(dialDone)
+			return client, err
+		}
+		wait := s.dialing
+		s.mu.Unlock()
+
+		// Someone else is dialing. Wait for their result (published as
+		// s.client or s.closed) or for this caller's ctx to give up first.
+		select {
+		case <-wait:
+			// The shared dial failed or the source closed; loop back and
+			// retry as this round's dialer instead of recursing, so the
+			// stack stays flat no matter how many rounds it takes.
+			continue
+		case <-ctx.Done():
+			return nil, fmt.Errorf("%w: %w", ctx.Err(), errWaitingForDial)
+		}
 	}
 }
 
@@ -305,10 +304,27 @@ func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstr
 		if shouldDiscardClient(err) {
 			s.discardClient(client)
 		}
-		s.recordFailedCall(err)
+		if shouldRecordFailure(ctx, err) {
+			s.recordFailedCall(err)
+		}
 		return nil, err
 	}
-	return subscriber.SubscribeCapability(ctx, kind, args...)
+	sub, err := subscriber.SubscribeCapability(ctx, kind, args...)
+	if err != nil {
+		// The reconnect loop relies on this path mirroring the unary
+		// transport hygiene: a dead transport must be dropped so the next
+		// attempt redials, and the failure must count toward health (unless
+		// the caller itself went away), or a closed socket stalls the
+		// subscription silently.
+		if shouldDiscardClient(err) {
+			s.discardClient(client)
+		}
+		if shouldRecordFailure(ctx, err) {
+			s.recordFailedCall(err)
+		}
+		return nil, err
+	}
+	return sub, nil
 }
 
 // CallContext performs one unary request on this source's managed transport.
@@ -322,14 +338,18 @@ func (s *Source) CallContext(ctx context.Context, method string, args ...any) (j
 	defer release()
 	client, err := s.clientForCall(ctx)
 	if err != nil {
-		s.recordFailedCall(err)
+		if shouldRecordFailure(ctx, err) {
+			s.recordFailedCall(err)
+		}
 		return nil, err
 	}
 	if err := s.verifyChainID(ctx, client); err != nil {
 		if shouldDiscardClient(err) {
 			s.discardClient(client)
 		}
-		s.recordFailedCall(err)
+		if shouldRecordFailure(ctx, err) {
+			s.recordFailedCall(err)
+		}
 		return nil, err
 	}
 	var result json.RawMessage
@@ -338,37 +358,13 @@ func (s *Source) CallContext(ctx context.Context, method string, args ...any) (j
 		if shouldDiscardClient(err) {
 			s.discardClient(client)
 		}
-		s.recordFailedCall(err)
+		if shouldRecordFailure(ctx, err) {
+			s.recordFailedCall(err)
+		}
 		return nil, err
 	}
 	s.recordSuccessfulCall(time.Since(started))
 	return result, nil
-}
-
-// ResetConnection discards the cached transport after a streaming failure so
-// the next subscription attempt performs a fresh dial. Membership and source
-// identity remain unchanged; this is a connection-session operation only.
-func (s *Source) ResetConnection() {
-	// Several subscription workers can observe the same broken shared
-	// transport. Coalesce their resets so a worker that has already reopened a
-	// session is not immediately torn down by a second worker.
-	s.resetMu.Lock()
-	if !s.lastReset.IsZero() && time.Since(s.lastReset) < 250*time.Millisecond {
-		s.resetMu.Unlock()
-		return
-	}
-	s.lastReset = time.Now()
-	s.resetMu.Unlock()
-	s.mu.Lock()
-	client := s.client
-	s.client = nil
-	if !s.closed {
-		s.state = SourceDown
-	}
-	s.mu.Unlock()
-	if client != nil {
-		client.Close()
-	}
 }
 
 // State returns the current readiness state.

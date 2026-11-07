@@ -652,3 +652,97 @@ func TestAggregatedTransactionReceiptsQuorumAndConflict(t *testing.T) {
 }
 
 func ptrHash(hash common.Hash) *common.Hash { return &hash }
+
+// blockingEstablishSource holds the establish loop inside Subscribe so a
+// test can interleave an owner close between the loop's stop check and its
+// s.inner publication.
+type blockingEstablishSource struct {
+	id      string
+	sub     *trackedSubscription
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingEstablishSource) ID() string { return s.id }
+
+func (s *blockingEstablishSource) Subscribe(context.Context, string, ...any) (transport.Subscription, error) {
+	s.once.Do(func() { close(s.started) })
+	<-s.release
+	return s.sub, nil
+}
+
+// TestAggregatedSubscriptionEstablishRacesOwnerCloseWithoutLeak pins the
+// initial-establish half of the inner-publication invariant: an inner
+// subscription that lands after finish snapshotted s.inner must unsubscribe
+// itself, exactly like the reconnect path's stop recheck. The reconnect
+// half is covered by TestAggregatedSubscriptionUnsubscribeWaitsForReconnectSetup.
+func TestAggregatedSubscriptionEstablishRacesOwnerCloseWithoutLeak(t *testing.T) {
+	blocked := &blockingEstablishSource{
+		id: "a",
+		sub: &trackedSubscription{
+			events:       make(chan transport.Notification),
+			errs:         make(chan error),
+			unsubscribed: make(chan struct{}),
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	other := &aggregateTestSource{
+		id:  "b",
+		sub: &aggregateTestSubscription{events: make(chan transport.Notification), errs: make(chan error)},
+	}
+	ownerCtx, ownerCancel := context.WithCancel(context.Background())
+	defer ownerCancel()
+	out := make(chan string)
+	type outcome struct {
+		sub ethereum.Subscription
+		err error
+	}
+	results := make(chan outcome, 1)
+	go func() {
+		sub, err := startAggregatedSubscriptionWithPullOwner(ownerCtx, context.Background(), []identifiedSubscriptionSource{blocked, other}, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+			return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: "head:1", Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...)}, string(raw), nil
+		}, nil)
+		results <- outcome{sub: sub, err: err}
+	}()
+	select {
+	case <-blocked.started:
+	case <-time.After(time.Second):
+		t.Fatal("establish loop never reached the first source")
+	}
+	// The owner closes while source "a"'s Subscribe is still in flight.
+	// Yield long enough for the watcher's finish to land, so the loop's
+	// write below happens after the snapshot — the interleaving the stop
+	// recheck exists for. (Same timing-assumption class as the 50ms
+	// negative assertion in TestAggregatedSubscriptionUnsubscribeWaitsForReconnectSetup.)
+	ownerCancel()
+	time.Sleep(50 * time.Millisecond)
+	close(blocked.release)
+	// Invariant: the inner subscription is unsubscribed no matter which
+	// side of the snapshot the publication landed on.
+	select {
+	case <-blocked.sub.unsubscribed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("inner subscription leaked: nobody unsubscribed after owner close during establish")
+	}
+	var res outcome
+	select {
+	case res = <-results:
+	case <-time.After(2 * time.Second):
+		t.Fatal("establish loop did not return after owner close")
+	}
+	if res.err == nil && res.sub != nil {
+		// A handle that escaped the race must still terminate promptly.
+		done := make(chan struct{})
+		go func() {
+			res.sub.Unsubscribe()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("Unsubscribe blocked on a handle returned after owner close")
+		}
+	}
+}

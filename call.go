@@ -66,11 +66,6 @@ func DecodeBlockHeaderOnly(raw json.RawMessage) (*types.Block, error) {
 	return typed.DecodeBlockHeaderOnly(raw)
 }
 
-// DecodeBlockWithEvidence delegates full block projection to internal/typed.
-func DecodeBlockWithEvidence(raw json.RawMessage, evidence json.RawMessage) (*types.Block, error) {
-	return typed.DecodeBlockWithEvidence(raw, evidence)
-}
-
 // DecodeReceipt delegates receipt projection to internal/typed.
 func DecodeReceipt(raw json.RawMessage) (*types.Receipt, error) {
 	return typed.DecodeReceipt(raw)

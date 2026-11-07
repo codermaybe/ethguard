@@ -18,12 +18,12 @@
 //     thresholds) and local_observation.go (decision 0035 pending shape).
 //   - Execution plan model: read_plan.go, the compiled plan one registered
 //     method executes under.
-//   - Decorator mechanics: decorator.go (shared base), block_reference.go
-//     (block-reference spellings and tags shared with the plan model),
-//     acceptance.go (support-threshold seam), representative.go (admitted
-//     supporters of a winning cluster).
-//   - Legacy execution model, scheduled for deletion with its constructor
-//     family: anchor_decorators.go and forward.go's ForwardPolicy fallback.
+//   - Plan-side helpers: block_reference.go (block-reference spellings and
+//     tags shared with the plan model, including the single pending-grammar
+//     authority IsPendingReference), acceptance.go (support-threshold seam),
+//     representative.go (admitted supporters of a winning cluster),
+//     policy.go (Policy interface, optional capabilities, method-rule
+//     spelling).
 //   - Field aggregation and the write path: field_aggregation.go (JSON
 //     path/value evidence) and write.go (eth_sendRawTransaction broadcast).
 //   - Shared parsing: quantity.go (0x quantities), error_data_presence.go
