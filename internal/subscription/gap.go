@@ -20,8 +20,18 @@ func NewHeadGapTracker() *HeadGapTracker { return &HeadGapTracker{last: make(map
 
 func (t *HeadGapTracker) Observe(source string, height uint64) *HeadGap {
 	previous, ok := t.last[source]
+	if !ok {
+		t.last[source] = height
+		return nil
+	}
+	// Reorgs and duplicate notifications can move a source backwards. They do
+	// not prove a forward gap, and must not reset the high-water mark used by
+	// the next canonical head.
+	if height <= previous {
+		return nil
+	}
 	t.last[source] = height
-	if !ok || height <= previous+1 {
+	if height == previous+1 {
 		return nil
 	}
 	return &HeadGap{From: previous + 1, To: height - 1}
