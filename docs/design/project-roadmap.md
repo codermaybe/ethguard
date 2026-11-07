@@ -60,11 +60,12 @@ execution、quorum、reference 和 typed 边界约束。
    parameter/result types require importing `go-ethereum/ethclient`, which the
    native default build currently forbids.
 4. **S2 subscription semantics.** Connect source snapshots, quorum,
-   duplicate/reorg/removed handling and bounded backpressure for new heads,
-   logs, and transaction receipts. The root facade now runs fixed-snapshot
-   strict quorum aggregation for these three WSS streams; per-source
-   reconnect generations, same-source Pull, and cross-transport evidence
-   remain open gates before S2/T0 completion.
+   duplicate/reorg/removed handling, bounded backpressure, and per-source
+   reconnect generations for new heads, logs, and transaction receipts. The
+   root facade now runs fixed-snapshot strict quorum aggregation with stale
+   session filtering for these three WSS streams; same-source Pull/gap
+   integration and cross-transport evidence remain open gates before S2/T0
+   completion.
 5. **T0 transport evidence.** Run matching HTTP/WSS fixtures for every
    completed unary method and the subscription lifecycle matrix. Update the
    live method matrix after each method reaches all required gates.
