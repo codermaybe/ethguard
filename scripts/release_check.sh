@@ -30,9 +30,34 @@ echo "==> running race-enabled test suite"
 # The locked-version method-set contract is intentionally soft during
 # development but must be hard at release time. This prevents an intermediate
 # facade subset from passing the release gate.
-ETHGUARD_REQUIRE_COMPLETE=1 go test -race ./...
+accept_external_simulate_gap="${ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP:-0}"
+case "${accept_external_simulate_gap}" in
+    0)
+        ETHGUARD_REQUIRE_COMPLETE=1 go test -race ./...
+        ;;
+    1)
+        echo "==> accepting the documented external SimulateV1 compatibility gap"
+        method_diff="$(./scripts/ethclient-method-diff.sh)"
+        expected_gap="business missing: 1 [SimulateV1]"
+        if ! grep -Fqx "${expected_gap}" <<<"${method_diff}"; then
+            echo "external gap acceptance requires exactly: ${expected_gap}" >&2
+            echo "actual method diff:" >&2
+            echo "${method_diff}" >&2
+            exit 1
+        fi
+        ETHGUARD_REQUIRE_COMPLETE=0 go test -race ./...
+        ;;
+    *)
+        echo "ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP must be 0 or 1" >&2
+        exit 1
+        ;;
+esac
 
 echo "==> scanning reachable vulnerabilities"
 ./scripts/govulncheck.sh
 
-echo "release checks passed"
+if [ "${accept_external_simulate_gap}" = "1" ]; then
+    echo "release checks passed with accepted external SimulateV1 gap; EthClient is not complete"
+else
+    echo "release checks passed"
+fi
