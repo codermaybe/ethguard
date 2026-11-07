@@ -142,7 +142,14 @@ func TestRegisteredMethodSampleStatus(t *testing.T) {
 			archived[record.Method] = feature
 		}
 	}
-	noCapture := map[string]bool{}
+	// These methods were added after the archived capture batches. Keep the
+	// absence explicit until a real provider capture is recorded; synthetic
+	// payloads must not be presented as live evidence.
+	noCapture := map[string]bool{
+		methods.MethodGetBlockTransactionCountByHash:    true,
+		methods.MethodGetBlockTransactionCountByNumber:  true,
+		methods.MethodGetTransactionByBlockHashAndIndex: true,
+	}
 	for _, name := range methods.RegisteredNames() {
 		feature, has := archived[name]
 		if noCapture[name] == has {

@@ -375,6 +375,30 @@ func t09TypedNonce(t *testing.T, f *t09Fleet, params []any) (string, error) {
 	return t09SummaryQuantity(value), nil
 }
 
+func t09TypedTransactionCount(t *testing.T, f *t09Fleet, params []any) (string, error) {
+	value, _, err := f.client.TransactionCount(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
+	if err != nil {
+		return "", err
+	}
+	return t09SummaryQuantity(uint64(value)), nil
+}
+
+func t09TypedPendingTransactionCount(t *testing.T, f *t09Fleet, _ []any) (string, error) {
+	value, _, err := f.client.PendingTransactionCount(f.context(t))
+	if err != nil {
+		return "", err
+	}
+	return t09SummaryQuantity(uint64(value)), nil
+}
+
+func t09TypedTransactionInBlock(t *testing.T, f *t09Fleet, params []any) (string, error) {
+	tx, _, err := f.client.TransactionInBlock(f.context(t), common.HexToHash(t09ParamString(t, params, 0)), uint(t09ParamUint64(t, params, 1)))
+	if err != nil {
+		return "", err
+	}
+	return t09SummaryTransaction(tx, false), nil
+}
+
 func t09TypedStorage(t *testing.T, f *t09Fleet, params []any) (string, error) {
 	ctx := f.context(t)
 	if t09ParamIsPending(t, params, 2) {
@@ -598,12 +622,27 @@ func t09ParamString(t *testing.T, params []any, index int) string {
 
 func t09ParamUint64(t *testing.T, params []any, index int) uint64 {
 	t.Helper()
-	text := t09ParamString(t, params, index)
-	var value hexutil.Uint64
-	if err := value.UnmarshalText([]byte(text)); err != nil {
-		t.Fatalf("param %d = %q: %v", index, text, err)
+	switch value := params[index].(type) {
+	case uint:
+		return uint64(value)
+	case uint64:
+		return value
+	case uint32:
+		return uint64(value)
+	case uint16:
+		return uint64(value)
+	case uint8:
+		return uint64(value)
+	case string:
+		var quantity hexutil.Uint64
+		if err := quantity.UnmarshalText([]byte(value)); err != nil {
+			t.Fatalf("param %d = %q: %v", index, value, err)
+		}
+		return uint64(quantity)
+	default:
+		t.Fatalf("param %d = %#v, want quantity", index, params[index])
 	}
-	return uint64(value)
+	return 0
 }
 
 func t09ParamInt(t *testing.T, params []any, index int) int {

@@ -244,6 +244,10 @@ func t09AssertWant(t *testing.T, mc t09MethodCase, row t09Row, decision rpc.Deci
 		if want.ValueExact != "" && string(decision.Value) != want.ValueExact {
 			t.Fatalf("%s: Value = %s, want exact %s", label, decision.Value, want.ValueExact)
 		}
+	} else if want.ValueExact != "" {
+		if string(decision.Value) != want.ValueExact {
+			t.Fatalf("%s: Value = %s, want exact %s", label, decision.Value, want.ValueExact)
+		}
 	} else if len(decision.Value) != 0 && err == nil {
 		// Rows without a Value expectation must not smuggle a stale success
 		// value through a success path. Failed aggregations clear the public
