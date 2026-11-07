@@ -13,12 +13,13 @@ import (
 // source identity and physical session generation alongside the callback so a
 // late or cross-source answer cannot contribute a vote.
 type PullRequest struct {
-	Kind       Kind
-	ContextKey string
-	SourceID   string
-	Generation uint64
-	FirstSeen  time.Time
-	Pull       func(context.Context) (Observation, error)
+	Kind                Kind
+	ContextKey          string
+	SourceID            string
+	Generation          uint64 // physical source/session generation
+	AggregateGeneration uint64 // fixed logical generation expected by Aggregator
+	FirstSeen           time.Time
+	Pull                func(context.Context) (Observation, error)
 }
 
 // PullProbeConfig bounds the Push-to-Pull window. Pulling never changes the
@@ -133,6 +134,9 @@ func (p *PullProbe) run(ctx context.Context, cancel context.CancelFunc, agg *Agg
 				if observation.Kind != request.Kind || observation.ContextKey != request.ContextKey {
 					p.errs <- &ProbeError{SourceID: request.SourceID, Generation: request.Generation, ContextKey: request.ContextKey, Err: fmt.Errorf("%w: pull event identity mismatch", ErrUnknownSource)}
 					return
+				}
+				if request.AggregateGeneration != 0 {
+					observation.Generation = request.AggregateGeneration
 				}
 				if err := agg.Submit(observation); err != nil && !errors.Is(err, ErrStaleGeneration) && !errors.Is(err, ErrUnknownSource) {
 					p.errs <- &ProbeError{SourceID: request.SourceID, Generation: request.Generation, ContextKey: request.ContextKey, Err: err}

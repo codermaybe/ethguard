@@ -30,6 +30,10 @@ execution、quorum、reference 和 typed 边界约束。
 - The root `Client` remains the evidence facade. `Client.EthClient()` must
   eventually expose the complete locked-version method set while sharing the
   same runtime, typed projection, transport, and lifecycle implementation.
+- `gethcompat.SimulateClient` is an explicit single-source compatibility
+  adapter for `eth_simulateV1`. It imports the official go-ethereum
+  `ethclient` types only through the opt-in `gethcompat` package and does not
+  extend the default `Client.EthClient()` surface or provide EthGuard evidence.
 - Native HTTP and raw WSS use the same transport seam. WSS subscriptions are a
   separate capability and cannot be inferred from unary request/response
   support.
@@ -50,7 +54,11 @@ execution、quorum、reference 和 typed 边界约束。
    business method. `TransactionCount`, `PendingTransactionCount`,
    `TransactionInBlock`, and `TransactionSender` now have
    independent plans and facade projections. No unknown `Call` or `ErrUnsupported` placeholder satisfies this
-   step.
+   step. The optional `gethcompat.SimulateClient` preserves the official
+   `SimulateV1` signature for callers that explicitly accept single-source
+   go-ethereum semantics; it does not close the default 47-method
+   `EthClient` compatibility gate. Closing that gate still requires a
+   reviewed root/view integration contract for `SimulateV1`.
 3. **WSS subscription capability.** The WSS adapter now has an explicit
    `eth_subscribe`/`eth_unsubscribe` capability beside (not inside) unary
    `Transport`, with ID-filtered bounded notification streams and race-tested
@@ -67,8 +75,11 @@ execution、quorum、reference 和 typed 边界约束。
    session filtering for these three WSS streams. The `newHeads` path also
    performs a same-source unary Pull after the soft window, with physical
    session checks before and after the request and a per-context hard
-   quarantine. Logs/receipts Pull, root gap diagnostics, and cross-transport
-   evidence remain open items.
+   quarantine. The `newHeads` path verifies skipped-height gaps through the
+   same Pull window; successful verification continues without replay, while
+   an unresolved gap terminates through structured `SubscriptionGapError` on
+   `Err()`. Logs and transaction receipts have same-source Pull compensation;
+   height-gap diagnostics remain specific to `newHeads`.
 5. **Transport evidence.** Run matching HTTP/WSS fixtures for every
    completed unary method and the subscription lifecycle matrix. Update the
    live method matrix after each method reaches all required gates.

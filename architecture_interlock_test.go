@@ -93,8 +93,8 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		}
 		// The link-time transport rules: exactly one production package may
 		// import the go-ethereum client, and the geth wire package stays
-		// confined to the compatibility adapter, the ethclient-shaped facade,
-		// and command entry points.
+		// confined to the compatibility adapter, the public gethcompat seam,
+		// the ethclient-shaped facade, and command entry points.
 		if strings.Contains(pkg.ImportPath, "go-ethereum") {
 			continue
 		}
@@ -104,8 +104,8 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 				importsETHClient = true
 			}
 		}
-		if importsETHClient && pkg.ImportPath != modulePath+"/internal/transport/geth" {
-			t.Errorf("%s imports ethclient; only internal/transport/geth may link the go-ethereum client", pkg.ImportPath)
+		if importsETHClient && pkg.ImportPath != modulePath+"/internal/transport/geth" && pkg.ImportPath != modulePath+"/gethcompat" {
+			t.Errorf("%s imports ethclient; only internal/transport/geth and gethcompat may link the go-ethereum client", pkg.ImportPath)
 		}
 		importsGethRPC := false
 		for _, imp := range pkg.Imports {
@@ -116,6 +116,7 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		if importsGethRPC {
 			switch {
 			case pkg.ImportPath == modulePath+"/internal/transport/geth",
+				pkg.ImportPath == modulePath+"/gethcompat",
 				pkg.ImportPath == modulePath,
 				strings.HasPrefix(pkg.ImportPath, modulePath+"/cmd/"):
 			default:

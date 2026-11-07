@@ -1,6 +1,9 @@
 package subscription
 
-import "errors"
+import (
+	"errors"
+	"sync"
+)
 
 var ErrHeadGap = errors.New("subscription: new-head gap")
 
@@ -13,12 +16,15 @@ type HeadGap struct {
 // skipped range without deciding whether the cause was a reorg; callers may
 // route the gap to Pull or Err according to subscription policy.
 type HeadGapTracker struct {
+	mu   sync.Mutex
 	last map[string]uint64
 }
 
 func NewHeadGapTracker() *HeadGapTracker { return &HeadGapTracker{last: make(map[string]uint64)} }
 
 func (t *HeadGapTracker) Observe(source string, height uint64) *HeadGap {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	previous, ok := t.last[source]
 	if !ok {
 		t.last[source] = height

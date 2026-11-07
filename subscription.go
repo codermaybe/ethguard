@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -125,7 +126,7 @@ type subscriptionUnarySource interface {
 	CallContext(context.Context, string, ...any) (json.RawMessage, error)
 }
 
-type subscriptionPullFactory[T any] func(context.Context, identifiedSubscriptionSource, internalsubscription.Kind, string) (internalsubscription.Observation, error)
+type subscriptionPullFactory[T any] func(context.Context, identifiedSubscriptionSource, internalsubscription.Kind, string, internalsubscription.Observation) (internalsubscription.Observation, error)
 
 type aggregateEthSubscription[T any] struct {
 	inner       map[string]transport.Subscription
@@ -148,12 +149,17 @@ type aggregateEthSubscription[T any] struct {
 	pending     map[string]*pullContext
 	probes      map[string]*internalsubscription.PullProbe
 	ctx         context.Context
+	headGaps    *internalsubscription.HeadGapTracker
+	gapMu       sync.Mutex
+	gapProbes   map[string]struct{}
+	gapWG       sync.WaitGroup
 }
 
 type pullContext struct {
-	firstSeen time.Time
-	kind      internalsubscription.Kind
-	seen      map[string]struct{}
+	firstSeen   time.Time
+	kind        internalsubscription.Kind
+	seen        map[string]struct{}
+	observation internalsubscription.Observation
 }
 
 // subscriptionFault preserves the attribution needed to diagnose an
@@ -164,6 +170,37 @@ type subscriptionFault struct {
 	stage      string
 	contextKey string
 	err        error
+}
+
+// ErrSubscriptionGap identifies a new-head height range that could not be
+// verified by the same source after the push stream skipped it.
+var ErrSubscriptionGap = internalsubscription.ErrHeadGap
+
+// SubscriptionGapError is the terminal error delivered by a multi-source
+// new-head subscription when a source gap remains unresolved after the
+// bounded same-source Pull window.
+type SubscriptionGapError struct {
+	SourceID   string
+	From       uint64
+	To         uint64
+	ContextKey string
+	Generation uint64
+	Cause      error
+}
+
+func (e *SubscriptionGapError) Error() string {
+	return fmt.Sprintf("ethguard: new-head gap source=%q from=%d to=%d generation=%d context=%q: %v", e.SourceID, e.From, e.To, e.Generation, e.ContextKey, e.Cause)
+}
+
+func (e *SubscriptionGapError) Unwrap() error { return e.Cause }
+
+func newSubscriptionGapError(sourceID string, gap internalsubscription.HeadGap, contextKey string, generation uint64, cause error) error {
+	if cause == nil {
+		cause = ErrSubscriptionGap
+	} else {
+		cause = errors.Join(ErrSubscriptionGap, cause)
+	}
+	return &SubscriptionGapError{SourceID: sourceID, From: gap.From, To: gap.To, ContextKey: contextKey, Generation: generation, Cause: cause}
 }
 
 func (f *subscriptionFault) Error() string {
@@ -257,6 +294,9 @@ func (s *aggregateEthSubscription[T]) noteObservation(obs internalsubscription.O
 		}
 		s.pending[obs.ContextKey] = state
 	}
+	if len(state.observation.Payload) == 0 && len(obs.Payload) > 0 {
+		state.observation = obs
+	}
 	state.seen[obs.SourceID] = struct{}{}
 }
 
@@ -274,6 +314,7 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 			continue
 		}
 		requests := make([]internalsubscription.PullRequest, 0, len(sources))
+		aggregateGeneration := s.agg.Snapshot().Generation
 		for _, source := range sources {
 			if _, ok := state.seen[source.ID()]; ok {
 				continue
@@ -284,12 +325,14 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 				continue
 			}
 			requests = append(requests, internalsubscription.PullRequest{
-				Kind: state.kind, ContextKey: contextKey, SourceID: source.ID(), Generation: 1, FirstSeen: state.firstSeen,
+				Kind: state.kind, ContextKey: contextKey, SourceID: source.ID(), Generation: session.Generation, AggregateGeneration: aggregateGeneration, FirstSeen: state.firstSeen,
 				Pull: func(pctx context.Context) (internalsubscription.Observation, error) {
 					if err := s.sessions.Accept(session); err != nil {
 						return internalsubscription.Observation{}, err
 					}
-					observation, err := s.pullFactory(pctx, source, state.kind, contextKey)
+					seed := state.observation
+					seed.Generation = session.Generation
+					observation, err := s.pullFactory(pctx, source, state.kind, contextKey, seed)
 					if err != nil {
 						return internalsubscription.Observation{}, err
 					}
@@ -320,6 +363,103 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 			delete(s.probes, key)
 			s.pullMu.Unlock()
 		}(contextKey, probe)
+	}
+}
+
+func (s *aggregateEthSubscription[T]) observeHeadGap(source identifiedSubscriptionSource, session internalsubscription.SourceSession, observation internalsubscription.Observation) {
+	if observation.Kind != internalsubscription.KindNewHeads || !strings.HasPrefix(observation.ContextKey, "head:") || s.headGaps == nil {
+		return
+	}
+	height, err := strconv.ParseUint(strings.TrimPrefix(observation.ContextKey, "head:"), 10, 64)
+	if err != nil {
+		return
+	}
+	gap := s.headGaps.Observe(source.ID(), height)
+	if gap == nil {
+		return
+	}
+	key := fmt.Sprintf("%s/%d/%d/%d", source.ID(), session.Generation, gap.From, gap.To)
+	s.gapMu.Lock()
+	if _, running := s.gapProbes[key]; running {
+		s.gapMu.Unlock()
+		return
+	}
+	s.gapProbes[key] = struct{}{}
+	s.gapWG.Add(1)
+	s.gapMu.Unlock()
+	go s.runHeadGapProbe(key, source, session, *gap, observation.ContextKey)
+}
+
+func (s *aggregateEthSubscription[T]) runHeadGapProbe(key string, source identifiedSubscriptionSource, session internalsubscription.SourceSession, gap internalsubscription.HeadGap, contextKey string) {
+	defer s.gapWG.Done()
+	defer func() {
+		s.gapMu.Lock()
+		delete(s.gapProbes, key)
+		s.gapMu.Unlock()
+	}()
+	// Keep the same soft window used by event Pull compensation, then bound
+	// the entire same-source gap probe by the existing hard Pull budget.
+	soft := time.NewTimer(100 * time.Millisecond)
+	defer soft.Stop()
+	select {
+	case <-s.stop:
+		return
+	case <-s.ctx.Done():
+		return
+	case <-soft.C:
+	}
+	if _, ok := source.(subscriptionUnarySource); !ok {
+		if !s.isStopping() {
+			s.finish(newSubscriptionGapError(source.ID(), gap, contextKey, session.Generation, fmt.Errorf("source has no same-source unary Pull")))
+		}
+		return
+	}
+	unary := source.(subscriptionUnarySource)
+	pullCtx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
+	defer cancel()
+	var probeErr error
+	for height := gap.From; ; height++ {
+		if err := s.sessions.Accept(session); err != nil {
+			probeErr = err
+			break
+		}
+		raw, err := unary.CallContext(pullCtx, "eth_getBlockByNumber", fmt.Sprintf("0x%x", height), false)
+		if err != nil {
+			probeErr = err
+			break
+		}
+		header, err := typed.DecodeHeader(raw)
+		if err != nil {
+			probeErr = err
+			break
+		}
+		if header.Number == nil || header.Number.BitLen() > 64 || header.Number.Uint64() != height {
+			probeErr = fmt.Errorf("pulled header number does not match height %d", height)
+			break
+		}
+		if err := s.sessions.Accept(session); err != nil {
+			probeErr = err
+			break
+		}
+		if height == gap.To {
+			break
+		}
+	}
+	if probeErr == nil {
+		return
+	}
+	if s.isStopping() || errors.Is(probeErr, context.Canceled) || errors.Is(probeErr, context.DeadlineExceeded) && s.isStopping() {
+		return
+	}
+	s.finish(newSubscriptionGapError(source.ID(), gap, contextKey, session.Generation, probeErr))
+}
+
+func (s *aggregateEthSubscription[T]) isStopping() bool {
+	select {
+	case <-s.stop:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -357,7 +497,7 @@ func startAggregatedSubscriptionWithPull[T any](ctx context.Context, sources []i
 		cancel()
 		return nil, sessionErr
 	}
-	s := &aggregateEthSubscription[T]{inner: make(map[string]transport.Subscription, len(sources)), agg: state, stop: make(chan struct{}), done: make(chan struct{}), errs: make(chan error, 1), cancel: cancel, out: out, decode: decode, faults: make(chan error, len(sources)), doneSources: make(chan struct{}), sessions: sessions, pullFactory: pullFactory, pending: make(map[string]*pullContext), probes: make(map[string]*internalsubscription.PullProbe), ctx: merged}
+	s := &aggregateEthSubscription[T]{inner: make(map[string]transport.Subscription, len(sources)), agg: state, stop: make(chan struct{}), done: make(chan struct{}), errs: make(chan error, 1), cancel: cancel, out: out, decode: decode, faults: make(chan error, len(sources)), doneSources: make(chan struct{}), sessions: sessions, pullFactory: pullFactory, pending: make(map[string]*pullContext), probes: make(map[string]*internalsubscription.PullProbe), ctx: merged, headGaps: internalsubscription.NewHeadGapTracker(), gapProbes: make(map[string]struct{})}
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -444,6 +584,7 @@ func startAggregatedSubscriptionWithPull[T any](ctx context.Context, sources []i
 						// The physical session generation is enforced by SessionGate;
 						// the fixed quorum snapshot keeps its logical generation stable.
 						observation.Generation = 1
+						s.observeHeadGap(source, candidateSession, observation)
 						if submitErr := s.agg.Submit(observation); submitErr != nil && !errors.Is(submitErr, internalsubscription.ErrStaleGeneration) && !errors.Is(submitErr, internalsubscription.ErrUnknownSource) {
 							s.finish(makeSubscriptionFault(sourceID, observation.Generation, "aggregate", observation.ContextKey, submitErr))
 							return
@@ -497,6 +638,7 @@ func startAggregatedSubscriptionWithPull[T any](ctx context.Context, sources []i
 	}()
 	go func() {
 		defer close(s.done)
+		defer s.gapWG.Wait()
 		defer func() {
 			if err := s.terminalError(); err != nil {
 				s.errs <- err
@@ -596,7 +738,7 @@ func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) 
 			return internalsubscription.Observation{}, nil, keyErr
 		}
 		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, header, nil
-	}, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string) (internalsubscription.Observation, error) {
+	}, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
 		unary, ok := source.(subscriptionUnarySource)
 		if !ok || kind != internalsubscription.KindNewHeads || !strings.HasPrefix(contextKey, "head:") {
 			return internalsubscription.Observation{}, fmt.Errorf("ethguard: source %q has no same-source head Pull", source.ID())
@@ -620,7 +762,7 @@ func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) 
 		if gotContext != contextKey {
 			return internalsubscription.Observation{}, fmt.Errorf("ethguard: Pull head context %q does not match %q", gotContext, contextKey)
 		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: gotContext, Key: key, SourceID: source.ID(), Generation: 1, Payload: append([]byte(nil), raw...)}, nil
+		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: gotContext, Key: key, SourceID: source.ID(), Generation: seed.Generation, Payload: append([]byte(nil), raw...)}, nil
 	})
 }
 
@@ -645,7 +787,7 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 			return typed.DecodeLog(raw)
 		}), nil
 	}
-	return startAggregatedSubscription(ctx, sources, internalsubscription.KindLogs, []any{arg}, ch, func(raw []byte, sourceID string) (internalsubscription.Observation, types.Log, error) {
+	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, types.Log, error) {
 		if err := validateSubscriptionLogIdentity(raw); err != nil {
 			return internalsubscription.Observation{}, types.Log{}, err
 		}
@@ -662,6 +804,38 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 			return internalsubscription.Observation{}, types.Log{}, keyErr
 		}
 		return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...), Removed: logValue.Removed}, logValue, nil
+	}
+	return startAggregatedSubscriptionWithPull(ctx, sources, internalsubscription.KindLogs, []any{arg}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
+		if kind != internalsubscription.KindLogs {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: invalid logs Pull kind %q", kind)
+		}
+		unary, ok := source.(subscriptionUnarySource)
+		if !ok {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: source %q has no same-source logs Pull", source.ID())
+		}
+		raw, err := unary.CallContext(pctx, "eth_getLogs", arg)
+		if err != nil {
+			return internalsubscription.Observation{}, err
+		}
+		logs, err := typed.DecodeLogs(raw)
+		if err != nil {
+			return internalsubscription.Observation{}, err
+		}
+		for i := range logs {
+			candidateRaw, marshalErr := json.Marshal(logs[i])
+			if marshalErr != nil {
+				return internalsubscription.Observation{}, marshalErr
+			}
+			observation, _, decodeErr := decode(candidateRaw, source.ID())
+			if decodeErr != nil {
+				return internalsubscription.Observation{}, decodeErr
+			}
+			if observation.ContextKey == contextKey {
+				observation.Generation = seed.Generation
+				return observation, nil
+			}
+		}
+		return internalsubscription.Observation{}, fmt.Errorf("ethguard: logs Pull did not return context %q", contextKey)
 	})
 }
 
@@ -696,7 +870,7 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 			return typed.DecodeReceipts(raw)
 		}), nil
 	}
-	return startAggregatedSubscription(ctx, sources, internalsubscription.KindTransactionReceipts, []any{q}, ch, func(raw []byte, sourceID string) (internalsubscription.Observation, []*types.Receipt, error) {
+	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, []*types.Receipt, error) {
 		receipts, decodeErr := typed.DecodeReceipts(raw)
 		if decodeErr != nil {
 			return internalsubscription.Observation{}, nil, decodeErr
@@ -723,6 +897,46 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 			return internalsubscription.Observation{}, nil, keyErr
 		}
 		return internalsubscription.Observation{Kind: internalsubscription.KindTransactionReceipts, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, receipts, nil
+	}
+	return startAggregatedSubscriptionWithPull(ctx, sources, internalsubscription.KindTransactionReceipts, []any{q}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
+		if kind != internalsubscription.KindTransactionReceipts {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: invalid transactionReceipts Pull kind %q", kind)
+		}
+		unary, ok := source.(subscriptionUnarySource)
+		if !ok {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: source %q has no same-source receipt Pull", source.ID())
+		}
+		seedReceipts, err := typed.DecodeReceipts(seed.Payload)
+		if err != nil {
+			return internalsubscription.Observation{}, err
+		}
+		if len(seedReceipts) == 0 {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: cannot Pull empty receipt batch")
+		}
+		rows := make([]json.RawMessage, len(seedReceipts))
+		for i, receipt := range seedReceipts {
+			if receipt == nil {
+				return internalsubscription.Observation{}, fmt.Errorf("ethguard: nil seed receipt %d", i)
+			}
+			row, callErr := unary.CallContext(pctx, "eth_getTransactionReceipt", receipt.TxHash)
+			if callErr != nil {
+				return internalsubscription.Observation{}, callErr
+			}
+			rows[i] = row
+		}
+		batch, marshalErr := json.Marshal(rows)
+		if marshalErr != nil {
+			return internalsubscription.Observation{}, marshalErr
+		}
+		observation, _, decodeErr := decode(batch, source.ID())
+		if decodeErr != nil {
+			return internalsubscription.Observation{}, decodeErr
+		}
+		if observation.ContextKey != contextKey {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: receipt Pull context %q does not match %q", observation.ContextKey, contextKey)
+		}
+		observation.Generation = seed.Generation
+		return observation, nil
 	})
 }
 

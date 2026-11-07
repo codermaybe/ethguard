@@ -10,11 +10,19 @@ EthGuard 对外的 `EthClient` 契约按仓库锁定的 go-ethereum 版本定义
 生产根包导入 `go-ethereum/ethclient` 而暂缓，不能把该缺口伪装成已完成。当前集合只是
 接入过程中的内部检查点，不能作为最终兼容版本发布或对外能力承诺。
 
+`gethcompat.SimulateClient` 提供了一个显式单源逃生舱：调用方主动导入
+`gethcompat` 后，可以使用官方 `ethclient.SimulateOptions`、
+`ethclient.SimulateBlockResult` 和 `SimulateV1` 签名。该适配器复用 go-ethereum
+`ethclient` 的连接与生命周期，不进入默认根包依赖图，不产生 `CallResult`、quorum
+或跨源证据，也不把 `SimulateV1` 计入 `EthClient` 的 47-method 完整性门禁。
+因此它解决了官方类型的可访问性，但没有改变完整兼容发布仍被 `SimulateV1` 阻塞的事实。
+
 已额外核对 go-ethereum `v1.17.10` 的官方 `ethclient` 源码：
 `SimulateOptions`、`SimulateBlockResult` 与 `SimulateV1` 仍定义在
 `github.com/ethereum/go-ethereum/ethclient` 包中。该版本没有解除默认根包的
-`ethclient` 导入门禁，因此当前仍按架构阻断处理，不改变生产拓扑；后续只在 R0/F0
-决定通过 `gethcompat` 适配或调整 interlock 后再推进。
+`ethclient` 导入门禁，因此默认生产拓扑仍按架构阻断处理；需要完整 `EthClient`
+兼容时，后续仍须另行决定是否调整 interlock 并为 `SimulateV1` 建立根执行、证据和
+生命周期契约。
 
 每个兼容版本必须满足：
 

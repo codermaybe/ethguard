@@ -26,6 +26,11 @@ scripts/ethclient-method-diff.sh
 
 `SimulateV1`。其余 pending state、同步写入和三类订阅均已暴露 facade；仍需
 逐项补齐跨传输 fixture、错误和证据矩阵，暂不代表最终兼容发布已闭合。
+`gethcompat.SimulateClient` now provides an opt-in single-source adapter with
+the official `ethclient.SimulateOptions` and `SimulateBlockResult` types. This
+adapter is an explicit compatibility escape hatch; it is not a Root/View
+mapping and does not reduce the business gap while the default EthClient
+surface remains evidence-backed.
 
 `Client()` 不是业务 RPC 方法，明确排除在 `EthClient` facade 之外；它不能通过
 忽略而把业务差异伪装成已闭合。该缺口必须给出 Root、typed、错误、
@@ -40,9 +45,11 @@ scripts/ethclient-method-diff.sh
 - **Subscription**：是否有订阅能力。生产 facade 对 newHeads、logs 和
   transactionReceipts 支持固定 WSS source snapshot 的严格多数聚合；单源
   配置保留单源转发兼容路径（尚未开放 SingleSourceSelected 配置）。
-  per-source 重连与迟到 generation 过滤已接入；newHeads 已接入同源 Pull
-  补查并绑定物理 session，logs/receipts Pull、gap 诊断和跨 transport 证据
-  仍是后续缺口。
+  per-source 重连与迟到 generation 过滤已接入；newHeads、logs 和 receipts
+  均有同源 Pull 并绑定物理 session。newHeads 的跳高 gap 会在同一 Pull
+  窗口验证缺失高度；Pull 成功继续且不重放，无法补齐则通过结构化
+  `SubscriptionGapError` 终止 `Err()`。logs/receipts 不凭空推导高度 gap；
+  跨 transport 证据仍是后续缺口。
 - **Evidence**：当前测试是否覆盖值、裁决、错误、材料和生命周期，而不仅是返回值。
 
 ## 项目 catalog 与现有切面
@@ -57,13 +64,13 @@ scripts/ethclient-method-diff.sh
 | `eth_getTransactionByHash` | Registered | `TransactionByHash` | `TransactionByHash` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending 与 absent 的跨 transport 矩阵 |
 | `eth_getBlockReceipts` | Registered | `BlockReceipts` | `BlockReceipts` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, receipt objects | 大数组、空 block、逐 receipt 绑定成本 |
 | `eth_getTransactionCount` | Registered | `NonceAt` | `NonceAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending-local、历史引用和跨 transport |
-| `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `compat_methods.go`, `typed`, `rpc/methods` | null/NotFound 与跨 transport 证据待补 |
+| `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `compat_methods.go`, `typed`, `rpc/methods` | conflict 与 malformed 错误证据待补；值与 null/NotFound 跨 transport 路径由 `TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity` 覆盖 |
 | `eth_getBlockTransactionCountByNumber` | Registered | `PendingTransactionCount` | `PendingTransactionCount` | native HTTP/WSS raw call | 不适用 | `pending_count.go`, `typed`, `rpc/methods` | PendingObserve、malformed/null 与跨 transport 证据待补 |
 | `eth_getStorageAt` | Registered | `StorageAt` | `StorageAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 空 bytes、EIP-1898 和跨 transport |
 | `eth_getCode` | Registered | `CodeAt` | `CodeAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | empty code、历史引用和跨 transport |
 | `eth_call` | Registered | `CallContract` | `CallContract` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, call rules | overrides、provider golden `error.data=null` |
 | `eth_estimateGas` | Registered | `EstimateGas` | `EstimateGas` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | provider revert golden、边界参数 |
-| `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | WSS 单源与多源 strict quorum | `eth.go`, `typed`, `subscription.go`, `internal/subscription` | Pull、gap、跨 transport 证据和大范围成本 |
+| `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | WSS 单源与多源 strict quorum | `eth.go`, `typed`, `subscription.go`, `internal/subscription` | 同源 Pull 已接入；跨 transport 证据和大范围成本仍待补 |
 | `eth_feeHistory` | Registered | `FeeHistory` | `FeeHistory` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 历史高度、percentile 边界和跨 transport |
 | `eth_gasPrice` | Registered | `SuggestGasPrice` | `SuggestGasPrice` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
 | `eth_maxPriorityFeePerGas` | Registered | `SuggestGasTipCap` | `SuggestGasTipCap` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
@@ -98,9 +105,9 @@ scripts/ethclient-method-diff.sh
 | `HeaderByHash` | 已有 | `Client.HeaderByHash` | 已接入；header-only/fullTx=false 与 BlockByHash 共用 plan |
 | `HeaderByNumber` | 已有 | `Client.HeaderByNumber` | 已接入；moving tags 复用 anchor，pending 本地拒绝 |
 | `TransactionByHash` | 已有 | `Client.TransactionByHash` | 已覆盖 |
-| `TransactionSender` | 已有 | `Client.TransactionSender` | envelope 绑定、sender 冲突和跨 transport 证据待补 |
-| `TransactionCount` | 已有 | `Client.TransactionCount` | null/NotFound 与跨 transport 证据待补 |
-| `TransactionInBlock` | 已有 | `Client.TransactionInBlock` | inclusion envelope 与跨 transport 证据待补 |
+| `TransactionSender` | 已有 | `Client.TransactionSender` | envelope 绑定、sender 冲突和 malformed 错误证据待补；值与 null/NotFound 跨 transport 路径由 `TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity` 覆盖 |
+| `TransactionCount` | 已有 | `Client.TransactionCount` | conflict 与 malformed 错误证据待补；值与 null/NotFound 跨 transport 路径由 `TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity` 覆盖 |
+| `TransactionInBlock` | 已有 | `Client.TransactionInBlock` | inclusion envelope conflict/malformed 错误证据待补；值与 null/NotFound 跨 transport 路径由 `TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity` 覆盖 |
 | `TransactionReceipt` | 已有 | `Client.TransactionReceipt` | 已覆盖 |
 | `SyncProgress` | 已有 | `Client.SyncProgress` | 已覆盖 |
 | `NetworkID` | 已有 | `Client.NetworkID` | 已覆盖 |
@@ -113,9 +120,9 @@ scripts/ethclient-method-diff.sh
 | `NonceAt` | 已有 | `Client.NonceAt` | 已覆盖 |
 | `NonceAtHash` | 已有 | `Client.NonceAtHash` | 已接入；EIP-1898 hash object |
 | `FilterLogs` | 已有 | `Client.FilterLogs` | 已覆盖 |
-| `SubscribeTransactionReceipts` | 已有（WSS 单源/多源） | `Client.SubscribeTransactionReceipts` | 固定 snapshot strict quorum、per-source reconnect；logs/receipts Pull、跨 transport 证据待补 |
-| `SubscribeNewHead` | 已有（WSS 单源/多源） | `Client.SubscribeNewHead` | 固定 snapshot strict quorum、per-source reconnect、同源 Pull；gap/跨 transport 证据待补 |
-| `SubscribeFilterLogs` | 已有（WSS 单源/多源） | `Client.SubscribeFilterLogs` | fixed snapshot、removed/reorg、strict quorum、per-source reconnect；Pull/跨 transport 证据待补 |
+| `SubscribeTransactionReceipts` | 已有（WSS 单源/多源） | `Client.SubscribeTransactionReceipts` | 固定 snapshot strict quorum、per-source reconnect、同源逐 receipt Pull；跨 transport 证据待补 |
+| `SubscribeNewHead` | 已有（WSS 单源/多源） | `Client.SubscribeNewHead` | 固定 snapshot strict quorum、per-source reconnect、同源 Pull 与结构化 gap Err；跨 transport 证据待补 |
+| `SubscribeFilterLogs` | 已有（WSS 单源/多源） | `Client.SubscribeFilterLogs` | fixed snapshot、removed/reorg、strict quorum、per-source reconnect、同源 eth_getLogs Pull；跨 transport 证据待补 |
 | `PendingBalanceAt` | 已有 | `Client.PendingBalanceAt` | pending-local；跨 transport 证据待补 |
 | `PendingStorageAt` | 已有 | `Client.PendingStorageAt` | pending-local；跨 transport 证据待补 |
 | `PendingCodeAt` | 已有 | `Client.PendingCodeAt` | pending-local；跨 transport 证据待补 |
@@ -134,7 +141,7 @@ scripts/ethclient-method-diff.sh
 | `SendTransaction` | 已有 | `Client.SendRawTransaction` / view SendTransaction | 已覆盖 |
 | `SendTransactionSync` | 已有 | `Client.SendTransactionSync` | broadcast+receipt polling；语义证据待补 |
 | `SendRawTransactionSync` | 已有 | `Client.SendRawTransactionSync` | broadcast+receipt polling；语义证据待补 |
-| `SimulateV1` | 明确阻塞 | 无映射 | 默认构建禁止导入 ethclient；需要单独兼容性决策 |
+| `SimulateV1` | 明确阻塞 | 无映射（可选 `gethcompat.SimulateClient`） | 默认构建禁止导入 ethclient；可选适配器只提供单源官方类型调用，不属于 EthClient 兼容面 |
 
 `go-ethereum/ethclient/gethclient` 还提供扩展方法，例如 `GetProof`、`CallContract` overrides、`Trace*`、`SubscribePendingTransactions` 和调试统计。它们不自动进入 EthClient；必须单独决定是否属于项目的生态承诺。
 
@@ -183,7 +190,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 ```
 
-订阅实现还必须增加取消、Unsubscribe、backpressure、reorg、重复事件、缺口、source snapshot 和 goroutine 泄漏测试；当前聚合器已覆盖固定 snapshot、strict quorum、重复事件、removed 绑定、有界队列、重连 session，以及 newHeads 的同源 Pull 证据；logs/receipts Pull、gap 接线及跨 transport 证据仍待补齐。
+订阅实现还必须增加取消、Unsubscribe、backpressure、reorg、重复事件、缺口、source snapshot 和 goroutine 泄漏测试；当前聚合器已覆盖固定 snapshot、strict quorum、重复事件、removed 绑定、有界队列、重连 session、newHeads gap 验证，以及 logs/receipts 的同源 Pull；跨 transport 证据仍待补齐。
 
 ## State-hash 方法当前状态
 
@@ -203,7 +210,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - 官方 pending 族、交易派生方法是否进入 EthClient；
 - `eth_getProof`、`SimulateV1`、gethclient 扩展是否属于项目承诺；
 - root 订阅事件类型与官方视图订阅 channel 的关系；
-- subscription 的 quorum、source membership、reorg/removed、Pull 补查和异步错误；其中 newHeads、logs、transactionReceipts 的固定 snapshot 与 strict quorum 已接入根 facade，newHeads 的同源 Pull 已接入，logs/receipts Pull、gap 接线和跨 transport 证据仍开放。
+- subscription 的 quorum、source membership、reorg/removed、Pull 补查和异步错误；其中 newHeads、logs、transactionReceipts 的固定 snapshot 与 strict quorum 已接入根 facade，三类订阅均已接入同源 Pull，newHeads 的跳高 gap 已按结构化 Err 终止，跨 transport 证据仍开放。
 - 方法覆盖完成后，是否需要调整 `CallResult`、ResultCapture 或引入独立事件结果类型。
 
 这些问题由 roadmap 统一收敛，不由单个方法 agent 局部决定。
@@ -216,7 +223,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - 当前 `rpc/methods` 的 `ReferenceSpec{EIP1898:true}` 和 EIP-1898 rewrite 测试继续覆盖对象校验、显式 hash、`requireCanonical` 保留和 moving tag 改写；AtHash facade 通过同一 plan 执行。
 - AtHash 接入使用受控的 EIP-1898 map 参数和现有 plan，不通过未知 `Call`。
 - `PendingBalanceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingNonceAt`、`PendingTransactionCount` 的 plan 已有 `PendingObserve` 声明。pending 是节点本地状态，不能直接套用 moving reference；aggregator 可以收集多个 source，但结果只能是第一个可用本地观察的 `Selected`，不能声称 `Corroborated`。
-- `TransactionSender` 复用 `eth_getTransactionByBlockHashAndIndex` 的 method-aware plan；sender 的输入 hash 绑定和 envelope 校验已接入，跨 transport 证据仍待补；`SimulateV1` 还受默认构建导入边界阻塞。
+- `TransactionSender` 复用 `eth_getTransactionByBlockHashAndIndex` 的 method-aware plan；sender 的输入 hash 绑定和 envelope 校验已接入，值与 null/NotFound 的 HTTP/WSS 证据已锁定，冲突与 malformed 反例仍待补；`SimulateV1` 还受默认构建导入边界阻塞。
 - pending 的 source-local、quorum 与 Decision 语义仍需单独冻结；AtHash 不改变 pending、CallResult 或订阅边界。
 
 建议的回归矩阵：
