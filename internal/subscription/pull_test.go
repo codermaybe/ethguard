@@ -69,7 +69,10 @@ func TestPullProbeRejectsIdentityMismatchWithoutVoting(t *testing.T) {
 
 func TestPullProbeHardTimeoutQuarantinesUnmetEvent(t *testing.T) {
 	first := time.Now()
-	a := strictConfig(t)
+	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 4, Members: []string{"a", "b", "c"}, Quorum: 2}, Mode: Strict, Queue: 1, HardTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer a.Close()
 	if err := a.Submit(Observation{Kind: KindNewHeads, ContextKey: "head:1", Key: "candidate", SourceID: "a", Generation: 4, ObservedAt: first}); err != nil {
 		t.Fatal(err)

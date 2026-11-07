@@ -44,8 +44,9 @@ scripts/ethclient-method-diff.sh
 - **Subscription**：是否有订阅能力。生产 facade 对 newHeads、logs 和
   transactionReceipts 支持固定 WSS source snapshot 的严格多数聚合；单源
   配置保留 S1 的单源转发兼容路径（尚未开放 SingleSourceSelected 配置）。
-  per-source 重连与迟到 generation 过滤已接入；同源 Pull 补查、gap 诊断和跨
-  transport 证据仍是后续缺口。
+  per-source 重连与迟到 generation 过滤已接入；newHeads 已接入同源 Pull
+  补查并绑定物理 session，logs/receipts Pull、gap 诊断和跨 transport 证据
+  仍是后续缺口。
 - **Evidence**：当前测试是否覆盖值、裁决、错误、材料和生命周期，而不仅是返回值。
 
 ## 项目 catalog 与现有切面
@@ -117,8 +118,8 @@ scripts/ethclient-method-diff.sh
 | `NonceAt` | 已有 | `Client.NonceAt` | 已覆盖 |
 | `NonceAtHash` | 已有（M1/M2） | `Client.NonceAtHash` | 已接入；EIP-1898 hash object |
 | `FilterLogs` | 已有 | `Client.FilterLogs` | 已覆盖 |
-| `SubscribeTransactionReceipts` | 已有（WSS 单源/多源） | `Client.SubscribeTransactionReceipts` | 固定 snapshot strict quorum；Pull/跨 transport 证据待补 |
-| `SubscribeNewHead` | 已有（WSS 单源/多源） | `Client.SubscribeNewHead` | 固定 snapshot strict quorum、per-source reconnect；Pull/gap/跨 transport 证据待补 |
+| `SubscribeTransactionReceipts` | 已有（WSS 单源/多源） | `Client.SubscribeTransactionReceipts` | 固定 snapshot strict quorum、per-source reconnect；logs/receipts Pull、跨 transport 证据待补 |
+| `SubscribeNewHead` | 已有（WSS 单源/多源） | `Client.SubscribeNewHead` | 固定 snapshot strict quorum、per-source reconnect、同源 Pull；gap/跨 transport 证据待补 |
 | `SubscribeFilterLogs` | 已有（WSS 单源/多源） | `Client.SubscribeFilterLogs` | fixed snapshot、removed/reorg、strict quorum、per-source reconnect；Pull/跨 transport 证据待补 |
 | `PendingBalanceAt` | 已有 | `Client.PendingBalanceAt` | pending-local；跨 transport 证据待补 |
 | `PendingStorageAt` | 已有 | `Client.PendingStorageAt` | pending-local；跨 transport 证据待补 |
@@ -187,7 +188,7 @@ go test ./internal/verification/integration -run '^TestVerification' -race -coun
 go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 ```
 
-订阅实现还必须增加取消、Unsubscribe、backpressure、reorg、重复事件、缺口、source snapshot 和 goroutine 泄漏测试；当前聚合器已覆盖固定 snapshot、strict quorum、重复事件、removed 绑定、有界队列和重连 session，Pull、gap 接线及跨 transport 证据仍待补齐。
+订阅实现还必须增加取消、Unsubscribe、backpressure、reorg、重复事件、缺口、source snapshot 和 goroutine 泄漏测试；当前聚合器已覆盖固定 snapshot、strict quorum、重复事件、removed 绑定、有界队列、重连 session，以及 newHeads 的同源 Pull 证据；logs/receipts Pull、gap 接线及跨 transport 证据仍待补齐。
 
 ## M1/M2 状态 Hash 切片结果
 
@@ -207,7 +208,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - 官方 pending 族、交易派生方法是否进入 EthClient；
 - `eth_getProof`、`SimulateV1`、gethclient 扩展是否属于项目承诺；
 - root 订阅事件类型与官方视图订阅 channel 的关系；
-- subscription 的 quorum、source membership、reorg/removed、Pull 补查和异步错误；其中 newHeads、logs、transactionReceipts 的固定 snapshot 与 strict quorum 已接入根 facade。
+- subscription 的 quorum、source membership、reorg/removed、Pull 补查和异步错误；其中 newHeads、logs、transactionReceipts 的固定 snapshot 与 strict quorum 已接入根 facade，newHeads 的同源 Pull 已接入，logs/receipts Pull、gap 接线和跨 transport 证据仍开放。
 - 方法覆盖完成后，是否需要调整 `CallResult`、ResultCapture 或引入独立事件结果类型。
 
 这些问题由 roadmap 的 R0/F0 统一收敛，不由单个方法 agent 局部决定。
