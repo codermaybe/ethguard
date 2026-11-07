@@ -72,8 +72,8 @@ type t09FieldRow struct {
 	// schemaOmitted lists nested official paths the encoder deliberately drops
 	// even though their top-level object is protected.
 	schemaOmitted []string
-	// noSchema marks the two local methods with no pinned execution-apis
-	// result schema; the coverage test rejects any other missing schema.
+	// noSchema marks methods with no pinned execution-apis result schema; the
+	// coverage test rejects any other missing schema.
 	noSchema  bool
 	projector bool
 	// nullPreserved declares that the canonical encoder materializes optional
@@ -330,6 +330,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 	otherReceipt2 := chain.receipt2(blockHash, t09AnchorHeight, "0x1")
 	minedTx := chain.txObject(true, blockHash, t09AnchorHeight, 0)
 	otherTx := chain.txObject(true, blockHash, t09AnchorHeight+1, 1)
+	otherInBlockTx := chain.tx2Object(true, blockHash, t09AnchorHeight, 0)
 	logs := t09Logs(blockHash, chain.txHash)
 	otherLogs := t09JSON([]json.RawMessage{t09Log(blockHash, chain.txHash, t09AnchorHeight, 0, "0x00fe")})
 	receipts := t09JSON([]json.RawMessage{receipt, receipt2})
@@ -509,6 +510,36 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			mutationReject: 1,
 		},
 		{
+			method:         methods.MethodGetBlockTransactionCountByHash,
+			params:         []any{blockHash},
+			variants:       t09Variants(t, json.RawMessage(`"0xa"`)),
+			other:          json.RawMessage(`"0xb"`),
+			mutation:       json.RawMessage(`"0x01"`),
+			fieldHint:      "hex quantity",
+			decode:         t09DecodeBig,
+			typed:          t09TypedTransactionCount,
+			resolution:     t09Strict,
+			noSchema:       true,
+			protected:      []string{"$"},
+			mutationExpect: t09MutationStrict,
+			mutationReject: 1,
+		},
+		{
+			method:         methods.MethodGetBlockTransactionCountByNumber,
+			params:         []any{"pending"},
+			variants:       t09Variants(t, json.RawMessage(`"0xa"`)),
+			other:          json.RawMessage(`"0xb"`),
+			mutation:       json.RawMessage(`true`),
+			fieldHint:      "hex quantity",
+			decode:         t09DecodeQuantity,
+			typed:          t09TypedPendingTransactionCount,
+			resolution:     t09Local,
+			noSchema:       true,
+			protected:      []string{"$"},
+			mutationExpect: t09MutationLocal,
+			mutationReject: 1,
+		},
+		{
 			method:         methods.MethodGetStorageAt,
 			params:         []any{t09Address, t09StorageKey, fmt.Sprintf("0x%x", t09AnchorHeight)},
 			variants:       t09Variants(t, json.RawMessage(`"`+wordA+`"`)),
@@ -521,6 +552,24 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			protected:      []string{"$"},
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
+		},
+		{
+			method:         methods.MethodGetTransactionByBlockHashAndIndex,
+			params:         []any{blockHash, uint(0)},
+			variants:       t09VariantsNoEscape(t, minedTx),
+			other:          otherInBlockTx,
+			mutation:       t09DeleteField(t, minedTx, "from"),
+			fieldHint:      "transaction",
+			decode:         t09DecodeTransaction,
+			typed:          t09TypedTransactionInBlock,
+			resolution:     t09Strict,
+			noSchema:       true,
+			protected:      txProtected,
+			outside:        []string{"vendor"},
+			projector:      true,
+			mutationExpect: t09MutationStrict,
+			mutationReject: 1,
+			notes:          "inclusion context is part of the protected transaction envelope; vendor metadata is projected out",
 		},
 		{
 			method:         methods.MethodGetCode,

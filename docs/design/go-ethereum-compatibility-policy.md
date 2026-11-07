@@ -10,6 +10,12 @@ EthGuard 对外的 `EthClient` 契约按仓库锁定的 go-ethereum 版本定义
 生产根包导入 `go-ethereum/ethclient` 而暂缓，不能把该缺口伪装成已完成。当前集合只是
 接入过程中的内部检查点，不能作为最终兼容版本发布或对外能力承诺。
 
+已额外核对 go-ethereum `v1.17.10` 的官方 `ethclient` 源码：
+`SimulateOptions`、`SimulateBlockResult` 与 `SimulateV1` 仍定义在
+`github.com/ethereum/go-ethereum/ethclient` 包中。该版本没有解除默认根包的
+`ethclient` 导入门禁，因此当前仍按架构阻断处理，不改变生产拓扑；后续只在 R0/F0
+决定通过 `gethcompat` 适配或调整 interlock 后再推进。
+
 每个兼容版本必须满足：
 
 1. 从锁定的 go-ethereum 源码生成或核对完整 `ethclient.Client` 方法清单，并明确排除
