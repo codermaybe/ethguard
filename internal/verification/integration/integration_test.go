@@ -52,7 +52,10 @@ func chainIDOf(t *testing.T, client *ethguard.Client, decision rpc.Decision) *bi
 // aggregation layer concluded for the identical wire request.
 func typedReceiptProbe(ctx context.Context, client *ethguard.Client, hash common.Hash) (*types.Receipt, rpc.Decision, error) {
 	receipt, _, err := client.TransactionReceipt(ctx, hash)
-	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
+	decision, callErr := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
+	if callErr != nil {
+		err = errors.Join(err, callErr)
+	}
 	return receipt, decision, err
 }
 

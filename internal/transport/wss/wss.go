@@ -1,9 +1,8 @@
 // Package wss implements EthGuard's minimal WebSocket JSON-RPC transport
-// adapter. It is a raw-call connection: one long-lived socket, request-ID
-// demultiplexing, bounded inbound frames, per-call cancellation, and lifecycle
-// cleanup. It has no business subscription, filter, batch, reconnect, or
-// write-path replay surface; its opt-in NotificationStream is only the
-// internal notification seam used by the separate subscription state machine.
+// adapter. It is a raw-call connection with an opt-in bounded notification
+// subscription capability. Unary calls retain their request-ID demultiplexing,
+// per-call cancellation, and lifecycle cleanup; subscription delivery is owned
+// by NotificationStream and the separate subscription state machine.
 //
 // The WebSocket wire itself — HTTP Upgrade handshake, frame codec, and
 // connection lifecycle — is EthGuard-owned (websocket_handshake.go,
@@ -234,7 +233,9 @@ func (t *Transport) Subscribe(ctx context.Context, kind string, args ...any) (*S
 	if kind == "" {
 		return nil, fmt.Errorf("wss: empty subscription kind")
 	}
-	stream, err := t.OpenNotificationStream(ctx, "", 0, 256)
+	// The setup context bounds eth_subscribe only. The stream remains alive
+	// until Unsubscribe, owner Close, or a transport failure.
+	stream, err := t.OpenNotificationStream(context.WithoutCancel(ctx), "", 0, 256)
 	if err != nil {
 		return nil, err
 	}

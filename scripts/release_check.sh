@@ -37,7 +37,7 @@ case "${accept_external_simulate_gap}" in
         ;;
     1)
         echo "==> accepting the documented external SimulateV1 compatibility gap"
-        method_diff="$(./scripts/ethclient-method-diff.sh)"
+        method_diff="$(bash ./scripts/ethclient-method-diff.sh)"
         expected_gap="business missing: 1 [SimulateV1]"
         if ! grep -Fqx "${expected_gap}" <<<"${method_diff}"; then
             echo "external gap acceptance requires exactly: ${expected_gap}" >&2
@@ -54,7 +54,7 @@ case "${accept_external_simulate_gap}" in
 esac
 
 echo "==> scanning reachable vulnerabilities"
-./scripts/govulncheck.sh
+bash ./scripts/govulncheck.sh
 
 if [ "${accept_external_simulate_gap}" = "1" ]; then
     echo "release checks passed with accepted external SimulateV1 gap; EthClient is not complete"

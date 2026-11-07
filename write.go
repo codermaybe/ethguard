@@ -232,7 +232,7 @@ func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, t
 		if receiptErr == nil {
 			return receipt, writeResult, nil
 		}
-		if !errors.Is(receiptErr, ethereum.NotFound) {
+		if !errors.Is(receiptErr, ethereum.NotFound) && !errors.Is(receiptErr, rpc.ErrConflict) {
 			return nil, writeResult, receiptErr
 		}
 		select {

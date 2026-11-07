@@ -32,6 +32,8 @@ type Source struct {
 	identityChecked  bool
 	identityInvalid  bool
 	identityChecking chan struct{}
+	resetMu          sync.Mutex
+	lastReset        time.Time
 
 	// life is cancelled when the source closes; it aborts any in-flight dial.
 	life       context.Context
@@ -299,6 +301,13 @@ func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstr
 	if !ok {
 		return nil, fmt.Errorf("pool: source %q does not support subscriptions", s.name)
 	}
+	if err := s.verifyChainID(ctx, client); err != nil {
+		if shouldDiscardClient(err) {
+			s.discardClient(client)
+		}
+		s.recordFailedCall(err)
+		return nil, err
+	}
 	return subscriber.SubscribeCapability(ctx, kind, args...)
 }
 
@@ -340,6 +349,16 @@ func (s *Source) CallContext(ctx context.Context, method string, args ...any) (j
 // the next subscription attempt performs a fresh dial. Membership and source
 // identity remain unchanged; this is a connection-session operation only.
 func (s *Source) ResetConnection() {
+	// Several subscription workers can observe the same broken shared
+	// transport. Coalesce their resets so a worker that has already reopened a
+	// session is not immediately torn down by a second worker.
+	s.resetMu.Lock()
+	if !s.lastReset.IsZero() && time.Since(s.lastReset) < 250*time.Millisecond {
+		s.resetMu.Unlock()
+		return
+	}
+	s.lastReset = time.Now()
+	s.resetMu.Unlock()
 	s.mu.Lock()
 	client := s.client
 	s.client = nil

@@ -20,7 +20,9 @@
 本阶段不目标：
 
 - 不把 raw-call Transport 改成通用 WebSocket 客户端；
-- 不自动重连、自动重放或恢复未知写结果；
+- 不自动重放或恢复未知写结果；根聚合器允许按 source 的订阅会话做有界重订阅，
+  每次重建递增 generation，迟到帧由 SessionGate 丢弃；transport 层不提供通用
+  自动重连或 replay。
 - 不改变现有 unary quorum、reference、Decision 或 typed projection；
 - 不默认支持单源订阅降级；
 - 不把 HTTP 轮询伪装成 WSS 原生订阅；

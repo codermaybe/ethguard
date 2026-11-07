@@ -2,6 +2,7 @@ package ethguard
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	internaluncertain "github.com/codermaybe/ethguard/internal/uncertain"
@@ -147,8 +148,12 @@ func (r CallResult) Clone() CallResult {
 		u := cloneUncertainResult(*r.Uncertain)
 		r.Uncertain = &u
 	}
-	// Err is not cloned: the error interface keeps errors.Is/As, and
-	// published errors are immutable by contract.
+	if revert, ok := r.Err.(*RevertError); ok && revert != nil {
+		copyRevert := *revert
+		copyRevert.Data = append([]byte(nil), revert.Data...)
+		copyRevert.DataRaw = append(json.RawMessage(nil), revert.DataRaw...)
+		r.Err = &copyRevert
+	}
 	return r
 }
 

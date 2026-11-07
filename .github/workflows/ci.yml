@@ -219,7 +219,7 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.6.2
+          version: v2.15.0
 
   # Reachable vulnerabilities are a release gate. The repository-owned script
   # pins the scanner version so @latest cannot silently raise the Go toolchain
@@ -233,7 +233,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Scan reachable vulnerabilities
-        run: ./scripts/govulncheck.sh
+        run: bash ./scripts/govulncheck.sh
 
   # Weekly report-only dead-code inventory. Library exports are normally
   # unreachable from tests because external consumers reach them, so running

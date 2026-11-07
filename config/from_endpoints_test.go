@@ -28,7 +28,7 @@ func TestFromEndpointsDomain(t *testing.T) {
 		{
 			name: "missing host",
 			urls: []string{"https://a.example", "not-a-url"},
-			want: `upstreams[1]: endpoint "not-a-url" is not a valid URL`,
+			want: `upstreams[1]: endpoint is not a valid URL`,
 		},
 		{
 			name: "unsupported scheme",
@@ -38,7 +38,7 @@ func TestFromEndpointsDomain(t *testing.T) {
 		{
 			name: "duplicate endpoint",
 			urls: []string{"https://a.example", "https://a.example"},
-			want: `upstreams[1]: endpoint "https://a.example" duplicates an earlier entry`,
+			want: `upstreams[1]: endpoint duplicates an earlier entry`,
 		},
 		{
 			name: "duplicate after trim",

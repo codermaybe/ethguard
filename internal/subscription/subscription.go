@@ -268,7 +268,21 @@ func (a *Aggregator) Submit(obs Observation) error {
 			ctx.status = Revoked
 			return a.emitLocked(Delivery{Observation: cloneObservation(removedCandidate.obs), Snapshot: a.cfg.Snapshot, Status: Revoked, Votes: len(removedCandidate.sources)})
 		}
-		return nil
+		// A new head at the same height is a reorg replacement. Its candidate
+		// key includes the block hash, so start a fresh vote context instead of
+		// dropping the replacement merely because the old candidate was sent.
+		if obs.Kind == KindNewHeads && obs.Key != ctx.delivered {
+			ctx.first = obs.ObservedAt
+			if ctx.first.IsZero() {
+				ctx.first = time.Now()
+			}
+			ctx.status = Collecting
+			ctx.delivered = ""
+			ctx.revoked = false
+			ctx.candidates = make(map[string]*candidate)
+		} else {
+			return nil
+		}
 	}
 	if obs.Removed {
 		ctx.status = Quarantined

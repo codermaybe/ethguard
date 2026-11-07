@@ -61,7 +61,7 @@
   | govulncheck | `v1.9.0` | `scripts/govulncheck.sh` |
   | apidiff | `v0.0.0-20261014143641-f0251eb4aa3e` | `release.yml`（R1 后应移入脚本） |
   | deadcode | `v0.41.0` | `ci.yml` 定时 job |
-  | golangci-lint | `v2.6.2` | `ci.yml` |
+  | golangci-lint | `v2.15.0` | `ci.yml` |
 
 - **go 指令的取值依据是清除扫描到的标准库可达漏洞**，不是"跟到最新"；取值与证据
   见第 6.2 节。
@@ -91,9 +91,8 @@
    无法把"通过"绑定到具体提交内容。
 4. **联网属性未写明**：`release_check.sh` 头部自称 "offline gates"，但 govulncheck
    需要访问 `vuln.go.dev`；该步骤不是离线步骤。
-5. **过期文本与死代码**：`release.yml` 的 apidiff 注释仍引用 "Go 1.25.3 baseline"，
-   `GOTOOLCHAIN: auto` 在 go 指令为 1.26.10 后已无必要；`cross-compile` 的
-   `windows` 分支在平台列表中没有对应项，是不可达死代码。
+5. **死代码**：`cross-compile` 的 `windows` 分支在平台列表中没有对应项，是不可达
+   死代码。
 
 ## 6. 证据（2026-11-04）
 

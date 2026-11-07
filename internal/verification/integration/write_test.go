@@ -58,14 +58,14 @@ func TestSendRawTransactionAcceptedWithMinorityDissent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("accepted broadcast returned error: %v", err)
 	}
-	if result.WriteDecision.Status != rpc.WriteAccepted || result.WriteDecision.Hash != hash.Hex() || !result.IsWriteAccepted() {
-		t.Fatalf("unexpected accepted result: %+v", result.Decision)
+	if writeDecision(t, result).Status != rpc.WriteAccepted || writeDecision(t, result).Hash != hash.Hex() || !result.IsWriteAccepted() {
+		t.Fatalf("unexpected accepted result: %+v", writeDecision(t, result))
 	}
-	if result.WriteDecision.Basis != 3 || result.WriteDecision.Required != 2 || result.WriteDecision.Agreement != 2 {
-		t.Fatalf("unexpected fixed-basis decision: %+v", result.Decision)
+	if writeDecision(t, result).Basis != 3 || writeDecision(t, result).Required != 2 || writeDecision(t, result).Agreement != 2 {
+		t.Fatalf("unexpected fixed-basis decision: %+v", writeDecision(t, result))
 	}
-	if len(result.WriteDecision.Accepted) != 2 || len(result.WriteDecision.Dissent) != 1 {
-		t.Fatalf("winning and dissent evidence not preserved: %+v", result.Decision)
+	if len(writeDecision(t, result).Accepted) != 2 || len(writeDecision(t, result).Dissent) != 1 {
+		t.Fatalf("winning and dissent evidence not preserved: %+v", writeDecision(t, result))
 	}
 	for i, node := range nodes {
 		calls := node.Calls()
@@ -86,8 +86,8 @@ func TestSendRawTransactionRejectsDisputedHashes(t *testing.T) {
 	if !errors.Is(err, ethguard.ErrConflict) {
 		t.Fatalf("error = %v, want ErrConflict", err)
 	}
-	if result.WriteDecision.Status != rpc.WriteDisputed || result.WriteDecision.Agreement != 1 || len(result.WriteDecision.Dissent) != 2 {
-		t.Fatalf("unexpected disputed result: %+v", result.Decision)
+	if writeDecision(t, result).Status != rpc.WriteDisputed || writeDecision(t, result).Agreement != 1 || len(writeDecision(t, result).Dissent) != 2 {
+		t.Fatalf("unexpected disputed result: %+v", writeDecision(t, result))
 	}
 	if result.IsWriteAccepted() {
 		t.Fatal("disputed write must not report Accepted")
@@ -105,8 +105,8 @@ func TestSendRawTransactionRejectsWhenAllSourcesReturnProtocolErrors(t *testing.
 	if !errors.Is(err, ethguard.ErrNoValidResponse) {
 		t.Fatalf("error = %v, want ErrNoValidResponse", err)
 	}
-	if result.WriteDecision.Status != rpc.WriteRejected || len(result.WriteDecision.Rejected) != 3 {
-		t.Fatalf("unexpected rejected result: %+v", result.Decision)
+	if writeDecision(t, result).Status != rpc.WriteRejected || len(writeDecision(t, result).Rejected) != 3 {
+		t.Fatalf("unexpected rejected result: %+v", writeDecision(t, result))
 	}
 }
 
@@ -121,9 +121,9 @@ func TestSendRawTransactionReportsUnreachableFleet(t *testing.T) {
 	if !errors.Is(err, ethguard.ErrAllSourcesDown) {
 		t.Fatalf("error = %v, want ErrAllSourcesDown", err)
 	}
-	if result.WriteDecision.Status != rpc.WriteUnreachable || result.WriteDecision.Basis != 2 ||
-		len(result.WriteDecision.Silent) != 2 || len(result.WriteDecision.Faults) != 2 {
-		t.Fatalf("unexpected unreachable result: %+v", result.Decision)
+	if writeDecision(t, result).Status != rpc.WriteUnreachable || writeDecision(t, result).Basis != 2 ||
+		len(writeDecision(t, result).Silent) != 2 || len(writeDecision(t, result).Faults) != 2 {
+		t.Fatalf("unexpected unreachable result: %+v", writeDecision(t, result))
 	}
 }
 
@@ -136,8 +136,8 @@ func TestSendRawTransactionForwardedUsesOneSourceBasis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("forwarded broadcast returned error: %v", err)
 	}
-	if result.WriteDecision.Status != rpc.WriteAccepted || result.WriteDecision.Basis != 1 || result.WriteDecision.Required != 1 {
-		t.Fatalf("unexpected forwarded result: %+v", result.Decision)
+	if writeDecision(t, result).Status != rpc.WriteAccepted || writeDecision(t, result).Basis != 1 || writeDecision(t, result).Required != 1 {
+		t.Fatalf("unexpected forwarded result: %+v", writeDecision(t, result))
 	}
 	if got := countMethod(nodes[0].Calls(), methods.MethodSendRawTransaction); got != 1 {
 		t.Fatalf("first source send calls = %d, want 1", got)
@@ -164,8 +164,8 @@ func TestSendRawTransactionForwardedPreservesProtocolRejection(t *testing.T) {
 	if !errors.Is(err, ethguard.ErrNoValidResponse) {
 		t.Fatalf("forwarded rejection error = %v, want ErrNoValidResponse", err)
 	}
-	if result.WriteDecision.Status != rpc.WriteRejected || result.WriteDecision.Basis != 1 || len(result.WriteDecision.Rejected) != 1 {
-		t.Fatalf("unexpected forwarded rejection: %+v", result.Decision)
+	if writeDecision(t, result).Status != rpc.WriteRejected || writeDecision(t, result).Basis != 1 || len(writeDecision(t, result).Rejected) != 1 {
+		t.Fatalf("unexpected forwarded rejection: %+v", writeDecision(t, result))
 	}
 }
 
@@ -179,8 +179,8 @@ func TestSendRawTransactionForwardedFailsClosedOnForeignHash(t *testing.T) {
 	if !errors.Is(err, ethguard.ErrConflict) {
 		t.Fatalf("forwarded foreign hash error = %v, want ErrConflict", err)
 	}
-	if result.WriteDecision.Status != rpc.WriteDisputed || result.WriteDecision.Hash != foreign.Hex() || result.WriteDecision.Hash == localHash.Hex() {
-		t.Fatalf("forwarded foreign hash was not failed closed: %+v", result.Decision)
+	if writeDecision(t, result).Status != rpc.WriteDisputed || writeDecision(t, result).Hash != foreign.Hex() || writeDecision(t, result).Hash == localHash.Hex() {
+		t.Fatalf("forwarded foreign hash was not failed closed: %+v", writeDecision(t, result))
 	}
 }
 
@@ -196,8 +196,8 @@ func TestSendRawTransactionFailsClosedOnForeignWinningHash(t *testing.T) {
 	if !errors.Is(err, ethguard.ErrConflict) {
 		t.Fatalf("error = %v, want ErrConflict", err)
 	}
-	if result.WriteDecision.Status != rpc.WriteDisputed || result.WriteDecision.Hash != foreign.Hex() || result.WriteDecision.Hash == localHash.Hex() {
-		t.Fatalf("foreign winning hash was not failed closed: %+v", result.Decision)
+	if writeDecision(t, result).Status != rpc.WriteDisputed || writeDecision(t, result).Hash != foreign.Hex() || writeDecision(t, result).Hash == localHash.Hex() {
+		t.Fatalf("foreign winning hash was not failed closed: %+v", writeDecision(t, result))
 	}
 }
 
@@ -218,8 +218,16 @@ func TestSendRawTransactionRejectsInvalidBytesBeforeContact(t *testing.T) {
 		t.Fatalf("error = %v, want ErrInvalidRequest", err)
 	}
 	if result.IsWriteAccepted() || (result.WriteDecision != nil && result.WriteDecision.Status != rpc.WriteUnknown) {
-		t.Fatalf("invalid request returned accepted decision: %+v", result.Decision)
+		t.Fatalf("invalid request returned accepted decision: %+v", writeDecision(t, result))
 	}
+}
+
+func writeDecision(t *testing.T, result ethguard.CallResult) *rpc.WriteDecision {
+	t.Helper()
+	if result.WriteDecision == nil {
+		t.Fatalf("result has no WriteDecision: %+v", result)
+	}
+	return result.WriteDecision
 }
 
 func countMethod(calls []rpctest.Call, method string) int {

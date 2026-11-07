@@ -80,7 +80,6 @@ ethguard/                   # 公共 Client 外观
 | 包 | 作用 |
 | --- | --- |
 | `ethguard` | 唯一公开 `Client`：Geth 形态类型化读取、通用调用、证据与写入 |
-| `ethguard` | 公共 `Client` facade、通用调用和证据 |
 | `ethguard/config` | Go 构造和 YAML 加载共用的一套配置模型 |
 | `ethguard/pool` | 共享上游连接、Transport Port、采集、健康度和准入资格 |
 | `ethguard/observe` | 可观测性事件（`Recorder`），不参与安全决策 |
@@ -146,7 +145,7 @@ ReadPlan，并绑定 plan、projector、aggregator 和 reference seam；根 `Cli
 Validate / Prepare → Reference → Collect → Admit → Resolve → Project
 ```
 
-当前清单包含 23 个已注册读取方法。根 `Client` 在该清单之上提供 Geth 形态的
+当前清单包含 26 个已注册读取方法。根 `Client` 在该清单之上提供 Geth 形态的
 类型化方法和通用 `Call`。`eth_getProof` 明确为 unsupported。计划已注册不代表真实
 provider 的兼容性已经完成，provider 证据仍是独立轨道。
 
@@ -265,8 +264,8 @@ Fields 合计最多 256 条记录、每项可变元数据文本最多 4 KiB。�
 capture 永久失效（`ErrCaptureReused`）；经 panic 异常退出的调用把 capture 标记为
 异常（`ErrCaptureAborted`）。捕获错误是交付事实，永不进入业务错误。
 
-ethclient 形状的视图走同一执行：`client.EthClient()` 暴露官方读取签名、
-`SendTransaction(ctx, tx) error` 和 `Close`——再无其他。它满足
+ethclient 形状的视图走同一执行：`client.EthClient()` 暴露官方读取签名、同步写入、
+三个订阅方法和 `Close`。它满足
 `bind/v2.ContractCaller` 与 `bind/v2.DeployBackend`；它不是 `*ethclient.Client`。
 未绑定 capture 的视图调用省略原始材料采集（没有消费者）；业务行为不变。任一切面上
 的一次 `Close` 同时停止两者：在途操作以可识别的 `ErrPoolClosed` 原因收敛，新操作在
