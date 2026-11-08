@@ -131,7 +131,6 @@ func TestAggregateFieldsWithCorroborationUsesTheFixedBasis(t *testing.T) {
 		observations[0],
 		observations[1],
 		observations[3],
-		observations[4],
 	}, fourMemberBasis)
 	if err != nil {
 		t.Fatalf("AggregateFieldsWithCorroboration() with four members error = %v", err)

@@ -1038,7 +1038,7 @@ func sanitizeDetail(text string) string {
 		out := parsed.Scheme + "://" + parsed.Host + parsed.EscapedPath()
 		return strings.TrimSuffix(out, "/")
 	})
-	text = strings.TrimSpace(text)
+	text = strings.TrimSpace(strings.ToValidUTF8(text, "\uFFFD"))
 	const maxDetailRunes = 512
 	runes := []rune(text)
 	if len(runes) > maxDetailRunes {

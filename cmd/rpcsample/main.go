@@ -17,7 +17,7 @@ func main() {
 	planPath := flag.String("plan", "", "path to a v1 sample plan (required)")
 	outDir := flag.String("out", "", "new or existing output directory (required)")
 	timeout := flag.Duration("timeout", 30*time.Second, "timeout for each HTTP request")
-	maxBytes := flag.Int64("max-response-bytes", 0, "response byte limit; 0 preserves the complete body")
+	maxBytes := flag.Int64("max-response-bytes", 0, "response byte limit; non-positive uses the default 32 MiB limit")
 	flag.Parse()
 	if *planPath == "" || *outDir == "" {
 		flag.Usage()

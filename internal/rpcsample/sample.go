@@ -372,11 +372,17 @@ func newRedactor(p Plan) (*redactor, error) {
 						add(password, true)
 					}
 				}
-				for _, values := range u.Query() {
+				for name, values := range u.Query() {
+					// Match livecanary's credential query names. Other values
+					// are public unless explicitly named through RedactEnv.
+					switch strings.ToLower(name) {
+					case "apikey", "api_key", "key", "token":
+					default:
+						continue
+					}
 					for _, value := range values {
-						// Short values still redact credential-bearing text, but
-						// cannot be scanned globally: e.g. chainId=1 also matches
-						// the intentionally persisted network.chain_id.
+						// Short credentials are redacted, but global substring
+						// scans could reject unrelated metadata containing them.
 						add(value, len(value) >= 8)
 					}
 				}

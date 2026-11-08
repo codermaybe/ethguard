@@ -450,6 +450,10 @@ func (t *Transport) dispatchNotification(message []byte) {
 	}
 
 	t.mu.Lock()
+	if t.closing || t.closed {
+		t.mu.Unlock()
+		return
+	}
 	bound := t.subscriptionIDs[notification.SubscriptionID]
 	streams := make([]*NotificationStream, 0, len(t.streams))
 	for stream := range t.streams {

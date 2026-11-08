@@ -106,6 +106,87 @@ func TestCloseClearsPendingNotifications(t *testing.T) {
 	assertPendingNotificationOrder(t, tr)
 }
 
+func TestCloseDoesNotRebuildPendingNotifications(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	requestsReady := make(chan struct{})
+	afterClose := make(chan struct{})
+	releaseLast := make(chan struct{})
+	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+		first := <-peer.requests
+		last := <-peer.requests
+		close(requestsReady)
+		select {
+		case <-afterClose:
+		case <-ctx.Done():
+			return
+		}
+		peer.writeFrame(notificationFrame("never-bound", `"0x1"`))
+		peer.respond(first, `"0x2"`)
+		select {
+		case <-releaseLast:
+		case <-ctx.Done():
+			return
+		}
+		peer.respond(last, `"0x2"`)
+	})
+	tr := dialTestTransport(t, peerURL, 0)
+	type callResult struct {
+		value string
+		err   error
+	}
+	results := make(chan callResult, 2)
+	for range 2 {
+		go func() {
+			var value string
+			err := tr.CallContext(ctx, &value, "eth_blockNumber")
+			results <- callResult{value, err}
+		}()
+	}
+	select {
+	case <-requestsReady:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	pushNotification(t, tr, "before-close")
+	tr.Close()
+	close(afterClose)
+	select {
+	case result := <-results:
+		if result.err != nil || result.value != "0x2" {
+			t.Fatalf("in-flight response = %+v", result)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	// The first response is a reader barrier for the notification. Keeping
+	// another call pending prevents socket teardown from hiding a rebuilt map.
+	tr.mu.Lock()
+	buffered, ordered := len(tr.pendingNotifications), len(tr.pendingNotificationOrder)
+	tr.mu.Unlock()
+	close(releaseLast)
+	select {
+	case result := <-results:
+		if result.err != nil || result.value != "0x2" {
+			t.Fatalf("last in-flight response = %+v", result)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if buffered != 0 || ordered != 0 {
+		t.Fatalf("Close rebuilt pending notifications: map=%d order=%d", buffered, ordered)
+	}
+}
+
+func TestClosedTransportIgnoresNotification(t *testing.T) {
+	tr := newPendingTestTransport(t)
+	tr.Close()
+	pushNotification(t, tr, "after-close")
+	if len(tr.pendingNotifications) != 0 || len(tr.pendingNotificationOrder) != 0 {
+		t.Fatal("closed transport rebuilt pending notifications")
+	}
+}
+
 func assertPendingNotificationOrder(t *testing.T, tr *Transport) {
 	t.Helper()
 	tr.mu.Lock()

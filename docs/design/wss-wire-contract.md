@@ -88,6 +88,9 @@
   帧、写失败终止连接、读失败/read limit 失败全部 pending、Close 拒绝新调用
   并等待在途调用、旧响应不交付新调用、不自动重放——逐条保持现有契约测试
   的断言不变。
+- Close 清空未绑定订阅的 notification 缓存及淘汰顺序；进入 closing 或 closed 后，
+  reader 不再缓存或分发 notification。在途 unary 响应仍正常交付，最后一个调用
+  完成或取消后才释放 socket；不得因等待在途响应而重建 notification 缓存。
 - read limit 超限的 pending 失败同时保留 `transport.ErrBodyTooLarge` 与
   `transport.ErrConnectionClosed` 两个哨兵（现 `classifyReadError` 语义）。
 - ChainID admission 失败后坏连接被丢弃、下一次独立调用才允许惰性重拨：

@@ -99,37 +99,56 @@ func TestCollectAllowsShortEndpointQueryValues(t *testing.T) {
 			Request:    r,
 		}, nil
 	})
-	plan := Plan{
-		Schema:  PlanSchema,
-		Network: Network{ChainID: 1, Fork: "x"},
-		Sources: []Source{{ID: "s", Endpoint: "https://rpc.example?chainId=1&key=x7"}},
-		Requests: []Request{{
-			ID:     "chain",
-			Method: "eth_chainId",
-			Params: json.RawMessage("[]"),
-		}},
-	}
-	out := t.TempDir()
-	idx, err := (Collector{Client: &http.Client{Transport: transport}}).Collect(context.Background(), plan, out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(idx.Records) != 1 || idx.Records[0].ErrorKinds != nil {
-		t.Fatalf("index = %+v", idx)
-	}
-	data, err := os.ReadFile(filepath.Join(out, "records", "chain--s.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var record Record
-	if err := json.Unmarshal(data, &record); err != nil {
-		t.Fatal(err)
-	}
-	if record.Network.ChainID != 1 || record.Source.Endpoint != "https://rpc.example" {
-		t.Fatalf("metadata = %+v, source = %+v", record.Network, record.Source)
-	}
-	if strings.Contains(record.Response.Body, "x7") || !strings.Contains(record.Response.Body, "[REDACTED]") {
-		t.Fatalf("short query credential not redacted: %s", record.Response.Body)
+	for _, queryName := range []string{"key", "API_KEY", "token", "apikey"} {
+		t.Run(queryName, func(t *testing.T) {
+			plan := Plan{
+				Schema:  PlanSchema,
+				Network: Network{ChainID: 1, Fork: "x"},
+				Sources: []Source{{ID: "s", Endpoint: "https://rpc.example?chainId=1&x=1&" + queryName + "=x7"}},
+				Requests: []Request{{
+					ID:     "chain",
+					Method: "eth_chainId",
+					Params: json.RawMessage("[]"),
+				}},
+			}
+			out := t.TempDir()
+			idx, err := (Collector{Client: &http.Client{Transport: transport}}).Collect(context.Background(), plan, out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(idx.Records) != 1 || idx.Records[0].ErrorKinds != nil {
+				t.Fatalf("index = %+v", idx)
+			}
+			data, err := os.ReadFile(filepath.Join(out, "records", "chain--s.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), "x7") {
+				t.Fatalf("short query credential persisted: %s", data)
+			}
+			var record Record
+			if err := json.Unmarshal(data, &record); err != nil {
+				t.Fatal(err)
+			}
+			if record.Network.ChainID != 1 || record.Source.Endpoint != "https://rpc.example" {
+				t.Fatalf("metadata = %+v, source = %+v", record.Network, record.Source)
+			}
+			for name, body := range map[string]string{"request": record.Request, "response": record.Response.Body} {
+				var wire struct {
+					ID int `json:"id"`
+				}
+				if err := json.Unmarshal([]byte(body), &wire); err != nil {
+					t.Errorf("saved %s is not valid wire JSON: %v: %s", name, err, body)
+					continue
+				}
+				if wire.ID != 1 {
+					t.Errorf("saved %s ID = %d, want 1", name, wire.ID)
+				}
+			}
+			if strings.Contains(record.Response.Body, "x7") || !strings.Contains(record.Response.Body, "[REDACTED]") {
+				t.Fatalf("short query credential not redacted: %s", record.Response.Body)
+			}
+		})
 	}
 }
 
