@@ -62,14 +62,20 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: go test -race (with coverage)
+      - name: go test -race (package-local coverage)
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: go test -race (cross-package coverage)
+        run: go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage-cross.out ./...
       - name: coverage summary
-        run: go tool cover -func=coverage.out | tail -1
+        run: |
+          go tool cover -func=coverage.out | tail -1
+          go tool cover -func=coverage-cross.out | tail -1
       - uses: actions/upload-artifact@v7
         with:
           name: coverage
-          path: coverage.out
+          path: |
+            coverage.out
+            coverage-cross.out
           retention-days: 7
 
   # Lint runs only on the weekly schedule until its config is tuned; it does

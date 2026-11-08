@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 const testRunID = "01JAZ3K4M5N6P7Q8R9S0T1V2WX"
@@ -62,4 +63,18 @@ func cloneManifest(t *testing.T, manifest Manifest) Manifest {
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func TestSanitizeDetailTruncatesByRuneWithoutBreakingUTF8(t *testing.T) {
+	input := strings.Repeat("界", 513)
+	got := sanitizeDetail(input)
+	if !utf8.ValidString(got) {
+		t.Fatal("sanitizeDetail produced invalid UTF-8")
+	}
+	if count := utf8.RuneCountInString(got); count != 512 {
+		t.Fatalf("sanitized detail contains %d runes, want 512", count)
+	}
+	if got != strings.Repeat("界", 512) {
+		t.Fatal("sanitizeDetail did not preserve the first 512 complete runes")
+	}
 }

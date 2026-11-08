@@ -53,6 +53,28 @@ func TestBlockPolicyCanonicalizesNarrowKeyValue(t *testing.T) {
 	}
 }
 
+func TestBlockByNumberHeaderOnlyUsesCanonicalValue(t *testing.T) {
+	first := json.RawMessage(`{"number":"0x010","hash":"0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","vendor":true}`)
+	second := json.RawMessage(`{"hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","number":"0x10","extra":"ignored"}`)
+	policy := planResolver(t, MethodGetBlockByNumber, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
+	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
+		{Source: rpc.SourceRef{ID: "a"}, Value: first},
+		{Source: rpc.SourceRef{ID: "b"}, Value: second},
+	})
+	if err != nil || decision.Status != rpc.Corroborated {
+		t.Fatalf("decision = %+v err %v", decision, err)
+	}
+	want := json.RawMessage(`{"hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","number":"0x10"}`)
+	if !bytes.Equal(decision.Value, want) {
+		t.Fatalf("value = %s, want canonical %s", decision.Value, want)
+	}
+	for _, field := range []string{"vendor", "extra"} {
+		if bytes.Contains(decision.Value, []byte(`"`+field+`"`)) {
+			t.Fatalf("source-only field %s survived: %s", field, decision.Value)
+		}
+	}
+}
+
 func TestBlockPolicyFinishRejectsSameKeyDifferentCommittedHeader(t *testing.T) {
 	firstHeader := &types.Header{
 		ParentHash:  common.HexToHash("0x1"),

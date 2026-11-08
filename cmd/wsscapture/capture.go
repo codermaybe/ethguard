@@ -178,6 +178,9 @@ func capture(ctx context.Context, urls []string, outDir string, cfg captureConfi
 			}
 			encoded = append(encoded, '\n')
 			rel := filepath.ToSlash(filepath.Join("records", record.Scenario+"--"+label+".json"))
+			if err := ensureBytesContainNoSecrets(rel, encoded, redact.scan); err != nil {
+				return err
+			}
 			if err := writeFile(filepath.Join(outDir, filepath.FromSlash(rel)), encoded); err != nil {
 				return err
 			}
@@ -206,6 +209,9 @@ func capture(ctx context.Context, urls []string, outDir string, cfg captureConfi
 	}
 	encoded, err := json.MarshalIndent(index, "", "  ")
 	if err != nil {
+		return err
+	}
+	if err := ensureBytesContainNoSecrets("index.json", encoded, redact.scan); err != nil {
 		return err
 	}
 	if err := writeFile(filepath.Join(outDir, "index.json"), append(encoded, '\n')); err != nil {
@@ -465,6 +471,16 @@ func (r *redactor) text(value string) string {
 	return value
 }
 
+func ensureBytesContainNoSecrets(name string, body []byte, secrets []string) error {
+	text := string(body)
+	for _, secret := range secrets {
+		if len(secret) >= 4 && strings.Contains(text, secret) {
+			return fmt.Errorf("capture output %s still contains a redacted secret", filepath.Base(name))
+		}
+	}
+	return nil
+}
+
 func ensureNoSecrets(dir string, secrets []string) error {
 	return filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
@@ -474,22 +490,36 @@ func ensureNoSecrets(dir string, secrets []string) error {
 		if err != nil {
 			return err
 		}
-		text := string(body)
-		for _, secret := range secrets {
-			if len(secret) >= 4 && strings.Contains(text, secret) {
-				return fmt.Errorf("capture output %s still contains a redacted secret", filepath.Base(path))
-			}
-		}
-		return nil
+		return ensureBytesContainNoSecrets(path, body, secrets)
 	})
 }
 
-func writeFile(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+func writeFile(path string, data []byte) (resultErr error) {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		if resultErr != nil {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func readToolInfo() toolInfo {
