@@ -375,6 +375,8 @@ v1 固定值：
   provider 相关时带 `source_id`；`detail` 必须脱敏、限长，且不得作为裁决依据。
   诊断字符串中的非法 UTF-8 统一替换为 U+FFFD，再按最多 512 个 Unicode
   码点截断；短字符串也必须保持有效 UTF-8。
+  报告的 Go 校验与 JSON Schema 对 `detail` / `error_detail` 采用相同的
+  512 码点上限，不按 UTF-8 字节数限制。
 
 ---
 

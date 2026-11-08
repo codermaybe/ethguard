@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -496,6 +497,39 @@ func TestExecutorPanicBecomesFailedReport(t *testing.T) {
 	}
 	if len(report.Steps) != 0 {
 		t.Fatalf("panic before client construction must not report steps")
+	}
+}
+
+func TestExecutorReturnsReportForMultibyteDiagnostic(t *testing.T) {
+	manifest := testManifest(t)
+	manifestBytes, err := manifest.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := Executor{NewClient: func(Manifest) (*ethguard.Client, error) {
+		return nil, fmt.Errorf("%s", strings.Repeat("\xffé", 256))
+	}}
+	report, err := executor.Run(t.Context(), RunInput{
+		Manifest: manifest, ManifestBytes: manifestBytes,
+		ManifestSHA256: ManifestSHA256(manifestBytes), Membership: MembershipFixed,
+	})
+	if err != nil {
+		t.Fatalf("Run lost the diagnostic report: %v", err)
+	}
+	if report.State != StateFailed || len(report.StateReasons) != 1 ||
+		report.StateReasons[0].Category != "code_error" || report.StateReasons[0].Detail != strings.Repeat("\uFFFDé", 256) {
+		t.Fatalf("diagnostic report = %+v", report)
+	}
+	data, err := report.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeJSON(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := loadReportSchema(t).validate(decoded); err != nil {
+		t.Fatalf("schema rejected generated report: %v", err)
 	}
 }
 
