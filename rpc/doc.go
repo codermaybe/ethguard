@@ -27,6 +27,5 @@
 //   - Field aggregation and the write path: field_aggregation.go (JSON
 //     path/value evidence) and write.go (eth_sendRawTransaction broadcast).
 //   - Shared parsing: quantity.go (0x quantities), error_data_presence.go
-//     (JSON-RPC error data completeness), policy.go (Policy interface,
-//     optional capabilities, method-rule spelling).
+//     (JSON-RPC error data completeness).
 package rpc

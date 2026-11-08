@@ -472,7 +472,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 		return expectCase{}, fmt.Errorf("%s: %w", id, err)
 	}
 	if prepErr == nil {
-		if err := assertCapturedGate(t, agg, policy, prepared, req, policyDecision, policyErr); err != nil {
+		if err := assertCapturedGate(t, agg, plan, snap, prepared, req, policyDecision, policyErr); err != nil {
 			return expectCase{}, fmt.Errorf("%s: %w", id, err)
 		}
 	}
@@ -593,18 +593,21 @@ func capturedDimensions(decision rpc.Decision, decisionErr error) []rpc.Dimensio
 	}}
 }
 
-func assertCapturedGate(t *testing.T, agg *aggregator.Aggregator, policy rpc.Policy, prepared rpc.Request, req rpc.Request, decision rpc.Decision, decisionErr error) error {
+func assertCapturedGate(t *testing.T, agg *aggregator.Aggregator, plan rpc.ReadPlan, snap rpc.Corroboration, prepared rpc.Request, req rpc.Request, decision rpc.Decision, decisionErr error) error {
 	t.Helper()
-	agreement, ok := policy.(rpc.AgreementPolicy)
+	agreement, ok := plan.Resolver.(rpc.AgreementPolicy)
 	if !ok || !agreement.RequiresAgreement() {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	gated, gatedErr := agg.AggregateStrict(ctx, req)
-	// Pending routing is the plan model's PendingSpec; the removed
-	// LocalObservationPolicy capability had no implementations, so no
-	// per-request pending branch exists to consult here.
+	if plan.Pending.Mode == rpc.PendingObserve && snap.Mode != rpc.CorroborationForwarded && pendingShapeAt(plan.Pending.Pos, prepared) {
+		if gatedErr != nil || gated.Status != rpc.Selected {
+			return fmt.Errorf("pending typed gate status %s err %v", gated.Status, gatedErr)
+		}
+		return nil
+	}
 	if decisionErr == nil && decision.Status == rpc.Corroborated {
 		if gatedErr != nil || gated.Status != rpc.Corroborated {
 			return fmt.Errorf("typed gate status %s err %v", gated.Status, gatedErr)

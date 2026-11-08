@@ -78,3 +78,10 @@ func TestSanitizeDetailTruncatesByRuneWithoutBreakingUTF8(t *testing.T) {
 		t.Fatal("sanitizeDetail did not preserve the first 512 complete runes")
 	}
 }
+
+func TestSanitizeDetailNormalizesInvalidUTF8(t *testing.T) {
+	got := sanitizeDetail("diagnostic: \xff")
+	if got != "diagnostic: \uFFFD" {
+		t.Fatalf("sanitized detail = %q, want invalid UTF-8 replaced", got)
+	}
+}
