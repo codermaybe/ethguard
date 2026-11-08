@@ -92,15 +92,14 @@ func TestBroadcastCoolingSourceIsGatedNotFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Drive the cooldown circuit open through repeated read failures on a
-	// different method, then verify the broadcast pauses the source without
-	// health penalty.
-	node.Fail("eth_blockNumber", -32099, "cooling")
-	for i := 0; i < eligibleFailureThreshold+1; i++ {
-		p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: time.Second})
+	// Open the cooldown circuit deterministically. JSON-RPC business errors
+	// are usable protocol responses and therefore must not be relied on to
+	// mutate transport-health state.
+	for range eligibleFailureThreshold {
+		src.stats.observeFailure(errors.New("transport reset"))
 	}
 	if src.requestable(time.Now()) {
-		t.Skip("circuit did not open; monitor thresholds changed")
+		t.Fatalf("circuit did not open after %d transport failures", eligibleFailureThreshold)
 	}
 	emissions, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x01"})
 	if err == nil {

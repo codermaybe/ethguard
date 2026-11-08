@@ -474,11 +474,11 @@ func TestAnchorRequestHashIsLowercase(t *testing.T) {
 			if err != nil {
 				t.Fatalf("getBlockByNumber: %v\n%s", err, dumpCalls(nodes))
 			}
-			if !strings.Contains(string(block.Value), upper) {
-				t.Fatalf("block value = %s, want the source spelling %s", block.Value, upper)
+			if strings.Contains(string(block.Value), upper) {
+				t.Fatalf("block value kept source spelling: %s", block.Value)
 			}
-			if strings.Contains(string(block.Value), lower) {
-				t.Fatalf("block value was lowercased: %s", block.Value)
+			if !strings.Contains(string(block.Value), lower) {
+				t.Fatalf("block value = %s, want canonical lowercase hash %s", block.Value, lower)
 			}
 		})
 	}

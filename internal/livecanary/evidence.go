@@ -1039,9 +1039,10 @@ func sanitizeDetail(text string) string {
 		return strings.TrimSuffix(out, "/")
 	})
 	text = strings.TrimSpace(text)
-	const maxDetail = 512
-	if len(text) > maxDetail {
-		text = strings.ToValidUTF8(text[:maxDetail], "")
+	const maxDetailRunes = 512
+	runes := []rune(text)
+	if len(runes) > maxDetailRunes {
+		text = string(runes[:maxDetailRunes])
 	}
 	return text
 }

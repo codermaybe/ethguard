@@ -26,9 +26,8 @@ func Encode(raw json.RawMessage) (json.RawMessage, error) {
 	return encode(raw)
 }
 
-// EncodeByNumber is the canonical encoder for eth_getBlockByNumber. The
-// method policy restores source spelling only after canonical comparison for
-// a header-only response.
+// EncodeByNumber is the canonical encoder for eth_getBlockByNumber.
+// Header-only and full-block responses use the same canonical output contract.
 func EncodeByNumber(raw json.RawMessage) (json.RawMessage, error) {
 	return Encode(raw)
 }

@@ -196,6 +196,9 @@ func (c Collector) Collect(ctx context.Context, p Plan, outDir string) (Index, e
 				return Index{}, err
 			}
 			encoded = append(encoded, '\n')
+			if err := ensureBytesContainNoSecrets(rel, encoded, redactor.scan); err != nil {
+				return Index{}, err
+			}
 			if err := writeFile(filepath.Join(outDir, filepath.FromSlash(rel)), encoded); err != nil {
 				return Index{}, err
 			}
@@ -212,7 +215,13 @@ func (c Collector) Collect(ctx context.Context, p Plan, outDir string) (Index, e
 	if err != nil {
 		return Index{}, err
 	}
+	if err := ensureBytesContainNoSecrets("index.json", encoded, redactor.scan); err != nil {
+		return Index{}, err
+	}
 	if err := writeFile(filepath.Join(outDir, "index.json"), append(encoded, '\n')); err != nil {
+		return Index{}, err
+	}
+	if err := ensureNoSecrets(outDir, redactor.scan); err != nil {
 		return Index{}, err
 	}
 	return idx, nil
@@ -326,14 +335,25 @@ func sanitizedEndpoint(endpoint string) string {
 	return (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
 }
 
-type redactor struct{ secrets []string }
+type redactor struct {
+	secrets []string
+	scan    []string
+}
 
 func newRedactor(p Plan) (*redactor, error) {
 	var secrets []string
-	for _, name := range p.RedactEnv {
-		if value := os.Getenv(name); value != "" {
-			secrets = append(secrets, value)
+	var scan []string
+	add := func(value string, mustNotPersist bool) {
+		if value == "" {
+			return
 		}
+		secrets = append(secrets, value)
+		if mustNotPersist {
+			scan = append(scan, value)
+		}
+	}
+	for _, name := range p.RedactEnv {
+		add(os.Getenv(name), true)
 	}
 	for _, source := range p.Sources {
 		endpoint := source.Endpoint
@@ -341,40 +361,51 @@ func newRedactor(p Plan) (*redactor, error) {
 			endpoint = os.Getenv(source.EndpointEnv)
 		}
 		if endpoint != "" {
-			secrets = append(secrets, endpoint)
+			// The complete endpoint is useful for replacing URLs embedded in
+			// transport errors, but its public scheme/host form is expected to
+			// remain in persisted source metadata and must not be scan input.
+			add(endpoint, false)
 			if u, err := url.Parse(endpoint); err == nil {
 				if u.User != nil {
-					secrets = append(secrets, u.User.Username())
+					add(u.User.Username(), true)
 					if password, ok := u.User.Password(); ok {
-						secrets = append(secrets, password)
+						add(password, true)
 					}
 				}
 				for _, values := range u.Query() {
-					secrets = append(secrets, values...)
+					for _, value := range values {
+						add(value, true)
+					}
 				}
 				for _, segment := range strings.Split(strings.Trim(u.Path, "/"), "/") {
 					if len(segment) >= 8 {
-						secrets = append(secrets, segment)
+						add(segment, true)
 					}
 				}
 			}
 		}
 		for _, envName := range source.HeaderEnv {
-			if value := os.Getenv(envName); value != "" {
-				secrets = append(secrets, value)
-			}
+			add(os.Getenv(envName), true)
 		}
 	}
+	return &redactor{
+		secrets: dedupeLongestFirst(secrets),
+		scan:    dedupeLongestFirst(scan),
+	}, nil
+}
+
+func dedupeLongestFirst(values []string) []string {
 	seen := make(map[string]bool)
-	filtered := secrets[:0]
-	for _, secret := range secrets {
-		if secret != "" && !seen[secret] {
-			seen[secret] = true
-			filtered = append(filtered, secret)
+	filtered := values[:0]
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
 		}
+		seen[value] = true
+		filtered = append(filtered, value)
 	}
 	sort.Slice(filtered, func(i, j int) bool { return len(filtered[i]) > len(filtered[j]) })
-	return &redactor{secrets: filtered}, nil
+	return filtered
 }
 
 func (r *redactor) text(s string) string {
@@ -384,10 +415,53 @@ func (r *redactor) text(s string) string {
 	return s
 }
 
-func writeFile(path string, data []byte) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+func ensureBytesContainNoSecrets(name string, body []byte, secrets []string) error {
+	text := string(body)
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(text, secret) {
+			return fmt.Errorf("rpc sample output %s still contains a redacted secret", filepath.Base(name))
+		}
+	}
+	return nil
+}
+
+func ensureNoSecrets(dir string, secrets []string) error {
+	return filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return ensureBytesContainNoSecrets(path, body, secrets)
+	})
+}
+
+func writeFile(path string, data []byte) (resultErr error) {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		if resultErr != nil {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }

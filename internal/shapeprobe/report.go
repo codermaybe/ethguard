@@ -357,11 +357,12 @@ func resultOf(body string) (json.RawMessage, bool, error) {
 }
 
 func preview(value string, limit int) string {
-	if value == "" {
+	if value == "" || limit <= 0 {
 		return ""
 	}
-	if len(value) <= limit {
+	runes := []rune(value)
+	if len(runes) <= limit {
 		return value
 	}
-	return value[:limit] + fmt.Sprintf("…(len %d)", len(value))
+	return string(runes[:limit]) + fmt.Sprintf("…(len %d bytes)", len(value))
 }

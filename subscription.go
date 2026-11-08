@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
@@ -241,6 +243,56 @@ func waitSubscriptionRetry(stop <-chan struct{}, ctx context.Context, delay time
 // stays at the loop's 50ms first retry.
 const maxSubscriptionRetryBackoff = 2 * time.Second
 
+const (
+	subscriptionVerificationWindow = 2 * time.Second
+	subscriptionSinglePullTimeout  = 800 * time.Millisecond
+	subscriptionPullRetryDelay     = 100 * time.Millisecond
+)
+
+func retryableSubscriptionPullError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, internalsubscription.ErrSessionStale) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+	var status rpc.HTTPStatusError
+	if errors.As(err, &status) {
+		switch status.HTTPStatusCode() {
+		case 429, 502, 503, 504:
+			return true
+		}
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError) && (networkError.Timeout() || networkError.Temporary())
+}
+
+func remainingPullTimeout(ctx context.Context) time.Duration {
+	timeout := subscriptionSinglePullTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining < timeout {
+			timeout = remaining
+		}
+	}
+	return timeout
+}
+
+func waitSubscriptionPullRetry(ctx context.Context, stop <-chan struct{}) bool {
+	timer := time.NewTimer(subscriptionPullRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-stop:
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 func (s *aggregateEthSubscription[T]) Err() <-chan error { return s.errs }
 
 func (s *aggregateEthSubscription[T]) Unsubscribe() {
@@ -352,29 +404,48 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 			if sessionErr != nil {
 				continue
 			}
+			requestGeneration := session.Generation
 			requests = append(requests, internalsubscription.PullRequest{
-				Kind: state.kind, ContextKey: contextKey, SourceID: source.ID(), Generation: session.Generation, AggregateGeneration: aggregateGeneration, FirstSeen: state.firstSeen,
+				Kind: state.kind, ContextKey: contextKey, SourceID: source.ID(), Generation: requestGeneration, AggregateGeneration: aggregateGeneration, FirstSeen: state.firstSeen,
 				Pull: func(pctx context.Context) (internalsubscription.Observation, error) {
-					if err := s.sessions.Accept(session); err != nil {
-						return internalsubscription.Observation{}, err
+					for {
+						currentSession, currentErr := s.sessions.Current(source.ID())
+						if currentErr != nil {
+							if retryableSubscriptionPullError(currentErr) && waitSubscriptionPullRetry(pctx, s.stop) {
+								continue
+							}
+							return internalsubscription.Observation{}, currentErr
+						}
+						timeout := remainingPullTimeout(pctx)
+						if timeout <= 0 {
+							return internalsubscription.Observation{}, context.DeadlineExceeded
+						}
+						attemptCtx, cancel := context.WithTimeout(pctx, timeout)
+						seed := state.observation
+						seed.Generation = currentSession.Generation
+						observation, pullErr := s.pullFactory(attemptCtx, source, state.kind, contextKey, seed)
+						cancel()
+						if pullErr == nil {
+							pullErr = s.sessions.Accept(currentSession)
+						}
+						if pullErr == nil {
+							// PullProbe owns the fixed request attribution. The
+							// current session was validated immediately before
+							// and after the same-source Pull above.
+							observation.Generation = requestGeneration
+							return observation, nil
+						}
+						if !retryableSubscriptionPullError(pullErr) || !waitSubscriptionPullRetry(pctx, s.stop) {
+							return internalsubscription.Observation{}, pullErr
+						}
 					}
-					seed := state.observation
-					seed.Generation = session.Generation
-					observation, err := s.pullFactory(pctx, source, state.kind, contextKey, seed)
-					if err != nil {
-						return internalsubscription.Observation{}, err
-					}
-					if err := s.sessions.Accept(session); err != nil {
-						return internalsubscription.Observation{}, err
-					}
-					return observation, nil
 				},
 			})
 		}
 		if len(requests) == 0 {
 			continue
 		}
-		probe, err := internalsubscription.StartPullProbe(s.ctx, s.agg, requests, internalsubscription.PullProbeConfig{SoftTimeout: 0, HardTimeout: 2 * time.Second})
+		probe, err := internalsubscription.StartPullProbe(s.ctx, s.agg, requests, internalsubscription.PullProbeConfig{SoftTimeout: 0, HardTimeout: subscriptionVerificationWindow})
 		if err != nil {
 			continue
 		}
@@ -425,9 +496,7 @@ func (s *aggregateEthSubscription[T]) runHeadGapProbe(key string, source identif
 		delete(s.gapProbes, key)
 		s.gapMu.Unlock()
 	}()
-	// Keep the same soft window used by event Pull compensation, then bound
-	// the entire same-source gap probe by the existing hard Pull budget.
-	soft := time.NewTimer(100 * time.Millisecond)
+	soft := time.NewTimer(subscriptionPullRetryDelay)
 	defer soft.Stop()
 	select {
 	case <-s.stop:
@@ -436,50 +505,60 @@ func (s *aggregateEthSubscription[T]) runHeadGapProbe(key string, source identif
 		return
 	case <-soft.C:
 	}
-	if _, ok := source.(subscriptionUnarySource); !ok {
+	unary, ok := source.(subscriptionUnarySource)
+	if !ok {
 		if !s.isStopping() {
 			s.finish(newSubscriptionGapError(source.ID(), gap, contextKey, session.Generation, fmt.Errorf("source has no same-source unary Pull")))
 		}
 		return
 	}
-	unary := source.(subscriptionUnarySource)
-	pullCtx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
+	pullCtx, cancel := context.WithTimeout(s.ctx, subscriptionVerificationWindow)
 	defer cancel()
 	var probeErr error
+	var lastGeneration = session.Generation
 	for height := gap.From; ; height++ {
-		if err := s.sessions.Accept(session); err != nil {
-			probeErr = err
-			break
-		}
-		raw, err := unary.CallContext(pullCtx, "eth_getBlockByNumber", fmt.Sprintf("0x%x", height), false)
-		if err != nil {
-			probeErr = err
-			break
-		}
-		header, err := typed.DecodeHeader(raw)
-		if err != nil {
-			probeErr = err
-			break
-		}
-		if header.Number == nil || header.Number.BitLen() > 64 || header.Number.Uint64() != height {
-			probeErr = fmt.Errorf("pulled header number does not match height %d", height)
-			break
-		}
-		if err := s.sessions.Accept(session); err != nil {
-			probeErr = err
-			break
+		for {
+			currentSession, currentErr := s.sessions.Current(source.ID())
+			if currentErr != nil {
+				probeErr = currentErr
+			} else {
+				lastGeneration = currentSession.Generation
+				timeout := remainingPullTimeout(pullCtx)
+				if timeout <= 0 {
+					probeErr = context.DeadlineExceeded
+				} else {
+					attemptCtx, attemptCancel := context.WithTimeout(pullCtx, timeout)
+					raw, callErr := unary.CallContext(attemptCtx, "eth_getBlockByNumber", fmt.Sprintf("0x%x", height), false)
+					attemptCancel()
+					if callErr != nil {
+						probeErr = callErr
+					} else {
+						header, decodeErr := typed.DecodeHeader(raw)
+						if decodeErr != nil {
+							probeErr = decodeErr
+						} else if header.Number == nil || header.Number.BitLen() > 64 || header.Number.Uint64() != height {
+							probeErr = fmt.Errorf("pulled header number does not match height %d", height)
+						} else {
+							probeErr = s.sessions.Accept(currentSession)
+						}
+					}
+				}
+			}
+			if probeErr == nil {
+				break
+			}
+			if !retryableSubscriptionPullError(probeErr) || !waitSubscriptionPullRetry(pullCtx, s.stop) {
+				if s.isStopping() || errors.Is(probeErr, context.Canceled) && s.ctx.Err() != nil {
+					return
+				}
+				s.finish(newSubscriptionGapError(source.ID(), gap, contextKey, lastGeneration, probeErr))
+				return
+			}
 		}
 		if height == gap.To {
-			break
+			return
 		}
 	}
-	if probeErr == nil {
-		return
-	}
-	if s.isStopping() || errors.Is(probeErr, context.Canceled) || errors.Is(probeErr, context.DeadlineExceeded) && s.isStopping() {
-		return
-	}
-	s.finish(newSubscriptionGapError(source.ID(), gap, contextKey, session.Generation, probeErr))
 }
 
 func (s *aggregateEthSubscription[T]) isStopping() bool {
@@ -834,7 +913,7 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 	if ch == nil {
 		return nil, fmt.Errorf("%w: nil subscription channel", rpc.ErrInvalidRequest)
 	}
-	arg, err := subscriptionFilterArg(q)
+	arg, err := toFilterArg(q)
 	if err != nil {
 		return nil, err
 	}
@@ -884,7 +963,7 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
-		pullArg, err := subscriptionFilterArg(ethereum.FilterQuery{BlockHash: &seedLog.BlockHash, Addresses: q.Addresses, Topics: q.Topics})
+		pullArg, err := toFilterArg(ethereum.FilterQuery{BlockHash: &seedLog.BlockHash, Addresses: q.Addresses, Topics: q.Topics})
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
@@ -1060,40 +1139,4 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.T
 		observation.Generation = seed.Generation
 		return observation, nil
 	})
-}
-
-func subscriptionFilterArg(q ethereum.FilterQuery) (map[string]any, error) {
-	arg := make(map[string]any)
-	if len(q.Addresses) > 0 {
-		arg["address"] = q.Addresses
-	}
-	if q.Topics != nil {
-		arg["topics"] = q.Topics
-	}
-	if q.BlockHash != nil {
-		if q.FromBlock != nil || q.ToBlock != nil {
-			return nil, errors.New("cannot specify both BlockHash and FromBlock/ToBlock")
-		}
-		arg["blockHash"] = *q.BlockHash
-		return arg, nil
-	}
-	if q.FromBlock == nil {
-		arg["fromBlock"] = "0x0"
-	} else {
-		value, err := checkedBlockNumArg(q.FromBlock)
-		if err != nil {
-			return nil, err
-		}
-		arg["fromBlock"] = value
-	}
-	if q.ToBlock == nil {
-		arg["toBlock"] = "latest"
-	} else {
-		value, err := checkedBlockNumArg(q.ToBlock)
-		if err != nil {
-			return nil, err
-		}
-		arg["toBlock"] = value
-	}
-	return arg, nil
 }

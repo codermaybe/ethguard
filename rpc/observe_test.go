@@ -92,6 +92,13 @@ func TestAggregateFieldsRejectsDuplicateSourcesAndInvalidQuorum(t *testing.T) {
 }
 
 func TestAggregateFieldsWithCorroborationUsesTheFixedBasis(t *testing.T) {
+	basis := FreezeBasis([]SourceRef{
+		{ID: "a"},
+		{ID: "b"},
+		{ID: "c"},
+		{ID: "d"},
+		{ID: "e"},
+	}, Corroboration{Mode: CorroborationMajority, Floor: 2})
 	observations := []Observation{
 		{Source: SourceRef{ID: "a"}, Value: []byte(`{"result":{"value":1}}`)},
 		{Source: SourceRef{ID: "b"}, Value: []byte(`{"result":{"value":1}}`)},
@@ -100,7 +107,7 @@ func TestAggregateFieldsWithCorroborationUsesTheFixedBasis(t *testing.T) {
 		{Source: SourceRef{ID: "e"}, Err: errObserved()},
 	}
 
-	result, err := AggregateFieldsWithCorroboration(observations, Corroboration{Mode: CorroborationMajority, Floor: 2})
+	result, err := AggregateFieldsWithCorroboration(observations, basis)
 	if err != nil {
 		t.Fatalf("AggregateFieldsWithCorroboration() error = %v", err)
 	}
@@ -108,12 +115,24 @@ func TestAggregateFieldsWithCorroborationUsesTheFixedBasis(t *testing.T) {
 		t.Fatalf("common value = %s, want 1", got)
 	}
 
+	result, err = AggregateFieldsWithCorroboration([]Observation{observations[0]}, basis)
+	if err != nil {
+		t.Fatalf("AggregateFieldsWithCorroboration() with one response error = %v", err)
+	}
+	if got := fieldValue(result.Accepted, "/result/value"); got != "" {
+		t.Fatalf("accepted value = %s, want no accepted value from 1 of 5", got)
+	}
+	if got := fieldValue(result.Diagnostics.Residuals, "/result/value"); got != "1" {
+		t.Fatalf("residual value = %s, want 1", got)
+	}
+
+	fourMemberBasis := FreezeBasis(basis.Members[:4], basis.Corroboration)
 	result, err = AggregateFieldsWithCorroboration([]Observation{
 		observations[0],
 		observations[1],
 		observations[3],
 		observations[4],
-	}, Corroboration{Mode: CorroborationMajority, Floor: 2})
+	}, fourMemberBasis)
 	if err != nil {
 		t.Fatalf("AggregateFieldsWithCorroboration() with four members error = %v", err)
 	}

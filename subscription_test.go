@@ -141,7 +141,7 @@ func (s *fakeSubscription) Unsubscribe() {
 }
 
 func TestSubscriptionFilterArgMatchesGethShape(t *testing.T) {
-	arg, err := subscriptionFilterArg(ethereum.FilterQuery{Addresses: []common.Address{{1}}, Topics: [][]common.Hash{{{2}}}})
+	arg, err := toFilterArg(ethereum.FilterQuery{Addresses: []common.Address{{1}}, Topics: [][]common.Hash{{{2}}}})
 	if err != nil {
 		t.Fatalf("filter arg: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestSubscriptionFilterArgMatchesGethShape(t *testing.T) {
 	if _, ok := arg["toBlock"]; !ok {
 		t.Fatal("missing default toBlock")
 	}
-	if _, err := subscriptionFilterArg(ethereum.FilterQuery{BlockHash: ptrHash(common.Hash{1}), FromBlock: big.NewInt(1)}); err == nil {
+	if _, err := toFilterArg(ethereum.FilterQuery{BlockHash: ptrHash(common.Hash{1}), FromBlock: big.NewInt(1)}); err == nil {
 		t.Fatal("accepted block hash with range")
 	}
 }

@@ -177,18 +177,15 @@ func AggregateFields(observations []Observation, quorum int) (Evaluation, error)
 	return result, nil
 }
 
-// AggregateFieldsWithCorroboration applies the invocation's fixed voting
-// basis to field observations. The caller supplies the captured
-// corroboration snapshot; this keeps support-threshold calculation in one
-// place instead of making each aggregation path turn a basis size into a
-// quorum independently.
+// AggregateFieldsWithCorroboration applies the invocation's frozen voting
+// basis to field observations. Every captured member occupies the denominator,
+// including absent, gated, failed, and malformed members; observations only
+// determine which members contribute field votes.
 //
-// The function is intentionally a thin seam over AggregateFields. It does
-// not change the generic observation model or assign Ethereum meaning to a
-// field. A future internal acceptance calculator can replace the snapshot's
-// Required implementation without changing callers that collect fields.
-func AggregateFieldsWithCorroboration(observations []Observation, c Corroboration) (Evaluation, error) {
-	return AggregateFields(observations, c.Required(len(observations)))
+// Passing the Basis instead of deriving its size from observations prevents
+// partial delivery from shrinking majority support.
+func AggregateFieldsWithCorroboration(observations []Observation, basis Basis) (Evaluation, error) {
+	return AggregateFields(observations, basis.Required())
 }
 
 func decodeObservedJSON(raw []byte) (any, error) {

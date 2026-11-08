@@ -266,7 +266,7 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	// without diagnostics; the error itself is kept so every return path
 	// below can attach it to Faults instead of dropping it silently.
 	if state.snapOK && state.snap.Mode != rpc.CorroborationForwarded {
-		common, observationErr := rpc.AggregateFieldsWithCorroboration(state.observations, state.snap)
+		common, observationErr := rpc.AggregateFieldsWithCorroboration(state.observations, state.invocation.Basis())
 		if observationErr == nil {
 			state.evaluation = &common
 			// A source whose value failed generic JSON validation abstains

@@ -378,8 +378,12 @@ func truncate(s string, n int) string {
 		}
 		return r
 	}, s)
-	if len(s) > n {
-		return s[:n] + "…"
+	if n <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) > n {
+		return string(runes[:n]) + "…"
 	}
 	return s
 }
