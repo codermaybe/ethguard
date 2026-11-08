@@ -148,7 +148,7 @@ API 完全相同；beta.1 tag 保留为"有 tag、无 Release"状态，不删除
 
 ## 8. 外部兼容缺口的显式交付模式
 
-当前锁定的 go-ethereum `v1.17.5` 在默认根包架构下无法把官方
+当前锁定的 go-ethereum `v1.17.10` 在默认根包架构下无法把官方
 `SimulateV1` 接入 `EthClient`；该事实由兼容性政策记录，不能被中间方法集合掩盖。
 默认 `release_check.sh` 仍以 `ETHGUARD_REQUIRE_COMPLETE=1` 执行并拒绝该缺口。
 

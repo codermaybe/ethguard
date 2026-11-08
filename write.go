@@ -19,7 +19,7 @@ import (
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
-// geth v1.17.5 uses a 20-second default for eth_sendRawTransactionSync when
+// geth v1.17.10 uses a 20-second default for eth_sendRawTransactionSync when
 // the caller omits a timeout. Keep the local polling path bounded to the same
 // compatibility default while still honoring an explicit positive timeout.
 const defaultTransactionReceiptTimeout = 20 * time.Second

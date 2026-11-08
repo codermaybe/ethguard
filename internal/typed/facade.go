@@ -121,9 +121,8 @@ func DecodeLogs(raw json.RawMessage) ([]types.Log, error) {
 	return logs, nil
 }
 
-// syncProgressWire mirrors go-ethereum's own client-side decoding of the
-// eth_syncing object form (ethclient's rpcProgress, v1.17.5 field set), so
-// EthGuard projects exactly the fields go-ethereum's client would. Optional
+// syncProgressWire decodes the progress fields currently projected by
+// EthGuard; it is not the complete go-ethereum SyncProgress field set. Optional
 // snap-era fields ride as pointers and stay zero when absent: a provider that
 // does not report a byte-count or healing field yields zero, and no field is
 // claimed beyond the wire's own evidence.

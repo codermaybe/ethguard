@@ -1,10 +1,10 @@
 # go-ethereum 版本兼容政策
 
-状态：执行政策（2026-11-07）。
+状态：执行政策（2026-11-09）。
 
 EthGuard 对外的 `EthClient` 契约按仓库锁定的 go-ethereum 版本定义。发布目标不是
 “当前已经接入的 ethclient 子集”，而是完整实现该版本 `ethclient.Client` 的业务方法
-集合。`v1.17.5` 导出的 48 个 receiver 中，`Client()` 只是返回底层 `*rpc.Client`
+集合。`v1.17.10` 导出的 48 个 receiver 中，`Client()` 只是返回底层 `*rpc.Client`
 的具体类型访问器，不属于 EthGuard 的业务 facade；因此当前锁定版本的兼容目标是
 47 个业务方法。当前 `EthClient` 已接入 46 个方法；仅 `SimulateV1` 因默认构建明确禁止
 生产根包导入 `go-ethereum/ethclient` 而暂缓，不能把该缺口伪装成已完成。当前集合只是
@@ -17,12 +17,18 @@ EthGuard 对外的 `EthClient` 契约按仓库锁定的 go-ethereum 版本定义
 或跨源证据，也不把 `SimulateV1` 计入 `EthClient` 的 47-method 完整性门禁。
 因此它解决了官方类型的可访问性，但没有改变完整兼容发布仍被 `SimulateV1` 阻塞的事实。
 
-已额外核对 go-ethereum `v1.17.10` 的官方 `ethclient` 源码：
+已核对当前锁定的 go-ethereum `v1.17.10` 官方 `ethclient` 源码：
 `SimulateOptions`、`SimulateBlockResult` 与 `SimulateV1` 仍定义在
 `github.com/ethereum/go-ethereum/ethclient` 包中。该版本没有解除默认根包的
 `ethclient` 导入门禁，因此默认生产拓扑仍按架构阻断处理；需要完整 `EthClient`
 兼容时，后续仍须另行决定是否调整 interlock 并为 `SimulateV1` 建立根执行、证据和
 生命周期契约。
+
+方法集合计数不证明返回字段已完整兼容。当前 `SyncProgress` 投影仍遗漏上游已有的
+`SyncedAccessLists`、`TotalAccessLists`、`TrieGenProgress`、`TxIndexFinishedBlocks`、
+`TxIndexRemainingBlocks`、`StateIndexRemaining` 和 `TrienodeIndexRemaining`。
+后三项被置零可能使 `Done()` 在索引尚未完成时返回 `true`。这些字段在 `v1.17.5`
+已经存在；这是既有行为缺口，不是 `v1.17.10` 升级回归，本次依赖升级未修改该逻辑。
 
 每个兼容版本必须满足：
 
@@ -58,3 +64,24 @@ HTTP/WSS: unary + subscription status from the same method matrix
 
 内部可以继续按语义族分阶段开发、测试和审计，但阶段名称、当前完成百分比和中间子集不
 进入外部兼容版本语义。
+
+## 2026-11-09 依赖升级记录
+
+- go-ethereum 从 `v1.17.5` 升至 `v1.17.10`；其依赖要求将
+  `golang.org/x/crypto` 从 `v0.48.0` 带至 `v0.55.0`，无需 `replace`。
+- 同批升级保留 Prometheus `client_golang v1.24.1 → v1.25.0`。
+  后者最低要求 Go 1.26.0，项目既有 Go 1.26.10 满足该要求；现有指标名与
+  label 契约不变，HTTP 导出增加用于内容协商的 `Vary` 响应头。
+- 重新运行 `scripts/ethclient-method-diff.sh`：上游仍为 48 个导出方法，
+  排除 `Client()` 后为 47 个业务方法；本项目保持 46 个，唯一缺失的方法仍为
+  `SimulateV1`。升级不构成完整兼容发布。
+- 在本地受控 JSON-RPC 节点上实际运行原生 HTTP/WSS 与 gethcompat HTTP/WSS：
+  核验区块解码、EIP-1898 state-hash、既有同步字段、receipt NotFound、revert data、
+  官方类型的单源 SimulateV1，以及真实调用产生的指标注册、Gather 与 HTTP 导出。
+  这些是本地运行证据，不是外部 provider 或真实 geth 节点的兼容保证。
+- 对同一份 `eth_syncing` 响应做实际对照：geth 保留剩余索引计数 `3/2/1`，
+  `Done()` 为 `false`；EthGuard 投影成 `0/0/0`，`Done()` 为 `true`。
+  此结果单独记录既有缺口，不计作升级通过项。
+- 升级后的全仓普通测试、race 包内覆盖率和 race 跨包覆盖率均通过（44 个测试包）；
+  build、vet、golangci-lint、staticcheck、模块校验和 `go mod tidy -diff` 均通过。
+  使用仓库锁定的 `govulncheck v1.9.0` 扫描，结果为 `No vulnerabilities found.`。
