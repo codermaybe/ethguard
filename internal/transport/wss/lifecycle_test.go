@@ -42,6 +42,31 @@ func lifecycleResult(t *testing.T, result <-chan error) error {
 	}
 }
 
+func TestDialContextCancellationKeepsEstablishedConnection(t *testing.T) {
+	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+		request, ok := <-peer.requests
+		if !ok {
+			return
+		}
+		peer.respond(request, `"0x64"`)
+	})
+	dialCtx, cancelDial := context.WithCancel(context.Background())
+	defer cancelDial()
+	tr, err := NewDialer().DialContext(dialCtx, peerURL)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(tr.Close)
+	cancelDial()
+
+	callCtx, cancelCall := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelCall()
+	var value string
+	if err := tr.CallContext(callCtx, &value, "eth_getBalance", "0x1", "pending"); err != nil || value != "0x64" {
+		t.Fatalf("call after dial context canceled: value=%q err=%v", value, err)
+	}
+}
+
 func TestCancellationClearsPendingAndKeepsTheConnection(t *testing.T) {
 	received := make(chan struct{})
 	release := make(chan struct{})

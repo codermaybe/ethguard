@@ -121,21 +121,13 @@ func dialWebSocket(ctx context.Context, rawURL string, opts dialOptions) (*hands
 		}
 	}()
 
-	// Abort handshake I/O as soon as the context is canceled, even when the
-	// context carries no deadline. The watcher is disarmed before the result
-	// is returned; a caller that cancels at exactly that moment races with
-	// its own dial and gets a closed connection either way.
-	if ctx.Done() != nil {
-		abort := make(chan struct{})
-		defer close(abort)
-		go func() {
-			select {
-			case <-ctx.Done():
-				_ = conn.Close()
-			case <-abort:
-			}
-		}()
-	}
+	// Cancellation owns the socket only during the handshake. Stop the callback
+	// before handing off the connection, so canceling the dial context after
+	// return cannot close a live transport. Capture the raw socket rather than
+	// conn, which may be replaced by the TLS wrapper below.
+	handshakeConn := conn
+	stopAbort := context.AfterFunc(ctx, func() { _ = handshakeConn.Close() })
+	defer stopAbort()
 
 	if !deadline.IsZero() {
 		_ = conn.SetDeadline(deadline)

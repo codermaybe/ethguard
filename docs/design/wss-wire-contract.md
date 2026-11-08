@@ -51,6 +51,9 @@
   （未协商）或未请求的 `Sec-WebSocket-Protocol` 拒绝。
 - 握手 deadline 默认 10s（现 adapter 值）；context 取消即时中止拨号、TLS
   握手与响应读取。TLS 证书错误原样归类为握手失败，不改写为 transport 失败。
+- 拨号 context 只约束握手阶段；成功返回前解除其取消回调。返回后取消
+  拨号 context（包括 Pool 清理单次拨号的派生 context）不得关闭已交付的
+  共享连接；握手期间取消仍关闭底层 socket，中止 TCP/TLS/Upgrade I/O。
 
 ### 2.2 帧层（RFC6455）
 

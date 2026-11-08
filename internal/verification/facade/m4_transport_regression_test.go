@@ -58,7 +58,7 @@ func TestCreateAccessListNativeHTTPAndRawWSSTransport(t *testing.T) {
 	for i, slot := range requests {
 		loaded := slot.Load()
 		if loaded == nil {
-			t.Fatalf("source %d did not receive eth_createAccessList", i)
+			t.Fatalf("source %d did not receive eth_createAccessList; source faults: %+v", i, decision.Decision.SourceFaults)
 		}
 		req := loaded.(sourceWireRequest)
 		if req.Method != methods.MethodCreateAccessList || len(req.Params) != 2 || string(req.Params[1]) != `"pending"` {
