@@ -374,9 +374,10 @@ func newRedactor(p Plan) (*redactor, error) {
 				}
 				for _, values := range u.Query() {
 					for _, value := range values {
-						if len(value) >= 8 {
-							add(value, true)
-						}
+						// Short values still redact credential-bearing text, but
+						// cannot be scanned globally: e.g. chainId=1 also matches
+						// the intentionally persisted network.chain_id.
+						add(value, len(value) >= 8)
 					}
 				}
 				for _, segment := range strings.Split(strings.Trim(u.Path, "/"), "/") {

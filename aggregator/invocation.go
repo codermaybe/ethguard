@@ -53,8 +53,13 @@ type invocationState struct {
 	// the joined array snapshot carried on Decision.Prepared.
 	wireParams   []any
 	preparedJSON json.RawMessage
-	emissions    []pool.Emission
-	collectErr   error
+
+	// admissionRequest is the shared read-only semantic JSON view of the
+	// frozen params. prepared retains Go values for plan/reference queries.
+	admissionRequest rpc.Request
+
+	emissions  []pool.Emission
+	collectErr error
 
 	observations []rpc.Observation
 	participants []rpc.SourceRef
@@ -219,14 +224,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			admissionRequest := state.prepared
-			admissionRequest.Params = append([]any(nil), state.prepared.Params...)
-			if len(admissionRequest.Params) > 1 && len(state.wireParams) > 1 {
-				if raw, ok := state.wireParams[1].(json.RawMessage); ok && string(raw) == "true" {
-					admissionRequest.Params[1] = true
-				}
-			}
-			evidence, admissionErr := admission(state.ctx, admissionRequest, state.emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
+			evidence, admissionErr := admission(state.ctx, state.admissionRequest, state.emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
 				raw, callErr := a.pool.CallSource(callCtx, state.emissions[i].Src, method, params)
 				if c := uncertain.CollectorFromContext(state.ctx); c != nil {
 					source := SourceRefOf(state.emissions[i].Src)

@@ -456,7 +456,7 @@ func (t *Transport) dispatchNotification(message []byte) {
 		streams = append(streams, stream)
 	}
 	if bound == nil {
-		pending, exists := t.pendingNotifications[notification.SubscriptionID]
+		_, exists := t.pendingNotifications[notification.SubscriptionID]
 		if !exists && len(t.pendingNotifications) >= maxPendingSubscriptionIDs {
 			// Retire the oldest never-bound ID instead of silently dropping
 			// the first event for a newly created subscription. The map stays
@@ -465,7 +465,7 @@ func (t *Transport) dispatchNotification(message []byte) {
 			oldest := t.pendingNotificationOrder[0]
 			t.removePendingNotificationsLocked(oldest)
 		}
-		pending = t.pendingNotifications[notification.SubscriptionID]
+		pending := t.pendingNotifications[notification.SubscriptionID]
 		if len(pending) < maxPendingNotificationsPerID {
 			if len(pending) == 0 {
 				t.pendingNotificationOrder = append(t.pendingNotificationOrder, notification.SubscriptionID)
@@ -637,6 +637,7 @@ func (t *Transport) abort(err error) {
 	pending := t.pending
 	t.pending = make(map[string]chan frameResult)
 	t.pendingNotifications = make(map[string][]Notification)
+	t.pendingNotificationOrder = nil
 	streams := t.streams
 	t.streams = make(map[*NotificationStream]struct{})
 	t.mu.Unlock()
@@ -695,6 +696,7 @@ func (t *Transport) Close() {
 	streams := t.streams
 	t.streams = make(map[*NotificationStream]struct{})
 	t.pendingNotifications = make(map[string][]Notification)
+	t.pendingNotificationOrder = nil
 	closeSocket := len(t.pending) == 0
 	if closeSocket {
 		t.closed = true

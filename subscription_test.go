@@ -746,3 +746,31 @@ func TestAggregatedSubscriptionEstablishRacesOwnerCloseWithoutLeak(t *testing.T)
 		}
 	}
 }
+
+type subscriptionRetryNetworkError struct {
+	timeout   bool
+	temporary bool
+}
+
+func (subscriptionRetryNetworkError) Error() string     { return "network failure" }
+func (e subscriptionRetryNetworkError) Timeout() bool   { return e.timeout }
+func (e subscriptionRetryNetworkError) Temporary() bool { return e.temporary }
+
+func TestRetryableSubscriptionPullNetworkErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "wrapped timeout", err: fmt.Errorf("pull: %w", subscriptionRetryNetworkError{timeout: true}), want: true},
+		{name: "wrapped temporary", err: fmt.Errorf("pull: %w", subscriptionRetryNetworkError{temporary: true}), want: true},
+		{name: "permanent network error", err: subscriptionRetryNetworkError{}, want: false},
+		{name: "owner canceled", err: context.Canceled, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := retryableSubscriptionPullError(tc.err); got != tc.want {
+				t.Fatalf("retryableSubscriptionPullError(%v) = %t, want %t", tc.err, got, tc.want)
+			}
+		})
+	}
+}

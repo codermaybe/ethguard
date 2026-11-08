@@ -95,26 +95,41 @@ func TestCollectAllowsShortEndpointQueryValues(t *testing.T) {
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":1,"result":{"note":"x7"}}`)),
 			Request:    r,
 		}, nil
 	})
 	plan := Plan{
 		Schema:  PlanSchema,
 		Network: Network{ChainID: 1, Fork: "x"},
-		Sources: []Source{{ID: "s", Endpoint: "https://rpc.example?key=x7"}},
+		Sources: []Source{{ID: "s", Endpoint: "https://rpc.example?chainId=1&key=x7"}},
 		Requests: []Request{{
 			ID:     "chain",
 			Method: "eth_chainId",
 			Params: json.RawMessage("[]"),
 		}},
 	}
-	idx, err := (Collector{Client: &http.Client{Transport: transport}}).Collect(context.Background(), plan, t.TempDir())
+	out := t.TempDir()
+	idx, err := (Collector{Client: &http.Client{Transport: transport}}).Collect(context.Background(), plan, out)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(idx.Records) != 1 || idx.Records[0].ErrorKinds != nil {
 		t.Fatalf("index = %+v", idx)
+	}
+	data, err := os.ReadFile(filepath.Join(out, "records", "chain--s.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record Record
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Network.ChainID != 1 || record.Source.Endpoint != "https://rpc.example" {
+		t.Fatalf("metadata = %+v, source = %+v", record.Network, record.Source)
+	}
+	if strings.Contains(record.Response.Body, "x7") || !strings.Contains(record.Response.Body, "[REDACTED]") {
+		t.Fatalf("short query credential not redacted: %s", record.Response.Body)
 	}
 }
 

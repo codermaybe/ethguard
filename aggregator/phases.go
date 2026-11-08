@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -75,6 +76,19 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	state.planPin = pin
 	state.wireParams = frozen
 	state.preparedJSON = snapshot
+	// Admission reads the wire's semantic JSON once, shared read-only across
+	// sources. Keep numeric tokens exact rather than rounding them to float64.
+	// The original Go values remain available on prepared for plan queries.
+	if _, ok := state.admissionHook(); ok {
+		state.admissionRequest = rpc.Request{Method: prepared.Method}
+		if snapshot != nil {
+			decoder := json.NewDecoder(bytes.NewReader(snapshot))
+			decoder.UseNumber()
+			if err := decoder.Decode(&state.admissionRequest.Params); err != nil {
+				return a.prepareFailureExit(state, started, req, fmt.Errorf("decode prepared parameters: %v: %w", err, rpc.ErrInvalidRequest))
+			}
+		}
+	}
 	return nil
 }
 
