@@ -42,7 +42,7 @@ func WrapSimulate(client *ethclient.Client) (*SimulateClient, error) {
 }
 
 // SimulateV1 executes transactions on top of a base state using the exact
-// go-ethereum v1.17.5 signature and official wire types.
+// go-ethereum v1.17.10 signature and official wire types.
 func (c *SimulateClient) SimulateV1(ctx context.Context, opts ethclient.SimulateOptions, blockNrOrHash *gethrpc.BlockNumberOrHash) ([]ethclient.SimulateBlockResult, error) {
 	if c == nil || c.client == nil {
 		return nil, fmt.Errorf("gethcompat: nil SimulateClient")

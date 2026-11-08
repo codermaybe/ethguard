@@ -1,8 +1,8 @@
 # EthGuard current roadmap
 
-Status: **v1.17.5 business-method completion is in progress; WSS
+Status: **v1.17.10 business-method completion is in progress; WSS
 multi-source aggregation is implemented with evidence gaps remaining**
-(2026-11-07).
+(2026-11-09).
 
 The external contract is defined only by the
 [go-ethereum compatibility policy](go-ethereum-compatibility-policy.md). A
@@ -22,7 +22,7 @@ execution、quorum、reference 和 typed 边界约束。
 
 ## Current facts
 
-- `go.mod` locks go-ethereum v1.17.5.
+- `go.mod` locks go-ethereum v1.17.10.
 - The locked `ethclient.Client` type has 48 exported receiver methods. `Client()`
   is a concrete rpc accessor and is explicitly outside the EthGuard business
   facade; the compatibility target is the remaining 47 methods. The current

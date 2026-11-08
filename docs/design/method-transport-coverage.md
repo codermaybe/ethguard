@@ -1,12 +1,12 @@
 # 方法与传输覆盖清单
 
-状态：**当前 v1.17.5 完整兼容矩阵（2026-11-07）；尚未达到完整 ethclient 发布门槛**。
+状态：**当前 v1.17.10 完整兼容矩阵（2026-11-09）；尚未达到完整 ethclient 发布门槛**。
 
 本文是锁定 go-ethereum 版本的方法级实现与证据索引；当前缺失方法必须在完整兼容发布前关闭，不能从“Registered”或普通 HTTP/WSS request 能力推导为已支持。
 
-本清单以仓库锁定的 go-ethereum `v1.17.5`、`rpc/methods` catalog/ReadPlan、根 `Client` 和 `EthClient` 视图为事实源。它只记录当前代码事实和缺口，不授权单个方法任务修改公共接口。公共接口变更统一由 roadmap 管理。
+本清单以仓库锁定的 go-ethereum `v1.17.10`、`rpc/methods` catalog/ReadPlan、根 `Client` 和 `EthClient` 视图为事实源。它只记录当前代码事实和缺口，不授权单个方法任务修改公共接口。公共接口变更统一由 roadmap 管理。
 
-### v1.17.5 方法差异基线
+### v1.17.10 方法差异基线
 
 基线直接对锁定 module 的 `*ethclient.Client` 做 Go reflection，并与本仓库
 `*EthClient` 的导出方法集合比较。结果是上游 48 个导出方法（其中
@@ -78,7 +78,7 @@ surface remains evidence-backed.
 | `eth_blockNumber` | Registered | `BlockNumber` | `BlockNumber` | native HTTP/WSS raw call | 不适用 | `eth.go`, `anchor.go` | reference 附带事实、跨 transport |
 | `eth_createAccessList` | Registered | `CreateAccessList` | 不暴露 | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | extension 的官方生态边界 |
 | `net_peerCount` | Registered | `PeerCount` | `PeerCount` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | source-local selected 语义 |
-| `eth_syncing` | Registered | `SyncProgress` | `SyncProgress` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | syncing/null/对象差异 |
+| `eth_syncing` | Registered | `SyncProgress` | `SyncProgress` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | syncing/null/对象差异；七个上游字段尚未投影，详见兼容政策 |
 | `net_version` | Registered | `NetworkID` | `NetworkID` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | decimal identity 与 ChainID 关系 |
 | `net_listening` | Registered | `Call` only | 不暴露 | raw dynamic read path | 不适用 | `call.go`, catalog | 没有 typed wrapper；需明确是否继续 Call-only |
 | `eth_sendRawTransaction` | Write | `SendRawTransaction` | `SendTransaction` | native HTTP/WSS raw call | 不适用 | `write.go`, write pipeline | accepted/unknown/rejected 与 receipt 关系 |
@@ -86,7 +86,7 @@ surface remains evidence-backed.
 
 项目 catalog 目前登记 25 个方法级条目，另有写入和显式 unsupported 条目。catalog 的注册不等于跨 transport、provider 或订阅证据已经完成。
 
-## go-ethereum v1.17.5 官方 ethclient 方法
+## go-ethereum v1.17.10 官方 ethclient 方法
 
 下面列出锁定版本 `ethclient.Client` 的公开方法。当前 `EthClient` 暴露 46
 个方法；上游 `Client()` 只作为显式排除项记录。其余业务方法必须逐项接入并闭合
@@ -109,7 +109,7 @@ surface remains evidence-backed.
 | `TransactionCount` | 已有 | `Client.TransactionCount` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
 | `TransactionInBlock` | 已有 | `Client.TransactionInBlock` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionInBlockMultiSourceConflictKeepsEvidence`、`TestTransactionInBlockMultiSourceMalformedFailsWithFaults`）；inclusion envelope 跨 transport 负向 fixture 仍待补 |
 | `TransactionReceipt` | 已有 | `Client.TransactionReceipt` | 已覆盖 |
-| `SyncProgress` | 已有 | `Client.SyncProgress` | 已覆盖 |
+| `SyncProgress` | 已有 | `Client.SyncProgress` | 已接入；仍遗漏七个上游同步/索引字段，剩余索引计数丢失会影响 `Done()`，详见兼容政策 |
 | `NetworkID` | 已有 | `Client.NetworkID` | 已覆盖 |
 | `BalanceAt` | 已有 | `Client.BalanceAt` | 已覆盖 |
 | `BalanceAtHash` | 已有 | `Client.BalanceAtHash` | 已接入；EIP-1898 hash object |
@@ -195,7 +195,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 ## State-hash 方法当前状态
 
 - `BalanceAtHash`、`NonceAtHash`、`StorageAtHash`、`CodeAtHash` 复用各自既有 ReadPlan、typed projection、请求冻结和执行入口；最后一个参数在 wire 上固定为 `{blockHash, requireCanonical:false}`。
-- 根 Client 返回 `(T, CallResult, error)`，EthClient 视图返回 go-ethereum v1.17.5 的 `(T, error)`；四个 view 方法只投影同一 owner execution。
+- 根 Client 返回 `(T, CallResult, error)`，EthClient 视图返回 go-ethereum v1.17.10 的 `(T, error)`；四个 view 方法只投影同一 owner execution。
 - 显式 hash 不建立 moving reference，也不走未知 `Call`；上游缺块/RPC 错误、冲突、解码错误和取消沿既有 Decision/错误/材料/Close 规则返回。
 
 ## 区块 Header 方法当前状态
@@ -203,7 +203,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - `HeaderByHash` 和 `HeaderByNumber` 复用 `eth_getBlockByHash` / `eth_getBlockByNumber` 的既有 ReadPlan、admission 和 block projector；只把 `fullTx` 固定为 `false`，再由 `DecodeBlockHeaderOnly` 交付 `*types.Header`。
 - 根 Client 返回 `(* types.Header, CallResult, error)`，EthClient 视图保持官方 `(* types.Header, error)`。
 - `HeaderByNumber(nil)`、`-2/-3/-4` 通过已建立 reference 读取并附带 reference 事实；`-5` 映射高度 `0x0`；`-1` 及未知负数在本地拒绝，不宣称 pending header 已支持。
-- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合会随锁定版本反射检查更新；当前已暴露 46 个方法，仍只是接入检查点；与上游 48 个导出方法的完整差异见本文件“v1.17.5 方法差异基线”。
+- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合会随锁定版本反射检查更新；当前已暴露 46 个方法，仍只是接入检查点；与上游 48 个导出方法的完整差异见本文件“v1.17.10 方法差异基线”。
 
 ## 未决项
 
@@ -219,7 +219,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 
 当前 pending 与 state-hash 语义如下：
 
-- `BalanceAtHash`、`StorageAtHash`、`CodeAtHash`、`NonceAtHash` 在 go-ethereum v1.17.5 中仍调用现有四个 RPC 方法，只是把最后一个 block 参数编码成 EIP-1898 的 `{blockHash, requireCanonical:false}` 对象。
+- `BalanceAtHash`、`StorageAtHash`、`CodeAtHash`、`NonceAtHash` 在 go-ethereum v1.17.10 中仍调用现有四个 RPC 方法，只是把最后一个 block 参数编码成 EIP-1898 的 `{blockHash, requireCanonical:false}` 对象。
 - 当前 `rpc/methods` 的 `ReferenceSpec{EIP1898:true}` 和 EIP-1898 rewrite 测试继续覆盖对象校验、显式 hash、`requireCanonical` 保留和 moving tag 改写；AtHash facade 通过同一 plan 执行。
 - AtHash 接入使用受控的 EIP-1898 map 参数和现有 plan，不通过未知 `Call`。
 - `PendingBalanceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingNonceAt`、`PendingTransactionCount` 的 plan 已有 `PendingObserve` 声明。pending 是节点本地状态，不能直接套用 moving reference；aggregator 可以收集多个 source，但结果只能是第一个可用本地观察的 `Selected`，不能声称 `Corroborated`。
