@@ -1,6 +1,6 @@
 # Release Contract（发布门禁与发布契约）
 
-状态：**现行（2026-11-04）**。本文件冻结发布入口、前置条件、门禁覆盖范围、产物
+状态：**现行（2026-11-09）**。本文件冻结发布入口、前置条件、门禁覆盖范围、产物
 与发布语义、失败处置，并登记本轮实际证据。任务顺序、当前状态和待裁决项见
 [project-roadmap.md](project-roadmap.md) 的「发布门禁与发布流程（R0–R8）」一节；
 本文件不维护第二份计划或状态台账。
@@ -32,13 +32,18 @@
 | `go build ./...` | ✔ | ✔（经脚本） | ✔ |
 | `go test -race ./...` | ✔ | ✔（经脚本） | ✔，另加 shuffled/`-count=2` 与 Verification 专项门 |
 | govulncheck（可达漏洞） | ✔（`scripts/govulncheck.sh`） | ✔（经脚本） | ✔（同脚本） |
-| apidiff（上一 tag → 当前） | ✘ | ✔ | ✘ |
+| apidiff（上一 tag → 当前整模块公共 API 报告） | ✘ | ✔ | ✘ |
 | fuzz sprint（jsonsafe、wire 各 120s） | ✘ | ✔ | ✘ |
 | cross-compile + `checksums.sha256` | ✘ | ✔ | ✘ |
 | 发布 GitHub Release | ✘ | ✔ | ✘ |
 
 **"本地门禁通过"不等于"tag 必过"**：apidiff 与 fuzz 目前只在 tag 阶段执行
 （见第 5 节）。任何声称"发布门禁已通过"的记录必须同时说明执行范围与工具链。
+
+API 对比使用 `apidiff -m` 导出并比较整个模块的公共 API，因此也能报告被删除的包，
+不依赖 `ethadapter` 等历史包路径。固定版本工具的 `-incompatible` 只筛选报告内容，
+发现不兼容 API 本身不会使其退出非零；导出、加载或工具执行错误仍使工作流失败。
+报告不是向后兼容通过证明，beta.3 包含相对 beta.2 的 API 删除与签名变化。
 
 `gofmt`/`tidy`/`vet`/`build`/`test` 在脚本与 `ci.yml` 各出现一次属于允许的重复：
 `ci.yml` 的对应 job 需要独立的矩阵、shuffle、race 倍数和 artifact，不能合并成
@@ -71,9 +76,9 @@
 - **产物**：`cmd/{soak, rpcsample, shapeprobe, specbundle, specdiff}` ×
   {linux-amd64, linux-arm64, darwin-arm64} 共 15 个二进制，加 `checksums.sha256`，
   一起 attach 到该 tag 的 GitHub Release。模块本身按 `go get` 消费，不需要发布步骤。
-- **预发布语义**：含 `-` 的 tag 应在 Release 上标记为 prerelease，避免在 Releases
-  页被当作正式 Latest。**当前 `v0.0.1-beta.2` 的 Release 是 `prerelease=false`
-  （2026-11-04 API 实测），属待修项**（roadmap R5）。稳定版另需明确 `make_latest`。
+- **预发布语义**：`release.yml` 将含 `-` 的 tag 显式标记为 prerelease，避免 beta
+  被当作正式 Latest。历史 `v0.0.1-beta.2` 的 Release 仍为 `prerelease=false`
+  （2026-11-09 API 实测），本次不修改旧 Release；稳定版另需明确 `make_latest`。
 - **与 canary 的关系**：同一 tag 触发 `release.yml` 与 `live-canary.yml` 两个独立
   工作流，release 不等待 canary 结论。稳定 tag 的 canary 失败不会阻止 Release
   发布；预发布 tag 仅放行 `inconclusive`，`failed` 仍失败（`live-canary-contract.md`）。
