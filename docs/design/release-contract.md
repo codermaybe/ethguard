@@ -14,10 +14,10 @@
 
 ## 1. 发布入口与前置条件
 
-- **唯一入口**：`./scripts/release_check.sh`。发布者、`release.yml` 和 `ci.yml` 的
+- **唯一入口**：`bash ./scripts/release_check.sh`。发布者、`release.yml` 和 `ci.yml` 的
   govulncheck job 执行同一份仓库内脚本；不得再用第二套命令表达同一语义。
 - **顺序**：脚本通过 → 提交 → 推送 → 打 tag。**tag 必须指向已提交的树**：
-  `release.yml` 在 tag 的检出上执行 `./scripts/release_check.sh`，未提交的脚本或
+  `release.yml` 在 tag 的检出上执行 `bash ./scripts/release_check.sh`，未提交的脚本或
   工作流会让这次 tag 运行在 preflight 阶段直接失败。
 - **tag 形态**：`v*`；预发布使用含 `-` 的名字（如 `v0.0.1-beta.N`），稳定版不含。
 - **不做的事**：不移动或删除已推送的 tag；不在发布后替换已 attach 的产物。
@@ -151,6 +151,18 @@ API 完全相同；beta.1 tag 保留为"有 tag、无 Release"状态，不删除
 3. 发布产物 attach 之后视为已发布证据，不得替换 `dist` 内容。
 4. 任何"已通过"的记录必须写清执行范围（第 2 节）、工具链（第 3 节）和未观察项。
 
+### beta.3 发布失败：脚本执行位（2026-11-09）
+
+`v0.0.1-beta.3` 指向 `e3de095`；[release run 42501751526](https://github.com/codermaybe/ethguard/actions/runs/42501751526)
+在 preflight 直接报 `./scripts/release_check.sh: Permission denied`（exit 126），
+未进入 Go 检查，也未生成 GitHub Release。Git 中该脚本记录为 `100644`，本机
+`core.fileMode=false`，本地执行成功不能证明干净 checkout 具有执行位。
+发布入口改为显式 `bash` 调用，与现有 govulncheck 脚本调用约定一致；不依赖执行位。
+已推送的 beta.3 tag 保留不变，不将本地门禁通过表述为该 tag 的远端发布成功。
+修复验证在新建的干净 worktree 中执行：确认脚本没有任何执行位后，通过更新后的
+`bash ./scripts/release_check.sh` 命令运行预发布门禁；race、build、vet、tidy 和
+govulncheck 均通过。此为修复后的本地证据，不改变 beta.3 的远端失败结论。
+
 ## 8. 外部兼容缺口的显式交付模式
 
 当前锁定的 go-ethereum `v1.17.10` 在默认根包架构下无法把官方
@@ -160,7 +172,7 @@ API 完全相同；beta.1 tag 保留为"有 tag、无 Release"状态，不删除
 在本轮已接受该外部边界、但仍需完成代码与安全门禁时，可以显式设置：
 
 ```text
-ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP=1 ./scripts/release_check.sh
+ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP=1 bash ./scripts/release_check.sh
 ```
 
 脚本只接受方法差异恰好为 `business missing: 1 [SimulateV1]` 的情况，运行其余 race、
