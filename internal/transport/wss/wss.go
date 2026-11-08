@@ -199,7 +199,7 @@ func (s *NotificationStream) bindSubscriptionID(id string) bool {
 	}
 	s.owner.subscriptionIDs[id] = s
 	pending := s.owner.pendingNotifications[id]
-	delete(s.owner.pendingNotifications, id)
+	s.owner.removePendingNotificationsLocked(id)
 	s.owner.mu.Unlock()
 	for _, notification := range pending {
 		notification.SourceID = s.sourceID
@@ -290,13 +290,14 @@ type Transport struct {
 	ids   *rpcwire.IDGen
 	limit int64
 
-	mu                   sync.Mutex
-	pending              map[string]chan frameResult
-	streams              map[*NotificationStream]struct{}
-	subscriptionIDs      map[string]*NotificationStream
-	pendingNotifications map[string][]Notification
-	closing              bool
-	closed               bool
+	mu                       sync.Mutex
+	pending                  map[string]chan frameResult
+	streams                  map[*NotificationStream]struct{}
+	subscriptionIDs          map[string]*NotificationStream
+	pendingNotifications     map[string][]Notification
+	pendingNotificationOrder []string
+	closing                  bool
+	closed                   bool
 
 	socketOnce sync.Once
 }
@@ -414,9 +415,19 @@ func (t *Transport) removeNotificationStream(stream *NotificationStream) {
 		delete(t.subscriptionIDs, stream.subscriptionID)
 		// A server that keeps pushing after the unsubscribe must not pin a
 		// pending buffer here forever; the entry dies with the binding.
-		delete(t.pendingNotifications, stream.subscriptionID)
+		t.removePendingNotificationsLocked(stream.subscriptionID)
 	}
 	t.mu.Unlock()
+}
+
+func (t *Transport) removePendingNotificationsLocked(id string) {
+	delete(t.pendingNotifications, id)
+	for i, pendingID := range t.pendingNotificationOrder {
+		if pendingID == id {
+			t.pendingNotificationOrder = append(t.pendingNotificationOrder[:i], t.pendingNotificationOrder[i+1:]...)
+			return
+		}
+	}
 }
 
 func (t *Transport) notificationStreams() []*NotificationStream {
@@ -445,14 +456,20 @@ func (t *Transport) dispatchNotification(message []byte) {
 		streams = append(streams, stream)
 	}
 	if bound == nil {
-		pending := t.pendingNotifications[notification.SubscriptionID]
-		// Two bounds keep a hostile or chatty peer from growing this map
-		// without limit: the per-ID buffer below, and a global cap on how
-		// many never-bound subscription IDs may hold a buffer at all. An ID
-		// that already holds a buffer keeps filling it, so an in-flight
-		// subscribe is never starved by unrelated IDs.
-		if len(pending) < maxPendingNotificationsPerID &&
-			(len(pending) > 0 || len(t.pendingNotifications) < maxPendingSubscriptionIDs) {
+		pending, exists := t.pendingNotifications[notification.SubscriptionID]
+		if !exists && len(t.pendingNotifications) >= maxPendingSubscriptionIDs {
+			// Retire the oldest never-bound ID instead of silently dropping
+			// the first event for a newly created subscription. The map stays
+			// bounded while a successful later bind can still recover its
+			// event that outran the eth_subscribe response.
+			oldest := t.pendingNotificationOrder[0]
+			t.removePendingNotificationsLocked(oldest)
+		}
+		pending = t.pendingNotifications[notification.SubscriptionID]
+		if len(pending) < maxPendingNotificationsPerID {
+			if len(pending) == 0 {
+				t.pendingNotificationOrder = append(t.pendingNotificationOrder, notification.SubscriptionID)
+			}
 			t.pendingNotifications[notification.SubscriptionID] = append(pending, notification)
 		}
 	}

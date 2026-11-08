@@ -374,7 +374,9 @@ func newRedactor(p Plan) (*redactor, error) {
 				}
 				for _, values := range u.Query() {
 					for _, value := range values {
-						add(value, true)
+						if len(value) >= 8 {
+							add(value, true)
+						}
 					}
 				}
 				for _, segment := range strings.Split(strings.Trim(u.Path, "/"), "/") {

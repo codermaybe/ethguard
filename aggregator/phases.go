@@ -66,10 +66,7 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	}
 	// Freeze the prepared parameters once: custom marshalers run here and
 	// nowhere else, so the wire and the recorded prepared-request fact carry
-	// the same bytes. An encode failure is an argument error (ErrInvalidRequest
-	// from FreezeParams) before any fan-out. state.prepared keeps the prepared
-	// Go values — plan queries and the admission hook read them — while the
-	// fan-out sends the frozen list and the decision records the snapshot.
+	// the same bytes. An encode failure is an argument error before fan-out.
 	frozen, snapshot, err := rpc.FreezeParams(prepared.Params)
 	if err != nil {
 		return a.prepareFailureExit(state, started, req, err)
