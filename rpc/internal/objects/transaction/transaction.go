@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -209,6 +210,12 @@ func requestIndex(value any) (uint64, error) {
 		return v, nil
 	case hexutil.Uint64:
 		return uint64(v), nil
+	case json.Number:
+		index, err := strconv.ParseUint(string(v), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("%w: transaction index: %v", rpc.ErrInvalidRequest, err)
+		}
+		return index, nil
 	case string:
 		decimal, err := wire.NormalizeWireQuantity(json.RawMessage(fmt.Sprintf("%q", v)))
 		if err != nil {

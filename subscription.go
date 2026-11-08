@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -265,7 +264,15 @@ func retryableSubscriptionPullError(err error) bool {
 			return true
 		}
 	}
-	var networkError net.Error
+	// Retain the adopted timeout/temporary retry contract for upstream
+	// network errors without depending on net.Error's deprecated Temporary
+	// member. Both methods are required, so an unrelated Temporary method
+	// alone cannot opt an error into retries.
+	var networkError interface {
+		error
+		Timeout() bool
+		Temporary() bool
+	}
 	return errors.As(err, &networkError) && (networkError.Timeout() || networkError.Temporary())
 }
 

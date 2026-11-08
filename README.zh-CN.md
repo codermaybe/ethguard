@@ -295,6 +295,10 @@ data，不等于真实 provider 普遍兼容性已验证。同一 backend 的 HT
 `gethcompat.New` 混用。
 
 raw WSS 是 EthGuard 专用的调用 transport，提供受限的订阅通知能力，不是通用 WebSocket 客户端。根订阅按 source 重订阅并检查 generation；transport 层 keepalive 及通用队列/重放策略仍待独立运维证据。
+首次通知可先于订阅响应到达，transport 会按服务端 subscription ID 缓冲并在绑定时投递。
+最多保留 256 个未绑定 ID、每个 ID 最多 256 条通知；达到 ID 上限后，新 ID 淘汰最早的
+未绑定缓冲，避免旧槽位永久阻断新订阅。绑定只取走本 ID 的缓冲；关闭或中止 transport
+会清空缓冲及淘汰顺序。
 
 参见[架构入口](docs/architecture.md)、[代码库拓扑](docs/design/codebase-topology.md)、
 [go-ethereum 兼容政策](docs/design/go-ethereum-compatibility-policy.md)和[威胁模型](docs/threat-model.md)，

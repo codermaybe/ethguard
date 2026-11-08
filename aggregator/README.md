@@ -12,6 +12,14 @@ It owns:
   fan-outs diagnosable;
 - exactly one observability event per aggregate decision (decision 0008).
 
+Prepared parameters are serialized once for both business fan-out and
+`Decision.Prepared`. Admission decodes that frozen JSON once and shares the
+read-only semantic request across sources; numbers remain `json.Number` so
+uint64 counts and transaction indexes are not rounded through float64. Plan
+and reference queries retain their prepared Go values. A custom marshaler or
+boolean wrapper therefore cannot make full-block admission inspect a
+different flag from the one sent on the wire.
+
 It does not own Ethereum method semantics (those live in `rpc/methods`
 policies), connection lifecycle or concurrency bounds (`pool.Collect`),
 telemetry storage, gas optimization, nonce management, signing, or

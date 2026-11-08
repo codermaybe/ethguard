@@ -62,3 +62,12 @@ skips JSON-RPC classification because the body is incomplete. Reviewers should
 inspect records and run a credential search before sharing a sample bundle;
 redaction is a defence-in-depth measure, not a reason to place secrets in a
 plan.
+
+Before writing, records are scanned for configured secrets and URL tokens;
+the output directory is scanned again after publication. Query values shorter
+than eight bytes still redact request, response, and error text, but are not
+global substring-scan inputs: a value such as `chainId=1` must not reject the
+legitimate numeric `network.chain_id`. Treat short credentials as sensitive
+despite this scan limitation. Files use same-directory temporary files with
+mode `0600`, sync and close before atomic rename, and remove temporary files
+on failure.

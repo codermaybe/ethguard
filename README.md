@@ -354,6 +354,11 @@ notification capability, not a general WebSocket client. Root subscriptions
 perform per-source resubscription with generation checks; transport-level
 keepalive and general queue/replay policy remain deferred and require separate
 operational evidence.
+Early notifications are buffered by server subscription ID until binding.
+The buffer retains at most 256 never-bound IDs and 256 notifications per ID;
+at the ID cap, a new ID retires the oldest never-bound buffer rather than
+being silently excluded forever. Binding drains only that ID's buffer;
+closing or aborting the transport clears pending buffers and eviction order.
 
 See the [architecture hub](docs/architecture.md),
 [codebase topology](docs/design/codebase-topology.md), the
