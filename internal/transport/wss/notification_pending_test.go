@@ -30,22 +30,29 @@ func pushNotification(t *testing.T, tr *Transport, id string) {
 		`{"method":"eth_subscription","params":{"subscription":%q,"result":"0x1"}}`, id)))
 }
 
-// TestPendingNotificationsBoundedAndCleanedUp pins the two bounds and the
-// cleanup exits on the transport-level pending buffer: a peer that keeps
-// pushing never-bound subscription IDs cannot grow the map past
-// maxPendingSubscriptionIDs, and abort/Unsubscribe remove the entries they
-// own so a long-lived connection cannot accumulate dead buffers.
+// TestPendingNotificationsBoundedAndCleanedUp pins the two bounds and cleanup
+// exits on the transport-level pending buffer. At the global cap the oldest
+// never-bound ID is retired so a new subscription's first notification is
+// retained instead of being silently discarded.
 func TestPendingNotificationsBoundedAndCleanedUp(t *testing.T) {
 	tr := newPendingTestTransport(t)
 
 	for i := 0; i < maxPendingSubscriptionIDs+50; i++ {
 		pushNotification(t, tr, fmt.Sprintf("0x%064x", i))
 	}
-	if got := len(tr.pendingNotifications); got > maxPendingSubscriptionIDs {
-		t.Fatalf("pending IDs unbounded: %d > %d", got, maxPendingSubscriptionIDs)
+	if got := len(tr.pendingNotifications); got != maxPendingSubscriptionIDs {
+		t.Fatalf("pending IDs = %d, want bounded size %d", got, maxPendingSubscriptionIDs)
+	}
+	newest := fmt.Sprintf("0x%064x", maxPendingSubscriptionIDs+49)
+	if got := len(tr.pendingNotifications[newest]); got != 1 {
+		t.Fatalf("newest pending ID retained %d notifications, want 1", got)
+	}
+	oldest := fmt.Sprintf("0x%064x", 0)
+	if _, ok := tr.pendingNotifications[oldest]; ok {
+		t.Fatal("oldest never-bound pending ID was not retired at the global cap")
 	}
 	// An ID that already holds a buffer keeps filling it up to its own cap.
-	survivor := fmt.Sprintf("0x%064x", 0)
+	survivor := newest
 	for i := 0; i < maxPendingNotificationsPerID+10; i++ {
 		pushNotification(t, tr, survivor)
 	}
@@ -85,6 +92,30 @@ func TestPendingNotificationsBoundedAndCleanedUp(t *testing.T) {
 	tr.abort(errors.New("socket dead"))
 	if got := len(tr.pendingNotifications); got != 0 {
 		t.Fatalf("abort left pending notifications behind: %d", got)
+	}
+}
+
+func TestBindingRemovesPendingIDFromEvictionOrder(t *testing.T) {
+	tr := newPendingTestTransport(t)
+	const id = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	pushNotification(t, tr, id)
+
+	stream := &NotificationStream{
+		owner:  tr,
+		events: make(chan Notification, 2),
+		errs:   make(chan error, 1),
+	}
+	tr.streams[stream] = struct{}{}
+	if !stream.bindSubscriptionID(id) {
+		t.Fatal("bindSubscriptionID failed")
+	}
+	if _, ok := tr.pendingNotifications[id]; ok {
+		t.Fatal("binding left the pending buffer behind")
+	}
+	for _, pendingID := range tr.pendingNotificationOrder {
+		if pendingID == id {
+			t.Fatal("binding left the ID in pending eviction order")
+		}
 	}
 }
 

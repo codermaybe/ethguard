@@ -39,7 +39,6 @@ func TestSelectByBlockNumberFansOutBatchConcurrentlyAndKeepsRegistryOrder(t *tes
 	started := make(chan int, endpointCount)
 	release := make(chan struct{})
 	var releaseOnce sync.Once
-	defer releaseOnce.Do(func() { close(release) })
 
 	servers := make([]*httptest.Server, endpointCount)
 	endpoints := make([]chainlist.Endpoint, endpointCount)
@@ -53,6 +52,7 @@ func TestSelectByBlockNumberFansOutBatchConcurrentlyAndKeepsRegistryOrder(t *tes
 		endpoints[i] = chainlist.Endpoint{URL: servers[i].URL}
 		defer servers[i].Close()
 	}
+	defer releaseOnce.Do(func() { close(release) })
 
 	resultCh := make(chan []EndpointHeight, 1)
 	errCh := make(chan error, 1)

@@ -89,6 +89,35 @@ func TestCollectRedactsCredentialsFromErrorsAndMetadata(t *testing.T) {
 	}
 }
 
+func TestCollectAllowsShortEndpointQueryValues(t *testing.T) {
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`)),
+			Request:    r,
+		}, nil
+	})
+	plan := Plan{
+		Schema:  PlanSchema,
+		Network: Network{ChainID: 1, Fork: "x"},
+		Sources: []Source{{ID: "s", Endpoint: "https://rpc.example?key=x7"}},
+		Requests: []Request{{
+			ID:     "chain",
+			Method: "eth_chainId",
+			Params: json.RawMessage("[]"),
+		}},
+	}
+	idx, err := (Collector{Client: &http.Client{Transport: transport}}).Collect(context.Background(), plan, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.Records) != 1 || idx.Records[0].ErrorKinds != nil {
+		t.Fatalf("index = %+v", idx)
+	}
+}
+
 func TestCollectRecordsJSONRPCAndHTTPErrors(t *testing.T) {
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Status: "502 Bad Gateway", Body: io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"nope"}}`)), Request: r}, nil
