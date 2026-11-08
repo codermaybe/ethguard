@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +60,36 @@ func TestReportSchemaAcceptsExample(t *testing.T) {
 	}
 	if _, err := ParseReport(roundTrip); err != nil {
 		t.Fatalf("round-tripped report does not parse: %v", err)
+	}
+}
+
+func TestReportDetailCodePointLimit(t *testing.T) {
+	schema := loadReportSchema(t)
+	for _, test := range []struct {
+		name   string
+		detail string
+		valid  bool
+	}{
+		{"512 multibyte code points", strings.Repeat("\U00010348", 512), true},
+		{"513 ASCII code points", strings.Repeat("a", 513), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			object := reportExample(t)
+			object["state"] = StateFailed
+			object["state_reasons"] = []any{map[string]any{
+				"category": "code_error", "step_id": nil, "detail": test.detail,
+			}}
+			data, err := json.Marshal(object)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ParseReport(data); (err == nil) != test.valid {
+				t.Fatalf("ParseReport error = %v, want valid=%v", err, test.valid)
+			}
+			if err := schema.validate(object); (err == nil) != test.valid {
+				t.Fatalf("schema error = %v, want valid=%v", err, test.valid)
+			}
+		})
 	}
 }
 

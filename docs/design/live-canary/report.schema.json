@@ -132,7 +132,7 @@
           ]
         },
         "source_id": {"$ref": "#/$defs/source_id"},
-        "detail": {"type": "string", "minLength": 1, "maxLength": 1024}
+        "detail": {"type": "string", "minLength": 1, "maxLength": 512}
       }
     },
     "request": {
@@ -151,7 +151,7 @@
       "properties": {
         "source_id": {"$ref": "#/$defs/source_id"},
         "category": {"$ref": "#/$defs/category"},
-        "detail": {"type": "string", "minLength": 1, "maxLength": 1024}
+        "detail": {"type": "string", "minLength": 1, "maxLength": 512}
       }
     },
     "collection_fault": {
@@ -160,7 +160,7 @@
       "required": ["category", "detail"],
       "properties": {
         "category": {"$ref": "#/$defs/category"},
-        "detail": {"type": "string", "minLength": 1, "maxLength": 1024}
+        "detail": {"type": "string", "minLength": 1, "maxLength": 512}
       }
     },
     "decision": {
@@ -188,7 +188,7 @@
             {"const": ""}
           ]
         },
-        "error_detail": {"type": "string", "maxLength": 1024},
+        "error_detail": {"type": "string", "maxLength": 512},
         "n": {"type": "integer", "minimum": 0},
         "participants": {"$ref": "#/$defs/source_ids"},
         "support": {"$ref": "#/$defs/source_ids"},

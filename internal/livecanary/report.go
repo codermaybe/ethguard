@@ -10,11 +10,13 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
 	ReportSchemaVersion = "ethguard.live-report/v1"
 	ReportArtifactName  = "report.json"
+	maxDetailRunes      = 512
 )
 
 const (
@@ -589,8 +591,8 @@ func validateDetail(field, detail string) error {
 }
 
 func validateOptionalDetail(field, detail string) error {
-	if len(detail) > 1024 {
-		return fmt.Errorf("%s: exceeds 1024 bytes", field)
+	if utf8.RuneCountInString(detail) > maxDetailRunes {
+		return fmt.Errorf("%s: exceeds %d code points", field, maxDetailRunes)
 	}
 	return nil
 }
