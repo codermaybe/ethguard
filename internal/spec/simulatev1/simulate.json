@@ -1,0 +1,1455 @@
+{
+ "version": "v1.0.0-beta.7",
+ "method": "eth_simulateV1",
+ "params": [
+  {
+   "name": "Payload",
+   "required": true,
+   "schema": {
+    "properties": {
+     "blockStateCalls": {
+      "description": "Definition of blocks that can contain calls and overrides",
+      "properties": {
+       "blockOverrides": {
+        "description": "Block overrides can be used to replace fields in a block.\ndefault: no block override.",
+        "properties": {
+         "baseFeePerGas": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+          "title": "Base fee per unit of gas",
+          "type": "string"
+         },
+         "blobBaseFee": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+          "title": "Base fee per unit of blob gas",
+          "type": "string"
+         },
+         "feeRecipient": {
+          "pattern": "^0x[0-9a-fA-F]{40}$",
+          "title": "Fee Recipient (also known as coinbase)",
+          "type": "string"
+         },
+         "gasLimit": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+          "title": "Gas limit",
+          "type": "string"
+         },
+         "number": {
+          "description": "When overriding block numbers across multiple blocks, block number need to be increasing. Skipping over blocks numbers is possible. If block number is not specified, it's incremented by one for each block.",
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+          "title": "Number",
+          "type": "string"
+         },
+         "prevRandao": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+          "title": "The Previous value of randomness beacon",
+          "type": "string"
+         },
+         "time": {
+          "description": "Time must either increase or remain constant relative to the previous block. If time is not specified, it's incremented by one for each block.",
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+          "title": "Time",
+          "type": "string"
+         },
+         "withdrawals": {
+          "description": "This array can have a maximum length of 16.",
+          "items": {
+           "additionalProperties": false,
+           "properties": {
+            "address": {
+             "pattern": "^0x[0-9a-fA-F]{40}$",
+             "title": "recipient address for withdrawal value",
+             "type": "string"
+            },
+            "amount": {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+             "title": "value contained in withdrawal",
+             "type": "string"
+            },
+            "index": {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+             "title": "index of withdrawal",
+             "type": "string"
+            },
+            "validatorIndex": {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+             "title": "index of validator that generated withdrawal",
+             "type": "string"
+            }
+           },
+           "required": [
+            "index",
+            "validatorIndex",
+            "address",
+            "amount"
+           ],
+           "title": "Validator withdrawal",
+           "type": "object"
+          },
+          "title": "Withdrawals made by validators",
+          "type": "array"
+         }
+        },
+        "title": "Block overrides",
+        "type": "object"
+       },
+       "calls": {
+        "description": "List of transactions to execute at this block/state.\nDefault: []",
+        "items": {
+         "properties": {
+          "accessList": {
+           "description": "EIP-2930 access list\nDefault: []",
+           "items": {
+            "additionalProperties": false,
+            "properties": {
+             "address": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "title": "hex encoded address",
+              "type": "string"
+             },
+             "storageKeys": {
+              "items": {
+               "pattern": "^0x[0-9a-f]{64}$",
+               "title": "32 byte hex value",
+               "type": "string"
+              },
+              "type": "array"
+             }
+            },
+            "required": [
+             "address",
+             "storageKeys"
+            ],
+            "title": "Access list entry",
+            "type": "object"
+           },
+           "title": "accessList",
+           "type": "array"
+          },
+          "blobVersionedHashes": {
+           "description": "EIP-4844 versioned hashes\nDefault: []",
+           "pattern": "^0x[0-9a-f]{64}$",
+           "title": "Blob versioned hashes",
+           "type": "string"
+          },
+          "from": {
+           "description": "Default: null",
+           "pattern": "^0x[0-9a-fA-F]{40}$",
+           "title": "from address",
+           "type": "string"
+          },
+          "gas": {
+           "description": "Default: Remaining gas in the current block",
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+           "title": "gas limit",
+           "type": "string"
+          },
+          "gasPrice": {
+           "description": "The gas price willing to be paid by the sender in wei\nDefault: 0",
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+           "title": "gas price",
+           "type": "string"
+          },
+          "input": {
+           "description": "Default: no data",
+           "pattern": "^0x[0-9a-f]*$",
+           "title": "input data",
+           "type": "string"
+          },
+          "maxFeePerBlobGas": {
+           "description": "The maximum total fee per blob gas the sender is willing to pay in wei\nDefault: 0",
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+           "title": "max fee per blob gas",
+           "type": "string"
+          },
+          "maxFeePerGas": {
+           "description": "The maximum total fee per gas the sender is willing to pay (includes the network / base fee and miner / priority fee) in wei\nDefault: 0",
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+           "title": "max fee per gas",
+           "type": "string"
+          },
+          "maxPriorityFeePerGas": {
+           "description": "Maximum fee per gas the sender is willing to pay to miners in wei\nDefault: 0",
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+           "title": "max priority fee per gas",
+           "type": "string"
+          },
+          "nonce": {
+           "description": "Default: Defaults to correct nonce",
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+           "title": "nonce",
+           "type": "string"
+          },
+          "to": {
+           "description": "Default: 0x0",
+           "pattern": "^0x[0-9a-fA-F]{40}$",
+           "title": "to address",
+           "type": "string"
+          },
+          "type": {
+           "description": "Default: 0x2",
+           "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+           "title": "type",
+           "type": "string"
+          },
+          "value": {
+           "description": "Default: 0",
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+           "title": "value",
+           "type": "string"
+          }
+         },
+         "title": "Transaction object type for call",
+         "type": "object"
+        },
+        "title": "calls",
+        "type": "array"
+       },
+       "stateOverrides": {
+        "additionalProperties": false,
+        "description": "State overrides can be used to replace existing blockchain state with new state.\nDefault: no state overrides",
+        "patternProperties": {
+         "^0x[a-fA-F0-9]{40}$": {
+          "oneOf": [
+           {
+            "description": "It is possible to override any kind of address (EOA's, contracts and precompiles)",
+            "properties": {
+             "balance": {
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+              "title": "Balance",
+              "type": "string"
+             },
+             "code": {
+              "pattern": "^0x[0-9a-f]*$",
+              "title": "Code",
+              "type": "string"
+             },
+             "movePrecompileToAddress": {
+              "description": "Moves addresses precompile into the specified address. This move is done before the 'code' override is set. When the specified address is not a precompile, the behaviour is undefined and different clients might behave differently.",
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "title": "MovePrecompileToAddress",
+              "type": "string"
+             },
+             "nonce": {
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+              "title": "Nonce",
+              "type": "string"
+             },
+             "state": {
+              "additionalProperties": false,
+              "description": "Key-value mapping to override all slots in the account storage before executing the call. This functions similar to eth_call's state parameter.",
+              "patternProperties": {
+               "^0x[a-fA-F0-9]{64}$": {
+                "pattern": "^0x[0-9a-f]{64}$",
+                "title": "32 byte hex value",
+                "type": "string"
+               }
+              },
+              "title": "Storage",
+              "type": "object"
+             }
+            },
+            "required": [
+             "state"
+            ],
+            "title": "Account override with whole storage replacement"
+           },
+           {
+            "properties": {
+             "balance": {
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+              "title": "Balance",
+              "type": "string"
+             },
+             "code": {
+              "pattern": "^0x[0-9a-f]*$",
+              "title": "Code",
+              "type": "string"
+             },
+             "movePrecompileToAddress": {
+              "description": "Moves addresses precompile into the specified address. This move is done before the 'code' override is set. Can only move precompiles.",
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "title": "MovePrecompileToAddress",
+              "type": "string"
+             },
+             "nonce": {
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+              "title": "Nonce",
+              "type": "string"
+             },
+             "stateDiff": {
+              "additionalProperties": false,
+              "description": "Key-value mapping to override individual slots in the account storage before executing the call. This functions similar to eth_call's state parameter.",
+              "patternProperties": {
+               "^0x[a-fA-F0-9]{64}$": {
+                "pattern": "^0x[0-9a-f]{64}$",
+                "title": "32 byte hex value",
+                "type": "string"
+               }
+              },
+              "title": "Storage difference",
+              "type": "object"
+             }
+            },
+            "required": [
+             "stateDiff"
+            ],
+            "title": "Account override with partial storage modification"
+           }
+          ],
+          "title": "Details of an account to be overridden",
+          "type": "object"
+         }
+        },
+        "title": "State overrides",
+        "type": "object"
+       }
+      },
+      "title": "Block State Calls",
+      "type": "array"
+     },
+     "returnFullTransactions": {
+      "description": "When true, the method returns full transaction objects, otherwise, just hashes are returned.",
+      "title": "Return Full Transactions",
+      "type": "boolean"
+     },
+     "traceTransfers": {
+      "description": "Adds ETH transfers as ERC20 transfer events to the logs. These transfers have emitter contract parameter set as address(0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee).\nDefault: false.",
+      "title": "Trace ETH Transfers",
+      "type": "boolean"
+     },
+     "validation": {
+      "description": "When true, the eth_simulateV1 does all validations that a normal EVM would do, except contract sender and signature checks. When false, eth_simulateV1 behaves like eth_call.\nDefault: false.",
+      "title": "Validation",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "blockStateCalls"
+    ],
+    "title": "Arguments for eth_simulate"
+   }
+  },
+  {
+   "name": "Block tag",
+   "schema": {
+    "anyOf": [
+     {
+      "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+      "title": "Block number",
+      "type": "string"
+     },
+     {
+      "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+      "enum": [
+       "earliest",
+       "finalized",
+       "safe",
+       "latest",
+       "pending"
+      ],
+      "title": "Block tag",
+      "type": "string"
+     },
+     {
+      "pattern": "^0x[0-9a-f]{64}$",
+      "title": "Block hash",
+      "type": "string"
+     }
+    ],
+    "title": "Block number, tag, or block hash"
+   }
+  }
+ ],
+ "result": {
+  "items": {
+   "properties": {
+    "baseFeePerGas": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "Base fee per gas",
+     "type": "string"
+    },
+    "blobGasUsed": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "Blob gas used",
+     "type": "string"
+    },
+    "blockAccessListHash": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "EIP-7928 block access list hash",
+     "type": "string"
+    },
+    "calls": {
+     "items": {
+      "oneOf": [
+       {
+        "description": "The error messages are suggestions, and clients might implement different error messages. However, the error codes are enforced by the spec.",
+        "properties": {
+         "error": {
+          "oneOf": [
+           {
+            "properties": {
+             "code": {
+              "const": 3
+             },
+             "message": {
+              "pattern": "^execution reverted.*",
+              "type": "string"
+             }
+            },
+            "required": [
+             "code",
+             "message"
+            ],
+            "type": "object"
+           },
+           {
+            "properties": {
+             "code": {
+              "const": -32015
+             },
+             "message": {
+              "pattern": "^vm execution error.*",
+              "type": "string"
+             }
+            },
+            "type": "object"
+           }
+          ]
+         },
+         "gasUsed": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+          "title": "Return gasUsed",
+          "type": "string"
+         },
+         "maxUsedGas": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+          "title": "Maximum gas used during execution before refunds",
+          "type": "string"
+         },
+         "returnData": {
+          "pattern": "^0x[0-9a-f]*$",
+          "title": "Return data",
+          "type": "string"
+         },
+         "status": {
+          "pattern": "^0x0$",
+          "title": "Call Status Failure",
+          "type": "string"
+         }
+        },
+        "required": [
+         "status",
+         "returnData",
+         "gasUsed",
+         "error"
+        ],
+        "title": "Result of call failure",
+        "type": "object"
+       },
+       {
+        "properties": {
+         "gasUsed": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+          "title": "Return gasUsed",
+          "type": "string"
+         },
+         "logs": {
+          "items": {
+           "additionalProperties": false,
+           "properties": {
+            "address": {
+             "pattern": "^0x[0-9a-fA-F]{40}$",
+             "title": "address",
+             "type": "string"
+            },
+            "blockHash": {
+             "pattern": "^0x[0-9a-f]{64}$",
+             "title": "block hash",
+             "type": "string"
+            },
+            "blockNumber": {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+             "title": "block number",
+             "type": "string"
+            },
+            "blockTimestamp": {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+             "title": "block timestamp",
+             "type": "string"
+            },
+            "data": {
+             "pattern": "^0x[0-9a-f]*$",
+             "title": "data",
+             "type": "string"
+            },
+            "logIndex": {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+             "title": "log index",
+             "type": "string"
+            },
+            "removed": {
+             "title": "removed",
+             "type": "boolean"
+            },
+            "topics": {
+             "items": {
+              "pattern": "^0x[0-9a-f]{64}$",
+              "title": "32 hex encoded bytes",
+              "type": "string"
+             },
+             "title": "topics",
+             "type": "array"
+            },
+            "transactionHash": {
+             "pattern": "^0x[0-9a-f]{64}$",
+             "title": "transaction hash",
+             "type": "string"
+            },
+            "transactionIndex": {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+             "title": "transaction index",
+             "type": "string"
+            }
+           },
+           "required": [
+            "transactionHash"
+           ],
+           "title": "log",
+           "type": "object"
+          },
+          "title": "Return logs",
+          "type": "array"
+         },
+         "maxUsedGas": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+          "title": "Maximum gas used during execution before refunds",
+          "type": "string"
+         },
+         "returnData": {
+          "pattern": "^0x[0-9a-f]*$",
+          "title": "Return data",
+          "type": "string"
+         },
+         "status": {
+          "pattern": "^0x1$",
+          "title": "Call Status Success",
+          "type": "string"
+         }
+        },
+        "required": [
+         "status",
+         "returnData",
+         "gasUsed",
+         "logs"
+        ],
+        "title": "Result of call success",
+        "type": "object"
+       }
+      ]
+     },
+     "title": "Call Results",
+     "type": "array"
+    },
+    "difficulty": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "Difficulty",
+     "type": "string"
+    },
+    "excessBlobGas": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "Excess blob gas",
+     "type": "string"
+    },
+    "extraData": {
+     "pattern": "^0x[0-9a-f]*$",
+     "title": "Extra data",
+     "type": "string"
+    },
+    "gasLimit": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "Gas limit",
+     "type": "string"
+    },
+    "gasUsed": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "Gas used",
+     "type": "string"
+    },
+    "hash": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "Hash",
+     "type": "string"
+    },
+    "logsBloom": {
+     "pattern": "^0x[0-9a-f]{512}$",
+     "title": "Bloom filter",
+     "type": "string"
+    },
+    "miner": {
+     "pattern": "^0x[0-9a-fA-F]{40}$",
+     "title": "Coinbase",
+     "type": "string"
+    },
+    "mixHash": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "Mix hash",
+     "type": "string"
+    },
+    "nonce": {
+     "pattern": "^0x[0-9a-f]{16}$",
+     "title": "Nonce",
+     "type": "string"
+    },
+    "number": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "Number",
+     "type": "string"
+    },
+    "parentBeaconBlockRoot": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "Parent Beacon Block Root",
+     "type": "string"
+    },
+    "parentHash": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "Parent block hash",
+     "type": "string"
+    },
+    "receiptsRoot": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "Receipts root",
+     "type": "string"
+    },
+    "requestsHash": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "EIP-7685 requests hash",
+     "type": "string"
+    },
+    "sha3Uncles": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "Ommers hash",
+     "type": "string"
+    },
+    "size": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "Block size",
+     "type": "string"
+    },
+    "stateRoot": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "State root",
+     "type": "string"
+    },
+    "timestamp": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "Timestamp",
+     "type": "string"
+    },
+    "transactions": {
+     "anyOf": [
+      {
+       "items": {
+        "pattern": "^0x[0-9a-f]{64}$",
+        "title": "32 byte hex value",
+        "type": "string"
+       },
+       "title": "Transaction hashes",
+       "type": "array"
+      },
+      {
+       "items": {
+        "oneOf": [
+         {
+          "properties": {
+           "accessList": {
+            "description": "EIP-2930 access lists",
+            "items": {
+             "additionalProperties": false,
+             "properties": {
+              "address": {
+               "pattern": "^0x[0-9a-fA-F]{40}$",
+               "title": "hex encoded address",
+               "type": "string"
+              },
+              "storageKeys": {
+               "items": {
+                "pattern": "^0x[0-9a-f]{64}$",
+                "title": "32 byte hex value",
+                "type": "string"
+               },
+               "type": "array"
+              }
+             },
+             "required": [
+              "address",
+              "storageKeys"
+             ],
+             "title": "Access list entry",
+             "type": "object"
+            },
+            "title": "accessList",
+            "type": "array"
+           },
+           "authorizationList": {
+            "description": "List of authorizations for the transaction",
+            "items": {
+             "properties": {
+              "address": {
+               "pattern": "^0x[0-9a-fA-F]{40}$",
+               "title": "hex encoded address",
+               "type": "string"
+              },
+              "chainId": {
+               "description": "Chain ID on which this transaction is valid",
+               "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+               "title": "chainId",
+               "type": "string"
+              },
+              "nonce": {
+               "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+               "title": "nonce",
+               "type": "string"
+              },
+              "r": {
+               "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+               "title": "r",
+               "type": "string"
+              },
+              "s": {
+               "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+               "title": "s",
+               "type": "string"
+              },
+              "yParity": {
+               "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
+               "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+               "title": "yParity",
+               "type": "string"
+              }
+             },
+             "required": [
+              "chainId",
+              "nonce",
+              "address",
+              "yParity",
+              "r",
+              "s"
+             ],
+             "type": "object"
+            },
+            "title": "authorizationList",
+            "type": "array"
+           },
+           "chainId": {
+            "description": "Chain ID that this transaction is valid on",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "chainId",
+            "type": "string"
+           },
+           "gas": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas limit",
+            "type": "string"
+           },
+           "gasPrice": {
+            "description": "The effective gas price paid by the sender in wei. For transactions not yet included in a block, this value should be set equal to the max fee per gas. This field is DEPRECATED, please transition to using effectiveGasPrice in the receipt object going forward.",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas price",
+            "type": "string"
+           },
+           "input": {
+            "pattern": "^0x[0-9a-f]*$",
+            "title": "input data",
+            "type": "string"
+           },
+           "maxFeePerGas": {
+            "description": "The maximum total fee per gas the sender is willing to pay (includes the network / base fee and miner / priority fee) in wei",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "max fee per gas",
+            "type": "string"
+           },
+           "maxPriorityFeePerGas": {
+            "description": "Maximum fee per gas the sender is willing to pay to miners in wei",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "max priority fee per gas",
+            "type": "string"
+           },
+           "nonce": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "nonce",
+            "type": "string"
+           },
+           "r": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "r",
+            "type": "string"
+           },
+           "s": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "s",
+            "type": "string"
+           },
+           "to": {
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "title": "to address",
+            "type": "string"
+           },
+           "type": {
+            "pattern": "^0x4$",
+            "title": "type",
+            "type": "string"
+           },
+           "v": {
+            "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
+            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "title": "v",
+            "type": "string"
+           },
+           "value": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "value",
+            "type": "string"
+           },
+           "yParity": {
+            "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
+            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "title": "yParity",
+            "type": "string"
+           }
+          },
+          "required": [
+           "accessList",
+           "authorizationList",
+           "chainId",
+           "gas",
+           "input",
+           "maxFeePerGas",
+           "maxPriorityFeePerGas",
+           "nonce",
+           "r",
+           "s",
+           "to",
+           "type",
+           "value",
+           "yParity"
+          ],
+          "title": "Signed 7702 Transaction",
+          "type": "object"
+         },
+         {
+          "properties": {
+           "accessList": {
+            "description": "EIP-2930 access list",
+            "items": {
+             "additionalProperties": false,
+             "properties": {
+              "address": {
+               "pattern": "^0x[0-9a-fA-F]{40}$",
+               "title": "hex encoded address",
+               "type": "string"
+              },
+              "storageKeys": {
+               "items": {
+                "pattern": "^0x[0-9a-f]{64}$",
+                "title": "32 byte hex value",
+                "type": "string"
+               },
+               "type": "array"
+              }
+             },
+             "required": [
+              "address",
+              "storageKeys"
+             ],
+             "title": "Access list entry",
+             "type": "object"
+            },
+            "title": "accessList",
+            "type": "array"
+           },
+           "blobVersionedHashes": {
+            "description": "List of versioned blob hashes associated with the transaction's EIP-4844 data blobs",
+            "items": {
+             "pattern": "^0x[0-9a-f]{64}$",
+             "title": "32 byte hex value",
+             "type": "string"
+            },
+            "title": "blobVersionedHashes",
+            "type": "array"
+           },
+           "chainId": {
+            "description": "Chain ID that this transaction is valid on",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "chainId",
+            "type": "string"
+           },
+           "gas": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas limit",
+            "type": "string"
+           },
+           "gasPrice": {
+            "description": "The effective gas price paid by the sender in wei. For transactions not yet included in a block, this value should be set equal to the max fee per gas. This field is DEPRECATED, please transition to using effectiveGasPrice in the receipt object going forward.",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas price",
+            "type": "string"
+           },
+           "input": {
+            "pattern": "^0x[0-9a-f]*$",
+            "title": "input data",
+            "type": "string"
+           },
+           "maxFeePerBlobGas": {
+            "description": "The maximum total fee per gas the sender is willing to pay for blob gas in wei",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "max fee per blob gas",
+            "type": "string"
+           },
+           "maxFeePerGas": {
+            "description": "The maximum total fee per gas the sender is willing to pay (includes the network / base fee and miner / priority fee) in wei",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "max fee per gas",
+            "type": "string"
+           },
+           "maxPriorityFeePerGas": {
+            "description": "Maximum fee per gas the sender is willing to pay to miners in wei",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "max priority fee per gas",
+            "type": "string"
+           },
+           "nonce": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "nonce",
+            "type": "string"
+           },
+           "r": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "r",
+            "type": "string"
+           },
+           "s": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "s",
+            "type": "string"
+           },
+           "to": {
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "title": "to address",
+            "type": "string"
+           },
+           "type": {
+            "pattern": "^0x3$",
+            "title": "type",
+            "type": "string"
+           },
+           "v": {
+            "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
+            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "title": "v",
+            "type": "string"
+           },
+           "value": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "value",
+            "type": "string"
+           },
+           "yParity": {
+            "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
+            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "title": "yParity",
+            "type": "string"
+           }
+          },
+          "required": [
+           "accessList",
+           "blobVersionedHashes",
+           "chainId",
+           "gas",
+           "input",
+           "maxFeePerBlobGas",
+           "maxFeePerGas",
+           "maxPriorityFeePerGas",
+           "nonce",
+           "r",
+           "s",
+           "to",
+           "type",
+           "value",
+           "yParity"
+          ],
+          "title": "Signed 4844 Transaction",
+          "type": "object"
+         },
+         {
+          "properties": {
+           "accessList": {
+            "description": "EIP-2930 access list",
+            "items": {
+             "additionalProperties": false,
+             "properties": {
+              "address": {
+               "pattern": "^0x[0-9a-fA-F]{40}$",
+               "title": "hex encoded address",
+               "type": "string"
+              },
+              "storageKeys": {
+               "items": {
+                "pattern": "^0x[0-9a-f]{64}$",
+                "title": "32 byte hex value",
+                "type": "string"
+               },
+               "type": "array"
+              }
+             },
+             "required": [
+              "address",
+              "storageKeys"
+             ],
+             "title": "Access list entry",
+             "type": "object"
+            },
+            "title": "accessList",
+            "type": "array"
+           },
+           "chainId": {
+            "description": "Chain ID that this transaction is valid on.",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "chainId",
+            "type": "string"
+           },
+           "gas": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas limit",
+            "type": "string"
+           },
+           "gasPrice": {
+            "description": "The effective gas price paid by the sender in wei. For transactions not yet included in a block, this value should be set equal to the max fee per gas. This field is DEPRECATED, please transition to using effectiveGasPrice in the receipt object going forward.",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas price",
+            "type": "string"
+           },
+           "input": {
+            "pattern": "^0x[0-9a-f]*$",
+            "title": "input data",
+            "type": "string"
+           },
+           "maxFeePerGas": {
+            "description": "The maximum total fee per gas the sender is willing to pay (includes the network / base fee and miner / priority fee) in wei",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "max fee per gas",
+            "type": "string"
+           },
+           "maxPriorityFeePerGas": {
+            "description": "Maximum fee per gas the sender is willing to pay to miners in wei",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "max priority fee per gas",
+            "type": "string"
+           },
+           "nonce": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "nonce",
+            "type": "string"
+           },
+           "r": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "r",
+            "type": "string"
+           },
+           "s": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "s",
+            "type": "string"
+           },
+           "to": {
+            "oneOf": [
+             {
+              "title": "Contract Creation (null)",
+              "type": "null"
+             },
+             {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "title": "Address",
+              "type": "string"
+             }
+            ],
+            "title": "to address"
+           },
+           "type": {
+            "pattern": "^0x2$",
+            "title": "type",
+            "type": "string"
+           },
+           "v": {
+            "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
+            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "title": "v",
+            "type": "string"
+           },
+           "value": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "value",
+            "type": "string"
+           },
+           "yParity": {
+            "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
+            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "title": "yParity",
+            "type": "string"
+           }
+          },
+          "required": [
+           "accessList",
+           "chainId",
+           "gas",
+           "gasPrice",
+           "input",
+           "maxFeePerGas",
+           "maxPriorityFeePerGas",
+           "nonce",
+           "r",
+           "s",
+           "type",
+           "value",
+           "yParity"
+          ],
+          "title": "Signed 1559 Transaction",
+          "type": "object"
+         },
+         {
+          "properties": {
+           "accessList": {
+            "description": "EIP-2930 access list",
+            "items": {
+             "additionalProperties": false,
+             "properties": {
+              "address": {
+               "pattern": "^0x[0-9a-fA-F]{40}$",
+               "title": "hex encoded address",
+               "type": "string"
+              },
+              "storageKeys": {
+               "items": {
+                "pattern": "^0x[0-9a-f]{64}$",
+                "title": "32 byte hex value",
+                "type": "string"
+               },
+               "type": "array"
+              }
+             },
+             "required": [
+              "address",
+              "storageKeys"
+             ],
+             "title": "Access list entry",
+             "type": "object"
+            },
+            "title": "accessList",
+            "type": "array"
+           },
+           "chainId": {
+            "description": "Chain ID that this transaction is valid on.",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "chainId",
+            "type": "string"
+           },
+           "gas": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas limit",
+            "type": "string"
+           },
+           "gasPrice": {
+            "description": "The gas price willing to be paid by the sender in wei",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas price",
+            "type": "string"
+           },
+           "input": {
+            "pattern": "^0x[0-9a-f]*$",
+            "title": "input data",
+            "type": "string"
+           },
+           "nonce": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "nonce",
+            "type": "string"
+           },
+           "r": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "r",
+            "type": "string"
+           },
+           "s": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "s",
+            "type": "string"
+           },
+           "to": {
+            "oneOf": [
+             {
+              "title": "Contract Creation (null)",
+              "type": "null"
+             },
+             {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "title": "Address",
+              "type": "string"
+             }
+            ],
+            "title": "to address"
+           },
+           "type": {
+            "pattern": "^0x1$",
+            "title": "type",
+            "type": "string"
+           },
+           "v": {
+            "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
+            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "title": "v",
+            "type": "string"
+           },
+           "value": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "value",
+            "type": "string"
+           },
+           "yParity": {
+            "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
+            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "title": "yParity",
+            "type": "string"
+           }
+          },
+          "required": [
+           "accessList",
+           "chainId",
+           "gas",
+           "gasPrice",
+           "input",
+           "nonce",
+           "r",
+           "s",
+           "type",
+           "value",
+           "yParity"
+          ],
+          "title": "Signed 2930 Transaction",
+          "type": "object"
+         },
+         {
+          "properties": {
+           "chainId": {
+            "description": "Chain ID that this transaction is valid on.",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "chainId",
+            "type": "string"
+           },
+           "gas": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas limit",
+            "type": "string"
+           },
+           "gasPrice": {
+            "description": "The gas price willing to be paid by the sender in wei",
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "gas price",
+            "type": "string"
+           },
+           "input": {
+            "pattern": "^0x[0-9a-f]*$",
+            "title": "input data",
+            "type": "string"
+           },
+           "nonce": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "nonce",
+            "type": "string"
+           },
+           "r": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "r",
+            "type": "string"
+           },
+           "s": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "s",
+            "type": "string"
+           },
+           "to": {
+            "oneOf": [
+             {
+              "title": "Contract Creation (null)",
+              "type": "null"
+             },
+             {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "title": "Address",
+              "type": "string"
+             }
+            ],
+            "title": "to address"
+           },
+           "type": {
+            "pattern": "^0x0$",
+            "title": "type",
+            "type": "string"
+           },
+           "v": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "v",
+            "type": "string"
+           },
+           "value": {
+            "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+            "title": "value",
+            "type": "string"
+           }
+          },
+          "required": [
+           "gas",
+           "gasPrice",
+           "input",
+           "nonce",
+           "r",
+           "s",
+           "type",
+           "v",
+           "value"
+          ],
+          "title": "Signed Legacy Transaction",
+          "type": "object"
+         }
+        ],
+        "properties": {
+         "blockHash": {
+          "pattern": "^0x[0-9a-f]{64}$",
+          "title": "block hash",
+          "type": "string"
+         },
+         "blockNumber": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+          "title": "block number",
+          "type": "string"
+         },
+         "blockTimestamp": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+          "title": "block timestamp",
+          "type": "string"
+         },
+         "from": {
+          "pattern": "^0x[0-9a-fA-F]{40}$",
+          "title": "from address",
+          "type": "string"
+         },
+         "hash": {
+          "pattern": "^0x[0-9a-f]{64}$",
+          "title": "transaction hash",
+          "type": "string"
+         },
+         "transactionIndex": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+          "title": "transaction index",
+          "type": "string"
+         }
+        },
+        "required": [
+         "blockHash",
+         "blockNumber",
+         "blockTimestamp",
+         "from",
+         "hash",
+         "transactionIndex"
+        ],
+        "title": "Transaction information",
+        "type": "object"
+       },
+       "title": "Full transactions",
+       "type": "array"
+      }
+     ]
+    },
+    "transactionsRoot": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "Transactions root",
+     "type": "string"
+    },
+    "uncles": {
+     "items": {
+      "pattern": "^0x[0-9a-f]{64}$",
+      "title": "32 byte hex value",
+      "type": "string"
+     },
+     "title": "Uncles",
+     "type": "array"
+    },
+    "withdrawals": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "address": {
+        "pattern": "^0x[0-9a-fA-F]{40}$",
+        "title": "recipient address for withdrawal value",
+        "type": "string"
+       },
+       "amount": {
+        "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+        "title": "value contained in withdrawal",
+        "type": "string"
+       },
+       "index": {
+        "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+        "title": "index of withdrawal",
+        "type": "string"
+       },
+       "validatorIndex": {
+        "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+        "title": "index of validator that generated withdrawal",
+        "type": "string"
+       }
+      },
+      "required": [
+       "index",
+       "validatorIndex",
+       "address",
+       "amount"
+      ],
+      "title": "Validator withdrawal",
+      "type": "object"
+     },
+     "title": "Withdrawals",
+     "type": "array"
+    },
+    "withdrawalsRoot": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "Withdrawals root",
+     "type": "string"
+    }
+   },
+   "required": [
+    "calls",
+    "extraData",
+    "gasLimit",
+    "gasUsed",
+    "hash",
+    "logsBloom",
+    "miner",
+    "mixHash",
+    "nonce",
+    "number",
+    "parentHash",
+    "receiptsRoot",
+    "sha3Uncles",
+    "size",
+    "stateRoot",
+    "timestamp",
+    "transactions",
+    "transactionsRoot",
+    "uncles"
+   ],
+   "title": "Result of eth_simulate block-level, with array of calls",
+   "type": "object"
+  },
+  "title": "Full results of eth_simulate",
+  "type": "array"
+ }
+}

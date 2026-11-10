@@ -68,6 +68,72 @@ func Build(openRPC []byte, version string, methods []string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// BuildMethod selects one method's complete definition (result and parameter
+// schemas) from a dereferenced OpenRPC document and emits a single-method
+// bundle: {"version", "method", "params", "result"}. It serves type generators
+// for methods whose definitions are released outside the conformance vector
+// subset, keeping the same official source and version pin as Build.
+func BuildMethod(openRPC []byte, version, name string) ([]byte, error) {
+	if version == "" {
+		return nil, errors.New("version is required")
+	}
+	if name == "" {
+		return nil, errors.New("method name is required")
+	}
+	var document struct {
+		Methods []struct {
+			Name   string `json:"name"`
+			Params []struct {
+				Name     string          `json:"name"`
+				Required bool            `json:"required"`
+				Schema   json.RawMessage `json:"schema"`
+			} `json:"params"`
+			Result *struct {
+				Schema json.RawMessage `json:"schema"`
+			} `json:"result"`
+		} `json:"methods"`
+	}
+	if err := json.Unmarshal(openRPC, &document); err != nil {
+		return nil, fmt.Errorf("openrpc: %w", err)
+	}
+	for _, method := range document.Methods {
+		if method.Name != name {
+			continue
+		}
+		params := make([]json.RawMessage, 0, len(method.Params))
+		for _, param := range method.Params {
+			entry := struct {
+				Name     string          `json:"name"`
+				Required bool            `json:"required,omitempty"`
+				Schema   json.RawMessage `json:"schema"`
+			}{Name: param.Name, Schema: param.Schema}
+			entry.Required = param.Required
+			raw, err := json.Marshal(entry)
+			if err != nil {
+				return nil, fmt.Errorf("openrpc: method %q: param %q: %w", name, param.Name, err)
+			}
+			params = append(params, raw)
+		}
+		if method.Result == nil || len(method.Result.Schema) == 0 {
+			return nil, fmt.Errorf("openrpc: method %q has no result.schema", name)
+		}
+		output := struct {
+			Version string            `json:"version"`
+			Method  string            `json:"method"`
+			Params  []json.RawMessage `json:"params"`
+			Result  json.RawMessage   `json:"result"`
+		}{Version: version, Method: name, Params: params, Result: method.Result.Schema}
+		var buf bytes.Buffer
+		encoder := json.NewEncoder(&buf)
+		encoder.SetIndent("", " ")
+		if err := encoder.Encode(output); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+	return nil, fmt.Errorf("openrpc: method %q not found", name)
+}
+
 // MethodsFromBundle returns the sorted method names from an existing
 // methods.json bundle, preserving the current support boundary during an
 // official release rebuild.

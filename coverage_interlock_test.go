@@ -25,12 +25,14 @@ var zeroDirectTestAllowlist = map[string]string{
 	"github.com/codermaybe/ethguard/cmd/soak":                      "load tool; driven manually during soak drills",
 	"github.com/codermaybe/ethguard/cmd/specbundle":                "spec utility; output validated by internal/spec/builder",
 	"github.com/codermaybe/ethguard/cmd/specdiff":                  "spec utility; output compared against pinned VERSION",
+	"github.com/codermaybe/ethguard/cmd/specmethod":                "spec utility; single-method bundle output validated by internal/spec/builder",
 	"github.com/codermaybe/ethguard/examples/basic":                "README runnable demo",
 	"github.com/codermaybe/ethguard/examples/migration":            "README runnable demo",
 	"github.com/codermaybe/ethguard/internal/refcontext":           "per-invocation reference propagation covered via root anchor tests",
 	"github.com/codermaybe/ethguard/internal/spec":                 "data-only embed accessor; validated by spec/builder and spec/conformance",
 	"github.com/codermaybe/ethguard/rpc/internal/objects/coverage": "table coverage; enforced by the methods inventory interlock",
 	"github.com/codermaybe/ethguard/rpc/internal/policy":           "shared admission decorator exercised through methods admission tests",
+	"github.com/codermaybe/ethguard/rpc/internal/wire/gen":         "code generator; output types.gen.go carries a version interlock and is validated by the wire package tests",
 }
 
 // TestPackageTestInventoryInterlock keeps the zero-direct-test set in sync

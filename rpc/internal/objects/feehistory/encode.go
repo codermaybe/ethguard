@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math/big"
-	"strconv"
 
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -117,28 +115,9 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	return wire.MarshalNoEscape(canonical{oldest, base, gas, reward, baseBlob, blobGasRatio})
 }
 
-// canonicalRatio 读十进制原文。0.50 与 0.5 同值。最短形式改变十进制原值时失败。
-// 超出 [0,1]、NaN、Inf 在这里就是无效响应，不是另一种编码。
+// canonicalRatio 与生成层共用的规范实现：wire.CanonicalRatio。
+// 0.50 与 0.5 同值；最短形式改变十进制原值时失败。超出 [0,1]、NaN、Inf
+// 在这里就是无效响应，不是另一种编码。
 func canonicalRatio(value json.RawMessage) (json.Number, error) {
-	var number json.Number
-	decoder := json.NewDecoder(bytes.NewReader(value))
-	decoder.UseNumber()
-	if err := decoder.Decode(&number); err != nil {
-		return "", fmt.Errorf("expected a decimal")
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err == nil {
-		return "", fmt.Errorf("expected a decimal")
-	}
-	f, err := number.Float64()
-	if err != nil || f < 0 || f > 1 {
-		return "", fmt.Errorf("out of range")
-	}
-	shortest := strconv.FormatFloat(f, 'f', -1, 64)
-	original, ok := new(big.Rat).SetString(number.String())
-	back, okBack := new(big.Rat).SetString(shortest)
-	if !ok || !okBack || original.Cmp(back) != 0 {
-		return "", fmt.Errorf("decimal %s is not the shortest form %s", number, shortest)
-	}
-	return json.Number(shortest), nil
+	return wire.CanonicalRatio(value)
 }
