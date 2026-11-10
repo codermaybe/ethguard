@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# release_check.sh runs the reproducible offline gates required before a
-# release commit is tagged. Live canary evidence remains a separate online
-# workflow and is not simulated here.
+# Run the repository's quality gates before preparing a release candidate.
+# govulncheck requires network access. Live canary is a separate observation.
 
 set -euo pipefail
-
 
 echo "==> checking Go toolchain"
 go version

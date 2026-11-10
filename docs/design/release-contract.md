@@ -1,103 +1,101 @@
 # Release Contract（发布门禁与发布契约）
 
 状态：**现行（2026-11-09）**。本文件冻结发布入口、前置条件、门禁覆盖范围、产物
-与发布语义、失败处置，并登记本轮实际证据。任务顺序、当前状态和待裁决项见
-[project-roadmap.md](project-roadmap.md) 的「发布门禁与发布流程（R0–R8）」一节；
-本文件不维护第二份计划或状态台账。
+与发布语义、失败处置，并登记本轮实际证据。业务完成度见
+[project-roadmap.md](project-roadmap.md)；本文件不维护第二份业务计划或状态台账。
 
 关联：`decisions.md` 0057（外部消费者前提）、[tooling.md](tooling.md)（工具层所有权）、
 [live-canary-contract.md](live-canary-contract.md)（canary 证据分层）、
-`.github/workflows/{ci,release,live-canary}.yml`、`scripts/release_check.sh`、
-`scripts/govulncheck.sh`。
+`.github/workflows/{ci,release,live-canary}.yml`、`.goreleaser.yaml`、
+`scripts/{release_check,release_api_diff,release_build,govulncheck}.sh`。
 
 ---
 
 ## 1. 发布入口与前置条件
 
-- **唯一入口**：`bash ./scripts/release_check.sh`。发布者、`release.yml` 和 `ci.yml` 的
-  govulncheck job 执行同一份仓库内脚本；不得再用第二套命令表达同一语义。
-- **顺序**：脚本通过 → 提交 → 推送 → 打 tag。**tag 必须指向已提交的树**：
-  `release.yml` 在 tag 的检出上执行 `bash ./scripts/release_check.sh`，未提交的脚本或
-  工作流会让这次 tag 运行在 preflight 阶段直接失败。
-- **tag 形态**：`v*`；预发布使用含 `-` 的名字（如 `v0.0.1-beta.N`），稳定版不含。
-- **不做的事**：不移动或删除已推送的 tag；不在发布后替换已 attach 的产物。
+- **发布入口**：在 `master` 手动运行 `.github/workflows/release.yml`，仅输入新版本号；
+  不再以推送 tag 触发发布。工作流冻结该次 dispatch 的完整 commit SHA，确认它仍是
+  `master` HEAD，然后从正式 checkout 执行验证；不能用未提交的本地结果替代。
+- **版本**：`vMAJOR.MINOR.PATCH`，可带预发布标识；数字标识不允许前导零。
+  含 `-` 的版本标记为 prerelease 且不设为 Latest。现有 tag / Release 一律拒绝覆盖。
+- **保护**：仓库必须先配置 `release` Environment，至少一个 required reviewer，
+  禁止发起人自审，并只允许 `master` 部署。准备阶段检查这些条件，未配置即失败；
+  不能依赖 GitHub 自动创建的空 Environment 充当保护。
+- **权限**：准备阶段只有 `contents: read`；唯一 `contents: write` job 位于受保护
+  Environment 之后。审批前只生成 Actions artifact，不创建 tag、draft 或公开 Release。
+- **顺序**：固定 SHA → 质量门禁、API 报告、fuzz、构建与 smoke → 不可变候选 artifact
+  → 人工审批 → 下载并复验相同产物 → 创建 tag 和 draft → 上传与远端校验 → 公开 Release。
+  发布 job 不重新编译；审批者需审阅 API 报告、提交及 notes。
 
-## 2. 门禁步骤与执行位置
+## 2. 正式入口与门禁覆盖
 
-| 步骤 | `release_check.sh`（本地） | `release.yml`（tag） | `ci.yml`（push/PR） |
-| --- | --- | --- | --- |
-| `gofmt -l .` 检查 | ✔ | ✔（经脚本） | ✔（独立 job） |
-| `go mod tidy -diff` | ✔ | ✔（经脚本） | ✔ |
-| `go vet ./...` | ✔ | ✔（经脚本） | ✔ |
-| `go build ./...` | ✔ | ✔（经脚本） | ✔ |
-| `go test -race ./...` | ✔ | ✔（经脚本） | ✔，另加 shuffled/`-count=2` 与 Verification 专项门 |
-| govulncheck（可达漏洞） | ✔（`scripts/govulncheck.sh`） | ✔（经脚本） | ✔（同脚本） |
-| apidiff（上一 tag → 当前整模块公共 API 报告） | ✘ | ✔ | ✘ |
-| fuzz sprint（jsonsafe、wire 各 120s） | ✘ | ✔ | ✘ |
-| cross-compile + `checksums.sha256` | ✘ | ✔ | ✘ |
-| 发布 GitHub Release | ✘ | ✔ | ✘ |
+| 入口 | 作用 | 输出与限制 |
+| --- | --- | --- |
+| `bash scripts/release_check.sh` | 格式、tidy、vet、build、全仓 race、可达漏洞扫描 | 不是离线流程；需要 `vuln.go.dev`；不代表完整发布验证 |
+| `bash scripts/release_api_diff.sh PREVIOUS_TAG` | 上一已发布版本与当前整模块公共 API 对比，包含删除的包 | `release-evidence/`；API 变化仅报告，工具、下载与导出错误失败 |
+| `bash scripts/release_build.sh` | GoReleaser snapshot、15 个产物校验、5 个本机入口 `-h` smoke | 成功才删除新建的 `dist`；失败保留；拒绝覆盖原有目录 |
+| `bash scripts/release_build.sh --keep-artifacts` | 相同构建验证，但保留候选产物 | 工作流在归档后清理 |
+| `bash scripts/release_build.sh --verify-artifacts` | 只读校验固定 15 项的文件集合与 SHA-256 | 不要求 GoReleaser，不运行或删除二进制 |
+| `release.yml` prepare | 以上入口，加 jsonsafe / wire 各 100 万次 race fuzz | 全部完成后才允许进入发布 job |
+| `ci.yml` release-config | GoReleaser schema、shell 语法、actionlint | push / PR 的配置门；不创建产物或发布 |
 
-**"本地门禁通过"不等于"tag 必过"**：apidiff 与 fuzz 目前只在 tag 阶段执行
-（见第 5 节）。任何声称"发布门禁已通过"的记录必须同时说明执行范围与工具链。
+本地构建入口要求 Linux amd64、Bash 4+、Go、GoReleaser、`sha256sum`；API 入口要求
+Go 和 jq。工作流使用 Ubuntu runner，另使用预装的 gh、jq 和 tar。
+本地脚本验证当前工作树，不声称绑定提交；发布工作流另行检查 SHA 与 checkout 清洁性。
+`release_check.sh` 与 CI 的独立矩阵允许重复，但门禁语义必须同步。
 
-API 对比使用 `apidiff -m` 导出并比较整个模块的公共 API，因此也能报告被删除的包，
-不依赖 `ethadapter` 等历史包路径。固定版本工具的 `-incompatible` 只筛选报告内容，
-发现不兼容 API 本身不会使其退出非零；导出、加载或工具执行错误仍使工作流失败。
-报告不是向后兼容通过证明，beta.3 包含相对 beta.2 的 API 删除与签名变化。
-
-`gofmt`/`tidy`/`vet`/`build`/`test` 在脚本与 `ci.yml` 各出现一次属于允许的重复：
-`ci.yml` 的对应 job 需要独立的矩阵、shuffle、race 倍数和 artifact，不能合并成
-一次脚本调用；语义来源以 `scripts/release_check.sh` 为准，两边同时修改时必须
-一次提交。
+Go 1.26 的 duration fuzz 存在到期误报竞态（[golang/go#75804](https://github.com/golang/go/issues/75804)，
+[backport / 计数预算说明](https://github.com/golang/go/issues/82363)）；不忽略或重试该错误，
+改为每目标 `-fuzztime=1000000x -parallel=2 -timeout=10m`，两目标串行执行；
+真实反例、引擎错误和超时仍失败。
 
 ## 3. 工具链与固定版本政策
 
-- **工具链来源是 `go.mod` 的 go 指令。** 本地 `go` 由 `GOTOOLCHAIN=auto` 按 go
-  指令切换到下载的工具链（本机安装的 Go 可能是更旧的版本），而
-  `actions/setup-go` 会显式写入 `GOTOOLCHAIN=local`（其 `src/main.ts` 的
-  `setGoToolchain`），因此 CI 中生效的就是 go 指令声明的确切版本。两者不是同一
-  条件：排查版本问题时必须同时记录 `go version`、`GOTOOLCHAIN=local go version`
-  和 go 指令本身。
-- **禁止以 `@latest` 安装工具。** 工具模块的 go 指令会静默抬高工具链下限，在
-  `GOTOOLCHAIN=local` 下立即失败。当前固定版本（唯一清单，改这里就要改所有引用点）：
+- 项目工具链来自 `go.mod` 的确切 go patch 指令；当前为 `go1.26.10`。
+  本地 `GOTOOLCHAIN=auto` 可下载工具链，`actions/setup-go` 后的 `local` 使用已安装版本。
+  GoReleaser 自身的构建 Go 版本不改变项目二进制的编译工具链。
+- 禁止 `@latest`；固定工具仍需满足项目工具链下限。当前引用：
 
-  | 工具 | 版本 | 引用点 |
-  | --- | --- | --- |
-  | govulncheck | `v1.9.0` | `scripts/govulncheck.sh` |
-  | apidiff | `v0.0.0-20261014143641-f0251eb4aa3e` | `release.yml`（R1 后应移入脚本） |
-  | deadcode | `v0.41.0` | `ci.yml` 定时 job |
-  | golangci-lint | `v2.15.0` | `ci.yml` |
+| 工具 | 版本 | 引用点 |
+| --- | --- | --- |
+| GoReleaser OSS | `v2.20.0` | `.goreleaser.yaml`、`release_build.sh`、CI / release workflow |
+| goreleaser-action | `v7.3.0`，固定 commit SHA | CI / release workflow，仅安装工具 |
+| actionlint | `v1.7.12` | `ci.yml` release-config |
+| apidiff | `v0.0.0-20261014143641-f0251eb4aa3e` | `release_api_diff.sh` |
+| govulncheck | `v1.9.0` | `govulncheck.sh` |
+| deadcode | `v0.41.0` | CI 定时 job |
+| golangci-lint | `v2.15.0` | CI |
 
-- **go 指令的取值依据是清除扫描到的标准库可达漏洞**，不是"跟到最新"；取值与证据
-  见第 6.2 节。
+GoReleaser 使用官方 schema 和默认构建隔离目录；显式保留 `-trimpath`、`-s -w`，
+不注入不存在的版本变量、不覆盖 CGO。snapshot 不创建 tag、不执行发布。
+工具参考：[GoReleaser Quick Start](https://goreleaser.com/getting-started/quick-start/)、
+[Go builds](https://goreleaser.com/customization/builds/go/)。
 
 ## 4. 产物与发布语义
 
-- **产物**：`cmd/{soak, rpcsample, shapeprobe, specbundle, specdiff}` ×
-  {linux-amd64, linux-arm64, darwin-arm64} 共 15 个二进制，加 `checksums.sha256`，
-  一起 attach 到该 tag 的 GitHub Release。模块本身按 `go get` 消费，不需要发布步骤。
-- **预发布语义**：`release.yml` 将含 `-` 的 tag 显式标记为 prerelease，避免 beta
-  被当作正式 Latest。历史 `v0.0.1-beta.2` 的 Release 仍为 `prerelease=false`
-  （2026-11-09 API 实测），本次不修改旧 Release；稳定版另需明确 `make_latest`。
-- **与 canary 的关系**：同一 tag 触发 `release.yml` 与 `live-canary.yml` 两个独立
-  工作流，release 不等待 canary 结论。稳定 tag 的 canary 失败不会阻止 Release
-  发布；预发布 tag 仅放行 `inconclusive`，`failed` 仍失败（`live-canary-contract.md`）。
-  是否让 release 等待 canary 结论是待裁决项（roadmap R8）。
-- **消费方工具链下限**：go 指令就是模块最低 Go 版本。`go 1.26.10` 意味着更旧的
-  工具链在 `GOTOOLCHAIN=local` 下无法构建本模块（`auto` 会去下载工具链）。
-- **模块代理状态**：tag 一旦推送，模块即可被 `go get` 取用，与是否已创建 Release
-  无关；因此 tag 的推送本身已经是"发布"动作。
+- `cmd/{soak,rpcsample,shapeprobe,specbundle,specdiff}` ×
+  `{linux_amd64,linux_arm64,darwin_arm64}`：15 个原始二进制与 `checksums.sha256`。
+  资产命名与原流程保持一致；GoReleaser metadata 不上传为 Release 资产。
+- 候选 artifact 保存 payload tar、固定 SHA / 版本 / 前版 / run ID 的 manifest、API
+  导出与报告、门禁和构建日志、notes、证据校验和，保留 14 天。payload 内保存文件权限。
+  准备阶段成功归档后删除本地产物；失败保留并上传现有诊断。不会清理 Go 缓存。
+- 发布 job 复验 manifest 与 payload，再创建不可移动的 annotated tag 和 draft。
+  上传后通过 GitHub API 确认恰好 16 个资产，下载并校验各文件 SHA-256，再公开 Release。
+  准备与发布清理均不删除远端 artifact；发布失败保留本地诊断与现有 tag / draft。
+- tag 一旦创建，模块代理即可取用；GitHub Release 公开前仍可能存在短暂 tag-only
+  窗口。不能保证远端 API 永不失败，也不自动回滚或覆盖已公开内容。
+- `GITHUB_TOKEN` 创建 tag 不触发另一条 push 工作流；release 在发布后显式调用可复用
+  live-canary，绑定同一 SHA / tag。预发布的 `inconclusive` 只表示观察不足，`failed`
+  仍失败；稳定版本严格执行 canary 契约。canary 是发布后的独立观察，不回滚发布。
+- 历史 beta.2 的 `prerelease=false` 与 beta.3 tag-only 状态不变。
 
-## 5. 已知覆盖缺口（2026-11-04）
+## 5. 证据边界与失败处置
 
-1. **apidiff 只在 tag 阶段执行**，本地门禁不覆盖——`v0.0.1-beta.1` 正是死在这一步。
-2. **fuzz sprint 只在 tag 阶段执行**，本地没有对应入口。
-3. **门禁不锚定提交**：脚本不检查工作区是否干净，也不打印被检查的 commit，
-   无法把"通过"绑定到具体提交内容。
-4. **联网属性未写明**：`release_check.sh` 头部自称 "offline gates"，但 govulncheck
-   需要访问 `vuln.go.dev`；该步骤不是离线步骤。
-5. **死代码**：`cross-compile` 的 `windows` 分支在平台列表中没有对应项，是不可达
-   死代码。
+本地 `--snapshot` 能证明配置、编译、checksum 和入口运行，不能证明 GitHub 权限、
+Environment 审批、远端资产上传或 CDN 行为。远端发布成功必须另附实际 workflow run。
+准备失败可在修复后的新提交重新 dispatch；创建 tag 后失败按第 7 节处理，不移动 tag。
+整模块 API 差异是审批输入，不是兼容性通过证明；预发布 notes 必须保留当前外部兼容
+缺口。稳定发布仍需默认严格方法门禁通过。
 
 ## 6. 证据（2026-11-04）
 
@@ -141,6 +139,30 @@ go: golang.org/x/exp/cmd/apidiff@latest: golang.org/x/exp@v0.0.0-20261014143641-
 （run 41829485063）均成功，Release 含 16 个资产。`b6e7829` 相对 `c339b5f` 只改了
 3 个工作流与 1 个设计文档，**不含任何 `.go` 改动**，因此 beta.1 与 beta.2 的模块
 API 完全相同；beta.1 tag 保留为"有 tag、无 Release"状态，不删除、不补发。
+
+### 6.4 GoReleaser 正式接入的本地证据（2026-11-09）
+
+- Go `1.26.10`、GoReleaser OSS `2.20.0`：配置校验、15 项构建与 SHA-256、
+  5 个 Linux amd64 `-h` 入口通过；隔离目录输出已链接为原有资产名，无归档路径重叠警告。
+- 默认入口成功后删除 `dist`；`--keep-artifacts` 保留候选，`--verify-artifacts`
+  只读复验通过；原有 `dist` 存在时拒绝构建。
+- 候选 manifest / notes 冻结、证据 checksum、payload 解包与发布侧只读校验通过，
+  解包后恰好 16 项文件；发布侧成功清理命令已实际删除本地产物目录。
+- 可复用 canary 的实际策略脚本已覆盖：beta inconclusive 放行、稳定版 inconclusive
+  拒绝、beta failed 拒绝、passed 放行；没有把策略脚本运行冒充真实 RPC 观察。
+- 正式 API 脚本对比 beta.2 成功，报告包含被删除的 `ethadapter` 包和公共签名变化；
+  这是差异报告，不是向后兼容通过。
+- 正式质量脚本以已接受的外部 SimulateV1 缺口模式通过：格式、tidy、vet、build、
+  race 套件与 govulncheck（`No vulnerabilities found.`）；不声称 EthClient complete。
+- actionlint `v1.7.12`、正式 shell 入口及 workflow run 块语法通过；本机没有
+  ShellCheck，不把 actionlint 的可选 ShellCheck 分析声称为已执行。
+- 原 120 秒 wire fuzz 在结束时返回 `context deadline exceeded`，未落盘反例；
+  当前工具链仍包含上游问题 #75804 的旧条件，因此切换为第 2 节的计数型预算。
+- 本地两组各 8 workers 并行时，均在最小化阶段以 EOF 中断；保存输入的隔离 race
+  执行通过，会话控制组无 OOM 事件，根因未定。正式入口固定各 2 workers 串行运行，
+  不通过忽略错误或减少执行次数使门禁变绿。
+- 未创建新 tag / Release，未执行远端 Environment 审批、上传或真实 RPC canary；
+  这些本地结果不能替代远端发布成功证据。
 
 ## 7. 失败处置
 

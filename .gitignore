@@ -10,3 +10,7 @@ docs/design/tmp
 /wsscapture
 /livecanary
 /ethguard
+
+# GoReleaser output and archived release-candidate evidence.
+/dist/
+/release-evidence/

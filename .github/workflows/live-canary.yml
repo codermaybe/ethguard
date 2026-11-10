@@ -18,6 +18,16 @@ on:
     - cron: '17 3 * * *'
   push:
     tags: ['v*']
+  workflow_call:
+    inputs:
+      commit_sha:
+        description: 'Exact commit validated by the release workflow'
+        required: true
+        type: string
+      release_tag:
+        description: 'Published tag, used only for prerelease observation policy'
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       http_adapter:
@@ -42,7 +52,7 @@ jobs:
       - name: checkout exact commit
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.commit_sha || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-go@v7
@@ -50,7 +60,9 @@ jobs:
           go-version-file: go.mod
 
       - name: assert exact commit
-        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+        env:
+          EXPECTED_SHA: ${{ inputs.commit_sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - name: build livecanary
         run: go build -trimpath -o "${RUNNER_TEMP}/livecanary" ./cmd/livecanary
@@ -128,8 +140,8 @@ jobs:
       - name: enforce observation result
         env:
           EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ inputs.release_tag || github.ref_name }}
+          REF_TYPE: ${{ inputs.release_tag != '' && 'tag' || github.ref_type }}
           OBSERVED_STATE: ${{ steps.observation.outputs.state }}
           CANARY_EXIT_CODE: ${{ steps.canary.outputs.exit_code }}
         run: |

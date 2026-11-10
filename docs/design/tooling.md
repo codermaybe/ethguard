@@ -48,7 +48,15 @@ wsscapture WSS 抓包。它们没有计划进入默认 CI。
 
 ## 默认 CI 边界
 
-默认 CI（`ci.yml`）不含任何真实网络调用：livecanary 与 shapeprobe 均为手动
-触发的离线可测工具（`internal/livecanary` 的测试使用 testdata 与本地
-httptest，不访问外网）。真实网络采集只发生在手动运行或
-`live-canary.yml` 的显式工作流中。
+默认 CI 不执行真实 RPC 采集；livecanary / shapeprobe 的测试使用 testdata 与本地
+httptest。依赖下载与 govulncheck 漏洞查询仍需联网。真实 RPC 采集只发生在显式运行或
+`live-canary.yml`；发布流程在公开 Release 后调用相同 canary 工作流观察固定提交。
+
+## 发布工具与产物清理
+
+正式入口、工具版本与完整门禁见 [release-contract.md](release-contract.md)。
+`scripts/release_build.sh` 调用 GoReleaser OSS 执行 pre-tag snapshot，校验固定的
+15 个二进制并运行 5 个 Linux amd64 `-h` 入口；成功才删除本次 `dist`，失败保留。
+`--keep-artifacts` 用于候选归档，`--verify-artifacts` 用于发布阶段只读复验。
+`release-evidence/` 保存正式 API 报告与工作流证据；远端先归档后清理，不清 Go 缓存，
+不再依赖临时 smoke 脚本、额外 worktree 或临时消费者工程。

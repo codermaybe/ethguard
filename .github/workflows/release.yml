@@ -1,125 +1,263 @@
-# EthGuard release
-#
-# Tag-driven. Cross-compiles the cmd/ tools (soak, rpcsample, shapeprobe,
-# specbundle, specdiff) for Linux amd64/arm64 and macOS arm64, produces
-# SHA-256 checksums, and attaches everything to a GitHub Release on the tag.
-#
-# The Go module itself is consumed via `go get`, which needs no release step;
-# binaries are shipped only so the cmd/ utilities can run without a toolchain.
-#
-# Publishing expectations (no action required, just awareness): pushing an
-# unmodified tag 且 without a GitHub Release makes the module visible to the
-# proxy with `unpublished` warning state; this workflow creates the Release
-# immediately, so the window is seconds. First tag on the repo is similarly
-# fine — the proxy treats it as a brand-new module path under /v0.
-
+# Release a fixed, prevalidated commit; creating a public tag is the last gate.
 name: release
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New SemVer tag, for example v0.0.1-beta.4 (must not exist)'
+        type: string
+        required: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: build and publish
+  prepare:
+    name: validate and prepare exact commit
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      sha: ${{ steps.candidate.outputs.sha }}
+      version: ${{ steps.candidate.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # apidiff needs the previous tagged module version to compare
-          # against; fetch history so the runner has it.
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-
-      # Re-run the same offline gate maintainers execute before tagging. A tag
-      # therefore cannot bypass formatting, module, static-analysis, build,
-      # race-test, or reachable-vulnerability checks.
-      - name: release preflight
-        # The current prerelease line explicitly accepts the documented
-        # external SimulateV1 gap. Stable tags remain strict and must expose
-        # the complete locked business method set before release.
-        env:
-          ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP: ${{ contains(github.ref_name, '-') && '1' || '0' }}
-        run: bash ./scripts/release_check.sh
-
-      # Compare the full public module, including removed packages. The first
-      # tag has no comparison basis and skips before installing the tool.
-      # Pin apidiff for reproducibility. Keep toolchain selection explicit for
-      # this isolated tool install even though the module now requires Go
-      # 1.26.10.
-      - name: apidiff vs previous tag
-        env:
-          APIDIFF_VERSION: v0.0.0-20261014143641-f0251eb4aa3e
-          GOTOOLCHAIN: auto
-          MODULE_PATH: github.com/codermaybe/ethguard
-        run: |
-          set -euo pipefail
-          prev_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
-          if [ -z "${prev_tag}" ]; then
-            echo "no previous tag; first release, skipping apidiff"
-            exit 0
-          fi
-
-          tool_dir="${RUNNER_TEMP}/tools"
-          old_tree="${RUNNER_TEMP}/ethguard-${prev_tag}"
-          mkdir -p "${tool_dir}"
-          GOBIN="${tool_dir}" go install "golang.org/x/exp/cmd/apidiff@${APIDIFF_VERSION}"
-          git worktree add --detach "${old_tree}" "refs/tags/${prev_tag}"
-          trap 'git worktree remove --force "${old_tree}"' EXIT
-
-          (
-            cd "${old_tree}"
-            "${tool_dir}/apidiff" -m -w "${RUNNER_TEMP}/module-old.api" "${MODULE_PATH}"
-          )
-          (
-            cd "${GITHUB_WORKSPACE}"
-            "${tool_dir}/apidiff" -m -w "${RUNNER_TEMP}/module-new.api" "${MODULE_PATH}"
-          )
-          "${tool_dir}/apidiff" -m -incompatible \
-            "${RUNNER_TEMP}/module-old.api" \
-            "${RUNNER_TEMP}/module-new.api"
-
-      - name: cross-compile
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          for cmd in soak rpcsample shapeprobe specbundle specdiff; do
-            for platform in linux-amd64 linux-arm64 darwin-arm64; do
-              goos="${platform%%-*}"
-              goarch="${platform#*-}"
-              output="dist/${cmd}_${goos}_${goarch}"
-              if [ "${goos}" = "windows" ]; then
-                output="${output}.exe"
-              fi
-              GOOS="${goos}" GOARCH="${goarch}" \
-                go build -trimpath -ldflags="-s -w" \
-                -o "${output}" "./cmd/${cmd}"
-            done
-          done
-          cd dist
-          sha256sum ./* > checksums.sha256
-
-      # Fuzz sprint (P4): every tag burns ~5 min on the two untrusted-input
-      # packages (jsonsafe, wire). Deliberately NOT on push/PR — fuzzer cost
-      # is only justified at the release boundary.
-      - name: fuzz sprint (jsonsafe)
-        run: go test -race -fuzz=FuzzValidate -fuzztime=120s ./internal/jsonsafe/
-      - name: fuzz sprint (wire)
-        run: go test -race -fuzz=FuzzNormalize -fuzztime=120s ./rpc/internal/wire/
-
-      - name: publish GitHub release
-        uses: softprops/action-gh-release@v3
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
-          files: |
-            dist/*
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          distribution: goreleaser
+          version: v2.20.0
+          install-only: true
+      - name: validate release candidate and approval protection
+        id: candidate
+        env:
+          VERSION: ${{ inputs.version }}
+          EXPECTED_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo '::error::version must be a v-prefixed SemVer without build metadata'
+            exit 1
+          fi
+          if [[ "$VERSION" == *-* ]]; then
+            IFS=. read -ra identifiers <<< "${VERSION#*-}"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "$identifier" == 0?* ]]; then
+                echo '::error::numeric prerelease identifiers must not have leading zeros'
+                exit 1
+              fi
+            done
+          fi
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test ! -e dist
+          test ! -e release-evidence
+          remote_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq .object.sha)"
+          test "$remote_sha" = "$EXPECTED_SHA"
+          set +e
+          git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$VERSION"
+          status=$?
+          set -e
+          if [ "$status" -ne 2 ]; then
+            echo '::error::tag already exists or remote tag lookup failed'
+            exit 1
+          fi
+          environment="$(gh api "repos/$GITHUB_REPOSITORY/environments/release")"
+          jq -e '
+            any(.protection_rules[]; .type == "required_reviewers" and .prevent_self_review == true and (.reviewers | length) > 0)
+            and .deployment_branch_policy.custom_branch_policies == true
+          ' <<< "$environment"
+          branches="$(gh api "repos/$GITHUB_REPOSITORY/environments/release/deployment-branch-policies" --jq .branch_policies)"
+          jq -e 'length == 1 and .[0].name == "master" and .[0].type == "branch"' <<< "$branches"
+          releases="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --slurp)"
+          jq -e --arg version "$VERSION" 'all(.[][]; .tag_name != $version)' <<< "$releases"
+          previous="$(jq -r '[.[][] | select(.draft == false)][0].tag_name // empty' <<< "$releases")"
+          mkdir release-evidence
+          printf '%s\n' "$EXPECTED_SHA" > release-evidence/commit.txt
+          printf 'sha=%s\nversion=%s\nprevious=%s\n' "$EXPECTED_SHA" "$VERSION" "$previous" >> "$GITHUB_OUTPUT"
+          printf '### Candidate %s\n\nCommit: `%s`\nPrevious published release: `%s`\n' "$VERSION" "$EXPECTED_SHA" "$previous" >> "$GITHUB_STEP_SUMMARY"
+      - name: full quality gate
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          export ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP=0
+          if [[ "$VERSION" == *-* ]]; then
+            export ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP=1
+          fi
+          bash ./scripts/release_check.sh 2>&1 | tee release-evidence/preflight.log
+      - name: public API report
+        env:
+          PREVIOUS: ${{ steps.candidate.outputs.previous }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PREVIOUS" ]; then
+            bash ./scripts/release_api_diff.sh "$PREVIOUS"
+          else
+            echo 'First published release: no previous public API baseline.' > release-evidence/api-diff.txt
+          fi
+          cat release-evidence/api-diff.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: fuzz sprint (jsonsafe)
+        run: |
+          set -euo pipefail
+          # Go 1.26 duration deadlines can fail spuriously: golang/go#75804.
+          go test -race -fuzz=FuzzValidate -fuzztime=1000000x -parallel=2 -timeout=10m ./internal/jsonsafe/ 2>&1 | tee release-evidence/fuzz-jsonsafe.log
+      - name: fuzz sprint (wire)
+        run: |
+          set -euo pipefail
+          go test -race -fuzz=FuzzNormalize -fuzztime=1000000x -parallel=2 -timeout=10m ./rpc/internal/wire/ 2>&1 | tee release-evidence/fuzz-wire.log
+      - name: build and verify release payload
+        run: |
+          set -euo pipefail
+          bash ./scripts/release_build.sh --keep-artifacts 2>&1 | tee release-evidence/build.log
+          files=(checksums.sha256)
+          while read -r _digest filename; do
+            files+=("${filename#\*}")
+          done < dist/checksums.sha256
+          tar -cf release-evidence/payload.tar -C dist "${files[@]}"
+      - name: freeze manifest and release notes
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+          SHA: ${{ steps.candidate.outputs.sha }}
+          PREVIOUS: ${{ steps.candidate.outputs.previous }}
+        run: |
+          set -euo pipefail
+          printf '# %s\n\nCommit: `%s`\n\n## Changes\n\n' "$VERSION" "$SHA" > release-evidence/notes.md
+          range="$SHA"
+          if [ -n "$PREVIOUS" ]; then range="$PREVIOUS..$SHA"; fi
+          git log --format='- %s (%h)' "$range" >> release-evidence/notes.md
+          if [[ "$VERSION" == *-* ]]; then
+            printf '\n## Compatibility boundary\n\nExperimental prerelease; not an EthClient: complete release. Requires Go 1.26.10.\nDefault EthClient SimulateV1 is unavailable. SyncProgress omits seven upstream fields; Done() may report completion while indexing remains.\nSee the API difference report in the approved workflow artifact before upgrading.\n' >> release-evidence/notes.md
+          fi
+          payload_sha="$(sha256sum release-evidence/payload.tar)"
+          payload_sha="${payload_sha%% *}"
+          jq -n --arg version "$VERSION" --arg sha "$SHA" --arg previous "$PREVIOUS" --arg payload "$payload_sha" --arg run "$GITHUB_RUN_ID" \
+            '{schema:1,version:$version,commit:$sha,previous:$previous,payload_sha256:$payload,run_id:$run,goreleaser:"2.20.0"}' > release-evidence/manifest.json
+          (
+            cd release-evidence
+            sha256sum manifest.json payload.tar api-diff.txt notes.md > evidence.sha256
+          )
+          cat release-evidence/manifest.json >> "$GITHUB_STEP_SUMMARY"
+      - name: archive candidate and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: archive failed build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-build-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: clean successful preparation
+        if: success()
+        run: rm -rf -- dist release-evidence
+
+  publish:
+    name: approve and publish verified payload
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate/release-evidence
+      - name: verify approved evidence
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SHA"
+          cd candidate/release-evidence
+          sha256sum -c evidence.sha256
+          jq -e --arg version "$VERSION" --arg sha "$SHA" --arg run "$GITHUB_RUN_ID" \
+            '.schema == 1 and .version == $version and .commit == $sha and .run_id == $run' manifest.json
+          printf '%s  payload.tar\n' "$(jq -r .payload_sha256 manifest.json)" | sha256sum -c -
+          cd ../..
+          test ! -e dist
+          mkdir dist
+          tar -xf candidate/release-evidence/payload.tar -C dist
+          bash ./scripts/release_build.sh --verify-artifacts
+      - name: create immutable tag and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" --method POST -f "tag=$VERSION" -f "object=$SHA" -f type=commit \
+            -f "message=Release $VERSION; verified commit $SHA; workflow $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .sha)"
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" --method POST -f "ref=refs/tags/$VERSION" -f "sha=$tag_sha"
+          args=(--verify-tag --draft --title "$VERSION" --notes-file candidate/release-evidence/notes.md)
+          if [[ "$VERSION" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$VERSION" "${args[@]}"
+          gh release upload "$VERSION" dist/*
+      - name: verify uploaded payload and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$VERSION" --json assets --jq '.assets | length')" -eq 16
+          mkdir candidate/download
+          gh release download "$VERSION" --dir candidate/download
+          cmp dist/checksums.sha256 candidate/download/checksums.sha256
+          (
+            cd candidate/download
+            sha256sum -c checksums.sha256
+          )
+          latest=true
+          if [[ "$VERSION" == *-* ]]; then latest=false; fi
+          gh release edit "$VERSION" --draft=false --latest="$latest"
+          gh release view "$VERSION" --json tagName,isDraft,isPrerelease,url > candidate/published.json
+          prerelease=false
+          if [[ "$VERSION" == *-* ]]; then prerelease=true; fi
+          jq -e --arg version "$VERSION" --argjson prerelease "$prerelease" \
+            '.tagName == $version and .isDraft == false and .isPrerelease == $prerelease' candidate/published.json
+          cat candidate/published.json >> "$GITHUB_STEP_SUMMARY"
+      - name: preserve publish diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-publish-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate/
+          retention-days: 14
+      - name: clean successful publication
+        if: success()
+        run: rm -rf -- dist candidate
+
+  canary:
+    name: independent live observation
+    needs: [prepare, publish]
+    uses: ./.github/workflows/live-canary.yml
+    with:
+      commit_sha: ${{ needs.prepare.outputs.sha }}
+      release_tag: ${{ needs.prepare.outputs.version }}
