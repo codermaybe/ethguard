@@ -3,110 +3,358 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
-// walk turns one parsed schema node into a ref, registering named types in
-// the registry. path is the canonical bundle path; it feeds override naming
-// and the generation report.
+// walk builds a value IR. Presence belongs only to object fields; every other
+// constraint follows the value through roots, arrays and composition branches.
 func (reg *registry) walk(node *schema, path string) (*ref, error) {
-	if node == nil {
-		return nil, fmt.Errorf("spec: missing schema node at %q", path)
+	if err := validateSchema(node, path); err != nil {
+		return nil, err
 	}
-
-	// Composition of non-null branches: a union wrapper. Object nodes
-	// carrying both properties and branches merge the base properties into
-	// every branch (official envelope style). This runs before null
-	// hoisting so a [null, envelope] root keeps its nullness on a union ref.
-	if len(nonNullBranches(node.branches)) >= 2 {
-		return reg.unionOf(node, path)
+	r, err := reg.walkShape(node, path)
+	if err != nil {
+		return nil, err
 	}
+	r.path = path
+	r.pattern = node.pattern
+	r.minimum, r.maximum = node.minimum, node.maximum
+	if node.hasConst {
+		r.hasConst = true
+		value, err := decodeConst(node.constVal)
+		if err != nil {
+			return nil, fmt.Errorf("spec: %s: invalid const: %w", path, err)
+		}
+		r.constant = value
+	}
+	if !r.pointer && (r.kind == refObject || r.kind == refUnion) {
+		r.parser = "New" + r.typeName
+		return r, nil
+	}
+	r.parser = fmt.Sprintf("parseValue%d", len(reg.values))
+	reg.values = append(reg.values, r)
+	return r, nil
+}
 
-	// oneOf/anyOf [null, X]: the nullable form. Exactly one content branch
-	// and an otherwise bare node yields *X. The hoisted branch keeps its
-	// original composition index in the path for override lookups.
-	if node.hasNullBranch() {
-		content := nonNullBranches(node.branches)
-		switch {
-		case len(content) == 0:
-			return nil, fmt.Errorf("spec: %q: all-null union", path)
-		case len(content) == 1:
-			inner, err := reg.walk(content[0], path+".oneOf["+itoa(indexOfNonNull(node))+"]")
+func decodeConst(raw string) (any, error) {
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+	var value any
+	err := dec.Decode(&value)
+	return value, err
+}
+
+func validateSchema(n *schema, path string) error {
+	fail := func(format string, args ...any) error {
+		return fmt.Errorf("spec: %s: %s", path, fmt.Sprintf(format, args...))
+	}
+	if n == nil {
+		return fail("missing schema node")
+	}
+	if len(n.unsupported) != 0 {
+		return fail("unsupported keyword/composition %q", n.unsupported[0])
+	}
+	if n.compKind != "" && n.compKind != "oneOf" && n.compKind != "anyOf" {
+		return fail("unsupported composition %q", n.compKind)
+	}
+	if n.compKind != "" && len(n.branches) == 0 {
+		return fail("empty %s", n.compKind)
+	}
+	if len(n.required) > 0 && n.typeVal != "object" {
+		return fail("required requires object type")
+	}
+	if n.additionalProperties != nil && n.typeVal != "object" {
+		return fail("additionalProperties requires object type")
+	}
+	nulls := 0
+	for i, b := range n.branches {
+		if b.typeVal == "null" {
+			if err := validateSchema(b, fmt.Sprintf("%s.%s[%d]", path, n.compKind, i)); err != nil {
+				return err
+			}
+		}
+		if isNullBranch(b) {
+			nulls++
+		}
+	}
+	if nulls > 1 {
+		return fail("duplicate null branches are unsupported")
+	}
+	if n.typeVal == "object" && nulls > 0 {
+		return fail("object type conflicts with nullable composition")
+	}
+	if n.pattern != "" {
+		if _, err := regexp.Compile(n.pattern); err != nil {
+			return fail("invalid pattern: %v", err)
+		}
+		if n.typeVal != "string" {
+			return fail("pattern requires an explicit string type")
+		}
+	}
+	if (n.minimum != nil || n.maximum != nil) && n.typeVal != "number" {
+		return fail("numeric bounds require number type")
+	}
+	if n.hasConst {
+		v, err := decodeConst(n.constVal)
+		if err != nil {
+			return fail("invalid const: %v", err)
+		}
+		switch v.(type) {
+		case string:
+			if n.typeVal != "" && n.typeVal != "string" {
+				return fail("string const conflicts with type")
+			}
+		case bool:
+			if n.typeVal != "" && n.typeVal != "boolean" {
+				return fail("boolean const conflicts with type")
+			}
+		case json.Number:
+			if n.typeVal != "" && n.typeVal != "integer" && n.typeVal != "number" {
+				return fail("numeric const conflicts with type")
+			}
+			if n.typeVal == "integer" {
+				if _, err := strconv.ParseInt(n.constVal, 10, 32); err != nil {
+					return fail("unsupported integer const %q", n.constVal)
+				}
+			}
+		default:
+			return fail("unsupported const %s", n.constVal)
+		}
+		if len(n.branches) > 0 || n.items != nil || len(n.properties) > 0 {
+			return fail("const on a compound value is unsupported")
+		}
+	}
+	if len(n.branches) > 0 {
+		if n.compKind == "" {
+			return fail("composition kind is missing")
+		}
+		if n.additionalProperties != nil {
+			return fail("additionalProperties on a composition is unsupported")
+		}
+		if n.typeVal == "object" && len(n.properties) == 0 {
+			return fail("object composition without envelope properties is unsupported")
+		}
+		if n.pattern != "" || n.minimum != nil || n.maximum != nil || n.items != nil {
+			return fail("unsupported constraints on composition")
+		}
+		if n.typeVal != "" && n.typeVal != "object" {
+			return fail("unsupported type on composition %q", n.typeVal)
+		}
+		if len(n.properties) > 0 {
+			for i, b := range n.branches {
+				if isNullBranch(b) || (b.typeVal != "object" && len(b.properties) == 0) || len(b.branches) > 0 {
+					return fail("unsupported envelope branch at %s[%d]", n.compKind, i)
+				}
+				if string(b.additionalProperties) == "false" {
+					declared := map[string]bool{}
+					for _, p := range b.properties {
+						declared[p.name] = true
+					}
+					for _, p := range n.properties {
+						if !declared[p.name] {
+							return fail("%s.%s[%d]: closed branch forbids envelope property %q", path, n.compKind, i, p.name)
+						}
+					}
+				}
+				for _, p := range n.properties {
+					for _, q := range b.properties {
+						if p.name == q.name && fingerprint(p.schema) != fingerprint(q.schema) {
+							return fail("conflicting envelope property %q at %s[%d]", p.name, n.compKind, i)
+						}
+					}
+				}
+			}
+		} else if len(n.required) > 0 {
+			return fail("required without properties")
+		}
+	}
+	if n.items != nil && n.typeVal != "array" {
+		return fail("items requires array type")
+	}
+	if len(n.properties) > 0 && n.typeVal != "object" {
+		return fail("properties requires object type")
+	}
+	return nil
+}
+
+func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
+	if len(n.branches) > 0 {
+		content := nonNullBranches(n.branches)
+		if len(content) == 0 {
+			return nil, fmt.Errorf("spec: %s: all-null composition unsupported", path)
+		}
+		if len(content) == 1 && n.hasNullBranch() && len(n.properties) == 0 {
+			inner, err := reg.walk(content[0], fmt.Sprintf("%s.%s[%d]", path, n.compKind, indexOfNonNull(n)))
 			if err != nil {
 				return nil, err
 			}
+			if inner.pointer || schemaAdmitsNull(content[0]) {
+				return nil, fmt.Errorf("spec: %s: nested nullable composition unsupported", path)
+			}
 			out := *inner
 			out.pointer = true
+			out.inner = inner
 			return &out, nil
 		}
+		return reg.unionOf(n, path)
 	}
-
-	switch {
-	case node.typeVal == "object" || len(node.properties) > 0:
-		return reg.objectOf(node, path)
-	case node.typeVal == "array" || node.items != nil:
-		elem, err := reg.walk(node.items, path+".items")
+	switch n.typeVal {
+	case "object":
+		if len(n.properties) == 0 {
+			return nil, fmt.Errorf("spec: %s: object without properties", path)
+		}
+		fp := fingerprint(n)
+		if prev := reg.byFP[fp]; prev != nil {
+			prev.from = appendMethod(prev.from, methodOfPath(path))
+			return &ref{kind: refObject, typeName: prev.name}, nil
+		}
+		fields, err := reg.fieldsOf(n, path)
 		if err != nil {
 			return nil, err
 		}
-		if elem.pointer {
-			// Arrays of nullable elements are not modeled; the supported
-			// result surface does not use them.
-			return nil, fmt.Errorf("spec: %q: array of nullable elements is unsupported", path)
+		name := reg.nameFor(n, path)
+		obj := &objectModel{name: name, fields: applyOrderOverride(name, fields), from: []string{methodOfPath(path)}}
+		reg.byFP[fp] = obj
+		reg.objects = append(reg.objects, obj)
+		reg.report.objects++
+		reg.report.countFields += len(fields)
+		return &ref{kind: refObject, typeName: name}, nil
+	case "array":
+		elem, err := reg.walk(n.items, path+".items")
+		if err != nil {
+			return nil, err
 		}
 		return &ref{kind: refArray, elem: elem}, nil
-	case node.typeVal == "boolean", node.typeVal == "number":
-		return &ref{kind: refScalar, native: keywordNatives[node.typeVal]}, nil
-	case node.hasConst:
-		// Bare const literal (the simulate error codes carry {"const": 3}).
-		native := "int"
-		if strings.HasPrefix(node.constVal, `"`) {
-			native = "Quantity" // string-literal consts are canonical QUANTITY
+	case "boolean":
+		return &ref{kind: refScalar, native: "bool"}, nil
+	case "number":
+		return &ref{kind: refScalar, native: "Number"}, nil
+	case "string":
+		native := nativeForPattern(n.pattern)
+		if native == "" {
+			native = "Text"
+			if literalOfPattern(n.pattern) != "" {
+				native = "Quantity"
+			}
 		}
 		return &ref{kind: refScalar, native: native}, nil
-	case node.typeVal == "string" || node.pattern != "":
-		// Literal QUANTITY consts (transaction type discriminators) map to
-		// Quantity; the object parse pins the exact value.
-		literal := literalOfPattern(node.pattern)
-		if literal != "" {
-			return &ref{kind: refScalar, native: "Quantity"}, nil
-		}
-		if node.pattern != "" {
-			named, ok := nativeByPattern[node.pattern]
-			if ok {
-				return &ref{kind: refScalar, native: named}, nil
+	case "", "integer":
+		if n.hasConst {
+			v, _ := decodeConst(n.constVal)
+			native := "int"
+			switch v.(type) {
+			case string:
+				native = "Text"
+			case bool:
+				native = "bool"
+			case json.Number:
+				if _, err := strconv.ParseInt(n.constVal, 10, 32); err != nil {
+					native = "Number"
+				}
 			}
-			if node.typeVal == "string" {
-				// Unmapped string patterns (official message constraints)
-				// stay Text; fieldsOf attaches the pattern check.
-				return &ref{kind: refScalar, native: "Text"}, nil
-			}
-			return nil, fmt.Errorf("spec: %q: unmapped pattern %q", path, node.pattern)
+			return &ref{kind: refScalar, native: native}, nil
 		}
-		return &ref{kind: refScalar, native: "Text"}, nil
-	case node.typeVal == "":
-		return nil, fmt.Errorf("spec: %q: untyped node without pattern, type, const or composition", path)
-	case node.typeVal == "null":
-		return nil, fmt.Errorf("spec: %q: bare null node", path)
-	default:
-		return nil, fmt.Errorf("spec: %q: unsupported type %q", path, node.typeVal)
 	}
+	return nil, fmt.Errorf("spec: %s: unsupported or unconsumed type %q", path, n.typeVal)
 }
 
-func (node *schema) hasNullBranch() bool {
-	for _, b := range node.branches {
+func (reg *registry) fieldsOf(n *schema, path string) ([]fieldModel, error) {
+	required := map[string]bool{}
+	for _, name := range n.required {
+		required[name] = true
+	}
+	fields := make([]fieldModel, 0, len(n.properties))
+	names := map[string]bool{}
+	goNames := map[string]bool{}
+	for _, p := range n.properties {
+		if names[p.name] {
+			return nil, fmt.Errorf("spec: %s: duplicate property %q", path, p.name)
+		}
+		names[p.name] = true
+		r, err := reg.walk(p.schema, path+".properties."+p.name)
+		if err != nil {
+			return nil, err
+		}
+		name := goFieldName(p.name)
+		if goNames[name] || name == "MarshalJSON" {
+			return nil, fmt.Errorf("spec: %s.properties.%s: conflicting Go field name %q", path, p.name, name)
+		}
+		goNames[name] = true
+		fields = append(fields, fieldModel{json: p.name, goName: name, req: required[p.name], ref: r})
+	}
+	for name := range required {
+		if !names[name] {
+			return nil, fmt.Errorf("spec: %s: required field %q has no property", path, name)
+		}
+	}
+	return fields, nil
+}
+
+func (reg *registry) unionOf(n *schema, path string) (*ref, error) {
+	key := fingerprint(n)
+	if prev := reg.unions[key]; prev != nil {
+		prev.from = appendMethod(prev.from, methodOfPath(path))
+		return &ref{kind: refUnion, typeName: prev.name}, nil
+	}
+	branches := []branchModel{}
+	names := map[string]bool{}
+	for i, b := range n.branches {
+		if isNullBranch(b) {
+			continue
+		}
+		branchPath := fmt.Sprintf("%s.%s[%d]", path, n.compKind, i)
+		if len(n.properties) > 0 {
+			b = mergeBranch(n, b)
+		}
+		r, err := reg.walk(b, branchPath)
+		if err != nil {
+			return nil, err
+		}
+		name := reg.branchFieldName(b, i, r)
+		base := name
+		for suffix := 2; names[name]; suffix++ {
+			name = base + itoa(suffix)
+		}
+		names[name] = true
+		branches = append(branches, branchModel{goName: name, ref: r, title: b.title, index: i})
+	}
+	name := reg.nameFor(n, path)
+	um := &unionModel{name: name, branches: branches, nullable: n.hasNullBranch(), kind: n.compKind, from: []string{methodOfPath(path)}}
+	reg.unions[key] = um
+	reg.unionList = append(reg.unionList, um)
+	return &ref{kind: refUnion, typeName: name}, nil
+}
+
+func schemaAdmitsNull(n *schema) bool {
+	if n.typeVal != "" {
+		return n.typeVal == "null"
+	}
+	matches := 0
+	for _, b := range n.branches {
+		if schemaAdmitsNull(b) {
+			matches++
+		}
+	}
+	if n.compKind == "oneOf" {
+		return matches == 1
+	}
+	return n.compKind == "anyOf" && matches > 0
+}
+
+func (n *schema) hasNullBranch() bool {
+	for _, b := range n.branches {
 		if isNullBranch(b) {
 			return true
 		}
 	}
 	return false
 }
-
-func isNullBranch(b *schema) bool {
-	return b.typeVal == "null" && len(b.properties) == 0 && b.items == nil && len(b.branches) == 0
+func isNullBranch(n *schema) bool {
+	return n.typeVal == "null" && len(n.properties) == 0 && len(n.required) == 0 && n.additionalProperties == nil && n.items == nil && len(n.branches) == 0 && !n.hasConst && n.pattern == "" && len(n.unsupported) == 0 && n.minimum == nil && n.maximum == nil
 }
-
 func nonNullBranches(list []*schema) []*schema {
 	var out []*schema
 	for _, b := range list {
@@ -116,20 +364,14 @@ func nonNullBranches(list []*schema) []*schema {
 	}
 	return out
 }
-
-// indexOfNonNull returns the position of the first non-null branch inside the
-// node's composition list, or -1.
-func indexOfNonNull(node *schema) int {
-	for i, b := range node.branches {
+func indexOfNonNull(n *schema) int {
+	for i, b := range n.branches {
 		if !isNullBranch(b) {
 			return i
 		}
 	}
 	return -1
 }
-
-// literalOfPattern recognizes single-literal QUANTITY patterns (^0x0$ ... )
-// and returns the literal, or "" when the pattern is not a single value.
 func literalOfPattern(pattern string) string {
 	if len(pattern) < 5 || !strings.HasPrefix(pattern, "^0x") || !strings.HasSuffix(pattern, "$") {
 		return ""
@@ -140,8 +382,6 @@ func literalOfPattern(pattern string) string {
 	}
 	return body
 }
-
-// canonicalQuantityLine checks "0x" + canonical no-leading-zero hex spelling.
 func canonicalQuantityLine(s string) bool {
 	if !strings.HasPrefix(s, "0x") {
 		return false
@@ -150,14 +390,7 @@ func canonicalQuantityLine(s string) bool {
 	if digits == "0" {
 		return true
 	}
-	if digits == "" {
-		return false
-	}
-	switch digits[0] {
-	case '0':
-		return false
-	case '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f':
-	default:
+	if digits == "" || digits[0] == '0' {
 		return false
 	}
 	for _, c := range digits {
@@ -167,286 +400,120 @@ func canonicalQuantityLine(s string) bool {
 	}
 	return true
 }
-
-// objectOf registers a plain object type.
-func (reg *registry) objectOf(node *schema, path string) (*ref, error) {
-	if len(node.properties) == 0 {
-		return nil, fmt.Errorf("spec: %q: object without properties", path)
-	}
-	fields, err := reg.fieldsOf(node, path)
-	if err != nil {
-		return nil, err
-	}
-	return reg.registerObject(node, fields, path), nil
-}
-
-// fieldsOf resolves the canonical field list (official order), requiredness,
-// and the const/pattern constraints the official schema pins per property.
-func (reg *registry) fieldsOf(node *schema, path string) ([]fieldModel, error) {
-	required := map[string]bool{}
-	for _, name := range node.required {
-		required[name] = true
-	}
-	out := make([]fieldModel, len(node.properties))
-	for i, p := range node.properties {
-		fieldRef, err := reg.walk(p.schema, path+".properties."+p.name)
-		if err != nil {
-			return nil, err
-		}
-		field := fieldModel{
-			json:    p.name,
-			goName:  goFieldName(p.name),
-			rawName: safeRawName(p.name),
-			req:     required[p.name],
-			ref:     fieldRef,
-		}
-		// Const / pattern constraints on this property's own node.
-		if p.schema.hasConst {
-			field.constValues = append(field.constValues, p.schema.constVal)
-		}
-		if literal := literalOfPattern(p.schema.pattern); literal != "" && p.schema.typeVal == "string" {
-			field.constValues = append(field.constValues, `"`+literal+`"`)
-		} else if literal := literalOfPattern(p.schema.pattern); literal != "" {
-			field.constValues = append(field.constValues, literal)
-		}
-		if p.schema.pattern != "" && literalOfPattern(p.schema.pattern) == "" {
-			if p.schema.typeVal == "string" {
-				if _, known := nativeByPattern[p.schema.pattern]; !known {
-					field.patterns = append(field.patterns, p.schema.pattern)
-				}
-			}
-		}
-		out[i] = field
-	}
-	return out, nil
-}
-
-// registerObject deduplicates by canonical fingerprint; identical shapes from
-// different methods share one generated type, with names resolved only for
-// the first occurrence.
-func (reg *registry) registerObject(node *schema, fields []fieldModel, path string) *ref {
-	fp := fingerprint(node)
-	if prev, ok := reg.byFP[fp]; ok {
-		prev.from = appendMethod(prev.from, methodOfPath(path))
-		return &ref{kind: refObject, typeName: prev.name}
-	}
-	name := reg.nameFor(node, path)
-	obj := &objectModel{name: name, from: []string{methodOfPath(path)}}
-	obj.fields = applyOrderOverride(name, fields)
-	reg.report.countFields += len(obj.fields)
-	reg.report.objects++
-	reg.byFP[fp] = obj
-	reg.objects = append(reg.objects, obj)
-	return &ref{kind: refObject, typeName: name}
-}
-
-// unionOf registers a union wrapper over the non-null branches. It is the
-// tagged-union home of the generated model: branch selection happens in
-// declared official order, and null branches disappear into pointer-like
-// membership (empty wrapper = JSON null).
-func (reg *registry) unionOf(node *schema, path string) (*ref, error) {
-	key := fingerprint(node)
-	if prev, ok := reg.unions[key]; ok {
-		prev.from = appendMethod(prev.from, methodOfPath(path))
-		return &ref{kind: refUnion, typeName: prev.name}, nil
-	}
-	var branches []branchModel
-	seen := map[string]bool{}
-	for i, b := range nonNullBranches(node.branches) {
-		branchPath := joinPath(path, "oneOf["+itoa(i)+"]")
-		if len(node.properties) > 0 {
-			// Official envelope style: base properties merge into every
-			// object branch; branch definitions win on conflict.
-			b = mergeBranch(node, b)
-		}
-		branchRef, err := reg.walk(b, branchPath)
-		if err != nil {
-			return nil, fmt.Errorf("spec: %q: branch %d: %w", path, i, err)
-		}
-		branchKey := branchRef.codeName()
-		if seen[branchKey] {
-			continue // official branches collapsed to one Go type
-		}
-		seen[branchKey] = true
-		branches = append(branches, branchModel{goName: reg.branchFieldName(b, i, branchRef), ref: branchRef, title: b.title})
-	}
-	if len(branches) == 1 {
-		out := *branches[0].ref
-		return &out, nil
-	}
-	name := reg.nameFor(node, path)
-	um := &unionModel{
-		name:     name,
-		branches: branches,
-		nullable: node.hasNullBranch(),
-		from:     []string{methodOfPath(path)},
-	}
-	reg.unions[key] = um
-	reg.unionList = append(reg.unionList, um)
-	return &ref{kind: refUnion, typeName: name}, nil
-}
-
-// nameFor resolves a named type: path override first, then title override,
-// then the title itself, and a numbered fallback last.
-func (reg *registry) nameFor(node *schema, path string) string {
-	if n, ok := overrideNameByPath[path]; ok && !reg.usedNames[n] {
-		reg.usedNames[n] = true
+func (reg *registry) nameFor(n *schema, path string) string {
+	if name, ok := overrideNameByPath[path]; ok {
 		reg.report.visited[path] = true
-		return n
+		return reg.uniqueName(name, path)
 	}
-	if n, ok := overrideNamesByTitle[node.title]; ok {
-		return reg.uniqueName(n, path)
+	if name, ok := overrideNamesByTitle[n.title]; ok {
+		return reg.uniqueName(name, path)
 	}
-	if base := sanitizeTitle(node.title); base != "" {
-		return reg.uniqueName(base, path)
+	if name := sanitizeTitle(n.title); name != "" {
+		return reg.uniqueName(name, path)
 	}
 	reg.row++
 	return reg.uniqueName(fmt.Sprintf("Result%d", reg.row), path)
 }
-
-// branchFieldName names a union member field from its title. The wrapper
-// struct field is exported, so the title becomes a PascalCase name.
-// Untitled branches fall back to the branch's own type name, which keeps
-// generated field names self-describing (SimulateErrorRevert etc.).
-func (reg *registry) branchFieldName(b *schema, index int, ref *ref) string {
-	if b.title != "" {
-		if name := sanitizeTitle(b.title); name != "" {
-			return name
-		}
+func (reg *registry) branchFieldName(n *schema, index int, r *ref) string {
+	if name := sanitizeTitle(n.title); name != "" {
+		return name
 	}
-	switch ref.kind {
-	case refObject, refUnion:
-		reg.report.visited["branch:"+ref.typeName] = true
-		return ref.typeName
+	if r.kind == refObject || r.kind == refUnion {
+		return r.typeName
 	}
 	return fmt.Sprintf("Branch%d", index)
 }
-
-// mergeBranch unions base properties with a branch: branch definitions win,
-// requiredness is the union of required lists.
 func mergeBranch(base, branch *schema) *schema {
-	merged := &schema{title: branch.title, typeVal: "object"}
+	out := *branch
+	out.properties = append([]prop{}, branch.properties...)
 	names := map[string]bool{}
 	for _, p := range branch.properties {
-		merged.properties = append(merged.properties, p)
 		names[p.name] = true
 	}
 	for _, p := range base.properties {
-		if names[p.name] {
-			continue
+		if !names[p.name] {
+			out.properties = append(out.properties, p)
 		}
-		merged.properties = append(merged.properties, p)
-		names[p.name] = true
 	}
-	merged.required = append(append([]string{}, base.required...), branch.required...)
-	return merged
+	out.required = append(append([]string{}, base.required...), branch.required...)
+	return &out
 }
-
-// applyOrderOverride reorders fields per the pinned canonical order table.
-func applyOrderOverride(typeName string, fields []fieldModel) []fieldModel {
-	order, ok := fieldOrderOverrides[typeName]
+func applyOrderOverride(name string, fields []fieldModel) []fieldModel {
+	order, ok := fieldOrderOverrides[name]
 	if !ok {
 		return fields
 	}
-	index := map[string]int{}
-	for i, f := range fields {
-		index[f.json] = i
-	}
+	out := make([]fieldModel, 0, len(fields))
 	seen := map[string]bool{}
-	var out []fieldModel
-	for _, name := range order {
-		i, ok := index[name]
-		if !ok || seen[name] {
-			continue // override drift is reported during emission checks
+	for _, key := range order {
+		for _, f := range fields {
+			if f.json == key && !seen[key] {
+				out = append(out, f)
+				seen[key] = true
+			}
 		}
-		seen[name] = true
-		out = append(out, fields[i])
 	}
 	for _, f := range fields {
 		if !seen[f.json] {
 			out = append(out, f)
 		}
 	}
-	if len(out) != len(fields) {
-		reg := "override asked for fields the schema does not carry"
-		panic(fmt.Sprintf("fieldOrderOverrides[%s]: %s", typeName, reg))
-	}
 	return out
 }
 
-// --- Fingerprinting: shape identity for dedupe ---
-
-// fingerprint returns a canonical, title-independent identity of a schema
-// node: properties sort by name so identical objects from different methods
-// share one generated type. Property order, titles and descriptions do not
-// affect identity; pattern, const and required do.
-func fingerprint(node *schema) string {
-	raw, err := json.Marshal(canonNode(node))
-	if err != nil {
-		panic(fmt.Sprintf("fingerprint marshal: %v", err))
+// fingerprint includes every consumed semantic, but excludes presentation.
+func fingerprint(n *schema) string { raw, _ := json.Marshal(canonNode(n)); return string(raw) }
+func canonNode(n *schema) map[string]any {
+	out := map[string]any{"type": n.typeVal, "composition": n.compKind}
+	if n.pattern != "" {
+		out["pattern"] = n.pattern
 	}
-	return string(raw)
-}
-
-func canonNode(node *schema) map[string]any {
-	out := map[string]any{"type": node.typeVal}
-	if node.pattern != "" {
-		out["pattern"] = node.pattern
+	if n.hasConst {
+		out["const"] = json.RawMessage(n.constVal)
 	}
-	if node.hasConst {
-		out["const"] = node.constVal
+	if n.minimum != nil {
+		out["minimum"] = *n.minimum
 	}
-	if len(node.required) > 0 {
-		req := append([]string{}, node.required...)
+	if n.maximum != nil {
+		out["maximum"] = *n.maximum
+	}
+	if n.additionalProperties != nil {
+		out["additionalProperties"] = n.additionalProperties
+	}
+	if len(n.unsupported) > 0 {
+		out["unsupported"] = n.unsupported
+	}
+	if len(n.required) > 0 {
+		req := append([]string{}, n.required...)
 		sort.Strings(req)
 		out["required"] = req
 	}
-	if node.items != nil {
-		out["items"] = canonNode(node.items)
+	if n.items != nil {
+		out["items"] = canonNode(n.items)
 	}
-	if len(node.branches) > 0 {
-		branchList := []any{}
-		for _, b := range node.branches {
-			branchList = append(branchList, canonNode(b))
+	if len(n.branches) > 0 {
+		list := []any{}
+		for _, b := range n.branches {
+			list = append(list, canonNode(b))
 		}
-		out["branches"] = branchList
+		out["branches"] = list
 	}
-	if len(node.properties) > 0 {
-		names := make([]string, len(node.properties))
+	if len(n.properties) > 0 {
 		props := map[string]any{}
-		for i, p := range node.properties {
-			names[i] = p.name
+		for _, p := range n.properties {
 			props[p.name] = canonNode(p.schema)
 		}
-		sort.Strings(names)
-		sortedProps := []any{}
-		for _, n := range names {
-			sortedProps = append(sortedProps, map[string]any{"name": n, "schema": props[n]})
-		}
-		out["properties"] = sortedProps
+		out["properties"] = props
 	}
 	return out
 }
-
-// --- helpers ---
-
-func joinPath(path, part string) string {
-	if path == "" {
-		return part
-	}
-	return path + "." + part
-}
-
-func itoa(i int) string { return fmt.Sprintf("%d", i) }
-
+func itoa(i int) string { return strconv.Itoa(i) }
 func methodOfPath(path string) string {
-	i := strings.IndexByte(path, '.')
-	if i < 0 {
-		return path
+	if i := strings.IndexByte(path, '.'); i >= 0 {
+		return path[:i]
 	}
-	return path[:i]
+	return path
 }
-
 func appendMethod(list []string, method string) []string {
 	for _, m := range list {
 		if m == method {

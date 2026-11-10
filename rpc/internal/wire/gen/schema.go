@@ -1,4 +1,4 @@
-// Package main contains the jennifer code generator for the wire package.
+// Package main contains the concrete Go source generator for the wire package.
 // Generator machinery is not part of the package surface at build time; see
 // emit.go and model.go here, where the wire/RPC contract rules live.
 package main
@@ -7,21 +7,23 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 )
 
 // schema mirrors the JSON Schema subset used by the execution-apis bundle,
 // parsed in document order so that property order survives into the model.
 type schema struct {
-	raw     json.RawMessage // exact source bytes (canonical form wins)
-	title   string
-	typeVal string // "object" | "string" | "array" | "boolean" | "number" | "null" | ""
+	unsupported          []string
+	additionalProperties json.RawMessage
+	title                string
+	typeVal              string // "object" | "string" | "array" | "boolean" | "number" | "null" | ""
 
 	pattern  string
 	constVal string
 	hasConst bool
 
-	minimum *float64
-	maximum *float64
+	minimum *json.Number
+	maximum *json.Number
 
 	properties []prop
 	required   []string
@@ -29,9 +31,6 @@ type schema struct {
 	items    *schema
 	compKind string // "oneOf" | "anyOf" | ""
 	branches []*schema
-
-	// description kept only for emission-side comments.
-	description string
 }
 
 // prop is one ordered property entry.
@@ -40,9 +39,8 @@ type prop struct {
 	schema *schema
 }
 
-// nullableKeywords are the schema keys this walker understands; every other
-// key is tolerated and ignored, so an unknown spec feature fails as a shape
-// error at generation time rather than silently degrading the model.
+// knownSchemaKeys lists the supported schema vocabulary. Unsupported semantics
+// are retained on the node so the walker can reject them with the full path.
 var knownSchemaKeys = map[string]bool{
 	"title": true, "type": true, "pattern": true, "const": true,
 	"minimum": true, "maximum": true,
@@ -60,19 +58,17 @@ func parseSchema(raw []byte) (*schema, error) {
 	}
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
 	dec.UseNumber()
-	out, err := decodeSchema(dec, trimmed)
+	out, err := decodeSchema(dec)
 	if err != nil {
 		return nil, err
 	}
-	// Reject trailing content: one more token means the caller sliced the
-	// document at the wrong boundary, and order would be meaningless.
-	if dec.More() {
+	if _, err := dec.Token(); err != io.EOF {
 		return nil, fmt.Errorf("trailing content after schema node")
 	}
 	return out, nil
 }
 
-func decodeSchema(dec *json.Decoder, src []byte) (*schema, error) {
+func decodeSchema(dec *json.Decoder) (*schema, error) {
 	out := &schema{}
 	first, err := dec.Token()
 	if err != nil {
@@ -84,13 +80,12 @@ func decodeSchema(dec *json.Decoder, src []byte) (*schema, error) {
 			return nil, fmt.Errorf("schema: expected object node, got %v", first)
 		}
 	case string, bool, nil, json.Number:
-		out.typeVal = jsonTypeOfLiteral(first)
-		bytes2, _ := json.Marshal(first)
-		out.raw = bytes2
+		out.unsupported = append(out.unsupported, "non-object schema")
 		return out, nil
 	default:
 		return nil, fmt.Errorf("schema: unexpected token %v", first)
 	}
+	seen := map[string]bool{}
 	for dec.More() {
 		key, err := dec.Token()
 		if err != nil {
@@ -100,13 +95,13 @@ func decodeSchema(dec *json.Decoder, src []byte) (*schema, error) {
 		if !ok {
 			return nil, fmt.Errorf("schema: non-string key")
 		}
+		if seen[name] {
+			out.unsupported = append(out.unsupported, "duplicate "+name)
+		}
+		seen[name] = true
 		switch name {
 		case "title":
 			if err := decodeString(dec, &out.title); err != nil {
-				return nil, err
-			}
-		case "description":
-			if err := decodeString(dec, &out.description); err != nil {
 				return nil, err
 			}
 		case "type":
@@ -124,9 +119,13 @@ func decodeSchema(dec *json.Decoder, src []byte) (*schema, error) {
 			}
 			out.constVal, out.hasConst = string(raw), true
 		case "minimum", "maximum":
-			var num float64
-			if err := dec.Decode(&num); err != nil {
+			token, err := dec.Token()
+			if err != nil {
 				return nil, err
+			}
+			num, ok := token.(json.Number)
+			if !ok {
+				return nil, fmt.Errorf("schema: %s must be a JSON number", name)
 			}
 			if name == "minimum" {
 				out.minimum = &num
@@ -150,34 +149,39 @@ func decodeSchema(dec *json.Decoder, src []byte) (*schema, error) {
 			}
 			out.properties = props
 		case "oneOf", "anyOf", "allOf":
-			comp := name
 			branches, err := decodeBranches(dec)
 			if err != nil {
 				return nil, err
 			}
-			if out.compKind == "" {
-				out.compKind = comp
+			if name == "allOf" || out.compKind != "" {
+				out.unsupported = append(out.unsupported, name)
 			}
-			out.branches = append(out.branches, branches...)
+			out.compKind = name
+			out.branches = branches
 		default:
 			if !knownSchemaKeys[name] {
-				return nil, fmt.Errorf("schema: unsupported key %q", name)
+				out.unsupported = append(out.unsupported, name)
 			}
 			var raw json.RawMessage
 			if err := dec.Decode(&raw); err != nil {
 				return nil, err
+			}
+			if name == "additionalProperties" {
+				out.additionalProperties = raw
+				if string(raw) != "false" && string(raw) != "true" {
+					out.unsupported = append(out.unsupported, name)
+				}
 			}
 		}
 	}
 	if _, err := dec.Token(); err != nil {
 		return nil, err
 	}
-	out.raw = json.RawMessage(src)
 	return out, nil
 }
 
 // parseRawLoop decodes one value with the same decoder and wraps it back into
-// parseSchema, preserving byte-exact raw form for fingerprinting.
+// parseSchema, retaining ordered properties and exact numeric spellings.
 func parseRawLoop(dec *json.Decoder) (*schema, error) {
 	var raw json.RawMessage
 	if err := dec.Decode(&raw); err != nil {
@@ -189,7 +193,7 @@ func parseRawLoop(dec *json.Decoder) (*schema, error) {
 func decodeProperties(dec *json.Decoder) ([]prop, error) {
 	if t, err := dec.Token(); err != nil {
 		return nil, err
-	} else if t.(json.Delim) != '{' {
+	} else if t != json.Delim('{') {
 		return nil, fmt.Errorf("schema: properties must be an object")
 	}
 	var props []prop
@@ -217,7 +221,7 @@ func decodeProperties(dec *json.Decoder) ([]prop, error) {
 func decodeBranches(dec *json.Decoder) ([]*schema, error) {
 	if t, err := dec.Token(); err != nil {
 		return nil, err
-	} else if t.(json.Delim) != '[' {
+	} else if t != json.Delim('[') {
 		return nil, fmt.Errorf("schema: composition must be an array")
 	}
 	var out []*schema
@@ -237,7 +241,7 @@ func decodeBranches(dec *json.Decoder) ([]*schema, error) {
 func decodeStringList(dec *json.Decoder, dst *[]string) error {
 	if t, err := dec.Token(); err != nil {
 		return err
-	} else if t.(json.Delim) != '[' {
+	} else if t != json.Delim('[') {
 		return fmt.Errorf("schema: required must be an array")
 	}
 	for dec.More() {
@@ -258,22 +262,4 @@ func decodeString(dec *json.Decoder, dst *string) error {
 		return fmt.Errorf("schema: %w", err)
 	}
 	return nil
-}
-
-// jsonTypeOfLiteral matches a bare (non-object) schema value to its declared
-// JSON type keyword.
-func jsonTypeOfLiteral(v any) string {
-	switch t := v.(type) {
-	case string:
-		return "string"
-	case bool:
-		return "boolean"
-	case json.Number:
-		return "number"
-	case nil:
-		return "null"
-	default:
-		_ = t
-		return ""
-	}
 }

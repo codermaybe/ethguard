@@ -1,192 +1,78 @@
-# Wire 层 codegen：execution-apis 类型层生成
+# Wire codegen：pinned execution-apis 结果类型
 
-> 状态：已落地（分支 `feat/execution-apis-wire-codegen`）。前置：
-> `method-spec-reference-freeze.md`（版本钉住）、`return-value-design.md`（canonical
-> 字节序与 §5 byte 型字段规则）、`go-ethereum-compatibility-policy.md`（go-ethereum
-> 方言类型的退出路径）。
+## 目标与边界
 
-## 1. 目标与不变量
+`rpc/internal/wire/types.gen.go` 由固定版本的官方 execution-apis result schema 生成，不依赖 go-ethereum 方言类型。输入是 `internal/spec/methods.json` 与同版本的 `simulatev1/simulate.json`；不修改官方 schema 来适配现有实现。
 
-`rpc/internal/wire` 是项目的 result 类型层。本设计把这一层从「手写 + go-ethereum
-方言类型」切换为「由 execution-apis 官方 schema 生成的本地类型」，并以四条不变量
-钉住它：
+生成层负责结果形态、required、值约束、数组、分支与 nullable 的解析和规范编码。`New*` 入口执行这些检查；直接手工构造 Go 值时，调用者必须保持同样的不变量。Marshal 不通过整树 JSON 重解析重复准入，union 只额外检查选中成员数量及 nullable 状态。方法注册、请求绑定、签名/区块承诺、receipt bloom 一致性、受保护 Value 字段投影仍属于对象/方法层。生成类型不是这些准入与信任判断的替代品；本轮未迁移生产方法。
 
-1. **字节级 parity**。生成层与受保护的手写编码器（log / receipt / accessList /
-   feeHistory）对同一官方 `.io` vector 的输出逐字节一致。字节流是比较键
-   （return-value-design.md §2），因此这是一致性的硬门禁，不是风格选择。
-2. **零 go-ethereum import**。生成代码只依赖 stdlib 与本包手写的校验器
-   （`wire.CanonicalQuantity`、`ValidateWireFixedHex`、`CanonicalRatio` 等）。
-   标准定义全部落成 `type X string` / 本地 struct / tagged union wrapper。
-3. **版本 interlock**。`types.gen.go` 内嵌与 `internal/spec.Version()`
-   （v1.0.0-beta.7）一致的 bundle 版本，`github.com/codermaybe/ethguard/rpc/internal/wire`
-   侧 panic-on-mismatch。生成器、`methods.json`、`simulatev1/simulate.json` 三者
-   同步升级，缺一步都无法编译 Regen 后通过。
-4. **失败面不降级**。官方 schema 中无法得体表现的 feature（未知 key、过深嵌套
-   union、数组套数组的 union 分支）在生成期 panic，而不是把宽松校验偷渡进运行时。
+## 生成管线
 
-## 2. 管线
-
-```
-internal/spec/methods.json (官方 beta.7 dereferenced bundle)
-internal/spec/simulatev1/simulate.json (eth_simulateV1 单方法 bundle, PR 扩展)
-        └── rpc/internal/wire/gen/  (go run ./gen -out types.gen.go 或者 cd rpc/internal/wire && go generate ./...)
-             schema.go  有序 schema 解码（保留官方文档属性序，容忍未知 key）
-             model.go   命名/pattern 映射/override 表
-             walk.go    递归建模：required、const/enum 约束、ref 去重、null 提升
-             emit.go    jennifer 发射 + go/format
-        └── rpc/internal/wire/types.gen.go (生成: DO NOT EDIT)
+```text
+官方 dereferenced result schema + 固定生成策略
+    → 有序 schema 解码与支持边界检查
+    → 带值约束/nullability 的模型及语义去重
+    → 类型化值解析器、对象/union、方法结果入口
+    → go/format → types.gen.go
 ```
 
-`go:generate go run ./gen -out types.gen.go` 标记在 `rpc/internal/wire/generate.go`；
-从 `rpc/internal/wire/` 执行（`-out` 相对 cwd）。生成器与代码均为仓内包
-（`github.com/codermaybe/ethguard/rpc/internal/wire/gen`），零运行时依赖
-jennifer —— 生成只发生在工程的构建协商之外。
+- `gen/schema.go`：保留属性顺序、composition kind 和分支位置；未知验证关键字或无法完整表达的形态必须报错，不生成宽松替代。
+- `gen/model.go` / `walk.go`：值持有类型、const/pattern/bounds、nullable、元素与分支语义；字段持有名称与 required/presence。命名策略与字段字节顺序不改变官方字段集合。
+- `gen/emit.go`：消费经过检查的模型，字段、数组项、union 分支与 root 使用同一套值解析规则。optional 仅决定是否解析，不能跳过出现值的约束。
+- 不引入运行时 JSON Schema 解释器或插件 registry。生成期不能支持的结构直接返回错误；新增标准特性须先明确模型及行为验收。
 
-## 3. 类型映射
+## 官方形态与项目规范字节
 
-### 3.1 pattern → 原生类型
+官方 schema 定义字段与可选分支；canonical policy 定义不改变值的确定性字节形式，两者不得混为一谈。Go 名称与共享 normalizer 的映射可人工维护，但数值模型的增减和值域必须由 schema 的 type/pattern/minimum/maximum/const 驱动，不能由映射表另造约束。
 
-官方 schema 每个 string 属性的 `pattern` 决定 Go 原生类型。映射表（`nativeByPattern`，
-见 `gen/model.go`）覆盖官方 beta.7 已知的全部 pattern；映射后生成 `NewX` 解析 +
-`MarshalJSON`（no HTML escape，canonical 拼写）。
+- 数量、地址、hash、DATA 等复用 wire normalizer；规范输出必须匹配对应官方 pattern。DATA 保留字节长度及前导零，地址/hash 输出小写。
+- HexByte 仅接受 `0x` 后 1–2 个 hex 字符，输出 canonical QUANTITY；`0x04` → `0x4`，`0x4A` → `0x4a`，不接受符号或三个 hex 字符。
+- 官方 Number 只接受完整 JSON number，精确保留任意十进制值，不经 float64；minimum/maximum 来自各 schema 的真实边界，由精确比较执行。`0.30000000000000001` 不因 float64 精度损失被拒绝。负零规范为 `0`，科学计数法与 fixed 输出的选择只影响拼写，不限制数值域；不会展开巨大指数。
+- `CanonicalRatio` 仍是项目受保护 feeHistory encoder 的额外规范化政策：`[0,1]` 内按 Go 最短 round-trip 输出，并拒绝改变精确十进制原值的输入。官方生成 Number 不调用它；两者不能共用一个“是否合法”的结论。
+- Quantity256 上限为 64 个 hex digits，即 32 bytes；Bloom 为 512 个 hex digits，即 256 bytes。
+- 固定官方字符串 pattern 仍约束规范输出；不能把 net_version 的负数或零包装为有效官方十进制字符串。
+- 字段顺序采用确定的文档顺序，已有受保护编码器金标的对象族保留显式顺序表。紧凑 JSON、无 HTML 转义。
+- 未声明的 provider 字段不进入标准类型；这属于类型投影，不代表已经验证来源的所有扩展字段。
 
-| pattern 族 | 原生类型 | 校验 |
-| --- | --- | --- |
-| `^0x(0\|[1-9a-f]...*)$`（宽松 quantity） | `Quantity` | `wire.CanonicalQuantity` 重编码为规范 QUANTITY |
-| `^0x(0\|[1-9a-f][0-9a-f]{0,15})$` | `Quantity64` | `CanonicalQuantity` + 拼写上限 {0,15} |
-| `^0x(0\|[1-9a-f][0-9a-f]{0,63})$` | `Quantity256` | 同上，{0,63} |
-| `^0x[0-9a-f]{64}$` | `Hash` | `ValidateWireFixedHex(64, "hash")`，小写归一 |
-| `^0x[0-9a-fA-F]{40}$` | `Address` | `ValidateWireFixedHex(40, "address")`，小写归一（无 EIP-55） |
-| `^0x[0-9a-f]{512}$` | `Bloom` | `ValidateWireFixedHex(512, "logsBloom")` |
-| `^0x[0-9a-f]{16}$` | `BlockNonce` | `ValidateWireFixedHex(16, "nonce")` |
-| `^0x[0-9a-f]{0,64}$` | `StorageKey` | 正则直验（getProof storageProof key：官方允许空/奇数长度） |
-| `^0x([0-9a-fA-F]?){1,2}$`（type/v/yParity） | `HexByte` | `wire.CanonicalHexByte`：按 return-value-design.md §5 输出 canonical QUANTITY（`0x4`、`0x04`、`0x04A` → 统一 `0x4`） |
-| number 字面量域（feeHistory gasUsedRatio） | `Ratio` | `wire.CanonicalRatio`：`[0,1]` 内 JSON number，最短形式 + big.Rat 往返一致；Marshal 输出无引号数字 |
-| `^\\d$`-类 decimal (net_version) | `DecimalString` | `NormalizeDecimalString` |
-| 单字面量 pattern（`^0x4$` 等） | `Quantity` + 常量检查 | 对象 Parse 内联 const gate |
-| 未匹配的 string pattern | `Text` | 正则参数变量（deterministic `textPatternN`） |
+### 缺失与 null
 
-非 string 属性：number → `Ratio`（非字符串 marshal）；boolean → `bool`；`{"const": v}` 
-数值节点 → `int`/`int64`；
-`{"const": str}`/字面量 pattern 节点 → 具体 string 类型 + 常量检查。
+required 与 nullable 是两个独立维度。非 nullable 值拒绝 JSON null；nullable 值保留 null；optional nullable 字段区分缺失与显式 null，不以省略制造相等。
 
-const / pattern 约束统一挂在 `fieldModel` 上（`constValues`、`patterns`），由对象
-Parse 在 canonical 字段序中内联检查 —— 与手写编码器的 admit 模式完全一致。
+nullable root 的 null 表示 nil。数组空值 `[]` 与 nullable root 的 `null` 保持不同。receipt 的 `to:null` / `contractAddress:null` 保留在官方类型里；现有受保护 encoder 省略它们的政策留在外层。
 
-### 3.2 对象
+### Composition 与分支
 
-- **canonical 字段序**：官方文档的 properties 顺序优先；已带手写金标的对象族
-  （Log、Receipt、AccessListResult/Item、FeeHistory）用 `fieldOrderOverrides`
-  钉现有金标序以达成 parity。
-- **nullability**：非 required 属性按出现与否渲染 `*T` + `omitempty`；required
-  属性填值后不得缺省（Parse 内联 `missing required field` gate）。`null` 字面值
-  永远被剔除（`PresentNonNull` gate）。
-- **Raw 收集 struct**：所有字段先收成 `json.RawMessage`，再按 canonical 字段序逐个
-  校验——与手写编码器相同，保证字段 admit 顺序与拒收路径稳定。
+模型保留真实的 oneOf/anyOf 及原始分支身份；每个分支必须执行其全部支持的类型和值约束。分支不能仅因映射到同一 Go 类型而被合并。
 
-## 4. oneOf / tagged unions（Simulate CallResult 等）
+oneOf 要求恰好一个分支匹配；anyOf 要求至少一个匹配，并按声明顺序选择规范表示。生成层与离线 conformance 都保留这一区别。`BlockTransactions` 为 anyOf，空数组可合法匹配多个分支。新增无法可靠表达的组合须生成期拒绝，不能丢失约束后选择首个成功分支。
 
-官方 oneOf/anyOf 分支用 tagged union wrapper 表示：每个分支一个 pointer 字段，
-Parse 按官方声明顺序 try-parse，首个匹配得胜。
-- **判别顺序 = 官方声明顺序**。озвращ第一个成功分支 —— 与官方 spec 语义（branches
-  正交、字段集不同）等价；对 Simulate CallResult（status/value/error）这类共享
-  字段的合并分支，try-parse 里 field 约束（const、pattern、缺省 required）把
-  端点约束完整转到哪一个分支判别。
-- **null 提升**：oneOf 含 null 分支时，null 分支消失，empty wrapper（nil 全部
-  字段）表示 JSON null（`Not Found` 语义）；root 的 null 分支转 wrapper 指针。
-- **envelope style（properties + oneOf）**：官方 getTransactionByHash 的
-  "Transaction information"，merge rules：base properties 并进每个 object branch，
-  branch 定义覆盖冲突；required 是并集。合并后的分支对象与块内容中同形的
-  schema 按指纹去重，复用同一个 Go 类型。
-- **数组分支 [hashes | full transactions]**（block.transactions）：每个数组分支
-  生成 `(T, bool)` parser（`parse<Union><Branch>`）：official 数组形状要么整体校验
-  通过、要么该分支不匹配。
-- **数组套数组**（feeHistory reward 的 `[][]Quantity`）：数组循环递归展开；更深
-  的嵌套深度（或数组分支再嵌数组）在生成期 panic（不变量 #4）。
+`eth_getLogs` 的生成结果保留官方 hashes/logs 两个数组分支；只允许 logs 的受保护方法政策不再裁剪生成根类型。该 pinned schema 使用 oneOf，而 `[]` 同时匹配两个数组分支，因此严格生成入口拒绝 `[]`。这是 pinned 定义与既有项目 getLogs 空结果政策的差异，生产方法本轮不切换，不能以改 schema 或静默放宽 oneOf 隐藏它。
 
-## 5. 命名
+## 命名、版本与新鲜度
 
-顺序：path override（钉稳定地点：SimulateCallResult / SimulateCallError /
-SimulateError{Revert,VM} / AuthorizationTuple / BlockTransactions）→
-title override（官方 title 映射：Receipt information→Receipt、Block object→Block、
-"feeHistoryResults"→FeeHistoryResult、Account proof→AccountProofResult 等）→
-`sanitizeTitle` + 冲突 uniqueName（`Result<n>` 兜底）。
+path override、title override 和稳定回退仅决定 Go 名称，不得改变标准语义。路径保留 composition kind 与原始 index；不保留旧合成路径兼容别名。语义 fingerprint 排除 title/description，但包含约束、nullable、composition 与子值语义。
 
-**未经官方 title 的 schema（如 authorization tuple item）**：path override 钉名。
-所有 override 使用报告（`visited`）标注；path 从 pinned bundle 消失即 `unused
-override` 注释进入生成日志（audit trail）。
+生成时要求两个 bundle 的版本与 `spec.Version()` 一致；生成文件在包初始化时检查版本。这是生成期检查和运行时 init guard，不是编译期校验，也不可能由测试函数抢先于 init 执行。
 
-union 的 branch 字段名来自 branch title（`Signed 7702 Transaction`→
-`Signed7702Transaction`）；无 title 的 fallback 采用分支自身类型名
-（`SimulateErrorRevert` 等）。
+CI 将生成结果写入临时文件并与已提交产物比较，防止同版本 schema/生成器修改后忘记重生成。版本字面量测试、源码片段或函数数量测试不能代替这一门禁。
 
-## 6. 方法的 root shims
+## 验证层次
 
-每个官方 result 生成 `New<MethodCamel>Result(raw)`：
+1. **官方 schema conformance**：固定版本 `.io` request/response 对按官方 result schema 离线验证。
+2. **生成行为**：官方成功结果经对应生成入口解析、编码；验证标准字段内容保留、输出 schema、再次解析编码的幂等和 nullable 语义。
+3. **受保护字节 parity**：logs、receipt、accessList、feeHistory 与现有 encoder 比较。每侧分别必须成功，不允许双方拒绝后当作成功。receipt 仅在 parity 比较中显式应用既有 nullable-null 投影；未投影的生成输出另外受官方形态与内容保留检查。
+4. **独立负例**：optional const/pattern、错误 JSON 类型、非 nullable null、HexByte 语法、官方 Number 的精确边界、项目 Ratio 的精度/尾随、unsupported schema。预期不由另一套共享实现决定。
 
-- 非 nullable object/union root：直接复用 `New<X>`，不额外生成 shim。
-- nullable object/union root（Not Found 语义）：`*T` shim；JSON null → nil。
-- （nullable）array root：`[]T` shim + `emitArrayInto` 循环；null → nil。
-- root override（`eth_getLogs` 钉 `oneOf[1]`）：项目 canonical 只接受 logs 数组，
-  官方的 array-of-hashes 分支不进 shim。
+`.io` 只使用 `conformance.ParseVector` 的一份解析器：按出现顺序配对每条 request/response，身份为完整路径与交互序号，结构化匹配 method，明确区分 error、null、缺失 result。它不是按 JSON-RPC ID 重排的网络路由器。
 
-24 个方法的 root shim 齐备（`getBlockByHash`、`getTransactionByHash` 走 nullable
-union/object 形态）；请求参数的准入语义仍由项目 methods 层负责，生成层只做
-result decode/encode。
+block/transaction 的生成向量 round-trip 与 protected parity 分开；生产方法仍保留原有 geth/对象路径。simulate bundle 没有 pinned 官方 `.io`，使用独立正反 fixture 与输出 schema 检验，不能宣称官方向量覆盖。
 
-## 7. parity 测试覆盖
+## 修改与迁移流程
 
-- `rpc/internal/wire/types_parity_test.go`：对官方 `.io` vectors 中携带受保护
-  金标的 4 个方法（eth_getLogs、eth_getTransactionReceipt、eth_createAccessList、
-  eth_feeHistory），生成层 parse+marshal 与手写编码器字节对比；null receipt 额外
-  断言 shim 的 nil 语义。
-- `rpc/internal/wire/types_simulate_test.go`：SimulateV1 tagged union 的
-  fixture（failure / VM error / success / branchless reject），canonical 输入
-  的 parse→marshal round trip 必须逐字节还原。
-- `rpc/internal/wire/version_interlock_test.go`：把版本 interlock 钉在公开表面
-  （`spec.Version()`），bundle 漂移时在这里先给出可读失败，早于生成文件 init
-  panic。
+1. 从固定 release 重建官方 schema；同步更新 VERSION 与所有 bundle，不根据 provider 观测改写定义。
+2. 修改生成模型/策略，明确新增形态的支持边界；不支持则报错。
+3. `go generate ./rpc/internal/wire`，连同生成文件审阅与提交。
+4. 运行生成器、wire、conformance 及受影响对象测试；CI 检查生成新鲜度。
+5. 同步本文及 `internal/spec/README.md`，不保留与现实现矛盾的覆盖声明。
 
-**覆盖边界**（记录避免误读）：block 族与 transaction 族（eth_getBlockByHash /
-ByNumber、eth_getTransactionByHash）的现有项目路径仍走 geth re-encode
-（`go-ethereum-compatibility-policy.md`）。这些方法的生成类型已产出并接受官方
-vectors 的 round-trip 验证，但**不构成字节 parity 输入**——项目还没有这些对象族
-的手写金标。等生成层成为 canonical（→§9 第 3 步）后，这里的 round-trip 覆盖
-升级为全方法 parity。
-
-## 8. SimulateV1 bundle 的例外
-
-eth_simulateV1 没有官方 conformance vectors（execution-apis 仓库无对应 .io），
-所以不走 `methods.list`，而是以 `internal/spec/simulatev1/simulate.json` 单方法
-bundle 纳入：`internal/spec/builder.BuildMethod` 从官方 beta.7 openrpc.json 的
-dereference 状态提取（2 个 params + result schema），版本与 `methods.json` 同钉
-v1.0.0-beta.7，经 `spec.SimulateV1JSON()` 供生成器读取。有效性由 §7 的 simulate
-round-trip fixtures 验证承担。
-
-## 9. 迁移路径
-
-本步只把**类型层**切换到标准定义；调用侧（`gethcompat/`、objects/*）尚未搬到
-生成类型之上。后续分三个子步骤：
-
-1. **objects 层之内**：金标已 parity 的 4 个编码器继续承担 canonical 编码，同时
-   作为渐进迁移的字节参考。
-2. **方法接入**：root shim 已覆盖的方法（block 族、simulate、receipts 等）从生成
-   层承担 parse/re-encode，`gethcompat` 按方法逐个退役。
-3. **全面切换**：46 个方法的响应类型全部来自生成层；go-ethereum 的 `types.*`
-   数据形态只在 `gethcompat` 边界出现，不再进入 canonical wire 域。
-
-每个子步以 §7 的 parity / round-trip 测试为检核：新接入的方法把_vectors 形态的
-round-trip 收进检核集，门槛随覆盖移动，而不是随配置放宽。
-
-## 10. 修改流程
-
-1. 修改官方 schema、生成器模型或 override 表。
-2. `cd rpc/internal/wire && go run ./gen -out types.gen.go`。
-3. `go build ./... && go test ./rpc/internal/wire/`：parity / round-trip 必须全绿。
-4. 若 bundle 版本变更：同步升级 `internal/spec` 的 VERSION、`methods.json`、
-   `simulatev1/simulate.json`；漂移两侧不一致时 `spec.Version()` interlock 直接
-   panic，编译期即可暴露。
-5. `types.gen.go` 必须进出仓（生成的文件就是 canonical 类型层）；提交时一并审阅
-   生成器的 stderr 告警：`unused override`（override 指到的路径从 pinned bundle
-   消失）与命名冲突改名的 uniqueName 报告。两类告警都是 reviewable diff。
-
+生产接入按方法独立推进：在对象/方法契约内替换数据载体，验证规范字节、受保护字段域和承诺检查不退化，再删除对应旧路径。不能把一次 root parse/re-encode 当作完整方法迁移。

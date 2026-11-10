@@ -64,6 +64,16 @@ jobs:
           fi
       - name: go mod tidy
         run: go mod tidy -diff
+      - name: generated wire freshness
+        run: |
+          generated="$(mktemp)"
+          trap 'rm -f "$generated"' EXIT
+          go run ./rpc/internal/wire/gen -out "$generated"
+          if ! cmp -s "$generated" rpc/internal/wire/types.gen.go; then
+            echo "::error::regenerate rpc/internal/wire/types.gen.go with go generate ./rpc/internal/wire"
+            diff -u rpc/internal/wire/types.gen.go "$generated"
+            exit 1
+          fi
       - name: go vet
         run: go vet ./...
 

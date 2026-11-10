@@ -37,10 +37,10 @@ func MarshalNoEscape(value any) (json.RawMessage, error) {
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-// IsJSONNull reports whether value is the protocol's null absence. Whitespace
-// around the token is not a different answer: " null " is null.
+// IsJSONNull reports whether value is the protocol's null absence. Only JSON
+// whitespace may surround the token; other whitespace is malformed JSON.
 func IsJSONNull(value json.RawMessage) bool {
-	return strings.TrimSpace(string(value)) == "null"
+	return bytes.Equal(bytes.Trim(value, " \t\r\n"), []byte("null"))
 }
 
 // PresentNonNull reports whether value carries a non-null JSON value. Absent

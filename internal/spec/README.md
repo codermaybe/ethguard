@@ -4,8 +4,8 @@
 
 本目录保存 ethguard 使用的以太坊执行层官方标准参考数据，来源是
 [`ethereum/execution-apis`](https://github.com/ethereum/execution-apis)
-的固定 release。它为可比较的 RPC 返回对象提供字段白名单；方法是否注册、哪些字段
-必须存在以及如何绑定请求，仍由 `rpc/methods` 中的人工方法契约决定。
+的固定 release。它提供可比较 RPC 返回对象的官方形态与约束，并为比较字段白名单
+和生成结果类型提供共同来源。额外必填规则、请求绑定和内容承诺仍由对象/方法契约决定。
 
 * `VERSION`：pin 住的标准 release（单源）。当前 `v1.0.0-beta.7`。
 * `methods.list`：项目主动纳入标准边界的方法名清单；它只选择方法，不定义结果
@@ -27,14 +27,19 @@
 ```text
 上游 YAML (ethereum/execution-apis @ VERSION)
    │  官方构建：tools/specgen -deref  →  openrpc.json (78 方法全消解, ~2.5MB)
-   │  verbatim 裁剪：取 23 个参考方法的 result.schema  →  methods.json (~100KB)
-   ▼
-go:embed 进二进制 → New() 时通用编译器建成内存 Mask Tree → 每请求 Prune 动态匹配
+   │  verbatim 裁剪：取 methods.list 中的 result.schema → methods.json
+   ├── go:embed → Mask Tree → 每请求 Prune 动态匹配
+   └── go generate ./rpc/internal/wire → types.gen.go → 官方结果解析与规范编码
 ```
 
-比较键只保留白名单字段；未知字段随胜出方的原始值走（并保留在 uncertain
-抓包里可观测）。**required 语义永远不在这里**：分叉/变体导致的字段缺失只能由
-各对象切片的手写门决定，mask 只做白名单。
+Mask 只负责白名单，不执行 required 检查。生成类型则执行官方 schema 的 required、
+值约束和 nullable；比标准形态更强的对象/方法准入规则不会因此被取代。官方类型保留
+显式 nullable 字段，受保护 Value 的额外投影由既有 encoder 负责，不能反过来裁剪 schema。
+
+数值类型及其约束也以 bundle 的 `type`、`pattern`、`const`、`minimum`、`maximum`
+为准。生成的 `wire.Number` 精确保留十进制值，不经 float64；受保护 encoder 的
+`CanonicalRatio` 政策不能反向收窄官方数值模型。生成边界与验证方法见
+`docs/design/wire-codegen.md`。
 
 ## 来源可复现（升级/审计用）
 
@@ -96,12 +101,16 @@ conformance 与 replay 已通过 → 用
 2. `rpc/methods/prune.go`：通用编译器 + 剪枝引擎，手写，可单测全覆盖。
 3. 向量 + R4 + 关键字段断言：可执行的一致性。
 4. `VERSION`：与 `methods.json` 内 `version` 的互锁由加载器强制（不一致直接报错）。
+5. `go generate ./rpc/internal/wire`：结果类型从同版本 bundle 生成；CI 在临时文件中
+   重新生成并与仓内产物比较。生成类型与官方向量的行为验证见
+   `docs/design/wire-codegen.md`，不能以双方拒绝有效输入充当 parity 通过。
 
 ## 有意不做的事（后续优化空间）
 
 * 不 vendor 完整 `openrpc.json`（2.5MB，无人可审；需要时按上面命令重建）。
-* 不生成 Go 文件进构建（零生成物，零新鲜度缺口；一致性靠结构而非流程保证）。
-* 不在运行时做 JSON-Schema 全量校验（热路径只跑白名单剪枝；`santhosh-tekuri`
-  系库仅为官方构建工具的依赖，不进本模块）。
+* 不手写第二套官方结果字段定义：`rpc/internal/wire/types.gen.go` 是固定 bundle 的
+  生成产物，随生成器一并审阅提交，CI 检查其新鲜度。
+* 不引入运行时 JSON-Schema 解释器。生成类型显式校验支持的标准形态；请求绑定、
+  受保护字段投影及内容承诺继续由对象/方法层承担。
 * `net_listening` / `net_peerCount` 无官方条目，暂由项目自己的方法契约覆盖；
   上游一旦收录，再评估是否迁入标准数据包。

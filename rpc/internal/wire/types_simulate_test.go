@@ -99,3 +99,66 @@ func TestSimulateCallResultRejectsBranchlessPayload(t *testing.T) {
 		t.Fatal("branchless payload must reject")
 	}
 }
+
+func TestSimulateCallErrorOfficialOptionalConstants(t *testing.T) {
+	// The VM branch has no required members; the revert branch requires code
+	// and message. Present members still must satisfy the selected branch.
+	for _, payload := range []string{
+		`{}`,
+		`{"code":-32015}`,
+		`{"message":"vm execution error"}`,
+		`{"code":3,"message":"execution reverted"}`,
+		`{"code":-32015,"message":"vm execution error: out of gas"}`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			value, err := wire.NewSimulateCallError(json.RawMessage(payload))
+			if err != nil {
+				t.Fatalf("official optional-constant shape rejected: %v", err)
+			}
+			out, err := wire.MarshalNoEscape(value)
+			if err != nil || string(out) != payload {
+				t.Fatalf("optional constants changed: got %s (%v), want %s", out, err, payload)
+			}
+		})
+	}
+}
+
+func TestSimulateCallErrorRejectsInvalidConstantsAndShapes(t *testing.T) {
+	for _, payload := range []string{
+		`{"code":7}`,
+		`{"code":3}`,
+		`{"code":3,"message":"wrong"}`,
+		`{"code":-32015,"message":"wrong"}`,
+		`{"code":3,"message":"vm execution error"}`,
+		`{"code":-32015,"message":"execution reverted"}`,
+		`null`,
+		`[]`,
+		`3`,
+		`"execution reverted"`,
+		`true`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			if _, err := wire.NewSimulateCallError(json.RawMessage(payload)); err == nil {
+				t.Fatalf("invalid simulate error admitted: %s", payload)
+			}
+		})
+	}
+}
+
+func TestSimulateErrorVMOptionalPropertiesStillConstrainPresentValues(t *testing.T) {
+	for _, raw := range []string{`{}`, `{"code":-32015}`} {
+		value, err := wire.NewSimulateErrorVM(json.RawMessage(raw))
+		if err != nil {
+			t.Fatalf("valid optional VM properties rejected: %s: %v", raw, err)
+		}
+		out, err := wire.MarshalNoEscape(value)
+		if err != nil || string(out) != raw {
+			t.Fatalf("VM optional properties changed: got %s (%v), want %s", out, err, raw)
+		}
+	}
+	for _, raw := range []string{`{"code":3}`, `{"code":-32015,"message":"not a VM error"}`, `null`, `[]`, `true`} {
+		if _, err := wire.NewSimulateErrorVM(json.RawMessage(raw)); err == nil {
+			t.Errorf("VM optional constraint ignored: %s", raw)
+		}
+	}
+}

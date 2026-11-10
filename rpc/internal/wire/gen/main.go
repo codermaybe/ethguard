@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
-	"strings"
 
 	"github.com/codermaybe/ethguard/internal/spec"
 )
@@ -17,7 +15,7 @@ func main() {
 	out := flag.String("out", "types.gen.go", "output file (relative to the generator's working directory)")
 	flag.Parse()
 
-	report := &genReport{visited: map[string]bool{}, patternVars: map[string]string{}}
+	report := &genReport{visited: map[string]bool{}}
 	reg := newRegistry(report)
 
 	// Method result bundle (23 methods) + the single-method simulate bundle.
@@ -61,17 +59,6 @@ func main() {
 			fail("spec: %s: %v", name, err)
 		}
 		path := name + ".result"
-		override, hasOverride := rootOverrides[name]
-		if hasOverride {
-			node, err = selectBranch(node, override)
-			if err != nil {
-				fail("spec: %s: %v", name, err)
-			}
-			path += "." + override
-		}
-		if hasOverride {
-			report.visited[path] = true
-		}
 		rootRef, err := reg.walk(node, path)
 		if err != nil {
 			fail("spec: %s: %v", name, err)
@@ -94,30 +81,6 @@ func main() {
 			fmt.Fprintf(os.Stderr, "gen: warning: override %q -> %q unused\n", path, name)
 		}
 	}
-}
-
-// selectBranch resolves a "oneOf[i]" root override against a parsed schema.
-func selectBranch(node *schema, selector string) (*schema, error) {
-	composition := selector
-	i := strings.LastIndexByte(selector, '[')
-	if i < 0 || !strings.HasPrefix(selector, "oneOf") {
-		return nil, fmt.Errorf("root override %q must look like oneOf[i]", selector)
-	}
-	composition = selector[:i]
-	index, err := strconv.Atoi(strings.TrimSuffix(selector[i+1:], "]"))
-	if err != nil {
-		return nil, fmt.Errorf("root override %q: %v", selector, err)
-	}
-	if composition != "oneOf" && composition != "anyOf" {
-		return nil, fmt.Errorf("root override %q: unsupported composition", selector)
-	}
-	if node.typeVal == "object" && len(node.properties) > 0 {
-		return nil, fmt.Errorf("root override %q: node is an object, override expects a composition", selector)
-	}
-	if len(node.branches) <= index || index < 0 {
-		return nil, fmt.Errorf("root override %q: branch out of range", selector)
-	}
-	return node.branches[index], nil
 }
 
 func fail(format string, args ...any) {

@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -54,18 +55,96 @@ func TestValidateSchemaChecksRequiredPatternAndUnknownFields(t *testing.T) {
 	}
 }
 
-func TestParseVectorRequiresRequestAndResponse(t *testing.T) {
-	fsys := fstest.MapFS{"sample.io": &fstest.MapFile{Data: []byte("// comment\n>> {\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"x\"}\n<< {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}\n")}}
-	vectors, err := parseVector(fsys, "sample.io")
+func TestParseVectorPairsEveryRequestAndResponseInOrder(t *testing.T) {
+	const path = "nested/sample.io"
+	data := "// comments do not identify a method\n" +
+		"  >>  {\"method\" : \"eth_getBlockByNumber\", \"id\":9}\n" +
+		">>\t{\"method\":\"eth_getBlockByNumberExtra\",\"id\":1}\n" +
+		"<< {\"id\":1, \"result\":null}\n" +
+		" <<\t{\"id\":9,\"error\":{\"code\":-1,\"message\":\"failure\"}}\n" +
+		">>{\"method\":\"eth_getTransactionByHash\"}\n" +
+		"<< {\"result\":{\"value\":1}}\n"
+	fsys := fstest.MapFS{path: &fstest.MapFile{Data: []byte(data)}}
+	vectors, err := ParseVector(fsys, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(vectors) != 1 {
-		t.Fatalf("parsed vectors = %#v", vectors)
+	if len(vectors) != 3 {
+		t.Fatalf("parsed %d pairs, want 3", len(vectors))
 	}
-	vector := vectors[0]
-	if vector.Method != "x" || string(vector.Result) != "null" {
-		t.Fatalf("parsed vector = %#v", vector)
+	methods := []string{"eth_getBlockByNumber", "eth_getBlockByNumberExtra", "eth_getTransactionByHash"}
+	identities := []string{"nested/sample.io[0]", "nested/sample.io[1]", "nested/sample.io[2]"}
+	for i, vector := range vectors {
+		if vector.Path != path || vector.Index != i || vector.Identity() != identities[i] || vector.Method != methods[i] {
+			t.Fatalf("pair %d identity/method = %#v", i, vector)
+		}
+		var request map[string]any
+		if err := json.Unmarshal(vector.Request, &request); err != nil || request["method"] != methods[i] {
+			t.Fatalf("pair %d lost request: %s (%v)", i, vector.Request, err)
+		}
+	}
+	if string(vectors[0].Result) != "null" || vectors[0].Error != nil {
+		t.Fatalf("null result must remain present: %#v", vectors[0])
+	}
+	if vectors[1].Result != nil || string(vectors[1].Error) != `{"code":-1,"message":"failure"}` {
+		t.Fatalf("error response must not become a null result: %#v", vectors[1])
+	}
+	if string(vectors[2].Result) != `{"value":1}` || vectors[2].Error != nil {
+		t.Fatalf("third response lost: %#v", vectors[2])
+	}
+}
+
+func TestParseVectorRejectsMalformedFiles(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{"empty", "// no pairs\n", "at least one request and response"},
+		{"request only", ">> {\"method\":\"x\"}\n", "at least one request and response"},
+		{"count", ">> {\"method\":\"x\"}\n>> {\"method\":\"y\"}\n<< {\"result\":0}\n", "count mismatch: 2/1"},
+		{"request JSON", ">> {\n<< {\"result\":0}\n", "sample.io[0]: request JSON"},
+		{"response JSON", ">> {\"method\":\"x\"}\n<< {\n", "sample.io[0]: response JSON"},
+		{"method missing", ">> {}\n<< {\"result\":null}\n", "sample.io[0]: request has no method"},
+		{"result missing", ">> {\"method\":\"x\"}\n<< {\"id\":1}\n", "sample.io[0]: response has neither result nor error"},
+		{"ambiguous response", ">> {\"method\":\"x\"}\n<< {\"result\":null,\"error\":{}}\n", "sample.io[0]: response has both result and error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fsys := fstest.MapFS{"sample.io": &fstest.MapFile{Data: []byte(tc.data)}}
+			if _, err := ParseVector(fsys, "sample.io"); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ParseVector error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunUsesExactMethodsAndPairIdentities(t *testing.T) {
+	bundle := []byte(`{"version":"test","results":{"eth_x":{"type":"string"},"eth_nullable":{"type":"null"}}}`)
+	fsys := fstest.MapFS{
+		"a/same.io": &fstest.MapFile{Data: []byte(">> {\"method\" : \"eth_x\"}\n>> {\"method\":\"eth_xExtra\"}\n>> {\"method\":\"eth_nullable\"}\n<< {\"result\":1}\n<< {\"result\":\"uncovered\"}\n<< {\"result\":null}\n")},
+		"b/same.io": &fstest.MapFile{Data: []byte(">> {\"method\":\"eth_x\"}\n<< {\"error\":{\"code\":-1}}\n")},
+	}
+	report := Run(fsys, bundle, "test")
+	if report.TotalVectors != 4 || report.ValidatedResult != 1 || report.ErrorResponses != 1 {
+		t.Fatalf("incorrect pair accounting: %#v", report)
+	}
+	if len(report.Uncovered) != 1 || report.Uncovered[0] != "eth_xExtra" {
+		t.Fatalf("method prefix was mistaken for exact match: %#v", report.Uncovered)
+	}
+	if len(report.Issues) != 1 || report.Issues[0].Path != "a/same.io[0]" || report.Issues[0].Method != "eth_x" {
+		t.Fatalf("issue lost complete pair identity: %#v", report.Issues)
+	}
+}
+
+func TestValidateResultRejectsInvalidOrTrailingJSON(t *testing.T) {
+	schema := map[string]any{"type": "string"}
+	for _, raw := range []string{`1`, `"valid" null`, `"unterminated`} {
+		if err := ValidateResult(schema, json.RawMessage(raw)); err == nil {
+			t.Fatalf("invalid result accepted: %s", raw)
+		}
+	}
+	if err := ValidateResult(schema, json.RawMessage(`"valid"`)); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -115,5 +194,88 @@ func TestValidateMigrationRejectsMissingReplayEvidence(t *testing.T) {
 	manifest := []byte(`{"beforeVersion":"old","afterVersion":"new","conformancePassed":true,"changes":[{"method":"eth_x","path":"$","kind":"changed"}]}`)
 	if err := ValidateMigration(diff, manifest); err == nil || !strings.Contains(err.Error(), "replayPassed") {
 		t.Fatalf("missing replay evidence accepted: %v", err)
+	}
+}
+
+func TestValidateResultDistinguishesOneOfAndAnyOfOverlap(t *testing.T) {
+	branches := []any{
+		map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+	}
+	for _, tc := range []struct {
+		composition string
+		valid       bool
+	}{
+		{"oneOf", false},
+		{"anyOf", true},
+	} {
+		t.Run(tc.composition, func(t *testing.T) {
+			schema := map[string]any{tc.composition: branches}
+			err := ValidateResult(schema, json.RawMessage(`[]`))
+			if (err == nil) != tc.valid {
+				t.Fatalf("overlapping empty array: valid=%v, error=%v", tc.valid, err)
+			}
+			if err := ValidateResult(schema, json.RawMessage(`["hash"]`)); err != nil {
+				t.Fatalf("single matching branch rejected: %v", err)
+			}
+			if err := ValidateResult(schema, json.RawMessage(`[false]`)); err == nil {
+				t.Fatal("zero matching branches admitted")
+			}
+		})
+	}
+}
+
+func TestValidateResultUsesExactDecimalBounds(t *testing.T) {
+	schema := map[string]any{"type": "number", "minimum": json.Number("0"), "maximum": json.Number("1")}
+	for _, raw := range []string{
+		"0.30000000000000001",
+		"0.99999999999999999999",
+		"1e-999999999999999999999999999999999999",
+		"0e999999999999999999999999999999999999",
+		"-0",
+	} {
+		if err := ValidateResult(schema, json.RawMessage(raw)); err != nil {
+			t.Errorf("exact in-range number rejected: %s: %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		"1.00000000000000000001",
+		"-0.00000000000000000001",
+		"1e999999999999999999999999999999999999",
+		"-1e-999999999999999999999999999999999999",
+	} {
+		if err := ValidateResult(schema, json.RawMessage(raw)); err == nil {
+			t.Errorf("out-of-range number rounded into bounds: %s", raw)
+		}
+	}
+}
+
+func TestValidateResultUsesExactIntegerAndConstSemantics(t *testing.T) {
+	integer := map[string]any{"type": "integer"}
+	for _, raw := range []string{"1.0", "100e-2", "1e999999999999999999999999999999999999", "-0.0"} {
+		if err := ValidateResult(integer, json.RawMessage(raw)); err != nil {
+			t.Errorf("mathematical integer rejected: %s: %v", raw, err)
+		}
+	}
+	for _, raw := range []string{"1.00000000000000000001", "1e-999999999999999999999999999999999999"} {
+		if err := ValidateResult(integer, json.RawMessage(raw)); err == nil {
+			t.Errorf("fraction rounded to integer: %s", raw)
+		}
+	}
+	constant := map[string]any{"const": json.Number("3")}
+	if err := ValidateResult(constant, json.RawMessage("3e0")); err != nil {
+		t.Fatalf("equivalent decimal const rejected: %v", err)
+	}
+	if err := ValidateResult(constant, json.RawMessage("3.00000000000000000001")); err == nil {
+		t.Fatal("unequal decimal rounded to const")
+	}
+}
+
+func TestRunPreservesExactNumericSchemaBounds(t *testing.T) {
+	bundle := []byte(`{"version":"exact","results":{"x":{"type":"number","maximum":0.30000000000000001}}}`)
+	fsys := fstest.MapFS{"number.io": &fstest.MapFile{Data: []byte(">> {\"method\":\"x\"}\n<< {\"result\":0.30000000000000002}\n")}}
+	report := Run(fsys, bundle, "exact")
+	if len(report.Issues) != 1 || report.Issues[0].Path != "number.io[0]" || !strings.Contains(report.Issues[0].Detail, "above maximum") {
+		t.Fatalf("bundle bound lost precision: %#v", report)
 	}
 }

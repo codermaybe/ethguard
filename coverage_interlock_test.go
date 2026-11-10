@@ -32,7 +32,6 @@ var zeroDirectTestAllowlist = map[string]string{
 	"github.com/codermaybe/ethguard/internal/spec":                 "data-only embed accessor; validated by spec/builder and spec/conformance",
 	"github.com/codermaybe/ethguard/rpc/internal/objects/coverage": "table coverage; enforced by the methods inventory interlock",
 	"github.com/codermaybe/ethguard/rpc/internal/policy":           "shared admission decorator exercised through methods admission tests",
-	"github.com/codermaybe/ethguard/rpc/internal/wire/gen":         "code generator; output types.gen.go carries a version interlock and is validated by the wire package tests",
 }
 
 // TestPackageTestInventoryInterlock keeps the zero-direct-test set in sync
