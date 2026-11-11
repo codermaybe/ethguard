@@ -125,6 +125,8 @@ surface remains evidence-backed.
 
 无特殊修正规则是多数方法的默认裁决：P3 全部标量方法直接复用 wire codec，不新增修正 switch；是否需要修正只在 P4—P6 按对象族逐一裁决并记录。
 
+P7 全量门禁（2026-11-12，迁移完成后）：`gofmt -l`、`go vet ./...`、`go test ./... -count=1`、`go test ./... -race -count=1`、`go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild'`、`go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on`、Anvil 事务生命周期（`-tags=anvil`，固定 1.7.1）全部通过。全部 26 个注册读方法、写入条目与显式 unsupported 条目已自治；`spec_inventory.go`／`catalog.go` 仅收集定义函数，集中名称表已退役。未新增公网 provider 观察；离线与本地 Anvil 证据按上文边界记录。
+
 P5 内嵌交易评估结论（2026-11-12）：`objects/block` 的 `encodeTransactions` 对完整内嵌交易只做 go-ethereum `types.Transaction` 往返与块级绑定，不复制独立 query 的官方 schema 分支解码、pending 派生或生成器补丁；内嵌交易必有块上下文，其保护域由块 admission（uncle root、头绑定）覆盖。两套语义各自明确，无需接入；若未来需要统一另交独立提交。
 
 ## go-ethereum v1.17.10 官方 ethclient 方法

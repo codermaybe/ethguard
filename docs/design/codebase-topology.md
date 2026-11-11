@@ -30,7 +30,7 @@
 
 `transaction_by_hash.go` 与 `transaction_in_block.go` 是当前两个样板：每个文件拥有自己的 RPC 名称、公开业务接口映射、现有 MethodSpec／只读 MethodDescriptor，以及方法特定的准备、完整 key 修正规则与请求绑定。公开 Go 签名仍在 root／EthClient；一个底层 RPC 策略可服务多个公开入口，不为目录整齐复制策略。
 
-`spec_inventory.go` 与 catalog 对这两个方法只收集其所属文件给出的定义，不再次展开配置。其他方法暂未迁移，不因此整体改名或新增注册框架。方法之间不得调用对方的准备／修正函数；共用对象校验和编码直接依赖 `rpc/internal/objects/transaction`，通用 codec 依赖 wire。按方法的白盒测试随同名文件，跨方法输出一致性与公开路径测试仍按既有验证 owner 保留。
+`spec_inventory.go` 与 catalog 对全部方法只收集其所属文件给出的定义，不再次展开配置；集中方法名称表已退役，每个 RPC 拼写由其方法文件唯一声明。方法之间不得调用对方的准备／修正函数；共用对象校验和编码直接依赖 `rpc/internal/objects/transaction`，通用 codec 依赖 wire。按方法的白盒测试随同名文件，跨方法输出一致性与公开路径测试仍按既有验证 owner 保留。
 
 本样板只调整知识归属、名称和引用，不增删公开接口、方法集合或兼容规则，不改变 quorum、保护域或证据合同。历史扩展条目另行评审，不借组织整理移除能力。
 
