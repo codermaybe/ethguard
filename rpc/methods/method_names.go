@@ -11,14 +11,6 @@ const MethodCall = "eth_call"
 // EstimateGasPolicy.
 const MethodEstimateGas = "eth_estimateGas"
 
-// MethodGetBlockByHash is the JSON-RPC method name resolved by
-// BlockByHashPolicy.
-const MethodGetBlockByHash = "eth_getBlockByHash"
-
-// MethodGetBlockByNumber is the JSON-RPC method name resolved by
-// BlockByNumberPolicy.
-const MethodGetBlockByNumber = "eth_getBlockByNumber"
-
 // MethodSendRawTransaction is the write-side JSON-RPC method. It has no
 // Policy in the read registry: the write pipeline owns its collection and
 // adjudication (pool.Broadcast + relative-trust resolution), not the

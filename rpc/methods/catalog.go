@@ -104,8 +104,8 @@ func ValidatePlanCoverage(plans map[string]rpc.ReadPlan) error {
 
 var methodCatalog = []MethodDescriptor{
 	chainIDDescriptor(),
-	{Name: MethodGetBlockByHash, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "BlockByHash", Alignment: "v1.17.10"},
-	{Name: MethodGetBlockByNumber, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "BlockByNumber", Alignment: "v1.17.10"},
+	getBlockByHashDescriptor(),
+	getBlockByNumberDescriptor(),
 	getBalanceDescriptor(),
 	getTransactionReceiptDescriptor(),
 	transactionByHashDescriptor(),

@@ -1,24 +1,9 @@
 package methods
 
 import (
-	"context"
-	"encoding/json"
-
 	"github.com/codermaybe/ethguard/rpc"
-	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
-
-// The spec inventory reuses each method's own admission hooks. The block
-// methods bind their identity explicitly so plan and compatibility admission
-// cannot drift through request-method inference.
-func admitBlockByHashResponse(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
-	return admitBlockResponse(ctx, req, value, true, call)
-}
-
-func admitBlockByNumberResponse(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
-	return admitBlockResponse(ctx, req, value, false, call)
-}
 
 // Specs is the frozen MethodSpec inventory: one entry per Registered read
 // method, each declaring resolver, value domain, reference need, pending
@@ -28,28 +13,8 @@ func admitBlockByNumberResponse(ctx context.Context, req rpc.Request, value json
 func Specs() []MethodSpec {
 	return []MethodSpec{
 		chainIDSpec(),
-		{
-			Method:                 MethodGetBlockByHash,
-			Resolver:               ResolverBlock,
-			ByHash:                 true,
-			Normalize:              normalizeBlockIdentity,
-			Encode:                 blockobject.Encode,
-			KeySource:              rpc.RuleKeyNormalizer,
-			CompareKind:            rpc.RuleCompareMethodSpecific,
-			Admit:                  admitBlockByHashResponse,
-			ObservationProjectorID: ProjectorBlock,
-		},
-		{
-			Method:                 MethodGetBlockByNumber,
-			Resolver:               ResolverBlock,
-			Normalize:              normalizeBlockIdentity,
-			Encode:                 blockobject.EncodeByNumber,
-			KeySource:              rpc.RuleKeyNormalizer,
-			CompareKind:            rpc.RuleCompareMethodSpecific,
-			Pending:                PendingSpec{Mode: PendingObserve, Pos: 0},
-			Admit:                  admitBlockByNumberResponse,
-			ObservationProjectorID: ProjectorBlock,
-		},
+		getBlockByHashSpec(),
+		getBlockByNumberSpec(),
 		getBalanceSpec(),
 		getTransactionReceiptSpec(),
 		transactionByHashSpec(),

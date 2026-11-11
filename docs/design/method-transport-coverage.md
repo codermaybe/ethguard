@@ -125,6 +125,8 @@ surface remains evidence-backed.
 
 无特殊修正规则是多数方法的默认裁决：P3 全部标量方法直接复用 wire codec，不新增修正 switch；是否需要修正只在 P4—P6 按对象族逐一裁决并记录。
 
+P5 内嵌交易评估结论（2026-11-12）：`objects/block` 的 `encodeTransactions` 对完整内嵌交易只做 go-ethereum `types.Transaction` 往返与块级绑定，不复制独立 query 的官方 schema 分支解码、pending 派生或生成器补丁；内嵌交易必有块上下文，其保护域由块 admission（uncle root、头绑定）覆盖。两套语义各自明确，无需接入；若未来需要统一另交独立提交。
+
 ## go-ethereum v1.17.10 官方 ethclient 方法
 
 下面列出锁定版本 `ethclient.Client` 的公开方法。当前 `EthClient` 暴露 46
