@@ -224,7 +224,7 @@ for key in 已有官方字段与本方法明确的缺失派生 key 的去重集�
 
 首个实施批次只闭合两个独立 transaction 方法及其必要基础路径，按用户要求收束供实现形态与规则审阅。后续双 switch 收敛及迁移方向已确认，推进方向见 [路线图](project-roadmap.md)；整理已有成果不表示继续推进内嵌交易、其他方法或新 provider 方言。
 
-版本保存边界：本次只提交设计与验收记录，相关 Go 实现、测试、生成产物、采集计划和 fixture 留在本地工作区，未随文档提交。下述实现与运行结果描述的是该工作区检查点，不能把文档提交的 SHA 当作已包含实现或已通过相同验证的源码身份。
+版本保存边界：2026-11-11 的文档提交仅保存设计与验收记录，当时实现仍在工作区。2026-11-12 已将既有 Go 实现、测试、生成物、采集入口及 fixture 按责任分批提交，源码归档基线为 `a5d9993`；具体提交及本轮验证见下文。不能把早先文档提交的 SHA 当作包含实现的源码身份。双 switch 收敛、全量方法迁移及未覆盖兼容规则尚未实施。
 
 ### 规则与实现入口
 
@@ -242,14 +242,24 @@ for key in 已有官方字段与本方法明确的缺失派生 key 的去重集�
 - 实际执行固定 Anvil 1.7.1 生命周期，单个本地来源上的 HTTP／raw WSS 与 Root／EthClient 共 88 条消费断言通过；覆盖 pending → mined、snapshot/revert 后可见性核对及重启恢复隔离。成功完整运行记录位于 `/tmp/ethguard-anvil-controller-03/transaction-lifecycle.json`，两个 transport 不是两个独立 provider。
 - 主控执行生成器到临时文件并逐字比较，通过；公开 facade、integration、离线 replay、官方 conformance、投影和 transaction 专项通过。健康最终记账及调度有专项和 race 回归，不规范回答与合法异见分开归因。
 - `go test ./...` 仍非全绿：仅剩开工基线已复现的 `TestMethodContractsForbiddenClaims` 和 `TestRuntimeEvidenceDocsForbiddenClaims` 两项文档互锁失败，分别要求 method-contracts 的测试链接和 roadmap 的固定措辞。本批次未删除测试或扩展修复；它们不能被解释为运行时回归，也不能据此宣称完整发布门禁已通过。
-- 新公网采集、其他交易类型的真实状态生命周期、内嵌交易接入和全方法兼容尚未完成。本地测试通过不表示所有 RPC 方言都已支持；后续由用户审阅此检查点后决定。
+- 新公网采集、其他交易类型的真实状态生命周期、内嵌交易接入和全方法兼容尚未完成。本地测试通过不表示所有 RPC 方言都已支持；后续按路线图与实际证据缺口分批推进。
 
 上述测试结果是实施检查点的日期化记录。后续文档整理补齐 method-contracts 的既有测试引用及 roadmap 的证据定义；文档门禁是否通过以该次实际检查为准，不改写这里的历史运行结果，也不据此宣称全库测试已通过。
+
+### 迁移前归档基线（2026-11-12）
+
+既有实现分批归档为：`fa08c12`（SyncProgress 保真）、`53ca5ce`（wire 保真与 receipt 合同）、`7d9d0de`（校验后健康记账）、`3da2742`（独立 transaction 规范化、定点生成修正和组织样板）、`1a229af`（采集工具）、`a5d9993`（固定 Anvil 验证入口）。这次保存没有开始新的方法迁移或双 switch 行为调整。
+
+- 本轮完整源码的 `go test ./...`、`go test -race ./... -count=1` 与 `go vet ./...` 通过。此前两项文档互锁缺口已补齐并实际复核，不再作为当前已知失败保留；完整发布流程与公网观察仍未执行。
+- 分批提交前从暂存区导出隔离副本验证。receipt 批次中混入的 transaction 新行为测试仅在 index 中拆分，完整工作文件不变；对应集成复核通过。transaction 暂存快照全库测试、健康批次 race、SyncProgress 与采集工具专项均通过。
+- 生成器输出至临时文件后与已提交 `types.gen.go` 逐字一致；官方原始 bundle 未更改。Go 格式和 diff 空白检查通过。
+- 从 Anvil 批次暂存快照实际执行 `go test -tags=anvil ./internal/verification/anvil -run '^TestTransactionLifecycle$' -count=1 -v`，固定 Anvil 1.7.1 的 88 条消费断言通过。单个本地来源覆盖 HTTP／raw WSS、Root／EthClient、pending → mined、snapshot/revert 后可见性与重启隔离；两种 transport 仍不算独立 provider。
+- 本次本地运行产物为 `/tmp/ethguard-baseline-20261112-anvil-01/transaction-lifecycle.json`，仅作日期化运行记录；可重跑入口与最小 pending 原始样例已纳入源码。未新增公网 provider 捕获，临时施工计划及第三方原文不纳入 Git，也不成为正式文档依赖。
 
 ## 13. 两方法的目录组织样板
 
 按 [topology](codebase-topology.md#方法自治组织样板) 只对两个方法做自治组织：名称、公开接口映射、现有 MethodSpec、私有准备及 key 修正都在本方法文件；`Specs()`／catalog 对两项仅调用定义函数。共享完整对象校验与编码仍在对象层，不通过另一个正式方法文件复用。
 
-原 `eth_gettransactionbyhash.go`／`eth_gettransactionbyblockhashandindex.go` 分别归并为 `transaction_by_hash.go`／`transaction_in_block.go`。私有符号用 gopls 语义重命名更新引用，公开常量名称和方法集合不变。临时 review 命名的回归测试归并为同名方法测试；跨方法编码检查保留独立测试文件。不批量迁移其他方法，不新增兼容规则或公共配置，组织调整与前述实现仍留工作区待审阅，未自动提交。
+原 `eth_gettransactionbyhash.go`／`eth_gettransactionbyblockhashandindex.go` 分别归并为 `transaction_by_hash.go`／`transaction_in_block.go`。私有符号用 gopls 语义重命名更新引用，公开常量名称和方法集合不变。临时 review 命名的回归测试归并为同名方法测试；跨方法编码检查保留独立测试文件。该组织样板与既有实现已于 2026-11-12 经用户授权分批提交；未批量迁移其他方法，未借归档新增兼容规则或公共配置。
 
 已确认的扩散前调整包括 Encode 命名及校验覆盖核查、规范化职责收敛、timestamp 单次处理和外层 key／内层状态结构；in-block 当前无额外兼容规则，不强行复制 by-hash。上述为待实施项，不能从本次文档保存推断代码已完成对应调整。

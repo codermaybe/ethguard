@@ -2919,9 +2919,9 @@ repository-wide or race gate was run for this bounded change.
 
 ## 0069. Autonomous method definitions and whole-key state branches
 
-Status: Accepted design (2026-11-11). Two transaction methods have an
-uncommitted organization pilot; the switch refinement and full migration are
-planned, not implemented by this documentation update. Refines the per-method
+Status: Accepted design (2026-11-11). The two-method organization pilot and
+preceding runtime slice were archived in separate commits on 2026-11-12;
+the switch refinement and full migration remain planned. Refines the per-method
 ownership direction in 0005; its historical facade/file layout is not revived.
 
 Each formal method owns its RPC name, public business mapping, existing
