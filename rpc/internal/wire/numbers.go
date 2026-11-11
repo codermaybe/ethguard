@@ -111,15 +111,15 @@ func sameSignificand(a, b string) bool {
 }
 
 // CanonicalHexByte admits the official byte-shaped family (type, v, yParity):
-// 0x with 1-2 hex digits. It returns the canonical QUANTITY spelling, so
-// 0x4, 0x04, and the lowercase form of 0x4A all ship as the same canonical
-// bytes.
+// 0x with 1-2 hex digits, accepting the compatibility spelling 0X on input.
+// It returns the canonical QUANTITY spelling, so 0x4, 0x04, and the
+// lowercase form of 0x4A all ship as the same canonical bytes.
 func CanonicalHexByte(value json.RawMessage) (string, error) {
 	var text string
 	if err := json.Unmarshal(value, &text); err != nil {
 		return "", fmt.Errorf("hex byte: expected a string")
 	}
-	if !strings.HasPrefix(text, "0x") {
+	if len(text) < 2 || !strings.EqualFold(text[:2], "0x") {
 		return "", fmt.Errorf("hex byte: expected 0x plus 1-2 hex digits")
 	}
 	digits := text[2:]

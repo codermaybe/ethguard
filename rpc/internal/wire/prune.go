@@ -1,8 +1,10 @@
 package wire
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 
@@ -49,10 +51,8 @@ func Prune(data any, mask *MaskNode) any {
 		}
 		cleaned := make(map[string]any, len(mask.Properties))
 		for allowedKey, childMask := range mask.Properties {
-			if val, exists := v[allowedKey]; exists {
-				if prunedVal := Prune(val, childMask); prunedVal != nil {
-					cleaned[allowedKey] = prunedVal
-				}
+			if val, exists := v[allowedKey]; exists && childMask != nil {
+				cleaned[allowedKey] = Prune(val, childMask)
 			}
 		}
 		return cleaned
@@ -61,11 +61,9 @@ func Prune(data any, mask *MaskNode) any {
 		if mask.Items == nil {
 			return v
 		}
-		cleanedArr := make([]any, 0, len(v))
-		for _, item := range v {
-			if prunedItem := Prune(item, mask.Items); prunedItem != nil {
-				cleanedArr = append(cleanedArr, prunedItem)
-			}
+		cleanedArr := make([]any, len(v))
+		for index, item := range v {
+			cleanedArr[index] = Prune(item, mask.Items)
 		}
 		return cleanedArr
 
@@ -248,8 +246,17 @@ func PruneMethod(method string, raw json.RawMessage) (string, error) {
 		return "", fmt.Errorf("%w: no spec mask for method %q", rpc.ErrInvalidRequest, method)
 	}
 	var data any
-	if err := json.Unmarshal(raw, &data); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&data); err != nil {
 		return "", err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("prune method: multiple JSON values")
 	}
 	pruned := Prune(data, mask)
 	CanonicalizeHex(&pruned)

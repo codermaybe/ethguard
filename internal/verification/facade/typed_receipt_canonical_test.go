@@ -149,11 +149,11 @@ func TestCanonicalReceiptRemovedCannotDefaultFromNull(t *testing.T) {
 				}
 				return
 			}
-			if !errors.Is(err, rpc.ErrNoValidResponse) {
+			if !errors.Is(err, rpc.ErrMalformedResponse) {
 				t.Fatalf("err = %v", err)
 			}
 			decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
-			if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Support) != 0 || len(decision.Faults) != 3 {
+			if !errors.Is(err, rpc.ErrMalformedResponse) || decision.Status != rpc.Unknown || len(decision.Support) != 0 || len(decision.Faults) != 3 {
 				t.Fatalf("decision = %+v err %v", decision, err)
 			}
 		})
@@ -232,9 +232,6 @@ func TestCanonicalBlockReceiptsBadElementKeepsDenominator(t *testing.T) {
 			decision, err := callDecision(client.Call(ctx, methods.MethodGetBlockReceipts, "0x10"))
 			if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 1 {
 				t.Fatalf("decision = %+v err %v", decision, err)
-			}
-			if badKind == "null-removed" && !strings.Contains(decision.Faults[0].Error(), "encode:") {
-				t.Fatalf("fault = %v", decision.Faults)
 			}
 		})
 	}

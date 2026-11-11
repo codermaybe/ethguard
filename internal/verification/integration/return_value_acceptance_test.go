@@ -81,13 +81,6 @@ func TestReturnValueFaultKeepsClientDenominator(t *testing.T) {
 			if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 1 {
 				t.Fatalf("2 matching + 1 different + 1 fault must miss majority of 4: %+v err %v", decision, err)
 			}
-			// Receipt fails at admission before encoding; accessList at EncodeCheck.
-			if method == methods.MethodCreateAccessList && !strings.Contains(decision.Faults[0].Error(), "encode:") {
-				t.Fatalf("fault = %v", decision.Faults)
-			}
-			if method == methods.MethodGetTransactionReceipt && !strings.Contains(decision.Faults[0].Error(), "admission: rpc: malformed response: receipt: missing logs") {
-				t.Fatalf("receipt fault lost its admission wording: %v", decision.Faults)
-			}
 		})
 	}
 }
@@ -113,7 +106,7 @@ func TestReturnValueReceiptFromAndSpellingThroughClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, common.HexToHash(hash).Hex()))
-	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || result.TxHash.Hex() != hash || !bytes.Contains(decision.Value, []byte(`"from":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"logs":[]`)) || bytes.Contains(decision.Value, []byte(`"contractAddress"`)) {
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || result.TxHash.Hex() != hash || !bytes.Contains(decision.Value, []byte(`"from":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"logs":[]`)) {
 		t.Fatalf("receipt = %+v decision = %+v", result, decision)
 	}
 }

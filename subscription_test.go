@@ -597,9 +597,19 @@ func TestAggregatedTransactionReceiptsQuorumAndConflict(t *testing.T) {
 	receiptPayload := func(status uint64) json.RawMessage {
 		txHash := common.HexToHash("0x" + "11" + strings.Repeat("00", 31))
 		blockHash := common.HexToHash("0x" + "22" + strings.Repeat("00", 31))
-		receipt := &types.Receipt{Status: status, CumulativeGasUsed: 21_000, GasUsed: 21_000, TxHash: txHash, BlockHash: blockHash, BlockNumber: big.NewInt(7), TransactionIndex: 0, Logs: []*types.Log{}}
+		receipt := &types.Receipt{Status: status, CumulativeGasUsed: 21_000, GasUsed: 21_000, EffectiveGasPrice: big.NewInt(1), TxHash: txHash, BlockHash: blockHash, BlockNumber: big.NewInt(7), TransactionIndex: 0, Logs: []*types.Log{}}
 		receipt.Bloom = types.CreateBloom(receipt)
-		raw, err := json.Marshal([]*types.Receipt{receipt})
+		raw, err := json.Marshal(receipt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil {
+			t.Fatal(err)
+		}
+		object["from"] = json.RawMessage(`"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)
+		delete(object, "root")
+		raw, err = json.Marshal([]map[string]json.RawMessage{object})
 		if err != nil {
 			t.Fatal(err)
 		}

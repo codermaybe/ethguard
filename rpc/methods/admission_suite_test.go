@@ -297,13 +297,8 @@ func admissionCases(t *testing.T) []admissionCase {
 			encode:    receiptobj.Encode,
 			normalize: normalizeReceiptObject,
 			valid:     receipt,
-			// Containment has to hold for real spellings, not only for the
-			// one payload the valid column carries. A receipt with a log, one
-			// with uppercase hex and one with no from are all answers, so the
-			// normalizer must take them too. Without these rows the relation
-			// would only ever be checked on a single byte string, and a
-			// normalizer tightened to require from would pass.
-			more:    []json.RawMessage{logged, foldReceiptHex(t, receipt), deleteReceiptField(t, receipt, "from")},
+			// Compatibility spellings and receipts with logs share the contract.
+			more:    []json.RawMessage{logged, foldReceiptHex(t, receipt)},
 			outside: injectReceiptField(t, receipt, "mark", "1"),
 			inside:  replaceReceiptField(t, receipt, "gasUsed", `"0x1"`),
 			reject: []json.RawMessage{
@@ -313,6 +308,8 @@ func admissionCases(t *testing.T) []admissionCase {
 				json.RawMessage(`"0x1"`),
 				json.RawMessage(`{`),
 				deleteReceiptField(t, receipt, "gasUsed"),
+				deleteReceiptField(t, receipt, "from"),
+				deleteReceiptField(t, receipt, "effectiveGasPrice"),
 				replaceReceiptField(t, receipt, "logs", "null"),
 				replaceReceiptField(t, receipt, "status", "null"),
 				deleteReceiptField(t, receipt, "status"),

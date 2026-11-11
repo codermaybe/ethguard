@@ -1,6 +1,7 @@
 package ethguard_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -8,7 +9,73 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
+
+// Official keys outside the active legacy branch remain protected in full.
+// No rule authorizes folding their explicit null into a missing member.
+func TestVerificationTransactionNullPresence(t *testing.T) {
+	chain := t09NewChain(t)
+	_, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
+	base := chain.txObject(true, hash, t09AnchorHeight, 0)
+	for _, method := range []string{methods.MethodGetTransactionByHash, methods.MethodGetTransactionByBlockHashAndIndex} {
+		params := []any{chain.txHash}
+		if method == methods.MethodGetTransactionByBlockHashAndIndex {
+			params = []any{hash, "0x0"}
+		}
+		t.Run(method, func(t *testing.T) {
+			for _, field := range []string{"maxFeePerGas", "maxPriorityFeePerGas"} {
+				t.Run(field, func(t *testing.T) {
+					withNull := t09SetField(t, base, field, nil)
+					missing := t09DeleteField(t, base, field)
+					for _, preserveNull := range []bool{true, false} {
+						t.Run(fmt.Sprintf("null_majority_%t", preserveNull), func(t *testing.T) {
+							majority, minority := withNull, missing
+							if !preserveNull {
+								majority, minority = missing, withNull
+							}
+							fleet := t09NewFleet(t, 3)
+							fleet.nodes[0].ReturnRaw(method, majority)
+							fleet.nodes[1].ReturnRaw(method, majority)
+							fleet.nodes[2].ReturnRaw(method, minority)
+							decision, err := callDecision(fleet.client.Call(fleet.context(t), method, params...))
+							if err != nil {
+								t.Fatal(err)
+							}
+							if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 0 || len(decision.Participants) != 3 {
+								t.Fatalf("null/missing must be legal distinct answers: %+v", decision)
+							}
+							if decision.Reject[0].Name != fleet.names[2] {
+								t.Fatalf("reject = %+v, want minority %q", decision.Reject, fleet.names[2])
+							}
+							value, present := t09FirstObject(t, decision.Value)[field]
+							if present != preserveNull || (present && !bytes.Equal(bytes.TrimSpace(value), []byte("null"))) {
+								t.Fatalf("%s presence = %t, value = %s, want null presence %t", field, present, value, preserveNull)
+							}
+						})
+					}
+				})
+			}
+			// Legacy gasPrice and nonce are active, non-nullable fields.
+			for _, field := range []string{"gasPrice", "nonce"} {
+				t.Run(field+"_null_rejected", func(t *testing.T) {
+					fleet := t09NewFleet(t, 3)
+					fleet.nodes[0].ReturnRaw(method, base)
+					fleet.nodes[1].ReturnRaw(method, base)
+					fleet.nodes[2].ReturnRaw(method, t09SetField(t, base, field, nil))
+					decision, err := callDecision(fleet.client.Call(fleet.context(t), method, params...))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 0 || len(decision.Faults) != 1 || len(decision.Participants) != 3 {
+						t.Fatalf("active non-nullable %s accepted: %+v", field, decision)
+					}
+					t09AssertSourceAbsent(t, method, fleet.names[2], decision.Support, decision.Reject)
+				})
+			}
+		})
+	}
+}
 
 // T09.2 conservation traces every field of every observation, including every
 // array element and nested object, to one declared destination. Nothing is

@@ -2,7 +2,6 @@
 package receipt
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -149,90 +148,18 @@ func Normalize(value json.RawMessage, prune Pruner, method string) (string, erro
 // a caller that must bind the receipt to its request does not decode the same
 // bytes a second time.
 func validateAndDecode(value json.RawMessage) (*types.Receipt, error) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(value, &obj); err != nil || obj == nil {
-		return nil, fmt.Errorf("receipt: expected object")
+	canonical, err := Encode(value)
+	if err != nil {
+		return nil, err
 	}
-	for _, f := range []string{"transactionHash", "transactionIndex", "blockHash", "blockNumber", "cumulativeGasUsed", "gasUsed", "logsBloom", "logs"} {
-		if !PresentNonNull(obj[f]) {
-			return nil, fmt.Errorf("receipt: missing %s", f)
-		}
-	}
-	for _, f := range []string{"transactionHash", "blockHash"} {
-		if _, err := wire.ValidateWireFixedHex(obj[f], 64, f); err != nil {
-			return nil, fmt.Errorf("receipt: %s: %w", f, err)
-		}
-	}
-	for _, f := range []string{"transactionIndex", "blockNumber", "cumulativeGasUsed", "gasUsed"} {
-		if _, err := wire.NormalizeWireQuantity(obj[f]); err != nil {
-			return nil, fmt.Errorf("receipt: %s: %w", f, err)
-		}
-	}
-	if _, err := wire.ValidateWireFixedHex(obj["logsBloom"], 512, "logsBloom"); err != nil {
-		return nil, fmt.Errorf("receipt: logsBloom: %w", err)
-	}
-	status, root := PresentNonNull(obj["status"]), PresentNonNull(obj["root"])
-	if !status && !root {
-		return nil, fmt.Errorf("receipt: missing status or root")
-	}
-	if status {
-		if _, err := wire.NormalizeWireQuantity(obj["status"]); err != nil {
-			return nil, fmt.Errorf("receipt: status: %w", err)
-		}
-	} else if _, err := wire.ValidateWireFixedHex(obj["root"], 64, "root"); err != nil {
-		return nil, fmt.Errorf("receipt: root: %w", err)
-	}
-	if s := strings.TrimSpace(string(obj["logs"])); len(s) == 0 || s[0] != '[' {
-		return nil, fmt.Errorf("receipt: logs must be an array")
-	}
-	r, err := decodeReceipt(value)
-	if err != nil || r == nil {
+	var r *types.Receipt
+	if err := json.Unmarshal(canonical, &r); err != nil || r == nil {
 		return nil, fmt.Errorf("receipt: invalid payload")
 	}
 	if r.TxHash == (common.Hash{}) || r.BlockHash == (common.Hash{}) {
 		return nil, fmt.Errorf("receipt: missing transaction or block hash")
 	}
-	for i, l := range r.Logs {
-		if l == nil {
-			return nil, fmt.Errorf("receipt: null log %d", i)
-		}
-		if l.TxHash != (common.Hash{}) && l.TxHash != r.TxHash {
-			return nil, fmt.Errorf("receipt: log %d transaction hash mismatch", i)
-		}
-		if l.BlockHash != (common.Hash{}) && l.BlockHash != r.BlockHash {
-			return nil, fmt.Errorf("receipt: log %d block hash mismatch", i)
-		}
-	}
-	if r.Bloom != types.CreateBloom(r) {
-		return nil, fmt.Errorf("receipt: logsBloom disagrees with logs")
-	}
 	return r, nil
-}
-
-// decodeReceipt decodes JSON string escapes before geth's hex codecs see the
-// temporary payload. UseNumber preserves numeric tokens exactly. This is
-// semantic parsing for validation and binding; it does not project fields,
-// canonicalize hex, or modify the source payload.
-func decodeReceipt(value json.RawMessage) (*types.Receipt, error) {
-	plain, err := receiptSemanticJSON(value)
-	if err != nil {
-		return nil, err
-	}
-	var r *types.Receipt
-	if err := json.Unmarshal(plain, &r); err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-
-func receiptSemanticJSON(value json.RawMessage) (json.RawMessage, error) {
-	decoder := json.NewDecoder(bytes.NewReader(value))
-	decoder.UseNumber()
-	var decoded any
-	if err := decoder.Decode(&decoded); err != nil {
-		return nil, err
-	}
-	return json.Marshal(decoded)
 }
 
 func NormalizeBlock(value json.RawMessage, prune Pruner, method string) (string, error) {

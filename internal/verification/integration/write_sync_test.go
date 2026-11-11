@@ -48,6 +48,16 @@ func syncReceiptFixture(t *testing.T, txHash common.Hash, height int64) json.Raw
 	if err != nil {
 		t.Fatal(err)
 	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		t.Fatal(err)
+	}
+	object["from"] = json.RawMessage(`"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)
+	delete(object, "root")
+	raw, err = json.Marshal(object)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return raw
 }
 

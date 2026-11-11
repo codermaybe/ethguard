@@ -40,14 +40,14 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 }
 
 // Encode checks one eth_getTransactionReceipt result and returns the canonical
-// JSON of the protected fields. JSON null stays null. contractAddress, to,
-// blobGasUsed, and blobGasPrice are omitted when absent. A JSON null
-// contractAddress is omitted. An empty logs array stays [].
+// JSON of the official fields plus receipt integrity protections. JSON null
+// stays null. Optional nullable addresses preserve absence and explicit null
+// distinctly. An empty logs array stays [].
 //
 // Every protected field is checked here, so a missing or malformed one is a
-// fault rather than a default. Each log must carry the receipt's own
-// transactionHash and blockHash, and logsBloom must equal CreateBloom over
-// the logs this function just built: the bloom that ships is the bloom that
+// fault rather than a default. Each log's nonzero transactionHash and blockHash
+// must match the receipt, and logsBloom must equal CreateBloom over the logs
+// this function just built: the bloom that ships is the bloom that
 // was checked. Binding a receipt to the request it answers is AdmitTransaction
 // and AdmitBlock, not this function.
 // Addresses and hashes are lowercase. Quantities are canonical QUANTITY.
@@ -58,101 +58,51 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if wire.IsJSONNull(trimmed) {
 		return json.RawMessage("null"), nil
 	}
-	if len(trimmed) == 0 || trimmed[0] != '{' {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &fields); err != nil || fields == nil {
 		return nil, fmt.Errorf("receipt: expected an object")
 	}
-	var raw struct {
-		TransactionHash   json.RawMessage   `json:"transactionHash"`
-		TransactionIndex  json.RawMessage   `json:"transactionIndex"`
-		BlockHash         json.RawMessage   `json:"blockHash"`
-		BlockNumber       json.RawMessage   `json:"blockNumber"`
-		From              json.RawMessage   `json:"from"`
-		CumulativeGasUsed json.RawMessage   `json:"cumulativeGasUsed"`
-		GasUsed           json.RawMessage   `json:"gasUsed"`
-		EffectiveGasPrice json.RawMessage   `json:"effectiveGasPrice"`
-		LogsBloom         json.RawMessage   `json:"logsBloom"`
-		Logs              []json.RawMessage `json:"logs"`
-		Status            json.RawMessage   `json:"status"`
-		Root              json.RawMessage   `json:"root"`
-		Type              json.RawMessage   `json:"type"`
-		ContractAddress   json.RawMessage   `json:"contractAddress"`
-		To                json.RawMessage   `json:"to"`
-		BlobGasUsed       json.RawMessage   `json:"blobGasUsed"`
-		BlobGasPrice      json.RawMessage   `json:"blobGasPrice"`
+	var rows []json.RawMessage
+	if err := json.Unmarshal(fields["logs"], &rows); err != nil || rows == nil {
+		return nil, fmt.Errorf("receipt: logs must be an array")
 	}
-	if err := json.Unmarshal(trimmed, &raw); err != nil || raw.Logs == nil {
-		return nil, fmt.Errorf("receipt: malformed response")
-	}
-	logs := make([]canonicalReceiptLog, len(raw.Logs))
-	for i, row := range raw.Logs {
+	logs := make([]canonicalReceiptLog, len(rows))
+	for i, row := range rows {
 		item, err := encodeReceiptLog(row)
 		if err != nil {
 			return nil, fmt.Errorf("receipt logs[%d]: %w", i, err)
 		}
 		logs[i] = item
 	}
-	out := canonicalReceipt{Logs: logs}
-	var err error
-	if out.TransactionHash, err = wire.ValidateWireFixedHex(raw.TransactionHash, 64, "hash"); err != nil {
-		return nil, fmt.Errorf("receipt transactionHash: %w", err)
-	}
-	if out.TransactionIndex, err = wire.CanonicalQuantity(raw.TransactionIndex); err != nil {
-		return nil, fmt.Errorf("receipt transactionIndex: %w", err)
-	}
-	if out.BlockHash, err = wire.ValidateWireFixedHex(raw.BlockHash, 64, "hash"); err != nil {
-		return nil, fmt.Errorf("receipt blockHash: %w", err)
-	}
-	if out.BlockNumber, err = wire.CanonicalQuantity(raw.BlockNumber); err != nil {
-		return nil, fmt.Errorf("receipt blockNumber: %w", err)
-	}
-	if out.From, err = optionalAddress(raw.From); err != nil {
-		return nil, fmt.Errorf("receipt from: %w", err)
-	}
-	if out.CumulativeGasUsed, err = wire.CanonicalQuantity(raw.CumulativeGasUsed); err != nil {
-		return nil, fmt.Errorf("receipt cumulativeGasUsed: %w", err)
-	}
-	if out.GasUsed, err = wire.CanonicalQuantity(raw.GasUsed); err != nil {
-		return nil, fmt.Errorf("receipt gasUsed: %w", err)
-	}
-	if out.EffectiveGasPrice, err = optionalQuantity(raw.EffectiveGasPrice); err != nil {
-		return nil, fmt.Errorf("receipt effectiveGasPrice: %w", err)
-	}
-	if out.LogsBloom, err = wire.ValidateWireFixedHex(raw.LogsBloom, 512, "logsBloom"); err != nil {
-		return nil, fmt.Errorf("receipt logsBloom: %w", err)
-	}
-	if err := checkLogBindings(logs, out.TransactionHash, out.BlockHash); err != nil {
+	// The official receipt parser must see the shared encoder's log objects,
+	// not a separate interpretation of the upstream logs. In particular, the
+	// existing log contract treats blockTimestamp:null as omission.
+	canonicalLogs, err := wire.MarshalNoEscape(logs)
+	if err != nil {
 		return nil, err
 	}
-	if out.LogsBloom != canonicalBloom(logs) {
+	fields["logs"] = canonicalLogs
+	checked, err := wire.MarshalNoEscape(fields)
+	if err != nil {
+		return nil, err
+	}
+	out, err := wire.NewReceipt(checked)
+	if err != nil {
+		return nil, fmt.Errorf("receipt: %w", err)
+	}
+	if out.Status == nil && out.Root == nil {
+		return nil, fmt.Errorf("receipt: missing status or root")
+	}
+	// The official field description defines an execution outcome, even
+	// though its machine pattern accepts a wider QUANTITY domain.
+	if out.Status != nil && *out.Status != "0x0" && *out.Status != "0x1" {
+		return nil, fmt.Errorf("receipt: status must be failure (0) or success (1)")
+	}
+	if err := checkLogBindings(logs, string(out.TransactionHash), string(out.BlockHash)); err != nil {
+		return nil, err
+	}
+	if string(out.LogsBloom) != canonicalBloom(logs) {
 		return nil, fmt.Errorf("receipt: logsBloom disagrees with logs")
-	}
-	if wire.PresentNonNull(raw.Status) {
-		status, err := wire.CanonicalQuantity(raw.Status)
-		if err != nil {
-			return nil, fmt.Errorf("receipt status: %w", err)
-		}
-		out.Status = &status
-	} else {
-		root, err := wire.ValidateWireFixedHex(raw.Root, 64, "root")
-		if err != nil {
-			return nil, fmt.Errorf("receipt root: %w", err)
-		}
-		out.Root = &root
-	}
-	if out.Type, err = optionalQuantity(raw.Type); err != nil {
-		return nil, fmt.Errorf("receipt type: %w", err)
-	}
-	if out.ContractAddress, err = optionalAddress(raw.ContractAddress); err != nil {
-		return nil, fmt.Errorf("receipt contractAddress: %w", err)
-	}
-	if out.To, err = optionalAddress(raw.To); err != nil {
-		return nil, fmt.Errorf("receipt to: %w", err)
-	}
-	if out.BlobGasUsed, err = optionalQuantity(raw.BlobGasUsed); err != nil {
-		return nil, fmt.Errorf("receipt blobGasUsed: %w", err)
-	}
-	if out.BlobGasPrice, err = optionalQuantity(raw.BlobGasPrice); err != nil {
-		return nil, fmt.Errorf("receipt blobGasPrice: %w", err)
 	}
 	return wire.MarshalNoEscape(out)
 }
@@ -208,49 +158,9 @@ func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
 	return out, nil
 }
 
-func optionalQuantity(value json.RawMessage) (*string, error) {
-	if !wire.PresentNonNull(value) {
-		return nil, nil
-	}
-	text, err := wire.CanonicalQuantity(value)
-	if err != nil {
-		return nil, err
-	}
-	return &text, nil
-}
-
-func optionalAddress(value json.RawMessage) (*string, error) {
-	if !wire.PresentNonNull(value) {
-		return nil, nil
-	}
-	text, err := wire.ValidateWireFixedHex(value, 40, "address")
-	if err != nil {
-		return nil, err
-	}
-	return &text, nil
-}
-
-// canonicalReceipt is the protected eth_getTransactionReceipt object. Field
-// order is fixed. Absent optional fields are omitted.
-type canonicalReceipt struct {
-	TransactionHash   string                `json:"transactionHash"`
-	TransactionIndex  string                `json:"transactionIndex"`
-	BlockHash         string                `json:"blockHash"`
-	BlockNumber       string                `json:"blockNumber"`
-	From              *string               `json:"from,omitempty"`
-	CumulativeGasUsed string                `json:"cumulativeGasUsed"`
-	GasUsed           string                `json:"gasUsed"`
-	EffectiveGasPrice *string               `json:"effectiveGasPrice,omitempty"`
-	LogsBloom         string                `json:"logsBloom"`
-	Logs              []canonicalReceiptLog `json:"logs"`
-	Status            *string               `json:"status,omitempty"`
-	Root              *string               `json:"root,omitempty"`
-	Type              *string               `json:"type,omitempty"`
-	ContractAddress   *string               `json:"contractAddress,omitempty"`
-	To                *string               `json:"to,omitempty"`
-	BlobGasUsed       *string               `json:"blobGasUsed,omitempty"`
-	BlobGasPrice      *string               `json:"blobGasPrice,omitempty"`
-}
+// canonicalReceipt shares the official receipt shape, including nullable
+// optional addresses and the bounded transaction type.
+type canonicalReceipt = wire.Receipt
 
 // canonicalReceiptLog is the shared protected log object; the receipt log's
 // JSON shape is byte-identical to the eth_getLogs log, so the field set and

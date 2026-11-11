@@ -36,6 +36,7 @@ func typedReceiptFixture(t *testing.T) json.RawMessage {
 		Status:            types.ReceiptStatusSuccessful,
 		CumulativeGasUsed: 21_000,
 		GasUsed:           21_000,
+		EffectiveGasPrice: big.NewInt(1),
 		TxHash:            txHash,
 		BlockHash:         blockHash,
 		BlockNumber:       big.NewInt(7),
@@ -51,6 +52,16 @@ func typedReceiptFixture(t *testing.T) json.RawMessage {
 	}
 	receipt.Bloom = types.CreateBloom(receipt)
 	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	obj["from"] = json.RawMessage(`"0x0000000000000000000000000000000000000001"`)
+	delete(obj, "root")
+	raw, err = json.Marshal(obj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,5 +110,83 @@ func TestDecodeReceiptRejectsBloomThatDoesNotMatchLogs(t *testing.T) {
 	_, err = DecodeReceipt(raw)
 	if !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "logsBloom disagrees") {
 		t.Fatalf("error = %v, want malformed bloom", err)
+	}
+}
+
+func TestDecodeReceiptEnvelopeBoundaries(t *testing.T) {
+	for _, field := range []string{"from", "effectiveGasPrice", "transactionIndex", "blockNumber"} {
+		for _, replacement := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`"bad"`)} {
+			t.Run(field+string(replacement), func(t *testing.T) {
+				var obj map[string]json.RawMessage
+				if err := json.Unmarshal(typedReceiptFixture(t), &obj); err != nil {
+					t.Fatal(err)
+				}
+				if replacement == nil {
+					delete(obj, field)
+				} else {
+					obj[field] = replacement
+				}
+				raw, err := json.Marshal(obj)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertTypedReceiptRejected(t, raw)
+			})
+		}
+	}
+	for _, field := range []string{"type", "status", "root", "blobGasUsed", "blobGasPrice"} {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(typedReceiptFixture(t), &obj); err != nil {
+			t.Fatal(err)
+		}
+		obj[field] = json.RawMessage(`null`)
+		raw, err := json.Marshal(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTypedReceiptRejected(t, raw)
+	}
+	for _, field := range []string{"status", "root"} {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(typedReceiptFixture(t), &obj); err != nil {
+			t.Fatal(err)
+		}
+		obj[field] = json.RawMessage(`"0x2"`)
+		raw, err := json.Marshal(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTypedReceiptRejected(t, raw)
+	}
+	for _, kind := range []string{"0x0", "0xff", "0x100"} {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(typedReceiptFixture(t), &obj); err != nil {
+			t.Fatal(err)
+		}
+		obj["type"], _ = json.Marshal(kind)
+		raw, err := json.Marshal(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kind == "0x100" {
+			assertTypedReceiptRejected(t, raw)
+			continue
+		}
+		if _, err := DecodeReceipt(raw); err != nil {
+			t.Fatalf("type %s: %v", kind, err)
+		}
+		if _, err := DecodeReceipts(append(append([]byte{'['}, raw...), ']')); err != nil {
+			t.Fatalf("array type %s: %v", kind, err)
+		}
+	}
+}
+
+func assertTypedReceiptRejected(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	if _, err := DecodeReceipt(raw); !errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("DecodeReceipt = %v for %s", err, raw)
+	}
+	if _, err := DecodeReceipts(append(append([]byte{'['}, raw...), ']')); !errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("DecodeReceipts = %v for %s", err, raw)
 	}
 }

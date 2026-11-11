@@ -114,7 +114,12 @@ func t09TxObject(tx *types.Transaction, from string, mined bool, blockHash strin
 	if mined {
 		object["blockHash"] = t09JSON(blockHash)
 		object["blockNumber"] = t09JSON(fmt.Sprintf("0x%x", blockNumber))
+		object["blockTimestamp"] = t09JSON("0x1")
 		object["transactionIndex"] = t09JSON(fmt.Sprintf("0x%x", index))
+	} else {
+		for _, field := range []string{"blockHash", "blockNumber", "blockTimestamp", "transactionIndex"} {
+			object[field] = json.RawMessage("null")
+		}
 	}
 	return t09JSON(object)
 }
@@ -145,10 +150,16 @@ func (c *t09Chain) block(number, timestamp uint64, gasUsed uint64) (json.RawMess
 	if err := json.Unmarshal(headerRaw, &object); err != nil {
 		t09Panic(err)
 	}
-	object["transactions"] = t09JSON([]json.RawMessage{
-		c.txObject(true, hash, number, 0),
-		c.tx2Object(true, hash, number, 1),
-	})
+	transactions := []json.RawMessage{c.txObject(true, hash, number, 0), c.tx2Object(true, hash, number, 1)}
+	for index := range transactions {
+		var transaction map[string]json.RawMessage
+		if err := json.Unmarshal(transactions[index], &transaction); err != nil {
+			t09Panic(err)
+		}
+		delete(transaction, "blockTimestamp")
+		transactions[index] = t09JSON(transaction)
+	}
+	object["transactions"] = t09JSON(transactions)
 	object["uncles"] = json.RawMessage(`[]`)
 	// Response metadata outside the protected domain. Values differ between
 	// representation variants while the header stays identical.

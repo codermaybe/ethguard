@@ -326,6 +326,20 @@ func fixtureReceipt(t *testing.T, txHash common.Hash, height int64) json.RawMess
 	if err != nil {
 		t.Fatal(err)
 	}
+	// types.Receipt is a typed projection, not the complete RPC information
+	// object: the RPC sender is required separately and protected by comparison.
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		t.Fatal(err)
+	}
+	object["from"] = json.RawMessage(`"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)
+	// Geth's typed marshaler emits root:"0x" for a post-Byzantium receipt;
+	// the RPC information object omits that inapplicable state root.
+	delete(object, "root")
+	raw, err = json.Marshal(object)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return raw
 }
 
@@ -388,8 +402,21 @@ func signedTxFixture(t *testing.T, mined bool) json.RawMessage {
 	}
 	obj["hash"] = json.RawMessage(fmt.Sprintf("%q", signed.Hash().Hex()))
 	obj["from"] = json.RawMessage(fmt.Sprintf("%q", crypto.PubkeyToAddress(key.PublicKey).Hex()))
+	// Geth's union encoder emits null fee fields from other transaction types;
+	// those fields are not part of the official legacy information branch.
+	for _, field := range []string{"maxFeePerGas", "maxPriorityFeePerGas"} {
+		delete(obj, field)
+	}
+	// RPC transaction information includes explicit inclusion context, unlike
+	// types.Transaction.MarshalJSON's signed-payload-only representation.
+	for _, field := range []string{"blockHash", "blockNumber", "blockTimestamp", "transactionIndex"} {
+		obj[field] = json.RawMessage(`null`)
+	}
 	if mined {
+		obj["blockHash"] = json.RawMessage(`"0x3333333333333333333333333333333333333333333333333333333333333333"`)
 		obj["blockNumber"] = json.RawMessage(`"0x10"`)
+		obj["blockTimestamp"] = json.RawMessage(`"0x5"`)
+		obj["transactionIndex"] = json.RawMessage(`"0x0"`)
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
@@ -421,7 +448,7 @@ func TestTypedTransactionByHashReportsPendingFlag(t *testing.T) {
 		t.Fatalf("unexpected transaction: %+v", tx)
 	}
 
-	// Pending: the same object without block context — pending is an
+	// Pending: the same object with explicit null block context — pending is an
 	// ordinary corroborated state while the object stays stable.
 	pendingRaw := signedTxFixture(t, false)
 	for _, node := range nodes {

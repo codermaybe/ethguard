@@ -281,7 +281,7 @@ func benchmarkReceipt(b *testing.B) json.RawMessage {
 
 func TestReceiptEncodingOptionalFieldsAndStatusRoot(t *testing.T) {
 	raw := sampleReceipt(t)
-	for _, name := range []string{"contractAddress", "to", "blobGasUsed", "blobGasPrice", "effectiveGasPrice", "type"} {
+	for _, name := range []string{"contractAddress", "to", "blobGasUsed", "blobGasPrice", "type"} {
 		t.Run(name, func(t *testing.T) {
 			missing := deleteReceiptField(t, raw, name)
 			encoded, err := receiptobj.Encode(missing)
@@ -292,11 +292,12 @@ func TestReceiptEncodingOptionalFieldsAndStatusRoot(t *testing.T) {
 				t.Fatalf("missing optional entered Value: %s", encoded)
 			}
 			encoded, err = receiptobj.Encode(replaceReceiptField(t, missing, name, "null"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if bytes.Contains(encoded, []byte(`"`+name+`"`)) {
-				t.Fatalf("null optional entered Value: %s", encoded)
+			if name == "contractAddress" || name == "to" {
+				if err != nil || !bytes.Contains(encoded, []byte(`"`+name+`":null`)) {
+					t.Fatalf("nullable address lost: %s, %v", encoded, err)
+				}
+			} else if err == nil {
+				t.Fatalf("nonnullable %s accepted null: %s", name, encoded)
 			}
 		})
 	}
@@ -305,8 +306,8 @@ func TestReceiptEncodingOptionalFieldsAndStatusRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(encoded, []byte(`"root"`)) || !bytes.Contains(encoded, []byte(`"status"`)) {
-		t.Fatalf("status priority = %s", encoded)
+	if !bytes.Contains(encoded, []byte(`"root"`)) || !bytes.Contains(encoded, []byte(`"status"`)) {
+		t.Fatalf("both status and root must survive: %s", encoded)
 	}
 	rootOnly := deleteReceiptField(t, both, "status")
 	encoded, err = receiptobj.Encode(rootOnly)

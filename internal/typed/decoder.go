@@ -13,6 +13,7 @@ import (
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/rpc"
@@ -209,7 +210,7 @@ func validateReceiptEnvelope(raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
 		return wrapMalformed("receipt is not an object", err)
 	}
-	for _, field := range []string{"transactionHash", "transactionIndex", "blockHash", "blockNumber", "cumulativeGasUsed", "gasUsed", "logsBloom", "logs"} {
+	for _, field := range []string{"transactionHash", "transactionIndex", "blockHash", "blockNumber", "from", "effectiveGasPrice", "cumulativeGasUsed", "gasUsed", "logsBloom", "logs"} {
 		value, ok := obj[field]
 		if !ok || string(bytes.TrimSpace(value)) == "null" || len(bytes.TrimSpace(value)) == 0 {
 			return wrapMalformed("receipt missing "+field, nil)
@@ -218,6 +219,43 @@ func validateReceiptEnvelope(raw json.RawMessage) error {
 	if status, ok := obj["status"]; !ok || string(bytes.TrimSpace(status)) == "null" {
 		if root, rootOK := obj["root"]; !rootOK || string(bytes.TrimSpace(root)) == "null" {
 			return wrapMalformed("receipt missing status or root", nil)
+		}
+	}
+	for _, field := range []string{"type", "status", "root", "blobGasUsed", "blobGasPrice"} {
+		if value, ok := obj[field]; ok && string(bytes.TrimSpace(value)) == "null" {
+			return wrapMalformed("receipt null "+field, nil)
+		}
+	}
+	if value, ok := obj["status"]; ok {
+		var status hexutil.Uint64
+		if err := json.Unmarshal(value, &status); err != nil {
+			return wrapMalformed("receipt status", err)
+		}
+		if status > 1 {
+			return wrapMalformed("receipt status must be failure (0) or success (1)", nil)
+		}
+	}
+	if value, ok := obj["root"]; ok {
+		var root common.Hash
+		if err := json.Unmarshal(value, &root); err != nil {
+			return wrapMalformed("receipt root", err)
+		}
+	}
+	if value, ok := obj["type"]; ok {
+		var kind hexutil.Uint64
+		if err := json.Unmarshal(value, &kind); err != nil {
+			return wrapMalformed("receipt type", err)
+		}
+		if kind > 0xff {
+			return wrapMalformed("receipt type exceeds one byte", nil)
+		}
+	}
+	for _, field := range []string{"from", "to", "contractAddress"} {
+		if value, ok := obj[field]; ok && string(bytes.TrimSpace(value)) != "null" {
+			var address common.Address
+			if err := json.Unmarshal(value, &address); err != nil {
+				return wrapMalformed("receipt "+field, err)
+			}
 		}
 	}
 	if logs := bytes.TrimSpace(obj["logs"]); len(logs) == 0 || logs[0] != '[' {

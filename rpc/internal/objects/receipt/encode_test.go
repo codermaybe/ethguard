@@ -68,6 +68,7 @@ func receiptFixture(t *testing.T, logs ...map[string]any) json.RawMessage {
 		"blockHash":         receiptBlkHash,
 		"blockNumber":       "0x18d592f",
 		"effectiveGasPrice": "0x135e45e7",
+		"from":              logAddress,
 		"to":                logAddress,
 	}
 	raw, err := json.Marshal(receipt)
@@ -182,5 +183,25 @@ func TestEncodeTreatsZeroLogHashAsOmission(t *testing.T) {
 	foreignBlock["blockHash"] = "0x" + strings.Repeat("56", 32)
 	if _, err := Encode(receiptFixture(t, foreignBlock)); err == nil || !strings.Contains(err.Error(), "does not match receipt blockHash") {
 		t.Fatalf("blockHash = %v", err)
+	}
+}
+
+func TestEncodePreservesSharedLogTimestampNullOmission(t *testing.T) {
+	entry := logFixture()
+	withoutTimestamp, err := Encode(receiptFixture(t, entry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry["blockTimestamp"] = nil
+	withNullTimestamp, err := Encode(receiptFixture(t, entry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(withoutTimestamp, withNullTimestamp) || bytes.Contains(withNullTimestamp, []byte(`"blockTimestamp"`)) {
+		t.Fatalf("null log timestamp changed protected value: %s", withNullTimestamp)
+	}
+	again, err := Encode(withNullTimestamp)
+	if err != nil || !bytes.Equal(withNullTimestamp, again) {
+		t.Fatalf("checked log value is not idempotent: %s, %v", again, err)
 	}
 }

@@ -76,9 +76,9 @@ type t09FieldRow struct {
 	// coverage test rejects any other missing schema.
 	noSchema  bool
 	projector bool
-	// nullPreserved declares that the canonical encoder materializes optional
-	// JSON null fields (the typed block header does); otherwise null means
-	// absence and must not appear in Value.
+	// nullPreserved declares that admitted protected JSON null fields survive
+	// encoding (block headers and standalone transactions). Other rows retain
+	// their existing projection contract, where null is omitted from Value.
 	nullPreserved bool
 	// whole marks upstream-local methods whose entire answer is the selected
 	// value. They have no cross-source protected-field admission; the typed
@@ -474,9 +474,10 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			protected:      txProtected,
 			outside:        []string{"vendor"},
 			projector:      true,
+			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
-			notes:          "JSON-escaped hex is covered by TestVerificationEscapedHexAdmissionBoundary; null fee fields are dropped as absence",
+			notes:          "JSON-escaped hex is covered by TestVerificationEscapedHexAdmissionBoundary; legal official null fee fields retain their presence",
 		},
 		{
 			method:         methods.MethodGetBlockReceipts,
@@ -567,6 +568,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			protected:      txProtected,
 			outside:        []string{"vendor"},
 			projector:      true,
+			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
 			notes:          "inclusion context is part of the protected transaction envelope; vendor metadata is projected out",
