@@ -103,7 +103,7 @@ func ValidatePlanCoverage(plans map[string]rpc.ReadPlan) error {
 }
 
 var methodCatalog = []MethodDescriptor{
-	{Name: MethodChainID, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "ChainID", Alignment: "v1.17.10"},
+	chainIDDescriptor(),
 	{Name: MethodGetBlockByHash, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "BlockByHash", Alignment: "v1.17.10"},
 	{Name: MethodGetBlockByNumber, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "BlockByNumber", Alignment: "v1.17.10"},
 	{Name: MethodGetBalance, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "BalanceAt", Alignment: "v1.17.10"},
@@ -120,15 +120,15 @@ var methodCatalog = []MethodDescriptor{
 	{Name: MethodEstimateGas, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "EstimateGas", Alignment: "v1.17.10"},
 	{Name: MethodGetLogs, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "FilterLogs", Alignment: "v1.17.10"},
 	{Name: MethodFeeHistory, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Alignment: "v1.17.10"},
-	{Name: MethodGasPrice, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "SuggestGasPrice", Alignment: "v1.17.10"},
-	{Name: MethodMaxPriorityFeePerGas, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "SuggestGasTipCap", Alignment: "v1.17.10"},
-	{Name: MethodBlobBaseFee, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Alignment: "v1.17.10"},
-	{Name: MethodBlockNumber, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "BlockNumber", Alignment: "v1.17.10"},
+	gasPriceDescriptor(),
+	maxPriorityFeePerGasDescriptor(),
+	blobBaseFeeDescriptor(),
+	blockNumberDescriptor(),
 	{Name: MethodCreateAccessList, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Alignment: "v1.17.10"},
-	{Name: MethodPeerCount, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "PeerCount", Alignment: "v1.17.10"},
+	peerCountDescriptor(),
 	{Name: MethodSyncing, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "SyncProgress", Alignment: "v1.17.10"},
-	{Name: MethodNetVersion, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Notes: "Root Client.NetworkID (net_version)."},
-	{Name: MethodListening, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Notes: "No typed method; the full decision comes from Client.Call(\"net_listening\")."},
+	netVersionDescriptor(),
+	listeningDescriptor(),
 	// Write path (decision-map #4): a dedicated pipeline outside the read
 	// registry. Broadcast to the full voting basis + relative-trust
 	// adjudication; WriteMethod entries are skipped by ValidateRegistry.

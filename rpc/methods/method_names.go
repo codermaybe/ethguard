@@ -1,20 +1,11 @@
 package methods
 
-// The remaining centralized method-name declarations. The transaction pilot
-// owns its names alongside its specs and descriptors; each RPC spelling still
-// has exactly one declaration. The write method has no read policy.
-
-// MethodBlobBaseFee is the JSON-RPC method name resolved by BlobBaseFeePolicy.
-const MethodBlobBaseFee = "eth_blobBaseFee"
-
-// MethodBlockNumber is the JSON-RPC method name resolved by BlockNumberPolicy.
-const MethodBlockNumber = "eth_blockNumber"
+// The remaining centralized method-name declarations. Migrated methods own
+// their spellings alongside their specs and descriptors; each RPC spelling
+// still has exactly one declaration. The write method has no read policy.
 
 // MethodCall is the JSON-RPC method name resolved by CallPolicy.
 const MethodCall = "eth_call"
-
-// MethodChainID is the JSON-RPC method name resolved by ChainIDPolicy.
-const MethodChainID = "eth_chainId"
 
 // MethodCreateAccessList is the JSON-RPC method name resolved by
 // CreateAccessListPolicy.
@@ -26,9 +17,6 @@ const MethodEstimateGas = "eth_estimateGas"
 
 // MethodFeeHistory is the JSON-RPC method name resolved by FeeHistoryPolicy.
 const MethodFeeHistory = "eth_feeHistory"
-
-// MethodGasPrice is the JSON-RPC method name resolved by GasPricePolicy.
-const MethodGasPrice = "eth_gasPrice"
 
 // MethodGetBalance is the JSON-RPC method name resolved by GetBalancePolicy.
 const MethodGetBalance = "eth_getBalance"
@@ -72,23 +60,8 @@ const MethodGetBlockTransactionCountByNumber = "eth_getBlockTransactionCountByNu
 // TransactionReceiptPolicy.
 const MethodGetTransactionReceipt = "eth_getTransactionReceipt"
 
-// MethodListening is the JSON-RPC method name resolved by ListeningPolicy.
-const MethodListening = "net_listening"
-
-// MethodMaxPriorityFeePerGas is the JSON-RPC method name resolved by
-// MaxPriorityFeePerGasPolicy.
-const MethodMaxPriorityFeePerGas = "eth_maxPriorityFeePerGas"
-
-// MethodPeerCount is the JSON-RPC method name resolved by PeerCountPolicy.
-// Note the namespace: this is a net_ method, corroborated like any other
-// registered method.
-const MethodPeerCount = "net_peerCount"
-
 // MethodSyncing is the JSON-RPC method name resolved by SyncingPolicy.
 const MethodSyncing = "eth_syncing"
-
-// MethodNetVersion is the JSON-RPC method name resolved by NetVersionPolicy.
-const MethodNetVersion = "net_version"
 
 // MethodSendRawTransaction is the write-side JSON-RPC method. It has no
 // Policy in the read registry: the write pipeline owns its collection and

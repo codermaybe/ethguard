@@ -4,7 +4,39 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
+
+// MethodListening is the JSON-RPC method spelling this file owns: the root
+// extension behind the Call-only read.
+const MethodListening = "net_listening"
+
+// listeningSpec is the method's compiled contract: boolean-object sampling
+// over the local resolver; the value is node-local, so sources are sampled
+// without clustering. No whole-key compatibility correction applies to this
+// method.
+func listeningSpec() MethodSpec {
+	return MethodSpec{
+		Method:      MethodListening,
+		Resolver:    ResolverLocal,
+		Normalize:   normalizeListening,
+		Encode:      rpc.EncodeCanonicalJSON,
+		CompareKind: rpc.RuleCompareObject,
+	}
+}
+
+func listeningDescriptor() MethodDescriptor {
+	return MethodDescriptor{
+		Name:      MethodListening,
+		Kind:      RegisteredMethod,
+		Family:    FamilyRead,
+		Coverage:  CoverageRegistered,
+		Policy:    "CompilePlan",
+		Alignment: "v1.17.10",
+		Notes:     "No typed method; the full decision comes from Client.Call(\"net_listening\").",
+	}
+}
 
 // normalizeListening admits only the method's boolean result. JSON null and
 // non-boolean bodies are malformed, not a negative listening state. The

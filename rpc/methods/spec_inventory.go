@@ -69,14 +69,7 @@ func encodeTransactionCount(value json.RawMessage) (json.RawMessage, error) {
 // public surface the equivalence tests hold together with these specs.
 func Specs() []MethodSpec {
 	return []MethodSpec{
-		{
-			Method:      MethodChainID,
-			Resolver:    ResolverStrict,
-			Normalize:   wire.NormalizeWireQuantity,
-			Encode:      wire.EncodeQuantity,
-			KeySource:   rpc.RuleKeyCanonicalBytes,
-			CompareKind: rpc.RuleCompareQuantity,
-		},
+		chainIDSpec(),
 		{
 			Method:                 MethodGetBlockByHash,
 			Resolver:               ResolverBlock,
@@ -227,34 +220,10 @@ func Specs() []MethodSpec {
 			Admit:                  admitFeeHistory,
 			ObservationProjectorID: ProjectorFeeHistory,
 		},
-		{
-			Method:      MethodGasPrice,
-			Resolver:    ResolverMedian,
-			Normalize:   wire.NormalizeWireQuantity,
-			Encode:      wire.EncodeQuantity,
-			CompareKind: rpc.RuleCompareQuantity,
-		},
-		{
-			Method:      MethodMaxPriorityFeePerGas,
-			Resolver:    ResolverMedian,
-			Normalize:   wire.NormalizeWireQuantity,
-			Encode:      wire.EncodeQuantity,
-			CompareKind: rpc.RuleCompareQuantity,
-		},
-		{
-			Method:      MethodBlobBaseFee,
-			Resolver:    ResolverMedian,
-			Normalize:   wire.NormalizeWireQuantity,
-			Encode:      wire.EncodeQuantity,
-			CompareKind: rpc.RuleCompareQuantity,
-		},
-		{
-			Method:      MethodBlockNumber,
-			Resolver:    ResolverMedian,
-			Normalize:   wire.NormalizeWireQuantity,
-			Encode:      wire.EncodeQuantity,
-			CompareKind: rpc.RuleCompareQuantity,
-		},
+		gasPriceSpec(),
+		maxPriorityFeePerGasSpec(),
+		blobBaseFeeSpec(),
+		blockNumberSpec(),
 		{
 			Method:      MethodCreateAccessList,
 			Resolver:    ResolverStrict,
@@ -265,13 +234,7 @@ func Specs() []MethodSpec {
 			Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
 			Pending:     PendingSpec{Mode: PendingObserve, Pos: 1},
 		},
-		{
-			Method:      MethodPeerCount,
-			Resolver:    ResolverLocal,
-			Normalize:   wire.NormalizeHexQuantity,
-			Encode:      wire.EncodeFoldedQuantity,
-			CompareKind: rpc.RuleCompareQuantity,
-		},
+		peerCountSpec(),
 		{
 			Method:      MethodSyncing,
 			Resolver:    ResolverLocal,
@@ -279,20 +242,7 @@ func Specs() []MethodSpec {
 			Encode:      rpc.EncodeCanonicalJSON,
 			CompareKind: rpc.RuleCompareObject,
 		},
-		{
-			Method:      MethodNetVersion,
-			Resolver:    ResolverStrict,
-			Normalize:   wire.NormalizeDecimalString,
-			Encode:      wire.EncodeDecimal,
-			KeySource:   rpc.RuleKeyCanonicalBytes,
-			CompareKind: rpc.RuleCompareQuantity,
-		},
-		{
-			Method:      MethodListening,
-			Resolver:    ResolverLocal,
-			Normalize:   normalizeListening,
-			Encode:      rpc.EncodeCanonicalJSON,
-			CompareKind: rpc.RuleCompareObject,
-		},
+		netVersionSpec(),
+		listeningSpec(),
 	}
 }
