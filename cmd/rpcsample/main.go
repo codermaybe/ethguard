@@ -18,6 +18,7 @@ func main() {
 	outDir := flag.String("out", "", "new or existing output directory (required)")
 	timeout := flag.Duration("timeout", 30*time.Second, "timeout for each HTTP request")
 	maxBytes := flag.Int64("max-response-bytes", 0, "response byte limit; non-positive uses the default 32 MiB limit")
+	scenario := flag.String("scenario", "", "optional capture scenario: transaction")
 	flag.Parse()
 	if *planPath == "" || *outDir == "" {
 		flag.Usage()
@@ -28,7 +29,15 @@ func main() {
 		fail("load plan: %v", err)
 	}
 	collector := rpcsample.Collector{Client: &http.Client{Timeout: *timeout}, MaxResponseBytes: *maxBytes}
-	index, err := collector.Collect(context.Background(), plan, *outDir)
+	var index rpcsample.Index
+	switch *scenario {
+	case "":
+		index, err = collector.Collect(context.Background(), plan, *outDir)
+	case "transaction":
+		index, err = collector.CollectTransaction(context.Background(), plan, *outDir)
+	default:
+		fail("unknown scenario %q", *scenario)
+	}
 	if err != nil {
 		fail("collect: %v", err)
 	}

@@ -84,15 +84,17 @@ type RecordedError struct {
 }
 
 type Record struct {
-	Schema     string          `json:"schema"`
-	ObservedAt time.Time       `json:"observed_at"`
-	Network    Network         `json:"network"`
-	Source     sourceRecord    `json:"source"`
-	RequestID  string          `json:"request_id"`
-	Method     string          `json:"method"`
-	Request    string          `json:"request"`
-	Response   WireResponse    `json:"response"`
-	Errors     []RecordedError `json:"errors,omitempty"`
+	Schema                 string          `json:"schema"`
+	ObservedAt             time.Time       `json:"observed_at"`
+	Network                Network         `json:"network"`
+	Source                 sourceRecord    `json:"source"`
+	RequestID              string          `json:"request_id"`
+	Method                 string          `json:"method"`
+	Request                string          `json:"request"`
+	Response               WireResponse    `json:"response"`
+	OriginalRequestSHA256  string          `json:"original_request_sha256,omitempty"`
+	OriginalResponseSHA256 string          `json:"original_response_sha256,omitempty"`
+	Errors                 []RecordedError `json:"errors,omitempty"`
 }
 
 type Index struct {
@@ -230,11 +232,17 @@ func (c Collector) Collect(ctx context.Context, p Plan, outDir string) (Index, e
 func (c Collector) collectOne(ctx context.Context, network Network, source Source, spec Request, wireID int, redact *redactor) Record {
 	observed := c.Now().UTC()
 	endpoint, headers, endpointErr := resolveSource(source)
+	return c.collectResolved(ctx, network, source, spec, wireID, redact, observed, endpoint, headers, endpointErr)
+}
+
+func (c Collector) collectResolved(ctx context.Context, network Network, source Source, spec Request, wireID int, redact *redactor, observed time.Time, endpoint string, headers map[string]string, endpointErr error) Record {
 	wire := WireRequest{JSONRPC: "2.0", ID: wireID, Method: spec.Method, Params: spec.Params}
 	requestBytes, _ := json.Marshal(wire)
 	record := Record{Schema: RecordSchema, ObservedAt: observed, Network: network,
 		Source: sourceRecord{ID: source.ID, Endpoint: sanitizedEndpoint(endpoint)}, RequestID: spec.ID,
 		Method: spec.Method, Request: redact.text(string(requestBytes))}
+	requestSum := sha256.Sum256(requestBytes)
+	record.OriginalRequestSHA256 = hex.EncodeToString(requestSum[:])
 	if endpointErr != nil {
 		record.Errors = append(record.Errors, RecordedError{Kind: "configuration", Message: redact.text(endpointErr.Error())})
 		return record
@@ -257,6 +265,8 @@ func (c Collector) collectOne(ctx context.Context, network Network, source Sourc
 	record.Response.HTTPStatus = resp.StatusCode
 	record.Response.ContentType = redact.text(resp.Header.Get("Content-Type"))
 	body, truncated, readErr := readBody(resp.Body, c.MaxResponseBytes)
+	responseSum := sha256.Sum256(body)
+	record.OriginalResponseSHA256 = hex.EncodeToString(responseSum[:])
 	record.Response.Body = redact.text(string(body))
 	record.Response.Truncated = truncated
 	if readErr != nil {
