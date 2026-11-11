@@ -84,7 +84,46 @@ surface remains evidence-backed.
 | `eth_sendRawTransaction` | Write | `SendRawTransaction` | `SendTransaction` | native HTTP/WSS raw call | 不适用 | `write.go`, write pipeline | accepted/unknown/rejected 与 receipt 关系 |
 | `eth_getProof` | Explicit unsupported | 不支持 | 不支持 | 不应 silent forward | 不适用 | catalog descriptor | 需要独立 proof admission/evidence contract |
 
-项目 catalog 目前登记 25 个方法级条目，另有写入和显式 unsupported 条目。catalog 的注册不等于跨 transport、provider 或订阅证据已经完成。
+项目 catalog 目前登记 26 个注册读方法条目，另有写入和显式 unsupported 条目。catalog 的注册不等于跨 transport、provider 或订阅证据已经完成。
+
+## 方法自治迁移归属（2026-11-12 P0 盘点）
+
+基线：源码 `04f1f05`，工作区干净，`go test ./...`、全库 race 与 vet 无失败。facade、`Specs()` 与 catalog 三方交叉核对为 26 个注册读方法一一对应；`eth_sendRawTransaction`（WriteMethod）与 `eth_getProof`（UnsupportedMethod）无读 spec。本表记录每个既有条目的自治 owner、迁移批次与多入口共享；迁移完成后并回主表并删除本节。`rpc/methods` 内无遗留 `XxxPolicy()` 构造器；`blockPolicy` 是 block 包装 resolver 的兼容装配，随 P5 处理。
+
+| RPC 方法 | Owner 文件（rpc/methods） | 批次 | 执行类别 | 公开入口（共享同一 plan） |
+| --- | --- | --- | --- | --- |
+| `eth_getTransactionByHash` | `transaction_by_hash.go` | 已完成 | strict 事务对象 | `TransactionByHash` |
+| `eth_getTransactionByBlockHashAndIndex` | `transaction_in_block.go` | 已完成 | strict 事务对象 | `TransactionInBlock`、`TransactionSender` |
+| `eth_chainId` | `chain_id.go` | P3a | strict quantity（canonical bytes） | `ChainID` |
+| `eth_blockNumber` | `block_number.go` | P3a | median quantity | `BlockNumber` |
+| `eth_gasPrice` | `gas_price.go` | P3a | median quantity | `SuggestGasPrice` |
+| `eth_maxPriorityFeePerGas` | `max_priority_fee_per_gas.go` | P3a | median quantity | `SuggestGasTipCap` |
+| `eth_blobBaseFee` | `blob_base_fee.go` | P3a | median quantity | `BlobBaseFee` |
+| `net_peerCount` | `net_peer_count.go` | P3a | local folded quantity | `PeerCount` |
+| `net_version` | `net_version.go` | P3a | strict decimal identity | `NetworkID` |
+| `net_listening` | `net_listening.go` | P3a | local object（root 扩展） | Call only |
+| `eth_getBalance` | `get_balance.go` | P3b | strict quantity + hashAt reference + pending | `BalanceAt`、`BalanceAtHash`、`PendingBalanceAt` |
+| `eth_getTransactionCount` | `get_transaction_count.go` | P3b | strict quantity + hashAt reference + pending | `NonceAt`、`NonceAtHash`、`PendingNonceAt` |
+| `eth_getBlockTransactionCountByHash` | `block_transaction_count_by_hash.go` | P3b | strict quantity（null 准入） | `TransactionCount` |
+| `eth_getBlockTransactionCountByNumber` | `block_transaction_count_by_number.go` | P3b | strict quantity + heightAt reference + pending | `PendingTransactionCount` |
+| `eth_getStorageAt` | `get_storage_at.go` | P3b | strict storage word + hashAt reference + pending | `StorageAt`、`StorageAtHash`、`PendingStorageAt` |
+| `eth_getCode` | `get_code.go` | P3b | strict data + hashAt reference + pending | `CodeAt`、`CodeAtHash`、`PendingCodeAt` |
+| `eth_getTransactionReceipt` | `transaction_receipt.go` | P4a | strict receipt 对象 | `TransactionReceipt` |
+| `eth_getBlockReceipts` | `get_block_receipts.go` | P4a | strict receipt 列表 + hashAt reference、拒绝 pending | `BlockReceipts` |
+| `eth_getLogs` | `get_logs.go` | P4b | strict log 列表 + heightFields reference、拒绝 pending | `FilterLogs`、`SubscribeFilterLogs`（同源 Pull） |
+| `eth_syncing` | `syncing.go` | P4b | local 对象（canonical JSON） | `SyncProgress` |
+| `eth_feeHistory` | `fee_history.go` | P4b | strict feeHistory 对象 + heightAt reference + pending | `FeeHistory` |
+| `eth_createAccessList` | `create_access_list.go` | P4b | strict accessList 对象 + hashAt reference + pending | `CreateAccessList`（非 ethclient 表面） |
+| `eth_getBlockByHash` | `get_block_by_hash.go` | P5 | block 包装 strict；内嵌交易单独评估 | `BlockByHash`、`HeaderByHash` |
+| `eth_getBlockByNumber` | `get_block_by_number.go` | P5 | block 包装 strict；moving tag anchor；内嵌交易单独评估 | `BlockByNumber`、`HeaderByNumber` |
+| `eth_call` | `call.go` | P6 | call-revert 受控逃逸 + hashAt reference + pending | `CallContract`、`CallContractAtHash`、`PendingCallContract` |
+| `eth_estimateGas` | `estimate_gas.go` | P6 | median quantity + hashAt reference + pending | `EstimateGas`、`EstimateGasAtBlock`、`EstimateGasAtBlockHash` |
+| `eth_sendRawTransaction` | `send_raw_transaction.go` | P6 | WriteMethod；写入管线，无读 spec | `SendTransaction`、`SendRawTransaction`、`SendTransactionSync`、`SendRawTransactionSync` |
+| `eth_getProof` | `get_proof.go` | P6 | UnsupportedMethod；显式缺口，不得静默转发 | 无 |
+| 订阅族（newHeads／logs／receipts） | 无读注册条目 | P6 核对 | stream 族，独立事件模型与订阅合同 | `SubscribeNewHead`、`SubscribeFilterLogs`、`SubscribeTransactionReceipts` |
+| 派生族（sender、header 投影） | 无 RPC 条目 | P6 核对 | derivation 族，本地推导，不注册 RPC policy | `TransactionSender`、header 视图 |
+
+无特殊修正规则是多数方法的默认裁决：P3 全部标量方法直接复用 wire codec，不新增修正 switch；是否需要修正只在 P4—P6 按对象族逐一裁决并记录。
 
 ## go-ethereum v1.17.10 官方 ethclient 方法
 
