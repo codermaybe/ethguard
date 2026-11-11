@@ -127,6 +127,8 @@ surface remains evidence-backed.
 
 P7 全量门禁（2026-11-12，迁移完成后）：`gofmt -l`、`go vet ./...`、`go test ./... -count=1`、`go test ./... -race -count=1`、`go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild'`、`go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on`、Anvil 事务生命周期（`-tags=anvil`，固定 1.7.1）全部通过。全部 26 个注册读方法、写入条目与显式 unsupported 条目已自治；`spec_inventory.go`／`catalog.go` 仅收集定义函数，集中名称表已退役。未新增公网 provider 观察；离线与本地 Anvil 证据按上文边界记录。
 
+P8 热路径实测（2026-11-12，`BenchmarkTransactionByHashNormalize`／`BenchmarkTransactionByHashAdmit`，`-benchtime=1s`）：规范键准备约 223µs／源响应（59.7KB、1176 allocs），准入（准备 + 对象校验）约 424µs（109.7KB、2123 allocs）。相对提供方网络往返与 quorum 采样规模低两个数量级，未达优化阈值；typed oneOf 分支顺序试探是已知主要成本，如生产 profile 显示需要，另行单独优化提交。同步清理：包文档与 inventory 头注释改为自治布局描述。
+
 P5 内嵌交易评估结论（2026-11-12）：`objects/block` 的 `encodeTransactions` 对完整内嵌交易只做 go-ethereum `types.Transaction` 往返与块级绑定，不复制独立 query 的官方 schema 分支解码、pending 派生或生成器补丁；内嵌交易必有块上下文，其保护域由块 admission（uncle root、头绑定）覆盖。两套语义各自明确，无需接入；若未来需要统一另交独立提交。
 
 ## go-ethereum v1.17.10 官方 ethclient 方法

@@ -4,11 +4,12 @@
 //
 // The parent rpc package owns everything true of any method and any JSON —
 // the Policy contract, the Registry, and the shared resolution strategies.
-// This package owns the Ethereum side: one eth_*.go per method's policy
-// assembly, the method-name table in method_names.go, and the object
-// semantics (block, receipt, transaction, logs) whose field tables and
-// admission rules are shared by more than one method or carry a
-// cryptographic commitment.
+// This package owns the Ethereum side: one self-contained file per method —
+// the RPC spelling, the MethodSpec, the read descriptor, the method's
+// preparation and admission — collected by spec_inventory.go and
+// catalog.go, plus the object semantics (block, receipt, transaction, logs)
+// whose field tables and admission rules are shared by more than one method
+// or carry a cryptographic commitment.
 //
 // Unknown methods never get a file here; they fall through the registry to
 // transparent forwarding, which must produce Forwarded, never Corroborated.

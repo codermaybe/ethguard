@@ -3,10 +3,10 @@ package methods
 import ()
 
 // Specs is the frozen MethodSpec inventory: one entry per Registered read
-// method, each declaring resolver, value domain, reference need, pending
-// handling, hooks, and projector. Compile turns it into the registry the
-// composition root installs; the hand-written constructors remain the
-// public surface the equivalence tests hold together with these specs.
+// method, each collected from its own method file. Compile turns it into the
+// registry the composition root installs; the collection order is stable and
+// follows client.go's construction order, so diagnostics remain
+// deterministic.
 func Specs() []MethodSpec {
 	return []MethodSpec{
 		chainIDSpec(),
