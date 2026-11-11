@@ -1,155 +1,34 @@
-# Reference Freshness（设计与不变量）
+# Reference freshness：现行边界与实现事实
 
-状态：**设计草案（2026-10-31），未实现新策略**。决策 0032/0033 已接受边界：
-保持调用方请求的 tag 语义；freshness 与 agreement 分离；不预设固定 lag。
-本文件把现状、两个 freshness 作用点和待裁决问题固定下来，不选择默认数值，
-也不改变当前实现。
+状态：已接受的不变量与现状说明；**没有采纳新的统一 freshness 策略或默认 lag**。候选方案和待验证项只作本地评审材料，不再在现行合同里保留另一份分阶段提案，也不将未保存的临时记录作为契约入口。
 
-## 1. 两个 freshness 作用点（当前实现事实）
+## 两个作用点
 
-EthGuard 目前有两处与 freshness 相关的机制，它们不是同一个策略：
+| 作用点 | 当前行为 | 边界 |
+| --- | --- | --- |
+| pool tip gate | `WithTipTracking` 采样 source tip；`CollectVoting` 依据 sampled tip 与 fleet lower-median 的 staleFloor 跳过明显落后的来源 | 被跳过者留在固定 Basis，携带 `ErrSourceGated`，不记 health failure；这是调度，不是换成员或降低门槛 |
+| finalized 候选 lag | `internal/reference` 的 finalized 算法用 maxLag 过滤候选视图，再进行选择与确认 | 是候选资格规则；latest/safe strict-head 不采用这套 maxLag；公式见 [acceptance-thresholds.md](acceptance-thresholds.md) |
 
-1. **调度侧 tip gate（pool）**：`WithTipTracking` 周期采样各 source 的
-   block tip；`Collect` 在 applyFreshness 时跳过明显落后于 fleet tip 的
-   source。被跳过的成员保留在投票分母中（决策 0062）。
-2. **reference 候选 lag（finalized 算法）**：`reference.Finalized` 用
-   `maxLag` 过滤落后于候选中位高度的 finalized 视图；过旧的视图被记为
-   source fault，不参与候选/确认。`StrictHeadEstablishment` 的 latest/safe
-   层级不使用 finalized 的 `maxLag`。
+非 corroborating Collect 若显式指定 Sources，按现行约定跳过 freshness/cooldown gate；Broadcast 不做 read freshness gating。不能把这些内部路径概括成“所有调用都经过同一个 freshness 策略”。
 
-两者都是当前实现事实，不构成新的默认 freshness 承诺；具体数值、单位和
-适用方法仍需专门决策。
+当前 tip gate 不读取本次请求的 tag／height，故显式历史、pending 和无块参数请求也可能少发一个 source；调用本身未因“历史”被直接拒绝，不代表已实现历史读取来源豁免。sampledTip／staleFloor 也没有按 tipObservedAt 年龄过期。这两项是**待裁决缺口，不是认可现状的长期合同**。
 
-## 2. 不变量（任何 freshness 方案必须满足）
+## 不变量
 
-1. **tag 语义不降级**：latest 不得静默变成 finalized；safe/finalized 不得
-   降级为 latest；explicit height/hash 不得被改写。
-2. **freshness 失败 = 拒绝**：不满足 freshness 时拒绝该调用或该 source，
-   不得通过降低门槛、放宽 mode 或换 tag 来成功。
-3. **成员/分母不变**：freshness 只影响调度或候选资格，不改变固定成员、
-   投票分母或 acceptance threshold（0062）。
-4. **显式历史读取豁免**：调用方显式请求旧块/旧高度时，不得因“旧”被拒；
-   freshness 只对声明的移动 tag（latest/safe/finalized 等）有意义。
-5. **agreement 与 freshness 独立**：多数同意不证明新鲜；一个 provider 的
-   最高高度不能单独判定其他 provider 过期。
-6. **provider evidence 不是共识**：freshness 判定基于 provider 观测，
-   不声称 canonical finality 或轻客户端证明。
-7. **可观测**：拒绝/跳过必须留下结构化原因（tip 落后、候选 lag、样本过期），
-   不得只靠错误字符串。
-8. **无默认常数**：在专门决策前，不新增固定的“最大 lag = N 块/秒”默认值。
+1. 保持 tag：latest 不静默变 finalized，safe/finalized 不降为 latest，explicit height/hash 不换块。
+2. freshness 与 agreement 分离：一个 provider 的最高高度不能单独证明他源陈旧，多数相同也不证明足够新。
+3. 不满足已声明的新鲜度要求应拒绝或跳过，不减少冻结成员／分母、降低 acceptance 门槛、改变票权或切换模式。
+4. 显式历史读取原则上不因内容旧而被拒；pending 的节点本地语义不得被 tip gate 改成已出块状态。具体请求范围仍需解决上述实现缺口。
+5. 调度暂停、候选不合格、transport failure 与内容异见应有可区分的诊断；freshness 不是自动的 health 惩罚依据。
+6. 没有专门决策和真实分布证据，不新增统一“最多落后 N 块／秒”或自适应默认值。
+7. provider-reported safe/finalized 的一致性不是 canonicality、独立 finality 或轻客户端证明。
 
-## 3. 待裁决问题
+## 现存证据与修改要求
 
-### 3.1 单位与判定对象
+`pool/freshness_scope_test.go` 保存当前请求范围、24h 旧样本与不完整采样覆盖的离线基线；它不是未来行为必须保持的认可。修正行为时应替换对应现状断言，不能让旧测试反过来否决已评审的修复。
 
-- 以块高度、时间窗口还是两者组合判定 freshness？
-- 判定对象是 source tip、reference 候选高度，还是方法声明的历史区间？
-- 采样时间戳过期（tip 样本本身陈旧）如何处理：视为未知、暂停该 source，
-  还是只影响调度不影响裁决？
+其他聚焦证据为 `TestTipTrackingQuarantinesLaggingSource`、`TestCollectVotingKeepsCoolingMemberInBasis`、`TestFinalizedAnchoringIsolatesStaleReporter`、`TestBroadcastTrailingSourceStillContacted`。本次文档清理没有重跑这些测试或重新访问 provider。
 
-### 3.2 方法适用范围
+2026-10-31 的有限四源观察及仍缺失的 reorg、样本过期、历史请求与确认轮证据见 F1；一次观测不足以选定单位、窗口或阈值。后续方案必须说明其作用点、请求适用范围、样本有效性、固定分母和结构化原因，不能让 pool 拥有第二套 Ethereum 参数解析器。
 
-- 哪些方法对 freshness 有意义：latest/safe/finalized 的移动 tag 读取；
-  explicit historical reads 豁免；
-- pending 读取是否参与 freshness（当前 pending 是本地观测，不应被 tip gate
-  改写）；
-- 派生方法（blockNumber）是否复用 reference freshness，还是只复用已建立的
-  reference。
-
-### 3.3 调度与裁决的边界
-
-- pool tip gate 是**调度**（source 不发送请求、仍占分母），reference lag 是
-  **候选资格**（source fault、参与确认分母）；两者是否需要在同一决策中
-  统一解释？
-- 一个 source 因 tip gate 未发送请求时，诊断是否需要区分“未尝试”和
-  “尝试后失败”；
-- freshness 失败是否应触发 source health/cooldown（当前判断：不自动惩罚
-  成员，除非属于可用性故障）。
-
-当前实现事实（2026-10-31 复核，未改变行为）：
-
-- corroborating 读取走 `CollectVoting`，在每个 source 上按该 source 的
-  sampled tip 与 fleet lower-median 的 `staleFloor` 比较；被暂停的成员保留
-  在 basis 中并携带 `ErrSourceGated`，不记录 health failure；
-- 非 corroborating 的 `Collect` 若带显式 `Sources`，按契约跳过
-  freshness/cooldown gate；`Broadcast` 明确不做 read freshness gating；
-- tip gate 只看 source tip，不读取本次请求的 tag/height。因此显式历史读取
-  仍可能因为该 source 的 tip 落后而被暂停；调用本身不会因“历史”被拒绝，
-  但可用 source 集合会变化。这是“显式历史读取豁免”需要裁决的边界；
-- `sampledTip`/`staleFloor` 不按 `tipObservedAt` 的年龄过期样本；provider
-  停止更新 tip 时，最后一次采样会一直参与 floor 计算。样本过期语义仍是
-  未决问题；
-- 现有离线证据：`TestTipTrackingQuarantinesLaggingSource`、
-  `TestCollectVotingKeepsCoolingMemberInBasis`、
-  `TestFinalizedAnchoringIsolatesStaleReporter` 和
-  `TestBroadcastTrailingSourceStillContacted`。
-
-### 3.4 参数与自适应
-
-- 固定 lag 是否足以覆盖真实 provider 差异，还是需要自适应阈值；
-- 阈值是否按 chain/方法/客户端类型区分；
-- 与 T11 自适应拥塞控制的关系：freshness 是内容判定，拥塞是调度容量，
-  两者共享 source 预算但不共享决策语义。
-
-## 4. 证据计划（在实现前）
-
-1. **真实 provider 观测**：多个 provider 在 latest/safe/finalized 上的高度
-   分布、滞后分布、采样间隔与异常形态；记录日期与端点类别，不把一次观测
-   写成普遍结论；2026-10-31 已完成两次 4 源观测：3 pass、约 15 秒间隔的
-   短窗口，以及 8 pass、约 45 秒间隔、约 6 分 22 秒的扩展窗口。扩展窗口
-   latest spread 最大 1 block，safe 最大 224，finalized 最大 96；一个源在
-   全部 8 pass 的 safe/finalized 固定不动而 latest 只落后 1 block；未观察到
-   reorg 或同高度 hash 分歧。详见
-   历史 observation 已合并到决策记录，不能作为当前契约单独引用；
-2. **reorg/回退样本**：短程 reorg 下 finalized/latest 视图的变化，验证
-   freshness 失败是否按拒绝处理；当前 ~6 分钟窗口未观察到，仍需更长窗口；
-3. **显式历史读取**：旧高度/旧 hash 不被 freshness 拒绝；provider 已能返回
-   block 18,000,000 的历史状态，但 orchestrator 的 freshness 路径尚未专项
-   验证；
-4. **tip 样本过期**：停止采样或 provider 不更新时，调度与诊断的行为；
-   当前代码没有按 `tipObservedAt` 年龄过期样本，仍需专项测试和裁决；
-5. **与 reference 算法的交互**：候选 lag 过滤、确认轮次、分母不缩小；
-   离线回归已覆盖 stale reporter，真实 provider 的确认轮交互仍未观察；
-6. **离线回放**：将真实 capture 转成 replay，不联网运行。
-
-在上述证据完成前，不修改 `maxLag` 默认值、tip gate 参数、reference tag
-语义或 finalized 候选规则。两次观测只证明 provider 高度分布和 tag 更新
-节奏不一致（safe 最大 spread 224、finalized 最大 96，且一个源在整个
-6 分钟窗口内固定不动），仍不足以选择 lag 单位、适用方法或自适应阈值。
-
-## 5. 与现有文档/决策的关系
-
-- 决策 0032：保持 tag 语义、稳定共同参考优先；
-- 决策 0033：freshness 与 agreement 分离，固定 lag 不是前置条件；
-- 决策 0037：保留 Geth block-tag 映射；
-- [moving-tag-matrix.md](moving-tag-matrix.md)：pending/EIP-1898/tag 的方法
-  级矩阵；
-- 调度容量与 freshness 的边界由 `pool` 运行时实现和决策记录维护，不在本文件
-  复制第二份提案。
-
-## 6. 非目标
-
-- 不引入轻客户端、checkpoint 或 sync committee 证明；
-- 不把 freshness 变成 canonicality/finality 结论；
-- 不改变固定成员、分母、权重、模式或门槛；
-- 不因某个 provider 更快就给它更高权重；
-- 不在本阶段实现新的默认 lag 常量。
-
-## 7. 请求与样本的离线基线（2026-11-01）
-
-`pool/freshness_scope_test.go` 为后续请求范围和样本有效性迁移提供现状证据，
-不是认可现状的长期契约。修正生产行为时必须同步替换对应断言：
-
-- `TestVotingTipGateCurrentRequestScope`：三个成员 tip 为 100/100/10，lag=16；
-  对 latest/safe/finalized、显式高度、hash object、pending 和无块参数方法，
-  `CollectVoting` 都暂停第三个成员。成员仍占 basis，未发送且不扣 health。
-  配合 aggregator 计划路径直接使用该收集接口的代码事实，确认 F1 必须由请求
-  语义和执行轮次声明范围；不应让 pool 自建方法参数解释器。
-- `TestTipFloorCurrentSampleCoverageAndAge`：五个固定成员仅三个有样本
-  100/10000/10000，样本时间均为 24 小时前；其余两个没有样本。当前 floor 为
-  9984，已采样的低 tip 被 gate，未采样成员仍可请求。说明当前 lower-median
-  抗少数高 tip 的解释只在采样覆盖条件满足时成立；它并不自动继承固定 basis
-  的多数保护。该问题影响可用性，不会改变最终投票分母或降低 acceptance 门槛。
-
-F1 先修正显式历史、pending 和无关请求的 gate 范围；F2 再处理样本年龄、覆盖
-与结构化原因。样本窗口与未知样本处理需单独记录，不从上述 fixture 推导默认值。
+相关依据：决策 0032／0033／0037／0062；方法级 tag 与 EIP-1898 行为由 [moving-tag-matrix.md](moving-tag-matrix.md) 维护，调度容量控制与内容 freshness 不共享决策语义。

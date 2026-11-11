@@ -1,12 +1,13 @@
-# WSS Wire Contract（自有 WebSocket 底层实现范围冻结）
+# WSS Wire Contract（自有 WebSocket 底层契约）
 
-状态：**设计冻结（W0，2026-11-03）。本文件冻结 EthGuard 自有 WSS 底层的范围、
-分层与验收；后续 W1–W7 的每个提交只实现其中一层，不扩张本契约。**
+状态：现行 wire 契约（范围冻结于 2026-11-03）。自有实现的握手、帧、连接与
+adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也不据此宣称所有验收门
+或依赖清理均已完成。
 
-本文件是 WSS wire、连接生命周期和当前实现边界的唯一正文。目标：把
-`gorilla/websocket` 从生产依赖中移除，由 EthGuard 自有
-代码掌握 HTTP Upgrade、WebSocket 帧协议和调用生命周期；JSON-RPC 语义继续由
-`internal/rpcwire` 独占。
+本文件拥有 WSS wire、连接生命周期和实现范围；JSON-RPC 语义由
+`internal/rpcwire` 独占。订阅聚合由 [subscription-contract.md](subscription-contract.md)
+拥有；真实 provider 的 dated observations 与未观察项由
+[wss-provider-evidence.md](wss-provider-evidence.md) 拥有，不能反向扩大兼容性承诺。
 
 ## 0. 边界总纲
 
@@ -19,11 +20,13 @@
 - **不改变上层语义。** 不修改 `pool`、`aggregator`、`ReadPlan`、quorum、
   reference、Decision、presence 或 typed projection。`transport.Transport`
   Port 与中立哨兵（`ErrConnectionClosed`、`ErrBodyTooLarge`）保持不变。
-- **依赖规则。** 新 wire 层只依赖 Go 标准库与项目内部包（`internal/rpcwire`、
-  `internal/limits`、`internal/transport`、`rpc`）。`gorilla/websocket` 在过渡期
-  仅允许作为对照测试实现存在（server-side 测试 peer、差分验证 oracle），不得
-  进入任何新生产文件；W7 移除后 go.mod 不再出现该直接依赖。默认构建不链接
-  `ethclient` 的既有架构门不变。
+- **依赖规则。** 自有生产 wire 层只依赖 Go 标准库与项目内部包
+  （`internal/rpcwire`、`internal/limits`、`internal/transport`、`rpc`），
+  不得导入或链接第三方 WebSocket 库。`dependencies_test.go` 约束 WSS 包的
+  import/link 边界，`gorilla_interop_test.go` 只作为测试 peer。默认构建不链接
+  `ethclient` 的既有架构门不变。**范围区别**：`go.mod` 仍列有 gorilla，
+  不能把“自有 WSS 不链接 gorilla”写成“整个模块已移除 gorilla”；全模块依赖
+  去留不是本次文档整理的行为决定。
 
 ## 1. 分层与文件
 
@@ -32,9 +35,9 @@
 | 握手 | `websocket_handshake.go` | HTTP Upgrade、ws/wss 拨号、TLS、101 校验、Sec-WebSocket-Accept、deadline/取消 |
 | 帧编解码 | `websocket_frame.go` | 帧头、mask、opcode/RSV、fragmentation、UTF-8、close code、双重限制 |
 | 连接与生命周期 | `websocket_connection.go` | 单 reader、控制帧自处理、写串行化、read limit 分类、关闭语义 |
-| adapter 绑定 | `wss.go`（现有文件，W5 改造） | `transport.Dialer`/`Transport` 表面、pending demux、presence 透传 |
+| adapter 绑定 | `wss.go` | `transport.Dialer`/`Transport` 表面、pending demux、presence 透传 |
 
-每层单独提交、单独验收；禁止 `wss_phase_N.go`、migration 文件或跨层混合提交。
+分层保持独立；不以阶段编号、migration 文件或临时并行 wire 栈代替职责划分。
 
 ## 2. 支持范围（明确支持）
 
@@ -86,8 +89,9 @@
   close，不占用业务 pending 表与业务 request ID。
 - request ID demux、等待响应时取消只移除自身 pending、等待写锁时取消不发
   帧、写失败终止连接、读失败/read limit 失败全部 pending、Close 拒绝新调用
-  并等待在途调用、旧响应不交付新调用、不自动重放——逐条保持现有契约测试
-  的断言不变。
+  但不取消在途 unary 调用、旧响应不交付新调用、不自动重放。`Close()` 本身
+  不等待在途调用返回；socket 在最后一个 pending 完成/取消后释放，读写故障
+  仍可立即 abort（`wss.go` 的 `Close`、`finishCloseAfterPending`、`abort`）。
 - Close 清空未绑定订阅的 notification 缓存及淘汰顺序；进入 closing 或 closed 后，
   reader 不再缓存或分发 notification。在途 unary 响应仍正常交付，最后一个调用
   完成或取消后才释放 socket；不得因等待在途响应而重建 notification 缓存。
@@ -108,44 +112,29 @@
 - 自动重连、自动 replay、未知交易结果恢复（决策 0056.2 与生命周期契约继续
   禁止；pool-owned 下一次独立调用惰性重拨不变）；
 - provider-specific close/reconnect 行为适配；
-- 主动 keepalive、写队列/backpressure、连接代数——进入 W8 前不启动，且每种
-  能力须单独设计、单独提交、单独验收，不得混入 wire 替换提交。
+- 主动 keepalive、独立写队列/backpressure、连接代数：须另立设计与验收，
+  不因已有订阅有界队列就成为 wire 层的通用能力。
 
-## 4. 交付与验收序列
+## 4. 持续验收边界
 
-| 阶段 | 交付 | 验收焦点 |
-| --- | --- | --- |
-| W0 | 本文件 | 与现有契约一致；不动 pool/aggregator/ReadPlan/quorum |
-| W1 | wire 层依赖清单 + 架构互锁测试 | 生产 wire 文件不导入第三方 WS 包；过渡期 gorilla 仅测试可见 |
-| W2 | 握手层 + 测试 | loopback 握手、TLS 错误、非 101、坏头、超时/取消、拒绝重定向/压缩/未知扩展 |
-| W3 | 帧编解码 + 测试 + fuzz | RFC6455 基础向量、malformed 全类、64-bit 溢出、UTF-8、read limit、race |
-| W4 | 连接生命周期 + 测试 | 现有契约全表保持（取消、写失败、断连、Close、presence、不重放） |
-| W5 | adapter 换用自有栈 | 现有 WSS contract、mixed HTTP/WSS、presence 四态、ChainID/read limit/Close 全部通过 |
-| W6 | 双实现差分 | 同一 fixture 经自有与 gorilla 对照实现，差异逐条解释；race/fuzz/重复运行 |
-| W7 | 移除 gorilla | `go list -deps` 无 gorilla；全量 test/race/vet/architecture 门通过 |
+| 边界 | 已有源码入口（测试存在不等于本次已执行） |
+| --- | --- |
+| 生产 wire 不依赖第三方 WS/geth client、不得反向导入 aggregator/rpc/methods/runtime/reference/typed | `dependencies_test.go` 与架构 interlock |
+| Upgrade、TLS、非 101、坏头、超时/取消、重定向/未协商扩展拒绝 | `websocket_handshake_test.go`、`websocket_handshake_ipv6_test.go` |
+| RFC6455、malformed、长度/UTF-8/read limit、分片 | `websocket_frame_test.go`、`websocket_frame_fuzz_test.go` |
+| 单 reader、控制帧、写串行化与连接失败 | `websocket_connection_test.go`、`write_wedge_test.go` |
+| pending demux、取消、Close、不重放、presence 与通知隔离 | `wss_contract_test.go`、`lifecycle_test.go`、`notification_test.go`、`notification_pending_test.go` |
+| 外部实现互操作 | `gorilla_interop_test.go`；测试 peer 不能充当真实 provider 证据 |
 
-W7 验收命令（目标：默认生产构建与 WSS 生产构建都不再引用 gorilla）：
+## 5. 不变量清单
 
-```text
-go list -deps . | grep -E 'gorilla/websocket|go-ethereum/(rpc|ethclient)'   # 仅允许 gethcompat 图内的既有命中
-go list -deps ./internal/transport/wss ./cmd/wsscapture | grep gorilla      # 必须为空
-go test ./... -count=1
-go test ./... -race -count=1
-go vet ./...
-go test ./internal/transport/wss -race -count=10
-go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
-```
-
-## 5. 不变量清单（W1–W7 每个提交都不得破坏）
-
-1. `internal/transport/wss` 不导入 aggregator、rpc/methods、runtime、
-   reference、typed（既有架构互锁测试继续生效）；
-2. 协议错误实现 `rpc.ProtocolError`、`rpc.DataError`、`rpc.ErrorDataPresence`
-   且 data 原始字节逐字保留（missing/null/value 三态）；
-3. malformed 响应只失败该调用，帧边界完整时连接继续可用；
-4. 取消/超时不损坏健康连接，已发调用的结果不被重置；
-5. 写路径 invocation 失败不重试、不重放；连接终止后新调用得到
-   `wss.ErrTransportClosed`；
-6. 不新增第二套 adapter registry；`config.TransportWSS` 显式选择的组合根
-   dispatch 不变；
-7. 每个提交单一业务意图，可用 `go test ./... -count=1` 复核。
+1. 协议错误实现 `rpc.ProtocolError`、`rpc.DataError`、`rpc.ErrorDataPresence`，
+   data 原始字节逐字保留（missing/null/value；`0x` 仍是 present value）。
+2. malformed JSON-RPC 响应只失败该调用，帧边界完整时连接继续可用；wire
+   协议错误或 read limit 则终止连接，不混同两类失败。
+3. 取消/超时不损坏健康连接；写路径 invocation 失败不重试、不重放。
+4. 连接终止后新调用得到 `wss.ErrTransportClosed`；其与中立关闭哨兵的关系
+   保持既有 adapter 契约。
+5. 不新增第二套 adapter registry；`config.TransportWSS` 的显式组合根 dispatch
+   不变。pool 下一次独立调用的惰性重拨与根订阅 session 重建各自有 owner，
+   都不是 transport 自动 replay。

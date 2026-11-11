@@ -21,14 +21,28 @@ interlock 只需约束 internal 三个工具包的反向边。
 
 | 工具 | 代码 | 业务职责 | 证据输出 |
 | --- | --- | --- | --- |
-| livecanary | `cmd/livecanary` + `internal/livecanary` | 定期对真实端点做只读 Canary 采集，产出带 SHA-256 溯源的对比报告与不变量校验；是「真实兼容性证据门」的采集器 | `docs/design/live-canary/`（schema 与示例）；报告按运行落盘，不入库默认路径 |
+| livecanary | `cmd/livecanary` + `internal/livecanary` | 对固定成员执行只读 plan，产出 SHA-256 溯源报告与不变量校验；观察而非 provider 正确性证明 | `docs/design/live-canary/` 仅 schema/合成示例；真实报告在 run artifact，不默认入库 |
 | shapeprobe | `cmd/shapeprobe` + `internal/shapeprobe` | 对同一锚定高度的跨端点响应做字段级形状分类（Core/Extension/residual），回答「归一化没接受什么」 | `docs/samples/`（归档批次，见下） |
 | rpcsample | `cmd/rpcsample` + `internal/rpcsample` | 按计划文件录制真实 RPC 样本（batch/index/records 三件套）并离线回放；`replay` 子包是 capture/golden 合同的离线验证器 | `docs/samples/`（归档批次）、`internal/rpcsample/testdata/`（被测试引用的活动样本） |
-| transport contract | `pool/transport_contract_test.go` + `internal/transport/*` 契约测试 | 固定 HTTP/WSS/geth 三个适配器必须共同满足的传输合同（超时、关闭、错误分类）；所有权归 pool 的适配器选择测试与 transport 包自身 | 测试内嵌，无外部数据 |
+| transport contract | `pool/transport_contract_test.go` + `internal/transport/*` 契约测试 | pool 负责适配器选择与共同边界；HTTP L1 suite、WSS wire/lifecycle 与订阅 capability 各有独立契约，不能将单一 suite 外推为所有传输的等价证明 | 测试内嵌，无外部数据 |
 
 其余 `cmd/*`（nativesmoke、soak、specbundle、specdiff、wsscapture）是手动驱动
 的运维/取证工具：soak 压测、nativesmoke 本机冒烟、specbundle/specdiff 规格工具、
 wsscapture WSS 抓包。它们没有计划进入默认 CI。
+
+## 契约与 dated evidence 的归属
+
+| 正文 | 唯一职责 | 不代表什么 |
+| --- | --- | --- |
+| [transport-contract.md](transport-contract.md) | HTTP L1 外部行为及 adapter 差异；§5 保留 2026-10-25 本机 native smoke | 本机 smoke 不等于外部兼容性认证 |
+| [wss-wire-contract.md](wss-wire-contract.md) | 自有 WSS Upgrade/frame/连接、raw-call 与通知 demux 的 wire 边界 | 不定义订阅 quorum，不证明公开 provider 支持 |
+| [subscription-contract.md](subscription-contract.md) | stream/source snapshot、聚合、Pull、预算、生命周期与现有实现差异 | 候选根裁决事件不是已导出 API |
+| [wss-provider-evidence.md](wss-provider-evidence.md) | 2026-10-31/11-01 的真实 WSS presence、断连与未观察项 | 未观察到 null，四态 provider-backed golden 门仍未闭合 |
+| [live-canary-contract.md](live-canary-contract.md) | HTTPS canary state/plan/artifact/recheck 契约；§12 保留 2026-10-23/24 观察摘要与 provenance | `inconclusive`、`repeatable=true` 或 artifact 上传成功不等于 passed |
+
+完成阶段的 run 过程记录合并到以上 dated evidence，不再单独维护 stage-only 文件。
+日期、样本数、原始产物定位/digest 与未关闭的证据缺口必须保留；阶段命令和执行
+日记可由 Git 回看，不能把旧报告写成当前健康/发布状态。
 
 ## 证据数据保留策略
 
@@ -39,10 +53,11 @@ wsscapture WSS 抓包。它们没有计划进入默认 CI。
    `YYYY-MM-DD[-runN]` 命名，附同日 README 说明采集工具、端点与观察摘要。
    归档数据不参与任何测试断言；它存在的意义是让后续设计决策能回看当时的
    真实形状，不构成兼容性结论。
-3. **无引用落盘**：任何工具输出落入代码树却没有测试引用、也没有归档 README
-   的，视为未处理数据——要么移入 `docs/samples/` 补 README，要么删除。
-   `architecture_interlock_test.go` 不检查数据文件（数据归属靠评审纪律），
-   但 topology 文档的目录地图与本文是检查清单。
+3. **未归属的原始落盘**：工具原始输出若进入代码树，必须有测试归属或归档
+   说明；新输出的落点在采集时决定。已保留的真实 `docs/samples/` 原始证据不因
+   目录整理、缺少测试引用或阶段完成而删除/合成替换。仓库外 capture 和 CI artifact
+   可在 dated evidence 中保留定位与 digest，但摘要不能冒充原始数据或 attestation。
+   `architecture_interlock_test.go` 不检查数据文件，数据归属靠评审纪律。
 4. **禁止合成替代**：真实端点证据（含失败记录，如 HTTP 525、JSON-RPC -32000）
    不允许用合成数据替换后删除。证据门的关闭只能由新的真实采集完成。
 

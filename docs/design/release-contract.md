@@ -97,72 +97,20 @@ Environment 审批、远端资产上传或 CDN 行为。远端发布成功必须
 整模块 API 差异是审批输入，不是兼容性通过证明；预发布 notes 必须保留当前外部兼容
 缺口。稳定发布仍需默认严格方法门禁通过。
 
-## 6. 证据（2026-11-04）
+## 6. 日期化发布证据
 
-### 6.1 `v0.0.1-beta.1` 发布失败（tag c339b5f）
+以下是已发生的诊断和观察，不是本次文档清理重新执行的检查，也不替代当前 SHA 的发布门禁。完整日志与实施过程留在 Git／对应 workflow。
 
-| 工作流 | run | 结果 | 失败步骤 |
-| --- | --- | --- | --- |
-| release | 41825635461 | failure | `apidiff vs previous tag`（exit 1；开始与结束同一秒，其后 4 步全部 skipped） |
-| live-canary | 41825635367 | failure | `enforce observation result`（tag 运行 + `inconclusive`，当时走严格门禁） |
-
-release 的失败根因（本地复现同一错误文本）：该步**先**执行
-`go install golang.org/x/exp/cmd/apidiff@latest`，**再**判断是否第一个 tag，因此
-首次 tag 必然执行这次安装；而 `golang.org/x/exp@latest` =
-`v0.0.0-20261014143641-f0251eb4aa3e` 的 go 指令是 `go 1.26.0`，当时 `go.mod` 是
-`go 1.25.3`，`actions/setup-go` 强制 `GOTOOLCHAIN=local`，安装立即失败（无需下载
-工具链，与 <1s 的失败一致）：
-
-```text
-go: golang.org/x/exp/cmd/apidiff@latest: golang.org/x/exp@v0.0.0-20261014143641-f0251eb4aa3e requires go >= 1.26.0 (running go 1.25.3; GOTOOLCHAIN=local)
-```
-
-同一根因类还解释了 2026-11-02 定时 CI 的两处失败：`golang/govulncheck-action@v1`
-内部安装 `govulncheck@latest`（x/vuln v1.9.0，go 1.26.0）与 deadcode
-（x/tools v0.52.0，go 1.26.0）。三者是**同一类缺陷**（未固定版本的 `@latest`
-安装 × 工具链下限），不是三个独立问题。release 工作流里没有 govulncheck 步骤，
-所以 beta.1 的"发版失败"不是 govulncheck 造成的。
-
-### 6.2 标准库可达漏洞与 go 指令
-
-| go 指令 | govulncheck 结果 | 证据 |
+| 日期／版本 | 可保留的事实与教训 | 证据边界 |
 | --- | --- | --- |
-| `go 1.25.3`（临时副本） | **30 个可达标准库漏洞**（GO-2025-4155、GO-2026-4337…6809 等）；`GO-2026-6809`（crypto/x509 中间证书信任）的修复版本是 `go1.26.10`；trace 经 `internal/transport/wss/websocket_handshake.go:229` | 本机临时副本，仅改 go 指令，扫描器 v1.9.0 |
-| `go 1.26.10`（当前） | 可达 **0**；导入包中 1 个不可达漏洞，无 require 模块可达漏洞 | `./scripts/release_check.sh` 实跑通过 |
+| 2026-11-04 beta.1，`c339b5f` | release run `41825635461` 在 apidiff 安装失败；`@latest` 工具要求 Go1.26，而当时锁 Go1.25.3 并强制 local | 不是 govulncheck 在 release 中失败；同日定时 CI 的 scanner／deadcode 失败属于同类工具链下限问题 |
+| beta.1 canary run `41825635367` | provider 观察 inconclusive，当时 tag gate 因此失败 | workflow failure 不等于观察证明了业务错误 |
+| Go 工具链提升 | 旧本地副本 Go1.25.3 曾报告30个可达标准库漏洞；GO-2026-6809 修复版本是 Go1.26.10 | 升级有可达安全依据；旧扫描的零可达结论不代替以后每次正式 scanner |
+| beta.2，`b6e7829` | release `41829485059`、canary `41829485063` 成功，16资产；相对 beta.1 仅 workflow／文档变化，模块 API 相同 | beta.1 保留 tag-only，不删除或补发；这些历史状态不改写 |
+| 2026-11-09 GoReleaser 接入 | 本地15项构建／checksum、5入口 smoke、候选打包解包／只读复验、正式 API 差异与质量脚本曾通过 | 没有执行远端 Environment 审批／上传或真实 RPC canary，不宣称 EthClient complete |
+| 同批 fuzz 诊断 | duration 到期错误未生成反例；8-worker 最小化 EOF 根因未定，改为第2节计数预算、2-worker串行 | 不忽略引擎错误、不减少目标执行次数；参数与当前入口以第2节为准 |
 
-即：提升 go 指令不是形式要求，而是清除真实可达标准库漏洞的手段；`1.26.10` 的
-取值由 `GO-2026-6809` 的修复版本决定。
-
-### 6.3 成功路径与 tag 处置
-
-`v0.0.1-beta.2`（b6e7829）的 release（run 41829485059）与 live-canary
-（run 41829485063）均成功，Release 含 16 个资产。`b6e7829` 相对 `c339b5f` 只改了
-3 个工作流与 1 个设计文档，**不含任何 `.go` 改动**，因此 beta.1 与 beta.2 的模块
-API 完全相同；beta.1 tag 保留为"有 tag、无 Release"状态，不删除、不补发。
-
-### 6.4 GoReleaser 正式接入的本地证据（2026-11-09）
-
-- Go `1.26.10`、GoReleaser OSS `2.20.0`：配置校验、15 项构建与 SHA-256、
-  5 个 Linux amd64 `-h` 入口通过；隔离目录输出已链接为原有资产名，无归档路径重叠警告。
-- 默认入口成功后删除 `dist`；`--keep-artifacts` 保留候选，`--verify-artifacts`
-  只读复验通过；原有 `dist` 存在时拒绝构建。
-- 候选 manifest / notes 冻结、证据 checksum、payload 解包与发布侧只读校验通过，
-  解包后恰好 16 项文件；发布侧成功清理命令已实际删除本地产物目录。
-- 可复用 canary 的实际策略脚本已覆盖：beta inconclusive 放行、稳定版 inconclusive
-  拒绝、beta failed 拒绝、passed 放行；没有把策略脚本运行冒充真实 RPC 观察。
-- 正式 API 脚本对比 beta.2 成功，报告包含被删除的 `ethadapter` 包和公共签名变化；
-  这是差异报告，不是向后兼容通过。
-- 正式质量脚本以已接受的外部 SimulateV1 缺口模式通过：格式、tidy、vet、build、
-  race 套件与 govulncheck（`No vulnerabilities found.`）；不声称 EthClient complete。
-- actionlint `v1.7.12`、正式 shell 入口及 workflow run 块语法通过；本机没有
-  ShellCheck，不把 actionlint 的可选 ShellCheck 分析声称为已执行。
-- 原 120 秒 wire fuzz 在结束时返回 `context deadline exceeded`，未落盘反例；
-  当前工具链仍包含上游问题 #75804 的旧条件，因此切换为第 2 节的计数型预算。
-- 本地两组各 8 workers 并行时，均在最小化阶段以 EOF 中断；保存输入的隔离 race
-  执行通过，会话控制组无 OOM 事件，根因未定。正式入口固定各 2 workers 串行运行，
-  不通过忽略错误或减少执行次数使门禁变绿。
-- 未创建新 tag / Release，未执行远端 Environment 审批、上传或真实 RPC canary；
-  这些本地结果不能替代远端发布成功证据。
+beta.3 的脚本执行位失败见下一节。失败 tag 的不可变性与 SHA／产物绑定，是保留这些历史摘要的原因；阶段完成清单、逐条本地命令输出不再复制成当前规范。
 
 ## 7. 失败处置
 

@@ -1,9 +1,11 @@
 # Transport L1 Contract（连接适配器外部行为规范）
 
-> 状态：已冻结（T0，2026-10-29）。本文件是 native HTTP 适配器与 geth 兼容适配器
-> 共同的外部行为契约；`internal/transport/contract` 套件是它的可执行形式。
-> 本文取代 `http-transport-differential.md` 的规范性地位：那份文档降级为兼容性
-> 诊断说明。基线是 **EthGuard 自有 contract**，geth 只是兼容实现。
+> 状态：现行 L1 契约（冻结于 2026-10-29）。本文件拥有 native HTTP 与 geth
+> 兼容适配器共同的 HTTP 外部行为；`internal/transport/contract` 是其可执行形式。
+> 基线是 **EthGuard 自有 contract**，geth 只是兼容实现。WSS 的帧与连接扩展由
+> [wss-wire-contract.md](wss-wire-contract.md) 拥有，流语义由
+> [subscription-contract.md](subscription-contract.md) 拥有；下方 dated evidence
+> 仅记录历史观察，不扩张 L1 或兼容性承诺。
 
 ## 0. 分层
 
@@ -16,9 +18,9 @@
 ## 1. 适配器与运行形态
 
 - `internal/transport` 是 Port-only 物理包：`Transport`、`Dialer`、`ErrBodyTooLarge`、
-  `ErrConnectionClosed`。适配器实现不得进入该包（L0 拆包后生效）。
-- native HTTP（`internal/transport/http`）是战略默认；geth 兼容适配器经
-  `gethcompat` 显式构造（L1 阶段落地）。
+  `ErrConnectionClosed`。适配器实现不得进入该包。
+- native HTTP（`internal/transport/http`）是默认；geth 兼容适配器经
+  `gethcompat` 显式构造。
 - 默认构建不得链接 `ethclient`；`gethrpc` 只允许出现在
   `internal/transport/geth`、根 typed facade、`cmd/*`。
 
@@ -60,23 +62,22 @@
 13. **ChainID 探测**：只发一次 `eth_chainId`；错误走同一套能力（suite:
     `chain id probe`）。
 14. **无方法知识**：Transport/Dialer 不参与 anchor、quorum、admission——这是
-    结构性条款，由依赖 interlock（L2 阶段的 import 矩阵）保证，不进本 suite。
+    结构性条款，由依赖 interlock 的 import 矩阵保证，不进本 suite。
 
-## 3. 已记录的实现差异（G0 对齐后，L2/L3）
+## 3. 已记录的实现差异（L2/L3）
 
 | 差异 | native | geth 兼容 | 层 |
 | --- | --- | --- | --- |
 | 错误文本 | project sentinels（`rpcwire`） | 同一哨兵 + geth 原始错误文本（wrap 链） | L3 |
 | 非 2xx body 保留 | 4KiB 截断前缀 | 完整捕获（受 32MiB 上限） | L2 |
 | 尾随垃圾（HTTP） | 拒绝（单值解码） | 拒绝（捕获路径以 `rpcwire.ValidateBody` 复检原始 body） | 已对齐 |
-| 尾随垃圾（WSS） | 不适用（native 无 WSS） | geth codec 逐帧解码，无法复检 —— 已记录偏差 | L2 |
-| 响应 id 匹配 | 校验 | 不校验（单调用 HTTP 按位置匹配；suite 不钉此差异，契约 §2.1 的 id 存在性仍成立） | L2 |
-| ws/wss | dial 时拒绝 | 经 geth 支持（直到 native WSS 设计落地） | 构造期差异，见提案 §9.1 |
+| 尾随垃圾（geth WSS） | native HTTP 不适用；自有 WSS 见 wire 契约 | geth codec 逐帧解码，无法复检 —— 已记录偏差 | 独立传输边界，不是 HTTP suite 的兼容性证明 |
+| 响应 id 匹配 | 校验 | 不校验（单调用 HTTP 按位置匹配；suite 不钉此差异，契约 §2.1 的请求 id 存在性仍成立） | L2 |
+| ws/wss | native HTTP dial 时拒绝；自有 `internal/transport/wss` 独立支持 | 经 geth 支持 | 构造期差异；自有 WSS 范围见 wire 契约 |
 
-G0 已修掉的 L1 差异（原基线 quirk，现为契约行为）：Close 后调用（中立哨兵）、
-退化 error 成员（malformed，非 code-0 协议错误）、空/坏 body（project 哨兵）、
-错误版本 envelope（malformed）、HTTP 尾随垃圾（拒绝）。两个 adapter 现在跑同一
-contract suite（`internal/transport/geth/contract_test.go`）。
+两 HTTP adapter 共享 Close 后调用的中立哨兵、退化 error 的 malformed 分类、
+空/坏 body 的 project 哨兵、错误版本 envelope 拒绝和 HTTP 尾随垃圾拒绝；
+geth 的 suite 入口为 `internal/transport/geth/contract_test.go`。
 
 ## 4. 与既有测试的关系
 
@@ -84,3 +85,51 @@ contract suite（`internal/transport/geth/contract_test.go`）。
   逐用例的行为对照，不再是 native 的规范性 gate。
 - `internal/transport/http/http_test.go`、`rawbody_test.go` 继续覆盖
   adapter 内部行为；suite 只断言跨 adapter 必须一致的外部行为。
+
+## 5. 2026-10-25 native HTTP 本地 provider 诊断
+
+本节合并原 `live-canary/runs/2026-10-25-native-smoke-local.md` 的有用证据。
+这是作者本机的两次只读 smoke，产物未发布，**不是 external live observation、
+attested evidence 或当前默认适配器的兼容性认证**。当时 native 尚非默认；历史
+`internal/transport.StandardDialer{}` 对照构造名称不是当前 API。
+
+- 工具：`cmd/nativesmoke`，当时工作树的 Slice 2 + review fix + adapter selection
+  实现；native 显式使用 `internal/transport/http.NewDialer()`，geth 并行对照。
+- 每 provider/adapter 复用一条 transport，只调用 `eth_chainId`、`eth_blockNumber`、
+  `eth_getBlockByNumber("latest", false)` 与 mainnet USDT `transfer` 到 dead recipient
+  的确定性 `eth_call` revert；不提交交易，不使用凭据，不测试订阅。
+- 第一轮使用默认 provider 集；第二轮命令追加/指定
+  `-providers "https://eth.meowrpc.com,https://rpc.mevblocker.io,https://rpc.ankr.com/eth"`。
+  两轮输出分别为 `report1.json`、`report2.json`，均保留在仓库外。
+
+| Provider | 当时观察（不是长期兼容性结论） |
+| --- | --- |
+| ethereum-rpc.publicnode.com、eth.drpc.org、eth-mainnet.public.blastapi.io | native envelope 合法，chain ID `0x1`；revert code 3、data missing |
+| 1rpc.io/eth | native envelope 合法，chain ID `0x1`；revert code 3、`data:"0x"` 保真 |
+| cloudflare-eth.com | 第一轮两 adapter 同为 HTTP 429；第二轮成功、chain ID `0x1` |
+| rpc.mevblocker.io | 成功、chain ID `0x1` |
+| eth.meowrpc.com | chain ID 合法；瞬时 429；第二轮 geth 限流而 native 成功，不能据此归因 adapter |
+| eth.llamarpc.com | 所有调用两 adapter 同为 Cloudflare HTTP 525 |
+| rpc.ankr.com/eth（无 key） | HTTP 200 error envelope 的 `id:null`：native `ErrIDMismatch`，geth `-32000` protocol error |
+
+六个不同 provider 在健康响应上通过 native 的 ID/version/result-error/error-shape
+检查；样本为每轮 6–9 个尝试端点，其中 2–3 个受可用性限制。missing 与 `0x`
+在真实 wire 出现并保真；这不证明显式 `null`，也不是四态证据。
+
+Ankr 的 curl 原文为 `{"jsonrpc":"2.0","error":{"code":-32000,...},"id":null}`，
+报告记为 `divergent_failure`。两 adapter 都无法提供可用业务答案，但错误分类与
+health accounting 不同；当时提出兼容模式裁定，**本次整理不放松 ID 校验**，
+也不把未测试的带 key 成功路径当作已兼容。
+
+HTTP 429/525 的分类在两实现相同，保留的 body 文本携带 pool 等价限流信号。
+另一次 1rpc 的 HTTP-200 result 为 `{"code":503,"message":"server unavailable"}`，
+两实现均当作 result 交付；transport 不替代下游内容裁决。连接复用与 RTT 仅作
+当时的定性正常观察，不形成性能承诺。
+
+| 仓库外产物 | SHA-256（不是发布 attestation） |
+| --- | --- |
+| report1.json | `84291e8b5da1e08fda2400ca66bc658d4d51d1cfbff7ff56f9242fb8f3aa34f6` |
+| report2.json | `e7463db73fa04b73cc9374501cc5917594f425cc3092fec997fa7ae987a74078` |
+
+外部 native canary 与其 artifact recheck 不由这两次本机 smoke 证明；
+`inconclusive` 始终不是成功。

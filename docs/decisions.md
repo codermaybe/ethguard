@@ -1,9 +1,11 @@
 # Decisions
 
-This file records decisions that are stable enough to guide implementation.
-Unresolved proposals belong in `docs/design/` instead. A Status line marked
-Implemented names the implementing code; anything still marked pending is
-the remaining work list — do not maintain a second status ledger elsewhere.
+This is the stable decision/ADR archive. IDs, dates and supersession records
+preserve why choices were made; historical implementation status is not a live
+task ledger. Current contracts and ownership are indexed in `docs/design/README.md`,
+current delivery gaps in the roadmap/method matrix, and unresolved design or
+standardization notes locally in unversioned `docs/tmp/`. Later decisions take precedence over
+superseded APIs and stage-specific wording; do not copy that wording into current contracts.
 
 ## 0001. Method-aware aggregation
 
@@ -2557,7 +2559,7 @@ and RPC-error capabilities should ever converge into fewer interfaces (no
 current evidence; do not pre-design).
 
 Focused evidence:
-`docs/design/resolver-behavior-inventory.md`,
+`docs/design/capture-golden-contract.md` (consolidated dated observations),
 `docs/design/resolver-seam-contract.md`,
 `rpc/methods/resolver_capability_interlock_test.go`,
 `aggregator/resolver_capability_interlock_test.go`,
@@ -2816,6 +2818,10 @@ with its review-fix round), the API-contract and view-surface tests
 (`ethclient_view_test.go`, `call_result_facts_test.go`, `call_route_test.go`,
 `client_lifecycle_test.go`, `result_capture_test.go`, the budget collector
 suite), and the full G2/G3 gate results recorded in the execution plan.
+
+Historical-document note (2026-11-11 cleanup): the completed execution plan is
+retained in Git, not as a current instruction document. Its ongoing obligations
+now live in the topology, compatibility and method-verification contracts.
 
 ## 0067. EthClient view includes synchronous writes and subscriptions
 

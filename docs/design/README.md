@@ -1,37 +1,36 @@
-# Design documents
+# 文档导航与维护边界
 
-This directory contains the current architecture, compatibility policy, runtime
-contracts, and executable verification references. It is organized by
-ownership rather than by historical work stage.
+这里保留现行合同、持续有效的未来设计和独立证据说明，不按历史工作阶段组织。已完成且被取代的施工计划／原型／review 日志由 Git 保留；待裁决问题和临时比较稿可留在本地 `docs/tmp/`，不纳入版本保存。未来设计必须明确实施状态，不因尚未实现就视为可清理材料。
 
-## Start here
+## 从问题找到唯一负责人
 
-- [Codebase topology](codebase-topology.md) — package ownership, dependency direction, seams, and the runtime pipeline.
-- [go-ethereum compatibility policy](go-ethereum-compatibility-policy.md) — the versioned external contract: a complete `ethclient.Client` method set for the locked version.
-- [Project roadmap](project-roadmap.md) — current compatibility gaps and topology work.
-- [Release contract](release-contract.md) — release gates and evidence rules.
-- [Method and transport coverage](method-transport-coverage.md) — the live method matrix.
+| 要回答的问题 | 主文档 |
+| --- | --- |
+| 模块、依赖与执行 owner 属于谁？ | [codebase-topology.md](codebase-topology.md) |
+| 对外承诺哪个完整 geth 业务集合？ | [go-ethereum-compatibility-policy.md](go-ethereum-compatibility-policy.md) |
+| 当前哪些方法／传输／证据未闭合？ | [method-transport-coverage.md](method-transport-coverage.md)；下一步见 [project-roadmap.md](project-roadmap.md) |
+| 方法比较、准入与结果意味着什么？ | [method-contracts.md](method-contracts.md)；生成装配索引 [method-rules.md](method-rules.md) 不手改 |
+| Value、保护投影、canonical 与官方形态如何区分？ | [return-value-design.md](return-value-design.md)；官方生成层 [wire-codegen.md](wire-codegen.md) |
+| reference／pending／EIP-1898 的方法差异？ | [moving-tag-matrix.md](moving-tag-matrix.md) |
+| 裁决与 reference 门槛为何不合并？ | [acceptance-thresholds.md](acceptance-thresholds.md) |
+| freshness 已接受什么、现状有什么缺口？ | [reference-freshness-policy.md](reference-freshness-policy.md) |
+| resolver／ReadPlan／head seam 如何组装？ | [resolver-seam-contract.md](resolver-seam-contract.md) |
+| unary transport／raw WSS／订阅的能力与生命周期？ | [transport-contract.md](transport-contract.md)、[wss-wire-contract.md](wss-wire-contract.md)、[subscription-contract.md](subscription-contract.md)，各自不重复定义其他层 |
+| 验证阶段、场景、字段守恒与测试所有权？ | [method-verification-pipeline.md](method-verification-pipeline.md) |
+| 本地合成、Anvil 链状态和外部 RPC 证据如何分层？ | [external-rpc-test-framework.md](external-rpc-test-framework.md)：未来测试设计，实施状态与真实来源边界分开声明 |
+| capture／golden／回放能证明什么？ | [capture-golden-contract.md](capture-golden-contract.md)；有限真实 WSS 观察见 [wss-provider-evidence.md](wss-provider-evidence.md) |
+| 外部 canary 的 provenance、状态与重跑门？ | [live-canary-contract.md](live-canary-contract.md) |
+| 工具和发布入口、版本、产物与失败处置？ | [tooling.md](tooling.md)、[release-contract.md](release-contract.md) |
 
-## Runtime contracts
+## 临时评审记录
 
-- [Method contracts](method-contracts.md)
-- [Method verification pipeline](method-verification-pipeline.md)
-- [Return value design](return-value-design.md)
-- [Acceptance thresholds](acceptance-thresholds.md)
-- [Reference freshness policy](reference-freshness-policy.md)
-- [Moving-tag matrix](moving-tag-matrix.md)
-- [Transport contract](transport-contract.md)
-- [WSS wire contract](wss-wire-contract.md)
-- [Subscription contract](subscription-contract.md)
+临时问题清单、比较稿和第三方评审原文只作本地讨论材料，不进入仓库导航或形成第二份实施合同。已采纳的结论并入上表对应的永久文档；未采纳建议不构成实施授权。
 
-## Evidence and tooling
+## 保留与删除原则
 
-- [External RPC test framework](external-rpc-test-framework.md)
-- [Capture/golden contract](capture-golden-contract.md)
-- [Live canary contract](live-canary-contract.md)
-- [Tooling](tooling.md)
-- [White-box test ownership](whitebox-test-ownership.md)
-
-Generated method rules remain in this directory because the test suite locks
-them byte-for-byte. Stage plans, review snapshots, and superseded proposals
-are removed from the active tree; Git history retains them.
+1. 规范字段与版本来自官方固定数据，不能由 provider 返回频率决定；项目额外约束必须明确标为保护／接受政策。
+2. 当前行为、待实施方向、日期化观察分开写。正文不保留“上方说已完成、下方仍按旧阶段未实现”的镜像；接受／取代理由归 [decisions.md](../decisions.md)。
+3. 有独立证明价值的原始样本、manifest／report schema、生成索引继续保留；不能因为阶段完成就删除可复现来源。
+4. 多文档重复的问题合并到职责所有者；已完成施工单只在迁入仍适用规则后删除，不留空 redirect／兼容别名文档。
+   持续有效的测试分层／未来框架设计不是已完成施工单；清理重复材料不得移除其独立验证目标、来源真实性要求或证据边界。
+5. `docs/tmp` 是不纳入版本保存的本地待评审队列，不是第二个 roadmap。问题解决后将接受的合同合入主文档；未决不等于授权改实现。

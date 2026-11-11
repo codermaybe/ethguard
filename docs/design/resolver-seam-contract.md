@@ -1,233 +1,178 @@
-# Resolver Seam Contract（RS1：resolver 最小 seam 冻结）
+# Resolver、方法计划与 reference seam
 
-> 状态：已交付（2026-10-31，RS1 交付物）。本文冻结计划管线依赖的
-> resolver 最小契约：哪些行为属于 resolver 深模块，哪些必须由
-> ReadPlan/aggregator 拥有。事实基线是
-> [`resolver-behavior-inventory.md`](resolver-behavior-inventory.md)（RS0）；
-> 本文不重新罗列逐方法清单，只裁决 seam 的归属、能力契约和剩余边界。
-> 修订记录见 §7。
+本文件拥有 `ReadPlan` 与 resolver 深模块之间的契约，以及方法声明如何消费 reference。
+它合并原 resolver 盘点、reference 字段冻结、纸上原型与 anchor transport seam 中仍
+适用的规则，不保留已完成迁移的执行顺序或 legacy 装配图。历史裁决见
+[decisions.md](../decisions.md)（尤其 0063）；当前模块地图见
+[codebase-topology.md](codebase-topology.md)，逐方法声明的只读投影见
+[method-rules.md](method-rules.md)。
 
-## 1. seam 归属总裁决
+## 1. 单一事实来源与所有权
 
-resolver seam（`rpc.Policy` 深模块，由 `ReadPlan.Resolver` 持有）只负责：
+默认 runtime registry 从 `Specs()` 编译 ReadPlan；计划持有 resolver 值。
+“走计划”不意味着 resolver 已被扁平化：Strict、Median、Local、CallRevert 与
+block-specific resolver 仍是深模块。保留 `rpc.Policy`，不另建 ResolverPlan，
+不为了“零 decorator”拆分 Normalize、Outcome、CanonicalValue、MethodRule 或能力。
 
-| seam 条目 | 内容 | 锚点 |
+| 所有者 | 负责 | 不负责 |
 | --- | --- | --- |
-| Normalize | raw response → comparison key | `Policy.Normalize` |
-| Resolve | 普通 observation → Decision | `Policy.Resolve` |
-| ResolveCorroborated | 在 invocation snapshot 下裁决 | `CorroboratingPolicy.ResolveCorroborated` |
-| Outcome | 可选 per-source verdict（plain 与 corroborated 两个入口） | `OutcomeResolver` / `CorroboratingOutcomeResolver` |
-| CanonicalValue | 可选 canonical value | `CanonicalOf` 读 `CanonicalEncoder`（WithCanonicalValue / WithCanonicalObject / WithMedianCanonical / WithLocalCanonical，或 call-revert 的 encode） |
-| 错误 | resolver 域错误与 fault attribution | `rpc.ErrConflict` / `rpc.ErrNoValidResponse` / `ErrNotCanonicalScalar`；`skippedFaults` 渲染 encode/normalize cause |
-| 能力开关 | `RPCErrorPolicy`（error body 值域）、`AgreementPolicy`（typed 边界的 agreement） | |
-| MethodRule resolver 列 | Resolver / CompareKind / KeySource / Result 四列 | `MethodRuleSource.MethodRule()` |
+| `rpc/methods` | 请求形态、Validate/Admit、对象规则绑定、resolver 装配、Catalog/Specs 完整性 | pool 生命周期、transport、typed projection、reference 选择算法 |
+| ReadPlan / aggregator | 校验与 pending 路由、reference requirement、改写、collect、同源 admission caller、调用级 evidence/执行顺序 | 解释 Ethereum 对象字段、第二套 resolver |
+| resolver 值 | Normalize、Resolve、可选 corroborated/outcome 入口、canonical encoding、resolver 域错误、能力与 MethodRule resolver 列 | reference 建立、请求改写、网络回调、嵌套 Aggregate |
+| `internal/runtime` | 唯一生产装配；projector ID 与实现绑定、ReferenceStage 和 head adapter | 第二份方法 inventory、方法字段表 |
+| `internal/reference` | HeadReader/HeadCodec seam 与 reference 算法 | transport 类型、方法 policy 组装 |
 
-resolver seam **不**负责（全部归 ReadPlan/aggregator/runtime 拥有）：
+方法声明只带 `ObservationProjectorID`，不带 factory、不导入 projection/typed；
+空 ID 保持未投影，不回落为方法名。runtime 按业务 ID 绑定；resolver 的可选
+ObservationProjector 不是第二份 registry。计划期 pin 由改写结果记录，不从 legacy
+BlockRefProvider 反向猜测。
 
-- **Prepare**：计划路径的请求改写是 `ReadPlan.PrepareWithReference`；
-  resolver 的 `Prepare` 只剩 legacy 链上的恒等实现；
-- **moving-tag / reference requirement**：`ReadPlan.ReferenceRequirement` +
-  ReferenceStage + 既有 evidence 值（resolver 不持有任何网络回调）；
-- **ReferenceStage**：runtime 的 reference stage 是唯一 establishment 路径；
-- **pending 路由**：计划路径 `planPendingLocalRoute` + 共享的
-  `rpc.ResolveLocalObservation`（它是计划管线的 pending 分支实现，
-  不是诊断性 Normalize —— local-observation 的"第一个可归一化答案"语义
-  归 pending 声明拥有）；
-- **AdmissionCaller**：coordinator 注入的同源 caller + 计划 `Admit` hook；
-- **BlockRef request rewrite**：改写期 pin 由计划记录（`state.planPin`），
-  legacy 链的 `BlockRefProvider` 不回流 resolver；
-- **projector registry**：runtime 按 `ReadPlan.ProjectorID` 业务 ID 绑定，
-  resolver 的 `ObservationProjector` 只是计划路径的第二优先级回退；
-- **重新发起 Aggregate**：invocation 内不再嵌套聚合；
-- 任何网络 callback（RS0 §2 的 quarantine 边界维持原状）。
+`rpc` 不导入 `rpc/methods`；aggregator 只消费通用 rpc/collection 接口，不解释
+方法字段。对象 requiredness、commitment、encoder 归 `rpc/internal/objects/*`，
+wire normalization 归 `rpc/internal/wire`。`rpc/methods` 维持一个生产 Module：
+文件数量、namespace 或业务类别不是拆包理由，不建立浅层转发 package/第二份 catalog。
+新增方法的请求绑定、wire/object 规则、admission 与离线验证在同一变更意图内审查。
 
-不变量：计划路径读能力只从 `plan.Corroborating()`（声明的类别）与
-`plan.Resolver` 值自身的 Go 接口读取一次，从不遍历 decorator chain。
+## 2. 固定阶段与 reference 声明
 
-## 2. 能力矩阵（按 resolver 本体，RS1 后的冻结事实）
+```text
+Validate / 本地 pending 拒绝
+  → ReferenceRequirement
+  → ReferenceStage（需要时，在同一 Invocation/Basis 内建立）
+  → PrepareWithReference
+  → Collect → Admit（coordinator 注入同源 caller）
+  → Resolve Outcome → Project / Observe → typed projection
+```
 
-| seam 能力 | `Strict` | `blockPolicy` | CallRevert | `Median` | `Local` |
+校验先于 reference；reference 失败不发业务请求；计划不携带网络 callback，也不
+通过读 context 建立 reference。AdmissionCaller 是 invocation/source 级运行时依赖，
+不能放进静态 spec 或编译依赖。一次逻辑调用一个 Invocation、一个冻结 Basis，
+reference 轮次与业务轮次共享该身份，不嵌套 Aggregate。
+
+### 2.1 `ReferenceSpec` 的单一声明
+
+以 `rpc/read_plan.go` 的实际值类型为准，不使用旧原型的 `*ReferenceSpec`、
+独立 EIP1898 shape 或编译发射 decorator 链的草图：
+
+| 字段 | 含义 |
+| --- | --- |
+| `Kind` | 空值（none）、hash-at、height-at、height-fields-at |
+| `Positions` | hash/height 字符串参数位置 |
+| `ParamPos`、`Fields` | 对象参数内的高度字段组 |
+| `EIP1898` | 同一 anchored 位置接受对象形态；不是第二份 reference 声明 |
+
+- 零值表示无需 reference（stateless、显式 pin 或 local）；不靠隐式默认猜测。
+- requirement 与 PrepareWithReference 来自同一声明：一个位置要么声明并改写，
+  要么都不做。具体 latest/safe/finalized level 来自请求，不是 spec 常量。
+- EIP-1898 的 `{blockNumber: movingTag}` 改写为 `{blockHash}`；对象校验先于
+  字符串位置处理。显式 hash、数字、earliest、pending 按各自方法契约处理，不
+  因 moving-tag 机制改写；contradictory/malformed 对象本地拒绝。
+- 高度字段缺省值按 moving tag 处理；logs 的 blockHash pin 与范围字段互斥。
+  mixed moving tags 是请求错误，不能选一个 tag 将就成功。
+- reference evidence 必须服务请求的 tag 且满足既有佐证要求；safe/finalized
+  不复用 latest evidence。不匹配或缺少 ReferenceStage 时在业务 fan-out 前失败。
+- 新维度或 reference 形态先评审受控逃生口，不为单一方法随意扩列。逃生口需要
+  理由、所有者、回归测试与退出条件；不开放任意函数字段作为第二套方法模型。
+
+### 2.2 保留的结构性方法实例
+
+| 实例 | 不可丢失的规则 |
+| --- | --- |
+| balance/nonce/code/storage/call 等 state read | 声明相应 hash 参数位置，并在同一位置支持 EIP-1898；pending-local 与 moving reference 正交 |
+| `eth_getLogs` | pending/malformed bound 先于 reference 拒绝；字段级高度改写，collect 后才做响应 admission |
+| `eth_feeHistory` | 三参数请求校验先行；只有 newestBlock（位置 1）改写为高度，不是 hash；响应区间 admission 独立 |
+| `eth_getBlockByNumber` | registered business plan 不声明 moving reference；facade 建立 reference/head 读取是独立角色，不能因同一 wire 方法而递归建立 |
+| block head | business 与 reference 共用方法 identity（number/hash）语义；HeadCodec 直接绑定该语义，不临时构造旧 policy 链 |
+| local 与 Forwarded | local resolver、pending-local 和显式 Forwarded 是不同维度；Forwarded 是 invocation/snapshot/执行通道属性，不新增 SingleSource spec 字段 |
+
+## 3. Resolver 能力与编译互锁
+
+能力以 resolver 值自身的 Go 方法集为准，不遍历 decorator，不新增 marker 标签
+代替实际行为。`corroboratingResolvers(kind)` 是协议级类别声明。
+
+| 能力 | Strict | blockPolicy | CallRevert | Median | Local |
 | --- | --- | --- | --- | --- | --- |
-| Resolve / ResolveCorroborated | ✓ | ✓（内层 strict 能力 + wrapper 自身的 header-only 转换） | ✓ | ✓（Selected 封顶） | ✓（Selected 封顶） |
-| OutcomeResolver / CorroboratingOutcomeResolver | ✓/✓ | ✓/✓（继承内层 + wrapper 对 Decision 的同名转换） | ✓/✓（RS1 新增，见 §3） | ✗ | ✗ |
-| RequiresAgreement | ✓ | ✓（转发内层） | ✓ | ✗ | ✗ |
-| IncludeRPCError | 仅 Yes 构造 | — | ✓（构造即开启） | — | — |
-| CanonicalValue | ✓（随 KeySource） | ✓ | ✓（仅 success 分支使用） | ✓ 或 ErrNotCanonicalScalar | ✓ |
-| MethodRule resolver 列 | strict + KeySource/Result | strict（来自内层 strictFunc） | call-revert/method-specific | median/quantity | local/compare kind |
-| corroboration（kind 表） | ✓ | ✓ | ✓ | ✗ | ✗ |
+| Resolve / corroborated 入口 | 两者 | 两者，保留 block result 转换 | 两者 | 仅普通，Selected 封顶 | 仅普通，Selected 封顶 |
+| Outcome / corroborated Outcome | 两者 | 两者，对 Decision 做同名转换 | 两者 | 无 | 无 |
+| RequiresAgreement | 是 | 是，来自 strict | 是 | 否 | 否 |
+| IncludeRPCError | 显式配置时 | 未开启 | 构造即开启 | 无 | 无 |
+| CanonicalValue | 按 KeySource | block 编码/恢复 | success 编码；revert 按专属规则 | 数量编码，可返回 ErrNotCanonicalScalar | local 编码 |
+| MethodRule resolver 列 | strict、compare、key source、result | 内层 strict 的规则 | call-revert/method-specific | median/quantity | local/compare kind |
 
-类别表（`corroboratingResolvers`）是协议级声明：只有 strict、block、
-call-revert 在 invocation 的冻结 corroboration snapshot 下解析；median 与
-local 是采样/本地类，**永不获得 corroboration**——即便 snapshot 存在，
-计划路径也只走它们的普通入口，状态封顶 Selected（见
-`aggregator/resolver_capability_interlock_test.go` 的 invocation seam 测试）。
+装配期 `methods.validatePlanBindings` 将 kind 与 `CorroboratingPolicy`、
+`CorroboratingOutcomeResolver`、AgreementPolicy 双向对账，并核对声明的 key source；
+不一致则编译失败，不注册。执行期 aggregator 只读一次 plan 的类别与 resolver
+自身接口。median/local 即使有 corroboration snapshot 也只走普通入口，不能获得
+agreement 或 Corroborated。测试锚点为 methods/aggregator 各自的
+`resolver_capability_interlock_test.go`。
 
-## 3. CallRevert 的 per-source Outcome（统一 Outcome，不另设 usability seam）
+KeySource 是显式声明，不从 Encode 是否存在推导：canonical-bytes 以规范编码作键；
+normalizer 配 encoder 允许窄键与较宽 canonical result；local/median 不聚类，
+不因其编码器存在而声明比较键。域错误与 Fault attribution 仍归 resolver，
+包括 ErrConflict、ErrNoValidResponse、ErrNotCanonicalScalar 与 encode/normalize cause。
 
-裁决：**复用通用 Outcome**，不新建 resolver-owned usability seam。理由：
-CallRevert 的双维语义中，"答案可不可用"这个概念只在 execution 维度存在
-——一个答案进入裁决当且仅当它通过了 admission（encode/normalize/
-classify）；data 维度没有独立的"不可用"状态，任何通过 execution 的答案
-都完整参与了 data 的弃权/断言投影。因此 per-source verdict 在 execution
-维度就是完整且无损的：
+## 4. CallRevert 与 block 的深模块语义
 
-- execution 胜出的分组 → `VerdictSupported`；
-- 落败的 execution 分组 → `VerdictDissented`；
-- admission 失败（transport fault、error body 值域外、normalize/encode
-  fault）→ `VerdictUnusable` 并携带 per-source cause；
-- missing / JSON null（`reverted|missing` / `reverted|null`）与具体 data
-  （`0x` / hex / 非hex JSON）的**弃权与断言状态不进 verdict**，仍由
-  `Decision.Dimensions[data]` 的 Support / Reject / Abstain / Returned、
-  `Decision.Revert`、`Decision.DeletedFields` 与 Provenance 持有——这些
-  字段一个未动。
+### 4.1 CallRevert 的 per-source Outcome
 
-语义保证（测试 `rpc/methods/call_revert_outcome_test.go`）：
+CallRevert 使用通用 Outcome，不另建 usability seam：答案通过 execution
+admission（含 classify/normalize/encode）才进入裁决。
 
-- `ResolveOutcome` / `ResolveOutcomeCorroborated` 与 `Resolve` /
-  `ResolveCorroborated` 是同一裁决（同一 `adjudicated` 核心）；
-- Decision、Dimensions、Provenance、Faults 的既有语义逐字节保持；
-- verdict 覆盖每一条 observation，按 Source.ID 排序（诊断确定性）；
-- 历史 conflict cases 的误解：execution 冲突时 outcome 携带与 Resolve
-  相同的错误与降级 Decision，verdicts 仍按胜/败分组陈述。
+- 胜出 execution 分组为 VerdictSupported，落败分组为 VerdictDissented；
+  transport、值域外错误、normalize/encode 失败为 VerdictUnusable，带逐源 cause。
+- data 的 missing/null 弃权与 `0x`/hex/raw JSON 断言不塞入 execution verdict；
+  仍由 Dimensions[data] 的 Support/Reject/Abstain/Returned、Revert、DeletedFields
+  和 Provenance 陈述。data 弃权不是 Reject。
+- ResolveOutcome 与 Resolve、corroborated 两入口共享同一裁决核心；Decision、
+  Faults、Dimensions、Provenance 保持同一语义。verdict 覆盖每份 observation，
+  按 Source.ID 排序用于诊断确定性。
+- execution 冲突时保留与 Resolve 相同的错误/降级 Decision，verdict 仍按分组
+  陈述。aggregator 不再用 Normalize 二次猜测 eth_call usability；pending-local
+  的 ResolveLocalObservation 不受此规则替代。
 
-aggregator 计划路径据此消费该 seam：eth_call 的计划 resolver 现在实现
-`OutcomeResolver` / `CorroboratingOutcomeResolver`，verdicts 非空，
-`attemptClassifier` 不再回落到通用
-`Normalize`（`usableAnswer`）对 eth_call 二次猜测 source usability。
-pending 路由上的 `ResolveLocalObservation` 不受影响（§1 的 pending 语义）。
+`call_revert_outcome_test.go` 保留入口等价断言。双维裁决、reductive 投影和 revert
+context 留在该模块，不为其专属形状扩展所有方法字段。
 
-## 4. feeHistory 的计划/legacy 边界
+### 4.2 Block result 与 admission
 
-裁决（以计划路径为事实来源）：
+blockPolicy 只拥有 block-specific result 语义：窄 number/hash 键下，header-only
+恢复代表源 spelling，full-block 保持 canonical Value；不是额外的执行阶段。
+按 hash/number 的身份由编译事实 `ByHash` 绑定，不从请求方法名反推。
+full-block admission 使用共享 `admitBlockResponse`；caller 仍由 coordinator 注入。
 
-1. **计划路径**：eth_feeHistory 的 plan resolver 是 plain
-   `Strict(normalizeFeeHistory; feehistory.Encode)`，由其自身方法完整
-   拥有 `OutcomeResolver` 与 `CorroboratingOutcomeResolver`
-   （`TestFeeHistoryPlanPathOwnsTheFullOutcome`）。
-2. **legacy wrapper**：`FeeHistoryPolicy(...)` 组装的链是兼容与
-   plan-equivalence 对照实现，默认 runtime 不装配它。wrapper 层自身
-   **声明**的 outcome 方法只有 corroborated 变体
-   （`FeeHistoryPolicy.ResolveOutcomeCorroborated`）；组装后的 chain 通过
-   `rpc.Decorator` 的条件转发同样回答 plain `ResolveOutcome`——因此两个
-   assembly 的公开行为等价（plain resolve、plain outcome、corroborated
-   outcome 三路对比，`TestFeeHistoryPlanAndWrapperBehaveAlike`）。
-3. **RS0 盘点的修正**：inventory §2/§3 记录的"wrapper 无
-   `ResolveOutcome`（仅 corroborated 变体）"描述的是 wrapper 层自行
-   声明的方法集；以 Go 接口为准的 chain 表面上该差异不可观察。seam 契约
-   以计划路径为规范来源，这一差异不升格为 seam 规则，也不为legacy
-   wrapper 的同形而扩大 resolver seam。
-4. **兼容测试的纪律**：等价测试只验证公开行为等价，不把 legacy 的能力
-   形态变成新规范；删除条件随 RS4 的 quarantine 一并裁决。
+不能从比较键反序列化构造 Value，也不从不同来源拼接。header-only/full/null、
+canonical Value、admission、hash/number 身份和 pin 都是 block 编码/准入回归面。
+feeHistory 的计划 resolver 是完整的 plain Strict Outcome 能力，历史 wrapper
+自行声明哪些方法不构成现行 seam 规则；旧 plan/chain 等价日志保留在 Git。
 
-## 5. corroboration capability 的归属（switch，不是新接口）
+## 5. Reference 的 transport 中立性
 
-裁决：保留 `corroboratingResolvers(kind)` 的类别表作为协议级声明，不
-再新增运行时 marker 接口。理由：
+单次 reference RPC 经 runtime 的 head adapter 与 pool 的 endpoint 调用进入
+Transport Port。native HTTP/raw WSS 和显式 gethcompat 是 adapter；resolver 不读
+URL scheme、不持有 HTTP response/WebSocket frame，也不负责连接复用或拨号。
 
-- 三个 corroborating resolver 本体（strict、block、call-revert）已经以
-  自身方法实现 `CorroboratingPolicy` 与（RS1 后）
-  `CorroboratingOutcomeResolver`；median/local 不实现任何 corroboration
-  入口。能力由 resolver 本体的方法集决定，不由 decorator 层数决定
-  （`Decorator` 对 capability 的条件转发已有此约束，blockPolicy 的做法
-  是对 Decision 应用同名转换而非无中生有）。
-- 计划管线已经把"能力检查"集中到两处，不漂移、不遍历：
-  1. **装配期**：`methods.validatePlanBindings` 在编译计划时读
-     resolver 值的两个 corroboration 接口，与声明的类别双向对账；
-     不一致 → 计划编译失败，方法不会注册（编译/装配失败）；
-  2. **执行期**：aggregator 只读一次 `plan.Corroborating()` + resolver
-     值自身的接口；corroborated 入口是 checked capability read。
-- 为新增 marker 接口而被否决的理由：它可以被一个不持有对应行为的
-  wrapper 断言满足，等于把能力从"方法集"移回"标签"，重复已否决的
-  decorator 遍历。
+- reference 请求保留 latest/safe/finalized 原 tag；状态读取用 hash，logs/feeHistory
+  用 height，两者来自同一次 reference establishment，不另行裁决。
+- transport/dial、JSON-RPC error、无法归一的 head、quorum/conflict、取消与超时
+  都阻止业务 fan-out；Decision 与 reference evidence 不伪装成功，保留 Faults
+  和该次 ObservedAt。空 head 仍是 normalize fault/ErrNoValidResponse
+  （missing number or hash），不是换成 ErrMalformedResponse。
+- 每次 invocation 重新建立 reference，无跨调用缓存或 TTL；WSS 连接复用不等于
+  复用上次 reference。adapter 不组装 evidence、不做 quorum、reference 选择或缓存。
+- quorum、floor 与冲突分类只看既有 snapshot，不因 transport 而选择另一套规则。
 
-能力 interlock（测试锚点）：
+原始响应捕获与 reference 重放的对应关系见 capture/golden 契约；本节不增加第二套
+resolver、evidence 或 quorum。presence 的 adapter 限制见 WSS wire 契约，不由
+reference seam 改成业务字段规则。
 
-- `rpc/methods/resolver_capability_interlock_test.go`：inventory 全量
-  走查 + 双向漂移的编译拒绝样例；
-- `aggregator/resolver_capability_interlock_test.go`：snapshot 下
-  call-revert 计划路径取得 verdicts；median/local 在 snapshot 存在时
-  仍 Selected、verdicts 为 nil；
-- `internal/runtime/legacy_quarantine_interlock_test.go`：legacy
-  constructor 只能出现在声明的 establishment seam 文件
-  （当前仅 `strict_head.go`，各带理由），跨包的构造调用
-  会被按文件逐 AST 拒绝；计划 registry 只在 `method_registry.go`
-  编译一次，不存在第二个 registry。
+## 6. 重新设计的触发条件
 
-## 6. RS2 当前裁决与后续边界
+只有新的实际证据才重新评审：resolver wrapper 再次携带 Prepare/reference/网络
+控制或请求副作用；结果矩阵出现共享业务 helper 无法消除的分叉；能力无法由值的方法
+集表达而必须遍历 chain；可选接口增长使单点 capability read 失去清晰边界。
+`MethodRuleSource` 最终归属、agreement/RPC-error 接口是否合并不在此预设计。
 
-- `blockPolicy` 在当前架构阶段保留为 resolver 深模块，不迁移成第二套
-  resolver 或额外的 aggregator 阶段。它只拥有 block-specific result 语义：
-  窄的 `number|hash` 比较键下，协商结果恢复代表源的 header-only spelling；
-  full-block admission 仍通过共享的 `admitBlockResponse` 执行。
-- 计划路径的 `Admit` 与 legacy policy 的 `Admit` 现在绑定同一个业务语义 helper，
-  并由编译期 `byHash` 事实显式选择 hash/number 身份；不会再从请求方法名推断
-  admission 形态。admission caller 仍是执行期注入，resolver 不持有网络 callback。
-- 证据由 `rpc/methods/block_encoding_test.go`、`block_admission_test.go`、
-  `internal/runtime/plan_block_equivalence_test.go` 和全量 plan/legacy
-  equivalence 覆盖：header-only、full、null、canonical Value、admission、
-  hash/number identity 与 BlockRef 均保持既有语义。
-- 本裁决是当前阶段的可修订架构记录，不宣称永久不变。只有出现新的证据——例如
-  block wrapper 再次携带 Prepare/reference/network 控制，或 plan/legacy 在上述
-  结果矩阵出现无法由共享 helper 消除的分叉——才进入 RS5 修订，评估显式
-  result hook 或继续拆分；在此之前不引入第二个 block resolver。
-- RS3 的 capability interlock 现在同时校验 `CorroboratingPolicy`、
-  `CorroboratingOutcomeResolver` 与 `AgreementPolicy`：strict/block/call-revert
-  三类必须具备 agreement 能力，median/local 不得声明 agreement。计划路径的
-  aggregator 仍直接读取 resolver value，legacy capability 测试保持独立。
-- `logsPolicy` / `feeHistoryPolicy` / 兼容 decorator 家族的删除条件归
-  RS4（quarantine 已在编译层立柱）；
-- out 展平与否的最终证据决策归 RS5；
-- WSS 证据门（W0 仅做"missing/null 不可知"调用级诊断）与本 seam 无关，
-  不在 RS1 范围内。
-
-## 7. 修订记录
-
-**RS1 修订（2026-10-31）**：
-
-- **触发证据**：RS0 inventory 登记的三项不对称（CallRevert 无
-  `ResolveOutcome`、feeHistory wrapper 与计划路径的 outcome 能力差异、
-  `corroboratingResolvers()` 仍是类别旁 switch），加上 aggregator 计划
-  路径在 verdicts 缺席时以通用 `Normalize` 猜 CallRevert usability 的
-  实际回退路径。
-- **迁移范围**：`rpc/call_revert.go`（outcome 两个入口 + 统一
-  adjudicated 核心 + admission skips 分类）、`rpc/strict.go`
-  （verdicts 分类共享化，行为不变）、`aggregator/read_plan.go`
-  （checked capability read）、`rpc/methods/plan_validation.go`
-  （capability 双向绑定检查）；新增四个 interlock/等价测试与本文。
-- **保留的 Policy 深模块**：`rpc.Strict`、`rpc.Median`、`rpc.Local`、
-  CallRevert、`blockPolicy` 及兼容 decorator 家族全部保留；本轮只把
-  CallRevert 补进 Outcome seam，并冻结归属表。
-- **回退方式**：Capabilities 全部增量（CallRevert 的两个新方法、
-  绑定检查的两个分支、计划路径的 checked read），单次 revert 不影响
-  Resolve/ResolveCorroborated 行为；defense：`call_revert_outcome_test.go`
-  等价对比在回退后仍会通过（该断言早于改动成立）。
-- **未决问题**：§6 登记（blockPolicy 归 RS2，wrapper 删除条件归 RS4，
-  扁平化决策归 RS5；W0 诊断独立推进）。
-
-## 8. RS5 修订：resolver 深模块保留为长期 seam
-
-**RS5 修订（2026-10-31）**：
-
-- **触发证据**：RS0–RS4 已证明 `rpc.Policy` 既不携带请求阶段、reference
-  需求或网络回调，也没有在计划路径上被 decorator 遍历。计划路径只读
-  `plan.Corroborating()`、`plan.Resolver` 值自身的 Go 接口和计划编译期
-  绑定的 capability；`blockPolicy` 只拥有 block-specific result 语义；
-  legacy constructor 已由 quarantine interlock 限制在 establishment seam。
-  RS0 登记的不对称（CallRevert 无 Outcome、feeHistory wrapper 方法与
-  chain 表面差异）已分别由 §3 和 §4 裁决，不再构成继续拆分的证据。
-- **裁决**：保留 `rpc.Policy` 为 resolver 深模块，不构造第二套
-  ResolverPlan，不为“零 decorator”拆分 Normalize/Outcome/CanonicalValue/
-  MethodRule/capability。`ReadPlan.Resolver` 继续持有 resolver 值；计划
-  路径的 checked capability read 是唯一能力入口。
-- **影响范围**：文档与决策记录；无生产代码、无 Decision、quorum、
-  reference、typed 或方法数量变化。`ReadPlan` 的方法级阶段事实来源不变。
-- **回滚方式**：撤销本条与决策 0063 即可，无运行时状态需要恢复。若未来
-  真的拆分，必须另立决策，附带 plan/legacy 等价矩阵和 capability interlock
-  的新证据，不能以本条作为授权。
-- **未决问题**：ResolverPlan 的形态（仅在触发条件成立时设计）、
-  `MethodRuleSource` 的最终归属、agreement 与 RPC-error capability 是否
-  收敛为更少接口（当前无证据，不预设计）。
-- **复核触发条件**：resolver wrapper 重新携带 Prepare/reference/网络控制
-  或请求级副作用；plan/legacy 结果矩阵出现共享 helper 无法消除的分叉；
-  某个能力无法由 resolver 值的方法集表达而不遍历 decorator；
-  `Policy` 的可选接口增长超出计划的单点 checked read。
+新的 methods Module 还需证明稳定而独立的 assembly Interface（如多个实现需要
+替换、对象有外部真实消费者或知识所有权/变更节奏已分离），并能减少调用者知识；
+否则保持现有对象/wire 深模块，不按文件数拆包。任何后续设计不得把历史原型当作
+已授权的运行时变更。

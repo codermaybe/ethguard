@@ -1,7 +1,8 @@
-# Live canary 契约（T10.0）
+# Live canary 契约
 
-状态：**已冻结（2026-10-23）**。本文件是 T10 live canary 的规则正文；
-决策见 `decisions.md` 0059。T10.1 起按本契约生成 schema、manifest 和 report。
+状态：现行契约（冻结于 2026-10-23），决策见 `decisions.md` 0059。
+本文拥有 live observation 的 state、固定成员、plan、manifest/report 与 recheck
+边界；§12 单独保存 dated evidence，不把历史执行结论写成当前通过状态。
 本文件不改变 reference policy、`expect/v1`、`batch.json` 或生产裁决语义。
 
 关联：`project-roadmap.md`、`capture-golden-contract.md` G1–G5、
@@ -657,14 +658,77 @@ Attestation：
 
 ---
 
-## 12. T10.0 出口与后续
+## 12. Dated evidence（2026-10-23 至 2026-10-24）
 
-T10.0 的产物：
+本节合并原 `live-canary/runs/` 下 T10.6 local、T10.7 local 与 T10.7 external
+三份阶段报告。以下是当时记录的执行结果与 provenance，不是本次整理重新执行的
+验证，也不是当前 release 或 freshness 状态。native HTTP 的 2026-10-25 smoke
+单独归入 [transport-contract.md](transport-contract.md) §5；WSS presence 真实证据
+单独归入 [wss-provider-evidence.md](wss-provider-evidence.md)，不混入 HTTPS canary。
 
-1. 本契约；
-2. `manifest.example.json` 和 `report.example.json`；
-3. 决策 0059；
-4. roadmap 的 T10.0 状态记录。
+### 12.1 2026-10-23 本机 live observation 与同机复跑
 
-后续按 T10 行动规划表逐行执行。T10.1 必须先实现 manifest schema、生成器和
-schema/脱敏测试；在维护者审计 T10.0 之前不得开启 T10.1。
+- source commit：`63d5ac7e91b1184e9b1d83653201eaf73e21d81d`；run ID：
+  `01M5ME05WRGF9QN8RTPAD4HHZ9`；generated_at：`2026-10-23T13:07:59Z`。
+- environment 为 `local/local`；作者本机运行，bundle 未发布。当时无 GitHub API
+  凭据，维护者选择本地证据；不满足 external/attested evidence 或外部复核出口。
+- `go run ./cmd/livecanary run -out <dir>/manifest.json` 只获取一次
+  `https://chainlist.org/rpcs.json`，抓取时间 `2026-10-23T13:08:00Z`。
+  `chainlist-sorted-v2` 共 66 candidates、12 selected、54 filtered，redaction 为
+  `url_credentials`。selected 已检查不含 userinfo、敏感 query、template、UUID、
+  32+ hex segment 或 `/v2/`/`/v3/` key slot。
+- 初次真实尝试使用 v1 时曾选入 path 凭据（Dwellir UUID、NodeReal 32-hex、
+  Alchemy `/v2/demo`），并出现在 manifest/registry。记录的修复 commit `0fc22eb`
+  升级到 v2，增加 path 过滤/脱敏、selected URL 校验与脱敏副本复现测试；下列
+  acceptance bundle 是修复后的 v2，不发布旧凭据 URL。
+- 同机 fresh clone checkout exact source commit，执行
+  `go run ./cmd/livecanary rerun -manifest <manifest> -out <recheck>/report.json`；
+  不读取 Chainlist、不使用原工作树、环境覆盖或手改文件，仍不是独立 runner。
+  两 bundle 的 `livecanary verify -dir` 当时均接受 digest/run/plan/registry 绑定。
+
+| 绑定/产物（本机文件在仓库外） | SHA-256 |
+| --- | --- |
+| registry 原始字节 | `a37e5e7b36e078ae9e844995a05d6776bc6f7b26bdfa7a4c4fc3d529bdfb065f` |
+| registry 发布副本 | `b81bd14fccf8546267ac8b1f323b683992b6831561c22dd6f89429f774a836ba` |
+| voting basis | `fdeefbeed401086e37d535762757ee61d2509b3536c7d1824dfd2819033ef6a1` |
+| `mainnet-canary-v1` plan | `d99a78e6a56ffe34ee5351fbd74b14951afb5fef31023280d9d9412b3b2124d8` |
+| manifest.json（两次相同） | `1d63f7773866d56d398d199b399ec3c83f1d1e1c33c2a9a4d793a4587c5e93e1` |
+| original report.json | `a942b3d4cd3a6732989330f790977cbe1f75ab6e0cbc4fa4aa851d88e51c7534` |
+| original run.log | `e1648d3812c5a356f0ed639a928049d6840853800bbb840db17beb8914baaa02` |
+| recheck report.json | `7dc10f1a318f475307060c5133e2a6a6d2269e8c68f96bdfc0599fffe4155e0d` |
+| recheck rerun.log | `be3dbcb5197326ce8c6a98d108b375725a1211370a608f69ee2fe32efa32d386` |
+
+两次均为 **inconclusive**、无 failed reason：原 run 有 15 provider_unavailable +
+7 provider_rate_limited，复跑为 15 + 6。所有六步均执行；五个 decision 达到
+corroborated，support 为 7–9/12（Q=7），各步支持成员随 429/403/EOF/gate 波动。
+原 run 的两个 step reference 恰同为高度 26255441、hash
+`0x44b552c5803421e392637825f8d9dd7baab948b247f278636fe67cdcb419186f`；
+复跑相同，**不产生跨步骤 reference 必须相等的规则**。identity/value digest、
+pinned block、feeHistory、typed block height/hash、notfound 的 `not_found` 与所有
+适用 invariant 均相同且 invariant 为 true。没有观察到 schema、selection、plan、
+分母、code 或 request binding 差异。可用性 fault 保留完整分母并使 aggregate
+inconclusive，不能因期望 decision 达成而改成 passed。不同时间戳与 report digest
+是两次 observation 的自然差异；本机 digest 绑定文件，不是发布 attestation。
+
+### 12.2 2026-10-24 外部 workflow recheck
+
+| 定位 | 当时记录 |
+| --- | --- |
+| source run / artifact | `39983945116` / `live-canary-39983945116-1` |
+| recheck run / workflow | `40078416681` / `live-canary-recheck` |
+| recheck artifact | `live-canary-recheck-39983945116-40078416681-1`，当时 retention 为 90 天 |
+
+GitHub-hosted 的独立 workflow 下载 source artifact，核对 `SHA256SUMS` 并执行
+`livecanary verify -dir`；从 manifest 读取 source_commit，checkout exact commit
+构建 rerun，只消费原 manifest/registry 字节，不重新获取 Chainlist。compare 使用
+recheck workflow commit 的二进制，生成 `ethguard.live-comparison/v1`。
+
+当时 `comparison.json` 为 `repeatable=true`，无 code mismatch/registry drift，
+差异均为 provider fluctuation；两次 observation 均因不可达/限流而 inconclusive。
+rerun exit 2 由 `continue-on-error` 保留；compare 成功，最终 repeatability
+enforcement step 被跳过。这是该 manifest pair 的契约级复现，不是 canary passed。
+
+此记录证明当时完成 separate-workflow/GitHub-hosted 复跑，不是另一 repository、
+独立审计或 provider 独立性证明。90 天 retention 是当时设置，不保证 artifact
+现在仍可取得；本次整理不声称重新下载核验。live 值仍只在 artifact，不入 golden。
+两次近时观察都不证明长期兼容性、consensus、canonicality 或 finality。

@@ -1,10 +1,17 @@
 # WSS 订阅契约
 
-状态：S0 契约候选已冻结；WSS capability 与 root 聚合已部分实现（2026-11-07）。
+状态：持续维护的订阅契约与实现边界。原 S0 候选冻结于 2026-11-07；不能仅凭
+阶段完成或代码存在把下面所有目标规则标为 Accepted。§10 明确当前 seam 与未决差异。
 
-本文把 docs/design/tmp/wss-sub-design.md 的探索内容收敛为可审查的订阅契约。订阅 capability 已在 raw-call WSS adapter 旁独立落地，不扩展 pool.Transport。下面的事件、快照、单源、背压和生命周期规则继续约束 root 聚合；公开方法名称仍需 R0/F0 做一次最终签名审查。
+本文拥有订阅事件、source snapshot、聚合、Pull、单源、背压与异步错误规则。
+它不拥有 WebSocket 帧/连接协议（见 [wss-wire-contract.md](wss-wire-contract.md)），
+也不将 [wss-provider-evidence.md](wss-provider-evidence.md) 的 raw-call 观察当作
+真实订阅兼容性证据。原探索稿和逐阶段实施安排不再作为第二份契约。
 
-当前 internal/transport/wss 是单连接、单 reader、request-ID demux 的 raw-call adapter，并在旁边提供独立的 Subscribe/Unsubscribe capability；root 已接入 newHeads、logs 和 transactionReceipts 的单源/多源路径。订阅仍不能通过未知 Call 或临时通知分支实现；后台 reconnect、重放和写路径恢复也不因此成为通用能力。
+`internal/transport/wss` 在 raw-call adapter 旁提供独立 Subscribe/Unsubscribe
+capability，不扩展 unary Transport。root 已有 newHeads、logs、transactionReceipts
+channel 路径；下面独立根裁决事件类型仍是候选，不是现有公开 API。未知 Call
+不能隐式转发订阅；transport 不提供通用 reconnect/replay 或未知写结果恢复。
 
 ## 1. 目标与非目标
 
@@ -61,7 +68,9 @@
         Unsubscribe()
     }
 
-上面的名称和泛型形状仍是内部候选，S1 可以用非泛型的 newHeads/logs 实现，但必须保留同样的字段和语义。EthClient 只把已经交付的事件转换为官方 channel，并返回 `ethereum.Subscription`；它不暴露 `Decision`、source 票数或原始材料。
+上面的名称和泛型形状是候选，不声明已导出。当前根 Client 与 EthClient 的公开
+订阅都返回 `ethereum.Subscription` 并向官方类型 channel 交付，内部聚合状态不等于
+公开裁决事件切面；若公开候选，仍须单独签名审查。
 
 事件一旦出现在根订阅 channel 中，Decision.Status 必须表示该事件已经通过订阅门槛。未达成门槛的候选值不能作为普通事件发送。超时、分歧、隔离、连接终止和不可恢复的背压错误通过 Err() 交付。
 
@@ -140,6 +149,15 @@ transaction hash + index 不足以区分 reorg 后的不同 block。内容指纹
 - 同一事件的多 source 到达顺序不作为业务语义；
 - 不承诺全局 block 顺序，除非订阅模式明确要求按高度排序并实现缺口等待；
 - 事件 channel 关闭前，已经交付的事件不会被重新排序。
+
+### 4.4 TransactionReceipts 的当前边界
+
+当前 `SubscribeTransactionReceipts` 通过官方形状的 channel 交付 receipt slice。
+`internal/subscription.CanonicalTransactionReceiptsKey` 用 block identity 作为
+逻辑 context；候选包含完整 typed receipts（含 logs/provider-specific fields），
+按 transaction index/hash 规范顺序。同块内容不同应形成冲突，而不是两个
+互不比较的事件。此处记录当前实现边界，不把 newHeads 的高度 gap 规则扩展给
+receipt notification，也不声称所有 provider 支持该订阅。
 
 ## 5. Quorum 与状态机
 
@@ -248,66 +266,46 @@ WithSourceEvidence 当前是单次调用预算，不直接延长为无限订阅�
 
 Err() 是异步终止事实，不代替已经交付事件的 Decision，也不把 transport error 伪装成 RPC business error。错误必须保留 source、generation、事件身份和阶段信息，便于审计。每个订阅最多发送一个 terminal error，然后关闭 Err channel；`Unsubscribe` 和 owner `Close` 是无错误的正常终止（除非底层 worker 已报告更早的错误）。事件 channel 和 Err channel 都只关闭一次，关闭顺序固定为先停止生产、再关闭事件 channel、最后发送并关闭 Err channel。
 
-### 本轮冻结与最小阻塞项
+## 10. 实现边界与尚待统一的问题
 
-S1/S2 可以据此实现内部 seam：Strict 是默认单源策略，SingleSourceSelected 是显式
-降级，generation 过滤旧帧，队列溢出终止订阅，事件和错误 channel 各关闭一次。仍需
-F0 最终确认的只有根 Client 的公开构造函数名称、是否导出 `SubscriptionEvent` 的
-类型参数，以及具体配置字段名称；这些都不影响内部事件身份、quorum、Pull、reorg
-或生命周期测试。若 F0 不导出根事件切面，EthClient 官方 channel 仍可独立实现，根
-事件保持内部测试接口。
+本节只区分现有代码与候选规则，不在文档清理中批准新的政策或修改生产行为。
+上文未决冲突不能以“全部已实现”消失；原探索参考代码的锁/Background context/
+静默丢弃等逐行修正清单属于历史，不作为当前缺陷列表重复维护。
 
-## 10. 探索稿中需要修正的实现问题
+| 职责 | 当前源码边界（存在不代表本次执行通过） |
+| --- | --- |
+| 通知 demux、subscription ID 绑定、队列、取消和 Close | `internal/transport/wss/wss.go`；`notification_test.go`、`notification_pending_test.go`、`lifecycle_test.go` |
+| 固定成员/quorum、规范化、重复/reorg/removed 与有限队列 | `internal/subscription/subscription.go`、`subscription_test.go` |
+| 同源 Pull、source session generation、gap 和 budget | `internal/subscription/{pull,session,gap,budget}.go` 及相邻测试 |
+| root/EthClient 官方 channel、重订阅、Pull 与结构化 gap 错误 | 根 `subscription.go`、`subscription_test.go`；typed projection 为 `internal/typed/subscription.go` |
 
-wss-sub-design.md 的方向可作为输入，但参考代码不能直接执行：
+待统一的规则与实现差异：
 
-- AdaptiveSpanTracker.GetTimeout 的示例锁操作使用了错误的 unlock 形式；
-- hardTimeout - softTimeout 可能为负；
-- 输出 channel 满时使用 default 静默丢弃；
-- activePullHeader 使用 context.Background()，无法响应 owner Close 或 Unsubscribe；
-- 直接保存 *ethclient.Client 会绕过当前 transport/pool/aggregator seam；
-- 以高度为唯一 block context key 无法正确表示 reorg；
-- 日志 key 缺少 block hash 和 removed 语义；
-- cleanup 立即删除高度上下文会让迟到通知重新创建事件并重复交付；
-- 代码骨架未定义订阅建立、Unsubscribe、Err channel、队列预算和 source generation；
-- 文档第 7 节尚未完成，不能作为已经闭合的架构结论。
+1. **生命周期冲突**：§9 表要求 owner Close 的可识别关闭错误，段落又要求无错误
+   正常终止；queue overflow 表项仍写“终止或阻塞”，§8 则冻结为终止。adapter 的
+   `NotificationStream.finish` 与 aggregator `Close` 都允许 nil 正常终止；root
+   `startAggregatedSubscriptionWithPullOwner` 的 owner watcher 把 context cause
+   传入 `finish`。需要按 owner/transport/setup/user context 分层统一，不由此处选边。
+2. **单源策略与公开配置**：§3 的 Strict 可建立单源但 quarantine、显式
+   SingleSourceSelected 与内部状态机一致；当前根 `subscriptionSources` 在
+   multi-source client 只剩一个 WSS source 时直接拒绝，forwarded client 则走
+   单源 channel。根公开层尚无独立的 SingleSourceSelected 配置，不把 unary mode
+   自动称为本文候选策略的实现。
+3. **预算的配置责任**：§8 要求三类限制由配置提供且零值拒绝；当前 root 聚合
+   硬编码 Queue=256、HardTimeout=30s、payload=8MiB、lifetime evidence=64MiB。
+   内部 `Config.New` 只强制 queue/hard timeout，`Budget` 的零值表示 guard 不启用。
+   可配置性、零值语义与终止时保留候选材料仍须统一，不能据此宣称全部满足。
+4. **generation 命名**：§3 的单个 Generation 同时被用于 event snapshot 与
+   source 会话描述。实现用 `SessionGate` 的 per-source physical generation，
+   `Snapshot.Generation/Generations` 与 `PullRequest.AggregateGeneration` 区分
+   固定逻辑聚合和物理会话。需统一字段含义，而非声称重拨改写已开始事件。
+5. **quorum 语句歧义**：§5 的“多个 source 但只有一个 candidate 不能放行”
+   与“同一 candidate 达 quorum 可交付”不能同时作字面判断。状态机按 source
+   votes 达 quorum 判定；该句应由后续政策审查澄清，不在此发明第二放行条件。
+6. **重订阅的有界含义**：§1 允许有界 session 重建；root 重试间隔指数退避至
+   2s，但内层循环由 stop/context 控制而非固定尝试次数。须区分“退避有界”、
+   “事件硬截止”与“重试总次数/总时长有界”，不把上界承诺互相替代。
 
-## 11. S1/S2 准入条件
-
-S1（WSS 订阅 transport seam）只有在以下条件满足后开始：
-
-- M0 方法/传输清单完成；
-- EthClient 官方订阅方法保持 go-ethereum 的 `SubscribeNewHead` 和
-  `SubscribeFilterLogs` 形状；根事件先使用内部 `RootSubscription[T]` 候选，公开
-  名称和泛型细节留给 F0 一次签名审查；
-- source identity、snapshot generation、事件 ID、订阅 Close/Unsubscribe/Err 语义有测试；
-- raw-call Transport 不扩张为隐式订阅接口；
-- 进程内 WSS server 能验证请求 ID 与通知 demux、断连、取消、Close 和资源回收。
-
-S2（订阅聚合与补查）只有在以下条件满足后开始：
-
-- S1 transport seam 和事件通知接收通过 race；
-- newHeads/logs 的 canonicalization、reorg、removed、重复和缺口测试齐全；
-- quorum 和单源政策采用本文的 Strict 默认、显式 SingleSourceSelected 降级规则；
-- source Pull 能力及同源 identity 映射可验证；
-- 背压、per-event/lifetime budget 和异步错误矩阵通过；
-- 未决定的 exactly-once、重连和恢复语义不被实现伪造。
-
-## 12. 验收命令与证据
-
-S0 文档验收：
-
-    gofmt -l .
-    git diff --check
-    go test ./internal/transport/wss -count=1
-    go test ./internal/transport/wss -race -count=2
-
-S1/S2 还需：
-
-- WSS request/notification demux contract；
-- source disconnect、Unsubscribe、owner Close 和 goroutine leak 检查；
-- newHeads/logs reorg、duplicate、gap、quorum、Pull 和 backpressure 矩阵；
-- 根 Client 和 EthClient 的独立 API contract；
-- 不引入未知 Call fallback，不改变 unary 方法的现有 Decision/typed 语义。
-
-本文的状态只有在上述证据完成后才能从 S0 变为 Accepted.
+后续实现与审查仍需覆盖 root/EthClient API、demux/断连/资源回收、reorg/removed/
+duplicate/gap/quorum/Pull、预算/backpressure 与异步错误矩阵；不得引入未知 Call
+fallback、假 exactly-once，或改变 unary Decision/typed 语义。本次不运行这些检查。
