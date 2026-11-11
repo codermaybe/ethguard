@@ -1,4 +1,5 @@
 docs/design/tmp
+/docs/tmp/
 
 # local build artifacts (go build -o <name> dropped in the repo root)
 /soak

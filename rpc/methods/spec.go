@@ -52,7 +52,7 @@ const (
 // all a method does: the aggregator establishes the reference through the
 // reference stage on the invocation's frozen basis, and the anchor layers
 // rewrite from the established evidence. A zero spec means the method never
-// needs a reference. See docs/design/method-spec-reference-freeze.md.
+// needs a reference. See docs/design/resolver-seam-contract.md.
 type ReferenceSpec = rpc.ReferenceSpec
 
 // AdmissionFunc is the method-owned admission hook signature.

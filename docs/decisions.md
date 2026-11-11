@@ -2916,3 +2916,43 @@ dated 2026-09-23 receipt-one/receipt-null records; re-transporting and synthetic
 spelling changes do not create provider observations. Syncing object cases are
 synthetic, not observed provider samples. No live RPC, Anvil, full release,
 repository-wide or race gate was run for this bounded change.
+
+## 0069. Autonomous method definitions and whole-key state branches
+
+Status: Accepted design (2026-11-11). Two transaction methods have an
+uncommitted organization pilot; the switch refinement and full migration are
+planned, not implemented by this documentation update. Refines the per-method
+ownership direction in 0005; its historical facade/file layout is not revived.
+
+Each formal method owns its RPC name, public business mapping, existing
+MethodSpec, read-only descriptor, preparation, compatibility and admission
+assembly. Inventory and catalog collect definitions. Public Go signatures
+stay on the facade; shared object checks and codecs stay with their existing
+owners. Methods do not reuse sibling preparation or correction functions.
+One RPC policy may serve several public wrappers, and existing extensions or
+non-read families are not removed or turned into read policies by relocation.
+
+Audited compatibility is expressed as an outer switch on an official direct
+key and, where needed, an inner switch on that key's whole-value state.
+Context is read from an unchanged same-source snapshot; corrections go into
+a separate candidate. Missing-rule keys and present keys are dispatched once.
+No nested-path or array-element correction registry, state framework, second
+field schema or empty switch for methods without special rules is introduced.
+Unmatched official values still undergo validation, encoding and comparison.
+
+Official schema validation follows bounded compatibility conversion; shared
+object and request constraints remain mandatory before voting. Projection
+membership alone does not validate a value. Typed encoding must not silently
+drop protected official fields or restore unvalidated fields by merging.
+Original evidence, whole-source comparison, existing protection domains,
+fixed membership/denominators and health ownership remain unchanged.
+
+Reason: method exceptions and refusal conditions should be readable together,
+while shared correctness has one owner. Explicit state branches make audited
+alternatives reviewable without introducing a rule language or broadening the
+correction unit. Organization moves and semantic changes are delivered
+separately, in small batches accepted by the controller with at most two
+active agents. Temporary execution checklists are kept locally and removed
+after migration; permanent documents do not depend on them. The
+[roadmap](design/project-roadmap.md) records remaining work, and object
+contracts own individual rules.

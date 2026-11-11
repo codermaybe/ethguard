@@ -1,8 +1,8 @@
 # Transaction 方法级 key 兼容修正与官方结果收敛
 
-状态：**首个实施检查点已落地，收束当前批次供审阅，不继续扩面**（2026-11-11）。方法是规则的归属范围，官方直接字段 key 是最小修正单元；像 switch 一样集中展示已审核规则和样例，不向 key 内部的局部表示或语义继续细化。主聚合只覆盖官方结果字段；外部／vendor key 沿用已有附属比较与证据交付。已实施范围与验收证据见第 12 节，不表示完整 provider 兼容或全状态覆盖。
+状态：**首个实施检查点已落地；双 switch 样板收敛与全量迁移方案已确认，尚未开始扩面**（2026-11-11）。方法是规则的归属范围，官方直接字段 key 是最小修正单元；外层按 key、内层按该 key 的完整形态／状态集中展示已审核规则，不向 key 内部的局部表示或语义继续细化。主聚合只覆盖官方结果字段；外部／vendor key 沿用已有附属比较与证据交付。已实施范围与验收证据见第 12 节，不表示完整 provider 兼容或全状态覆盖。
 
-现行实现合同：[返回值合同](return-value-design.md)、[方法契约](method-contracts.md)、[字段与行为验证](method-verification-pipeline.md)。本文是该切片的唯一实施依据；临时评审输入及第三方原文不纳入版本保存，也不构成另一份施工单。缺字段反例与回归要求在本文保留，未改变的 Core、证据、固定成员与公开 API 合同继续有效。
+现行实现合同：[返回值合同](return-value-design.md)、[方法契约](method-contracts.md)、[字段与行为验证](method-verification-pipeline.md)。本文拥有该切片的规则与证据边界；跨方法知识归属见 [拓扑](codebase-topology.md#方法自治组织样板)，推进方向见 [路线图](project-roadmap.md)。临时施工计划、评审输入及第三方原文不纳入版本保存。缺字段反例与回归要求在本文保留，未改变的 Core、证据、固定成员与公开 API 合同继续有效。
 
 ## 1. 目标与非目标
 
@@ -58,16 +58,21 @@
 保留来源原文供已有 source-evidence 通道使用
 经过现有 JSON 安全检查，保真解析，按官方定义区分官方与外部内容
 
-for key, value in 官方字段内容:
+从原始同源字段建立只读上下文，候选对象独立写入
+for key in 已有官方字段与本方法明确的缺失派生 key 的去重集合:
     当前方法所属的 switch key:
         case 有已审核修正规则的官方字段:
-            candidate, matched, err = 该 key 完整值的规则(value, 必要的同源只读上下文)
+            该 key 内的 switch 完整输入形态／状态:
+                case 获准转换的状态:
+                    candidate, matched, err = 完整值规则(原值, 原始同源只读上下文)
+                default:
+                    candidate, matched, err = 原值, false, nil
         default:
-            candidate, matched, err = value, false, nil
+            candidate, matched, err = 原值, false, nil
 
     err 非空：该来源 Fault，不计票，分母不变
     matched 为 true：完整候选值进入候选官方对象
-    matched 为 false：该官方字段的完整原值进入候选官方对象
+    matched 为 false：保留该官方字段的完整原值；原本缺失仍保持缺失
 
 候选官方对象 → 官方 required/nullable/分支/值约束与方法准入
     同时核对原始声明，不得覆写错误 hash 或冲突声明后计票
@@ -82,9 +87,11 @@ for key, value in 官方字段内容:
 
 字段缺失也须保真处理，不因只遍历已有 key 而漏检。缺 required 默认由准入拒绝；只有针对该方法该 key 明确获准、具有同源可验证依据的完整值派生才可例外，不能补 Go 零值或猜测 null。可选字段缺失保持缺失；缺失与 null 的折合须有该 key 的明确依据。
 
+每个 key 只处理一次，不能先补值再把补出的 key 重走修正。上下文不能读取候选对象中的已改值，以免遍历顺序影响输出。双 switch 表达互斥的真实场景，不要求公共状态枚举，也不将简单条件机械拆成状态机。例如 `blockTimestamp` 先进入 key 分支，再区分 missing／null／present；missing 仅在原始位置字段明确为 pending 时派生完整 null，其余按官方及方法约束拒绝。实际派生条件见第 12 节，控制结构收敛尚待实施。
+
 ## 4. 方法内按 key 集中，不向 key 内部细化
 
-每个方法在自己的实现中以清楚的 `switch key` 或等价静态具名函数展示少量兼容规则。方法是归属范围，不是新注册框架的维度；不能把 transaction owner 内的规则误解为所有 RPC 共用一个全局 key switch。通用 codec 和对象类型继续复用，重复规则确实相同时才抽取。
+每个方法在自己的实现中以清楚的外层 `switch key` 和必要的内层完整值状态 switch 展示少量兼容规则，可用静态具名私有函数保持可读性。方法是归属范围，不是新注册框架的维度；不能把 transaction owner 内的规则误解为所有 RPC 共用一个全局 key switch。通用 codec 和对象类型继续复用，重复规则确实相同时才抽取。没有额外规则的方法明确保留原始接受域，无需为了外观对称增加空 switch。
 
 交易 type 0／1／2／3／4 的官方分支、required／nullable、签名载荷 hash、请求 block/index 绑定等仍由类型与准入逻辑负责。规则必要时读取同源只读上下文，但不据此生成“key × type × path × context”注册表，也不按 provider 或到达顺序选择规则。
 
@@ -137,6 +144,7 @@ for key, value in 官方字段内容:
 - 一个来源缺官方 required 字段时，即使所有源都同样缺失，也不能产出“完整官方交易”；先裁决可否可靠派生，否则 Fault。
 - 同簇 Value 必须一致。若相同分类得出不同官方输出，说明归一有损或 key 不充分；失败，而不是挑一份原文。
 - 官方类型构造器用于形态约束与编码。原始响应须保留给既有证据流程；官方对象投影不能丢失应保护的官方内容，也不能把外部成员带回 Core。
+- 官方掩码仅证明字段属于投影范围，不证明值合法。补回 typed 分支未承载的官方字段前，必须核对其适用约束已有验证 owner；不能以无条件合并或静默删除掩盖校验缺口。此覆盖核查是下一批任务，不据此预先声明当前所有分支已完整闭合。
 - typed 必须来自最终受保护 Value。Geth 类型不能承载的官方信息仍留在 Value，不能只移入可关闭或可截断的原始证据通道，也不能默认成零值来伪装兼容。
 
 **未知交易类型与未知字段不同。** 若未知类型导致当前实现无法验证 signed payload／hash 或无法交付约定的官方对象，它不具备主结果计票资格。可记录其原始材料与来源差异，但不得把 raw 字节一致升级为满足现有 transaction 保护合同的 Corroborated Value，也不新增“未知类型透传成功”旁路。typed 不支持而 wire 可验证的情况须另行裁决，不能把两种不支持混为一类。
@@ -214,13 +222,13 @@ for key, value in 官方字段内容:
 
 ## 12. 当前实施检查点
 
-本轮只闭合两个独立 transaction 方法及其必要基础路径，按用户要求在此收束供实现形态与规则审阅；不继续自动推进内嵌交易、其他方法或新 provider 方言。
+首个实施批次只闭合两个独立 transaction 方法及其必要基础路径，按用户要求收束供实现形态与规则审阅。后续双 switch 收敛及迁移方向已确认，推进方向见 [路线图](project-roadmap.md)；整理已有成果不表示继续推进内嵌交易、其他方法或新 provider 方言。
 
 版本保存边界：本次只提交设计与验收记录，相关 Go 实现、测试、生成产物、采集计划和 fixture 留在本地工作区，未随文档提交。下述实现与运行结果描述的是该工作区检查点，不能把文档提交的 SHA 当作已包含实现或已通过相同验证的源码身份。
 
 ### 规则与实现入口
 
-- `rpc/methods/eth_gettransactionbyhash.go` 的 `correctStandaloneTransactionKey` 是静态集中规则入口；`eth_gettransactionbyblockhashandindex.go` 保留自己的 mined-only 检查及请求绑定。相同规则共享函数，没有第二份注册表或规则引擎。
+- `rpc/methods/transaction_by_hash.go` 的 `correctTransactionByHashKey` 是 by-hash 静态集中规则入口；`transaction_in_block.go` 自治保留 mined-only 检查及请求绑定。两者不互调准备／修正函数，只共享 transaction 对象能力及 wire codec，没有第二份注册表或规则引擎。
 - `hash`／`blockHash`、`from`／`to` 与 `input` 复用既有完整 hash、地址、DATA codec；只能改等价表示，不能改变字节内容，null 仍由各字段及完整上下文约束决定。其他 key 保留完整值进入既有规范编码及校验。
 - `blockTimestamp` 的唯一状态派生规则：仅当该 key 缺失，且同源 `blockHash`、`blockNumber`、`transactionIndex` 三项都明确存在且为 null，才派生完整值 null。任何位置字段缺失、非 null、混合状态，或 mined 缺 timestamp，都不补值。原始响应和 signed payload 不改。实际本地 Anvil 样例及原始请求／响应摘要保存在 `rpc/methods/testdata/transaction/anvil-1.7.1-pending.json`，该记录不是外部 provider 观察。
 - `rpc/internal/objects/transaction/encode.go` 使用生成的独立 query 构造器检查完整 required／nullable／交易分支；保留既有官方 mask 选中的完整内容，不能因生成结构体不承载某个已识别 key 就静默删掉。`transaction.go` 继续验证 payload hash、签名、请求及上下文，并核对 protected legacy 交易声明的 chainId 与签名派生值，不做 sender recovery。
@@ -235,3 +243,13 @@ for key, value in 官方字段内容:
 - 主控执行生成器到临时文件并逐字比较，通过；公开 facade、integration、离线 replay、官方 conformance、投影和 transaction 专项通过。健康最终记账及调度有专项和 race 回归，不规范回答与合法异见分开归因。
 - `go test ./...` 仍非全绿：仅剩开工基线已复现的 `TestMethodContractsForbiddenClaims` 和 `TestRuntimeEvidenceDocsForbiddenClaims` 两项文档互锁失败，分别要求 method-contracts 的测试链接和 roadmap 的固定措辞。本批次未删除测试或扩展修复；它们不能被解释为运行时回归，也不能据此宣称完整发布门禁已通过。
 - 新公网采集、其他交易类型的真实状态生命周期、内嵌交易接入和全方法兼容尚未完成。本地测试通过不表示所有 RPC 方言都已支持；后续由用户审阅此检查点后决定。
+
+上述测试结果是实施检查点的日期化记录。后续文档整理补齐 method-contracts 的既有测试引用及 roadmap 的证据定义；文档门禁是否通过以该次实际检查为准，不改写这里的历史运行结果，也不据此宣称全库测试已通过。
+
+## 13. 两方法的目录组织样板
+
+按 [topology](codebase-topology.md#方法自治组织样板) 只对两个方法做自治组织：名称、公开接口映射、现有 MethodSpec、私有准备及 key 修正都在本方法文件；`Specs()`／catalog 对两项仅调用定义函数。共享完整对象校验与编码仍在对象层，不通过另一个正式方法文件复用。
+
+原 `eth_gettransactionbyhash.go`／`eth_gettransactionbyblockhashandindex.go` 分别归并为 `transaction_by_hash.go`／`transaction_in_block.go`。私有符号用 gopls 语义重命名更新引用，公开常量名称和方法集合不变。临时 review 命名的回归测试归并为同名方法测试；跨方法编码检查保留独立测试文件。不批量迁移其他方法，不新增兼容规则或公共配置，组织调整与前述实现仍留工作区待审阅，未自动提交。
+
+已确认的扩散前调整包括 Encode 命名及校验覆盖核查、规范化职责收敛、timestamp 单次处理和外层 key／内层状态结构；in-block 当前无额外兼容规则，不强行复制 by-hash。上述为待实施项，不能从本次文档保存推断代码已完成对应调整。

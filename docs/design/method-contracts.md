@@ -4,13 +4,15 @@
 
 ## 1. 权威来源与职责
 
-- 注册、准入、normalizer、encoder 和 reference 装配：[`rpc/methods/spec_inventory.go`](../../rpc/methods/spec_inventory.go) 与 catalog；生成索引为 [method-rules.md](method-rules.md)，不得手改。
+- 注册与装配入口为 [`rpc/methods/spec_inventory.go`](../../rpc/methods/spec_inventory.go)。transaction 两个组织样板由各自的 [`transaction_by_hash.go`](../../rpc/methods/transaction_by_hash.go)／[`transaction_in_block.go`](../../rpc/methods/transaction_in_block.go) 自治定义名称、Spec、准入、normalizer、encoder 和只读映射，inventory／catalog 只收集；其他方法暂保留原布局。生成索引为 [method-rules.md](method-rules.md)，不得手改。
 - 官方结果形态：固定 execution-apis bundle，见 [spec 数据说明](../../internal/spec/README.md)。保护域与完整官方对象的差异见 [返回值合同](return-value-design.md)，各方法的已接受边界以本文为准。
 - 每个方法的 tag／EIP-1898／pending 请求行为：[moving-tag-matrix.md](moving-tag-matrix.md)。
 - Root／EthClient／HTTP／WSS 实现和证据状态：[method-transport-coverage.md](method-transport-coverage.md)。
 - 接受或取代某项产品选择的依据：[decisions.md](../decisions.md)。历史 Status／旧 API 不是当前实现台账。
 
 新增或变更方法须回答：结果是什么事实、共同参考是什么、比较什么、输出与证据是什么、失败如何表达、有哪些成本和未证明项。答案应在拥有该知识的代码与合同中，而不是新增一份运行时字段 DSL。
+
+已确认的兼容组织采用方法内外层 key／内层完整值状态的双 switch：整 key 是修正单位，上下文来自原始同源只读字段，未命中仍须校验和比较。无额外规则的方法不强制增加 switch。该收敛与全量归属迁移尚待执行；知识归属见 [拓扑](codebase-topology.md#方法自治组织样板)，推进方向见 [路线图](project-roadmap.md)，具体语义仍归本文及对象专项合同。
 
 ## 2. 共同裁决边界
 
@@ -56,3 +58,7 @@ Strict 业务轮沿用固定成员多数 `Q = max(H, floor(N/2)+1)`，默认 H=2
 当前证据随单次 `CallResult` 交付；`WithResult` 负责交付句柄，`WithSourceEvidence` 配置原始材料预算。旧 `WithUncertain`／capture API 示例已退出现行文档。原始材料不保证可靠或完整，不绕过主结果校验；预算、取消、发布后稳定性和复制隔离以决策 0066 为准。
 
 方法行为沿生产 Policy、Aggregator 和 typed seam 验证；注册表、字段生命周期与场景覆盖双向互锁。合成 regression、捕获回放和外部 provider 观察分别证明不同事情，完整要求见 [method-verification-pipeline.md](method-verification-pipeline.md)。已完成 T 阶段的执行纪律与进度不再作为方法规范保留。
+
+`eth_call` 的 execution／data 边界由 [`TestNormalizeCallOutcomeSeparatesRevertDataStates`](../../rpc/methods/eth_call_revert_test.go) 等回归验证：revert data 的缺失、null、空 DATA 与具体字节不得在没有规则依据时折合，provider 错误 message 不进入受保护 data。
+
+完整 block 的合法空 uncle 集合与外块绑定拒绝由 [`TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected`](../../rpc/methods/content_compat_test.go) 验证。reference 的失败不触发业务 fan-out、每次调用重新建立及失败证据交付，分别由 [`TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout`](../../internal/verification/integration/reference_freshness_test.go)、[`TestReferenceEstablishedFreshPerCall`](../../internal/verification/integration/reference_freshness_test.go) 和 [`TestReferenceFailureEvidenceIsUnknownWithObservedAt`](../../internal/verification/integration/reference_freshness_test.go) 验证；这些测试引用说明合同落点，不表示本次文档更新重跑了对应运行场景。
