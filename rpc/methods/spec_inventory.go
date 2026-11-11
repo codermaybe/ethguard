@@ -1,9 +1,6 @@
 package methods
 
-import (
-	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
-)
+import ()
 
 // Specs is the frozen MethodSpec inventory: one entry per Registered read
 // method, each declaring resolver, value domain, reference need, pending
@@ -25,24 +22,8 @@ func Specs() []MethodSpec {
 		blockTransactionCountByNumberSpec(),
 		getStorageAtSpec(),
 		getCodeSpec(),
-		{
-			Method:                 MethodCall,
-			Resolver:               ResolverCallRevert,
-			Normalize:              normalizeCallOutcome,
-			CompareKind:            rpc.RuleCompareMethodSpecific,
-			Reference:              ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
-			Pending:                PendingSpec{Mode: PendingObserve, Pos: 1},
-			ObservationProjectorID: ProjectorScalarStandard,
-		},
-		{
-			Method:      MethodEstimateGas,
-			Resolver:    ResolverMedian,
-			Normalize:   wire.NormalizeWireQuantity,
-			Encode:      wire.EncodeQuantity,
-			CompareKind: rpc.RuleCompareQuantity,
-			Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
-			Pending:     PendingSpec{Mode: PendingObserve, Pos: 1},
-		},
+		callSpec(),
+		estimateGasSpec(),
 		getLogsSpec(),
 		feeHistorySpec(),
 		gasPriceSpec(),

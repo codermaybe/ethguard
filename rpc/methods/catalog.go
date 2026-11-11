@@ -116,8 +116,8 @@ var methodCatalog = []MethodDescriptor{
 	transactionInBlockDescriptor(),
 	getStorageAtDescriptor(),
 	getCodeDescriptor(),
-	{Name: MethodCall, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "CallContract", Alignment: "v1.17.10"},
-	{Name: MethodEstimateGas, Kind: RegisteredMethod, Family: FamilyRead, Coverage: CoverageRegistered, Policy: "CompilePlan", Adapter: "EstimateGas", Alignment: "v1.17.10"},
+	callDescriptor(),
+	estimateGasDescriptor(),
 	getLogsDescriptor(),
 	feeHistoryDescriptor(),
 	gasPriceDescriptor(),
@@ -132,11 +132,11 @@ var methodCatalog = []MethodDescriptor{
 	// Write path (decision-map #4): a dedicated pipeline outside the read
 	// registry. Broadcast to the full voting basis + relative-trust
 	// adjudication; WriteMethod entries are skipped by ValidateRegistry.
-	{Name: MethodSendRawTransaction, Kind: WriteMethod, Family: FamilyWrite, Coverage: CoverageRegistered, Policy: "WritePipeline", Adapter: "SendTransaction", Alignment: "v1.17.10", Notes: "Root Client.SendRawTransaction; broadcast + relative-trust, no read registry policy."},
+	sendRawTransactionDescriptor(),
 	// Verification family: eth_getProof stays explicitly unsupported until a
 	// real-provider evidence contract exists (proposal section 8); it is
 	// never a silent omission.
-	{Name: "eth_getProof", Kind: UnsupportedMethod, Family: FamilyVerification, Coverage: CoverageUnsupported, Notes: "Not registered; no account/storage proof admission contract yet."},
+	getProofDescriptor(),
 	// Stream family: subscriptions are deferred until the native WSS design
 	// lands; the transport Port deliberately carries no Subscribe (frozen
 	// decision D12/D13).

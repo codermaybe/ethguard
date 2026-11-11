@@ -11,6 +11,40 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
+// MethodCall is the JSON-RPC method spelling this file owns: the read-only
+// execution observation behind CallContract.
+const MethodCall = "eth_call"
+
+// callSpec is the method's compiled contract: the call-revert controlled
+// escape (error bodies in, canonical success encoding out) with a moving
+// reference riding the block parameter. The resolver owns the value domain
+// fixed in compile.go; the spec carries no encoder of its own. No whole-key
+// compatibility correction applies to this method beyond the outcome
+// classification this file owns.
+func callSpec() MethodSpec {
+	return MethodSpec{
+		Method:                 MethodCall,
+		Resolver:               ResolverCallRevert,
+		Normalize:              normalizeCallOutcome,
+		CompareKind:            rpc.RuleCompareMethodSpecific,
+		Reference:              ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
+		Pending:                PendingSpec{Mode: PendingObserve, Pos: 1},
+		ObservationProjectorID: ProjectorScalarStandard,
+	}
+}
+
+func callDescriptor() MethodDescriptor {
+	return MethodDescriptor{
+		Name:      MethodCall,
+		Kind:      RegisteredMethod,
+		Family:    FamilyRead,
+		Coverage:  CoverageRegistered,
+		Policy:    "CompilePlan",
+		Adapter:   "CallContract",
+		Alignment: "v1.17.10",
+	}
+}
+
 // normalizeCallOutcome reduces one eth_call answer to a comparable key.
 // It canonicalizes return data and revert data. It does not admit the call:
 // a payload with no canonical form errors, and a non-revert protocol error
