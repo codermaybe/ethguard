@@ -37,25 +37,33 @@ func Encode(raw json.RawMessage) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: transaction encoding: %v", rpc.ErrMalformedResponse, err)
 	}
-	var projected, protected map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(key), &projected); err != nil {
+	// officialFields is the official-mask projection of the raw response
+	// (the comparison key); canonicalFields is the typed schema marshal.
+	// Merge direction: canonical typed values win; only members the official
+	// mask kept but the typed branch did not express are backfilled from the
+	// official projection. The transaction branches are officially open
+	// objects, so such members are officially tolerated extras whose values
+	// carry no schema constraint; members of closed sub-objects (accessList
+	// items) never reach here — the mask drops them before the typed parse.
+	var officialFields, canonicalFields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(key), &officialFields); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(encoded, &protected); err != nil {
+	if err := json.Unmarshal(encoded, &canonicalFields); err != nil {
 		return nil, err
 	}
-	if projected != nil {
-		pending := IsJSONNull(projected["blockHash"])
+	if officialFields != nil {
+		pending := IsJSONNull(officialFields["blockHash"])
 		for _, field := range []string{"blockNumber", "blockTimestamp", "transactionIndex"} {
-			if IsJSONNull(projected[field]) != pending {
+			if IsJSONNull(officialFields[field]) != pending {
 				return nil, fmt.Errorf("%w: inconsistent pending/mined transaction context", rpc.ErrMalformedResponse)
 			}
 		}
 	}
-	for field := range projected {
-		if _, exists := protected[field]; !exists {
-			protected[field] = projected[field]
+	for field := range officialFields {
+		if _, exists := canonicalFields[field]; !exists {
+			canonicalFields[field] = officialFields[field]
 		}
 	}
-	return wire.MarshalNoEscape(protected)
+	return wire.MarshalNoEscape(canonicalFields)
 }
