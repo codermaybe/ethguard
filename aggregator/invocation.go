@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -154,6 +155,7 @@ func (a *Aggregator) collectPhase(state *invocationState) {
 		Timeout:      a.collectTimeout,
 		Sources:      state.members,
 		TipFreshness: preparedTipFreshness(state),
+		DeferHealth:  true,
 	}
 	forward := func() {
 		state.emissions, state.collectErr = a.pool.Forward(state.ctx, state.prepared.Method, state.wireParams, opts)
@@ -173,6 +175,28 @@ func (a *Aggregator) collectPhase(state *invocationState) {
 		state.emissions, state.collectErr = a.pool.CollectVoting(state.ctx, state.prepared.Method, state.wireParams, opts)
 	default:
 		state.emissions, state.collectErr = a.pool.Collect(state.ctx, state.prepared.Method, state.wireParams, opts)
+	}
+}
+
+// finalizeHealth runs on every invocation exit. Admission errors and resolver
+// verdicts are source-bound; an overall decision error cannot assign blame.
+// Resolvers that omit verdicts on early exits (including all-EncodeCheck
+// failure in Strict) fall back to the existing per-source validation checks.
+func (state *invocationState) finalizeHealth() {
+	verdicts := verdictIndexByID(state.verdicts)
+	for _, emission := range state.emissions {
+		responseErr := emission.Err
+		if !errors.Is(responseErr, rpc.ErrMalformedResponse) && emission.Src != nil {
+			if verdict, ok := verdicts[emission.Src.ID()]; ok && verdict.Kind == rpc.VerdictUnusable {
+				responseErr = verdict.Err
+			} else if state.verdicts == nil && emission.Err == nil && emission.Val != nil {
+				_, responseErr = rpc.CanonicalOf(state.validityPolicy(), emission.Val)
+				if responseErr == nil || errors.Is(responseErr, rpc.ErrNotCanonicalScalar) {
+					_, responseErr = state.validityPolicy().Normalize(emission.Val)
+				}
+			}
+		}
+		emission.FinalizeHealth(responseErr)
 	}
 }
 

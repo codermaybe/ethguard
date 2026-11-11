@@ -149,7 +149,7 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 		// skipped here: dispatchOne's acquireRequest fails it closed with
 		// ErrClosed, so a concurrent Close still leaves a non-zero
 		// emission on every member — parity with CollectVoting's dispatch loop.
-		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg, false)
 	}
 	wg.Wait()
 	// A laggard source must not turn the whole broadcast into an error while

@@ -192,6 +192,7 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 		capture:       capture,
 	}
 	state.invocation = beginInvocation(snap, snapOK, members, uncertain.CollectorFromContext(ctx), requireCorroboration)
+	defer state.finalizeHealth()
 
 	if exit := a.planPreparePhase(state, started, req); exit != nil {
 		return exit.decision, exit.err

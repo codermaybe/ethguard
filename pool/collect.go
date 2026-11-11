@@ -34,6 +34,54 @@ type Emission struct {
 	// Evidence is populated by an admission stage after collection. It stays
 	// attached to this source and is never combined across sources.
 	Evidence json.RawMessage
+
+	health *emissionHealth
+}
+
+// FinalizeHealth completes deferred health accounting once, even across copies
+// of an emission. Only an explicit malformed successful response can override
+// the original transport classification. Unattempted and already-accounted
+// emissions are no-ops. Callers using DeferHealth must call this on every exit.
+func (e Emission) FinalizeHealth(responseErr error) {
+	if e.health == nil {
+		return
+	}
+	e.health.once.Do(func() {
+		h := e.health
+		switch {
+		case h.err == nil && errors.Is(responseErr, rpc.ErrMalformedResponse):
+			h.src.recordFailedCall(responseErr)
+		case isHealthyRPCResponse(h.err):
+			h.src.recordSuccessfulCall(h.rtt)
+		case h.recordFailure:
+			h.src.recordFailedCall(h.err)
+		}
+	})
+}
+
+type emissionHealth struct {
+	once          sync.Once
+	src           *Source
+	err           error
+	rtt           time.Duration
+	recordFailure bool
+}
+
+// accountEmission freezes the transport classification at completion, before
+// later admission work or caller cancellation can change its meaning.
+func accountEmission(parent context.Context, e *Emission, deferred bool) {
+	if !e.Attempted {
+		return
+	}
+	if deferred {
+		e.health = &emissionHealth{src: e.Src, err: e.Err, rtt: e.RTT, recordFailure: shouldRecordFailure(parent, e.Err)}
+		return
+	}
+	if isHealthyRPCResponse(e.Err) {
+		e.Src.recordSuccessfulCall(e.RTT)
+	} else if shouldRecordFailure(parent, e.Err) {
+		e.Src.recordFailedCall(e.Err)
+	}
 }
 
 // TipFreshnessScope tells the pool whether one request's scheduling may
@@ -85,6 +133,11 @@ type CollectOptions struct {
 	// sampled-latest-tip gate. The zero value keeps the historical gate-all
 	// behavior; see TipFreshnessScope.
 	TipFreshness TipFreshnessScope
+	// DeferHealth leaves final accounting to the caller after response
+	// validation. Every returned attempted emission must be finalized with
+	// FinalizeHealth, including on cancellation and early returns. The default
+	// accounts at transport completion; Broadcast always keeps that behavior.
+	DeferHealth bool
 }
 
 // The default fan-out bound lives in config (DefaultCollectTimeout): one
@@ -234,7 +287,7 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 			emissions[i] = Emission{Src: src, Err: gate}
 			continue
 		}
-		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg, opts.DeferHealth)
 	}
 	wg.Wait()
 	// Usable answers ride alongside a fan-out timeout: the caller adjudicates
@@ -270,12 +323,12 @@ func votingGate(src *Source, reference tipReference, now time.Time) error {
 }
 
 // dispatchOne attempts one member's call under the shared semaphore and
-// records its emission. Attempted calls report health here, so callers cannot
-// accidentally hide a dead source by forgetting a separate report step; a
+// records its emission. Attempted calls report health here unless the read
+// coordinator explicitly defers accounting through response validation. A
 // caller that never acquires a local slot records nothing. Shared by the
 // read paths and Broadcast: a broadcast failure cools the source for reads
 // too, and a read failure cools it for writes.
-func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src *Source, method string, params []any, emissions []Emission, wg *sync.WaitGroup) {
+func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src *Source, method string, params []any, emissions []Emission, wg *sync.WaitGroup, deferHealth bool) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -305,15 +358,8 @@ func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src 
 			err = callCtx.Err()
 		}
 
-		if attempted {
-			if isHealthyRPCResponse(err) {
-				src.recordSuccessfulCall(rtt)
-			} else if shouldRecordFailure(parent, err) {
-				src.recordFailedCall(err)
-			}
-		}
-
 		emissions[i] = Emission{Src: src, Val: val, Err: err, RTT: rtt, Attempted: attempted}
+		accountEmission(parent, &emissions[i], deferHealth)
 	}()
 }
 
@@ -372,7 +418,7 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 	)
 
 	for i, src := range sources {
-		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg, opts.DeferHealth)
 	}
 	wg.Wait()
 
@@ -443,11 +489,7 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 		}
 		val, rtt, callErr := collectWithSlot(callCtx, src, method, params, release)
 		emission := Emission{Src: src, Val: val, Err: callErr, RTT: rtt, Attempted: true}
-		if isHealthyRPCResponse(callErr) {
-			src.recordSuccessfulCall(rtt)
-		} else if shouldRecordFailure(ctx, callErr) {
-			src.recordFailedCall(callErr)
-		}
+		accountEmission(ctx, &emission, opts.DeferHealth)
 		emissions = append(emissions, emission)
 
 		if callErr == nil || isJSONRPCResponseError(callErr) {
