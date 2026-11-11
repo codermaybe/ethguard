@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -111,11 +112,35 @@ func TestDecodeSyncProgressShapes(t *testing.T) {
 	}
 	// Absent optional fields decode to zero, and JSON null is not a legal
 	// syncing shape.
-	if progress.SyncedAccountBytes != 0 || progress.HealingBytecode != 0 {
-		t.Fatalf("absent optional fields = %+v", progress)
+	want := ethereum.SyncProgress{StartingBlock: 1, CurrentBlock: 2, HighestBlock: 3, PulledStates: 64}
+	if *progress != want {
+		t.Fatalf("absent optional fields = %+v, want %+v", progress, want)
 	}
 	if _, err := DecodeSyncProgress(json.RawMessage(` null `)); !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("null syncing must fail malformed, got %v", err)
+	}
+}
+
+func TestDecodeSyncProgressProjectsLockedGethFields(t *testing.T) {
+	raw := json.RawMessage(`{"startingBlock":"0x1","currentBlock":"0x2","highestBlock":"0x3","syncedAccessLists":"0x11","totalAccessLists":"0x12","trieGenProgress":"0x13","txIndexFinishedBlocks":"0x14","txIndexRemainingBlocks":"0x15","stateIndexRemaining":"0x16","trienodeIndexRemaining":"0x100000017"}`)
+	progress, err := DecodeSyncProgress(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ethereum.SyncProgress{
+		StartingBlock:          1,
+		CurrentBlock:           2,
+		HighestBlock:           3,
+		SyncedAccessLists:      17,
+		TotalAccessLists:       18,
+		TrieGenProgress:        19,
+		TxIndexFinishedBlocks:  20,
+		TxIndexRemainingBlocks: 21,
+		StateIndexRemaining:    22,
+		TrienodeIndexRemaining: 0x100000017,
+	}
+	if progress == nil || *progress != want {
+		t.Fatalf("progress = %+v, want %+v", progress, want)
 	}
 }
 
