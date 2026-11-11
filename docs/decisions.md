@@ -2847,3 +2847,72 @@ notification tests, and the full CI test, vet, build, and lint gates. Receipt
 Pulls reconstruct the complete block batch with `eth_getBlockReceipts`; transport
 keepalive/replay remain deferred, and `SimulateV1` remains exposed only through
 `gethcompat`.
+
+## 0068. Receipt wire fidelity and declared semantic equivalence
+
+Status: Accepted and implemented (2026-11-11). Supersedes receipt optional-requiredness,
+null omission and status-over-root projection in 0045/0046/0051; other object
+contracts are unchanged.
+
+Official result shape, compatibility input spelling, method semantics,
+comparison equivalence and typed projection are separate obligations. Shape
+validity does not establish equal values. Equivalence must preserve every
+protected claim: hex case, JSON escapes and object order may normalize;
+different DATA bytes or quantity values may not. A method that compares only
+a coarser conclusion cannot return one source's distinct payload as though
+that payload was corroborated.
+
+Receipt Value keeps the pinned official fields. `from` and `effectiveGasPrice`
+are required, non-null, source-provided and compared. Missing fields are not
+derived from a transaction, borrowed from another source or silently defaulted.
+`type` is optional but, when supplied, must be a non-null hex byte. Optional
+nonnullable quantities/hashes do not treat explicit null as absence. Nullable
+`to` and `contractAddress` retain missing/null/address separately; no implicit
+zero address and no equivalence between those states is asserted. When both
+`status` and `root` are supplied, both are validated, compared and delivered;
+at least one remains required by the method contract. This does not infer fork
+applicability or establish a state-root proof.
+
+The official `status` description permits only failure (0) or success (1),
+although its machine pattern accepts any QUANTITY. Both method admission and
+direct typed projection reject other outcomes; they do not collapse arbitrary
+nonzero values into success. `status:0x2` is a schema-valid counterexample used
+to verify semantic rejection and the unchanged denominator. Existing embedded
+log `blockTimestamp:null` compatibility still normalizes to omission before the
+official receipt constructor; the log objects validated for bloom and binding
+are the ones delivered, not metadata from a second source or interpretation.
+
+Admit binds the transaction/block request; Encode checks canonical protected
+fields and bloom/log consistency; the canonical bytes are the comparison key
+for both receipt methods. Faults cannot vote and stay in the frozen denominator.
+No cross-source assembly or representative metadata restoration is permitted.
+Existing complete-log requirements and zero-log-hash tolerance remain explicit
+project acceptance policy, not full official-input coverage or unconditional
+parent binding. Receipt-set completeness, trie inclusion, canonicality and
+execution correctness are not proved.
+
+The official Geth `types.Receipt` projection does not carry sender/recipient
+information or every wire-presence distinction. Those remain in the protected
+Decision.Value, not invented typed fields. Typed projection must retain the
+fields its upstream type actually exposes. SyncProgress separately retains all
+seven previously omitted upstream synchronization/index counters so upstream
+`Done()` sees the reported remaining work.
+
+Verification (2026-11-11): targeted `-run` checks passed for receipt objects,
+wire receipt parity/HexByte, method receipt/admission behavior, direct typed
+receipt/SyncProgress, public facade receipt/SyncProgress, receipt integration
+and field lifecycle/mutations/typed round-trips, synchronous-write receipts,
+the existing block-receipt-tx capture replay, and root receipt subscription
+aggregation. Consumer fixtures were corrected to supply the required sender
+and omit Geth's typed-only empty `root:"0x"`; production does not repair such
+malformed source claims. Obsolete error-wording/stage and null-omission pins
+were removed; evidence, classification and fixed-denominator assertions remain.
+
+`TestReceiptWireOfficialVectors` and `TestReceiptWireCapturedReplay` validate
+input/output against the independently decoded pinned schema and compare typed
+values with the original payload projection through native HTTP/raw WSS.
+The capture loader checks the original archive hashes. The latter replays the
+dated 2026-09-23 receipt-one/receipt-null records; re-transporting and synthetic
+spelling changes do not create provider observations. Syncing object cases are
+synthetic, not observed provider samples. No live RPC, Anvil, full release,
+repository-wide or race gate was run for this bounded change.

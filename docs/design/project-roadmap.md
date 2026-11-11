@@ -1,123 +1,39 @@
-# EthGuard current roadmap
+# 当前路线图
 
-Status: **v1.17.10 business-method completion is in progress; WSS
-multi-source aggregation is implemented with evidence gaps remaining**
-(2026-11-09).
+状态基线：v1.17.10 完整业务方法接入仍有缺口，原生 HTTP／raw WSS 与多源订阅已有实现，但证据和部分合同尚未闭合。本次文档整理不是新的实现或验收通过声明。
 
-The external contract is defined only by the
-[go-ethereum compatibility policy](go-ethereum-compatibility-policy.md). A
-release names one locked go-ethereum version and declares either `complete` or
-does not claim compatibility. Internal method families, test batches, and
-agent assignments are implementation details and do not create public subset
-versions.
+## 唯一职责
 
-The retained contract documents (`t09-contract.md`, `live-canary-contract.md`,
-and `return-value-design.md`) preserve executable invariants and evidence rules.
-This roadmap and the current method matrix are authoritative for present status
-and sequencing.
+- 对外完整兼容目标：[go-ethereum-compatibility-policy.md](go-ethereum-compatibility-policy.md)。不发布中间子集兼容版本。
+- 每方法 Root／view／transport／证据状态：[method-transport-coverage.md](method-transport-coverage.md)。路线图不复制第二张矩阵。
+- 架构与模块所有权：[codebase-topology.md](codebase-topology.md)；当前验证义务：[method-verification-pipeline.md](method-verification-pipeline.md)。
+- 已接受理由与取代关系：[decisions.md](../decisions.md)；未裁决的设计与标准化候选不纳入现行合同，采纳后再并入对应永久文档。
 
-EthGuard's `Corroborated` remains provider-backed cross-source evidence, not
-Ethereum consensus, canonical proof, or cryptographic finality. 架构收敛仍受
-execution、quorum、reference 和 typed 边界约束。
+已完成的 T 阶段施工单、agent 纪律、逐条测试日志和旧 prototype 不再作为活动任务保留；仍适用的不变量并入职责合同，历史提交由 Git 保存。
 
-## Current facts
+## 仍需处理的工作
 
-- `go.mod` locks go-ethereum v1.17.10.
-- The locked `ethclient.Client` type has 48 exported receiver methods. `Client()`
-  is a concrete rpc accessor and is explicitly outside the EthGuard business
-  facade; the compatibility target is the remaining 47 methods. The current
-  46-method check is an internal inventory checkpoint, not a release claim.
-- The root `Client` remains the evidence facade. `Client.EthClient()` must
-  eventually expose the complete locked-version method set while sharing the
-  same runtime, typed projection, transport, and lifecycle implementation.
-- `gethcompat.SimulateClient` is an explicit single-source compatibility
-  adapter for `eth_simulateV1`. It imports the official go-ethereum
-  `ethclient` types only through the opt-in `gethcompat` package and does not
-  extend the default `Client.EthClient()` surface or provide EthGuard evidence.
-- Native HTTP and raw WSS use the same transport seam. WSS subscriptions are a
-  separate capability and cannot be inferred from unary request/response
-  support.
-- `internal/runtime` is the sole production composition root;
-  `internal/typed` is the sole production typed projection;
-  `internal/verification` owns cross-module facade verification.
-- The acceptance baseline includes `go test ./... -race -count=1` in addition
-  to the ordinary full test run.
+| 工作 | 当前边界 | 后续出口 |
+| --- | --- | --- |
+| 完整 Root／EthClient 契约 | SimulateV1 只有 opt-in gethcompat 单源入口，未闭合默认 root/view 的完整兼容门 | 统一官方签名／类型、导入 interlock、执行 owner、证据和生命周期，不以 unknown Call 或 ErrUnsupported 占位 |
+| 返回值与官方 schema | receipt 已按决策 0068 闭合；独立 transaction 首个方法级 key 检查点已落地，本地公开路径和 Anvil 已执行；block 和新公网观察未随之完成 | 当前批次收束，先审阅 [具体实现、规则及验收边界](transaction-semantic-matching.md#12-当前实施检查点)，不自动扩面；后续仍按 [测试路线](external-rpc-test-framework.md#当前执行路线先最小入口双线取证逐-key-收敛) 分别取得 provider／状态证据，不引入新策略框架 |
+| typed 字段完整性 | SyncProgress 七个字段已补齐，Done() 保留上游 remaining-counter 行为；方法计数不代表其他结果已保真 | 保留可选缺失为零及 source-local Selected 边界；已验证的本地场景不能补外部 syncing 对象缺样本 |
+| 跨传输与订阅 | 三类 WSS 聚合、同源 Pull、session 过滤及 newHeads gap 路径已有实现 | 补同 fixture 的 HTTP/WSS 值／错误／证据／生命周期矩阵；先统一订阅 Close、单源、budget、generation 等 S1 问题 |
+| freshness | 请求范围、旧样本、采样覆盖与默认策略仍需决定 | 按 F1 区分调度／候选规则，验证历史／pending 请求和样本年龄，不顺手改 quorum 或默认常数 |
+| 发布与外部观察 | 本地测试、API 差异、历史 provider 观察证明不同事情 | 执行当前 [release-contract.md](release-contract.md) 的完整门禁和明确的真实观察，不以文档完成或 workflow success 代替兼容 complete |
 
-## Execution plan
+上述问题的列举不预先授权新抽象、固定配额、重试或范围缩减。实现顺序由真实依赖和评审结果决定；不因过去阶段编号强制继续旧施工顺序。
 
-1. **Method and API contract.** Keep the 47-method target, signatures,
-   pending source-local semantics, derived transaction behavior, synchronous
-   write behavior, `SimulateV1`, and the three official subscriptions in one
-   reviewed contract. Keep `Client()` excluded and test that exclusion.
-2. **Unary completion.** Add root execution, typed projection, method plans,
-   error/lifecycle behavior, and focused fixtures for the one remaining
-   business method. `TransactionCount`, `PendingTransactionCount`,
-   `TransactionInBlock`, and `TransactionSender` now have
-   independent plans and facade projections. No unknown `Call` or `ErrUnsupported` placeholder satisfies this
-   step. The optional `gethcompat.SimulateClient` preserves the official
-   `SimulateV1` signature for callers that explicitly accept single-source
-   go-ethereum semantics; it does not close the default 47-method
-   `EthClient` compatibility gate. Closing that gate still requires a
-   reviewed root/view integration contract for `SimulateV1`.
-3. **WSS subscription capability.** The WSS adapter now has an explicit
-   `eth_subscribe`/`eth_unsubscribe` capability beside (not inside) unary
-   `Transport`, with ID-filtered bounded notification streams and race-tested
-   cancellation. The capability is now bound to `EthClient`'s
-   `ethereum.Subscription` methods for one explicit WSS source; owner `Close`,
-   async errors, and source ownership are covered by the current subscription
-   tests. `SimulateV1` remains a separate compatibility decision because its
-   official parameter/result types require importing `go-ethereum/ethclient`,
-   which the native default build currently forbids.
-4. **Multi-source WSS semantics.** Connect source snapshots, quorum,
-   duplicate/reorg/removed handling, bounded backpressure, and per-source
-   reconnect generations for new heads, logs, and transaction receipts. The
-   root facade now runs fixed-snapshot strict quorum aggregation with stale
-   session filtering for these three WSS streams. The `newHeads` path also
-   performs a same-source unary Pull after the soft window, with physical
-   session checks before and after the request and a per-context hard
-   quarantine. The `newHeads` path verifies skipped-height gaps through the
-   same Pull window; successful verification continues without replay, while
-   an unresolved gap terminates through structured `SubscriptionGapError` on
-   `Err()`. Logs and transaction receipts have same-source Pull compensation;
-   height-gap diagnostics remain specific to `newHeads`.
-5. **Transport evidence.** Run matching HTTP/WSS fixtures for every
-   completed unary method and the subscription lifecycle matrix. Update the
-   live method matrix after each method reaches all required gates.
-6. **Release and audit.** Run the full normal/race/vet/release suite and the
-   standards/spec review. Publish `EthClient: complete` only when all 47
-   methods and their transport/lifecycle evidence are closed.
+### 下一轮优先执行
 
-## Topology invariants
+1. 当前不再新开实施批次，先由用户审阅独立 transaction 的集中 key 规则、生成链定点修正和既有健康接线；检查点不等于整体兼容完成。
+2. 经确认后再执行真实 provider 定点采集，按实际缺口补其他交易类型／状态；本轮无 fork Anvil 的 legacy pending → mined 与恢复隔离已执行，不能替代公网证据。
+3. 仅对明确 key 形态新增代码和正反例，无法兼容就拒绝；独立交易整体验收后才接 block 内嵌交易，不向 key 内局部语义扩展。
 
-1. Keep the public root package as the facade and preserve the existing deep
-   modules (`runtime`, `typed`, `rpc`, `rpc/methods`, `aggregator`, `pool`, and
-   transport adapters). Do not create shallow forwarding packages.
-2. Keep black-box facade verification under `internal/verification`; leave
-   only tests that require root unexported state beside the root package.
-3. Treat `method-transport-coverage.md` as the single live method matrix.
-   Every missing locked-version method remains an explicit gap until it has a
-   root mapping, official view signature, typed projection, error/lifecycle
-   behavior, and the required transport evidence.
-4. Implement or reject the remaining official methods as complete semantic
-   contracts. Unknown forwarding and `ErrUnsupported` do not satisfy the
-   compatibility target.
-5. On a go-ethereum upgrade, generate the old/new method diff first, then
-   close every changed method and update the lock, matrix, tests, and release
-   declaration together.
+工具实现、产物规则与依赖细节只在 [测试框架设计](external-rpc-test-framework.md) 维护。真实历史 fork／moving tags／EIP-1898 仍需单独完成，不把本地链成功冒充这些专项或真实 provider 兼容性。
 
-## Acceptance
+## 不变的验收边界
 
-The roadmap is current when:
+一次调用的成员／分母不缩水，失败不降门槛；一个 runtime owner、一个 typed 实现和清楚的 adapter seam。Corroborated 是 provider-backed evidence，不是 Ethereum consensus、canonical proof 或 cryptographic finality。
 
-- canonical documents link only to current documents;
-- root black-box tests are separated from production ownership without
-  changing test content or behavior;
-- `go list ./...`, `go test ./... -count=1`, `go vet ./...`, the relevant race
-  suites, and `scripts/release_check.sh` pass;
-- the method matrix names every locked-version method and its current gap;
-- no external release text describes an intermediate method subset as a
-  compatibility version.
-
-The detailed release gates remain in [release-contract.md](release-contract.md)
-and the executable method rules remain in
-[method-verification-pipeline.md](method-verification-pipeline.md).
+行为变更按受影响场景验证；发布再执行完整 normal／race／vet／release 门禁。仅文档整理不重新冒领过去的测试、provider 或远端发布结果。未观察项、兼容缺口和被拒绝的方案必须明确保留，而不是用新章节标题宣告完成。

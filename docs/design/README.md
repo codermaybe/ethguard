@@ -22,6 +22,10 @@
 | 外部 canary 的 provenance、状态与重跑门？ | [live-canary-contract.md](live-canary-contract.md) |
 | 工具和发布入口、版本、产物与失败处置？ | [tooling.md](tooling.md)、[release-contract.md](release-contract.md) |
 
+## 已确认的实施设计
+
+- [Transaction 方法级 key 兼容修正](transaction-semantic-matching.md)：首个独立 transaction 实施检查点已落地，当前批次收束供审阅。完整 key 静态规则、官方校验、拒绝及健康调度接线复用已有结构，不做内部局部修正，不建新框架；已执行本地公开路径与 Anvil 验证，尚未进行新公网 provider 采集。
+
 ## 临时评审记录
 
 临时问题清单、比较稿和第三方评审原文只作本地讨论材料，不进入仓库导航或形成第二份实施合同。已采纳的结论并入上表对应的永久文档；未采纳建议不构成实施授权。

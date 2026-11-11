@@ -4,7 +4,25 @@
 
 `rpc/internal/wire/types.gen.go` 由固定版本的官方 execution-apis result schema 生成，不依赖 go-ethereum 方言类型。输入是 `internal/spec/methods.json` 与同版本的 `simulatev1/simulate.json`；不修改官方 schema 来适配现有实现。
 
-生成层负责结果形态、required、值约束、数组、分支与 nullable 的解析和规范编码。`New*` 入口执行这些检查；直接手工构造 Go 值时，调用者必须保持同样的不变量。Marshal 不通过整树 JSON 重解析重复准入，union 只额外检查选中成员数量及 nullable 状态。方法注册、请求绑定、签名/区块承诺、receipt bloom 一致性、受保护 Value 字段投影仍属于对象/方法层。生成类型不是这些准入与信任判断的替代品；本轮未迁移生产方法。
+生成层负责结果形态、required、值约束、数组、分支与 nullable 的解析和规范编码。`New*` 入口执行这些检查；直接手工构造 Go 值时，调用者必须保持同样的不变量。Marshal 不通过整树 JSON 重解析重复准入，union 只额外检查选中成员数量及 nullable 状态。方法注册、请求绑定、签名/区块承诺、receipt bloom 一致性、受保护 Value 字段投影仍属于对象/方法层。独立 transaction 已在方法修正后接入生成 query 构造器，仍保留 Geth 载荷及请求校验；生成类型不替代内容与信任检查。
+
+### 已确认的 transaction 接入边界
+
+[方法级 key 兼容设计](transaction-semantic-matching.md) 已确认，可开始实施。方法文件中的静态 switch 只修正完整 key 的已审核输入形态，之后执行官方约束与方法检查；生成器不收集 provider 方言，也不由运行时修正规则改写 schema。不增加 `MethodPolicy`、通用 Overlay 系统或第二份字段／方法表。
+
+生成链必须表达经核对的官方预期，不能把当前生成物视为不可纠正的标准。pending nullable 等差异须区分官方方法语义、固定上游机器定义、本地构建和 typegen：若输入 schema 的约束丢失，修生成模型；若固定来源本身表达不足，优先核对上游修正／版本与构建链。确需本地定点语义修正时显式记录官方依据、来源版本、方法范围和产物差异，保留原始官方参考供独立验证，不谎称原样生成，也不默认建设通用补丁机制。
+
+required 与 nullable 独立，nullable 须使用当前 schema 方言及生成器实际支持的结构，不能只写入未经支持的 `nullable: true`。同时验证 pending／mined 的完整上下文关系，不能只给单个字段放宽 null。完整区块内嵌交易不得无条件继承独立交易的 pending 规则。无论在哪一环修正，都禁止用零 hash、零高度或零索引伪造 inclusion 以通过校验。
+
+### 已实施：独立 transaction query 的 pending context 固定修正
+
+`gen/main.go` 仅在 `eth_getTransactionByHash` 的独立 schema AST 经 `parseSchema` 解码后、`walk` 前调用 `gen/transaction_query.go` 的固定生成函数。来源限定为 `v1.0.0-beta.7`，原始结果 AST 的完整语义 fingerprint SHA-256 必须为 `cf4618aa76c97172404b7e2e9bee92b70c2c3b2915ab9f51d7dd31f6e078dc47`；版本、分支、required、pattern 或其他语义变化均显式失败，须人工复核此修正。title／description 等展示变化不影响语义指纹。这是当前 pinned 机器定义表达不足的具名定点修正，不是原样生成，也不构成通用 Overlay／MethodPolicy 框架。
+
+依据：[官方 JSON-RPC 方法文档](https://ethereum.org/developers/docs/apis/json-rpc/#eth_gettransactionbyhash) 与 [EIP-1474 的 by-hash 定义](https://eips.ethereum.org/EIPS/eip-1474#eth_gettransactionbyhash) 明确 pending 的 `blockHash`、`blockNumber`、`transactionIndex` 为 null；[Geth v1.17.10 的 RPCTransaction／newRPCTransaction／NewRPCPendingTransaction](https://github.com/ethereum/go-ethereum/blob/v1.17.10/internal/ethapi/api.go) 对这三项及 `blockTimestamp` 使用无 omitempty 的指针，pending 路径不设置任何 inclusion 字段，因此四项均编码为显式 null。`blockTimestamp` 的扩展依据是该固定 Geth 实现；不宣称旧版 EIP 列出了此字段。
+
+生成策略只给这四个已有 envelope 属性包上 `oneOf: [null, 原始值 schema]`，保留 required、原始非 null 约束、全部交易分支及其他 nullable／const／pattern。现有语义 fingerprint 自动拆出独立 query 形状；`wire.NewGetTransactionByHashResult` 是方法层消费入口，不依赖生成 Go 类型的具体命名。`eth_getBlockByHash`／`eth_getBlockByNumber` 内嵌交易继续使用原始非 nullable context。pending／mined 整组一致性和请求绑定仍由方法层检查，生成器不证明 inclusion，不补缺失字段或零值。
+
+`internal/spec/methods.json` 和 `spec.MethodsJSON()` 保持逐字不变，完整 bundle SHA-256 为 `9291bee9a7c4d3d229a2e85f51daaf800bb779187995ca6525ef1bdd6e3d80a7`，原始 schema 仍独立拒绝 pending null，而接受 mined 官方向量。新增生成器测试验证修正范围、过时策略拒绝与 query／embedded 模型隔离；独立 wire 输出测试覆盖五类交易的 pending 显式 null 往返、required 缺失与非法非 null 拒绝、其他 required／非 nullable 不退化、mined 官方向量、两个 block 入口的内嵌交易约束及原始 bundle 摘要。pending fixture 是官方 mined 向量的定点变异，不是实时 provider／Anvil 观察。
 
 ## 生成管线
 
@@ -38,7 +56,7 @@
 
 required 与 nullable 是两个独立维度。非 nullable 值拒绝 JSON null；nullable 值保留 null；optional nullable 字段区分缺失与显式 null，不以省略制造相等。
 
-nullable root 的 null 表示 nil。数组空值 `[]` 与 nullable root 的 `null` 保持不同。receipt 的 `to:null` / `contractAddress:null` 保留在官方类型里；现有受保护 encoder 省略它们的政策留在外层。
+nullable root 的 null 表示 nil。数组空值 `[]` 与 nullable root 的 `null` 保持不同。receipt 的 `to:null` / `contractAddress:null` 在官方类型和受保护 encoder 中均保留；缺失、null 与地址值参与不同的比较，见决策 0068。
 
 ### Composition 与分支
 
@@ -65,7 +83,7 @@ CI 将生成结果写入临时文件并与已提交产物比较，防止同版�
 
 `.io` 只使用 `conformance.ParseVector` 的一份解析器：按出现顺序配对每条 request/response，身份为完整路径与交互序号，结构化匹配 method，明确区分 error、null、缺失 result。它不是按 JSON-RPC ID 重排的网络路由器。
 
-block/transaction 的生成向量 round-trip 与 protected parity 分开；生产方法仍保留原有 geth/对象路径。simulate bundle 没有 pinned 官方 `.io`，使用独立正反 fixture 与输出 schema 检验，不能宣称官方向量覆盖。
+block/transaction 的生成向量 round-trip 与 protected parity 分开；独立 transaction 已组合使用生成 query 结构和既有 Geth/对象准入，完整 block 未随之迁移。simulate bundle 没有 pinned 官方 `.io`，使用独立正反 fixture 与输出 schema 检验，不能宣称官方向量覆盖。
 
 ## 修改与迁移流程
 
