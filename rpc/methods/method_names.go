@@ -18,9 +18,6 @@ const MethodEstimateGas = "eth_estimateGas"
 // MethodFeeHistory is the JSON-RPC method name resolved by FeeHistoryPolicy.
 const MethodFeeHistory = "eth_feeHistory"
 
-// MethodGetBalance is the JSON-RPC method name resolved by GetBalancePolicy.
-const MethodGetBalance = "eth_getBalance"
-
 // MethodGetBlockByHash is the JSON-RPC method name resolved by
 // BlockByHashPolicy.
 const MethodGetBlockByHash = "eth_getBlockByHash"
@@ -33,28 +30,8 @@ const MethodGetBlockByNumber = "eth_getBlockByNumber"
 // BlockReceiptsPolicy.
 const MethodGetBlockReceipts = "eth_getBlockReceipts"
 
-// MethodGetCode is the JSON-RPC method name resolved by GetCodePolicy.
-const MethodGetCode = "eth_getCode"
-
 // MethodGetLogs is the JSON-RPC method name resolved by LogsPolicy.
 const MethodGetLogs = "eth_getLogs"
-
-// MethodGetStorageAt is the JSON-RPC method name resolved by
-// GetStorageAtPolicy.
-const MethodGetStorageAt = "eth_getStorageAt"
-
-// MethodGetTransactionCount is the JSON-RPC method name resolved by
-// GetTransactionCountPolicy.
-const MethodGetTransactionCount = "eth_getTransactionCount"
-
-// MethodGetBlockTransactionCountByHash is the JSON-RPC method resolved by
-// TransactionCount. It counts transactions in one immutable block and is
-// distinct from eth_getTransactionCount, which returns an account nonce.
-const MethodGetBlockTransactionCountByHash = "eth_getBlockTransactionCountByHash"
-
-// MethodGetBlockTransactionCountByNumber is the JSON-RPC method name resolved
-// by the block transaction-count policy.
-const MethodGetBlockTransactionCountByNumber = "eth_getBlockTransactionCountByNumber"
 
 // MethodGetTransactionReceipt is the JSON-RPC method name resolved by
 // TransactionReceiptPolicy.

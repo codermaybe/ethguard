@@ -45,23 +45,6 @@ func admitFeeHistory(_ context.Context, req rpc.Request, value json.RawMessage, 
 	return nil, nil
 }
 
-// normalizeTransactionCount admits the protocol's null absence so strict
-// resolution can preserve it for the typed boundary, while applying the
-// canonical wire quantity grammar to actual counts.
-func normalizeTransactionCount(value json.RawMessage) (string, error) {
-	if wire.IsJSONNull(value) {
-		return "null", nil
-	}
-	return wire.NormalizeWireQuantity(value)
-}
-
-func encodeTransactionCount(value json.RawMessage) (json.RawMessage, error) {
-	if wire.IsJSONNull(value) {
-		return json.RawMessage("null"), nil
-	}
-	return wire.EncodeQuantity(value)
-}
-
 // Specs is the frozen MethodSpec inventory: one entry per Registered read
 // method, each declaring resolver, value domain, reference need, pending
 // handling, hooks, and projector. Compile turns it into the registry the
@@ -92,17 +75,7 @@ func Specs() []MethodSpec {
 			Admit:                  admitBlockByNumberResponse,
 			ObservationProjectorID: ProjectorBlock,
 		},
-		{
-			Method:                 MethodGetBalance,
-			Resolver:               ResolverStrict,
-			Normalize:              wire.NormalizeWireQuantity,
-			Encode:                 wire.EncodeQuantity,
-			KeySource:              rpc.RuleKeyCanonicalBytes,
-			CompareKind:            rpc.RuleCompareQuantity,
-			Reference:              ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
-			Pending:                PendingSpec{Mode: PendingObserve, Pos: 1},
-			ObservationProjectorID: ProjectorScalarStandard,
-		},
+		getBalanceSpec(),
 		{
 			Method:                 MethodGetTransactionReceipt,
 			Resolver:               ResolverStrict,
@@ -128,54 +101,11 @@ func Specs() []MethodSpec {
 			Admit:                  admitBlockReceipts,
 			ObservationProjectorID: ProjectorBlockReceipts,
 		},
-		{
-			Method:      MethodGetTransactionCount,
-			Resolver:    ResolverStrict,
-			Normalize:   wire.NormalizeWireQuantity,
-			Encode:      wire.EncodeQuantity,
-			KeySource:   rpc.RuleKeyCanonicalBytes,
-			CompareKind: rpc.RuleCompareQuantity,
-			Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
-			Pending:     PendingSpec{Mode: PendingObserve, Pos: 1},
-		},
-		{
-			Method:      MethodGetBlockTransactionCountByHash,
-			Resolver:    ResolverStrict,
-			Normalize:   normalizeTransactionCount,
-			Encode:      encodeTransactionCount,
-			KeySource:   rpc.RuleKeyNormalizer,
-			CompareKind: rpc.RuleCompareQuantity,
-		},
-		{
-			Method:      MethodGetBlockTransactionCountByNumber,
-			Resolver:    ResolverStrict,
-			Normalize:   wire.NormalizeWireQuantity,
-			Encode:      wire.EncodeQuantity,
-			KeySource:   rpc.RuleKeyCanonicalBytes,
-			CompareKind: rpc.RuleCompareQuantity,
-			Reference:   ReferenceSpec{Kind: ReferenceShapeHeightAt, Positions: []int{0}},
-			Pending:     PendingSpec{Mode: PendingObserve, Pos: 0},
-		},
-		{
-			Method:      MethodGetStorageAt,
-			Resolver:    ResolverStrict,
-			Normalize:   wire.NormalizeStorageWord,
-			Encode:      wire.EncodeStorageWord,
-			KeySource:   rpc.RuleKeyCanonicalBytes,
-			CompareKind: rpc.RuleCompareMethodSpecific,
-			Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{2}, EIP1898: true},
-			Pending:     PendingSpec{Mode: PendingObserve, Pos: 2},
-		},
-		{
-			Method:      MethodGetCode,
-			Resolver:    ResolverStrict,
-			Normalize:   wire.NormalizeHexData,
-			Encode:      wire.EncodeData,
-			KeySource:   rpc.RuleKeyCanonicalBytes,
-			CompareKind: rpc.RuleCompareMethodSpecific,
-			Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
-			Pending:     PendingSpec{Mode: PendingObserve, Pos: 1},
-		},
+		getTransactionCountSpec(),
+		blockTransactionCountByHashSpec(),
+		blockTransactionCountByNumberSpec(),
+		getStorageAtSpec(),
+		getCodeSpec(),
 		{
 			Method:                 MethodCall,
 			Resolver:               ResolverCallRevert,
