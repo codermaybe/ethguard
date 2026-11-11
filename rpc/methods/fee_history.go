@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -12,6 +13,54 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
+
+// MethodFeeHistory is the JSON-RPC method spelling this file owns: the fee
+// history range read.
+const MethodFeeHistory = "eth_feeHistory"
+
+// feeHistorySpec is the method's compiled contract: canonical fee-history
+// comparison over the strict resolver, a moving reference riding the newest
+// block, pending observed, and the request/response validators. No whole-key
+// compatibility correction applies to this method.
+func feeHistorySpec() MethodSpec {
+	return MethodSpec{
+		Method:                 MethodFeeHistory,
+		Resolver:               ResolverStrict,
+		Normalize:              normalizeFeeHistory,
+		Encode:                 feehistory.Encode,
+		KeySource:              rpc.RuleKeyCanonicalBytes,
+		CompareKind:            rpc.RuleCompareMethodSpecific,
+		Reference:              ReferenceSpec{Kind: ReferenceShapeHeightAt, Positions: []int{1}},
+		Pending:                PendingSpec{Mode: PendingObserve, Pos: 1},
+		Validate:               func(_ context.Context, req rpc.Request) error { return validateFeeHistoryRequest(req) },
+		Admit:                  admitFeeHistory,
+		ObservationProjectorID: ProjectorFeeHistory,
+	}
+}
+
+func feeHistoryDescriptor() MethodDescriptor {
+	return MethodDescriptor{
+		Name:      MethodFeeHistory,
+		Kind:      RegisteredMethod,
+		Family:    FamilyRead,
+		Coverage:  CoverageRegistered,
+		Policy:    "CompilePlan",
+		Alignment: "v1.17.10",
+	}
+}
+
+func admitFeeHistory(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
+	if err := validateFeeHistoryRequest(req); err != nil {
+		return nil, fmt.Errorf("%w: %v", rpc.ErrInvalidRequest, err)
+	}
+	if _, err := normalizeFeeHistory(value); err != nil {
+		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+	}
+	if err := validateFeeHistoryRange(req, value); err != nil {
+		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+	}
+	return nil, nil
+}
 
 func validateFeeHistoryRange(req rpc.Request, value json.RawMessage) error {
 	return feehistory.ValidateRange(req, value)

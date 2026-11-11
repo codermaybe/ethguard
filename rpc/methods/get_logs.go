@@ -2,6 +2,7 @@ package methods
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -10,6 +11,49 @@ import (
 	logobject "github.com/codermaybe/ethguard/rpc/internal/objects/log"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
+
+// MethodGetLogs is the JSON-RPC method spelling this file owns: the filter
+// read, and the read plan the logs subscription Pull reuses.
+const MethodGetLogs = "eth_getLogs"
+
+// getLogsSpec is the method's compiled contract: canonical log-list
+// comparison over the strict resolver, a range reference over the filter's
+// height fields, pending refused locally, and the list admission binding.
+// No whole-key compatibility correction applies to this method.
+func getLogsSpec() MethodSpec {
+	return MethodSpec{
+		Method:                 MethodGetLogs,
+		Resolver:               ResolverStrict,
+		Normalize:              normalizeLogs,
+		Encode:                 logobject.Encode,
+		KeySource:              rpc.RuleKeyCanonicalBytes,
+		CompareKind:            rpc.RuleCompareMethodSpecific,
+		Reference:              ReferenceSpec{Kind: ReferenceShapeHeightFieldsAt, ParamPos: 0, Fields: []string{"fromBlock", "toBlock"}},
+		Pending:                PendingSpec{Mode: PendingRefuse, Pos: 0},
+		Validate:               func(_ context.Context, req rpc.Request) error { return validateLogRequest(req) },
+		Admit:                  admitLogs,
+		ObservationProjectorID: ProjectorLogs,
+	}
+}
+
+func getLogsDescriptor() MethodDescriptor {
+	return MethodDescriptor{
+		Name:      MethodGetLogs,
+		Kind:      RegisteredMethod,
+		Family:    FamilyRead,
+		Coverage:  CoverageRegistered,
+		Policy:    "CompilePlan",
+		Adapter:   "FilterLogs",
+		Alignment: "v1.17.10",
+	}
+}
+
+func admitLogs(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
+	if err := validateLogsResponse(req, value); err != nil {
+		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+	}
+	return nil, nil
+}
 
 // This file is the Log object slice: Log validation (requiredness) and the
 // logs projection.

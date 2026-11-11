@@ -7,16 +7,9 @@ package methods
 // MethodCall is the JSON-RPC method name resolved by CallPolicy.
 const MethodCall = "eth_call"
 
-// MethodCreateAccessList is the JSON-RPC method name resolved by
-// CreateAccessListPolicy.
-const MethodCreateAccessList = "eth_createAccessList"
-
 // MethodEstimateGas is the JSON-RPC method name resolved by
 // EstimateGasPolicy.
 const MethodEstimateGas = "eth_estimateGas"
-
-// MethodFeeHistory is the JSON-RPC method name resolved by FeeHistoryPolicy.
-const MethodFeeHistory = "eth_feeHistory"
 
 // MethodGetBlockByHash is the JSON-RPC method name resolved by
 // BlockByHashPolicy.
@@ -25,12 +18,6 @@ const MethodGetBlockByHash = "eth_getBlockByHash"
 // MethodGetBlockByNumber is the JSON-RPC method name resolved by
 // BlockByNumberPolicy.
 const MethodGetBlockByNumber = "eth_getBlockByNumber"
-
-// MethodGetLogs is the JSON-RPC method name resolved by LogsPolicy.
-const MethodGetLogs = "eth_getLogs"
-
-// MethodSyncing is the JSON-RPC method name resolved by SyncingPolicy.
-const MethodSyncing = "eth_syncing"
 
 // MethodSendRawTransaction is the write-side JSON-RPC method. It has no
 // Policy in the read registry: the write pipeline owns its collection and
