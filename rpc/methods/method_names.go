@@ -26,16 +26,8 @@ const MethodGetBlockByHash = "eth_getBlockByHash"
 // BlockByNumberPolicy.
 const MethodGetBlockByNumber = "eth_getBlockByNumber"
 
-// MethodGetBlockReceipts is the JSON-RPC method name resolved by
-// BlockReceiptsPolicy.
-const MethodGetBlockReceipts = "eth_getBlockReceipts"
-
 // MethodGetLogs is the JSON-RPC method name resolved by LogsPolicy.
 const MethodGetLogs = "eth_getLogs"
-
-// MethodGetTransactionReceipt is the JSON-RPC method name resolved by
-// TransactionReceiptPolicy.
-const MethodGetTransactionReceipt = "eth_getTransactionReceipt"
 
 // MethodSyncing is the JSON-RPC method name resolved by SyncingPolicy.
 const MethodSyncing = "eth_syncing"

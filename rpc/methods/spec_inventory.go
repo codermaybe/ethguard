@@ -10,7 +10,6 @@ import (
 	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 	feehistory "github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 	logobject "github.com/codermaybe/ethguard/rpc/internal/objects/log"
-	receiptobject "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
@@ -76,31 +75,10 @@ func Specs() []MethodSpec {
 			ObservationProjectorID: ProjectorBlock,
 		},
 		getBalanceSpec(),
-		{
-			Method:                 MethodGetTransactionReceipt,
-			Resolver:               ResolverStrict,
-			Normalize:              normalizeReceiptObject,
-			Encode:                 receiptobject.Encode,
-			KeySource:              rpc.RuleKeyCanonicalBytes,
-			CompareKind:            rpc.RuleCompareMethodSpecific,
-			Admit:                  admitReceipt,
-			ObservationProjectorID: ProjectorReceipt,
-		},
+		getTransactionReceiptSpec(),
 		transactionByHashSpec(),
 		transactionInBlockSpec(),
-		{
-			Method:                 MethodGetBlockReceipts,
-			Resolver:               ResolverStrict,
-			Normalize:              normalizeBlockReceiptList,
-			Encode:                 receiptobject.EncodeBlock,
-			KeySource:              rpc.RuleKeyCanonicalBytes,
-			CompareKind:            rpc.RuleCompareMethodSpecific,
-			Reference:              ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{0}, EIP1898: true},
-			Pending:                PendingSpec{Mode: PendingRefuse, Pos: 0},
-			Validate:               validateBlockReceiptsRequest,
-			Admit:                  admitBlockReceipts,
-			ObservationProjectorID: ProjectorBlockReceipts,
-		},
+		getBlockReceiptsSpec(),
 		getTransactionCountSpec(),
 		blockTransactionCountByHashSpec(),
 		blockTransactionCountByNumberSpec(),

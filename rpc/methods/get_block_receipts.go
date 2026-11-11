@@ -7,19 +7,55 @@ import (
 	"strings"
 
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
+	receiptobject "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
+// MethodGetBlockReceipts is the JSON-RPC method spelling this file owns: the
+// whole-block receipt list read.
+const MethodGetBlockReceipts = "eth_getBlockReceipts"
+
+// getBlockReceiptsSpec is the method's compiled contract: canonical
+// receipt-list comparison over the strict resolver, an explicit block
+// reference, pending refused locally, and the list admission binding. No
+// whole-key compatibility correction applies to this method.
+func getBlockReceiptsSpec() MethodSpec {
+	return MethodSpec{
+		Method:                 MethodGetBlockReceipts,
+		Resolver:               ResolverStrict,
+		Normalize:              normalizeBlockReceiptList,
+		Encode:                 receiptobject.EncodeBlock,
+		KeySource:              rpc.RuleKeyCanonicalBytes,
+		CompareKind:            rpc.RuleCompareMethodSpecific,
+		Reference:              ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{0}, EIP1898: true},
+		Pending:                PendingSpec{Mode: PendingRefuse, Pos: 0},
+		Validate:               validateBlockReceiptsRequest,
+		Admit:                  admitBlockReceipts,
+		ObservationProjectorID: ProjectorBlockReceipts,
+	}
+}
+
+func getBlockReceiptsDescriptor() MethodDescriptor {
+	return MethodDescriptor{
+		Name:      MethodGetBlockReceipts,
+		Kind:      RegisteredMethod,
+		Family:    FamilyRead,
+		Coverage:  CoverageRegistered,
+		Policy:    "CompilePlan",
+		Adapter:   "BlockReceipts",
+		Alignment: "v1.17.10",
+	}
+}
+
 func admitBlockReceipts(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	if err := receipt.AdmitBlock(req, value); err != nil {
+	if err := receiptobject.AdmitBlock(req, value); err != nil {
 		return nil, err
 	}
 	return nil, nil
 }
 
 func normalizeBlockReceiptList(value json.RawMessage) (string, error) {
-	key, err := receipt.NormalizeBlock(value, wire.PruneMethod, MethodGetBlockReceipts)
+	key, err := receiptobject.NormalizeBlock(value, wire.PruneMethod, MethodGetBlockReceipts)
 	if err != nil || key == "null" {
 		return key, err
 	}
