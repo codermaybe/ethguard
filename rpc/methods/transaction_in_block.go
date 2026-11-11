@@ -53,6 +53,12 @@ func normalizeTransactionInBlock(value json.RawMessage) (string, error) {
 	return string(candidate), err
 }
 
+// prepareTransactionInBlock encodes the shared transaction candidate and
+// rejects the pending shape: a transaction addressed by block hash and index
+// is by definition included, so a null inclusion context cannot satisfy the
+// request. No whole-key compatibility correction applies to this method: its
+// acceptance rides the shared object encoding and the official schema
+// branches, without extending by-hash's pending timestamp derivation.
 func prepareTransactionInBlock(value json.RawMessage) (json.RawMessage, error) {
 	candidate, err := transaction.Encode(value)
 	if err != nil || wire.IsJSONNull(candidate) {

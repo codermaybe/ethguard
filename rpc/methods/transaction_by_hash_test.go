@@ -283,3 +283,38 @@ func TestTransactionByHashPendingTimestampDoesNotRescueInvalidPayload(t *testing
 		})
 	}
 }
+
+// TestTransactionByHashCorrectionIdempotence pins the single-pass contract:
+// every whole-key correction is idempotent over its own output, and repeated
+// preparation of the same response yields the identical canonical string no
+// matter how often it runs.
+func TestTransactionByHashCorrectionIdempotence(t *testing.T) {
+	_, raw, _ := observedPendingTransaction(t)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range fields {
+		once, matched, err := correctTransactionByHashKey(key, value, fields)
+		if err != nil || !matched {
+			continue
+		}
+		twice, again, err := correctTransactionByHashKey(key, once, fields)
+		if err != nil {
+			t.Fatalf("%s: canonicalized value rejected on re-entry: %v", key, err)
+		}
+		if again && string(once) != string(twice) {
+			t.Fatalf("%s: correction is not idempotent: %s vs %s", key, once, twice)
+		}
+	}
+	first, err := normalizeTransactionByHash(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		again, err := normalizeTransactionByHash(raw)
+		if err != nil || again != first {
+			t.Fatalf("repeated preparation diverged at round %d: %s, %v", i, again, err)
+		}
+	}
+}

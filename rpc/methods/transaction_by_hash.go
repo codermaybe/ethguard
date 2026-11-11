@@ -54,6 +54,11 @@ func normalizeTransactionByHash(value json.RawMessage) (string, error) {
 	return string(candidate), err
 }
 
+// prepareTransactionByHash normalizes one provider response into the
+// canonical candidate. The method's whole-key corrections run once per
+// original official key; each key's state reads the original response only,
+// and corrections write into an independent candidate so iteration order and
+// repeated calls cannot change the canonical result.
 func prepareTransactionByHash(value json.RawMessage) (json.RawMessage, error) {
 	if err := jsonsafe.Validate(value); err != nil {
 		return nil, fmt.Errorf("%w: transaction JSON: %v", rpc.ErrMalformedResponse, err)
@@ -61,42 +66,67 @@ func prepareTransactionByHash(value json.RawMessage) (json.RawMessage, error) {
 	if wire.IsJSONNull(value) {
 		return json.RawMessage("null"), nil
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(value, &fields); err != nil || fields == nil {
+	var original map[string]json.RawMessage
+	if err := json.Unmarshal(value, &original); err != nil || original == nil {
 		return nil, fmt.Errorf("%w: transaction must be an object", rpc.ErrMalformedResponse)
 	}
-	if _, exists := fields["blockTimestamp"]; !exists {
-		corrected, matched, err := correctTransactionByHashKey("blockTimestamp", nil, fields)
-		if err != nil {
-			return nil, fmt.Errorf("%w: transaction blockTimestamp: %v", rpc.ErrMalformedResponse, err)
-		}
-		if matched {
-			fields["blockTimestamp"] = corrected
-		}
-	}
-	for key, field := range fields {
-		corrected, matched, err := correctTransactionByHashKey(key, field, fields)
+	candidate := make(map[string]json.RawMessage, len(original)+1)
+	for key, field := range original {
+		corrected, matched, err := correctTransactionByHashKey(key, field, original)
 		if err != nil {
 			return nil, fmt.Errorf("%w: transaction %s: %v", rpc.ErrMalformedResponse, key, err)
 		}
 		if matched {
-			fields[key] = corrected
+			candidate[key] = corrected
+		} else {
+			candidate[key] = field
 		}
 	}
-	candidate, err := wire.MarshalNoEscape(fields)
+	// The one approved missing-derived key: an absent blockTimestamp gets its
+	// single state determination here, reading the original context only.
+	// Present keys already had theirs in the pass above; nothing re-enters.
+	if _, exists := original["blockTimestamp"]; !exists {
+		corrected, matched, err := correctTransactionByHashKey("blockTimestamp", nil, original)
+		if err != nil {
+			return nil, fmt.Errorf("%w: transaction blockTimestamp: %v", rpc.ErrMalformedResponse, err)
+		}
+		if matched {
+			candidate["blockTimestamp"] = corrected
+		}
+	}
+	candidateRaw, err := wire.MarshalNoEscape(candidate)
 	if err != nil {
 		return nil, fmt.Errorf("%w: transaction candidate: %v", rpc.ErrMalformedResponse, err)
 	}
-	return transaction.Encode(candidate)
+	return transaction.Encode(candidateRaw)
 }
 
-func correctTransactionByHashKey(key string, value json.RawMessage, fields map[string]json.RawMessage) (json.RawMessage, bool, error) {
+// correctTransactionByHashKey is the method's whole-key compatibility rule.
+// The outer switch assigns each official direct key its owner; the inner
+// switch distinguishes that key's complete input state. States read the
+// original response only, and a key derived here (the pending blockTimestamp
+// null) is written straight into the candidate — it never re-enters this
+// pass. Missing required fields outside an approved derivation stay
+// rejections by the official schema, attributed to their key.
+func correctTransactionByHashKey(key string, value json.RawMessage, original map[string]json.RawMessage) (json.RawMessage, bool, error) {
 	switch key {
 	case "blockTimestamp":
-		if len(value) == 0 && wire.IsJSONNull(fields["blockHash"]) && wire.IsJSONNull(fields["blockNumber"]) && wire.IsJSONNull(fields["transactionIndex"]) {
-			return json.RawMessage("null"), true, nil
+		switch {
+		case len(value) == 0:
+			// Missing: only the explicit pending context derives the
+			// complete null. Any other context leaves the absence
+			// uncorrected — the official required field and the typed
+			// branch then classify the response, keeping the unsupported
+			// object's precedence over the missing member.
+			if wire.IsJSONNull(original["blockHash"]) && wire.IsJSONNull(original["blockNumber"]) && wire.IsJSONNull(original["transactionIndex"]) {
+				return json.RawMessage("null"), true, nil
+			}
+			return nil, false, nil
+		default:
+			// Null and present keep the official value; the schema branch
+			// owns nullability and grammar.
+			return value, false, nil
 		}
-		return value, false, nil
 	case "hash", "blockHash":
 		if key == "blockHash" && wire.IsJSONNull(value) {
 			return json.RawMessage("null"), true, nil
