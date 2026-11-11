@@ -1314,6 +1314,13 @@ func signedTxFixture(t *testing.T, mined bool) json.RawMessage {
 	obj["from"] = json.RawMessage(fmt.Sprintf("%q", crypto.PubkeyToAddress(key.PublicKey).Hex()))
 	if mined {
 		obj["blockNumber"] = json.RawMessage(`"0x10"`)
+		obj["blockHash"] = json.RawMessage(`"0x0000000000000000000000000000000000000000000000000000000000000001"`)
+		obj["blockTimestamp"] = json.RawMessage(`"0x1"`)
+		obj["transactionIndex"] = json.RawMessage(`"0x0"`)
+	} else {
+		for _, field := range []string{"blockHash", "blockNumber", "blockTimestamp", "transactionIndex"} {
+			obj[field] = json.RawMessage("null")
+		}
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {

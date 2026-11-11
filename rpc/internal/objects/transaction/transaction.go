@@ -109,7 +109,12 @@ func Normalize(method string, value json.RawMessage, pruner Pruner) (string, err
 	if len(shape) <= 1 {
 		return "", fmt.Errorf("transaction: incomplete object")
 	}
-	return pruner(method, value)
+	key, err := pruner(method, value)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := Encode(json.RawMessage(key))
+	return string(encoded), err
 }
 
 // NormalizeInBlock uses the same transaction field mask as the by-hash
@@ -124,8 +129,12 @@ func Validate(value json.RawMessage) error {
 	if err := json.Unmarshal(value, &obj); err != nil || obj == nil {
 		return fmt.Errorf("transaction: expected object")
 	}
+	encoded, err := Encode(value)
+	if err != nil {
+		return err
+	}
 	var tx *types.Transaction
-	if err := json.Unmarshal(value, &tx); err != nil || tx == nil {
+	if err := json.Unmarshal(encoded, &tx); err != nil || tx == nil {
 		if errors.Is(err, types.ErrTxTypeNotSupported) {
 			return errors.Join(rpc.ErrUnsupportedTypedObject, err)
 		}
@@ -149,6 +158,17 @@ func Validate(value json.RawMessage) error {
 	}
 	if *wireValue.Hash != tx.Hash() {
 		return fmt.Errorf("transaction: hash does not match signed payload")
+	}
+	if tx.Type() == types.LegacyTxType && tx.Protected() {
+		if declared, exists := obj["chainId"]; exists {
+			chainID, err := wire.NormalizeWireQuantity(declared)
+			if err != nil {
+				return fmt.Errorf("transaction: chainId: %w", err)
+			}
+			if chainID != tx.ChainId().String() {
+				return fmt.Errorf("transaction: chainId does not match signed payload")
+			}
+		}
 	}
 	if wireValue.From == nil {
 		return fmt.Errorf("transaction: missing sender")

@@ -1,10 +1,8 @@
 package methods
 
-// The method-name table: one constant per JSON-RPC method this package owns.
-// The spec inventory (spec_inventory.go), the catalog (catalog.go), and the
-// legacy constructors all reference these names; the table is the single
-// spelling authority. Twenty-three read methods are registered; the
-// transaction write method has no read policy.
+// The remaining centralized method-name declarations. The transaction pilot
+// owns its names alongside its specs and descriptors; each RPC spelling still
+// has exactly one declaration. The write method has no read policy.
 
 // MethodBlobBaseFee is the JSON-RPC method name resolved by BlobBaseFeePolicy.
 const MethodBlobBaseFee = "eth_blobBaseFee"
@@ -57,10 +55,6 @@ const MethodGetLogs = "eth_getLogs"
 // GetStorageAtPolicy.
 const MethodGetStorageAt = "eth_getStorageAt"
 
-// MethodGetTransactionByHash is the JSON-RPC method name resolved by
-// TransactionByHashPolicy.
-const MethodGetTransactionByHash = "eth_getTransactionByHash"
-
 // MethodGetTransactionCount is the JSON-RPC method name resolved by
 // GetTransactionCountPolicy.
 const MethodGetTransactionCount = "eth_getTransactionCount"
@@ -73,9 +67,6 @@ const MethodGetBlockTransactionCountByHash = "eth_getBlockTransactionCountByHash
 // MethodGetBlockTransactionCountByNumber is the JSON-RPC method name resolved
 // by the block transaction-count policy.
 const MethodGetBlockTransactionCountByNumber = "eth_getBlockTransactionCountByNumber"
-
-// MethodGetTransactionByBlockHashAndIndex is resolved by TransactionInBlock.
-const MethodGetTransactionByBlockHashAndIndex = "eth_getTransactionByBlockHashAndIndex"
 
 // MethodGetTransactionReceipt is the JSON-RPC method name resolved by
 // TransactionReceiptPolicy.

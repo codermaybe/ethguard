@@ -1105,10 +1105,8 @@ func TestVerificationProtectedMutationFails(t *testing.T) {
 }
 
 // TestVerificationEscapedHexAdmissionBoundary records the method boundary for the
-// three responses admitted through geth's typed wire decoders: those decoders
-// require a literal 0x prefix, so JSON-escaped hex is an admission fault, not
-// a silent variant. The fault stays in the fixed basis and the cluster still
-// reaches Q from the two literal sources without borrowing their fields.
+// block decoders still require a literal 0x prefix, while standalone
+// transaction key compatibility accepts equivalent JSON string escapes.
 func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 	chain := t09NewChain(t)
 	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
@@ -1126,6 +1124,10 @@ func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			fleet := t09NewFleet(t, 3)
 			escaped := t09EscapeFirstHex(t, tc.legal)
+			wantSupport, firstSupport := 2, 1
+			if tc.method == methods.MethodGetTransactionByHash {
+				wantSupport, firstSupport = 3, 0
+			}
 			if bytes.Equal(escaped, tc.legal) {
 				t.Fatal("escaped variant did not change the wire bytes")
 			}
@@ -1136,16 +1138,54 @@ func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatalf("literal sources did not carry the quorum: %v", err)
 			}
-			if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 0 {
-				t.Fatalf("decision = %+v, want 2 supporting literal sources", decision)
+			if decision.Status != rpc.Corroborated || len(decision.Support) != wantSupport || len(decision.Reject) != 0 {
+				t.Fatalf("decision = %+v, want %d supporting sources", decision, wantSupport)
 			}
-			if decision.Representative.Name != fleet.names[1] || decision.Support[0].Name != fleet.names[1] {
-				t.Fatalf("representative/support = %q/%+v, want first literal source %q", decision.Representative.Name, decision.Support, fleet.names[1])
+			if decision.Representative.Name != fleet.names[firstSupport] || decision.Support[0].Name != fleet.names[firstSupport] {
+				t.Fatalf("representative/support = %q/%+v, want first admitted source %q", decision.Representative.Name, decision.Support, fleet.names[firstSupport])
 			}
-			if len(decision.Faults) != 1 || !strings.Contains(strings.ToLower(decision.Faults[0].Error()), tc.field) {
+			if wantSupport == 3 {
+				if len(decision.Faults) != 0 {
+					t.Fatalf("equivalent transaction escape faulted: %v", decision.Faults)
+				}
+			} else if len(decision.Faults) != 1 || !strings.Contains(strings.ToLower(decision.Faults[0].Error()), tc.field) {
 				t.Fatalf("escaped source fault = %v, want %q admission fault", decision.Faults, tc.field)
 			}
 			t09AssertDecodedValue(t, tc.method, t09FieldRowFor(t, tc.method).decode, tc.legal, decision.Value)
+		})
+	}
+}
+
+// JSON string compatibility must not repair a false hash declaration or
+// bypass binding the signed transaction to the requested identity/context.
+func TestVerificationTransactionEscapedHexBinding(t *testing.T) {
+	chain := t09NewChain(t)
+	_, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
+	tx := chain.txObject(true, hash, t09AnchorHeight, 0)
+	wrongHash := "0x" + strings.Repeat("77", 32)
+	for _, tc := range []struct {
+		name, method string
+		params       []any
+		bad          json.RawMessage
+	}{
+		{"declared_hash", methods.MethodGetTransactionByHash, []any{chain.txHash}, t09SetField(t, tx, "hash", wrongHash)},
+		{"requested_hash", methods.MethodGetTransactionByHash, []any{chain.txHash}, chain.tx2Object(true, hash, t09AnchorHeight, 0)},
+		{"requested_block", methods.MethodGetTransactionByBlockHashAndIndex, []any{hash, "0x0"}, t09SetField(t, tx, "blockHash", wrongHash)},
+		{"requested_index", methods.MethodGetTransactionByBlockHashAndIndex, []any{hash, "0x0"}, t09SetField(t, tx, "transactionIndex", "0x1")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fleet := t09NewFleet(t, 3)
+			fleet.nodes[0].ReturnRaw(tc.method, tx)
+			fleet.nodes[1].ReturnRaw(tc.method, tx)
+			fleet.nodes[2].ReturnRaw(tc.method, t09EscapeFirstHex(t, tc.bad))
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), tc.method, tc.params...))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 0 || len(decision.Faults) != 1 || len(decision.Participants) != 3 {
+				t.Fatalf("escape bypassed transaction binding: %+v", decision)
+			}
+			t09AssertSourceAbsent(t, tc.method, fleet.names[2], decision.Support, decision.Reject)
 		})
 	}
 }

@@ -11,7 +11,6 @@ import (
 	feehistory "github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 	logobject "github.com/codermaybe/ethguard/rpc/internal/objects/log"
 	receiptobject "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
-	transactionobject "github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
@@ -42,13 +41,6 @@ func admitFeeHistory(_ context.Context, req rpc.Request, value json.RawMessage, 
 	}
 	if err := validateFeeHistoryRange(req, value); err != nil {
 		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-	}
-	return nil, nil
-}
-
-func admitTransactionInBlock(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	if err := transactionobject.AdmitInBlock(req, value); err != nil {
-		return nil, err
 	}
 	return nil, nil
 }
@@ -128,28 +120,8 @@ func Specs() []MethodSpec {
 			Admit:                  admitReceipt,
 			ObservationProjectorID: ProjectorReceipt,
 		},
-		{
-			Method:                 MethodGetTransactionByHash,
-			Resolver:               ResolverStrict,
-			Normalize:              normalizeTransactionObject,
-			Encode:                 transactionobject.Encode,
-			KeySource:              rpc.RuleKeyNormalizer,
-			CompareKind:            rpc.RuleCompareMethodSpecific,
-			Admit:                  admitTransaction,
-			ObservationProjectorID: ProjectorTransaction,
-		},
-		{
-			Method:   MethodGetTransactionByBlockHashAndIndex,
-			Resolver: ResolverStrict,
-			Normalize: func(value json.RawMessage) (string, error) {
-				return transactionobject.NormalizeInBlock(value, transactionobject.Pruner(wire.PruneMethod))
-			},
-			Encode:                 transactionobject.Encode,
-			KeySource:              rpc.RuleKeyNormalizer,
-			CompareKind:            rpc.RuleCompareMethodSpecific,
-			Admit:                  admitTransactionInBlock,
-			ObservationProjectorID: ProjectorTransaction,
-		},
+		transactionByHashSpec(),
+		transactionInBlockSpec(),
 		{
 			Method:                 MethodGetBlockReceipts,
 			Resolver:               ResolverStrict,

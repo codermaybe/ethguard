@@ -58,6 +58,11 @@ func main() {
 		if err != nil {
 			fail("spec: %s: %v", name, err)
 		}
+		if name == "eth_getTransactionByHash" {
+			if err := allowPendingTransactionQueryContext(bundle.Version, node); err != nil {
+				fail("spec: %s: %v", name, err)
+			}
+		}
 		path := name + ".result"
 		rootRef, err := reg.walk(node, path)
 		if err != nil {

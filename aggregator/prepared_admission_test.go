@@ -131,6 +131,7 @@ func TestPreparedAdmissionPreservesNumericTransactionIndex(t *testing.T) {
 	body["from"] = crypto.PubkeyToAddress(key.PublicKey).Hex()
 	body["blockHash"] = blockHash
 	body["blockNumber"] = "0x1"
+	body["blockTimestamp"] = "0x1"
 	for _, index := range []struct {
 		name  string
 		param any
@@ -160,6 +161,16 @@ func TestPreparedAdmissionPreservesNumericTransactionIndex(t *testing.T) {
 						}
 					} else if err != nil || decision.Status != rpc.Corroborated || len(decision.Value) == 0 {
 						t.Fatalf("numeric transaction index rejected: status %v, value %s, err %v", decision.Status, decision.Value, err)
+					} else {
+						var result struct {
+							TransactionIndex string `json:"transactionIndex"`
+						}
+						if err := json.Unmarshal(decision.Value, &result); err != nil {
+							t.Fatal(err)
+						}
+						if result.TransactionIndex != hexutil.EncodeUint64(index.value) {
+							t.Fatalf("transaction index lost precision: got %s, want %s", result.TransactionIndex, hexutil.EncodeUint64(index.value))
+						}
 					}
 				})
 			}

@@ -57,11 +57,15 @@ func transactionInBlockVariant(t *testing.T, blockHash common.Hash, index, nonce
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		t.Fatal(err)
 	}
+	for _, field := range []string{"maxFeePerGas", "maxPriorityFeePerGas"} {
+		delete(obj, field)
+	}
 	for field, value := range map[string]string{
 		"hash":             signed.Hash().Hex(),
 		"from":             crypto.PubkeyToAddress(key.PublicKey).Hex(),
 		"blockHash":        blockHash.Hex(),
 		"blockNumber":      "0x10",
+		"blockTimestamp":   "0x5",
 		"transactionIndex": fmt.Sprintf("0x%x", index),
 	} {
 		encoded, _ := json.Marshal(value)

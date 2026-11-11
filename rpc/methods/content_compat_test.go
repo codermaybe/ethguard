@@ -47,14 +47,14 @@ func TestRealShapesAgreeAfterPruneAndCaseFold(t *testing.T) {
 	}
 
 	txs := sampleResults(t, "block-receipt-tx", "tx-one")
-	txKey := mustNormalize(t, normalizeTransactionObject, txs[0])
-	if mustNormalize(t, normalizeTransactionObject, txs[1]) != txKey {
+	txKey := mustNormalize(t, normalizeTransactionByHash, txs[0])
+	if mustNormalize(t, normalizeTransactionByHash, txs[1]) != txKey {
 		t.Fatal("transaction sources diverged after pruning")
 	}
 	if !bytes.Contains(txs[0], []byte(`"blockTimestamp"`)) || !bytes.Contains(txs[1], []byte(`"blockTimestamp"`)) {
 		t.Fatal("capture lost blockTimestamp; both sources carried it")
 	}
-	if mustNormalize(t, normalizeTransactionObject, foldHex(t, injectField(t, txs[0], "vendorExtension", `"extra"`))) != txKey {
+	if mustNormalize(t, normalizeTransactionByHash, foldHex(t, injectField(t, txs[0], "vendorExtension", `"extra"`))) != txKey {
 		t.Fatal("vendor field or hex case changed the transaction key")
 	}
 }
@@ -76,7 +76,7 @@ func TestMissingRequiredFieldsStayOutOfAdmission(t *testing.T) {
 
 	tx := deleteField(t, sampleResults(t, "block-receipt-tx", "tx-one")[0], "from")
 	txReq := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{txHash(t, sampleResults(t, "block-receipt-tx", "tx-one")[0])}}
-	_, err = admitTransaction(context.Background(), txReq, tx, nil)
+	_, err = admitTransactionByHash(context.Background(), txReq, tx, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("tx err = %v, want ErrMalformedResponse", err)
 	}
@@ -108,10 +108,10 @@ func TestNullAnswersStayDistinct(t *testing.T) {
 	if empty == "null" {
 		t.Fatal("empty receipt array collapsed into null")
 	}
-	if got := mustNormalize(t, normalizeTransactionObject, json.RawMessage("null")); got != "null" {
+	if got := mustNormalize(t, normalizeTransactionByHash, json.RawMessage("null")); got != "null" {
 		t.Fatalf("transaction null = %q", got)
 	}
-	if got := mustNormalize(t, normalizeTransactionObject, sampleResults(t, "block-receipt-tx", "tx-one")[0]); got == "null" {
+	if got := mustNormalize(t, normalizeTransactionByHash, sampleResults(t, "block-receipt-tx", "tx-one")[0]); got == "null" {
 		t.Fatal("transaction object collapsed into null")
 	}
 }

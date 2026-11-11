@@ -1,0 +1,14 @@
+{
+  "kind": "local-anvil-observation",
+  "provider_evidence": false,
+  "state": "pending",
+  "anvil_version": "1.7.1",
+  "anvil_commit": "4072e48705af9d93e3c0f6e29e93b5e9a40caed8",
+  "binary_sha256": "10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b",
+  "chain_id": 31337,
+  "hardfork": "shanghai",
+  "request": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionByHash\",\"params\":[\"0x424c7fb635bcc33d2bed7a3e8df6d431b5095d2ce0eeea0c8b26cd14407b77d5\"]}",
+  "response": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"type\":\"0x0\",\"chainId\":\"0x7a69\",\"nonce\":\"0x0\",\"gasPrice\":\"0x77359400\",\"gas\":\"0x5208\",\"to\":\"0x70997970c51812dc3a010c7d01b50e0d17dc79c8\",\"value\":\"0x1\",\"input\":\"0x\",\"r\":\"0xb6a0ac32bb6e28231a02777ab4c67f09e9940a16ab17ddfa12eb6bf13277764b\",\"s\":\"0x629cd63659c9068b643ab93e6600835828bb751f62b44dac453a7df1973eeb0c\",\"v\":\"0xf4f6\",\"hash\":\"0x424c7fb635bcc33d2bed7a3e8df6d431b5095d2ce0eeea0c8b26cd14407b77d5\",\"blockHash\":null,\"blockNumber\":null,\"transactionIndex\":null,\"from\":\"0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266\"}}",
+  "request_sha256": "585970926314bb107565dfff094ae6914186982259bb630e613ad4a79a6da79a",
+  "response_sha256": "f4cbe72b0d7b1a881f18576e628c2e35e378d70264b4c12064fc5aa588a33c18"
+}
