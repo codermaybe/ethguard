@@ -129,6 +129,8 @@ P7 全量门禁（2026-11-12，迁移完成后）：`gofmt -l`、`go vet ./...`�
 
 P8 热路径实测（2026-11-12，`BenchmarkTransactionByHashNormalize`／`BenchmarkTransactionByHashAdmit`，`-benchtime=1s`）：规范键准备约 223µs／源响应（59.7KB、1176 allocs），准入（准备 + 对象校验）约 424µs（109.7KB、2123 allocs）。相对提供方网络往返与 quorum 采样规模低两个数量级，未达优化阈值；typed oneOf 分支顺序试探是已知主要成本，如生产 profile 显示需要，另行单独优化提交。同步清理：包文档与 inventory 头注释改为自治布局描述。
 
+P9 质量自检（2026-11-12）：①方法间耦合——脚本核查 28 个方法文件对其他方法文件私有函数的引用为零；共享依赖仅族 wrapper（block.go）、objects 层与 wire codec 三类。②为简化而简化——无；迁移逐字搬运，唯一一次简化尝试（官方闭对象的运行时拒绝）被既有 receipt vendor-dissent 验收否决并回退，未留下行为变更。③过度封装——无新接口、注册框架或 helper 包；inventory 39 行纯收集。④行为保持——fmt/vet/全量/race/架构/shuffled 集成/Anvil 88 断言全绿；集合顺序按位替换保持。
+
 P5 内嵌交易评估结论（2026-11-12）：`objects/block` 的 `encodeTransactions` 对完整内嵌交易只做 go-ethereum `types.Transaction` 往返与块级绑定，不复制独立 query 的官方 schema 分支解码、pending 派生或生成器补丁；内嵌交易必有块上下文，其保护域由块 admission（uncle root、头绑定）覆盖。两套语义各自明确，无需接入；若未来需要统一另交独立提交。
 
 ## go-ethereum v1.17.10 官方 ethclient 方法
