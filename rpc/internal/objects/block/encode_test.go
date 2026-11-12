@@ -90,6 +90,37 @@ func TestEncodeKeepsCommittedEmptyWithdrawals(t *testing.T) {
 	}
 }
 
+// TestEncodeOmitsUnsetOptionalHeaderMembers pins the null→omit fold: a
+// pre-fork block served with geth's unset-pointer nulls commits those
+// members omitted, keeping the value a legal subset of the official schema
+// instead of declaring five non-nullable-optional fields null.
+func TestEncodeOmitsUnsetOptionalHeaderMembers(t *testing.T) {
+	header := &types.Header{
+		ParentHash:  common.HexToHash("0x1"),
+		UncleHash:   types.EmptyUncleHash,
+		Root:        common.HexToHash("0x2"),
+		TxHash:      types.EmptyTxsHash,
+		ReceiptHash: common.HexToHash("0x3"),
+		Difficulty:  new(big.Int),
+		Number:      big.NewInt(1),
+		GasLimit:    1,
+		Time:        1,
+	}
+	headerRaw, err := json.Marshal(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := Encode(headerRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range optionalHeaderMembers {
+		if bytes.Contains(encoded, []byte(`"`+member+`"`)) {
+			t.Fatalf("unset optional member %s committed: %s", member, encoded)
+		}
+	}
+}
+
 func TestEncodeCanonicalizesHeaderOnlyAnchor(t *testing.T) {
 	raw := json.RawMessage(`{"number":"0x10","hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
 	encoded, err := Encode(raw)

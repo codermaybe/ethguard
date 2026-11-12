@@ -315,47 +315,81 @@ func BenchmarkTransactionInBlockProductionPath(b *testing.B) {
 // benchmark's warmup crosses it, the cost benchmarks stay below it.
 const eligibleFailureThresholdRounds = 3
 
+// gatePathBatchRounds bounds one measured batch so it finishes well inside
+// the pool's eligibility cooldown (30 seconds since the last failure,
+// pool/monitor.go): after the cooldown a gated source is deliberately
+// re-admitted as a recovery probe, which ends the steady gated state this
+// benchmark measures. The fleet is rebuilt outside the timer between
+// batches, so every measured batch starts with a freshly opened gate and a
+// fresh cooldown window.
+const gatePathBatchRounds = 2000
+
 // BenchmarkTransactionByHashGatePath measures the gated steady state the
 // per-round cost benchmarks deliberately exclude: every source fails
 // admission round after round, the pool's eligibility circuit opens after
 // three consecutive failures, and later rounds fail fast without contacting
-// any source. The warmup opens the gate outside the timer; the timed rounds
-// must surface the pool's no-eligible-source class with the nodes' call
-// counts frozen, proving the measurement stayed on the gate path.
+// any source. The warmup opens the gate outside the timer; each measured
+// batch must surface the pool's no-eligible-source class with the nodes'
+// call counts frozen across the batch, proving the measurement stayed on
+// the gate path and no source was re-admitted mid-batch.
 func BenchmarkTransactionByHashGatePath(b *testing.B) {
 	raw, hash := transactionBenchFixture(b, 128, 2)
 	bad := transactionBenchInvalid(b, raw)
-	client, nodes := benchFleet(b, 3)
-	for _, node := range nodes {
-		node.ReturnRaw("eth_getTransactionByHash", bad)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	for i := 0; i <= eligibleFailureThresholdRounds; i++ {
-		if _, _, _, err := client.TransactionByHash(ctx, hash); err == nil {
-			b.Fatalf("warmup round %d succeeded on all-invalid responses", i)
+	var (
+		closeFleet func()
+		nodes      []*rpctest.Node
+	)
+	b.Cleanup(func() {
+		if closeFleet != nil {
+			closeFleet()
 		}
+	})
+	buildGatedFleet := func() (*ethguard.Client, int) {
+		client, fleetNodes, close := benchFleetOnce(b, 3)
+		nodes, closeFleet = fleetNodes, close
+		for _, node := range nodes {
+			node.ReturnRaw("eth_getTransactionByHash", bad)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		for i := 0; i <= eligibleFailureThresholdRounds; i++ {
+			if _, _, _, err := client.TransactionByHash(ctx, hash); err == nil {
+				b.Fatalf("warmup round %d succeeded on all-invalid responses", i)
+			}
+		}
+		calls := 0
+		for _, node := range nodes {
+			calls += len(node.Calls())
+		}
+		return client, calls
 	}
-	b.StopTimer()
-	callsBefore := 0
-	for _, node := range nodes {
-		callsBefore += len(node.Calls())
+	round := func(client *ethguard.Client) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		_, _, _, err := client.TransactionByHash(ctx, hash)
+		return err
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _, _, err := client.TransactionByHash(ctx, hash)
-		if !errors.Is(err, pool.ErrNoEligibleSource) {
-			b.Fatalf("gated round surfaced %v", err)
+	for i := 0; i < b.N; i += gatePathBatchRounds {
+		b.StopTimer()
+		if closeFleet != nil {
+			closeFleet()
 		}
-	}
-	b.StopTimer()
-	callsAfter := 0
-	for _, node := range nodes {
-		callsAfter += len(node.Calls())
-	}
-	if callsAfter != callsBefore {
-		b.Fatalf("gated rounds contacted sources: before=%d after=%d", callsBefore, callsAfter)
+		client, callsBefore := buildGatedFleet()
+		b.StartTimer()
+		for j := 0; j < gatePathBatchRounds && i+j < b.N; j++ {
+			if err := round(client); !errors.Is(err, pool.ErrNoEligibleSource) {
+				b.Fatalf("gated round surfaced %v", err)
+			}
+		}
+		b.StopTimer()
+		callsAfter := 0
+		for _, node := range nodes {
+			callsAfter += len(node.Calls())
+		}
+		if callsAfter != callsBefore {
+			b.Fatalf("gated batch contacted sources: before=%d after=%d", callsBefore, callsAfter)
+		}
 	}
 }
 

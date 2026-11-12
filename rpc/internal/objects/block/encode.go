@@ -59,6 +59,18 @@ func encode(raw json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(headerRaw, &value); err != nil {
 		return nil, fmt.Errorf("block encode canonical header object: %w", err)
 	}
+	// The post-fork optional header members are optional and non-nullable in
+	// the official schema, but geth's header marshal emits explicit null for
+	// unset pointer fields — the de-facto wire shape of every pre-fork block
+	// served by geth. The null folds to omission (the same null→omit
+	// exception the log and accessList families register), so the committed
+	// value stays a legal subset of the official schema instead of declaring
+	// five fields null.
+	for _, member := range optionalHeaderMembers {
+		if bytes.Equal(bytes.TrimSpace(value[member]), []byte("null")) {
+			delete(value, member)
+		}
+	}
 	if body, ok := source["transactions"]; ok {
 		encoded, err := encodeTransactions(body)
 		if err != nil {
@@ -97,6 +109,13 @@ func hasBlockHead(source map[string]json.RawMessage) bool {
 	_, number := source["number"]
 	_, hash := source["hash"]
 	return number && hash
+}
+
+// optionalHeaderMembers lists the post-fork optional header members that are
+// non-nullable in the official schema and that geth's header marshal emits as
+// explicit null when unset.
+var optionalHeaderMembers = []string{
+	"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash",
 }
 
 func encodeHeaderOnly(source map[string]json.RawMessage) (json.RawMessage, error) {

@@ -468,11 +468,14 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 }
 
 // verdictsFromSlots states every source's outcome from the invocation's own
-// records: a delivered error is unusable with its own error, everything else
-// counts as processed-neutral so the fault tables blame only real source
-// failures. This is the canonical route's degraded-exit statement — the
-// resolution itself never classified anyone, and no raw hook may run to do
-// it afterwards.
+// records: a delivered error is unusable with its own error, a delivered
+// value counts as supported. Supported here is the attempt statement — the
+// exchange succeeded and the value was usable — not a claim the round
+// adjudicated: on a degraded exit the resolution never classified anyone and
+// no raw hook may run to do it afterwards. The verdicts keep the fault tables
+// and the event classification from re-judging the slots by a second
+// classification pass.
+
 func verdictsFromSlots(emissions []pool.Emission) []rpc.SourceVerdict {
 	verdicts := make([]rpc.SourceVerdict, 0, len(emissions))
 	for _, emission := range emissions {
