@@ -226,7 +226,7 @@ func t09TraceConservation(t *testing.T, row t09FieldRow, payload, value json.Raw
 				}
 				canonicalChild, present := canonicalObject[key]
 				if rawChild == nil {
-					if row.nullPreserved {
+					if row.nullPreserved && !containsString(row.nullOmitted, key) {
 						if !present || canonicalChild != nil {
 							t.Fatalf("%s: null protected field was not preserved", childPath)
 						}

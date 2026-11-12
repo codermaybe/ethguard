@@ -76,6 +76,11 @@ type t09FieldRow struct {
 	// coverage test rejects any other missing schema.
 	noSchema  bool
 	projector bool
+	// nullOmitted lists protected members whose source JSON null folds to
+	// omission (the registered geth unset-pointer fold for the post-fork
+	// optional header members), while other protected nulls keep their
+	// row-level nullPreserved treatment.
+	nullOmitted []string
 	// nullPreserved declares that admitted protected JSON null fields survive
 	// encoding (block headers and standalone transactions). Other rows retain
 	// their existing projection contract, where null is omitted from Value.
@@ -403,6 +408,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			outside:        []string{"totalDifficulty", "vendor"},
 			omitted:        []string{"size", "blockNumber", "transactionIndex", "blockHash", "from"},
 			projector:      true,
+			nullOmitted:    []string{"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash"},
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 0,
@@ -424,6 +430,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			outside:        []string{"totalDifficulty", "vendor"},
 			omitted:        []string{"size", "blockNumber", "transactionIndex", "blockHash", "from"},
 			projector:      true,
+			nullOmitted:    []string{"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash"},
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
@@ -1269,7 +1276,7 @@ func t09AssertConservation(t *testing.T, row t09FieldRow, raw json.RawMessage, d
 		}
 		_, inValue := valueObject[key]
 		if bytes.Equal(bytes.TrimSpace(rawValue), []byte("null")) {
-			if row.nullPreserved {
+			if row.nullPreserved && !containsString(row.nullOmitted, key) {
 				if !inValue || !bytes.Equal(bytes.TrimSpace(valueObject[key]), []byte("null")) {
 					t.Fatalf("null field %q was not preserved by the canonical encoder", key)
 				}
