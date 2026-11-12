@@ -9,7 +9,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
@@ -28,6 +27,11 @@ func presentNonNull(value json.RawMessage) bool {
 }
 
 // Admit validates a transaction and checks it matches the requested hash.
+// The compatibility entry over the object kernel: the request hash parse
+// precedes any payload verdict, the object's payload validation runs once,
+// and the declared hash must equal the requested hash. Method processors use
+// Candidate.AdmitByHash on an already-prepared candidate instead of running
+// this entry's preparation a second time.
 func Admit(req rpc.Request, value json.RawMessage) error {
 	if IsJSONNull(value) {
 		return nil
@@ -50,7 +54,15 @@ func Admit(req rpc.Request, value json.RawMessage) error {
 
 // AdmitInBlock validates a transaction returned by
 // eth_getTransactionByBlockHashAndIndex and binds its inclusion metadata to
-// the requested block hash and index.
+// the requested block hash and index. The compatibility entry over the
+// object kernel: root null first, then the request grammar, then one object
+// validation, then the inclusion binding. The old path's second full
+// validation — the inner Admit re-running Validate on the same value — is
+// retired: its requested hash was the value's own hash (unfailably parsed
+// from its own Hex() spelling), its repeated validation could not disagree
+// with the first, and its hash comparison bound the declared hash to itself.
+// The declared-hash-versus-payload fact is verified once inside the object
+// validation.
 func AdmitInBlock(req rpc.Request, value json.RawMessage) error {
 	if IsJSONNull(value) {
 		return nil
@@ -90,9 +102,6 @@ func AdmitInBlock(req rpc.Request, value json.RawMessage) error {
 	if gotIndex != fmt.Sprintf("%d", wantIndex) {
 		return fmt.Errorf("%w: transaction index does not match requested index", rpc.ErrMalformedResponse)
 	}
-	if err := Admit(rpc.Request{Method: "eth_getTransactionByHash", Params: []any{wireValue.Hash.Hex()}}, value); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -124,82 +133,19 @@ func NormalizeInBlock(value json.RawMessage, pruner Pruner) (string, error) {
 }
 
 // Validate checks transaction payload, hash/signature, and inclusion context.
+// The compatibility entry over the object kernel: the input must be an
+// object, the representation work runs once through Prepare, and the payload
+// and field checks read the candidate's views instead of re-encoding.
 func Validate(value json.RawMessage) error {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(value, &obj); err != nil || obj == nil {
 		return fmt.Errorf("transaction: expected object")
 	}
-	encoded, err := Encode(value)
+	candidate, err := Prepare(value)
 	if err != nil {
 		return err
 	}
-	var tx *types.Transaction
-	if err := json.Unmarshal(encoded, &tx); err != nil || tx == nil {
-		if errors.Is(err, types.ErrTxTypeNotSupported) {
-			return errors.Join(rpc.ErrUnsupportedTypedObject, err)
-		}
-		return fmt.Errorf("transaction: invalid payload")
-	}
-	var wireValue struct {
-		Hash             *common.Hash    `json:"hash"`
-		From             *common.Address `json:"from"`
-		BlockHash        *common.Hash    `json:"blockHash"`
-		BlockNumber      json.RawMessage `json:"blockNumber"`
-		TransactionIndex json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(value, &wireValue); err != nil {
-		return fmt.Errorf("transaction: invalid context: %w", err)
-	}
-	if wireValue.Hash == nil {
-		return fmt.Errorf("transaction: missing hash")
-	}
-	if _, err := wire.ValidateWireFixedHex(obj["hash"], 64, "hash"); err != nil {
-		return fmt.Errorf("transaction: hash: %w", err)
-	}
-	if *wireValue.Hash != tx.Hash() {
-		return fmt.Errorf("transaction: hash does not match signed payload")
-	}
-	if tx.Type() == types.LegacyTxType && tx.Protected() {
-		if declared, exists := obj["chainId"]; exists {
-			chainID, err := wire.NormalizeWireQuantity(declared)
-			if err != nil {
-				return fmt.Errorf("transaction: chainId: %w", err)
-			}
-			if chainID != tx.ChainId().String() {
-				return fmt.Errorf("transaction: chainId does not match signed payload")
-			}
-		}
-	}
-	if wireValue.From == nil {
-		return fmt.Errorf("transaction: missing sender")
-	}
-	if _, err := wire.ValidateWireFixedHex(obj["from"], 40, "from"); err != nil {
-		return fmt.Errorf("transaction: from: %w", err)
-	}
-	_, r, s := tx.RawSignatureValues()
-	if r == nil || s == nil || r.Sign() == 0 || s.Sign() == 0 {
-		return fmt.Errorf("transaction: missing signature")
-	}
-	blockSet, indexSet := presentNonNull(wireValue.BlockNumber), presentNonNull(wireValue.TransactionIndex)
-	if blockSet {
-		if _, err := wire.NormalizeWireQuantity(wireValue.BlockNumber); err != nil {
-			return fmt.Errorf("transaction: blockNumber: %w", err)
-		}
-	}
-	if indexSet {
-		if _, err := wire.NormalizeWireQuantity(wireValue.TransactionIndex); err != nil {
-			return fmt.Errorf("transaction: transactionIndex: %w", err)
-		}
-	}
-	if wireValue.BlockHash != nil {
-		if _, err := wire.ValidateWireFixedHex(obj["blockHash"], 64, "blockHash"); err != nil {
-			return fmt.Errorf("transaction: blockHash: %w", err)
-		}
-	}
-	if wireValue.BlockHash != nil && (!blockSet || !indexSet) {
-		return fmt.Errorf("transaction: incomplete inclusion context")
-	}
-	return nil
+	return validatePrepared(candidate)
 }
 
 func requestedHash(req rpc.Request) (common.Hash, error) {

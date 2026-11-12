@@ -12,12 +12,28 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// Encode returns the canonical protected transaction result. The execution
-// API schema retains the signed transaction fields and the provider's
-// inclusion context; that context is corroborating response evidence, not an
-// inclusion proof. Admission validates the requested hash and typed payload
-// before this encoder is allowed to contribute to a cluster.
+// Encode returns the canonical protected transaction result. It is the
+// compatibility entry over the object kernel: the representation work lives
+// in encodeCanonical, which Prepare exposes as the immutable Candidate the
+// validation and admission bindings reuse. The execution API schema retains
+// the signed transaction fields and the provider's inclusion context; that
+// context is corroborating response evidence, not an inclusion proof.
+// Admission validates the requested hash and typed payload before this
+// encoder is allowed to contribute to a cluster.
 func Encode(raw json.RawMessage) (json.RawMessage, error) {
+	candidate, err := Prepare(raw)
+	if err != nil {
+		return nil, err
+	}
+	return candidate.Canonical(), nil
+}
+
+// encodeCanonical is the object's representation work, retained verbatim as
+// the kernel body Prepare exposes: the bounded safety gate, the official-mask
+// projection with its hex canonicalization, the applicable generated-schema
+// parse (unsupported typed payloads keep their joined sentinel), the
+// pending/mined consistency guard, and the canonical merge.
+func encodeCanonical(raw json.RawMessage) (json.RawMessage, error) {
 	if err := jsonsafe.Validate(raw); err != nil {
 		return nil, fmt.Errorf("%w: transaction JSON: %v", rpc.ErrMalformedResponse, err)
 	}
