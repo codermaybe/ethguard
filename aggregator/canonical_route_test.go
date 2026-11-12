@@ -391,3 +391,166 @@ func TestCanonicalRouteGatedMemberStaysAbsentWithGateFault(t *testing.T) {
 		t.Fatalf("unexpected processing total: %d, want 9 + 2 live sources × 2 rounds", processedAfter)
 	}
 }
+
+// TestCanonicalProcessorResultBesideErrorAbortsInternally pins the pairing
+// defect the CanonicalProcessor contract names: a processor returning a
+// non-zero result beside a non-sentinel error is an internal contract fault,
+// not a provider admission failure. The round aborts even with quorum in
+// reach, no fault or health table blames the source, and the provider's
+// transport accounting keeps its success — it answered; the defect is the
+// process's.
+func TestCanonicalProcessorResultBesideErrorAbortsInternally(t *testing.T) {
+	hooks := &processingHooks{}
+	mixed := func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+		hooks.mu.Lock()
+		hooks.process++
+		hooks.mu.Unlock()
+		result, buildErr := rpc.NewCanonicalResult(raw, nil)
+		if buildErr != nil {
+			return rpc.CanonicalResult{}, buildErr
+		}
+		if strings.Contains(string(raw), "broken") {
+			return result, fmt.Errorf("required field: %w", rpc.ErrMalformedResponse)
+		}
+		return result, nil
+	}
+	agg, _ := canonicalAggregator(t, processingPlan(hooks, mixed), `"broken"`, `"same"`, `"same"`)
+	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+	if !errors.Is(err, rpc.ErrInvalidCanonicalResult) {
+		t.Fatalf("result beside error must abort with the internal sentinel; status=%v err=%v support=%d", decision.Status, err, len(decision.Support))
+	}
+	if decision.Status != rpc.Unknown || len(decision.Value) != 0 || len(decision.Support) != 0 {
+		t.Fatalf("internal fault produced a committed answer: status=%v value=%s support=%d", decision.Status, decision.Value, len(decision.Support))
+	}
+	named := false
+	for _, fault := range decision.Faults {
+		if errors.Is(fault, rpc.ErrInvalidCanonicalResult) {
+			named = true
+		}
+	}
+	if !named {
+		t.Fatalf("pairing defect missing from the decision faults: %v", decision.Faults)
+	}
+	for _, fault := range decision.SourceFaults {
+		if fault.Source.Name == "proc-0" {
+			t.Fatalf("pairing defect blamed the source: %+v", decision.SourceFaults)
+		}
+	}
+	normalize, encode, process := hooks.snapshot()
+	if process != 3 || normalize != 0 || encode != 0 {
+		t.Fatalf("hook counts: process=%d normalize=%d encode=%d", process, normalize, encode)
+	}
+	// Transport accounting: the provider answered, so the transport level
+	// keeps its success and takes no failure. The finalizer's transport
+	// record stays; an internal error is never a provider response
+	// violation.
+	health := agg.pool.VotingMembers()[0].Health()
+	if health.Failures != 0 || health.ConsecutiveFailures != 0 || health.Successes == 0 {
+		t.Fatalf("pairing defect changed provider health accounting: %+v", health)
+	}
+}
+
+// TestCanonicalProcessorPairingOutcomes walks the processor outcome matrix
+// the CanonicalProcessor contract fixes: the sentinel beside a result, a
+// plain error with a zero result, a nil error with a zero result, and the
+// well-formed success. Each must land on its own exit — internal abort,
+// provider admission fault, internal abort, corroborated success — never
+// collapsed into one failure class.
+func TestCanonicalProcessorPairingOutcomes(t *testing.T) {
+	build := func(raw json.RawMessage) (rpc.CanonicalResult, error) {
+		return rpc.NewCanonicalResult(raw, nil)
+	}
+	run := func(process rpc.CanonicalProcessor) (rpc.Decision, error, *Aggregator) {
+		hooks := &processingHooks{}
+		agg, _ := canonicalAggregator(t, processingPlan(hooks, process), `"odd"`, `"same"`, `"same"`)
+		decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+		return decision, err, agg
+	}
+	t.Run("sentinel-beside-result", func(t *testing.T) {
+		decision, err, agg := run(func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+			result, _ := build(raw)
+			if strings.Contains(string(raw), "odd") {
+				return result, rpc.ErrInvalidCanonicalResult
+			}
+			return result, nil
+		})
+		if !errors.Is(err, rpc.ErrInvalidCanonicalResult) {
+			t.Fatalf("sentinel beside a result = %v", err)
+		}
+		for _, fault := range decision.SourceFaults {
+			if fault.Source.Name == "proc-0" {
+				t.Fatalf("sentinel blamed the source: %+v", decision.SourceFaults)
+			}
+		}
+		if h := agg.pool.VotingMembers()[0].Health(); h.Failures != 0 || h.ConsecutiveFailures != 0 {
+			t.Fatalf("sentinel penalized provider health: %+v", h)
+		}
+	})
+	t.Run("plain-error-with-zero-result", func(t *testing.T) {
+		decision, err, _ := run(func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+			if strings.Contains(string(raw), "odd") {
+				return rpc.CanonicalResult{}, fmt.Errorf("required field: %w", rpc.ErrMalformedResponse)
+			}
+			return build(raw)
+		})
+		// A zero result beside a plain error is the source's own admission
+		// verdict: the round corroborates on the two usable sources and the
+		// fault lands on that source alone.
+		if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
+			t.Fatalf("plain error with zero result = %+v, %v", decision, err)
+		}
+		if len(decision.SourceFaults) != 1 || decision.SourceFaults[0].Source.Name != "proc-0" {
+			t.Fatalf("admission fault attribution: %+v", decision.SourceFaults)
+		}
+	})
+	t.Run("nil-error-with-zero-result", func(t *testing.T) {
+		decision, err, agg := run(func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+			if strings.Contains(string(raw), "odd") {
+				return rpc.CanonicalResult{}, nil
+			}
+			return build(raw)
+		})
+		if !errors.Is(err, rpc.ErrInvalidCanonicalResult) {
+			t.Fatalf("nil error with zero result must abort internally; status=%v err=%v", decision.Status, err)
+		}
+		for _, fault := range decision.SourceFaults {
+			if fault.Source.Name == "proc-0" {
+				t.Fatalf("nil-result defect blamed the source: %+v", decision.SourceFaults)
+			}
+		}
+		if h := agg.pool.VotingMembers()[0].Health(); h.Failures != 0 || h.ConsecutiveFailures != 0 {
+			t.Fatalf("nil-result defect penalized provider health: %+v", h)
+		}
+	})
+	t.Run("nil-error-with-result", func(t *testing.T) {
+		hooks := &processingHooks{}
+		agg, _ := canonicalAggregator(t, processingPlan(hooks, echoProcessor(hooks)), `"same"`, `"same"`, `"same"`)
+		decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+		if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+			t.Fatalf("well-formed round = %+v, %v", decision, err)
+		}
+	})
+}
+
+// TestCanonicalRouteWithoutCanonicalConsumerAbortsInternally pins the
+// executable-plan composition guard: a plan installed directly through
+// WithPlans whose resolver cannot consume canonical observations takes the
+// one internal contract exit — the sentinel names the defect, the processor
+// never runs, and no raw hook runs anywhere, including behind the
+// observability recorder.
+func TestCanonicalRouteWithoutCanonicalConsumerAbortsInternally(t *testing.T) {
+	hooks := &processingHooks{}
+	consumerless := struct{ rpc.Policy }{processingPlan(hooks, echoProcessor(hooks)).Resolver}
+	plan := processingPlan(hooks, echoProcessor(hooks))
+	plan.Resolver = consumerless
+	agg, _ := canonicalAggregator(t, plan, `"same"`, `"same"`)
+	agg.rec = &captureRecorder{}
+	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+	if !errors.Is(err, rpc.ErrInvalidCanonicalResult) {
+		t.Fatalf("consumer mismatch must abort with the internal sentinel; status=%v err=%v", decision.Status, err)
+	}
+	normalize, encode, process := hooks.snapshot()
+	if process != 0 || normalize != 0 || encode != 0 {
+		t.Fatalf("mismatched plan ran hooks: process=%d normalize=%d encode=%d", process, normalize, encode)
+	}
+}

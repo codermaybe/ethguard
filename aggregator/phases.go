@@ -82,6 +82,17 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	// shapes and forwarded modes keep the complete raw route. Every later
 	// phase reads this frozen value; nothing re-derives it.
 	state.processorRoute = frozenProcessorRoute(plan, prepared, state.snap, state.snapOK)
+	// A frozen canonical route needs the resolver's canonical consumption
+	// capability. The compiler rejects the mismatch for compiled specs; a
+	// plan installed directly through WithPlans carries the same
+	// requirement, detected here so the round takes the one internal
+	// contract exit instead of reaching the resolution or any raw-hook
+	// fallback.
+	if state.processorRoute != nil {
+		if _, ok := plan.Resolver.(rpc.CanonicalOutcomeResolver); !ok {
+			state.internalFault = fmt.Errorf("%w: %s resolver cannot consume canonical observations", rpc.ErrInvalidCanonicalResult, plan.Method)
+		}
+	}
 	// The per-source stage reads the wire's semantic JSON once, shared
 	// read-only across sources. Keep numeric tokens exact rather than
 	// rounding them to float64. The original Go values remain available on

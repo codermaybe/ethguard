@@ -267,7 +267,12 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 		}
 	}
 	if state.processorRoute != nil {
-		a.processPhase(state)
+		// A route frozen onto a composition already found broken never
+		// processes: the internal fault is set and the resolution exit
+		// reports it, and the raw admission hook below stays out of reach.
+		if state.internalFault == nil {
+			a.processPhase(state)
+		}
 		return
 	}
 	admission, ok := state.admissionHook()
@@ -322,6 +327,16 @@ func (a *Aggregator) processPhase(state *invocationState) {
 					// the emission stays untouched so no fault or health table
 					// blames the source.
 					internal[i] = err
+					return
+				}
+				// The CanonicalProcessor contract pairs outcomes: an error
+				// must carry a zero result, so a non-zero result beside a
+				// non-sentinel error is the same internal contract defect.
+				// The pairing is verified here — before anything attributes
+				// the error to the source or records an admission fault —
+				// and the round takes the one internal exit.
+				if len(result.Value()) != 0 {
+					internal[i] = fmt.Errorf("%w: processor returned a canonical result beside an error", rpc.ErrInvalidCanonicalResult)
 					return
 				}
 				if c := uncertain.CollectorFromContext(state.ctx); c != nil {
