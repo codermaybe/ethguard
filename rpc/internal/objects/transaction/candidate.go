@@ -50,10 +50,13 @@ func Prepare(raw json.RawMessage) (Candidate, error) {
 	return Candidate{canonical: canonical, fields: fieldsOf(raw)}, nil
 }
 
-// Canonical returns the candidate's canonical bytes. The bytes are freshly
-// built by Prepare and never aliased with the caller's input; they are not
-// copied again on the way out.
-func (c Candidate) Canonical() json.RawMessage { return c.canonical }
+// Canonical returns a copy of the candidate's canonical bytes. The bytes are
+// freshly built by Prepare and never aliased with the caller's input, and the
+// copy keeps the candidate immutable when a caller writes to the returned
+// slice: no read ever changes the candidate's later output.
+func (c Candidate) Canonical() json.RawMessage {
+	return append(json.RawMessage(nil), c.canonical...)
+}
 
 // Pending reports whether the candidate's inclusion context is a pending
 // state: a non-null candidate whose blockHash is null. The object kernel does

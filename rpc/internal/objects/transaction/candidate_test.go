@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/codermaybe/ethguard/internal/spec"
@@ -69,74 +70,136 @@ func TestPrepareMatchesEncodeOnOfficialVectors(t *testing.T) {
 }
 
 // TestCandidateBindingsMatchCompatEntries runs the kernel bindings and the
-// compatibility entries on the same prepared material and requires identical
-// verdicts and error classes.
+// compatibility entries on the same prepared material. The declared-identity
+// cases bind with the fixture's own hash, block hash, and index — unquoted,
+// the shape a real request carries — and must succeed outright; wrong-identity
+// and bad-grammar requests must be rejected. Verdicts and full sentinel sets
+// must not drift between kernel and compatibility entries, and each
+// acceptance direction must be exercised by at least one fixture so a
+// silently both-fail round cannot pass.
 func TestCandidateBindingsMatchCompatEntries(t *testing.T) {
 	fixtures := officialFixtures(t)
+	accepts := map[string]int{}
 	for _, raw := range fixtures {
 		candidate, err := Prepare(raw)
 		if err != nil {
 			continue // malformed fixtures: binding entries see the same prepare failure first
 		}
-		validHash := `"0x` + strings.Repeat("11", 32) + `"`
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(candidate.Canonical(), &fields); err != nil {
 			t.Fatal(err)
 		}
-		declared, hasHash := fields["hash"]
+		// The declared identity members are JSON strings on the wire; the
+		// request carries them unquoted, exactly as a caller sends them.
+		var declaredHash, declaredIndex, declaredBlockHash string
+		hasHash := json.Unmarshal(fields["hash"], &declaredHash) == nil && isHexHashString(declaredHash)
 		if !hasHash {
 			continue
 		}
-		byHashReq := rpc.Request{Method: "eth_getTransactionByHash", Params: []any{string(declared)}}
+		hasIndex := json.Unmarshal(fields["transactionIndex"], &declaredIndex) == nil && strings.HasPrefix(declaredIndex, "0x")
+		hasBlockHash := json.Unmarshal(fields["blockHash"], &declaredBlockHash) == nil && isHexHashString(declaredBlockHash)
+		byHashReq := rpc.Request{Method: "eth_getTransactionByHash", Params: []any{declaredHash}}
 		otherHashReq := rpc.Request{Method: "eth_getTransactionByHash", Params: []any{"0x" + strings.Repeat("22", 32)}}
 		cases := []struct {
 			name   string
+			run    bool
+			accept bool
 			kernel func() error
 			compat func() error
 		}{
 			{
 				name:   "by-hash/declared",
+				run:    true,
+				accept: true,
 				kernel: func() error { return candidate.AdmitByHash(byHashReq) },
 				compat: func() error { return Admit(byHashReq, candidate.Canonical()) },
 			},
 			{
 				name:   "by-hash/other",
+				run:    true,
+				accept: false,
 				kernel: func() error { return candidate.AdmitByHash(otherHashReq) },
 				compat: func() error { return Admit(otherHashReq, candidate.Canonical()) },
 			},
 			{
-				name: "in-block/self",
+				name:   "in-block/self",
+				run:    hasBlockHash && hasIndex,
+				accept: true,
 				kernel: func() error {
-					blockHash := strings.Trim(strings.TrimSpace(string(fields["blockHash"])), `"`)
-					return candidate.AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{blockHash, "0x0"}})
+					return candidate.AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{declaredBlockHash, declaredIndex}})
 				},
 				compat: func() error {
-					blockHash := strings.Trim(strings.TrimSpace(string(fields["blockHash"])), `"`)
-					return AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{blockHash, "0x0"}}, candidate.Canonical())
+					return AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{declaredBlockHash, declaredIndex}}, candidate.Canonical())
 				},
 			},
 			{
-				name: "in-block/bad-index",
+				name:   "in-block/bad-index",
+				run:    hasBlockHash,
+				accept: false,
 				kernel: func() error {
-					return candidate.AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{validHash, "zz"}})
+					return candidate.AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{declaredBlockHash, "zz"}})
 				},
 				compat: func() error {
-					return AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{validHash, "zz"}}, candidate.Canonical())
+					return AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{declaredBlockHash, "zz"}}, candidate.Canonical())
 				},
 			},
 		}
 		for _, item := range cases {
+			if !item.run {
+				continue
+			}
 			t.Run(item.name, func(t *testing.T) {
 				kernelErr, compatErr := item.kernel(), item.compat()
-				if (kernelErr == nil) != (compatErr == nil) {
-					t.Fatalf("verdicts differ: kernel=%v compat=%v", kernelErr, compatErr)
+				if item.accept {
+					// A correct request binding must succeed through the
+					// real validation on both entries.
+					if kernelErr != nil || compatErr != nil {
+						t.Fatalf("declared-identity binding must accept: kernel=%v compat=%v", kernelErr, compatErr)
+					}
+					accepts[item.name]++
+					return
 				}
-				if kernelErr != nil && compatErr != nil && errorClass(kernelErr) != errorClass(compatErr) {
-					t.Fatalf("error classes differ: kernel=%v compat=%v", kernelErr, compatErr)
+				// A rejected request must fail on both entries with the same
+				// full sentinel set — never a single-class collapse.
+				if kernelErr == nil || compatErr == nil {
+					t.Fatalf("rejection verdicts differ: kernel=%v compat=%v", kernelErr, compatErr)
+				}
+				if kernelSentinels, compatSentinels := sentinelSet(kernelErr), sentinelSet(compatErr); kernelSentinels == "" || kernelSentinels != compatSentinels {
+					t.Fatalf("sentinel sets differ: kernel=%q compat=%q (kernel=%v compat=%v)", kernelSentinels, compatSentinels, kernelErr, compatErr)
 				}
 			})
 		}
 	}
+	for _, name := range []string{"by-hash/declared", "in-block/self"} {
+		if accepts[name] == 0 {
+			t.Fatalf("%s never exercised a real acceptance across %d prepared fixtures", name, len(fixtures))
+		}
+	}
+}
+
+// sentinelSet renders every project sentinel the error carries, so an
+// Unsupported+Malformed join and a bare Malformed can never compare equal.
+func sentinelSet(err error) string {
+	if err == nil {
+		return ""
+	}
+	var names []string
+	if errors.Is(err, rpc.ErrInvalidRequest) {
+		names = append(names, "invalid-request")
+	}
+	if errors.Is(err, rpc.ErrMalformedResponse) {
+		names = append(names, "malformed")
+	}
+	if errors.Is(err, rpc.ErrUnsupportedTypedObject) {
+		names = append(names, "unsupported")
+	}
+	return strings.Join(names, "+")
+}
+
+// isHexHashString reports whether the unquoted request value is a 32-byte hex
+// hash, the grammar the request parsers enforce.
+func isHexHashString(s string) bool {
+	return len(s) == 66 && strings.HasPrefix(s, "0x")
 }
 
 // TestCandidateBindingErrorOrderPreserved pins the first-error-class rule on
@@ -228,6 +291,60 @@ func TestCandidateImmutability(t *testing.T) {
 	}
 }
 
+// TestCandidateCanonicalReturnsIndependentBytes pins the getter-isolation
+// rule: writing to the bytes Canonical returns never changes the candidate's
+// later output or its binding verdicts, a copied candidate stays independent,
+// and concurrent read-only access is safe.
+func TestCandidateCanonicalReturnsIndependentBytes(t *testing.T) {
+	raw, err := fixtureBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := Prepare(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := append(json.RawMessage(nil), candidate.Canonical()...)
+	// A caller that writes to the returned slice must not change the
+	// candidate: re-reads and binding verdicts stay as they were.
+	borrowed := candidate.Canonical()
+	borrowed[0] = '['
+	if !bytes.Equal(candidate.Canonical(), before) {
+		t.Fatal("writing to the returned bytes changed the candidate's canonical output")
+	}
+	var hash string
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(before, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(fields["hash"], &hash); err != nil {
+		t.Fatal(err)
+	}
+	req := rpc.Request{Method: "eth_getTransactionByHash", Params: []any{hash}}
+	if err := candidate.AdmitByHash(req); err != nil {
+		t.Fatalf("binding changed after a caller corrupted the returned bytes: %v", err)
+	}
+	// A copied candidate is an independent value: corrupting one copy's
+	// returned bytes leaves the other's output untouched.
+	copied := candidate
+	copied.Canonical()[0] = '['
+	if !bytes.Equal(candidate.Canonical(), before) {
+		t.Fatal("a copied candidate mutated the original's canonical output")
+	}
+	// Concurrent read-only access over the same candidate value.
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if !bytes.Equal(candidate.Canonical(), before) {
+				t.Error("concurrent read saw unstable canonical bytes")
+			}
+		}()
+	}
+	wg.Wait()
+}
+
 func officialFixtures(t *testing.T) []json.RawMessage {
 	t.Helper()
 	var fixtures []json.RawMessage
@@ -254,19 +371,6 @@ func officialFixtures(t *testing.T) []json.RawMessage {
 		t.Fatal(err)
 	}
 	return fixtures
-}
-
-func errorClass(err error) string {
-	switch {
-	case errors.Is(err, rpc.ErrInvalidRequest):
-		return "invalid-request"
-	case errors.Is(err, rpc.ErrMalformedResponse):
-		return "malformed"
-	case errors.Is(err, rpc.ErrUnsupportedTypedObject):
-		return "unsupported"
-	default:
-		return err.Error()
-	}
 }
 
 // fixtureBytes loads the object package's mainnet fixture.
