@@ -152,6 +152,23 @@ func transactionWorkFleet(t *testing.T, method string, plan rpc.ReadPlan, body j
 	return New(p, WithPlans(map[string]rpc.ReadPlan{method: plan}), WithCorroboration(shared))
 }
 
+// forwardedFleet installs one plan over one scripted source under the
+// Forwarded corroboration mode: one bounded single-source attempt, no
+// agreement claimed.
+func forwardedFleet(t *testing.T, method string, plan rpc.ReadPlan, body json.RawMessage) *Aggregator {
+	t.Helper()
+	node := rpctest.NewNode(0)
+	node.ReturnRaw(method, body)
+	t.Cleanup(node.Close)
+	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
+		pool.Member{Name: "forwarded-0", URL: node.URL()})
+	shared, err := rpc.NewCorroborationShared(rpc.CorroborationForwarded, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(p, WithPlans(map[string]rpc.ReadPlan{method: plan}), WithCorroboration(shared))
+}
+
 // TestTransactionRouteWorkCounts pins the per-route work shape of the two
 // pilot methods with counting witnesses. On the canonical route one
 // invocation runs the processor exactly once per source and never touches

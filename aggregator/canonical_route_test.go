@@ -443,10 +443,14 @@ func TestCanonicalProcessorResultBesideErrorAbortsInternally(t *testing.T) {
 	// Transport accounting: the provider answered, so the transport level
 	// keeps its success and takes no failure. The finalizer's transport
 	// record stays; an internal error is never a provider response
-	// violation.
+	// violation, adds no failure count, and the latency record updates as
+	// any successful round trip does.
 	health := agg.pool.VotingMembers()[0].Health()
 	if health.Failures != 0 || health.ConsecutiveFailures != 0 || health.Successes == 0 {
 		t.Fatalf("pairing defect changed provider health accounting: %+v", health)
+	}
+	if health.LatencyEWMA == 0 {
+		t.Fatalf("transport success lost its latency record: %+v", health)
 	}
 }
 

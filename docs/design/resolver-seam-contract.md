@@ -189,8 +189,8 @@ aggregator，方法装配约束在 `methods` 编译验证。该 seam 是受控�
 是非空 `"null"`；getter 返回拷贝。`CanonicalObservation` 绑定一个来源槽位：失败来源保留
 槽位且无结果，成功来源必须有结果；配对错误、构造器非法输出、非零 result+error、
 成功缺结果都是内部合同 sentinel `ErrInvalidCanonicalResult`——coordinator 必须先于
-provider 归因识别它：整轮失败、不写入来源 SourceFaults、不对 provider 计健康、其他
-已知 transport 故障归因保持、最终健康只执行一次。结果只在当前 invocation 内使用，
+provider 归因识别它：整轮失败、不写入来源 SourceFaults；健康层面按 transport 最终记账执行且只执行一次——内部合同错误不是 provider 响应违规，不新增失败计数、连续失败或失败归因，而响应确实到达时 transport 成功计数与延迟记录照常保留（finalizer 不跳过）。该记账预期由测试固定（成功计数保留、失败与连续失败为零、EWMA 更新）。其他
+已知 transport 故障归因保持。结果只在当前 invocation 内使用，
 禁止全局/跨 invocation/按交易 hash 缓存，禁止把 evidence 当候选。
 
 **路线冻结。** invocation 在 prepare 末尾从 plan 声明、prepared 请求与 captured
