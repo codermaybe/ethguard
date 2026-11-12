@@ -81,6 +81,26 @@ func validatePlanComposition(spec MethodSpec) error {
 			return fmt.Errorf("methods: %s declares unknown key source %q", spec.Method, spec.KeySource)
 		}
 	}
+	// The canonical processing route is a strict-only assembly: clustering on
+	// canonical bytes requires the strict resolver's cluster/commit kernel,
+	// and a processor beside a different key source would make the declared
+	// key and the processed bytes disagree. The compatibility adapters are
+	// not optional for a processing method: the raw route must keep working
+	// unchanged, so a spec may not declare a processor and simultaneously
+	// drop its normalizer or encoder.
+	if spec.ProcessCanonical != nil {
+		if spec.Resolver != ResolverStrict {
+			return fmt.Errorf("methods: %s declares a canonical processor with resolver %q; the processing route requires %q",
+				spec.Method, spec.Resolver, ResolverStrict)
+		}
+		if spec.KeySource != rpc.RuleKeyCanonicalBytes {
+			return fmt.Errorf("methods: %s declares a canonical processor with key source %q; the processing route clusters on %q",
+				spec.Method, spec.KeySource, rpc.RuleKeyCanonicalBytes)
+		}
+		if spec.Normalize == nil || spec.Encode == nil {
+			return fmt.Errorf("methods: %s declares a canonical processor without its raw compatibility adapters", spec.Method)
+		}
+	}
 	return nil
 }
 
@@ -121,6 +141,16 @@ func validatePlanBindings(plan rpc.ReadPlan, spec MethodSpec) error {
 				return fmt.Errorf("methods: %s declares key source %q but its resolver projects %q",
 					spec.Method, spec.KeySource, projected.KeySource)
 			}
+		}
+	}
+	// A declared processor needs a resolver that can actually consume the
+	// processed observations through both resolution entries — the capability
+	// pairing the compiler can verify structurally. Whether the processor and
+	// the adapters share one object kernel is behavioral, proven by the
+	// cross-seam tests, not by this check.
+	if spec.ProcessCanonical != nil {
+		if _, ok := plan.Resolver.(rpc.CanonicalOutcomeResolver); !ok {
+			return fmt.Errorf("methods: %s declares a canonical processor but its resolver cannot consume canonical observations", spec.Method)
 		}
 	}
 	return nil

@@ -151,8 +151,16 @@ type ReadPlan struct {
 	// and the plan's fixed phase order is what makes it pre-anchor.
 	Validate func(context.Context, Request) error
 	// Admit runs after collection with the same-source caller the
-	// coordinator injects. A nil hook admits nothing.
+	// coordinator supplies. A nil hook admits nothing.
 	Admit func(context.Context, Request, json.RawMessage, AdmissionCaller) (json.RawMessage, error)
+
+	// ProcessCanonical is the plan's controlled single-source processing
+	// entry. A nil value keeps the read entirely on the raw route; a declared
+	// processor is the coordinator's only signal that one frozen invocation
+	// may select the canonical route, and the raw route stays fully intact
+	// beside it (pending-local and forwarded invocations of the same method
+	// never skip their existing admission).
+	ProcessCanonical CanonicalProcessor
 
 	// ProjectorID names the runtime-bound observation projector. The plan
 	// never carries a factory; the runtime binds the projector by method.
