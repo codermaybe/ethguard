@@ -129,7 +129,7 @@ surface remains evidence-backed.
 
 迁移期间门禁记录（2026-11-12，对应各迁移批次完成时点）：`gofmt -l`、`go vet ./...`、`go test ./... -count=1`、`go test ./... -race -count=1`、`go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild'`、`go test ./internal/verification/integration -run '^TestVerification' -race -count=2 -shuffle=on`、Anvil 事务生命周期（`-tags=anvil`，固定 1.7.1，88 条断言）在迁移完成时全部通过。未新增公网 provider 观察；离线与本地 Anvil 证据按上文边界记录。
 
-局部热路径测量（2026-11-12，`BenchmarkTransactionByHashNormalize`／`BenchmarkTransactionByHashAdmit`，`-benchtime=1s`，单个 59.7KB 官方向量）：规范键准备约 223µs／响应（1176 allocs），准入（准备 + 对象校验）约 424µs（109.7KB、2123 allocs）。这是方法准备与准入两步的局部测量，不是完整生产 assembler 路径，也未含任何提供方网络往返；不据此下网络数量级或全链路主要成本结论。typed oneOf 分支顺序试探在该向量上耗时显著，如后续完整 profile 显示需要，另行单独优化提交。
+局部热路径测量（2026-11-12，`BenchmarkTransactionByHashNormalize`／`BenchmarkTransactionByHashAdmit`，`-benchtime=1s`，单个 ~1.3KB pending 官方向量）：规范键准备约 217µs／响应（59.7KB 已分配、1176 allocs），准入（准备 + 对象校验）约 424µs（109.7KB 已分配、2123 allocs）。这是方法准备与准入两步的局部测量，不是完整生产 assembler 路径，也未含任何提供方网络往返；不据此下网络数量级或全链路主要成本结论。typed oneOf 分支顺序试探在该向量上耗时显著，如后续完整 profile 显示需要，另行单独优化提交。
 
 自检结论（2026-11-12，迁移完成后）：方法文件对其他方法文件私有函数的引用为零；共享依赖仅族 wrapper（block.go）、objects 层与 wire codec 三类。迁移逐字搬运，唯一一次简化尝试（官方闭对象的运行时拒绝）被既有 receipt vendor-dissent 验收否决并回退，未留下行为变更；无新接口、注册框架或 helper 包，inventory 为纯收集。
 
