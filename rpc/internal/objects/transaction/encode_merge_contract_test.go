@@ -3,6 +3,7 @@ package transaction
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
@@ -118,4 +119,40 @@ func accessListHasMember(t *testing.T, key string, member string) bool {
 		}
 	}
 	return false
+}
+
+// TestEncodeTypePinsTheBranchAcrossForeignMembers pins the branch-selection
+// rule behind the union mask: each official branch constrains the type value
+// by pattern, so a type=0x2 response is parsed as a 1559 transaction even
+// when it carries other branches' members (the 4844 blob hash list and blob
+// fee here). Those members are officially tolerated extras: the union mask
+// keeps them in the comparison key, the typed branch does not express them,
+// and the merge backfills them into the canonical value.
+func TestEncodeTypePinsTheBranchAcrossForeignMembers(t *testing.T) {
+	fields := recordedMainnetTransaction(t)
+	blobHash := `"0x` + strings.Repeat("ab", 32) + `"`
+	fields["blobVersionedHashes"] = json.RawMessage(`[` + blobHash + `]`)
+	fields["maxFeePerBlobGas"] = json.RawMessage(`"0x10"`)
+	annotated, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := Encode(annotated)
+	if err != nil {
+		t.Fatalf("cross-branch tolerated members rejected: %v", err)
+	}
+	var carried struct {
+		Type               string          `json:"type"`
+		BlobVersionedHashes json.RawMessage `json:"blobVersionedHashes"`
+		MaxFeePerBlobGas   json.RawMessage `json:"maxFeePerBlobGas"`
+	}
+	if err := json.Unmarshal(encoded, &carried); err != nil {
+		t.Fatal(err)
+	}
+	if carried.Type != "0x2" {
+		t.Fatalf("branch flipped: type=%s", carried.Type)
+	}
+	if string(carried.BlobVersionedHashes) != `[`+blobHash+`]` || string(carried.MaxFeePerBlobGas) != `"0x10"` {
+		t.Fatalf("tolerated members lost: %s", encoded)
+	}
 }

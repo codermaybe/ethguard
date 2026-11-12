@@ -269,3 +269,47 @@ for key in 已有官方字段与本方法明确的缺失派生 key 的去重集�
 Encode 命名收敛为 `officialFields`／`canonicalFields` 并注明合并方向（typed 规范值优先，仅补回官方投影保留而 typed 未表达的字段）；校验覆盖核查结论：transaction 官方分支是开放对象（无 `additionalProperties:false`），分支外成员属官方容忍的附加项，值无官方约束，经补回进入规范值；accessList 条目等官方闭子对象的未声明成员被掩码剔除，不进比较键也不进规范值。两项合同以 `encode_merge_contract_test.go` 钉住。评审中曾试行的"闭对象运行时拒绝"与既有 vendor 附属通道及"差异不自动处罚健康"设计冲突，未采纳，生成器未更改。
 
 两方法已完成外层 key／内层状态收敛：状态判定只读原始响应，修正写入独立候选；`blockTimestamp` 缺失派生是唯一缺失派生 key，且仅在三个位置字段都明确为 null 时补完整 null，其余上下文不修正、交回官方必填校验与 typed 分类顺序（unsupported 类型优先级保持）；幂等与重复执行由 `TestTransactionByHashCorrectionIdempotence` 钉住。in-block 明确无额外兼容规则，未复制 by-hash 派生。
+
+## 14. 字段处置与转换归属审计（2026-11-13）
+
+审计输入是锁定 bundle `v1.0.0-beta.7` 的 `eth_getTransactionByHash` 结果 schema、生成器（含 `allowPendingTransactionQueryContext` 固定修正，语义指纹钉住）与本仓库生成结构；本节只记录事实、验证位置与例外，不建立第二份生产字段表。全部适用分支（type 0x0–0x4 与 null）都核对过，不是只用一份 type=2 fixture 代替。
+
+### 14.1 分支与字段处置（官方声明 → 校验位置）
+
+外层信封分支「Transaction information」声明六个 REQUIRED 成员：`hash`、`from`、`blockHash`、`blockNumber`、`blockTimestamp`、`transactionIndex`；生成器固定修正把其中四个包含上下文字段改为 `null ∪ string`（EIP-1474 pending 语义与 geth v1.17.10 RPCTransmission 行为），四字段仍全部 required，整体上下文一致性（三字段同 null 或同非 null，及缺失派生）由对象合并守卫与方法准入拥有：`encodeCanonical` 的 inconsistent pending/mined 守卫（见证 `TestTransactionInclusionContextGuardPerAsymmetricMember`）、by-hash 的唯一缺失派生（`TestTransactionByHashPendingTimestampRequiresExplicitPendingState`）、in-block 的 mined-only 拒绝（`TestTransactionInBlockPendingRejectionMessage`）。`hash`/`from` 无 null 容忍，缺席或非法即拒绝（`TestTransactionMissingSignatureFieldsReject`）。
+
+五个类型分支的 REQUIRED/optional 事实（从锁定 bundle 提取）：
+
+| 分支 | 独有 REQUIRED | 其他分支可容忍成员 | 分支内 optional |
+| --- | --- | --- | --- |
+| 7702 (0x4) | `authorizationList`；`gasPrice` 声明为 optional | `blobVersionedHashes`、`maxFeePerBlobGas`（来自 4844） | `gasPrice`、`v` |
+| 4844 (0x3) | `blobVersionedHashes`、`maxFeePerBlobGas`；`gasPrice` optional | `authorizationList`（来自 7702） | `gasPrice`、`v` |
+| 1559 (0x2) | `gasPrice` REQUIRED | 其余四分支的独有成员 | `to`（null 容忍，合约创建） |
+| 2930 (0x1) | 无 `maxFeePerGas`/`maxPriorityFeePerGas` | 同上 | `to`、`v` |
+| Legacy (0x0) | `v` REQUIRED、`chainId` optional | 同上 | `chainId`、`to` |
+
+分支选择由 `type` 值的 pattern 钉住（每个分支约束自己的 type 字面量），所以 type=0x2 响应携带 4844 独有成员（`blobVersionedHashes`、`maxFeePerBlobGas`）不会翻分支：它们是官方容忍的跨分支附加项（见证 `TestEncodeTypePinsTheBranchAcrossForeignMembers`）。该容忍不得顺手拒绝或删除——类型 2 上 `maxFeePerBlobGas` 的既有行为由 `TestEncodePreservesOfficiallyToleratedMembers` 独立钉住。
+
+### 14.2 未声明成员与闭子对象
+
+- 官方分支均为开放对象（无 `additionalProperties:false`）。分支未声明、但官方 union mask（oneOf 各分支 properties 并集，`wire` 的掩码树）保留的成员，比较键与规范值都保留，值本身无官方约束；闭子对象（accessList 条目）的未声明成员被掩码剔除，不进比较键也不进规范值，剔除不产生任何 fault 或健康处罚（`TestEncodeMasksClosedObjectForeignMembers`、vendor 附属差异走 Diagnostics 不进 Core）。
+- 附属证据归属：剔除只发生在比较键与规范值两层；原始响应按既有只读生命周期完整保留（见证 `TestTransactionCanonicalRoutePendingKeepsOriginalEvidence`）。
+
+### 14.3 转换归属链（每规则一个事实 owner）
+
+| 规则 | Owner | 见证 |
+| --- | --- | --- |
+| 方法上下文派生（缺失 timestamp 补全 null） | by-hash 方法文件 `correctTransactionByHashKey` | `TestTransactionByHashPendingTimestampRequiresExplicitPendingState` |
+| codec 语法（hex 规范化） | `wire.PruneMethod` 内 `CanonicalizeHex` | `rpc/internal/wire` prune 测试 |
+| 官方字段投影（union mask 白名单） | `wire.PruneMethod`（bundle 编译掩码） | 同上 |
+| 适用 schema 验证（分支解析 + pending 修正） | 生成结构 `New<Branch>Transaction` / `NewGetTransactionByHashResult` | `TestTransactionMethodsAcceptOfficialPayloadTypes`、`wire` 生成测试 |
+| 对象声明／payload 一致性（hash/payload、签名、chainId、包含上下文语法） | `objects/transaction.validatePrepared` | `TestCandidateBindingsMatchCompatEntries` 及对象包全部测试 |
+| 规范输出（typed 优先 + 官方补回） | `encodeCanonical` 合并 | `TestEncodePreservesOfficiallyToleratedMembers` |
+| 请求绑定 | `Candidate.AdmitByHash` / `AdmitInBlock` | `TestTransactionProcessorBindingSemanticsUnchanged` |
+| typed 公共投影 | `internal/typed.DecodeTransaction` | facade typed 测试 |
+
+`PruneMethod` 目前仍包含 hex 规范化——本轮未全局改写其行为；该职责重叠的后续收敛仍须按拓扑文档检查实际实现。
+
+### 14.4 审计结论
+
+本轮未发现真实字段漏验反例：每个官方分支的 required 成员都在生成结构解析中强制，信封字段的一致性由合并守卫与准入拥有，签名／sender／payload 绑定在 `validatePrepared` 一次完成。对「unprotected legacy（非 EIP-155）分支的 chainId 声明不匹配」路径：当前 `validatePrepared` 只在 `tx.Protected()` 时校验声明 chainId，非保护 legacy 的声明值是开放对象的容忍成员——与官方 schema 的 `chainId: optional` 一致，不构成接受域漏洞；若未来需要更强的 legacy chainId 语义，须按第 7 节的条件另行评审。审计产生的唯一新见证是跨分支容忍成员的分支钉住（14.2/14.1）；没有新语义规则进入代码。
