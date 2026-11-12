@@ -212,3 +212,50 @@ func TestViewReceiptAbsenceMatchesNative(t *testing.T) {
 		t.Fatalf("block receipts root/view = %v/%v, errors = %v/%v", rootReceipts, viewReceipts, rootBlockErr, viewBlockErr)
 	}
 }
+
+// TestEthClientSignaturesMatchLockedTarget checks every implemented business
+// method's official parameter and return types against the locked
+// go-ethereum signature — names alone, or method counts, never claim
+// compatibility. The comparison is reflection over the exported signatures
+// (receiver excluded); a method that drifts from the upstream shape fails
+// here even while the name-set ratchet stays green. SimulateV1 is the
+// ratcheted gap and is skipped here; Client() is the excluded accessor.
+func TestEthClientSignaturesMatchLockedTarget(t *testing.T) {
+	upstream := reflect.TypeOf((*gethethclient.Client)(nil))
+	view := reflect.TypeOf((*ethguard.EthClient)(nil))
+	upstreamMethods := make(map[string]reflect.Method)
+	for i := 0; i < upstream.NumMethod(); i++ {
+		m := upstream.Method(i)
+		upstreamMethods[m.Name] = m
+	}
+	viewMethods := make(map[string]reflect.Method)
+	for i := 0; i < view.NumMethod(); i++ {
+		m := view.Method(i)
+		viewMethods[m.Name] = m
+	}
+	signatureOf := func(m reflect.Method) string {
+		sig := m.Type
+		var parts []string
+		for i := 1; i < sig.NumIn(); i++ {
+			parts = append(parts, sig.In(i).String())
+		}
+		returns := make([]string, 0, sig.NumOut())
+		for i := 0; i < sig.NumOut(); i++ {
+			returns = append(returns, sig.Out(i).String())
+		}
+		return "(" + strings.Join(parts, ", ") + ") -> (" + strings.Join(returns, ", ") + ")"
+	}
+	for name, viewMethod := range viewMethods {
+		upstreamMethod, ok := upstreamMethods[name]
+		if !ok {
+			continue // leaked-method detection owns this case
+		}
+		want, got := signatureOf(upstreamMethod), signatureOf(viewMethod)
+		if want != got {
+			t.Errorf("%s signature = %s, want %s", name, got, want)
+		}
+	}
+	if t.Failed() {
+		t.Fatal("implemented method signatures drifted from the locked target")
+	}
+}
