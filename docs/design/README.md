@@ -24,7 +24,7 @@
 
 ## 已确认的实施设计
 
-- [Transaction 方法级 key 兼容修正](transaction-semantic-matching.md)：首个独立 transaction 检查点及两方法组织样板已分批提交；已确认外层 key／内层完整值状态的双 switch 结构，收敛尚待实施。官方校验、拒绝及健康调度接线复用已有结构，不做内部局部修正；已执行本地公开路径与 Anvil 验证，尚未进行新公网 provider 采集。
+- [Transaction 方法级 key 兼容修正](transaction-semantic-matching.md)：首个独立 transaction 检查点已分批提交；外层 key／内层完整值状态的双 switch 收敛已实施并有幂等与合并合同测试钉住。官方校验、拒绝及健康调度接线复用已有结构，不做内部局部修正；已执行本地公开路径与 Anvil 验证，尚未进行新公网 provider 采集。
 
 ## 临时评审记录
 

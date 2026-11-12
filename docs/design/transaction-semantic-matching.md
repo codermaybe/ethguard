@@ -1,8 +1,8 @@
 # Transaction 方法级 key 兼容修正与官方结果收敛
 
-状态：**首个实施检查点已落地；双 switch 样板收敛已完成（2026-11-12），其余方法迁移尚未开始**。方法是规则的归属范围，官方直接字段 key 是最小修正单元；外层按 key、内层按该 key 的完整形态／状态集中展示已审核规则，不向 key 内部的局部表示或语义继续细化。主聚合只覆盖官方结果字段；外部／vendor key 沿用已有附属比较与证据交付。已实施范围与验收证据见第 12 节，不表示完整 provider 兼容或全状态覆盖。
+状态：**首个实施检查点已落地；双 switch 收敛与全方法自治组织均已完成（2026-11-12）**。方法是规则的归属范围，官方直接字段 key 是最小修正单元；外层按 key、内层按该 key 的完整形态／状态集中展示已审核规则，不向 key 内部的局部表示或语义继续细化。主聚合只覆盖官方结果字段；外部／vendor key 沿用已有附属比较与证据交付。已实施范围与验收证据见第 12 节，不表示完整 provider 兼容或全状态覆盖。
 
-现行实现合同：[返回值合同](return-value-design.md)、[方法契约](method-contracts.md)、[字段与行为验证](method-verification-pipeline.md)。本文拥有该切片的规则与证据边界；跨方法知识归属见 [拓扑](codebase-topology.md#方法自治组织样板)，推进方向见 [路线图](project-roadmap.md)。临时施工计划、评审输入及第三方原文不纳入版本保存。缺字段反例与回归要求在本文保留，未改变的 Core、证据、固定成员与公开 API 合同继续有效。
+现行实现合同：[返回值合同](return-value-design.md)、[方法契约](method-contracts.md)、[字段与行为验证](method-verification-pipeline.md)。本文拥有该切片的规则与证据边界；跨方法知识归属见 [拓扑](codebase-topology.md#方法自治组织)，推进方向见 [路线图](project-roadmap.md)。临时施工计划、评审输入及第三方原文不纳入版本保存。缺字段反例与回归要求在本文保留，未改变的 Core、证据、固定成员与公开 API 合同继续有效。
 
 ## 1. 目标与非目标
 
@@ -224,7 +224,7 @@ for key in 已有官方字段与本方法明确的缺失派生 key 的去重集�
 
 首个实施批次只闭合两个独立 transaction 方法及其必要基础路径，按用户要求收束供实现形态与规则审阅。后续双 switch 收敛及迁移方向已确认，推进方向见 [路线图](project-roadmap.md)；整理已有成果不表示继续推进内嵌交易、其他方法或新 provider 方言。
 
-版本保存边界：2026-11-11 的文档提交仅保存设计与验收记录，当时实现仍在工作区。2026-11-12 已将既有 Go 实现、测试、生成物、采集入口及 fixture 按责任分批提交，源码归档基线为 `a5d9993`；具体提交及本轮验证见下文。不能把早先文档提交的 SHA 当作包含实现的源码身份。双 switch 收敛已于 2026-11-12 实施（见 13.1）；其余方法迁移及未覆盖兼容规则尚未实施。
+版本保存边界：2026-11-11 的文档提交仅保存设计与验收记录，当时实现仍在工作区。2026-11-12 已将既有 Go 实现、测试、生成物、采集入口及 fixture 按责任分批提交，源码归档基线为 `a5d9993`；具体提交及本轮验证见下文。不能把早先文档提交的 SHA 当作包含实现的源码身份。双 switch 收敛已于 2026-11-12 实施（见 13.1），其余方法的自治迁移亦已完成；transaction 之外的未覆盖兼容规则按各对象族 owner 文档另行裁决。
 
 ### 规则与实现入口
 
@@ -256,13 +256,13 @@ for key in 已有官方字段与本方法明确的缺失派生 key 的去重集�
 - 从 Anvil 批次暂存快照实际执行 `go test -tags=anvil ./internal/verification/anvil -run '^TestTransactionLifecycle$' -count=1 -v`，固定 Anvil 1.7.1 的 88 条消费断言通过。单个本地来源覆盖 HTTP／raw WSS、Root／EthClient、pending → mined、snapshot/revert 后可见性与重启隔离；两种 transport 仍不算独立 provider。
 - 本次本地运行产物为 `/tmp/ethguard-baseline-20261112-anvil-01/transaction-lifecycle.json`，仅作日期化运行记录；可重跑入口与最小 pending 原始样例已纳入源码。未新增公网 provider 捕获，临时施工计划及第三方原文不纳入 Git，也不成为正式文档依赖。
 
-## 13. 两方法的目录组织样板
+## 13. transaction 两方法的目录组织
 
-按 [topology](codebase-topology.md#方法自治组织样板) 只对两个方法做自治组织：名称、公开接口映射、现有 MethodSpec、私有准备及 key 修正都在本方法文件；`Specs()`／catalog 对两项仅调用定义函数。共享完整对象校验与编码仍在对象层，不通过另一个正式方法文件复用。
+按 [topology](codebase-topology.md#方法自治组织) 只对两个方法做自治组织：名称、公开接口映射、现有 MethodSpec、私有准备及 key 修正都在本方法文件；`Specs()`／catalog 对两项仅调用定义函数。共享完整对象校验与编码仍在对象层，不通过另一个正式方法文件复用。
 
-原 `eth_gettransactionbyhash.go`／`eth_gettransactionbyblockhashandindex.go` 分别归并为 `transaction_by_hash.go`／`transaction_in_block.go`。私有符号用 gopls 语义重命名更新引用，公开常量名称和方法集合不变。临时 review 命名的回归测试归并为同名方法测试；跨方法编码检查保留独立测试文件。该组织样板与既有实现已于 2026-11-12 经用户授权分批提交；未批量迁移其他方法，未借归档新增兼容规则或公共配置。
+原 `eth_gettransactionbyhash.go`／`eth_gettransactionbyblockhashandindex.go` 分别归并为 `transaction_by_hash.go`／`transaction_in_block.go`。私有符号用 gopls 语义重命名更新引用，公开常量名称和方法集合不变。临时 review 命名的回归测试归并为同名方法测试；跨方法编码检查保留独立测试文件。该组织调整与既有实现已于 2026-11-12 经用户授权分批提交；随后其余方法按同一布局完成迁移（见 method-transport-coverage 的读注册归属），未借归档新增兼容规则或公共配置。
 
-已确认的扩散前调整包括 Encode 命名及校验覆盖核查、规范化职责收敛、timestamp 单次处理和外层 key／内层状态结构；in-block 当前无额外兼容规则，不强行复制 by-hash。上述为待实施项，不能从本次文档保存推断代码已完成对应调整。
+已确认的扩散前调整包括 Encode 命名及校验覆盖核查、规范化职责收敛、timestamp 单次处理和外层 key／内层状态结构；in-block 当前无额外兼容规则，不强行复制 by-hash。上述调整均已实施并按 13.1 的合同测试钉住。
 
 ### 13.1 扩散前调整落地（P1／P2，2026-11-12）
 

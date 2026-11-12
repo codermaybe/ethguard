@@ -1,13 +1,13 @@
 # RPC Method Ownership
 
 This package owns method-specific preparation, key-level compatibility,
-request binding and execution-plan assembly. Public Go signatures stay on the
-root Client and EthClient view; shared object processing stays in
-`rpc/internal/objects`, and generic codecs and schema projection in
-`rpc/internal/wire`. The ownership source is
+request binding and execution-plan assembly for all registered read methods.
+Public Go signatures stay on the root Client and EthClient view; shared object
+processing stays in `rpc/internal/objects`, and generic codecs and schema
+projection in `rpc/internal/wire`. The ownership source is
 [codebase topology](../../docs/design/codebase-topology.md).
 
-## Transaction organization pilot
+## Method file ownership
 
 | File | Owns |
 | --- | --- |
@@ -17,27 +17,23 @@ root Client and EthClient view; shared object processing stays in
 | `transaction_encoding_test.go` | Cross-method canonical-output and official-vector checks |
 | `testdata/transaction` | Traceable inputs for method rules, with local/provider provenance distinguished |
 
-Each method defines its existing MethodSpec and read-only MethodDescriptor in
-its own file. `Specs()` in `spec_inventory.go` and `Catalog()` in `catalog.go`
-collect those definitions without repeating the two methods' configuration.
-Method names retain their existing exported symbols, but their declarations
-move alongside their owners. No new policy type or registration mechanism is
-introduced.
+Every registered read method follows this layout: the RPC name, public
+mapping, MethodSpec, read-only MethodDescriptor, and the method's hooks live
+in the method's own file. `Specs()` in `spec_inventory.go` and `Catalog()` in
+`catalog.go` collect those definitions without repeating any method's
+configuration. The centralized method-name table is retired. No new policy
+type or registration mechanism is introduced.
 
 Method preparation functions do not call another method's preparation or
 correction functions. Both transaction methods use the shared transaction
 encoder and validators directly. Pending timestamp derivation belongs only
 to by-hash; block/index does not run that correction before rejecting pending.
 
-This is a two-method pilot, not a claim that the whole directory has migrated.
-Other methods retain their existing files and centralized declarations. Do
-not rename the inventory to a collection-only registry while it still owns
-the unmigrated definitions.
-
-The accepted next step is an outer key switch with an inner switch for that
-key's whole-value state. This refinement and the full migration have not yet
-been implemented. The [roadmap](../../docs/design/project-roadmap.md) records
-the direction; temporary execution checklists are not versioned contracts.
+The transaction two-method key switch — an outer key switch with an inner
+switch for that key's whole-value state — is implemented and pinned by
+`TestTransactionByHashCorrectionIdempotence` and the merge-contract tests in
+`rpc/internal/objects/transaction`. Temporary execution checklists are not
+versioned contracts.
 
 ## Method and object responsibilities
 
@@ -69,7 +65,6 @@ not a one-file-per-Go-wrapper duplication rule. Tests must retain the declared
 public business mapping.
 
 Existing root-only extensions, unsupported inventory entries and the write
-pipeline keep their present behavior during this pilot. Their presence is
-not permission to invent formal methods for internal helpers or to bypass
-the public method allow-list. Any separate surface cleanup needs its own
-scope review.
+pipeline keep their present behavior. Their presence is not permission to
+invent formal methods for internal helpers or to bypass the public method
+allow-list. Any separate surface cleanup needs its own scope review.
