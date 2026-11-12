@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
@@ -11,8 +12,9 @@ import (
 // Compiler-side contracts of the canonical processing dimension: a declared
 // processor is a strict-only, canonical-bytes-only assembly with its raw
 // compatibility adapters intact, and the compiled plan carries the same
-// processor. No registered method declares one yet — the dimension exists so
-// the transaction pilot can adopt it without another seam revision.
+// processor. The two transaction pilot methods declare theirs; the
+// TestRegisteredSpecsDeclareNoProcessor guard below pins that no OTHER
+// registered method picks the dimension up without a reviewed task.
 
 func processingSpec(method string, mutate func(*MethodSpec)) MethodSpec {
 	spec := MethodSpec{
@@ -96,9 +98,73 @@ func TestCompilePlanCarriesProcessorWithIntactAdapters(t *testing.T) {
 }
 
 func TestRegisteredSpecsDeclareNoProcessor(t *testing.T) {
+	allowed := map[string]bool{
+		MethodGetTransactionByHash:              true,
+		MethodGetTransactionByBlockHashAndIndex: true,
+	}
 	for _, spec := range Specs() {
-		if spec.ProcessCanonical != nil {
-			t.Fatalf("registered method %s already declares a processor: production wiring is a separate reviewed step", spec.Method)
+		if spec.ProcessCanonical == nil {
+			continue
 		}
+		if !allowed[spec.Method] {
+			t.Fatalf("registered method %s declares a processor outside the reviewed pilot", spec.Method)
+		}
+	}
+}
+
+// TestTransactionKeySourceSwitchKeepsClusters is the equivalence evidence for
+// the two pilot methods' key-source switch: the old declaration (normalizer
+// key with a canonical object encoder) and the compiled plan (canonical-bytes
+// key) cluster the same observations identically — same support, same
+// representative, same committed bytes — because this method's normalizer
+// returns exactly its encoder's output.
+func TestTransactionKeySourceSwitchKeepsClusters(t *testing.T) {
+	raw := sampleResults(t, "block-receipt-tx", "tx-one")[0]
+	variants := []json.RawMessage{
+		raw,
+		foldHex(t, injectField(t, raw, "vendorExtension", `"x"`)),
+	}
+	for _, method := range []string{MethodGetTransactionByHash, MethodGetTransactionByBlockHashAndIndex} {
+		t.Run(method, func(t *testing.T) {
+			spec, ok := SpecFor(method)
+			if !ok || spec.Normalize == nil || spec.Encode == nil {
+				t.Fatalf("%s: missing raw hooks", method)
+			}
+			legacy := rpc.Strict(spec.Normalize,
+				rpc.WithRuleCompareKind(spec.CompareKind),
+				rpc.WithCanonicalObject(spec.Encode),
+				rpc.WithQuorum(2))
+			plan, err := CompilePlan(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observations := make([]rpc.Observation, 0, len(variants))
+			for i, value := range variants {
+				id := string(rune('a' + i))
+				observations = append(observations, rpc.Observation{Source: rpc.SourceRef{ID: id}, Value: value, Evidence: json.RawMessage(`"` + id + `"`)})
+			}
+			legacyDecision, legacyErr := legacy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, observations)
+			plannedDecision, plannedErr := plan.Resolver.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, observations)
+			if (legacyErr == nil) != (plannedErr == nil) {
+				t.Fatalf("verdicts differ: legacy=%v planned=%v", legacyErr, plannedErr)
+			}
+			if legacyErr != nil {
+				return
+			}
+			if legacyDecision.Status != plannedDecision.Status || !bytes.Equal(legacyDecision.Value, plannedDecision.Value) {
+				t.Fatalf("decisions differ: %+v vs %+v", legacyDecision, plannedDecision)
+			}
+			if legacyDecision.Representative.ID != plannedDecision.Representative.ID || len(legacyDecision.Support) != len(plannedDecision.Support) {
+				t.Fatalf("cluster shape differs: %+v vs %+v", legacyDecision, plannedDecision)
+			}
+			// Source order cannot change the clustered outcome under either
+			// declaration.
+			reversed := []rpc.Observation{observations[1], observations[0]}
+			legacyReversed, legacyRevErr := legacy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, reversed)
+			plannedReversed, plannedRevErr := plan.Resolver.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, reversed)
+			if legacyRevErr != nil || plannedRevErr != nil || string(legacyReversed.Value) != string(plannedReversed.Value) {
+				t.Fatalf("reversed order diverged: %v / %v", legacyRevErr, plannedRevErr)
+			}
+		})
 	}
 }

@@ -15,13 +15,21 @@ const MethodGetTransactionByHash = "eth_getTransactionByHash"
 
 func transactionByHashSpec() MethodSpec {
 	return MethodSpec{
-		Method:                 MethodGetTransactionByHash,
-		Resolver:               ResolverStrict,
-		Normalize:              normalizeTransactionByHash,
-		Encode:                 prepareTransactionByHash,
-		KeySource:              rpc.RuleKeyNormalizer,
+		Method:    MethodGetTransactionByHash,
+		Resolver:  ResolverStrict,
+		Normalize: normalizeTransactionByHash,
+		Encode:    prepareTransactionByHash,
+		// KeySource is canonical-bytes: the comparison key is the encoder's
+		// output. The normalizer returns exactly those bytes for this method,
+		// so the clusters are unchanged — the declaration converges the
+		// metadata with the processing route, which clusters on canonical
+		// bytes by construction. The within-cluster encoding guard becomes
+		// trivially true under this declaration; the commit kernel still
+		// carries it for narrow-key methods.
+		KeySource:              rpc.RuleKeyCanonicalBytes,
 		CompareKind:            rpc.RuleCompareMethodSpecific,
 		Admit:                  admitTransactionByHash,
+		ProcessCanonical:       processTransactionByHash,
 		ObservationProjectorID: ProjectorTransaction,
 	}
 }

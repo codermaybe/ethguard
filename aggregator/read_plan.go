@@ -1,6 +1,8 @@
 package aggregator
 
 import (
+	"fmt"
+
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -66,6 +68,29 @@ func resolvePlannedInvocation(plan *rpc.ReadPlan, prepared rpc.Request, snap rpc
 	}
 	decision, err := plan.Resolver.Resolve(obs)
 	return invocationResolution{decision: decision, err: err}
+}
+
+// resolveCanonicalInvocation resolves one processed observation set through
+// the plan's canonical consumption capability. The entries mirror the raw
+// chain exactly: the frozen snapshot adjudicates when the invocation captured
+// one, and the resolver's construction-time configuration answers otherwise —
+// there is no zero-snapshot shortcut for the corroborated entry, and the
+// pending-local shape never reaches this function because the frozen route
+// stays raw for it.
+func resolveCanonicalInvocation(plan *rpc.ReadPlan, snap rpc.Corroboration, snapOK bool, cobs []rpc.CanonicalObservation) invocationResolution {
+	resolver, ok := plan.Resolver.(rpc.CanonicalOutcomeResolver)
+	if !ok {
+		// The compiler rejects a processor whose resolver cannot consume
+		// canonical observations; an untyped arrival here is a composition
+		// error, not a fallback.
+		return invocationResolution{err: fmt.Errorf("canonical route: %s resolver cannot consume canonical observations", plan.Method)}
+	}
+	if snapOK && plan.Corroborating() {
+		outcome, err := resolver.ResolveCanonicalCorroborated(snap, cobs)
+		return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}
+	}
+	outcome, err := resolver.ResolveCanonical(cobs)
+	return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}
 }
 
 // planPendingLocalRoute is the plan's pending-local routing check: a pending

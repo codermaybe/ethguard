@@ -76,10 +76,19 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	state.planPin = pin
 	state.wireParams = frozen
 	state.preparedJSON = snapshot
-	// Admission reads the wire's semantic JSON once, shared read-only across
-	// sources. Keep numeric tokens exact rather than rounding them to float64.
-	// The original Go values remain available on prepared for plan queries.
-	if _, ok := state.admissionHook(); ok {
+	// Freeze the invocation's processing route once, from the prepared
+	// request and the invocation's captured mode: a plan processor resolves
+	// the canonical route for an ordinary strict round, while pending-local
+	// shapes and forwarded modes keep the complete raw route. Every later
+	// phase reads this frozen value; nothing re-derives it.
+	state.processorRoute = frozenProcessorRoute(plan, prepared, state.snap, state.snapOK)
+	// The per-source stage reads the wire's semantic JSON once, shared
+	// read-only across sources. Keep numeric tokens exact rather than
+	// rounding them to float64. The original Go values remain available on
+	// prepared for plan queries. A plan with a processor needs the same view
+	// even without an admission hook — the processor receives the identical
+	// semantic request the wire and Decision.Prepared carry.
+	if _, ok := state.admissionHook(); ok || state.processorRoute != nil {
 		state.admissionRequest = rpc.Request{Method: prepared.Method}
 		if snapshot != nil {
 			decoder := json.NewDecoder(bytes.NewReader(snapshot))
@@ -90,6 +99,24 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 		}
 	}
 	return nil
+}
+
+// frozenProcessorRoute decides the invocation's processing route from the
+// plan's declarations, the prepared request, and the captured corroboration
+// mode. The decision is by execution class — pending-local and forwarded
+// rounds keep the complete raw route — never by method name or a second
+// registry.
+func frozenProcessorRoute(plan *rpc.ReadPlan, prepared rpc.Request, snap rpc.Corroboration, snapOK bool) rpc.CanonicalProcessor {
+	if plan.ProcessCanonical == nil {
+		return nil
+	}
+	if planPendingLocalRoute(plan, prepared, snap, snapOK) {
+		return nil
+	}
+	if snapOK && snap.Mode == rpc.CorroborationForwarded {
+		return nil
+	}
+	return plan.ProcessCanonical
 }
 
 // establishPlannedReference runs the declared establishment once per

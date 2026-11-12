@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -59,6 +60,23 @@ type invocationState struct {
 	// frozen params. prepared retains Go values for plan/reference queries.
 	admissionRequest rpc.Request
 
+	// processorRoute is the invocation's frozen processing route: non-nil
+	// when this round resolves through the plan's canonical processor. The
+	// decision is made once at prepare time — pending-local shapes and
+	// forwarded modes keep the complete raw route — and every later phase
+	// (admission, resolution, faults, events, health) consults this value
+	// instead of re-deriving it.
+	processorRoute rpc.CanonicalProcessor
+	// canonicalObservations holds the per-source slot pairing for the
+	// canonical route: each attempted source keeps its slot, failed ones
+	// without a result.
+	canonicalObservations []rpc.CanonicalObservation
+	// internalFault records an internal contract failure of the canonical
+	// seam (rpc.ErrInvalidCanonicalResult class). It terminates the round's
+	// success regardless of quorum, stays out of the per-source fault tables,
+	// and never blames a provider.
+	internalFault error
+
 	emissions  []pool.Emission
 	collectErr error
 
@@ -103,8 +121,13 @@ func (state *invocationState) pendingLocalRoute() bool {
 	return planPendingLocalRoute(state.plan, state.prepared, state.snap, state.snapOK)
 }
 
-// resolve runs the plan's declared resolution semantics.
+// resolve runs the plan's declared resolution semantics. The canonical route
+// resolves through the same resolver's canonical consumption entries; the raw
+// route keeps the planned chain.
 func (state *invocationState) resolve() invocationResolution {
+	if state.processorRoute != nil {
+		return resolveCanonicalInvocation(state.plan, state.snap, state.snapOK, state.canonicalObservations)
+	}
 	return resolvePlannedInvocation(state.plan, state.prepared, state.snap, state.snapOK, state.observations)
 }
 
@@ -182,6 +205,10 @@ func (a *Aggregator) collectPhase(state *invocationState) {
 // verdicts are source-bound; an overall decision error cannot assign blame.
 // Resolvers that omit verdicts on early exits (including all-EncodeCheck
 // failure in Strict) fall back to the existing per-source validation checks.
+// The fallback re-runs the raw validity hooks, so it exists on the raw route
+// only: a canonical-route invocation either has the resolution's own
+// statement or aborted on an internal contract fault, and in both cases its
+// successful sources must not be re-parsed or penalized here.
 func (state *invocationState) finalizeHealth() {
 	verdicts := verdictIndexByID(state.verdicts)
 	for _, emission := range state.emissions {
@@ -189,7 +216,7 @@ func (state *invocationState) finalizeHealth() {
 		if !errors.Is(responseErr, rpc.ErrMalformedResponse) && emission.Src != nil {
 			if verdict, ok := verdicts[emission.Src.ID()]; ok && verdict.Kind == rpc.VerdictUnusable {
 				responseErr = verdict.Err
-			} else if state.verdicts == nil && emission.Err == nil && emission.Val != nil {
+			} else if state.processorRoute == nil && state.verdicts == nil && emission.Err == nil && emission.Val != nil {
 				_, responseErr = rpc.CanonicalOf(state.validityPolicy(), emission.Val)
 				if responseErr == nil || errors.Is(responseErr, rpc.ErrNotCanonicalScalar) {
 					_, responseErr = state.validityPolicy().Normalize(emission.Val)
@@ -206,10 +233,13 @@ func singleSourcePolicy(policy rpc.Policy) bool {
 }
 
 // admitPhase preserves the raw responses, rejects structurally unsafe JSON,
-// and runs the method's admission hook with a same-source caller. Admission
-// runs before normalization and clustering: a malformed body cannot win a
-// cluster, and dependent content is always fetched from the source that
-// supplied the primary response.
+// and runs the invocation's frozen per-source stage. On the raw route that is
+// the method's admission hook with a same-source caller; on the canonical
+// route it is the plan's processor. The stage runs before normalization and
+// clustering: a malformed body cannot win a cluster, and dependent content is
+// always fetched from the source that supplied the primary response. Both
+// routes keep the same concurrency, source slots, same-source caller,
+// deadline, Close, and dependency-capture semantics.
 func (a *Aggregator) admitPhase(state *invocationState) {
 	// Preserve every primary response before admission is allowed to clear a
 	// malformed value. This is the raw per-source record used by Uncertain;
@@ -236,6 +266,10 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 			state.emissions[i].Val = nil
 		}
 	}
+	if state.processorRoute != nil {
+		a.processPhase(state)
+		return
+	}
 	admission, ok := state.admissionHook()
 	if !ok {
 		return
@@ -248,18 +282,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			evidence, admissionErr := admission(state.ctx, state.admissionRequest, state.emissions[i].Val, func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
-				raw, callErr := a.pool.CallSource(callCtx, state.emissions[i].Src, method, params)
-				if c := uncertain.CollectorFromContext(state.ctx); c != nil {
-					source := SourceRefOf(state.emissions[i].Src)
-					errText := ""
-					if callErr != nil {
-						errText = callErr.Error()
-					}
-					c.Record("dependency", method, source, raw, errText)
-				}
-				return raw, callErr
-			})
+			evidence, admissionErr := admission(state.ctx, state.admissionRequest, state.emissions[i].Val, a.sameSourceCaller(state, i))
 			if admissionErr != nil {
 				if c := uncertain.CollectorFromContext(state.ctx); c != nil {
 					c.Record("admission", state.prepared.Method, SourceRefOf(state.emissions[i].Src), nil, admissionErr.Error())
@@ -274,10 +297,95 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 	wg.Wait()
 }
 
+// processPhase is the canonical route's per-source stage: each available
+// source's response is processed exactly once by the frozen processor, and
+// the result lands back in that source's own slot. A processor failure keeps
+// the admission-phase attribution the raw route would have produced; an
+// internal contract fault is recorded for the round, never against the
+// source.
+func (a *Aggregator) processPhase(state *invocationState) {
+	state.canonicalObservations = make([]rpc.CanonicalObservation, len(state.emissions))
+	results := make([]rpc.CanonicalResult, len(state.emissions))
+	internal := make([]error, len(state.emissions))
+	var wg sync.WaitGroup
+	for i := range state.emissions {
+		if state.emissions[i].Err != nil || state.emissions[i].Val == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result, err := state.processorRoute(state.ctx, state.admissionRequest, state.emissions[i].Val, a.sameSourceCaller(state, i))
+			if err != nil {
+				if errors.Is(err, rpc.ErrInvalidCanonicalResult) {
+					// A contract fault is the process's, not the provider's:
+					// the emission stays untouched so no fault or health table
+					// blames the source.
+					internal[i] = err
+					return
+				}
+				if c := uncertain.CollectorFromContext(state.ctx); c != nil {
+					c.Record("admission", state.prepared.Method, SourceRefOf(state.emissions[i].Src), nil, err.Error())
+				}
+				state.emissions[i].Err = fmt.Errorf("admission: %w", err)
+				state.emissions[i].Val = nil
+				return
+			}
+			results[i] = result
+		}()
+	}
+	wg.Wait()
+	for i := range state.emissions {
+		if internal[i] != nil {
+			state.internalFault = errors.Join(state.internalFault, internal[i])
+			continue
+		}
+		observation := ObservationFromEmission(state.emissions[i])
+		if observation.Err != nil {
+			// A failed source keeps its slot without a result.
+			paired, err := rpc.NewCanonicalObservation(observation, rpc.CanonicalResult{})
+			if err != nil {
+				state.internalFault = errors.Join(state.internalFault, err)
+				continue
+			}
+			state.canonicalObservations[i] = paired
+			continue
+		}
+		paired, err := rpc.NewCanonicalObservation(observation, results[i])
+		if err != nil {
+			// The processor returned no result beside a nil error: the
+			// internal contract sentinel, never a provider verdict.
+			state.internalFault = errors.Join(state.internalFault, fmt.Errorf("%w: %s", rpc.ErrInvalidCanonicalResult, err.Error()))
+			continue
+		}
+		state.canonicalObservations[i] = paired
+	}
+}
+
+// sameSourceCaller binds one emission's slot to the same-source dependency
+// caller both routes share: the call goes to the source that supplied the
+// primary response, and the raw material is recorded on the invocation's
+// capture.
+func (a *Aggregator) sameSourceCaller(state *invocationState, i int) rpc.AdmissionCaller {
+	return func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
+		raw, callErr := a.pool.CallSource(callCtx, state.emissions[i].Src, method, params)
+		if c := uncertain.CollectorFromContext(state.ctx); c != nil {
+			source := SourceRefOf(state.emissions[i].Src)
+			errText := ""
+			if callErr != nil {
+				errText = callErr.Error()
+			}
+			c.Record("dependency", method, source, raw, errText)
+		}
+		return raw, callErr
+	}
+}
+
 // resolvePhase assembles observations, aggregates fields, and adjudicates.
 // A non-nil early exit reports the two degraded exits (collection failure
-// with nothing usable, and every-delivered-response-malformed); otherwise the
-// state carries the resolution outcome.
+// with nothing usable, and every-delivered-response-malformed) plus the
+// canonical route's internal-contract abort; otherwise the state carries the
+// resolution outcome.
 func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *earlyExit {
 	state.observations = make([]rpc.Observation, len(state.emissions))
 	state.participants = make([]rpc.SourceRef, 0, len(state.emissions))
@@ -290,6 +398,21 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 			Evidence: emission.Evidence,
 		}
 		state.participants = append(state.participants, state.observations[i].Source)
+	}
+	// The canonical seam's internal contract fault terminates the round's
+	// success before any resolution, even with quorum in reach. The decision
+	// stays Unknown; the fault is named once on the decision outside the
+	// per-source tables; the per-source statement comes from the invocation's
+	// own records, so no raw hook re-runs to classify anyone; the other known
+	// transport faults keep their attribution, and the internal fault itself
+	// stays provider-neutral.
+	if state.internalFault != nil {
+		state.verdicts = finalizeVerdicts(verdictsFromSlots(state.emissions), state.emissions)
+		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
+		state.attachFaults(&decision, state.verdicts)
+		decision.Faults = append(decision.Faults, fmt.Errorf("canonical: %w", state.internalFault))
+		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, state.internalFault, state.emissions, state.verdicts)
+		return &earlyExit{decision: decision, err: state.internalFault}
 	}
 	// A field-aggregation failure only degrades this invocation to a decision
 	// without diagnostics; the error itself is kept so every return path
@@ -327,6 +450,31 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 		return &earlyExit{decision: decision, err: err}
 	}
 	return nil
+}
+
+// verdictsFromSlots states every source's outcome from the invocation's own
+// records: a delivered error is unusable with its own error, everything else
+// counts as processed-neutral so the fault tables blame only real source
+// failures. This is the canonical route's degraded-exit statement — the
+// resolution itself never classified anyone, and no raw hook may run to do
+// it afterwards.
+func verdictsFromSlots(emissions []pool.Emission) []rpc.SourceVerdict {
+	verdicts := make([]rpc.SourceVerdict, 0, len(emissions))
+	for _, emission := range emissions {
+		verdict := rpc.SourceVerdict{Source: SourceRefOf(emission.Src), Kind: rpc.VerdictSupported}
+		if emission.Err != nil {
+			verdict.Kind = rpc.VerdictUnusable
+			verdict.Err = emission.Err
+		}
+		verdicts = append(verdicts, verdict)
+	}
+	sort.Slice(verdicts, func(i, j int) bool {
+		if verdicts[i].Source.ID != verdicts[j].Source.ID {
+			return verdicts[i].Source.ID < verdicts[j].Source.ID
+		}
+		return verdicts[i].Source.Name < verdicts[j].Source.Name
+	})
+	return verdicts
 }
 
 // resolveValue resolves the decision through the read's resolution entry —

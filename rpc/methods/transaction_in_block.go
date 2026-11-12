@@ -13,13 +13,18 @@ const MethodGetTransactionByBlockHashAndIndex = "eth_getTransactionByBlockHashAn
 
 func transactionInBlockSpec() MethodSpec {
 	return MethodSpec{
-		Method:                 MethodGetTransactionByBlockHashAndIndex,
-		Resolver:               ResolverStrict,
-		Normalize:              normalizeTransactionInBlock,
-		Encode:                 prepareTransactionInBlock,
-		KeySource:              rpc.RuleKeyNormalizer,
+		Method:    MethodGetTransactionByBlockHashAndIndex,
+		Resolver:  ResolverStrict,
+		Normalize: normalizeTransactionInBlock,
+		Encode:    prepareTransactionInBlock,
+		// KeySource is canonical-bytes for the same convergence as by-hash:
+		// the normalizer returns the encoder's bytes, so the clusters and
+		// their ordering are unchanged while the declared key source now
+		// names what the route actually compares.
+		KeySource:              rpc.RuleKeyCanonicalBytes,
 		CompareKind:            rpc.RuleCompareMethodSpecific,
 		Admit:                  admitTransactionInBlock,
+		ProcessCanonical:       processTransactionInBlock,
 		ObservationProjectorID: ProjectorTransaction,
 	}
 }
