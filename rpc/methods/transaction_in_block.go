@@ -7,7 +7,6 @@ import (
 
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 const MethodGetTransactionByBlockHashAndIndex = "eth_getTransactionByBlockHashAndIndex"
@@ -48,30 +47,48 @@ func admitTransactionInBlock(_ context.Context, req rpc.Request, value json.RawM
 	return nil, nil
 }
 
+// processTransactionInBlock is the method's canonical processing entry. Its
+// acceptance rides the shared object encoding and the official schema
+// branches, with this method's mined-only condition: a transaction addressed
+// by block hash and index is by definition included, so a null inclusion
+// context cannot satisfy the request. No whole-key compatibility correction
+// applies here — by-hash's pending timestamp derivation is not this method's
+// rule and is not copied.
+func processTransactionInBlock(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+	candidate, err := prepareTransactionCandidateInBlock(value)
+	if err != nil {
+		return rpc.CanonicalResult{}, err
+	}
+	if err := candidate.AdmitInBlock(req); err != nil {
+		return rpc.CanonicalResult{}, err
+	}
+	return rpc.NewCanonicalResult(candidate.Canonical(), nil)
+}
+
+// prepareTransactionCandidateInBlock encodes the shared transaction candidate
+// and rejects the pending shape before any request binding.
+func prepareTransactionCandidateInBlock(value json.RawMessage) (transaction.Candidate, error) {
+	candidate, err := transaction.Prepare(value)
+	if err != nil {
+		return transaction.Candidate{}, err
+	}
+	if candidate.Pending() {
+		return transaction.Candidate{}, fmt.Errorf("%w: pending transaction has no requested block/index", rpc.ErrMalformedResponse)
+	}
+	return candidate, nil
+}
+
 func normalizeTransactionInBlock(value json.RawMessage) (string, error) {
 	candidate, err := prepareTransactionInBlock(value)
 	return string(candidate), err
 }
 
-// prepareTransactionInBlock encodes the shared transaction candidate and
-// rejects the pending shape: a transaction addressed by block hash and index
-// is by definition included, so a null inclusion context cannot satisfy the
-// request. No whole-key compatibility correction applies to this method: its
-// acceptance rides the shared object encoding and the official schema
-// branches, without extending by-hash's pending timestamp derivation.
+// prepareTransactionInBlock is the raw route's preparation: the same
+// candidate the processing entry builds, carrying its canonical bytes.
 func prepareTransactionInBlock(value json.RawMessage) (json.RawMessage, error) {
-	candidate, err := transaction.Encode(value)
-	if err != nil || wire.IsJSONNull(candidate) {
-		return candidate, err
+	candidate, err := prepareTransactionCandidateInBlock(value)
+	if err != nil {
+		return nil, err
 	}
-	var inclusion struct {
-		BlockHash json.RawMessage `json:"blockHash"`
-	}
-	if err := json.Unmarshal(candidate, &inclusion); err != nil {
-		return nil, fmt.Errorf("%w: transaction inclusion: %v", rpc.ErrMalformedResponse, err)
-	}
-	if wire.IsJSONNull(inclusion.BlockHash) {
-		return nil, fmt.Errorf("%w: pending transaction has no requested block/index", rpc.ErrMalformedResponse)
-	}
-	return candidate, nil
+	return candidate.Canonical(), nil
 }

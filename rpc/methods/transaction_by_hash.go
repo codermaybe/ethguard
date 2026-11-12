@@ -49,6 +49,36 @@ func admitTransactionByHash(_ context.Context, req rpc.Request, value json.RawMe
 	return nil, nil
 }
 
+// processTransactionByHash is the method's canonical processing entry: one
+// run prepares the candidate (safety gate, whole-key corrections over the
+// read-only original, object representation work), binds it to the requested
+// hash, and hands out the immutable canonical result. The raw normalizer and
+// encoder are never consulted on this route — the canonical bytes are both
+// the comparison key and the committed value. Evidence stays absent, exactly
+// what the raw admission returns for this method.
+func processTransactionByHash(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+	candidate, err := prepareTransactionCandidateByHash(value)
+	if err != nil {
+		return rpc.CanonicalResult{}, err
+	}
+	if err := candidate.AdmitByHash(req); err != nil {
+		return rpc.CanonicalResult{}, err
+	}
+	return rpc.NewCanonicalResult(candidate.Canonical(), nil)
+}
+
+// prepareTransactionCandidateByHash is the by-hash preparation over the
+// object kernel: the same safety gate, whole-key corrections, and unique
+// missing-timestamp derivation as the raw preparation, ending in the
+// candidate instead of re-entering Encode.
+func prepareTransactionCandidateByHash(value json.RawMessage) (transaction.Candidate, error) {
+	candidateRaw, err := correctTransactionByHash(value)
+	if err != nil {
+		return transaction.Candidate{}, err
+	}
+	return transaction.Prepare(candidateRaw)
+}
+
 func normalizeTransactionByHash(value json.RawMessage) (string, error) {
 	candidate, err := prepareTransactionByHash(value)
 	return string(candidate), err
@@ -60,6 +90,17 @@ func normalizeTransactionByHash(value json.RawMessage) (string, error) {
 // and corrections write into an independent candidate so iteration order and
 // repeated calls cannot change the canonical result.
 func prepareTransactionByHash(value json.RawMessage) (json.RawMessage, error) {
+	candidate, err := prepareTransactionCandidateByHash(value)
+	if err != nil {
+		return nil, err
+	}
+	return candidate.Canonical(), nil
+}
+
+// correctTransactionByHash is the method's whole-key correction pass: safety
+// gate, root null, and the correction switch over the read-only original.
+// The pass writes into an independent candidate; nothing re-enters it.
+func correctTransactionByHash(value json.RawMessage) (json.RawMessage, error) {
 	if err := jsonsafe.Validate(value); err != nil {
 		return nil, fmt.Errorf("%w: transaction JSON: %v", rpc.ErrMalformedResponse, err)
 	}
@@ -98,7 +139,7 @@ func prepareTransactionByHash(value json.RawMessage) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: transaction candidate: %v", rpc.ErrMalformedResponse, err)
 	}
-	return transaction.Encode(candidateRaw)
+	return candidateRaw, nil
 }
 
 // correctTransactionByHashKey is the method's whole-key compatibility rule.
