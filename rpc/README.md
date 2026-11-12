@@ -2,7 +2,10 @@
 
 This package holds the normalized JSON-RPC transport and decision model:
 the `Request`/`Observation`/`Decision` types, the `Policy` contract and
-`Registry`, and the shared resolution strategies — dynamic fixed-basis
+`Registry`, the canonical single-source processing seam
+(`canonical.go`: processor, immutable result, slot pairing, internal
+contract sentinel, and the strict resolver's consumption entries), and
+the shared resolution strategies — dynamic fixed-basis
 corroboration, lower-median selection for variable results, upstream-local
 selection, transparent forwarding, and the anchor decorators
 (`WithAnchor`, `WithAnchorHeight`, `WithAnchorHeightFields`,

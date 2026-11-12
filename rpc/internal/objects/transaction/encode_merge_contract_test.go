@@ -142,9 +142,9 @@ func TestEncodeTypePinsTheBranchAcrossForeignMembers(t *testing.T) {
 		t.Fatalf("cross-branch tolerated members rejected: %v", err)
 	}
 	var carried struct {
-		Type               string          `json:"type"`
+		Type                string          `json:"type"`
 		BlobVersionedHashes json.RawMessage `json:"blobVersionedHashes"`
-		MaxFeePerBlobGas   json.RawMessage `json:"maxFeePerBlobGas"`
+		MaxFeePerBlobGas    json.RawMessage `json:"maxFeePerBlobGas"`
 	}
 	if err := json.Unmarshal(encoded, &carried); err != nil {
 		t.Fatal(err)

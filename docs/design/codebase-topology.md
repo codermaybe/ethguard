@@ -65,7 +65,7 @@ flowchart TD
 
 1. Interface 由消费者定义；Transport／Head-Reading Port 不携带方法 policy 装配。
 2. Adapter 负责协议、传输形状和生命周期，不做 admit、quorum、conflict。
-3. `rpc` 不导入 `rpc/methods`，不拥有网络 I/O；允许裁决所需的 JSON／wire 处理。
+3. `rpc` 不导入 `rpc/methods`，不拥有网络 I/O；允许裁决所需的 JSON／wire 处理。canonical 处理 seam 属于 rpc core（`rpc/canonical.go` 的类型与 sentinel）与 aggregator（invocation 私有的路线冻结与每源处理阶段）；方法 processor 属于各自方法文件，经 MethodSpec/ReadPlan 声明装配——rpc 不解释字段，aggregator 不解释 schema，plan 是唯一通道，无第二份注册维度（合同见 [resolver seam](resolver-seam-contract.md#7-canonical-单源处理路线2026-11-13-试点落地)）。
 4. pool 不解释 Ethereum 方法参数；aggregator 不解释字段表；生产不导入 verification／testkit。
 5. 只有一个 Composition Root 和一个 typed 实现。root 与官方形状 view 不得各自实现一套执行、重试、解析或证据链。
 6. geth 的具体 client／rpc 依赖按显式 adapter 与现有静态 interlock 白名单管理；不能从兼容逃生舱推导默认原生 build 已解除限制。

@@ -176,3 +176,45 @@ reference seam 改成业务字段规则。
 替换、对象有外部真实消费者或知识所有权/变更节奏已分离），并能减少调用者知识；
 否则保持现有对象/wire 深模块，不按文件数拆包。任何后续设计不得把历史原型当作
 已授权的运行时变更。
+
+## 7. Canonical 单源处理路线（2026-11-13 试点落地）
+
+本节记录 2026-11-13 接入的处理 seam 合同；类型定义在 `rpc/canonical.go`，路由冻结在
+aggregator，方法装配约束在 `methods` 编译验证。该 seam 是受控的处理入口，不是注册表：
+无 processor registry、无方法名 switch、无 vendor 配置、无第二份 key 模式。
+
+**类型与不变量。** `CanonicalProcessor`（冻结语义请求 + 来源原文 + 同源 caller →
+`CanonicalResult`）是方法唯一的受控处理入口。`CanonicalResult` 携带不可变规范字节与
+准入 evidence，不携带来源身份、请求或 invocation token；空值即无成功结果，合法根 null
+是非空 `"null"`；getter 返回拷贝。`CanonicalObservation` 绑定一个来源槽位：失败来源保留
+槽位且无结果，成功来源必须有结果；配对错误、构造器非法输出、非零 result+error、
+成功缺结果都是内部合同 sentinel `ErrInvalidCanonicalResult`——coordinator 必须先于
+provider 归因识别它：整轮失败、不写入来源 SourceFaults、不对 provider 计健康、其他
+已知 transport 故障归因保持、最终健康只执行一次。结果只在当前 invocation 内使用，
+禁止全局/跨 invocation/按交易 hash 缓存，禁止把 evidence 当候选。
+
+**路线冻结。** invocation 在 prepare 末尾从 plan 声明、prepared 请求与 captured
+corroboration 模式一次性冻结处理路线（`frozenProcessorRoute`）：plan 有 processor 且
+当前是普通 strict 轮 → canonical 路线；pending-local 形状与 Forwarded 模式保持完整
+原路线。这是按执行类别的判定，不是方法名注册维度；路线冻结后 admission、resolve、
+fault/event、health 四个出口共同消费，不再分别重判。
+
+**消费与提交。** `CanonicalOutcomeResolver` 的两个入口与 raw 入口共用同一聚类、排序、
+裁决、verdict 与提交内核（`rankClusters`、`legacyCoreClusters`、`commitProcessed`、
+`verdictsFromSources`）；canonical 路线直接消费规范字节，绝不调用 raw
+normalizer/encoder。raw 路线的 finish 保留其 encoder 声明门；canonical 路线无条件
+走提交内核，不依赖任何 encoder 回调存在。admission 类失败（processor 错误）保持
+`admission: %w` 的准入阶段归因与并发/槽位/同源 caller/dependency capture 语义；
+每可用来源一次处理，失败后不重试、不回退 raw hooks，包括
+finalizeHealth 的 validity fallback（raw 路线专属）与整体早退。
+
+**装配约束。** 编译只接受 Strict + canonical-bytes + 消费能力配对，并要求 raw
+兼容 adapters（Normalize/Encode）保留可用；试点方法的 Admit 不因 processor 存在而
+置空。未来无 Admit 的简单方法不凭空补空 hook——不接入 seam 或另交装配设计。
+KeySource 与 processor 的配对是元数据收敛：声明切换须有分簇等价反例
+（试点见 `TestTransactionKeySourceSwitchKeepsClusters`）。
+
+**试点边界。** 当前仅 `eth_getTransactionByHash` 与
+`eth_getTransactionByBlockHashAndIndex` 接入；26 读 RPC 的其余族处置及未接入理由见
+[method-transport-coverage](method-transport-coverage.md) 的处理处置表。CallRevert、
+Median、Local、block 窄键与 pending-local/Forwarded 不在此 seam 的支持类别内。

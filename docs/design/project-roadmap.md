@@ -15,7 +15,7 @@
 
 | 工作 | 当前边界 | 后续出口 |
 | --- | --- | --- |
-| 完整 Root／EthClient 契约 | SimulateV1 只有 opt-in gethcompat 单源入口，未闭合默认 root/view 的完整兼容门 | 统一官方签名／类型、导入 interlock、执行 owner、证据和生命周期，不以 unknown Call 或 ErrUnsupported 占位 |
+| 完整 Root／EthClient 契约 | SimulateV1 只有 opt-in gethcompat 单源入口，未闭合默认 root/view 的完整兼容门；已实现 46 项的官方签名一致性由方法集与签名双重测试钉住 | 统一官方签名／类型、导入 interlock、执行 owner、证据和生命周期，不以 unknown Call 或 ErrUnsupported 占位；独立设计 brief 不因处理接口迁移宣称闭合 |
 | 返回值与官方 schema | receipt 已按决策 0068 闭合；独立 transaction 首个方法级 key 检查点已落地，本地公开路径和 Anvil 已执行；block 和新公网观察未随之完成 | 已确认双 switch 样板收敛方向，先核查职责、校验覆盖与单次修正；具体规则及已有证据见 [transaction 检查点](transaction-semantic-matching.md#12-当前实施检查点)，provider／状态证据仍按 [测试路线](external-rpc-test-framework.md#当前执行路线先最小入口双线取证逐-key-收敛) 分层取得 |
 | 方法自治与归属迁移 | 已完成：全部 26 个注册读方法及写入／unsupported 条目按 [拓扑](codebase-topology.md#方法自治组织) 自治组织，inventory／catalog 只收集；门禁与自检记录见 [覆盖矩阵](method-transport-coverage.md#读注册归属rpcmethods) | 无进行中批次；后续结构演进按其各自 owner 文档推进 |
 | typed 字段完整性 | SyncProgress 七个字段已补齐，Done() 保留上游 remaining-counter 行为；方法计数不代表其他结果已保真 | 保留可选缺失为零及 source-local Selected 边界；已验证的本地场景不能补外部 syncing 对象缺样本 |
@@ -27,7 +27,7 @@
 
 ### 下一轮优先执行
 
-1. 迁移后的结构演进以完整行为基线为先：先固化完整路径与故障出口见证，再评估单次处理 seam 及对象内核复用；新接口接入只按族、按证据推进，不因组织迁移已完成而顺手扩大接受域。
+1. 结构演进按已建立的处置表推进（见 [覆盖矩阵](method-transport-coverage.md#26-个读-rpc-的单源处理处置2026-11-13)）：canonical 单源处理 seam 已在两个 transaction 试点接入并完成差分、计数与实测（见同表与 [resolver seam](resolver-seam-contract.md#7-canonical-单源处理路线2026-11-13-试点落地)）；下一族（receipt 对象内核）须先完成其自身 nullable/空数组/逐条绑定差分电池再接入，其余族按处置表理由维持。
 2. 按实际缺口执行真实 provider 定点采集及必要状态验证；既有无 fork Anvil 的 legacy pending → mined 与恢复隔离不能替代公网证据。内嵌 transaction 独立接入，不继承 standalone 的派生规则。
 3. 每批都可在具体代码与规则验收后停止；最后完成跨模块验收、实测性能及过渡定义清理。不要求一次推进到全部完成，临时施工清单不替代正式合同和覆盖状态。
 
