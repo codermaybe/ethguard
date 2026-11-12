@@ -29,12 +29,22 @@ var (
 	_ bind.DeployBackend  = (*ethguard.EthClient)(nil)
 )
 
-// TestEthClientMethodSetMatchesLockedTarget compares the view with the locked
+// knownMethodSetGap is the ratchet over the locked target: the default build
+// tolerates exactly this set of not-yet-implemented business methods, and any
+// additional gap fails. The gap must close through a real implementation; the
+// tolerance below never becomes a release pass — release_check sets
+// ETHGUARD_REQUIRE_COMPLETE=1, which requires a zero-gap method set.
+var knownMethodSetGap = map[string]bool{
+	"SimulateV1": true, // opt-in adapter only; independent design brief pending
+}
+
+// TestEthClientMethodSetIsExact compares the view with the locked
 // go-ethereum ethclient.Client method set, excluding Client(), which is a
 // concrete accessor to the underlying *rpc.Client and is outside EthGuard's
-// business facade. Missing methods are logged while the implementation is in
-// progress; release_check can set ETHGUARD_REQUIRE_COMPLETE=1 to turn those
-// gaps into a hard acceptance failure. Methods outside the target always fail.
+// business facade. The default build allows only the known gap ratchet
+// (knownMethodSetGap); any other missing method fails here. Release checking
+// sets ETHGUARD_REQUIRE_COMPLETE=1 to require the complete zero-gap set.
+// Methods outside the target always fail.
 func TestEthClientMethodSetIsExact(t *testing.T) {
 	want := make(map[string]bool)
 	upstream := reflect.TypeOf((*gethethclient.Client)(nil))
@@ -62,6 +72,22 @@ func TestEthClientMethodSetIsExact(t *testing.T) {
 		}
 	}
 	sort.Strings(missing)
+	// The ratchet: the known gap stays visible, and anything beyond it fails
+	// the default build. The release gate still requires zero gaps.
+	businessImplemented := len(got) + len(missing)
+	if businessImplemented != len(want) {
+		t.Fatalf("method accounting = %d implemented + %d missing, want %d business methods",
+			len(got), len(missing), len(want))
+	}
+	var unexpected []string
+	for _, name := range missing {
+		if !knownMethodSetGap[name] {
+			unexpected = append(unexpected, name)
+		}
+	}
+	if len(unexpected) > 0 {
+		t.Fatalf("missing locked go-ethereum business methods beyond the known gap ratchet: %v", unexpected)
+	}
 	if len(missing) > 0 {
 		t.Logf("locked go-ethereum business methods not yet exposed (%d): %v", len(missing), missing)
 		if os.Getenv("ETHGUARD_REQUIRE_COMPLETE") == "1" {
