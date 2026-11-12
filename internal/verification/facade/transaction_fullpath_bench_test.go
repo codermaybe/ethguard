@@ -20,8 +20,8 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/pool"
-	"github.com/codermaybe/ethguard/rpctest"
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // The full production-path benchmark for the transaction pilot: the typed
@@ -296,7 +296,6 @@ func benchmarkTransactionProductionPath(b *testing.B, method string) {
 						b.Fatalf("timed rounds contacted %d source calls, want %d (rounds %d × sources %d)", nodeCalls, rounds*count, rounds, count)
 					}
 					closeFleet()
-					closeFleet = nil
 				}
 			})
 		}

@@ -464,14 +464,14 @@ func TestCanonicalProcessorPairingOutcomes(t *testing.T) {
 	build := func(raw json.RawMessage) (rpc.CanonicalResult, error) {
 		return rpc.NewCanonicalResult(raw, nil)
 	}
-	run := func(process rpc.CanonicalProcessor) (rpc.Decision, error, *Aggregator) {
+	run := func(process rpc.CanonicalProcessor) (rpc.Decision, *Aggregator, error) {
 		hooks := &processingHooks{}
 		agg, _ := canonicalAggregator(t, processingPlan(hooks, process), `"odd"`, `"same"`, `"same"`)
 		decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
-		return decision, err, agg
+		return decision, agg, err
 	}
 	t.Run("sentinel-beside-result", func(t *testing.T) {
-		decision, err, agg := run(func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+		decision, agg, err := run(func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
 			result, _ := build(raw)
 			if strings.Contains(string(raw), "odd") {
 				return result, rpc.ErrInvalidCanonicalResult
@@ -491,7 +491,7 @@ func TestCanonicalProcessorPairingOutcomes(t *testing.T) {
 		}
 	})
 	t.Run("plain-error-with-zero-result", func(t *testing.T) {
-		decision, err, _ := run(func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+		decision, _, err := run(func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
 			if strings.Contains(string(raw), "odd") {
 				return rpc.CanonicalResult{}, fmt.Errorf("required field: %w", rpc.ErrMalformedResponse)
 			}
@@ -508,7 +508,7 @@ func TestCanonicalProcessorPairingOutcomes(t *testing.T) {
 		}
 	})
 	t.Run("nil-error-with-zero-result", func(t *testing.T) {
-		decision, err, agg := run(func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+		decision, agg, err := run(func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
 			if strings.Contains(string(raw), "odd") {
 				return rpc.CanonicalResult{}, nil
 			}

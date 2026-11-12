@@ -14,9 +14,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// Pruner removes fields outside a method's comparison shape.
-type Pruner func(method string, raw json.RawMessage) (string, error)
-
 // IsJSONNull and presentNonNull forward to the shared wire spellings: the
 // former local copy skipped whitespace trimming, so " null " read as an
 // object; every object package now answers the null/presence question
@@ -103,33 +100,6 @@ func AdmitInBlock(req rpc.Request, value json.RawMessage) error {
 		return fmt.Errorf("%w: transaction index does not match requested index", rpc.ErrMalformedResponse)
 	}
 	return nil
-}
-
-// Normalize chooses the comparison key. It rejects only values with no
-// canonical object form. Required fields and hash binding belong to Admit.
-func Normalize(method string, value json.RawMessage, pruner Pruner) (string, error) {
-	if IsJSONNull(value) {
-		return "null", nil
-	}
-	var shape map[string]json.RawMessage
-	if err := json.Unmarshal(value, &shape); err != nil || shape == nil {
-		return "", fmt.Errorf("transaction: expected object")
-	}
-	if len(shape) <= 1 {
-		return "", fmt.Errorf("transaction: incomplete object")
-	}
-	key, err := pruner(method, value)
-	if err != nil {
-		return "", err
-	}
-	encoded, err := Encode(json.RawMessage(key))
-	return string(encoded), err
-}
-
-// NormalizeInBlock uses the same transaction field mask as the by-hash
-// method; admission above supplies the additional block/index binding.
-func NormalizeInBlock(value json.RawMessage, pruner Pruner) (string, error) {
-	return Normalize("eth_getTransactionByHash", value, pruner)
 }
 
 // Validate checks transaction payload, hash/signature, and inclusion context.

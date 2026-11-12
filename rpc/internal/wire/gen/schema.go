@@ -74,16 +74,16 @@ func decodeSchema(dec *json.Decoder) (*schema, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch first.(type) {
+	switch tok := first.(type) {
 	case json.Delim:
-		if first.(json.Delim) != '{' {
-			return nil, fmt.Errorf("schema: expected object node, got %v", first)
+		if tok != '{' {
+			return nil, fmt.Errorf("schema: expected object node, got %v", tok)
 		}
 	case string, bool, nil, json.Number:
 		out.unsupported = append(out.unsupported, "non-object schema")
 		return out, nil
 	default:
-		return nil, fmt.Errorf("schema: unexpected token %v", first)
+		return nil, fmt.Errorf("schema: unexpected token %v", tok)
 	}
 	seen := map[string]bool{}
 	for dec.More() {

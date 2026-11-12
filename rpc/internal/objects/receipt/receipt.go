@@ -178,9 +178,6 @@ func NormalizeBlock(value json.RawMessage, prune Pruner, method string) (string,
 	return prune(method, value)
 }
 
-// IsJSONNull and PresentNonNull forward to the shared wire spellings so every
-// object package answers the null/presence question identically.
+// IsJSONNull forwards to the shared wire spelling so every
+// object package answers the null question identically.
 func IsJSONNull(value json.RawMessage) bool { return wire.IsJSONNull(value) }
-func PresentNonNull(value json.RawMessage) bool {
-	return wire.PresentNonNull(value)
-}
