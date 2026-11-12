@@ -317,3 +317,77 @@ func TestCanonicalRouteCanceledRound(t *testing.T) {
 		t.Fatalf("canceled round re-ran raw hooks: normalize=%d encode=%d", normalize, encode)
 	}
 }
+
+// TestCanonicalRouteProcessesPerInvocation pins the no-cross-request-hit
+// rule: the same source answering the same request in two separate
+// invocations is processed once per invocation — two processes total — and
+// no result survives an invocation to answer the next one.
+func TestCanonicalRouteProcessesPerInvocation(t *testing.T) {
+	hooks := &processingHooks{}
+	agg, _ := canonicalAggregator(t, processingPlan(hooks, echoProcessor(hooks)), `"same"`, `"same"`, `"same"`)
+	for i := 1; i <= 2; i++ {
+		decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+		if err != nil || decision.Status != rpc.Corroborated {
+			t.Fatalf("round %d = %+v, %v", i, decision, err)
+		}
+		_, _, process := hooks.snapshot()
+		if process != 3*i {
+			t.Fatalf("round %d: processor ran %d times total, want three per invocation", i, process)
+		}
+	}
+	normalize, encode, _ := hooks.snapshot()
+	if normalize != 0 || encode != 0 {
+		t.Fatalf("two rounds re-ran raw hooks: normalize=%d encode=%d", normalize, encode)
+	}
+}
+
+// TestCanonicalRouteGatedMemberStaysAbsentWithGateFault pins the unattempted
+// contract on the processing route: a source gated by its own repeated
+// malformed answers keeps its voting-basis slot, is never attempted again,
+// and surfaces as the gate fault with its slot kept — the round's processing
+// never fabricates a response for it.
+func TestCanonicalRouteGatedMemberStaysAbsentWithGateFault(t *testing.T) {
+	hooks := &processingHooks{}
+	// The bad source fails the object's semantic validation three times, the
+	// same gating shape the raw route produces; the other two corroborate.
+	rejecting := func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+		hooks.mu.Lock()
+		hooks.process++
+		hooks.mu.Unlock()
+		if strings.Contains(string(raw), "bad") {
+			return rpc.CanonicalResult{}, fmt.Errorf("required field: %w", rpc.ErrMalformedResponse)
+		}
+		return rpc.NewCanonicalResult(raw, nil)
+	}
+	agg, nodes := canonicalAggregator(t, processingPlan(hooks, rejecting), `"same"`, `"same"`, `"bad"`)
+	members := agg.pool.VotingMembers()
+	gated := members[2]
+	for attempt := uint64(1); attempt <= 3; attempt++ {
+		decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+		if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
+			t.Fatalf("attempt %d: decision=%+v err=%v", attempt, decision, err)
+		}
+		if h := gated.Health(); h.Failures != attempt {
+			t.Fatalf("attempt %d: gated health=%+v", attempt, h)
+		}
+	}
+	_, _, processed := hooks.snapshot()
+	if processed != 9 {
+		t.Fatalf("processor ran %d times, want 3 per round × 3 available", processed)
+	}
+	for range 2 {
+		decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+		if err != nil || len(decision.Participants) != 3 || len(decision.Support) != 2 || len(decision.SourceFaults) != 1 || !errors.Is(decision.SourceFaults[0].Err, pool.ErrSourceGated) {
+			t.Fatalf("gated fixed basis: decision=%+v err=%v", decision, err)
+		}
+	}
+	if len(nodes[2].Calls()) != 3 {
+		t.Fatalf("gated source was attempted again: %d calls", len(nodes[2].Calls()))
+	}
+	// The gated member contributed only its first three rounds of processing;
+	// the two live sources account for every later one.
+	_, _, processedAfter := hooks.snapshot()
+	if processedAfter != 13 {
+		t.Fatalf("unexpected processing total: %d, want 9 + 2 live sources × 2 rounds", processedAfter)
+	}
+}
