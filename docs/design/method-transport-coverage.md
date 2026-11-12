@@ -133,6 +133,23 @@ surface remains evidence-backed.
 
 自检结论（2026-11-12，迁移完成后）：方法文件对其他方法文件私有函数的引用为零；共享依赖仅族 wrapper（block.go）、objects 层与 wire codec 三类。迁移逐字搬运，唯一一次简化尝试（官方闭对象的运行时拒绝）被既有 receipt vendor-dissent 验收否决并回退，未留下行为变更；无新接口、注册框架或 helper 包，inventory 为纯收集。
 
+## 26 个读 RPC 的单源处理处置（2026-11-13）
+
+本轮处理接口（canonical strict 单源结果）的逐族裁决。口径：**新接口接入** = 生产 invocation 冻结 canonical 路线；**对象内优化** = 不接 seam 但消除可证明重复；**保留合同** = 按现有执行合同运行并记录理由；**明确缺口** = 记录未闭合项。数量：接入 2、保留 24（其中 6 个记录了可评估的接入/共享路径）、缺口 0（SimulateV1 缺口属于 47 方法面，见下文方法差异基线，不在 26 读 RPC 之列）。处置证据来自 T00 事实快照、T02/T07/T08 见证与逐族代码核查。
+
+| 批次 | 读取 RPC | 处置 | 理由与证据 |
+| --- | --- | --- | --- |
+| T09a | `eth_getTransactionByHash`、`eth_getTransactionByBlockHashAndIndex` | 新接口接入 | T05–T07 试点完成并复核：冻结路线、一次 processor、零 raw-hook 重跑、Fault/健康等价、差分与计数见证（`aggregator/canonical_route_test.go`、facade `transaction_canonical_route_test.go`）。KeySource 已收敛 canonical-bytes，分簇等价有见证（`TestTransactionKeySourceSwitchKeepsClusters`）。 |
+| T09b | `eth_getTransactionReceipt`、`eth_getBlockReceipts` | 保留合同（可接入路径已记录） | 与试点同构：admission 已拥有准备类工作——`AdmitTransaction→validateAndDecode` 内部完整执行一次 `receiptobject.Encode`（prune+typed+merge）再解码绑定 TxHash，集群 Encode 再跑一次完整 Encode，即每来源两次完整编码，正是试点消除的形状。未接入的原因是等价性负担而非结构障碍：nullable/DATA presence 决策 0068、空数组与 null 语义（`AdmitBlock`）、逐 receipt 请求绑定与大数组成本须各有差分见证（receipt vendor-dissent 曾否决过一次简化尝试）。接入路径：receipt 对象按 transaction 同法建立 Candidate 内核 → 两方法 processor → KeySource 已是 canonical-bytes 无需切换。 |
+| T09c | `eth_getLogs`、`eth_feeHistory`、`eth_createAccessList` | 保留合同 | logs 的 admission 只做 requiredness/请求绑定校验（`logobject.ValidateResponse`），不重复 Encode 的解析——无试点要消除的处理重复；feeHistory admission 的形状校验+range 校验与 Encode 解析部分重叠但非同一完整处理；accessList 无 Admit。三者各有独立接受域（范围/ratio/request validation/pending refuse/observe），迁移须逐族证明 Fault 阶段等价且收益未证实。另记录一处对象内重复：`admitLogsResponse` 与 `logobject.ValidateResponse` 对 null/array 的前置检查重复一次轻量遍历，收益微小，保留原状。 |
+| T09d | `eth_chainId`、`net_version`、`eth_getBalance`、`eth_getTransactionCount`、`eth_getStorageAt`、`eth_getCode`、`eth_getBlockTransactionCountByHash`、`eth_getBlockTransactionCountByNumber` | 保留合同 | 八个方法均无 Admit：每个来源在集群 Encode 中恰好一次准备，无重复处理可消除。无 Admit 的方法接入新 seam 会把 Encode 错误从 resolver 的 encode-skip（Fault 表内、不缩分母）改写为 admission 归因——设计禁止这种未证明的 Fault 阶段统一。KeySource 核查：7 个已是 canonical-bytes；`eth_getBlockTransactionCountByHash` 的 normalizer 键（十进制数量语法）与 encoder 输出（0x 十六进制）确实不同——窄键声明是真实的，不是遗留。pending-local 方法（balance/count/storage/code 的 PendingObserve）按路线冻结规则天然走完整原路线。 |
+| T09e | `eth_getBlockByHash`、`eth_getBlockByNumber` | 保留合同 | 窄键裁决（number\|hash）与 canonical 字节键语义不同，不使用本 seam；full/header 保护域、uncle root 与头绑定是独立差分面。对象内重复评估结论：fullTx 响应的 admission（`AdmitBlock`）与集群 encode 都做交易 payload 往返，存在可共享空间；块对象 Candidate 化需独立的差分电池（内嵌交易已按 P5 结论独立评估，不复制独立 query 规则），本轮不接入。 |
+| T09f | `eth_blockNumber`、`eth_gasPrice`、`eth_maxPriorityFeePerGas`、`eth_blobBaseFee`、`eth_estimateGas` | 保留合同 | Median/Selected 采样独立：无聚类即无 canonical-bytes 聚类键，迁移会把采样语义升级为 Strict 裁决——设计明确禁止。核查无内部重复：median 每答案一次 normalize，estimateGas 无 Admit。异常源、tie、pending 语义保持。 |
+| T09g | `net_peerCount`、`eth_syncing`、`net_listening` | 保留合同 | Local/Selected 独立，source-local 语义与 SyncProgress 全字段/Done()、bool/数量/null 拒绝规则不迁移。无 Admit、无重复处理。 |
+| T09h | `eth_call` | 保留合同 | call-revert 受控逃逸：execution/data 两层裁决、revert 四态、受保护 data 与 provider 文案分离——canonical 结果类型有意不表达该维度（设计第 4 节固定接口明确排除 call-revert）。不把错误信封当普通 canonical Value。 |
+
+补充口径：root-only `net_listening` 保留在 T09g 内（它在 26 读 RPC 的分母里，也显式记录为 root 扩展）；`eth_sendRawTransaction`（写入管线）与 `eth_getProof`（显式 unsupported）无读 spec，不参与本处置；订阅族消费同源 Pull（logs/receipts 的既有合同），本表不重复裁决。
+
 ## go-ethereum v1.17.10 官方 ethclient 方法
 
 下面列出锁定版本 `ethclient.Client` 的公开方法。当前 `EthClient` 暴露 46
