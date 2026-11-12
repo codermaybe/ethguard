@@ -18,11 +18,18 @@ import (
 // the production assembler: the real compiled TransactionByHash plan driven
 // through a real aggregator over scripted HTTP sources, once with the frozen
 // canonical route (the shipped behavior) and once with the processor removed
-// — the raw route, which is exactly the pre-refactor work shape (full
-// admission preparation plus the cluster re-encode per source). Same fixture,
-// same harness, same binary; the delta between the two routes is the
-// processing change the seam bought. The harness is same-process HTTP, so
-// absolute times carry no provider network meaning.
+// — the current raw admission route, which keeps the compiled raw hooks and
+// the canonical-bytes clustering key. This is a same-binary route delta, not
+// a pre-refactor comparison: the pre-migration commit keyed its clusters on
+// the normalizer and ran Normalize→Prepare, so its shape differed and its
+// costs are not measured here. What one invocation spends per route is
+// pinned by the counting witness (aggregator TestTransactionRouteWorkCounts):
+// the raw route runs two full-representation preparations per source (the
+// admission entry and the cluster-key encoder entry), the canonical route
+// runs the processor once per source, and neither re-normalizes. An
+// old-commit before/after comparison needs a locked checkout of that commit
+// and a harness both versions share, which is a separate run. The harness is
+// same-process HTTP, so absolute times carry no provider network meaning.
 func BenchmarkTransactionRouteComparison(b *testing.B) {
 	for _, route := range []string{"canonical", "raw"} {
 		for _, count := range []int{3, 5} { // a two-source floor cannot be met by a single member
