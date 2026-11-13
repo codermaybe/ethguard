@@ -47,11 +47,16 @@ func transactionByHashDescriptor() MethodDescriptor {
 }
 
 func admitTransactionByHash(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	candidate, err := prepareTransactionByHash(value)
+	// The admission entry prepares once and binds through the kernel: the
+	// compatibility Admit would prepare the same canonical bytes a second
+	// time. The two paths keep the same request/payload order and sentinel
+	// classes, pinned by TestTransactionAdmissionMatchesCompatChain and by
+	// TestCandidateBindingsMatchCompatEntries.
+	candidate, err := prepareTransactionCandidateByHash(value)
 	if err != nil {
 		return nil, err
 	}
-	if err := transaction.Admit(req, candidate); err != nil {
+	if err := candidate.AdmitByHash(req); err != nil {
 		return nil, err
 	}
 	return nil, nil

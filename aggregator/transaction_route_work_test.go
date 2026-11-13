@@ -23,11 +23,23 @@ import (
 // plans really spends on full-representation work per route, counted at the
 // compiled plan's own hooks — the admission entry, the resolver's canonical
 // encoder, the normalizer — plus the processor entries on the canonical
-// route. Each admission or encoder entry runs the object's full preparation
-// (the JSON-safety gate, the whole-key corrections, and the object encode),
-// so an entry count is a full-representation preparation count. These are
-// hook-entry counts, not JSON parse counts: sub-steps inside one preparation
-// unmarshal and marshal several times, and none of them is measured here.
+// route. These counters are hook-entry counts. They are not object
+// preparation counts by themselves, and they are not JSON parse counts.
+//
+// The three numbers are measured separately: hook entries here; full
+// transaction.Prepare calls and transaction-package json.Unmarshal calls
+// with the object-kernel overlay witness recorded in
+// docs/design/tmp/codeanalyze-rpc-quality-plan.md. Per usable source that
+// witness measured, through the real compiled plan and production assembler:
+// canonical route 1 Prepare and 6 unmarshals; raw route 2 Prepares and 9
+// unmarshals (admission's Prepare plus the resolver encoder's Prepare; each
+// Prepare does 3 unmarshals — the field view, the official projection, the
+// typed merge — and each binding does 3 more). The witness excludes the
+// wire and jsonsafe packages, so the unmarshal figures are a lower bound of
+// the JSON work, not a parse total. Before the admission entries bound
+// through the prepared candidate they prepared the canonical bytes a second
+// time: the same witness at f12eefe measured 3 Prepares and 13 unmarshals
+// per source on the raw route.
 
 type workCounters struct {
 	admit     atomic.Int64
@@ -173,10 +185,12 @@ func forwardedFleet(t *testing.T, method string, plan rpc.ReadPlan, body json.Ra
 // pilot methods with counting witnesses. On the canonical route one
 // invocation runs the processor exactly once per source and never touches
 // the raw hooks; on the raw route one invocation runs the admission entry
-// and the resolver's canonical encoder exactly once per usable source — the
-// two full-representation preparations — and never re-normalizes, because
-// the comparison key is the canonical bytes. A second identical invocation
-// doubles every count: nothing survives an invocation.
+// and the resolver's canonical encoder exactly once per usable source, each
+// running the object kernel once — two full preparations, measured at the
+// kernel entry by the overlay witness in the plan document, not inferred
+// from these hook counts — and never re-normalizes, because the comparison
+// key is the canonical bytes. A second identical invocation doubles every
+// count: nothing survives an invocation.
 func TestTransactionRouteWorkCounts(t *testing.T) {
 	raw, hash, blockHash, index := minedTransactionVector(t)
 	for _, method := range []string{methods.MethodGetTransactionByHash, methods.MethodGetTransactionByBlockHashAndIndex} {

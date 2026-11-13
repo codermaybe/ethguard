@@ -42,11 +42,18 @@ func transactionInBlockDescriptor() MethodDescriptor {
 }
 
 func admitTransactionInBlock(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	candidate, err := prepareTransactionInBlock(value)
+	// Same kernel reuse as the by-hash admission: prepare once, bind through
+	// the candidate instead of re-preparing the canonical bytes in the
+	// compatibility entry. The in-block preparation's mined-only check runs
+	// before the request grammar, as the processing entry already does; the
+	// request still precedes any payload verdict, so the pinned error classes
+	// (ErrInvalidRequest for a bad block hash or index) are unchanged —
+	// TestTransactionAdmissionMatchesCompatChain compares both paths.
+	candidate, err := prepareTransactionCandidateInBlock(value)
 	if err != nil {
 		return nil, err
 	}
-	if err := transaction.AdmitInBlock(req, candidate); err != nil {
+	if err := candidate.AdmitInBlock(req); err != nil {
 		return nil, err
 	}
 	return nil, nil
