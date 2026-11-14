@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestConstraintsFollowOptionalAndContainerValues(t *testing.T) {
 	if !nullable.ref.pointer || nullable.ref.inner.pattern != "^kept$" {
 		t.Fatal("nullable branch constraint lost")
 	}
-	if fieldType(nullable) != "**Text" {
+	if fmt.Sprintf("%#v", fieldTypeCode(nullable)) != "**Text" {
 		t.Fatal("optional nullable value cannot distinguish absence from null")
 	}
 	root, err := reg.walk(testSchema(t, `{"type":"string","pattern":"^root$"}`), "scalar.result")

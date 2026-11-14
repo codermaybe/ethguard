@@ -80,6 +80,8 @@ const (
 	ProjectorLogs = "logs"
 	// ProjectorFeeHistory is the fee-history range projection.
 	ProjectorFeeHistory = "fee-history"
+	// ProjectorSyncing separates official progress from provider counters.
+	ProjectorSyncing = "syncing"
 )
 
 // MethodSpec is the data form of one read method's contract: resolver, value

@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
@@ -141,8 +142,12 @@ func (c *Client) TransactionSender(ctx context.Context, tx *types.Transaction, b
 	})
 }
 
-func (c *Client) callContractAtHashExec(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, CallResult, error) {
-	decision, err := c.callTyped(ctx, methods.MethodCall, toCallArg(msg), hashBlockArg(blockHash))
+func (c *Client) callContractAtHashExec(ctx context.Context, msg ethapi.CallMsg, blockHash common.Hash) ([]byte, CallResult, error) {
+	call, err := toCallArg(msg)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodCall, call, hashBlockArg(blockHash))
 	if err != nil {
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
@@ -150,14 +155,18 @@ func (c *Client) callContractAtHashExec(ctx context.Context, msg ethereum.CallMs
 	data, err := decodeCallDecision(decision)
 	return data, CallResult{Decision: decisionOf(decision)}, err
 }
-func (c *Client) CallContractAtHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, CallResult, error) {
+func (c *Client) CallContractAtHash(ctx context.Context, msg ethapi.CallMsg, blockHash common.Hash) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return c.callContractAtHashExec(opCtx, msg, blockHash)
 	})
 }
 
-func (c *Client) pendingCallContractExec(ctx context.Context, msg ethereum.CallMsg) ([]byte, CallResult, error) {
-	decision, err := c.callTyped(ctx, methods.MethodCall, toCallArg(msg), "pending")
+func (c *Client) pendingCallContractExec(ctx context.Context, msg ethapi.CallMsg) ([]byte, CallResult, error) {
+	call, err := toCallArg(msg)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodCall, call, "pending")
 	if err != nil {
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
@@ -165,7 +174,7 @@ func (c *Client) pendingCallContractExec(ctx context.Context, msg ethereum.CallM
 	data, err := decodeCallDecision(decision)
 	return data, CallResult{Decision: decisionOf(decision)}, err
 }
-func (c *Client) PendingCallContract(ctx context.Context, msg ethereum.CallMsg) ([]byte, CallResult, error) {
+func (c *Client) PendingCallContract(ctx context.Context, msg ethapi.CallMsg) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) { return c.pendingCallContractExec(opCtx, msg) })
 }
 
@@ -178,20 +187,25 @@ func (c *Client) estimateGasWithArgExec(ctx context.Context, call map[string]any
 	gas, err := typed.DecodeGasEstimate(decision.Value)
 	return gas, CallResult{Decision: decisionOf(decision)}, err
 }
-func (c *Client) estimateGasWithArg(ctx context.Context, call map[string]any, blockArg any) (uint64, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
-		return c.estimateGasWithArgExec(opCtx, call, blockArg)
-	})
-}
-func (c *Client) EstimateGasAtBlock(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) (uint64, CallResult, error) {
+func (c *Client) EstimateGasAtBlock(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
 		arg, err := checkedBlockNumArg(blockNumber)
 		if err != nil {
 			return 0, CallResult{}, err
 		}
-		return c.estimateGasWithArgExec(opCtx, toCallArg(msg), arg)
+		call, err := toCallArg(msg)
+		if err != nil {
+			return 0, CallResult{}, err
+		}
+		return c.estimateGasWithArgExec(opCtx, call, arg)
 	})
 }
-func (c *Client) EstimateGasAtBlockHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) (uint64, CallResult, error) {
-	return c.estimateGasWithArg(ctx, toCallArg(msg), hashBlockArg(blockHash))
+func (c *Client) EstimateGasAtBlockHash(ctx context.Context, msg ethapi.CallMsg, blockHash common.Hash) (uint64, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
+		call, err := toCallArg(msg)
+		if err != nil {
+			return 0, CallResult{}, err
+		}
+		return c.estimateGasWithArgExec(opCtx, call, hashBlockArg(blockHash))
+	})
 }

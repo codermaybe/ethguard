@@ -69,9 +69,9 @@ jobs:
           generated="$(mktemp)"
           trap 'rm -f "$generated"' EXIT
           go run ./rpc/internal/wire/gen -out "$generated"
-          if ! cmp -s "$generated" rpc/internal/wire/types.gen.go; then
-            echo "::error::regenerate rpc/internal/wire/types.gen.go with go generate ./rpc/internal/wire"
-            diff -u rpc/internal/wire/types.gen.go "$generated"
+          if ! cmp -s "$generated" ethapi/types.gen.go; then
+            echo "::error::regenerate ethapi/types.gen.go with go generate ./ethapi"
+            diff -u ethapi/types.gen.go "$generated"
             exit 1
           fi
       - name: go vet

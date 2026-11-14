@@ -9,8 +9,8 @@
 | 模块、依赖与执行 owner 属于谁？ | [codebase-topology.md](codebase-topology.md) |
 | 对外承诺哪个完整 geth 业务集合？ | [go-ethereum-compatibility-policy.md](go-ethereum-compatibility-policy.md) |
 | 当前哪些方法／传输／证据未闭合？ | [method-transport-coverage.md](method-transport-coverage.md)；下一步见 [project-roadmap.md](project-roadmap.md) |
-| 方法比较、准入与结果意味着什么？ | [method-contracts.md](method-contracts.md)；生成装配索引 [method-rules.md](method-rules.md) 不手改 |
-| Value、保护投影、canonical 与官方形态如何区分？ | [return-value-design.md](return-value-design.md)；官方生成层 [wire-codegen.md](wire-codegen.md) |
+| 前置生态兼容、官方语义检查、方法准入与比较的责任范围？ | [method-contracts.md](method-contracts.md)；生成装配索引 [method-rules.md](method-rules.md) 不手改 |
+| Value、typed、附属字段与原始材料如何分通道交付？ | [return-value-design.md](return-value-design.md)；官方生成层 [wire-codegen.md](wire-codegen.md)（原始来源、显式标准勘误与通用 Jennifer） |
 | reference／pending／EIP-1898 的方法差异？ | [moving-tag-matrix.md](moving-tag-matrix.md) |
 | 裁决与 reference 门槛为何不合并？ | [acceptance-thresholds.md](acceptance-thresholds.md) |
 | freshness 已接受什么、现状有什么缺口？ | [reference-freshness-policy.md](reference-freshness-policy.md) |

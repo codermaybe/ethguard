@@ -6,7 +6,13 @@
 
 本清单以仓库锁定的 go-ethereum `v1.17.10`、`rpc/methods` catalog/ReadPlan、根 `Client` 和 `EthClient` 视图为事实源。它只记录当前代码事实和缺口，不授权单个方法任务修改公共接口。公共接口变更统一由 roadmap 管理。
 
-### v1.17.10 方法差异基线
+### 2026-11-14 公开生成类型迁移
+
+完整参数和结果签名由 `TestEthClientBusinessSignatures` 验证：六个 CallContract／EstimateGas 入口接受 `ethapi.CallMsg`，FeeHistory／SyncProgress 返回各自 `ethapi` 类型；其余方法继续逐签名比较锁定目标，尚未迁移。方法名集合和 47 项目标没有减少。Root CreateAccessList 的结果另迁为 `*ethapi.AccessListResult`，请求仍待迁移。
+
+`TestStateRefMovingTagsRewriteToAnchorHash`、estimate gas transport、call boundary／revert 与原有 HTTP／raw WSS 回归在新 CallMsg 上运行，历史 geth 参数只在 `internal/testkit/ethapitest` 中作为差分输入夹具，不被生产代码导入。`TestRequestInventorySharesTheOriginalCallAndSimulateSchemas` 固定三个调用请求 schema 的一致性。来源、public presence、blob fee 精确值与同步附属证据的范围见 [生成合同](wire-codegen.md)。这批通过不关闭剩余业务类型或原生 Simulate 缺口。
+
+## v1.17.10 方法差异基线
 
 基线直接对锁定 module 的 `*ethclient.Client` 做 Go reflection，并与本仓库
 `*EthClient` 的导出方法集合比较。结果是上游 48 个导出方法（其中
@@ -78,7 +84,7 @@ surface remains evidence-backed.
 | `eth_blockNumber` | Registered | `BlockNumber` | `BlockNumber` | native HTTP/WSS raw call | 不适用 | `eth.go`, `anchor.go` | reference 附带事实、跨 transport |
 | `eth_createAccessList` | Registered | `CreateAccessList` | 不暴露 | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | extension 的官方生态边界 |
 | `net_peerCount` | Registered | `PeerCount` | `PeerCount` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | source-local selected 语义 |
-| `eth_syncing` | Registered | `SyncProgress` | `SyncProgress` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 七个上游字段已投影；`TestSyncProgressTransportProjectionAndDone` 覆盖 Root／EthClient、HTTP／raw WSS、三类 remaining counter；真实 provider 对象形态仍未观察 |
+| `eth_syncing` | Registered | `SyncProgress` | `SyncProgress` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 官方三个字段已迁生成模型；`TestSyncProgressTransportProjectionAndDone` 覆盖 Root／EthClient、HTTP／raw WSS、完整来源证据及三类 remaining counter 的独立检查；真实 provider 对象形态仍未观察 |
 | `net_version` | Registered | `NetworkID` | `NetworkID` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | decimal identity 与 ChainID 关系 |
 | `net_listening` | Registered | `Call` only | 不暴露 | raw dynamic read path | 不适用 | `call.go`, catalog | 没有 typed wrapper；需明确是否继续 Call-only |
 | `eth_sendRawTransaction` | Write | `SendRawTransaction` | `SendTransaction` | native HTTP/WSS raw call | 不适用 | `write.go`, write pipeline | accepted/unknown/rejected 与 receipt 关系 |
@@ -146,7 +152,7 @@ surface remains evidence-backed.
 | T09d | `eth_chainId`、`net_version`、`eth_getBalance`、`eth_getTransactionCount`、`eth_getStorageAt`、`eth_getCode`、`eth_getBlockTransactionCountByHash`、`eth_getBlockTransactionCountByNumber` | 保留合同 | 八个方法均无 Admit：每个来源在集群 Encode 中恰好一次准备，无重复处理可消除。无 Admit 的方法接入新 seam 会把 Encode 错误从 resolver 的 encode-skip（Fault 表内、不缩分母）改写为 admission 归因——设计禁止这种未证明的 Fault 阶段统一。KeySource 核查：7 个已是 canonical-bytes；`eth_getBlockTransactionCountByHash` 的 normalizer 键（十进制数量语法）与 encoder 输出（0x 十六进制）确实不同——窄键声明是真实的，不是遗留。pending-local 方法（balance/count/storage/code 的 PendingObserve）按路线冻结规则天然走完整原路线。 |
 | T09e | `eth_getBlockByHash`、`eth_getBlockByNumber` | 保留合同 | 窄键裁决（number\|hash）与 canonical 字节键语义不同，不使用本 seam；full/header 保护域、uncle root 与头绑定是独立差分面。对象内重复评估结论：fullTx 响应的 admission（`AdmitBlock`）与集群 encode 都做交易 payload 往返，存在可共享空间；块对象 Candidate 化需独立的差分电池（内嵌交易已按 P5 结论独立评估，不复制独立 query 规则），本轮不接入。深审补充（2026-11-13）：提交值的 post-fork optional 头成员（withdrawalsRoot 等 5 项）的 geth 显式 null 已折合省略（return-value-design §4 已登记，回归 `TestEncodeOmitsUnsetOptionalHeaderMembers`）；header-only 形状是登记的保护域（number+hash，`TestBlockByNumberHeaderOnlyUsesCanonicalValue` 钉住），geth 不可解析头的降级提交与可解析全头的提交字段集不一致属已知边界，归保护域评审而非缺陷。uncle hash 校验（逐 uncle 取回并 CalcUncleHash 比对）与内嵌交易有序性均已核实。 |
 | T09f | `eth_blockNumber`、`eth_gasPrice`、`eth_maxPriorityFeePerGas`、`eth_blobBaseFee`、`eth_estimateGas` | 保留合同（含已审计的内部重复） | Median/Selected 采样独立：无聚类即无 canonical-bytes 聚类键，迁移会把采样语义升级为 Strict 裁决——设计明确禁止。内部重复事实（2026-11-13 审计修正）：median 每个有效答案先跑 Encode（`wire.EncodeQuantity` 内部执行一次 `NormalizeWireQuantity`）再跑 Normalize（同一归一化）——同一 quantity 归一化每答案执行 **2 次**；estimateGas 无 Admit。单位成本已测（`rpc/internal/wire BenchmarkQuantityPrepare/typical`）：normalize ~0.73µs/次、encode ~1.17µs/次——重复归一化 ≈ +0.7µs/答案/源，相对 ms 级 invocation 可忽略，保留路线。若后续合并（先 Normalize 再由归一化结果编码），会改变故障标签顺序（今日 encode 先行、故障标 "encode"），属独立小改设计问题，未在本轮实施。异常源、tie、pending 语义保持。 |
-| T09g | `net_peerCount`、`eth_syncing`、`net_listening` | 保留合同（含已审计的内部重复） | Local/Selected 独立，source-local 语义与 SyncProgress 全字段/Done()、bool/数量/null 拒绝规则不迁移。内部重复事实（2026-11-13 审计修正）：peerCount 每答案 `NormalizeHexQuantity` 一次，被选源的 `EncodeFoldedQuantity` 再归一化一次（同一值共 2 次）；syncing 的 `CanonicalJSON` 在 normalize 与 `EncodeCanonicalJSON`（被选源）各执行一次。两者均为"每答案一次 + 被选源一次"的采样形状，量级同 T09f 的测量（µs 级），保留路线；合并同样涉及故障标签顺序，单列设计问题。无 Admit。 |
+| T09g | `net_peerCount`、`eth_syncing`、`net_listening` | 保留合同（含已审计的内部重复） | Local/Selected 独立，source-local 语义及 bool/数量/null 拒绝规则保留；SyncProgress 的公开字段／Done() 差异见生成迁移合同。内部重复事实（2026-11-13 审计修正）：peerCount 每答案 `NormalizeHexQuantity` 一次，被选源的 `EncodeFoldedQuantity` 再归一化一次（同一值共 2 次）；syncing 的 normalize 保留顶层本地观测检查，被选源 encoder 已切换为官方生成模型投影，域外字段经 evidence 通道交付。两者均为"每答案一次 + 被选源一次"的采样形状，量级同 T09f 的测量（µs 级），保留路线；合并同样涉及故障标签顺序，单列设计问题。无 Admit。 |
 | T09h | `eth_call` | 保留合同 | call-revert 受控逃逸：execution/data 两层裁决、revert 四态、受保护 data 与 provider 文案分离——canonical 结果类型有意不表达该维度（设计第 4 节固定接口明确排除 call-revert）。不把错误信封当普通 canonical Value。 |
 
 补充口径：root-only `net_listening` 保留在 T09g 内（它在 26 读 RPC 的分母里，也显式记录为 root 扩展）；`eth_sendRawTransaction`（写入管线）与 `eth_getProof`（显式 unsupported）无读 spec，不参与本处置；订阅族消费同源 Pull（logs/receipts 的既有合同），本表不重复裁决。
@@ -174,7 +180,7 @@ surface remains evidence-backed.
 | `TransactionCount` | 已有 | `Client.TransactionCount` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
 | `TransactionInBlock` | 已有 | `Client.TransactionInBlock` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionInBlockMultiSourceConflictKeepsEvidence`、`TestTransactionInBlockMultiSourceMalformedFailsWithFaults`）；inclusion envelope 跨 transport 负向 fixture 仍待补 |
 | `TransactionReceipt` | 已有 | `Client.TransactionReceipt` | 已覆盖 |
-| `SyncProgress` | 已有 | `Client.SyncProgress` | 七个上游同步／索引字段已补齐；公开双 facade 的 HTTP／raw WSS 验证 Done() 不因计数丢失过早成立；可选缺失为零与真实样本边界见兼容政策 |
+| `SyncProgress` | 已有 | `Client.SyncProgress` | 返回官方生成模型；公开双 facade 的 HTTP／raw WSS 验证三个 optional 字段及原始来源计数保真；不提供 geth Done()，真实样本边界见兼容政策 |
 | `NetworkID` | 已有 | `Client.NetworkID` | 已覆盖 |
 | `BalanceAt` | 已有 | `Client.BalanceAt` | 已覆盖 |
 | `BalanceAtHash` | 已有 | `Client.BalanceAtHash` | 已接入；EIP-1898 hash object |
@@ -186,7 +192,7 @@ surface remains evidence-backed.
 | `NonceAtHash` | 已有 | `Client.NonceAtHash` | 已接入；EIP-1898 hash object |
 | `FilterLogs` | 已有 | `Client.FilterLogs` | 已覆盖 |
 | `SubscribeTransactionReceipts` | 已有（WSS 单源/多源） | `Client.SubscribeTransactionReceipts` | 固定 snapshot strict quorum、per-source reconnect、同源逐 receipt Pull；跨 transport 证据待补 |
-| `SubscribeNewHead` | 已有（WSS 单源/多源） | `Client.SubscribeNewHead` | 固定 snapshot strict quorum、per-source reconnect、同源 Pull 与结构化 gap Err；跨 transport 证据待补 |
+| `SubscribeNewHead` | 已有（WSS 单源/多源） | `Client.SubscribeNewHead` | 固定 snapshot strict quorum、per-source reconnect、同源 Pull 与结构化 gap Err；`TestSubscribeNewHeadPublicEntrypointsUseSameSourcePull` 验证 root/view 真实 WSS、单源 push／另一源 Pull 的请求归属和退订，race 重复 10 次通过；更广资源／重连入口证据待补 |
 | `SubscribeFilterLogs` | 已有（WSS 单源/多源） | `Client.SubscribeFilterLogs` | fixed snapshot、removed/reorg、strict quorum、per-source reconnect、同源 eth_getLogs Pull；跨 transport 证据待补 |
 | `PendingBalanceAt` | 已有 | `Client.PendingBalanceAt` | pending-local；跨 transport 证据待补 |
 | `PendingStorageAt` | 已有 | `Client.PendingStorageAt` | pending-local；跨 transport 证据待补 |

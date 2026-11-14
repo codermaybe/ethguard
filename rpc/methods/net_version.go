@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -16,7 +17,7 @@ func netVersionSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodNetVersion,
 		Resolver:    ResolverStrict,
-		Normalize:   wire.NormalizeDecimalString,
+		Normalize:   ethcodec.NormalizeDecimalString,
 		Encode:      wire.EncodeDecimal,
 		KeySource:   rpc.RuleKeyCanonicalBytes,
 		CompareKind: rpc.RuleCompareQuantity,

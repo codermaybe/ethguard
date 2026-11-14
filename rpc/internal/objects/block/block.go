@@ -12,8 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 type blockWire struct {
@@ -145,35 +145,35 @@ func validateBlockWireScalars(raw json.RawMessage) error {
 	}
 	for _, field := range []string{"hash", "parentHash", "sha3Uncles", "transactionsRoot", "stateRoot", "receiptsRoot", "withdrawalsRoot", "parentBeaconBlockRoot", "requestsHash"} {
 		if value, ok := obj[field]; ok && !isJSONNull(value) {
-			if _, err := wire.ValidateWireFixedHex(value, 64, field); err != nil {
+			if _, err := ethcodec.ValidateWireFixedHex(value, 64, field); err != nil {
 				return fmt.Errorf("%s: %w", field, err)
 			}
 		}
 	}
 	for _, field := range []string{"number", "gasLimit", "gasUsed", "timestamp", "size", "baseFeePerGas", "blobGasUsed", "excessBlobGas"} {
 		if value, ok := obj[field]; ok && !isJSONNull(value) {
-			if _, err := wire.NormalizeWireQuantity(value); err != nil {
+			if _, err := ethcodec.NormalizeWireQuantity(value); err != nil {
 				return fmt.Errorf("%s: %w", field, err)
 			}
 		}
 	}
 	if value, ok := obj["logsBloom"]; ok && !isJSONNull(value) {
-		if _, err := wire.ValidateWireFixedHex(value, 512, "logsBloom"); err != nil {
+		if _, err := ethcodec.ValidateWireFixedHex(value, 512, "logsBloom"); err != nil {
 			return err
 		}
 	}
 	if value, ok := obj["nonce"]; ok && !isJSONNull(value) {
-		if _, err := wire.ValidateWireFixedHex(value, 16, "nonce"); err != nil {
+		if _, err := ethcodec.ValidateWireFixedHex(value, 16, "nonce"); err != nil {
 			return err
 		}
 	}
 	if value, ok := obj["extraData"]; ok && !isJSONNull(value) {
-		if _, err := wire.NormalizeWireData(value); err != nil {
+		if _, err := ethcodec.NormalizeWireData(value); err != nil {
 			return fmt.Errorf("extraData: %w", err)
 		}
 	}
 	if value, ok := obj["miner"]; ok && !isJSONNull(value) {
-		if _, err := wire.ValidateWireFixedHex(value, 40, "miner"); err != nil {
+		if _, err := ethcodec.ValidateWireFixedHex(value, 40, "miner"); err != nil {
 			return err
 		}
 	}

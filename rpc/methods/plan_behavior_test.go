@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -306,7 +307,7 @@ func TestCompilePlanRejectsImpossibleDeclarations(t *testing.T) {
 	}{
 		{
 			name: "missing method name",
-			spec: MethodSpec{Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity},
+			spec: MethodSpec{Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity},
 		},
 		{
 			name: "missing normalizer",
@@ -314,46 +315,46 @@ func TestCompilePlanRejectsImpossibleDeclarations(t *testing.T) {
 		},
 		{
 			name: "unknown resolver kind",
-			spec: MethodSpec{Method: "eth_broken", Resolver: "exotic", Normalize: wire.NormalizeWireQuantity},
+			spec: MethodSpec{Method: "eth_broken", Resolver: "exotic", Normalize: ethcodec.NormalizeWireQuantity},
 		},
 		{
 			name: "hash anchor without positions",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Reference: ReferenceSpec{Kind: ReferenceShapeHashAt}},
 		},
 		{
 			name: "height fields without fields",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Reference: ReferenceSpec{Kind: ReferenceShapeHeightFieldsAt, ParamPos: 0}},
 		},
 		{
 			name: "eip-1898 without exactly one position",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1, 2}, EIP1898: true}},
 		},
 		{
 			name: "eip-1898 on a height shape",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Reference: ReferenceSpec{Kind: ReferenceShapeHeightAt, Positions: []int{1}, EIP1898: true}},
 		},
 		{
 			name: "unknown pending mode",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Pending: PendingSpec{Mode: "elsewhere", Pos: 0}},
 		},
 		{
 			name: "canonical bytes without an encoder",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				KeySource: rpc.RuleKeyCanonicalBytes},
 		},
 		{
 			name: "encoder without a key source",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Encode: wire.EncodeQuantity},
 		},
 		{
 			name: "median with a non-quantity compare kind",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverMedian, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverMedian, Normalize: ethcodec.NormalizeWireQuantity,
 				CompareKind: rpc.RuleCompareObject},
 		},
 	}
@@ -372,7 +373,7 @@ func TestCompilePlanReportsInconsistentEIP1898Declaration(t *testing.T) {
 	_, err := CompilePlan(MethodSpec{
 		Method:    "eth_broken",
 		Resolver:  ResolverStrict,
-		Normalize: wire.NormalizeWireQuantity,
+		Normalize: ethcodec.NormalizeWireQuantity,
 		Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, EIP1898: true},
 	})
 	if err == nil {

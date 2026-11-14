@@ -9,8 +9,9 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/log"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // EncodeBlock encodes one complete eth_getBlockReceipts response using the
@@ -18,7 +19,7 @@ import (
 // empty block. Null or invalid elements invalidate the whole source response.
 func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(value)
-	if wire.IsJSONNull(trimmed) {
+	if ethcodec.IsJSONNull(trimmed) {
 		return json.RawMessage("null"), nil
 	}
 	var rows []json.RawMessage
@@ -27,7 +28,7 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 	}
 	encoded := make([]json.RawMessage, len(rows))
 	for i, row := range rows {
-		if wire.IsJSONNull(row) {
+		if ethcodec.IsJSONNull(row) {
 			return nil, fmt.Errorf("block receipts[%d]: null receipt", i)
 		}
 		var err error
@@ -36,7 +37,7 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 			return nil, fmt.Errorf("block receipts[%d]: %w", i, err)
 		}
 	}
-	return wire.MarshalNoEscape(encoded)
+	return ethcodec.MarshalNoEscape(encoded)
 }
 
 // Encode checks one eth_getTransactionReceipt result and returns the canonical
@@ -55,7 +56,7 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 // HTML escaping is off, and field order is the encoder struct order.
 func Encode(value json.RawMessage) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(value)
-	if wire.IsJSONNull(trimmed) {
+	if ethcodec.IsJSONNull(trimmed) {
 		return json.RawMessage("null"), nil
 	}
 	var fields map[string]json.RawMessage
@@ -77,16 +78,16 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	// The official receipt parser must see the shared encoder's log objects,
 	// not a separate interpretation of the upstream logs. In particular, the
 	// existing log contract treats blockTimestamp:null as omission.
-	canonicalLogs, err := wire.MarshalNoEscape(logs)
+	canonicalLogs, err := ethcodec.MarshalNoEscape(logs)
 	if err != nil {
 		return nil, err
 	}
 	fields["logs"] = canonicalLogs
-	checked, err := wire.MarshalNoEscape(fields)
+	checked, err := ethcodec.MarshalNoEscape(fields)
 	if err != nil {
 		return nil, err
 	}
-	out, err := wire.NewReceipt(checked)
+	out, err := ethapi.NewReceipt(checked)
 	if err != nil {
 		return nil, fmt.Errorf("receipt: %w", err)
 	}
@@ -104,7 +105,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if string(out.LogsBloom) != canonicalBloom(logs) {
 		return nil, fmt.Errorf("receipt: logsBloom disagrees with logs")
 	}
-	return wire.MarshalNoEscape(out)
+	return ethcodec.MarshalNoEscape(out)
 }
 
 // zeroHash is the spelling a source writes when it leaves a hash out. The
@@ -160,7 +161,7 @@ func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
 
 // canonicalReceipt shares the official receipt shape, including nullable
 // optional addresses and the bounded transaction type.
-type canonicalReceipt = wire.Receipt
+type canonicalReceipt = ethapi.Receipt
 
 // canonicalReceiptLog is the shared protected log object; the receipt log's
 // JSON shape is byte-identical to the eth_getLogs log, so the field set and

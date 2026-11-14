@@ -10,8 +10,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // Validate checks the required fields and wire shapes of one log object.
@@ -25,7 +25,7 @@ func Validate(value json.RawMessage) error {
 			return fmt.Errorf("missing %s", field)
 		}
 	}
-	if _, err := wire.ValidateWireFixedHex(obj["address"], 40, "address"); err != nil {
+	if _, err := ethcodec.ValidateWireFixedHex(obj["address"], 40, "address"); err != nil {
 		return fmt.Errorf("address: %w", err)
 	}
 	var topics []json.RawMessage
@@ -33,20 +33,20 @@ func Validate(value json.RawMessage) error {
 		return fmt.Errorf("topics must be an array")
 	}
 	for i, topic := range topics {
-		if _, err := wire.ValidateWireFixedHex(topic, 64, "hash"); err != nil {
+		if _, err := ethcodec.ValidateWireFixedHex(topic, 64, "hash"); err != nil {
 			return fmt.Errorf("topics[%d]: %w", i, err)
 		}
 	}
-	if _, err := wire.NormalizeWireData(obj["data"]); err != nil {
+	if _, err := ethcodec.NormalizeWireData(obj["data"]); err != nil {
 		return fmt.Errorf("data: %w", err)
 	}
 	for _, field := range []string{"blockNumber", "transactionIndex", "logIndex"} {
-		if _, err := wire.NormalizeWireQuantity(obj[field]); err != nil {
+		if _, err := ethcodec.NormalizeWireQuantity(obj[field]); err != nil {
 			return fmt.Errorf("%s: %w", field, err)
 		}
 	}
 	for _, field := range []string{"transactionHash", "blockHash"} {
-		if _, err := wire.ValidateWireFixedHex(obj[field], 64, "hash"); err != nil {
+		if _, err := ethcodec.ValidateWireFixedHex(obj[field], 64, "hash"); err != nil {
 			return fmt.Errorf("%s: %w", field, err)
 		}
 	}
@@ -125,7 +125,7 @@ func ValidateRequestBinding(req rpc.Request, rows []json.RawMessage) error {
 		if err := json.Unmarshal(row, &obj); err != nil {
 			return fmt.Errorf("log %d is malformed: %w", i, err)
 		}
-		block, err := wire.NormalizeWireQuantity(obj["blockNumber"])
+		block, err := ethcodec.NormalizeWireQuantity(obj["blockNumber"])
 		if err != nil {
 			return fmt.Errorf("log %d blockNumber: %w", i, err)
 		}

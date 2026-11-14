@@ -7,19 +7,22 @@ import (
 
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
+
+	// Encode returns the canonical protected transaction result. It is the
+	// compatibility entry over the object kernel: the representation work lives
+	// in encodeCanonical, which Prepare exposes as the immutable Candidate the
+	// validation and admission bindings reuse. The execution API schema retains
+	// the signed transaction fields and the provider's inclusion context; that
+	// context is corroborating response evidence, not an inclusion proof.
+	// Admission validates the requested hash and typed payload before this
+	// encoder is allowed to contribute to a cluster.
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 )
 
-// Encode returns the canonical protected transaction result. It is the
-// compatibility entry over the object kernel: the representation work lives
-// in encodeCanonical, which Prepare exposes as the immutable Candidate the
-// validation and admission bindings reuse. The execution API schema retains
-// the signed transaction fields and the provider's inclusion context; that
-// context is corroborating response evidence, not an inclusion proof.
-// Admission validates the requested hash and typed payload before this
-// encoder is allowed to contribute to a cluster.
 func Encode(raw json.RawMessage) (json.RawMessage, error) {
 	candidate, err := Prepare(raw)
 	if err != nil {
@@ -41,7 +44,7 @@ func encodeCanonical(raw json.RawMessage) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	value, err := wire.NewGetTransactionByHashResult(json.RawMessage(key))
+	value, err := ethapi.NewGetTransactionByHashResult(json.RawMessage(key))
 	if err != nil {
 		var payload types.Transaction
 		if payloadErr := json.Unmarshal(json.RawMessage(key), &payload); errors.Is(payloadErr, types.ErrTxTypeNotSupported) {
@@ -49,7 +52,7 @@ func encodeCanonical(raw json.RawMessage) (json.RawMessage, error) {
 		}
 		return nil, fmt.Errorf("%w: transaction information: %v", rpc.ErrMalformedResponse, err)
 	}
-	encoded, err := wire.MarshalNoEscape(value)
+	encoded, err := ethcodec.MarshalNoEscape(value)
 	if err != nil {
 		return nil, fmt.Errorf("%w: transaction encoding: %v", rpc.ErrMalformedResponse, err)
 	}
@@ -81,5 +84,5 @@ func encodeCanonical(raw json.RawMessage) (json.RawMessage, error) {
 			canonicalFields[field] = officialFields[field]
 		}
 	}
-	return wire.MarshalNoEscape(canonicalFields)
+	return ethcodec.MarshalNoEscape(canonicalFields)
 }

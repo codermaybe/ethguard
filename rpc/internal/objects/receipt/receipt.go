@@ -10,8 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // Pruner removes fields that are outside the method's comparison shape.
@@ -117,7 +117,7 @@ func ParseBlockHeight(value any) (*common.Hash, *big.Int, error) {
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: block number must be a hex quantity", rpc.ErrInvalidRequest)
 	}
-	canonical, err := wire.NormalizeHexQuantity(json.RawMessage(fmt.Sprintf("%q", s)))
+	canonical, err := ethcodec.NormalizeHexQuantity(json.RawMessage(fmt.Sprintf("%q", s)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: invalid block number: %v", rpc.ErrInvalidRequest, err)
 	}
@@ -180,4 +180,4 @@ func NormalizeBlock(value json.RawMessage, prune Pruner, method string) (string,
 
 // IsJSONNull forwards to the shared wire spelling so every
 // object package answers the null question identically.
-func IsJSONNull(value json.RawMessage) bool { return wire.IsJSONNull(value) }
+func IsJSONNull(value json.RawMessage) bool { return ethcodec.IsJSONNull(value) }

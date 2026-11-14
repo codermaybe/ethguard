@@ -1,6 +1,7 @@
 // Package typed owns the single production projection from canonical RPC
-// values to concrete go-ethereum types. Facades and adapters call this
-// package rather than maintaining parallel decoders.
+// values to public business values. Migrated families use generated ethapi
+// types; block/transaction/receipt/log projections still await migration.
+// Facades share these decoders rather than maintaining parallel implementations.
 package typed
 
 import (

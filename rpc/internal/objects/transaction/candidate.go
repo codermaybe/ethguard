@@ -8,8 +8,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // The object kernel. Encode's representation work — safety validation, the
@@ -108,7 +108,7 @@ func validatePrepared(c Candidate) error {
 	if wireValue.Hash == nil {
 		return fmt.Errorf("transaction: missing hash")
 	}
-	if _, err := wire.ValidateWireFixedHex(c.fields["hash"], 64, "hash"); err != nil {
+	if _, err := ethcodec.ValidateWireFixedHex(c.fields["hash"], 64, "hash"); err != nil {
 		return fmt.Errorf("transaction: hash: %w", err)
 	}
 	if *wireValue.Hash != tx.Hash() {
@@ -116,7 +116,7 @@ func validatePrepared(c Candidate) error {
 	}
 	if tx.Type() == types.LegacyTxType && tx.Protected() {
 		if declared, exists := c.fields["chainId"]; exists {
-			chainID, err := wire.NormalizeWireQuantity(declared)
+			chainID, err := ethcodec.NormalizeWireQuantity(declared)
 			if err != nil {
 				return fmt.Errorf("transaction: chainId: %w", err)
 			}
@@ -128,7 +128,7 @@ func validatePrepared(c Candidate) error {
 	if wireValue.From == nil {
 		return fmt.Errorf("transaction: missing sender")
 	}
-	if _, err := wire.ValidateWireFixedHex(c.fields["from"], 40, "from"); err != nil {
+	if _, err := ethcodec.ValidateWireFixedHex(c.fields["from"], 40, "from"); err != nil {
 		return fmt.Errorf("transaction: from: %w", err)
 	}
 	_, r, s := tx.RawSignatureValues()
@@ -137,17 +137,17 @@ func validatePrepared(c Candidate) error {
 	}
 	blockSet, indexSet := presentNonNull(wireValue.BlockNumber), presentNonNull(wireValue.TransactionIndex)
 	if blockSet {
-		if _, err := wire.NormalizeWireQuantity(wireValue.BlockNumber); err != nil {
+		if _, err := ethcodec.NormalizeWireQuantity(wireValue.BlockNumber); err != nil {
 			return fmt.Errorf("transaction: blockNumber: %w", err)
 		}
 	}
 	if indexSet {
-		if _, err := wire.NormalizeWireQuantity(wireValue.TransactionIndex); err != nil {
+		if _, err := ethcodec.NormalizeWireQuantity(wireValue.TransactionIndex); err != nil {
 			return fmt.Errorf("transaction: transactionIndex: %w", err)
 		}
 	}
 	if wireValue.BlockHash != nil {
-		if _, err := wire.ValidateWireFixedHex(c.fields["blockHash"], 64, "blockHash"); err != nil {
+		if _, err := ethcodec.ValidateWireFixedHex(c.fields["blockHash"], 64, "blockHash"); err != nil {
 			return fmt.Errorf("transaction: blockHash: %w", err)
 		}
 	}
@@ -223,7 +223,7 @@ func (c Candidate) AdmitInBlock(req rpc.Request) error {
 	if !presentNonNull(wireValue.TransactionIndex) {
 		return fmt.Errorf("%w: transaction missing index", rpc.ErrMalformedResponse)
 	}
-	gotIndex, err := wire.NormalizeWireQuantity(wireValue.TransactionIndex)
+	gotIndex, err := ethcodec.NormalizeWireQuantity(wireValue.TransactionIndex)
 	if err != nil {
 		return fmt.Errorf("%w: transaction index: %v", rpc.ErrMalformedResponse, err)
 	}

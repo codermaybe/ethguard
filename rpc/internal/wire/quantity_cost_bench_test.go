@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/json"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"testing"
 )
 
@@ -30,7 +31,7 @@ func BenchmarkQuantityPrepare(b *testing.B) {
 			b.Run("normalize", func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
-					if _, err := NormalizeWireQuantity(value); err != nil {
+					if _, err := ethcodec.NormalizeWireQuantity(value); err != nil {
 						b.Fatal(err)
 					}
 				}

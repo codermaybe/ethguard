@@ -1,7 +1,5 @@
 package methods
 
-import ()
-
 // Specs is the frozen MethodSpec inventory: one entry per Registered read
 // method, each collected from its own method file. Compile turns it into the
 // registry the composition root installs; the collection order is stable and

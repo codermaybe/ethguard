@@ -1,14 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 
-	"github.com/codermaybe/ethguard/internal/spec"
+	"github.com/codermaybe/ethguard/internal/executionapi"
 )
 
 func main() {
@@ -18,33 +17,14 @@ func main() {
 	report := &genReport{visited: map[string]bool{}}
 	reg := newRegistry(report)
 
-	// Method result bundle (23 methods) + the single-method simulate bundle.
-	var bundle struct {
-		Version string                     `json:"version"`
-		Results map[string]json.RawMessage `json:"results"`
-	}
-	if err := json.Unmarshal(spec.MethodsJSON(), &bundle); err != nil {
-		fail("spec bundle: %v", err)
-	}
-	if bundle.Version != spec.Version() {
-		fail("spec bundle: methods.json version %q != VERSION pin %q", bundle.Version, spec.Version())
-	}
-	var simulate struct {
-		Version string          `json:"version"`
-		Method  string          `json:"method"`
-		Result  json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(spec.SimulateV1JSON(), &simulate); err != nil {
-		fail("spec bundle: simulatev1: %v", err)
-	}
-	if simulate.Version != bundle.Version {
-		fail("simulatev1 bundle version %q != methods bundle version %q", simulate.Version, bundle.Version)
-	}
-	if _, exists := bundle.Results[simulate.Method]; exists {
-		fail("spec bundle: %s is already inside methods.json; remove the simulatev1 bundle", simulate.Method)
+	bundle, err := executionapi.Read()
+	if err != nil {
+		fail("%v", err)
 	}
 	results := bundle.Results
-	results[simulate.Method] = simulate.Result
+	for _, applied := range bundle.Errata {
+		report.errata = append(report.errata, applied.ID+" SHA-256 "+applied.SHA256)
+	}
 
 	// Walk every method result root in deterministic order.
 	names := make([]string, 0, len(results))
@@ -58,11 +38,6 @@ func main() {
 		if err != nil {
 			fail("spec: %s: %v", name, err)
 		}
-		if name == "eth_getTransactionByHash" {
-			if err := allowPendingTransactionQueryContext(bundle.Version, node); err != nil {
-				fail("spec: %s: %v", name, err)
-			}
-		}
 		path := name + ".result"
 		rootRef, err := reg.walk(node, path)
 		if err != nil {
@@ -70,6 +45,20 @@ func main() {
 		}
 		roots[name] = rootRef
 		report.methods = append(report.methods, name)
+	}
+
+	// Public call input is the unmodified official eth_call parameter schema.
+	// Naming is API policy; its fields and constraints are owned by the source.
+	callParams := bundle.Requests["eth_call"]
+	if len(callParams) == 0 {
+		fail("spec: eth_call has no parameter schema")
+	}
+	node, err := parseSchema(callParams[0].Schema)
+	if err != nil {
+		fail("spec: eth_call params[0]: %v", err)
+	}
+	if _, err := reg.walk(node, "eth_call.params[0]"); err != nil {
+		fail("%v", err)
 	}
 
 	if err := emit(reg, bundle.Version, roots, *out); err != nil {

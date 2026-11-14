@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/codermaybe/ethguard/internal/spec"
+	"github.com/codermaybe/ethguard/internal/executionapi"
 )
 
 var officialFields = struct {
@@ -17,23 +17,18 @@ var officialFields = struct {
 }{}
 
 // ExecutionAPIStandardFields derives field paths from the pinned official
-// result schema. It is used by offline shape reports and can be adopted by a
+// result schema plus reviewed errata. Raw-source conformance remains separate.
+// It is used by offline shape reports and can be adopted by a
 // method projector only after that method's encoder and admission rules cover
 // the new fields.
 func ExecutionAPIStandardFields(method string) ([]StandardField, error) {
 	officialFields.Do(func() {
-		var bundle struct {
-			Version string                     `json:"version"`
-			Results map[string]json.RawMessage `json:"results"`
-		}
-		if err := json.Unmarshal(spec.MethodsJSON(), &bundle); err != nil {
+		bundle, err := executionapi.Read()
+		if err != nil {
 			officialFields.err = err
 			return
 		}
-		if bundle.Version != spec.Version() {
-			officialFields.err = fmt.Errorf("spec version %q does not match pin %q", bundle.Version, spec.Version())
-			return
-		}
+
 		officialFields.fields = make(map[string][]StandardField, len(bundle.Results))
 		for name, raw := range bundle.Results {
 			var schema any

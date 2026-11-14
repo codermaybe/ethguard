@@ -11,6 +11,7 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/ethereum/go-ethereum"
@@ -52,7 +53,7 @@ func TestEstimateGasNativeHTTPAndRawWSSWireAndQuantity(t *testing.T) {
 		Gas:      21_000,
 		GasPrice: big.NewInt(3),
 	}
-	gas, result, err := client.EstimateGas(ctx, msg)
+	gas, result, err := client.EstimateGas(ctx, ethapitest.Call(msg))
 	if err != nil || result.Decision == nil || result.Decision.Status != rpc.Selected || gas != 0x5208 {
 		t.Fatalf("EstimateGas result=%+v gas=%d err=%v, want lower-median Selected 0x5208", result, gas, err)
 	}
@@ -117,7 +118,7 @@ func TestEstimateGasNativeHTTPAndRawWSSMalformedAndAllError(t *testing.T) {
 			defer cancel()
 			to := common.HexToAddress("0x2222")
 			msg := ethereum.CallMsg{To: &to, Data: []byte{0xde, 0xad}}
-			gas, result, callErr := client.EstimateGas(ctx, msg)
+			gas, result, callErr := client.EstimateGas(ctx, ethapitest.Call(msg))
 			if gas != 0 || !errors.Is(callErr, tc.wantError) || result.Decision == nil || result.Decision.Status != tc.wantStatus || (result.Decision.Value != nil) != tc.wantValue {
 				t.Fatalf("EstimateGas gas=%d result=%+v err=%v, want status=%s value=%v err=%v", gas, result, callErr, tc.wantStatus, tc.wantValue, tc.wantError)
 			}

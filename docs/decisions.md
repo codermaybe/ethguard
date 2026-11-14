@@ -2956,3 +2956,35 @@ active agents. Temporary execution checklists are kept locally and removed
 after migration; permanent documents do not depend on them. The
 [roadmap](design/project-roadmap.md) records remaining work, and object
 contracts own individual rules.
+
+## 0070. Explicit schema errata before generic generation and runtime schema consumers
+
+Status: Accepted (2026-11-14). Refines 0069's fixed-standard boundary; its
+whole-key provider compatibility organization remains in force.
+
+Keep upstream execution-apis bundles, vectors and their source hashes intact.
+Reviewed standard corrections live separately in `internal/spec/errata/*.json`
+as RFC 6902 patches with a source version/commit, a single request-parameter
+or result target, input/output schema digests, reasons, references and an exit
+condition. `internal/executionapi.Read` applies the complete set atomically;
+`ReadOriginal` preserves an independent upstream oracle. Generation, masks
+and standard-field projection consume the same effective view. The generator
+translates that schema without RPC-specific AST changes.
+
+An upstream pin/input change, failed patch precondition, duplicate application,
+unchanged schema document, wrong output digest or incomplete audit record is
+an error requiring review or retirement. Do not silently skip or automatically
+rewrite a stale correction. Generated source records applied correction IDs
+and file digests; freshness checks bind those data changes to generated code.
+The pending-query correction moves out of the generator without changing its
+four-field scope, requiredness, embedded-transaction rules or method binding.
+Prefer official upstream fixes over adding equivalent local corrections.
+
+Reason: the machine schema cannot currently express every supported legitimate
+response, but hidden generator exceptions obscure both the standard and the
+project's interpretation. Keeping explicit, bounded correction data makes that
+trade-off externally reviewable and allows its removal when upstream catches
+up. JSON Pointer here addresses static schema data, not provider responses.
+This does not authorize blanket response-pattern warnings, invalid protected
+values voting, or unknown fields entering Core. Existing Extensions,
+Diagnostics and budgeted original-source evidence keep their separate roles.

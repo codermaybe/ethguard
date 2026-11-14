@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -17,7 +18,7 @@ func getCodeSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodGetCode,
 		Resolver:    ResolverStrict,
-		Normalize:   wire.NormalizeHexData,
+		Normalize:   ethcodec.NormalizeHexData,
 		Encode:      wire.EncodeData,
 		KeySource:   rpc.RuleKeyCanonicalBytes,
 		CompareKind: rpc.RuleCompareMethodSpecific,

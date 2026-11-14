@@ -49,7 +49,7 @@ func TestCreateAccessListNativeHTTPAndRawWSSTransport(t *testing.T) {
 	defer cancel()
 	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
 	result, decision, err := client.CreateAccessList(ctx, map[string]any{"to": to.Hex()}, "pending")
-	if err != nil || result == nil || result.GasUsed != 21000 || len(result.AccessList) != 0 {
+	if err != nil || result == nil || result.GasUsed == nil || *result.GasUsed != "0x5208" || result.AccessList == nil || len(*result.AccessList) != 0 {
 		t.Fatalf("CreateAccessList = %+v decision=%+v err=%v", result, decision, err)
 	}
 	if decision.Decision == nil || decision.Decision.Status != rpc.Selected {

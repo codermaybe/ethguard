@@ -42,6 +42,7 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/chainlist"
 	"github.com/codermaybe/ethguard/internal/limits"
 	"github.com/codermaybe/ethguard/internal/typed"
@@ -280,7 +281,7 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 			var detail string
 			if err == nil {
 				if history, derr := typed.DecodeFeeHistory(result.Decision.Value); derr == nil {
-					detail = fmt.Sprintf("oldest %d, %d base fees", history.OldestBlock.Uint64(), len(history.BaseFee))
+					detail = fmt.Sprintf("oldest %s, %d base fees", history.OldestBlock, len(history.BaseFeePerGas))
 				}
 			}
 			return classify(result.Decision, err, detail)
@@ -304,7 +305,7 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 		}},
 		{"eth_syncing", methods.MethodSyncing, nil, false, func(ctx context.Context) (stepReport, error) {
 			result, err := f.client.Call(ctx, methods.MethodSyncing)
-			var progress *ethereum.SyncProgress
+			var progress *ethapi.SyncProgress
 			if err == nil {
 				progress, err = typed.DecodeSyncProgress(result.Decision.Value)
 			}
@@ -649,11 +650,18 @@ func receiptDetail(r *types.Receipt) string {
 	return fmt.Sprintf("status %d gas %d", r.Status, r.GasUsed)
 }
 
-func syncingDetail(p *ethereum.SyncProgress) string {
+func syncingDetail(p *ethapi.SyncProgress) string {
 	if p == nil {
 		return "synced"
 	}
-	return fmt.Sprintf("syncing %d/%d", p.CurrentBlock, p.HighestBlock)
+	current, highest := "unknown", "unknown"
+	if p.CurrentBlock != nil {
+		current = string(*p.CurrentBlock)
+	}
+	if p.HighestBlock != nil {
+		highest = string(*p.HighestBlock)
+	}
+	return fmt.Sprintf("syncing %s/%s", current, highest)
 }
 
 func bigDetail(v *big.Int) string {

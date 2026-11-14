@@ -10,17 +10,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // IsJSONNull and presentNonNull forward to the shared wire spellings: the
 // former local copy skipped whitespace trimming, so " null " read as an
 // object; every object package now answers the null/presence question
 // identically.
-func IsJSONNull(value json.RawMessage) bool { return wire.IsJSONNull(value) }
+func IsJSONNull(value json.RawMessage) bool { return ethcodec.IsJSONNull(value) }
 func presentNonNull(value json.RawMessage) bool {
-	return wire.PresentNonNull(value)
+	return ethcodec.PresentNonNull(value)
 }
 
 // Admit validates a transaction and checks it matches the requested hash.
@@ -92,7 +92,7 @@ func AdmitInBlock(req rpc.Request, value json.RawMessage) error {
 	if !presentNonNull(wireValue.TransactionIndex) {
 		return fmt.Errorf("%w: transaction missing index", rpc.ErrMalformedResponse)
 	}
-	gotIndex, err := wire.NormalizeWireQuantity(wireValue.TransactionIndex)
+	gotIndex, err := ethcodec.NormalizeWireQuantity(wireValue.TransactionIndex)
 	if err != nil {
 		return fmt.Errorf("%w: transaction index: %v", rpc.ErrMalformedResponse, err)
 	}
@@ -153,7 +153,7 @@ func requestIndex(value any) (uint64, error) {
 		}
 		return index, nil
 	case string:
-		decimal, err := wire.NormalizeWireQuantity(json.RawMessage(fmt.Sprintf("%q", v)))
+		decimal, err := ethcodec.NormalizeWireQuantity(json.RawMessage(fmt.Sprintf("%q", v)))
 		if err != nil {
 			return 0, fmt.Errorf("%w: transaction index: %v", rpc.ErrInvalidRequest, err)
 		}

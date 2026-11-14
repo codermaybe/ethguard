@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -18,7 +19,7 @@ func peerCountSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodPeerCount,
 		Resolver:    ResolverLocal,
-		Normalize:   wire.NormalizeHexQuantity,
+		Normalize:   ethcodec.NormalizeHexQuantity,
 		Encode:      wire.EncodeFoldedQuantity,
 		CompareKind: rpc.RuleCompareQuantity,
 	}

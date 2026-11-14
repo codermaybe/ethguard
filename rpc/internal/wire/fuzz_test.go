@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/json"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"strings"
 	"testing"
 )
@@ -30,8 +31,8 @@ func FuzzNormalize(f *testing.F) {
 	f.Fuzz(func(t *testing.T, in []byte) {
 		value := json.RawMessage(in)
 
-		qty, qtyErr := NormalizeWireQuantity(value)
-		legacy, legacyErr := NormalizeHexQuantity(value)
+		qty, qtyErr := ethcodec.NormalizeWireQuantity(value)
+		legacy, legacyErr := ethcodec.NormalizeHexQuantity(value)
 		if qtyErr == nil && legacyErr == nil && qty != legacy {
 			t.Fatalf("normalizers disagree for %q: wire=%q legacy=%q", in, qty, legacy)
 		}
@@ -40,20 +41,20 @@ func FuzzNormalize(f *testing.F) {
 		// above is its stability probe.
 		_ = qtyErr
 
-		if data, err := NormalizeWireData(value); err == nil {
+		if data, err := ethcodec.NormalizeWireData(value); err == nil {
 			assertHexShape(t, data, in)
-			assertFixpoint(t, value, NormalizeWireData, "NormalizeWireData")
+			assertFixpoint(t, value, ethcodec.NormalizeWireData, "NormalizeWireData")
 		}
 
-		if word, err := NormalizeStorageWord(value); err == nil {
+		if word, err := ethcodec.NormalizeStorageWord(value); err == nil {
 			assertHexShape(t, word, in)
-			assertFixpoint(t, value, NormalizeStorageWord, "NormalizeStorageWord")
+			assertFixpoint(t, value, ethcodec.NormalizeStorageWord, "NormalizeStorageWord")
 		}
 
-		if dec, err := NormalizeDecimalString(value); err == nil {
+		if dec, err := ethcodec.NormalizeDecimalString(value); err == nil {
 			// Decimal output must itself re-decode as the same decimal.
 			quoted, _ := json.Marshal(dec)
-			if again, err := NormalizeDecimalString(quoted); err != nil || again != dec {
+			if again, err := ethcodec.NormalizeDecimalString(quoted); err != nil || again != dec {
 				t.Fatalf("decimal output %q does not re-decode (err %v, again %q)", dec, err, again)
 			}
 		}
@@ -63,13 +64,13 @@ func FuzzNormalize(f *testing.F) {
 		if json.Unmarshal(in, &first) != nil {
 			return
 		}
-		CanonicalizeHex(&first)
+		ethcodec.CanonicalizeHex(&first)
 		once, marshalErr := json.Marshal(first)
 		if marshalErr != nil {
 			t.Fatalf("marshal after CanonicalizeHex: %v", marshalErr)
 		}
 		if json.Unmarshal(once, &second) == nil {
-			CanonicalizeHex(&second)
+			ethcodec.CanonicalizeHex(&second)
 			twice, err := json.Marshal(second)
 			if err != nil {
 				t.Fatalf("marshal after second CanonicalizeHex: %v", err)

@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -233,7 +234,7 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 			t.Fatalf("evidence spliced in %s from another source: %s", needle, aggDecision.Provenance)
 		}
 	}
-	_, _, err := adapter.CallContract(ctx, ethereum.CallMsg{To: &to}, nil)
+	_, _, err := adapter.CallContract(ctx, ethapitest.Call(ethereum.CallMsg{To: &to}), nil)
 	var revert *ethguard.RevertError
 	if !errors.As(err, &revert) {
 		t.Fatalf("typed err = %v, want RevertError", err)

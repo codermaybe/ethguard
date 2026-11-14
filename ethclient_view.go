@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -246,7 +247,7 @@ func (ec *EthClient) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 // CallContract returns the fleet-corroborated result of executing msg at
 // blockNumber; nil pins the moving tag to the currently corroborated
 // reference. A fleet-corroborated revert is returned as a *RevertError.
-func (ec *EthClient) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+func (ec *EthClient) CallContract(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) ([]byte, error) {
 	data, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.callContractExec(opCtx, msg, blockNumber)
 	})
@@ -255,7 +256,7 @@ func (ec *EthClient) CallContract(ctx context.Context, msg ethereum.CallMsg, blo
 
 // EstimateGas returns the fleet's lower-median gas estimate for msg at the
 // currently corroborated reference — a variable result, Selected at best.
-func (ec *EthClient) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
+func (ec *EthClient) EstimateGas(ctx context.Context, msg ethapi.CallMsg) (uint64, error) {
 	gas, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
 		return ec.owner.estimateGasExec(opCtx, msg)
 	})
@@ -280,15 +281,15 @@ func (ec *EthClient) PeerCount(ctx context.Context) (uint64, error) {
 
 // SyncProgress reports the consulted source's sync state; nil means it
 // considers itself fully synced.
-func (ec *EthClient) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, error) {
+func (ec *EthClient) SyncProgress(ctx context.Context) (*ethapi.SyncProgress, error) {
 	progress, _, err := operation(ec.owner, ctx, true, ec.owner.syncProgressExec)
 	return progress, err
 }
 
 // FeeHistory returns the fleet-corroborated fee history ending at the
 // corroborated reference: lastBlock nil pins the moving "latest" tag.
-func (ec *EthClient) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error) {
-	history, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethereum.FeeHistory, CallResult, error) {
+func (ec *EthClient) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethapi.FeeHistoryResult, error) {
+	history, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.FeeHistoryResult, CallResult, error) {
 		return ec.owner.feeHistoryExec(opCtx, blockCount, lastBlock, rewardPercentiles)
 	})
 	return history, err
@@ -369,34 +370,42 @@ func (ec *EthClient) PendingNonceAt(ctx context.Context, account common.Address)
 	return value, err
 }
 
-func (ec *EthClient) CallContractAtHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, error) {
+func (ec *EthClient) CallContractAtHash(ctx context.Context, msg ethapi.CallMsg, blockHash common.Hash) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.callContractAtHashExec(opCtx, msg, blockHash)
 	})
 	return value, err
 }
 
-func (ec *EthClient) PendingCallContract(ctx context.Context, msg ethereum.CallMsg) ([]byte, error) {
+func (ec *EthClient) PendingCallContract(ctx context.Context, msg ethapi.CallMsg) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.pendingCallContractExec(opCtx, msg)
 	})
 	return value, err
 }
 
-func (ec *EthClient) EstimateGasAtBlock(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) (uint64, error) {
+func (ec *EthClient) EstimateGasAtBlock(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
 		arg, localErr := checkedBlockNumArg(blockNumber)
 		if localErr != nil {
 			return 0, CallResult{Err: localErr}, localErr
 		}
-		return ec.owner.estimateGasWithArgExec(opCtx, toCallArg(msg), arg)
+		call, err := toCallArg(msg)
+		if err != nil {
+			return 0, CallResult{}, err
+		}
+		return ec.owner.estimateGasWithArgExec(opCtx, call, arg)
 	})
 	return value, err
 }
 
-func (ec *EthClient) EstimateGasAtBlockHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) (uint64, error) {
+func (ec *EthClient) EstimateGasAtBlockHash(ctx context.Context, msg ethapi.CallMsg, blockHash common.Hash) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
-		return ec.owner.estimateGasWithArgExec(opCtx, toCallArg(msg), hashBlockArg(blockHash))
+		call, err := toCallArg(msg)
+		if err != nil {
+			return 0, CallResult{}, err
+		}
+		return ec.owner.estimateGasWithArgExec(opCtx, call, hashBlockArg(blockHash))
 	})
 	return value, err
 }

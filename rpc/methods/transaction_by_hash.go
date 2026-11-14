@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
@@ -117,7 +119,7 @@ func correctTransactionByHash(value json.RawMessage) (json.RawMessage, error) {
 	if err := jsonsafe.Validate(value); err != nil {
 		return nil, fmt.Errorf("%w: transaction JSON: %v", rpc.ErrMalformedResponse, err)
 	}
-	if wire.IsJSONNull(value) {
+	if ethcodec.IsJSONNull(value) {
 		return json.RawMessage("null"), nil
 	}
 	var original map[string]json.RawMessage
@@ -148,7 +150,7 @@ func correctTransactionByHash(value json.RawMessage) (json.RawMessage, error) {
 			candidate["blockTimestamp"] = corrected
 		}
 	}
-	candidateRaw, err := wire.MarshalNoEscape(candidate)
+	candidateRaw, err := ethcodec.MarshalNoEscape(candidate)
 	if err != nil {
 		return nil, fmt.Errorf("%w: transaction candidate: %v", rpc.ErrMalformedResponse, err)
 	}
@@ -172,7 +174,7 @@ func correctTransactionByHashKey(key string, value json.RawMessage, original map
 			// uncorrected — the official required field and the typed
 			// branch then classify the response, keeping the unsupported
 			// object's precedence over the missing member.
-			if wire.IsJSONNull(original["blockHash"]) && wire.IsJSONNull(original["blockNumber"]) && wire.IsJSONNull(original["transactionIndex"]) {
+			if ethcodec.IsJSONNull(original["blockHash"]) && ethcodec.IsJSONNull(original["blockNumber"]) && ethcodec.IsJSONNull(original["transactionIndex"]) {
 				return json.RawMessage("null"), true, nil
 			}
 			return nil, false, nil
@@ -182,20 +184,20 @@ func correctTransactionByHashKey(key string, value json.RawMessage, original map
 			return value, false, nil
 		}
 	case "hash", "blockHash":
-		if key == "blockHash" && wire.IsJSONNull(value) {
+		if key == "blockHash" && ethcodec.IsJSONNull(value) {
 			return json.RawMessage("null"), true, nil
 		}
-		canonical, err := wire.NewHash(value)
+		canonical, err := ethapi.NewHash(value)
 		if err != nil {
 			return nil, true, err
 		}
 		encoded, err := canonical.MarshalJSON()
 		return encoded, true, err
 	case "from", "to":
-		if key == "to" && wire.IsJSONNull(value) {
+		if key == "to" && ethcodec.IsJSONNull(value) {
 			return json.RawMessage("null"), true, nil
 		}
-		canonical, err := wire.NewAddress(value)
+		canonical, err := ethapi.NewAddress(value)
 		if err != nil {
 			return nil, true, err
 		}

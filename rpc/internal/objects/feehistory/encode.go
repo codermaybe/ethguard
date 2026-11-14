@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 )
 
 // canonical 是 eth_feeHistory 的规范对象。字段顺序固定。可选字段缺失就省略，
@@ -47,7 +46,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(value, &raw); err != nil || len(raw.Oldest) == 0 {
 		return nil, fmt.Errorf("feeHistory: malformed response")
 	}
-	oldest, err := wire.CanonicalQuantity(raw.Oldest)
+	oldest, err := ethcodec.CanonicalQuantity(raw.Oldest)
 	if err != nil {
 		return nil, fmt.Errorf("feeHistory: oldestBlock: %w", err)
 	}
@@ -62,14 +61,14 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	}
 	base := make([]string, len(raw.Base))
 	for i, item := range raw.Base {
-		base[i], err = wire.CanonicalQuantity(item)
+		base[i], err = ethcodec.CanonicalQuantity(item)
 		if err != nil {
 			return nil, fmt.Errorf("feeHistory: baseFeePerGas[%d]: %w", i, err)
 		}
 	}
 	baseBlob := make([]string, len(raw.BaseBlob))
 	for i, item := range raw.BaseBlob {
-		baseBlob[i], err = wire.CanonicalQuantity(item)
+		baseBlob[i], err = ethcodec.CanonicalQuantity(item)
 		if err != nil {
 			return nil, fmt.Errorf("feeHistory: baseFeePerBlobGas[%d]: %w", i, err)
 		}
@@ -105,19 +104,19 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 			}
 			reward[i] = make([]string, len(row))
 			for j, item := range row {
-				reward[i][j], err = wire.CanonicalQuantity(item)
+				reward[i][j], err = ethcodec.CanonicalQuantity(item)
 				if err != nil {
 					return nil, fmt.Errorf("feeHistory: reward[%d][%d]: %w", i, j, err)
 				}
 			}
 		}
 	}
-	return wire.MarshalNoEscape(canonical{oldest, base, gas, reward, baseBlob, blobGasRatio})
+	return ethcodec.MarshalNoEscape(canonical{oldest, base, gas, reward, baseBlob, blobGasRatio})
 }
 
 // canonicalRatio 与生成层共用的规范实现：wire.CanonicalRatio。
 // 0.50 与 0.5 同值；最短形式改变十进制原值时失败。超出 [0,1]、NaN、Inf
 // 在这里就是无效响应，不是另一种编码。
 func canonicalRatio(value json.RawMessage) (json.Number, error) {
-	return wire.CanonicalRatio(value)
+	return ethcodec.CanonicalRatio(value)
 }

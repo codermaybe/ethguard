@@ -75,29 +75,6 @@ type ref struct {
 	inner            *ref
 }
 
-// displayName is the Go type spelled at use sites, e.g. "[]Log" or "*Receipt".
-func (r *ref) displayName() string {
-	if r == nil {
-		return ""
-	}
-	base := r.codeName()
-	if r.pointer {
-		return "*" + base
-	}
-	return base
-}
-
-func (r *ref) codeName() string {
-	switch r.kind {
-	case refScalar:
-		return r.native
-	case refArray:
-		return "[]" + r.elem.displayName()
-	default:
-		return r.typeName
-	}
-}
-
 type fieldModel struct {
 	json   string // wire name
 	goName string // exported Go name
@@ -207,6 +184,7 @@ var overrideNamesByTitle = map[string]string{
 // Path keys are stable inside the pinned version; the emitted version
 // interlock forces regeneration if the pinned bundle ever moves.
 var overrideNameByPath = map[string]string{
+	"eth_call.params[0]": "CallMsg",
 	"eth_simulateV1.result.items.properties.calls.items":                                                                    "SimulateCallResult",
 	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error":                                          "SimulateCallError",
 	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0]":                                 "SimulateErrorRevert",

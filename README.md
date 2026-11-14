@@ -17,10 +17,12 @@ with status and diagnostic evidence fields.
 
 EthGuard favors reliability over latency. For reads that need a moving
 reference, it establishes one provider-backed reference before evaluating the
-business response. The `ethguard.Client` typed methods keep the method names,
-arguments, return types, and calling style of `go-ethereum/ethclient`, so
-ordinary calls use the same shape without an explicit anchor/confirm/read
-workflow. Cross-source agreement is provider evidence; it is not Ethereum
+business response. The `ethguard.Client` typed methods follow the business method set of
+`go-ethereum/ethclient` and share one execution owner with the `EthClient` view.
+Public business types are migrating to generated `ethapi` models; CallMsg,
+FeeHistory, AccessListResult, and SyncProgress have migrated. This changes Go
+signatures and field shapes; see the [migration contract](docs/design/wire-codegen.md).
+Ordinary calls need no explicit anchor/confirm/read workflow. Cross-source agreement is provider evidence; it is not Ethereum
 consensus, canonical proof, cryptographic finality, or light-client
 verification. Multiple URLs need not be independent.
 
@@ -88,7 +90,7 @@ ethguard/                   # public Client facade
 
 | Package | Role |
 |---------|------|
-| `ethguard` | The public `Client`: Geth-shaped typed reads, generic calls, evidence, writes |
+| `ethguard` | The public `Client`: Typed reads (generated-model migration in progress), calls, evidence, writes |
 | `ethguard/config` | One configuration model for Go construction and YAML loading |
 | `ethguard/pool` | Shared upstream connections, Transport Port, collection, health, eligibility |
 | `ethguard/observe` | Observability events (`Recorder`); never a source of security decisions |
@@ -128,13 +130,17 @@ semantics, and admission helpers live in `rpc/internal`.
   table; callers reuse it, never copy it (`logs.go` owns the `Log` table used
   by `receipt.go`). Implementation may split within the same package once a
   slice proves unwieldy — the table stays in exactly one file; no pre-splitting.
-- **R3 – data, not generated code.** `internal/spec` holds the pinned
+- **R3 – pinned schema ownership.** `internal/spec` holds the pinned
   execution-apis reference data (VERSION, trimmed `methods.json`, conformance
   vectors) and contains no hand-written logic beyond the embed accessor.
-  Whitelist trees compile at init from the same bundle tests validate against —
-  there is no generated Go and no freshness gap. Production typed projection
+  `internal/executionapi` applies separately audited schema errata to the
+  original reference data and assembles the effective schemas used by whitelist
+  trees, field projection, and Jennifer generation into `ethapi/types.gen.go`.
+  CI regenerates and compares the output. Production typed projection
   lives in `internal/typed` behind the root facade's typed reads;
-  strict requiredness stays fork-aware and hand-written in the slices.
+  generated constructors enforce declared requiredness and nullability.
+  Fork-aware admission, request binding and content commitments stay in the
+  owning object and method slices.
 - **R4 – inventory interlock.** Tests enforce that every registered method in
   `catalog.go` has a schema mapping in `spec_tables.go`.
 - **Anchor layering.** The anchor facade is query-only: a `Client` owns its
@@ -167,7 +173,7 @@ Validate / Prepare → Reference → Collect → Admit → Resolve → Project
 ```
 
 The current inventory contains 26 registered read methods. The root `Client`
-provides the Geth-shaped typed methods and generic `Call` access over that
+provides typed methods and generic `Call` access over that
 inventory. `eth_getProof` is explicitly unsupported. A registered plan does not
 promise a provider-wide compatibility result: live provider evidence remains a
 separate track.

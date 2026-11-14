@@ -139,7 +139,7 @@ jobs:
           if [ -n "$PREVIOUS" ]; then range="$PREVIOUS..$SHA"; fi
           git log --format='- %s (%h)' "$range" >> release-evidence/notes.md
           if [[ "$VERSION" == *-* ]]; then
-            printf '\n## Compatibility boundary\n\nExperimental prerelease; not an EthClient: complete release. Requires Go 1.26.10.\nDefault EthClient SimulateV1 is unavailable. SyncProgress now retains all seven previously omitted upstream fields. Receipt results now require from/effectiveGasPrice, validate byte type, and preserve nullable-address presence; malformed sources remain in the fixed denominator. Other return-shape and external-evidence gaps remain in the compatibility contracts.\nSee the API difference report in the approved workflow artifact before upgrading.\n' >> release-evidence/notes.md
+            printf '\n## Compatibility boundary\n\nExperimental prerelease; not an EthClient: complete release. Requires Go 1.26.10.\nDefault EthClient SimulateV1 is unavailable. Public CallMsg, FeeHistory, AccessListResult, and SyncProgress use generated ethapi types with breaking Go signature and field changes. SyncProgress provider counters remain in auxiliary and raw source evidence; the generated type has no Done method. Receipt results now require from/effectiveGasPrice, validate byte type, and preserve nullable-address presence; malformed sources remain in the fixed denominator. Other return-shape and external-evidence gaps remain in the compatibility contracts.\nSee the API difference report in the approved workflow artifact before upgrading.\n' >> release-evidence/notes.md
           fi
           payload_sha="$(sha256sum release-evidence/payload.tar)"
           payload_sha="${payload_sha%% *}"

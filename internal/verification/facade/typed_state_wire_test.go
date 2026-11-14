@@ -14,6 +14,7 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
+	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -103,7 +104,7 @@ func TestStateRefMovingTagsRewriteToAnchorHash(t *testing.T) {
 	if _, _, err := client.CodeAt(ctx, addr, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := client.CallContract(ctx, callMsgTo(addr), nil); err != nil {
+	if _, _, err := client.CallContract(ctx, ethapitest.Call(callMsgTo(addr)), nil); err != nil {
 		t.Fatal(err)
 	}
 

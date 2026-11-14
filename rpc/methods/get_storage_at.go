@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -17,7 +18,7 @@ func getStorageAtSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodGetStorageAt,
 		Resolver:    ResolverStrict,
-		Normalize:   wire.NormalizeStorageWord,
+		Normalize:   ethcodec.NormalizeStorageWord,
 		Encode:      wire.EncodeStorageWord,
 		KeySource:   rpc.RuleKeyCanonicalBytes,
 		CompareKind: rpc.RuleCompareMethodSpecific,

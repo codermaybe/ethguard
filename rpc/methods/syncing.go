@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -18,11 +20,12 @@ const MethodSyncing = "eth_syncing"
 // method.
 func syncingSpec() MethodSpec {
 	return MethodSpec{
-		Method:      MethodSyncing,
-		Resolver:    ResolverLocal,
-		Normalize:   normalizeSyncing,
-		Encode:      rpc.EncodeCanonicalJSON,
-		CompareKind: rpc.RuleCompareObject,
+		Method:                 MethodSyncing,
+		Resolver:               ResolverLocal,
+		Normalize:              normalizeSyncing,
+		Encode:                 encodeSyncing,
+		ObservationProjectorID: ProjectorSyncing,
+		CompareKind:            rpc.RuleCompareObject,
 	}
 }
 
@@ -49,5 +52,19 @@ func normalizeSyncing(value json.RawMessage) (string, error) {
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return "", fmt.Errorf("syncing: expected false or an object")
 	}
+	if _, err := ethapi.NewSyncingResult(trimmed); err != nil {
+		return "", fmt.Errorf("syncing: invalid official progress fields: %w", err)
+	}
 	return rpc.CanonicalJSON(value)
+}
+
+// encodeSyncing keeps only fields declared by the official result schema.
+// Original source observations remain available for extension/diagnostic and
+// explicitly budgeted raw-evidence delivery.
+func encodeSyncing(raw json.RawMessage) (json.RawMessage, error) {
+	value, err := ethapi.NewSyncingResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	return ethcodec.MarshalNoEscape(value)
 }

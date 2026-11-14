@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 )
 
 // Encode checks one eth_createAccessList result and returns the canonical JSON
@@ -34,7 +33,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(trimmed, &raw); err != nil {
 		return nil, fmt.Errorf("accessList: malformed response")
 	}
-	if !wire.PresentNonNull(raw.AccessList) {
+	if !ethcodec.PresentNonNull(raw.AccessList) {
 		return nil, fmt.Errorf("accessList: missing accessList")
 	}
 	var rows []json.RawMessage
@@ -50,21 +49,21 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 		items[i] = item
 	}
 	out := canonical{AccessList: items}
-	if wire.PresentNonNull(raw.Error) {
+	if ethcodec.PresentNonNull(raw.Error) {
 		var text string
 		if err := json.Unmarshal(raw.Error, &text); err != nil {
 			return nil, fmt.Errorf("accessList: error must be a string")
 		}
 		out.Error = &text
 	}
-	if wire.PresentNonNull(raw.GasUsed) {
-		gas, err := wire.CanonicalQuantity(raw.GasUsed)
+	if ethcodec.PresentNonNull(raw.GasUsed) {
+		gas, err := ethcodec.CanonicalQuantity(raw.GasUsed)
 		if err != nil {
 			return nil, fmt.Errorf("accessList: gasUsed: %w", err)
 		}
 		out.GasUsed = &gas
 	}
-	return wire.MarshalNoEscape(out)
+	return ethcodec.MarshalNoEscape(out)
 }
 
 func encodeItem(value json.RawMessage) (canonicalItem, error) {
@@ -75,19 +74,19 @@ func encodeItem(value json.RawMessage) (canonicalItem, error) {
 	if err := json.Unmarshal(value, &raw); err != nil {
 		return canonicalItem{}, fmt.Errorf("expected an object")
 	}
-	if !wire.PresentNonNull(raw.Address) {
+	if !ethcodec.PresentNonNull(raw.Address) {
 		return canonicalItem{}, fmt.Errorf("missing address")
 	}
 	if raw.StorageKeys == nil {
 		return canonicalItem{}, fmt.Errorf("missing storageKeys")
 	}
-	address, err := wire.ValidateWireFixedHex(raw.Address, 40, "address")
+	address, err := ethcodec.ValidateWireFixedHex(raw.Address, 40, "address")
 	if err != nil {
 		return canonicalItem{}, fmt.Errorf("address: %w", err)
 	}
 	keys := make([]string, len(raw.StorageKeys))
 	for i, key := range raw.StorageKeys {
-		keys[i], err = wire.ValidateWireFixedHex(key, 64, "hash")
+		keys[i], err = ethcodec.ValidateWireFixedHex(key, 64, "hash")
 		if err != nil {
 			return canonicalItem{}, fmt.Errorf("storageKeys[%d]: %w", i, err)
 		}

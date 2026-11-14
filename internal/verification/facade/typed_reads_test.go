@@ -18,6 +18,7 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -753,7 +754,7 @@ func TestTypedCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
 
 	to := common.HexToAddress("0x1")
 	msg := ethereum.CallMsg{To: &to, Data: []byte{0x00}}
-	data, _, err := adapter.CallContract(ctx, msg, nil)
+	data, _, err := adapter.CallContract(ctx, ethapitest.Call(msg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -766,7 +767,7 @@ func TestTypedCallContractCorroboratesResultsAndMapsReverts(t *testing.T) {
 	for _, node := range nodes {
 		node.Fail("eth_call", -32000, "execution reverted: no funds")
 	}
-	_, _, err = adapter.CallContract(ctx, msg, nil)
+	_, _, err = adapter.CallContract(ctx, ethapitest.Call(msg), nil)
 	var revert *ethguard.RevertError
 	if !errors.As(err, &revert) {
 		t.Fatalf("expected RevertError, got %v", err)
@@ -797,7 +798,7 @@ func TestTypedEstimateGasPinsTagAndTakesMedian(t *testing.T) {
 	defer cancel()
 
 	to := common.HexToAddress("0x1")
-	gas, _, err := adapter.EstimateGas(ctx, ethereum.CallMsg{To: &to})
+	gas, _, err := adapter.EstimateGas(ctx, ethapitest.Call(ethereum.CallMsg{To: &to}))
 	if err != nil {
 		t.Fatal(err)
 	}

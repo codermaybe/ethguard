@@ -1019,7 +1019,7 @@ func TestSyncingReportsConsultedSourceState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if progress == nil || progress.CurrentBlock != 100 || progress.HighestBlock != 200 {
+	if progress == nil || progress.CurrentBlock == nil || *progress.CurrentBlock != "0x64" || progress.HighestBlock == nil || *progress.HighestBlock != "0xc8" {
 		t.Fatalf("expected decoded sync progress, got %+v", progress)
 	}
 }
@@ -1877,7 +1877,7 @@ func TestFeeHistoryPinsNewestToTheCorroboratedHeight(t *testing.T) {
 	if decision.Status != rpc.Corroborated || decision.BlockRef != "0x10" {
 		t.Fatalf("expected corroborated height-pinned history, got %+v", decision)
 	}
-	if history.OldestBlock.Uint64() != 15 || len(history.BaseFee) != 4 {
+	if history.OldestBlock != "0xf" || len(history.BaseFeePerGas) != 4 {
 		t.Fatalf("unexpected decoded history: %+v", history)
 	}
 }
@@ -2094,11 +2094,11 @@ func TestClientResolvesNewMethods(t *testing.T) {
 		if d.Status != rpc.Corroborated {
 			t.Fatalf("status = %v, want Corroborated", d.Status)
 		}
-		if res.GasUsed != 0x5208 {
+		if res.GasUsed == nil || *res.GasUsed != "0x5208" {
 			t.Fatalf("gasUsed = %d, want %d", res.GasUsed, 0x5208)
 		}
-		if len(res.AccessList) != 1 {
-			t.Fatalf("accessList length = %d, want 1", len(res.AccessList))
+		if res.AccessList == nil || len(*res.AccessList) != 1 {
+			t.Fatalf("accessList length = %d, want 1", len(*res.AccessList))
 		}
 	})
 }

@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -16,7 +17,7 @@ func gasPriceSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodGasPrice,
 		Resolver:    ResolverMedian,
-		Normalize:   wire.NormalizeWireQuantity,
+		Normalize:   ethcodec.NormalizeWireQuantity,
 		Encode:      wire.EncodeQuantity,
 		CompareKind: rpc.RuleCompareQuantity,
 	}

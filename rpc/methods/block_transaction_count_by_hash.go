@@ -3,6 +3,7 @@ package methods
 import (
 	"encoding/json"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -42,14 +43,14 @@ func blockTransactionCountByHashDescriptor() MethodDescriptor {
 // resolution can preserve it for the typed boundary, while applying the
 // canonical wire quantity grammar to actual counts.
 func normalizeTransactionCount(value json.RawMessage) (string, error) {
-	if wire.IsJSONNull(value) {
+	if ethcodec.IsJSONNull(value) {
 		return "null", nil
 	}
-	return wire.NormalizeWireQuantity(value)
+	return ethcodec.NormalizeWireQuantity(value)
 }
 
 func encodeTransactionCount(value json.RawMessage) (json.RawMessage, error) {
-	if wire.IsJSONNull(value) {
+	if ethcodec.IsJSONNull(value) {
 		return json.RawMessage("null"), nil
 	}
 	return wire.EncodeQuantity(value)

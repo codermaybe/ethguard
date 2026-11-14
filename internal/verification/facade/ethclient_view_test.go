@@ -3,6 +3,7 @@ package ethguard_test
 import (
 	"context"
 	"errors"
+	"math/big"
 	"os"
 	"reflect"
 	"sort"
@@ -11,23 +12,21 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 	"github.com/ethereum/go-ethereum"
-	bind "github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	gethethclient "github.com/ethereum/go-ethereum/ethclient"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
-// The interface commitments of the ethclient-shaped view include bind/v2's
-// ContractCaller and DeployBackend. The complete method-set check below is
-// generated from the locked go-ethereum type, so new upstream methods cannot
-// silently disappear from the compatibility target.
-var (
-	_ bind.ContractCaller = (*ethguard.EthClient)(nil)
-	_ bind.DeployBackend  = (*ethguard.EthClient)(nil)
-)
+// A migrated caller uses generated call inputs. The independent signature
+// matrix below checks every other parameter and result during migration.
+var _ interface {
+	CallContract(context.Context, ethapi.CallMsg, *big.Int) ([]byte, error)
+	CodeAt(context.Context, common.Address, *big.Int) ([]byte, error)
+} = (*ethguard.EthClient)(nil)
 
 // knownMethodSetGap is the ratchet over the locked target: the default build
 // tolerates exactly this set of not-yet-implemented business methods, and any
@@ -213,14 +212,11 @@ func TestViewReceiptAbsenceMatchesNative(t *testing.T) {
 	}
 }
 
-// TestEthClientSignaturesMatchLockedTarget checks every implemented business
-// method's official parameter and return types against the locked
-// go-ethereum signature — names alone, or method counts, never claim
-// compatibility. The comparison is reflection over the exported signatures
-// (receiver excluded); a method that drifts from the upstream shape fails
-// here even while the name-set ratchet stays green. SimulateV1 is the
-// ratcheted gap and is skipped here; Client() is the excluded accessor.
-func TestEthClientSignaturesMatchLockedTarget(t *testing.T) {
+// TestEthClientBusinessSignatures checks complete parameter and result types.
+// Migrated methods use explicit project-generated signatures; the locked geth
+// signatures remain the temporary contract only for unmigrated methods. The
+// independent full method-set ratchet continues to expose SimulateV1.
+func TestEthClientBusinessSignatures(t *testing.T) {
 	upstream := reflect.TypeOf((*gethethclient.Client)(nil))
 	view := reflect.TypeOf((*ethguard.EthClient)(nil))
 	upstreamMethods := make(map[string]reflect.Method)
@@ -233,10 +229,9 @@ func TestEthClientSignaturesMatchLockedTarget(t *testing.T) {
 		m := view.Method(i)
 		viewMethods[m.Name] = m
 	}
-	signatureOf := func(m reflect.Method) string {
-		sig := m.Type
+	signatureOf := func(sig reflect.Type, first int) string {
 		var parts []string
-		for i := 1; i < sig.NumIn(); i++ {
+		for i := first; i < sig.NumIn(); i++ {
 			parts = append(parts, sig.In(i).String())
 		}
 		returns := make([]string, 0, sig.NumOut())
@@ -245,17 +240,51 @@ func TestEthClientSignaturesMatchLockedTarget(t *testing.T) {
 		}
 		return "(" + strings.Join(parts, ", ") + ") -> (" + strings.Join(returns, ", ") + ")"
 	}
+	sameSignature := func(actual, expected reflect.Type, expectedOffset int) bool {
+		if actual.NumIn()-1 != expected.NumIn()-expectedOffset || actual.NumOut() != expected.NumOut() || actual.IsVariadic() != expected.IsVariadic() {
+			return false
+		}
+		for i := 1; i < actual.NumIn(); i++ {
+			if actual.In(i) != expected.In(i-1+expectedOffset) {
+				return false
+			}
+		}
+		for i := 0; i < actual.NumOut(); i++ {
+			if actual.Out(i) != expected.Out(i) {
+				return false
+			}
+		}
+		return true
+	}
+	migrated := map[string]reflect.Type{
+		"CallContract":           reflect.TypeOf((func(context.Context, ethapi.CallMsg, *big.Int) ([]byte, error))(nil)),
+		"CallContractAtHash":     reflect.TypeOf((func(context.Context, ethapi.CallMsg, common.Hash) ([]byte, error))(nil)),
+		"PendingCallContract":    reflect.TypeOf((func(context.Context, ethapi.CallMsg) ([]byte, error))(nil)),
+		"EstimateGas":            reflect.TypeOf((func(context.Context, ethapi.CallMsg) (uint64, error))(nil)),
+		"EstimateGasAtBlock":     reflect.TypeOf((func(context.Context, ethapi.CallMsg, *big.Int) (uint64, error))(nil)),
+		"EstimateGasAtBlockHash": reflect.TypeOf((func(context.Context, ethapi.CallMsg, common.Hash) (uint64, error))(nil)),
+		"SyncProgress":           reflect.TypeOf((func(context.Context) (*ethapi.SyncProgress, error))(nil)),
+		"FeeHistory":             reflect.TypeOf((func(context.Context, uint64, *big.Int, []float64) (*ethapi.FeeHistoryResult, error))(nil)),
+	}
 	for name, viewMethod := range viewMethods {
 		upstreamMethod, ok := upstreamMethods[name]
 		if !ok {
 			continue // leaked-method detection owns this case
 		}
-		want, got := signatureOf(upstreamMethod), signatureOf(viewMethod)
-		if want != got {
-			t.Errorf("%s signature = %s, want %s", name, got, want)
+		expected, offset := upstreamMethod.Type, 1
+		if signature, migrated := migrated[name]; migrated {
+			expected, offset = signature, 0
+		}
+		if !sameSignature(viewMethod.Type, expected, offset) {
+			t.Errorf("%s signature = %s, want %s", name, signatureOf(viewMethod.Type, 1), signatureOf(expected, offset))
+		}
+	}
+	for name := range migrated {
+		if _, exists := viewMethods[name]; !exists {
+			t.Errorf("migrated signature %s has no public implementation", name)
 		}
 	}
 	if t.Failed() {
-		t.Fatal("implemented method signatures drifted from the locked target")
+		t.Fatal("business method signatures drifted from their declared contracts")
 	}
 }

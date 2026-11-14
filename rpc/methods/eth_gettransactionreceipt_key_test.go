@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
@@ -35,7 +36,7 @@ func TestPrunedReceiptKeyIsAlreadyCanonical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire.CanonicalizeHex(&decoded)
+	ethcodec.CanonicalizeHex(&decoded)
 	folded, err := json.Marshal(decoded)
 	if err != nil {
 		t.Fatal(err)

@@ -13,6 +13,7 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/ethereum/go-ethereum"
@@ -356,7 +357,7 @@ func TestTypedFeeHistoryTransportFixture(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	history, result, err := client.FeeHistory(ctx, 2, big.NewInt(16), []float64{50})
-	if err != nil || history == nil || history.OldestBlock.Int64() != 16 || len(history.BaseFee) != 3 || len(history.Reward) != 2 || history.Reward[0][0].Int64() != 3 {
+	if err != nil || history == nil || history.OldestBlock != "0x10" || len(history.BaseFeePerGas) != 3 || history.Reward == nil || len(*history.Reward) != 2 || (*history.Reward)[0][0] != "0x3" {
 		t.Fatalf("FeeHistory = %+v result=%+v err=%v", history, result, err)
 	}
 	if result.Decision == nil || result.Decision.Status != rpc.Corroborated {
@@ -479,7 +480,7 @@ func TestTypedCallContractTransportFixture(t *testing.T) {
 	t.Cleanup(client.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	got, result, err := client.CallContract(ctx, ethereum.CallMsg{To: &to, Data: data}, nil)
+	got, result, err := client.CallContract(ctx, ethapitest.Call(ethereum.CallMsg{To: &to, Data: data}), nil)
 	if err != nil || result.Decision == nil || result.Decision.Status != rpc.Corroborated {
 		t.Fatalf("CallContract result=%+v data=%x err=%v", result, got, err)
 	}

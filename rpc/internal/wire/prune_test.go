@@ -38,6 +38,15 @@ func TestPrunePreservesPresenceAndArrayPositions(t *testing.T) {
 	}
 }
 
+func TestSimulateMaskUsesTheSharedOfficialBundle(t *testing.T) {
+	const raw = `[{"number":"0x1","vendor":"block","calls":[{"status":"0x1","returnData":"0x00","gasUsed":"0x0","logs":[{"address":"0x0000000000000000000000000000000000000001","vendor":"log"}],"vendor":"call"}]}]`
+	const want = `[{"calls":[{"gasUsed":"0x0","logs":[{"address":"0x0000000000000000000000000000000000000001"}],"returnData":"0x00","status":"0x1"}],"number":"0x1"}]`
+	got, err := PruneMethod("eth_simulateV1", json.RawMessage(raw))
+	if err != nil || got != want {
+		t.Fatalf("shared simulate mask = %s, %v; want %s", got, err, want)
+	}
+}
+
 func TestPruneMethodNumberFidelity(t *testing.T) {
 	for _, number := range []string{
 		"9007199254740992", "9007199254740993",

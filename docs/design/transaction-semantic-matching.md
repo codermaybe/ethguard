@@ -30,7 +30,7 @@
 | `rpc/internal/objects/transaction/transaction.go` 的 `Validate`／`Admit`／`AdmitInBlock` | 用 Geth 解码检查交易载荷、自身 hash、非零签名、from 形状与请求上下文绑定 | 不是完整官方 information object 校验；from 未经 sender recovery；不能据此宣布全部 required 字段已覆盖 |
 | 同包 `Normalize` 与 `encode.go` 的 `Encode` | 均依赖 `wire.PruneMethod` | 应在官方字段边界内补形态归一并保证官方内容不漏；将非官方字段排除在主比较外本身不是缺陷，原始证据另走已有通道 |
 | `rpc/methods/spec_inventory.go` | 两个独立交易方法使用 normalizer key，encoder 单独产生 Value | 更改等价关系必须同步 key 与 Value，不能只改一个 switch |
-| `rpc/internal/wire/types.gen.go` 的 `TransactionInformation` | 已有固定官方 oneOf 分支：legacy、2930、1559、4844、7702 | 应复用官方类型与约束；不能把新 switch 当成替代 schema 的第二份定义 |
+| `ethapi/types.gen.go` 的 `TransactionInformation` | 已有固定官方 oneOf 分支：legacy、2930、1559、4844、7702 | 应复用官方类型与约束；不能把新 switch 当成替代 schema 的第二份定义 |
 | `rpc/internal/wire/prune.go` 的 `PruneMethod` | 通过 `any` 解码、裁剪、hex 规范化后编码，会丢弃 null 成员 | 不能原样作为保真 fallback；须保留官方 presence、null、数组内容和数字精度，不为保留外部 key 而取消主比较边界 |
 | `aggregator/aggregator.go` 的来源 Fault 归因 | 记录不可用回答，不自动修改 pool 健康 | 本切片须验证明确合同违规的健康归因及调度隔离接线，不能把 Fault 已记录冒充隔离已生效 |
 
@@ -272,11 +272,13 @@ Encode 命名收敛为 `officialFields`／`canonicalFields` 并注明合并方�
 
 ## 14. 字段处置与转换归属审计（2026-11-13）
 
-审计输入是锁定 bundle `v1.0.0-beta.7` 的 `eth_getTransactionByHash` 结果 schema、生成器（含 `allowPendingTransactionQueryContext` 固定修正，语义指纹钉住）与本仓库生成结构；本节只记录事实、验证位置与例外，不建立第二份生产字段表。全部适用分支（type 0x0–0x4 与 null）都核对过，不是只用一份 type=2 fixture 代替。
+当时审计输入是锁定 bundle `v1.0.0-beta.7` 的 `eth_getTransactionByHash` 结果 schema、生成器（当时含 `allowPendingTransactionQueryContext` 固定修正，语义指纹钉住）与本仓库生成结构；本节只记录事实、验证位置与例外，不建立第二份生产字段表。全部适用分支（type 0x0–0x4 与 null）都核对过，不是只用一份 type=2 fixture 代替。
+
+2026-11-14 归属更新：上述 AST 修正已迁入 `internal/spec/errata/transaction-query-pending-context.json`，旧函数及生成器方法特判已删除。`internal/executionapi.Read` 先应用审核过的标准勘误，生成器、mask 和字段投影共用有效 schema；`ReadOriginal` 保留原始来源。四字段范围、required、非 null 约束、内嵌交易规则和下述方法检查保持不变，生成业务代码除审计头注释外逐字节一致。当前生效结构与退出条件见 [生成合同](wire-codegen.md#显式标准勘误与外部审计)及决策 [0070](../decisions.md#0070-explicit-schema-errata-before-generic-generation-and-runtime-schema-consumers)；本次迁移不改写以下历史运行证据。
 
 ### 14.1 分支与字段处置（官方声明 → 校验位置）
 
-外层信封分支「Transaction information」声明六个 REQUIRED 成员：`hash`、`from`、`blockHash`、`blockNumber`、`blockTimestamp`、`transactionIndex`；生成器固定修正把其中四个包含上下文字段改为 `null ∪ string`（EIP-1474 pending 语义与 geth v1.17.10 RPCTransmission 行为），四字段仍全部 required，整体上下文一致性（三字段同 null 或同非 null，及缺失派生）由对象合并守卫与方法准入拥有：`encodeCanonical` 的 inconsistent pending/mined 守卫（见证 `TestTransactionInclusionContextGuardPerAsymmetricMember`）、by-hash 的唯一缺失派生（`TestTransactionByHashPendingTimestampRequiresExplicitPendingState`）、in-block 的 mined-only 拒绝（`TestTransactionInBlockPendingRejectionMessage`）。`hash`/`from` 无 null 容忍，缺席或非法即拒绝（`TestTransactionMissingSignatureFieldsReject`）。
+外层信封分支「Transaction information」声明六个 REQUIRED 成员：`hash`、`from`、`blockHash`、`blockNumber`、`blockTimestamp`、`transactionIndex`；显式标准勘误把其中四个包含上下文字段改为 `null ∪ string`（前三个位置字段依据 EIP-1474，`blockTimestamp` 额外依据 geth v1.17.10 RPCTransaction 行为），四字段仍全部 required，整体上下文一致性（三字段同 null 或同非 null，及缺失派生）由对象合并守卫与方法准入拥有：`encodeCanonical` 的 inconsistent pending/mined 守卫（见证 `TestTransactionInclusionContextGuardPerAsymmetricMember`）、by-hash 的唯一缺失派生（`TestTransactionByHashPendingTimestampRequiresExplicitPendingState`）、in-block 的 mined-only 拒绝（`TestTransactionInBlockPendingRejectionMessage`）。`hash`/`from` 无 null 容忍，缺席或非法即拒绝（`TestTransactionMissingSignatureFieldsReject`）。
 
 五个类型分支的 REQUIRED/optional 事实（从锁定 bundle 提取）：
 
@@ -302,7 +304,8 @@ Encode 命名收敛为 `officialFields`／`canonicalFields` 并注明合并方�
 | 方法上下文派生（缺失 timestamp 补全 null） | by-hash 方法文件 `correctTransactionByHashKey` | `TestTransactionByHashPendingTimestampRequiresExplicitPendingState` |
 | codec 语法（hex 规范化） | `wire.PruneMethod` 内 `CanonicalizeHex` | `rpc/internal/wire` prune 测试 |
 | 官方字段投影（union mask 白名单） | `wire.PruneMethod`（bundle 编译掩码） | 同上 |
-| 适用 schema 验证（分支解析 + pending 修正） | 生成结构 `New<Branch>Transaction` / `NewGetTransactionByHashResult` | `TestTransactionMethodsAcceptOfficialPayloadTypes`、`wire` 生成测试 |
+| 标准定义勘误（四个 required inclusion 值允许 null） | `internal/spec/errata/transaction-query-pending-context.json`／`executionapi.Read` | `TestErrataOnlyChangesFourRequiredQueryValues`、来源漂移及原子失败测试 |
+| 适用有效 schema 验证（required／nullable／分支解析） | 生成结构 `New<Branch>Transaction` / `NewGetTransactionByHashResult` | `TestTransactionMethodsAcceptOfficialPayloadTypes`、`wire` 生成测试 |
 | 对象声明／payload 一致性（hash/payload、签名、chainId、包含上下文语法） | `objects/transaction.validatePrepared` | `TestCandidateBindingsMatchCompatEntries` 及对象包全部测试 |
 | 规范输出（typed 优先 + 官方补回） | `encodeCanonical` 合并 | `TestEncodePreservesOfficiallyToleratedMembers` |
 | 请求绑定 | `Candidate.AdmitByHash` / `AdmitInBlock` | `TestTransactionProcessorBindingSemanticsUnchanged` |

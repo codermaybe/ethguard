@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
@@ -710,18 +711,22 @@ func (c *Client) SuggestGasPrice(ctx context.Context) (*big.Int, CallResult, err
 // A fleet-corroborated revert is an observation, not a pipeline failure: it is
 // returned as a *RevertError carrying the revert context, while the
 // corroboration claim stays on the decision evidence.
-func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, CallResult, error) {
+func (c *Client) CallContract(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return c.callContractExec(opCtx, msg, blockNumber)
 	})
 }
 
-func (c *Client) callContractExec(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, CallResult, error) {
+func (c *Client) callContractExec(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) ([]byte, CallResult, error) {
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
 		return nil, CallResult{}, err
 	}
-	decision, err := c.callTyped(ctx, methods.MethodCall, toCallArg(msg), blockArg)
+	call, err := toCallArg(msg)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodCall, call, blockArg)
 	if err != nil {
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
@@ -793,59 +798,44 @@ func decodeCallDecision(decision rpc.Decision) ([]byte, error) {
 	return data, nil
 }
 
-// toCallArg mirrors go-ethereum's own client-side shape of an eth_call
-// message, the "input" key spelling included, so requests stay
-// wire-comparable with ethclient's.
-func toCallArg(msg ethereum.CallMsg) map[string]any {
-	arg := map[string]any{
-		"from": msg.From,
-		"to":   msg.To,
+// toCallArg validates the generated request model and freezes its complete
+// official fields into ordinary JSON values before reference preparation.
+func toCallArg(msg ethapi.CallMsg) (map[string]any, error) {
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return nil, fmt.Errorf("%w: call message: %v", rpc.ErrInvalidRequest, err)
 	}
-	if len(msg.Data) > 0 {
-		arg["input"] = hexutil.Bytes(msg.Data)
+	checked, err := ethapi.NewCallMsg(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: call message: %v", rpc.ErrInvalidRequest, err)
 	}
-	if msg.Value != nil {
-		arg["value"] = (*hexutil.Big)(msg.Value)
+	raw, err = json.Marshal(checked)
+	if err != nil {
+		return nil, fmt.Errorf("%w: call message: %v", rpc.ErrInvalidRequest, err)
 	}
-	if msg.Gas != 0 {
-		arg["gas"] = hexutil.Uint64(msg.Gas)
+	var arg map[string]any
+	if err := json.Unmarshal(raw, &arg); err != nil {
+		return nil, fmt.Errorf("%w: call message: %v", rpc.ErrInvalidRequest, err)
 	}
-	if msg.GasPrice != nil {
-		arg["gasPrice"] = (*hexutil.Big)(msg.GasPrice)
-	}
-	if msg.GasFeeCap != nil {
-		arg["maxFeePerGas"] = (*hexutil.Big)(msg.GasFeeCap)
-	}
-	if msg.GasTipCap != nil {
-		arg["maxPriorityFeePerGas"] = (*hexutil.Big)(msg.GasTipCap)
-	}
-	if msg.AccessList != nil {
-		arg["accessList"] = msg.AccessList
-	}
-	if msg.BlobGasFeeCap != nil {
-		arg["maxFeePerBlobGas"] = (*hexutil.Big)(msg.BlobGasFeeCap)
-	}
-	if msg.BlobHashes != nil {
-		arg["blobVersionedHashes"] = msg.BlobHashes
-	}
-	if msg.AuthorizationList != nil {
-		arg["authorizationList"] = msg.AuthorizationList
-	}
-	return arg
+	return arg, nil
 }
 
 // EstimateGas returns the fleet's lower-median gas estimate for msg at the
 // currently corroborated reference — a variable result, Selected at best, never
 // claimed corroborated. A fleet that unanimously fails estimation fails as
 // no-valid-response; the revert is never laundered into a number.
-func (c *Client) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, CallResult, error) {
+func (c *Client) EstimateGas(ctx context.Context, msg ethapi.CallMsg) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
 		return c.estimateGasExec(opCtx, msg)
 	})
 }
 
-func (c *Client) estimateGasExec(ctx context.Context, msg ethereum.CallMsg) (uint64, CallResult, error) {
-	decision, err := c.callTyped(ctx, methods.MethodEstimateGas, toCallArg(msg), "latest")
+func (c *Client) estimateGasExec(ctx context.Context, msg ethapi.CallMsg) (uint64, CallResult, error) {
+	call, err := toCallArg(msg)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodEstimateGas, call, "latest")
 	if err != nil {
 		decision.Value = nil
 		return 0, CallResult{Decision: decisionOf(decision)}, err
@@ -939,11 +929,11 @@ func (c *Client) peerCountExec(ctx context.Context) (uint64, CallResult, error) 
 
 // SyncProgress reports the consulted source's sync state; nil means it
 // considers itself fully synced.
-func (c *Client) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, CallResult, error) {
+func (c *Client) SyncProgress(ctx context.Context) (*ethapi.SyncProgress, CallResult, error) {
 	return operation(c, ctx, false, c.syncProgressExec)
 }
 
-func (c *Client) syncProgressExec(ctx context.Context) (*ethereum.SyncProgress, CallResult, error) {
+func (c *Client) syncProgressExec(ctx context.Context) (*ethapi.SyncProgress, CallResult, error) {
 	decision, err := c.callTyped(ctx, methods.MethodSyncing)
 	if err != nil {
 		decision.Value = nil
@@ -959,13 +949,13 @@ func (c *Client) syncProgressExec(ctx context.Context) (*ethereum.SyncProgress, 
 // lastBlock is pinned, so the decision is Corroborated when sources agree;
 // cross-client percentile rounding of Reward is the known liveness gate and
 // fails closed as conflict until the soak measures it.
-func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*ethereum.FeeHistory, CallResult, error) {
+func (c *Client) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethapi.FeeHistoryResult, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.FeeHistoryResult, CallResult, error) {
 		return c.feeHistoryExec(opCtx, blockCount, lastBlock, rewardPercentiles)
 	})
 }
 
-func (c *Client) feeHistoryExec(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, CallResult, error) {
+func (c *Client) feeHistoryExec(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethapi.FeeHistoryResult, CallResult, error) {
 	lastRef := "latest"
 	if lastBlock != nil {
 		lastRef = hexutil.EncodeBig(lastBlock)
@@ -986,17 +976,12 @@ func (c *Client) BlobBaseFee(ctx context.Context) (*big.Int, CallResult, error) 
 	return readQuantity(ctx, c, false, methods.MethodBlobBaseFee)
 }
 
-// AccessListResult represents the outcome of eth_createAccessList. The type
-// and its decode are owned by internal/typed; the root facade re-exports the
-// name so callers keep one import.
-type AccessListResult = typed.AccessListResult
-
 // CreateAccessList creates an EIP-2930 access list for a transaction at the
 // corroborated reference block or an explicitly provided block argument.
 // This is an EthGuard typed extension: go-ethereum's client does not expose
 // eth_createAccessList, so the return value carries no decision evidence.
-func (c *Client) CreateAccessList(ctx context.Context, msg any, blockNrOrHash ...any) (*AccessListResult, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*AccessListResult, CallResult, error) {
+func (c *Client) CreateAccessList(ctx context.Context, msg any, blockNrOrHash ...any) (*ethapi.AccessListResult, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.AccessListResult, CallResult, error) {
 		params := []any{msg}
 		if len(blockNrOrHash) > 0 {
 			params = append(params, blockNrOrHash[0])

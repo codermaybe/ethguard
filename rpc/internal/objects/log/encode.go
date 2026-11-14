@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 )
 
 // Encode checks one eth_getLogs result and returns the canonical JSON of the
@@ -39,7 +38,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 		}
 		out[i] = encoded
 	}
-	return wire.MarshalNoEscape(out)
+	return ethcodec.MarshalNoEscape(out)
 }
 
 // EncodeOne checks and canonicalizes one log object. It is the shared per-log
@@ -66,38 +65,38 @@ func EncodeOne(value json.RawMessage) (CanonicalLog, error) {
 	if err := json.Unmarshal(value, &raw); err != nil {
 		return CanonicalLog{}, fmt.Errorf("malformed response")
 	}
-	address, err := wire.ValidateWireFixedHex(raw.Address, 40, "address")
+	address, err := ethcodec.ValidateWireFixedHex(raw.Address, 40, "address")
 	if err != nil {
 		return CanonicalLog{}, fmt.Errorf("address: %w", err)
 	}
 	topics := make([]string, len(raw.Topics))
 	for i, topic := range raw.Topics {
-		topics[i], err = wire.ValidateWireFixedHex(topic, 64, "hash")
+		topics[i], err = ethcodec.ValidateWireFixedHex(topic, 64, "hash")
 		if err != nil {
 			return CanonicalLog{}, fmt.Errorf("topics[%d]: %w", i, err)
 		}
 	}
-	data, err := wire.NormalizeWireData(raw.Data)
+	data, err := ethcodec.NormalizeWireData(raw.Data)
 	if err != nil {
 		return CanonicalLog{}, fmt.Errorf("data: %w", err)
 	}
-	blockNumber, err := wire.CanonicalQuantity(raw.BlockNumber)
+	blockNumber, err := ethcodec.CanonicalQuantity(raw.BlockNumber)
 	if err != nil {
 		return CanonicalLog{}, fmt.Errorf("blockNumber: %w", err)
 	}
-	transactionHash, err := wire.ValidateWireFixedHex(raw.TransactionHash, 64, "hash")
+	transactionHash, err := ethcodec.ValidateWireFixedHex(raw.TransactionHash, 64, "hash")
 	if err != nil {
 		return CanonicalLog{}, fmt.Errorf("transactionHash: %w", err)
 	}
-	transactionIndex, err := wire.CanonicalQuantity(raw.TransactionIndex)
+	transactionIndex, err := ethcodec.CanonicalQuantity(raw.TransactionIndex)
 	if err != nil {
 		return CanonicalLog{}, fmt.Errorf("transactionIndex: %w", err)
 	}
-	blockHash, err := wire.ValidateWireFixedHex(raw.BlockHash, 64, "hash")
+	blockHash, err := ethcodec.ValidateWireFixedHex(raw.BlockHash, 64, "hash")
 	if err != nil {
 		return CanonicalLog{}, fmt.Errorf("blockHash: %w", err)
 	}
-	logIndex, err := wire.CanonicalQuantity(raw.LogIndex)
+	logIndex, err := ethcodec.CanonicalQuantity(raw.LogIndex)
 	if err != nil {
 		return CanonicalLog{}, fmt.Errorf("logIndex: %w", err)
 	}
@@ -106,8 +105,8 @@ func EncodeOne(value json.RawMessage) (CanonicalLog, error) {
 		return CanonicalLog{}, fmt.Errorf("removed must be boolean")
 	}
 	var timestamp *string
-	if wire.PresentNonNull(raw.BlockTimestamp) {
-		text, err := wire.CanonicalQuantity(raw.BlockTimestamp)
+	if ethcodec.PresentNonNull(raw.BlockTimestamp) {
+		text, err := ethcodec.CanonicalQuantity(raw.BlockTimestamp)
 		if err != nil {
 			return CanonicalLog{}, fmt.Errorf("blockTimestamp: %w", err)
 		}

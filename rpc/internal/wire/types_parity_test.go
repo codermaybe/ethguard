@@ -11,13 +11,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/accesslist"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/log"
 	receiptobjects "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 func officialVectors(t *testing.T) []conformance.Vector {
@@ -83,10 +84,10 @@ func compareBytes(t *testing.T, got json.RawMessage, gotErr error, want json.Raw
 func TestGeneratedLogsMatchProtectedLogEncoder(t *testing.T) {
 	for _, vector := range resultVectors(t, "eth_getLogs") {
 		t.Run(vector.Identity(), func(t *testing.T) {
-			value, err := wire.NewGetLogsResult(vector.Result)
+			value, err := ethapi.NewGetLogsResult(vector.Result)
 			var out json.RawMessage
 			if err == nil {
-				out, err = wire.MarshalNoEscape(value)
+				out, err = ethcodec.MarshalNoEscape(value)
 			}
 			protected, protectedErr := log.Encode(vector.Result)
 			compareBytes(t, out, err, protected, protectedErr)
@@ -98,8 +99,8 @@ func TestGeneratedReceiptMatchesProtectedReceiptEncoder(t *testing.T) {
 	nulls, receipts := 0, 0
 	for _, vector := range resultVectors(t, "eth_getTransactionReceipt") {
 		t.Run(vector.Identity(), func(t *testing.T) {
-			value, err := wire.NewGetTransactionReceiptResult(vector.Result)
-			if wire.IsJSONNull(vector.Result) {
+			value, err := ethapi.NewGetTransactionReceiptResult(vector.Result)
+			if ethcodec.IsJSONNull(vector.Result) {
 				nulls++
 				if err != nil || value != nil {
 					t.Fatalf("null receipt must parse as nil: %v, %v", value, err)
@@ -112,7 +113,7 @@ func TestGeneratedReceiptMatchesProtectedReceiptEncoder(t *testing.T) {
 			}
 			var out json.RawMessage
 			if err == nil {
-				out, err = wire.MarshalNoEscape(value)
+				out, err = ethcodec.MarshalNoEscape(value)
 			}
 			protected, protectedErr := receiptobjects.Encode(vector.Result)
 			compareBytes(t, out, err, protected, protectedErr)
@@ -126,10 +127,10 @@ func TestGeneratedReceiptMatchesProtectedReceiptEncoder(t *testing.T) {
 func TestGeneratedAccessListMatchesProtectedAccessListEncoder(t *testing.T) {
 	for _, vector := range resultVectors(t, "eth_createAccessList") {
 		t.Run(vector.Identity(), func(t *testing.T) {
-			value, err := wire.NewCreateAccessListResult(vector.Result)
+			value, err := ethapi.NewCreateAccessListResult(vector.Result)
 			var out json.RawMessage
 			if err == nil {
-				out, err = wire.MarshalNoEscape(value)
+				out, err = ethcodec.MarshalNoEscape(value)
 			}
 			protected, protectedErr := accesslist.Encode(vector.Result)
 			compareBytes(t, out, err, protected, protectedErr)
@@ -140,10 +141,10 @@ func TestGeneratedAccessListMatchesProtectedAccessListEncoder(t *testing.T) {
 func TestGeneratedFeeHistoryMatchesProtectedFeeHistoryEncoder(t *testing.T) {
 	for _, vector := range resultVectors(t, "eth_feeHistory") {
 		t.Run(vector.Identity(), func(t *testing.T) {
-			value, err := wire.NewFeeHistoryResult(vector.Result)
+			value, err := ethapi.NewFeeHistoryResult(vector.Result)
 			var out json.RawMessage
 			if err == nil {
-				out, err = wire.MarshalNoEscape(value)
+				out, err = ethcodec.MarshalNoEscape(value)
 			}
 			protected, protectedErr := feehistory.Encode(vector.Result)
 			compareBytes(t, out, err, protected, protectedErr)

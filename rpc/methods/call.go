@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -52,7 +53,7 @@ func callDescriptor() MethodDescriptor {
 func normalizeCallOutcome(value json.RawMessage) (string, error) {
 	var result string
 	if err := json.Unmarshal(value, &result); err == nil {
-		data, err := wire.NormalizeHexData(value)
+		data, err := ethcodec.NormalizeHexData(value)
 		if err != nil {
 			return "", err
 		}

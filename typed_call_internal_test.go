@@ -3,25 +3,25 @@ package ethguard
 import (
 	"encoding/json"
 	"errors"
-	"math/big"
+	"reflect"
 	"testing"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
-	ethereum "github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
 func TestToCallArgCarriesBlobAndAuthorizationFields(t *testing.T) {
-	msg := ethereum.CallMsg{
-		BlobGasFeeCap:     big.NewInt(7),
-		BlobHashes:        []common.Hash{common.HexToHash("0x01")},
-		AuthorizationList: []types.SetCodeAuthorization{},
+	msg, err := ethapi.NewCallMsg(json.RawMessage(`{"maxFeePerBlobGas":"0x7","blobVersionedHashes":["0x0000000000000000000000000000000000000000000000000000000000000001"],"authorizationList":[]}`))
+	if err != nil {
+		t.Fatal(err)
 	}
-	arg := toCallArg(msg)
+	arg, err := toCallArg(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	encoded, err := json.Marshal(arg)
 	if err != nil {
 		t.Fatal(err)
@@ -30,9 +30,43 @@ func TestToCallArgCarriesBlobAndAuthorizationFields(t *testing.T) {
 	if err := json.Unmarshal(encoded, &wire); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"maxFeePerBlobGas", "blobVersionedHashes", "authorizationList"} {
-		if _, ok := wire[key]; !ok {
-			t.Fatalf("missing %s from call argument: %s", key, encoded)
+	want := map[string]json.RawMessage{
+		"maxFeePerBlobGas":    json.RawMessage(`"0x7"`),
+		"blobVersionedHashes": json.RawMessage(`["0x0000000000000000000000000000000000000000000000000000000000000001"]`),
+		"authorizationList":   json.RawMessage(`[]`),
+	}
+	if !reflect.DeepEqual(wire, want) {
+		t.Fatalf("call argument = %s, want exactly %+v", encoded, want)
+	}
+}
+
+func TestToCallArgPreservesExplicitZeroNullAndAbsence(t *testing.T) {
+	for _, source := range []string{`{}`, `{"to":null}`, `{"input":"0x0001","gas":"0x0","value":"0x0","accessList":[]}`} {
+		msg, err := ethapi.NewCallMsg(json.RawMessage(source))
+		if err != nil {
+			t.Fatal(err)
+		}
+		arg, err := toCallArg(msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want map[string]any
+		if err := json.Unmarshal([]byte(source), &want); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(arg, want) {
+			t.Fatalf("%s became %+v", source, arg)
+		}
+	}
+}
+
+func TestToCallArgRejectsInvalidDirectlyConstructedInputs(t *testing.T) {
+	badAddress := ethapi.Address("0x1")
+	badData := ethapi.Data("0xnothex")
+	badQuantity := ethapi.Quantity("-1")
+	for _, msg := range []ethapi.CallMsg{{From: &badAddress}, {Input: &badData}, {Gas: &badQuantity}} {
+		if arg, err := toCallArg(msg); arg != nil || !errors.Is(err, rpc.ErrInvalidRequest) {
+			t.Fatalf("invalid call = %+v, %v", arg, err)
 		}
 	}
 }

@@ -8,9 +8,10 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // This oracle deliberately retains the original pinned machine schema. It
@@ -26,9 +27,9 @@ func TestTransactionQueryRawBundleRemainsVerbatim(t *testing.T) {
 func TestTransactionQueryGeneratedPendingContext(t *testing.T) {
 	covered := map[string]bool{}
 	oracle := officialResultSchemas(t)["eth_getTransactionByHash"]
-	parse := resultConstructor(wire.NewGetTransactionByHashResult)
+	parse := resultConstructor(ethapi.NewGetTransactionByHashResult)
 	for _, vector := range resultVectors(t, "eth_getTransactionByHash") {
-		if vector.Error != nil || wire.IsJSONNull(vector.Result) {
+		if vector.Error != nil || ethcodec.IsJSONNull(vector.Result) {
 			continue
 		}
 		var mined map[string]json.RawMessage
@@ -52,11 +53,11 @@ func TestTransactionQueryGeneratedPendingContext(t *testing.T) {
 			if err := conformance.ValidateResult(oracle, pending); err == nil {
 				t.Fatal("raw pinned schema unexpectedly accepts pending; review fixed correction")
 			}
-			value, err := wire.NewGetTransactionByHashResult(pending)
+			value, err := ethapi.NewGetTransactionByHashResult(pending)
 			if err != nil {
 				t.Fatalf("pending rejected: %v", err)
 			}
-			out, err := wire.MarshalNoEscape(value)
+			out, err := ethcodec.MarshalNoEscape(value)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -79,11 +80,11 @@ func TestTransactionQueryGeneratedPendingContext(t *testing.T) {
 					t.Fatalf("explicit null lost for %s", key)
 				}
 			}
-			again, err := wire.NewGetTransactionByHashResult(out)
+			again, err := ethapi.NewGetTransactionByHashResult(out)
 			if err != nil {
 				t.Fatal(err)
 			}
-			outAgain, err := wire.MarshalNoEscape(again)
+			outAgain, err := ethcodec.MarshalNoEscape(again)
 			if err != nil || !bytes.Equal(out, outAgain) {
 				t.Fatalf("pending round trip not stable: %s (%v)", outAgain, err)
 			}
@@ -91,13 +92,13 @@ func TestTransactionQueryGeneratedPendingContext(t *testing.T) {
 				t.Run(key, func(t *testing.T) {
 					delete(mined, key)
 					missing, _ := json.Marshal(mined)
-					if _, err := wire.NewGetTransactionByHashResult(missing); err == nil {
+					if _, err := ethapi.NewGetTransactionByHashResult(missing); err == nil {
 						t.Fatal("accepted missing required context")
 					}
 					for _, bad := range []string{`0`, `false`, `[]`, `{}`, `""`, `"0x"`, `"0xgg"`, `"0x-1"`} {
 						mined[key] = json.RawMessage(bad)
 						invalid, _ := json.Marshal(mined)
-						if _, err := wire.NewGetTransactionByHashResult(invalid); err == nil {
+						if _, err := ethapi.NewGetTransactionByHashResult(invalid); err == nil {
 							t.Fatalf("accepted illegal %s=%s", key, bad)
 						}
 					}
@@ -108,12 +109,12 @@ func TestTransactionQueryGeneratedPendingContext(t *testing.T) {
 				before := mined[key]
 				mined[key] = json.RawMessage(`null`)
 				invalid, _ := json.Marshal(mined)
-				if _, err := wire.NewGetTransactionByHashResult(invalid); err == nil {
+				if _, err := ethapi.NewGetTransactionByHashResult(invalid); err == nil {
 					t.Fatalf("accepted unrelated null %s", key)
 				}
 				delete(mined, key)
 				invalid, _ = json.Marshal(mined)
-				if _, err := wire.NewGetTransactionByHashResult(invalid); err == nil {
+				if _, err := ethapi.NewGetTransactionByHashResult(invalid); err == nil {
 					t.Fatalf("accepted missing payload required %s", key)
 				}
 				mined[key] = before
@@ -125,7 +126,7 @@ func TestTransactionQueryGeneratedPendingContext(t *testing.T) {
 			t.Errorf("missing official transaction type %s", txType)
 		}
 	}
-	value, err := wire.NewGetTransactionByHashResult(json.RawMessage(`null`))
+	value, err := ethapi.NewGetTransactionByHashResult(json.RawMessage(`null`))
 	if err != nil || value != nil {
 		t.Fatalf("not-found root changed: %v %v", value, err)
 	}
@@ -137,7 +138,7 @@ func TestTransactionQueryCorrectionDoesNotRelaxEmbeddedBlock(t *testing.T) {
 	for _, method := range []string{"eth_getBlockByHash", "eth_getBlockByNumber"} {
 		t.Run(method, func(t *testing.T) {
 			for _, vector := range resultVectors(t, method) {
-				if vector.Error != nil || wire.IsJSONNull(vector.Result) {
+				if vector.Error != nil || ethcodec.IsJSONNull(vector.Result) {
 					continue
 				}
 				var block map[string]json.RawMessage

@@ -8,12 +8,13 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/codermaybe/ethguard/internal/spec"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
+	"github.com/codermaybe/ethguard/internal/executionapi"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
 // MaskNode is a whitelist tree compiled from the official execution-apis
-// result contracts (internal/spec/methods.json). It describes JSON topology
+// result contracts plus reviewed errata from internal/executionapi. It describes JSON topology
 // only: no business types, no requiredness, no value validation. Requiredness
 // stays fork-aware and hand-written in the object slices; this tree decides
 // only which fields participate in comparison.
@@ -204,17 +205,11 @@ func MethodMasks() (map[string]*MaskNode, error) {
 }
 
 func compileBundle() (map[string]*MaskNode, error) {
-	var bundle struct {
-		Version string         `json:"version"`
-		Results map[string]any `json:"results"`
+	bundle, err := executionapi.Read()
+	if err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal(spec.MethodsJSON(), &bundle); err != nil {
-		return nil, fmt.Errorf("spec bundle: %w", err)
-	}
-	if bundle.Version != spec.Version() {
-		return nil, fmt.Errorf("spec bundle: methods.json version %q != VERSION pin %q",
-			bundle.Version, spec.Version())
-	}
+
 	out := make(map[string]*MaskNode, len(bundle.Results))
 	names := make([]string, 0, len(bundle.Results))
 	for name := range bundle.Results {
@@ -222,7 +217,11 @@ func compileBundle() (map[string]*MaskNode, error) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		built, err := buildMask(bundle.Results[name])
+		var schema any
+		if err := json.Unmarshal(bundle.Results[name], &schema); err != nil {
+			return nil, fmt.Errorf("spec bundle: method %q: %w", name, err)
+		}
+		built, err := buildMask(schema)
 		if err != nil {
 			return nil, fmt.Errorf("spec bundle: method %q: %w", name, err)
 		}
@@ -259,7 +258,7 @@ func PruneMethod(method string, raw json.RawMessage) (string, error) {
 		return "", fmt.Errorf("prune method: multiple JSON values")
 	}
 	pruned := Prune(data, mask)
-	CanonicalizeHex(&pruned)
+	ethcodec.CanonicalizeHex(&pruned)
 	encoded, err := json.Marshal(pruned)
 	if err != nil {
 		return "", err

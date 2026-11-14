@@ -20,6 +20,8 @@ import (
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
@@ -81,41 +83,19 @@ func t09SummaryLogs(logs []types.Log) string {
 	return string(raw)
 }
 
-func t09SummaryFee(fee *ethereum.FeeHistory) string {
-	raw, err := json.Marshal(struct {
-		OldestBlock  string
-		BaseFee      []string
-		GasUsedRatio []float64
-		Reward       [][]string
-	}{
-		OldestBlock:  fee.OldestBlock.String(),
-		BaseFee:      t09BigStrings(fee.BaseFee),
-		GasUsedRatio: fee.GasUsedRatio,
-		Reward:       t09BigRows(fee.Reward),
-	})
+func t09SummaryFee(fee *ethapi.FeeHistoryResult) string {
+	raw, err := json.Marshal(fee)
 	if err != nil {
 		panic(err)
 	}
-	return string(raw)
-}
-
-func t09BigStrings(values []*big.Int) []string {
-	out := make([]string, len(values))
-	for i, value := range values {
-		out[i] = value.String()
+	var want t09FeeWantWire
+	if err := json.Unmarshal(raw, &want); err != nil {
+		panic(err)
 	}
-	return out
+	return t09FeeWireSummary(want)
 }
 
-func t09BigRows(values [][]*big.Int) [][]string {
-	out := make([][]string, len(values))
-	for i, row := range values {
-		out[i] = t09BigStrings(row)
-	}
-	return out
-}
-
-func t09SummaryAccess(result *ethguard.AccessListResult) string {
+func t09SummaryAccess(result *ethapi.AccessListResult) string {
 	raw, err := json.Marshal(result)
 	if err != nil {
 		panic(err)
@@ -123,7 +103,7 @@ func t09SummaryAccess(result *ethguard.AccessListResult) string {
 	return string(raw)
 }
 
-func t09SummarySync(progress *ethereum.SyncProgress) string {
+func t09SummarySync(progress *ethapi.SyncProgress) string {
 	if progress == nil {
 		return "false"
 	}
@@ -245,18 +225,18 @@ func t09TypedWantFee(t *testing.T, raw json.RawMessage) string {
 func t09TypedWantAccess(t *testing.T, raw json.RawMessage) string {
 	t.Helper()
 	var wire struct {
-		AccessList types.AccessList `json:"accessList"`
-		GasUsed    hexutil.Uint64   `json:"gasUsed"`
-		Error      string           `json:"error"`
+		AccessList *types.AccessList `json:"accessList,omitempty"`
+		Error      *string           `json:"error,omitempty"`
+		GasUsed    *hexutil.Uint64   `json:"gasUsed,omitempty"`
 	}
 	if err := json.Unmarshal(t09SemanticJSON(t, raw), &wire); err != nil {
-		t.Fatalf("decode expected access list: %v", err)
+		t.Fatal(err)
 	}
-	return t09SummaryAccess(&ethguard.AccessListResult{
-		AccessList: wire.AccessList,
-		GasUsed:    uint64(wire.GasUsed),
-		Error:      wire.Error,
-	})
+	out, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }
 
 func t09TypedWantSync(t *testing.T, raw json.RawMessage) string {
@@ -454,7 +434,7 @@ func t09TypedCall(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		return t09SummaryBytes(value), nil
 	}
 	to := common.HexToAddress(t09Address)
-	value, _, err := f.client.CallContract(ctx, ethereum.CallMsg{To: &to}, big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, _, err := f.client.CallContract(ctx, ethapitest.Call(ethereum.CallMsg{To: &to}), big.NewInt(int64(t09ParamUint64(t, params, 1))))
 	if err != nil {
 		return "", err
 	}

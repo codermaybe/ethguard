@@ -35,7 +35,7 @@ func TestReturnValueAccessListThroughClient(t *testing.T) {
 				t.Fatal(err)
 			}
 			decision, _ := callDecision(client.Call(ctx, methods.MethodCreateAccessList, map[string]any{"to": address}, ref))
-			if string(decision.Value) != canonical || result.GasUsed != 171 || result.Error != "<denied>" || len(result.AccessList) != 1 || len(result.AccessList[0].StorageKeys) != 1 {
+			if string(decision.Value) != canonical || result.GasUsed == nil || *result.GasUsed != "0xab" || result.Error == nil || *result.Error != "<denied>" || result.AccessList == nil || len(*result.AccessList) != 1 || len((*result.AccessList)[0].StorageKeys) != 1 {
 				t.Fatalf("result = %+v decision = %+v", result, decision)
 			}
 			if ref == "pending" {

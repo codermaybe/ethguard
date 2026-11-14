@@ -18,6 +18,16 @@ fi
 echo "==> checking module consistency"
 go mod tidy -diff
 
+echo "==> checking generated public types"
+generated_types="$(mktemp)"
+trap 'rm -f "$generated_types"' EXIT
+go run ./rpc/internal/wire/gen -out "$generated_types"
+if ! cmp -s "$generated_types" ethapi/types.gen.go; then
+    echo "ethapi/types.gen.go is stale; run go generate ./ethapi" >&2
+    diff -u ethapi/types.gen.go "$generated_types" || true
+    exit 1
+fi
+
 echo "==> running static analysis"
 go vet ./...
 

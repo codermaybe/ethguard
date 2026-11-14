@@ -12,8 +12,10 @@
 | `aggregator` | invocation 顺序、reference／业务轮、收集与证据装配 | 具体 transport、字段语义、schema 解释 |
 | `rpc` | Request、Observation、Decision、Policy、通用裁决与 evidence | 网络连接、`rpc/methods` 依赖 |
 | `rpc/methods` | 请求语义、admission、比较键、encoder 与 reference 需求的装配、catalog | transport 生命周期、另一套 quorum 循环 |
-| `rpc/internal/objects`／`wire` | 对象约束、请求绑定、承诺、规范化、schema 生成类型与字段裁剪 | pool、facade、客户端连接 |
+| `rpc/internal/objects`／`wire` | 对象约束、请求绑定、承诺、规范化与字段裁剪 | pool、facade、客户端连接 |
 | `internal/reference` | finalized 等候选／确认算法及其 consumer-owned HeadReader／HeadCodec 接口 | 直接依赖 pool、methods 或构造 aggregator／policy |
+| `ethapi`／`internal/ethcodec` | 公开 schema 生成业务模型／共享数值和 JSON 原语 | 传输、投票、执行策略 |
+| `internal/executionapi` | 固定参考 bundle／显式标准勘误的统一读取与身份检查 | 按来源或调用动态改写 schema、响应兼容或方法注册 |
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
 | `internal/transport/{http,wss,geth}` | 原生 HTTP／raw WSS 与显式 geth adapter 的协议和保真 | 把 provider 错误重新解释为业务共识 |

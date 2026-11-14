@@ -9,8 +9,8 @@ import (
 	"math/big"
 	"strconv"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // ValidateRange binds a fee-history response to the requested block count.
@@ -37,7 +37,7 @@ func ValidateRange(req rpc.Request, value json.RawMessage) error {
 	if response.BlobGasRatio != nil && len(response.BlobGasRatio) != len(response.Gas) {
 		return fmt.Errorf("blobGasUsedRatio length %d does not match gasUsedRatio length %d", len(response.BlobGasRatio), len(response.Gas))
 	}
-	if _, err := wire.NormalizeWireQuantity(response.Oldest); err != nil {
+	if _, err := ethcodec.NormalizeWireQuantity(response.Oldest); err != nil {
 		return fmt.Errorf("oldestBlock: %w", err)
 	}
 	return nil
@@ -60,7 +60,7 @@ func Normalize(value json.RawMessage) (string, error) {
 	if err := json.Unmarshal(value, &raw); err != nil || len(raw.Oldest) == 0 {
 		return "", fmt.Errorf("feeHistory: malformed response")
 	}
-	oldest, err := wire.NormalizeWireQuantity(raw.Oldest)
+	oldest, err := ethcodec.NormalizeWireQuantity(raw.Oldest)
 	if err != nil {
 		return "", fmt.Errorf("feeHistory: oldestBlock: %w", err)
 	}
@@ -75,14 +75,14 @@ func Normalize(value json.RawMessage) (string, error) {
 	}
 	base := make([]string, len(raw.Base))
 	for i, item := range raw.Base {
-		base[i], err = wire.NormalizeWireQuantity(item)
+		base[i], err = ethcodec.NormalizeWireQuantity(item)
 		if err != nil {
 			return "", fmt.Errorf("feeHistory: baseFeePerGas[%d]: %w", i, err)
 		}
 	}
 	baseBlob := make([]string, len(raw.BaseBlob))
 	for i, item := range raw.BaseBlob {
-		baseBlob[i], err = wire.NormalizeWireQuantity(item)
+		baseBlob[i], err = ethcodec.NormalizeWireQuantity(item)
 		if err != nil {
 			return "", fmt.Errorf("feeHistory: baseFeePerBlobGas[%d]: %w", i, err)
 		}
@@ -116,7 +116,7 @@ func Normalize(value json.RawMessage) (string, error) {
 		}
 		reward[i] = make([]string, len(row))
 		for j, item := range row {
-			reward[i][j], err = wire.NormalizeWireQuantity(item)
+			reward[i][j], err = ethcodec.NormalizeWireQuantity(item)
 			if err != nil {
 				return "", fmt.Errorf("feeHistory: reward[%d][%d]: %w", i, j, err)
 			}

@@ -36,6 +36,15 @@ func TestExecutionAPIStandardFieldsDerivesPinnedPaths(t *testing.T) {
 	if !containsStandardPath(receipt, "/logs") {
 		t.Fatalf("receipt container path missing: %#v", receipt)
 	}
+	simulate, err := ExecutionAPIStandardFields("eth_simulateV1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/*/calls/*/status", "/*/calls/*/error/code", "/*/calls/*/logs/*/transactionHash"} {
+		if !containsStandardPath(simulate, path) {
+			t.Fatalf("shared simulate schema path %q missing: %#v", path, simulate)
+		}
+	}
 }
 
 func TestProductionProjectorsCoverPinnedOfficialPaths(t *testing.T) {

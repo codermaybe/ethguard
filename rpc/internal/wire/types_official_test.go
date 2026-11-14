@@ -6,11 +6,12 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 	receiptobjects "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 type resultParser func(json.RawMessage) (any, error)
@@ -21,30 +22,30 @@ func resultConstructor[T any](parse func(json.RawMessage) (T, error)) resultPars
 
 func generatedResultParsers() map[string]resultParser {
 	return map[string]resultParser{
-		"eth_blobBaseFee":           resultConstructor(wire.NewBlobBaseFeeResult),
-		"eth_blockNumber":           resultConstructor(wire.NewBlockNumberResult),
-		"eth_call":                  resultConstructor(wire.NewCallResult),
-		"eth_chainId":               resultConstructor(wire.NewChainIdResult),
-		"eth_createAccessList":      resultConstructor(wire.NewCreateAccessListResult),
-		"eth_estimateGas":           resultConstructor(wire.NewEstimateGasResult),
-		"eth_feeHistory":            resultConstructor(wire.NewFeeHistoryResult),
-		"eth_gasPrice":              resultConstructor(wire.NewGasPriceResult),
-		"eth_getBalance":            resultConstructor(wire.NewGetBalanceResult),
-		"eth_getBlockByHash":        resultConstructor(wire.NewGetBlockByHashResult),
-		"eth_getBlockByNumber":      resultConstructor(wire.NewGetBlockByNumberResult),
-		"eth_getBlockReceipts":      resultConstructor(wire.NewGetBlockReceiptsResult),
-		"eth_getCode":               resultConstructor(wire.NewGetCodeResult),
-		"eth_getLogs":               resultConstructor(wire.NewGetLogsResult),
-		"eth_getProof":              resultConstructor(wire.NewGetProofResult),
-		"eth_getStorageAt":          resultConstructor(wire.NewGetStorageAtResult),
-		"eth_getTransactionByHash":  resultConstructor(wire.NewGetTransactionByHashResult),
-		"eth_getTransactionCount":   resultConstructor(wire.NewGetTransactionCountResult),
-		"eth_getTransactionReceipt": resultConstructor(wire.NewGetTransactionReceiptResult),
-		"eth_maxPriorityFeePerGas":  resultConstructor(wire.NewMaxPriorityFeePerGasResult),
-		"eth_sendRawTransaction":    resultConstructor(wire.NewSendRawTransactionResult),
-		"eth_simulateV1":            resultConstructor(wire.NewSimulateV1Result),
-		"eth_syncing":               resultConstructor(wire.NewSyncingResult),
-		"net_version":               resultConstructor(wire.NewVersionResult),
+		"eth_blobBaseFee":           resultConstructor(ethapi.NewBlobBaseFeeResult),
+		"eth_blockNumber":           resultConstructor(ethapi.NewBlockNumberResult),
+		"eth_call":                  resultConstructor(ethapi.NewCallResult),
+		"eth_chainId":               resultConstructor(ethapi.NewChainIdResult),
+		"eth_createAccessList":      resultConstructor(ethapi.NewCreateAccessListResult),
+		"eth_estimateGas":           resultConstructor(ethapi.NewEstimateGasResult),
+		"eth_feeHistory":            resultConstructor(ethapi.NewFeeHistoryResult),
+		"eth_gasPrice":              resultConstructor(ethapi.NewGasPriceResult),
+		"eth_getBalance":            resultConstructor(ethapi.NewGetBalanceResult),
+		"eth_getBlockByHash":        resultConstructor(ethapi.NewGetBlockByHashResult),
+		"eth_getBlockByNumber":      resultConstructor(ethapi.NewGetBlockByNumberResult),
+		"eth_getBlockReceipts":      resultConstructor(ethapi.NewGetBlockReceiptsResult),
+		"eth_getCode":               resultConstructor(ethapi.NewGetCodeResult),
+		"eth_getLogs":               resultConstructor(ethapi.NewGetLogsResult),
+		"eth_getProof":              resultConstructor(ethapi.NewGetProofResult),
+		"eth_getStorageAt":          resultConstructor(ethapi.NewGetStorageAtResult),
+		"eth_getTransactionByHash":  resultConstructor(ethapi.NewGetTransactionByHashResult),
+		"eth_getTransactionCount":   resultConstructor(ethapi.NewGetTransactionCountResult),
+		"eth_getTransactionReceipt": resultConstructor(ethapi.NewGetTransactionReceiptResult),
+		"eth_maxPriorityFeePerGas":  resultConstructor(ethapi.NewMaxPriorityFeePerGasResult),
+		"eth_sendRawTransaction":    resultConstructor(ethapi.NewSendRawTransactionResult),
+		"eth_simulateV1":            resultConstructor(ethapi.NewSimulateV1Result),
+		"eth_syncing":               resultConstructor(ethapi.NewSyncingResult),
+		"net_version":               resultConstructor(ethapi.NewVersionResult),
 	}
 }
 
@@ -90,7 +91,7 @@ func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 			t.Fatalf("%s: missing generated result constructor for %s", vector.Identity(), vector.Method)
 		}
 		covered[vector.Method]++
-		if vector.Method == "eth_getTransactionByHash" && !wire.IsJSONNull(vector.Result) {
+		if vector.Method == "eth_getTransactionByHash" && !ethcodec.IsJSONNull(vector.Result) {
 			var tx struct {
 				Type string `json:"type"`
 			}
@@ -100,7 +101,7 @@ func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 			transactionTypes[tx.Type] = true
 		}
 		if vector.Method == "eth_getBlockByHash" || vector.Method == "eth_getBlockByNumber" {
-			if wire.IsJSONNull(vector.Result) {
+			if ethcodec.IsJSONNull(vector.Result) {
 				blockShapes["null"] = true
 			} else {
 				var block struct {
@@ -132,14 +133,18 @@ func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 			t.Errorf("missing official block transactions branch %s", shape)
 		}
 	}
-	// These pinned methods have no checked-in official success vectors. Do not
+	// These methods have no success vectors in the shared corpus. Do not
 	// present synthetic inputs or constructor availability as vector coverage.
 	withoutVectors := map[string]bool{
 		"eth_gasPrice":             true,
 		"eth_maxPriorityFeePerGas": true,
-		"eth_simulateV1":           true,
 	}
 	for method := range schemas {
+		if method == "eth_simulateV1" {
+			// Its separate corpus includes pinned upstream schema conflicts;
+			// types_simulate_vectors_test.go accounts for every interaction.
+			continue
+		}
 		if covered[method] == 0 {
 			if !withoutVectors[method] {
 				t.Errorf("official result method unexpectedly lacks vector coverage: %s", method)
@@ -153,6 +158,11 @@ func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 
 func assertOfficialRoundTrip(t *testing.T, parse resultParser, schema any, raw json.RawMessage) json.RawMessage {
 	t.Helper()
+	return assertOfficialProjectionRoundTrip(t, parse, schema, raw, raw)
+}
+
+func assertOfficialProjectionRoundTrip(t *testing.T, parse resultParser, schema any, raw, expected json.RawMessage) json.RawMessage {
+	t.Helper()
 	if schema == nil {
 		t.Fatal("missing official result schema")
 	}
@@ -163,7 +173,7 @@ func assertOfficialRoundTrip(t *testing.T, parse resultParser, schema any, raw j
 	if err != nil {
 		t.Fatalf("generated constructor rejects official shape: %v", err)
 	}
-	out, err := wire.MarshalNoEscape(value)
+	out, err := ethcodec.MarshalNoEscape(value)
 	if err != nil {
 		t.Fatalf("generated marshal: %v", err)
 	}
@@ -171,7 +181,7 @@ func assertOfficialRoundTrip(t *testing.T, parse resultParser, schema any, raw j
 		t.Fatalf("generated output violates official schema: %v\n%s", err, out)
 	}
 	var before, after any
-	inputDecoder := json.NewDecoder(bytes.NewReader(raw))
+	inputDecoder := json.NewDecoder(bytes.NewReader(expected))
 	inputDecoder.UseNumber()
 	if err := inputDecoder.Decode(&before); err != nil {
 		t.Fatal(err)
@@ -182,13 +192,13 @@ func assertOfficialRoundTrip(t *testing.T, parse resultParser, schema any, raw j
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(before, after) {
-		t.Fatalf("generated output lost or changed official content:\n input: %s\n output: %s", raw, out)
+		t.Fatalf("generated output lost or changed official content:\n expected: %s\n output: %s", expected, out)
 	}
 	again, err := parse(out)
 	if err != nil {
 		t.Fatalf("generated canonical output cannot be reparsed: %v", err)
 	}
-	canonical, err := wire.MarshalNoEscape(again)
+	canonical, err := ethcodec.MarshalNoEscape(again)
 	if err != nil || !bytes.Equal(out, canonical) {
 		t.Fatalf("canonical output is not idempotent:\n first: %s\n second: %s (%v)", out, canonical, err)
 	}
@@ -198,7 +208,7 @@ func assertOfficialRoundTrip(t *testing.T, parse resultParser, schema any, raw j
 func firstObjectResult(t *testing.T, method string) json.RawMessage {
 	t.Helper()
 	for _, vector := range resultVectors(t, method) {
-		if !wire.IsJSONNull(vector.Result) {
+		if !ethcodec.IsJSONNull(vector.Result) {
 			return vector.Result
 		}
 	}
@@ -272,7 +282,7 @@ func TestGeneratedOptionalNullableFieldsPreserveAbsentNullAndValue(t *testing.T)
 
 func TestGeneratedGetLogsAdmitsCompleteOfficialUnion(t *testing.T) {
 	schema := officialResultSchemas(t)["eth_getLogs"]
-	parse := resultConstructor(wire.NewGetLogsResult)
+	parse := resultConstructor(ethapi.NewGetLogsResult)
 	for _, raw := range []string{
 		`["0x0000000000000000000000000000000000000000000000000000000000000001"]`,
 	} {
@@ -284,18 +294,18 @@ func TestGeneratedGetLogsAdmitsCompleteOfficialUnion(t *testing.T) {
 	// rejected by the official type, even though the protected logs path keeps
 	// its own project-level [] contract. Production is not switched here.
 	for _, raw := range []string{`[]`, `null`, `{}`, `["0x1"]`, `["0x0000000000000000000000000000000000000000000000000000000000000001",{}]`} {
-		if _, err := wire.NewGetLogsResult(json.RawMessage(raw)); err == nil {
+		if _, err := ethapi.NewGetLogsResult(json.RawMessage(raw)); err == nil {
 			t.Errorf("invalid hashes/logs union admitted: %s", raw)
 		}
 	}
 }
 
 func TestGeneratedBlockTransactionsAnyOfAcceptsEmptyArray(t *testing.T) {
-	value, err := wire.NewBlockTransactions(json.RawMessage(`[]`))
+	value, err := ethapi.NewBlockTransactions(json.RawMessage(`[]`))
 	if err != nil {
 		t.Fatalf("anyOf empty transaction array must be admitted: %v", err)
 	}
-	out, err := wire.MarshalNoEscape(value)
+	out, err := ethcodec.MarshalNoEscape(value)
 	if err != nil || string(out) != `[]` {
 		t.Fatalf("empty block transaction array changed: %s (%v)", out, err)
 	}
@@ -313,7 +323,7 @@ func TestGeneratedReceiptShapeDoesNotPromiseProtectedBloomSemantics(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertOfficialRoundTrip(t, resultConstructor(wire.NewGetTransactionReceiptResult), officialResultSchemas(t)["eth_getTransactionReceipt"], raw)
+	assertOfficialRoundTrip(t, resultConstructor(ethapi.NewGetTransactionReceiptResult), officialResultSchemas(t)["eth_getTransactionReceipt"], raw)
 	if _, err := receiptobjects.Encode(raw); err == nil {
 		t.Fatal("protected receipt encoder must reject bloom/log disagreement")
 	}
@@ -321,7 +331,7 @@ func TestGeneratedReceiptShapeDoesNotPromiseProtectedBloomSemantics(t *testing.T
 
 func TestFeeHistoryConsumersRejectStringGasUsedRatio(t *testing.T) {
 	raw := json.RawMessage(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x1"],"gasUsedRatio":["0.5"]}`)
-	if _, err := wire.NewFeeHistoryResult(raw); err == nil {
+	if _, err := ethapi.NewFeeHistoryResult(raw); err == nil {
 		t.Error("generated feeHistory result admitted a JSON string gasUsedRatio")
 	}
 	if _, err := feehistory.Encode(raw); err == nil {
@@ -353,7 +363,7 @@ func TestOfficialFeeHistoryNumbersDoNotInheritProtectedFloatGate(t *testing.T) {
 	// Official JSON numbers are exact decimal values. This value lies within
 	// schema [0,1] but cannot survive the protected encoder's float64 key.
 	raw := json.RawMessage(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x1"],"gasUsedRatio":[0.30000000000000001]}`)
-	out := assertOfficialRoundTrip(t, resultConstructor(wire.NewFeeHistoryResult), officialResultSchemas(t)["eth_feeHistory"], raw)
+	out := assertOfficialRoundTrip(t, resultConstructor(ethapi.NewFeeHistoryResult), officialResultSchemas(t)["eth_feeHistory"], raw)
 	var result struct {
 		GasUsedRatio []json.RawMessage `json:"gasUsedRatio"`
 	}
@@ -368,7 +378,7 @@ func TestOfficialFeeHistoryNumbersDoNotInheritProtectedFloatGate(t *testing.T) {
 	}
 	for _, ratio := range []string{"1.00000000000000000001", "-0.00000000000000000001"} {
 		invalid := json.RawMessage(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x1"],"gasUsedRatio":[` + ratio + `]}`)
-		if _, err := wire.NewFeeHistoryResult(invalid); err == nil {
+		if _, err := ethapi.NewFeeHistoryResult(invalid); err == nil {
 			t.Errorf("official schema ratio bounds rounded away: %s", ratio)
 		}
 		if err := conformance.ValidateResult(officialResultSchemas(t)["eth_feeHistory"], invalid); err == nil {
@@ -378,28 +388,28 @@ func TestOfficialFeeHistoryNumbersDoNotInheritProtectedFloatGate(t *testing.T) {
 }
 
 func TestGeneratedBlockTransactionsMarshalRequiresExactlyOneMember(t *testing.T) {
-	hashes := []wire.Hash{}
-	transactions := []wire.TransactionInformation{}
+	hashes := []ethapi.Hash{}
+	transactions := []ethapi.TransactionInformation{}
 	for _, tc := range []struct {
 		name  string
-		value wire.BlockTransactions
+		value ethapi.BlockTransactions
 	}{
-		{"unselected", wire.BlockTransactions{}},
-		{"multiple selected", wire.BlockTransactions{TransactionHashes: &hashes, FullTransactions: &transactions}},
+		{"unselected", ethapi.BlockTransactions{}},
+		{"multiple selected", ethapi.BlockTransactions{TransactionHashes: &hashes, FullTransactions: &transactions}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if out, err := wire.MarshalNoEscape(tc.value); err == nil {
+			if out, err := ethcodec.MarshalNoEscape(tc.value); err == nil {
 				t.Fatalf("invalid tagged-union member count marshaled as %s", out)
 			}
 		})
 	}
 	// A selected empty branch is not an unselected union. The schema uses
 	// anyOf, so either selected representation must retain an empty array.
-	for _, value := range []wire.BlockTransactions{
+	for _, value := range []ethapi.BlockTransactions{
 		{TransactionHashes: &hashes},
 		{FullTransactions: &transactions},
 	} {
-		out, err := wire.MarshalNoEscape(value)
+		out, err := ethcodec.MarshalNoEscape(value)
 		if err != nil || string(out) != `[]` {
 			t.Errorf("selected empty branch must marshal as []: %s (%v)", out, err)
 		}

@@ -31,7 +31,7 @@
 
 | 入口 | 作用 | 输出与限制 |
 | --- | --- | --- |
-| `bash scripts/release_check.sh` | 格式、tidy、vet、build、全仓 race、可达漏洞扫描 | 不是离线流程；需要 `vuln.go.dev`；不代表完整发布验证 |
+| `bash scripts/release_check.sh` | 格式、tidy、公开生成类型新鲜度、vet、build、全仓 race、可达漏洞扫描 | 不是离线流程；需要 `vuln.go.dev`；不代表完整发布验证 |
 | `bash scripts/release_api_diff.sh PREVIOUS_TAG` | 上一已发布版本与当前整模块公共 API 对比，包含删除的包 | `release-evidence/`；API 变化仅报告，工具、下载与导出错误失败 |
 | `bash scripts/release_build.sh` | GoReleaser snapshot、15 个产物校验、5 个本机入口 `-h` smoke | 成功才删除新建的 `dist`；失败保留；拒绝覆盖原有目录 |
 | `bash scripts/release_build.sh --keep-artifacts` | 相同构建验证，但保留候选产物 | 工作流在归档后清理 |

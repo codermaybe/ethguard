@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -17,7 +18,7 @@ func blockTransactionCountByNumberSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodGetBlockTransactionCountByNumber,
 		Resolver:    ResolverStrict,
-		Normalize:   wire.NormalizeWireQuantity,
+		Normalize:   ethcodec.NormalizeWireQuantity,
 		Encode:      wire.EncodeQuantity,
 		KeySource:   rpc.RuleKeyCanonicalBytes,
 		CompareKind: rpc.RuleCompareQuantity,
