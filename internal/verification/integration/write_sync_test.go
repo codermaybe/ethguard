@@ -144,6 +144,67 @@ func TestSendRawTransactionSyncFailsClosedWhenNotAccepted(t *testing.T) {
 	}
 }
 
+// TestSendTransactionSyncWaitsForReceipt pins the typed synchronous write
+// entry: the caller's signed transaction is broadcast through the write
+// quorum, the shared receipt execution resolves the mined receipt, and the
+// write decision stays attached to the returned result.
+func TestSendTransactionSyncWaitsForReceipt(t *testing.T) {
+	client, nodes := fleet(t, 1, 0, 3)
+	tx, _, hash := signedWriteTransaction(t)
+	for _, node := range nodes[:2] {
+		node.Return(methods.MethodSendRawTransaction, hash.Hex())
+	}
+	nodes[2].Return(methods.MethodSendRawTransaction, common.HexToHash("0x"+strings.Repeat("11", 32)).Hex())
+	for _, node := range nodes {
+		node.Return(methods.MethodGetTransactionReceipt, syncReceiptFixture(t, hash, 17))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	receipt, result, err := client.SendTransactionSync(ctx, tx, &receiptWait)
+	if err != nil {
+		t.Fatalf("typed sync write failed: %v", err)
+	}
+	if receipt == nil || receipt.TxHash != hash {
+		t.Fatalf("receipt for the wrong transaction: %+v", receipt)
+	}
+	decision := writeDecision(t, result)
+	if decision.Status != rpc.WriteAccepted || decision.Hash != hash.Hex() {
+		t.Fatalf("write decision not preserved on the sync result: %+v", decision)
+	}
+	if len(decision.Accepted) != 2 || len(decision.Dissent) != 1 {
+		t.Fatalf("accepting and dissenting sources not preserved: %+v", decision)
+	}
+}
+
+// TestSendTransactionSyncFailsClosedWhenNotAccepted pins the typed
+// synchronous write entry's gate: a write the fleet refused never enters
+// receipt waiting, and the classified error is ErrNoValidResponse.
+func TestSendTransactionSyncFailsClosedWhenNotAccepted(t *testing.T) {
+	client, nodes := fleet(t, 1, 0, 3)
+	tx, _, _ := signedWriteTransaction(t)
+	for _, node := range nodes {
+		node.Fail(methods.MethodSendRawTransaction, -32010, "insufficient funds")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	receipt, result, err := client.SendTransactionSync(ctx, tx, nil)
+	if !errors.Is(err, rpc.ErrNoValidResponse) {
+		t.Fatalf("rejected write error = %v, want ErrNoValidResponse", err)
+	}
+	if receipt != nil {
+		t.Fatalf("rejected write produced a receipt: %+v", receipt)
+	}
+	if writeDecision(t, result).Status != rpc.WriteRejected {
+		t.Fatalf("rejected write decision = %+v", writeDecision(t, result))
+	}
+	for i, node := range nodes {
+		if calls := countMethod(node.Calls(), methods.MethodGetTransactionReceipt); calls != 0 {
+			t.Fatalf("source %d polled receipts for a refused write: %d calls", i, calls)
+		}
+	}
+}
+
 // TestSendRawTransactionSyncTimesOutWithoutReceipt pins the polling bound:
 // when the transaction never mines, the explicit positive timeout converts
 // to a context deadline on the receipt poll, with the write decision still

@@ -222,6 +222,126 @@ func TestSendRawTransactionRejectsInvalidBytesBeforeContact(t *testing.T) {
 	}
 }
 
+// signedWriteTransaction builds the signed transaction the typed write
+// entries broadcast. The typed entry marshals the transaction itself, so the
+// fixture keeps the transaction object beside its raw bytes.
+func signedWriteTransaction(t *testing.T) (*types.Transaction, []byte, common.Hash) {
+	t.Helper()
+	key, err := crypto.HexToECDSA("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := types.NewTransaction(
+		7,
+		common.HexToAddress("0x"+strings.Repeat("bb", 20)),
+		big.NewInt(1),
+		21000,
+		big.NewInt(1),
+		nil,
+	)
+	signed, err := types.SignTx(tx, types.HomesteadSigner{}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed, raw, signed.Hash()
+}
+
+// TestSendTransactionBroadcastsTheSignedBytes pins the typed write entry:
+// it broadcasts the caller's signed transaction bytes unchanged, keeps the
+// write quorum fixed over the frozen basis, and preserves the accepting
+// sources on the returned decision.
+func TestSendTransactionBroadcastsTheSignedBytes(t *testing.T) {
+	client, nodes := fleet(t, 1, 0, 3)
+	tx, raw, hash := signedWriteTransaction(t)
+	for _, node := range nodes[:2] {
+		node.Return(methods.MethodSendRawTransaction, hash.Hex())
+	}
+	nodes[2].Return(methods.MethodSendRawTransaction, common.HexToHash("0x"+strings.Repeat("11", 32)).Hex())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := client.SendTransaction(ctx, tx)
+	if err != nil {
+		t.Fatalf("typed broadcast returned error: %v", err)
+	}
+	decision := writeDecision(t, result)
+	if decision.Status != rpc.WriteAccepted || decision.Hash != hash.Hex() || !result.IsWriteAccepted() {
+		t.Fatalf("unexpected accepted result: %+v", decision)
+	}
+	if decision.Basis != 3 || decision.Required != 2 || decision.Agreement != 2 {
+		t.Fatalf("unexpected fixed-basis decision: %+v", decision)
+	}
+	if len(decision.Accepted) != 2 || len(decision.Dissent) != 1 {
+		t.Fatalf("winning and dissent evidence not preserved: %+v", decision)
+	}
+	want := `"0x` + common.Bytes2Hex(raw) + `"`
+	for i, node := range nodes {
+		calls := node.Calls()
+		if countMethod(calls, methods.MethodSendRawTransaction) != 1 {
+			t.Fatalf("source %d send calls = %d, want 1", i, countMethod(calls, methods.MethodSendRawTransaction))
+		}
+		var sent string
+		for _, call := range calls {
+			if call.Method == methods.MethodSendRawTransaction {
+				if len(call.Params) != 1 {
+					t.Fatalf("source %d send parameters = %s, want exactly one raw transaction", i, call.Params)
+				}
+				sent = string(call.Params[0])
+			}
+		}
+		if sent != want {
+			t.Fatalf("source %d broadcast changed signed bytes: got %s, want %s", i, sent, want)
+		}
+	}
+}
+
+// TestSendTransactionFailsClosedOnDisputedHashes pins the typed write entry's
+// failure path: sources that answer with different hashes never produce an
+// accepted write, and the disputed hash stays visible as evidence.
+func TestSendTransactionFailsClosedOnDisputedHashes(t *testing.T) {
+	client, nodes := fleet(t, 1, 0, 3)
+	tx, _, _ := signedWriteTransaction(t)
+	for i, node := range nodes {
+		node.Return(methods.MethodSendRawTransaction, common.HexToHash("0x"+strings.Repeat(string(rune('1'+i)), 32)).Hex())
+	}
+
+	result, err := client.SendTransaction(context.Background(), tx)
+	if !errors.Is(err, ethguard.ErrConflict) {
+		t.Fatalf("error = %v, want ErrConflict", err)
+	}
+	decision := writeDecision(t, result)
+	if decision.Status != rpc.WriteDisputed || decision.Agreement != 1 || len(decision.Dissent) != 2 {
+		t.Fatalf("unexpected disputed result: %+v", decision)
+	}
+	if result.IsWriteAccepted() {
+		t.Fatal("disputed write must not report Accepted")
+	}
+}
+
+// TestSendTransactionReportsUnreachableFleet pins the typed write entry's
+// transport failure: no source answered, so the write is unreachable rather
+// than rejected, and every silent source stays on the frozen basis.
+func TestSendTransactionReportsUnreachableFleet(t *testing.T) {
+	client, nodes := fleet(t, 1, 0, 2)
+	tx, _, _ := signedWriteTransaction(t)
+	for _, node := range nodes {
+		node.FailHTTP(methods.MethodSendRawTransaction, 503)
+	}
+
+	result, err := client.SendTransaction(context.Background(), tx)
+	if !errors.Is(err, ethguard.ErrAllSourcesDown) {
+		t.Fatalf("error = %v, want ErrAllSourcesDown", err)
+	}
+	decision := writeDecision(t, result)
+	if decision.Status != rpc.WriteUnreachable || decision.Basis != 2 || len(decision.Silent) != 2 {
+		t.Fatalf("unexpected unreachable result: %+v", decision)
+	}
+}
+
 func writeDecision(t *testing.T, result ethguard.CallResult) *rpc.WriteDecision {
 	t.Helper()
 	if result.WriteDecision == nil {
