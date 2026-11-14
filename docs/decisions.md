@@ -2988,3 +2988,76 @@ up. JSON Pointer here addresses static schema data, not provider responses.
 This does not authorize blanket response-pattern warnings, invalid protected
 values voting, or unknown fields entering Core. Existing Extensions,
 Diagnostics and budgeted original-source evidence keep their separate roles.
+
+## 0071. Native SimulateV1 entry and retirement of the public geth adapter
+
+Status: Accepted (2026-11-14). Supersedes the forward-looking gethcompat
+retention and SimulateV1 exposure statements in 0066 and the pre-migration
+transport assumptions in 0065. Those decisions remain accurate descriptions
+of the architecture and evidence at their acceptance dates.
+
+`SimulateV1` uses the native method registration and shared root/view execution
+owner. Its current public request is `json.RawMessage`, result is
+`[]ethapi.SimulateBlock`, and base is `*gethrpc.BlockNumberOrHash` with nil
+meaning latest. This is an entry and transport migration only. Generated strong
+request types and method-specific semantic verification remain follow-up work;
+method-set closure at 47 business methods does not prove semantic completeness
+or by itself satisfy stable-release review. The current public `ethapi` shape
+is retained, and this change does not imply wholesale migration of geth
+business types.
+
+Retire the public `gethcompat` construction and single-source Simulate routes,
+and remove the production geth HTTP adapter and `HTTPAdapterGeth` option.
+`HTTPAdapterNative` / `WithHTTPAdapter` and the generic `DialerOption` remain.
+The internal comparison oracle belongs in `internal/testkit/gethoracle` for
+tests and explicit `cmd/nativesmoke` diagnostics; it is not a production
+fallback and is excluded from the native execution graph. Historical geth
+captures retain their original adapter identity and are never relabeled as
+native evidence.
+
+The prerelease exception that accepted exactly one missing `SimulateV1` method
+is retired. Release checks require the complete locked-version method set;
+separate method-level evidence review remains necessary before a compatibility
+claim or stable release.
+
+## 0072. Generated Simulate requests and explicit preparation before reference
+
+Status: Accepted (2026-11-14). Replaces the temporary JSON request and geth
+selector signatures in 0071 without changing the shared execution owner or
+the read pipeline's phase order.
+
+The root and view accept `ethapi.SimulateV1Request` and
+`*ethapi.SimulateBlockReference`. Both models and their nested values come from
+the fixed effective schema. Native execution accepts its five selector
+branches, including the two EIP-1898 objects added by the current upstream
+baseline. A nil or omitted base defaults to latest. Moving string tags retain
+the existing bare-hash pin; explicit objects retain their shape and the
+presence/value of `requireCanonical`. The official blockNumber object permits
+quantities, not moving tags. No selector claims independent chain canonicality.
+
+Replace the existing `MethodSpec.Validate` / `rpc.ReadPlan.Validate` hook with
+`Prepare(context.Context, Request) (Request, error)`. This is one explicit
+request-preparation declaration, not an additional policy dimension or a
+parallel registry. The aggregator consumes the returned request and rejects a
+changed method identity. Existing validate-only methods return their original
+request after the same checks. Local failures still precede reference and
+business network requests.
+
+Simulate preparation snapshots caller-owned inputs once, checks and normalizes
+them through the generated constructors, and returns owned JSON values. Raw
+Call and typed entries share that preparation. Reference rewriting and final
+wire freezing consume the owned values; caller MarshalJSON functions are not
+re-entered by the final freeze. Prepared evidence and each source request carry
+the same final bytes. This distinguishes the initial caller snapshot from the
+final executable snapshot; it does not claim only one JSON encoding operation.
+
+New request models distinguish closed schemas from open schemas. Closed
+objects reject unknown keys. Open objects retain unknown input in generated
+RawMessage maps without overwriting declared fields or rounding numbers.
+Result projection and existing CallMsg construction keep their prior
+strategies. This adds neither a universal response structure nor a runtime
+schema interpreter. Unsupported generator vocabulary fails explicitly.
+
+These are public type and low-level hook signature changes. They do not alter
+quorum, pending-local, Forwarded, response admission, write or stream semantics,
+and do not complete all method-level compatibility or public type migration.

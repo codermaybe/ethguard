@@ -189,7 +189,9 @@ func TestResponseHealthEarlyExitsAndCancellation(t *testing.T) {
 				case "normalize-failure":
 					plan.Resolver = rpc.Strict(func(json.RawMessage) (string, error) { return "", rpc.ErrMalformedResponse })
 				case "prepare-failure":
-					plan.Validate = func(context.Context, rpc.Request) error { return errors.New("bad request") }
+					plan.Prepare = func(_ context.Context, req rpc.Request) (rpc.Request, error) {
+						return req, errors.New("bad request")
+					}
 				}
 				agg, nodes := responseHealthAggregator(t, plan, mode, body)
 				if exit == "transport-failure" {

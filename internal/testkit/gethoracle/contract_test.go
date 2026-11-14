@@ -1,4 +1,4 @@
-package geth
+package gethoracle
 
 import (
 	"context"

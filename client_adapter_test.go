@@ -12,12 +12,7 @@ import (
 	"github.com/codermaybe/ethguard/pool"
 )
 
-// The selection tests use a response both adapters classify differently: a
-// well-formed 2.0 response whose id does not match the request. The native
-// HTTP adapter — the strategic default — rejects it by contract; the go-ethereum
-// compatibility adapter accepts it (audited baseline quirk) and is reachable
-// only through gethcompat. That makes adapter selection observable without
-// protocol-specific types.
+// A mismatched response ID makes native adapter selection observable.
 
 func wrongIDServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -76,7 +71,15 @@ func TestWithHTTPAdapterNativeSelectsNativeAdapter(t *testing.T) {
 }
 
 func TestWithHTTPAdapterUnknownNameFailsConstruction(t *testing.T) {
-	if _, err := New(config.Config{}, WithHTTPAdapter(HTTPAdapter("websocket"))); err == nil {
-		t.Fatal("New accepted an unknown adapter name")
+	cfg := config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://127.0.0.1:1"}}}
+	for _, name := range []HTTPAdapter{"websocket", "geth"} {
+		t.Run(string(name), func(t *testing.T) {
+			for _, options := range [][]Option{{WithHTTPAdapter(name)}, {WithHTTPAdapter(name), DialerOption(stubDialer{})}} {
+				if c, err := New(cfg, options...); err == nil {
+					c.Close()
+					t.Fatalf("New accepted unknown adapter %q", name)
+				}
+			}
+		})
 	}
 }

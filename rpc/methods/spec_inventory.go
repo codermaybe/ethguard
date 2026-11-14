@@ -21,6 +21,7 @@ func Specs() []MethodSpec {
 		getStorageAtSpec(),
 		getCodeSpec(),
 		callSpec(),
+		simulateV1Spec(),
 		estimateGasSpec(),
 		getLogsSpec(),
 		feeHistorySpec(),

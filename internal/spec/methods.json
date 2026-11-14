@@ -1,4 +1,5 @@
 {
+ "version": "981aa66d79364be8322a9c358aaf0a571cca0873",
  "results": {
   "eth_blobBaseFee": {
    "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
@@ -264,6 +265,11 @@
        "title": "Block size",
        "type": "string"
       },
+      "slotNumber": {
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+       "title": "EIP-7843 slot number",
+       "type": "string"
+      },
       "stateRoot": {
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "State root",
@@ -351,7 +357,7 @@
                 },
                 "yParity": {
                  "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
-                 "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+                 "pattern": "^0x[0-9a-f]{1,2}$",
                  "title": "yParity",
                  "type": "string"
                 }
@@ -430,7 +436,7 @@
              },
              "v": {
               "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "v",
               "type": "string"
              },
@@ -441,7 +447,7 @@
              },
              "yParity": {
               "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "yParity",
               "type": "string"
              }
@@ -573,7 +579,7 @@
              },
              "v": {
               "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "v",
               "type": "string"
              },
@@ -584,7 +590,7 @@
              },
              "yParity": {
               "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "yParity",
               "type": "string"
              }
@@ -710,7 +716,7 @@
              },
              "v": {
               "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "v",
               "type": "string"
              },
@@ -721,7 +727,7 @@
              },
              "yParity": {
               "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "yParity",
               "type": "string"
              }
@@ -833,7 +839,7 @@
              },
              "v": {
               "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "v",
               "type": "string"
              },
@@ -844,7 +850,7 @@
              },
              "yParity": {
               "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "yParity",
               "type": "string"
              }
@@ -1187,6 +1193,11 @@
        "title": "Block size",
        "type": "string"
       },
+      "slotNumber": {
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+       "title": "EIP-7843 slot number",
+       "type": "string"
+      },
       "stateRoot": {
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "State root",
@@ -1274,7 +1285,7 @@
                 },
                 "yParity": {
                  "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
-                 "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+                 "pattern": "^0x[0-9a-f]{1,2}$",
                  "title": "yParity",
                  "type": "string"
                 }
@@ -1353,7 +1364,7 @@
              },
              "v": {
               "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "v",
               "type": "string"
              },
@@ -1364,7 +1375,7 @@
              },
              "yParity": {
               "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "yParity",
               "type": "string"
              }
@@ -1496,7 +1507,7 @@
              },
              "v": {
               "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "v",
               "type": "string"
              },
@@ -1507,7 +1518,7 @@
              },
              "yParity": {
               "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "yParity",
               "type": "string"
              }
@@ -1633,7 +1644,7 @@
              },
              "v": {
               "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "v",
               "type": "string"
              },
@@ -1644,7 +1655,7 @@
              },
              "yParity": {
               "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "yParity",
               "type": "string"
              }
@@ -1756,7 +1767,7 @@
              },
              "v": {
               "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "v",
               "type": "string"
              },
@@ -1767,7 +1778,7 @@
              },
              "yParity": {
               "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-              "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+              "pattern": "^0x[0-9a-f]{1,2}$",
               "title": "yParity",
               "type": "string"
              }
@@ -2182,7 +2193,7 @@
         "type": "string"
        },
        "type": {
-        "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+        "pattern": "^0x[0-9a-f]{1,2}$",
         "title": "type",
         "type": "string"
        }
@@ -2454,7 +2465,7 @@
            },
            "yParity": {
             "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
-            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "pattern": "^0x[0-9a-f]{1,2}$",
             "title": "yParity",
             "type": "string"
            }
@@ -2533,7 +2544,7 @@
         },
         "v": {
          "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-         "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+         "pattern": "^0x[0-9a-f]{1,2}$",
          "title": "v",
          "type": "string"
         },
@@ -2544,7 +2555,7 @@
         },
         "yParity": {
          "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-         "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+         "pattern": "^0x[0-9a-f]{1,2}$",
          "title": "yParity",
          "type": "string"
         }
@@ -2676,7 +2687,7 @@
         },
         "v": {
          "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-         "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+         "pattern": "^0x[0-9a-f]{1,2}$",
          "title": "v",
          "type": "string"
         },
@@ -2687,7 +2698,7 @@
         },
         "yParity": {
          "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-         "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+         "pattern": "^0x[0-9a-f]{1,2}$",
          "title": "yParity",
          "type": "string"
         }
@@ -2813,7 +2824,7 @@
         },
         "v": {
          "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-         "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+         "pattern": "^0x[0-9a-f]{1,2}$",
          "title": "v",
          "type": "string"
         },
@@ -2824,7 +2835,7 @@
         },
         "yParity": {
          "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-         "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+         "pattern": "^0x[0-9a-f]{1,2}$",
          "title": "yParity",
          "type": "string"
         }
@@ -2936,7 +2947,7 @@
         },
         "v": {
          "description": "For backwards compatibility, `v` is optionally provided as an alternative to `yParity`. This field is DEPRECATED and all use of it should migrate to `yParity`.",
-         "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+         "pattern": "^0x[0-9a-f]{1,2}$",
          "title": "v",
          "type": "string"
         },
@@ -2947,7 +2958,7 @@
         },
         "yParity": {
          "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature.",
-         "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+         "pattern": "^0x[0-9a-f]{1,2}$",
          "title": "yParity",
          "type": "string"
         }
@@ -3281,7 +3292,7 @@
        "type": "string"
       },
       "type": {
-       "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+       "pattern": "^0x[0-9a-f]{1,2}$",
        "title": "type",
        "type": "string"
       }
@@ -3346,10 +3357,9 @@
    "title": "Syncing status"
   },
   "net_version": {
-   "pattern": "^[1-9][0-9]*$",
+   "pattern": "^(0|[1-9][0-9]*)$",
    "title": "decimal unsigned integer string",
    "type": "string"
   }
- },
- "version": "v1.0.0-beta.7"
+ }
 }

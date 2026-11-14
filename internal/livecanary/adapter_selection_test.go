@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard"
@@ -12,11 +13,8 @@ import (
 	"github.com/codermaybe/ethguard/pool"
 )
 
-// TestExecutorHTTPAdapterThreadsIntoClient locks that the executor's adapter
-// selection reaches the built client: the same mismatched-id response is
-// rejected by the native default adapter and would be accepted by the
-// compatibility adapter (the audited baseline quirk), which the executor
-// reaches through the gethcompat seam.
+// TestExecutorHTTPAdapterThreadsIntoClient locks the native adapter selection
+// used for newly built clients.
 func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -71,36 +69,22 @@ func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 	})
 }
 
-// The geth selection builds through the compatibility seam: the root
-// constructor refuses a bare geth adapter, so the executor's geth choice
-// must compose the seam's dialer with the adapter option and stay usable.
-func TestExecutorGethSelectionBuildsThroughCompatibilitySeam(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"jsonrpc":"2.0","id":999,"result":"0x2a"}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	manifest := Manifest{
-		ChainID: 0,
-		Selection: &Selection{
-			Selected: []SelectedMember{{SourceID: "probe", URL: srv.URL}},
-		},
-		Reference:   Reference{MaxLagBlocks: 8},
-		Timeouts:    Timeouts{StepMS: 2000},
-		HTTPAdapter: HTTPAdapterGeth,
-	}
+// Historical manifests preserve their geth provenance and cannot be rerun
+// with the native adapter under a relabeled identity.
+func TestExecutorRejectsHistoricalGethAdapter(t *testing.T) {
+	manifest := testManifest(t)
+	manifest.HTTPAdapter = "geth"
 	e := Executor{}
-	client, err := e.clientFor(manifest)
-	if err != nil {
-		t.Fatalf("geth selection via seam: %v", err)
+	_, err := e.clientFor(manifest)
+	if err == nil || !strings.Contains(err.Error(), "geth-adapter manifests is unsupported") {
+		t.Fatalf("clientFor error = %v, want explicit unsupported error", err)
 	}
-	t.Cleanup(client.Close)
-	emissions, err := client.Pool().Collect(context.Background(), "eth_chainId", nil, pool.CollectOptions{})
+
+	manifestBytes, err := manifest.Marshal()
 	if err != nil {
-		t.Fatalf("Collect err = %v, want the compatibility adapter's usable answer", err)
+		t.Fatal(err)
 	}
-	if len(emissions) != 1 || string(emissions[0].Val) != `"0x2a"` {
-		t.Fatalf("emissions = %+v, want the baseline usable answer", emissions)
+	if _, err := Rerun(context.Background(), manifestBytes, e); err == nil || !strings.Contains(err.Error(), "geth-adapter manifests are unsupported") {
+		t.Fatalf("Rerun error = %v, want explicit unsupported error", err)
 	}
 }

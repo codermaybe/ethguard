@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 )
 
 // schema mirrors the JSON Schema subset used by the execution-apis bundle,
@@ -18,9 +19,15 @@ type schema struct {
 	title                string
 	typeVal              string // "object" | "string" | "array" | "boolean" | "number" | "null" | ""
 
-	pattern  string
-	constVal string
-	hasConst bool
+	pattern            string
+	constVal           string
+	hasConst           bool
+	enumValues         []any
+	hasEnum            bool
+	not                *schema
+	patternProperties  []prop
+	minItems, maxItems *int
+	uniqueItems        bool
 
 	minimum *json.Number
 	maximum *json.Number
@@ -44,6 +51,7 @@ type prop struct {
 var knownSchemaKeys = map[string]bool{
 	"title": true, "type": true, "pattern": true, "const": true,
 	"minimum": true, "maximum": true,
+	"enum": true, "not": true, "patternProperties": true, "minItems": true, "maxItems": true, "uniqueItems": true,
 	"properties": true, "required": true,
 	"items": true, "oneOf": true, "anyOf": true, "allOf": true,
 	"description": true, "additionalProperties": true, "$schema": true,
@@ -132,6 +140,48 @@ func decodeSchema(dec *json.Decoder) (*schema, error) {
 			} else {
 				out.maximum = &num
 			}
+		case "enum":
+			out.hasEnum = true
+			if err := dec.Decode(&out.enumValues); err != nil {
+				return nil, err
+			}
+		case "not":
+			node, err := parseRawLoop(dec)
+			if err != nil {
+				return nil, err
+			}
+			out.not = node
+		case "patternProperties":
+			props, err := decodeProperties(dec)
+			if err != nil {
+				return nil, err
+			}
+			out.patternProperties = props
+		case "minItems", "maxItems":
+			token, err := dec.Token()
+			if err != nil {
+				return nil, err
+			}
+			number, ok := token.(json.Number)
+			bound, err := strconv.Atoi(string(number))
+			if !ok || err != nil || bound < 0 {
+				return nil, fmt.Errorf("schema: %s must be a nonnegative integer", name)
+			}
+			if name == "minItems" {
+				out.minItems = &bound
+			} else {
+				out.maxItems = &bound
+			}
+		case "uniqueItems":
+			token, err := dec.Token()
+			if err != nil {
+				return nil, err
+			}
+			value, ok := token.(bool)
+			if !ok {
+				return nil, fmt.Errorf("schema: uniqueItems must be boolean")
+			}
+			out.uniqueItems = value
 		case "required":
 			if err := decodeStringList(dec, &out.required); err != nil {
 				return nil, err
@@ -258,8 +308,14 @@ func decodeStringList(dec *json.Decoder, dst *[]string) error {
 }
 
 func decodeString(dec *json.Decoder, dst *string) error {
-	if err := dec.Decode(dst); err != nil {
-		return fmt.Errorf("schema: %w", err)
+	token, err := dec.Token()
+	if err != nil {
+		return err
 	}
+	value, ok := token.(string)
+	if !ok {
+		return fmt.Errorf("schema: expected string")
+	}
+	*dst = value
 	return nil
 }

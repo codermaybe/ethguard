@@ -71,6 +71,10 @@ type ReferenceSpec struct {
 	// EIP1898 marks the object form {blockNumber: tag} accepted at the
 	// single anchored position, rewritten to {blockHash}.
 	EIP1898 bool
+	// DefaultTag supplies a declared optional reference before validation and
+	// establishment. It applies only to one positional reference, when absent
+	// or nil; other methods retain their existing parameter behavior.
+	DefaultTag string
 }
 
 // PendingMode declares a method's pending handling at one position.
@@ -117,7 +121,7 @@ func corroboratingResolvers(kind ResolverKind) bool {
 
 // ReadPlan is the explicit execution plan of one read method: the facts the
 // fixed phase pipeline reads, and the resolver value those facts select. The
-// plan carries the method-owned hooks (validate, admit) and the declared
+// plan carries the method-owned hooks (prepare, admit) and the declared
 // reference and pending shapes; the generic rewrite, requirement, and rule
 // projections below are the only code that executes them, so the declared
 // facts and the executed behavior cannot drift apart.
@@ -147,9 +151,10 @@ type ReadPlan struct {
 	// this nil; the Pending column still records the declared semantics.
 	PendingReject func(Request) error
 
-	// Validate runs before any establishment. It is the method's own hook,
-	// and the plan's fixed phase order is what makes it pre-anchor.
-	Validate func(context.Context, Request) error
+	// Prepare validates and prepares an owned request before establishment.
+	// It must preserve Method and must not mutate the caller's request.
+	// Later phases consume the returned request, including any frozen inputs.
+	Prepare func(context.Context, Request) (Request, error)
 	// Admit runs after collection with the same-source caller the
 	// coordinator supplies. A nil hook admits nothing.
 	Admit func(context.Context, Request, json.RawMessage, AdmissionCaller) (json.RawMessage, error)
@@ -173,6 +178,25 @@ type ReadPlan struct {
 // declaration.
 func (p ReadPlan) Corroborating() bool { return corroboratingResolvers(p.ResolverKind) }
 
+// ApplyReferenceDefault materializes an optional positional reference without
+// changing the caller's parameter slice. It is idempotent and method-agnostic.
+func (p ReadPlan) ApplyReferenceDefault(req Request) Request {
+	if p.Reference.DefaultTag == "" || len(p.Reference.Positions) != 1 || (p.Reference.Kind != ReferenceShapeHashAt && p.Reference.Kind != ReferenceShapeHeightAt) {
+		return req
+	}
+	pos := p.Reference.Positions[0]
+	if pos < 0 || pos > len(req.Params) || (pos < len(req.Params) && req.Params[pos] != nil) {
+		return req
+	}
+	params := append([]any(nil), req.Params...)
+	if pos == len(params) {
+		params = append(params, p.Reference.DefaultTag)
+	} else {
+		params[pos] = p.Reference.DefaultTag
+	}
+	return Request{Method: req.Method, Params: params}
+}
+
 // ReferenceRequirement reports the reference this request needs: which
 // moving tag it rides, and whether establishment is needed at all. The
 // derivation and the rewrite in PrepareWithReference read the same
@@ -180,6 +204,7 @@ func (p ReadPlan) Corroborating() bool { return corroboratingResolvers(p.Resolve
 // Mixed moving tags report "not needed" and let the rewrite own the local
 // rejection, exactly as the compat chains do.
 func (p ReadPlan) ReferenceRequirement(req Request) (ReferenceRequest, bool) {
+	req = p.ApplyReferenceDefault(req)
 	if p.Reference.EIP1898 {
 		// A hand-assembled plan can declare EIP1898 without a position: the
 		// compiled-plan validator rejects that combination, but this seam
@@ -282,6 +307,7 @@ func (p ReadPlan) fieldsRequirement(req Request) (ReferenceRequest, bool) {
 // upstream contact, and established evidence that does not serve the
 // request's tag fails the read the way a missing reference would.
 func (p ReadPlan) PrepareWithReference(req Request, ref ReferenceEvidence, refOK bool) (Request, string, error) {
+	req = p.ApplyReferenceDefault(req)
 	// The copy preserves the parameter list's shape: an empty list stays
 	// empty (and marshals as [] on the wire), never collapses to nil.
 	params := make([]any, len(req.Params))

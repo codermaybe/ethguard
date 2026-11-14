@@ -46,7 +46,6 @@ const (
 	ReferenceTimeoutMS = 30000
 	StepTimeoutMS      = 30000
 	RegistryMaxBytes   = 33554432
-	HTTPAdapterGeth    = "geth"
 	HTTPAdapterNative  = "native"
 )
 
@@ -70,8 +69,8 @@ type Manifest struct {
 	ToolVersion   string `json:"tool_version"`
 	GoVersion     string `json:"go_version"`
 	// HTTPAdapter binds the connection implementation to this observation.
-	// Empty is accepted only for legacy manifests and means the client's own
-	// default adapter (the native HTTP adapter).
+	// Empty is accepted only for legacy manifests and means the native adapter.
+	// The historical value "geth" remains valid provenance, but cannot be rerun.
 	HTTPAdapter string      `json:"http_adapter,omitempty"`
 	Environment Environment `json:"environment"`
 	ChainID     uint64      `json:"chain_id"`
@@ -92,7 +91,7 @@ func NormalizeHTTPAdapter(value string) (string, error) {
 		return HTTPAdapterNative, nil
 	}
 	switch value {
-	case HTTPAdapterGeth, HTTPAdapterNative:
+	case "geth", HTTPAdapterNative:
 		return value, nil
 	default:
 		return "", fmt.Errorf("http_adapter: unknown adapter %q", value)

@@ -34,8 +34,8 @@ var natives = []nativeDescriptor{
 	{"Bloom", `^0x[0-9a-f]{512}$`, "fixed 256-byte logs bloom", nativeParseInfo{fn: "ValidateWireFixedHex", extraArgs: []any{512, "logsBloom"}}},
 	{"BlockNonce", `^0x[0-9a-f]{16}$`, "fixed 8-byte header nonce", nativeParseInfo{fn: "ValidateWireFixedHex", extraArgs: []any{16, "nonce"}}},
 	{"StorageKey", `^0x[0-9a-f]{0,64}$`, "up-to-32-byte hex word", nativeParseInfo{}},
-	{"HexByte", `^0x([0-9a-fA-F]?){1,2}$`, "1-2 hex digits, canonically QUANTITY", nativeParseInfo{fn: "CanonicalHexByte"}},
-	{"DecimalString", `^[1-9][0-9]*$`, "positive decimal string without leading zeros", nativeParseInfo{fn: "NormalizeDecimalString"}},
+	{"HexByte", `^0x[0-9a-f]{1,2}$`, "1-2 lowercase hex digits, canonically QUANTITY", nativeParseInfo{fn: "CanonicalHexByte"}},
+	{"DecimalString", `^(0|[1-9][0-9]*)$`, "nonnegative decimal string without leading zeros", nativeParseInfo{fn: "NormalizeDecimalString"}},
 	{"Number", "", "exact finite JSON number, without binary floating-point rounding", nativeParseInfo{fn: "CanonicalNumber", number: true}},
 	{"Text", "", "free-form string content", nativeParseInfo{}},
 }
@@ -58,21 +58,26 @@ const (
 	refObject                // named struct
 	refArray                 // inline slice of elem
 	refUnion                 // named union wrapper
+	refMap                   // named homogeneous pattern-keyed dictionary
 )
 
 type ref struct {
-	kind             refKind
-	native           string // refScalar: native Go name ("Quantity", "bool", ...)
-	typeName         string // refObject/refUnion: registry name
-	elem             *ref   // refArray element
-	pointer          bool   // nullable value (oneOf/anyOf [null, X])
-	path             string
-	parser           string
-	pattern          string
-	constant         any
-	hasConst         bool
-	minimum, maximum *json.Number
-	inner            *ref
+	kind               refKind
+	native             string // refScalar: native Go name ("Quantity", "bool", ...)
+	typeName           string // refObject/refUnion: registry name
+	elem               *ref   // refArray element
+	pointer            bool   // nullable value (oneOf/anyOf [null, X])
+	path               string
+	parser             string
+	pattern            string
+	constant           any
+	hasConst           bool
+	minimum, maximum   *json.Number
+	inner              *ref
+	enumValues         []any
+	hasEnum            bool
+	minItems, maxItems *int
+	uniqueItems        bool
 }
 
 type fieldModel struct {
@@ -83,9 +88,23 @@ type fieldModel struct {
 }
 
 type objectModel struct {
-	name   string
-	fields []fieldModel // canonical order
-	from   []string     // method context comments
+	name                 string
+	fields               []fieldModel // canonical order
+	from                 []string     // method context comments
+	forbiddenRequired    []string
+	closed               bool
+	propertyNames        []string
+	retainAdditional     bool
+	hasForbiddenRequired bool
+	request              bool
+}
+
+type mapModel struct {
+	name     string
+	elem     *ref
+	patterns []string
+	path     string
+	request  bool
 }
 
 type branchModel struct {
@@ -101,22 +120,28 @@ type unionModel struct {
 	nullable bool // a null branch participated in the official union
 	from     []string
 	kind     string
+	request  bool
 }
 
 type registry struct {
-	byFP      map[string]*objectModel
-	unions    map[string]*unionModel
-	objects   []*objectModel // emission order
-	unionList []*unionModel
-	values    []*ref
-	usedNames map[string]bool
-	row       int // fallback name counter
-	report    *genReport
+	byFP            map[string]*objectModel
+	unions          map[string]*unionModel
+	objects         []*objectModel // emission order
+	unionList       []*unionModel
+	maps            []*mapModel
+	mapByFP         map[string]*mapModel
+	strictRequests  bool
+	preserveStrings bool // uniqueItems compares JSON strings before any native normalization
+	values          []*ref
+	usedNames       map[string]bool
+	row             int // fallback name counter
+	report          *genReport
 }
 
 func newRegistry(report *genReport) *registry {
 	r := &registry{
 		byFP:      map[string]*objectModel{},
+		mapByFP:   map[string]*mapModel{},
 		unions:    map[string]*unionModel{},
 		usedNames: map[string]bool{},
 		report:    report,
@@ -184,13 +209,25 @@ var overrideNamesByTitle = map[string]string{
 // Path keys are stable inside the pinned version; the emitted version
 // interlock forces regeneration if the pinned bundle ever moves.
 var overrideNameByPath = map[string]string{
-	"eth_call.params[0]": "CallMsg",
-	"eth_simulateV1.result.items.properties.calls.items":                                                                    "SimulateCallResult",
-	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error":                                          "SimulateCallError",
-	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0]":                                 "SimulateErrorRevert",
-	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1]":                                 "SimulateErrorVM",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items": "AuthorizationTuple",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions":                                                            "BlockTransactions",
+	"eth_simulateV1.params[0]":                                                                                                                   "SimulateV1Request",
+	"eth_simulateV1.params[1]":                                                                                                                   "SimulateBlockReference",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items":                                                                                  "BlockStateCall",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides":                                                        "BlockOverrides",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items":                                                           "SimulateCall",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides":                                                        "StateOverrides",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$":                  "AccountOverride",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.state": "AccountStorage",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals.items":                           "SimulateWithdrawal",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.accessList.items":                               "SimulateAccessListItem",
+	"eth_simulateV1.params[1].anyOf[3]":                                                                                                          "BlockNumberReference",
+	"eth_simulateV1.params[1].anyOf[4]":                                                                                                          "BlockHashReference",
+	"eth_call.params[0]":                                                                                                                         "CallMsg",
+	"eth_simulateV1.result.items.properties.calls.items":                                                                                         "SimulateCallResult",
+	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error":                                                               "SimulateCallError",
+	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0]":                                                      "SimulateErrorRevert",
+	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1]":                                                      "SimulateErrorVM",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items":                      "AuthorizationTuple",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions":                                                                                 "BlockTransactions",
 }
 
 // fieldOrderOverrides pin the field order of objects whose canonical byte

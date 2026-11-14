@@ -16,7 +16,7 @@ block-specific resolver 仍是深模块。保留 `rpc.Policy`，不另建 Resolv
 
 | 所有者 | 负责 | 不负责 |
 | --- | --- | --- |
-| `rpc/methods` | 请求形态、Validate/Admit、对象规则绑定、resolver 装配、Catalog/Specs 完整性 | pool 生命周期、transport、typed projection、reference 选择算法 |
+| `rpc/methods` | 请求形态、Prepare/Admit、对象规则绑定、resolver 装配、Catalog/Specs 完整性 | pool 生命周期、transport、typed projection、reference 选择算法 |
 | ReadPlan / aggregator | 校验与 pending 路由、reference requirement、改写、collect、同源 admission caller、调用级 evidence/执行顺序 | 解释 Ethereum 对象字段、第二套 resolver |
 | resolver 值 | Normalize、Resolve、可选 corroborated/outcome 入口、canonical encoding、resolver 域错误、能力与 MethodRule resolver 列 | reference 建立、请求改写、网络回调、嵌套 Aggregate |
 | `internal/runtime` | 唯一生产装配；projector ID 与实现绑定、ReferenceStage 和 head adapter | 第二份方法 inventory、方法字段表 |
@@ -36,7 +36,7 @@ wire normalization 归 `rpc/internal/wire`。`rpc/methods` 维持一个生产 Mo
 ## 2. 固定阶段与 reference 声明
 
 ```text
-Validate / 本地 pending 拒绝
+ApplyReferenceDefault → Prepare / 本地 pending 拒绝
   → ReferenceRequirement
   → ReferenceStage（需要时，在同一 Invocation/Basis 内建立）
   → PrepareWithReference
@@ -48,6 +48,10 @@ Validate / 本地 pending 拒绝
 通过读 context 建立 reference。AdmissionCaller 是 invocation/source 级运行时依赖，
 不能放进静态 spec 或编译依赖。一次逻辑调用一个 Invocation、一个冻结 Basis，
 reference 轮次与业务轮次共享该身份，不嵌套 Aggregate。
+
+`MethodSpec.Prepare` 与 `ReadPlan.Prepare` 是同一声明的编译前后形态，签名为 `func(context.Context, Request) (Request, error)`，替换此前仅返回 error 的 Validate hook，不增加另一维 policy。coordinator 显式消费返回请求并拒绝 Method 改名；方法不能原地修改调用者参数。只校验的方法检查后返回原请求，复杂请求可以先转为库持有的规范 JSON。
+
+Simulate 在该阶段一次快照调用者输入，经生成 payload/base 模型检查后返回独立材料。reference 期间调用者修改原 map／RawMessage，不能改变已准备请求；最终 FreezeParams 只处理库持有值，Prepared 与实际 fan-out 同字节，不再次执行调用者 marshaler。输入快照与最终带 reference 的 wire 快照属于不同阶段，不把两者合称“只进行一次 JSON 编码”。所有准备失败发生在 reference 和业务请求之前。
 
 ### 2.1 `ReferenceSpec` 的单一声明
 
@@ -148,7 +152,8 @@ feeHistory 的计划 resolver 是完整的 plain Strict Outcome 能力，历史 
 ## 5. Reference 的 transport 中立性
 
 单次 reference RPC 经 runtime 的 head adapter 与 pool 的 endpoint 调用进入
-Transport Port。native HTTP/raw WSS 和显式 gethcompat 是 adapter；resolver 不读
+Transport Port。native HTTP/raw WSS 是生产 adapter；内部 geth oracle 仅供对照，不进入
+resolver 执行图。resolver 不读
 URL scheme、不持有 HTTP response/WebSocket frame，也不负责连接复用或拨号。
 
 - reference 请求保留 latest/safe/finalized 原 tag；状态读取用 hash，logs/feeHistory
@@ -215,6 +220,6 @@ KeySource 与 processor 的配对是元数据收敛：声明切换须有分簇�
 （试点见 `TestTransactionKeySourceSwitchKeepsClusters`）。
 
 **试点边界。** 当前仅 `eth_getTransactionByHash` 与
-`eth_getTransactionByBlockHashAndIndex` 接入；26 读 RPC 的其余族处置及未接入理由见
+`eth_getTransactionByBlockHashAndIndex` 接入；当前 27 个读 RPC 中的其余方法处置及未接入理由见
 [method-transport-coverage](method-transport-coverage.md) 的处理处置表。CallRevert、
 Median、Local、block 窄键与 pending-local/Forwarded 不在此 seam 的支持类别内。

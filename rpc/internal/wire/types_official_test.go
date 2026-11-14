@@ -8,6 +8,7 @@ import (
 
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
+	"github.com/codermaybe/ethguard/internal/executionapi"
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
@@ -280,20 +281,28 @@ func TestGeneratedOptionalNullableFieldsPreserveAbsentNullAndValue(t *testing.T)
 	}
 }
 
-func TestGeneratedGetLogsAdmitsCompleteOfficialUnion(t *testing.T) {
-	schema := officialResultSchemas(t)["eth_getLogs"]
+func TestGeneratedGetLogsAdmitsReviewedUnionOverlap(t *testing.T) {
+	source := officialResultSchemas(t)["eth_getLogs"]
+	effective, err := executionapi.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema any
+	if err := json.Unmarshal(effective.Results["eth_getLogs"], &schema); err != nil {
+		t.Fatal(err)
+	}
+	if err := conformance.ValidateResult(source, json.RawMessage(`[]`)); err == nil {
+		t.Fatal("upstream now accepts empty arrays; retire the erratum")
+	}
 	parse := resultConstructor(ethapi.NewGetLogsResult)
 	for _, raw := range []string{
+		`[]`,
 		`["0x0000000000000000000000000000000000000000000000000000000000000001"]`,
+		`[{"transactionHash":"0x0000000000000000000000000000000000000000000000000000000000000001"}]`,
 	} {
-		t.Run(raw, func(t *testing.T) {
-			assertOfficialRoundTrip(t, parse, schema, json.RawMessage(raw))
-		})
+		t.Run(raw, func(t *testing.T) { assertOfficialRoundTrip(t, parse, schema, json.RawMessage(raw)) })
 	}
-	// Empty arrays match BOTH oneOf branches in this pin and are therefore
-	// rejected by the official type, even though the protected logs path keeps
-	// its own project-level [] contract. Production is not switched here.
-	for _, raw := range []string{`[]`, `null`, `{}`, `["0x1"]`, `["0x0000000000000000000000000000000000000000000000000000000000000001",{}]`} {
+	for _, raw := range []string{`null`, `{}`, `1`, `true`, `["0x1"]`, `["0x0000000000000000000000000000000000000000000000000000000000000001",{}]`} {
 		if _, err := ethapi.NewGetLogsResult(json.RawMessage(raw)); err == nil {
 			t.Errorf("invalid hashes/logs union admitted: %s", raw)
 		}

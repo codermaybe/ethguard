@@ -65,7 +65,7 @@ func encode(raw json.RawMessage) (json.RawMessage, error) {
 	// served by geth. The null folds to omission (the same null→omit
 	// exception the log and accessList families register), so the committed
 	// value stays a legal subset of the official schema instead of declaring
-	// five fields null.
+	// optional fields null.
 	for _, member := range optionalHeaderMembers {
 		if bytes.Equal(bytes.TrimSpace(value[member]), []byte("null")) {
 			delete(value, member)
@@ -115,7 +115,7 @@ func hasBlockHead(source map[string]json.RawMessage) bool {
 // non-nullable in the official schema and that geth's header marshal emits as
 // explicit null when unset.
 var optionalHeaderMembers = []string{
-	"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash",
+	"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "slotNumber",
 }
 
 func encodeHeaderOnly(source map[string]json.RawMessage) (json.RawMessage, error) {

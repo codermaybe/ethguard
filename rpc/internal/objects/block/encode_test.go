@@ -93,7 +93,7 @@ func TestEncodeKeepsCommittedEmptyWithdrawals(t *testing.T) {
 // TestEncodeOmitsUnsetOptionalHeaderMembers pins the null→omit fold: a
 // pre-fork block served with geth's unset-pointer nulls commits those
 // members omitted, keeping the value a legal subset of the official schema
-// instead of declaring five non-nullable-optional fields null.
+// instead of declaring non-nullable optional fields null.
 func TestEncodeOmitsUnsetOptionalHeaderMembers(t *testing.T) {
 	header := &types.Header{
 		ParentHash:  common.HexToHash("0x1"),
@@ -129,5 +129,49 @@ func TestEncodeCanonicalizesHeaderOnlyAnchor(t *testing.T) {
 	}
 	if string(encoded) != `{"hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","number":"0x10"}` {
 		t.Fatalf("encoded = %s, want canonical head", encoded)
+	}
+}
+
+func TestEncodeSlotNumberPreservesCommittedValueAndOmitsUnsetNull(t *testing.T) {
+	slot := uint64(7)
+	header := &types.Header{ParentHash: common.HexToHash("0x1"), UncleHash: types.EmptyUncleHash, Root: common.HexToHash("0x2"), TxHash: types.EmptyTxsHash, ReceiptHash: common.HexToHash("0x3"), Difficulty: new(big.Int), Number: big.NewInt(1), GasLimit: 1, Time: 1, SlotNumber: &slot}
+	originalHash := header.Hash()
+	raw, err := json.Marshal(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := Encode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if string(fields["slotNumber"]) != `"0x7"` {
+		t.Fatalf("committed slot lost: %s", encoded)
+	}
+	var roundTrip types.Header
+	if err := json.Unmarshal(encoded, &roundTrip); err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.Hash() != originalHash {
+		t.Fatal("canonical slot encoding changed header commitment")
+	}
+	slot++
+	if header.Hash() == originalHash {
+		t.Fatal("slot number does not participate in the header commitment")
+	}
+	header.SlotNumber = nil
+	raw, err = json.Marshal(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err = Encode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(`"slotNumber"`)) {
+		t.Fatalf("unset slot survived as null: %s", encoded)
 	}
 }

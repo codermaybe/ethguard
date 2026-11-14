@@ -30,12 +30,33 @@ func TestEmittedParsersPreserveSchemaSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	reg.strictRequests = true
+	requestRoot, err := reg.walk(testSchema(t, `{
+      "type":"object","title":"Request fixture","required":["choice","rows","dictionary","closed"],
+      "not":{"required":["left","right"]},
+      "properties":{
+       "choice":{"type":"string","enum":["yes","no",null]},
+       "literalEnum":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$","enum":["0xABCDEF0000000000000000000000000000000000"]},
+       "exactEnum":{"type":"number","enum":[9007199254740993,1.000000000000000000000001]},
+       "uniqueAddresses":{"type":"array","uniqueItems":true,"items":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"}},
+       "uniqueBytes":{"type":"array","uniqueItems":true,"items":{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}},
+       "uniqueNested":{"type":"array","uniqueItems":true,"items":{"type":"object","title":"Nested unique entry","properties":{"addresses":{"type":"array","items":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"}}}}},
+       "nullableEnum":{"anyOf":[{"type":"null","enum":[null]},{"type":"string","enum":["kept"]}]},
+       "rows":{"type":"array","minItems":1,"maxItems":2,"uniqueItems":true,"items":{"type":"object","title":"Constrained entry","properties":{"amount":{"type":"number"},"label":{"type":"string"}}}},
+       "dictionary":{"type":"object","title":"Pattern dictionary","patternProperties":{"^x":{"type":"string","enum":["ok"]},"x$":{"type":"string","enum":["ok"]}},"additionalProperties":false},
+       "closed":{"type":"object","title":"Closed child","properties":{"value":{"type":"string"}},"additionalProperties":false},
+       "left":{"type":"string"},"right":{"type":"string"}
+      }
+    }`), "eth_arbitrary.params[0]")
+	if err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "internal", "ethcodec"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(dir, "types.gen.go")
-	roots := map[string]*ref{"eth_emitterFixture": root}
+	roots := map[string]*ref{"eth_emitterFixture": root, "eth_arbitrary": requestRoot}
 	if err := emit(reg, "emission-test", roots, target); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +74,7 @@ func TestEmittedParsersPreserveSchemaSemantics(t *testing.T) {
 	if !bytes.Equal(first, second) {
 		t.Fatal("emission changed without an input change")
 	}
-	for _, name := range []string{"helpers.go", "normalize.go", "numbers.go", "number.go"} {
+	for _, name := range []string{"helpers.go", "normalize.go", "numbers.go", "number.go", "equality.go"} {
 		data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", "ethcodec", name))
 		if err != nil {
 			t.Fatal(err)
@@ -69,10 +90,23 @@ func TestEmittedParsersPreserveSchemaSemantics(t *testing.T) {
 	files := map[string]string{
 		"go.mod":                "module github.com/codermaybe/ethguard\n\ngo 1.26.10\n",
 		"internal/spec/spec.go": "package spec\nfunc Version() string { return \"emission-test\" }\n",
-		"emitted_test.go":       emittedBehaviorTest,
+		"emitted_test.go":       emittedBehaviorTest + requestBehaviorTest,
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"jsonsafe/jsonsafe.go", "limits/limits.go"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(dir, "internal", name)
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, data, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -145,5 +179,63 @@ func TestGeneratedBehavior(t *testing.T) {
 			if err!=nil||!bytes.Equal(out,second){t.Fatalf("not idempotent: %s / %s (%v)",out,second,err)}
 		})
 	}
+}
+`
+
+const requestBehaviorTest = `
+func TestGeneratedRequestConstraints(t *testing.T) {
+ const baseline = "{\"choice\":\"yes\",\"rows\":[{\"amount\":1}],\"dictionary\":{\"x\":\"ok\"},\"closed\":{}}"
+ for _,tc:=range []struct{name,field,value string;valid bool}{
+  {name:"baseline",valid:true},
+  {name:"enum original literal",field:"literalEnum",value:"\"0xABCDEF0000000000000000000000000000000000\"",valid:true},
+  {name:"enum rewritten literal",field:"literalEnum",value:"\"0xabcdef0000000000000000000000000000000000\""},
+  {name:"enum no",field:"choice",value:"\"no\"",valid:true},
+  {name:"enum wrong",field:"choice",value:"\"other\""},
+  {name:"enum null",field:"choice",value:"null"},
+  {name:"exact number",field:"exactEnum",value:"9007199254740993",valid:true},
+  {name:"rounded number",field:"exactEnum",value:"9007199254740992"},
+  {name:"exact decimal",field:"exactEnum",value:"1.0000000000000000000000010",valid:true},
+  {name:"nullable null",field:"nullableEnum",value:"null",valid:true},
+  {name:"nullable member",field:"nullableEnum",value:"\"kept\"",valid:true},
+  {name:"nullable nonmember",field:"nullableEnum",value:"\"lost\""},
+  {name:"minItems",field:"rows",value:"[]"},
+  {name:"maxItems",field:"rows",value:"[{},{},{}]"},
+  {name:"unique address case",field:"uniqueAddresses",value:"[\"0xABCDEF0000000000000000000000000000000000\",\"0xabcdef0000000000000000000000000000000000\"]",valid:true},
+  {name:"unique byte spelling",field:"uniqueBytes",value:"[\"0x1\",\"0x01\"]",valid:true},
+  {name:"unique nested case",field:"uniqueNested",value:"[{\"addresses\":[\"0xABCDEF0000000000000000000000000000000000\"]},{\"addresses\":[\"0xabcdef0000000000000000000000000000000000\"]}]",valid:true},
+  {name:"unique original duplicate",field:"uniqueAddresses",value:"[\"0xABCDEF0000000000000000000000000000000000\",\"0xABCDEF0000000000000000000000000000000000\"]"},
+  {name:"unique exact equal",field:"rows",value:"[{\"amount\":1},{\"amount\":1.0}]"},
+  {name:"unique key order",field:"rows",value:"[{\"amount\":1,\"label\":\"a\"},{\"label\":\"a\",\"amount\":1e0}]"},
+  {name:"unique nested extras",field:"rows",value:"[{\"extra\":{\"a\":1,\"b\":2}},{\"extra\":{\"b\":2.0,\"a\":1e0}}]"},
+  {name:"unique distinct large",field:"rows",value:"[{\"amount\":9007199254740992},{\"amount\":9007199254740993}]",valid:true},
+  {name:"pattern unmatched",field:"dictionary",value:"{\"other\":\"ok\"}"},
+  {name:"pattern overlapping",field:"dictionary",value:"{\"x\":\"bad\"}"},
+  {name:"pattern second",field:"dictionary",value:"{\"ax\":\"ok\"}",valid:true},
+  {name:"closed unknown",field:"closed",value:"{\"unknown\":true}"},
+  {name:"open extra",field:"unknown",value:"{\"nested\":[null,900719925474099312345678901234567890]}",valid:true},
+ } {
+  t.Run(tc.name,func(t *testing.T){
+   var fields map[string]json.RawMessage;if err:=json.Unmarshal([]byte(baseline),&fields);err!=nil{t.Fatal(err)}
+   if tc.field!=""{fields[tc.field]=json.RawMessage(tc.value)}
+   raw,err:=json.Marshal(fields);if err!=nil{t.Fatal(err)}
+   value,err:=NewRequestFixture(raw);if (err==nil)!=tc.valid{t.Fatalf("valid=%v error=%v",tc.valid,err)};if err!=nil{return}
+   out,err:=ethcodec.MarshalNoEscape(value);if err!=nil{t.Fatal(err)}
+   equal,err:=ethcodec.JSONValuesEqual(raw,out);if err!=nil||!equal{t.Fatalf("request content changed: %s -> %s (%v)",raw,out,err)}
+  })
+ }
+ for _,raw:=range []string{
+  "{\"choice\":\"yes\",\"choice\":\"no\"}",
+  "{\"choice\":\"yes\",\"rows\":[{}],\"dictionary\":{},\"closed\":{},\"left\":\"a\",\"right\":\"b\"}",
+  "{\"choice\":\"yes\",\"rows\":[{}],\"dictionary\":{},\"closed\":{},\"unknown\":{\"x\":1,\"x\":2}}",
+ } {if _,err:=NewRequestFixture([]byte(raw));err==nil{t.Fatalf("unsafe/forbidden request accepted: %s",raw)}}
+ value,err:=NewRequestFixture([]byte(baseline));if err!=nil{t.Fatal(err)}
+ for _,extras:=range []map[string]json.RawMessage{
+  {"choice":json.RawMessage("\"yes\"")},
+  {"left":json.RawMessage("\"x\"")},
+  {"extra":json.RawMessage("invalid")},
+  {"extra":json.RawMessage("{\"x\":1,\"x\":2}")},
+ } {value.AdditionalProperties=extras;if _,err:=json.Marshal(value);err==nil{t.Fatalf("invalid extras encoded: %+v",extras)}}
+ raw:=[]byte("{\"choice\":\"yes\",\"rows\":[{}],\"dictionary\":{},\"closed\":{},\"LEFT\":\"unknown case\"}")
+ value,err=NewRequestFixture(raw);if err!=nil{t.Fatal(err)};if value.Left!=nil||string(value.AdditionalProperties["LEFT"])!="\"unknown case\""{t.Fatal("case-insensitive decoding changed an unknown member")}
 }
 `

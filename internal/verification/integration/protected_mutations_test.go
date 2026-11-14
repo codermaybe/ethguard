@@ -67,7 +67,21 @@ func TestVerificationProtectedMutationClasses(t *testing.T) {
 		return json.RawMessage(`"0x` + strings.Repeat("00", 31) + suffix + `"`)
 	}
 
+	simulate := t09SimulateResult(t)
+	simulateOther := t09SetNestedField(t, simulate, 0, "gasUsed", "0x1")
 	cases := []t09MutationCase{
+		{
+			method: methods.MethodSimulateV1,
+			params: []any{map[string]any{"blockStateCalls": []any{map[string]any{}}}, "0x10"}, resolution: t09Strict,
+			healthy: simulate, other: simulateOther,
+			mutations: []t09Mutation{
+				{class: "delete", field: "blocks[0].calls", payload: t09DeleteNestedField(t, simulate, 0, "calls")},
+				{class: "illegal-type", field: "blocks[0].calls", payload: t09SetNestedField(t, simulate, 0, "calls", "bad")},
+				{class: "malformed", field: "blocks[0].gasUsed", payload: t09SetNestedField(t, simulate, 0, "gasUsed", "0x01")},
+				{class: "optional-type", field: "blocks[0].slotNumber", payload: t09SetNestedField(t, simulate, 0, "slotNumber", "0x10000000000000000")},
+				{class: "optional-null", field: "blocks[0].slotNumber", payload: t09SetNestedField(t, simulate, 0, "slotNumber", nil)},
+			},
+		},
 		{
 			method: methods.MethodChainID, resolution: t09Strict,
 			healthy: json.RawMessage(`"0x1"`), other: json.RawMessage(`"0x2"`),
@@ -87,6 +101,7 @@ func TestVerificationProtectedMutationClasses(t *testing.T) {
 				{class: "out-of-range", field: "gasUsed", payload: t09SetField(t, block, "gasUsed", "0x10000000000000000"), sourceFault: true},
 				{class: "nested-delete", field: "transactions[1].gas", payload: t09SetField(t, block, "transactions", t09DeleteNestedField(t, fieldOf(t, block, "transactions"), 1, "gas")), sourceFault: true},
 				{class: "optional-type", field: "baseFeePerGas", payload: t09SetField(t, block, "baseFeePerGas", "bad"), sourceFault: true},
+				{class: "commitment", field: "slotNumber", payload: t09SetField(t, block, "slotNumber", "0x1"), sourceFault: true},
 			},
 		},
 		{

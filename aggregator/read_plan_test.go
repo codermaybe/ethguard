@@ -157,7 +157,7 @@ func TestPlannedReadExecutesTheFleetFixture(t *testing.T) {
 	}
 }
 
-// TestPlannedValidationFailsBeforeAnyFanOut pins the Validate phase's
+// TestPlannedValidationFailsBeforeAnyFanOut pins the Prepare phase's
 // contract: a method-owned rejection fails the read locally, no source is
 // contacted, and the decision is Unknown with the failure.
 func TestPlannedValidationFailsBeforeAnyFanOut(t *testing.T) {
@@ -167,8 +167,8 @@ func TestPlannedValidationFailsBeforeAnyFanOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.Validate = func(context.Context, rpc.Request) error {
-		return errors.New("rpc: probe rejects everything: rpc invalid request")
+	plan.Prepare = func(_ context.Context, req rpc.Request) (rpc.Request, error) {
+		return req, errors.New("rpc: probe rejects everything: rpc invalid request")
 	}
 	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
 		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))

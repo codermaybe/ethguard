@@ -32,7 +32,7 @@ func WithPlans(plans map[string]rpc.ReadPlan) Option {
 			// A plan without a resolver and without a local hook is not
 			// executable and is skipped; a validate-or-reject-only plan is
 			// the local rejection shape and installs fine.
-			if plan.Resolver != nil || plan.Validate != nil || plan.PendingReject != nil {
+			if plan.Resolver != nil || plan.Prepare != nil || plan.PendingReject != nil {
 				a.plans[method] = plan
 			}
 		}

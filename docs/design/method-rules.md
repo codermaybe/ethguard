@@ -16,6 +16,7 @@
 | eth_getStorageAt | hash@2 | eip1898 | local-observation | strict | method-specific | canonical-bytes | canonical |
 | eth_getCode | hash@1 | eip1898 | local-observation | strict | method-specific | canonical-bytes | canonical |
 | eth_call | hash@1 | eip1898 | local-observation | call-revert | method-specific | none | canonical |
+| eth_simulateV1 | hash@1 | eip1898 | local-observation | strict | object | canonical-bytes | canonical |
 | eth_estimateGas | hash@1 | eip1898 | local-observation | median | quantity | none | canonical |
 | eth_getLogs | height@0.fromBlock,toBlock | none | local-reject | strict | method-specific | canonical-bytes | canonical |
 | eth_feeHistory | height@1 | none | local-observation | strict | method-specific | canonical-bytes | canonical |

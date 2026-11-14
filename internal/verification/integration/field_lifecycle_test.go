@@ -16,8 +16,8 @@ import (
 // T09.2 locks the lifecycle of every protected field: representation
 // variation, protected-field mutation, round-trip through the canonical
 // encoder, and field conservation. All assertions run through the real
-// aggregator and method policies; no testdata, golden, or live provider is
-// involved.
+// aggregator and method policies. Simulate uses a pinned official result vector;
+// no golden output or live provider is involved.
 
 type t09Resolution int
 
@@ -124,6 +124,7 @@ var t09BlockSchemaPaths = []string{
 	"/receiptsRoot",
 	"/requestsHash",
 	"/sha3Uncles",
+	"/slotNumber",
 	"/size",
 	"/stateRoot",
 	"/timestamp",
@@ -321,6 +322,104 @@ var t09SyncingSchemaPaths = []string{
 	"/startingBlock",
 }
 
+// Pinned Simulate result paths, including nested calls, logs, and transactions.
+var t09SimulateSchemaPaths = []string{
+	"/*",
+	"/*/baseFeePerGas",
+	"/*/blobGasUsed",
+	"/*/blockAccessListHash",
+	"/*/calls",
+	"/*/calls/*",
+	"/*/calls/*/error",
+	"/*/calls/*/error/code",
+	"/*/calls/*/error/message",
+	"/*/calls/*/gasUsed",
+	"/*/calls/*/logs",
+	"/*/calls/*/logs/*",
+	"/*/calls/*/logs/*/address",
+	"/*/calls/*/logs/*/blockHash",
+	"/*/calls/*/logs/*/blockNumber",
+	"/*/calls/*/logs/*/blockTimestamp",
+	"/*/calls/*/logs/*/data",
+	"/*/calls/*/logs/*/logIndex",
+	"/*/calls/*/logs/*/removed",
+	"/*/calls/*/logs/*/topics",
+	"/*/calls/*/logs/*/topics/*",
+	"/*/calls/*/logs/*/transactionHash",
+	"/*/calls/*/logs/*/transactionIndex",
+	"/*/calls/*/maxUsedGas",
+	"/*/calls/*/returnData",
+	"/*/calls/*/status",
+	"/*/difficulty",
+	"/*/excessBlobGas",
+	"/*/extraData",
+	"/*/gasLimit",
+	"/*/gasUsed",
+	"/*/hash",
+	"/*/logsBloom",
+	"/*/miner",
+	"/*/mixHash",
+	"/*/nonce",
+	"/*/number",
+	"/*/parentBeaconBlockRoot",
+	"/*/parentHash",
+	"/*/receiptsRoot",
+	"/*/requestsHash",
+	"/*/sha3Uncles",
+	"/*/slotNumber",
+	"/*/size",
+	"/*/stateRoot",
+	"/*/timestamp",
+	"/*/transactions",
+	"/*/transactions/*",
+	"/*/transactions/*/accessList",
+	"/*/transactions/*/accessList/*",
+	"/*/transactions/*/accessList/*/address",
+	"/*/transactions/*/accessList/*/storageKeys",
+	"/*/transactions/*/accessList/*/storageKeys/*",
+	"/*/transactions/*/authorizationList",
+	"/*/transactions/*/authorizationList/*",
+	"/*/transactions/*/authorizationList/*/address",
+	"/*/transactions/*/authorizationList/*/chainId",
+	"/*/transactions/*/authorizationList/*/nonce",
+	"/*/transactions/*/authorizationList/*/r",
+	"/*/transactions/*/authorizationList/*/s",
+	"/*/transactions/*/authorizationList/*/yParity",
+	"/*/transactions/*/blobVersionedHashes",
+	"/*/transactions/*/blobVersionedHashes/*",
+	"/*/transactions/*/blockHash",
+	"/*/transactions/*/blockNumber",
+	"/*/transactions/*/blockTimestamp",
+	"/*/transactions/*/chainId",
+	"/*/transactions/*/from",
+	"/*/transactions/*/gas",
+	"/*/transactions/*/gasPrice",
+	"/*/transactions/*/hash",
+	"/*/transactions/*/input",
+	"/*/transactions/*/maxFeePerBlobGas",
+	"/*/transactions/*/maxFeePerGas",
+	"/*/transactions/*/maxPriorityFeePerGas",
+	"/*/transactions/*/nonce",
+	"/*/transactions/*/r",
+	"/*/transactions/*/s",
+	"/*/transactions/*/to",
+	"/*/transactions/*/transactionIndex",
+	"/*/transactions/*/type",
+	"/*/transactions/*/v",
+	"/*/transactions/*/value",
+	"/*/transactions/*/yParity",
+	"/*/transactionsRoot",
+	"/*/uncles",
+	"/*/uncles/*",
+	"/*/withdrawals",
+	"/*/withdrawals/*",
+	"/*/withdrawals/*/address",
+	"/*/withdrawals/*/amount",
+	"/*/withdrawals/*/index",
+	"/*/withdrawals/*/validatorIndex",
+	"/*/withdrawalsRoot",
+}
+
 func t09FieldRows(t *testing.T) []t09FieldRow {
 	t.Helper()
 	chain := t09NewChain(t)
@@ -378,7 +477,21 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 	feeProtected := []string{"oldestBlock", "baseFeePerGas", "gasUsedRatio", "reward", "baseFeePerBlobGas", "blobGasUsedRatio"}
 	accessProtected := []string{"accessList", "gasUsed", "error"}
 
+	simulate := t09SimulateResult(t)
+	simulateOther := t09SetNestedField(t, simulate, 0, "gasUsed", "0x1")
+	simulateMutation := t09DeleteNestedField(t, simulate, 0, "calls")
+
 	return []t09FieldRow{
+		{
+			method:   methods.MethodSimulateV1,
+			params:   []any{map[string]any{"blockStateCalls": []any{map[string]any{}}}, "0x10"},
+			variants: t09Variants(t, simulate), other: simulateOther, mutation: simulateMutation,
+			fieldHint: "SimulateBlock", decode: t09DecodeSimulate, typed: t09TypedSimulate,
+			schema: t09SimulateSchemaPaths, resolution: t09Strict,
+			protected: append(append([]string{}, blockProtected...), "calls", "size"),
+			outside:   []string{"vendor"}, projector: true,
+			mutationExpect: t09MutationStrict, mutationReject: 1,
+		},
 		{
 			method:         methods.MethodChainID,
 			variants:       t09Variants(t, json.RawMessage(`"0x1"`)),
@@ -408,7 +521,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			outside:        []string{"totalDifficulty", "vendor"},
 			omitted:        []string{"size", "blockNumber", "transactionIndex", "blockHash", "from"},
 			projector:      true,
-			nullOmitted:    []string{"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash"},
+			nullOmitted:    []string{"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "slotNumber"},
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 0,
@@ -430,7 +543,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			outside:        []string{"totalDifficulty", "vendor"},
 			omitted:        []string{"size", "blockNumber", "transactionIndex", "blockHash", "from"},
 			projector:      true,
-			nullOmitted:    []string{"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash"},
+			nullOmitted:    []string{"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "slotNumber"},
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,

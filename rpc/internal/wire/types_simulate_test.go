@@ -38,9 +38,8 @@ func TestSimulateCallResultFailureBranch(t *testing.T) {
 }
 
 func TestSimulateCallResultVMBranch(t *testing.T) {
-	// The VM error branch has no required message: the bare const code
-	// already discriminates it after the revert branch falls short.
-	canonical := `{"code":-32015}`
+	// The official VM branch requires both its exact code and a free-form message.
+	canonical := `{"code":-32015,"message":"out of gas"}`
 	errorValue, err := ethapi.NewSimulateCallError(json.RawMessage(canonical))
 	if err != nil {
 		t.Fatalf("vm error payload must parse: %v", err)
@@ -49,7 +48,7 @@ func TestSimulateCallResultVMBranch(t *testing.T) {
 		t.Fatalf("vm error payload must select the VM branch, got %+v", errorValue)
 	}
 
-	call := `{"error":{"code":-32015},"gasUsed":"0x0","returnData":"0x","status":"0x0"}`
+	call := `{"error":{"code":-32015,"message":"out of gas"},"gasUsed":"0x0","returnData":"0x","status":"0x0"}`
 	decoded, err := ethapi.NewSimulateCallResult(json.RawMessage(call))
 	if err != nil {
 		t.Fatalf("vm call payload must parse: %v", err)
@@ -100,24 +99,22 @@ func TestSimulateCallResultRejectsBranchlessPayload(t *testing.T) {
 	}
 }
 
-func TestSimulateCallErrorOfficialOptionalConstants(t *testing.T) {
-	// The VM branch has no required members; the revert branch requires code
-	// and message. Present members still must satisfy the selected branch.
+func TestSimulateCallErrorOfficialRequiredConstants(t *testing.T) {
 	for _, payload := range []string{
-		`{}`,
-		`{"code":-32015}`,
-		`{"message":"vm execution error"}`,
 		`{"code":3,"message":"execution reverted"}`,
 		`{"code":-32015,"message":"vm execution error: out of gas"}`,
+		`{"code":-32015,"message":"out of gas"}`,
+		`{"code":-32015,"message":"execution reverted"}`,
+		`{"code":-32015,"message":""}`,
 	} {
 		t.Run(payload, func(t *testing.T) {
 			value, err := ethapi.NewSimulateCallError(json.RawMessage(payload))
 			if err != nil {
-				t.Fatalf("official optional-constant shape rejected: %v", err)
+				t.Fatal(err)
 			}
 			out, err := ethcodec.MarshalNoEscape(value)
 			if err != nil || string(out) != payload {
-				t.Fatalf("optional constants changed: got %s (%v), want %s", out, err, payload)
+				t.Fatalf("got %s (%v), want %s", out, err, payload)
 			}
 		})
 	}
@@ -128,9 +125,7 @@ func TestSimulateCallErrorRejectsInvalidConstantsAndShapes(t *testing.T) {
 		`{"code":7}`,
 		`{"code":3}`,
 		`{"code":3,"message":"wrong"}`,
-		`{"code":-32015,"message":"wrong"}`,
 		`{"code":3,"message":"vm execution error"}`,
-		`{"code":-32015,"message":"execution reverted"}`,
 		`null`,
 		`[]`,
 		`3`,
@@ -145,20 +140,10 @@ func TestSimulateCallErrorRejectsInvalidConstantsAndShapes(t *testing.T) {
 	}
 }
 
-func TestSimulateErrorVMOptionalPropertiesStillConstrainPresentValues(t *testing.T) {
-	for _, raw := range []string{`{}`, `{"code":-32015}`} {
-		value, err := ethapi.NewSimulateErrorVM(json.RawMessage(raw))
-		if err != nil {
-			t.Fatalf("valid optional VM properties rejected: %s: %v", raw, err)
-		}
-		out, err := ethcodec.MarshalNoEscape(value)
-		if err != nil || string(out) != raw {
-			t.Fatalf("VM optional properties changed: got %s (%v), want %s", out, err, raw)
-		}
-	}
-	for _, raw := range []string{`{"code":3}`, `{"code":-32015,"message":"not a VM error"}`, `null`, `[]`, `true`} {
+func TestSimulateErrorVMRequiresCodeAndMessage(t *testing.T) {
+	for _, raw := range []string{`{}`, `{"code":-32015}`, `{"message":"out of gas"}`, `{"code":3,"message":"out of gas"}`, `{"code":-32015,"message":null}`, `null`, `[]`, `true`} {
 		if _, err := ethapi.NewSimulateErrorVM(json.RawMessage(raw)); err == nil {
-			t.Errorf("VM optional constraint ignored: %s", raw)
+			t.Errorf("invalid VM error admitted: %s", raw)
 		}
 	}
 }

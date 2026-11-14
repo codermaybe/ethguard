@@ -76,10 +76,13 @@ func establishedEvidence(t *testing.T, plan rpc.ReadPlan, req rpc.Request) (rpc.
 // prepared request and the recorded pin.
 func preparePlanRequest(t *testing.T, plan rpc.ReadPlan, req rpc.Request) (rpc.Request, string, error) {
 	t.Helper()
-	if plan.Validate != nil {
-		if err := plan.Validate(context.Background(), req); err != nil {
+	req = plan.ApplyReferenceDefault(req)
+	if plan.Prepare != nil {
+		prepared, err := plan.Prepare(context.Background(), req)
+		if err != nil {
 			return rpc.Request{}, "", err
 		}
+		req = prepared
 	}
 	if plan.PendingReject != nil {
 		if err := plan.PendingReject(req); err != nil {

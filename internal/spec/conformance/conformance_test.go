@@ -279,3 +279,79 @@ func TestRunPreservesExactNumericSchemaBounds(t *testing.T) {
 		t.Fatalf("bundle bound lost precision: %#v", report)
 	}
 }
+
+func TestUpgradeDiffIncludesAssertionVocabulary(t *testing.T) {
+	for _, assertion := range []string{`"const":3`, `"required":["x"]`, `"not":{"required":["x"]}`, `"patternProperties":{"^x$":{"type":"string"}}`, `"uniqueItems":true`, `"futureAssertion":1`} {
+		before := []byte(`{"version":"old","results":{"eth_x":{"type":"object"}}}`)
+		after := []byte(`{"version":"new","results":{"eth_x":{"type":"object",` + assertion + `}}}`)
+		diff, err := DiffBundles(before, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(diff.Methods) != 1 || len(diff.Methods[0].Changed) != 1 || diff.Methods[0].Changed[0].Path != "$" {
+			t.Fatalf("assertion omitted from upgrade diff: %s: %+v", assertion, diff)
+		}
+	}
+}
+
+func TestVectorReaderRetainsBoundedOfflineLineLimit(t *testing.T) {
+	files := fstest.MapFS{"large.io": &fstest.MapFile{Data: []byte(strings.Repeat("x", 32<<20))}}
+	if _, err := ParseVector(files, "large.io"); err == nil || !strings.Contains(err.Error(), "token too long") {
+		t.Fatalf("oversized offline line error = %v", err)
+	}
+}
+
+func TestValidateResultArrayConstraintsAndPatternProperties(t *testing.T) {
+	schema := map[string]any{
+		"type": "array", "minItems": json.Number("1"), "maxItems": json.Number("2"), "uniqueItems": true,
+		"items": map[string]any{"type": "object", "patternProperties": map[string]any{"^x$": map[string]any{"type": "string"}, "x": map[string]any{"enum": []any{"ok"}}}, "additionalProperties": false},
+	}
+	for _, tc := range []struct {
+		raw   string
+		valid bool
+	}{
+		{`[{"x":"ok"}]`, true}, {`[]`, false}, {`[{"x":"ok"},{"x":"ok"}]`, false}, {`[{"x":"bad"}]`, false}, {`[{"x":1}]`, false}, {`[{"y":"ok"}]`, false}, {`[{},{"x":"ok"},{}]`, false},
+	} {
+		if err := ValidateResult(schema, json.RawMessage(tc.raw)); (err == nil) != tc.valid {
+			t.Errorf("valid=%v: %s: %v", tc.valid, tc.raw, err)
+		}
+	}
+}
+
+func TestBooleanAndAdditionalPropertySchemasRemainAssertions(t *testing.T) {
+	for _, tc := range []struct {
+		schema, value string
+		valid         bool
+	}{
+		{`false`, `1`, false}, {`true`, `1`, true},
+		{`{"not":false}`, `1`, true}, {`{"not":true}`, `1`, false},
+		{`{"type":"object","additionalProperties":{"type":"string"}}`, `{"x":"ok"}`, true},
+		{`{"type":"object","additionalProperties":{"type":"string"}}`, `{"x":1}`, false},
+		{`{"type":"array","items":false}`, `[]`, true},
+		{`{"type":"array","items":false}`, `[1]`, false},
+	} {
+		var schema any
+		if err := json.Unmarshal([]byte(tc.schema), &schema); err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateResult(schema, json.RawMessage(tc.value)); (err == nil) != tc.valid {
+			t.Errorf("%s / %s: %v", tc.schema, tc.value, err)
+		}
+	}
+	diff, err := DiffBundles([]byte(`{"version":"old","results":{"eth_x":{"type":"array","items":true}}}`), []byte(`{"version":"new","results":{"eth_x":{"type":"array","items":false}}}`))
+	if err != nil || len(diff.Methods) != 1 || len(diff.Methods[0].Changed) != 1 || diff.Methods[0].Changed[0].Path != "$/*" {
+		t.Fatalf("boolean item assertion omitted: %+v (%v)", diff, err)
+	}
+}
+
+func TestUpgradeDiffPreservesExactAssertionNumbers(t *testing.T) {
+	before := []byte(`{"version":"old","results":{"eth_x":{"type":"number","const":9007199254740992}}}`)
+	after := []byte(`{"version":"new","results":{"eth_x":{"type":"number","const":9007199254740993}}}`)
+	diff, err := DiffBundles(before, after)
+	if err != nil || len(diff.Methods) != 1 || len(diff.Methods[0].Changed) != 1 {
+		t.Fatalf("exact numeric assertion omitted: %+v (%v)", diff, err)
+	}
+	if _, err := DiffBundles(before, append(after, []byte(` {}`)...)); err == nil {
+		t.Fatal("trailing bundle data accepted")
+	}
+}

@@ -1,9 +1,7 @@
 // Package transport is the Port-only physical home of the connection seam:
 // the Transport and Dialer interfaces pool consumes, and the neutral
 // sentinels core packages classify on. It owns no adapter implementation —
-// the native HTTP adapter lives in internal/transport/http and the go-ethereum
-// compatibility adapter in internal/transport/geth — so the default build
-// never links ethclient.
+// the native HTTP adapter lives in internal/transport/http.
 package transport
 
 import (

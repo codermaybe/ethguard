@@ -133,18 +133,11 @@ beta.3 的脚本执行位失败见下一节。失败 tag 的不可变性与 SHA�
 `bash ./scripts/release_check.sh` 命令运行预发布门禁；race、build、vet、tidy 和
 govulncheck 均通过。此为修复后的本地证据，不改变 beta.3 的远端失败结论。
 
-## 8. 外部兼容缺口的显式交付模式
+## 8. 方法集合与语义验收
 
-当前锁定的 go-ethereum `v1.17.10` 在默认根包架构下无法把官方
-`SimulateV1` 接入 `EthClient`；该事实由兼容性政策记录，不能被中间方法集合掩盖。
-默认 `release_check.sh` 仍以 `ETHGUARD_REQUIRE_COMPLETE=1` 执行并拒绝该缺口。
-
-在本轮已接受该外部边界、但仍需完成代码与安全门禁时，可以显式设置：
-
-```text
-ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP=1 bash ./scripts/release_check.sh
-```
-
-脚本只接受方法差异恰好为 `business missing: 1 [SimulateV1]` 的情况，运行其余 race、
-构建、静态分析和漏洞门禁，并在成功输出中明确该结果**不是** `EthClient: complete`。
-任何其他缺口都会使脚本失败。稳定兼容发布仍必须使用默认严格模式并关闭该缺口。
+`release_check.sh` 始终以 `ETHGUARD_REQUIRE_COMPLETE=1` 检查锁定版本的完整业务方法
+集合，不接受缺失 `SimulateV1` 的预发布豁免。方法数闭合只证明 facade 方法名集合符合
+目标；它不证明各方法的官方字段、错误分类、reference、跨传输、多源裁决、原始证据
+与生命周期合同已逐项验收。稳定发布还须核对 [逐方法覆盖清单](method-transport-coverage.md)
+中的未完成证据，并完成版本发布审查。`SimulateV1` 已使用生成的请求与 selector，
+这不替代逐方法模拟语义、错误分类和外部 provider 证据验收。

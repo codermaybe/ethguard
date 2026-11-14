@@ -93,10 +93,6 @@ jobs:
           VERSION: ${{ steps.candidate.outputs.version }}
         run: |
           set -euo pipefail
-          export ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP=0
-          if [[ "$VERSION" == *-* ]]; then
-            export ETHGUARD_ACCEPT_EXTERNAL_SIMULATE_GAP=1
-          fi
           bash ./scripts/release_check.sh 2>&1 | tee release-evidence/preflight.log
       - name: public API report
         env:
@@ -139,7 +135,7 @@ jobs:
           if [ -n "$PREVIOUS" ]; then range="$PREVIOUS..$SHA"; fi
           git log --format='- %s (%h)' "$range" >> release-evidence/notes.md
           if [[ "$VERSION" == *-* ]]; then
-            printf '\n## Compatibility boundary\n\nExperimental prerelease; not an EthClient: complete release. Requires Go 1.26.10.\nDefault EthClient SimulateV1 is unavailable. Public CallMsg, FeeHistory, AccessListResult, and SyncProgress use generated ethapi types with breaking Go signature and field changes. SyncProgress provider counters remain in auxiliary and raw source evidence; the generated type has no Done method. Receipt results now require from/effectiveGasPrice, validate byte type, and preserve nullable-address presence; malformed sources remain in the fixed denominator. Other return-shape and external-evidence gaps remain in the compatibility contracts.\nSee the API difference report in the approved workflow artifact before upgrading.\n' >> release-evidence/notes.md
+            printf '\n## Compatibility boundary\n\nExperimental prerelease; not an EthClient: complete release. Requires Go 1.26.10.\nSimulateV1 is connected through the native execution plan with a json.RawMessage request; generated strong request types and method-specific semantic verification remain follow-up work. Public CallMsg, FeeHistory, AccessListResult, and SyncProgress use generated ethapi types with breaking Go signature and field changes. SyncProgress provider counters remain in auxiliary and raw source evidence; the generated type has no Done method. Receipt results now require from/effectiveGasPrice, validate byte type, and preserve nullable-address presence; malformed sources remain in the fixed denominator. Other return-shape and external-evidence gaps remain in the compatibility contracts.\nSee the API difference report in the approved workflow artifact before upgrading.\n' >> release-evidence/notes.md
           fi
           payload_sha="$(sha256sum release-evidence/payload.tar)"
           payload_sha="${payload_sha%% *}"

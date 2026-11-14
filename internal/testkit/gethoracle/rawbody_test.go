@@ -1,4 +1,4 @@
-package geth
+package gethoracle
 
 import (
 	"github.com/codermaybe/ethguard/internal/transport"

@@ -51,6 +51,16 @@ func validatePlanComposition(spec MethodSpec) error {
 			return fmt.Errorf("methods: %s declares EIP-1898 without exactly one hash-anchored position", spec.Method)
 		}
 	}
+	if spec.Reference.DefaultTag != "" {
+		if (spec.Reference.Kind != ReferenceShapeHashAt && spec.Reference.Kind != ReferenceShapeHeightAt) || len(spec.Reference.Positions) != 1 || spec.Reference.Positions[0] < 0 {
+			return fmt.Errorf("methods: %s declares a reference default without one positional reference", spec.Method)
+		}
+		switch spec.Reference.DefaultTag {
+		case "latest", "safe", "finalized", "earliest", "pending":
+		default:
+			return fmt.Errorf("methods: %s declares invalid reference default %q", spec.Method, spec.Reference.DefaultTag)
+		}
+	}
 	switch spec.Pending.Mode {
 	case PendingNone:
 	case PendingObserve, PendingRefuse:

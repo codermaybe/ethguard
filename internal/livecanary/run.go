@@ -1,8 +1,6 @@
 package livecanary
 
 import (
-	"github.com/codermaybe/ethguard/gethcompat"
-
 	"bytes"
 	"context"
 	"encoding/json"
@@ -32,11 +30,8 @@ var errBasisChanged = errors.New("livecanary: client voting basis differs from m
 type Executor struct {
 	Now       func() time.Time
 	NewClient func(Manifest) (*ethguard.Client, error)
-	// HTTPAdapter selects the connection adapter for the built client. The
-	// zero value keeps the client's own default (the native HTTP adapter);
-	// the go-ethereum compatibility adapter is selected explicitly through
-	// the manifest for capture runs that need it. It never changes what the
-	// plan executes.
+	// HTTPAdapter selects the native HTTP adapter for the built client.
+	// Historical manifests that identify the geth adapter cannot be rerun.
 	HTTPAdapter ethguard.HTTPAdapter
 }
 
@@ -162,6 +157,9 @@ func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 			return nil, fmt.Errorf("livecanary: adapter %q does not match manifest adapter %q", selectedAdapter, manifestAdapter)
 		}
 	}
+	if selectedAdapter == "geth" {
+		return nil, errors.New("livecanary: rerunning geth-adapter manifests is unsupported")
+	}
 	selected := manifest.Selection.Selected
 	upstreams := make([]config.Upstream, 0, len(selected))
 	for _, member := range selected {
@@ -181,15 +179,7 @@ func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 		ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(manifest.Reference.MaxLagBlocks)),
 		ethguard.WithHTTPAdapter(ethguard.HTTPAdapter(selectedAdapter)),
 	}
-	// The compatibility channel is reachable only through the explicit seam:
-	// the root constructor refuses a bare geth selection, so the geth choice
-	// builds through gethcompat, which links and installs the adapter.
-	var client *ethguard.Client
-	if selectedAdapter == HTTPAdapterGeth {
-		client, err = gethcompat.New(cfg, opts...)
-	} else {
-		client, err = ethguard.New(cfg, opts...)
-	}
+	client, err := ethguard.New(cfg, opts...)
 	if err != nil {
 		return nil, err
 	}

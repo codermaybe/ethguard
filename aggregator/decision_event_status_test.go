@@ -111,11 +111,11 @@ func assertFailedEvent(t *testing.T, want error, wantCalls bool, plan rpc.ReadPl
 	}
 }
 
-// prepareRejectPlan is the plan-level local rejection: the Validate phase
+// prepareRejectPlan is the plan-level local rejection: the Prepare phase
 // fails the read before any fan-out.
 func prepareRejectPlan() rpc.ReadPlan {
-	return rpc.ReadPlan{Method: "m", Validate: func(context.Context, rpc.Request) error {
-		return fmt.Errorf("rejected before fan-out: %w", rpc.ErrInvalidRequest)
+	return rpc.ReadPlan{Method: "m", Prepare: func(_ context.Context, req rpc.Request) (rpc.Request, error) {
+		return req, fmt.Errorf("rejected before fan-out: %w", rpc.ErrInvalidRequest)
 	}}
 }
 

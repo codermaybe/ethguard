@@ -32,7 +32,7 @@ func TestSimulateOfficialVectorProvenance(t *testing.T) {
 	}
 	if source.Repository != "https://github.com/ethereum/execution-apis" ||
 		source.Version != spec.Version() ||
-		source.Commit != "5aebdfdd45cadeb723be4bd45b4611b71c8b1c85" ||
+		source.Commit != "981aa66d79364be8322a9c358aaf0a571cca0873" ||
 		source.Method != "eth_simulateV1" ||
 		source.UpstreamVectorDirectory != "tests/eth_simulateV1" {
 		t.Fatalf("unexpected source identity: %+v", source)
@@ -58,24 +58,14 @@ func TestSimulateOfficialVectorProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(actual) != 91 || !reflect.DeepEqual(actual, source.Vectors) {
+	if len(actual) != 95 || !reflect.DeepEqual(actual, source.Vectors) {
 		t.Fatal("official vector inventory or bytes differ from the pinned source manifest")
 	}
 }
 
-func TestSimulateOfficialResultsPreserveDeclaredFieldsAndExposeSourceConflicts(t *testing.T) {
+func TestSimulateOfficialResultsPreserveDeclaredFields(t *testing.T) {
 	schema := officialResultSchemas(t)["eth_simulateV1"]
 	parse := resultConstructor(ethapi.NewSimulateV1Result)
-	// These are source conflicts, not accepted results or a waiver of schema
-	// validation. Each original must fail at the known location, and changing
-	// only the conflicting message in a TEST COPY must produce a full success.
-	conflicts := map[string]struct {
-		block, call, messages int
-	}{
-		"ethSimulate-run-out-of-gas-in-block-38015.io":    {1, 1, 1},
-		"ethSimulate-use-as-many-features-as-possible.io": {9, 0, 12},
-	}
-	seenConflicts := map[string]bool{}
 	total, topErrors, successes := 0, 0, 0
 	evidence := spec.SimulateV1EvidenceFS()
 	err := fs.WalkDir(evidence, "simulatev1/vectors", func(name string, entry fs.DirEntry, walkErr error) error {
@@ -95,34 +85,13 @@ func TestSimulateOfficialResultsPreserveDeclaredFieldsAndExposeSourceConflicts(t
 				t.Fatalf("%s: unexpected method %q", vector.Identity(), vector.Method)
 			}
 			if vector.Error != nil {
-				// Error responses exercise no result parser. Native execution
-				// must establish their classification in a later method slice.
 				topErrors++
 				continue
 			}
 			t.Run(vector.Identity(), func(t *testing.T) {
-				conflict, known := conflicts[path.Base(name)]
-				if !known {
-					expected := simulateDeclaredFields(t, vector.Result, schema)
-					assertOfficialProjectionRoundTrip(t, parse, schema, vector.Result, expected)
-					successes++
-					return
-				}
-				seenConflicts[path.Base(name)] = true
-				if err := conformance.ValidateResult(schema, vector.Result); err == nil {
-					t.Fatal("upstream vector now conforms; retire its conflict record")
-				}
-				_, err := ethapi.NewSimulateV1Result(vector.Result)
-				want := fmt.Sprintf("eth_simulateV1.result[%d]: eth_simulateV1.result.items.properties.calls[%d]: SimulateCallResult: expected oneOf branch match, got 0", conflict.block, conflict.call)
-				if err == nil || err.Error() != want {
-					t.Fatalf("original conflict error = %v, want %s", err, want)
-				}
-				copy, messages := simulateVMMessageTestCopy(t, vector.Result)
-				if messages != conflict.messages {
-					t.Fatalf("conflicting message count = %d, want %d", messages, conflict.messages)
-				}
-				expected := simulateDeclaredFields(t, copy, schema)
-				assertOfficialProjectionRoundTrip(t, parse, schema, copy, expected)
+				expected := simulateDeclaredFields(t, vector.Result, schema)
+				assertOfficialProjectionRoundTrip(t, parse, schema, vector.Result, expected)
+				successes++
 			})
 		}
 		return nil
@@ -130,9 +99,8 @@ func TestSimulateOfficialResultsPreserveDeclaredFieldsAndExposeSourceConflicts(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total != 91 || topErrors != 27 || successes != 62 || len(seenConflicts) != len(conflicts) {
-		t.Fatalf("official corpus accounting: total=%d, top-level errors=%d, successful results=%d, source conflicts=%v",
-			total, topErrors, successes, seenConflicts)
+	if total != 95 || topErrors != 31 || successes != 64 {
+		t.Fatalf("official corpus accounting: total=%d, top-level errors=%d, successful results=%d", total, topErrors, successes)
 	}
 }
 
@@ -190,57 +158,4 @@ func simulateDeclaredFields(t *testing.T, raw json.RawMessage, schema any) json.
 		t.Fatal(err)
 	}
 	return expected
-}
-
-// This mutation diagnoses the upstream message-pattern conflict. It is not a
-// production repair, does not modify the vendored evidence, and is never counted
-// as an original official vector success.
-func simulateVMMessageTestCopy(t *testing.T, raw json.RawMessage) (json.RawMessage, int) {
-	t.Helper()
-	var blocks []map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &blocks); err != nil {
-		t.Fatal(err)
-	}
-	messages := 0
-	for _, block := range blocks {
-		var calls []map[string]json.RawMessage
-		if err := json.Unmarshal(block["calls"], &calls); err != nil {
-			t.Fatal(err)
-		}
-		for _, call := range calls {
-			if string(call["status"]) != "\"0x0\"" {
-				continue
-			}
-			var failure map[string]json.RawMessage
-			if err := json.Unmarshal(call["error"], &failure); err != nil {
-				t.Fatal(err)
-			}
-			if string(failure["code"]) != "-32015" || string(failure["message"]) != "\"out of gas\"" {
-				t.Fatalf("unexpected failure in conflict fixture: %s", call["error"])
-			}
-			// Check the conflicting leaf directly, independently of the union
-			// parser's aggregate error, before changing this test copy.
-			_, err := ethapi.NewSimulateErrorVM(call["error"])
-			const want = "eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1].properties.message: does not match official pattern"
-			if err == nil || err.Error() != want {
-				t.Fatalf("VM message error = %v, want %s", err, want)
-			}
-			failure["message"] = json.RawMessage("\"vm execution error: out of gas\"")
-			call["error"], err = json.Marshal(failure)
-			if err != nil {
-				t.Fatal(err)
-			}
-			messages++
-		}
-		encoded, err := json.Marshal(calls)
-		if err != nil {
-			t.Fatal(err)
-		}
-		block["calls"] = encoded
-	}
-	copy, err := json.Marshal(blocks)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return copy, messages
 }

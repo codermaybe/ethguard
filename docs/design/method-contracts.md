@@ -4,7 +4,7 @@
 
 ## 1. 权威来源与职责
 
-- 注册与装配入口为 [`rpc/methods/spec_inventory.go`](../../rpc/methods/spec_inventory.go)。全部 26 个注册读方法由各自方法文件自治定义名称、Spec、准入、normalizer、encoder 和只读映射，inventory／catalog 只收集。生成索引为 [method-rules.md](method-rules.md)，不得手改。
+- 注册与装配入口为 [`rpc/methods/spec_inventory.go`](../../rpc/methods/spec_inventory.go)。全部 27 个注册读方法由各自方法文件自治定义名称、Spec、准入、normalizer、encoder 和只读映射，inventory／catalog 只收集。生成索引为 [method-rules.md](method-rules.md)，不得手改。
 - 官方结果形态：固定 execution-apis bundle，见 [spec 数据说明](../../internal/spec/README.md)。保护域与完整官方对象的差异见 [返回值合同](return-value-design.md)，各方法的已接受边界以本文为准。
 - 每个方法的 tag／EIP-1898／pending 请求行为：[moving-tag-matrix.md](moving-tag-matrix.md)。
 - Root／EthClient／HTTP／WSS 实现和证据状态：[method-transport-coverage.md](method-transport-coverage.md)。
@@ -53,6 +53,7 @@ Strict 业务轮沿用固定成员多数 `Q = max(H, floor(N/2)+1)`，默认 H=2
 | `eth_getLogs` | 非 null 日志数组，要求完整日志字段，绑定请求 blockHash 或高度范围 | 不是 logs inclusion proof；当前并未核对全部 address/topics filter；只支持 logs 分支而非 pinned schema 的 hash-array 分支 |
 | `eth_feeHistory` | 规范数量与 ratio，数组之间的长度关系，当前还要求响应长度等于请求 count | 官方允许返回 supported 子区间；高精度 ratio gate 也是项目限制。两项问题均待调整，不在本文认可为更强安全保证 |
 | `eth_createAccessList` | accessList 元素的地址／storageKeys 与规范对象比较 | 强制 accessList 比官方顶层 required 更窄；不执行或证明建议集合正确 |
+| `eth_simulateV1` | 生成 payload／selector 在 reference 前检查并固定；开放输入保留，封闭对象／字典拒绝非法成员；规范模拟结果按同一参考比较 | 模拟块与日志是合成结果，不证明链上执行或真实 inclusion；合法请求仍可能返回顶层错误，类型生成不能替代完整模拟语义及 provider 证据 |
 | `eth_call` | 共同执行参考，execution／data 两维裁决，未佐证 data 只删不补 | provider code/message 只是 `Decision.Revert` 上下文，不进受保护 Value；详见返回值合同 |
 | gas price／priority fee／estimate | 既有 lower-median 选择及 spread 证据 | 上限 Selected；同值不升级 Corroborated |
 | peer count／syncing／listening | 来源本地观测；适用顶层形状准入与 typed projection；SyncProgress 使用官方生成的三个 optional 字段，geth 额外计数由附属及原始来源证据交付 | 上限 Selected；syncing 规范结果执行生成 schema 检查，保留 optional presence；缺失计数不成为同步已完成的独立证明 |

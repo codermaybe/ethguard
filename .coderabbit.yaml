@@ -120,13 +120,13 @@ reviews:
         subscriptions, reconnect, keepalive, or queue behavior without an
         explicit design record and lifecycle tests.
 
-    - path: "gethcompat/**"
+    - path: "internal/testkit/gethoracle/**"
       instructions: |
-        Keep this as the explicit go-ethereum compatibility construction seam.
-        It must not create a second Client implementation, registry, policy
-        assembly path, or default-build dependency on ethclient. Check that
-        compatibility behavior remains opt-in and that the default native
-        build boundaries stay enforced.
+        Keep the geth comparison client isolated to differential tests and
+        explicit diagnostic tools. It must not create a production fallback,
+        second Client implementation, registry, or policy assembly path.
+        Native execution must not link ethclient or this oracle. Historical
+        geth captures must retain their original adapter identity.
 
     - path: "ethadapter/**"
       instructions: |
@@ -158,8 +158,9 @@ reviews:
         Review dependency additions as attack-surface and audit-surface changes.
         Standard-library use is acceptable. Third-party transport dependencies
         require an explicit seam, scope, and dependency-graph test. Preserve
-        the rule that the default build excludes ethclient while gethcompat
-        remains an explicit compatibility channel.
+        the rule that native execution excludes ethclient and the geth
+        differential oracle remains isolated to internal testkit and explicit
+        diagnostic tools.
 
   auto_review:
     enabled: true

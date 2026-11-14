@@ -21,18 +21,10 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// Adapter names the connection adapter a composed pool dials upstreams with.
-// AdapterNative selects the project-owned HTTP adapter and is the strategic
-// default; AdapterGeth names the go-ethereum compatibility adapter, which the
-// default build does not link — a bare selection fails composition with a
-// pointer to ethguard/gethcompat, the explicit construction entry for that
-// channel (gethcompat composes this selection with its own dialer).
+// Adapter names the HTTP adapter used for sources without a transport selection.
 type Adapter string
 
-const (
-	AdapterGeth   Adapter = "geth"
-	AdapterNative Adapter = "native"
-)
+const AdapterNative Adapter = "native"
 
 // TipTracking enables pool-side block-tip sampling and the freshness
 // eligibility gate. Zero values select the documented defaults (10s sampling,
@@ -56,9 +48,8 @@ type Composition struct {
 	// Adapter selects the connection adapter for sources without an explicit
 	// per-source transport. Empty keeps the strategic native default.
 	Adapter Adapter
-	// ExplicitDialer installs a connection adapter dialer for the whole pool
-	// (the gethcompat construction seam). Sources with an explicit transport
-	// conflict with it.
+	// ExplicitDialer installs a connection adapter dialer for the whole pool.
+	// Sources with an explicit transport conflict with it.
 	ExplicitDialer transport.Dialer
 	// TipTracking enables the freshness sampler when non-nil.
 	TipTracking *TipTracking
@@ -85,22 +76,12 @@ func Compose(in Composition) (*Bundle, error) {
 	}
 	switch in.Adapter {
 	case "", AdapterNative:
-		// Strategic default: the project-owned native HTTP adapter (the
-		// transport contract's normative implementation). An explicit dialer
-		// injected through the gethcompat seam wins.
+		// An explicitly injected dialer takes precedence over the default.
 		if in.ExplicitDialer == nil {
 			poolOpts = append(poolOpts, pool.WithDialer(nativehttp.NewDialer()))
 		}
-	case AdapterGeth:
-		// The go-ethereum compatibility adapter is not linked into the
-		// default build. With an explicitly injected dialer (the seam's own
-		// dialer), the selection composes; a bare selection fails with a
-		// pointer to ethguard/gethcompat.
-		if in.ExplicitDialer == nil {
-			return nil, fmt.Errorf("the %q adapter is not linked into the default build; construct through ethguard/gethcompat", AdapterGeth)
-		}
 	default:
-		return nil, fmt.Errorf("unknown HTTP adapter %q (want %q or %q)", in.Adapter, AdapterGeth, AdapterNative)
+		return nil, fmt.Errorf("unknown HTTP adapter %q (want %q)", in.Adapter, AdapterNative)
 	}
 	if in.ExplicitDialer != nil {
 		poolOpts = append(poolOpts, pool.WithDialer(in.ExplicitDialer))

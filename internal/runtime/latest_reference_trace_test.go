@@ -33,7 +33,7 @@ func tracePool(t *testing.T, nodes []*rpctest.Node) *pool.Pool {
 }
 
 // traceRecorder records the pipeline's observable events in order: the
-// plan's Validate hook and the establishment rounds with the exact
+// plan's Prepare hook and the establishment rounds with the exact
 // invocation each receives. The sharing proof rides the stage — Establish
 // receives the same pre-establishment invocation the business phases
 // continue with — so the recorded invocation carries the frozen basis and
@@ -47,11 +47,11 @@ type traceRecorder struct {
 	kinds       []rpc.ReferenceKind
 }
 
-func (r *traceRecorder) observe(ctx context.Context, req rpc.Request) error {
+func (r *traceRecorder) observe(ctx context.Context, req rpc.Request) (rpc.Request, error) {
 	r.mu.Lock()
 	r.events = append(r.events, "validate")
 	r.mu.Unlock()
-	return nil
+	return req, nil
 }
 
 func (r *traceRecorder) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
@@ -81,7 +81,7 @@ func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc
 }
 
 // traceAggregator builds the composed read pipeline for the trace fixtures:
-// the compiled balance plan with a Validate hook recording the invocation,
+// the compiled balance plan with a Prepare hook recording the invocation,
 // registered beside the recording establishment stage.
 func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (*aggregator.Aggregator, *traceRecorder) {
 	t.Helper()
@@ -100,7 +100,7 @@ func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (
 		t.Fatal(err)
 	}
 	recorded := &traceRecorder{inner: bundle.Stage}
-	plan.Validate = recorded.observe
+	plan.Prepare = recorded.observe
 	return aggregator.New(p, aggregator.WithPlans(map[string]rpc.ReadPlan{
 		methods.MethodGetBalance: plan,
 	}),
@@ -154,7 +154,7 @@ func TestLatestReferenceTraceSharesOneInvocation(t *testing.T) {
 	if len(kinds) != 1 || kinds[0] != rpc.ReferenceLatest {
 		t.Fatalf("establishment rounds = %v, want one latest round", kinds)
 	}
-	// The plan pipeline validates once, before establishment: the recorded
+	// The plan pipeline prepares once, before establishment: the recorded
 	// event order pins that, and the establishment call receives the same
 	// pre-establishment invocation the business phases continue with. The
 	// rewrite after establishment is the plan's own pure function — the

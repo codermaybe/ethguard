@@ -146,6 +146,7 @@ func TestRegisteredMethodSampleStatus(t *testing.T) {
 	// absence explicit until a real provider capture is recorded; synthetic
 	// payloads must not be presented as live evidence.
 	noCapture := map[string]bool{
+		methods.MethodSimulateV1:                        true,
 		methods.MethodGetBlockTransactionCountByHash:    true,
 		methods.MethodGetBlockTransactionCountByNumber:  true,
 		methods.MethodGetTransactionByBlockHashAndIndex: true,

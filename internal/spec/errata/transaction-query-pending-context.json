@@ -1,7 +1,7 @@
 {
   "id": "transaction-query-pending-context",
-  "sourceVersion": "v1.0.0-beta.7",
-  "sourceCommit": "5aebdfdd45cadeb723be4bd45b4611b71c8b1c85",
+  "sourceVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "sourceCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
   "target": {
     "method": "eth_getTransactionByHash",
     "part": "result"
@@ -10,11 +10,11 @@
   "references": [
     "https://eips.ethereum.org/EIPS/eip-1474#eth_gettransactionbyhash",
     "https://github.com/ethereum/go-ethereum/blob/v1.17.10/internal/ethapi/api.go",
-    "https://github.com/ethereum/execution-apis/blob/5aebdfdd45cadeb723be4bd45b4611b71c8b1c85/src/schemas/transaction.yaml"
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/schemas/transaction.yaml"
   ],
   "retireWhen": "On every upstream pin change, review the independent query schema. Remove this correction when upstream admits the supported pending inclusion context; narrow or revise the timestamp part if its source contract changes. Never apply it to embedded block transactions.",
-  "inputSchemaSHA256": "792442ba34fb9327e4933eebda8c79d8fba48a7ba076fe3e6b4e499df36b46bf",
-  "outputSchemaSHA256": "2e4fc1db80840cb95aa563304e6aef13d6ed859d6fd9df76f6a8c6d481a2fa1c",
+  "inputSchemaSHA256": "b3664c7762184533823ea8c8ea073da01c7f83a30b7a99225578af98b36e2f5e",
+  "outputSchemaSHA256": "cb10ef89a4da14f2bbf4403026ac535d6b4ce35a6fcca68d26b8b758b0841fa9",
   "patch": [
     {
       "op": "test",

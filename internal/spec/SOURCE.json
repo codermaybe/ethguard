@@ -1,11 +1,11 @@
 {
   "repository": "https://github.com/ethereum/execution-apis",
-  "version": "v1.0.0-beta.7",
-  "commit": "5aebdfdd45cadeb723be4bd45b4611b71c8b1c85",
-  "dereferencedOpenRPCSHA256": "8cee66841bb3e2202c009f2ac8254ae3eb76f44026dd1b4935a36599026eb91d",
+  "version": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "commit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "dereferencedOpenRPCSHA256": "80efa2c6ab609d9ec48fa6d720650d1c3903065c887e03c600970ca97c2f09a5",
   "bundles": {
-    "methods.json": "9291bee9a7c4d3d229a2e85f51daaf800bb779187995ca6525ef1bdd6e3d80a7",
-    "requests.json": "05c088bb788823eddd926b59ed528c425eb3a761680a073d6d747d1dbb949b46",
-    "simulatev1/simulate.json": "b5e184525d37740933dbe05f63814e31d075e9095d2a97b2459b96eae26ddec1"
+    "methods.json": "010485d3a63ef9460bb0d9ad52eb46dd705c11db812a035be46808be6eb85456",
+    "requests.json": "cf615db34c0affdae6589787de939a0e4df74f4d226a4be37d6c727626f3f397",
+    "simulatev1/simulate.json": "77b0b4dc52bba1e8563bc6dccec8637dff913e3948860c4d92d9c4888a73feb8"
   }
 }

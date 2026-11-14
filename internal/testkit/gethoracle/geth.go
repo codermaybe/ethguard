@@ -1,8 +1,5 @@
-// Package geth is the go-ethereum compatibility connection adapter. It is
-// the only production package allowed to import ethclient and gethrpc; the
-// default build links the native HTTP adapter instead, and this package is
-// reached explicitly through gethcompat.
-package geth
+// Package gethoracle provides a go-ethereum transport for differential tests and probes.
+package gethoracle
 
 import (
 	"context"

@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -79,6 +80,25 @@ func planPrepareCases(method string) []planPrepareCase {
 		return hashAnchor([]any{"0x1"}, 1)
 	case MethodGetStorageAt:
 		return hashAnchor([]any{"0x1", "0x0"}, 2)
+	case MethodSimulateV1:
+		payload := json.RawMessage(`{"blockStateCalls":[]}`)
+		explicitHash := "0x1111111111111111111111111111111111111111111111111111111111111111"
+		return []planPrepareCase{
+			{name: "omitted base defaults to latest and pins the hash", params: []any{payload},
+				want: []any{payload, fixtureHash}, pin: fixtureHash, establish: true},
+			{name: "nil base defaults to latest and pins the hash", params: []any{payload, nil},
+				want: []any{payload, fixtureHash}, pin: fixtureHash, establish: true},
+			{name: "safe base pins the hash", params: []any{payload, "safe"},
+				want: []any{payload, fixtureHash}, pin: fixtureHash, establish: true},
+			{name: "explicit number passes through", params: []any{payload, "0x10"},
+				want: []any{payload, "0x10"}},
+			{name: "explicit hash passes through", params: []any{payload, explicitHash},
+				want: []any{payload, explicitHash}},
+			{name: "pending stays a local observation", params: []any{payload, "pending"},
+				want: []any{payload, "pending"}},
+			{name: "invalid EIP-1898 hash rejected locally", params: []any{payload, fixtureObjectRewrite(true)},
+				wantErr: rpc.ErrInvalidRequest},
+		}
 	case MethodCall:
 		return hashAnchor([]any{map[string]any{"to": "0x1"}}, 1)
 	case MethodCreateAccessList:
@@ -240,6 +260,10 @@ func TestPlansDriveTheBehaviorMatrix(t *testing.T) {
 // by their full contents, slices element-wise, everything else by identity
 // of value.
 func prepareParamsEqual(got, want any) bool {
+	if raw, ok := got.(json.RawMessage); ok {
+		wantRaw, ok := want.(json.RawMessage)
+		return ok && string(raw) == string(wantRaw)
+	}
 	if gotMap, ok := got.(map[string]any); ok {
 		wantMap, ok := want.(map[string]any)
 		if !ok || len(gotMap) != len(wantMap) {

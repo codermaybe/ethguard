@@ -10,7 +10,7 @@
 cmd/* 与 internal/{livecanary,shapeprobe,rpcsample}  ──导入──▶  核心运行时
 核心运行时（root、rpc、rpc/methods、pool、aggregator、
 internal/runtime、internal/reference、
-config、observe、gethcompat、internal/transport、internal/typed） ──✗──▶ 工具/证据包
+config、observe、internal/transport、internal/typed） ──✗──▶ 工具/证据包
 ```
 
 工具层是核心运行时的下游消费者。核心运行时反向导入任何工具或证据包都是

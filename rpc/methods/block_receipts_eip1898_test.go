@@ -18,9 +18,11 @@ const testReceiptsAnchorHash = "0x1111111111111111111111111111111111111111111111
 func TestBlockReceiptsMovingTagObjectAnchorsLikeTheMatrix(t *testing.T) {
 	plan := compiledPlan(t, MethodGetBlockReceipts)
 	req := rpc.Request{Method: MethodGetBlockReceipts, Params: []any{map[string]any{"blockNumber": "latest"}}}
-	if err := plan.Validate(context.Background(), req); err != nil {
+	prepared, err := plan.Prepare(context.Background(), req)
+	if err != nil {
 		t.Fatalf("a moving-tag object without requireCanonical is a legal request: %v", err)
 	}
+	req = prepared
 	if _, needed := plan.ReferenceRequirement(req); !needed {
 		t.Fatal("moving-tag object must declare a reference need")
 	}
@@ -54,11 +56,11 @@ func TestBlockReceiptsRequireCanonicalWithMovingTagRejectedLocally(t *testing.T)
 		{"blockNumber": "finalized", "requireCanonical": true},
 	} {
 		req := rpc.Request{Method: MethodGetBlockReceipts, Params: []any{obj}}
-		err := plan.Validate(context.Background(), req)
+		prepared, err := plan.Prepare(context.Background(), req)
 		if !errors.Is(err, rpc.ErrInvalidRequest) {
-			t.Fatalf("%v: requireCanonical with a moving tag must be rejected locally, got %v", obj, err)
+			t.Fatalf("%v: requireCanonical with a moving tag must be rejected locally, got %v, prepared=%#v", obj, err, prepared)
 		}
-		// The pipeline runs Validate before ReferenceRequirement and
+		// The pipeline runs Prepare before ReferenceRequirement and
 		// Establish (aggregator/phases.go), so this local rejection is what
 		// the read hits first: no anchor is ever established for it. The
 		// requirement derivation itself stays method-blind on purpose —
@@ -78,13 +80,15 @@ func TestBlockReceiptsExplicitObjectPassesThroughWithRequireCanonical(t *testing
 		{"blockNumber": "earliest", "requireCanonical": true},
 	} {
 		req := rpc.Request{Method: MethodGetBlockReceipts, Params: []any{obj}}
-		if err := plan.Validate(context.Background(), req); err != nil {
+		prepared, err := plan.Prepare(context.Background(), req)
+		if err != nil {
 			t.Fatalf("%v: explicit object must pass request validation: %v", obj, err)
 		}
+		req = prepared
 		if _, needed := plan.ReferenceRequirement(req); needed {
 			t.Fatalf("%v: explicit object must not need a reference", obj)
 		}
-		prepared, _, err := plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false)
+		prepared, _, err = plan.PrepareWithReference(req, rpc.ReferenceEvidence{}, false)
 		if err != nil {
 			t.Fatalf("%v: pass-through prepare failed: %v", obj, err)
 		}

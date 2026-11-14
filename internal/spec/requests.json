@@ -1,7 +1,8 @@
 {
- "version": "v1.0.0-beta.7",
+ "version": "981aa66d79364be8322a9c358aaf0a571cca0873",
  "requests": {
   "eth_accounts": [],
+  "eth_baseFee": [],
   "eth_blobBaseFee": [],
   "eth_blockNumber": [],
   "eth_call": [
@@ -72,7 +73,7 @@
          },
          "yParity": {
           "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
-          "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+          "pattern": "^0x[0-9a-f]{1,2}$",
           "title": "yParity",
           "type": "string"
          }
@@ -115,6 +116,16 @@
        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
        "title": "chainId",
        "type": "string"
+      },
+      "commitments": {
+       "description": "List of blob commitments as per EIP-4844.",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "commitments",
+       "type": "array"
       },
       "from": {
        "pattern": "^0x[0-9a-fA-F]{40}$",
@@ -160,6 +171,16 @@
        "title": "nonce",
        "type": "string"
       },
+      "proofs": {
+       "description": "List of blob proofs. Pre-PeerDAS this contains one KZG proof per blob (length == len(blobs)). Post-PeerDAS this contains cell proofs with length == 128 * len(blobs).",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "proofs",
+       "type": "array"
+      },
       "to": {
        "oneOf": [
         {
@@ -175,7 +196,7 @@
        "title": "to address"
       },
       "type": {
-       "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+       "pattern": "^0x[0-9a-f]{1,2}$",
        "title": "type",
        "type": "string"
       },
@@ -190,6 +211,7 @@
     }
    },
    {
+    "description": "default: 'latest'. The state is the one after the block has been executed.",
     "name": "Block",
     "required": false,
     "schema": {
@@ -200,7 +222,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -215,6 +237,41 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
@@ -293,7 +350,7 @@
          },
          "yParity": {
           "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
-          "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+          "pattern": "^0x[0-9a-f]{1,2}$",
           "title": "yParity",
           "type": "string"
          }
@@ -336,6 +393,16 @@
        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
        "title": "chainId",
        "type": "string"
+      },
+      "commitments": {
+       "description": "List of blob commitments as per EIP-4844.",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "commitments",
+       "type": "array"
       },
       "from": {
        "pattern": "^0x[0-9a-fA-F]{40}$",
@@ -381,6 +448,16 @@
        "title": "nonce",
        "type": "string"
       },
+      "proofs": {
+       "description": "List of blob proofs. Pre-PeerDAS this contains one KZG proof per blob (length == len(blobs)). Post-PeerDAS this contains cell proofs with length == 128 * len(blobs).",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "proofs",
+       "type": "array"
+      },
       "to": {
        "oneOf": [
         {
@@ -396,7 +473,7 @@
        "title": "to address"
       },
       "type": {
-       "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+       "pattern": "^0x[0-9a-f]{1,2}$",
        "title": "type",
        "type": "string"
       },
@@ -411,17 +488,18 @@
     }
    },
    {
+    "description": "The state is the one after the block has been executed.",
     "name": "Block",
     "required": false,
     "schema": {
-     "oneOf": [
+     "anyOf": [
       {
        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
        "title": "Block number",
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -431,9 +509,49 @@
        ],
        "title": "Block tag",
        "type": "string"
+      },
+      {
+       "pattern": "^0x[0-9a-f]{64}$",
+       "title": "Block hash",
+       "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
-     "title": "Block number or tag"
+     "title": "Block number, tag, or block hash"
     }
    }
   ],
@@ -505,7 +623,7 @@
          },
          "yParity": {
           "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
-          "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+          "pattern": "^0x[0-9a-f]{1,2}$",
           "title": "yParity",
           "type": "string"
          }
@@ -548,6 +666,16 @@
        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
        "title": "chainId",
        "type": "string"
+      },
+      "commitments": {
+       "description": "List of blob commitments as per EIP-4844.",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "commitments",
+       "type": "array"
       },
       "from": {
        "pattern": "^0x[0-9a-fA-F]{40}$",
@@ -593,6 +721,16 @@
        "title": "nonce",
        "type": "string"
       },
+      "proofs": {
+       "description": "List of blob proofs. Pre-PeerDAS this contains one KZG proof per blob (length == len(blobs)). Post-PeerDAS this contains cell proofs with length == 128 * len(blobs).",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "proofs",
+       "type": "array"
+      },
       "to": {
        "oneOf": [
         {
@@ -608,7 +746,7 @@
        "title": "to address"
       },
       "type": {
-       "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+       "pattern": "^0x[0-9a-f]{1,2}$",
        "title": "type",
        "type": "string"
       },
@@ -623,17 +761,18 @@
     }
    },
    {
+    "description": "The state is the one after the block has been executed.",
     "name": "Block",
     "required": false,
     "schema": {
-     "oneOf": [
+     "anyOf": [
       {
        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
        "title": "Block number",
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -643,9 +782,49 @@
        ],
        "title": "Block tag",
        "type": "string"
+      },
+      {
+       "pattern": "^0x[0-9a-f]{64}$",
+       "title": "Block hash",
+       "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
-     "title": "Block number or tag"
+     "title": "Block number, tag, or block hash"
     }
    }
   ],
@@ -672,7 +851,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -702,6 +881,212 @@
     }
    }
   ],
+  "eth_fillTransaction": [
+   {
+    "name": "Transaction",
+    "required": true,
+    "schema": {
+     "additionalProperties": false,
+     "properties": {
+      "accessList": {
+       "description": "EIP-2930 access list",
+       "items": {
+        "additionalProperties": false,
+        "properties": {
+         "address": {
+          "pattern": "^0x[0-9a-fA-F]{40}$",
+          "title": "hex encoded address",
+          "type": "string"
+         },
+         "storageKeys": {
+          "items": {
+           "pattern": "^0x[0-9a-f]{64}$",
+           "title": "32 byte hex value",
+           "type": "string"
+          },
+          "type": "array"
+         }
+        },
+        "required": [
+         "address",
+         "storageKeys"
+        ],
+        "title": "Access list entry",
+        "type": "object"
+       },
+       "title": "accessList",
+       "type": "array"
+      },
+      "authorizationList": {
+       "description": "EIP-7702 authorization list",
+       "items": {
+        "properties": {
+         "address": {
+          "pattern": "^0x[0-9a-fA-F]{40}$",
+          "title": "hex encoded address",
+          "type": "string"
+         },
+         "chainId": {
+          "description": "Chain ID on which this transaction is valid",
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+          "title": "chainId",
+          "type": "string"
+         },
+         "nonce": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+          "title": "nonce",
+          "type": "string"
+         },
+         "r": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+          "title": "r",
+          "type": "string"
+         },
+         "s": {
+          "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+          "title": "s",
+          "type": "string"
+         },
+         "yParity": {
+          "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
+          "pattern": "^0x[0-9a-f]{1,2}$",
+          "title": "yParity",
+          "type": "string"
+         }
+        },
+        "required": [
+         "chainId",
+         "nonce",
+         "address",
+         "yParity",
+         "r",
+         "s"
+        ],
+        "type": "object"
+       },
+       "title": "authorizationList",
+       "type": "array"
+      },
+      "blobVersionedHashes": {
+       "description": "List of versioned blob hashes associated with the transaction's EIP-4844 data blobs.",
+       "items": {
+        "pattern": "^0x[0-9a-f]{64}$",
+        "title": "32 byte hex value",
+        "type": "string"
+       },
+       "title": "blobVersionedHashes",
+       "type": "array"
+      },
+      "blobs": {
+       "description": "Raw blob data.",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "blobs",
+       "type": "array"
+      },
+      "chainId": {
+       "description": "Chain ID that this transaction is valid on.",
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+       "title": "chainId",
+       "type": "string"
+      },
+      "commitments": {
+       "description": "List of blob commitments as per EIP-4844.",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "commitments",
+       "type": "array"
+      },
+      "from": {
+       "pattern": "^0x[0-9a-fA-F]{40}$",
+       "title": "from address",
+       "type": "string"
+      },
+      "gas": {
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+       "title": "gas limit",
+       "type": "string"
+      },
+      "gasPrice": {
+       "description": "The gas price willing to be paid by the sender in wei",
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+       "title": "gas price",
+       "type": "string"
+      },
+      "input": {
+       "pattern": "^0x[0-9a-f]*$",
+       "title": "input data",
+       "type": "string"
+      },
+      "maxFeePerBlobGas": {
+       "description": "The maximum total fee per gas the sender is willing to pay for blob gas in wei",
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+       "title": "max fee per blob gas",
+       "type": "string"
+      },
+      "maxFeePerGas": {
+       "description": "The maximum total fee per gas the sender is willing to pay (includes the network / base fee and miner / priority fee) in wei",
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+       "title": "max fee per gas",
+       "type": "string"
+      },
+      "maxPriorityFeePerGas": {
+       "description": "Maximum fee per gas the sender is willing to pay to miners in wei",
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+       "title": "max priority fee per gas",
+       "type": "string"
+      },
+      "nonce": {
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+       "title": "nonce",
+       "type": "string"
+      },
+      "proofs": {
+       "description": "List of blob proofs. Pre-PeerDAS this contains one KZG proof per blob (length == len(blobs)). Post-PeerDAS this contains cell proofs with length == 128 * len(blobs).",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "proofs",
+       "type": "array"
+      },
+      "to": {
+       "oneOf": [
+        {
+         "title": "Contract Creation (null)",
+         "type": "null"
+        },
+        {
+         "pattern": "^0x[0-9a-fA-F]{40}$",
+         "title": "Address",
+         "type": "string"
+        }
+       ],
+       "title": "to address"
+      },
+      "type": {
+       "pattern": "^0x[0-9a-f]{1,2}$",
+       "title": "type",
+       "type": "string"
+      },
+      "value": {
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+       "title": "value",
+       "type": "string"
+      }
+     },
+     "title": "Transaction object generic to all types",
+     "type": "object"
+    }
+   }
+  ],
   "eth_gasPrice": [],
   "eth_getBalance": [
    {
@@ -714,8 +1099,9 @@
     }
    },
    {
+    "description": "default: 'latest'. The state is the one after the block has been executed.",
     "name": "Block",
-    "required": true,
+    "required": false,
     "schema": {
      "anyOf": [
       {
@@ -724,7 +1110,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -739,6 +1125,41 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
@@ -757,7 +1178,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -772,6 +1193,41 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
@@ -809,7 +1265,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -845,7 +1301,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -860,6 +1316,41 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
@@ -887,7 +1378,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -914,8 +1405,9 @@
     }
    },
    {
+    "description": "default: 'latest'. The state is the one after the block has been executed.",
     "name": "Block",
-    "required": true,
+    "required": false,
     "schema": {
      "anyOf": [
       {
@@ -924,7 +1416,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -939,6 +1431,41 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
@@ -964,6 +1491,45 @@
      "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
      "title": "hex encoded unsigned integer",
      "type": "string"
+    }
+   }
+  ],
+  "eth_getHeaderByHash": [
+   {
+    "name": "Block hash",
+    "required": true,
+    "schema": {
+     "pattern": "^0x[0-9a-f]{64}$",
+     "title": "32 byte hex value",
+     "type": "string"
+    }
+   }
+  ],
+  "eth_getHeaderByNumber": [
+   {
+    "name": "Block",
+    "required": true,
+    "schema": {
+     "oneOf": [
+      {
+       "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+       "title": "Block number",
+       "type": "string"
+      },
+      {
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
+       "enum": [
+        "earliest",
+        "finalized",
+        "safe",
+        "latest",
+        "pending"
+       ],
+       "title": "Block tag",
+       "type": "string"
+      }
+     ],
+     "title": "Block number or tag"
     }
    }
   ],
@@ -1004,14 +1570,46 @@
          "title": "Address(es)"
         },
         "fromBlock": {
-         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
-         "title": "from block",
-         "type": "string"
+         "oneOf": [
+          {
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+           "title": "Block number",
+           "type": "string"
+          },
+          {
+           "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
+           "enum": [
+            "earliest",
+            "finalized",
+            "safe",
+            "latest"
+           ],
+           "title": "Block tag",
+           "type": "string"
+          }
+         ],
+         "title": "from block"
         },
         "toBlock": {
-         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
-         "title": "to block",
-         "type": "string"
+         "oneOf": [
+          {
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+           "title": "Block number",
+           "type": "string"
+          },
+          {
+           "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
+           "enum": [
+            "earliest",
+            "finalized",
+            "safe",
+            "latest"
+           ],
+           "title": "Block tag",
+           "type": "string"
+          }
+         ],
+         "title": "to block"
         },
         "topics": {
          "oneOf": [
@@ -1022,6 +1620,10 @@
           {
            "items": {
             "oneOf": [
+             {
+              "title": "Any Topic Match",
+              "type": "null"
+             },
              {
               "pattern": "^0x[0-9a-f]{64}$",
               "title": "Single Topic Match",
@@ -1088,6 +1690,10 @@
           {
            "items": {
             "oneOf": [
+             {
+              "title": "Any Topic Match",
+              "type": "null"
+             },
              {
               "pattern": "^0x[0-9a-f]{64}$",
               "title": "Single Topic Match",
@@ -1147,8 +1753,9 @@
     }
    },
    {
+    "description": "default: 'latest'. The state is the one after the block has been executed.",
     "name": "Block",
-    "required": true,
+    "required": false,
     "schema": {
      "anyOf": [
       {
@@ -1157,7 +1764,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -1172,6 +1779,41 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
@@ -1198,8 +1840,9 @@
     }
    },
    {
+    "description": "default: 'latest'. The state is the one after the block has been executed.",
     "name": "Block",
-    "required": true,
+    "required": false,
     "schema": {
      "anyOf": [
       {
@@ -1208,7 +1851,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -1223,6 +1866,41 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
@@ -1248,8 +1926,9 @@
     }
    },
    {
+    "description": "default: 'latest'. The state is the one after the block has been executed.",
     "name": "Block",
-    "required": true,
+    "required": false,
     "schema": {
      "anyOf": [
       {
@@ -1258,7 +1937,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -1273,6 +1952,41 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
@@ -1311,7 +2025,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -1358,8 +2072,9 @@
     }
    },
    {
+    "description": "default: 'latest'. The state is the one after the block has been executed.",
     "name": "Block",
-    "required": true,
+    "required": false,
     "schema": {
      "anyOf": [
       {
@@ -1368,7 +2083,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -1383,6 +2098,41 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
@@ -1439,14 +2189,46 @@
          "title": "Address(es)"
         },
         "fromBlock": {
-         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
-         "title": "from block",
-         "type": "string"
+         "oneOf": [
+          {
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+           "title": "Block number",
+           "type": "string"
+          },
+          {
+           "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
+           "enum": [
+            "earliest",
+            "finalized",
+            "safe",
+            "latest"
+           ],
+           "title": "Block tag",
+           "type": "string"
+          }
+         ],
+         "title": "from block"
         },
         "toBlock": {
-         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
-         "title": "to block",
-         "type": "string"
+         "oneOf": [
+          {
+           "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+           "title": "Block number",
+           "type": "string"
+          },
+          {
+           "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
+           "enum": [
+            "earliest",
+            "finalized",
+            "safe",
+            "latest"
+           ],
+           "title": "Block tag",
+           "type": "string"
+          }
+         ],
+         "title": "to block"
         },
         "topics": {
          "oneOf": [
@@ -1457,6 +2239,10 @@
           {
            "items": {
             "oneOf": [
+             {
+              "title": "Any Topic Match",
+              "type": "null"
+             },
              {
               "pattern": "^0x[0-9a-f]{64}$",
               "title": "Single Topic Match",
@@ -1523,6 +2309,10 @@
           {
            "items": {
             "oneOf": [
+             {
+              "title": "Any Topic Match",
+              "type": "null"
+             },
              {
               "pattern": "^0x[0-9a-f]{64}$",
               "title": "Single Topic Match",
@@ -1638,7 +2428,7 @@
          },
          "yParity": {
           "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
-          "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+          "pattern": "^0x[0-9a-f]{1,2}$",
           "title": "yParity",
           "type": "string"
          }
@@ -1681,6 +2471,16 @@
        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
        "title": "chainId",
        "type": "string"
+      },
+      "commitments": {
+       "description": "List of blob commitments as per EIP-4844.",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "commitments",
+       "type": "array"
       },
       "from": {
        "pattern": "^0x[0-9a-fA-F]{40}$",
@@ -1726,6 +2526,16 @@
        "title": "nonce",
        "type": "string"
       },
+      "proofs": {
+       "description": "List of blob proofs. Pre-PeerDAS this contains one KZG proof per blob (length == len(blobs)). Post-PeerDAS this contains cell proofs with length == 128 * len(blobs).",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "proofs",
+       "type": "array"
+      },
       "to": {
        "oneOf": [
         {
@@ -1741,7 +2551,7 @@
        "title": "to address"
       },
       "type": {
-       "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+       "pattern": "^0x[0-9a-f]{1,2}$",
        "title": "type",
        "type": "string"
       },
@@ -1844,7 +2654,7 @@
          },
          "yParity": {
           "description": "The parity (0 for even, 1 for odd) of the y-value of the secp256k1 signature",
-          "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+          "pattern": "^0x[0-9a-f]{1,2}$",
           "title": "yParity",
           "type": "string"
          }
@@ -1887,6 +2697,16 @@
        "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
        "title": "chainId",
        "type": "string"
+      },
+      "commitments": {
+       "description": "List of blob commitments as per EIP-4844.",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "commitments",
+       "type": "array"
       },
       "from": {
        "pattern": "^0x[0-9a-fA-F]{40}$",
@@ -1932,6 +2752,16 @@
        "title": "nonce",
        "type": "string"
       },
+      "proofs": {
+       "description": "List of blob proofs. Pre-PeerDAS this contains one KZG proof per blob (length == len(blobs)). Post-PeerDAS this contains cell proofs with length == 128 * len(blobs).",
+       "items": {
+        "pattern": "^0x[0-9a-f]*$",
+        "title": "hex encoded bytes",
+        "type": "string"
+       },
+       "title": "proofs",
+       "type": "array"
+      },
       "to": {
        "oneOf": [
         {
@@ -1947,7 +2777,7 @@
        "title": "to address"
       },
       "type": {
-       "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+       "pattern": "^0x[0-9a-f]{1,2}$",
        "title": "type",
        "type": "string"
       },
@@ -1985,8 +2815,9 @@
            "type": "string"
           },
           "feeRecipient": {
+           "description": "Address set by the proposer/builder to receive priority fees. Often matches the block header `feeRecipient` field but is not the COINBASE EVM opcode.",
            "pattern": "^0x[0-9a-fA-F]{40}$",
-           "title": "Fee Recipient (also known as coinbase)",
+           "title": "Fee recipient",
            "type": "string"
           },
           "gasLimit": {
@@ -2001,7 +2832,7 @@
            "type": "string"
           },
           "prevRandao": {
-           "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+           "pattern": "^0x[0-9a-f]{64}$",
            "title": "The Previous value of randomness beacon",
            "type": "string"
           },
@@ -2088,9 +2919,13 @@
            },
            "blobVersionedHashes": {
             "description": "EIP-4844 versioned hashes\nDefault: []",
-            "pattern": "^0x[0-9a-f]{64}$",
+            "items": {
+             "pattern": "^0x[0-9a-f]{64}$",
+             "title": "32 byte hex value",
+             "type": "string"
+            },
             "title": "Blob versioned hashes",
-            "type": "string"
+            "type": "array"
            },
            "from": {
             "description": "Default: null",
@@ -2148,7 +2983,7 @@
            },
            "type": {
             "description": "Default: 0x2",
-            "pattern": "^0x([0-9a-fA-F]?){1,2}$",
+            "pattern": "^0x[0-9a-f]{1,2}$",
             "title": "type",
             "type": "string"
            },
@@ -2170,93 +3005,62 @@
          "description": "State overrides can be used to replace existing blockchain state with new state.\nDefault: no state overrides",
          "patternProperties": {
           "^0x[a-fA-F0-9]{40}$": {
-           "oneOf": [
-            {
-             "description": "It is possible to override any kind of address (EOA's, contracts and precompiles)",
-             "properties": {
-              "balance": {
-               "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
-               "title": "Balance",
-               "type": "string"
-              },
-              "code": {
-               "pattern": "^0x[0-9a-f]*$",
-               "title": "Code",
-               "type": "string"
-              },
-              "movePrecompileToAddress": {
-               "description": "Moves addresses precompile into the specified address. This move is done before the 'code' override is set. When the specified address is not a precompile, the behaviour is undefined and different clients might behave differently.",
-               "pattern": "^0x[0-9a-fA-F]{40}$",
-               "title": "MovePrecompileToAddress",
-               "type": "string"
-              },
-              "nonce": {
-               "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
-               "title": "Nonce",
-               "type": "string"
-              },
-              "state": {
-               "additionalProperties": false,
-               "description": "Key-value mapping to override all slots in the account storage before executing the call. This functions similar to eth_call's state parameter.",
-               "patternProperties": {
-                "^0x[a-fA-F0-9]{64}$": {
-                 "pattern": "^0x[0-9a-f]{64}$",
-                 "title": "32 byte hex value",
-                 "type": "string"
-                }
-               },
-               "title": "Storage",
-               "type": "object"
-              }
-             },
-             "required": [
-              "state"
-             ],
-             "title": "Account override with whole storage replacement"
+           "description": "It is possible to override any kind of address (EOA's, contracts and precompiles).\nA client MUST reject a key that it does not support with error code -32602. A client MAY treat a key that differs from a key defined in this schema only in case as that defined key. It MUST then apply the key, and MUST reject two keys that differ only in case and name the same defined key with error code -32602. A client MAY support other keys that this schema does not define.",
+           "not": {
+            "required": [
+             "state",
+             "stateDiff"
+            ]
+           },
+           "properties": {
+            "balance": {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+             "title": "Balance",
+             "type": "string"
             },
-            {
-             "properties": {
-              "balance": {
-               "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
-               "title": "Balance",
+            "code": {
+             "pattern": "^0x[0-9a-f]*$",
+             "title": "Code",
+             "type": "string"
+            },
+            "movePrecompileToAddress": {
+             "description": "Moves addresses precompile into the specified address. This move is done before the 'code' override is set. Can only move precompiles. The move does not change the EIP-2929 set of addresses that are warm at the start of each call. That set keeps the precompile addresses of the active fork, and the destination address is not warm because of the move.",
+             "pattern": "^0x[0-9a-fA-F]{40}$",
+             "title": "MovePrecompileToAddress",
+             "type": "string"
+            },
+            "nonce": {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+             "title": "Nonce",
+             "type": "string"
+            },
+            "state": {
+             "additionalProperties": false,
+             "description": "Key-value mapping to override all slots in the account storage before executing the call. This functions similar to eth_call's state parameter.",
+             "patternProperties": {
+              "^0x[a-fA-F0-9]{64}$": {
+               "pattern": "^0x[0-9a-f]{64}$",
+               "title": "32 byte hex value",
                "type": "string"
-              },
-              "code": {
-               "pattern": "^0x[0-9a-f]*$",
-               "title": "Code",
-               "type": "string"
-              },
-              "movePrecompileToAddress": {
-               "description": "Moves addresses precompile into the specified address. This move is done before the 'code' override is set. Can only move precompiles.",
-               "pattern": "^0x[0-9a-fA-F]{40}$",
-               "title": "MovePrecompileToAddress",
-               "type": "string"
-              },
-              "nonce": {
-               "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
-               "title": "Nonce",
-               "type": "string"
-              },
-              "stateDiff": {
-               "additionalProperties": false,
-               "description": "Key-value mapping to override individual slots in the account storage before executing the call. This functions similar to eth_call's state parameter.",
-               "patternProperties": {
-                "^0x[a-fA-F0-9]{64}$": {
-                 "pattern": "^0x[0-9a-f]{64}$",
-                 "title": "32 byte hex value",
-                 "type": "string"
-                }
-               },
-               "title": "Storage difference",
-               "type": "object"
               }
              },
-             "required": [
-              "stateDiff"
-             ],
-             "title": "Account override with partial storage modification"
+             "title": "Storage",
+             "type": "object"
+            },
+            "stateDiff": {
+             "additionalProperties": false,
+             "description": "Key-value mapping to override individual slots in the account storage before executing the call. This functions similar to eth_call's state parameter.",
+             "patternProperties": {
+              "^0x[a-fA-F0-9]{64}$": {
+               "pattern": "^0x[0-9a-f]{64}$",
+               "title": "32 byte hex value",
+               "type": "string"
+              }
+             },
+             "title": "Storage difference",
+             "type": "object"
             }
-           ],
+           },
            "title": "Details of an account to be overridden",
            "type": "object"
           }
@@ -2274,7 +3078,7 @@
        "type": "boolean"
       },
       "traceTransfers": {
-       "description": "Adds ETH transfers as ERC20 transfer events to the logs. These transfers have emitter contract parameter set as address(0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee).\nDefault: false.",
+       "description": "Adds ETH transfers as ERC20 transfer events to the logs. These transfers have emitter contract parameter set as address(0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee).\nIn blocks where EIP-7708 is active, no synthetic transfer events are added. The protocol transfer logs emitted from address(0xfffffffffffffffffffffffffffffffffffffffe) cover the same transfers with the same topics and data, and the flag has no effect. The flag is deprecated for these blocks.\nDefault: false.",
        "title": "Trace ETH Transfers",
        "type": "boolean"
       },
@@ -2287,11 +3091,12 @@
      "required": [
       "blockStateCalls"
      ],
-     "title": "Arguments for eth_simulate"
+     "title": "Arguments for eth_simulate",
+     "type": "object"
     }
    },
    {
-    "description": "default: 'latest'",
+    "description": "default: 'latest'. The base block. The simulated blocks start from the state after this block has been executed.",
     "name": "Block tag",
     "required": false,
     "schema": {
@@ -2302,7 +3107,7 @@
        "type": "string"
       },
       {
-       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. Before the merge transition is finalized, any call querying for `finalized` or `safe` block MUST be responded to with `-39001: Unknown block` error",
+       "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions; `pending`: A sample next block built by the client on top of `latest` and containing the set of transactions usually taken from local mempool. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
        "enum": [
         "earliest",
         "finalized",
@@ -2317,9 +3122,279 @@
        "pattern": "^0x[0-9a-f]{64}$",
        "title": "Block hash",
        "type": "string"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockNumber": {
+         "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+         "title": "Block number",
+         "type": "string"
+        }
+       },
+       "required": [
+        "blockNumber"
+       ],
+       "title": "EIP-1898 block number object",
+       "type": "object"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "blockHash": {
+         "pattern": "^0x[0-9a-f]{64}$",
+         "title": "Block hash",
+         "type": "string"
+        },
+        "requireCanonical": {
+         "description": "Whether the block hash must belong to a canonical block, defaulting to `false`. When `true` and the referenced block is not canonical, EIP-1898 recommends `-32000: Invalid input`. A block that cannot be found takes precedence and is reported as `-32001: Resource not found`.",
+         "title": "Require canonical",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "blockHash"
+       ],
+       "title": "EIP-1898 block hash object",
+       "type": "object"
       }
      ],
      "title": "Block number, tag, or block hash"
+    }
+   }
+  ],
+  "eth_subscribe": [
+   {
+    "name": "kind",
+    "required": true,
+    "schema": {
+     "enum": [
+      "newHeads",
+      "logs",
+      "newPendingTransactions",
+      "transactionReceipts"
+     ],
+     "title": "Subscription kind",
+     "type": "string"
+    }
+   },
+   {
+    "name": "arg",
+    "required": false,
+    "schema": {
+     "oneOf": [
+      {
+       "oneOf": [
+        {
+         "not": {
+          "required": [
+           "blockHash"
+          ]
+         },
+         "properties": {
+          "address": {
+           "oneOf": [
+            {
+             "title": "Any Address",
+             "type": "null"
+            },
+            {
+             "pattern": "^0x[0-9a-fA-F]{40}$",
+             "title": "Address",
+             "type": "string"
+            },
+            {
+             "items": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "title": "hex encoded address",
+              "type": "string"
+             },
+             "title": "Addresses",
+             "type": "array"
+            }
+           ],
+           "title": "Address(es)"
+          },
+          "fromBlock": {
+           "oneOf": [
+            {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+             "title": "Block number",
+             "type": "string"
+            },
+            {
+             "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
+             "enum": [
+              "earliest",
+              "finalized",
+              "safe",
+              "latest"
+             ],
+             "title": "Block tag",
+             "type": "string"
+            }
+           ],
+           "title": "from block"
+          },
+          "toBlock": {
+           "oneOf": [
+            {
+             "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+             "title": "Block number",
+             "type": "string"
+            },
+            {
+             "description": "`earliest`: The lowest numbered block the client has available; `finalized`: The most recent crypto-economically secure block, cannot be re-orged outside of manual intervention driven by community coordination; `safe`: The most recent block that is safe from re-orgs under honest majority and certain synchronicity assumptions; `latest`: The most recent block in the canonical chain observed by the client, this block may be re-orged out of the canonical chain even under healthy/normal conditions. If the `safe` or `finalized` tag cannot be resolved to a block, the method responds as it does for an unknown block.",
+             "enum": [
+              "earliest",
+              "finalized",
+              "safe",
+              "latest"
+             ],
+             "title": "Block tag",
+             "type": "string"
+            }
+           ],
+           "title": "to block"
+          },
+          "topics": {
+           "oneOf": [
+            {
+             "title": "Any Topic Match",
+             "type": "null"
+            },
+            {
+             "items": {
+              "oneOf": [
+               {
+                "title": "Any Topic Match",
+                "type": "null"
+               },
+               {
+                "pattern": "^0x[0-9a-f]{64}$",
+                "title": "Single Topic Match",
+                "type": "string"
+               },
+               {
+                "items": {
+                 "pattern": "^0x[0-9a-f]{64}$",
+                 "title": "32 hex encoded bytes",
+                 "type": "string"
+                },
+                "title": "Multiple Topic Match",
+                "type": "array"
+               }
+              ],
+              "title": "Filter Topic List Entry"
+             },
+             "title": "Specified Filter Topics",
+             "type": "array"
+            }
+           ],
+           "title": "Topics"
+          }
+         },
+         "title": "Filter by block range",
+         "type": "object"
+        },
+        {
+         "properties": {
+          "address": {
+           "oneOf": [
+            {
+             "title": "Any Address",
+             "type": "null"
+            },
+            {
+             "pattern": "^0x[0-9a-fA-F]{40}$",
+             "title": "Address",
+             "type": "string"
+            },
+            {
+             "items": {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "title": "hex encoded address",
+              "type": "string"
+             },
+             "title": "Addresses",
+             "type": "array"
+            }
+           ],
+           "title": "Address(es)"
+          },
+          "blockHash": {
+           "pattern": "^0x[0-9a-f]{64}$",
+           "title": "block hash",
+           "type": "string"
+          },
+          "topics": {
+           "oneOf": [
+            {
+             "title": "Any Topic Match",
+             "type": "null"
+            },
+            {
+             "items": {
+              "oneOf": [
+               {
+                "title": "Any Topic Match",
+                "type": "null"
+               },
+               {
+                "pattern": "^0x[0-9a-f]{64}$",
+                "title": "Single Topic Match",
+                "type": "string"
+               },
+               {
+                "items": {
+                 "pattern": "^0x[0-9a-f]{64}$",
+                 "title": "32 hex encoded bytes",
+                 "type": "string"
+                },
+                "title": "Multiple Topic Match",
+                "type": "array"
+               }
+              ],
+              "title": "Filter Topic List Entry"
+             },
+             "title": "Specified Filter Topics",
+             "type": "array"
+            }
+           ],
+           "title": "Topics"
+          }
+         },
+         "required": [
+          "blockHash"
+         ],
+         "title": "Filter by block hash",
+         "type": "object"
+        }
+       ],
+       "title": "Logs filter (for `logs`)"
+      },
+      {
+       "title": "Full-transaction flag (for `newPendingTransactions`)",
+       "type": "boolean"
+      },
+      {
+       "additionalProperties": false,
+       "properties": {
+        "transactionHashes": {
+         "items": {
+          "pattern": "^0x[0-9a-f]{64}$",
+          "title": "32 byte hex value",
+          "type": "string"
+         },
+         "title": "Transaction hashes to watch",
+         "type": "array"
+        }
+       },
+       "title": "Transaction receipts filter (for `transactionReceipts`)",
+       "type": "object"
+      }
+     ],
+     "title": "Kind-specific argument"
     }
    }
   ],
@@ -2327,6 +3402,17 @@
   "eth_uninstallFilter": [
    {
     "name": "Filter identifier",
+    "required": true,
+    "schema": {
+     "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
+     "title": "hex encoded unsigned integer",
+     "type": "string"
+    }
+   }
+  ],
+  "eth_unsubscribe": [
+   {
+    "name": "Subscription ID",
     "required": true,
     "schema": {
      "pattern": "^0x(0|[1-9a-f][0-9a-f]*)$",

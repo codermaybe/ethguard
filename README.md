@@ -22,6 +22,11 @@ business response. The `ethguard.Client` typed methods follow the business metho
 Public business types are migrating to generated `ethapi` models; CallMsg,
 FeeHistory, AccessListResult, and SyncProgress have migrated. This changes Go
 signatures and field shapes; see the [migration contract](docs/design/wire-codegen.md).
+`SimulateV1` uses the native shared execution plan with generated
+`ethapi.SimulateV1Request` and `*ethapi.SimulateBlockReference` inputs, including
+the official EIP-1898 object forms. Raw Call shares the same request preparation
+and validation. Method-specific semantic verification remains ongoing; typed
+inputs and a complete method count do not establish semantic completeness.
 Ordinary calls need no explicit anchor/confirm/read workflow. Cross-source agreement is provider evidence; it is not Ethereum
 consensus, canonical proof, cryptographic finality, or light-client
 verification. Multiple URLs need not be independent.
@@ -45,7 +50,7 @@ ethguard/                   # public Client facade
 ├── pool/                   # upstream lifecycle, Transport Port, health, eligibility
 ├── observe/                # passive observability seam
 │   └── prometheus/         # optional metrics adapter (kept out of core)
-├── aggregator/             # Validate → Reference → Collect → Admit → Resolve → Project
+├── aggregator/             # Prepare → Reference → Collect → Admit → Resolve → Project
 ├── rpc/                    # public request, decision, plan, policy, and evidence model
 │   ├── projection/         # public standard-field projection and extension Carrier
 │   ├── methods/            # concrete Ethereum JSON-RPC methods and catalog
@@ -77,10 +82,10 @@ ethguard/                   # public Client facade
 │   ├── transport/          # Transport Port adapters and contract tests
 │   │   ├── http/            # project-owned native HTTP adapter
 │   │   ├── wss/             # project-owned raw WebSocket call adapter
-│   │   ├── geth/            # explicit go-ethereum compatibility adapter
 │   │   └── contract/        # transport-neutral L1 contract suite
-│   └── testkit/wstest/      # server-side WSS test peer
-├── gethcompat/              # explicit construction seam for go-ethereum transport
+│   └── testkit/             # internal test support
+│       ├── wstest/          # server-side WSS test peer
+│       └── gethoracle/      # geth differential oracle for tests/diagnostics
 ├── rpctest/                # in-process scriptable Ethereum nodes for tests
 ├── cmd/                    # executable entries, including wsscapture and livecanary
 ├── docs/                   # architecture, threat model, and design notes
@@ -106,7 +111,6 @@ ethguard/                   # public Client facade
 | `ethguard/internal/spec` | Pinned execution-apis reference data (version, schemas, vectors) |
 | `ethguard/rpctest` | Scriptable multi-source test harness over real HTTP |
 | `ethguard/internal/transport` | Transport Port implementations and neutral contract tests |
-| `ethguard/gethcompat` | Explicit go-ethereum compatibility construction seam |
 
 Concurrency model: one shared `Client` / `pool.Pool` per process use-case;
 sources keep long-lived connections. Callers should not dial per request or
@@ -172,7 +176,7 @@ execution skeleton is:
 Validate / Prepare → Reference → Collect → Admit → Resolve → Project
 ```
 
-The current inventory contains 26 registered read methods. The root `Client`
+The current inventory contains 27 registered read RPCs. The root `Client`
 provides typed methods and generic `Call` access over that
 inventory. `eth_getProof` is explicitly unsupported. A registered plan does not
 promise a provider-wide compatibility result: live provider evidence remains a
@@ -353,7 +357,7 @@ health. Unknown transaction outcomes are never automatically replayed; only a
 later independent call may lazily reconnect. Raw WSS retains missing/null/`0x`/
 concrete error data without claiming provider-wide compatibility. Same-backend
 HTTP and WSS endpoints do not establish independent trust. Explicit per-source
-transport cannot be combined with `DialerOption`/`gethcompat.New`.
+transport cannot be combined with `DialerOption`.
 
 The raw WSS adapter is an EthGuard call transport with an opt-in bounded
 notification capability, not a general WebSocket client. Root subscriptions

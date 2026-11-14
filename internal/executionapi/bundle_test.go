@@ -5,7 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"path"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard/internal/spec"
@@ -54,7 +57,7 @@ func TestLoadRejectsSourceSkewAndAmbiguity(t *testing.T) {
 }
 
 func TestRequestInventorySharesTheOriginalCallAndSimulateSchemas(t *testing.T) {
-	bundle, err := Read()
+	bundle, err := ReadOriginal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +130,7 @@ func TestReferenceBundlesMatchPinnedSourceManifest(t *testing.T) {
 	if err := json.Unmarshal(spec.SourceJSON(), &source); err != nil {
 		t.Fatal(err)
 	}
-	if source.Repository != "https://github.com/ethereum/execution-apis" || source.Version != spec.Version() || source.Commit != "5aebdfdd45cadeb723be4bd45b4611b71c8b1c85" || len(source.DereferencedOpenRPCSHA256) != 64 {
+	if source.Repository != "https://github.com/ethereum/execution-apis" || source.Version != spec.Version() || source.Commit != "981aa66d79364be8322a9c358aaf0a571cca0873" || len(source.DereferencedOpenRPCSHA256) != 64 {
 		t.Fatalf("unexpected source identity: %+v", source)
 	}
 	inputs := map[string][]byte{"methods.json": spec.MethodsJSON(), "requests.json": spec.RequestsJSON(), "simulatev1/simulate.json": spec.SimulateV1JSON()}
@@ -138,5 +141,46 @@ func TestReferenceBundlesMatchPinnedSourceManifest(t *testing.T) {
 		if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != source.Bundles[name] {
 			t.Fatalf("%s digest = %s, want %s; rebuild from the pinned official source and review the change", name, got, source.Bundles[name])
 		}
+	}
+}
+
+func TestSharedVectorInventoryMatchesPinnedSourceManifest(t *testing.T) {
+	files := spec.VectorsFS()
+	raw, err := fs.ReadFile(files, "vectors/SOURCE.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source struct {
+		Repository, Version, Commit, UpstreamVectorDirectory string
+		Vectors                                              map[string]string
+	}
+	if err := json.Unmarshal(raw, &source); err != nil {
+		t.Fatal(err)
+	}
+	if source.Repository != "https://github.com/ethereum/execution-apis" || source.Version != spec.Version() || source.Commit != "981aa66d79364be8322a9c358aaf0a571cca0873" || source.UpstreamVectorDirectory != "tests" {
+		t.Fatalf("unexpected vector source: %+v", source)
+	}
+	actual := map[string]string{}
+	methods := map[string]bool{}
+	if err := fs.WalkDir(files, "vectors", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(name, ".io") {
+			return nil
+		}
+		data, err := fs.ReadFile(files, name)
+		if err != nil {
+			return err
+		}
+		relative := strings.TrimPrefix(name, "vectors/")
+		actual[relative] = digest(data)
+		methods[path.Dir(relative)] = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(methods) != 21 || !reflect.DeepEqual(actual, source.Vectors) {
+		t.Fatalf("shared vector bytes or method selection differ: %d methods, %d files", len(methods), len(actual))
 	}
 }

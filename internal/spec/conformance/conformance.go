@@ -161,7 +161,9 @@ func ParseVector(vectorsFS fs.FS, path string) ([]Vector, error) {
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1024), 4<<20)
+	// The pinned no-topics corpus contains a 21 MB response line. This is
+	// an offline evidence reader, independent of runtime response budgets.
+	scanner.Buffer(make([]byte, 1024), 32<<20)
 	var requests, responses []json.RawMessage
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -231,9 +233,20 @@ func validateSchema(schema any, value any, path string, depth int) error {
 	if depth > 64 {
 		return errors.New("schema nesting exceeds 64 levels")
 	}
+	if allowed, ok := schema.(bool); ok {
+		if allowed {
+			return nil
+		}
+		return fmt.Errorf("%s: false schema rejects every value", path)
+	}
 	m, ok := schema.(map[string]any)
 	if !ok {
-		return nil
+		return fmt.Errorf("%s: schema must be an object or boolean", path)
+	}
+	if forbidden, exists := m["not"]; exists {
+		if err := validateSchema(forbidden, value, path, depth+1); err == nil {
+			return fmt.Errorf("%s: value matches forbidden schema", path)
+		}
 	}
 	for _, key := range []string{"oneOf", "anyOf", "allOf"} {
 		branches, ok := m[key].([]any)
@@ -313,12 +326,28 @@ func validateSchema(schema any, value any, path string, depth int) error {
 			}
 		}
 		properties, _ := m["properties"].(map[string]any)
-		additional, hasAdditional := m["additionalProperties"].(bool)
+		patterns, _ := m["patternProperties"].(map[string]any)
+		additional, hasAdditional := m["additionalProperties"]
 		for name, child := range current {
 			childSchema, declared := properties[name]
+			matchedPattern := false
+			for pattern, patternSchema := range patterns {
+				matched, err := regexp.MatchString(pattern, name)
+				if err != nil {
+					return fmt.Errorf("%s: invalid property pattern: %w", path, err)
+				}
+				if matched {
+					matchedPattern = true
+					if err := validateSchema(patternSchema, child, path+"/"+escape(name), depth+1); err != nil {
+						return err
+					}
+				}
+			}
 			if !declared {
-				if hasAdditional && !additional {
-					return fmt.Errorf("%s: unexpected property %q", path, name)
+				if !matchedPattern && hasAdditional {
+					if err := validateSchema(additional, child, path+"/"+escape(name), depth+1); err != nil {
+						return err
+					}
 				}
 				continue
 			}
@@ -327,6 +356,15 @@ func validateSchema(schema any, value any, path string, depth int) error {
 			}
 		}
 	case []any:
+		if unique, _ := m["uniqueItems"].(bool); unique {
+			for i, item := range current {
+				for _, previous := range current[:i] {
+					if jsonEqual(item, previous) {
+						return fmt.Errorf("%s: duplicate array item", path)
+					}
+				}
+			}
+		}
 		if items, ok := m["items"]; ok {
 			for i, item := range current {
 				if err := validateSchema(items, item, path+"/"+strconv.Itoa(i), depth+1); err != nil {

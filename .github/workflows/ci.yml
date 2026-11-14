@@ -160,11 +160,10 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-  # Link-time gate: the default build must not link the go-ethereum client,
-  # and the geth compatibility channel (gethcompat) must build and run its
-  # own tests. Both channels share one interlock, so the tests run here too.
+  # Link-time gate: production/native execution must not link ethclient.
+  # The internal geth oracle is isolated to testkit and diagnostic tools.
   linktime:
-    name: link-time channels (native default + gethcompat)
+    name: native architecture and oracle isolation
     runs-on: ubuntu-latest
     needs: check
     steps:
@@ -172,21 +171,22 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: default build excludes ethclient
+      - name: native execution graph excludes ethclient
         run: |
-          if go list -deps . | grep -q 'go-ethereum/ethclient'; then
-            echo "::error::the default build links ethclient"
-            go list -deps . | grep 'go-ethereum/ethclient'
+          native_packages="$(go list -deps . ./internal/runtime ./pool ./rpc)"
+          if grep -q 'go-ethereum/ethclient' <<< "$native_packages"; then
+            echo "::error::the native execution graph links ethclient"
+            grep 'go-ethereum/ethclient' <<< "$native_packages"
             exit 1
           fi
-      - name: gethcompat links the compatibility adapter
+      - name: geth oracle stays in internal testkit
         run: |
-          if ! go list -deps ./gethcompat | grep -q 'go-ethereum/ethclient'; then
-            echo "::error::gethcompat does not link the adapter it exposes"
+          if ! go list -deps ./internal/testkit/gethoracle | grep -q 'go-ethereum/ethclient'; then
+            echo "::error::the internal geth oracle does not expose its comparison client"
             exit 1
           fi
-      - name: compatibility channel tests
-        run: go test ./gethcompat/... ./internal/transport/geth/... ./internal/transport/http/...
+      - name: native transport and oracle tests
+        run: go test ./internal/testkit/gethoracle ./internal/transport/http/... ./internal/transport/wss/...
 
   # Scheduled fuzzing exercises untrusted JSON and WebSocket frame parsers
   # outside the pull-request critical path. Any discovered input is emitted by

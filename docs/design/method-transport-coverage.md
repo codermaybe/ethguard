@@ -1,23 +1,24 @@
 # 方法与传输覆盖清单
 
-状态：**当前 v1.17.10 完整兼容矩阵（2026-11-12）；尚未达到完整 ethclient 发布门槛**。
+状态：**当前 v1.17.10 方法与语义矩阵（2026-11-14）；方法集合闭合不代表逐方法语义验收或稳定发布门槛闭合**。
 
-本文是锁定 go-ethereum 版本的方法级实现与证据索引；当前缺失方法必须在完整兼容发布前关闭，不能从“Registered”或普通 HTTP/WSS request 能力推导为已支持。
+本文是锁定 go-ethereum 版本的方法级实现与证据索引；当前方法名集合为 47 项，逐方法语义与证据缺口仍须在完整兼容发布前关闭，不能从“Registered”或普通 HTTP/WSS request 能力推导为已支持。
 
-本清单以仓库锁定的 go-ethereum `v1.17.10`、`rpc/methods` catalog/ReadPlan、根 `Client` 和 `EthClient` 视图为事实源。它只记录当前代码事实和缺口，不授权单个方法任务修改公共接口。公共接口变更统一由 roadmap 管理。
+本清单以仓库锁定的 go-ethereum `v1.17.10`、`rpc/methods` catalog/ReadPlan、根 `Client` 和 `EthClient` 视图为事实源。它只记录当前代码事实和缺口，不授权单个方法任务修改公共接口。公共接口变更依照兼容政策与正式架构决策审查。
 
 ### 2026-11-14 公开生成类型迁移
 
-完整参数和结果签名由 `TestEthClientBusinessSignatures` 验证：六个 CallContract／EstimateGas 入口接受 `ethapi.CallMsg`，FeeHistory／SyncProgress 返回各自 `ethapi` 类型；其余方法继续逐签名比较锁定目标，尚未迁移。方法名集合和 47 项目标没有减少。Root CreateAccessList 的结果另迁为 `*ethapi.AccessListResult`，请求仍待迁移。
+完整参数和结果签名由 `TestEthClientBusinessSignatures` 验证：六个 CallContract／EstimateGas 入口接受 `ethapi.CallMsg`，FeeHistory／SyncProgress 返回各自 `ethapi` 类型；SimulateV1 接受生成 payload 与 selector。其余方法继续逐签名比较锁定目标，尚未迁移。方法名集合和 47 项目标没有减少。Root CreateAccessList 的结果另迁为 `*ethapi.AccessListResult`，请求仍待迁移。
 
 `TestStateRefMovingTagsRewriteToAnchorHash`、estimate gas transport、call boundary／revert 与原有 HTTP／raw WSS 回归在新 CallMsg 上运行，历史 geth 参数只在 `internal/testkit/ethapitest` 中作为差分输入夹具，不被生产代码导入。`TestRequestInventorySharesTheOriginalCallAndSimulateSchemas` 固定三个调用请求 schema 的一致性。来源、public presence、blob fee 精确值与同步附属证据的范围见 [生成合同](wire-codegen.md)。这批通过不关闭剩余业务类型或原生 Simulate 缺口。
 
 ## v1.17.10 方法差异基线
 
 基线直接对锁定 module 的 `*ethclient.Client` 做 Go reflection，并与本仓库
-`*EthClient` 的导出方法集合比较。结果是上游 48 个导出方法（其中
-`Client()` 是底层 `*rpc.Client` 访问器）与当前 46 个方法；排除该访问器后的业务目标为
-47 个，当前业务缺口为 1 个方法。
+`*EthClient` 的导出方法集合比较。上游有 48 个导出方法（其中
+`Client()` 是底层 `*rpc.Client` 访问器）；排除该访问器后的业务目标为
+47 个。SimulateV1 入口迁入后，该计数门用于确认方法名集合闭合，不验证任何方法的
+逐项语义合同。
 这只记录代码事实，不把部分方法解释为兼容版本。可复现命令为：
 
 ```text
@@ -28,15 +29,17 @@ scripts/ethclient-method-diff.sh
 和 `reflect.TypeOf((*ethguard.EthClient)(nil)).NumMethod()`，并按方法名计算
 集合差异。若上游版本变化，必须重新生成该差异后再更新本节、下表和锁定版本。
 
-当前业务缺失集合为：
+当前方法名集合目标为 47 项；方法计数断言通过后仍须按下表和逐方法证据补齐跨传输
+fixture、错误和证据矩阵，不能据此宣称最终兼容发布已闭合。
 
-`SimulateV1`。其余 pending state、同步写入和三类订阅均已暴露 facade；仍需
-逐项补齐跨传输 fixture、错误和证据矩阵，暂不代表最终兼容发布已闭合。
-`gethcompat.SimulateClient` now provides an opt-in single-source adapter with
-the official `ethclient.SimulateOptions` and `SimulateBlockResult` types. This
-adapter is an explicit compatibility escape hatch; it is not a Root/View
-mapping and does not reduce the business gap while the default EthClient
-surface remains evidence-backed.
+`SimulateV1` 的 root/view 使用 `ethapi.SimulateV1Request`、
+`*ethapi.SimulateBlockReference` 和 `[]ethapi.SimulateBlock`，nil base 默认 latest。
+Raw Call 通过同一 Prepare 接收原始 JSON；生成检查与输入快照在 reference 前完成。
+当前官方 selector 的五个分支均接入，包括 quantity blockNumber 对象和保留
+requireCanonical presence 的 blockHash 对象。移动字符串标签仍改写为裸 anchor hash。
+强类型请求不代表全部模拟语义、错误和 provider 证据验收完成；达到 47 项也不能
+单独视为完整兼容或稳定发布。`internal/testkit/gethoracle` 仅是测试／诊断对照，
+不是生产 fallback。
 
 `Client()` 不是业务 RPC 方法，明确排除在 `EthClient` facade 之外；它不能通过
 忽略而把业务差异伪装成已闭合。该缺口必须给出 Root、typed、错误、
@@ -77,6 +80,7 @@ surface remains evidence-backed.
 | `eth_call` | Registered | `CallContract` | `CallContract` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, call rules | overrides、provider golden `error.data=null` |
 | `eth_estimateGas` | Registered | `EstimateGas` | `EstimateGas` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | provider revert golden、边界参数 |
 | `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | WSS 单源与多源 strict quorum | `eth.go`, `typed`, `subscription.go`, `internal/subscription` | 同源 Pull 已接入；跨 transport 证据和大范围成本仍待补 |
+| `eth_simulateV1` | Registered | `SimulateV1` | `SimulateV1` | native HTTP/WSS raw call | 不适用 | `simulate.go`, `rpc/methods/simulate.go` | 生成 payload/base；Prepare 统一校验及固定输入。逐方法模拟语义与 provider 证据继续验收。完整 base/reference 矩阵见 [moving-tag-matrix](moving-tag-matrix.md#c-execution-ranges-fee-history) |
 | `eth_feeHistory` | Registered | `FeeHistory` | `FeeHistory` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 历史高度、percentile 边界和跨 transport |
 | `eth_gasPrice` | Registered | `SuggestGasPrice` | `SuggestGasPrice` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
 | `eth_maxPriorityFeePerGas` | Registered | `SuggestGasTipCap` | `SuggestGasTipCap` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
@@ -90,14 +94,15 @@ surface remains evidence-backed.
 | `eth_sendRawTransaction` | Write | `SendRawTransaction` | `SendTransaction` | native HTTP/WSS raw call | 不适用 | `write.go`, write pipeline | accepted/unknown/rejected 与 receipt 关系 |
 | `eth_getProof` | Explicit unsupported | 不支持 | 不支持 | 不应 silent forward | 不适用 | catalog descriptor | 需要独立 proof admission/evidence contract |
 
-两个计数口径不同，不能互相换算：**47** 是锁定上游 ethclient 的用户可调用方法面（含 Close，排除 `Client()`），**26** 是本项目 catalog 登记的注册读 RPC 条目——一个 RPC 可服务普通／AtHash／Pending 多个公开入口，另有写入条目与显式 unsupported 条目及 root 扩展在 47 的分母内但不占 26 的行。catalog 的注册不等于跨 transport、provider 或订阅证据已经完成。
+两个计数口径不同，不能互相换算：**47** 是锁定上游 ethclient 的用户可调用方法面（含 Close，排除 `Client()`），**27** 是本项目 catalog 当前登记的注册读 RPC 条目——一个 RPC 可服务普通／AtHash／Pending 多个公开入口，另有写入条目与显式 unsupported 条目及 root 扩展在 47 的分母内但不占 27 的行。catalog 的注册不等于跨 transport、provider 或订阅证据已经完成。
 
 ## 读注册归属（rpc/methods）
 
-全部 26 个注册读方法已自治：每个方法文件拥有自己的 RPC 名称、公开映射、MethodSpec／只读 MethodDescriptor、准备与修正 hooks；`spec_inventory.go` 与 `catalog.go` 只收集定义函数，集中名称表已退役（盘点基线源码 `04f1f05`，门禁与自检见下文记录）。`eth_sendRawTransaction`（WriteMethod）与 `eth_getProof`（UnsupportedMethod）无读 spec。无遗留 `XxxPolicy()` 构造器；`blockPolicy` 是 block 包装 resolver 的装配。
+27 个注册读方法各由自己的方法文件拥有 RPC 名称与执行定义；前 26 项的自治清单及验收基线来自源码 `04f1f05`，SimulateV1 是本轮新增项。`spec_inventory.go` 与 `catalog.go` 只收集定义函数。`eth_sendRawTransaction`（WriteMethod）与 `eth_getProof`（UnsupportedMethod）无读 spec。无遗留 `XxxPolicy()` 构造器；`blockPolicy` 是 block 包装 resolver 的装配。
 
 | RPC 方法 | Owner 文件（rpc/methods） | 执行类别 | 公开入口（共享同一 plan） |
 | --- | --- | --- | --- |
+| `eth_simulateV1` | `simulate.go` | strict + reference / pending-local | `Client.SimulateV1`、`EthClient.SimulateV1`、Raw Call |
 | `eth_getTransactionByHash` | `transaction_by_hash.go` | strict 事务对象 | `TransactionByHash` |
 | `eth_getTransactionByBlockHashAndIndex` | `transaction_in_block.go` | strict 事务对象 | `TransactionInBlock`、`TransactionSender` |
 | `eth_chainId` | `chain_id.go` | strict quantity（canonical bytes） | `ChainID` |
@@ -140,9 +145,9 @@ surface remains evidence-backed.
 
 自检结论（2026-11-12，迁移完成后）：方法文件对其他方法文件私有函数的引用为零；共享依赖仅族 wrapper（block.go）、objects 层与 wire codec 三类。迁移逐字搬运，唯一一次简化尝试（官方闭对象的运行时拒绝）被既有 receipt vendor-dissent 验收否决并回退，未留下行为变更；无新接口、注册框架或 helper 包，inventory 为纯收集。
 
-## 26 个读 RPC 的单源处理处置（2026-11-13）
+## 26 个读 RPC 的单源处理处置（2026-11-13 历史批次）
 
-本轮处理接口（canonical strict 单源结果）的逐族裁决。口径：**新接口接入** = 生产 invocation 冻结 canonical 路线；**对象内优化** = 不接 seam 但消除可证明重复；**保留合同** = 按现有执行合同运行并记录理由；**明确缺口** = 记录未闭合项。数量：接入 2、保留 24（其中 6 个记录了可评估的接入/共享路径）、缺口 0（SimulateV1 缺口属于 47 方法面，见下文方法差异基线，不在 26 读 RPC 之列）。处置证据来自 T00 事实快照、T02/T07/T08 见证与逐族代码核查。
+该历史批次仅处置当时的 26 个读 RPC；本轮新注册的 SimulateV1 未进入该批次，也未继承其语义处置结论。口径：**新接口接入** = 生产 invocation 冻结 canonical 路线；**对象内优化** = 不接 seam 但消除可证明重复；**保留合同** = 按现有执行合同运行并记录理由；**明确缺口** = 记录未闭合项。历史数量为接入 2、保留 24（其中 6 个记录了可评估的接入/共享路径）、缺口 0。处置证据来自 T00 事实快照、T02/T07/T08 见证与逐族代码核查。
 
 | 批次 | 读取 RPC | 处置 | 理由与证据 |
 | --- | --- | --- | --- |
@@ -155,13 +160,13 @@ surface remains evidence-backed.
 | T09g | `net_peerCount`、`eth_syncing`、`net_listening` | 保留合同（含已审计的内部重复） | Local/Selected 独立，source-local 语义及 bool/数量/null 拒绝规则保留；SyncProgress 的公开字段／Done() 差异见生成迁移合同。内部重复事实（2026-11-13 审计修正）：peerCount 每答案 `NormalizeHexQuantity` 一次，被选源的 `EncodeFoldedQuantity` 再归一化一次（同一值共 2 次）；syncing 的 normalize 保留顶层本地观测检查，被选源 encoder 已切换为官方生成模型投影，域外字段经 evidence 通道交付。两者均为"每答案一次 + 被选源一次"的采样形状，量级同 T09f 的测量（µs 级），保留路线；合并同样涉及故障标签顺序，单列设计问题。无 Admit。 |
 | T09h | `eth_call` | 保留合同 | call-revert 受控逃逸：execution/data 两层裁决、revert 四态、受保护 data 与 provider 文案分离——canonical 结果类型有意不表达该维度（设计第 4 节固定接口明确排除 call-revert）。不把错误信封当普通 canonical Value。 |
 
-补充口径：root-only `net_listening` 保留在 T09g 内（它在 26 读 RPC 的分母里，也显式记录为 root 扩展）；`eth_sendRawTransaction`（写入管线）与 `eth_getProof`（显式 unsupported）无读 spec，不参与本处置；订阅族消费同源 Pull（logs/receipts 的既有合同），本表不重复裁决。
+补充口径（历史批次）：root-only `net_listening` 保留在 T09g 内（它在当时 26 读 RPC 的分母里，也显式记录为 root 扩展）；SimulateV1 是之后新增的第 27 项，未进入 T09 处置。`eth_sendRawTransaction`（写入管线）与 `eth_getProof`（显式 unsupported）无读 spec，不参与本处置；订阅族消费同源 Pull（logs/receipts 的既有合同），本表不重复裁决。
 
 ## go-ethereum v1.17.10 官方 ethclient 方法
 
-下面列出锁定版本 `ethclient.Client` 的公开方法。当前 `EthClient` 暴露 46
-个方法；上游 `Client()` 只作为显式排除项记录。其余业务方法必须逐项接入并闭合
-证据，在兼容发布前不能把“待接入”当作已实现。
+下面列出锁定版本 `ethclient.Client` 的公开方法。当前目标方法集合为 47 项；上游
+`Client()` 只作为显式排除项记录。方法名出现在 facade 后，仍须逐项闭合语义证据；
+入口接入或计数完整不能将“待验收”当作已完成。
 
 | 官方方法 | 当前 View | Root/项目映射 | 分类 |
 | --- | --- | --- | --- |
@@ -212,20 +217,20 @@ surface remains evidence-backed.
 | `SendTransaction` | 已有 | `Client.SendRawTransaction` / view SendTransaction | 已覆盖 |
 | `SendTransactionSync` | 已有 | `Client.SendTransactionSync` | broadcast+receipt polling；语义证据待补 |
 | `SendRawTransactionSync` | 已有 | `Client.SendRawTransactionSync` | broadcast+receipt polling；语义证据待补 |
-| `SimulateV1` | 明确阻塞 | 无映射（可选 `gethcompat.SimulateClient`） | 默认构建禁止导入 ethclient；可选适配器只提供单源官方类型调用，不属于 EthClient 兼容面 |
+| `SimulateV1` | native 入口已接入；语义验收待完成 | `Client.SimulateV1` / view / Raw Call 共用注册计划 | 请求为 `ethapi.SimulateV1Request`，返回 `[]ethapi.SimulateBlock`；base 为 `*ethapi.SimulateBlockReference`，nil 表示 latest；强类型和方法数闭合均不等于逐方法语义验收 |
 
 `go-ethereum/ethclient/gethclient` 还提供扩展方法，例如 `GetProof`、`CallContract` overrides、`Trace*`、`SubscribePendingTransactions` 和调试统计。它们不自动进入 EthClient；必须单独决定是否属于项目的生态承诺。
 
 ## 当前 transport 事实
 
-| 能力 | native HTTP | native WSS | gethcompat | 备注 |
+| 能力 | native HTTP | native WSS | 内部 geth oracle | 备注 |
 | --- | --- | --- | --- | --- |
-| 普通 JSON-RPC request/response | 已有 | 已有 | 显式 adapter | 共用 `pool.Transport` seam |
+| 普通 JSON-RPC request/response | 已有 | 已有 | 差分测试／诊断 | oracle 不在生产执行图中 |
 | request ID demux | HTTP 请求级 | 已有 | 由 geth | WSS raw-call 已测试乱序和 pending 清理 |
-| `ChainID` / `Close` | 已有 | 已有 | 显式 adapter | 共享 owner 生命周期 |
-| `error.data` presence | 已有四态 | native raw 可保留；provider golden 未闭合 | 受 adapter 限制 | missing/null/value/unknown 必须分开记录 |
+| `ChainID` / `Close` | 已有 | 已有 | 不适用 | oracle 不提供生产 Client 生命周期 |
+| `error.data` presence | 已有四态 | native raw 可保留；provider golden 未闭合 | 诊断参考 | missing/null/value/unknown 必须分开记录 |
 | 普通订阅 | 不适用 | 已有显式 capability；单 WSS source facade | 未承诺 | capability 不扩张 unary Transport；多源聚合已接入，Pull/gap/跨 transport 证据仍待补 |
-| HTTP Pull 补查 | 可用 | 仅当同一 source 有配置 | 依 adapter | 不得把任意 HTTP endpoint 当作同一 source |
+| HTTP Pull 补查 | 可用 | 仅当同一 source 有配置 | 不适用 | 不得把任意 HTTP endpoint 当作同一 source |
 | reconnect / keepalive / queue | 未作为通用能力 | 未实现 | 不统一承诺 | 需订阅契约后单独决定 |
 
 ## 方法族执行顺序
@@ -243,7 +248,7 @@ surface remains evidence-backed.
 
 - 方法卡片和覆盖矩阵更新；
 - root 与 view 的调用/错误/Decision 对照；
-- HTTP、WSS、必要时 gethcompat 的请求 fixture；
+- HTTP 与 raw WSS 请求 fixture；仅在有明确诊断需要时使用内部 geth oracle；
 - null、malformed、conflict、cancel、Close 和证据预算反例；
 - 实际命令和测试结果；
 - 对公共返回值或订阅接口的影响分析。
@@ -274,12 +279,12 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - `HeaderByHash` 和 `HeaderByNumber` 复用 `eth_getBlockByHash` / `eth_getBlockByNumber` 的既有 ReadPlan、admission 和 block projector；只把 `fullTx` 固定为 `false`，再由 `DecodeBlockHeaderOnly` 交付 `*types.Header`。
 - 根 Client 返回 `(* types.Header, CallResult, error)`，EthClient 视图保持官方 `(* types.Header, error)`。
 - `HeaderByNumber(nil)`、`-2/-3/-4` 通过已建立 reference 读取并附带 reference 事实；`-5` 映射高度 `0x0`；`-1` 及未知负数在本地拒绝，不宣称 pending header 已支持。
-- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合会随锁定版本反射检查更新；当前已暴露 46 个方法，仍只是接入检查点；与上游 48 个导出方法的完整差异见本文件“v1.17.10 方法差异基线”。
+- 定向测试：`typed_block_headers_test.go`、`typed_state_hash_test.go`、`ethclient_view_test.go` 方法集合会随锁定版本反射检查更新；47 项计数只确认集合闭合，不替代语义检查。与上游 48 个导出方法的差异见本文件“v1.17.10 方法差异基线”。
 
 ## 未决项
 
-- 官方 pending 族、交易派生方法是否进入 EthClient；
-- `eth_getProof`、`SimulateV1`、gethclient 扩展是否属于项目承诺；
+- 官方 pending 族和交易派生方法的逐语义验收；
+- `eth_getProof` 与 gethclient 扩展是否属于项目承诺；SimulateV1 已有生成请求类型，其方法语义与外部证据仍须继续验收；
 - root 订阅事件类型与官方视图订阅 channel 的关系；
 - subscription 的 quorum、source membership、reorg/removed、Pull 补查和异步错误；其中 newHeads、logs、transactionReceipts 的固定 snapshot 与 strict quorum 已接入根 facade，三类订阅均已接入同源 Pull，newHeads 的跳高 gap 已按结构化 Err 终止，跨 transport 证据仍开放。
 - 方法覆盖完成后，是否需要调整 `CallResult`、ResultCapture 或引入独立事件结果类型。
@@ -294,7 +299,7 @@ go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
 - 当前 `rpc/methods` 的 `ReferenceSpec{EIP1898:true}` 和 EIP-1898 rewrite 测试继续覆盖对象校验、显式 hash、`requireCanonical` 保留和 moving tag 改写；AtHash facade 通过同一 plan 执行。
 - AtHash 接入使用受控的 EIP-1898 map 参数和现有 plan，不通过未知 `Call`。
 - `PendingBalanceAt`、`PendingStorageAt`、`PendingCodeAt`、`PendingNonceAt`、`PendingTransactionCount` 的 plan 已有 `PendingObserve` 声明。pending 是节点本地状态，不能直接套用 moving reference；aggregator 可以收集多个 source，但结果只能是第一个可用本地观察的 `Selected`，不能声称 `Corroborated`。
-- `TransactionSender` 复用 `eth_getTransactionByBlockHashAndIndex` 的 method-aware plan；sender 的输入 hash 绑定和 envelope 校验已接入，值与 null/NotFound 的 HTTP/WSS 证据及多源冲突/malformed 反例已锁定；跨 transport 负向 fixture 和 `SimulateV1` 默认构建导入边界仍开放。
+- `TransactionSender` 复用 `eth_getTransactionByBlockHashAndIndex` 的 method-aware plan；sender 的输入 hash 绑定和 envelope 校验已接入，值与 null/NotFound 的 HTTP/WSS 证据及多源冲突/malformed 反例已锁定；跨 transport 负向 fixture 仍开放。SimulateV1 已通过 native Prepare 接入生成请求和 selector；逐方法模拟语义与外部证据仍待收口。
 - pending 的 source-local、quorum 与 Decision 语义仍需单独冻结；AtHash 不改变 pending、CallResult 或订阅边界。
 
 建议的回归矩阵：

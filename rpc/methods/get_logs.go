@@ -30,7 +30,7 @@ func getLogsSpec() MethodSpec {
 		CompareKind:            rpc.RuleCompareMethodSpecific,
 		Reference:              ReferenceSpec{Kind: ReferenceShapeHeightFieldsAt, ParamPos: 0, Fields: []string{"fromBlock", "toBlock"}},
 		Pending:                PendingSpec{Mode: PendingRefuse, Pos: 0},
-		Validate:               func(_ context.Context, req rpc.Request) error { return validateLogRequest(req) },
+		Prepare:                func(_ context.Context, req rpc.Request) (rpc.Request, error) { return req, validateLogRequest(req) },
 		Admit:                  admitLogs,
 		ObservationProjectorID: ProjectorLogs,
 	}

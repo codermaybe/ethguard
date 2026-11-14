@@ -92,7 +92,7 @@ func CompilePlan(spec MethodSpec) (rpc.ReadPlan, error) {
 		ResolverKind:     spec.Resolver,
 		Reference:        spec.Reference,
 		Pending:          spec.Pending,
-		Validate:         spec.Validate,
+		Prepare:          spec.Prepare,
 		Admit:            spec.Admit,
 		ProcessCanonical: spec.ProcessCanonical,
 		ProjectorID:      spec.ObservationProjectorID,
@@ -100,7 +100,7 @@ func CompilePlan(spec MethodSpec) (rpc.ReadPlan, error) {
 	// The declared pending rejection executes locally only when the method
 	// does not own its rejection in the validate hook; otherwise the
 	// declaration contributes the rule column alone.
-	if spec.Pending.Mode == PendingRefuse && spec.Validate == nil {
+	if spec.Pending.Mode == PendingRefuse && spec.Prepare == nil {
 		plan.PendingReject = rpc.PendingRejectAt(spec.Pending.Pos, spec.Method)
 	}
 	if err := validatePlanBindings(plan, spec); err != nil {

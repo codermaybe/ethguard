@@ -47,15 +47,18 @@ func TestErrataOnlyChangesFourRequiredQueryValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	effective, err := Read()
+	effective, err := ReadOriginal()
 	if err != nil {
+		t.Fatal(err)
+	}
+	e, raw := pendingErratum(t)
+	if err := applyErrata(&effective, spec.SourceJSON(), fstest.MapFS{"errata/pending.json": &fstest.MapFile{Data: raw}}); err != nil {
 		t.Fatal(err)
 	}
 	method := "eth_getTransactionByHash"
 	if len(effective.Errata) != 1 || effective.Errata[0].ID != "transaction-query-pending-context" {
 		t.Fatalf("audit = %+v", effective.Errata)
 	}
-	e, raw := pendingErratum(t)
 	audit := effective.Errata[0]
 	if audit.SHA256 != digest(raw) || audit.InputSchemaSHA256 != digest(original.Results[method]) || audit.OutputSchemaSHA256 != digest(effective.Results[method]) {
 		t.Fatalf("audit does not identify actual inputs and output: %+v", audit)

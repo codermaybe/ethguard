@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -32,7 +33,6 @@ var corePackages = map[string]bool{
 	modulePath + "/aggregator":              true,
 	modulePath + "/config":                  true,
 	modulePath + "/observe":                 true,
-	modulePath + "/gethcompat":              true,
 	modulePath + "/internal/runtime":        true,
 	modulePath + "/internal/reference":      true,
 	modulePath + "/internal/typed":          true,
@@ -86,41 +86,24 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		imports := make(map[string]bool, len(pkg.Imports))
 		for _, imp := range pkg.Imports {
 			imports[imp] = true
-			if strings.HasPrefix(imp, modulePath+"/internal/verification") ||
-				strings.HasPrefix(imp, modulePath+"/internal/testkit") {
+			if (strings.HasPrefix(imp, modulePath+"/internal/verification") ||
+				strings.HasPrefix(imp, modulePath+"/internal/testkit")) &&
+				!(pkg.ImportPath == modulePath+"/cmd/nativesmoke" && imp == modulePath+"/internal/testkit/gethoracle") {
 				t.Errorf("production package %s imports verification-only package %s", pkg.ImportPath, imp)
 			}
 		}
-		// The link-time transport rules: exactly one production package may
-		// import the go-ethereum client, and the geth wire package stays
-		// confined to the compatibility adapter, the public gethcompat seam,
-		// the ethclient-shaped facade, and command entry points.
-		if strings.Contains(pkg.ImportPath, "go-ethereum") {
-			continue
+		// Only the differential oracle may import ethclient. The typed facade
+		// retains go-ethereum/rpc for its public BlockNumberOrHash signature.
+		if imports["github.com/ethereum/go-ethereum/ethclient"] && pkg.ImportPath != modulePath+"/internal/testkit/gethoracle" {
+			t.Errorf("%s imports ethclient; it is confined to the differential oracle", pkg.ImportPath)
 		}
-		importsETHClient := false
-		for _, imp := range pkg.Imports {
-			if imp == "github.com/ethereum/go-ethereum/ethclient" {
-				importsETHClient = true
-			}
-		}
-		if importsETHClient && pkg.ImportPath != modulePath+"/internal/transport/geth" && pkg.ImportPath != modulePath+"/gethcompat" {
-			t.Errorf("%s imports ethclient; only internal/transport/geth and gethcompat may link the go-ethereum client", pkg.ImportPath)
-		}
-		importsGethRPC := false
-		for _, imp := range pkg.Imports {
-			if imp == "github.com/ethereum/go-ethereum/rpc" {
-				importsGethRPC = true
-			}
-		}
-		if importsGethRPC {
+		if imports["github.com/ethereum/go-ethereum/rpc"] {
 			switch {
-			case pkg.ImportPath == modulePath+"/internal/transport/geth",
-				pkg.ImportPath == modulePath+"/gethcompat",
+			case pkg.ImportPath == modulePath+"/internal/testkit/gethoracle",
 				pkg.ImportPath == modulePath,
 				strings.HasPrefix(pkg.ImportPath, modulePath+"/cmd/"):
 			default:
-				t.Errorf("%s imports gethrpc; it is confined to internal/transport/geth, the root typed facade, and cmd/*", pkg.ImportPath)
+				t.Errorf("%s imports gethrpc; it is confined to the oracle, root typed facade, and cmd/*", pkg.ImportPath)
 			}
 		}
 
@@ -134,9 +117,7 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		switch pkg.ImportPath {
 		case modulePath:
 			rootUsesRuntime = imports[modulePath+"/internal/runtime"]
-			if imports[modulePath+"/internal/transport/geth"] {
-				t.Error("root facade imports the geth adapter; the compatibility channel is reachable only through gethcompat")
-			}
+
 			if imports[modulePath+"/internal/transport/http"] || imports[modulePath+"/internal/transport/wss"] {
 				t.Error("root facade imports a concrete transport; the composition root assembles them in internal/runtime")
 			}
@@ -204,13 +185,16 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 // every importer of it is inside go-ethereum — no EthGuard package may link
 // it directly, and the WSS production path below stays absolute.
 func TestDefaultBuildExcludesEthclient(t *testing.T) {
-	out, err := exec.Command("go", "list", "-deps", ".").Output()
+	out, err := exec.Command("go", "list", "-deps", ".", "./internal/runtime").Output()
 	if err != nil {
-		t.Fatalf("go list -deps .: %v", err)
+		t.Fatalf("go list -deps root/runtime: %v", err)
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		if line == "github.com/ethereum/go-ethereum/ethclient" {
-			t.Fatal("the default build links ethclient; the geth channel must stay behind gethcompat")
+			t.Fatal("the root/runtime dependency graph links ethclient")
+		}
+		if line == modulePath+"/internal/testkit/gethoracle" {
+			t.Fatal("the root/runtime dependency graph links the differential oracle")
 		}
 		if line == "github.com/ethereum/go-ethereum/accounts/abi/bind" ||
 			line == "github.com/ethereum/go-ethereum/accounts/abi/bind/v2" {
@@ -235,18 +219,11 @@ func TestDefaultBuildExcludesEthclient(t *testing.T) {
 			t.Fatal("the WSS production path still links gorilla/websocket")
 		}
 	}
-	compat, err := exec.Command("go", "list", "-deps", "./gethcompat").Output()
-	if err != nil {
-		t.Fatalf("go list -deps ./gethcompat: %v", err)
-	}
-	linked := false
-	for _, line := range strings.Split(string(compat), "\n") {
-		if line == "github.com/ethereum/go-ethereum/ethclient" {
-			linked = true
+	if _, err := os.Stat("gethcompat"); !os.IsNotExist(err) {
+		if err != nil {
+			t.Fatalf("inspect gethcompat: %v", err)
 		}
-	}
-	if !linked {
-		t.Fatal("gethcompat does not link the compatibility adapter it exists to expose")
+		t.Fatal("public gethcompat package must not exist")
 	}
 }
 

@@ -9,9 +9,7 @@ import (
 	"github.com/codermaybe/ethguard/internal/transport"
 )
 
-// stubDialer satisfies the gethcompat construction seam without linking a
-// concrete transport: the composition tests here pin selection *rules*, not
-// adapter behavior.
+// stubDialer exercises composition selection rules without a concrete transport.
 type stubDialer struct{}
 
 func (stubDialer) DialContext(context.Context, string) (transport.Transport, error) {

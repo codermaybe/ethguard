@@ -14,8 +14,13 @@ EthGuard 是一个面向多源 Ethereum JSON-RPC 的聚合客户端。它查询�
 
 EthGuard 优先考虑相对可靠性，而不是性能和低延迟。对于需要移动参考的读取，
 它会先建立一个由多个上游提供证据的共同参考，再评估业务响应。`ethguard.Client`
-的类型化方法保持 `go-ethereum/ethclient` 的方法名、参数、返回类型和调用方式，因此普通调用
-可以保持相同形态，不需要调用方显式编排 anchor/confirm/read 流程。跨源一致性是
+的类型化方法以 `go-ethereum/ethclient` 业务方法集为目标，并与 `EthClient` view
+共用执行 owner。公共业务类型正在迁移到生成的 `ethapi` 模型；CallMsg、FeeHistory、
+AccessListResult 和 SyncProgress 已迁移，带来 Go 签名和字段形状变化。`SimulateV1`
+已使用 native 共享执行计划，接收生成的 `ethapi.SimulateV1Request` 与
+`*ethapi.SimulateBlockReference`，支持官方 EIP-1898 对象；Raw Call 共用请求准备与校验。
+逐方法模拟语义与外部证据仍需验收，强类型和方法数闭合不等于语义完整。详见
+[迁移合同](docs/design/wire-codegen.md)。普通调用不需要调用方显式编排 anchor/confirm/read 流程。跨源一致性是
 provider 提供的证据，不是 Ethereum 共识、规范链证明、密码学最终性或轻客户端
 验证；多个 URL 也不代表彼此独立。
 
@@ -34,7 +39,7 @@ ethguard/                   # 公共 Client 外观
 ├── pool/                   # 上游生命周期、Transport Port、健康度和准入资格
 ├── observe/                # 被动可观测性接口
 │   └── prometheus/         # 可选指标适配器（不放入核心）
-├── aggregator/             # Validate → Reference → Collect → Admit → Resolve → Project
+├── aggregator/             # Prepare → Reference → Collect → Admit → Resolve → Project
 ├── rpc/                    # 公共请求、裁决、计划、策略和证据模型
 │   ├── projection/         # 公共标准字段投影和扩展 Carrier
 │   ├── methods/            # 具体 Ethereum JSON-RPC 方法和目录
@@ -66,10 +71,10 @@ ethguard/                   # 公共 Client 外观
 │   ├── transport/          # Transport Port 适配器和契约测试
 │   │   ├── http/            # 项目自有 native HTTP 适配器
 │   │   ├── wss/             # 项目自有 raw WebSocket 调用适配器
-│   │   ├── geth/            # 显式 go-ethereum 兼容适配器
 │   │   └── contract/        # transport 无关的 L1 契约套件
-│   └── testkit/wstest/      # WSS 服务端测试对端
-├── gethcompat/              # go-ethereum transport 的显式构造 seam
+│   └── testkit/             # 内部测试设施
+│       ├── wstest/          # WSS 服务端测试对端
+│       └── gethoracle/      # 仅供测试与诊断使用的 geth 对照 oracle
 ├── rpctest/                # 基于真实 HTTP 的进程内可编排 Ethereum 节点测试工具
 ├── cmd/                    # 可执行入口（含 wsscapture、livecanary）
 ├── docs/                   # 架构、威胁模型和设计说明
@@ -95,7 +100,6 @@ ethguard/                   # 公共 Client 外观
 | `ethguard/internal/spec` | 固定的 execution-apis 参考数据（版本、schema、向量） |
 | `ethguard/rpctest` | 基于真实 HTTP 的可编排多源测试工具 |
 | `ethguard/internal/transport` | Transport Port 实现和中立契约测试 |
-| `ethguard/gethcompat` | 显式 go-ethereum 兼容构造 seam |
 
 并发模型：每个进程用例共享一个 `Client` / `pool.Pool`；上游保持长连接。调用方
 不应为每个请求重新拨号，也不应为每个 goroutine 克隆 pool。Client 生命周期结束
@@ -145,8 +149,8 @@ ReadPlan，并绑定 plan、projector、aggregator 和 reference seam；根 `Cli
 Validate / Prepare → Reference → Collect → Admit → Resolve → Project
 ```
 
-当前清单包含 26 个已注册读取方法。根 `Client` 在该清单之上提供 Geth 形态的
-类型化方法和通用 `Call`。`eth_getProof` 明确为 unsupported。计划已注册不代表真实
+当前清单包含 27 个已注册读取 RPC。根 `Client` 在该清单之上提供类型化方法和通用
+`Call`。`eth_getProof` 明确为 unsupported。计划已注册不代表真实
 provider 的兼容性已经完成，provider 证据仍是独立轨道。
 
 旧的逐方法 Policy 构造器保留为 resolver seam、兼容表面和等价测试 oracle；它们不是
@@ -291,8 +295,7 @@ upstreams:
 限流及可归因的 transport/server failure 影响共享读写 health。未知交易结果不
 自动重放，仅后续独立调用可惰性重拨。raw WSS 保留 missing/null/`0x`/具体 error
 data，不等于真实 provider 普遍兼容性已验证。同一 backend 的 HTTP/WSS endpoint
-不构成两个独立信任来源。显式 per-source transport 不能与 `DialerOption` 或
-`gethcompat.New` 混用。
+不构成两个独立信任来源。显式 per-source transport 不能与 `DialerOption` 混用。
 
 raw WSS 是 EthGuard 专用的调用 transport，提供受限的订阅通知能力，不是通用 WebSocket 客户端。根订阅按 source 重订阅并检查 generation；transport 层 keepalive 及通用队列/重放策略仍待独立运维证据。
 首次通知可先于订阅响应到达，transport 会按服务端 subscription ID 缓冲并在绑定时投递。

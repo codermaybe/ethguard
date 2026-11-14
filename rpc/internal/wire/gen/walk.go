@@ -22,6 +22,8 @@ func (reg *registry) walk(node *schema, path string) (*ref, error) {
 	r.path = path
 	r.pattern = node.pattern
 	r.minimum, r.maximum = node.minimum, node.maximum
+	r.enumValues, r.hasEnum = node.enumValues, node.hasEnum
+	r.minItems, r.maxItems, r.uniqueItems = node.minItems, node.maxItems, node.uniqueItems
 	if node.hasConst {
 		r.hasConst = true
 		value, err := decodeConst(node.constVal)
@@ -30,8 +32,11 @@ func (reg *registry) walk(node *schema, path string) (*ref, error) {
 		}
 		r.constant = value
 	}
-	if !r.pointer && (r.kind == refObject || r.kind == refUnion) {
+	if !r.pointer && (r.kind == refObject || r.kind == refUnion || r.kind == refMap) {
 		r.parser = "New" + r.typeName
+		if reg.strictRequests {
+			r.parser = "parse" + r.typeName
+		}
 		return r, nil
 	}
 	r.parser = fmt.Sprintf("parseValue%d", len(reg.values))
@@ -68,6 +73,58 @@ func validateSchema(n *schema, path string) error {
 	}
 	if n.additionalProperties != nil && n.typeVal != "object" {
 		return fail("additionalProperties requires object type")
+	}
+
+	if n.hasEnum {
+		if len(n.enumValues) == 0 {
+			return fail("enum must be nonempty")
+		}
+		if n.typeVal != "string" && n.typeVal != "boolean" && n.typeVal != "number" && n.typeVal != "null" {
+			return fail("enum requires an explicit scalar type")
+		}
+		for _, value := range n.enumValues {
+			switch value.(type) {
+			case string, bool, json.Number, nil:
+			default:
+				return fail("compound enum members are unsupported")
+			}
+		}
+	}
+	if n.not != nil {
+		if n.typeVal != "object" {
+			return fail("not/required requires object type")
+		}
+		negated := n.not
+		if negated.typeVal != "" || len(negated.properties) != 0 || len(negated.patternProperties) != 0 || negated.not != nil || negated.hasEnum || negated.hasConst || negated.pattern != "" || negated.items != nil || negated.compKind != "" || negated.additionalProperties != nil || negated.minimum != nil || negated.maximum != nil || negated.minItems != nil || negated.maxItems != nil || negated.uniqueItems || len(negated.unsupported) != 0 {
+			return fail("only not with a required-name set is supported")
+		}
+	}
+	if len(n.patternProperties) > 0 {
+		if n.typeVal != "object" || len(n.properties) != 0 || len(n.required) != 0 || n.not != nil || len(n.branches) != 0 || string(n.additionalProperties) != "false" {
+			return fail("patternProperties requires a closed homogeneous dictionary without fixed properties or composition")
+		}
+		var first string
+		seen := map[string]bool{}
+		for _, property := range n.patternProperties {
+			if seen[property.name] {
+				return fail("duplicate property pattern %q", property.name)
+			}
+			seen[property.name] = true
+			if _, err := regexp.Compile(property.name); err != nil {
+				return fail("invalid property pattern: %v", err)
+			}
+			current := fingerprint(property.schema)
+			if first != "" && current != first {
+				return fail("heterogeneous patternProperties is unsupported")
+			}
+			first = current
+		}
+	}
+	if (n.minItems != nil || n.maxItems != nil || n.uniqueItems) && n.typeVal != "array" {
+		return fail("array constraints require array type")
+	}
+	if n.minItems != nil && n.maxItems != nil && *n.minItems > *n.maxItems {
+		return fail("minItems exceeds maxItems")
 	}
 	nulls := 0
 	for i, b := range n.branches {
@@ -137,7 +194,7 @@ func validateSchema(n *schema, path string) error {
 		if n.typeVal == "object" && len(n.properties) == 0 {
 			return fail("object composition without envelope properties is unsupported")
 		}
-		if n.pattern != "" || n.minimum != nil || n.maximum != nil || n.items != nil {
+		if n.pattern != "" || n.minimum != nil || n.maximum != nil || n.items != nil || n.hasEnum || n.not != nil || n.minItems != nil || n.maxItems != nil || n.uniqueItems {
 			return fail("unsupported constraints on composition")
 		}
 		if n.typeVal != "" && n.typeVal != "object" {
@@ -203,10 +260,16 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 	}
 	switch n.typeVal {
 	case "object":
-		if len(n.properties) == 0 {
+		if reg.preserveStrings && !reg.strictRequests && string(n.additionalProperties) != "false" {
+			return nil, fmt.Errorf("spec: %s: uniqueItems cannot preserve unknown members of a projected open object", path)
+		}
+		if len(n.patternProperties) > 0 {
+			return reg.dictionaryOf(n, path)
+		}
+		if len(n.properties) == 0 && !reg.strictRequests {
 			return nil, fmt.Errorf("spec: %s: object without properties", path)
 		}
-		fp := fingerprint(n)
+		fp := reg.modelFingerprint(n)
 		if prev := reg.byFP[fp]; prev != nil {
 			prev.from = appendMethod(prev.from, methodOfPath(path))
 			return &ref{kind: refObject, typeName: prev.name}, nil
@@ -216,13 +279,23 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 			return nil, err
 		}
 		name := reg.nameFor(n, path)
-		obj := &objectModel{name: name, fields: applyOrderOverride(name, fields), from: []string{methodOfPath(path)}}
+		obj := &objectModel{name: name, fields: applyOrderOverride(name, fields), from: []string{methodOfPath(path)}, request: reg.strictRequests, closed: reg.strictRequests && string(n.additionalProperties) == "false", retainAdditional: reg.strictRequests && string(n.additionalProperties) != "false"}
+		for _, property := range n.properties {
+			obj.propertyNames = append(obj.propertyNames, property.name)
+		}
+		if n.not != nil {
+			obj.hasForbiddenRequired = true
+			obj.forbiddenRequired = append([]string{}, n.not.required...)
+		}
 		reg.byFP[fp] = obj
 		reg.objects = append(reg.objects, obj)
 		reg.report.objects++
 		reg.report.countFields += len(fields)
 		return &ref{kind: refObject, typeName: name}, nil
 	case "array":
+		previous := reg.preserveStrings
+		reg.preserveStrings = previous || n.uniqueItems
+		defer func() { reg.preserveStrings = previous }()
 		elem, err := reg.walk(n.items, path+".items")
 		if err != nil {
 			return nil, err
@@ -233,6 +306,12 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 	case "number":
 		return &ref{kind: refScalar, native: "Number"}, nil
 	case "string":
+		// Enum membership is defined over the JSON string itself. A native
+		// normalizer may change case, so constrained literals use Text and
+		// then enforce the original pattern and enum without rewriting them.
+		if n.hasEnum || reg.preserveStrings {
+			return &ref{kind: refScalar, native: "Text"}, nil
+		}
 		native := nativeForPattern(n.pattern)
 		if native == "" {
 			native = "Text"
@@ -279,7 +358,7 @@ func (reg *registry) fieldsOf(n *schema, path string) ([]fieldModel, error) {
 			return nil, err
 		}
 		name := goFieldName(p.name)
-		if goNames[name] || name == "MarshalJSON" {
+		if goNames[name] || name == "MarshalJSON" || (reg.strictRequests && string(n.additionalProperties) != "false" && name == "AdditionalProperties") {
 			return nil, fmt.Errorf("spec: %s.properties.%s: conflicting Go field name %q", path, p.name, name)
 		}
 		goNames[name] = true
@@ -294,7 +373,7 @@ func (reg *registry) fieldsOf(n *schema, path string) ([]fieldModel, error) {
 }
 
 func (reg *registry) unionOf(n *schema, path string) (*ref, error) {
-	key := fingerprint(n)
+	key := reg.modelFingerprint(n)
 	if prev := reg.unions[key]; prev != nil {
 		prev.from = appendMethod(prev.from, methodOfPath(path))
 		return &ref{kind: refUnion, typeName: prev.name}, nil
@@ -322,7 +401,7 @@ func (reg *registry) unionOf(n *schema, path string) (*ref, error) {
 		branches = append(branches, branchModel{goName: name, ref: r, title: b.title, index: i})
 	}
 	name := reg.nameFor(n, path)
-	um := &unionModel{name: name, branches: branches, nullable: n.hasNullBranch(), kind: n.compKind, from: []string{methodOfPath(path)}}
+	um := &unionModel{name: name, branches: branches, nullable: n.hasNullBranch(), kind: n.compKind, request: reg.strictRequests, from: []string{methodOfPath(path)}}
 	reg.unions[key] = um
 	reg.unionList = append(reg.unionList, um)
 	return &ref{kind: refUnion, typeName: name}, nil
@@ -353,7 +432,16 @@ func (n *schema) hasNullBranch() bool {
 	return false
 }
 func isNullBranch(n *schema) bool {
-	return n.typeVal == "null" && len(n.properties) == 0 && len(n.required) == 0 && n.additionalProperties == nil && n.items == nil && len(n.branches) == 0 && !n.hasConst && n.pattern == "" && len(n.unsupported) == 0 && n.minimum == nil && n.maximum == nil
+	return n.typeVal == "null" && len(n.properties) == 0 && len(n.required) == 0 && n.additionalProperties == nil && n.items == nil && len(n.branches) == 0 && !n.hasConst && n.pattern == "" && len(n.unsupported) == 0 && n.minimum == nil && n.maximum == nil && (!n.hasEnum || enumIncludesNull(n.enumValues)) && n.not == nil && len(n.patternProperties) == 0 && n.minItems == nil && n.maxItems == nil && !n.uniqueItems
+}
+
+func enumIncludesNull(values []any) bool {
+	for _, value := range values {
+		if value == nil {
+			return true
+		}
+	}
+	return false
 }
 func nonNullBranches(list []*schema) []*schema {
 	var out []*schema
@@ -498,6 +586,28 @@ func canonNode(n *schema) map[string]any {
 		}
 		out["branches"] = list
 	}
+	if n.hasEnum {
+		out["enum"] = n.enumValues
+	}
+	if n.not != nil {
+		out["not"] = canonNode(n.not)
+	}
+	if n.minItems != nil {
+		out["minItems"] = *n.minItems
+	}
+	if n.maxItems != nil {
+		out["maxItems"] = *n.maxItems
+	}
+	if n.uniqueItems {
+		out["uniqueItems"] = true
+	}
+	if len(n.patternProperties) > 0 {
+		patterns := map[string]any{}
+		for _, p := range n.patternProperties {
+			patterns[p.name] = canonNode(p.schema)
+		}
+		out["patternProperties"] = patterns
+	}
 	if len(n.properties) > 0 {
 		props := map[string]any{}
 		for _, p := range n.properties {
@@ -521,4 +631,27 @@ func appendMethod(list []string, method string) []string {
 		}
 	}
 	return append(list, method)
+}
+
+func (reg *registry) modelFingerprint(n *schema) string {
+	return fmt.Sprintf("request=%t:strings=%t:%s", reg.strictRequests, reg.preserveStrings, fingerprint(n))
+}
+
+func (reg *registry) dictionaryOf(n *schema, path string) (*ref, error) {
+	key := reg.modelFingerprint(n)
+	if previous := reg.mapByFP[key]; previous != nil {
+		return &ref{kind: refMap, typeName: previous.name}, nil
+	}
+	value, err := reg.walk(n.patternProperties[0].schema, path+".patternProperties."+n.patternProperties[0].name)
+	if err != nil {
+		return nil, err
+	}
+	patterns := []string{}
+	for _, property := range n.patternProperties {
+		patterns = append(patterns, property.name)
+	}
+	model := &mapModel{name: reg.nameFor(n, path), elem: value, patterns: patterns, path: path, request: reg.strictRequests}
+	reg.mapByFP[key] = model
+	reg.maps = append(reg.maps, model)
+	return &ref{kind: refMap, typeName: model.name}, nil
 }

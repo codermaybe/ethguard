@@ -67,10 +67,12 @@ func sliceReference(t *testing.T, plan rpc.ReadPlan, req rpc.Request, hash strin
 func prepareSliceRequest(t *testing.T, tc slicePlan, params []any, hash string) (rpc.Request, string, error) {
 	t.Helper()
 	req := rpc.Request{Method: tc.name, Params: params}
-	if tc.plan.Validate != nil {
-		if err := tc.plan.Validate(context.Background(), req); err != nil {
+	if tc.plan.Prepare != nil {
+		prepared, err := tc.plan.Prepare(context.Background(), req)
+		if err != nil {
 			return rpc.Request{}, "", err
 		}
+		req = prepared
 	}
 	if tc.plan.PendingReject != nil {
 		if err := tc.plan.PendingReject(req); err != nil {
@@ -273,8 +275,9 @@ func TestFeeHistoryRejectsHashInNewestBlock(t *testing.T) {
 	hash := "0x" + strings.Repeat("ab", 32)
 	for _, newest := range []any{hash, map[string]any{"blockHash": hash}, map[string]any{"blockNumber": "0x10"}} {
 		req := rpc.Request{Method: MethodFeeHistory, Params: []any{uint64(4), newest, []any{}}}
-		if err := plan.Validate(context.Background(), req); err == nil || !errors.Is(err, rpc.ErrInvalidRequest) {
-			t.Fatalf("newestBlock %v: got %v, want ErrInvalidRequest", newest, err)
+		prepared, err := plan.Prepare(context.Background(), req)
+		if err == nil || !errors.Is(err, rpc.ErrInvalidRequest) {
+			t.Fatalf("newestBlock %v: got %v, prepared=%#v, want ErrInvalidRequest", newest, err, prepared)
 		}
 	}
 }

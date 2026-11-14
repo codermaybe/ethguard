@@ -117,6 +117,7 @@ var methodCatalog = []MethodDescriptor{
 	getStorageAtDescriptor(),
 	getCodeDescriptor(),
 	callDescriptor(),
+	simulateV1Descriptor(),
 	estimateGasDescriptor(),
 	getLogsDescriptor(),
 	feeHistoryDescriptor(),

@@ -14,7 +14,7 @@ import (
 )
 
 func TestToCallArgCarriesBlobAndAuthorizationFields(t *testing.T) {
-	msg, err := ethapi.NewCallMsg(json.RawMessage(`{"maxFeePerBlobGas":"0x7","blobVersionedHashes":["0x0000000000000000000000000000000000000000000000000000000000000001"],"authorizationList":[]}`))
+	msg, err := ethapi.NewCallMsg(json.RawMessage(`{"maxFeePerBlobGas":"0x7","blobVersionedHashes":["0x0000000000000000000000000000000000000000000000000000000000000001"],"authorizationList":[],"commitments":["0x0001"],"proofs":["0x0002"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,6 +34,8 @@ func TestToCallArgCarriesBlobAndAuthorizationFields(t *testing.T) {
 		"maxFeePerBlobGas":    json.RawMessage(`"0x7"`),
 		"blobVersionedHashes": json.RawMessage(`["0x0000000000000000000000000000000000000000000000000000000000000001"]`),
 		"authorizationList":   json.RawMessage(`[]`),
+		"commitments":         json.RawMessage(`["0x0001"]`),
+		"proofs":              json.RawMessage(`["0x0002"]`),
 	}
 	if !reflect.DeepEqual(wire, want) {
 		t.Fatalf("call argument = %s, want exactly %+v", encoded, want)
@@ -41,7 +43,7 @@ func TestToCallArgCarriesBlobAndAuthorizationFields(t *testing.T) {
 }
 
 func TestToCallArgPreservesExplicitZeroNullAndAbsence(t *testing.T) {
-	for _, source := range []string{`{}`, `{"to":null}`, `{"input":"0x0001","gas":"0x0","value":"0x0","accessList":[]}`} {
+	for _, source := range []string{`{}`, `{"to":null}`, `{"input":"0x0001","gas":"0x0","value":"0x0","accessList":[],"commitments":[],"proofs":[]}`} {
 		msg, err := ethapi.NewCallMsg(json.RawMessage(source))
 		if err != nil {
 			t.Fatal(err)

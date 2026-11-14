@@ -13,6 +13,7 @@ import (
 )
 
 const specPackage = "github.com/codermaybe/ethguard/internal/spec"
+const safePackage = "github.com/codermaybe/ethguard/internal/jsonsafe"
 const codecPackage = "github.com/codermaybe/ethguard/internal/ethcodec"
 
 type genReport struct {
@@ -54,6 +55,9 @@ func emit(reg *registry, version string, roots map[string]*ref, outPath string) 
 	}
 	for _, r := range reg.values {
 		emitValue(f, r)
+	}
+	for _, dictionary := range reg.maps {
+		emitDictionary(f, dictionary)
 	}
 	for _, obj := range reg.objects {
 		emitObject(f, obj)
@@ -190,7 +194,7 @@ func emitValue(f *jen.File, r *ref) {
 				g.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(r.path+": %w", jen.Err())))
 				g.Id("out").Op("=").Id("value")
 			}
-		case refObject, refUnion:
+		case refObject, refUnion, refMap:
 			g.List(jen.Id("value"), jen.Err()).Op(":=").Id("New" + r.typeName).Call(jen.Id("raw"))
 			g.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), jen.Err()))
 			g.Id("out").Op("=").Id("value")
@@ -205,6 +209,20 @@ func emitValue(f *jen.File, r *ref) {
 				jen.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(r.path+"[%d]: %w", jen.Id("i"), jen.Err()))),
 				jen.Id("out").Index(jen.Id("i")).Op("=").Id("value"),
 			)
+		}
+		if r.kind == refArray {
+			if r.minItems != nil {
+				g.If(jen.Len(jen.Id("out")).Op("<").Lit(*r.minItems)).Block(jen.Return(jen.Id("out"), errorf(r.path+": fewer than minItems")))
+			}
+			if r.maxItems != nil {
+				g.If(jen.Len(jen.Id("out")).Op(">").Lit(*r.maxItems)).Block(jen.Return(jen.Id("out"), errorf(r.path+": more than maxItems")))
+			}
+			if r.uniqueItems {
+				emitUniqueItems(g, r)
+			}
+		}
+		if r.hasEnum {
+			emitEnumCheck(g, r)
 		}
 		if r.hasConst {
 			var condition *jen.Statement
@@ -265,6 +283,9 @@ func fieldTag(f fieldModel) string {
 }
 
 func emitFields(g *jen.Group, obj *objectModel) {
+	if obj.retainAdditional {
+		g.Id("AdditionalProperties").Map(jen.String()).Qual("encoding/json", "RawMessage").Tag(map[string]string{"json": "-"})
+	}
 	for _, field := range obj.fields {
 		g.Id(field.goName).Add(fieldTypeCode(field)).Tag(map[string]string{"json": fieldTag(field)})
 	}
@@ -277,26 +298,48 @@ func emitObject(f *jen.File, obj *objectModel) {
 		f.Commentf("Shape shared by: %s.", strings.Join(obj.from, ", "))
 	}
 	f.Type().Id(obj.name).StructFunc(func(g *jen.Group) { emitFields(g, obj) })
-	f.Func().Id("New"+obj.name).Params(rawParameter()).Params(jen.Id(obj.name), jen.Error()).BlockFunc(func(g *jen.Group) {
+	constructor := "New" + obj.name
+	if obj.request {
+		emitRequestGuard(f, obj.name)
+		constructor = "parse" + obj.name
+	}
+	f.Func().Id(constructor).Params(rawParameter()).Params(jen.Id(obj.name), jen.Error()).BlockFunc(func(g *jen.Group) {
 		g.Var().Id("out").Id(obj.name)
 		g.If(jen.Len(jen.Id("raw")).Op("==").Lit(0).Op("||").Qual(codecPackage, "IsJSONNull").Call(jen.Id("raw"))).Block(
 			jen.Return(jen.Id("out"), errorf(obj.name+": expected a non-null object")),
 		)
-		g.Var().Id("fields").StructFunc(func(fields *jen.Group) {
-			for _, field := range obj.fields {
-				fields.Id(field.goName).Qual("encoding/json", "RawMessage").Tag(map[string]string{"json": field.json})
+		if obj.closed || obj.retainAdditional || obj.hasForbiddenRequired {
+			g.Var().Id("members").Map(jen.String()).Qual("encoding/json", "RawMessage")
+			g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("members")), jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(obj.name+": expected object: %w", jen.Err())))
+			if obj.hasForbiddenRequired {
+				emitForbiddenRequired(g, obj)
 			}
-		})
-		g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("fields")), jen.Err().Op("!=").Nil()).Block(
-			jen.Return(jen.Id("out"), errorf(obj.name+": expected object: %w", jen.Err())),
-		)
+			if obj.closed || obj.retainAdditional {
+				emitAdditionalMembers(g, obj)
+			}
+		}
+		if !obj.request {
+			g.Var().Id("fields").StructFunc(func(fields *jen.Group) {
+				for _, field := range obj.fields {
+					fields.Id(field.goName).Qual("encoding/json", "RawMessage").Tag(map[string]string{"json": field.json})
+				}
+			})
+			g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("fields")), jen.Err().Op("!=").Nil()).Block(
+				jen.Return(jen.Id("out"), errorf(obj.name+": expected object: %w", jen.Err())),
+			)
+		}
+
 		for _, field := range obj.fields {
-			g.If(jen.Len(jen.Id("fields").Dot(field.goName)).Op("==").Lit(0)).BlockFunc(func(missing *jen.Group) {
+			rawField := jen.Id("fields").Dot(field.goName)
+			if obj.request {
+				rawField = jen.Id("members").Index(jen.Lit(field.json))
+			}
+			g.If(jen.Len(rawField).Op("==").Lit(0)).BlockFunc(func(missing *jen.Group) {
 				if field.req {
 					missing.Return(jen.Id("out"), errorf(obj.name+": missing required field "+field.json))
 				}
 			}).Else().BlockFunc(func(present *jen.Group) {
-				present.List(jen.Id("value"), jen.Err()).Op(":=").Id(field.ref.parser).Call(jen.Id("fields").Dot(field.goName))
+				present.List(jen.Id("value"), jen.Err()).Op(":=").Id(field.ref.parser).Call(rawField)
 				present.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), jen.Err()))
 				value := jen.Id("value")
 				if !field.req {
@@ -307,6 +350,10 @@ func emitObject(f *jen.File, obj *objectModel) {
 		}
 		g.Return(jen.Id("out"), jen.Nil())
 	})
+	if obj.retainAdditional {
+		emitOpenObjectMarshal(f, obj)
+		return
+	}
 	values := jen.Dict{}
 	for _, field := range obj.fields {
 		values[jen.Id(field.goName)] = jen.Id("v").Dot(field.goName)
@@ -334,7 +381,12 @@ func emitUnion(f *jen.File, u *unionModel) {
 			g.Id(b.goName).Op("*").Add(typeCode(b.ref)).Tag(map[string]string{"json": "-"})
 		}
 	})
-	f.Func().Id("New"+u.name).Params(rawParameter()).Params(jen.Id(u.name), jen.Error()).BlockFunc(func(g *jen.Group) {
+	constructor := "New" + u.name
+	if u.request {
+		emitRequestGuard(f, u.name)
+		constructor = "parse" + u.name
+	}
+	f.Func().Id(constructor).Params(rawParameter()).Params(jen.Id(u.name), jen.Error()).BlockFunc(func(g *jen.Group) {
 		g.Var().Id("out").Id(u.name)
 		g.Id("matches").Op(":=").Lit(0)
 		if u.nullable {
@@ -395,4 +447,144 @@ func methodCamel(method string) string {
 		trimmed = method
 	}
 	return strings.ToUpper(trimmed[:1]) + trimmed[1:]
+}
+
+func emitForbiddenRequired(g *jen.Group, obj *objectModel) {
+	g.Id("forbidden").Op(":=").True()
+	for _, key := range obj.forbiddenRequired {
+		g.If(jen.List(jen.Id("_"), jen.Id("present")).Op(":=").Id("members").Index(jen.Lit(key)), jen.Op("!").Id("present")).Block(jen.Id("forbidden").Op("=").False())
+	}
+	g.If(jen.Id("forbidden")).Block(jen.Return(jen.Id("out"), errorf(obj.name+": forbidden required-field combination")))
+}
+
+func emitAdditionalMembers(g *jen.Group, obj *objectModel) {
+	g.For(jen.List(jen.Id("key"), jen.Id("member")).Op(":=").Range().Id("members")).BlockFunc(func(loop *jen.Group) {
+		if len(obj.propertyNames) > 0 {
+			loop.Switch(jen.Id("key")).BlockFunc(func(cases *jen.Group) {
+				keys := []jen.Code{}
+				for _, key := range obj.propertyNames {
+					keys = append(keys, jen.Lit(key))
+				}
+				cases.Case(keys...).Block(jen.Continue())
+			})
+		}
+		if obj.closed {
+			loop.Id("_").Op("=").Id("member")
+			loop.Return(jen.Id("out"), errorf(obj.name+": unknown property %q", jen.Id("key")))
+		} else {
+			loop.If(jen.Id("out").Dot("AdditionalProperties").Op("==").Nil()).Block(jen.Id("out").Dot("AdditionalProperties").Op("=").Make(jen.Map(jen.String()).Qual("encoding/json", "RawMessage")))
+			loop.Id("out").Dot("AdditionalProperties").Index(jen.Id("key")).Op("=").Id("member")
+		}
+	})
+}
+
+func emitOpenObjectMarshal(f *jen.File, obj *objectModel) {
+	f.Func().Params(jen.Id("v").Id(obj.name)).Id("MarshalJSON").Params().Params(jen.Index().Byte(), jen.Error()).BlockFunc(func(g *jen.Group) {
+		g.Id("members").Op(":=").Make(jen.Map(jen.String()).Any())
+		g.For(jen.List(jen.Id("key"), jen.Id("member")).Op(":=").Range().Id("v").Dot("AdditionalProperties")).BlockFunc(func(loop *jen.Group) {
+			if len(obj.propertyNames) > 0 {
+				loop.Switch(jen.Id("key")).BlockFunc(func(cases *jen.Group) {
+					keys := []jen.Code{}
+					for _, key := range obj.propertyNames {
+						keys = append(keys, jen.Lit(key))
+					}
+					cases.Case(keys...).Block(jen.Return(jen.Nil(), errorf(obj.name+": additional property %q collides with a declared field", jen.Id("key"))))
+				})
+			}
+			loop.If(jen.Err().Op(":=").Qual(safePackage, "Validate").Call(jen.Id("member")), jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Nil(), errorf(obj.name+": additional property %q: %w", jen.Id("key"), jen.Err())))
+			loop.Id("members").Index(jen.Id("key")).Op("=").Id("member")
+		})
+		for _, field := range obj.fields {
+			assignment := jen.Id("members").Index(jen.Lit(field.json)).Op("=")
+			if field.req {
+				g.Add(assignment).Id("v").Dot(field.goName)
+			} else {
+				g.If(jen.Id("v").Dot(field.goName).Op("!=").Nil()).Block(assignment.Op("*").Id("v").Dot(field.goName))
+			}
+		}
+		g.Return(jen.Qual(codecPackage, "MarshalNoEscape").Call(jen.Id("members")))
+	})
+}
+
+func emitEnumCheck(g *jen.Group, r *ref) {
+	failures := []jen.Code{}
+	for _, value := range r.enumValues {
+		switch value := value.(type) {
+		case string:
+			if r.native != "bool" && r.native != "int" && r.native != "Number" {
+				failures = append(failures, jen.String().Call(jen.Id("out")).Op("!=").Lit(value))
+			}
+		case bool:
+			if r.native == "bool" {
+				failures = append(failures, jen.Id("out").Op("!=").Lit(value))
+			}
+		case json.Number:
+			if r.native == "Number" {
+				failures = append(failures, compareNumber(value.String()).Op("!=").Lit(0))
+			}
+		}
+	}
+	condition := jen.True()
+	if len(failures) > 0 {
+		condition = jen.Add(failures[0])
+		for _, failure := range failures[1:] {
+			condition.Op("&&").Add(failure)
+		}
+	}
+	g.If(condition).Block(jen.Return(jen.Id("out"), errorf(r.path+": value is outside enum")))
+}
+
+func emitUniqueItems(g *jen.Group, r *ref) {
+	g.Id("canonicalItems").Op(":=").Make(jen.Index().Qual("encoding/json", "RawMessage"), jen.Len(jen.Id("out")))
+	g.For(jen.List(jen.Id("i"), jen.Id("item")).Op(":=").Range().Id("out")).BlockFunc(func(loop *jen.Group) {
+		loop.List(jen.Id("canonical"), jen.Err()).Op(":=").Qual(codecPackage, "MarshalNoEscape").Call(jen.Id("item"))
+		loop.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), jen.Err()))
+		loop.For(jen.List(jen.Id("_"), jen.Id("previous")).Op(":=").Range().Id("canonicalItems").Index(jen.Empty(), jen.Id("i"))).Block(
+			jen.List(jen.Id("equal"), jen.Err()).Op(":=").Qual(codecPackage, "JSONValuesEqual").Call(jen.Id("canonical"), jen.Id("previous")),
+			jen.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), jen.Err())),
+			jen.If(jen.Id("equal")).Block(jen.Return(jen.Id("out"), errorf(r.path+": duplicate array item"))),
+		)
+		loop.Id("canonicalItems").Index(jen.Id("i")).Op("=").Id("canonical")
+	})
+}
+
+func emitDictionary(f *jen.File, m *mapModel) {
+	f.Commentf("%s is the official pattern-keyed dictionary.", m.name)
+	f.Type().Id(m.name).Map(jen.String()).Add(typeCode(m.elem))
+	for i, pattern := range m.patterns {
+		f.Var().Id(m.name+"KeyPattern"+itoa(i)).Op("=").Qual("regexp", "MustCompile").Call(jen.Lit(pattern))
+	}
+	constructor := "New" + m.name
+	if m.request {
+		emitRequestGuard(f, m.name)
+		constructor = "parse" + m.name
+	}
+	f.Func().Id(constructor).Params(rawParameter()).Params(jen.Id(m.name), jen.Error()).BlockFunc(func(g *jen.Group) {
+		g.Var().Id("out").Id(m.name)
+		g.If(jen.Len(jen.Id("raw")).Op("==").Lit(0).Op("||").Qual(codecPackage, "IsJSONNull").Call(jen.Id("raw"))).Block(jen.Return(jen.Id("out"), errorf(m.path+": expected a non-null object")))
+		g.Var().Id("members").Map(jen.String()).Qual("encoding/json", "RawMessage")
+		g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("members")), jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(m.path+": expected object: %w", jen.Err())))
+		g.Id("out").Op("=").Make(jen.Id(m.name), jen.Len(jen.Id("members")))
+		g.For(jen.List(jen.Id("key"), jen.Id("member")).Op(":=").Range().Id("members")).BlockFunc(func(loop *jen.Group) {
+			valid := jen.False()
+			for i := range m.patterns {
+				valid.Op("||").Id(m.name + "KeyPattern" + itoa(i)).Dot("MatchString").Call(jen.Id("key"))
+			}
+			loop.If(jen.Op("!").Parens(valid)).Block(jen.Return(jen.Id("out"), errorf(m.path+": unknown dictionary key %q", jen.Id("key"))))
+			loop.List(jen.Id("value"), jen.Err()).Op(":=").Id(m.elem.parser).Call(jen.Id("member"))
+			loop.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(m.path+"[%q]: %w", jen.Id("key"), jen.Err())))
+			loop.Id("out").Index(jen.Id("key")).Op("=").Id("value")
+		})
+		g.Return(jen.Id("out"), jen.Nil())
+	})
+	f.Func().Params(jen.Id("v").Id(m.name)).Id("MarshalJSON").Params().Params(jen.Index().Byte(), jen.Error()).Block(jen.Return(jen.Qual(codecPackage, "MarshalNoEscape").Call(jen.Map(jen.String()).Add(typeCode(m.elem)).Call(jen.Id("v")))))
+}
+
+// Public request constructors validate JSON syntax and safety once. Generated
+// request children call private parsers, sharing their caller's validated tree.
+func emitRequestGuard(f *jen.File, name string) {
+	f.Func().Id("New"+name).Params(rawParameter()).Params(jen.Id(name), jen.Error()).Block(
+		jen.If(jen.Err().Op(":=").Qual(safePackage, "Validate").Call(jen.Id("raw")), jen.Err().Op("!=").Nil()).Block(jen.Var().Id("zero").Id(name), jen.Return(jen.Id("zero"), jen.Err())),
+		jen.Return(jen.Id("parse"+name).Call(jen.Id("raw"))),
+	)
 }

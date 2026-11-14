@@ -28,7 +28,7 @@ func TestPoolOptionWithDialerSelectsAdapter(t *testing.T) {
 
 	t.Run("no-dialer-fails-before-contact", func(t *testing.T) {
 		// A pool without a configured adapter fails every call before any
-		// dial bookkeeping; the root facade and gethcompat always install
+		// dial bookkeeping; the root facade always installs
 		// one (native by default).
 		p := NewPoolWithOptions(0)
 		t.Cleanup(p.Close)

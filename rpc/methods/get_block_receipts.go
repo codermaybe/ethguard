@@ -21,15 +21,17 @@ const MethodGetBlockReceipts = "eth_getBlockReceipts"
 // whole-key compatibility correction applies to this method.
 func getBlockReceiptsSpec() MethodSpec {
 	return MethodSpec{
-		Method:                 MethodGetBlockReceipts,
-		Resolver:               ResolverStrict,
-		Normalize:              normalizeBlockReceiptList,
-		Encode:                 receiptobject.EncodeBlock,
-		KeySource:              rpc.RuleKeyCanonicalBytes,
-		CompareKind:            rpc.RuleCompareMethodSpecific,
-		Reference:              ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{0}, EIP1898: true},
-		Pending:                PendingSpec{Mode: PendingRefuse, Pos: 0},
-		Validate:               validateBlockReceiptsRequest,
+		Method:      MethodGetBlockReceipts,
+		Resolver:    ResolverStrict,
+		Normalize:   normalizeBlockReceiptList,
+		Encode:      receiptobject.EncodeBlock,
+		KeySource:   rpc.RuleKeyCanonicalBytes,
+		CompareKind: rpc.RuleCompareMethodSpecific,
+		Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{0}, EIP1898: true},
+		Pending:     PendingSpec{Mode: PendingRefuse, Pos: 0},
+		Prepare: func(ctx context.Context, req rpc.Request) (rpc.Request, error) {
+			return req, validateBlockReceiptsRequest(ctx, req)
+		},
 		Admit:                  admitBlockReceipts,
 		ObservationProjectorID: ProjectorBlockReceipts,
 	}

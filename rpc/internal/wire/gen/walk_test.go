@@ -164,3 +164,86 @@ func TestPinnedNamingUsesRealAnyOfPaths(t *testing.T) {
 		t.Fatal("pinned BlockTransactions no longer retains its official anyOf")
 	}
 }
+
+func TestBoundedConstraintVocabularyRejectsUnsupportedForms(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"string","enum":[]}`,
+		`{"enum":["x"]}`,
+		`{"type":"string","enum":[{"x":1}]}`,
+		`{"type":"object","not":{"properties":{"x":{"type":"string"}}},"properties":{"x":{"type":"string"}}}`,
+		`{"type":"object","not":{"type":"object","required":["x"]},"properties":{"x":{"type":"string"}}}`,
+		`{"type":"object","patternProperties":{"a":{"type":"string"},"b":{"type":"number"}},"additionalProperties":false}`,
+		`{"type":"object","patternProperties":{"a":{"type":"string"}}}`,
+		`{"type":"object","properties":{"x":{"type":"string"}},"patternProperties":{"a":{"type":"string"}},"additionalProperties":false}`,
+		`{"type":"array","minItems":2,"maxItems":1,"items":{"type":"string"}}`,
+		`{"type":"string","minItems":1}`,
+		`{"type":"object","properties":{"additionalProperties":{"type":"string"}}}`,
+		`{"type":"object","not":{"required":["x"]},"oneOf":[{"type":"object","properties":{"x":{"type":"string"}}}],"properties":{"x":{"type":"string"}}}`,
+	} {
+		reg := testRegistry()
+		reg.strictRequests = true
+		if _, err := reg.walk(testSchema(t, raw), "eth_generic.params[0]"); err == nil {
+			t.Errorf("unsupported schema accepted: %s", raw)
+		}
+	}
+}
+
+func TestConstraintFingerprintsAndRequestProjectionModesStayDistinct(t *testing.T) {
+	for _, pair := range [][2]string{
+		{`{"type":"string","enum":["a"]}`, `{"type":"string","enum":["b"]}`},
+		{`{"type":"object","properties":{"x":{"type":"string"}},"not":{"required":["x"]}}`, `{"type":"object","properties":{"x":{"type":"string"}},"not":{"required":["y"]}}`},
+		{`{"type":"array","items":{"type":"number"},"uniqueItems":true}`, `{"type":"array","items":{"type":"number"}}`},
+		{`{"type":"array","items":{"type":"number"},"maxItems":1}`, `{"type":"array","items":{"type":"number"},"maxItems":2}`},
+		{`{"type":"object","patternProperties":{"^a":{"type":"string"}},"additionalProperties":false}`, `{"type":"object","patternProperties":{"^b":{"type":"string"}},"additionalProperties":false}`},
+	} {
+		if fingerprint(testSchema(t, pair[0])) == fingerprint(testSchema(t, pair[1])) {
+			t.Fatalf("constraint difference was deduplicated: %v", pair)
+		}
+	}
+	reg := testRegistry()
+	schema := testSchema(t, `{"type":"object","title":"Shared","properties":{"x":{"type":"string"}},"additionalProperties":false}`)
+	result, err := reg.walk(schema, "eth_generic.result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.strictRequests = true
+	request, err := reg.walk(schema, "eth_generic.params[0]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.typeName == request.typeName || request.parser != "parse"+request.typeName {
+		t.Fatal("request strict construction reused result projection constructor")
+	}
+}
+
+func TestArrayAssertionSyntaxDoesNotTreatNullAsZeroOrFalse(t *testing.T) {
+	for _, raw := range []string{`{"type":"array","minItems":null}`, `{"type":"array","maxItems":null}`, `{"type":"array","uniqueItems":null}`, `{"type":null,"const":"x"}`, `{"type":"array","minItems":-1}`, `{"type":"array","maxItems":1.5}`} {
+		if _, err := parseSchema([]byte(raw)); err == nil {
+			t.Errorf("invalid schema assertion accepted: %s", raw)
+		}
+	}
+}
+
+func TestUniqueItemsPreservesStringsAndRejectsProjectedOpenObjects(t *testing.T) {
+	reg := testRegistry()
+	open := testSchema(t, `{"type":"array","uniqueItems":true,"items":{"type":"object","properties":{"x":{"type":"string"}}}}`)
+	if _, err := reg.walk(open, "eth_generic.result"); err == nil || !strings.Contains(err.Error(), "projected open object") {
+		t.Fatalf("uniqueItems lost open-object identity: %v", err)
+	}
+	address := testSchema(t, `{"type":"object","title":"Address holder","additionalProperties":false,"properties":{"address":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"}}}`)
+	ordinary, err := reg.walk(address, "eth_generic.result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.preserveStrings = true
+	preserved, err := reg.walk(address, "eth_unique.result.items")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ordinary.typeName == preserved.typeName {
+		t.Fatal("unique string policy was omitted from object fingerprint")
+	}
+	if reg.objects[0].fields[0].ref.native != "Address" || reg.objects[1].fields[0].ref.native != "Text" {
+		t.Fatal("unique string literals were normalized or changed the ordinary projection")
+	}
+}

@@ -34,7 +34,7 @@ func TestLogsPolicyRejectsPendingBounds(t *testing.T) {
 }
 
 func TestLogsRejectPendingRangeLocally(t *testing.T) {
-	// The rejection is the plan's local Validate phase: no establishment
+	// The rejection is the plan's local Prepare phase: no establishment
 	// exists on the plan path, so a pending range cannot reach one.
 	plan := compiledPlan(t, MethodGetLogs)
 	filters := []map[string]any{
@@ -112,14 +112,14 @@ func TestLogsRejectReversedNumericRangeLocally(t *testing.T) {
 		{"fromBlock": "0x10", "toBlock": "0x10"},
 		{"fromBlock": "latest", "toBlock": "latest"},
 	} {
-		if err := plan.Validate(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{filter}}); err != nil {
+		if _, err := plan.Prepare(context.Background(), rpc.Request{Method: MethodGetLogs, Params: []any{filter}}); err != nil {
 			t.Fatalf("filter %v: got %v, want valid range", filter, err)
 		}
 	}
 }
 
 func TestLogsPendingDoesNotConsultAnchor(t *testing.T) {
-	// The rejection is the plan's local Validate phase: the pending shape
+	// The rejection is the plan's local Prepare phase: the pending shape
 	// fails with a request-class error before any establishment could run,
 	// never with a reference or conflict classification.
 	plan := compiledPlan(t, MethodGetLogs)

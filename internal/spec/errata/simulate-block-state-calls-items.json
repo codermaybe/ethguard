@@ -1,0 +1,311 @@
+{
+  "id": "simulate-block-state-calls-items",
+  "sourceVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "sourceCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "target": {
+    "method": "eth_simulateV1",
+    "part": "request",
+    "parameter": 0
+  },
+  "reason": "BlockStateCalls is an array of block execution objects. Its properties currently sit on the array schema and therefore impose no item constraints. Move those unchanged properties into an explicit object items schema; do not add client limits, defaults, timing rules or provider repairs.",
+  "references": [
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/schemas/execute.yaml",
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/eth/execute.yaml",
+    "https://github.com/ethereum/execution-apis/tree/981aa66d79364be8322a9c358aaf0a571cca0873/tests/eth_simulateV1"
+  ],
+  "retireWhen": "On every source pin change inspect BlockStateCalls. Remove this correction once upstream declares its block execution properties beneath an object items schema; revise rather than silently combine any upstream shape change.",
+  "inputSchemaSHA256": "443fbc1be4bd6d39f2f623515e4fdde2f62f46f37f26d6477dd281e897289253",
+  "outputSchemaSHA256": "2395f79eeb629044de23c59245fd348c61650dea1bff7d11b74186c4c23ef75d",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/properties/blockStateCalls/type",
+      "value": "array"
+    },
+    {
+      "op": "test",
+      "path": "/properties/blockStateCalls/properties",
+      "value": {
+        "blockOverrides": {
+          "description": "Block overrides can be used to replace fields in a block.\ndefault: no block override.",
+          "properties": {
+            "baseFeePerGas": {
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+              "title": "Base fee per unit of gas",
+              "type": "string"
+            },
+            "blobBaseFee": {
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+              "title": "Base fee per unit of blob gas",
+              "type": "string"
+            },
+            "feeRecipient": {
+              "description": "Address set by the proposer/builder to receive priority fees. Often matches the block header `feeRecipient` field but is not the COINBASE EVM opcode.",
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "title": "Fee recipient",
+              "type": "string"
+            },
+            "gasLimit": {
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+              "title": "Gas limit",
+              "type": "string"
+            },
+            "number": {
+              "description": "When overriding block numbers across multiple blocks, block number need to be increasing. Skipping over blocks numbers is possible. If block number is not specified, it's incremented by one for each block.",
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+              "title": "Number",
+              "type": "string"
+            },
+            "prevRandao": {
+              "pattern": "^0x[0-9a-f]{64}$",
+              "title": "The Previous value of randomness beacon",
+              "type": "string"
+            },
+            "time": {
+              "description": "Time must either increase or remain constant relative to the previous block. If time is not specified, it's incremented by one for each block.",
+              "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+              "title": "Time",
+              "type": "string"
+            },
+            "withdrawals": {
+              "description": "This array can have a maximum length of 16.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "pattern": "^0x[0-9a-fA-F]{40}$",
+                    "title": "recipient address for withdrawal value",
+                    "type": "string"
+                  },
+                  "amount": {
+                    "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+                    "title": "value contained in withdrawal",
+                    "type": "string"
+                  },
+                  "index": {
+                    "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+                    "title": "index of withdrawal",
+                    "type": "string"
+                  },
+                  "validatorIndex": {
+                    "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+                    "title": "index of validator that generated withdrawal",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "index",
+                  "validatorIndex",
+                  "address",
+                  "amount"
+                ],
+                "title": "Validator withdrawal",
+                "type": "object"
+              },
+              "title": "Withdrawals made by validators",
+              "type": "array"
+            }
+          },
+          "title": "Block overrides",
+          "type": "object"
+        },
+        "calls": {
+          "description": "List of transactions to execute at this block/state.\nDefault: []",
+          "items": {
+            "properties": {
+              "accessList": {
+                "description": "EIP-2930 access list\nDefault: []",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "address": {
+                      "pattern": "^0x[0-9a-fA-F]{40}$",
+                      "title": "hex encoded address",
+                      "type": "string"
+                    },
+                    "storageKeys": {
+                      "items": {
+                        "pattern": "^0x[0-9a-f]{64}$",
+                        "title": "32 byte hex value",
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "address",
+                    "storageKeys"
+                  ],
+                  "title": "Access list entry",
+                  "type": "object"
+                },
+                "title": "accessList",
+                "type": "array"
+              },
+              "blobVersionedHashes": {
+                "description": "EIP-4844 versioned hashes\nDefault: []",
+                "items": {
+                  "pattern": "^0x[0-9a-f]{64}$",
+                  "title": "32 byte hex value",
+                  "type": "string"
+                },
+                "title": "Blob versioned hashes",
+                "type": "array"
+              },
+              "from": {
+                "description": "Default: null",
+                "pattern": "^0x[0-9a-fA-F]{40}$",
+                "title": "from address",
+                "type": "string"
+              },
+              "gas": {
+                "description": "Default: Remaining gas in the current block",
+                "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+                "title": "gas limit",
+                "type": "string"
+              },
+              "gasPrice": {
+                "description": "The gas price willing to be paid by the sender in wei\nDefault: 0",
+                "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+                "title": "gas price",
+                "type": "string"
+              },
+              "input": {
+                "description": "Default: no data",
+                "pattern": "^0x[0-9a-f]*$",
+                "title": "input data",
+                "type": "string"
+              },
+              "maxFeePerBlobGas": {
+                "description": "The maximum total fee per blob gas the sender is willing to pay in wei\nDefault: 0",
+                "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+                "title": "max fee per blob gas",
+                "type": "string"
+              },
+              "maxFeePerGas": {
+                "description": "The maximum total fee per gas the sender is willing to pay (includes the network / base fee and miner / priority fee) in wei\nDefault: 0",
+                "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+                "title": "max fee per gas",
+                "type": "string"
+              },
+              "maxPriorityFeePerGas": {
+                "description": "Maximum fee per gas the sender is willing to pay to miners in wei\nDefault: 0",
+                "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+                "title": "max priority fee per gas",
+                "type": "string"
+              },
+              "nonce": {
+                "description": "Default: Defaults to correct nonce",
+                "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+                "title": "nonce",
+                "type": "string"
+              },
+              "to": {
+                "description": "Default: 0x0",
+                "pattern": "^0x[0-9a-fA-F]{40}$",
+                "title": "to address",
+                "type": "string"
+              },
+              "type": {
+                "description": "Default: 0x2",
+                "pattern": "^0x[0-9a-f]{1,2}$",
+                "title": "type",
+                "type": "string"
+              },
+              "value": {
+                "description": "Default: 0",
+                "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+                "title": "value",
+                "type": "string"
+              }
+            },
+            "title": "Transaction object type for call",
+            "type": "object"
+          },
+          "title": "calls",
+          "type": "array"
+        },
+        "stateOverrides": {
+          "additionalProperties": false,
+          "description": "State overrides can be used to replace existing blockchain state with new state.\nDefault: no state overrides",
+          "patternProperties": {
+            "^0x[a-fA-F0-9]{40}$": {
+              "description": "It is possible to override any kind of address (EOA's, contracts and precompiles).\nA client MUST reject a key that it does not support with error code -32602. A client MAY treat a key that differs from a key defined in this schema only in case as that defined key. It MUST then apply the key, and MUST reject two keys that differ only in case and name the same defined key with error code -32602. A client MAY support other keys that this schema does not define.",
+              "not": {
+                "required": [
+                  "state",
+                  "stateDiff"
+                ]
+              },
+              "properties": {
+                "balance": {
+                  "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
+                  "title": "Balance",
+                  "type": "string"
+                },
+                "code": {
+                  "pattern": "^0x[0-9a-f]*$",
+                  "title": "Code",
+                  "type": "string"
+                },
+                "movePrecompileToAddress": {
+                  "description": "Moves addresses precompile into the specified address. This move is done before the 'code' override is set. Can only move precompiles. The move does not change the EIP-2929 set of addresses that are warm at the start of each call. That set keeps the precompile addresses of the active fork, and the destination address is not warm because of the move.",
+                  "pattern": "^0x[0-9a-fA-F]{40}$",
+                  "title": "MovePrecompileToAddress",
+                  "type": "string"
+                },
+                "nonce": {
+                  "pattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
+                  "title": "Nonce",
+                  "type": "string"
+                },
+                "state": {
+                  "additionalProperties": false,
+                  "description": "Key-value mapping to override all slots in the account storage before executing the call. This functions similar to eth_call's state parameter.",
+                  "patternProperties": {
+                    "^0x[a-fA-F0-9]{64}$": {
+                      "pattern": "^0x[0-9a-f]{64}$",
+                      "title": "32 byte hex value",
+                      "type": "string"
+                    }
+                  },
+                  "title": "Storage",
+                  "type": "object"
+                },
+                "stateDiff": {
+                  "additionalProperties": false,
+                  "description": "Key-value mapping to override individual slots in the account storage before executing the call. This functions similar to eth_call's state parameter.",
+                  "patternProperties": {
+                    "^0x[a-fA-F0-9]{64}$": {
+                      "pattern": "^0x[0-9a-f]{64}$",
+                      "title": "32 byte hex value",
+                      "type": "string"
+                    }
+                  },
+                  "title": "Storage difference",
+                  "type": "object"
+                }
+              },
+              "title": "Details of an account to be overridden",
+              "type": "object"
+            }
+          },
+          "title": "State overrides",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "op": "add",
+      "path": "/properties/blockStateCalls/items",
+      "value": {
+        "type": "object"
+      }
+    },
+    {
+      "op": "move",
+      "from": "/properties/blockStateCalls/properties",
+      "path": "/properties/blockStateCalls/items/properties"
+    }
+  ]
+}

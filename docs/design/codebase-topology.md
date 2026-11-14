@@ -18,13 +18,13 @@
 | `internal/executionapi` | 固定参考 bundle／显式标准勘误的统一读取与身份检查 | 按来源或调用动态改写 schema、响应兼容或方法注册 |
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
-| `internal/transport/{http,wss,geth}` | 原生 HTTP／raw WSS 与显式 geth adapter 的协议和保真 | 把 provider 错误重新解释为业务共识 |
+| `internal/transport/{http,wss}` | 原生 HTTP／raw WSS 的协议和保真 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
 | `internal/subscription` | 流式聚合、source/session 归属、gap／背压与终止 | 复用 unary CallResult 假装流式生命周期 |
 | `internal/verification`、`internal/testkit`、`rpctest` | 公开 seam 的黑盒、跨模块和 fixture 验证 | 被生产 Module 反向导入或成为生产事实源 |
 | `observe` | 被动事件记录 | retry、调度与安全决策 |
 | `cmd`／`examples` | 操作入口、捕获与示例 | 独立实现核心规则 |
 
-`gethcompat` 是调用者显式选择的兼容 seam，不是第二个默认 runtime。其单源 SimulateClient 不产生 EthGuard quorum 或 CallResult 证据；当前依赖边界与完整性缺口见 [兼容政策](go-ethereum-compatibility-policy.md)。
+公共 `gethcompat` 构造与单源 Simulate seam 退出。`internal/testkit/gethoracle` 仅供测试和显式诊断使用，不是生产 runtime；native 执行图不得依赖 `ethclient`。迁移边界见 [兼容政策](go-ethereum-compatibility-policy.md)。
 
 目录必须隐藏实际行为并拥有清楚的 seam；不为视觉分组创建浅层 forwarding package。`rpc/methods` 保持一个生产模块，不因文件数增加就拆成名词包。
 
@@ -56,7 +56,7 @@ flowchart TD
     Methods --> RPC
     Methods --> Objects[objects 与 wire]
     Pool --> Port[Transport Port]
-    Adapters[HTTP WSS geth adapters] --> Port
+    Adapters[Native HTTP and raw WSS adapters] --> Port
     Reference --> HeadPorts[自有 HeadReader 与 HeadCodec]
     Runtime --> HeadPorts
 ```

@@ -24,15 +24,17 @@ const MethodFeeHistory = "eth_feeHistory"
 // compatibility correction applies to this method.
 func feeHistorySpec() MethodSpec {
 	return MethodSpec{
-		Method:                 MethodFeeHistory,
-		Resolver:               ResolverStrict,
-		Normalize:              normalizeFeeHistory,
-		Encode:                 feehistory.Encode,
-		KeySource:              rpc.RuleKeyCanonicalBytes,
-		CompareKind:            rpc.RuleCompareMethodSpecific,
-		Reference:              ReferenceSpec{Kind: ReferenceShapeHeightAt, Positions: []int{1}},
-		Pending:                PendingSpec{Mode: PendingObserve, Pos: 1},
-		Validate:               func(_ context.Context, req rpc.Request) error { return validateFeeHistoryRequest(req) },
+		Method:      MethodFeeHistory,
+		Resolver:    ResolverStrict,
+		Normalize:   normalizeFeeHistory,
+		Encode:      feehistory.Encode,
+		KeySource:   rpc.RuleKeyCanonicalBytes,
+		CompareKind: rpc.RuleCompareMethodSpecific,
+		Reference:   ReferenceSpec{Kind: ReferenceShapeHeightAt, Positions: []int{1}},
+		Pending:     PendingSpec{Mode: PendingObserve, Pos: 1},
+		Prepare: func(_ context.Context, req rpc.Request) (rpc.Request, error) {
+			return req, validateFeeHistoryRequest(req)
+		},
 		Admit:                  admitFeeHistory,
 		ObservationProjectorID: ProjectorFeeHistory,
 	}

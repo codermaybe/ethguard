@@ -1,8 +1,8 @@
 # Transport L1 Contract（连接适配器外部行为规范）
 
-> 状态：现行 L1 契约（冻结于 2026-10-29）。本文件拥有 native HTTP 与 geth
-> 兼容适配器共同的 HTTP 外部行为；`internal/transport/contract` 是其可执行形式。
-> 基线是 **EthGuard 自有 contract**，geth 只是兼容实现。WSS 的帧与连接扩展由
+> 状态：现行 native HTTP L1 契约（冻结于 2026-10-29）。本文件拥有 native HTTP
+> 的 HTTP 外部行为；`internal/transport/contract` 是其可执行形式。历史 geth
+> 差分记录仅保留为当时的 geth 对照证据，不构成 native 的运行时依赖或额外承诺。WSS 的帧与连接扩展由
 > [wss-wire-contract.md](wss-wire-contract.md) 拥有，流语义由
 > [subscription-contract.md](subscription-contract.md) 拥有；下方 dated evidence
 > 仅记录历史观察，不扩张 L1 或兼容性承诺。
@@ -19,10 +19,9 @@
 
 - `internal/transport` 是 Port-only 物理包：`Transport`、`Dialer`、`ErrBodyTooLarge`、
   `ErrConnectionClosed`。适配器实现不得进入该包。
-- native HTTP（`internal/transport/http`）是默认；geth 兼容适配器经
-  `gethcompat` 显式构造。
-- 默认构建不得链接 `ethclient`；`gethrpc` 只允许出现在
-  `internal/transport/geth`、根 typed facade、`cmd/*`。
+- native HTTP（`internal/transport/http`）是唯一生产 HTTP adapter。
+- native 生产执行图不得链接 `ethclient`；`gethrpc` 只用于根公开签名和
+  `internal/testkit/gethoracle`／显式诊断工具。
 
 ## 2. L1 条款（suite 逐条对应）
 
@@ -66,7 +65,7 @@
 
 ## 3. 已记录的实现差异（L2/L3）
 
-| 差异 | native | geth 兼容 | 层 |
+| 历史差异 | native | 历史 geth adapter | 层 |
 | --- | --- | --- | --- |
 | 错误文本 | project sentinels（`rpcwire`） | 同一哨兵 + geth 原始错误文本（wrap 链） | L3 |
 | 非 2xx body 保留 | 4KiB 截断前缀 | 完整捕获（受 32MiB 上限） | L2 |
@@ -75,13 +74,15 @@
 | 响应 id 匹配 | 校验 | 不校验（单调用 HTTP 按位置匹配；suite 不钉此差异，契约 §2.1 的请求 id 存在性仍成立） | L2 |
 | ws/wss | native HTTP dial 时拒绝；自有 `internal/transport/wss` 独立支持 | 经 geth 支持 | 构造期差异；自有 WSS 范围见 wire 契约 |
 
-两 HTTP adapter 共享 Close 后调用的中立哨兵、退化 error 的 malformed 分类、
-空/坏 body 的 project 哨兵、错误版本 envelope 拒绝和 HTTP 尾随垃圾拒绝；
-geth 的 suite 入口为 `internal/transport/geth/contract_test.go`。
+当时两 HTTP adapter 共享 Close 后调用的中立哨兵、退化 error 的 malformed 分类、
+空/坏 body 的 project 哨兵、错误版本 envelope 拒绝和 HTTP 尾随垃圾拒绝。当前生产
+规范由 native adapter 实现；历史 geth L1 对照使用过独立 adapter。差分 oracle 位于
+`internal/testkit/gethoracle`，只供测试和显式诊断，历史报告仍注明原 adapter 身份。
 
 ## 4. 与既有测试的关系
 
-- `internal/transport/http/differential_test.go` 保留为**诊断**：它记录两实现
+- `internal/transport/http/differential_test.go` 保留为**诊断**：它记录 native 与
+  内部 oracle 的
   逐用例的行为对照，不再是 native 的规范性 gate。
 - `internal/transport/http/http_test.go`、`rawbody_test.go` 继续覆盖
   adapter 内部行为；suite 只断言跨 adapter 必须一致的外部行为。

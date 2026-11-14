@@ -23,7 +23,6 @@ func TestCallRejectsUnroutableMethodsLocally(t *testing.T) {
 		"eth_sendTransaction",        // account-managed write
 		"eth_sendRawTransactionSync", // mined/synchronous write extension
 		"eth_getProof",               // explicit unsupported verification method
-		"eth_simulateV1",             // unsupported execution extension
 		"debug_traceCall",            // debug/trace extension
 		"trace_replayTransaction",    // trace extension
 		"eth_subscribe",              // deferred stream family

@@ -14,6 +14,13 @@ func Rerun(ctx context.Context, manifestBytes []byte, executor Executor) (Report
 	if err != nil {
 		return Report{}, fmt.Errorf("rerun: %w", err)
 	}
+	adapter, err := NormalizeHTTPAdapter(manifest.HTTPAdapter)
+	if err != nil {
+		return Report{}, fmt.Errorf("rerun: %w", err)
+	}
+	if adapter == "geth" {
+		return Report{}, fmt.Errorf("rerun: geth-adapter manifests are unsupported")
+	}
 	membership := MembershipFixed
 	switch {
 	case manifest.Registry.Status != "ok" || manifest.Selection == nil:

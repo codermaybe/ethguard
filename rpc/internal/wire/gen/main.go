@@ -61,6 +61,24 @@ func main() {
 		fail("%v", err)
 	}
 
+	// Request generation has a separate construction policy: closed objects
+	// reject unknown members and open objects retain them as raw JSON values.
+	// This changes neither source schemas nor the existing result projection.
+	reg.strictRequests = true
+	params := bundle.Requests["eth_simulateV1"]
+	if len(params) != 2 {
+		fail("spec: eth_simulateV1 requires payload and reference descriptors")
+	}
+	for i, parameter := range params {
+		node, err := parseSchema(parameter.Schema)
+		if err != nil {
+			fail("spec: eth_simulateV1 params[%d]: %v", i, err)
+		}
+		if _, err := reg.walk(node, fmt.Sprintf("eth_simulateV1.params[%d]", i)); err != nil {
+			fail("%v", err)
+		}
+	}
+
 	if err := emit(reg, bundle.Version, roots, *out); err != nil {
 		fail("%v", err)
 	}

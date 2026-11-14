@@ -1,7 +1,7 @@
 package pool
 
 import (
-	gethadapter "github.com/codermaybe/ethguard/internal/transport/geth"
+	gethadapter "github.com/codermaybe/ethguard/internal/testkit/gethoracle"
 
 	"context"
 	"encoding/json"

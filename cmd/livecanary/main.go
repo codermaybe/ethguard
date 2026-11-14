@@ -280,7 +280,7 @@ func runLive(args []string, stdout io.Writer, deps dependencies) error {
 	flags.SetOutput(io.Discard)
 	outPath := flags.String("out", "", "manifest output path")
 	httpAdapter := flags.String("http-adapter", "",
-		"connection adapter: empty derives from manifest | geth (via gethcompat) | native (default)")
+		"connection adapter: native (default); historical geth manifests are not rerunnable")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -362,7 +362,7 @@ func runRerun(args []string, stdout io.Writer, deps dependencies) error {
 	manifestPath := flags.String("manifest", "", "existing manifest path")
 	outPath := flags.String("out", "", "report output path")
 	httpAdapter := flags.String("http-adapter", "",
-		"connection adapter: empty derives from manifest | geth (via gethcompat) | native (default)")
+		"connection adapter: empty derives from manifest | native (default); historical geth manifests are not rerunnable")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

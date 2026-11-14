@@ -18,7 +18,7 @@ import (
 // rejects pending null metadata, independently exposing the upstream mismatch
 // rather than validating the correction against a patched copy of itself.
 func TestTransactionQueryRawBundleRemainsVerbatim(t *testing.T) {
-	const want = "9291bee9a7c4d3d229a2e85f51daaf800bb779187995ca6525ef1bdd6e3d80a7"
+	const want = "010485d3a63ef9460bb0d9ad52eb46dd705c11db812a035be46808be6eb85456"
 	if got := fmt.Sprintf("%x", sha256.Sum256(spec.MethodsJSON())); got != want {
 		t.Fatalf("verbatim %s methods bundle changed: %s", spec.Version(), got)
 	}

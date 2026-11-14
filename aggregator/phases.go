@@ -34,12 +34,18 @@ import (
 // request and the pin the rewrite recorded.
 func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time, req rpc.Request) *earlyExit {
 	plan := state.plan
+	req = plan.ApplyReferenceDefault(req)
 	// Validate / Prepare: the method's own validation and its executable
 	// pending rejection run before anything else and fail the read locally.
-	if plan.Validate != nil {
-		if err := plan.Validate(state.ctx, req); err != nil {
+	if plan.Prepare != nil {
+		prepared, err := plan.Prepare(state.ctx, req)
+		if err != nil {
 			return a.prepareFailureExit(state, started, req, err)
 		}
+		if prepared.Method != req.Method {
+			return a.prepareFailureExit(state, started, req, fmt.Errorf("rpc: prepare changed method %q to %q: %w", req.Method, prepared.Method, rpc.ErrInvalidRequest))
+		}
+		req = prepared
 	}
 	if plan.PendingReject != nil {
 		if err := plan.PendingReject(req); err != nil {
@@ -65,9 +71,10 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	if err != nil {
 		return a.prepareFailureExit(state, started, req, err)
 	}
-	// Freeze the prepared parameters once: custom marshalers run here and
-	// nowhere else, so the wire and the recorded prepared-request fact carry
-	// the same bytes. An encode failure is an argument error before fan-out.
+	// Finalize the prepared parameters for both wire and recorded evidence.
+	// A preparing hook that snapshots user values returns owned JSON, so this
+	// step cannot execute those user marshalers again. Other plans retain their
+	// one input serialization here. Encoding failures precede business fan-out.
 	frozen, snapshot, err := rpc.FreezeParams(prepared.Params)
 	if err != nil {
 		return a.prepareFailureExit(state, started, req, err)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"math/big"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -28,22 +27,9 @@ var _ interface {
 	CodeAt(context.Context, common.Address, *big.Int) ([]byte, error)
 } = (*ethguard.EthClient)(nil)
 
-// knownMethodSetGap is the ratchet over the locked target: the default build
-// tolerates exactly this set of not-yet-implemented business methods, and any
-// additional gap fails. The gap must close through a real implementation; the
-// tolerance below never becomes a release pass — release_check sets
-// ETHGUARD_REQUIRE_COMPLETE=1, which requires a zero-gap method set.
-var knownMethodSetGap = map[string]bool{
-	"SimulateV1": true, // opt-in adapter only; independent design brief pending
-}
-
-// TestEthClientMethodSetIsExact compares the view with the locked
-// go-ethereum ethclient.Client method set, excluding Client(), which is a
-// concrete accessor to the underlying *rpc.Client and is outside EthGuard's
-// business facade. The default build allows only the known gap ratchet
-// (knownMethodSetGap); any other missing method fails here. Release checking
-// sets ETHGUARD_REQUIRE_COMPLETE=1 to require the complete zero-gap set.
-// Methods outside the target always fail.
+// TestEthClientMethodSetIsExact requires the complete locked ethclient business
+// method set. Client() exposes the upstream concrete transport and is excluded.
+// Signature migration and per-method semantic acceptance are separate gates.
 func TestEthClientMethodSetIsExact(t *testing.T) {
 	want := make(map[string]bool)
 	upstream := reflect.TypeOf((*gethethclient.Client)(nil))
@@ -71,30 +57,11 @@ func TestEthClientMethodSetIsExact(t *testing.T) {
 		}
 	}
 	sort.Strings(missing)
-	// The ratchet: the known gap stays visible, and anything beyond it fails
-	// the default build. The release gate still requires zero gaps.
-	businessImplemented := len(got) + len(missing)
-	if businessImplemented != len(want) {
-		t.Fatalf("method accounting = %d implemented + %d missing, want %d business methods",
-			len(got), len(missing), len(want))
+	if len(missing) != 0 {
+		t.Fatalf("missing locked go-ethereum business methods: %v", missing)
 	}
-	var unexpected []string
-	for _, name := range missing {
-		if !knownMethodSetGap[name] {
-			unexpected = append(unexpected, name)
-		}
-	}
-	if len(unexpected) > 0 {
-		t.Fatalf("missing locked go-ethereum business methods beyond the known gap ratchet: %v", unexpected)
-	}
-	if len(missing) > 0 {
-		t.Logf("locked go-ethereum business methods not yet exposed (%d): %v", len(missing), missing)
-		if os.Getenv("ETHGUARD_REQUIRE_COMPLETE") == "1" {
-			t.Fatalf("missing locked go-ethereum business methods: %v", missing)
-		}
-	}
-	if len(got) > len(want) {
-		t.Fatalf("method count = %d exceeds locked business target %d", len(got), len(want))
+	if len(got) != len(want) {
+		t.Fatalf("method count = %d, want locked business target %d", len(got), len(want))
 	}
 	// The owner field stays private: the type must not embed or expose it.
 	if structType.NumField() != 1 || structType.Field(0).IsExported() || structType.Field(0).Name != "owner" {
@@ -215,7 +182,7 @@ func TestViewReceiptAbsenceMatchesNative(t *testing.T) {
 // TestEthClientBusinessSignatures checks complete parameter and result types.
 // Migrated methods use explicit project-generated signatures; the locked geth
 // signatures remain the temporary contract only for unmigrated methods. The
-// independent full method-set ratchet continues to expose SimulateV1.
+// independent full method-set gate requires every business entry.
 func TestEthClientBusinessSignatures(t *testing.T) {
 	upstream := reflect.TypeOf((*gethethclient.Client)(nil))
 	view := reflect.TypeOf((*ethguard.EthClient)(nil))
@@ -257,6 +224,7 @@ func TestEthClientBusinessSignatures(t *testing.T) {
 		return true
 	}
 	migrated := map[string]reflect.Type{
+		"SimulateV1":             reflect.TypeOf((func(context.Context, ethapi.SimulateV1Request, *ethapi.SimulateBlockReference) ([]ethapi.SimulateBlock, error))(nil)),
 		"CallContract":           reflect.TypeOf((func(context.Context, ethapi.CallMsg, *big.Int) ([]byte, error))(nil)),
 		"CallContractAtHash":     reflect.TypeOf((func(context.Context, ethapi.CallMsg, common.Hash) ([]byte, error))(nil)),
 		"PendingCallContract":    reflect.TypeOf((func(context.Context, ethapi.CallMsg) ([]byte, error))(nil)),

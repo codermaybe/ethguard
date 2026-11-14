@@ -1,0 +1,183 @@
+{
+  "beforeVersion": "v1.0.0-beta.7",
+  "afterVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "changes": [
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/slotNumber",
+      "kind": "added"
+    },
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/0/authorizationList/*/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/0/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/0/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/1/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/1/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/2/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/2/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/3/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByHash",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/3/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/slotNumber",
+      "kind": "added"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/0/authorizationList/*/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/0/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/0/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/1/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/1/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/2/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/2/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/3/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "path": "$#oneOf/1/transactions#anyOf/1/*#oneOf/3/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getBlockReceipts",
+      "path": "$#oneOf/1/*/type",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "path": "$#oneOf/1#oneOf/0/authorizationList/*/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "path": "$#oneOf/1#oneOf/0/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "path": "$#oneOf/1#oneOf/0/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "path": "$#oneOf/1#oneOf/1/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "path": "$#oneOf/1#oneOf/1/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "path": "$#oneOf/1#oneOf/2/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "path": "$#oneOf/1#oneOf/2/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "path": "$#oneOf/1#oneOf/3/v",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "path": "$#oneOf/1#oneOf/3/yParity",
+      "kind": "changed"
+    },
+    {
+      "method": "eth_getTransactionReceipt",
+      "path": "$#oneOf/1/type",
+      "kind": "changed"
+    },
+    {
+      "method": "net_version",
+      "path": "$",
+      "kind": "changed"
+    }
+  ],
+  "conformancePassed": true,
+  "replayPassed": true,
+  "sourceBeforeCommit": "5aebdfdd45cadeb723be4bd45b4611b71c8b1c85",
+  "sourceAfterCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "scope": "Raw methods.json result schemas only. Request inventory and the separate Simulate bundle are covered by pinned SOURCE manifests and independent behavioral checks, not this result diff.",
+  "beforeBundleSHA256": "9291bee9a7c4d3d229a2e85f51daaf800bb779187995ca6525ef1bdd6e3d80a7",
+  "afterBundleSHA256": "010485d3a63ef9460bb0d9ad52eb46dd705c11db812a035be46808be6eb85456",
+  "verification": {
+    "conformance": [
+      "go test ./internal/spec/conformance -count=1",
+      "go test ./rpc/internal/wire -count=1"
+    ],
+    "replay": [
+      "go test ./internal/rpcsample/replay -count=1"
+    ],
+    "slotNullOmission": "TestSlotNullOmissionExplainsCapturedReplayValueMigration proves that adding only slotNumber:null to each new canonical captured block reproduces its prior archived Value SHA-256. The four derived expect.json Value hashes were updated; original capture bytes and all comparison keys/decisions/evidence were preserved."
+  }
+}

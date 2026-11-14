@@ -81,7 +81,8 @@ const (
 	// ProjectorFeeHistory is the fee-history range projection.
 	ProjectorFeeHistory = "fee-history"
 	// ProjectorSyncing separates official progress from provider counters.
-	ProjectorSyncing = "syncing"
+	ProjectorSyncing    = "syncing"
+	ProjectorSimulateV1 = "simulate-v1"
 )
 
 // MethodSpec is the data form of one read method's contract: resolver, value
@@ -111,11 +112,11 @@ type MethodSpec struct {
 	Reference ReferenceSpec
 	Pending   PendingSpec
 
-	// Validate runs before any anchor layer; Admit runs after collection
+	// Prepare runs before any anchor layer; Admit runs after collection
 	// with the same-source caller. Both are v1 hooks: the order is fixed by
 	// Compile, not by the method.
-	Validate func(context.Context, rpc.Request) error
-	Admit    AdmissionFunc
+	Prepare func(context.Context, rpc.Request) (rpc.Request, error)
+	Admit   AdmissionFunc
 
 	// ProcessCanonical is the method's controlled single-source processing
 	// entry (the canonical seam). Declaring it is an assembly extension, not

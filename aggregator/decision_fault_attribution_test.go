@@ -219,7 +219,7 @@ func TestProjectionErrorAttribution(t *testing.T) {
 	}
 }
 
-// plannedFaultAggregator builds a plan-driven aggregator whose Validate hook
+// plannedFaultAggregator builds a plan-driven aggregator whose Prepare hook
 // and establishment stage are under the test's control. The pool member is
 // unreachable on purpose: the fault exits under test happen before any
 // fan-out.
@@ -246,7 +246,9 @@ func plannedFaultAggregator(t *testing.T, mutate func(*rpc.ReadPlan), stage Refe
 func TestPlannedPrepareFailureKeepsFaultTablesEmpty(t *testing.T) {
 	validateErr := errors.New("planned validate: request rejected before any source was contacted")
 	agg := plannedFaultAggregator(t, func(plan *rpc.ReadPlan) {
-		plan.Validate = func(context.Context, rpc.Request) error { return validateErr }
+		plan.Prepare = func(_ context.Context, req rpc.Request) (rpc.Request, error) {
+			return req, validateErr
+		}
 	}, nil)
 	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if !errors.Is(err, validateErr) {
