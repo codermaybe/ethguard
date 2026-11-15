@@ -11,10 +11,9 @@ import (
 // client runs majority with the support floor of two (decision 0029), a
 // single-upstream client forwards with no floor (decision 0030). The
 // derivation lives in internal/runtime's composition; these facade tests pin
-// it end to end, so a silent change to either default fails here first. The
-// decision record still names a config-level default symbol that no longer
-// exists; see docs/design/decision-implementation-index.md (0029 pending
-// review).
+// it end to end, so a silent change to either default fails here first.
+// Verification ownership and gates are recorded in
+// docs/design/method-verification-pipeline.md.
 func TestDefaultCorroborationFloorIsTwo(t *testing.T) {
 	client, err := New(config.Config{Upstreams: []config.Upstream{
 		{ID: "a", Endpoint: "http://a.example"},

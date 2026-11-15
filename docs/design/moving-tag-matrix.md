@@ -1,6 +1,6 @@
 # Moving-Tag and Block-Reference Matrix
 
-Status: T02 contract record, 2026-09-21; T03-A pending-log and BlockByNumber(-1) boundaries updated 2026-09-22. This file is the per-method
+Status: current contract, last refreshed 2026-11-14 with the `eth_simulateV1` row (historical milestones: T02 2026-09-21, T03-A 2026-09-22). This file is the per-method
 compatibility contract for block references. It answers, for every
 `RegisteredMethod` in `rpc/methods/catalog.go`, three separate questions
 that must not be conflated:

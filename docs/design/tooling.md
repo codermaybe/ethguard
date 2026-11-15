@@ -26,8 +26,8 @@ interlock 只需约束 internal 三个工具包的反向边。
 | rpcsample | `cmd/rpcsample` + `internal/rpcsample` | 按计划文件录制真实 RPC 样本（batch/index/records 三件套）并离线回放；`replay` 子包是 capture/golden 合同的离线验证器 | `docs/samples/`（归档批次）、`internal/rpcsample/testdata/`（被测试引用的活动样本） |
 | transport contract | `pool/transport_contract_test.go` + `internal/transport/*` 契约测试 | pool 负责适配器选择与共同边界；HTTP L1 suite、WSS wire/lifecycle 与订阅 capability 各有独立契约，不能将单一 suite 外推为所有传输的等价证明 | 测试内嵌，无外部数据 |
 
-其余 `cmd/*`（nativesmoke、soak、specbundle、specdiff、wsscapture）是手动驱动
-的运维/取证工具：soak 压测、nativesmoke 本机冒烟、specbundle/specdiff 规格工具、
+其余 `cmd/*`（nativesmoke、soak、specbundle、specdiff、specmethod、wsscapture）是手动驱动
+的运维/取证工具：soak 压测、nativesmoke 本机冒烟、specbundle/specdiff/specmethod 规格工具、
 wsscapture WSS 抓包。它们没有计划进入默认 CI。
 
 ## 契约与 dated evidence 的归属

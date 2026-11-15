@@ -3,8 +3,8 @@
 # white-box test file depends on.
 #
 # Usage: scripts/whitebox_inventory.sh [package...]
-# With no arguments it audits the five packages listed in the ownership doc
-# (docs/design/whitebox-test-ownership.md).
+# With no arguments it audits the five packages listed in the verification
+# ownership rules (docs/design/method-verification-pipeline.md §6.1).
 #
 # Method: top-level unexported declarations are collected from the package's
 # non-test sources with grep, then every white-box test file is scanned for

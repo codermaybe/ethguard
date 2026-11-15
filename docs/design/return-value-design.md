@@ -63,7 +63,7 @@ flowchart LR
 | 地址及对象 | 地址规范为小写；对象按 encoder 的字段顺序紧凑编码，关闭 HTML escaping；键序不表示语义优先级 |
 | 官方 Number | 精确保留 JSON 十进制数，界限来自 schema，不经 float64；由生成层处理 |
 | 受保护 feeHistory ratio | 仍执行项目 `CanonicalRatio` 的 float64 最短十进制保值 gate；`0.50` 可折合，`0.30000000000000001` 被拒。这是项目接受域限制，不是官方 number 定义 |
-| 缺失与 null | 不全局补空值。对象查询合法 null、空数组、字段缺失和显式 null 按具体方法区分；现有 optional 字段的 null→省略例外及其冲突见问题记录。区块 encoder 的 null→省略例外（2026-11-13）：`withdrawalsRoot`／`blobGasUsed`／`excessBlobGas`／`parentBeaconBlockRoot`／`requestsHash` 在官方 schema 为 optional 且 non-nullable，而 geth 头部 marshal 对未设指针字段输出显式 null——这是 pre-fork 区块事实上的 wire 形状，提交时折合为省略，使受保护值成为官方 schema 的合法子集（与 log `blockTimestamp:null`→省略同类） |
+| 缺失与 null | 不全局补空值。对象查询合法 null、空数组、字段缺失和显式 null 按具体方法区分；现有 optional 字段的 null→省略例外及其冲突见问题记录。区块 encoder 的 null→省略例外（2026-11-13 首批，`b3519a6` 补入 `slotNumber`）：`withdrawalsRoot`／`blobGasUsed`／`excessBlobGas`／`parentBeaconBlockRoot`／`requestsHash`／`slotNumber` 在官方 schema 为 optional 且 non-nullable，而 geth 头部 marshal 对未设指针字段输出显式 null——这是 pre-fork 区块事实上的 wire 形状，提交时折合为省略，使受保护值成为官方 schema 的合法子集（与 log `blockTimestamp:null`→省略同类） |
 
 标量实现单源为 [wire/encode.go](../../rpc/internal/wire/encode.go)，对象规则单源为对应 `rpc/internal/objects/*/encode.go`。不要在文档再维护一份可独立漂移的字段清单。
 

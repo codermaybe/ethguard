@@ -107,9 +107,6 @@ jobs:
             coverage-cross.out
           retention-days: 7
 
-  # Lint runs only on the weekly schedule until its config is tuned; it does
-  # not gate PRs yet. Drop the `if` and commit a .golangci.yml once stable.
-
   # The roadmap's closing checks declare a dedicated verification gate beyond
   # the unit suite: the ^TestVerification integration module under the race
   # detector, run twice with shuffled order, so ordering or repeat-dependent
