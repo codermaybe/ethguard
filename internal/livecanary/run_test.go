@@ -53,10 +53,14 @@ func (f *executorFleet) scriptAgreeingFleet(t *testing.T, height uint64) {
 			return blockJSON, nil
 		})
 		node.Handle("eth_feeHistory", func(rpctest.Call) (any, error) {
+			// The manifest step requests three percentiles, so the official
+			// answer carries reward rows of exactly that width (geth omits
+			// the member only when no percentiles are requested).
 			return map[string]any{
 				"oldestBlock":   fmt.Sprintf("0x%x", height-1),
 				"baseFeePerGas": []string{"0x1", "0x2", "0x3"},
 				"gasUsedRatio":  []float64{0.5, 0.6},
+				"reward":        [][]string{{"0x1", "0x2", "0x3"}, {"0x1", "0x2", "0x3"}},
 			}, nil
 		})
 		node.Return("eth_getTransactionReceipt", nil)
