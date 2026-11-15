@@ -51,9 +51,9 @@ Strict 业务轮沿用固定成员多数 `Q = max(H, floor(N/2)+1)`，默认 H=2
 | 独立 transaction | 方法级完整 key 修正后执行生成 query required／nullable／分支约束及 payload hash、签名／声明一致性；by-block/index 另绑定上下文并拒绝 pending 对象；官方字段和 presence 完整比较 | 不恢复 sender，不证明 inclusion 或 blockHash／height 关系；pending 时间戳的有限同源派生与显式标准勘误见 [transaction 设计](transaction-semantic-matching.md) |
 | transaction receipt／block receipts | 官方 receipt 形态的 required／nullable／byte 校验，来源提供的字段经规范编码比较；请求 tx／block 绑定，日志非零 hash 的父子一致性，logsBloom 与日志内容一致 | 不证明收据集合完整、receipt trie inclusion、from 的 sender recovery 或链上执行正确；完整日志要求与零 hash 容忍仍是项目接受政策，不能误写为完整官方输入域；见决策 0068 |
 | `eth_getLogs` | 非 null 日志数组，要求完整日志字段，绑定请求 blockHash 或高度范围 | 不是 logs inclusion proof；当前并未核对全部 address/topics filter；只支持 logs 分支而非 pinned schema 的 hash-array 分支 |
-| `eth_feeHistory` | 规范数量与 ratio，数组之间的长度关系，当前还要求响应长度等于请求 count | 官方允许返回 supported 子区间；高精度 ratio gate 也是项目限制。两项问题均待调整，不在本文认可为更强安全保证 |
+| `eth_feeHistory` | 规范数量与 ratio，数组之间的长度关系，响应长度等于请求 count，reward 行宽等于请求 percentile 数（请求感知准入绑定，2026-11-15 起） | 官方允许返回 supported 子区间；高精度 ratio gate 也是项目限制。两项问题均待调整，不在本文认可为更强安全保证 |
 | `eth_createAccessList` | accessList 元素的地址／storageKeys 与规范对象比较 | 强制 accessList 比官方顶层 required 更窄；不执行或证明建议集合正确 |
-| `eth_simulateV1` | 生成 payload／selector 在 reference 前检查并固定；开放输入保留，封闭对象／字典拒绝非法成员；规范模拟结果按同一参考比较 | 模拟块与日志是合成结果，不证明链上执行或真实 inclusion；合法请求仍可能返回顶层错误，类型生成不能替代完整模拟语义及 provider 证据 |
+| `eth_simulateV1` | 生成 payload／selector 在 reference 前检查并固定；开放输入保留，封闭对象／字典拒绝非法成员；规范模拟结果按同一参考比较。比较与受保护值都经官方生成模型往返：pinned bundle 未声明的内层 `error.data`（如 revert reason 字节）不参与比较，也不进受保护值——内层失败的佐证只覆盖官方声明的 code/message | 模拟块与日志是合成结果，不证明链上执行或真实 inclusion；合法请求仍可能返回顶层错误，类型生成不能替代完整模拟语义及 provider 证据；未声明的内层错误扩展成员只经 Extensions／raw 通道交付（`TestSimulateV1InnerCallFailureRemainsAResult` 钉住），两个内层 revert 字节不同的源仍可聚成一簇 |
 | `eth_call` | 共同执行参考，execution／data 两维裁决，未佐证 data 只删不补 | provider code/message 只是 `Decision.Revert` 上下文，不进受保护 Value；详见返回值合同 |
 | gas price／priority fee／estimate | 既有 lower-median 选择及 spread 证据 | 上限 Selected；同值不升级 Corroborated |
 | peer count／syncing／listening | 来源本地观测；适用顶层形状准入与 typed projection；SyncProgress 使用官方生成的三个 optional 字段，geth 额外计数由附属及原始来源证据交付 | 上限 Selected；syncing 规范结果执行生成 schema 检查，保留 optional presence；缺失计数不成为同步已完成的独立证明 |
@@ -67,6 +67,8 @@ Strict 业务轮沿用固定成员多数 `Q = max(H, floor(N/2)+1)`，默认 H=2
 - latest、safe、finalized 保留请求标签含义，在同一 invocation 内建立并固定对应 reference；不为成功静默换成另一安全级别，也不跨调用缓存 H。
 - 显式 hash／高度不暗中换块。EIP-1898 对象按方法保留 `requireCanonical`；provider 接受裸 hash 不使该写法自动成为标准。
 - 支持的 pending 路径由请求语义进入本地观测，不能在 quorum 失败后降级进入。typed pending block、pending logs 和 pending block receipts 的拒绝边界以标签矩阵为准，不能概括成“所有 pending 都支持／都拒绝”。
+- “单源本地观测”描述证据类别（Support 恰一个来源、Selected 为上限），不是指只发出一个上游请求：pending 形状的采集仍对整个投票基扇出，全部成员都计入 Participants；只是裁决取第一个可规范化答案。
+- pending 的 `Decision.Value` 是该来源的原始回答，不做 mined 路线的保护域裁剪：`eth_call` pending 的 revert 保留 provider 信封（code/message），mined 路线则按 rule 4e 删除信封只留 data——typed 投影把两者归一为同一 `*RevertError` 形状，差异只在根 `Call`／raw 通道可见。
 - 请求不合法在 fan-out 前失败；单源回答 malformed、绑定失败或无法无损编码形成 Fault，来源仍占分母。有效异见、合法 null、可弃权 data 和传输故障保持不同含义。
 - 失败的公开 `CallResult` 不包含成功 Value；内部 resolver 的诊断与公开载体不能混用旧阶段示例。
 
