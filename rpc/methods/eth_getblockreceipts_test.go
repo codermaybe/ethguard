@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard/rpc"
 	receiptobj "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
+	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 func receiptArray(t *testing.T, rows ...json.RawMessage) json.RawMessage {
@@ -119,6 +121,65 @@ func TestBlockReceiptCanonicalDisagreementFailsWithoutRevote(t *testing.T) {
 	})
 	if !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") || d.Status != rpc.Unknown || len(d.Value) != 0 || len(d.Support) != 3 {
 		t.Fatalf("decision = %+v err %v", d, err)
+	}
+}
+
+// TestBlockReceiptComparisonKeyIsASingleCanonicalPass pins the comparison
+// key's ownership: the key is exactly the pruner's canonical bytes, with no
+// second normalization pass that could drift from the committed value's
+// encoder. A provider that reorders object keys must not change the key.
+func TestBlockReceiptComparisonKeyIsASingleCanonicalPass(t *testing.T) {
+	raw := receiptArray(t, sampleReceipt(t))
+	key, err := normalizeBlockReceiptList(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct, err := receiptobj.NormalizeBlock(raw, wire.PruneMethod, MethodGetBlockReceipts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != direct {
+		t.Fatalf("comparison key drifted from the pruner's canonical bytes:\nkey    = %s\ndirect = %s", key, direct)
+	}
+
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatal(err)
+	}
+	reordered := make([]json.RawMessage, 0, len(rows))
+	for _, row := range rows {
+		names := make([]string, 0, len(row))
+		for name := range row {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		var buf bytes.Buffer
+		buf.WriteByte('{')
+		for i, name := range names {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			nameJSON, err := json.Marshal(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			buf.Write(nameJSON)
+			buf.WriteByte(':')
+			buf.Write(row[name])
+		}
+		buf.WriteByte('}')
+		reordered = append(reordered, json.RawMessage(buf.Bytes()))
+	}
+	reorderedRaw, err := json.Marshal(reordered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := normalizeBlockReceiptList(reorderedRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != key {
+		t.Fatalf("key order changed the comparison key:\nordered  = %s\nshuffled = %s", key, again)
 	}
 }
 

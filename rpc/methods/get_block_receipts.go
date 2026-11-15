@@ -56,17 +56,12 @@ func admitBlockReceipts(_ context.Context, req rpc.Request, value json.RawMessag
 	return nil, nil
 }
 
+// normalizeBlockReceiptList is the single canonical pass: the pruner's
+// output is already the sorted, compact, hex-canonical comparison key, and
+// the committed value's encoder owns any further shaping. A second
+// marshal here would be an independent owner that can only drift.
 func normalizeBlockReceiptList(value json.RawMessage) (string, error) {
-	key, err := receiptobject.NormalizeBlock(value, wire.PruneMethod, MethodGetBlockReceipts)
-	if err != nil || key == "null" {
-		return key, err
-	}
-	var rows []map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(key), &rows); err != nil {
-		return "", err
-	}
-	encoded, err := json.Marshal(rows)
-	return string(encoded), err
+	return receiptobject.NormalizeBlock(value, wire.PruneMethod, MethodGetBlockReceipts)
 }
 
 // validateBlockReceiptsRequest owns the local rejections the
