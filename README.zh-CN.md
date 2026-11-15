@@ -270,8 +270,9 @@ capture 永久失效（`ErrCaptureReused`）；经 panic 异常退出的调用�
 异常（`ErrCaptureAborted`）。捕获错误是交付事实，永不进入业务错误。
 
 ethclient 形状的视图走同一执行：`client.EthClient()` 暴露官方读取签名、同步写入、
-三个订阅方法和 `Close`。它满足
-`bind/v2.ContractCaller` 与 `bind/v2.DeployBackend`；它不是 `*ethclient.Client`。
+三个订阅方法和 `Close`。它满足 `bind/v2.DeployBackend`；调用输入使用项目生成的
+`ethapi.CallMsg`（而非 `ethereum.CallMsg`），因此有意不满足 `bind/v2.ContractCaller`。
+它不是 `*ethclient.Client`。
 未绑定 capture 的视图调用省略原始材料采集（没有消费者）；业务行为不变。任一切面上
 的一次 `Close` 同时停止两者：在途操作以可识别的 `ErrPoolClosed` 原因收敛，新操作在
 任何网络接触之前失败。

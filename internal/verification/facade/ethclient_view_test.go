@@ -15,17 +15,33 @@ import (
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 	"github.com/ethereum/go-ethereum"
+	bind "github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	gethethclient "github.com/ethereum/go-ethereum/ethclient"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
-// A migrated caller uses generated call inputs. The independent signature
-// matrix below checks every other parameter and result during migration.
-var _ interface {
-	CallContract(context.Context, ethapi.CallMsg, *big.Int) ([]byte, error)
-	CodeAt(context.Context, common.Address, *big.Int) ([]byte, error)
-} = (*ethguard.EthClient)(nil)
+// The interface commitments of the ethclient-shaped view after the generated
+// model migration: bind/v2's DeployBackend (unchanged signatures) and the
+// call-family surface over the project's generated ethapi.CallMsg. The
+// migration intentionally does NOT satisfy bind/v2's ContractCaller, whose
+// CallContract takes ethereum.CallMsg; if a bind/v2 caller needs that
+// commitment, it is a separate adapter design item, not a silent signature
+// drift. The assertions below pin both facts so a further migration cannot
+// slip through unnoticed.
+var (
+	_ bind.DeployBackend = (*ethguard.EthClient)(nil)
+	_ interface {
+		CallContract(context.Context, ethapi.CallMsg, *big.Int) ([]byte, error)
+		CallContractAtHash(context.Context, ethapi.CallMsg, common.Hash) ([]byte, error)
+		PendingCallContract(context.Context, ethapi.CallMsg) ([]byte, error)
+		EstimateGas(context.Context, ethapi.CallMsg) (uint64, error)
+		EstimateGasAtBlock(context.Context, ethapi.CallMsg, *big.Int) (uint64, error)
+		EstimateGasAtBlockHash(context.Context, ethapi.CallMsg, common.Hash) (uint64, error)
+		SyncProgress(context.Context) (*ethapi.SyncProgress, error)
+		FeeHistory(context.Context, uint64, *big.Int, []float64) (*ethapi.FeeHistoryResult, error)
+	} = (*ethguard.EthClient)(nil)
+)
 
 // TestEthClientMethodSetIsExact requires the complete locked ethclient business
 // method set. Client() exposes the upstream concrete transport and is excluded.

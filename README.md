@@ -328,8 +328,10 @@ delivery facts and never enter the business error.
 The ethclient-shaped view rides the same execution: `client.EthClient()`
 exposes the official read signatures, `SendTransaction`,
 `SendTransactionSync`, `SendRawTransactionSync`, the three subscription
-methods, and `Close`. It satisfies `bind/v2.ContractCaller` and
-`bind/v2.DeployBackend`; it is not `*ethclient.Client`. A view call with no
+methods, and `Close`. It satisfies `bind/v2.DeployBackend`; call inputs use
+the project's generated `ethapi.CallMsg` (not `ethereum.CallMsg`), so
+`bind/v2.ContractCaller` is intentionally not satisfied. It is not
+`*ethclient.Client`. A view call with no
 capture bound omits raw-material collection (nothing would consume it);
 business behavior never changes. One `Close` on either surface stops both:
 in-flight operations converge with a recognizable `ErrPoolClosed` cause, and

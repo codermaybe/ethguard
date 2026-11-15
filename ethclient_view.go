@@ -26,9 +26,10 @@ import (
 // the native methods run, with the view flag telling the entry to omit raw
 // material collection when no ResultCapture is bound (nothing would consume
 // it). No pointer-identity or zero-allocation promise is made. It is not
-// go-ethereum's concrete *ethclient.Client — the interface commitments are
-// exactly bind/v2's ContractCaller and DeployBackend, checked by the API
-// contract test.
+// go-ethereum's concrete *ethclient.Client. It satisfies bind/v2's
+// DeployBackend; call inputs are the project's generated ethapi.CallMsg
+// rather than ethereum.CallMsg, so bind/v2's ContractCaller is intentionally
+// not satisfied. Both facts are checked by the API contract test.
 type EthClient struct {
 	// owner is the Client whose shared execution this view projects.
 	owner *Client
