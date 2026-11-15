@@ -12,6 +12,47 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
 
+// TestFeeHistoryAdmissionBindsRewardWidthToRequestedPercentiles pins the
+// official reward semantics: every sample row derives from the percentiles
+// the request declared, so a source answering rows of a width the request
+// never declared is not an official answer. Without this binding a fleet
+// that is uniformly wrong in the same way clusters into Corroborated.
+func TestFeeHistoryAdmissionBindsRewardWidthToRequestedPercentiles(t *testing.T) {
+	plan := compiledPlan(t, MethodFeeHistory)
+	head := `{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5]`
+	reject := []struct {
+		name    string
+		request []any
+		value   string
+	}{
+		{"wrong width with percentiles", []any{uint64(1), "latest", []float64{10, 50}}, head + `,"reward":[["0x10"]]}`},
+		{"absent reward with percentiles", []any{uint64(1), "latest", []float64{10}}, head + `}`},
+		{"null reward with percentiles", []any{uint64(1), "latest", []float64{10}}, head + `,"reward":null}`},
+		{"samples without requested percentiles", []any{uint64(1), "latest", []float64{}}, head + `,"reward":[["0x10"]]}`},
+	}
+	for _, tc := range reject {
+		_, err := plan.Admit(context.Background(), rpc.Request{Method: MethodFeeHistory, Params: tc.request}, json.RawMessage(tc.value), nil)
+		if !errors.Is(err, rpc.ErrMalformedResponse) {
+			t.Fatalf("%s: expected ErrMalformedResponse, got %v", tc.name, err)
+		}
+	}
+	admit := []struct {
+		name    string
+		request []any
+		value   string
+	}{
+		{"matching width", []any{uint64(1), "latest", []float64{10, 50}}, head + `,"reward":[["0x10","0x20"]]}`},
+		{"absent without percentiles", []any{uint64(1), "latest", []float64{}}, head + `}`},
+		{"null without percentiles", []any{uint64(1), "latest", []float64{}}, head + `,"reward":null}`},
+		{"empty rows without percentiles", []any{uint64(1), "latest", []float64{}}, head + `,"reward":[[]]}`},
+	}
+	for _, tc := range admit {
+		if _, err := plan.Admit(context.Background(), rpc.Request{Method: MethodFeeHistory, Params: tc.request}, json.RawMessage(tc.value), nil); err != nil {
+			t.Fatalf("%s: official shape rejected: %v", tc.name, err)
+		}
+	}
+}
+
 func TestNormalizeFeeHistoryChecksArrayRelationships(t *testing.T) {
 	valid := []byte(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5],"reward":[["0x3"]]}`)
 	if _, err := normalizeFeeHistory(valid); err != nil {

@@ -61,7 +61,55 @@ func admitFeeHistory(_ context.Context, req rpc.Request, value json.RawMessage, 
 	if err := validateFeeHistoryRange(req, value); err != nil {
 		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
 	}
+	if err := validateFeeHistoryRewardWidth(req, value); err != nil {
+		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+	}
 	return nil, nil
+}
+
+// validateFeeHistoryRewardWidth binds the response's reward rows to the
+// request's percentile list. The official result derives every sample from
+// the requested block percentiles, and geth emits rows of exactly that
+// width when percentiles are requested and omits the reward member entirely
+// when none are (omitempty on a nil slice). The request-blind normalize
+// pass can only enforce row-width uniformity; a fleet that is uniformly
+// wrong in the same way must not cluster into Corroborated.
+func validateFeeHistoryRewardWidth(req rpc.Request, value json.RawMessage) error {
+	percentiles, err := requestPercentiles(req.Params[2])
+	if err != nil {
+		return fmt.Errorf("%w: %v", rpc.ErrInvalidRequest, err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(value, &fields); err != nil {
+		return fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+	}
+	raw, present := fields["reward"]
+	if !present {
+		if len(percentiles) > 0 {
+			return fmt.Errorf("%w: reward absent but %d percentiles requested", rpc.ErrMalformedResponse, len(percentiles))
+		}
+		return nil
+	}
+	var rows *[]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return fmt.Errorf("%w: reward: %v", rpc.ErrMalformedResponse, err)
+	}
+	if rows == nil {
+		if len(percentiles) > 0 {
+			return fmt.Errorf("%w: reward null but %d percentiles requested", rpc.ErrMalformedResponse, len(percentiles))
+		}
+		return nil
+	}
+	for i, row := range *rows {
+		var samples []json.RawMessage
+		if err := json.Unmarshal(row, &samples); err != nil {
+			return fmt.Errorf("%w: reward row %d: %v", rpc.ErrMalformedResponse, i, err)
+		}
+		if len(samples) != len(percentiles) {
+			return fmt.Errorf("%w: reward row %d width %d does not match the %d requested percentiles", rpc.ErrMalformedResponse, i, len(samples), len(percentiles))
+		}
+	}
+	return nil
 }
 
 func validateFeeHistoryRange(req rpc.Request, value json.RawMessage) error {
