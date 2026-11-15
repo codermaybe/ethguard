@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -28,7 +29,8 @@ func TestBlockByNumberRejectsPendingLocally(t *testing.T) {
 
 	block, _, err := client.BlockByNumber(ctx, big.NewInt(-1))
 	if block != nil {
-		t.Fatalf("pending block was projected: height %d", block.NumberU64())
+		height, _ := rpc.ParseHexQuantity(string(block.Number))
+		t.Fatalf("pending block was projected: height %d", height)
 	}
 	if !errors.Is(err, ethguard.ErrInvalidRequest) {
 		t.Fatalf("BlockByNumber(-1): got %v, want ErrInvalidRequest", err)
@@ -138,8 +140,9 @@ func TestBlockByNumberPreservesKnownNegativeTagMeaning(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BlockByNumber(%d): %v", num, err)
 		}
-		if block.NumberU64() != want {
-			t.Fatalf("BlockByNumber(%d) = height %d, want %d", num, block.NumberU64(), want)
+		height, heightErr := rpc.ParseHexQuantity(string(block.Number))
+		if heightErr != nil || height != want {
+			t.Fatalf("BlockByNumber(%d) = height %d (%v), want %d", num, height, heightErr, want)
 		}
 	}
 	seenTags := map[string]bool{}

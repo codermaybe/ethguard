@@ -46,8 +46,8 @@ Strict 业务轮沿用固定成员多数 `Q = max(H, floor(N/2)+1)`，默认 H=2
 | --- | --- | --- |
 | `eth_chainId`、`net_version` | 无块参考的身份事实，分别使用 hex quantity 与 decimal；net ID 不与 chain ID 互换 | 身份预检与单次裁决独立；`net_version` 的正值边界缺口已登记 |
 | balance／nonce／code／storage | 调用内共同参考上的数量或 DATA；storage word 为 32 字节 | 一致响应不等于验证 state trie proof；tag 与 pending 按专属矩阵 |
-| 完整 block（`fullTx=true`） | Header 自哈希、请求身份、完整有序交易 trie root、适用的 withdrawals root、完整 uncle 头承诺；比较键维持方法声明的身份键 | 不重执行 EVM，不证明 canonical chain／finality；头中的根值受承诺不等于加载并验证其全部对应内容 |
-| header-only／`fullTx=false` block | 服务 reference／head 读取，允许更窄结果域 | 不得外推完整 block admission 的保证；不能称完整官方 block 对象，见问题记录 |
+| 完整 block（`fullTx=true`） | Header 自哈希、请求身份、完整有序交易 trie root、适用的 withdrawals root、完整 uncle 头承诺；完整官方规范对象字节作为比较键，保留并比较size与内嵌交易上下文／from声明 | 不重执行 EVM，不证明 canonical chain／finality；头中的根值受承诺不等于加载并验证其全部对应内容 |
+| header-only／`fullTx=false` block | reference可使用较窄number/hash身份；完整Header逐源在重编码前核对原声明hash与自算hash，生成Header投影检查required及fork字段，typed查询另绑定请求hash／高度 | 不外推完整body trie／withdrawals／uncle载荷承诺；纯Header不强制EmptyUncleHash，历史PoW非空uncle root合法 |
 | 独立 transaction | 方法级完整 key 修正后执行生成 query required／nullable／分支约束及 payload hash、签名／声明一致性；by-block/index 另绑定上下文并拒绝 pending 对象；官方字段和 presence 完整比较 | 不恢复 sender，不证明 inclusion 或 blockHash／height 关系；pending 时间戳的有限同源派生与显式标准勘误见 [transaction 设计](transaction-semantic-matching.md) |
 | transaction receipt／block receipts | 官方 receipt 形态的 required／nullable／byte 校验，来源提供的字段经规范编码比较；请求 tx／block 绑定，日志非零 hash 的父子一致性，logsBloom 与日志内容一致 | 不证明收据集合完整、receipt trie inclusion、from 的 sender recovery 或链上执行正确；完整日志要求与零 hash 容忍仍是项目接受政策，不能误写为完整官方输入域；见决策 0068 |
 | `eth_getLogs` | 非 null 日志数组，要求完整日志字段，绑定请求 blockHash 或高度范围 | 不是 logs inclusion proof；当前并未核对全部 address/topics filter；只支持 logs 分支而非 pinned schema 的 hash-array 分支 |
@@ -57,7 +57,7 @@ Strict 业务轮沿用固定成员多数 `Q = max(H, floor(N/2)+1)`，默认 H=2
 | `eth_call` | 共同执行参考，execution／data 两维裁决，未佐证 data 只删不补 | provider code/message 只是 `Decision.Revert` 上下文，不进受保护 Value；详见返回值合同 |
 | gas price／priority fee／estimate | 既有 lower-median 选择及 spread 证据 | 上限 Selected；同值不升级 Corroborated |
 | peer count／syncing／listening | 来源本地观测；适用顶层形状准入与 typed projection；SyncProgress 使用官方生成的三个 optional 字段，geth 额外计数由附属及原始来源证据交付 | 上限 Selected；syncing 规范结果执行生成 schema 检查，保留 optional presence；缺失计数不成为同步已完成的独立证明 |
-| 写入 | 签名原字节广播与 relative-trust 响应分类 | 不签名、替换、自动重试或管理交易生命周期；不是读取 quorum |
+| 写入 | 冻结原始字节，先本地解码与签名恢复检查，再广播并按relative-trust响应分类；非法签名在业务网络前拒绝 | 不签名、替换、自动重试或管理交易生命周期；不是读取 quorum |
 | 未注册／显式 unsupported | 按 catalog 和公开入口规则处理 | “未知方法曾可 Forward”不代表当前已注册只读 `Call` 会绕过 allow-list；不能以未知转发补齐兼容缺口 |
 
 实现入口为 `rpc/internal/objects/{block,transaction,receipt,log,feehistory,accesslist}` 与 `rpc/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。

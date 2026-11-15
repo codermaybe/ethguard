@@ -9,9 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -28,9 +27,9 @@ func TestTypedStateHashWireAndViewMatch(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	addr := common.HexToAddress("0xdad")
-	hash := common.HexToHash("0x" + strings.Repeat("ab", 32))
-	key := common.HexToHash("0x" + strings.Repeat("01", 32))
+	addr := ethapi.Address("0x0000000000000000000000000000000000000dad")
+	hash := ethapi.Hash("0x" + strings.Repeat("ab", 32))
+	key := ethapi.Hash("0x" + strings.Repeat("01", 32))
 
 	balance, _, err := client.BalanceAtHash(ctx, addr, hash)
 	if err != nil || balance.Int64() != 100 {
@@ -72,7 +71,7 @@ func TestTypedStateHashWireAndViewMatch(t *testing.T) {
 			if err := json.Unmarshal(call.Params[len(call.Params)-1], &obj); err != nil {
 				t.Fatalf("%s ref is not object: %v", call.Method, err)
 			}
-			if obj["blockHash"] != hash.Hex() || obj["requireCanonical"] != false {
+			if obj["blockHash"] != string(hash) || obj["requireCanonical"] != false {
 				t.Fatalf("%s hash ref = %#v", call.Method, obj)
 			}
 		}
@@ -81,11 +80,11 @@ func TestTypedStateHashWireAndViewMatch(t *testing.T) {
 
 func TestTypedStateHashConflictAndMissing(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	hash := common.HexToHash("0x" + strings.Repeat("cd", 32))
+	hash := ethapi.Hash("0x" + strings.Repeat("cd", 32))
 	for i, node := range nodes {
 		node.Return(methods.MethodGetBalance, fmt.Sprintf("0x%x", i+1))
 	}
-	_, result, err := client.BalanceAtHash(context.Background(), common.Address{}, hash)
+	_, result, err := client.BalanceAtHash(context.Background(), ethapi.Address("0x0000000000000000000000000000000000000000"), hash)
 	if !errors.Is(err, ethguard.ErrConflict) || result.Decision == nil {
 		t.Fatalf("hash conflict = result=%+v err=%v", result, err)
 	}
@@ -93,7 +92,7 @@ func TestTypedStateHashConflictAndMissing(t *testing.T) {
 	for _, node := range nodes {
 		node.Fail(methods.MethodGetBalance, -32000, "missing block")
 	}
-	value, result, err := client.BalanceAtHash(context.Background(), common.Address{}, hash)
+	value, result, err := client.BalanceAtHash(context.Background(), ethapi.Address("0x0000000000000000000000000000000000000000"), hash)
 	if value != nil || !errors.Is(err, rpc.ErrNoValidResponse) || result.Decision == nil {
 		t.Fatalf("hash missing = value=%v result=%+v err=%v", value, result, err)
 	}

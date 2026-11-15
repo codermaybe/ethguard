@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
@@ -35,7 +34,7 @@ func TestTransactionCanonicalRouteKeyOrderInvariant(t *testing.T) {
 		nodes[1].ReturnRaw(methods.MethodGetTransactionByHash, second)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, _, result, err := client.TransactionByHash(ctx, signed.Hash())
+		_, _, result, err := client.TransactionByHash(ctx, ethapi.Hash(signed.Hash().Hex()))
 		if err != nil || !result.IsCorroborated() || len(result.Decision.Support) != 2 {
 			t.Fatalf("reordered round: %+v, %v", result, err)
 		}
@@ -72,7 +71,7 @@ func TestTransactionCanonicalRoutePendingKeepsOriginalEvidence(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(base, 5*time.Second)
 	defer cancel()
-	_, pendingFlag, result, err := client.TransactionByHash(ctx, signed.Hash())
+	_, pendingFlag, result, err := client.TransactionByHash(ctx, ethapi.Hash(signed.Hash().Hex()))
 	if err != nil || !pendingFlag || !result.IsCorroborated() {
 		t.Fatalf("pending round: %v %v %v", pendingFlag, result.IsCorroborated(), err)
 	}
@@ -86,7 +85,6 @@ func TestTransactionCanonicalRoutePendingKeepsOriginalEvidence(t *testing.T) {
 			t.Fatalf("raw evidence was rewritten with the derived member: %s", source.Value)
 		}
 	}
-	_ = common.Hash{}
 }
 
 // transactionCompatibilityReordered re-marshals the fixture's top-level

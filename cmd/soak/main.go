@@ -35,11 +35,6 @@ import (
 	"strings"
 	"time"
 
-	ethereum "github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
-
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/ethapi"
@@ -49,6 +44,8 @@ import (
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // Well-known, stable mainnet fixtures. These are observation targets, not
@@ -167,8 +164,8 @@ type fleetState struct {
 }
 
 func (f fleetState) buildSteps(chainID uint64) []step {
-	addr := common.HexToAddress(soakAddress)
-	contract := common.HexToAddress(soakContract)
+	addr := ethapi.Address(strings.ToLower(soakAddress))
+	contract := ethapi.Address(strings.ToLower(soakContract))
 	slot0 := common.Hash{}
 	return []step{
 		{"chainId", methods.MethodChainID, nil, true, func(ctx context.Context) (stepReport, error) {
@@ -191,13 +188,13 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 			if err != nil {
 				return stepReport{}, err
 			}
-			return stepReport{outcome: "ok", detail: block.Hash().Hex()}, nil
+			return stepReport{outcome: "ok", detail: string(block.Hash)}, nil
 		}},
 		{"getBlockByHash", methods.MethodGetBlockByHash, []any{f.anchor, true}, true, func(ctx context.Context) (stepReport, error) {
 			result, err := f.client.Call(ctx, methods.MethodGetBlockByHash, f.anchor, true)
-			var block *types.Block
+			var block *ethapi.Block
 			if err == nil {
-				block, err = ethguard.DecodeBlock(result.Decision.Value)
+				block, err = typed.DecodeBlockAdmitted(result.Decision.Value)
 			}
 			return classify(result.Decision, err, blockDetail(block))
 		}},
@@ -229,9 +226,9 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 				return stepReport{outcome: "skipped", detail: "no sampled transaction"}, nil
 			}
 			result, err := f.client.Call(ctx, methods.MethodGetTransactionByHash, f.txHash)
-			var tx *types.Transaction
+			var tx *ethapi.Transaction
 			if err == nil {
-				tx, _, err = ethguard.DecodeTransaction(result.Decision.Value)
+				tx, _, err = typed.DecodeTransaction(result.Decision.Value)
 			}
 			return classify(result.Decision, err, txDetail(tx))
 		}},
@@ -240,17 +237,17 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 				return stepReport{outcome: "skipped", detail: "no sampled transaction"}, nil
 			}
 			result, err := f.client.Call(ctx, methods.MethodGetTransactionReceipt, f.txHash)
-			var r *types.Receipt
+			var r *ethapi.Receipt
 			if err == nil {
-				r, err = ethguard.DecodeReceipt(result.Decision.Value)
+				r, err = typed.DecodeReceipt(result.Decision.Value)
 			}
 			return classify(result.Decision, err, receiptDetail(r))
 		}},
 		{"getBlockReceipts", methods.MethodGetBlockReceipts, []any{f.anchor}, true, func(ctx context.Context) (stepReport, error) {
 			result, err := f.client.Call(ctx, methods.MethodGetBlockReceipts, f.anchor)
-			var rs []*types.Receipt
+			var rs []ethapi.Receipt
 			if err == nil {
-				rs, err = ethguard.DecodeReceipts(result.Decision.Value)
+				rs, err = typed.DecodeReceipts(result.Decision.Value)
 			}
 			return classify(result.Decision, err, fmt.Sprintf("%d receipts", len(rs)))
 		}},
@@ -258,7 +255,11 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 			if f.anchorHeight > uint64(math.MaxInt64) {
 				return stepReport{}, fmt.Errorf("anchor height %d exceeds geth block number range", f.anchorHeight)
 			}
-			rs, _, err := f.client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.BlockNumber(f.anchorHeight)))
+			ref, refErr := ethapi.NewBlockReference(json.RawMessage(fmt.Sprintf("%q", f.heightRef())))
+			if refErr != nil {
+				return stepReport{}, fmt.Errorf("build block reference: %w", refErr)
+			}
+			rs, _, err := f.client.BlockReceipts(ctx, ref)
 			if err != nil {
 				return stepReport{}, err
 			}
@@ -482,15 +483,20 @@ func mustAnchor(client *ethguard.Client, timeout time.Duration) string {
 func sampleTx(client *ethguard.Client, anchor string, timeout time.Duration) (common.Hash, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	block, _, err := client.BlockByHash(ctx, common.HexToHash(anchor))
+	block, _, err := client.BlockByHash(ctx, ethapi.Hash(strings.ToLower(anchor)))
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("fetch pinned block: %w", err)
 	}
-	txs := block.Transactions()
-	if len(txs) == 0 {
+	txs := block.Transactions
+	if txs.FullTransactions == nil || len(*txs.FullTransactions) == 0 {
 		return common.Hash{}, nil
 	}
-	return txs[0].Hash(), nil
+	first := (*txs.FullTransactions)[0]
+	hash, ok := blockTransactionHash(first)
+	if !ok {
+		return common.Hash{}, fmt.Errorf("pinned block transaction %s carries no selected branch", string(firstHash(first)))
+	}
+	return common.HexToHash(hash), nil
 }
 
 // mustAnchorHeight resolves the pinned reference's height through the
@@ -629,25 +635,70 @@ func identityDetail(v *big.Int, want uint64) string {
 	return fmt.Sprintf("%d", v)
 }
 
-func blockDetail(b *types.Block) string {
+func blockDetail(b *ethapi.Block) string {
 	if b == nil {
 		return ""
 	}
-	return fmt.Sprintf("height %d", b.NumberU64())
+	height, err := rpc.ParseHexQuantity(string(b.Number))
+	if err != nil {
+		return fmt.Sprintf("height %s", b.Number)
+	}
+	return fmt.Sprintf("height %d", height)
 }
 
-func txDetail(tx *types.Transaction) string {
+func txDetail(tx *ethapi.Transaction) string {
 	if tx == nil {
 		return ""
 	}
-	return fmt.Sprintf("nonce %d type %d", tx.Nonce(), tx.Type())
+	declared, err := typed.TransactionHash(tx)
+	if err != nil {
+		return "transaction union unselected"
+	}
+	return fmt.Sprintf("hash %s", declared)
 }
 
-func receiptDetail(r *types.Receipt) string {
+func receiptDetail(r *ethapi.Receipt) string {
 	if r == nil {
 		return ""
 	}
-	return fmt.Sprintf("status %d gas %d", r.Status, r.GasUsed)
+	detail := ""
+	if r.Status != nil {
+		if status, err := rpc.ParseHexQuantity(string(*r.Status)); err == nil {
+			detail = fmt.Sprintf("status %d ", status)
+		}
+	}
+	if gas, err := rpc.ParseHexQuantity(string(r.GasUsed)); err == nil {
+		detail += fmt.Sprintf("gas %d", gas)
+	}
+	return strings.TrimSpace(detail)
+}
+
+// blockTransactionHash reads the declared hash of the selected embedded
+// transaction branch; a zero-selected or multi-selected union reports false.
+func blockTransactionHash(tx ethapi.BlockTransaction) (string, bool) {
+	switch {
+	case tx.Signed7702Transaction != nil:
+		return string(tx.Signed7702Transaction.Hash), true
+	case tx.Signed4844Transaction != nil:
+		return string(tx.Signed4844Transaction.Hash), true
+	case tx.Signed1559Transaction != nil:
+		return string(tx.Signed1559Transaction.Hash), true
+	case tx.Signed2930Transaction != nil:
+		return string(tx.Signed2930Transaction.Hash), true
+	case tx.SignedLegacyTransaction != nil:
+		return string(tx.SignedLegacyTransaction.Hash), true
+	default:
+		return "", false
+	}
+}
+
+// firstHash keeps the sampleTx error message honest when no branch is
+// selected: the union's declared members cannot be read without a branch.
+func firstHash(tx ethapi.BlockTransaction) ethapi.Hash {
+	if hash, ok := blockTransactionHash(tx); ok {
+		return ethapi.Hash(hash)
+	}
+	return ""
 }
 
 func syncingDetail(p *ethapi.SyncProgress) string {

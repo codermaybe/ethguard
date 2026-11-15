@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	internalsubscription "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/internal/typed"
@@ -140,8 +142,12 @@ func (s *fakeSubscription) Unsubscribe() {
 	}
 }
 
-func TestSubscriptionFilterArgMatchesGethShape(t *testing.T) {
-	arg, err := toFilterArg(ethereum.FilterQuery{Addresses: []common.Address{{1}}, Topics: [][]common.Hash{{{2}}}})
+func TestSubscriptionFilterArgMatchesOfficialShape(t *testing.T) {
+	rangeQuery, err := ethapi.NewFilterQuery(json.RawMessage(`{"address":["0x0100000000000000000000000000000000000000"],"topics":[["0x0200000000000000000000000000000000000000000000000000000000000000"]]}`))
+	if err != nil {
+		t.Fatalf("filter query: %v", err)
+	}
+	arg, err := toFilterArg(rangeQuery)
 	if err != nil {
 		t.Fatalf("filter arg: %v", err)
 	}
@@ -151,7 +157,13 @@ func TestSubscriptionFilterArgMatchesGethShape(t *testing.T) {
 	if _, ok := arg["toBlock"]; !ok {
 		t.Fatal("missing default toBlock")
 	}
-	if _, err := toFilterArg(ethereum.FilterQuery{BlockHash: ptrHash(common.Hash{1}), FromBlock: big.NewInt(1)}); err == nil {
+	// The hash branch is an open object, so fromBlock parses there; the
+	// method's own mutual exclusion must reject it before any contact.
+	hashQuery, err := ethapi.NewFilterQuery(json.RawMessage(`{"blockHash":"0x0100000000000000000000000000000000000000000000000000000000000000","fromBlock":"0x1"}`))
+	if err != nil {
+		t.Fatalf("hash query: %v", err)
+	}
+	if _, err := toFilterArg(hashQuery); err == nil {
 		t.Fatal("accepted block hash with range")
 	}
 }
@@ -445,13 +457,26 @@ func TestAggregatedSubscriptionPullProbeCompletesMissingSource(t *testing.T) {
 	}
 }
 
+// gapFixtureHeader supplies actual geth header bytes, including its declared
+// computed hash and every official required field, for pushed and pulled heads.
+func gapFixtureHeader(t *testing.T, number string) json.RawMessage {
+	t.Helper()
+	height, ok := new(big.Int).SetString(number, 0)
+	if !ok {
+		t.Fatalf("invalid gap fixture height %q", number)
+	}
+	head := &types.Header{UncleHash: types.EmptyUncleHash, TxHash: types.EmptyTxsHash, ReceiptHash: types.EmptyReceiptsHash, Difficulty: big.NewInt(1), Number: height, GasLimit: 1, Time: 1}
+	raw, err := head.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 func TestAggregatedNewHeadGapPullSuccessDoesNotTerminate(t *testing.T) {
 	streamA := &aggregateTestSubscription{events: make(chan transport.Notification, 8), errs: make(chan error, 1)}
 	streamB := &aggregateTestSubscription{events: make(chan transport.Notification, 8), errs: make(chan error, 1)}
-	header := func(number string) json.RawMessage {
-		return json.RawMessage(fmt.Sprintf(`{"parentHash":"0x%s","sha3Uncles":"0x%s","stateRoot":"0x%s","transactionsRoot":"0x%s","receiptsRoot":"0x%s","logsBloom":"0x%s","difficulty":"0x1","number":"%s","gasLimit":"0x1","gasUsed":"0x0","timestamp":"0x1","extraData":"0x"}`,
-			strings.Repeat("00", 32), strings.Repeat("00", 32), strings.Repeat("00", 32), strings.Repeat("00", 32), strings.Repeat("00", 32), strings.Repeat("00", 256), number))
-	}
+	header := func(number string) json.RawMessage { return gapFixtureHeader(t, number) }
 	pull := func(method string, args ...any) (json.RawMessage, error) {
 		if method != "eth_getBlockByNumber" || len(args) == 0 {
 			return nil, fmt.Errorf("unexpected Pull %s", method)
@@ -460,13 +485,17 @@ func TestAggregatedNewHeadGapPullSuccessDoesNotTerminate(t *testing.T) {
 	}
 	a := &pullTestSource{id: "a", stream: streamA, pull: pull}
 	b := &pullTestSource{id: "b", stream: streamB, pull: pull}
-	out := make(chan *types.Header, 4)
-	sub, err := startAggregatedSubscriptionWithPull(context.Background(), []identifiedSubscriptionSource{a, b}, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, *types.Header, error) {
+	out := make(chan *ethapi.Header, 4)
+	sub, err := startAggregatedSubscriptionWithPull(context.Background(), []identifiedSubscriptionSource{a, b}, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, *ethapi.Header, error) {
 		h, err := typed.DecodeHeader(raw)
-		if err != nil || h.Number == nil {
+		if err != nil {
 			return internalsubscription.Observation{}, nil, err
 		}
-		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(h.Number.String(), h.Hash().Hex(), h.ParentHash.Hex())
+		height, heightErr := typed.QuantityHeight(h.Number)
+		if heightErr != nil {
+			return internalsubscription.Observation{}, nil, heightErr
+		}
+		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(height, 10), string(h.Hash), string(h.ParentHash))
 		if err != nil {
 			return internalsubscription.Observation{}, nil, err
 		}
@@ -477,11 +506,15 @@ func TestAggregatedNewHeadGapPullSuccessDoesNotTerminate(t *testing.T) {
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
-		var value struct{ Number, Hash, Parent string }
-		if err := json.Unmarshal(raw, &value); err != nil {
+		value, err := typed.DecodeHeader(raw)
+		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
-		keyContext, key, err := internalsubscription.CanonicalNewHeadKey(value.Number, value.Hash, value.Parent)
+		height, heightErr := typed.QuantityHeight(value.Number)
+		if heightErr != nil {
+			return internalsubscription.Observation{}, heightErr
+		}
+		keyContext, key, err := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(height, 10), string(value.Hash), string(value.ParentHash))
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
@@ -497,10 +530,15 @@ func TestAggregatedNewHeadGapPullSuccessDoesNotTerminate(t *testing.T) {
 	for _, stream := range []*aggregateTestSubscription{streamA, streamB} {
 		stream.events <- transport.Notification{Result: header("0x3")}
 	}
-	select {
-	case <-out:
-	case <-time.After(time.Second):
-		t.Fatal("head 3 was not delivered")
+	deadline := time.After(time.Second)
+	deliveredThree := false
+	for !deliveredThree {
+		select {
+		case head := <-out:
+			deliveredThree = head != nil && head.Number == "0x3"
+		case <-deadline:
+			t.Fatal("head 3 was not delivered")
+		}
 	}
 	time.Sleep(250 * time.Millisecond)
 	select {
@@ -513,21 +551,22 @@ func TestAggregatedNewHeadGapPullSuccessDoesNotTerminate(t *testing.T) {
 func TestAggregatedNewHeadGapPullFailureReturnsStructuredError(t *testing.T) {
 	streamA := &aggregateTestSubscription{events: make(chan transport.Notification, 8), errs: make(chan error, 1)}
 	streamB := &aggregateTestSubscription{events: make(chan transport.Notification, 8), errs: make(chan error, 1)}
-	header := func(number string) json.RawMessage {
-		return json.RawMessage(fmt.Sprintf(`{"parentHash":"0x%s","sha3Uncles":"0x%s","stateRoot":"0x%s","transactionsRoot":"0x%s","receiptsRoot":"0x%s","logsBloom":"0x%s","difficulty":"0x1","number":"%s","gasLimit":"0x1","gasUsed":"0x0","timestamp":"0x1","extraData":"0x"}`,
-			strings.Repeat("00", 32), strings.Repeat("00", 32), strings.Repeat("00", 32), strings.Repeat("00", 32), strings.Repeat("00", 32), strings.Repeat("00", 256), number))
-	}
+	header := func(number string) json.RawMessage { return gapFixtureHeader(t, number) }
 	gapCause := errors.New("gap Pull failed")
 	failedPull := func(string, ...any) (json.RawMessage, error) { return nil, gapCause }
 	a := &pullTestSource{id: "a", stream: streamA, pull: failedPull}
 	b := &pullTestSource{id: "b", stream: streamB, pull: failedPull}
-	out := make(chan *types.Header, 2)
-	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, *types.Header, error) {
+	out := make(chan *ethapi.Header, 2)
+	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, *ethapi.Header, error) {
 		h, err := typed.DecodeHeader(raw)
-		if err != nil || h.Number == nil {
+		if err != nil {
 			return internalsubscription.Observation{}, nil, err
 		}
-		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(h.Number.String(), h.Hash().Hex(), h.ParentHash.Hex())
+		height, heightErr := typed.QuantityHeight(h.Number)
+		if heightErr != nil {
+			return internalsubscription.Observation{}, nil, heightErr
+		}
+		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(height, 10), string(h.Hash), string(h.ParentHash))
 		if err != nil {
 			return internalsubscription.Observation{}, nil, err
 		}
@@ -575,24 +614,32 @@ func TestAggregatedTransactionReceiptsQuorumAndConflict(t *testing.T) {
 			&aggregateTestSource{id: "b", sub: bStream},
 		}, aStream, bStream
 	}
-	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, []*types.Receipt, error) {
-		receipts, err := typed.DecodeReceipts(raw)
+	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, []ethapi.Receipt, error) {
+		values, canonical, err := typed.DecodeReceiptBatch(raw)
 		if err != nil {
 			return internalsubscription.Observation{}, nil, err
 		}
-		ids := make([]internalsubscription.ReceiptIdentity, len(receipts))
-		for i, receipt := range receipts {
-			canonical, marshalErr := json.Marshal(receipt)
-			if marshalErr != nil {
-				return internalsubscription.Observation{}, nil, marshalErr
+		var rows []json.RawMessage
+		if err := json.Unmarshal(canonical, &rows); err != nil {
+			return internalsubscription.Observation{}, nil, err
+		}
+		ids := make([]internalsubscription.ReceiptIdentity, len(values))
+		for i := range values {
+			height, heightErr := typed.QuantityHeight(values[i].BlockNumber)
+			if heightErr != nil {
+				return internalsubscription.Observation{}, nil, heightErr
 			}
-			ids[i] = internalsubscription.ReceiptIdentity{TransactionHash: receipt.TxHash.Hex(), BlockHash: receipt.BlockHash.Hex(), BlockNumber: receipt.BlockNumber.String(), TransactionIndex: uint64(receipt.TransactionIndex), Canonical: canonical}
+			index, indexErr := typed.QuantityHeight(values[i].TransactionIndex)
+			if indexErr != nil {
+				return internalsubscription.Observation{}, nil, indexErr
+			}
+			ids[i] = internalsubscription.ReceiptIdentity{TransactionHash: string(values[i].TransactionHash), BlockHash: string(values[i].BlockHash), BlockNumber: strconv.FormatUint(height, 10), TransactionIndex: index, Canonical: rows[i]}
 		}
 		contextKey, key, err := internalsubscription.CanonicalTransactionReceiptsKey(ids)
 		if err != nil {
 			return internalsubscription.Observation{}, nil, err
 		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindTransactionReceipts, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, receipts, nil
+		return internalsubscription.Observation{Kind: internalsubscription.KindTransactionReceipts, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, values, nil
 	}
 	receiptPayload := func(status uint64) json.RawMessage {
 		txHash := common.HexToHash("0x" + "11" + strings.Repeat("00", 31))
@@ -618,7 +665,7 @@ func TestAggregatedTransactionReceiptsQuorumAndConflict(t *testing.T) {
 
 	t.Run("same batch reaches quorum once", func(t *testing.T) {
 		sources, aStream, bStream := newSources()
-		out := make(chan []*types.Receipt, 2)
+		out := make(chan []ethapi.Receipt, 2)
 		sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindTransactionReceipts, nil, out, decode)
 		if err != nil {
 			t.Fatal(err)
@@ -630,7 +677,7 @@ func TestAggregatedTransactionReceiptsQuorumAndConflict(t *testing.T) {
 		bStream.events <- transport.Notification{Result: payload}
 		select {
 		case got := <-out:
-			if len(got) != 1 || got[0].Status != types.ReceiptStatusSuccessful {
+			if len(got) != 1 || got[0].Status == nil || *got[0].Status != "0x1" {
 				t.Fatalf("receipts = %+v", got)
 			}
 		case <-time.After(time.Second):
@@ -645,7 +692,7 @@ func TestAggregatedTransactionReceiptsQuorumAndConflict(t *testing.T) {
 
 	t.Run("conflicting batch is quarantined", func(t *testing.T) {
 		sources, aStream, bStream := newSources()
-		out := make(chan []*types.Receipt, 2)
+		out := make(chan []ethapi.Receipt, 2)
 		sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindTransactionReceipts, nil, out, decode)
 		if err != nil {
 			t.Fatal(err)
@@ -660,8 +707,6 @@ func TestAggregatedTransactionReceiptsQuorumAndConflict(t *testing.T) {
 		}
 	})
 }
-
-func ptrHash(hash common.Hash) *common.Hash { return &hash }
 
 // blockingEstablishSource holds the establish loop inside Subscribe so a
 // test can interleave an owner close between the loop's stop check and its

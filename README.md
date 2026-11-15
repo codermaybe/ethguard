@@ -197,7 +197,7 @@ client, err := ethguard.Dial("https://your-provider-a", "https://your-provider-b
 if err != nil { return err }
 defer client.Close()
 
-balance, result, err := client.BalanceAt(ctx, account, nil)
+balance, result, err := client.BalanceAt(ctx, ethapi.Address("0x…"), nil)
 ```
 
 Every operation returns its business value plus a `CallResult` — the decision
@@ -328,9 +328,17 @@ delivery facts and never enter the business error.
 The ethclient-shaped view rides the same execution: `client.EthClient()`
 exposes the official read signatures, `SendTransaction`,
 `SendTransactionSync`, `SendRawTransactionSync`, the three subscription
-methods, and `Close`. It satisfies `bind/v2.DeployBackend`; call inputs use
-the project's generated `ethapi.CallMsg` (not `ethereum.CallMsg`), so
-`bind/v2.ContractCaller` is intentionally not satisfied. It is not
+methods, and `Close`. Public business values and scalar inputs are the
+project's generated `ethapi` models: scalar entries take
+`ethapi.Address`/`ethapi.Hash`, object entries return `*ethapi.Block`,
+`*ethapi.Header`, `*ethapi.Receipt`, `*ethapi.Transaction`, `[]ethapi.Log`,
+`[]ethapi.Receipt`, and the write entries take the root `BinaryTransaction`
+interface (any value with `MarshalBinary`, `*types.Transaction` included).
+Because the generated scalar types replaced `common.Address`/`common.Hash`,
+`bind/v2.DeployBackend` is no longer satisfied; call inputs use the
+project's generated `ethapi.CallMsg` (not `ethereum.CallMsg`), so
+`bind/v2.ContractCaller` is intentionally not satisfied either. A bind/v2
+caller needs an explicit adapter. The view is not
 `*ethclient.Client`. A view call with no
 capture bound omits raw-material collection (nothing would consume it);
 business behavior never changes. One `Close` on either surface stops both:

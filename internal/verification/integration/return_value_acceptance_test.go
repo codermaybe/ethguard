@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -101,12 +102,12 @@ func TestReturnValueReceiptFromAndSpellingThroughClient(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, _, err := client.TransactionReceipt(ctx, common.HexToHash(hash))
+	result, _, err := client.TransactionReceipt(ctx, ethapi.Hash(hash))
 	if err != nil {
 		t.Fatal(err)
 	}
 	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, common.HexToHash(hash).Hex()))
-	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || result.TxHash.Hex() != hash || !bytes.Contains(decision.Value, []byte(`"from":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"logs":[]`)) {
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 || string(result.TransactionHash) != hash || !bytes.Contains(decision.Value, []byte(`"from":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)) || bytes.Contains(decision.Value, []byte(`"vendor"`)) || !bytes.Contains(decision.Value, []byte(`"logs":[]`)) {
 		t.Fatalf("receipt = %+v decision = %+v", result, decision)
 	}
 }

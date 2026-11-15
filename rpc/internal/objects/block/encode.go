@@ -6,104 +6,73 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
+	objectheader "github.com/codermaybe/ethguard/internal/ethobject/header"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// Encode returns the canonical block value for the fields whose commitments
-// are checked by AdmitBlock. Header JSON comes from go-ethereum's typed
-// header encoder; transaction and withdrawal bodies are re-encoded through
-// their typed forms. Response metadata such as size, totalDifficulty, from,
-// and provider extensions is deliberately left outside the protected value.
-//
-// A header-only response remains valid: body fields are included only when
-// present in the source payload. Full-body fields are canonicalized when they
-// are present, while withdrawals are included only after the header commits
-// to them.
+// Encode returns a source-local canonical official Block, preserving size
+// and each embedded transaction's declared sender and inclusion context.
+// Those declarations participate in the complete comparison value. They are
+// not claims of sender recovery or independently proven inclusion. AdmitBlock
+// checks payload commitments, body relations and method request binding.
+// Internal number/hash anchor reads retain their separate minimal shape.
 func Encode(raw json.RawMessage) (json.RawMessage, error) {
-	return encode(raw)
-}
-
-// EncodeByNumber is the canonical encoder for eth_getBlockByNumber.
-// Header-only and full-block responses use the same canonical output contract.
-func EncodeByNumber(raw json.RawMessage) (json.RawMessage, error) {
-	return Encode(raw)
-}
-
-func encode(raw json.RawMessage) (json.RawMessage, error) {
-	trimmed := bytes.TrimSpace(raw)
-	if bytes.Equal(trimmed, []byte("null")) {
+	if ethcodec.IsJSONNull(raw) {
 		return json.RawMessage("null"), nil
 	}
 	var source map[string]json.RawMessage
-	if err := json.Unmarshal(trimmed, &source); err != nil {
-		return nil, fmt.Errorf("block encode object: %w", err)
+	if err := json.Unmarshal(raw, &source); err != nil || source == nil {
+		return nil, fmt.Errorf("block encode: expected object")
 	}
-	var header *types.Header
-	if err := json.Unmarshal(trimmed, &header); err != nil || header == nil {
-		if hasBlockHead(source) {
-			return encodeHeaderOnly(source)
-		}
-		// Let the block normalizer report a missing identity for malformed or
-		// incomplete responses. Header-only anchor reads intentionally need only
-		// number and hash; full-body calls are rejected by AdmitBlock first.
-		return json.Marshal(source)
+	if !hasBlockHead(source) {
+		return nil, fmt.Errorf("block head: missing number or hash")
 	}
-	headerRaw, err := json.Marshal(header)
+	projected, err := objectheader.Projection(raw)
 	if err != nil {
-		return nil, fmt.Errorf("block encode canonical header: %w", err)
+		return nil, err
 	}
-	value := make(map[string]json.RawMessage)
-	if err := json.Unmarshal(headerRaw, &value); err != nil {
-		return nil, fmt.Errorf("block encode canonical header object: %w", err)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(projected, &fields); err != nil {
+		return nil, err
 	}
-	// The post-fork optional header members are optional and non-nullable in
-	// the official schema, but geth's header marshal emits explicit null for
-	// unset pointer fields — the de-facto wire shape of every pre-fork block
-	// served by geth. The null folds to omission (the same null→omit
-	// exception the log and accessList families register), so the committed
-	// value stays a legal subset of the official schema instead of declaring
-	// optional fields null.
-	for _, member := range optionalHeaderMembers {
-		if bytes.Equal(bytes.TrimSpace(value[member]), []byte("null")) {
-			delete(value, member)
+	// Reference reads may carry provider extensions, but any declared official
+	// header/body member requires the complete corresponding object checks.
+	reference := objectheader.ReferenceOnly(source)
+	for _, name := range []string{"size", "transactions", "uncles", "withdrawals"} {
+		if _, present := source[name]; present {
+			reference = false
 		}
 	}
-	if body, ok := source["transactions"]; ok {
-		encoded, err := encodeTransactions(body)
-		if err != nil {
-			return nil, err
-		}
-		value["transactions"] = encoded
+	if reference {
+		return encodeHeaderOnly(source)
 	}
-	if body, ok := source["uncles"]; ok {
-		encoded, err := encodeHashes(body, "uncles")
-		if err != nil {
-			return nil, err
-		}
-		value["uncles"] = encoded
+	if _, err := objectheader.Decode(raw); err != nil {
+		return nil, fmt.Errorf("block encode: %w", err)
 	}
-	if header.WithdrawalsHash != nil {
-		body, ok := source["withdrawals"]
-		if ok {
-			if bytes.Equal(bytes.TrimSpace(body), []byte("null")) {
-				return nil, fmt.Errorf("block encode withdrawals: committed body is null")
-			}
-			encoded, err := encodeWithdrawals(body)
-			if err != nil {
-				return nil, err
-			}
-			value["withdrawals"] = encoded
+	if _, txs := source["transactions"]; !txs {
+		if _, uncles := source["uncles"]; !uncles {
+			return objectheader.Normalize(raw)
 		}
 	}
-	encoded, err := json.Marshal(value)
+	for _, name := range []string{"size", "transactions", "uncles", "withdrawals"} {
+		if value, exists := source[name]; exists {
+			fields[name] = value
+		}
+	}
+	candidate, err := ethcodec.MarshalNoEscape(fields)
 	if err != nil {
-		return nil, fmt.Errorf("block encode value: %w", err)
+		return nil, err
 	}
-	return encoded, nil
+	out, err := ethapi.NewBlock(candidate)
+	if err != nil {
+		return nil, fmt.Errorf("block encode: %w", err)
+	}
+	return ethcodec.MarshalNoEscape(out)
 }
+
+func EncodeByNumber(raw json.RawMessage) (json.RawMessage, error) { return Encode(raw) }
 
 func hasBlockHead(source map[string]json.RawMessage) bool {
 	_, number := source["number"]
@@ -111,83 +80,24 @@ func hasBlockHead(source map[string]json.RawMessage) bool {
 	return number && hash
 }
 
-// optionalHeaderMembers lists the post-fork optional header members that are
-// non-nullable in the official schema and that geth's header marshal emits as
-// explicit null when unset.
-var optionalHeaderMembers = []string{
-	"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "slotNumber",
-}
-
 func encodeHeaderOnly(source map[string]json.RawMessage) (json.RawMessage, error) {
 	var number, hash string
 	if err := json.Unmarshal(source["number"], &number); err != nil {
-		return json.Marshal(source)
+		return nil, err
 	}
 	if err := json.Unmarshal(source["hash"], &hash); err != nil {
-		return json.Marshal(source)
+		return nil, err
+	}
+	if number == "" || len(hash) < 3 {
+		return nil, fmt.Errorf("block head: missing number or hash")
 	}
 	height, err := rpc.ParseHexQuantity(number)
 	if err != nil {
-		return json.Marshal(source)
+		return nil, err
 	}
-	return json.Marshal(map[string]string{
-		"hash":   strings.ToLower(hash),
-		"number": fmt.Sprintf("0x%x", height),
-	})
+	return json.Marshal(map[string]string{"hash": strings.ToLower(hash), "number": fmt.Sprintf("0x%x", height)})
 }
 
-func encodeTransactions(raw json.RawMessage) (json.RawMessage, error) {
-	var items []json.RawMessage
-	if err := json.Unmarshal(raw, &items); err != nil || items == nil {
-		if err == nil {
-			err = fmt.Errorf("body is null")
-		}
-		return nil, fmt.Errorf("block encode transactions: %w", err)
-	}
-	out := make([]json.RawMessage, len(items))
-	for i, item := range items {
-		trimmed := bytes.TrimSpace(item)
-		if len(trimmed) > 0 && trimmed[0] == '"' {
-			var hash common.Hash
-			if err := json.Unmarshal(trimmed, &hash); err != nil {
-				return nil, fmt.Errorf("block encode transaction hash %d: %w", i, err)
-			}
-			out[i], _ = json.Marshal(hash)
-			continue
-		}
-		var tx types.Transaction
-		if err := json.Unmarshal(trimmed, &tx); err != nil {
-			return nil, fmt.Errorf("block encode transaction %d: %w", i, err)
-		}
-		encoded, err := json.Marshal(&tx)
-		if err != nil {
-			return nil, fmt.Errorf("block encode transaction %d: %w", i, err)
-		}
-		out[i] = encoded
-	}
-	return json.Marshal(out)
-}
-
-func encodeHashes(raw json.RawMessage, name string) (json.RawMessage, error) {
-	var hashes []common.Hash
-	if err := json.Unmarshal(raw, &hashes); err != nil || hashes == nil {
-		if err == nil {
-			err = fmt.Errorf("body is null")
-		}
-		return nil, fmt.Errorf("block encode %s: %w", name, err)
-	}
-	return json.Marshal(hashes)
-}
-
-func encodeWithdrawals(raw json.RawMessage) (json.RawMessage, error) {
-	var withdrawals []*types.Withdrawal
-	if err := json.Unmarshal(raw, &withdrawals); err != nil {
-		return nil, fmt.Errorf("block encode withdrawals: %w", err)
-	}
-	for i, withdrawal := range withdrawals {
-		if withdrawal == nil {
-			return nil, fmt.Errorf("block encode withdrawal %d: null", i)
-		}
-	}
-	return json.Marshal(withdrawals)
+func isJSONNull(value json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(value), []byte("null"))
 }

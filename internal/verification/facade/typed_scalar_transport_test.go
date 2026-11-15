@@ -1,6 +1,7 @@
 package ethguard_test
 
 import (
+	"bytes"
 	"context"
 	"math/big"
 	"strings"
@@ -10,9 +11,9 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/ethereum/go-ethereum/common"
 )
 
 // scalarWireLog keeps the request evidence for both transports. The typed
@@ -85,9 +86,9 @@ func TestTypedScalarTransportMatrix(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	address := common.HexToAddress("0xdad")
-	key := common.HexToHash("0x01")
-	pin := common.HexToHash("0x" + strings.Repeat("11", 32))
+	address := ethapi.Address("0x0000000000000000000000000000000000000dad")
+	key := ethapi.Hash("0x0000000000000000000000000000000000000000000000000000000000000001")
+	pin := ethapi.Hash("0x" + strings.Repeat("11", 32))
 
 	networkID, networkResult, err := client.NetworkID(ctx)
 	if err != nil || networkID.Cmp(big.NewInt(1)) != 0 || networkResult.Decision == nil || networkResult.Decision.Status != rpc.Corroborated {
@@ -103,7 +104,7 @@ func TestTypedScalarTransportMatrix(t *testing.T) {
 		t.Fatalf("NonceAtHash = %d, result=%+v, err=%v", nonce, nonceResult, err)
 	}
 	storage, storageResult, err := client.StorageAtHash(ctx, address, key, pin)
-	if err != nil || string(storage) != string(common.Hex2Bytes(strings.Repeat("ab", 32))) || storageResult.Decision == nil || storageResult.Decision.Status != rpc.Corroborated {
+	if err != nil || !bytes.Equal(storage, bytes.Repeat([]byte{0xab}, 32)) || storageResult.Decision == nil || storageResult.Decision.Status != rpc.Corroborated {
 		t.Fatalf("StorageAtHash = %x, result=%+v, err=%v", storage, storageResult, err)
 	}
 	code, codeResult, err := client.CodeAtHash(ctx, address, pin)
@@ -135,19 +136,19 @@ func TestTypedScalarTransportMatrix(t *testing.T) {
 			}
 		}
 		for _, req := range log.method(methods.MethodGetBalance) {
-			if len(req.Params) != 2 || string(req.Params[1]) != `{"blockHash":"`+pin.Hex()+`","requireCanonical":false}` {
+			if len(req.Params) != 2 || string(req.Params[1]) != `{"blockHash":"`+string(pin)+`","requireCanonical":false}` {
 				t.Fatalf("source %d BalanceAtHash params = %s, want EIP-1898 hash object", i, req.Params)
 			}
 		}
 		for _, method := range []string{methods.MethodGetTransactionCount, methods.MethodGetCode} {
 			for _, req := range log.method(method) {
-				if len(req.Params) != 2 || string(req.Params[1]) != `{"blockHash":"`+pin.Hex()+`","requireCanonical":false}` {
+				if len(req.Params) != 2 || string(req.Params[1]) != `{"blockHash":"`+string(pin)+`","requireCanonical":false}` {
 					t.Fatalf("source %d %s params = %s, want EIP-1898 hash object", i, method, req.Params)
 				}
 			}
 		}
 		for _, req := range log.method(methods.MethodGetStorageAt) {
-			if len(req.Params) != 3 || string(req.Params[2]) != `{"blockHash":"`+pin.Hex()+`","requireCanonical":false}` {
+			if len(req.Params) != 3 || string(req.Params[2]) != `{"blockHash":"`+string(pin)+`","requireCanonical":false}` {
 				t.Fatalf("source %d StorageAtHash params = %s, want EIP-1898 hash object", i, req.Params)
 			}
 		}

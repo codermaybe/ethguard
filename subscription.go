@@ -2,7 +2,6 @@ package ethguard
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,9 +12,8 @@ import (
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	internalsubscription "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/internal/typed"
@@ -543,10 +541,13 @@ func (s *aggregateEthSubscription[T]) runHeadGapProbe(key string, source identif
 						header, decodeErr := typed.DecodeHeader(raw)
 						if decodeErr != nil {
 							probeErr = decodeErr
-						} else if header.Number == nil || header.Number.BitLen() > 64 || header.Number.Uint64() != height {
-							probeErr = fmt.Errorf("pulled header number does not match height %d", height)
 						} else {
-							probeErr = s.sessions.Accept(currentSession)
+							gotHeight, heightErr := typed.QuantityHeight(header.Number)
+							if heightErr != nil || gotHeight != height {
+								probeErr = fmt.Errorf("pulled header number does not match height %d", height)
+							} else {
+								probeErr = s.sessions.Accept(currentSession)
+							}
 						}
 					}
 				}
@@ -854,7 +855,7 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 	return s, nil
 }
 
-func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
+func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *ethapi.Header) (ethereum.Subscription, error) {
 	if ch == nil {
 		return nil, fmt.Errorf("%w: nil subscription channel", rpc.ErrInvalidRequest)
 	}
@@ -867,19 +868,23 @@ func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) 
 		if subErr != nil {
 			return nil, subErr
 		}
-		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) (*types.Header, error) {
+		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) (*ethapi.Header, error) {
 			return typed.DecodeHeader(raw)
 		}), nil
 	}
-	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindNewHeads, nil, ch, func(raw []byte, sourceID string) (internalsubscription.Observation, *types.Header, error) {
+	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindNewHeads, nil, ch, func(raw []byte, sourceID string) (internalsubscription.Observation, *ethapi.Header, error) {
 		header, decodeErr := typed.DecodeHeader(raw)
 		if decodeErr != nil {
 			return internalsubscription.Observation{}, nil, decodeErr
 		}
-		if header.Number == nil {
-			return internalsubscription.Observation{}, nil, fmt.Errorf("header number is nil")
+		// The declared hash is part of the admitted header: the shared
+		// kernel verified it against the recomputed hash before this
+		// boundary, so the canonical spelling is the context key input.
+		height, heightErr := typed.QuantityHeight(header.Number)
+		if heightErr != nil {
+			return internalsubscription.Observation{}, nil, fmt.Errorf("header number %s: %w", header.Number, heightErr)
 		}
-		contextKey, key, keyErr := internalsubscription.CanonicalNewHeadKey(header.Number.String(), header.Hash().Hex(), header.ParentHash.Hex())
+		contextKey, key, keyErr := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(height, 10), string(header.Hash), string(header.ParentHash))
 		if keyErr != nil {
 			return internalsubscription.Observation{}, nil, keyErr
 		}
@@ -899,13 +904,14 @@ func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) 
 			return internalsubscription.Observation{}, err
 		}
 		header, err := typed.DecodeHeader(raw)
-		if err != nil || header.Number == nil {
-			if err == nil {
-				err = fmt.Errorf("header number is nil")
-			}
+		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
-		gotContext, key, err := internalsubscription.CanonicalNewHeadKey(header.Number.String(), header.Hash().Hex(), header.ParentHash.Hex())
+		gotHeight, heightErr := typed.QuantityHeight(header.Number)
+		if heightErr != nil {
+			return internalsubscription.Observation{}, fmt.Errorf("pulled header number %s: %w", header.Number, heightErr)
+		}
+		gotContext, key, err := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(gotHeight, 10), string(header.Hash), string(header.ParentHash))
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
@@ -916,10 +922,13 @@ func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) 
 	})
 }
 
-func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethapi.FilterQuery, ch chan<- ethapi.Log) (ethereum.Subscription, error) {
 	if ch == nil {
 		return nil, fmt.Errorf("%w: nil subscription channel", rpc.ErrInvalidRequest)
 	}
+	// The frozen wire argument is the single filter spelling both the
+	// subscription and the same-source Pull consume; Pull owns a copy of
+	// the same filter rather than caller-owned slices.
 	arg, err := toFilterArg(q)
 	if err != nil {
 		return nil, err
@@ -933,30 +942,38 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 		if subErr != nil {
 			return nil, subErr
 		}
-		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) (types.Log, error) {
+		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) (ethapi.Log, error) {
 			if err := validateSubscriptionLogIdentity(raw); err != nil {
-				return types.Log{}, err
+				return ethapi.Log{}, err
 			}
 			return typed.DecodeLog(raw)
 		}), nil
 	}
-	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, types.Log, error) {
+	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, ethapi.Log, error) {
 		if err := validateSubscriptionLogIdentity(raw); err != nil {
-			return internalsubscription.Observation{}, types.Log{}, err
+			return internalsubscription.Observation{}, ethapi.Log{}, err
 		}
 		logValue, decodeErr := typed.DecodeLog(raw)
 		if decodeErr != nil {
-			return internalsubscription.Observation{}, types.Log{}, decodeErr
+			return internalsubscription.Observation{}, ethapi.Log{}, decodeErr
 		}
-		topics := make([]string, len(logValue.Topics))
-		for i, topic := range logValue.Topics {
-			topics[i] = topic.Hex()
+		topics := make([]string, 0, len(*logValue.Topics))
+		for _, topic := range *logValue.Topics {
+			topics = append(topics, string(topic))
 		}
-		contextKey, key, keyErr := internalsubscription.CanonicalLogKey(logValue.BlockHash.Hex(), fmt.Sprintf("0x%x", logValue.BlockNumber), logValue.TxHash.Hex(), uint64(logValue.Index), logValue.Address.Hex(), hex.EncodeToString(logValue.Data), topics, logValue.Removed)
+		height, heightErr := typed.QuantityHeight(*logValue.BlockNumber)
+		if heightErr != nil {
+			return internalsubscription.Observation{}, ethapi.Log{}, fmt.Errorf("log block number %s: %w", *logValue.BlockNumber, heightErr)
+		}
+		index, indexErr := typed.QuantityHeight(*logValue.LogIndex)
+		if indexErr != nil {
+			return internalsubscription.Observation{}, ethapi.Log{}, fmt.Errorf("log index %s: %w", *logValue.LogIndex, indexErr)
+		}
+		contextKey, key, keyErr := internalsubscription.CanonicalLogKey(string(*logValue.BlockHash), fmt.Sprintf("0x%x", height), string(logValue.TransactionHash), index, string(*logValue.Address), logDataKey(*logValue.Data), topics, *logValue.Removed)
 		if keyErr != nil {
-			return internalsubscription.Observation{}, types.Log{}, keyErr
+			return internalsubscription.Observation{}, ethapi.Log{}, keyErr
 		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...), Removed: logValue.Removed}, logValue, nil
+		return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...), Removed: *logValue.Removed}, logValue, nil
 	}
 	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindLogs, []any{arg}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
 		if kind != internalsubscription.KindLogs {
@@ -970,7 +987,7 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
-		pullArg, err := toFilterArg(ethereum.FilterQuery{BlockHash: &seedLog.BlockHash, Addresses: q.Addresses, Topics: q.Topics})
+		pullArg, err := filterPullArg(arg, *seedLog.BlockHash)
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
@@ -982,12 +999,12 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
+		var rows []json.RawMessage
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return internalsubscription.Observation{}, err
+		}
 		for i := range logs {
-			candidateRaw, marshalErr := json.Marshal(logs[i])
-			if marshalErr != nil {
-				return internalsubscription.Observation{}, marshalErr
-			}
-			observation, _, decodeErr := decode(candidateRaw, source.ID())
+			observation, _, decodeErr := decode(rows[i], source.ID())
 			if decodeErr != nil {
 				return internalsubscription.Observation{}, decodeErr
 			}
@@ -998,6 +1015,35 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery
 		}
 		return internalsubscription.Observation{}, fmt.Errorf("ethguard: logs Pull did not return context %q", contextKey)
 	})
+}
+
+// logDataKey spells one log's data for the canonical context key: the
+// canonical "0x"-prefixed data loses its prefix so the key depends on the
+// bytes, not the wire spelling.
+func logDataKey(data ethapi.Data) string {
+	return strings.TrimPrefix(string(data), "0x")
+}
+
+// filterPullArg derives the same-source Pull request from the subscription's
+// frozen filter on a private copy. The Pull is always hash-addressed by the
+// seeded log's own block: the range bounds are replaced by that block hash,
+// while the declared address, topics and any legal open-object extras stay
+// exactly as the subscription froze them. The initial subscription conditions
+// are never modified.
+func filterPullArg(frozen map[string]any, blockHash ethapi.Hash) (map[string]any, error) {
+	pullArg := make(map[string]any, len(frozen)+1)
+	for key, value := range frozen {
+		switch key {
+		case "fromBlock", "toBlock":
+			// The Pull addresses one immutable block directly; the range
+			// bounds belong to the subscription conditions, not to the
+			// backfill of one seeded log.
+			continue
+		}
+		pullArg[key] = value
+	}
+	pullArg["blockHash"] = string(blockHash)
+	return pullArg, nil
 }
 
 func validateSubscriptionLogIdentity(raw []byte) error {
@@ -1014,136 +1060,187 @@ func validateSubscriptionLogIdentity(raw []byte) error {
 	return nil
 }
 
-func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.TransactionReceiptsQuery, ch chan<- []*types.Receipt) (ethereum.Subscription, error) {
+// decodeReceiptNotification is shared by single-source events, aggregated
+// events, deliveries and same-source Pull. Official checked bytes determine
+// the candidate key; the generated values are only the public projection.
+func decodeReceiptNotification(raw []byte, sourceID string) (internalsubscription.Observation, []ethapi.Receipt, error) {
+	values, canonical, err := typed.DecodeReceiptBatch(raw)
+	if err != nil {
+		return internalsubscription.Observation{}, nil, err
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(canonical, &rows); err != nil {
+		return internalsubscription.Observation{}, nil, err
+	}
+	identities := make([]internalsubscription.ReceiptIdentity, len(values))
+	var firstHeight uint64
+	for i := range values {
+		height, heightErr := typed.QuantityHeight(values[i].BlockNumber)
+		if heightErr != nil {
+			return internalsubscription.Observation{}, nil, fmt.Errorf("ethguard: receipt %d has no block identity", i)
+		}
+		index, indexErr := typed.QuantityHeight(values[i].TransactionIndex)
+		if indexErr != nil {
+			return internalsubscription.Observation{}, nil, fmt.Errorf("ethguard: receipt %d has no transaction index", i)
+		}
+		if i == 0 {
+			// The first receipt fixes the batch's block identity.
+		} else if values[i].BlockHash != values[0].BlockHash || height != firstHeight {
+			return internalsubscription.Observation{}, nil, fmt.Errorf("ethguard: receipt %d has inconsistent block identity", i)
+		}
+		firstHeight = height
+		identities[i] = internalsubscription.ReceiptIdentity{
+			TransactionHash: string(values[i].TransactionHash), BlockHash: string(values[i].BlockHash),
+			BlockNumber: strconv.FormatUint(height, 10), TransactionIndex: index, Canonical: rows[i],
+		}
+	}
+	contextKey, key, err := internalsubscription.CanonicalTransactionReceiptsKey(identities)
+	if err != nil {
+		return internalsubscription.Observation{}, nil, err
+	}
+	return internalsubscription.Observation{Kind: internalsubscription.KindTransactionReceipts, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, values, nil
+}
+
+// snapshotReceiptSubscriptionQuery freezes the generated receipt-subscription
+// query on a private copy. nil query, an unset list, and an empty list (with
+// a directly constructed zero-length slice) all normalize to the empty
+// official object — the wire key stays absent, so empty means all receipts.
+// A non-empty list is re-validated hash by hash; an invalid hash is an input
+// error that fails before the subscription is established — it never widens
+// into the empty "all receipts" query and never rides as a partial list.
+// Only canonical spellings enter the frozen copy, so later caller mutation of
+// the input cannot change the wire. This empty-means-all rule is the
+// inherited project contract, not something the JSON schema derives.
+func snapshotReceiptSubscriptionQuery(q *ethapi.TransactionReceiptsQuery) (*ethapi.TransactionReceiptsQuery, ethapi.TransactionReceiptsQuery, error) {
+	frozen := &ethapi.TransactionReceiptsQuery{}
+	var wire ethapi.TransactionReceiptsQuery
+	if q != nil && q.TransactionHashes != nil && len(*q.TransactionHashes) != 0 {
+		hashes := make([]ethapi.Hash, 0, len(*q.TransactionHashes))
+		for _, hash := range *q.TransactionHashes {
+			canonical, err := validateHash(hash)
+			if err != nil {
+				return nil, ethapi.TransactionReceiptsQuery{}, fmt.Errorf("ethguard: receipt subscription filter hash %q: %w", string(hash), ErrInvalidRequest)
+			}
+			hashes = append(hashes, canonical)
+		}
+		frozen.TransactionHashes = &hashes
+		wire.TransactionHashes = &hashes
+	}
+	return frozen, wire, nil
+}
+
+func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethapi.TransactionReceiptsQuery, ch chan<- []ethapi.Receipt) (ethereum.Subscription, error) {
 	if ch == nil {
 		return nil, fmt.Errorf("%w: nil subscription channel", rpc.ErrInvalidRequest)
+	}
+	// The filter is validated and frozen before any source selection or
+	// registration: an invalid filter establishes nothing on any surface.
+	query, wireQuery, err := snapshotReceiptSubscriptionQuery(q)
+	if err != nil {
+		return nil, err
 	}
 	sources, err := c.subscriptionSources()
 	if err != nil {
 		return nil, err
 	}
 	if len(sources) == 1 {
-		// Normalize the nil query exactly like the multi-source path below:
-		// both routes must put the same wire spelling on the socket, or the
-		// single-source route would send a bare null parameter that
-		// providers may reject.
-		singleQuery := q
-		if singleQuery == nil {
-			singleQuery = &ethereum.TransactionReceiptsQuery{}
-		}
-		inner, subErr := sources[0].Subscribe(ctx, "transactionReceipts", singleQuery)
+		inner, subErr := sources[0].Subscribe(ctx, "transactionReceipts", wireQuery)
 		if subErr != nil {
 			return nil, subErr
 		}
-		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) ([]*types.Receipt, error) {
-			return typed.DecodeReceipts(raw)
+		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) ([]ethapi.Receipt, error) {
+			_, values, err := decodeReceiptNotification(raw, sources[0].ID())
+			return values, err
 		}), nil
 	}
-	query := q
-	if query == nil {
-		query = &ethereum.TransactionReceiptsQuery{}
-	}
-	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, []*types.Receipt, error) {
-		receipts, decodeErr := typed.DecodeReceipts(raw)
-		if decodeErr != nil {
-			return internalsubscription.Observation{}, nil, decodeErr
-		}
-		identities := make([]internalsubscription.ReceiptIdentity, len(receipts))
-		for i, receipt := range receipts {
-			if receipt == nil || receipt.BlockNumber == nil {
-				return internalsubscription.Observation{}, nil, fmt.Errorf("ethguard: receipt %d has no block identity", i)
-			}
-			canonical, marshalErr := json.Marshal(receipt)
-			if marshalErr != nil {
-				return internalsubscription.Observation{}, nil, marshalErr
-			}
-			identities[i] = internalsubscription.ReceiptIdentity{
-				TransactionHash:  receipt.TxHash.Hex(),
-				BlockHash:        receipt.BlockHash.Hex(),
-				BlockNumber:      receipt.BlockNumber.String(),
-				TransactionIndex: uint64(receipt.TransactionIndex),
-				Canonical:        canonical,
-			}
-		}
-		contextKey, key, keyErr := internalsubscription.CanonicalTransactionReceiptsKey(identities)
-		if keyErr != nil {
-			return internalsubscription.Observation{}, nil, keyErr
-		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindTransactionReceipts, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, receipts, nil
-	}
-	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindTransactionReceipts, []any{query}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
-		if kind != internalsubscription.KindTransactionReceipts {
-			return internalsubscription.Observation{}, fmt.Errorf("ethguard: invalid transactionReceipts Pull kind %q", kind)
-		}
-		unary, ok := source.(subscriptionUnarySource)
-		if !ok {
-			return internalsubscription.Observation{}, fmt.Errorf("ethguard: source %q has no same-source receipt Pull", source.ID())
-		}
-		seedReceipts, err := typed.DecodeReceipts(seed.Payload)
-		if err != nil {
-			return internalsubscription.Observation{}, err
-		}
-		if len(seedReceipts) == 0 {
-			return internalsubscription.Observation{}, fmt.Errorf("ethguard: cannot Pull empty receipt batch")
-		}
-		blockHash := seedReceipts[0].BlockHash
-		for i, receipt := range seedReceipts {
-			if receipt == nil || receipt.BlockHash != blockHash {
-				return internalsubscription.Observation{}, fmt.Errorf("ethguard: receipt %d has inconsistent block identity", i)
-			}
-		}
-		raw, callErr := unary.CallContext(pctx, "eth_getBlockReceipts", blockHash)
-		if callErr != nil {
-			return internalsubscription.Observation{}, callErr
-		}
-		allReceipts, decodeErr := typed.DecodeReceipts(raw)
-		if decodeErr != nil {
-			return internalsubscription.Observation{}, decodeErr
-		}
-		wanted := make(map[common.Hash]struct{}, len(query.TransactionHashes))
-		for _, hash := range query.TransactionHashes {
-			wanted[hash] = struct{}{}
-		}
-		seedHashes := make(map[common.Hash]struct{}, len(seedReceipts))
-		for _, receipt := range seedReceipts {
-			seedHashes[receipt.TxHash] = struct{}{}
-		}
-		filtered := make([]*types.Receipt, 0, len(allReceipts))
-		for _, receipt := range allReceipts {
-			if receipt.BlockHash != blockHash {
-				return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt has inconsistent block identity")
-			}
-			if len(wanted) == 0 {
-				filtered = append(filtered, receipt)
-				continue
-			}
-			if _, ok := wanted[receipt.TxHash]; ok {
-				filtered = append(filtered, receipt)
-			}
-		}
-		for _, receipt := range filtered {
-			delete(seedHashes, receipt.TxHash)
-		}
-		if len(seedHashes) > 0 {
-			for hash := range seedHashes {
-				return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt Pull omitted seeded transaction %s", hash)
-			}
-		}
-		if len(filtered) == 0 {
-			return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt Pull returned no matching receipts")
-		}
-		batch, marshalErr := json.Marshal(filtered)
-		if marshalErr != nil {
-			return internalsubscription.Observation{}, marshalErr
-		}
-		observation, _, decodeErr := decode(batch, source.ID())
-		if decodeErr != nil {
-			return internalsubscription.Observation{}, decodeErr
-		}
-		if observation.ContextKey != contextKey {
-			return internalsubscription.Observation{}, fmt.Errorf("ethguard: receipt Pull context %q does not match %q", observation.ContextKey, contextKey)
-		}
-		observation.Generation = seed.Generation
-		return observation, nil
+	decode := decodeReceiptNotification
+
+	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindTransactionReceipts, []any{wireQuery}, ch, decode, func(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
+		return pullReceiptNotification(pctx, source, kind, contextKey, seed, query)
 	})
+}
+
+func pullReceiptNotification(pctx context.Context, source identifiedSubscriptionSource, kind internalsubscription.Kind, contextKey string, seed internalsubscription.Observation, query *ethapi.TransactionReceiptsQuery) (internalsubscription.Observation, error) {
+	if kind != internalsubscription.KindTransactionReceipts {
+		return internalsubscription.Observation{}, fmt.Errorf("ethguard: invalid transactionReceipts Pull kind %q", kind)
+	}
+	unary, ok := source.(subscriptionUnarySource)
+	if !ok {
+		return internalsubscription.Observation{}, fmt.Errorf("ethguard: source %q has no same-source receipt Pull", source.ID())
+	}
+	seedReceipts, err := typed.DecodeReceipts(seed.Payload)
+	if err != nil {
+		return internalsubscription.Observation{}, err
+	}
+	if len(seedReceipts) == 0 {
+		return internalsubscription.Observation{}, fmt.Errorf("ethguard: cannot Pull empty receipt batch")
+	}
+	blockHash := seedReceipts[0].BlockHash
+	for i := range seedReceipts {
+		if seedReceipts[i].BlockHash != blockHash {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: receipt %d has inconsistent block identity", i)
+		}
+	}
+	raw, callErr := unary.CallContext(pctx, "eth_getBlockReceipts", string(blockHash))
+	if callErr != nil {
+		return internalsubscription.Observation{}, callErr
+	}
+	allReceipts, canonical, decodeErr := typed.DecodeReceiptBatch(raw)
+	if decodeErr != nil {
+		return internalsubscription.Observation{}, decodeErr
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(canonical, &rows); err != nil {
+		return internalsubscription.Observation{}, err
+	}
+	wanted := make(map[string]struct{})
+	if query != nil && query.TransactionHashes != nil {
+		for _, hash := range *query.TransactionHashes {
+			wanted[string(hash)] = struct{}{}
+		}
+	}
+	seedHashes := make(map[string]struct{}, len(seedReceipts))
+	for i := range seedReceipts {
+		seedHashes[string(seedReceipts[i].TransactionHash)] = struct{}{}
+	}
+	filtered := make([]ethapi.Receipt, 0, len(allReceipts))
+	filteredRows := make([]json.RawMessage, 0, len(allReceipts))
+	for i := range allReceipts {
+		if allReceipts[i].BlockHash != blockHash {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt has inconsistent block identity")
+		}
+		if len(wanted) == 0 {
+			filtered = append(filtered, allReceipts[i])
+			filteredRows = append(filteredRows, rows[i])
+			continue
+		}
+		if _, ok := wanted[string(allReceipts[i].TransactionHash)]; ok {
+			filtered = append(filtered, allReceipts[i])
+			filteredRows = append(filteredRows, rows[i])
+		}
+	}
+	for i := range filtered {
+		delete(seedHashes, string(filtered[i].TransactionHash))
+	}
+	if len(seedHashes) > 0 {
+		for hash := range seedHashes {
+			return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt Pull omitted seeded transaction %s", hash)
+		}
+	}
+	if len(filtered) == 0 {
+		return internalsubscription.Observation{}, fmt.Errorf("ethguard: block receipt Pull returned no matching receipts")
+	}
+	batch, marshalErr := json.Marshal(filteredRows)
+	if marshalErr != nil {
+		return internalsubscription.Observation{}, marshalErr
+	}
+	observation, _, decodeErr := decodeReceiptNotification(batch, source.ID())
+	if decodeErr != nil {
+		return internalsubscription.Observation{}, decodeErr
+	}
+	if observation.ContextKey != contextKey {
+		return internalsubscription.Observation{}, fmt.Errorf("ethguard: receipt Pull context %q does not match %q", observation.ContextKey, contextKey)
+	}
+	observation.Generation = seed.Generation
+	return observation, nil
 }

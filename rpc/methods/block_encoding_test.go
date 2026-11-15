@@ -2,6 +2,7 @@ package methods
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"math/big"
@@ -11,11 +12,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
-func TestBlockPolicyCanonicalizesNarrowKeyValue(t *testing.T) {
+func TestBlockPolicyCanonicalizesCompleteOfficialValue(t *testing.T) {
 	header := &types.Header{
 		ParentHash:  common.HexToHash("0x1"),
 		UncleHash:   types.EmptyUncleHash,
@@ -28,8 +30,7 @@ func TestBlockPolicyCanonicalizesNarrowKeyValue(t *testing.T) {
 		Time:        1,
 	}
 	first := blockRaw(t, header, nil)
-	second := injectField(t, first, "size", `"0x200"`)
-	second = injectField(t, second, "totalDifficulty", `"0x300"`)
+	second := injectField(t, first, "totalDifficulty", `"0x300"`)
 	second = injectField(t, second, "vendor", `true`)
 	policy := planResolver(t, MethodGetBlockByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
@@ -46,7 +47,7 @@ func TestBlockPolicyCanonicalizesNarrowKeyValue(t *testing.T) {
 	if !bytes.Equal(decision.Value, want) {
 		t.Fatalf("value = %s, want %s", decision.Value, want)
 	}
-	for _, field := range []string{"size", "totalDifficulty", "vendor"} {
+	for _, field := range []string{"totalDifficulty", "vendor"} {
 		if bytes.Contains(decision.Value, []byte(`"`+field+`"`)) {
 			t.Fatalf("uncommitted field %s survived: %s", field, decision.Value)
 		}
@@ -75,7 +76,7 @@ func TestBlockByNumberHeaderOnlyUsesCanonicalValue(t *testing.T) {
 	}
 }
 
-func TestBlockPolicyFinishRejectsSameKeyDifferentCommittedHeader(t *testing.T) {
+func TestBlockPolicyFaultsFalseOriginalWireHashBeforeClustering(t *testing.T) {
 	firstHeader := &types.Header{
 		ParentHash:  common.HexToHash("0x1"),
 		UncleHash:   types.EmptyUncleHash,
@@ -96,8 +97,20 @@ func TestBlockPolicyFinishRejectsSameKeyDifferentCommittedHeader(t *testing.T) {
 		{Source: rpc.SourceRef{ID: "a"}, Value: first},
 		{Source: rpc.SourceRef{ID: "b"}, Value: second},
 	})
-	if !errors.Is(err, rpc.ErrMalformedResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
-		t.Fatalf("decision = %+v err %v, want finish guard failure", decision, err)
+	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 1 || decision.Support[0].ID != "a" || len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), `source "b"`) || !strings.Contains(decision.Faults[0].Error(), "wire hash disagrees") {
+		t.Fatalf("decision = %+v err %v, want source b fault before clustering", decision, err)
+	}
+	// A third valid source reaches quorum; the faulty declaration never votes.
+	decision, err = policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
+		{Source: rpc.SourceRef{ID: "a"}, Value: first},
+		{Source: rpc.SourceRef{ID: "b"}, Value: second},
+		{Source: rpc.SourceRef{ID: "c"}, Value: first},
+	})
+	if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Faults) != 1 {
+		t.Fatalf("valid quorum blocked by faulty source: %+v %v", decision, err)
+	}
+	if _, err := ethapi.NewBlock(decision.Value); err != nil {
+		t.Fatalf("committed Value is not official Block: %v", err)
 	}
 }
 
@@ -174,5 +187,67 @@ func TestBlockPolicyPreservesMissingHeadDiagnostic(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(faults, "missing number or hash") {
 		t.Fatalf("decision = %+v err = %v, want missing-head diagnostic", decision, err)
+	}
+}
+
+func TestBlockPolicySameHashDifferentSizeFormsDistinctCanonicalClusters(t *testing.T) {
+	raw, _ := admissionBlock(t, []json.RawMessage{})
+	first := injectField(t, raw, "size", `"0x200"`)
+	second := injectField(t, raw, "size", `"0x201"`)
+	for _, method := range []string{MethodGetBlockByHash, MethodGetBlockByNumber} {
+		t.Run(method, func(t *testing.T) {
+			policy := planResolver(t, method, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
+			obs := []rpc.Observation{{Source: rpc.SourceRef{ID: "a"}, Value: first}, {Source: rpc.SourceRef{ID: "b"}, Value: second}}
+			decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, obs)
+			if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 1 || len(decision.Faults) != 0 {
+				t.Fatalf("same hash with differing valid size did not split clusters: %+v %v", decision, err)
+			}
+			obs = append(obs, rpc.Observation{Source: rpc.SourceRef{ID: "c"}, Value: second})
+			decision, err = policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, obs)
+			if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 0 {
+				t.Fatalf("2 of 3 complete values did not win: %+v %v", decision, err)
+			}
+			value, err := ethapi.NewBlock(decision.Value)
+			if err != nil || value.Size != "0x201" {
+				t.Fatalf("winning official Value = %s %v", decision.Value, err)
+			}
+			for _, source := range decision.Support {
+				if source.ID == "a" {
+					t.Fatal("different-size source counted as support")
+				}
+			}
+			want, err := blockobject.Encode(second)
+			if err != nil || !bytes.Equal(decision.Value, want) {
+				t.Fatalf("committed Value differs from actual winning key: %s %v", decision.Value, err)
+			}
+		})
+	}
+}
+
+func TestBlockReferenceFallbackCannotBypassHeaderOrFullBodyChecks(t *testing.T) {
+	reference := json.RawMessage(`{"number":"0x1","hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","vendor":true}`)
+	if _, err := blockobject.Encode(reference); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"parentHash", "difficulty", "baseFeePerGas", "slotNumber", "transactions", "uncles", "size"} {
+		raw := injectField(t, reference, field, `null`)
+		if _, err := blockobject.Encode(raw); err == nil {
+			t.Fatalf("reference fallback hid declared %s", field)
+		}
+	}
+	plan := compiledPlan(t, MethodGetBlockByNumber)
+	if _, err := plan.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByNumber, Params: []any{"0x1", true}}, reference, nil); err == nil {
+		t.Fatal("fullTx admission accepted reference-only object")
+	}
+}
+
+func TestBlockReferenceRetainsInternalShortHashGrammar(t *testing.T) {
+	policy := planResolver(t, MethodGetBlockByNumber, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
+	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
+		{Source: rpc.SourceRef{ID: "a"}, Value: json.RawMessage(`{"hash":"0xABC","number":"0x01","vendor":true}`)},
+		{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`{"hash":"0xabc","number":"0x1","extra":true}`)},
+	})
+	if err != nil || decision.Status != rpc.Corroborated || string(decision.Value) != `{"hash":"0xabc","number":"0x1"}` {
+		t.Fatalf("internal reference grammar changed: %+v %v", decision, err)
 	}
 }

@@ -9,14 +9,15 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/ethereum/go-ethereum/common"
 )
 
 func TestTypedHeaderByHashUsesHeaderOnlyRequest(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	raw := fixtureBlock(t, 16)
-	hash := common.HexToHash(blockHashOf(raw))
+	hash := ethapi.Hash(blockHashOf(raw))
 	for _, node := range nodes {
 		node.Return(methods.MethodGetBlockByHash, raw)
 	}
@@ -27,7 +28,8 @@ func TestTypedHeaderByHashUsesHeaderOnlyRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if header == nil || header.Number.Uint64() != 16 || !result.IsCorroborated() {
+	height, heightErr := rpc.ParseHexQuantity(string(header.Number))
+	if header == nil || heightErr != nil || height != 16 || !result.IsCorroborated() {
 		t.Fatalf("header=%v result=%+v", header, result.Decision)
 	}
 	for i, node := range nodes {
@@ -53,11 +55,12 @@ func TestTypedHeaderByNumberMatchesViewAndRejectsPending(t *testing.T) {
 	defer cancel()
 
 	header, _, err := client.HeaderByNumber(ctx, big.NewInt(17))
-	if err != nil || header == nil || header.Number.Uint64() != 17 {
+	height, heightErr := rpc.ParseHexQuantity(string(header.Number))
+	if err != nil || header == nil || heightErr != nil || height != 17 {
 		t.Fatalf("root header=%v err=%v", header, err)
 	}
 	viewHeader, err := client.EthClient().HeaderByNumber(ctx, big.NewInt(17))
-	if err != nil || viewHeader == nil || viewHeader.Hash() != header.Hash() {
+	if err != nil || viewHeader == nil || viewHeader.Hash != header.Hash {
 		t.Fatalf("view header=%v err=%v", viewHeader, err)
 	}
 

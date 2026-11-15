@@ -93,6 +93,9 @@ func fullBlockJSON(t *testing.T, number int64) (map[string]any, string) {
 	object["hash"] = hash
 	object["transactions"] = []any{}
 	object["uncles"] = []any{}
+	// The scripted source supplies a complete empty block, including its real
+	// RLP size; production must not invent this required declaration.
+	object["size"] = fmt.Sprintf("0x%x", block.Size())
 	return object, hash
 }
 

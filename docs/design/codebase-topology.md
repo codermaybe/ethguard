@@ -16,6 +16,7 @@
 | `internal/reference` | finalized 等候选／确认算法及其 consumer-owned HeadReader／HeadCodec 接口 | 直接依赖 pool、methods 或构造 aggregator／policy |
 | `ethapi`／`internal/ethcodec` | 公开 schema 生成业务模型／共享数值和 JSON 原语 | 传输、投票、执行策略 |
 | `internal/executionapi` | 固定参考 bundle／显式标准勘误的统一读取与身份检查 | 按来源或调用动态改写 schema、响应兼容或方法注册 |
+| `internal/ethobject/{header,receipt,log}` | 查询、订阅事件与同源Pull共享的对象结构／内部完整性及规范编码；不依赖RPC私有包 | 方法装配、请求绑定、投票、网络 |
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
 | `internal/transport/{http,wss}` | 原生 HTTP／raw WSS 的协议和保真 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
@@ -36,7 +37,7 @@
 
 本样板只调整知识归属、名称和引用，不增删公开接口、方法集合或兼容规则，不改变 quorum、保护域或证据合同。历史扩展条目另行评审，不借组织整理移除能力。
 
-已确认的规则组织为**外层按官方直接 key 分支，内层按该 key 的完整形态／状态分支**。方法文件拥有经审核的整 key 兼容转换和方法接受域；wire 拥有通用 codec、投影及生成结构约束；objects 拥有共享对象一致性和规范编码。内层状态判断不授权嵌套路径或数组元素局部修正，不构成组合注册表；无额外兼容规则的方法不需要空 switch。
+已确认的规则组织为**外层按官方直接 key 分支，内层按该 key 的完整形态／状态分支**。方法文件拥有经审核的整 key 兼容转换和方法接受域；wire 拥有通用 codec、投影及生成结构约束；objects 拥有共享对象一致性和规范编码；Header／Receipt／Log跨查询与订阅的共同内核位于root internal/ethobject，RPC对象包保留方法绑定与必要转发，typed只作类型投影，不复制内核检查。内层状态判断不授权嵌套路径或数组元素局部修正，不构成组合注册表；无额外兼容规则的方法不需要空 switch。
 
 状态判定读取原始同源只读上下文，修正写入独立候选；缺失规则与已有 key 去重，每个 key 只处理一次。未命中修正仍须完整校验、编码和比较。当前 PruneMethod 还包含 hex 规范化，消除职责重叠须检查实际实现，不能仅修改归属描述。两 transaction 方法已完成双 switch 收敛，全部方法已按本节自治组织。
 

@@ -454,7 +454,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 		"gasUsed", "timestamp", "extraData", "mixHash", "nonce",
 		"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas",
 		"parentBeaconBlockRoot", "requestsHash", "blockAccessListHash",
-		"slotNumber", "hash", "transactions", "uncles", "withdrawals",
+		"slotNumber", "hash", "size", "transactions", "uncles", "withdrawals",
 	}
 	receiptProtected := []string{
 		"transactionHash", "transactionIndex", "blockHash", "blockNumber",
@@ -488,7 +488,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			variants: t09Variants(t, simulate), other: simulateOther, mutation: simulateMutation,
 			fieldHint: "SimulateBlock", decode: t09DecodeSimulate, typed: t09TypedSimulate,
 			schema: t09SimulateSchemaPaths, resolution: t09Strict,
-			protected: append(append([]string{}, blockProtected...), "calls", "size"),
+			protected: append(append([]string{}, blockProtected...), "calls"),
 			outside:   []string{"vendor"}, projector: true,
 			mutationExpect: t09MutationStrict, mutationReject: 1,
 		},
@@ -508,20 +508,18 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 		{
 			method:         methods.MethodGetBlockByHash,
 			params:         []any{blockHash, true},
-			variants:       t09VariantsNoEscape(t, block),
+			variants:       t09Variants(t, block),
 			other:          otherHeight,
 			mutation:       t09DeleteField(t, block, "hash"),
 			fieldHint:      "block",
 			decode:         t09DecodeBlock,
 			typed:          t09TypedBlockByHash,
 			schema:         t09BlockSchemaPaths,
-			schemaOmitted:  []string{"/transactions/*/blockHash", "/transactions/*/blockNumber", "/transactions/*/transactionIndex", "/transactions/*/from"},
 			resolution:     t09Strict,
 			protected:      blockProtected,
 			outside:        []string{"totalDifficulty", "vendor"},
-			omitted:        []string{"size", "blockNumber", "transactionIndex", "blockHash", "from"},
 			projector:      true,
-			nullOmitted:    []string{"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "slotNumber"},
+			nullOmitted:    []string{"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "blockAccessListHash", "slotNumber"},
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 0,
@@ -530,20 +528,18 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 		{
 			method:         methods.MethodGetBlockByNumber,
 			params:         []any{fmt.Sprintf("0x%x", t09AnchorHeight), true},
-			variants:       t09VariantsNoEscape(t, block),
+			variants:       t09Variants(t, block),
 			other:          fork,
 			mutation:       t09DeleteField(t, block, "hash"),
 			fieldHint:      "block",
 			decode:         t09DecodeBlock,
 			typed:          t09TypedBlockByNumber,
 			schema:         t09BlockSchemaPaths,
-			schemaOmitted:  []string{"/transactions/*/blockHash", "/transactions/*/blockNumber", "/transactions/*/transactionIndex", "/transactions/*/from"},
 			resolution:     t09Strict,
 			protected:      blockProtected,
 			outside:        []string{"totalDifficulty", "vendor"},
-			omitted:        []string{"size", "blockNumber", "transactionIndex", "blockHash", "from"},
 			projector:      true,
-			nullOmitted:    []string{"withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "slotNumber"},
+			nullOmitted:    []string{"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "blockAccessListHash", "slotNumber"},
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
@@ -1224,9 +1220,9 @@ func TestVerificationProtectedMutationFails(t *testing.T) {
 	}
 }
 
-// TestVerificationEscapedHexAdmissionBoundary records the method boundary for the
-// block decoders still require a literal 0x prefix, while standalone
-// transaction key compatibility accepts equivalent JSON string escapes.
+// TestVerificationEscapedHexAdmissionBoundary checks that equivalent JSON string
+// escapes are transparent before the private geth payload bridge. All sources
+// must remain valid votes; no representation-dependent fault may be hidden.
 func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 	chain := t09NewChain(t)
 	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
@@ -1244,10 +1240,7 @@ func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			fleet := t09NewFleet(t, 3)
 			escaped := t09EscapeFirstHex(t, tc.legal)
-			wantSupport, firstSupport := 2, 1
-			if tc.method == methods.MethodGetTransactionByHash {
-				wantSupport, firstSupport = 3, 0
-			}
+			wantSupport, firstSupport := 3, 0
 			if bytes.Equal(escaped, tc.legal) {
 				t.Fatal("escaped variant did not change the wire bytes")
 			}

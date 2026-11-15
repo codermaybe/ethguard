@@ -9,11 +9,8 @@ import (
 	"math/big"
 	"strings"
 
-	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
@@ -54,6 +51,40 @@ func aggregateInto[T any](ctx context.Context, c *Client, method string, params 
 // pointer always carries that outcome's facts.
 func decisionOf(decision rpc.Decision) *rpc.Decision {
 	return &decision
+}
+
+// validateAddress re-validates one caller-supplied generated address value
+// through the generated constructor and returns its canonical lowercase
+// spelling. Directly constructed values can carry any string — including
+// the empty one — so every entry validates before it builds a reference or
+// contacts the network, and only the canonical value rides the wire. The
+// empty string, a wrong prefix, wrong length, or non-hex text is rejected
+// locally as ErrInvalidRequest; the explicit all-zero address is legal.
+func validateAddress(v ethapi.Address) (ethapi.Address, error) {
+	quoted, err := json.Marshal(string(v))
+	if err != nil {
+		return "", fmt.Errorf("ethguard: invalid address: %w", ErrInvalidRequest)
+	}
+	canon, err := ethapi.NewAddress(quoted)
+	if err != nil {
+		return "", fmt.Errorf("ethguard: invalid address %q: %w", string(v), ErrInvalidRequest)
+	}
+	return canon, nil
+}
+
+// validateHash is the hash-side twin of validateAddress: the generated
+// constructor is the acceptance gate (fixed-hex-v1, 32 bytes, any-case
+// input, lowercase canonical output) and no entry sends the raw spelling.
+func validateHash(v ethapi.Hash) (ethapi.Hash, error) {
+	quoted, err := json.Marshal(string(v))
+	if err != nil {
+		return "", fmt.Errorf("ethguard: invalid hash: %w", ErrInvalidRequest)
+	}
+	canon, err := ethapi.NewHash(quoted)
+	if err != nil {
+		return "", fmt.Errorf("ethguard: invalid hash %q: %w", string(v), ErrInvalidRequest)
+	}
+	return canon, nil
 }
 
 // readQuantity is the shared shape of the quantity reads: validate inside
@@ -102,18 +133,22 @@ func (c *Client) NetworkID(ctx context.Context) (*big.Int, CallResult, error) {
 
 // BalanceAt returns the corroborated balance of account at blockNumber; nil
 // means the currently corroborated reference behind "latest".
-func (c *Client) BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, CallResult, error) {
+func (c *Client) BalanceAt(ctx context.Context, account ethapi.Address, blockNumber *big.Int) (*big.Int, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (*big.Int, CallResult, error) {
 		return c.balanceAtExec(opCtx, account, blockNumber)
 	})
 }
 
-func (c *Client) balanceAtExec(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, CallResult, error) {
+func (c *Client) balanceAtExec(ctx context.Context, account ethapi.Address, blockNumber *big.Int) (*big.Int, CallResult, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
 		return nil, CallResult{}, err
 	}
-	value, decision, err := aggregateInto[hexutil.Big](ctx, c, methods.MethodGetBalance, account.Hex(), blockArg)
+	value, decision, err := aggregateInto[hexutil.Big](ctx, c, methods.MethodGetBalance, string(account), blockArg)
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
@@ -123,14 +158,22 @@ func (c *Client) balanceAtExec(ctx context.Context, account common.Address, bloc
 // BalanceAtHash returns the corroborated balance of account in the state at
 // blockHash. The hash pin is sent as EIP-1898 with requireCanonical=false,
 // matching go-ethereum's BalanceAtHash contract.
-func (c *Client) BalanceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (*big.Int, CallResult, error) {
+func (c *Client) BalanceAtHash(ctx context.Context, account ethapi.Address, blockHash ethapi.Hash) (*big.Int, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (*big.Int, CallResult, error) {
 		return c.balanceAtHashExec(opCtx, account, blockHash)
 	})
 }
 
-func (c *Client) balanceAtHashExec(ctx context.Context, account common.Address, blockHash common.Hash) (*big.Int, CallResult, error) {
-	value, decision, err := aggregateInto[hexutil.Big](ctx, c, methods.MethodGetBalance, account.Hex(), hashBlockArg(blockHash))
+func (c *Client) balanceAtHashExec(ctx context.Context, account ethapi.Address, blockHash ethapi.Hash) (*big.Int, CallResult, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	blockHash, err = validateHash(blockHash)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	value, decision, err := aggregateInto[hexutil.Big](ctx, c, methods.MethodGetBalance, string(account), hashBlockArg(blockHash))
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
@@ -139,18 +182,22 @@ func (c *Client) balanceAtHashExec(ctx context.Context, account common.Address, 
 
 // NonceAt returns the corroborated account nonce of account at blockNumber;
 // nil pins the moving tag to the currently corroborated reference.
-func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, CallResult, error) {
+func (c *Client) NonceAt(ctx context.Context, account ethapi.Address, blockNumber *big.Int) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
 		return c.nonceAtExec(opCtx, account, blockNumber)
 	})
 }
 
-func (c *Client) nonceAtExec(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, CallResult, error) {
+func (c *Client) nonceAtExec(ctx context.Context, account ethapi.Address, blockNumber *big.Int) (uint64, CallResult, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
 		return 0, CallResult{}, err
 	}
-	nonce, decision, err := aggregateInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, account.Hex(), blockArg)
+	nonce, decision, err := aggregateInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, string(account), blockArg)
 	if err != nil {
 		return 0, CallResult{Decision: decisionOf(decision)}, err
 	}
@@ -159,14 +206,22 @@ func (c *Client) nonceAtExec(ctx context.Context, account common.Address, blockN
 
 // NonceAtHash returns the corroborated account nonce in the state at
 // blockHash. The hash pin is sent as EIP-1898 with requireCanonical=false.
-func (c *Client) NonceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (uint64, CallResult, error) {
+func (c *Client) NonceAtHash(ctx context.Context, account ethapi.Address, blockHash ethapi.Hash) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
 		return c.nonceAtHashExec(opCtx, account, blockHash)
 	})
 }
 
-func (c *Client) nonceAtHashExec(ctx context.Context, account common.Address, blockHash common.Hash) (uint64, CallResult, error) {
-	nonce, decision, err := aggregateInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, account.Hex(), hashBlockArg(blockHash))
+func (c *Client) nonceAtHashExec(ctx context.Context, account ethapi.Address, blockHash ethapi.Hash) (uint64, CallResult, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	blockHash, err = validateHash(blockHash)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	nonce, decision, err := aggregateInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, string(account), hashBlockArg(blockHash))
 	if err != nil {
 		return 0, CallResult{Decision: decisionOf(decision)}, err
 	}
@@ -175,18 +230,22 @@ func (c *Client) nonceAtHashExec(ctx context.Context, account common.Address, bl
 
 // StorageAt returns the corroborated value of key in account's storage at
 // blockNumber; nil pins the moving tag to the currently corroborated reference.
-func (c *Client) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, CallResult, error) {
+func (c *Client) StorageAt(ctx context.Context, account ethapi.Address, key ethapi.Hash, blockNumber *big.Int) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return c.storageAtExec(opCtx, account, key, blockNumber)
 	})
 }
 
-func (c *Client) storageAtExec(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, CallResult, error) {
+func (c *Client) storageAtExec(ctx context.Context, account ethapi.Address, key ethapi.Hash, blockNumber *big.Int) ([]byte, CallResult, error) {
+	account, key, err := validateAddressHash(account, key)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
 		return nil, CallResult{}, err
 	}
-	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetStorageAt, account.Hex(), key.Hex(), blockArg)
+	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetStorageAt, string(account), string(key), blockArg)
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
@@ -196,14 +255,22 @@ func (c *Client) storageAtExec(ctx context.Context, account common.Address, key 
 // StorageAtHash returns the corroborated value of key in account's storage
 // at blockHash. The hash pin is sent as EIP-1898 with
 // requireCanonical=false.
-func (c *Client) StorageAtHash(ctx context.Context, account common.Address, key common.Hash, blockHash common.Hash) ([]byte, CallResult, error) {
+func (c *Client) StorageAtHash(ctx context.Context, account ethapi.Address, key ethapi.Hash, blockHash ethapi.Hash) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return c.storageAtHashExec(opCtx, account, key, blockHash)
 	})
 }
 
-func (c *Client) storageAtHashExec(ctx context.Context, account common.Address, key common.Hash, blockHash common.Hash) ([]byte, CallResult, error) {
-	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetStorageAt, account.Hex(), key.Hex(), hashBlockArg(blockHash))
+func (c *Client) storageAtHashExec(ctx context.Context, account ethapi.Address, key ethapi.Hash, blockHash ethapi.Hash) ([]byte, CallResult, error) {
+	account, key, err := validateAddressHash(account, key)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	blockHash, err = validateHash(blockHash)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetStorageAt, string(account), string(key), hashBlockArg(blockHash))
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
@@ -213,18 +280,22 @@ func (c *Client) storageAtHashExec(ctx context.Context, account common.Address, 
 // CodeAt returns the corroborated contract code of account at blockNumber; nil
 // pins the moving tag to the currently corroborated reference. An externally
 // owned account answers empty code, not an error.
-func (c *Client) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, CallResult, error) {
+func (c *Client) CodeAt(ctx context.Context, account ethapi.Address, blockNumber *big.Int) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return c.codeAtExec(opCtx, account, blockNumber)
 	})
 }
 
-func (c *Client) codeAtExec(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, CallResult, error) {
+func (c *Client) codeAtExec(ctx context.Context, account ethapi.Address, blockNumber *big.Int) ([]byte, CallResult, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
 	blockArg, err := checkedBlockNumArg(blockNumber)
 	if err != nil {
 		return nil, CallResult{}, err
 	}
-	code, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetCode, account.Hex(), blockArg)
+	code, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetCode, string(account), blockArg)
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
@@ -233,34 +304,62 @@ func (c *Client) codeAtExec(ctx context.Context, account common.Address, blockNu
 
 // CodeAtHash returns the corroborated contract code of account at blockHash.
 // The hash pin is sent as EIP-1898 with requireCanonical=false.
-func (c *Client) CodeAtHash(ctx context.Context, account common.Address, blockHash common.Hash) ([]byte, CallResult, error) {
+func (c *Client) CodeAtHash(ctx context.Context, account ethapi.Address, blockHash ethapi.Hash) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return c.codeAtHashExec(opCtx, account, blockHash)
 	})
 }
 
-func (c *Client) codeAtHashExec(ctx context.Context, account common.Address, blockHash common.Hash) ([]byte, CallResult, error) {
-	code, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetCode, account.Hex(), hashBlockArg(blockHash))
+func (c *Client) codeAtHashExec(ctx context.Context, account ethapi.Address, blockHash ethapi.Hash) ([]byte, CallResult, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	blockHash, err = validateHash(blockHash)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	code, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetCode, string(account), hashBlockArg(blockHash))
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
 	return *code, CallResult{Decision: decisionOf(decision)}, nil
 }
 
+// validateAddressHash validates one address together with one storage-slot
+// hash — the shared shape of every StorageAt entry. The slot keeps the
+// fixed-32-byte Hash contract.
+func validateAddressHash(account ethapi.Address, key ethapi.Hash) (ethapi.Address, ethapi.Hash, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return "", "", err
+	}
+	key, err = validateHash(key)
+	if err != nil {
+		return "", "", err
+	}
+	return account, key, nil
+}
+
 // hashBlockArg is the explicit EIP-1898 form used by the hash-specific
 // go-ethereum methods. Keeping the false flag present is part of the wire
-// contract: providers must see {blockHash, requireCanonical:false}.
-func hashBlockArg(blockHash common.Hash) map[string]any {
+// contract: providers must see {blockHash, requireCanonical:false}. The
+// hash must already be validated; callers pass the canonical spelling.
+func hashBlockArg(blockHash ethapi.Hash) map[string]any {
 	return map[string]any{
-		"blockHash":        blockHash.Hex(),
+		"blockHash":        string(blockHash),
 		"requireCanonical": false,
 	}
 }
 
 // BlockByHash returns the corroborated block with the given hash.
-func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*types.Block, CallResult, error) {
-		block, decision, err := c.blockAt(opCtx, hash.Hex())
+func (c *Client) BlockByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Block, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Block, CallResult, error) {
+		hash, err := validateHash(hash)
+		if err != nil {
+			return nil, CallResult{}, err
+		}
+		block, decision, err := c.blockAt(opCtx, string(hash))
 		return block, CallResult{Decision: decisionOf(decision)}, err
 	})
 }
@@ -270,13 +369,13 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Bloc
 // first and fetch by hash. Explicit heights, including earliest (-5 as 0x0),
 // fetch directly. Pending (-1) is rejected locally: there is no pending-block
 // typed projection, and -1 is not rewritten into an anchored or ordinary block.
-func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*types.Block, CallResult, error) {
+func (c *Client) BlockByNumber(ctx context.Context, number *big.Int) (*ethapi.Block, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Block, CallResult, error) {
 		return c.blockByNumberExec(opCtx, number)
 	})
 }
 
-func (c *Client) blockByNumberExec(ctx context.Context, number *big.Int) (*types.Block, CallResult, error) {
+func (c *Client) blockByNumberExec(ctx context.Context, number *big.Int) (*ethapi.Block, CallResult, error) {
 	if number != nil && number.Sign() >= 0 && !number.IsUint64() {
 		return nil, CallResult{}, fmt.Errorf("block number exceeds supported height range: %w", ErrInvalidRequest)
 	}
@@ -307,7 +406,7 @@ func (c *Client) blockByNumberExec(ctx context.Context, number *big.Int) (*types
 // it is not anchored and not sent as a business request or as "-0x1".
 // -5 is earliest, an explicit height 0x0. Anything else — including values
 // outside int64 range — fails locally before any upstream contact.
-func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*types.Block, CallResult, error) {
+func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*ethapi.Block, CallResult, error) {
 	if !number.IsInt64() {
 		return nil, CallResult{}, fmt.Errorf("ethguard: unsupported block number %s: %w", number.String(), ErrInvalidRequest)
 	}
@@ -336,9 +435,13 @@ func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*t
 // the same block admission and request binding as BlockByHash, but asks the
 // provider for a header-only response so transaction and uncle bodies are not
 // required or downloaded.
-func (c *Client) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*types.Header, CallResult, error) {
-		header, decision, err := c.headerAt(opCtx, hash.Hex())
+func (c *Client) HeaderByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Header, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Header, CallResult, error) {
+		hash, err := validateHash(hash)
+		if err != nil {
+			return nil, CallResult{}, err
+		}
+		header, decision, err := c.headerAt(opCtx, string(hash))
 		return header, CallResult{Decision: decisionOf(decision)}, err
 	})
 }
@@ -347,13 +450,13 @@ func (c *Client) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Hea
 // pinned through the same reference establishment as BlockByNumber; pending
 // remains a local rejection because a pending header has no stable typed
 // inclusion reference in EthGuard's current contract.
-func (c *Client) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*types.Header, CallResult, error) {
+func (c *Client) HeaderByNumber(ctx context.Context, number *big.Int) (*ethapi.Header, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Header, CallResult, error) {
 		return c.headerByNumberExec(opCtx, number)
 	})
 }
 
-func (c *Client) headerByNumberExec(ctx context.Context, number *big.Int) (*types.Header, CallResult, error) {
+func (c *Client) headerByNumberExec(ctx context.Context, number *big.Int) (*ethapi.Header, CallResult, error) {
 	if number != nil && number.Sign() >= 0 && !number.IsUint64() {
 		return nil, CallResult{}, fmt.Errorf("block number exceeds supported height range: %w", ErrInvalidRequest)
 	}
@@ -435,7 +538,14 @@ func (c *Client) blockNumberExec(ctx context.Context) (uint64, CallResult, error
 	if blockErr != nil {
 		return 0, CallResult{Decision: decisionOf(decision)}, blockErr
 	}
-	return block.NumberU64(), CallResult{Decision: decisionOf(decision)}, nil
+	// The height converts from the canonical quantity exactly: a value
+	// beyond the uint64 range is reported, never truncated.
+	height, heightErr := typed.QuantityHeight(block.Number)
+	if heightErr != nil {
+		return 0, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: block height %s: %v",
+			rpc.ErrMalformedResponse, block.Number, heightErr)
+	}
+	return height, CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // blockAt fetches and strictly compares one block identified explicitly by
@@ -447,7 +557,7 @@ func (c *Client) blockNumberExec(ctx context.Context) (uint64, CallResult, error
 // blockAt fetches one block by explicit reference and returns the business
 // value with the underlying decision. The projection and binding failures
 // keep the aggregated facts — the aggregation itself succeeded.
-func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, rpc.Decision, error) {
+func (c *Client) blockAt(ctx context.Context, ref string) (*ethapi.Block, rpc.Decision, error) {
 	method := methods.MethodGetBlockByNumber
 	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
 		method = methods.MethodGetBlockByHash
@@ -457,21 +567,25 @@ func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, rpc.Dec
 		decision.Value = nil
 		return nil, decision, err
 	}
-	block, err := typed.DecodeBlockWithEvidence(decision.Value, decision.Provenance)
+	block, err := typed.DecodeBlockAdmitted(decision.Value)
 	if err != nil {
 		return nil, decision, err
 	}
 	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
-		if block.Hash() != common.HexToHash(ref) {
+		if string(block.Hash) != strings.ToLower(ref) {
 			return nil, decision, fmt.Errorf("%w: block hash %s does not match requested hash %s",
-				rpc.ErrMalformedResponse, block.Hash(), ref)
+				rpc.ErrMalformedResponse, block.Hash, ref)
 		}
 		return block, decision, nil
 	}
-	number, ok := new(big.Int).SetString(strings.TrimPrefix(ref, "0x"), 16)
-	if !ok || block.Number().Cmp(number) != 0 {
-		return nil, decision, fmt.Errorf("%w: block height %d does not match requested reference %s",
-			rpc.ErrMalformedResponse, block.NumberU64(), ref)
+	requested, ok := new(big.Int).SetString(strings.TrimPrefix(ref, "0x"), 16)
+	if !ok {
+		return nil, decision, fmt.Errorf("%w: block reference %s is not a height", rpc.ErrMalformedResponse, ref)
+	}
+	height, ok := new(big.Int).SetString(strings.TrimPrefix(string(block.Number), "0x"), 16)
+	if !ok || height.Cmp(requested) != 0 {
+		return nil, decision, fmt.Errorf("%w: block height %s does not match requested reference %s",
+			rpc.ErrMalformedResponse, block.Number, ref)
 	}
 	return block, decision, nil
 }
@@ -479,7 +593,7 @@ func (c *Client) blockAt(ctx context.Context, ref string) (*types.Block, rpc.Dec
 // headerAt fetches and strictly compares one header identified explicitly by
 // hash or height. It shares the block plans and admission rules with blockAt,
 // changing only the fullTx wire flag and the typed projection.
-func (c *Client) headerAt(ctx context.Context, ref string) (*types.Header, rpc.Decision, error) {
+func (c *Client) headerAt(ctx context.Context, ref string) (*ethapi.Header, rpc.Decision, error) {
 	method := methods.MethodGetBlockByNumber
 	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
 		method = methods.MethodGetBlockByHash
@@ -489,30 +603,35 @@ func (c *Client) headerAt(ctx context.Context, ref string) (*types.Header, rpc.D
 		decision.Value = nil
 		return nil, decision, err
 	}
-	headerBlock, err := typed.DecodeBlockHeaderOnly(decision.Value)
+	header, err := typed.DecodeBlockHeaderOnly(decision.Value)
 	if err != nil {
 		return nil, decision, err
 	}
-	header := headerBlock.Header()
 	if len(ref) == 2+2*common.HashLength && strings.HasPrefix(ref, "0x") {
-		if header.Hash() != common.HexToHash(ref) {
+		if string(header.Hash) != strings.ToLower(ref) {
 			return nil, decision, fmt.Errorf("%w: header hash %s does not match requested hash %s",
-				rpc.ErrMalformedResponse, header.Hash(), ref)
+				rpc.ErrMalformedResponse, header.Hash, ref)
 		}
 		return header, decision, nil
 	}
-	number, ok := new(big.Int).SetString(strings.TrimPrefix(ref, "0x"), 16)
-	if !ok || header.Number == nil || header.Number.Cmp(number) != 0 {
-		return nil, decision, fmt.Errorf("%w: header height does not match requested reference %s",
-			rpc.ErrMalformedResponse, ref)
+	requested, ok := new(big.Int).SetString(strings.TrimPrefix(ref, "0x"), 16)
+	if !ok {
+		return nil, decision, fmt.Errorf("%w: header reference %s is not a height", rpc.ErrMalformedResponse, ref)
+	}
+	height, ok := new(big.Int).SetString(strings.TrimPrefix(string(header.Number), "0x"), 16)
+	if !ok || height.Cmp(requested) != 0 {
+		return nil, decision, fmt.Errorf("%w: header height %s does not match requested reference %s",
+			rpc.ErrMalformedResponse, header.Number, ref)
 	}
 	return header, decision, nil
 }
 
-// BlockReceipts returns the fleet-corroborated receipts of one block. Numbers
+// BlockReceipts returns the fleet-corroborated receipts of one block. The
+// reference is the generated BlockReference: bare quantities, moving tags,
+// bare hashes, EIP-1898 number objects and EIP-1898 hash objects. Numbers
 // and moving tags are pinned to the corroborated reference before fan-out;
-// hashes address immutable content directly. Corroborated absence of the block
-// maps to ethereum.NotFound.
+// hashes address immutable content directly. Corroborated absence of the
+// block maps to ethereum.NotFound.
 //
 // Request-answer binding closes the typed boundary for every reference
 // form: a hash request binds every receipt's BlockHash to that hash, an
@@ -524,36 +643,22 @@ func (c *Client) headerAt(ctx context.Context, ref string) (*types.Header, rpc.D
 // not a completeness proof: an empty array stays a legal answer for an
 // empty block, and nothing here proves the fleet reported every receipt
 // of the block.
-func (c *Client) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) ([]*types.Receipt, CallResult, error) {
-		return c.blockReceiptsExec(opCtx, blockNrOrHash)
+func (c *Client) BlockReceipts(ctx context.Context, blockRef ethapi.BlockReference) ([]ethapi.Receipt, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) ([]ethapi.Receipt, CallResult, error) {
+		return c.blockReceiptsExec(opCtx, blockRef)
 	})
 }
 
-func (c *Client) blockReceiptsExec(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, CallResult, error) {
-	refText, err := blockRefArg(blockNrOrHash)
+func (c *Client) blockReceiptsExec(ctx context.Context, blockRef ethapi.BlockReference) ([]ethapi.Receipt, CallResult, error) {
+	frozen, err := freezeBlockReference(blockRef)
 	if err != nil {
 		return nil, CallResult{}, err
 	}
-	var ref any = refText
-	var canonicalHash *common.Hash
-	if blockNrOrHash.RequireCanonical {
-		// Preserve go-ethereum's requireCanonical bit on the wire. A moving
-		// tag cannot be made canonical without first establishing a tag-aware
-		// reference; reject it explicitly rather than silently dropping the
-		// caller's constraint.
-		if _, ok := blockNrOrHash.Number(); ok {
-			number, _ := blockNrOrHash.Number()
-			if number == gethrpc.PendingBlockNumber || number == gethrpc.LatestBlockNumber || number == gethrpc.SafeBlockNumber || number == gethrpc.FinalizedBlockNumber {
-				return nil, CallResult{}, fmt.Errorf("ethguard: requireCanonical with moving block tag %s is unsupported: %w", number, ErrInvalidRequest)
-			}
-			ref = map[string]any{"blockNumber": refText, "requireCanonical": true}
-		} else if hash, ok := blockNrOrHash.Hash(); ok {
-			ref = map[string]any{"blockHash": hash, "requireCanonical": true}
-			canonicalHash = &hash
-		}
+	refArg, bindHash, bindHeight, movingTag, err := blockReceiptsWire(frozen)
+	if err != nil {
+		return nil, CallResult{}, err
 	}
-	decision, err := c.callTyped(ctx, methods.MethodGetBlockReceipts, ref)
+	decision, err := c.callTyped(ctx, methods.MethodGetBlockReceipts, refArg)
 	if err != nil {
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
@@ -562,29 +667,21 @@ func (c *Client) blockReceiptsExec(ctx context.Context, blockNrOrHash gethrpc.Bl
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	if hash, ok := blockNrOrHash.Hash(); ok {
-		receipts, err = bindReceiptsToHash(receipts, hash)
+	if bindHash != nil {
+		receipts, err = bindReceiptsToHash(receipts, *bindHash)
 		return receipts, CallResult{Decision: decisionOf(decision)}, err
 	}
-	if canonicalHash != nil {
-		receipts, err = bindReceiptsToHash(receipts, *canonicalHash)
-		return receipts, CallResult{Decision: decisionOf(decision)}, err
-	}
-	// The earliest sentinel is an explicit height in disguise: geth encodes
-	// it as "0x0", so it binds like any other explicit number and never
-	// through the moving-tag pin path below, which has no reference to bind.
-	if number, ok := blockNrOrHash.Number(); ok && (number >= 0 || number == gethrpc.EarliestBlockNumber) {
-		height := number.Int64()
-		if number == gethrpc.EarliestBlockNumber {
-			height = 0
-		}
-		requested := big.NewInt(height)
-		for i, receipt := range receipts {
-			if receipt.BlockNumber == nil || receipt.BlockNumber.Cmp(requested) != 0 {
+	if bindHeight != nil {
+		// The earliest sentinel is an explicit height in disguise: it binds
+		// like any other explicit number and never through the moving-tag pin
+		// path below, which has no reference to bind.
+		for i := range receipts {
+			height, heightErr := typed.QuantityHeight(receipts[i].BlockNumber)
+			if heightErr != nil || height != *bindHeight {
 				return nil, CallResult{Decision: decisionOf(decision)}, errors.Join(
 					ErrMalformedResponse,
 					ErrAnchorMismatch,
-					fmt.Errorf("receipt %d height %v does not match requested number %d", i, receipt.BlockNumber, height),
+					fmt.Errorf("receipt %d height %s does not match requested number %d", i, receipts[i].BlockNumber, *bindHeight),
 				)
 			}
 		}
@@ -593,71 +690,157 @@ func (c *Client) blockReceiptsExec(ctx context.Context, blockNrOrHash gethrpc.Bl
 	// Moving tag: the policy rewrote it to the corroborated reference, and
 	// decision.BlockRef carries that pin. Bind against the pin, not against
 	// a fresh anchor call.
-	if decision.BlockRef == "" {
+	if !movingTag || decision.BlockRef == "" {
 		return nil, CallResult{Decision: decisionOf(decision)}, errors.Join(ErrMalformedResponse, ErrAnchorMismatch,
 			errors.New("pinned receipts carry no block reference"))
 	}
-	receipts, err = bindReceiptsToHash(receipts, common.HexToHash(decision.BlockRef))
+	pinned := ethapi.Hash(strings.ToLower(decision.BlockRef))
+	receipts, err = bindReceiptsToHash(receipts, pinned)
 	return receipts, CallResult{Decision: decisionOf(decision)}, err
 }
 
 // bindReceiptsToHash applies the per-receipt block-hash binding shared by
 // hash-addressed and tag-pinned requests.
-func bindReceiptsToHash(receipts []*types.Receipt, hash common.Hash) ([]*types.Receipt, error) {
-	for i, receipt := range receipts {
-		if receipt.BlockHash != hash {
+func bindReceiptsToHash(receipts []ethapi.Receipt, hash ethapi.Hash) ([]ethapi.Receipt, error) {
+	for i := range receipts {
+		if receipts[i].BlockHash != hash {
 			return nil, errors.Join(
 				ErrMalformedResponse,
 				ErrAnchorMismatch,
-				fmt.Errorf("receipt %d block hash %s does not match requested hash %s", i, receipt.BlockHash, hash),
+				fmt.Errorf("receipt %d block hash %s does not match requested hash %s", i, receipts[i].BlockHash, hash),
 			)
 		}
 	}
 	return receipts, nil
 }
 
-// blockRefArg converts go-ethereum's BlockNumberOrHash into the plain
-// string reference the anchored policies rewrite. The object wire form is
-// deliberately avoided: an object-shaped moving tag would slip past the
-// rewrite unrewritten and turn the read into inevitable dissent.
-func blockRefArg(blockNrOrHash gethrpc.BlockNumberOrHash) (string, error) {
-	if hash, ok := blockNrOrHash.Hash(); ok {
-		return hash.Hex(), nil
+// freezeBlockReference re-validates one caller-supplied generated reference
+// through the generated constructor and returns the frozen canonical value.
+// Directly constructed unions can select zero or several branches; the
+// marshal-reparse cycle is the single acceptance gate before any wire
+// spelling is derived.
+func freezeBlockReference(blockRef ethapi.BlockReference) (ethapi.BlockReference, error) {
+	raw, err := json.Marshal(blockRef)
+	if err != nil {
+		return ethapi.BlockReference{}, fmt.Errorf("ethguard: block reference: %w", ErrInvalidRequest)
 	}
-	if number, ok := blockNrOrHash.Number(); ok {
-		switch number {
-		case gethrpc.PendingBlockNumber:
-			return "pending", nil
-		case gethrpc.LatestBlockNumber:
-			return "latest", nil
-		case gethrpc.SafeBlockNumber:
-			return "safe", nil
-		case gethrpc.FinalizedBlockNumber:
-			return "finalized", nil
-		case gethrpc.EarliestBlockNumber:
-			return "0x0", nil
+	frozen, err := ethapi.NewBlockReference(raw)
+	if err != nil {
+		return ethapi.BlockReference{}, fmt.Errorf("ethguard: block reference: %w", ErrInvalidRequest)
+	}
+	return frozen, nil
+}
+
+// blockReceiptsWire maps one frozen generated reference onto the wire
+// argument BlockReceipts sends and the request-binding facts the answer must
+// satisfy. Exactly one binding fact is produced:
+//
+//   - a bare hash, or a hash object, binds every receipt's BlockHash — the
+//     object keeps the declared requireCanonical presence exactly: an
+//     explicit false stays on the wire as false, an absent member stays
+//     absent and is never rewritten into an explicit false;
+//   - a bare quantity or a number object binds every receipt's BlockNumber —
+//     the number object carries only the quantity, no tag and no
+//     requireCanonical member;
+//   - the earliest tag keeps the project's explicit-0x0 contract and binds
+//     like a number;
+//   - a moving tag (latest/safe/finalized) is sent as the tag itself and
+//     binds through the reference the policy pins;
+//   - pending is rejected locally before any contact.
+//
+// The bare quantity and bare hash anyOf branches overlap on the wire: a
+// 32-byte word satisfies the quantity pattern, so the union's first-match
+// branch is never treated as caller intent. The prep layer keeps the
+// established bare-32-byte-word hash interpretation — a 66-character
+// lowercase-hex string binds as a hash, everything else as a height.
+func blockReceiptsWire(ref ethapi.BlockReference) (arg any, bindHash *ethapi.Hash, bindHeight *uint64, movingTag bool, err error) {
+	switch {
+	case ref.BlockHash != nil:
+		arg = string(*ref.BlockHash)
+		bindHash = ref.BlockHash
+	case ref.BlockNumber != nil:
+		if isBareBlockHash(string(*ref.BlockNumber)) {
+			hash := ethapi.Hash(strings.ToLower(string(*ref.BlockNumber)))
+			arg = string(hash)
+			bindHash = &hash
+			break
+		}
+		height, heightErr := rpc.ParseHexQuantity(string(*ref.BlockNumber))
+		if heightErr != nil {
+			return nil, nil, nil, false, fmt.Errorf("ethguard: block number %s: %w", *ref.BlockNumber, ErrInvalidRequest)
+		}
+		arg = string(*ref.BlockNumber)
+		bindHeight = &height
+	case ref.BlockTag != nil:
+		switch *ref.BlockTag {
+		case "pending":
+			return nil, nil, nil, false, fmt.Errorf("ethguard: pending block reference is not supported: %w", ErrInvalidRequest)
+		case "earliest":
+			height := uint64(0)
+			arg = "0x0"
+			bindHeight = &height
+		case "latest", "safe", "finalized":
+			arg = string(*ref.BlockTag)
+			movingTag = true
 		default:
-			if number < 0 {
-				return "", fmt.Errorf("ethguard: unsupported block number %d: %w", number, ErrInvalidRequest)
-			}
-			return checkedBlockNumArg(big.NewInt(number.Int64()))
+			return nil, nil, nil, false, fmt.Errorf("ethguard: block tag %q is not a reference this method binds: %w", *ref.BlockTag, ErrInvalidRequest)
+		}
+	case ref.Eip1898BlockNumberObject != nil:
+		height, heightErr := rpc.ParseHexQuantity(string(ref.Eip1898BlockNumberObject.BlockNumber))
+		if heightErr != nil {
+			return nil, nil, nil, false, fmt.Errorf("ethguard: block number %s: %w", ref.Eip1898BlockNumberObject.BlockNumber, ErrInvalidRequest)
+		}
+		arg = map[string]any{"blockNumber": string(ref.Eip1898BlockNumberObject.BlockNumber)}
+		bindHeight = &height
+	case ref.Eip1898BlockHashObject != nil:
+		object := ref.Eip1898BlockHashObject
+		objectArg := map[string]any{"blockHash": string(object.BlockHash)}
+		// Presence is part of the request: an explicit requireCanonical —
+		// true or false — rides the wire as declared, an absent member is
+		// never fabricated into an explicit default.
+		if object.RequireCanonical != nil {
+			objectArg["requireCanonical"] = *object.RequireCanonical
+		}
+		arg = objectArg
+		bindHash = &object.BlockHash
+	default:
+		return nil, nil, nil, false, fmt.Errorf("ethguard: empty block reference: %w", ErrInvalidRequest)
+	}
+	return arg, bindHash, bindHeight, movingTag, nil
+}
+
+// isBareBlockHash reports whether one bare reference string is the
+// 32-byte-word spelling: exactly "0x" plus 64 lowercase-or-uppercase hex
+// characters. This is the overlap between the quantity and hash anyOf
+// branches, resolved by shape, not by first-match parsing.
+func isBareBlockHash(ref string) bool {
+	if len(ref) != 2+2*common.HashLength || !strings.HasPrefix(ref, "0x") {
+		return false
+	}
+	for _, r := range ref[2:] {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return false
 		}
 	}
-	return "", fmt.Errorf("ethguard: empty block number or hash")
+	return true
 }
 
 // TransactionReceipt returns the fleet-corroborated receipt for the transaction
 // hash; ethereum.NotFound when the fleet corroborates the transaction has no
 // receipt yet, matching go-ethereum's own client. The hash addresses immutable
 // content, so no anchoring or freshness machinery applies.
-func (c *Client) TransactionReceipt(ctx context.Context, hash common.Hash) (*types.Receipt, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
+func (c *Client) TransactionReceipt(ctx context.Context, hash ethapi.Hash) (*ethapi.Receipt, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Receipt, CallResult, error) {
 		return c.transactionReceiptExec(opCtx, hash)
 	})
 }
 
-func (c *Client) transactionReceiptExec(ctx context.Context, hash common.Hash) (*types.Receipt, CallResult, error) {
-	decision, err := c.callTyped(ctx, methods.MethodGetTransactionReceipt, hash.Hex())
+func (c *Client) transactionReceiptExec(ctx context.Context, hash ethapi.Hash) (*ethapi.Receipt, CallResult, error) {
+	hash, err := validateHash(hash)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodGetTransactionReceipt, string(hash))
 	if err != nil {
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
@@ -666,9 +849,9 @@ func (c *Client) transactionReceiptExec(ctx context.Context, hash common.Hash) (
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	if receipt.TxHash != hash {
+	if receipt.TransactionHash != hash {
 		return nil, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: receipt transaction hash %s does not match requested hash %s",
-			rpc.ErrMalformedResponse, receipt.TxHash, hash)
+			rpc.ErrMalformedResponse, receipt.TransactionHash, hash)
 	}
 	return receipt, CallResult{Decision: decisionOf(decision)}, nil
 }
@@ -678,14 +861,18 @@ func (c *Client) transactionReceiptExec(ctx context.Context, hash common.Hash) (
 // fleet corroborates no such transaction exists. Pending transactions are
 // ordinary corroborated objects here: while they stay pending, honest sources
 // hold identical payloads.
-func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (*types.Transaction, bool, CallResult, error) {
-	return operationPair(c, ctx, false, func(opCtx context.Context) (*types.Transaction, bool, CallResult, error) {
+func (c *Client) TransactionByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Transaction, bool, CallResult, error) {
+	return operationPair(c, ctx, false, func(opCtx context.Context) (*ethapi.Transaction, bool, CallResult, error) {
 		return c.transactionByHashExec(opCtx, hash)
 	})
 }
 
-func (c *Client) transactionByHashExec(ctx context.Context, hash common.Hash) (*types.Transaction, bool, CallResult, error) {
-	decision, err := c.callTyped(ctx, methods.MethodGetTransactionByHash, hash.Hex())
+func (c *Client) transactionByHashExec(ctx context.Context, hash ethapi.Hash) (*ethapi.Transaction, bool, CallResult, error) {
+	hash, err := validateHash(hash)
+	if err != nil {
+		return nil, false, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodGetTransactionByHash, string(hash))
 	if err != nil {
 		decision.Value = nil
 		return nil, false, CallResult{Decision: decisionOf(decision)}, err
@@ -694,9 +881,14 @@ func (c *Client) transactionByHashExec(ctx context.Context, hash common.Hash) (*
 	if err != nil {
 		return nil, false, CallResult{Decision: decisionOf(decision)}, err
 	}
-	if tx.Hash() != hash {
+	declared, err := typed.TransactionHash(tx)
+	if err != nil || declared != hash {
+		got := string(declared)
+		if err != nil {
+			got = err.Error()
+		}
 		return nil, false, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: transaction hash %s does not match requested hash %s",
-			rpc.ErrMalformedResponse, tx.Hash(), hash)
+			rpc.ErrMalformedResponse, got, hash)
 	}
 	return tx, pending, CallResult{Decision: decisionOf(decision)}, nil
 }
@@ -821,7 +1013,12 @@ func toCallArg(msg ethapi.CallMsg) (map[string]any, error) {
 		return nil, fmt.Errorf("%w: call message: %v", rpc.ErrInvalidRequest, err)
 	}
 	var arg map[string]any
-	if err := json.Unmarshal(raw, &arg); err != nil {
+	// Open request members can contain arbitrary exact JSON numbers. The
+	// generated parser has already checked this JSON; decoding it into
+	// interface values must not round those members through float64.
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&arg); err != nil {
 		return nil, fmt.Errorf("%w: call message: %v", rpc.ErrInvalidRequest, err)
 	}
 	return arg, nil
@@ -855,13 +1052,13 @@ func (c *Client) estimateGasExec(ctx context.Context, msg ethapi.CallMsg) (uint6
 // pinned to the corroborated reference exactly like any other anchored read —
 // the policy rewrites moving tags and defaults missing bounds inside the
 // filter object; a blockHash query addresses immutable content directly.
-func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) ([]types.Log, CallResult, error) {
+func (c *Client) FilterLogs(ctx context.Context, q ethapi.FilterQuery) ([]ethapi.Log, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) ([]ethapi.Log, CallResult, error) {
 		return c.filterLogsExec(opCtx, q)
 	})
 }
 
-func (c *Client) filterLogsExec(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, CallResult, error) {
+func (c *Client) filterLogsExec(ctx context.Context, q ethapi.FilterQuery) ([]ethapi.Log, CallResult, error) {
 	arg, err := toFilterArg(q)
 	if err != nil {
 		return nil, CallResult{}, err
@@ -875,41 +1072,99 @@ func (c *Client) filterLogsExec(ctx context.Context, q ethereum.FilterQuery) ([]
 	return logs, CallResult{Decision: decisionOf(decision)}, err
 }
 
-// toFilterArg mirrors go-ethereum's filter-object shape: address and topics
-// are omitted when empty (some providers reject empty arrays), blockHash
-// addresses the range explicitly, and otherwise geth's from/to spellings
-// apply — a nil fromBlock becomes "0x0" and a nil toBlock "latest", which
-// the anchored policy then pins to the corroborated reference.
-func toFilterArg(q ethereum.FilterQuery) (map[string]any, error) {
-	arg := map[string]any{}
-	if len(q.Addresses) > 0 {
-		arg["address"] = q.Addresses
-	}
-	if q.Topics != nil {
-		arg["topics"] = q.Topics
-	}
-	if q.BlockHash != nil {
-		if q.FromBlock != nil || q.ToBlock != nil {
-			return nil, fmt.Errorf("ethguard: cannot specify both block hash and from/to blocks")
-		}
-		arg["blockHash"] = *q.BlockHash
-		return arg, nil
-	}
-	fromBlock := "0x0"
-	var err error
-	if q.FromBlock != nil {
-		fromBlock, err = checkedBlockNumArg(q.FromBlock)
-		if err != nil {
-			return nil, err
-		}
-	}
-	toBlock, err := checkedBlockNumArg(q.ToBlock)
+// toFilterArg re-validates the generated filter union and spells the wire
+// argument from the constructor's canonical copy: the re-validated model is
+// re-marshalled and that frozen canonical spelling is what the request
+// carries, so directly constructed values ride the wire canonicalized
+// (lowercase addresses and hashes) rather than in their original case.
+// Address, topics and open-object extras pass through the canonical bytes
+// exactly, never through float64. The range branch keeps the project
+// defaults — a missing fromBlock stays "0x0" and a missing toBlock "latest",
+// exactly as before the typed migration — rewrites the earliest tag to the
+// explicit 0x0 height, and rejects pending bounds locally. The hash branch
+// is an open object, so from/to members cannot be schema-forbidden there;
+// the method's own mutual exclusion rejects them as an input error.
+func toFilterArg(q ethapi.FilterQuery) (map[string]any, error) {
+	raw, err := json.Marshal(q)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
 	}
-	arg["fromBlock"] = fromBlock
-	arg["toBlock"] = toBlock
+	checked, err := ethapi.NewFilterQuery(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
+	}
+	// Consume the constructor's canonical copy: the original bytes are
+	// discarded after validation, so the wire spelling is the audited
+	// canonical one.
+	canonical, err := json.Marshal(checked)
+	if err != nil {
+		return nil, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
+	}
+	var members map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(canonical))
+	decoder.UseNumber()
+	if err := decoder.Decode(&members); err != nil {
+		return nil, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
+	}
+	arg := make(map[string]any, len(members))
+	if rawHash, present := members["blockHash"]; present {
+		// Hash branch: the schema leaves the object open, so the method's
+		// own contract rejects range members instead of the parser.
+		for _, banned := range []string{"fromBlock", "toBlock"} {
+			if _, present := members[banned]; present {
+				return nil, fmt.Errorf("ethguard: cannot specify both block hash and from/to blocks: %w", ErrInvalidRequest)
+			}
+		}
+		hashText, _ := rawHash.(string)
+		arg["blockHash"] = hashText
+	} else {
+		fromBlock := "0x0"
+		if raw, present := members["fromBlock"]; present {
+			if fromBlock, err = filterBound(raw); err != nil {
+				return nil, err
+			}
+		}
+		toBlock := "latest"
+		if raw, present := members["toBlock"]; present {
+			if toBlock, err = filterBound(raw); err != nil {
+				return nil, err
+			}
+		}
+		arg["fromBlock"] = fromBlock
+		arg["toBlock"] = toBlock
+	}
+	for _, field := range []string{"address", "topics"} {
+		if raw, present := members[field]; present {
+			arg[field] = raw
+		}
+	}
+	// Open-object extras ride the frozen canonical bytes exactly as
+	// declared — the generated parser has already checked their JSON safety.
+	for key, value := range members {
+		switch key {
+		case "address", "topics", "fromBlock", "toBlock", "blockHash":
+			continue
+		}
+		arg[key] = value
+	}
 	return arg, nil
+}
+
+// filterBound spells one declared range bound. Canonical quantities pass
+// through; the earliest tag keeps the explicit 0x0 height contract; pending
+// is rejected locally before any reference establishment.
+func filterBound(raw any) (string, error) {
+	text, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("%w: filter block bound must be a string", ErrInvalidRequest)
+	}
+	if strings.EqualFold(text, "pending") {
+		return "", fmt.Errorf("ethguard: pending filter bound is not supported: %w", ErrInvalidRequest)
+	}
+	if strings.EqualFold(text, "earliest") {
+		return "0x0", nil
+	}
+	return text, nil
 }
 
 // PeerCount returns one healthy source's count of its own peers — an

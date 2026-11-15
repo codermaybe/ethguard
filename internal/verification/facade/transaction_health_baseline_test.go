@@ -8,9 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -37,18 +36,18 @@ import (
 // transactionHealthFixture returns one valid mined transaction fixture pair.
 // Both sources answer with byte-identical payloads, so any vote difference
 // below comes only from the injected fault.
-func transactionHealthFixture(t *testing.T) (json.RawMessage, common.Hash) {
+func transactionHealthFixture(t *testing.T) (json.RawMessage, ethapi.Hash) {
 	t.Helper()
 	raw, signed := transactionCompatibilityFixture(t)
-	return raw, signed.Hash()
+	return raw, ethapi.Hash(signed.Hash().Hex())
 }
 
-func transactionHealthRead(ctx context.Context, client *ethguard.Client, method string, hash common.Hash) (ethguard.CallResult, error) {
+func transactionHealthRead(ctx context.Context, client *ethguard.Client, method string, hash ethapi.Hash) (ethguard.CallResult, error) {
 	if method == methods.MethodGetTransactionByHash {
 		_, _, result, err := client.TransactionByHash(ctx, hash)
 		return result, err
 	}
-	_, result, err := client.TransactionInBlock(ctx, common.HexToHash(transactionCompatibilityBlock), 0)
+	_, result, err := client.TransactionInBlock(ctx, ethapi.Hash(transactionCompatibilityBlock), 0)
 	return result, err
 }
 

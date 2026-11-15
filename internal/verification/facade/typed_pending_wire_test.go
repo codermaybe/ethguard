@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
@@ -27,7 +25,7 @@ func TestPendingAgreementIsSelectedNotCorroborated(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "pending"))
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0x0000000000000000000000000000000000000dad", "pending"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,8 +62,8 @@ func TestPendingLocalCompatEntriesSmoke(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	account := common.HexToAddress("0xdad")
-	key := common.HexToHash("0x01")
+	account := ethapi.Address("0x0000000000000000000000000000000000000dad")
+	key := ethapi.Hash("0x0000000000000000000000000000000000000000000000000000000000000001")
 
 	if balance, result, err := client.PendingBalanceAt(ctx, account); err != nil || balance.Int64() != 100 || result.Decision == nil || result.Decision.Status != rpc.Selected {
 		t.Fatalf("PendingBalanceAt = %v %+v %v", balance, result.Decision, err)
@@ -79,7 +77,7 @@ func TestPendingLocalCompatEntriesSmoke(t *testing.T) {
 	if stored, result, err := client.PendingStorageAt(ctx, account, key); err != nil || len(stored) != 32 || result.Decision == nil || result.Decision.Status != rpc.Selected {
 		t.Fatalf("PendingStorageAt = %x %+v %v", stored, result.Decision, err)
 	}
-	to := ethapi.Address(account.Hex())
+	to := account
 	toRef := &to
 	if data, result, err := client.PendingCallContract(ctx, ethapi.CallMsg{To: &toRef}); err != nil || len(data) != 0 || result.Decision == nil || result.Decision.Status != rpc.Selected {
 		t.Fatalf("PendingCallContract = %x %+v %v", data, result.Decision, err)
@@ -130,7 +128,7 @@ func TestPendingViaAdapterSucceedsDespiteCorroborationGate(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	addr := common.HexToAddress("0xdad")
+	addr := ethapi.Address("0x0000000000000000000000000000000000000dad")
 
 	balance, _, err := client.BalanceAt(ctx, addr, big.NewInt(-1))
 	if err != nil {
@@ -163,7 +161,7 @@ func TestPendingDissentSelectsFirst(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "pending"))
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0x0000000000000000000000000000000000000dad", "pending"))
 	if err != nil {
 		t.Fatalf("pending split: %v", err)
 	}
@@ -182,7 +180,7 @@ func TestPendingAllFailIsUnknown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, common.HexToAddress("0xdad").Hex(), "pending"))
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance, "0x0000000000000000000000000000000000000dad", "pending"))
 	if err == nil || !errors.Is(err, ethguard.ErrNoValidResponse) {
 		t.Fatalf("pending all-fail: got %v, want ErrNoValidResponse", err)
 	}
@@ -202,7 +200,7 @@ func TestPendingObjectFormIsLocalObservation(t *testing.T) {
 	defer cancel()
 
 	decision, err := callDecision(client.Call(ctx, methods.MethodGetBalance,
-		common.HexToAddress("0xdad").Hex(),
+		"0x0000000000000000000000000000000000000dad",
 		map[string]any{"blockNumber": "pending", "requireCanonical": true}))
 	if err != nil {
 		t.Fatal(err)

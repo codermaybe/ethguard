@@ -3,6 +3,7 @@ package methods
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -119,6 +120,8 @@ func blockRaw(t *testing.T, head *types.Header, uncles []common.Hash) json.RawMe
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		t.Fatal(err)
 	}
+	// This synthetic source declares the encoded empty body's actual size.
+	obj["size"], _ = json.Marshal(fmt.Sprintf("0x%x", types.NewBlockWithHeader(head).Size()))
 	obj["transactions"] = json.RawMessage(`[]`)
 	if uncles == nil {
 		obj["uncles"] = json.RawMessage(`[]`)

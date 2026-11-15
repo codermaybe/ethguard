@@ -67,7 +67,7 @@ func BenchmarkTransactionRouteComparison(b *testing.B) {
 				agg := aggregator.New(p, aggregator.WithPlans(map[string]rpc.ReadPlan{methods.MethodGetTransactionByHash: plan}), aggregator.WithCorroboration(shared))
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				defer cancel()
-				request := rpc.Request{Method: methods.MethodGetTransactionByHash, Params: []any{hash.Hex()}}
+				request := rpc.Request{Method: methods.MethodGetTransactionByHash, Params: []any{string(hash)}}
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {

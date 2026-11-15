@@ -22,7 +22,7 @@ func getBlockByHashSpec() MethodSpec {
 		ByHash:                 true,
 		Normalize:              normalizeBlockIdentity,
 		Encode:                 blockobject.Encode,
-		KeySource:              rpc.RuleKeyNormalizer,
+		KeySource:              rpc.RuleKeyCanonicalBytes,
 		CompareKind:            rpc.RuleCompareMethodSpecific,
 		Admit:                  admitBlockByHashResponse,
 		ObservationProjectorID: ProjectorBlock,

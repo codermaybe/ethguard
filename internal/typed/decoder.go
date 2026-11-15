@@ -1,7 +1,9 @@
 // Package typed owns the single production projection from canonical RPC
-// values to public business values. Migrated families use generated ethapi
-// types; block/transaction/receipt/log projections still await migration.
-// Facades share these decoders rather than maintaining parallel implementations.
+// values to public business values. Every business family projects onto the
+// generated ethapi models; the object owners keep structure, integrity and
+// request binding, and this package re-validates and freezes the public
+// values at the typed boundary. Facades share these decoders rather than
+// maintaining parallel implementations.
 package typed
 
 import (
@@ -14,67 +16,117 @@ import (
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
+	headerobject "github.com/codermaybe/ethguard/internal/ethobject/header"
+	receiptobject "github.com/codermaybe/ethguard/internal/ethobject/receipt"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-func DecodeBlock(raw json.RawMessage) (*types.Block, error) {
+// DecodeBlock projects one caller-supplied raw block response onto the
+// official generated Block. This is the direct raw entry: the bytes have not
+// been through the object admission, so the checks this entry has always
+// owned ride here — the declared wire hash against the recomputed header
+// hash (through the shared header kernel), the hash-only transaction-list
+// rejection, the empty/non-empty transaction-root consistency, the
+// uncle-list consistency and, when uncle header responses are supplied as
+// same-source evidence, their per-uncle hash and root commitments. This
+// entry does not independently re-verify the whole transaction trie; that
+// proof belongs to the admission owner.
+func DecodeBlock(raw json.RawMessage) (*ethapi.Block, error) {
 	return DecodeBlockWithEvidence(raw, nil)
 }
 
-// DecodeBlockHeaderOnly decodes the header returned by a fullTx=false block
-// query. Transaction and uncle bodies are intentionally absent; callers must
-// not present this value as a fully content-corroborated block.
-func DecodeBlockHeaderOnly(raw json.RawMessage) (*types.Block, error) {
-	var head *types.Header
-	if err := json.Unmarshal(raw, &head); err != nil {
-		return nil, wrapMalformed("decode block header", err)
-	}
-	if head == nil {
+// DecodeBlockWithEvidence is the direct raw entry with same-source uncle
+// evidence supplied by the caller. Evidence carries the admitted uncle
+// header responses; a block whose uncle list is non-empty without evidence
+// is rejected rather than accepted on faith.
+//
+// The order is fixed by the frozen input contract: the generated model
+// re-validates and normalizes FIRST (composed exactly like the protected
+// block encoder), and only then does the private per-transaction payload
+// bridge consume the canonical transaction bytes re-marshalled from that
+// re-validated value — never the original spelling, so generated-accepted
+// equivalent JSON spellings are not re-judged by a narrower wire grammar.
+func DecodeBlockWithEvidence(raw json.RawMessage, evidence json.RawMessage) (*ethapi.Block, error) {
+	if jsonNull(raw) {
 		return nil, ethereum.NotFound
 	}
-	return types.NewBlockWithHeader(head), nil
-}
-
-// DecodeBlockWithEvidence decodes a full block and attaches same-source
-// dependent uncle headers supplied by the admission stage. Evidence is kept
-// separate from the upstream JSON so vendor fields never affect clustering.
-func DecodeBlockWithEvidence(raw json.RawMessage, evidence json.RawMessage) (*types.Block, error) {
-	var head *types.Header
-	if err := json.Unmarshal(raw, &head); err != nil {
+	// Shared header check: the kernel verifies the declared wire hash
+	// against the hash recomputed from the header members before any other
+	// representation exists.
+	head, err := headerobject.Decode(raw)
+	if err != nil {
 		return nil, wrapMalformed("decode block header", err)
 	}
-	if head == nil { // upstream "block not found"
-		return nil, ethereum.NotFound
-	}
-
-	var body struct {
-		Hash         *common.Hash        `json:"hash"`
-		Transactions []json.RawMessage   `json:"transactions"`
-		UncleHashes  []common.Hash       `json:"uncles"`
-		Withdrawals  []*types.Withdrawal `json:"withdrawals"`
-	}
-	if err := json.Unmarshal(raw, &body); err != nil {
+	var source map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &source); err != nil || source == nil {
 		return nil, wrapMalformed("decode block body", err)
 	}
-
-	txs := make([]*types.Transaction, 0, len(body.Transactions))
+	// The public value composes exactly like the protected block encoder:
+	// the shared header projection (with its optional-null folding) plus the
+	// body members. The generated constructor is the first gate and the
+	// source of the canonical bytes every later check consumes.
+	projected, err := headerobject.Projection(raw)
+	if err != nil {
+		return nil, wrapMalformed("decode block header", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(projected, &fields); err != nil {
+		return nil, wrapMalformed("decode block body", err)
+	}
+	for _, name := range []string{"size", "transactions", "uncles", "withdrawals"} {
+		if value, present := source[name]; present {
+			fields[name] = value
+		}
+	}
+	candidate, err := ethcodec.MarshalNoEscape(fields)
+	if err != nil {
+		return nil, wrapMalformed("decode block", err)
+	}
+	value, err := ethapi.NewBlock(candidate)
+	if err != nil {
+		return nil, wrapMalformed("decode block", err)
+	}
+	// The canonical copy is the re-marshalled re-validated value: the
+	// generated constructor resolved equivalent JSON spellings, so the
+	// payload bridge consumes normalized transaction bytes — never the
+	// original raw spelling.
+	normalized, err := ethcodec.MarshalNoEscape(value)
+	if err != nil {
+		return nil, wrapMalformed("decode block", err)
+	}
+	var body struct {
+		Transactions []json.RawMessage `json:"transactions"`
+		UncleHashes  []common.Hash     `json:"uncles"`
+	}
+	if err := json.Unmarshal(normalized, &body); err != nil {
+		return nil, wrapMalformed("decode block body", err)
+	}
+	// The direct entry keeps the old per-transaction private payload parse,
+	// now over the canonical transaction bytes: geth's decoder rejects
+	// unsupported transaction types, quantities beyond their width, and
+	// malformed signatures — checks the generated schema cannot express.
+	// The failure class stays the response class; the trie proof stays with
+	// the admission owner.
 	for i, item := range body.Transactions {
 		if len(item) > 0 && item[0] == '"' {
 			return nil, wrapMalformed("hash-only transaction list; request the block with full transactions", nil)
 		}
 		tx := new(types.Transaction)
 		if err := json.Unmarshal(item, tx); err != nil {
+			if errors.Is(err, types.ErrTxTypeNotSupported) {
+				return nil, errors.Join(rpc.ErrUnsupportedTypedObject, err)
+			}
 			return nil, wrapMalformed(fmt.Sprintf("decode transaction %d", i), err)
 		}
-		txs = append(txs, tx)
 	}
-	if head.TxHash == types.EmptyTxsHash && len(txs) > 0 {
+	if head.TxHash == types.EmptyTxsHash && len(body.Transactions) > 0 {
 		return nil, wrapMalformed("non-empty transactions for an empty transaction root", nil)
 	}
-	if head.TxHash != types.EmptyTxsHash && len(txs) == 0 {
+	if head.TxHash != types.EmptyTxsHash && len(body.Transactions) == 0 {
 		return nil, wrapMalformed("empty transactions for a non-empty transaction root", nil)
 	}
 	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
@@ -83,7 +135,6 @@ func DecodeBlockWithEvidence(raw json.RawMessage, evidence json.RawMessage) (*ty
 	if head.UncleHash != types.EmptyUncleHash && len(body.UncleHashes) == 0 {
 		return nil, wrapMalformed("server returned no uncles for a non-empty uncle root", nil)
 	}
-	var uncles []*types.Header
 	if len(body.UncleHashes) > 0 {
 		if len(evidence) == 0 {
 			return nil, wrapMalformed("uncle headers were not admitted", nil)
@@ -92,7 +143,7 @@ func DecodeBlockWithEvidence(raw json.RawMessage, evidence json.RawMessage) (*ty
 		if err := json.Unmarshal(evidence, &uncleRaw); err != nil || len(uncleRaw) != len(body.UncleHashes) {
 			return nil, wrapMalformed("decode admitted uncle headers", err)
 		}
-		uncles = make([]*types.Header, len(uncleRaw))
+		uncles := make([]*types.Header, len(uncleRaw))
 		for i, item := range uncleRaw {
 			if err := json.Unmarshal(item, &uncles[i]); err != nil || uncles[i] == nil {
 				return nil, wrapMalformed(fmt.Sprintf("decode uncle %d", i), err)
@@ -105,222 +156,156 @@ func DecodeBlockWithEvidence(raw json.RawMessage, evidence json.RawMessage) (*ty
 			return nil, wrapMalformed("uncle root mismatch", nil)
 		}
 	}
-	if body.Hash != nil && *body.Hash != head.Hash() {
-		return nil, fmt.Errorf("%w: wire hash %s disagrees with computed header hash %s",
-			rpc.ErrMalformedResponse, body.Hash, head.Hash())
-	}
-	return types.NewBlockWithHeader(head).WithBody(types.Body{Transactions: txs, Uncles: uncles, Withdrawals: body.Withdrawals}), nil
+	return &value, nil
 }
 
-// DecodeReceipt shapes one corroborated eth_getTransactionReceipt response into
-// a receipt value. go-ethereum's generated Receipt unmarshaller owns the
-// wire schema, so a unanimous payload missing one of its required fields
-// (cumulativeGasUsed, logsBloom, logs, transactionHash, gasUsed) dies here
-// as malformed instead of silently zero-valuing — the malformed-but-unanimous
-// class of decision 0011. As with DecodeBlock's wire-hash check, a free
-// integrity check rides along once sources agree: logsBloom is derived from
-// the receipt's logs by consensus rule, so a payload whose bloom contradicts
-// its own logs cannot be honest, however unanimous the fleet.
-func DecodeReceipt(raw json.RawMessage) (*types.Receipt, error) {
-	if string(bytes.TrimSpace(raw)) != "null" {
-		if err := validateReceiptEnvelope(raw); err != nil {
-			return nil, err
-		}
+// DecodeBlockAdmitted projects a value that has already been through the
+// object admission onto the public Block. The owner verified the header
+// self-hash, the transaction trie, withdrawals and the same-source uncle
+// evidence, and the canonical committed bytes carry the declared members
+// only — uncle header bodies are intentionally not part of the value, so
+// re-running the direct-entry checks here would demand material the admitted
+// projection does not carry and would reject legitimate admitted historical
+// blocks. The generated constructor is the remaining boundary work.
+func DecodeBlockAdmitted(raw json.RawMessage) (*ethapi.Block, error) {
+	if jsonNull(raw) {
+		return nil, ethereum.NotFound
 	}
-	var receipt *types.Receipt
-	if err := json.Unmarshal(raw, &receipt); err != nil {
+	value, err := ethapi.NewBlock(raw)
+	if err != nil {
+		return nil, wrapMalformed("decode block", err)
+	}
+	return &value, nil
+}
+
+// DecodeBlockHeaderOnly decodes the header returned by a fullTx=false block
+// query. The header kernel checks the declared wire hash against the
+// recomputed one before any geth representation exists; the official Header
+// members are then projected explicitly and parsed by the generated
+// constructor. Transaction and uncle bodies are intentionally absent;
+// callers must not present this value as a fully content-corroborated block.
+func DecodeBlockHeaderOnly(raw json.RawMessage) (*ethapi.Header, error) {
+	if jsonNull(raw) {
+		return nil, ethereum.NotFound
+	}
+	canonical, err := headerobject.Normalize(raw)
+	if err != nil {
+		return nil, wrapMalformed("decode block header", err)
+	}
+	header, err := ethapi.NewHeader(canonical)
+	if err != nil {
+		return nil, wrapMalformed("decode block header", err)
+	}
+	return &header, nil
+}
+
+// DecodeReceipt projects the shared checked receipt representation onto the
+// official generated Receipt. The object owner keeps requiredness, status
+// and root presence, log bindings and bloom consistency; the projection
+// re-parses the canonical bytes so absence and explicit null stay distinct.
+func DecodeReceipt(raw json.RawMessage) (*ethapi.Receipt, error) {
+	if jsonNull(raw) {
+		return nil, ethereum.NotFound
+	}
+	canonical, err := receiptobject.Encode(raw)
+	if err != nil {
 		return nil, wrapMalformed("decode receipt", err)
 	}
-	if receipt == nil { // upstream "no receipt for this transaction"
-		return nil, ethereum.NotFound
+	value, err := ethapi.NewReceipt(canonical)
+	if err != nil {
+		return nil, wrapMalformed("decode receipt", err)
 	}
-	if err := validateReceipt(receipt); err != nil {
-		return nil, err
-	}
-	return receipt, nil
+	return &value, nil
 }
 
-// validateReceipt holds the integrity checks every decoded receipt must
-// pass, shared by the single-receipt and block-receipts decode paths: the
-// bloom is derived from a receipt's logs by consensus rule, so a payload
-// whose bloom contradicts its own logs cannot be honest.
-func validateReceipt(receipt *types.Receipt) error {
-	for i, log := range receipt.Logs {
-		if log == nil {
-			return wrapMalformed(fmt.Sprintf("decode receipt log %d: null element", i), nil)
-		}
-		// A receipt's embedded logs are part of the same response object.
-		// Preserve the wire convention that an omitted hash decodes to zero,
-		// while rejecting a non-zero hash that claims another transaction or
-		// block. Method admission performs the same check before clustering;
-		// keeping it here protects direct typed projection callers as well.
-		if log.TxHash != (common.Hash{}) && log.TxHash != receipt.TxHash {
-			return wrapMalformed(fmt.Sprintf("decode receipt log %d: transaction hash %s does not match receipt transaction hash %s", i, log.TxHash, receipt.TxHash), nil)
-		}
-		if log.BlockHash != (common.Hash{}) && log.BlockHash != receipt.BlockHash {
-			return wrapMalformed(fmt.Sprintf("decode receipt log %d: block hash %s does not match receipt block hash %s", i, log.BlockHash, receipt.BlockHash), nil)
-		}
-	}
-	if receipt.Bloom != types.CreateBloom(receipt) {
-		return wrapMalformed("logsBloom disagrees with the receipt's logs", nil)
-	}
-	return nil
+// DecodeReceipts keeps null/NotFound distinct from a non-nil empty array.
+// Each element uses the same object checks as queries and subscription events.
+func DecodeReceipts(raw json.RawMessage) ([]ethapi.Receipt, error) {
+	values, _, err := DecodeReceiptBatch(raw)
+	return values, err
 }
 
-// DecodeReceipts shapes one corroborated eth_getBlockReceipts response into
-// receipts. JSON null means the block is unknown to the fleet and maps to
-// ethereum.NotFound; an empty array is a real answer for an empty block.
-// Every element passes the single-receipt integrity checks.
-func DecodeReceipts(raw json.RawMessage) ([]*types.Receipt, error) {
-	if string(bytes.TrimSpace(raw)) != "null" {
-		var rows []json.RawMessage
-		if err := json.Unmarshal(raw, &rows); err != nil || rows == nil {
-			return nil, wrapMalformed("decode receipts: expected array", err)
-		}
-		for i, row := range rows {
-			if err := validateReceiptEnvelope(row); err != nil {
-				return nil, wrapMalformed(fmt.Sprintf("decode receipt %d", i), err)
-			}
-		}
+// DecodeReceiptBatch retains the checked official bytes alongside the public
+// projection. Subscription keys and Pull filtering must use those bytes:
+// encoding a projection back to JSON would discard required sender/context
+// information.
+func DecodeReceiptBatch(raw json.RawMessage) ([]ethapi.Receipt, json.RawMessage, error) {
+	if jsonNull(raw) {
+		return nil, nil, ethereum.NotFound
 	}
-	var receipts []*types.Receipt
-	if err := json.Unmarshal(raw, &receipts); err != nil {
-		return nil, wrapMalformed("decode receipts", err)
+	canonical, err := receiptobject.EncodeBlock(raw)
+	if err != nil {
+		return nil, nil, wrapMalformed("decode receipts", err)
 	}
-	if receipts == nil { // upstream "block not found"
-		return nil, ethereum.NotFound
+	var rows []json.RawMessage
+	if err := json.Unmarshal(canonical, &rows); err != nil {
+		return nil, nil, wrapMalformed("decode receipts", err)
 	}
-	for i, receipt := range receipts {
-		if receipt == nil {
-			return nil, wrapMalformed(fmt.Sprintf("decode receipt %d: null element", i), nil)
+	values := make([]ethapi.Receipt, 0, len(rows))
+	for i, row := range rows {
+		value, err := ethapi.NewReceipt(row)
+		if err != nil {
+			return nil, nil, wrapMalformed(fmt.Sprintf("decode receipts[%d]", i), err)
 		}
-		if err := validateReceipt(receipt); err != nil {
-			return nil, err
-		}
+		values = append(values, value)
 	}
-	return receipts, nil
-}
-
-// validateReceiptEnvelope rejects unanimous but incomplete receipt objects at
-// the typed boundary. The generated go-ethereum decoder intentionally leaves
-// absent JSON fields at their zero values; these fields are required for a
-// receipt's inclusion context and must be distinguished from an explicit
-// zero value.
-func validateReceiptEnvelope(raw json.RawMessage) error {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
-		return wrapMalformed("receipt is not an object", err)
-	}
-	for _, field := range []string{"transactionHash", "transactionIndex", "blockHash", "blockNumber", "from", "effectiveGasPrice", "cumulativeGasUsed", "gasUsed", "logsBloom", "logs"} {
-		value, ok := obj[field]
-		if !ok || string(bytes.TrimSpace(value)) == "null" || len(bytes.TrimSpace(value)) == 0 {
-			return wrapMalformed("receipt missing "+field, nil)
-		}
-	}
-	if status, ok := obj["status"]; !ok || string(bytes.TrimSpace(status)) == "null" {
-		if root, rootOK := obj["root"]; !rootOK || string(bytes.TrimSpace(root)) == "null" {
-			return wrapMalformed("receipt missing status or root", nil)
-		}
-	}
-	for _, field := range []string{"type", "status", "root", "blobGasUsed", "blobGasPrice"} {
-		if value, ok := obj[field]; ok && string(bytes.TrimSpace(value)) == "null" {
-			return wrapMalformed("receipt null "+field, nil)
-		}
-	}
-	if value, ok := obj["status"]; ok {
-		var status hexutil.Uint64
-		if err := json.Unmarshal(value, &status); err != nil {
-			return wrapMalformed("receipt status", err)
-		}
-		if status > 1 {
-			return wrapMalformed("receipt status must be failure (0) or success (1)", nil)
-		}
-	}
-	if value, ok := obj["root"]; ok {
-		var root common.Hash
-		if err := json.Unmarshal(value, &root); err != nil {
-			return wrapMalformed("receipt root", err)
-		}
-	}
-	if value, ok := obj["type"]; ok {
-		var kind hexutil.Uint64
-		if err := json.Unmarshal(value, &kind); err != nil {
-			return wrapMalformed("receipt type", err)
-		}
-		if kind > 0xff {
-			return wrapMalformed("receipt type exceeds one byte", nil)
-		}
-	}
-	for _, field := range []string{"from", "to", "contractAddress"} {
-		if value, ok := obj[field]; ok && string(bytes.TrimSpace(value)) != "null" {
-			var address common.Address
-			if err := json.Unmarshal(value, &address); err != nil {
-				return wrapMalformed("receipt "+field, err)
-			}
-		}
-	}
-	if logs := bytes.TrimSpace(obj["logs"]); len(logs) == 0 || logs[0] != '[' {
-		return wrapMalformed("receipt logs must be an array", nil)
-	}
-	return nil
+	return values, canonical, nil
 }
 
 // DecodeTransaction shapes one corroborated eth_getTransactionByHash response
-// into a transaction, reporting whether the fleet saw it as still pending
-// (no block number on the wire). go-ethereum's generated Transaction
-// unmarshaller owns the wire schema. Two integrity checks ride along once
-// sources agree: the wire hash must equal the hash recomputed from the
-// decoded signature (the transaction-side analogue of DecodeBlock's wire
-// hash check), and an unsigned payload is rejected — honest sources only
-// hold signed transactions.
-func DecodeTransaction(raw json.RawMessage) (*types.Transaction, bool, error) {
-	var tx *types.Transaction
-	if err := json.Unmarshal(raw, &tx); err != nil {
-		if errors.Is(err, types.ErrTxTypeNotSupported) {
-			return nil, false, errors.Join(rpc.ErrUnsupportedTypedObject, err)
-		}
-		return nil, false, wrapMalformed("decode transaction", err)
-	}
-	if tx == nil { // upstream "no such transaction"
+// into the official generated transaction union, reporting whether the fleet
+// saw it as still pending (no block number on the wire). The generated
+// constructor owns the official branch schema; the private payload bridge
+// then re-checks, on the constructor's canonical copy, that the declared hash
+// equals the hash recomputed from the decoded signature (the
+// transaction-side analogue of the block wire-hash check) and that an
+// unsigned payload is rejected — honest sources only hold signed
+// transactions.
+func DecodeTransaction(raw json.RawMessage) (*ethapi.Transaction, bool, error) {
+	if jsonNull(raw) {
 		return nil, false, ethereum.NotFound
 	}
-	var wire struct {
-		Hash             *common.Hash    `json:"hash"`
-		From             *common.Address `json:"from"`
+	union, err := ethapi.NewTransaction(raw)
+	if err != nil {
+		return nil, false, wrapMalformed("decode transaction", err)
+	}
+	declared, err := TransactionHash(&union)
+	if err != nil {
+		return nil, false, wrapMalformed("decode transaction", err)
+	}
+	canonical, err := ethcodec.MarshalNoEscape(union)
+	if err != nil {
+		return nil, false, wrapMalformed("decode transaction", err)
+	}
+	if _, err := transactionWire(canonical, declared); err != nil {
+		return nil, false, err
+	}
+	var context struct {
 		BlockHash        *common.Hash    `json:"blockHash"`
 		BlockNumber      json.RawMessage `json:"blockNumber"`
 		TransactionIndex json.RawMessage `json:"transactionIndex"`
 	}
-	if err := json.Unmarshal(raw, &wire); err != nil {
+	if err := json.Unmarshal(canonical, &context); err != nil {
 		return nil, false, wrapMalformed("decode transaction context", err)
 	}
-	if wire.Hash == nil {
-		return nil, false, wrapMalformed("transaction missing hash", nil)
-	}
-	if _, r, s := tx.RawSignatureValues(); r == nil || s == nil || r.Sign() == 0 || s.Sign() == 0 {
-		return nil, false, wrapMalformed("transaction without signature", nil)
-	}
-	if *wire.Hash != tx.Hash() {
-		return nil, false, wrapMalformed(fmt.Sprintf("wire hash %s disagrees with computed transaction hash %s",
-			wire.Hash, tx.Hash()), nil)
-	}
-	blockNumberSet := len(bytes.TrimSpace(wire.BlockNumber)) > 0 && string(bytes.TrimSpace(wire.BlockNumber)) != "null"
-	transactionIndexSet := len(bytes.TrimSpace(wire.TransactionIndex)) > 0 && string(bytes.TrimSpace(wire.TransactionIndex)) != "null"
-	if wire.BlockHash != nil && (!blockNumberSet || !transactionIndexSet) {
+	blockNumberSet := len(bytes.TrimSpace(context.BlockNumber)) > 0 && string(bytes.TrimSpace(context.BlockNumber)) != "null"
+	transactionIndexSet := len(bytes.TrimSpace(context.TransactionIndex)) > 0 && string(bytes.TrimSpace(context.TransactionIndex)) != "null"
+	if context.BlockHash != nil && (!blockNumberSet || !transactionIndexSet) {
 		return nil, false, wrapMalformed("transaction incomplete inclusion context", nil)
 	}
-	return tx, !blockNumberSet, nil
+	return &union, !blockNumberSet, nil
 }
 
 // DecodedTransaction preserves the inclusion metadata needed by
-// TransactionInBlock and TransactionSender. The public transaction value
-// intentionally remains a plain go-ethereum transaction; metadata stays
-// inside this typed boundary so it can be validated before projection.
+// TransactionInBlock and TransactionSender. The public transaction value is
+// the generated union; metadata stays inside this typed boundary so it can
+// be validated before projection.
 type DecodedTransaction struct {
-	Tx               *types.Transaction
-	From             common.Address
+	Tx               *ethapi.Transaction
+	TxHash           ethapi.Hash
+	From             ethapi.Address
 	HasFrom          bool
-	BlockHash        common.Hash
+	BlockHash        ethapi.Hash
 	HasBlockHash     bool
 	TransactionIndex uint64
 	HasIndex         bool
@@ -328,8 +313,9 @@ type DecodedTransaction struct {
 
 // DecodeTransactionInBlock decodes one transaction returned by
 // eth_getTransactionByBlockHashAndIndex and binds its inclusion context to
-// the requested block and index.
-func DecodeTransactionInBlock(raw json.RawMessage, blockHash common.Hash, index uint64) (*DecodedTransaction, error) {
+// the requested block and index. The by-block/index contract keeps its own
+// non-pending admission; the generated union is only the public projection.
+func DecodeTransactionInBlock(raw json.RawMessage, blockHash ethapi.Hash, index uint64) (*DecodedTransaction, error) {
 	if jsonNull(raw) {
 		return nil, ethereum.NotFound
 	}
@@ -337,9 +323,13 @@ func DecodeTransactionInBlock(raw json.RawMessage, blockHash common.Hash, index 
 	if err != nil {
 		return nil, err
 	}
+	declared, err := TransactionHash(tx)
+	if err != nil {
+		return nil, wrapMalformed("decode transaction inclusion context", err)
+	}
 	var wire struct {
-		From             *common.Address `json:"from"`
-		BlockHash        *common.Hash    `json:"blockHash"`
+		From             *string         `json:"from"`
+		BlockHash        *string         `json:"blockHash"`
 		TransactionIndex json.RawMessage `json:"transactionIndex"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
@@ -348,7 +338,15 @@ func DecodeTransactionInBlock(raw json.RawMessage, blockHash common.Hash, index 
 	if wire.From == nil {
 		return nil, wrapMalformed("transaction missing sender", nil)
 	}
-	if wire.BlockHash == nil || *wire.BlockHash != blockHash {
+	fromRaw, err := json.Marshal(*wire.From)
+	if err != nil {
+		return nil, wrapMalformed("transaction sender", err)
+	}
+	from, err := ethapi.NewAddress(fromRaw)
+	if err != nil {
+		return nil, wrapMalformed("transaction sender", err)
+	}
+	if wire.BlockHash == nil || *wire.BlockHash != string(blockHash) {
 		return nil, wrapMalformed("transaction block hash does not match request", nil)
 	}
 	if len(bytes.TrimSpace(wire.TransactionIndex)) == 0 || string(bytes.TrimSpace(wire.TransactionIndex)) == "null" {
@@ -364,13 +362,119 @@ func DecodeTransactionInBlock(raw json.RawMessage, blockHash common.Hash, index 
 	}
 	return &DecodedTransaction{
 		Tx:               tx,
-		From:             *wire.From,
+		TxHash:           declared,
+		From:             from,
 		HasFrom:          true,
-		BlockHash:        *wire.BlockHash,
+		BlockHash:        blockHash,
 		HasBlockHash:     true,
 		TransactionIndex: index,
 		HasIndex:         true,
 	}, nil
+}
+
+// TransactionHash returns the declared hash of the selected public union
+// branch. Every branch carries exactly one hash member; a zero-selected or
+// multi-selected directly constructed value is rejected here instead of
+// silently projecting the first branch.
+func TransactionHash(tx *ethapi.Transaction) (ethapi.Hash, error) {
+	if tx == nil {
+		return "", fmt.Errorf("nil transaction")
+	}
+	selected := 0
+	var declared ethapi.Hash
+	if tx.Signed7702Transaction != nil {
+		selected++
+		declared = tx.Signed7702Transaction.Hash
+	}
+	if tx.Signed4844Transaction != nil {
+		selected++
+		declared = tx.Signed4844Transaction.Hash
+	}
+	if tx.Signed1559Transaction != nil {
+		selected++
+		declared = tx.Signed1559Transaction.Hash
+	}
+	if tx.Signed2930Transaction != nil {
+		selected++
+		declared = tx.Signed2930Transaction.Hash
+	}
+	if tx.SignedLegacyTransaction != nil {
+		selected++
+		declared = tx.SignedLegacyTransaction.Hash
+	}
+	if selected != 1 {
+		return "", fmt.Errorf("transaction union has %d selected branches", selected)
+	}
+	return declared, nil
+}
+
+// TransactionPayload re-validates a caller-constructed public transaction
+// and returns its decoded geth payload for hash computation and sender
+// binding. The constructor's canonical copy is what gets bridged: a directly
+// constructed value is re-parsed through the generated schema, re-marshalled
+// to the canonical spelling, and the declared hash of that checked copy is
+// compared against the recomputed signed-payload hash — so a
+// case-equivalent spelling succeeds and a genuinely mismatched hash fails.
+// nil, a zero-selected or multi-selected union, an illegal branch structure,
+// or any payload violation is an input error (ErrInvalidRequest) rejected
+// before any network contact; the response decoders keep their own
+// response-error classification.
+func TransactionPayload(tx *ethapi.Transaction) (*types.Transaction, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("ethguard: nil transaction: %w", rpc.ErrInvalidRequest)
+	}
+	raw, err := ethcodec.MarshalNoEscape(*tx)
+	if err != nil {
+		return nil, fmt.Errorf("ethguard: transaction union: %v: %w", err, rpc.ErrInvalidRequest)
+	}
+	checked, err := ethapi.NewTransaction(raw)
+	if err != nil {
+		return nil, fmt.Errorf("ethguard: transaction structure: %v: %w", err, rpc.ErrInvalidRequest)
+	}
+	declared, err := TransactionHash(&checked)
+	if err != nil {
+		return nil, fmt.Errorf("ethguard: %v: %w", err, rpc.ErrInvalidRequest)
+	}
+	canonical, err := ethcodec.MarshalNoEscape(checked)
+	if err != nil {
+		return nil, fmt.Errorf("ethguard: transaction canonicalization: %v: %w", err, rpc.ErrInvalidRequest)
+	}
+	payload, err := transactionWire(canonical, declared)
+	if err != nil {
+		// The caller's bytes are the input here, not a provider response:
+		// re-attribute the failure to the input-error class while keeping
+		// the diagnostics.
+		return nil, fmt.Errorf("ethguard: invalid transaction input: %v: %w", err, rpc.ErrInvalidRequest)
+	}
+	return payload, nil
+}
+
+// transactionWire is the private geth payload bridge: it decodes the wire
+// transaction, requires a signature, and verifies the declared hash against
+// the hash recomputed from the decoded signature. Callers pass the
+// constructor's canonical copy and its declared hash; the bridge never
+// manufactures a value. Failures are classified as malformed responses —
+// response decoders surface them as such, and the caller-input path
+// re-attributes them to ErrInvalidRequest.
+func transactionWire(raw json.RawMessage, declared ethapi.Hash) (*types.Transaction, error) {
+	var tx *types.Transaction
+	if err := json.Unmarshal(raw, &tx); err != nil {
+		if errors.Is(err, types.ErrTxTypeNotSupported) {
+			return nil, errors.Join(rpc.ErrUnsupportedTypedObject, err)
+		}
+		return nil, wrapMalformed("decode transaction", err)
+	}
+	if tx == nil {
+		return nil, wrapMalformed("decode transaction: JSON null", nil)
+	}
+	if _, r, s := tx.RawSignatureValues(); r == nil || s == nil || r.Sign() == 0 || s.Sign() == 0 {
+		return nil, wrapMalformed("transaction without signature", nil)
+	}
+	if tx.Hash().Hex() != string(declared) {
+		return nil, wrapMalformed(fmt.Sprintf("wire hash %s disagrees with computed transaction hash %s",
+			declared, tx.Hash()), nil)
+	}
+	return tx, nil
 }
 
 func normalizeQuantity(raw json.RawMessage) (string, error) {
@@ -388,8 +492,8 @@ func normalizeQuantity(raw json.RawMessage) (string, error) {
 	return number.String(), nil
 }
 
-// wrapMalformed keeps every block-decode failure inside the malformed
-// response class with its cause attached.
+// wrapMalformed keeps every decode failure inside the malformed response
+// class with its cause attached.
 func wrapMalformed(what string, cause error) error {
 	if errors.Is(cause, rpc.ErrUnsupportedTypedObject) {
 		return errors.Join(rpc.ErrMalformedResponse, cause, fmt.Errorf("%s", what))

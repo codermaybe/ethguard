@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/ethereum/go-ethereum"
@@ -17,14 +19,14 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-func transactionInBlockFixture(t *testing.T, blockHash common.Hash, index uint64) json.RawMessage {
+func transactionInBlockFixture(t *testing.T, blockHash ethapi.Hash, index uint64) json.RawMessage {
 	t.Helper()
 	raw := signedTxFixture(t, true)
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		t.Fatal(err)
 	}
-	blockRaw, _ := json.Marshal(blockHash.Hex())
+	blockRaw, _ := json.Marshal(string(blockHash))
 	indexRaw, _ := json.Marshal("0x" + "10")
 	obj["blockHash"] = blockRaw
 	if index == 0 {
@@ -38,7 +40,7 @@ func transactionInBlockFixture(t *testing.T, blockHash common.Hash, index uint64
 	return out
 }
 
-func transactionInBlockVariant(t *testing.T, blockHash common.Hash, index, nonce uint64) json.RawMessage {
+func transactionInBlockVariant(t *testing.T, blockHash ethapi.Hash, index, nonce uint64) json.RawMessage {
 	t.Helper()
 	key, err := crypto.HexToECDSA("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 	if err != nil {
@@ -63,7 +65,7 @@ func transactionInBlockVariant(t *testing.T, blockHash common.Hash, index, nonce
 	for field, value := range map[string]string{
 		"hash":             signed.Hash().Hex(),
 		"from":             crypto.PubkeyToAddress(key.PublicKey).Hex(),
-		"blockHash":        blockHash.Hex(),
+		"blockHash":        string(blockHash),
 		"blockNumber":      "0x10",
 		"blockTimestamp":   "0x5",
 		"transactionIndex": fmt.Sprintf("0x%x", index),
@@ -80,7 +82,7 @@ func transactionInBlockVariant(t *testing.T, blockHash common.Hash, index, nonce
 
 func TestTransactionInBlock(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	blockHash := common.HexToHash("0x33")
+	blockHash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "33")
 	raw := transactionInBlockFixture(t, blockHash, 0)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionByBlockHashAndIndex, raw)
@@ -90,14 +92,14 @@ func TestTransactionInBlock(t *testing.T) {
 		t.Fatalf("TransactionInBlock = tx:%v result:%+v err:%v", tx, result, err)
 	}
 	viewTx, viewErr := client.EthClient().TransactionInBlock(context.Background(), blockHash, 0)
-	if viewErr != nil || viewTx == nil || viewTx.Hash() != tx.Hash() {
+	if viewErr != nil || viewTx == nil || txHashOf(viewTx) != txHashOf(tx) {
 		t.Fatalf("view TransactionInBlock = tx:%v err:%v", viewTx, viewErr)
 	}
 }
 
 func TestTransactionInBlockNullMapsToNotFound(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	blockHash := common.HexToHash("0x44")
+	blockHash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "44")
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionByBlockHashAndIndex, nil)
 	}
@@ -108,7 +110,7 @@ func TestTransactionInBlockNullMapsToNotFound(t *testing.T) {
 
 func TestTransactionInBlockMultiSourceConflictKeepsEvidence(t *testing.T) {
 	client, nodes := fleet(t, 2)
-	blockHash := common.HexToHash("0x45")
+	blockHash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "45")
 	nodes[0].Return(methods.MethodGetTransactionByBlockHashAndIndex, transactionInBlockVariant(t, blockHash, 0, 7))
 	nodes[1].Return(methods.MethodGetTransactionByBlockHashAndIndex, transactionInBlockVariant(t, blockHash, 0, 8))
 
@@ -130,7 +132,7 @@ func TestTransactionInBlockMultiSourceMalformedFailsWithFaults(t *testing.T) {
 		node.ReturnRaw(methods.MethodGetTransactionByBlockHashAndIndex, []byte(`{"not":"a transaction"}`))
 	}
 
-	tx, result, err := client.TransactionInBlock(context.Background(), common.HexToHash("0x46"), 0)
+	tx, result, err := client.TransactionInBlock(context.Background(), ethapi.Hash("0x"+strings.Repeat("0", 62)+"46"), 0)
 	if tx != nil || !errors.Is(err, ethguard.ErrMalformedResponse) || result.Decision == nil {
 		t.Fatalf("malformed = tx:%v result:%+v err:%v", tx, result, err)
 	}
@@ -141,14 +143,14 @@ func TestTransactionInBlockMultiSourceMalformedFailsWithFaults(t *testing.T) {
 
 func TestTransactionSender(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	blockHash := common.HexToHash("0x55")
+	blockHash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "55")
 	raw := transactionInBlockFixture(t, blockHash, 0)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionByBlockHashAndIndex, raw)
 	}
-	var tx types.Transaction
-	if err := json.Unmarshal(raw, &tx); err != nil {
-		t.Fatal(err)
+	tx, txErr := ethapi.NewTransaction(raw)
+	if txErr != nil {
+		t.Fatal(txErr)
 	}
 	wantKey, err := crypto.HexToECDSA("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 	if err != nil {
@@ -156,31 +158,35 @@ func TestTransactionSender(t *testing.T) {
 	}
 	want := crypto.PubkeyToAddress(wantKey.PublicKey)
 	sender, result, err := client.TransactionSender(context.Background(), &tx, blockHash, 0)
-	if err != nil || sender != want || result.Decision == nil || result.Decision.Status != rpc.Corroborated {
+	if err != nil || string(sender) != strings.ToLower(want.Hex()) || result.Decision == nil || result.Decision.Status != rpc.Corroborated {
 		t.Fatalf("TransactionSender = %s result=%+v err=%v, want %s", sender, result, err, want)
 	}
 	viewSender, viewErr := client.EthClient().TransactionSender(context.Background(), &tx, blockHash, 0)
-	if viewErr != nil || viewSender != want {
-		t.Fatalf("view TransactionSender = %s err=%v, want %s", viewSender, viewErr, want)
+	if viewErr != nil || viewSender != sender {
+		t.Fatalf("view TransactionSender = %s err=%v, want %s", viewSender, viewErr, sender)
 	}
 }
 
 func TestTransactionSenderRejectsHashMismatch(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	blockHash := common.HexToHash("0x66")
+	blockHash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "66")
 	raw := transactionInBlockFixture(t, blockHash, 0)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionByBlockHashAndIndex, raw)
 	}
-	input := types.NewTransaction(99, common.HexToAddress("0x1"), big.NewInt(1), 21000, big.NewInt(1), nil)
-	if _, _, err := client.TransactionSender(context.Background(), input, blockHash, 0); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	inputRaw := transactionInBlockVariant(t, blockHash, 0, 99)
+	input, inputErr := ethapi.NewTransaction(inputRaw)
+	if inputErr != nil {
+		t.Fatal(inputErr)
+	}
+	if _, _, err := client.TransactionSender(context.Background(), &input, blockHash, 0); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("hash mismatch error = %v, want malformed response", err)
 	}
 }
 
 func TestTransactionSenderRejectsMissingFrom(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	blockHash := common.HexToHash("0x77")
+	blockHash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "77")
 	raw := transactionInBlockFixture(t, blockHash, 0)
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
@@ -194,28 +200,30 @@ func TestTransactionSenderRejectsMissingFrom(t *testing.T) {
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionByBlockHashAndIndex, raw)
 	}
-	var tx types.Transaction
-	if err := json.Unmarshal(transactionInBlockFixture(t, blockHash, 0), &tx); err != nil {
-		t.Fatal(err)
+	var fullTx ethapi.Transaction
+	parsed, parseErr := ethapi.NewTransaction(transactionInBlockFixture(t, blockHash, 0))
+	if parseErr != nil {
+		t.Fatal(parseErr)
 	}
-	if _, _, err := client.TransactionSender(context.Background(), &tx, blockHash, 0); err == nil {
+	fullTx = parsed
+	if _, _, err := client.TransactionSender(context.Background(), &fullTx, blockHash, 0); err == nil {
 		t.Fatal("missing sender unexpectedly succeeded")
 	}
 }
 
 func TestTransactionSenderMultiSourceConflictKeepsEvidence(t *testing.T) {
 	client, nodes := fleet(t, 2)
-	blockHash := common.HexToHash("0x78")
+	blockHash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "78")
 	inputRaw := transactionInBlockVariant(t, blockHash, 0, 7)
-	var input types.Transaction
-	if err := json.Unmarshal(inputRaw, &input); err != nil {
-		t.Fatal(err)
+	input, inputErr := ethapi.NewTransaction(inputRaw)
+	if inputErr != nil {
+		t.Fatal(inputErr)
 	}
 	nodes[0].Return(methods.MethodGetTransactionByBlockHashAndIndex, inputRaw)
 	nodes[1].Return(methods.MethodGetTransactionByBlockHashAndIndex, transactionInBlockVariant(t, blockHash, 0, 8))
 
 	sender, result, err := client.TransactionSender(context.Background(), &input, blockHash, 0)
-	if sender != (common.Address{}) || !errors.Is(err, ethguard.ErrConflict) || result.Decision == nil {
+	if sender != "" || !errors.Is(err, ethguard.ErrConflict) || result.Decision == nil {
 		t.Fatalf("conflict = sender:%s result:%+v err:%v", sender, result, err)
 	}
 	if result.Decision.Status != rpc.Unknown || len(result.Decision.Support) != 1 || len(result.Decision.Reject) != 1 {
@@ -228,18 +236,18 @@ func TestTransactionSenderMultiSourceConflictKeepsEvidence(t *testing.T) {
 
 func TestTransactionSenderMultiSourceMalformedFailsWithFaults(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	blockHash := common.HexToHash("0x79")
+	blockHash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "79")
 	inputRaw := transactionInBlockFixture(t, blockHash, 0)
-	var input types.Transaction
-	if err := json.Unmarshal(inputRaw, &input); err != nil {
-		t.Fatal(err)
+	input, inputErr := ethapi.NewTransaction(inputRaw)
+	if inputErr != nil {
+		t.Fatal(inputErr)
 	}
 	for _, node := range nodes {
 		node.ReturnRaw(methods.MethodGetTransactionByBlockHashAndIndex, []byte(`{"not":"a transaction"}`))
 	}
 
 	sender, result, err := client.TransactionSender(context.Background(), &input, blockHash, 0)
-	if sender != (common.Address{}) || !errors.Is(err, ethguard.ErrMalformedResponse) || result.Decision == nil {
+	if sender != "" || !errors.Is(err, ethguard.ErrMalformedResponse) || result.Decision == nil {
 		t.Fatalf("malformed = sender:%s result:%+v err:%v", sender, result, err)
 	}
 	if result.Decision.Status != rpc.Unknown || len(result.Decision.Support) != 0 || len(result.Decision.Faults) != 3 {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -164,25 +165,29 @@ func TestVerificationEvidenceOutsideDiagnosticsPerObservation(t *testing.T) {
 	}
 }
 
-// TestVerificationEvidenceNestedDerivedFieldRecomputation covers a nested protected object
-// whose JSON hash is derived, not authored: a tampered transaction hash inside
-// a block body does not enter Value. The canonical encoder recomputes it from
-// the signed transaction, and the source remains a supporter because the
-// transaction root still agrees.
-func TestVerificationEvidenceNestedDerivedFieldRecomputation(t *testing.T) {
+// TestVerificationEvidenceNestedDeclaredHashBinding checks the original embedded
+// transaction hash against its signed payload. A false declaration faults its
+// source before clustering, while two honest sources retain the full value.
+func TestVerificationEvidenceNestedDeclaredHashBinding(t *testing.T) {
 	chain := t09NewChain(t)
 	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
 	tampered := "0x" + strings.Repeat("77", 32)
 	transactions := t09SetNestedField(t, fieldOf(t, block, "transactions"), 0, "hash", tampered)
 	payload := t09SetField(t, block, "transactions", transactions)
 	fleet := t09NewFleet(t, 3)
-	fleet.returnOne(t09FieldRowFor(t, "eth_getBlockByHash").method, payload)
+	fleet.nodes[0].ReturnRaw(methods.MethodGetBlockByHash, block)
+	fleet.nodes[1].ReturnRaw(methods.MethodGetBlockByHash, block)
+	fleet.nodes[2].ReturnRaw(methods.MethodGetBlockByHash, payload)
 	decision, err := callDecision(fleet.client.Call(fleet.context(t), "eth_getBlockByHash", hash, true))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Faults) != 1 {
 		t.Fatalf("decision = %+v", decision)
+	}
+	t09AssertSourceAbsent(t, methods.MethodGetBlockByHash, fleet.names[2], decision.Support, decision.Reject)
+	if !strings.Contains(decision.Faults[0].Error(), "hash does not match signed payload") {
+		t.Fatalf("wrong fault: %v", decision.Faults)
 	}
 	if bytesContain(decision.Value, []byte(tampered)) {
 		t.Fatalf("tampered nested hash entered Value")
@@ -196,7 +201,7 @@ func TestVerificationEvidenceNestedDerivedFieldRecomputation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(decoded.Transactions) != 2 || decoded.Transactions[0].Hash != chain.txHash || decoded.Transactions[1].Hash != chain.txHash2 {
-		t.Fatalf("derived transaction hashes = %+v, want %q and %q", decoded.Transactions, chain.txHash, chain.txHash2)
+		t.Fatalf("checked declared transaction hashes = %+v, want %q and %q", decoded.Transactions, chain.txHash, chain.txHash2)
 	}
 }
 
@@ -437,4 +442,55 @@ func trimValue(raw json.RawMessage) string {
 		return string(raw[:120]) + "..."
 	}
 	return string(raw)
+}
+
+// Full Block metadata belongs to the same protected value as its commitments.
+// This checks a real Call quorum, independent of the private geth projection,
+// which does not expose the declared sender or the provider's size member.
+func TestVerificationCompleteBlockOriginalDeclarationsAreProtected(t *testing.T) {
+	chain := t09NewChain(t)
+	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
+	changed := t09SetField(t, block, "size", "0x999")
+	transactions := t09SetNestedField(t, fieldOf(t, changed, "transactions"), 0, "from", "0x"+strings.Repeat("77", 20))
+	changed = t09SetField(t, changed, "transactions", transactions)
+	for _, method := range []string{methods.MethodGetBlockByHash, methods.MethodGetBlockByNumber} {
+		t.Run(method, func(t *testing.T) {
+			fleet := t09NewFleet(t, 3)
+			fleet.nodes[0].ReturnRaw(method, block)
+			fleet.nodes[1].ReturnRaw(method, changed)
+			fleet.nodes[2].ReturnRaw(method, changed)
+			ref := hash
+			if method == methods.MethodGetBlockByNumber {
+				ref = fmt.Sprintf("0x%x", t09AnchorHeight)
+			}
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), method, ref, true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 0 || decision.Reject[0].Name != fleet.names[0] {
+				t.Fatalf("complete declarations did not form the actual clusters: %+v", decision)
+			}
+			value, err := ethapi.NewBlock(decision.Value)
+			if err != nil || value.Size != "0x999" {
+				t.Fatalf("winning official Block = %s: %v", decision.Value, err)
+			}
+			var output struct {
+				Transactions []map[string]json.RawMessage `json:"transactions"`
+			}
+			if err := json.Unmarshal(decision.Value, &output); err != nil {
+				t.Fatal(err)
+			}
+			var original struct {
+				Transactions []map[string]json.RawMessage `json:"transactions"`
+			}
+			_ = json.Unmarshal(changed, &original)
+			for i := range original.Transactions {
+				for _, name := range []string{"hash", "from", "blockHash", "blockNumber", "blockTimestamp", "transactionIndex"} {
+					if !strings.EqualFold(string(original.Transactions[i][name]), string(output.Transactions[i][name])) {
+						t.Fatalf("transaction %d declared %s lost", i, name)
+					}
+				}
+			}
+		})
+	}
 }

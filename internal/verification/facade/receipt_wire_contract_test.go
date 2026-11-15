@@ -14,14 +14,13 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 )
 
 // This oracle reads the pinned schema independently of the generated wire
@@ -42,7 +41,7 @@ func receiptWireSchema(t *testing.T, method string) any {
 	return bundle.Results[method]
 }
 
-func replayReceiptWire(t *testing.T, raw json.RawMessage, hash common.Hash) {
+func replayReceiptWire(t *testing.T, raw json.RawMessage, hash ethapi.Hash) {
 	t.Helper()
 	schema := receiptWireSchema(t, methods.MethodGetTransactionReceipt)
 	if err := conformance.ValidateResult(schema, raw); err != nil {
@@ -75,8 +74,12 @@ func replayReceiptWire(t *testing.T, raw json.RawMessage, hash common.Hash) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	got, result, err := client.TransactionReceipt(ctx, hash)
-	var want *types.Receipt
-	if decodeErr := json.Unmarshal(raw, &want); decodeErr != nil {
+	// The expected value is the official object parsed straight from the same
+	// wire, independent of the production decode path under test.
+	var want *ethapi.Receipt
+	if wantValue, decodeErr := ethapi.NewReceipt(raw); decodeErr == nil {
+		want = &wantValue
+	} else if len(bytes.TrimSpace(raw)) != 0 && string(bytes.TrimSpace(raw)) != "null" {
 		t.Fatal(decodeErr)
 	}
 	if want == nil {
@@ -139,7 +142,7 @@ func TestReceiptWireOfficialVectors(t *testing.T) {
 			}
 			t.Run(vector.Identity(), func(t *testing.T) {
 				var request struct {
-					Params []common.Hash `json:"params"`
+					Params []ethapi.Hash `json:"params"`
 				}
 				if err := json.Unmarshal(vector.Request, &request); err != nil || len(request.Params) != 1 {
 					t.Fatalf("invalid vector request: %s, %v", vector.Request, err)
@@ -162,7 +165,7 @@ func TestReceiptWireCapturedReplay(t *testing.T) {
 		}
 		t.Run(record.RequestID+"/"+record.Source.ID, func(t *testing.T) {
 			var request struct {
-				Params []common.Hash `json:"params"`
+				Params []ethapi.Hash `json:"params"`
 			}
 			if err := json.Unmarshal([]byte(record.Request), &request); err != nil || len(request.Params) != 1 {
 				t.Fatalf("invalid captured request: %v", err)
@@ -186,7 +189,7 @@ func TestReceiptWireRequiredFaultKeepsFrozenDenominator(t *testing.T) {
 	for _, field := range []string{"from", "effectiveGasPrice", "type", "status"} {
 		t.Run(field, func(t *testing.T) {
 			client, nodes := fleet(t, 4)
-			hash := common.HexToHash("0x42")
+			hash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "42")
 			good := fixtureReceipt(t, hash, 16)
 			var bad, dissent map[string]json.RawMessage
 			if err := json.Unmarshal(good, &bad); err != nil {
@@ -234,7 +237,7 @@ func TestReceiptWireDoesNotMergeDistinctClaims(t *testing.T) {
 		for _, field := range []string{"to", "contractAddress", "data"} {
 			t.Run(method+"/"+field, func(t *testing.T) {
 				client, nodes := fleet(t, 2)
-				hash := common.HexToHash("0x42")
+				hash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "42")
 				raw := fixtureReceipt(t, hash, 16)
 				var a, b json.RawMessage
 				if field == "data" {
@@ -258,7 +261,7 @@ func TestReceiptWireDoesNotMergeDistinctClaims(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				ref := hash.Hex()
+				ref := string(hash)
 				if method == methods.MethodGetBlockReceipts {
 					a = append(append(json.RawMessage{'['}, a...), ']')
 					b = append(append(json.RawMessage{'['}, b...), ']')

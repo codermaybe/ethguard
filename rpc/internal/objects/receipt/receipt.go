@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/internal/ethcodec"
+	objectreceipt "github.com/codermaybe/ethguard/internal/ethobject/receipt"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -148,18 +149,7 @@ func Normalize(value json.RawMessage, prune Pruner, method string) (string, erro
 // a caller that must bind the receipt to its request does not decode the same
 // bytes a second time.
 func validateAndDecode(value json.RawMessage) (*types.Receipt, error) {
-	canonical, err := Encode(value)
-	if err != nil {
-		return nil, err
-	}
-	var r *types.Receipt
-	if err := json.Unmarshal(canonical, &r); err != nil || r == nil {
-		return nil, fmt.Errorf("receipt: invalid payload")
-	}
-	if r.TxHash == (common.Hash{}) || r.BlockHash == (common.Hash{}) {
-		return nil, fmt.Errorf("receipt: missing transaction or block hash")
-	}
-	return r, nil
+	return objectreceipt.Decode(value)
 }
 
 func NormalizeBlock(value json.RawMessage, prune Pruner, method string) (string, error) {

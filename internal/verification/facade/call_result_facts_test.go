@@ -10,10 +10,10 @@ import (
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -114,7 +114,7 @@ func TestCallResultLocalRejectionCarriesNoDecision(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	balance, result, err := client.BalanceAt(ctx, [20]byte{}, big.NewInt(-99))
+	balance, result, err := client.BalanceAt(ctx, ethapi.Address("0x0000000000000000000000000000000000000000"), big.NewInt(-99))
 	if err == nil || balance != nil {
 		t.Fatalf("invalid block arg = %v, %v", balance, err)
 	}
@@ -171,7 +171,7 @@ func TestCallResultCorroboratedReceiptNullKeepsValueAndSupport(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	receipt, result, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	receipt, result, err := client.TransactionReceipt(ctx, ethapi.Hash("0x"+strings.Repeat("42", 32)))
 	if !errors.Is(err, ethereum.NotFound) || receipt != nil {
 		t.Fatalf("null receipt = %+v, %v", receipt, err)
 	}

@@ -16,7 +16,7 @@
 
 **规范编码表示确定性，不自动表示符合完整官方结果 schema。** 在合法对象上增加请求绑定是更深锁定；拒绝部分官方合法输入是接受域收窄；删掉官方 required 字段、输出不允许的 null，则不是原对象 schema 的合法子集。当前实现包含这几种不同情况，不得混称为“比官方更严格”。
 
-公共 RPC 的实际响应有兼容性参考价值，但不是字段规范的来源。保留的 [shapeprobe 归档](../samples/2026-09-26-shapeprobe/README.md) 记录有限日期、端点和请求，不能推出普遍兼容。标准冲突与接受边界由各方法合同维护；receipt 裁决见决策 0068，独立 transaction 的首个实施检查点见 [方法级 key 设计](transaction-semantic-matching.md#12-当前实施检查点)，block 等未随之迁移。
+公共 RPC 的实际响应有兼容性参考价值，但不是字段规范的来源。保留的 [shapeprobe 归档](../samples/2026-09-26-shapeprobe/README.md) 记录有限日期、端点和请求，不能推出普遍兼容。标准冲突与接受边界由各方法合同维护；receipt 裁决见决策 0068，独立 transaction 的首个实施检查点见 [方法级 key 设计](transaction-semantic-matching.md#12-当前实施检查点)，完整Block对象的官方输出现已对齐，公开Go签名仍待迁移。
 
 ## 2. Value 的含义
 
@@ -28,7 +28,7 @@
 - 未获保护的内容只进入声明的 Extensions／Diagnostics 或 opt-in 原始证据通道，不借 Value 暗示已佐证。
 - 多源 Corroborated 仍是 provider-backed evidence，不是 Ethereum consensus、canonicality、执行有效性或密码学 finality。
 
-“保护域”与“完整官方对象”当前不完全相同。区块 encoder 有意不输出 `size` 和嵌入交易上下文，其中包含官方 required 字段；这是需要评审的兼容边界，不是官方 schema 本身允许省略它们。独立交易与收据又有各自的字段规则，不能把区块的 `from` 排除决定推广到所有对象。
+完整区块现在按官方生成Block交付：`size`、内嵌交易的`from`、hash与inclusion上下文保留在逐源规范对象中，并与其余官方字段共同参与比较及提交。缺失required字段拒绝来源，不再通过geth重编码丢弃它们。`size`和`from`属于来源声明经多源比较保护，不宣称由RLP独立验真或sender recovery；交易payload hash、上下文和body承诺仍单独核对。仅number/hash的内部reference结果仍是较窄的身份表示，不冒称完整官方Block。
 
 receipt 已采用官方形态与保护闭环：`from`／`effectiveGasPrice` 必须由来源提供并比较；nullable `to`／`contractAddress` 保留缺失、null、地址三个状态；可选非 nullable 字段存在时拒绝 null；`type` 受 byte 约束。`status`／`root` 至少一个存在，同时存在则独立校验、比较并保留。完整日志要求、bloom-log 一致性、请求绑定和零日志 hash 容忍仍按方法规则执行；后者不构成完整父子绑定证明。Geth `types.Receipt` 无 `from`／`to` 字段，完整受保护 wire 信息保留在 `Decision.Value`，不伪造 typed 字段。
 
@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 - Admit 或 EncodeCheck 失败的来源记 Fault，不贡献支持，仍留在本轮分母。不得先裁决、再删掉失败来源重算门槛。
-- 完整区块等方法保留声明的 normalizer key；独立交易的比较与编码使用同一完整候选对象。数量、成功 DATA、feeHistory、logs、accessList 和 receipts 使用各自规范字节。实际装配见生成的 [method-rules.md](method-rules.md)，不在本文复制注册表。
+- 完整区块采用canonical字节作为比较键，独立交易的比较与编码使用同一完整候选对象；reference的HeadCodec仍使用number/hash身份，不因此扩大为完整block校验。数量、成功 DATA、feeHistory、logs、accessList 和 receipts 使用各自规范字节。实际装配见生成的 [method-rules.md](method-rules.md)，不在本文复制注册表。
 - 获胜簇内支持源的规范字节必须相同。同键却编码不同是保护域／比较键／实现不一致，返回 `ErrMalformedResponse`，不改选某份原文或逐字段投票。
 - 非获胜簇的同类不一致只形成 Faults，不否决已经达门槛且自身一致的获胜簇，不触发第二次投票。诊断保留 source ID、长度和摘要，不复制完整 Value。
 - Median 和 Local 保持 Selected；未注册 Forward 路径没有受保护声明。不能因编码一致把它们升级为 Corroborated。
@@ -63,7 +63,7 @@ flowchart LR
 | 地址及对象 | 地址规范为小写；对象按 encoder 的字段顺序紧凑编码，关闭 HTML escaping；键序不表示语义优先级 |
 | 官方 Number | 精确保留 JSON 十进制数，界限来自 schema，不经 float64；由生成层处理 |
 | 受保护 feeHistory ratio | 仍执行项目 `CanonicalRatio` 的 float64 最短十进制保值 gate；`0.50` 可折合，`0.30000000000000001` 被拒。这是项目接受域限制，不是官方 number 定义 |
-| 缺失与 null | 不全局补空值。对象查询合法 null、空数组、字段缺失和显式 null 按具体方法区分；现有 optional 字段的 null→省略例外及其冲突见问题记录。区块 encoder 的 null→省略例外（2026-11-13 首批，`b3519a6` 补入 `slotNumber`）：`withdrawalsRoot`／`blobGasUsed`／`excessBlobGas`／`parentBeaconBlockRoot`／`requestsHash`／`slotNumber` 在官方 schema 为 optional 且 non-nullable，而 geth 头部 marshal 对未设指针字段输出显式 null——这是 pre-fork 区块事实上的 wire 形状，提交时折合为省略，使受保护值成为官方 schema 的合法子集（与 log `blockTimestamp:null`→省略同类） |
+| 缺失与 null | 不全局补空值。对象查询合法 null、空数组、字段缺失和显式 null 按具体方法区分；现有 optional 字段的 null→省略例外及其冲突见问题记录。Header／区块共享的null→省略例外：`baseFeePerGas`／`withdrawalsRoot`／`blobGasUsed`／`excessBlobGas`／`parentBeaconBlockRoot`／`requestsHash`／`blockAccessListHash`／`slotNumber` 在官方 schema 为 optional 且 non-nullable，而 geth 头部 marshal 对未设指针字段输出显式 null——这是 pre-fork 区块事实上的 wire 形状，按显式八项政策折合为省略；baseFeePerGas与blockAccessListHash在完整模型接入时补入，依据同一锁定geth生成编码事实，required null与其余畸形值仍拒绝，使受保护值满足对应官方schema（与 log `blockTimestamp:null`→省略同类） |
 
 标量实现单源为 [wire/encode.go](../../rpc/internal/wire/encode.go)，对象规则单源为对应 `rpc/internal/objects/*/encode.go`。不要在文档再维护一份可独立漂移的字段清单。
 

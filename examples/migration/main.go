@@ -15,10 +15,11 @@ import (
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func main() {
@@ -34,8 +35,11 @@ func main() {
 
 	// --- the ethclient-shaped view: official signatures, same execution ---
 	// was: ec, _ := ethclient.Dial(...); ec.BalanceAt(ctx, account, nil)
+	// Scalar inputs are the generated ethapi.Address/ethapi.Hash; the
+	// explicit all-zero address is legal, the empty string is not.
 	ec := client.EthClient()
-	balance, err := ec.BalanceAt(ctx, common.Address{}, nil)
+	zeroAccount := ethapi.Address("0x0000000000000000000000000000000000000000")
+	balance, err := ec.BalanceAt(ctx, zeroAccount, nil)
 	if err != nil {
 		// ethguard classifies failures; sentinels answer to errors.Is.
 		if errors.Is(err, ethereum.NotFound) {
@@ -57,7 +61,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("native block read failed: %v", err)
 	}
-	fmt.Printf("native corroborated head %d (%s)\n", head.NumberU64(), head.Hash())
+	headHeight, heightErr := rpc.ParseHexQuantity(string(head.Number))
+	if heightErr != nil {
+		log.Fatalf("native block height: %v", heightErr)
+	}
+	fmt.Printf("native corroborated head %d (%s)\n", headHeight, head.Hash)
 	// The capture holds the decision evidence and the budget-bounded raw
 	// material of exactly that call; the business result is untouched.
 	if result, published, err := capture.Result(); published && err == nil {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 
@@ -105,7 +106,7 @@ func TestSendRawTransactionSyncWaitsForReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync write failed: %v", err)
 	}
-	if receipt == nil || receipt.TxHash != hash {
+	if receipt == nil || receipt.TransactionHash != ethapi.Hash(hash.Hex()) {
 		t.Fatalf("receipt for the wrong transaction: %+v", receipt)
 	}
 	if writeDecision(t, result).Status != rpc.WriteAccepted || writeDecision(t, result).Hash != hash.Hex() {
@@ -165,7 +166,7 @@ func TestSendTransactionSyncWaitsForReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("typed sync write failed: %v", err)
 	}
-	if receipt == nil || receipt.TxHash != hash {
+	if receipt == nil || receipt.TransactionHash != ethapi.Hash(hash.Hex()) {
 		t.Fatalf("receipt for the wrong transaction: %+v", receipt)
 	}
 	decision := writeDecision(t, result)

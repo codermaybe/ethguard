@@ -20,6 +20,7 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -124,7 +125,7 @@ func t09TxObject(tx *types.Transaction, from string, mined bool, blockHash strin
 	return t09JSON(object)
 }
 
-// block builds a full post-merge block with exactly one signed transaction.
+// block builds a full post-merge block with two signed transactions.
 // The header commits to the transaction root and the empty uncle root, so
 // admission can verify the body instead of trusting it.
 func (c *t09Chain) block(number, timestamp uint64, gasUsed uint64) (json.RawMessage, string) {
@@ -156,14 +157,18 @@ func (c *t09Chain) block(number, timestamp uint64, gasUsed uint64) (json.RawMess
 		if err := json.Unmarshal(transactions[index], &transaction); err != nil {
 			t09Panic(err)
 		}
-		delete(transaction, "blockTimestamp")
+		transaction["blockTimestamp"] = t09JSON(fmt.Sprintf("0x%x", timestamp))
+		// These nulls are geth's generic transaction marshal fields, outside
+		// the active official legacy branch in an embedded Block transaction.
+		delete(transaction, "maxFeePerGas")
+		delete(transaction, "maxPriorityFeePerGas")
 		transactions[index] = t09JSON(transaction)
 	}
 	object["transactions"] = t09JSON(transactions)
 	object["uncles"] = json.RawMessage(`[]`)
-	// Response metadata outside the protected domain. Values differ between
-	// representation variants while the header stays identical.
-	object["size"] = json.RawMessage(`"0x100"`)
+	// size is an original declaration in the complete protected Block value.
+	block := types.NewBlockWithHeader(header).WithBody(types.Body{Transactions: types.Transactions{c.tx, c.tx2}})
+	object["size"] = t09JSON(fmt.Sprintf("0x%x", block.Size()))
 	object["totalDifficulty"] = json.RawMessage(`"0x1"`)
 	object["vendor"] = t09JSON("t09")
 	return t09JSON(object), hash
@@ -340,17 +345,58 @@ func t09Variants(t *testing.T, base json.RawMessage) []json.RawMessage {
 	return []json.RawMessage{literal[0], literal[1], t09EscapeFirstHex(t, literal[2])}
 }
 
-// t09VariantsNoEscape keeps the same key-order, whitespace, and hex-case
-// variation without JSON string escapes. Block and transaction admission hand
-// their wire values to geth's typed decoders, which require literal 0x-prefixed
-// strings; escaped hex is an admission fault for those methods and is covered
-// separately by TestVerificationEscapedHexAdmissionBoundary.
+// t09VariantsNoEscape builds the literal key-order, whitespace, and hex-case
+// variants. t09Variants adds equivalent JSON string escapes; the independent
+// mixed-source escape and binding tests exercise those spellings separately.
 func t09VariantsNoEscape(t *testing.T, base json.RawMessage) []json.RawMessage {
 	t.Helper()
 	reordered := t09SemanticJSON(t, base)
 	indented := t09Indent(t, reordered)
 	upper := t09UpperHex(t, base)
 	return []json.RawMessage{base, indented, upper}
+}
+
+// t09FoldNulls folds explicit JSON null members to absence before a typed
+// decode, mirroring the production projection's declared null folding for
+// geth's unset optional pointer fields. The generated official model treats
+// the folded form and the null form as one value (a nil optional member), so
+// the folded semantic re-encoding carries the same typed meaning as the raw
+// answer; the canonical encoder's own null handling is asserted separately by
+// the conservation tests on the unmodified raw bytes.
+func t09FoldNulls(raw json.RawMessage) json.RawMessage {
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return raw
+	}
+	folded, ok := t09FoldNullsValue(value).(map[string]any)
+	if !ok {
+		return raw
+	}
+	return t09JSON(folded)
+}
+
+func t09FoldNullsValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, child := range typed {
+			if child == nil {
+				continue
+			}
+			out[key] = t09FoldNullsValue(child)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, child := range typed {
+			out[i] = t09FoldNullsValue(child)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 // t09SemanticJSON re-encodes a response after JSON parsing. JSON escapes are
@@ -506,6 +552,16 @@ func t09JSON(value any) json.RawMessage {
 
 func t09Panic(err error) { panic(err) }
 
+// blockHashRef builds the hash-addressed BlockReceipts reference. The EIP-1898
+// object form is used because the bare-hash spelling round-trips through the
+// official reference parser's quantity branch first (a 32-byte hex string is
+// also a legal quantity spelling) and would bind as a height instead of a
+// hash; the object binds the same BlockHash with requireCanonical=false, the
+// binding the replaced geth helper expressed.
+func blockHashRef(hash string) ethapi.BlockReference {
+	return ethapi.BlockReference{Eip1898BlockHashObject: &ethapi.BlockHashReference{BlockHash: ethapi.Hash(hash)}}
+}
+
 // Decoders below are lossless over the protected semantic value: the full
 // typed header/body, every receipt, every log, and the transaction context
 // fields the canonical encoder retains. A replacement of any protected field
@@ -570,23 +626,8 @@ func t09DecodeBool(raw json.RawMessage) (string, error) {
 	return fmt.Sprint(value), nil
 }
 
-type t09BlockRecord struct {
-	Hash         common.Hash          `json:"hash"`
-	Header       *types.Header        `json:"header"`
-	Transactions []*types.Transaction `json:"transactions"`
-	Uncles       []*types.Header      `json:"uncles"`
-	Withdrawals  []*types.Withdrawal  `json:"withdrawals"`
-}
-
-func t09BlockSummary(block *types.Block) (string, error) {
-	record := t09BlockRecord{
-		Hash:         block.Hash(),
-		Header:       block.Header(),
-		Transactions: block.Transactions(),
-		Uncles:       block.Uncles(),
-		Withdrawals:  block.Withdrawals(),
-	}
-	encoded, err := json.Marshal(record)
+func t09BlockSummary(block *ethapi.Block) (string, error) {
+	encoded, err := json.Marshal(block)
 	if err != nil {
 		return "", err
 	}
@@ -594,7 +635,7 @@ func t09BlockSummary(block *types.Block) (string, error) {
 }
 
 func t09DecodeBlock(raw json.RawMessage) (string, error) {
-	block, err := ethguard.DecodeBlock(raw)
+	block, err := ethguard.DecodeBlock(t09FoldNulls(raw))
 	if err == ethereum.NotFound {
 		return "notfound", nil
 	}
@@ -604,25 +645,8 @@ func t09DecodeBlock(raw json.RawMessage) (string, error) {
 	return t09BlockSummary(block)
 }
 
-type t09ReceiptContext struct {
-	From *common.Address `json:"from,omitempty"`
-	To   *common.Address `json:"to,omitempty"`
-}
-
-func t09ReceiptContextOf(raw json.RawMessage) (t09ReceiptContext, error) {
-	var context t09ReceiptContext
-	if err := json.Unmarshal(raw, &context); err != nil {
-		return t09ReceiptContext{}, err
-	}
-	return context, nil
-}
-
-func t09ReceiptFull(receipt *types.Receipt, context t09ReceiptContext) (string, error) {
-	encoded, err := json.Marshal(struct {
-		Receipt *types.Receipt  `json:"receipt"`
-		From    *common.Address `json:"from,omitempty"`
-		To      *common.Address `json:"to,omitempty"`
-	}{Receipt: receipt, From: context.From, To: context.To})
+func t09ReceiptFull(receipt *ethapi.Receipt) (string, error) {
+	encoded, err := json.Marshal(receipt)
 	if err != nil {
 		return "", err
 	}
@@ -637,18 +661,14 @@ func t09DecodeReceipt(raw json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	context, err := t09ReceiptContextOf(raw)
-	if err != nil {
-		return "", err
-	}
-	return t09ReceiptFull(receipt, context)
+	return t09ReceiptFull(receipt)
 }
 
 type t09ReceiptsRecord struct {
 	Receipts []string `json:"receipts"`
 }
 
-func t09ReceiptsFull(raw json.RawMessage, receipts []*types.Receipt) (string, error) {
+func t09ReceiptsFull(raw json.RawMessage, receipts []ethapi.Receipt) (string, error) {
 	var rows []json.RawMessage
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return "", err
@@ -658,11 +678,8 @@ func t09ReceiptsFull(raw json.RawMessage, receipts []*types.Receipt) (string, er
 	}
 	out := make([]string, len(receipts))
 	for i, receipt := range receipts {
-		context, err := t09ReceiptContextOf(rows[i])
-		if err != nil {
-			return "", err
-		}
-		out[i], err = t09ReceiptFull(receipt, context)
+		var err error
+		out[i], err = t09ReceiptFull(&receipt)
 		if err != nil {
 			return "", err
 		}
@@ -686,13 +703,13 @@ func t09DecodeBlockReceipts(raw json.RawMessage) (string, error) {
 }
 
 type t09TransactionRecord struct {
-	Transaction      *types.Transaction `json:"transaction"`
-	Hash             *common.Hash       `json:"hash"`
-	From             *common.Address    `json:"from"`
-	BlockHash        *common.Hash       `json:"blockHash,omitempty"`
-	BlockNumber      json.RawMessage    `json:"blockNumber,omitempty"`
-	TransactionIndex json.RawMessage    `json:"transactionIndex,omitempty"`
-	Pending          bool               `json:"pending"`
+	Transaction      *ethapi.Transaction `json:"transaction"`
+	Hash             *common.Hash        `json:"hash"`
+	From             *common.Address     `json:"from"`
+	BlockHash        *common.Hash        `json:"blockHash,omitempty"`
+	BlockNumber      json.RawMessage     `json:"blockNumber,omitempty"`
+	TransactionIndex json.RawMessage     `json:"transactionIndex,omitempty"`
+	Pending          bool                `json:"pending"`
 }
 
 func t09DecodeTransaction(raw json.RawMessage) (string, error) {
@@ -728,14 +745,22 @@ func t09DecodeTransaction(raw json.RawMessage) (string, error) {
 	return string(encoded), nil
 }
 
-// t09DecodeLogs keeps geth's full typed log, including blockTimestamp, so a
+// t09DecodeLogs keeps the full typed log, including blockTimestamp, so a
 // replaced address, topic, data word, inclusion field, or removed flag changes
 // the summary. Hex spelling is representation; the typed value compares by
 // value, not by the wire's case.
 func t09DecodeLogs(raw json.RawMessage) (string, error) {
-	var logs []types.Log
-	if err := json.Unmarshal(raw, &logs); err != nil {
+	var rows []json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
 		return "", err
+	}
+	logs := make([]ethapi.Log, 0, len(rows))
+	for i, row := range rows {
+		log, err := ethapi.NewLog(row)
+		if err != nil {
+			return "", fmt.Errorf("log %d: %w", i, err)
+		}
+		logs = append(logs, log)
 	}
 	encoded, err := json.Marshal(logs)
 	if err != nil {

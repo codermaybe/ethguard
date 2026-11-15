@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/big"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,10 +11,9 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
 )
 
 func TestTypedFilterLogsNativeHTTPAndRawWSS(t *testing.T) {
@@ -39,17 +37,22 @@ func TestTypedFilterLogsNativeHTTPAndRawWSS(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	address := common.HexToAddress("0x2")
-	topic := common.HexToHash("0x3")
-	logs, result, err := client.FilterLogs(ctx, ethereum.FilterQuery{
-		FromBlock: big.NewInt(0),
-		Addresses: []common.Address{address},
-		Topics:    [][]common.Hash{{topic}},
-	})
+	address := "0x0000000000000000000000000000000000000002"
+	topic := "0x0000000000000000000000000000000000000000000000000000000000000003"
+	query, queryErr := ethapi.NewFilterQuery(json.RawMessage(
+		`{"fromBlock":"0x0","address":["` + address + `"],"topics":[["` + topic + `"]]}`))
+	if queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	logs, result, err := client.FilterLogs(ctx, query)
 	if err != nil || result.Decision == nil || result.Decision.Status != rpc.Corroborated {
 		t.Fatalf("FilterLogs result=%+v logs=%+v err=%v", result, logs, err)
 	}
-	if len(logs) != 1 || logs[0].BlockNumber != 16 || logs[0].BlockHash != common.HexToHash(blockHash) {
+	if len(logs) != 1 || logs[0].BlockNumber == nil {
+		t.Fatalf("FilterLogs logs=%+v", logs)
+	}
+	logHeight, logHeightErr := rpc.ParseHexQuantity(string(*logs[0].BlockNumber))
+	if logHeightErr != nil || logHeight != 16 || logs[0].BlockHash == nil || *logs[0].BlockHash != ethapi.Hash(blockHash) {
 		t.Fatalf("FilterLogs logs=%+v", logs)
 	}
 	if peers[0].httpConnections.Load() == 0 || peers[1].connections.Load() == 0 {
@@ -83,11 +86,11 @@ func TestTypedFilterLogsNativeHTTPAndRawWSS(t *testing.T) {
 			t.Fatalf("source %d range request unexpectedly carried blockHash: %s", i, req.Params[0])
 		}
 		var addresses []string
-		if err := json.Unmarshal(filter["address"], &addresses); err != nil || len(addresses) != 1 || addresses[0] != address.Hex() {
+		if err := json.Unmarshal(filter["address"], &addresses); err != nil || len(addresses) != 1 || addresses[0] != address {
 			t.Fatalf("source %d address=%s err=%v", i, filter["address"], err)
 		}
 		var topics [][]string
-		if err := json.Unmarshal(filter["topics"], &topics); err != nil || len(topics) != 1 || len(topics[0]) != 1 || topics[0][0] != topic.Hex() {
+		if err := json.Unmarshal(filter["topics"], &topics); err != nil || len(topics) != 1 || len(topics[0]) != 1 || topics[0][0] != topic {
 			t.Fatalf("source %d topics=%s err=%v", i, filter["topics"], err)
 		}
 	}
@@ -121,7 +124,11 @@ func TestTypedFilterLogsNullAndEmptyRemainDistinctAcrossTransports(t *testing.T)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			logs, _, callErr := client.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: big.NewInt(0)})
+			query, queryErr := ethapi.NewFilterQuery(json.RawMessage(`{"fromBlock":"0x0"}`))
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			logs, _, callErr := client.FilterLogs(ctx, query)
 			if tc.wantErr != nil {
 				if !errors.Is(callErr, tc.wantErr) || logs != nil {
 					t.Fatalf("logs=%v err=%v, want nil and %v", logs, callErr, tc.wantErr)
@@ -143,7 +150,7 @@ func TestTypedFilterLogsBlockHashAndRangeBinding(t *testing.T) {
 		rawBlock := fixtureBlock(t, 16)
 		blockHash := blockHashFromFixture(t, rawBlock)
 		rawLogs := transportLogs(t, blockHash, "0x10")
-		requested := common.HexToHash(blockHash)
+		requested := ethapi.Hash(blockHash)
 		var record atomic.Value
 		peer := newSourceWirePeer(t, true, filterLogsTransportAnswer(rawBlock, rawLogs, &record))
 		client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{{ID: "wss", Endpoint: peer.endpoint, Transport: config.TransportWSS}}})
@@ -153,8 +160,12 @@ func TestTypedFilterLogsBlockHashAndRangeBinding(t *testing.T) {
 		t.Cleanup(client.Close)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		logs, _, err := client.FilterLogs(ctx, ethereum.FilterQuery{BlockHash: &requested})
-		if err != nil || len(logs) != 1 || logs[0].BlockHash != requested {
+		query, queryErr := ethapi.NewFilterQuery(json.RawMessage(`{"blockHash":"` + blockHash + `"}`))
+		if queryErr != nil {
+			t.Fatal(queryErr)
+		}
+		logs, _, err := client.FilterLogs(ctx, query)
+		if err != nil || len(logs) != 1 || logs[0].BlockHash == nil || *logs[0].BlockHash != requested {
 			t.Fatalf("blockHash logs=%+v err=%v", logs, err)
 		}
 		if peer.headerRequests.Load() != 0 {
@@ -194,8 +205,12 @@ func TestTypedFilterLogsBlockHashAndRangeBinding(t *testing.T) {
 		t.Cleanup(client.Close)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		foreignHash := common.HexToHash("0x" + strings.Repeat("11", 32))
-		_, _, err = client.FilterLogs(ctx, ethereum.FilterQuery{BlockHash: &foreignHash})
+		foreignHash := "0x" + strings.Repeat("11", 32)
+		foreignQuery, foreignQueryErr := ethapi.NewFilterQuery(json.RawMessage(`{"blockHash":"` + foreignHash + `"}`))
+		if foreignQueryErr != nil {
+			t.Fatal(foreignQueryErr)
+		}
+		_, _, err = client.FilterLogs(ctx, foreignQuery)
 		if !errors.Is(err, ethguard.ErrMalformedResponse) {
 			t.Fatalf("foreign blockHash response err=%v, want ErrMalformedResponse", err)
 		}
@@ -223,7 +238,11 @@ func TestTypedFilterLogsBlockHashAndRangeBinding(t *testing.T) {
 		t.Cleanup(client.Close)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, _, err = client.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: big.NewInt(0), ToBlock: big.NewInt(15)})
+		rangeQuery, rangeQueryErr := ethapi.NewFilterQuery(json.RawMessage(`{"fromBlock":"0x0","toBlock":"0xf"}`))
+		if rangeQueryErr != nil {
+			t.Fatal(rangeQueryErr)
+		}
+		_, _, err = client.FilterLogs(ctx, rangeQuery)
 		if !errors.Is(err, ethguard.ErrMalformedResponse) {
 			t.Fatalf("out-of-range log err=%v, want ErrMalformedResponse", err)
 		}
@@ -249,8 +268,16 @@ func TestTypedFilterLogsBlockHashAndRangeBinding(t *testing.T) {
 		t.Cleanup(client.Close)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		mixedHash := common.HexToHash("0x" + strings.Repeat("11", 32))
-		_, _, err = client.FilterLogs(ctx, ethereum.FilterQuery{BlockHash: &mixedHash, FromBlock: big.NewInt(1)})
+		// A directly assembled union carrying both branches cannot marshal:
+		// the generated union requires exactly one selected member, so the
+		// mixed filter is rejected before any request.
+		mixedHash := ethapi.Hash("0x" + strings.Repeat("11", 32))
+		one := mustQuantity(t, 1)
+		mixed := ethapi.FilterQuery{
+			FilterByBlockHash:  &ethapi.FilterQueryHash{BlockHash: mixedHash},
+			FilterByBlockRange: &ethapi.FilterQueryRange{FromBlock: &ethapi.FilterBlock{BlockNumber: &one}},
+		}
+		_, _, err = client.FilterLogs(ctx, mixed)
 		if err == nil {
 			t.Fatal("mixed blockHash/range filter unexpectedly succeeded")
 		}
@@ -278,14 +305,16 @@ func TestTypedFilterLogsRejectsInvalidRangesWithoutUpstreamRequests(t *testing.T
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	negative := ethapi.Quantity("-0x6")
+	pendingTag := ethapi.Text("pending")
 	filters := []struct {
 		name string
-		q    ethereum.FilterQuery
+		q    ethapi.FilterQuery
 	}{
-		{name: "reversed", q: ethereum.FilterQuery{FromBlock: big.NewInt(3), ToBlock: big.NewInt(2)}},
-		{name: "pending from", q: ethereum.FilterQuery{FromBlock: big.NewInt(-1)}},
-		{name: "pending to", q: ethereum.FilterQuery{ToBlock: big.NewInt(-1)}},
-		{name: "unsupported negative", q: ethereum.FilterQuery{FromBlock: big.NewInt(-6)}},
+		{name: "reversed", q: mustFilterQuery(t, `{"fromBlock":"0x3","toBlock":"0x2"}`)},
+		{name: "pending from", q: ethapi.FilterQuery{FilterByBlockRange: &ethapi.FilterQueryRange{FromBlock: &ethapi.FilterBlock{BlockTag: &pendingTag}}}},
+		{name: "pending to", q: ethapi.FilterQuery{FilterByBlockRange: &ethapi.FilterQueryRange{ToBlock: &ethapi.FilterBlock{BlockTag: &pendingTag}}}},
+		{name: "unsupported negative", q: ethapi.FilterQuery{FilterByBlockRange: &ethapi.FilterQueryRange{FromBlock: &ethapi.FilterBlock{BlockNumber: &negative}}}},
 	}
 	for _, filter := range filters {
 		_, _, err := client.FilterLogs(ctx, filter.q)
@@ -298,6 +327,16 @@ func TestTypedFilterLogsRejectsInvalidRangesWithoutUpstreamRequests(t *testing.T
 			t.Fatalf("source %d received %d requests after local range rejection", i, got)
 		}
 	}
+}
+
+// mustFilterQuery builds a generated filter from its official JSON shape.
+func mustFilterQuery(t *testing.T, raw string) ethapi.FilterQuery {
+	t.Helper()
+	q, err := ethapi.NewFilterQuery(json.RawMessage(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return q
 }
 
 func filterLogsTransportAnswer(rawBlock, rawLogs []byte, record *atomic.Value) func(sourceWireRequest) string {

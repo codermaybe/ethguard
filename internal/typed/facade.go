@@ -7,11 +7,12 @@ package typed
 import (
 	"bytes"
 	"encoding/json"
-
-	"github.com/codermaybe/ethguard/ethapi"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
+
+	"github.com/codermaybe/ethguard/ethapi"
+	logobject "github.com/codermaybe/ethguard/internal/ethobject/log"
 )
 
 // jsonNull reports whether the raw value is JSON null (whitespace tolerated).
@@ -57,17 +58,30 @@ func DecodeGasEstimate(raw json.RawMessage) (uint64, error) {
 // DecodeLogs shapes one corroborated eth_getLogs array. A JSON null payload
 // is not an empty result: a log query answers with an array, so null —
 // including whitespace-padded spellings, which the trim check sees through —
-// fails malformed instead of collapsing into an empty slice.
-func DecodeLogs(raw json.RawMessage) ([]types.Log, error) {
+// fails malformed instead of collapsing into an empty slice. The official
+// result anyOf can match an empty array through the hash branch first; the
+// shared log encoder rejects hash elements, so an empty array is the only
+// legal way to answer "no logs" and every element is projected through the
+// generated log constructor.
+func DecodeLogs(raw json.RawMessage) ([]ethapi.Log, error) {
 	if jsonNull(raw) {
 		return nil, wrapMalformed("log array is JSON null", nil)
 	}
-	var logs []types.Log
-	if err := json.Unmarshal(raw, &logs); err != nil {
+	canonical, err := logobject.Encode(raw)
+	if err != nil {
 		return nil, wrapMalformed("decode logs", err)
 	}
-	if logs == nil {
-		return nil, wrapMalformed("log array is JSON null", nil)
+	var rows []json.RawMessage
+	if err := json.Unmarshal(canonical, &rows); err != nil {
+		return nil, wrapMalformed("decode logs", err)
+	}
+	logs := make([]ethapi.Log, 0, len(rows))
+	for i, row := range rows {
+		value, err := ethapi.NewLog(row)
+		if err != nil {
+			return nil, wrapMalformed(fmt.Sprintf("decode logs[%d]", i), err)
+		}
+		logs = append(logs, value)
 	}
 	return logs, nil
 }

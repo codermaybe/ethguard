@@ -1,6 +1,7 @@
 package ethguard_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,11 +15,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
+	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -43,6 +45,58 @@ func fleet(t *testing.T, count int, opts ...ethguard.Option) (*ethguard.Client, 
 	}
 	t.Cleanup(client.Close)
 	return client, nodes
+}
+
+// mustQuantity builds the generated quantity for an explicit height.
+func mustQuantity(t *testing.T, n uint64) ethapi.Quantity {
+	t.Helper()
+	q, err := ethapi.NewQuantity(json.RawMessage(fmt.Sprintf(`"0x%x"`, n)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return q
+}
+
+// numberRef is the explicit-height BlockReference form (the migrated shape of
+// gethrpc.BlockNumberOrHashWithNumber).
+func numberRef(t *testing.T, n uint64) ethapi.BlockReference {
+	q := mustQuantity(t, n)
+	return ethapi.BlockReference{BlockNumber: &q}
+}
+
+// hashRef is the hash-addressed BlockReference form (the migrated shape of
+// gethrpc.BlockNumberOrHashWithHash(h, false)). It uses the EIP-1898 hash
+// object: the generated parser round-trips a bare hash string through its
+// quantity branch first, so only the object carries the hash binding.
+func hashRef(h ethapi.Hash) ethapi.BlockReference {
+	return ethapi.BlockReference{Eip1898BlockHashObject: &ethapi.BlockHashReference{BlockHash: h}}
+}
+
+// tagRef is the moving-tag BlockReference form.
+func tagRef(tag string) ethapi.BlockReference {
+	tg := ethapi.Text(tag)
+	return ethapi.BlockReference{BlockTag: &tg}
+}
+
+// txHashOf returns the declared hash of the selected generated transaction
+// branch (the migrated shape of types.Transaction.Hash()).
+func txHashOf(tx *ethapi.Transaction) string {
+	switch {
+	case tx == nil:
+		return ""
+	case tx.Signed7702Transaction != nil:
+		return string(tx.Signed7702Transaction.Hash)
+	case tx.Signed4844Transaction != nil:
+		return string(tx.Signed4844Transaction.Hash)
+	case tx.Signed1559Transaction != nil:
+		return string(tx.Signed1559Transaction.Hash)
+	case tx.Signed2930Transaction != nil:
+		return string(tx.Signed2930Transaction.Hash)
+	case tx.SignedLegacyTransaction != nil:
+		return string(tx.SignedLegacyTransaction.Hash)
+	default:
+		return ""
+	}
 }
 
 // fixtureBlock marshals a self-consistent block at height number: the wire
@@ -71,6 +125,7 @@ func fixtureBlock(t *testing.T, number int64) json.RawMessage {
 		t.Fatal(err)
 	}
 	obj["hash"] = json.RawMessage(fmt.Sprintf("%q", block.Hash().Hex()))
+	obj["size"] = json.RawMessage(fmt.Sprintf("%q", fmt.Sprintf("0x%x", block.Size())))
 	obj["transactions"] = json.RawMessage(`[]`)
 	obj["uncles"] = json.RawMessage(`[]`)
 	out, err := json.Marshal(obj)
@@ -110,7 +165,7 @@ func TestTypedBalanceAtPinsMovingTag(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	balance, _, err := client.BalanceAt(ctx, common.HexToAddress("0xdad"), nil)
+	balance, _, err := client.BalanceAt(ctx, ethapi.Address("0x0000000000000000000000000000000000000dad"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,8 +194,12 @@ func TestTypedBlockByNumberNeverFetchesAMovingTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if block.NumberU64() != 16 {
-		t.Fatalf("expected pinned block 16, got %d", block.NumberU64())
+	height, heightErr := rpc.ParseHexQuantity(string(block.Number))
+	if heightErr != nil {
+		t.Fatal(heightErr)
+	}
+	if height != 16 {
+		t.Fatalf("expected pinned block 16, got %d", height)
 	}
 
 	// The full-transaction fetches must carry explicit references only; any
@@ -176,12 +235,16 @@ func TestTypedBlockByHashUsesDedicatedMethod(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	block, _, err := client.BlockByHash(ctx, common.HexToHash(blockHashOf(pinned)))
+	block, _, err := client.BlockByHash(ctx, ethapi.Hash(blockHashOf(pinned)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if block.NumberU64() != 16 {
-		t.Fatalf("expected block 16, got %d", block.NumberU64())
+	height, heightErr := rpc.ParseHexQuantity(string(block.Number))
+	if heightErr != nil {
+		t.Fatal(heightErr)
+	}
+	if height != 16 {
+		t.Fatalf("expected block 16, got %d", height)
 	}
 }
 
@@ -194,7 +257,7 @@ func TestTypedBlockByHashRejectsAnotherSelfConsistentBlock(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
+	requested := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	if _, _, err := client.BlockByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested block, got %v", err)
 	}
@@ -317,8 +380,9 @@ func blockHashOf(raw json.RawMessage) string {
 // receipt claims the given height while its BlockHash stays the fleet's
 // canonical pin, so hash-form and height-form bindings can be tested
 // independently.
-func fixtureReceipt(t *testing.T, txHash common.Hash, height int64) json.RawMessage {
+func fixtureReceipt(t *testing.T, txHash ethapi.Hash, height int64) json.RawMessage {
 	t.Helper()
+	gethTxHash := common.HexToHash(string(txHash))
 	receipt := &types.Receipt{
 		Type:              types.LegacyTxType,
 		Status:            types.ReceiptStatusSuccessful,
@@ -328,12 +392,12 @@ func fixtureReceipt(t *testing.T, txHash common.Hash, height int64) json.RawMess
 			Topics:      []common.Hash{common.HexToHash("0x" + strings.Repeat("dd", 32))},
 			Data:        []byte{0x01, 0x02},
 			BlockNumber: uint64(height),
-			TxHash:      txHash,
+			TxHash:      gethTxHash,
 			TxIndex:     1,
 			BlockHash:   common.HexToHash("0x" + strings.Repeat("11", 32)),
 			Index:       0,
 		}},
-		TxHash:            txHash,
+		TxHash:            gethTxHash,
 		GasUsed:           21000,
 		BlockHash:         common.HexToHash("0x" + strings.Repeat("11", 32)),
 		BlockNumber:       big.NewInt(height),
@@ -364,7 +428,7 @@ func fixtureReceipt(t *testing.T, txHash common.Hash, height int64) json.RawMess
 
 func TestTypedTransactionReceiptReturnsCorroboratedReceipt(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	txHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	raw := fixtureReceipt(t, txHash, 16)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionReceipt, json.RawMessage(raw))
@@ -376,10 +440,10 @@ func TestTypedTransactionReceiptReturnsCorroboratedReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.TxHash != txHash || receipt.Status != types.ReceiptStatusSuccessful {
+	if receipt.TransactionHash != txHash || receipt.Status == nil || *receipt.Status != "0x1" {
 		t.Fatalf("unexpected corroborated receipt: %+v", receipt)
 	}
-	if len(receipt.Logs) != 1 || receipt.Logs[0].TxHash != txHash {
+	if len(receipt.Logs) != 1 || receipt.Logs[0].TransactionHash != txHash {
 		t.Fatalf("expected the receipt's logs to survive decoding, got %+v", receipt.Logs)
 	}
 }
@@ -392,7 +456,7 @@ func TestTypedTransactionReceiptMapsCorroboratedAbsenceToNotFound(t *testing.T) 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, _, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethereum.NotFound) {
+	if _, _, err := client.TransactionReceipt(ctx, ethapi.Hash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
 }
@@ -451,11 +515,11 @@ func TestTypedTransactionByHashReportsPendingFlag(t *testing.T) {
 
 	// Mined: the fleet holds the same transaction with its block context.
 	minedRaw := signedTxFixture(t, true)
-	var want types.Transaction
-	if err := json.Unmarshal(minedRaw, &want); err != nil {
-		t.Fatal(err)
+	want, wantErr := ethapi.NewTransaction(minedRaw)
+	if wantErr != nil {
+		t.Fatal(wantErr)
 	}
-	txHash := want.Hash()
+	txHash := ethapi.Hash(txHashOf(&want))
 	for _, node := range nodes {
 		node.Return(methods.MethodGetTransactionByHash, minedRaw)
 	}
@@ -463,7 +527,14 @@ func TestTypedTransactionByHashReportsPendingFlag(t *testing.T) {
 	if err != nil || pending {
 		t.Fatalf("expected mined transaction without pending flag, got %+v pending=%v err=%v", tx, pending, err)
 	}
-	if tx.Nonce() != 7 {
+	if tx.SignedLegacyTransaction == nil {
+		t.Fatalf("unexpected transaction: %+v", tx)
+	}
+	nonce, nonceErr := rpc.ParseHexQuantity(string(tx.SignedLegacyTransaction.Nonce))
+	if nonceErr != nil {
+		t.Fatal(nonceErr)
+	}
+	if nonce != 7 {
 		t.Fatalf("unexpected transaction: %+v", tx)
 	}
 
@@ -487,7 +558,7 @@ func TestTypedTransactionByHashRejectsAnotherTransaction(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
+	requested := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	if _, _, _, err := client.TransactionByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested transaction, got %v", err)
 	}
@@ -523,15 +594,15 @@ func TestTypedAnchoredStateReads(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	nonce, _, err := client.NonceAt(ctx, common.HexToAddress("0xdad"), nil)
+	nonce, _, err := client.NonceAt(ctx, ethapi.Address("0x0000000000000000000000000000000000000dad"), nil)
 	if err != nil || nonce != 7 {
 		t.Fatalf("expected pinned nonce 7, got %d %v", nonce, err)
 	}
-	storage, _, err := client.StorageAt(ctx, common.HexToAddress("0xdad"), common.HexToHash("0x0"), nil)
-	if err != nil || string(storage) != string(common.Hex2Bytes(strings.Repeat("ab", 32))) {
+	storage, _, err := client.StorageAt(ctx, ethapi.Address("0x0000000000000000000000000000000000000dad"), ethapi.Hash("0x"+strings.Repeat("0", 64)), nil)
+	if err != nil || !bytes.Equal(storage, bytes.Repeat([]byte{0xab}, 32)) {
 		t.Fatalf("expected pinned storage word, got %x %v", storage, err)
 	}
-	code, _, err := client.CodeAt(ctx, common.HexToAddress("0xdad"), nil)
+	code, _, err := client.CodeAt(ctx, ethapi.Address("0x0000000000000000000000000000000000000dad"), nil)
 	if err != nil || len(code) != 0 {
 		t.Fatalf("expected empty corroborated code for the EOA answer, got %x %v", code, err)
 	}
@@ -573,14 +644,22 @@ func TestTypedSuggestGasTipCapTakesMedian(t *testing.T) {
 func TestTypedBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	pin := "0x" + strings.Repeat("11", 32)
-	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	txHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	raw := fixtureReceipt(t, txHash, 16)
 	for _, node := range nodes {
 		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": pin})
 		node.Handle("eth_getBlockReceipts", func(c rpctest.Call) (any, error) {
 			var ref string
-			json.Unmarshal(c.Params[0], &ref)
-			if ref == pin || ref == "0x10" { // rewritten tag and explicit number both land here
+			if err := json.Unmarshal(c.Params[0], &ref); err != nil {
+				var object struct {
+					BlockHash string `json:"blockHash"`
+				}
+				if err := json.Unmarshal(c.Params[0], &object); err != nil || object.BlockHash == "" {
+					return nil, fmt.Errorf("unexpected receipts reference %s", c.Params[0])
+				}
+				ref = object.BlockHash
+			}
+			if ref == pin || ref == "0x10" { // hash object and explicit number both land here
 				return []json.RawMessage{json.RawMessage(raw)}, nil
 			}
 			return nil, fmt.Errorf("unexpected receipts reference %q", ref)
@@ -589,15 +668,15 @@ func TestTypedBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	byHash, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(common.HexToHash(pin), false))
-	if err != nil || len(byHash) != 1 || byHash[0].TxHash != txHash {
+	byHash, _, err := client.BlockReceipts(ctx, hashRef(ethapi.Hash(pin)))
+	if err != nil || len(byHash) != 1 || byHash[0].TransactionHash != txHash {
 		t.Fatalf("expected hash-addressed receipts, got %v", err)
 	}
-	byNumber, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	byNumber, _, err := client.BlockReceipts(ctx, numberRef(t, 16))
 	if err != nil || len(byNumber) != 1 {
 		t.Fatalf("expected explicit-number receipts to pass through, got %v", err)
 	}
-	byTag, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.LatestBlockNumber))
+	byTag, _, err := client.BlockReceipts(ctx, tagRef("latest"))
 	if err != nil || len(byTag) != 1 {
 		t.Fatalf("expected moving tag to be pinned before fan-out, got %v", err)
 	}
@@ -610,7 +689,7 @@ func TestTypedBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 // has no reference to bind against and would fail a successful read.
 func TestTypedBlockReceiptsBindsEarliestAsExplicitHeightZero(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	txHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	raw := fixtureReceipt(t, txHash, 0)
 	for _, node := range nodes {
 		node.Handle("eth_getBlockReceipts", func(c rpctest.Call) (any, error) {
@@ -625,18 +704,22 @@ func TestTypedBlockReceiptsBindsEarliestAsExplicitHeightZero(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	receipts, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.EarliestBlockNumber))
+	receipts, _, err := client.BlockReceipts(ctx, numberRef(t, 0))
 	if err != nil {
 		t.Fatalf("expected earliest to bind as explicit height zero, got %v", err)
 	}
-	if len(receipts) != 1 || receipts[0].TxHash != txHash || receipts[0].BlockNumber.Uint64() != 0 {
+	if len(receipts) != 1 || receipts[0].TransactionHash != txHash {
+		t.Fatalf("expected the height-zero receipt, got %+v", receipts)
+	}
+	heightZero, heightErr := rpc.ParseHexQuantity(string(receipts[0].BlockNumber))
+	if heightErr != nil || heightZero != 0 {
 		t.Fatalf("expected the height-zero receipt, got %+v", receipts)
 	}
 }
 
 func TestTypedBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	txHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	raw := fixtureReceipt(t, txHash, 16)
 	for _, node := range nodes {
 		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{raw})
@@ -644,8 +727,8 @@ func TestTypedBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	requested := common.HexToHash("0x" + strings.Repeat("22", 32))
-	_, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(requested, false))
+	requested := ethapi.Hash("0x" + strings.Repeat("22", 32))
+	_, _, err := client.BlockReceipts(ctx, hashRef(requested))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for receipts from another block, got %v", err)
 	}
@@ -657,7 +740,7 @@ func TestTypedBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 // agreement cannot substitute for the binding.
 func TestTypedBlockReceiptsNumberFormBindsRequestedHeight(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	txHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	foreign := fixtureReceipt(t, txHash, 17) // legitimate receipts, wrong block
 	for _, node := range nodes {
 		node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{foreign})
@@ -665,7 +748,7 @@ func TestTypedBlockReceiptsNumberFormBindsRequestedHeight(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	_, _, err := client.BlockReceipts(ctx, numberRef(t, 16))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for coherent receipts of another height, got %v", err)
 	}
@@ -674,7 +757,7 @@ func TestTypedBlockReceiptsNumberFormBindsRequestedHeight(t *testing.T) {
 func TestTypedBlockReceiptsNumberFormRejectsTruncatedHeight(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	var receipt map[string]json.RawMessage
-	if err := json.Unmarshal(fixtureReceipt(t, common.HexToHash("0x42"), 16), &receipt); err != nil {
+	if err := json.Unmarshal(fixtureReceipt(t, ethapi.Hash("0x"+strings.Repeat("0", 62)+"42"), 16), &receipt); err != nil {
 		t.Fatal(err)
 	}
 	receipt["blockNumber"] = json.RawMessage(`"0x10000000000000010"`)
@@ -683,14 +766,14 @@ func TestTypedBlockReceiptsNumberFormRejectsTruncatedHeight(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16)); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, err := client.BlockReceipts(ctx, numberRef(t, 16)); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected full-height mismatch to fail, got %v", err)
 	}
 }
 
 func TestTypedBlockReceiptsNumberFormBindsEveryReceipt(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	txHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	good := fixtureReceipt(t, txHash, 16)
 	foreign := fixtureReceipt(t, txHash, 17)
 	for _, node := range nodes {
@@ -699,7 +782,7 @@ func TestTypedBlockReceiptsNumberFormBindsEveryReceipt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	_, _, err := client.BlockReceipts(ctx, numberRef(t, 16))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected one mismatched element to fail the whole array, got %v", err)
 	}
@@ -707,7 +790,7 @@ func TestTypedBlockReceiptsNumberFormBindsEveryReceipt(t *testing.T) {
 
 func TestTypedBlockReceiptsNumberFormRejectsMissingHeight(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	txHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	var receipt map[string]json.RawMessage
 	if err := json.Unmarshal(fixtureReceipt(t, txHash, 16), &receipt); err != nil {
 		t.Fatal(err)
@@ -723,7 +806,7 @@ func TestTypedBlockReceiptsNumberFormRejectsMissingHeight(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, _, err = client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	_, _, err = client.BlockReceipts(ctx, numberRef(t, 16))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected receipts without a height to fail the number-form binding, got %v", err)
 	}
@@ -734,7 +817,7 @@ func TestTypedBlockReceiptsNumberFormRejectsMissingHeight(t *testing.T) {
 // differs from the corroborated pin fail without a second anchor call.
 func TestTypedBlockReceiptsTagFormBindsToThePinnedReference(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	txHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	// fixtureReceipt's BlockHash is the pin (0x11…), so reroute the pin:
 	// anchor reports 0x22…, receipts claim 0x11….
 	pin := "0x" + strings.Repeat("22", 32)
@@ -746,7 +829,7 @@ func TestTypedBlockReceiptsTagFormBindsToThePinnedReference(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.LatestBlockNumber))
+	_, _, err := client.BlockReceipts(ctx, tagRef("latest"))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected receipts from another block than the pin to fail, got %v", err)
 	}
@@ -772,7 +855,7 @@ func TestTypedBlockReceiptsNumberFormAcceptsEmptyBlock(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	receipts, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	receipts, _, err := client.BlockReceipts(ctx, numberRef(t, 16))
 	if err != nil || len(receipts) != 0 {
 		t.Fatalf("an empty block stays a legal answer, got %+v err=%v", receipts, err)
 	}
@@ -885,11 +968,19 @@ func TestTypedFilterLogsPinsTheFilterRange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	got, _, err := adapter.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: big.NewInt(0)})
+	query, queryErr := ethapi.NewFilterQuery(json.RawMessage(`{"fromBlock":"0x0"}`))
+	if queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	got, _, err := adapter.FilterLogs(ctx, query)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].BlockNumber != 16 {
+	if len(got) != 1 || got[0].BlockNumber == nil {
+		t.Fatalf("unexpected logs: %+v", got)
+	}
+	height, heightErr := rpc.ParseHexQuantity(string(*got[0].BlockNumber))
+	if heightErr != nil || height != 16 {
 		t.Fatalf("unexpected logs: %+v", got)
 	}
 }
@@ -907,7 +998,7 @@ func TestTypedBlockAtBindsAnswersToTheRequestedReference(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		requested := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+		requested := ethapi.Hash("0x1111111111111111111111111111111111111111111111111111111111111111")
 		_, _, err := adapter.BlockByHash(ctx, requested)
 		if !errors.Is(err, ethguard.ErrMalformedResponse) {
 			t.Fatalf("expected malformed-response binding failure, got %v", err)
@@ -933,7 +1024,7 @@ func TestReceiptNullLogReturnsMalformed(t *testing.T) {
 	for _, batch := range []bool{false, true} {
 		t.Run(fmt.Sprint(batch), func(t *testing.T) {
 			client, nodes := fleet(t, 2)
-			hash := common.HexToHash("0x42")
+			hash := ethapi.Hash("0x" + strings.Repeat("0", 62) + "42")
 			var receipt map[string]json.RawMessage
 			if err := json.Unmarshal(fixtureReceipt(t, hash, 16), &receipt); err != nil {
 				t.Fatal(err)
@@ -945,7 +1036,7 @@ func TestReceiptNullLogReturnsMalformed(t *testing.T) {
 			}
 			var err error
 			if batch {
-				_, _, err = client.BlockReceipts(context.Background(), gethrpc.BlockNumberOrHashWithNumber(16))
+				_, _, err = client.BlockReceipts(context.Background(), numberRef(t, 16))
 			} else {
 				_, _, err = client.TransactionReceipt(context.Background(), hash)
 			}
@@ -990,13 +1081,13 @@ func TestTypedRequiresCorroborationWithoutChangingMethodSignatures(t *testing.T)
 	}
 	nodes[0].Return(methods.MethodGetBalance, "0x1")
 	nodes[1].Fail(methods.MethodGetBalance, -32603, "unavailable")
-	if value, _, err := client.BalanceAt(context.Background(), common.Address{}, nil); !errors.Is(err, ethguard.ErrConflict) || value != nil {
+	if value, _, err := client.BalanceAt(context.Background(), ethapi.Address("0x0000000000000000000000000000000000000000"), nil); !errors.Is(err, ethguard.ErrConflict) || value != nil {
 		t.Fatalf("typed read hid unmet corroboration: %v %v", value, err)
 	}
 	// The advanced API reports the unmet majority as a conflict with the
 	// surviving cluster in evidence (decision 0029): a 1-of-2 answer is no
 	// longer surfaced as Selected under the default support floor.
-	d, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, common.Address{}, "0x10"))
+	d, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, ethapi.Address("0x0000000000000000000000000000000000000000"), "0x10"))
 	if !errors.Is(err, ethguard.ErrConflict) {
 		t.Fatalf("advanced call hid the unmet majority: %v", err)
 	}
@@ -1026,7 +1117,26 @@ func TestDecodeTypedTransactionAllowsZeroParity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := ethguard.DecodeTransaction(raw); err != nil {
+		// The geth payload projection spells absent members as null; the
+		// official information object requires the inclusion context and a
+		// sender, so complete the official shape before decoding.
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			t.Fatal(err)
+		}
+		if value, ok := obj["gasPrice"]; ok && string(value) == "null" {
+			obj["gasPrice"] = json.RawMessage(`"0x1"`)
+		}
+		obj["from"] = json.RawMessage(`"` + crypto.PubkeyToAddress(key.PublicKey).Hex() + `"`)
+		obj["blockHash"] = json.RawMessage(`"0x` + strings.Repeat("33", 32) + `"`)
+		obj["blockNumber"] = json.RawMessage(`"0x10"`)
+		obj["blockTimestamp"] = json.RawMessage(`"0x5"`)
+		obj["transactionIndex"] = json.RawMessage(`"0x0"`)
+		official, err := json.Marshal(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := ethguard.DecodeTransaction(official); err != nil {
 			t.Fatalf("valid parity-zero transaction rejected: %v", err)
 		}
 		return

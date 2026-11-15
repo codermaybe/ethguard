@@ -1,6 +1,7 @@
 package ethguard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -92,6 +95,9 @@ func (c *Client) SendRawTransaction(ctx context.Context, rawTx []byte) (CallResu
 // sendRawTransaction is the shared write implementation both public entries
 // run. It owns the local validation, the broadcast, and the adjudication.
 func (c *Client) sendRawTransaction(ctx context.Context, rawTx []byte) (CallResult, error) {
+	// All local checks, hashing and wire encoding consume owned bytes, including
+	// when the caller supplied raw bytes rather than a BinaryTransaction.
+	rawTx = bytes.Clone(rawTx)
 	if len(rawTx) == 0 {
 		return CallResult{}, fmt.Errorf("%w: empty raw transaction", rpc.ErrInvalidRequest)
 	}
@@ -101,6 +107,12 @@ func (c *Client) sendRawTransaction(ctx context.Context, rawTx []byte) (CallResu
 	tx := new(types.Transaction)
 	if err := tx.UnmarshalBinary(rawTx); err != nil {
 		return CallResult{}, fmt.Errorf("%w: decode signed transaction: %v", rpc.ErrInvalidRequest, err)
+	}
+	// Binary decoding checks representation, not signature validity. Recover
+	// with the transaction's own chain ID before contacting any pool member;
+	// this does not enforce provider chain ID or transaction executability.
+	if err := validateWriteSignature(tx); err != nil {
+		return CallResult{}, fmt.Errorf("%w: invalid transaction signature: %v", rpc.ErrInvalidRequest, err)
 	}
 	hash := strings.ToLower(tx.Hash().Hex())
 
@@ -192,16 +204,46 @@ func hasBroadcastAnswer(emissions []pool.Emission) bool {
 // write fan-out. It reads the same configuration the read aggregator uses.
 func (c *Client) collectTimeoutValue() time.Duration { return c.collectTimeout }
 
+// validateWriteSignature checks recoverability without introducing a configured
+// chain or execution policy. The pinned geth modern-signer constructor requires
+// a positive chain ID, so typed chain ID zero uses the same signature hash and
+// crypto primitives directly rather than adding a new chain-ID restriction.
+func validateWriteSignature(tx *types.Transaction) error {
+	chainID := tx.ChainId()
+	if tx.Type() == types.LegacyTxType {
+		_, err := types.Sender(types.NewEIP155Signer(chainID), tx)
+		return err
+	}
+	if chainID.Sign() > 0 {
+		_, err := types.Sender(types.LatestSignerForChainID(chainID), tx)
+		return err
+	}
+	v, r, s := tx.RawSignatureValues()
+	if v.BitLen() > 1 || !crypto.ValidateSignatureValues(byte(v.Uint64()), r, s, true) {
+		return types.ErrInvalidSig
+	}
+	signature := make([]byte, crypto.SignatureLength)
+	r.FillBytes(signature[:32])
+	s.FillBytes(signature[32:64])
+	signature[64] = byte(v.Uint64())
+	// EIP155Signer's Hash delegates to the transaction's native signing hash;
+	// it does not restrict the payload to legacy transactions.
+	signingHash := types.NewEIP155Signer(chainID).Hash(tx)
+	_, err := crypto.SigToPub(signingHash[:], signature)
+	return err
+}
+
 // SendTransaction mirrors go-ethereum's ethclient.SendTransaction: encode the
-// signed transaction and broadcast its raw bytes.
-func (c *Client) SendTransaction(ctx context.Context, tx *types.Transaction) (CallResult, error) {
+// signed transaction once through the BinaryTransaction contract (any value
+// with MarshalBinary — *types.Transaction still qualifies), snapshot the
+// bytes, and broadcast them. Encoding or local payload failures are local
+// ErrInvalidRequest rejections; acceptance stays a propagation outcome, not a
+// mining or executability claim.
+func (c *Client) SendTransaction(ctx context.Context, tx BinaryTransaction) (CallResult, error) {
 	return writeOperation(c, ctx, false, func(opCtx context.Context) (CallResult, error) {
-		if tx == nil {
-			return CallResult{}, fmt.Errorf("%w: nil transaction", rpc.ErrInvalidRequest)
-		}
-		raw, err := tx.MarshalBinary()
+		raw, err := snapshotBinaryTransaction(tx)
 		if err != nil {
-			return CallResult{}, fmt.Errorf("%w: encode transaction: %v", rpc.ErrInvalidRequest, err)
+			return CallResult{}, err
 		}
 		return c.sendRawTransaction(opCtx, raw)
 	})
@@ -212,7 +254,7 @@ func (c *Client) SendTransaction(ctx context.Context, tx *types.Transaction) (Ca
 // or the caller's optional timeout/context ends. The write decision remains
 // attached to the returned CallResult; receipt absence is an expected polling
 // state and is never treated as a successful receipt.
-func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, CallResult, error) {
+func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, timeout *time.Duration) (*ethapi.Receipt, CallResult, error) {
 	if timeout != nil && *timeout < 0 {
 		return nil, CallResult{}, fmt.Errorf("%w: negative receipt timeout", rpc.ErrInvalidRequest)
 	}
@@ -233,7 +275,7 @@ func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, t
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		receipt, _, receiptErr := c.transactionReceiptExec(waitCtx, hash)
+		receipt, _, receiptErr := c.transactionReceiptExec(waitCtx, ethapi.Hash(hash.Hex()))
 		if receiptErr == nil {
 			return receipt, writeResult, nil
 		}
@@ -249,15 +291,14 @@ func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, t
 }
 
 // SendTransactionSync broadcasts a signed transaction and waits for its
-// receipt, preserving the normal write decision and lifecycle semantics.
-func (c *Client) SendTransactionSync(ctx context.Context, tx *types.Transaction, timeout *time.Duration) (*types.Receipt, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
-		if tx == nil {
-			return nil, CallResult{}, fmt.Errorf("%w: nil transaction", rpc.ErrInvalidRequest)
-		}
-		raw, err := tx.MarshalBinary()
+// receipt, preserving the normal write decision and lifecycle semantics. The
+// input is the BinaryTransaction contract: the transaction is encoded once,
+// snapshotted, and every later validation consumes the same bytes.
+func (c *Client) SendTransactionSync(ctx context.Context, tx BinaryTransaction, timeout *time.Duration) (*ethapi.Receipt, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Receipt, CallResult, error) {
+		raw, err := snapshotBinaryTransaction(tx)
 		if err != nil {
-			return nil, CallResult{}, fmt.Errorf("%w: encode transaction: %v", rpc.ErrInvalidRequest, err)
+			return nil, CallResult{}, err
 		}
 		return c.sendRawTransactionSyncExec(opCtx, raw, timeout)
 	})
@@ -265,8 +306,8 @@ func (c *Client) SendTransactionSync(ctx context.Context, tx *types.Transaction,
 
 // SendRawTransactionSync broadcasts raw signed bytes and waits for the
 // corresponding receipt.
-func (c *Client) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
+func (c *Client) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*ethapi.Receipt, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Receipt, CallResult, error) {
 		return c.sendRawTransactionSyncExec(opCtx, rawTx, timeout)
 	})
 }

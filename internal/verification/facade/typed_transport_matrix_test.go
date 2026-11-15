@@ -12,6 +12,7 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc"
@@ -19,8 +20,6 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
 // TestTypedTransportMatrix exercises the same typed reads through native HTTP
@@ -29,7 +28,7 @@ import (
 // adding a second server or a subscription fixture.
 func TestTypedTransportMatrix(t *testing.T) {
 	rawBlock := fixtureBlock(t, 17)
-	receiptHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	receiptHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	rawReceipt := fixtureReceipt(t, receiptHash, 17)
 	peers := []*sourceWirePeer{
 		newSourceWirePeer(t, false, func(req sourceWireRequest) string {
@@ -73,15 +72,19 @@ func TestTypedTransportMatrix(t *testing.T) {
 		t.Fatalf("ChainID = %v, err=%v", id, err)
 	}
 	header, _, err := client.HeaderByNumber(ctx, big.NewInt(17))
-	if err != nil || header == nil || header.Number.Uint64() != 17 {
+	if err != nil || header == nil {
+		t.Fatalf("HeaderByNumber = %v, err=%v", header, err)
+	}
+	headerHeight, headerHeightErr := rpc.ParseHexQuantity(string(header.Number))
+	if headerHeightErr != nil || headerHeight != 17 {
 		t.Fatalf("HeaderByNumber = %v, err=%v", header, err)
 	}
 	receipt, _, err := client.TransactionReceipt(ctx, receiptHash)
-	if err != nil || receipt == nil || receipt.TxHash != receiptHash {
+	if err != nil || receipt == nil || receipt.TransactionHash != receiptHash {
 		t.Fatalf("TransactionReceipt = %v, err=%v", receipt, err)
 	}
-	receipts, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(receipt.BlockHash, false))
-	if err != nil || len(receipts) != 1 || receipts[0].TxHash != receiptHash {
+	receipts, _, err := client.BlockReceipts(ctx, hashRef(receipt.BlockHash))
+	if err != nil || len(receipts) != 1 || receipts[0].TransactionHash != receiptHash {
 		t.Fatalf("BlockReceipts = %v, err=%v", receipts, err)
 	}
 	if peers[0].httpConnections.Load() == 0 || peers[1].connections.Load() == 0 {
@@ -111,7 +114,7 @@ func TestTypedTransactionByHashTransportFixture(t *testing.T) {
 	if err := json.Unmarshal(rawTx, &wireTx); err != nil {
 		t.Fatal(err)
 	}
-	txHash := common.HexToHash(wireTx.Hash)
+	txHash := ethapi.Hash(wireTx.Hash)
 	var requests [2]atomic.Value
 	answer := func(slot *atomic.Value) func(sourceWireRequest) string {
 		return func(req sourceWireRequest) string {
@@ -137,7 +140,7 @@ func TestTypedTransactionByHashTransportFixture(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	got, pending, result, err := client.TransactionByHash(ctx, txHash)
-	if err != nil || pending || got == nil || got.Hash() != txHash {
+	if err != nil || pending || got == nil || txHashOf(got) != string(txHash) {
 		t.Fatalf("TransactionByHash = tx:%v pending:%v result:%+v err:%v", got, pending, result, err)
 	}
 	if result.Decision == nil || result.Decision.Status != rpc.Corroborated {
@@ -149,8 +152,8 @@ func TestTypedTransactionByHashTransportFixture(t *testing.T) {
 			t.Fatalf("transport %d did not receive eth_getTransactionByHash", i)
 		}
 		req := loaded.(sourceWireRequest)
-		if len(req.Params) != 1 || wireString(t, req.Params[0]) != txHash.Hex() {
-			t.Fatalf("transport %d request = %+v, want one hash parameter %q", i, req, txHash.Hex())
+		if len(req.Params) != 1 || wireString(t, req.Params[0]) != string(txHash) {
+			t.Fatalf("transport %d request = %+v, want one hash parameter %q", i, req, string(txHash))
 		}
 	}
 }
@@ -183,7 +186,7 @@ func TestTypedTransactionByHashTransportNullParity(t *testing.T) {
 	t.Cleanup(client.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _, result, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	_, _, result, err := client.TransactionByHash(ctx, ethapi.Hash("0x"+strings.Repeat("42", 32)))
 	if !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("TransactionByHash null err = %v, want ethereum.NotFound", err)
 	}
@@ -198,11 +201,11 @@ func TestTypedTransactionByHashTransportNullParity(t *testing.T) {
 // request encoding, inclusion binding, and sender projection at the transport
 // boundary.
 func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
-	blockHash := common.HexToHash("0x" + strings.Repeat("33", 32))
+	blockHash := ethapi.Hash("0x" + strings.Repeat("33", 32))
 	rawTx := transactionInBlockFixture(t, blockHash, 0)
-	var tx types.Transaction
-	if err := json.Unmarshal(rawTx, &tx); err != nil {
-		t.Fatal(err)
+	tx, txErr := ethapi.NewTransaction(rawTx)
+	if txErr != nil {
+		t.Fatal(txErr)
 	}
 	type evidence struct {
 		count   atomic.Value
@@ -245,11 +248,11 @@ func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
 		t.Fatalf("TransactionCount = %d result=%+v err=%v", count, countResult, err)
 	}
 	got, inBlockResult, err := client.TransactionInBlock(ctx, blockHash, 0)
-	if err != nil || got == nil || got.Hash() != tx.Hash() || inBlockResult.Decision == nil || inBlockResult.Decision.Status != rpc.Corroborated {
+	if err != nil || got == nil || txHashOf(got) != txHashOf(&tx) || inBlockResult.Decision == nil || inBlockResult.Decision.Status != rpc.Corroborated {
 		t.Fatalf("TransactionInBlock = %v result=%+v err=%v", got, inBlockResult, err)
 	}
 	sender, senderResult, err := client.TransactionSender(ctx, &tx, blockHash, 0)
-	if err != nil || sender == (common.Address{}) || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
+	if err != nil || sender == "" || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
 		t.Fatalf("TransactionSender = %s result=%+v err=%v", sender, senderResult, err)
 	}
 
@@ -259,7 +262,7 @@ func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
 			t.Fatalf("source %d did not receive transaction count", i)
 		}
 		countReq := loaded.(sourceWireRequest)
-		if len(countReq.Params) != 1 || wireString(t, countReq.Params[0]) != blockHash.Hex() {
+		if len(countReq.Params) != 1 || wireString(t, countReq.Params[0]) != string(blockHash) {
 			t.Fatalf("source %d transaction count params=%s", i, countReq.Params)
 		}
 		for name, slot := range map[string]*atomic.Value{
@@ -271,7 +274,7 @@ func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
 				t.Fatalf("source %d did not receive %s request", i, name)
 			}
 			req := loaded.(sourceWireRequest)
-			if len(req.Params) != 2 || wireString(t, req.Params[0]) != blockHash.Hex() || wireString(t, req.Params[1]) != "0x0" {
+			if len(req.Params) != 2 || wireString(t, req.Params[0]) != string(blockHash) || wireString(t, req.Params[1]) != "0x0" {
 				t.Fatalf("source %d %s params=%s", i, name, req.Params)
 			}
 		}
@@ -283,11 +286,11 @@ func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
 // family. A corroborated null is a typed NotFound result, not a malformed
 // response or an empty transaction value.
 func TestTypedTransactionCompatibilityNullParity(t *testing.T) {
-	blockHash := common.HexToHash("0x" + strings.Repeat("44", 32))
+	blockHash := ethapi.Hash("0x" + strings.Repeat("44", 32))
 	rawTx := transactionInBlockFixture(t, blockHash, 0)
-	var tx types.Transaction
-	if err := json.Unmarshal(rawTx, &tx); err != nil {
-		t.Fatal(err)
+	tx, txErr := ethapi.NewTransaction(rawTx)
+	if txErr != nil {
+		t.Fatal(txErr)
 	}
 	answer := func(req sourceWireRequest) string {
 		switch req.Method {
@@ -322,7 +325,7 @@ func TestTypedTransactionCompatibilityNullParity(t *testing.T) {
 		t.Fatalf("TransactionInBlock null = %v result=%+v err=%v", inBlock, inBlockResult, inBlockErr)
 	}
 	sender, senderResult, senderErr := client.TransactionSender(ctx, &tx, blockHash, 0)
-	if sender != (common.Address{}) || !errors.Is(senderErr, ethereum.NotFound) || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
+	if sender != "" || !errors.Is(senderErr, ethereum.NotFound) || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
 		t.Fatalf("TransactionSender null = %s result=%+v err=%v", sender, senderResult, senderErr)
 	}
 }

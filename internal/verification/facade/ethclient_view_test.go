@@ -15,31 +15,66 @@ import (
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 	"github.com/ethereum/go-ethereum"
-	bind "github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
-	"github.com/ethereum/go-ethereum/common"
 	gethethclient "github.com/ethereum/go-ethereum/ethclient"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
-// The interface commitments of the ethclient-shaped view after the generated
-// model migration: bind/v2's DeployBackend (unchanged signatures) and the
-// call-family surface over the project's generated ethapi.CallMsg. The
-// migration intentionally does NOT satisfy bind/v2's ContractCaller, whose
-// CallContract takes ethereum.CallMsg; if a bind/v2 caller needs that
-// commitment, it is a separate adapter design item, not a silent signature
-// drift. The assertions below pin both facts so a further migration cannot
+// The interface commitments of the ethclient-shaped view after the complete
+// generated-model migration: every scalar entry takes the generated
+// ethapi.Address/ethapi.Hash, the object entries return the generated
+// models, and the call-family surface stays over the project's generated
+// ethapi.CallMsg. The migration intentionally does NOT satisfy bind/v2's
+// DeployBackend or ContractCaller: DeployBackend wants
+// CodeAt(common.Address)/TransactionReceipt(common.Hash) and ContractCaller
+// wants CallContract(ethereum.CallMsg); dropping those commitments was the
+// announced compat cost of adopting the generated scalar types, and a
+// bind/v2 caller needs an explicit adapter design item, not a silent
+// signature drift. The
+// assertions below pin the full migrated surface so a further change cannot
 // slip through unnoticed.
 var (
-	_ bind.DeployBackend = (*ethguard.EthClient)(nil)
 	_ interface {
+		// scalar reads: generated Address/Hash in, unchanged scalar out
+		BalanceAt(context.Context, ethapi.Address, *big.Int) (*big.Int, error)
+		BalanceAtHash(context.Context, ethapi.Address, ethapi.Hash) (*big.Int, error)
+		NonceAt(context.Context, ethapi.Address, *big.Int) (uint64, error)
+		NonceAtHash(context.Context, ethapi.Address, ethapi.Hash) (uint64, error)
+		StorageAt(context.Context, ethapi.Address, ethapi.Hash, *big.Int) ([]byte, error)
+		StorageAtHash(context.Context, ethapi.Address, ethapi.Hash, ethapi.Hash) ([]byte, error)
+		CodeAt(context.Context, ethapi.Address, *big.Int) ([]byte, error)
+		CodeAtHash(context.Context, ethapi.Address, ethapi.Hash) ([]byte, error)
+		PendingBalanceAt(context.Context, ethapi.Address) (*big.Int, error)
+		PendingStorageAt(context.Context, ethapi.Address, ethapi.Hash) ([]byte, error)
+		PendingCodeAt(context.Context, ethapi.Address) ([]byte, error)
+		PendingNonceAt(context.Context, ethapi.Address) (uint64, error)
+		TransactionCount(context.Context, ethapi.Hash) (uint, error)
+		// objects: generated models out
+		BlockByHash(context.Context, ethapi.Hash) (*ethapi.Block, error)
+		BlockByNumber(context.Context, *big.Int) (*ethapi.Block, error)
+		HeaderByHash(context.Context, ethapi.Hash) (*ethapi.Header, error)
+		HeaderByNumber(context.Context, *big.Int) (*ethapi.Header, error)
+		BlockReceipts(context.Context, ethapi.BlockReference) ([]ethapi.Receipt, error)
+		TransactionReceipt(context.Context, ethapi.Hash) (*ethapi.Receipt, error)
+		TransactionByHash(context.Context, ethapi.Hash) (*ethapi.Transaction, bool, error)
+		TransactionInBlock(context.Context, ethapi.Hash, uint) (*ethapi.Transaction, error)
+		TransactionSender(context.Context, *ethapi.Transaction, ethapi.Hash, uint) (ethapi.Address, error)
+		// call family and variable results
 		CallContract(context.Context, ethapi.CallMsg, *big.Int) ([]byte, error)
-		CallContractAtHash(context.Context, ethapi.CallMsg, common.Hash) ([]byte, error)
+		CallContractAtHash(context.Context, ethapi.CallMsg, ethapi.Hash) ([]byte, error)
 		PendingCallContract(context.Context, ethapi.CallMsg) ([]byte, error)
 		EstimateGas(context.Context, ethapi.CallMsg) (uint64, error)
 		EstimateGasAtBlock(context.Context, ethapi.CallMsg, *big.Int) (uint64, error)
-		EstimateGasAtBlockHash(context.Context, ethapi.CallMsg, common.Hash) (uint64, error)
+		EstimateGasAtBlockHash(context.Context, ethapi.CallMsg, ethapi.Hash) (uint64, error)
 		SyncProgress(context.Context) (*ethapi.SyncProgress, error)
 		FeeHistory(context.Context, uint64, *big.Int, []float64) (*ethapi.FeeHistoryResult, error)
+		FilterLogs(context.Context, ethapi.FilterQuery) ([]ethapi.Log, error)
+		// subscriptions: generated event payloads
+		SubscribeNewHead(context.Context, chan<- *ethapi.Header) (ethereum.Subscription, error)
+		SubscribeFilterLogs(context.Context, ethapi.FilterQuery, chan<- ethapi.Log) (ethereum.Subscription, error)
+		SubscribeTransactionReceipts(context.Context, *ethapi.TransactionReceiptsQuery, chan<- []ethapi.Receipt) (ethereum.Subscription, error)
+		// writes: BinaryTransaction in, generated Receipt out
+		SendTransaction(context.Context, ethguard.BinaryTransaction) error
+		SendTransactionSync(context.Context, ethguard.BinaryTransaction, *time.Duration) (*ethapi.Receipt, error)
+		SendRawTransactionSync(context.Context, []byte, *time.Duration) (*ethapi.Receipt, error)
 	} = (*ethguard.EthClient)(nil)
 )
 
@@ -108,7 +143,7 @@ func TestViewMatchesNativeOnOneFixture(t *testing.T) {
 	for i, node := range nodes {
 		before[i] = len(node.Calls())
 	}
-	if _, err := view.BalanceAt(ctx, common.HexToAddress("0xdad"), nil); err != nil {
+	if _, err := view.BalanceAt(ctx, ethapi.Address("0x0000000000000000000000000000000000000dad"), nil); err != nil {
 		t.Fatal(err)
 	}
 	after := make([]int, len(nodes))
@@ -180,7 +215,7 @@ func TestViewReceiptAbsenceMatchesNative(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	hash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	hash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 
 	rootReceipt, _, rootReceiptErr := client.TransactionReceipt(ctx, hash)
 	viewReceipt, viewReceiptErr := client.EthClient().TransactionReceipt(ctx, hash)
@@ -188,8 +223,9 @@ func TestViewReceiptAbsenceMatchesNative(t *testing.T) {
 		t.Fatalf("receipt root/view = %v/%v, errors = %v/%v", rootReceipt, viewReceipt, rootReceiptErr, viewReceiptErr)
 	}
 
-	rootReceipts, _, rootBlockErr := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(hash, false))
-	viewReceipts, viewBlockErr := client.EthClient().BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(hash, false))
+	blockRef := ethapi.BlockReference{Eip1898BlockHashObject: &ethapi.BlockHashReference{BlockHash: hash}}
+	rootReceipts, _, rootBlockErr := client.BlockReceipts(ctx, blockRef)
+	viewReceipts, viewBlockErr := client.EthClient().BlockReceipts(ctx, blockRef)
 	if rootReceipts != nil || viewReceipts != nil || !errors.Is(rootBlockErr, ethereum.NotFound) || !errors.Is(viewBlockErr, ethereum.NotFound) {
 		t.Fatalf("block receipts root/view = %v/%v, errors = %v/%v", rootReceipts, viewReceipts, rootBlockErr, viewBlockErr)
 	}
@@ -240,15 +276,49 @@ func TestEthClientBusinessSignatures(t *testing.T) {
 		return true
 	}
 	migrated := map[string]reflect.Type{
+		// scalars
+		"BalanceAt":        reflect.TypeOf((func(context.Context, ethapi.Address, *big.Int) (*big.Int, error))(nil)),
+		"BalanceAtHash":    reflect.TypeOf((func(context.Context, ethapi.Address, ethapi.Hash) (*big.Int, error))(nil)),
+		"NonceAt":          reflect.TypeOf((func(context.Context, ethapi.Address, *big.Int) (uint64, error))(nil)),
+		"NonceAtHash":      reflect.TypeOf((func(context.Context, ethapi.Address, ethapi.Hash) (uint64, error))(nil)),
+		"StorageAt":        reflect.TypeOf((func(context.Context, ethapi.Address, ethapi.Hash, *big.Int) ([]byte, error))(nil)),
+		"StorageAtHash":    reflect.TypeOf((func(context.Context, ethapi.Address, ethapi.Hash, ethapi.Hash) ([]byte, error))(nil)),
+		"CodeAt":           reflect.TypeOf((func(context.Context, ethapi.Address, *big.Int) ([]byte, error))(nil)),
+		"CodeAtHash":       reflect.TypeOf((func(context.Context, ethapi.Address, ethapi.Hash) ([]byte, error))(nil)),
+		"PendingBalanceAt": reflect.TypeOf((func(context.Context, ethapi.Address) (*big.Int, error))(nil)),
+		"PendingStorageAt": reflect.TypeOf((func(context.Context, ethapi.Address, ethapi.Hash) ([]byte, error))(nil)),
+		"PendingCodeAt":    reflect.TypeOf((func(context.Context, ethapi.Address) ([]byte, error))(nil)),
+		"PendingNonceAt":   reflect.TypeOf((func(context.Context, ethapi.Address) (uint64, error))(nil)),
+		"TransactionCount": reflect.TypeOf((func(context.Context, ethapi.Hash) (uint, error))(nil)),
+		// objects
+		"BlockByHash":        reflect.TypeOf((func(context.Context, ethapi.Hash) (*ethapi.Block, error))(nil)),
+		"BlockByNumber":      reflect.TypeOf((func(context.Context, *big.Int) (*ethapi.Block, error))(nil)),
+		"HeaderByHash":       reflect.TypeOf((func(context.Context, ethapi.Hash) (*ethapi.Header, error))(nil)),
+		"HeaderByNumber":     reflect.TypeOf((func(context.Context, *big.Int) (*ethapi.Header, error))(nil)),
+		"BlockReceipts":      reflect.TypeOf((func(context.Context, ethapi.BlockReference) ([]ethapi.Receipt, error))(nil)),
+		"TransactionReceipt": reflect.TypeOf((func(context.Context, ethapi.Hash) (*ethapi.Receipt, error))(nil)),
+		"TransactionByHash":  reflect.TypeOf((func(context.Context, ethapi.Hash) (*ethapi.Transaction, bool, error))(nil)),
+		"TransactionInBlock": reflect.TypeOf((func(context.Context, ethapi.Hash, uint) (*ethapi.Transaction, error))(nil)),
+		"TransactionSender":  reflect.TypeOf((func(context.Context, *ethapi.Transaction, ethapi.Hash, uint) (ethapi.Address, error))(nil)),
+		// call family and variable results
 		"SimulateV1":             reflect.TypeOf((func(context.Context, ethapi.SimulateV1Request, *ethapi.SimulateBlockReference) ([]ethapi.SimulateBlock, error))(nil)),
 		"CallContract":           reflect.TypeOf((func(context.Context, ethapi.CallMsg, *big.Int) ([]byte, error))(nil)),
-		"CallContractAtHash":     reflect.TypeOf((func(context.Context, ethapi.CallMsg, common.Hash) ([]byte, error))(nil)),
+		"CallContractAtHash":     reflect.TypeOf((func(context.Context, ethapi.CallMsg, ethapi.Hash) ([]byte, error))(nil)),
 		"PendingCallContract":    reflect.TypeOf((func(context.Context, ethapi.CallMsg) ([]byte, error))(nil)),
 		"EstimateGas":            reflect.TypeOf((func(context.Context, ethapi.CallMsg) (uint64, error))(nil)),
 		"EstimateGasAtBlock":     reflect.TypeOf((func(context.Context, ethapi.CallMsg, *big.Int) (uint64, error))(nil)),
-		"EstimateGasAtBlockHash": reflect.TypeOf((func(context.Context, ethapi.CallMsg, common.Hash) (uint64, error))(nil)),
+		"EstimateGasAtBlockHash": reflect.TypeOf((func(context.Context, ethapi.CallMsg, ethapi.Hash) (uint64, error))(nil)),
 		"SyncProgress":           reflect.TypeOf((func(context.Context) (*ethapi.SyncProgress, error))(nil)),
 		"FeeHistory":             reflect.TypeOf((func(context.Context, uint64, *big.Int, []float64) (*ethapi.FeeHistoryResult, error))(nil)),
+		"FilterLogs":             reflect.TypeOf((func(context.Context, ethapi.FilterQuery) ([]ethapi.Log, error))(nil)),
+		// subscriptions
+		"SubscribeNewHead":             reflect.TypeOf((func(context.Context, chan<- *ethapi.Header) (ethereum.Subscription, error))(nil)),
+		"SubscribeFilterLogs":          reflect.TypeOf((func(context.Context, ethapi.FilterQuery, chan<- ethapi.Log) (ethereum.Subscription, error))(nil)),
+		"SubscribeTransactionReceipts": reflect.TypeOf((func(context.Context, *ethapi.TransactionReceiptsQuery, chan<- []ethapi.Receipt) (ethereum.Subscription, error))(nil)),
+		// writes
+		"SendTransaction":        reflect.TypeOf((func(context.Context, ethguard.BinaryTransaction) error)(nil)),
+		"SendTransactionSync":    reflect.TypeOf((func(context.Context, ethguard.BinaryTransaction, *time.Duration) (*ethapi.Receipt, error))(nil)),
+		"SendRawTransactionSync": reflect.TypeOf((func(context.Context, []byte, *time.Duration) (*ethapi.Receipt, error))(nil)),
 	}
 	for name, viewMethod := range viewMethods {
 		upstreamMethod, ok := upstreamMethods[name]

@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc"
@@ -52,8 +53,9 @@ func anchorCalls(calls []rpctest.Call) []rpctest.Call {
 	return businessCalls(calls, methods.MethodGetBlockByNumber)
 }
 
-func callMsgTo(addr common.Address) ethereum.CallMsg {
-	return ethereum.CallMsg{To: &addr}
+func callMsgTo(addr ethapi.Address) ethereum.CallMsg {
+	to := common.HexToAddress(string(addr))
+	return ethereum.CallMsg{To: &to}
 }
 
 // wireString decodes one JSON string param.
@@ -90,7 +92,7 @@ func TestStateRefMovingTagsRewriteToAnchorHash(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	addr := common.HexToAddress("0xdad")
+	addr := ethapi.Address("0x0000000000000000000000000000000000000dad")
 
 	if _, _, err := client.BalanceAt(ctx, addr, nil); err != nil {
 		t.Fatal(err)
@@ -98,7 +100,7 @@ func TestStateRefMovingTagsRewriteToAnchorHash(t *testing.T) {
 	if _, _, err := client.NonceAt(ctx, addr, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := client.StorageAt(ctx, addr, common.Hash{}, nil); err != nil {
+	if _, _, err := client.StorageAt(ctx, addr, ethapi.Hash("0x"+strings.Repeat("0", 64)), nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := client.CodeAt(ctx, addr, nil); err != nil {
@@ -159,7 +161,7 @@ func TestStateRefSafeFinalizedKeepTheirLevel(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	addr := common.HexToAddress("0xdad")
+	addr := ethapi.Address("0x0000000000000000000000000000000000000dad")
 
 	if _, _, err := client.BalanceAt(ctx, addr, big.NewInt(-4)); err != nil { // safe
 		t.Fatal(err)
@@ -216,7 +218,7 @@ func TestStateRefEIP1898ObjectPreservedOnWire(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	addr := common.HexToAddress("0xdad").Hex()
+	addr := "0x0000000000000000000000000000000000000dad"
 
 	for _, obj := range []map[string]any{
 		{"blockHash": wireHashExplicit},
@@ -273,7 +275,7 @@ func TestStateRefObjectTagRewritesToHashObject(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	addr := common.HexToAddress("0xdad").Hex()
+	addr := "0x0000000000000000000000000000000000000dad"
 
 	for _, obj := range []map[string]any{
 		{"blockNumber": "finalized"},
@@ -313,7 +315,7 @@ func TestStateRefPendingPassesThroughUnrewritten(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, _, err := client.BalanceAt(ctx, common.HexToAddress("0xdad"), big.NewInt(-1)); err != nil {
+	if _, _, err := client.BalanceAt(ctx, ethapi.Address("0x0000000000000000000000000000000000000dad"), big.NewInt(-1)); err != nil {
 		t.Fatal(err)
 	}
 	for _, node := range nodes {
@@ -387,7 +389,7 @@ func TestStateRefEarliestAndNumberPassThrough(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	addr := common.HexToAddress("0xdad")
+	addr := ethapi.Address("0x0000000000000000000000000000000000000dad")
 
 	if _, _, err := client.BalanceAt(ctx, addr, big.NewInt(-5)); err != nil { // earliest → 0x0
 		t.Fatal(err)
@@ -486,8 +488,9 @@ func TestTypedBlockByNumberNegativeTagsAnchorFirst(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BlockByNumber(%d): %v", num, err)
 		}
-		if block.NumberU64() != want {
-			t.Fatalf("BlockByNumber(%d) = height %d, want %d (level downgraded?)", num, block.NumberU64(), want)
+		height, heightErr := rpc.ParseHexQuantity(string(block.Number))
+		if heightErr != nil || height != want {
+			t.Fatalf("BlockByNumber(%d) = height %d (%v), want %d (level downgraded?)", num, height, heightErr, want)
 		}
 	}
 	seenTags := map[string]bool{}
@@ -578,7 +581,7 @@ func TestTypedDecodeFailureClearsSuccessStatus(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	msg := map[string]any{"to": common.HexToAddress("0xdad").Hex()}
+	msg := map[string]any{"to": "0x0000000000000000000000000000000000000dad"}
 
 	decision, err := callDecision(client.Call(ctx, methods.MethodCall, msg, "latest"))
 	if err != nil {

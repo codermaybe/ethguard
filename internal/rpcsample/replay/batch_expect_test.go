@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
@@ -24,6 +25,105 @@ import (
 func TestBlockReceiptTxBatchMatchesExpect(t *testing.T) {
 	if err := matchCapturedExpect(t, "block-receipt-tx"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// These four digest changes are audited against unchanged archived sources,
+// not copied from a newly recorded replay. Complete official values retain
+// source size and omit the old geth encoder's fabricated optional null. The
+// filled block additionally adopts the official generated withdrawal field
+// order; every original field and array element remains semantically equal.
+func TestCapturedBlockValueDigestMigrationPreservesSourceDeclarations(t *testing.T) {
+	type transition struct{ before, after, size string }
+	empty := transition{"0a65860908f65abc926bc32d4289c763d9fab9893a3cca979323254f7a9ea9ef", "5ec66c86bdefe6b32c0fd609e6f9ea5d1b9c276da3f2d872bae6865431192a59", "0x219"}
+	filled := transition{"2707926ac8920dcb7a80d4c26eb3acc0d90b819a90ff08817208ac36cf121f88", "8808768e9b156a65121d3a495076d212c88192650a46a21b0610346d84107f5b", "0x20311"}
+	transitions := map[string]transition{"block-empty-hash": empty, "block-empty-number": empty, "block-filled-hash": filled, "block-filled-number": filled}
+	_, records, err := replay.LoadBatch(batchDir("block-receipt-tx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := map[string]int{}
+	for _, record := range records {
+		want, ok := transitions[record.RequestID]
+		if !ok {
+			continue
+		}
+		t.Run(record.RequestID+"/"+record.Source.ID, func(t *testing.T) {
+			observation := observationFromRecord(t, record)
+			if observation.Err != nil {
+				t.Fatal(observation.Err)
+			}
+			plan, err := methods.PlanFor(record.Method)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decision, err := plan.Resolver.Resolve([]rpc.Observation{observation})
+			if err != nil || decision.Status != rpc.Selected || len(decision.Value) == 0 {
+				t.Fatalf("source cannot produce a valid value: %s, %v", decision.Status, err)
+			}
+			model, err := ethapi.NewBlock(decision.Value)
+			if err != nil {
+				t.Fatalf("value violates complete official Block: %v", err)
+			}
+			if string(model.Size) != want.size {
+				t.Fatalf("size=%s want %s", model.Size, want.size)
+			}
+			// This independent source oracle canonicalizes JSON without the generated
+			// model, object encoder, or comparison normalizer. No captured source
+			// member can disappear or change its value behind the new digest.
+			independent := canonicalJSON(t, observation.Value)
+			if string(decision.Value) != independent {
+				t.Fatalf("canonical value differs from complete original declarations")
+			}
+			if got := capturedValueSHA256(record.Method, decision.Value); got != want.after {
+				t.Fatalf("new digest=%s want=%s", got, want.after)
+			}
+			var historical map[string]json.RawMessage
+			if err := json.Unmarshal(observation.Value, &historical); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := historical["blockAccessListHash"]; exists {
+				t.Fatal("archived source now declares blockAccessListHash; review transition")
+			}
+			delete(historical, "size")
+			historical["blockAccessListHash"] = json.RawMessage(`null`)
+			if raw, exists := historical["withdrawals"]; exists {
+				var source []map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &source); err != nil {
+					t.Fatal(err)
+				}
+				// The retired geth withdrawal encoder used this fixed field order.
+				type oldWithdrawal struct {
+					Index          json.RawMessage `json:"index"`
+					ValidatorIndex json.RawMessage `json:"validatorIndex"`
+					Address        json.RawMessage `json:"address"`
+					Amount         json.RawMessage `json:"amount"`
+				}
+				old := make([]oldWithdrawal, len(source))
+				for i, entry := range source {
+					old[i] = oldWithdrawal{entry["index"], entry["validatorIndex"], entry["address"], entry["amount"]}
+				}
+				encoded, err := json.Marshal(old)
+				if err != nil {
+					t.Fatal(err)
+				}
+				historical["withdrawals"] = encoded
+			}
+			before, err := json.Marshal(historical)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := capturedValueSHA256(record.Method, before); got != want.before {
+				t.Fatalf("historical digest=%s want=%s; transition changed beyond reviewed size/null/order", got, want.before)
+			}
+			t.Logf("unchanged archived source: %s -> %s; size %s retained, synthetic optional null removed, withdrawal fields ordered", want.before, want.after, want.size)
+			checked[record.RequestID]++
+		})
+	}
+	for id := range transitions {
+		if checked[id] != 2 {
+			t.Fatalf("%s checked %d archived sources, want 2", id, checked[id])
+		}
 	}
 }
 

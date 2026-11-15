@@ -154,10 +154,10 @@ transaction hash + index 不足以区分 reorg 后的不同 block。内容指纹
 
 当前 `SubscribeTransactionReceipts` 通过官方形状的 channel 交付 receipt slice。
 `internal/subscription.CanonicalTransactionReceiptsKey` 用 block identity 作为
-逻辑 context；候选包含完整 typed receipts（含 logs/provider-specific fields），
+逻辑 context；候选包含共享对象校验后的完整官方规范receipts（含logs及from声明，provider扩展不进入该候选），
 按 transaction index/hash 规范顺序。同块内容不同应形成冲突，而不是两个
 互不比较的事件。此处记录当前实现边界，不把 newHeads 的高度 gap 规则扩展给
-receipt notification，也不声称所有 provider 支持该订阅。
+receipt notification，也不声称所有 provider 支持该订阅。单源、多源及同源Pull使用同一对象完整性与批内block上下文检查；允许被过滤子集和空数组，不证明整块收据完整。Pull筛选保留同源已校验的官方JSON，不以geth Receipt再编码替代RPC报文，避免丢from或制造root。查询条件先私有快照，wire使用生成的transactionHashes拼写，nil／空列表发送{}。
 
 ## 5. Quorum 与状态机
 

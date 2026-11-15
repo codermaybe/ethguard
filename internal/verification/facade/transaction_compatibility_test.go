@@ -13,6 +13,7 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
@@ -92,28 +93,38 @@ func transactionCompatibilityEdit(t *testing.T, raw json.RawMessage, edits map[s
 	return out
 }
 
-func transactionCompatibilityRead(ctx context.Context, client *ethguard.Client, method string, hash common.Hash) (*types.Transaction, bool, ethguard.CallResult, error) {
+func transactionCompatibilityRead(ctx context.Context, client *ethguard.Client, method string, hash ethapi.Hash) (*ethapi.Transaction, bool, ethguard.CallResult, error) {
 	if method == methods.MethodGetTransactionByHash {
 		return client.TransactionByHash(ctx, hash)
 	}
-	tx, result, err := client.TransactionInBlock(ctx, common.HexToHash(transactionCompatibilityBlock), 0)
+	tx, result, err := client.TransactionInBlock(ctx, ethapi.Hash(transactionCompatibilityBlock), 0)
 	return tx, false, result, err
 }
 
-func transactionCompatibilityView(ctx context.Context, client *ethguard.Client, method string, hash common.Hash) (*types.Transaction, bool, error) {
+func transactionCompatibilityView(ctx context.Context, client *ethguard.Client, method string, hash ethapi.Hash) (*ethapi.Transaction, bool, error) {
 	if method == methods.MethodGetTransactionByHash {
 		return client.EthClient().TransactionByHash(ctx, hash)
 	}
-	tx, err := client.EthClient().TransactionInBlock(ctx, common.HexToHash(transactionCompatibilityBlock), 0)
+	tx, err := client.EthClient().TransactionInBlock(ctx, ethapi.Hash(transactionCompatibilityBlock), 0)
 	return tx, false, err
 }
 
-func transactionCompatibilityTyped(t *testing.T, got, want *types.Transaction) {
+func transactionCompatibilityTyped(t *testing.T, got *ethapi.Transaction, want *types.Transaction) {
 	t.Helper()
 	if got == nil {
 		t.Fatal("missing typed transaction")
 	}
-	gotBytes, err := got.MarshalBinary()
+	// geth bridge: the generated object's official JSON decodes back into the
+	// geth projection, whose signed payload must equal the fixture's.
+	gotJSON, err := got.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bridged types.Transaction
+	if err := json.Unmarshal(gotJSON, &bridged); err != nil {
+		t.Fatalf("generated transaction does not bridge to geth: %v", err)
+	}
+	gotBytes, err := bridged.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +203,7 @@ func TestTransactionCompatibilityWholeKeysAndVendorTransport(t *testing.T) {
 				}
 				ctx, cancel := context.WithTimeout(base, 5*time.Second)
 				defer cancel()
-				got, pending, result, err := transactionCompatibilityRead(ctx, client, method, signed.Hash())
+				got, pending, result, err := transactionCompatibilityRead(ctx, client, method, ethapi.Hash(signed.Hash().Hex()))
 				if err != nil || pending || !result.IsCorroborated() {
 					t.Fatalf("Root: pending=%v result=%+v err=%v", pending, result, err)
 				}
@@ -223,7 +234,7 @@ func TestTransactionCompatibilityWholeKeysAndVendorTransport(t *testing.T) {
 					}
 					transactionCompatibilityValue(t, source.Value, want)
 				}
-				view, viewPending, err := transactionCompatibilityView(ctx, client, method, signed.Hash())
+				view, viewPending, err := transactionCompatibilityView(ctx, client, method, ethapi.Hash(signed.Hash().Hex()))
 				if err != nil || viewPending {
 					t.Fatalf("EthClient: pending=%v err=%v", viewPending, err)
 				}
@@ -257,7 +268,7 @@ func TestTransactionCompatibilityRejectsIdenticalInvalidSources(t *testing.T) {
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				got, _, result, err := transactionCompatibilityRead(ctx, client, method, signed.Hash())
+				got, _, result, err := transactionCompatibilityRead(ctx, client, method, ethapi.Hash(signed.Hash().Hex()))
 				if got != nil || !errors.Is(err, ethguard.ErrMalformedResponse) || result.Decision == nil {
 					t.Fatalf("identical invalid sources: tx=%v result=%+v err=%v input=%s", got, result, err, bad)
 				}
@@ -265,7 +276,7 @@ func TestTransactionCompatibilityRejectsIdenticalInvalidSources(t *testing.T) {
 				if d.Status != rpc.Unknown || len(d.Value) != 0 || len(d.Support) != 0 || len(d.Faults) != 2 {
 					t.Fatalf("invalid sources voted: %+v", d)
 				}
-				view, _, err := transactionCompatibilityView(ctx, client, method, signed.Hash())
+				view, _, err := transactionCompatibilityView(ctx, client, method, ethapi.Hash(signed.Hash().Hex()))
 				if view != nil || !errors.Is(err, ethguard.ErrMalformedResponse) {
 					t.Fatalf("EthClient accepted invalid sources: tx=%v err=%v", view, err)
 				}
@@ -288,13 +299,13 @@ func TestTransactionCompatibilityPendingExplicitNulls(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		got, pending, result, err := client.TransactionByHash(ctx, signed.Hash())
+		got, pending, result, err := client.TransactionByHash(ctx, ethapi.Hash(signed.Hash().Hex()))
 		if err != nil || !pending || !result.IsCorroborated() || len(result.Decision.Support) != 2 {
 			t.Fatalf("pending: tx=%v pending=%v result=%+v err=%v", got, pending, result, err)
 		}
 		transactionCompatibilityValue(t, result.Decision.Value, pendingRaw)
 		transactionCompatibilityTyped(t, got, signed)
-		view, viewPending, err := client.EthClient().TransactionByHash(ctx, signed.Hash())
+		view, viewPending, err := client.EthClient().TransactionByHash(ctx, ethapi.Hash(signed.Hash().Hex()))
 		if err != nil || !viewPending {
 			t.Fatalf("EthClient pending=%v err=%v", viewPending, err)
 		}
@@ -307,7 +318,7 @@ func TestTransactionCompatibilityPendingExplicitNulls(t *testing.T) {
 			for _, node := range nodes {
 				node.ReturnRaw(methods.MethodGetTransactionByHash, bad)
 			}
-			got, _, result, err := client.TransactionByHash(context.Background(), signed.Hash())
+			got, _, result, err := client.TransactionByHash(context.Background(), ethapi.Hash(signed.Hash().Hex()))
 			if key == "blockTimestamp" {
 				if err != nil || got == nil || !result.IsCorroborated() || len(result.Decision.Support) != 2 {
 					t.Fatalf("explicit pending state did not derive timestamp: tx=%v result=%+v err=%v", got, result, err)
@@ -326,11 +337,11 @@ func TestTransactionCompatibilityPendingExplicitNulls(t *testing.T) {
 		for _, node := range nodes {
 			node.ReturnRaw(methods.MethodGetTransactionByBlockHashAndIndex, pendingRaw)
 		}
-		got, _, result, err := transactionCompatibilityRead(context.Background(), client, methods.MethodGetTransactionByBlockHashAndIndex, signed.Hash())
+		got, _, result, err := transactionCompatibilityRead(context.Background(), client, methods.MethodGetTransactionByBlockHashAndIndex, ethapi.Hash(signed.Hash().Hex()))
 		if got != nil || !errors.Is(err, ethguard.ErrMalformedResponse) || result.Decision == nil || len(result.Decision.Faults) != 2 || len(result.Decision.Support) != 0 {
 			t.Fatalf("pending accepted at block/index: tx=%v result=%+v err=%v", got, result, err)
 		}
-		view, err := client.EthClient().TransactionInBlock(context.Background(), common.HexToHash(transactionCompatibilityBlock), 0)
+		view, err := client.EthClient().TransactionInBlock(context.Background(), ethapi.Hash(transactionCompatibilityBlock), 0)
 		if view != nil || !errors.Is(err, ethguard.ErrMalformedResponse) {
 			t.Fatalf("EthClient accepted pending at block/index: tx=%v err=%v", view, err)
 		}
@@ -353,7 +364,7 @@ func TestTransactionCompatibilityFailuresKeepFrozenDenominator(t *testing.T) {
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				got, _, result, err := transactionCompatibilityRead(ctx, client, method, signed.Hash())
+				got, _, result, err := transactionCompatibilityRead(ctx, client, method, ethapi.Hash(signed.Hash().Hex()))
 				if got != nil || !errors.Is(err, ethguard.ErrConflict) || result.Decision == nil {
 					t.Fatalf("failure shrank denominator: tx=%v result=%+v err=%v", got, result, err)
 				}

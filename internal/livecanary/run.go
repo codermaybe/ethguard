@@ -11,8 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
@@ -360,7 +361,7 @@ func executeStep(ctx context.Context, client *ethguard.Client, planStep PlanStep
 			execution.decision, execution.decisionErr = result.Decision, err
 		}
 	case "typed_block":
-		hash := common.HexToHash(paramText(logical.Params, 0))
+		hash := ethapi.Hash(strings.ToLower(paramText(logical.Params, 0)))
 		block, _, err := client.BlockByHash(ctx, hash)
 		execution.typed = typedBlockReport(block, err)
 		execution.typedErr = err
@@ -370,7 +371,7 @@ func executeStep(ctx context.Context, client *ethguard.Client, planStep PlanStep
 		result, err := client.Call(ctx, planStep.Method, hash.Hex())
 		execution.decision, execution.decisionErr = result.Decision, err
 		if err == nil && result.Decision != nil {
-			receipt, decodeErr := ethguard.DecodeReceipt(result.Decision.Value)
+			receipt, decodeErr := typed.DecodeReceipt(result.Decision.Value)
 			execution.typed = typedReceiptReport(receipt, decodeErr)
 			execution.typedErr = decodeErr
 		} else {
@@ -389,7 +390,7 @@ func executeStep(ctx context.Context, client *ethguard.Client, planStep PlanStep
 	return execution
 }
 
-func typedBlockReport(block *types.Block, err error) *TypedReport {
+func typedBlockReport(block *ethapi.Block, err error) *TypedReport {
 	if err != nil || block == nil {
 		category := classifyTypedError(err)
 		if category == "" {
@@ -397,16 +398,19 @@ func typedBlockReport(block *types.Block, err error) *TypedReport {
 		}
 		return &TypedReport{Kind: TypedKindBlock, OK: false, ErrorClass: category}
 	}
-	height := block.NumberU64()
+	height, heightErr := rpc.ParseHexQuantity(string(block.Number))
+	if heightErr != nil {
+		return &TypedReport{Kind: TypedKindBlock, OK: false, ErrorClass: "typed_decode"}
+	}
 	return &TypedReport{
 		Kind:   TypedKindBlock,
 		OK:     true,
 		Height: &height,
-		Hash:   strings.ToLower(block.Hash().Hex()),
+		Hash:   strings.ToLower(string(block.Hash)),
 	}
 }
 
-func typedReceiptReport(receipt *types.Receipt, err error) *TypedReport {
+func typedReceiptReport(receipt *ethapi.Receipt, err error) *TypedReport {
 	if err == nil && receipt != nil {
 		return &TypedReport{Kind: TypedKindReceiptAbsence, OK: false, ErrorClass: "illegal_state"}
 	}

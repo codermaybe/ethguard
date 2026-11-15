@@ -23,7 +23,7 @@ func getBlockByNumberSpec() MethodSpec {
 		Resolver:               ResolverBlock,
 		Normalize:              normalizeBlockIdentity,
 		Encode:                 blockobject.EncodeByNumber,
-		KeySource:              rpc.RuleKeyNormalizer,
+		KeySource:              rpc.RuleKeyCanonicalBytes,
 		CompareKind:            rpc.RuleCompareMethodSpecific,
 		Pending:                PendingSpec{Mode: PendingObserve, Pos: 0},
 		Admit:                  admitBlockByNumberResponse,

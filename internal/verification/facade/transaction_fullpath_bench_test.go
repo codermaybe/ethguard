@@ -19,6 +19,7 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -63,7 +64,7 @@ func benchFleet(b *testing.B, count int) (*ethguard.Client, []*rpctest.Node) {
 // transactionBenchFixture assembles one official mined type-2 transaction
 // object with a data input of dataSize bytes and an access list of entries
 // addresses, signed and shaped exactly like the compatibility fixture.
-func transactionBenchFixture(b *testing.B, dataSize, entries int) (json.RawMessage, common.Hash) {
+func transactionBenchFixture(b *testing.B, dataSize, entries int) (json.RawMessage, ethapi.Hash) {
 	b.Helper()
 	key, err := crypto.HexToECDSA("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
 	if err != nil {
@@ -114,7 +115,7 @@ func transactionBenchFixture(b *testing.B, dataSize, entries int) (json.RawMessa
 	if err != nil {
 		b.Fatal(err)
 	}
-	return raw, signed.Hash()
+	return raw, ethapi.Hash(signed.Hash().Hex())
 }
 
 // transactionBenchInvalid is the same-shaped response missing one signature
@@ -252,7 +253,7 @@ func benchmarkTransactionProductionPath(b *testing.B, method string) {
 							b.Fatal(err)
 						}
 					} else {
-						_, _, err := client.TransactionInBlock(ctx, common.HexToHash(transactionCompatibilityBlock), 0)
+						_, _, err := client.TransactionInBlock(ctx, ethapi.Hash(transactionCompatibilityBlock), 0)
 						if shape == "all-invalid" {
 							if !errors.Is(err, rpc.ErrMalformedResponse) {
 								b.Fatalf("all-invalid round surfaced %v", err)

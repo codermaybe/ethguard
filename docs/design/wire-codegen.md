@@ -2,31 +2,48 @@
 
 ## 目标与边界
 
-`ethapi/types.gen.go` 由固定版本的官方 execution-apis 请求／结果 schema 生成，不依赖 go-ethereum 方言类型。结果输入是 `internal/spec/methods.json` 与同版本的 `simulatev1/simulate.json`，请求输入为 `internal/spec/requests.json`；来源身份和各 bundle 摘要固定于 `internal/spec/SOURCE.json`。原始 bundle 不改；经用户确认的标准勘误保存在 `internal/spec/errata/*.json`，由共享读取入口应用后形成有效 schema。它是明确的项目勘误，不冒称上游原样定义。
+`ethapi/types.gen.go` 由固定版本的官方 execution-apis 请求／结果 schema 生成，不依赖 go-ethereum 方言类型。全部26项结果（含SimulateV1与两个Header来源合同）共用 `internal/spec/methods.json`，请求输入为 `internal/spec/requests.json`；来源身份和两个bundle摘要固定于 `internal/spec/SOURCE.json`。原始schema不做语义改写；经用户确认的标准勘误保存在 `internal/spec/errata/*.json`，由共享读取入口应用后形成有效schema。它是明确的项目勘误，不冒称上游原样定义。统一布局迁移记录保留旧bundle摘要，并验证各原始schema及向量内容未变。
 
 当前输出器已恢复为 Jennifer v1.7.1：类型、函数、值约束、数组与 union 均由结构化 API 生成，使用 `File.Save` 输出，不保留字符串源码 emitter。此次迁移保留既有 schema 建模、精确数字、nullable、分支和规范字节语义。历史上 `01be3dd` 于 2026-11-11 引入 Jennifer，紧接的 `7618d29` 在修复语义时撤换为字符串输出器；提交说明没有解释撤换必要性，不能据此判断授权或动机。恢复输出器不等于整体回滚该提交。
 
-生成定义现已实际迁入公开包 `ethapi`，没有使用 internal 类型 alias。共用数值／JSON 编码原语位于 `internal/ethcodec`，内部 wire 保留 mask、裁剪和规范编码。生成器、mask 与官方字段 projection 已统一使用 `internal/executionapi.Read`，同版本的独立 Simulate bundle 也已可见。Simulate native 入口消费生成 payload 与 selector；生成类型与逐方法迁移状态见 [路线图](project-roadmap.md)。
+生成定义现已实际迁入公开包 `ethapi`，没有使用 internal 类型 alias。共用数值／JSON 编码原语位于 `internal/ethcodec`，内部wire保留mask、裁剪和规范编码。生成器、mask与官方字段projection统一使用 `internal/executionapi.Read`；Simulate与其他方法从同一来源加载。Simulate native入口消费生成payload与selector；生成类型与逐方法迁移状态见[路线图](project-roadmap.md)。
 
 生成层负责形态、required、值约束、数组、分支与 nullable 的解析和规范编码。`New*` 入口执行这些检查；直接手工构造 Go 值时，调用者必须保持同样的不变量。Marshal 不通过整树 JSON 重解析重复准入，union 额外检查选中成员数量及 nullable 状态；新请求的 extras 另检查 JSON 安全和声明 key 碰撞。方法注册、请求绑定、签名/区块承诺、receipt bloom 一致性、受保护 Value 字段投影仍属于对象/方法层。独立 transaction 已在方法修正后接入生成 query 构造器，仍保留 Geth 载荷及请求校验；生成类型不替代内容与信任检查。
 
 生成类型表达固定官方合同，不是容纳所有 provider 字段的万能响应 struct。[前置生态兼容](method-contracts.md#前置生态兼容与官方语义检查) 由方法拥有，经审核的规则先形成候选，生成层随后执行适用的官方检查；未命中兼容规则的官方值仍须接受这些检查。不得因遇到新方言而向生成类型不断加入厂商字段，或以宽松类型替代无法表达的官方约束。域外内容通过 [附属及原始证据通道](return-value-design.md#数据交付与责任范围) 交付，Go 类型投影不承担统一市场上所有响应形态的责任。
 
+### 类型变更的统一审计与生成流程
+
+所有影响公开业务模型、生成约束或接受策略的修正，先进入统一的来源／兼容审计，再生成和接入。固定流程为：官方原始请求／结果 schema → 审核过的兼容／勘误与生成策略 → 统一有效合同 → 通用生成器 → `ethapi/types.gen.go` → 方法接入与独立验收。后续人工或外部执行器修正均遵守此流程，不能直接修改生成文件、在调用方补平行业务 DTO，或在生成器内按 RPC 埋未审计的语义特判。
+
+统一审计覆盖差异的依据、作用域、输入／输出行为、验证预期和退出条件；不要求把不同职责的代码搬进同一个包：
+
+- 官方 schema 确有缺陷，使用现有显式 errata 机制，保留原始来源。生成器、mask 与字段投影继续共用 `executionapi.Read()` 的有效视图；独立来源审核保留 `ReadOriginal()`。
+- 官方已有定义但当前尚未生成，补生成范围或通用生成能力；不能为工具尚未覆盖而虚构 schema 勘误。生成器翻译错误修在通用生成模型／输出器，并重新生成。
+- 大小写、数量／DATA 等规范化策略也属于审计范围。其实际接受域、规范输出及与原始 pattern 的差异必须有明确记录和独立样本，不能仅因规则藏在 codec 或 native 类型表中就默认符合原始标准。规范化不是 schema 修复时，不冒记为上游 errata。
+
+生成前的来源兼容与运行时 provider 兼容分别保留职责。后者仍按方法形成候选，再通过适用的官方生成检查；不得反向修改官方参考数据。请求绑定、签名编码、哈希、bloom、内容承诺、生命周期和决策规则继续由其现有 owner 承担，不为集中审计而塞入 schema 或生成 DTO。标准没有定义的本地载体必须明确项目合同，不能冒称官方生成模型。
+
+`types.gen.go` 是此流程的可再生产物，不是修正入口。完整性按项目既定目标方法的请求／结果映射、字段／presence／union及尚未覆盖项核对；正确性分别验证原始来源、有效合同、兼容差异和生成行为。生成新鲜度只证明源与产物同步，不能单独证明完整或无误。实际变更还须通过相关行为检查与变更后的静态门禁；不得用旧基线结果代替新树验证。
+
+本轮公开类型迁移先补齐目标范围内的生成输入与模型，验收一份统一的生成类型基线，再分批迁移调用方。后续增量修正仍从来源／兼容审计进入同一链路；不在调用方迁移途中各自手补模型。
+
 ### 已迁移的公开调用族
 
 - `CallContract`／`CallContractAtHash`／`PendingCallContract` 和三个 `EstimateGas` 入口接受 `ethapi.CallMsg`，字段直接来自原始 `eth_call.params[0]`，不再使用 geth CallMsg 转换。三个官方调用 schema 的一致性由来源测试锁定。入口重新验证直接构造的值，返回 `ErrInvalidRequest`；缺失、显式 null、零值和空数组不互相折叠。
+- CallMsg与Simulate使用同一请求构造政策：CallMsg根及access-list项按官方closed对象拒绝未知字段；开放的authorization项保留额外原始JSON。`CallMsg.AccessList`元素现在使用共享请求模型 `SimulateAccessListItem`（保留既有公开名称），`AuthorizationList`元素使用 `CallAuthorization`，不再错误共享结果投影模型。直接构造这两个字段的调用方须适配其名义类型。精确JSON数值经typed入口和实际wire保留，不经float64重编码。
 - 当前固定来源为 CallMsg 新增 optional `commitments`／`proofs` DATA 数组。它们经同一生成检查与参数冻结交付，不另建手写字段白名单；请求携带这些数据不表示 EthGuard 验证了其密码学关系。
 - `FeeHistory` 的 root/view 返回 `*ethapi.FeeHistoryResult`，保留 optional blob 字段和精确 `Number`。`CreateAccessList` 返回 `*ethapi.AccessListResult`，字段的 optional presence 不再由手写 DTO 抹除；其请求入口仍待迁移。
 - `SyncProgress` 返回 `*ethapi.SyncProgress`，仅有官方三个 optional 字段。geth 的额外同步／索引计数不进入官方主值，可由 Diagnostics／Extensions 和有预算的原始来源证据读取。`Done()` 不再是该生成类型的方法；七个旧场景保留完整原始来源，并独立检查剩余计数，不能将缺失计数解释为完成。
-- 外部 Go 代码须适配以上名义类型及字段形状；geth bind 接口的签名断言已由逐方法完整参数／结果签名合同替代。交易、receipt、block、log、selector、写入和订阅业务类型仍待迁移，算法检查继续保留。
+- 外部 Go 代码须适配以上名义类型及字段形状；已迁移入口由显式参数／结果接口断言固定，ContractCaller 已不满足；地址／hash签名迁移完成后，生成标量类型取代 common.Address／common.Hash，DeployBackend 编译期断言已随之解除并更新说明，bind/v2 调用方需要显式适配器。交易、receipt、block、log、selector、写入和订阅业务类型已迁至同一生成模型，算法检查继续保留。
 
-`requests.json` 原样保存 49 个官方 eth_／net_version 的参数描述，属于来源清单，不是已执行的方法注册表，也不表示已生成全部请求类型。当前消费 CallMsg 及 Simulate 的两个参数；其他请求不能从原样库存推导为已生成或已检查。
+`requests.json` 原样保存 49 个官方 eth_／net_version 的参数描述，属于来源清单，不是已执行的方法注册表，也不表示已生成全部请求类型。当前生成CallMsg、BlockReference、FilterQuery、TransactionReceiptsQuery及Simulate的payload／base。收据订阅的旧geth签名已通过私有准备使用生成查询的wire形状；其他新增模型的公开签名接入仍待迁移。生成覆盖不能从原样库存推导为方法已接入或业务语义已验收。
 
 ### Simulate 请求模型与构造策略
 
 `SimulateV1Request`、`BlockStateCall`、`SimulateCall`、`BlockOverrides`、`AccountOverride`、`StateOverrides`、`AccountStorage` 和 `SimulateBlockReference` 由同一有效 schema 生成。嵌套 withdrawal／access-list 使用请求专用模型，避免与既有结果投影的接受策略错误共享。`SimulateCall` 不强行复用结构与约束并不等价的 CallMsg。
 
-新 Simulate 请求采用 `strictRequests` 构造策略，模式参与模型去重；既有结果投影和 CallMsg 保留原策略。这里的 strict 表示忠实检查请求 schema，不表示所有对象均封闭：
+已选择的所有请求根（CallMsg、BlockReference、FilterQuery、收据订阅子模型及Simulate的payload／base）统一采用 `strictRequests` 构造策略，模式参与模型去重；结果仍使用声明字段投影。选择清单只决定生成覆盖，不包含RPC业务语义。这里的strict表示忠实检查请求schema，不表示所有对象均封闭：
 
 - 官方 `additionalProperties:false` 的固定对象拒绝未知 key；封闭同型 `patternProperties` 字典要求每个 key 匹配规则并检查对应值。地址／storage-key 字典的 key 保留原始大小写，不合并不同拼写。
 - 官方开放的固定对象通过生成的 `AdditionalProperties map[string]json.RawMessage` 保留未声明输入。编码时不得覆盖任何已声明 key，即使该 typed 字段缺失；未知字段不经 float64，也不因字段名仅大小写相似而同时填入另一个 typed 字段。这是请求保真，不改变响应 Value／Extensions 的职责。
@@ -119,26 +136,34 @@ oneOf 要求恰好一个分支匹配；anyOf 要求至少一个匹配，并按�
 
 path override、title override 和稳定回退仅决定 Go 名称，不得改变标准语义。路径保留 composition kind 与原始 index；不保留旧合成路径兼容别名。语义 fingerprint 排除 title/description，但包含约束、nullable、composition 与子值语义。
 
-生成时要求三个 bundle 的版本与 `spec.Version()` 一致；生成文件在包初始化时检查版本。这是生成期检查和运行时 init guard，不是编译期校验，也不可能由测试函数抢先于 init 执行。
+公开接口拟采用的模型及其可达分支须先固定语义名称，不能把遍历顺序触发的 `2` 等碰撞后缀作为长期接口命名政策。独立交易查询与区块内嵌交易因有效 nullable 合同不同，应分别命名、保持各自约束；去重不能抹掉这一区别。当前查询union及五分支已固定为 `Transaction`、`SetCodeTransaction`／`BlobTransaction`／`EIP1559Transaction`／`AccessListTransaction`／`LegacyTransaction`；内嵌区块使用 `BlockTransaction` 及 `Block` 前缀五分支。显式名称按完整语义fingerprint预登记，冲突直接失败，不以自动后缀掩盖。旧数字后缀名已替换，属于公开生成类型名变更。`SimulateBlockReference`保留为同源`BlockReference`的生成别名及构造器shim。
 
-CI 将生成结果写入临时文件并与已提交产物比较，防止同版本 schema/生成器修改后忘记重生成。版本字面量测试、源码片段或函数数量测试不能代替这一门禁。
+扩充请求生成覆盖时，根选择必须明确 method、参数序号及必要的 schema 子路径，保留完整来源定位和所选节点摘要；只生成所需子模型，不把有重叠分支的整个订阅参数 union 当作某一业务查询。当前requestRoot已支持RFC 6901 JSON Pointer；收据订阅选择`eth_subscribe.params[1]/oneOf/2`，固定所选紧凑schema摘要，路径／分支漂移失败。源路径、节点摘要、稳定名称与别名进入生成审计，并有独立验证；调用方不手工裁剪schema。
+
+返回模型接入前还须核对该方法实际提交的 Value 能否满足目标有效 schema。生成模型已存在不代表当前受保护投影字段齐全；不得从代表源 Raw 补必填字段、制造零值或放宽生成校验来接通迁移。模型的结构检查、对象内部完整性、方法请求绑定与裁决信任分别由现有 owner 承担；共享对象检查须覆盖查询、订阅事件和同源 Pull，不能仅凭查询 admission 已接通便删除订阅 decoder 的校验。
+
+生成时要求两个bundle的版本与 `spec.Version()` 一致；生成文件在包初始化时检查版本。这是生成期检查和运行时init guard，不是编译期校验，也不可能由测试函数抢先于init执行。
+
+`ethapi/types.audit.json`由同一次生成产生：记录有效schema逐根摘要、errata身份、请求覆盖及子节点摘要、稳定模型名／别名、标量规范化政策及每个源路径的实际生成政策。路径记录不因模型去重而省略，uniqueItems下保留原字符串、无type常量等情况也明确记账。新增normalizer必须先有显式政策，普通生成亦拒绝未登记规则，不能仅在输出audit时才检查。该文件是构建审计材料，不是运行时registry，也不是官方schema的替代品。
+
+CI和release门将生成Go及audit写入临时文件并分别与已提交产物比较，防止同版本schema／生成器修改后忘记重生成。audit包含生成Go摘要；新鲜度不能单独证明语义正确，版本字面量、源码片段或函数数量测试也不能代替独立行为验证。
 
 ## 验证层次
 
 1. **官方 schema conformance**：固定版本 `.io` request/response 对按官方 result schema 离线验证。
-2. **生成行为**：官方成功结果经对应生成入口解析、编码；验证标准字段内容保留、输出 schema、再次解析编码的幂等和 nullable 语义。
+2. **生成行为**：全部方法共用同一向量枚举，官方成功结果经对应生成入口解析、编码；验证声明字段内容保留、输出有效schema、再次解析编码的幂等和nullable语义。通用测试侧投影依据实际匹配的schema分支生成预期，anyOf多匹配声明合并；构造器始终接收原始输入，不预删字段。原始schema与有效schema的验证分别记录。
 3. **受保护字节 parity**：logs、receipt、accessList、feeHistory 与现有 encoder 比较。每侧分别必须成功，不允许双方拒绝后当作成功。receipt 仅在 parity 比较中显式应用既有 nullable-null 投影；未投影的生成输出另外受官方形态与内容保留检查。
 4. **独立负例**：optional const/pattern、错误 JSON 类型、非 nullable null、HexByte 语法、官方 Number 的精确边界、项目 Ratio 的精度/尾随、unsupported schema。预期不由另一套共享实现决定。
 
 `.io` 只使用 `conformance.ParseVector` 的一份解析器：按出现顺序配对每条 request/response，身份为完整路径与交互序号，结构化匹配 method，明确区分 error、null、缺失 result。它不是按 JSON-RPC ID 重排的网络路由器。
 
-block/transaction 的生成向量 round-trip 与 protected parity 分开；独立 transaction 已组合使用生成 query 结构和既有 Geth/对象准入，完整 block 未随之迁移。Simulate 官方向量与冲突按下节单独验收，不能并入“全部通过”的泛化声明。
+block/transaction的生成向量round-trip与protected parity分开；独立transaction已组合使用生成query结构和既有Geth／对象准入，完整block未随之迁移。Simulate与其他方法使用同一conformance与生成往返入口；其方法语义仍需各自验证，不能由向量通过推导整体方法完成。
 
 ### SimulateV1 官方来源与接受域
 
-`internal/spec/simulatev1/SOURCE.json` 固定 commit `981aa66d79364be8322a9c358aaf0a571cca0873`、原始 bundle 摘要与 95 个官方 `.io` 的逐文件摘要。来源从官方源码及未修改的 specgen 重建，不依赖临时目录，也不把官方向量标作 provider 观察。
+所有向量由 `internal/spec/vectors/SOURCE.json` 统一固定commit及逐文件摘要；Simulate的95个原始 `.io`位于 `vectors/eth_simulateV1/`，与其他方法原样保存。统一库存共204文件，包含205对交互：163结果、42顶层错误。其中Simulate为64结果、31顶层错误；文件数与交互数分开统计。来源从官方源码及未修改的specgen重建，不依赖临时目录，也不把官方向量标作provider观察。
 
-`types_simulate_vectors_test.go` 对 95 个 request/response 对逐一记账：64 个 result 进入原始 schema 和生成解析器，检查声明字段、presence 和编码幂等；31 个顶层错误独立记账，不进入 result parser。这是结果模型证据，不替代原生方法、顶层错误分类或 provider 执行验证。
+共享conformance及 `types_official_test.go` 对所有方法按完整路径／交互序号记账。顶层错误不进入result parser；缺少schema的错误仍计入错误总数并显式列为未覆盖。Simulate不再有单独的来源装配、向量绕行或按字段名删除logs／error.data的测试路径；未声明成员遵循所有结果模型相同的声明字段投影政策。以上不替代原生方法、顶层错误分类或provider执行验证。
 
 上游已取消非 revert VM error message 的旧 pattern，`out of gas` 不再与该字段约束冲突；旧版两个冲突的测试侧消息替换已退出。新版同时要求 VM error 的 code 和 message 均存在，生成字段从 optional 改为必填，`{}` 不再是该分支合法值。取消这一字段的官方 pattern 不授权全局放宽其他响应约束。
 

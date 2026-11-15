@@ -17,7 +17,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
@@ -35,7 +34,7 @@ func t09SummaryQuantity(value uint64) string { return fmt.Sprint(value) }
 
 func t09SummaryBytes(value []byte) string { return hexutil.Encode(value) }
 
-func t09SummaryBlock(block *types.Block) string {
+func t09SummaryBlock(block *ethapi.Block) string {
 	summary, err := t09BlockSummary(block)
 	if err != nil {
 		panic(err)
@@ -43,7 +42,7 @@ func t09SummaryBlock(block *types.Block) string {
 	return summary
 }
 
-func t09SummaryHeader(header *types.Header) string {
+func t09SummaryHeader(header *ethapi.Header) string {
 	raw, err := json.Marshal(header)
 	if err != nil {
 		panic(err)
@@ -51,7 +50,7 @@ func t09SummaryHeader(header *types.Header) string {
 	return string(raw)
 }
 
-func t09SummaryReceipt(receipt *types.Receipt) string {
+func t09SummaryReceipt(receipt *ethapi.Receipt) string {
 	raw, err := json.Marshal(receipt)
 	if err != nil {
 		panic(err)
@@ -59,7 +58,7 @@ func t09SummaryReceipt(receipt *types.Receipt) string {
 	return string(raw)
 }
 
-func t09SummaryReceipts(receipts []*types.Receipt) string {
+func t09SummaryReceipts(receipts []ethapi.Receipt) string {
 	raw, err := json.Marshal(receipts)
 	if err != nil {
 		panic(err)
@@ -67,7 +66,7 @@ func t09SummaryReceipts(receipts []*types.Receipt) string {
 	return string(raw)
 }
 
-func t09SummaryTransaction(tx *types.Transaction, pending bool) string {
+func t09SummaryTransaction(tx *ethapi.Transaction, pending bool) string {
 	raw, err := json.Marshal(tx)
 	if err != nil {
 		panic(err)
@@ -75,7 +74,7 @@ func t09SummaryTransaction(tx *types.Transaction, pending bool) string {
 	return fmt.Sprintf("%s|pending=%v", raw, pending)
 }
 
-func t09SummaryLogs(logs []types.Log) string {
+func t09SummaryLogs(logs []ethapi.Log) string {
 	raw, err := json.Marshal(logs)
 	if err != nil {
 		panic(err)
@@ -154,7 +153,7 @@ func t09TypedWantBytes(t *testing.T, raw json.RawMessage) string {
 
 func t09TypedWantBlock(t *testing.T, raw json.RawMessage) string {
 	t.Helper()
-	block, err := ethguard.DecodeBlock(t09SemanticJSON(t, raw))
+	block, err := ethguard.DecodeBlock(t09FoldNulls(t09SemanticJSON(t, raw)))
 	if err != nil {
 		t.Fatalf("decode expected block: %v", err)
 	}
@@ -163,11 +162,11 @@ func t09TypedWantBlock(t *testing.T, raw json.RawMessage) string {
 
 func t09TypedWantHeader(t *testing.T, raw json.RawMessage) string {
 	t.Helper()
-	var header types.Header
-	if err := json.Unmarshal(t09SemanticJSON(t, raw), &header); err != nil {
+	header, err := ethguard.DecodeBlockHeaderOnly(t09SemanticJSON(t, raw))
+	if err != nil {
 		t.Fatalf("decode expected header: %v", err)
 	}
-	return t09SummaryHeader(&header)
+	return t09SummaryHeader(header)
 }
 
 func t09TypedWantReceipt(t *testing.T, raw json.RawMessage) string {
@@ -199,11 +198,35 @@ func t09TypedWantTransaction(t *testing.T, raw json.RawMessage) string {
 
 func t09TypedWantLogs(t *testing.T, raw json.RawMessage) string {
 	t.Helper()
-	var logs []types.Log
-	if err := json.Unmarshal(t09SemanticJSON(t, raw), &logs); err != nil {
+	var rows []json.RawMessage
+	if err := json.Unmarshal(t09SemanticJSON(t, raw), &rows); err != nil {
 		t.Fatalf("decode expected logs: %v", err)
 	}
+	logs := make([]ethapi.Log, 0, len(rows))
+	for i, row := range rows {
+		log, err := ethapi.NewLog(row)
+		if err != nil {
+			t.Fatalf("decode expected log %d: %v", i, err)
+		}
+		logs = append(logs, log)
+	}
 	return t09SummaryLogs(logs)
+}
+
+// typedTransactionBridge converts a public generated transaction union back
+// to a geth transaction through its canonical JSON, so tests can recompute
+// the signed-payload hash and compare against geth-side fixtures.
+func typedTransactionBridge(t *testing.T, tx *ethapi.Transaction) *types.Transaction {
+	t.Helper()
+	raw, err := json.Marshal(tx)
+	if err != nil {
+		t.Fatalf("marshal typed transaction: %v", err)
+	}
+	var out types.Transaction
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("bridge typed transaction: %v", err)
+	}
+	return &out
 }
 
 type t09FeeWantWire struct {
@@ -260,7 +283,7 @@ func t09TypedChainID(t *testing.T, f *t09Fleet, _ []any) (string, error) {
 }
 
 func t09TypedBlockByHash(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	block, _, err := f.client.BlockByHash(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
+	block, _, err := f.client.BlockByHash(f.context(t), ethapi.Hash(t09ParamString(t, params, 0)))
 	if err != nil {
 		return "", err
 	}
@@ -277,11 +300,11 @@ func t09TypedBlockByNumber(t *testing.T, f *t09Fleet, params []any) (string, err
 		if err != nil {
 			return "", err
 		}
-		var header types.Header
-		if err := json.Unmarshal(raw, &header); err != nil {
+		header, err := ethguard.DecodeBlockHeaderOnly(raw)
+		if err != nil {
 			return "", err
 		}
-		return t09SummaryHeader(&header), nil
+		return t09SummaryHeader(header), nil
 	}
 	block, _, err := f.client.BlockByNumber(ctx, big.NewInt(int64(t09ParamUint64(t, params, 0))))
 	if err != nil {
@@ -303,7 +326,7 @@ func t09TypedBalance(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryBig((*big.Int)(&value)), nil
 	}
-	value, _, err := f.client.BalanceAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, _, err := f.client.BalanceAt(ctx, ethapi.Address(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
 	if err != nil {
 		return "", err
 	}
@@ -311,7 +334,7 @@ func t09TypedBalance(t *testing.T, f *t09Fleet, params []any) (string, error) {
 }
 
 func t09TypedReceipt(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	receipt, _, err := f.client.TransactionReceipt(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
+	receipt, _, err := f.client.TransactionReceipt(f.context(t), ethapi.Hash(t09ParamString(t, params, 0)))
 	if err != nil {
 		return "", err
 	}
@@ -319,7 +342,7 @@ func t09TypedReceipt(t *testing.T, f *t09Fleet, params []any) (string, error) {
 }
 
 func t09TypedTransaction(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	tx, pending, _, err := f.client.TransactionByHash(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
+	tx, pending, _, err := f.client.TransactionByHash(f.context(t), ethapi.Hash(t09ParamString(t, params, 0)))
 	if err != nil {
 		return "", err
 	}
@@ -327,8 +350,7 @@ func t09TypedTransaction(t *testing.T, f *t09Fleet, params []any) (string, error
 }
 
 func t09TypedBlockReceipts(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	ref := gethrpc.BlockNumberOrHashWithHash(common.HexToHash(t09ParamString(t, params, 0)), false)
-	receipts, _, err := f.client.BlockReceipts(f.context(t), ref)
+	receipts, _, err := f.client.BlockReceipts(f.context(t), blockHashRef(t09ParamString(t, params, 0)))
 	if err != nil {
 		return "", err
 	}
@@ -348,7 +370,7 @@ func t09TypedNonce(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryQuantity(uint64(value)), nil
 	}
-	value, _, err := f.client.NonceAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, _, err := f.client.NonceAt(ctx, ethapi.Address(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
 	if err != nil {
 		return "", err
 	}
@@ -356,7 +378,7 @@ func t09TypedNonce(t *testing.T, f *t09Fleet, params []any) (string, error) {
 }
 
 func t09TypedTransactionCount(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	value, _, err := f.client.TransactionCount(f.context(t), common.HexToHash(t09ParamString(t, params, 0)))
+	value, _, err := f.client.TransactionCount(f.context(t), ethapi.Hash(t09ParamString(t, params, 0)))
 	if err != nil {
 		return "", err
 	}
@@ -372,7 +394,7 @@ func t09TypedPendingTransactionCount(t *testing.T, f *t09Fleet, _ []any) (string
 }
 
 func t09TypedTransactionInBlock(t *testing.T, f *t09Fleet, params []any) (string, error) {
-	tx, _, err := f.client.TransactionInBlock(f.context(t), common.HexToHash(t09ParamString(t, params, 0)), uint(t09ParamUint64(t, params, 1)))
+	tx, _, err := f.client.TransactionInBlock(f.context(t), ethapi.Hash(t09ParamString(t, params, 0)), uint(t09ParamUint64(t, params, 1)))
 	if err != nil {
 		return "", err
 	}
@@ -392,8 +414,8 @@ func t09TypedStorage(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryBytes(value), nil
 	}
-	value, _, err := f.client.StorageAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)),
-		common.HexToHash(t09ParamString(t, params, 1)), big.NewInt(int64(t09ParamUint64(t, params, 2))))
+	value, _, err := f.client.StorageAt(ctx, ethapi.Address(t09ParamString(t, params, 0)),
+		ethapi.Hash(t09ParamString(t, params, 1)), big.NewInt(int64(t09ParamUint64(t, params, 2))))
 	if err != nil {
 		return "", err
 	}
@@ -413,7 +435,7 @@ func t09TypedCode(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryBytes(value), nil
 	}
-	value, _, err := f.client.CodeAt(ctx, common.HexToAddress(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, _, err := f.client.CodeAt(ctx, ethapi.Address(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
 	if err != nil {
 		return "", err
 	}
@@ -458,8 +480,14 @@ func t09TypedLogs(t *testing.T, f *t09Fleet, params []any) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("logs probe: unsupported params %#v", params)
 	}
-	hash := common.HexToHash(object["blockHash"].(string))
-	q := ethereum.FilterQuery{BlockHash: &hash}
+	blockHash, ok := object["blockHash"].(string)
+	if !ok {
+		return "", fmt.Errorf("logs probe: missing blockHash in params %#v", params)
+	}
+	q, err := ethapi.NewFilterQuery(json.RawMessage(fmt.Sprintf(`{"blockHash":%q}`, blockHash)))
+	if err != nil {
+		return "", err
+	}
 	logs, _, err := f.client.FilterLogs(f.context(t), q)
 	if err != nil {
 		return "", err

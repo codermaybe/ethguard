@@ -13,9 +13,10 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/testkit/wstest"
+	"github.com/codermaybe/ethguard/rpc"
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/core/types"
 )
 
 // subscriptionPeerRequest is one JSON-RPC request the peer received.
@@ -157,7 +158,7 @@ func TestSubscribeNewHeadPublicEntrypointsUseSameSourcePull(t *testing.T) {
 			client := subscriptionClient(t, a, b)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			out := make(chan *types.Header, 1)
+			out := make(chan *ethapi.Header, 1)
 			var sub ethereum.Subscription
 			var err error
 			if view {
@@ -171,7 +172,8 @@ func TestSubscribeNewHeadPublicEntrypointsUseSameSourcePull(t *testing.T) {
 			t.Cleanup(sub.Unsubscribe)
 			select {
 			case header := <-out:
-				if header == nil || header.Number == nil || header.Number.Uint64() != 17 || header.Hash().Hex() != blockHashOf(raw) {
+				height, heightErr := rpc.ParseHexQuantity(string(header.Number))
+				if header == nil || heightErr != nil || height != 17 || string(header.Hash) != blockHashOf(raw) {
 					t.Fatalf("delivered header = %+v", header)
 				}
 			case err := <-sub.Err():

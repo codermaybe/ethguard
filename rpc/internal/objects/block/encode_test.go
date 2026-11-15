@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-func TestEncodeDropsUncommittedBlockFields(t *testing.T) {
+func TestEncodeKeepsOfficialSizeAndDropsProviderFields(t *testing.T) {
 	header := &types.Header{
 		ParentHash:  common.HexToHash("0x1"),
 		UncleHash:   types.EmptyUncleHash,
@@ -22,7 +22,7 @@ func TestEncodeDropsUncommittedBlockFields(t *testing.T) {
 		GasLimit:    1,
 		Time:        1,
 	}
-	headerRaw, err := json.Marshal(header)
+	headerRaw, err := marshalTestHeader(t, header)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,10 +44,13 @@ func TestEncodeDropsUncommittedBlockFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"size", "totalDifficulty", "from", "vendor"} {
+	for _, field := range []string{"totalDifficulty", "from", "vendor"} {
 		if bytes.Contains(encoded, []byte(`"`+field+`"`)) {
 			t.Fatalf("uncommitted field %s survived: %s", field, encoded)
 		}
+	}
+	if !bytes.Contains(encoded, []byte(`"size":"0x100"`)) {
+		t.Fatalf("official size lost: %s", encoded)
 	}
 	if !bytes.Contains(encoded, []byte(`"transactions":[]`)) || !bytes.Contains(encoded, []byte(`"uncles":[]`)) {
 		t.Fatalf("committed empty bodies missing: %s", encoded)
@@ -68,7 +71,7 @@ func TestEncodeKeepsCommittedEmptyWithdrawals(t *testing.T) {
 		Time:            1,
 		WithdrawalsHash: &withdrawalsHash,
 	}
-	headerRaw, err := json.Marshal(header)
+	headerRaw, err := marshalTestHeader(t, header)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +80,9 @@ func TestEncodeKeepsCommittedEmptyWithdrawals(t *testing.T) {
 		t.Fatal(err)
 	}
 	fields["withdrawals"] = json.RawMessage(`[]`)
+	fields["transactions"] = json.RawMessage(`[]`)
+	fields["uncles"] = json.RawMessage(`[]`)
+	fields["size"] = json.RawMessage(`"0x100"`)
 	raw, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +112,7 @@ func TestEncodeOmitsUnsetOptionalHeaderMembers(t *testing.T) {
 		GasLimit:    1,
 		Time:        1,
 	}
-	headerRaw, err := json.Marshal(header)
+	headerRaw, err := marshalTestHeader(t, header)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +120,7 @@ func TestEncodeOmitsUnsetOptionalHeaderMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, member := range optionalHeaderMembers {
+	for _, member := range []string{"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "blockAccessListHash", "slotNumber"} {
 		if bytes.Contains(encoded, []byte(`"`+member+`"`)) {
 			t.Fatalf("unset optional member %s committed: %s", member, encoded)
 		}
@@ -136,7 +142,7 @@ func TestEncodeSlotNumberPreservesCommittedValueAndOmitsUnsetNull(t *testing.T) 
 	slot := uint64(7)
 	header := &types.Header{ParentHash: common.HexToHash("0x1"), UncleHash: types.EmptyUncleHash, Root: common.HexToHash("0x2"), TxHash: types.EmptyTxsHash, ReceiptHash: common.HexToHash("0x3"), Difficulty: new(big.Int), Number: big.NewInt(1), GasLimit: 1, Time: 1, SlotNumber: &slot}
 	originalHash := header.Hash()
-	raw, err := json.Marshal(header)
+	raw, err := marshalTestHeader(t, header)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +169,7 @@ func TestEncodeSlotNumberPreservesCommittedValueAndOmitsUnsetNull(t *testing.T) 
 		t.Fatal("slot number does not participate in the header commitment")
 	}
 	header.SlotNumber = nil
-	raw, err = json.Marshal(header)
+	raw, err = marshalTestHeader(t, header)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,4 +180,9 @@ func TestEncodeSlotNumberPreservesCommittedValueAndOmitsUnsetNull(t *testing.T) 
 	if bytes.Contains(encoded, []byte(`"slotNumber"`)) {
 		t.Fatalf("unset slot survived as null: %s", encoded)
 	}
+}
+
+func marshalTestHeader(t *testing.T, head *types.Header) (json.RawMessage, error) {
+	t.Helper()
+	return json.Marshal(head)
 }

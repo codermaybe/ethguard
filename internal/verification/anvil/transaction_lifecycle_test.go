@@ -20,9 +20,11 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/internal/testkit/anvil"
+	"github.com/codermaybe/ethguard/rpc"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -480,33 +482,77 @@ type transactionValue struct {
 	Pending     bool
 }
 
+// transactionPayload bridges a public generated transaction union back to a
+// geth transaction through its canonical JSON, so the observation compares the
+// signed RLP bytes the oracle fixture carries.
+func transactionPayload(tx *ethapi.Transaction) (*types.Transaction, error) {
+	if tx == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(tx)
+	if err != nil {
+		return nil, err
+	}
+	var out types.Transaction
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// receiptPayload bridges a public generated receipt back to a geth receipt
+// through its canonical JSON, so the observation compares against the oracle's
+// geth-decoded receipt with the same field semantics.
+func receiptPayload(receipt *ethapi.Receipt) (*types.Receipt, error) {
+	if receipt == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		return nil, err
+	}
+	var out types.Receipt
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c consumer) transaction(t *testing.T, ctx context.Context, evidence *runEvidence, stage string, signed *types.Transaction, pending bool) {
 	t.Helper()
 	c.observe(t, ctx, evidence, stage+"/TransactionByHash", transactionValue{transactionBytes(signed), pending}, nil, func(ctx context.Context) (any, error) {
-		var tx *types.Transaction
+		var tx *ethapi.Transaction
 		var isPending bool
 		var err error
 		if c.view {
-			tx, isPending, err = c.root.EthClient().TransactionByHash(ctx, signed.Hash())
+			tx, isPending, err = c.root.EthClient().TransactionByHash(ctx, ethapi.Hash(signed.Hash().Hex()))
 		} else {
-			tx, isPending, _, err = c.root.TransactionByHash(ctx, signed.Hash())
+			tx, isPending, _, err = c.root.TransactionByHash(ctx, ethapi.Hash(signed.Hash().Hex()))
 		}
-		return transactionValue{transactionBytes(tx), isPending}, err
+		payload, bridgeErr := transactionPayload(tx)
+		if bridgeErr != nil {
+			return transactionValue{transactionBytes(payload), isPending}, errors.Join(err, bridgeErr)
+		}
+		return transactionValue{transactionBytes(payload), isPending}, err
 	})
 }
 
 func (c consumer) transactionAbsent(t *testing.T, ctx context.Context, evidence *runEvidence, stage string, hash common.Hash) {
 	t.Helper()
 	c.observe(t, ctx, evidence, stage+"/TransactionByHash", transactionValue{"<nil>", false}, ethereum.NotFound, func(ctx context.Context) (any, error) {
-		var tx *types.Transaction
+		var tx *ethapi.Transaction
 		var pending bool
 		var err error
 		if c.view {
-			tx, pending, err = c.root.EthClient().TransactionByHash(ctx, hash)
+			tx, pending, err = c.root.EthClient().TransactionByHash(ctx, ethapi.Hash(hash.Hex()))
 		} else {
-			tx, pending, _, err = c.root.TransactionByHash(ctx, hash)
+			tx, pending, _, err = c.root.TransactionByHash(ctx, ethapi.Hash(hash.Hex()))
 		}
-		return transactionValue{transactionBytes(tx), pending}, err
+		payload, bridgeErr := transactionPayload(tx)
+		if bridgeErr != nil {
+			return transactionValue{transactionBytes(payload), pending}, errors.Join(err, bridgeErr)
+		}
+		return transactionValue{transactionBytes(payload), pending}, err
 	})
 }
 
@@ -518,10 +564,19 @@ func (c consumer) receipt(t *testing.T, ctx context.Context, evidence *runEviden
 	}
 	c.observe(t, ctx, evidence, stage+"/TransactionReceipt", want, wantErr, func(ctx context.Context) (any, error) {
 		if c.view {
-			return c.root.EthClient().TransactionReceipt(ctx, hash)
+			value, err := c.root.EthClient().TransactionReceipt(ctx, ethapi.Hash(hash.Hex()))
+			payload, bridgeErr := receiptPayload(value)
+			if bridgeErr != nil {
+				return payload, errors.Join(err, bridgeErr)
+			}
+			return payload, err
 		}
-		value, _, err := c.root.TransactionReceipt(ctx, hash)
-		return value, err
+		value, _, err := c.root.TransactionReceipt(ctx, ethapi.Hash(hash.Hex()))
+		payload, bridgeErr := receiptPayload(value)
+		if bridgeErr != nil {
+			return payload, errors.Join(err, bridgeErr)
+		}
+		return payload, err
 	})
 }
 
@@ -531,15 +586,30 @@ type blockValue struct {
 	Transactions []string
 }
 
-func publicBlockValue(block *types.Block) *blockValue {
+func publicBlockValue(block *ethapi.Block) (*blockValue, error) {
 	if block == nil {
-		return nil
+		return nil, nil
 	}
-	value := &blockValue{Hash: block.Hash(), Number: block.NumberU64(), Transactions: make([]string, 0, len(block.Transactions()))}
-	for _, tx := range block.Transactions() {
-		value.Transactions = append(value.Transactions, transactionBytes(tx))
+	number, err := rpc.ParseHexQuantity(string(block.Number))
+	if err != nil {
+		return nil, err
 	}
-	return value
+	if block.Transactions.FullTransactions == nil {
+		return nil, fmt.Errorf("block carries no full transactions")
+	}
+	value := &blockValue{Hash: common.HexToHash(string(block.Hash)), Number: number, Transactions: make([]string, 0, len(*block.Transactions.FullTransactions))}
+	for _, union := range *block.Transactions.FullTransactions {
+		raw, err := json.Marshal(union)
+		if err != nil {
+			return nil, err
+		}
+		var tx types.Transaction
+		if err := json.Unmarshal(raw, &tx); err != nil {
+			return nil, err
+		}
+		value.Transactions = append(value.Transactions, transactionBytes(&tx))
+	}
+	return value, nil
 }
 
 func (c consumer) included(t *testing.T, ctx context.Context, evidence *runEvidence, stage string, signed *types.Transaction, block wireBlock, receipt *types.Receipt) {
@@ -547,14 +617,18 @@ func (c consumer) included(t *testing.T, ctx context.Context, evidence *runEvide
 	c.transaction(t, ctx, evidence, stage, signed, false)
 	c.receipt(t, ctx, evidence, stage, signed.Hash(), receipt)
 	c.observe(t, ctx, evidence, stage+"/TransactionInBlock", transactionBytes(signed), nil, func(ctx context.Context) (any, error) {
-		var tx *types.Transaction
+		var tx *ethapi.Transaction
 		var err error
 		if c.view {
-			tx, err = c.root.EthClient().TransactionInBlock(ctx, block.Hash, 0)
+			tx, err = c.root.EthClient().TransactionInBlock(ctx, ethapi.Hash(block.Hash.Hex()), 0)
 		} else {
-			tx, _, err = c.root.TransactionInBlock(ctx, block.Hash, 0)
+			tx, _, err = c.root.TransactionInBlock(ctx, ethapi.Hash(block.Hash.Hex()), 0)
 		}
-		return transactionBytes(tx), err
+		payload, bridgeErr := transactionPayload(tx)
+		if bridgeErr != nil {
+			return transactionBytes(payload), errors.Join(err, bridgeErr)
+		}
+		return transactionBytes(payload), err
 	})
 	wantBlock := &blockValue{block.Hash, uint64(block.Number), []string{transactionBytes(signed)}}
 	for _, byHash := range []bool{true, false} {
@@ -563,13 +637,13 @@ func (c consumer) included(t *testing.T, ctx context.Context, evidence *runEvide
 			method = "BlockByHash"
 		}
 		c.observe(t, ctx, evidence, stage+"/"+method, wantBlock, nil, func(ctx context.Context) (any, error) {
-			var got *types.Block
+			var got *ethapi.Block
 			var err error
 			if byHash {
 				if c.view {
-					got, err = c.root.EthClient().BlockByHash(ctx, block.Hash)
+					got, err = c.root.EthClient().BlockByHash(ctx, ethapi.Hash(block.Hash.Hex()))
 				} else {
-					got, _, err = c.root.BlockByHash(ctx, block.Hash)
+					got, _, err = c.root.BlockByHash(ctx, ethapi.Hash(block.Hash.Hex()))
 				}
 			} else {
 				number := new(big.Int).SetUint64(uint64(block.Number))
@@ -579,14 +653,21 @@ func (c consumer) included(t *testing.T, ctx context.Context, evidence *runEvide
 					got, _, err = c.root.BlockByNumber(ctx, number)
 				}
 			}
-			return publicBlockValue(got), err
+			if err != nil {
+				value, valueErr := publicBlockValue(got)
+				if valueErr != nil {
+					return nil, errors.Join(err, valueErr)
+				}
+				return value, err
+			}
+			return publicBlockValue(got)
 		})
 	}
 }
 
 func (c consumer) account(t *testing.T, ctx context.Context, evidence *runEvidence, stage string, block *big.Int, balance *big.Int, nonce uint64) {
 	t.Helper()
-	address := common.HexToAddress(anvil.Sender)
+	address := ethapi.Address(anvil.Sender)
 	c.observe(t, ctx, evidence, stage+"/BalanceAt", balance, nil, func(ctx context.Context) (any, error) {
 		if c.view {
 			return c.root.EthClient().BalanceAt(ctx, address, block)
