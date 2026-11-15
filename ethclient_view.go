@@ -389,7 +389,9 @@ func (ec *EthClient) EstimateGasAtBlock(ctx context.Context, msg ethapi.CallMsg,
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
 		arg, localErr := checkedBlockNumArg(blockNumber)
 		if localErr != nil {
-			return 0, CallResult{Err: localErr}, localErr
+			// operation() owns Err: the body's result only carries the
+			// decision, never a duplicate of the trailing error.
+			return 0, CallResult{}, localErr
 		}
 		call, err := toCallArg(msg)
 		if err != nil {
