@@ -570,14 +570,21 @@ func (c *Client) blockReceiptsExec(ctx context.Context, blockNrOrHash gethrpc.Bl
 		receipts, err = bindReceiptsToHash(receipts, *canonicalHash)
 		return receipts, CallResult{Decision: decisionOf(decision)}, err
 	}
-	if number, ok := blockNrOrHash.Number(); ok && number >= 0 {
-		requested := big.NewInt(number.Int64())
+	// The earliest sentinel is an explicit height in disguise: geth encodes
+	// it as "0x0", so it binds like any other explicit number and never
+	// through the moving-tag pin path below, which has no reference to bind.
+	if number, ok := blockNrOrHash.Number(); ok && (number >= 0 || number == gethrpc.EarliestBlockNumber) {
+		height := number.Int64()
+		if number == gethrpc.EarliestBlockNumber {
+			height = 0
+		}
+		requested := big.NewInt(height)
 		for i, receipt := range receipts {
 			if receipt.BlockNumber == nil || receipt.BlockNumber.Cmp(requested) != 0 {
 				return nil, CallResult{Decision: decisionOf(decision)}, errors.Join(
 					ErrMalformedResponse,
 					ErrAnchorMismatch,
-					fmt.Errorf("receipt %d height %v does not match requested number %d", i, receipt.BlockNumber, number.Int64()),
+					fmt.Errorf("receipt %d height %v does not match requested number %d", i, receipt.BlockNumber, height),
 				)
 			}
 		}

@@ -585,6 +585,37 @@ func TestTypedBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 	}
 }
 
+// TestTypedBlockReceiptsBindsEarliestAsExplicitHeightZero pins the earliest
+// sentinel's binding class: geth encodes EarliestBlockNumber as the explicit
+// height "0x0", so the receipts it returns must bind by that height exactly
+// like any other explicit number — never by the moving-tag pin path, which
+// has no reference to bind against and would fail a successful read.
+func TestTypedBlockReceiptsBindsEarliestAsExplicitHeightZero(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	raw := fixtureReceipt(t, txHash, 0)
+	for _, node := range nodes {
+		node.Handle("eth_getBlockReceipts", func(c rpctest.Call) (any, error) {
+			var ref string
+			json.Unmarshal(c.Params[0], &ref)
+			if ref == "0x0" {
+				return []json.RawMessage{json.RawMessage(raw)}, nil
+			}
+			return nil, fmt.Errorf("unexpected receipts reference %q", ref)
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	receipts, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.EarliestBlockNumber))
+	if err != nil {
+		t.Fatalf("expected earliest to bind as explicit height zero, got %v", err)
+	}
+	if len(receipts) != 1 || receipts[0].TxHash != txHash || receipts[0].BlockNumber.Uint64() != 0 {
+		t.Fatalf("expected the height-zero receipt, got %+v", receipts)
+	}
+}
+
 func TestTypedBlockReceiptsRejectsAnotherBlockForHashRequest(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	txHash := common.HexToHash("0x" + strings.Repeat("42", 32))
