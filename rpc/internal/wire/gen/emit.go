@@ -415,13 +415,17 @@ func emitUnion(f *jen.File, u *unionModel) {
 			})
 		}
 		if u.kind == "anyOf" {
+			// Every anyOf exit is already a return: the in-loop match return,
+			// the nullable early return, and this unconditional zero-match
+			// error. A trailing success return here would be unreachable code
+			// that go vet rejects in the generated source.
 			g.Return(jen.Id(u.name).Values(), errorf(u.name+": expected anyOf branch match"))
 		} else {
 			g.If(jen.Id("matches").Op("!=").Lit(1)).Block(
 				jen.Return(jen.Id(u.name).Values(), errorf(u.name+": expected oneOf branch match, got %d", jen.Id("matches"))),
 			)
+			g.Return(jen.Id("out"), jen.Nil())
 		}
-		g.Return(jen.Id("out"), jen.Nil())
 	})
 	f.Func().Params(jen.Id("u").Id(u.name)).Id("MarshalJSON").Params().Params(jen.Index().Byte(), jen.Error()).BlockFunc(func(g *jen.Group) {
 		g.Id("selected").Op(":=").Lit(0)

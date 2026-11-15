@@ -12534,7 +12534,6 @@ func NewBlockTransactions(raw json.RawMessage) (BlockTransactions, error) {
 		return out, nil
 	}
 	return BlockTransactions{}, fmt.Errorf("BlockTransactions: expected anyOf branch match")
-	return out, nil
 }
 func (u BlockTransactions) MarshalJSON() ([]byte, error) {
 	selected := 0
@@ -12573,7 +12572,6 @@ func NewFilterResults(raw json.RawMessage) (FilterResults, error) {
 		return out, nil
 	}
 	return FilterResults{}, fmt.Errorf("FilterResults: expected anyOf branch match")
-	return out, nil
 }
 func (u FilterResults) MarshalJSON() ([]byte, error) {
 	selected := 0
@@ -12841,7 +12839,6 @@ func parseSimulateBlockReference(raw json.RawMessage) (SimulateBlockReference, e
 		return out, nil
 	}
 	return SimulateBlockReference{}, fmt.Errorf("SimulateBlockReference: expected anyOf branch match")
-	return out, nil
 }
 func (u SimulateBlockReference) MarshalJSON() ([]byte, error) {
 	selected := 0
