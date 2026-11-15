@@ -12525,7 +12525,6 @@ type BlockTransactions struct {
 
 func NewBlockTransactions(raw json.RawMessage) (BlockTransactions, error) {
 	var out BlockTransactions
-	matches := 0
 	if value, err := parseValue49(raw); err == nil {
 		out.TransactionHashes = &value
 		return out, nil
@@ -12534,9 +12533,7 @@ func NewBlockTransactions(raw json.RawMessage) (BlockTransactions, error) {
 		out.FullTransactions = &value
 		return out, nil
 	}
-	if matches != 1 {
-		return BlockTransactions{}, fmt.Errorf("BlockTransactions: expected anyOf branch match, got %d", matches)
-	}
+	return BlockTransactions{}, fmt.Errorf("BlockTransactions: expected anyOf branch match")
 	return out, nil
 }
 func (u BlockTransactions) MarshalJSON() ([]byte, error) {
@@ -12567,7 +12564,6 @@ type FilterResults struct {
 
 func NewFilterResults(raw json.RawMessage) (FilterResults, error) {
 	var out FilterResults
-	matches := 0
 	if value, err := parseValue208(raw); err == nil {
 		out.NewBlockOrTransactionHashes = &value
 		return out, nil
@@ -12576,9 +12572,7 @@ func NewFilterResults(raw json.RawMessage) (FilterResults, error) {
 		out.NewLogs = &value
 		return out, nil
 	}
-	if matches != 1 {
-		return FilterResults{}, fmt.Errorf("FilterResults: expected anyOf branch match, got %d", matches)
-	}
+	return FilterResults{}, fmt.Errorf("FilterResults: expected anyOf branch match")
 	return out, nil
 }
 func (u FilterResults) MarshalJSON() ([]byte, error) {
@@ -12826,7 +12820,6 @@ func NewSimulateBlockReference(raw json.RawMessage) (SimulateBlockReference, err
 }
 func parseSimulateBlockReference(raw json.RawMessage) (SimulateBlockReference, error) {
 	var out SimulateBlockReference
-	matches := 0
 	if value, err := parseValue464(raw); err == nil {
 		out.BlockNumber = &value
 		return out, nil
@@ -12847,9 +12840,7 @@ func parseSimulateBlockReference(raw json.RawMessage) (SimulateBlockReference, e
 		out.Eip1898BlockHashObject = &value
 		return out, nil
 	}
-	if matches != 1 {
-		return SimulateBlockReference{}, fmt.Errorf("SimulateBlockReference: expected anyOf branch match, got %d", matches)
-	}
+	return SimulateBlockReference{}, fmt.Errorf("SimulateBlockReference: expected anyOf branch match")
 	return out, nil
 }
 func (u SimulateBlockReference) MarshalJSON() ([]byte, error) {

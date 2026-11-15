@@ -146,7 +146,7 @@ func TestGeneratedBehavior(t *testing.T) {
 		{name:"maximum",field:"bounded",value:"0.30000000000000003",wantErr:"eth_emitterFixture.result.properties.bounded: above official maximum"},
 		{name:"overlapping oneOf",field:"selection",value:"\"ok\"",wantErr:"Selection: expected oneOf branch match, got 2"},
 		{name:"unmatched oneOf",field:"selection",value:"\"bad\"",wantErr:"Selection: expected oneOf branch match, got 0"},
-		{name:"unmatched anyOf",field:"empty",value:"[1]",wantErr:"EmptyChoice: expected anyOf branch match, got 0"},
+		{name:"unmatched anyOf",field:"empty",value:"[1]",wantErr:"EmptyChoice: expected anyOf branch match"},
 		{name:"non-null array",field:"rows",value:"null",wantErr:"eth_emitterFixture.result.properties.rows: expected a non-null value"},
 		{name:"missing required",field:"rows",wantErr:"EmissionFixture: missing required field rows"},
 	} {

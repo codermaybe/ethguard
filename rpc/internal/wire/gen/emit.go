@@ -388,7 +388,12 @@ func emitUnion(f *jen.File, u *unionModel) {
 	}
 	f.Func().Id(constructor).Params(rawParameter()).Params(jen.Id(u.name), jen.Error()).BlockFunc(func(g *jen.Group) {
 		g.Var().Id("out").Id(u.name)
-		g.Id("matches").Op(":=").Lit(0)
+		// anyOf returns on the first accepted branch, so it needs no match
+		// counter: falling off the end of the constructor means zero branches
+		// accepted, and the terminal error says so without a dead variable.
+		if u.kind == "oneOf" {
+			g.Id("matches").Op(":=").Lit(0)
+		}
 		if u.nullable {
 			g.If(jen.Qual(codecPackage, "IsJSONNull").Call(jen.Id("raw"))).BlockFunc(func(null *jen.Group) {
 				if u.kind == "anyOf" {
@@ -409,9 +414,13 @@ func emitUnion(f *jen.File, u *unionModel) {
 				}
 			})
 		}
-		g.If(jen.Id("matches").Op("!=").Lit(1)).Block(
-			jen.Return(jen.Id(u.name).Values(), errorf(u.name+": expected "+u.kind+" branch match, got %d", jen.Id("matches"))),
-		)
+		if u.kind == "anyOf" {
+			g.Return(jen.Id(u.name).Values(), errorf(u.name+": expected anyOf branch match"))
+		} else {
+			g.If(jen.Id("matches").Op("!=").Lit(1)).Block(
+				jen.Return(jen.Id(u.name).Values(), errorf(u.name+": expected oneOf branch match, got %d", jen.Id("matches"))),
+			)
+		}
 		g.Return(jen.Id("out"), jen.Nil())
 	})
 	f.Func().Params(jen.Id("u").Id(u.name)).Id("MarshalJSON").Params().Params(jen.Index().Byte(), jen.Error()).BlockFunc(func(g *jen.Group) {
