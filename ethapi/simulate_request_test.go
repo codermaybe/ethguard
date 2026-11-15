@@ -23,8 +23,8 @@ func TestSimulateGeneratedRequestsPreserveAllOfficialPayloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	total, results, errors, unknown := 0, 0, 0, 0
-	evidence := spec.SimulateV1EvidenceFS()
-	err = fs.WalkDir(evidence, "simulatev1/vectors", func(name string, entry fs.DirEntry, walkErr error) error {
+	evidence := spec.VectorsFS()
+	err = fs.WalkDir(evidence, "vectors/eth_simulateV1", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

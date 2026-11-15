@@ -71,7 +71,7 @@ type simulateVector struct {
 
 func readSimulateVector(t *testing.T, name string) simulateVector {
 	t.Helper()
-	data, err := os.ReadFile("../../spec/simulatev1/vectors/" + name)
+	data, err := os.ReadFile("../../spec/vectors/eth_simulateV1/" + name)
 	if err != nil {
 		t.Fatalf("read execution-apis vector %s: %v", name, err)
 	}

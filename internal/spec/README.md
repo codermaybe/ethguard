@@ -8,21 +8,22 @@
 和生成结果类型提供共同来源。额外必填规则、请求绑定和内容承诺仍由对象/方法契约决定。
 
 * `errata/*.json`：项目审核的标准勘误，独立于原始上游数据；携带固定版本／commit、目标、输入／输出摘要、依据、退出条件和 RFC 6902 patch。只有共享 `internal/executionapi.Read` 应用；`ReadOriginal` 提供不应用勘误的独立来源视图。
-* `SOURCE.json`：官方仓库、固定 commit、dereferenced OpenRPC 摘要与三个 bundle 的 SHA-256。
+* `SOURCE.json`：官方仓库、固定 commit、dereferenced OpenRPC 摘要与两个 bundle 的 SHA-256。
 * `requests.json`：49 个官方 eth_／net_version 的原始参数描述；不作为运行时方法注册表，当前 CallMsg 与 Simulate 的 payload／base 已进入请求类型生成，其余库存不代表已消费。
-* `VERSION`：固定的上游 commit 身份（单源），与三个 bundle、来源清单及勘误一致。
+* `VERSION`：固定的上游 commit 身份（单源），与两个 bundle、来源清单及勘误一致。
 * `methods.list`：项目主动纳入标准边界的方法名清单；它只选择方法，不定义结果
   schema。结果 schema 必须由官方 dereferenced OpenRPC 生成。
-* `methods.json`：23 个参考方法的**结果契约裁剪**——每个方法名映射到它在官方
+* `methods.json`：26 个参考方法的**结果契约裁剪**——每个方法名映射到它在官方
   `openrpc.json` 中的 `result.schema` 原文（verbatim，无变换），外加顶层
   `version` 自描述。约 100KB。这里包含 `eth_getProof`，即使它目前仍是
   `UnsupportedMethod`。
-* `vectors/`：官方 `tests/*.io` 抽取的 conformance 向量（原有 21 个方法目录，共 109 个 `.io`）；`vectors/SOURCE.json` 记录固定来源和逐文件摘要，目录库存与清单双向核对。
+* `vectors/`：官方 `tests/*.io` 抽取的 conformance 向量（22 个方法目录，共 204 个 `.io`，包含 `eth_simulateV1` 的 95 个原始向量）；`vectors/SOURCE.json` 记录固定来源和逐文件摘要，目录库存与清单双向核对。
   `internal/spec/conformance` 会离线解析每个 request/response 对，并按 pinned
   result schema 检查 result 的类型、required、pattern、数组约束和未知字段。
   结果 schema 尚未纳入 bundle 的官方向量会在报告的 `Uncovered` 中显式列出；当前
   官方向量已全部覆盖，包括 `eth_sendRawTransaction` 的 32 字节交易哈希结果。
-* `simulatev1/simulate.json`：同一官方固定来源的完整单方法请求／结果 bundle；`simulatev1/SOURCE.json` 固定 commit 和逐文件摘要，`simulatev1/vectors/` 原样保存全部 95 个官方 `.io`。独立记账为 64 个 result 和 31 个顶层错误；顶层错误不进入 result parser。旧 pin 的两个 VM 消息／schema 冲突已由上游修复，不保留旧版测试侧消息替换。详见 `docs/design/wire-codegen.md`。
+* 两个官方 `eth_getHeaderByHash`／`eth_getHeaderByNumber` 的结果合同纳入同一bundle，用于生成独立Header；不由此注册或切换运行时RPC。请求库存与三项勘误不变，扩充记录在 `migrations/*-header-models.json`。
+* `eth_simulateV1` 与其他方法共用 `methods.json`／`requests.json` 和 `vectors/SOURCE.json`；其向量保存在 `vectors/eth_simulateV1/`。95 个向量包含 64 个 result 和 31 个顶层错误；顶层错误不进入 result parser。旧 pin 的两个 VM 消息／schema 冲突已由上游修复，不保留旧版测试侧消息替换。详见 `docs/design/wire-codegen.md`。
 * `spec.go`：唯一的例外手写代码——`go:embed` 访问器（embed 必须与文件同目录，
   别无他法）。无逻辑、无判断，只暴露字节。
 
@@ -73,14 +74,9 @@ go run ./cmd/specbundle \
   -methods internal/spec/methods.list \
   -out /tmp/methods.json \
   -requests-out /tmp/requests.json
-go run ./cmd/specmethod \
-  -openrpc /tmp/openrpc.json \
-  -version "$(cat internal/spec/VERSION)" \
-  -method eth_simulateV1 \
-  -out /tmp/simulate.json
 ```
 
-核对 OpenRPC 和三个 bundle 的 SHA-256 与 `SOURCE.json` 一致；共享向量只纳入现有方法目录，Simulate 使用独立完整目录。两份向量 SOURCE 的逐文件摘要与实际库存双向一致，并可与同一固定 checkout 的原件逐字节复核。
+核对 OpenRPC 和两个 bundle 的 SHA-256 与 `SOURCE.json` 一致；所有向量使用一个 `vectors/SOURCE.json`，逐文件摘要与实际库存双向一致，并可与同一固定 checkout 的 `tests/<method>/*.io` 原件逐字节复核。
 
 旧 bundle 也可以通过 `-methods-from` 读取方法名，但升级时应优先使用
 `methods.list`，让生成物中的 schema 变化全部来自官方 OpenRPC 输入。
@@ -96,7 +92,7 @@ conformance 与 replay 已通过 → 用
 同时提供 `conformancePassed` 和 `replayPassed`。因此候选 bundle 不能只更新标准数据，
 必须留下可审计的迁移记录和验证证据。
 
-当前基线的[结果迁移记录](migrations/981aa66d79364be8322a9c358aaf0a571cca0873.json)覆盖原始 `methods.json` 的 6 个方法、32 项变化，并绑定前后 bundle 摘要。该工具的结果 diff 不覆盖请求库存或独立 Simulate bundle；后两者通过各自固定来源、勘误范围与独立行为检查审阅，不能从该 manifest 推导完整请求语义已经迁移。
+[历史结果升级记录](migrations/981aa66d79364be8322a9c358aaf0a571cca0873.json)覆盖当时 23 方法 `methods.json` 的 6 个方法、32 项变化，并绑定当时前后 bundle 摘要；它不改标为当前 24 方法摘要。随后同一 commit 的[来源布局归一记录](migrations/981aa66d79364be8322a9c358aaf0a571cca0873-unified-layout.json)把已有 Simulate result 纳入统一结果 bundle、95 个向量移入共享目录；仅改变收纳位置，不改变任何原始 schema／请求 descriptor／向量字节／勘误。`TestUnifiedLayoutPreservesHistoricalSourceSnapshots` 从当前统一来源重建旧 JSON envelope 并核对历史摘要。结果 diff 仍不覆盖请求库存，不能从迁移记录推导完整请求语义已经迁移。
 
 ## 审计指引
 

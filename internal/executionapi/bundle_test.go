@@ -14,18 +14,18 @@ import (
 	"github.com/codermaybe/ethguard/internal/spec"
 )
 
-func TestReadIncludesOriginalSimulateSchemaWithoutMutatingSources(t *testing.T) {
+func TestReadIncludesUnifiedSchemasWithoutMutatingSources(t *testing.T) {
 	before := append([]byte(nil), spec.MethodsJSON()...)
-	bundle, err := Read()
+	var source struct{ Results map[string]json.RawMessage }
+	if err := json.Unmarshal(before, &source); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := ReadOriginal()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var source struct{ Result json.RawMessage }
-	if err := json.Unmarshal(spec.SimulateV1JSON(), &source); err != nil {
-		t.Fatal(err)
-	}
-	if bundle.Version != spec.Version() || !bytes.Equal(bundle.Results["eth_simulateV1"], source.Result) {
-		t.Fatal("schema assembly changed the official simulate definition")
+	if bundle.Version != spec.Version() || len(bundle.Results) != 26 || !reflect.DeepEqual(bundle.Results, source.Results) {
+		t.Fatal("loading changed the unified official result definitions")
 	}
 	delete(bundle.Results, "eth_chainId")
 	again, err := Read()
@@ -34,21 +34,14 @@ func TestReadIncludesOriginalSimulateSchemaWithoutMutatingSources(t *testing.T) 
 	}
 }
 
-func TestLoadRejectsSourceSkewAndAmbiguity(t *testing.T) {
-	const methods = `{"version":"pin","results":{"eth_chainId":{"type":"string"}}}`
-	const simulate = `{"version":"pin","method":"eth_simulateV1","result":{"type":"array","items":{"type":"object"}}}`
-	for _, tc := range []struct{ name, methods, simulate, want string }{
-		{"method version", methods, simulate, "execution-apis methods version \"pin\" != pin \"other\""},
-		{"simulate version", methods, `{"version":"old"}`, "execution-apis simulate version \"old\" != pin \"pin\""},
-		{"missing simulate", methods, `{"version":"pin","method":"eth_simulateV1"}`, "execution-apis simulate bundle has no eth_simulateV1 result schema"},
-		{"duplicate", `{"version":"pin","results":{"eth_simulateV1":{}}}`, simulate, "execution-apis duplicate result schema for eth_simulateV1"},
+func TestLoadRejectsSourceSkewAndEmptyResults(t *testing.T) {
+	for _, tc := range []struct{ name, methods, pin, want string }{
+		{"method version", `{"version":"pin","results":{"eth_chainId":{"type":"string"}}}`, "other", "execution-apis methods version \"pin\" != pin \"other\""},
+		{"missing results", `{"version":"pin"}`, "pin", "execution-apis methods bundle has no results"},
+		{"empty results", `{"version":"pin","results":{}}`, "pin", "execution-apis methods bundle has no results"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pin := "pin"
-			if tc.name == "method version" {
-				pin = "other"
-			}
-			_, err := load([]byte(tc.methods), []byte(tc.simulate), pin)
+			_, err := load([]byte(tc.methods), tc.pin)
 			if err == nil || err.Error() != tc.want {
 				t.Fatalf("error = %v, want %s", err, tc.want)
 			}
@@ -81,12 +74,12 @@ func TestRequestInventorySharesTheOriginalCallAndSimulateSchemas(t *testing.T) {
 			t.Fatalf("%s cannot share the generated CallMsg input", method)
 		}
 	}
-	var source struct{ Params []Parameter }
-	if err := json.Unmarshal(spec.SimulateV1JSON(), &source); err != nil {
+	var source struct{ Requests map[string][]Parameter }
+	if err := json.Unmarshal(spec.RequestsJSON(), &source); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(decode(mustJSON(t, source.Params)), decode(mustJSON(t, bundle.Requests["eth_simulateV1"]))) {
-		t.Fatal("simulate request schema or descriptor differs between official inventories")
+	if len(bundle.Requests) != 49 || !reflect.DeepEqual(source.Requests, bundle.Requests) {
+		t.Fatal("loading changed the unified official parameter inventory")
 	}
 	delete(bundle.Requests, "eth_call")
 	again, err := Read()
@@ -130,10 +123,10 @@ func TestReferenceBundlesMatchPinnedSourceManifest(t *testing.T) {
 	if err := json.Unmarshal(spec.SourceJSON(), &source); err != nil {
 		t.Fatal(err)
 	}
-	if source.Repository != "https://github.com/ethereum/execution-apis" || source.Version != spec.Version() || source.Commit != "981aa66d79364be8322a9c358aaf0a571cca0873" || len(source.DereferencedOpenRPCSHA256) != 64 {
+	if source.Repository != "https://github.com/ethereum/execution-apis" || source.Version != spec.Version() || source.Commit != "981aa66d79364be8322a9c358aaf0a571cca0873" || source.DereferencedOpenRPCSHA256 != "80efa2c6ab609d9ec48fa6d720650d1c3903065c887e03c600970ca97c2f09a5" {
 		t.Fatalf("unexpected source identity: %+v", source)
 	}
-	inputs := map[string][]byte{"methods.json": spec.MethodsJSON(), "requests.json": spec.RequestsJSON(), "simulatev1/simulate.json": spec.SimulateV1JSON()}
+	inputs := map[string][]byte{"methods.json": spec.MethodsJSON(), "requests.json": spec.RequestsJSON()}
 	if len(inputs) != len(source.Bundles) {
 		t.Fatalf("source inventory = %+v", source.Bundles)
 	}
@@ -180,7 +173,7 @@ func TestSharedVectorInventoryMatchesPinnedSourceManifest(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(methods) != 21 || !reflect.DeepEqual(actual, source.Vectors) {
+	if len(methods) != 22 || len(actual) != 204 || !reflect.DeepEqual(actual, source.Vectors) {
 		t.Fatalf("shared vector bytes or method selection differ: %d methods, %d files", len(methods), len(actual))
 	}
 }

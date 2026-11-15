@@ -65,6 +65,21 @@ func emit(reg *registry, version string, roots map[string]*ref, outPath string) 
 	for _, u := range reg.unionList {
 		emitUnion(f, u)
 	}
+	aliases := make([]string, 0, len(modelAliases))
+	for alias := range modelAliases {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	for _, alias := range aliases {
+		target := modelAliases[alias]
+		if !reg.usedNames[target] {
+			continue
+		}
+		f.Commentf("%s aliases the shared official %s model.", alias, target)
+		f.Type().Id(alias).Op("=").Id(target)
+		f.Func().Id("New"+alias).Params(rawParameter()).Params(jen.Id(alias), jen.Error()).Block(jen.Return(jen.Id("New" + target).Call(jen.Id("raw"))))
+	}
+
 	methods := make([]string, 0, len(roots))
 	for method := range roots {
 		methods = append(methods, method)

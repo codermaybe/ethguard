@@ -11,6 +11,8 @@ eth_getBlockByHash
 eth_getBlockByNumber
 eth_getBlockReceipts
 eth_getCode
+eth_getHeaderByHash
+eth_getHeaderByNumber
 eth_getLogs
 eth_getProof
 eth_getStorageAt
@@ -19,5 +21,6 @@ eth_getTransactionCount
 eth_getTransactionReceipt
 eth_maxPriorityFeePerGas
 eth_sendRawTransaction
+eth_simulateV1
 eth_syncing
 net_version

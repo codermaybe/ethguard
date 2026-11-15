@@ -20,11 +20,17 @@ go mod tidy -diff
 
 echo "==> checking generated public types"
 generated_types="$(mktemp)"
-trap 'rm -f "$generated_types"' EXIT
-go run ./rpc/internal/wire/gen -out "$generated_types"
+generated_audit="$(mktemp)"
+trap 'rm -f "$generated_types" "$generated_audit"' EXIT
+go run ./rpc/internal/wire/gen -out "$generated_types" -audit-out "$generated_audit"
 if ! cmp -s "$generated_types" ethapi/types.gen.go; then
     echo "ethapi/types.gen.go is stale; run go generate ./ethapi" >&2
     diff -u ethapi/types.gen.go "$generated_types" || true
+    exit 1
+fi
+if ! cmp -s "$generated_audit" ethapi/types.audit.json; then
+    echo "ethapi/types.audit.json is stale; run go generate ./ethapi" >&2
+    diff -u ethapi/types.audit.json "$generated_audit" || true
     exit 1
 fi
 

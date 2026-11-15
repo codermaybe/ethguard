@@ -96,7 +96,7 @@ func TestSimulateV1ReferenceForms(t *testing.T) {
 }
 
 func TestSimulateV1NormalizationOfficialResult(t *testing.T) {
-	data, err := fs.ReadFile(spec.SimulateV1EvidenceFS(), "simulatev1/vectors/ethSimulate-empty.io")
+	data, err := fs.ReadFile(spec.VectorsFS(), "vectors/eth_simulateV1/ethSimulate-empty.io")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,9 +158,9 @@ func TestSimulateV1PreparationConsumesAllOfficialRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := spec.SimulateV1EvidenceFS()
+	files := spec.VectorsFS()
 	count := 0
-	if err := fs.WalkDir(files, "simulatev1/vectors", func(name string, entry fs.DirEntry, walkErr error) error {
+	if err := fs.WalkDir(files, "vectors/eth_simulateV1", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

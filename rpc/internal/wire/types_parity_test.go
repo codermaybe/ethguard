@@ -7,8 +7,6 @@ package wire_test
 import (
 	"bytes"
 	"encoding/json"
-	"io/fs"
-	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard/ethapi"
@@ -23,21 +21,7 @@ import (
 
 func officialVectors(t *testing.T) []conformance.Vector {
 	t.Helper()
-	var vectors []conformance.Vector
-	err := fs.WalkDir(spec.VectorsFS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || !strings.HasSuffix(path, ".io") {
-			return nil
-		}
-		pairs, err := conformance.ParseVector(spec.VectorsFS(), path)
-		if err != nil {
-			return err
-		}
-		vectors = append(vectors, pairs...)
-		return nil
-	})
+	vectors, err := conformance.ReadVectors(spec.VectorsFS())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,10 +12,14 @@ import (
 
 func main() {
 	out := flag.String("out", "types.gen.go", "output file (relative to the generator's working directory)")
+	auditOut := flag.String("audit-out", "", "also write the deterministic schema and generation-policy audit")
 	flag.Parse()
 
 	report := &genReport{visited: map[string]bool{}}
 	reg := newRegistry(report)
+	if _, err := reviewedScalarPolicies(); err != nil {
+		fail("policy: %v", err)
+	}
 
 	bundle, err := executionapi.Read()
 	if err != nil {
@@ -32,6 +36,15 @@ func main() {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	for _, name := range names {
+		node, err := parseSchema(results[name])
+		if err != nil {
+			fail("spec: %s: %v", name, err)
+		}
+		if err := reg.registerModelNames(node, name+".result"); err != nil {
+			fail("%v", err)
+		}
+	}
 	roots := make(map[string]*ref, len(results))
 	for _, name := range names {
 		node, err := parseSchema(results[name])
@@ -47,40 +60,19 @@ func main() {
 		report.methods = append(report.methods, name)
 	}
 
-	// Public call input is the unmodified official eth_call parameter schema.
-	// Naming is API policy; its fields and constraints are owned by the source.
-	callParams := bundle.Requests["eth_call"]
-	if len(callParams) == 0 {
-		fail("spec: eth_call has no parameter schema")
-	}
-	node, err := parseSchema(callParams[0].Schema)
-	if err != nil {
-		fail("spec: eth_call params[0]: %v", err)
-	}
-	if _, err := reg.walk(node, "eth_call.params[0]"); err != nil {
+	// Every selected request root has the same construction policy. The
+	// selection controls public generation coverage, never method semantics.
+	if err := generateRequestRoots(reg, bundle.Requests); err != nil {
 		fail("%v", err)
-	}
-
-	// Request generation has a separate construction policy: closed objects
-	// reject unknown members and open objects retain them as raw JSON values.
-	// This changes neither source schemas nor the existing result projection.
-	reg.strictRequests = true
-	params := bundle.Requests["eth_simulateV1"]
-	if len(params) != 2 {
-		fail("spec: eth_simulateV1 requires payload and reference descriptors")
-	}
-	for i, parameter := range params {
-		node, err := parseSchema(parameter.Schema)
-		if err != nil {
-			fail("spec: eth_simulateV1 params[%d]: %v", i, err)
-		}
-		if _, err := reg.walk(node, fmt.Sprintf("eth_simulateV1.params[%d]", i)); err != nil {
-			fail("%v", err)
-		}
 	}
 
 	if err := emit(reg, bundle.Version, roots, *out); err != nil {
 		fail("%v", err)
+	}
+	if *auditOut != "" {
+		if err := writeGenerationAudit(bundle, *out, *auditOut); err != nil {
+			fail("audit: %v", err)
+		}
 	}
 	abs, _ := filepath.Abs(*out)
 	fmt.Fprintf(os.Stderr, "gen: wrote %s (%d objects, %d fields, %d unions, %d shims)\n",

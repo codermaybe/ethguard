@@ -133,6 +133,8 @@ type registry struct {
 	strictRequests  bool
 	preserveStrings bool // uniqueItems compares JSON strings before any native normalization
 	values          []*ref
+	preferredNames  map[string]string
+	reservedNames   map[string]string
 	usedNames       map[string]bool
 	row             int // fallback name counter
 	report          *genReport
@@ -140,15 +142,20 @@ type registry struct {
 
 func newRegistry(report *genReport) *registry {
 	r := &registry{
-		byFP:      map[string]*objectModel{},
-		mapByFP:   map[string]*mapModel{},
-		unions:    map[string]*unionModel{},
-		usedNames: map[string]bool{},
-		report:    report,
+		byFP:           map[string]*objectModel{},
+		mapByFP:        map[string]*mapModel{},
+		unions:         map[string]*unionModel{},
+		usedNames:      map[string]bool{},
+		preferredNames: map[string]string{},
+		reservedNames:  map[string]string{},
+		report:         report,
 	}
 	// Reserve native names, including every pattern-derived one.
 	for _, n := range natives {
 		r.usedNames[n.name] = true
+	}
+	for alias := range modelAliases {
+		r.usedNames[alias] = true
 	}
 	r.usedNames["bool"] = true
 	r.usedNames["int"] = true
@@ -178,6 +185,10 @@ func (reg *registry) uniqueName(base, path string) string {
 }
 
 // --- Naming policy ---
+
+// Aliases preserve an existing public spelling for a schema-identical model.
+// They are generated, including their constructor forwarding function.
+var modelAliases = map[string]string{"SimulateBlockReference": "BlockReference"}
 
 // overrideNamesByTitle pins stable wire-level names for schemas the bundle
 // titles with lower-case or verbose spellings.
@@ -209,25 +220,59 @@ var overrideNamesByTitle = map[string]string{
 // Path keys are stable inside the pinned version; the emitted version
 // interlock forces regeneration if the pinned bundle ever moves.
 var overrideNameByPath = map[string]string{
-	"eth_simulateV1.params[0]":                                                                                                                   "SimulateV1Request",
-	"eth_simulateV1.params[1]":                                                                                                                   "SimulateBlockReference",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items":                                                                                  "BlockStateCall",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides":                                                        "BlockOverrides",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items":                                                           "SimulateCall",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides":                                                        "StateOverrides",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items":            "BlockTransaction",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0]":   "BlockSetCodeTransaction",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1]":   "BlockBlobTransaction",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2]":   "BlockEIP1559Transaction",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3]":   "BlockAccessListTransaction",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4]":   "BlockLegacyTransaction",
+	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items":          "BlockTransaction",
+	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0]": "BlockSetCodeTransaction",
+	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1]": "BlockBlobTransaction",
+	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2]": "BlockEIP1559Transaction",
+	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3]": "BlockAccessListTransaction",
+	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4]": "BlockLegacyTransaction",
+	"eth_getTransactionByHash.result.oneOf[1]":                                             "Transaction",
+	"eth_getTransactionByHash.result.oneOf[1].oneOf[0]":                                    "SetCodeTransaction",
+	"eth_getTransactionByHash.result.oneOf[1].oneOf[1]":                                    "BlobTransaction",
+	"eth_getTransactionByHash.result.oneOf[1].oneOf[2]":                                    "EIP1559Transaction",
+	"eth_getTransactionByHash.result.oneOf[1].oneOf[3]":                                    "AccessListTransaction",
+	"eth_getTransactionByHash.result.oneOf[1].oneOf[4]":                                    "LegacyTransaction",
+
+	"eth_simulateV1.params[0]":                                                            "SimulateV1Request",
+	"eth_simulateV1.params[1]":                                                            "BlockReference",
+	"eth_getBlockReceipts.params[0]":                                                      "BlockReference",
+	"eth_getBlockReceipts.params[0].anyOf[3]":                                             "BlockNumberReference",
+	"eth_getBlockReceipts.params[0].anyOf[4]":                                             "BlockHashReference",
+	"eth_getLogs.params[0]":                                                               "FilterQuery",
+	"eth_getLogs.params[0].oneOf[0]":                                                      "FilterQueryRange",
+	"eth_getLogs.params[0].oneOf[1]":                                                      "FilterQueryHash",
+	"eth_getLogs.params[0].oneOf[0].properties.address":                                   "FilterAddress",
+	"eth_getLogs.params[0].oneOf[0].properties.fromBlock":                                 "FilterBlock",
+	"eth_getLogs.params[0].oneOf[0].properties.toBlock":                                   "FilterBlock",
+	"eth_getLogs.params[0].oneOf[0].properties.topics.oneOf[1].items":                     "FilterTopic",
+	"eth_subscribe.params[1]/oneOf/2":                                                     "TransactionReceiptsQuery",
+	"eth_getHeaderByHash.result.oneOf[1]":                                                 "Header",
+	"eth_getHeaderByNumber.result.oneOf[1]":                                               "Header",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items":                           "BlockStateCall",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides": "BlockOverrides",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items":    "SimulateCall",
+	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides": "StateOverrides",
 	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$":                  "AccountOverride",
 	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.state": "AccountStorage",
 	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals.items":                           "SimulateWithdrawal",
 	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.accessList.items":                               "SimulateAccessListItem",
-	"eth_simulateV1.params[1].anyOf[3]":                                                                                                          "BlockNumberReference",
-	"eth_simulateV1.params[1].anyOf[4]":                                                                                                          "BlockHashReference",
-	"eth_call.params[0]":                                                                                                                         "CallMsg",
-	"eth_simulateV1.result.items.properties.calls.items":                                                                                         "SimulateCallResult",
-	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error":                                                               "SimulateCallError",
-	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0]":                                                      "SimulateErrorRevert",
-	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1]":                                                      "SimulateErrorVM",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items":                      "AuthorizationTuple",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions":                                                                                 "BlockTransactions",
+	"eth_simulateV1.params[1].anyOf[3]":                                                                                     "BlockNumberReference",
+	"eth_simulateV1.params[1].anyOf[4]":                                                                                     "BlockHashReference",
+	"eth_call.params[0]":                                                                                                    "CallMsg",
+	"eth_call.params[0].properties.accessList.items":                                                                        "SimulateAccessListItem",
+	"eth_call.params[0].properties.authorizationList.items":                                                                 "CallAuthorization",
+	"eth_simulateV1.result.items.properties.calls.items":                                                                    "SimulateCallResult",
+	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error":                                          "SimulateCallError",
+	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0]":                                 "SimulateErrorRevert",
+	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1]":                                 "SimulateErrorVM",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items": "AuthorizationTuple",
+	"eth_getBlockByHash.result.oneOf[1].properties.transactions":                                                            "BlockTransactions",
 }
 
 // fieldOrderOverrides pin the field order of objects whose canonical byte

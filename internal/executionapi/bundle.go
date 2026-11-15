@@ -41,7 +41,7 @@ func Read() (Bundle, error) {
 // ReadOriginal assembles only the unmodified upstream schemas. Independent
 // source conformance and upgrade audits must keep this view as their oracle.
 func ReadOriginal() (Bundle, error) {
-	bundle, err := load(spec.MethodsJSON(), spec.SimulateV1JSON(), spec.Version())
+	bundle, err := load(spec.MethodsJSON(), spec.Version())
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -85,7 +85,7 @@ func loadRequests(raw []byte, pin string) (map[string][]Parameter, error) {
 	return requests.Requests, nil
 }
 
-func load(methods, simulate []byte, pin string) (Bundle, error) {
+func load(methods []byte, pin string) (Bundle, error) {
 	var base struct {
 		Version string                     `json:"version"`
 		Results map[string]json.RawMessage `json:"results"`
@@ -99,23 +99,5 @@ func load(methods, simulate []byte, pin string) (Bundle, error) {
 	if len(base.Results) == 0 {
 		return Bundle{}, fmt.Errorf("execution-apis methods bundle has no results")
 	}
-	var extra struct {
-		Version string          `json:"version"`
-		Method  string          `json:"method"`
-		Result  json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(simulate, &extra); err != nil {
-		return Bundle{}, fmt.Errorf("execution-apis simulate bundle: %w", err)
-	}
-	if extra.Version != pin {
-		return Bundle{}, fmt.Errorf("execution-apis simulate version %q != pin %q", extra.Version, pin)
-	}
-	if extra.Method != "eth_simulateV1" || len(extra.Result) == 0 || string(extra.Result) == "null" {
-		return Bundle{}, fmt.Errorf("execution-apis simulate bundle has no eth_simulateV1 result schema")
-	}
-	if _, duplicate := base.Results[extra.Method]; duplicate {
-		return Bundle{}, fmt.Errorf("execution-apis duplicate result schema for %s", extra.Method)
-	}
-	base.Results[extra.Method] = extra.Result
 	return Bundle{Version: pin, Results: base.Results}, nil
 }

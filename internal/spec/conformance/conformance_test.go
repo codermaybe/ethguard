@@ -6,6 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/codermaybe/ethguard/internal/executionapi"
 	"github.com/codermaybe/ethguard/internal/spec"
 )
 
@@ -22,6 +23,67 @@ func TestEmbeddedExecutionAPIVectors(t *testing.T) {
 	}
 	if len(report.Uncovered) != 0 {
 		t.Fatalf("unexpected uncovered official vector methods: %#v", report.Uncovered)
+	}
+}
+
+func TestEmbeddedExecutionAPIVectorsAgainstEffectiveSchemas(t *testing.T) {
+	effective, err := executionapi.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(struct {
+		Version string                     `json:"version"`
+		Results map[string]json.RawMessage `json:"results"`
+	}{effective.Version, effective.Results})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep TestEmbeddedExecutionAPIVectors' original source oracle intact.
+	// Passing the reviewed effective view cannot stand in for that check.
+	report := Run(spec.VectorsFS(), raw, spec.Version())
+	if len(report.Issues) != 0 || len(report.Uncovered) != 0 {
+		t.Fatalf("effective schema conformance: %+v", report)
+	}
+	vectors, err := ReadVectors(spec.VectorsFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := CountVectors(vectors)
+	for method, want := range counts {
+		got := report.Methods[method]
+		if got.Total != want.Total || got.Errors != want.Errors || got.Results != want.Results || got.ValidatedResults != want.Results {
+			t.Errorf("%s effective accounting: %+v; corpus: %+v", method, got, want)
+		}
+	}
+}
+
+func TestRunCountsUncoveredErrorsWithoutInventingResultCoverage(t *testing.T) {
+	vectors := fstest.MapFS{"pairs.io": &fstest.MapFile{Data: []byte(">> {\"method\":\"covered\"}\n<< {\"result\":null}\n>> {\"method\":\"uncovered\"}\n<< {\"error\":{\"code\":-1}}\n>> {\"method\":\"covered\"}\n<< {\"error\":{\"code\":-2}}\n")}}
+	report := Run(vectors, []byte(`{"version":"test","results":{"covered":{"type":"null"}}}`), "test")
+	if report.TotalVectors != 3 || report.ErrorResponses != 2 || report.ValidatedResult != 1 || len(report.Uncovered) != 1 || report.Uncovered[0] != "uncovered" {
+		t.Fatalf("lost uncovered error or counted it as result coverage: %+v", report)
+	}
+	if report.Methods["uncovered"] != (VectorCounts{Total: 1, Errors: 1}) || report.Methods["covered"] != (VectorCounts{Total: 2, Results: 1, Errors: 1, ValidatedResults: 1}) {
+		t.Fatalf("per-method counts: %+v", report.Methods)
+	}
+}
+
+func TestRunKeepsSourceAndEffectiveValidationDistinct(t *testing.T) {
+	vectors := fstest.MapFS{"pairs.io": &fstest.MapFile{Data: []byte(">> {\"method\":\"x\"}\n<< {\"result\":[]}\n")}}
+	for _, tc := range []struct {
+		name, composition string
+		issues            int
+	}{
+		{"source", "oneOf", 1},
+		{"effective", "anyOf", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := []byte(`{"version":"test","results":{"x":{"` + tc.composition + `":[{"type":"array","items":{"type":"string"}},{"type":"array","items":{"type":"object"}}]}}}`)
+			report := Run(vectors, bundle, "test")
+			if len(report.Issues) != tc.issues || report.ValidatedResult != 1-tc.issues {
+				t.Fatalf("%s schema result was hidden: %+v", tc.name, report)
+			}
+		})
 	}
 }
 

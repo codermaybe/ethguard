@@ -26,6 +26,7 @@ type Report struct {
 	TotalVectors    int
 	ValidatedResult int
 	ErrorResponses  int
+	Methods         map[string]VectorCounts
 	Uncovered       []string
 	Issues          []Issue
 }
@@ -58,40 +59,33 @@ func Run(vectorsFS fs.FS, bundleJSON []byte, pinnedVersion string) Report {
 	}
 	report.BundleVersion = bundle.version
 	uncovered := map[string]bool{}
-	err = fs.WalkDir(vectorsFS, ".", func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || !strings.HasSuffix(path, ".io") {
-			return nil
-		}
-		vectors, parseErr := ParseVector(vectorsFS, path)
-		if parseErr != nil {
-			report.Issues = append(report.Issues, Issue{Path: path, Detail: parseErr.Error()})
-			return nil
-		}
-		report.TotalVectors += len(vectors)
-		for _, vector := range vectors {
-			identity := vector.Identity()
-			schema, ok := bundle.results[vector.Method]
-			if !ok {
-				uncovered[vector.Method] = true
-				continue
-			}
-			if vector.Error != nil {
-				report.ErrorResponses++
-				continue
-			}
-			if validateErr := ValidateResult(schema, vector.Result); validateErr != nil {
-				report.Issues = append(report.Issues, Issue{Path: identity, Method: vector.Method, Detail: validateErr.Error()})
-				continue
-			}
-			report.ValidatedResult++
-		}
-		return nil
-	})
+	vectors, err := ReadVectors(vectorsFS)
 	if err != nil {
 		report.Issues = append(report.Issues, Issue{Path: "vectors", Detail: err.Error()})
+		return report
+	}
+	report.Methods = CountVectors(vectors)
+	for _, vector := range vectors {
+		report.TotalVectors++
+		if vector.Error != nil {
+			report.ErrorResponses++
+		}
+		schema, ok := bundle.results[vector.Method]
+		if !ok {
+			uncovered[vector.Method] = true
+			continue
+		}
+		if vector.Error != nil {
+			continue
+		}
+		if validateErr := ValidateResult(schema, vector.Result); validateErr != nil {
+			report.Issues = append(report.Issues, Issue{Path: vector.Identity(), Method: vector.Method, Detail: validateErr.Error()})
+			continue
+		}
+		report.ValidatedResult++
+		counts := report.Methods[vector.Method]
+		counts.ValidatedResults++
+		report.Methods[vector.Method] = counts
 	}
 	for method := range uncovered {
 		report.Uncovered = append(report.Uncovered, method)
@@ -151,6 +145,51 @@ type Vector struct {
 
 // Identity includes the complete filesystem path and pair index.
 func (v Vector) Identity() string { return fmt.Sprintf("%s[%d]", v.Path, v.Index) }
+
+// VectorCounts classifies interactions independently of schema availability.
+// Results counts result-bearing responses, including explicit JSON null; it
+// does not claim that these results passed a schema or generated constructor.
+type VectorCounts struct {
+	Total, Results, Errors int
+	ValidatedResults       int // populated by Run, not by response classification
+}
+
+// CountVectors accounts for every parsed interaction by exact method name.
+func CountVectors(vectors []Vector) map[string]VectorCounts {
+	counts := map[string]VectorCounts{}
+	for _, vector := range vectors {
+		count := counts[vector.Method]
+		count.Total++
+		if vector.Error != nil {
+			count.Errors++
+		} else {
+			count.Results++
+		}
+		counts[vector.Method] = count
+	}
+	return counts
+}
+
+// ReadVectors enumerates the shared corpus in path and pair order. The full
+// path and pair index survive into each vector's identity.
+func ReadVectors(vectorsFS fs.FS) ([]Vector, error) {
+	var vectors []Vector
+	err := fs.WalkDir(vectorsFS, ".", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".io") {
+			return nil
+		}
+		pairs, err := ParseVector(vectorsFS, path)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		vectors = append(vectors, pairs...)
+		return nil
+	})
+	return vectors, err
+}
 
 // ParseVector reads every request and response in path and pairs them in their
 // respective file order, rather than choosing only the last response.

@@ -67,11 +67,17 @@ jobs:
       - name: generated wire freshness
         run: |
           generated="$(mktemp)"
-          trap 'rm -f "$generated"' EXIT
-          go run ./rpc/internal/wire/gen -out "$generated"
+          audit="$(mktemp)"
+          trap 'rm -f "$generated" "$audit"' EXIT
+          go run ./rpc/internal/wire/gen -out "$generated" -audit-out "$audit"
           if ! cmp -s "$generated" ethapi/types.gen.go; then
             echo "::error::regenerate ethapi/types.gen.go with go generate ./ethapi"
             diff -u ethapi/types.gen.go "$generated"
+            exit 1
+          fi
+          if ! cmp -s "$audit" ethapi/types.audit.json; then
+            echo "::error::regenerate ethapi/types.audit.json with go generate ./ethapi"
+            diff -u ethapi/types.audit.json "$audit"
             exit 1
           fi
       - name: go vet

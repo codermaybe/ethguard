@@ -15,9 +15,25 @@ func TestPendingQueryModelSeparatesFromEmbeddedTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	original := testSchema(t, string(raw.Results["eth_getTransactionByHash"]))
+	block := testSchema(t, string(raw.Results["eth_getBlockByHash"]))
+	var original *schema
+	for _, property := range block.branches[1].properties {
+		if property.name == "transactions" {
+			original = property.schema.branches[1].items
+		}
+	}
+	if original == nil {
+		t.Fatal("missing official block transactions")
+	}
 	query := testSchema(t, string(effective.Results["eth_getTransactionByHash"]))
-	embedded, err := reg.walk(original, "eth_getBlockByHash.result.transaction")
+	embeddedPath := "eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items"
+	if err := reg.registerModelNames(original, embeddedPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.registerModelNames(query, "eth_getTransactionByHash.result"); err != nil {
+		t.Fatal(err)
+	}
+	embedded, err := reg.walk(original, embeddedPath)
 	if err != nil {
 		t.Fatal(err)
 	}

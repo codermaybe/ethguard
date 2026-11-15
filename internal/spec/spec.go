@@ -24,12 +24,6 @@ var sourceJSON []byte
 //go:embed errata
 var errata embed.FS
 
-//go:embed simulatev1/simulate.json
-var simulateV1JSON []byte
-
-//go:embed simulatev1/vectors simulatev1/SOURCE.json
-var simulateV1Evidence embed.FS
-
 //go:embed VERSION
 var version string
 
@@ -49,18 +43,6 @@ func SourceJSON() []byte { return sourceJSON }
 
 // ErrataFS returns reviewed schema corrections, separate from upstream data.
 func ErrataFS() fs.FS { return errata }
-
-// SimulateV1JSON returns the vendored single-method bundle for
-// eth_simulateV1: {"version", "method", "params", "result"}, produced by
-// cmd/specmethod from the same official release as VERSION. The method is not
-// part of methods.json yet; its official vectors and source provenance are
-// available through SimulateV1EvidenceFS. Callers must treat it as read-only.
-func SimulateV1JSON() []byte { return simulateV1JSON }
-
-// SimulateV1EvidenceFS returns the unmodified official SimulateV1 vectors and
-// their pinned source manifest. Schema/vector conflicts are recorded separately
-// from successful conformance; these files must not be repaired in place.
-func SimulateV1EvidenceFS() fs.FS { return simulateV1Evidence }
 
 // Version returns the pinned execution-apis release (trimmed).
 func Version() string { return strings.TrimSpace(version) }

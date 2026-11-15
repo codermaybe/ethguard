@@ -1,0 +1,354 @@
+package main
+
+// Generation coverage and representation policies are build-time input.
+// They do not register RPC methods or repair provider responses.
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/codermaybe/ethguard/internal/executionapi"
+)
+
+type requestRoot struct {
+	Method         string `json:"method"`
+	Parameter      int    `json:"parameter"`
+	Pointer        string `json:"schemaPointer,omitempty"`
+	ExpectedSHA256 string `json:"selectedCompactSchemaSHA256,omitempty"`
+}
+
+// Explicit coverage selects only reviewed request models. Adding coverage
+// requires a reviewed source and public model;
+// every request uses the same schema-faithful object construction rules.
+var requestRoots = []requestRoot{
+	{Method: "eth_call", Parameter: 0},
+	{Method: "eth_getBlockReceipts", Parameter: 0},
+	{Method: "eth_getLogs", Parameter: 0},
+	{Method: "eth_subscribe", Parameter: 1, Pointer: "/oneOf/2", ExpectedSHA256: "d2e56b0d79a7b0c5d2a7bf9c501354414a12c33ceb37c2b76bb556826a6a9a3d"},
+	{Method: "eth_simulateV1", Parameter: 0},
+	{Method: "eth_simulateV1", Parameter: 1},
+}
+
+func generateRequestRoots(reg *registry, requests map[string][]executionapi.Parameter) error {
+	previous := reg.strictRequests
+	reg.strictRequests = true
+	defer func() { reg.strictRequests = previous }()
+	for _, root := range requestRoots {
+		raw, path, err := selectRequestRoot(requests, root)
+		if err != nil {
+			return err
+		}
+		node, err := parseSchema(raw)
+		if err != nil {
+			return fmt.Errorf("spec: %s: %w", path, err)
+		}
+		if err := reg.registerModelNames(node, path); err != nil {
+			return err
+		}
+	}
+	seen := map[string]bool{}
+	for _, root := range requestRoots {
+		key := fmt.Sprintf("%s.params[%d]%s", root.Method, root.Parameter, root.Pointer)
+		if seen[key] {
+			return fmt.Errorf("spec: duplicate request generation root %+v", root)
+		}
+		seen[key] = true
+		raw, path, err := selectRequestRoot(requests, root)
+		if err != nil {
+			return err
+		}
+		node, err := parseSchema(raw)
+		if err != nil {
+			return fmt.Errorf("spec: %s: %w", path, err)
+		}
+		if _, err := reg.walk(node, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// selectRequestRoot follows an RFC 6901 JSON Pointer within one official
+// parameter schema. It preserves the selected node's source bytes for audit.
+func selectRequestRoot(requests map[string][]executionapi.Parameter, root requestRoot) (json.RawMessage, string, error) {
+	params, ok := requests[root.Method]
+	path := fmt.Sprintf("%s.params[%d]", root.Method, root.Parameter)
+	if !ok || root.Parameter < 0 || root.Parameter >= len(params) {
+		return nil, path, fmt.Errorf("spec: missing request generation root %s", path)
+	}
+	raw, err := schemaAtPointer(params[root.Parameter].Schema, root.Pointer)
+	if err != nil {
+		return nil, path, fmt.Errorf("spec: %s%s: %w", path, root.Pointer, err)
+	}
+	if root.ExpectedSHA256 != "" {
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, raw); err != nil {
+			return nil, path, err
+		}
+		digest := fmt.Sprintf("%x", sha256.Sum256(compact.Bytes()))
+		if digest != root.ExpectedSHA256 {
+			return nil, path, fmt.Errorf("spec: selected node contract changed at %s%s: compact SHA-256 %s != %s", path, root.Pointer, digest, root.ExpectedSHA256)
+		}
+	}
+	return raw, path + root.Pointer, nil
+}
+
+func schemaAtPointer(raw json.RawMessage, pointer string) (json.RawMessage, error) {
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("invalid schema JSON")
+	}
+	if pointer != "" {
+		if !strings.HasPrefix(pointer, "/") {
+			return nil, fmt.Errorf("schema pointer must be empty or start with /")
+		}
+		for _, encoded := range strings.Split(pointer[1:], "/") {
+			var token strings.Builder
+			for i := 0; i < len(encoded); i++ {
+				if encoded[i] != '~' {
+					token.WriteByte(encoded[i])
+					continue
+				}
+				i++
+				if i >= len(encoded) || (encoded[i] != '0' && encoded[i] != '1') {
+					return nil, fmt.Errorf("invalid JSON Pointer escape")
+				}
+				if encoded[i] == '0' {
+					token.WriteByte('~')
+				} else {
+					token.WriteByte('/')
+				}
+			}
+			key := token.String()
+			switch strings.TrimSpace(string(raw))[0] {
+			case '{':
+				var object map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &object); err != nil {
+					return nil, err
+				}
+				var found bool
+				raw, found = object[key]
+				if !found {
+					return nil, fmt.Errorf("schema pointer member %q does not exist", key)
+				}
+			case '[':
+				var array []json.RawMessage
+				if err := json.Unmarshal(raw, &array); err != nil {
+					return nil, err
+				}
+				index, err := strconv.Atoi(key)
+				if err != nil || key != strconv.Itoa(index) || index < 0 || index >= len(array) {
+					return nil, fmt.Errorf("invalid schema pointer array index %q", key)
+				}
+				raw = array[index]
+			default:
+				return nil, fmt.Errorf("schema pointer traverses a scalar")
+			}
+		}
+	}
+	if !json.Valid(raw) || len(strings.TrimSpace(string(raw))) == 0 || strings.TrimSpace(string(raw))[0] != '{' {
+		return nil, fmt.Errorf("selected schema must be an object")
+	}
+	return raw, nil
+}
+
+// These are the existing codec policies, not upstream schema amendments.
+// Naming every normalizer explicitly makes newly introduced input widening
+// fail generation until its representation policy is reviewed here.
+var normalizationPolicies = map[string]string{
+	"CanonicalQuantity":      "quantity-v1: case-insensitive hex, canonical lowercase quantity; reject leading zeros",
+	"NormalizeWireData":      "data-v1: case-insensitive prefix and even hex bytes, preserve byte length, lowercase output",
+	"ValidateWireFixedHex":   "fixed-hex-v1: case-insensitive prefix and fixed-width hex, lowercase output",
+	"CanonicalHexByte":       "hex-byte-v1: case-insensitive one-byte quantity, fold redundant leading zeros",
+	"NormalizeDecimalString": "decimal-v1: parse decimal integer, canonicalize sign and leading zeros, then enforce canonical pattern",
+	"CanonicalNumber":        "number-v1: finite exact JSON number, no binary floating-point rounding",
+}
+
+type scalarPolicy struct {
+	Name       string `json:"name"`
+	Pattern    string `json:"canonicalPattern,omitempty"`
+	Normalizer string `json:"normalizer,omitempty"`
+	Arguments  []any  `json:"arguments,omitempty"`
+	Policy     string `json:"representationPolicy"`
+}
+
+type schemaPolicy struct {
+	Path       string `json:"path"`
+	Role       string `json:"role"`
+	Pattern    string `json:"sourcePattern,omitempty"`
+	Native     string `json:"native,omitempty"`
+	Normalizer string `json:"normalizer,omitempty"`
+	Policy     string `json:"representationPolicy,omitempty"`
+	Object     string `json:"objectPolicy,omitempty"`
+}
+
+type auditRoot struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"effectiveSchemaSHA256"`
+}
+
+type modelNamePolicy struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+type generationAudit struct {
+	ModelNames      []modelNamePolicy             `json:"modelNames"`
+	TypeAliases     map[string]string             `json:"typeAliases"`
+	Version         string                        `json:"version"`
+	Errata          []executionapi.AppliedErratum `json:"errata"`
+	RequestRoots    []requestRoot                 `json:"requestRoots"`
+	Roots           []auditRoot                   `json:"roots"`
+	Scalars         []scalarPolicy                `json:"scalarPolicies"`
+	Usages          []schemaPolicy                `json:"schemaPolicies"`
+	GeneratedSHA256 string                        `json:"generatedSHA256"`
+}
+
+func reviewedScalarPolicies() ([]scalarPolicy, error) {
+	var policies []scalarPolicy
+	for _, n := range natives {
+		policy := "literal-v1: preserve string value; enforce declared constraints"
+		if n.parse.fn != "" {
+			var ok bool
+			policy, ok = normalizationPolicies[n.parse.fn]
+			if !ok {
+				return nil, fmt.Errorf("unreviewed normalizer %q for %s", n.parse.fn, n.name)
+			}
+		}
+		policies = append(policies, scalarPolicy{n.name, n.pattern, n.parse.fn, n.parse.extraArgs, policy})
+	}
+	return policies, nil
+}
+
+func writeGenerationAudit(bundle executionapi.Bundle, generated, target string) error {
+	scalars, err := reviewedScalarPolicies()
+	if err != nil {
+		return err
+	}
+	audit := generationAudit{Version: bundle.Version, Errata: bundle.Errata, RequestRoots: requestRoots, Scalars: scalars, TypeAliases: modelAliases}
+	for path, name := range overrideNameByPath {
+		audit.ModelNames = append(audit.ModelNames, modelNamePolicy{Path: path, Name: name})
+	}
+	sort.Slice(audit.ModelNames, func(i, j int) bool { return audit.ModelNames[i].Path < audit.ModelNames[j].Path })
+	add := func(raw json.RawMessage, path, role string) error {
+		node, err := parseSchema(raw)
+		if err != nil {
+			return err
+		}
+		digest := sha256.Sum256(raw)
+		audit.Roots = append(audit.Roots, auditRoot{path, hex.EncodeToString(digest[:])})
+		collectSchemaPolicies(node, path, role, false, &audit.Usages)
+		return nil
+	}
+	for method, raw := range bundle.Results {
+		if err := add(raw, method+".result", "result"); err != nil {
+			return err
+		}
+	}
+	for _, root := range requestRoots {
+		raw, path, err := selectRequestRoot(bundle.Requests, root)
+		if err != nil {
+			return err
+		}
+		if err := add(raw, path, "request"); err != nil {
+			return err
+		}
+	}
+	sort.Slice(audit.Roots, func(i, j int) bool { return audit.Roots[i].Path < audit.Roots[j].Path })
+	sort.Slice(audit.Usages, func(i, j int) bool { return audit.Usages[i].Path < audit.Usages[j].Path })
+	raw, err := os.ReadFile(generated)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(raw)
+	audit.GeneratedSHA256 = hex.EncodeToString(digest[:])
+	raw, err = json.MarshalIndent(audit, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(target, append(raw, '\n'), 0644)
+}
+
+// Traverse source nodes independently of model deduplication: the audit must
+// retain each method/path even when several paths share one generated type.
+func collectSchemaPolicies(n *schema, path, role string, preserve bool, out *[]schemaPolicy) {
+	policy := schemaPolicy{Path: path, Role: role, Pattern: n.pattern}
+	if n.typeVal == "string" || n.typeVal == "number" {
+		policy.Native = nativeForPattern(n.pattern)
+		if n.typeVal == "number" {
+			policy.Native = "Number"
+		}
+		if n.typeVal == "string" {
+			policy.Native = stringNative(n, preserve)
+		}
+		for _, native := range natives {
+			if native.name == policy.Native {
+				policy.Normalizer = native.parse.fn
+				policy.Policy = normalizationPolicies[native.parse.fn]
+				if policy.Normalizer == "" {
+					policy.Policy = "literal-v1: preserve string value; enforce declared constraints"
+				}
+			}
+		}
+	}
+	if (n.typeVal == "" || n.typeVal == "integer") && n.hasConst {
+		value, _ := decodeConst(n.constVal)
+		policy.Policy = "literal-v1: enforce exact declared constant"
+		switch value.(type) {
+		case string:
+			policy.Native = "Text"
+		case bool:
+			policy.Native = "bool"
+		case json.Number:
+			policy.Native = "int"
+			if _, err := strconv.ParseInt(n.constVal, 10, 32); err != nil {
+				policy.Native = "Number"
+				policy.Normalizer = "CanonicalNumber"
+				policy.Policy = normalizationPolicies[policy.Normalizer]
+			}
+		}
+	}
+	if n.typeVal == "object" {
+		policy.Object = "declared-field result projection"
+		if role == "request" {
+			policy.Object = "preserve additional input members"
+			if string(n.additionalProperties) == "false" {
+				policy.Object = "reject undeclared input members"
+			}
+		}
+	}
+	if policy.Native != "" || policy.Object != "" {
+		*out = append(*out, policy)
+	}
+	for _, field := range n.properties {
+		collectSchemaPolicies(field.schema, path+".properties."+field.name, role, preserve, out)
+	}
+	for _, field := range n.patternProperties {
+		collectSchemaPolicies(field.schema, path+".patternProperties."+field.name, role, preserve, out)
+	}
+	if n.items != nil {
+		collectSchemaPolicies(n.items, path+".items", role, preserve || n.uniqueItems, out)
+	}
+	for i, branch := range n.branches {
+		collectSchemaPolicies(branch, fmt.Sprintf("%s.%s[%d]", path, n.compKind, i), role, preserve, out)
+	}
+}
+
+func stringNative(n *schema, preserve bool) string {
+	if n.hasEnum || preserve {
+		return "Text"
+	}
+	if native := nativeForPattern(n.pattern); native != "" {
+		return native
+	}
+	if literalOfPattern(n.pattern) != "" {
+		return "Quantity"
+	}
+	return "Text"
+}

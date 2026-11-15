@@ -36,6 +36,8 @@ func generatedResultParsers() map[string]resultParser {
 		"eth_getBlockByNumber":      resultConstructor(ethapi.NewGetBlockByNumberResult),
 		"eth_getBlockReceipts":      resultConstructor(ethapi.NewGetBlockReceiptsResult),
 		"eth_getCode":               resultConstructor(ethapi.NewGetCodeResult),
+		"eth_getHeaderByHash":       resultConstructor(ethapi.NewGetHeaderByHashResult),
+		"eth_getHeaderByNumber":     resultConstructor(ethapi.NewGetHeaderByNumberResult),
 		"eth_getLogs":               resultConstructor(ethapi.NewGetLogsResult),
 		"eth_getProof":              resultConstructor(ethapi.NewGetProofResult),
 		"eth_getStorageAt":          resultConstructor(ethapi.NewGetStorageAtResult),
@@ -60,30 +62,27 @@ func officialResultSchemas(t *testing.T) map[string]any {
 	if err := methodDecoder.Decode(&methods); err != nil {
 		t.Fatal(err)
 	}
-	var simulate struct {
-		Method string `json:"method"`
-		Result any    `json:"result"`
-	}
-	simulateDecoder := json.NewDecoder(bytes.NewReader(spec.SimulateV1JSON()))
-	simulateDecoder.UseNumber()
-	if err := simulateDecoder.Decode(&simulate); err != nil {
-		t.Fatal(err)
-	}
-	methods.Results[simulate.Method] = simulate.Result
 	return methods.Results
 }
 
 // Source conformance is exercised in internal/spec/conformance. This test
 // instead exercises each reachable generated result entry point, then checks
-// its output against the same official schema AND the complete input content.
-// Idempotence alone would also pass a parser that stably dropped transactions.
+// its output against the effective schema and every declared input field.
+// Source validation uses the original schema separately. Idempotence alone
+// would also pass a parser that stably dropped transactions.
 func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 	parsers := generatedResultParsers()
 	transactionTypes := map[string]bool{}
 	blockShapes := map[string]bool{}
 	schemas := officialResultSchemas(t)
+	effective, err := executionapi.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vectors := officialVectors(t)
+	counts := conformance.CountVectors(vectors)
 	covered := map[string]int{}
-	for _, vector := range officialVectors(t) {
+	for _, vector := range vectors {
 		if vector.Error != nil {
 			continue
 		}
@@ -121,7 +120,20 @@ func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 			}
 		}
 		t.Run(vector.Identity(), func(t *testing.T) {
-			assertOfficialRoundTrip(t, parse, schemas[vector.Method], vector.Result)
+			t.Run("original-source", func(t *testing.T) {
+				if err := conformance.ValidateResult(schemas[vector.Method], vector.Result); err != nil {
+					t.Fatalf("original source vector/schema conflict: %v", err)
+				}
+			})
+			t.Run("effective-generated-roundtrip", func(t *testing.T) {
+				var schema any
+				decoder := json.NewDecoder(bytes.NewReader(effective.Results[vector.Method]))
+				decoder.UseNumber()
+				if err := decoder.Decode(&schema); err != nil {
+					t.Fatal(err)
+				}
+				assertOfficialRoundTrip(t, parse, schema, vector.Result)
+			})
 		})
 	}
 	for _, transactionType := range []string{"0x0", "0x1", "0x2", "0x3", "0x4"} {
@@ -137,15 +149,17 @@ func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 	// These methods have no success vectors in the shared corpus. Do not
 	// present synthetic inputs or constructor availability as vector coverage.
 	withoutVectors := map[string]bool{
+		"eth_getHeaderByHash":      true,
+		"eth_getHeaderByNumber":    true,
 		"eth_gasPrice":             true,
 		"eth_maxPriorityFeePerGas": true,
 	}
 	for method := range schemas {
-		if method == "eth_simulateV1" {
-			// Its separate corpus includes pinned upstream schema conflicts;
-			// types_simulate_vectors_test.go accounts for every interaction.
-			continue
+		count := counts[method]
+		if count.Total != count.Results+count.Errors || covered[method] != count.Results {
+			t.Errorf("%s corpus accounting: %+v, exercised results=%d", method, count, covered[method])
 		}
+		t.Logf("%s: %d interactions, %d results, %d top-level errors", method, count.Total, count.Results, count.Errors)
 		if covered[method] == 0 {
 			if !withoutVectors[method] {
 				t.Errorf("official result method unexpectedly lacks vector coverage: %s", method)
@@ -159,7 +173,11 @@ func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 
 func assertOfficialRoundTrip(t *testing.T, parse resultParser, schema any, raw json.RawMessage) json.RawMessage {
 	t.Helper()
-	return assertOfficialProjectionRoundTrip(t, parse, schema, raw, raw)
+	expected, err := declaredResultProjection(schema, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return assertOfficialProjectionRoundTrip(t, parse, schema, raw, expected)
 }
 
 func assertOfficialProjectionRoundTrip(t *testing.T, parse resultParser, schema any, raw, expected json.RawMessage) json.RawMessage {
@@ -350,6 +368,8 @@ func TestFeeHistoryConsumersRejectStringGasUsedRatio(t *testing.T) {
 
 func TestGeneratedNonNullableResultsRejectNull(t *testing.T) {
 	nullable := map[string]bool{
+		"eth_getHeaderByHash": true,
+		"eth_getHeaderByNumber": true,
 		"eth_getBlockByHash":        true,
 		"eth_getBlockByNumber":      true,
 		"eth_getBlockReceipts":      true,
@@ -398,7 +418,7 @@ func TestOfficialFeeHistoryNumbersDoNotInheritProtectedFloatGate(t *testing.T) {
 
 func TestGeneratedBlockTransactionsMarshalRequiresExactlyOneMember(t *testing.T) {
 	hashes := []ethapi.Hash{}
-	transactions := []ethapi.TransactionInformation{}
+	transactions := []ethapi.BlockTransaction{}
 	for _, tc := range []struct {
 		name  string
 		value ethapi.BlockTransactions

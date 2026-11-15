@@ -272,13 +272,19 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 		fp := reg.modelFingerprint(n)
 		if prev := reg.byFP[fp]; prev != nil {
 			prev.from = appendMethod(prev.from, methodOfPath(path))
+			if overrideNameByPath[path] == prev.name {
+				reg.report.visited[path] = true
+			}
 			return &ref{kind: refObject, typeName: prev.name}, nil
 		}
 		fields, err := reg.fieldsOf(n, path)
 		if err != nil {
 			return nil, err
 		}
-		name := reg.nameFor(n, path)
+		name, err := reg.nameFor(n, path)
+		if err != nil {
+			return nil, err
+		}
 		obj := &objectModel{name: name, fields: applyOrderOverride(name, fields), from: []string{methodOfPath(path)}, request: reg.strictRequests, closed: reg.strictRequests && string(n.additionalProperties) == "false", retainAdditional: reg.strictRequests && string(n.additionalProperties) != "false"}
 		for _, property := range n.properties {
 			obj.propertyNames = append(obj.propertyNames, property.name)
@@ -309,17 +315,7 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 		// Enum membership is defined over the JSON string itself. A native
 		// normalizer may change case, so constrained literals use Text and
 		// then enforce the original pattern and enum without rewriting them.
-		if n.hasEnum || reg.preserveStrings {
-			return &ref{kind: refScalar, native: "Text"}, nil
-		}
-		native := nativeForPattern(n.pattern)
-		if native == "" {
-			native = "Text"
-			if literalOfPattern(n.pattern) != "" {
-				native = "Quantity"
-			}
-		}
-		return &ref{kind: refScalar, native: native}, nil
+		return &ref{kind: refScalar, native: stringNative(n, reg.preserveStrings)}, nil
 	case "", "integer":
 		if n.hasConst {
 			v, _ := decodeConst(n.constVal)
@@ -400,7 +396,10 @@ func (reg *registry) unionOf(n *schema, path string) (*ref, error) {
 		names[name] = true
 		branches = append(branches, branchModel{goName: name, ref: r, title: b.title, index: i})
 	}
-	name := reg.nameFor(n, path)
+	name, err := reg.nameFor(n, path)
+	if err != nil {
+		return nil, err
+	}
 	um := &unionModel{name: name, branches: branches, nullable: n.hasNullBranch(), kind: n.compKind, request: reg.strictRequests, from: []string{methodOfPath(path)}}
 	reg.unions[key] = um
 	reg.unionList = append(reg.unionList, um)
@@ -488,19 +487,36 @@ func canonicalQuantityLine(s string) bool {
 	}
 	return true
 }
-func (reg *registry) nameFor(n *schema, path string) string {
-	if name, ok := overrideNameByPath[path]; ok {
+func (reg *registry) nameFor(n *schema, path string) (string, error) {
+	key := reg.modelFingerprint(n)
+	name := reg.preferredNames[key]
+	if explicit, ok := overrideNameByPath[path]; ok {
 		reg.report.visited[path] = true
-		return reg.uniqueName(name, path)
+		if name != "" && name != explicit {
+			return "", fmt.Errorf("spec: naming conflict at %s: %s != %s", path, name, explicit)
+		}
+		name = explicit
 	}
-	if name, ok := overrideNamesByTitle[n.title]; ok {
-		return reg.uniqueName(name, path)
+	if name != "" {
+		if reg.usedNames[name] {
+			return "", fmt.Errorf("spec: naming conflict at %s: %s already used", path, name)
+		}
+		reg.usedNames[name] = true
+		return name, nil
 	}
-	if name := sanitizeTitle(n.title); name != "" {
-		return reg.uniqueName(name, path)
+	base := overrideNamesByTitle[n.title]
+	if base == "" {
+		base = sanitizeTitle(n.title)
 	}
-	reg.row++
-	return reg.uniqueName(fmt.Sprintf("Result%d", reg.row), path)
+	if base == "" {
+		reg.row++
+		base = fmt.Sprintf("Result%d", reg.row)
+	}
+	// Reserved explicit names cannot be taken by an unrelated title fallback.
+	for reg.reservedNames[base] != "" {
+		base += "Model"
+	}
+	return reg.uniqueName(base, path), nil
 }
 func (reg *registry) branchFieldName(n *schema, index int, r *ref) string {
 	if name := sanitizeTitle(n.title); name != "" {
@@ -650,7 +666,11 @@ func (reg *registry) dictionaryOf(n *schema, path string) (*ref, error) {
 	for _, property := range n.patternProperties {
 		patterns = append(patterns, property.name)
 	}
-	model := &mapModel{name: reg.nameFor(n, path), elem: value, patterns: patterns, path: path, request: reg.strictRequests}
+	name, err := reg.nameFor(n, path)
+	if err != nil {
+		return nil, err
+	}
+	model := &mapModel{name: name, elem: value, patterns: patterns, path: path, request: reg.strictRequests}
 	reg.mapByFP[key] = model
 	reg.maps = append(reg.maps, model)
 	return &ref{kind: refMap, typeName: model.name}, nil

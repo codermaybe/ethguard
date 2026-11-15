@@ -14,7 +14,7 @@ import (
 // solely to exercise extension evidence separately from the protected result.
 func t09SimulateResult(t *testing.T) json.RawMessage {
 	t.Helper()
-	data, err := fs.ReadFile(spec.SimulateV1EvidenceFS(), "simulatev1/vectors/ethSimulate-empty.io")
+	data, err := fs.ReadFile(spec.VectorsFS(), "vectors/eth_simulateV1/ethSimulate-empty.io")
 	if err != nil {
 		t.Fatal(err)
 	}
