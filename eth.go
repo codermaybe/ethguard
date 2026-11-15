@@ -929,7 +929,7 @@ func (c *Client) peerCountExec(ctx context.Context) (uint64, CallResult, error) 
 		return 0, CallResult{Decision: decisionOf(decision)}, projectErr
 	}
 	if !value.IsUint64() {
-		return 0, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("ethguard: invalid %s %q", methods.MethodPeerCount, decision.Value)
+		return 0, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: invalid %s %q", rpc.ErrMalformedResponse, methods.MethodPeerCount, decision.Value)
 	}
 	return value.Uint64(), CallResult{Decision: decisionOf(decision)}, nil
 }

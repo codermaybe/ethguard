@@ -283,6 +283,24 @@ func TestTypedLocalObservations(t *testing.T) {
 	}
 }
 
+// TestTypedPeerCountOverflowIsClassifiedMalformed pins the projection's error
+// class: a folded quantity the uint64 boundary cannot hold is a typed-boundary
+// shaping failure, the same ErrMalformedResponse class the sibling
+// TransactionCount projection and every hexutil decode already carry.
+func TestTypedPeerCountOverflowIsClassifiedMalformed(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	for _, node := range nodes {
+		node.Return("net_peerCount", "0x10000000000000000") // 2^64: canonical, unshappable
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, _, err := client.PeerCount(ctx)
+	if !errors.Is(err, ethguard.ErrMalformedResponse) {
+		t.Fatalf("expected ErrMalformedResponse for an out-of-range peer count, got %v", err)
+	}
+}
+
 // blockHashOf extracts the hash field of a fixture payload.
 func blockHashOf(raw json.RawMessage) string {
 	var obj struct {
