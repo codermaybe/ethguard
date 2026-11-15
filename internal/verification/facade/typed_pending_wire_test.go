@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -43,6 +45,76 @@ func TestPendingAgreementIsSelectedNotCorroborated(t *testing.T) {
 	}
 	if len(decision.Participants) != 3 {
 		t.Fatalf("pending participants = %d, want 3", len(decision.Participants))
+	}
+}
+
+// TestPendingLocalCompatEntriesSmoke walks each pending-local compat entry
+// name end to end: every one rides the same pending grammar (no anchor
+// round), returns a Selected local observation, and carries the CallResult
+// contract on the shared path. The per-method semantics are covered at
+// resolver level; this pins the named public entries themselves.
+func TestPendingLocalCompatEntriesSmoke(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	for _, node := range nodes {
+		node.Return(methods.MethodGetBalance, "0x64")
+		node.Return(methods.MethodGetTransactionCount, "0x2")
+		node.Return(methods.MethodGetCode, "0x")
+		node.Return(methods.MethodGetStorageAt, "0x"+"00"+strings.Repeat("ab", 31))
+		node.Return(methods.MethodCall, "0x")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	account := common.HexToAddress("0xdad")
+	key := common.HexToHash("0x01")
+
+	if balance, result, err := client.PendingBalanceAt(ctx, account); err != nil || balance.Int64() != 100 || result.Decision == nil || result.Decision.Status != rpc.Selected {
+		t.Fatalf("PendingBalanceAt = %v %+v %v", balance, result.Decision, err)
+	}
+	if nonce, result, err := client.PendingNonceAt(ctx, account); err != nil || nonce != 2 || result.Decision == nil || result.Decision.Status != rpc.Selected {
+		t.Fatalf("PendingNonceAt = %d %+v %v", nonce, result.Decision, err)
+	}
+	if code, result, err := client.PendingCodeAt(ctx, account); err != nil || len(code) != 0 || result.Decision == nil || result.Decision.Status != rpc.Selected {
+		t.Fatalf("PendingCodeAt = %x %+v %v", code, result.Decision, err)
+	}
+	if stored, result, err := client.PendingStorageAt(ctx, account, key); err != nil || len(stored) != 32 || result.Decision == nil || result.Decision.Status != rpc.Selected {
+		t.Fatalf("PendingStorageAt = %x %+v %v", stored, result.Decision, err)
+	}
+	to := ethapi.Address(account.Hex())
+	toRef := &to
+	if data, result, err := client.PendingCallContract(ctx, ethapi.CallMsg{To: &toRef}); err != nil || len(data) != 0 || result.Decision == nil || result.Decision.Status != rpc.Selected {
+		t.Fatalf("PendingCallContract = %x %+v %v", data, result.Decision, err)
+	}
+	for _, node := range nodes {
+		for _, call := range node.Calls() {
+			if call.Method == methods.MethodGetBlockByNumber {
+				t.Fatalf("pending-local entry contacted the anchor path: %+v", call)
+			}
+		}
+	}
+}
+
+// TestEstimateGasAtBlockLocalRejectionCarriesTheCallResult pins the
+// CallResult.Err contract on the local rejection path: an unsupported block
+// number fails before any network contact, and both the root and the view
+// surface the same classified error through Err.
+func TestEstimateGasAtBlockLocalRejectionCarriesTheCallResult(t *testing.T) {
+	client, nodes := fleet(t, 3)
+	view := client.EthClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, rootResult, rootErr := client.EstimateGasAtBlock(ctx, ethapi.CallMsg{}, big.NewInt(-6))
+	_, viewErr := view.EstimateGasAtBlock(ctx, ethapi.CallMsg{}, big.NewInt(-6))
+	if !errors.Is(rootErr, ethguard.ErrInvalidRequest) || !errors.Is(viewErr, ethguard.ErrInvalidRequest) {
+		t.Fatalf("expected ErrInvalidRequest locally, got root %v view %v", rootErr, viewErr)
+	}
+	if rootResult.Err == nil || !errors.Is(rootResult.Err, ethguard.ErrInvalidRequest) {
+		t.Fatalf("root CallResult.Err = %v, want the classified rejection", rootResult.Err)
+	}
+	for _, node := range nodes {
+		if calls := node.Calls(); len(calls) != 0 {
+			t.Fatalf("local rejection contacted upstream: %+v", calls)
+		}
 	}
 }
 
