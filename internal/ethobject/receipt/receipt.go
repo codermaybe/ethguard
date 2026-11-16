@@ -175,16 +175,27 @@ type canonicalReceiptLog = log.CanonicalLog
 // identity before returning the private algorithm representation. Root null
 // is handled by the caller's query/event policy and is rejected here.
 func Decode(value json.RawMessage) (*types.Receipt, error) {
+	_, r, err := DecodeWithCanonical(value)
+	return r, err
+}
+
+// DecodeWithCanonical runs the complete Decode flow once and also returns
+// the canonical bytes the decode consumed: Encode's checked output, the same
+// bytes the private representation was parsed from. Callers that must bind a
+// receipt to its request keep this way one Encode per response — the bytes
+// are validated, then handed out, never rebuilt. On failure both returns are
+// nil and the error is exactly Decode's.
+func DecodeWithCanonical(value json.RawMessage) (json.RawMessage, *types.Receipt, error) {
 	canonical, err := Encode(value)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var r *types.Receipt
 	if err := json.Unmarshal(canonical, &r); err != nil || r == nil {
-		return nil, fmt.Errorf("receipt: invalid payload")
+		return nil, nil, fmt.Errorf("receipt: invalid payload")
 	}
 	if r.TxHash == (common.Hash{}) || r.BlockHash == (common.Hash{}) {
-		return nil, fmt.Errorf("receipt: missing transaction or block hash")
+		return nil, nil, fmt.Errorf("receipt: missing transaction or block hash")
 	}
-	return r, nil
+	return canonical, r, nil
 }

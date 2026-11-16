@@ -101,6 +101,7 @@ func TestRegisteredSpecsDeclareNoProcessor(t *testing.T) {
 	allowed := map[string]bool{
 		MethodGetTransactionByHash:              true,
 		MethodGetTransactionByBlockHashAndIndex: true,
+		MethodGetTransactionReceipt:             true,
 	}
 	for _, spec := range Specs() {
 		if spec.ProcessCanonical == nil {

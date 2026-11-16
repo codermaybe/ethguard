@@ -26,6 +26,7 @@ func getTransactionReceiptSpec() MethodSpec {
 		KeySource:              rpc.RuleKeyCanonicalBytes,
 		CompareKind:            rpc.RuleCompareMethodSpecific,
 		Admit:                  admitReceipt,
+		ProcessCanonical:       processReceipt,
 		ObservationProjectorID: ProjectorReceipt,
 	}
 }
@@ -47,6 +48,23 @@ func admitReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _ r
 		return nil, err
 	}
 	return nil, nil
+}
+
+// processReceipt is the method's canonical processing entry: the single
+// admission preparation validates the raw response against the request and
+// hands out the very bytes it already checked, so the raw route's second
+// Encode (the resolver's clustering encoder over the admitted response) is
+// never repeated here. The raw route — Admit followed by the encoder —
+// stays intact beside this entry for pending-local, forwarded, and
+// raw-declared invocations. A failure returns the zero result with the
+// unchanged admission error; a success carries no evidence, exactly what the
+// raw admission returns for this method.
+func processReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+	canonical, err := receiptobject.PrepareTransaction(req, value)
+	if err != nil {
+		return rpc.CanonicalResult{}, err
+	}
+	return rpc.NewCanonicalResult(canonical, nil)
 }
 
 func normalizeReceiptObject(value json.RawMessage) (string, error) {

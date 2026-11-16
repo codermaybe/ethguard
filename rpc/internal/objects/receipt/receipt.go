@@ -18,22 +18,40 @@ import (
 // Pruner removes fields that are outside the method's comparison shape.
 type Pruner func(method string, raw json.RawMessage) (string, error)
 
-func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
+// PrepareTransaction runs the original AdmitTransaction order once and hands
+// out the canonical bytes it validated, so a caller that also commits those
+// bytes never encodes the response a second time. The fixed order: a JSON
+// null short-circuits to the canonical "null" before any request parsing;
+// the requested hash is parsed next so a request error keeps its class and
+// precedence over any payload verdict; DecodeWithCanonical then performs the
+// complete wire validation (encoder, private geth decode, nil and zero-hash
+// checks) and returns the already-validated canonical bytes; finally the
+// decoded receipt's transaction hash must match the request. Errors keep the
+// original admission texts and wrapping exactly.
+func PrepareTransaction(req rpc.Request, value json.RawMessage) (json.RawMessage, error) {
 	if IsJSONNull(value) {
-		return nil
+		return json.RawMessage("null"), nil
 	}
 	want, err := RequestedHash(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	r, err := validateAndDecode(value)
+	canonical, r, err := objectreceipt.DecodeWithCanonical(value)
 	if err != nil {
-		return fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
 	}
 	if r == nil || r.TxHash != want {
-		return fmt.Errorf("%w: receipt transaction hash does not match requested hash", rpc.ErrMalformedResponse)
+		return nil, fmt.Errorf("%w: receipt transaction hash does not match requested hash", rpc.ErrMalformedResponse)
 	}
-	return nil
+	return canonical, nil
+}
+
+func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
+	// The admission entry needs only the verdict; the canonical bytes it
+	// prepared are discarded here. The canonical processing entry hands the
+	// same bytes to the result instead of re-encoding.
+	_, err := PrepareTransaction(req, value)
+	return err
 }
 
 // AdmitBlock checks each receipt against the requested block. A JSON null
