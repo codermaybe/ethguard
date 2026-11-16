@@ -72,17 +72,50 @@ type protectedMembers struct {
 	gasUsed    json.RawMessage
 }
 
-// resolveProtectedMembers walks the raw object in document order and resolves
-// the three protected members with encoding/json's own matching semantics: a
-// key matches its member case-insensitively, the last occurrence wins, and
-// unknown members are ignored. A resolved null folds to absence. faithful
-// reports whether the document already spells every resolved member exactly
-// once, canonically, with no vendor members or nulls — so the constructor can
-// consume the raw bytes unchanged.
+// resolveProtectedMembers resolves the three protected members with
+// encoding/json's own matching semantics: a key matches its member
+// case-insensitively, the last occurrence wins, and unknown members are
+// ignored. A resolved null folds to absence. faithful reports whether the
+// document's exact-key members already match what the generated model's own
+// decode would resolve — canonically spelled, non-null, and with no
+// case-variant alias riding alongside — so the constructor can consume the
+// raw bytes unchanged. Vendor members never break that contract: the model's
+// decode ignores them exactly as it would the raw object.
 func resolveProtectedMembers(raw json.RawMessage) (protectedMembers, bool, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return protectedMembers{}, false, err
+	}
+	faithful := true
+	for key, value := range fields {
+		switch key {
+		case "accessList", "error", "gasUsed":
+			if ethcodec.IsJSONNull(value) {
+				faithful = false // a null member must fold to absence
+			}
+		default:
+			if strings.EqualFold(key, "accessList") || strings.EqualFold(key, "error") || strings.EqualFold(key, "gasUsed") {
+				faithful = false // a case-variant alias rides alongside
+			}
+		}
+	}
+	if faithful {
+		return protectedMembers{
+			accessList: fields["accessList"],
+			errorText:  fields["error"],
+			gasUsed:    fields["gasUsed"],
+		}, true, nil
+	}
+	return resolveByDocumentOrder(raw)
+}
+
+// resolveByDocumentOrder is the slow path for documents whose member spelling
+// needs re-resolution: a decoder walks the object in document order so a
+// case-variant alias resolves with the same last-occurrence-wins precedence a
+// struct decode applies, and vendor members stay out of the resolution.
+func resolveByDocumentOrder(raw json.RawMessage) (protectedMembers, bool, error) {
 	var resolved protectedMembers
 	seen := map[string]bool{}
-	faithful := true
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	if tok, err := decoder.Token(); err != nil {
 		return resolved, false, err
@@ -109,11 +142,7 @@ func resolveProtectedMembers(raw json.RawMessage) (protectedMembers, bool, error
 			name = "gasUsed"
 		}
 		if name == "" {
-			faithful = false // a vendor member the mask drops
-			continue
-		}
-		if seen[name] || ethcodec.IsJSONNull(value) {
-			faithful = false
+			continue // a vendor member the mask drops
 		}
 		seen[name] = true
 		switch name {
@@ -140,7 +169,7 @@ func resolveProtectedMembers(raw json.RawMessage) (protectedMembers, bool, error
 	if resolved.gasUsed != nil && ethcodec.IsJSONNull(resolved.gasUsed) {
 		resolved.gasUsed = nil
 	}
-	return resolved, faithful, nil
+	return resolved, false, nil
 }
 
 // checkItemPresence runs the item-level presence rules the encode stage has
