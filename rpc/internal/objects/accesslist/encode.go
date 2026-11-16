@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
@@ -26,46 +28,152 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if len(trimmed) == 0 || trimmed[0] != '{' || bytes.Equal(trimmed, []byte("null")) {
 		return nil, fmt.Errorf("accessList: expected an object")
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(trimmed, &fields); err != nil {
+	resolved, faithful, err := resolveProtectedMembers(trimmed)
+	if err != nil {
 		return nil, fmt.Errorf("accessList: malformed response")
 	}
-	if !ethcodec.PresentNonNull(fields["accessList"]) {
+	if resolved.accessList == nil {
 		return nil, fmt.Errorf("accessList: missing accessList")
 	}
-	result, err := ethapi.NewAccessListResult(nullsOmitted(trimmed, fields))
+	if err := checkItemPresence(resolved.accessList); err != nil {
+		return nil, err
+	}
+	input := trimmed
+	if !faithful {
+		// Re-render only the resolved members so vendor members and resolved
+		// nulls cannot leak into the generated model's view of the object.
+		var out bytes.Buffer
+		out.WriteByte('{')
+		out.WriteString(`"accessList":`)
+		out.Write(resolved.accessList)
+		if resolved.errorText != nil {
+			out.WriteString(`,"error":`)
+			out.Write(resolved.errorText)
+		}
+		if resolved.gasUsed != nil {
+			out.WriteString(`,"gasUsed":`)
+			out.Write(resolved.gasUsed)
+		}
+		out.WriteByte('}')
+		input = out.Bytes()
+	}
+	result, err := ethapi.NewAccessListResult(input)
 	if err != nil {
 		return nil, fmt.Errorf("accessList: %w", err)
 	}
 	return ethcodec.MarshalNoEscape(result)
 }
 
-// nullsOmitted re-renders the object with top-level null members dropped, so
-// the generated model's non-nullable fields match the project rule that a
-// null error or gasUsed is folded to absence. The common no-null object is
-// passed through untouched; unknown members and nested values are always
-// untouched, and the constructor still validates everything itself.
-func nullsOmitted(raw json.RawMessage, fields map[string]json.RawMessage) json.RawMessage {
-	hasNull := false
-	for _, value := range fields {
-		if ethcodec.IsJSONNull(value) {
-			hasNull = true
-			break
+// protectedMembers is the resolved view of the members the comparison mask
+// retains. Absent and null members are nil.
+type protectedMembers struct {
+	accessList json.RawMessage
+	errorText  json.RawMessage
+	gasUsed    json.RawMessage
+}
+
+// resolveProtectedMembers walks the raw object in document order and resolves
+// the three protected members with encoding/json's own matching semantics: a
+// key matches its member case-insensitively, the last occurrence wins, and
+// unknown members are ignored. A resolved null folds to absence. faithful
+// reports whether the document already spells every resolved member exactly
+// once, canonically, with no vendor members or nulls — so the constructor can
+// consume the raw bytes unchanged.
+func resolveProtectedMembers(raw json.RawMessage) (protectedMembers, bool, error) {
+	var resolved protectedMembers
+	seen := map[string]bool{}
+	faithful := true
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := decoder.Token(); err != nil {
+		return resolved, false, err
+	} else if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return resolved, false, fmt.Errorf("expected an object")
+	}
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return resolved, false, err
 		}
-	}
-	if !hasNull {
-		return raw
-	}
-	cleaned := make(map[string]json.RawMessage, len(fields))
-	for name, value := range fields {
-		if ethcodec.IsJSONNull(value) {
+		key, _ := keyToken.(string)
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return resolved, false, err
+		}
+		name := ""
+		switch {
+		case strings.EqualFold(key, "accessList"):
+			name = "accessList"
+		case strings.EqualFold(key, "error"):
+			name = "errorText"
+		case strings.EqualFold(key, "gasUsed"):
+			name = "gasUsed"
+		}
+		if name == "" {
+			faithful = false // a vendor member the mask drops
 			continue
 		}
-		cleaned[name] = value
+		if seen[name] || ethcodec.IsJSONNull(value) {
+			faithful = false
+		}
+		seen[name] = true
+		switch name {
+		case "accessList":
+			resolved.accessList = value
+		case "errorText":
+			resolved.errorText = value
+		case "gasUsed":
+			resolved.gasUsed = value
+		}
 	}
-	encoded, err := json.Marshal(cleaned)
-	if err != nil {
-		return raw
+	if _, err := decoder.Token(); err != nil { // consume '}'
+		return resolved, false, err
 	}
-	return encoded
+	if _, err := decoder.Token(); err != io.EOF {
+		return resolved, false, fmt.Errorf("multiple JSON values")
+	}
+	if resolved.accessList != nil && ethcodec.IsJSONNull(resolved.accessList) {
+		resolved.accessList = nil
+	}
+	if resolved.errorText != nil && ethcodec.IsJSONNull(resolved.errorText) {
+		resolved.errorText = nil
+	}
+	if resolved.gasUsed != nil && ethcodec.IsJSONNull(resolved.gasUsed) {
+		resolved.gasUsed = nil
+	}
+	return resolved, faithful, nil
+}
+
+// checkItemPresence runs the item-level presence rules the encode stage has
+// always reported, in their original order: the item must be an object, both
+// members must be present (null counts as missing), and only then do value
+// errors surface. The generated constructor keeps every value check; this
+// pre-check only pins which member a partially broken item names first.
+func checkItemPresence(accessList json.RawMessage) error {
+	var rows []json.RawMessage
+	if err := json.Unmarshal(accessList, &rows); err != nil || rows == nil {
+		return fmt.Errorf("accessList: expected an array")
+	}
+	for i, row := range rows {
+		if err := itemPresence(row); err != nil {
+			return fmt.Errorf("accessList[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func itemPresence(row json.RawMessage) error {
+	var item struct {
+		Address     json.RawMessage `json:"address"`
+		StorageKeys json.RawMessage `json:"storageKeys"`
+	}
+	if err := json.Unmarshal(row, &item); err != nil {
+		return fmt.Errorf("expected an object")
+	}
+	if !ethcodec.PresentNonNull(item.Address) {
+		return fmt.Errorf("missing address")
+	}
+	if !ethcodec.PresentNonNull(item.StorageKeys) {
+		return fmt.Errorf("missing storageKeys")
+	}
+	return nil
 }

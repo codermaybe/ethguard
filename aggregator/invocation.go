@@ -415,12 +415,16 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	// per-source tables; the per-source statement comes from the invocation's
 	// own records, so no raw hook re-runs to classify anyone; the other known
 	// transport faults keep their attribution, and the internal fault itself
-	// stays provider-neutral.
+	// stays provider-neutral. The canonical fault joins the decision before
+	// the observability event folds it, so the event's fault count equals the
+	// returned decision's.
 	if state.internalFault != nil {
 		state.verdicts = finalizeVerdicts(verdictsFromSlots(state.emissions), state.emissions)
-		exit := a.unknownExit(state, started, state.internalFault)
-		exit.decision.Faults = append(exit.decision.Faults, fmt.Errorf("canonical: %w", state.internalFault))
-		return exit
+		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
+		state.attachFaults(&decision, state.verdicts)
+		decision.Faults = append(decision.Faults, fmt.Errorf("canonical: %w", state.internalFault))
+		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, state.internalFault, state.emissions, state.verdicts)
+		return &earlyExit{decision: decision, err: state.internalFault}
 	}
 	// A field-aggregation failure only degrades this invocation to a decision
 	// without diagnostics; the error itself is kept so every return path

@@ -81,7 +81,7 @@ func TestAccessListMissingAddressIsAnEncodeFault(t *testing.T) {
 	if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
-	if len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), "missing required field address") {
+	if len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), "missing address") {
 		t.Fatalf("faults = %v", decision.Faults)
 	}
 }

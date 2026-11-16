@@ -14,15 +14,20 @@ import (
 var requiredFields = [...]string{"address", "topics", "data", "blockNumber", "transactionHash", "transactionIndex", "blockHash", "logIndex", "removed"}
 
 // Validate checks the required fields and wire shapes of one log object.
+// It is the admission-and-comparison-key kernel: blockTimestamp is not a
+// member of this contract and stays out of the check, so a log whose optional
+// timestamp fails its canonical encoding still passes admission and still
+// yields a comparison key.
 func Validate(value json.RawMessage) error {
-	_, err := parse(value)
+	_, err := parse(value, false)
 	return err
 }
 
 // parse validates one log object and returns its canonical projection in a
-// single pass, so Validate and EncodeOne accept and reject identical payloads
-// with identical messages and no caller re-walks the same bytes twice.
-func parse(value json.RawMessage) (CanonicalLog, error) {
+// single pass, so Validate and EncodeOne share the base contract and no
+// caller re-walks the same bytes twice. The encode stage additionally checks
+// blockTimestamp, the optional member only the protected value carries.
+func parse(value json.RawMessage, encodeStage bool) (CanonicalLog, error) {
 	if err := jsonsafe.Validate(value); err != nil {
 		return CanonicalLog{}, fmt.Errorf("log JSON: %w", err)
 	}
@@ -79,7 +84,7 @@ func parse(value json.RawMessage) (CanonicalLog, error) {
 	if err := json.Unmarshal(obj["removed"], &out.Removed); err != nil {
 		return CanonicalLog{}, fmt.Errorf("removed must be boolean")
 	}
-	if ethcodec.PresentNonNull(obj["blockTimestamp"]) {
+	if encodeStage && ethcodec.PresentNonNull(obj["blockTimestamp"]) {
 		timestamp, err := ethcodec.CanonicalQuantity(obj["blockTimestamp"])
 		if err != nil {
 			return CanonicalLog{}, fmt.Errorf("blockTimestamp: %w", err)
@@ -132,7 +137,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 // callers accept and reject the same payloads with the same messages. The
 // returned canonical field order is the CanonicalLog struct order.
 func EncodeOne(value json.RawMessage) (CanonicalLog, error) {
-	return parse(value)
+	return parse(value, true)
 }
 
 // CanonicalLog is the protected log object shared by eth_getLogs and the log
