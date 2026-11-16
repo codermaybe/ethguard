@@ -3,6 +3,7 @@ package aggregator
 import (
 	"fmt"
 
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -72,4 +73,21 @@ func RoundAttempts(policy rpc.Policy, verdicts []rpc.SourceVerdict) func(pool.Em
 // spell it.
 func CollectFault(err error) error {
 	return fmt.Errorf("collect: %w", err)
+}
+
+// RejectUnsafeJSON is the admission shape-reservation both the pipeline's
+// admission phase and the reference establishment's admission stage run: a
+// structurally unsafe body can never win a cluster, so its slot keeps the
+// malformed attribution and loses the value. Callers that must preserve the
+// original bytes snapshot them first.
+func RejectUnsafeJSON(emissions []pool.Emission) {
+	for i := range emissions {
+		if emissions[i].Err != nil || emissions[i].Val == nil {
+			continue
+		}
+		if err := jsonsafe.Validate(emissions[i].Val); err != nil {
+			emissions[i].Err = fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+			emissions[i].Val = nil
+		}
+	}
 }

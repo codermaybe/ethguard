@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/pool"
@@ -293,15 +292,7 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 			state.collector.Record("collect", state.prepared.Method, rpc.SourceRef{}, nil, state.collectErr.Error())
 		}
 	}
-	for i := range state.emissions {
-		if state.emissions[i].Err != nil || state.emissions[i].Val == nil {
-			continue
-		}
-		if err := jsonsafe.Validate(state.emissions[i].Val); err != nil {
-			state.emissions[i].Err = fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-			state.emissions[i].Val = nil
-		}
-	}
+	RejectUnsafeJSON(state.emissions)
 	if state.processorRoute != nil {
 		// A route frozen onto a composition already found broken never
 		// processes: the internal fault is set and the resolution exit
@@ -415,13 +406,7 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	state.observations = make([]rpc.Observation, len(state.emissions))
 	state.participants = make([]rpc.SourceRef, 0, len(state.emissions))
 	for i, emission := range state.emissions {
-		state.observations[i] = rpc.Observation{
-			Source:   SourceRefOf(emission.Src),
-			Value:    emission.Val,
-			Err:      emission.Err,
-			RPCError: ObservationRPCError(emission.Err),
-			Evidence: emission.Evidence,
-		}
+		state.observations[i] = ObservationFromEmission(emission)
 		state.participants = append(state.participants, state.observations[i].Source)
 	}
 	// The canonical seam's internal contract fault terminates the round's

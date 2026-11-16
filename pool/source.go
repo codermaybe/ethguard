@@ -301,12 +301,7 @@ func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstr
 		return nil, fmt.Errorf("pool: source %q does not support subscriptions", s.name)
 	}
 	if err := s.verifyChainID(ctx, client); err != nil {
-		if shouldDiscardClient(err) {
-			s.discardClient(client)
-		}
-		if shouldRecordFailure(ctx, err) {
-			s.recordFailedCall(err)
-		}
+		s.noteFailedExchange(client, ctx, err)
 		return nil, err
 	}
 	sub, err := subscriber.SubscribeCapability(ctx, kind, args...)
@@ -316,12 +311,7 @@ func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstr
 		// attempt redials, and the failure must count toward health (unless
 		// the caller itself went away), or a closed socket stalls the
 		// subscription silently.
-		if shouldDiscardClient(err) {
-			s.discardClient(client)
-		}
-		if shouldRecordFailure(ctx, err) {
-			s.recordFailedCall(err)
-		}
+		s.noteFailedExchange(client, ctx, err)
 		return nil, err
 	}
 	return sub, nil
@@ -344,27 +334,30 @@ func (s *Source) CallContext(ctx context.Context, method string, args ...any) (j
 		return nil, err
 	}
 	if err := s.verifyChainID(ctx, client); err != nil {
-		if shouldDiscardClient(err) {
-			s.discardClient(client)
-		}
-		if shouldRecordFailure(ctx, err) {
-			s.recordFailedCall(err)
-		}
+		s.noteFailedExchange(client, ctx, err)
 		return nil, err
 	}
 	var result json.RawMessage
 	started := time.Now()
 	if err := client.CallContext(ctx, &result, method, args...); err != nil {
-		if shouldDiscardClient(err) {
-			s.discardClient(client)
-		}
-		if shouldRecordFailure(ctx, err) {
-			s.recordFailedCall(err)
-		}
+		s.noteFailedExchange(client, ctx, err)
 		return nil, err
 	}
 	s.recordSuccessfulCall(time.Since(started))
 	return result, nil
+}
+
+// noteFailedExchange applies the shared transport hygiene after one failed
+// exchange on a source holding a client: a finished connection is dropped so
+// the next attempt redials, and the failure counts toward health unless the
+// caller itself went away. Both the unary and the subscription paths run it.
+func (s *Source) noteFailedExchange(client upstream.Transport, ctx context.Context, err error) {
+	if shouldDiscardClient(err) {
+		s.discardClient(client)
+	}
+	if shouldRecordFailure(ctx, err) {
+		s.recordFailedCall(err)
+	}
 }
 
 // State returns the current readiness state.

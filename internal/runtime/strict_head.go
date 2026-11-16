@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
-	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -115,15 +114,7 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 	// values are preserved first so the invocation's capture trail keeps the
 	// bytes admission is about to clear.
 	rawValues := preserveRawValues(emissions)
-	for i := range emissions {
-		if emissions[i].Err != nil || emissions[i].Val == nil {
-			continue
-		}
-		if err := jsonsafe.Validate(emissions[i].Val); err != nil {
-			emissions[i].Err = fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-			emissions[i].Val = nil
-		}
-	}
+	aggregator.RejectUnsafeJSON(emissions)
 	raw := rawEmissions(emissions, rawValues)
 	observations := make([]rpc.Observation, len(emissions))
 	participants := make([]rpc.SourceRef, 0, len(emissions))

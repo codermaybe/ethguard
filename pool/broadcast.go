@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 	"time"
-
-	"github.com/codermaybe/ethguard/config"
 )
 
 // BroadcastOption tunes one broadcast fan-out.
@@ -73,11 +71,7 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	timeout := cfg.timeout
-	if timeout <= 0 {
-		timeout = config.DefaultCollectTimeout()
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	callCtx, cancel := boundedFanout(ctx, cfg.timeout)
 	defer cancel()
 	if p.isClosed() {
 		return nil, ErrClosed
@@ -134,11 +128,7 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 		return emissions, ErrNoEligibleSource
 	}
 
-	wave := len(members)
-	if cfg.maxConcurrent > 0 && cfg.maxConcurrent < wave {
-		wave = cfg.maxConcurrent
-	}
-	sem := make(chan struct{}, wave)
+	sem := symmetricSemaphore(cfg.maxConcurrent, len(members))
 
 	var wg sync.WaitGroup
 	for i, src := range members {

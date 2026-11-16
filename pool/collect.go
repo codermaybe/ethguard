@@ -48,14 +48,11 @@ func (e Emission) FinalizeHealth(responseErr error) {
 	}
 	e.health.once.Do(func() {
 		h := e.health
-		switch {
-		case h.err == nil && errors.Is(responseErr, rpc.ErrMalformedResponse):
-			h.src.recordFailedCall(responseErr)
-		case isHealthyRPCResponse(h.err):
-			h.src.recordSuccessfulCall(h.rtt)
-		case h.recordFailure:
-			h.src.recordFailedCall(h.err)
+		err, failed := h.err, h.recordFailure
+		if err == nil && errors.Is(responseErr, rpc.ErrMalformedResponse) {
+			err, failed = responseErr, true
 		}
+		accountAttempt(h.src, err, h.rtt, failed)
 	})
 }
 
@@ -65,6 +62,19 @@ type emissionHealth struct {
 	err           error
 	rtt           time.Duration
 	recordFailure bool
+}
+
+// accountAttempt applies one health outcome to a source: a transport-healthy
+// exchange records success, a recordable failure cools the source, and
+// anything else (caller cancellation, closed pool, dial wait) records
+// nothing. It is the one classification both the immediate and the deferred
+// accounting paths apply.
+func accountAttempt(src *Source, err error, rtt time.Duration, failed bool) {
+	if isHealthyRPCResponse(err) {
+		src.recordSuccessfulCall(rtt)
+	} else if failed {
+		src.recordFailedCall(err)
+	}
 }
 
 // accountEmission freezes the transport classification at completion, before
@@ -77,11 +87,7 @@ func accountEmission(parent context.Context, e *Emission, deferred bool) {
 		e.health = &emissionHealth{src: e.Src, err: e.Err, rtt: e.RTT, recordFailure: shouldRecordFailure(parent, e.Err)}
 		return
 	}
-	if isHealthyRPCResponse(e.Err) {
-		e.Src.recordSuccessfulCall(e.RTT)
-	} else if shouldRecordFailure(parent, e.Err) {
-		e.Src.recordFailedCall(e.Err)
-	}
+	accountAttempt(e.Src, e.Err, e.RTT, shouldRecordFailure(parent, e.Err))
 }
 
 // TipFreshnessScope tells the pool whether one request's scheduling may
@@ -185,6 +191,34 @@ func (e *SourceGateError) Error() string {
 
 func (e *SourceGateError) Unwrap() error { return ErrSourceGated }
 
+// boundedFanout applies the collection-default timeout when the caller left
+// the fan-out timeout unset. Every fan-out path shares this preamble.
+func boundedFanout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		timeout = config.DefaultCollectTimeout()
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+// gateDeadline distinguishes a scheduling pause from a caller deadline: an
+// acquire timeout under a still-live caller is the source's local pacing
+// gate, not the request's own deadline.
+func gateDeadline(parent context.Context, err error) error {
+	if err != nil && parent.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %w", ErrSourceGated, err)
+	}
+	return err
+}
+
+// symmetricSemaphore caps a symmetric fan-out: zero or an over-large cap
+// means unbounded across the captured members.
+func symmetricSemaphore(cap int, members int) chan struct{} {
+	if cap <= 0 || cap > members {
+		cap = members
+	}
+	return make(chan struct{}, cap)
+}
+
 // Collect fans a single request out to all eligible sources symmetrically and
 // returns each source's raw response, unjudged.
 //
@@ -220,11 +254,7 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 // A member that fails its lazily-verified chain identity during this
 // collection fails as one member; the invocation continues without it.
 func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = config.DefaultCollectTimeout()
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	callCtx, cancel := boundedFanout(ctx, opts.Timeout)
 	defer cancel()
 	if p.isClosed() {
 		return nil, ErrClosed
@@ -272,11 +302,7 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 		return emissions, ErrNoEligibleSource
 	}
 
-	maxConcurrent := opts.MaxConcurrent
-	if maxConcurrent <= 0 || maxConcurrent > len(members) {
-		maxConcurrent = len(members)
-	}
-	sem := make(chan struct{}, maxConcurrent)
+	sem := symmetricSemaphore(opts.MaxConcurrent, len(members))
 
 	var (
 		emissions = make([]Emission, len(members))
@@ -342,9 +368,7 @@ func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src 
 			if err = callCtx.Err(); err == nil {
 				var release func()
 				release, err = src.acquireRequest(callCtx)
-				if err != nil && parent.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
-					err = fmt.Errorf("%w: %w", ErrSourceGated, err)
-				}
+				err = gateDeadline(parent, err)
 				if err == nil {
 					attempted = true
 					// Released by defer: a panic below must not leak the
@@ -381,11 +405,7 @@ type collectPlan struct {
 // collect is Collect with a switch for the eligibility rules; tip probes use
 // a relaxed plan so a stale or cooling fleet can still be observed.
 func (p *Pool) collect(ctx context.Context, method string, params []any, opts CollectOptions, plan collectPlan) ([]Emission, error) {
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = config.DefaultCollectTimeout()
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	callCtx, cancel := boundedFanout(ctx, opts.Timeout)
 	defer cancel()
 	if p.isClosed() {
 		return nil, ErrClosed
@@ -406,11 +426,7 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 	if len(sources) == 0 {
 		return nil, ErrNoEligibleSource
 	}
-	maxConcurrent := opts.MaxConcurrent
-	if maxConcurrent <= 0 || maxConcurrent > len(sources) {
-		maxConcurrent = len(sources)
-	}
-	sem := make(chan struct{}, maxConcurrent)
+	sem := symmetricSemaphore(opts.MaxConcurrent, len(sources))
 
 	var (
 		emissions = make([]Emission, len(sources))
@@ -437,11 +453,7 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 // unknown, heavy, or non-idempotent methods. The returned emissions contain
 // only sources that were actually attempted.
 func (p *Pool) Forward(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = config.DefaultCollectTimeout()
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	callCtx, cancel := boundedFanout(ctx, opts.Timeout)
 	defer cancel()
 	if p.isClosed() {
 		return nil, ErrClosed
@@ -470,9 +482,7 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 		}
 		release, waitErr := src.acquireRequest(callCtx)
 		if waitErr != nil {
-			if ctx.Err() == nil && errors.Is(waitErr, context.DeadlineExceeded) {
-				waitErr = fmt.Errorf("%w: %w", ErrSourceGated, waitErr)
-			}
+			waitErr = gateDeadline(ctx, waitErr)
 			emissions = append(emissions, Emission{Src: src, Err: waitErr})
 			// The caller's cancellation is not fleet silence. In particular,
 			// the final member may never have acquired a scheduling slot;
