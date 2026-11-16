@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -36,14 +35,11 @@ func NewCallRevertPolicy(normalize func(json.RawMessage) (string, error), opts .
 }
 
 type callRevertFunc struct {
+	requestPassthrough
 	normalize       func(json.RawMessage) (string, error)
 	fallback        *Corroboration
 	includeRPCError bool
 	encode          CanonicalEncoder
-}
-
-func (p callRevertFunc) Prepare(_ context.Context, req Request) (Request, error) {
-	return req, nil
 }
 
 func (p callRevertFunc) Normalize(value json.RawMessage) (string, error) {
@@ -66,10 +62,7 @@ func (p callRevertFunc) MethodRule() (MethodRule, Policy) {
 }
 
 func (p callRevertFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
-	if p.encode == nil {
-		return nil, ErrNotCanonicalScalar
-	}
-	return p.encode(raw)
+	return encodeCanonicalValue(p.encode, raw)
 }
 
 func (p callRevertFunc) Resolve(obs []Observation) (Decision, error) {
@@ -126,8 +119,7 @@ func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observat
 		return Decision{Status: Unknown, Faults: faults}, nil, err
 	}
 	if len(admitted) == 0 {
-		return Decision{Status: Unknown, Faults: faults}, verdictsFromClassified(obs, nil, nil, skipped), fmt.Errorf(
-			"call: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
+		return Decision{Status: Unknown, Faults: faults}, verdictsFromClassified(obs, nil, nil, skipped), noValidResponse("call", len(obs))
 	}
 	ranked := rankCallAnswers(admitted, func(a callAnswer) string { return a.execution })
 	winner := ranked[0]
@@ -231,10 +223,10 @@ func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []skippedAnswer,
 	for i, item := range obs {
 		id := item.Source.ID
 		if id == "" {
-			return nil, skipped, fmt.Errorf("call: observation %d has no source identity: %w", i, ErrConflict)
+			return nil, skipped, missingIdentity("call", "observation", i)
 		}
 		if first, dup := seen[id]; dup {
-			return nil, skipped, fmt.Errorf("call: duplicate observation for source %q (first at %d, again at %d): %w", id, first, i, ErrConflict)
+			return nil, skipped, duplicateIdentity("call", "observation", id, first, i)
 		}
 		seen[id] = i
 		value := item.Value

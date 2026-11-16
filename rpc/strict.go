@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -134,16 +133,13 @@ func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOptio
 }
 
 type strictFunc struct {
+	requestPassthrough
 	normalize       func(json.RawMessage) (string, error)
 	corroboration   *Corroboration
 	includeRPCError bool
 	compareKind     string
 	encode          CanonicalEncoder
 	objectEncode    CanonicalEncoder
-}
-
-func (f strictFunc) Prepare(_ context.Context, req Request) (Request, error) {
-	return req, nil
 }
 
 func (f strictFunc) Normalize(value json.RawMessage) (string, error) {
@@ -183,11 +179,7 @@ func (f strictFunc) canonicalEncoder() CanonicalEncoder {
 }
 
 func (f strictFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
-	encode := f.canonicalEncoder()
-	if encode == nil {
-		return nil, ErrNotCanonicalScalar
-	}
-	return encode(raw)
+	return encodeCanonicalValue(f.canonicalEncoder(), raw)
 }
 
 // skippedAnswer records one observation that could not enter a cluster. A
@@ -353,16 +345,44 @@ func (f strictFunc) resolve(c Corroboration, obs []Observation) (Decision, error
 	return decision, err
 }
 
+// adjudicationCore is the shared corroborated kernel of the raw and canonical
+// routes: adjudicate the ranked clusters against the fixed basis, apply the
+// route's commit, and state every source. A failed clustering keeps the
+// Unknown decision with the route's skipped faults; the verdict statement on
+// that path is the route's own (the raw route leaves the statement to the
+// coordinator's records and returns none; the canonical route marks its
+// failed slots).
+func adjudicationCore(
+	c Corroboration,
+	attempted int,
+	ranked []cluster,
+	skipped []skippedAnswer,
+	clusterErr error,
+	commit func(Decision, error, []cluster) (Decision, error),
+	verdicts func([]cluster, []skippedAnswer) []SourceVerdict,
+	failedVerdicts func([]skippedAnswer) []SourceVerdict,
+) (Decision, []SourceVerdict, error) {
+	if clusterErr != nil {
+		var stated []SourceVerdict
+		if failedVerdicts != nil {
+			stated = failedVerdicts(skipped)
+		}
+		return Decision{Status: Unknown, Faults: skippedFaults(skipped)}, stated, clusterErr
+	}
+	decision, err := c.adjudicate(attempted, ranked, skippedFaults(skipped))
+	decision, err = commit(decision, err, ranked)
+	return decision, verdicts(ranked, skipped), err
+}
+
 // adjudicated is the shared core of resolve and outcome: cluster, adjudicate
 // against the fixed basis, commit canonical bytes, and classify every source.
 func (f strictFunc) adjudicated(c Corroboration, obs []Observation) (Decision, []SourceVerdict, error) {
 	ranked, skipped, err := f.cluster(obs)
-	if err != nil {
-		return Decision{Status: Unknown, Faults: skippedFaults(skipped)}, nil, err
-	}
-	decision, err := c.adjudicate(len(obs), ranked, skippedFaults(skipped))
-	decision, err = f.finish(decision, err, ranked)
-	return decision, verdictsFromClusters(obs, ranked, skipped), err
+	return adjudicationCore(c, len(obs), ranked, skipped, err, f.finish,
+		func(ranked []cluster, skipped []skippedAnswer) []SourceVerdict {
+			return verdictsFromClusters(obs, ranked, skipped)
+		},
+		nil)
 }
 
 func (f strictFunc) outcome(c Corroboration, obs []Observation) (Outcome, error) {
@@ -395,13 +415,14 @@ func (f strictFunc) legacyCore(obs []Observation) (Decision, []SourceVerdict, er
 // and commit kernel as the raw route, over processed results.
 func (f strictFunc) canonicalCore(c Corroboration, cobs []CanonicalObservation) (Outcome, error) {
 	ranked, skipped, err := clusterCanonical(cobs)
-	if err != nil {
-		decision := Decision{Status: Unknown, Faults: skippedFaults(skipped)}
-		return Outcome{Decision: decision, Verdicts: verdictsFromCanonical(cobs, nil, skipped)}, err
-	}
-	decision, err := c.adjudicate(len(cobs), ranked, skippedFaults(skipped))
-	decision, err = commitProcessed(decision, err, ranked)
-	return Outcome{Decision: decision, Verdicts: verdictsFromCanonical(cobs, ranked, skipped)}, err
+	decision, verdicts, err := adjudicationCore(c, len(cobs), ranked, skipped, err, commitProcessed,
+		func(ranked []cluster, skipped []skippedAnswer) []SourceVerdict {
+			return verdictsFromCanonical(cobs, ranked, skipped)
+		},
+		func(skipped []skippedAnswer) []SourceVerdict {
+			return verdictsFromCanonical(cobs, nil, skipped)
+		})
+	return Outcome{Decision: decision, Verdicts: verdicts}, err
 }
 
 // canonicalLegacy is the no-snapshot canonical route: the decision-0006
@@ -440,17 +461,8 @@ func sourcesOfCanonical(cobs []CanonicalObservation) []SourceRef {
 // the canonical route commits unconditionally) and the shared per-source
 // statement.
 func legacyCoreClusters(ranked []cluster, skipped []skippedAnswer, sources []SourceRef, commit func(Decision, error, []cluster) (Decision, error)) (Decision, []SourceVerdict, error) {
-	var decision Decision
-	decision.Status = Unknown
-	decision.Faults = skippedFaults(skipped)
 	winner := ranked[0]
-	decision.Value = winner.value
-	decision.Provenance = append(json.RawMessage(nil), winner.evidence...)
-	decision.Representative = winner.sources[0]
-	decision.Support = winner.sources
-	for _, cl := range ranked[1:] {
-		decision.Reject = append(decision.Reject, cl.sources...)
-	}
+	decision := winnerDecision(ranked, skippedFaults(skipped))
 	var ret error
 	switch {
 	case len(ranked) != 1:
@@ -461,17 +473,7 @@ func legacyCoreClusters(ranked []cluster, skipped []skippedAnswer, sources []Sou
 		decision.Status = Corroborated
 	}
 	decision, ret = commit(decision, ret, ranked)
-	supported := make(map[string]struct{})
-	for _, source := range winner.sources {
-		supported[source.ID] = struct{}{}
-	}
-	dissented := make(map[string]struct{})
-	for _, cl := range ranked[1:] {
-		for _, source := range cl.sources {
-			dissented[source.ID] = struct{}{}
-		}
-	}
-	return decision, verdictsFromSources(sources, supported, dissented, skipped), ret
+	return decision, verdictsFromRanked(sources, ranked, skipped), ret
 }
 
 // finish commits canonical bytes after the single resolve. EncodeCheck
@@ -553,12 +555,10 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []skippedAnswer, erro
 	for i, item := range obs {
 		id := item.Source.ID
 		if id == "" {
-			return nil, skipped, fmt.Errorf("strict: observation %d has no source identity: %w", i, ErrConflict)
+			return nil, skipped, missingIdentity("strict", "observation", i)
 		}
 		if first, dup := seen[id]; dup {
-			return nil, skipped, fmt.Errorf(
-				"strict: duplicate observation for source %q (first at %d, again at %d): %w",
-				id, first, i, ErrConflict)
+			return nil, skipped, duplicateIdentity("strict", "observation", id, first, i)
 		}
 		seen[id] = i
 		value := item.Value
@@ -609,12 +609,10 @@ func clusterCanonical(cobs []CanonicalObservation) ([]cluster, []skippedAnswer, 
 	for i, item := range cobs {
 		id := item.observation.Source.ID
 		if id == "" {
-			return nil, skipped, fmt.Errorf("strict: canonical observation %d has no source identity: %w", i, ErrConflict)
+			return nil, skipped, missingIdentity("strict", "canonical observation", i)
 		}
 		if first, dup := seen[id]; dup {
-			return nil, skipped, fmt.Errorf(
-				"strict: duplicate canonical observation for source %q (first at %d, again at %d): %w",
-				id, first, i, ErrConflict)
+			return nil, skipped, duplicateIdentity("strict", "canonical observation", id, first, i)
 		}
 		seen[id] = i
 		if item.observation.Err != nil {
@@ -638,8 +636,7 @@ func clusterCanonical(cobs []CanonicalObservation) ([]cluster, []skippedAnswer, 
 // sentinel with the attempted count kept visible.
 func rankClusters(groups map[string][]representativeCandidate, skipped []skippedAnswer, attempted int) ([]cluster, []skippedAnswer, error) {
 	if len(groups) == 0 {
-		return nil, skipped, fmt.Errorf(
-			"strict: no source produced a valid response (%d attempted): %w", attempted, ErrNoValidResponse)
+		return nil, skipped, noValidResponse("strict", attempted)
 	}
 	keys := make([]string, 0, len(groups))
 	for key := range groups {

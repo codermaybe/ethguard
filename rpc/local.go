@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -44,13 +43,10 @@ func WithLocalCanonical(encode CanonicalEncoder) LocalOption {
 }
 
 type localFunc struct {
+	requestPassthrough
 	normalize   func(json.RawMessage) (string, error)
 	compareKind string
 	encode      CanonicalEncoder
-}
-
-func (f localFunc) Prepare(_ context.Context, req Request) (Request, error) {
-	return req, nil
 }
 
 func (f localFunc) Normalize(value json.RawMessage) (string, error) {
@@ -64,10 +60,7 @@ func (f localFunc) MethodRule() (MethodRule, Policy) {
 }
 
 func (f localFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
-	if f.encode == nil {
-		return nil, ErrNotCanonicalScalar
-	}
-	return f.encode(raw)
+	return encodeCanonicalValue(f.encode, raw)
 }
 
 func (f localFunc) Resolve(obs []Observation) (Decision, error) {
@@ -96,6 +89,5 @@ func (f localFunc) Resolve(obs []Observation) (Decision, error) {
 			Faults:  faults,
 		}, nil
 	}
-	return Decision{Status: Unknown, Faults: faults}, fmt.Errorf(
-		"local: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
+	return Decision{Status: Unknown, Faults: faults}, noValidResponse("local", len(obs))
 }

@@ -59,12 +59,11 @@ func (c Corroboration) Required(n int) int {
 	return newAcceptanceCalculator(c).required(n)
 }
 
-// adjudicate resolves size-ranked clusters (ties broken by canonical key)
-// against a voting basis of n members. The winner's evidence is reported
-// whether the decision succeeds or fails, so identical inputs always yield
-// identical Support and Reject. Value, Provenance, and Representative come from
-// the first supporter of the winning cluster in the captured member order.
-func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Decision, error) {
+// winnerDecision assembles the shared winning-cluster decision, the one
+// block every adjudication starts from: the winner's value, provenance, and
+// representative, the losing clusters as rejects, and the given fault list.
+// The status stays Unknown until the caller's rule decides it.
+func winnerDecision(ranked []cluster, faults []error) Decision {
 	var decision Decision
 	decision.Status = Unknown
 	decision.Faults = faults
@@ -76,8 +75,17 @@ func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Deci
 	for _, cl := range ranked[1:] {
 		decision.Reject = append(decision.Reject, cl.sources...)
 	}
+	return decision
+}
 
-	size := len(winner.sources)
+// adjudicate resolves size-ranked clusters (ties broken by canonical key)
+// against a voting basis of n members. The winner's evidence is reported
+// whether the decision succeeds or fails, so identical inputs always yield
+// identical Support and Reject. Value, Provenance, and Representative come from
+// the first supporter of the winning cluster in the captured member order.
+func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Decision, error) {
+	decision := winnerDecision(ranked, faults)
+	size := len(ranked[0].sources)
 	if c.Mode == CorroborationUnanimity && len(ranked) > 1 {
 		return decision, fmt.Errorf("strict: %d disagreeing values: %w", len(ranked), ErrConflict)
 	}

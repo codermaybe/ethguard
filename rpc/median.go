@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -39,12 +38,9 @@ func WithMedianCanonical(encode CanonicalEncoder) MedianOption {
 }
 
 type medianFunc struct {
+	requestPassthrough
 	normalize func(json.RawMessage) (string, error)
 	encode    CanonicalEncoder
-}
-
-func (f medianFunc) Prepare(_ context.Context, req Request) (Request, error) {
-	return req, nil
 }
 
 func (f medianFunc) Normalize(value json.RawMessage) (string, error) {
@@ -59,10 +55,7 @@ func (f medianFunc) MethodRule() (MethodRule, Policy) {
 }
 
 func (f medianFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
-	if f.encode == nil {
-		return nil, ErrNotCanonicalScalar
-	}
-	return f.encode(raw)
+	return encodeCanonicalValue(f.encode, raw)
 }
 
 func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
@@ -104,8 +97,7 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 		})
 	}
 	if len(samples) == 0 {
-		return Decision{Status: Unknown, Faults: decision.Faults}, fmt.Errorf(
-			"median: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
+		return Decision{Status: Unknown, Faults: decision.Faults}, noValidResponse("median", len(obs))
 	}
 
 	// Keep equal-valued samples in pool order. When the median value has

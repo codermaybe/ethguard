@@ -25,15 +25,6 @@ func ResolveLocalObservation(policy Policy, obs []Observation) (Decision, error)
 		includeRPCError = provider.IncludeRPCError()
 	}
 	var faults []error
-	// faultSource mirrors the resolver fault attribution so pending's
-	// node-local path reads identically in Decision.Faults.
-	faultSource := func(source SourceRef, cause string, err error) error {
-		id := source.ID
-		if id == "" {
-			id = source.Name
-		}
-		return fmt.Errorf("source %q: %s: %w", id, cause, err)
-	}
 	for _, item := range obs {
 		value := item.Value
 		if item.Err != nil {
@@ -43,13 +34,13 @@ func ResolveLocalObservation(policy Policy, obs []Observation) (Decision, error)
 			value = item.RPCError.Raw()
 		}
 		if _, err := policy.Normalize(value); err != nil {
-			faults = append(faults, faultSource(item.Source, "normalize", err))
+			faults = append(faults, sourceFault(item.Source, "normalize", err))
 			continue
 		}
 		if canonical, err := CanonicalOf(policy, value); err == nil {
 			value = canonical
 		} else if !errors.Is(err, ErrNotCanonicalScalar) {
-			faults = append(faults, faultSource(item.Source, "encode", err))
+			faults = append(faults, sourceFault(item.Source, "encode", err))
 			return Decision{Status: Unknown, Faults: faults}, fmt.Errorf("pending: %w", err)
 		}
 		return Decision{
@@ -60,6 +51,5 @@ func ResolveLocalObservation(policy Policy, obs []Observation) (Decision, error)
 			Provenance: append(json.RawMessage(nil), item.Evidence...),
 		}, nil
 	}
-	return Decision{Status: Unknown, Faults: faults}, fmt.Errorf(
-		"pending: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
+	return Decision{Status: Unknown, Faults: faults}, noValidResponse("pending", len(obs))
 }
