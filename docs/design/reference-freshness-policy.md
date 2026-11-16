@@ -28,7 +28,7 @@ latest／safe 使用 strict head；有 corroboration snapshot 时采用业务 St
 | pool tip gate | WithTipTracking 采样 tip，以 lower-median staleFloor 门控 CollectVoting 调度 | skipped 成员保留 Basis 与 ErrSourceGated，不自动记 health failure，不换成员 |
 | finalized maxLag | 过滤可用候选，再选择和确认 reference | 候选变少可以导致失败，不能降低第一轮多数界；latest／safe 不继承这套 maxLag |
 
-非 corroborating Collect 显式指定 Sources 时按现有内部约定绕过 freshness／cooldown；Broadcast 不做 read freshness gating。当前 gate 不识别本次 tag／height，历史、pending、无块参数请求也可能被跳过；sampledTip／staleFloor 没有按 tipObservedAt 过期。它们是实现事实与待修差异，不是长期产品保证。
+非 corroborating Collect 显式指定 Sources 时按现有内部约定绕过 freshness／cooldown；Broadcast 不做 read freshness gating。当前 gate 按 `TipFreshnessScope` 识别本次请求是否依赖 latest tip（生产业务轮与 reference 轮显式声明 scope），并按 `WithTipSampleMaxAge`（默认三个采样间隔）以 tipObservedAt 判定样本过期——过期样本按未知处理，不证明新鲜或落后。窗口与 scope 仍是调度输入，不是长期产品保证；样本有效性的统一默认值、最低覆盖与结构化原因仍属 F1 未决设计。
 
 ## 4. 已接受原则
 

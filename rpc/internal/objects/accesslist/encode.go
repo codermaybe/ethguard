@@ -42,9 +42,20 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 
 // nullsOmitted re-renders the object with top-level null members dropped, so
 // the generated model's non-nullable fields match the project rule that a
-// null error or gasUsed is folded to absence. Unknown members and nested
-// values are untouched; the constructor still validates everything itself.
+// null error or gasUsed is folded to absence. The common no-null object is
+// passed through untouched; unknown members and nested values are always
+// untouched, and the constructor still validates everything itself.
 func nullsOmitted(raw json.RawMessage, fields map[string]json.RawMessage) json.RawMessage {
+	hasNull := false
+	for _, value := range fields {
+		if ethcodec.IsJSONNull(value) {
+			hasNull = true
+			break
+		}
+	}
+	if !hasNull {
+		return raw
+	}
 	cleaned := make(map[string]json.RawMessage, len(fields))
 	for name, value := range fields {
 		if ethcodec.IsJSONNull(value) {
