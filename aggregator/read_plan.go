@@ -1,8 +1,6 @@
 package aggregator
 
 import (
-	"fmt"
-
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -78,13 +76,12 @@ func resolvePlannedInvocation(plan *rpc.ReadPlan, prepared rpc.Request, snap rpc
 // pending-local shape never reaches this function because the frozen route
 // stays raw for it.
 func resolveCanonicalInvocation(plan *rpc.ReadPlan, snap rpc.Corroboration, snapOK bool, cobs []rpc.CanonicalObservation) invocationResolution {
-	resolver, ok := plan.Resolver.(rpc.CanonicalOutcomeResolver)
-	if !ok {
-		// The compiler rejects a processor whose resolver cannot consume
-		// canonical observations; an untyped arrival here is a composition
-		// error, not a fallback.
-		return invocationResolution{err: fmt.Errorf("canonical route: %s resolver cannot consume canonical observations", plan.Method)}
-	}
+	// The prepare phase already verified the canonical consumption capability
+	// when it froze the route: a plan whose resolver cannot consume canonical
+	// observations takes the one internal contract exit there and never
+	// reaches resolution. The compiler rejects the same mismatch for compiled
+	// specs.
+	resolver := plan.Resolver.(rpc.CanonicalOutcomeResolver)
 	if snapOK && plan.Corroborating() {
 		outcome, err := resolver.ResolveCanonicalCorroborated(snap, cobs)
 		return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/internal/refcontext"
-	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -144,7 +143,7 @@ func frozenProcessorRoute(plan *rpc.ReadPlan, prepared rpc.Request, snap rpc.Cor
 func (a *Aggregator) establishPlannedReference(state *invocationState, started time.Time, req rpc.Request, request rpc.ReferenceRequest, ref *rpc.ReferenceEvidence, refOK *bool) *earlyExit {
 	if a.stage == nil {
 		err := fmt.Errorf("reference: no establishment stage for a read that requires one: %w", rpc.ErrReferenceRequired)
-		return a.establishmentFailureExit(state, started, req, err)
+		return a.requestFailureExit(state, started, req, err)
 	}
 	completed, err := a.stage.Establish(state.ctx, state.invocation, request)
 	if err != nil {
@@ -152,7 +151,7 @@ func (a *Aggregator) establishPlannedReference(state *invocationState, started t
 		// the business fan-out never starts. The error carries the same
 		// "anchor:" prefix the preparing decorators wrap their cause with.
 		err = fmt.Errorf("anchor: %w", err)
-		return a.establishmentFailureExit(state, started, req, err)
+		return a.requestFailureExit(state, started, req, err)
 	}
 	if established, ok := completed.Reference(); ok {
 		*ref, *refOK = established, true
@@ -165,25 +164,21 @@ func (a *Aggregator) establishPlannedReference(state *invocationState, started t
 
 // prepareFailureExit records one planned prepare-phase failure: the raw-data
 // trail gets the "prepare" record, and the decision carries the reference
-// evidence captured so far. The fault tables go through the one invocation
-// assembly point, so the planned path and the legacy path keep the same
-// contract: a request-side failure rides the returned error and the tables
-// stay empty.
+// evidence captured so far.
 func (a *Aggregator) prepareFailureExit(state *invocationState, started time.Time, req rpc.Request, err error) *earlyExit {
-	if c := uncertain.CollectorFromContext(state.ctx); c != nil {
-		c.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
+	if state.collector != nil {
+		state.collector.Record("prepare", req.Method, rpc.SourceRef{}, nil, err.Error())
 	}
-	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
-	state.attachFaults(&decision, nil)
-	a.recordDecision(started, req.Method, state.validityPolicy(), decision, err, nil, nil)
-	return &earlyExit{decision: decision, err: err}
+	return a.requestFailureExit(state, started, req, err)
 }
 
-// establishmentFailureExit records one establishment failure. The raw
-// establishment trail is already on the capture, so no second "prepare"
-// record is written. The fault tables go through the one invocation
-// assembly point, matching the legacy establishment exit.
-func (a *Aggregator) establishmentFailureExit(state *invocationState, started time.Time, req rpc.Request, err error) *earlyExit {
+// requestFailureExit is the shared request-side failure exit of the prepare
+// and establishment phases: no source was attempted, so the fault tables
+// stay empty by contract, the returned error carries the cause, and the
+// decision keeps the reference evidence captured so far. The fault tables go
+// through the one invocation assembly point, so the planned path and the
+// legacy path keep the same contract.
+func (a *Aggregator) requestFailureExit(state *invocationState, started time.Time, req rpc.Request, err error) *earlyExit {
 	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.capture.Reference()}
 	state.attachFaults(&decision, nil)
 	a.recordDecision(started, req.Method, state.validityPolicy(), decision, err, nil, nil)

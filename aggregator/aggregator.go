@@ -183,21 +183,20 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 		plan = forwardPlan(req.Method)
 	}
 	state := &invocationState{
-		ctx:           ctx,
-		plan:          &plan,
-		snap:          snap,
-		snapOK:        snapOK,
-		corroborating: snapOK && plan.Corroborating(),
-		members:       members,
-		capture:       capture,
+		ctx:       ctx,
+		plan:      &plan,
+		snap:      snap,
+		snapOK:    snapOK,
+		capture:   capture,
+		collector: collector,
 	}
-	state.invocation = beginInvocation(snap, snapOK, members, uncertain.CollectorFromContext(ctx), requireCorroboration)
+	state.invocation = beginInvocation(snap, snapOK, members, collector, requireCorroboration)
 	defer state.finalizeHealth()
 
 	if exit := a.planPreparePhase(state, started, req); exit != nil {
 		return exit.decision, exit.err
 	}
-	a.collectPhase(state)
+	a.collectPhase(state, members)
 	a.admitPhase(state)
 	if exit := a.resolvePhase(state, started); exit != nil {
 		return exit.decision, exit.err

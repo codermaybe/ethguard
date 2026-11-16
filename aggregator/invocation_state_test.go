@@ -13,9 +13,8 @@ func TestInvocationBasisStaysFrozenAcrossRounds(t *testing.T) {
 	sources := namedSources(t, "a", "b", "c")
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	state := &invocationState{
-		snap:    snap,
-		snapOK:  true,
-		members: sources,
+		snap:   snap,
+		snapOK: true,
 	}
 	state.invocation = beginInvocation(snap, true, sources, nil, false)
 

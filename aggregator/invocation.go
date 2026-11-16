@@ -41,12 +41,11 @@ type invocationState struct {
 	planPin string
 	snap    rpc.Corroboration
 	snapOK  bool
-	// corroborating selects the fixed-basis collection mode: the full voting
-	// membership occupies the denominator even when a scheduling gate skipped
-	// its request (decisions 0025 and 0062).
-	corroborating bool
-	members       []*pool.Source
-	capture       *refcontext.Capture
+	capture *refcontext.Capture
+	// collector is this invocation's material capture, resolved once at
+	// entry. It is nil when no evidence configuration applies; the per-source
+	// stages consult it instead of re-resolving the context.
+	collector *uncertain.Capture
 
 	prepared rpc.Request
 	// wireParams is the frozen parameter list the business fan-out sends:
@@ -121,6 +120,13 @@ func (state *invocationState) pendingLocalRoute() bool {
 	return planPendingLocalRoute(state.plan, state.prepared, state.snap, state.snapOK)
 }
 
+// forwarded reports the invocation's frozen corroboration mode: an explicit
+// Forwarded snapshot forwards regardless of the method's declaration. Every
+// phase reads this one fact instead of re-evaluating the snapshot pair.
+func (state *invocationState) forwarded() bool {
+	return state.snapOK && state.snap.Mode == rpc.CorroborationForwarded
+}
+
 // resolve runs the plan's declared resolution semantics. The canonical route
 // resolves through the same resolver's canonical consumption entries; the raw
 // route keeps the planned chain.
@@ -173,10 +179,10 @@ func preparedTipFreshness(state *invocationState) pool.TipFreshnessScope {
 // mode: forwarded, single-source, fixed-basis voting, or symmetric collection.
 // A planned read has no single-source shape; its collection mode follows the
 // declared resolver class.
-func (a *Aggregator) collectPhase(state *invocationState) {
+func (a *Aggregator) collectPhase(state *invocationState, members []*pool.Source) {
 	opts := pool.CollectOptions{
 		Timeout:      a.collectTimeout,
-		Sources:      state.members,
+		Sources:      members,
 		TipFreshness: preparedTipFreshness(state),
 		DeferHealth:  true,
 	}
@@ -184,14 +190,14 @@ func (a *Aggregator) collectPhase(state *invocationState) {
 		state.emissions, state.collectErr = a.pool.Forward(state.ctx, state.prepared.Method, state.wireParams, opts)
 	}
 	switch {
-	case state.snapOK && state.snap.Mode == rpc.CorroborationForwarded:
+	case state.forwarded():
 		// Intentional single-source forwarding: the configured mode, not the
 		// method's declaration, decides.
 		forward()
 	case singleSourcePolicy(state.plan.Resolver):
 		// The explicit forward plan (or a single-source declaration).
 		forward()
-	case state.corroborating:
+	case state.snapOK && state.plan.Corroborating():
 		// A corroborated read collects over the fixed voting basis — every
 		// member occupies the denominator even when a scheduling gate
 		// skipped its request (decisions 0025 and 0062).
@@ -232,6 +238,36 @@ func singleSourcePolicy(policy rpc.Policy) bool {
 	return ok && single.SingleSource()
 }
 
+// runPerSourceStage runs one frozen per-source stage concurrently over the
+// invocation's delivered slots. Both routes share the same skip rule, the
+// same concurrency shape, the same source slots, and the same same-source
+// caller; the stage callback owns the route-specific outcome handling.
+func (a *Aggregator) runPerSourceStage(state *invocationState, stage func(i int)) {
+	var wg sync.WaitGroup
+	for i := range state.emissions {
+		if state.emissions[i].Err != nil || state.emissions[i].Val == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			stage(i)
+		}()
+	}
+	wg.Wait()
+}
+
+// recordAdmissionFault writes one per-source stage failure to the raw
+// material trail and gives the source the admission-stage attribution both
+// routes produce.
+func (state *invocationState) recordAdmissionFault(i int, cause error) {
+	if state.collector != nil {
+		state.collector.Record("admission", state.prepared.Method, SourceRefOf(state.emissions[i].Src), nil, cause.Error())
+	}
+	state.emissions[i].Err = fmt.Errorf("admission: %w", cause)
+	state.emissions[i].Val = nil
+}
+
 // admitPhase preserves the raw responses, rejects structurally unsafe JSON,
 // and runs the invocation's frozen per-source stage. On the raw route that is
 // the method's admission hook with a same-source caller; on the canonical
@@ -244,17 +280,17 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 	// Preserve every primary response before admission is allowed to clear a
 	// malformed value. This is the raw per-source record used by Uncertain;
 	// admission and resolver outcomes are recorded as separate stages below.
-	if c := uncertain.CollectorFromContext(state.ctx); c != nil {
+	if state.collector != nil {
 		for _, emission := range state.emissions {
 			source := SourceRefOf(emission.Src)
 			errText := ""
 			if emission.Err != nil {
 				errText = emission.Err.Error()
 			}
-			c.Record("response", state.prepared.Method, source, emission.Val, errText)
+			state.collector.Record("response", state.prepared.Method, source, emission.Val, errText)
 		}
 		if state.collectErr != nil {
-			c.Record("collect", state.prepared.Method, rpc.SourceRef{}, nil, state.collectErr.Error())
+			state.collector.Record("collect", state.prepared.Method, rpc.SourceRef{}, nil, state.collectErr.Error())
 		}
 	}
 	for i := range state.emissions {
@@ -279,27 +315,14 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 	if !ok {
 		return
 	}
-	var wg sync.WaitGroup
-	for i := range state.emissions {
-		if state.emissions[i].Err != nil || state.emissions[i].Val == nil {
-			continue
+	a.runPerSourceStage(state, func(i int) {
+		evidence, admissionErr := admission(state.ctx, state.admissionRequest, state.emissions[i].Val, a.sameSourceCaller(state, i))
+		if admissionErr != nil {
+			state.recordAdmissionFault(i, admissionErr)
+			return
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			evidence, admissionErr := admission(state.ctx, state.admissionRequest, state.emissions[i].Val, a.sameSourceCaller(state, i))
-			if admissionErr != nil {
-				if c := uncertain.CollectorFromContext(state.ctx); c != nil {
-					c.Record("admission", state.prepared.Method, SourceRefOf(state.emissions[i].Src), nil, admissionErr.Error())
-				}
-				state.emissions[i].Err = fmt.Errorf("admission: %w", admissionErr)
-				state.emissions[i].Val = nil
-				return
-			}
-			state.emissions[i].Evidence = evidence
-		}()
-	}
-	wg.Wait()
+		state.emissions[i].Evidence = evidence
+	})
 }
 
 // processPhase is the canonical route's per-source stage: each available
@@ -312,44 +335,31 @@ func (a *Aggregator) processPhase(state *invocationState) {
 	state.canonicalObservations = make([]rpc.CanonicalObservation, len(state.emissions))
 	results := make([]rpc.CanonicalResult, len(state.emissions))
 	internal := make([]error, len(state.emissions))
-	var wg sync.WaitGroup
-	for i := range state.emissions {
-		if state.emissions[i].Err != nil || state.emissions[i].Val == nil {
-			continue
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			result, err := state.processorRoute(state.ctx, state.admissionRequest, state.emissions[i].Val, a.sameSourceCaller(state, i))
-			if err != nil {
-				if errors.Is(err, rpc.ErrInvalidCanonicalResult) {
-					// A contract fault is the process's, not the provider's:
-					// the emission stays untouched so no fault or health table
-					// blames the source.
-					internal[i] = err
-					return
-				}
-				// The CanonicalProcessor contract pairs outcomes: an error
-				// must carry a zero result, so a non-zero result beside a
-				// non-sentinel error is the same internal contract defect.
-				// The pairing is verified here — before anything attributes
-				// the error to the source or records an admission fault —
-				// and the round takes the one internal exit.
-				if len(result.Value()) != 0 {
-					internal[i] = fmt.Errorf("%w: processor returned a canonical result beside an error", rpc.ErrInvalidCanonicalResult)
-					return
-				}
-				if c := uncertain.CollectorFromContext(state.ctx); c != nil {
-					c.Record("admission", state.prepared.Method, SourceRefOf(state.emissions[i].Src), nil, err.Error())
-				}
-				state.emissions[i].Err = fmt.Errorf("admission: %w", err)
-				state.emissions[i].Val = nil
-				return
-			}
+	a.runPerSourceStage(state, func(i int) {
+		result, err := state.processorRoute(state.ctx, state.admissionRequest, state.emissions[i].Val, a.sameSourceCaller(state, i))
+		if err == nil {
 			results[i] = result
-		}()
-	}
-	wg.Wait()
+			return
+		}
+		if errors.Is(err, rpc.ErrInvalidCanonicalResult) {
+			// A contract fault is the process's, not the provider's:
+			// the emission stays untouched so no fault or health table
+			// blames the source.
+			internal[i] = err
+			return
+		}
+		// The CanonicalProcessor contract pairs outcomes: an error
+		// must carry a zero result, so a non-zero result beside a
+		// non-sentinel error is the same internal contract defect.
+		// The pairing is verified here — before anything attributes
+		// the error to the source or records an admission fault —
+		// and the round takes the one internal exit.
+		if len(result.Value()) != 0 {
+			internal[i] = fmt.Errorf("%w: processor returned a canonical result beside an error", rpc.ErrInvalidCanonicalResult)
+			return
+		}
+		state.recordAdmissionFault(i, err)
+	})
 	for i := range state.emissions {
 		if internal[i] != nil {
 			state.internalFault = errors.Join(state.internalFault, internal[i])
@@ -384,13 +394,13 @@ func (a *Aggregator) processPhase(state *invocationState) {
 func (a *Aggregator) sameSourceCaller(state *invocationState, i int) rpc.AdmissionCaller {
 	return func(callCtx context.Context, method string, params []any) (json.RawMessage, error) {
 		raw, callErr := a.pool.CallSource(callCtx, state.emissions[i].Src, method, params)
-		if c := uncertain.CollectorFromContext(state.ctx); c != nil {
+		if state.collector != nil {
 			source := SourceRefOf(state.emissions[i].Src)
 			errText := ""
 			if callErr != nil {
 				errText = callErr.Error()
 			}
-			c.Record("dependency", method, source, raw, errText)
+			state.collector.Record("dependency", method, source, raw, errText)
 		}
 		return raw, callErr
 	}
@@ -423,16 +433,14 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	// stays provider-neutral.
 	if state.internalFault != nil {
 		state.verdicts = finalizeVerdicts(verdictsFromSlots(state.emissions), state.emissions)
-		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
-		state.attachFaults(&decision, state.verdicts)
-		decision.Faults = append(decision.Faults, fmt.Errorf("canonical: %w", state.internalFault))
-		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, state.internalFault, state.emissions, state.verdicts)
-		return &earlyExit{decision: decision, err: state.internalFault}
+		exit := a.unknownExit(state, started, state.internalFault)
+		exit.decision.Faults = append(exit.decision.Faults, fmt.Errorf("canonical: %w", state.internalFault))
+		return exit
 	}
 	// A field-aggregation failure only degrades this invocation to a decision
 	// without diagnostics; the error itself is kept so every return path
 	// below can attach it to Faults instead of dropping it silently.
-	if state.snapOK && state.snap.Mode != rpc.CorroborationForwarded {
+	if state.snapOK && !state.forwarded() {
 		common, observationErr := rpc.AggregateFieldsWithCorroboration(state.observations, state.invocation.Basis())
 		if observationErr == nil {
 			state.evaluation = &common
@@ -447,10 +455,7 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 		}
 	}
 	if state.collectErr != nil && !hasUsableEmission(state.emissions) {
-		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
-		state.attachFaults(&decision, nil)
-		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, state.collectErr, state.emissions, nil)
-		return &earlyExit{decision: decision, err: state.collectErr}
+		return a.unknownExit(state, started, state.collectErr)
 	}
 	// Admission runs before clustering, so when every delivered response is
 	// malformed there is no usable cluster from which Strict could preserve
@@ -458,13 +463,21 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	// typed callers instead of replacing it with ErrNoValidResponse.
 	if state.collectErr == nil && !hasUsableEmission(state.emissions) && hasMalformedAdmission(state.emissions) {
 		admissionErr := firstMalformedAdmission(state.emissions)
-		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
-		state.attachFaults(&decision, nil)
-		err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr)
-		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, err, state.emissions, nil)
-		return &earlyExit{decision: decision, err: err}
+		return a.unknownExit(state, started, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, admissionErr))
 	}
 	return nil
+}
+
+// unknownExit assembles the shared degraded-resolution exit: the Unknown
+// decision carrying the invocation's reference, participants and prepared
+// fact, the shared fault-table assembly, one decision event, and the early
+// exit pair. Degraded exits reach this with a nil verdict statement, so the
+// fault tables classify from the invocation's own records.
+func (a *Aggregator) unknownExit(state *invocationState, started time.Time, resolveErr error) *earlyExit {
+	decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
+	state.attachFaults(&decision, state.verdicts)
+	a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, resolveErr, state.emissions, state.verdicts)
+	return &earlyExit{decision: decision, err: resolveErr}
 }
 
 // verdictsFromSlots states every source's outcome from the invocation's own
@@ -504,14 +517,14 @@ func (state *invocationState) resolveValue() (rpc.Decision, error) {
 	res := state.resolve()
 	decision, resolveErr := res.decision, res.err
 	state.verdicts = finalizeVerdicts(res.verdicts, state.emissions)
-	if resolveErr == nil && state.snapOK && state.snap.Mode == rpc.CorroborationForwarded {
+	if resolveErr == nil && state.forwarded() {
 		decision.Status = rpc.Forwarded
 	}
 	requiresAgreement := state.requiresAgreement()
 	// All named conditions are pure queries, so hoisting them out of the
 	// short-circuit chain below cannot change behavior; the remaining checks
 	// keep their original order.
-	gatedByForwarded := state.snapOK && state.snap.Mode == rpc.CorroborationForwarded
+	gatedByForwarded := state.forwarded()
 	pendingLocal := state.pendingLocalRoute()
 	if requiresAgreement && state.invocation.RequireCorroboration() && !gatedByForwarded && !pendingLocal && resolveErr == nil && decision.Status != rpc.Corroborated {
 		// Fail closed without rewriting the formed Status: the invocation
