@@ -118,7 +118,7 @@ func WithCanonicalObject(encode CanonicalEncoder) StrictOption {
 // a single uncorroborated response is Selected rather than Corroborated. The
 // legacy default is retained for direct construction — the reference
 // establishment paths depend on it by recorded decision
-// (docs/design/acceptance-thresholds.md) — while the client's default path
+// (docs/design/method-contracts.md) — while the client's default path
 // always resolves under a captured corroboration snapshot through
 // ResolveCorroborated.
 func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOption) Policy {

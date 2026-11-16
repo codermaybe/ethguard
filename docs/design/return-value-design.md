@@ -1,13 +1,13 @@
 # 返回值：受保护结果与规范编码
 
-状态：现行语义说明。历史阶段计划、已撤销方案和实施日志保留在 Git；本文件不维护任务进度，也不授予新的实现变更。
+状态：2026-11-17 文档基线。本文统一受保护 Value、规范表示、typed 与来源材料的交付合同；历史实现理由由 Git／决策档案追溯，不把已完成迁移当待执行任务。
 
 ## 1. 独立合同与语义等价
 
 | 合同 | 回答的问题 | 事实源 |
 | --- | --- | --- |
 | 官方 wire 合同 | 方法、结果字段、类型、required、nullable 和值约束是什么？ | 固定 execution-apis bundle 与对应版本的协议／方法说明；见 [spec 数据说明](../../internal/spec/README.md) |
-| EthGuard 保护合同 | 哪些内容经过请求绑定、内容承诺或跨源比较，可以进入受保护 Value？ | [方法契约](method-contracts.md)、[决策记录](../decisions.md)、方法准入与 encoder |
+| EthGuard 保护合同 | 哪些内容经过请求绑定、内容承诺或跨源比较，可以进入受保护 Value？ | [方法合同](method-contracts.md)、适用对象检查与现行实现；历史理由见决策档案 |
 | 表示合同 | 同一个被接受的值如何编码成确定字节？ | `rpc/internal/wire` 与各对象 encoder；官方生成层见 [wire-codegen.md](wire-codegen.md) |
 
 项目接受政策单独说明哪些非标准拼写可兼容读入，以及哪些官方合法输入因方法语义被拒。它既不改写官方 schema，也不自动形成额外保护。
@@ -16,7 +16,7 @@
 
 **规范编码表示确定性，不自动表示符合完整官方结果 schema。** 在合法对象上增加请求绑定是更深锁定；拒绝部分官方合法输入是接受域收窄；删掉官方 required 字段、输出不允许的 null，则不是原对象 schema 的合法子集。当前实现包含这几种不同情况，不得混称为“比官方更严格”。
 
-公共 RPC 的实际响应有兼容性参考价值，但不是字段规范的来源。保留的 [shapeprobe 归档](../samples/2026-09-26-shapeprobe/README.md) 记录有限日期、端点和请求，不能推出普遍兼容。标准冲突与接受边界由各方法合同维护；receipt 裁决见决策 0068，独立 transaction 的首个实施检查点见 [方法级 key 设计](transaction-semantic-matching.md#12-当前实施检查点)，完整Block对象的官方输出现已对齐，公开Go签名仍待迁移。
+公共 RPC 的实际响应有兼容性参考价值，但不是字段规范的来源。保留的 [shapeprobe 归档](../samples/2026-09-26-shapeprobe/README.md) 记录有限日期、端点和请求，不能推出普遍兼容。标准冲突与接受边界由各方法合同维护；receipt 裁决见决策 0068，独立 transaction 的首个实施检查点见 [方法合同](method-contracts.md#5-独立交易的有限兼容与对象合同)，完整 Block 与公开业务签名已接入生成模型，内部表示与接受域差异仍须逐对象审查。
 
 ## 2. Value 的含义
 
@@ -30,26 +30,21 @@
 
 完整区块现在按官方生成Block交付：`size`、内嵌交易的`from`、hash与inclusion上下文保留在逐源规范对象中，并与其余官方字段共同参与比较及提交。缺失required字段拒绝来源，不再通过geth重编码丢弃它们。`size`和`from`属于来源声明经多源比较保护，不宣称由RLP独立验真或sender recovery；交易payload hash、上下文和body承诺仍单独核对。仅number/hash的内部reference结果仍是较窄的身份表示，不冒称完整官方Block。
 
-receipt 已采用官方形态与保护闭环：`from`／`effectiveGasPrice` 必须由来源提供并比较；nullable `to`／`contractAddress` 保留缺失、null、地址三个状态；可选非 nullable 字段存在时拒绝 null；`type` 受 byte 约束。`status`／`root` 至少一个存在，同时存在则独立校验、比较并保留。完整日志要求、bloom-log 一致性、请求绑定和零日志 hash 容忍仍按方法规则执行；后者不构成完整父子绑定证明。Geth `types.Receipt` 无 `from`／`to` 字段，完整受保护 wire 信息保留在 `Decision.Value`，不伪造 typed 字段。
+receipt 已采用官方形态与保护闭环：`from`／`effectiveGasPrice` 必须由来源提供并比较；nullable `to`／`contractAddress` 保留缺失、null、地址三个状态；可选非 nullable 字段存在时拒绝 null；`type` 受 byte 约束。`status`／`root` 至少一个存在，同时存在则独立校验、比较并保留。完整日志要求、bloom-log 一致性、请求绑定和零日志 hash 容忍仍按方法规则执行；后者不构成完整父子绑定证明。公开 typed 使用生成 `ethapi.Receipt`，保留受保护字段与 presence；私有 geth Receipt 只供算法检查，不能用它再编码主结果或丢掉 from／to。
 
 ## 3. 准入、编码和裁决
 
-```mermaid
-flowchart LR
-    Collect[按冻结成员收集] --> JSON[有界 JSON 检查]
-    JSON --> Admit[方法准入与请求绑定，必要时先作有限 key 修正]
-    Admit --> Encode[逐源 EncodeCheck]
-    Encode --> Cluster[按方法比较键分簇]
-    Cluster --> Decide[固定分母裁决一次]
-    Decide --> Commit[检查簇内规范字节并提交]
-    Commit --> Public[CallResult 与 typed projection]
+```text
+冻结成员收集 → JSON 安全 → raw Admit + Encode 或 CanonicalProcessor
+  → 方法分簇／选择与固定分母裁决 → 提交同源已验证规范 Value
+  → 原始观察的附属投影与材料 → CallResult／typed
 ```
 
-- Admit 或 EncodeCheck 失败的来源记 Fault，不贡献支持，仍留在本轮分母。不得先裁决、再删掉失败来源重算门槛。
+- 方法准入、EncodeCheck 或 processor 失败的来源记相应阶段 Fault，不贡献支持，仍留在本轮分母。不得先裁决、再删掉失败来源重算门槛。
 - 完整区块采用canonical字节作为比较键，独立交易的比较与编码使用同一完整候选对象；reference的HeadCodec仍使用number/hash身份，不因此扩大为完整block校验。数量、成功 DATA、feeHistory、logs、accessList 和 receipts 使用各自规范字节。实际装配见生成的 [method-rules.md](method-rules.md)，不在本文复制注册表。
 - 获胜簇内支持源的规范字节必须相同。同键却编码不同是保护域／比较键／实现不一致，返回 `ErrMalformedResponse`，不改选某份原文或逐字段投票。
 - 非获胜簇的同类不一致只形成 Faults，不否决已经达门槛且自身一致的获胜簇，不触发第二次投票。诊断保留 source ID、长度和摘要，不复制完整 Value。
-- Median 和 Local 保持 Selected；未注册 Forward 路径没有受保护声明。不能因编码一致把它们升级为 Corroborated。
+- Median 和 Local 保持 Selected；显式 Forwarded 没有跨源保护声明。低层 Registry 的默认 forwarding 不使公开 Call 接受未知方法。不能因编码一致把它们升级为 Corroborated。
 - 公开调用失败时，`CallResult` 不交付成功 Value；结果载体、隔离与生命周期以决策 0066 为准，不能套用旧阶段的失败 Value 示例。
 
 字节相等只是必要条件：删掉应保护的字段也能制造相等。验证还必须覆盖字段处置、变异、请求绑定、派生和受保护语义往返，见 [验证管线](method-verification-pipeline.md)。
@@ -65,7 +60,7 @@ flowchart LR
 | 受保护 feeHistory ratio | 仍执行项目 `CanonicalRatio` 的 float64 最短十进制保值 gate；`0.50` 可折合，`0.30000000000000001` 被拒。这是项目接受域限制，不是官方 number 定义 |
 | 缺失与 null | 不全局补空值。对象查询合法 null、空数组、字段缺失和显式 null 按具体方法区分；现有 optional 字段的 null→省略例外及其冲突见问题记录。Header／区块共享的null→省略例外：`baseFeePerGas`／`withdrawalsRoot`／`blobGasUsed`／`excessBlobGas`／`parentBeaconBlockRoot`／`requestsHash`／`blockAccessListHash`／`slotNumber` 在官方 schema 为 optional 且 non-nullable，而 geth 头部 marshal 对未设指针字段输出显式 null——这是 pre-fork 区块事实上的 wire 形状，按显式八项政策折合为省略；baseFeePerGas与blockAccessListHash在完整模型接入时补入，依据同一锁定geth生成编码事实，required null与其余畸形值仍拒绝，使受保护值满足对应官方schema（与 log `blockTimestamp:null`→省略同类） |
 
-标量实现单源为 [wire/encode.go](../../rpc/internal/wire/encode.go)，对象规则单源为对应 `rpc/internal/objects/*/encode.go`。不要在文档再维护一份可独立漂移的字段清单。
+标量与 JSON 原语由 internal/ethcodec 及 wire 适配维护；对象规则位于 rpc/internal/objects 与共享 internal/ethobject，公开模型来自 ethapi。算法输入视图不能冒充第二份官方模型。不要在文档再维护一份可独立漂移的字段清单。
 
 ## 5. 代表源和证据
 
@@ -83,7 +78,7 @@ Provenance 的准入证据、withheld 字节和代表源必须同源；不得从
 | Extensions／Diagnostics | 域外字段的附属比较结果及来源差异 | 按既有附属规则交付，不承诺适配每种厂商字段的业务语义，不把它们升级为官方主结果 |
 | CallResult.Uncertain／source-evidence | 按来源保留的原始响应、字段与错误材料 | 按需开启，受现有安全限制、保留预算及截断规则约束；原文不因前置兼容被覆写，不作为主结果合法性的替代依据 |
 
-“用户仍可取得来源提供的值”指通过上述不同形态取得受保护结果、附属内容及已保留的来源材料，不承诺默认、无条件、无限量保存所有原文字节。需要查看域外或无法规范交付的来源内容时，调用者应启用 `WithSourceEvidence` 并配置适当预算；实际丢弃和截断由 `Uncertain` 的记录状态说明。材料保留不足不能改变请求、比较范围、投票资格或门槛。
+“用户仍可取得来源提供的值”指通过上述不同形态取得受保护结果、附属内容及已保留的来源材料，不承诺默认、无条件、无限量保存所有原文字节。需要查看域外或无法规范交付的来源内容时，调用者应启用 `WithSourceEvidence` 并配置适当预算；实际丢弃和截断由 `Uncertain` 的记录状态说明。材料保留不足不能改变请求、比较范围、投票资格或门槛。 当前实现除调用方总 byte 预算外，还限制每份 raw response 为64KiB、raw与field合计最多256条、可变 metadata text最多4KiB；预算非正本地拒绝。capture句柄复用永久失效，panic使句柄aborted；这些交付错误不进入业务错误。
 
 处于方法承诺保护域内的官方信息不能仅因 Go struct 无法承载，就降为可关闭、可截断的原始证据。域外材料也不能为保留在一个返回结构中而污染官方 Value。多源 RPC 的响应形态差异通过语义规范结果与分通道材料表达，不通过无限扩充一个统一结构消除。
 
@@ -93,4 +88,4 @@ Provenance 的准入证据、withheld 字节和代表源必须同源；不得从
 
 ## 6. 维护边界
 
-当前行为看代码和上述合同；接受／取代的理由看决策 0041–0056、0061、0066。阶段编号、已完成清单、被撤销的 Raw 容量方案和旧 API 示例不再留在现行规范里。需要改变保护域、官方兼容性或接受策略时，先处理 `docs/tmp` 中的问题，再更新实现、消费者与行为验证；本文整理不代替该决策。
+当前行为由本合同、方法合同及实际入口共同核对；历史理由见决策档案。保护域、官方兼容或接受策略变化须明确目标、影响与独立预期，不能靠改写文档宣布实现完成。未决事项保存在对应正式合同，文档全系列整理并保存 Git 后再开始代码阶段。

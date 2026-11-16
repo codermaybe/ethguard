@@ -1,6 +1,6 @@
 # Transport L1 Contract（连接适配器外部行为规范）
 
-> 状态：现行 native HTTP L1 契约（冻结于 2026-10-29）。本文件拥有 native HTTP
+> 状态：2026-11-17 文档基线；native HTTP L1 行为起于 2026-10-29。本文件拥有 native HTTP
 > 的 HTTP 外部行为；`internal/transport/contract` 是其可执行形式。历史 geth
 > 差分记录仅保留为当时的 geth 对照证据，不构成 native 的运行时依赖或额外承诺。WSS 的帧与连接扩展由
 > [wss-wire-contract.md](wss-wire-contract.md) 拥有，流语义由
@@ -20,8 +20,7 @@
 - `internal/transport` 是 Port-only 物理包：`Transport`、`Dialer`、`ErrBodyTooLarge`、
   `ErrConnectionClosed`。适配器实现不得进入该包。
 - native HTTP（`internal/transport/http`）是唯一生产 HTTP adapter。
-- native 生产执行图不得链接 `ethclient`；`gethrpc` 只用于根公开签名和
-  `internal/testkit/gethoracle`／显式诊断工具。
+- native 生产执行图不得链接 `ethclient`；具体 geth RPC client 仅存在于 `internal/testkit/gethoracle`／显式诊断工具等允许位置；公开业务签名使用生成模型，私有算法桥不承担 transport。
 
 ## 2. L1 条款（suite 逐条对应）
 
@@ -44,8 +43,7 @@
 7. **坏响应类别**：空 body → `ErrEmptyResponse`；非 JSON / JSON 数组 body /
    完整 JSON 后跟 trailing garbage → `ErrMalformedResponse`；这些都不得以
    ProtocolError 形状出现（suite: `empty and malformed bodies`、`trailing data`）。
-8. **重复 key**：同名字段 last-wins，调用成功并交付最后一次拼写。两实现共享
-   该类别；重复的具体诊断属 L3（suite: `duplicate keys last win`）。
+8. **重复 key**：HTTP envelope 同名字段按该层现有 last-wins 规则解码；这不授权业务对象重复 key。来源 result 仍经 aggregator／对象层 JSON 安全检查拒绝重复声明。重复的具体诊断属 L3（suite: `duplicate keys last win`）。
 9. **上下文优先级**：取消/超时支配一切 body 结果——调用前取消返回取消错；
    挂死服务端上 deadline 返回 `DeadlineExceeded`；读非 2xx body 途中取消，
    丢弃状态结果返回 context 错误（suite: `context precedence`）。
@@ -134,3 +132,7 @@ HTTP 429/525 的分类在两实现相同，保留的 body 文本携带 pool 等�
 
 外部 native canary 与其 artifact recheck 不由这两次本机 smoke 证明；
 `inconclusive` 始终不是成功。
+
+## 6. 待后续实现阶段评估
+
+历史无凭证 Ankr 的 id:null 分类差异仍是兼容政策问题，本轮不放松 ID。HTTP／WSS chain-ID 容量与语法需按信任层复核；不能因函数相似强制统一。协议层完整性、来源形态准入和typed错误分层验证，不把HTTP envelope行为外推到所有业务JSON。

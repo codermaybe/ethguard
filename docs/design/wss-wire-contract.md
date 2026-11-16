@@ -1,6 +1,6 @@
 # WSS Wire Contract（自有 WebSocket 底层契约）
 
-状态：现行 wire 契约（范围冻结于 2026-11-03）。自有实现的握手、帧、连接与
+状态：2026-11-17 文档基线；现有 wire 范围起于 2026-11-03。自有实现的握手、帧、连接与
 adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也不据此宣称所有验收门
 或依赖清理均已完成。
 
@@ -138,3 +138,7 @@ adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也
 5. 不新增第二套 adapter registry；`config.TransportWSS` 的显式组合根 dispatch
    不变。pool 下一次独立调用的惰性重拨与根订阅 session 重建各自有 owner，
    都不是 transport 自动 replay。
+
+## 6. 待后续实现阶段评估
+
+写阶段取消原因与部分写入后的 abort、TCP／TLS／Upgrade 的共同握手预算、Subscribe setup deadline 所有权、畸形通知的连接级影响与 ReceivedAt 的接收／交付含义，以及 direct dial／proxy 范围仍需逐项设计。旧探针没有在本轮重跑，不能直接登记为已复现缺陷。source session 重建、逻辑snapshot与最终错误由订阅owner负责，wire不据此增加自动replay。

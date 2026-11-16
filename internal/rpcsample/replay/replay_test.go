@@ -16,7 +16,7 @@ const (
 // three historical batches keep sampleBatchID; a new capture batch adds its
 // own entry here and never moves sampleBatchID, which would repoint the
 // historical batches. This map is the authoritative feature↔batch-id
-// correspondence (capture-golden-contract §4.0).
+// correspondence (method-verification-pipeline capture contract).
 var featureBatchIDs = map[string]string{
 	"read-local":    "2026-10-19",
 	"read-volatile": "2026-10-21",

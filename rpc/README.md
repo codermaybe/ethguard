@@ -1,48 +1,11 @@
 # RPC
 
-This package holds the normalized JSON-RPC transport and decision model:
-the `Request`/`Observation`/`Decision` types, the `Policy` contract and
-`Registry`, the canonical single-source processing seam
-(`canonical.go`: processor, immutable result, slot pairing, internal
-contract sentinel, and the strict resolver's consumption entries), and
-the shared resolution strategies — dynamic fixed-basis
-corroboration, lower-median selection for variable results, upstream-local
-selection, transparent forwarding, and the anchor decorators
-(`WithAnchor`, `WithAnchorHeight`, `WithAnchorHeightFields`,
-`RejectPending`).
+This module owns Request, Observation, Decision, ReadPlan, Policy, resolver outcomes and generic evidence. It implements Strict, block-supporting primitives, Median, Local and CallRevert behavior, plus the canonical processor/result/observation seam. It does not own connections or Ethereum method field schemas.
 
-The line against `rpc/methods`: everything here is true of any method and
-any JSON; Ethereum wire shapes and per-method normalization live in
-`rpc/methods`, whose policies compose the strategies this package provides.
-Unknown methods fall through the registry to explicit forwarding, which
-never claims `Corroborated`.
+rpc/methods assembles the registered method plans. The low-level Registry can explicitly fall through to Forwarded, but the public Client.Call rejects unknown methods before that escape; low-level capability is not public method authorization.
 
-## Generic observation reduction
+AggregateFields reduces generic JSON observations by JSON Pointer and source identity. A unique value meeting the invocation threshold may enter Accepted; insufficient or conflicting values remain Diagnostics. Method projectors decide standard-field membership, protected output and extensions. Diagnostics do not become protected fields or a second business return.
 
-`AggregateFields` is the evaluation seam. It performs strict,
-method-independent JSON observation reduction: nested values are indexed by
-JSON Pointer path, equal values are grouped by source, and only one value that
-reaches the invocation threshold enters `Evaluation.Accepted`. Values below
-the threshold and paths with multiple qualified values remain in
-`Evaluation.Diagnostics`. The evaluator records source identity and raw
-values, but does not decide whether a field is an Ethereum standard field or
-how a scalar should be interpreted.
+KeySource is explicit: canonical bytes or a declared normalizer key. Encoder presence does not imply clustering, and Median/Local remain Selected. The canonical route consumes validated immutable results without re-running raw normalization or encoding; failures preserve their defined internal/provider distinction.
 
-Method packages project `Accepted` into their locked, method-specific Core
-fields. Accepted non-core fields become optional extensions; diagnostics never
-become extensions. OpenRPC is not a runtime dependency of this reduction path.
-
-An aggregate `Decision` exposes only the selected Core value, accepted
-extensions, and optional diagnostics. It does not expose a second observation
-view or require callers to understand per-source field categories.
-
-This package does not select upstreams or own connections; `SourceRef`
-keeps it decoupled from pool's connection and health implementation.
-
-
-## Method layers
-
-Ethereum method behavior is not decided in this package. Wire normalization,
-object requiredness, request admission, and typed projection stay separate;
-see `rpc/methods/README.md`. A comparison key is not an admission decision,
-and a typed decode failure is not a corroboration result.
+See [execution topology](../docs/design/codebase-topology.md), [method contracts](../docs/design/method-contracts.md) and [result delivery](../docs/design/return-value-design.md) for the complete current contracts.

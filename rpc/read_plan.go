@@ -62,7 +62,7 @@ const (
 // all a method does: the aggregator establishes the reference through the
 // reference stage on the invocation's frozen basis, and PrepareWithReference
 // rewrites from the established evidence. A zero spec means the method never
-// needs a reference. See docs/design/resolver-seam-contract.md.
+// needs a reference. See docs/design/codebase-topology.md.
 type ReferenceSpec struct {
 	Kind      ReferenceShape
 	Positions []int

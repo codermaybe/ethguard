@@ -83,9 +83,7 @@ temporary files on failure.
 
 ## Frozen historical transaction scenario
 
-This section records a local implementation checkpoint. Its command changes,
-plan and fixtures are not included in the documentation-only commit; it is not
-a guarantee that the committed CLI already exposes this scenario.
+This is an implemented explicit scenario in the CLI. A saved plan and implementation do not mean a new provider run has been performed. It remains a recording and findings tool, with compatibility unassessed.
 
 The reviewed `plan.transaction.json` uses the existing
 v1 plan schema and mainnet Cancun block **20,000,000 (`0x1312d00`)**. Discovery

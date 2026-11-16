@@ -1,8 +1,8 @@
-# WSS wire 层依赖清单（W1）
+# WSS wire 层依赖清单
 
 本清单冻结 `internal/transport/wss` 的依赖边界；`dependencies_test.go` 是它的
 可执行形式。规则来源：[wss-wire-contract.md](../../../docs/design/wss-wire-contract.md)
-§0 与 §1。状态：W7 已完成（2026-11-03），本清单为最终状态。
+§0 与 §1。状态：2026-11-17 文档核对；测试对端和生产依赖分别记录。
 
 ## 1. 允许的项目内部依赖（生产文件）
 
@@ -37,13 +37,11 @@ pool 等）都禁止导入；该规则同时由根目录
 - 生产代码（非 `_test.go`）禁止导入任何第三方 WebSocket 库，包括但不限于：
   `gorilla/websocket`、`nhooyr.io/websocket`（`coder/websocket`）、
   `golang.org/x/net/websocket`、`fasthttp` 的 upgrade 实现。无过渡期例外
-  （2026-11-03 起 gorilla 已从生产与测试路径移除，W7 出口达成）。
+  。测试 gorilla_interop_test.go 可以使用 gorilla 作为独立对端，不进入生产依赖图。
 - 测试对端使用自有实现：包内测试的 raw hijack server + 同包帧编解码，以及
   `internal/testkit/wstest`（仅测试可导入，架构互锁禁止生产包引用）。
 - `cmd/wsscapture` 经 `wss.DialRaw` 使用同一自有 wire 层。
-- go.mod 中 `gorilla/websocket` 仅作为 go-ethereum 兼容通道
-  （`go-ethereum/rpc`）的 indirect 依赖残留；直接依赖已删除，默认构建与
-  WSS 生产构建均不链接它。
+- go.mod 仍直接列出 gorilla/websocket，互操作测试使用它；不能把生产 wire 不链接第三方 WS 写成整个模块已移除依赖。默认生产与 WSS 依赖图按下文 interlock 校验。
 
 ## 4. 链接级边界
 
@@ -51,7 +49,7 @@ pool 等）都禁止导入；该规则同时由根目录
   `go-ethereum/ethclient`；
 - 默认构建（根包依赖图）不链接 `ethclient`（既有
   `TestDefaultBuildExcludesEthclient` 继续生效）；
-- W7 出口（2026-11-03 达成）：`go list -deps .` 与
+- 生产链接约束：`go list -deps .` 与
   `go list -deps ./internal/transport/wss ./cmd/wsscapture` 的输出都不包含
   `gorilla/websocket`；该状态由 `TestWireLayerLinkGraph` 与
   `TestDefaultBuildExcludesEthclient` 锁定。

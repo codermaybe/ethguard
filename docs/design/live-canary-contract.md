@@ -1,11 +1,11 @@
 # Live canary 契约
 
-状态：现行契约（冻结于 2026-10-23），决策见 `decisions.md` 0059。
+状态：2026-11-17 文档基线；固定观察契约起于 2026-10-23，决策依据为 0059。
 本文拥有 live observation 的 state、固定成员、plan、manifest/report 与 recheck
 边界；§12 单独保存 dated evidence，不把历史执行结论写成当前通过状态。
 本文件不改变 reference policy、`expect/v1`、`batch.json` 或生产裁决语义。
 
-关联：`project-roadmap.md`、`capture-golden-contract.md` G1–G5、
+关联：`project-roadmap.md`、[验证合同](method-verification-pipeline.md#6-捕获与-golden) G1–G5、
 `reference-freshness-policy.md`、决策 0026/0037/0056/0058。
 
 ---
@@ -217,7 +217,7 @@ v1 固定值：
 | `reference.finalized-balance` | reference | client_call | `eth_getBalance` | `[vitalik, "finalized"]` | decision；`corroborated`；step reference `corroborated`，并成为 run reference；prepared 区块参数等于该 reference hash |
 | `pinned.block` | business | client_call | `eth_getBlockByHash` | `[$reference.hash, false]` | decision；`corroborated`；值 kind 为 object；参数使用 run reference hash |
 | `business.fee-history.finalized` | business | client_call | `eth_feeHistory` | `[2, "finalized", [25, 50, 75]]` | decision；`corroborated`；step reference `corroborated`；prepared newestBlock 等于该 step reference height |
-| `typed.block` | typed | typed_block | `eth_getBlockByHash` | `[$reference.hash]` | 无 decision；typed block hash/height 等于 run reference |
+| `typed.block` | typed | typed_block | `eth_getBlockByHash` | `[$reference.hash]` | report 无 decision；typed block hash/height 等于 run reference（report 不保存该次内部 Decision） |
 | `negative.notfound-receipt` | negative | typed_receipt | `eth_getTransactionReceipt` | `[zeroHash]` | decision `corroborated` 且 value 为 null；typed decode 返回 `not_found` |
 
 固定 fixture：
@@ -234,10 +234,7 @@ v1 固定值：
   provider-backed corroboration。
 - `pinned.block`、`typed.block` 使用同一个 `$reference.hash`，即
   `reference.finalized-balance` 建立的 **run reference**，不是它们自己的
-  step reference。`typed.block` 走根 Client 的类型化 `BlockByHash`，不产生新的 decision；它的
-  typed hash/height 必须与 run reference 和被 pin 的区块一致。`pinned.block`
-  的 header-only decision 已通过 block hash 承诺完整区块内容；typed step 只
-  新增 typed decode 断言，不另行制造第二份 block 证据。
+  step reference。`typed.block` 走根 Client 的类型化 `BlockByHash`；该调用正常执行自己的 plan 和裁决，但 canary typed-only report 不保存其 CallResult.Decision。它的 typed hash/height 必须与 run reference 一致。`pinned.block` 的 fullTx=false 路径验证适用的 header／官方对象，不能宣称已经核对完整 body；typed full-block 调用另经过当前完整块准入。报告只对其声明字段提供证据，不能把被省略的 Decision 冒充可审阅的第二份记录。
 - `business.fee-history.finalized` 覆盖需要高度改写的 block-reference 方法：
   它自己建立 **step reference**，prepared request 的 newestBlock 必须是该
   step reference 的 hex height，不能仍是 `finalized`；该 step reference 不得
@@ -290,17 +287,14 @@ v1 固定值：
 强制规则：
 
 - prepared request 必须是 **观察到的**，不得由 logical request 和 reference
-  反推后冒充证据。若当前 seam 无法取得 prepared request，T10.3 必须增加
-  不改变裁决语义的诊断 seam；仍无法取得时，run 为 `failed`
+  反推后冒充证据。若当前 seam 无法取得 prepared request，须报告证据缺口；仍无法取得时，run 为 `failed`
   （`evidence_missing`），不得降低要求。
 - run reference 只能来自 `reference.finalized-balance` 的 step reference；
   不得从 feeHistory 或其他步骤的 step reference 推导、替换或刷新 run
   reference。step reference 只在该步骤内有效。
 - 不得断言 step reference 与 run reference 相等；两者相同是允许的观察，
   不是 canary 契约。
-- per-source fault 归属必须来自结构化证据通道（例如 `WithUncertain` 的
-  per-source response/error、pool source health，或 T10.3 增加的等价诊断
-  seam），不得靠错误字符串猜来源。
+- per-source fault 归属必须来自结构化证据通道（例如 Decision.SourceFaults／CollectionFaults、WithSourceEvidence 保留的逐源响应／错误以及 source health），不得靠错误字符串猜来源。
 - 每个 participant 的处置必须可追踪到 support、reject、source fault、
   collection fault 或 typed 边界；不得无记录消失。
 - 少数派 `reject` 不使 run 变成 `inconclusive`；它是被保留的观察。

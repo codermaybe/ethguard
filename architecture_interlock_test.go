@@ -13,7 +13,7 @@ import (
 const modulePath = "github.com/codermaybe/ethguard"
 
 // toolPackages are the evidence and probe layers: consumers of the core
-// runtime, never dependencies of it (docs/design/tooling.md). cmd/* binaries
+// runtime, never dependencies of it (docs/design/method-verification-pipeline.md). cmd/* binaries
 // are unimportable by construction, so only the internal tool packages need
 // the ban.
 var toolPackages = []string{
@@ -111,7 +111,7 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		}
 
 		// The core runtime is strictly downstream of no tool: tools and
-		// evidence layers consume it (docs/design/tooling.md). A reverse edge
+		// evidence layers consume it (docs/design/method-verification-pipeline.md). A reverse edge
 		// would let probe or canary concerns steer production behavior.
 		if corePackages[pkg.ImportPath] {
 			banToolImports(t, pkg, imports)

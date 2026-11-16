@@ -1,11 +1,18 @@
 # Decisions
 
-This is the stable decision/ADR archive. IDs, dates and supersession records
-preserve why choices were made; historical implementation status is not a live
-task ledger. Current contracts and ownership are indexed in `docs/design/README.md`,
-current delivery gaps in the roadmap/method matrix, and unresolved design or
-standardization notes locally in unversioned `docs/tmp/`. Later decisions take precedence over
-superseded APIs and stage-specific wording; do not copy that wording into current contracts.
+This is the historical decision/ADR archive. IDs, dates, original judgments and supersession records remain intact. An Accepted or Implemented status describes that decision at the recorded time; it is not a live inventory or an instruction to restore an older implementation.
+
+Current contracts are indexed in [the documentation guide](design/README.md). Read the current contract for behavior, ownership, open choices and implementation gaps; use this archive for rationale. The 2026-11-17 documentation checkpoint consolidates the following former documents without changing executable behavior:
+
+| Historical document | Current owner |
+| --- | --- |
+| resolver-seam-contract.md | [Execution and module topology](design/codebase-topology.md) |
+| acceptance-thresholds.md, business rules | [Method contracts](design/method-contracts.md#2-固定成员与裁定门槛) |
+| acceptance-thresholds.md, reference rules | [Reference/freshness](design/reference-freshness-policy.md#2-finalized-候选与确认) |
+| transaction-semantic-matching.md | [Method contracts](design/method-contracts.md#5-独立交易的有限兼容与对象合同) |
+| capture-golden-contract.md, external-rpc-test-framework.md, tooling.md | [Verification and evidence](design/method-verification-pipeline.md) |
+
+Historical paths below identify the documents used at the time; their original contents remain in Git. Public generated business types and the third processor (single receipt) are current facts recorded by the live contracts, not reasons to rewrite old observations or replay previous migration stages. Pending F1/S1 choices now live in their formal owners rather than unversioned temporary notes.
 
 ## 0001. Method-aware aggregation
 

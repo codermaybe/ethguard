@@ -1,10 +1,10 @@
 # Release Contract（发布门禁与发布契约）
 
-状态：**现行（2026-11-09）**。本文件冻结发布入口、前置条件、门禁覆盖范围、产物
+状态：**2026-11-17 文档基线，现行发布流程**。本文件冻结发布入口、前置条件、门禁覆盖范围、产物
 与发布语义、失败处置，并登记本轮实际证据。业务完成度见
 [project-roadmap.md](project-roadmap.md)；本文件不维护第二份业务计划或状态台账。
 
-关联：`decisions.md` 0057（外部消费者前提）、[tooling.md](tooling.md)（工具层所有权）、
+关联：`decisions.md` 0057（外部消费者前提）、[验证与证据合同](method-verification-pipeline.md#8-工具所有权与材料保留)（工具层所有权）、
 [live-canary-contract.md](live-canary-contract.md)（canary 证据分层）、
 `.github/workflows/{ci,release,live-canary}.yml`、`.goreleaser.yaml`、
 `scripts/{release_check,release_api_diff,release_build,govulncheck}.sh`。

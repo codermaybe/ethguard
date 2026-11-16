@@ -1,70 +1,11 @@
-# RPC Method Ownership
+# RPC method ownership
 
-This package owns method-specific preparation, key-level compatibility,
-request binding and execution-plan assembly for all registered read methods.
-Public Go signatures stay on the root Client and EthClient view; shared object
-processing stays in `rpc/internal/objects`, and generic codecs and schema
-projection in `rpc/internal/wire`. The ownership source is
-[codebase topology](../../docs/design/codebase-topology.md).
+Each registered read method owns its RPC name, MethodSpec, read-only descriptor, preparation, finite whole-key compatibility and request binding in its own method file. Public signatures remain on root Client/EthClient. Specs and Catalog collect those definitions; they do not expand a second configuration table.
 
-## Method file ownership
+Methods reuse object integrity and canonical representation from rpc/internal/objects and shared internal/ethobject, generated models from ethapi, and scalar/JSON primitives from wire/ethcodec. A method does not call another method's private preparation or correction. No extra compatibility rule means no empty switch is required.
 
-| File | Owns |
-| --- | --- |
-| `transaction_by_hash.go` | RPC name, public `TransactionByHash` mapping, MethodSpec, complete-key correction switch and this method's preparation/admission hooks |
-| `transaction_in_block.go` | RPC name, public `TransactionInBlock` mapping, MethodSpec and its mined-only preparation/admission hooks |
-| Matching `_test.go` files | Each method's identity, rules and refusal boundaries |
-| `transaction_encoding_test.go` | Cross-method canonical-output and official-vector checks |
-| `testdata/transaction` | Traceable inputs for method rules, with local/provider provenance distinguished |
+The by-hash transaction's finite timestamp derivation and the in-block method's mined-only rule retain separate acceptance domains. Raw adapters remain available beside reviewed processors. A normalizer key is not an admission verdict, and canonical processing does not authorize silent changes to fault phases or source health.
 
-Every registered read method follows this layout: the RPC name, public
-mapping, MethodSpec, read-only MethodDescriptor, and the method's hooks live
-in the method's own file. `Specs()` in `spec_inventory.go` and `Catalog()` in
-`catalog.go` collect those definitions without repeating any method's
-configuration. The centralized method-name table is retired. No new policy
-type or registration mechanism is introduced.
+Current knowledge ownership and route assembly: [topology](../../docs/design/codebase-topology.md). Whole-key rules, algorithm protection and open acceptance-domain issues: [method contracts](../../docs/design/method-contracts.md). Registered behavior and exact generated index are checked through [verification](../../docs/design/method-verification-pipeline.md).
 
-Method preparation functions do not call another method's preparation or
-correction functions. Both transaction methods use the shared transaction
-encoder and validators directly. Pending timestamp derivation belongs only
-to by-hash; block/index does not run that correction before rejecting pending.
-
-The transaction two-method key switch — an outer key switch with an inner
-switch for that key's whole-value state — is implemented and pinned by
-`TestTransactionByHashCorrectionIdempotence` and the merge-contract tests in
-`rpc/internal/objects/transaction`. Temporary execution checklists are not
-versioned contracts.
-
-## Method and object responsibilities
-
-- Keep request-specific acceptance conditions and the concentrated key switch
-  in the owning method. Do not correct internal paths or array elements.
-- Use inner state branches for audited whole-key alternatives. Read context
-  from an unchanged source snapshot and write corrections to a separate
-  candidate. Dispatch missing-rule keys and present keys once each; do not
-  process a synthesized key again. No extra rule means no empty switch is
-  required, not that the field can skip validation or comparison.
-- Share object constraints, payload/hash/signature checks and canonical
-  encoding through existing object owners, not through a sibling method file.
-- Reuse generic wire codecs; do not duplicate field schemas or build a
-  MethodPolicy, callback framework, plugin registry or helpers package.
-- Projection membership does not establish value validity. Check validation
-  coverage before merging official fields not represented by a typed branch.
-  PruneMethod currently also canonicalizes hex; responsibility cleanup must
-  account for that behavior rather than describe it as projection only.
-- Keep the original response available for source evidence. Normalize,
-  Encode and Admit must use the same method preparation semantics.
-- Keep typed projection in `internal/typed`, composition in `internal/runtime`,
-  and transport, health, quorum and scheduling with their existing owners.
-
-## Coverage and scope
-
-The catalog is a read-only mapping and coverage index, not a second executable
-policy table. A JSON-RPC policy can serve several public Go methods; this is
-not a one-file-per-Go-wrapper duplication rule. Tests must retain the declared
-public business mapping.
-
-Existing root-only extensions, unsupported inventory entries and the write
-pipeline keep their present behavior. Their presence is not permission to
-invent formal methods for internal helpers or to bypass the public method
-allow-list. Any separate surface cleanup needs its own scope review.
+The public generated-model migration is complete. Internal handwritten FeeHistory, AccessList and Log candidates are recorded for the code phase after the documentation checkpoint; this README does not authorize their replacement or a second registry/helper framework.

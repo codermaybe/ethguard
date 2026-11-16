@@ -1,46 +1,32 @@
-# 方法契约
+# 方法合同
 
-状态：现行方法语义索引。本文保留跨方法不变量和有意义的语义差异，不再复制历史决策、阶段任务或固定的方法数量。
+状态：2026-11-17 文档基线。本文统一维护跨方法保证、裁定门槛、逐方法保护范围与独立交易规则。公开类型迁移已完成；已登记的接受域差异和证据缺口仍未关闭。
 
 ## 1. 权威来源与职责
 
-- 注册与装配入口为 [`rpc/methods/spec_inventory.go`](../../rpc/methods/spec_inventory.go)。全部 27 个注册读方法由各自方法文件自治定义名称、Spec、准入、normalizer、encoder 和只读映射，inventory／catalog 只收集。生成索引为 [method-rules.md](method-rules.md)，不得手改。
-- 官方结果形态：固定 execution-apis bundle，见 [spec 数据说明](../../internal/spec/README.md)。保护域与完整官方对象的差异见 [返回值合同](return-value-design.md)，各方法的已接受边界以本文为准。
-- 每个方法的 tag／EIP-1898／pending 请求行为：[moving-tag-matrix.md](moving-tag-matrix.md)。
-- Root／EthClient／HTTP／WSS 实现和证据状态：[method-transport-coverage.md](method-transport-coverage.md)。
-- 接受或取代某项产品选择的依据：[decisions.md](../decisions.md)。历史 Status／旧 API 不是当前实现台账。
+方法声明位于 `rpc/methods` 各自文件；`Specs()`／Catalog 只收集，`CompilePlan` 产生唯一生产 ReadPlan。[method-rules.md](method-rules.md)是自动生成的装配索引，不手改。模块与执行流程由 [拓扑](codebase-topology.md)拥有；字段来源与生成由 [生成合同](wire-codegen.md)拥有；Value 和材料交付由 [返回值合同](return-value-design.md)拥有。
 
-新增或变更方法须回答：结果是什么事实、共同参考是什么、比较什么、输出与证据是什么、失败如何表达、有哪些成本和未证明项。答案应在拥有该知识的代码与合同中，而不是新增一份运行时字段 DSL。
-
-已确认的兼容组织采用方法内外层 key／内层完整值状态的双 switch：整 key 是修正单位，上下文来自原始同源只读字段，未命中仍须校验和比较。无额外规则的方法不强制增加 switch。该收敛与全量归属迁移均已完成（两 transaction 方法为首个落地样板）；知识归属见 [拓扑](codebase-topology.md#方法自治组织)，具体语义仍归本文及对象专项合同。
+每个方法说明它返回什么事实、参考什么状态、比较和保护什么、失败如何表达，以及成本和未证明范围。schema requiredness、方法绑定、算法承诺和多源信任是不同职责；不能用其中一项通过推导其他项完成。
 
 ### 前置生态兼容与官方语义检查
 
-固定官方参考数据先经过独立的显式标准勘误层（`internal/spec/errata`）；生成器、mask 和字段投影共用其有效 schema，原始 bundle 与官方向量单独保留为来源证据。勘误只改变已审核的标准表达，不接收运行时报文，也不解除以下直接 key 兼容边界。每条勘误的来源、摘要、理由、依据与退出规则见 [生成合同](wire-codegen.md#显式标准勘误与外部审计)。
+原始 execution-apis 固定数据经审核的标准勘误形成有效 schema，供生成、mask 和字段投影共同消费。勘误修正固定规范表达，不处理运行时报文。方法仅对有明确依据、完整等价条件及正反例的官方直接 key 做有限兼容；未经兼容的合法值也须完整检查与比较。
 
-前置兼容是本工具对 RPC 生态的有限知识积累：方法文件集中维护有实际样例、明确等价依据和正反例的官方直接 key 修正规则，将获准的输入转换为符合官方语义的候选值。项目不承诺兼容所有 RPC、provider 方言或市场上的全部响应字段，也不为增加通过率持续向 key 内部细分修正。
+共同职责顺序为：保真接收与有界 JSON 安全检查 → 官方字段识别 → 已审核的有限兼容 → 适用生成约束／方法绑定／算法检查 → 逐源规范表示 → 方法裁决 → 分通道交付。具体调用链可以不同，不能为统一外观改变决策类别。
 
-共同处理主线为：保真接收原始响应并执行 JSON 安全检查 → 按官方定义识别字段 → 方法内执行已审核的有限兼容 → 对候选执行适用的官方结构和值约束及方法绑定检查 → 按方法合同规范编码、聚合比较与裁决 → 分通道交付结果和来源材料。此顺序描述职责，不要求每个方法有相同物理调用链，也不改变现有 Strict、Selected、写入或订阅的执行合同。
+不以放宽 pattern、忽略 required、补零或混源补字段提高通过率。未声明内容沿 Extensions／Diagnostics／预算内原始证据交付，不进入主结果保护域。项目额外限制、官方合法输入被拒或官方输出不完整，应明确登记为差异。
 
-没有适用兼容规则的官方字段，保留其完整原值进入后续检查；原本缺失仍是缺失。“无法兼容而原样下传”不表示绕过验证或直接获得投票资格。符合官方和方法合同的值仍可参与比较，不符合的来源回答不得贡献支持，即使多个来源同样非法也不能形成成功结果。
+## 2. 固定成员与裁定门槛
 
-兼容之后以固定官方来源及显式勘误表达的有效标准语义为检查基准，包括适用的 required、nullable、类型、分支、取值和对象关系；既有请求绑定、payload／声明一致性及承诺检查继续按方法合同执行。此后的 codec、生成类型和对象校验不是另一层无限方言适配。现有项目额外接受限制、保护域收窄或官方形态缺口须明确列出，不能混称为官方要求；生成规则表达不足也应在生成链修正，不以扩张 provider 兼容掩盖。
+业务 Strict 在 corroboration snapshot 下使用 `Q = max(H, floor(N/2)+1)`；默认 H=2。N 是完整冻结 Basis，每个失败、gated、不可准入或未尝试成员仍占一个槽位。N<=0 的历史阈值为 1，实际以无有效响应失败；单一支持者最高 Selected，Corroborated 至少需要两个支持源。Unanimity 在同一 Q 上另要求所有 admissible 答案一致。
 
-非官方内容沿既有附属比较、诊断和原始证据通道交付，不扩大主结果的语义责任。域外差异本身不改变官方结果分簇或处罚来源；JSON 安全、资源限制、来源归属仍有效。官方结果、typed 投影与附属材料各自承载的内容及保留条件由 [返回值合同](return-value-design.md#数据交付与责任范围) 维护。不同来源不必返回相同字段形态，用户获得的是有明确责任范围的多源结果及可用来源材料，不是对所有响应形式的统一结构承诺。
+未携带 snapshot 的底层 legacy Strict 仍按自身全体一致规则执行；默认公开路径使用冻结 snapshot。Forwarded 是显式调用模式，H=0 且不进行跨源裁决，仍执行适用方法检查。Median／Local 不套 Strict 成功公式，保持 Selected。
 
-响应的 pattern／const／数量与 hash 约束不整体降级为 Warning。可能无害的文案差异通过官方修复、具体勘误或方法规则明确处理，不能把非法受保护值作为有效支持源。未知字段不自动并入 Value；Extensions／Diagnostics 与有预算的原始证据继续按既有合同交付，不承诺默认无限量无损保存所有原文字节。
+reference 建立有自己的候选与确认算法，见 [reference 合同](reference-freshness-policy.md)；公式相似不授权合并。健康、freshness 和来源超时不能换成员、改票权、降门槛或自动退回 Forwarded。代表源是捕获成员顺序的第一个支持者，不能靠代表源原文补回未保护内容。
 
-## 2. 共同裁决边界
+`Corroborated` 只表示 provider-backed cross-source evidence，不是 Ethereum consensus、canonical chain 或 cryptographic finality。合法 dissent、null、弃权、畸形回答与传输失败分别记录。
 
-Strict 业务轮沿用固定成员多数 `Q = max(H, floor(N/2)+1)`，默认 H=2，Corroborated 至少两个支持源。reference 建立另有明确算法；公式、legacy 分支及失败语义由 [acceptance-thresholds.md](acceptance-thresholds.md) 维护，不在方法条目重新定义。
-
-成员在构造期固定；每次调用捕获 Basis，参考和业务轮不因超时、调度跳过、准入或编码失败缩小分母。健康与 freshness 影响调度，不自动移除成员、提高票权或切换为单源。失败原因与支持／反对／弃权证据不能混为一类。引用及新鲜度见 [reference-freshness-policy.md](reference-freshness-policy.md)。
-
-已注册方法按声明的 encoder 交付规范 Value；同簇规范字节不一致按返回值合同失败。代表源只是捕获顺序第一个支持源，不能借它返回未经保护的 metadata。`Corroborated` 是 provider-backed evidence，不是链共识或 finality；Selected／Forwarded 不能静默替代需要佐证的 typed 读取。
-
-合法对象查询的 JSON null 按方法保持，与空对象、空数组和 malformed 区分；接受后的 typed NotFound 不是不存在证明。null／对象异见按实际多数或显式内部模式裁决，不再复述旧“默认全部有效回答一致”的规则。
-
-## 3. 方法族与额外保证
+## 3. 方法族与保证范围
 
 | 方法族 | 保护与比较依据 | 明确未证明／例外 |
 | --- | --- | --- |
@@ -48,7 +34,7 @@ Strict 业务轮沿用固定成员多数 `Q = max(H, floor(N/2)+1)`，默认 H=2
 | balance／nonce／code／storage | 调用内共同参考上的数量或 DATA；storage word 为 32 字节 | 一致响应不等于验证 state trie proof；tag 与 pending 按专属矩阵 |
 | 完整 block（`fullTx=true`） | Header 自哈希、请求身份、完整有序交易 trie root、适用的 withdrawals root、完整 uncle 头承诺；完整官方规范对象字节作为比较键，保留并比较size与内嵌交易上下文／from声明 | 不重执行 EVM，不证明 canonical chain／finality；头中的根值受承诺不等于加载并验证其全部对应内容 |
 | header-only／`fullTx=false` block | reference可使用较窄number/hash身份；完整Header逐源在重编码前核对原声明hash与自算hash，生成Header投影检查required及fork字段，typed查询另绑定请求hash／高度 | 不外推完整body trie／withdrawals／uncle载荷承诺；纯Header不强制EmptyUncleHash，历史PoW非空uncle root合法 |
-| 独立 transaction | 方法级完整 key 修正后执行生成 query required／nullable／分支约束及 payload hash、签名／声明一致性；by-block/index 另绑定上下文并拒绝 pending 对象；官方字段和 presence 完整比较 | 不恢复 sender，不证明 inclusion 或 blockHash／height 关系；pending 时间戳的有限同源派生与显式标准勘误见 [transaction 设计](transaction-semantic-matching.md) |
+| 独立 transaction | 方法级完整 key 修正后执行生成 query required／nullable／分支约束及 payload hash、签名／声明一致性；by-block/index 另绑定上下文并拒绝 pending 对象；官方字段和 presence 完整比较 | 不恢复 sender，不证明 inclusion 或 blockHash／height 关系；pending 时间戳的有限同源派生与显式标准勘误见 下文“独立交易的有限兼容与对象合同” |
 | transaction receipt／block receipts | 官方 receipt 形态的 required／nullable／byte 校验，来源提供的字段经规范编码比较；请求 tx／block 绑定，日志非零 hash 的父子一致性，logsBloom 与日志内容一致 | 不证明收据集合完整、receipt trie inclusion、from 的 sender recovery 或链上执行正确；完整日志要求与零 hash 容忍仍是项目接受政策，不能误写为完整官方输入域；见决策 0068 |
 | `eth_getLogs` | 非 null 日志数组，要求完整日志字段，绑定请求 blockHash 或高度范围 | 不是 logs inclusion proof；当前并未核对全部 address/topics filter；只支持 logs 分支而非 pinned schema 的 hash-array 分支 |
 | `eth_feeHistory` | 规范数量与 ratio，数组之间的长度关系，响应长度等于请求 count，reward 行宽等于请求 percentile 数（请求感知准入绑定，2026-11-15 起） | 官方允许返回 supported 子区间；高精度 ratio gate 也是项目限制。两项问题均待调整，不在本文认可为更强安全保证 |
@@ -62,21 +48,51 @@ Strict 业务轮沿用固定成员多数 `Q = max(H, floor(N/2)+1)`，默认 H=2
 
 实现入口为 `rpc/internal/objects/{block,transaction,receipt,log,feehistory,accesslist}` 与 `rpc/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。
 
-## 4. 请求参考、pending 与失败
+## 4. 请求参考、pending 与错误
 
-- latest、safe、finalized 保留请求标签含义，在同一 invocation 内建立并固定对应 reference；不为成功静默换成另一安全级别，也不跨调用缓存 H。
-- 显式 hash／高度不暗中换块。EIP-1898 对象按方法保留 `requireCanonical`；provider 接受裸 hash 不使该写法自动成为标准。
-- 支持的 pending 路径由请求语义进入本地观测，不能在 quorum 失败后降级进入。typed pending block、pending logs 和 pending block receipts 的拒绝边界以标签矩阵为准，不能概括成“所有 pending 都支持／都拒绝”。
-- “单源本地观测”描述证据类别（Support 恰一个来源、Selected 为上限），不是指只发出一个上游请求：pending 形状的采集仍对整个投票基扇出，全部成员都计入 Participants；只是裁决取第一个可规范化答案。
-- pending 的 `Decision.Value` 是该来源的原始回答，不做 mined 路线的保护域裁剪：`eth_call` pending 的 revert 保留 provider 信封（code/message），mined 路线则按 rule 4e 删除信封只留 data——typed 投影把两者归一为同一 `*RevertError` 形状，差异只在根 `Call`／raw 通道可见。
-- 请求不合法在 fan-out 前失败；单源回答 malformed、绑定失败或无法无损编码形成 Fault，来源仍占分母。有效异见、合法 null、可弃权 data 和传输故障保持不同含义。
-- 失败的公开 `CallResult` 不包含成功 Value；内部 resolver 的诊断与公开载体不能混用旧阶段示例。
+- latest／safe／finalized 保留请求 level，在调用内建立相应 reference；不跨调用缓存，不静默替换标签。显式 hash／高度不换块，EIP-1898 的 presence 与逐方法规则见 [引用矩阵](moving-tag-matrix.md)。
+- 请求错误在 reference 和业务 fan-out 前拒绝。reference 失败保留已形成的诊断，不发业务请求。
+- pending-local 不建立 moving reference。它可以收集多个成员，但选取第一个可用本地观察，Selected 封顶；Support 恰为所选来源，Participants 仍表达实际冻结成员。
+- typed pending block/header、pending logs 和 block receipts 的拒绝与普通 pending 状态读取分别维护，不概括成全支持或全拒绝。
+- pending `eth_call` 的 raw Value 可保留 provider revert 信封；mined 路线只交付受保护 data。typed 边界按同一错误语义投影，差异不能被写成所有 raw 路线完全相同。
+- 单源响应的 malformed／请求绑定失败／无法规范编码不贡献支持，保留故障及分母；标准方法能力错误、合法异见和调用者取消不能一律归为 provider 不规范。
+- 公开 Call 本地拒绝未知方法；低层 Registry forwarding 不扩张公开 allow-list。失败 CallResult 不交付成功 Value；corroborated null／revert 的业务映射按返回值合同区分。
 
-## 5. 附加证据与验证
+## 5. 独立交易的有限兼容与对象合同
 
-当前证据随单次 `CallResult` 交付；`WithResult` 负责交付句柄，`WithSourceEvidence` 配置原始材料预算。旧 `WithUncertain`／capture API 示例已退出现行文档。原始材料不保证可靠或完整，不绕过主结果校验；预算、取消、发布后稳定性和复制隔离以决策 0066 为准。
+适用 `eth_getTransactionByHash` 与 `eth_getTransactionByBlockHashAndIndex`。方法拥有完整官方直接 key 的兼容规则；外层按 key、内层按完整值状态分支，原始同源上下文只读、候选独立写入，每个 key（含允许缺失派生的 key）只处理一次。无额外规则的方法不增加空 switch。
 
-方法行为沿生产 Policy、Aggregator 和 typed seam 验证；注册表、字段生命周期与场景覆盖双向互锁。合成 regression、捕获回放和外部 provider 观察分别证明不同事情，完整要求见 [method-verification-pipeline.md](method-verification-pipeline.md)。已完成 T 阶段的执行纪律与进度不再作为方法规范保留。
+三种出口分别是：命中规则并产生完整候选；未命中、保留完整原值交后续检查；已知非法／歧义返回错误。未命中不等于合法，不丢掉 required、nullable、分支或 signed payload 检查。
+
+当前唯一缺失派生是 by-hash 的 blockTimestamp：该 key 缺失且同源 blockHash、blockNumber、transactionIndex 三项都明确存在为 null 时补完整 null。其他缺失或混合上下文不修正。in-block 保持 mined-only，不能继承 by-hash 的 pending 派生。
+
+对象准备使用有效生成 query 模型，保留 payload hash、签名形态、from 语法、包含上下文及请求绑定检查；protected legacy 的 chainId 声明与签名派生值核对。当前不做 sender recovery 或 inclusion proof。未知 typed payload 无法验证时保留可分类拒绝与原始材料，不能因 raw 一致获得已验证交易的保证。
+
+`Candidate` 共享对象准备，两个 processor 消费同一结果；raw Normalize／Encode／Admit 适配保留。canonical 结果只在一次 invocation 内复用，不按 hash 跨调用缓存。规范 typed 值优先，仅补回官方 mask 保留而当前分支未表达的成员：开放分支中官方容忍的跨分支附加项保持；闭子对象的域外成员由 mask 隔离，差异不处罚健康。mask 成员身份不等于值已验证，不以合并掩盖覆盖缺口。
+
+独立 query 与 BlockTransaction 的有效上下文合同不同。完整块输出已经接入生成 Block；当前 block admission 仍有 transaction Candidate／私有 geth 处理，不能沿用旧“内嵌交易完全不走独立内核”的描述，也不能只凭代码复用宣称两者接受域完全一致。该关系属于后续审查，本文不修改生产行为。
+
+兼容规则应确定、无来源偏好、与遍历或到达顺序无关；等价关系须自反、对称、传递。不能只因调用效果相似合并不同 DATA、签名或 payload，也不建立 key×type×path×context 注册体系或对子路径／数组元素持续扩展方言修正。provider 方言需真实可追溯样例，状态派生需状态验证，纯官方 required 修复可依据规范和独立反例进行。
+
+### 现有证据与未覆盖范围
+
+官方 type 0–4 向量、required／nullable、合并、绑定、原始材料和健康最终记账已有测试。固定 Anvil 1.7.1 的无 fork transaction 生命周期曾通过 HTTP／raw WSS、Root／view 的 88 条消费断言；一个实例的多连接不算多个独立 provider。相关规则与 fixture 已保存于源码；旧运行日志和分批提交详情由 Git 保留，不复制为当前检查结果。
+
+新公网方言采集、更多交易类型的真实状态生命周期和完整 provider 兼容仍未完成；文档重组没有运行这些观察。验收必须覆盖合法表示聚合、真实内容不误合并、非法一致回答仍被拒绝、vendor 差异不干扰主裁决、固定分母、最终 typed 及来源材料。
+
+## 6. 待裁决与待实现事项
+
+| 事项 | 已知事实与处理边界 |
+| --- | --- |
+| FeeHistory | 手写 Normalize／Encode 重复模型与校验；官方精确 Number 与现行 ratio gate、返回 supported 子区间与请求 count 等长限制、optional 数组 presence 必须分别裁决；reward 请求绑定保留 |
+| AccessList | 官方顶层 accessList 可选，当前强制存在；error／gasUsed 的 null→省略与生成 non-nullable 不同；不能直接换构造器暗改接受域 |
+| 共享 Log | 内核仍手写 CanonicalLog 和完整字段校验，生成 Log 已存在但 optional／nullable 不同；同时覆盖 query、receipt、订阅和 Pull 后才能替换 |
+| 本地观测 | local Provenance、无可尝试来源与 identity 错误优先级仍需逐模块复核，不将旧探针当现行缺陷证明 |
+| net_version | 生成十进制模型允许零；逐方法正值限制及 ChainID 关系须独立审查 |
+
+这些事项先保存在本合同和路线图中；全部文档整理、核对并保存 Git 版本后再开始代码处理。静态候选不等于已经复现的漏洞或已授权的新合同。
+
+## 7. 验证入口
 
 `eth_call` 的 execution／data 边界由 [`TestNormalizeCallOutcomeSeparatesRevertDataStates`](../../rpc/methods/eth_call_revert_test.go) 等回归验证：revert data 的缺失、null、空 DATA 与具体字节不得在没有规则依据时折合，provider 错误 message 不进入受保护 data。
 

@@ -9,7 +9,7 @@
 
 * `errata/*.json`：项目审核的标准勘误，独立于原始上游数据；携带固定版本／commit、目标、输入／输出摘要、依据、退出条件和 RFC 6902 patch。只有共享 `internal/executionapi.Read` 应用；`ReadOriginal` 提供不应用勘误的独立来源视图。
 * `SOURCE.json`：官方仓库、固定 commit、dereferenced OpenRPC 摘要与两个 bundle 的 SHA-256。
-* `requests.json`：49 个官方 eth_／net_version 的原始参数描述；不作为运行时方法注册表，当前 CallMsg 与 Simulate 的 payload／base 已进入请求类型生成，其余库存不代表已消费。
+* `requests.json`：49 个官方 eth_／net_version 的原始参数描述；不作为运行时方法注册表，当前 CallMsg、BlockReference、FilterQuery、TransactionReceiptsQuery 和 Simulate payload／base 已有生成入口及公开接入，其余库存不代表已消费。
 * `VERSION`：固定的上游 commit 身份（单源），与两个 bundle、来源清单及勘误一致。
 * `methods.list`：项目主动纳入标准边界的方法名清单；它只选择方法，不定义结果
   schema。结果 schema 必须由官方 dereferenced OpenRPC 生成。
@@ -92,7 +92,7 @@ conformance 与 replay 已通过 → 用
 同时提供 `conformancePassed` 和 `replayPassed`。因此候选 bundle 不能只更新标准数据，
 必须留下可审计的迁移记录和验证证据。
 
-[历史结果升级记录](migrations/981aa66d79364be8322a9c358aaf0a571cca0873.json)覆盖当时 23 方法 `methods.json` 的 6 个方法、32 项变化，并绑定当时前后 bundle 摘要；它不改标为当前 24 方法摘要。随后同一 commit 的[来源布局归一记录](migrations/981aa66d79364be8322a9c358aaf0a571cca0873-unified-layout.json)把已有 Simulate result 纳入统一结果 bundle、95 个向量移入共享目录；仅改变收纳位置，不改变任何原始 schema／请求 descriptor／向量字节／勘误。`TestUnifiedLayoutPreservesHistoricalSourceSnapshots` 从当前统一来源重建旧 JSON envelope 并核对历史摘要。结果 diff 仍不覆盖请求库存，不能从迁移记录推导完整请求语义已经迁移。
+[历史结果升级记录](migrations/981aa66d79364be8322a9c358aaf0a571cca0873.json)覆盖当时 23 方法 `methods.json` 的 6 个方法、32 项变化，并绑定当时前后 bundle 摘要；它不改标为随后扩充的当前方法集合摘要。随后同一 commit 的[来源布局归一记录](migrations/981aa66d79364be8322a9c358aaf0a571cca0873-unified-layout.json)把已有 Simulate result 纳入统一结果 bundle、95 个向量移入共享目录；仅改变收纳位置，不改变任何原始 schema／请求 descriptor／向量字节／勘误。`TestUnifiedLayoutPreservesHistoricalSourceSnapshots` 从当前统一来源重建旧 JSON envelope 并核对历史摘要。结果 diff 仍不覆盖请求库存，不能从迁移记录推导完整请求语义已经迁移。
 
 ## 审计指引
 

@@ -4,7 +4,7 @@ package replay
 // (ethguard.batch/v1); historical batches lack reference_context, so every
 // field here must stay optional exactly as spelled below. The reader keeps
 // DisallowUnknownFields: a new batch field means updating this structure in
-// the same change, per capture-golden-contract §2.1bis.
+// the same change, per method-verification-pipeline capture contract.
 
 import (
 	"bytes"
@@ -49,7 +49,7 @@ type Network struct {
 
 // BatchReferenceContext is the anchor context of one business request,
 // indexed by that request's id. Field semantics are frozen in
-// capture-golden-contract §2.1bis:
+// method-verification-pipeline capture contract:
 //
 //   - LogicalRequest is the anchoring input: the request before the moving
 //     tag was rewritten.

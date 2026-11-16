@@ -1,356 +1,51 @@
 # EthGuard
 
-[**English**](README.md) · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md)
 
-> Status: early-stage implementation. The compatibility target is the complete
-> `ethclient` method set for the go-ethereum version locked in `go.mod`. The
-> current tree is still converging on that target and must not be advertised as
-> a complete compatibility release.
+EthGuard queries third-party Ethereum execution RPC sources and returns method-aware results with explicit status and source evidence. It provides fixed-membership corroboration, common references for moving-state reads, native HTTP/raw WSS, writes and subscriptions.
 
-EthGuard is a multi-source Ethereum JSON-RPC aggregation client. It queries
-multiple upstreams, validates responses against pinned Ethereum execution-apis
-contracts, normalizes official standard fields, and aggregates supported
-extension fields. Official fields form the protected core result; feature and
-vendor fields remain extension data under their method contract. Cross-source
-agreement evaluates response reliability, and the client exposes the result
-with status and diagnostic evidence fields.
+Status: the main framework, the 47-method name target for go-ethereum v1.17.10, and the public generated-model migration are in place. Per-method semantics, provider observations and lifecycle evidence remain under review. This is not a complete compatibility or stable-release claim. See the [roadmap](docs/design/project-roadmap.md) and [coverage](docs/design/method-transport-coverage.md).
 
-EthGuard favors reliability over latency. For reads that need a moving
-reference, it establishes one provider-backed reference before evaluating the
-business response. The `ethguard.Client` typed methods follow the business method set of
-`go-ethereum/ethclient` and share one execution owner with the `EthClient` view.
-Public business types are migrating to generated `ethapi` models; CallMsg,
-FeeHistory, AccessListResult, and SyncProgress have migrated. This changes Go
-signatures and field shapes; see the [migration contract](docs/design/wire-codegen.md).
-`SimulateV1` uses the native shared execution plan with generated
-`ethapi.SimulateV1Request` and `*ethapi.SimulateBlockReference` inputs, including
-the official EIP-1898 object forms. Raw Call shares the same request preparation
-and validation. Method-specific semantic verification remains ongoing; typed
-inputs and a complete method count do not establish semantic completeness.
-Ordinary calls need no explicit anchor/confirm/read workflow. Cross-source agreement is provider evidence; it is not Ethereum
-consensus, canonical proof, cryptographic finality, or light-client
-verification. Multiple URLs need not be independent.
-
-## Layout
-
-```text
-ethguard/                   # public Client facade
-├── client.go               # public Client facade, New, Pool, Close (owner lifecycle)
-├── call.go                 # generic read-only Call entry and decode delegates
-├── eth.go                  # typed methods and their shared execution bodies
-├── ethclient_view.go       # the ethclient-shaped view (private owner, exact surface)
-├── call_result.go          # CallResult: decision, write decision, material, business error
-├── result_capture.go       # WithResult capture state machine and WithSourceEvidence budget
-├── execution.go            # the shared public-operation entry (bind, lifecycle, publish)
-├── anchor.go               # anchoring strategies behind moving-tag reads
-├── write.go                # write pipeline (relative-trust broadcast)
-├── errors.go               # classified sentinel errors
-├── uncertain.go            # UncertainResult material types (delivered on CallResult)
-├── config/                 # programmatic and YAML configuration
-├── pool/                   # upstream lifecycle, Transport Port, health, eligibility
-├── observe/                # passive observability seam
-│   └── prometheus/         # optional metrics adapter (kept out of core)
-├── aggregator/             # Prepare → Reference → Collect → Admit → Resolve → Project
-├── rpc/                    # public request, decision, plan, policy, and evidence model
-│   ├── projection/         # public standard-field projection and extension Carrier
-│   ├── methods/            # concrete Ethereum JSON-RPC methods and catalog
-│   │   ├── eth_*.go        # per-method constants, policies, and wiring
-│   │   ├── block.go        # block method policy and method-specific admission
-│   │   ├── logs.go         # log request/response binding and assembly
-│   │   └── catalog.go      # method coverage inventory
-│   └── internal/           # implementation packages used by rpc and methods
-│       ├── wire/           # JSON normalization and spec-driven pruning
-│       ├── objects/        # block, receipt, transaction, log, feeHistory rules
-│       └── policy/         # shared admission decorator
-├── internal/
-│   ├── runtime/            # sole Composition Root for plans, projectors, aggregator
-│   ├── typed/              # sole production typed projection shared by facades
-│   ├── jsonsafe/           # bounded JSON validation (duplicate keys/limits)
-│   ├── reference/          # reference algorithm and Head-Reading Port
-│   ├── refcontext/         # per-invocation reference propagation
-│   ├── uncertain/          # invocation-scoped raw evidence capture
-│   ├── chainlist/           # chain-list data and loading
-│   ├── rpcsample/           # sampling plan/recording support
-│   ├── spec/               # pinned standard reference data (not hand code)
-│       ├── VERSION         # execution-apis release pin, single source
-│       ├── methods.json    # trimmed per-method result contracts (~100KB)
-│       ├── vectors/        # conformance vectors extracted from tests/*.io
-│       └── README.md       # provenance, upgrade procedure, audit guide
-│   ├── verification/       # cross-module verification through public seams
-│   │   ├── facade/         # black-box root Client/EthClient verification
-│   │   └── integration/    # cross-module integration verification
-│   ├── transport/          # Transport Port adapters and contract tests
-│   │   ├── http/            # project-owned native HTTP adapter
-│   │   ├── wss/             # project-owned raw WebSocket call adapter
-│   │   └── contract/        # transport-neutral L1 contract suite
-│   └── testkit/             # internal test support
-│       ├── wstest/          # server-side WSS test peer
-│       └── gethoracle/      # geth differential oracle for tests/diagnostics
-├── rpctest/                # in-process scriptable Ethereum nodes for tests
-├── cmd/                    # executable entries, including wsscapture and livecanary
-├── docs/                   # architecture, threat model, and design notes
-│   └── design/             # accepted architecture and aggregation records
-└── examples/               # small import demos
-```
-
-| Package | Role |
-|---------|------|
-| `ethguard` | The public `Client`: Typed reads (generated-model migration in progress), calls, evidence, writes |
-| `ethguard/config` | One configuration model for Go construction and YAML loading |
-| `ethguard/pool` | Shared upstream connections, Transport Port, collection, health, eligibility |
-| `ethguard/observe` | Observability events (`Recorder`); never a source of security decisions |
-| `ethguard/aggregator` | Semantic quorum, conflicts, and evidence |
-| `ethguard/rpc` | Public request, decision, ReadPlan, resolver, observation, and evidence model |
-| `ethguard/rpc/projection` | Standard-field projection and extension Carrier assembly |
-| `ethguard/rpc/methods` | Concrete Ethereum JSON-RPC methods, policies, and catalog |
-| `ethguard/rpc/internal` | Internal wire, object, and admission implementations |
-| `ethguard/internal/runtime` | Sole Composition Root binding methods, projectors, and aggregator |
-| `ethguard/internal/typed` | Sole production typed decoder/projection |
-| `ethguard/internal/reference` | Reference algorithm and Head-Reading Port |
-| `ethguard/internal/verification` | Contract, scenario, integration, and replay verification through seams |
-| `ethguard/internal/spec` | Pinned execution-apis reference data (version, schemas, vectors) |
-| `ethguard/rpctest` | Scriptable multi-source test harness over real HTTP |
-| `ethguard/internal/transport` | Transport Port implementations and neutral contract tests |
-
-Concurrency model: one shared `Client` / `pool.Pool` per process use-case;
-sources keep long-lived connections. Callers should not dial per request or
-clone pools per goroutine. Owners should close the Client when its lifetime ends.
-
-Layering rules: `internal/runtime` is the sole Composition Root. It compiles the
-method inventory into ReadPlans and binds plans, projectors, the aggregator, and
-reference seams; the root `Client` is the only public surface over it.
-`aggregator` consumes ReadPlans and resolver/admission
-interfaces and never imports `methods`; `rpc` never imports `methods`. Ethereum
-method entrypoints and the MethodSpec inventory live in `rpc/methods`. `pool` owns the minimal Transport Port and
-`internal/reference` owns the Head-Reading Port; neither carries method policy
-assembly or business adjudication. Shared wire normalization, pruning, object
-semantics, and admission helpers live in `rpc/internal`.
-
-- **R1 – slice admission.** Shapes used by one method only (feeHistory,
-  syncing, accessList, call/estimateGas, quantity reads) stay in `eth_*.go`;
-  slices exist only for objects shared by ≥2 methods or carrying cryptographic
-  commitments.
-- **R2 – table-level ownership.** The defining slice solely owns its field
-  table; callers reuse it, never copy it (`logs.go` owns the `Log` table used
-  by `receipt.go`). Implementation may split within the same package once a
-  slice proves unwieldy — the table stays in exactly one file; no pre-splitting.
-- **R3 – pinned schema ownership.** `internal/spec` holds the pinned
-  execution-apis reference data (VERSION, trimmed `methods.json`, conformance
-  vectors) and contains no hand-written logic beyond the embed accessor.
-  `internal/executionapi` applies separately audited schema errata to the
-  original reference data and assembles the effective schemas used by whitelist
-  trees, field projection, and Jennifer generation into `ethapi/types.gen.go`.
-  CI regenerates and compares the output. Production typed projection
-  lives in `internal/typed` behind the root facade's typed reads;
-  generated constructors enforce declared requiredness and nullability.
-  Fork-aware admission, request binding and content commitments stay in the
-  owning object and method slices.
-- **R4 – inventory interlock.** Tests enforce that every registered method in
-  `catalog.go` has a schema mapping in `spec_tables.go`.
-- **Anchor layering.** The anchor facade is query-only: a `Client` owns its
-  runtime-built resolver and exposes `AnchorBlockHash`/`AnchorBlockHashForTag`/
-  `AnchorBlockHeight` from root `anchor.go`; the reference algorithm and
-  Head-Reading Port live in `internal/reference`, with per-invocation evidence
-  propagation in `internal/refcontext` (`Capture`).
-- **Two facades, one execution, four evidence layers.** `ethguard.Client`
-  owns every business method and returns a `CallResult` per operation: the
-  business value rides the method's own return, the decision (or write
-  decision) and collected material ride the result, and `CallResult.Err` is
-  the call's final business conclusion. The ethclient-shaped `EthClient`
-  view projects the same execution with official signatures. The four
-  evidence channels stay separate: (1) typed classified errors plus the
-  result's decision evidence, (2) generic read-only `Call` whose decision
-  value carries the JSON, (3) opt-in `WithResult`/`WithSourceEvidence` raw
-  source material with a per-call budget, (4) `observe.Recorder` events for
-  audit and operations. The recorder is never a synchronous business return
-  channel.
-
-### Execution and coverage
-
-The default runtime compiles one `MethodSpec` per registered read method into a
-`rpc.ReadPlan`. The plan owns stage facts such as normalization, reference and
-pending handling, admission, resolver selection, and projection binding. The
-execution skeleton is:
-
-```text
-Validate / Prepare → Reference → Collect → Admit → Resolve → Project
-```
-
-The current inventory contains 27 registered read RPCs. The root `Client`
-provides typed methods and generic `Call` access over that
-inventory. `eth_getProof` is explicitly unsupported. A registered plan does not
-promise a provider-wide compatibility result: live provider evidence remains a
-separate track.
-
-The old per-method Policy constructors remain as a resolver seam, compatibility
-surface, and equivalence-test oracle. They are not the default runtime registry
-and must not become a second composition root. Method-level orchestration is
-plan-driven; resolver modules such as strict, median, local, call-revert, and
-block-specific policies remain deliberately deep modules.
+`Corroborated` means provider-backed cross-source evidence. It is not Ethereum consensus, canonical-chain membership, cryptographic finality or proof that endpoints are independent. Selected and Forwarded retain their weaker guarantees.
 
 ## Usage
 
-The supported way in: two or more distinct endpoints, default configuration:
+Use one shared Client for its intended lifetime and close it when finished. Connections are lazy and reused; do not dial per request or clone pools per goroutine.
 
 ```go
 client, err := ethguard.Dial("https://your-provider-a", "https://your-provider-b")
 if err != nil { return err }
 defer client.Close()
 
-balance, result, err := client.BalanceAt(ctx, ethapi.Address("0x…"), nil)
+address := ethapi.Address("0x000000000000000000000000000000000000dead")
+balance, result, err := client.BalanceAt(ctx, address, nil)
 ```
 
-Every operation returns its business value plus a `CallResult` — the decision
-evidence (or write decision), the collected material when enabled, and `Err`,
-the call's final business conclusion (identical to the trailing error):
+The root method returns its business value, a CallResult and the final business error. CallResult contains the decision or write evidence and any retained source material; its Err matches the trailing error. The EthClient view uses the same execution and omits CallResult:
 
-Exactly one endpoint must opt into Forwarded mode explicitly — `Dial` refuses
-a single URL, and a repeated URL fails (a duplicate shrinks the voting basis
-without adding a source):
+```go
+view := client.EthClient()
+balance, err := view.BalanceAt(ctx, address, nil)
+```
+
+Public business models are generated `ethapi` types: Address/Hash, Block/Header/Transaction/Receipt/Log, CallMsg, query types and Simulate models. They do not have geth Go nominal type identity. Existing bind/v2 interfaces require an explicit adapter. Writes accept BinaryTransaction, an interface with MarshalBinary; a geth transaction can supply the bytes without becoming the public business model.
+
+Exactly one endpoint requires explicit Forwarded mode:
 
 ```go
 client, err := ethguard.DialUncorroborated("https://your-provider")
 ```
 
-Operators who configure EthGuard in YAML load the file directly:
+Dial refuses a single endpoint and duplicate endpoint identities. Multiple URLs still do not prove independent operators. Construction makes no network requests; DialContext bounds construction only. Chain identity is not implicitly pinned; configure WithChainID or chain_id explicitly when required.
+
+## Configuration
 
 ```go
 client, err := ethguard.LoadFile("config.yaml")
 ```
 
-`config.yaml` can be a normal YAML configuration file:
-
 ```yaml
 chain_id: 1
-upstreams:
-  - id: primary
-    endpoint: https://your-provider-a
-  - id: secondary
-    endpoint: https://your-provider-b
-```
-
-Advanced control (anchoring presets, tip tracking, collect window) builds the
-config programmatically and constructs with `New`:
-
-```go
-cfg, err := config.FromEndpoints("https://a.example:8545", "https://b.example:8545")
-if err != nil { return err }
-client, err := ethguard.New(cfg, ethguard.WithFinalizedAnchoring())
-```
-
-`Dial` never sets a chain identity implicitly — pin one with
-`ethguard.WithChainID(chainID)` (the Go option wins over `chain_id` in the
-file). Construction is lazy: no endpoint is contacted until the first call,
-and `DialContext`'s context bounds construction only.
-
-For a runnable example, save that file and run:
-
-```bash
-go run ./examples/basic -config ./config.yaml
-```
-
-`ethguard.Client` is the evidence-rich root interface, not an optional demo.
-Generic `Call`, the full decision evidence and pool inspection ride the same
-client. The external compatibility target is the complete `ethclient` method
-set for the go-ethereum version locked in `go.mod`; the current tree remains
-an implementation checkpoint until that matrix is closed.
-
-Deterministic typed reads require the library's dynamically computed
-corroboration threshold: insufficient support returns `ErrConflict`, since
-these methods cannot expose `Selected` to their callers. Advanced root `Call`
-still returns the selected status where the method contract allows it.
-Median/local methods retain their selection semantics. `Call` rejects unknown
-methods locally with `ErrInvalidRequest`.
-
-With finalized anchoring, divergent provider heights are reconciled at one
-common height. Existing matching heads are reused; otherwise one bounded
-confirmation round fills in missing responses. Default agreement requires the
-fresh first-round views to confirm that candidate. The internally computed
-support threshold keeps the original first-round participation count through
-confirmation; failures never shrink that count or silently lower the
-requirement. `Decision.Reference` retains the reference's origin, height, hash,
-participants, support and faults alongside business-answer evidence. Published
-evidence owns independent copies of its mutable slices.
-
-This can add a header lookup, and insufficient reference support now fails
-before the business read. Reference establishment is library-owned and
-preserves the requested moving tag in its evidence. Finalized coverage remains
-a provider-reported claim, not independent Ethereum consensus finality.
-
-Complete block reads (`eth_getBlockByNumber` and `eth_getBlockByHash` with
-full transactions) validate request binding and protocol commitments before a
-response can contribute a voting result: header hash, transaction trie root,
-applicable withdrawals root, and the uncle commitment. Historical uncle
-headers are fetched from the same source and retained in the typed block. This
-protects content-to-header consistency; it does not prove canonical chain
-membership or on-chain finality. Real provider and fork compatibility samples
-remain a separate corroboration step.
-
-Result delivery and raw source evidence are opt-in and belong to one
-invocation. `WithResult` puts a fresh capture on the context — the bound call
-publishes its completion result there exactly once — and `WithSourceEvidence`
-configures the retention budget for the raw upstream material of each call
-made on the derived context:
-
-```go
-base, err := ethguard.WithSourceEvidence(ctx, 64<<10) // total bytes one call may retain
-if err != nil { return err }                          // non-positive budget fails locally
-callCtx, capture := ethguard.WithResult(base)
-block, _, err := client.BlockByNumber(callCtx, nil)
-_ = block // the normal result and error keep their usual semantics
-result, published, err := capture.Result()
-if published {
-	for _, field := range result.Uncertain.FieldsFor("vendorField") {
-		log.Printf("%s %s: %s", field.Source.ID, field.Path, field.Value)
-	}
-	for _, response := range result.Uncertain.Raw {
-		log.Printf("%s %s: %s", response.Source.ID, response.Method, response.Error)
-	}
-	if result.Uncertain.Truncated {
-		log.Printf("material truncated: retained=%d dropped=%d", result.Uncertain.Bytes, result.Uncertain.Dropped)
-	}
-}
-```
-
-`result.Err` equals the trailing error; `result.Decision` carries the
-aggregation facts the call actually formed. A failed aggregation clears the
-public value while the source tables stay; a corroborated receipt-null or a
-corroborated revert keeps its payload with the classified business error.
-Retention bounds are fixed for this release: the parameter-configured total
-byte budget, at most 64 KiB per raw response, at most 256 records across raw
-and fields, and at most 4 KiB per variable metadata text. A spent budget stops
-retention only — never a request, a quorum, or a vote — and the transport
-response limits stay independent. A capture handle that enters a second call
-is permanently invalidated (`ErrCaptureReused`); a call that exits through a
-panic marks the capture aborted (`ErrCaptureAborted`). Capture errors are
-delivery facts and never enter the business error.
-
-The ethclient-shaped view rides the same execution: `client.EthClient()`
-exposes the official read signatures, `SendTransaction`,
-`SendTransactionSync`, `SendRawTransactionSync`, the three subscription
-methods, and `Close`. Public business values and scalar inputs are the
-project's generated `ethapi` models: scalar entries take
-`ethapi.Address`/`ethapi.Hash`, object entries return `*ethapi.Block`,
-`*ethapi.Header`, `*ethapi.Receipt`, `*ethapi.Transaction`, `[]ethapi.Log`,
-`[]ethapi.Receipt`, and the write entries take the root `BinaryTransaction`
-interface (any value with `MarshalBinary`, `*types.Transaction` included).
-Because the generated scalar types replaced `common.Address`/`common.Hash`,
-`bind/v2.DeployBackend` is no longer satisfied; call inputs use the
-project's generated `ethapi.CallMsg` (not `ethereum.CallMsg`), so
-`bind/v2.ContractCaller` is intentionally not satisfied either. A bind/v2
-caller needs an explicit adapter. The view is not
-`*ethclient.Client`. A view call with no
-capture bound omits raw-material collection (nothing would consume it);
-business behavior never changes. One `Close` on either surface stops both:
-in-flight operations converge with a recognizable `ErrPoolClosed` cause, and
-new operations fail before any network contact.
-
-### HTTP and WSS sources
-
-Transport selection is explicit per source. Omitted `transport` keeps native
-HTTP; `wss` opts into the raw WebSocket adapter with a `ws://` or `wss://` endpoint:
-
-```yaml
 upstreams:
   - id: provider-a
     endpoint: https://rpc-a.example
@@ -359,68 +54,58 @@ upstreams:
     transport: wss
 ```
 
-Both are ordinary fixed voting members and participate in reads and transaction
-broadcasts. Unsupported methods remain protocol evidence, not global health
-failures; they contribute no result support and do not lower the threshold.
-Rate limits and attributable transport/server failures affect shared read/write
-health. Unknown transaction outcomes are never automatically replayed; only a
-later independent call may lazily reconnect. Raw WSS retains missing/null/`0x`/
-concrete error data without claiming provider-wide compatibility. Same-backend
-HTTP and WSS endpoints do not establish independent trust. Explicit per-source
-transport cannot be combined with `DialerOption`.
+Omitted transport selects native HTTP. Explicit wss selects the raw WebSocket adapter; explicit source transport cannot be combined with DialerOption. Both source kinds participate in the fixed membership for reads and writes. Configuration changes to membership require a new Client.
 
-The raw WSS adapter is an EthGuard call transport with an opt-in bounded
-notification capability, not a general WebSocket client. Root subscriptions
-perform per-source resubscription with generation checks; transport-level
-keepalive and general queue/replay policy remain deferred and require separate
-operational evidence.
-Early notifications are buffered by server subscription ID until binding.
-The buffer retains at most 256 never-bound IDs and 256 notifications per ID;
-at the ID cap, a new ID retires the oldest never-bound buffer rather than
-being silently excluded forever. Binding drains only that ID's buffer;
-closing or aborting the transport clears pending buffers and eviction order.
+Programmatic configuration uses config.FromEndpoints and ethguard.New; options such as WithChainID and WithFinalizedAnchoring apply to the same configuration model. The Go chain option wins over the file value. A runnable example is `go run ./examples/basic -config ./config.yaml`.
 
-See the [architecture hub](docs/architecture.md),
-[codebase topology](docs/design/codebase-topology.md), the
-[go-ethereum compatibility policy](docs/design/go-ethereum-compatibility-policy.md),
-and [threat model](docs/threat-model.md) for the security properties and
-method boundaries.
+## Results and evidence
 
-Sources are treated as equal voting members. EthGuard does not model provider,
-region, client-family, or weight-based independence, and a matching result is
-provider-fault-tolerance evidence rather than a proof of Ethereum chain consensus,
-canonical membership, or independent finality.
+Deterministic typed reads require their declared corroboration threshold; insufficient support returns a classified failure. Median/local methods remain Selected. Generic read-only Call uses the registered method contract and rejects unknown methods locally. It does not provide an escape around validation or subscription setup.
 
-## Verification evidence
+Moving latest/safe/finalized reads establish the requested level's per-call provider-backed reference. Explicit pins remain explicit. Failed reference establishment sends no business request, and failures never shrink the frozen voting basis. Pending-local observations do not become Corroborated merely because several sources agree.
 
-- **Offline regression** — `go test`, in-process `rpctest` fleets, and replay
-  prove deterministic behavior under fixed inputs. They do not prove provider
-  behavior, dialect coverage, or long-term availability.
-- **Shape observations** — historical captures and `cmd/soak` probes are
-  unauthenticated observations of one fleet on one day. They are not external
-  live evidence, attestation, or a compatibility guarantee.
-- **Live canary** — `cmd/livecanary` fixes a Chainlist snapshot, a voting basis,
-  a request plan, and failure classes, and emits a machine report with digest
-  binding. A `passed` state means only that this run satisfied the contract;
-  `inconclusive` is not success. A local diagnostic, the first external
-  observation (run `39983945116`), and a separate recheck workflow run of the
-  same manifest (run `40078416681`, `repeatable=true`, differences classified
-  as provider fluctuation) now exist. All of these observations were
-  `inconclusive`; they do not establish compatibility, consensus, finality,
-  provider independence, or long-term reliability.
-- `latest` / `safe` / `finalized` are provider-reported tags, not Ethereum
-  finality. `Corroborated` is provider-backed cross-source evidence, not
-  consensus or a canonical-chain proof.
+Complete block reads validate request identity and applicable header/body commitments, including transaction and withdrawals roots and uncle commitment. Header-only reads do not prove complete body contents. These checks establish the stated content relationships, not canonical-chain membership or finality.
 
-The library provides: configuration loading; multi-upstream
-lifecycle with lazy dialing and health-driven recovery; dynamically computed
-fixed-basis corroboration with deterministic conflict evidence; block-anchored
-reads (strict or conservative finalized selection); a freshness gate that
-quarantines lagging providers; classified sentinel errors; and a passive
-observability seam with an optional Prometheus adapter. Corroboration covers
-the shipped method set; uncorroborated methods are forwarded and labeled
-`Forwarded`, never claimed as corroborated.
+Enable raw source retention and an optional completion capture per invocation:
 
-EthGuard may assess RPC observations such as gas estimates, fee data, and
-transaction counts. It does not optimize gas, allocate nonces, sign
-transactions, or manage transaction broadcast and replacement.
+```go
+base, err := ethguard.WithSourceEvidence(ctx, 64<<10)
+if err != nil { return err }
+callCtx, capture := ethguard.WithResult(base)
+block, result, err := client.BlockByNumber(callCtx, nil)
+_ = block
+_ = result
+saved, published, captureErr := capture.Result()
+```
+
+Inspect saved only when published and captureErr is nil. The direct result remains the business return channel; capture errors describe delivery. A capture is single-use. Raw retention has byte/record/text limits and truncation flags; exhausting its budget does not change requests, votes or thresholds. Protected fields cannot be demoted to optional raw retention simply because a private algorithm type cannot express them. See the [result contract](docs/design/return-value-design.md).
+
+## Writes, subscriptions and lifetime
+
+Writes validate the frozen transaction bytes and use the write pipeline's accepted/unknown/rejected evidence. Unknown outcomes are not automatically replayed. Synchronous write entrypoints may poll for a receipt under their own explicit contract; EthGuard does not sign, choose gas, allocate nonces or manage replacements.
+
+Root and view provide SubscribeNewHead, SubscribeFilterLogs and SubscribeTransactionReceipts with generated model channels and ethereum.Subscription. Multi-source subscriptions use a fixed WSS snapshot, source-session generation checks and same-source Pull. A multi-source client with only one WSS source is rejected; the explicit single-source client uses its existing path. Public subscription mode/budget and termination refinements remain tracked in the [subscription contract](docs/design/subscription-contract.md).
+
+Raw WSS supports request ID demux and bounded notifications. The adapter does not automatically reconnect/replay; root subscription workers may rebuild individual sessions. There is no general keepalive or unlimited recovery promise. HTTP/WSS error.data preservation, synthetic tests and real-provider observations are separate evidence tracks.
+
+Close on either facade stops the shared Client. New operations fail before network contact; in-flight public operations converge with the owner lifecycle. The transport adapter's own Close rule and subscription Err/channel behavior are distinct layers, documented in their contracts.
+
+## Code and documentation
+
+| Module | Responsibility |
+| --- | --- |
+| root Client / EthClient | Public methods, CallResult, lifecycle and the shared execution view |
+| internal/runtime | The sole production composition root |
+| rpc / rpc/methods | Generic decision model and resolvers / method semantics and plans |
+| aggregator / pool | Invocation orchestration and evidence / fixed members, collection and health |
+| ethapi / internal/ethcodec | Generated business models / shared numeric and JSON primitives |
+| rpc/internal/objects / internal/ethobject | Method/object binding and shared object integrity |
+| internal/transport / internal/subscription | Native adapters / stream aggregation and sessions |
+| internal/typed | The sole production typed projection |
+| internal/verification / testkit / rpctest | Public-seam tests and local peers |
+| internal/spec / executionapi | Pinned raw sources / reviewed effective schemas |
+| cmd / observe | Explicit tools / passive operational events |
+
+Start at the [documentation index](docs/design/README.md). It links current contracts, pending choices and dated evidence. Historical decisions remain an archive, not a second implementation plan. Public types are migrated; the next implementation work concerns internal duplication and module simplification after the documentation checkpoint.
+
+Ordinary tests are offline. Anvil and provider capture are explicit commands; synthetic/local-chain evidence does not close real-provider gaps. Live canary passed, workflow success and release approval are different facts. Formal gates and fixed tools are maintained only in the [release contract](docs/design/release-contract.md).

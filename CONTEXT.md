@@ -76,3 +76,15 @@ An Ethereum RPC block tag whose referent can change between requests, such as
 reference for comparing source observations, while preserving the requested
 tag's meaning and explicitly recording that the reference is provider-backed
 evidence.
+
+## Canonical result
+
+One source's validated deterministic business JSON, distinct from the original response retained as evidence. Canonical bytes may be reused within an invocation; they do not prove canonical-chain membership. A CanonicalResult additionally carries optional admission evidence and is immutable after construction.
+
+## Public business model
+
+The generated ethapi representation of a pinned official request or result. Public model migration is complete; private algorithm representations and internal parallel model cleanup are separate responsibilities.
+
+## Forwarded result
+
+An explicitly uncorroborated execution result. It retains applicable method checks but makes no cross-source agreement claim. Low-level forwarding support does not permit unknown methods through the public read-only Call allow-list.

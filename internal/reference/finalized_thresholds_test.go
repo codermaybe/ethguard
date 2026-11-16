@@ -12,7 +12,7 @@ import (
 // finalizedThresholdCase describes one first-round emission set for the
 // establishment-threshold table: every case pins how failures, lagging views,
 // and the configured quorum shape the required support and the candidate
-// height. See docs/design/acceptance-thresholds.md section 1.2.
+// height. See docs/design/reference-freshness-policy.md section 2.
 type finalizedThresholdCase struct {
 	name string
 	// rounds are (height, hash) pairs; a failing member is described by

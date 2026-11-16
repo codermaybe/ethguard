@@ -9,7 +9,7 @@ import (
 
 // The admission threshold table pins Q = max(H, floor(n/2)+1) for every basis
 // size the client can present, including the degenerate empty set. See
-// docs/design/acceptance-thresholds.md section 1.1.
+// docs/design/method-contracts.md section 2.
 func TestAdmissionRequiredSupportTable(t *testing.T) {
 	cases := []struct {
 		name  string

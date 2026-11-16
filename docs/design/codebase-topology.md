@@ -1,6 +1,6 @@
 # 代码库拓扑与模块所有权
 
-状态：现行结构约束。本文定义知识归属、依赖和稳定 seam；不维护物理文件迁移计划，不授权改变 quorum、reference 或方法行为。
+状态：2026-11-17 文档基线。本文统一定义模块所有权、依赖、ReadPlan／resolver／reference seam 与读取流程；后续目标与未实施改动按路线图推进。
 
 ## 1. 模块地图
 
@@ -33,11 +33,11 @@
 
 全部注册读方法采用同一组织：每个方法文件拥有自己的 RPC 名称、公开业务接口映射、现有 MethodSpec／只读 MethodDescriptor，以及方法特定的准备、完整 key 修正规则与请求绑定。公开 Go 签名仍在 root／EthClient；一个底层 RPC 策略可服务多个公开入口，不为目录整齐复制策略。
 
-`spec_inventory.go` 与 catalog 对全部方法只收集其所属文件给出的定义，不再次展开配置；集中方法名称表已退役，每个 RPC 拼写由其方法文件唯一声明。方法之间不得调用对方的准备／修正函数；共用对象校验和编码直接依赖 `rpc/internal/objects/transaction`，通用 codec 依赖 wire。按方法的白盒测试随同名文件，跨方法输出一致性与公开路径测试仍按既有验证 owner 保留。
+`spec_inventory.go` 与 catalog 对全部方法只收集其所属文件给出的定义，不再次展开配置；集中方法名称表已退役，每个 RPC 拼写由其方法文件唯一声明。方法之间不得调用对方的准备／修正函数；共用对象校验和编码依赖相应 objects／ethobject，通用 codec 依赖 wire／ethcodec。按方法的白盒测试随同名文件，跨方法输出一致性与公开路径测试仍按既有验证 owner 保留。
 
-本样板只调整知识归属、名称和引用，不增删公开接口、方法集合或兼容规则，不改变 quorum、保护域或证据合同。历史扩展条目另行评审，不借组织整理移除能力。
+该布局说明当前知识归属；本轮文档组织不增删公开接口、方法集合或兼容规则，不改变 quorum、保护域或证据合同。后续模块优化可以重选内部接口和表示，但须依据明确目标及行为验收，不借组织整理移除能力。
 
-已确认的规则组织为**外层按官方直接 key 分支，内层按该 key 的完整形态／状态分支**。方法文件拥有经审核的整 key 兼容转换和方法接受域；wire 拥有通用 codec、投影及生成结构约束；objects 拥有共享对象一致性和规范编码；Header／Receipt／Log跨查询与订阅的共同内核位于root internal/ethobject，RPC对象包保留方法绑定与必要转发，typed只作类型投影，不复制内核检查。内层状态判断不授权嵌套路径或数组元素局部修正，不构成组合注册表；无额外兼容规则的方法不需要空 switch。
+已确认的规则组织为**外层按官方直接 key 分支，内层按该 key 的完整形态／状态分支**。方法文件拥有经审核的整 key 兼容转换和方法接受域；wire／ethcodec 拥有通用原语和来源驱动的投影；ethapi 拥有生成结构约束；objects 拥有共享对象一致性和规范编码；Header／Receipt／Log跨查询与订阅的共同内核位于root internal/ethobject，RPC对象包保留方法绑定与必要转发，typed只作类型投影，不复制内核检查。内层状态判断不授权嵌套路径或数组元素局部修正，不构成组合注册表；无额外兼容规则的方法不需要空 switch。
 
 状态判定读取原始同源只读上下文，修正写入独立候选；缺失规则与已有 key 去重，每个 key 只处理一次。未命中修正仍须完整校验、编码和比较。当前 PruneMethod 还包含 hex 规范化，消除职责重叠须检查实际实现，不能仅修改归属描述。两 transaction 方法已完成双 switch 收敛，全部方法已按本节自治组织。
 
@@ -68,29 +68,61 @@ flowchart TD
 
 1. Interface 由消费者定义；Transport／Head-Reading Port 不携带方法 policy 装配。
 2. Adapter 负责协议、传输形状和生命周期，不做 admit、quorum、conflict。
-3. `rpc` 不导入 `rpc/methods`，不拥有网络 I/O；允许裁决所需的 JSON／wire 处理。canonical 处理 seam 属于 rpc core（`rpc/canonical.go` 的类型与 sentinel）与 aggregator（invocation 私有的路线冻结与每源处理阶段）；方法 processor 属于各自方法文件，经 MethodSpec/ReadPlan 声明装配——rpc 不解释字段，aggregator 不解释 schema，plan 是唯一通道，无第二份注册维度（合同见 [resolver seam](resolver-seam-contract.md#7-canonical-单源处理路线2026-11-13-试点落地)）。
+3. `rpc` 不导入 `rpc/methods`，不拥有网络 I/O；允许裁决所需的 JSON／wire 处理。canonical 处理 seam 属于 rpc core（`rpc/canonical.go` 的类型与 sentinel）与 aggregator（invocation 私有的路线冻结与每源处理阶段）；方法 processor 属于各自方法文件，经 MethodSpec/ReadPlan 声明装配——rpc 不解释字段，aggregator 不解释 schema，plan 是唯一通道，无第二份注册维度（合同见下文“Canonical 单源处理路线”）。
 4. pool 不解释 Ethereum 方法参数；aggregator 不解释字段表；生产不导入 verification／testkit。
 5. 只有一个 Composition Root 和一个 typed 实现。root 与官方形状 view 不得各自实现一套执行、重试、解析或证据链。
 6. geth 的具体 client／rpc 依赖按显式 adapter 与现有静态 interlock 白名单管理；不能从兼容逃生舱推导默认原生 build 已解除限制。
 
-## 3. 单次读取管线
+## 3. 单次读取与阶段所有权
 
-```mermaid
-flowchart LR
-    Prepare[Prepare 与可选 ReferenceStage] --> Collect[Collect]
-    Collect --> JSON[有界 JSON 校验]
-    JSON --> Admit[方法准入]
-    Admit --> Resolve[编码 分簇 裁决]
-    Resolve --> Observe[投影与证据装配]
-    Observe --> Typed[typed projection]
+一个逻辑调用拥有一个 Invocation 和冻结 Basis。reference 与业务轮共享该身份，不嵌套 Aggregate；成员故障、gate 或准入拒绝均不缩小分母。
+
+```text
+ApplyReferenceDefault → Prepare／本地拒绝
+  → ReferenceRequirement → ReferenceStage（需要时）→ PrepareWithReference
+  → FreezeParams／冻结处理路线 → Collect → JSON 安全检查
+  → raw Admit 或 CanonicalProcessor
+  → Resolve Outcome → 原始观察的投影／证据／健康最终记账 → typed projection
 ```
 
-这是概念顺序，不强迫所有方法共享同一物理路径；写入和订阅另有契约。编码先于计票，失败不缩分母；窄键、规范字节与获胜簇检查见 [返回值合同](return-value-design.md)。Corroborated 描述受保护结果的 provider-backed evidence，不是整份上游 JSON、canonical chain 或 finality 的保证。
+`MethodSpec.Prepare` 与编译后的 `ReadPlan.Prepare` 共用 `func(context.Context, Request) (Request, error)`。coordinator 消费返回请求并拒绝 Method 改名；方法不能原地改调用者参数。Simulate 先快照输入并经生成模型检查，reference 后的最终 wire 冻结只消费库持有值；输入快照和最终请求冻结是两个阶段，不能称为只编码一次。
 
-## 4. 验证与变更边界
+Prepared 参数与实际 fan-out 同字节。准入把冻结 JSON 解码成只读语义请求，数字保留 `json.Number`，同一请求供各来源共享；调用者 marshaler 不能让网络和准入看到不同 fullTx 或数量。reference 失败不发业务请求。`AdmissionCaller` 是 invocation/source 级依赖，由 coordinator 注入，不能放入静态 spec 或让 resolver 执行网络。
 
-跨模块公开 seam 验证归 `internal/verification/{facade,integration}`；实现包保留确需未导出状态的白盒测试，不为迁移制造不合理的测试 adapter。只有形成独立知识所有者时才新增 contracts／scenarios／replay 目录，不为阶段编号永久建目录。
+### Reference 声明
 
-依赖守卫、可替换 Transport／HeadReader、同一 typed 实现服务多个 facade，以及行为回归共同验证拓扑。结构重组不得暗改门槛、保护域、reference 或 transport 语义；不得把 README／路线图／历史决策当运行时注册表。
+`ReferenceSpec` 的 `Kind` 表达 none／hash-at／height-at／height-fields-at；`Positions` 是字符串参数位置，`ParamPos` 与 `Fields` 是对象高度字段，`EIP1898` 表示同一位置的对象形态。requirement 和 rewrite 来自同一声明，不再独立猜测。level 来自请求；safe/finalized 不复用 latest evidence。字段缺省、mixed tags、显式 pin、pending 和 requireCanonical 的逐方法行为见 [引用矩阵](moving-tag-matrix.md)。
 
-验证所有权与门禁归 [method-verification-pipeline.md](method-verification-pipeline.md)，当前业务缺口与顺序归 [project-roadmap.md](project-roadmap.md)，外部声明归 [go-ethereum-compatibility-policy.md](go-ethereum-compatibility-policy.md)。旧终审过程、三份草案对照和完成清单由 Git 保留，不再并列维护。
+ReferenceStage 通过 runtime 绑定的 HeadReader／HeadCodec 与 Transport Port 工作；resolver 不读取 URL、不持有连接、不建立 reference。每次 invocation 重新建立，无跨调用缓存。空 head 仍按既有 normalize fault／ErrNoValidResponse 分类；不得在文档整理中改写错误类别。
+
+### Resolver 能力
+
+| 类别 | 现行能力与语义 |
+| --- | --- |
+| Strict | 普通与 corroborated Outcome；显式 KeySource；可声明 RPC error body 和 canonical 消费能力 |
+| Block | 包装 Strict，提供对应 Outcome／agreement 能力并绑定 by-hash/by-number；当前业务计划以 canonical bytes 聚类；reference HeadCodec 另用 number/hash 身份 |
+| CallRevert | execution 与 data 独立裁决，共享 Outcome 内核；data 弃权不冒充 Reject；provider 文案只是上下文 |
+| Median／Local | 普通解析与编码，Selected 封顶；有 corroboration snapshot 也不获得 agreement |
+
+编译对 resolver kind、实际 Go 能力、agreement、Outcome、KeySource 与 processor 配对双向校验，失败不注册。KeySource 不从 encoder 是否存在推断；normalizer+encoder 可表达窄键与较宽值，具体装配见生成索引。block wrapper 当前直接委托结果，不再恢复代表源原始 spelling。head 身份、full/header/null、请求绑定和 body 承诺分别验证。
+
+### Canonical 单源处理路线
+
+`CanonicalProcessor` 接收冻结语义请求、来源原文与同源 caller，返回不可变 `CanonicalResult`。结果只带 canonical JSON 与可选准入 evidence；不带来源、请求或跨调用缓存。合法 null 是非空的 `"null"`，零 result 表示无成功结果，getter 返回副本。
+
+处理路线在 prepare 末尾冻结一次：plan 声明 processor 且普通 strict 轮走 canonical；pending-local 与 Forwarded 保持 raw 路线。准入、resolve、fault/event 和 health 共同消费这个事实，不重复判断。当前生产接入为两个独立 transaction 查询和 `eth_getTransactionReceipt`。
+
+- 每可用来源执行一次 processor；canonical resolver 直接消费结果，不重跑 raw normalizer/encoder，不在失败后重试或回退。
+- 失败来源保留槽位且无结果；成功必须有结果。非法 JSON、错误的槽位配对、成功缺结果、非零 result+error 是 `ErrInvalidCanonicalResult`，整轮失败，不能归罪 provider。
+- 内部合同错误不新增来源失败、连续失败或来源错误；确实完成的 transport 成功和延迟仍由 finalizer 记账一次，不跳过 finalizer。
+- 方法处理失败保持 `admission: %w` 归因、同源依赖捕获和并发槽位语义。raw 路线的 encode/normalize 故障阶段保持原合同。
+- 两路共用聚类、排序、裁定、verdict 与提交内核；raw finish 保留 encoder 声明门，canonical 直接提交已验证结果。
+- 编译目前只允许 Strict + canonical-bytes + canonical 消费能力；保留 raw Normalize／Encode／原 Admit。Block、CallRevert、Median、Local 不直接套用此 seam；无 Admit 方法不能凭空补空 hook 改写错误阶段。
+
+## 4. 后续整体优化的设计标准
+
+当前模块划分是基线。文档阶段先完整说明有效合同、实际实现和差距，保存独立 Git 版本，再实施代码优化。允许重选内部表示、状态和接口；有外部影响的合同变化单独说明，不能把历史实现安排当永久要求，也不能借重写静默改变保证。
+
+先审查 aggregator 的 invocation 状态、阶段结果、fault／health／材料和所有退出路径，再沿调用链逐模块处理。接口应隐藏业务复杂性，减少调用方必须同时掌握的规则；拆包、删除适配器或减少行数不能单独证明改进。实现验收通过真实模块接口，并保留独立反例。
+
+架构 interlock、默认 build 依赖、能力互锁及公开调用链共同验证结构。[方法合同](method-contracts.md)拥有业务保证，[返回值合同](return-value-design.md)拥有结果交付，[验证合同](method-verification-pipeline.md)拥有测试与证据要求。

@@ -15,8 +15,8 @@ import (
 // registry: every processor is installed by its method's spec at assembly,
 // and the coordinator selects the route once per invocation.
 //
-// The design contract this file implements lives in the resolver-seam
-// contract and the return-value design: the result carries no source
+// The design contract this file implements lives in docs/design/codebase-topology.md
+// and the return-value design: the result carries no source
 // identity, request, or invocation token; the coordinator places one result
 // back into the one source slot it came from; results are used only inside
 // the current invocation, and nothing here interprets Ethereum fields.

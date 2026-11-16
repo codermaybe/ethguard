@@ -83,7 +83,7 @@ jsonrpc/ID/result/error envelope，再核对 `rpc.ErrorDataPresence` 与
 `aggregator.ObservationRPCError` 的 `RPCError.DataPresence`。表中的错误帧均通过
 当时的回放；missing 不改写为 null，null 也不改写为 missing。
 
-`eth_call` 回放使用真实 `methods.CallPolicy`，以两个相同捕获错误构造两源观察：
+当时的 `eth_call` 回放使用真实 `methods.CallPolicy`（历史构造器名，当前已由编译计划替代），以两个相同捕获错误构造两源观察：
 `Decision.Status=Corroborated`、support=2；missing 的 data 维度弃权，`0x` 与具体
 bytes 的 data 维度返回原值，missing/`0x`/value 不跨形态合并比较键；
 `Decision.Value` 只按既有 rule 4e 处理。**复制同一捕获做两源离线回放只检查政策路径，
