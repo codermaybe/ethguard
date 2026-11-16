@@ -23,7 +23,6 @@ import (
 	"math/big"
 	nethttp "net/http"
 	"net/url"
-	"reflect"
 	"sync"
 	"sync/atomic"
 
@@ -177,14 +176,7 @@ func (t *Transport) CallContext(ctx context.Context, result any, method string, 
 		return readErr
 	}
 
-	decoded, err := rpcwire.DecodeResponse(raw, id)
-	if err != nil {
-		return err
-	}
-	if decoded.Error != nil {
-		return decoded.Error
-	}
-	return decodeResult(decoded.Result, result)
+	return rpcwire.CompleteCall(raw, id, result, "http")
 }
 
 // ChainID implements transport.Transport via a plain eth_chainId call and
@@ -205,25 +197,6 @@ func (t *Transport) Close() {
 		t.closed.Store(true)
 		t.conns.CloseIdleConnections()
 	})
-}
-
-// decodeResult fills the caller's result target from the raw result bytes.
-func decodeResult(raw json.RawMessage, result any) error {
-	switch target := result.(type) {
-	case nil:
-		return nil
-	case *json.RawMessage:
-		*target = append((*target)[:0], raw...)
-		return nil
-	default:
-		if reflect.ValueOf(result).Kind() != reflect.Pointer {
-			return fmt.Errorf("http: result must be pointer or nil, got %T", result)
-		}
-		if err := json.Unmarshal(raw, result); err != nil {
-			return fmt.Errorf("http: decode result: %w", err)
-		}
-		return nil
-	}
 }
 
 // statusError is the native HTTP status failure. It carries the retained

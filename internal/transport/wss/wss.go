@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"math/big"
 	"net/url"
-	"reflect"
 	"sync"
 	"time"
 
@@ -560,19 +559,15 @@ func (t *Transport) complete(id json.RawMessage, response frameResult, result an
 	if response.err != nil {
 		return response.err
 	}
-	decoded, err := rpcwire.DecodeResponse(response.frame, id)
-	if err != nil {
-		return err
-	}
-	if decoded.Error != nil {
-		return decoded.Error
-	}
-	return decodeResult(decoded.Result, result)
+	return rpcwire.CompleteCall(response.frame, id, result, "wss")
 }
 
-func (t *Transport) removePending(id string) {
+// drainCloseIfSettled marks the transport closed and closes the socket when
+// a requested close has drained its last pending response. The drain
+// condition is the one Close-vs-pending rule both the delivered-response and
+// the close paths apply.
+func (t *Transport) drainCloseIfSettled() {
 	t.mu.Lock()
-	delete(t.pending, id)
 	closeSocket := t.closing && !t.closed && len(t.pending) == 0
 	if closeSocket {
 		t.closed = true
@@ -581,6 +576,13 @@ func (t *Transport) removePending(id string) {
 	if closeSocket {
 		t.closeSocket()
 	}
+}
+
+func (t *Transport) removePending(id string) {
+	t.mu.Lock()
+	delete(t.pending, id)
+	t.mu.Unlock()
+	t.drainCloseIfSettled()
 }
 
 // readLoop owns the socket's read side. A delivered frame is matched to its
@@ -658,15 +660,7 @@ func (t *Transport) abort(err error) {
 // last in-flight call has received its response. Close does not cancel calls;
 // each call's context owns its own deadline and cancellation.
 func (t *Transport) finishCloseAfterPending() {
-	t.mu.Lock()
-	closeSocket := t.closing && !t.closed && len(t.pending) == 0
-	if closeSocket {
-		t.closed = true
-	}
-	t.mu.Unlock()
-	if closeSocket {
-		t.closeSocket()
-	}
+	t.drainCloseIfSettled()
 }
 
 func (t *Transport) closeSocket() {
@@ -711,24 +705,5 @@ func (t *Transport) Close() {
 	}
 	if closeSocket {
 		t.closeSocket()
-	}
-}
-
-// decodeResult fills the caller's result target from the raw result bytes.
-func decodeResult(raw json.RawMessage, result any) error {
-	switch target := result.(type) {
-	case nil:
-		return nil
-	case *json.RawMessage:
-		*target = append((*target)[:0], raw...)
-		return nil
-	default:
-		if reflect.ValueOf(result).Kind() != reflect.Pointer {
-			return fmt.Errorf("wss: result must be pointer or nil, got %T", result)
-		}
-		if err := json.Unmarshal(raw, result); err != nil {
-			return fmt.Errorf("wss: decode result: %w", err)
-		}
-		return nil
 	}
 }

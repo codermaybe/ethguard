@@ -533,22 +533,10 @@ func (s *aggregateEthSubscription[T]) runHeadGapProbe(key string, source identif
 					probeErr = context.DeadlineExceeded
 				} else {
 					attemptCtx, attemptCancel := context.WithTimeout(pullCtx, timeout)
-					raw, callErr := unary.CallContext(attemptCtx, "eth_getBlockByNumber", fmt.Sprintf("0x%x", height), false)
+					_, _, probeErr = pullHeaderAt(attemptCtx, unary, height)
 					attemptCancel()
-					if callErr != nil {
-						probeErr = callErr
-					} else {
-						header, decodeErr := typed.DecodeHeader(raw)
-						if decodeErr != nil {
-							probeErr = decodeErr
-						} else {
-							gotHeight, heightErr := typed.QuantityHeight(header.Number)
-							if heightErr != nil || gotHeight != height {
-								probeErr = fmt.Errorf("pulled header number does not match height %d", height)
-							} else {
-								probeErr = s.sessions.Accept(currentSession)
-							}
-						}
+					if probeErr == nil {
+						probeErr = s.sessions.Accept(currentSession)
 					}
 				}
 			}
@@ -855,6 +843,39 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 	return s, nil
 }
 
+// subscribeSingleSource rides the one-source bridge: subscribe the source's
+// push stream and forward typed events under the owner lifecycle. Decode
+// failures terminate the subscription with their error.
+func subscribeSingleSource[T any](setupCtx, ownerCtx context.Context, source identifiedSubscriptionSource, method string, args []any, out chan<- T, decode func([]byte) (T, error)) (ethereum.Subscription, error) {
+	inner, err := source.Subscribe(setupCtx, method, args...)
+	if err != nil {
+		return nil, err
+	}
+	return startSubscriptionWithOwner(ownerCtx, inner, out, decode), nil
+}
+
+// pullHeaderAt fetches one header by explicit height over the source's unary
+// seam and requires the answer to declare that height. The head event's
+// same-source Pull and the head gap probe both ride it.
+func pullHeaderAt(ctx context.Context, unary subscriptionUnarySource, height uint64) (json.RawMessage, *ethapi.Header, error) {
+	raw, err := unary.CallContext(ctx, "eth_getBlockByNumber", fmt.Sprintf("0x%x", height), false)
+	if err != nil {
+		return nil, nil, err
+	}
+	header, err := typed.DecodeHeader(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	gotHeight, heightErr := typed.QuantityHeight(header.Number)
+	if heightErr != nil {
+		return nil, nil, fmt.Errorf("pulled header number %s: %w", header.Number, heightErr)
+	}
+	if gotHeight != height {
+		return nil, nil, fmt.Errorf("pulled header number does not match height %d", height)
+	}
+	return raw, header, nil
+}
+
 func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *ethapi.Header) (ethereum.Subscription, error) {
 	if ch == nil {
 		return nil, fmt.Errorf("%w: nil subscription channel", rpc.ErrInvalidRequest)
@@ -864,13 +885,9 @@ func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *ethapi.Header)
 		return nil, err
 	}
 	if len(sources) == 1 {
-		inner, subErr := sources[0].Subscribe(ctx, "newHeads")
-		if subErr != nil {
-			return nil, subErr
-		}
-		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) (*ethapi.Header, error) {
+		return subscribeSingleSource(ctx, c.lifeCtx, sources[0], "newHeads", nil, ch, func(raw []byte) (*ethapi.Header, error) {
 			return typed.DecodeHeader(raw)
-		}), nil
+		})
 	}
 	return startAggregatedSubscriptionWithPullOwner(c.lifeCtx, ctx, sources, internalsubscription.KindNewHeads, nil, ch, func(raw []byte, sourceID string) (internalsubscription.Observation, *ethapi.Header, error) {
 		header, decodeErr := typed.DecodeHeader(raw)
@@ -899,19 +916,11 @@ func (c *Client) SubscribeNewHead(ctx context.Context, ch chan<- *ethapi.Header)
 		if err != nil {
 			return internalsubscription.Observation{}, fmt.Errorf("ethguard: invalid head context %q: %w", contextKey, err)
 		}
-		raw, err := unary.CallContext(pctx, "eth_getBlockByNumber", fmt.Sprintf("0x%x", height), false)
+		raw, header, err := pullHeaderAt(pctx, unary, height)
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
-		header, err := typed.DecodeHeader(raw)
-		if err != nil {
-			return internalsubscription.Observation{}, err
-		}
-		gotHeight, heightErr := typed.QuantityHeight(header.Number)
-		if heightErr != nil {
-			return internalsubscription.Observation{}, fmt.Errorf("pulled header number %s: %w", header.Number, heightErr)
-		}
-		gotContext, key, err := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(gotHeight, 10), string(header.Hash), string(header.ParentHash))
+		gotContext, key, err := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(height, 10), string(header.Hash), string(header.ParentHash))
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
@@ -938,16 +947,12 @@ func (c *Client) SubscribeFilterLogs(ctx context.Context, q ethapi.FilterQuery, 
 		return nil, err
 	}
 	if len(sources) == 1 {
-		inner, subErr := sources[0].Subscribe(ctx, "logs", arg)
-		if subErr != nil {
-			return nil, subErr
-		}
-		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) (ethapi.Log, error) {
+		return subscribeSingleSource(ctx, c.lifeCtx, sources[0], "logs", []any{arg}, ch, func(raw []byte) (ethapi.Log, error) {
 			if err := validateSubscriptionLogIdentity(raw); err != nil {
 				return ethapi.Log{}, err
 			}
 			return typed.DecodeLog(raw)
-		}), nil
+		})
 	}
 	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, ethapi.Log, error) {
 		if err := validateSubscriptionLogIdentity(raw); err != nil {
@@ -1144,14 +1149,10 @@ func (c *Client) SubscribeTransactionReceipts(ctx context.Context, q *ethapi.Tra
 		return nil, err
 	}
 	if len(sources) == 1 {
-		inner, subErr := sources[0].Subscribe(ctx, "transactionReceipts", wireQuery)
-		if subErr != nil {
-			return nil, subErr
-		}
-		return startSubscriptionWithOwner(c.lifeCtx, inner, ch, func(raw []byte) ([]ethapi.Receipt, error) {
+		return subscribeSingleSource(ctx, c.lifeCtx, sources[0], "transactionReceipts", []any{wireQuery}, ch, func(raw []byte) ([]ethapi.Receipt, error) {
 			_, values, err := decodeReceiptNotification(raw, sources[0].ID())
 			return values, err
-		}), nil
+		})
 	}
 	decode := decodeReceiptNotification
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"reflect"
 	"strconv"
 	"sync/atomic"
 
@@ -142,15 +143,9 @@ type Response struct {
 // the contract rejects. It applies the same empty/malformed classification
 // as DecodeResponse.
 func ValidateBody(body []byte) error {
-	if len(bytes.TrimSpace(body)) == 0 {
-		return ErrEmptyResponse
-	}
-	var wire wireResponse
-	if err := json.Unmarshal(body, &wire); err != nil {
-		return malformedf("body is not a JSON object: %v", err)
-	}
-	if string(wire.Version) != strconv.Quote(Version) {
-		return malformedf("unsupported or missing jsonrpc version %s", wire.Version)
+	wire, err := decodeEnvelope(body)
+	if err != nil {
+		return err
 	}
 	switch {
 	case wire.Result != nil && wire.Error != nil:
@@ -167,24 +162,34 @@ func ValidateBody(body []byte) error {
 	return nil
 }
 
+// decodeEnvelope applies the envelope checks both body validation and
+// response decoding share: non-empty body, one complete JSON object, and the
+// pinned jsonrpc version. json.Unmarshal (not a streaming decoder) rejects
+// trailing garbage after the top-level value and accepts only one complete
+// value, which is the one-request-one-response rule of the contract.
+func decodeEnvelope(body []byte) (wireResponse, error) {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return wireResponse{}, ErrEmptyResponse
+	}
+	var wire wireResponse
+	if err := json.Unmarshal(body, &wire); err != nil {
+		return wireResponse{}, malformedf("body is not a JSON object: %v", err)
+	}
+	if string(wire.Version) != strconv.Quote(Version) {
+		return wireResponse{}, malformedf("unsupported or missing jsonrpc version %s", wire.Version)
+	}
+	return wire, nil
+}
+
 // DecodeResponse parses one response body against the request ID and
 // validates the EthGuard native contract. It returns either a Response
 // (success or provider error) or an error wrapping one of the sentinels:
 // ErrEmptyResponse, ErrMalformedResponse, or ErrIDMismatch. Validation
 // failures never produce a protocol error or error-data presence.
 func DecodeResponse(body []byte, requestID json.RawMessage) (*Response, error) {
-	if len(bytes.TrimSpace(body)) == 0 {
-		return nil, ErrEmptyResponse
-	}
-	var wire wireResponse
-	// json.Unmarshal (not a streaming decoder) rejects trailing garbage
-	// after the top-level value and accepts only one complete value, which
-	// is the one-request-one-response rule of the contract.
-	if err := json.Unmarshal(body, &wire); err != nil {
-		return nil, malformedf("body is not a JSON object: %v", err)
-	}
-	if string(wire.Version) != strconv.Quote(Version) {
-		return nil, malformedf("unsupported or missing jsonrpc version %s", wire.Version)
+	wire, err := decodeEnvelope(body)
+	if err != nil {
+		return nil, err
 	}
 	if !idMatches(requestID, wire.ID) {
 		return nil, fmt.Errorf("%w: request id %s, response id %s", ErrIDMismatch, requestID, wire.ID)
@@ -206,6 +211,43 @@ func DecodeResponse(body []byte, requestID json.RawMessage) (*Response, error) {
 	default:
 		return nil, malformedf("response has neither result nor error")
 	}
+}
+
+// DecodeResult fills the caller's result target from the raw result bytes.
+// The prefix names the calling adapter in decode failures.
+func DecodeResult(prefix string, raw json.RawMessage, result any) error {
+	switch target := result.(type) {
+	case nil:
+		return nil
+	case *json.RawMessage:
+		*target = append((*target)[:0], raw...)
+		return nil
+	default:
+		if reflect.ValueOf(result).Kind() != reflect.Pointer {
+			return fmt.Errorf("%s: result must be pointer or nil, got %T", prefix, result)
+		}
+		if err := json.Unmarshal(raw, result); err != nil {
+			return fmt.Errorf("%s: decode result: %w", prefix, err)
+		}
+		return nil
+	}
+}
+
+// CompleteCall decodes one completed exchange: validate the response envelope
+// against the request id, surface a provider error through, and fill the
+// caller's result target. The prefix names the calling adapter in result
+// decode failures. The native HTTP and raw WSS adapters share this terminal
+// sequence, so the two transports cannot drift on envelope or result
+// semantics.
+func CompleteCall(body []byte, requestID json.RawMessage, result any, prefix string) error {
+	decoded, err := DecodeResponse(body, requestID)
+	if err != nil {
+		return err
+	}
+	if decoded.Error != nil {
+		return decoded.Error
+	}
+	return DecodeResult(prefix, decoded.Result, result)
 }
 
 // Error is a project-owned JSON-RPC error object decoded from a response.
