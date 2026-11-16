@@ -1,7 +1,6 @@
 package block
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -98,6 +97,6 @@ func encodeHeaderOnly(source map[string]json.RawMessage) (json.RawMessage, error
 	return json.Marshal(map[string]string{"hash": strings.ToLower(hash), "number": fmt.Sprintf("0x%x", height)})
 }
 
-func isJSONNull(value json.RawMessage) bool {
-	return bytes.Equal(bytes.TrimSpace(value), []byte("null"))
-}
+// isJSONNull forwards to the shared wire spelling so every object package
+// answers the null question identically.
+func isJSONNull(value json.RawMessage) bool { return ethcodec.IsJSONNull(value) }
