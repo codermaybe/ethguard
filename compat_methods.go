@@ -226,27 +226,40 @@ func (c *Client) estimateGasWithArgExec(ctx context.Context, call map[string]any
 }
 func (c *Client) EstimateGasAtBlock(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
-		arg, err := checkedBlockNumArg(blockNumber)
-		if err != nil {
-			return 0, CallResult{}, err
-		}
-		call, err := toCallArg(msg)
-		if err != nil {
-			return 0, CallResult{}, err
-		}
-		return c.estimateGasWithArgExec(opCtx, call, arg)
+		return c.estimateGasAtBlockExec(opCtx, msg, blockNumber)
 	})
 }
+
+// estimateGasAtBlockExec prepares the block argument and call object for
+// both facades, then rides the shared estimate execution.
+func (c *Client) estimateGasAtBlockExec(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) (uint64, CallResult, error) {
+	arg, err := checkedBlockNumArg(blockNumber)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	call, err := toCallArg(msg)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	return c.estimateGasWithArgExec(ctx, call, arg)
+}
+
 func (c *Client) EstimateGasAtBlockHash(ctx context.Context, msg ethapi.CallMsg, blockHash ethapi.Hash) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
-		blockHash, err := validateHash(blockHash)
-		if err != nil {
-			return 0, CallResult{}, err
-		}
-		call, err := toCallArg(msg)
-		if err != nil {
-			return 0, CallResult{}, err
-		}
-		return c.estimateGasWithArgExec(opCtx, call, hashBlockArg(blockHash))
+		return c.estimateGasAtBlockHashExec(opCtx, msg, blockHash)
 	})
+}
+
+// estimateGasAtBlockHashExec prepares the EIP-1898 hash object for both
+// facades, then rides the shared estimate execution.
+func (c *Client) estimateGasAtBlockHashExec(ctx context.Context, msg ethapi.CallMsg, blockHash ethapi.Hash) (uint64, CallResult, error) {
+	blockHash, err := validateHash(blockHash)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	call, err := toCallArg(msg)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	return c.estimateGasWithArgExec(ctx, call, hashBlockArg(blockHash))
 }

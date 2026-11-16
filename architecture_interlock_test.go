@@ -95,8 +95,9 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 				t.Errorf("production package %s imports verification-only package %s", pkg.ImportPath, imp)
 			}
 		}
-		// Only the differential oracle may import ethclient. The typed facade
-		// retains go-ethereum/rpc for its public BlockNumberOrHash signature.
+		// Only the differential oracle may import ethclient. go-ethereum/rpc
+		// itself stays confined to the oracle, the root test surface, and
+		// cmd/* diagnostics; no production execution path links it.
 		if imports["github.com/ethereum/go-ethereum/ethclient"] && pkg.ImportPath != modulePath+"/internal/testkit/gethoracle" {
 			t.Errorf("%s imports ethclient; it is confined to the differential oracle", pkg.ImportPath)
 		}
@@ -181,12 +182,11 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 // dependency graph must not link the go-ethereum client, and neither the
 // default build nor the WSS production path may reach a third-party websocket
 // library on a production execution path — the owned wire stack replaced it.
-// One exception is pinned precisely: the frozen typed read shape takes
-// go-ethereum's BlockNumberOrHash, so the root facade links go-ethereum/rpc
-// for that type, and go-ethereum/rpc transitively links gorilla/websocket.
-// The gate therefore allows gorilla/websocket in the default build only when
-// every importer of it is inside go-ethereum — no EthGuard package may link
-// it directly, and the WSS production path below stays absolute.
+// The public BlockNumberOrHash signature moved to the generated ethapi model,
+// so no production package imports go-ethereum/rpc anymore; the gate below
+// keeps guarding the historical surface: gorilla/websocket may appear in the
+// default build only through go-ethereum's own packages, no EthGuard package
+// may link it directly, and the WSS production path stays absolute.
 func TestDefaultBuildExcludesEthclient(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", ".", "./internal/runtime").Output()
 	if err != nil {
@@ -210,7 +210,7 @@ func TestDefaultBuildExcludesEthclient(t *testing.T) {
 	}
 	for _, importer := range importers {
 		if !strings.Contains(importer, "go-ethereum") {
-			t.Fatalf("default build links gorilla/websocket from %s; only go-ethereum's frozen BlockNumberOrHash type surface may carry it", importer)
+			t.Fatalf("default build links gorilla/websocket from %s; only go-ethereum's own packages may carry it", importer)
 		}
 	}
 	wire, err := exec.Command("go", "list", "-deps", "./internal/transport/wss", "./cmd/wsscapture").Output()

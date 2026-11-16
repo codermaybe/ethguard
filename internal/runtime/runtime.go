@@ -56,7 +56,6 @@ type Bundle struct {
 	Corroboration *rpc.CorroborationShared
 	Resolver      ReferenceResolver
 	Plans         map[string]rpc.ReadPlan
-	Projectors    map[string]rpc.ObservationProjector
 	Aggregator    *aggregator.Aggregator
 	Stage         *ReferenceStage
 }
@@ -97,7 +96,6 @@ func Build(in Inputs) (*Bundle, error) {
 	}
 	return &Bundle{
 		Plans:      plans,
-		Projectors: projectors,
 		Aggregator: aggregator.New(in.Pool,
 			aggregator.WithRecorder(in.Recorder),
 			aggregator.WithCollectTimeout(in.CollectTimeout),

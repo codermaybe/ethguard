@@ -128,12 +128,7 @@ func (ec *EthClient) CodeAtHash(ctx context.Context, account ethapi.Address, blo
 // BlockByHash returns the corroborated block with the given hash.
 func (ec *EthClient) BlockByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Block, error) {
 	block, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Block, CallResult, error) {
-		hash, hashErr := validateHash(hash)
-		if hashErr != nil {
-			return nil, CallResult{}, hashErr
-		}
-		b, decision, blockErr := ec.owner.blockAt(opCtx, string(hash))
-		return b, CallResult{Decision: decisionOf(decision)}, blockErr
+		return ec.owner.blockByHashExec(opCtx, hash)
 	})
 	return block, err
 }
@@ -141,12 +136,7 @@ func (ec *EthClient) BlockByHash(ctx context.Context, hash ethapi.Hash) (*ethapi
 // HeaderByHash returns the corroborated header with the given hash.
 func (ec *EthClient) HeaderByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Header, error) {
 	header, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Header, CallResult, error) {
-		hash, hashErr := validateHash(hash)
-		if hashErr != nil {
-			return nil, CallResult{}, hashErr
-		}
-		h, decision, headerErr := ec.owner.headerAt(opCtx, string(hash))
-		return h, CallResult{Decision: decisionOf(decision)}, headerErr
+		return ec.owner.headerByHashExec(opCtx, hash)
 	})
 	return header, err
 }
@@ -316,22 +306,14 @@ func (ec *EthClient) BlobBaseFee(ctx context.Context) (*big.Int, error) {
 // ResultCapture — the error is the view's only direct return.
 func (ec *EthClient) SendTransaction(ctx context.Context, tx BinaryTransaction) error {
 	_, err := writeOperation(ec.owner, ctx, true, func(opCtx context.Context) (CallResult, error) {
-		raw, err := snapshotBinaryTransaction(tx)
-		if err != nil {
-			return CallResult{}, err
-		}
-		return ec.owner.sendRawTransaction(opCtx, raw)
+		return ec.owner.sendTransactionExec(opCtx, tx)
 	})
 	return err
 }
 
 func (ec *EthClient) SendTransactionSync(ctx context.Context, tx BinaryTransaction, timeout *time.Duration) (*ethapi.Receipt, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Receipt, CallResult, error) {
-		raw, marshalErr := snapshotBinaryTransaction(tx)
-		if marshalErr != nil {
-			return nil, CallResult{}, marshalErr
-		}
-		return ec.owner.sendRawTransactionSyncExec(opCtx, raw, timeout)
+		return ec.owner.sendTransactionSyncExec(opCtx, tx, timeout)
 	})
 	return value, err
 }
@@ -388,32 +370,14 @@ func (ec *EthClient) PendingCallContract(ctx context.Context, msg ethapi.CallMsg
 
 func (ec *EthClient) EstimateGasAtBlock(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
-		arg, localErr := checkedBlockNumArg(blockNumber)
-		if localErr != nil {
-			// operation() owns Err: the body's result only carries the
-			// decision, never a duplicate of the trailing error.
-			return 0, CallResult{}, localErr
-		}
-		call, err := toCallArg(msg)
-		if err != nil {
-			return 0, CallResult{}, err
-		}
-		return ec.owner.estimateGasWithArgExec(opCtx, call, arg)
+		return ec.owner.estimateGasAtBlockExec(opCtx, msg, blockNumber)
 	})
 	return value, err
 }
 
 func (ec *EthClient) EstimateGasAtBlockHash(ctx context.Context, msg ethapi.CallMsg, blockHash ethapi.Hash) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
-		blockHash, hashErr := validateHash(blockHash)
-		if hashErr != nil {
-			return 0, CallResult{}, hashErr
-		}
-		call, err := toCallArg(msg)
-		if err != nil {
-			return 0, CallResult{}, err
-		}
-		return ec.owner.estimateGasWithArgExec(opCtx, call, hashBlockArg(blockHash))
+		return ec.owner.estimateGasAtBlockHashExec(opCtx, msg, blockHash)
 	})
 	return value, err
 }

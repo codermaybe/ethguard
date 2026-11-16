@@ -168,7 +168,7 @@ func Compose(in Composition) (*Bundle, error) {
 // establishment with one configuration.
 func composeResolver(in Composition, stage *ReferenceStage, corrob *rpc.CorroborationShared, floor int) ReferenceResolver {
 	if in.Anchoring != nil && in.Anchoring.Finalized {
-		return &FinalizedHeadAnchor{service: NewFinalizedHeadService(stage)}
+		return &FinalizedHeadAnchor{anchorFacade{NewFinalizedHeadService(stage)}}
 	}
-	return &StrictHeadAnchor{service: NewStrictHeadService(stage, corrob)}
+	return &StrictHeadAnchor{anchorFacade{NewStrictHeadService(stage, corrob)}}
 }

@@ -355,13 +355,19 @@ func hashBlockArg(blockHash ethapi.Hash) map[string]any {
 // BlockByHash returns the corroborated block with the given hash.
 func (c *Client) BlockByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Block, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Block, CallResult, error) {
-		hash, err := validateHash(hash)
-		if err != nil {
-			return nil, CallResult{}, err
-		}
-		block, decision, err := c.blockAt(opCtx, string(hash))
-		return block, CallResult{Decision: decisionOf(decision)}, err
+		return c.blockByHashExec(opCtx, hash)
 	})
+}
+
+// blockByHashExec is the shared block-by-hash body of both facades: the
+// request hash is validated, then the dedicated by-hash method answers.
+func (c *Client) blockByHashExec(ctx context.Context, hash ethapi.Hash) (*ethapi.Block, CallResult, error) {
+	hash, err := validateHash(hash)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	block, decision, err := c.blockAt(ctx, string(hash))
+	return block, CallResult{Decision: decisionOf(decision)}, err
 }
 
 // BlockByNumber returns the corroborated block at number. nil and explicit
@@ -437,13 +443,18 @@ func (c *Client) blockByNegativeNumber(ctx context.Context, number *big.Int) (*e
 // required or downloaded.
 func (c *Client) HeaderByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Header, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Header, CallResult, error) {
-		hash, err := validateHash(hash)
-		if err != nil {
-			return nil, CallResult{}, err
-		}
-		header, decision, err := c.headerAt(opCtx, string(hash))
-		return header, CallResult{Decision: decisionOf(decision)}, err
+		return c.headerByHashExec(opCtx, hash)
 	})
+}
+
+// headerByHashExec is the shared header-only body of both facades.
+func (c *Client) headerByHashExec(ctx context.Context, hash ethapi.Hash) (*ethapi.Header, CallResult, error) {
+	hash, err := validateHash(hash)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	header, decision, err := c.headerAt(ctx, string(hash))
+	return header, CallResult{Decision: decisionOf(decision)}, err
 }
 
 // HeaderByNumber returns a corroborated header at number. Moving tags are

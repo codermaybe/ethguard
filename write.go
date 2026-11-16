@@ -241,12 +241,18 @@ func validateWriteSignature(tx *types.Transaction) error {
 // mining or executability claim.
 func (c *Client) SendTransaction(ctx context.Context, tx BinaryTransaction) (CallResult, error) {
 	return writeOperation(c, ctx, false, func(opCtx context.Context) (CallResult, error) {
-		raw, err := snapshotBinaryTransaction(tx)
-		if err != nil {
-			return CallResult{}, err
-		}
-		return c.sendRawTransaction(opCtx, raw)
+		return c.sendTransactionExec(opCtx, tx)
 	})
+}
+
+// sendTransactionExec freezes the typed transaction once for both facades;
+// every later validation consumes the same snapshot bytes.
+func (c *Client) sendTransactionExec(ctx context.Context, tx BinaryTransaction) (CallResult, error) {
+	raw, err := snapshotBinaryTransaction(tx)
+	if err != nil {
+		return CallResult{}, err
+	}
+	return c.sendRawTransaction(ctx, raw)
 }
 
 // sendRawTransactionSyncExec broadcasts a transaction through the normal
@@ -296,12 +302,18 @@ func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, t
 // snapshotted, and every later validation consumes the same bytes.
 func (c *Client) SendTransactionSync(ctx context.Context, tx BinaryTransaction, timeout *time.Duration) (*ethapi.Receipt, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Receipt, CallResult, error) {
-		raw, err := snapshotBinaryTransaction(tx)
-		if err != nil {
-			return nil, CallResult{}, err
-		}
-		return c.sendRawTransactionSyncExec(opCtx, raw, timeout)
+		return c.sendTransactionSyncExec(opCtx, tx, timeout)
 	})
+}
+
+// sendTransactionSyncExec freezes the typed transaction once for both
+// facades before the broadcast-and-poll execution.
+func (c *Client) sendTransactionSyncExec(ctx context.Context, tx BinaryTransaction, timeout *time.Duration) (*ethapi.Receipt, CallResult, error) {
+	raw, err := snapshotBinaryTransaction(tx)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	return c.sendRawTransactionSyncExec(ctx, raw, timeout)
 }
 
 // SendRawTransactionSync broadcasts raw signed bytes and waits for the
