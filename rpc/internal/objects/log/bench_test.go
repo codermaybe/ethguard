@@ -9,38 +9,55 @@ import (
 	objectlog "github.com/codermaybe/ethguard/internal/ethobject/log"
 )
 
-// benchLogs builds one getLogs-shaped response with n full log objects, the
-// shape a large historical range read admits per source.
-func benchLogs(n int) json.RawMessage {
+// benchLogRows builds one getLogs-shaped response with n full log objects,
+// the shape a large historical range read admits per source. The row bytes
+// are prepared and decoded once; the timed loop runs the kernel on the
+// already-decoded rows, so fixture construction stays out of the measurement.
+func benchLogRows(b *testing.B, n int) []json.RawMessage {
+	b.Helper()
 	rows := make([]string, n)
 	for i := range rows {
-		rows[i] = fmt.Sprintf(`{"address":"0x0000000000000000000000000000000000000abc","topics":["0x` + strings.Repeat("11", 32) + `","0x` + strings.Repeat("22", 32) + `"],"data":"0x` + strings.Repeat("ab", 128) + `","blockNumber":"0x%x","transactionHash":"0x` + strings.Repeat("33", 32) + `","transactionIndex":"0x2a","blockHash":"0x` + strings.Repeat("44", 32) + `","logIndex":"0x%x","removed":false,"blockTimestamp":"0x652f0c1e"}`, 0x1b2f+i, i)
+		rows[i] = fmt.Sprintf(`{"address":"0x0000000000000000000000000000000000000abc","topics":["0x`+strings.Repeat("11", 32)+`","0x`+strings.Repeat("22", 32)+`"],"data":"0x`+strings.Repeat("ab", 128)+`","blockNumber":"0x%x","transactionHash":"0x`+strings.Repeat("33", 32)+`","transactionIndex":"0x2a","blockHash":"0x`+strings.Repeat("44", 32)+`","logIndex":"0x%x","removed":false,"blockTimestamp":"0x652f0c1e"}`, 0x1b2f+i, i)
 	}
-	return json.RawMessage(`[` + strings.Join(rows, ",") + `]`)
+	decoded := make([]json.RawMessage, n)
+	for i, row := range rows {
+		if err := json.Unmarshal([]byte(row), &decoded[i]); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(strings.Join(rows, ","))))
+	return decoded
 }
 
 func BenchmarkLogArrayValidate(b *testing.B) {
-	value := benchLogs(64)
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		rows := []json.RawMessage{}
-		if err := json.Unmarshal(value, &rows); err != nil {
-			b.Fatal(err)
-		}
-		for _, row := range rows {
-			if err := objectlog.Validate(row); err != nil {
-				b.Fatal(err)
+	for _, n := range []int{1, 64} {
+		b.Run(fmt.Sprintf("logs-%d", n), func(b *testing.B) {
+			rows := benchLogRows(b, n)
+			b.ResetTimer()
+			for range b.N {
+				for _, row := range rows {
+					if err := objectlog.Validate(row); err != nil {
+						b.Fatal(err)
+					}
+				}
 			}
-		}
+		})
 	}
 }
 
 func BenchmarkLogArrayEncode(b *testing.B) {
-	value := benchLogs(64)
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		if _, err := Encode(value); err != nil {
-			b.Fatal(err)
-		}
+	for _, n := range []int{1, 64} {
+		b.Run(fmt.Sprintf("logs-%d", n), func(b *testing.B) {
+			rows := benchLogRows(b, n)
+			b.ResetTimer()
+			for range b.N {
+				for _, row := range rows {
+					if _, err := objectlog.EncodeOne(row); err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+		})
 	}
 }

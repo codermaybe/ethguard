@@ -8,8 +8,10 @@ import (
 )
 
 // benchFeeHistory builds one feeHistory-shaped response over n blocks with
-// reward rows, the shape a corroborated range read admits per source.
-func benchFeeHistory(n int) json.RawMessage {
+// two reward percentiles, the shape a corroborated range read admits per
+// source. The byte size is reported alongside the block count.
+func benchFeeHistory(b *testing.B, n int) json.RawMessage {
+	b.Helper()
 	base := make([]string, n+1)
 	blob := make([]string, n+1)
 	gas := make([]string, n)
@@ -25,27 +27,38 @@ func benchFeeHistory(n int) json.RawMessage {
 	}
 	base[n] = `"0x1d1a94a200"`
 	blob[n] = `"0x2"`
-	return json.RawMessage(fmt.Sprintf(
+	value := json.RawMessage(fmt.Sprintf(
 		`{"oldestBlock":"0x1200000","baseFeePerGas":[%s],"gasUsedRatio":[%s],"reward":[%s],"baseFeePerBlobGas":[%s],"blobGasUsedRatio":[%s]}`,
 		strings.Join(base, ","), strings.Join(gas, ","), strings.Join(rows, ","), strings.Join(blob, ","), strings.Join(gas, ",")))
+	b.ReportAllocs()
+	b.SetBytes(int64(len(value)))
+	return value
 }
 
-func BenchmarkFeeHistoryNormalize(b *testing.B) {
-	value := benchFeeHistory(64)
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		if _, err := Normalize(value); err != nil {
-			b.Fatal(err)
-		}
+func BenchmarkFeeHistoryAdmission(b *testing.B) {
+	for _, n := range []int{1, 64} {
+		b.Run(fmt.Sprintf("blocks-%d", n), func(b *testing.B) {
+			value := benchFeeHistory(b, n)
+			b.ResetTimer()
+			for range b.N {
+				if _, err := Normalize(value); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 
 func BenchmarkFeeHistoryEncode(b *testing.B) {
-	value := benchFeeHistory(64)
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		if _, err := Encode(value); err != nil {
-			b.Fatal(err)
-		}
+	for _, n := range []int{1, 64} {
+		b.Run(fmt.Sprintf("blocks-%d", n), func(b *testing.B) {
+			value := benchFeeHistory(b, n)
+			b.ResetTimer()
+			for range b.N {
+				if _, err := Encode(value); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
