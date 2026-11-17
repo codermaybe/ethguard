@@ -57,7 +57,9 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 		}
 		out.GasUsed = &gas
 	}
-	return ethcodec.MarshalNoEscape(out)
+	// The generated marshaler already produces compact, non-HTML-escaped
+	// JSON. Wrapping it in another encoder repeats the same serialization.
+	return out.MarshalJSON()
 }
 
 // checkItems validates the list one item at a time, in document order, with
@@ -69,8 +71,8 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 //     spelling, in either alias order — is a decode error reported as a
 //     malformed item shape, before any presence or value check;
 //  2. address presence, then storageKeys presence (null counts as missing);
-//  3. the generated model validates the item's values: address first, then
-//     storage keys.
+//  3. the generated scalar constructors validate the parsed values: address
+//     first, then storage keys. The result uses the generated item type.
 //
 // Each item finishes before the next one starts, so an earlier item's value
 // error surfaces before a later item's missing member.
@@ -94,11 +96,18 @@ func checkItems(accessList json.RawMessage) ([]ethapi.AccessListItem, error) {
 		if shape.StorageKeys == nil {
 			return nil, fmt.Errorf("accessList[%d]: missing storageKeys", i)
 		}
-		item, err := ethapi.NewAccessListItem(row)
+		address, err := ethapi.NewAddress(shape.Address)
 		if err != nil {
-			return nil, fmt.Errorf("accessList[%d]: %w", i, err)
+			return nil, fmt.Errorf("accessList[%d]: address: %w", i, err)
 		}
-		items[i] = item
+		keys := make([]ethapi.Hash, len(shape.StorageKeys))
+		for j, key := range shape.StorageKeys {
+			keys[j], err = ethapi.NewHash(key)
+			if err != nil {
+				return nil, fmt.Errorf("accessList[%d]: storageKeys[%d]: %w", i, j, err)
+			}
+		}
+		items[i] = ethapi.AccessListItem{Address: address, StorageKeys: keys}
 	}
 	return items, nil
 }

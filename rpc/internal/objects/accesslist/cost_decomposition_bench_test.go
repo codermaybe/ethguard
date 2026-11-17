@@ -5,13 +5,12 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/ethapi"
-	"github.com/codermaybe/ethguard/internal/ethcodec"
 )
 
 // BenchmarkAccessListCostDecomposition is a diagnostic-only split of the
 // encode path for cost attribution; none of its variants is a production
-// behavior. shape+model runs the per-item shape/presence pass and the
-// generated item constructor; constructor runs the generated result
+// behavior. shape+model runs the per-item shape/presence pass, generated
+// scalar constructors and item assembly; constructor runs the generated result
 // constructor alone over the raw document; marshal measures only the final
 // serialization of a pre-built result.
 func BenchmarkAccessListCostDecomposition(b *testing.B) {
@@ -51,7 +50,7 @@ func BenchmarkAccessListCostDecomposition(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for range b.N {
-			if _, err := ethcodec.MarshalNoEscape(result); err != nil {
+			if _, err := result.MarshalJSON(); err != nil {
 				b.Fatal(err)
 			}
 		}

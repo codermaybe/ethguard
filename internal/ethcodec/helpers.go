@@ -28,6 +28,26 @@ func CanonicalQuantity(value json.RawMessage) (string, error) {
 // off, and the trailing newline dropped. Every object encoder's marshal step
 // is this function.
 func MarshalNoEscape(value any) (json.RawMessage, error) {
+	if text, ok := value.(string); ok && len(text) <= 128 {
+		// Generated scalar marshalers arrive here as strings. Short plain
+		// ASCII needs only quotes. Bound the probe so a long string needing
+		// escaping near its end is not scanned twice. The standard encoder
+		// remains authoritative for long strings, escaping and invalid UTF-8.
+		plain := true
+		for i := 0; i < len(text); i++ {
+			c := text[i]
+			if c < 0x20 || c >= 0x80 || c == '"' || c == '\\' {
+				plain = false
+				break
+			}
+		}
+		if plain {
+			out := make([]byte, len(text)+2)
+			out[0], out[len(out)-1] = '"', '"'
+			copy(out[1:], text)
+			return out, nil
+		}
+	}
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)
 	encoder.SetEscapeHTML(false)
