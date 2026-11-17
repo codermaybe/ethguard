@@ -123,4 +123,4 @@ CallMsg 与 Simulate 请求根执行 JSON 安全检查后使用私有子 parser�
 
 来源升级先重建原始 bundle 和向量，核对 VERSION／SOURCE／摘要及每份勘误退出条件；再审查生成模型与消费者差异，生成、执行相关对象／方法／conformance 和新鲜度检查。具体可复现源命令见 [spec 数据说明](../../internal/spec/README.md)。
 
-生成新鲜度只证明源与产物同步。公开签名完成不关闭内部平行模型、接受域或 provider 缺口。FeeHistory／AccessList／共享 Log 的静态发现列于方法合同和路线图，待本轮全部文档核对并保存 Git 后处理；本轮不改 schema、生成器、生成文件或生产接受策略。
+生成新鲜度只证明源与产物同步。公开签名完成不关闭内部平行模型、接受域或 provider 缺口。FeeHistory／AccessList／共享 Log 的候选已有部分实施、部分保留，当前状态和顺序由方法合同及路线图维护。后续若调整 schema、生成器或生成资产，仍遵循本文的来源审计与生成流程，不因结构整理静默改变生产接受策略。
