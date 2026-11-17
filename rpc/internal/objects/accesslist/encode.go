@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"strings"
 
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
@@ -28,7 +26,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if len(trimmed) == 0 || trimmed[0] != '{' || bytes.Equal(trimmed, []byte("null")) {
 		return nil, fmt.Errorf("accessList: expected an object")
 	}
-	resolved, _, err := resolveProtectedMembers(trimmed)
+	resolved, err := resolveProtectedMembers(trimmed)
 	if err != nil {
 		return nil, fmt.Errorf("accessList: malformed response")
 	}
@@ -113,103 +111,30 @@ type protectedMembers struct {
 	gasUsed    json.RawMessage
 }
 
-// resolveProtectedMembers resolves the three protected members with
-// encoding/json's own matching semantics: a key matches its member
-// case-insensitively, the last occurrence wins, and unknown members are
-// ignored. A resolved null folds to absence. faithful reports whether the
-// document's exact-key members already match what the generated model's own
-// decode would resolve — canonically spelled, non-null, and with no
-// case-variant alias riding alongside — so the constructor can consume the
-// raw bytes unchanged. Vendor members never break that contract: the model's
-// decode ignores them exactly as it would the raw object.
-func resolveProtectedMembers(raw json.RawMessage) (protectedMembers, bool, error) {
-	var fields map[string]json.RawMessage
+// resolveProtectedMembers uses encoding/json's struct matching semantics for
+// the three protected members. Absent and null members are nil.
+func resolveProtectedMembers(raw json.RawMessage) (protectedMembers, error) {
+	var fields struct {
+		AccessList json.RawMessage `json:"accessList"`
+		Error      json.RawMessage `json:"error"`
+		GasUsed    json.RawMessage `json:"gasUsed"`
+	}
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return protectedMembers{}, false, err
+		return protectedMembers{}, err
 	}
-	faithful := true
-	for key, value := range fields {
-		switch key {
-		case "accessList", "error", "gasUsed":
-			if ethcodec.IsJSONNull(value) {
-				faithful = false // a null member must fold to absence
-			}
-		default:
-			if strings.EqualFold(key, "accessList") || strings.EqualFold(key, "error") || strings.EqualFold(key, "gasUsed") {
-				faithful = false // a case-variant alias rides alongside
-			}
-		}
+	resolved := protectedMembers{
+		accessList: fields.AccessList,
+		errorText:  fields.Error,
+		gasUsed:    fields.GasUsed,
 	}
-	if faithful {
-		return protectedMembers{
-			accessList: fields["accessList"],
-			errorText:  fields["error"],
-			gasUsed:    fields["gasUsed"],
-		}, true, nil
-	}
-	return resolveByDocumentOrder(raw)
-}
-
-// resolveByDocumentOrder is the slow path for documents whose member spelling
-// needs re-resolution: a decoder walks the object in document order so a
-// case-variant alias resolves with the same last-occurrence-wins precedence a
-// struct decode applies, and vendor members stay out of the resolution.
-func resolveByDocumentOrder(raw json.RawMessage) (protectedMembers, bool, error) {
-	var resolved protectedMembers
-	seen := map[string]bool{}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if tok, err := decoder.Token(); err != nil {
-		return resolved, false, err
-	} else if delim, ok := tok.(json.Delim); !ok || delim != '{' {
-		return resolved, false, fmt.Errorf("expected an object")
-	}
-	for decoder.More() {
-		keyToken, err := decoder.Token()
-		if err != nil {
-			return resolved, false, err
-		}
-		key, _ := keyToken.(string)
-		var value json.RawMessage
-		if err := decoder.Decode(&value); err != nil {
-			return resolved, false, err
-		}
-		name := ""
-		switch {
-		case strings.EqualFold(key, "accessList"):
-			name = "accessList"
-		case strings.EqualFold(key, "error"):
-			name = "errorText"
-		case strings.EqualFold(key, "gasUsed"):
-			name = "gasUsed"
-		}
-		if name == "" {
-			continue // a vendor member the mask drops
-		}
-		seen[name] = true
-		switch name {
-		case "accessList":
-			resolved.accessList = value
-		case "errorText":
-			resolved.errorText = value
-		case "gasUsed":
-			resolved.gasUsed = value
-		}
-	}
-	if _, err := decoder.Token(); err != nil { // consume '}'
-		return resolved, false, err
-	}
-	if _, err := decoder.Token(); err != io.EOF {
-		return resolved, false, fmt.Errorf("multiple JSON values")
-	}
-	if resolved.accessList != nil && ethcodec.IsJSONNull(resolved.accessList) {
+	if ethcodec.IsJSONNull(resolved.accessList) {
 		resolved.accessList = nil
 	}
-	if resolved.errorText != nil && ethcodec.IsJSONNull(resolved.errorText) {
+	if ethcodec.IsJSONNull(resolved.errorText) {
 		resolved.errorText = nil
 	}
-	if resolved.gasUsed != nil && ethcodec.IsJSONNull(resolved.gasUsed) {
+	if ethcodec.IsJSONNull(resolved.gasUsed) {
 		resolved.gasUsed = nil
 	}
-	return resolved, false, nil
+	return resolved, nil
 }
-

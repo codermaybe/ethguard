@@ -10,9 +10,9 @@ import (
 
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	nativhttp "github.com/codermaybe/ethguard/internal/transport/http"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 	rpctest "github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -131,8 +131,8 @@ func baselineAccessListEncodeItem(value json.RawMessage) (baselineAccessListEntr
 // fixed. error and gasUsed are omitted when the source did not provide them.
 type baselineAccessListObject struct {
 	AccessList []baselineAccessListEntry `json:"accessList"`
-	Error      *string         `json:"error,omitempty"`
-	GasUsed    *string         `json:"gasUsed,omitempty"`
+	Error      *string                   `json:"error,omitempty"`
+	GasUsed    *string                   `json:"gasUsed,omitempty"`
 }
 
 type baselineAccessListEntry struct {

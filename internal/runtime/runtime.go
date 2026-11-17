@@ -95,7 +95,7 @@ func Build(in Inputs) (*Bundle, error) {
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
 	return &Bundle{
-		Plans:      plans,
+		Plans: plans,
 		Aggregator: aggregator.New(in.Pool,
 			aggregator.WithRecorder(in.Recorder),
 			aggregator.WithCollectTimeout(in.CollectTimeout),

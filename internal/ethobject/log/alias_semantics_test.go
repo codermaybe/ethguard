@@ -42,7 +42,7 @@ func TestTimestampAliasIsCheckedAtTheEncodeStage(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "blockTimestamp") {
 		t.Fatalf("an alias-carried malformed timestamp must reject at the encode stage, got %v", err)
 	}
-	kept, err := EncodeOne(json.RawMessage(logBase()+`,"BlockTimestamp":"0x2"}`))
+	kept, err := EncodeOne(json.RawMessage(logBase() + `,"BlockTimestamp":"0x2"}`))
 	if err != nil || kept.BlockTimestamp == nil || *kept.BlockTimestamp != "0x2" {
 		t.Fatalf("an alias-carried legal timestamp must survive: %+v, %v", kept, err)
 	}

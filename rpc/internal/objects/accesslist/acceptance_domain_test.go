@@ -42,8 +42,8 @@ func TestAccessListAcceptsCaseAliasesOfEveryMember(t *testing.T) {
 	if got := mustEncode(t, `{"ACCESSLIST":[]}`); got != `{"accessList":[]}` {
 		t.Fatalf("upper-case alias rejected: %s", got)
 	}
-	canonical := mustEncode(t, `{"accessList":[{"address":"` + "0x"+strings.Repeat("a", 40) + `","storageKeys":[]}],"gasUsed":"0x0","error":"e"}`)
-	aliases := mustEncode(t, `{"GASUSED":"0x0","accessList":[{"ADDRESS":"` + "0x"+strings.Repeat("A", 40) + `","STORAGEKEYS":[]}],"ERROR":"e"}`)
+	canonical := mustEncode(t, `{"accessList":[{"address":"`+"0x"+strings.Repeat("a", 40)+`","storageKeys":[]}],"gasUsed":"0x0","error":"e"}`)
+	aliases := mustEncode(t, `{"GASUSED":"0x0","accessList":[{"ADDRESS":"`+"0x"+strings.Repeat("A", 40)+`","STORAGEKEYS":[]}],"ERROR":"e"}`)
 	if canonical != aliases {
 		t.Fatalf("case aliases changed the canonical value:\n canonical %s\n aliases   %s", canonical, aliases)
 	}
@@ -158,4 +158,3 @@ func TestAccessListTopLevelScalarAliasesKeepStructSemantics(t *testing.T) {
 		t.Fatalf("a raw-typed member accepts any JSON shape with last-wins, got %v", err)
 	}
 }
-
