@@ -28,40 +28,81 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if len(trimmed) == 0 || trimmed[0] != '{' || bytes.Equal(trimmed, []byte("null")) {
 		return nil, fmt.Errorf("accessList: expected an object")
 	}
-	resolved, faithful, err := resolveProtectedMembers(trimmed)
+	resolved, _, err := resolveProtectedMembers(trimmed)
 	if err != nil {
 		return nil, fmt.Errorf("accessList: malformed response")
 	}
 	if resolved.accessList == nil {
 		return nil, fmt.Errorf("accessList: missing accessList")
 	}
-	if err := checkItemPresence(resolved.accessList); err != nil {
+	items, err := checkItems(resolved.accessList)
+	if err != nil {
 		return nil, err
 	}
-	input := trimmed
-	if !faithful {
-		// Re-render only the resolved members so vendor members and resolved
-		// nulls cannot leak into the generated model's view of the object.
-		var out bytes.Buffer
-		out.WriteByte('{')
-		out.WriteString(`"accessList":`)
-		out.Write(resolved.accessList)
-		if resolved.errorText != nil {
-			out.WriteString(`,"error":`)
-			out.Write(resolved.errorText)
+	// The result assembles from the already-validated members: the items are
+	// the generated model's own, and the scalars go through their generated
+	// constructors. A second whole-object constructor pass here would re-run
+	// the per-item model on bytes the loop just validated.
+	var out ethapi.AccessListResult
+	out.AccessList = &items
+	if resolved.errorText != nil {
+		text, err := ethapi.NewText(resolved.errorText)
+		if err != nil {
+			return nil, fmt.Errorf("accessList: error must be a string")
 		}
-		if resolved.gasUsed != nil {
-			out.WriteString(`,"gasUsed":`)
-			out.Write(resolved.gasUsed)
+		out.Error = &text
+	}
+	if resolved.gasUsed != nil {
+		gas, err := ethapi.NewQuantity(resolved.gasUsed)
+		if err != nil {
+			return nil, fmt.Errorf("accessList: gasUsed: %w", err)
 		}
-		out.WriteByte('}')
-		input = out.Bytes()
+		out.GasUsed = &gas
 	}
-	result, err := ethapi.NewAccessListResult(input)
-	if err != nil {
-		return nil, fmt.Errorf("accessList: %w", err)
+	return ethcodec.MarshalNoEscape(out)
+}
+
+// checkItems validates the list one item at a time, in document order, with
+// the item struct's own decoding semantics — the order and classifications
+// the encode stage has always reported:
+//
+//  1. the item decodes into a struct whose storageKeys member is an array
+//     type, so a storageKeys value of any other JSON type — under either
+//     spelling, in either alias order — is a decode error reported as a
+//     malformed item shape, before any presence or value check;
+//  2. address presence, then storageKeys presence (null counts as missing);
+//  3. the generated model validates the item's values: address first, then
+//     storage keys.
+//
+// Each item finishes before the next one starts, so an earlier item's value
+// error surfaces before a later item's missing member.
+func checkItems(accessList json.RawMessage) ([]ethapi.AccessListItem, error) {
+	var rows []json.RawMessage
+	if err := json.Unmarshal(accessList, &rows); err != nil || rows == nil {
+		return nil, fmt.Errorf("accessList: expected an array")
 	}
-	return ethcodec.MarshalNoEscape(result)
+	items := make([]ethapi.AccessListItem, len(rows))
+	for i, row := range rows {
+		var shape struct {
+			Address     json.RawMessage   `json:"address"`
+			StorageKeys []json.RawMessage `json:"storageKeys"`
+		}
+		if err := json.Unmarshal(row, &shape); err != nil {
+			return nil, fmt.Errorf("accessList[%d]: expected an object", i)
+		}
+		if !ethcodec.PresentNonNull(shape.Address) {
+			return nil, fmt.Errorf("accessList[%d]: missing address", i)
+		}
+		if shape.StorageKeys == nil {
+			return nil, fmt.Errorf("accessList[%d]: missing storageKeys", i)
+		}
+		item, err := ethapi.NewAccessListItem(row)
+		if err != nil {
+			return nil, fmt.Errorf("accessList[%d]: %w", i, err)
+		}
+		items[i] = item
+	}
+	return items, nil
 }
 
 // protectedMembers is the resolved view of the members the comparison mask
@@ -172,37 +213,3 @@ func resolveByDocumentOrder(raw json.RawMessage) (protectedMembers, bool, error)
 	return resolved, false, nil
 }
 
-// checkItemPresence runs the item-level presence rules the encode stage has
-// always reported, in their original order: the item must be an object, both
-// members must be present (null counts as missing), and only then do value
-// errors surface. The generated constructor keeps every value check; this
-// pre-check only pins which member a partially broken item names first.
-func checkItemPresence(accessList json.RawMessage) error {
-	var rows []json.RawMessage
-	if err := json.Unmarshal(accessList, &rows); err != nil || rows == nil {
-		return fmt.Errorf("accessList: expected an array")
-	}
-	for i, row := range rows {
-		if err := itemPresence(row); err != nil {
-			return fmt.Errorf("accessList[%d]: %w", i, err)
-		}
-	}
-	return nil
-}
-
-func itemPresence(row json.RawMessage) error {
-	var item struct {
-		Address     json.RawMessage `json:"address"`
-		StorageKeys json.RawMessage `json:"storageKeys"`
-	}
-	if err := json.Unmarshal(row, &item); err != nil {
-		return fmt.Errorf("expected an object")
-	}
-	if !ethcodec.PresentNonNull(item.Address) {
-		return fmt.Errorf("missing address")
-	}
-	if !ethcodec.PresentNonNull(item.StorageKeys) {
-		return fmt.Errorf("missing storageKeys")
-	}
-	return nil
-}

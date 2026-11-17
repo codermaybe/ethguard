@@ -1,12 +1,14 @@
 package aggregator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	nativhttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/pool"
@@ -32,23 +34,28 @@ func accessListBenchValue(n int) json.RawMessage {
 		strings.Join(items, ",")))
 }
 
-// baselineAccessListEncode is the pre-migration encoder, verbatim in
-// behavior: it pins the comparison point of the current generated-model
-// route without borrowing the production implementation.
-type baselineAccessListResult struct {
-	AccessList []baselineAccessListItem `json:"accessList"`
-	Error      *string                  `json:"error,omitempty"`
-	GasUsed    *string                  `json:"gasUsed,omitempty"`
-}
-
-type baselineAccessListItem struct {
-	Address     string   `json:"address"`
-	StorageKeys []string `json:"storageKeys"`
-}
-
+// baselineAccessListEncode is the pre-migration encoder, copied verbatim
+// from the c3188f8 implementation (rpc/internal/objects/accesslist/encode.go)
+// with only the identifiers renamed: the same typed scalar checks
+// (ethcodec.ValidateWireFixedHex, ethcodec.CanonicalQuantity) and the same
+// serialization (ethcodec.MarshalNoEscape), so the route comparison pins
+// the encoder rather than a re-written approximation.
+// Encode checks one eth_createAccessList result and returns the canonical JSON
+// of the fields the comparison mask retains: accessList, error, and gasUsed.
+// Each access-list item keeps only address and storageKeys. A field the mask
+// drops does not enter the value.
+//
+// Admission is section 4.2 step 1 of return-value-design.md: a field is in the
+// protected domain because it is in the comparison key. A missing address or
+// storageKeys fails. error and gasUsed are omitted when absent and are not
+// filled with null. An empty accessList or storageKeys stays [].
+//
+// Addresses and storage keys are lowercase. gasUsed is canonical QUANTITY.
+// error stays the original JSON string. Array order is unchanged. JSON is
+// compact, HTML escaping is off, and field order is the encoder struct order.
 func baselineAccessListEncode(value json.RawMessage) (json.RawMessage, error) {
-	trimmed := strings.TrimSpace(string(value))
-	if len(trimmed) == 0 || trimmed[0] != '{' || trimmed == "null" {
+	trimmed := bytes.TrimSpace(value)
+	if len(trimmed) == 0 || trimmed[0] != '{' || bytes.Equal(trimmed, []byte("null")) {
 		return nil, fmt.Errorf("accessList: expected an object")
 	}
 	var raw struct {
@@ -56,95 +63,81 @@ func baselineAccessListEncode(value json.RawMessage) (json.RawMessage, error) {
 		Error      json.RawMessage `json:"error"`
 		GasUsed    json.RawMessage `json:"gasUsed"`
 	}
-	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+	if err := json.Unmarshal(trimmed, &raw); err != nil {
 		return nil, fmt.Errorf("accessList: malformed response")
 	}
-	if len(raw.AccessList) == 0 || string(raw.AccessList) == "null" {
+	if !ethcodec.PresentNonNull(raw.AccessList) {
 		return nil, fmt.Errorf("accessList: missing accessList")
 	}
 	var rows []json.RawMessage
 	if err := json.Unmarshal(raw.AccessList, &rows); err != nil || rows == nil {
 		return nil, fmt.Errorf("accessList: expected an array")
 	}
-	items := make([]baselineAccessListItem, len(rows))
+	items := make([]baselineAccessListEntry, len(rows))
 	for i, row := range rows {
-		item, err := baselineAccessListItem2(row)
+		item, err := baselineAccessListEncodeItem(row)
 		if err != nil {
 			return nil, fmt.Errorf("accessList[%d]: %w", i, err)
 		}
 		items[i] = item
 	}
-	out := baselineAccessListResult{AccessList: items}
-	if len(raw.Error) != 0 && string(raw.Error) != "null" {
+	out := baselineAccessListObject{AccessList: items}
+	if ethcodec.PresentNonNull(raw.Error) {
 		var text string
 		if err := json.Unmarshal(raw.Error, &text); err != nil {
 			return nil, fmt.Errorf("accessList: error must be a string")
 		}
 		out.Error = &text
 	}
-	if len(raw.GasUsed) != 0 && string(raw.GasUsed) != "null" {
-		gas, err := benchQuantity(raw.GasUsed)
+	if ethcodec.PresentNonNull(raw.GasUsed) {
+		gas, err := ethcodec.CanonicalQuantity(raw.GasUsed)
 		if err != nil {
 			return nil, fmt.Errorf("accessList: gasUsed: %w", err)
 		}
 		out.GasUsed = &gas
 	}
-	marshaled, err := json.Marshal(out)
-	return marshaled, err
+	return ethcodec.MarshalNoEscape(out)
 }
 
-func baselineAccessListItem2(value json.RawMessage) (baselineAccessListItem, error) {
+func baselineAccessListEncodeItem(value json.RawMessage) (baselineAccessListEntry, error) {
 	var raw struct {
 		Address     json.RawMessage   `json:"address"`
 		StorageKeys []json.RawMessage `json:"storageKeys"`
 	}
 	if err := json.Unmarshal(value, &raw); err != nil {
-		return baselineAccessListItem{}, fmt.Errorf("expected an object")
+		return baselineAccessListEntry{}, fmt.Errorf("expected an object")
 	}
-	if len(raw.Address) == 0 || string(raw.Address) == "null" {
-		return baselineAccessListItem{}, fmt.Errorf("missing address")
+	if !ethcodec.PresentNonNull(raw.Address) {
+		return baselineAccessListEntry{}, fmt.Errorf("missing address")
 	}
 	if raw.StorageKeys == nil {
-		return baselineAccessListItem{}, fmt.Errorf("missing storageKeys")
+		return baselineAccessListEntry{}, fmt.Errorf("missing storageKeys")
 	}
-	address, err := benchFixedHex(raw.Address, 40)
+	address, err := ethcodec.ValidateWireFixedHex(raw.Address, 40, "address")
 	if err != nil {
-		return baselineAccessListItem{}, fmt.Errorf("address: %w", err)
+		return baselineAccessListEntry{}, fmt.Errorf("address: %w", err)
 	}
 	keys := make([]string, len(raw.StorageKeys))
 	for i, key := range raw.StorageKeys {
-		keys[i], err = benchFixedHex(key, 64)
+		keys[i], err = ethcodec.ValidateWireFixedHex(key, 64, "hash")
 		if err != nil {
-			return baselineAccessListItem{}, fmt.Errorf("storageKeys[%d]: %w", i, err)
+			return baselineAccessListEntry{}, fmt.Errorf("storageKeys[%d]: %w", i, err)
 		}
 	}
-	return baselineAccessListItem{Address: address, StorageKeys: keys}, nil
+	return baselineAccessListEntry{Address: address, StorageKeys: keys}, nil
 }
 
-func benchFixedHex(value json.RawMessage, digits int) (string, error) {
-	var text string
-	if err := json.Unmarshal(value, &text); err != nil {
-		return "", fmt.Errorf("%s: expected string", "member")
-	}
-	if len(text) != digits+2 || len(text) < 2 || (text[0] != '0') || (text[1] != 'x' && text[1] != 'X') {
-		return "", fmt.Errorf("%s: expected 0x-prefixed value with %d hex digits", "member", digits)
-	}
-	return "0x" + strings.ToLower(text[2:]), nil
+// canonical is the protected eth_createAccessList object. Field order is
+// fixed. error and gasUsed are omitted when the source did not provide them.
+type baselineAccessListObject struct {
+	AccessList []baselineAccessListEntry `json:"accessList"`
+	Error      *string         `json:"error,omitempty"`
+	GasUsed    *string         `json:"gasUsed,omitempty"`
 }
 
-func benchQuantity(value json.RawMessage) (string, error) {
-	var text string
-	if err := json.Unmarshal(value, &text); err != nil {
-		return "", fmt.Errorf("hex quantity: expected string")
-	}
-	if len(text) < 3 || text[:2] != "0x" {
-		return "", fmt.Errorf("hex quantity: invalid quantity %q", text)
-	}
-	digits := text[2:]
-	if digits != "0" && strings.HasPrefix(digits, "0") {
-		return "", fmt.Errorf("hex quantity: non-canonical leading zero in %q", text)
-	}
-	return "0x" + strings.ToLower(digits), nil
+type baselineAccessListEntry struct {
+	Address     string   `json:"address"`
+	StorageKeys []string `json:"storageKeys"`
 }
 
 // BenchmarkAccessListRoute measures one corroborated Aggregate per source

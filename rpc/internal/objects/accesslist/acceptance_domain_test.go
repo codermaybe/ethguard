@@ -101,3 +101,61 @@ func TestAccessListDuplicateAliasesFollowDocumentOrder(t *testing.T) {
 		t.Fatalf("duplicate member must keep the last occurrence, got %s", got)
 	}
 }
+
+// Item members decode with the item struct's own types: storageKeys is an
+// array member, so a value of any other JSON type is a decode error the
+// encode stage has always reported as a malformed item shape — regardless of
+// a later alias carrying a legal array, of which alias spelling comes first,
+// or of which other errors the same item also has.
+
+func TestAccessListItemTypeErrorsRejectLikeTheItemStruct(t *testing.T) {
+	rejects := []string{
+		`{"accessList":[{"address":"0x` + strings.Repeat("11", 20) + `","StorageKeys":123,"storageKeys":[]}]}`,
+		`{"accessList":[{"address":"0x` + strings.Repeat("11", 20) + `","storageKeys":123,"StorageKeys":[]}]}`,
+		`{"accessList":[{"storageKeys":123}]}`,
+		`{"accessList":[{"address":"bad","storageKeys":123}]}`,
+		`{"accessList":[{"address":"0x` + strings.Repeat("11", 20) + `","storageKeys":{}}]}`,
+		`{"accessList":[{"address":"0x` + strings.Repeat("11", 20) + `","storageKeys":"0x` + strings.Repeat("b", 64) + `"}]}`,
+	}
+	for _, raw := range rejects {
+		if _, err := Encode(json.RawMessage(raw)); err == nil || !strings.Contains(err.Error(), "expected an object") {
+			t.Fatalf("storageKeys type error must reject the item shape, got %v (input %s)", err, raw)
+		}
+	}
+}
+
+func TestAccessListItemErrorsFollowDocumentOrder(t *testing.T) {
+	// Items validate one at a time: an earlier item's value error surfaces
+	// before a later item's missing member, exactly as the per-item pass has
+	// always reported.
+	first, err := Encode(json.RawMessage(`{"accessList":[{"address":"bad","storageKeys":[]},{}]}`))
+	if err == nil || !strings.Contains(err.Error(), "accessList[0]") || !strings.Contains(err.Error(), "address") {
+		t.Fatalf("item 0's value error must come first, got out=%s err=%v", first, err)
+	}
+	second, err := Encode(json.RawMessage(`{"accessList":[{"address":"bad","storageKeys":[]},{"address":"0x` + strings.Repeat("11", 20) + `"}]}`))
+	if err == nil || !strings.Contains(err.Error(), "accessList[0]") || !strings.Contains(err.Error(), "address") {
+		t.Fatalf("item 0's value error must precede item 1's missing member, got out=%s err=%v", second, err)
+	}
+}
+
+func TestAccessListTopLevelScalarAliasesKeepStructSemantics(t *testing.T) {
+	// Top-level members decode into raw holders: a scalar type error never
+	// rejects the document, the last occurrence of a member wins, and null
+	// folds to absence — in both alias orders.
+	if got := mustEncode(t, `{"accessList":[],"error":null,"Error":"b"}`); !strings.Contains(got, `"error":"b"`) {
+		t.Fatalf("null then legal alias must resolve to the legal value, got %s", got)
+	}
+	if got := mustEncode(t, `{"accessList":[],"error":"a","Error":null}`); got != `{"accessList":[]}` {
+		t.Fatalf("legal then null alias must fold to omission, got %s", got)
+	}
+	if _, err := Encode(json.RawMessage(`{"accessList":[],"ACCESSLIST":null}`)); err == nil || !strings.Contains(err.Error(), "missing accessList") {
+		t.Fatalf("a null alias overwrites the member: the required accessList goes missing, got %v", err)
+	}
+	if got := mustEncode(t, `{"accessList":null,"ACCESSLIST":[]}`); got != `{"accessList":[]}` {
+		t.Fatalf("null canonical then legal alias must resolve to the alias, got %s", got)
+	}
+	if _, err := Encode(json.RawMessage(`{"accessList":[],"error":5,"error":"x"}`)); err != nil {
+		t.Fatalf("a raw-typed member accepts any JSON shape with last-wins, got %v", err)
+	}
+}
+
