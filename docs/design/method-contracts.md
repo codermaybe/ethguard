@@ -84,13 +84,13 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 
 | 事项 | 已知事实与处理边界 |
 | --- | --- |
-| FeeHistory | 手写 Normalize／Encode 重复模型与校验；官方精确 Number 与现行 ratio gate、返回 supported 子区间与请求 count 等长限制、optional 数组 presence 必须分别裁决；reward 请求绑定保留 |
-| AccessList | 官方顶层 accessList 可选，当前强制存在；error／gasUsed 的 null→省略与生成 non-nullable 不同；不能直接换构造器暗改接受域 |
-| 共享 Log | 内核仍手写 CanonicalLog 和完整字段校验，生成 Log 已存在但 optional／nullable 不同；同时覆盖 query、receipt、订阅和 Pull 后才能替换 |
+| FeeHistory | Normalize／Encode 已共享解析模型；官方精确 Number 与现行 ratio gate、返回 supported 子区间与请求 count 等长限制、optional 数组 presence 仍须分别裁决；reward 请求绑定保留 |
+| AccessList | 已消费生成的 AccessListItem／AccessListResult，方法适配仍强制 accessList 存在，并将 error／gasUsed 的 null 折合省略；保留基线别名、条目形态检查及错误顺序。适配成本单独实测，不因采用生成类型自动认定性能通过 |
+| 共享 Log | 内核保留手写 CanonicalLog 和完整字段校验；单遍尝试已恢复为基线的 Validate 与 EncodeOne 两段处理，以保留精确键准入、编码别名及错误优先级。生成 Log 的 optional／nullable 不同，后续替换仍需 query、receipt、订阅及 Pull 的等价证据 |
 | 本地观测 | local Provenance、无可尝试来源与 identity 错误优先级仍需逐模块复核，不将旧探针当现行缺陷证明 |
 | net_version | 生成十进制模型允许零；逐方法正值限制及 ChainID 关系须独立审查 |
 
-这些事项先保存在本合同和路线图中；全部文档整理、核对并保存 Git 版本后再开始代码处理。静态候选不等于已经复现的漏洞或已授权的新合同。
+文档基线之后的实现与审计已推进上述事项，剩余差异继续由本合同和路线图维护。静态候选不等于已经复现的漏洞或已授权的新合同；实现切片通过也不代替跨模块与成本验收。
 
 ## 7. 验证入口
 
