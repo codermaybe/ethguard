@@ -50,27 +50,33 @@ func probeSpec() methods.MethodSpec {
 
 // scriptedStage is the establishment double: one fixed, corroborated
 // evidence value served once per Establish call, with the rounds recorded
-// for the zero-fan-out assertions.
+// for the zero-fan-out assertions. failEvidence scripts the partial evidence
+// a failed establishment keeps beside its error; noEvidence scripts the
+// broken stage that reports success without forming anything.
 type scriptedStage struct {
-	ref    rpc.ReferenceEvidence
-	err    error
-	rounds []rpc.ReferenceRequest
+	ref          rpc.ReferenceEvidence
+	err          error
+	failEvidence *rpc.ReferenceEvidence
+	noEvidence   bool
+	rounds       []rpc.ReferenceRequest
 }
 
-func (s *scriptedStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
+func (s *scriptedStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
 	s.rounds = append(s.rounds, request)
 	if s.err != nil {
-		return invocation, s.err
+		if s.failEvidence != nil {
+			return s.failEvidence, s.err
+		}
+		return nil, s.err
+	}
+	if s.noEvidence {
+		return nil, nil
 	}
 	ref := s.ref
 	if ref.Tag == "" && request.Kind != rpc.ReferenceLatest {
 		ref.Tag = string(request.Kind)
 	}
-	completed, err := invocation.WithReference(ref)
-	if err != nil {
-		return invocation, err
-	}
-	return completed, nil
+	return &ref, nil
 }
 
 func probeNodes(t *testing.T, value string, n int) ([]*rpctest.Node, *pool.Pool) {

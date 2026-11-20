@@ -308,10 +308,14 @@ func (p ReadPlan) fieldsRequirement(req Request) (ReferenceRequest, bool) {
 // request's tag fails the read the way a missing reference would.
 func (p ReadPlan) PrepareWithReference(req Request, ref ReferenceEvidence, refOK bool) (Request, string, error) {
 	req = p.ApplyReferenceDefault(req)
-	// The copy preserves the parameter list's shape: an empty list stays
-	// empty (and marshals as [] on the wire), never collapses to nil.
-	params := make([]any, len(req.Params))
-	copy(params, req.Params)
+	// The copy preserves the parameter list's shape in both directions: nil
+	// stays nil (no params member on the wire), and an empty list stays
+	// empty (and marshals as [] on the wire), never collapsing to nil.
+	var params []any
+	if req.Params != nil {
+		params = make([]any, len(req.Params))
+		copy(params, req.Params)
+	}
 	if p.Reference.EIP1898 {
 		// Same empty-declaration guard as ReferenceRequirement: a
 		// hand-assembled EIP1898 plan without positions carries no object,

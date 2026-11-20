@@ -30,7 +30,7 @@ import (
 
 // startRawServer serves one connection per request: the handler hijacks the
 // connection and hands the exact wire to the script.
-func startRawServer(t *testing.T, serve func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn)) *httptest.Server {
+func startRawServer(t testing.TB, serve func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn)) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hijacker, ok := w.(http.Hijacker)
@@ -57,7 +57,7 @@ func wsURL(srv *httptest.Server) string {
 
 // writeUpgradeAccept answers a client handshake with a valid 101, optionally
 // followed by extra raw header lines the script controls.
-func writeUpgradeAccept(t *testing.T, rw *bufio.ReadWriter, r *http.Request, extra ...string) {
+func writeUpgradeAccept(t testing.TB, rw *bufio.ReadWriter, r *http.Request, extra ...string) {
 	t.Helper()
 	key := r.Header.Get("Sec-WebSocket-Key")
 	if key == "" {
@@ -139,7 +139,7 @@ func testAuthority(t *testing.T, leafDNS []string) (tls.Certificate, *x509.CertP
 
 // startTLSServer serves the hijack protocol over TLS with the given
 // certificate.
-func startTLSServer(t *testing.T, cert tls.Certificate, serve func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn)) *httptest.Server {
+func startTLSServer(t *testing.T, cert tls.Certificate, serve func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn)) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hijacker, ok := w.(http.Hijacker)
@@ -162,7 +162,7 @@ func startTLSServer(t *testing.T, cert tls.Certificate, serve func(t *testing.T,
 }
 
 func TestHandshakeUpgradesLoopbackConnection(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %q, want GET", r.Method)
 		}
@@ -210,7 +210,7 @@ func TestHandshakeUpgradesLoopbackConnection(t *testing.T) {
 }
 
 func TestHandshakePreservesPathQueryAndHost(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		if r.RequestURI != "/eth?chain=main" {
 			t.Errorf("request URI = %q, want /eth?chain=main", r.RequestURI)
 		}
@@ -239,7 +239,7 @@ func TestHandshakeRejectsNon101Responses(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+			srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				if _, err := rw.WriteString(tc.response); err != nil {
 					t.Errorf("write response: %v", err)
 				}
@@ -262,7 +262,7 @@ func TestHandshakeRejectsNon101Responses(t *testing.T) {
 
 func TestHandshakeRefusesRedirects(t *testing.T) {
 	requests := 0
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		requests++
 		if _, err := rw.WriteString("HTTP/1.1 302 Found\r\nLocation: ws://elsewhere.invalid/socket\r\nContent-Length: 0\r\n\r\n"); err != nil {
 			t.Errorf("write redirect: %v", err)
@@ -291,7 +291,7 @@ func TestHandshakeRejectsBrokenUpgradeHeaders(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+			srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				// Write the 101 manually with the accept key but broken
 				// upgrade headers.
 				key := r.Header.Get("Sec-WebSocket-Key")
@@ -314,7 +314,7 @@ func TestHandshakeRejectsBrokenUpgradeHeaders(t *testing.T) {
 }
 
 func TestHandshakeRejectsWrongAcceptKey(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		lines := []string{
 			"HTTP/1.1 101 Switching Protocols",
 			"Upgrade: websocket",
@@ -345,7 +345,7 @@ func TestHandshakeRejectsNegotiatedExtensionAndSubprotocol(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+			srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				writeUpgradeAccept(t, rw, r, tc.extra...)
 			})
 			_, err := dialWebSocket(context.Background(), wsURL(srv), dialOptions{})
@@ -357,7 +357,7 @@ func TestHandshakeRejectsNegotiatedExtensionAndSubprotocol(t *testing.T) {
 }
 
 func TestHandshakeTimesOutWithoutContextDeadline(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		// Stall forever: the client's own bound must end the handshake.
 		buf := make([]byte, 1)
 		for {
@@ -395,7 +395,7 @@ func TestHandshakeContextDeadlineAndCancellation(t *testing.T) {
 		}, want: context.Canceled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+			srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				buf := make([]byte, 1)
 				for {
 					if _, err := conn.Read(buf); err != nil {
@@ -415,7 +415,7 @@ func TestHandshakeContextDeadlineAndCancellation(t *testing.T) {
 
 func TestHandshakeContextCancellationClosesTheConnection(t *testing.T) {
 	peerClosed := make(chan struct{})
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		buf := make([]byte, 1)
 		for {
 			if _, err := conn.Read(buf); err != nil {
@@ -442,7 +442,7 @@ func TestHandshakeContextCancellationClosesTheConnection(t *testing.T) {
 func TestHandshakeTLSNameAndCertificateErrors(t *testing.T) {
 	t.Run("unknown-authority", func(t *testing.T) {
 		cert, _ := testAuthority(t, []string{"localhost"})
-		srv := startTLSServer(t, cert, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+		srv := startTLSServer(t, cert, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 			writeUpgradeAccept(t, rw, r)
 		})
 		// Dial by DNS name so the name check passes and the failure is the
@@ -460,7 +460,7 @@ func TestHandshakeTLSNameAndCertificateErrors(t *testing.T) {
 	})
 	t.Run("wrong-server-name", func(t *testing.T) {
 		cert, pool := testAuthority(t, []string{"wrong.example"})
-		srv := startTLSServer(t, cert, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+		srv := startTLSServer(t, cert, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 			writeUpgradeAccept(t, rw, r)
 		})
 		cfg := &tls.Config{RootCAs: pool}
@@ -474,7 +474,7 @@ func TestHandshakeTLSNameAndCertificateErrors(t *testing.T) {
 
 func TestHandshakeTLSWithTrustedAuthoritySucceeds(t *testing.T) {
 	cert, pool := testAuthority(t, []string{"localhost"})
-	srv := startTLSServer(t, cert, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startTLSServer(t, cert, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		writeUpgradeAccept(t, rw, r)
 	})
 	_, port, err := net.SplitHostPort(strings.TrimPrefix(srv.URL, "https://"))

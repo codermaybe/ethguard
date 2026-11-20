@@ -100,31 +100,25 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 
 	now := time.Now()
 	emissions := make([]Emission, len(members))
-	gated := make(map[int]error, len(members))
 	attemptable := 0
+	// Every precheck outcome writes its own slot directly, so the dispatch
+	// loop below skips exactly the slots that already hold their member's
+	// outcome — no separate gate map to allocate and consult per member.
 	for i, src := range members {
 		switch {
 		case src.isClosed():
 			emissions[i] = Emission{Src: src, Err: ErrClosed}
 		case src.isIdentityInvalid():
 			emissions[i] = Emission{Src: src, Err: ErrChainIDMismatch}
-			gated[i] = ErrChainIDMismatch
 		case !src.requestable(now):
 			// A cooling source is paused, not failed: the write may already
 			// have landed through the fleet's other members.
-			gate := &SourceGateError{Reason: GateReasonCooldown}
-			emissions[i] = Emission{Src: src, Err: gate}
-			gated[i] = gate
+			emissions[i] = Emission{Src: src, Err: &SourceGateError{Reason: GateReasonCooldown}}
 		default:
 			attemptable++
 		}
 	}
 	if attemptable == 0 {
-		for i, src := range members {
-			if emissions[i].Src == nil {
-				emissions[i] = Emission{Src: src, Err: gated[i]}
-			}
-		}
 		return emissions, ErrNoEligibleSource
 	}
 
@@ -132,13 +126,14 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 
 	var wg sync.WaitGroup
 	for i, src := range members {
-		if gated[i] != nil {
-			continue
+		if emissions[i].Src != nil {
+			continue // this slot already records its member's outcome
 		}
-		// A member closed between the precheck above and this dispatch is not
-		// skipped here: dispatchOne's acquireRequest fails it closed with
-		// ErrClosed, so a concurrent Close still leaves a non-zero
-		// emission on every member — parity with CollectVoting's dispatch loop.
+		// A member that closed between this precheck and its dispatch was
+		// requestable here, so its slot is still empty and the dispatch's
+		// acquireRequest fails it closed with ErrClosed: a concurrent Close
+		// still leaves a non-zero emission on every member — parity with
+		// CollectVoting's dispatch loop.
 		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg, false)
 	}
 	wg.Wait()

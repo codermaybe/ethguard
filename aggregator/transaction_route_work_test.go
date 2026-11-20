@@ -51,11 +51,11 @@ type workCounters struct {
 // instrumentedPlan compiles the registered transaction spec with counting
 // wrappers over its own hook functions — same functions, same composition,
 // same compiler — so the counts are the registered plan's real work.
-func instrumentedPlan(t *testing.T, method string, counts *workCounters) rpc.ReadPlan {
-	t.Helper()
+func instrumentedPlan(tb testing.TB, method string, counts *workCounters) rpc.ReadPlan {
+	tb.Helper()
 	spec, ok := methods.SpecFor(method)
 	if !ok {
-		t.Fatalf("%s is not a registered method", method)
+		tb.Fatalf("%s is not a registered method", method)
 	}
 	if spec.Admit != nil {
 		original := spec.Admit
@@ -87,7 +87,7 @@ func instrumentedPlan(t *testing.T, method string, counts *workCounters) rpc.Rea
 	}
 	plan, err := methods.CompilePlan(spec)
 	if err != nil {
-		t.Fatalf("instrumented %s plan does not compile: %v", method, err)
+		tb.Fatalf("instrumented %s plan does not compile: %v", method, err)
 	}
 	return plan
 }
@@ -96,8 +96,8 @@ func instrumentedPlan(t *testing.T, method string, counts *workCounters) rpc.Rea
 // successful result with a real inclusion context — and returns its bytes
 // with the declared identity members unquoted, the shape a real request
 // carries.
-func minedTransactionVector(t *testing.T) (json.RawMessage, string, string, string) {
-	t.Helper()
+func minedTransactionVector(tb testing.TB) (json.RawMessage, string, string, string) {
+	tb.Helper()
 	type found struct {
 		raw   json.RawMessage
 		hash  string
@@ -137,29 +137,29 @@ func minedTransactionVector(t *testing.T) (json.RawMessage, string, string, stri
 		return nil
 	})
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	if hit.raw == nil {
-		t.Fatal("no official mined transaction vector found")
+		tb.Fatal("no official mined transaction vector found")
 	}
 	return hit.raw, hit.hash, hit.block, hit.index
 }
 
 // transactionWorkFleet installs one plan over three scripted HTTP sources,
 // all answering the method with the same official body.
-func transactionWorkFleet(t *testing.T, method string, plan rpc.ReadPlan, body json.RawMessage) *Aggregator {
-	t.Helper()
+func transactionWorkFleet(tb testing.TB, method string, plan rpc.ReadPlan, body json.RawMessage) *Aggregator {
+	tb.Helper()
 	var members []pool.Member
 	for i := range 3 {
 		node := rpctest.NewNode(0)
 		node.ReturnRaw(method, body)
-		t.Cleanup(node.Close)
+		tb.Cleanup(node.Close)
 		members = append(members, pool.Member{Name: fmt.Sprintf("work-%d", i), URL: node.URL()})
 	}
-	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
+	p := fixedPoolWith(tb, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 	shared, err := rpc.NewCorroborationShared(rpc.CorroborationMajority, 2)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return New(p, WithPlans(map[string]rpc.ReadPlan{method: plan}), WithCorroboration(shared))
 }
@@ -167,16 +167,16 @@ func transactionWorkFleet(t *testing.T, method string, plan rpc.ReadPlan, body j
 // forwardedFleet installs one plan over one scripted source under the
 // Forwarded corroboration mode: one bounded single-source attempt, no
 // agreement claimed.
-func forwardedFleet(t *testing.T, method string, plan rpc.ReadPlan, body json.RawMessage) *Aggregator {
-	t.Helper()
+func forwardedFleet(tb testing.TB, method string, plan rpc.ReadPlan, body json.RawMessage) *Aggregator {
+	tb.Helper()
 	node := rpctest.NewNode(0)
 	node.ReturnRaw(method, body)
-	t.Cleanup(node.Close)
-	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
+	tb.Cleanup(node.Close)
+	p := fixedPoolWith(tb, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
 		pool.Member{Name: "forwarded-0", URL: node.URL()})
 	shared, err := rpc.NewCorroborationShared(rpc.CorroborationForwarded, 0)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return New(p, WithPlans(map[string]rpc.ReadPlan{method: plan}), WithCorroboration(shared))
 }

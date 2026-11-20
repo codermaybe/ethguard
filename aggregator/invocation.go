@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -40,13 +39,25 @@ type invocationState struct {
 	planPin string
 	snap    rpc.Corroboration
 	snapOK  bool
-	capture *refcontext.Capture
+	// reference is the evidence the establishment stage transferred for this
+	// invocation: non-nil whenever the stage ran and formed anything, whether
+	// the establishment succeeded or failed, nil when no round formed
+	// anything. The decision's reference attaches a private copy of this
+	// value, so the transferred evidence and every delivered decision stay
+	// independently mutable.
+	reference *rpc.ReferenceEvidence
 	// collector is this invocation's material capture, resolved once at
 	// entry. It is nil when no evidence configuration applies; the per-source
 	// stages consult it instead of re-resolving the context.
 	collector *uncertain.Capture
 
-	prepared rpc.Request
+	// preparedMethod is the real method of the prepared request. Preparation
+	// must preserve the requested method, and every wire call, record, and
+	// event reads this frozen string — never a plan field or the caller's
+	// request. The prepared request's Go parameter values stay inside
+	// planPreparePhase: they serve the plan's own prepare-time queries
+	// (pending shape, reference requirement) and are dead afterwards.
+	preparedMethod string
 	// wireParams is the frozen parameter list the business fan-out sends:
 	// the one controlled serialization from prepare, so the wire and the
 	// recorded prepared-request fact stay the same bytes. preparedJSON is
@@ -55,8 +66,21 @@ type invocationState struct {
 	preparedJSON json.RawMessage
 
 	// admissionRequest is the shared read-only semantic JSON view of the
-	// frozen params. prepared retains Go values for plan/reference queries.
+	// frozen params, decoded once from the array snapshot.
 	admissionRequest rpc.Request
+
+	// pendingLocal is the invocation's frozen pending-local route: a pending
+	// request shape on a pending-observation read resolves as a node-local
+	// observation, except in Forwarded mode, where the pending shape still
+	// forwards. Computed once from the prepared request at prepare time;
+	// resolution and the processor-route decision read this fact instead of
+	// re-reading the prepared parameters.
+	pendingLocal bool
+	// freshness is the business round's frozen tip-freshness scope, computed
+	// once from the prepared request at prepare time: a rewritten pin and a
+	// request that never carried a moving tag are exempt. Collection reads
+	// this fact instead of re-deriving it from the parameters.
+	freshness pool.TipFreshnessScope
 
 	// processorRoute is the invocation's frozen processing route: non-nil
 	// when this round resolves through the plan's canonical processor. The
@@ -91,32 +115,25 @@ type invocationState struct {
 	verdicts []rpc.SourceVerdict
 }
 
-// validityPolicy is the policy whose validity contract classifies answers
+// resolverPolicy is the policy whose validity contract classifies answers
 // and attempts: the plan's resolver value. Normalization and the
 // RPC-error-body opt-in live on it.
-func (state *invocationState) validityPolicy() rpc.Policy {
+func (state *invocationState) resolverPolicy() rpc.Policy {
 	return state.plan.Resolver
-}
-
-// admissionHook is the method-owned admission hook, or absent when the read
-// declares none.
-func (state *invocationState) admissionHook() (func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error), bool) {
-	return plannedAdmissionHook(state.plan)
 }
 
 // requiresAgreement reports whether the read's resolution claims a
 // corroboration-bound agreement: the resolver's own capability.
 func (state *invocationState) requiresAgreement() bool {
-	agreement, ok := state.validityPolicy().(rpc.AgreementPolicy)
+	agreement, ok := state.resolverPolicy().(rpc.AgreementPolicy)
 	return ok && agreement.RequiresAgreement()
 }
 
-// pendingLocalRoute is the single pending-local routing check: a pending
-// request on a pending-observation read resolves as a node-local
-// observation, except in Forwarded mode, where the pending shape still
-// forwards.
+// pendingLocalRoute is the invocation's frozen pending-local fact: computed
+// once from the prepared request at prepare time, never re-derived from the
+// parameters afterwards.
 func (state *invocationState) pendingLocalRoute() bool {
-	return planPendingLocalRoute(state.plan, state.prepared, state.snap, state.snapOK)
+	return state.pendingLocal
 }
 
 // forwarded reports the invocation's frozen corroboration mode: an explicit
@@ -128,12 +145,28 @@ func (state *invocationState) forwarded() bool {
 
 // resolve runs the plan's declared resolution semantics. The canonical route
 // resolves through the same resolver's canonical consumption entries; the raw
-// route keeps the planned chain.
-func (state *invocationState) resolve() invocationResolution {
+// route keeps the planned chain, reading the invocation's frozen pending
+// fact instead of the prepared parameters. The outcome is the resolution's
+// one production fact: resolvers that state per-source verdicts carry them,
+// decision-only resolvers travel with nil verdicts and no fabricated
+// statement.
+func (state *invocationState) resolve() (rpc.Outcome, error) {
 	if state.processorRoute != nil {
 		return resolveCanonicalInvocation(state.plan, state.snap, state.snapOK, state.canonicalObservations)
 	}
-	return resolvePlannedInvocation(state.plan, state.prepared, state.snap, state.snapOK, state.observations)
+	return resolvePlannedInvocation(state.plan, state.pendingLocal, state.snap, state.snapOK, state.observations)
+}
+
+// establishedReference returns a private copy of the evidence the
+// establishment formed, or nil when no establishment ran or formed anything.
+// The copy is what every decision attaches, so the transferred evidence and
+// the delivered decisions never share mutable slices.
+func (state *invocationState) establishedReference() *rpc.ReferenceEvidence {
+	if state.reference == nil {
+		return nil
+	}
+	clone := state.reference.Clone()
+	return &clone
 }
 
 // earlyExit carries one degraded phase result: a classified decision plus the
@@ -159,34 +192,20 @@ func beginInvocation(snap rpc.Corroboration, snapOK bool, members []*pool.Source
 	return rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap), opts...)
 }
 
-// preparedTipFreshness reports whether the prepared business request still
-// depends on the sampled latest tip. A moving tag rewritten by Prepare has
-// become an explicit pin, so the business round is exempt: an explicit
-// height/hash is valid regardless of the source's current tip. A request that
-// never carried a moving tag is exempt for the same reason. Reference
-// establishment is scoped separately by the runtime, where the requested tag
-// is still known.
-func preparedTipFreshness(state *invocationState) pool.TipFreshnessScope {
-	request, needed := state.plan.ReferenceRequirement(state.prepared)
-	if !needed || request.Kind != rpc.ReferenceLatest {
-		return pool.TipFreshnessExempt
-	}
-	return pool.TipFreshnessLatest
-}
-
 // collectPhase fans the prepared request out under the invocation's collection
 // mode: forwarded, single-source, fixed-basis voting, or symmetric collection.
 // A planned read has no single-source shape; its collection mode follows the
-// declared resolver class.
+// declared resolver class, and the tip-freshness scope is the invocation's
+// frozen fact from prepare.
 func (a *Aggregator) collectPhase(state *invocationState, members []*pool.Source) {
 	opts := pool.CollectOptions{
 		Timeout:      a.collectTimeout,
 		Sources:      members,
-		TipFreshness: preparedTipFreshness(state),
+		TipFreshness: state.freshness,
 		DeferHealth:  true,
 	}
 	forward := func() {
-		state.emissions, state.collectErr = a.pool.Forward(state.ctx, state.prepared.Method, state.wireParams, opts)
+		state.emissions, state.collectErr = a.pool.Forward(state.ctx, state.preparedMethod, state.wireParams, opts)
 	}
 	switch {
 	case state.forwarded():
@@ -200,9 +219,9 @@ func (a *Aggregator) collectPhase(state *invocationState, members []*pool.Source
 		// A corroborated read collects over the fixed voting basis — every
 		// member occupies the denominator even when a scheduling gate
 		// skipped its request (decisions 0025 and 0062).
-		state.emissions, state.collectErr = a.pool.CollectVoting(state.ctx, state.prepared.Method, state.wireParams, opts)
+		state.emissions, state.collectErr = a.pool.CollectVoting(state.ctx, state.preparedMethod, state.wireParams, opts)
 	default:
-		state.emissions, state.collectErr = a.pool.Collect(state.ctx, state.prepared.Method, state.wireParams, opts)
+		state.emissions, state.collectErr = a.pool.Collect(state.ctx, state.preparedMethod, state.wireParams, opts)
 	}
 }
 
@@ -222,9 +241,9 @@ func (state *invocationState) finalizeHealth() {
 			if verdict, ok := verdicts[emission.Src.ID()]; ok && verdict.Kind == rpc.VerdictUnusable {
 				responseErr = verdict.Err
 			} else if state.processorRoute == nil && state.verdicts == nil && emission.Err == nil && emission.Val != nil {
-				_, responseErr = rpc.CanonicalOf(state.validityPolicy(), emission.Val)
+				_, responseErr = rpc.CanonicalOf(state.resolverPolicy(), emission.Val)
 				if responseErr == nil || errors.Is(responseErr, rpc.ErrNotCanonicalScalar) {
-					_, responseErr = state.validityPolicy().Normalize(emission.Val)
+					_, responseErr = state.resolverPolicy().Normalize(emission.Val)
 				}
 			}
 		}
@@ -261,7 +280,7 @@ func (a *Aggregator) runPerSourceStage(state *invocationState, stage func(i int)
 // routes produce.
 func (state *invocationState) recordAdmissionFault(i int, cause error) {
 	if state.collector != nil {
-		state.collector.Record("admission", state.prepared.Method, SourceRefOf(state.emissions[i].Src), nil, cause.Error())
+		state.collector.Record("admission", state.preparedMethod, SourceRefOf(state.emissions[i].Src), nil, cause.Error())
 	}
 	state.emissions[i].Err = fmt.Errorf("admission: %w", cause)
 	state.emissions[i].Val = nil
@@ -286,10 +305,10 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 			if emission.Err != nil {
 				errText = emission.Err.Error()
 			}
-			state.collector.Record("response", state.prepared.Method, source, emission.Val, errText)
+			state.collector.Record("response", state.preparedMethod, source, emission.Val, errText)
 		}
 		if state.collectErr != nil {
-			state.collector.Record("collect", state.prepared.Method, rpc.SourceRef{}, nil, state.collectErr.Error())
+			state.collector.Record("collect", state.preparedMethod, rpc.SourceRef{}, nil, state.collectErr.Error())
 		}
 	}
 	RejectUnsafeJSON(state.emissions)
@@ -302,8 +321,8 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 		}
 		return
 	}
-	admission, ok := state.admissionHook()
-	if !ok {
+	admission := state.plan.Admit
+	if admission == nil {
 		return
 	}
 	a.runPerSourceStage(state, func(i int) {
@@ -316,65 +335,70 @@ func (a *Aggregator) admitPhase(state *invocationState) {
 	})
 }
 
+// pairCanonicalObservation pairs one slot's observation with the processed
+// result its stage produced and writes the paired value to that slot's
+// canonical observation. A pairing refusal is the internal contract fault of
+// the slot — recorded beside the slot's other internal errors, never against
+// the provider. The caller is the slot's one writer.
+func (state *invocationState) pairCanonicalObservation(internal []error, i int, result rpc.CanonicalResult) {
+	observation := ObservationFromEmission(state.emissions[i])
+	paired, err := rpc.NewCanonicalObservation(observation, result)
+	if err == nil {
+		state.canonicalObservations[i] = paired
+		return
+	}
+	internal[i] = fmt.Errorf("%w: %s", rpc.ErrInvalidCanonicalResult, err.Error())
+}
+
 // processPhase is the canonical route's per-source stage: each available
 // source's response is processed exactly once by the frozen processor, and
-// the result lands back in that source's own slot. A processor failure keeps
-// the admission-phase attribution the raw route would have produced; an
-// internal contract fault is recorded for the round, never against the
-// source.
+// the result lands back in that source's own slot. Every slot is written by
+// exactly one writer — the launch loop pairs a slot whose stage never runs,
+// and an available slot's own goroutine pairs whatever its processing
+// produced, observation included. A processor failure keeps the
+// admission-phase attribution the raw route would have produced; an internal
+// contract fault is recorded for the round, never against the source, and
+// the round's internal faults join in member order after the Wait.
 func (a *Aggregator) processPhase(state *invocationState) {
 	state.canonicalObservations = make([]rpc.CanonicalObservation, len(state.emissions))
-	results := make([]rpc.CanonicalResult, len(state.emissions))
 	internal := make([]error, len(state.emissions))
+	for i := range state.emissions {
+		if state.emissions[i].Err == nil && state.emissions[i].Val != nil {
+			continue
+		}
+		// A slot without an available response keeps its slot without a
+		// result. Its emission cannot change afterwards — every slot is
+		// written by its own writer alone — so the pairing formed here is
+		// the pairing resolution reads.
+		state.pairCanonicalObservation(internal, i, rpc.CanonicalResult{})
+	}
 	a.runPerSourceStage(state, func(i int) {
 		result, err := state.processorRoute(state.ctx, state.admissionRequest, state.emissions[i].Val, a.sameSourceCaller(state, i))
-		if err == nil {
-			results[i] = result
-			return
-		}
-		if errors.Is(err, rpc.ErrInvalidCanonicalResult) {
+		switch {
+		case err == nil:
+			state.pairCanonicalObservation(internal, i, result)
+		case errors.Is(err, rpc.ErrInvalidCanonicalResult):
 			// A contract fault is the process's, not the provider's:
 			// the emission stays untouched so no fault or health table
 			// blames the source.
 			internal[i] = err
-			return
-		}
-		// The CanonicalProcessor contract pairs outcomes: an error
-		// must carry a zero result, so a non-zero result beside a
-		// non-sentinel error is the same internal contract defect.
-		// The pairing is verified here — before anything attributes
-		// the error to the source or records an admission fault —
-		// and the round takes the one internal exit.
-		if len(result.Value()) != 0 {
+		case len(result.Value()) != 0:
+			// The CanonicalProcessor contract pairs outcomes: an error
+			// must carry a zero result, so a non-zero result beside a
+			// non-sentinel error is the same internal contract defect.
+			// The pairing is verified here — before anything attributes
+			// the error to the source or records an admission fault —
+			// and the round takes the one internal exit.
 			internal[i] = fmt.Errorf("%w: processor returned a canonical result beside an error", rpc.ErrInvalidCanonicalResult)
-			return
+		default:
+			state.recordAdmissionFault(i, err)
+			// The failed source keeps its slot without a result; the
+			// observation carries the admission fault the pairing reads.
+			state.pairCanonicalObservation(internal, i, rpc.CanonicalResult{})
 		}
-		state.recordAdmissionFault(i, err)
 	})
-	for i := range state.emissions {
-		if internal[i] != nil {
-			state.internalFault = errors.Join(state.internalFault, internal[i])
-			continue
-		}
-		observation := ObservationFromEmission(state.emissions[i])
-		if observation.Err != nil {
-			// A failed source keeps its slot without a result.
-			paired, err := rpc.NewCanonicalObservation(observation, rpc.CanonicalResult{})
-			if err != nil {
-				state.internalFault = errors.Join(state.internalFault, err)
-				continue
-			}
-			state.canonicalObservations[i] = paired
-			continue
-		}
-		paired, err := rpc.NewCanonicalObservation(observation, results[i])
-		if err != nil {
-			// The processor returned no result beside a nil error: the
-			// internal contract sentinel, never a provider verdict.
-			state.internalFault = errors.Join(state.internalFault, fmt.Errorf("%w: %s", rpc.ErrInvalidCanonicalResult, err.Error()))
-			continue
-		}
-		state.canonicalObservations[i] = paired
+	for _, err := range internal {
+		state.internalFault = errors.Join(state.internalFault, err)
 	}
 }
 
@@ -403,10 +427,21 @@ func (a *Aggregator) sameSourceCaller(state *invocationState, i int) rpc.Admissi
 // canonical route's internal-contract abort; otherwise the state carries the
 // resolution outcome.
 func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *earlyExit {
+	// The canonical route's slots hold the observation each pairing formed
+	// after processing; when the route completed without an internal fault
+	// every slot is paired, so the raw field aggregation and the resolution
+	// read that same formed value instead of rebuilding it from the
+	// emission. The raw route has no pairing and forms its observations
+	// here, from the emissions.
+	readsCanonicalPairing := state.processorRoute != nil && state.internalFault == nil
 	state.observations = make([]rpc.Observation, len(state.emissions))
 	state.participants = make([]rpc.SourceRef, 0, len(state.emissions))
 	for i, emission := range state.emissions {
-		state.observations[i] = ObservationFromEmission(emission)
+		if readsCanonicalPairing {
+			state.observations[i] = state.canonicalObservations[i].Observation()
+		} else {
+			state.observations[i] = ObservationFromEmission(emission)
+		}
 		state.participants = append(state.participants, state.observations[i].Source)
 	}
 	// The canonical seam's internal contract fault terminates the round's
@@ -420,10 +455,10 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	// returned decision's.
 	if state.internalFault != nil {
 		state.verdicts = finalizeVerdicts(verdictsFromSlots(state.emissions), state.emissions)
-		decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
+		decision := unknownDecision(state.establishedReference(), state.participants, preparedRequest(state.preparedMethod, state.preparedJSON))
 		state.attachFaults(&decision, state.verdicts)
 		decision.Faults = append(decision.Faults, fmt.Errorf("canonical: %w", state.internalFault))
-		a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, state.internalFault, state.emissions, state.verdicts)
+		a.recordDecision(started, state.preparedMethod, state.resolverPolicy(), decision, state.internalFault, state.emissions, state.verdicts)
 		return &earlyExit{decision: decision, err: state.internalFault}
 	}
 	// A field-aggregation failure only degrades this invocation to a decision
@@ -463,9 +498,9 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 // exit pair. Degraded exits reach this with a nil verdict statement, so the
 // fault tables classify from the invocation's own records.
 func (a *Aggregator) unknownExit(state *invocationState, started time.Time, resolveErr error) *earlyExit {
-	decision := unknownDecision(state.capture.Reference(), state.participants, preparedRequest(state.prepared.Method, state.preparedJSON))
+	decision := unknownDecision(state.establishedReference(), state.participants, preparedRequest(state.preparedMethod, state.preparedJSON))
 	state.attachFaults(&decision, state.verdicts)
-	a.recordDecision(started, state.prepared.Method, state.validityPolicy(), decision, resolveErr, state.emissions, state.verdicts)
+	a.recordDecision(started, state.preparedMethod, state.resolverPolicy(), decision, resolveErr, state.emissions, state.verdicts)
 	return &earlyExit{decision: decision, err: resolveErr}
 }
 
@@ -503,9 +538,9 @@ func verdictsFromSlots(emissions []pool.Emission) []rpc.SourceVerdict {
 // invocation (AggregateStrict); a read that claims agreement must resolve
 // Corroborated or fail closed.
 func (state *invocationState) resolveValue() (rpc.Decision, error) {
-	res := state.resolve()
-	decision, resolveErr := res.decision, res.err
-	state.verdicts = finalizeVerdicts(res.verdicts, state.emissions)
+	outcome, resolveErr := state.resolve()
+	decision := outcome.Decision
+	state.verdicts = finalizeVerdicts(outcome.Verdicts, state.emissions)
 	if resolveErr == nil && state.forwarded() {
 		decision.Status = rpc.Forwarded
 	}
@@ -530,10 +565,12 @@ func (state *invocationState) resolveValue() (rpc.Decision, error) {
 
 // projectPhase finishes the decision: reference, participants, prepared
 // request, diagnostics, semantic projection, block pin, and the fault lists.
-func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req rpc.Request, decision rpc.Decision, resolveErr error) (rpc.Decision, error) {
-	decision.Reference = state.capture.Reference()
+// The observability event names the real prepared method, like every other
+// phase — nothing reads the caller's request after preparation.
+func (a *Aggregator) projectPhase(state *invocationState, started time.Time, decision rpc.Decision, resolveErr error) (rpc.Decision, error) {
+	decision.Reference = state.establishedReference()
 	decision.Participants = state.participants
-	decision.Prepared = preparedRequest(state.prepared.Method, state.preparedJSON)
+	decision.Prepared = preparedRequest(state.preparedMethod, state.preparedJSON)
 	if resolveErr == nil && state.evaluation != nil {
 		var (
 			projector rpc.ObservationProjector
@@ -565,6 +602,6 @@ func (a *Aggregator) projectPhase(state *invocationState, started time.Time, req
 	// The plan records its pin at rewrite time.
 	decision.BlockRef = state.planPin
 	state.attachFaults(&decision, state.verdicts)
-	a.recordDecision(started, req.Method, state.validityPolicy(), decision, resolveErr, state.emissions, state.verdicts)
+	a.recordDecision(started, state.preparedMethod, state.resolverPolicy(), decision, resolveErr, state.emissions, state.verdicts)
 	return decision, resolveErr
 }

@@ -54,7 +54,7 @@ func (r *traceRecorder) observe(ctx context.Context, req rpc.Request) (rpc.Reque
 	return req, nil
 }
 
-func (r *traceRecorder) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
+func (r *traceRecorder) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
 	r.mu.Lock()
 	r.events = append(r.events, "establish")
 	r.invocations = append(r.invocations, invocation)

@@ -42,7 +42,6 @@ var corePackages = map[string]bool{
 	modulePath + "/internal/transport":         true,
 	modulePath + "/internal/transport/http":    true,
 	modulePath + "/internal/transport/wss":     true,
-	modulePath + "/internal/refcontext":        true,
 	modulePath + "/internal/rpcwire":           true,
 }
 

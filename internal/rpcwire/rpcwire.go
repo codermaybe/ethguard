@@ -147,19 +147,8 @@ func ValidateBody(body []byte) error {
 	if err != nil {
 		return err
 	}
-	switch {
-	case wire.Result != nil && wire.Error != nil:
-		return malformedf("result and error are mutually exclusive")
-	case wire.Error != nil:
-		if _, err := decodeError(wire.Error); err != nil {
-			return err
-		}
-	case wire.Result != nil:
-		// A success body only needs the members checked above.
-	default:
-		return malformedf("response has neither result nor error")
-	}
-	return nil
+	_, _, _, err = wire.classify()
+	return err
 }
 
 // decodeEnvelope applies the envelope checks both body validation and
@@ -181,36 +170,60 @@ func decodeEnvelope(body []byte) (wireResponse, error) {
 	return wire, nil
 }
 
+// classify validates the member presence rules of one decoded envelope and
+// sorts it into its wire outcome: a decoded provider error, the raw success
+// result bytes, or a malformed-response classification. It is the one owner
+// of the result/error presence rules every consumer shares.
+func (wire wireResponse) classify() (*Error, json.RawMessage, bool, error) {
+	switch {
+	case wire.Result != nil && wire.Error != nil:
+		return nil, nil, false, malformedf("result and error are mutually exclusive")
+	case wire.Error != nil:
+		rpcErr, err := decodeError(wire.Error)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		return rpcErr, nil, false, nil
+	case wire.Result != nil:
+		return nil, wire.Result, true, nil
+	default:
+		return nil, nil, false, malformedf("response has neither result nor error")
+	}
+}
+
+// checkedEnvelope applies the envelope and id checks both response consumers
+// share.
+func checkedEnvelope(body []byte, requestID json.RawMessage) (wireResponse, error) {
+	wire, err := decodeEnvelope(body)
+	if err != nil {
+		return wireResponse{}, err
+	}
+	if !idMatches(requestID, wire.ID) {
+		return wireResponse{}, fmt.Errorf("%w: request id %s, response id %s", ErrIDMismatch, requestID, wire.ID)
+	}
+	return wire, nil
+}
+
 // DecodeResponse parses one response body against the request ID and
 // validates the EthGuard native contract. It returns either a Response
 // (success or provider error) or an error wrapping one of the sentinels:
 // ErrEmptyResponse, ErrMalformedResponse, or ErrIDMismatch. Validation
-// failures never produce a protocol error or error-data presence.
+// failures never produce a protocol error or error-data presence. The
+// returned Response owns its bytes: a caller may keep and re-read it while
+// the exchange body is reused or released.
 func DecodeResponse(body []byte, requestID json.RawMessage) (*Response, error) {
-	wire, err := decodeEnvelope(body)
+	wire, err := checkedEnvelope(body, requestID)
 	if err != nil {
 		return nil, err
 	}
-	if !idMatches(requestID, wire.ID) {
-		return nil, fmt.Errorf("%w: request id %s, response id %s", ErrIDMismatch, requestID, wire.ID)
+	rpcErr, result, _, err := wire.classify()
+	if err != nil {
+		return nil, err
 	}
-	// Presence, not value: "result":null is present (success), while a
-	// missing member is absent. "error":null is present and then rejected
-	// because a valid error member must be an object.
-	switch {
-	case wire.Result != nil && wire.Error != nil:
-		return nil, malformedf("result and error are mutually exclusive")
-	case wire.Error != nil:
-		rpcErr, err := decodeError(wire.Error)
-		if err != nil {
-			return nil, err
-		}
+	if rpcErr != nil {
 		return &Response{ID: cloneRaw(wire.ID), Error: rpcErr}, nil
-	case wire.Result != nil:
-		return &Response{ID: cloneRaw(wire.ID), Result: cloneRaw(wire.Result)}, nil
-	default:
-		return nil, malformedf("response has neither result nor error")
 	}
+	return &Response{ID: cloneRaw(wire.ID), Result: cloneRaw(result)}, nil
 }
 
 // DecodeResult fills the caller's result target from the raw result bytes.
@@ -233,21 +246,32 @@ func DecodeResult(prefix string, raw json.RawMessage, result any) error {
 	}
 }
 
-// CompleteCall decodes one completed exchange: validate the response envelope
-// against the request id, surface a provider error through, and fill the
-// caller's result target. The prefix names the calling adapter in result
-// decode failures. The native HTTP and raw WSS adapters share this terminal
-// sequence, so the two transports cannot drift on envelope or result
-// semantics.
+// CompleteCall decodes one completed exchange and delivers it to the call's
+// exclusive consumer: validate the response envelope against the request id,
+// surface a provider error, and fill the caller's result target. The prefix
+// names the calling adapter in result decode failures. The native HTTP and
+// raw WSS adapters share this terminal sequence, so the two transports
+// cannot drift on envelope or result semantics.
+//
+// The decoded envelope here never escapes this call and the body is owned by
+// the completing adapter, so the success result is consumed in place: the
+// caller's target receives the one copy it needs, instead of first cloning
+// the result into a Response for repeatable consumption nobody performs.
+// The public DecodeResponse keeps that cloning isolation for consumers that
+// retain the Response.
 func CompleteCall(body []byte, requestID json.RawMessage, result any, prefix string) error {
-	decoded, err := DecodeResponse(body, requestID)
+	wire, err := checkedEnvelope(body, requestID)
 	if err != nil {
 		return err
 	}
-	if decoded.Error != nil {
-		return decoded.Error
+	rpcErr, resultRaw, _, err := wire.classify()
+	if err != nil {
+		return err
 	}
-	return DecodeResult(prefix, decoded.Result, result)
+	if rpcErr != nil {
+		return rpcErr
+	}
+	return DecodeResult(prefix, resultRaw, result)
 }
 
 // Error is a project-owned JSON-RPC error object decoded from a response.

@@ -276,42 +276,39 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 	}
 
 	// Gates are decided before dispatch so paused members never consume a
-	// concurrency slot. The freshness reference is computed over the whole
-	// basis, as in the eligible path, and only when the request's declared
-	// scope depends on the sampled latest tip.
+	// concurrency slot. Each pause is recorded directly into the slot that
+	// carries it, so the dispatch loop below skips exactly the slots that
+	// already hold their member's outcome; there is no separate gate map to
+	// allocate and consult once per member. The freshness reference is
+	// computed over the whole basis, as in the eligible path, and only when
+	// the request's declared scope depends on the sampled latest tip.
 	now := time.Now()
 	reference := tipReference{}
 	if opts.TipFreshness.gatesLatestTip() {
 		reference = p.tipReference(members, now)
 	}
-	gated := make(map[int]error, len(members))
-	attemptable := 0
+	var (
+		emissions   = make([]Emission, len(members))
+		attemptable int
+	)
 	for i, src := range members {
 		if gate := votingGate(src, reference, now); gate != nil {
-			gated[i] = gate
+			emissions[i] = Emission{Src: src, Err: gate}
 			continue
 		}
 		attemptable++
 	}
 	if attemptable == 0 {
 		// Preserve the captured basis even when no request can start.
-		emissions := make([]Emission, len(members))
-		for i, src := range members {
-			emissions[i] = Emission{Src: src, Err: gated[i]}
-		}
 		return emissions, ErrNoEligibleSource
 	}
 
 	sem := symmetricSemaphore(opts.MaxConcurrent, len(members))
 
-	var (
-		emissions = make([]Emission, len(members))
-		wg        sync.WaitGroup
-	)
+	var wg sync.WaitGroup
 	for i, src := range members {
-		if gate, skip := gated[i]; skip {
-			emissions[i] = Emission{Src: src, Err: gate}
-			continue
+		if emissions[i].Src != nil {
+			continue // this slot already records its member's pause
 		}
 		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg, opts.DeferHealth)
 	}

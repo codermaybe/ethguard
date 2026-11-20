@@ -45,17 +45,17 @@ func quantityObservations() []rpc.Observation {
 func TestPlannedCallRevertStatesItsExecutionVerdicts(t *testing.T) {
 	plan := planFor(t, methods.MethodCall)
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
-	res := resolvePlannedInvocation(&plan, rpc.Request{Method: plan.Method}, snap, true, quantityObservations())
-	if res.err != nil {
-		t.Fatalf("resolve: %v", res.err)
+	outcome, err := resolvePlannedInvocation(&plan, false, snap, true, quantityObservations())
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
 	}
-	if res.decision.Status != rpc.Corroborated {
-		t.Fatalf("status = %v, want a corroborated successful call", res.decision.Status)
+	if outcome.Decision.Status != rpc.Corroborated {
+		t.Fatalf("status = %v, want a corroborated successful call", outcome.Decision.Status)
 	}
-	if len(res.verdicts) != 2 {
-		t.Fatalf("verdicts = %+v, want one statement per source from the resolver itself", res.verdicts)
+	if len(outcome.Verdicts) != 2 {
+		t.Fatalf("verdicts = %+v, want one statement per source from the resolver itself", outcome.Verdicts)
 	}
-	for _, verdict := range res.verdicts {
+	for _, verdict := range outcome.Verdicts {
 		if verdict.Kind != rpc.VerdictSupported {
 			t.Fatalf("verdict for %s = %v", verdict.Source.ID, verdict.Kind)
 		}
@@ -72,15 +72,15 @@ func TestPlannedSamplingClassesNeverCorroborate(t *testing.T) {
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	for _, method := range []string{methods.MethodGasPrice, methods.MethodPeerCount} {
 		plan := planFor(t, method)
-		res := resolvePlannedInvocation(&plan, rpc.Request{Method: plan.Method}, snap, true, quantityObservations())
-		if res.err != nil {
-			t.Fatalf("%s: resolve: %v", method, res.err)
+		outcome, err := resolvePlannedInvocation(&plan, false, snap, true, quantityObservations())
+		if err != nil {
+			t.Fatalf("%s: resolve: %v", method, err)
 		}
-		if res.decision.Status != rpc.Selected {
-			t.Fatalf("%s: status = %v, want Selected", method, res.decision.Status)
+		if outcome.Decision.Status != rpc.Selected {
+			t.Fatalf("%s: status = %v, want Selected", method, outcome.Decision.Status)
 		}
-		if res.verdicts != nil {
-			t.Fatalf("%s: verdicts = %+v, want none: a sampling class does not state per-source verdicts", method, res.verdicts)
+		if outcome.Verdicts != nil {
+			t.Fatalf("%s: verdicts = %+v, want none: a sampling class does not state per-source verdicts", method, outcome.Verdicts)
 		}
 	}
 }

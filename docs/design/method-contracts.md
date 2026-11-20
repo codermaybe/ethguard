@@ -1,6 +1,6 @@
 # 方法合同
 
-状态：2026-11-17 文档基线。本文统一维护跨方法保证、裁定门槛、逐方法保护范围与独立交易规则。公开类型迁移已完成；已登记的接受域差异和证据缺口仍未关闭。
+状态：2026-11-20 已核对当前方法事实；接受域政策与外部证据缺口独立维护。本文统一维护跨方法保证、裁定门槛、逐方法保护范围与独立交易规则。公开类型迁移已完成；已登记的接受域差异和证据缺口仍未关闭。
 
 ## 1. 权威来源与职责
 
@@ -84,11 +84,11 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 
 | 事项 | 已知事实与处理边界 |
 | --- | --- |
-| FeeHistory | Normalize／Encode 已共享解析模型；官方精确 Number 与现行 ratio gate、返回 supported 子区间与请求 count 等长限制、optional 数组 presence 仍须分别裁决；reward 请求绑定保留 |
+| FeeHistory | 准入复用完整解析模型绑定 count，停止生成后丢弃 key；精确小写 reward 绑定与 struct alias 分开。官方精确 Number 与现行 ratio gate、supported 子区间与请求 count 等长限制、optional 数组 presence 仍须分别裁决 |
 | AccessList | 已消费生成的 AccessListItem／AccessListResult，方法适配仍强制 accessList 存在，并将 error／gasUsed 的 null 折合省略；保留基线别名、条目形态检查及错误顺序。适配成本单独实测，不因采用生成类型自动认定性能通过 |
 | 共享 Log | 内核保留手写 CanonicalLog 和完整字段校验；单遍尝试已恢复为基线的 Validate 与 EncodeOne 两段处理，以保留精确键准入、编码别名及错误优先级。生成 Log 的 optional／nullable 不同，后续替换仍需 query、receipt、订阅及 Pull 的等价证据 |
 | 本地观测 | local Provenance、无可尝试来源与 identity 错误优先级仍需逐模块复核，不将旧探针当现行缺陷证明 |
-| net_version | 生成十进制模型允许零；逐方法正值限制及 ChainID 关系须独立审查 |
+| net_version | 当前方法 Normalize／Encode／typed quantity 路径没有正值 gate；public plan 实测接受零、负值、加号、前导零，拒绝 hex 字符串。是否收紧至非负或正值须单独裁决；NetworkID 与 ChainID 不强制相等，不额外查询。生成十进制模型的接受域不能直接冒充此方法现行规则 |
 
 文档基线之后的实现与审计已推进上述事项，剩余差异继续由本合同和路线图维护。静态候选不等于已经复现的漏洞或已授权的新合同；实现切片通过也不代替跨模块与成本验收。
 

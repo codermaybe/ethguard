@@ -223,3 +223,99 @@ func TestBroadcastMaxConcurrentPacesWithoutShrinking(t *testing.T) {
 		}
 	}
 }
+
+// A cooldown-gated member of a caller-supplied broadcast basis keeps its
+// slot: the emission stays at the member's snapshot position with the
+// structured gate error and no attempt, the rest of the basis is contacted
+// in the same wave, and the gate never becomes a health observation. The
+// caller's snapshot order is the returned order, so a paused member cannot
+// shift the write denominator's shape.
+func TestBroadcastFixedBasisKeepsGatedMemberSlot(t *testing.T) {
+	cooling := rpctest.NewNode(1)
+	defer cooling.Close()
+	healthy := rpctest.NewNode(1)
+	defer healthy.Close()
+	healthy.Return("eth_sendRawTransaction", "0xabc")
+
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	defer p.Close()
+	gatedSrc, err := p.join("cooling", cooling.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveSrc, err := p.join("healthy", healthy.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range eligibleFailureThreshold {
+		gatedSrc.stats.observeFailure(errors.New("transport reset"))
+	}
+	if gatedSrc.requestable(time.Now()) {
+		t.Fatal("expected the cooldown circuit to open")
+	}
+	failuresBefore := gatedSrc.Health().Failures
+
+	emissions, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x01"},
+		WithBroadcastSources([]*Source{gatedSrc, liveSrc}))
+	if err != nil {
+		t.Fatalf("broadcast with a gated member must still deliver the healthy answer: %v", err)
+	}
+	if len(emissions) != 2 {
+		t.Fatalf("emissions = %d, want one slot per snapshot member", len(emissions))
+	}
+	if emissions[0].Src != gatedSrc || emissions[1].Src != liveSrc {
+		t.Fatalf("emission order = [%v, %v], want the snapshot order", emissions[0].Src.Name(), emissions[1].Src.Name())
+	}
+	gated := emissions[0]
+	if gated.Attempted || !errors.Is(gated.Err, ErrSourceGated) {
+		t.Fatalf("gated emission = %+v, want a structured pause with no attempt", gated)
+	}
+	var gate *SourceGateError
+	if !errors.As(gated.Err, &gate) || gate.Reason != GateReasonCooldown {
+		t.Fatalf("gate error = %v, want a cooldown gate diagnosis", gated.Err)
+	}
+	if emissions[1].Val == nil || !emissions[1].Attempted {
+		t.Fatalf("healthy member emission = %+v, want an attempted answer", emissions[1])
+	}
+	if got := gatedSrc.Health().Failures; got != failuresBefore {
+		t.Fatalf("gating changed health accounting: %d -> %d", failuresBefore, got)
+	}
+}
+
+// A member the caller captured and that has since closed stays visible in
+// the returned broadcast emissions as a failed slot, not silently dropped
+// from the write denominator: the snapshot basis cannot shrink after a
+// concurrent close. The live member is still contacted and its answer rides
+// alongside the closed member's ErrClosed emission.
+func TestBroadcastClosedMemberStaysVisibleInSnapshotBasis(t *testing.T) {
+	healthy := rpctest.NewNode(1)
+	defer healthy.Close()
+	healthy.Return("eth_sendRawTransaction", "0xabc")
+
+	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	defer p.Close()
+	doomed, err := p.join("doomed", "https://doomed.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveSrc, err := p.join("live", healthy.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	doomed.close()
+
+	emissions, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x01"},
+		WithBroadcastSources([]*Source{doomed, liveSrc}))
+	if err != nil {
+		t.Fatalf("closed member must not fail the wave while a live answer exists: %v", err)
+	}
+	if len(emissions) != 2 {
+		t.Fatalf("emissions = %d, want the closed member to keep its slot", len(emissions))
+	}
+	if emissions[0].Src != doomed || !errors.Is(emissions[0].Err, ErrClosed) || emissions[0].Attempted {
+		t.Fatalf("closed member emission = %+v, want ErrClosed with no attempt", emissions[0])
+	}
+	if emissions[1].Val == nil || !emissions[1].Attempted {
+		t.Fatalf("live member emission = %+v, want an attempted answer", emissions[1])
+	}
+}

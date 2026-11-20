@@ -55,10 +55,7 @@ func admitFeeHistory(_ context.Context, req rpc.Request, value json.RawMessage, 
 	if err := validateFeeHistoryRequest(req); err != nil {
 		return nil, fmt.Errorf("%w: %v", rpc.ErrInvalidRequest, err)
 	}
-	if _, err := normalizeFeeHistory(value); err != nil {
-		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
-	}
-	if err := validateFeeHistoryRange(req, value); err != nil {
+	if err := feehistory.ValidateForRequest(req, value); err != nil {
 		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
 	}
 	if err := validateFeeHistoryRewardWidth(req, value); err != nil {
@@ -110,10 +107,6 @@ func validateFeeHistoryRewardWidth(req rpc.Request, value json.RawMessage) error
 		}
 	}
 	return nil
-}
-
-func validateFeeHistoryRange(req rpc.Request, value json.RawMessage) error {
-	return feehistory.ValidateRange(req, value)
 }
 
 func validateFeeHistoryRequest(req rpc.Request) error {

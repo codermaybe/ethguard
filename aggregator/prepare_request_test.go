@@ -16,7 +16,7 @@ type mutateInputStage struct {
 	mutate func()
 }
 
-func (s *mutateInputStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
+func (s *mutateInputStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
 	s.mutate()
 	return s.scriptedStage.Establish(ctx, invocation, request)
 }

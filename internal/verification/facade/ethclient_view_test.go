@@ -231,6 +231,31 @@ func TestViewReceiptAbsenceMatchesNative(t *testing.T) {
 	}
 }
 
+// TestViewFailureDeliversSameConclusionToCallerAndCapture pins the failed
+// view read's dual delivery: the error the caller receives is the error the
+// capture published. The view's dropped CallResult never carries a different
+// conclusion than the one the caller saw.
+func TestViewFailureDeliversSameConclusionToCallerAndCapture(t *testing.T) {
+	client, nodes := fleet(t, 2)
+	nodes[0].Return(methods.MethodChainID, "0x1")
+	nodes[1].Return(methods.MethodChainID, "0x2") // no cluster reaches the floor
+	captureCtx, capture := ethguard.WithResult(context.Background())
+	ctx, cancel := context.WithTimeout(captureCtx, 5*time.Second)
+	defer cancel()
+
+	id, err := client.EthClient().ChainID(ctx)
+	if err == nil || id != nil || !errors.Is(err, ethguard.ErrConflict) {
+		t.Fatalf("failed view read = %v, %v", id, err)
+	}
+	published, ok, capErr := capture.Result()
+	if !ok || capErr != nil {
+		t.Fatalf("delivery = %v, %v", ok, capErr)
+	}
+	if published.Err == nil || !errors.Is(published.Err, ethguard.ErrConflict) || published.Err != err {
+		t.Fatalf("published conclusion = %v, caller conclusion = %v", published.Err, err)
+	}
+}
+
 // TestEthClientBusinessSignatures checks complete parameter and result types.
 // Migrated methods use explicit project-generated signatures; the locked geth
 // signatures remain the temporary contract only for unmigrated methods. The

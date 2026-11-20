@@ -8,17 +8,17 @@ import (
 
 // fixedPool builds a pool with construction-time membership. Tests that only
 // need a settled member set use this instead of mutating a live pool.
-func fixedPool(t *testing.T, members ...pool.Member) *pool.Pool {
-	t.Helper()
-	return fixedPoolWith(t, 0, nil, members...)
+func fixedPool(tb testing.TB, members ...pool.Member) *pool.Pool {
+	tb.Helper()
+	return fixedPoolWith(tb, 0, nil, members...)
 }
 
-func fixedPoolWith(t *testing.T, chainID uint64, opts []pool.PoolOption, members ...pool.Member) *pool.Pool {
-	t.Helper()
+func fixedPoolWith(tb testing.TB, chainID uint64, opts []pool.PoolOption, members ...pool.Member) *pool.Pool {
+	tb.Helper()
 	p, err := pool.NewWithMembers(chainID, members, opts...)
 	if err != nil {
-		t.Fatalf("NewWithMembers: %v", err)
+		tb.Fatalf("NewWithMembers: %v", err)
 	}
-	t.Cleanup(p.Close)
+	tb.Cleanup(p.Close)
 	return p
 }

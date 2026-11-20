@@ -181,6 +181,28 @@ func TestQuorumTwoSupportersCorroborate(t *testing.T) {
 	}
 }
 
+// TestStrictProvenanceStaysTheFirstSupporter'sOwnEvidence pins the
+// representative rule at the cluster seam: the winner's evidence is the first
+// supporter's own, and a later supporter's evidence is never substituted
+// when the first supporter has none.
+func TestStrictProvenanceStaysTheFirstSupporterOwnEvidence(t *testing.T) {
+	p := Strict(CanonicalJSON)
+	first, later := src(), src()
+	decision, err := p.Resolve([]Observation{
+		{Source: first, Value: json.RawMessage(`1`)},
+		{Source: later, Value: json.RawMessage(` 1 `), Evidence: json.RawMessage(`"later-evidence"`)},
+	})
+	if err != nil || decision.Status != Corroborated {
+		t.Fatalf("decision = %+v, %v, want a corroborated pair", decision.Status, err)
+	}
+	if decision.Representative != first {
+		t.Fatalf("representative = %+v, want the first supporter", decision.Representative)
+	}
+	if len(decision.Provenance) != 0 {
+		t.Fatalf("provenance = %s, want empty: a later supporter's evidence is never substituted", decision.Provenance)
+	}
+}
+
 func TestNormalizeFailureBecomesFault(t *testing.T) {
 	p := Strict(CanonicalJSON)
 	decision, err := p.Resolve([]Observation{

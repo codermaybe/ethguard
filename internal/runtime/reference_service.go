@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -124,26 +123,23 @@ func (s *StrictHeadService) ReferenceForTag(ctx context.Context, tag string) (rp
 
 // establish runs one stage round on a fresh invocation: the stage reads the
 // frozen basis's members and corroboration snapshot, exactly the inputs the
-// invocation path's business reads establish against.
+// invocation path's business reads establish against. The stage returns the
+// evidence the round formed beside its error, so a failed round's partial
+// evidence stays visible on the reference the caller sees.
 func (s *StrictHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
 	snap, _ := s.snapshot()
 	refs := s.stage.memberRefs()
-	// The facade establishment carries the same capture the invocation path
-	// does: a failed round's partial evidence stays visible on the reference
-	// the caller sees.
-	ctx, capture := refcontext.New(ctx)
-	completed, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
+	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
 	if err != nil {
-		if ref := capture.Reference(); ref != nil {
-			return *ref, err
+		if evidence == nil {
+			return rpc.ReferenceEvidence{}, err
 		}
-		return rpc.ReferenceEvidence{}, err
+		return *evidence, err
 	}
-	ref, ok := completed.Reference()
-	if !ok {
+	if evidence == nil {
 		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: establishment completed without evidence: %w", rpc.ErrReferenceRequired)
 	}
-	return ref, nil
+	return *evidence, nil
 }
 
 // FinalizedHeadService establishes a common reference from provider-reported
@@ -182,19 +178,17 @@ func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.Reference
 	// documented lag bound: the stage's own configuration.
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	refs := s.stage.memberRefs()
-	ctx, capture := refcontext.New(ctx)
-	completed, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
+	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
 	if err != nil {
-		if ref := capture.Reference(); ref != nil {
-			return *ref, err
+		if evidence == nil {
+			return rpc.ReferenceEvidence{}, err
 		}
-		return rpc.ReferenceEvidence{}, err
+		return *evidence, err
 	}
-	ref, ok := completed.Reference()
-	if !ok {
+	if evidence == nil {
 		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: establishment completed without evidence: %w", rpc.ErrReferenceRequired)
 	}
-	return ref, nil
+	return *evidence, nil
 }
 
 // facadeInvocation freezes one facade establishment's basis: the pool's

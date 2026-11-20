@@ -202,13 +202,5 @@ func normalizeLogs(value json.RawMessage) (string, error) {
 // decoder.  The decoder assigns zero values to omitted fields, which would
 // allow an incomplete response to become a valid vote.
 func validateLogsResponse(req rpc.Request, value json.RawMessage) error {
-	trimmed := bytes.TrimSpace(value)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return fmt.Errorf("logs: expected an array")
-	}
-	var rows []json.RawMessage
-	if err := json.Unmarshal(trimmed, &rows); err != nil || rows == nil {
-		return fmt.Errorf("logs: expected an array")
-	}
 	return logobject.ValidateResponse(req, value)
 }

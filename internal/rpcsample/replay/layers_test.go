@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/runtime"
@@ -369,7 +368,7 @@ type replayStage struct {
 	reference func(ctx context.Context, tag string) (rpc.ReferenceEvidence, error)
 }
 
-func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
+func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
 	tag := ""
 	switch request.Kind {
 	case rpc.ReferenceSafe:
@@ -379,9 +378,14 @@ func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, r
 	}
 	ref, err := s.reference(ctx, tag)
 	if err != nil {
-		return invocation, err
+		// The evidence the resolver formed travels beside the error, exactly
+		// what the establishment contract hands the coordinator.
+		return &ref, err
 	}
-	return invocation.WithReference(ref)
+	if ref.Status != rpc.Corroborated {
+		return &ref, fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
+	}
+	return &ref, nil
 }
 
 // newSharedReplayAggregator builds one pool-backed reference resolver and
@@ -424,7 +428,6 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobo
 			ref, err = strictHead.AnchorReference(ctx)
 		}
 		ref.Tag = tag
-		refcontext.Publish(ctx, ref)
 		if err != nil {
 			return ref, err
 		}

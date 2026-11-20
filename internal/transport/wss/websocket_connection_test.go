@@ -23,12 +23,12 @@ import (
 
 // serverFrames speaks owned frames from the hijacked server side.
 type serverFrames struct {
-	t    *testing.T
+	t    testing.TB
 	conn net.Conn
 	br   *bufio.Reader
 }
 
-func newServerFrames(t *testing.T, conn net.Conn, rw *bufio.ReadWriter) *serverFrames {
+func newServerFrames(t testing.TB, conn net.Conn, rw *bufio.ReadWriter) *serverFrames {
 	t.Helper()
 	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
 		t.Errorf("set server read deadline: %v", err)
@@ -87,9 +87,9 @@ func (s *serverFrames) expectSilence(d time.Duration) {
 
 // startFrameServer upgrades every connection and runs one script per
 // connection, inline.
-func startFrameServer(t *testing.T, script func(t *testing.T, frames *serverFrames)) *httptest.Server {
+func startFrameServer(t testing.TB, script func(t testing.TB, frames *serverFrames)) *httptest.Server {
 	t.Helper()
-	return startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	return startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		writeUpgradeAccept(t, rw, r)
 		script(t, newServerFrames(t, conn, rw))
 	})
@@ -107,7 +107,7 @@ func dialTestConn(t *testing.T, url string, limit int64) *Conn {
 }
 
 func TestConnectionDeliversTextAndAnswersPing(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		frames.write(true, opPing, []byte("probe"))
 		frames.write(true, opText, []byte("hello"))
 		pong := frames.readFrame()
@@ -126,7 +126,7 @@ func TestConnectionDeliversTextAndAnswersPing(t *testing.T) {
 }
 
 func TestConnectionIgnoresUnsolicitedPongs(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		frames.write(true, opPong, []byte("whatever"))
 		frames.write(true, opText, []byte("hello"))
 	})
@@ -162,7 +162,7 @@ func TestConnectionEchoesCloseFrames(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+			srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 				frames.write(true, opClose, tc.payload)
 				echo := frames.readFrame()
 				if echo.opcode != opClose {
@@ -194,7 +194,7 @@ func TestConnectionEchoesCloseFrames(t *testing.T) {
 }
 
 func TestConnectionProtocolViolationAnswersClose1002(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		frames.writeRaw([]byte{0x83, 0x00}) // undefined opcode
 		echo := frames.readFrame()
 		parsed, err := parseCloseFrame(echo.payload)
@@ -213,7 +213,7 @@ func TestConnectionProtocolViolationAnswersClose1002(t *testing.T) {
 // A broken stream stays broken: the connection's reader is sticky, so a
 // caller that ignores the first error cannot misparse what follows.
 func TestConnectionReadFailureIsSticky(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		frames.writeRaw([]byte{0x83, 0x00}) // undefined opcode
 		frames.write(true, opText, []byte("decoy"))
 	})
@@ -231,7 +231,7 @@ func TestConnectionReadFailureIsSticky(t *testing.T) {
 // connection layer too: the second read returns the same violation instead
 // of the decoy frame that follows on the wire.
 func TestConnectionMessageLevelViolationIsSticky(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		// A text message whose payload is not valid UTF-8, then a valid
 		// frame a non-sticky reader would deliver on the second call.
 		frames.write(true, opText, []byte{0xFF, 0xFE})
@@ -252,7 +252,7 @@ func TestConnectionMessageLevelViolationIsSticky(t *testing.T) {
 // The protocol close reply leaves the wire at most once per connection, no
 // matter how often the caller reads after the first failure.
 func TestConnectionSendsAtMostOneCloseReply(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		frames.write(true, opText, []byte{0xFF, 0xFE}) // invalid UTF-8 message
 		echo := frames.readFrame()
 		parsed, err := parseCloseFrame(echo.payload)
@@ -272,7 +272,7 @@ func TestConnectionSendsAtMostOneCloseReply(t *testing.T) {
 }
 
 func TestConnectionCloseWithInvalidReasonAnswersClose1007(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		// Close code 1000 followed by a reason byte that is not UTF-8.
 		frames.writeRaw([]byte{0x88, 0x03, 0x03, 0xE8, 0xFF})
 		echo := frames.readFrame()
@@ -290,7 +290,7 @@ func TestConnectionCloseWithInvalidReasonAnswersClose1007(t *testing.T) {
 }
 
 func TestConnectionReadLimitAbortsOnOversizedFrame(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		frames.write(true, opText, make([]byte, 1000))
 		// A read-limit breach aborts without a close frame: the stream can
 		// never be resynchronized, so no close handshake is attempted.
@@ -303,7 +303,7 @@ func TestConnectionReadLimitAbortsOnOversizedFrame(t *testing.T) {
 }
 
 func TestConnectionAssemblesFragmentedMessage(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		frames.write(false, opText, []byte("frag"))
 		frames.write(false, opContinuation, []byte("ment"))
 		frames.write(true, opContinuation, []byte("ed"))
@@ -319,7 +319,7 @@ func TestConnectionAssemblesFragmentedMessage(t *testing.T) {
 }
 
 func TestConnectionHandshakeBufferedBytesCarryOver(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		// The 101 response and the first data frame leave in ONE write: the
 		// frame bytes land in the handshake reader's buffer, and the frame
 		// reader must consume them from there.
@@ -346,7 +346,7 @@ func TestConnectionHandshakeBufferedBytesCarryOver(t *testing.T) {
 }
 
 func TestConnectionWriteFailsAfterPeerClose(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		writeUpgradeAccept(t, rw, r)
 		_ = conn.Close()
 	})
@@ -371,7 +371,7 @@ func TestConnectionWriteDeadlineBoundsAndClears(t *testing.T) {
 	// frames until a write does not complete inside its context, and requires
 	// that first blocked write to fail with a deadline error, not a hang.
 	stall := make(chan struct{})
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		writeUpgradeAccept(t, rw, r)
 		<-stall
 	})
@@ -409,7 +409,7 @@ func TestConnectionWriteDeadlineBoundsAndClears(t *testing.T) {
 }
 
 func TestConnectionWriteSkipsBytesWhenContextCanceled(t *testing.T) {
-	srv := startFrameServer(t, func(t *testing.T, frames *serverFrames) {
+	srv := startFrameServer(t, func(t testing.TB, frames *serverFrames) {
 		frames.expectSilence(300 * time.Millisecond)
 	})
 	conn := dialTestConn(t, wsURL(srv), 1<<20)

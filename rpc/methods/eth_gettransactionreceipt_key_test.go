@@ -9,12 +9,10 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// The second pass over the comparison key used to fold hex a second time.
-// PruneMethod has already done it, and CanonicalizeHex only lowercases, so
-// folding an already-folded key is a fixed point. This pins both halves of
-// that argument: the key PruneMethod returns is already canonical hex, and
-// folding it again reproduces it byte for byte. If the mask or the folder ever
-// stops canonicalizing, this test is what notices.
+// PruneMethod owns the comparison key's hex folding and JSON encoding.
+// Refolding hex or round-tripping the key through map[string]RawMessage must
+// preserve its bytes, including numbers and escapes. The literals below also
+// keep the comparison shape gate separate from full receipt admission.
 func TestPrunedReceiptKeyIsAlreadyCanonical(t *testing.T) {
 	// Uppercase hex at the top level, inside a nested log, and as a topic, so
 	// the claim covers nested objects and arrays, not just the top object.
@@ -67,16 +65,72 @@ func TestPrunedReceiptKeyIsAlreadyCanonical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var gotObj map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(got), &gotObj); err != nil {
-		t.Fatal(err)
+	if string(want) != pruned {
+		t.Fatalf("pruned key is not a JSON fixed point\nwant %s\ngot  %s", pruned, want)
 	}
-	gotSorted, err := json.Marshal(gotObj)
-	if err != nil {
-		t.Fatal(err)
+	if got != pruned {
+		t.Fatalf("key is not the pruned key\nwant %s\ngot  %s", pruned, got)
 	}
-	if string(gotSorted) != string(want) {
-		t.Fatalf("key is not the pruned key\nwant %s\ngot  %s", want, gotSorted)
+
+	cases := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr string
+	}{
+		{name: "null", raw: "null", want: "null"},
+		{name: "spaced null", raw: " \n null\t", want: "null"},
+		{name: "empty input", wantErr: "receipt: incomplete object"},
+		{name: "empty object", raw: `{}`, wantErr: "receipt: incomplete object"},
+		{name: "array", raw: `[]`, wantErr: "receipt: incomplete object"},
+		{name: "string", raw: `"receipt"`, wantErr: "receipt: incomplete object"},
+		{name: "number", raw: `1`, wantErr: "receipt: incomplete object"},
+		{name: "boolean", raw: `true`, wantErr: "receipt: incomplete object"},
+		{name: "malformed JSON", raw: `{"status":`, wantErr: "receipt: incomplete object"},
+		{name: "trailing value", raw: `{"status":"0x1","logs":[]} null`, wantErr: "receipt: incomplete object"},
+		{name: "single official field", raw: `{"status":"0x1"}`, wantErr: "receipt: incomplete object"},
+		{name: "single vendor field", raw: `{"vendor":true}`, wantErr: "receipt: incomplete object"},
+		{name: "duplicate is still one field", raw: `{"status":"0x1","status":"0x2"}`, wantErr: "receipt: incomplete object"},
+		{name: "all fields masked", raw: `{"vendorA":1,"vendorB":2}`, want: `{}`},
+		{name: "one retained field", raw: `{"vendor":true,"status":"0X01"}`, want: `{"status":"0x01"}`},
+		{name: "retained nulls", raw: `{"status":null,"logs":null}`, want: `{"logs":null,"status":null}`},
+		{name: "duplicate retained field", raw: `{"status":"0x1","logs":[],"status":"0X02"}`, want: `{"logs":[],"status":"0x02"}`},
+		{name: "large integer", raw: `{"gasUsed":900719925474099312345678901234567890,"logs":[]}`, want: `{"gasUsed":900719925474099312345678901234567890,"logs":[]}`},
+		{name: "number spellings", raw: `{"gasUsed":1.2300E+09,"status":-0,"transactionIndex":1e+9999}`, want: `{"gasUsed":1.2300E+09,"status":-0,"transactionIndex":1e+9999}`},
+		{name: "nested logs and escapes", raw: `{"\u0073tatus":"0XAB","logs":[{"topics":["0XCD","0X00"],"address":"0XAB","data":"<>&\u2028\u2029","vendor":true},{"data":"\"\\\n","topics":[]}],"vendor":true}`, want: `{"logs":[{"address":"0xab","data":"\u003c\u003e\u0026\u2028\u2029","topics":["0xcd","0x00"]},{"data":"\"\\\n","topics":[]}],"status":"0xab"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := json.RawMessage(tc.raw)
+			got, err := normalizeReceiptObject(input)
+			if string(input) != tc.raw {
+				t.Fatal("normalization changed the input")
+			}
+			if tc.wantErr != "" {
+				if got != "" || err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("key = %q, error = %v; want empty key and %q", got, err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("key = %s, error = %v; want %s", got, err, tc.want)
+			}
+			if got == "null" {
+				return
+			}
+			pruned, err := wire.PruneMethod(MethodGetTransactionReceipt, input)
+			if err != nil || pruned != tc.want {
+				t.Fatalf("pruned key = %s, error = %v; want %s", pruned, err, tc.want)
+			}
+			var obj map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(pruned), &obj); err != nil {
+				t.Fatal(err)
+			}
+			roundTrip, err := json.Marshal(obj)
+			if err != nil || string(roundTrip) != pruned {
+				t.Fatalf("pruned key changed on JSON round-trip: %s -> %s, %v", pruned, roundTrip, err)
+			}
+		})
 	}
 }
 

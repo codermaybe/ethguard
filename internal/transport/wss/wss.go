@@ -613,7 +613,13 @@ func (t *Transport) readLoop() {
 		delete(t.pending, id)
 		t.mu.Unlock()
 		if waiter != nil {
-			waiter <- frameResult{frame: append(json.RawMessage(nil), message...)}
+			// The frame codec assembled this message into a fresh buffer that
+			// nobody else holds: the envelope's id is consumed before the
+			// handover, notifications decode into their own copies, and the
+			// pending entry was deleted above so this is the only delivery.
+			// Ownership transfers to the waiter, which reads the frame once
+			// inside rpcwire.CompleteCall.
+			waiter <- frameResult{frame: message}
 			t.finishCloseAfterPending()
 		}
 	}

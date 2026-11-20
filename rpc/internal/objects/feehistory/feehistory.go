@@ -166,6 +166,18 @@ func canonicalRatio(value json.RawMessage) (string, error) {
 	return string(number), nil
 }
 
+// ValidateForRequest checks the complete response before binding its validated
+// gasUsedRatio length to the requested count. It shares Normalize's object
+// validation without rendering an unused comparison key. Exact reward-key
+// binding remains the method's responsibility.
+func ValidateForRequest(req rpc.Request, value json.RawMessage) error {
+	model, err := parseFeeHistory(value)
+	if err != nil {
+		return fmt.Errorf("feeHistory: %w", err)
+	}
+	return validateBlockCount(req.Params, len(model.gas))
+}
+
 // ValidateRange binds a fee-history response to the requested block count.
 func ValidateRange(req rpc.Request, value json.RawMessage) error {
 	count, err := requestCount(req.Params)
@@ -181,8 +193,8 @@ func ValidateRange(req rpc.Request, value json.RawMessage) error {
 	if err := json.Unmarshal(value, &response); err != nil {
 		return fmt.Errorf("malformed response")
 	}
-	if uint64(len(response.Gas)) != count {
-		return fmt.Errorf("gasUsedRatio length %d does not match requested block count %d", len(response.Gas), count)
+	if err := compareBlockCount(len(response.Gas), count); err != nil {
+		return err
 	}
 	if response.BaseBlob != nil && len(response.BaseBlob) != len(response.Gas)+1 {
 		return fmt.Errorf("baseFeePerBlobGas length %d does not match gasUsedRatio length %d", len(response.BaseBlob), len(response.Gas))
@@ -192,6 +204,21 @@ func ValidateRange(req rpc.Request, value json.RawMessage) error {
 	}
 	if _, err := ethcodec.NormalizeWireQuantity(response.Oldest); err != nil {
 		return fmt.Errorf("oldestBlock: %w", err)
+	}
+	return nil
+}
+
+func validateBlockCount(params []any, gasLength int) error {
+	count, err := requestCount(params)
+	if err != nil || count == 0 {
+		return fmt.Errorf("invalid block count")
+	}
+	return compareBlockCount(gasLength, count)
+}
+
+func compareBlockCount(gasLength int, count uint64) error {
+	if uint64(gasLength) != count {
+		return fmt.Errorf("gasUsedRatio length %d does not match requested block count %d", gasLength, count)
 	}
 	return nil
 }

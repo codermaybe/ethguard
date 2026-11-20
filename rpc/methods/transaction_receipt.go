@@ -68,14 +68,5 @@ func processReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _
 }
 
 func normalizeReceiptObject(value json.RawMessage) (string, error) {
-	key, err := receiptobject.Normalize(value, wire.PruneMethod, MethodGetTransactionReceipt)
-	if err != nil || key == "null" {
-		return key, err
-	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(key), &obj); err != nil {
-		return "", err
-	}
-	encoded, err := json.Marshal(obj)
-	return string(encoded), err
+	return receiptobject.Normalize(value, wire.PruneMethod, MethodGetTransactionReceipt)
 }

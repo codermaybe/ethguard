@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
@@ -115,19 +114,6 @@ func (a *Aggregator) corroboration() (rpc.Corroboration, bool) {
 	return a.corrob.Snapshot(), true
 }
 
-// resolve applies the invocation's frozen corroboration snapshot when the
-// policy supports it; policies without the capability resolve with their
-// construction-time configuration.
-// invocationResolution is one resolution's complete statement: the decision
-// plus, when the policy stated them, every source's verdict. Nil verdicts
-// mean the policy cannot speak per-source outcomes, and classification falls
-// back to the policy's own validity contract.
-type invocationResolution struct {
-	decision rpc.Decision
-	verdicts []rpc.SourceVerdict
-	err      error
-}
-
 // Aggregate collects one request and resolves it according to its policy.
 //
 // The returned error reports why no classified decision was reached.
@@ -158,18 +144,15 @@ func (a *Aggregator) AggregateStrict(ctx context.Context, req rpc.Request) (rpc.
 
 func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorroboration bool) (rpc.Decision, error) {
 	started := time.Now()
-	// Material collection is opt-in: a per-call collector already installed
-	// by the public entry wins; otherwise the context's evidence
-	// configuration creates this call's collector. Without either, no
-	// material is recorded and no business path changes.
+	// Material collection rides the context's per-call collector, installed
+	// by the operation entry that owns and later snapshots it. Aggregate
+	// never creates a collector: one built here lives on a context that
+	// never escapes the invocation, so its records would have no consumer —
+	// an entry that declines collection (for example a view call without a
+	// bound capture) therefore also declines recording here, and a direct
+	// caller that wants material installs its own collector. Without a
+	// collector no material is recorded and no business path changes.
 	collector := uncertain.CollectorFromContext(ctx)
-	if collector == nil {
-		if cfg, ok := uncertain.ConfigFromContext(ctx); ok {
-			collector = uncertain.NewCollector(cfg)
-			ctx = uncertain.WithCollector(ctx, collector)
-		}
-	}
-	ctx, capture := refcontext.New(ctx)
 	// The corroboration mode and support floor are frozen here, before
 	// preparation and any request: a concurrent Set only reaches
 	// invocations that start later (decision 0025).
@@ -187,7 +170,6 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 		plan:      &plan,
 		snap:      snap,
 		snapOK:    snapOK,
-		capture:   capture,
 		collector: collector,
 	}
 	state.invocation = beginInvocation(snap, snapOK, members, collector, requireCorroboration)
@@ -202,7 +184,7 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 		return exit.decision, exit.err
 	}
 	decision, resolveErr := state.resolveValue()
-	return a.projectPhase(state, started, req, decision, resolveErr)
+	return a.projectPhase(state, started, decision, resolveErr)
 }
 
 // unknownDecision builds the shared shape of the two degraded early-return

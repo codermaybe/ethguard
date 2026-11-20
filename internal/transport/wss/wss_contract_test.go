@@ -25,16 +25,16 @@ import (
 // from the server side. The handler owns the response script; requests are
 // delivered in wire order.
 type scriptedPeer struct {
-	t        *testing.T
+	t        testing.TB
 	conn     net.Conn
 	frames   *serverFrames
 	requests <-chan []byte
 }
 
-func newScriptedPeer(t *testing.T, serve func(peer *scriptedPeer)) string {
+func newScriptedPeer(t testing.TB, serve func(peer *scriptedPeer)) string {
 	t.Helper()
 	requests := make(chan []byte, 32)
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		writeUpgradeAccept(t, rw, r)
 		frames := &serverFrames{t: t, conn: conn, br: rw.Reader}
 		go func() {
@@ -87,7 +87,7 @@ func (t *Transport) pendingCount() int {
 	return len(t.pending)
 }
 
-func dialTestTransport(t *testing.T, url string, limit int64) *Transport {
+func dialTestTransport(t testing.TB, url string, limit int64) *Transport {
 	t.Helper()
 	transportValue, err := Dialer{ReadLimit: limit}.DialContext(context.Background(), url)
 	if err != nil {
@@ -407,4 +407,88 @@ func TestPoolCollectOverWSSAdapter(t *testing.T) {
 	if string(emissions[0].Val) != `"0x64"` {
 		t.Fatalf("emission value = %s, want the raw result", emissions[0].Val)
 	}
+}
+
+// A response frame whose request ID no pending call waits for — an ID the
+// transport never issued, or a duplicate reply for an already-completed call
+// — is dropped by the demultiplexer: it must not surface as a call result,
+// must not be rerouted into a notification stream, and must leave the
+// connection usable for the next real call. The single read loop processes
+// frames in wire order, so once the following real call has completed, the
+// ignored frame has already been dispatched.
+func TestUnknownResponseIDIsIgnoredAndConnectionStaysUsable(t *testing.T) {
+	t.Run("never-issued id", func(t *testing.T) {
+		// The peer holds the connection open until the test releases it:
+		// a serve function that returns mid-assertion closes the socket, and
+		// the read loop's abort then terminates the stream — the documented
+		// disconnect behavior, not a response-frame misroute.
+		releasePeer := make(chan struct{})
+		defer close(releasePeer)
+		peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+			// Push a response for an ID the transport never registered,
+			// before any call exists.
+			peer.writeFrame([]byte(`{"jsonrpc":"2.0","id":4242,"result":"0xstray"}`))
+			peer.respond(<-peer.requests, `"0x01"`)
+			select {
+			case <-peer.requests:
+			case <-releasePeer:
+			}
+		})
+		tr := dialTestTransport(t, peerURL, 0)
+		stream, err := tr.OpenNotificationStream(context.Background(), "src", 1, 8)
+		if err != nil {
+			t.Fatalf("open stream: %v", err)
+		}
+		defer stream.Unsubscribe()
+
+		var raw json.RawMessage
+		if err := tr.CallContext(context.Background(), &raw, "eth_blockNumber"); err != nil {
+			t.Fatalf("call after stray response: %v", err)
+		}
+		if string(raw) != `"0x01"` {
+			t.Fatalf("result = %s, want the real call's answer", raw)
+		}
+		if pending := tr.pendingCount(); pending != 0 {
+			t.Fatalf("pending = %d, want 0", pending)
+		}
+		select {
+		case notification := <-stream.Events():
+			t.Fatalf("a response frame leaked into the notification stream: %+v", notification)
+		default:
+		}
+	})
+
+	t.Run("duplicate reply for a completed call", func(t *testing.T) {
+		releasePeer := make(chan struct{})
+		defer close(releasePeer)
+		peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+			first := <-peer.requests
+			peer.respond(first, `"first"`)
+			// Re-send the same ID's answer after the call already consumed it.
+			peer.respond(first, `"duplicate"`)
+			peer.respond(<-peer.requests, `"second"`)
+			select {
+			case <-peer.requests:
+			case <-releasePeer:
+			}
+		})
+		tr := dialTestTransport(t, peerURL, 0)
+		var first json.RawMessage
+		if err := tr.CallContext(context.Background(), &first, "eth_test"); err != nil {
+			t.Fatalf("first call: %v", err)
+		}
+		if string(first) != `"first"` {
+			t.Fatalf("first result = %s", first)
+		}
+		var second json.RawMessage
+		if err := tr.CallContext(context.Background(), &second, "eth_test"); err != nil {
+			t.Fatalf("call after duplicate reply: %v", err)
+		}
+		if string(second) != `"second"` {
+			t.Fatalf("second result = %s, want the second call's own answer", second)
+		}
+		if pending := tr.pendingCount(); pending != 0 {
+			t.Fatalf("pending = %d, want 0", pending)
+		}
+	})
 }

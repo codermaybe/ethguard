@@ -47,7 +47,7 @@ latest／safe 使用 strict head；有 corroboration snapshot 时采用业务 St
 | 单位与默认值 | 块数／时间／组合、chain／方法差异及默认 lag 的依据；与容量控制分开 |
 | finalized 配置组合 | runtime 当前 finalized service 使用 majority／floor=2；单源／Forwarded 等组合须通过公开路径裁决与验证，不能宣称所有 preset 等价 |
 | 自定义 reader 身份 | Confirm 的陌生成员身份处理属于 seam hardening 候选；普通冻结 reader 未证实可达，不登记为生产漏洞 |
-| 证据交付 | 当前失败 reference 通过 refcontext 保留部分证据；是否改为显式结果需证明维护收益并保留失败材料 |
+| 证据交付 | C 模块已改为 `ReferenceStage.Establish` 显式返回 `(*rpc.ReferenceEvidence, error)`，coordinator 保留部分失败证据并统一交付；`internal/refcontext` 已删除 |
 
 `pool/freshness_scope_test.go` 保存 gate 范围、24h 旧样本和不完整覆盖的现状基线；经裁决修复时应调整现状断言，不能让它们否决新合同。其他入口包括 TestTipTrackingQuarantinesLaggingSource、TestCollectVotingKeepsCoolingMemberInBasis、TestFinalizedAnchoringIsolatesStaleReporter 和 TestBroadcastTrailingSourceStillContacted。
 

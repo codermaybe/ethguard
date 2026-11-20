@@ -2,16 +2,16 @@
 
 本文可直接用于重启对话：说明当前基线、下一步、执行顺序和未完成事项，不依赖旧聊天、`docs/tmp/`或`/tmp`材料。具体业务合同由末尾链接的正式文档维护。
 
-**后续顺序：沿整体数据管线从前向后，先完善公共前置与基础流程，再逐个方法精调行为和性能。** 不按零散发现随意切换模块，不同时启动多个改造方向。
+**当前顺序：公共数据管线 A-G 与 27 个注册 read 方法精调已全部验收；下一会话先盘点这 27 个 read spec 之外的方法与能力，再选定一个具体任务制定计划。** 不重开已冻结的公共 Interface，不同时启动多个改造方向。
 
 ## 1. 当前基线
 
-- 最新实现保存于`8e0e77a`：AccessList复用已解析字段和生成标量构造器，直接使用生成结果的marshaler；共享codec增加有界短ASCII字符串快路及独立测试。本文随后另存文档提交；新会话先用`git log`和`git status`核对实际HEAD与工作树，不覆盖用户已有改动。
+- 2026-11-20 已完成 A-G 与本轮 27 个 read 方法的代码验收，本轮父基线为 `943133e`。新会话先用 `git log`、`git status` 和未提交差异核对实际实现提交与工作树，不覆盖已有改动。此前 `8e0e77a` 的 AccessList 字段/生成类型复用和 codec 字符串优化保持。
 - 项目仍固定Go **1.26.10**。Go1.27.3只做过隔离评估，未改`go.mod`、生产JSON import、生成器或生成资产。**Go1.27暂不引入**，后续整体评估，收益不计入现有实现优化。
 - 现行设计文档系列、公开`ethapi`类型迁移和首轮逐模块整理已完成。目标仍为固定go-ethereum v1.17.10的47项目标方法名称集合，已有27个注册读RPC以及独立写入、订阅和派生能力；这些数量不代表完整兼容。
-- aggregator、resolver、pool、transport、runtime及facade的首轮等价整理和审计修复已保存，但不代表整条管线或全部方法已完成设计优化。
+- A-G 公共管线已验收：准备事实冻结、显式 reference evidence、来源槽位与传输所有权、Outcome 裁定、双 facade 交付/观测均已核对；frozen params transport 仍等待端到端瓶颈证据，exported ReferenceStage 的兼容风险留待发布说明。
 - 两个交易查询与单收据strict canonical路径已接入。receipt复用已校验canonical字节；AccessList仍使用现有方法规则和生成模型，不以新增processor数量衡量完成度。
-- FeeHistory已共享解析函数，但各阶段尚未复用同一解析结果。共享Log的单遍尝试已撤回，恢复基线的Validate与EncodeOne两段处理，以保留准入、别名和错误优先级。
+- FeeHistory 准入已复用完整解析模型的 count 事实，删除生成后丢弃的比较键和独立 range 重解析；精确小写 reward 绑定仍独立。各阶段没有通用跨调用模型。共享 Log 继续保留 Validate 与 EncodeOne 两段处理，仅去掉方法包装器重复的顶层数组解析。receipt raw 比较键去掉无业务变换的 JSON 往返；默认 canonical processor 不变。
 
 ### 已知成本与验证边界
 
@@ -30,7 +30,7 @@
 
 临时日志可以缺失；根据以上基准、测试和Git历史重新验证即可，不能因临时文件不存在阻塞接续。
 
-## 2. 阶段一：先完善公共数据管线（下一步）
+## 2. 阶段一：公共数据管线已验收
 
 管线概览：调用输入 → 请求准备／冻结 → 执行计划与reference → 来源调度／采集 → 逐源处理 → 聚类／裁定 → typed结果、证据与最终记账。
 
@@ -43,27 +43,41 @@
 | P3 | 来源选择、调度、采集与原始响应交接 | 区分未尝试、gated、传输失败与返回值；固定成员分母；原文保真，重复信封处理／数据转换有明确理由 |
 | P4 | 逐源结果到裁定、交付与最终记账 | 复用已验证表示；梳理canonical构造、getter、分簇、排名、commit间的复制；内部只读消费与对外独立副本分清；fault、健康、证据和清理各有唯一完成责任 |
 
-**新会话从P1开始。** 先读`execution.go`的`operation`、`internal/runtime/{runtime,composition}.go`、`rpc/read_plan.go`及`aggregator/{aggregator,phases,invocation}.go`，按实际数据流进入pool／transport，再进入rpc结果消费。仅阅读当前段涉及的正式合同，不重新执行已完成的全系列文档整理或公开类型迁移。
+**新会话不再从 P1 重做。** 本表保留已验收的责任合同。需要修改时，先核对当前工作树和对应正式合同，再为具体方法或独立专题制定计划；不重新执行公共 Interface 收敛、全系列文档整理或公开类型迁移。
 
 阶段一不要求新建通用框架、大型处理结果对象或公开API；已有ReadPlan、CanonicalResult等表示优先沿用。发现相似代码先核实是否重复做同一工作，不以helper合并或源码行数减少代替收益。可以选择方法作为管线验证样本，但不提前展开该方法的全面精调。
 
-阶段一完成后，公共流向、数据交接和生命周期应清楚稳定，并有真实调用链下的正确性和成本证据；再进入阶段二。
+阶段一已完成，公共流向、数据交接和生命周期已由反例、全局测试/race及相关 benchmark 核对。本结论不将冻参 transport 延期项或外部兼容风险自动关闭。
 
-## 3. 阶段二：逐个方法精调行为和性能
+## 3. 阶段二：本轮 27 个 read 方法精调已验收
 
-公共管线齐备后制定一份有顺序的方法清单，一次收口一个方法或紧密关联的方法族，再进入下一项。每项先明确现行行为与需要裁决的差异，再精调实现；保留独立正反例及对象／真实聚合两层测量。
+本轮范围是当前 27 个注册 read spec，逐个建立输入/输出域、请求关系、依赖查询、错误阶段、主值/附属证据和处理次数，再由执行模型书面交付、规划模型验收。保留现状的方法也分别记录理由。以下表格区分本轮已核对的实现与仍需独立裁决的政策；不把 read 精调等同完整模拟语义、写入/订阅专题或真实 provider 兼容。
 
-| 方法方向 | 尚需处理 |
+| 方法方向 | 本轮结论与独立未决项 |
 | --- | --- |
-| 标量与本地观测 | 逐入口参数、结果、错误及Selected上限；net_version零值与正值限制、local Provenance／无可尝试来源／identity优先级核实 |
-| FeeHistory | 让准入、请求count／reward绑定和编码消费准备结果；停止生成后丢弃比较键；精确Number／ratio gate、supported子区间及optional presence分别裁决 |
-| AccessList | 保持已完成去重，继续评估生成模型构造与序列化成本；官方顶层可选与现行必需、null折合是方法差异，不暗改接受域 |
-| Log／Receipt | 区分精确键准入和编码别名语义，保持绑定及错误顺序；query、receipt、typed订阅和Pull都要验证；不恢复已证不等价的单遍实现 |
-| Transaction／Block／Header | 复核剩余内部视图、对象准备及转换；保留私有geth的签名、hash、bloom、trie／body／uncle承诺检查，不重做已完成的公开类型迁移 |
-| CallRevert／Median／Local／SimulateV1 | 各自裁定与错误presence、请求关系及typed投影；不套统一Strict成功公式；Simulate的完整模拟语义及provider观察仍未完成 |
-| 写入／订阅 | 冻结字节、来源尝试、未知结果、轮询／同源Pull／恢复与资源清理；保持现有合同，未决政策移至阶段三明确处理 |
+| 标量与本地观测 | 默认 strict canonical-bytes 每成功源一次 Encode（内部 normalize），比较/提交复用字节；by-hash count 保留 normalizer-key 与 null；Median/CallRevert 仍各有两次规范处理及不同错误阶段；Local 保留首合法来源、空 provenance/零 representative、选中源编码失败不改选。net_version 实测接受零、负值、加号和前导零；当前无正值 gate，是否收紧及与 ChainID 的关系另行裁决 |
+| FeeHistory | 准入整对象解析 3→2，丢弃 key 构造 1→0，count 复用模型；精确 reward 与 struct alias 不合并。Number/ratio、supported 子区间、optional presence 政策仍独立 |
+| AccessList | 现有生成类型/字段复用及错误顺序保留，未创建第二套 prepared 模型。顶层必需/null 折合是现行方法规则，未静默放宽 |
+| Log／Receipt | logs 包装器顶层解析 2→1；receipt raw Normalize 额外 key decode/encode 各1→0。共享 log exact-key 准入与编码 alias 双遍保持，查询、receipt、typed订阅和同源 Pull 反例通过；默认 receipt processor 继续复用已校验字节 |
+| Transaction／Block／Header | 两个交易 Candidate 单次准备及各自 pending/mined 域保留；block 生产按完整 canonical bytes 聚类，独立 Normalize/reference identity 不是默认窄键。header-only 的保证与完整体绑定/commitment 区分；geth 签名/hash/bloom/trie/uncle 转换保留，旧注释已纠正 |
+| CallRevert／Median／Local／SimulateV1 | 分别核对裁定、presence、reference/pending、typed 与 Selected 上限。Simulate 用户 payload/base marshaler各一次，生成模型与 trust gate 各有消费者；完整模拟语义和 provider 观察仍独立 |
+| 写入／订阅 | 不属于这 27 个 read spec 精调的新增实现范围。已有冻结/尝试/同源Pull消费者反例保持，未决政策进入独立专题 |
 
 保留项也须明确说明理由。生成模型存在不代表可删方法规则；解析函数共用不代表同一响应只解析一次；typed边界的独立检查不自动属于浪费。
+
+本轮局部成本证据：投影 wildcard 完整交付 176→136 allocs/op；FeeHistory 1/64-block 准入中位耗时约降 15.8%/15.1%；logs 1/64-row 准入约降 8.2%/9.7%；receipt raw narrow-key resolve 约降12.7%，默认 canonical-bytes 控制分配不变。纯标量投影耗时持平。这些是本地固定 fixture 的局部测量，不能等同网络 Aggregate、生产延迟或已接受全部性能差距。
+
+当前生产代码的 `go test ./... -count=1`、`go test -race ./... -count=1`、`go vet ./...`、`go build ./...` 已通过；重新生成的 Go/审计资产与受跟踪文件逐字节一致。上述结果是本轮工作树验证，未新增真实 provider 采集，未解决前述独立 wire 大预算 fuzz 待办，不代表正式发布验收。
+
+### 下一会话：27 个 read spec 之外的方法与能力
+
+2026-11-20 用户确定下一轮推进方向：考察上述 27 个读 RPC 之外的方法。这些入口的反馈、可交付信息、证据与锚点关系更复杂；当前只确定方向，尚未选定具体方法或裁决新政策。
+
+1. 先结合 catalog、公开 facade 和 [覆盖清单](method-transport-coverage.md) 做源码事实盘点，区分独立写入及同步等待、订阅、派生与生命周期入口，以及显式 unsupported 能力。47 个上游公开方法与 27 个注册读 RPC 的口径不同，不能用相减确定剩余任务，也不能将 facade 名称不同自动当成新 RPC。
+2. 为候选方法说明：反馈表示已接受、已观察、已确认还是结果未知；成功值、错误、诊断和来源材料分别包含哪些事实；请求／区块／交易／会话锚点从哪里建立、何时失效，以及等待、重组和恢复时是否仍成立。继续核对成员与门槛、原文与规范值、顺序与所有权、取消／关闭、重试或重放边界；由现行合同和反例支持结论，不把读方法的裁定与 reference 规则机械套用。
+3. 选定一个方法后才制定独立计划，列出调用者、Interface、接受域、错误阶段、变更文件、反例、必要成本证据、完成门槛及未决政策。继续由主控规划和验收，`gpt-6.1-sol/high` 执行子 agent 串行实施；执行者通过聊天书面交付，规划验收者维护文档。阶段计划仍写现有 module-simplification README TMP，验收后迁移结论并清空；不新增阶段目录或总结文件。
+
+写入的 accepted／unknown／rejected 与链上观察关系归 [方法合同](method-contracts.md) 和 [返回值合同](return-value-design.md)；订阅建立、同源 Pull、恢复与终止归 [订阅合同](subscription-contract.md)；锚点保证归 [reference 合同](reference-freshness-policy.md)。现行保证与待裁决事项分别记录，unsupported 不自动变为新增实现任务。F1／S1、工具链、provider 证据和发布缺口继续独立维护。
 
 ## 4. 阶段三：独立运行期专题与工具链评估
 

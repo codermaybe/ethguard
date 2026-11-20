@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/rpc"
+	logobject "github.com/codermaybe/ethguard/rpc/internal/objects/log"
 )
 
 func TestLogsPolicyRejectsMixedBlockSelectors(t *testing.T) {
@@ -300,5 +301,87 @@ func TestLogsEncodeOmitsAbsentTimestampAndKeepsEmptyArray(t *testing.T) {
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
 	}); err == nil {
 		t.Fatal("JSON null was accepted")
+	}
+}
+
+// Admission validates the complete ordered response before filter binding.
+// Optional timestamps and case aliases retain their separate encode-stage rules.
+func TestLogsAdmissionPreservesArrayAndBindingErrorOrder(t *testing.T) {
+	good := logEntry("0x0000000000000000000000000000000000000001", "0x00ff", "0xa", "false", "")
+	row := func(extra string) string {
+		return logEntry("0x0000000000000000000000000000000000000001", "0x00ff", "0xa", "false", extra)
+	}
+	array := func(value string) string { return "[" + value + "]" }
+	foreignHash := "0x" + strings.Repeat("44", 32)
+	cases := []struct {
+		name          string
+		raw           string
+		filter        map[string]any
+		wantErr       string
+		encodeErrPart string
+	}{
+		{name: "empty", wantErr: "logs: expected an array"},
+		{name: "whitespace", raw: " \n\t", wantErr: "logs: expected an array"},
+		{name: "null", raw: "null", wantErr: "logs: expected an array"},
+		{name: "spaced null", raw: " \nnull\t", wantErr: "logs: expected an array"},
+		{name: "object", raw: `{}`, wantErr: "logs: expected an array"},
+		{name: "number", raw: `1`, wantErr: "logs: expected an array"},
+		{name: "string", raw: `"[]"`, wantErr: "logs: expected an array"},
+		{name: "malformed array", raw: `[`, wantErr: "logs: expected an array"},
+		{name: "trailing value", raw: `[] null`, wantErr: "logs: expected an array"},
+		{name: "empty array", raw: `[]`},
+		{name: "null row", raw: `[null]`, wantErr: "logs[0]: expected an object"},
+		{name: "array row", raw: `[[]]`, wantErr: "logs[0]: expected an object"},
+		{name: "first required field", raw: `[{}]`, wantErr: "logs[0]: missing address"},
+		{name: "exact key required", raw: array(strings.Replace(good, `"data":`, `"Data":`, 1)), wantErr: "logs[0]: missing data"},
+		{name: "duplicate key", raw: array(row(`"data":"0x00ff"`)), wantErr: `logs[0]: log JSON: jsonsafe: duplicate object key: "data"`},
+		{name: "alias checked during encode", raw: array(row(`"Data":"oops"`)), encodeErrPart: "data"},
+		{name: "timestamp checked during encode", raw: array(row(`"blockTimestamp":"oops"`)), encodeErrPart: "blockTimestamp"},
+		{name: "timestamp alias checked during encode", raw: array(row(`"BlockTimestamp":"oops"`)), encodeErrPart: "blockTimestamp"},
+		{name: "vendor ignored", raw: array(row(`"vendor":{"data":true}`))},
+		{name: "duplicates retained", raw: array(good + "," + good)},
+		{name: "first row error", raw: `[{},null]`, wantErr: "logs[0]: missing address"},
+		{name: "last row precedes hash binding", raw: array(good + ",{}"), filter: map[string]any{"blockHash": foreignHash}, wantErr: "logs[1]: missing address"},
+		{name: "row precedes range parsing", raw: `[{}]`, filter: map[string]any{"fromBlock": "broken"}, wantErr: "logs[0]: missing address"},
+		{name: "empty array still binds filter", raw: `[]`, filter: map[string]any{"blockHash": "0x1"}, wantErr: "blockHash filter must be a 32-byte hash"},
+		{name: "hash binding", raw: array(good), filter: map[string]any{"blockHash": foreignHash}, wantErr: "log 0 blockHash does not match requested blockHash"},
+		{name: "hash error precedes range", raw: array(good), filter: map[string]any{"blockHash": "0x1", "fromBlock": "broken"}, wantErr: "blockHash filter must be a 32-byte hash"},
+		{name: "from error precedes to", raw: array(good), filter: map[string]any{"fromBlock": "broken", "toBlock": "broken"}, wantErr: "fromBlock is invalid: invalid quantity"},
+		{name: "range before optional timestamp", raw: array(row(`"blockTimestamp":"oops"`)), filter: map[string]any{"toBlock": "broken"}, wantErr: "toBlock is invalid: invalid quantity"},
+		{name: "reversed range", raw: array(good), filter: map[string]any{"fromBlock": "0x10", "toBlock": "0x1"}, wantErr: "fromBlock is greater than toBlock"},
+		{name: "out of range", raw: array(good), filter: map[string]any{"fromBlock": "0x0", "toBlock": "0x9"}, wantErr: "log 0 blockNumber is outside requested range"},
+		{name: "earliest and upper prefix", raw: array(good), filter: map[string]any{"fromBlock": "earliest", "toBlock": "0XA"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := tc.filter
+			if filter == nil {
+				filter = map[string]any{"fromBlock": "0x0", "toBlock": "0x10"}
+			}
+			req := rpc.Request{Method: MethodGetLogs, Params: []any{filter}}
+			input := json.RawMessage(tc.raw)
+			evidence, err := admitLogs(context.Background(), req, input, nil)
+			if string(input) != tc.raw {
+				t.Fatal("admission changed the input")
+			}
+			if evidence != nil {
+				t.Fatalf("admission returned evidence: %s", evidence)
+			}
+			if tc.wantErr != "" {
+				want := rpc.ErrMalformedResponse.Error() + ": " + tc.wantErr
+				if !errors.Is(err, rpc.ErrMalformedResponse) || err.Error() != want {
+					t.Fatalf("error = %v; want malformed response with text %q", err, want)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.encodeErrPart != "" {
+				if _, err := logobject.Encode(input); err == nil || !strings.Contains(err.Error(), tc.encodeErrPart) {
+					t.Fatalf("encode error = %v; want %s", err, tc.encodeErrPart)
+				}
+			}
+		})
 	}
 }

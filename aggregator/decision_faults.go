@@ -27,6 +27,14 @@ import (
 //
 // verdicts is the resolution's per-source statement when the policy stated
 // one; degraded exits pass nil and the validity contract classifies instead.
+//
+// The two per-source tables come from one classifier and one pass over the
+// invocation's emissions: an attempted source whose answer failed its class
+// carries the human-readable fault and the structured attribution together,
+// an unattempted member that failed a scheduling gate carries the structured
+// attribution alone (the human-readable list stays unchanged), and a stated
+// verdict is authoritative for its source. Both tables keep the emissions'
+// order.
 func (state *invocationState) attachFaults(decision *rpc.Decision, verdicts []rpc.SourceVerdict) {
 	if state.aggregateErr != nil {
 		decision.Faults = append(decision.Faults, fmt.Errorf("aggregate fields: %w", state.aggregateErr))
@@ -36,8 +44,22 @@ func (state *invocationState) attachFaults(decision *rpc.Decision, verdicts []rp
 		decision.Faults = append(decision.Faults, CollectFault(state.collectErr))
 		decision.CollectionFaults = collectionFaultList(state.collectErr)
 	}
-	decision.SourceFaults = append(decision.SourceFaults, structuredSourceFaults(state.validityPolicy(), state.emissions, verdicts)...)
-	decision.Faults = append(decision.Faults, sourceFaults(state.validityPolicy(), state.emissions, verdicts)...)
+	attemptClass := attemptClassifier(state.resolverPolicy(), verdicts)
+	for _, emission := range state.emissions {
+		if emission.Err == nil {
+			continue
+		}
+		if emission.Attempted && attemptClass(emission) {
+			continue
+		}
+		decision.SourceFaults = append(decision.SourceFaults, rpc.SourceFault{
+			Source: SourceRefOf(emission.Src),
+			Err:    emission.Err,
+		})
+		if emission.Attempted {
+			decision.Faults = append(decision.Faults, fmt.Errorf("source %q: %w", emission.Src.Name(), emission.Err))
+		}
+	}
 	if state.evaluation != nil {
 		decision.Diagnostics = &state.evaluation.Diagnostics
 	}
