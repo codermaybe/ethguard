@@ -86,7 +86,7 @@ func main() {
 		log.Printf("broadcast failed: %v", err)
 	} else if result, published, _ := writeCapture.Result(); published {
 		fmt.Printf("broadcast outcome: accepted=%v hash=%s basis=%d\n",
-			result.IsWriteAccepted(), result.WriteDecision.Hash, result.WriteDecision.Basis)
+			result.IsWriteAccepted(), result.WriteDecision.Hash, result.WriteDecision.Adjudication.Basis)
 	}
 
 	// --- one Close stops both surfaces ---

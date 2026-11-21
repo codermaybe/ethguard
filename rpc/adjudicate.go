@@ -6,6 +6,53 @@ import (
 	"sync/atomic"
 )
 
+// DecisionReason is the conclusion formed at adjudication, independent of
+// transport errors and of whether minority disagreement was observed.
+type DecisionReason uint8
+
+const (
+	ReasonUnassessed DecisionReason = iota
+	ReasonAccepted
+	ReasonNoCandidate
+	ReasonInsufficientSupport
+	ReasonConflictingCandidates
+	ReasonGuaranteeNotMet
+	ReasonHashMismatch
+	ReasonInternalFailure
+	ReasonRejected
+)
+
+// CandidateGroup records membership without retaining another raw payload.
+type CandidateGroup struct{ Sources []SourceRef }
+
+// Adjudication records the fixed denominator and the groups actually observed.
+// Multiple groups can coexist with ReasonAccepted under a majority policy.
+type Adjudication struct {
+	Basis      int
+	Required   int
+	Candidates []CandidateGroup
+	Reason     DecisionReason
+}
+
+func (a Adjudication) Clone() Adjudication {
+	if a.Candidates != nil {
+		groups := make([]CandidateGroup, len(a.Candidates))
+		for i, group := range a.Candidates {
+			groups[i].Sources = cloneSourceRefs(group.Sources)
+		}
+		a.Candidates = groups
+	}
+	return a
+}
+
+func rankedAdjudication(basis, required int, ranked []cluster) Adjudication {
+	a := Adjudication{Basis: basis, Required: required, Reason: ReasonNoCandidate}
+	for _, group := range ranked {
+		a.Candidates = append(a.Candidates, CandidateGroup{Sources: group.sources})
+	}
+	return a
+}
+
 // CorroborationMode selects how clustered admissible answers are adjudicated
 // against the invocation's fixed voting basis (decision 0028).
 type CorroborationMode int
@@ -85,16 +132,29 @@ func winnerDecision(ranked []cluster, faults []error) Decision {
 // the first supporter of the winning cluster in the captured member order.
 func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (Decision, error) {
 	decision := winnerDecision(ranked, faults)
+	decision.Adjudication = rankedAdjudication(n, c.Required(n), ranked)
 	size := len(ranked[0].sources)
 	if c.Mode == CorroborationUnanimity && len(ranked) > 1 {
+		decision.Adjudication.Reason = ReasonConflictingCandidates
 		return decision, fmt.Errorf("strict: %d disagreeing values: %w", len(ranked), ErrConflict)
+	}
+	if c.Mode == CorroborationForwarded {
+		decision.Adjudication.Required, decision.Adjudication.Reason = 1, ReasonAccepted
+		decision.Status = Forwarded
+		return decision, nil
 	}
 	calculator := newAcceptanceCalculator(c)
 	if !calculator.accepts(n, size) {
 		required := calculator.required(n)
+		decision.Adjudication.Reason = ReasonInsufficientSupport
+		cause := ErrInsufficientSupport
+		if len(ranked) > 1 {
+			decision.Adjudication.Reason, cause = ReasonConflictingCandidates, ErrConflict
+		}
 		return decision, fmt.Errorf("strict: required support %d, winning cluster %d of %d voting members: %w",
-			required, size, n, ErrConflict)
+			required, size, n, cause)
 	}
+	decision.Adjudication.Reason = ReasonAccepted
 	// Corroborated claims corroboration, so a lone admitted response stays
 	// Selected even where the floor lets it through (decision 0028).
 	if size == 1 {

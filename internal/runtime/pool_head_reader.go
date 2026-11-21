@@ -78,8 +78,7 @@ func (r *PoolHeadReader) Confirm(ctx context.Context, height uint64, sourceIDs [
 				continue
 			}
 			out = append(out, reference.HeadObservation{
-				Source: rpc.SourceRef{ID: id},
-				Err:    fmt.Errorf("confirm: member %q is not in the frozen voting basis: fail closed", id),
+				Source: rpc.SourceRef{ID: id}, Response: rpc.Response{Exchange: rpc.Exchange{Cause: fmt.Errorf("confirm: member %q is not in the frozen voting basis: fail closed", id)}},
 			})
 		}
 	}
@@ -93,13 +92,7 @@ func headObservations(emissions []pool.Emission) []reference.HeadObservation {
 		if emission.Src != nil {
 			source = rpc.SourceRef{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()}
 		}
-		out = append(out, reference.HeadObservation{
-			Source:    source,
-			Value:     emission.Val,
-			Err:       emission.Err,
-			RTT:       emission.RTT,
-			Attempted: emission.Attempted,
-		})
+		out = append(out, reference.HeadObservation{Source: source, Response: emission.Response, RTT: emission.RTT, Attempted: emission.Attempted})
 	}
 	return out
 }

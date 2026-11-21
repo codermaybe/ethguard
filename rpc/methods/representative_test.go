@@ -12,6 +12,7 @@ import (
 
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 var errExecutionReverted = errors.New("execution reverted")
@@ -139,7 +140,7 @@ func identityKey(value json.RawMessage) (string, error) {
 }
 
 func observation(source rpc.SourceRef, value, evidence string) rpc.Observation {
-	item := rpc.Observation{Source: source, Value: json.RawMessage(value)}
+	item := rpc.Observation{Attempted: true, Source: source, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(value)}}}
 	if evidence != "" {
 		item.Evidence = json.RawMessage(evidence)
 	}
@@ -151,7 +152,7 @@ func revertObservation(source rpc.SourceRef, data, evidence string) rpc.Observat
 	if data != "" {
 		body.Data = json.RawMessage(data)
 	}
-	item := rpc.Observation{Source: source, Err: errExecutionReverted, RPCError: body}
+	item := rpc.Observation{Attempted: true, Source: source, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: body, Cause: rpctest.RPCError(3, "execution reverted")}}}
 	if evidence != "" {
 		item.Evidence = json.RawMessage(evidence)
 	}
@@ -193,14 +194,15 @@ func resolvePair(t *testing.T, policy rpc.Policy, obs ...rpc.Observation) rpc.De
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	return decision
+	return decision.Decision
 }
 
 func payloadOf(item rpc.Observation) json.RawMessage {
-	if item.RPCError != nil {
-		return item.RPCError.Raw()
+	if item.Response.Answer.RPCError != nil {
+		return item.Response.Answer.RPCError.Raw()
 	}
-	return item.Value
+	return item.Response.Answer.Result
+
 }
 
 // TestMigratedScalarValueIsCanonical pins RV1 for quantities and successful
@@ -335,30 +337,29 @@ func TestScalarMutationCannotManufactureEquality(t *testing.T) {
 		observation(a, `"0x00ab"`, ""),
 		observation(b, `"0xab"`, ""),
 	})
-	if !errors.Is(err, rpc.ErrConflict) || decision.Status == rpc.Corroborated {
+	if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status == rpc.Corroborated {
 		t.Fatalf("different data agreed: %v %+v", err, decision)
 	}
 
 	broken := rpc.SourceRef{Name: "c", ID: "c"}
-	decision, err = planResolver(t, MethodChainID, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).ResolveCorroborated(
-		rpc.Corroboration{Floor: 1},
+	decision, err = planResolver(t, MethodChainID, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1},
 		[]rpc.Observation{
 			observation(a, `"0x1"`, ""),
 			observation(broken, `"0x01"`, ""),
 		},
 	)
-	if err == nil || !errors.Is(err, rpc.ErrConflict) || !strings.Contains(err.Error(), "of 2") {
+	if err == nil || !errors.Is(err, rpc.ErrInsufficientSupport) || !strings.Contains(err.Error(), "of 2") {
 		t.Fatalf("leading zero left the denominator: %v %+v", err, decision)
 	}
-	if decision.Status == rpc.Selected || decision.Status == rpc.Corroborated {
-		t.Fatalf("status = %v, want failure", decision.Status)
+	if decision.Decision.Status == rpc.Selected || decision.Decision.Status == rpc.Corroborated {
+		t.Fatalf("status = %v, want failure", decision.Decision.Status)
 	}
-	for _, source := range decision.Support {
+	for _, source := range decision.Decision.Support {
 		if source.ID == broken.ID {
 			t.Fatal("rejected quantity voted")
 		}
 	}
-	if len(decision.Faults) == 0 {
+	if len(decision.Decision.Faults) == 0 {
 		t.Fatal("encode failure was not a fault")
 	}
 }
@@ -368,7 +369,7 @@ func TestCanonicalDisagreementDoesNotRevote(t *testing.T) {
 		json.RawMessage(`"0xA"`),
 		json.RawMessage(`"0xa"`),
 	})
-	if !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
+	if !errors.Is(err, rpc.ErrInvalidCanonicalResult) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
 		t.Fatalf("commit err = %v", err)
 	}
 
@@ -394,7 +395,7 @@ func TestCanonicalDisagreementDoesNotRevote(t *testing.T) {
 	if !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("err = %v", err)
 	}
-	if decision.Status == rpc.Corroborated || decision.Status == rpc.Selected || len(decision.Support) != 1 {
+	if decision.Decision.Status == rpc.Corroborated || decision.Decision.Status == rpc.Selected || len(decision.Decision.Support) != 1 {
 		t.Fatalf("decision = %+v", decision)
 	}
 }
@@ -414,11 +415,11 @@ func TestMigratedQuantityTieUsesCanonicalKey(t *testing.T) {
 	if !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("err = %v", err)
 	}
-	if string(decision.Value) != `"0x2"` || decision.Representative != a {
-		t.Fatalf("value = %s representative = %+v, want canonical 0x2 from a", decision.Value, decision.Representative)
+	if string(decision.Decision.Value) != `"0x2"` || decision.Decision.Representative != a {
+		t.Fatalf("value = %s representative = %+v, want canonical 0x2 from a", decision.Decision.Value, decision.Decision.Representative)
 	}
-	if !bytes.Equal(decision.Provenance, json.RawMessage(`{"from":"a"}`)) {
-		t.Fatalf("evidence = %s", decision.Provenance)
+	if !bytes.Equal(decision.Decision.Provenance, json.RawMessage(`{"from":"a"}`)) {
+		t.Fatalf("evidence = %s", decision.Decision.Provenance)
 	}
 }
 
@@ -428,25 +429,25 @@ func TestMedianSkipsUnencodableQuantity(t *testing.T) {
 	bad := rpc.SourceRef{Name: "b", ID: "b"}
 	high := rpc.SourceRef{Name: "c", ID: "c"}
 	decision, err := policy.Resolve([]rpc.Observation{
-		{Source: good, Value: json.RawMessage(`"0x1"`)},
-		{Source: bad, Value: json.RawMessage(`"0x02"`)},
-		{Source: high, Value: json.RawMessage(`"0x3"`)},
+		{Attempted: true, Source: good, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}},
+		{Attempted: true, Source: bad, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x02"`)}}},
+		{Attempted: true, Source: high, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x3"`)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Selected || string(decision.Value) != `"0x1"` {
-		t.Fatalf("median = %s status %v, want selected 0x1", decision.Value, decision.Status)
+	if decision.Decision.Status != rpc.Selected || string(decision.Decision.Value) != `"0x1"` {
+		t.Fatalf("median = %s status %v, want selected 0x1", decision.Decision.Value, decision.Decision.Status)
 	}
-	if decision.Representative != good {
-		t.Fatalf("representative = %+v, want the first encodable median", decision.Representative)
+	if decision.Decision.Representative != good {
+		t.Fatalf("representative = %+v, want the first encodable median", decision.Decision.Representative)
 	}
-	for _, source := range decision.Support {
+	for _, source := range decision.Decision.Support {
 		if source.ID == bad.ID {
 			t.Fatal("unencodable sample entered the median")
 		}
 	}
-	if len(decision.Faults) == 0 {
+	if len(decision.Decision.Faults) == 0 {
 		t.Fatal("expected an encode fault")
 	}
 }
@@ -456,20 +457,20 @@ func TestLocalPeerCountEncodesOnlyTheSelectedSource(t *testing.T) {
 	first := rpc.SourceRef{Name: "a", ID: "a"}
 	second := rpc.SourceRef{Name: "b", ID: "b"}
 	decision, err := policy.Resolve([]rpc.Observation{
-		{Source: first, Value: json.RawMessage(`"0x0A"`)},
-		{Source: second, Value: json.RawMessage(`"0x1"`)},
+		{Attempted: true, Source: first, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x0A"`)}}},
+		{Attempted: true, Source: second, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Selected || string(decision.Value) != `"0xa"` {
-		t.Fatalf("local = %s status %v", decision.Value, decision.Status)
+	if decision.Decision.Status != rpc.Selected || string(decision.Decision.Value) != `"0xa"` {
+		t.Fatalf("local = %s status %v", decision.Decision.Value, decision.Decision.Status)
 	}
-	if decision.Representative != (rpc.SourceRef{}) {
-		t.Fatalf("representative = %+v, want zero", decision.Representative)
+	if decision.Decision.Representative != (rpc.SourceRef{}) {
+		t.Fatalf("representative = %+v, want zero", decision.Decision.Representative)
 	}
-	if len(decision.Support) != 1 || decision.Support[0] != first {
-		t.Fatalf("support = %+v", decision.Support)
+	if len(decision.Decision.Support) != 1 || decision.Decision.Support[0] != first {
+		t.Fatalf("support = %+v", decision.Decision.Support)
 	}
 }
 
@@ -477,16 +478,16 @@ func TestResolveLocalKeepsRepresentativeZero(t *testing.T) {
 	policy := compiledPlan(t, MethodGetBalance).Resolver
 	first := rpc.SourceRef{Name: "a", ID: "a"}
 	decision, err := rpc.ResolveLocalObservation(policy, []rpc.Observation{
-		{Source: first, Value: json.RawMessage(`"0xA"`)},
-		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(`"0x1"`)},
+		{Attempted: true, Source: first, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0xA"`)}}},
+		{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Selected || string(decision.Value) != `"0xa"` {
-		t.Fatalf("pending = %s status %v", decision.Value, decision.Status)
+	if decision.Decision.Status != rpc.Selected || string(decision.Decision.Value) != `"0xa"` {
+		t.Fatalf("pending = %s status %v", decision.Decision.Value, decision.Decision.Status)
 	}
-	if decision.Representative != (rpc.SourceRef{}) || len(decision.Support) != 1 || decision.Support[0] != first {
+	if decision.Decision.Representative != (rpc.SourceRef{}) || len(decision.Decision.Support) != 1 || decision.Decision.Support[0] != first {
 		t.Fatalf("decision = %+v", decision)
 	}
 }

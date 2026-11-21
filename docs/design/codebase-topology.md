@@ -10,7 +10,7 @@
 | `internal/runtime` | 唯一生产 Composition Root；pool、aggregator、method、reference、projector 的组装 | 公共 API、第二套业务规则 |
 | `pool` | 固定成员、source 生命周期、健康、调度、fan-out，消费 Transport Port | Ethereum 字段含义、裁决公式 |
 | `aggregator` | invocation 顺序、reference／业务轮、收集与证据装配 | 具体 transport、字段语义、schema 解释 |
-| `rpc` | Request、Observation、Decision、Policy、通用裁决与 evidence | 网络连接、`rpc/methods` 依赖 |
+| `rpc` | Request、Response、Observation、Decision、Policy、通用裁决与 evidence | 网络连接、`rpc/methods` 依赖 |
 | `rpc/methods` | 请求语义、admission、比较键、encoder 与 reference 需求的装配、catalog | transport 生命周期、另一套 quorum 循环 |
 | `rpc/internal/objects`／`wire` | 对象约束、请求绑定、承诺、规范化与字段裁剪 | pool、facade、客户端连接 |
 | `internal/reference` | finalized 等候选／确认算法及其 consumer-owned HeadReader／HeadCodec 接口 | 直接依赖 pool、methods 或构造 aggregator／policy |
@@ -28,6 +28,18 @@
 公共 `gethcompat` 构造与单源 Simulate seam 退出。`internal/testkit/gethoracle` 仅供测试和显式诊断使用，不是生产 runtime；native 执行图不得依赖 `ethclient`。迁移边界见 [兼容政策](go-ethereum-compatibility-policy.md)。
 
 目录必须隐藏实际行为并拥有清楚的 seam；不为视觉分组创建浅层 forwarding package。`rpc/methods` 保持一个生产模块，不因文件数增加就拆成名词包。
+
+### 响应事实与裁定的模块归属（2026-11-21，已验收）
+
+本轮响应结果模型采用通信交换与回答含义两个事实域。`rpc`拥有可交付的中立Response及裁定事实；`internal/transport/{http,wss}`产生实际通信事实，`internal/rpcwire`拥有信封及请求关联；`rpc/methods`及对象模块解释方法内容；`pool`负责调度与健康，`aggregator`编排并消费解释结果，root负责操作组合和交付。Decision与operation不成为新的网络层。
+
+逐源数据使用同一个`rpc.Response`：`pool.Emission`附加Source、Attempted、RTT和同源准入evidence，`rpc.Observation`与reference的`HeadObservation`继续携带它，不复制平面的value/error三元组。`Answer.Interpretation`记录方法准入、完成验证、拒绝、局部候选排除或内部失败；它不重写Exchange，也不删除原Answer.Kind与载荷。候选高度不适用属于局部排除，不能伪造来源未回答。错误投影和候选资格读取集中在Response；下游不从error反向重建协议答案。
+
+接口统一为`Policy.Resolve → Outcome`，声明跨源能力的resolver通过`ResolveCorroborated → Outcome`消费固定snapshot。Outcome拥有本次解释形成的方法判断及来源关系；输入Observation继续拥有通信及协议事实。公开`SourceSummary`把两者投影为Exchange、Answer摘要与Relation，不保留另一份完整result。健康与事件只消费这些判断，不能再次Normalize或CanonicalOf。canonical resolver仍因输入是已处理结果而保留独立入口，它不是可选Outcome旁路。
+
+`rpc/response.go`拥有两层事实及其合法性检查；`rpc/outcome.go`拥有逐源判断及来源摘要；`rpc/adjudicate.go`拥有候选分组和裁定原因；`rpc/write.go`拥有传播及本地交易hash绑定。root的`call_result.go`、`write.go`与`result_capture.go`分别拥有操作结果、同步等待状态和复制交付。保持现有包边界，不因字段变多新建结果管理或分层管理包。
+
+用户确认无兼容负担，允许直接替换旧接口和结果表示；全部消费者与测试在同一专题迁移，旧出口与临时转换必须删除后才能验收。文件继续按实际业务职责组织，不建立浅层分组包或平行V2实现。详细执行合同在现有module-simplification总纲及ethguard模块记录中维护；整体迁移已通过全仓验收，订阅生命周期专题保持独立。
 
 ### 方法自治组织
 
@@ -102,9 +114,12 @@ ReferenceStage 通过 runtime 绑定的 HeadReader／HeadCodec 与 Transport Por
 | Strict | 普通与 corroborated Outcome；显式 KeySource；可声明 RPC error body 和 canonical 消费能力 |
 | Block | 包装 Strict，提供对应 Outcome／agreement 能力并绑定 by-hash/by-number；当前业务计划以 canonical bytes 聚类；reference HeadCodec 另用 number/hash 身份 |
 | CallRevert | execution 与 data 独立裁决，共享 Outcome 内核；data 弃权不冒充 Reject；provider 文案只是上下文 |
-| Median／Local | 普通解析与编码，Selected 封顶；有 corroboration snapshot 也不获得 agreement |
+| Median／Local | 强制返回逐源Outcome；普通解析与编码，Selected 封顶；有 corroboration snapshot 也不获得 agreement |
+| Forward／pending-local | 强制返回逐源Outcome；只判断实际处理的来源，后续来源保持未评估，不推导跨源一致 |
 
-编译对 resolver kind、实际 Go 能力、agreement、Outcome、KeySource 与 processor 配对双向校验，失败不注册。KeySource 不从 encoder 是否存在推断；normalizer+encoder 可表达窄键与较宽值，具体装配见生成索引。block wrapper 当前直接委托结果，不再恢复代表源原始 spelling。head 身份、full/header/null、请求绑定和 body 承诺分别验证。
+裁定的Required由实际执行的resolver合同形成：有snapshot的入口消费冻结配置，无snapshot的入口保留构造器或默认规则。coordinator核对输入与冻结成员一致，不能在Validate之后覆写Required，或靠覆盖Basis修补不一致。
+
+Outcome是Policy本身的强制合同，不是额外的可选能力。编译对resolver kind、实际Go能力、agreement、KeySource与processor配对双向校验，失败不注册；运行时仍对外部装配的能力矛盾和Outcome覆盖矛盾返回内部合同错误。KeySource 不从 encoder 是否存在推断；normalizer+encoder 可表达窄键与较宽值，具体装配见生成索引。block wrapper 当前直接委托结果，不再恢复代表源原始 spelling。head 身份、full/header/null、请求绑定和 body 承诺分别验证。
 
 ### Canonical 单源处理路线
 

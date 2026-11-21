@@ -32,7 +32,7 @@ func (e preservedPresenceError) ErrorDataJSON() (json.RawMessage, bool) {
 	return append(json.RawMessage(nil), e.raw...), e.present
 }
 
-func TestObservationRPCErrorRecordsWireDataPresenceWithoutChangingRaw(t *testing.T) {
+func TestObservationCarriesProtocolDataPresenceWithoutChangingRaw(t *testing.T) {
 	tests := []struct {
 		name      string
 		err       error
@@ -76,9 +76,10 @@ func TestObservationRPCErrorRecordsWireDataPresenceWithoutChangingRaw(t *testing
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ObservationRPCError(tc.err)
+			observation := rpc.Observation{Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.ProtocolAnswer(tc.err)}}
+			got := observation.Response.Answer.RPCError
 			if got == nil {
-				t.Fatal("ObservationRPCError returned nil")
+				t.Fatal("protocol answer lost error")
 			}
 			if got.DataPresence != tc.wantState {
 				t.Fatalf("DataPresence = %s, want %s", got.DataPresence, tc.wantState)

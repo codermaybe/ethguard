@@ -37,10 +37,10 @@ func TestTransactionInBlockPolicyRejectsPendingWithoutAdmission(t *testing.T) {
 	}
 	policy := planResolver(t, spec.Method, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: pending},
-		{Source: rpc.SourceRef{ID: "b"}, Value: pending},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: pending}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: pending}}},
 	})
-	if err == nil || len(decision.Value) != 0 || len(decision.Support) != 0 {
+	if err == nil || len(decision.Decision.Value) != 0 || len(decision.Decision.Support) != 0 {
 		t.Fatalf("pending bypassed admission via policy: %+v, %v", decision, err)
 	}
 	if value, err := spec.Encode(json.RawMessage("null")); err != nil || string(value) != "null" {

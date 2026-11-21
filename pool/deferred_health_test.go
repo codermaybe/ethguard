@@ -60,9 +60,9 @@ func TestDeferredHealthPreservesTransportClassification(t *testing.T) {
 				if h := src.Health(); h.Successes != 0 || h.Failures != 0 {
 					t.Fatalf("transport accounted before validation: %+v", h)
 				}
-				originalErr := emissions[0].Err
-				emissions[0].Err = errors.New("changed after collection")
-				emissions[0].Val = nil
+				originalErr := emissions[0].Response.Err()
+				emissions[0].Response.Exchange.Cause = errors.New("changed after collection")
+				emissions[0].Response.Answer.Result = nil
 				cancel()
 				var wg sync.WaitGroup
 				for range 8 {
@@ -112,12 +112,12 @@ func TestDeferredHealthGateAndRecovery(t *testing.T) {
 		emissions[0].FinalizeHealth(rpc.ErrMalformedResponse)
 	}
 	emissions, err := p.CollectVoting(context.Background(), "m", nil, CollectOptions{DeferHealth: true})
-	if !errors.Is(err, ErrNoEligibleSource) || len(emissions) != 1 || emissions[0].Attempted || !errors.Is(emissions[0].Err, ErrSourceGated) {
+	if !errors.Is(err, ErrNoEligibleSource) || len(emissions) != 1 || emissions[0].Attempted || !errors.Is(emissions[0].Response.Err(), ErrSourceGated) {
 		t.Fatalf("expected retained gated member: %+v, %v", emissions, err)
 	}
 	emissions[0].FinalizeHealth(rpc.ErrMalformedResponse)
 	writeEmissions, writeErr := p.Broadcast(context.Background(), "eth_sendRawTransaction", nil)
-	if !errors.Is(writeErr, ErrNoEligibleSource) || len(writeEmissions) != 1 || writeEmissions[0].Attempted || !errors.Is(writeEmissions[0].Err, ErrSourceGated) {
+	if !errors.Is(writeErr, ErrNoEligibleSource) || len(writeEmissions) != 1 || writeEmissions[0].Attempted || !errors.Is(writeEmissions[0].Response.Err(), ErrSourceGated) {
 		t.Fatalf("read contract failures did not reach shared write gate: %+v, %v", writeEmissions, writeErr)
 	}
 	if h := src.Health(); h.Failures != eligibleFailureThreshold || h.Successes != 0 {

@@ -15,7 +15,6 @@ import (
 // processor. The two transaction pilot methods declare theirs; the
 // TestRegisteredSpecsDeclareNoProcessor guard below pins that no OTHER
 // registered method picks the dimension up without a reviewed task.
-
 func processingSpec(method string, mutate func(*MethodSpec)) MethodSpec {
 	spec := MethodSpec{
 		Method:      method,
@@ -91,7 +90,7 @@ func TestCompilePlanCarriesProcessorWithIntactAdapters(t *testing.T) {
 		t.Fatal("compiled resolver cannot consume canonical observations")
 	}
 	raw := json.RawMessage(`"probe"`)
-	observations := []rpc.Observation{{Source: rpc.SourceRef{ID: "a"}, Value: raw}}
+	observations := []rpc.Observation{{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}}
 	if _, err := plan.Resolver.Resolve(observations); err != nil {
 		t.Fatalf("raw route broken after processor declaration: %v", err)
 	}
@@ -142,7 +141,7 @@ func TestTransactionKeySourceSwitchKeepsClusters(t *testing.T) {
 			observations := make([]rpc.Observation, 0, len(variants))
 			for i, value := range variants {
 				id := string(rune('a' + i))
-				observations = append(observations, rpc.Observation{Source: rpc.SourceRef{ID: id}, Value: value, Evidence: json.RawMessage(`"` + id + `"`)})
+				observations = append(observations, rpc.Observation{Attempted: true, Source: rpc.SourceRef{ID: id}, Evidence: json.RawMessage(`"` + id + `"`), Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: value}}})
 			}
 			legacyDecision, legacyErr := legacy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, observations)
 			plannedDecision, plannedErr := plan.Resolver.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, observations)
@@ -152,10 +151,10 @@ func TestTransactionKeySourceSwitchKeepsClusters(t *testing.T) {
 			if legacyErr != nil {
 				return
 			}
-			if legacyDecision.Status != plannedDecision.Status || !bytes.Equal(legacyDecision.Value, plannedDecision.Value) {
+			if legacyDecision.Decision.Status != plannedDecision.Decision.Status || !bytes.Equal(legacyDecision.Decision.Value, plannedDecision.Decision.Value) {
 				t.Fatalf("decisions differ: %+v vs %+v", legacyDecision, plannedDecision)
 			}
-			if legacyDecision.Representative.ID != plannedDecision.Representative.ID || len(legacyDecision.Support) != len(plannedDecision.Support) {
+			if legacyDecision.Decision.Representative.ID != plannedDecision.Decision.Representative.ID || len(legacyDecision.Decision.Support) != len(plannedDecision.Decision.Support) {
 				t.Fatalf("cluster shape differs: %+v vs %+v", legacyDecision, plannedDecision)
 			}
 			// Source order cannot change the clustered outcome under either
@@ -163,7 +162,7 @@ func TestTransactionKeySourceSwitchKeepsClusters(t *testing.T) {
 			reversed := []rpc.Observation{observations[1], observations[0]}
 			legacyReversed, legacyRevErr := legacy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, reversed)
 			plannedReversed, plannedRevErr := plan.Resolver.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, reversed)
-			if legacyRevErr != nil || plannedRevErr != nil || string(legacyReversed.Value) != string(plannedReversed.Value) {
+			if legacyRevErr != nil || plannedRevErr != nil || string(legacyReversed.Decision.Value) != string(plannedReversed.Decision.Value) {
 				t.Fatalf("reversed order diverged: %v / %v", legacyRevErr, plannedRevErr)
 			}
 		})

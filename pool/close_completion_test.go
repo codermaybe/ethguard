@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // blockingCloseTransport records when Close is entered and when it actually
@@ -20,9 +21,8 @@ type blockingCloseTransport struct {
 	release   chan struct{}
 }
 
-func (t *blockingCloseTransport) CallContext(_ context.Context, result any, _ string, _ ...any) error {
-	*result.(*json.RawMessage) = json.RawMessage(`"0x1"`)
-	return nil
+func (t *blockingCloseTransport) Call(_ context.Context, _ string, _ ...any) rpc.Response {
+	return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}
 }
 
 func (t *blockingCloseTransport) Close() {

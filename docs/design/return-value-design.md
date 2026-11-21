@@ -1,6 +1,6 @@
 # 返回值：受保护结果与规范编码
 
-状态：2026-11-17 文档基线。本文统一受保护 Value、规范表示、typed 与来源材料的交付合同；历史实现理由由 Git／决策档案追溯，不把已完成迁移当待执行任务。
+状态：2026-11-21 响应模型与同步操作组合已验收。本文统一受保护 Value、规范表示、typed 与来源材料的交付合同；历史实现理由由 Git／决策档案追溯，不把已完成迁移当待执行任务。
 
 ## 1. 独立合同与语义等价
 
@@ -85,6 +85,49 @@ Provenance 的准入证据、withheld 字节和代表源必须同源；不得从
 `eth_call` 成功只输出规范 DATA。revert 分开裁决 execution 与 data：缺失/null 对 data 弃权，空字节、具体 hex 与非 hex JSON 是不同断言；未达门槛的 data 不进入 Value。provider code/message 留在 `Decision.Revert` 作为上下文，不拼装固定错误信封，也不声称文案获佐证。当前 `RevertError` 只承接受保护 data，不暴露旧 provider `ErrorCode()`。依据为决策 0039、0052、0054、0061。
 
 传输保真必须按 adapter 区分：历史 geth WSS seam 的 missing/null 折叠不能外推到现行 raw WSS，也不能用 HTTP 证据替代 WSS。具体范围由 [传输契约](transport-contract.md) 和 [WSS 契约](wss-wire-contract.md) 维护。
+
+### 同步写入的结果与诊断
+
+同步写入通过同一个operation owner执行一次广播，再按明确的等待期限查询收据。`CallResult.WriteDecision`始终属于原广播；`CallResult.ReceiptWait`组合后续收据查询。顶层`Decision`仍属于普通read，同步操作的read证据有自己的嵌套位置。该组合及全部受影响消费者已通过全仓验收，范围见路线图。
+
+| 位置 | 所属事实 |
+| --- | --- |
+| WriteDecision | 原始广播的提交hash、传播裁定及逐源两层摘要 |
+| ReceiptWait.LastAttempt | 最后一次实际收据查询的Sequence、Decision和Err |
+| ReceiptWait.LastObservation | 最近一次形成收据方法含义或裁定的查询，保留该轮自己的Sequence、Decision和Err |
+| CallResult.Err | 整个公开操作的最终结论，与尾部error及capture一致 |
+
+Sequence从1开始，每次实际调用前递增，表示收据查询轮次，不是单节点请求数。未进入等待时ReceiptWait为nil；等待已开始但未查询时可以没有LastAttempt。最近观察可以是合法null、实际分歧、单组支持不足、保证未达成或方法拒绝。仅通信中断、未形成方法判断的协议失败和内部中止不构成新的收据含义，不能覆盖此前观察。
+
+例如第1轮null、第2轮合法异值、第3轮等待中断，最后尝试属于第3轮，最近观察属于第2轮；两者不共享票数。最终timeout只表达等待终止，错误链不包装历史NotFound或Conflict；历史错误在所属观察内消费。正常成功时两个位置可以指向同一轮，但各自拥有隔离的可变Decision数据。默认只保留这两个位置，内存不随轮询次数增长，不承诺完整历史、持续冲突、连续缺失或reorg证明。
+
+NotFound、Conflict、InsufficientSupport和GuaranteeNotMet允许后续查询，其他receipt执行错误按现有合同终止。只有广播已Accepted且绑定本地交易hash才进入等待；广播只执行一次，receipt计时从广播接受后开始。父context和owner生命周期仍由现有执行入口管理，不自动重播交易。
+
+来源原文是独立的可选材料：root配置WithSourceEvidence后可直接消费，view需要ResultCapture。所有广播与查询共用单次调用预算；预算关闭、耗尽或截断都不删除上述默认事实，也不改变请求、门槛或终止结论。原文记录本身没有完整轮次索引，不能把有界材料冒充完整投票历史。CallResult.Clone和capture复制隔离广播、两个receipt位置、候选成员及来源切片；不可变error按既有合同共享。
+
+### 两层响应事实与裁定合同（2026-11-21，已验收）
+
+结果模型先区分逐源通信事实与回答含义，再由Decision表达多源候选、固定Basis与保证结论。HTTP有响应不保证取得有效RPC回答；合法null、协议错误回答、方法准入失败、实际无回答、合法异值和支持不足须保留各自语义。下层前提缺失时，上层保持未评估；本地取消或资源上限不自动归责为网络故障。异值是否存在与支持是否达标分别表达，故障来源不从固定分母删除。
+
+用户于2026-11-21明确当前项目没有兼容负担或实际用户负担；本轮按一个目标模型整体替换，必要的公开签名、结果类型、错误分类与内部接口可以直接调整。不安排旧结果投影、弃用窗口或V2并存；所有受影响调用方、capture、工具和示例须在同一专题迁移，旧表示和临时转换删除后才算完成。已验证的方法业务规则继续作为回归依据，旧结构本身不构成保留要求。
+
+transport的Exchange/Answer两层Response贯通Emission/Observation/HeadObservation；强制Outcome、公开Sources/Adjudication、同步操作组合及canary/replay消费者均已验收。全仓普通测试与全量race均通过（51个通过包、9个无测试包），vet/build、gofmt/diff、旧出口审查和生成资产一致性通过。历史真实采集未改，本次验证不构成新的外部provider证据。
+
+`Decision.Sources`与`ReferenceEvidence.Sources`默认交付每个冻结来源的Attempted、Exchange、Answer摘要及Relation。Answer摘要保留协议种类、原始原因与方法判断，不复制所有result原文。Outcome中的SourceVerdict只拥有解释时新形成的判断和来源关系；来源身份、通信与原回答仍来自输入Observation。完整原文不再是区分“未回答”和“不合法回答”的前提。
+
+| 场景 | 裁定及来源事实 |
+| --- | --- |
+| 一组合法候选，其他节点失败，未达门槛 | InsufficientSupport；失败节点仍占Basis，不能声称观察到异值 |
+| 多组合法候选，无法接受其中一组 | ConflictingCandidates；保留每组成员 |
+| 多数已达门槛，另有合法少数异值 | Accepted与多个Candidates并存，少数异值不自动成为来源故障 |
+| 已形成Selected值，但调用要求Corroborated | 保留已形成Status，Reason为GuaranteeNotMet |
+| 收到完整回答后方法拒绝 | 保留Completed与Answer.Kind，Interpretation记录Rejected |
+| 所有源尚未形成方法判断即中断 | Reason保持Unassessed，终止原因留在相应交换或操作 |
+| resolver违反覆盖、身份或候选不变量 | InternalFailure；不能据此惩罚provider |
+
+读Decision保留Support/Reject与故障便捷视图供现有事件和报告消费；这些视图由同一来源判断投影，不成为第二次分类入口。来源故障与collection故障分别归属来源摘要及coordinator，内部合同错误独立留在裁定或整轮诊断。写入统一在Sources保存来源回答，Faults只保留collection级错误，删除旧Accepted/Dissent/Rejected/Silent并列切片。
+
+WriteStatus只陈述Unknown、Accepted或Unconfirmed，原因由Adjudication表达。SubmittedHash是本地签名交易的hash，Hash是领先的实际报告值；绑定失败时保留两者并返回HashMismatch。协议拒绝保留code/message与error.data的missing/null/value/unknown语义。空HTTP正文仍为Missing，非法hash为实际result的Rejected，不折叠成同一个“静默”字段。
 
 ## 6. 维护边界
 

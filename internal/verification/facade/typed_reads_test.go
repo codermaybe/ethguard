@@ -1081,14 +1081,14 @@ func TestTypedRequiresCorroborationWithoutChangingMethodSignatures(t *testing.T)
 	}
 	nodes[0].Return(methods.MethodGetBalance, "0x1")
 	nodes[1].Fail(methods.MethodGetBalance, -32603, "unavailable")
-	if value, _, err := client.BalanceAt(context.Background(), ethapi.Address("0x0000000000000000000000000000000000000000"), nil); !errors.Is(err, ethguard.ErrConflict) || value != nil {
+	if value, _, err := client.BalanceAt(context.Background(), ethapi.Address("0x0000000000000000000000000000000000000000"), nil); !errors.Is(err, ethguard.ErrInsufficientSupport) || value != nil {
 		t.Fatalf("typed read hid unmet corroboration: %v %v", value, err)
 	}
 	// The advanced API reports the unmet majority as a conflict with the
 	// surviving cluster in evidence (decision 0029): a 1-of-2 answer is no
 	// longer surfaced as Selected under the default support floor.
 	d, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, ethapi.Address("0x0000000000000000000000000000000000000000"), "0x10"))
-	if !errors.Is(err, ethguard.ErrConflict) {
+	if !errors.Is(err, ethguard.ErrInsufficientSupport) {
 		t.Fatalf("advanced call hid the unmet majority: %v", err)
 	}
 	// The public value is cleared on the aggregation failure (decision 0066);

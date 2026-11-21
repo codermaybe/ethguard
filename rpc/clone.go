@@ -52,6 +52,8 @@ func cloneSourceFaults(faults []SourceFault) []SourceFault {
 // shared by the error-immutability contract; every slice and payload is
 // copied.
 func (r ReferenceEvidence) Clone() ReferenceEvidence {
+	r.Sources = append([]SourceSummary(nil), r.Sources...)
+	r.Adjudication = r.Adjudication.Clone()
 	r.Participants = cloneSourceRefs(r.Participants)
 	r.Support = cloneSourceRefs(r.Support)
 	r.Reject = cloneSourceRefs(r.Reject)
@@ -154,6 +156,8 @@ func (r *RevertContext) Clone() *RevertContext {
 // prepared-request snapshot, and every source list. Faults keep their error
 // values (errors are immutable once published) but get their own slices.
 func (d Decision) Clone() Decision {
+	d.Sources = append([]SourceSummary(nil), d.Sources...)
+	d.Adjudication = d.Adjudication.Clone()
 	if d.Reference != nil {
 		ref := d.Reference.Clone()
 		d.Reference = &ref
@@ -211,13 +215,11 @@ func cloneSourceAnswers(answers []SourceAnswer) []SourceAnswer {
 }
 
 // Clone returns an independent copy of the write decision: every per-source
-// answer, the silent list, and the fault slice. Errors stay shared by the
+// answer, candidate membership, and the collection fault slice. Errors stay shared by the
 // error-immutability contract.
 func (w WriteDecision) Clone() WriteDecision {
-	w.Accepted = cloneSourceAnswers(w.Accepted)
-	w.Dissent = cloneSourceAnswers(w.Dissent)
-	w.Rejected = cloneSourceAnswers(w.Rejected)
-	w.Silent = cloneSourceRefs(w.Silent)
+	w.Sources = cloneSourceAnswers(w.Sources)
+	w.Adjudication = w.Adjudication.Clone()
 	w.Faults = cloneErrors(w.Faults)
 	return w
 }

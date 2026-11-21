@@ -137,7 +137,7 @@ func dialNative(t *testing.T, rawURL string, limit int64) *Transport {
 
 func call(t *testing.T, tr *Transport, ctx context.Context, result any, method string, args ...any) error {
 	t.Helper()
-	return tr.CallContext(ctx, result, method, args...)
+	return tr.Call(ctx, method, args...).Decode(result)
 }
 
 // TestNativeRequestEnvelope locks the native wire envelope: identical to the
@@ -161,7 +161,7 @@ func TestNativeRequestEnvelope(t *testing.T) {
 			})
 			tr := dialNative(t, srv.srv.URL, 0)
 			if err := call(t, tr, context.Background(), nil, tc.method, tc.args...); err != nil {
-				t.Fatalf("CallContext err = %v", err)
+				t.Fatalf("Call err = %v", err)
 			}
 			if srv.requestCount() != 1 {
 				t.Fatalf("request count = %d, want 1", srv.requestCount())
@@ -617,7 +617,7 @@ func TestNativeClose(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() {
 		var raw json.RawMessage
-		errCh <- tr.CallContext(context.Background(), &raw, "eth_chainId")
+		errCh <- tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 	}()
 	<-started
 	// Idempotent: a double close must not panic.
@@ -627,7 +627,7 @@ func TestNativeClose(t *testing.T) {
 		t.Fatalf("in-flight call failed after Close: %v", err)
 	}
 	var raw json.RawMessage
-	if err := tr.CallContext(context.Background(), &raw, "eth_chainId"); !errors.Is(err, ErrTransportClosed) {
+	if err := tr.Call(context.Background(), "eth_chainId").Decode(&raw); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("post-close err = %v, want ErrTransportClosed", err)
 	}
 }
@@ -800,7 +800,7 @@ func TestNewTransportSurvivesReplacedDefaultTransport(t *testing.T) {
 	})
 	tr := newTransport(srv.URL, 1<<20)
 	var result json.RawMessage
-	if err := tr.CallContext(context.Background(), &result, "eth_blockNumber"); err != nil {
+	if err := tr.Call(context.Background(), "eth_blockNumber").Decode(&result); err != nil {
 		t.Fatalf("dial with a replaced global transport must not panic and must serve the call: %v", err)
 	}
 	if len(result) == 0 {
@@ -815,12 +815,12 @@ func (f roundTripperFunc) RoundTrip(r *nethttp.Request) (*nethttp.Response, erro
 	return f(r)
 }
 
-// TestCallContextRefusesRedirect pins the one-call-one-request contract:
+// TestCallRefusesRedirect pins the one-call-one-request contract:
 // a 3xx must be left to the status classification instead of being followed,
 // because the redirect's second hop is a body-less GET to an origin that is
 // not the configured source. The redirected endpoint's 200 answer must never
 // enter corroboration as this source's observation.
-func TestCallContextRefusesRedirect(t *testing.T) {
+func TestCallRefusesRedirect(t *testing.T) {
 	var secondMethod, secondBody string
 	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/final" {
@@ -836,7 +836,7 @@ func TestCallContextRefusesRedirect(t *testing.T) {
 
 	tr := newTransport(srv.URL, 1<<20)
 	var result json.RawMessage
-	err := tr.CallContext(context.Background(), &result, "eth_blockNumber")
+	err := tr.Call(context.Background(), "eth_blockNumber").Decode(&result)
 	if err == nil {
 		t.Fatalf("redirected response accepted as this source's observation: %s", result)
 	}

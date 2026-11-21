@@ -46,7 +46,7 @@ func resolveReference(ctx context.Context, resolver runtime.ReferenceResolver, t
 // is claimed. The establishment's supporters live on the Reference; the
 // decision does not duplicate the adjudication chain.
 func anchorResult(ref rpc.ReferenceEvidence, err error) CallResult {
-	evidence := ref
+	evidence := ref.Clone()
 	status := rpc.Unknown
 	if err == nil {
 		status = ref.Status
@@ -73,10 +73,10 @@ func attachEstablishedReference(decision *rpc.Decision, ref rpc.ReferenceEvidenc
 // read's result: whatever the anchor round formed travels on the decision.
 // A zero evidence maps to nil.
 func anchorReference(ref rpc.ReferenceEvidence) *rpc.ReferenceEvidence {
-	if ref.Status == rpc.Unknown && ref.Hash == "" && ref.Height == 0 && len(ref.Faults) == 0 && len(ref.SourceFaults) == 0 && len(ref.CollectionFaults) == 0 {
+	if ref.Status == rpc.Unknown && ref.Hash == "" && ref.Height == 0 && len(ref.Faults) == 0 && len(ref.SourceFaults) == 0 && len(ref.CollectionFaults) == 0 && len(ref.Sources) == 0 && len(ref.Participants) == 0 && len(ref.Support) == 0 && len(ref.Reject) == 0 && ref.Adjudication.Basis == 0 && ref.Adjudication.Required == 0 && len(ref.Adjudication.Candidates) == 0 && ref.Adjudication.Reason == rpc.ReasonUnassessed {
 		return nil
 	}
-	evidence := ref
+	evidence := ref.Clone()
 	return &evidence
 }
 

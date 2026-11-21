@@ -410,12 +410,8 @@ func t09RunMutation(t *testing.T, mc t09MutationCase, mutation t09Mutation) {
 	if len(decision.Faults) != 1 {
 		t.Fatalf("%s/%s: faults = %d, want 1: %v", mc.method, mutation.field, len(decision.Faults), decision.Faults)
 	}
-	if mutation.sourceFault {
-		if len(decision.SourceFaults) != 1 || decision.SourceFaults[0].Source.Name != fleet.names[mutantIndex] {
-			t.Fatalf("%s/%s: source faults = %+v, want %q", mc.method, mutation.field, decision.SourceFaults, fleet.names[mutantIndex])
-		}
-	} else if len(decision.SourceFaults) != 0 {
-		t.Fatalf("%s/%s: source faults = %+v, want none for a normalize/encode fault", mc.method, mutation.field, decision.SourceFaults)
+	if len(decision.SourceFaults) != 1 || decision.SourceFaults[0].Source.Name != fleet.names[mutantIndex] {
+		t.Fatalf("%s/%s: source faults = %+v", mc.method, mutation.field, decision.SourceFaults)
 	}
 	t09AssertSourceAbsent(t, mc.method+"/"+mutation.field, fleet.names[mutantIndex], decision.Support, decision.Reject)
 	if err != nil {

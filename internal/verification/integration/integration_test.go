@@ -750,7 +750,7 @@ func TestFinalizedAnchoringToleratesDivergentTips(t *testing.T) {
 
 // TestFinalizedAnchoringIsolatesStaleReporter proves the freshness bound:
 // a provider whose finalized view trails far behind is excluded from pinning
-// the reference and surfaces as an anchor fault, without blocking the read.
+// the reference without blaming a provider for a valid but inapplicable head.
 func TestFinalizedAnchoringIsolatesStaleReporter(t *testing.T) {
 	pm := dprom.New()
 	client, nodes := fleet(t, 1, 1, 3,
@@ -771,12 +771,41 @@ func TestFinalizedAnchoringIsolatesStaleReporter(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
+	result, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sampleValue(t, reg, "ethguard_faults_total",
-		map[string]string{"method": "anchor"}); got != 1 {
-		t.Fatalf("expected the stale reporter as one anchor fault, faults_total = %v", got)
+	if result.Decision == nil || result.Decision.Reference == nil {
+		t.Fatal("missing reference evidence")
+	}
+	ref := result.Decision.Reference
+	if len(ref.SourceFaults) != 0 {
+		t.Fatalf("valid stale head blamed: %+v", ref.SourceFaults)
+	}
+	var excluded int
+	for _, source := range ref.Sources {
+		if source.Answer.Interpretation.State == rpc.InterpretationExcluded {
+			excluded++
+		}
+	}
+	if excluded != 1 {
+		t.Fatalf("stale exclusion evidence = %+v", ref.Sources)
+	}
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range families {
+		if family.GetName() != "ethguard_faults_total" {
+			continue
+		}
+		for _, metric := range family.Metric {
+			for _, label := range metric.Label {
+				if label.GetName() == "method" && label.GetValue() == "anchor" && metric.GetCounter().GetValue() != 0 {
+					t.Fatalf("stale head recorded as anchor fault: %v", metric)
+				}
+			}
+		}
 	}
 }
 

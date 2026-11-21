@@ -1,6 +1,6 @@
 # Transport L1 Contract（连接适配器外部行为规范）
 
-> 状态：2026-11-17 文档基线；native HTTP L1 行为起于 2026-10-29。本文件拥有 native HTTP
+> 状态：2026-11-21 两层响应出口已实施；native HTTP L1 行为起于 2026-10-29。本文件拥有 native HTTP
 > 的 HTTP 外部行为；`internal/transport/contract` 是其可执行形式。历史 geth
 > 差分记录仅保留为当时的 geth 对照证据，不构成 native 的运行时依赖或额外承诺。WSS 的帧与连接扩展由
 > [wss-wire-contract.md](wss-wire-contract.md) 拥有，流语义由
@@ -26,8 +26,9 @@
 
 1. **调用语义**：一次调用恰是一个 JSON-RPC 请求；服务端 5xx 不会被自动重试或
    重放（suite: `no automatic retry`）。请求携带 method、params、非空 id。
-2. **result 目标**：`result` 只接受 `nil`（丢弃）、`*json.RawMessage`（原样字节）、
-   其他 JSON 指针；非指针目标报调用方错误（suite: `result target contract`）。
+2. **响应交付**：`Transport.Call(ctx, method, args...)`返回`rpc.Response{Exchange, Answer}`，
+   直接拥有结果字节；旧输出指针出口已删除。`Response.Decode`是消费者可选解码，支持
+   nil、`*json.RawMessage`及JSON指针；无效目标是本地错误，不改变回答事实。
 3. **协议错误能力**：JSON-RPC error 对象 → 调用方错误满足 `rpc.ProtocolError`
    （code/message）与 `rpc.DataError`；data 缺省时 `rpc.ErrorDataPresence` 报
    absent（suite: `protocol error capabilities`）。
@@ -37,16 +38,16 @@
 5. **退化 error 成员**：`error: {}` / `null` / 字符串 → malformed-response
    哨兵，**绝不**冒充 code-0 协议错误（那会被下游计为可用答案）
    （suite: `degenerate error members`）。
-6. **HTTP 状态分类**：非 2xx → `rpc.HTTPStatusError`（携带状态码）；429 额外
-   满足 `rpc.RateLimitError`；非 429 不得声称 rate limit（suite:
-   `http status classification`）。
+6. **HTTP 状态分类**：非2xx在Exchange保留状态码，不将正文解释成RPC回答；最终错误
+   满足`rpc.HTTPStatusError`，429额外满足`rpc.RateLimitError`。短正文保留读取错误能力，
+   正文超过诊断上限同时保留`ErrBodyTooLarge`；此时进度为Responded。
 7. **坏响应类别**：空 body → `ErrEmptyResponse`；非 JSON / JSON 数组 body /
    完整 JSON 后跟 trailing garbage → `ErrMalformedResponse`；这些都不得以
    ProtocolError 形状出现（suite: `empty and malformed bodies`、`trailing data`）。
 8. **重复 key**：HTTP envelope 同名字段按该层现有 last-wins 规则解码；这不授权业务对象重复 key。来源 result 仍经 aggregator／对象层 JSON 安全检查拒绝重复声明。重复的具体诊断属 L3（suite: `duplicate keys last win`）。
-9. **上下文优先级**：取消/超时支配一切 body 结果——调用前取消返回取消错；
-   挂死服务端上 deadline 返回 `DeadlineExceeded`；读非 2xx body 途中取消，
-   丢弃状态结果返回 context 错误（suite: `context precedence`）。
+9. **上下文优先级与事实保留**：取消/超时优先决定`Response.Err()`，调用前取消为
+   NotStarted；已收响应头后取消仍保留Responded和HTTP状态，不能伪称无响应。若已完整
+   取得回答，Completed及Answer继续存在，Decode遵循取消错误而不交付值。
 10. **Body 上限**：响应 body 超过 `limits.MaxBodyBytes`（或 adapter 配置的
     等价上限）返回中立哨兵 `transport.ErrBodyTooLarge`；截断前缀不得进入
     解码器（suite: `body limit`）。
@@ -60,6 +61,8 @@
     `chain id probe`）。
 14. **无方法知识**：Transport/Dialer 不参与 anchor、quorum、admission——这是
     结构性条款，由依赖 interlock 的 import 矩阵保证，不进本 suite。
+
+Exchange进度是本地可观测事实：Started不承诺请求已到达或远端已执行，Responded不承诺正文完整；Completed不承诺HTTP成功或方法有效。Answer区分Unassessed、Missing、Invalid、Result和ProtocolError，合法null属于Result。默认零Response不能报告成功；方法检查继续由上层owner负责。
 
 ## 3. 已记录的实现差异（L2/L3）
 

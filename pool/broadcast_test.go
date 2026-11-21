@@ -1,14 +1,13 @@
 package pool
 
 import (
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
-
 	"context"
 	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -47,8 +46,8 @@ func TestBroadcastContactsAllSourcesWithoutFreshnessGate(t *testing.T) {
 		if emission.Attempted {
 			contacted++
 		}
-		if i < 2 && emission.Val == nil {
-			t.Fatalf("source %d produced no value: %v", i, emission.Err)
+		if i < 2 && emission.Response.Answer.Result == nil {
+			t.Fatalf("source %d produced no value: %v", i, emission.Response.Err())
 		}
 	}
 	if contacted < 2 {
@@ -108,8 +107,8 @@ func TestBroadcastCoolingSourceIsGatedNotFailed(t *testing.T) {
 	if !errors.Is(err, ErrNoEligibleSource) {
 		t.Fatalf("err = %v, want ErrNoEligibleSource", err)
 	}
-	if len(emissions) != 1 || !errors.Is(emissions[0].Err, ErrSourceGated) {
-		t.Fatalf("emission err = %v, want ErrSourceGated", emissions[0].Err)
+	if len(emissions) != 1 || !errors.Is(emissions[0].Response.Err(), ErrSourceGated) {
+		t.Fatalf("emission err = %v, want ErrSourceGated", emissions[0].Response.Err())
 	}
 }
 
@@ -150,7 +149,7 @@ func TestBroadcastTrailingSourceStillContacted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("broadcast failed: %v", err)
 	}
-	if len(emissions) != 1 || emissions[0].Val == nil {
+	if len(emissions) != 1 || emissions[0].Response.Answer.Result == nil {
 		t.Fatalf("stale-tip source must still be contacted: %+v", emissions)
 	}
 }
@@ -171,7 +170,8 @@ func TestBroadcastProtocolErrorIsUsableAnswer(t *testing.T) {
 		t.Fatalf("protocol rejection must not surface as transport error: %v", err)
 	}
 	var protocolErr rpc.ProtocolError
-	if !errors.As(emissions[0].Err, &protocolErr) {
+	if !errors.As(emissions[0].Response.Err(),
+		&protocolErr) {
 		t.Fatalf("emission err = %v, want structured JSON-RPC error", protocolErr)
 	}
 }
@@ -218,7 +218,7 @@ func TestBroadcastMaxConcurrentPacesWithoutShrinking(t *testing.T) {
 		t.Fatalf("got %d emissions, want one per member despite the cap", len(emissions))
 	}
 	for i, em := range emissions {
-		if em.Src == nil || em.Src.Name() != string(rune('a'+i)) || em.Err != nil {
+		if em.Src == nil || em.Src.Name() != string(rune('a'+i)) || em.Response.Err() != nil {
 			t.Fatalf("emission %d = %+v, want the ordered pool member's answer", i, em)
 		}
 	}
@@ -267,14 +267,18 @@ func TestBroadcastFixedBasisKeepsGatedMemberSlot(t *testing.T) {
 		t.Fatalf("emission order = [%v, %v], want the snapshot order", emissions[0].Src.Name(), emissions[1].Src.Name())
 	}
 	gated := emissions[0]
-	if gated.Attempted || !errors.Is(gated.Err, ErrSourceGated) {
+	if gated.Attempted || !errors.Is(gated.Response.Err(), ErrSourceGated) {
 		t.Fatalf("gated emission = %+v, want a structured pause with no attempt", gated)
 	}
 	var gate *SourceGateError
-	if !errors.As(gated.Err, &gate) || gate.Reason != GateReasonCooldown {
-		t.Fatalf("gate error = %v, want a cooldown gate diagnosis", gated.Err)
+	if !errors.As(gated.Response.Err(),
+		&gate) || gate.Reason != GateReasonCooldown {
+		t.Fatalf("gate error = %v, want a cooldown gate diagnosis", gated.Response.Err())
 	}
-	if emissions[1].Val == nil || !emissions[1].Attempted {
+	if emissions[0].Response.Exchange.Progress != rpc.ExchangeNotStarted || emissions[0].Response.Answer.Interpretation.State != rpc.InterpretationUnassessed {
+		t.Fatalf("local gate invented communication or method rejection: %+v", emissions[0].Response)
+	}
+	if emissions[1].Response.Answer.Result == nil || !emissions[1].Attempted {
 		t.Fatalf("healthy member emission = %+v, want an attempted answer", emissions[1])
 	}
 	if got := gatedSrc.Health().Failures; got != failuresBefore {
@@ -312,10 +316,13 @@ func TestBroadcastClosedMemberStaysVisibleInSnapshotBasis(t *testing.T) {
 	if len(emissions) != 2 {
 		t.Fatalf("emissions = %d, want the closed member to keep its slot", len(emissions))
 	}
-	if emissions[0].Src != doomed || !errors.Is(emissions[0].Err, ErrClosed) || emissions[0].Attempted {
+	if emissions[0].Src != doomed || !errors.Is(emissions[0].Response.Err(), ErrClosed) || emissions[0].Attempted {
 		t.Fatalf("closed member emission = %+v, want ErrClosed with no attempt", emissions[0])
 	}
-	if emissions[1].Val == nil || !emissions[1].Attempted {
+	if emissions[0].Response.Exchange.Progress != rpc.ExchangeNotStarted || emissions[0].Response.Answer.Interpretation.State != rpc.InterpretationUnassessed {
+		t.Fatalf("local gate invented communication or method rejection: %+v", emissions[0].Response)
+	}
+	if emissions[1].Response.Answer.Result == nil || !emissions[1].Attempted {
 		t.Fatalf("live member emission = %+v, want an attempted answer", emissions[1])
 	}
 }

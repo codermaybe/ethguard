@@ -105,7 +105,7 @@ func (s *runState) evaluateStep(execution stepExecution, stepCtx, runCtx context
 		add("illegal_state", "", "decision status is not allowed by the plan")
 	}
 	if invariants.EvidenceConservation != nil && !*invariants.EvidenceConservation {
-		add("evidence_missing", "", "support, reject, and source faults do not partition participants")
+		add("evidence_missing", "", "source dispositions do not cover participants consistently")
 	}
 	if invariants.RepresentativeInSupport != nil && !*invariants.RepresentativeInSupport && callCategory == "" {
 		add("illegal_state", "", "representative is not the first supporter")
@@ -414,7 +414,7 @@ func (s *runState) evidenceConservation(execution stepExecution) *bool {
 	if !s.participantOrderMatches(decision.Participants) {
 		return boolPointer(false)
 	}
-	return boolPointer(dispositionsPartition(decision.Participants, decision.Support, decision.Reject, decision.SourceFaults))
+	return boolPointer(sourceEvidenceComplete(decision.Participants, decision.Support, decision.Reject, decision.SourceFaults, decision.Sources))
 }
 
 func (s *runState) referenceStatus(execution stepExecution) *bool {
@@ -437,7 +437,7 @@ func (s *runState) referenceStatus(execution stepExecution) *bool {
 	if !s.participantOrderMatches(ref.Participants) {
 		return boolPointer(false)
 	}
-	if !dispositionsPartition(ref.Participants, ref.Support, ref.Reject, ref.SourceFaults) {
+	if !sourceEvidenceComplete(ref.Participants, ref.Support, ref.Reject, ref.SourceFaults, ref.Sources) {
 		return boolPointer(false)
 	}
 	return boolPointer(true)
@@ -604,6 +604,7 @@ func decisionReport(decision *rpc.Decision, planStep PlanStep, callCategory, det
 		Status:           decision.Status.String(),
 		N:                len(participants),
 		Participants:     participants,
+		Sources:          sourceDispositionReports(decision.Sources),
 		Support:          support,
 		Reject:           reject,
 		Faults:           faults,
@@ -643,6 +644,7 @@ func referenceReport(execution stepExecution) *ReferenceReport {
 		ObservedAt:       formatReportTime(ref.ObservedAt),
 		N:                len(participants),
 		Participants:     participants,
+		Sources:          sourceDispositionReports(ref.Sources),
 		Support:          support,
 		Reject:           reject,
 		Faults:           faults,
@@ -652,27 +654,18 @@ func referenceReport(execution stepExecution) *ReferenceReport {
 }
 
 func dispositions(participants, support, reject []rpc.SourceRef, sourceFaults []rpc.SourceFault) ([]string, []string, []string, []SourceFaultReport) {
-	ids := make([]string, len(participants))
-	inBasis := make(map[string]bool, len(participants))
-	for i, source := range participants {
-		ids[i] = source.Name
-		inBasis[source.Name] = true
-	}
-	claimed := make(map[string]bool, len(participants))
-	supportIDs := make([]string, 0, len(support))
-	for _, source := range support {
-		if !inBasis[source.Name] || claimed[source.Name] {
-			continue
+	names := func(sources []rpc.SourceRef) []string {
+		ids := make([]string, len(sources))
+		for i, source := range sources {
+			ids[i] = source.Name
 		}
-		claimed[source.Name] = true
-		supportIDs = append(supportIDs, source.Name)
+		return ids
 	}
-	faultReports := make([]SourceFaultReport, 0, len(sourceFaults))
+	faults := make([]SourceFaultReport, 0, len(sourceFaults))
 	for _, fault := range sourceFaults {
-		if !inBasis[fault.Source.Name] || claimed[fault.Source.Name] {
+		if fault.Err == nil {
 			continue
 		}
-		claimed[fault.Source.Name] = true
 		category := classifyFaultError(fault.Err)
 		if category == "" {
 			category = "provider_error"
@@ -681,90 +674,22 @@ func dispositions(participants, support, reject []rpc.SourceRef, sourceFaults []
 		if detail == "" {
 			detail = category
 		}
-		faultReports = append(faultReports, SourceFaultReport{
-			SourceID: fault.Source.Name,
-			Category: category,
-			Detail:   detail,
-		})
+		faults = append(faults, SourceFaultReport{SourceID: fault.Source.Name, Category: category, Detail: detail})
 	}
-	rejectIDs := make([]string, 0, len(reject))
-	for _, source := range reject {
-		if !inBasis[source.Name] || claimed[source.Name] {
-			continue
-		}
-		claimed[source.Name] = true
-		rejectIDs = append(rejectIDs, source.Name)
-	}
-	for _, id := range ids {
-		if !claimed[id] {
-			claimed[id] = true
-			rejectIDs = append(rejectIDs, id)
-		}
-	}
-	return ids, supportIDs, rejectIDs, faultReports
+	return names(participants), names(support), names(reject), faults
 }
 
-func dispositionsPartition(participants, support, reject []rpc.SourceRef, sourceFaults []rpc.SourceFault) bool {
-	inBasis := make(map[string]bool, len(participants))
-	for _, source := range participants {
-		if source.Name == "" || inBasis[source.Name] {
-			return false
-		}
-		inBasis[source.Name] = true
+func sourceDispositionReports(sources []rpc.SourceSummary) []SourceDispositionReport {
+	out := make([]SourceDispositionReport, len(sources))
+	for i, source := range sources {
+		out[i] = SourceDispositionReport{SourceID: source.Source.Name, Attempted: source.Attempted, Relation: source.Relation.String()}
 	}
-	supported := make(map[string]bool, len(support))
-	supportIndex := make(map[string]int, len(participants))
-	for i, source := range participants {
-		supportIndex[source.Name] = i
-	}
-	lastSupport := -1
-	for _, source := range support {
-		if !inBasis[source.Name] || supported[source.Name] {
-			return false
-		}
-		if supportIndex[source.Name] <= lastSupport {
-			return false
-		}
-		lastSupport = supportIndex[source.Name]
-		supported[source.Name] = true
-	}
-	faulted := make(map[string]bool, len(sourceFaults))
-	for _, fault := range sourceFaults {
-		if !inBasis[fault.Source.Name] || supported[fault.Source.Name] || faulted[fault.Source.Name] {
-			return false
-		}
-		faulted[fault.Source.Name] = true
-	}
-	rejected := make(map[string]bool, len(reject))
-	for _, source := range reject {
-		if !inBasis[source.Name] || supported[source.Name] || rejected[source.Name] {
-			return false
-		}
-		rejected[source.Name] = true
-	}
-	for id := range supported {
-		if !faulted[id] && !rejected[id] {
-			continue
-		}
-		return false
-	}
-	claimed := 0
-	for id := range inBasis {
-		if supported[id] {
-			claimed++
-			continue
-		}
-		if faulted[id] {
-			claimed++
-			continue
-		}
-		if rejected[id] {
-			claimed++
-			continue
-		}
-		return false
-	}
-	return claimed == len(participants)
+	return out
+}
+
+func sourceEvidenceComplete(participants, support, reject []rpc.SourceRef, faults []rpc.SourceFault, sources []rpc.SourceSummary) bool {
+	ids, supporters, dissenters, reports := dispositions(participants, support, reject, faults)
+	return validateSourceDispositions(ids, supporters, dissenters, sourceDispositionReports(sources), reports) == nil
 }
 
 func collectionFaultReports(faults []error) []CollectionFaultReport {
@@ -942,9 +867,9 @@ func classifyFaultError(err error) string {
 		return "provider_divergence"
 	case errors.Is(err, rpc.ErrConflict):
 		return "provider_divergence"
-	case errors.Is(err, rpc.ErrNoValidResponse):
+	case errors.Is(err, rpc.ErrNoValidResponse), errors.Is(err, rpc.ErrInsufficientSupport), errors.Is(err, rpc.ErrGuaranteeNotMet):
 		return "quorum_unmet"
-	case errors.Is(err, rpc.ErrInvalidRequest):
+	case errors.Is(err, rpc.ErrInvalidRequest), errors.Is(err, rpc.ErrInvalidOutcome), errors.Is(err, rpc.ErrInvalidCanonicalResult):
 		return "code_error"
 	}
 	var statusErr rpc.HTTPStatusError

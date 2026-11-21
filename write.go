@@ -27,48 +27,26 @@ import (
 // compatibility default while still honoring an explicit positive timeout.
 const defaultTransactionReceiptTimeout = 20 * time.Second
 
-// writeAnswerClassified converts one broadcast emission into a classified
-// SourceAnswer. A hash-shaped value is an acceptance candidate; a structured
-// protocol error body is always a rejection answer kept as evidence. No
-// message-text classification ("already known" etc.) happens here.
-func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err error) rpc.SourceAnswer {
-	if err == nil && len(value) > 0 {
-		var hashHex string
-		if json.Unmarshal(value, &hashHex) == nil && common.IsHexHash(hashHex) {
-			return rpc.SourceAnswer{Source: source, Hash: strings.ToLower(hashHex)}
-		}
-		return rpc.SourceAnswer{Source: source}
-	}
-	var protocolErr rpc.ProtocolError
-	if !errors.As(err, &protocolErr) {
-		return rpc.SourceAnswer{Source: source}
-	}
-	rejection := &rpc.RPCError{Code: protocolErr.ErrorCode(), Message: protocolErr.Error()}
-	var preserved rpc.ErrorDataPresence
-	if errors.As(err, &preserved) {
-		raw, present := preserved.ErrorDataJSON()
-		if !present {
-			rejection.DataPresence = rpc.ErrorDataPresenceMissing
-			return rpc.SourceAnswer{Source: source, Rejection: rejection}
-		}
-		rejection.Data = append(json.RawMessage(nil), raw...)
-		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			rejection.DataPresence = rpc.ErrorDataPresenceNull
+// writeAnswer classifies the write method without rebuilding protocol errors.
+// Its interpretation preserves the original answer and communication facts.
+func writeAnswer(source rpc.SourceRef, response *rpc.Response) rpc.SourceAnswer {
+	answer := rpc.SourceAnswer{SourceSummary: rpc.SourceSummary{Source: source}}
+	if response.CandidateErr(true) == nil {
+		if response.Answer.Kind == rpc.AnswerProtocolError {
+			answer.Rejection = response.Answer.RPCError.Clone()
+			response.Answer.Interpretation = rpc.Interpretation{State: rpc.InterpretationValidated}
 		} else {
-			rejection.DataPresence = rpc.ErrorDataPresenceValue
-		}
-		return rpc.SourceAnswer{Source: source, Rejection: rejection}
-	}
-	var dataErr rpc.DataError
-	if errors.As(err, &dataErr) {
-		if data := dataErr.ErrorData(); data != nil {
-			if raw, marshalErr := json.Marshal(data); marshalErr == nil {
-				rejection.Data = raw
-				rejection.DataPresence = rpc.ErrorDataPresenceValue
+			var hash string
+			if json.Unmarshal(response.Answer.Result, &hash) != nil || !common.IsHexHash(hash) {
+				response.Answer.Interpretation = rpc.Interpretation{State: rpc.InterpretationRejected, Cause: fmt.Errorf("write: invalid transaction hash: %w", rpc.ErrMalformedResponse)}
+			} else {
+				response.Answer.Interpretation = rpc.Interpretation{State: rpc.InterpretationValidated}
+				answer.Hash = strings.ToLower(hash)
 			}
 		}
 	}
-	return rpc.SourceAnswer{Source: source, Rejection: rejection}
+	answer.SourceSummary = (rpc.SourceVerdict{Source: source, Method: response.Answer.Interpretation, Kind: rpc.VerdictUnusable}).Summary(*response)
+	return answer
 }
 
 // SendRawTransaction broadcasts signed transaction bytes to the full voting
@@ -85,18 +63,18 @@ func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err erro
 //   - The voting basis is captured before any request (decision 0025): the
 //     membership snapshot, the corroboration mode, and the support floor.
 //     Forwarded mode tries one member at a time and reports a matching
-//     WriteAccepted with Basis=1 without claiming corroboration.
+//     WriteAccepted with Required=1 without claiming corroboration.
 //   - A quorum-reaching hash cluster is WriteAccepted; minority dissent and
 //     rejections are evidence, not failure. Rejection bodies never join the
 //     hash cluster, even when their text suggests the transaction is already
 //     in that source's pool; callers that need idempotent-retry semantics
 //     should re-read via TransactionReceipt on the winning hash.
-//     WriteRejected describes answering sources only; silent sources may
-//     already have received the transaction. Neither a rejection nor a
+//     ReasonRejected describes answering sources only; an unavailable source
+//     may already have received the transaction. Neither a rejection nor a
 //     transport fault proves non-submission or transaction invalidity.
-//   - The returned error wraps exactly one classified sentinel
-//     (ErrConflict for disputed, ErrNoValidResponse for rejected/unreachable,
-//     pool sentinels for fan-out impossibility), so errors.Is keeps working.
+//   - Adjudication distinguishes conflicting candidates, insufficient support,
+//     protocol rejection and a winning hash that differs from SubmittedHash.
+//     Returned errors preserve the corresponding errors.Is classifications.
 //
 // Receipt waiting is deliberately separate: follow up with TransactionReceipt
 // on the winning hash once the caller's confirmation policy decides the
@@ -135,13 +113,6 @@ func (c *Client) sendRawTransaction(ctx context.Context, rawTx []byte) (CallResu
 	snap := c.corrob.Snapshot()
 	members := c.pool.VotingMembers()
 	basis := len(members)
-	// Forwarded mode is an intentional single-source path even when the pool
-	// contains more than one configured fallback member. The write decision is
-	// therefore adjudicated with a one-source requirement and makes no
-	// corroboration claim.
-	if snap.Mode == rpc.CorroborationForwarded && basis > 0 {
-		basis = 1
-	}
 	params := []any{hexutil.Encode(rawTx)}
 
 	var emissions []pool.Emission
@@ -155,65 +126,52 @@ func (c *Client) sendRawTransaction(ctx context.Context, rawTx []byte) (CallResu
 
 	answers := make([]rpc.SourceAnswer, 0, len(emissions))
 	var faults []error
+	if collectErr != nil {
+		faults = append(faults, fmt.Errorf("collect: %w", collectErr))
+	}
 	collector := uncertain.CollectorFromContext(ctx)
-	for _, emission := range emissions {
+	for i := range emissions {
+		emission := &emissions[i]
 		source := rpc.SourceRef{}
 		if emission.Src != nil {
 			source = rpc.SourceRef{Name: emission.Src.Name(), URL: emission.Src.URL(), ID: emission.Src.ID()}
 		}
 		if collector != nil {
 			errText := ""
-			if emission.Err != nil {
-				errText = emission.Err.Error()
+			if emission.Response.Err() != nil {
+				errText = emission.Response.Err().Error()
 			}
-			collector.Record("broadcast", methods.MethodSendRawTransaction, source, emission.Val, errText)
+			collector.Record("broadcast", methods.MethodSendRawTransaction, source, emission.Response.Answer.Result, errText)
 		}
-		answer := writeAnswerClassified(source, emission.Val, emission.Err)
-		if emission.Attempted && answer.Hash == "" && answer.Rejection == nil && emission.Err != nil {
-			faults = append(faults, fmt.Errorf("source %q: %w", source.Name, emission.Err))
+		answer := writeAnswer(source, &emission.Response)
+		answer.Attempted = emission.Attempted
+		if !emission.Attempted {
+			answer.Relation = rpc.VerdictAbsent
 		}
+
 		answers = append(answers, answer)
 	}
 	if collector != nil && collectErr != nil {
 		collector.Record("broadcast", methods.MethodSendRawTransaction, rpc.SourceRef{}, nil, collectErr.Error())
 	}
-	if collectErr != nil && !hasBroadcastAnswer(emissions) {
-		decision, _ := rpc.ResolveWriteBroadcast(basis, snap.Floor, answers, faults)
-		decision.Status = rpc.WriteUnreachable
+	// Ordered forwarding may stop before visiting the remaining fixed members.
+	// Their slots record scheduling absence without inventing a network cause.
+	seen := make(map[string]bool, len(answers))
+	for _, answer := range answers {
+		seen[answer.Source.ID] = true
+	}
+	for _, member := range members {
+		if !seen[member.ID()] {
+			answers = append(answers, rpc.SourceAnswer{SourceSummary: rpc.SourceSummary{
+				Source: rpc.SourceRef{ID: member.ID(), Name: member.Name(), URL: member.URL()}, Relation: rpc.VerdictAbsent,
+			}})
+		}
+	}
+	decision, err := rpc.ResolveWriteBroadcast(basis, snap, hash, answers, faults)
+	if collectErr != nil && decision.Adjudication.Reason == rpc.ReasonUnassessed {
 		return CallResult{WriteDecision: &decision}, fmt.Errorf("write broadcast: %w", collectErr)
 	}
-
-	decision, err := rpc.ResolveWriteBroadcast(basis, snap.Floor, answers, faults)
-	// Winning-hash integrity: the cluster's hash must equal the sent bytes'
-	// locally derived hash. A fleet that coherently reports a different hash
-	// is not accepting this transaction — fail closed rather than binding a
-	// foreign hash for receipt waiting.
-	if decision.Hash != "" && decision.Hash != hash {
-		if decision.Status == rpc.WriteAccepted {
-			decision.Status = rpc.WriteDisputed
-			err = fmt.Errorf("write: fleet hash %s does not match signed payload %s: %w",
-				decision.Hash, hash, rpc.ErrConflict)
-		} else {
-			err = fmt.Errorf("write: reported hash %s does not match signed payload %s: %w",
-				decision.Hash, hash, err)
-		}
-	}
 	return CallResult{WriteDecision: &decision}, err
-}
-
-// hasBroadcastAnswer reports whether any emission carried a usable wire
-// outcome (a value or a structured protocol answer).
-func hasBroadcastAnswer(emissions []pool.Emission) bool {
-	for _, emission := range emissions {
-		if emission.Val != nil {
-			return true
-		}
-		var protocolErr rpc.ProtocolError
-		if errors.As(emission.Err, &protocolErr) {
-			return true
-		}
-	}
-	return false
 }
 
 // collectTimeoutValue returns the client's per-call collection bound for the
@@ -294,14 +252,28 @@ func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, t
 	waitCtx, cancel := context.WithTimeout(ctx, effectiveTimeout)
 	defer cancel()
 	hash := common.HexToHash(writeResult.WriteDecision.Hash)
+	writeResult.ReceiptWait = &ReceiptWaitResult{}
+	var sequence uint64
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		receipt, _, receiptErr := c.transactionReceiptExec(waitCtx, ethapi.Hash(hash.Hex()))
+		if err := waitCtx.Err(); err != nil {
+			return nil, writeResult, err
+		}
+		sequence++
+		receipt, receiptResult, receiptErr := c.transactionReceiptExec(waitCtx, ethapi.Hash(hash.Hex()))
+		// Private execution has not filled CallResult.Err; the explicit trailing
+		// error is this query's conclusion. Transfer its decision into the last
+		// attempt and isolate the observation when both refer to the same query.
+		attempt := &ReceiptAttempt{Sequence: sequence, Decision: receiptResult.Decision, Err: receiptErr}
+		writeResult.ReceiptWait.LastAttempt = attempt
+		if formedReceiptObservation(attempt.Decision) {
+			writeResult.ReceiptWait.LastObservation = cloneReceiptAttempt(attempt)
+		}
 		if receiptErr == nil {
 			return receipt, writeResult, nil
 		}
-		if !errors.Is(receiptErr, ethereum.NotFound) && !errors.Is(receiptErr, rpc.ErrConflict) {
+		if !errors.Is(receiptErr, ethereum.NotFound) && !errors.Is(receiptErr, rpc.ErrConflict) && !errors.Is(receiptErr, rpc.ErrInsufficientSupport) && !errors.Is(receiptErr, rpc.ErrGuaranteeNotMet) {
 			return nil, writeResult, receiptErr
 		}
 		select {
@@ -310,6 +282,29 @@ func (c *Client) sendRawTransactionSyncExec(ctx context.Context, rawTx []byte, t
 		case <-ticker.C:
 		}
 	}
+}
+
+// formedReceiptObservation consumes the query's existing semantic judgments.
+// Internal aborts and protocol/communication failures alone form no receipt
+// observation. No payload is decoded and no error text is classified here.
+func formedReceiptObservation(decision *rpc.Decision) bool {
+	if decision == nil || decision.Adjudication.Reason == rpc.ReasonInternalFailure {
+		return false
+	}
+	switch decision.Adjudication.Reason {
+	case rpc.ReasonAccepted, rpc.ReasonConflictingCandidates, rpc.ReasonInsufficientSupport, rpc.ReasonGuaranteeNotMet:
+		return true
+	}
+	for _, source := range decision.Sources {
+		if source.Answer.Kind != rpc.AnswerResult {
+			continue
+		}
+		switch source.Answer.Interpretation.State {
+		case rpc.InterpretationRejected, rpc.InterpretationValidated:
+			return true
+		}
+	}
+	return false
 }
 
 // SendTransactionSync broadcasts a signed transaction and waits for its

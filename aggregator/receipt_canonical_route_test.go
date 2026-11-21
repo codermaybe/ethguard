@@ -818,3 +818,44 @@ func BenchmarkReceiptCanonicalAggregate(b *testing.B) {
 		})
 	}
 }
+
+// Admission may exclude a candidate, but the completed wire answer remains
+// available for diagnostics and later source summaries on both method routes.
+func TestReceiptAdmissionRetainsResponseFacts(t *testing.T) {
+	valid := receiptRouteFixture(t)
+	hash := receiptRouteHash(t, valid)
+	for _, processed := range []bool{false, true} {
+		for _, tc := range []struct {
+			name string
+			raw  json.RawMessage
+			want rpc.InterpretationState
+		}{
+			{"missing-field", receiptRouteDelete(t, valid, "transactionHash"), rpc.InterpretationRejected},
+			{"null", json.RawMessage(`null`), rpc.InterpretationAdmitted},
+		} {
+			t.Run(fmt.Sprintf("%s/processed=%v", tc.name, processed), func(t *testing.T) {
+				members := receiptRouteMembers(t, []json.RawMessage{tc.raw})
+				p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
+				req := receiptRouteRequest(hash)
+				emissions, err := p.Collect(context.Background(), req.Method, req.Params, pool.CollectOptions{})
+				if err != nil || len(emissions) != 1 {
+					t.Fatalf("collect: %v (%d responses)", err, len(emissions))
+				}
+				before := emissions[0].Response
+				plan := receiptRouteCompiledPlan(t, processed)
+				state := &invocationState{ctx: context.Background(), plan: &plan, admissionRequest: req, preparedMethod: req.Method, processorRoute: plan.ProcessCanonical, emissions: emissions}
+				New(p).admitPhase(state)
+				got := state.emissions[0].Response
+				if got.Exchange != before.Exchange || got.Exchange.Progress != rpc.ExchangeCompleted || got.Exchange.HTTPStatus != 200 || got.Answer.Kind != rpc.AnswerResult || string(got.Answer.Result) != string(tc.raw) {
+					t.Fatalf("admission changed HTTP/protocol facts: %+v", got)
+				}
+				if got.Answer.Interpretation.State != tc.want || got.Validate() != nil {
+					t.Fatalf("method interpretation = %+v", got.Answer.Interpretation)
+				}
+				if (got.CandidateErr(false) == nil) != (tc.want == rpc.InterpretationAdmitted) {
+					t.Fatalf("candidate eligibility contradicts method state: %+v", got)
+				}
+			})
+		}
+	}
+}

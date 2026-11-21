@@ -21,7 +21,7 @@ address := ethapi.Address("0x000000000000000000000000000000000000dead")
 balance, result, err := client.BalanceAt(ctx, address, nil)
 ```
 
-root 返回业务值、CallResult 和最终错误；CallResult 携带裁决／写入证据及已保留材料，其 Err 与尾部错误一致。EthClient view 复用同一执行，仅省略 CallResult：
+root 返回业务值、CallResult 和最终错误；CallResult 携带读取或广播证据、同步写入的有界收据观察及已保留材料，其 Err 与尾部错误一致。EthClient view 复用同一执行，仅省略 CallResult：
 
 ```go
 view := client.EthClient()
@@ -82,7 +82,9 @@ saved, published, captureErr := capture.Result()
 
 ## 写入、订阅与生命周期
 
-写入先校验冻结交易字节，再按accepted／unknown／rejected交付证据；未知结果不自动重放。同步写入可按独立合同轮询收据，不代表自动重复广播。库不签名、不选择gas、不分配nonce、不管理替换交易。
+写入校验冻结交易字节，并将来源报告的hash绑定到本地提交hash。WriteDecision分别记录接受状态、裁定原因及每个来源的通信、回答和方法判断。支持不足、合法异值、协议拒绝和foreign hash保持可区分；未确认结果不自动重放。
+
+同步写入只广播一次，再轮询收据。CallResult.ReceiptWait保留最后尝试与最近形成的收据观察，各有自己的序号、Decision和错误。最后一次查询中断不会覆盖此前的null或冲突观察；操作Err只表达最终结论。这些事实不依赖可选原文预算，默认最多保留两个查询位置。库不签名、不选择gas、不分配nonce、不管理替换交易。
 
 root和view提供SubscribeNewHead、SubscribeFilterLogs、SubscribeTransactionReceipts，使用生成模型channel及ethereum.Subscription。多源订阅保持固定WSS快照、物理session检查和同源Pull；多源client仅一个WSS来源会拒绝，显式单源client保留原路径。公开单源策略、预算和终止细化见 [订阅合同](docs/design/subscription-contract.md)。
 

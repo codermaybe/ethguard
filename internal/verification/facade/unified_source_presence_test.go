@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard"
-	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -56,9 +55,9 @@ func TestMixedSourcesPreserveCallErrorData(t *testing.T) {
 			}
 			var keys [2]string
 			for i, emission := range emissions {
-				body := aggregator.ObservationRPCError(emission.Err)
+				body := emission.Response.Answer.RPCError
 				if body == nil || body.DataPresence != tc.presence[i] {
-					t.Fatalf("source %d lost wire presence: body=%+v err=%v", i, body, emission.Err)
+					t.Fatalf("source %d lost wire presence: body=%+v err=%v", i, body, emission.Response.Err())
 				}
 				keys[i], err = client.Normalize("eth_call", body.Raw())
 				if err != nil {

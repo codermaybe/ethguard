@@ -412,7 +412,7 @@ func transactionReport(records []Record, network Network, target TransactionTarg
 		}
 		// Threshold one recovers one source's structural inventory, not
 		// cross-provider corroboration. Original raw bytes remain in records.
-		evaluation, err := rpc.AggregateFields([]rpc.Observation{{Source: rpc.SourceRef{ID: record.Source.ID}, Value: raw}}, 1)
+		evaluation, err := rpc.AggregateFields([]rpc.Observation{{Attempted: true, Source: rpc.SourceRef{ID: record.Source.ID}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}}, 1)
 		if err != nil {
 			report.Findings = append(report.Findings, record.RequestID+"/"+record.Source.ID+": field inventory: "+err.Error())
 		} else {

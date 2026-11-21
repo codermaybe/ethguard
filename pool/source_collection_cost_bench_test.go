@@ -11,6 +11,7 @@ import (
 	"time"
 
 	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // The source-collection cost baselines measure the pool's own fan-out
@@ -20,7 +21,6 @@ import (
 // (monitor.acquireRequest) paces sequential requests per source; every
 // benchmark warms the pace down to its floor before timing, so the timed
 // window sees the steady-state pacing cost production traffic sees.
-
 const benchResultPayload = `{"jsonrpc":"2.0","id":1,"result":"0x1"}`
 
 // benchFleetTransport answers one fixed result and counts the wire requests
@@ -33,21 +33,16 @@ type benchFleetTransport struct {
 	result   json.RawMessage
 }
 
-func (t *benchFleetTransport) CallContext(ctx context.Context, result any, _ string, _ ...any) error {
+func (t *benchFleetTransport) Call(ctx context.Context, _ string, _ ...any) rpc.Response {
 	t.requests.Add(1)
 	if hold, ok := t.hold.Load().(chan struct{}); ok {
 		select {
 		case <-hold:
 		case <-ctx.Done():
-			return ctx.Err()
+			return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: ctx.Err()}}
 		}
 	}
-	out, ok := result.(*json.RawMessage)
-	if !ok {
-		return errors.New("bench fleet transport: result target is not *json.RawMessage")
-	}
-	*out = append((*out)[:0], t.result...)
-	return nil
+	return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: append(json.RawMessage(nil), t.result...)}}
 }
 
 func (t *benchFleetTransport) ChainID(context.Context) (*big.Int, error) {
@@ -205,7 +200,7 @@ func BenchmarkCollectVotingAllGated(b *testing.B) {
 		b.Fatalf("slot count = %d, want the full basis", len(lastEmissions))
 	}
 	for i, em := range lastEmissions {
-		if em.Attempted || !errors.Is(em.Err, ErrSourceGated) || em.Src != f.members[i] {
+		if em.Attempted || !errors.Is(em.Response.Err(), ErrSourceGated) || em.Src != f.members[i] {
 			b.Fatalf("slot %d = %+v, want an unattempted gate on its own member", i, em)
 		}
 	}
@@ -251,8 +246,7 @@ func BenchmarkCollectVotingPartialGate(b *testing.B) {
 	}
 	b.StopTimer()
 	assertVotingSlots(b, f, lastEmissions, nil, 3)
-	if lastEmissions[0].Attempted || !errors.Is(lastEmissions[0].Err, ErrSourceGated) ||
-		lastEmissions[1].Attempted || !errors.Is(lastEmissions[1].Err, ErrSourceGated) {
+	if lastEmissions[0].Attempted || !errors.Is(lastEmissions[0].Response.Err(), ErrSourceGated) || lastEmissions[1].Attempted || !errors.Is(lastEmissions[1].Response.Err(), ErrSourceGated) {
 		b.Fatalf("gated slots lost their pause: %+v %+v", lastEmissions[0], lastEmissions[1])
 	}
 	wire := int64(0)
@@ -317,8 +311,8 @@ func BenchmarkCollectVotingCancelledWhileWaiting(b *testing.B) {
 	for _, em := range lastCancelEmissions {
 		if em.Attempted {
 			attempted++
-			if !errors.Is(em.Err, context.Canceled) {
-				b.Fatalf("attempted slot err = %v, want the caller's cancellation", em.Err)
+			if !errors.Is(em.Response.Err(), context.Canceled) {
+				b.Fatalf("attempted slot err = %v, want the caller's cancellation", em.Response.Err())
 			}
 		}
 	}
@@ -357,7 +351,7 @@ func BenchmarkCollectVotingClosedMember(b *testing.B) {
 	}
 	b.StopTimer()
 	assertVotingSlots(b, f, lastEmissions, nil, 2)
-	if lastEmissions[0].Attempted || !errors.Is(lastEmissions[0].Err, ErrClosed) {
+	if lastEmissions[0].Attempted || !errors.Is(lastEmissions[0].Response.Err(), ErrClosed) {
 		b.Fatalf("closed slot = %+v, want ErrClosed with no attempt", lastEmissions[0])
 	}
 	if f.transports[0].requests.Load() != 0 {

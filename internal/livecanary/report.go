@@ -128,33 +128,43 @@ type RequestReport struct {
 }
 
 type DecisionReport struct {
-	Status           string                  `json:"status"`
-	ErrorClass       string                  `json:"error_class"`
-	ErrorDetail      string                  `json:"error_detail"`
-	N                int                     `json:"n"`
-	Participants     []string                `json:"participants"`
-	Support          []string                `json:"support"`
-	Reject           []string                `json:"reject"`
-	Faults           []SourceFaultReport     `json:"faults"`
-	CollectionFaults []CollectionFaultReport `json:"collection_faults"`
-	Representative   string                  `json:"representative"`
-	ValueSHA256      string                  `json:"value_sha256"`
-	ValueKind        string                  `json:"value_kind"`
+	Status           string                    `json:"status"`
+	ErrorClass       string                    `json:"error_class"`
+	ErrorDetail      string                    `json:"error_detail"`
+	N                int                       `json:"n"`
+	Participants     []string                  `json:"participants"`
+	Sources          []SourceDispositionReport `json:"sources"`
+	Support          []string                  `json:"support"`
+	Reject           []string                  `json:"reject"`
+	Faults           []SourceFaultReport       `json:"faults"`
+	CollectionFaults []CollectionFaultReport   `json:"collection_faults"`
+	Representative   string                    `json:"representative"`
+	ValueSHA256      string                    `json:"value_sha256"`
+	ValueKind        string                    `json:"value_kind"`
 }
 
 type ReferenceReport struct {
-	Status           string                  `json:"status"`
-	Tag              string                  `json:"tag"`
-	Height           uint64                  `json:"height"`
-	Hash             string                  `json:"hash"`
-	Origin           string                  `json:"origin"`
-	ObservedAt       string                  `json:"observed_at"`
-	N                int                     `json:"n"`
-	Participants     []string                `json:"participants"`
-	Support          []string                `json:"support"`
-	Reject           []string                `json:"reject"`
-	Faults           []SourceFaultReport     `json:"faults"`
-	CollectionFaults []CollectionFaultReport `json:"collection_faults"`
+	Status           string                    `json:"status"`
+	Tag              string                    `json:"tag"`
+	Height           uint64                    `json:"height"`
+	Hash             string                    `json:"hash"`
+	Origin           string                    `json:"origin"`
+	ObservedAt       string                    `json:"observed_at"`
+	N                int                       `json:"n"`
+	Participants     []string                  `json:"participants"`
+	Sources          []SourceDispositionReport `json:"sources"`
+	Support          []string                  `json:"support"`
+	Reject           []string                  `json:"reject"`
+	Faults           []SourceFaultReport       `json:"faults"`
+	CollectionFaults []CollectionFaultReport   `json:"collection_faults"`
+}
+
+// SourceDispositionReport is the payload-free projection of one source's
+// scheduling fact and relation. Faults remain a separate cause view.
+type SourceDispositionReport struct {
+	SourceID  string `json:"source_id"`
+	Attempted bool   `json:"attempted"`
+	Relation  string `json:"relation"`
 }
 
 type SourceFaultReport struct {
@@ -405,7 +415,7 @@ func (d *DecisionReport) validate() error {
 	if err := validateOptionalDetail("error_detail", d.ErrorDetail); err != nil {
 		return err
 	}
-	if err := validateFaultPartition(d.Participants, d.Support, d.Reject, d.Faults); err != nil {
+	if err := validateSourceDispositions(d.Participants, d.Support, d.Reject, d.Sources, d.Faults); err != nil {
 		return err
 	}
 	for i, fault := range d.Faults {
@@ -452,7 +462,7 @@ func (r *ReferenceReport) validate() error {
 			return fmt.Errorf("support: corroborated references require at least one supporter")
 		}
 	}
-	if err := validateFaultPartition(r.Participants, r.Support, r.Reject, r.Faults); err != nil {
+	if err := validateSourceDispositions(r.Participants, r.Support, r.Reject, r.Sources, r.Faults); err != nil {
 		return err
 	}
 	for i, fault := range r.Faults {
@@ -531,7 +541,7 @@ func (h *SourceHealthReport) validate() error {
 	return nil
 }
 
-func validateFaultPartition(participants, support, reject []string, faults []SourceFaultReport) error {
+func validateSourceDispositions(participants, support, reject []string, sources []SourceDispositionReport, faults []SourceFaultReport) error {
 	index := make(map[string]int, len(participants))
 	for i, id := range participants {
 		if id == "" {
@@ -542,43 +552,57 @@ func validateFaultPartition(participants, support, reject []string, faults []Sou
 		}
 		index[id] = i
 	}
-	claimed := make(map[string]string, len(participants))
-	claim := func(id, group string) error {
-		if _, ok := index[id]; !ok {
-			return fmt.Errorf("%s: source %q is not a participant", group, id)
-		}
-		if previous, ok := claimed[id]; ok {
-			return fmt.Errorf("%s: source %q already claimed by %s", group, id, previous)
-		}
-		claimed[id] = group
-		return nil
+	if len(sources) != len(participants) {
+		return fmt.Errorf("sources: coverage differs from participants")
 	}
-	last := -1
-	for _, id := range support {
-		if err := claim(id, "support"); err != nil {
-			return err
+	relations := make(map[string]string, len(sources))
+	for _, source := range sources {
+		if _, exists := index[source.SourceID]; !exists {
+			return fmt.Errorf("sources: %q is not a participant", source.SourceID)
 		}
-		if index[id] <= last {
-			return fmt.Errorf("support: source order does not follow participants")
+		if _, exists := relations[source.SourceID]; exists {
+			return fmt.Errorf("sources: duplicate member %q", source.SourceID)
 		}
-		last = index[id]
+		switch source.Relation {
+		case "unassessed", "supported", "dissented", "unusable", "absent", "excluded":
+		default:
+			return fmt.Errorf("sources: unknown relation %q", source.Relation)
+		}
+		if source.Attempted == (source.Relation == "absent") {
+			return fmt.Errorf("sources: %q has contradictory attempted/absence facts", source.SourceID)
+		}
+		relations[source.SourceID] = source.Relation
 	}
-	for _, id := range reject {
-		if err := claim(id, "reject"); err != nil {
-			return err
-		}
-	}
-	for _, fault := range faults {
-		if err := claim(fault.SourceID, "faults"); err != nil {
-			return err
-		}
-	}
-	if len(claimed) != len(participants) {
-		for _, id := range participants {
-			if _, ok := claimed[id]; !ok {
-				return fmt.Errorf("participants: source %q has no disposition", id)
+	claimed := make(map[string]bool)
+	for _, set := range []struct {
+		ids      []string
+		relation string
+	}{{support, "supported"}, {reject, "dissented"}} {
+		last := -1
+		for _, id := range set.ids {
+			if relations[id] != set.relation || claimed[id] {
+				return fmt.Errorf("%s: duplicate or contradictory source %q", set.relation, id)
 			}
+			if set.relation == "supported" && index[id] <= last {
+				return fmt.Errorf("support: source order does not follow participants")
+			}
+			last, claimed[id] = index[id], true
 		}
+	}
+	for id, relation := range relations {
+		if (relation == "supported" || relation == "dissented") && !claimed[id] {
+			return fmt.Errorf("sources: %q missing from %s view", id, relation)
+		}
+	}
+	faulted := make(map[string]bool, len(faults))
+	for _, fault := range faults {
+		if _, exists := index[fault.SourceID]; !exists || faulted[fault.SourceID] {
+			return fmt.Errorf("faults: duplicate or unknown source %q", fault.SourceID)
+		}
+		if relation := relations[fault.SourceID]; relation == "supported" || relation == "dissented" {
+			return fmt.Errorf("faults: %q also contributes a valid candidate", fault.SourceID)
+		}
+		faulted[fault.SourceID] = true
 	}
 	return nil
 }
@@ -728,16 +752,16 @@ func checkStepFields(path string, raw json.RawMessage) error {
 			return err
 		}
 		if err := checkNullableObject(path+".reference", object["reference"], func(path string, object map[string]json.RawMessage) error {
-			return checkFaultLists(path, object, []string{
+			return checkEvidenceFields(path, object, []string{
 				"status", "tag", "height", "hash", "origin", "observed_at", "n",
-				"participants", "support", "reject", "faults", "collection_faults",
+				"participants", "sources", "support", "reject", "faults", "collection_faults",
 			})
 		}); err != nil {
 			return err
 		}
 		if err := checkNullableObject(path+".decision", object["decision"], func(path string, object map[string]json.RawMessage) error {
-			return checkFaultLists(path, object, []string{
-				"status", "error_class", "error_detail", "n", "participants",
+			return checkEvidenceFields(path, object, []string{
+				"status", "error_class", "error_detail", "n", "participants", "sources",
 				"support", "reject", "faults", "collection_faults", "representative",
 				"value_sha256", "value_kind",
 			})
@@ -771,8 +795,19 @@ func checkRequestObject(path string, object map[string]json.RawMessage) error {
 	return checkArray(path+".params", object["params"])
 }
 
-func checkFaultLists(path string, object map[string]json.RawMessage, keys []string) error {
+func checkEvidenceFields(path string, object map[string]json.RawMessage, keys []string) error {
 	if err := requireKeys(path, object, keys...); err != nil {
+		return err
+	}
+	if err := eachArray(path+".sources", object["sources"], func(path string, raw json.RawMessage) error {
+		return checkObject(path, raw, []string{"source_id", "attempted", "relation"}, func(source map[string]json.RawMessage) error {
+			attempted := bytes.TrimSpace(source["attempted"])
+			if !bytes.Equal(attempted, []byte("true")) && !bytes.Equal(attempted, []byte("false")) {
+				return fmt.Errorf("%s.attempted: must be a boolean", path)
+			}
+			return nil
+		})
+	}); err != nil {
 		return err
 	}
 	if err := eachArray(path+".faults", object["faults"], func(path string, raw json.RawMessage) error {

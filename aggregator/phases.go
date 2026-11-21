@@ -224,8 +224,8 @@ func (a *Aggregator) prepareFailureExit(state *invocationState, started time.Tim
 // through the one invocation assembly point, so the planned path and the
 // legacy path keep the same contract.
 func (a *Aggregator) requestFailureExit(state *invocationState, started time.Time, req rpc.Request, err error) *earlyExit {
-	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.establishedReference()}
-	state.attachFaults(&decision, nil)
-	a.recordDecision(started, req.Method, state.resolverPolicy(), decision, err, nil, nil)
+	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.establishedReference(), Adjudication: rpc.Adjudication{Basis: state.invocation.Basis().Size(), Required: state.invocation.Basis().Required()}}
+	state.attachFaults(&decision)
+	a.recordDecision(started, req.Method, decision, err, nil, nil)
 	return &earlyExit{decision: decision, err: err}
 }

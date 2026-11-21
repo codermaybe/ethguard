@@ -57,19 +57,6 @@ type FieldDiagnostics struct {
 	Conflicts []ConflictField
 }
 
-// sourceFault prefixes a resolver-phase encode/normalize failure with the
-// observation's source, so Decision.Faults attributes per-source failures
-// without relying on a post-hoc mirror over the pool emissions. The ID is
-// preferred because it is the voting identity; a nameless fallback keeps
-// hand-built observations readable.
-func sourceFault(source SourceRef, cause string, err error) error {
-	id := source.ID
-	if id == "" {
-		id = source.Name
-	}
-	return fmt.Errorf("source %q: %s: %w", id, cause, err)
-}
-
 // AggregateFields flattens object and array responses into JSON Pointer paths
 // and groups equal values by source. A path enters Accepted only when exactly
 // one value reaches quorum. Multiple values reaching quorum are reported as a
@@ -99,11 +86,11 @@ func AggregateFields(observations []Observation, quorum int) (Evaluation, error)
 			return Evaluation{}, fmt.Errorf("rpc: duplicate observation source %q at %d and %d", id, first, i)
 		}
 		seen[id] = i
-		if observation.Err != nil || observation.Value == nil {
+		if observation.Response.Err() != nil || observation.Response.Answer.Result == nil {
 			continue
 		}
 
-		value, err := decodeObservedJSON(observation.Value)
+		value, err := decodeObservedJSON(observation.Response.Answer.Result)
 		if err != nil {
 			result.Malformed = append(result.Malformed, MalformedSource{Source: observation.Source, Err: err})
 			continue

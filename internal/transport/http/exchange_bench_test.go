@@ -35,7 +35,7 @@ func BenchmarkExchangeEndToEnd(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				var result json.RawMessage
-				if err := t.CallContext(ctx, &result, "eth_sendRawTransaction", params...); err != nil {
+				if err := t.Call(ctx, "eth_sendRawTransaction", params...).Decode(&result); err != nil {
 					b.Fatal(err)
 				}
 			}

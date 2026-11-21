@@ -1,8 +1,6 @@
 package gethoracle
 
 import (
-	"github.com/codermaybe/ethguard/internal/transport"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +14,8 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+
+	"github.com/codermaybe/ethguard/internal/transport"
 )
 
 type rawBodyTestRPCError struct{ code int }
@@ -109,7 +109,7 @@ func dialCaptureServer(t *testing.T, rawURL string, limit int64) *ethclient.Clie
 func callWithCapture(t *testing.T, client *ethclient.Client, base context.Context) (json.RawMessage, error) {
 	t.Helper()
 	var result json.RawMessage
-	err := newGethTransport(client, true, 0).CallContext(base, &result, "eth_chainId")
+	err := newGethTransport(client, true, 0).Call(base, "eth_chainId").Decode(&result)
 	return result, err
 }
 
@@ -155,7 +155,7 @@ func TestCaptureHTTPNormalStates(t *testing.T) {
 			result, err := callWithCapture(t, client, context.Background())
 			if tc.result {
 				if err != nil {
-					t.Fatalf("CallContext err = %v, want nil", err)
+					t.Fatalf("Call err = %v, want nil", err)
 				}
 				if string(result) != `"0x2a"` {
 					t.Fatalf("result = %s, want \"0x2a\"", result)
@@ -228,7 +228,7 @@ func TestCaptureHTTPReadFailureSurfacesReadError(t *testing.T) {
 	client := dialCaptureServer(t, srv.URL, 0)
 	_, err := callWithCapture(t, client, context.Background())
 	if err == nil {
-		t.Fatal("CallContext err = nil, want the mid-body read failure")
+		t.Fatal("Call err = nil, want the mid-body read failure")
 	}
 	if errors.Is(err, transport.ErrBodyTooLarge) {
 		t.Fatalf("read failure misclassified as transport.ErrBodyTooLarge: %v", err)

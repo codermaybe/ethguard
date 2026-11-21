@@ -34,22 +34,22 @@ func TestBlockPolicyCanonicalizesCompleteOfficialValue(t *testing.T) {
 	second = injectField(t, second, "vendor", `true`)
 	policy := planResolver(t, MethodGetBlockByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: first},
-		{Source: rpc.SourceRef{ID: "b"}, Value: second},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: first}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: second}}},
 	})
-	if err != nil || decision.Status != rpc.Corroborated {
+	if err != nil || decision.Decision.Status != rpc.Corroborated {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
 	want, err := blockobject.Encode(first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(decision.Value, want) {
-		t.Fatalf("value = %s, want %s", decision.Value, want)
+	if !bytes.Equal(decision.Decision.Value, want) {
+		t.Fatalf("value = %s, want %s", decision.Decision.Value, want)
 	}
 	for _, field := range []string{"totalDifficulty", "vendor"} {
-		if bytes.Contains(decision.Value, []byte(`"`+field+`"`)) {
-			t.Fatalf("uncommitted field %s survived: %s", field, decision.Value)
+		if bytes.Contains(decision.Decision.Value, []byte(`"`+field+`"`)) {
+			t.Fatalf("uncommitted field %s survived: %s", field, decision.Decision.Value)
 		}
 	}
 }
@@ -59,19 +59,19 @@ func TestBlockByNumberHeaderOnlyUsesCanonicalValue(t *testing.T) {
 	second := json.RawMessage(`{"hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","number":"0x10","extra":"ignored"}`)
 	policy := planResolver(t, MethodGetBlockByNumber, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: first},
-		{Source: rpc.SourceRef{ID: "b"}, Value: second},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: first}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: second}}},
 	})
-	if err != nil || decision.Status != rpc.Corroborated {
+	if err != nil || decision.Decision.Status != rpc.Corroborated {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
 	want := json.RawMessage(`{"hash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","number":"0x10"}`)
-	if !bytes.Equal(decision.Value, want) {
-		t.Fatalf("value = %s, want canonical %s", decision.Value, want)
+	if !bytes.Equal(decision.Decision.Value, want) {
+		t.Fatalf("value = %s, want canonical %s", decision.Decision.Value, want)
 	}
 	for _, field := range []string{"vendor", "extra"} {
-		if bytes.Contains(decision.Value, []byte(`"`+field+`"`)) {
-			t.Fatalf("source-only field %s survived: %s", field, decision.Value)
+		if bytes.Contains(decision.Decision.Value, []byte(`"`+field+`"`)) {
+			t.Fatalf("source-only field %s survived: %s", field, decision.Decision.Value)
 		}
 	}
 }
@@ -94,22 +94,22 @@ func TestBlockPolicyFaultsFalseOriginalWireHashBeforeClustering(t *testing.T) {
 	second := injectField(t, blockRaw(t, &secondHeader, nil), "hash", string(mustMarshal(t, firstHeader.Hash())))
 	policy := planResolver(t, MethodGetBlockByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: first},
-		{Source: rpc.SourceRef{ID: "b"}, Value: second},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: first}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: second}}},
 	})
-	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 1 || decision.Support[0].ID != "a" || len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), `source "b"`) || !strings.Contains(decision.Faults[0].Error(), "wire hash disagrees") {
+	if !errors.Is(err, rpc.ErrInsufficientSupport) || decision.Decision.Status != rpc.Unknown || len(decision.Decision.Support) != 1 || decision.Decision.Support[0].ID != "a" || len(decision.Decision.Faults) != 1 || (len(decision.Decision.SourceFaults) != 1 || decision.Decision.SourceFaults[0].Source.ID != "b") || !strings.Contains(decision.Decision.Faults[0].Error(), "wire hash disagrees") {
 		t.Fatalf("decision = %+v err %v, want source b fault before clustering", decision, err)
 	}
 	// A third valid source reaches quorum; the faulty declaration never votes.
 	decision, err = policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: first},
-		{Source: rpc.SourceRef{ID: "b"}, Value: second},
-		{Source: rpc.SourceRef{ID: "c"}, Value: first},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: first}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: second}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: first}}},
 	})
-	if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Faults) != 1 {
+	if err != nil || decision.Decision.Status != rpc.Corroborated || len(decision.Decision.Support) != 2 || len(decision.Decision.Faults) != 1 {
 		t.Fatalf("valid quorum blocked by faulty source: %+v %v", decision, err)
 	}
-	if _, err := ethapi.NewBlock(decision.Value); err != nil {
+	if _, err := ethapi.NewBlock(decision.Decision.Value); err != nil {
 		t.Fatalf("committed Value is not official Block: %v", err)
 	}
 }
@@ -136,14 +136,14 @@ func TestBlockPolicyKeepsCommittedUncleHashes(t *testing.T) {
 	raw := blockRaw(t, header, []common.Hash{uncle.Hash()})
 	policy := planResolver(t, MethodGetBlockByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: raw},
-		{Source: rpc.SourceRef{ID: "b"}, Value: raw},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
 	})
-	if err != nil || decision.Status != rpc.Corroborated {
+	if err != nil || decision.Decision.Status != rpc.Corroborated {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
-	if !bytes.Contains(decision.Value, []byte(`"uncles":["`+uncle.Hash().Hex()+`"]`)) {
-		t.Fatalf("committed uncle hash missing: %s", decision.Value)
+	if !bytes.Contains(decision.Decision.Value, []byte(`"uncles":["`+uncle.Hash().Hex()+`"]`)) {
+		t.Fatalf("committed uncle hash missing: %s", decision.Decision.Value)
 	}
 }
 
@@ -164,25 +164,25 @@ func TestBlockPolicyKeepsCommittedWithdrawals(t *testing.T) {
 	raw := injectField(t, blockRaw(t, header, nil), "withdrawals", `[]`)
 	policy := planResolver(t, MethodGetBlockByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: raw},
-		{Source: rpc.SourceRef{ID: "b"}, Value: raw},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
 	})
-	if err != nil || decision.Status != rpc.Corroborated {
+	if err != nil || decision.Decision.Status != rpc.Corroborated {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
-	if !bytes.Contains(decision.Value, []byte(`"withdrawals":[]`)) {
-		t.Fatalf("committed withdrawals missing: %s", decision.Value)
+	if !bytes.Contains(decision.Decision.Value, []byte(`"withdrawals":[]`)) {
+		t.Fatalf("committed withdrawals missing: %s", decision.Decision.Value)
 	}
 }
 
 func TestBlockPolicyPreservesMissingHeadDiagnostic(t *testing.T) {
 	policy := planResolver(t, MethodGetBlockByNumber, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: json.RawMessage(`{"unexpected":true}`)},
-		{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`{"unexpected":true}`)},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`{"unexpected":true}`)}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`{"unexpected":true}`)}}},
 	})
 	var faults string
-	for _, fault := range decision.Faults {
+	for _, fault := range decision.Decision.Faults {
 		faults += fault.Error() + "\n"
 	}
 	if err == nil || !strings.Contains(faults, "missing number or hash") {
@@ -197,28 +197,28 @@ func TestBlockPolicySameHashDifferentSizeFormsDistinctCanonicalClusters(t *testi
 	for _, method := range []string{MethodGetBlockByHash, MethodGetBlockByNumber} {
 		t.Run(method, func(t *testing.T) {
 			policy := planResolver(t, method, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
-			obs := []rpc.Observation{{Source: rpc.SourceRef{ID: "a"}, Value: first}, {Source: rpc.SourceRef{ID: "b"}, Value: second}}
+			obs := []rpc.Observation{{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: first}}}, {Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: second}}}}
 			decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, obs)
-			if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 1 || len(decision.Faults) != 0 {
+			if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown || len(decision.Decision.Support) != 1 || len(decision.Decision.Faults) != 0 {
 				t.Fatalf("same hash with differing valid size did not split clusters: %+v %v", decision, err)
 			}
-			obs = append(obs, rpc.Observation{Source: rpc.SourceRef{ID: "c"}, Value: second})
+			obs = append(obs, rpc.Observation{Attempted: true, Source: rpc.SourceRef{ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: second}}})
 			decision, err = policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, obs)
-			if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 0 {
+			if err != nil || decision.Decision.Status != rpc.Corroborated || len(decision.Decision.Support) != 2 || len(decision.Decision.Reject) != 1 || len(decision.Decision.Faults) != 0 {
 				t.Fatalf("2 of 3 complete values did not win: %+v %v", decision, err)
 			}
-			value, err := ethapi.NewBlock(decision.Value)
+			value, err := ethapi.NewBlock(decision.Decision.Value)
 			if err != nil || value.Size != "0x201" {
-				t.Fatalf("winning official Value = %s %v", decision.Value, err)
+				t.Fatalf("winning official Value = %s %v", decision.Decision.Value, err)
 			}
-			for _, source := range decision.Support {
+			for _, source := range decision.Decision.Support {
 				if source.ID == "a" {
 					t.Fatal("different-size source counted as support")
 				}
 			}
 			want, err := blockobject.Encode(second)
-			if err != nil || !bytes.Equal(decision.Value, want) {
-				t.Fatalf("committed Value differs from actual winning key: %s %v", decision.Value, err)
+			if err != nil || !bytes.Equal(decision.Decision.Value, want) {
+				t.Fatalf("committed Value differs from actual winning key: %s %v", decision.Decision.Value, err)
 			}
 		})
 	}
@@ -244,10 +244,10 @@ func TestBlockReferenceFallbackCannotBypassHeaderOrFullBodyChecks(t *testing.T) 
 func TestBlockReferenceRetainsInternalShortHashGrammar(t *testing.T) {
 	policy := planResolver(t, MethodGetBlockByNumber, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: json.RawMessage(`{"hash":"0xABC","number":"0x01","vendor":true}`)},
-		{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`{"hash":"0xabc","number":"0x1","extra":true}`)},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`{"hash":"0xABC","number":"0x01","vendor":true}`)}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`{"hash":"0xabc","number":"0x1","extra":true}`)}}},
 	})
-	if err != nil || decision.Status != rpc.Corroborated || string(decision.Value) != `{"hash":"0xabc","number":"0x1"}` {
+	if err != nil || decision.Decision.Status != rpc.Corroborated || string(decision.Decision.Value) != `{"hash":"0xabc","number":"0x1"}` {
 		t.Fatalf("internal reference grammar changed: %+v %v", decision, err)
 	}
 }

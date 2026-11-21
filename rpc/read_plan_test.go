@@ -127,8 +127,7 @@ func TestPlanRequirementFieldsDefaultMissingBoundsToLatest(t *testing.T) {
 
 func TestPlanPrepareRewritesHashPositions(t *testing.T) {
 	plan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}}}
-	prepared, pin, err := plan.PrepareWithReference(
-		Request{Method: plan.Method, Params: []any{"0x1", "latest"}}, planEvidence("latest"), true)
+	prepared, pin, err := plan.PrepareWithReference(Request{Method: plan.Method, Params: []any{"0x1", "latest"}}, planEvidence("latest"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,8 +153,7 @@ func TestPlanPrepareRewritesHashPositions(t *testing.T) {
 
 func TestPlanPrepareRewritesHeightPositionsAndFields(t *testing.T) {
 	heightPlan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHeightAt, Positions: []int{1}}}
-	prepared, pin, err := heightPlan.PrepareWithReference(
-		Request{Method: heightPlan.Method, Params: []any{"0x5", "latest"}}, planEvidence("latest"), true)
+	prepared, pin, err := heightPlan.PrepareWithReference(Request{Method: heightPlan.Method, Params: []any{"0x5", "latest"}}, planEvidence("latest"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,8 +165,7 @@ func TestPlanPrepareRewritesHeightPositionsAndFields(t *testing.T) {
 	}
 
 	fieldsPlan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHeightFieldsAt, ParamPos: 0, Fields: []string{"fromBlock", "toBlock"}}}
-	prepared, pin, err = fieldsPlan.PrepareWithReference(
-		Request{Method: fieldsPlan.Method, Params: []any{map[string]any{"fromBlock": "latest"}}}, planEvidence("latest"), true)
+	prepared, pin, err = fieldsPlan.PrepareWithReference(Request{Method: fieldsPlan.Method, Params: []any{map[string]any{"fromBlock": "latest"}}}, planEvidence("latest"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,8 +180,7 @@ func TestPlanPrepareRewritesHeightPositionsAndFields(t *testing.T) {
 
 func TestPlanPrepareRewritesEIP1898ObjectAndPreservesRequireCanonical(t *testing.T) {
 	plan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true}}
-	prepared, pin, err := plan.PrepareWithReference(
-		Request{Method: plan.Method, Params: []any{"0x1", map[string]any{"blockNumber": "safe", "requireCanonical": true}}},
+	prepared, pin, err := plan.PrepareWithReference(Request{Method: plan.Method, Params: []any{"0x1", map[string]any{"blockNumber": "safe", "requireCanonical": true}}},
 		planEvidence("safe"), true)
 	if err != nil {
 		t.Fatal(err)
@@ -217,24 +213,21 @@ func TestPlanPrepareFailsWhenEvidenceDoesNotServeTheTag(t *testing.T) {
 	plan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{0}}}
 	// The read declared safe; only latest evidence exists. A level is never
 	// silently downgraded: the read fails the way a missing reference would.
-	_, _, err := plan.PrepareWithReference(
-		Request{Method: plan.Method, Params: []any{"safe"}}, planEvidence("latest"), true)
+	_, _, err := plan.PrepareWithReference(Request{Method: plan.Method, Params: []any{"safe"}}, planEvidence("latest"), true)
 	if !errors.Is(err, ErrReferenceRequired) {
 		t.Fatalf("err=%v, want ErrReferenceRequired", err)
 	}
 	// Uncorroborated evidence never rewrites a request.
 	uncorroborated := planEvidence("latest")
 	uncorroborated.Status = Unknown
-	if _, _, err := plan.PrepareWithReference(
-		Request{Method: plan.Method, Params: []any{"latest"}}, uncorroborated, true); !errors.Is(err, ErrConflict) {
-		t.Fatalf("err=%v, want ErrConflict", err)
+	if _, _, err := plan.PrepareWithReference(Request{Method: plan.Method, Params: []any{"latest"}}, uncorroborated, true); !errors.Is(err, ErrGuaranteeNotMet) {
+		t.Fatalf("err=%v, want ErrGuaranteeNotMet", err)
 	}
 }
 
 func TestPlanPrepareRejectsMixedMovingTagsLocally(t *testing.T) {
 	plan := ReadPlan{Method: "eth_plan", Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{0, 1}}}
-	_, _, err := plan.PrepareWithReference(
-		Request{Method: plan.Method, Params: []any{"latest", "safe"}}, planEvidence("latest"), true)
+	_, _, err := plan.PrepareWithReference(Request{Method: plan.Method, Params: []any{"latest", "safe"}}, planEvidence("latest"), true)
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("err=%v, want ErrInvalidRequest", err)
 	}
@@ -280,26 +273,26 @@ func TestPlanMethodRuleProjectsDeclarationsAndResolverRule(t *testing.T) {
 func TestPlanResolveLocalObservationStandsFirstNormalizableSource(t *testing.T) {
 	policy := Strict(func(value json.RawMessage) (string, error) { return string(value), nil })
 	obs := []Observation{
-		{Source: SourceRef{Name: "a", ID: "a"}, Err: errors.New("transport fault")},
-		{Source: SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(`"0x64"`), Evidence: json.RawMessage(`"ev"`)},
-		{Source: SourceRef{Name: "c", ID: "c"}, Value: json.RawMessage(`"0x65"`)},
+		{Attempted: true, Source: SourceRef{Name: "a", ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("transport fault")}}},
+		{Attempted: true, Source: SourceRef{Name: "b", ID: "b"}, Evidence: json.RawMessage(`"ev"`), Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`"0x64"`)}}},
+		{Attempted: true, Source: SourceRef{Name: "c", ID: "c"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`"0x65"`)}}},
 	}
 	decision, err := ResolveLocalObservation(policy, obs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Selected {
-		t.Fatalf("status=%v, want Selected", decision.Status)
+	if decision.Decision.Status != Selected {
+		t.Fatalf("status=%v, want Selected", decision.Decision.Status)
 	}
-	if string(decision.Value) != `"0x64"` || len(decision.Support) != 1 || decision.Support[0].ID != "b" {
+	if string(decision.Decision.Value) != `"0x64"` || len(decision.Decision.Support) != 1 || decision.Decision.Support[0].ID != "b" {
 		t.Fatalf("decision=%+v, want the first usable source's value", decision)
 	}
-	if string(decision.Provenance) != `"ev"` {
-		t.Fatalf("provenance=%s, want the source's own evidence", decision.Provenance)
+	if string(decision.Decision.Provenance) != `"ev"` {
+		t.Fatalf("provenance=%s, want the source's own evidence", decision.Decision.Provenance)
 	}
 	// No usable source fails Unknown with the no-valid-response class.
 	decision, err = ResolveLocalObservation(policy, obs[:1])
-	if decision.Status != Unknown || err == nil {
-		t.Fatalf("no usable source: status=%v err=%v, want Unknown with an error", decision.Status, err)
+	if decision.Decision.Status != Unknown || err == nil {
+		t.Fatalf("no usable source: status=%v err=%v, want Unknown with an error", decision.Decision.Status, err)
 	}
 }

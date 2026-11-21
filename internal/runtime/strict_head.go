@@ -58,12 +58,11 @@ func NewStrictHeadEstablishment(p *pool.Pool, rec observe.Recorder, timeout time
 
 // strictHeadRound carries the outcome of one establishment round: the
 // reference evidence, every emission the round produced, the admission-time
-// raw copy of those emissions, and the pool-level collection verdict, so a
+// original response facts, and the pool-level collection verdict, so a
 // caller with an invocation records the exact raw trail against it.
 type strictHeadRound struct {
 	reference  rpc.ReferenceEvidence
 	emissions  []pool.Emission
-	raw        []pool.Emission
 	collectErr error
 }
 
@@ -111,11 +110,8 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 	}
 	// Admission's shape-reservation stage runs before resolution, exactly as
 	// the pipeline's does: a malformed body can never win a cluster. The raw
-	// values are preserved first so the invocation's capture trail keeps the
-	// bytes admission is about to clear.
-	rawValues := preserveRawValues(emissions)
+	// response keeps its original bytes while admission records its judgment.
 	aggregator.RejectUnsafeJSON(emissions)
-	raw := rawEmissions(emissions, rawValues)
 	observations := make([]rpc.Observation, len(emissions))
 	participants := make([]rpc.SourceRef, 0, len(emissions))
 	for i, emission := range emissions {
@@ -124,95 +120,68 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 	}
 
 	decision := rpc.Decision{Status: rpc.Unknown, Participants: participants}
+	slotOutcome := aggregator.RoundOutcome(emissions)
+	decision.Sources, decision.SourceFaults, decision.Faults = slotOutcome.Decision.Sources, slotOutcome.Decision.SourceFaults, slotOutcome.Decision.Faults
+	decision.Adjudication = slotOutcome.Decision.Adjudication
+	decision.Adjudication.Required = snap.Required(len(members))
 	if collectErr != nil && !aggregator.RoundHasUsable(emissions) {
 		// A terminal collection failure with nothing usable returns the pool's
 		// own sentinel, with the round's faults attached.
-		decision = attachRoundFaults(decision, collectErr, nil, policy, emissions)
-		e.record(started, policy, decision, collectErr, emissions, nil)
-		return strictHeadRound{reference: evidenceFromDecision(decision, tag), emissions: emissions, raw: raw, collectErr: collectErr}, collectErr
+		decision = attachRoundFaults(decision, collectErr)
+		e.record(started, decision, collectErr, emissions, slotOutcome.Verdicts)
+		return strictHeadRound{reference: evidenceFromDecision(decision, tag), emissions: emissions, collectErr: collectErr}, collectErr
 	}
 	if collectErr == nil && !aggregator.RoundHasUsable(emissions) {
 		if malformed, malformedErr := aggregator.RoundMalformedFault(emissions); malformed {
 			err := fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, malformedErr)
-			decision.Faults, decision.SourceFaults = aggregator.RoundFaults(policy, emissions, nil)
-			e.record(started, policy, decision, err, emissions, nil)
-			return strictHeadRound{reference: evidenceFromDecision(decision, tag), emissions: emissions, raw: raw, collectErr: collectErr}, err
+			e.record(started, decision, err, emissions, slotOutcome.Verdicts)
+			return strictHeadRound{reference: evidenceFromDecision(decision, tag), emissions: emissions, collectErr: collectErr}, err
 		}
 	}
 
 	var resolveErr error
+	var outcome rpc.Outcome
 	var verdicts []rpc.SourceVerdict
 	var resolution rpc.Policy = policy
 	if snapOK {
 		if corroborating, ok := resolution.(rpc.CorroboratingPolicy); ok {
-			decision, resolveErr = corroborating.ResolveCorroborated(snap, observations)
+			outcome, resolveErr = corroborating.ResolveCorroborated(snap, observations)
 		} else {
-			decision, resolveErr = resolution.Resolve(observations)
+			outcome, resolveErr = resolution.Resolve(observations)
 		}
 	} else {
-		decision, resolveErr = resolution.Resolve(observations)
+		outcome, resolveErr = resolution.Resolve(observations)
 	}
 	// The resolution's own decision does not carry the fan-out's membership;
 	// every emission keeps the participant slot the pipeline's project phase
 	// gives it.
+	if contractErr := outcome.Validate(observations); contractErr != nil {
+		resolveErr = errors.Join(contractErr, resolveErr)
+		outcome = slotOutcome
+		outcome.Decision.Adjudication.Reason = rpc.ReasonInternalFailure
+	}
+	decision, verdicts = outcome.Decision, outcome.Verdicts
 	decision.Participants = participants
-	// The head policy does not speak per-source verdicts through this
-	// resolution, so classification keeps the policy's validity contract —
-	// the same statement the pipeline projects for the facade service.
-	decision = attachRoundFaults(decision, collectErr, verdicts, policy, emissions)
-	e.record(started, policy, decision, resolveErr, emissions, verdicts)
+	decision = attachRoundFaults(decision, collectErr)
+	e.record(started, decision, resolveErr, emissions, verdicts)
 	reference := evidenceFromDecision(decision, tag)
 	if resolveErr != nil {
-		return strictHeadRound{reference: reference, emissions: emissions, raw: raw, collectErr: collectErr}, resolveErr
+		return strictHeadRound{reference: reference, emissions: emissions, collectErr: collectErr}, resolveErr
 	}
 	hash, height, err := blockRefFromDecision(decision)
 	reference.Hash, reference.Height = hash, height
-	return strictHeadRound{reference: reference, emissions: emissions, raw: raw, collectErr: collectErr}, err
-}
-
-// preserveRawValues copies the round's delivered values before admission can
-// clear a malformed one. It mirrors the pipeline's admission ordering: the
-// capture trail keeps the wire bytes; the working emissions keep the
-// cleared-value rule.
-func preserveRawValues(emissions []pool.Emission) [][]byte {
-	if emissions == nil {
-		return nil
-	}
-	values := make([][]byte, len(emissions))
-	for i, emission := range emissions {
-		if emission.Val != nil {
-			values[i] = append([]byte(nil), emission.Val...)
-		}
-	}
-	return values
-}
-
-// rawEmissions pairs the post-admission faults with the preserved values, so
-// a capture record shows both the wire bytes and why admission refused them.
-func rawEmissions(emissions []pool.Emission, values [][]byte) []pool.Emission {
-	if emissions == nil {
-		return nil
-	}
-	raw := make([]pool.Emission, len(emissions))
-	for i, emission := range emissions {
-		raw[i] = emission
-		raw[i].Val = values[i]
-	}
-	return raw
+	return strictHeadRound{reference: reference, emissions: emissions, collectErr: collectErr}, err
 }
 
 // attachRoundFaults folds one completed round's fault tables into the
 // decision, the way the pipeline's project phase does: collection failures
 // ride both fault lists, each failed attempted source keeps its
 // human-readable fault and its structured attribution.
-func attachRoundFaults(decision rpc.Decision, collectErr error, verdicts []rpc.SourceVerdict, policy rpc.Policy, emissions []pool.Emission) rpc.Decision {
+func attachRoundFaults(decision rpc.Decision, collectErr error) rpc.Decision {
 	if collectErr != nil {
 		decision.Faults = append(decision.Faults, aggregator.CollectFault(collectErr))
 		decision.CollectionFaults = append(decision.CollectionFaults, aggregator.CollectFault(collectErr))
 	}
-	faults, sourceFaults := aggregator.RoundFaults(policy, emissions, verdicts)
-	decision.Faults = append(decision.Faults, faults...)
-	decision.SourceFaults = append(decision.SourceFaults, sourceFaults...)
 	return decision
 }
 
@@ -227,6 +196,7 @@ func evidenceFromDecision(decision rpc.Decision, tag string) rpc.ReferenceEviden
 		origin = "tagged-head"
 	}
 	return rpc.ReferenceEvidence{
+		Sources: decision.Sources, Adjudication: decision.Adjudication,
 		Tag:              taggedOriginTag(tag),
 		Status:           decision.Status,
 		Origin:           origin,
@@ -243,7 +213,7 @@ func evidenceFromDecision(decision rpc.Decision, tag string) rpc.ReferenceEviden
 // record folds one completed round into exactly one observability event under
 // the anchor method label — the same statement the aggregation pipeline
 // records for the facade service's rounds.
-func (e *StrictHeadEstablishment) record(started time.Time, policy rpc.Policy, decision rpc.Decision, resolveErr error, emissions []pool.Emission, verdicts []rpc.SourceVerdict) {
+func (e *StrictHeadEstablishment) record(started time.Time, decision rpc.Decision, resolveErr error, emissions []pool.Emission, verdicts []rpc.SourceVerdict) {
 	if e.rec == nil || e.rec == observe.Nop {
 		return
 	}
@@ -258,7 +228,7 @@ func (e *StrictHeadEstablishment) record(started time.Time, policy rpc.Policy, d
 	} else {
 		event.Status = decision.Status.String()
 	}
-	class := aggregator.RoundAttempts(policy, verdicts)
+	class := aggregator.RoundAttempts(verdicts)
 	for _, emission := range emissions {
 		if !emission.Attempted {
 			continue // never acquired a slot: no attempt, no observation

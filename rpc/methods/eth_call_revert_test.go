@@ -10,6 +10,7 @@ import (
 
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 func TestNormalizeCallOutcomeSeparatesRevertDataStates(t *testing.T) {
@@ -74,49 +75,43 @@ func TestCallRevertDataConflictIsNotSwallowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v, want a corroborated revert with data withheld", err)
 	}
-	if decision.Status != rpc.Corroborated {
-		t.Fatalf("status = %v, want Corroborated", decision.Status)
+	if decision.Decision.Status != rpc.Corroborated {
+		t.Fatalf("status = %v, want Corroborated", decision.Decision.Status)
 	}
-	if bytes.Contains(decision.Value, []byte("0xdead")) || bytes.Contains(decision.Value, []byte("0xbeef")) {
-		t.Fatalf("concrete data was returned: %s", decision.Value)
+	if bytes.Contains(decision.Decision.Value, []byte("0xdead")) || bytes.Contains(decision.Decision.Value, []byte("0xbeef")) {
+		t.Fatalf("concrete data was returned: %s", decision.Decision.Value)
 	}
-	if len(decision.DeletedFields) != 1 || decision.DeletedFields[0] != "data" {
-		t.Fatalf("deleted = %v", decision.DeletedFields)
+	if len(decision.Decision.DeletedFields) != 1 || decision.Decision.DeletedFields[0] != "data" {
+		t.Fatalf("deleted = %v", decision.Decision.DeletedFields)
 	}
-	if !bytes.Contains(decision.Provenance, []byte("0xbeef")) || bytes.Contains(decision.Provenance, []byte("0xdead")) {
-		t.Fatalf("withheld evidence = %s, want only b's data", decision.Provenance)
+	if !bytes.Contains(decision.Decision.Provenance, []byte("0xbeef")) || bytes.Contains(decision.Decision.Provenance, []byte("0xdead")) {
+		t.Fatalf("withheld evidence = %s, want only b's data", decision.Decision.Provenance)
 	}
 }
 
 func TestCallRevertContextStaysOutsideProtectedValue(t *testing.T) {
 	policy := planResolver(t, MethodCall, rpc.WithQuorum(2))
-	first := rpc.Observation{
-		Source: rpc.SourceRef{ID: "a"},
-		Err:    errors.New("execution reverted"),
-		RPCError: &rpc.RPCError{
-			Code:    3,
-			Message: "execution reverted: provider-a",
-			Data:    json.RawMessage(`"0xdead"`),
+	first := rpc.Observation{Attempted: true,
+		Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+			Answer:   rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: &rpc.RPCError{Code: 3, Message: "execution reverted: provider-a", Data: json.RawMessage(`"0xdead"`)}, Cause: rpctest.RPCError(3, "execution reverted: provider-a")},
 		},
 	}
-	second := rpc.Observation{
-		Source: rpc.SourceRef{ID: "b"},
-		Err:    errors.New("execution reverted"),
-		RPCError: &rpc.RPCError{
-			Code:    -32000,
-			Message: "execution reverted: provider-b",
-			Data:    json.RawMessage(`"0xDEAD"`),
+	second := rpc.Observation{Attempted: true,
+		Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+			Answer:   rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: &rpc.RPCError{Code: -32000, Message: "execution reverted: provider-b", Data: json.RawMessage(`"0xDEAD"`)}, Cause: rpctest.RPCError(-32000, "execution reverted: provider-b")},
 		},
 	}
 	decision, err := policy.Resolve([]rpc.Observation{first, second})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(decision.Value) != `{"data":"0xdead"}` {
-		t.Fatalf("protected value = %s", decision.Value)
+	if string(decision.Decision.Value) != `{"data":"0xdead"}` {
+		t.Fatalf("protected value = %s", decision.Decision.Value)
 	}
-	if decision.Revert == nil || decision.Revert.Code != 3 || decision.Revert.Message != "execution reverted: provider-a" {
-		t.Fatalf("revert context = %+v", decision.Revert)
+	if decision.Decision.Revert == nil || decision.Decision.Revert.Code != 3 || decision.Decision.Revert.Message != "execution reverted: provider-a" {
+		t.Fatalf("revert context = %+v", decision.Decision.Revert)
 	}
 }
 
@@ -126,14 +121,14 @@ func TestCallProviderErrorDoesNotEnterRevertKey(t *testing.T) {
 		rpcErrorObs("a", -32002, "request timed out", ""),
 		rpcErrorObs("b", -32003, "response too large", ""),
 		rpcErrorObs("c", -32603, "panic", ""),
-		{Source: rpc.SourceRef{Name: "d", ID: "d"}, Err: errors.New("429 too many requests")},
+		{Attempted: true, Source: rpc.SourceRef{Name: "d", ID: "d"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("429 too many requests")}}},
 	}
 	decision, err := policy.Resolve(obs)
 	if !errors.Is(err, rpc.ErrNoValidResponse) {
 		t.Fatalf("err = %v, want ErrNoValidResponse", err)
 	}
-	if errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
-		t.Fatalf("provider errors entered adjudication: status %v err %v", decision.Status, err)
+	if errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
+		t.Fatalf("provider errors entered adjudication: status %v err %v", decision.Decision.Status, err)
 	}
 }
 
@@ -160,10 +155,8 @@ func rpcErrorObs(id string, code int, message, data string) rpc.Observation {
 	if data != "" {
 		errBody.Data = json.RawMessage(data)
 	}
-	return rpc.Observation{
-		Source:   rpc.SourceRef{Name: id, ID: id},
-		Err:      errors.New(message),
-		RPCError: errBody,
+	return rpc.Observation{Attempted: true,
+		Source: rpc.SourceRef{Name: id, ID: id}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: errBody, Cause: rpctest.RPCError(code, message)}},
 	}
 }
 

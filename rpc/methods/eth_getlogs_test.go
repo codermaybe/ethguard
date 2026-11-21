@@ -233,10 +233,10 @@ func TestLogsSpellingsShareOneCanonicalValue(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decision.Status != rpc.Corroborated || string(decision.Value) != want {
-			t.Fatalf("decision = %s status %v, want %s", decision.Value, decision.Status, want)
+		if decision.Decision.Status != rpc.Corroborated || string(decision.Decision.Value) != want {
+			t.Fatalf("decision = %s status %v, want %s", decision.Decision.Value, decision.Decision.Status, want)
 		}
-		return decision
+		return decision.Decision
 	}
 	forward := resolve([]rpc.Observation{first, second})
 	backward := resolve([]rpc.Observation{second, first})
@@ -269,11 +269,11 @@ func TestLogsMissingRequiredFieldStaysInTheDenominator(t *testing.T) {
 	if !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("err = %v, want the floor to hold against the unreduced denominator", err)
 	}
-	if decision.Status != rpc.Unknown || len(decision.Support) != 2 {
-		t.Fatalf("status %v support %d, want unknown with the two encodable sources", decision.Status, len(decision.Support))
+	if decision.Decision.Status != rpc.Unknown || len(decision.Decision.Support) != 2 {
+		t.Fatalf("status %v support %d, want unknown with the two encodable sources", decision.Decision.Status, len(decision.Decision.Support))
 	}
-	if len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), "encode:") {
-		t.Fatalf("faults = %v", decision.Faults)
+	if len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "encode:") {
+		t.Fatalf("faults = %v", decision.Decision.Faults)
 	}
 }
 
@@ -287,15 +287,15 @@ func TestLogsEncodeOmitsAbsentTimestampAndKeepsEmptyArray(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(decision.Value, []byte(`"blockTimestamp":"0x10"`)) {
-		t.Fatalf("timestamp dropped: %s", decision.Value)
+	if !bytes.Contains(decision.Decision.Value, []byte(`"blockTimestamp":"0x10"`)) {
+		t.Fatalf("timestamp dropped: %s", decision.Decision.Value)
 	}
 	empty, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, `[]`, ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, `[]`, ""),
 	})
-	if err != nil || string(empty.Value) != "[]" {
-		t.Fatalf("empty = %s err %v", empty.Value, err)
+	if err != nil || string(empty.Decision.Value) != "[]" {
+		t.Fatalf("empty = %s err %v", empty.Decision.Value, err)
 	}
 	if _, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),

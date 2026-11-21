@@ -66,35 +66,69 @@ func newGethTransport(client *ethclient.Client, capture bool, limit int64) trans
 	return &gethTransport{client: client, capture: capture, limit: limit}
 }
 
-func (t *gethTransport) CallContext(ctx context.Context, result any, method string, args ...any) error {
+func (t *gethTransport) Call(ctx context.Context, method string, args ...any) rpc.Response {
+	if err := ctx.Err(); err != nil {
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}
+	}
 	if t.closed.Load() {
-		// The compatibility baseline left HTTP connections usable after
-		// Close; the contract's lifecycle clause wins: closed transports
-		// block new calls with the neutral sentinel.
-		return transport.ErrConnectionClosed
+		return rpc.Response{Exchange: rpc.Exchange{Cause: transport.ErrConnectionClosed}}
 	}
-	if !t.capture {
-		return adaptError(t.client.Client().CallContext(ctx, result, method, args...))
+	exchange := rpc.Exchange{Progress: rpc.ExchangeStarted}
+	var box *rawBodyBox
+	if t.capture {
+		ctx, box = withRawBody(ctx)
 	}
-	ctx, body := withRawBody(ctx)
-	err := t.client.Client().CallContext(ctx, result, method, args...)
-	raw, haveBody := body.bytes()
-	if err != nil {
-		if haveBody {
-			err = preserveErrorData(err, raw)
+	var result json.RawMessage
+	err := t.client.Client().CallContext(ctx, &result, method, args...)
+	raw, haveBody, progress, status := box.snapshot()
+	exchange.Progress = progress
+	exchange.HTTPStatus = status
+	if err != nil && haveBody {
+		err = preserveErrorData(err, raw)
+	}
+	err = adaptError(err)
+	if exchange.HTTPStatus != 0 && (exchange.HTTPStatus < 200 || exchange.HTTPStatus >= 300) {
+		exchange.Cause = err
+		if ctx.Err() != nil {
+			exchange.Cause = ctx.Err()
 		}
-		return adaptError(err)
+		return rpc.Response{Exchange: exchange}
 	}
-	// The capturing path owns the raw body, so it can hold the exchange to
-	// the contract even where the wrapped client is lenient: trailing
-	// garbage and degenerate envelopes fail with the project sentinels
-	// instead of a decoded value.
-	if haveBody {
-		if verr := rpcwire.ValidateBody(raw); verr != nil {
-			return verr
+	response := rpc.Response{Exchange: exchange}
+	// Only captured complete bytes establish missing/invalid protocol answers.
+	// Uncaptured failures do not reveal response progress through Geth's API.
+	if haveBody && err == nil {
+		if validation := rpcwire.ValidateBody(raw); validation != nil {
+			kind := rpc.AnswerInvalid
+			if errors.Is(validation, rpcwire.ErrEmptyResponse) {
+				kind = rpc.AnswerMissing
+			}
+			response.Answer = rpc.Answer{Kind: kind, Cause: validation}
+			response.Exchange.Cause = ctx.Err()
+			return response
 		}
 	}
-	return adaptError(err)
+	var protocol rpc.ProtocolError
+	switch {
+	case errors.As(err, &protocol):
+		response.Exchange.Progress = rpc.ExchangeCompleted
+		response.Answer = rpc.ProtocolAnswer(err)
+	case err == nil:
+		response.Exchange.Progress = rpc.ExchangeCompleted
+		response.Answer = rpc.Answer{Kind: rpc.AnswerResult, Result: result}
+	case haveBody && ctx.Err() == nil:
+		kind := rpc.AnswerInvalid
+		if errors.Is(err, rpcwire.ErrEmptyResponse) {
+			kind = rpc.AnswerMissing
+		}
+		response.Answer = rpc.Answer{Kind: kind, Cause: err}
+	default:
+		response.Exchange.Cause = err
+	}
+	if ctx.Err() != nil {
+		response.Exchange.Cause = ctx.Err()
+	}
+	return response
 }
 
 func (t *gethTransport) ChainID(ctx context.Context) (*big.Int, error) {

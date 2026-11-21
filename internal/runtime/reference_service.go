@@ -20,15 +20,15 @@ const anchorMethodName = "anchor"
 // derived hash separately), and requires a corroborated result.
 type headAnchorPolicy struct{ rpc.Policy }
 
-func (p headAnchorPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
+func (p headAnchorPolicy) Resolve(obs []rpc.Observation) (rpc.Outcome, error) {
 	d, err := p.Policy.Resolve(obs)
-	d = restoreAnchorSourceValue(d, obs)
+	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
 	return p.requireCorroborated(d, err)
 }
 
-func (p headAnchorPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
+func (p headAnchorPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
 	var (
-		d   rpc.Decision
+		d   rpc.Outcome
 		err error
 	)
 	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
@@ -36,7 +36,7 @@ func (p headAnchorPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Obs
 	} else {
 		d, err = p.Policy.Resolve(obs)
 	}
-	d = restoreAnchorSourceValue(d, obs)
+	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
 	return p.requireCorroborated(d, err)
 }
 
@@ -49,17 +49,17 @@ func restoreAnchorSourceValue(d rpc.Decision, obs []rpc.Observation) rpc.Decisio
 	}
 	for _, item := range obs {
 		if item.Source.ID == d.Representative.ID {
-			d.Value = append(json.RawMessage(nil), item.Value...)
+			d.Value = append(json.RawMessage(nil), item.Response.Answer.Result...)
 			break
 		}
 	}
 	return d
 }
 
-func (p headAnchorPolicy) requireCorroborated(d rpc.Decision, err error) (rpc.Decision, error) {
-	if err == nil && d.Status != rpc.Corroborated {
-		d.Status = rpc.Unknown
-		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrConflict)
+func (p headAnchorPolicy) requireCorroborated(d rpc.Outcome, err error) (rpc.Outcome, error) {
+	if err == nil && d.Decision.Status != rpc.Corroborated {
+		d.Decision.Adjudication.Reason = rpc.ReasonGuaranteeNotMet
+		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrGuaranteeNotMet)
 	}
 	return d, err
 }

@@ -139,7 +139,7 @@ func TestCloseDoesNotRebuildPendingNotifications(t *testing.T) {
 	for range 2 {
 		go func() {
 			var value string
-			err := tr.CallContext(ctx, &value, "eth_blockNumber")
+			err := tr.Call(ctx, "eth_blockNumber").Decode(&value)
 			results <- callResult{value, err}
 		}()
 	}

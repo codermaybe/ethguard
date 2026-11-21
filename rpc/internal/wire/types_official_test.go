@@ -368,8 +368,8 @@ func TestFeeHistoryConsumersRejectStringGasUsedRatio(t *testing.T) {
 
 func TestGeneratedNonNullableResultsRejectNull(t *testing.T) {
 	nullable := map[string]bool{
-		"eth_getHeaderByHash": true,
-		"eth_getHeaderByNumber": true,
+		"eth_getHeaderByHash":       true,
+		"eth_getHeaderByNumber":     true,
 		"eth_getBlockByHash":        true,
 		"eth_getBlockByNumber":      true,
 		"eth_getBlockReceipts":      true,

@@ -223,25 +223,25 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	aggDecision, aggErr := agg.Aggregate(ctx, req)
-	if policyDecision.Status != aggDecision.Status || decisionError(policyErr) != decisionError(aggErr) {
-		return expectCase{}, fmt.Errorf("%s policy %s/%s aggregator %s/%s", id, policyDecision.Status, decisionError(policyErr), aggDecision.Status, decisionError(aggErr))
+	if policyDecision.Decision.Status != aggDecision.Status || policyDecision.Decision.Adjudication.Reason != aggDecision.Adjudication.Reason || decisionError(policyErr) != decisionError(aggErr) {
+		return expectCase{}, fmt.Errorf("%s policy %s/%s aggregator %s/%s", id, policyDecision.Decision.Status, decisionError(policyErr), aggDecision.Status, decisionError(aggErr))
 	}
-	if compact(t, policyDecision.Value) != compact(t, aggDecision.Value) {
-		return expectCase{}, fmt.Errorf("%s value diverged\npolicy %s\naggregator %s", id, policyDecision.Value, aggDecision.Value)
+	if compact(t, policyDecision.Decision.Value) != compact(t, aggDecision.Value) {
+		return expectCase{}, fmt.Errorf("%s value diverged\npolicy %s\naggregator %s", id, policyDecision.Decision.Value, aggDecision.Value)
 	}
-	if strings.Join(namesOf(policyDecision.Support), ",") != strings.Join(namesOf(aggDecision.Support), ",") || strings.Join(namesOf(policyDecision.Reject), ",") != strings.Join(namesOf(aggDecision.Reject), ",") {
-		return expectCase{}, fmt.Errorf("%s support/reject diverged: policy %v/%v aggregator %v/%v", id, namesOf(policyDecision.Support), namesOf(policyDecision.Reject), namesOf(aggDecision.Support), namesOf(aggDecision.Reject))
+	if strings.Join(namesOf(policyDecision.Decision.Support), ",") != strings.Join(namesOf(aggDecision.Support), ",") || strings.Join(namesOf(policyDecision.Decision.Reject), ",") != strings.Join(namesOf(aggDecision.Reject), ",") {
+		return expectCase{}, fmt.Errorf("%s support/reject diverged: policy %v/%v aggregator %v/%v", id, namesOf(policyDecision.Decision.Support), namesOf(policyDecision.Decision.Reject), namesOf(aggDecision.Support), namesOf(aggDecision.Reject))
 	}
-	if len(policyDecision.Faults) != len(aggDecision.Faults) {
-		return expectCase{}, fmt.Errorf("%s faults policy %d aggregator %d", id, len(policyDecision.Faults), len(aggDecision.Faults))
+	if err := compareReplaySources(policyDecision.Decision, aggDecision); err != nil {
+		return expectCase{}, fmt.Errorf("%s: %w", id, err)
 	}
-	if strings.Join(policyDecision.DeletedFields, ",") != strings.Join(aggDecision.DeletedFields, ",") || !sameDimensions(policyDecision.Dimensions, aggDecision.Dimensions) {
+	if strings.Join(policyDecision.Decision.DeletedFields, ",") != strings.Join(aggDecision.DeletedFields, ",") || !sameDimensions(policyDecision.Decision.Dimensions, aggDecision.Dimensions) {
 		return expectCase{}, fmt.Errorf("%s projection diverged", id)
 	}
-	if policyDecision.Representative.Name != aggDecision.Representative.Name {
-		return expectCase{}, fmt.Errorf("%s representative policy %s aggregator %s", id, policyDecision.Representative.Name, aggDecision.Representative.Name)
+	if policyDecision.Decision.Representative.Name != aggDecision.Representative.Name {
+		return expectCase{}, fmt.Errorf("%s representative policy %s aggregator %s", id, policyDecision.Decision.Representative.Name, aggDecision.Representative.Name)
 	}
-	if policyErr == nil && policyDecision.Status == rpc.Corroborated {
+	if policyErr == nil && policyDecision.Decision.Status == rpc.Corroborated {
 		gatedCtx, gatedCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer gatedCancel()
 		gated, gatedErr := agg.AggregateStrict(gatedCtx, req)
@@ -260,12 +260,16 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 			}
 		}
 	}
-	deleted := append([]string{}, policyDecision.DeletedFields...)
+	deleted := append([]string{}, policyDecision.Decision.DeletedFields...)
 	if deleted == nil {
 		deleted = []string{}
 	}
-	if err := replayValueAgrees(t, policy, policyDecision, payloads, sources, deleted, false); err != nil {
+	if err := replayValueAgrees(t, policy, policyDecision.Decision, payloads, sources, deleted, false); err != nil {
 		return expectCase{}, fmt.Errorf("%s %w", id, err)
+	}
+	archivedError, err := archivedDecisionError(policyDecision.Decision, policyErr)
+	if err != nil {
+		return expectCase{}, fmt.Errorf("%s: %w", id, err)
 	}
 	return expectCase{
 		RequestID:  id,
@@ -273,12 +277,12 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 		Request:    requestRaw,
 		N:          len(records),
 		Sources:    sources,
-		Dimensions: expectDimensions(policyDecision.Dimensions),
+		Dimensions: expectDimensions(policyDecision.Decision.Dimensions),
 		Projection: expectProjection{Reductive: len(deleted) > 0, DeletedFields: deleted},
 		Decision: expectDecision{
-			Status:         policyDecision.Status.String(),
-			Error:          decisionError(policyErr),
-			Representative: representativeOf(policyDecision, records),
+			Status:         policyDecision.Decision.Status.String(),
+			Error:          archivedError,
+			Representative: representativeOf(policyDecision.Decision, records),
 		},
 	}, nil
 }
@@ -286,23 +290,23 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 func classifySource(t *testing.T, plan rpc.ReadPlan, req rpc.Request, item rpc.Observation) (json.RawMessage, string, []string, string) {
 	t.Helper()
 	faults := []string{}
-	if item.Err == nil {
-		payload := append(json.RawMessage(nil), item.Value...)
+	if item.Response.Err() == nil {
+		payload := append(json.RawMessage(nil), item.Response.Answer.Result...)
 		if plan.Admit != nil {
-			if _, err := plan.Admit(context.Background(), req, item.Value, refuseCaller(t)); err != nil {
+			if _, err := plan.Admit(context.Background(), req, item.Response.Answer.Result, refuseCaller(t)); err != nil {
 				return payload, "rejected", []string{err.Error()}, ""
 			}
 		}
-		key, err := plan.Resolver.Normalize(item.Value)
+		key, err := plan.Resolver.Normalize(item.Response.Answer.Result)
 		if err != nil {
 			return payload, "passed", []string{err.Error()}, ""
 		}
 		return payload, "passed", faults, key
 	}
-	if item.RPCError == nil {
+	if item.Response.Answer.RPCError == nil {
 		return nil, "not_applicable", []string{"fault"}, ""
 	}
-	payload := item.RPCError.Raw()
+	payload := item.Response.Answer.RPCError.Raw()
 	key, err := plan.Resolver.Normalize(payload)
 	if err != nil {
 		return payload, "not_applicable", []string{err.Error()}, ""
@@ -334,6 +338,10 @@ func decisionError(err error) string {
 		return ""
 	case errors.Is(err, rpc.ErrConflict):
 		return "conflict"
+	case errors.Is(err, rpc.ErrInsufficientSupport):
+		return "insufficient_support"
+	case errors.Is(err, rpc.ErrGuaranteeNotMet):
+		return "guarantee_not_met"
 	case errors.Is(err, rpc.ErrNoValidResponse):
 		return "no_valid_response"
 	case errors.Is(err, rpc.ErrMalformedResponse):
@@ -343,6 +351,25 @@ func decisionError(err error) string {
 	default:
 		return "unexpected"
 	}
+}
+
+// Archived expect/v1 used "conflict" for both disagreement and a lone group
+// below its support bound. Keep that frozen report vocabulary only here, after
+// verifying the current, distinct adjudication. Runtime layer parity uses
+// decisionError, so an incorrect ErrConflict cannot hide behind this projection.
+func archivedDecisionError(decision rpc.Decision, err error) (string, error) {
+	a := decision.Adjudication
+	if errors.Is(err, rpc.ErrInsufficientSupport) {
+		if errors.Is(err, rpc.ErrConflict) || a.Reason != rpc.ReasonInsufficientSupport ||
+			len(a.Candidates) != 1 || len(a.Candidates[0].Sources) == 0 || len(a.Candidates[0].Sources) >= a.Required {
+			return "", fmt.Errorf("insufficient support contradicts adjudication: %+v", a)
+		}
+		return "conflict", nil
+	}
+	if errors.Is(err, rpc.ErrConflict) && (a.Reason != rpc.ReasonConflictingCandidates || len(a.Candidates) < 2) {
+		return "", fmt.Errorf("conflict without distinct candidates: %+v", a)
+	}
+	return decisionError(err), nil
 }
 
 func validateExpectHeader(feature, batchID string, file expectFile) error {
@@ -784,4 +811,39 @@ func representativeOf(decision rpc.Decision, records []rpcsample.Record) *expect
 		}
 	}
 	return &expectRepresentative{ID: decision.Representative.ID, Ordinal: -1}
+}
+
+func TestArchiveErrorLabelKeepsCurrentAdjudicationDistinct(t *testing.T) {
+	for _, distinct := range []bool{false, true} {
+		t.Run(fmt.Sprintf("distinct=%t", distinct), func(t *testing.T) {
+			obs := []rpc.Observation{
+				{Source: rpc.SourceRef{ID: "s1", Name: "s1"}, Attempted: true, Response: rpc.Response{
+					Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`1`)}}},
+				{Source: rpc.SourceRef{ID: "s2", Name: "s2"}, Attempted: true, Response: rpc.Response{
+					Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: context.DeadlineExceeded}}},
+				{Source: rpc.SourceRef{ID: "s3", Name: "s3"}, Attempted: true, Response: rpc.Response{
+					Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: context.DeadlineExceeded}}},
+			}
+			if distinct {
+				obs[1].Response = rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`2`)}}
+			}
+			outcome, resolveErr := rpc.Strict(rpc.CanonicalJSON, rpc.WithQuorum(2)).Resolve(obs)
+			wantCause, wantClass := rpc.ErrInsufficientSupport, "insufficient_support"
+			if distinct {
+				wantCause, wantClass = rpc.ErrConflict, "conflict"
+			}
+			if !errors.Is(resolveErr, wantCause) || decisionError(resolveErr) != wantClass {
+				t.Fatalf("current error classification: %v", resolveErr)
+			}
+			label, err := archivedDecisionError(outcome.Decision, resolveErr)
+			if err != nil || label != "conflict" {
+				t.Fatalf("historical label=%q err=%v", label, err)
+			}
+			changed := outcome.Decision.Clone()
+			changed.Adjudication.Reason = rpc.ReasonUnassessed
+			if _, err := archivedDecisionError(changed, resolveErr); err == nil {
+				t.Fatal("archive projection hid inconsistent current adjudication")
+			}
+		})
+	}
 }

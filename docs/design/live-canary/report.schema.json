@@ -144,6 +144,16 @@
         "params": {"type": "array"}
       }
     },
+    "source_disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "attempted", "relation"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/source_id"},
+        "attempted": {"type": "boolean"},
+        "relation": {"enum": ["unassessed", "supported", "dissented", "unusable", "absent", "excluded"]}
+      }
+    },
     "source_fault": {
       "type": "object",
       "additionalProperties": false,
@@ -172,6 +182,7 @@
         "error_detail",
         "n",
         "participants",
+        "sources",
         "support",
         "reject",
         "faults",
@@ -191,6 +202,10 @@
         "error_detail": {"type": "string", "maxLength": 512},
         "n": {"type": "integer", "minimum": 0},
         "participants": {"$ref": "#/$defs/source_ids"},
+        "sources": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/source_disposition"}
+        },
         "support": {"$ref": "#/$defs/source_ids"},
         "reject": {"$ref": "#/$defs/source_ids"},
         "faults": {
@@ -225,6 +240,7 @@
         "observed_at",
         "n",
         "participants",
+        "sources",
         "support",
         "reject",
         "faults",
@@ -244,6 +260,10 @@
         "observed_at": {"$ref": "#/$defs/timestamp"},
         "n": {"type": "integer", "minimum": 0},
         "participants": {"$ref": "#/$defs/source_ids"},
+        "sources": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/source_disposition"}
+        },
         "support": {"$ref": "#/$defs/source_ids"},
         "reject": {"$ref": "#/$defs/source_ids"},
         "faults": {

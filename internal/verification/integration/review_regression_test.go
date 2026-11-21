@@ -58,9 +58,9 @@ func TestReviewDecoratedMethods(t *testing.T) {
 func TestReviewDuplicateObservationCannotCorroborate(t *testing.T) {
 	p := rpc.Strict(rpc.CanonicalJSON, rpc.WithQuorum(2))
 	source := rpc.SourceRef{ID: "same", Name: "same", URL: "https://same.example"}
-	obs := rpc.Observation{Source: source, Value: json.RawMessage(`"0x1"`)}
+	obs := rpc.Observation{Attempted: true, Source: source, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}}
 	d, err := p.Resolve([]rpc.Observation{obs, obs})
-	if err == nil && d.Status == rpc.Corroborated {
+	if err == nil && d.Decision.Status == rpc.Corroborated {
 		t.Fatalf("one source counted twice: %+v", d)
 	}
 }

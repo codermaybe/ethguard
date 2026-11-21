@@ -146,20 +146,44 @@ func (r CallResult) Clone() CallResult {
 		w := r.WriteDecision.Clone()
 		r.WriteDecision = &w
 	}
+	if r.ReceiptWait != nil {
+		wait := *r.ReceiptWait
+		wait.LastAttempt = cloneReceiptAttempt(wait.LastAttempt)
+		wait.LastObservation = cloneReceiptAttempt(wait.LastObservation)
+		r.ReceiptWait = &wait
+	}
 	if r.Uncertain != nil {
 		u := cloneUncertainResult(*r.Uncertain)
 		r.Uncertain = &u
 	}
+	r.Err = cloneResultError(r.Err)
+	return r
+}
+
+func cloneReceiptAttempt(attempt *ReceiptAttempt) *ReceiptAttempt {
+	if attempt == nil {
+		return nil
+	}
+	copy := *attempt
+	if attempt.Decision != nil {
+		decision := attempt.Decision.Clone()
+		copy.Decision = &decision
+	}
+	copy.Err = cloneResultError(attempt.Err)
+	return &copy
+}
+
+func cloneResultError(err error) error {
 	var revert *RevertError
-	// Only replace a direct RevertError. A wrapped error keeps its original
-	// chain because cloning an inner value cannot preserve an arbitrary wrapper.
-	if errors.As(r.Err, &revert) && revert != nil && directRevertError(r.Err, revert) {
+	// Wrapped errors retain their immutable chain; a direct RevertError owns
+	// mutable data and must isolate it just like a decision payload.
+	if errors.As(err, &revert) && revert != nil && directRevertError(err, revert) {
 		copyRevert := *revert
 		copyRevert.Data = append([]byte(nil), revert.Data...)
 		copyRevert.DataRaw = append(json.RawMessage(nil), revert.DataRaw...)
-		r.Err = &copyRevert
+		return &copyRevert
 	}
-	return r
+	return err
 }
 
 func directRevertError(err error, target *RevertError) bool {

@@ -33,7 +33,7 @@ func TestNotificationStreamSeparatesNotificationsFromResponses(t *testing.T) {
 	})
 	tr, stream := openNotificationTestStream(t, peerURL, context.Background(), 2)
 	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); err != nil || value != "ok" {
+	if err := tr.Call(context.Background(), "eth_test").Decode(&value); err != nil || value != "ok" {
 		t.Fatalf("call = %q, %v", value, err)
 	}
 	select {
@@ -54,7 +54,7 @@ func TestNotificationMalformedFrameIsAsynchronousError(t *testing.T) {
 	})
 	tr, stream := openNotificationTestStream(t, peerURL, context.Background(), 1)
 	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); err != nil {
+	if err := tr.Call(context.Background(), "eth_test").Decode(&value); err != nil {
 		t.Fatalf("call = %v", err)
 	}
 	select {
@@ -77,7 +77,7 @@ func TestNotificationQueueOverflowTerminatesOnlyStream(t *testing.T) {
 	})
 	tr, stream := openNotificationTestStream(t, peerURL, context.Background(), 1)
 	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); err != nil {
+	if err := tr.Call(context.Background(), "eth_test").Decode(&value); err != nil {
 		t.Fatalf("call = %v", err)
 	}
 	if got := <-stream.Events(); string(got.Result) != "1" {
@@ -92,7 +92,7 @@ func TestNotificationQueueOverflowTerminatesOnlyStream(t *testing.T) {
 		t.Fatal("overflow did not terminate stream")
 	}
 	// The owner remains usable for unary calls after a stream-local overflow.
-	if err := tr.CallContext(context.Background(), &value, "eth_followup"); err != nil {
+	if err := tr.Call(context.Background(), "eth_followup").Decode(&value); err != nil {
 		t.Fatalf("follow-up call after overflow: %v", err)
 	}
 }
@@ -136,7 +136,7 @@ func TestNotificationPeerDisconnectClosesStreamWithTransportError(t *testing.T) 
 	})
 	tr, stream := openNotificationTestStream(t, peerURL, context.Background(), 1)
 	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_disconnect"); err == nil {
+	if err := tr.Call(context.Background(), "eth_disconnect").Decode(&value); err == nil {
 		t.Fatal("disconnecting call unexpectedly succeeded")
 	}
 	select {

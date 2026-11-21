@@ -21,6 +21,10 @@ latest／safe 使用 strict head；有 corroboration snapshot 时采用业务 St
 
 业务 Strict 的 N 与 finalized E／fresh 分别承担不同职责，不能因公式相似合并算法。`rpc/acceptance_thresholds_test.go` 与 `internal/reference/finalized_thresholds_test.go` 分别覆盖分母、下限、失败、候选与确认边界；测试存在不表示本次已重跑所有场景。
 
+响应模型迁移的证据合同：每个来源保留原`Response`，局部高度不适用以`InterpretationExcluded`表达，不能改写为未回答或连接故障。确认是新的实际交换，完成或失败都替换对应来源槽中的旧响应，不借旧成功内容填补新失败。reference仍拥有自己的选择算法，不把不同轮次的响应累计成额外票数。
+
+`ReferenceEvidence.Sources`交付来源两层摘要，`Adjudication`交付实际门槛及候选成员。候选高度同hash分组发生后，即使因异hash提前返回也保留已形成分组；不足支持、真实异值和后置保证未达成分别记录。上层不能仅凭Hash为空或Status=Unknown就丢弃包含来源/候选的reference。该迁移的全仓验收进度见路线图，F1策略范围保持独立。
+
 ## 3. Freshness 的两个作用点
 
 | 作用点 | 当前行为 | 不变量 |

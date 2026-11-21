@@ -25,19 +25,19 @@ func TestLocalSelectsFirstValidInPoolOrder(t *testing.T) {
 	p := Local(quantity)
 	first := src()
 	decision, err := p.Resolve([]Observation{
-		{Source: first, Value: json.RawMessage(`"3"`)},
+		{Attempted: true, Source: first, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`"3"`)}}},
 		obs(`"9"`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Selected {
-		t.Fatalf("local results must stay selected, got %v", decision.Status)
+	if decision.Decision.Status != Selected {
+		t.Fatalf("local results must stay selected, got %v", decision.Decision.Status)
 	}
-	if string(decision.Value) != `"3"` {
-		t.Fatalf("expected the first source's answer to stand, got %s", decision.Value)
+	if string(decision.Decision.Value) != `"3"` {
+		t.Fatalf("expected the first source's answer to stand, got %s", decision.Decision.Value)
 	}
-	if len(decision.Support) != 1 || decision.Support[0] != first || len(decision.Reject) != 0 {
+	if len(decision.Decision.Support) != 1 || decision.Decision.Support[0] != first || len(decision.Decision.Reject) != 0 {
 		t.Fatalf("only the consulted source belongs in evidence, got %+v", decision)
 	}
 }
@@ -47,23 +47,23 @@ func TestLocalSkipsBrokenSourcesToNextValid(t *testing.T) {
 	second := src()
 	decision, err := p.Resolve([]Observation{
 		obs(`"junk"`),
-		{Source: src(), Err: errors.New("timeout")},
-		{Source: second, Value: json.RawMessage(`"4"`)},
+		{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("timeout")}}},
+		{Attempted: true, Source: second, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`"4"`)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(decision.Value) != `"4"` || decision.Support[0] != second {
-		t.Fatalf("expected the next healthy source to answer, got %s %+v", decision.Value, decision)
+	if string(decision.Decision.Value) != `"4"` || decision.Decision.Support[0] != second {
+		t.Fatalf("expected the next healthy source to answer, got %s %+v", decision.Decision.Value, decision)
 	}
-	if len(decision.Faults) != 1 {
-		t.Fatalf("expected the unparseable payload as a fault, got %+v", decision.Faults)
+	if len(decision.Decision.Faults) != 2 {
+		t.Fatalf("expected the unparseable payload as a fault, got %+v", decision.Decision.Faults)
 	}
 }
 
 func TestLocalAllInvalidIsNoValidResponse(t *testing.T) {
 	p := Local(quantity)
-	_, err := p.Resolve([]Observation{obs(`"junk"`), {Source: src(), Err: errors.New("down")}})
+	_, err := p.Resolve([]Observation{obs(`"junk"`), {Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("down")}}}})
 	if !errors.Is(err, ErrNoValidResponse) {
 		t.Fatalf("expected no-valid-response class, got %v", err)
 	}
@@ -89,16 +89,16 @@ func TestLocalCanonicalFailureDoesNotSelectTheNextSource(t *testing.T) {
 	}
 	second := src()
 	decision, err := Local(normalize, WithLocalCanonical(encode)).Resolve([]Observation{
-		{Source: src(), Value: json.RawMessage(`"bad"`)},
-		{Source: second, Value: json.RawMessage(`"ok"`)},
+		{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`"bad"`)}}},
+		{Attempted: true, Source: second, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`"ok"`)}}},
 	})
-	if err == nil || decision.Status != Unknown {
+	if err == nil || decision.Decision.Status != Unknown {
 		t.Fatalf("err = %v, decision = %+v", err, decision)
 	}
-	if string(decision.Value) == `"ok"` || len(decision.Support) != 0 || decision.Representative != (SourceRef{}) {
+	if string(decision.Decision.Value) == `"ok"` || len(decision.Decision.Support) != 0 || decision.Decision.Representative != (SourceRef{}) {
 		t.Fatalf("selected another source: %+v", decision)
 	}
-	if len(decision.Faults) == 0 {
+	if len(decision.Decision.Faults) == 0 {
 		t.Fatal("expected an encode fault")
 	}
 }

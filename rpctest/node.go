@@ -51,7 +51,14 @@ type rpcError struct {
 	dataPresent bool
 }
 
-func (e rpcError) Error() string { return e.message }
+func (e rpcError) Error() string  { return e.message }
+func (e rpcError) ErrorCode() int { return e.code }
+
+// ErrorDataJSON exposes the same data presence that Node writes on the wire.
+// The returned bytes are borrowed and must not be mutated.
+func (e rpcError) ErrorDataJSON() (json.RawMessage, bool) {
+	return e.data, e.dataPresent
+}
 
 // RPCError builds a handler error that carries an explicit JSON-RPC code.
 // The encoded error object has no data field.

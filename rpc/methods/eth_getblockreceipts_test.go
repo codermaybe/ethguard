@@ -42,15 +42,15 @@ func TestBlockReceiptSpellingsAndFromShareCanonicalValue(t *testing.T) {
 		b := observation(rpc.SourceRef{ID: "b"}, string(variants[i]), `{"source":"b"}`)
 		for _, order := range [][]rpc.Observation{{a, b}, {b, a}} {
 			decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, order)
-			if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
+			if err != nil || decision.Decision.Status != rpc.Corroborated || len(decision.Decision.Support) != 2 {
 				t.Fatalf("variant %d decision = %+v err %v", i, decision, err)
 			}
 			if baseline == nil {
-				baseline = decision.Value
-			} else if !bytes.Equal(baseline, decision.Value) {
+				baseline = decision.Decision.Value
+			} else if !bytes.Equal(baseline, decision.Decision.Value) {
 				t.Fatal("capture order/spelling changed Value")
 			}
-			if decision.Representative != order[0].Source || !bytes.Equal(decision.Provenance, order[0].Evidence) {
+			if decision.Decision.Representative != order[0].Source || !bytes.Equal(decision.Decision.Provenance, order[0].Evidence) {
 				t.Fatalf("representative/evidence = %+v", decision)
 			}
 		}
@@ -63,7 +63,7 @@ func TestBlockReceiptsNullEmptyAndArrayOrder(t *testing.T) {
 	policy := planResolver(t, MethodGetBlockReceipts, rpc.WithQuorum(1)).(rpc.CorroboratingPolicy)
 	for _, body := range []string{`null`, `[]`} {
 		d, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{observation(rpc.SourceRef{ID: "a"}, body, ""), observation(rpc.SourceRef{ID: "b"}, body, "")})
-		if err != nil || string(d.Value) != body || d.Status != rpc.Corroborated {
+		if err != nil || string(d.Decision.Value) != body || d.Decision.Status != rpc.Corroborated {
 			t.Fatalf("body %s = %+v err %v", body, d, err)
 		}
 	}
@@ -73,7 +73,7 @@ func TestBlockReceiptsNullEmptyAndArrayOrder(t *testing.T) {
 		{string(receiptArray(t, first)), string(receiptArray(t, second))},
 	} {
 		d, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{observation(rpc.SourceRef{ID: "a"}, pair[0], ""), observation(rpc.SourceRef{ID: "b"}, pair[1], "")})
-		if !errors.Is(err, rpc.ErrConflict) || d.Status != rpc.Unknown || len(d.Support) != 1 || len(d.Reject) != 1 {
+		if !errors.Is(err, rpc.ErrConflict) || d.Decision.Status != rpc.Unknown || len(d.Decision.Support) != 1 || len(d.Decision.Reject) != 1 {
 			t.Fatalf("pair = %+v err %v", d, err)
 		}
 	}
@@ -97,7 +97,7 @@ func TestBlockReceiptInvalidElementKeepsWholeSourceInDenominator(t *testing.T) {
 		d, err := planResolver(t, MethodGetBlockReceipts, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 			observation(rpc.SourceRef{ID: "a"}, string(good), ""), observation(rpc.SourceRef{ID: "b"}, string(good), ""), observation(rpc.SourceRef{ID: "c"}, string(other), ""), observation(rpc.SourceRef{ID: "d"}, string(bad), ""),
 		})
-		if !errors.Is(err, rpc.ErrConflict) || d.Status != rpc.Unknown || len(d.Support) != 2 || len(d.Reject) != 1 || len(d.Faults) != 1 || !strings.Contains(d.Faults[0].Error(), "encode:") {
+		if !errors.Is(err, rpc.ErrConflict) || d.Decision.Status != rpc.Unknown || len(d.Decision.Support) != 2 || len(d.Decision.Reject) != 1 || len(d.Decision.Faults) != 1 || !strings.Contains(d.Decision.Faults[0].Error(), "encode:") {
 			t.Fatalf("decision = %+v err %v", d, err)
 		}
 	}
@@ -119,7 +119,7 @@ func TestBlockReceiptCanonicalDisagreementFailsWithoutRevote(t *testing.T) {
 	d, err := injected.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
 		observation(rpc.SourceRef{ID: "a"}, string(a), ""), observation(rpc.SourceRef{ID: "b"}, string(b), ""), observation(rpc.SourceRef{ID: "c"}, string(b), ""),
 	})
-	if !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") || d.Status != rpc.Unknown || len(d.Value) != 0 || len(d.Support) != 3 {
+	if !errors.Is(err, rpc.ErrInvalidCanonicalResult) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") || d.Decision.Status != rpc.Unknown || len(d.Decision.Value) != 0 || len(d.Decision.Support) != 3 {
 		t.Fatalf("decision = %+v err %v", d, err)
 	}
 }

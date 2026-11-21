@@ -3068,3 +3068,62 @@ schema interpreter. Unsupported generator vocabulary fails explicitly.
 These are public type and low-level hook signature changes. They do not alter
 quorum, pending-local, Forwarded, response admission, write or stream semantics,
 and do not complete all method-level compatibility or public type migration.
+
+
+## 0073. Two response fact domains and complete replacement of flat outcomes
+
+Status: Accepted and implemented (2026-11-21); whole-repository tests, race,
+vet and build checks passed. Supersedes the compatibility-retention assumptions
+in 0065/0066 for this migration, the read/write exclusivity of 0066, and the
+classification of every unmet support threshold as a conflict. Existing
+request binding, fixed voting membership, method protection, capture lifecycle
+and immutable error ownership remain independent requirements.
+
+The project currently has no user or compatibility burden. Replace affected
+interfaces and their consumers together; do not add V2 APIs, deprecated aliases,
+permanent projections to the old representation, or a later cleanup dependency.
+Preserve established domain knowledge without preserving representations that
+lose it.
+
+A response has two fact domains: communication exchange and answer meaning.
+Native transports record observed progress and termination; rpcwire interprets
+the associated envelope; method owners interpret its value. Method refusal
+cannot erase a completed exchange or turn an actual answer into silence. A legal
+null and a legal protocol error are answers. Scheduling an attempt and starting
+the business RPC exchange are different facts: connection or identity checks
+can fail before the latter. Local cancellation never proves remote nonexecution.
+
+Resolvers must return their source judgments with their decision. Downstream
+health, observability and evidence consumers use that output without running
+normalization again. Unprocessed sources remain unassessed; internal contract
+failures do not become provider failures. Public source summaries retain the
+exchange, protocol kind, method judgment and decision relation without copying
+every source result body. Original payload retention remains optional and
+bounded. A new scenario must have a clear owner, a fact must be formed once,
+and invalid combinations must be prevented or rejected at the boundary.
+
+Adjudication records the fixed basis, support requirement, candidate groups and
+reason. No candidate, insufficient support, actual differing candidates, an unmet
+typed guarantee and a transaction-hash binding failure have distinct meanings.
+Minority disagreement can coexist with acceptance under a majority rule. Read
+assurance and write propagation retain their separate domain semantics. A
+malformed hash answer cannot be classified as an unreachable source.
+
+Synchronous writes compose the original broadcast with the last receipt attempt
+and the most recent formed receipt observation. Each has its own round identity;
+an interrupted last attempt cannot overwrite an earlier observation or inherit
+its votes. Retention stays bounded in polling count. The operation's final
+termination does not wrap an earlier NotFound or conflict as if it persisted;
+those facts belong to their recorded observations. The existing single execution
+owner serves root, view and capture, broadcasts once, and starts receipt timeout
+after broadcast acceptance. A full event journal and subscription lifecycle
+redesign are outside this migration.
+
+The topology stays within existing owners: neutral facts and adjudication in
+rpc, actual I/O in transport, envelope handling in rpcwire, method meaning in
+methods/objects, scheduling and health in pool, orchestration in aggregator and
+runtime, and operation composition at the root. No layer-manager package is
+introduced. The return-value, transport and method documents describe the
+implemented contract. Canary and replay consumers use the same source judgments;
+historical provider captures are unchanged. These checks do not replace a new
+external-provider observation or subscription-lifecycle acceptance.

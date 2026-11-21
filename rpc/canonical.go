@@ -20,7 +20,6 @@ import (
 // identity, request, or invocation token; the coordinator places one result
 // back into the one source slot it came from; results are used only inside
 // the current invocation, and nothing here interprets Ethereum fields.
-
 // ErrInvalidCanonicalResult is the internal contract sentinel of the
 // canonical seam: a constructor handed illegal output, a processor returned a
 // result beside an error, a success observation lacks its result, or a
@@ -114,10 +113,10 @@ func NewCanonicalObservation(observation Observation, result CanonicalResult) (C
 	if observation.Source.ID == "" {
 		return CanonicalObservation{}, fmt.Errorf("%w: canonical observation has no source identity", ErrInvalidCanonicalResult)
 	}
-	if observation.Err != nil && !result.isZero() {
+	if observation.Response.Err() != nil && !result.isZero() {
 		return CanonicalObservation{}, fmt.Errorf("%w: failed observation %q carries a result", ErrInvalidCanonicalResult, observation.Source.ID)
 	}
-	if observation.Err == nil && result.isZero() {
+	if observation.Response.Err() == nil && result.isZero() {
 		return CanonicalObservation{}, fmt.Errorf("%w: successful observation %q carries no result", ErrInvalidCanonicalResult, observation.Source.ID)
 	}
 	return CanonicalObservation{observation: observation, result: result}, nil
@@ -133,9 +132,9 @@ func (c CanonicalObservation) Result() CanonicalResult { return c.result }
 // for processed observations. Both entries resolve with the same clustering,
 // adjudication, verdicts, and commit kernel as the raw entries; they differ
 // only in the candidate material. ResolveCanonical honors the resolver's
-// construction-time corroboration configuration exactly as ResolveOutcome
+// construction-time corroboration configuration exactly as Resolve
 // does, and ResolveCanonicalCorroborated adjudicates under the invocation's
-// frozen snapshot exactly as ResolveOutcomeCorroborated does.
+// frozen snapshot exactly as ResolveCorroborated does.
 type CanonicalOutcomeResolver interface {
 	ResolveCanonical([]CanonicalObservation) (Outcome, error)
 	ResolveCanonicalCorroborated(Corroboration, []CanonicalObservation) (Outcome, error)

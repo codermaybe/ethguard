@@ -73,7 +73,7 @@ func TestSharedDisconnectCountsAttemptedEmissionsAndRedials(t *testing.T) {
 	}
 	for range 2 {
 		result := <-results
-		if !errors.Is(result.err, ErrAllSourcesDown) || len(result.emissions) != 1 || !result.emissions[0].Attempted || !errors.Is(result.emissions[0].Err, transport.ErrConnectionClosed) {
+		if !errors.Is(result.err, ErrAllSourcesDown) || len(result.emissions) != 1 || !result.emissions[0].Attempted || !errors.Is(result.emissions[0].Response.Err(), transport.ErrConnectionClosed) {
 			t.Fatalf("abort outcome=%+v", result)
 		}
 	}
@@ -85,7 +85,7 @@ func TestSharedDisconnectCountsAttemptedEmissionsAndRedials(t *testing.T) {
 		t.Fatalf("invocation replay: sockets=%d requests=%d", sockets.Load(), requests.Load())
 	}
 	emissions, err := p.CollectVoting(ctx, "eth_blockNumber", nil, CollectOptions{})
-	if err != nil || len(emissions) != 1 || string(emissions[0].Val) != `"0x1"` || sockets.Load() != 2 || requests.Load() != 3 {
+	if err != nil || len(emissions) != 1 || string(emissions[0].Response.Answer.Result) != `"0x1"` || sockets.Load() != 2 || requests.Load() != 3 {
 		t.Fatalf("independent redial: emissions=%+v err=%v sockets=%d requests=%d", emissions, err, sockets.Load(), requests.Load())
 	}
 	if got := src.Health(); got.Failures != 2 || got.Successes != 1 || got.ConsecutiveFailures != 0 {
@@ -142,11 +142,11 @@ func checkReadLimitRedial(t *testing.T, chainID uint64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	emissions, _ := p.CollectVoting(ctx, "eth_blockNumber", nil, CollectOptions{})
-	if len(emissions) != 1 || !errors.Is(emissions[0].Err, transport.ErrBodyTooLarge) || !errors.Is(emissions[0].Err, transport.ErrConnectionClosed) {
+	if len(emissions) != 1 || !errors.Is(emissions[0].Response.Err(), transport.ErrBodyTooLarge) || !errors.Is(emissions[0].Response.Err(), transport.ErrConnectionClosed) {
 		t.Fatalf("read limit=%+v", emissions)
 	}
 	emissions, err = p.CollectVoting(ctx, "eth_blockNumber", nil, CollectOptions{})
-	if err != nil || len(emissions) != 1 || string(emissions[0].Val) != `"0x1"` || sockets.Load() != 2 {
+	if err != nil || len(emissions) != 1 || string(emissions[0].Response.Answer.Result) != `"0x1"` || sockets.Load() != 2 {
 		t.Fatalf("next invocation reused dead transport: %+v err=%v sockets=%d", emissions, err, sockets.Load())
 	}
 	if h := p.VotingMembers()[0].Health(); h.Failures != 1 || h.Successes != 1 {

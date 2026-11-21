@@ -1,8 +1,6 @@
 package pool
 
 import (
-	gethadapter "github.com/codermaybe/ethguard/internal/testkit/gethoracle"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	gethadapter "github.com/codermaybe/ethguard/internal/testkit/gethoracle"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -22,7 +21,6 @@ import (
 // the audited class A semantics, and pins the one deliberate health
 // difference: a degenerate JSON-RPC error member is a failure under the
 // native contract where the Geth baseline recorded a healthy usable answer.
-
 type poolEchoServer struct {
 	srv      *httptest.Server
 	listener *poolCountingListener
@@ -115,17 +113,19 @@ func TestNativeAdapterPoolHealthyAnswer(t *testing.T) {
 		if !e.Attempted {
 			t.Fatalf("Collect[%d] emission not attempted", i)
 		}
-		if i == 0 && string(e.Val) != `"0x2a"` {
-			t.Fatalf("Collect[0] val = %s", e.Val)
+		if i == 0 && string(e.Response.Answer.Result) != `"0x2a"` {
+			t.Fatalf("Collect[0] val = %s", e.Response.Answer.Result)
 		}
 		if i == 1 {
 			var protocol rpc.ProtocolError
-			if !errors.As(e.Err, &protocol) || protocol.ErrorCode() != -32000 {
-				t.Fatalf("Collect[1] err = %v, want revert protocol error", e.Err)
+			if !errors.As(e.Response.Err(),
+				&protocol) || protocol.ErrorCode() != -32000 {
+				t.Fatalf("Collect[1] err = %v, want revert protocol error", e.Response.Err())
 			}
 			var presence rpc.ErrorDataPresence
-			if !errors.As(e.Err, &presence) {
-				t.Fatalf("Collect[1] err %v lost presence through the pool", e.Err)
+			if !errors.As(e.Response.Err(),
+				&presence) {
+				t.Fatalf("Collect[1] err %v lost presence through the pool", e.Response.Err())
 			}
 			raw, present := presence.ErrorDataJSON()
 			if !present || string(raw) != `"0xdead"` {
@@ -159,12 +159,13 @@ func TestNativeAdapterPoolRateLimitClassifiesThrottling(t *testing.T) {
 	if !errors.Is(err, ErrAllSourcesDown) {
 		t.Fatalf("Collect err = %v, want ErrAllSourcesDown (429 is not a usable answer)", err)
 	}
-	if len(emissions) != 1 || emissions[0].Err == nil {
+	if len(emissions) != 1 || emissions[0].Response.Err() == nil {
 		t.Fatalf("emissions = %+v, want one failed emission", emissions)
 	}
 	var rateLimit rpc.RateLimitError
-	if !errors.As(emissions[0].Err, &rateLimit) || !rateLimit.IsRateLimit() {
-		t.Fatalf("emission err = %v, want rate-limit capability", emissions[0].Err)
+	if !errors.As(emissions[0].Response.Err(),
+		&rateLimit) || !rateLimit.IsRateLimit() {
+		t.Fatalf("emission err = %v, want rate-limit capability", emissions[0].Response.Err())
 	}
 	got := src.Health()
 	if got.Failures != 1 || got.RateLimited != 1 || got.Successes != 0 {
@@ -197,12 +198,13 @@ func TestNativeAdapterPoolMalformedIsFailure(t *testing.T) {
 			if !errors.Is(err, ErrAllSourcesDown) {
 				t.Fatalf("Collect err = %v, want ErrAllSourcesDown", err)
 			}
-			if len(emissions) != 1 || emissions[0].Err == nil {
+			if len(emissions) != 1 || emissions[0].Response.Err() == nil {
 				t.Fatalf("emissions = %+v, want one failed emission", emissions)
 			}
 			var protocol rpc.ProtocolError
-			if errors.As(emissions[0].Err, &protocol) {
-				t.Fatalf("malformed response became a protocol error: %v", emissions[0].Err)
+			if errors.As(emissions[0].Response.Err(),
+				&protocol) {
+				t.Fatalf("malformed response became a protocol error: %v", emissions[0].Response.Err())
 			}
 			got := src.Health()
 			if got.Failures != 1 || got.Successes != 0 || got.RateLimited != 0 {
@@ -240,12 +242,13 @@ func TestDegenerateErrorMemberMalformedEverywhere(t *testing.T) {
 			if !errors.Is(err, ErrAllSourcesDown) {
 				t.Fatalf("Collect err = %v, want ErrAllSourcesDown", err)
 			}
-			if len(emissions) != 1 || emissions[0].Err == nil {
+			if len(emissions) != 1 || emissions[0].Response.Err() == nil {
 				t.Fatalf("emissions = %+v, want one failed emission", emissions)
 			}
 			var protocol rpc.ProtocolError
-			if errors.As(emissions[0].Err, &protocol) {
-				t.Fatalf("degenerate error member surfaced as a protocol error: %v", emissions[0].Err)
+			if errors.As(emissions[0].Response.Err(),
+				&protocol) {
+				t.Fatalf("degenerate error member surfaced as a protocol error: %v", emissions[0].Response.Err())
 			}
 			if got := src.Health(); got.Failures != 1 || got.Successes != 0 || got.RateLimited != 0 {
 				t.Fatalf("health = %+v, want one plain failure", got)

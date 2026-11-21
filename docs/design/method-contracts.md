@@ -26,6 +26,10 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 
 `Corroborated` 只表示 provider-backed cross-source evidence，不是 Ethereum consensus、canonical chain 或 cryptographic finality。合法 dissent、null、弃权、畸形回答与传输失败分别记录。
 
+响应模型迁移采用结构化`Adjudication`记录固定Basis、Required、候选组及Reason。没有候选、仅一组候选但支持不足、确有多个候选且未被接受，分别为NoCandidate、InsufficientSupport和ConflictingCandidates；接受的多数仍可伴随少数异值。typed保证未达成另记GuaranteeNotMet，不把全部未成功路径统称Conflict。协议合法的null与错误回答仍是实际回答，其方法含义由方法owner判断；缺失或非法信封不能成为方法候选。
+
+写入先保留各来源报告的hash或协议拒绝，再按冻结成员与传播门槛裁定，并校验报告hash是否绑定本地提交交易。SubmittedHash记录本地事实，Hash记录领先报告值，HashMismatch不冒充候选之间的冲突。Forwarded写入明确Required=1；未访问成员留在Sources中，不伪造连接失败。本段为已接受的迁移合同，最终实现验收状态见路线图。
+
 ## 3. 方法族与保证范围
 
 | 方法族 | 保护与比较依据 | 明确未证明／例外 |
@@ -47,6 +51,14 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 | 未注册／显式 unsupported | 按 catalog 和公开入口规则处理 | “未知方法曾可 Forward”不代表当前已注册只读 `Call` 会绕过 allow-list；不能以未知转发补齐兼容缺口 |
 
 实现入口为 `rpc/internal/objects/{block,transaction,receipt,log,feehistory,accesslist}` 与 `rpc/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。
+
+### 广播后的同步收据观察
+
+`SendRawTransactionSync`／`SendTransactionSync` 的 root/view 共用一次广播和后续 receipt read。只有 `WriteAccepted`、非空获胜 hash 且与本地签名交易 hash 一致时才查询 receipt。未接受的广播由 `WriteUnconfirmed` 和 `Adjudication.Reason` 表达；协议拒绝、支持不足、实际分歧、foreign hash 或广播错误均不进入轮询。typed 交易编码一次，receipt 查询绑定已接受的 hash，等待过程不重放广播。
+
+NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观察，其他 receipt 执行错误立即返回。显式正 timeout 只约束广播后的等待；nil／zero 使用当前 20 秒默认，父 context 可更早结束。负 timeout 在广播前拒绝；typed 入口先快照再校验 timeout，保持已有本地错误顺序。成功交付请求绑定的 provider-backed receipt，不证明 inclusion、finality 或 reorg safety。
+
+`CallResult.WriteDecision` 保留原广播，`ReceiptWait.LastAttempt` 和 `LastObservation` 分别保留最后尝试与最近形成的方法观察，各有自己的序号、Decision 和错误。最后尝试被中断时，不能覆盖此前的有效观察或沿用其票数；最终 timeout 只表达等待终止，不包装历史 NotFound 或 Conflict。默认保留量相对轮询次数有界，不能据两个位置推断连续缺失、持续冲突或完整历史。字段、观察形成条件及 capture 所有权见 [返回值合同](return-value-design.md#同步写入的结果与诊断)。
 
 ## 4. 请求参考、pending 与错误
 

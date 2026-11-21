@@ -75,14 +75,8 @@ func TestGorillaInteroperability(t *testing.T) {
 	t.Cleanup(transportValue.Close)
 
 	var result json.RawMessage
-	if err := transportValue.CallContext(
-		context.Background(),
-		&result,
-		"eth_getBalance",
-		"0x0000000000000000000000000000000000000001",
-		"latest",
-	); err != nil {
-		t.Fatalf("CallContext: %v", err)
+	if err := transportValue.Call(context.Background(), "eth_getBalance", "0x0000000000000000000000000000000000000001", "latest").Decode(&result); err != nil {
+		t.Fatalf("Call: %v", err)
 	}
 	if string(result) != `"0x64"` {
 		t.Fatalf("result = %s, want %q", result, "0x64")

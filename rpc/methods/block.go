@@ -81,30 +81,14 @@ func (p blockPolicy) RequiresAgreement() bool {
 	return true
 }
 
-func (p blockPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
+func (p blockPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
 	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
 		return cp.ResolveCorroborated(c, obs)
 	}
 	return p.Policy.Resolve(obs)
 }
 
-func (p blockPolicy) ResolveOutcome(obs []rpc.Observation) (rpc.Outcome, error) {
-	if inner, ok := p.Policy.(rpc.OutcomeResolver); ok {
-		return inner.ResolveOutcome(obs)
-	}
-	d, err := p.Resolve(obs)
-	return rpc.Outcome{Decision: d}, err
-}
-
-func (p blockPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
-	if inner, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
-		return inner.ResolveOutcomeCorroborated(c, obs)
-	}
-	d, err := p.ResolveCorroborated(c, obs)
-	return rpc.Outcome{Decision: d}, err
-}
-
-func (p blockPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
+func (p blockPolicy) Resolve(obs []rpc.Observation) (rpc.Outcome, error) {
 	return p.Policy.Resolve(obs)
 }
 

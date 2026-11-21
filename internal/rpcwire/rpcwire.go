@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"reflect"
 	"strconv"
 	"sync/atomic"
 
@@ -226,52 +225,30 @@ func DecodeResponse(body []byte, requestID json.RawMessage) (*Response, error) {
 	return &Response{ID: cloneRaw(wire.ID), Result: cloneRaw(result)}, nil
 }
 
-// DecodeResult fills the caller's result target from the raw result bytes.
-// The prefix names the calling adapter in decode failures.
-func DecodeResult(prefix string, raw json.RawMessage, result any) error {
-	switch target := result.(type) {
-	case nil:
-		return nil
-	case *json.RawMessage:
-		*target = append((*target)[:0], raw...)
-		return nil
-	default:
-		if reflect.ValueOf(result).Kind() != reflect.Pointer {
-			return fmt.Errorf("%s: result must be pointer or nil, got %T", prefix, result)
-		}
-		if err := json.Unmarshal(raw, result); err != nil {
-			return fmt.Errorf("%s: decode result: %w", prefix, err)
-		}
-		return nil
-	}
-}
-
-// CompleteCall decodes one completed exchange and delivers it to the call's
-// exclusive consumer: validate the response envelope against the request id,
-// surface a provider error, and fill the caller's result target. The prefix
-// names the calling adapter in result decode failures. The native HTTP and
-// raw WSS adapters share this terminal sequence, so the two transports
-// cannot drift on envelope or result semantics.
-//
-// The decoded envelope here never escapes this call and the body is owned by
-// the completing adapter, so the success result is consumed in place: the
-// caller's target receives the one copy it needs, instead of first cloning
-// the result into a Response for repeatable consumption nobody performs.
-// The public DecodeResponse keeps that cloning isolation for consumers that
-// retain the Response.
-func CompleteCall(body []byte, requestID json.RawMessage, result any, prefix string) error {
+// CompleteCall interprets one complete, request-associated exchange. The JSON
+// decoder allocates each member once; result ownership transfers directly into
+// the returned answer, without an intermediate clone or consumer-target decode.
+func CompleteCall(body []byte, requestID json.RawMessage, exchange rpc.Exchange) rpc.Response {
+	response := rpc.Response{Exchange: exchange}
 	wire, err := checkedEnvelope(body, requestID)
 	if err != nil {
-		return err
+		kind := rpc.AnswerInvalid
+		if errors.Is(err, ErrEmptyResponse) {
+			kind = rpc.AnswerMissing
+		}
+		response.Answer = rpc.Answer{Kind: kind, Cause: err}
+		return response
 	}
-	rpcErr, resultRaw, _, err := wire.classify()
-	if err != nil {
-		return err
+	protocol, result, _, err := wire.classify()
+	switch {
+	case err != nil:
+		response.Answer = rpc.Answer{Kind: rpc.AnswerInvalid, Cause: err}
+	case protocol != nil:
+		response.Answer = rpc.ProtocolAnswer(protocol)
+	default:
+		response.Answer = rpc.Answer{Kind: rpc.AnswerResult, Result: result}
 	}
-	if rpcErr != nil {
-		return rpcErr
-	}
-	return DecodeResult(prefix, resultRaw, result)
+	return response
 }
 
 // Error is a project-owned JSON-RPC error object decoded from a response.

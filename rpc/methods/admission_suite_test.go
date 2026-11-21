@@ -163,11 +163,11 @@ func admissionCases(t *testing.T) []admissionCase {
 								observation(rpc.SourceRef{Name: "a", ID: "a"}, pair[0], ""),
 								observation(rpc.SourceRef{Name: "b", ID: "b"}, pair[1], ""),
 							})
-						if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
+						if err != nil || decision.Decision.Status != rpc.Corroborated || len(decision.Decision.Support) != 2 {
 							t.Fatalf("%s and %s did not form one cluster: %+v err %v", pair[0], pair[1], decision, err)
 						}
-						if !bytes.Contains(decision.Value, []byte(`"gasUsedRatio":[0.5]`)) && !bytes.Contains(decision.Value, []byte(`"gasUsedRatio":[0.1]`)) {
-							t.Fatalf("ratio was not reduced to its shortest form: %s", decision.Value)
+						if !bytes.Contains(decision.Decision.Value, []byte(`"gasUsedRatio":[0.5]`)) && !bytes.Contains(decision.Decision.Value, []byte(`"gasUsedRatio":[0.1]`)) {
+							t.Fatalf("ratio was not reduced to its shortest form: %s", decision.Decision.Value)
 						}
 					}
 				},
@@ -201,7 +201,7 @@ func admissionCases(t *testing.T) []admissionCase {
 							observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
 							observation(rpc.SourceRef{Name: "b", ID: "b"}, `[]`, ""),
 						})
-					if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
+					if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
 						t.Fatalf("null and [] formed one answer: %+v err %v", decision, err)
 					}
 				},
@@ -221,14 +221,14 @@ func admissionCases(t *testing.T) []admissionCase {
 							observation(rpc.SourceRef{Name: "c", ID: "c"}, string(other), ""),
 							observation(rpc.SourceRef{Name: "d", ID: "d"}, string(broken), ""),
 						})
-					if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
+					if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
 						t.Fatalf("decision = %+v err %v", decision, err)
 					}
-					if len(decision.Support) != 2 || len(decision.Reject) != 1 {
-						t.Fatalf("membership = support %d reject %d", len(decision.Support), len(decision.Reject))
+					if len(decision.Decision.Support) != 2 || len(decision.Decision.Reject) != 1 {
+						t.Fatalf("membership = support %d reject %d", len(decision.Decision.Support), len(decision.Decision.Reject))
 					}
-					if len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), "encode:") {
-						t.Fatalf("faults = %v, want one encode fault", decision.Faults)
+					if len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "encode:") {
+						t.Fatalf("faults = %v, want one encode fault", decision.Decision.Faults)
 					}
 				},
 				"array order is not sorted": func(t *testing.T) {
@@ -240,7 +240,7 @@ func admissionCases(t *testing.T) []admissionCase {
 							observation(rpc.SourceRef{Name: "a", ID: "a"}, string(first), ""),
 							observation(rpc.SourceRef{Name: "b", ID: "b"}, string(second), ""),
 						})
-					if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
+					if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
 						t.Fatalf("reordering the array formed one answer: %+v err %v", decision, err)
 					}
 				},
@@ -272,13 +272,13 @@ func admissionCases(t *testing.T) []admissionCase {
 							observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
 							observation(rpc.SourceRef{Name: "b", ID: "b"}, `[]`, ""),
 						})
-					if !errors.Is(err, rpc.ErrConflict) || decision.Status == rpc.Corroborated || len(decision.Support) != 1 {
+					if !errors.Is(err, rpc.ErrInsufficientSupport) || decision.Decision.Status == rpc.Corroborated || len(decision.Decision.Support) != 1 {
 						t.Fatalf("null corroborated with an empty array: %+v err %v", decision, err)
 					}
 					// The empty array is the only answer; null is a fault, so
 					// it never became a second vote.
-					if len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), "encode:") {
-						t.Fatalf("faults = %v, want one encode fault for null", decision.Faults)
+					if len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "encode:") {
+						t.Fatalf("faults = %v, want one encode fault for null", decision.Decision.Faults)
 					}
 				},
 				"an absent blockTimestamp is omitted": func(t *testing.T) {
@@ -356,10 +356,11 @@ func TestAdmissionProtectedDomainClustering(t *testing.T) {
 		t.Run(item.method, func(t *testing.T) {
 			policy := planResolver(t, item.method, rpc.WithQuorum(1))
 			resolve := func(a, b string) (rpc.Decision, error) {
-				return policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
+				outcome, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 					observation(rpc.SourceRef{Name: "a", ID: "a"}, a, ""),
 					observation(rpc.SourceRef{Name: "b", ID: "b"}, b, ""),
 				})
+				return outcome.Decision, err
 			}
 			decision, err := resolve(string(item.valid), string(item.outside))
 			if err != nil {

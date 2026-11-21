@@ -455,8 +455,8 @@ func TestPlansServeTheDeclaredTag(t *testing.T) {
 			// Uncorroborated evidence never rewrites a request.
 			unconfirmed := fixtureReference(tag)
 			unconfirmed.Status = rpc.Selected
-			if _, _, err := plan.PrepareWithReference(req, unconfirmed, true); !errors.Is(err, rpc.ErrConflict) {
-				t.Fatalf("uncorroborated: err = %v, want ErrConflict", err)
+			if _, _, err := plan.PrepareWithReference(req, unconfirmed, true); !errors.Is(err, rpc.ErrGuaranteeNotMet) {
+				t.Fatalf("uncorroborated: err = %v, want ErrGuaranteeNotMet", err)
 			}
 			// Serving evidence rewrites and records the pin.
 			_, pin, err := plan.PrepareWithReference(req, fixtureReference(tag), true)

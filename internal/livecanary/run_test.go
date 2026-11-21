@@ -718,7 +718,7 @@ func TestGatedMemberMakesStepInconclusive(t *testing.T) {
 		Value:          value,
 		Participants:   []rpc.SourceRef{source(1), source(2), source(3)},
 		Support:        []rpc.SourceRef{source(2), source(3)},
-		Reject:         []rpc.SourceRef{source(1)},
+		Sources:        canarySummaries([]rpc.SourceRef{source(1), source(2), source(3)}, rpc.VerdictAbsent, rpc.VerdictSupported, rpc.VerdictSupported),
 		Representative: source(2),
 		SourceFaults: []rpc.SourceFault{{
 			Source: source(1),

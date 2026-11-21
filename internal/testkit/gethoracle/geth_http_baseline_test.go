@@ -117,7 +117,7 @@ func baselineClient(t *testing.T, rawURL string, limit int64) transport.Transpor
 func baselineCall(t *testing.T, tr transport.Transport, ctx context.Context, method string, args ...any) (json.RawMessage, error) {
 	t.Helper()
 	var result json.RawMessage
-	err := tr.CallContext(ctx, &result, method, args...)
+	err := tr.Call(ctx, method, args...).Decode(&result)
 	return result, err
 }
 
@@ -157,7 +157,7 @@ func TestHTTPBaselineRequestEnvelope(t *testing.T) {
 			})
 			tr := baselineClient(t, srv.srv.URL, 0)
 			if _, err := baselineCall(t, tr, context.Background(), tc.method, tc.args...); err != nil {
-				t.Fatalf("CallContext err = %v, want nil", err)
+				t.Fatalf("Call err = %v, want nil", err)
 			}
 			if srv.requestCount() != 1 {
 				t.Fatalf("request count = %d, want 1", srv.requestCount())
@@ -209,7 +209,7 @@ func TestHTTPBaselineRequestIDIsMonotonicCounter(t *testing.T) {
 }
 
 // TestHTTPBaselineConcurrentCallsAreIndependentPOSTs locks the concurrency
-// model: every CallContext is its own POST carrying a unique decimal ID, and
+// model: every Call is its own POST carrying a unique decimal ID, and
 // requests are never batched at the wire level.
 func TestHTTPBaselineConcurrentCallsAreIndependentPOSTs(t *testing.T) {
 	const calls = 6
@@ -702,7 +702,7 @@ func TestHTTPBaselineCloseBlocksNewCalls(t *testing.T) {
 		t.Fatalf("in-flight call aborted by Close: %v", err)
 	}
 	var result json.RawMessage
-	if err := tr.CallContext(context.Background(), &result, "eth_chainId"); !errors.Is(err, transport.ErrConnectionClosed) {
+	if err := tr.Call(context.Background(), "eth_chainId").Decode(&result); !errors.Is(err, transport.ErrConnectionClosed) {
 		t.Fatalf("post-close call = %v, want the neutral connection-closed sentinel", err)
 	}
 	tr.Close() // idempotent

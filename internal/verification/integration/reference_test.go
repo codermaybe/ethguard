@@ -101,7 +101,7 @@ func TestCommonReferenceConfirmationCannotShrinkQuorum(t *testing.T) {
 		return map[string]any{"number": fmt.Sprintf("0x%x", height), "hash": fmt.Sprintf("0x%064x", height)}, nil
 	})
 	decision, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest"))
-	if !errors.Is(err, rpc.ErrConflict) {
+	if !errors.Is(err, rpc.ErrInsufficientSupport) {
 		t.Fatalf("two of five must fail, got %+v %v", decision, err)
 	}
 	if decision.Reference == nil || len(decision.Reference.Participants) != 5 || len(decision.Reference.Support) != 2 || len(decision.Reference.Faults) == 0 {
@@ -146,7 +146,7 @@ func TestCommonReferenceRejectsWrongConfirmationHeight(t *testing.T) {
 		return map[string]any{"number": "0x63", "hash": fmt.Sprintf("0x%064x", 99)}, nil
 	})
 	d, err := callDecision(client.Call(context.Background(), methods.MethodGetBalance, "0x1", "latest"))
-	if !errors.Is(err, rpc.ErrConflict) || d.Reference == nil || len(d.Reference.Faults) == 0 {
+	if !errors.Is(err, rpc.ErrInsufficientSupport) || d.Reference == nil || len(d.Reference.Faults) == 0 {
 		t.Fatalf("wrong height confirmations accepted: %+v %v", d, err)
 	}
 }

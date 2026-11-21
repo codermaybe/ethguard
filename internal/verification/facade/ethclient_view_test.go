@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
+	gethethclient "github.com/ethereum/go-ethereum/ethclient"
+
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
-	"github.com/ethereum/go-ethereum"
-	gethethclient "github.com/ethereum/go-ethereum/ethclient"
 )
 
 // The interface commitments of the ethclient-shaped view after the complete
@@ -244,14 +245,14 @@ func TestViewFailureDeliversSameConclusionToCallerAndCapture(t *testing.T) {
 	defer cancel()
 
 	id, err := client.EthClient().ChainID(ctx)
-	if err == nil || id != nil || !errors.Is(err, ethguard.ErrConflict) {
+	if err == nil || id != nil || !errors.Is(err, ethguard.ErrInsufficientSupport) {
 		t.Fatalf("failed view read = %v, %v", id, err)
 	}
 	published, ok, capErr := capture.Result()
 	if !ok || capErr != nil {
 		t.Fatalf("delivery = %v, %v", ok, capErr)
 	}
-	if published.Err == nil || !errors.Is(published.Err, ethguard.ErrConflict) || published.Err != err {
+	if published.Err == nil || !errors.Is(published.Err, ethguard.ErrInsufficientSupport) || published.Err != err {
 		t.Fatalf("published conclusion = %v, caller conclusion = %v", published.Err, err)
 	}
 }

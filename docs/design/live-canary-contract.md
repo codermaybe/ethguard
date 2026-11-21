@@ -276,10 +276,10 @@ v1 固定值：
 | --- | --- |
 | `request_binding` | 需要绑定时，prepared request 的区块参数必须等于**该步骤自己的 reference** hash（按字节比较）或 height（按数值比较）；`business.fee-history.finalized` 使用它的 step reference，`reference.finalized-balance` 的 step reference 同时是 run reference。moving tag 不得留在 prepared request 中。`binding=none` 的 `client_call` 步骤，prepared 必须与 logical 一致（占位符替换后）；typed-only 步骤不适用。 |
 | `status_allowed` | `decision.status` 必须属于 plan 的 `expect.statuses`；error 路径按 `expect.error` 检查。`corroborated` 的 support 还必须达到固定门槛 `Q = max(2, floor(N/2)+1)`；低于 Q 视为门槛被改动或 decision 损坏。 |
-| `evidence_conservation` | `n == len(participants)`；`support`、`reject`、source-attributed `faults` 两两不相交，并集等于 `participants`；`collection_faults` 单独记录；`participants` 数量与顺序等于 manifest selected basis。 |
+| `evidence_conservation` | `n == len(participants)`；`sources`对每个participant恰有一个真实处置，attempted与absent不矛盾；support/reject与supported/dissented对应，source faults保留真实归因且不能与有效候选矛盾；collection_faults单独记录。participants数量与顺序等于manifest selected basis。 |
 | `representative_in_support` | `representative` 必须等于 `support` 的第一个来源；`support` 顺序保持本次 basis 顺序。 |
-| `reference_status` | 需要 reference 的步骤必须携带**该步骤自己的** `ReferenceEvidence`；`status == corroborated`；`tag` 等于请求的 moving tag；`hash`/`height` 非空（按方法需要）；reference 的 support 达到固定门槛 `Q`；reference 的 support/reject/source faults 与 participants 按同一规则检查，collection-level fault 单独记录。`reference.finalized-balance` 的这一对象同时是 run reference。 |
-| `error_status_exclusive` | `rpc.Call` 返回 error 时 decision status 必须是 `unknown`；成功 status 不得携带 error；不得把 provider error 包成成功。该不变量不约束 typed decode 的预期 `not_found`，后者由 `typed_decode` 检查。 |
+| `reference_status` | 需要 reference 的步骤必须携带**该步骤自己的** `ReferenceEvidence`；`status == corroborated`；`tag` 等于请求的 moving tag；`hash`/`height` 非空（按方法需要）；reference 的 support 达到固定门槛 `Q`；reference的Sources覆盖、support/reject关系与source faults按同一规则检查，collection-level fault单独记录。`reference.finalized-balance` 的这一对象同时是 run reference。 |
+| `error_status_exclusive` | 本固定plan的原始read步骤不接受非预期error搭配成功status，不能把provider错误包装成plan成功；typed decode预期not_found由typed_decode检查。这是canary plan的期望检查，不是全项目“非nil error必须擦除已形成Status”的规则；Forward协议回答等独立合同不由本plan改写。 |
 | `basis_unchanged` | 本次 run 的 members 始终等于 manifest selected；不得替换、缩小或重排分母；`voting_basis_sha256` 必须一致。 |
 | `typed_decode` | typed adapter 必须成功解码，且 hash/height 与本次 run reference 一致（typed block 不要求步骤自带 reference 对象）；negative 路径必须得到预期 `not_found`。 |
 | `shape_matches_plan` | actual `value_kind` 必须等于 plan 的 `expect.value_kind`；shape drift 必须记录，不得静默改写。 |
@@ -295,8 +295,7 @@ v1 固定值：
 - 不得断言 step reference 与 run reference 相等；两者相同是允许的观察，
   不是 canary 契约。
 - per-source fault 归属必须来自结构化证据通道（例如 Decision.SourceFaults／CollectionFaults、WithSourceEvidence 保留的逐源响应／错误以及 source health），不得靠错误字符串猜来源。
-- 每个 participant 的处置必须可追踪到 support、reject、source fault、
-  collection fault 或 typed 边界；不得无记录消失。
+- 每个participant必须在Sources中有独立处置；未尝试、未评估与局部排除不能补成Reject。collection fault属于整轮，不能代替缺失的来源身份。
 - 少数派 `reject` 不使 run 变成 `inconclusive`；它是被保留的观察。
 - **可用性 fault**（不可达、429、超时、未尝试的 gated member、无响应）使
   run 为 `inconclusive`，即使当时 decision 仍达到了期望状态。
@@ -328,7 +327,7 @@ v1 固定值：
 | `code_error` | 未分类的本地错误、panic、report 序列化/写出失败、fan-out 前不可解释的错误。 |
 | `request_binding` | prepared request 未绑定到本次 reference；moving tag 残留；hash/height 不匹配。 |
 | `evidence_missing` | 必需 evidence 缺失：reference、participants、support/reject/fault 归属、prepared request、value digest、source health、plan/manifest hash 等。 |
-| `illegal_state` | error 携带成功 status；成功 status 为 `unknown`；status 不在允许集合；representative 不在 support；重复来源；support/reject/faults 不是 participant 的划分；N>=3 时出现 selected/forwarded 语义。 |
+| `illegal_state` | error 携带成功 status；成功 status 为 `unknown`；status 不在允许集合；representative 不在 support；重复来源；Sources没有覆盖participant或与支持/异值/故障视图矛盾；N>=3 时出现 selected/forwarded 语义。 |
 | `identity_mismatch` | identity decision 成功但值不等于 `chain_id`。 |
 | `denominator_changed` | 成员集合、顺序或数量与 manifest selected 不一致；运行中换成员或缩分母。 |
 | `schema_error` | manifest/report 不满足 schema，或 manifest/plan digest 不匹配。 |
@@ -536,6 +535,9 @@ run，也不是证据。
 
 ### 9.3 decision 字段
 
+2026-11-21响应模型迁移：报告处置改由默认Sources摘要驱动，成员可以明确为supported、dissented、unusable、absent、excluded或unassessed。支持/异值/来源错误不再构成唯一的三分集合；缺少处置摘要是证据错误，不能补成异值或来源故障。对应报告类型、严格字段校验、比较器、schema与合成example已同步并通过全仓普通/race验收，历史真实采集材料保持原样，其含义按采集revision解释，不反写为新观察。
+
+
 | 字段 | 生产用途 |
 | --- | --- |
 | `status` | 允许集合检查 |
@@ -543,7 +545,8 @@ run，也不是证据。
 | `error_detail` | 脱敏、限长的诊断；不得作为裁决依据 |
 | `n` | 固定分母快速核对；必须等于 `len(participants)` |
 | `participants` | 本次 voting basis，按 manifest 顺序 |
-| `support` / `reject` | 聚类结果 |
+| `sources` | 每个participant的source_id、attempted与relation，按真实来源摘要记录；用于完整覆盖校验 |
+| `support` / `reject` | 实际支持与异值来源；不能用Reject填补未归类成员 |
 | `faults` | source-attributed faults：`source_id`、`category`、脱敏 `detail` |
 | `collection_faults` | pool-level faults：`category`、脱敏 `detail` |
 | `representative` | 代表源；必须是 support 第一个 |
@@ -551,7 +554,7 @@ run，也不是证据。
 | `value_kind` | 实际 value 形态：`quantity`、`data`、`array`、`object`、`null`、`bool`、`string`；shape drift 依据 |
 
 `reference` 对象字段：`status`、`tag`、`height`、`hash`、`origin`、
-`observed_at`、`n`、`participants`、`support`、`reject`、`faults`、
+`observed_at`、`n`、`participants`、`sources`、`support`、`reject`、`faults`、
 `collection_faults`。`faults` 是 source-attributed；`collection_faults` 是
 pool-level。
 

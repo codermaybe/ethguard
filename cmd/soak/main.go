@@ -35,6 +35,9 @@ import (
 	"strings"
 	"time"
 
+	ethereum "github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/ethapi"
@@ -44,8 +47,6 @@ import (
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
-	ethereum "github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
 )
 
 // Well-known, stable mainnet fixtures. These are observation targets, not
@@ -353,6 +354,9 @@ func classify(dec *rpc.Decision, err error, detail string) (stepReport, error) {
 	switch {
 	case err == nil && dec != nil:
 		report.outcome = dec.Status.String()
+	case errors.Is(err, rpc.ErrInsufficientSupport), errors.Is(err, rpc.ErrGuaranteeNotMet):
+		report.outcome = "support-unmet"
+		report.detail = ""
 	case errors.Is(err, rpc.ErrConflict):
 		report.outcome = "conflict"
 		report.detail = ""
@@ -386,13 +390,13 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 	faults := map[string]int{}
 	faulted := 0
 	for _, em := range emissions {
-		if em.Err != nil {
-			msg := truncate(em.Err.Error(), 90)
+		if em.Response.Err() != nil {
+			msg := truncate(em.Response.Err().Error(), 90)
 			faults[msg]++
 			faulted++
 			continue
 		}
-		canonical, err := client.Normalize(s.method, em.Val)
+		canonical, err := client.Normalize(s.method, em.Response.Answer.Result)
 		if err != nil {
 			msg := "normalize: " + truncate(err.Error(), 80)
 			faults[msg]++

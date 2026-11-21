@@ -19,37 +19,46 @@ import (
 // structured RPC error bodies only when the resolver opted in. This helper is
 // the one implementation behind the PendingLocal compatibility decorator and
 // the pending branch of a planned read.
-func ResolveLocalObservation(policy Policy, obs []Observation) (Decision, error) {
-	includeRPCError := false
+func ResolveLocalObservation(policy Policy, obs []Observation) (Outcome, error) {
+	return resolveLocal(policy, obs, true)
+}
+
+func resolveLocal(policy Policy, obs []Observation, pending bool) (Outcome, error) {
+	includeProtocol := false
 	if provider, ok := policy.(RPCErrorPolicy); ok {
-		includeRPCError = provider.IncludeRPCError()
+		includeProtocol = provider.IncludeRPCError()
 	}
-	var faults []error
-	for _, item := range obs {
-		value := item.Value
-		if item.Err != nil {
-			if !includeRPCError || item.RPCError == nil {
-				continue
+	verdicts := initialVerdicts(obs)
+	decision := Decision{Adjudication: Adjudication{Basis: len(obs), Required: 1, Reason: ReasonNoCandidate}}
+	for i, item := range obs {
+		v := &verdicts[i]
+		value, candidateErr := item.Response.Candidate(includeProtocol)
+		if candidateErr != nil {
+			if item.Response.CandidateErr(true) == nil {
+				v.Kind, v.Method = VerdictUnusable, Interpretation{State: InterpretationExcluded, Cause: candidateErr}
+			} else {
+				unavailableVerdict(v, item.Response)
 			}
-			value = item.RPCError.Raw()
+			continue
 		}
 		if _, err := policy.Normalize(value); err != nil {
-			faults = append(faults, sourceFault(item.Source, "normalize", err))
+			rejectVerdict(v, err)
 			continue
 		}
 		if canonical, err := CanonicalOf(policy, value); err == nil {
 			value = canonical
 		} else if !errors.Is(err, ErrNotCanonicalScalar) {
-			faults = append(faults, sourceFault(item.Source, "encode", err))
-			return Decision{Status: Unknown, Faults: faults}, fmt.Errorf("pending: %w", err)
+			rejectVerdict(v, err)
+			return completeOutcome(obs, decision, verdicts, fmt.Errorf("local encode: %w", err))
 		}
-		return Decision{
-			Status:     Selected,
-			Value:      value,
-			Support:    []SourceRef{item.Source},
-			Faults:     faults,
-			Provenance: append(json.RawMessage(nil), item.Evidence...),
-		}, nil
+		v.Kind, v.Method = VerdictSupported, Interpretation{State: InterpretationValidated}
+		decision.Status, decision.Value, decision.Support = Selected, value, []SourceRef{item.Source}
+		decision.Adjudication.Reason = ReasonAccepted
+		decision.Adjudication.Candidates = []CandidateGroup{{Sources: decision.Support}}
+		if pending {
+			decision.Provenance = append(json.RawMessage(nil), item.Evidence...)
+		}
+		return completeOutcome(obs, decision, verdicts, nil)
 	}
-	return Decision{Status: Unknown, Faults: faults}, noValidResponse("pending", len(obs))
+	return completeOutcome(obs, decision, verdicts, noValidResponse("local", len(obs)))
 }

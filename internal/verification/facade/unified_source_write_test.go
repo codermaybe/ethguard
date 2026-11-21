@@ -15,13 +15,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/internal/testkit/wstest"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
 type sourceWireRequest struct {
@@ -143,21 +144,21 @@ func unifiedSignedTransaction(t *testing.T) ([]byte, string) {
 
 func TestUnifiedSourceWriteOutcomes(t *testing.T) {
 	for _, tc := range []struct {
-		name         string
-		httpReject   bool
-		wsCode       int
-		disconnect   bool
-		want         rpc.WriteStatus
-		wantAccepted int
-		wantRejected int
-		wantSilent   int
-		wantFailure  uint64
+		name            string
+		httpReject      bool
+		wsCode          int
+		disconnect      bool
+		want            rpc.WriteStatus
+		wantAccepted    int
+		wantRejected    int
+		wantUnavailable int
+		wantFailure     uint64
 	}{
 		{name: "mixed acceptance", want: rpc.WriteAccepted, wantAccepted: 2},
-		{name: "unsupported reduces support not basis", wsCode: -32601, want: rpc.WriteDisputed, wantAccepted: 1, wantRejected: 1},
-		{name: "server rejection affects health", wsCode: -32603, want: rpc.WriteDisputed, wantAccepted: 1, wantRejected: 1, wantFailure: 1},
-		{name: "rate limit affects health", wsCode: -32005, want: rpc.WriteDisputed, wantAccepted: 1, wantRejected: 1, wantFailure: 1},
-		{name: "rejection coexists with unknown submission", httpReject: true, disconnect: true, want: rpc.WriteRejected, wantRejected: 1, wantSilent: 1, wantFailure: 1},
+		{name: "unsupported reduces support not basis", wsCode: -32601, want: rpc.WriteUnconfirmed, wantAccepted: 1, wantRejected: 1},
+		{name: "server rejection affects health", wsCode: -32603, want: rpc.WriteUnconfirmed, wantAccepted: 1, wantRejected: 1, wantFailure: 1},
+		{name: "rate limit affects health", wsCode: -32005, want: rpc.WriteUnconfirmed, wantAccepted: 1, wantRejected: 1, wantFailure: 1},
+		{name: "rejection coexists with unknown submission", httpReject: true, disconnect: true, want: rpc.WriteUnconfirmed, wantRejected: 1, wantUnavailable: 1, wantFailure: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, hash := unifiedSignedTransaction(t)
@@ -195,7 +196,7 @@ func TestUnifiedSourceWriteOutcomes(t *testing.T) {
 			defer cancel()
 			result, err := client.SendRawTransaction(ctx, raw)
 			d := result.WriteDecision
-			if d.Status != tc.want || d.Basis != 2 || d.Required != 2 || len(d.Accepted) != tc.wantAccepted || len(d.Rejected) != tc.wantRejected || len(d.Silent) != tc.wantSilent {
+			if d.Status != tc.want || d.Adjudication.Basis != 2 || d.Adjudication.Required != 2 || len(writeRelations(d.Sources, rpc.VerdictSupported)) != tc.wantAccepted || len(writeRejections(d.Sources)) != tc.wantRejected || len(writeUnavailable(d.Sources)) != tc.wantUnavailable {
 				t.Fatalf("decision=%+v err=%v", d, err)
 			}
 			if tc.want == rpc.WriteAccepted {
@@ -205,11 +206,14 @@ func TestUnifiedSourceWriteOutcomes(t *testing.T) {
 			} else if err == nil || result.IsWriteAccepted() {
 				t.Fatalf("non-accepted result=%+v err=%v", d, err)
 			}
-			if tc.want == rpc.WriteDisputed && !errors.Is(err, rpc.ErrConflict) {
-				t.Fatalf("disputed err=%v", err)
-			}
-			if tc.want == rpc.WriteRejected && !errors.Is(err, rpc.ErrNoValidResponse) {
-				t.Fatalf("rejected err=%v", err)
+			if tc.want == rpc.WriteUnconfirmed {
+				wantErr, wantReason := rpc.ErrInsufficientSupport, rpc.ReasonInsufficientSupport
+				if tc.httpReject {
+					wantErr, wantReason = rpc.ErrNoValidResponse, rpc.ReasonRejected
+				}
+				if !errors.Is(err, wantErr) || d.Adjudication.Reason != wantReason {
+					t.Fatalf("unconfirmed reason=%v err=%v", d.Adjudication.Reason, err)
+				}
 			}
 			if httpPeer.writes.Load() != 1 || wsPeer.writes.Load() != 1 || wsPeer.connections.Load() != 1 {
 				t.Fatalf("broadcast skipped or replayed source: http=%d ws=%d sockets=%d", httpPeer.writes.Load(), wsPeer.writes.Load(), wsPeer.connections.Load())
@@ -226,12 +230,12 @@ func TestUnifiedSourceWriteOutcomes(t *testing.T) {
 				t.Fatalf("rate limit=%+v", h)
 			}
 			if tc.disconnect {
-				if len(d.Faults) != 1 || d.Silent[0].Name != "wss" {
+				if len(d.Faults) != 0 || writeUnavailable(d.Sources)[0].Exchange.Cause == nil || writeUnavailable(d.Sources)[0].Source.Name != "wss" {
 					t.Fatalf("unknown delivery evidence lost: %+v", d)
 				}
 				// The peer received the signed frame. Rejected cannot mean never submitted.
 				next, nextErr := client.SendRawTransaction(ctx, raw)
-				if next.WriteDecision.Status != rpc.WriteDisputed || !errors.Is(nextErr, rpc.ErrConflict) || wsPeer.writes.Load() != 2 || wsPeer.connections.Load() != 2 {
+				if next.WriteDecision.Status != rpc.WriteUnconfirmed || !errors.Is(nextErr, rpc.ErrInsufficientSupport) || wsPeer.writes.Load() != 2 || wsPeer.connections.Load() != 2 {
 					t.Fatalf("independent invocation did not redial: %+v err=%v writes=%d sockets=%d", next.Decision, nextErr, wsPeer.writes.Load(), wsPeer.connections.Load())
 				}
 			}
@@ -254,7 +258,7 @@ func TestSingleWSSSourceUsesForwardedWriteBasis(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	result, err := client.SendRawTransaction(ctx, raw)
-	if err != nil || !result.IsWriteAccepted() || result.WriteDecision.Hash != hash || result.WriteDecision.Basis != 1 || result.WriteDecision.Required != 1 || client.Mode() != rpc.CorroborationForwarded {
+	if err != nil || !result.IsWriteAccepted() || result.WriteDecision.Hash != hash || result.WriteDecision.Adjudication.Basis != 1 || result.WriteDecision.Adjudication.Required != 1 || client.Mode() != rpc.CorroborationForwarded {
 		t.Fatalf("single WSS write=%+v err=%v mode=%s", result.Decision, err, client.Mode())
 	}
 	if peer.writes.Load() != 1 || peer.connections.Load() != 1 {
@@ -325,11 +329,11 @@ func TestWriteRejectionDataAcrossEntrypoints(t *testing.T) {
 					if result.Decision != nil || result.Err != err || d == nil {
 						t.Fatalf("result/error contract changed: %+v, err=%v", result, err)
 					}
-					if d.Status != rpc.WriteRejected || d.Basis != 2 || d.Required != 2 || d.Hash != "" || len(d.Accepted) != 0 || len(d.Dissent) != 0 || len(d.Silent) != 0 || len(d.Faults) != 0 || len(d.Rejected) != 2 {
+					if d.Status != rpc.WriteUnconfirmed || d.Adjudication.Basis != 2 || d.Adjudication.Required != 2 || d.Hash != "" || len(writeRelations(d.Sources, rpc.VerdictSupported)) != 0 || len(writeRelations(d.Sources, rpc.VerdictDissented)) != 0 || len(writeUnavailable(d.Sources)) != 0 || len(d.Faults) != 0 || len(writeRejections(d.Sources)) != 2 {
 						t.Fatalf("decision=%+v", d)
 					}
 					seen := make(map[string]bool)
-					for _, rejected := range d.Rejected {
+					for _, rejected := range writeRejections(d.Sources) {
 						seen[rejected.Source.Name] = true
 						r := rejected.Rejection
 						if rejected.Hash != "" || r == nil || r.Code != -32601 || r.Message != "already known" {
@@ -356,19 +360,19 @@ func TestWriteRejectionDataAcrossEntrypoints(t *testing.T) {
 				}
 				if entry != "view typed" {
 					check(result)
-					result.WriteDecision.Rejected[0].Rejection.Message = "mutated"
+					writeRejections(result.WriteDecision.Sources)[0].Rejection.Message = "mutated"
 					if tc.data != "" {
-						result.WriteDecision.Rejected[0].Rejection.Data[0] = '!'
+						writeRejections(result.WriteDecision.Sources)[0].Rejection.Data[0] = '!'
 					}
 					check(captured)
 				}
 				if tc.data != "" {
-					captured.WriteDecision.Rejected[0].Rejection.Data[0] = '!'
-					if string(captured.WriteDecision.Rejected[1].Rejection.Data) != tc.data {
+					writeRejections(captured.WriteDecision.Sources)[0].Rejection.Data[0] = '!'
+					if string(writeRejections(captured.WriteDecision.Sources)[1].Rejection.Data) != tc.data {
 						t.Fatal("sources share data storage")
 					}
 				}
-				captured.WriteDecision.Rejected[0].Rejection.Message = "mutated"
+				writeRejections(captured.WriteDecision.Sources)[0].Rejection.Message = "mutated"
 				again, published, captureErr := capture.Result()
 				if !published || captureErr != nil {
 					t.Fatalf("repeat capture=%t, %v", published, captureErr)
@@ -385,4 +389,34 @@ func TestWriteRejectionDataAcrossEntrypoints(t *testing.T) {
 			})
 		}
 	}
+}
+
+// These assertion helpers query the authoritative source evidence without
+// storing a second classification in the decision.
+func writeRelations(sources []rpc.SourceAnswer, relation rpc.VerdictKind) []rpc.SourceAnswer {
+	var matches []rpc.SourceAnswer
+	for _, source := range sources {
+		if source.Relation == relation {
+			matches = append(matches, source)
+		}
+	}
+	return matches
+}
+func writeRejections(sources []rpc.SourceAnswer) []rpc.SourceAnswer {
+	var matches []rpc.SourceAnswer
+	for _, source := range sources {
+		if source.Rejection != nil {
+			matches = append(matches, source)
+		}
+	}
+	return matches
+}
+func writeUnavailable(sources []rpc.SourceAnswer) []rpc.SourceAnswer {
+	var matches []rpc.SourceAnswer
+	for _, source := range sources {
+		if source.Answer.Kind == rpc.AnswerUnassessed {
+			matches = append(matches, source)
+		}
+	}
+	return matches
 }

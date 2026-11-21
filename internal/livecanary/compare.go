@@ -286,6 +286,7 @@ func compareDecision(id *string, a, b *DecisionReport, add func(*string, string,
 	add(id, "decision.participants", strings.Join(a.Participants, ","), strings.Join(b.Participants, ","), DiffCodeMismatch)
 	add(id, "decision.value_sha256", a.ValueSHA256, b.ValueSHA256, DiffProviderFluctuation)
 	add(id, "decision.value_kind", a.ValueKind, b.ValueKind, DiffProviderFluctuation)
+	add(id, "decision.sources", sourceDispositionSignature(a.Sources), sourceDispositionSignature(b.Sources), DiffProviderFluctuation)
 	add(id, "decision.support", strings.Join(a.Support, ","), strings.Join(b.Support, ","), DiffProviderFluctuation)
 	add(id, "decision.reject", strings.Join(a.Reject, ","), strings.Join(b.Reject, ","), DiffProviderFluctuation)
 	add(id, "decision.faults", sourceFaultSignature(a.Faults), sourceFaultSignature(b.Faults), DiffProviderFluctuation)
@@ -315,6 +316,7 @@ func compareReference(manifest *Manifest, left, right StepReport, id *string, ad
 	add(id, "reference.origin", a.Origin, b.Origin, DiffProviderFluctuation)
 	add(id, "reference.n", strconv.Itoa(a.N), strconv.Itoa(b.N), DiffCodeMismatch)
 	add(id, "reference.participants", strings.Join(a.Participants, ","), strings.Join(b.Participants, ","), DiffCodeMismatch)
+	add(id, "reference.sources", sourceDispositionSignature(a.Sources), sourceDispositionSignature(b.Sources), DiffProviderFluctuation)
 	add(id, "reference.support", strings.Join(a.Support, ","), strings.Join(b.Support, ","), DiffProviderFluctuation)
 	add(id, "reference.reject", strings.Join(a.Reject, ","), strings.Join(b.Reject, ","), DiffProviderFluctuation)
 	add(id, "reference.faults", sourceFaultSignature(a.Faults), sourceFaultSignature(b.Faults), DiffProviderFluctuation)
@@ -436,6 +438,14 @@ func requestText(request *RequestReport) string {
 		return "null"
 	}
 	return request.Method + " " + jsonText(request.Params)
+}
+
+func sourceDispositionSignature(sources []SourceDispositionReport) string {
+	parts := make([]string, len(sources))
+	for i, source := range sources {
+		parts[i] = fmt.Sprintf("%s/%t/%s", source.SourceID, source.Attempted, source.Relation)
+	}
+	return strings.Join(parts, ",")
 }
 
 func referenceText(reference *ReferenceReport) string {

@@ -21,7 +21,7 @@ address := ethapi.Address("0x000000000000000000000000000000000000dead")
 balance, result, err := client.BalanceAt(ctx, address, nil)
 ```
 
-The root method returns its business value, a CallResult and the final business error. CallResult contains the decision or write evidence and any retained source material; its Err matches the trailing error. The EthClient view uses the same execution and omits CallResult:
+The root method returns its business value, a CallResult and the final business error. CallResult carries read or broadcast evidence, bounded receipt observations for synchronous writes, and any retained source material; its Err matches the trailing error. The EthClient view uses the same execution and omits CallResult:
 
 ```go
 view := client.EthClient()
@@ -82,7 +82,9 @@ Inspect saved only when published and captureErr is nil. The direct result remai
 
 ## Writes, subscriptions and lifetime
 
-Writes validate the frozen transaction bytes and use the write pipeline's accepted/unknown/rejected evidence. Unknown outcomes are not automatically replayed. Synchronous write entrypoints may poll for a receipt under their own explicit contract; EthGuard does not sign, choose gas, allocate nonces or manage replacements.
+Writes validate frozen transaction bytes and bind reported hashes to the local submitted hash. WriteDecision records acceptance separately from its reason and each source's exchange, answer and method judgment. Insufficient support, differing hashes, protocol rejection and a foreign hash remain distinguishable. Unconfirmed outcomes are not automatically replayed.
+
+Synchronous writes broadcast once, then poll for a receipt. CallResult.ReceiptWait keeps the last actual query and the latest formed receipt observation, each with its own sequence, Decision and error. An interrupted final query preserves an earlier null or conflict observation; the operation's Err describes final termination. These facts do not require raw source-evidence capture and retain at most two queries. EthGuard does not sign, choose gas, allocate nonces or manage replacements.
 
 Root and view provide SubscribeNewHead, SubscribeFilterLogs and SubscribeTransactionReceipts with generated model channels and ethereum.Subscription. Multi-source subscriptions use a fixed WSS snapshot, source-session generation checks and same-source Pull. A multi-source client with only one WSS source is rejected; the explicit single-source client uses its existing path. Public subscription mode/budget and termination refinements remain tracked in the [subscription contract](docs/design/subscription-contract.md).
 
@@ -106,6 +108,6 @@ Close on either facade stops the shared Client. New operations fail before netwo
 | internal/spec / executionapi | Pinned raw sources / reviewed effective schemas |
 | cmd / observe | Explicit tools / passive operational events |
 
-Start at the [documentation index](docs/design/README.md). It links current contracts, pending choices and dated evidence. Historical decisions remain an archive, not a second implementation plan. Public types are migrated; the next implementation work concerns internal duplication and module simplification after the documentation checkpoint.
+Start at the [documentation index](docs/design/README.md). It links current contracts, pending choices and dated evidence. Historical decisions remain an archive, not a second implementation plan. The response model uses two fact domains, exchange and answer meaning, across transport, methods and public decisions. The roadmap records migration acceptance and the remaining independent work.
 
 Ordinary tests are offline. Anvil and provider capture are explicit commands; synthetic/local-chain evidence does not close real-provider gaps. Live canary passed, workflow success and release approval are different facts. Formal gates and fixed tools are maintained only in the [release contract](docs/design/release-contract.md).

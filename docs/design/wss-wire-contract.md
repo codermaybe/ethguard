@@ -1,6 +1,6 @@
 # WSS Wire Contract（自有 WebSocket 底层契约）
 
-状态：2026-11-17 文档基线；现有 wire 范围起于 2026-11-03。自有实现的握手、帧、连接与
+状态：2026-11-21 unary两层响应出口已实施；现有 wire 范围起于 2026-11-03。自有实现的握手、帧、连接与
 adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也不据此宣称所有验收门
 或依赖清理均已完成。
 
@@ -17,9 +17,10 @@ adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也
   [subscription-contract.md](subscription-contract.md)。不支持 batch、自动重连或重放。
 - **不自下而上重写传输。** 连接建立与字节流使用 Go 标准库（`net`、`crypto/tls`、
   `net/http`、`bufio`）；帧协议与调用生命周期由项目自有代码实现。
-- **不改变上层语义。** 不修改 `pool`、`aggregator`、`ReadPlan`、quorum、
-  reference、Decision、presence 或 typed projection。`transport.Transport`
-  Port 与中立哨兵（`ErrConnectionClosed`、`ErrBodyTooLarge`）保持不变。
+- **响应事实归属。** unary Port使用`Call(...) rpc.Response`，保留Exchange及Answer；
+  RPC信封仍由rpcwire解释，方法准入及quorum仍由上层负责。中立关闭和大小上限哨兵保持。
+  只有关联到当前请求的完整消息才能形成该请求的回答；未知ID和通知不能冒充它。
+  取消时保留已经关联的回答，最终错误仍由context决定；它不取消其他调用或污染socket。
 - **依赖规则。** 自有生产 wire 层只依赖 Go 标准库与项目内部包
   （`internal/rpcwire`、`internal/limits`、`internal/transport`、`rpc`），
   不得导入或链接第三方 WebSocket 库。`dependencies_test.go` 约束 WSS 包的

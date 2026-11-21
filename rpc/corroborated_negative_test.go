@@ -14,21 +14,20 @@ import (
 // path that must NOT claim Corroborated, and the rule that error returns
 // carry Status Unknown (the zero value claims nothing, so only a nil error
 // plus Status == Corroborated counts).
-
 func TestCorroboratedRejectsSingleSource(t *testing.T) {
 	p := Strict(CanonicalJSON)
 	decision, err := p.Resolve([]Observation{
-		{Source: src(), Err: errors.New("timeout")},
+		{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("timeout")}}},
 		obs(`"0x1"`),
 	})
 	if err != nil {
 		t.Fatalf("one admitted response resolves, got %v", err)
 	}
-	if decision.Status == Corroborated {
+	if decision.Decision.Status == Corroborated {
 		t.Fatalf("a lone admitted response must stay Selected, got %+v", decision)
 	}
-	if decision.Status != Selected {
-		t.Fatalf("expected Selected, got %v", decision.Status)
+	if decision.Decision.Status != Selected {
+		t.Fatalf("expected Selected, got %v", decision.Decision.Status)
 	}
 }
 
@@ -45,8 +44,8 @@ func TestCorroboratedQuorumFailureIsConflict(t *testing.T) {
 	if err == nil {
 		t.Fatal("unreachable: conflict must come with an error")
 	}
-	if decision.Status != Unknown {
-		t.Fatalf("conflict decision status = %v, want Unknown", decision.Status)
+	if decision.Decision.Status != Unknown {
+		t.Fatalf("conflict decision status = %v, want Unknown", decision.Decision.Status)
 	}
 }
 
@@ -56,7 +55,7 @@ func TestCorroboratedMedianAgreementStaysSelected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status == Corroborated {
+	if decision.Decision.Status == Corroborated {
 		t.Fatalf("unanimous agreement on a variable value is coincidence, not corroboration: %+v", decision)
 	}
 }
@@ -67,7 +66,7 @@ func TestCorroboratedLocalAnswersStaySelected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status == Corroborated {
+	if decision.Decision.Status == Corroborated {
 		t.Fatalf("provider-local answers have no fleet truth to agree on: %+v", decision)
 	}
 }
@@ -78,11 +77,11 @@ func TestCorroboratedForwardingNeverClaimsAgreement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if forwarded.Status == Corroborated {
+	if forwarded.Decision.Status == Corroborated {
 		t.Fatalf("forwarding one source's answer must stay Forwarded: %+v", forwarded)
 	}
-	if forwarded.Status != Forwarded {
-		t.Fatalf("expected Forwarded, got %v", forwarded.Status)
+	if forwarded.Decision.Status != Forwarded {
+		t.Fatalf("expected Forwarded, got %v", forwarded.Decision.Status)
 	}
 }
 
@@ -104,9 +103,9 @@ func TestCorroboratedEvidenceIsProviderBacked(t *testing.T) {
 	a, b, c := src(), src(), src()
 	p := Strict(CanonicalJSON)
 	decision, err := p.Resolve([]Observation{
-		{Source: a, Value: []byte(`"0x1"`)},
-		{Source: b, Value: []byte(`"0x1"`)},
-		{Source: c, Value: []byte(`"0x2"`)},
+		{Attempted: true, Source: a, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`"0x1"`)}}},
+		{Attempted: true, Source: b, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`"0x1"`)}}},
+		{Attempted: true, Source: c, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`"0x2"`)}}},
 	})
 	// With the legacy default, any dissent fails: use unanimity-free
 	// agreement instead so the evidence shape is what gets asserted.
@@ -114,22 +113,22 @@ func TestCorroboratedEvidenceIsProviderBacked(t *testing.T) {
 		t.Fatalf("legacy strict must reject dissent, got %+v", decision)
 	}
 	decision, err = p.Resolve([]Observation{
-		{Source: a, Value: []byte(`"0x1"`)},
-		{Source: b, Value: []byte(`"0x1"`)},
+		{Attempted: true, Source: a, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`"0x1"`)}}},
+		{Attempted: true, Source: b, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`"0x1"`)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Corroborated {
+	if decision.Decision.Status != Corroborated {
 		t.Fatalf("expected corroborated pair, got %+v", decision)
 	}
 	// The evidence names exactly the providers that reported the value —
 	// source identities supplied by the caller, no signatures, no proofs.
 	seen := map[string]bool{}
-	for _, s := range decision.Support {
+	for _, s := range decision.Decision.Support {
 		seen[s.ID] = true
 	}
-	if !seen[a.ID] || !seen[b.ID] || len(decision.Support) != 2 {
-		t.Fatalf("support must name exactly the two reporting providers, got %+v", decision.Support)
+	if !seen[a.ID] || !seen[b.ID] || len(decision.Decision.Support) != 2 {
+		t.Fatalf("support must name exactly the two reporting providers, got %+v", decision.Decision.Support)
 	}
 }

@@ -39,10 +39,10 @@ func captureHeadObservations(invocation rpc.Invocation, observations []reference
 	}
 	for _, observation := range observations {
 		errText := ""
-		if observation.Err != nil {
-			errText = observation.Err.Error()
+		if observation.Response.Err() != nil {
+			errText = observation.Response.Err().Error()
 		}
-		capture.Record("response", anchorMethodName, observation.Source, observation.Value, errText)
+		capture.Record("response", anchorMethodName, observation.Source, observation.Response.Answer.Result, errText)
 	}
 	if collectErr != nil {
 		capture.Record("collect", anchorMethodName, rpc.SourceRef{}, nil, collectErr.Error())

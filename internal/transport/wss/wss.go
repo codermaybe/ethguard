@@ -234,7 +234,7 @@ func (s *Subscription) Unsubscribe() {
 		defer cancel()
 		var ok bool
 		if s.transport != nil {
-			_ = s.transport.CallContext(ctx, &ok, "eth_unsubscribe", s.id)
+			_ = s.transport.Call(ctx, "eth_unsubscribe", s.id).Decode(&ok)
 		}
 		s.stream.Unsubscribe()
 	})
@@ -261,7 +261,7 @@ func (t *Transport) Subscribe(ctx context.Context, kind string, args ...any) (*S
 	params := make([]any, 0, len(args)+1)
 	params = append(params, kind)
 	params = append(params, args...)
-	if err := t.CallContext(ctx, &id, "eth_subscribe", params...); err != nil {
+	if err := t.Call(ctx, "eth_subscribe", params...).Decode(&id); err != nil {
 		stream.Unsubscribe()
 		return nil, err
 	}
@@ -304,53 +304,69 @@ type Transport struct {
 var _ transport.Transport = (*Transport)(nil)
 var _ transport.Dialer = Dialer{}
 
-// CallContext performs one JSON-RPC call over the shared socket. The returned
-// error preserves the wire shape: protocol errors implement rpc.ProtocolError,
-// rpc.DataError, and rpc.ErrorDataPresence; transport failures map onto the
-// neutral sentinels.
-func (t *Transport) CallContext(ctx context.Context, result any, method string, args ...any) error {
+// Call performs one unary exchange on the shared socket. Only a frame
+// associated with this request can advance it beyond Started.
+func (t *Transport) Call(ctx context.Context, method string, args ...any) rpc.Response {
+	exchange := rpc.Exchange{}
+	failed := func(err error) rpc.Response {
+		if cerr := ctx.Err(); cerr != nil {
+			err = cerr
+		}
+		exchange.Cause = err
+		return rpc.Response{Exchange: exchange}
+	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return failed(err)
 	}
 	t.mu.Lock()
 	closed := t.closed || t.closing
 	t.mu.Unlock()
 	if closed {
-		return ErrTransportClosed
+		return failed(ErrTransportClosed)
 	}
 	id := t.ids.Next()
 	body, err := rpcwire.EncodeRequest(id, method, args)
 	if err != nil {
-		return fmt.Errorf("wss: encode request: %w", err)
+		return failed(fmt.Errorf("wss: encode request: %w", err))
 	}
 	waiter := make(chan frameResult, 1)
 	t.mu.Lock()
 	if t.closed || t.closing {
 		t.mu.Unlock()
-		return ErrTransportClosed
+		return failed(ErrTransportClosed)
 	}
 	t.pending[string(id)] = waiter
 	t.mu.Unlock()
-
+	exchange.Progress = rpc.ExchangeStarted
 	if err := t.write(ctx, body); err != nil {
 		t.removePending(string(id))
-		if cerr := ctx.Err(); cerr != nil {
-			return cerr
-		}
-		return err
+		return failed(err)
 	}
-
-	select {
-	case response := <-waiter:
-		if cerr := ctx.Err(); cerr != nil {
-			return cerr
+	complete := func(frame frameResult) rpc.Response {
+		if frame.err != nil {
+			return failed(frame.err)
 		}
-		return t.complete(id, response, result)
+		exchange.Progress = rpc.ExchangeCompleted
+		exchange.Cause = ctx.Err()
+		return rpcwire.CompleteCall(frame.frame, id, exchange)
+	}
+	select {
+	case frame := <-waiter:
+		return complete(frame)
 	case <-ctx.Done():
-		// A cancelled call owns only its pending entry; the connection stays
-		// usable for every other call.
-		t.removePending(string(id))
-		return ctx.Err()
+		// Synchronize removal with read-loop association. An already associated
+		// frame remains a fact even when cancellation wins final error delivery.
+		t.mu.Lock()
+		delete(t.pending, string(id))
+		select {
+		case frame := <-waiter:
+			t.mu.Unlock()
+			return complete(frame)
+		default:
+			t.mu.Unlock()
+			t.drainCloseIfSettled()
+			return failed(ctx.Err())
+		}
 	}
 }
 
@@ -555,13 +571,6 @@ func (t *Transport) write(ctx context.Context, body []byte) error {
 	return writeErr
 }
 
-func (t *Transport) complete(id json.RawMessage, response frameResult, result any) error {
-	if response.err != nil {
-		return response.err
-	}
-	return rpcwire.CompleteCall(response.frame, id, result, "wss")
-}
-
 // drainCloseIfSettled marks the transport closed and closes the socket when
 // a requested close has drained its last pending response. The drain
 // condition is the one Close-vs-pending rule both the delivered-response and
@@ -611,6 +620,9 @@ func (t *Transport) readLoop() {
 		t.mu.Lock()
 		waiter := t.pending[id]
 		delete(t.pending, id)
+		if waiter != nil {
+			waiter <- frameResult{frame: message}
+		}
 		t.mu.Unlock()
 		if waiter != nil {
 			// The frame codec assembled this message into a fresh buffer that
@@ -619,8 +631,7 @@ func (t *Transport) readLoop() {
 			// pending entry was deleted above so this is the only delivery.
 			// Ownership transfers to the waiter, which reads the frame once
 			// inside rpcwire.CompleteCall.
-			waiter <- frameResult{frame: message}
-			t.finishCloseAfterPending()
+			t.drainCloseIfSettled()
 		}
 	}
 }
@@ -662,13 +673,6 @@ func (t *Transport) abort(err error) {
 	}
 }
 
-// finishCloseAfterPending closes a socket after Close was requested and the
-// last in-flight call has received its response. Close does not cancel calls;
-// each call's context owns its own deadline and cancellation.
-func (t *Transport) finishCloseAfterPending() {
-	t.drainCloseIfSettled()
-}
-
 func (t *Transport) closeSocket() {
 	t.socketOnce.Do(func() { _ = t.ws.Close() })
 }
@@ -676,7 +680,7 @@ func (t *Transport) closeSocket() {
 // ChainID implements transport.Transport through a plain eth_chainId call.
 func (t *Transport) ChainID(ctx context.Context) (*big.Int, error) {
 	var raw string
-	if err := t.CallContext(ctx, &raw, "eth_chainId"); err != nil {
+	if err := t.Call(ctx, "eth_chainId").Decode(&raw); err != nil {
 		return nil, err
 	}
 	value, err := rpc.ParseHexQuantity(raw)

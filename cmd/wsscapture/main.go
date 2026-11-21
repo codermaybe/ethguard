@@ -6,7 +6,7 @@
 // The capture mode dials explicit endpoints, sends read-only probes, and
 // writes redacted raw response frames to a caller-selected directory. The
 // replay mode reads that directory without network access and checks the
-// captured envelopes through rpcwire, aggregator.ObservationRPCError, and the
+// captured envelopes through rpcwire, rpc.ProtocolAnswer, and the
 // real eth_call policy.
 package main
 

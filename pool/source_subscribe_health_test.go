@@ -10,6 +10,7 @@ import (
 	"time"
 
 	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // subscribingDeadTransport answers the chain identity probe but fails every
@@ -60,7 +61,7 @@ func TestSubscribeDiscardsDeadTransportSoReconnectRedials(t *testing.T) {
 }
 
 // hangingTransport answers the identity probe and then blocks inside
-// CallContext until the caller's context is canceled, so the cancellation
+// Call until the caller's context is canceled, so the cancellation
 // deterministically lands mid-call.
 type hangingTransport struct {
 	contractTransport
@@ -68,14 +69,14 @@ type hangingTransport struct {
 	entered chan struct{}
 }
 
-func (t *hangingTransport) CallContext(ctx context.Context, _ any, _ string, _ ...any) error {
+func (t *hangingTransport) Call(ctx context.Context, _ string, _ ...any) rpc.Response {
 	select {
 	case t.entered <- struct{}{}:
 	case <-ctx.Done():
-		return ctx.Err()
+		return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: ctx.Err()}}
 	}
 	<-ctx.Done()
-	return ctx.Err()
+	return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: ctx.Err()}}
 }
 
 // TestCallContextDoesNotBlameSourceForCallerCancellation extends the unary

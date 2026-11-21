@@ -1176,7 +1176,11 @@ func TestVerificationProtectedMutationFails(t *testing.T) {
 			decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 			switch row.mutationExpect {
 			case t09MutationStrict:
-				if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
+				wantErr := rpc.ErrConflict
+				if row.mutationReject == 0 {
+					wantErr = rpc.ErrInsufficientSupport
+				}
+				if !errors.Is(err, wantErr) || decision.Status != rpc.Unknown {
 					t.Fatalf("mutation was accepted: status %v err %v", decision.Status, err)
 				}
 				if len(decision.Support) != 2 || len(decision.Reject) != row.mutationReject {

@@ -2,7 +2,6 @@ package reference
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/codermaybe/ethguard/rpc"
@@ -13,8 +12,7 @@ import (
 // interpretation of the head shape.
 type HeadObservation struct {
 	Source    rpc.SourceRef
-	Value     json.RawMessage
-	Err       error
+	Response  rpc.Response
 	RTT       time.Duration
 	Attempted bool
 }

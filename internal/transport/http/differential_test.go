@@ -1,8 +1,6 @@
 package http
 
 import (
-	gethadapter "github.com/codermaybe/ethguard/internal/testkit/gethoracle"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +12,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/internal/rpcwire"
+	gethadapter "github.com/codermaybe/ethguard/internal/testkit/gethoracle"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -76,7 +75,7 @@ func TestDifferentialEnvelopeParity(t *testing.T) {
 				t.Fatalf("native err = %v", err)
 			}
 			var sink json.RawMessage
-			if err := gethTr.CallContext(context.Background(), &sink, tc.method, tc.args...); err != nil {
+			if err := gethTr.Call(context.Background(), tc.method, tc.args...).Decode(&sink); err != nil {
 				t.Fatalf("geth err = %v", err)
 			}
 			if srv.requestCount() != 2 {
@@ -145,7 +144,7 @@ func TestDifferentialTypedMethodResultParity(t *testing.T) {
 			if err := call(t, nativeTr, context.Background(), &nativeRaw, tc.method, tc.args...); err != nil {
 				t.Fatalf("native err = %v", err)
 			}
-			if err := gethTr.CallContext(context.Background(), &gethRaw, tc.method, tc.args...); err != nil {
+			if err := gethTr.Call(context.Background(), tc.method, tc.args...).Decode(&gethRaw); err != nil {
 				t.Fatalf("geth err = %v", err)
 			}
 			if string(nativeRaw) != tc.result || string(gethRaw) != tc.result {
@@ -182,7 +181,7 @@ func TestDifferentialResponseValidationIsStrictEverywhere(t *testing.T) {
 			})
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 			var sink json.RawMessage
-			gethErr := gethTr.CallContext(context.Background(), &sink, "eth_chainId")
+			gethErr := gethTr.Call(context.Background(), "eth_chainId").Decode(&sink)
 			if tc.gethAccepted {
 				if gethErr != nil {
 					t.Fatalf("geth err = %v, want the positional baseline to accept %s", gethErr, tc.name)
@@ -215,7 +214,7 @@ func TestDifferentialResultSemantics(t *testing.T) {
 		if err := call(t, nativeTr, context.Background(), &nativeRaw, "eth_chainId"); err != nil {
 			t.Fatalf("native err = %v, want success", err)
 		}
-		if err := gethTr.CallContext(context.Background(), &gethRaw, "eth_chainId"); err != nil {
+		if err := gethTr.Call(context.Background(), "eth_chainId").Decode(&gethRaw); err != nil {
 			t.Fatalf("geth err = %v, want success", err)
 		}
 		if string(nativeRaw) != "null" || string(gethRaw) != "null" {
@@ -229,7 +228,7 @@ func TestDifferentialResultSemantics(t *testing.T) {
 		nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 		var nativeRaw, gethRaw json.RawMessage
 		nativeErr := call(t, nativeTr, context.Background(), &nativeRaw, "eth_chainId")
-		gethErr := gethTr.CallContext(context.Background(), &gethRaw, "eth_chainId")
+		gethErr := gethTr.Call(context.Background(), "eth_chainId").Decode(&gethRaw)
 		if nativeErr == nil || gethErr == nil {
 			t.Fatalf("native/geth err = %v/%v, want both to fail", nativeErr, gethErr)
 		}
@@ -253,7 +252,7 @@ func TestDifferentialResultSemantics(t *testing.T) {
 		nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 		// Geth quirk (B): error wins over result.
 		var gethRaw json.RawMessage
-		gethErr := gethTr.CallContext(context.Background(), &gethRaw, "eth_chainId")
+		gethErr := gethTr.Call(context.Background(), "eth_chainId").Decode(&gethRaw)
 		var gethProtocol rpc.ProtocolError
 		if !errors.As(gethErr, &gethProtocol) || gethProtocol.ErrorCode() != 7 {
 			t.Fatalf("geth err = %v, want error-wins protocol error 7", gethErr)
@@ -292,7 +291,7 @@ func TestDifferentialErrorDataPresence(t *testing.T) {
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 			var sink json.RawMessage
 			nativeErr := call(t, nativeTr, context.Background(), &sink, "eth_chainId")
-			gethErr := gethTr.CallContext(context.Background(), &sink, "eth_chainId")
+			gethErr := gethTr.Call(context.Background(), "eth_chainId").Decode(&sink)
 			for label, err := range map[string]error{"native": nativeErr, "geth": gethErr} {
 				var protocol rpc.ProtocolError
 				if !errors.As(err, &protocol) || protocol.ErrorCode() != 3 {
@@ -341,7 +340,7 @@ func TestDifferentialDegenerateErrorsRejectedNatively(t *testing.T) {
 			// malformed: a code-0 protocol error would count as a healthy
 			// usable answer downstream.
 			var sink json.RawMessage
-			gethErr := gethTr.CallContext(context.Background(), &sink, "eth_chainId")
+			gethErr := gethTr.Call(context.Background(), "eth_chainId").Decode(&sink)
 			if !errors.Is(gethErr, rpcwire.ErrMalformedResponse) {
 				t.Fatalf("geth err = %v, want the malformed sentinel after alignment", gethErr)
 			}
@@ -382,7 +381,7 @@ func TestDifferentialHTTPStatusParity(t *testing.T) {
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 			var sink json.RawMessage
 			nativeErr := call(t, nativeTr, context.Background(), &sink, "eth_chainId")
-			gethErr := gethTr.CallContext(context.Background(), &sink, "eth_chainId")
+			gethErr := gethTr.Call(context.Background(), "eth_chainId").Decode(&sink)
 			for label, err := range map[string]error{"native": nativeErr, "geth": gethErr} {
 				var status rpc.HTTPStatusError
 				if !errors.As(err, &status) || status.HTTPStatusCode() != tc.status {
@@ -459,7 +458,7 @@ func TestDifferentialEmptyAndMalformedClassification(t *testing.T) {
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 			var sink json.RawMessage
 			nativeErr := call(t, nativeTr, context.Background(), &sink, "eth_chainId")
-			gethErr := gethTr.CallContext(context.Background(), &sink, "eth_chainId")
+			gethErr := gethTr.Call(context.Background(), "eth_chainId").Decode(&sink)
 			if nativeErr == nil || gethErr == nil {
 				t.Fatalf("native/geth err = %v/%v, want both to fail", nativeErr, gethErr)
 			}
@@ -499,7 +498,7 @@ func TestDifferentialContextPrecedence(t *testing.T) {
 		if err := call(t, nativeTr, ctx, &sink, "eth_chainId"); !errors.Is(err, context.Canceled) {
 			t.Fatalf("native err = %v, want context.Canceled", err)
 		}
-		if err := gethTr.CallContext(ctx, &sink, "eth_chainId"); !errors.Is(err, context.Canceled) {
+		if err := gethTr.Call(ctx, "eth_chainId").Decode(&sink); !errors.Is(err, context.Canceled) {
 			t.Fatalf("geth err = %v, want context.Canceled", err)
 		}
 	})
@@ -521,7 +520,7 @@ func TestDifferentialContextPrecedence(t *testing.T) {
 		if err := call(t, nativeTr, ctx, &sink, "eth_chainId"); !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("native err = %v, want context.DeadlineExceeded", err)
 		}
-		if err := gethTr.CallContext(ctx, &sink, "eth_chainId"); !errors.Is(err, context.DeadlineExceeded) {
+		if err := gethTr.Call(ctx, "eth_chainId").Decode(&sink); !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("geth err = %v, want context.DeadlineExceeded", err)
 		}
 	})
@@ -558,7 +557,7 @@ func TestDifferentialConcurrentCallsParity(t *testing.T) {
 	})
 	runConcurrent("geth", func(i int) error {
 		var sink json.RawMessage
-		return gethTr.CallContext(context.Background(), &sink, "eth_chainId")
+		return gethTr.Call(context.Background(), "eth_chainId").Decode(&sink)
 	})
 	if got := srv.requestCount(); got != 2*calls {
 		t.Fatalf("request count = %d, want %d (one POST per call per adapter)", got, 2*calls)
@@ -595,7 +594,7 @@ func TestDifferentialConnectionReuseParity(t *testing.T) {
 			t.Fatalf("native call %d err = %v", i, err)
 		}
 		var sink json.RawMessage
-		if err := gethTr.CallContext(context.Background(), &sink, "eth_chainId"); err != nil {
+		if err := gethTr.Call(context.Background(), "eth_chainId").Decode(&sink); err != nil {
 			t.Fatalf("geth call %d err = %v", i, err)
 		}
 	}
@@ -659,7 +658,7 @@ func TestDifferentialStalledStatusBodyContextParity(t *testing.T) {
 			gctx, gcancel := setupCtx()
 			defer gcancel()
 			var gethSink json.RawMessage
-			gethErr := gethTr.CallContext(gctx, &gethSink, "eth_chainId")
+			gethErr := gethTr.Call(gctx, "eth_chainId").Decode(&gethSink)
 			if !errors.Is(gethErr, tc.want) {
 				t.Fatalf("geth err = %v, want %v (capture-layer context precedence)", gethErr, tc.want)
 			}
@@ -719,7 +718,7 @@ func TestDifferentialCloseLifecycle(t *testing.T) {
 	gethErrCh := make(chan error, 1)
 	go func() {
 		var raw json.RawMessage
-		gethErrCh <- gethTr.CallContext(context.Background(), &raw, "eth_chainId")
+		gethErrCh <- gethTr.Call(context.Background(), "eth_chainId").Decode(&raw)
 	}()
 	<-gethStarted
 	gethTr.Close()
@@ -727,7 +726,7 @@ func TestDifferentialCloseLifecycle(t *testing.T) {
 		t.Fatalf("geth in-flight call failed after Close: %v", err)
 	}
 	var closedRaw json.RawMessage
-	if err := gethTr.CallContext(context.Background(), &closedRaw, "eth_chainId"); !errors.Is(err, transport.ErrConnectionClosed) {
+	if err := gethTr.Call(context.Background(), "eth_chainId").Decode(&closedRaw); !errors.Is(err, transport.ErrConnectionClosed) {
 		t.Fatalf("geth post-close err = %v, want the neutral connection-closed sentinel", err)
 	}
 }

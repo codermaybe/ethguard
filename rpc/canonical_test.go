@@ -11,7 +11,6 @@ import (
 // shared kernel with the raw route, canonical bytes as the key, raw hooks
 // never consulted. These tests do not wire any production method; they pin
 // the seam the transaction pilot will adopt.
-
 func TestCanonicalResultConstructorContracts(t *testing.T) {
 	if _, err := NewCanonicalResult(nil, nil); !errors.Is(err, ErrInvalidCanonicalResult) {
 		t.Fatalf("empty value = %v", err)
@@ -65,30 +64,30 @@ func TestCanonicalObservationPairing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewCanonicalObservation(Observation{Source: SourceRef{ID: "a"}}, CanonicalResult{}); !errors.Is(err, ErrInvalidCanonicalResult) {
+	if _, err := NewCanonicalObservation(Observation{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`null`)}}}, CanonicalResult{}); !errors.Is(err, ErrInvalidCanonicalResult) {
 		t.Fatalf("success without result = %v", err)
 	}
-	if _, err := NewCanonicalObservation(Observation{Source: SourceRef{ID: "a"}, Err: errors.New("transport")}, result); !errors.Is(err, ErrInvalidCanonicalResult) {
+	if _, err := NewCanonicalObservation(Observation{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("transport")}}}, result); !errors.Is(err, ErrInvalidCanonicalResult) {
 		t.Fatalf("failure with result = %v", err)
 	}
 	if _, err := NewCanonicalObservation(Observation{Source: SourceRef{Name: "a"}}, result); !errors.Is(err, ErrInvalidCanonicalResult) {
 		t.Fatalf("missing source identity = %v", err)
 	}
-	failed := Observation{Source: SourceRef{ID: "a"}, Err: errors.New("transport"), Value: json.RawMessage(`"raw"`)}
+	failed := Observation{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted, Cause: errors.New("transport")}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`"raw"`)}}}
 	bound, err := NewCanonicalObservation(failed, CanonicalResult{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bound.Observation().Err == nil || string(bound.Observation().Value) != `"raw"` {
+	if bound.Observation().Response.Err() == nil || string(bound.Observation().Response.Answer.Result) != `"raw"` {
 		t.Fatalf("failed observation lost its original shape: %+v", bound.Observation())
 	}
-	successful, err := NewCanonicalObservation(Observation{Source: SourceRef{ID: "b"}, Value: json.RawMessage(`"raw"`)}, result)
+	successful, err := NewCanonicalObservation(Observation{Attempted: true, Source: SourceRef{ID: "b"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`"raw"`)}}}, result)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The canonical bytes are never written back into the observation.
-	if string(successful.Observation().Value) != `"raw"` {
-		t.Fatalf("observation value was rewritten: %s", successful.Observation().Value)
+	if string(successful.Observation().Response.Answer.Result) != `"raw"` {
+		t.Fatalf("observation value was rewritten: %s", successful.Observation().Response.Answer.Result)
 	}
 }
 
@@ -126,7 +125,7 @@ func canonicalObservation(t *testing.T, id, raw, value string) CanonicalObservat
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound, err := NewCanonicalObservation(Observation{Source: SourceRef{ID: id}, Value: json.RawMessage(raw)}, result)
+	bound, err := NewCanonicalObservation(Observation{Attempted: true, Source: SourceRef{ID: id}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(raw)}}}, result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,11 +177,11 @@ func TestStrictCanonicalRouteRejectsBrokenIdentity(t *testing.T) {
 	resolver := policy.(CanonicalOutcomeResolver)
 	empty := canonicalObservation(t, "a", `"x"`, `"x"`)
 	empty.observation.Source.ID = ""
-	if _, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 2}, []CanonicalObservation{empty}); !errors.Is(err, ErrConflict) {
+	if _, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 2}, []CanonicalObservation{empty}); !errors.Is(err, ErrInvalidOutcome) {
 		t.Fatalf("empty identity = %v", err)
 	}
 	dup := []CanonicalObservation{canonicalObservation(t, "a", `"x"`, `"x"`), canonicalObservation(t, "a", `"x"`, `"x"`)}
-	if _, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 2}, dup); !errors.Is(err, ErrConflict) {
+	if _, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 2}, dup); !errors.Is(err, ErrInvalidOutcome) {
 		t.Fatalf("duplicate identity = %v", err)
 	}
 }
@@ -196,7 +195,7 @@ func TestStrictCanonicalRouteKeepsFailedSlots(t *testing.T) {
 	normalizeCalls, encodeCalls := 0, 0
 	policy := canonicalCountingResolver(&normalizeCalls, &encodeCalls)
 	resolver := policy.(CanonicalOutcomeResolver)
-	failed := Observation{Source: SourceRef{ID: "c"}, Err: errors.New("transport: refused")}
+	failed := Observation{Attempted: true, Source: SourceRef{ID: "c"}, Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("transport: refused")}}}
 	bound, err := NewCanonicalObservation(failed, CanonicalResult{})
 	if err != nil {
 		t.Fatal(err)
@@ -209,11 +208,11 @@ func TestStrictCanonicalRouteKeepsFailedSlots(t *testing.T) {
 	if resolveErr != nil || outcome.Decision.Status != Corroborated {
 		t.Fatalf("failed slot shrank the basis: %+v, %v", outcome.Decision, resolveErr)
 	}
-	if len(outcome.Decision.Support) != 2 || len(outcome.Decision.Participants) != 0 || len(outcome.Decision.Faults) != 0 {
+	if len(outcome.Decision.Support) != 2 || len(outcome.Decision.Participants) != 0 || len(outcome.Decision.Faults) != 1 {
 		t.Fatalf("fault shape: %+v", outcome.Decision)
 	}
 	verdict, ok := outcome.VerdictFor("c")
-	if !ok || verdict.Kind != VerdictUnusable || verdict.Err == nil {
+	if !ok || verdict.Kind != VerdictUnusable || verdict.Cause(bound.Observation().Response) == nil {
 		t.Fatalf("failed slot verdict: %+v present=%v", verdict, ok)
 	}
 	if len(outcome.Verdicts) != 3 {
@@ -248,12 +247,12 @@ func TestStrictCanonicalRouteEquivalenceWithRawRoute(t *testing.T) {
 	canonicalPolicy := Strict(normalize, WithCanonicalValue(encoder), WithQuorum(2))
 
 	rawObservations := []Observation{
-		{Source: SourceRef{ID: "a"}, Value: json.RawMessage(`{"k":"v"}`), Evidence: json.RawMessage(`"ea"`)},
-		{Source: SourceRef{ID: "b"}, Value: json.RawMessage(`{ "k":"v" }`), Evidence: json.RawMessage(`"eb"`)},
+		{Attempted: true, Source: SourceRef{ID: "a"}, Evidence: json.RawMessage(`"ea"`), Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`{"k":"v"}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "b"}, Evidence: json.RawMessage(`"eb"`), Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`{ "k":"v" }`)}}},
 	}
 	var cobs []CanonicalObservation
 	for _, item := range rawObservations {
-		processedBytes, err := normalize(item.Value)
+		processedBytes, err := normalize(item.Response.Answer.Result)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -269,7 +268,7 @@ func TestStrictCanonicalRouteEquivalenceWithRawRoute(t *testing.T) {
 	}
 
 	corrob := Corroboration{Floor: 2}
-	rawOutcome, err := rawPolicy.(CorroboratingOutcomeResolver).ResolveOutcomeCorroborated(corrob, rawObservations)
+	rawOutcome, err := rawPolicy.(CorroboratingPolicy).ResolveCorroborated(corrob, rawObservations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +287,7 @@ func TestStrictCanonicalRouteEquivalenceWithRawRoute(t *testing.T) {
 		t.Fatalf("cluster membership diverged: %+v vs %+v", rawDecision, canonicalDecision)
 	}
 
-	rawLegacy, err := rawPolicy.(OutcomeResolver).ResolveOutcome(rawObservations)
+	rawLegacy, err := rawPolicy.Resolve(rawObservations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,14 +319,14 @@ func TestStrictCanonicalRouteFloorEnforcement(t *testing.T) {
 		canonicalObservation(t, "a", `"x"`, `"x"`),
 		canonicalObservation(t, "b", `"x"`, `"x"`),
 	}
-	if _, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 3}, cobs); !errors.Is(err, ErrConflict) {
+	if _, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 3}, cobs); !errors.Is(err, ErrInsufficientSupport) {
 		t.Fatalf("floor 3 over 2 supporters = %v", err)
 	}
 	legacy, err := resolver.ResolveCanonical(cobs)
 	if err != nil || legacy.Decision.Status != Corroborated {
 		t.Fatalf("two agreeing legacy answers = %+v, %v", legacy.Decision, err)
 	}
-	if _, err := resolver.ResolveCanonical([]CanonicalObservation{canonicalObservation(t, "a", `"x"`, `"x"`)}); !errors.Is(err, ErrConflict) {
+	if _, err := resolver.ResolveCanonical([]CanonicalObservation{canonicalObservation(t, "a", `"x"`, `"x"`)}); !errors.Is(err, ErrInsufficientSupport) {
 		t.Fatalf("construction-time floor not enforced on the no-snapshot entry: %v", err)
 	}
 	// A resolver without corroboration options keeps the decision-0006
@@ -356,7 +355,7 @@ func TestStrictCanonicalRouteDissentAndProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	bind := func(id string, result CanonicalResult) CanonicalObservation {
-		bound, err := NewCanonicalObservation(Observation{Source: SourceRef{ID: id}}, result)
+		bound, err := NewCanonicalObservation(Observation{Attempted: true, Source: SourceRef{ID: id}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: result.Value()}}}, result)
 		if err != nil {
 			t.Fatal(err)
 		}

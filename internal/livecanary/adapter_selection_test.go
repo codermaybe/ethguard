@@ -42,7 +42,7 @@ func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 		if !errors.Is(err, pool.ErrAllSourcesDown) {
 			t.Fatalf("default executor Collect err = %v, want the native adapter's mismatched-id rejection", err)
 		}
-		if len(emissions) != 1 || !errors.Is(emissions[0].Err, rpcwire.ErrIDMismatch) {
+		if len(emissions) != 1 || !errors.Is(emissions[0].Response.Err(), rpcwire.ErrIDMismatch) {
 			t.Fatalf("emissions = %+v, want the native rejection", emissions)
 		}
 	})
@@ -60,11 +60,11 @@ func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 		if !errors.Is(err, pool.ErrAllSourcesDown) {
 			t.Fatalf("native executor Collect err = %v, want rejection", err)
 		}
-		if len(emissions) != 1 || emissions[0].Err == nil {
+		if len(emissions) != 1 || emissions[0].Response.Err() == nil {
 			t.Fatalf("emissions = %+v, want one failed emission", emissions)
 		}
-		if !errors.Is(emissions[0].Err, rpcwire.ErrIDMismatch) {
-			t.Fatalf("emission err = %v, want rpcwire.ErrIDMismatch", emissions[0].Err)
+		if !errors.Is(emissions[0].Response.Err(), rpcwire.ErrIDMismatch) {
+			t.Fatalf("emission err = %v, want rpcwire.ErrIDMismatch", emissions[0].Response.Err())
 		}
 	})
 }

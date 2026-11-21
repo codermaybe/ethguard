@@ -271,8 +271,8 @@ func TestCallResultWriteDecisionReachesTheCapture(t *testing.T) {
 	if !result.IsWriteAccepted() || result.WriteDecision.Hash != strings.ToLower(hashHex) {
 		t.Fatalf("write result = %+v", result.WriteDecision)
 	}
-	if result.WriteDecision.Basis != 3 {
-		t.Fatalf("basis = %d, want the fixed 3-member basis", result.WriteDecision.Basis)
+	if result.WriteDecision.Adjudication.Basis != 3 {
+		t.Fatalf("basis = %d, want the fixed 3-member basis", result.WriteDecision.Adjudication.Basis)
 	}
 	if result.Decision != nil {
 		t.Fatal("a write result carries no read decision")

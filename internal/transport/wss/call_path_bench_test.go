@@ -26,7 +26,7 @@ func BenchmarkCallRoundTrip(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		var raw json.RawMessage
-		if err := tr.CallContext(ctx, &raw, "eth_getBalance", payload...); err != nil {
+		if err := tr.Call(ctx, "eth_getBalance", payload...).Decode(&raw); err != nil {
 			b.Fatal(err)
 		}
 	}

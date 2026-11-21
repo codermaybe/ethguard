@@ -46,7 +46,7 @@ func TestStrictRejectedEncodingDiagnosticPreservesAdjudication(t *testing.T) {
 					}
 					policy, calls := rejectedEncodingPolicy(t, opts...)
 					observations := rejectedEncodingObservations()
-					var d Decision
+					var d Outcome
 					var err error
 					if entry == "Resolve" {
 						d, err = policy.Resolve(observations)
@@ -54,19 +54,19 @@ func TestStrictRejectedEncodingDiagnosticPreservesAdjudication(t *testing.T) {
 						d, err = policy.(CorroboratingPolicy).ResolveCorroborated(Corroboration{Mode: mode, Floor: floor}, observations)
 					}
 					if mode == CorroborationMajority && floor == 3 {
-						if err != nil || d.Status != Corroborated {
+						if err != nil || d.Decision.Status != Corroborated {
 							t.Fatalf("winner = %+v err %v", d, err)
 						}
-					} else if !errors.Is(err, ErrConflict) || errors.Is(err, ErrMalformedResponse) || d.Status != Unknown {
+					} else if !errors.Is(err, ErrConflict) || errors.Is(err, ErrInvalidCanonicalResult) || d.Decision.Status != Unknown {
 						t.Fatalf("adjudication = %+v err %v", d, err)
 					}
-					if string(d.Value) != `"v1"` || len(d.Faults) != 1 || !errors.Is(d.Faults[0], ErrMalformedResponse) || !strings.Contains(d.Faults[0].Error(), "rejected cluster") {
+					if string(d.Decision.Value) != `"v1"` || len(d.Decision.Faults) != 1 || !errors.Is(d.Decision.Faults[0], ErrInvalidCanonicalResult) || !strings.Contains(d.Decision.Faults[0].Error(), "rejected cluster") {
 						t.Fatalf("diagnostic = %+v", d)
 					}
-					assertEncodingDigests(t, d.Faults[0], observations[3:])
+					assertEncodingDigests(t, d.Decision.Faults[0], observations[3:])
 					wantSupport := []SourceRef{observations[0].Source, observations[1].Source, observations[2].Source}
 					wantReject := []SourceRef{observations[3].Source, observations[4].Source}
-					if !reflect.DeepEqual(d.Support, wantSupport) || !reflect.DeepEqual(d.Reject, wantReject) || *calls != 5 {
+					if !reflect.DeepEqual(d.Decision.Support, wantSupport) || !reflect.DeepEqual(d.Decision.Reject, wantReject) || *calls != 5 {
 						t.Fatalf("votes/calls changed: %+v calls %d", d, *calls)
 					}
 				})
@@ -78,7 +78,7 @@ func TestStrictRejectedEncodingDiagnosticPreservesAdjudication(t *testing.T) {
 func TestStrictLegacyRecordsRejectedEncodingWithoutChangingConflict(t *testing.T) {
 	p, calls := rejectedEncodingPolicy(t)
 	d, err := p.Resolve(rejectedEncodingObservations())
-	if !errors.Is(err, ErrConflict) || errors.Is(err, ErrMalformedResponse) || d.Status != Unknown || len(d.Support) != 3 || len(d.Reject) != 2 || len(d.Faults) != 1 || *calls != 5 {
+	if !errors.Is(err, ErrConflict) || errors.Is(err, ErrInvalidCanonicalResult) || d.Decision.Status != Unknown || len(d.Decision.Support) != 3 || len(d.Decision.Reject) != 2 || len(d.Decision.Faults) != 1 || *calls != 5 {
 		t.Fatalf("legacy = %+v err %v calls %d", d, err, *calls)
 	}
 }
@@ -86,9 +86,9 @@ func TestStrictLegacyRecordsRejectedEncodingWithoutChangingConflict(t *testing.T
 func TestStrictWinnerEncodingFailureStillFails(t *testing.T) {
 	p, calls := rejectedEncodingPolicy(t, WithQuorum(3))
 	observations := rejectedEncodingObservations()
-	observations[2].Value = json.RawMessage(`{"key":"winner","value":"changed"}`)
+	observations[2].Response.Answer.Result = json.RawMessage(`{"key":"winner","value":"changed"}`)
 	d, err := p.Resolve(observations)
-	if !errors.Is(err, ErrMalformedResponse) || d.Status != Unknown || len(d.Value) != 0 || len(d.Support) != 3 || len(d.Reject) != 2 || len(d.Faults) != 2 || *calls != 5 {
+	if !errors.Is(err, ErrInvalidCanonicalResult) || d.Decision.Status != Unknown || len(d.Decision.Value) != 0 || len(d.Decision.Support) != 3 || len(d.Decision.Reject) != 2 || len(d.Decision.Faults) != 2 || *calls != 5 {
 		t.Fatalf("winner = %+v err %v calls %d", d, err, *calls)
 	}
 }
@@ -96,9 +96,10 @@ func TestStrictWinnerEncodingFailureStillFails(t *testing.T) {
 func TestStrictConsistentRejectedEncodingHasNoFault(t *testing.T) {
 	p, _ := rejectedEncodingPolicy(t, WithQuorum(3))
 	observations := rejectedEncodingObservations()
-	observations[4].Value = observations[3].Value
+	observations[4].Response.Answer.Result = observations[3].Response.Answer.Result
+
 	d, err := p.Resolve(observations)
-	if err != nil || d.Status != Corroborated || len(d.Faults) != 0 {
+	if err != nil || d.Decision.Status != Corroborated || len(d.Decision.Faults) != 0 {
 		t.Fatalf("decision = %+v err %v", d, err)
 	}
 }

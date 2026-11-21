@@ -493,7 +493,7 @@ func servingReferenceError(ref ReferenceEvidence, tag string) error {
 		return fmt.Errorf("anchor: %w", ErrReferenceRequired)
 	}
 	if ref.Status != Corroborated {
-		return fmt.Errorf("anchor: uncorroborated reference: %w", ErrConflict)
+		return fmt.Errorf("anchor: uncorroborated reference: %w", ErrGuaranteeNotMet)
 	}
 	return nil
 }

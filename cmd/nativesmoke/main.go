@@ -23,8 +23,6 @@
 package main
 
 import (
-	gethadapter "github.com/codermaybe/ethguard/internal/testkit/gethoracle"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,6 +35,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/internal/rpcwire"
+	gethadapter "github.com/codermaybe/ethguard/internal/testkit/gethoracle"
 	"github.com/codermaybe/ethguard/internal/transport"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/rpc"
@@ -213,7 +212,7 @@ func smokeAdapter(rawURL, adapter string, timeout time.Duration) *adapterReport 
 		defer ccancel()
 		var raw json.RawMessage
 		start := time.Now()
-		err := tr.CallContext(cctx, &raw, method, args...)
+		err := tr.Call(cctx, method, args...).Decode(&raw)
 		res := callResult{Call: name, MS: time.Since(start).Milliseconds()}
 		if err == nil {
 			res.OK = true

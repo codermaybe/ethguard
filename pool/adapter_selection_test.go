@@ -1,12 +1,11 @@
 package pool
 
 import (
-	"strings"
-
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
@@ -43,8 +42,8 @@ func TestPoolOptionWithDialerSelectsAdapter(t *testing.T) {
 		if len(emissions) != 1 {
 			t.Fatalf("emissions = %+v, want one per member", emissions)
 		}
-		if emissions[0].Err == nil || !strings.Contains(emissions[0].Err.Error(), "no connection adapter configured") {
-			t.Fatalf("emission err = %v, want the explicit no-adapter cause", emissions[0].Err)
+		if emissions[0].Response.Err() == nil || !strings.Contains(emissions[0].Response.Err().Error(), "no connection adapter configured") {
+			t.Fatalf("emission err = %v, want the explicit no-adapter cause", emissions[0].Response.Err())
 		}
 	})
 
@@ -59,12 +58,13 @@ func TestPoolOptionWithDialerSelectsAdapter(t *testing.T) {
 		if !errors.Is(err, ErrAllSourcesDown) {
 			t.Fatalf("Collect err = %v, want ErrAllSourcesDown", err)
 		}
-		if len(emissions) != 1 || emissions[0].Err == nil {
+		if len(emissions) != 1 || emissions[0].Response.Err() == nil {
 			t.Fatalf("emissions = %+v, want one failed emission", emissions)
 		}
 		var protocol rpc.ProtocolError
-		if errors.As(emissions[0].Err, &protocol) {
-			t.Fatalf("native rejection surfaced as a protocol error: %v", emissions[0].Err)
+		if errors.As(emissions[0].Response.Err(),
+			&protocol) {
+			t.Fatalf("native rejection surfaced as a protocol error: %v", emissions[0].Response.Err())
 		}
 	})
 }

@@ -23,13 +23,13 @@ func TestClusterKeySourceGuardrail(t *testing.T) {
 	encode := func(raw json.RawMessage) (json.RawMessage, error) {
 		return append(json.RawMessage(nil), raw...), nil
 	}
-	first := Observation{Source: src(), Value: json.RawMessage(`{"n":1}`)}
-	second := Observation{Source: src(), Value: json.RawMessage(`{"n":2}`)}
+	first := Observation{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`{"n":1}`)}}}
+	second := Observation{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`{"n":2}`)}}}
 
 	t.Run("canonical-bytes separates", func(t *testing.T) {
 		policy := Strict(fold, WithCanonicalValue(encode), WithQuorum(1))
 		decision, err := policy.(CorroboratingPolicy).ResolveCorroborated(Corroboration{Floor: 1}, []Observation{first, second})
-		if !errors.Is(err, ErrConflict) || decision.Status != Unknown || len(decision.Support) != 1 || len(decision.Reject) != 1 || len(decision.Faults) != 0 {
+		if !errors.Is(err, ErrConflict) || decision.Decision.Status != Unknown || len(decision.Decision.Support) != 1 || len(decision.Decision.Reject) != 1 || len(decision.Decision.Faults) != 0 {
 			t.Fatalf("key came from the folding normalizer, not the encoder: %+v err %v", decision, err)
 		}
 		if rule, _ := policy.(MethodRuleSource).MethodRule(); rule.KeySource != RuleKeyCanonicalBytes {
@@ -40,15 +40,15 @@ func TestClusterKeySourceGuardrail(t *testing.T) {
 	t.Run("narrow key clusters then refuses to commit", func(t *testing.T) {
 		policy := Strict(fold, WithCanonicalObject(encode), WithQuorum(1))
 		decision, err := policy.(CorroboratingPolicy).ResolveCorroborated(Corroboration{Floor: 1}, []Observation{first, second})
-		if !errors.Is(err, ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
+		if !errors.Is(err, ErrInvalidCanonicalResult) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
 			t.Fatalf("narrow key did not reach the encoding guard: %+v err %v", decision, err)
 		}
-		if decision.Status != Unknown || len(decision.Value) != 0 {
+		if decision.Decision.Status != Unknown || len(decision.Decision.Value) != 0 {
 			t.Fatalf("decision = %+v", decision)
 		}
 		// Both sources stayed in Support: the key clustered them, and the
 		// guard refused the result without re-voting.
-		if len(decision.Support) != 2 || len(decision.Reject) != 0 {
+		if len(decision.Decision.Support) != 2 || len(decision.Decision.Reject) != 0 {
 			t.Fatalf("guard changed membership: %+v", decision)
 		}
 		rule, _ := policy.(MethodRuleSource).MethodRule()
@@ -77,7 +77,7 @@ func TestClusterKeySourceGuardrail(t *testing.T) {
 		}
 		// Nothing to commit, so a single answer is Selected.
 		decision, err := policy.(CorroboratingPolicy).ResolveCorroborated(Corroboration{Floor: 1}, []Observation{first})
-		if err != nil || decision.Status != Selected {
+		if err != nil || decision.Decision.Status != Selected {
 			t.Fatalf("decision = %+v err %v", decision, err)
 		}
 	})

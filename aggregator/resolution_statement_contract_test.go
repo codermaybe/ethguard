@@ -11,18 +11,8 @@ import (
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
-// The resolution statement and its downstream classification. A resolver that
-// states per-source verdicts hands the fault tables, the event, and the
-// health pass one statement; a resolver with only the decision capability
-// states nothing, and the classification falls back to the policy's own
-// validity contract. These tests pin the fallback at the full pipeline: the
-// degraded exits classify every attempted source exactly once, the event
-// flags follow the same classification, and the health pass stays the
-// emission owner's.
-
-// medianQuantityPlan is a decision-only resolver: the lower median of the
-// delivered decimal quantities. Median states no per-source verdicts, so the
-// pipeline classifies its attempts through the validity contract.
+// Mandatory source judgments feed public faults, events and health. Median
+// records judgments while selecting the lower delivered decimal quantity.
 func medianQuantityPlan() rpc.ReadPlan {
 	return rpc.ReadPlan{Method: "m", Resolver: rpc.Median(func(v json.RawMessage) (string, error) {
 		var s string
@@ -33,14 +23,8 @@ func medianQuantityPlan() rpc.ReadPlan {
 	})}
 }
 
-// TestDecisionOnlyResolutionClassifiesFromTheValidityContract pins the
-// decision-only fallback end to end: a median read with two usable answers
-// and one transport failure resolves Selected, attributes the failed attempt
-// to both fault tables exactly once, marks only the failed attempt in the
-// event, and penalizes only the failed source's health. Nothing re-runs the
-// resolver as a usability guess beyond the validity contract, and no verdict
-// statement is fabricated for the sources the resolution never classified.
-func TestDecisionOnlyResolutionClassifiesFromTheValidityContract(t *testing.T) {
+// A median outcome attributes each failed source once across all projections.
+func TestMedianOutcomeSharesSourceJudgments(t *testing.T) {
 	rec := &captureRecorder{}
 	agg, _ := faultAggregator(t, medianQuantityPlan().Resolver, false, func(i int, node *rpctest.Node) {
 		if i == 0 {
@@ -96,8 +80,8 @@ func TestDecisionOnlyResolutionClassifiesFromTheValidityContract(t *testing.T) {
 // surfaces as the returned error and one collection fault, both attempted
 // sources are attributed in both tables, the event reports the failed class
 // with both attempts marked, and each source's health records the failed
-// attempt exactly once. The degraded exit states no verdicts, so the tables
-// classify from the invocation's own records.
+// attempt exactly once. One early outcome preserves the collected facts for
+// all projections, without evaluating candidate payloads.
 func TestCollectionTimeoutExitClassifiesFromItsOwnRecords(t *testing.T) {
 	rec := &captureRecorder{}
 	agg, _ := faultAggregator(t, eventPolicy(), false, func(i int, node *rpctest.Node) {

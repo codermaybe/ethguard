@@ -1,8 +1,6 @@
 package pool
 
 import (
-	upstream "github.com/codermaybe/ethguard/internal/transport"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +8,8 @@ import (
 	"math/big"
 	"sync"
 	"time"
+
+	upstream "github.com/codermaybe/ethguard/internal/transport"
 )
 
 var errWaitingForDial = errors.New("pool: waiting for shared dial")
@@ -337,14 +337,14 @@ func (s *Source) CallContext(ctx context.Context, method string, args ...any) (j
 		s.noteFailedExchange(client, ctx, err)
 		return nil, err
 	}
-	var result json.RawMessage
 	started := time.Now()
-	if err := client.CallContext(ctx, &result, method, args...); err != nil {
+	response := client.Call(ctx, method, args...)
+	if err := response.Err(); err != nil {
 		s.noteFailedExchange(client, ctx, err)
 		return nil, err
 	}
 	s.recordSuccessfulCall(time.Since(started))
-	return result, nil
+	return response.Answer.Result, nil
 }
 
 // noteFailedExchange applies the shared transport hygiene after one failed

@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/internal/rpcwire"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
@@ -58,7 +57,7 @@ func replayDirectory(dir string, out io.Writer) error {
 		if state != record.DataState {
 			return fmt.Errorf("%s/%s: captured state %s, decoded %s", record.Provider, record.Scenario, record.DataState, state)
 		}
-		structured := aggregator.ObservationRPCError(response.Error)
+		structured := rpc.ProtocolAnswer(response.Error).RPCError
 		if structured == nil {
 			return fmt.Errorf("%s/%s: decoded protocol error lost the structured RPCError", record.Provider, record.Scenario)
 		}
@@ -76,10 +75,19 @@ func replayDirectory(dir string, out io.Writer) error {
 		}
 		policy := plan.Resolver
 		observations := []rpc.Observation{
-			{Source: rpc.SourceRef{ID: "s1"}, Err: response.Error, RPCError: structured},
-			{Source: rpc.SourceRef{ID: "s2"}, Err: response.Error, RPCError: structured},
+			{Attempted: true, Source: rpc.SourceRef{ID: "s1"}, Response: rpc.Response{
+				Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+				Answer:   rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: structured, Cause: response.Error},
+			},
+			},
+			{Attempted: true, Source: rpc.SourceRef{ID: "s2"}, Response: rpc.Response{
+				Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+				Answer:   rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: structured, Cause: response.Error},
+			},
+			},
 		}
-		decision, err := policy.Resolve(observations)
+		outcome, err := policy.Resolve(observations)
+		decision := outcome.Decision
 		if err != nil {
 			return fmt.Errorf("%s/%s: eth_call resolve: %w", record.Provider, record.Scenario, err)
 		}

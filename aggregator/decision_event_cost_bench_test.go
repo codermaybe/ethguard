@@ -17,7 +17,6 @@ import (
 // delivered facts. The nop row is the monitoring-off state: the silent sink
 // short-circuits before any assembly work, which is why wiring nothing costs
 // nothing.
-
 // eventBenchFleet builds three named sources whose members never receive
 // traffic: the benchmark drives the event producer directly on a scripted
 // resolution, not through a live aggregation.
@@ -44,15 +43,15 @@ func eventBenchResolution(b *testing.B, sources []*pool.Source) (rpc.Policy, rpc
 	emissions := make([]pool.Emission, 0, len(sources))
 	for _, source := range sources {
 		ref := rpc.SourceRef{Name: source.Name(), ID: source.ID()}
-		observations = append(observations, rpc.Observation{Source: ref, Value: json.RawMessage(`"0x64"`)})
+		observations = append(observations, rpc.Observation{Attempted: true, Source: ref, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x64"`)}}})
 		emissions = append(emissions, pool.Emission{
-			Src: source, Val: json.RawMessage(`"0x64"`), Attempted: true,
-			RTT: 5 * time.Millisecond,
+			Src: source, Attempted: true,
+			RTT: 5 * time.Millisecond, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x64"`)}},
 		})
 	}
-	outcome, err := policy.(rpc.OutcomeResolver).ResolveOutcome(observations)
+	outcome, err := policy.Resolve(observations)
 	if err != nil {
-		b.Fatalf("ResolveOutcome: %v", err)
+		b.Fatalf("Resolve: %v", err)
 	}
 	if len(outcome.Verdicts) != len(sources) {
 		b.Fatalf("verdicts = %d, want one per source", len(outcome.Verdicts))
@@ -69,13 +68,13 @@ func eventBenchResolution(b *testing.B, sources []*pool.Source) (rpc.Policy, rpc
 
 func benchmarkDecisionEventAssembly(b *testing.B, rec observe.Recorder) {
 	sources := eventBenchFleet(b)
-	policy, decision, emissions, verdicts := eventBenchResolution(b, sources)
+	_, decision, emissions, verdicts := eventBenchResolution(b, sources)
 	agg := New(pool.NewPool(), WithRecorder(rec))
 	started := time.Now()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		agg.recordDecision(started, "eth_getBalance", policy, decision, nil, emissions, verdicts)
+		agg.recordDecision(started, "eth_getBalance", decision, nil, emissions, verdicts)
 	}
 }
 

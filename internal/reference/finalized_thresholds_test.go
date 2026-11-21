@@ -37,19 +37,19 @@ func runFinalizedThresholdCase(t *testing.T, tc finalizedThresholdCase) {
 		source := rpc.SourceRef{Name: fmt.Sprintf("s%d", i), ID: fmt.Sprintf("s%d", i)}
 		raw := headJSON(height, tc.hashes[i])
 		if containsInt(tc.failAt, i) {
-			emissions = append(emissions, HeadObservation{Source: source, Err: errFailed, Attempted: true})
+			emissions = append(emissions, HeadObservation{Source: source, Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errFailed}}})
 			continue
 		}
-		emissions = append(emissions, HeadObservation{Source: source, Value: raw, Attempted: true})
+		emissions = append(emissions, HeadObservation{Source: source, Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}})
 	}
 	var views []HeadView
 	for _, emission := range emissions {
-		if emission.Err != nil {
+		if emission.Response.Err() != nil {
 			continue
 		}
-		v, err := fakeHeadCodec{}.Decode(emission.Value)
+		v, err := fakeHeadCodec{}.Decode(emission.Response.Answer.Result)
 		if err != nil {
-			t.Fatalf("decode %s: %v", emission.Value, err)
+			t.Fatalf("decode %s: %v", emission.Response.Answer.Result, err)
 		}
 		v.Source = emission.Source
 		views = append(views, v)
@@ -128,7 +128,7 @@ func TestFinalizedEstablishmentThresholdTable(t *testing.T) {
 			failAt:          []int{2, 3, 4},
 			maxLag:          32,
 			quorum:          2,
-			wantErr:         rpc.ErrConflict,
+			wantErr:         rpc.ErrInsufficientSupport,
 			wantErrContains: "insufficient finalized support: need 3, have 2",
 		},
 		{
@@ -149,7 +149,7 @@ func TestFinalizedEstablishmentThresholdTable(t *testing.T) {
 			hashes:          []string{"0xaaa"},
 			maxLag:          32,
 			quorum:          1,
-			wantErr:         rpc.ErrConflict,
+			wantErr:         rpc.ErrInsufficientSupport,
 			wantErrContains: "insufficient finalized support: need 2, have 1",
 		},
 		{
@@ -211,7 +211,7 @@ func TestFinalizedEstablishmentRequirementSurvivesResolve(t *testing.T) {
 	for i := range heights {
 		source := rpc.SourceRef{Name: fmt.Sprintf("s%d", i), ID: fmt.Sprintf("s%d", i)}
 		raw := headJSON(heights[i], hashes[i])
-		emissions = append(emissions, HeadObservation{Source: source, Value: raw, Attempted: true})
+		emissions = append(emissions, HeadObservation{Source: source, Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}})
 		v, err := fakeHeadCodec{}.Decode(raw)
 		if err != nil {
 			t.Fatalf("decode: %v", err)

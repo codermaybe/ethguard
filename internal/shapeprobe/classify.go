@@ -21,7 +21,6 @@ type FieldClassification struct {
 // ClassifyFields applies the same fixed-basis field evaluator used by the
 // runtime observation seam, then projects accepted paths through the current
 // method field declaration. This is deliberately offline/report-only.
-
 func sourceRefs(samples []FieldSample) []rpc.SourceRef {
 	refs := make([]rpc.SourceRef, len(samples))
 	for i, sample := range samples {
@@ -32,9 +31,8 @@ func sourceRefs(samples []FieldSample) []rpc.SourceRef {
 func ClassifyFields(method string, samples []FieldSample) (FieldClassification, error) {
 	observations := make([]rpc.Observation, len(samples))
 	for i, sample := range samples {
-		observations[i] = rpc.Observation{
-			Source: rpc.SourceRef{ID: sample.SourceID},
-			Value:  append(json.RawMessage(nil), sample.Result...),
+		observations[i] = rpc.Observation{Attempted: true,
+			Source: rpc.SourceRef{ID: sample.SourceID}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: append(json.RawMessage(nil), sample.Result...)}},
 		}
 	}
 	evaluation, err := rpc.AggregateFieldsWithCorroboration(observations, rpc.FreezeBasis(sourceRefs(samples), rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}))

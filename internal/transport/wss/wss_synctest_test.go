@@ -77,7 +77,7 @@ func TestTransportWriteDeadlineAbortsPendingAndRejectsLaterCalls(t *testing.T) {
 		firstResult := make(chan error, 1)
 		go func() {
 			var result string
-			firstResult <- transportValue.CallContext(t.Context(), &result, "eth_pending")
+			firstResult <- transportValue.Call(t.Context(), "eth_pending").Decode(&result)
 		}()
 		<-firstFrameRead
 
@@ -85,10 +85,10 @@ func TestTransportWriteDeadlineAbortsPendingAndRejectsLaterCalls(t *testing.T) {
 		defer cancel()
 		started := time.Now()
 		var result string
-		err := transportValue.CallContext(ctx, &result, "eth_deadline")
+		err := transportValue.Call(ctx, "eth_deadline").Decode(&result)
 		// The caller's deadline timer and the socket write deadline fire at the
 		// same fake instant, so the outcome depends on which one the runtime
-		// delivers first: whichever it is, CallContext's write-error branch
+		// delivers first: whichever it is, Call's write-error branch
 		// reports ctx.Err() when the timer already ran and the abort cause when
 		// it has not. Both are externally legal; the invariants below are not.
 		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, transport.ErrConnectionClosed) {
@@ -105,7 +105,7 @@ func TestTransportWriteDeadlineAbortsPendingAndRejectsLaterCalls(t *testing.T) {
 		if n := transportValue.pendingCount(); n != 0 {
 			t.Fatalf("abort left %d pending calls", n)
 		}
-		if err := transportValue.CallContext(t.Context(), &result, "eth_after"); !errors.Is(err, ErrTransportClosed) {
+		if err := transportValue.Call(t.Context(), "eth_after").Decode(&result); !errors.Is(err, ErrTransportClosed) {
 			t.Fatalf("call after write deadline = %v, want ErrTransportClosed", err)
 		}
 	})

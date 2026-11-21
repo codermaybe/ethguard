@@ -1,6 +1,7 @@
 package ethguard
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,7 +48,8 @@ func TestWriteAnswerPreservesErrorData(t *testing.T) {
 					err = fmt.Errorf("source context: %w", err)
 				}
 				source := rpc.SourceRef{Name: "source"}
-				answer := writeAnswerClassified(source, json.RawMessage(`"0x`+strings.Repeat("ab", 32)+`"`), err)
+				response := rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.ProtocolAnswer(err)}
+				answer := writeAnswer(source, &response)
 				if answer.Source != source || answer.Hash != "" || answer.Rejection == nil {
 					t.Fatalf("protocol error misclassified: %+v", answer)
 				}
@@ -64,7 +66,7 @@ func TestWriteAnswerPreservesErrorData(t *testing.T) {
 				if t.Failed() {
 					return
 				}
-				second := writeAnswerClassified(source, nil, err)
+				second := writeAnswer(source, &response)
 				if len(rejection.Data) > 0 {
 					rejection.Data[0] = '!'
 					if string(second.Rejection.Data) != tc.data {
@@ -98,9 +100,42 @@ func TestWriteAnswerClassification(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source := rpc.SourceRef{Name: "source"}
-			got := writeAnswerClassified(source, json.RawMessage(tc.value), tc.err)
+			response := rpc.Response{Exchange: rpc.Exchange{Cause: tc.err}}
+			if tc.value != "" {
+				response.Exchange.Progress = rpc.ExchangeCompleted
+				response.Answer = rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(tc.value)}
+			}
+			got := writeAnswer(source, &response)
 			if got.Source != source || got.Hash != tc.hash || got.Rejection != nil {
 				t.Fatalf("answer=%+v, want hash %q without rejection", got, tc.hash)
+			}
+		})
+	}
+}
+
+func TestWritePreservesMissingAndCanceledAnswers(t *testing.T) {
+	hash := "0x" + strings.Repeat("ab", 32)
+	for _, tc := range []struct {
+		name     string
+		response rpc.Response
+		kind     rpc.AnswerKind
+		reason   rpc.DecisionReason
+		want     error
+	}{
+		{"empty", rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerMissing, Cause: rpc.ErrNoResponse}}, rpc.AnswerMissing, rpc.ReasonUnassessed, rpc.ErrNoValidResponse},
+		{"invalid envelope", rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerInvalid, Cause: rpc.ErrMalformedResponse}}, rpc.AnswerInvalid, rpc.ReasonNoCandidate, rpc.ErrMalformedResponse},
+		{"completed result then canceled", rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted, Cause: context.Canceled}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"` + hash + `"`)}}, rpc.AnswerResult, rpc.ReasonUnassessed, rpc.ErrNoValidResponse},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			answer := writeAnswer(rpc.SourceRef{ID: "a"}, &tc.response)
+			answer.Attempted = true
+			decision, err := rpc.ResolveWriteBroadcast(1, rpc.Corroboration{Floor: 1}, hash, []rpc.SourceAnswer{answer}, nil)
+			if !errors.Is(err, tc.want) || decision.Adjudication.Reason != tc.reason || decision.Status != rpc.WriteUnconfirmed {
+				t.Fatalf("decision=%+v err=%v", decision, err)
+			}
+			got := decision.Sources[0]
+			if got.Answer.Kind != tc.kind || got.Answer.Interpretation.State != rpc.InterpretationUnassessed || got.Exchange != tc.response.Exchange {
+				t.Fatalf("facts changed: %+v", got)
 			}
 		})
 	}

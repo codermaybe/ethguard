@@ -8,9 +8,9 @@ import (
 
 func TestAggregateFieldsSeparatesAcceptedAndDiagnostics(t *testing.T) {
 	observations := []Observation{
-		{Source: SourceRef{ID: "a"}, Value: []byte(`{"result":{"number":"0x01","hash":"0xaaa","l1Fee":"0x10"}}`)},
-		{Source: SourceRef{ID: "b"}, Value: []byte(`{"result":{"number":"0x01","hash":"0xaaa","l1Fee":"0x10"}}`)},
-		{Source: SourceRef{ID: "c"}, Value: []byte(`{"result":{"number":"0x02","hash":"0xbbb","vendor":"x"}}`)},
+		{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"number":"0x01","hash":"0xaaa","l1Fee":"0x10"}}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "b"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"number":"0x01","hash":"0xaaa","l1Fee":"0x10"}}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "c"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"number":"0x02","hash":"0xbbb","vendor":"x"}}`)}}},
 	}
 
 	result, err := AggregateFields(observations, 2)
@@ -40,10 +40,10 @@ func TestAggregateFieldsSeparatesAcceptedAndDiagnostics(t *testing.T) {
 
 func TestAggregateFieldsReportsMultipleQuorumValuesAsConflict(t *testing.T) {
 	observations := []Observation{
-		{Source: SourceRef{ID: "a"}, Value: []byte(`{"result":{"value":1}}`)},
-		{Source: SourceRef{ID: "b"}, Value: []byte(`{"result":{"value":1}}`)},
-		{Source: SourceRef{ID: "c"}, Value: []byte(`{"result":{"value":2}}`)},
-		{Source: SourceRef{ID: "d"}, Value: []byte(`{"result":{"value":2}}`)},
+		{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"value":1}}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "b"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"value":1}}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "c"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"value":2}}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "d"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"value":2}}`)}}},
 	}
 
 	result, err := AggregateFields(observations, 2)
@@ -60,8 +60,8 @@ func TestAggregateFieldsReportsMultipleQuorumValuesAsConflict(t *testing.T) {
 
 func TestAggregateFieldsPreservesNumbersAndRejectsUnsafeJSON(t *testing.T) {
 	observations := []Observation{
-		{Source: SourceRef{ID: "a"}, Value: []byte(`{"result":{"n":900719925474099312345}}`)},
-		{Source: SourceRef{ID: "b"}, Value: []byte(`{"result":{"n":900719925474099312345}}`)},
+		{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"n":900719925474099312345}}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "b"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"n":900719925474099312345}}`)}}},
 	}
 	result, err := AggregateFields(observations, 2)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestAggregateFieldsPreservesNumbersAndRejectsUnsafeJSON(t *testing.T) {
 		t.Fatalf("number = %s, want exact input number", got)
 	}
 
-	_, err = AggregateFields([]Observation{{Source: SourceRef{ID: "a"}, Value: []byte(`{"result":{"x":1,"x":2}}`)}}, 1)
+	_, err = AggregateFields([]Observation{{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"x":1,"x":2}}`)}}}}, 1)
 	if err == nil {
 		t.Fatalf("duplicate key error = %v, want an error", err)
 	}
@@ -79,8 +79,8 @@ func TestAggregateFieldsPreservesNumbersAndRejectsUnsafeJSON(t *testing.T) {
 
 func TestAggregateFieldsRejectsDuplicateSourcesAndInvalidQuorum(t *testing.T) {
 	_, err := AggregateFields([]Observation{
-		{Source: SourceRef{ID: "a"}, Value: []byte(`1`)},
-		{Source: SourceRef{ID: "a"}, Value: []byte(`1`)},
+		{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`1`)}}},
+		{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`1`)}}},
 	}, 1)
 	if err == nil {
 		t.Fatal("duplicate source accepted")
@@ -100,11 +100,11 @@ func TestAggregateFieldsWithCorroborationUsesTheFixedBasis(t *testing.T) {
 		{ID: "e"},
 	}, Corroboration{Mode: CorroborationMajority, Floor: 2})
 	observations := []Observation{
-		{Source: SourceRef{ID: "a"}, Value: []byte(`{"result":{"value":1}}`)},
-		{Source: SourceRef{ID: "b"}, Value: []byte(`{"result":{"value":1}}`)},
-		{Source: SourceRef{ID: "c"}, Value: []byte(`{"result":{"value":1}}`)},
-		{Source: SourceRef{ID: "d"}, Err: errObserved()},
-		{Source: SourceRef{ID: "e"}, Err: errObserved()},
+		{Attempted: true, Source: SourceRef{ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"value":1}}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "b"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"value":1}}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "c"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: []byte(`{"result":{"value":1}}`)}}},
+		{Attempted: true, Source: SourceRef{ID: "d"}, Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errObserved()}}},
+		{Attempted: true, Source: SourceRef{ID: "e"}, Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errObserved()}}},
 	}
 
 	result, err := AggregateFieldsWithCorroboration(observations, basis)
@@ -176,9 +176,9 @@ func fieldValue(fields []FieldObservation, path string) string {
 // source is malformed there is no vote left and the ErrMalformedResponse
 // class is preserved.
 func TestAggregateFieldsMalformedSourceAbstains(t *testing.T) {
-	good := Observation{Source: SourceRef{Name: "a", ID: "a"}, Value: json.RawMessage(`{"blockNumber":"0x1"}`)}
-	alsoGood := Observation{Source: SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(`{"blockNumber":"0x1"}`)}
-	bad := Observation{Source: SourceRef{Name: "c", ID: "c"}, Value: json.RawMessage(`{"blockNumber":NaN}`)}
+	good := Observation{Attempted: true, Source: SourceRef{Name: "a", ID: "a"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`{"blockNumber":"0x1"}`)}}}
+	alsoGood := Observation{Attempted: true, Source: SourceRef{Name: "b", ID: "b"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`{"blockNumber":"0x1"}`)}}}
+	bad := Observation{Attempted: true, Source: SourceRef{Name: "c", ID: "c"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`{"blockNumber":NaN}`)}}}
 
 	observation, err := AggregateFields([]Observation{good, alsoGood, bad}, 2)
 	if err != nil {
@@ -191,7 +191,7 @@ func TestAggregateFieldsMalformedSourceAbstains(t *testing.T) {
 		t.Fatalf("malformed = %+v, want source c attributed", observation.Malformed)
 	}
 
-	alsoBad := Observation{Source: SourceRef{Name: "d", ID: "d"}, Value: json.RawMessage(`{"blockNumber":NaN}`)}
+	alsoBad := Observation{Attempted: true, Source: SourceRef{Name: "d", ID: "d"}, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`{"blockNumber":NaN}`)}}}
 	if _, err := AggregateFields([]Observation{bad, alsoBad}, 2); !errors.Is(err, ErrMalformedResponse) {
 		t.Fatalf("err = %v, want ErrMalformedResponse when every value-bearing source is malformed", err)
 	}

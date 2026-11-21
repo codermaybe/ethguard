@@ -1,8 +1,6 @@
 package aggregator
 
 import (
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,18 +8,17 @@ import (
 	"testing"
 	"time"
 
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
-// outcomeOpaquePolicy hides the per-source outcome capabilities while keeping
-// the corroborating one, so the same resolution runs through the legacy path
-// with the aggregator's own classification. It is the "no interface" branch
-// of the compatibility contract.
-type outcomeOpaquePolicy struct{ rpc.Policy }
+// decoratedOutcomePolicy forwards the mandatory Outcome and corroboration
+// contract through a decorator without reinterpreting source responses.
+type decoratedOutcomePolicy struct{ rpc.Policy }
 
-func (p outcomeOpaquePolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
+func (p decoratedOutcomePolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
 	return p.Policy.(rpc.CorroboratingPolicy).ResolveCorroborated(c, obs)
 }
 
@@ -33,12 +30,9 @@ func quantityStrict(opts ...rpc.StrictOption) rpc.Policy {
 	}, opts...)
 }
 
-// The outcome path and the legacy path must produce observationally identical
-// aggregates: same decision evidence, same per-attempt failed flags. The
-// five-node script covers every verdict class — three supporters, one valid
-// dissenter, one unusable transport failure — over a five-member basis with
-// the default floor.
-func TestOutcomePathMatchesLegacyPath(t *testing.T) {
+// Direct and decorated resolvers preserve the same public evidence and
+// per-source events across support, dissent and method-domain exclusion.
+func TestDecoratedMandatoryOutcomeParity(t *testing.T) {
 	corrob := mustCorroboration(t, rpc.CorroborationMajority, 2)
 	nodes := []*rpctest.Node{rpctest.NewNode(1), rpctest.NewNode(1), rpctest.NewNode(1), rpctest.NewNode(1), rpctest.NewNode(1)}
 	defer func() {
@@ -53,11 +47,11 @@ func TestOutcomePathMatchesLegacyPath(t *testing.T) {
 	nodes[4].Fail("eth_chainId", -32000, "boom")
 
 	for _, variant := range []struct {
-		name   string
-		hidden bool
+		name      string
+		decorated bool
 	}{
-		{name: "outcome path states verdicts"},
-		{name: "legacy path hides the outcome capability", hidden: true},
+		{name: "direct resolver"},
+		{name: "decorated resolver", decorated: true},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			members := make([]pool.Member, 0, len(nodes))
@@ -66,8 +60,8 @@ func TestOutcomePathMatchesLegacyPath(t *testing.T) {
 			}
 			p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 			policy := quantityStrict(rpc.WithQuorum(2))
-			if variant.hidden {
-				policy = outcomeOpaquePolicy{Policy: policy}
+			if variant.decorated {
+				policy = decoratedOutcomePolicy{Policy: policy}
 			}
 			rec := &captureRecorder{}
 			aggregate := New(p, WithPlans(map[string]rpc.ReadPlan{"eth_chainId": {Method: "eth_chainId", Resolver: policy}}),
@@ -101,48 +95,30 @@ func TestOutcomePathMatchesLegacyPath(t *testing.T) {
 			if failed["node-3"] {
 				t.Fatal("a valid dissenting answer must not count as failed")
 			}
-			if !failed["node-4"] {
-				t.Fatal("a source whose answer was rejected must count as failed")
+			if failed["node-4"] {
+				t.Fatal("a legal protocol answer excluded by this policy must not blame the source")
 			}
 		})
 	}
 }
 
-// The projection from verdicts to the structured fault list keeps the exact
-// attribution the legacy classification produced, including gated members
-// recorded as availability faults.
-func TestVerdictProjectionMatchesLegacyFaults(t *testing.T) {
-	p := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
-		pool.Member{Name: "node-01", URL: "https://rpc-a.example"})
-	source := p.VotingMembers()[0]
+// Scheduling and communication progress are independent facts.
+func TestRoundSeparatesDialFailureFromSchedulingAbsence(t *testing.T) {
+	sources := namedSources(t, "dial", "gated")
+	dialErr := errors.New("dial failed")
 	emissions := []pool.Emission{
-		{Src: source, Err: pool.ErrSourceGated, Attempted: false},
+		{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Cause: dialErr}}},
+		{Src: sources[1], Response: rpc.Response{Exchange: rpc.Exchange{Cause: pool.ErrSourceGated}}},
 	}
-	verdicts := []rpc.SourceVerdict{
-		{Source: rpc.SourceRef{Name: "node-01", ID: source.ID()}, Kind: rpc.VerdictAbsent},
+	outcome := RoundOutcome(emissions)
+	if outcome.Verdicts[0].Kind != rpc.VerdictUnusable || outcome.Verdicts[1].Kind != rpc.VerdictAbsent {
+		t.Fatalf("relations: %+v", outcome.Verdicts)
 	}
-	legacy := structuredSourceFaults(nil, emissions, nil)
-	verdictPath := structuredSourceFaults(nil, emissions, verdicts)
-	if len(legacy) != 1 || len(verdictPath) != 1 {
-		t.Fatalf("legacy %v verdict %v", legacy, verdictPath)
+	if !outcome.Decision.Sources[0].Attempted || outcome.Decision.Sources[1].Attempted {
+		t.Fatalf("attempts: %+v", outcome.Decision.Sources)
 	}
-	if legacy[0].Source.Name != verdictPath[0].Source.Name || legacy[0].Err.Error() != verdictPath[0].Err.Error() {
-		t.Fatalf("attribution diverged: %+v vs %+v", legacy[0], verdictPath[0])
-	}
-}
-
-// A scheduling-gated member is absent, not unusable: the resolver saw no
-// observation from it, the coordinator knows the call never started.
-func TestFinalizeVerdictsMarksGatedMembersAbsent(t *testing.T) {
-	p := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
-		pool.Member{Name: "node-01", URL: "https://rpc-a.example"})
-	source := p.VotingMembers()[0]
-	emissions := []pool.Emission{{Src: source, Err: pool.ErrSourceGated, Attempted: false}}
-	verdicts := finalizeVerdicts([]rpc.SourceVerdict{
-		{Source: rpc.SourceRef{ID: source.ID()}, Kind: rpc.VerdictUnusable},
-	}, emissions)
-	if len(verdicts) != 1 || verdicts[0].Kind != rpc.VerdictAbsent {
-		t.Fatalf("verdicts = %+v, want the gated member absent", verdicts)
+	if len(outcome.Decision.SourceFaults) != 2 || len(outcome.Decision.Faults) != 1 {
+		t.Fatalf("faults: %+v", outcome.Decision)
 	}
 }
 
@@ -161,18 +137,18 @@ func TestStatedVerdictsSkipSecondNormalize(t *testing.T) {
 	a := New(p, WithRecorder(rec))
 	sources := namedSources(t, "a")
 	obs := []rpc.Observation{
-		{Source: rpc.SourceRef{Name: sources[0].Name(), ID: sources[0].ID()}, Value: json.RawMessage(`"1"`)},
+		{Attempted: true, Source: rpc.SourceRef{Name: sources[0].Name(), ID: sources[0].ID()}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"1"`)}}},
 	}
-	outcome, err := policy.(rpc.OutcomeResolver).ResolveOutcome(obs)
+	outcome, err := policy.Resolve(obs)
 	if err != nil {
-		t.Fatalf("ResolveOutcome: %v", err)
+		t.Fatalf("Resolve: %v", err)
 	}
 	if len(outcome.Verdicts) != 1 || outcome.Verdicts[0].Kind != rpc.VerdictSupported {
 		t.Fatalf("verdicts = %+v, want the delivered answer supported", outcome.Verdicts)
 	}
 	before := normalizeCalls
-	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Unknown}, errors.New("failed"),
-		[]pool.Emission{{Src: sources[0], Val: json.RawMessage(`"1"`), Attempted: true}}, outcome.Verdicts)
+	a.recordDecision(time.Now(), "m", rpc.Decision{Status: rpc.Unknown}, errors.New("failed"),
+		[]pool.Emission{{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"1"`)}}}}, outcome.Verdicts)
 	if normalizeCalls != before {
 		t.Fatalf("observation classification re-ran Normalize %d times", normalizeCalls-before)
 	}
@@ -188,4 +164,110 @@ func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc
 		t.Fatal(err)
 	}
 	return shared
+}
+
+func TestSourceFaultsAssembledOnceFromResolverJudgments(t *testing.T) {
+	sources := namedSources(t, "normalize", "transport", "good")
+	badMethod, network := errors.New("normalize failed"), errors.New("connection interrupted")
+	calls := 0
+	policy := rpc.Strict(func(raw json.RawMessage) (string, error) {
+		calls++
+		if string(raw) == `"bad"` {
+			return "", badMethod
+		}
+		return string(raw), nil
+	})
+	emissions := []pool.Emission{
+		{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"bad"`)}}},
+		{Src: sources[1], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: network}}},
+		{Src: sources[2], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"good"`)}}},
+	}
+	obs := make([]rpc.Observation, len(emissions))
+	for i, emission := range emissions {
+		obs[i] = ObservationFromEmission(emission)
+	}
+	outcome, err := policy.Resolve(obs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := invocationState{emissions: emissions, verdicts: outcome.Verdicts}
+	state.attachFaults(&outcome.Decision)
+	if calls != 2 || len(outcome.Decision.SourceFaults) != 2 || len(outcome.Decision.Faults) != 2 {
+		t.Fatalf("reclassified or duplicated faults: calls=%d %+v", calls, outcome.Decision)
+	}
+	for i, cause := range []error{badMethod, network} {
+		count := 0
+		for _, fault := range outcome.Decision.SourceFaults {
+			if fault.Source.ID == sources[i].ID() && errors.Is(fault.Err, cause) {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("source %d cause %v counted %d times", i, cause, count)
+		}
+		count = 0
+		for _, fault := range outcome.Decision.Faults {
+			if errors.Is(fault, cause) {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("human fault %v counted %d times", cause, count)
+		}
+	}
+}
+
+// A custom resolver owns method judgments but need not pre-render the public
+// source/fault views. The coordinator must project them without parsing again.
+type judgmentOnlyPolicy struct {
+	rpc.Policy
+	cause error
+	calls *int
+}
+
+func (p judgmentOnlyPolicy) Resolve(obs []rpc.Observation) (rpc.Outcome, error) {
+	*p.calls++
+	return rpc.Outcome{
+		Decision: rpc.Decision{Status: rpc.Selected, Value: obs[2].Response.Answer.Result,
+			Support: []rpc.SourceRef{obs[2].Source},
+			Adjudication: rpc.Adjudication{Basis: len(obs), Required: 1, Reason: rpc.ReasonAccepted,
+				Candidates: []rpc.CandidateGroup{{Sources: []rpc.SourceRef{obs[2].Source}}}}},
+		Verdicts: []rpc.SourceVerdict{
+			{Source: obs[0].Source, Kind: rpc.VerdictUnusable, Method: rpc.Interpretation{State: rpc.InterpretationRejected, Cause: p.cause}},
+			{Source: obs[1].Source, Kind: rpc.VerdictUnusable},
+			{Source: obs[2].Source, Kind: rpc.VerdictSupported, Method: rpc.Interpretation{State: rpc.InterpretationValidated}},
+		},
+	}, nil
+}
+
+func TestCustomOutcomeGetsIdempotentSourceProjection(t *testing.T) {
+	sources := namedSources(t, "method", "transport", "good")
+	methodErr, networkErr := errors.New("bad method answer"), errors.New("dial failed")
+	emissions := []pool.Emission{
+		{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"bad"`)}}},
+		{Src: sources[1], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Cause: networkErr}}},
+		{Src: sources[2], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"ok"`)}}},
+	}
+	calls := 0
+	policy := judgmentOnlyPolicy{Policy: rpc.ForwardPolicy{}, cause: methodErr, calls: &calls}
+	state := invocationState{plan: &rpc.ReadPlan{Resolver: policy}, emissions: emissions,
+		invocation: beginInvocation(rpc.Corroboration{}, true, sources, nil, false)}
+	for _, emission := range emissions {
+		state.observations = append(state.observations, ObservationFromEmission(emission))
+	}
+	decision, err := state.resolveValue()
+	if err != nil || calls != 1 || len(decision.Sources) != 3 || len(decision.Faults) != 2 || len(decision.SourceFaults) != 2 {
+		t.Fatalf("custom outcome not projected: %+v, %v, calls=%d", decision, err, calls)
+	}
+	outcome := rpc.Outcome{Decision: decision, Verdicts: state.verdicts}
+	outcome.ProjectSources(state.observations)
+	outcome.ProjectSources(state.observations)
+	if len(outcome.Decision.Faults) != 2 || len(outcome.Decision.SourceFaults) != 2 || calls != 1 {
+		t.Fatalf("projection duplicated or re-resolved: %+v", outcome.Decision)
+	}
+	for i, cause := range []error{methodErr, networkErr} {
+		if outcome.Decision.SourceFaults[i].Source.ID != sources[i].ID() || !errors.Is(outcome.Decision.SourceFaults[i].Err, cause) || !errors.Is(outcome.Decision.Faults[i], cause) {
+			t.Fatalf("cause/source lost: %+v", outcome.Decision)
+		}
+	}
 }

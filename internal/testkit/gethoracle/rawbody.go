@@ -7,14 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
-	"github.com/codermaybe/ethguard/internal/limits"
 	"net/http"
 	"net/url"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/codermaybe/ethguard/internal/limits"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -31,15 +31,16 @@ var errRawBodySlotTaken = errors.New("pool: raw response body already captured f
 const defaultCapturedBodyBytes = limits.MaxBodyBytes
 
 // geth decodes a JSON-RPC error's data into interface{}. A missing field and
-// a JSON null therefore arrive as the same nil, and observationRPCError can
-// no longer tell them apart. HTTP is the transport rpctest and recorded
-// samples use, so the HTTP compatibility Adapter keeps the raw response body
-// for the call that is in flight and restores presence before returning the
-// error to pool. WebSocket frames stay on geth's codec; they do not pass
-// through this body.
+// a JSON null therefore arrive as the same nil. The HTTP oracle captures the
+// response body for the call in flight so ProtocolAnswer can retain exact
+// data presence. WebSocket frames stay on geth's codec; they do not pass
+// through this body and their unavailable presence remains unknown.
 type rawBodyBox struct {
-	body []byte
-	ok   bool
+	mu       sync.Mutex
+	progress rpc.ExchangeProgress
+	status   int
+	body     []byte
+	ok       bool
 }
 
 type rawBodyKey struct{}
@@ -50,7 +51,7 @@ type rawBodyKey struct{}
 // RoundTrip -> at most one captured body is an explicit contract between
 // collectOne and the transport, not an implicit assumption: set enforces it.
 func withRawBody(ctx context.Context) (context.Context, *rawBodyBox) {
-	box := &rawBodyBox{}
+	box := &rawBodyBox{progress: rpc.ExchangeStarted}
 	return context.WithValue(ctx, rawBodyKey{}, box), box
 }
 
@@ -60,19 +61,39 @@ func withRawBody(ctx context.Context) (context.Context, *rawBodyBox) {
 // context, a concurrent RoundTrip) to this call, and the one-slot invariant
 // must fail loudly instead of holding by luck.
 func (b *rawBodyBox) set(body []byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.ok {
 		return errRawBodySlotTaken
 	}
 	b.body = append([]byte(nil), body...)
 	b.ok = true
+	b.progress = rpc.ExchangeCompleted
 	return nil
 }
 
 func (b *rawBodyBox) bytes() ([]byte, bool) {
-	if b == nil || !b.ok {
-		return nil, false
+	raw, present, _, _ := b.snapshot()
+	return raw, present
+}
+
+// snapshot publishes one coherent observation even when Geth returns on
+// cancellation while its RoundTrip is still finishing. Captured bytes are
+// installed once and never mutated.
+func (b *rawBodyBox) snapshot() ([]byte, bool, rpc.ExchangeProgress, int) {
+	if b == nil {
+		return nil, false, rpc.ExchangeStarted, 0
 	}
-	return b.body, true
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.body, b.ok, b.progress, b.status
+}
+
+func (b *rawBodyBox) responded(status int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.progress = rpc.ExchangeResponded
+	b.status = status
 }
 
 type capturingTransport struct {
@@ -98,8 +119,8 @@ func (t capturingTransport) bodyLimit() int64 {
 // next and is checked in this order:
 //
 //  1. Call-context cancellation or deadline: if req.Context() has fired by
-//     the time the outcome is known, everything observed on the wire is
-//     discarded and the context error is returned. A caller sees
+//     the time the outcome is known, the context error is returned;
+//     observed response progress remains in the capture snapshot. A caller sees
 //     context.Canceled / context.DeadlineExceeded even when the body was
 //     simultaneously oversized and the connection broke mid-read.
 //  2. Byte-count overrun: more than bodyLimit() bytes arrived. The captured
@@ -128,6 +149,7 @@ func (t capturingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	if box == nil {
 		return resp, nil
 	}
+	box.responded(resp.StatusCode)
 	// Reading limit+1 bytes separates an exact-limit body from an oversized
 	// one without reading any further, so the rest of an oversized body is
 	// never pulled in, only its first overrun byte.
@@ -135,18 +157,19 @@ func (t capturingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	// The read already captured the outcome; a close error here carries no
 	// additional decision, so it is dropped deliberately.
 	_ = resp.Body.Close()
+	if readErr == nil && int64(len(raw)) <= t.bodyLimit() {
+		if err := box.set(raw); err != nil {
+			return nil, err
+		}
+	}
 	if cerr := req.Context().Err(); cerr != nil {
 		return nil, cerr
 	}
 	if int64(len(raw)) > t.bodyLimit() {
-		return nil, fmt.Errorf("pool: captured %d bytes of response body, limit is %d: %w",
-			len(raw), t.bodyLimit(), transport.ErrBodyTooLarge)
+		return nil, fmt.Errorf("pool: captured %d bytes of response body, limit is %d: %w", len(raw), t.bodyLimit(), transport.ErrBodyTooLarge)
 	}
 	if readErr != nil {
 		return nil, readErr
-	}
-	if err := box.set(raw); err != nil {
-		return nil, err
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(raw))
 	return resp, nil

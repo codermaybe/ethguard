@@ -167,7 +167,7 @@ func TestCallResultCloneCopiesDirectRevertDataOnly(t *testing.T) {
 	}
 }
 
-func TestCallResultMutualExclusionAndPredicates(t *testing.T) {
+func TestCallResultOperationPredicates(t *testing.T) {
 	var empty CallResult
 	if empty.IsCorroborated() || empty.IsWriteAccepted() {
 		t.Fatal("zero result claims nothing")
@@ -188,6 +188,10 @@ func TestCallResultMutualExclusionAndPredicates(t *testing.T) {
 	write := CallResult{WriteDecision: &rpc.WriteDecision{Status: rpc.WriteAccepted, Hash: "0xabc"}}
 	if !write.IsWriteAccepted() || write.IsCorroborated() {
 		t.Fatal("accepted write predicate mismatch")
+	}
+	write.ReceiptWait = &ReceiptWaitResult{LastObservation: &ReceiptAttempt{Sequence: 1, Decision: read.Decision}}
+	if !write.IsWriteAccepted() || write.IsCorroborated() {
+		t.Fatal("receipt observation changed broadcast/read predicates")
 	}
 	noHash := CallResult{WriteDecision: &rpc.WriteDecision{Status: rpc.WriteAccepted}}
 	if noHash.IsWriteAccepted() {
@@ -214,5 +218,89 @@ func TestWithSourceEvidenceValidatesBudget(t *testing.T) {
 	}
 	if final == configured {
 		t.Fatal("reconfiguration must derive a new context")
+	}
+}
+
+func TestReceiptWaitCaptureIsolatesBothPositions(t *testing.T) {
+	cause := errors.New("receipt observation")
+	decision := captureResult().Decision
+	decision.Sources = []rpc.SourceSummary{{Source: rpc.SourceRef{ID: "a"}, Attempted: true,
+		Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+		Answer:   rpc.AnswerSummary{Kind: rpc.AnswerResult, Interpretation: rpc.Interpretation{State: rpc.InterpretationValidated}}, Relation: rpc.VerdictSupported}}
+	decision.Adjudication = rpc.Adjudication{Basis: 1, Required: 1, Reason: rpc.ReasonAccepted,
+		Candidates: []rpc.CandidateGroup{{Sources: []rpc.SourceRef{{ID: "a"}}}}}
+	// Even a caller-created result that aliases the positions must yield
+	// independently mutable positions in each clone and capture delivery.
+	attempt := &ReceiptAttempt{Sequence: 7, Decision: decision, Err: cause}
+	original := CallResult{WriteDecision: &rpc.WriteDecision{Status: rpc.WriteAccepted, Hash: "0xabc"},
+		ReceiptWait: &ReceiptWaitResult{LastAttempt: attempt, LastObservation: attempt}, Err: context.DeadlineExceeded}
+	cloned := original.Clone()
+	_, capture := WithResult(context.Background())
+	if !capture.bind() {
+		t.Fatal("bind failed")
+	}
+	capture.publish(original)
+	original.ReceiptWait.LastAttempt.Sequence = 9
+	original.ReceiptWait.LastAttempt.Decision.Value[0] = '['
+	first, published, err := capture.Result()
+	if !published || err != nil || first.ReceiptWait.LastAttempt.Sequence != 7 || string(first.ReceiptWait.LastAttempt.Decision.Value) != `"0x1"` {
+		t.Fatalf("capture aliased input: %+v, %v", first, err)
+	}
+	for _, result := range []*CallResult{&cloned, &first} {
+		last, observed := result.ReceiptWait.LastAttempt, result.ReceiptWait.LastObservation
+		if last == observed || last.Decision == observed.Decision || result.Decision != nil {
+			t.Fatal("receipt positions share ownership or escaped into ordinary Decision")
+		}
+		last.Sequence = 10
+		last.Decision.Value[0] = '['
+		last.Decision.Sources[0].Exchange.Cause = errors.New("mutated")
+		last.Decision.Adjudication.Candidates[0].Sources[0].ID = "mutated"
+		if observed.Sequence != 7 || string(observed.Decision.Value) != `"0x1"` || observed.Decision.Sources[0].Exchange.Cause != nil || observed.Decision.Adjudication.Candidates[0].Sources[0].ID != "a" {
+			t.Fatalf("attempt mutated observation: %+v", observed)
+		}
+		observed.Decision.Support[0].Name = "changed"
+		observed.Decision.Reference.Hash = "changed"
+		if !errors.Is(last.Err, cause) || !errors.Is(observed.Err, cause) || result.Err != context.DeadlineExceeded {
+			t.Fatal("immutable errors changed meaning")
+		}
+	}
+	second, _, _ := capture.Result()
+	if second.ReceiptWait.LastAttempt.Sequence != 7 || second.ReceiptWait.LastObservation.Decision.Support[0].Name != "a" || second.ReceiptWait.LastObservation.Decision.Reference.Hash != "0xabc" {
+		t.Fatalf("capture changed after delivery mutation: %+v", second.ReceiptWait)
+	}
+}
+
+func TestReceiptObservationRequiresFormedMethodMeaning(t *testing.T) {
+	result := rpc.SourceSummary{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.AnswerSummary{Kind: rpc.AnswerResult}}
+	rejected := result
+	rejected.Answer.Interpretation = rpc.Interpretation{State: rpc.InterpretationRejected, Cause: rpc.ErrMalformedResponse}
+	validated := result
+	validated.Answer.Interpretation.State = rpc.InterpretationValidated
+	admitted := result
+	admitted.Answer.Interpretation.State = rpc.InterpretationAdmitted
+	protocol := rpc.SourceSummary{Answer: rpc.AnswerSummary{Kind: rpc.AnswerProtocolError,
+		Interpretation: rpc.Interpretation{State: rpc.InterpretationExcluded, Cause: rpc.ErrNoValidResponse}}}
+	for _, tc := range []struct {
+		name     string
+		decision *rpc.Decision
+		want     bool
+	}{
+		{"no decision", nil, false},
+		{"null accepted", &rpc.Decision{Status: rpc.Corroborated, Value: json.RawMessage(`null`), Adjudication: rpc.Adjudication{Reason: rpc.ReasonAccepted}}, true},
+		{"conflict remains unknown", &rpc.Decision{Status: rpc.Unknown, Adjudication: rpc.Adjudication{Reason: rpc.ReasonConflictingCandidates}}, true},
+		{"single group below support", &rpc.Decision{Adjudication: rpc.Adjudication{Reason: rpc.ReasonInsufficientSupport}}, true},
+		{"selected guarantee unmet", &rpc.Decision{Status: rpc.Selected, Adjudication: rpc.Adjudication{Reason: rpc.ReasonGuaranteeNotMet}}, true},
+		{"method rejected before resolver", &rpc.Decision{Sources: []rpc.SourceSummary{rejected}}, true},
+		{"validated before cancellation", &rpc.Decision{Sources: []rpc.SourceSummary{validated}}, true},
+		{"admission alone", &rpc.Decision{Sources: []rpc.SourceSummary{admitted}}, false},
+		{"protocol outside method domain", &rpc.Decision{Adjudication: rpc.Adjudication{Reason: rpc.ReasonNoCandidate}, Sources: []rpc.SourceSummary{protocol}}, false},
+		{"communication alone", &rpc.Decision{Sources: []rpc.SourceSummary{{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: context.Canceled}}}}, false},
+		{"internal abort after processing", &rpc.Decision{Adjudication: rpc.Adjudication{Reason: rpc.ReasonInternalFailure}, Sources: []rpc.SourceSummary{validated, rejected}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := formedReceiptObservation(tc.decision); got != tc.want {
+				t.Fatalf("observation=%v, want %v: %+v", got, tc.want, tc.decision)
+			}
+		})
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // samplerPeer is a test transport for the tip-sampler lifecycle: the first
@@ -23,14 +25,13 @@ type samplerPeer struct {
 	cleanup time.Duration
 }
 
-func (p *samplerPeer) CallContext(ctx context.Context, result any, _ string, _ ...any) error {
+func (p *samplerPeer) Call(ctx context.Context, _ string, _ ...any) rpc.Response {
 	p.mu.Lock()
 	p.calls++
 	warm := p.calls == 1
 	p.mu.Unlock()
 	if warm {
-		*result.(*json.RawMessage) = json.RawMessage(`"0x1"`)
-		return nil
+		return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}
 	}
 	p.entered <- struct{}{}
 	select {
@@ -45,10 +46,9 @@ func (p *samplerPeer) CallContext(ctx context.Context, result any, _ string, _ .
 	default:
 	}
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: ctx.Err()}}
 	}
-	*result.(*json.RawMessage) = json.RawMessage(`"0x1"`)
-	return nil
+	return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}
 }
 
 func (*samplerPeer) ChainID(context.Context) (*big.Int, error) { return big.NewInt(1), nil }

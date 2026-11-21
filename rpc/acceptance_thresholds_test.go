@@ -96,8 +96,8 @@ func TestAdmissionDenominatorNeverShrinks(t *testing.T) {
 	// still four, and the required support is three.
 	ranked := []cluster{{key: "a", sources: []SourceRef{{ID: "a"}, {ID: "b"}}}}
 	_, err := corroboration.adjudicate(4, ranked, nil)
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("adjudicate error = %v, want ErrConflict", err)
+	if !errors.Is(err, ErrInsufficientSupport) {
+		t.Fatalf("adjudicate error = %v, want ErrInsufficientSupport", err)
 	}
 	required := corroboration.Required(4)
 	if required != 3 {

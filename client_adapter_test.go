@@ -13,7 +13,6 @@ import (
 )
 
 // A mismatched response ID makes native adapter selection observable.
-
 func wrongIDServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +38,7 @@ func TestDefaultClientUsesNativeAdapter(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Collect = %+v, want the default client to run the native adapter (mismatched id rejected)", emissions)
 	}
-	if len(emissions) != 1 || emissions[0].Val != nil {
+	if len(emissions) != 1 || emissions[0].Response.Answer.Result != nil {
 		t.Fatalf("emissions = %+v, want the mismatched-id rejection", emissions)
 	}
 }
@@ -58,15 +57,15 @@ func TestWithHTTPAdapterNativeSelectsNativeAdapter(t *testing.T) {
 	var nativeErr pool.Emission
 	found := false
 	for _, e := range emissions {
-		if e.Err != nil {
+		if e.Response.Err() != nil {
 			nativeErr, found = e, true
 		}
 	}
 	if !found {
 		t.Fatalf("emissions = %+v, want a failed emission", emissions)
 	}
-	if !errors.Is(nativeErr.Err, rpcwire.ErrIDMismatch) {
-		t.Fatalf("emission err = %v, want rpcwire.ErrIDMismatch", nativeErr.Err)
+	if !errors.Is(nativeErr.Response.Err(), rpcwire.ErrIDMismatch) {
+		t.Fatalf("emission err = %v, want rpcwire.ErrIDMismatch", nativeErr.Response.Err())
 	}
 }
 

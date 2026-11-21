@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // benchBody builds one valid success response whose result is a receipt-like
@@ -30,7 +32,7 @@ func BenchmarkCompleteCallDelivery(b *testing.B) {
 			b.ReportAllocs()
 			for range b.N {
 				var target json.RawMessage
-				if err := CompleteCall(body, requestID, &target, "bench"); err != nil {
+				if err := CompleteCall(body, requestID, rpc.Exchange{Progress: rpc.ExchangeCompleted}).Decode(&target); err != nil {
 					b.Fatal(err)
 				}
 			}

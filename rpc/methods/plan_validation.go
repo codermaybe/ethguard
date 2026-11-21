@@ -127,10 +127,9 @@ func validatePlanBindings(plan rpc.ReadPlan, spec MethodSpec) error {
 		return fmt.Errorf("methods: %s compiled no resolver", spec.Method)
 	}
 	_, corroborating := plan.Resolver.(rpc.CorroboratingPolicy)
-	_, outcomeCorroborating := plan.Resolver.(rpc.CorroboratingOutcomeResolver)
-	if plan.Corroborating() != corroborating || corroborating != outcomeCorroborating {
-		return fmt.Errorf("methods: %s declares resolver %q, but its value corroborates=%v outcomeCorroborates=%v",
-			spec.Method, spec.Resolver, corroborating, outcomeCorroborating)
+	if plan.Corroborating() != corroborating {
+		return fmt.Errorf("methods: %s declares resolver %q, but its value corroborates=%v",
+			spec.Method, spec.Resolver, corroborating)
 	}
 	agreement, hasAgreement := plan.Resolver.(rpc.AgreementPolicy)
 	agreementRequired := plan.Corroborating()

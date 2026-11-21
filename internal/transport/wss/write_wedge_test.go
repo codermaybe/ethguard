@@ -65,7 +65,7 @@ func TestDeadlineCallerSurvivesStalledWriter(t *testing.T) {
 	stalled := make(chan error, 1)
 	go func() {
 		var value string
-		stalled <- tr.CallContext(context.Background(), &value, "eth_stalled")
+		stalled <- tr.Call(context.Background(), "eth_stalled").Decode(&value)
 	}()
 	select {
 	case <-gated.entered:
@@ -79,7 +79,7 @@ func TestDeadlineCallerSurvivesStalledWriter(t *testing.T) {
 	defer cancel()
 	started := time.Now()
 	var value string
-	err = tr.CallContext(deadlineCtx, &value, "eth_deadline")
+	err = tr.Call(deadlineCtx, "eth_deadline").Decode(&value)
 	elapsed := time.Since(started)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("deadline caller error = %v, want DeadlineExceeded", err)
@@ -101,7 +101,7 @@ func TestDeadlineCallerSurvivesStalledWriter(t *testing.T) {
 	}
 	followCtx, followCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer followCancel()
-	if err := tr.CallContext(followCtx, &value, "eth_followup"); err != nil || value != "ok" {
+	if err := tr.Call(followCtx, "eth_followup").Decode(&value); err != nil || value != "ok" {
 		t.Fatalf("healthy socket poisoned by the stalled-writer escape: %q %v", value, err)
 	}
 }

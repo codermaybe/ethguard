@@ -34,7 +34,7 @@ type DecisionEvent struct {
 	// Conflict marks a resolution rejected because sources disagreed rather
 	// than because they were unreachable.
 	Conflict bool
-	// Faults counts collection-phase problems that did not necessarily
+	// Faults counts source, collection and internal problems that did not necessarily
 	// prevent the decision: hung sources, normalize failures, pool-level
 	// collection errors.
 	Faults int
@@ -54,8 +54,10 @@ type SourceEvent struct {
 	// started or failed before reaching the wire (for example a failed
 	// dial).
 	RTT time.Duration
-	// Failed means the attempt supplied no answer usable by the method policy.
-	// Valid dissent and accepted execution reverts are not source failures.
+	// Failed records a source failure already identified by the round. Valid
+	// dissent, method-domain/candidate exclusions, unassessed tails and internal
+	// processing failures do not blame the source. Pool health applies its own
+	// protocol-error policy to the same recorded facts.
 	Failed bool
 }
 

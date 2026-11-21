@@ -291,7 +291,7 @@ func TestFaultSeamAttachesEachStatementOnce(t *testing.T) {
 		collectErr:      pool.ErrAllSourcesDown,
 	}
 	decision := rpc.Decision{}
-	state.attachFaults(&decision, nil)
+	state.attachFaults(&decision)
 
 	if len(decision.Faults) != 3 {
 		t.Fatalf("aggregate error, abstention and collection failure expected, got %+v", decision.Faults)

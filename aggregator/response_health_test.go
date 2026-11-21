@@ -97,7 +97,7 @@ func TestResponseHealthMalformedReachesGateWithFixedBasis(t *testing.T) {
 				t.Fatal(err)
 			}
 			d, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
-			if !errors.Is(err, rpc.ErrConflict) || len(d.Participants) != 3 || len(d.Support) != 2 {
+			if !errors.Is(err, rpc.ErrInsufficientSupport) || len(d.Participants) != 3 || len(d.Support) != 2 {
 				t.Fatalf("gate weakened floor: decision=%+v err=%v", d, err)
 			}
 		})
@@ -229,7 +229,7 @@ func TestResponseHealthOverallMalformedDoesNotAssignBlame(t *testing.T) {
 	plan.Resolver = rpc.Strict(func(json.RawMessage) (string, error) { return "same", nil }, rpc.WithCanonicalObject(probeEncode))
 	agg, _ := responseHealthAggregator(t, plan, "voting", `"a"`, `"b"`, `"c"`)
 	_, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
-	if !errors.Is(err, rpc.ErrMalformedResponse) {
+	if !errors.Is(err, rpc.ErrInvalidCanonicalResult) {
 		t.Fatalf("expected cluster encoding failure, got %v", err)
 	}
 	for _, src := range agg.pool.VotingMembers() {

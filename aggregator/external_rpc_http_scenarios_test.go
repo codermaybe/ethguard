@@ -212,7 +212,11 @@ func TestExternalRPCHTTPErrorDataPresenceEvidence(t *testing.T) {
 			if err == nil {
 				t.Fatal("rejected protocol error unexpectedly resolved")
 			}
-			fault := assertSingleSourceFault(t, decision, "node-a")
+			assertSingleSourceFault(t, decision, "node-a")
+			if len(decision.Sources) != 1 {
+				t.Fatal("missing source summary")
+			}
+			fault := decision.Sources[0].Answer.Cause
 
 			var presence rpc.ErrorDataPresence
 			if !errors.As(fault, &presence) {
@@ -226,7 +230,7 @@ func TestExternalRPCHTTPErrorDataPresenceEvidence(t *testing.T) {
 				t.Fatalf("raw data = %s, want %s", raw, scenario.wantRaw)
 			}
 
-			observation := ObservationRPCError(fault)
+			observation := rpc.ProtocolAnswer(fault).RPCError
 			if observation == nil {
 				t.Fatal("protocol fault did not produce structured RPC error evidence")
 			}

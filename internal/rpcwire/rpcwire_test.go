@@ -513,7 +513,7 @@ func FuzzDecodeResponse(f *testing.F) {
 }
 
 // A delivered result is the caller's own copy: mutating the bytes a
-// CompleteCall or DecodeResult handed out must not corrupt the raw body the
+// CompleteCall or Response.Decode handed out must not corrupt the raw body the
 // exchange produced, another consumer's delivery from the same body, or a
 // later decode of that body. This pins the isolation contract both public
 // entry points promise, no matter which adapter shares the underlying body
@@ -528,10 +528,10 @@ func TestDeliveredResultBytesAreIsolatedAcrossConsumers(t *testing.T) {
 	// other delivery, the shared body, or the caller's own view of the second
 	// delivery.
 	var first, second json.RawMessage
-	if err := CompleteCall(rawBody, requestID, &first, "test"); err != nil {
+	if err := CompleteCall(rawBody, requestID, rpc.Exchange{Progress: rpc.ExchangeCompleted}).Decode(&first); err != nil {
 		t.Fatalf("first CompleteCall: %v", err)
 	}
-	if err := CompleteCall(rawBody, requestID, &second, "test"); err != nil {
+	if err := CompleteCall(rawBody, requestID, rpc.Exchange{Progress: rpc.ExchangeCompleted}).Decode(&second); err != nil {
 		t.Fatalf("second CompleteCall: %v", err)
 	}
 	for i := range first {
@@ -569,20 +569,20 @@ func TestDeliveredResultBytesAreIsolatedAcrossConsumers(t *testing.T) {
 		t.Fatalf("body corrupted through a decoded response: %s", rawBody)
 	}
 
-	// DecodeResult copies into a RawMessage target: the target owns its bytes
+	// Response.Decode copies into a RawMessage target: the target owns its bytes
 	// and the raw input keeps its own.
 	var target json.RawMessage
-	if err := DecodeResult("test", resp.Result, &target); err != nil {
-		t.Fatalf("DecodeResult: %v", err)
+	if err := (rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: resp.Result}}).Decode(&target); err != nil {
+		t.Fatalf("Response.Decode: %v", err)
 	}
 	for i := range target {
 		target[i] = '#'
 	}
 	if string(resp.Result) != `{"blocks":["0x1","0x2"],"tag":"latest"}` {
-		t.Fatalf("DecodeResult target shares the source bytes: %s", resp.Result)
+		t.Fatalf("Response.Decode target shares the source bytes: %s", resp.Result)
 	}
 	if string(rawBody) != body {
-		t.Fatalf("body corrupted through a DecodeResult target: %s", rawBody)
+		t.Fatalf("body corrupted through a Response.Decode target: %s", rawBody)
 	}
 
 	// A typed decode target is equally isolated from the raw bytes.
@@ -590,7 +590,7 @@ func TestDeliveredResultBytesAreIsolatedAcrossConsumers(t *testing.T) {
 		Blocks []string `json:"blocks"`
 	}
 	var typed blocksView
-	if err := CompleteCall(rawBody, requestID, &typed, "test"); err != nil {
+	if err := CompleteCall(rawBody, requestID, rpc.Exchange{Progress: rpc.ExchangeCompleted}).Decode(&typed); err != nil {
 		t.Fatalf("typed CompleteCall: %v", err)
 	}
 	if len(typed.Blocks) != 2 || typed.Blocks[1] != "0x2" {

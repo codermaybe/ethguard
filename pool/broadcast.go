@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // BroadcastOption tunes one broadcast fan-out.
@@ -107,13 +109,13 @@ func (p *Pool) Broadcast(ctx context.Context, method string, params []any, opts 
 	for i, src := range members {
 		switch {
 		case src.isClosed():
-			emissions[i] = Emission{Src: src, Err: ErrClosed}
+			emissions[i] = Emission{Src: src, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeNotStarted, Cause: ErrClosed}}}
 		case src.isIdentityInvalid():
-			emissions[i] = Emission{Src: src, Err: ErrChainIDMismatch}
+			emissions[i] = Emission{Src: src, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeNotStarted, Cause: ErrChainIDMismatch}}}
 		case !src.requestable(now):
 			// A cooling source is paused, not failed: the write may already
 			// have landed through the fleet's other members.
-			emissions[i] = Emission{Src: src, Err: &SourceGateError{Reason: GateReasonCooldown}}
+			emissions[i] = Emission{Src: src, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeNotStarted, Cause: &SourceGateError{Reason: GateReasonCooldown}}}}
 		default:
 			attemptable++
 		}

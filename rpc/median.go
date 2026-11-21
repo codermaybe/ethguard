@@ -58,8 +58,9 @@ func (f medianFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error)
 	return encodeCanonicalValue(f.encode, raw)
 }
 
-func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
-	var decision Decision
+func (f medianFunc) Resolve(obs []Observation) (Outcome, error) {
+	decision := Decision{Adjudication: Adjudication{Basis: len(obs), Required: 1, Reason: ReasonNoCandidate}}
+	verdicts := initialVerdicts(obs)
 	type sample struct {
 		source    SourceRef
 		value     *big.Int
@@ -68,36 +69,41 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 		canonical json.RawMessage
 	}
 	samples := make([]sample, 0, len(obs))
-	for _, item := range obs {
-		if item.Err != nil {
+	for i, item := range obs {
+		if item.Response.Err() != nil {
+			if item.Response.CandidateErr(true) == nil {
+				verdicts[i].Kind, verdicts[i].Method = VerdictUnusable, Interpretation{State: InterpretationExcluded, Cause: item.Response.Err()}
+			} else {
+				unavailableVerdict(&verdicts[i], item.Response)
+			}
 			continue
 		}
 		var canonical json.RawMessage
 		if f.encode != nil {
-			encoded, err := f.encode(item.Value)
+			encoded, err := f.encode(item.Response.Answer.Result)
 			if err != nil {
-				decision.Faults = append(decision.Faults, sourceFault(item.Source, "encode", err))
+				rejectVerdict(&verdicts[i], err)
 				continue
 			}
 			canonical = encoded
 		}
-		key, err := f.normalize(item.Value)
+		key, err := f.normalize(item.Response.Answer.Result)
 		if err != nil {
-			decision.Faults = append(decision.Faults, sourceFault(item.Source, "normalize", err))
+			rejectVerdict(&verdicts[i], err)
 			continue
 		}
 		value, ok := new(big.Int).SetString(key, 10)
 		if !ok {
-			decision.Faults = append(decision.Faults, fmt.Errorf(
-				"normalize: median selection needs an integer, got %q", key))
+			err := fmt.Errorf("normalize: median selection needs an integer, got %q", key)
+			rejectVerdict(&verdicts[i], err)
 			continue
 		}
 		samples = append(samples, sample{
-			source: item.Source, value: value, raw: item.Value, evidence: item.Evidence, canonical: canonical,
+			source: item.Source, value: value, raw: item.Response.Answer.Result, evidence: item.Evidence, canonical: canonical,
 		})
 	}
 	if len(samples) == 0 {
-		return Decision{Status: Unknown, Faults: decision.Faults}, noValidResponse("median", len(obs))
+		return completeOutcome(obs, decision, verdicts, noValidResponse("median", len(obs)))
 	}
 
 	// Keep equal-valued samples in pool order. When the median value has
@@ -130,8 +136,33 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 			decision.Reject = append(decision.Reject, s.source)
 		}
 	}
+	groups := make(map[string][]SourceRef)
+	for _, sample := range samples {
+		groups[sample.value.String()] = append(groups[sample.value.String()], sample.source)
+	}
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		decision.Adjudication.Candidates = append(decision.Adjudication.Candidates, CandidateGroup{Sources: groups[key]})
+	}
+	decision.Adjudication.Reason = ReasonAccepted
+	for i := range verdicts {
+		for _, source := range decision.Support {
+			if source.ID == verdicts[i].Source.ID {
+				verdicts[i].Kind, verdicts[i].Method = VerdictSupported, Interpretation{State: InterpretationValidated}
+			}
+		}
+		for _, source := range decision.Reject {
+			if source.ID == verdicts[i].Source.ID {
+				verdicts[i].Kind, verdicts[i].Method = VerdictDissented, Interpretation{State: InterpretationValidated}
+			}
+		}
+	}
 	if f.encode == nil {
-		return decision, nil
+		return completeOutcome(obs, decision, verdicts, nil)
 	}
 	// This check holds because equal is selected by number, above, and the
 	// encoder is a function of that number alone, so every member of equal
@@ -150,9 +181,9 @@ func (f medianFunc) Resolve(obs []Observation) (Decision, error) {
 		decision.Status = Unknown
 		decision.Value = nil
 		decision.Faults = append(decision.Faults, err)
-		return decision, err
+		return completeOutcome(obs, decision, verdicts, err)
 	}
 	decision.Value = committed
 	decision.Status = Selected
-	return decision, nil
+	return completeOutcome(obs, decision, verdicts, nil)
 }

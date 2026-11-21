@@ -195,19 +195,19 @@ func assertRule4e(t *testing.T, tc rule4eCase) {
 	to := common.HexToAddress("0x1")
 	arg := map[string]any{"to": to.Hex()}
 	aggDecision, aggErr := callDecision(adapter.Call(ctx, methods.MethodCall, arg, "latest"))
-	if policyDecision.Status != aggDecision.Status || !errors.Is(policyErr, tc.wantErr) || !errors.Is(aggErr, tc.wantErr) {
-		t.Fatalf("policy %s/%v aggregator %s/%v, want %s/%v", policyDecision.Status, policyErr, aggDecision.Status, aggErr, tc.wantStatus, tc.wantErr)
+	if policyDecision.Decision.Status != aggDecision.Status || !errors.Is(policyErr, tc.wantErr) || !errors.Is(aggErr, tc.wantErr) {
+		t.Fatalf("policy %s/%v aggregator %s/%v, want %s/%v", policyDecision.Decision.Status, policyErr, aggDecision.Status, aggErr, tc.wantStatus, tc.wantErr)
 	}
 	if aggDecision.Status != tc.wantStatus {
 		t.Fatalf("status = %s, want %s", aggDecision.Status, tc.wantStatus)
 	}
-	if !sameStringList(policyDecision.DeletedFields, aggDecision.DeletedFields) || !sameStringList(aggDecision.DeletedFields, tc.wantDeleted) {
-		t.Fatalf("deleted policy %v aggregator %v want %v", policyDecision.DeletedFields, aggDecision.DeletedFields, tc.wantDeleted)
+	if !sameStringList(policyDecision.Decision.DeletedFields, aggDecision.DeletedFields) || !sameStringList(aggDecision.DeletedFields, tc.wantDeleted) {
+		t.Fatalf("deleted policy %v aggregator %v want %v", policyDecision.Decision.DeletedFields, aggDecision.DeletedFields, tc.wantDeleted)
 	}
 	if tc.wantErr != nil {
 		return
 	}
-	assertDataDimension(t, policyDecision, tc)
+	assertDataDimension(t, policyDecision.Decision, tc)
 	assertDataDimension(t, aggDecision, tc)
 	for _, needle := range tc.absentBytes {
 		if bytes.Contains(aggDecision.Value, []byte(needle)) {
@@ -314,7 +314,11 @@ func scriptRevertAnswer(node *rpctest.Node, answer revertAnswer) {
 func observationFor(answer revertAnswer) rpc.Observation {
 	source := rpc.SourceRef{Name: answer.name, ID: answer.name}
 	if answer.kind == "ok" {
-		return rpc.Observation{Source: source, Value: json.RawMessage(answer.data)}
+		return rpc.Observation{Attempted: true, Source: source, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+			Answer:   rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(answer.data)},
+		},
+		}
 	}
 	body := &rpc.RPCError{Code: 3, Message: "execution reverted"}
 	switch answer.kind {
@@ -323,7 +327,11 @@ func observationFor(answer revertAnswer) rpc.Observation {
 	case "hex":
 		body.Data = json.RawMessage(answer.data)
 	}
-	return rpc.Observation{Source: source, Err: errors.New("execution reverted"), RPCError: body}
+	return rpc.Observation{Attempted: true, Source: source, Response: rpc.Response{
+		Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+		Answer:   rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: body, Cause: rpctest.RPCError(3, "execution reverted")},
+	},
+	}
 }
 
 func names(refs []rpc.SourceRef) []string {

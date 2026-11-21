@@ -1,6 +1,8 @@
 package aggregator
 
 import (
+	"fmt"
+
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -38,41 +40,30 @@ func WithPlans(plans map[string]rpc.ReadPlan) Option {
 	}
 }
 
-// resolvePlannedInvocation resolves one observation set from the plan's
-// declared semantics: the invocation's frozen pending-local fact first, then
-// the resolver's corroborated or plain outcome capability. The fallback chain
-// mirrors the legacy invocation resolution exactly — the same capabilities,
-// consulted in the same order — with the plan's declarations replacing the
-// type assertions over decorator layers. Corroboration is gated on the plan's
-// declared class (plan.Corroborating), and the resolver value's own
-// capabilities are read straight off that value, never by walking decorators.
-// pendingLocal is the invocation's prepare-time routing fact: resolution
-// never re-reads the prepared parameters to re-derive it.
-//
-// The outcome is the resolution's one production fact. A resolver that states
-// per-source verdicts passes its outcome through unchanged; a resolver with
-// only the decision capability is adapted with nil verdicts — the statement
-// stays empty rather than being fabricated, and classification falls back to
-// the policy's own validity contract downstream.
-func resolvePlannedInvocation(plan *rpc.ReadPlan, pendingLocal bool, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) (rpc.Outcome, error) {
+// resolvePlannedInvocation selects the request's frozen local/corroborating
+// semantics. Every route returns the same mandatory source judgments.
+func resolvePlannedInvocation(plan *rpc.ReadPlan, snap rpc.Corroboration, snapOK bool, pendingLocal bool, obs []rpc.Observation) (rpc.Outcome, error) {
+	if plan == nil || plan.Resolver == nil {
+		outcome := rpc.UnassessedOutcome(obs)
+		outcome.Decision.Adjudication.Reason = rpc.ReasonInternalFailure
+		return outcome, fmt.Errorf("missing resolver: %w", rpc.ErrInvalidOutcome)
+	}
+	if singleSourcePolicy(plan.Resolver) {
+		return plan.Resolver.Resolve(obs)
+	}
 	if pendingLocal {
-		decision, err := rpc.ResolveLocalObservation(plan.Resolver, obs)
-		return rpc.Outcome{Decision: decision}, err
+		return rpc.ResolveLocalObservation(plan.Resolver, obs)
 	}
 	if snapOK && plan.Corroborating() {
-		if corrob, ok := plan.Resolver.(rpc.CorroboratingOutcomeResolver); ok {
-			return corrob.ResolveOutcomeCorroborated(snap, obs)
+		resolver, ok := plan.Resolver.(rpc.CorroboratingPolicy)
+		if !ok {
+			outcome := rpc.UnassessedOutcome(obs)
+			outcome.Decision.Adjudication.Reason = rpc.ReasonInternalFailure
+			return outcome, fmt.Errorf("declared corroborating resolver lacks resolution entry: %w", rpc.ErrInvalidOutcome)
 		}
-		if corrob, ok := plan.Resolver.(rpc.CorroboratingPolicy); ok {
-			decision, err := corrob.ResolveCorroborated(snap, obs)
-			return rpc.Outcome{Decision: decision}, err
-		}
+		return resolver.ResolveCorroborated(snap, obs)
 	}
-	if outcomeResolver, ok := plan.Resolver.(rpc.OutcomeResolver); ok {
-		return outcomeResolver.ResolveOutcome(obs)
-	}
-	decision, err := plan.Resolver.Resolve(obs)
-	return rpc.Outcome{Decision: decision}, err
+	return plan.Resolver.Resolve(obs)
 }
 
 // resolveCanonicalInvocation resolves one processed observation set through

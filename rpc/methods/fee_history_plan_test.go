@@ -11,7 +11,6 @@ import (
 // The eth_feeHistory plan seam. The compiled plan is the only assembly: its
 // plain strict resolver owns the full outcome capability, and the tests below
 // verify the plan's behavior directly.
-
 func feeHistoryPlan(t *testing.T) rpc.ReadPlan {
 	t.Helper()
 	return compiledPlan(t, MethodFeeHistory)
@@ -20,8 +19,8 @@ func feeHistoryPlan(t *testing.T) rpc.ReadPlan {
 func feeHistoryObservations() []rpc.Observation {
 	payload := feeHistory("0x1", "0.5", "0x3")
 	return []rpc.Observation{
-		{Source: rpc.SourceRef{Name: "a", ID: "a"}, Value: json.RawMessage(payload)},
-		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(payload)},
+		{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(payload)}}},
+		{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(payload)}}},
 	}
 }
 
@@ -31,23 +30,24 @@ func feeHistoryObservations() []rpc.Observation {
 // corroborate under the invocation snapshot.
 func TestFeeHistoryPlanPathOwnsTheFullOutcome(t *testing.T) {
 	plan := feeHistoryPlan(t)
-	outcome, ok := plan.Resolver.(rpc.OutcomeResolver)
+	outcome := plan.Resolver
+	ok := outcome != nil
 	if !ok {
 		t.Fatal("the plan's feeHistory resolver does not state plain outcomes")
 	}
-	stated, err := outcome.ResolveOutcome(feeHistoryObservations())
+	stated, err := outcome.Resolve(feeHistoryObservations())
 	if err != nil {
 		t.Fatalf("plain outcome: %v", err)
 	}
 	if stated.Decision.Status != rpc.Corroborated {
 		t.Fatalf("status = %v, want the legacy agreement shape's Corroborated for two agreeing sources", stated.Decision.Status)
 	}
-	corroborating, ok := plan.Resolver.(rpc.CorroboratingOutcomeResolver)
+	corroborating, ok := plan.Resolver.(rpc.CorroboratingPolicy)
 	if !ok {
 		t.Fatal("the plan's feeHistory resolver does not state corroborated outcomes")
 	}
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
-	outcomeCorroborated, err := corroborating.ResolveOutcomeCorroborated(snap, feeHistoryObservations())
+	outcomeCorroborated, err := corroborating.ResolveCorroborated(snap, feeHistoryObservations())
 	if err != nil {
 		t.Fatalf("corroborated outcome: %v", err)
 	}
@@ -69,15 +69,15 @@ func TestFeeHistoryPlanResolvesAgreement(t *testing.T) {
 	if plainErr != nil {
 		t.Fatalf("plain resolve: %v", plainErr)
 	}
-	if plain.Status != rpc.Corroborated || len(plain.Support) != 2 {
+	if plain.Decision.Status != rpc.Corroborated || len(plain.Decision.Support) != 2 {
 		t.Fatalf("plain resolve = %+v, want corroborated agreement", plain)
 	}
 
-	planCorroborated, err := plan.Resolver.(rpc.CorroboratingOutcomeResolver).ResolveOutcomeCorroborated(snap, obs)
+	planCorroborated, err := plan.Resolver.(rpc.CorroboratingPolicy).ResolveCorroborated(snap, obs)
 	if err != nil {
 		t.Fatalf("corroborated outcome: %v", err)
 	}
-	if !reflect.DeepEqual(faultless(planCorroborated.Decision), faultless(plain)) {
+	if !reflect.DeepEqual(faultless(planCorroborated.Decision), faultless(plain.Decision)) {
 		t.Fatalf("corroborated outcome re-decided the value:\noutcome %+v\nplain   %+v", planCorroborated.Decision, plain)
 	}
 	if len(planCorroborated.Verdicts) != 2 {
@@ -90,5 +90,7 @@ func TestFeeHistoryPlanResolvesAgreement(t *testing.T) {
 // in the comparison.
 func faultless(decision rpc.Decision) rpc.Decision {
 	decision.Faults = nil
+	// Plain strict resolution has no configured support floor.
+	decision.Adjudication.Required = 0
 	return decision
 }

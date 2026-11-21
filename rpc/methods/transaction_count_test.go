@@ -26,11 +26,11 @@ func TestTransactionCountPlanKeepsNullForNotFoundProjection(t *testing.T) {
 		t.Fatal("transaction count resolver is not corroborating")
 	}
 	decision, err := resolver.ResolveCorroborated(rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: json.RawMessage(`null`)},
-		{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`null`)},
-		{Source: rpc.SourceRef{ID: "c"}, Value: json.RawMessage(`null`)},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`null`)}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`null`)}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`null`)}}},
 	})
-	if err != nil || string(decision.Value) != "null" || decision.Status != rpc.Corroborated {
+	if err != nil || string(decision.Decision.Value) != "null" || decision.Decision.Status != rpc.Corroborated {
 		t.Fatalf("null decision = %+v, %v", decision, err)
 	}
 }

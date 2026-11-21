@@ -80,7 +80,7 @@ func canonicalAggregator(t *testing.T, plan rpc.ReadPlan, bodies ...string) (*Ag
 		node := rpctest.NewNode(0)
 		t.Cleanup(node.Close)
 		if body == "" {
-			node.Fail("m", -32000, "transport refused")
+			node.FailHTTP("m", 503)
 		} else {
 			node.ReturnRaw("m", json.RawMessage(body))
 		}

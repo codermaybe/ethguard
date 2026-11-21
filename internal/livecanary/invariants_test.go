@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -25,6 +26,16 @@ func canarySources() []rpc.SourceRef {
 	}
 }
 
+// canarySummaries records the relations exercised by these report fixtures;
+// only an absent member was not attempted.
+func canarySummaries(sources []rpc.SourceRef, relations ...rpc.VerdictKind) []rpc.SourceSummary {
+	summaries := make([]rpc.SourceSummary, len(relations))
+	for i, relation := range relations {
+		summaries[i] = rpc.SourceSummary{Source: sources[i], Attempted: relation != rpc.VerdictAbsent, Relation: relation}
+	}
+	return summaries
+}
+
 func canaryReference(tag string) *rpc.ReferenceEvidence {
 	sources := canarySources()
 	return &rpc.ReferenceEvidence{
@@ -35,6 +46,7 @@ func canaryReference(tag string) *rpc.ReferenceEvidence {
 		Origin:       "finalized",
 		ObservedAt:   time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC),
 		Participants: sources,
+		Sources:      canarySummaries(sources, rpc.VerdictSupported, rpc.VerdictSupported, rpc.VerdictDissented),
 		Support:      sources[:2],
 		Reject:       sources[2:],
 	}
@@ -44,6 +56,7 @@ func canaryDecision(value string) *rpc.Decision {
 	sources := canarySources()
 	return &rpc.Decision{
 		Participants:   sources,
+		Sources:        canarySummaries(sources, rpc.VerdictSupported, rpc.VerdictSupported, rpc.VerdictDissented),
 		Status:         rpc.Corroborated,
 		Value:          json.RawMessage(value),
 		Support:        sources[:2],
@@ -171,6 +184,7 @@ func TestQuorumBelowThresholdFailsStep(t *testing.T) {
 	sources := canarySources()
 	execution.decision = &rpc.Decision{
 		Participants:   sources,
+		Sources:        canarySummaries(sources, rpc.VerdictSupported, rpc.VerdictDissented, rpc.VerdictUnusable),
 		Status:         rpc.Corroborated,
 		Value:          json.RawMessage("{}"),
 		Support:        sources[:1],
@@ -195,6 +209,7 @@ func TestParticipantBasisDriftFailsStep(t *testing.T) {
 	sources := canarySources()
 	execution.decision = &rpc.Decision{
 		Participants:   []rpc.SourceRef{sources[1], sources[0], sources[2]},
+		Sources:        canarySummaries(sources, rpc.VerdictDissented, rpc.VerdictSupported, rpc.VerdictDissented),
 		Status:         rpc.Corroborated,
 		Value:          json.RawMessage("{}"),
 		Support:        sources[1:2],
@@ -235,6 +250,7 @@ func TestReferenceBelowQuorumIsInconclusive(t *testing.T) {
 	reference := canaryReference("finalized")
 	reference.Support = sources[:1]
 	reference.Reject = sources[1:2]
+	reference.Sources = canarySummaries(sources, rpc.VerdictSupported, rpc.VerdictDissented, rpc.VerdictUnusable)
 	reference.SourceFaults = []rpc.SourceFault{{Source: sources[2], Err: errors.New("collect failed")}}
 	execution := feeHistoryExecution(t, reference)
 	step, reasons := evaluateSynthetic(t, execution)
@@ -323,6 +339,7 @@ func TestAvailabilityFaultMakesStepInconclusive(t *testing.T) {
 	sources := canarySources()
 	execution.decision = &rpc.Decision{
 		Participants:   sources,
+		Sources:        canarySummaries(sources, rpc.VerdictSupported, rpc.VerdictSupported, rpc.VerdictUnusable),
 		Status:         rpc.Corroborated,
 		Value:          json.RawMessage("{}"),
 		Support:        sources[:2],
@@ -343,6 +360,7 @@ func TestQuorumUnmetIsInconclusive(t *testing.T) {
 	sources := canarySources()
 	execution.decision = &rpc.Decision{
 		Participants: sources,
+		Sources:      canarySummaries(sources, rpc.VerdictUnusable, rpc.VerdictUnusable, rpc.VerdictUnusable),
 		Status:       rpc.Unknown,
 		SourceFaults: []rpc.SourceFault{
 			{Source: sources[0], Err: errors.New("no valid response")},
@@ -364,6 +382,7 @@ func TestRepresentativeMustBeFirstSupporter(t *testing.T) {
 	sources := canarySources()
 	decision := &rpc.Decision{
 		Participants:   sources,
+		Sources:        canarySummaries(sources, rpc.VerdictSupported, rpc.VerdictSupported, rpc.VerdictDissented),
 		Status:         rpc.Corroborated,
 		Value:          json.RawMessage("{}"),
 		Support:        sources[:2],
@@ -394,4 +413,101 @@ func mustPrepared(t *testing.T, method string, params ...any) *rpc.PreparedReque
 		t.Fatalf("marshal prepared params: %v", err)
 	}
 	return &rpc.PreparedRequest{Method: method, Params: raw}
+}
+
+func TestSourceRelationsPreserveUnadjudicatedMembers(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		relation rpc.VerdictKind
+		cause    error
+	}{
+		{"excluded reference height", rpc.VerdictExcluded, nil},
+		{"unassessed tail", rpc.VerdictUnassessed, nil},
+		{"absent", rpc.VerdictAbsent, nil},
+		{"unassessed communication fault", rpc.VerdictUnassessed, context.DeadlineExceeded},
+		{"absent local gate", rpc.VerdictAbsent, pool.ErrSourceGated},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sources := canarySources()
+			execution := feeHistoryExecution(t, canaryReference("finalized"))
+			execution.decision.Reject = nil
+			execution.reference.Reject = nil
+			execution.decision.Sources = canarySummaries(sources, rpc.VerdictSupported, rpc.VerdictSupported, test.relation)
+			execution.reference.Sources = canarySummaries(sources, rpc.VerdictSupported, rpc.VerdictSupported, test.relation)
+			if test.cause != nil {
+				execution.decision.SourceFaults = []rpc.SourceFault{{Source: sources[2], Err: test.cause}}
+				execution.reference.SourceFaults = []rpc.SourceFault{{Source: sources[2], Err: test.cause}}
+			}
+			step, reasons := evaluateSynthetic(t, execution)
+			if step.Invariants.EvidenceConservation == nil || !*step.Invariants.EvidenceConservation ||
+				step.Invariants.ReferenceStatus == nil || !*step.Invariants.ReferenceStatus || hasStateReason(reasons, "evidence_missing") {
+				t.Fatalf("unadjudicated member lost evidence: invariants=%+v reasons=%+v", step.Invariants, reasons)
+			}
+			if err := step.Decision.validate(); err != nil {
+				t.Fatal(err)
+			}
+			if err := step.Reference.validate(); err != nil {
+				t.Fatal(err)
+			}
+			for _, report := range []struct {
+				sources []SourceDispositionReport
+				reject  []string
+				faults  []SourceFaultReport
+			}{{step.Decision.Sources, step.Decision.Reject, step.Decision.Faults}, {step.Reference.Sources, step.Reference.Reject, step.Reference.Faults}} {
+				if len(report.sources) != 3 || len(report.reject) != 0 {
+					t.Fatalf("invented dissent or lost member: %+v", report)
+				}
+				last := report.sources[2]
+				if last.SourceID != "node-03" || last.Relation != test.relation.String() || last.Attempted != (test.relation != rpc.VerdictAbsent) {
+					t.Fatalf("source relation changed: %+v", last)
+				}
+				wantFaults := 0
+				if test.cause != nil {
+					wantFaults = 1
+				}
+				if len(report.faults) != wantFaults {
+					t.Fatalf("faults=%+v, want %d actual causes", report.faults, wantFaults)
+				}
+			}
+		})
+	}
+}
+
+func TestCloseAfterFreezeReportsAbsentMembers(t *testing.T) {
+	sources := canarySources()
+	execution := feeHistoryExecution(t, canaryReference("finalized"))
+	// The coordinator retains the frozen slots when Collect sees a closed pool.
+	// No slot made a network attempt, and the close cause belongs to collection.
+	execution.decision = &rpc.Decision{
+		Participants:     sources,
+		Sources:          canarySummaries(sources, rpc.VerdictAbsent, rpc.VerdictAbsent, rpc.VerdictAbsent),
+		CollectionFaults: []error{pool.ErrClosed},
+	}
+	execution.decisionErr = pool.ErrClosed
+	step, reasons := evaluateSynthetic(t, execution)
+	if step.Invariants.EvidenceConservation == nil || !*step.Invariants.EvidenceConservation || hasStateReason(reasons, "evidence_missing") {
+		t.Fatalf("close lost frozen members: %+v, %+v", step.Invariants, reasons)
+	}
+	if len(step.Decision.Sources) != 3 || len(step.Decision.Reject) != 0 || len(step.Decision.Faults) != 0 || len(step.Decision.CollectionFaults) != 1 {
+		t.Fatalf("close manufactured source failures or lost collection cause: %+v", step.Decision)
+	}
+	for _, source := range step.Decision.Sources {
+		if source.Attempted || source.Relation != "absent" {
+			t.Fatalf("close source=%+v", source)
+		}
+	}
+	if err := step.Decision.validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMissingSourceSummaryFailsEvidenceChecks(t *testing.T) {
+	execution := feeHistoryExecution(t, canaryReference("finalized"))
+	execution.decision.Sources = execution.decision.Sources[:2]
+	execution.reference.Sources = execution.reference.Sources[:2]
+	step, reasons := evaluateSynthetic(t, execution)
+	if step.Invariants.EvidenceConservation == nil || *step.Invariants.EvidenceConservation ||
+		step.Invariants.ReferenceStatus == nil || *step.Invariants.ReferenceStatus || !hasStateReason(reasons, "evidence_missing") {
+		t.Fatalf("missing sources accepted: %+v, %+v", step.Invariants, reasons)
+	}
 }

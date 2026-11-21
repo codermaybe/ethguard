@@ -63,8 +63,8 @@ func (fakeHeadCodec) Normalize(raw json.RawMessage) (string, error) {
 func TestFinalizedConsumesHeadReaderSeam(t *testing.T) {
 	raw := json.RawMessage(`{"number":"0x10","hash":"0xabc"}`)
 	reader := fakeHeadReader{observations: []HeadObservation{
-		{Source: rpc.SourceRef{Name: "a", ID: "a"}, Value: raw, Attempted: true},
-		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: raw, Attempted: true},
+		{Source: rpc.SourceRef{Name: "a", ID: "a"}, Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
+		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
 	}}
 	ref, err := Finalized(context.Background(), reader, fakeHeadCodec{}, 32, 2, rpc.CorroborationMajority, time.Second, observe.Nop)
 	if err != nil {

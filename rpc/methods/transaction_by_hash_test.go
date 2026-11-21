@@ -43,10 +43,10 @@ func TestTransactionRequiredFieldsRejectBeforeVoting(t *testing.T) {
 			}
 			policy := planResolver(t, MethodGetTransactionByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 			decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-				{Source: rpc.SourceRef{ID: "a"}, Value: missing},
-				{Source: rpc.SourceRef{ID: "b"}, Value: missing},
+				{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: missing}}},
+				{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: missing}}},
 			})
-			if err == nil || decision.Status == rpc.Corroborated {
+			if err == nil || decision.Decision.Status == rpc.Corroborated {
 				t.Fatalf("identical incomplete objects corroborated: %+v, %v", decision, err)
 			}
 		})
@@ -70,11 +70,11 @@ func TestTransactionMethodRulesShareCanonicalOutput(t *testing.T) {
 	}
 	policy := planResolver(t, MethodGetTransactionByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	for _, observations := range [][]rpc.Observation{
-		{{Source: rpc.SourceRef{ID: "a"}, Value: raw}, {Source: rpc.SourceRef{ID: "b"}, Value: upper}},
-		{{Source: rpc.SourceRef{ID: "b"}, Value: upper}, {Source: rpc.SourceRef{ID: "a"}, Value: raw}},
+		{{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}, {Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: upper}}}},
+		{{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: upper}}}, {Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}},
 	} {
 		decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, observations)
-		if err != nil || decision.Status != rpc.Corroborated || string(decision.Value) != want {
+		if err != nil || decision.Decision.Status != rpc.Corroborated || string(decision.Decision.Value) != want {
 			t.Fatalf("canonical decision = %+v, %v; want %s", decision, err, want)
 		}
 	}
@@ -183,10 +183,10 @@ func TestTransactionByHashPendingTimestampPreservesEvidenceAndPayload(t *testing
 	explicit := injectField(t, raw, "blockTimestamp", `null`)
 	policy := planResolver(t, MethodGetTransactionByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "derived"}, Value: raw},
-		{Source: rpc.SourceRef{ID: "explicit"}, Value: explicit},
+		{Attempted: true, Source: rpc.SourceRef{ID: "derived"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "explicit"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: explicit}}},
 	})
-	if err != nil || decision.Status != rpc.Corroborated || !bytes.Equal(decision.Value, candidate) {
+	if err != nil || decision.Decision.Status != rpc.Corroborated || !bytes.Equal(decision.Decision.Value, candidate) {
 		t.Fatalf("pending canonical Value = %+v, %v", decision, err)
 	}
 	if !bytes.Equal(raw, before) || !bytes.Equal(response, responseBefore) || bytes.Contains(raw, []byte("blockTimestamp")) {
@@ -246,10 +246,10 @@ func TestTransactionByHashLegacyChainIDMatchesSignedPayload(t *testing.T) {
 		}
 		policy := planResolver(t, request.Method, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 		decision, resolveErr := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-			{Source: rpc.SourceRef{ID: "a"}, Value: conflicting},
-			{Source: rpc.SourceRef{ID: "b"}, Value: conflicting},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: conflicting}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: conflicting}}},
 		})
-		t.Fatalf("declared chainId=1 conflicts with signed chainId=%s but admission returned %v; status=%v support=%d resolveErr=%v Value=%s", tx.ChainId(), err, decision.Status, len(decision.Support), resolveErr, decision.Value)
+		t.Fatalf("declared chainId=1 conflicts with signed chainId=%s but admission returned %v; status=%v support=%d resolveErr=%v Value=%s", tx.ChainId(), err, decision.Decision.Status, len(decision.Decision.Support), resolveErr, decision.Decision.Value)
 	}
 }
 
@@ -269,12 +269,12 @@ func TestTransactionByHashPendingTimestampDoesNotRescueInvalidPayload(t *testing
 			}
 			policy := planResolver(t, request.Method, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 			decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-				{Source: rpc.SourceRef{ID: "a"}, Value: raw},
-				{Source: rpc.SourceRef{ID: "b"}, Value: raw},
-				{Source: rpc.SourceRef{ID: "c"}, Value: json.RawMessage("null")},
-				{Source: rpc.SourceRef{ID: "d"}, Err: admissionErr},
+				{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
+				{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
+				{Attempted: true, Source: rpc.SourceRef{ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage("null")}}},
+				{Attempted: true, Source: rpc.SourceRef{ID: "d"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: admissionErr}}},
 			})
-			if !errors.Is(err, rpc.ErrConflict) || decision.Status == rpc.Corroborated || len(decision.Support) != 2 {
+			if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status == rpc.Corroborated || len(decision.Decision.Support) != 2 {
 				t.Fatalf("invalid %s vote shrank fixed denominator: %+v, %v", edit.key, decision, err)
 			}
 			if !bytes.Equal(invalid, before) {

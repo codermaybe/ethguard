@@ -20,21 +20,21 @@ func TestTransactionPolicyCanonicalizesValueWithoutSplicingSources(t *testing.T)
 	withVendor := injectField(t, raw, "vendorExtension", `"outside"`)
 	policy := planResolver(t, MethodGetTransactionByHash, rpc.WithQuorum(2)).(rpc.CorroboratingPolicy)
 	decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, []rpc.Observation{
-		{Source: rpc.SourceRef{ID: "a"}, Value: raw},
-		{Source: rpc.SourceRef{ID: "b"}, Value: withVendor},
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: withVendor}}},
 	})
-	if err != nil || decision.Status != rpc.Corroborated {
+	if err != nil || decision.Decision.Status != rpc.Corroborated {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
 	want, err := transactionobject.Encode(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(decision.Value, want) {
-		t.Fatalf("value = %s, want %s", decision.Value, want)
+	if !bytes.Equal(decision.Decision.Value, want) {
+		t.Fatalf("value = %s, want %s", decision.Decision.Value, want)
 	}
-	if bytes.Contains(decision.Value, []byte("vendorExtension")) {
-		t.Fatalf("vendor field survived: %s", decision.Value)
+	if bytes.Contains(decision.Decision.Value, []byte("vendorExtension")) {
+		t.Fatalf("vendor field survived: %s", decision.Decision.Value)
 	}
 }
 
