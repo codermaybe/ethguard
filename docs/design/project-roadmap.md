@@ -88,8 +88,8 @@
 | 顺序 | 入口与验收责任 | 当前状态 |
 | --- | --- | --- |
 | 1 | SendRawTransaction、SendTransaction：广播反馈、签名/hash 绑定、来源拒绝材料、固定门槛 | 已验收；本轮统一Sources/Adjudication，区分支持不足、实际分歧、协议拒绝和hash不匹配，保留error.data presence |
-| 2 | SendRawTransactionSync、SendTransactionSync：广播与收据观察的组合、超时/取消、证据与重组保证范围 | 方法级任务待接续；两层Response、强制Outcome、Sources/Adjudication及ReceiptWait属于已验收的必要框架前置。广播一次、两个receipt位置和四入口反例已有证据；先按原方法目标核对覆盖与剩余差距，再完成独立方法验收，不能由框架全仓通过推定本项完成 |
-| 3 | SubscribeNewHead：事件头身份、同源 Pull/gap、session 恢复与取消 | 共享响应模型前提已完成；原队列在同步写入方法验收后接续。先制定本方法计划，再在用户授权的单agent流程下实施，不直接扩大S1未决政策 |
+| 2 | SendRawTransactionSync、SendTransactionSync：广播与收据观察的组合、超时/取消、证据与重组保证范围 | 已完成方法级验收；12项输入/反馈/证据/锚点/生命周期/预算矩阵核对通过，四入口及capture的26个定向顶层测试通过；保留现有实现。仅保留最后尝试与最近观察，不增加完整历史或链上/重组保证 |
+| 3 | SubscribeNewHead：事件头身份、连续锚点与gap恢复、session与轮次、重组及取消 | 设计讨论中；用户明确不能静默跳过高度，现有gap只检查不补交付不满足目标。先整理信息保留与稳定反馈的取舍，确定连续路径、重组表达和恢复预算；两轮复核未获确认，局部代码/测试补丁保留未验收，不保留兼容出口或V2/V3 |
 | 4 | SubscribeFilterLogs：过滤/removed/前驱、同源补查与来源归属 | 未开始 |
 | 5 | SubscribeTransactionReceipts：查询快照、批内上下文/过滤子集、同源补查 | 未开始 |
 | 6 | TransactionSender、Header 视图、AnchorBlockHash/ForTag/Height：派生与锚点绑定、事实交付 | 未开始；复用已验收 read 内核 |

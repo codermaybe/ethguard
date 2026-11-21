@@ -454,3 +454,81 @@ func TestQueueOverflowReportsTerminalBackpressureAndClosesEvents(t *testing.T) {
 		}
 	}
 }
+
+func TestStrictQuorumKeepsFirstSourceVoteAcrossCandidates(t *testing.T) {
+	a := strictConfig(t)
+	defer a.Close()
+	for _, observation := range []Observation{
+		obs(KindNewHeads, "head:1", "push-y", "a"),
+		obs(KindNewHeads, "head:1", "pull-x", "b"),
+		obs(KindNewHeads, "head:1", "pull-x", "a"),
+	} {
+		if err := a.Submit(observation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case delivery := <-a.Events():
+		t.Fatalf("same source voted for two candidates: %+v", delivery)
+	default:
+	}
+	if err := a.Submit(obs(KindNewHeads, "head:1", "push-y", "c")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case delivery := <-a.Events():
+		if delivery.Key != "push-y" || delivery.Votes != 2 {
+			t.Fatalf("first source vote was replaced: %+v", delivery)
+		}
+	default:
+		t.Fatal("first source vote did not reach quorum")
+	}
+	// A different head after delivery starts a new round at the same height.
+	for _, source := range []string{"a", "b"} {
+		if err := a.Submit(obs(KindNewHeads, "head:1", "replacement", source)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case delivery := <-a.Events():
+		if delivery.Key != "replacement" || delivery.Votes != 2 {
+			t.Fatalf("replacement round = %+v", delivery)
+		}
+	default:
+		t.Fatal("delivered head retained source occupancy in replacement round")
+	}
+}
+
+func BenchmarkSubmitQuorum(b *testing.B) {
+	for b.Loop() {
+		a, err := New(Config{Snapshot: Snapshot{ID: "bench", Generation: 4, Members: []string{"a", "b", "c"}, Quorum: 2}, Queue: 1, HardTimeout: time.Second})
+		if err != nil {
+			b.Fatal(err)
+		}
+		for _, source := range []string{"a", "b"} {
+			if err := a.Submit(obs(KindNewHeads, "head:1", "candidate", source)); err != nil {
+				b.Fatal(err)
+			}
+		}
+		<-a.Events()
+		a.Close()
+	}
+}
+
+func BenchmarkSubmitDuplicateSource(b *testing.B) {
+	a, err := New(Config{Snapshot: Snapshot{ID: "bench", Generation: 4, Members: []string{"a", "b", "c"}, Quorum: 2}, Queue: 1, HardTimeout: time.Second})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer a.Close()
+	first := obs(KindNewHeads, "head:1", "first", "a")
+	duplicate := obs(KindNewHeads, "head:1", "other", "a")
+	if err := a.Submit(first); err != nil {
+		b.Fatal(err)
+	}
+	for b.Loop() {
+		if err := a.Submit(duplicate); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

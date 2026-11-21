@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/codermaybe/ethguard/ethapi"
@@ -826,6 +827,232 @@ func TestRetryableSubscriptionPullNetworkErrors(t *testing.T) {
 			if got := retryableSubscriptionPullError(tc.err); got != tc.want {
 				t.Fatalf("retryableSubscriptionPullError(%v) = %t, want %t", tc.err, got, tc.want)
 			}
+		})
+	}
+}
+
+type blockingCleanupSubscription struct {
+	aggregateTestSubscription
+	started  chan struct{}
+	release  chan struct{}
+	finished chan struct{}
+	once     sync.Once
+}
+
+func (s *blockingCleanupSubscription) Unsubscribe() {
+	s.once.Do(func() {
+		close(s.started)
+		<-s.release
+		close(s.finished)
+	})
+}
+
+func decodeTestHead(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+	return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: "head:" + string(raw), Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...), ObservedAt: time.Now()}, string(raw), nil
+}
+
+func TestAggregatedSubscriptionUnsubscribeWaitsForInnerCleanup(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		blocked := &blockingCleanupSubscription{
+			aggregateTestSubscription: aggregateTestSubscription{events: make(chan transport.Notification), errs: make(chan error)},
+			started: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{}),
+		}
+		release := sync.OnceFunc(func() { close(blocked.release) })
+		other := &aggregateTestSubscription{events: make(chan transport.Notification), errs: make(chan error)}
+		sub, err := startAggregatedSubscription(context.Background(), []identifiedSubscriptionSource{
+			&aggregateTestSource{id: "a", sub: blocked}, &aggregateTestSource{id: "b", sub: other},
+		}, internalsubscription.KindNewHeads, nil, make(chan string), decodeTestHead)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { release(); sub.Unsubscribe() }()
+		stopped := make(chan struct{})
+		go func() { sub.Unsubscribe(); close(stopped) }()
+		synctest.Wait()
+		select {
+		case <-blocked.started:
+		default:
+			t.Fatal("inner cleanup did not start")
+		}
+		select {
+		case <-stopped:
+			t.Fatal("Unsubscribe returned before inner cleanup finished")
+		default:
+		}
+		release()
+		synctest.Wait()
+		select {
+		case <-stopped:
+		default:
+			t.Fatal("Unsubscribe did not join completed inner cleanup")
+		}
+		select {
+		case <-blocked.finished:
+		default:
+			t.Fatal("inner cleanup was not completed")
+		}
+	})
+}
+
+func TestAggregatedSubscriptionUnsubscribeWaitsForPullExit(t *testing.T) {
+	for _, delivered := range []bool{false, true} {
+		t.Run(fmt.Sprintf("delivered=%v", delivered), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				a := &aggregateTestSubscription{events: make(chan transport.Notification, 1), errs: make(chan error)}
+				b := &aggregateTestSubscription{events: make(chan transport.Notification, 1), errs: make(chan error)}
+				started, canceled, releasePull, exited := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
+				release := sync.OnceFunc(func() { close(releasePull) })
+				out := make(chan string, 1)
+				sub, err := startAggregatedSubscriptionWithPull(context.Background(), []identifiedSubscriptionSource{
+					&aggregateTestSource{id: "a", sub: a}, &aggregateTestSource{id: "b", sub: b},
+				}, internalsubscription.KindNewHeads, nil, out, decodeTestHead, func(ctx context.Context, source identifiedSubscriptionSource, _ internalsubscription.Kind, _ string, _ internalsubscription.Observation) (internalsubscription.Observation, error) {
+					if source.ID() != "b" {
+						return internalsubscription.Observation{}, fmt.Errorf("unexpected Pull source %s", source.ID())
+					}
+					close(started)
+					<-ctx.Done()
+					close(canceled)
+					<-releasePull
+					close(exited)
+					return internalsubscription.Observation{}, ctx.Err()
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { release(); sub.Unsubscribe() }()
+				a.events <- transport.Notification{Result: json.RawMessage(`1`)}
+				synctest.Wait()
+				time.Sleep(200 * time.Millisecond)
+				synctest.Wait()
+				select {
+				case <-started:
+				default:
+					t.Fatal("ordinary Pull did not start")
+				}
+				if delivered {
+					b.events <- transport.Notification{Result: json.RawMessage(`1`)}
+					synctest.Wait()
+					select {
+					case <-out:
+					default:
+						t.Fatal("push quorum did not complete while Pull was in flight")
+					}
+				}
+				stopped := make(chan struct{})
+				go func() { sub.Unsubscribe(); close(stopped) }()
+				synctest.Wait()
+				select {
+				case <-canceled:
+				default:
+					t.Fatal("Pull was not canceled")
+				}
+				select {
+				case <-stopped:
+					t.Fatal("Unsubscribe returned before ordinary Pull exited")
+				default:
+				}
+				release()
+				synctest.Wait()
+				select {
+				case <-stopped:
+				default:
+					t.Fatal("Unsubscribe did not join Pull exit")
+				}
+				select {
+				case <-exited:
+				default:
+					t.Fatal("Pull cleanup did not finish")
+				}
+			})
+		})
+	}
+}
+
+func TestAggregatedSubscriptionBlockedDeliveryKeepsControlProgress(t *testing.T) {
+	for _, scenario := range []string{"pull", "hard deadline", "aggregate error"} {
+		t.Run(scenario, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				a := &aggregateTestSubscription{events: make(chan transport.Notification, 1), errs: make(chan error)}
+				b := &aggregateTestSubscription{events: make(chan transport.Notification, 1), errs: make(chan error)}
+				out := make(chan string)
+				var decoded atomic.Int32
+				decode := func(raw []byte, source string) (internalsubscription.Observation, string, error) {
+					decoded.Add(1)
+					return decodeTestHead(raw, source)
+				}
+				pulled := make(chan string, 1)
+				var pull subscriptionPullFactory[string]
+				if scenario == "pull" {
+					pull = func(_ context.Context, source identifiedSubscriptionSource, _ internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
+						pulled <- source.ID() + "/" + contextKey
+						observation, _, err := decodeTestHead([]byte("2"), source.ID())
+						observation.Generation = seed.Generation
+						return observation, err
+					}
+				}
+				sub, err := startAggregatedSubscriptionWithPull(context.Background(), []identifiedSubscriptionSource{
+					&aggregateTestSource{id: "a", sub: a}, &aggregateTestSource{id: "b", sub: b},
+				}, internalsubscription.KindNewHeads, nil, out, decode, pull)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer sub.Unsubscribe()
+				a.events <- transport.Notification{Result: json.RawMessage(`1`)}
+				b.events <- transport.Notification{Result: json.RawMessage(`1`)}
+				synctest.Wait()
+				if decoded.Load() != 3 {
+					t.Fatalf("first quorum has not reached the blocked output: decodes=%d", decoded.Load())
+				}
+				a.events <- transport.Notification{Result: json.RawMessage(`2`)}
+				synctest.Wait()
+				switch scenario {
+				case "pull":
+					time.Sleep(200 * time.Millisecond)
+					synctest.Wait()
+					select {
+					case request := <-pulled:
+						if request != "b/head:2" {
+							t.Fatalf("compensation request = %s", request)
+						}
+					default:
+						t.Fatal("blocked output prevented same-source Pull")
+					}
+					for _, want := range []string{"1", "2"} {
+						select {
+						case got := <-out:
+							if got != want {
+								t.Fatalf("resumed output = %s, want %s", got, want)
+							}
+						case <-time.After(time.Second):
+							t.Fatalf("missing output %s after receiver resumed", want)
+						}
+					}
+					synctest.Wait()
+					select {
+					case got := <-out:
+						t.Fatalf("duplicate output %s", got)
+					default:
+					}
+				case "hard deadline", "aggregate error":
+					want := internalsubscription.ErrQuorumTimeout
+					if scenario == "hard deadline" {
+						time.Sleep(31 * time.Second)
+					} else {
+						// PullProbe uses this same aggregator entry to terminate
+						// an unmet event independently of the bridge's ticker.
+						sub.(*aggregateEthSubscription[string]).agg.QuarantineContext(internalsubscription.KindNewHeads, "head:2")
+					}
+					synctest.Wait()
+					select {
+					case err := <-sub.Err():
+						if !errors.Is(err, want) {
+							t.Fatalf("terminal error = %v, want %v", err, want)
+						}
+					default:
+						t.Fatalf("blocked output prevented terminal error %v", want)
+					}
+				}
+			})
 		})
 	}
 }

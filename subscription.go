@@ -159,6 +159,7 @@ type aggregateEthSubscription[T any] struct {
 	gapMu       sync.Mutex
 	gapProbes   map[string]struct{}
 	gapWG       sync.WaitGroup
+	cleanupWG   sync.WaitGroup
 }
 
 type pullContext struct {
@@ -325,7 +326,7 @@ func (s *aggregateEthSubscription[T]) finish(err error) {
 		}
 		s.innerMu.Unlock()
 		for _, inner := range inners {
-			go inner.Unsubscribe()
+			s.cleanupWG.Go(inner.Unsubscribe)
 		}
 		s.pullMu.Lock()
 		probes := make([]*internalsubscription.PullProbe, 0, len(s.probes))
@@ -334,7 +335,7 @@ func (s *aggregateEthSubscription[T]) finish(err error) {
 		}
 		s.pullMu.Unlock()
 		for _, probe := range probes {
-			go probe.Stop()
+			s.cleanupWG.Go(probe.Stop)
 		}
 		s.agg.Close()
 		if s.sessions != nil {
@@ -387,7 +388,7 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 			if state.kind != internalsubscription.KindLogs || !state.observation.Removed {
 				delete(s.pending, contextKey)
 				if probe := s.probes[contextKey]; probe != nil {
-					go probe.Stop()
+					s.cleanupWG.Go(probe.Stop)
 					delete(s.probes, contextKey)
 				}
 				continue
@@ -455,7 +456,10 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 			continue
 		}
 		s.probes[contextKey] = probe
+		s.cleanupWG.Add(1)
 		go func(key string, p *internalsubscription.PullProbe) {
+			defer s.cleanupWG.Done()
+			defer p.Stop()
 			for err := range p.Err() {
 				select {
 				case s.faults <- err:
@@ -613,6 +617,13 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 		case <-s.done:
 		}
 	}()
+	established := false
+	defer func() {
+		if !established {
+			s.finish(nil)
+			s.cleanupWG.Wait()
+		}
+	}()
 	initialSessions := make([]internalsubscription.SourceSession, len(sources))
 	initialSubscriptions := make([]transport.Subscription, len(sources))
 	for i, source := range sources {
@@ -631,7 +642,7 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 			return nil, subErr
 		}
 		if err := setupCtx.Err(); err != nil {
-			go inner.Unsubscribe()
+			s.cleanupWG.Go(inner.Unsubscribe)
 			s.finish(makeSubscriptionFault("", 1, "lifecycle", "", err))
 			return nil, err
 		}
@@ -646,7 +657,7 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 		select {
 		case <-s.stop:
 			s.innerMu.Unlock()
-			go inner.Unsubscribe()
+			s.cleanupWG.Go(inner.Unsubscribe)
 			cause := context.Cause(ownerCtx)
 			if cause == nil {
 				cause = ErrPoolClosed
@@ -772,8 +783,15 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 	}()
 	go func() {
 		defer close(s.done)
-		defer s.gapWG.Wait()
-		defer func() { <-s.doneSources }()
+		defer func() {
+			// finish joins its once body before we wait, so every teardown
+			// task is registered. Source workers finish any late setup cleanup;
+			// no producer can add cleanup work after these joins.
+			s.finish(nil)
+			<-s.doneSources
+			s.gapWG.Wait()
+			s.cleanupWG.Wait()
+		}()
 		defer func() {
 			if err := s.terminalError(); err != nil {
 				s.errs <- err
@@ -825,7 +843,7 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 				delete(s.probes, delivery.ContextKey)
 				s.pullMu.Unlock()
 				if probe != nil {
-					go probe.Stop()
+					s.cleanupWG.Go(probe.Stop)
 				}
 				_, value, decodeErr := s.decode(delivery.Payload, delivery.SourceID)
 				if decodeErr != nil {
@@ -840,6 +858,7 @@ func startAggregatedSubscriptionWithPullOwner[T any](ownerCtx, setupCtx context.
 			}
 		}
 	}()
+	established = true
 	return s, nil
 }
 

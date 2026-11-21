@@ -54,6 +54,8 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 
 ### 广播后的同步收据观察
 
+2026-11-21方法级验收完成：四入口的输入、传播接受、请求绑定、收据观察、终止、capture及预算逐项核对；复用已有实现并通过26个定向顶层测试。没有新增生产行为，框架验收与此次方法完成判断分别记录。
+
 `SendRawTransactionSync`／`SendTransactionSync` 的 root/view 共用一次广播和后续 receipt read。只有 `WriteAccepted`、非空获胜 hash 且与本地签名交易 hash 一致时才查询 receipt。未接受的广播由 `WriteUnconfirmed` 和 `Adjudication.Reason` 表达；协议拒绝、支持不足、实际分歧、foreign hash 或广播错误均不进入轮询。typed 交易编码一次，receipt 查询绑定已接受的 hash，等待过程不重放广播。
 
 NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观察，其他 receipt 执行错误立即返回。显式正 timeout 只约束广播后的等待；nil／zero 使用当前 20 秒默认，父 context 可更早结束。负 timeout 在广播前拒绝；typed 入口先快照再校验 timeout，保持已有本地错误顺序。成功交付请求绑定的 provider-backed receipt，不证明 inclusion、finality 或 reorg safety。

@@ -119,6 +119,8 @@ type contextState struct {
 	first      time.Time
 	status     Status
 	candidates map[string]*candidate
+	voters     map[string]struct{}
+	removing   bool
 	delivered  string
 	revoked    bool
 }
@@ -241,7 +243,7 @@ func (a *Aggregator) Submit(obs Observation) error {
 		if now.IsZero() {
 			now = time.Now()
 		}
-		ctx = &contextState{first: now, status: Collecting, candidates: make(map[string]*candidate)}
+		ctx = &contextState{first: now, status: Collecting, candidates: make(map[string]*candidate), voters: make(map[string]struct{})}
 		a.contexts[stateKey] = ctx
 	}
 	if ctx.status == Quarantined || ctx.status == Canceled {
@@ -249,14 +251,21 @@ func (a *Aggregator) Submit(obs Observation) error {
 	}
 	if ctx.status == Delivered || ctx.status == Selected || ctx.status == Revoked {
 		if obs.Removed && !ctx.revoked {
+			// Revocation has its own round; delivery votes cannot revoke a log.
+			if !ctx.removing {
+				ctx.removing = true
+				clear(ctx.candidates)
+				clear(ctx.voters)
+			}
+			if _, seen := ctx.voters[obs.SourceID]; seen {
+				return nil
+			}
 			removedCandidate := ctx.candidates[obs.Key]
 			if removedCandidate == nil {
 				removedCandidate = &candidate{obs: cloneObservation(obs), sources: make(map[string]struct{})}
 				ctx.candidates[obs.Key] = removedCandidate
 			}
-			if _, seen := removedCandidate.sources[obs.SourceID]; seen {
-				return nil
-			}
+			ctx.voters[obs.SourceID] = struct{}{}
 			removedCandidate.sources[obs.SourceID] = struct{}{}
 			// A selected single-source subscription has no corroboration
 			// requirement. Strict subscriptions still require the fixed event
@@ -279,7 +288,9 @@ func (a *Aggregator) Submit(obs Observation) error {
 			ctx.status = Collecting
 			ctx.delivered = ""
 			ctx.revoked = false
-			ctx.candidates = make(map[string]*candidate)
+			clear(ctx.candidates)
+			clear(ctx.voters)
+			ctx.removing = false
 		} else {
 			return nil
 		}
@@ -289,18 +300,21 @@ func (a *Aggregator) Submit(obs Observation) error {
 		a.reportLocked(ErrUnboundRemoval)
 		return ErrUnboundRemoval
 	}
+	// Push and Pull share one vote per source for this entire round, even
+	// when they disagree. The first admitted observation keeps the vote.
+	if _, seen := ctx.voters[obs.SourceID]; seen {
+		return nil
+	}
 	c := ctx.candidates[obs.Key]
 	if c == nil {
 		c = &candidate{obs: cloneObservation(obs), sources: make(map[string]struct{})}
 		ctx.candidates[obs.Key] = c
 	}
-	if _, seen := c.sources[obs.SourceID]; seen {
-		return nil
-	}
 	if limit := a.cfg.Budget.MaxEvidenceBytes; limit > 0 && a.evidence+int64(len(obs.Payload)) > limit {
 		a.reportLocked(ErrEvidenceBudget)
 		return ErrEvidenceBudget
 	}
+	ctx.voters[obs.SourceID] = struct{}{}
 	c.sources[obs.SourceID] = struct{}{}
 	a.evidence += int64(len(obs.Payload))
 	if a.cfg.Mode == SingleSourceSelected {
