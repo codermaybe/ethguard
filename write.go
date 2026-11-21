@@ -44,11 +44,27 @@ func writeAnswerClassified(source rpc.SourceRef, value json.RawMessage, err erro
 		return rpc.SourceAnswer{Source: source}
 	}
 	rejection := &rpc.RPCError{Code: protocolErr.ErrorCode(), Message: protocolErr.Error()}
+	var preserved rpc.ErrorDataPresence
+	if errors.As(err, &preserved) {
+		raw, present := preserved.ErrorDataJSON()
+		if !present {
+			rejection.DataPresence = rpc.ErrorDataPresenceMissing
+			return rpc.SourceAnswer{Source: source, Rejection: rejection}
+		}
+		rejection.Data = append(json.RawMessage(nil), raw...)
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			rejection.DataPresence = rpc.ErrorDataPresenceNull
+		} else {
+			rejection.DataPresence = rpc.ErrorDataPresenceValue
+		}
+		return rpc.SourceAnswer{Source: source, Rejection: rejection}
+	}
 	var dataErr rpc.DataError
 	if errors.As(err, &dataErr) {
 		if data := dataErr.ErrorData(); data != nil {
 			if raw, marshalErr := json.Marshal(data); marshalErr == nil {
 				rejection.Data = raw
+				rejection.DataPresence = rpc.ErrorDataPresenceValue
 			}
 		}
 	}

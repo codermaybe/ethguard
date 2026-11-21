@@ -111,6 +111,49 @@ func probeAggregator(t *testing.T, p *pool.Pool, stage *scriptedStage) *Aggregat
 		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
 }
 
+func probePlanWithoutResolver(t *testing.T) rpc.ReadPlan {
+	t.Helper()
+	plan, err := methods.CompilePlan(probeSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Resolver = nil
+	return plan
+}
+
+func probeHealthSnapshots(p *pool.Pool) []pool.HealthSnapshot {
+	members := p.VotingMembers()
+	snapshots := make([]pool.HealthSnapshot, len(members))
+	for i, member := range members {
+		snapshots[i] = member.Health()
+	}
+	return snapshots
+}
+
+func assertProbeHealthUnchanged(t *testing.T, p *pool.Pool, before []pool.HealthSnapshot) {
+	t.Helper()
+	members := p.VotingMembers()
+	if len(members) != len(before) {
+		t.Fatalf("voting members changed from %d to %d", len(before), len(members))
+	}
+	for i, member := range members {
+		if after := member.Health(); after != before[i] {
+			t.Fatalf("source %d health changed: before=%+v after=%+v", i, before[i], after)
+		}
+	}
+}
+
+func assertNoProbeBusinessCalls(t *testing.T, nodes []*rpctest.Node) {
+	t.Helper()
+	for i, node := range nodes {
+		for _, call := range node.Calls() {
+			if call.Method == probeMethod {
+				t.Fatalf("node %d received business call %+v", i, call)
+			}
+		}
+	}
+}
+
 // TestPlannedReadExecutesTheFleetFixture drives the probe method through
 // the plan path over a scripted fleet and verifies the outcome directly:
 // the decision corroborates, the prepared request is pinned to the
@@ -223,6 +266,106 @@ func TestPlannedPendingRejectFailsBeforeEstablishment(t *testing.T) {
 	if len(stage.rounds) != 0 {
 		t.Fatalf("rejected pending read established a reference: %+v", stage.rounds)
 	}
+}
+
+// TestPlanWithoutResolverFailsBeforeReferenceAndFanOut proves that a
+// prepare-only plan remains installed after its local checks pass, but fails
+// closed before either establishment variant can contact reference or business
+// providers.
+func TestPlanWithoutResolverFailsBeforeReferenceAndFanOut(t *testing.T) {
+	for _, withStage := range []bool{false, true} {
+		name := "without-reference-stage"
+		if withStage {
+			name = "with-reference-stage"
+		}
+		t.Run(name, func(t *testing.T) {
+			nodes, p := probeNodes(t, "0x64", 2)
+			before := probeHealthSnapshots(p)
+			plan := probePlanWithoutResolver(t)
+			plan.Prepare = func(_ context.Context, req rpc.Request) (rpc.Request, error) {
+				return req, nil
+			}
+			opts := []Option{
+				WithCorroboration(mustShared(t)),
+				WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}),
+			}
+			var stage *scriptedStage
+			if withStage {
+				stage = &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Status: rpc.Corroborated}}
+				opts = append(opts, WithReferenceStage(stage))
+			}
+			decision, aggErr := New(p, opts...).Aggregate(context.Background(),
+				rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
+			if decision.Status != rpc.Unknown {
+				t.Fatalf("status = %v, want Unknown", decision.Status)
+			}
+			if !errors.Is(aggErr, rpc.ErrInvalidReadPlan) {
+				t.Fatalf("error = %v, want ErrInvalidReadPlan", aggErr)
+			}
+			if aggErr == nil || !strings.Contains(aggErr.Error(), probeMethod) {
+				t.Fatalf("error lacks method context: %v", aggErr)
+			}
+			if stage != nil && len(stage.rounds) != 0 {
+				t.Fatalf("invalid plan established a reference: %+v", stage.rounds)
+			}
+			assertNoProbeBusinessCalls(t, nodes)
+			assertProbeHealthUnchanged(t, p, before)
+		})
+	}
+}
+
+// TestPendingRejectionPrecedesMissingResolver keeps the local pending error
+// authoritative: the absent resolver is never allowed to replace it.
+func TestPendingRejectionPrecedesMissingResolver(t *testing.T) {
+	nodes, p := probeNodes(t, "0x64", 2)
+	before := probeHealthSnapshots(p)
+	stage := &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Status: rpc.Corroborated}}
+	plan := probePlanWithoutResolver(t)
+	plan.Pending.Mode = methods.PendingRefuse
+	plan.PendingReject = rpc.PendingRejectAt(plan.Pending.Pos, plan.Method)
+	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
+		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
+	decision, aggErr := agg.Aggregate(context.Background(),
+		rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
+	if decision.Status != rpc.Unknown || !errors.Is(aggErr, rpc.ErrInvalidRequest) {
+		t.Fatalf("pending rejection = %+v %v, want Unknown and ErrInvalidRequest", decision, aggErr)
+	}
+	if errors.Is(aggErr, rpc.ErrInvalidReadPlan) {
+		t.Fatalf("pending rejection was replaced by plan configuration error: %v", aggErr)
+	}
+	if len(stage.rounds) != 0 {
+		t.Fatalf("rejected pending read established a reference: %+v", stage.rounds)
+	}
+	assertNoProbeBusinessCalls(t, nodes)
+	assertProbeHealthUnchanged(t, p, before)
+}
+
+// TestPrepareRejectionPrecedesMissingResolver keeps a method-owned local
+// rejection intact even though the installed plan cannot execute remotely.
+func TestPrepareRejectionPrecedesMissingResolver(t *testing.T) {
+	nodes, p := probeNodes(t, "0x64", 2)
+	before := probeHealthSnapshots(p)
+	stage := &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Status: rpc.Corroborated}}
+	prepareErr := errors.New("probe prepare rejected request")
+	plan := probePlanWithoutResolver(t)
+	plan.Prepare = func(_ context.Context, _ rpc.Request) (rpc.Request, error) {
+		return rpc.Request{}, prepareErr
+	}
+	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
+		WithPlans(map[string]rpc.ReadPlan{probeMethod: plan}))
+	decision, aggErr := agg.Aggregate(context.Background(),
+		rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
+	if decision.Status != rpc.Unknown || !errors.Is(aggErr, prepareErr) {
+		t.Fatalf("prepare rejection = %+v %v, want Unknown and original error", decision, aggErr)
+	}
+	if errors.Is(aggErr, rpc.ErrInvalidReadPlan) {
+		t.Fatalf("prepare rejection was replaced by plan configuration error: %v", aggErr)
+	}
+	if len(stage.rounds) != 0 {
+		t.Fatalf("rejected request established a reference: %+v", stage.rounds)
+	}
+	assertNoProbeBusinessCalls(t, nodes)
+	assertProbeHealthUnchanged(t, p, before)
 }
 
 // TestPlannedPendingObservationStaysSelected pins the pending-local route: a

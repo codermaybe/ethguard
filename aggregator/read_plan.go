@@ -22,8 +22,9 @@ func forwardPlan(method string) rpc.ReadPlan {
 
 // WithPlans installs the read plans the aggregator executes through the
 // fixed phase pipeline. A method with a plan runs the plan path; every
-// other method keeps the compiled policy path. Plans without a resolver
-// value are not executable and are skipped.
+// other method keeps the compiled policy path. A non-empty plan with a local
+// hook but no resolver is installed so its local checks still run, then fails
+// closed during preparation. Empty plans without a resolver or hook are skipped.
 func WithPlans(plans map[string]rpc.ReadPlan) Option {
 	return func(a *Aggregator) {
 		for method, plan := range plans {

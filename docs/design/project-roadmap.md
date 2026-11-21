@@ -2,7 +2,7 @@
 
 本文可直接用于重启对话：说明当前基线、下一步、执行顺序和未完成事项，不依赖旧聊天、`docs/tmp/`或`/tmp`材料。具体业务合同由末尾链接的正式文档维护。
 
-**当前顺序：公共数据管线 A-G 与 27 个注册 read 方法精调已全部验收；下一会话先盘点这 27 个 read spec 之外的方法与能力，再选定一个具体任务制定计划。** 不重开已冻结的公共 Interface，不同时启动多个改造方向。
+**当前顺序：公共数据管线 A-G 与 27 个注册 read 方法精调已全部验收；非 read 入口盘点完成，正在从独立广播写入开始串行规划、实施和验收。** 不重开已冻结的公共 Interface，不同时启动多个改造方向。
 
 ## 1. 当前基线
 
@@ -78,6 +78,22 @@
 3. 选定一个方法后才制定独立计划，列出调用者、Interface、接受域、错误阶段、变更文件、反例、必要成本证据、完成门槛及未决政策。继续由主控规划和验收，`gpt-6.1-sol/high` 执行子 agent 串行实施；执行者通过聊天书面交付，规划验收者维护文档。阶段计划仍写现有 module-simplification README TMP，验收后迁移结论并清空；不新增阶段目录或总结文件。
 
 写入的 accepted／unknown／rejected 与链上观察关系归 [方法合同](method-contracts.md) 和 [返回值合同](return-value-design.md)；订阅建立、同源 Pull、恢复与终止归 [订阅合同](subscription-contract.md)；锚点保证归 [reference 合同](reference-freshness-policy.md)。现行保证与待裁决事项分别记录，unsupported 不自动变为新增实现任务。F1／S1、工具链、provider 证据和发布缺口继续独立维护。
+
+### 非 read 入口推进状态（2026-11-21）
+
+主控负责计划、合同裁决与验收，执行 agent 使用用户授权的 `gpt-6.1-sol/high` 或 `gpt-6-astra/high`。同一时刻只有一个代码执行任务；后续模块可只读盘点。每项先在现有 README TMP 批准计划，执行者仅改代码/测试，主控核对后将长期结论迁回既有合同。
+
+| 顺序 | 入口与验收责任 | 当前状态 |
+| --- | --- | --- |
+| 1 | SendRawTransaction、SendTransaction：广播反馈、签名/hash 绑定、来源拒绝材料、固定门槛 | v1 已验收；拒绝证据保留 data presence 与原始 JSON |
+| 2 | SendRawTransactionSync、SendTransactionSync：广播与收据观察的组合、超时/取消、证据与重组保证范围 | 规划入口；先核对可交付事实，保留现行读写 Decision 互斥 |
+| 3 | SubscribeNewHead：事件头身份、同源 Pull/gap、session 恢复与取消 | 只读盘点中，尚未批准实施 |
+| 4 | SubscribeFilterLogs：过滤/removed/前驱、同源补查与来源归属 | 未开始 |
+| 5 | SubscribeTransactionReceipts：查询快照、批内上下文/过滤子集、同源补查 | 未开始 |
+| 6 | TransactionSender、Header 视图、AnchorBlockHash/ForTag/Height：派生与锚点绑定、事实交付 | 未开始；复用已验收 read 内核 |
+| 7 | Close/Unsubscribe/取消及显式 unsupported：资源完成、错误与能力边界 | 未开始；跨入口最终验收 |
+
+以上是已有入口的合同与实现审查，不把 `47−27` 作为待办数。S1 未定公开配置/事件 API、F1 默认值、真实 provider、工具链和发布保持独立；无收益的实现允许有证据保留。
 
 ## 4. 阶段三：独立运行期专题与工具链评估
 

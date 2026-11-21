@@ -261,3 +261,128 @@ func TestSingleWSSSourceUsesForwardedWriteBasis(t *testing.T) {
 		t.Fatalf("single source replay: sends=%d sockets=%d", peer.writes.Load(), peer.connections.Load())
 	}
 }
+
+func TestWriteRejectionDataAcrossEntrypoints(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		data     string
+		presence rpc.ErrorDataPresenceState
+	}{
+		{"missing", "", rpc.ErrorDataPresenceMissing},
+		{"null", "null", rpc.ErrorDataPresenceNull},
+		{"empty string", `""`, rpc.ErrorDataPresenceValue},
+		{"empty bytes", `"0x"`, rpc.ErrorDataPresenceValue},
+		{"empty object", `{}`, rpc.ErrorDataPresenceValue},
+		{"empty array", `[]`, rpc.ErrorDataPresenceValue},
+		{"value", `"0xdead"`, rpc.ErrorDataPresenceValue},
+		{"large integer", `{ "n": 9007199254740993, "v": [1e+09, 123456789012345678901234567890] }`, rpc.ErrorDataPresenceValue},
+	} {
+		for _, entry := range []string{"root raw", "root typed", "view typed"} {
+			t.Run(tc.name+"/"+entry, func(t *testing.T) {
+				raw, _ := unifiedSignedTransaction(t)
+				tx := new(types.Transaction)
+				if err := tx.UnmarshalBinary(raw); err != nil {
+					t.Fatal(err)
+				}
+				answer := func(req sourceWireRequest) string {
+					if req.Method != "eth_sendRawTransaction" || len(req.Params) != 1 || string(req.Params[0]) != `"0x`+hex.EncodeToString(raw)+`"` {
+						t.Errorf("unexpected write: %+v", req)
+					}
+					data := ""
+					if tc.data != "" {
+						data = `,"data":` + tc.data
+					}
+					return `"error":{"code":-32601,"message":"already known"` + data + `}`
+				}
+				httpPeer := newSourceWirePeer(t, false, answer)
+				wsPeer := newSourceWirePeer(t, true, answer)
+				client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+					{ID: "http", Endpoint: httpPeer.endpoint},
+					{ID: "wss", Endpoint: wsPeer.endpoint, Transport: config.TransportWSS},
+				}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(client.Close)
+				base, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				ctx, capture := ethguard.WithResult(base)
+				var result ethguard.CallResult
+				switch entry {
+				case "root raw":
+					result, err = client.SendRawTransaction(ctx, raw)
+				case "root typed":
+					result, err = client.SendTransaction(ctx, tx)
+				case "view typed":
+					err = client.EthClient().SendTransaction(ctx, tx)
+				}
+				if !errors.Is(err, rpc.ErrNoValidResponse) {
+					t.Fatalf("error=%v, want rejected", err)
+				}
+				check := func(result ethguard.CallResult) {
+					t.Helper()
+					d := result.WriteDecision
+					if result.Decision != nil || result.Err != err || d == nil {
+						t.Fatalf("result/error contract changed: %+v, err=%v", result, err)
+					}
+					if d.Status != rpc.WriteRejected || d.Basis != 2 || d.Required != 2 || d.Hash != "" || len(d.Accepted) != 0 || len(d.Dissent) != 0 || len(d.Silent) != 0 || len(d.Faults) != 0 || len(d.Rejected) != 2 {
+						t.Fatalf("decision=%+v", d)
+					}
+					seen := make(map[string]bool)
+					for _, rejected := range d.Rejected {
+						seen[rejected.Source.Name] = true
+						r := rejected.Rejection
+						if rejected.Hash != "" || r == nil || r.Code != -32601 || r.Message != "already known" {
+							t.Fatalf("rejection=%+v", rejected)
+						}
+						if r.DataPresence != tc.presence {
+							t.Errorf("source %s presence=%s, want %s", rejected.Source.Name, r.DataPresence, tc.presence)
+						}
+						if string(r.Data) != tc.data {
+							t.Errorf("source %s data=%q, want %q", rejected.Source.Name, r.Data, tc.data)
+						}
+					}
+					if !seen["http"] || !seen["wss"] {
+						t.Fatalf("source identities=%v", seen)
+					}
+				}
+				captured, published, captureErr := capture.Result()
+				if !published || captureErr != nil {
+					t.Fatalf("capture=%t, %v", published, captureErr)
+				}
+				check(captured)
+				if t.Failed() {
+					return
+				}
+				if entry != "view typed" {
+					check(result)
+					result.WriteDecision.Rejected[0].Rejection.Message = "mutated"
+					if tc.data != "" {
+						result.WriteDecision.Rejected[0].Rejection.Data[0] = '!'
+					}
+					check(captured)
+				}
+				if tc.data != "" {
+					captured.WriteDecision.Rejected[0].Rejection.Data[0] = '!'
+					if string(captured.WriteDecision.Rejected[1].Rejection.Data) != tc.data {
+						t.Fatal("sources share data storage")
+					}
+				}
+				captured.WriteDecision.Rejected[0].Rejection.Message = "mutated"
+				again, published, captureErr := capture.Result()
+				if !published || captureErr != nil {
+					t.Fatalf("repeat capture=%t, %v", published, captureErr)
+				}
+				check(again)
+				if httpPeer.writes.Load() != 1 || wsPeer.writes.Load() != 1 || wsPeer.connections.Load() != 1 {
+					t.Fatalf("write skipped or replayed: http=%d ws=%d sockets=%d", httpPeer.writes.Load(), wsPeer.writes.Load(), wsPeer.connections.Load())
+				}
+				for _, source := range client.Pool().VotingMembers() {
+					if h := source.Health(); h.Failures != 0 || h.Successes != 1 {
+						t.Fatalf("source %s health=%+v", source.Name(), h)
+					}
+				}
+			})
+		}
+	}
+}

@@ -50,6 +50,13 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 			return a.prepareFailureExit(state, started, req, err)
 		}
 	}
+	// A non-empty local-only plan stays installed so its request checks cannot
+	// be bypassed by the unknown-method forward fallback. Once those checks
+	// pass, however, the plan is not executable: fail closed before reference
+	// establishment or any provider fan-out.
+	if plan.Resolver == nil {
+		return a.prepareFailureExit(state, started, req, fmt.Errorf("rpc: read plan for %q has no resolver: %w", req.Method, rpc.ErrInvalidReadPlan))
+	}
 	// ReferenceRequirement: the declaration and the request decide whether
 	// this read needs its reference; a request without a moving tag never
 	// establishes.
