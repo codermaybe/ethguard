@@ -89,15 +89,16 @@ func (c *Client) AnchorBlockHash(ctx context.Context) (string, CallResult, error
 	})
 }
 
-// AnchorBlockHashForTag is the tag-aware adapter seam behind moving-tag
-// reads: it establishes the corroborated block reference for exactly the
-// requested tag ("latest", "safe", or "finalized") and returns its hash.
-// Each level keeps its meaning — safe is anchored at the safe reference,
-// finalized at the finalized reference, never silently latest — and the
-// returned evidence records the original tag. A reference that cannot reach
-// Corroborated fails instead of returning an uncorroborated hash; pending
-// and earliest are not moving tags and are rejected here (pending keeps its
-// node-state path, earliest is an explicit height).
+// AnchorBlockHashForTag establishes a corroborated block reference for a
+// moving tag ("latest", "safe", or "finalized") and returns its hash. The
+// default strict preset follows the requested tag. WithFinalizedAnchoring
+// makes default/latest use finalized candidate selection and confirmation;
+// safe still uses the strict safe algorithm, and finalized uses the
+// finalized algorithm. ReferenceEvidence.Tag records the requested intent,
+// not independent proof of the actual chain level. A reference that cannot
+// reach Corroborated fails instead of returning an uncorroborated hash.
+// Pending and earliest are not moving tags and are rejected here (pending
+// keeps its node-state path, earliest is an explicit height).
 func (c *Client) AnchorBlockHashForTag(ctx context.Context, tag string) (string, CallResult, error) {
 	// Validation runs inside the operation body: the capture is bound
 	// before any parameter check, so a local rejection still publishes its

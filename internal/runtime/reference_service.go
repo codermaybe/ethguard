@@ -163,9 +163,10 @@ func (s *FinalizedHeadService) Reference(ctx context.Context) (rpc.ReferenceEvid
 	return s.establish(ctx, rpc.ReferenceLatest)
 }
 
-// ReferenceForTag routes the tag: latest and safe ride the strict head
-// algorithm, finalized rides the candidate-selection algorithm (the stage's
-// finalized strategy), anything else fails.
+// ReferenceForTag routes default/latest and finalized through the finalized
+// candidate-selection and confirmation algorithm; safe uses the strict safe
+// algorithm. The evidence tag records the requested intent, not independent
+// proof of the actual chain level. Other tags fail.
 func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 	if tag == "" || tag == "latest" {
 		return s.Reference(ctx)

@@ -1,10 +1,12 @@
 package ethguard_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"math/big"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -20,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 // TestTypedTransportMatrix exercises the same typed reads through native HTTP
@@ -278,6 +281,212 @@ func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
 				t.Fatalf("source %d %s params=%s", i, name, req.Params)
 			}
 		}
+	}
+}
+
+func TestTransactionSenderFromOnlyConflictAcrossTransports(t *testing.T) {
+	blockHash := ethapi.Hash("0x" + strings.Repeat("46", 32))
+	original := transactionInBlockFixture(t, blockHash, 0)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(original, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["from"] = json.RawMessage(`"0x1111111111111111111111111111111111111111"`)
+	changed, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, surface := range []string{"root", "view"} {
+		t.Run(surface, func(t *testing.T) {
+			input, err := ethapi.NewTransaction(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var requests [2]atomic.Value
+			answer := func(index int, raw json.RawMessage) func(sourceWireRequest) string {
+				return func(req sourceWireRequest) string {
+					if req.Method != methods.MethodGetTransactionByBlockHashAndIndex {
+						return `"error":{"code":-32601,"message":"unexpected method"}`
+					}
+					requests[index].Store(req)
+					return `"result":` + string(raw)
+				}
+			}
+			peers := []*sourceWirePeer{
+				newSourceWirePeer(t, false, answer(0, original)),
+				newSourceWirePeer(t, true, answer(1, changed)),
+			}
+			client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+				{ID: "http", Endpoint: peers[0].endpoint},
+				{ID: "wss", Endpoint: peers[1].endpoint, Transport: config.TransportWSS},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(client.Close)
+			base, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ctx, capture := ethguard.WithResult(base)
+			var sender ethapi.Address
+			var direct ethguard.CallResult
+			if surface == "root" {
+				sender, direct, err = client.TransactionSender(ctx, &input, blockHash, 0)
+			} else {
+				sender, err = client.EthClient().TransactionSender(ctx, &input, blockHash, 0)
+			}
+			if sender != "" || !errors.Is(err, ethguard.ErrConflict) {
+				t.Fatalf("from-only conflict = sender:%s err:%v", sender, err)
+			}
+			result, published, captureErr := capture.Result()
+			if !published || captureErr != nil || result.Err != err {
+				t.Fatalf("capture = published:%v error:%v business:%v, want %v", published, captureErr, result.Err, err)
+			}
+			if surface == "root" && (direct.Err != err || !reflect.DeepEqual(direct.Decision, result.Decision)) {
+				t.Fatalf("root and capture differ: direct:%+v captured:%+v", direct, result)
+			}
+			d := result.Decision
+			if d == nil || d.Status != rpc.Unknown || d.Value != nil || len(d.Faults) != 0 || len(d.Sources) != 2 ||
+				d.Adjudication.Basis != 2 || d.Adjudication.Required != 2 || d.Adjudication.Reason != rpc.ReasonConflictingCandidates || len(d.Adjudication.Candidates) != 2 {
+				t.Fatalf("from-only conflict lost adjudication facts: %+v", d)
+			}
+			candidateSources := make(map[string]bool)
+			for _, candidate := range d.Adjudication.Candidates {
+				if len(candidate.Sources) != 1 || candidateSources[candidate.Sources[0].ID] {
+					t.Fatalf("conflict candidates = %+v, want two distinct singleton groups", d.Adjudication.Candidates)
+				}
+				candidateSources[candidate.Sources[0].ID] = true
+			}
+			if !candidateSources[peers[0].endpoint] || !candidateSources[peers[1].endpoint] {
+				t.Fatalf("candidate sources = %v", candidateSources)
+			}
+			for _, source := range d.Sources {
+				if !source.Attempted || source.Exchange.Progress != rpc.ExchangeCompleted || source.Answer.Kind != rpc.AnswerResult ||
+					source.Answer.Interpretation.State != rpc.InterpretationValidated ||
+					(source.Relation != rpc.VerdictSupported && source.Relation != rpc.VerdictDissented) {
+					t.Fatalf("valid sender disagreement became a source failure: %+v", source)
+				}
+			}
+			for i := range requests {
+				loaded := requests[i].Load()
+				if loaded == nil {
+					t.Fatalf("transport %d did not receive the sender query", i)
+				}
+				req := loaded.(sourceWireRequest)
+				if len(req.Params) != 2 || wireString(t, req.Params[0]) != string(blockHash) || wireString(t, req.Params[1]) != "0x0" {
+					t.Fatalf("transport %d sender params = %s", i, req.Params)
+				}
+			}
+			after, err := json.Marshal(input)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("sender lookup mutated input: before:%s after:%s err:%v", before, after, err)
+			}
+		})
+	}
+}
+
+func TestTransactionSenderDeliversReportedSenderAcrossTransports(t *testing.T) {
+	blockHash := ethapi.Hash("0x" + strings.Repeat("47", 32))
+	original := transactionInBlockFixture(t, blockHash, 0)
+	var signed types.Transaction
+	if err := json.Unmarshal(original, &signed); err != nil {
+		t.Fatal(err)
+	}
+	signer, err := types.Sender(types.HomesteadSigner{}, &signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const reported = ethapi.Address("0x2222222222222222222222222222222222222222")
+	if strings.EqualFold(signer.Hex(), string(reported)) {
+		t.Fatal("fixture must report a sender different from its signer")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(original, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["from"], err = json.Marshal(reported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, surface := range []string{"root", "view"} {
+		t.Run(surface, func(t *testing.T) {
+			input, err := ethapi.NewTransaction(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var received [2]atomic.Int32
+			answer := func(index int) func(sourceWireRequest) string {
+				return func(req sourceWireRequest) string {
+					if req.Method != methods.MethodGetTransactionByBlockHashAndIndex {
+						return `"error":{"code":-32601,"message":"unexpected method"}`
+					}
+					received[index].Add(1)
+					return `"result":` + string(response)
+				}
+			}
+			peers := []*sourceWirePeer{
+				newSourceWirePeer(t, false, answer(0)),
+				newSourceWirePeer(t, true, answer(1)),
+			}
+			client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+				{ID: "http", Endpoint: peers[0].endpoint},
+				{ID: "wss", Endpoint: peers[1].endpoint, Transport: config.TransportWSS},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(client.Close)
+			base, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ctx, capture := ethguard.WithResult(base)
+			var sender ethapi.Address
+			var direct ethguard.CallResult
+			if surface == "root" {
+				sender, direct, err = client.TransactionSender(ctx, &input, blockHash, 0)
+			} else {
+				sender, err = client.EthClient().TransactionSender(ctx, &input, blockHash, 0)
+			}
+			if err != nil || sender != reported {
+				t.Fatalf("sender = %s err:%v, want provider declaration %s (signer %s)", sender, err, reported, signer)
+			}
+			result, published, captureErr := capture.Result()
+			if !published || captureErr != nil || result.Err != nil || !result.IsCorroborated() {
+				t.Fatalf("capture = %+v published:%v error:%v", result, published, captureErr)
+			}
+			if surface == "root" && (direct.Err != nil || !reflect.DeepEqual(direct.Decision, result.Decision)) {
+				t.Fatalf("root and capture differ: direct:%+v captured:%+v", direct, result)
+			}
+			d := result.Decision
+			if len(d.Support) != 2 || len(d.Sources) != 2 || d.Adjudication.Basis != 2 || d.Adjudication.Required != 2 || d.Adjudication.Reason != rpc.ReasonAccepted {
+				t.Fatalf("reported sender support = %+v", d)
+			}
+			var delivered struct {
+				From ethapi.Address `json:"from"`
+			}
+			if err := json.Unmarshal(d.Value, &delivered); err != nil || delivered.From != reported {
+				t.Fatalf("protected from = %s err:%v, want %s", delivered.From, err, reported)
+			}
+			for i := range received {
+				if received[i].Load() != 1 {
+					t.Fatalf("transport %d sender queries = %d, want one fresh query", i, received[i].Load())
+				}
+			}
+			after, err := json.Marshal(input)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("sender lookup mutated input: before:%s after:%s err:%v", before, after, err)
+			}
+		})
 	}
 }
 
