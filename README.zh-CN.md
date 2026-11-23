@@ -62,7 +62,7 @@ Go构造使用config.FromEndpoints和ethguard.New，可配置WithChainID、WithF
 
 确定性typed读取要求对应门槛，支持不足返回分类错误；Median／Local保持Selected。通用只读Call按已注册合同执行，未知方法本地拒绝，不绕过准入或订阅建立。
 
-latest／safe／finalized按原level建立调用内reference，显式pin不换块；reference失败不发业务请求，故障不缩冻结分母。pending-local是来源本地观察，多源同值也不升级Corroborated。
+默认锚点策略下，latest／safe／finalized按原level建立调用内reference；显式WithFinalizedAnchoring则让default/latest使用finalized选择，safe保留自身level。显式pin不换块；reference失败不发业务请求，故障不缩冻结分母。pending-local是来源本地观察，多源同值也不升级Corroborated。
 
 完整block读取检查请求身份、适用header hash与body承诺（transaction／withdrawals root、uncle）；header-only不证明完整body。内容关系检查不证明canonical chain或finality。
 
@@ -86,16 +86,16 @@ saved, published, captureErr := capture.Result()
 
 同步写入只广播一次，再轮询收据。CallResult.ReceiptWait保留最后尝试与最近形成的收据观察，各有自己的序号、Decision和错误。最后一次查询中断不会覆盖此前的null或冲突观察；操作Err只表达最终结论。这些事实不依赖可选原文预算，默认最多保留两个查询位置。库不签名、不选择gas、不分配nonce、不管理替换交易。
 
-root和view提供SubscribeNewHead、SubscribeFilterLogs、SubscribeTransactionReceipts，使用生成模型channel及ethereum.Subscription。多源订阅保持固定WSS快照、物理session检查和同源Pull；多源client仅一个WSS来源会拒绝，显式单源client保留原路径。公开单源策略、预算和终止细化见 [订阅合同](docs/design/subscription-contract.md)。
+root和view的SubscribeNewHead(ctx, policy)返回提供Next、Basis、Close的HeadSubscription。事件包含完整连续路径变化、重组撤回、冻结路径证人与审计记录；固定WSS成员提供多数支持，缺失对象按hash恢复，内存、通知队列和请求并发显式限额。多源Client仅一个WSS来源会拒绝，显式单源Client保持Forwarded。SubscribeFilterLogs(ctx,query,policy)已迁移为LogsSubscription.Next/Basis/Close及独立提交位置，已于2026-11-24通过本地验收：沿Head出生路径逐块交付全部匹配日志、零命中及完整块撤回，内容通过交易与收据承诺证明；数字/hash过滤只筛选实时路径、不补历史。SubscribeTransactionReceipts仍使用生成模型channel及ethereum.Subscription。策略字段、审计导出与保证边界见 [订阅合同](docs/design/subscription-contract.md)。
 
 raw WSS提供ID demux与有界通知；adapter不自动重连／replay，root订阅worker可以重建来源会话。不承诺通用keepalive或无限恢复。HTTP/WSS错误presence、合成测试和真实provider观察分别记账。
 
-任一facade Close停止共享Client，新请求在网络前失败，在途公开操作随owner结束。transport adapter自身Close和订阅Err／channel是不同层，不能把某一层的正常关闭外推为所有层无错误。
+任一facade Close停止共享Client，新请求在网络前失败，在途公开操作随owner结束。Client.Close触发Head异步清理，需要等待该订阅任务全部退出时调用HeadSubscription.Close。主动Head关闭或Next取消会放弃未读事件；生产端失败先排空已提交事件，再返回携带剩余审计的终态错误。其他订阅和transport生命周期分别由对应合同说明。
 
 ## 模块与验证
 
 唯一生产装配位于internal/runtime；rpc拥有通用裁决，methods拥有方法语义，aggregator编排调用，pool拥有成员／收集／健康。ethapi与ethcodec提供模型和原语，objects／ethobject拥有绑定与对象保护；typed只有一份。transport与subscription分别拥有协议和流，工具／测试消费核心而不被核心反向导入。
 
-从 [文档导航](docs/design/README.md)进入完整现行合同。历史decision供追溯，不是另一份执行计划。后续先完成文档基线，再处理内部手写平行和逐模块实现优化，不重做公开类型迁移。
+从 [文档导航](docs/design/README.md)进入完整现行合同。历史decision供追溯，不是另一份执行计划。公共管线、响应模型、read精调、同步写入及NewHead已验收；其余方法、运行期专题和外部证据按路线图独立推进。
 
 默认测试离线；Anvil与provider采集显式运行。本地链／合成通过不关闭外部缺口；canary passed、workflow成功和发布批准分别表达。正式门禁、固定工具和产物流程仅在 [发布合同](docs/design/release-contract.md)维护。

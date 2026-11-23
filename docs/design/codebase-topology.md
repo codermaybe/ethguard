@@ -6,7 +6,7 @@
 
 | Module | 拥有的知识与入口 | 不应拥有 |
 | --- | --- | --- |
-| root `ethguard.Client`／`EthClient` view | 公共 API、单次 CallResult、捕获与生命周期；共享一个私有执行 owner | 第二套装配、typed decoder 或方法字段表 |
+| root `ethguard.Client`／`EthClient` view | 公共 API、单次 CallResult、捕获与生命周期；共享一个私有执行 owner；Logs编排私有Head、块内容证明和完整批次交付 | 第二套装配、typed decoder 或方法字段表 |
 | `internal/runtime` | 唯一生产 Composition Root；pool、aggregator、method、reference、projector 的组装 | 公共 API、第二套业务规则 |
 | `pool` | 固定成员、source 生命周期、健康、调度、fan-out，消费 Transport Port | Ethereum 字段含义、裁决公式 |
 | `aggregator` | invocation 顺序、reference／业务轮、收集与证据装配 | 具体 transport、字段语义、schema 解释 |
@@ -20,7 +20,7 @@
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
 | `internal/transport/{http,wss}` | 原生 HTTP／raw WSS 的协议和保真 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
-| `internal/subscription` | 流式聚合、source/session 归属、gap／背压与终止 | 复用 unary CallResult 假装流式生命周期 |
+| `internal/subscription` | NewHead Tip+DAG、连续路径/重组、证人/审计、预算/队列；receipts事件聚合与source/session归属 | 网络I/O、复用unary CallResult假装流式生命周期 |
 | `internal/verification`、`internal/testkit`、`rpctest` | 公开 seam 的黑盒、跨模块和 fixture 验证 | 被生产 Module 反向导入或成为生产事实源 |
 | `observe` | 被动事件记录 | retry、调度与安全决策 |
 | `cmd`／`examples` | 操作入口、捕获与示例 | 独立实现核心规则 |

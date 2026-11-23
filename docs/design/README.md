@@ -18,7 +18,7 @@
 | 已有入口与逐方法／传输证据缺口 | [覆盖清单](method-transport-coverage.md) |
 | HTTP协议与adapter生命周期 | [Transport合同](transport-contract.md) |
 | raw WSS握手／帧／通知与连接 | [WSS wire合同](wss-wire-contract.md) |
-| 订阅对象、snapshot、会话、Pull、终止与S1 | [订阅合同](subscription-contract.md) |
+| NewHead连续路径；Logs完整批次、证明与资源合同；receipts及S1待办 | [订阅合同](subscription-contract.md) |
 | 方法验证、场景、capture／golden、Anvil、工具与材料保留 | [验证与证据合同](method-verification-pipeline.md) |
 | 固定canary plan、manifest/report/recheck及观察状态 | [Live canary合同](live-canary-contract.md) |
 | 正式发布门禁、固定工具、产物与失败处置 | [发布合同](release-contract.md) |

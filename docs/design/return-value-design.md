@@ -45,7 +45,7 @@ receipt 已采用官方形态与保护闭环：`from`／`effectiveGasPrice` 必�
 - 获胜簇内支持源的规范字节必须相同。同键却编码不同是保护域／比较键／实现不一致，返回 `ErrMalformedResponse`，不改选某份原文或逐字段投票。
 - 非获胜簇的同类不一致只形成 Faults，不否决已经达门槛且自身一致的获胜簇，不触发第二次投票。诊断保留 source ID、长度和摘要，不复制完整 Value。
 - Median 和 Local 保持 Selected；显式 Forwarded 没有跨源保护声明。低层 Registry 的默认 forwarding 不使公开 Call 接受未知方法。不能因编码一致把它们升级为 Corroborated。
-- 公开调用失败时，`CallResult` 不交付成功 Value；结果载体、隔离与生命周期以决策 0066 为准，不能套用旧阶段的失败 Value 示例。
+- 主聚合失败时清空公开 `Decision.Value`，但最终业务错误不抹去已形成的聚合事实。合法 null、revert，以及读取成功后发生的 typed／派生绑定失败可以保留所属 Decision；失败的业务返回值不因此成为成功结果，`CallResult.Err` 始终等于尾部 error。结果载体、隔离与生命周期以决策 0066 和 `call_result.go` 为准。
 
 字节相等只是必要条件：删掉应保护的字段也能制造相等。验证还必须覆盖字段处置、变异、请求绑定、派生和受保护语义往返，见 [验证管线](method-verification-pipeline.md)。
 

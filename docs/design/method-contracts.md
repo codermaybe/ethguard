@@ -52,6 +52,26 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 
 实现入口为 `rpc/internal/objects/{block,transaction,receipt,log,feehistory,accesslist}` 与 `rpc/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。
 
+### TransactionSender 的派生保证（2026-11-23，已验收）
+
+root/view复用同一个私有执行：先校验调用方生成Transaction及签名payload hash，再校验blockHash；每次按block/index发起新读取，返回交易须绑定该位置及输入payload hash。返回的是该次读取保护的官方`from`声明，不从输入对象的from或隐藏缓存取值，也不执行sender recovery或inclusion证明。输入对象保持不变。
+
+官方from与其余交易字段共同比较：相同签名payload仅from不同仍构成合法异值，不能合并为一致或作为畸形来源处罚；多数来源共同声明的合法from即使不同于本地可恢复signer，仍按现行provider-backed合同交付。前者不返回sender，主聚合失败清Value并保留候选/来源；读取成功后输入hash不匹配则返回Malformed并保留该读取已形成的Decision。root直接结果和view capture保持同一完成事实。
+
+生产实现保留。`TestTransactionSenderFromOnlyConflictAcrossTransports`与`TestTransactionSenderDeliversReportedSenderAcrossTransports`补齐混合HTTP/raw WSS及root/view反例；既有输入、canonical副本、hash/missing-from、null和错误证据一起通过11个定向顶层测试及主控独立race。真实provider及更强身份证明不在本次验收范围。
+
+### Header 查询的独立验收（2026-11-23）
+
+`HeaderByHash`／`HeaderByNumber`的root/view共享执行，使用block读取计划及`fullTx=false`，完整Header经共享内核核对原声明hash、自算hash及官方生成约束，再绑定显式请求hash或高度。Header不承诺完整body、交易/收据集合或链上finality；reference使用的窄number/hash不能替代完整Header。
+
+默认preset下，nil/latest/safe/finalized先建立本调用相应reference，再按所得hash读取；显式hash/高度不额外建立移动reference，earliest为0，pending本地拒绝。finalized preset的default/latest例外由reference合同单列，不将默认preset的tag反例推广为所有配置同义。
+
+reference建立失败不发送业务请求，保留失败Reference；业务读取失败保留先前成功Reference，reference支持者不进入业务支持表。root直接结果、view capture与最终错误一致。生产实现保留；`TestTypedHeaderMovingTagsPinHashAndCaptureReference`与`TestTypedHeaderFailuresKeepReferenceAndCapture`补齐8个标签/切面及4个失败阶段/切面反例，连同既有header-only/pending及混合传输检查共5项定向普通/race通过；共享Header内核/typed另6项普通检查通过。
+
+### Anchor 三入口的独立验收（2026-11-23）
+
+`AnchorBlockHash`／`AnchorBlockHashForTag`／`AnchorBlockHeight` 已完成专项验收，运行实现保留。它们仅在 Client 提供独立 reference 查询，成功值来自本次建立，来源与支持证据只归 `Decision.Reference`，顶层不伪造业务 Value；部分失败证据和最终错误仍交付。默认 strict 与显式 finalized preset 的 tag 差异、capture／生命周期及本轮 26 项普通、25 项 race 的范围由 [reference 合同](reference-freshness-policy.md#anchor-三入口的交付与验收) 统一维护。
+
 ### 广播后的同步收据观察
 
 2026-11-21方法级验收完成：四入口的输入、传播接受、请求绑定、收据观察、终止、capture及预算逐项核对；复用已有实现并通过26个定向顶层测试。没有新增生产行为，框架验收与此次方法完成判断分别记录。
@@ -64,13 +84,13 @@ NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观
 
 ## 4. 请求参考、pending 与错误
 
-- latest／safe／finalized 保留请求 level，在调用内建立相应 reference；不跨调用缓存，不静默替换标签。显式 hash／高度不换块，EIP-1898 的 presence 与逐方法规则见 [引用矩阵](moving-tag-matrix.md)。
+- 默认strict preset的latest／safe／finalized在调用内建立相应reference；显式WithFinalizedAnchoring的default/latest走finalized算法，现行例外见[reference合同](reference-freshness-policy.md)。不跨调用缓存，建立失败不切换level。显式hash／高度不换块，EIP-1898的presence与逐方法规则见[引用矩阵](moving-tag-matrix.md)。
 - 请求错误在 reference 和业务 fan-out 前拒绝。reference 失败保留已形成的诊断，不发业务请求。
 - pending-local 不建立 moving reference。它可以收集多个成员，但选取第一个可用本地观察，Selected 封顶；Support 恰为所选来源，Participants 仍表达实际冻结成员。
 - typed pending block/header、pending logs 和 block receipts 的拒绝与普通 pending 状态读取分别维护，不概括成全支持或全拒绝。
 - pending `eth_call` 的 raw Value 可保留 provider revert 信封；mined 路线只交付受保护 data。typed 边界按同一错误语义投影，差异不能被写成所有 raw 路线完全相同。
 - 单源响应的 malformed／请求绑定失败／无法规范编码不贡献支持，保留故障及分母；标准方法能力错误、合法异见和调用者取消不能一律归为 provider 不规范。
-- 公开 Call 本地拒绝未知方法；低层 Registry forwarding 不扩张公开 allow-list。失败 CallResult 不交付成功 Value；corroborated null／revert 的业务映射按返回值合同区分。
+- 公开 Call 本地拒绝未知方法；低层 Registry forwarding 不扩张公开 allow-list。主聚合失败清空公开 Decision.Value；后置 typed／派生绑定失败保留已经形成的聚合事实，业务返回值和最终错误仍表达失败。corroborated null／revert 的业务映射按返回值合同区分。
 
 ## 5. 独立交易的有限兼容与对象合同
 

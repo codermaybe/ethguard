@@ -1,6 +1,6 @@
 # WSS Wire Contract（自有 WebSocket 底层契约）
 
-状态：2026-11-21 unary两层响应出口已实施；现有 wire 范围起于 2026-11-03。自有实现的握手、帧、连接与
+状态：2026-11-23 NewHead接入有界通知资源合同；2026-11-21 unary两层响应出口已实施；现有 wire 范围起于 2026-11-03。自有实现的握手、帧、连接与
 adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也不据此宣称所有验收门
 或依赖清理均已完成。
 
@@ -103,6 +103,18 @@ adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也
 - health、basis、fault 与 write outcome 语义不变；WSS 与 HTTP 的错误解释
   统一规则不变。
 
+### 2.4 通知队列、绑定前缓存与所有权
+
+transport.NotificationPolicy 表达 Messages、Bytes、MaxMessageBytes 及可选 Reserve 回调；BoundedSubscriber 将策略透传到实际 WSS 流。NewHead 必须使用该能力，没有无界 fallback；普通 Subscribe 使用有限传输默认值：256 条、8 MiB 字节上限、8 MiB 单通知上限。共享连接的默认 ReadLimit 仍为 32 MiB，组帧与通知解包临时量由该连接上限约束，不能声称被单个 Head 的 MemoryBytes 覆盖。
+
+每流使用私有有界队列和无缓冲交付 pump。字节记账覆盖 Raw 与 Result 各自的 backing capacity、身份字符串及控制余量；Raw/Result 并非默认零复制重叠。通知持有幂等 Release 租约，接收方完成解码后释放；发送成功不等于原文已经释放。队列条数/字节限制控制尚未交付的通知，已交给接收方的租约继续占相应共享预算，接收方不能无限保存而忘记 Release。
+
+绑定前的未知 subscription ID 尚无确定 owner，仅在存在 eth_subscribe 建立尝试期间缓存。Dialer.PendingMessages 与 PendingBytes 约束整个连接的这类暂存；默认分别为 256 条、8 MiB，不按 ID 各给一份额度。超限使受影响建立尝试明确失败，不静默淘汰后继续宣称流完整。绑定时先取得目标流准入，再释放连接记账；所有建立尝试结束后清空剩余未知 ID。
+
+生产端失败先按 FIFO 交付已经准入的通知，再交付终态。通知数/字节超限可识别为 transport.ErrNotificationBackpressure，单通知过大为 ErrBodyTooLarge，Reserve 失败保留其原因。主动 Unsubscribe、直接流 context 取消和 owner Close 可以覆盖排空状态，丢弃未读原文并等待 pump 退出；owner 仍能找到已经生产失败但未消费完的流。本地清理先于尽力而为的网络 eth_unsubscribe，不等待网络退订超时才释放缓存。
+
+Subscribe 的调用 context 只约束建立；直接 OpenNotificationStream 的 context 拥有流生命周期。两者不混同。调用方已经接收的通知由其 Release 释放，Unsubscribe 不提前归还已交付租约。连接 Close 对在途 unary 的既有规则不变。
+
 ## 3. 明确不实现
 
 - 通用 WebSocket API；订阅能力仅限当前 transport/subscription 契约定义的
@@ -125,6 +137,7 @@ adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也
 | RFC6455、malformed、长度/UTF-8/read limit、分片 | `websocket_frame_test.go`、`websocket_frame_fuzz_test.go` |
 | 单 reader、控制帧、写串行化与连接失败 | `websocket_connection_test.go`、`write_wedge_test.go` |
 | pending demux、取消、Close、不重放、presence 与通知隔离 | `wss_contract_test.go`、`lifecycle_test.go`、`notification_test.go`、`notification_pending_test.go` |
+| 通知字节/条数上限、pre-bind总额、租约交接、生产失败后主动释放 | `notification_budget_test.go`、`notification_pending_test.go`；2026-11-23相关与全仓race通过 |
 | 外部实现互操作 | `gorilla_interop_test.go`；测试 peer 不能充当真实 provider 证据 |
 
 ## 5. 不变量清单

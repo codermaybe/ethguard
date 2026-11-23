@@ -119,6 +119,8 @@ takes a moving-tag reference contract and neither appears in this matrix.
 
 ## Known deviations and risks
 
+The per-tag level descriptions above apply to the default strict anchor preset. Explicit `WithFinalizedAnchoring` uses finalized candidate selection for default/latest as well as finalized; safe retains strict safe selection. This existing configuration exception also applies to standalone anchors and Header reads. Request-tag metadata does not by itself prove the actual level selected. See the [reference contract](reference-freshness-policy.md); this clarification does not change F1 policy.
+
 - **R1 (pending vs 0035): resolved.** The five slice methods plus
   `eth_createAccessList`, `eth_feeHistory`, `eth_getBlockByNumber`, and
   `eth_estimateGas` serve pending as a node-local observation

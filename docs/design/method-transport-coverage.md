@@ -6,13 +6,13 @@
 
 上游 ethclient.Client 有48个导出 receiver 方法，Client() 底层访问器明确排除，剩余47项含 Close。`scripts/ethclient-method-diff.sh` 检查名称集合，TestEthClientBusinessSignatures 按项目生成类型合同检查完整签名。27是注册读RPC数，一个RPC可以服务多个普通／AtHash／Pending入口；写入、订阅、派生和root扩展分别记账。
 
-公开业务模型统一为 ethapi，写入使用 BinaryTransaction。view 有对应业务方法形态但不承诺 geth Go 名义类型身份。Root 返回业务值、CallResult、error；view省略CallResult；订阅共享生成模型channel和ethereum.Subscription。CreateAccessList的any请求仍是明确扩展，不是未完成的geth类型迁移。
+公开业务模型统一为 ethapi，写入使用 BinaryTransaction。view 有对应业务方法形态但不承诺 geth Go 名义类型身份。Root 返回业务值、CallResult、error；view省略CallResult。NewHead和Logs在两入口均使用显式policy及Next/Basis/Close交付路径与证据；Logs新接口已于2026-11-24本地验收。receipts仍使用生成模型channel和ethereum.Subscription。CreateAccessList的any请求仍是明确扩展，不是未完成的geth类型迁移。
 
 ## 2. 覆盖分类与证据状态
 
 Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录request能力，Subscription记录独立流式能力。Evidence分别覆盖值、裁定、错误、reference、材料与生命周期，不能由Registered推出。
 
-多源订阅使用固定WSS来源snapshot、strict quorum、物理session重建及同源Pull；newHeads gap补查失败以结构化错误终止。公开SingleSourceSelected尚不存在，multi-source client只有一个WSS来源时拒绝。具体S1未决项见订阅合同。
+多源订阅使用固定WSS来源snapshot与strict quorum。NewHead每源一个当前Tip，沿验证后的父链计票，按hash补齐连续路径与完整重组，路径证人与对象供应独立记录；Logs复用私有Head并按hash取得完整块/收据证明；receipts继续使用同源Pull。NewHead的SourceSession是订阅会话代次，不是TCP连接ID。没有独立Selected订阅模式，multi-source Client只有一个WSS来源时拒绝，显式单源Client保持Forwarded。NewHead已于2026-11-23验收，Logs已于2026-11-24验收；其余S1待办见订阅合同。
 
 ## 项目 catalog 与现有切面
 
@@ -32,7 +32,7 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | `eth_getCode` | Registered | `CodeAt` | `CodeAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | empty code、历史引用和跨 transport |
 | `eth_call` | Registered | `CallContract` | `CallContract` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, call rules | overrides、provider golden `error.data=null` |
 | `eth_estimateGas` | Registered | `EstimateGas` | `EstimateGas` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | provider revert golden、边界参数 |
-| `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | WSS 单源与多源 strict quorum | `eth.go`, `typed`, `subscription.go`, `internal/subscription` | 同源 Pull 已接入；跨 transport 证据和大范围成本仍待补 |
+| `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | Logs订阅已改为Head+完整块承诺，不消费eth_getLogs子集 | `eth.go`, `typed`, `logs_subscription.go` | unary方法已验收；Logs连续流已验收，跨transport/provider及大范围成本独立 |
 | `eth_simulateV1` | Registered | `SimulateV1` | `SimulateV1` | native HTTP/WSS raw call | 不适用 | `simulate.go`, `rpc/methods/simulate.go` | 生成 payload/base；Prepare 统一校验及固定输入。逐方法模拟语义与 provider 证据继续验收。完整 base/reference 矩阵见 [moving-tag-matrix](moving-tag-matrix.md#c-execution-ranges-fee-history) |
 | `eth_feeHistory` | Registered | `FeeHistory` | `FeeHistory` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 历史高度、percentile 边界和跨 transport |
 | `eth_gasPrice` | Registered | `SuggestGasPrice` | `SuggestGasPrice` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
@@ -74,7 +74,7 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | `eth_getCode` | `get_code.go` | strict data + hashAt reference + pending | `CodeAt`、`CodeAtHash`、`PendingCodeAt` |
 | `eth_getTransactionReceipt` | `transaction_receipt.go` | strict receipt 对象 | `TransactionReceipt` |
 | `eth_getBlockReceipts` | `get_block_receipts.go` | strict receipt 列表 + hashAt reference、拒绝 pending | `BlockReceipts` |
-| `eth_getLogs` | `get_logs.go` | strict log 列表 + heightFields reference、拒绝 pending | `FilterLogs`、`SubscribeFilterLogs`（同源 Pull） |
+| `eth_getLogs` | `get_logs.go` | strict log 列表 + heightFields reference、拒绝 pending | `FilterLogs`；Logs连续订阅不再走eth_getLogs Pull |
 | `eth_syncing` | `syncing.go` | local 对象（canonical JSON） | `SyncProgress` |
 | `eth_feeHistory` | `fee_history.go` | strict feeHistory 对象 + heightAt reference + pending | `FeeHistory` |
 | `eth_createAccessList` | `create_access_list.go` | strict accessList 对象 + hashAt reference + pending | `CreateAccessList`（非 ethclient 表面） |
@@ -116,10 +116,10 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | `BlockNumber` | 已有 | `Client.BlockNumber` | 入口已接入；逐方法证据仍按本清单验收 |
 | `PeerCount` | 已有 | `Client.PeerCount` | 入口已接入；逐方法证据仍按本清单验收 |
 | `BlockReceipts` | 已有 | `Client.BlockReceipts` | 入口已接入；逐方法证据仍按本清单验收 |
-| `HeaderByHash` | 已有 | `Client.HeaderByHash` | 已接入；header-only/fullTx=false 与 BlockByHash 共用 plan |
-| `HeaderByNumber` | 已有 | `Client.HeaderByNumber` | 已接入；moving tags 复用 anchor，pending 本地拒绝 |
+| `HeaderByHash` | 已验收 | `Client.HeaderByHash` | 2026-11-23保留实现；header-only/fullTx=false、请求hash绑定与共享官方Header内核核对，定向普通/race通过；不证明完整body |
+| `HeaderByNumber` | 已验收 | `Client.HeaderByNumber` | 2026-11-23显式高度/pending及默认preset的nil/latest/safe/finalized→hash pin验收；新增root/view的reference失败零业务请求、业务失败留Reference与capture反例，普通/race通过；finalized preset例外归reference合同 |
 | `TransactionByHash` | 已有 | `Client.TransactionByHash` | 入口已接入；逐方法证据仍按本清单验收 |
-| `TransactionSender` | 已有 | `Client.TransactionSender` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionSenderMultiSourceConflictKeepsEvidence`、`TestTransactionSenderMultiSourceMalformedFailsWithFaults` 及既有 transport/null 测试）；sender 冲突的跨 transport fixture 仍待补 |
+| `TransactionSender` | 已验收 | `Client.TransactionSender` | 2026-11-23输入/hash/block/index、null/错误及声明sender合同验收；`TestTransactionSenderFromOnlyConflictAcrossTransports`和`TestTransactionSenderDeliversReportedSenderAcrossTransports`覆盖仅from异值/共同声明、HTTP+raw WSS、root/view及capture；11项定向普通/race通过，未新增真实provider证据 |
 | `TransactionCount` | 已有 | `Client.TransactionCount` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
 | `TransactionInBlock` | 已有 | `Client.TransactionInBlock` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTransactionInBlockMultiSourceConflictKeepsEvidence`、`TestTransactionInBlockMultiSourceMalformedFailsWithFaults`）；inclusion envelope 跨 transport 负向 fixture 仍待补 |
 | `TransactionReceipt` | 已有 | `Client.TransactionReceipt` | 入口已接入；逐方法证据仍按本清单验收 |
@@ -135,8 +135,8 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | `NonceAtHash` | 已有 | `Client.NonceAtHash` | 已接入；EIP-1898 hash object |
 | `FilterLogs` | 已有 | `Client.FilterLogs` | 入口已接入；逐方法证据仍按本清单验收 |
 | `SubscribeTransactionReceipts` | 已有（WSS 单源/多源） | `Client.SubscribeTransactionReceipts` | 固定 snapshot strict quorum、per-source reconnect、同源逐 receipt Pull；跨 transport 证据待补 |
-| `SubscribeNewHead` | 已有（WSS 单源/多源） | `Client.SubscribeNewHead` | 固定 snapshot strict quorum、per-source reconnect、同源 Pull 与结构化 gap Err；`TestSubscribeNewHeadPublicEntrypointsUseSameSourcePull` 验证 root/view 真实 WSS、单源 push／另一源 Pull 的请求归属和退订，race 重复 10 次通过；更广资源／重连入口证据待补 |
-| `SubscribeFilterLogs` | 已有（WSS 单源/多源） | `Client.SubscribeFilterLogs` | fixed snapshot、removed/reorg、strict quorum、per-source reconnect、同源 eth_getLogs Pull；跨 transport 证据待补 |
+| `SubscribeNewHead` | 已验收（WSS 单源/多源） | `Client.SubscribeNewHead`、view同合同 | 固定Tip+DAG、Q路径证人与独立hash对象供应、完整连续delta/reorg、审计及显式预算；`TestSubscribeNewHeadPublicEntrypointsUsePathWitnessesAndHashRecovery`覆盖root/view本地真实WSS，`newhead_integration_test.go`覆盖恢复活性、取消、慢消费、长期回收；2026-11-23全仓普通/race通过，未新增真实provider证据 |
+| `SubscribeFilterLogs` | 已完成本地方法验收（2026-11-24） | `Client.SubscribeFilterLogs` / view，同一policy+Next/Basis/Close | 私有Head出生路径、独立版本与队列、完整块撤回和零命中；交易/收据根验证后冻结过滤、构造全部Log定位字段；root/view×单/多源真实WSS、终态审计、预算/生命周期和全仓普通/race通过 |
 | `PendingBalanceAt` | 已有 | `Client.PendingBalanceAt` | pending-local；跨 transport 证据待补 |
 | `PendingStorageAt` | 已有 | `Client.PendingStorageAt` | pending-local；跨 transport 证据待补 |
 | `PendingCodeAt` | 已有 | `Client.PendingCodeAt` | pending-local；跨 transport 证据待补 |
@@ -167,16 +167,17 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | request ID demux | HTTP 请求级 | 已有 | 由 geth | WSS raw-call 已测试乱序和 pending 清理 |
 | `ChainID` / `Close` | 已有 | 已有 | 不适用 | oracle 不提供生产 Client 生命周期 |
 | `error.data` presence | 已有四态 | native raw 可保留；provider golden 未闭合 | 诊断参考 | missing/null/value/unknown 必须分开记录 |
-| 普通订阅 | 不适用 | 已有 capability 与单源／多源 facade | 未承诺 | capability 不扩张 unary Transport；多源聚合、同源 Pull 与 newHeads gap 已接入；更广生命周期／跨 transport 证据仍待补 |
+| 普通订阅 | 不适用 | 已有 capability 与单源／多源 facade | 未承诺 | capability不扩张unary Transport；NewHead连续路径/hash恢复/审计/有界内存已验收，Logs完整连续流已验收，receipts保留同源Pull；其余方法级生命周期和真实provider证据独立待办 |
 | HTTP Pull 补查 | 可用 | 仅当同一 source 有配置 | 不适用 | 不得把任意 HTTP endpoint 当作同一 source |
-| reconnect / keepalive / queue | 无通用 replay | 有界通知队列；adapter 不自动重连；root 重建订阅会话 | 不统一承诺 | 与主动 keepalive、无限恢复或 provider 支持区分 |
+| reconnect / keepalive / queue | 无通用 replay | 通知条数/字节/单消息与pre-bind总额有界，Release租约覆盖接收方解码；adapter不自动重连，root重建会话 | 不统一承诺 | 生产失败排空和主动关闭丢弃均有反例；不承诺主动keepalive、无限恢复或真实provider支持 |
 
 ## 4. 已接入的引用与派生入口
 
 - BalanceAtHash／NonceAtHash／StorageAtHash／CodeAtHash复用现有RPC与plan，显式blockHash对象保留requireCanonical:false；不建立moving reference。
-- HeaderByHash／HeaderByNumber复用block读取并固定fullTx=false，typed交付生成Header；完整头与最小reference身份分开，不宣称body承诺已验证。nil／已知负tag先建立相应reference，pending header与未知负数本地拒绝，细节见引用矩阵。
+- HeaderByHash／HeaderByNumber已于2026-11-23专项验收：复用block读取并固定fullTx=false，typed交付生成Header；完整头与最小reference身份分开，不宣称body承诺已验证。nil／已知负tag先建立reference，pending header与未知负数本地拒绝；默认strict与finalized preset的差异见reference合同及引用矩阵。
 - Pending状态读取、PendingCallContract、PendingTransactionCount已接入；来源可多源收集，结果Selected封顶，不把pending错误信封当mined受保护data。跨传输负例与真实来源仍按证据缺口列账。
-- TransactionSender复用block/index方法计划与生成Transaction，核对输入hash／envelope；不是执行sender recovery或证明链上inclusion。
+- TransactionSender已于2026-11-23专项验收：复用block/index方法计划与生成Transaction，核对输入hash／envelope；官方from声明参与比较，保留来源声明交付，不执行sender recovery或证明链上inclusion。
+- AnchorBlockHash／AnchorBlockHashForTag／AnchorBlockHeight已于2026-11-23专项验收：Client独立reference查询，逐调用重建，hash/height与Reference同源，部分失败证据与capture保留；HTTP/WSS、tag、超时/取消/Close等26项普通及25项独立race通过。运行实现保留；显式finalized preset的default/latest例外见reference合同，F1配置组合仍独立。
 
 ## 5. 剩余验收
 
@@ -184,11 +185,11 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | --- | --- |
 | SimulateV1 | 模拟块与内层结果、顶层错误、完整base/reference与真实provider行为 |
 | 跨传输 | 同输入HTTP／raw WSS的成功、null、畸形、冲突、取消、Close、原始材料与错误presence |
-| 订阅 | 更广公开入口、断连／重建／背压／预算／资源证据，及S1合同裁决 |
+| 订阅 | NewHead本地接口/路径/审计/预算与资源验收完成；Logs连续流本地验收完成；receipts独立方法审查、其余S1裁决和真实provider观察仍待完成 |
 | Provider | WSS error.data:null、syncing对象、权限／方法能力差异、历史分叉与可重跑来源 |
 | freshness | F1请求范围、样本有效性、finalized配置组合及真实更新时间分布 |
 | 整体实现 | 历史decision梳理、手写定义与逐模块优化；文档完成不代表代码任务完成 |
 
 每项交付值／错误／status／reference／来源归因／材料／生命周期的实际证据，记录命令、退出码和未覆盖范围。离线、本地链和真实provider独立记账；默认测试不联网。具体断言与命令归 [验证合同](method-verification-pipeline.md)，正式质量／race／fuzz／发布门归 [发布合同](release-contract.md)。
 
-当前工作顺序为：全部文档整理与一致性核对 → 独立Git文档基线 → 代码问题与优化 → 跨模块验收 → 发布审查。没有在本轮重跑全仓发布、Anvil或公网采集；历史测试通过不代替目标提交结果。
+当前Sender、Header、Anchor和Logs均已验收，剩余receipts与跨入口生命周期按路线图独立推进。各方法的定向证据不替代全仓发布、Anvil或公网采集；历史测试通过不代替目标提交结果。

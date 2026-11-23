@@ -1,6 +1,6 @@
 # 官方业务语义与 go-ethereum 覆盖政策
 
-状态：2026-11-16 文档基线。公开业务类型与调用方迁移已完成，方法名称集合闭合；逐方法语义、跨传输和运行证据仍待完整验收。
+状态：2026-11-23 NewHead接口合同已同步。公开业务类型与调用方迁移已完成，方法名称集合闭合；逐方法语义、跨传输和运行证据仍待完整验收。
 
 ## 1. 兼容目标与当前状态
 
@@ -16,7 +16,7 @@
 
 ## 2. 两个 facade，一个执行 owner
 
-Root Client 返回业务值、单次 `CallResult` 和业务错误；EthClient view 投影同一执行并省略 CallResult。订阅使用独立 channel 和 `ethereum.Subscription` 生命周期，不把 unary CallResult 延伸为流式事件 API。
+Root Client返回业务值、单次`CallResult`和业务错误；EthClient view投影同一执行并省略CallResult。NewHead两入口均接受`HeadSubscriptionPolicy`并返回`HeadSubscription`，通过Next/Basis/Close交付连续路径、重组与来源证据；其签名与上游channel接口不同。Logs也已迁移为`LogsSubscriptionPolicy`与`LogsSubscription.Next/Basis/Close`，交付完整实时批次并显式处理撤回，2026-11-24本地验收通过；该签名同样不同于上游channel。receipts保留生成模型channel与`ethereum.Subscription`。流式合同独立，不把unary CallResult延伸为订阅事件，详见[订阅合同](subscription-contract.md)。
 
 view 不提供 `Client()` 逃生口。runtime 是唯一生产装配点，typed projection 只有一份；未知公开 Call 本地拒绝，不能通过默认 forwarding 补齐缺失方法。低层 rpc Registry 的 forwarding 能力不等于公开客户端授权。
 
