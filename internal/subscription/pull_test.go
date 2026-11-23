@@ -9,16 +9,16 @@ import (
 
 func TestPullProbeAdmitsBoundSameSourceVoteAfterSoftTimeout(t *testing.T) {
 	first := time.Now()
-	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: Strict, Queue: 1, HardTimeout: time.Second})
+	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: StrictMode, Queue: 1, HardTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	if err := a.Submit(Observation{Kind: KindNewHeads, ContextKey: "head:1", Key: "candidate", SourceID: "a", Generation: 1, ObservedAt: first}); err != nil {
+	if err := a.Submit(Observation{Kind: KindLogs, ContextKey: "log:1", Key: "candidate", SourceID: "a", Generation: 1, ObservedAt: first}); err != nil {
 		t.Fatal(err)
 	}
-	probe, err := StartPullProbe(context.Background(), a, []PullRequest{{Kind: KindNewHeads, ContextKey: "head:1", SourceID: "b", Generation: 1, FirstSeen: first, Pull: func(context.Context) (Observation, error) {
-		return Observation{Kind: KindNewHeads, ContextKey: "head:1", Key: "candidate", SourceID: "b", Generation: 1}, nil
+	probe, err := StartPullProbe(context.Background(), a, []PullRequest{{Kind: KindLogs, ContextKey: "log:1", SourceID: "b", Generation: 1, FirstSeen: first, Pull: func(context.Context) (Observation, error) {
+		return Observation{Kind: KindLogs, ContextKey: "log:1", Key: "candidate", SourceID: "b", Generation: 1}, nil
 	}}}, PullProbeConfig{SoftTimeout: time.Millisecond, HardTimeout: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
@@ -38,11 +38,11 @@ func TestPullProbeRejectsIdentityMismatchWithoutVoting(t *testing.T) {
 	a := strictConfig(t)
 	defer a.Close()
 	first := time.Now()
-	if err := a.Submit(Observation{Kind: KindNewHeads, ContextKey: "head:1", Key: "candidate", SourceID: "a", Generation: 4, ObservedAt: first}); err != nil {
+	if err := a.Submit(Observation{Kind: KindLogs, ContextKey: "log:1", Key: "candidate", SourceID: "a", Generation: 4, ObservedAt: first}); err != nil {
 		t.Fatal(err)
 	}
-	probe, err := StartPullProbe(context.Background(), a, []PullRequest{{Kind: KindNewHeads, ContextKey: "head:1", SourceID: "b", Generation: 4, FirstSeen: first, Pull: func(context.Context) (Observation, error) {
-		return Observation{Kind: KindNewHeads, ContextKey: "head:2", Key: "candidate", SourceID: "b", Generation: 4}, nil
+	probe, err := StartPullProbe(context.Background(), a, []PullRequest{{Kind: KindLogs, ContextKey: "log:1", SourceID: "b", Generation: 4, FirstSeen: first, Pull: func(context.Context) (Observation, error) {
+		return Observation{Kind: KindLogs, ContextKey: "log:2", Key: "candidate", SourceID: "b", Generation: 4}, nil
 	}}}, PullProbeConfig{SoftTimeout: time.Millisecond, HardTimeout: 30 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestPullProbeRejectsIdentityMismatchWithoutVoting(t *testing.T) {
 		if !errors.As(err, &probeErr) || !errors.Is(err, ErrUnknownSource) {
 			t.Fatalf("probe err = %v", err)
 		}
-		if probeErr.SourceID != "b" || probeErr.Generation != 4 || probeErr.ContextKey != "head:1" {
+		if probeErr.SourceID != "b" || probeErr.Generation != 4 || probeErr.ContextKey != "log:1" {
 			t.Fatalf("probe attribution = %+v", probeErr)
 		}
 	case <-time.After(time.Second):
@@ -69,15 +69,15 @@ func TestPullProbeRejectsIdentityMismatchWithoutVoting(t *testing.T) {
 
 func TestPullProbeHardTimeoutQuarantinesUnmetEvent(t *testing.T) {
 	first := time.Now()
-	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 4, Members: []string{"a", "b", "c"}, Quorum: 2}, Mode: Strict, Queue: 1, HardTimeout: time.Second})
+	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 4, Members: []string{"a", "b", "c"}, Quorum: 2}, Mode: StrictMode, Queue: 1, HardTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	if err := a.Submit(Observation{Kind: KindNewHeads, ContextKey: "head:1", Key: "candidate", SourceID: "a", Generation: 4, ObservedAt: first}); err != nil {
+	if err := a.Submit(Observation{Kind: KindLogs, ContextKey: "log:1", Key: "candidate", SourceID: "a", Generation: 4, ObservedAt: first}); err != nil {
 		t.Fatal(err)
 	}
-	probe, err := StartPullProbe(context.Background(), a, []PullRequest{{Kind: KindNewHeads, ContextKey: "head:1", SourceID: "b", Generation: 4, FirstSeen: first, Pull: func(ctx context.Context) (Observation, error) {
+	probe, err := StartPullProbe(context.Background(), a, []PullRequest{{Kind: KindLogs, ContextKey: "log:1", SourceID: "b", Generation: 4, FirstSeen: first, Pull: func(ctx context.Context) (Observation, error) {
 		<-ctx.Done()
 		return Observation{}, ctx.Err()
 	}}}, PullProbeConfig{SoftTimeout: time.Millisecond, HardTimeout: 20 * time.Millisecond})
@@ -87,7 +87,7 @@ func TestPullProbeHardTimeoutQuarantinesUnmetEvent(t *testing.T) {
 	defer probe.Stop()
 	deadline := time.After(time.Second)
 	for {
-		if a.Status("head:1") == Quarantined {
+		if a.Status("log:1") == Quarantined {
 			break
 		}
 		select {

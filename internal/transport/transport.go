@@ -40,6 +40,17 @@ type Notification struct {
 	Result         json.RawMessage
 	Raw            json.RawMessage
 	ReceivedAt     time.Time
+	// Release returns raw-byte ownership after the receiver finishes decoding.
+	Release func()
+}
+
+type NotificationPolicy struct {
+	Messages               int
+	Bytes, MaxMessageBytes uint64
+	Reserve                func(uint64) (func(), error)
+}
+type BoundedSubscriber interface {
+	SubscribeBounded(context.Context, NotificationPolicy, string, ...any) (Subscription, error)
 }
 
 // Subscription is the transport-neutral lifecycle surface used by the root
@@ -69,3 +80,6 @@ var ErrConnectionClosed = errors.New("transport: connection closed")
 // it were a complete JSON-RPC response: the transport fails the call with
 // this error instead, so no adapter vouches for truncated bytes.
 var ErrBodyTooLarge = errors.New("transport: response body exceeds limit")
+
+// ErrNotificationBackpressure identifies a bounded notification queue overflow.
+var ErrNotificationBackpressure = errors.New("transport: notification backpressure")

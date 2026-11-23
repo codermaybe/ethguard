@@ -69,8 +69,8 @@ var (
 		FeeHistory(context.Context, uint64, *big.Int, []float64) (*ethapi.FeeHistoryResult, error)
 		FilterLogs(context.Context, ethapi.FilterQuery) ([]ethapi.Log, error)
 		// subscriptions: generated event payloads
-		SubscribeNewHead(context.Context, chan<- *ethapi.Header) (ethereum.Subscription, error)
-		SubscribeFilterLogs(context.Context, ethapi.FilterQuery, chan<- ethapi.Log) (ethereum.Subscription, error)
+		SubscribeNewHead(context.Context, ethguard.HeadSubscriptionPolicy) (*ethguard.HeadSubscription, error)
+		SubscribeFilterLogs(context.Context, ethapi.FilterQuery, ethguard.LogsSubscriptionPolicy) (*ethguard.LogsSubscription, error)
 		SubscribeTransactionReceipts(context.Context, *ethapi.TransactionReceiptsQuery, chan<- []ethapi.Receipt) (ethereum.Subscription, error)
 		// writes: BinaryTransaction in, generated Receipt out
 		SendTransaction(context.Context, ethguard.BinaryTransaction) error
@@ -338,8 +338,8 @@ func TestEthClientBusinessSignatures(t *testing.T) {
 		"FeeHistory":             reflect.TypeOf((func(context.Context, uint64, *big.Int, []float64) (*ethapi.FeeHistoryResult, error))(nil)),
 		"FilterLogs":             reflect.TypeOf((func(context.Context, ethapi.FilterQuery) ([]ethapi.Log, error))(nil)),
 		// subscriptions
-		"SubscribeNewHead":             reflect.TypeOf((func(context.Context, chan<- *ethapi.Header) (ethereum.Subscription, error))(nil)),
-		"SubscribeFilterLogs":          reflect.TypeOf((func(context.Context, ethapi.FilterQuery, chan<- ethapi.Log) (ethereum.Subscription, error))(nil)),
+		"SubscribeNewHead":             reflect.TypeOf((func(context.Context, ethguard.HeadSubscriptionPolicy) (*ethguard.HeadSubscription, error))(nil)),
+		"SubscribeFilterLogs":          reflect.TypeOf((func(context.Context, ethapi.FilterQuery, ethguard.LogsSubscriptionPolicy) (*ethguard.LogsSubscription, error))(nil)),
 		"SubscribeTransactionReceipts": reflect.TypeOf((func(context.Context, *ethapi.TransactionReceiptsQuery, chan<- []ethapi.Receipt) (ethereum.Subscription, error))(nil)),
 		// writes
 		"SendTransaction":        reflect.TypeOf((func(context.Context, ethguard.BinaryTransaction) error)(nil)),

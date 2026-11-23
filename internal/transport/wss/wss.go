@@ -40,16 +40,6 @@ const DefaultReadLimit = limits.MaxBodyBytes
 
 const defaultHandshakeTimeout = 10 * time.Second
 
-const (
-	// maxPendingNotificationsPerID bounds the buffered notifications for one
-	// not-yet-bound subscription ID.
-	maxPendingNotificationsPerID = 256
-	// maxPendingSubscriptionIDs bounds how many distinct never-bound
-	// subscription IDs may hold a pending buffer at once, so a hostile or
-	// chatty peer cannot grow the pending map without limit.
-	maxPendingSubscriptionIDs = 256
-)
-
 // ErrTransportClosed is returned for calls on a closed or broken transport.
 // It wraps the neutral lifecycle sentinel so core packages classify the
 // lifecycle without importing this adapter.
@@ -57,7 +47,7 @@ var ErrTransportClosed = fmt.Errorf("wss: transport closed: %w", transport.ErrCo
 
 // ErrNotificationBackpressure identifies a bounded notification queue
 // overflow without changing unary transport errors.
-var ErrNotificationBackpressure = errors.New("wss: notification backpressure")
+var ErrNotificationBackpressure = fmt.Errorf("wss: %w", transport.ErrNotificationBackpressure)
 
 // Dialer dials one long-lived WebSocket JSON-RPC connection for ws and wss
 // URLs.
@@ -67,6 +57,10 @@ type Dialer struct {
 	// HandshakeTimeout bounds the WebSocket handshake. Zero selects the
 	// audited default.
 	HandshakeTimeout time.Duration
+	// PendingMessages/PendingBytes bound all pre-bind notifications on this
+	// connection. Zero selects the finite transport defaults.
+	PendingMessages int
+	PendingBytes    uint64
 }
 
 // NewDialer returns the raw WSS adapter factory. The composition root selects
@@ -107,6 +101,7 @@ func (d Dialer) DialContext(ctx context.Context, rawURL string) (transport.Trans
 		streams:              make(map[*NotificationStream]struct{}),
 		subscriptionIDs:      make(map[string]*NotificationStream),
 		pendingNotifications: make(map[string][]Notification),
+		pendingMessagesLimit: d.PendingMessages, pendingBytesLimit: d.PendingBytes,
 	}
 	go t.readLoop()
 	return t, nil
@@ -133,10 +128,28 @@ type NotificationStream struct {
 	errs           chan error
 	done           chan struct{}
 
-	mu     sync.Mutex
-	closed bool
-	once   sync.Once
+	mu          sync.Mutex
+	closed      bool
+	once        sync.Once
+	policy      transport.NotificationPolicy
+	first, last *notificationItem
+	queued      int
+	queuedBytes uint64
+	notify      chan struct{}
+	abort       chan struct{}
+	pumpDone    chan struct{}
+	terminal    error
 }
+
+type notificationItem struct {
+	value Notification
+	bytes uint64
+	next  *notificationItem
+}
+
+const defaultNotificationBytes uint64 = 8 << 20
+const defaultPendingMessages = 256
+const defaultPendingBytes uint64 = 8 << 20
 
 const pendingSubscriptionID = "\x00pending-subscription"
 
@@ -148,40 +161,148 @@ func (s *NotificationStream) Events() <-chan Notification { return s.events }
 func (s *NotificationStream) Err() <-chan error { return s.errs }
 
 // Unsubscribe is idempotent and stops delivery of new notifications.
-func (s *NotificationStream) Unsubscribe() { s.finish(nil) }
+func (s *NotificationStream) Unsubscribe() {
+	s.finish(nil)
+	if s.pumpDone != nil {
+		<-s.pumpDone
+	}
+}
 
 // Close is an alias for Unsubscribe for internal lifecycle owners.
 func (s *NotificationStream) Close() { s.Unsubscribe() }
 
 func (s *NotificationStream) finish(err error) {
-	s.once.Do(func() {
-		s.owner.removeNotificationStream(s)
-		s.mu.Lock()
+	s.mu.Lock()
+	if !s.closed {
 		s.closed = true
+		s.terminal = err
 		close(s.done)
-		close(s.events)
-		if err != nil {
-			s.errs <- err
-		}
-		close(s.errs)
-		s.mu.Unlock()
-	})
+	}
+	if err == nil {
+		s.terminal = nil
+		s.once.Do(func() { close(s.abort) })
+		s.dropLocked()
+	}
+	s.mu.Unlock()
+	s.signal()
 }
 
-func (s *NotificationStream) deliver(notification Notification) bool {
+func (s *NotificationStream) deliver(notification Notification) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return true
+		return nil
 	}
 	if s.subscriptionID != "" && notification.SubscriptionID != s.subscriptionID {
-		return true
+		return nil
 	}
+	return s.enqueueLocked(notification)
+}
+
+func notificationBytes(n Notification) uint64 {
+	return uint64(cap(n.Raw)+cap(n.Result)+len(n.SubscriptionID)+len(n.Method)+len(n.SourceID)) + 256
+}
+func (s *NotificationStream) enqueueLocked(n Notification) error {
+	bytes := notificationBytes(n)
+	if uint64(len(n.Raw)) > s.policy.MaxMessageBytes {
+		return transport.ErrBodyTooLarge
+	}
+	if s.queued >= s.policy.Messages || bytes > s.policy.Bytes || s.queuedBytes > s.policy.Bytes-bytes {
+		return ErrNotificationBackpressure
+	}
+	release := func() {}
+	if s.policy.Reserve != nil {
+		var err error
+		release, err = s.policy.Reserve(bytes)
+		if err != nil {
+			return err
+		}
+	}
+	n.Release = sync.OnceFunc(release)
+	item := &notificationItem{value: n, bytes: bytes}
+	if s.last == nil {
+		s.first = item
+	} else {
+		s.last.next = item
+	}
+	s.last = item
+	s.queued++
+	s.queuedBytes += bytes
+	s.signal()
+	return nil
+}
+func (s *NotificationStream) signal() {
 	select {
-	case s.events <- notification:
-		return true
+	case s.notify <- struct{}{}:
 	default:
-		return false
+	}
+}
+func (s *NotificationStream) dropLocked() {
+	for s.first != nil {
+		n := s.first
+		s.first = n.next
+		if n.value.Release != nil {
+			n.value.Release()
+		}
+		n.value = Notification{}
+		n.next = nil
+		s.queued--
+		s.queuedBytes -= n.bytes
+	}
+	s.last = nil
+}
+func (s *NotificationStream) pump() {
+	defer close(s.pumpDone)
+	defer close(s.events)
+	defer close(s.errs)
+	defer s.owner.removeNotificationStream(s)
+	for {
+		s.mu.Lock()
+		item := s.first
+		var value Notification
+		if item != nil {
+			value = item.value
+			s.first = item.next
+			if s.first == nil {
+				s.last = nil
+			}
+			item.next = nil
+		}
+		if item == nil && s.closed {
+			err := s.terminal
+			s.mu.Unlock()
+			if err != nil {
+				s.errs <- err
+			}
+			return
+		}
+		s.mu.Unlock()
+		if item == nil {
+			select {
+			case <-s.notify:
+				continue
+			case <-s.abort:
+				return
+			}
+		}
+		select {
+		case s.events <- value:
+			s.mu.Lock()
+			s.queued--
+			s.queuedBytes -= item.bytes
+			item.next = nil
+			item.value = Notification{}
+			s.mu.Unlock()
+		case <-s.abort:
+			if value.Release != nil {
+				value.Release()
+			}
+			s.mu.Lock()
+			s.queued--
+			s.queuedBytes -= item.bytes
+			s.mu.Unlock()
+			return
+		}
 	}
 }
 
@@ -191,25 +312,37 @@ func (s *NotificationStream) bindSubscriptionID(id string) bool {
 	if s.closed {
 		return false
 	}
-	s.subscriptionID = id
 	s.owner.mu.Lock()
+	s.subscriptionID = id
+	if s.owner.setupStreams[s] {
+		s.owner.mu.Unlock()
+		return false
+	}
+	delete(s.owner.setupStreams, s)
 	if s.owner.subscriptionIDs == nil {
 		s.owner.subscriptionIDs = make(map[string]*NotificationStream)
 	}
 	s.owner.subscriptionIDs[id] = s
 	pending := s.owner.pendingNotifications[id]
-	s.owner.removePendingNotificationsLocked(id)
-	s.owner.mu.Unlock()
 	for _, notification := range pending {
 		notification.SourceID = s.sourceID
 		notification.Generation = s.generation
 		notification.ReceivedAt = time.Now()
-		select {
-		case s.events <- notification:
-		default:
+		if err := s.enqueueLocked(notification); err != nil {
+			s.owner.removePendingNotificationsLocked(id)
+			s.owner.mu.Unlock()
+			s.closed = true
+			s.terminal = err
+			close(s.done)
+			s.signal()
 			return false
 		}
 	}
+	s.owner.removePendingNotificationsLocked(id)
+	if len(s.owner.setupStreams) == 0 {
+		s.owner.clearPendingNotificationsLocked()
+	}
+	s.owner.mu.Unlock()
 	return true
 }
 
@@ -228,6 +361,7 @@ func (s *Subscription) Err() <-chan error           { return s.stream.Err() }
 
 func (s *Subscription) Unsubscribe() {
 	s.once.Do(func() {
+		s.stream.Unsubscribe()
 		// Best effort: the stream is always closed locally even when the
 		// server-side unsubscribe cannot be delivered because the socket died.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -236,7 +370,6 @@ func (s *Subscription) Unsubscribe() {
 		if s.transport != nil {
 			_ = s.transport.Call(ctx, "eth_unsubscribe", s.id).Decode(&ok)
 		}
-		s.stream.Unsubscribe()
 	})
 }
 
@@ -244,6 +377,12 @@ func (s *Subscription) Unsubscribe() {
 // to a bounded stream. It is intentionally outside the unary Transport
 // interface; callers must opt into the WSS capability explicitly.
 func (t *Transport) Subscribe(ctx context.Context, kind string, args ...any) (*Subscription, error) {
+	return t.subscribe(ctx, transport.NotificationPolicy{Messages: 256, Bytes: defaultNotificationBytes, MaxMessageBytes: defaultNotificationBytes}, kind, args...)
+}
+func (t *Transport) SubscribeBounded(ctx context.Context, p transport.NotificationPolicy, kind string, args ...any) (transport.Subscription, error) {
+	return t.subscribe(ctx, p, kind, args...)
+}
+func (t *Transport) subscribe(ctx context.Context, policy transport.NotificationPolicy, kind string, args ...any) (*Subscription, error) {
 	if kind == "" {
 		return nil, fmt.Errorf("wss: empty subscription kind")
 	}
@@ -253,7 +392,7 @@ func (t *Transport) Subscribe(ctx context.Context, kind string, args ...any) (*S
 	// notification can land here during the eth_subscribe round trip; the
 	// first server push for this subscription (which can outrun the
 	// response) buffers at the transport level and is flushed on bind.
-	stream, err := t.openNotificationStreamWithID(context.WithoutCancel(ctx), "", 0, 256, pendingSubscriptionID)
+	stream, err := t.openNotificationStreamPolicy(context.WithoutCancel(ctx), "", 0, policy, pendingSubscriptionID)
 	if err != nil {
 		return nil, err
 	}
@@ -270,8 +409,14 @@ func (t *Transport) Subscribe(ctx context.Context, kind string, args ...any) (*S
 		return nil, fmt.Errorf("wss: eth_subscribe returned empty id")
 	}
 	if !stream.bindSubscriptionID(id) {
-		stream.finish(ErrNotificationBackpressure)
-		return nil, ErrNotificationBackpressure
+		stream.mu.Lock()
+		cause := stream.terminal
+		stream.mu.Unlock()
+		stream.Unsubscribe()
+		if cause == nil {
+			cause = ErrNotificationBackpressure
+		}
+		return nil, cause
 	}
 	return &Subscription{transport: t, stream: stream, id: id}, nil
 }
@@ -289,14 +434,17 @@ type Transport struct {
 	ids   *rpcwire.IDGen
 	limit int64
 
-	mu                       sync.Mutex
-	pending                  map[string]chan frameResult
-	streams                  map[*NotificationStream]struct{}
-	subscriptionIDs          map[string]*NotificationStream
-	pendingNotifications     map[string][]Notification
-	pendingNotificationOrder []string
-	closing                  bool
-	closed                   bool
+	mu                                    sync.Mutex
+	pending                               map[string]chan frameResult
+	streams                               map[*NotificationStream]struct{}
+	subscriptionIDs                       map[string]*NotificationStream
+	pendingNotifications                  map[string][]Notification
+	pendingNotificationOrder              []string
+	setupStreams                          map[*NotificationStream]bool
+	pendingMessagesLimit, pendingMessages int
+	pendingBytesLimit, pendingBytes       uint64
+	closing                               bool
+	closed                                bool
 
 	socketOnce sync.Once
 }
@@ -385,20 +533,24 @@ func (t *Transport) OpenNotificationStream(ctx context.Context, sourceID string,
 }
 
 func (t *Transport) openNotificationStreamWithID(ctx context.Context, sourceID string, generation uint64, buffer int, initialID string) (*NotificationStream, error) {
+	return t.openNotificationStreamPolicy(ctx, sourceID, generation, transport.NotificationPolicy{Messages: buffer, Bytes: defaultNotificationBytes, MaxMessageBytes: defaultNotificationBytes}, initialID)
+}
+func (t *Transport) openNotificationStreamPolicy(ctx context.Context, sourceID string, generation uint64, policy transport.NotificationPolicy, initialID string) (*NotificationStream, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("wss: nil notification context")
 	}
-	if buffer <= 0 {
-		return nil, fmt.Errorf("wss: notification buffer must be positive")
+	if policy.Messages <= 0 || policy.MaxMessageBytes == 0 || policy.Bytes < policy.MaxMessageBytes {
+		return nil, fmt.Errorf("wss: positive notification limits required")
 	}
 	stream := &NotificationStream{
 		owner:          t,
 		sourceID:       sourceID,
 		generation:     generation,
 		subscriptionID: initialID,
-		events:         make(chan Notification, buffer),
+		events:         make(chan Notification),
 		errs:           make(chan error, 1),
 		done:           make(chan struct{}),
+		policy:         policy, notify: make(chan struct{}, 1), abort: make(chan struct{}), pumpDone: make(chan struct{}),
 	}
 	t.mu.Lock()
 	if t.closed || t.closing {
@@ -412,12 +564,25 @@ func (t *Transport) openNotificationStreamWithID(ctx context.Context, sourceID s
 		t.subscriptionIDs = make(map[string]*NotificationStream)
 	}
 	t.streams[stream] = struct{}{}
+	if initialID == pendingSubscriptionID {
+		if t.setupStreams == nil {
+			t.setupStreams = make(map[*NotificationStream]bool)
+		}
+		t.setupStreams[stream] = false
+	}
+	if t.pendingMessagesLimit <= 0 {
+		t.pendingMessagesLimit = defaultPendingMessages
+	}
+	if t.pendingBytesLimit == 0 {
+		t.pendingBytesLimit = defaultPendingBytes
+	}
 	t.mu.Unlock()
+	go stream.pump()
 	go func() {
 		select {
 		case <-ctx.Done():
-			stream.finish(ctx.Err())
-		case <-stream.done:
+			stream.Unsubscribe()
+		case <-stream.pumpDone:
 		}
 	}()
 	return stream, nil
@@ -426,6 +591,10 @@ func (t *Transport) openNotificationStreamWithID(ctx context.Context, sourceID s
 func (t *Transport) removeNotificationStream(stream *NotificationStream) {
 	t.mu.Lock()
 	delete(t.streams, stream)
+	delete(t.setupStreams, stream)
+	if len(t.setupStreams) == 0 {
+		t.clearPendingNotificationsLocked()
+	}
 	if stream.subscriptionID != "" && t.subscriptionIDs[stream.subscriptionID] == stream {
 		delete(t.subscriptionIDs, stream.subscriptionID)
 		// A server that keeps pushing after the unsubscribe must not pin a
@@ -436,13 +605,25 @@ func (t *Transport) removeNotificationStream(stream *NotificationStream) {
 }
 
 func (t *Transport) removePendingNotificationsLocked(id string) {
+	for _, n := range t.pendingNotifications[id] {
+		t.pendingMessages--
+		t.pendingBytes -= notificationBytes(n)
+	}
 	delete(t.pendingNotifications, id)
 	for i, pendingID := range t.pendingNotificationOrder {
 		if pendingID == id {
-			t.pendingNotificationOrder = append(t.pendingNotificationOrder[:i], t.pendingNotificationOrder[i+1:]...)
+			copy(t.pendingNotificationOrder[i:], t.pendingNotificationOrder[i+1:])
+			t.pendingNotificationOrder[len(t.pendingNotificationOrder)-1] = ""
+			t.pendingNotificationOrder = t.pendingNotificationOrder[:len(t.pendingNotificationOrder)-1]
 			return
 		}
 	}
+}
+func (t *Transport) clearPendingNotificationsLocked() {
+	t.pendingNotifications = make(map[string][]Notification)
+	t.pendingNotificationOrder = nil
+	t.pendingMessages = 0
+	t.pendingBytes = 0
 }
 
 func (t *Transport) notificationStreams() []*NotificationStream {
@@ -474,25 +655,29 @@ func (t *Transport) dispatchNotification(message []byte) {
 	for stream := range t.streams {
 		streams = append(streams, stream)
 	}
-	if bound == nil {
-		_, exists := t.pendingNotifications[notification.SubscriptionID]
-		if !exists && len(t.pendingNotifications) >= maxPendingSubscriptionIDs {
-			// Retire the oldest never-bound ID instead of silently dropping
-			// the first event for a newly created subscription. The map stays
-			// bounded while a successful later bind can still recover its
-			// event that outran the eth_subscribe response.
-			oldest := t.pendingNotificationOrder[0]
-			t.removePendingNotificationsLocked(oldest)
-		}
-		pending := t.pendingNotifications[notification.SubscriptionID]
-		if len(pending) < maxPendingNotificationsPerID {
+	var failed []*NotificationStream
+	if bound == nil && len(t.setupStreams) > 0 {
+		bytes := notificationBytes(notification)
+		if t.pendingMessages >= t.pendingMessagesLimit || bytes > t.pendingBytesLimit || t.pendingBytes > t.pendingBytesLimit-bytes {
+			for stream := range t.setupStreams {
+				t.setupStreams[stream] = true
+				failed = append(failed, stream)
+			}
+			t.clearPendingNotificationsLocked()
+		} else {
+			pending := t.pendingNotifications[notification.SubscriptionID]
 			if len(pending) == 0 {
 				t.pendingNotificationOrder = append(t.pendingNotificationOrder, notification.SubscriptionID)
 			}
 			t.pendingNotifications[notification.SubscriptionID] = append(pending, notification)
+			t.pendingMessages++
+			t.pendingBytes += bytes
 		}
 	}
 	t.mu.Unlock()
+	for _, stream := range failed {
+		stream.finish(ErrNotificationBackpressure)
+	}
 
 	if bound != nil {
 		t.deliverNotification(bound, notification)
@@ -514,8 +699,8 @@ func (t *Transport) deliverNotification(stream *NotificationStream, notification
 	notification.SourceID = stream.sourceID
 	notification.Generation = stream.generation
 	notification.ReceivedAt = time.Now()
-	if !stream.deliver(notification) {
-		stream.finish(ErrNotificationBackpressure)
+	if err := stream.deliver(notification); err != nil {
+		stream.finish(err)
 	}
 }
 
@@ -543,8 +728,8 @@ func decodeNotification(message []byte) (Notification, error) {
 	return Notification{
 		Method:         envelope.Method,
 		SubscriptionID: params.Subscription,
-		Result:         append(json.RawMessage(nil), params.Result...),
-		Raw:            append(json.RawMessage(nil), message...),
+		Result:         params.Result,
+		Raw:            message,
 	}, nil
 }
 
@@ -659,13 +844,14 @@ func (t *Transport) abort(err error) {
 	t.closing = true
 	pending := t.pending
 	t.pending = make(map[string]chan frameResult)
-	t.pendingNotifications = make(map[string][]Notification)
-	t.pendingNotificationOrder = nil
-	streams := t.streams
-	t.streams = make(map[*NotificationStream]struct{})
+	t.clearPendingNotificationsLocked()
+	streams := make([]*NotificationStream, 0, len(t.streams))
+	for stream := range t.streams {
+		streams = append(streams, stream)
+	}
 	t.mu.Unlock()
 	t.closeSocket()
-	for stream := range streams {
+	for _, stream := range streams {
 		stream.finish(err)
 	}
 	for _, waiter := range pending {
@@ -696,22 +882,19 @@ func (t *Transport) ChainID(ctx context.Context) (*big.Int, error) {
 // immediately. Close is idempotent.
 func (t *Transport) Close() {
 	t.mu.Lock()
-	if t.closed {
-		t.mu.Unlock()
-		return
-	}
 	t.closing = true
-	streams := t.streams
-	t.streams = make(map[*NotificationStream]struct{})
-	t.pendingNotifications = make(map[string][]Notification)
-	t.pendingNotificationOrder = nil
+	streams := make([]*NotificationStream, 0, len(t.streams))
+	for stream := range t.streams {
+		streams = append(streams, stream)
+	}
+	t.clearPendingNotificationsLocked()
 	closeSocket := len(t.pending) == 0
 	if closeSocket {
 		t.closed = true
 	}
 	t.mu.Unlock()
-	for stream := range streams {
-		stream.finish(nil)
+	for _, stream := range streams {
+		stream.Unsubscribe()
 	}
 	if closeSocket {
 		t.closeSocket()

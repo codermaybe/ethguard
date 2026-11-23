@@ -25,13 +25,14 @@ var (
 type SessionGate struct {
 	mu          sync.RWMutex
 	generations map[string]uint64
+	active      map[string]bool
 	closed      bool
 }
 
 // NewSessionGate creates a gate for the fixed source identities in a
 // subscription snapshot. Membership is immutable for the gate lifetime.
 func NewSessionGate(sourceIDs []string) (*SessionGate, error) {
-	g := &SessionGate{generations: make(map[string]uint64, len(sourceIDs))}
+	g := &SessionGate{generations: make(map[string]uint64, len(sourceIDs)), active: make(map[string]bool, len(sourceIDs))}
 	for _, sourceID := range sourceIDs {
 		if sourceID == "" {
 			return nil, ErrUnknownSource
@@ -58,7 +59,19 @@ func (g *SessionGate) Open(sourceID string) (SourceSession, error) {
 	}
 	generation++
 	g.generations[sourceID] = generation
+	g.active[sourceID] = true
 	return SourceSession{SourceID: sourceID, Generation: generation}, nil
+}
+
+// Retire makes a disconnected session unavailable before its cleanup waits.
+// A late retirement cannot invalidate a newer session for the same source.
+// The generation counter remains monotonic across the inactive interval.
+func (g *SessionGate) Retire(session SourceSession) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if session.Generation != 0 && g.generations[session.SourceID] == session.Generation {
+		g.active[session.SourceID] = false
+	}
 }
 
 // Accept reports whether a notification belongs to the current physical
@@ -74,7 +87,7 @@ func (g *SessionGate) Accept(session SourceSession) error {
 	if !ok {
 		return ErrUnknownSource
 	}
-	if session.Generation == 0 || generation != session.Generation {
+	if session.Generation == 0 || generation != session.Generation || !g.active[session.SourceID] {
 		return ErrSessionStale
 	}
 	return nil
@@ -93,7 +106,7 @@ func (g *SessionGate) Current(sourceID string) (SourceSession, error) {
 	if !ok {
 		return SourceSession{}, ErrUnknownSource
 	}
-	if generation == 0 {
+	if generation == 0 || !g.active[sourceID] {
 		return SourceSession{}, ErrSessionStale
 	}
 	return SourceSession{SourceID: sourceID, Generation: generation}, nil

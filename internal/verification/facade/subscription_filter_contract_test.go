@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,10 @@ import (
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
 // receiptFilterFixture builds a receipt-subscription query from caller-side
@@ -170,6 +175,81 @@ func TestSubscribeTransactionReceiptsCanonicalizesAndFreezesFilter(t *testing.T)
 	}
 }
 
+func TestSubscribeTransactionReceiptsPushHonorsFrozenFilter(t *testing.T) {
+	for _, multi := range []bool{false, true} {
+		for _, view := range []bool{false, true} {
+			for _, matches := range []bool{false, true} {
+				t.Run(fmt.Sprintf("multi=%v/view=%v/matches=%v", multi, view, matches), func(t *testing.T) {
+					peers := []*subscriptionPeer{newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})}
+					if multi {
+						peers = append(peers, newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)}))
+					}
+					var client *ethguard.Client
+					if multi {
+						client = subscriptionClient(t, peers...)
+					} else {
+						var err error
+						client, err = ethguard.DialUncorroborated(peers[0].endpoint)
+						if err != nil {
+							t.Fatal(err)
+						}
+						t.Cleanup(client.Close)
+					}
+					wanted := "0x" + strings.Repeat("42", 32)
+					actual := wanted
+					if !matches {
+						actual = "0x" + strings.Repeat("43", 32)
+					}
+					query := receiptFilterFixture(t, wanted)
+					out := make(chan []ethapi.Receipt, 1)
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					var sub ethereum.Subscription
+					var err error
+					if view {
+						sub, err = client.EthClient().SubscribeTransactionReceipts(ctx, query, out)
+					} else {
+						sub, err = client.SubscribeTransactionReceipts(ctx, query, out)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(sub.Unsubscribe)
+					// Later input mutation cannot widen or replace the registered filter.
+					(*query.TransactionHashes)[0] = ethapi.Hash("0x" + strings.Repeat("43", 32))
+					payload, err := json.Marshal([]json.RawMessage{fixtureReceipt(t, ethapi.Hash(actual), 7)})
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, peer := range peers {
+						peer.mu.Lock()
+						push := peer.push
+						peer.mu.Unlock()
+						if err := push(payload); err != nil {
+							t.Fatal(err)
+						}
+					}
+					select {
+					case got := <-out:
+						if !matches {
+							t.Fatalf("delivered transaction outside frozen filter: %+v", got)
+						}
+						if len(got) != 1 || string(got[0].TransactionHash) != wanted {
+							t.Fatalf("receipt output = %+v", got)
+						}
+					case err := <-sub.Err():
+						if matches || err == nil || !strings.Contains(err.Error(), "filter") {
+							t.Fatalf("subscription error = %v", err)
+						}
+					case <-ctx.Done():
+						t.Fatal("subscription produced neither receipt nor filter rejection")
+					}
+				})
+			}
+		}
+	}
+}
+
 // fixtureSubscriptionLog is an independent canonical logs-subscription event:
 // every kernel-required member is present with canonical spellings.
 func fixtureSubscriptionLog(blockHash string) json.RawMessage {
@@ -184,108 +264,59 @@ func fixtureSubscriptionLog(blockHash string) json.RawMessage {
 		`"removed":false}`)
 }
 
-// TestSubscribeFilterLogsRangeFilterPullsSameSourceBySeedBlock pins S2 on the
-// real WSS path: a legal range (and the default) filter registers its own
-// conditions, and when one source misses the pushed event the same-source
-// Pull fetches eth_getLogs addressed by the seeded log's block hash — the
-// range bounds are replaced, the address filter is preserved, and the
-// delivered event is the same log.
-func TestSubscribeFilterLogsRangeFilterPullsSameSourceBySeedBlock(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		query string
-	}{
-		{"default", `{}`},
-		{"range", `{"address":["0x` + strings.Repeat("cc", 20) + `"],"fromBlock":"0x0","toBlock":"latest"}`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			blockHash := "0x" + strings.Repeat("22", 32)
-			log := fixtureSubscriptionLog(blockHash)
+func logsFacadePolicy() ethguard.LogsSubscriptionPolicy {
+	return ethguard.LogsSubscriptionPolicy{Head: ethguard.HeadSubscriptionPolicy{MemoryBytes: 8 << 20, RetainedNodes: 64, MaxConcurrentRequests: 8, WireMessages: 8, WireBytes: 1 << 16, MaxMessageBytes: 1 << 14}, MemoryBytes: 32 << 20, MaxResponseBytes: 1 << 14, MaxConcurrentRequests: 2, RequestTimeout: time.Second, RecoveryTimeout: time.Second}
+}
+
+// Both public entrypoints follow Head even when no provider pushes a log.
+// A filter outside the birth height still delivers its empty block progress.
+func TestSubscribeFilterLogsPublicEntrypointsDeliverZeroMatchProgress(t *testing.T) {
+	for _, view := range []bool{false, true} {
+		t.Run(fmt.Sprint(view), func(t *testing.T) {
+			raw := fixtureBlock(t, 17)
 			a := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
-			b := newSubscriptionPeer(t, map[string][]byte{
-				"eth_chainId": []byte(`"0x1"`),
-				"eth_getLogs": []byte("[" + string(log) + "]"),
-			})
-			a.queueNotification(log)
+			b := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
+			a.queueNotification(raw)
+			b.queueNotification(raw)
 			client := subscriptionClient(t, a, b)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-
-			q, qErr := ethapi.NewFilterQuery(json.RawMessage(tc.query))
-			if qErr != nil {
-				t.Fatalf("query %s: %v", tc.query, qErr)
+			q, err := ethapi.NewFilterQuery(json.RawMessage(`{"fromBlock":"0x20","toBlock":"latest"}`))
+			if err != nil {
+				t.Fatal(err)
 			}
-			out := make(chan ethapi.Log, 1)
-			sub, subErr := client.SubscribeFilterLogs(ctx, q, out)
-			if subErr != nil {
-				t.Fatalf("subscribe: %v", subErr)
+			var sub *ethguard.LogsSubscription
+			if view {
+				sub, err = client.EthClient().SubscribeFilterLogs(ctx, q, logsFacadePolicy())
+			} else {
+				sub, err = client.SubscribeFilterLogs(ctx, q, logsFacadePolicy())
 			}
-			t.Cleanup(sub.Unsubscribe)
-			select {
-			case got := <-out:
-				if got.TransactionHash != ethapi.Hash("0x"+strings.Repeat("11", 32)) || got.BlockHash == nil || *got.BlockHash != ethapi.Hash(blockHash) {
-					t.Fatalf("delivered log = %+v", got)
-				}
-			case err := <-sub.Err():
-				t.Fatalf("subscription ended before delivery: %v", err)
-			case <-ctx.Done():
-				t.Fatalf("no delivered log: %v; A=%v B=%v", ctx.Err(), a.requestedMethods(), b.requestedMethods())
+			if err != nil {
+				t.Fatal(err)
 			}
-
-			// The registration must carry the subscription's own conditions;
-			// the same-source Pull must be hash-addressed by the seeded block
-			// with the address filter preserved and no range members.
-			a.mu.Lock()
-			defer a.mu.Unlock()
-			b.mu.Lock()
-			defer b.mu.Unlock()
-			var registered map[string]json.RawMessage
-			for _, req := range a.requests {
-				if req.Method == "eth_subscribe" {
-					if len(req.Params) != 2 || string(req.Params[0]) != `"logs"` {
-						t.Fatalf("registration params = %s", req.Params)
+			defer sub.Close()
+			event, err := sub.Next(ctx)
+			if err != nil || len(event.Path.Appended) != 1 || event.Path.Appended[0].Node.Number != 17 || event.Path.Appended[0].Logs == nil || len(event.Path.Appended[0].Logs) != 0 || event.Path.Appended[0].Proof != ethguard.LogsFilterExcluded {
+				t.Fatalf("event=%+v err=%v", event, err)
+			}
+			for _, peer := range []*subscriptionPeer{a, b} {
+				peer.mu.Lock()
+				requests := append([]subscriptionPeerRequest(nil), peer.requests...)
+				peer.mu.Unlock()
+				registered := false
+				for _, req := range requests {
+					if req.Method == "eth_subscribe" {
+						registered = true
+						if len(req.Params) != 1 || string(req.Params[0]) != `"newHeads"` {
+							t.Fatalf("registration=%s", req.Params)
+						}
 					}
-					var arg map[string]json.RawMessage
-					if err := json.Unmarshal(req.Params[1], &arg); err != nil {
-						t.Fatalf("registration arg %s: %v", req.Params[1], err)
-					}
-					registered = arg
-				}
-			}
-			if _, ok := registered["fromBlock"]; !ok {
-				t.Fatalf("registration lost the range conditions: %s", registered)
-			}
-			pulled := false
-			for _, req := range b.requests {
-				if req.Method != "eth_getLogs" {
-					continue
-				}
-				pulled = true
-				var arg map[string]json.RawMessage
-				if err := json.Unmarshal(req.Params[0], &arg); err != nil {
-					t.Fatalf("pull arg %s: %v", req.Params[0], err)
-				}
-				if _, ok := arg["fromBlock"]; ok {
-					t.Fatalf("pull arg carries a range member: %s", req.Params[0])
-				}
-				if _, ok := arg["toBlock"]; ok {
-					t.Fatalf("pull arg carries a range member: %s", req.Params[0])
-				}
-				if string(arg["blockHash"]) != fmt.Sprintf("%q", blockHash) {
-					t.Fatalf("pull arg block hash = %s, want %s", arg["blockHash"], blockHash)
-				}
-				if tc.query != `{}` {
-					if string(arg["address"]) != `["0x`+strings.Repeat("cc", 20)+`"]` {
-						t.Fatalf("pull arg lost the address filter: %s", req.Params[0])
+					if req.Method == "eth_getLogs" {
+						t.Fatal("legacy seeded log pull survived")
 					}
 				}
-			}
-			if !pulled {
-				t.Fatalf("source b never performed the same-source Pull: %v", b.requestedMethods())
-			}
-			for _, req := range a.requests {
-				if req.Method == "eth_getLogs" {
-					t.Fatalf("source a performed a Pull it did not owe: %v", a.requestedMethods())
+				if !registered {
+					t.Fatal("Head subscription absent")
 				}
 			}
 		})
@@ -354,9 +385,9 @@ func TestBlockReceiptsRequireCanonicalPresenceOnWire(t *testing.T) {
 // TestFilterLogsWireSpellsCanonicalCopy pins S3 on the real HTTP wire through
 // both facades: directly constructed mixed-case inputs ride the request as
 // the constructor's canonical lowercase copy — for the hash branch, for a
-// single address, and for an address array. Open-object extra precision on
-// the subscription path is asserted separately by
-// TestSubscribeFilterLogsWireSpellsCanonicalCopyForSubscription.
+// single address, and for an address array. The live subscription freezes
+// and applies filters locally; its unknown-extension rejection is covered by
+// TestSubscribeFilterLogsRejectsUnsupportedQueriesBeforeNetwork.
 func TestFilterLogsWireSpellsCanonicalCopy(t *testing.T) {
 	upperHash := "0X" + strings.ToUpper(strings.Repeat("ab", 32))
 	upperAddress := "0X" + strings.ToUpper(strings.Repeat("cc", 20))
@@ -456,66 +487,151 @@ func TestFilterLogsMixedBranchIsLocalInputError(t *testing.T) {
 	}
 }
 
-// TestSubscribeFilterLogsWireSpellsCanonicalCopyForSubscription pins S3 on
-// the real WSS subscription path through both facades: a directly
-// constructed mixed-case filter — including one open-object extra carrying
-// an exact integer beyond float64 precision — registers with the
-// constructor's canonical lowercase block hash and the extra riding the
-// wire byte-exactly.
-func TestSubscribeFilterLogsWireSpellsCanonicalCopyForSubscription(t *testing.T) {
-	a := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
-	b := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
-	client := subscriptionClient(t, a, b)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	upperHash := "0X" + strings.ToUpper(strings.Repeat("ab", 32))
-	q := ethapi.FilterQuery{FilterByBlockHash: &ethapi.FilterQueryHash{
-		BlockHash: ethapi.Hash(upperHash),
-		// An open-object extra with an integer a float64 cannot round-trip;
-		// the wire must carry the exact literal.
-		AdditionalProperties: map[string]json.RawMessage{"customFloor": json.RawMessage(`123456789012345678901234567890`)},
-	}}
+// Unsupported semantic extensions and finality tags must fail before network
+// registration on both public facades.
+func TestSubscribeFilterLogsRejectsUnsupportedQueriesBeforeNetwork(t *testing.T) {
 	for _, view := range []bool{false, true} {
-		out := make(chan ethapi.Log, 1)
-		var sub ethereum.Subscription
-		var err error
-		if view {
-			sub, err = client.EthClient().SubscribeFilterLogs(ctx, q, out)
-		} else {
-			sub, err = client.SubscribeFilterLogs(ctx, q, out)
+		for _, raw := range []string{`{"customFloor":123456789012345678901234567890}`, `{"fromBlock":"safe"}`, `{"toBlock":"finalized"}`} {
+			t.Run(fmt.Sprintf("%t/%s", view, raw), func(t *testing.T) {
+				a := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
+				b := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
+				client := subscriptionClient(t, a, b)
+				q, err := ethapi.NewFilterQuery(json.RawMessage(raw))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var sub *ethguard.LogsSubscription
+				if view {
+					sub, err = client.EthClient().SubscribeFilterLogs(context.Background(), q, logsFacadePolicy())
+				} else {
+					sub, err = client.SubscribeFilterLogs(context.Background(), q, logsFacadePolicy())
+				}
+				if sub != nil {
+					defer sub.Close()
+				}
+				if err == nil || !errors.Is(err, ethguard.ErrInvalidRequest) {
+					t.Fatalf("unexpected result %v", err)
+				}
+				for _, peer := range []*subscriptionPeer{a, b} {
+					for _, method := range peer.requestedMethods() {
+						if method == "eth_subscribe" {
+							t.Fatal("invalid filter reached network")
+						}
+					}
+				}
+			})
 		}
+	}
+}
+
+func logsFacadeBlock(t *testing.T) (json.RawMessage, json.RawMessage, common.Hash) {
+	t.Helper()
+	key, err := crypto.HexToECDSA(strings.Repeat("01", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := common.HexToAddress("0x" + strings.Repeat("cc", 20))
+	tx, err := types.SignNewTx(key, types.LatestSignerForChainID(big.NewInt(1)), &types.LegacyTx{To: &address, Gas: 21000, GasPrice: big.NewInt(1), Value: big.NewInt(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := &types.Receipt{Status: 1, CumulativeGasUsed: 21000, Logs: []*types.Log{{Address: address, Topics: []common.Hash{common.HexToHash("0x1")}, Data: []byte{1}}}, GasUsed: 21000, EffectiveGasPrice: big.NewInt(1), TxHash: tx.Hash(), BlockNumber: big.NewInt(17)}
+	receipt.Bloom = types.CreateBloom(receipt)
+	head := &types.Header{Number: big.NewInt(17), Difficulty: big.NewInt(0), Time: 123, GasLimit: 30000000, GasUsed: 21000, UncleHash: types.EmptyUncleHash, TxHash: types.DeriveSha(types.Transactions{tx}, trie.NewStackTrie(nil)), ReceiptHash: types.DeriveSha(types.Receipts{receipt}, trie.NewStackTrie(nil)), Bloom: receipt.Bloom}
+	receipt.BlockHash = head.Hash()
+	receipt.Logs[0].BlockHash = head.Hash()
+	receipt.Logs[0].BlockNumber = 17
+	receipt.Logs[0].BlockTimestamp = head.Time
+	receipt.Logs[0].TxHash = tx.Hash()
+	encode := func(value any) json.RawMessage {
+		raw, err := json.Marshal(value)
 		if err != nil {
-			t.Fatalf("view=%t subscribe: %v", view, err)
+			t.Fatal(err)
 		}
-		t.Cleanup(sub.Unsubscribe)
+		return raw
 	}
-	for _, peer := range []*subscriptionPeer{a, b} {
-		peer.mu.Lock()
-		saw := 0
-		for _, req := range peer.requests {
-			if req.Method != "eth_subscribe" {
-				continue
+	var txFields, headFields, receiptFields map[string]json.RawMessage
+	_ = json.Unmarshal(encode(tx), &txFields)
+	_ = json.Unmarshal(encode(head), &headFields)
+	_ = json.Unmarshal(encode(receipt), &receiptFields)
+	txFields["from"] = encode(crypto.PubkeyToAddress(key.PublicKey).Hex())
+	txFields["blockHash"] = encode(head.Hash().Hex())
+	txFields["blockNumber"] = json.RawMessage(`"0x11"`)
+	txFields["transactionIndex"] = json.RawMessage(`"0x0"`)
+	txFields["blockTimestamp"] = json.RawMessage(`"0x7b"`)
+	headFields["hash"] = encode(head.Hash().Hex())
+	headFields["transactions"] = encode([]map[string]json.RawMessage{txFields})
+	headFields["uncles"] = json.RawMessage(`[]`)
+	headFields["size"] = json.RawMessage(`"0x321"`)
+	receiptFields["from"] = txFields["from"]
+	receiptFields["to"] = encode(address.Hex())
+	delete(receiptFields, "root")
+	return encode(headFields), encode([]map[string]json.RawMessage{receiptFields}), head.Hash()
+}
+
+func TestSubscribeFilterLogsPublicEntrypointsProveNonemptyBlock(t *testing.T) {
+	for _, tc := range []struct{ view, single bool }{{}, {view: true}, {single: true}, {view: true, single: true}} {
+		t.Run(fmt.Sprintf("view=%t/single=%t", tc.view, tc.single), func(t *testing.T) {
+			block, receipts, hash := logsFacadeBlock(t)
+			responses := map[string][]byte{"eth_chainId": []byte(`"0x1"`), "eth_getBlockByHash": block, "eth_getBlockReceipts": receipts}
+			a := newSubscriptionPeer(t, responses)
+			a.queueNotification(block)
+			var client *ethguard.Client
+			if tc.single {
+				var err error
+				client, err = ethguard.DialUncorroborated(a.endpoint)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(client.Close)
+			} else {
+				b := newSubscriptionPeer(t, responses)
+				b.queueNotification(block)
+				client = subscriptionClient(t, a, b)
 			}
-			saw++
-			if len(req.Params) != 2 || string(req.Params[0]) != `"logs"` {
-				t.Fatalf("registration params = %s", req.Params)
+			q, err := ethapi.NewFilterQuery(json.RawMessage(`{"address":"0xcccccccccccccccccccccccccccccccccccccccc"}`))
+			if err != nil {
+				t.Fatal(err)
 			}
-			var arg map[string]json.RawMessage
-			if err := json.Unmarshal(req.Params[1], &arg); err != nil {
-				t.Fatalf("registration arg %s: %v", req.Params[1], err)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			var subscription *ethguard.LogsSubscription
+			if tc.view {
+				subscription, err = client.EthClient().SubscribeFilterLogs(ctx, q, logsFacadePolicy())
+			} else {
+				subscription, err = client.SubscribeFilterLogs(ctx, q, logsFacadePolicy())
 			}
-			wantHash := `"0x` + strings.Repeat("ab", 32) + `"`
-			if string(arg["blockHash"]) != wantHash {
-				t.Fatalf("non-canonical subscription wire blockHash = %s, want %s", arg["blockHash"], wantHash)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if string(arg["customFloor"]) != `123456789012345678901234567890` {
-				t.Fatalf("open extra lost exact precision: %s", arg["customFloor"])
+			defer subscription.Close()
+			basis := subscription.Basis()
+			if tc.single && (basis.Tier != ethguard.HeadForwarded || len(basis.Members) != 1 || basis.Quorum != 1) {
+				t.Fatalf("single source basis=%+v", basis)
 			}
-		}
-		peer.mu.Unlock()
-		if saw != 2 {
-			t.Fatalf("expected one registration per facade per peer, saw %d: %v", saw, peer.requestedMethods())
-		}
+			if !tc.single && (basis.Tier != ethguard.HeadCorroborated || len(basis.Members) != 2 || basis.Quorum != 2) {
+				t.Fatalf("multi source basis=%+v", basis)
+			}
+			event, err := subscription.Next(ctx)
+			if err != nil || len(event.Path.Appended) != 1 || len(event.Path.Appended[0].Logs) != 1 {
+				t.Fatalf("event=%+v err=%v", event, err)
+			}
+			entry := event.Path.Appended[0].Logs[0]
+			if *entry.BlockHash != ethapi.Hash(hash.Hex()) || *entry.BlockTimestamp != "0x7b" || *entry.Removed || event.Path.Appended[0].Proof != ethguard.LogsBlockCommitment {
+				t.Fatalf("log=%+v", entry)
+			}
+			if _, err := ethapi.NewLog(mustMarshalLogs(t, entry)); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
+}
+
+func mustMarshalLogs(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

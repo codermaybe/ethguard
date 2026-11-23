@@ -9,7 +9,7 @@ import (
 
 func strictConfig(t *testing.T) *Aggregator {
 	t.Helper()
-	a, err := New(Config{Snapshot: Snapshot{ID: "snap-1", Generation: 4, Members: []string{"a", "b", "c"}, Quorum: 2}, Mode: Strict, Queue: 4, SoftTimeout: 10 * time.Millisecond, HardTimeout: 20 * time.Millisecond})
+	a, err := New(Config{Snapshot: Snapshot{ID: "snap-1", Generation: 4, Members: []string{"a", "b", "c"}, Quorum: 2}, Mode: StrictMode, Queue: 4, SoftTimeout: 10 * time.Millisecond, HardTimeout: 20 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,13 +20,13 @@ func obs(kind Kind, contextKey, key, source string) Observation {
 	return Observation{Kind: kind, ContextKey: contextKey, Key: key, SourceID: source, Generation: 4, Payload: []byte(key), ObservedAt: time.Unix(100, 0)}
 }
 
-func TestStrictQuorumDeduplicatesSources(t *testing.T) {
+func TestStrictModeQuorumDeduplicatesSources(t *testing.T) {
 	a := strictConfig(t)
 	defer a.Close()
-	if err := a.Submit(obs(KindNewHeads, "head:1", "candidate-a", "a")); err != nil {
+	if err := a.Submit(obs(KindLogs, "log:1", "candidate-a", "a")); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Submit(obs(KindNewHeads, "head:1", "candidate-a", "a")); err != nil {
+	if err := a.Submit(obs(KindLogs, "log:1", "candidate-a", "a")); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -34,7 +34,7 @@ func TestStrictQuorumDeduplicatesSources(t *testing.T) {
 		t.Fatal("one source delivered before quorum")
 	default:
 	}
-	if err := a.Submit(obs(KindNewHeads, "head:1", "candidate-a", "b")); err != nil {
+	if err := a.Submit(obs(KindLogs, "log:1", "candidate-a", "b")); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -47,23 +47,23 @@ func TestStrictQuorumDeduplicatesSources(t *testing.T) {
 	}
 }
 
-func TestStrictConflictAndReorgRemainUndelivered(t *testing.T) {
+func TestStrictModeConflictAndReorgRemainUndelivered(t *testing.T) {
 	a := strictConfig(t)
 	defer a.Close()
-	_ = a.Submit(obs(KindNewHeads, "head:1", "hash-a", "a"))
-	_ = a.Submit(obs(KindNewHeads, "head:1", "hash-b", "b"))
+	_ = a.Submit(obs(KindLogs, "log:1", "hash-a", "a"))
+	_ = a.Submit(obs(KindLogs, "log:1", "hash-b", "b"))
 	select {
 	case <-a.Events():
 		t.Fatal("conflicting candidates delivered")
 	default:
 	}
-	if got := a.Status("head:1"); got != Collecting {
+	if got := a.Status("log:1"); got != Collecting {
 		t.Fatalf("status = %v", got)
 	}
 }
 
-func TestSingleSourceSelectedAndRemoved(t *testing.T) {
-	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a"}, Quorum: 1}, Mode: SingleSourceSelected, Queue: 2, HardTimeout: time.Second})
+func TestSelectedModeAndRemoved(t *testing.T) {
+	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a"}, Quorum: 1}, Mode: SelectedMode, Queue: 2, HardTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,13 +96,13 @@ func TestSingleSourceSelectedAndRemoved(t *testing.T) {
 	}
 }
 
-func TestStrictSingleSourceQuarantinesAtDeadline(t *testing.T) {
-	a, err := New(Config{Snapshot: Snapshot{ID: "single", Generation: 1, Members: []string{"a"}, Quorum: 1}, Mode: Strict, Queue: 1, HardTimeout: 10 * time.Millisecond})
+func TestStrictModeSingleSourceQuarantinesAtDeadline(t *testing.T) {
+	a, err := New(Config{Snapshot: Snapshot{ID: "single", Generation: 1, Members: []string{"a"}, Quorum: 1}, Mode: StrictMode, Queue: 1, HardTimeout: 10 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	first := obs(KindNewHeads, "head:1", "candidate", "a")
+	first := obs(KindLogs, "log:1", "candidate", "a")
 	first.Generation = 1
 	if err := a.Submit(first); err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestStrictSingleSourceQuarantinesAtDeadline(t *testing.T) {
 	default:
 	}
 	a.Advance(first.ObservedAt.Add(20 * time.Millisecond))
-	if got := a.Status("head:1"); got != Quarantined {
+	if got := a.Status("log:1"); got != Quarantined {
 		t.Fatalf("status = %v, want quarantined", got)
 	}
 	if err := <-a.Err(); !errors.Is(err, ErrQuorumTimeout) {
@@ -133,7 +133,7 @@ func TestTimeoutAndBackpressure(t *testing.T) {
 	}
 	a.Close()
 
-	b, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: Strict, Queue: 1, HardTimeout: time.Second})
+	b, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: StrictMode, Queue: 1, HardTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,10 +148,10 @@ func TestTimeoutAndBackpressure(t *testing.T) {
 func TestGenerationSourceAndPullValidation(t *testing.T) {
 	a := strictConfig(t)
 	defer a.Close()
-	if !errors.Is(a.Submit(obs(KindNewHeads, "x", "k", "z")), ErrUnknownSource) {
+	if !errors.Is(a.Submit(obs(KindLogs, "x", "k", "z")), ErrUnknownSource) {
 		t.Fatal("unknown source accepted")
 	}
-	stale := obs(KindNewHeads, "x", "k", "a")
+	stale := obs(KindLogs, "x", "k", "a")
 	stale.Generation = 3
 	if !errors.Is(a.Submit(stale), ErrStaleGeneration) {
 		t.Fatal("stale generation accepted")
@@ -162,25 +162,7 @@ func TestGenerationSourceAndPullValidation(t *testing.T) {
 	}
 }
 
-func TestCanonicalKeysNormalizeAndKeepReorgIdentity(t *testing.T) {
-	contextA, keyA, err := CanonicalNewHeadKey("0x1", "0xAA", "0xBB")
-	if err != nil {
-		t.Fatal(err)
-	}
-	contextB, keyB, err := CanonicalNewHeadKey("0x1", "0xaa", "0xbb")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if contextA != contextB || keyA != keyB {
-		t.Fatalf("hex normalization mismatch: %s/%s %s/%s", contextA, keyA, contextB, keyB)
-	}
-	_, reorgKey, err := CanonicalNewHeadKey("0x1", "0xcc", "0xdd")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if keyA == reorgKey {
-		t.Fatal("reorg candidate collapsed")
-	}
+func TestCanonicalLogKeysKeepRevocationIdentity(t *testing.T) {
 	_, logA, err := CanonicalLogKey("0xAA", "0x1", "0xTX", 0, "0xADDR", "0xDATA", []string{"0xAB"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -215,8 +197,8 @@ func TestCanonicalTransactionReceiptsKeyIsStableAcrossBatchOrder(t *testing.T) {
 	}
 }
 
-func TestTransactionReceiptsReachStrictQuorumAndRejectConflictingBatch(t *testing.T) {
-	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: Strict, Queue: 2, HardTimeout: time.Second})
+func TestTransactionReceiptsReachStrictModeQuorumAndRejectConflictingBatch(t *testing.T) {
+	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: StrictMode, Queue: 2, HardTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,18 +234,18 @@ func TestCloseAndUnsubscribeAreIdempotent(t *testing.T) {
 	if _, ok := <-a.Err(); ok {
 		t.Fatal("intentional unsubscribe reported a terminal error")
 	}
-	if err := a.Submit(obs(KindNewHeads, "x", "k", "a")); !errors.Is(err, ErrClosed) {
+	if err := a.Submit(obs(KindLogs, "x", "k", "a")); !errors.Is(err, ErrClosed) {
 		t.Fatalf("submit after unsubscribe = %v", err)
 	}
 }
 
 func TestKindIsPartOfEventIdentity(t *testing.T) {
-	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: Strict, Queue: 2, HardTimeout: time.Second})
+	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: StrictMode, Queue: 2, HardTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	head := obs(KindNewHeads, "same", "head", "a")
+	head := obs(KindTransactionReceipts, "same", "receipt", "a")
 	head.Generation = 1
 	if err := a.Submit(head); err != nil {
 		t.Fatal(err)
@@ -329,7 +311,7 @@ func TestRemovedEventRevokesAQuorumDelivery(t *testing.T) {
 	}
 }
 
-func TestStrictRemovedEventRequiresQuorumAndDeliveredPredecessor(t *testing.T) {
+func TestStrictModeRemovedEventRequiresQuorumAndDeliveredPredecessor(t *testing.T) {
 	a := strictConfig(t)
 	defer a.Close()
 	contextKey, key, err := CanonicalLogKey("0xabc", "0x10", "0xtx", 3, "0xaddr", "0xdata", nil, false)
@@ -382,7 +364,7 @@ func TestStrictRemovedEventRequiresQuorumAndDeliveredPredecessor(t *testing.T) {
 }
 
 func TestSnapshotIsCopiedAndGenerationFiltersLateFrames(t *testing.T) {
-	cfg := Config{Snapshot: Snapshot{ID: "snap", Generation: 7, Members: []string{"a", "b"}, Quorum: 2}, Mode: Strict, Queue: 2, HardTimeout: time.Second}
+	cfg := Config{Snapshot: Snapshot{ID: "snap", Generation: 7, Members: []string{"a", "b"}, Quorum: 2}, Mode: StrictMode, Queue: 2, HardTimeout: time.Second}
 	a, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -392,7 +374,7 @@ func TestSnapshotIsCopiedAndGenerationFiltersLateFrames(t *testing.T) {
 	if got := a.Snapshot(); got.Members[0] != "a" {
 		t.Fatalf("snapshot members were aliased: %+v", got.Members)
 	}
-	stale := obs(KindNewHeads, "head:1", "candidate", "a")
+	stale := obs(KindLogs, "log:1", "candidate", "a")
 	stale.Generation = 6
 	if err := a.Submit(stale); !errors.Is(err, ErrStaleGeneration) {
 		t.Fatalf("stale generation error = %v", err)
@@ -400,18 +382,18 @@ func TestSnapshotIsCopiedAndGenerationFiltersLateFrames(t *testing.T) {
 }
 
 func TestPerSourceGenerationsFilterOnlyTheStaleSession(t *testing.T) {
-	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Generations: map[string]uint64{"a": 2, "b": 7}, Members: []string{"a", "b"}, Quorum: 2}, Mode: Strict, Queue: 1, HardTimeout: time.Second})
+	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Generations: map[string]uint64{"a": 2, "b": 7}, Members: []string{"a", "b"}, Quorum: 2}, Mode: StrictMode, Queue: 1, HardTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	if err := a.Submit(Observation{Kind: KindNewHeads, ContextKey: "head:1", Key: "candidate", SourceID: "a", Generation: 1}); !errors.Is(err, ErrStaleGeneration) {
+	if err := a.Submit(Observation{Kind: KindLogs, ContextKey: "log:1", Key: "candidate", SourceID: "a", Generation: 1}); !errors.Is(err, ErrStaleGeneration) {
 		t.Fatalf("stale source generation accepted: %v", err)
 	}
-	if err := a.Submit(Observation{Kind: KindNewHeads, ContextKey: "head:1", Key: "candidate", SourceID: "a", Generation: 2}); err != nil {
+	if err := a.Submit(Observation{Kind: KindLogs, ContextKey: "log:1", Key: "candidate", SourceID: "a", Generation: 2}); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Submit(Observation{Kind: KindNewHeads, ContextKey: "head:1", Key: "candidate", SourceID: "b", Generation: 7}); err != nil {
+	if err := a.Submit(Observation{Kind: KindLogs, ContextKey: "log:1", Key: "candidate", SourceID: "b", Generation: 7}); err != nil {
 		t.Fatal(err)
 	}
 	if got := <-a.Events(); got.Votes != 2 {
@@ -420,25 +402,25 @@ func TestPerSourceGenerationsFilterOnlyTheStaleSession(t *testing.T) {
 }
 
 func TestQueueOverflowReportsTerminalBackpressureAndClosesEvents(t *testing.T) {
-	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: Strict, Queue: 1, HardTimeout: time.Second})
+	a, err := New(Config{Snapshot: Snapshot{ID: "snap", Generation: 1, Members: []string{"a", "b"}, Quorum: 2}, Mode: StrictMode, Queue: 1, HardTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	first := obs(KindNewHeads, "head:1", "one", "a")
+	first := obs(KindLogs, "log:1", "one", "a")
 	first.Generation = 1
 	if err := a.Submit(first); err != nil {
 		t.Fatal(err)
 	}
-	secondVote := obs(KindNewHeads, "head:1", "one", "b")
+	secondVote := obs(KindLogs, "log:1", "one", "b")
 	secondVote.Generation = 1
 	if err := a.Submit(secondVote); err != nil {
 		t.Fatal(err)
 	}
-	second := obs(KindNewHeads, "head:2", "two", "a")
+	second := obs(KindLogs, "log:2", "two", "a")
 	second.Generation = 1
 	_ = a.Submit(second)
-	secondVote = obs(KindNewHeads, "head:2", "two", "b")
+	secondVote = obs(KindLogs, "log:2", "two", "b")
 	secondVote.Generation = 1
 	if err := a.Submit(secondVote); !errors.Is(err, ErrBackpressure) {
 		t.Fatalf("overflow error = %v", err)
@@ -455,13 +437,13 @@ func TestQueueOverflowReportsTerminalBackpressureAndClosesEvents(t *testing.T) {
 	}
 }
 
-func TestStrictQuorumKeepsFirstSourceVoteAcrossCandidates(t *testing.T) {
+func TestStrictModeQuorumKeepsFirstSourceVoteAcrossCandidates(t *testing.T) {
 	a := strictConfig(t)
 	defer a.Close()
 	for _, observation := range []Observation{
-		obs(KindNewHeads, "head:1", "push-y", "a"),
-		obs(KindNewHeads, "head:1", "pull-x", "b"),
-		obs(KindNewHeads, "head:1", "pull-x", "a"),
+		obs(KindLogs, "log:1", "push-y", "a"),
+		obs(KindLogs, "log:1", "pull-x", "b"),
+		obs(KindLogs, "log:1", "pull-x", "a"),
 	} {
 		if err := a.Submit(observation); err != nil {
 			t.Fatal(err)
@@ -472,7 +454,7 @@ func TestStrictQuorumKeepsFirstSourceVoteAcrossCandidates(t *testing.T) {
 		t.Fatalf("same source voted for two candidates: %+v", delivery)
 	default:
 	}
-	if err := a.Submit(obs(KindNewHeads, "head:1", "push-y", "c")); err != nil {
+	if err := a.Submit(obs(KindLogs, "log:1", "push-y", "c")); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -483,20 +465,6 @@ func TestStrictQuorumKeepsFirstSourceVoteAcrossCandidates(t *testing.T) {
 	default:
 		t.Fatal("first source vote did not reach quorum")
 	}
-	// A different head after delivery starts a new round at the same height.
-	for _, source := range []string{"a", "b"} {
-		if err := a.Submit(obs(KindNewHeads, "head:1", "replacement", source)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	select {
-	case delivery := <-a.Events():
-		if delivery.Key != "replacement" || delivery.Votes != 2 {
-			t.Fatalf("replacement round = %+v", delivery)
-		}
-	default:
-		t.Fatal("delivered head retained source occupancy in replacement round")
-	}
 }
 
 func BenchmarkSubmitQuorum(b *testing.B) {
@@ -506,7 +474,7 @@ func BenchmarkSubmitQuorum(b *testing.B) {
 			b.Fatal(err)
 		}
 		for _, source := range []string{"a", "b"} {
-			if err := a.Submit(obs(KindNewHeads, "head:1", "candidate", source)); err != nil {
+			if err := a.Submit(obs(KindLogs, "log:1", "candidate", source)); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -521,8 +489,8 @@ func BenchmarkSubmitDuplicateSource(b *testing.B) {
 		b.Fatal(err)
 	}
 	defer a.Close()
-	first := obs(KindNewHeads, "head:1", "first", "a")
-	duplicate := obs(KindNewHeads, "head:1", "other", "a")
+	first := obs(KindLogs, "log:1", "first", "a")
+	duplicate := obs(KindLogs, "log:1", "other", "a")
 	if err := a.Submit(first); err != nil {
 		b.Fatal(err)
 	}

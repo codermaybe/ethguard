@@ -80,3 +80,30 @@ func TestSessionGateRejectsInvalidMembership(t *testing.T) {
 		t.Fatalf("empty source accepted: %v", err)
 	}
 }
+
+func TestSessionGateRetiresOnlyTheCurrentSession(t *testing.T) {
+	gate, err := NewSessionGate([]string{"a", "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _ := gate.Open("a")
+	other, _ := gate.Open("b")
+	gate.Retire(first)
+	if _, err := gate.Current("a"); !errors.Is(err, ErrSessionStale) {
+		t.Fatalf("retired session is current: %v", err)
+	}
+	if err := gate.Accept(first); !errors.Is(err, ErrSessionStale) {
+		t.Fatalf("retired session accepted: %v", err)
+	}
+	if err := gate.Accept(other); err != nil {
+		t.Fatalf("retiring a changed b: %v", err)
+	}
+	second, _ := gate.Open("a")
+	if second.Generation != first.Generation+1 {
+		t.Fatalf("generation reset: %+v then %+v", first, second)
+	}
+	gate.Retire(first)
+	if err := gate.Accept(second); err != nil {
+		t.Fatalf("old retirement invalidated replacement: %v", err)
+	}
+}

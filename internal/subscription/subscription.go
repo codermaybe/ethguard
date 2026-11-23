@@ -30,15 +30,15 @@ var (
 type Mode uint8
 
 const (
-	Strict Mode = iota
-	SingleSourceSelected
+	StrictMode Mode = iota
+	SelectedMode
+	ForwardedMode
 )
 
 type Kind string
 
 const (
-	KindNewHeads Kind = "newHeads"
-	KindLogs     Kind = "logs"
+	KindLogs Kind = "logs"
 	// KindTransactionReceipts identifies one notification carrying a batch of
 	// transaction receipts. A batch is one logical event; its candidate key is
 	// computed over the complete canonicalized batch.
@@ -71,7 +71,7 @@ type Snapshot struct {
 	Quorum      int
 }
 
-// Config controls an Aggregator. Queue and hard timeout must be positive.
+// Config controls the bounded logs/receipts event aggregator.
 type Config struct {
 	Snapshot    Snapshot
 	Mode        Mode
@@ -160,7 +160,7 @@ func New(cfg Config) (*Aggregator, error) {
 	if cfg.HardTimeout <= 0 {
 		return nil, fmt.Errorf("subscription: hard timeout must be positive")
 	}
-	if cfg.SoftTimeout < 0 || (cfg.SoftTimeout > 0 && cfg.SoftTimeout >= cfg.HardTimeout) {
+	if cfg.SoftTimeout < 0 || (cfg.SoftTimeout > 0 && (cfg.HardTimeout == 0 || cfg.SoftTimeout >= cfg.HardTimeout)) {
 		return nil, fmt.Errorf("subscription: soft timeout must be less than hard timeout")
 	}
 	members := make(map[string]struct{}, len(cfg.Snapshot.Members))
@@ -223,7 +223,7 @@ func (a *Aggregator) Submit(obs Observation) error {
 	if obs.Generation != expectedGeneration {
 		return ErrStaleGeneration
 	}
-	if obs.Kind != KindNewHeads && obs.Kind != KindLogs && obs.Kind != KindTransactionReceipts {
+	if obs.Kind != KindLogs && obs.Kind != KindTransactionReceipts {
 		return fmt.Errorf("subscription: unknown event kind %q", obs.Kind)
 	}
 	if obs.ContextKey == "" || obs.Key == "" {
@@ -270,30 +270,14 @@ func (a *Aggregator) Submit(obs Observation) error {
 			// A selected single-source subscription has no corroboration
 			// requirement. Strict subscriptions still require the fixed event
 			// quorum before revoking a previously delivered log.
-			if a.cfg.Mode != SingleSourceSelected && len(removedCandidate.sources) < a.cfg.Snapshot.Quorum {
+			if a.cfg.Mode != SelectedMode && len(removedCandidate.sources) < a.cfg.Snapshot.Quorum {
 				return nil
 			}
 			ctx.revoked = true
 			ctx.status = Revoked
 			return a.emitLocked(Delivery{Observation: cloneObservation(removedCandidate.obs), Snapshot: a.cfg.Snapshot, Status: Revoked, Votes: len(removedCandidate.sources)})
 		}
-		// A new head at the same height is a reorg replacement. Its candidate
-		// key includes the block hash, so start a fresh vote context instead of
-		// dropping the replacement merely because the old candidate was sent.
-		if obs.Kind == KindNewHeads && obs.Key != ctx.delivered {
-			ctx.first = obs.ObservedAt
-			if ctx.first.IsZero() {
-				ctx.first = time.Now()
-			}
-			ctx.status = Collecting
-			ctx.delivered = ""
-			ctx.revoked = false
-			clear(ctx.candidates)
-			clear(ctx.voters)
-			ctx.removing = false
-		} else {
-			return nil
-		}
+		return nil
 	}
 	if obs.Removed {
 		ctx.status = Quarantined
@@ -317,7 +301,7 @@ func (a *Aggregator) Submit(obs Observation) error {
 	ctx.voters[obs.SourceID] = struct{}{}
 	c.sources[obs.SourceID] = struct{}{}
 	a.evidence += int64(len(obs.Payload))
-	if a.cfg.Mode == SingleSourceSelected {
+	if a.cfg.Mode == SelectedMode {
 		ctx.status, ctx.delivered = Selected, obs.Key
 		return a.emitLocked(Delivery{Observation: cloneObservation(obs), Snapshot: a.cfg.Snapshot, Status: Selected, Votes: 1})
 	}
@@ -389,7 +373,7 @@ func (a *Aggregator) QuarantineContext(kind Kind, contextKey string) {
 func (a *Aggregator) Status(contextKey string) Status {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	for _, kind := range []Kind{KindNewHeads, KindLogs, KindTransactionReceipts} {
+	for _, kind := range []Kind{KindLogs, KindTransactionReceipts} {
 		if ctx := a.contexts[string(kind)+"\x00"+contextKey]; ctx != nil {
 			return ctx.status
 		}
@@ -464,16 +448,6 @@ func PullObservation(ctx context.Context, expectedSource string, expectedGenerat
 		return Observation{}, ErrStaleGeneration
 	}
 	return obs, nil
-}
-
-// CanonicalNewHeadKey returns a reorg-sensitive candidate key and a logical
-// context key. Hex spelling is normalized before hashing.
-func CanonicalNewHeadKey(number, hash, parent string) (contextKey, key string, err error) {
-	if number == "" || hash == "" || parent == "" {
-		return "", "", fmt.Errorf("subscription: incomplete new head")
-	}
-	v := struct{ Number, Hash, Parent string }{strings.ToLower(number), strings.ToLower(hash), strings.ToLower(parent)}
-	return "head:" + v.Number, digest(KindNewHeads, v), nil
 }
 
 func CanonicalLogKey(blockHash, blockNumber, txHash string, index uint64, address, data string, topics []string, removed bool) (contextKey, key string, err error) {

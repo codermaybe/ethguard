@@ -31,69 +31,38 @@ func pushNotification(t *testing.T, tr *Transport, id string) {
 		`{"method":"eth_subscription","params":{"subscription":%q,"result":"0x1"}}`, id)))
 }
 
-// TestPendingNotificationsBoundedAndCleanedUp pins the two bounds and cleanup
-// exits on the transport-level pending buffer. At the global cap the oldest
-// never-bound ID is retired so a new subscription's first notification is
-// retained instead of being silently discarded.
 func TestPendingNotificationsBoundedAndCleanedUp(t *testing.T) {
 	tr := newPendingTestTransport(t)
-
-	for i := 0; i < maxPendingSubscriptionIDs+50; i++ {
-		pushNotification(t, tr, fmt.Sprintf("0x%064x", i))
+	for i := 0; i < 1000; i++ {
+		pushNotification(t, tr, fmt.Sprint(i))
 	}
-	if got := len(tr.pendingNotifications); got != maxPendingSubscriptionIDs {
-		t.Fatalf("pending IDs = %d, want bounded size %d", got, maxPendingSubscriptionIDs)
+	if len(tr.pendingNotifications) != 0 {
+		t.Fatal("unknown IDs retained without an establishing subscription")
 	}
-	assertPendingNotificationOrder(t, tr)
-	newest := fmt.Sprintf("0x%064x", maxPendingSubscriptionIDs+49)
-	// An ID that already holds a buffer keeps filling it up to its own cap.
-	survivor := newest
-	for i := 0; i < maxPendingNotificationsPerID+10; i++ {
-		pushNotification(t, tr, survivor)
+	stream, err := tr.openNotificationStreamWithID(context.Background(), "a", 1, 8, pendingSubscriptionID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := len(tr.pendingNotifications[survivor]); got != maxPendingNotificationsPerID {
-		t.Fatalf("per-ID buffer = %d, want the %d cap", got, maxPendingNotificationsPerID)
+	defer stream.Unsubscribe()
+	for i := 0; i < defaultPendingMessages; i++ {
+		pushNotification(t, tr, fmt.Sprint(i))
 	}
-	assertPendingNotificationOrder(t, tr)
-
-	// Binding an ID flushes and removes its buffer; delivering to the bound
-	// stream must not recreate one.
-	stream := &NotificationStream{
-		owner:  tr,
-		events: make(chan Notification, maxPendingNotificationsPerID+8),
-		errs:   make(chan error, 1),
-		done:   make(chan struct{}),
+	if tr.pendingMessages != defaultPendingMessages || tr.pendingBytes == 0 {
+		t.Fatal("pending accounting missing")
 	}
-	tr.streams[stream] = struct{}{}
-	boundID := survivor
-	if !stream.bindSubscriptionID(boundID) {
-		t.Fatal("bindSubscriptionID failed")
+	pushNotification(t, tr, "overflow")
+	if stream.bindSubscriptionID("0") {
+		t.Fatal("setup silently survived dropped notification")
 	}
-	pushNotification(t, tr, boundID)
-	if _, ok := tr.pendingNotifications[boundID]; ok {
-		t.Fatal("bound ID left a pending buffer behind")
+	tr.mu.Lock()
+	pendingMessages, pendingBytes := tr.pendingMessages, tr.pendingBytes
+	tr.mu.Unlock()
+	if pendingMessages != 0 || pendingBytes != 0 {
+		t.Fatal("failed setup retained bytes")
 	}
-	assertPendingNotificationOrder(t, tr)
-
-	// Unsubscribing removes a lingering pending entry for the same ID —
-	// a server that keeps pushing after the unsubscribe must not pin
-	// the buffer forever.
-	tr.pendingNotifications[boundID] = append(tr.pendingNotifications[boundID],
-		Notification{SubscriptionID: boundID})
-	tr.pendingNotificationOrder = append(tr.pendingNotificationOrder, boundID)
-	stream.Unsubscribe()
-	if _, ok := tr.pendingNotifications[boundID]; ok {
-		t.Fatal("unsubscribed ID left a pending buffer behind")
+	if err := <-stream.Err(); !errors.Is(err, ErrNotificationBackpressure) {
+		t.Fatalf("setup error %v", err)
 	}
-	assertPendingNotificationOrder(t, tr)
-
-	// abort kills the socket and with it every pending buffer.
-	pushNotification(t, tr, "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
-	tr.abort(errors.New("socket dead"))
-	if got := len(tr.pendingNotifications); got != 0 {
-		t.Fatalf("abort left pending notifications behind: %d", got)
-	}
-	assertPendingNotificationOrder(t, tr)
 }
 
 func TestCloseClearsPendingNotifications(t *testing.T) {
@@ -206,43 +175,19 @@ func assertPendingNotificationOrder(t *testing.T, tr *Transport) {
 	}
 }
 
-func TestSubscribeAtPendingIDCapDeliversEarlyNotification(t *testing.T) {
-	const subscriptionID = "new-subscription"
-	const result = `{"number":"0x1234"}`
+func TestSubscribePendingBudgetOverflowFailsSetup(t *testing.T) {
 	peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
 		request := <-peer.requests
-		// Every foreign ID fills a pending slot while Subscribe is awaiting
-		// its response. Wire ordering makes the cap and early-event race
-		// deterministic without sleeps or inspection of the pending map.
-		for i := range maxPendingSubscriptionIDs {
-			peer.writeFrame(notificationFrame(fmt.Sprintf("foreign-%d", i), `{"number":"0xffff"}`))
+		for i := 0; i <= defaultPendingMessages; i++ {
+			peer.writeFrame(notificationFrame(fmt.Sprintf("foreign-%d", i), `"0x1"`))
 		}
-		peer.writeFrame(notificationFrame(subscriptionID, result))
-		peer.respond(request, `"`+subscriptionID+`"`)
-		peer.respond(<-peer.requests, `true`)
+		peer.respond(request, `"new-subscription"`)
 	})
 	tr := dialTestTransport(t, peerURL, 0)
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
-	subscription, err := tr.Subscribe(ctx, "newHeads")
-	if err != nil {
-		t.Fatalf("Subscribe at pending-ID cap: %v", err)
-	}
-	defer subscription.Unsubscribe()
-	select {
-	case event, ok := <-subscription.Events():
-		if !ok || event.Method != "eth_subscription" || event.SubscriptionID != subscriptionID || string(event.Result) != result {
-			t.Fatalf("early subscription event = %+v, open = %v", event, ok)
-		}
-	case <-ctx.Done():
-		t.Fatal("subscription lost the early notification at the pending-ID cap")
-	}
-	// All pre-response notifications have been dispatched before Subscribe
-	// returns, so an empty queue here proves foreign-ID isolation.
-	select {
-	case event := <-subscription.Events():
-		t.Fatalf("subscription received an extra or foreign event: %+v", event)
-	default:
+	if _, err := tr.Subscribe(ctx, "newHeads"); !errors.Is(err, ErrNotificationBackpressure) {
+		t.Fatalf("setup overflow %v", err)
 	}
 }
 
@@ -255,19 +200,20 @@ func TestSubscribeAtPendingIDCapDeliversEarlyNotification(t *testing.T) {
 func TestPendingPlaceholderStreamDoesNotMisrouteOtherSubscriptions(t *testing.T) {
 	tr := newPendingTestTransport(t)
 
-	bound := &NotificationStream{
-		owner:          tr,
-		events:         make(chan Notification, 8),
-		errs:           make(chan error, 1),
-		subscriptionID: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	bound, err := tr.openNotificationStreamWithID(context.Background(), "a", 1, 8, "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	tr.streams[bound] = struct{}{}
-	tr.subscriptionIDs[bound.subscriptionID] = bound
+	defer bound.Unsubscribe()
+	if !bound.bindSubscriptionID("bound") {
+		t.Fatal("bind")
+	}
 
 	pendingStream, err := tr.openNotificationStreamWithID(context.Background(), "source-b", 1, 8, pendingSubscriptionID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer pendingStream.Unsubscribe()
 	if pendingStream.subscriptionID != pendingSubscriptionID {
 		t.Fatal("the subscribe-path stream must register with the pending placeholder")
 	}
@@ -286,7 +232,7 @@ func TestPendingPlaceholderStreamDoesNotMisrouteOtherSubscriptions(t *testing.T)
 		if event.SubscriptionID != bound.subscriptionID {
 			t.Fatalf("bound stream received the wrong notification: %+v", event)
 		}
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("bound stream lost its own notification")
 	}
 }

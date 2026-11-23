@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/types"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,10 +15,8 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/testkit/wstest"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/ethereum/go-ethereum"
 )
 
 // subscriptionPeerRequest is one JSON-RPC request the peer received.
@@ -31,10 +31,13 @@ type subscriptionPeerRequest struct {
 type subscriptionPeer struct {
 	endpoint string
 
-	mu       sync.Mutex
-	requests []subscriptionPeerRequest
-	pending  [][]byte
-	seq      int
+	mu           sync.Mutex
+	requests     []subscriptionPeerRequest
+	pending      [][]byte
+	seq          int
+	writeMu      sync.Mutex
+	push         func([]byte) error
+	headResponse []byte
 }
 
 // newSubscriptionPeer starts a WebSocket peer that answers the scripted
@@ -42,7 +45,7 @@ type subscriptionPeer struct {
 // subscription is established and pushed right after the registration answer.
 func newSubscriptionPeer(t *testing.T, scripts map[string][]byte) *subscriptionPeer {
 	t.Helper()
-	peer := &subscriptionPeer{}
+	peer := &subscriptionPeer{headResponse: scripts["eth_getBlockByNumber"]}
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := wstest.Upgrade(t, w, r)
 		if err != nil {
@@ -50,6 +53,7 @@ func newSubscriptionPeer(t *testing.T, scripts map[string][]byte) *subscriptionP
 			return
 		}
 		defer conn.Close()
+		write := func(raw []byte) error { peer.writeMu.Lock(); defer peer.writeMu.Unlock(); return conn.WriteText(raw) }
 		for {
 			body, err := conn.ReadMessage()
 			if err != nil {
@@ -71,18 +75,31 @@ func newSubscriptionPeer(t *testing.T, scripts map[string][]byte) *subscriptionP
 			peer.mu.Unlock()
 
 			script, scripted := scripts[req.Method]
+			if req.Method == "eth_getBlockByNumber" {
+				peer.mu.Lock()
+				script = peer.headResponse
+				scripted = len(script) > 0
+				peer.mu.Unlock()
+			}
 			if req.Method == "eth_subscribe" {
 				peer.mu.Lock()
 				queued := peer.pending
 				peer.pending = nil
 				peer.mu.Unlock()
 				id := fmt.Sprintf("sub-%d", seq)
-				if err := conn.WriteText([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"%s"}`, req.ID, id))); err != nil {
+				peer.mu.Lock()
+				peer.push = func(raw []byte) error {
+					peer.writeMu.Lock()
+					defer peer.writeMu.Unlock()
+					return conn.WriteText([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_subscription","params":{"subscription":%q,"result":%s}}`, id, raw)))
+				}
+				peer.mu.Unlock()
+				if err := write([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"%s"}`, req.ID, id))); err != nil {
 					return
 				}
 				for _, result := range queued {
 					notification := []byte(fmt.Sprintf(`{"jsonrpc":"2.0","method":"eth_subscription","params":{"subscription":%q,"result":%s}}`, id, result))
-					if err := conn.WriteText(notification); err != nil {
+					if err := write(notification); err != nil {
 						return
 					}
 				}
@@ -94,7 +111,7 @@ func newSubscriptionPeer(t *testing.T, scripts map[string][]byte) *subscriptionP
 			if !scripted {
 				continue
 			}
-			if err := conn.WriteText([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":%s}`, req.ID, script))); err != nil {
+			if err := write([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":%s}`, req.ID, script))); err != nil {
 				return
 			}
 		}
@@ -144,43 +161,51 @@ func subscriptionClient(t *testing.T, peers ...*subscriptionPeer) *ethguard.Clie
 	return client
 }
 
-// Only one peer pushes the event. The other must independently return the
-// same height through its own unary connection before either public facade
-// can deliver it. This exercises the real WSS registration, notification ID,
-// quorum, same-source Pull, typed delivery, and explicit unsubscribe boundary.
-func TestSubscribeNewHeadPublicEntrypointsUseSameSourcePull(t *testing.T) {
+// Both peers witness the current tips; one independently valid hash lookup
+// supplies a missing object without creating another source vote.
+func TestSubscribeNewHeadPublicEntrypointsUsePathWitnessesAndHashRecovery(t *testing.T) {
 	for _, view := range []bool{false, true} {
 		t.Run(fmt.Sprintf("view=%t", view), func(t *testing.T) {
 			raw := fixtureBlock(t, 17)
 			a := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
-			b := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`), "eth_getBlockByNumber": raw})
+			var birth types.Header
+			if err := json.Unmarshal(raw, &birth); err != nil {
+				t.Fatal(err)
+			}
+			missing := birth
+			missing.ParentHash = birth.Hash()
+			missing.Number = big.NewInt(18)
+			middleFixture, err := json.Marshal(&missing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`), "eth_getBlockByHash": middleFixture})
 			a.queueNotification(raw)
+			b.queueNotification(raw)
 			client := subscriptionClient(t, a, b)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			out := make(chan *ethapi.Header, 1)
-			var sub ethereum.Subscription
-			var err error
+
+			var sub *ethguard.HeadSubscription
 			if view {
-				sub, err = client.EthClient().SubscribeNewHead(ctx, out)
+				sub, err = client.EthClient().SubscribeNewHead(ctx, ethguard.HeadSubscriptionPolicy{MemoryBytes: 8 << 20, RetainedNodes: 64, MaxConcurrentRequests: 8, RecoveryTimeout: 5 * time.Second, WireMessages: 8, WireBytes: 1 << 16, MaxMessageBytes: 1 << 14})
 			} else {
-				sub, err = client.SubscribeNewHead(ctx, out)
+				sub, err = client.SubscribeNewHead(ctx, ethguard.HeadSubscriptionPolicy{MemoryBytes: 8 << 20, RetainedNodes: 64, MaxConcurrentRequests: 8, RecoveryTimeout: 5 * time.Second, WireMessages: 8, WireBytes: 1 << 16, MaxMessageBytes: 1 << 14})
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(sub.Unsubscribe)
-			select {
-			case header := <-out:
-				height, heightErr := rpc.ParseHexQuantity(string(header.Number))
-				if header == nil || heightErr != nil || height != 17 || string(header.Hash) != blockHashOf(raw) {
-					t.Fatalf("delivered header = %+v", header)
-				}
-			case err := <-sub.Err():
-				t.Fatalf("subscription ended before delivery: %v", err)
-			case <-ctx.Done():
-				t.Fatalf("no corroborated head: %v; A=%v B=%v", ctx.Err(), a.requestedMethods(), b.requestedMethods())
+			t.Cleanup(func() { _ = sub.Close() })
+			event, nextErr := sub.Next(ctx)
+			if nextErr != nil || len(event.Path.Appended) != 1 {
+				t.Fatalf("initial event %+v err=%v", event, nextErr)
 			}
+			header := event.Path.Appended[0].Header
+			height, heightErr := rpc.ParseHexQuantity(string(header.Number))
+			if heightErr != nil || height != 17 || string(header.Hash) != blockHashOf(raw) {
+				t.Fatalf("header %+v", header)
+			}
+
 			for _, peer := range []*subscriptionPeer{a, b} {
 				peer.mu.Lock()
 				requests := append([]subscriptionPeerRequest(nil), peer.requests...)
@@ -201,24 +226,90 @@ func TestSubscribeNewHeadPublicEntrypointsUseSameSourcePull(t *testing.T) {
 						pulled = true
 					}
 				}
-				if !registered || (peer == b && !pulled) || (peer == a && pulled) {
+				if !registered || pulled {
 					t.Fatalf("registration/Pull attribution wrong: %v", requests)
 				}
 			}
+			var alternate types.Header
+			if err := json.Unmarshal(raw, &alternate); err != nil {
+				t.Fatal(err)
+			}
+			birthHash := alternate.Hash()
+			alternate.ParentHash = birthHash
+			alternate.Number = big.NewInt(18)
+			forward, err := json.Marshal(&alternate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			middle := forward
+			alternate.ParentHash = alternate.Hash()
+			alternate.Number = big.NewInt(19)
+			forward, err = json.Marshal(&alternate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, peer := range []*subscriptionPeer{a, b} {
+				peer.mu.Lock()
+				peer.headResponse = forward
+				push := peer.push
+				peer.mu.Unlock()
+				if err := push(forward); err != nil {
+					t.Fatal(err)
+				}
+			}
+			forwardEvent, nextErr := sub.Next(ctx)
+			if nextErr != nil {
+				t.Fatal(nextErr)
+			}
+			if len(forwardEvent.Path.Appended) != 2 || len(forwardEvent.Evaluation.Witnesses) != 2 {
+				t.Fatalf("gap %+v", forwardEvent)
+			}
+			b.mu.Lock()
+			requests := append([]subscriptionPeerRequest(nil), b.requests...)
+			b.mu.Unlock()
+			found := false
+			for _, request := range requests {
+				if request.Method == "eth_getBlockByHash" {
+					found = true
+					if len(request.Params) != 2 || string(request.Params[0]) != fmt.Sprintf("%q", blockHashOf(middle)) || string(request.Params[1]) != `false` {
+						t.Fatalf("hash request %s", request.Params)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("missing same-member hash recovery")
+			}
+			alternate.Extra = append(alternate.Extra, byte(77))
+			changed, err := json.Marshal(&alternate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Geth's Header marshal includes its recomputed hash.
+			for _, peer := range []*subscriptionPeer{a, b} {
+				peer.mu.Lock()
+				peer.headResponse = changed
+				push := peer.push
+				peer.mu.Unlock()
+				if push == nil {
+					t.Fatal("no live notification stream")
+				}
+				if err := push(changed); err != nil {
+					t.Fatal(err)
+				}
+			}
+			replacement, nextErr := sub.Next(ctx)
+			if nextErr != nil || len(replacement.Path.Retracted) != 1 || len(replacement.Path.Appended) != 1 || replacement.Path.BaseVersion != forwardEvent.Path.NewVersion {
+				t.Fatalf("public reorg %+v err=%v", replacement, nextErr)
+			}
+			if string(replacement.Path.Appended[0].Header.Hash) != alternate.Hash().Hex() {
+				t.Fatal("public reorg delivered wrong payload")
+			}
 			stopped := make(chan struct{})
-			go func() { sub.Unsubscribe(); close(stopped) }()
+			go func() { _ = sub.Close(); close(stopped) }()
 			select {
 			case <-stopped:
 			case <-ctx.Done():
 				t.Fatal("Unsubscribe did not finish")
-			}
-			select {
-			case err, ok := <-sub.Err():
-				if ok {
-					t.Fatalf("unexpected terminal error: %v", err)
-				}
-			default:
-				t.Fatal("error stream remains open after Unsubscribe")
 			}
 		})
 	}

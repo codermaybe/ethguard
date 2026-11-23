@@ -75,7 +75,7 @@ func StartPullProbe(ctx context.Context, agg *Aggregator, requests []PullRequest
 		if request.SourceID == "" || request.Generation == 0 || request.ContextKey == "" || request.Pull == nil {
 			return nil, errors.New("subscription: incomplete pull request")
 		}
-		if request.Kind != KindNewHeads && request.Kind != KindLogs && request.Kind != KindTransactionReceipts {
+		if request.Kind != KindLogs && request.Kind != KindTransactionReceipts {
 			return nil, fmt.Errorf("subscription: unsupported pull kind %q", request.Kind)
 		}
 		if _, exists := seen[request.SourceID]; exists {

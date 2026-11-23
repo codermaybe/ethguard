@@ -169,15 +169,6 @@ func TestSubscriptionFilterArgMatchesOfficialShape(t *testing.T) {
 	}
 }
 
-func TestValidateSubscriptionLogIdentityRequiresReorgBinding(t *testing.T) {
-	if err := validateSubscriptionLogIdentity([]byte(`{"address":"0x0000000000000000000000000000000000000001"}`)); err == nil {
-		t.Fatal("accepted log without block/transaction/index identity")
-	}
-	if err := validateSubscriptionLogIdentity([]byte(`{"blockHash":"0x1","transactionHash":"0x2","logIndex":"0x0"}`)); err != nil {
-		t.Fatalf("valid identity rejected: %v", err)
-	}
-}
-
 func TestStartSubscriptionDecodesAndPropagatesErrors(t *testing.T) {
 	inner := &fakeSubscription{events: make(chan transport.Notification, 1), errs: make(chan error, 1)}
 	out := make(chan *struct {
@@ -220,7 +211,7 @@ func TestAggregatedSubscriptionQuorumDeduplicatesSources(t *testing.T) {
 		&aggregateTestSource{id: "b", sub: bStream},
 	}
 	out := make(chan string, 2)
-	sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+	sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindLogs, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
 		var value struct {
 			Number string `json:"number"`
 			Hash   string `json:"hash"`
@@ -229,11 +220,11 @@ func TestAggregatedSubscriptionQuorumDeduplicatesSources(t *testing.T) {
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return internalsubscription.Observation{}, "", err
 		}
-		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(value.Number, value.Hash, value.Parent)
+		contextKey, key, err := canonicalTestLogKey(value.Number, value.Hash, value.Parent)
 		if err != nil {
 			return internalsubscription.Observation{}, "", err
 		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, value.Number, nil
+		return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, value.Number, nil
 	})
 	if err != nil {
 		t.Fatalf("start aggregated: %v", err)
@@ -277,13 +268,13 @@ func TestAggregatedSubscriptionReconnectsSourceAndKeepsSnapshot(t *testing.T) {
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return internalsubscription.Observation{}, "", err
 		}
-		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(value.Number, value.Hash, value.Parent)
+		contextKey, key, err := canonicalTestLogKey(value.Number, value.Hash, value.Parent)
 		if err != nil {
 			return internalsubscription.Observation{}, "", err
 		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, value.Number, nil
+		return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, value.Number, nil
 	}
-	sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindNewHeads, nil, out, decode)
+	sub, err := startAggregatedSubscription(context.Background(), sources, internalsubscription.KindLogs, nil, out, decode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,8 +329,8 @@ func TestAggregatedSubscriptionUnsubscribeWaitsForReconnectSetup(t *testing.T) {
 		sub: &aggregateTestSubscription{events: make(chan transport.Notification), errs: make(chan error)},
 	}
 	out := make(chan string)
-	sub, err := startAggregatedSubscription(context.Background(), []identifiedSubscriptionSource{blocked, other}, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
-		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: "head:1", Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...)}, string(raw), nil
+	sub, err := startAggregatedSubscription(context.Background(), []identifiedSubscriptionSource{blocked, other}, internalsubscription.KindLogs, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+		return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: "log:1", Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...)}, string(raw), nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -383,8 +374,8 @@ func TestAggregatedSubscriptionCancellationUnblocksDelivery(t *testing.T) {
 	sub, err := startAggregatedSubscription(context.Background(), []identifiedSubscriptionSource{
 		&aggregateTestSource{id: "a", sub: a},
 		&aggregateTestSource{id: "b", sub: b},
-	}, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
-		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: "head:1", Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...)}, string(raw), nil
+	}, internalsubscription.KindLogs, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+		return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: "log:1", Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...)}, string(raw), nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -416,15 +407,15 @@ func TestAggregatedSubscriptionPullProbeCompletesMissingSource(t *testing.T) {
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return internalsubscription.Observation{}, "", err
 		}
-		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(value.Number, value.Hash, value.Parent)
+		contextKey, key, err := canonicalTestLogKey(value.Number, value.Hash, value.Parent)
 		if err != nil {
 			return internalsubscription.Observation{}, "", err
 		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, value.Number, nil
+		return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, value.Number, nil
 	}
 	pullFactory := func(ctx context.Context, source identifiedSubscriptionSource, _ internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
 		unary := source.(subscriptionUnarySource)
-		raw, err := unary.CallContext(ctx, "eth_getBlockByNumber", strings.TrimPrefix(contextKey, "head:"), false)
+		raw, err := unary.CallContext(ctx, "eth_getBlockByNumber", strings.TrimPrefix(contextKey, "log:"), false)
 		if err != nil {
 			return internalsubscription.Observation{}, err
 		}
@@ -433,7 +424,7 @@ func TestAggregatedSubscriptionPullProbeCompletesMissingSource(t *testing.T) {
 		return obs, err
 	}
 	out := make(chan string, 1)
-	sub, err := startAggregatedSubscriptionWithPull(context.Background(), sources, internalsubscription.KindNewHeads, nil, out, decode, pullFactory)
+	sub, err := startAggregatedSubscriptionWithPull(context.Background(), sources, internalsubscription.KindLogs, nil, out, decode, pullFactory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,154 +446,6 @@ func TestAggregatedSubscriptionPullProbeCompletesMissingSource(t *testing.T) {
 	}
 	if b.pullCount() == 0 {
 		t.Fatal("missing source was not pulled")
-	}
-}
-
-// gapFixtureHeader supplies actual geth header bytes, including its declared
-// computed hash and every official required field, for pushed and pulled heads.
-func gapFixtureHeader(t *testing.T, number string) json.RawMessage {
-	t.Helper()
-	height, ok := new(big.Int).SetString(number, 0)
-	if !ok {
-		t.Fatalf("invalid gap fixture height %q", number)
-	}
-	head := &types.Header{UncleHash: types.EmptyUncleHash, TxHash: types.EmptyTxsHash, ReceiptHash: types.EmptyReceiptsHash, Difficulty: big.NewInt(1), Number: height, GasLimit: 1, Time: 1}
-	raw, err := head.MarshalJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
-
-func TestAggregatedNewHeadGapPullSuccessDoesNotTerminate(t *testing.T) {
-	streamA := &aggregateTestSubscription{events: make(chan transport.Notification, 8), errs: make(chan error, 1)}
-	streamB := &aggregateTestSubscription{events: make(chan transport.Notification, 8), errs: make(chan error, 1)}
-	header := func(number string) json.RawMessage { return gapFixtureHeader(t, number) }
-	pull := func(method string, args ...any) (json.RawMessage, error) {
-		if method != "eth_getBlockByNumber" || len(args) == 0 {
-			return nil, fmt.Errorf("unexpected Pull %s", method)
-		}
-		return header(args[0].(string)), nil
-	}
-	a := &pullTestSource{id: "a", stream: streamA, pull: pull}
-	b := &pullTestSource{id: "b", stream: streamB, pull: pull}
-	out := make(chan *ethapi.Header, 4)
-	sub, err := startAggregatedSubscriptionWithPull(context.Background(), []identifiedSubscriptionSource{a, b}, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, *ethapi.Header, error) {
-		h, err := typed.DecodeHeader(raw)
-		if err != nil {
-			return internalsubscription.Observation{}, nil, err
-		}
-		height, heightErr := typed.QuantityHeight(h.Number)
-		if heightErr != nil {
-			return internalsubscription.Observation{}, nil, heightErr
-		}
-		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(height, 10), string(h.Hash), string(h.ParentHash))
-		if err != nil {
-			return internalsubscription.Observation{}, nil, err
-		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: append([]byte(nil), raw...)}, h, nil
-	}, func(ctx context.Context, source identifiedSubscriptionSource, _ internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
-		unary := source.(subscriptionUnarySource)
-		raw, err := unary.CallContext(ctx, "eth_getBlockByNumber", strings.TrimPrefix(contextKey, "head:"), false)
-		if err != nil {
-			return internalsubscription.Observation{}, err
-		}
-		value, err := typed.DecodeHeader(raw)
-		if err != nil {
-			return internalsubscription.Observation{}, err
-		}
-		height, heightErr := typed.QuantityHeight(value.Number)
-		if heightErr != nil {
-			return internalsubscription.Observation{}, heightErr
-		}
-		keyContext, key, err := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(height, 10), string(value.Hash), string(value.ParentHash))
-		if err != nil {
-			return internalsubscription.Observation{}, err
-		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: keyContext, Key: key, SourceID: source.ID(), Generation: seed.Generation, Payload: raw}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sub.Unsubscribe()
-	for _, stream := range []*aggregateTestSubscription{streamA, streamB} {
-		stream.events <- transport.Notification{Result: header("0x1")}
-	}
-	for _, stream := range []*aggregateTestSubscription{streamA, streamB} {
-		stream.events <- transport.Notification{Result: header("0x3")}
-	}
-	deadline := time.After(time.Second)
-	deliveredThree := false
-	for !deliveredThree {
-		select {
-		case head := <-out:
-			deliveredThree = head != nil && head.Number == "0x3"
-		case <-deadline:
-			t.Fatal("head 3 was not delivered")
-		}
-	}
-	time.Sleep(250 * time.Millisecond)
-	select {
-	case err := <-sub.Err():
-		t.Fatalf("successful gap Pull terminated subscription: %v", err)
-	default:
-	}
-}
-
-func TestAggregatedNewHeadGapPullFailureReturnsStructuredError(t *testing.T) {
-	streamA := &aggregateTestSubscription{events: make(chan transport.Notification, 8), errs: make(chan error, 1)}
-	streamB := &aggregateTestSubscription{events: make(chan transport.Notification, 8), errs: make(chan error, 1)}
-	header := func(number string) json.RawMessage { return gapFixtureHeader(t, number) }
-	gapCause := errors.New("gap Pull failed")
-	failedPull := func(string, ...any) (json.RawMessage, error) { return nil, gapCause }
-	a := &pullTestSource{id: "a", stream: streamA, pull: failedPull}
-	b := &pullTestSource{id: "b", stream: streamB, pull: failedPull}
-	out := make(chan *ethapi.Header, 2)
-	decode := func(raw []byte, sourceID string) (internalsubscription.Observation, *ethapi.Header, error) {
-		h, err := typed.DecodeHeader(raw)
-		if err != nil {
-			return internalsubscription.Observation{}, nil, err
-		}
-		height, heightErr := typed.QuantityHeight(h.Number)
-		if heightErr != nil {
-			return internalsubscription.Observation{}, nil, heightErr
-		}
-		contextKey, key, err := internalsubscription.CanonicalNewHeadKey(strconv.FormatUint(height, 10), string(h.Hash), string(h.ParentHash))
-		if err != nil {
-			return internalsubscription.Observation{}, nil, err
-		}
-		return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: contextKey, Key: key, SourceID: sourceID, Payload: raw}, h, nil
-	}
-	sub, err := startAggregatedSubscriptionWithPull(context.Background(), []identifiedSubscriptionSource{a, b}, internalsubscription.KindNewHeads, nil, out, decode, func(context.Context, identifiedSubscriptionSource, internalsubscription.Kind, string, internalsubscription.Observation) (internalsubscription.Observation, error) {
-		return internalsubscription.Observation{}, errors.New("event Pull failed")
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sub.Unsubscribe()
-	for _, stream := range []*aggregateTestSubscription{streamA, streamB} {
-		stream.events <- transport.Notification{Result: header("0x1")}
-	}
-	for _, stream := range []*aggregateTestSubscription{streamA, streamB} {
-		stream.events <- transport.Notification{Result: header("0x3")}
-	}
-	var gapErr *SubscriptionGapError
-	select {
-	case err := <-sub.Err():
-		if !errors.As(err, &gapErr) {
-			t.Fatalf("err = %v, want SubscriptionGapError", err)
-		}
-		if gapErr.SourceID == "" || gapErr.From != 2 || gapErr.To != 2 || gapErr.ContextKey != "head:3" || gapErr.Generation == 0 {
-			t.Fatalf("gap error = %+v", gapErr)
-		}
-		if !errors.Is(err, ErrSubscriptionGap) {
-			t.Fatalf("err = %v, want ErrSubscriptionGap", err)
-		}
-		if !errors.Is(err, gapCause) {
-			t.Fatalf("err = %v, want underlying gap cause", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("gap error was not reported")
 	}
 }
 
@@ -757,8 +600,8 @@ func TestAggregatedSubscriptionEstablishRacesOwnerCloseWithoutLeak(t *testing.T)
 	}
 	results := make(chan outcome, 1)
 	go func() {
-		sub, err := startAggregatedSubscriptionWithPullOwner(ownerCtx, context.Background(), []identifiedSubscriptionSource{blocked, other}, internalsubscription.KindNewHeads, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
-			return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: "head:1", Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...)}, string(raw), nil
+		sub, err := startAggregatedSubscriptionWithPullOwner(ownerCtx, context.Background(), []identifiedSubscriptionSource{blocked, other}, internalsubscription.KindLogs, nil, out, func(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+			return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: "log:1", Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...)}, string(raw), nil
 		}, nil)
 		results <- outcome{sub: sub, err: err}
 	}()
@@ -847,21 +690,21 @@ func (s *blockingCleanupSubscription) Unsubscribe() {
 	})
 }
 
-func decodeTestHead(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
-	return internalsubscription.Observation{Kind: internalsubscription.KindNewHeads, ContextKey: "head:" + string(raw), Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...), ObservedAt: time.Now()}, string(raw), nil
+func decodeTestEvent(raw []byte, sourceID string) (internalsubscription.Observation, string, error) {
+	return internalsubscription.Observation{Kind: internalsubscription.KindLogs, ContextKey: "log:" + string(raw), Key: string(raw), SourceID: sourceID, Payload: append([]byte(nil), raw...), ObservedAt: time.Now()}, string(raw), nil
 }
 
 func TestAggregatedSubscriptionUnsubscribeWaitsForInnerCleanup(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		blocked := &blockingCleanupSubscription{
 			aggregateTestSubscription: aggregateTestSubscription{events: make(chan transport.Notification), errs: make(chan error)},
-			started: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{}),
+			started:                   make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{}),
 		}
 		release := sync.OnceFunc(func() { close(blocked.release) })
 		other := &aggregateTestSubscription{events: make(chan transport.Notification), errs: make(chan error)}
 		sub, err := startAggregatedSubscription(context.Background(), []identifiedSubscriptionSource{
 			&aggregateTestSource{id: "a", sub: blocked}, &aggregateTestSource{id: "b", sub: other},
-		}, internalsubscription.KindNewHeads, nil, make(chan string), decodeTestHead)
+		}, internalsubscription.KindLogs, nil, make(chan string), decodeTestEvent)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -905,7 +748,7 @@ func TestAggregatedSubscriptionUnsubscribeWaitsForPullExit(t *testing.T) {
 				out := make(chan string, 1)
 				sub, err := startAggregatedSubscriptionWithPull(context.Background(), []identifiedSubscriptionSource{
 					&aggregateTestSource{id: "a", sub: a}, &aggregateTestSource{id: "b", sub: b},
-				}, internalsubscription.KindNewHeads, nil, out, decodeTestHead, func(ctx context.Context, source identifiedSubscriptionSource, _ internalsubscription.Kind, _ string, _ internalsubscription.Observation) (internalsubscription.Observation, error) {
+				}, internalsubscription.KindLogs, nil, out, decodeTestEvent, func(ctx context.Context, source identifiedSubscriptionSource, _ internalsubscription.Kind, _ string, _ internalsubscription.Observation) (internalsubscription.Observation, error) {
 					if source.ID() != "b" {
 						return internalsubscription.Observation{}, fmt.Errorf("unexpected Pull source %s", source.ID())
 					}
@@ -968,91 +811,6 @@ func TestAggregatedSubscriptionUnsubscribeWaitsForPullExit(t *testing.T) {
 	}
 }
 
-func TestAggregatedSubscriptionBlockedDeliveryKeepsControlProgress(t *testing.T) {
-	for _, scenario := range []string{"pull", "hard deadline", "aggregate error"} {
-		t.Run(scenario, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				a := &aggregateTestSubscription{events: make(chan transport.Notification, 1), errs: make(chan error)}
-				b := &aggregateTestSubscription{events: make(chan transport.Notification, 1), errs: make(chan error)}
-				out := make(chan string)
-				var decoded atomic.Int32
-				decode := func(raw []byte, source string) (internalsubscription.Observation, string, error) {
-					decoded.Add(1)
-					return decodeTestHead(raw, source)
-				}
-				pulled := make(chan string, 1)
-				var pull subscriptionPullFactory[string]
-				if scenario == "pull" {
-					pull = func(_ context.Context, source identifiedSubscriptionSource, _ internalsubscription.Kind, contextKey string, seed internalsubscription.Observation) (internalsubscription.Observation, error) {
-						pulled <- source.ID() + "/" + contextKey
-						observation, _, err := decodeTestHead([]byte("2"), source.ID())
-						observation.Generation = seed.Generation
-						return observation, err
-					}
-				}
-				sub, err := startAggregatedSubscriptionWithPull(context.Background(), []identifiedSubscriptionSource{
-					&aggregateTestSource{id: "a", sub: a}, &aggregateTestSource{id: "b", sub: b},
-				}, internalsubscription.KindNewHeads, nil, out, decode, pull)
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer sub.Unsubscribe()
-				a.events <- transport.Notification{Result: json.RawMessage(`1`)}
-				b.events <- transport.Notification{Result: json.RawMessage(`1`)}
-				synctest.Wait()
-				if decoded.Load() != 3 {
-					t.Fatalf("first quorum has not reached the blocked output: decodes=%d", decoded.Load())
-				}
-				a.events <- transport.Notification{Result: json.RawMessage(`2`)}
-				synctest.Wait()
-				switch scenario {
-				case "pull":
-					time.Sleep(200 * time.Millisecond)
-					synctest.Wait()
-					select {
-					case request := <-pulled:
-						if request != "b/head:2" {
-							t.Fatalf("compensation request = %s", request)
-						}
-					default:
-						t.Fatal("blocked output prevented same-source Pull")
-					}
-					for _, want := range []string{"1", "2"} {
-						select {
-						case got := <-out:
-							if got != want {
-								t.Fatalf("resumed output = %s, want %s", got, want)
-							}
-						case <-time.After(time.Second):
-							t.Fatalf("missing output %s after receiver resumed", want)
-						}
-					}
-					synctest.Wait()
-					select {
-					case got := <-out:
-						t.Fatalf("duplicate output %s", got)
-					default:
-					}
-				case "hard deadline", "aggregate error":
-					want := internalsubscription.ErrQuorumTimeout
-					if scenario == "hard deadline" {
-						time.Sleep(31 * time.Second)
-					} else {
-						// PullProbe uses this same aggregator entry to terminate
-						// an unmet event independently of the bridge's ticker.
-						sub.(*aggregateEthSubscription[string]).agg.QuarantineContext(internalsubscription.KindNewHeads, "head:2")
-					}
-					synctest.Wait()
-					select {
-					case err := <-sub.Err():
-						if !errors.Is(err, want) {
-							t.Fatalf("terminal error = %v, want %v", err, want)
-						}
-					default:
-						t.Fatalf("blocked output prevented terminal error %v", want)
-					}
-				}
-			})
-		})
-	}
+func canonicalTestLogKey(number, hash, transaction string) (string, string, error) {
+	return internalsubscription.CanonicalLogKey(hash, number, transaction, 0, "0xaddr", "0x", nil, false)
 }

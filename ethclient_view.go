@@ -382,12 +382,12 @@ func (ec *EthClient) EstimateGasAtBlockHash(ctx context.Context, msg ethapi.Call
 	return value, err
 }
 
-func (ec *EthClient) SubscribeNewHead(ctx context.Context, ch chan<- *ethapi.Header) (ethereum.Subscription, error) {
-	return ec.owner.SubscribeNewHead(ctx, ch)
+func (ec *EthClient) SubscribeNewHead(ctx context.Context, policy HeadSubscriptionPolicy) (*HeadSubscription, error) {
+	return ec.owner.SubscribeNewHead(ctx, policy)
 }
 
-func (ec *EthClient) SubscribeFilterLogs(ctx context.Context, q ethapi.FilterQuery, ch chan<- ethapi.Log) (ethereum.Subscription, error) {
-	return ec.owner.SubscribeFilterLogs(ctx, q, ch)
+func (ec *EthClient) SubscribeFilterLogs(ctx context.Context, q ethapi.FilterQuery, policy LogsSubscriptionPolicy) (*LogsSubscription, error) {
+	return ec.owner.SubscribeFilterLogs(ctx, q, policy)
 }
 
 func (ec *EthClient) SubscribeTransactionReceipts(ctx context.Context, q *ethapi.TransactionReceiptsQuery, ch chan<- []ethapi.Receipt) (ethereum.Subscription, error) {

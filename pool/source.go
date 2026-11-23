@@ -317,6 +317,26 @@ func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstr
 	return sub, nil
 }
 
+func (s *Source) SubscribeBounded(ctx context.Context, policy upstream.NotificationPolicy, kind string, args ...any) (upstream.Subscription, error) {
+	client, err := s.clientForCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	subscriber, ok := client.(upstream.BoundedSubscriber)
+	if !ok {
+		return nil, fmt.Errorf("pool: source %q does not support bounded subscriptions", s.name)
+	}
+	if err := s.verifyChainID(ctx, client); err != nil {
+		s.noteFailedExchange(client, ctx, err)
+		return nil, err
+	}
+	stream, err := subscriber.SubscribeBounded(ctx, policy, kind, args...)
+	if err != nil {
+		s.noteFailedExchange(client, ctx, err)
+	}
+	return stream, err
+}
+
 // CallContext performs one unary request on this source's managed transport.
 // It is the narrow same-source Pull seam for subscription compensation; it
 // does not alter pool membership or quorum state.
