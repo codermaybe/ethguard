@@ -71,7 +71,7 @@ var (
 		// subscriptions: generated event payloads
 		SubscribeNewHead(context.Context, ethguard.HeadSubscriptionPolicy) (*ethguard.HeadSubscription, error)
 		SubscribeFilterLogs(context.Context, ethapi.FilterQuery, ethguard.LogsSubscriptionPolicy) (*ethguard.LogsSubscription, error)
-		SubscribeTransactionReceipts(context.Context, *ethapi.TransactionReceiptsQuery, chan<- []ethapi.Receipt) (ethereum.Subscription, error)
+		SubscribeTransactionReceipts(context.Context, *ethapi.TransactionReceiptsQuery, ethguard.ReceiptsSubscriptionPolicy) (*ethguard.ReceiptsSubscription, error)
 		// writes: BinaryTransaction in, generated Receipt out
 		SendTransaction(context.Context, ethguard.BinaryTransaction) error
 		SendTransactionSync(context.Context, ethguard.BinaryTransaction, *time.Duration) (*ethapi.Receipt, error)
@@ -340,7 +340,7 @@ func TestEthClientBusinessSignatures(t *testing.T) {
 		// subscriptions
 		"SubscribeNewHead":             reflect.TypeOf((func(context.Context, ethguard.HeadSubscriptionPolicy) (*ethguard.HeadSubscription, error))(nil)),
 		"SubscribeFilterLogs":          reflect.TypeOf((func(context.Context, ethapi.FilterQuery, ethguard.LogsSubscriptionPolicy) (*ethguard.LogsSubscription, error))(nil)),
-		"SubscribeTransactionReceipts": reflect.TypeOf((func(context.Context, *ethapi.TransactionReceiptsQuery, chan<- []ethapi.Receipt) (ethereum.Subscription, error))(nil)),
+		"SubscribeTransactionReceipts": reflect.TypeOf((func(context.Context, *ethapi.TransactionReceiptsQuery, ethguard.ReceiptsSubscriptionPolicy) (*ethguard.ReceiptsSubscription, error))(nil)),
 		// writes
 		"SendTransaction":        reflect.TypeOf((func(context.Context, ethguard.BinaryTransaction) error)(nil)),
 		"SendTransactionSync":    reflect.TypeOf((func(context.Context, ethguard.BinaryTransaction, *time.Duration) (*ethapi.Receipt, error))(nil)),

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 var errWaitingForDial = errors.New("pool: waiting for shared dial")
@@ -341,9 +342,20 @@ func (s *Source) SubscribeBounded(ctx context.Context, policy upstream.Notificat
 // It is the narrow same-source Pull seam for subscription compensation; it
 // does not alter pool membership or quorum state.
 func (s *Source) CallContext(ctx context.Context, method string, args ...any) (json.RawMessage, error) {
+	response := s.Call(ctx, method, args...)
+	if err := response.Err(); err != nil {
+		return nil, err
+	}
+	return response.Answer.Result, nil
+}
+
+// Call retains the managed transport's exchange and answer facts for one
+// same-source request. Scheduling, connection hygiene and health have the same
+// owner as CallContext; the latter only projects this result for raw callers.
+func (s *Source) Call(ctx context.Context, method string, args ...any) rpc.Response {
 	release, err := s.acquireRequest(ctx)
 	if err != nil {
-		return nil, err
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}
 	}
 	defer release()
 	client, err := s.clientForCall(ctx)
@@ -351,20 +363,20 @@ func (s *Source) CallContext(ctx context.Context, method string, args ...any) (j
 		if shouldRecordFailure(ctx, err) {
 			s.recordFailedCall(err)
 		}
-		return nil, err
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}
 	}
 	if err := s.verifyChainID(ctx, client); err != nil {
 		s.noteFailedExchange(client, ctx, err)
-		return nil, err
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}
 	}
 	started := time.Now()
 	response := client.Call(ctx, method, args...)
 	if err := response.Err(); err != nil {
 		s.noteFailedExchange(client, ctx, err)
-		return nil, err
+		return response
 	}
 	s.recordSuccessfulCall(time.Since(started))
-	return response.Answer.Result, nil
+	return response
 }
 
 // noteFailedExchange applies the shared transport hygiene after one failed

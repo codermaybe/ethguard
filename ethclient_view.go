@@ -5,8 +5,6 @@ import (
 	"math/big"
 	"time"
 
-	ethereum "github.com/ethereum/go-ethereum"
-
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -390,6 +388,6 @@ func (ec *EthClient) SubscribeFilterLogs(ctx context.Context, q ethapi.FilterQue
 	return ec.owner.SubscribeFilterLogs(ctx, q, policy)
 }
 
-func (ec *EthClient) SubscribeTransactionReceipts(ctx context.Context, q *ethapi.TransactionReceiptsQuery, ch chan<- []ethapi.Receipt) (ethereum.Subscription, error) {
-	return ec.owner.SubscribeTransactionReceipts(ctx, q, ch)
+func (ec *EthClient) SubscribeTransactionReceipts(ctx context.Context, q *ethapi.TransactionReceiptsQuery, policy ReceiptsSubscriptionPolicy) (*ReceiptsSubscription, error) {
+	return ec.owner.SubscribeTransactionReceipts(ctx, q, policy)
 }

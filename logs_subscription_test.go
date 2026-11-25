@@ -22,7 +22,7 @@ func testLogsPolicy() LogsSubscriptionPolicy {
 	return LogsSubscriptionPolicy{Head: testHeadPolicy(), MemoryBytes: 32 << 20, MaxResponseBytes: 1 << 14, MaxConcurrentRequests: 3, RequestTimeout: time.Second, RecoveryTimeout: 2 * time.Second}
 }
 
-func logsFixtureLookup(t *testing.T, blocks ...logsBlockFixture) func(context.Context, string, ...any) (json.RawMessage, error) {
+func logsFixtureLookup(t testing.TB, blocks ...logsBlockFixture) func(context.Context, string, ...any) (json.RawMessage, error) {
 	t.Helper()
 	byHash := make(map[string]logsBlockFixture, len(blocks))
 	receipts := make(map[string]json.RawMessage, len(blocks))
@@ -197,7 +197,7 @@ func TestLogsStreamInvalidSupplierAuditedBeforeValidFallback(t *testing.T) {
 	}
 	seen := false
 	for _, audit := range e.ContentAudit {
-		if audit.Session.SourceID == "a" && audit.Reason == LogsInvalidContent && audit.RequestID > 0 {
+		if audit.Session.SourceID == "a" && audit.Reason == ContentInvalid && audit.RequestID > 0 {
 			seen = true
 		}
 	}
@@ -287,7 +287,7 @@ func TestLogsStreamTerminalVisibleBeforeHungSupplierJoin(t *testing.T) {
 		t.Fatalf("terminal lost audit: %+v", terminal)
 	}
 	for _, a := range terminal.ContentAudit {
-		if a.Reason != LogsRequestUnfinished {
+		if a.Reason != ContentRequestUnfinished {
 			t.Fatal(a)
 		}
 	}
@@ -441,7 +441,7 @@ func TestLogsLateSessionAndTimeoutCannotCommit(t *testing.T) {
 			// b remains a valid independent supplier and may complete after a's
 			// stale/expired answer; that answer itself must not be selected.
 			e, err := s.Next(ctx)
-			var audits []LogsContentAudit
+			var audits []ContentAudit
 			if err == nil {
 				if e.Path.Appended[0].ContentSource == "a" {
 					t.Fatal("late supplier committed")
@@ -454,9 +454,9 @@ func TestLogsLateSessionAndTimeoutCannotCommit(t *testing.T) {
 				}
 				audits = terminal.ContentAudit
 			}
-			want := LogsStaleSession
+			want := ContentStaleSession
 			if mode == "timeout" {
-				want = LogsRequestTimeout
+				want = ContentRequestTimeout
 			}
 			found := false
 			for _, a := range audits {
@@ -469,6 +469,62 @@ func TestLogsLateSessionAndTimeoutCannotCommit(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLogsDisconnectedSupplierCannotCommitDuringSlowUnsubscribe(t *testing.T) {
+	f := makeLogsBlock(t, nil, 100, 1, 1)
+	lookup := logsFixtureLookup(t, f)
+	a, fa := newHeadSource("a")
+	b, fb := newHeadSource("b")
+	requested, returnContent := make(chan struct{}), make(chan struct{})
+	cleanupStarted, returnCleanup := make(chan struct{}), make(chan struct{})
+	releaseContent := sync.OnceFunc(func() { close(returnContent) })
+	releaseCleanup := sync.OnceFunc(func() { close(returnCleanup) })
+	fa.cleanup = sync.OnceFunc(func() { close(cleanupStarted); <-returnCleanup })
+	filter, err := compileLogsFilter(logsQuery(t, `{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := testLogsPolicy()
+	p.MaxConcurrentRequests = 1
+	p.RequestTimeout = 0
+	started := sync.OnceFunc(func() { close(requested) })
+	s, err := startLogsSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{
+		&headLookupSource{a, func(ctx context.Context, method string, args ...any) (json.RawMessage, error) {
+			started()
+			<-returnContent
+			return lookup(ctx, method, args...)
+		}},
+		&headLookupSource{b, lookup},
+	}, filter, p, rpc.CorroborationMajority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { releaseContent(); releaseCleanup(); _ = s.Close() })
+	pushLogsHead([]*newHeadTestFeed{fa, fb}, f.head)
+	select {
+	case <-requested:
+	case <-time.After(3 * time.Second):
+		t.Fatal("content request did not start")
+	}
+	close(fa.events)
+	close(fa.errs)
+	select {
+	case <-cleanupStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("disconnected source did not enter cleanup")
+	}
+	releaseContent()
+	e := nextLogs(t, s)
+	if e.Path.Appended[0].ContentSource != "b" {
+		t.Fatal("disconnected source committed while its unsubscribe was blocked")
+	}
+	for _, audit := range e.ContentAudit {
+		if audit.Session.SourceID == "a" && audit.Reason == ContentStaleSession {
+			return
+		}
+	}
+	t.Fatalf("retired content answer was not audited: %+v", e.ContentAudit)
 }
 
 func TestLogsHeadTransferBudgetFailurePreservesAudit(t *testing.T) {
@@ -518,7 +574,7 @@ func TestLogsOversizeAndContentBudgetFailuresKeepAudit(t *testing.T) {
 			if mode == "response" {
 				found := false
 				for _, a := range terminal.ContentAudit {
-					found = found || a.Reason == LogsResponseTooLarge
+					found = found || a.Reason == ContentResponseTooLarge
 				}
 				if !found {
 					t.Fatal("oversize not audited")
@@ -567,7 +623,7 @@ func TestLogsLateCompletionAuditAppearsInFollowingDelta(t *testing.T) {
 	e := nextLogs(t, s)
 	found := false
 	for _, a := range e.ContentAudit {
-		if a.Session.SourceID == "c" && a.Block.Hash == base.head.Hash() && a.Reason == LogsRequestCanceled {
+		if a.Session.SourceID == "c" && a.Block.Hash == base.head.Hash() && a.Reason == ContentRequestCanceled {
 			found = true
 		}
 	}
@@ -584,7 +640,7 @@ func TestLogsPublishBudgetFailureKeepsVersionAndAudits(t *testing.T) {
 	}
 	life, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := &LogsSubscription{life: life, cancel: cancel, budget: budget, notify: make(chan struct{}, 1), drained: make(chan struct{}), terminalReserve: terminalReserve, committedTip: AnchorNode{Number: 100}, pathVersion: 1}
+	s := &LogsSubscription{contentSubscription: &contentSubscription[LogsEvent]{life: life, cancel: cancel, budget: budget, notify: make(chan struct{}, 1), drained: make(chan struct{}), terminalReserve: terminalReserve, committedTip: AnchorNode{Number: 100}, pathVersion: 1}}
 	proofHold, err := budget.Reserve(3000)
 	if err != nil {
 		t.Fatal(err)
@@ -593,7 +649,7 @@ func TestLogsPublishBudgetFailureKeepsVersionAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.auditFirst = &logsAuditEntry{record: LogsContentAudit{Sequence: 1, Reason: LogsInvalidContent}, release: auditHold}
+	s.auditFirst = &contentAuditEntry{record: ContentAudit{Sequence: 1, Reason: ContentInvalid}, release: auditHold}
 	s.auditLast = s.auditFirst
 	headAudit := HeadAuditRange{First: 9, Last: 10}
 	e := LogsEvent{Path: LogsPathDelta{BaseVersion: 1, NewVersion: 2, Appended: []LogsDelivery{{Node: AnchorNode{Number: 101}, Logs: []ethapi.Log{}}}}, Audit: headAudit}
@@ -607,7 +663,7 @@ func TestLogsPublishBudgetFailureKeepsVersionAndAudits(t *testing.T) {
 	}
 	_, err = s.Next(context.Background())
 	var terminal *LogsTerminalError
-	if !errors.As(err, &terminal) || terminal.Audit.First != 9 || len(terminal.ContentAudit) != 1 || terminal.ContentAudit[0].Reason != LogsInvalidContent {
+	if !errors.As(err, &terminal) || terminal.Audit.First != 9 || len(terminal.ContentAudit) != 1 || terminal.ContentAudit[0].Reason != ContentInvalid {
 		t.Fatalf("lost publication failure evidence: %v", err)
 	}
 	if budget.Used() != 0 {

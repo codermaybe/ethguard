@@ -2,16 +2,61 @@ package pool
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	upstream "github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpctest"
 )
+
+type responseSourceTransport struct {
+	contractTransport
+	response rpc.Response
+}
+
+func (t *responseSourceTransport) Call(context.Context, string, ...any) rpc.Response {
+	return t.response
+}
+
+func TestSourceCallRetainsExchangeAndAnswerThroughProjection(t *testing.T) {
+	protocol := rpctest.RPCError(-32001, "unavailable")
+	for _, response := range []rpc.Response{
+		{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted, HTTPStatus: 200}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`[]`)}},
+		{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted, HTTPStatus: 503, Cause: context.Canceled}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`[]`)}},
+		{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.ProtocolAnswer(protocol)},
+		{Exchange: rpc.Exchange{Progress: rpc.ExchangeResponded, HTTPStatus: 502, Cause: errors.New("body interrupted")}},
+	} {
+		t.Run(fmt.Sprintf("%d/%d/%d", response.Exchange.Progress, response.Exchange.HTTPStatus, response.Answer.Kind), func(t *testing.T) {
+			tr := &responseSourceTransport{response: response}
+			tr.chainID = big.NewInt(1)
+			p := newPoolWithDialerAndChainID(&contractDialer{transport: tr}, 1)
+			defer p.Close()
+			source, err := p.join("a", "wss://a.example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := source.Call(context.Background(), "eth_getBlockReceipts", "0x1")
+			if !reflect.DeepEqual(got, response) {
+				t.Fatalf("response changed: got %+v, want %+v", got, response)
+			}
+			raw, err := source.CallContext(context.Background(), "eth_getBlockReceipts", "0x1")
+			if response.Err() != nil {
+				if err == nil || err.Error() != response.Err().Error() || raw != nil {
+					t.Fatalf("failed projection %s: %v", raw, err)
+				}
+			} else if err != nil || string(raw) != string(response.Answer.Result) {
+				t.Fatalf("successful projection %s: %v", raw, err)
+			}
+		})
+	}
+}
 
 // subscribingDeadTransport answers the chain identity probe but fails every
 // subscribe attempt with the connection-closed sentinel, mimicking a WSS

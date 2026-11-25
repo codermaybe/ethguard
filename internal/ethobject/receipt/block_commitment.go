@@ -30,6 +30,18 @@ import (
 // in the canonical JSON but is not proved by this commitment. Existing Encode
 // checks still apply, including log/bloom consistency and field shapes.
 func VerifyBlockCommitment(header *types.Header, txs types.Transactions, raw json.RawMessage) (json.RawMessage, error) {
+	rows, err := VerifyBlockRows(header, txs, raw)
+	if err != nil {
+		return nil, err
+	}
+	return ethcodec.MarshalNoEscape(rows)
+}
+
+// VerifyBlockRows has the same proof contract as VerifyBlockCommitment. It
+// transfers individually canonical rows to content consumers that must check
+// locations or filter before assembling their final batch, avoiding an encode
+// and immediate reparse of the complete array.
+func VerifyBlockRows(header *types.Header, txs types.Transactions, raw json.RawMessage) ([]json.RawMessage, error) {
 	if header == nil || header.Number == nil || header.Number.Sign() < 0 {
 		return nil, fmt.Errorf("receipt commitment: missing or invalid header")
 	}
@@ -75,5 +87,5 @@ func VerifyBlockCommitment(header *types.Header, txs types.Transactions, raw jso
 	if root := types.DeriveSha(receipts, trie.NewStackTrie(nil)); root != header.ReceiptHash {
 		return nil, fmt.Errorf("receipt commitment: receipts root mismatch")
 	}
-	return ethcodec.MarshalNoEscape(canonical)
+	return canonical, nil
 }

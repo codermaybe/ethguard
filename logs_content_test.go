@@ -24,7 +24,7 @@ type logsBlockFixture struct {
 	receipts []map[string]any
 }
 
-func logsJSON(t *testing.T, value any) json.RawMessage {
+func logsJSON(t testing.TB, value any) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -33,7 +33,7 @@ func logsJSON(t *testing.T, value any) json.RawMessage {
 	return raw
 }
 
-func makeLogsBlock(t *testing.T, parent *types.Header, number uint64, salt byte, counts ...int) logsBlockFixture {
+func makeLogsBlock(t testing.TB, parent *types.Header, number uint64, salt byte, counts ...int) logsBlockFixture {
 	t.Helper()
 	key, err := crypto.HexToECDSA(strings.Repeat("01", 32))
 	if err != nil {
@@ -88,7 +88,7 @@ func TestLogsContentProvesAndConstructsEveryLocation(t *testing.T) {
 	for _, counts := range [][]int{nil, {0}, {2, 0, 1}} {
 		t.Run(fmt.Sprint(counts), func(t *testing.T) {
 			f := makeLogsBlock(t, nil, 100, 1, counts...)
-			txs, err := verifyLogsBlock(context.Background(), f.head, f.block, nil)
+			txs, err := verifyBlockTransactions(context.Background(), f.head, f.block, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -181,7 +181,7 @@ func TestLogsBlockReusesFullBlockAdmission(t *testing.T) {
 			case "index":
 				tx["transactionIndex"] = "0x1"
 			}
-			if txs, err := verifyLogsBlock(context.Background(), f.head, logsJSON(t, block), nil); err == nil || txs != nil {
+			if txs, err := verifyBlockTransactions(context.Background(), f.head, logsJSON(t, block), nil); err == nil || txs != nil {
 				t.Fatalf("accepted %s", change)
 			}
 		})

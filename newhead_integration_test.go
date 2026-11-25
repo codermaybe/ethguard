@@ -337,6 +337,11 @@ func TestHeadProducerFinishedThenOwnerCancelReleasesUnreadQueue(t *testing.T) {
 	if s.budget.Used() == 0 {
 		t.Fatal("test did not retain unread delivery and terminal")
 	}
+	select {
+	case <-s.watcherDone:
+		t.Fatal("owner watcher ended before unread delivery was drained or aborted")
+	default:
+	}
 	cancel()
 	select {
 	case <-s.queue.Done():
@@ -345,6 +350,14 @@ func TestHeadProducerFinishedThenOwnerCancelReleasesUnreadQueue(t *testing.T) {
 	}
 	if n := s.budget.Used(); n != 0 {
 		t.Fatalf("owner cancellation retained %d bytes", n)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-s.watcherDone:
+	default:
+		t.Fatal("Close returned before owner watcher exited")
 	}
 }
 

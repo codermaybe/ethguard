@@ -12,9 +12,8 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/codermaybe/ethguard/rpctest"
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -32,217 +31,155 @@ func receiptFilterFixture(t *testing.T, hashes ...string) *ethapi.TransactionRec
 	return &ethapi.TransactionReceiptsQuery{TransactionHashes: &list}
 }
 
-// TestSubscribeTransactionReceiptsRejectsInvalidFilterBeforeEstablishing pins
-// S1: an invalid hash inside a non-empty filter is an input error. Neither
-// surface establishes anything — no registration request may reach any peer,
-// and the error must wrap ErrInvalidRequest. The legal empty filter stays the
-// official empty object on the wire.
+func receiptsFacadePolicy() ethguard.ReceiptsSubscriptionPolicy {
+	p := logsFacadePolicy()
+	return ethguard.ReceiptsSubscriptionPolicy{Head: p.Head, MemoryBytes: p.MemoryBytes, MaxResponseBytes: p.MaxResponseBytes, MaxConcurrentRequests: p.MaxConcurrentRequests, RequestTimeout: p.RequestTimeout, RecoveryTimeout: p.RecoveryTimeout}
+}
+
 func TestSubscribeTransactionReceiptsRejectsInvalidFilterBeforeEstablishing(t *testing.T) {
 	for _, view := range []bool{false, true} {
-		t.Run(fmt.Sprintf("view=%t", view), func(t *testing.T) {
-			a := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
-			b := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
-			client := subscriptionClient(t, a, b)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			invalid := receiptFilterFixture(t, "0x"+strings.Repeat("42", 32), "0x1")
-			out := make(chan []ethapi.Receipt, 1)
-			var err error
-			if view {
-				_, err = client.EthClient().SubscribeTransactionReceipts(ctx, invalid, out)
-			} else {
-				_, err = client.SubscribeTransactionReceipts(ctx, invalid, out)
-			}
-			if !errors.Is(err, ethguard.ErrInvalidRequest) {
-				t.Fatalf("invalid filter error = %v, want ErrInvalidRequest", err)
-			}
-			for _, peer := range []*subscriptionPeer{a, b} {
-				for _, req := range peer.requestedMethods() {
-					if req == "eth_subscribe" {
-						t.Fatalf("invalid filter still registered a subscription: %v", peer.requestedMethods())
+		for _, single := range []bool{false, true} {
+			t.Run(fmt.Sprintf("view=%t/single=%t", view, single), func(t *testing.T) {
+				peers := []*subscriptionPeer{newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})}
+				var client *ethguard.Client
+				if single {
+					var err error
+					client, err = ethguard.DialUncorroborated(peers[0].endpoint)
+					if err != nil {
+						t.Fatal(err)
 					}
+					t.Cleanup(client.Close)
+				} else {
+					peers = append(peers, newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)}))
+					client = subscriptionClient(t, peers...)
 				}
-			}
-
-			// The legal empty filter proceeds and rides the wire as the
-			// official empty object.
-			emptyOut := make(chan []ethapi.Receipt, 1)
-			var sub ethereum.Subscription
-			if view {
-				sub, err = client.EthClient().SubscribeTransactionReceipts(ctx, nil, emptyOut)
-			} else {
-				sub, err = client.SubscribeTransactionReceipts(ctx, nil, emptyOut)
-			}
-			if err != nil {
-				t.Fatalf("legal empty filter rejected: %v", err)
-			}
-			t.Cleanup(sub.Unsubscribe)
-			registered := 0
-			for _, peer := range []*subscriptionPeer{a, b} {
-				peer.mu.Lock()
-				for _, req := range peer.requests {
-					if req.Method == "eth_subscribe" {
-						registered++
-						if len(req.Params) != 2 || string(req.Params[0]) != `"transactionReceipts"` || string(req.Params[1]) != `{}` {
-							t.Fatalf("empty filter wire = %s %s", req.Params[0], req.Params[1])
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				invalid := receiptFilterFixture(t, "0x"+strings.Repeat("42", 32), "0x1")
+				var err error
+				if view {
+					_, err = client.EthClient().SubscribeTransactionReceipts(ctx, invalid, receiptsFacadePolicy())
+				} else {
+					_, err = client.SubscribeTransactionReceipts(ctx, invalid, receiptsFacadePolicy())
+				}
+				if !errors.Is(err, ethguard.ErrInvalidRequest) {
+					t.Fatalf("invalid filter: %v", err)
+				}
+				for _, peer := range peers {
+					for _, method := range peer.requestedMethods() {
+						if method == "eth_subscribe" {
+							t.Fatal("invalid filter reached registration")
 						}
 					}
 				}
-				peer.mu.Unlock()
-			}
-			if registered != 2 {
-				t.Fatalf("registered %d subscriptions, want one per source", registered)
-			}
-		})
-	}
-}
-
-// TestSubscribeTransactionReceiptsSingleSourceRejectsInvalidFilter covers the
-// Forwarded single-source path: the same input error, zero registration.
-func TestSubscribeTransactionReceiptsSingleSourceRejectsInvalidFilter(t *testing.T) {
-	node := rpctest.NewNode(1)
-	t.Cleanup(node.Close)
-	single, err := ethguard.DialUncorroborated(node.URL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer single.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	out := make(chan []ethapi.Receipt, 1)
-	if _, err := single.SubscribeTransactionReceipts(ctx, receiptFilterFixture(t, "0x1"), out); !errors.Is(err, ethguard.ErrInvalidRequest) {
-		t.Fatalf("single-source invalid filter error = %v, want ErrInvalidRequest", err)
-	}
-	for _, call := range node.Calls() {
-		if call.Method == "eth_subscribe" {
-			t.Fatalf("single source registered a subscription: %+v", call)
+			})
 		}
 	}
 }
 
-// TestSubscribeTransactionReceiptsCanonicalizesAndFreezesFilter pins the
-// legal non-empty path: mixed-case input spellings are canonicalized, the
-// frozen copy is immune to later caller mutation, and the registered wire
-// carries the canonical lowercase list.
-func TestSubscribeTransactionReceiptsCanonicalizesAndFreezesFilter(t *testing.T) {
-	a := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
-	b := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
-	client := subscriptionClient(t, a, b)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	canonical := "0x" + strings.Repeat("42", 32)
-	q := receiptFilterFixture(t, "0X"+strings.Repeat("AB", 30)+"4242")
-	// Both spellings must canonicalize to the same 32-byte word.
-	if q.TransactionHashes == nil || len(*q.TransactionHashes) != 1 {
-		t.Fatalf("fixture broken: %v", q)
-	}
-	(*q.TransactionHashes)[0] = ethapi.Hash("0X" + strings.ToUpper(strings.TrimPrefix(canonical, "0x")))
-	out := make(chan []ethapi.Receipt, 1)
-	sub, err := client.SubscribeTransactionReceipts(ctx, q, out)
-	if err != nil {
-		t.Fatalf("legal mixed-case filter rejected: %v", err)
-	}
-	t.Cleanup(sub.Unsubscribe)
-	// A later caller mutation must not change the frozen wire.
-	(*q.TransactionHashes)[0] = ethapi.Hash("0x1")
-	for _, peer := range []*subscriptionPeer{a, b} {
-		peer.mu.Lock()
-		saw := false
-		for _, req := range peer.requests {
-			if req.Method == "eth_subscribe" {
-				saw = true
-				if len(req.Params) != 2 || string(req.Params[0]) != `"transactionReceipts"` {
-					t.Fatalf("registration params = %s", req.Params)
-				}
-				var wire struct {
-					TransactionHashes []string `json:"transactionHashes"`
-				}
-				if err := json.Unmarshal(req.Params[1], &wire); err != nil {
-					t.Fatalf("wire %s: %v", req.Params[1], err)
-				}
-				if len(wire.TransactionHashes) != 1 || wire.TransactionHashes[0] != canonical {
-					t.Fatalf("non-canonical or mutated wire: %s", req.Params[1])
-				}
-			}
-		}
-		peer.mu.Unlock()
-		if !saw {
-			t.Fatalf("peer never saw the registration: %v", peer.requestedMethods())
-		}
-	}
-}
-
-func TestSubscribeTransactionReceiptsPushHonorsFrozenFilter(t *testing.T) {
-	for _, multi := range []bool{false, true} {
-		for _, view := range []bool{false, true} {
-			for _, matches := range []bool{false, true} {
-				t.Run(fmt.Sprintf("multi=%v/view=%v/matches=%v", multi, view, matches), func(t *testing.T) {
-					peers := []*subscriptionPeer{newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})}
-					if multi {
-						peers = append(peers, newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)}))
+func TestSubscribeTransactionReceiptsPublicEntrypointsFollowHeadAndFreezeFilter(t *testing.T) {
+	for _, view := range []bool{false, true} {
+		for _, single := range []bool{false, true} {
+			for _, filter := range []string{"nil", "unset", "empty", "match", "zero-match"} {
+				t.Run(fmt.Sprintf("view=%t/single=%t/filter=%s", view, single, filter), func(t *testing.T) {
+					block, receipts, hash := logsFacadeBlock(t)
+					var rows []struct {
+						TransactionHash string `json:"transactionHash"`
 					}
+					if err := json.Unmarshal(receipts, &rows); err != nil {
+						t.Fatal(err)
+					}
+					wantHash := rows[0].TransactionHash
+					responses := map[string][]byte{"eth_chainId": []byte(`"0x1"`), "eth_getBlockByHash": block, "eth_getBlockReceipts": receipts}
+					peers := []*subscriptionPeer{newSubscriptionPeer(t, responses)}
+					peers[0].queueNotification(block)
 					var client *ethguard.Client
-					if multi {
-						client = subscriptionClient(t, peers...)
-					} else {
+					if single {
 						var err error
 						client, err = ethguard.DialUncorroborated(peers[0].endpoint)
 						if err != nil {
 							t.Fatal(err)
 						}
 						t.Cleanup(client.Close)
+					} else {
+						b := newSubscriptionPeer(t, responses)
+						b.queueNotification(block)
+						peers = append(peers, b)
+						client = subscriptionClient(t, peers...)
 					}
-					wanted := "0x" + strings.Repeat("42", 32)
-					actual := wanted
-					if !matches {
-						actual = "0x" + strings.Repeat("43", 32)
+					var query *ethapi.TransactionReceiptsQuery
+					switch filter {
+					case "unset":
+						query = &ethapi.TransactionReceiptsQuery{}
+					case "empty":
+						query = receiptFilterFixture(t)
+					case "match":
+						query = receiptFilterFixture(t, "0X"+strings.ToUpper(strings.TrimPrefix(wantHash, "0x")))
+					case "zero-match":
+						query = receiptFilterFixture(t, "0x"+strings.Repeat("43", 32))
 					}
-					query := receiptFilterFixture(t, wanted)
-					out := make(chan []ethapi.Receipt, 1)
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer cancel()
-					var sub ethereum.Subscription
+					var subscription *ethguard.ReceiptsSubscription
 					var err error
 					if view {
-						sub, err = client.EthClient().SubscribeTransactionReceipts(ctx, query, out)
+						subscription, err = client.EthClient().SubscribeTransactionReceipts(ctx, query, receiptsFacadePolicy())
 					} else {
-						sub, err = client.SubscribeTransactionReceipts(ctx, query, out)
+						subscription, err = client.SubscribeTransactionReceipts(ctx, query, receiptsFacadePolicy())
 					}
 					if err != nil {
 						t.Fatal(err)
 					}
-					t.Cleanup(sub.Unsubscribe)
-					// Later input mutation cannot widen or replace the registered filter.
-					(*query.TransactionHashes)[0] = ethapi.Hash("0x" + strings.Repeat("43", 32))
-					payload, err := json.Marshal([]json.RawMessage{fixtureReceipt(t, ethapi.Hash(actual), 7)})
-					if err != nil {
-						t.Fatal(err)
+					defer subscription.Close()
+					if query != nil && query.TransactionHashes != nil && len(*query.TransactionHashes) != 0 {
+						(*query.TransactionHashes)[0] = ethapi.Hash("0x1")
 					}
-					for _, peer := range peers {
-						peer.mu.Lock()
-						push := peer.push
-						peer.mu.Unlock()
-						if err := push(payload); err != nil {
+					event, err := subscription.Next(ctx)
+					if err != nil || len(event.Path.Appended) != 1 {
+						t.Fatalf("event=%+v err=%v", event, err)
+					}
+					delivery := event.Path.Appended[0]
+					if delivery.Node.Hash != hash || event.Path.NewVersion != 1 {
+						t.Fatalf("path: %+v", event.Path)
+					}
+					if filter == "zero-match" {
+						if delivery.Receipts == nil || len(delivery.Receipts) != 0 || delivery.Proof != ethguard.ReceiptsTransactionsExcluded || len(delivery.ReceiptSupport.Suppliers) != 0 {
+							t.Fatalf("zero match: %+v", delivery)
+						}
+					} else {
+						if len(delivery.Receipts) != 1 || string(delivery.Receipts[0].TransactionHash) != wantHash || delivery.Proof != ethguard.ReceiptsBlockCommitment {
+							t.Fatalf("receipts: %+v", delivery)
+						}
+						wantStatus := rpc.Corroborated
+						if single {
+							wantStatus = rpc.Forwarded
+						}
+						if delivery.ReceiptSupport.Status != wantStatus || delivery.ReceiptSupport.Basis != len(peers) || len(delivery.ReceiptSupport.Suppliers) != len(peers) {
+							t.Fatalf("support: %+v", delivery.ReceiptSupport)
+						}
+						if _, err := ethapi.NewReceipt(mustMarshalLogs(t, delivery.Receipts[0])); err != nil {
 							t.Fatal(err)
 						}
 					}
-					select {
-					case got := <-out:
-						if !matches {
-							t.Fatalf("delivered transaction outside frozen filter: %+v", got)
+					for _, peer := range peers {
+						peer.mu.Lock()
+						requests := append([]subscriptionPeerRequest(nil), peer.requests...)
+						peer.mu.Unlock()
+						registered := false
+						for _, request := range requests {
+							if request.Method == "eth_subscribe" {
+								registered = true
+								if len(request.Params) != 1 || string(request.Params[0]) != `"newHeads"` {
+									t.Fatalf("registration: %s", request.Params)
+								}
+							}
+							if filter == "zero-match" && request.Method == "eth_getBlockReceipts" {
+								t.Fatal("zero-match block fetched receipts")
+							}
 						}
-						if len(got) != 1 || string(got[0].TransactionHash) != wanted {
-							t.Fatalf("receipt output = %+v", got)
+						if !registered {
+							t.Fatal("missing head registration")
 						}
-					case err := <-sub.Err():
-						if matches || err == nil || !strings.Contains(err.Error(), "filter") {
-							t.Fatalf("subscription error = %v", err)
-						}
-					case <-ctx.Done():
-						t.Fatal("subscription produced neither receipt nor filter rejection")
 					}
 				})
 			}

@@ -14,16 +14,16 @@ import (
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
-// verifyLogsBlock uses the existing full-block admission, including the
+// verifyBlockTransactions uses the existing full-block admission, including the
 // transaction root and original declarations. The head is already selected by
 // the Head stream; a supplier only proves content beneath that fixed hash.
-func verifyLogsBlock(ctx context.Context, head *types.Header, raw json.RawMessage, call rpc.AdmissionCaller) (types.Transactions, error) {
+func verifyBlockTransactions(ctx context.Context, head *types.Header, raw json.RawMessage, call rpc.AdmissionCaller) (types.Transactions, error) {
 	spec, ok := methods.SpecFor(methods.MethodGetBlockByHash)
 	if !ok || spec.Admit == nil || spec.Encode == nil {
 		return nil, fmt.Errorf("ethguard: full block admission unavailable")
 	}
 	if head == nil || head.Number == nil || !head.Number.IsUint64() {
-		return nil, fmt.Errorf("ethguard: invalid logs header")
+		return nil, fmt.Errorf("ethguard: invalid content header")
 	}
 	req := rpc.Request{Method: methods.MethodGetBlockByHash, Params: []any{head.Hash().Hex(), true}}
 	if _, err := spec.Admit(ctx, req, raw, call); err != nil {
@@ -37,7 +37,7 @@ func verifyLogsBlock(ctx context.Context, head *types.Header, raw json.RawMessag
 		Transactions types.Transactions `json:"transactions"`
 	}
 	if err := json.Unmarshal(canonical, &body); err != nil || body.Transactions == nil {
-		return nil, fmt.Errorf("ethguard: full logs block has no transaction list: %v", err)
+		return nil, fmt.Errorf("ethguard: full block has no transaction list: %v", err)
 	}
 	return body.Transactions, nil
 }
@@ -51,16 +51,10 @@ func verifyLogsBlock(ctx context.Context, head *types.Header, raw json.RawMessag
 // removed is always false, and path retractions carry removal separately.
 func proveBlockLogs(head *types.Header, txs types.Transactions, raw json.RawMessage) ([]ethapi.Log, error) {
 	if head == nil || head.Number == nil || !head.Number.IsUint64() {
-		return nil, fmt.Errorf("ethguard: invalid logs header")
+		return nil, fmt.Errorf("ethguard: invalid content header")
 	}
-	canonical, err := objectreceipt.VerifyBlockCommitment(head, txs, raw)
+	_, receipts, err := proveBlockReceiptRows(head, txs, raw)
 	if err != nil {
-		return nil, err
-	}
-	var receipts []struct {
-		Logs []objectlog.CanonicalLog `json:"logs"`
-	}
-	if err := json.Unmarshal(canonical, &receipts); err != nil {
 		return nil, err
 	}
 	blockHash := ethapi.Hash(head.Hash().Hex())
@@ -70,11 +64,8 @@ func proveBlockLogs(head *types.Header, txs types.Transactions, raw json.RawMess
 	for i, receipt := range receipts {
 		txHash := ethapi.Hash(txs[i].Hash().Hex())
 		txIndex := ethapi.Quantity(fmt.Sprintf("0x%x", i))
-		for _, entry := range receipt.Logs {
+		for _, entry := range receipt {
 			index := ethapi.Quantity(fmt.Sprintf("0x%x", len(logs)))
-			if entry.BlockHash != string(blockHash) || entry.BlockNumber != string(blockNumber) || entry.TransactionHash != string(txHash) || entry.TransactionIndex != string(txIndex) || entry.LogIndex != string(index) || entry.Removed || (entry.BlockTimestamp != nil && *entry.BlockTimestamp != string(timestamp)) {
-				return nil, fmt.Errorf("ethguard: receipt %d log %d disagrees with proven block location", i, len(logs))
-			}
 			address, data, removed := ethapi.Address(entry.Address), ethapi.Data(entry.Data), false
 			topics := make([]ethapi.Hash, len(entry.Topics))
 			for j, topic := range entry.Topics {
@@ -87,4 +78,36 @@ func proveBlockLogs(head *types.Header, txs types.Transactions, raw json.RawMess
 		}
 	}
 	return logs, nil
+}
+
+// proveBlockReceiptRows checks locations across the complete committed batch,
+// before either method applies its filter. Canonical rows retain presence.
+func proveBlockReceiptRows(head *types.Header, txs types.Transactions, raw json.RawMessage) ([]json.RawMessage, [][]objectlog.CanonicalLog, error) {
+	if head == nil || head.Number == nil || !head.Number.IsUint64() {
+		return nil, nil, fmt.Errorf("ethguard: invalid content header")
+	}
+	rows, err := objectreceipt.VerifyBlockRows(head, txs, raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	logs := make([][]objectlog.CanonicalLog, len(rows))
+	blockHash, blockNumber, timestamp := head.Hash().Hex(), fmt.Sprintf("0x%x", head.Number.Uint64()), fmt.Sprintf("0x%x", head.Time)
+	index := 0
+	for i, row := range rows {
+		txHash, txIndex := txs[i].Hash().Hex(), fmt.Sprintf("0x%x", i)
+		var receipt struct {
+			Logs []objectlog.CanonicalLog `json:"logs"`
+		}
+		if err := json.Unmarshal(row, &receipt); err != nil {
+			return nil, nil, err
+		}
+		for _, entry := range receipt.Logs {
+			if entry.BlockHash != blockHash || entry.BlockNumber != blockNumber || entry.TransactionHash != txHash || entry.TransactionIndex != txIndex || entry.LogIndex != fmt.Sprintf("0x%x", index) || entry.Removed || (entry.BlockTimestamp != nil && *entry.BlockTimestamp != timestamp) {
+				return nil, nil, fmt.Errorf("ethguard: receipt %d log %d disagrees with proven block location", i, index)
+			}
+			index++
+		}
+		logs[i] = receipt.Logs
+	}
+	return rows, logs, nil
 }

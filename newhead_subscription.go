@@ -137,28 +137,29 @@ type headFetch struct {
 // HeadSubscription owns all work for one stream. Next transfers event ownership;
 // active Close discards queued events and joins every network operation.
 type HeadSubscription struct {
-	life           context.Context
-	cancel         context.CancelFunc
-	done           chan struct{}
-	queue          *sub.EventQueue
-	budget         *sub.AtomicMemoryBudget
-	arena          *sub.PayloadArena
-	tracker        *sub.HeadTracker
-	sessions       *sub.SessionGate
-	sources        []identifiedSubscriptionSource
-	policy         HeadSubscriptionPolicy
-	mu             sync.Mutex
-	wg             sync.WaitGroup
-	stopping       bool
-	fetches        []*headFetch
-	activeRequests int
-	wake           chan struct{}
-	gateDuration   time.Duration
-	gateDeadline   time.Time
-	sourceWorkers  int
-	sample         *HeadCommittedSample
-	sampleWake     chan struct{}
-	fixedRelease   func()
+	life            context.Context
+	cancel          context.CancelFunc
+	done            chan struct{}
+	watcherDone     chan struct{}
+	queue           *sub.EventQueue
+	budget          *sub.AtomicMemoryBudget
+	arena           *sub.PayloadArena
+	tracker         *sub.HeadTracker
+	sessions        *sub.SessionGate
+	sources         []identifiedSubscriptionSource
+	policy          HeadSubscriptionPolicy
+	mu              sync.Mutex
+	wg              sync.WaitGroup
+	stopping        bool
+	fetches         []*headFetch
+	activeRequests  int
+	wake            chan struct{}
+	gateDuration    time.Duration
+	gateDeadline    time.Time
+	sourceProducers int
+	sample          *HeadCommittedSample
+	sampleWake      chan struct{}
+	fixedRelease    func()
 }
 
 var headDomainSequence atomic.Uint64
@@ -197,6 +198,7 @@ func (s *HeadSubscription) Close() error {
 	s.finishLocked(nil)
 	s.mu.Unlock()
 	<-s.done
+	<-s.watcherDone
 	return nil
 }
 func (s *HeadSubscription) launchLocked(fn func()) {
@@ -206,6 +208,12 @@ func (s *HeadSubscription) launchLocked(fn func()) {
 func (s *HeadSubscription) finishLocked(err error) {
 	if s.stopping {
 		return
+	}
+	// Owner cancellation may reach a source before the owner watcher obtains
+	// this lock. Visible cancellation owns the stop; it cannot become a new
+	// producer failure merely because the source runs first.
+	if s.life.Err() != nil {
+		err = nil
 	}
 	s.stopping = true
 	s.cancel()
@@ -217,22 +225,27 @@ func (s *HeadSubscription) finishLocked(err error) {
 	} else {
 		s.queue.Abort()
 	}
-	go func() {
-		s.wg.Wait()
-		s.mu.Lock()
-		for _, f := range s.fetches {
-			f.release()
-			f.targets = nil
-		}
-		s.fetches = nil
-		s.tracker.Close()
-		s.sessions.Close()
-		s.sources = nil
-		s.sample = nil
-		s.fixedRelease()
-		s.mu.Unlock()
-		close(s.done)
-	}()
+	go s.reapWork()
+}
+
+// reapWork joins only actual producers and requests. Unread delivery belongs
+// to queue; its owner watcher remains independently alive until drain/abort.
+func (s *HeadSubscription) reapWork() {
+	s.wg.Wait()
+	s.mu.Lock()
+	for _, f := range s.fetches {
+		f.release()
+		f.targets = nil
+	}
+	s.fetches = nil
+	s.tracker.Close()
+	s.sessions.Close()
+	s.sources = nil
+	s.sample = nil
+	s.fixedRelease()
+	s.fixedRelease = nil
+	s.mu.Unlock()
+	close(s.done)
 }
 func validateHeadPolicy(p HeadSubscriptionPolicy) error {
 	if p.WireMessages <= 0 || p.MaxMessageBytes == 0 || p.WireBytes < p.MaxMessageBytes || p.MemoryBytes < p.WireBytes {
@@ -288,7 +301,7 @@ func startNewHeadSubscription(ownerCtx, setupCtx context.Context, sources []iden
 		return nil, err
 	}
 	life, cancel := context.WithCancel(ownerCtx)
-	s := &HeadSubscription{life: life, cancel: cancel, done: make(chan struct{}), queue: sub.NewEventQueue(budget), budget: budget, arena: sub.NewPayloadArena(budget), tracker: tracker, sessions: sessions, sources: append([]identifiedSubscriptionSource(nil), sources...), policy: policy, wake: make(chan struct{}, 1), gateDuration: policy.Gate.Initial, sourceWorkers: len(sources), sampleWake: make(chan struct{}, 1), fixedRelease: fixedRelease}
+	s := &HeadSubscription{life: life, cancel: cancel, done: make(chan struct{}), watcherDone: make(chan struct{}), queue: sub.NewEventQueue(budget), budget: budget, arena: sub.NewPayloadArena(budget), tracker: tracker, sessions: sessions, sources: append([]identifiedSubscriptionSource(nil), sources...), policy: policy, wake: make(chan struct{}, 1), gateDuration: policy.Gate.Initial, sourceProducers: len(sources), sampleWake: make(chan struct{}, 1), fixedRelease: fixedRelease}
 	s.mu.Lock()
 	for _, source := range sources {
 		s.launchLocked(func() { s.runSource(source) })
@@ -299,6 +312,7 @@ func startNewHeadSubscription(ownerCtx, setupCtx context.Context, sources []iden
 	}
 	s.mu.Unlock()
 	go func() {
+		defer close(s.watcherDone)
 		select {
 		case <-ownerCtx.Done():
 			s.queue.Abort()
@@ -311,78 +325,97 @@ func startNewHeadSubscription(ownerCtx, setupCtx context.Context, sources []iden
 	return s, nil
 }
 func (s *HeadSubscription) runSource(source identifiedSubscriptionSource) {
-	defer func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.sourceWorkers--
-		if s.sourceWorkers == 0 && !s.stopping {
-			s.finishLocked(fmt.Errorf("ethguard: all head source sessions ended"))
-		}
-	}()
-	for s.life.Err() == nil {
-		session, err := s.sessions.Open(source.ID())
-		if err != nil {
+	exhausted := false
+	exhaust := func() {
+		if exhausted {
 			return
 		}
+		exhausted = true
 		s.mu.Lock()
-		if !s.stopping {
-			err = s.tracker.Bind(session, time.Now())
-			if err != nil {
-				s.finishLocked(err)
-			} else {
-				s.driveLocked(time.Now())
-			}
+		defer s.mu.Unlock()
+		s.sourceProducers--
+		if s.sourceProducers == 0 && !s.stopping {
+			s.finishLocked(fmt.Errorf("ethguard: all head source sessions ended"))
 		}
-		s.mu.Unlock()
-		if err != nil {
+	}
+	defer exhaust()
+	for {
+		session, admitted := s.admitSourceSession(source.ID())
+		if !admitted {
 			return
 		}
 		var inner transport.Subscription
+		var err error
 		if bounded, ok := source.(transport.BoundedSubscriber); ok {
 			inner, err = bounded.SubscribeBounded(s.life, transport.NotificationPolicy{Messages: s.policy.WireMessages, Bytes: s.policy.WireBytes, MaxMessageBytes: s.policy.MaxMessageBytes, Reserve: s.budget.Reserve}, "newHeads")
 		} else {
 			err = fmt.Errorf("head source %s lacks bounded subscription capability", source.ID())
 		}
+		setupFailed := err != nil
 		if err == nil {
-			stop := make(chan struct{})
-			joined := make(chan struct{})
-			unsubscribe := sync.OnceFunc(inner.Unsubscribe)
-			go func() {
-				defer close(joined)
-				select {
-				case <-s.life.Done():
-					unsubscribe()
-				case <-stop:
-				}
-			}()
-			err = s.readSource(session, inner)
-			s.disconnectNow(session, err, false)
-			close(stop)
-			unsubscribe()
-			<-joined
-		} else {
-			s.disconnectNow(session, err, true)
+			err = s.life.Err()
+			if err == nil {
+				err = s.readSource(session, inner)
+			}
 		}
+		s.disconnectNow(session, err, setupFailed)
 		s.mu.Lock()
-		if s.stopping {
-			s.mu.Unlock()
-			return
-		}
-		s.driveLocked(time.Now())
-		if s.policy.RetryDelay == 0 {
-			s.mu.Unlock()
-			return
-		}
+		retry := !s.stopping && s.policy.RetryDelay > 0
 		s.mu.Unlock()
-		if !waitSubscriptionRetry(s.life.Done(), s.life, s.policy.RetryDelay) {
+		// Exhaustion closes production before potentially slow network cleanup.
+		// This source goroutine alone owns the inner and calls Unsubscribe once.
+		if !retry {
+			exhaust()
+		}
+		if inner != nil {
+			inner.Unsubscribe()
+		}
+		if !retry || !waitSubscriptionRetry(s.life.Done(), s.life, s.policy.RetryDelay) {
 			return
 		}
 	}
 }
-func (s *HeadSubscription) disconnectNow(session sub.SourceSession, cause error, setup bool) {
+
+// admitSourceSession serializes stopping, generation opening and tracker
+// binding. Once admitted, an in-flight Subscribe may finish after cancellation;
+// runSource still owns that returned inner and joins its cleanup.
+func (s *HeadSubscription) admitSourceSession(sourceID string) (sub.SourceSession, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stopping {
+		return sub.SourceSession{}, false
+	}
+	if s.life.Err() != nil {
+		s.finishLocked(nil)
+		return sub.SourceSession{}, false
+	}
+	session, err := s.sessions.Open(sourceID)
+	if err == nil {
+		err = s.tracker.Bind(session, time.Now())
+	}
+	if err != nil {
+		s.sessions.Retire(session)
+		s.finishLocked(err)
+		return sub.SourceSession{}, false
+	}
+	s.driveLocked(time.Now())
+	if s.stopping {
+		s.sessions.Retire(session)
+		return sub.SourceSession{}, false
+	}
+	return session, true
+}
+func (s *HeadSubscription) disconnectNow(session sub.SourceSession, cause error, setup bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Retire content suppliers before cleanup can block. The gate's generation
+	// check prevents a late disconnect from invalidating a replacement session.
+	s.sessions.Retire(session)
+	if s.stopping {
+		return
+	}
+	if s.life.Err() != nil {
+		s.finishLocked(nil)
 		return
 	}
 	if errors.Is(cause, sub.ErrMemoryBudget) {
@@ -439,8 +472,9 @@ func (s *HeadSubscription) readSource(session sub.SourceSession, inner transport
 			event.Raw = nil
 			event.Result = nil
 			s.mu.Lock()
-			if s.stopping {
+			if s.stopping || s.life.Err() != nil {
 				lease.Release()
+				s.finishLocked(nil)
 				s.mu.Unlock()
 				return s.life.Err()
 			}
@@ -724,6 +758,10 @@ func (s *HeadSubscription) runEstimator() {
 			return
 		case <-s.sampleWake:
 			s.mu.Lock()
+			if s.stopping || s.life.Err() != nil {
+				s.mu.Unlock()
+				return
+			}
 			sample := s.sample
 			s.sample = nil
 			s.mu.Unlock()

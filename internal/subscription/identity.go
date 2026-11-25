@@ -5,6 +5,14 @@ import (
 	"iter"
 )
 
+type Mode uint8
+
+const (
+	StrictMode Mode = iota
+	SelectedMode
+	ForwardedMode
+)
+
 // AnchorNode is the immutable, pointer-free hash commitment retained in the DAG.
 type AnchorNode struct {
 	Number           uint64
@@ -142,6 +150,8 @@ func (a AuditRange) releaseOwned() {
 }
 
 var (
+	ErrClosed            = errors.New("subscription: closed")
+	ErrUnknownSource     = errors.New("subscription: source is not in snapshot")
 	ErrStaleAttempt      = errors.New("subscription: stale request attempt")
 	ErrStalePathVersion  = errors.New("subscription: stale path version")
 	ErrEvidenceDomain    = errors.New("subscription: evidence domain mismatch")
