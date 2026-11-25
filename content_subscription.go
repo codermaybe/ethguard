@@ -116,8 +116,25 @@ func newContentSubscription[E any](owner, setup context.Context, sources []ident
 	if err := setup.Err(); err != nil {
 		return nil, err
 	}
+	const (
+		controlBytes     = uint64(16384) // Owned channels, queue control and task bookkeeping.
+		sourceBytes      = uint64(512)   // Fixed content source/session bookkeeping per member.
+		requestSlotBytes = uint64(512)   // Active request bookkeeping per admitted concurrency slot.
+	)
+	fixedBytes := uint64(unsafe.Sizeof(contentSubscription[E]{})) + controlBytes
+	if uint64(len(sources)) > (^uint64(0)-fixedBytes)/sourceBytes {
+		return nil, sub.ErrMemoryBudget
+	}
+	fixedBytes += uint64(len(sources)) * sourceBytes
+	if uint64(concurrency) > (^uint64(0)-fixedBytes)/requestSlotBytes {
+		return nil, sub.ErrMemoryBudget
+	}
+	fixedBytes += uint64(concurrency) * requestSlotBytes
+	if extra > ^uint64(0)-fixedBytes {
+		return nil, sub.ErrMemoryBudget
+	}
 	budget := sub.NewMemoryBudget(memory)
-	fixed, err := budget.Reserve(uint64(unsafe.Sizeof(contentSubscription[E]{})) + 16384 + uint64(len(sources))*512 + uint64(concurrency)*512 + extra)
+	fixed, err := budget.Reserve(fixedBytes + extra)
 	if err != nil {
 		return nil, err
 	}

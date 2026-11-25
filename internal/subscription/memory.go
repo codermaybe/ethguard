@@ -40,7 +40,9 @@ func (b *AtomicMemoryBudget) TryReserve(bytes uint64) (func(), bool) {
 		return func() {}, true
 	}
 	b.mu.Lock()
-	if b.limit > 0 && (bytes > b.limit || b.used > b.limit-bytes) {
+	// A zero limit removes the configured cap, but the usage ledger must
+	// remain representable so every release can return its own reservation.
+	if bytes > ^uint64(0)-b.used || (b.limit > 0 && (bytes > b.limit || b.used > b.limit-bytes)) {
 		b.mu.Unlock()
 		return nil, false
 	}

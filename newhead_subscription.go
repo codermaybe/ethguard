@@ -285,7 +285,11 @@ func startNewHeadSubscription(ownerCtx, setupCtx context.Context, sources []iden
 	budget := sub.NewMemoryBudget(policy.MemoryBytes)
 	// Admit fixed source/session slots, owned control channels and task control
 	// allowance before creating the subscription's goroutines.
-	fixedRelease, err := budget.Reserve(uint64(unsafe.Sizeof(HeadSubscription{})) + 16384 + uint64(len(sources))*4608)
+	fixedBytes, err := headSubscriptionFixedBytes(uint64(len(sources)))
+	if err != nil {
+		return nil, err
+	}
+	fixedRelease, err := budget.Reserve(fixedBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -324,6 +328,19 @@ func startNewHeadSubscription(ownerCtx, setupCtx context.Context, sources []iden
 	}()
 	return s, nil
 }
+
+func headSubscriptionFixedBytes(sources uint64) (uint64, error) {
+	const (
+		controlBytes = uint64(16384) // Owned control channels and shared task bookkeeping.
+		sourceBytes  = uint64(4608)  // Source/session slots and producer task allowance per member.
+	)
+	bytes := uint64(unsafe.Sizeof(HeadSubscription{})) + controlBytes
+	if sources > (^uint64(0)-bytes)/sourceBytes {
+		return 0, sub.ErrMemoryBudget
+	}
+	return bytes + sources*sourceBytes, nil
+}
+
 func (s *HeadSubscription) runSource(source identifiedSubscriptionSource) {
 	exhausted := false
 	exhaust := func() {

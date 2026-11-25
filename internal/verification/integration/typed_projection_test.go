@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -306,7 +307,7 @@ func t09TypedBlockByNumber(t *testing.T, f *t09Fleet, params []any) (string, err
 		}
 		return t09SummaryHeader(header), nil
 	}
-	block, _, err := f.client.BlockByNumber(ctx, big.NewInt(int64(t09ParamUint64(t, params, 0))))
+	block, _, err := f.client.BlockByNumber(ctx, new(big.Int).SetUint64(t09ParamUint64(t, params, 0)))
 	if err != nil {
 		return "", err
 	}
@@ -326,7 +327,7 @@ func t09TypedBalance(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryBig((*big.Int)(&value)), nil
 	}
-	value, _, err := f.client.BalanceAt(ctx, ethapi.Address(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, _, err := f.client.BalanceAt(ctx, ethapi.Address(t09ParamString(t, params, 0)), new(big.Int).SetUint64(t09ParamUint64(t, params, 1)))
 	if err != nil {
 		return "", err
 	}
@@ -370,7 +371,7 @@ func t09TypedNonce(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryQuantity(uint64(value)), nil
 	}
-	value, _, err := f.client.NonceAt(ctx, ethapi.Address(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, _, err := f.client.NonceAt(ctx, ethapi.Address(t09ParamString(t, params, 0)), new(big.Int).SetUint64(t09ParamUint64(t, params, 1)))
 	if err != nil {
 		return "", err
 	}
@@ -415,7 +416,7 @@ func t09TypedStorage(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		return t09SummaryBytes(value), nil
 	}
 	value, _, err := f.client.StorageAt(ctx, ethapi.Address(t09ParamString(t, params, 0)),
-		ethapi.Hash(t09ParamString(t, params, 1)), big.NewInt(int64(t09ParamUint64(t, params, 2))))
+		ethapi.Hash(t09ParamString(t, params, 1)), new(big.Int).SetUint64(t09ParamUint64(t, params, 2)))
 	if err != nil {
 		return "", err
 	}
@@ -435,7 +436,7 @@ func t09TypedCode(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		}
 		return t09SummaryBytes(value), nil
 	}
-	value, _, err := f.client.CodeAt(ctx, ethapi.Address(t09ParamString(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, _, err := f.client.CodeAt(ctx, ethapi.Address(t09ParamString(t, params, 0)), new(big.Int).SetUint64(t09ParamUint64(t, params, 1)))
 	if err != nil {
 		return "", err
 	}
@@ -456,7 +457,7 @@ func t09TypedCall(t *testing.T, f *t09Fleet, params []any) (string, error) {
 		return t09SummaryBytes(value), nil
 	}
 	to := common.HexToAddress(t09Address)
-	value, _, err := f.client.CallContract(ctx, ethapitest.Call(ethereum.CallMsg{To: &to}), big.NewInt(int64(t09ParamUint64(t, params, 1))))
+	value, _, err := f.client.CallContract(ctx, ethapitest.Call(ethereum.CallMsg{To: &to}), new(big.Int).SetUint64(t09ParamUint64(t, params, 1)))
 	if err != nil {
 		return "", err
 	}
@@ -508,7 +509,7 @@ func t09TypedFeeHistory(t *testing.T, f *t09Fleet, params []any) (string, error)
 		}
 		return t09FeeWireSummary(wire), nil
 	}
-	fee, _, err := f.client.FeeHistory(ctx, uint64(t09ParamInt(t, params, 0)), big.NewInt(int64(t09ParamUint64(t, params, 1))), []float64{50})
+	fee, _, err := f.client.FeeHistory(ctx, t09ParamUint64(t, params, 0), new(big.Int).SetUint64(t09ParamUint64(t, params, 1)), []float64{50})
 	if err != nil {
 		return "", err
 	}
@@ -653,17 +654,72 @@ func t09ParamUint64(t *testing.T, params []any, index int) uint64 {
 	return 0
 }
 
-func t09ParamInt(t *testing.T, params []any, index int) int {
-	t.Helper()
-	value, ok := params[index].(uint64)
-	if !ok {
-		t.Fatalf("param %d = %#v, want uint64", index, params[index])
-	}
-	return int(value)
-}
-
 func t09ParamIsPending(t *testing.T, params []any, index int) bool {
 	t.Helper()
 	value, ok := params[index].(string)
 	return ok && strings.EqualFold(value, "pending")
+}
+
+func TestTypedProjectionPreservesFullUint64BlockNumbers(t *testing.T) {
+	for _, height := range []uint64{1 << 63, math.MaxUint64} {
+		block := hexutil.EncodeUint64(height)
+		for _, tc := range []struct {
+			method string
+			probe  func(*testing.T, *t09Fleet, []any) (string, error)
+			params []any
+			index  int
+		}{
+			{methods.MethodGetBlockByNumber, t09TypedBlockByNumber, []any{block, true}, 0},
+			{methods.MethodGetBalance, t09TypedBalance, []any{t09Address, block}, 1},
+			{methods.MethodGetTransactionCount, t09TypedNonce, []any{t09Address, block}, 1},
+			{methods.MethodGetStorageAt, t09TypedStorage, []any{t09Address, t09StorageKey, block}, 2},
+			{methods.MethodGetCode, t09TypedCode, []any{t09Address, block}, 1},
+			{methods.MethodCall, t09TypedCall, []any{map[string]any{"to": t09Address}, block}, 1},
+			{methods.MethodFeeHistory, t09TypedFeeHistory, []any{uint64(2), block, []float64{50}}, 1},
+		} {
+			t.Run(tc.method+"/"+block, func(t *testing.T) {
+				f := t09NewFleet(t, 1)
+				// Stop at the provider response: this assertion concerns the
+				// requested height, independent of each response's schema.
+				f.nodes[0].Fail(tc.method, -32603, "quantity probe")
+				if _, err := tc.probe(t, f, tc.params); err == nil {
+					t.Fatal("scripted provider failure was lost")
+				}
+				calls := f.nodes[0].Calls()
+				if len(calls) != 1 || calls[0].Method != tc.method {
+					t.Fatalf("calls = %+v, want one %s request", calls, tc.method)
+				}
+				var got string
+				if err := json.Unmarshal(calls[0].Params[tc.index], &got); err != nil {
+					t.Fatal(err)
+				}
+				if got != block {
+					t.Fatalf("block parameter = %q, want %q", got, block)
+				}
+			})
+		}
+	}
+}
+
+func TestTypedProjectionPreservesFullUint64FeeCount(t *testing.T) {
+	for _, count := range []uint64{1 << 63, math.MaxUint64} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			f := t09NewFleet(t, 1)
+			f.nodes[0].Fail(methods.MethodFeeHistory, -32603, "quantity probe")
+			if _, err := t09TypedFeeHistory(t, f, []any{count, "0x10", []float64{50}}); err == nil {
+				t.Fatal("scripted provider failure was lost")
+			}
+			calls := f.nodes[0].Calls()
+			if len(calls) != 1 || calls[0].Method != methods.MethodFeeHistory {
+				t.Fatalf("calls = %+v, want one fee history request", calls)
+			}
+			var got uint64
+			if err := json.Unmarshal(calls[0].Params[0], &got); err != nil {
+				t.Fatal(err)
+			}
+			if got != count {
+				t.Fatalf("fee count = %d, want %d", got, count)
+			}
+		})
+	}
 }

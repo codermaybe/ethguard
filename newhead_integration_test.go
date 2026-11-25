@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	internalsubscription "github.com/codermaybe/ethguard/internal/subscription"
 	"math/big"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/ethereum/go-ethereum/core/types"
 
+	internalsubscription "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -62,6 +63,21 @@ func testHeadPolicy() HeadSubscriptionPolicy {
 	return HeadSubscriptionPolicy{MemoryBytes: 8 << 20, RetainedNodes: 16, MaxConcurrentRequests: 8, WireMessages: 8, WireBytes: 1 << 16, MaxMessageBytes: 1 << 14}
 }
 
+func TestHeadFixedBudgetArithmeticBoundaries(t *testing.T) {
+	base := uint64(unsafe.Sizeof(HeadSubscription{})) + 16384
+	maximumSources := (^uint64(0) - base) / 4608
+	for _, sources := range []uint64{0, 1, 3, maximumSources, maximumSources + 1, 1 << 55} {
+		bytes, err := headSubscriptionFixedBytes(sources)
+		if sources > maximumSources {
+			if !errors.Is(err, internalsubscription.ErrMemoryBudget) || bytes != 0 {
+				t.Fatalf("synthetic source count %d: bytes=%d error=%v", sources, bytes, err)
+			}
+		} else if err != nil || bytes != base+sources*4608 {
+			t.Fatalf("source count %d changed its fixed budget: bytes=%d error=%v", sources, bytes, err)
+		}
+	}
+}
+
 func TestNewHeadQuorumDeduplicatesAndReplacesSourceTips(t *testing.T) {
 	a, fa := newHeadSource("a")
 	b, fb := newHeadSource("b")
@@ -69,7 +85,7 @@ func TestNewHeadQuorumDeduplicatesAndReplacesSourceTips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sub.Close()
+	defer sub.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	parent := &types.Header{Number: big.NewInt(99), Difficulty: big.NewInt(1)}
 	child := &types.Header{Number: big.NewInt(100), Difficulty: big.NewInt(1), ParentHash: parent.Hash()}
 	fa.events <- transport.Notification{Result: testHeader(child)}
@@ -103,7 +119,7 @@ func TestNewHeadOwnerCancelDoesNotPublishIntentionalCloseError(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancel()
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	read, c := context.WithTimeout(context.Background(), time.Second)
 	defer c()
 	if _, err = s.Next(read); err == nil {
@@ -144,7 +160,7 @@ func TestHeadAncestorNeedsOneObjectAndReturnsAtomicGapDelta(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer s.Close()
+			defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 			fa.events <- transport.Notification{Result: testHeader(n100)}
@@ -216,7 +232,7 @@ func TestHeadOneObjectArrivalDrainsRecoveringAndNewerReadyTargets(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	for _, feed := range []*newHeadTestFeed{fa, fb} {
@@ -320,7 +336,7 @@ func TestHeadProducerFinishedThenOwnerCancelReleasesUnreadQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	h := &types.Header{Number: big.NewInt(100), Difficulty: big.NewInt(1)}
 	fa.events <- transport.Notification{Result: testHeader(h)}
 	fb.events <- transport.Notification{Result: testHeader(h)}
@@ -372,7 +388,10 @@ func TestHeadDisconnectRevokesBeforeSlowCleanupAndHealthyQuorumContinues(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { unblock(); s.Close() }()
+	defer func() {
+		unblock()
+		_ = s.Close() // Cleanup joins subscription work; Close always returns nil.
+	}()
 	base := &types.Header{Number: big.NewInt(100), Difficulty: big.NewInt(1)}
 	fa.events <- transport.Notification{Result: testHeader(base)}
 	fb.events <- transport.Notification{Result: testHeader(base)}
@@ -421,7 +440,7 @@ func TestHeadInvalidParentHeightRevokesOnlyThatSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	base := &types.Header{Number: big.NewInt(100), Difficulty: big.NewInt(1)}
 	fa.events <- transport.Notification{Result: testHeader(base)}
 	fb.events <- transport.Notification{Result: testHeader(base)}
@@ -461,7 +480,7 @@ func TestHeadDisconnectAuditAdmissionFailureTerminates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	base := &types.Header{Number: big.NewInt(100), Difficulty: big.NewInt(1)}
 	fa.events <- transport.Notification{Result: testHeader(base)}
 	fb.events <- transport.Notification{Result: testHeader(base)}
@@ -493,7 +512,7 @@ func TestHeadRealHeaderLongAdvanceAndForkRetentionPlateaus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var parent [32]byte
@@ -552,7 +571,7 @@ func TestHeadAuditClockExpiresOldestFactWithUnreadQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	base := &types.Header{Number: big.NewInt(100), Difficulty: big.NewInt(1)}
 	fa.events <- transport.Notification{Result: testHeader(base)}
 	fb.events <- transport.Notification{Result: testHeader(base)}
@@ -602,7 +621,7 @@ func TestHeadEstimatorUsesCommittedSameHashOutsideLockAndClamps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	var parent [32]byte
@@ -662,7 +681,10 @@ func TestHeadCanceledObsoleteRequestOccupiesLimitUntilItExits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { unblock(); s.Close() }()
+	defer func() {
+		unblock()
+		_ = s.Close() // Cleanup joins subscription work; Close always returns nil.
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	for _, feed := range []*newHeadTestFeed{fa, fb} {
@@ -712,7 +734,7 @@ func TestHeadUnreadReorgRoundTripKeepsEveryDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	base := &types.Header{Number: big.NewInt(100), Difficulty: big.NewInt(1)}
 	x := &types.Header{Number: big.NewInt(101), Difficulty: big.NewInt(1), ParentHash: base.Hash()}
 	y := &types.Header{Number: big.NewInt(101), Difficulty: big.NewInt(2), ParentHash: base.Hash()}
@@ -823,7 +845,7 @@ func TestHeadAncestorResponseCannotBeResignedAfterSessionChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	ctx, c := context.WithTimeout(context.Background(), time.Second)
 	defer c()
 	fa.events <- transport.Notification{Result: testHeader(n100)}

@@ -298,7 +298,8 @@ func overMessageLimit(limit int64, assembled, next []byte) bool {
 	if limit <= 0 {
 		return false
 	}
-	return int64(len(assembled)+len(next)) > limit
+	assembledLen := int64(len(assembled))
+	return assembledLen > limit || int64(len(next)) > limit-assembledLen
 }
 
 // validateDataMessage applies the message-level checks the codec owns:

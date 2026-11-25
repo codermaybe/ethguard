@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"math/big"
+	"strconv"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 func chainNode(number uint64, branch uint64, parent AnchorNode) AnchorNode {
@@ -36,6 +39,91 @@ func newTracker(t testing.TB, retained int) (*HeadTracker, *EventQueue, *AtomicM
 		}
 	})
 	return tr, q, b
+}
+
+func TestHeadWorkspaceRejectsSyntheticAuditOverflow(t *testing.T) {
+	if strconv.IntSize < 64 {
+		t.Skip("synthetic audit count requires a 64-bit int")
+	}
+	// Only the count is synthetic; no audit records or large slices are built.
+	audits := 1
+	audits <<= 61
+	budget := NewMemoryBudget(0)
+	tracker := &HeadTracker{cfg: HeadTrackerConfig{Budget: budget}, auditCount: audits}
+	if release, err := tracker.reserveWork(); !errors.Is(err, ErrMemoryBudget) || release != nil {
+		if release != nil {
+			release()
+		}
+		t.Fatalf("synthetic audit overflow = %v, want memory budget failure", err)
+	}
+	if budget.Used() != 0 {
+		t.Fatalf("overflow reserved %d bytes", budget.Used())
+	}
+}
+
+func TestHeadWorkspaceArithmeticBoundaries(t *testing.T) {
+	const maximum = ^uint64(0)
+	auditBytes := 2 * uint64(unsafe.Sizeof(AuditRecord{}))
+	for _, tc := range []struct {
+		name                   string
+		graph, sources, audits uint64
+	}{
+		{name: "empty"},
+		{name: "ordinary", graph: 7, sources: 3, audits: 5},
+		{name: "largest graph workspace", graph: (maximum-4096)/1024 - 1},
+		{name: "graph workspace overflow", graph: (maximum - 4096) / 1024},
+		{name: "node count sum overflow", graph: maximum, sources: 1},
+		{name: "candidate node overflow", graph: maximum},
+		{name: "per-node witness overflow", sources: maximum/288 + 1},
+		{name: "audit multiplication overflow", audits: maximum/auditBytes + 1},
+		{name: "largest audit workspace", audits: (maximum - 4096 - 1024) / auditBytes},
+		{name: "audit plus nodes overflow", audits: (maximum-4096-1024)/auditBytes + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arbitrary precision evaluates the existing budget formula without
+			// imposing machine overflow or constructing the synthetic objects.
+			nodes := new(big.Int).Add(new(big.Int).SetUint64(tc.graph), new(big.Int).SetUint64(tc.sources))
+			nodes.Add(nodes, big.NewInt(1))
+			perNode := new(big.Int).Mul(new(big.Int).SetUint64(tc.sources), big.NewInt(288))
+			perNode.Add(perNode, big.NewInt(1024))
+			want := new(big.Int).Mul(nodes, perNode)
+			want.Add(want, big.NewInt(4096))
+			want.Add(want, new(big.Int).Mul(new(big.Int).SetUint64(tc.audits), new(big.Int).SetUint64(auditBytes)))
+			got, err := headWorkspaceBytes(tc.graph, tc.sources, tc.audits)
+			if !want.IsUint64() {
+				if !errors.Is(err, ErrMemoryBudget) || got != 0 {
+					t.Fatalf("unrepresentable workspace = %d, %v; exact bytes=%s", got, err, want)
+				}
+			} else if err != nil || got != want.Uint64() {
+				t.Fatalf("workspace = %d, %v; want %s", got, err, want)
+			}
+		})
+	}
+}
+
+func TestHeadWorkspaceRecomputesAfterIdleEviction(t *testing.T) {
+	budget := NewMemoryBudget(6000)
+	node := chainNode(1, 1, AnchorNode{})
+	released := 0
+	tracker := &HeadTracker{
+		cfg: HeadTrackerConfig{Budget: budget},
+		graph: map[[32]byte]*graphEntry{node.Hash: {
+			node: node, release: func() { released++ },
+		}},
+	}
+	release, err := tracker.reserveWork()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if released != 1 || len(tracker.graph) != 0 || budget.Used() != 5120 {
+		t.Fatalf("idle eviction: released=%d graph=%d workspace=%d", released, len(tracker.graph), budget.Used())
+	}
+	release()
+	release()
+	if budget.Used() != 0 {
+		t.Fatalf("workspace release retained %d bytes", budget.Used())
+	}
 }
 
 func observeTip(t testing.TB, tr *HeadTracker, id string, seq uint64, n AnchorNode) {

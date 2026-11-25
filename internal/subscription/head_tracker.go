@@ -703,24 +703,51 @@ func (h *HeadTracker) cancelUselessRequest(target AnchorNode) {
 // append growth, and independent witness proof built by one evaluation. This
 // conservative workspace reservation precedes those allocations.
 func (h *HeadTracker) reserveWork() (func(), error) {
-	n := uint64(len(h.graph) + len(h.tips) + 1)
-	per := uint64(1024) + uint64(len(h.tips))*288
-	if n > (^uint64(0)-4096)/per {
-		return nil, ErrMemoryBudget
+	bytes, err := headWorkspaceBytes(uint64(len(h.graph)), uint64(len(h.tips)), uint64(h.auditCount))
+	if err != nil {
+		return nil, err
 	}
-	bytes := uint64(4096) + n*per
-	audit := uint64(h.auditCount) * 2 * uint64(unsafe.Sizeof(AuditRecord{}))
-	if audit > ^uint64(0)-bytes {
-		return nil, ErrMemoryBudget
-	}
-	release, err := h.cfg.Budget.Reserve(bytes + audit)
+	release, err := h.cfg.Budget.Reserve(bytes)
 	if err != nil {
 		h.evictIdle()
-		n = uint64(len(h.graph) + len(h.tips) + 1)
-		release, err = h.cfg.Budget.Reserve(4096 + n*per + audit)
+		bytes, err = headWorkspaceBytes(uint64(len(h.graph)), uint64(len(h.tips)), uint64(h.auditCount))
+		if err != nil {
+			return nil, err
+		}
+		release, err = h.cfg.Budget.Reserve(bytes)
 	}
 	return release, err
 }
+
+func headWorkspaceBytes(graph, sources, audits uint64) (uint64, error) {
+	const (
+		controlBytes = uint64(4096)                             // Evaluation and delta control space.
+		nodeBytes    = uint64(1024)                             // Maps, temporary branches and append growth per node.
+		witnessBytes = uint64(288)                              // Independent path proof per source and node.
+		auditBytes   = 2 * uint64(unsafe.Sizeof(AuditRecord{})) // Snapshot and event copies per retained audit record.
+	)
+	if graph > ^uint64(0)-sources {
+		return 0, ErrMemoryBudget
+	}
+	nodes := graph + sources
+	if nodes == ^uint64(0) {
+		return 0, ErrMemoryBudget
+	}
+	nodes++ // One extra node covers the candidate being evaluated.
+	if sources > (^uint64(0)-nodeBytes)/witnessBytes {
+		return 0, ErrMemoryBudget
+	}
+	perNode := nodeBytes + sources*witnessBytes
+	if audits > (^uint64(0)-controlBytes)/auditBytes {
+		return 0, ErrMemoryBudget
+	}
+	bytes := controlBytes + audits*auditBytes
+	if nodes > (^uint64(0)-bytes)/perNode {
+		return 0, ErrMemoryBudget
+	}
+	return bytes + nodes*perNode, nil
+}
+
 func (h *HeadTracker) witnesses(target AnchorNode, revision uint64) []PathWitness {
 	var out []PathWitness
 	for _, id := range h.cfg.Members {

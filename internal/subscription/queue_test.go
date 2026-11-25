@@ -294,6 +294,40 @@ func TestBudgetRejectsAtomicallyAndReleaseIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestUnlimitedBudgetRejectsAccountingOverflow(t *testing.T) {
+	budget := NewMemoryBudget(0)
+	first, err := budget.Reserve(^uint64(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first()
+	if release, ok := budget.TryReserve(1); ok || release != nil {
+		t.Fatal("unlimited budget accepted an unrepresentable usage total")
+	}
+	if release, err := budget.Reserve(1); !errors.Is(err, ErrMemoryBudget) || release != nil {
+		t.Fatalf("accounting overflow = %v, want memory budget failure", err)
+	}
+	if budget.Used() != ^uint64(0) {
+		t.Fatalf("failed reserve changed usage: %d", budget.Used())
+	}
+	zero, ok := budget.TryReserve(0)
+	if !ok {
+		t.Fatal("zero-byte reserve failed at the accounting limit")
+	}
+	zero()
+	zero()
+	first()
+	first()
+	if budget.Used() != 0 {
+		t.Fatalf("idempotent release left %d bytes", budget.Used())
+	}
+	last, err := budget.Reserve(1)
+	if err != nil {
+		t.Fatalf("reserve after release: %v", err)
+	}
+	last()
+}
+
 func TestPayloadLeaseTakeTransfersValueOnlyOnce(t *testing.T) {
 	arena := NewPayloadArena(NewMemoryBudget(10))
 	lease := testLease(t, arena, "payload")
@@ -329,7 +363,7 @@ func TestQueuePushDoesNotWaitForBlockedConsumer(t *testing.T) {
 	cancel()
 	<-done
 	if budget := queue.budget; budget != nil {
-		queue.Close()
+		_ = queue.Close() // Cleanup only releases queued ownership; Close always returns nil.
 	}
 }
 
