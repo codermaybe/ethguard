@@ -66,7 +66,9 @@ func newCaptureJSONRPCServer(t *testing.T, writeBody func(id json.RawMessage) []
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(writeBody(req.ID))
+		if _, err := w.Write(writeBody(req.ID)); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -211,18 +213,29 @@ func TestCaptureHTTPReadFailureSurfacesReadError(t *testing.T) {
 		var req struct {
 			ID json.RawMessage `json:"id"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
-		_ = req
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode fixture request: %v", err)
+			return
+		}
 		conn, bufrw, err := w.(http.Hijacker).Hijack()
 		if err != nil {
+			t.Errorf("hijack fixture connection: %v", err)
 			http.Error(w, "hijack failed", http.StatusInternalServerError)
 			return
 		}
-		defer conn.Close()
+		defer func() {
+			if err := conn.Close(); err != nil {
+				t.Errorf("close partial response: %v", err)
+			}
+		}()
 		// Headers promise 1000 bytes; supply a fragment, then hang up.
-		bufrw.WriteString("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"jsonrpc\":")
-		bufrw.Flush()
-		conn.Close()
+		if _, err := bufrw.WriteString("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"jsonrpc\":"); err != nil {
+			t.Errorf("write partial response: %v", err)
+			return
+		}
+		if err := bufrw.Flush(); err != nil {
+			t.Errorf("flush partial response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	client := dialCaptureServer(t, srv.URL, 0)
@@ -251,17 +264,26 @@ func TestCaptureHTTPContextCancelBeatsTruncation(t *testing.T) {
 		var req struct {
 			ID json.RawMessage `json:"id"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
-		_ = req
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode fixture request: %v", err)
+			return
+		}
 		// Flush headers so the transport hands the response over and the
 		// capture read blocks on the body itself.
 		w.Header().Set("Content-Type", "application/json")
 		rc := http.NewResponseController(w)
-		rc.Flush()
+		if err := rc.Flush(); err != nil {
+			if r.Context().Err() == nil {
+				t.Errorf("flush fixture headers: %v", err)
+			}
+			return
+		}
 		select {
 		case <-time.After(200 * time.Millisecond):
-			w.Write([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"error":{"code":3,"message":"execution reverted","data":"0x%s"}}`,
-				req.ID, strings.Repeat("a", 8192))))
+			if _, err := w.Write([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"error":{"code":3,"message":"execution reverted","data":"0x%s"}}`,
+				req.ID, strings.Repeat("a", 8192)))); err != nil && r.Context().Err() == nil {
+				t.Errorf("write delayed fixture response: %v", err)
+			}
 		case <-r.Context().Done():
 			return
 		}
@@ -347,8 +369,11 @@ func TestCaptureTransportSecondCaptureFailsRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("first RoundTrip err = %v, want nil", err)
 			}
-			raw, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			raw, readErr := io.ReadAll(resp.Body)
+			_ = resp.Body.Close() // The response is read-only; closing has no pending output to commit.
+			if readErr != nil {
+				t.Fatalf("read captured response: %v", readErr)
+			}
 			if got, _ := box.bytes(); string(got) != string(raw) || !box.ok {
 				t.Fatalf("box = %s/%v, want the served body %s", got, box.ok, raw)
 			}

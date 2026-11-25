@@ -280,7 +280,8 @@ func (e *Error) ErrorDataJSON() (json.RawMessage, bool) {
 
 // ErrorData returns the decoded data value, or nil for an absent member and
 // for a JSON null. Decoding follows encoding/json defaults (numbers become
-// float64), mirroring the Geth baseline's decoded DataError view. Consumers
+// float64), mirroring the Geth baseline's decoded DataError view. Numbers
+// outside float64 can leave this view nil or partially decoded. Consumers
 // that need the exact wire bytes must use ErrorDataJSON.
 func (e *Error) ErrorData() any {
 	if e == nil {
@@ -324,9 +325,9 @@ func decodeError(raw json.RawMessage) (*Error, error) {
 	if data, present := fields["data"]; present {
 		e.dataPresent = true
 		e.data = append(json.RawMessage(nil), data...)
-		// The raw bytes came from a validated JSON body, so this cannot
-		// fail; on the impossible path the decoded view stays nil and the
-		// raw view remains authoritative.
+		// Keep the default decoded compatibility view best-effort: valid
+		// JSON numbers may exceed float64. The raw view remains authoritative
+		// even when decoding leaves nil or a partially populated value.
 		_ = json.Unmarshal(e.data, &e.decoded)
 	}
 	return e, nil

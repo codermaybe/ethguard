@@ -110,12 +110,16 @@ func agreeOnHead(nodes []*rpctest.Node) {
 
 // scriptFinalizedHeads answers the anchor pipeline's finalized-tag query
 // per node (finalized(i)) while the plain latest tag returns latest(i).
-func scriptFinalizedHeads(nodes []*rpctest.Node, latest, finalized func(i int) map[string]any) {
+func scriptFinalizedHeads(t testing.TB, nodes []*rpctest.Node, latest, finalized func(i int) map[string]any) {
+	t.Helper()
 	for i, node := range nodes {
 		node.Handle("eth_getBlockByNumber", func(c rpctest.Call) (any, error) {
 			var tag string
 			if len(c.Params) > 0 {
-				json.Unmarshal(c.Params[0], &tag)
+				if err := json.Unmarshal(c.Params[0], &tag); err != nil {
+					t.Errorf("decode fixture request: %v", err)
+					return nil, err
+				}
 			}
 			if tag == "finalized" {
 				return finalized(i), nil
@@ -709,7 +713,7 @@ func TestFinalizedAnchoringToleratesDivergentTips(t *testing.T) {
 	pm := dprom.New()
 	client, nodes := fleet(t, 1, 1, 3,
 		ethguard.WithRecorder(pm), ethguard.WithFinalizedAnchoring())
-	scriptFinalizedHeads(nodes,
+	scriptFinalizedHeads(t, nodes,
 		func(i int) map[string]any {
 			return map[string]any{"number": fmt.Sprintf("0x%x", 0x65+i), "hash": fmt.Sprintf("0xtip%d", i)}
 		},
@@ -755,7 +759,7 @@ func TestFinalizedAnchoringIsolatesStaleReporter(t *testing.T) {
 	pm := dprom.New()
 	client, nodes := fleet(t, 1, 1, 3,
 		ethguard.WithRecorder(pm), ethguard.WithFinalizedAnchoring())
-	scriptFinalizedHeads(nodes,
+	scriptFinalizedHeads(t, nodes,
 		func(int) map[string]any { return map[string]any{"number": "0x66", "hash": "0xtip"} },
 		func(i int) map[string]any {
 			if i == 2 {
@@ -816,7 +820,7 @@ func TestFinalizedAnchoringRejectsForkAtPinnedHeight(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring())
 	hashA := "0x" + strings.Repeat("aa", 32)
 	hashB := "0x" + strings.Repeat("bb", 32)
-	scriptFinalizedHeads(nodes,
+	scriptFinalizedHeads(t, nodes,
 		func(int) map[string]any { return map[string]any{"number": "0x66", "hash": "0xtip"} },
 		func(i int) map[string]any {
 			if i < 2 {
@@ -1367,7 +1371,7 @@ func TestClientCorroboratesTransactionByHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, node := range nodes {
-		node.Return(methods.MethodGetTransactionByHash, json.RawMessage(raw))
+		node.Return(methods.MethodGetTransactionByHash, raw)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1386,7 +1390,7 @@ func TestClientRejectsTransactionThatDoesNotMatchRequestedHash(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	raw := signedTxFixture(t, true)
 	for _, node := range nodes {
-		node.Return(methods.MethodGetTransactionByHash, json.RawMessage(raw))
+		node.Return(methods.MethodGetTransactionByHash, raw)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1451,7 +1455,10 @@ func TestClientPinsBlockReceiptsToCorroboratedReference(t *testing.T) {
 		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": "0x" + strings.Repeat("ab", 32)})
 		node.Handle(methods.MethodGetBlockReceipts, func(c rpctest.Call) (any, error) {
 			var ref string
-			json.Unmarshal(c.Params[0], &ref)
+			if err := json.Unmarshal(c.Params[0], &ref); err != nil {
+				t.Errorf("decode fixture request: %v", err)
+				return nil, err
+			}
 			if ref == "0x"+strings.Repeat("ab", 32) {
 				return receipts, nil
 			}
@@ -1930,7 +1937,7 @@ func TestConfigPresetSpellingSelectsTheSameStrategy(t *testing.T) {
 			Endpoint: node.URL(),
 		})
 	}
-	scriptFinalizedHeads(nodes,
+	scriptFinalizedHeads(t, nodes,
 		func(i int) map[string]any { // divergent latest heads
 			return map[string]any{"number": fmt.Sprintf("0x%x", 16-i), "hash": fmt.Sprintf("0xhead%d", i)}
 		},

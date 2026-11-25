@@ -26,7 +26,8 @@ func (p decoratedOutcomePolicy) ResolveCorroborated(c rpc.Corroboration, obs []r
 func quantityStrict(opts ...rpc.StrictOption) rpc.Policy {
 	return rpc.Strict(func(v json.RawMessage) (string, error) {
 		var s string
-		return s, json.Unmarshal(v, &s)
+		err := json.Unmarshal(v, &s)
+		return s, err
 	}, opts...)
 }
 
@@ -130,7 +131,8 @@ func TestStatedVerdictsSkipSecondNormalize(t *testing.T) {
 	policy := rpc.Strict(func(v json.RawMessage) (string, error) {
 		normalizeCalls++
 		var s string
-		return s, json.Unmarshal(v, &s)
+		err := json.Unmarshal(v, &s)
+		return s, err
 	})
 	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
 	rec := &captureRecorder{}

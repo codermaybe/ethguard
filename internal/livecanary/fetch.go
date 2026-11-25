@@ -62,17 +62,17 @@ func (f Fetcher) Fetch(ctx context.Context) (FetchedRegistry, error) {
 	fetchedAt, timeErr := formatProvenanceTime("registry.fetched_at", now())
 	if timeErr != nil {
 		if response != nil {
-			response.Body.Close()
+			response.Body.Close() //nolint:errcheck // Preserve the fetch/time error; closing a read-only response only releases resources.
 		}
 		return FetchedRegistry{}, timeErr
 	}
 	if err != nil {
 		if response != nil {
-			response.Body.Close()
+			response.Body.Close() //nolint:errcheck // Preserve the fetch/time error; closing a read-only response only releases resources.
 		}
 		return FetchedRegistry{FetchedAt: fetchedAt}, fmt.Errorf("registry: fetch: %w", err)
 	}
-	defer response.Body.Close()
+	defer response.Body.Close() //nolint:errcheck // Read-only response; the bounded read owns data errors.
 	if response.StatusCode != http.StatusOK {
 		return FetchedRegistry{FetchedAt: fetchedAt}, fmt.Errorf("registry: fetch: unexpected status %d", response.StatusCode)
 	}

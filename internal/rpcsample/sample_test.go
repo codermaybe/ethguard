@@ -17,14 +17,8 @@ import (
 
 func TestCollectWritesIndexedRedactedWireRecords(t *testing.T) {
 	const secret = "super-secret-token"
-	if err := os.Setenv("RPC_SAMPLE_SECRET", secret); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Unsetenv("RPC_SAMPLE_SECRET")
-	if err := os.Setenv("RPC_SAMPLE_AUTH", "Bearer "+secret); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Unsetenv("RPC_SAMPLE_AUTH")
+	t.Setenv("RPC_SAMPLE_SECRET", secret)
+	t.Setenv("RPC_SAMPLE_AUTH", "Bearer "+secret)
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if got := r.Header.Get("Authorization"); got != "Bearer "+secret {
 			t.Errorf("authorization = %q", got)
@@ -56,10 +50,7 @@ func TestCollectWritesIndexedRedactedWireRecords(t *testing.T) {
 
 func TestCollectRedactsCredentialsFromErrorsAndMetadata(t *testing.T) {
 	const secret = "x7"
-	if err := os.Setenv("RPC_SAMPLE_SHORT_SECRET", secret); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Unsetenv("RPC_SAMPLE_SHORT_SECRET")
+	t.Setenv("RPC_SAMPLE_SHORT_SECRET", secret)
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusBadGateway,
@@ -208,7 +199,7 @@ var errEOF = errors.New("eof")
 // cannot stream an unbounded response into memory.
 func TestReadBodyBoundsUnconfiguredLimit(t *testing.T) {
 	body, truncated, err := readBody(&countingReader{remaining: limits.MaxBodyBytes + 1}, 0)
-	if err != nil && err != errEOF {
+	if err != nil && !errors.Is(err, errEOF) {
 		t.Fatalf("readBody: %v", err)
 	}
 	if int64(len(body)) != limits.MaxBodyBytes {

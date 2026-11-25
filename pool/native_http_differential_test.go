@@ -69,7 +69,11 @@ func newPoolEchoServer(t *testing.T, respond func(n int, req poolCapturedRequest
 	t.Helper()
 	var s *poolEchoServer
 	s = newPoolEchoServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		body, _ := io.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read fixture request: %v", err)
+			return
+		}
 		req := poolCapturedRequest{Header: r.Header.Clone(), Body: body}
 		s.mu.Lock()
 		n := len(s.requests)
@@ -78,9 +82,14 @@ func newPoolEchoServer(t *testing.T, respond func(n int, req poolCapturedRequest
 		var parsed struct {
 			ID json.RawMessage `json:"id"`
 		}
-		json.Unmarshal(req.Body, &parsed)
+		if err := json.Unmarshal(req.Body, &parsed); err != nil {
+			t.Errorf("decode fixture request: %v", err)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,%s}`, parsed.ID, respond(n, req))
+		if _, err := fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,%s}`, parsed.ID, respond(n, req)); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	}))
 	return s
 }

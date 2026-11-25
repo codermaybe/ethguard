@@ -37,7 +37,8 @@ func eventBenchResolution(b *testing.B, sources []*pool.Source) (rpc.Policy, rpc
 	b.Helper()
 	policy := rpc.Strict(func(v json.RawMessage) (string, error) {
 		var s string
-		return s, json.Unmarshal(v, &s)
+		err := json.Unmarshal(v, &s)
+		return s, err
 	})
 	observations := make([]rpc.Observation, 0, len(sources))
 	emissions := make([]pool.Emission, 0, len(sources))

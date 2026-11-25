@@ -26,7 +26,7 @@ func TestSharedDisconnectCountsAttemptedEmissionsAndRedials(t *testing.T) {
 			t.Errorf("upgrade: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 		generation := sockets.Add(1)
 		for {
 			body, err := conn.ReadMessage()
@@ -110,7 +110,7 @@ func checkReadLimitRedial(t *testing.T, chainID uint64) {
 			t.Errorf("upgrade: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 		generation := sockets.Add(1)
 		for {
 			body, err := conn.ReadMessage()

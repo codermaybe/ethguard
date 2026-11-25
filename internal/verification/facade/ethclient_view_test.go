@@ -252,7 +252,7 @@ func TestViewFailureDeliversSameConclusionToCallerAndCapture(t *testing.T) {
 	if !ok || capErr != nil {
 		t.Fatalf("delivery = %v, %v", ok, capErr)
 	}
-	if published.Err == nil || !errors.Is(published.Err, ethguard.ErrInsufficientSupport) || published.Err != err {
+	if published.Err == nil || !errors.Is(published.Err, ethguard.ErrInsufficientSupport) || published.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 		t.Fatalf("published conclusion = %v, caller conclusion = %v", published.Err, err)
 	}
 }

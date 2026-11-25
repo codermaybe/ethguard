@@ -64,7 +64,7 @@ func postJSON(t *testing.T, url, payload string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // Read-only fixture response; ReadAll owns data errors.
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)

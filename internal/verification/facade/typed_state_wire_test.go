@@ -176,9 +176,13 @@ func TestStateRefSafeFinalizedKeepTheirLevel(t *testing.T) {
 				continue
 			}
 			var tag, fullTx any
-			json.Unmarshal(c.Params[0], &tag)
+			if err := json.Unmarshal(c.Params[0], &tag); err != nil {
+				t.Fatalf("decode recorded request: %v", err)
+			}
 			if len(c.Params) > 1 {
-				json.Unmarshal(c.Params[1], &fullTx)
+				if err := json.Unmarshal(c.Params[1], &fullTx); err != nil {
+					t.Fatalf("decode recorded request: %v", err)
+				}
 			}
 			switch tag {
 			case "safe":
@@ -444,38 +448,47 @@ func TestTypedBlockByNumberNegativeTagsAnchorFirst(t *testing.T) {
 	safeFixture := fixtureBlock(t, 17)
 	finalizedFixture := fixtureBlock(t, 18)
 	byHash := map[string]json.RawMessage{
-		blockHashOf(latestFixture):    json.RawMessage(latestFixture),
-		blockHashOf(safeFixture):      json.RawMessage(safeFixture),
-		blockHashOf(finalizedFixture): json.RawMessage(finalizedFixture),
+		blockHashOf(t, latestFixture):    latestFixture,
+		blockHashOf(t, safeFixture):      safeFixture,
+		blockHashOf(t, finalizedFixture): finalizedFixture,
 	}
 	for _, node := range nodes {
 		node.Handle(methods.MethodGetBlockByNumber, func(c rpctest.Call) (any, error) {
 			var ref string
-			json.Unmarshal(c.Params[0], &ref)
+			if err := json.Unmarshal(c.Params[0], &ref); err != nil {
+				t.Errorf("decode fixture request: %v", err)
+				return nil, err
+			}
 			var fullTx bool
 			if len(c.Params) > 1 {
-				json.Unmarshal(c.Params[1], &fullTx)
+				if err := json.Unmarshal(c.Params[1], &fullTx); err != nil {
+					t.Errorf("decode fixture request: %v", err)
+					return nil, err
+				}
 			}
 			if fullTx {
 				t.Errorf("business call fetched %q with bodies; anchored reads fetch by hash", ref)
-				return json.RawMessage(latestFixture), nil
+				return latestFixture, nil
 			}
 			switch ref {
 			case "latest":
-				return map[string]any{"number": "0x10", "hash": blockHashOf(latestFixture)}, nil
+				return map[string]any{"number": "0x10", "hash": blockHashOf(t, latestFixture)}, nil
 			case "safe":
-				return map[string]any{"number": "0x11", "hash": blockHashOf(safeFixture)}, nil
+				return map[string]any{"number": "0x11", "hash": blockHashOf(t, safeFixture)}, nil
 			case "finalized":
-				return map[string]any{"number": "0x12", "hash": blockHashOf(finalizedFixture)}, nil
+				return map[string]any{"number": "0x12", "hash": blockHashOf(t, finalizedFixture)}, nil
 			default:
 				return nil, rpctest.RPCError(-32602, "unexpected anchor tag "+ref)
 			}
 		})
 		node.Handle(methods.MethodGetBlockByHash, func(c rpctest.Call) (any, error) {
 			var hash string
-			json.Unmarshal(c.Params[0], &hash)
+			if err := json.Unmarshal(c.Params[0], &hash); err != nil {
+				t.Errorf("decode fixture request: %v", err)
+				return nil, err
+			}
 			if fixture, ok := byHash[hash]; ok {
-				return json.RawMessage(fixture), nil
+				return fixture, nil
 			}
 			return nil, rpctest.RPCError(-32602, "unknown hash "+hash)
 		})
@@ -500,10 +513,14 @@ func TestTypedBlockByNumberNegativeTagsAnchorFirst(t *testing.T) {
 				continue
 			}
 			var fullTx bool
-			json.Unmarshal(c.Params[1], &fullTx)
+			if err := json.Unmarshal(c.Params[1], &fullTx); err != nil {
+				t.Fatalf("decode recorded request: %v", err)
+			}
 			if fullTx {
 				var ref string
-				json.Unmarshal(c.Params[0], &ref)
+				if err := json.Unmarshal(c.Params[0], &ref); err != nil {
+					t.Fatalf("decode recorded request: %v", err)
+				}
 				t.Fatalf("business call carried %q; anchored reads fetch by hash", ref)
 			}
 			seenTags[wireString(t, c.Params[0])] = true
@@ -553,7 +570,7 @@ func TestTypedBlockByNumberTagAnchorFailureSendsNoBusinessRequest(t *testing.T) 
 		node.Fail(methods.MethodGetBlockByNumber, -32000, "anchor down")
 		node.Handle(methods.MethodGetBlockByHash, func(c rpctest.Call) (any, error) {
 			t.Error("business request sent despite anchor failure")
-			return json.RawMessage(fixtureBlock(t, 16)), nil
+			return fixtureBlock(t, 16), nil
 		})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

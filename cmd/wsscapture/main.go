@@ -55,8 +55,9 @@ func main() {
 		RedactEnv:     splitList(*redactEnv),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	if err := capture(ctx, urls, *out, cfg); err != nil {
+	err = capture(ctx, urls, *out, cfg)
+	cancel()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "wsscapture: %v\n", err)
 		os.Exit(1)
 	}

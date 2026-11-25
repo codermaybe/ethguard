@@ -59,7 +59,7 @@ func BenchmarkReceiptsContentRoundTrip(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			defer s.Close()
+			defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 			pushLogsHead(feeds, base.head)
 			if _, err := s.Next(context.Background()); err != nil {
 				b.Fatal(err)

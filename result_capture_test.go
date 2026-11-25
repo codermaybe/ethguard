@@ -155,7 +155,7 @@ func TestResultCaptureNilAndZeroValueReadClean(t *testing.T) {
 func TestCallResultCloneCopiesDirectRevertDataOnly(t *testing.T) {
 	direct := &RevertError{Data: []byte{1, 2}, DataRaw: json.RawMessage(`{"x":1}`)}
 	clone := (CallResult{Err: direct}).Clone()
-	cloned, ok := clone.Err.(*RevertError)
+	cloned, ok := clone.Err.(*RevertError) //nolint:errorlint // Only a directly owned RevertError is cloned; a wrapped one must not satisfy this assertion.
 	if !ok || cloned == direct {
 		t.Fatalf("direct revert clone = %T/%p, want an independent RevertError", clone.Err, cloned)
 	}
@@ -266,7 +266,7 @@ func TestReceiptWaitCaptureIsolatesBothPositions(t *testing.T) {
 		}
 		observed.Decision.Support[0].Name = "changed"
 		observed.Decision.Reference.Hash = "changed"
-		if !errors.Is(last.Err, cause) || !errors.Is(observed.Err, cause) || result.Err != context.DeadlineExceeded {
+		if !errors.Is(last.Err, cause) || !errors.Is(observed.Err, cause) || result.Err != context.DeadlineExceeded { //nolint:errorlint // Cloning must preserve the immutable terminal error instance.
 			t.Fatal("immutable errors changed meaning")
 		}
 	}

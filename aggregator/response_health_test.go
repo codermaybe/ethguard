@@ -80,7 +80,7 @@ func TestResponseHealthMalformedReachesGateWithFixedBasis(t *testing.T) {
 					t.Fatalf("attempt %d: decision=%+v err=%v", attempt, d, err)
 				}
 				h := badSource.Health()
-				if h.Successes != 0 || h.Failures != attempt || uint64(h.ConsecutiveFailures) != attempt || !errors.Is(h.LastError, rpc.ErrMalformedResponse) {
+				if h.Successes != 0 || h.Failures != attempt || h.ConsecutiveFailures != attempt || !errors.Is(h.LastError, rpc.ErrMalformedResponse) {
 					t.Fatalf("attempt %d: health=%+v", attempt, h)
 				}
 			}

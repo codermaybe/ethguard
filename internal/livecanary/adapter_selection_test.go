@@ -18,7 +18,9 @@ import (
 func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"jsonrpc":"2.0","id":999,"result":"0x2a"}`))
+		if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":999,"result":"0x2a"}`)); err != nil && r.Context().Err() == nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 

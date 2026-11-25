@@ -110,7 +110,10 @@ func TestNotificationContextCancellationAndOwnerCloseAreBounded(t *testing.T) {
 	tr, stream := openNotificationTestStream(t, peerURL, ctx, 1)
 	cancel()
 	select {
-	case <-stream.Err():
+	case err := <-stream.Err():
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("stream cancellation: %v", err)
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("context cancellation did not close Err")
 	}

@@ -38,7 +38,7 @@ func TestMarshalNoEscapePreservesEncoderBytes(t *testing.T) {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
 			want, wantErr := referenceMarshalNoEscape(value)
 			got, err := MarshalNoEscape(value)
-			if err != wantErr || !bytes.Equal(got, want) {
+			if err != nil || wantErr != nil || !bytes.Equal(got, want) {
 				t.Fatalf("value=%q: got %q, %v; want %q, %v", value, got, err, want, wantErr)
 			}
 		})
@@ -53,7 +53,7 @@ func FuzzMarshalNoEscapeString(f *testing.F) {
 		text := string(input)
 		want, wantErr := referenceMarshalNoEscape(text)
 		got, err := MarshalNoEscape(text)
-		if err != wantErr || !bytes.Equal(got, want) {
+		if err != nil || wantErr != nil || !bytes.Equal(got, want) {
 			t.Fatalf("input=%q: got %q, %v; want %q, %v", input, got, err, want, wantErr)
 		}
 	})

@@ -74,14 +74,20 @@ func newBaselineServer(t *testing.T, respond func(n int, req capturedRequest) []
 	t.Helper()
 	b := &baselineServer{}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read fixture request: %v", err)
+			return
+		}
 		req := capturedRequest{Method: r.Method, Header: r.Header.Clone(), Body: body}
 		b.mu.Lock()
 		n := len(b.requests)
 		b.requests = append(b.requests, req)
 		b.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(respond(n, req))
+		if _, err := w.Write(respond(n, req)); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	})
 	b.srv = httptest.NewUnstartedServer(handler)
 	listener := &countingListener{Listener: b.srv.Listener}
@@ -188,7 +194,10 @@ func TestHTTPBaselineRequestIDIsMonotonicCounter(t *testing.T) {
 		var parsed struct {
 			ID json.RawMessage `json:"id"`
 		}
-		json.Unmarshal(req.Body, &parsed)
+		if err := json.Unmarshal(req.Body, &parsed); err != nil {
+			t.Errorf("decode fixture request: %v", err)
+			return nil
+		}
 		return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"0x1"}`, parsed.ID))
 	})
 	tr := baselineClient(t, srv.srv.URL, 0)
@@ -217,7 +226,10 @@ func TestHTTPBaselineConcurrentCallsAreIndependentPOSTs(t *testing.T) {
 		var parsed struct {
 			ID json.RawMessage `json:"id"`
 		}
-		json.Unmarshal(req.Body, &parsed)
+		if err := json.Unmarshal(req.Body, &parsed); err != nil {
+			t.Errorf("decode fixture request: %v", err)
+			return nil
+		}
 		return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"0x1"}`, parsed.ID))
 	})
 	tr := baselineClient(t, srv.srv.URL, 0)
@@ -248,7 +260,9 @@ func TestHTTPBaselineConcurrentCallsAreIndependentPOSTs(t *testing.T) {
 		var msg struct {
 			ID json.RawMessage `json:"id"`
 		}
-		json.Unmarshal(req.Body, &msg)
+		if err := json.Unmarshal(req.Body, &msg); err != nil {
+			t.Fatalf("decode recorded request: %v", err)
+		}
 		if seen[string(msg.ID)] {
 			t.Fatalf("duplicate request id %s across concurrent calls", msg.ID)
 		}
@@ -651,11 +665,18 @@ func TestHTTPBaselineDeadlineExceededDominates(t *testing.T) {
 		// Flush headers so the capture read blocks on the body itself.
 		w.Header().Set("Content-Type", "application/json")
 		rc := http.NewResponseController(w)
-		rc.Flush()
+		if err := rc.Flush(); err != nil {
+			if r.Context().Err() == nil {
+				t.Errorf("flush fixture headers: %v", err)
+			}
+			return
+		}
 		select {
 		case <-time.After(300 * time.Millisecond):
-			w.Write([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted","data":"0x%s"}}`,
-				strings.Repeat("a", 8192))))
+			if _, err := w.Write([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted","data":"0x%s"}}`,
+				strings.Repeat("a", 8192)))); err != nil && r.Context().Err() == nil {
+				t.Errorf("write delayed fixture response: %v", err)
+			}
 		case <-r.Context().Done():
 		}
 	}))
@@ -686,7 +707,9 @@ func TestHTTPBaselineCloseBlocksNewCalls(t *testing.T) {
 		once.Do(func() { close(started) })
 		time.Sleep(100 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`))
+		if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`)); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	tr := baselineClient(t, srv.URL, 0)

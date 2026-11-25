@@ -57,7 +57,7 @@ func TestStatusStringSetExcludesFailed(t *testing.T) {
 	if _, ok := got["failed"]; ok {
 		t.Fatal("Status.String returned failed; that string is event-layer only")
 	}
-	if next := Status(Forwarded + 1).String(); next != "unknown" {
+	if next := (Forwarded + 1).String(); next != "unknown" {
 		t.Fatalf("Status(%d).String() = %q, want the default unknown", Forwarded+1, next)
 	}
 }

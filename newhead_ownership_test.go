@@ -29,7 +29,7 @@ func TestHeadReleasesAcceptedAndRejectedNotifications(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer s.Close()
+				defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 				var releases atomic.Int32
 				event := transport.Notification{
 					Result:  testHeader(&types.Header{Number: big.NewInt(100), Difficulty: big.NewInt(1)}),
@@ -360,7 +360,7 @@ func TestHeadSetupFailureRetiresSessionAndKeepsRetryOpportunity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer s.Close()
+		defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 		synctest.Wait()
 		if attempts.Load() != 1 {
 			t.Fatal("missing failed setup")
@@ -458,7 +458,7 @@ func TestHeadVisibleOwnerCancellationWinsBeforeWatcherObtainsControl(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer s.Close()
+		defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 		synctest.Wait()
 		// Hold the same source-control seam so the owner watcher cannot request
 		// stop first. A source failure reaching it must observe owner cancellation.

@@ -44,10 +44,12 @@ func TestSelectByBlockNumberFansOutBatchConcurrentlyAndKeepsRegistryOrder(t *tes
 	endpoints := make([]chainlist.Endpoint, endpointCount)
 	for i := range servers {
 		index := i
-		servers[i] = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		servers[i] = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			started <- index
 			<-release
-			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":"0x%x"}`, index+1)
+			if _, err := fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":"0x%x"}`, index+1); err != nil && r.Context().Err() == nil {
+				t.Errorf("write fixture response: %v", err)
+			}
 		}))
 		endpoints[i] = chainlist.Endpoint{URL: servers[i].URL}
 		defer servers[i].Close()

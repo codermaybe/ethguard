@@ -78,7 +78,7 @@ func assertFailedEvent(t *testing.T, want error, wantCalls bool, plan rpc.ReadPl
 		t.Fatalf("got %v, want %v", err, want)
 	}
 	for _, other := range []error{rpc.ErrConflict, rpc.ErrNoValidResponse, rpc.ErrInvalidRequest, rpc.ErrMalformedResponse} {
-		if other != want && errors.Is(err, other) {
+		if other != want && errors.Is(err, other) { //nolint:errorlint // The table distinguishes known sentinel instances before testing class membership.
 			t.Fatalf("error class swallowed by %v: %v", other, err)
 		}
 	}

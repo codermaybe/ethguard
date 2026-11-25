@@ -86,9 +86,9 @@ func TestBlockByNumberPreservesKnownNegativeTagMeaning(t *testing.T) {
 	finalizedFixture := fixtureBlock(t, 18)
 	earliestFixture := fixtureBlock(t, 0)
 	byHash := map[string]json.RawMessage{
-		blockHashOf(latestFixture):    json.RawMessage(latestFixture),
-		blockHashOf(safeFixture):      json.RawMessage(safeFixture),
-		blockHashOf(finalizedFixture): json.RawMessage(finalizedFixture),
+		blockHashOf(t, latestFixture):    latestFixture,
+		blockHashOf(t, safeFixture):      safeFixture,
+		blockHashOf(t, finalizedFixture): finalizedFixture,
 	}
 	for _, node := range nodes {
 		node.Handle(methods.MethodGetBlockByNumber, func(c rpctest.Call) (any, error) {
@@ -105,18 +105,18 @@ func TestBlockByNumberPreservesKnownNegativeTagMeaning(t *testing.T) {
 			}
 			if fullTx {
 				if ref == "0x0" {
-					return json.RawMessage(earliestFixture), nil
+					return earliestFixture, nil
 				}
 				t.Errorf("business call fetched moving tag %q", ref)
-				return json.RawMessage(latestFixture), nil
+				return latestFixture, nil
 			}
 			switch ref {
 			case "latest":
-				return map[string]any{"number": "0x10", "hash": blockHashOf(latestFixture)}, nil
+				return map[string]any{"number": "0x10", "hash": blockHashOf(t, latestFixture)}, nil
 			case "safe":
-				return map[string]any{"number": "0x11", "hash": blockHashOf(safeFixture)}, nil
+				return map[string]any{"number": "0x11", "hash": blockHashOf(t, safeFixture)}, nil
 			case "finalized":
-				return map[string]any{"number": "0x12", "hash": blockHashOf(finalizedFixture)}, nil
+				return map[string]any{"number": "0x12", "hash": blockHashOf(t, finalizedFixture)}, nil
 			default:
 				return nil, rpctest.RPCError(-32602, "unexpected tag "+ref)
 			}
@@ -127,7 +127,7 @@ func TestBlockByNumberPreservesKnownNegativeTagMeaning(t *testing.T) {
 				_ = json.Unmarshal(c.Params[0], &hash)
 			}
 			if fixture, ok := byHash[hash]; ok {
-				return json.RawMessage(fixture), nil
+				return fixture, nil
 			}
 			return nil, rpctest.RPCError(-32602, "unknown hash "+hash)
 		})

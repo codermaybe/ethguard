@@ -61,7 +61,9 @@ func TestCommonReferenceConfirmsDifferentHeightsAndKeepsEvidenceScoped(t *testin
 		for _, call := range node.Calls() {
 			if call.Method == methods.MethodGetBalance {
 				var pin string
-				json.Unmarshal(call.Params[1], &pin)
+				if err := json.Unmarshal(call.Params[1], &pin); err != nil {
+					t.Fatalf("decode recorded request: %v", err)
+				}
 				if pin != ref.Hash {
 					t.Fatalf("business read escaped pin: %s", pin)
 				}

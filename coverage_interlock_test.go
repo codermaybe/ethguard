@@ -22,7 +22,6 @@ import (
 var zeroDirectTestAllowlist = map[string]string{
 	"github.com/codermaybe/ethguard/cmd/rpcsample":                 "CLI recording tool; exercised via internal/rpcsample tests",
 	"github.com/codermaybe/ethguard/cmd/shapeprobe":                "CLI probe tool; exercised via internal/shapeprobe tests",
-	"github.com/codermaybe/ethguard/cmd/soak":                      "load tool; driven manually during soak drills",
 	"github.com/codermaybe/ethguard/cmd/specbundle":                "spec utility; output validated by internal/spec/builder",
 	"github.com/codermaybe/ethguard/cmd/specdiff":                  "spec utility; output compared against pinned VERSION",
 	"github.com/codermaybe/ethguard/examples/basic":                "README runnable demo",

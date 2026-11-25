@@ -80,6 +80,12 @@ type stepReport struct {
 }
 
 func main() {
+	if err := run(); err != nil {
+		fail("%v", err)
+	}
+}
+
+func run() error {
 	var (
 		file       = flag.String("file", "", "local rpcs.json (default: fetch "+registryURL+")")
 		chainFlag  = flag.Uint64("chain", 1, "chain id to soak")
@@ -117,7 +123,7 @@ func main() {
 	if sampleErr != nil {
 		// Sampling is data, not a prerequisite: report what the fleet said
 		// and continue — transaction steps degrade to "skipped".
-		fmt.Printf("sampling: %v\n", sampleErr)
+		fmt.Fprintf(os.Stderr, "sampling: %v\n", sampleErr)
 		diveInto(client, step{name: "sampling(getBlockByHash)", method: methods.MethodGetBlockByHash,
 			params: []any{anchor, true}}, 2**timeout)
 	}
@@ -147,11 +153,18 @@ func main() {
 	}
 
 	if *asJSON {
-		encodeJSON(client, steps, results)
-		return
+		if err := encodeJSON(os.Stdout, client, steps, results); err != nil {
+			return fmt.Errorf("write JSON report: %w", err)
+		}
+		return nil
 	}
-	printReport(len(endpoints), *chainFlag, *anchoring, steps, results)
-	printSources(client)
+	if err := printReport(os.Stdout, len(endpoints), *chainFlag, *anchoring, steps, results); err != nil {
+		return fmt.Errorf("write text report: %w", err)
+	}
+	if err := printSources(os.Stdout, client); err != nil {
+		return fmt.Errorf("write source health: %w", err)
+	}
+	return nil
 }
 
 // fleetState carries the derived references every step shares: one anchor
@@ -373,7 +386,8 @@ func classify(dec *rpc.Decision, err error, detail string) (stepReport, error) {
 // source's canonical answer. This is a second fan-out and costs one extra
 // round of requests; it runs on strict-comparable conflicts and on whole-
 // step failures, where "which source said what, and which failed how" is
-// the finding itself.
+// the finding itself. These diagnostics go to stderr on a best-effort basis;
+// report output is checked separately.
 func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 	if s.method == "" {
 		return
@@ -382,7 +396,7 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 	defer cancel()
 	emissions, err := client.Pool().Collect(ctx, s.method, s.params, pool.CollectOptions{})
 	if err != nil {
-		fmt.Printf("  deep-dive %s: collect: %v\n", s.name, err)
+		fmt.Fprintf(os.Stderr, "  deep-dive %s: collect: %v\n", s.name, err)
 		return
 	}
 	var order []string
@@ -408,9 +422,9 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 		}
 		clusters[canonical] = append(clusters[canonical], em.Src.Name())
 	}
-	fmt.Printf("  deep-dive %s: %d clusters, %d faulted\n", s.name, len(order), faulted)
+	fmt.Fprintf(os.Stderr, "  deep-dive %s: %d clusters, %d faulted\n", s.name, len(order), faulted)
 	for _, canonical := range order {
-		fmt.Printf("    %2d× %-40s %s\n", len(clusters[canonical]),
+		fmt.Fprintf(os.Stderr, "    %2d× %-40s %s\n", len(clusters[canonical]),
 			strings.Join(clusters[canonical], ","), truncate(canonical, 120))
 	}
 	msgs := make([]string, 0, len(faults))
@@ -419,7 +433,7 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 	}
 	sort.Strings(msgs)
 	for _, msg := range msgs {
-		fmt.Printf("    fault %2d× %s\n", faults[msg], msg)
+		fmt.Fprintf(os.Stderr, "    fault %2d× %s\n", faults[msg], msg)
 	}
 }
 
@@ -430,7 +444,7 @@ func load(file string, chainID uint64, max int) []chainlist.Endpoint {
 		if err != nil {
 			fail("open %s: %v", file, err)
 		}
-		defer f.Close()
+		defer f.Close() //nolint:errcheck // Read-only registry input; parsing owns data errors and Close commits no output.
 		r = f
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -445,7 +459,7 @@ func load(file string, chainID uint64, max int) []chainlist.Endpoint {
 		if err != nil {
 			fail("fetch registry: %v", err)
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck // Read-only response; parsing owns data errors and Close only releases the connection.
 		if resp.StatusCode != http.StatusOK {
 			fail("fetch registry: status %s", resp.Status)
 		}
@@ -517,27 +531,39 @@ func mustAnchorHeight(client *ethguard.Client, timeout time.Duration) uint64 {
 	return height
 }
 
-func printReport(sources int, chainID uint64, anchoring string, steps []step, results []stepReport) {
-	fmt.Printf("== soak: %d sources, chain %d, anchoring=%s ==\n", sources, chainID, anchoring)
-	fmt.Printf("%-28s %-30s %s\n", "step", "outcome", "sup/rej/fault  detail")
+func printReport(out io.Writer, sources int, chainID uint64, anchoring string, steps []step, results []stepReport) error {
+	if _, err := fmt.Fprintf(out, "== soak: %d sources, chain %d, anchoring=%s ==\n", sources, chainID, anchoring); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "%-28s %-30s %s\n", "step", "outcome", "sup/rej/fault  detail"); err != nil {
+		return err
+	}
 	for i, s := range steps {
 		r := results[i]
-		fmt.Printf("%-28s %-30s %d/%d/%d  %s\n", s.name, r.outcome, r.support, r.reject, r.faults, r.detail)
+		if _, err := fmt.Fprintf(out, "%-28s %-30s %d/%d/%d  %s\n", s.name, r.outcome, r.support, r.reject, r.faults, r.detail); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func printSources(client *ethguard.Client) {
+func printSources(out io.Writer, client *ethguard.Client) error {
 	sources := client.Pool().Sources()
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Name() < sources[j].Name() })
-	fmt.Printf("\n-- source health --\n")
+	if _, err := fmt.Fprintln(out, "\n-- source health --"); err != nil {
+		return err
+	}
 	for _, s := range sources {
 		h := s.Health()
-		fmt.Printf("%-10s %-52s ok=%-5d fail=%-4d 429=%-3d p95=%s\n",
-			s.Name(), truncate(s.URL(), 52), h.Successes, h.Failures, h.RateLimited, h.LatencyP95)
+		if _, err := fmt.Fprintf(out, "%-10s %-52s ok=%-5d fail=%-4d 429=%-3d p95=%s\n",
+			s.Name(), truncate(s.URL(), 52), h.Successes, h.Failures, h.RateLimited, h.LatencyP95); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func encodeJSON(client *ethguard.Client, steps []step, results []stepReport) {
+func encodeJSON(outWriter io.Writer, client *ethguard.Client, steps []step, results []stepReport) error {
 	type row struct {
 		Step    string `json:"step"`
 		Outcome string `json:"outcome"`
@@ -567,7 +593,7 @@ func encodeJSON(client *ethguard.Client, steps []step, results []stepReport) {
 		out.Sources = append(out.Sources, src{Name: s.Name(), URL: s.URL(), Successes: h.Successes,
 			Failures: h.Failures, RateLimited: h.RateLimited, LatencyP95: h.LatencyP95.String()})
 	}
-	json.NewEncoder(os.Stdout).Encode(out)
+	return json.NewEncoder(outWriter).Encode(out)
 }
 
 // heightRef spells the pinned anchor height — the wire form the

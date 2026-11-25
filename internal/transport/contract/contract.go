@@ -121,7 +121,9 @@ func newServer(t *testing.T, respond func(n int, body []byte) (int, []byte)) *se
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(out)
+		if _, err := w.Write(out); err != nil && r.Context().Err() == nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	})
 }
 
@@ -148,15 +150,23 @@ func newRawServer(t *testing.T, handle func(w http.ResponseWriter, r *http.Reque
 
 // hang makes the server accept the request, flush the head, and stall until
 // the request context ends or the wait elapses, then write the given bytes.
-func (s *server) hang(writeAfter time.Duration, body []byte) {
+func (s *server) hang(t *testing.T, writeAfter time.Duration, body []byte) {
+	t.Helper()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.handle = func(w http.ResponseWriter, r *http.Request, n int, reqBody []byte) {
 		rc := http.NewResponseController(w)
-		rc.Flush()
+		if err := rc.Flush(); err != nil {
+			if r.Context().Err() == nil {
+				t.Errorf("flush fixture headers: %v", err)
+			}
+			return
+		}
 		select {
 		case <-time.After(writeAfter):
-			w.Write(body)
+			if _, err := w.Write(body); err != nil && r.Context().Err() == nil {
+				t.Errorf("write delayed fixture response: %v", err)
+			}
 		case <-r.Context().Done():
 		}
 	}
@@ -471,7 +481,7 @@ func testContextPrecedence(t *testing.T, adapter Adapter) {
 	})
 	t.Run("deadline-beats-hung-server", func(t *testing.T) {
 		srv := newServer(t, func(n int, body []byte) (int, []byte) { return 0, nil })
-		srv.hang(2*time.Second, nil)
+		srv.hang(t, 2*time.Second, nil)
 		tr := adapter.Dial(t, srv.URL)
 		defer tr.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -482,7 +492,7 @@ func testContextPrecedence(t *testing.T, adapter Adapter) {
 		}
 	})
 	t.Run("cancel-beats-status-outcome", func(t *testing.T) {
-		srv := newRawServer(t, statusBodyHandler(500, 2*time.Second, []byte("late error body")))
+		srv := newRawServer(t, statusBodyHandler(t, 500, 2*time.Second, []byte("late error body")))
 		tr := adapter.Dial(t, srv.URL)
 		defer tr.Close()
 		ctx, cancel := context.WithCancel(context.Background())
@@ -547,10 +557,17 @@ func testInFlightSurvivesClose(t *testing.T, adapter Adapter) {
 	srv := newRawServer(t, func(w http.ResponseWriter, r *http.Request, n int, body []byte) {
 		close(started)
 		rc := http.NewResponseController(w)
-		rc.Flush()
+		if err := rc.Flush(); err != nil {
+			if r.Context().Err() == nil {
+				t.Errorf("flush fixture headers: %v", err)
+			}
+			return
+		}
 		select {
 		case <-time.After(300 * time.Millisecond):
-			w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+			if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`)); err != nil && r.Context().Err() == nil {
+				t.Errorf("write in-flight fixture response: %v", err)
+			}
 		case <-r.Context().Done():
 		}
 	})
@@ -655,14 +672,22 @@ const defaultLimitBytes = 32<<20 + 1
 
 // statusBodyHandler writes a bare status, flushes it, and then stalls before
 // writing the late body, so a caller can cancel mid-read.
-func statusBodyHandler(status int, writeAfter time.Duration, body []byte) func(http.ResponseWriter, *http.Request, int, []byte) {
+func statusBodyHandler(t *testing.T, status int, writeAfter time.Duration, body []byte) func(http.ResponseWriter, *http.Request, int, []byte) {
+	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request, n int, reqBody []byte) {
 		w.WriteHeader(status)
 		rc := http.NewResponseController(w)
-		rc.Flush()
+		if err := rc.Flush(); err != nil {
+			if r.Context().Err() == nil {
+				t.Errorf("flush fixture status: %v", err)
+			}
+			return
+		}
 		select {
 		case <-time.After(writeAfter):
-			w.Write(body)
+			if _, err := w.Write(body); err != nil && r.Context().Err() == nil {
+				t.Errorf("write delayed status body: %v", err)
+			}
 		case <-r.Context().Done():
 		}
 	}

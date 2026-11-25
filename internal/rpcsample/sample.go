@@ -261,7 +261,7 @@ func (c Collector) collectResolved(ctx context.Context, network Network, source 
 		record.Errors = append(record.Errors, RecordedError{Kind: "transport", Message: redact.text(err.Error())})
 		return record
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // The bounded read records response errors; closing its read-only body adds no wire evidence.
 	record.Response.HTTPStatus = resp.StatusCode
 	record.Response.ContentType = redact.text(resp.Header.Get("Content-Type"))
 	body, truncated, readErr := readBody(resp.Body, c.MaxResponseBytes)

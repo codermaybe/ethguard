@@ -21,7 +21,7 @@ func TestGorillaInteroperability(t *testing.T) {
 			t.Errorf("upgrade: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 
 		var request struct {
 			JSONRPC string            `json:"jsonrpc"`

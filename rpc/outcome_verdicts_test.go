@@ -151,7 +151,7 @@ func TestOutcomeSourceProjectionPreservesCompositeDiagnostics(t *testing.T) {
 				if len(outcome.Decision.Faults) != 2 || len(outcome.Decision.SourceFaults) != 1 {
 					t.Fatalf("projection lost or duplicated diagnostics: %+v", outcome.Decision)
 				}
-				if outcome.Decision.Faults[0] != diagnostic || !errors.Is(outcome.Decision.Faults[0], coordinatorCause) {
+				if outcome.Decision.Faults[0] != diagnostic || !errors.Is(outcome.Decision.Faults[0], coordinatorCause) { //nolint:errorlint // Fault projection must preserve the original diagnostic instance.
 					t.Fatal("projection discarded coordinator context")
 				}
 			}

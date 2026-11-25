@@ -617,7 +617,7 @@ func errorRaw(t *testing.T, code int, message string, data json.RawMessage, pres
 		if len(data) == 0 {
 			data = json.RawMessage("null")
 		}
-		object["data"] = json.RawMessage(data)
+		object["data"] = data
 	}
 	raw, err := json.Marshal(object)
 	if err != nil {

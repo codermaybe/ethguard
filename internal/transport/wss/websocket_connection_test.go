@@ -334,7 +334,7 @@ func TestConnectionHandshakeBufferedBytesCarryOver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialWebSocket: %v", err)
 	}
-	defer result.conn.Close()
+	defer result.conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 	conn := newConn(result, 1<<20)
 	data, err := conn.ReadMessage()
 	if err != nil {
@@ -417,6 +417,37 @@ func TestConnectionWriteSkipsBytesWhenContextCanceled(t *testing.T) {
 	cancel()
 	if err := conn.WriteMessage(ctx, []byte(`{"canceled":true}`)); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+type writeDeadlineFailureConn struct {
+	net.Conn
+	deadlineErr error
+	writes      int
+}
+
+func (c *writeDeadlineFailureConn) SetWriteDeadline(time.Time) error {
+	return c.deadlineErr
+}
+
+func (c *writeDeadlineFailureConn) Write(body []byte) (int, error) {
+	c.writes++
+	return len(body), nil
+}
+
+func TestConnectionWriteSkipsBytesWhenDeadlineSetupFails(t *testing.T) {
+	cause := errors.New("deadline setup failed")
+	raw := &writeDeadlineFailureConn{deadlineErr: cause}
+	conn := &Conn{raw: raw, writeSem: make(chan struct{}, 1)}
+	err := conn.WriteMessage(context.Background(), []byte(`{"bounded":true}`))
+	if !errors.Is(err, cause) {
+		t.Errorf("write error = %v, want deadline failure", err)
+	}
+	if raw.writes != 0 {
+		t.Errorf("writes = %d, want no bytes after deadline setup failure", raw.writes)
+	}
+	if len(conn.writeSem) != 0 {
+		t.Fatal("deadline setup failure retained the write lock")
 	}
 }
 

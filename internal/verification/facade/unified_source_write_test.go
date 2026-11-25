@@ -78,7 +78,7 @@ func newSourceWirePeer(t *testing.T, ws bool, answer func(sourceWireRequest) str
 				t.Errorf("upgrade: %v", err)
 				return
 			}
-			defer conn.Close()
+			defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 			peer.connections.Add(1)
 			for {
 				body, err := conn.ReadMessage()
@@ -326,7 +326,7 @@ func TestWriteRejectionDataAcrossEntrypoints(t *testing.T) {
 				check := func(result ethguard.CallResult) {
 					t.Helper()
 					d := result.WriteDecision
-					if result.Decision != nil || result.Err != err || d == nil {
+					if result.Decision != nil || result.Err != err || d == nil { //nolint:errorlint // The result must retain the exact error returned to the caller.
 						t.Fatalf("result/error contract changed: %+v, err=%v", result, err)
 					}
 					if d.Status != rpc.WriteUnconfirmed || d.Adjudication.Basis != 2 || d.Adjudication.Required != 2 || d.Hash != "" || len(writeRelations(d.Sources, rpc.VerdictSupported)) != 0 || len(writeRelations(d.Sources, rpc.VerdictDissented)) != 0 || len(writeUnavailable(d.Sources)) != 0 || len(d.Faults) != 0 || len(writeRejections(d.Sources)) != 2 {

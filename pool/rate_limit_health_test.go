@@ -46,7 +46,7 @@ func healthRPCPeer(t *testing.T, websocketMode bool, code int) (string, dialer) 
 				t.Errorf("upgrade: %v", err)
 				return
 			}
-			defer conn.Close()
+			defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 			for {
 				body, err := conn.ReadMessage()
 				if err != nil {

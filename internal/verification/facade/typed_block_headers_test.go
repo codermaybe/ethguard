@@ -20,7 +20,7 @@ import (
 func TestTypedHeaderByHashUsesHeaderOnlyRequest(t *testing.T) {
 	client, nodes := fleet(t, 3)
 	raw := fixtureBlock(t, 16)
-	hash := ethapi.Hash(blockHashOf(raw))
+	hash := ethapi.Hash(blockHashOf(t, raw))
 	for _, node := range nodes {
 		node.Return(methods.MethodGetBlockByHash, raw)
 	}
@@ -97,7 +97,7 @@ func TestTypedHeaderMovingTagsPinHashAndCaptureReference(t *testing.T) {
 			t.Run(tc.name+"/"+surface, func(t *testing.T) {
 				client, nodes := fleet(t, 2)
 				raw := fixtureBlock(t, tc.height)
-				hash := blockHashOf(raw)
+				hash := blockHashOf(t, raw)
 				for _, node := range nodes {
 					node.Handle(methods.MethodGetBlockByNumber, func(call rpctest.Call) (any, error) {
 						if len(call.Params) != 2 || wireString(t, call.Params[0]) != tc.tag || string(call.Params[1]) != "false" {
@@ -165,7 +165,7 @@ func TestTypedHeaderFailuresKeepReferenceAndCapture(t *testing.T) {
 			t.Run(phase+"/"+surface, func(t *testing.T) {
 				client, nodes := fleet(t, 2)
 				raw := fixtureBlock(t, 17)
-				hash := blockHashOf(raw)
+				hash := blockHashOf(t, raw)
 				for _, node := range nodes {
 					if phase == "reference" {
 						node.Fail(methods.MethodGetBlockByNumber, -32603, "reference unavailable")
@@ -189,10 +189,10 @@ func TestTypedHeaderFailuresKeepReferenceAndCapture(t *testing.T) {
 					t.Fatalf("%s failure = header:%+v err:%v", phase, header, err)
 				}
 				result, published, captureErr := capture.Result()
-				if !published || captureErr != nil || result.Err != err || result.Decision == nil || result.Decision.Reference == nil {
+				if !published || captureErr != nil || result.Err != err || result.Decision == nil || result.Decision.Reference == nil { //nolint:errorlint // The result must retain the exact error returned to the caller.
 					t.Fatalf("failure capture = %+v published:%v err:%v, want business error %v and reference", result, published, captureErr, err)
 				}
-				if surface == "root" && (direct.Err != err || !reflect.DeepEqual(direct.Decision, result.Decision)) {
+				if surface == "root" && (direct.Err != err || !reflect.DeepEqual(direct.Decision, result.Decision)) { //nolint:errorlint // The result must retain the exact error returned to the caller.
 					t.Fatalf("root and capture differ: direct:%+v captured:%+v", direct, result)
 				}
 				d, ref := result.Decision, result.Decision.Reference

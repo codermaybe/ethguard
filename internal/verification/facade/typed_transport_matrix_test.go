@@ -342,10 +342,10 @@ func TestTransactionSenderFromOnlyConflictAcrossTransports(t *testing.T) {
 				t.Fatalf("from-only conflict = sender:%s err:%v", sender, err)
 			}
 			result, published, captureErr := capture.Result()
-			if !published || captureErr != nil || result.Err != err {
+			if !published || captureErr != nil || result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 				t.Fatalf("capture = published:%v error:%v business:%v, want %v", published, captureErr, result.Err, err)
 			}
-			if surface == "root" && (direct.Err != err || !reflect.DeepEqual(direct.Decision, result.Decision)) {
+			if surface == "root" && (direct.Err != err || !reflect.DeepEqual(direct.Decision, result.Decision)) { //nolint:errorlint // The result must retain the exact error returned to the caller.
 				t.Fatalf("root and capture differ: direct:%+v captured:%+v", direct, result)
 			}
 			d := result.Decision

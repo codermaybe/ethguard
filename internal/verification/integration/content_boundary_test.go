@@ -32,7 +32,7 @@ func TestTypedRealHeaderRejectsAnotherBlocksContent(t *testing.T) {
 	}
 	client, nodes := fleet(t, 1, 1, 2)
 	for _, node := range nodes {
-		node.Return(methods.MethodGetBlockByHash, json.RawMessage(empty))
+		node.Return(methods.MethodGetBlockByHash, empty)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -99,7 +99,7 @@ func TestTypedReceiptFromAnotherHashIsMalformed(t *testing.T) {
 	raw := sampleResult(t, "receipt-one")
 	client, nodes := fleet(t, 1, 1, 2)
 	for _, node := range nodes {
-		node.Return(methods.MethodGetTransactionReceipt, json.RawMessage(raw))
+		node.Return(methods.MethodGetTransactionReceipt, raw)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

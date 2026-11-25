@@ -52,7 +52,7 @@ func newSubscriptionPeer(t *testing.T, scripts map[string][]byte) *subscriptionP
 			t.Errorf("upgrade: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 		write := func(raw []byte) error { peer.writeMu.Lock(); defer peer.writeMu.Unlock(); return conn.WriteText(raw) }
 		for {
 			body, err := conn.ReadMessage()
@@ -202,7 +202,7 @@ func TestSubscribeNewHeadPublicEntrypointsUsePathWitnessesAndHashRecovery(t *tes
 			}
 			header := event.Path.Appended[0].Header
 			height, heightErr := rpc.ParseHexQuantity(string(header.Number))
-			if heightErr != nil || height != 17 || string(header.Hash) != blockHashOf(raw) {
+			if heightErr != nil || height != 17 || string(header.Hash) != blockHashOf(t, raw) {
 				t.Fatalf("header %+v", header)
 			}
 
@@ -271,7 +271,7 @@ func TestSubscribeNewHeadPublicEntrypointsUsePathWitnessesAndHashRecovery(t *tes
 			for _, request := range requests {
 				if request.Method == "eth_getBlockByHash" {
 					found = true
-					if len(request.Params) != 2 || string(request.Params[0]) != fmt.Sprintf("%q", blockHashOf(middle)) || string(request.Params[1]) != `false` {
+					if len(request.Params) != 2 || string(request.Params[0]) != fmt.Sprintf("%q", blockHashOf(t, middle)) || string(request.Params[1]) != `false` {
 						t.Fatalf("hash request %s", request.Params)
 					}
 				}

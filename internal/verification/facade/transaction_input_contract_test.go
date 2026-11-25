@@ -108,7 +108,7 @@ func TestTransactionSenderRejectsIllegalInputLocally(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client, nodes := fleet(t, 2)
 			for _, node := range nodes {
-				node.Return(methods.MethodGetTransactionByBlockHashAndIndex, json.RawMessage(fixture))
+				node.Return(methods.MethodGetTransactionByBlockHashAndIndex, fixture)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -117,7 +117,7 @@ func TestTransactionSenderRejectsIllegalInputLocally(t *testing.T) {
 			if !errors.Is(err, ethguard.ErrInvalidRequest) || sender != "" {
 				t.Fatalf("root = %q, %v, want ErrInvalidRequest", sender, err)
 			}
-			if result.Decision != nil || result.Err != err {
+			if result.Decision != nil || result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 				t.Fatalf("root result = %+v, want nil decision with equal Err", result)
 			}
 			viewSender, viewErr := client.EthClient().TransactionSender(ctx, tc.tx, blockHash, 1)
@@ -192,7 +192,7 @@ func TestTransactionSenderConsumesCanonicalCopy(t *testing.T) {
 
 	client, nodes := fleet(t, 2)
 	for _, node := range nodes {
-		node.Return(methods.MethodGetTransactionByBlockHashAndIndex, json.RawMessage(fixture))
+		node.Return(methods.MethodGetTransactionByBlockHashAndIndex, fixture)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

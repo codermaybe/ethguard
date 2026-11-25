@@ -40,7 +40,7 @@ func frozenParamsJSON(size int) json.RawMessage {
 }
 
 func frozenParamsElements(paramsJSON json.RawMessage) []any {
-	return []any{json.RawMessage(paramsJSON)}
+	return []any{paramsJSON}
 }
 
 // BenchmarkRequestEncoding quantifies the per-source re-encoding of frozen

@@ -189,7 +189,7 @@ func TestLogsStreamInvalidSupplierAuditedBeforeValidFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer s.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 	pushLogsHead([]*newHeadTestFeed{fa, fb}, f.head)
 	e := nextLogs(t, s)
 	if len(e.Path.Appended[0].Logs) != 1 || e.Path.Appended[0].ContentSource != "b" {

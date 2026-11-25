@@ -271,9 +271,9 @@ func TestCollectDeadlineIncludesWaitForSharedDial(t *testing.T) {
 	case second = <-secondDone:
 	case <-time.After(200 * time.Millisecond):
 		close(release)
-		<-firstDone
+		firstErr := <-firstDone
 		<-secondDone
-		t.Fatal("Collect remained blocked waiting for another call's dial")
+		t.Fatalf("Collect remained blocked waiting for another call's dial (first call: %v)", firstErr)
 	}
 	if second.err == nil {
 		t.Fatal("expected the short collection to time out")
@@ -988,7 +988,10 @@ func TestForwardGatedKeepsDeadlineCause(t *testing.T) {
 		return n
 	}
 	for i := 0; i < maxSourceInFlight; i++ {
-		go p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 10 * time.Second})
+		go func() {
+			// Only slot occupancy matters here; pool teardown may cancel these calls.
+			_, _ = p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 10 * time.Second})
+		}()
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for hung() < maxSourceInFlight {

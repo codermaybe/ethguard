@@ -35,7 +35,7 @@ func TestBlockReceiptsBareHashReferenceKeepsHashBinding(t *testing.T) {
 			if err := json.Unmarshal(c.Params[0], &ref); err != nil || ref != pin {
 				return nil, errors.New("unexpected receipts reference " + string(c.Params[0]))
 			}
-			return []json.RawMessage{json.RawMessage(raw)}, nil
+			return []json.RawMessage{raw}, nil
 		})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

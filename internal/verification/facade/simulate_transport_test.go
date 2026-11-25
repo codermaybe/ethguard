@@ -467,7 +467,7 @@ func TestSimulateV1CancellationAfterProviderReceivesRequest(t *testing.T) {
 		if !errors.Is(got.err, context.Canceled) || got.blocks != nil {
 			t.Fatalf("canceled simulation escaped as a result: blocks=%v result=%+v err=%v", got.blocks, got.result, got.err)
 		}
-		if got.result.Err != got.err || got.result.Decision == nil || got.result.Decision.Status != rpc.Unknown || len(got.result.Decision.Value) != 0 {
+		if got.result.Err != got.err || got.result.Decision == nil || got.result.Decision.Status != rpc.Unknown || len(got.result.Decision.Value) != 0 { //nolint:errorlint // The result must retain the exact error returned to the caller.
 			t.Fatalf("canceled simulation facts = %+v, want Unknown with no value and the same cancellation error", got.result)
 		}
 	case <-time.After(5 * time.Second):

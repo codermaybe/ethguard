@@ -47,7 +47,7 @@ func TestCallRejectsUnroutableMethodsLocally(t *testing.T) {
 		if !errors.Is(err, ethguard.ErrInvalidRequest) {
 			t.Fatalf("%s route = %v, want ErrInvalidRequest", method, err)
 		}
-		if result.Decision != nil || result.Err != err {
+		if result.Decision != nil || result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 			t.Fatalf("%s route rejection result = %+v", method, result)
 		}
 	}

@@ -212,7 +212,7 @@ func TestExternalRPCHTTPErrorDataPresenceEvidence(t *testing.T) {
 			if err == nil {
 				t.Fatal("rejected protocol error unexpectedly resolved")
 			}
-			assertSingleSourceFault(t, decision, "node-a")
+			_ = assertSingleSourceFault(t, decision, "node-a") // The helper asserts attribution; presence is checked on the source answer below.
 			if len(decision.Sources) != 1 {
 				t.Fatal("missing source summary")
 			}

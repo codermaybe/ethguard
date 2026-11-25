@@ -680,8 +680,8 @@ func TestReceiptsNextCancellationAndConcurrentCloseJoinActualWork(t *testing.T) 
 		}
 		synctest.Wait()
 		select {
-		case <-nextDone:
-			t.Fatal("canceled Next escaped actual work")
+		case err := <-nextDone:
+			t.Fatalf("canceled Next escaped actual work: %v", err)
 		default:
 		}
 		select {

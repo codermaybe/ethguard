@@ -25,10 +25,17 @@ import (
 func main() {
 	path := flag.String("config", "config/sample.yaml", "provider configuration file")
 	flag.Parse()
-	client, err := ethguard.LoadFile(*path)
-	if err != nil {
+	if err := run(*path); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func run(path string) error {
+	client, err := ethguard.LoadFile(path)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -45,7 +52,7 @@ func main() {
 		if errors.Is(err, ethereum.NotFound) {
 			log.Print("no balance at the corroborated reference")
 		} else {
-			log.Fatalf("view balance read failed: %v", err)
+			return fmt.Errorf("view balance read failed: %w", err)
 		}
 	} else {
 		fmt.Printf("view corroborated zero-address balance: %s wei\n", balance)
@@ -54,16 +61,16 @@ func main() {
 	// --- WithResult: a delivery handle for exactly one call ---
 	base, err := ethguard.WithSourceEvidence(ctx, 64<<10) // bounded raw material
 	if err != nil {
-		log.Fatalf("evidence configuration: %v", err)
+		return fmt.Errorf("evidence configuration: %w", err)
 	}
 	callCtx, capture := ethguard.WithResult(base)
 	head, _, err := client.BlockByNumber(callCtx, nil)
 	if err != nil {
-		log.Fatalf("native block read failed: %v", err)
+		return fmt.Errorf("native block read failed: %w", err)
 	}
 	headHeight, heightErr := rpc.ParseHexQuantity(string(head.Number))
 	if heightErr != nil {
-		log.Fatalf("native block height: %v", heightErr)
+		return fmt.Errorf("native block height: %w", heightErr)
 	}
 	fmt.Printf("native corroborated head %d (%s)\n", headHeight, head.Hash)
 	// The capture holds the decision evidence and the budget-bounded raw
@@ -78,7 +85,7 @@ func main() {
 	_ = types.NewTx(&types.LegacyTx{})
 	tx, err := signExampleTransaction()
 	if err != nil {
-		log.Fatalf("sign: %v", err)
+		return fmt.Errorf("sign: %w", err)
 	}
 	writeCtx, writeCapture := ethguard.WithResult(ctx)
 	if err := ec.SendTransaction(writeCtx, tx); err != nil {
@@ -92,6 +99,7 @@ func main() {
 	// --- one Close stops both surfaces ---
 	ec.Close()
 	fmt.Println("client closed through the view")
+	return nil
 }
 
 // signExampleTransaction stands in for the caller's own signing stack; this

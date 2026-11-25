@@ -262,7 +262,7 @@ func probeScenario(ctx context.Context, rawURL, label, endpoint string, sc scena
 		}
 		return record
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck // The recorded exchange owns probe errors; closing the raw socket only releases resources.
 
 	writeCtx, cancelWrite := context.WithTimeout(ctx, cfg.Timeout)
 	if err := conn.WriteMessage(writeCtx, request); err != nil {

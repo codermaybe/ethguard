@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -636,7 +637,7 @@ func t09BlockSummary(block *ethapi.Block) (string, error) {
 
 func t09DecodeBlock(raw json.RawMessage) (string, error) {
 	block, err := ethguard.DecodeBlock(t09FoldNulls(raw))
-	if err == ethereum.NotFound {
+	if errors.Is(err, ethereum.NotFound) {
 		return "notfound", nil
 	}
 	if err != nil {
@@ -655,7 +656,7 @@ func t09ReceiptFull(receipt *ethapi.Receipt) (string, error) {
 
 func t09DecodeReceipt(raw json.RawMessage) (string, error) {
 	receipt, err := ethguard.DecodeReceipt(raw)
-	if err == ethereum.NotFound {
+	if errors.Is(err, ethereum.NotFound) {
 		return "notfound", nil
 	}
 	if err != nil {
@@ -693,7 +694,7 @@ func t09ReceiptsFull(raw json.RawMessage, receipts []ethapi.Receipt) (string, er
 
 func t09DecodeBlockReceipts(raw json.RawMessage) (string, error) {
 	receipts, err := ethguard.DecodeReceipts(raw)
-	if err == ethereum.NotFound {
+	if errors.Is(err, ethereum.NotFound) {
 		return "notfound", nil
 	}
 	if err != nil {
@@ -714,7 +715,7 @@ type t09TransactionRecord struct {
 
 func t09DecodeTransaction(raw json.RawMessage) (string, error) {
 	tx, pending, err := ethguard.DecodeTransaction(raw)
-	if err == ethereum.NotFound {
+	if errors.Is(err, ethereum.NotFound) {
 		return "notfound", nil
 	}
 	if err != nil {

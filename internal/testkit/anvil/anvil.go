@@ -159,13 +159,13 @@ func Start(ctx context.Context) (*Node, error) {
 	cancel()
 	n.Provenance.VersionOutput = output.String()
 	if err != nil {
-		return n, fmt.Errorf("Anvil identity: %w: %s", err, output.String())
+		return n, fmt.Errorf("anvil identity: %w: %s", err, output.String())
 	}
 	if !regexp.MustCompile(`(?m)^anvil Version: 1\.7\.1(?:-stable)?\s*$`).MatchString(output.String()) ||
 		!regexp.MustCompile(`(?m)^Commit SHA: `+Commit+`\s*$`).MatchString(output.String()) {
 		return n, fmt.Errorf("required Anvil %s commit %s, got %q", Version, Commit, output.String())
 	}
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp4", "127.0.0.1:0")
 	if err != nil {
 		return n, err
 	}
@@ -189,7 +189,7 @@ func Start(ctx context.Context) (*Node, error) {
 			n.Provenance.Arguments[i] = "[public dev mnemonic redacted]"
 		}
 	}
-	cmd := exec.Command(path, args...)
+	cmd := exec.Command(path, args...) //nolint:noctx // The ctx watcher calls Close for Interrupt, a grace period, then Kill and Wait; this owner controls shutdown.
 	// Do not inherit ANVIL_FORK_URL, RPC URLs, credentials, proxy settings, or
 	// any other user environment capable of changing this unforked chain.
 	cmd.Env = []string{"NO_COLOR=1", "RUST_BACKTRACE=0"}
@@ -224,10 +224,10 @@ func Start(ctx context.Context) (*Node, error) {
 		select {
 		case <-n.done:
 			_ = n.Close()
-			return n, fmt.Errorf("Anvil exited before readiness: %v; %s", n.waitErr, n.Logs())
+			return n, fmt.Errorf("anvil exited before readiness: %v; %s", n.waitErr, n.Logs())
 		case <-readyCtx.Done():
 			_ = n.Close()
-			return n, fmt.Errorf("Anvil readiness: %w (last RPC: %v); %s", readyCtx.Err(), lastErr, n.Logs())
+			return n, fmt.Errorf("anvil readiness: %w (last RPC: %v); %s", readyCtx.Err(), lastErr, n.Logs())
 		case <-ticker.C:
 		}
 	}
@@ -264,7 +264,7 @@ func (n *Node) Close() error {
 		select {
 		case <-n.done:
 		case <-timer.C:
-			n.closeErr = errors.Join(n.closeErr, errors.New("Anvil did not reap after kill"))
+			n.closeErr = errors.Join(n.closeErr, errors.New("anvil did not reap after kill"))
 		}
 	})
 	return n.closeErr
@@ -305,7 +305,7 @@ func (n *Node) Call(ctx context.Context, result any, method string, params ...an
 		if len(record.Response) > remaining {
 			record.Response = record.Response[:remaining]
 			record.Truncated = true
-			err = errors.Join(err, errors.New("Anvil raw evidence exceeds 8 MiB retention bound"))
+			err = errors.Join(err, errors.New("anvil raw evidence exceeds 8 MiB retention bound"))
 		}
 		if err != nil {
 			record.Error = err.Error()
@@ -324,7 +324,7 @@ func (n *Node) Call(ctx context.Context, result any, method string, params ...an
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer response.Body.Close() //nolint:errcheck // The bounded read owns response errors; closing its read-only body adds no captured evidence.
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
 	record.HTTPStatus = response.StatusCode
 	record.Response = body
@@ -335,10 +335,10 @@ func (n *Node) Call(ctx context.Context, result any, method string, params ...an
 	}
 	if len(body) > maxResponse {
 		record.Truncated = true
-		return fmt.Errorf("Anvil response exceeds %d bytes", maxResponse)
+		return fmt.Errorf("anvil response exceeds %d bytes", maxResponse)
 	}
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("Anvil HTTP status %d", response.StatusCode)
+		return fmt.Errorf("anvil HTTP status %d", response.StatusCode)
 	}
 	var envelope struct {
 		JSONRPC string          `json:"jsonrpc"`
@@ -353,7 +353,7 @@ func (n *Node) Call(ctx context.Context, result any, method string, params ...an
 		return errors.New("invalid Anvil RPC envelope")
 	}
 	if len(envelope.Error) != 0 && string(envelope.Error) != "null" {
-		return fmt.Errorf("Anvil RPC %s: %s", method, envelope.Error)
+		return fmt.Errorf("anvil RPC %s: %s", method, envelope.Error)
 	}
 	if len(envelope.Result) == 0 {
 		return errors.New("missing Anvil RPC result")

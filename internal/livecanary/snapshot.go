@@ -72,7 +72,7 @@ func LoadSnapshot(path string) (*LoadedSnapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: open raw registry: %w", err)
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck // Read-only snapshot; the bounded read owns data errors and Close commits no output.
 	raw, err := io.ReadAll(io.LimitReader(file, RegistryMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: read raw registry: %w", err)

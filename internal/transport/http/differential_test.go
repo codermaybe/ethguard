@@ -41,11 +41,15 @@ func dialAdapters(t *testing.T, rawURL string) (*Transport, transport.Transport)
 }
 
 // echoID answers with the request's id so both adapters can match responses.
-func echoID(req capturedCall, payload string) []byte {
+func echoID(t testing.TB, req capturedCall, payload string) []byte {
+	t.Helper()
 	var parsed struct {
 		ID json.RawMessage `json:"id"`
 	}
-	json.Unmarshal(req.Body, &parsed)
+	if err := json.Unmarshal(req.Body, &parsed); err != nil {
+		t.Errorf("decode fixture request: %v", err)
+		return nil
+	}
 	return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,%s}`, parsed.ID, payload))
 }
 
@@ -68,7 +72,7 @@ func TestDifferentialEnvelopeParity(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := newNativeServer(t, func(n int, req capturedCall) []byte {
-				return echoID(req, `"result":"0x1"`)
+				return echoID(t, req, `"result":"0x1"`)
 			})
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 			if err := call(t, nativeTr, context.Background(), nil, tc.method, tc.args...); err != nil {
@@ -137,7 +141,7 @@ func TestDifferentialTypedMethodResultParity(t *testing.T) {
 				if envelope.Method != tc.method {
 					t.Fatalf("method = %q, want %q", envelope.Method, tc.method)
 				}
-				return echoID(req, `"result":`+tc.result)
+				return echoID(t, req, `"result":`+tc.result)
 			})
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 			var nativeRaw, gethRaw json.RawMessage
@@ -207,7 +211,7 @@ func TestDifferentialResponseValidationIsStrictEverywhere(t *testing.T) {
 func TestDifferentialResultSemantics(t *testing.T) {
 	t.Run("result-null-success-both", func(t *testing.T) {
 		srv := newNativeServer(t, func(n int, req capturedCall) []byte {
-			return echoID(req, `"result":null`)
+			return echoID(t, req, `"result":null`)
 		})
 		nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 		var nativeRaw, gethRaw json.RawMessage
@@ -223,7 +227,7 @@ func TestDifferentialResultSemantics(t *testing.T) {
 	})
 	t.Run("missing-result-fails-both", func(t *testing.T) {
 		srv := newNativeServer(t, func(n int, req capturedCall) []byte {
-			return echoID(req, ``)
+			return echoID(t, req, ``)
 		})
 		nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 		var nativeRaw, gethRaw json.RawMessage
@@ -247,7 +251,7 @@ func TestDifferentialResultSemantics(t *testing.T) {
 	})
 	t.Run("result-and-error-both-native-rejects", func(t *testing.T) {
 		srv := newNativeServer(t, func(n int, req capturedCall) []byte {
-			return echoID(req, `"error":{"code":7,"message":"bad"},"result":"0x2a"`)
+			return echoID(t, req, `"error":{"code":7,"message":"bad"},"result":"0x2a"`)
 		})
 		nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 		// Geth quirk (B): error wins over result.
@@ -286,7 +290,7 @@ func TestDifferentialErrorDataPresence(t *testing.T) {
 				member = `,"data":` + tc.data
 			}
 			srv := newNativeServer(t, func(n int, req capturedCall) []byte {
-				return echoID(req, fmt.Sprintf(`"error":{"code":3,"message":"execution reverted"%s}`, member))
+				return echoID(t, req, fmt.Sprintf(`"error":{"code":3,"message":"execution reverted"%s}`, member))
 			})
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 			var sink json.RawMessage
@@ -333,7 +337,7 @@ func TestDifferentialDegenerateErrorsRejectedNatively(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := newNativeServer(t, func(n int, req capturedCall) []byte {
-				return echoID(req, fmt.Sprintf(`"error":%s`, tc.body))
+				return echoID(t, req, fmt.Sprintf(`"error":%s`, tc.body))
 			})
 			nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 			// Both adapters now classify degenerate error members as
@@ -483,10 +487,17 @@ func TestDifferentialContextPrecedence(t *testing.T) {
 		srv := newNativeServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			rc := nethttp.NewResponseController(w)
-			rc.Flush()
+			if err := rc.Flush(); err != nil {
+				if r.Context().Err() == nil {
+					t.Errorf("flush fixture headers: %v", err)
+				}
+				return
+			}
 			select {
 			case <-time.After(300 * time.Millisecond):
-				w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+				if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`)); err != nil && r.Context().Err() == nil {
+					t.Errorf("write delayed fixture response: %v", err)
+				}
 			case <-r.Context().Done():
 			}
 		}))
@@ -506,10 +517,17 @@ func TestDifferentialContextPrecedence(t *testing.T) {
 		srv := newNativeServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			rc := nethttp.NewResponseController(w)
-			rc.Flush()
+			if err := rc.Flush(); err != nil {
+				if r.Context().Err() == nil {
+					t.Errorf("flush fixture headers: %v", err)
+				}
+				return
+			}
 			select {
 			case <-time.After(300 * time.Millisecond):
-				w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+				if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`)); err != nil && r.Context().Err() == nil {
+					t.Errorf("write delayed fixture response: %v", err)
+				}
 			case <-r.Context().Done():
 			}
 		}))
@@ -531,7 +549,7 @@ func TestDifferentialContextPrecedence(t *testing.T) {
 func TestDifferentialConcurrentCallsParity(t *testing.T) {
 	const calls = 6
 	srv := newNativeServer(t, func(n int, req capturedCall) []byte {
-		return echoID(req, `"result":"0x1"`)
+		return echoID(t, req, `"result":"0x1"`)
 	})
 	nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 	runConcurrent := func(label string, do func(i int) error) {
@@ -571,7 +589,9 @@ func TestDifferentialConcurrentCallsParity(t *testing.T) {
 			var parsed struct {
 				ID json.RawMessage `json:"id"`
 			}
-			json.Unmarshal(req.Body, &parsed)
+			if err := json.Unmarshal(req.Body, &parsed); err != nil {
+				t.Fatalf("decode recorded request: %v", err)
+			}
 			if seen[string(parsed.ID)] {
 				t.Fatalf("%s repeats request id %s under concurrency", label, parsed.ID)
 			}
@@ -586,7 +606,7 @@ func TestDifferentialConcurrentCallsParity(t *testing.T) {
 // one keep-alive connection across sequential calls.
 func TestDifferentialConnectionReuseParity(t *testing.T) {
 	srv := newNativeServer(t, func(n int, req capturedCall) []byte {
-		return echoID(req, `"result":"0x1"`)
+		return echoID(t, req, `"result":"0x1"`)
 	})
 	nativeTr, gethTr := dialAdapters(t, srv.srv.URL)
 	for i := 0; i < 3; i++ {
@@ -629,10 +649,17 @@ func TestDifferentialStalledStatusBodyContextParity(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(nethttp.StatusInternalServerError)
 				rc := nethttp.NewResponseController(w)
-				rc.Flush()
+				if err := rc.Flush(); err != nil {
+					if r.Context().Err() == nil {
+						t.Errorf("flush fixture headers: %v", err)
+					}
+					return
+				}
 				select {
 				case <-time.After(300 * time.Millisecond):
-					w.Write([]byte(`{"error":"late"}`))
+					if _, err := w.Write([]byte(`{"error":"late"}`)); err != nil && r.Context().Err() == nil {
+						t.Errorf("write delayed fixture response: %v", err)
+					}
 				case <-r.Context().Done():
 				}
 			}))
@@ -641,7 +668,7 @@ func TestDifferentialStalledStatusBodyContextParity(t *testing.T) {
 			// case relies on the timeout alone, so the two cancellation
 			// causes never race for which error the context reports.
 			setupCtx := func() (context.Context, context.CancelFunc) {
-				if tc.want == context.Canceled {
+				if errors.Is(tc.want, context.Canceled) {
 					ctx, cancel := context.WithCancel(context.Background())
 					time.AfterFunc(50*time.Millisecond, cancel)
 					return ctx, cancel
@@ -682,7 +709,9 @@ func TestDifferentialCloseLifecycle(t *testing.T) {
 		once.Do(func() { close(started) })
 		time.Sleep(100 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`))
+		if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`)); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	}))
 	nativeTr, _ := dialAdapters(t, srv.srv.URL)
 
@@ -712,7 +741,9 @@ func TestDifferentialCloseLifecycle(t *testing.T) {
 		close(gethStarted)
 		time.Sleep(100 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`))
+		if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`)); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	}))
 	_, gethTr := dialAdapters(t, gethSrv.srv.URL)
 	gethErrCh := make(chan error, 1)

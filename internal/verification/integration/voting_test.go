@@ -114,7 +114,8 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		for _, node := range nodes[:2] {
 			for i := 0; i < 3; i++ {
 				node.Fail(methods.MethodChainID, -32700, "probing outage")
-				client.Call(context.Background(), methods.MethodChainID)
+				// These probes accumulate member failures; quorum success varies as members cool.
+				_, _ = client.Call(context.Background(), methods.MethodChainID)
 			}
 			node.Return(methods.MethodChainID, "0x1")
 		}
@@ -372,7 +373,8 @@ func TestPoolVotingBasisExample(t *testing.T) {
 		for _, node := range nodes[:2] {
 			for i := 0; i < 3; i++ {
 				node.Fail(methods.MethodChainID, -32700, "probing outage")
-				client.Call(context.Background(), methods.MethodChainID)
+				// These probes accumulate member failures; quorum success varies as members cool.
+				_, _ = client.Call(context.Background(), methods.MethodChainID)
 			}
 			node.Return(methods.MethodChainID, "0x1")
 		}
@@ -391,7 +393,8 @@ func TestPoolVotingBasisExample(t *testing.T) {
 		for _, node := range nodes[:3] {
 			for i := 0; i < 3; i++ {
 				node.Fail(methods.MethodChainID, -32700, "probing outage")
-				client.Call(context.Background(), methods.MethodChainID)
+				// These probes accumulate member failures; quorum success varies as members cool.
+				_, _ = client.Call(context.Background(), methods.MethodChainID)
 			}
 			node.Return(methods.MethodChainID, "0x1")
 		}

@@ -183,9 +183,9 @@ func TestTypedBlockByNumberNeverFetchesAMovingTag(t *testing.T) {
 		// hash-shaped fetch rides eth_getBlockByHash after blockAt's
 		// portability dispatch.
 		node.Handle("eth_getBlockByNumber", func(c rpctest.Call) (any, error) {
-			return json.RawMessage(pinned), nil
+			return pinned, nil
 		})
-		node.Return("eth_getBlockByHash", json.RawMessage(pinned))
+		node.Return("eth_getBlockByHash", pinned)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -210,9 +210,13 @@ func TestTypedBlockByNumberNeverFetchesAMovingTag(t *testing.T) {
 				continue
 			}
 			var fullTx bool
-			json.Unmarshal(call.Params[1], &fullTx)
+			if err := json.Unmarshal(call.Params[1], &fullTx); err != nil {
+				t.Fatalf("decode recorded request: %v", err)
+			}
 			var ref string
-			json.Unmarshal(call.Params[0], &ref)
+			if err := json.Unmarshal(call.Params[0], &ref); err != nil {
+				t.Fatalf("decode recorded request: %v", err)
+			}
 			if fullTx && (ref == "latest" || ref == "safe" || ref == "finalized") {
 				t.Fatalf("node %d fetched a moving tag with full bodies: %q", i, ref)
 			}
@@ -230,12 +234,12 @@ func TestTypedBlockByHashUsesDedicatedMethod(t *testing.T) {
 		node.Handle("eth_getBlockByNumber", func(c rpctest.Call) (any, error) {
 			return nil, fmt.Errorf("eth_getBlockByNumber must not be called for a hash lookup")
 		})
-		node.Return("eth_getBlockByHash", json.RawMessage(pinned))
+		node.Return("eth_getBlockByHash", pinned)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	block, _, err := client.BlockByHash(ctx, ethapi.Hash(blockHashOf(pinned)))
+	block, _, err := client.BlockByHash(ctx, ethapi.Hash(blockHashOf(t, pinned)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,18 +270,21 @@ func TestTypedBlockByHashRejectsAnotherSelfConsistentBlock(t *testing.T) {
 func TestTypedBlockNumberMatchesCorroboratedReference(t *testing.T) {
 	client, nodes := fleet(t, 3, ethguard.WithFinalizedAnchoring())
 	fin := fixtureBlock(t, 42)
-	pin := blockHashOf(fin)
+	pin := blockHashOf(t, fin)
 	for _, node := range nodes {
 		node.Handle("eth_getBlockByNumber", func(c rpctest.Call) (any, error) {
 			var tag string
-			json.Unmarshal(c.Params[0], &tag)
+			if err := json.Unmarshal(c.Params[0], &tag); err != nil {
+				t.Errorf("decode fixture request: %v", err)
+				return nil, err
+			}
 			if tag == "finalized" || strings.EqualFold(tag, pin) {
-				return json.RawMessage(fin), nil
+				return fin, nil
 			}
 			return map[string]any{"number": "0x99", "hash": "0xtip"}, nil // divergent tips
 		})
 		// The derived height fetch rides the hash-addressed method.
-		node.Return("eth_getBlockByHash", json.RawMessage(fin))
+		node.Return("eth_getBlockByHash", fin)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -365,11 +372,15 @@ func TestTypedPeerCountOverflowIsClassifiedMalformed(t *testing.T) {
 }
 
 // blockHashOf extracts the hash field of a fixture payload.
-func blockHashOf(raw json.RawMessage) string {
+func blockHashOf(t testing.TB, raw json.RawMessage) string {
+	t.Helper()
 	var obj struct {
 		Hash string `json:"hash"`
 	}
-	json.Unmarshal(raw, &obj)
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Errorf("decode block fixture: %v", err)
+		return ""
+	}
 	return obj.Hash
 }
 
@@ -431,7 +442,7 @@ func TestTypedTransactionReceiptReturnsCorroboratedReceipt(t *testing.T) {
 	txHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	raw := fixtureReceipt(t, txHash, 16)
 	for _, node := range nodes {
-		node.Return(methods.MethodGetTransactionReceipt, json.RawMessage(raw))
+		node.Return(methods.MethodGetTransactionReceipt, raw)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -660,7 +671,7 @@ func TestTypedBlockReceiptsAcceptsNumberTagAndHash(t *testing.T) {
 				ref = object.BlockHash
 			}
 			if ref == pin || ref == "0x10" { // hash object and explicit number both land here
-				return []json.RawMessage{json.RawMessage(raw)}, nil
+				return []json.RawMessage{raw}, nil
 			}
 			return nil, fmt.Errorf("unexpected receipts reference %q", ref)
 		})
@@ -694,9 +705,12 @@ func TestTypedBlockReceiptsBindsEarliestAsExplicitHeightZero(t *testing.T) {
 	for _, node := range nodes {
 		node.Handle("eth_getBlockReceipts", func(c rpctest.Call) (any, error) {
 			var ref string
-			json.Unmarshal(c.Params[0], &ref)
+			if err := json.Unmarshal(c.Params[0], &ref); err != nil {
+				t.Errorf("decode fixture request: %v", err)
+				return nil, err
+			}
 			if ref == "0x0" {
-				return []json.RawMessage{json.RawMessage(raw)}, nil
+				return []json.RawMessage{raw}, nil
 			}
 			return nil, fmt.Errorf("unexpected receipts reference %q", ref)
 		})
@@ -993,7 +1007,7 @@ func TestTypedBlockAtBindsAnswersToTheRequestedReference(t *testing.T) {
 	t.Run("foreign block by hash", func(t *testing.T) {
 		adapter, nodes := fleet(t, 3)
 		for _, node := range nodes {
-			node.Return("eth_getBlockByHash", json.RawMessage(fixtureBlock(t, 5)))
+			node.Return("eth_getBlockByHash", fixtureBlock(t, 5))
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -1008,7 +1022,7 @@ func TestTypedBlockAtBindsAnswersToTheRequestedReference(t *testing.T) {
 	t.Run("foreign block by height", func(t *testing.T) {
 		adapter, nodes := fleet(t, 3)
 		for _, node := range nodes {
-			node.Return("eth_getBlockByNumber", json.RawMessage(fixtureBlock(t, 7)))
+			node.Return("eth_getBlockByNumber", fixtureBlock(t, 7))
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

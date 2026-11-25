@@ -127,7 +127,9 @@ func replayDirectory(dir string, out io.Writer) error {
 	if err := checkNoStateCollapse(keys); err != nil {
 		return err
 	}
-	printReplaySummary(out, index, states, chainChecks, callChecks)
+	if err := printReplaySummary(out, index, states, chainChecks, callChecks); err != nil {
+		return fmt.Errorf("write replay summary: %w", err)
+	}
 	return nil
 }
 
@@ -253,23 +255,31 @@ func checkNoStateCollapse(keys map[string]map[string]bool) error {
 	return nil
 }
 
-func printReplaySummary(out io.Writer, index captureIndex, states map[string]int, chainChecks, callChecks int) {
-	fmt.Fprintf(out, "capture: %d providers, %d records, chain=%d, class=%s, level=%s\n",
+func printReplaySummary(out io.Writer, index captureIndex, states map[string]int, chainChecks, callChecks int) error {
+	summary := fmt.Appendf(nil, "capture: %d providers, %d records, chain=%d, class=%s, level=%s\n",
 		countProviders(index), len(index.Records), index.ChainID, index.ProviderClass, index.EvidenceLevel)
-	fmt.Fprintf(out, "chain checks: %d\n", chainChecks)
-	fmt.Fprintf(out, "call policy checks: %d\n", callChecks)
-	fmt.Fprintf(out, "states: missing=%d null=%d empty-hex=%d value=%d\n",
+	summary = fmt.Appendf(summary, "chain checks: %d\n", chainChecks)
+	summary = fmt.Appendf(summary, "call policy checks: %d\n", callChecks)
+	summary = fmt.Appendf(summary, "states: missing=%d null=%d empty-hex=%d value=%d\n",
 		states["missing"], states["null"], states["empty-hex"], states["value"])
 	for _, state := range protocolStates {
 		if states[state] == 0 {
-			fmt.Fprintf(out, "unobserved state: %s\n", state)
+			summary = fmt.Appendf(summary, "unobserved state: %s\n", state)
 		}
 	}
 	if states["missing"] == 0 || states["null"] == 0 || states["empty-hex"] == 0 || states["value"] == 0 {
-		fmt.Fprintln(out, "W4 exit not met: provider-backed WSS four-state goldens remain prohibited; production scope is governed separately by decision 0056.2")
-		return
+		summary = fmt.Appendln(summary, "W4 exit not met: provider-backed WSS four-state goldens remain prohibited; production scope is governed separately by decision 0056.2")
+	} else {
+		summary = fmt.Appendln(summary, "all four states observed; provider-backed golden admission still requires maintainer review; no golden was written")
 	}
-	fmt.Fprintln(out, "all four states observed; provider-backed golden admission still requires maintainer review; no golden was written")
+	written, err := out.Write(summary)
+	if err != nil {
+		return err
+	}
+	if written != len(summary) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
 func countProviders(index captureIndex) int {

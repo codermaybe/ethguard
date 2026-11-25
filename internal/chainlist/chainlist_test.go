@@ -11,7 +11,7 @@ func TestParseAcceptsBothEntryShapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // This fixture is read-only and has no pending output to commit.
 	chains, err := Parse(f)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestForChainIsDeterministicAndCapped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // This fixture is read-only and has no pending output to commit.
 	chains, err := Parse(f)
 	if err != nil {
 		t.Fatal(err)

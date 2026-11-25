@@ -43,7 +43,7 @@ func startRawServer(t testing.TB, serve func(t testing.TB, r *http.Request, rw *
 			t.Errorf("hijack: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 		serve(t, r, rw, conn)
 	}))
 	t.Cleanup(srv.Close)
@@ -152,7 +152,7 @@ func startTLSServer(t *testing.T, cert tls.Certificate, serve func(t testing.TB,
 			t.Errorf("hijack: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 		serve(t, r, rw, conn)
 	}))
 	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
@@ -199,7 +199,7 @@ func TestHandshakeUpgradesLoopbackConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialWebSocket: %v", err)
 	}
-	defer result.conn.Close()
+	defer result.conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 	frame := make([]byte, 3)
 	if _, err := io.ReadFull(result.br, frame); err != nil {
 		t.Fatalf("read after handshake deadline elapsed: %v", err)
@@ -228,7 +228,7 @@ func TestHandshakeCancellationAtHandoffNeverReturnsClosedSocket(t *testing.T) {
 		}
 		return
 	}
-	defer result.conn.Close()
+	defer result.conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 	if err := result.conn.SetDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestHandshakePreservesPathQueryAndHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialWebSocket: %v", err)
 	}
-	defer result.conn.Close()
+	defer result.conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 }
 
 func TestHandshakeRejectsNon101Responses(t *testing.T) {
@@ -325,8 +325,8 @@ func TestHandshakeRejectsWithoutWaitingForResponseBody(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		cancel()
-		<-done
-		t.Fatal("handshake refusal waited for the unfinished response body")
+		err := <-done
+		t.Fatalf("handshake refusal waited for the unfinished response body: %v", err)
 	}
 	select {
 	case <-peerClosed:
@@ -560,7 +560,7 @@ func TestHandshakeTLSWithTrustedAuthoritySucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialWebSocket over wss: %v", err)
 	}
-	defer result.conn.Close()
+	defer result.conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 }
 
 func TestHandshakeRejectsUnknownSchemesBeforeDialing(t *testing.T) {

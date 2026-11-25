@@ -34,7 +34,9 @@ func TestTransactionDiscoveryPreservesFailureAndFreezesTarget(t *testing.T) {
 		case "web3_clientVersion":
 			result = `"test-client"`
 		}
-		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":%s}`, request.ID, result)
+		if _, err := fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":%s}`, request.ID, result); err != nil && r.Context().Err() == nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	}))
 	defer server.Close()
 	plan := Plan{
@@ -91,7 +93,7 @@ func TestTransactionDiscoveryPreservesFailureAndFreezesTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck // Read-only fixture metadata; Decode owns data errors and Close commits no output.
 	decoder := json.NewDecoder(file)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&batch); err != nil {

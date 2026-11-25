@@ -198,7 +198,7 @@ func ParseVector(vectorsFS fs.FS, path string) ([]Vector, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck // Read-only vector input; Scanner owns data errors and Close commits no output.
 	scanner := bufio.NewScanner(file)
 	// The pinned no-topics corpus contains a 21 MB response line. This is
 	// an offline evidence reader, independent of runtime response budgets.
@@ -498,7 +498,7 @@ func compareNumbers(left, right decimalNumber) int {
 		}
 		return 1
 	}
-	comparison := 0
+	var comparison int
 	switch {
 	case left.digits == "":
 		comparison = -1

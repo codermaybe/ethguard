@@ -88,11 +88,11 @@ func invokeSyncWrite(t *testing.T, entry syncWriteEntrypoint, parent context.Con
 		t.Fatalf("capture delivery = %v, %v", ok, captureErr)
 	}
 	observation.captured = published
-	if observation.captured.Err != observation.err {
+	if observation.captured.Err != observation.err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 		t.Fatalf("capture error = %v, caller error = %v", observation.captured.Err, observation.err)
 	}
 	if !entry.view {
-		if observation.direct.Err != observation.err {
+		if observation.direct.Err != observation.err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 			t.Fatalf("direct result error = %v, caller error = %v", observation.direct.Err, observation.err)
 		}
 		if !reflect.DeepEqual(observation.direct, observation.captured) {

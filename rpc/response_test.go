@@ -125,7 +125,7 @@ func TestResponseMethodJudgmentRetainsProtocolFacts(t *testing.T) {
 		t.Fatal("protocol opt-in did not control eligibility")
 	}
 	response.Answer.Interpretation = Interpretation{State: InterpretationRejected, Cause: cause}
-	if !errors.Is(response.Err(), cause) || response.Answer.Kind != AnswerProtocolError || response.Answer.Cause != protocol || response.Answer.RPCError.DataPresence != ErrorDataPresenceNull {
+	if !errors.Is(response.Err(), cause) || response.Answer.Kind != AnswerProtocolError || response.Answer.Cause != protocol || response.Answer.RPCError.DataPresence != ErrorDataPresenceNull { //nolint:errorlint // The answer must retain the original protocol error instance.
 		t.Fatal("method error erased the protocol error or its data presence")
 	}
 }
