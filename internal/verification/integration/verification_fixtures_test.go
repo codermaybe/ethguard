@@ -22,6 +22,7 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -751,17 +752,9 @@ func t09DecodeTransaction(raw json.RawMessage) (string, error) {
 // the summary. Hex spelling is representation; the typed value compares by
 // value, not by the wire's case.
 func t09DecodeLogs(raw json.RawMessage) (string, error) {
-	var rows []json.RawMessage
-	if err := json.Unmarshal(raw, &rows); err != nil {
+	logs, err := typed.DecodeLogs(raw)
+	if err != nil {
 		return "", err
-	}
-	logs := make([]ethapi.Log, 0, len(rows))
-	for i, row := range rows {
-		log, err := ethapi.NewLog(row)
-		if err != nil {
-			return "", fmt.Errorf("log %d: %w", i, err)
-		}
-		logs = append(logs, log)
 	}
 	encoded, err := json.Marshal(logs)
 	if err != nil {

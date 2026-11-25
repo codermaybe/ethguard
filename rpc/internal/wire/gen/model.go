@@ -11,33 +11,49 @@ import (
 	"strings"
 )
 
-// native describes the fixed generation-time scalar policy. Patterns validate
-// canonical output, after the shared handwritten normalizer has run.
+// native describes the fixed generation-time scalar policy. String patterns
+// validate the decoded input before its explicit representation policy runs.
 type nativeDescriptor struct {
 	name, pattern, doc string
-	parse              nativeParseInfo
+	representation     scalarRepresentation
 }
 
-type nativeParseInfo struct {
-	fn        string
-	extraArgs []any
-	number    bool
+type scalarRepresentation string
+
+const (
+	preserveLiteral  scalarRepresentation = "literal-v1"
+	lowercaseAddress scalarRepresentation = "address-v2"
+	minimalHexByte   scalarRepresentation = "hex-byte-v2"
+	exactNumber      scalarRepresentation = "number-v1"
+)
+
+func (n nativeDescriptor) rewritesString() bool {
+	return n.representation == lowercaseAddress || n.representation == minimalHexByte
+}
+
+func nativeRewritesString(name string) bool {
+	for _, n := range natives {
+		if n.name == name {
+			return n.rewritesString()
+		}
+	}
+	return false
 }
 
 var natives = []nativeDescriptor{
-	{"Quantity", `^0x(0|[1-9a-f][0-9a-f]*)$`, "canonical QUANTITY, zero as 0x0", nativeParseInfo{fn: "CanonicalQuantity"}},
-	{"Quantity64", `^0x(0|[1-9a-f][0-9a-f]{0,15})$`, "QUANTITY bounded to 64 bits", nativeParseInfo{fn: "CanonicalQuantity"}},
-	{"Quantity256", `^0x(0|[1-9a-f][0-9a-f]{0,63})$`, "QUANTITY bounded to 256 bits (32 bytes)", nativeParseInfo{fn: "CanonicalQuantity"}},
-	{"Data", `^0x[0-9a-f]*$`, "hex encoded bytes, preserving content zeros", nativeParseInfo{fn: "NormalizeWireData"}},
-	{"Hash", `^0x[0-9a-f]{64}$`, "fixed 32-byte hex word", nativeParseInfo{fn: "ValidateWireFixedHex", extraArgs: []any{64, "hash"}}},
-	{"Address", `^0x[0-9a-fA-F]{40}$`, "20-byte hex address, canonically lowercase", nativeParseInfo{fn: "ValidateWireFixedHex", extraArgs: []any{40, "address"}}},
-	{"Bloom", `^0x[0-9a-f]{512}$`, "fixed 256-byte logs bloom", nativeParseInfo{fn: "ValidateWireFixedHex", extraArgs: []any{512, "logsBloom"}}},
-	{"BlockNonce", `^0x[0-9a-f]{16}$`, "fixed 8-byte header nonce", nativeParseInfo{fn: "ValidateWireFixedHex", extraArgs: []any{16, "nonce"}}},
-	{"StorageKey", `^0x[0-9a-f]{0,64}$`, "up-to-32-byte hex word", nativeParseInfo{}},
-	{"HexByte", `^0x[0-9a-f]{1,2}$`, "1-2 lowercase hex digits, canonically QUANTITY", nativeParseInfo{fn: "CanonicalHexByte"}},
-	{"DecimalString", `^(0|[1-9][0-9]*)$`, "nonnegative decimal string without leading zeros", nativeParseInfo{fn: "NormalizeDecimalString"}},
-	{"Number", "", "exact finite JSON number, without binary floating-point rounding", nativeParseInfo{fn: "CanonicalNumber", number: true}},
-	{"Text", "", "free-form string content", nativeParseInfo{}},
+	{"Quantity", `^0x(0|[1-9a-f][0-9a-f]*)$`, "canonical QUANTITY, zero as 0x0", preserveLiteral},
+	{"Quantity64", `^0x(0|[1-9a-f][0-9a-f]{0,15})$`, "QUANTITY bounded to 64 bits", preserveLiteral},
+	{"Quantity256", `^0x(0|[1-9a-f][0-9a-f]{0,63})$`, "QUANTITY bounded to 256 bits (32 bytes)", preserveLiteral},
+	{"Data", `^0x([0-9a-f]{2})*$`, "hex encoded bytes, preserving content zeros", preserveLiteral},
+	{"Hash", `^0x[0-9a-f]{64}$`, "fixed 32-byte hex word", preserveLiteral},
+	{"Address", `^0x[0-9a-fA-F]{40}$`, "20-byte hex address", lowercaseAddress},
+	{"Bloom", `^0x[0-9a-f]{512}$`, "fixed 256-byte logs bloom", preserveLiteral},
+	{"BlockNonce", `^0x[0-9a-f]{16}$`, "fixed 8-byte header nonce", preserveLiteral},
+	{"StorageKey", `^0x[0-9a-f]{0,64}$`, "up-to-32-byte hex word", preserveLiteral},
+	{"HexByte", `^0x[0-9a-f]{1,2}$`, "1-2 lowercase hex digits", minimalHexByte},
+	{"DecimalString", `^(0|[1-9][0-9]*)$`, "nonnegative decimal string without leading zeros", preserveLiteral},
+	{"Number", "", "exact finite JSON number, without binary floating-point rounding", exactNumber},
+	{"Text", "", "free-form string content", preserveLiteral},
 }
 
 func nativeForPattern(pattern string) string {

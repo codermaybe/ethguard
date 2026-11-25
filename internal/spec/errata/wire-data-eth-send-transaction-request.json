@@ -1,0 +1,60 @@
+{
+  "id": "wire-data-eth-send-transaction-request",
+  "sourceVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "sourceCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "target": {
+    "method": "eth_sendTransaction",
+    "part": "request",
+    "parameter": 0
+  },
+  "reason": "The pinned DATA pattern permits an odd number of hexadecimal digits, although EIP-1474 defines DATA as complete bytes with two hexadecimal digits per byte. Restrict only the reviewed DATA nodes to pairs of lowercase hexadecimal digits. Keep empty DATA and leading zero bytes, and do not change QUANTITY, HexByte, StorageKey, field presence or other constraints. This correction is applied after the existing structural errata; its input digest identifies that effective root.",
+  "references": [
+    "https://eips.ethereum.org/EIPS/eip-1474#data",
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/schemas/base-types.yaml"
+  ],
+  "retireWhen": "Review on every source pin or prerequisite erratum change. Remove once the upstream definitions in this target require complete DATA bytes; revise each reviewed path and both digests if upstream changes the schema. Never silently apply this rule to other hex-string families or new source nodes.",
+  "inputSchemaSHA256": "530dc7490f4f7fc4b62af9c63bdff6de31bf241c058948dd9f9e3776fb4f9f0c",
+  "outputSchemaSHA256": "ea369542065684047cec1a4ad2cb42625d9bb8ec49b6dea63096f37d76ad5a16",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/properties/blobs/items/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/properties/blobs/items/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    },
+    {
+      "op": "test",
+      "path": "/properties/commitments/items/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/properties/commitments/items/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    },
+    {
+      "op": "test",
+      "path": "/properties/input/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/properties/input/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    },
+    {
+      "op": "test",
+      "path": "/properties/proofs/items/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/properties/proofs/items/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    }
+  ]
+}

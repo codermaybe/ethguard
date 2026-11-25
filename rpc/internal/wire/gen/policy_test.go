@@ -40,12 +40,12 @@ func TestRequestRootsShareTheSchemaConstructionPolicy(t *testing.T) {
 	}
 }
 
-func TestUnreviewedNormalizerIsRejected(t *testing.T) {
-	policy := normalizationPolicies["ValidateWireFixedHex"]
-	delete(normalizationPolicies, "ValidateWireFixedHex")
-	t.Cleanup(func() { normalizationPolicies["ValidateWireFixedHex"] = policy })
-	if _, err := reviewedScalarPolicies(); err == nil || !strings.Contains(err.Error(), "unreviewed normalizer") {
-		t.Fatalf("missing normalizer review = %v", err)
+func TestUnreviewedRepresentationIsRejected(t *testing.T) {
+	policy := representationPolicies[lowercaseAddress]
+	delete(representationPolicies, lowercaseAddress)
+	t.Cleanup(func() { representationPolicies[lowercaseAddress] = policy })
+	if _, err := reviewedScalarPolicies(); err == nil || !strings.Contains(err.Error(), "unreviewed scalar representation") {
+		t.Fatalf("missing representation review = %v", err)
 	}
 }
 
@@ -53,7 +53,7 @@ func TestGenerationAuditRetainsDeduplicatedPathsAndLiteralPolicies(t *testing.T)
 	previous := requestRoots
 	requestRoots = []requestRoot{{Method: "eth_call", Parameter: 0}, {Method: "eth_simulateV1", Parameter: 0}, {Method: "eth_simulateV1", Parameter: 1}}
 	t.Cleanup(func() { requestRoots = previous })
-	raw := json.RawMessage(`{"type":"object","properties":{"hash":{"type":"string","pattern":"^0x[0-9a-f]{64}$"},"code":{"const":3},"choice":{"type":"string","pattern":"^0x4$"},"unique":{"type":"array","uniqueItems":true,"items":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"}}}}`)
+	raw := json.RawMessage(`{"type":"object","properties":{"hash":{"type":"string","pattern":"^0x[0-9a-f]{64}$"},"code":{"const":3},"choice":{"type":"string","pattern":"^0x4$"},"unique":{"type":"array","uniqueItems":true,"items":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"}},"address":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"},"maybeAddress":{"oneOf":[{"type":"null"},{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"}]},"nested":{"oneOf":[{"type":"object","properties":{"address":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"},"bytes":{"type":"array","items":{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}}}},{"type":"boolean"}]}}}`)
 	bundle := executionapi.Bundle{Version: "audit-test", Results: map[string]json.RawMessage{"eth_first": raw, "eth_second": raw}, Requests: map[string][]executionapi.Parameter{
 		"eth_call":       {{Name: "message", Schema: raw}},
 		"eth_simulateV1": {{Name: "payload", Schema: raw}, {Name: "base", Schema: raw}},
@@ -79,20 +79,30 @@ func TestGenerationAuditRetainsDeduplicatedPathsAndLiteralPolicies(t *testing.T)
 		paths[usage.Path] = usage
 	}
 	for _, root := range []string{"eth_first.result", "eth_second.result", "eth_call.params[0]", "eth_simulateV1.params[0]", "eth_simulateV1.params[1]"} {
-		if p := paths[root+".properties.hash"]; p.Native != "Hash" || p.Normalizer != "ValidateWireFixedHex" {
-			t.Fatalf("missing path-specific fixed-hex policy: %+v", p)
+		if p := paths[root+".properties.hash"]; p.Native != "Hash" || p.Normalizer != "" || p.Policy != representationPolicies[preserveLiteral] {
+			t.Fatalf("validated hash spelling was incorrectly normalized in audit: %+v", p)
 		}
-		if p := paths[root+".properties.code"]; p.Native != "int" {
+		if p := paths[root+".properties.code"]; p.Native != "int" || p.Normalizer != "CanonicalNumber" || !strings.HasPrefix(p.Policy, "integer-const-v2:") {
 			t.Fatalf("untyped const omitted from audit: %+v", p)
 		}
-		if p := paths[root+".properties.choice"]; p.Native != "Quantity" || p.Normalizer != "CanonicalQuantity" {
-			t.Fatalf("literal pattern normalization omitted: %+v", p)
+		if p := paths[root+".properties.choice"]; p.Native != "Quantity" || p.Normalizer != "" || p.Policy != representationPolicies[preserveLiteral] {
+			t.Fatalf("literal pattern input policy omitted: %+v", p)
 		}
 		if p := paths[root+".properties.unique.items"]; p.Native != "Text" || p.Normalizer != "" {
 			t.Fatalf("unique string identity incorrectly canonicalized in audit: %+v", p)
 		}
+		for _, path := range []string{".properties.address", ".properties.maybeAddress.oneOf[1]"} {
+			if p := paths[root+path]; p.Native != "Address" || p.KeepStrings || p.Policy != representationPolicies[lowercaseAddress] {
+				t.Fatalf("ordinary/nullable address lost its default representation: %+v", p)
+			}
+		}
+		for path, native := range map[string]string{".properties.nested.oneOf[0].properties.address": "Address", ".properties.nested.oneOf[0].properties.bytes.items": "HexByte"} {
+			if p := paths[root+path]; p.Native != native || !p.KeepStrings || p.Policy != representationPolicies[preserveLiteral] {
+				t.Fatalf("composition string context or native type omitted: %+v", p)
+			}
+		}
 	}
-	if len(report.Roots) != 5 || len(paths) != 25 {
+	if len(report.Roots) != 5 || len(paths) != 50 {
 		t.Fatalf("model deduplication dropped audited source paths: %d roots / %d policies", len(report.Roots), len(paths))
 	}
 	if err := writeGenerationAudit(bundle, generated, audit); err != nil {

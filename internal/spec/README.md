@@ -22,7 +22,7 @@
   result schema 检查 result 的类型、required、pattern、数组约束和未知字段。
   结果 schema 尚未纳入 bundle 的官方向量会在报告的 `Uncovered` 中显式列出；当前
   官方向量已全部覆盖，包括 `eth_sendRawTransaction` 的 32 字节交易哈希结果。
-* 两个官方 `eth_getHeaderByHash`／`eth_getHeaderByNumber` 的结果合同纳入同一bundle，用于生成独立Header；不由此注册或切换运行时RPC。请求库存与三项勘误不变，扩充记录在 `migrations/*-header-models.json`。
+* 两个官方 `eth_getHeaderByHash`／`eth_getHeaderByNumber` 的结果合同纳入同一bundle，用于生成独立Header；不由此注册或切换运行时RPC。该次扩充未修改请求库存及当时三项勘误，历史记录在 `migrations/*-header-models.json`；后续 DATA 增强见下文。
 * `eth_simulateV1` 与其他方法共用 `methods.json`／`requests.json` 和 `vectors/SOURCE.json`；其向量保存在 `vectors/eth_simulateV1/`。95 个向量包含 64 个 result 和 31 个顶层错误；顶层错误不进入 result parser。旧 pin 的两个 VM 消息／schema 冲突已由上游修复，不保留旧版测试侧消息替换。详见 `docs/design/wire-codegen.md`。
 * `spec.go`：唯一的例外手写代码——`go:embed` 访问器（embed 必须与文件同目录，
   别无他法）。无逻辑、无判断，只暴露字节。
@@ -48,6 +48,10 @@ Mask 只负责白名单，不执行 required 检查。生成类型则执行官�
 为准。生成的 `ethapi.Number` 精确保留十进制值，不经 float64；受保护 encoder 的
 `ethcodec.CanonicalRatio` 政策不能反向收窄官方数值模型。生成边界与验证方法见
 `docs/design/wire-codegen.md`。
+
+当前前置增强共有25份勘误：原有pending上下文、Simulate items和getLogs空数组三项，以及22份 `wire-data-*`。后者依据 EIP-1474 将64个DATA节点的pattern从 `^0x[0-9a-f]*$` 改为 `^0x([0-9a-f]{2})*$`，覆盖13个结果根和9个请求参数根，保留空值与前导零，不改变StorageKey／HexByte。每份文件分别给出依据、逐路径test/replace、输入／输出摘要和退出条件；按文件名排序在原结构勘误之后应用，输入摘要标识当时实际有效根。原始bundle和官方向量保持不变，`ReadOriginal`仍暴露原DATA定义的缺口。
+
+这种“前置增强 + 官方兜底”把标准修补与通用生成分开：构造器先验证有效schema的输入约束，再执行明确的合法值表示政策。运行时provider大小写兼容和字段投影由实际消费者显式处理，不混入上述固定数据勘误。当前加载器要求勘误目标已存在，整项无schema的补充需要具体需求和独立设计，不据此声称所有官方缺失都已覆盖。
 
 ## 来源可复现（升级/审计用）
 

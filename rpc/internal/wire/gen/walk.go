@@ -33,10 +33,7 @@ func (reg *registry) walk(node *schema, path string) (*ref, error) {
 		r.constant = value
 	}
 	if !r.pointer && (r.kind == refObject || r.kind == refUnion || r.kind == refMap) {
-		r.parser = "New" + r.typeName
-		if reg.strictRequests {
-			r.parser = "parse" + r.typeName
-		}
+		r.parser = "parse" + r.typeName
 		return r, nil
 	}
 	r.parser = fmt.Sprintf("parseValue%d", len(reg.values))
@@ -285,7 +282,7 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 		if err != nil {
 			return nil, err
 		}
-		obj := &objectModel{name: name, fields: applyOrderOverride(name, fields), from: []string{methodOfPath(path)}, request: reg.strictRequests, closed: reg.strictRequests && string(n.additionalProperties) == "false", retainAdditional: reg.strictRequests && string(n.additionalProperties) != "false"}
+		obj := &objectModel{name: name, fields: applyOrderOverride(name, fields), from: []string{methodOfPath(path)}, request: reg.strictRequests, closed: string(n.additionalProperties) == "false", retainAdditional: reg.strictRequests && string(n.additionalProperties) != "false"}
 		for _, property := range n.properties {
 			obj.propertyNames = append(obj.propertyNames, property.name)
 		}
@@ -312,9 +309,9 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 	case "number":
 		return &ref{kind: refScalar, native: "Number"}, nil
 	case "string":
-		// Enum membership is defined over the JSON string itself. A native
-		// normalizer may change case, so constrained literals use Text and
-		// then enforce the original pattern and enum without rewriting them.
+		// Literal constraints and uniqueItems compare the JSON string itself.
+		// Composition context instead travels through private parsers, so it
+		// preserves string identity without changing a shared native type.
 		return &ref{kind: refScalar, native: stringNative(n, reg.preserveStrings)}, nil
 	case "", "integer":
 		if n.hasConst {
@@ -369,6 +366,11 @@ func (reg *registry) fieldsOf(n *schema, path string) ([]fieldModel, error) {
 }
 
 func (reg *registry) unionOf(n *schema, path string) (*ref, error) {
+	if !reg.strictRequests {
+		if err := validateResultProjection(n, path); err != nil {
+			return nil, err
+		}
+	}
 	key := reg.modelFingerprint(n)
 	if prev := reg.unions[key]; prev != nil {
 		prev.from = appendMethod(prev.from, methodOfPath(path))

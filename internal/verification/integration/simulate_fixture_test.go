@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethobject/hexcompat"
 	"github.com/codermaybe/ethguard/internal/spec"
 )
 
@@ -37,7 +38,11 @@ func t09SimulateResult(t *testing.T) json.RawMessage {
 }
 
 func t09DecodeSimulate(raw json.RawMessage) (string, error) {
-	value, err := ethapi.NewSimulateV1Result(raw)
+	candidate, err := hexcompat.SimulateResult(raw)
+	if err != nil {
+		return "", err
+	}
+	value, err := ethapi.NewSimulateV1Result(candidate)
 	if err != nil {
 		return "", err
 	}

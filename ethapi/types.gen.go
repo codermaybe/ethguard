@@ -2,6 +2,28 @@
 // Reviewed schema erratum: getlogs-empty-array-overlap SHA-256 56068b799e0030af3f539306a38ef816b575ec0c2717adf334e25924d7628186
 // Reviewed schema erratum: simulate-block-state-calls-items SHA-256 285920d9477de90740e3f692e6dc626bc6501ebc34966c0a81f7d4f0ec5f6442
 // Reviewed schema erratum: transaction-query-pending-context SHA-256 0d644ef9c910a4b523d15fe8531a41b8b3a3d4f3f90f81c7569e38cdc1e6fb4e
+// Reviewed schema erratum: wire-data-eth-call-request SHA-256 6358a7257f4c9c48541105626ee00df487684afca820cb158a7b1ff17b6dede2
+// Reviewed schema erratum: wire-data-eth-call-result SHA-256 b0b918a1af80d5ae0790b0b86b7f96473597a08ab9e8ed26273df2ab7478520d
+// Reviewed schema erratum: wire-data-eth-create-access-list-request SHA-256 a7a7407dac0d1beff7eaca526a20f02011ee65341215c9b17f6d259d57fabfae
+// Reviewed schema erratum: wire-data-eth-estimate-gas-request SHA-256 844783700daf8a54a5229fb423f697543e0943c15500144b4d7a7e2f1a98a7d9
+// Reviewed schema erratum: wire-data-eth-fill-transaction-request SHA-256 d5962ad138edeb6af998b59cafd4e5f4e23946af34b3d00f9888370c79e61be0
+// Reviewed schema erratum: wire-data-eth-get-block-by-hash-result SHA-256 3875bd65b1c05196a5ece2110615c154799e16f1eea63b5bc501adc07ce3160c
+// Reviewed schema erratum: wire-data-eth-get-block-by-number-result SHA-256 9e245b0890ca485a975bcec00f282ad36acd733235009b4b3ef7d561166461d5
+// Reviewed schema erratum: wire-data-eth-get-block-receipts-result SHA-256 916b80cffcb27e90fd3f1fd41684b4213f2e466d75c06b881dacf654c1bd2ebb
+// Reviewed schema erratum: wire-data-eth-get-code-result SHA-256 d2a559ef2c935aa515c02af005bee424cecfe6a681cb086e8a2007a99fbcf35c
+// Reviewed schema erratum: wire-data-eth-get-header-by-hash-result SHA-256 ae0322a2124e3a8d26c51fd00043c3d68a674853352861ac76ea6eadb85e5b84
+// Reviewed schema erratum: wire-data-eth-get-header-by-number-result SHA-256 ef45c9bbc6e3795e2d42d85f12482bcc03efdfe3cac435f63795e7db0d4e9649
+// Reviewed schema erratum: wire-data-eth-get-logs-result SHA-256 c5c557362f0b0dd1ad3ad4ce7a4458866036a2a416fa9b146fae58395f6f6ac4
+// Reviewed schema erratum: wire-data-eth-get-proof-result SHA-256 6d2f4a222957a5d2024968f8356dbd08116255becdf8b8e607279aff110b6495
+// Reviewed schema erratum: wire-data-eth-get-storage-at-result SHA-256 194fb19131da94b67c805057d6984fff0256b9a1b7527b68657d3cd765d56c8c
+// Reviewed schema erratum: wire-data-eth-get-transaction-by-hash-result SHA-256 f5a737deeaf31516167e476488a20158d5326b3b0113e6cc01ae410063b84aaf
+// Reviewed schema erratum: wire-data-eth-get-transaction-receipt-result SHA-256 238f9f6e7453ec150aa1da2013cb36d30948ea2dfbbc86e20d88353a8123865b
+// Reviewed schema erratum: wire-data-eth-send-raw-transaction-request SHA-256 08a94bfba7b404cd21ebef90f332b664122a8f7d0a5776738b0af05b65bfcaa5
+// Reviewed schema erratum: wire-data-eth-send-transaction-request SHA-256 2d6af78b660315c72b3fe8ce54c1b1406822fdcede6223c555e0e7d72dc9aa40
+// Reviewed schema erratum: wire-data-eth-sign-request SHA-256 9a1244941a8821d6033aad03b06fd55e03b27856426e006f82dfcbbc704e824b
+// Reviewed schema erratum: wire-data-eth-sign-transaction-request SHA-256 b035a2b839bafffa675449f9e7581a4ff99b31a97faf3334117dc5fae9d55e6d
+// Reviewed schema erratum: wire-data-eth-simulate-v1-request SHA-256 7795cabb91fc3b1fac0030b1c82f9967533914327fe8c7ef1c7b089bebe5fa8d
+// Reviewed schema erratum: wire-data-eth-simulate-v1-result SHA-256 ac40b16cfc5b2ef622f9239d0563fa10cea1c2624140269ccc404683f23d9ecd
 // Typed official values preserve constraints, declared composition kind and nullable presence.
 // Constructors enforce schema constraints. Directly constructed typed values must preserve those invariants;
 // marshaling encodes once without revalidation, except for union member selection checks.
@@ -16,6 +38,7 @@ import (
 	jsonsafe "github.com/codermaybe/ethguard/internal/jsonsafe"
 	spec "github.com/codermaybe/ethguard/internal/spec"
 	"regexp"
+	"strings"
 )
 
 const generatedBundleVersion = "981aa66d79364be8322a9c358aaf0a571cca0873"
@@ -35,12 +58,12 @@ func NewQuantity(raw json.RawMessage) (Quantity, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Quantity: expected a non-null value")
 	}
-	text, err := ethcodec.CanonicalQuantity(raw)
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeQuantityPattern.MatchString(text) {
-		return "", fmt.Errorf("Quantity: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("Quantity: invalid input spelling %q", text)
 	}
 	return Quantity(text), nil
 }
@@ -57,12 +80,12 @@ func NewQuantity64(raw json.RawMessage) (Quantity64, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Quantity64: expected a non-null value")
 	}
-	text, err := ethcodec.CanonicalQuantity(raw)
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeQuantity64Pattern.MatchString(text) {
-		return "", fmt.Errorf("Quantity64: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("Quantity64: invalid input spelling %q", text)
 	}
 	return Quantity64(text), nil
 }
@@ -79,12 +102,12 @@ func NewQuantity256(raw json.RawMessage) (Quantity256, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Quantity256: expected a non-null value")
 	}
-	text, err := ethcodec.CanonicalQuantity(raw)
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeQuantity256Pattern.MatchString(text) {
-		return "", fmt.Errorf("Quantity256: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("Quantity256: invalid input spelling %q", text)
 	}
 	return Quantity256(text), nil
 }
@@ -95,18 +118,18 @@ func (v Quantity256) MarshalJSON() ([]byte, error) {
 // Data is the hex encoded bytes, preserving content zeros.
 type Data string
 
-var nativeDataPattern = regexp.MustCompile("^0x[0-9a-f]*$")
+var nativeDataPattern = regexp.MustCompile("^0x([0-9a-f]{2})*$")
 
 func NewData(raw json.RawMessage) (Data, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Data: expected a non-null value")
 	}
-	text, err := ethcodec.NormalizeWireData(raw)
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeDataPattern.MatchString(text) {
-		return "", fmt.Errorf("Data: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("Data: invalid input spelling %q", text)
 	}
 	return Data(text), nil
 }
@@ -123,12 +146,12 @@ func NewHash(raw json.RawMessage) (Hash, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Hash: expected a non-null value")
 	}
-	text, err := ethcodec.ValidateWireFixedHex(raw, 64, "hash")
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeHashPattern.MatchString(text) {
-		return "", fmt.Errorf("Hash: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("Hash: invalid input spelling %q", text)
 	}
 	return Hash(text), nil
 }
@@ -136,22 +159,29 @@ func (v Hash) MarshalJSON() ([]byte, error) {
 	return ethcodec.MarshalNoEscape(string(v))
 }
 
-// Address is the 20-byte hex address, canonically lowercase.
+// Address is the 20-byte hex address.
 type Address string
 
 var nativeAddressPattern = regexp.MustCompile("^0x[0-9a-fA-F]{40}$")
 
 func NewAddress(raw json.RawMessage) (Address, error) {
+	return parseAddress(raw, false)
+}
+func parseAddress(raw json.RawMessage, keepStrings bool) (Address, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Address: expected a non-null value")
 	}
-	text, err := ethcodec.ValidateWireFixedHex(raw, 40, "address")
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeAddressPattern.MatchString(text) {
-		return "", fmt.Errorf("Address: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("Address: invalid input spelling %q", text)
 	}
+	if keepStrings {
+		return Address(text), nil
+	}
+	text = strings.ToLower(text)
 	return Address(text), nil
 }
 func (v Address) MarshalJSON() ([]byte, error) {
@@ -167,12 +197,12 @@ func NewBloom(raw json.RawMessage) (Bloom, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Bloom: expected a non-null value")
 	}
-	text, err := ethcodec.ValidateWireFixedHex(raw, 512, "logsBloom")
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeBloomPattern.MatchString(text) {
-		return "", fmt.Errorf("Bloom: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("Bloom: invalid input spelling %q", text)
 	}
 	return Bloom(text), nil
 }
@@ -189,12 +219,12 @@ func NewBlockNonce(raw json.RawMessage) (BlockNonce, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("BlockNonce: expected a non-null value")
 	}
-	text, err := ethcodec.ValidateWireFixedHex(raw, 16, "nonce")
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeBlockNoncePattern.MatchString(text) {
-		return "", fmt.Errorf("BlockNonce: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("BlockNonce: invalid input spelling %q", text)
 	}
 	return BlockNonce(text), nil
 }
@@ -216,7 +246,7 @@ func NewStorageKey(raw json.RawMessage) (StorageKey, error) {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeStorageKeyPattern.MatchString(text) {
-		return "", fmt.Errorf("StorageKey: invalid spelling %q", text)
+		return "", fmt.Errorf("StorageKey: invalid input spelling %q", text)
 	}
 	return StorageKey(text), nil
 }
@@ -224,21 +254,30 @@ func (v StorageKey) MarshalJSON() ([]byte, error) {
 	return ethcodec.MarshalNoEscape(string(v))
 }
 
-// HexByte is the 1-2 lowercase hex digits, canonically QUANTITY.
+// HexByte is the 1-2 lowercase hex digits.
 type HexByte string
 
 var nativeHexBytePattern = regexp.MustCompile("^0x[0-9a-f]{1,2}$")
 
 func NewHexByte(raw json.RawMessage) (HexByte, error) {
+	return parseHexByte(raw, false)
+}
+func parseHexByte(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("HexByte: expected a non-null value")
 	}
-	text, err := ethcodec.CanonicalHexByte(raw)
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeHexBytePattern.MatchString(text) {
-		return "", fmt.Errorf("HexByte: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("HexByte: invalid input spelling %q", text)
+	}
+	if keepStrings {
+		return HexByte(text), nil
+	}
+	if len(text) == 4 && text[2] == uint8(0x30) {
+		text = "0x" + text[3:]
 	}
 	return HexByte(text), nil
 }
@@ -255,12 +294,12 @@ func NewDecimalString(raw json.RawMessage) (DecimalString, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("DecimalString: expected a non-null value")
 	}
-	text, err := ethcodec.NormalizeDecimalString(raw)
-	if err != nil {
-		return "", err
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !nativeDecimalStringPattern.MatchString(text) {
-		return "", fmt.Errorf("DecimalString: canonical spelling %q does not match official pattern", text)
+		return "", fmt.Errorf("DecimalString: invalid input spelling %q", text)
 	}
 	return DecimalString(text), nil
 }
@@ -275,11 +314,11 @@ func NewNumber(raw json.RawMessage) (Number, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Number: expected a non-null value")
 	}
-	text, err := ethcodec.CanonicalNumber(raw)
+	number, err := ethcodec.CanonicalNumber(raw)
 	if err != nil {
 		return "", err
 	}
-	return Number(text.String()), nil
+	return Number(number.String()), nil
 }
 func (v Number) MarshalJSON() ([]byte, error) {
 	return []byte(v), nil
@@ -301,7 +340,7 @@ func NewText(raw json.RawMessage) (Text, error) {
 func (v Text) MarshalJSON() ([]byte, error) {
 	return ethcodec.MarshalNoEscape(string(v))
 }
-func parseValue0(raw json.RawMessage) (Quantity, error) {
+func parseValue0(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_blobBaseFee.result: expected a non-null value")
@@ -313,7 +352,7 @@ func parseValue0(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue1(raw json.RawMessage) (Quantity, error) {
+func parseValue1(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_blockNumber.result: expected a non-null value")
@@ -325,7 +364,7 @@ func parseValue1(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue2(raw json.RawMessage) (Data, error) {
+func parseValue2(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.result: expected a non-null value")
@@ -337,7 +376,7 @@ func parseValue2(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue3(raw json.RawMessage) (Quantity, error) {
+func parseValue3(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_chainId.result: expected a non-null value")
@@ -349,19 +388,19 @@ func parseValue3(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue4(raw json.RawMessage) (Address, error) {
+func parseValue4(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_createAccessList.result.properties.accessList.items.properties.address: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_createAccessList.result.properties.accessList.items.properties.address: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue5(raw json.RawMessage) (Hash, error) {
+func parseValue5(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_createAccessList.result.properties.accessList.items.properties.storageKeys.items: expected a non-null value")
@@ -373,7 +412,7 @@ func parseValue5(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue6(raw json.RawMessage) ([]Hash, error) {
+func parseValue6(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_createAccessList.result.properties.accessList.items.properties.storageKeys: expected a non-null value")
@@ -384,7 +423,7 @@ func parseValue6(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue5(row)
+		value, err := parseValue5(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_createAccessList.result.properties.accessList.items.properties.storageKeys[%d]: %w", i, err)
 		}
@@ -392,7 +431,7 @@ func parseValue6(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue7(raw json.RawMessage) ([]AccessListItem, error) {
+func parseValue7(raw json.RawMessage, keepStrings bool) ([]AccessListItem, error) {
 	var out []AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_createAccessList.result.properties.accessList: expected a non-null value")
@@ -403,7 +442,7 @@ func parseValue7(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	out = make([]AccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := NewAccessListItem(row)
+		value, err := parseAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_createAccessList.result.properties.accessList[%d]: %w", i, err)
 		}
@@ -411,7 +450,7 @@ func parseValue7(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue8(raw json.RawMessage) (Text, error) {
+func parseValue8(raw json.RawMessage, keepStrings bool) (Text, error) {
 	var out Text
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_createAccessList.result.properties.error: expected a non-null value")
@@ -423,7 +462,7 @@ func parseValue8(raw json.RawMessage) (Text, error) {
 	out = value
 	return out, nil
 }
-func parseValue9(raw json.RawMessage) (Quantity, error) {
+func parseValue9(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_createAccessList.result.properties.gasUsed: expected a non-null value")
@@ -435,7 +474,7 @@ func parseValue9(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue10(raw json.RawMessage) (Quantity, error) {
+func parseValue10(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_estimateGas.result: expected a non-null value")
@@ -447,7 +486,7 @@ func parseValue10(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue11(raw json.RawMessage) (Quantity, error) {
+func parseValue11(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.baseFeePerBlobGas.items: expected a non-null value")
@@ -459,7 +498,7 @@ func parseValue11(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue12(raw json.RawMessage) ([]Quantity, error) {
+func parseValue12(raw json.RawMessage, keepStrings bool) ([]Quantity, error) {
 	var out []Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.baseFeePerBlobGas: expected a non-null value")
@@ -470,7 +509,7 @@ func parseValue12(raw json.RawMessage) ([]Quantity, error) {
 	}
 	out = make([]Quantity, len(rows))
 	for i, row := range rows {
-		value, err := parseValue11(row)
+		value, err := parseValue11(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_feeHistory.result.properties.baseFeePerBlobGas[%d]: %w", i, err)
 		}
@@ -478,7 +517,7 @@ func parseValue12(raw json.RawMessage) ([]Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue13(raw json.RawMessage) (Quantity, error) {
+func parseValue13(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.baseFeePerGas.items: expected a non-null value")
@@ -490,7 +529,7 @@ func parseValue13(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue14(raw json.RawMessage) ([]Quantity, error) {
+func parseValue14(raw json.RawMessage, keepStrings bool) ([]Quantity, error) {
 	var out []Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.baseFeePerGas: expected a non-null value")
@@ -501,7 +540,7 @@ func parseValue14(raw json.RawMessage) ([]Quantity, error) {
 	}
 	out = make([]Quantity, len(rows))
 	for i, row := range rows {
-		value, err := parseValue13(row)
+		value, err := parseValue13(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_feeHistory.result.properties.baseFeePerGas[%d]: %w", i, err)
 		}
@@ -509,7 +548,7 @@ func parseValue14(raw json.RawMessage) ([]Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue15(raw json.RawMessage) (Number, error) {
+func parseValue15(raw json.RawMessage, keepStrings bool) (Number, error) {
 	var out Number
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.blobGasUsedRatio.items: expected a non-null value")
@@ -527,7 +566,7 @@ func parseValue15(raw json.RawMessage) (Number, error) {
 	}
 	return out, nil
 }
-func parseValue16(raw json.RawMessage) ([]Number, error) {
+func parseValue16(raw json.RawMessage, keepStrings bool) ([]Number, error) {
 	var out []Number
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.blobGasUsedRatio: expected a non-null value")
@@ -538,7 +577,7 @@ func parseValue16(raw json.RawMessage) ([]Number, error) {
 	}
 	out = make([]Number, len(rows))
 	for i, row := range rows {
-		value, err := parseValue15(row)
+		value, err := parseValue15(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_feeHistory.result.properties.blobGasUsedRatio[%d]: %w", i, err)
 		}
@@ -546,7 +585,7 @@ func parseValue16(raw json.RawMessage) ([]Number, error) {
 	}
 	return out, nil
 }
-func parseValue17(raw json.RawMessage) (Number, error) {
+func parseValue17(raw json.RawMessage, keepStrings bool) (Number, error) {
 	var out Number
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.gasUsedRatio.items: expected a non-null value")
@@ -564,7 +603,7 @@ func parseValue17(raw json.RawMessage) (Number, error) {
 	}
 	return out, nil
 }
-func parseValue18(raw json.RawMessage) ([]Number, error) {
+func parseValue18(raw json.RawMessage, keepStrings bool) ([]Number, error) {
 	var out []Number
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.gasUsedRatio: expected a non-null value")
@@ -575,7 +614,7 @@ func parseValue18(raw json.RawMessage) ([]Number, error) {
 	}
 	out = make([]Number, len(rows))
 	for i, row := range rows {
-		value, err := parseValue17(row)
+		value, err := parseValue17(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_feeHistory.result.properties.gasUsedRatio[%d]: %w", i, err)
 		}
@@ -583,7 +622,7 @@ func parseValue18(raw json.RawMessage) ([]Number, error) {
 	}
 	return out, nil
 }
-func parseValue19(raw json.RawMessage) (Quantity, error) {
+func parseValue19(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.oldestBlock: expected a non-null value")
@@ -595,7 +634,7 @@ func parseValue19(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue20(raw json.RawMessage) (Quantity, error) {
+func parseValue20(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.reward.items.items: expected a non-null value")
@@ -607,7 +646,7 @@ func parseValue20(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue21(raw json.RawMessage) ([]Quantity, error) {
+func parseValue21(raw json.RawMessage, keepStrings bool) ([]Quantity, error) {
 	var out []Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.reward.items: expected a non-null value")
@@ -618,7 +657,7 @@ func parseValue21(raw json.RawMessage) ([]Quantity, error) {
 	}
 	out = make([]Quantity, len(rows))
 	for i, row := range rows {
-		value, err := parseValue20(row)
+		value, err := parseValue20(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_feeHistory.result.properties.reward.items[%d]: %w", i, err)
 		}
@@ -626,7 +665,7 @@ func parseValue21(raw json.RawMessage) ([]Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue22(raw json.RawMessage) ([][]Quantity, error) {
+func parseValue22(raw json.RawMessage, keepStrings bool) ([][]Quantity, error) {
 	var out [][]Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_feeHistory.result.properties.reward: expected a non-null value")
@@ -637,7 +676,7 @@ func parseValue22(raw json.RawMessage) ([][]Quantity, error) {
 	}
 	out = make([][]Quantity, len(rows))
 	for i, row := range rows {
-		value, err := parseValue21(row)
+		value, err := parseValue21(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_feeHistory.result.properties.reward[%d]: %w", i, err)
 		}
@@ -645,7 +684,7 @@ func parseValue22(raw json.RawMessage) ([][]Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue23(raw json.RawMessage) (Quantity, error) {
+func parseValue23(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_gasPrice.result: expected a non-null value")
@@ -657,7 +696,7 @@ func parseValue23(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue24(raw json.RawMessage) (Quantity, error) {
+func parseValue24(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBalance.result: expected a non-null value")
@@ -669,7 +708,7 @@ func parseValue24(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue25(raw json.RawMessage) (Quantity, error) {
+func parseValue25(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.baseFeePerGas: expected a non-null value")
@@ -681,7 +720,7 @@ func parseValue25(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue26(raw json.RawMessage) (Quantity, error) {
+func parseValue26(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.blobGasUsed: expected a non-null value")
@@ -693,7 +732,7 @@ func parseValue26(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue27(raw json.RawMessage) (Hash, error) {
+func parseValue27(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.blockAccessListHash: expected a non-null value")
@@ -705,7 +744,7 @@ func parseValue27(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue28(raw json.RawMessage) (Quantity, error) {
+func parseValue28(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.difficulty: expected a non-null value")
@@ -717,7 +756,7 @@ func parseValue28(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue29(raw json.RawMessage) (Quantity, error) {
+func parseValue29(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.excessBlobGas: expected a non-null value")
@@ -729,7 +768,7 @@ func parseValue29(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue30(raw json.RawMessage) (Data, error) {
+func parseValue30(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.extraData: expected a non-null value")
@@ -741,7 +780,7 @@ func parseValue30(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue31(raw json.RawMessage) (Quantity, error) {
+func parseValue31(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.gasLimit: expected a non-null value")
@@ -753,7 +792,7 @@ func parseValue31(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue32(raw json.RawMessage) (Quantity, error) {
+func parseValue32(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.gasUsed: expected a non-null value")
@@ -765,7 +804,7 @@ func parseValue32(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue33(raw json.RawMessage) (Hash, error) {
+func parseValue33(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.hash: expected a non-null value")
@@ -777,7 +816,7 @@ func parseValue33(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue34(raw json.RawMessage) (Bloom, error) {
+func parseValue34(raw json.RawMessage, keepStrings bool) (Bloom, error) {
 	var out Bloom
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.logsBloom: expected a non-null value")
@@ -789,19 +828,19 @@ func parseValue34(raw json.RawMessage) (Bloom, error) {
 	out = value
 	return out, nil
 }
-func parseValue35(raw json.RawMessage) (Address, error) {
+func parseValue35(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.miner: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.miner: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue36(raw json.RawMessage) (Hash, error) {
+func parseValue36(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.mixHash: expected a non-null value")
@@ -813,7 +852,7 @@ func parseValue36(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue37(raw json.RawMessage) (BlockNonce, error) {
+func parseValue37(raw json.RawMessage, keepStrings bool) (BlockNonce, error) {
 	var out BlockNonce
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.nonce: expected a non-null value")
@@ -825,7 +864,7 @@ func parseValue37(raw json.RawMessage) (BlockNonce, error) {
 	out = value
 	return out, nil
 }
-func parseValue38(raw json.RawMessage) (Quantity, error) {
+func parseValue38(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.number: expected a non-null value")
@@ -837,7 +876,7 @@ func parseValue38(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue39(raw json.RawMessage) (Hash, error) {
+func parseValue39(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.parentBeaconBlockRoot: expected a non-null value")
@@ -849,7 +888,7 @@ func parseValue39(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue40(raw json.RawMessage) (Hash, error) {
+func parseValue40(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.parentHash: expected a non-null value")
@@ -861,7 +900,7 @@ func parseValue40(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue41(raw json.RawMessage) (Hash, error) {
+func parseValue41(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.receiptsRoot: expected a non-null value")
@@ -873,7 +912,7 @@ func parseValue41(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue42(raw json.RawMessage) (Hash, error) {
+func parseValue42(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.requestsHash: expected a non-null value")
@@ -885,7 +924,7 @@ func parseValue42(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue43(raw json.RawMessage) (Hash, error) {
+func parseValue43(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.sha3Uncles: expected a non-null value")
@@ -897,7 +936,7 @@ func parseValue43(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue44(raw json.RawMessage) (Quantity, error) {
+func parseValue44(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.size: expected a non-null value")
@@ -909,7 +948,7 @@ func parseValue44(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue45(raw json.RawMessage) (Quantity64, error) {
+func parseValue45(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.slotNumber: expected a non-null value")
@@ -921,7 +960,7 @@ func parseValue45(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue46(raw json.RawMessage) (Hash, error) {
+func parseValue46(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.stateRoot: expected a non-null value")
@@ -933,7 +972,7 @@ func parseValue46(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue47(raw json.RawMessage) (Quantity, error) {
+func parseValue47(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.timestamp: expected a non-null value")
@@ -945,7 +984,7 @@ func parseValue47(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue48(raw json.RawMessage) (Hash, error) {
+func parseValue48(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[0].items: expected a non-null value")
@@ -957,7 +996,7 @@ func parseValue48(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue49(raw json.RawMessage) ([]Hash, error) {
+func parseValue49(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[0]: expected a non-null value")
@@ -968,7 +1007,7 @@ func parseValue49(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue48(row)
+		value, err := parseValue48(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[0][%d]: %w", i, err)
 		}
@@ -976,7 +1015,7 @@ func parseValue49(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue50(raw json.RawMessage) ([]AccessListItem, error) {
+func parseValue50(raw json.RawMessage, keepStrings bool) ([]AccessListItem, error) {
 	var out []AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.accessList: expected a non-null value")
@@ -987,7 +1026,7 @@ func parseValue50(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	out = make([]AccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := NewAccessListItem(row)
+		value, err := parseAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.accessList[%d]: %w", i, err)
 		}
@@ -995,19 +1034,19 @@ func parseValue50(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue51(raw json.RawMessage) (Address, error) {
+func parseValue51(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items.properties.address: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items.properties.address: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue52(raw json.RawMessage) (Quantity, error) {
+func parseValue52(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items.properties.chainId: expected a non-null value")
@@ -1019,7 +1058,7 @@ func parseValue52(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue53(raw json.RawMessage) (Quantity, error) {
+func parseValue53(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items.properties.nonce: expected a non-null value")
@@ -1031,7 +1070,7 @@ func parseValue53(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue54(raw json.RawMessage) (Quantity256, error) {
+func parseValue54(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items.properties.r: expected a non-null value")
@@ -1043,7 +1082,7 @@ func parseValue54(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue55(raw json.RawMessage) (Quantity256, error) {
+func parseValue55(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items.properties.s: expected a non-null value")
@@ -1055,19 +1094,19 @@ func parseValue55(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue56(raw json.RawMessage) (HexByte, error) {
+func parseValue56(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items.properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items.properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue57(raw json.RawMessage) ([]AuthorizationTuple, error) {
+func parseValue57(raw json.RawMessage, keepStrings bool) ([]AuthorizationTuple, error) {
 	var out []AuthorizationTuple
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList: expected a non-null value")
@@ -1078,7 +1117,7 @@ func parseValue57(raw json.RawMessage) ([]AuthorizationTuple, error) {
 	}
 	out = make([]AuthorizationTuple, len(rows))
 	for i, row := range rows {
-		value, err := NewAuthorizationTuple(row)
+		value, err := parseAuthorizationTuple(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList[%d]: %w", i, err)
 		}
@@ -1086,7 +1125,7 @@ func parseValue57(raw json.RawMessage) ([]AuthorizationTuple, error) {
 	}
 	return out, nil
 }
-func parseValue58(raw json.RawMessage) (Quantity, error) {
+func parseValue58(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.chainId: expected a non-null value")
@@ -1098,7 +1137,7 @@ func parseValue58(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue59(raw json.RawMessage) (Quantity, error) {
+func parseValue59(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.gas: expected a non-null value")
@@ -1110,7 +1149,7 @@ func parseValue59(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue60(raw json.RawMessage) (Quantity, error) {
+func parseValue60(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.gasPrice: expected a non-null value")
@@ -1122,7 +1161,7 @@ func parseValue60(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue61(raw json.RawMessage) (Data, error) {
+func parseValue61(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.input: expected a non-null value")
@@ -1134,7 +1173,7 @@ func parseValue61(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue62(raw json.RawMessage) (Quantity, error) {
+func parseValue62(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.maxFeePerGas: expected a non-null value")
@@ -1146,7 +1185,7 @@ func parseValue62(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue63(raw json.RawMessage) (Quantity, error) {
+func parseValue63(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.maxPriorityFeePerGas: expected a non-null value")
@@ -1158,7 +1197,7 @@ func parseValue63(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue64(raw json.RawMessage) (Quantity, error) {
+func parseValue64(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.nonce: expected a non-null value")
@@ -1170,7 +1209,7 @@ func parseValue64(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue65(raw json.RawMessage) (Quantity, error) {
+func parseValue65(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.r: expected a non-null value")
@@ -1182,7 +1221,7 @@ func parseValue65(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue66(raw json.RawMessage) (Quantity, error) {
+func parseValue66(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.s: expected a non-null value")
@@ -1194,12 +1233,12 @@ func parseValue66(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue67(raw json.RawMessage) (Address, error) {
+func parseValue67(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.to: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.to: %w", err)
 	}
@@ -1209,7 +1248,7 @@ func parseValue67(raw json.RawMessage) (Address, error) {
 
 var parseValue68Pattern = regexp.MustCompile("^0x4$")
 
-func parseValue68(raw json.RawMessage) (Quantity, error) {
+func parseValue68(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.type: expected a non-null value")
@@ -1224,19 +1263,19 @@ func parseValue68(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue69(raw json.RawMessage) (HexByte, error) {
+func parseValue69(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.v: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.v: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue70(raw json.RawMessage) (Quantity, error) {
+func parseValue70(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.value: expected a non-null value")
@@ -1248,19 +1287,19 @@ func parseValue70(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue71(raw json.RawMessage) (HexByte, error) {
+func parseValue71(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue72(raw json.RawMessage) (Hash, error) {
+func parseValue72(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.blockHash: expected a non-null value")
@@ -1272,7 +1311,7 @@ func parseValue72(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue73(raw json.RawMessage) (Quantity, error) {
+func parseValue73(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.blockNumber: expected a non-null value")
@@ -1284,7 +1323,7 @@ func parseValue73(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue74(raw json.RawMessage) (Quantity, error) {
+func parseValue74(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.blockTimestamp: expected a non-null value")
@@ -1296,19 +1335,19 @@ func parseValue74(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue75(raw json.RawMessage) (Address, error) {
+func parseValue75(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue76(raw json.RawMessage) (Hash, error) {
+func parseValue76(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.hash: expected a non-null value")
@@ -1320,7 +1359,7 @@ func parseValue76(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue77(raw json.RawMessage) (Quantity, error) {
+func parseValue77(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.transactionIndex: expected a non-null value")
@@ -1332,7 +1371,7 @@ func parseValue77(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue78(raw json.RawMessage) ([]AccessListItem, error) {
+func parseValue78(raw json.RawMessage, keepStrings bool) ([]AccessListItem, error) {
 	var out []AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.accessList: expected a non-null value")
@@ -1343,7 +1382,7 @@ func parseValue78(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	out = make([]AccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := NewAccessListItem(row)
+		value, err := parseAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.accessList[%d]: %w", i, err)
 		}
@@ -1351,7 +1390,7 @@ func parseValue78(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue79(raw json.RawMessage) (Hash, error) {
+func parseValue79(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.blobVersionedHashes.items: expected a non-null value")
@@ -1363,7 +1402,7 @@ func parseValue79(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue80(raw json.RawMessage) ([]Hash, error) {
+func parseValue80(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.blobVersionedHashes: expected a non-null value")
@@ -1374,7 +1413,7 @@ func parseValue80(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue79(row)
+		value, err := parseValue79(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.blobVersionedHashes[%d]: %w", i, err)
 		}
@@ -1382,7 +1421,7 @@ func parseValue80(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue81(raw json.RawMessage) (Quantity, error) {
+func parseValue81(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.chainId: expected a non-null value")
@@ -1394,7 +1433,7 @@ func parseValue81(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue82(raw json.RawMessage) (Quantity, error) {
+func parseValue82(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.gas: expected a non-null value")
@@ -1406,7 +1445,7 @@ func parseValue82(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue83(raw json.RawMessage) (Quantity, error) {
+func parseValue83(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.gasPrice: expected a non-null value")
@@ -1418,7 +1457,7 @@ func parseValue83(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue84(raw json.RawMessage) (Data, error) {
+func parseValue84(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.input: expected a non-null value")
@@ -1430,7 +1469,7 @@ func parseValue84(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue85(raw json.RawMessage) (Quantity, error) {
+func parseValue85(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.maxFeePerBlobGas: expected a non-null value")
@@ -1442,7 +1481,7 @@ func parseValue85(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue86(raw json.RawMessage) (Quantity, error) {
+func parseValue86(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.maxFeePerGas: expected a non-null value")
@@ -1454,7 +1493,7 @@ func parseValue86(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue87(raw json.RawMessage) (Quantity, error) {
+func parseValue87(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.maxPriorityFeePerGas: expected a non-null value")
@@ -1466,7 +1505,7 @@ func parseValue87(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue88(raw json.RawMessage) (Quantity, error) {
+func parseValue88(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.nonce: expected a non-null value")
@@ -1478,7 +1517,7 @@ func parseValue88(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue89(raw json.RawMessage) (Quantity, error) {
+func parseValue89(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.r: expected a non-null value")
@@ -1490,7 +1529,7 @@ func parseValue89(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue90(raw json.RawMessage) (Quantity, error) {
+func parseValue90(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.s: expected a non-null value")
@@ -1502,12 +1541,12 @@ func parseValue90(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue91(raw json.RawMessage) (Address, error) {
+func parseValue91(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.to: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.to: %w", err)
 	}
@@ -1517,7 +1556,7 @@ func parseValue91(raw json.RawMessage) (Address, error) {
 
 var parseValue92Pattern = regexp.MustCompile("^0x3$")
 
-func parseValue92(raw json.RawMessage) (Quantity, error) {
+func parseValue92(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.type: expected a non-null value")
@@ -1532,19 +1571,19 @@ func parseValue92(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue93(raw json.RawMessage) (HexByte, error) {
+func parseValue93(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.v: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.v: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue94(raw json.RawMessage) (Quantity, error) {
+func parseValue94(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.value: expected a non-null value")
@@ -1556,19 +1595,19 @@ func parseValue94(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue95(raw json.RawMessage) (HexByte, error) {
+func parseValue95(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue96(raw json.RawMessage) (Hash, error) {
+func parseValue96(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.blockHash: expected a non-null value")
@@ -1580,7 +1619,7 @@ func parseValue96(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue97(raw json.RawMessage) (Quantity, error) {
+func parseValue97(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.blockNumber: expected a non-null value")
@@ -1592,7 +1631,7 @@ func parseValue97(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue98(raw json.RawMessage) (Quantity, error) {
+func parseValue98(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.blockTimestamp: expected a non-null value")
@@ -1604,19 +1643,19 @@ func parseValue98(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue99(raw json.RawMessage) (Address, error) {
+func parseValue99(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue100(raw json.RawMessage) (Hash, error) {
+func parseValue100(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.hash: expected a non-null value")
@@ -1628,7 +1667,7 @@ func parseValue100(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue101(raw json.RawMessage) (Quantity, error) {
+func parseValue101(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1].properties.transactionIndex: expected a non-null value")
@@ -1640,7 +1679,7 @@ func parseValue101(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue102(raw json.RawMessage) ([]AccessListItem, error) {
+func parseValue102(raw json.RawMessage, keepStrings bool) ([]AccessListItem, error) {
 	var out []AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.accessList: expected a non-null value")
@@ -1651,7 +1690,7 @@ func parseValue102(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	out = make([]AccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := NewAccessListItem(row)
+		value, err := parseAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.accessList[%d]: %w", i, err)
 		}
@@ -1659,7 +1698,7 @@ func parseValue102(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue103(raw json.RawMessage) (Quantity, error) {
+func parseValue103(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.chainId: expected a non-null value")
@@ -1671,7 +1710,7 @@ func parseValue103(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue104(raw json.RawMessage) (Quantity, error) {
+func parseValue104(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.gas: expected a non-null value")
@@ -1683,7 +1722,7 @@ func parseValue104(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue105(raw json.RawMessage) (Quantity, error) {
+func parseValue105(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.gasPrice: expected a non-null value")
@@ -1695,7 +1734,7 @@ func parseValue105(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue106(raw json.RawMessage) (Data, error) {
+func parseValue106(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.input: expected a non-null value")
@@ -1707,7 +1746,7 @@ func parseValue106(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue107(raw json.RawMessage) (Quantity, error) {
+func parseValue107(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.maxFeePerGas: expected a non-null value")
@@ -1719,7 +1758,7 @@ func parseValue107(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue108(raw json.RawMessage) (Quantity, error) {
+func parseValue108(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.maxPriorityFeePerGas: expected a non-null value")
@@ -1731,7 +1770,7 @@ func parseValue108(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue109(raw json.RawMessage) (Quantity, error) {
+func parseValue109(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.nonce: expected a non-null value")
@@ -1743,7 +1782,7 @@ func parseValue109(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue110(raw json.RawMessage) (Quantity, error) {
+func parseValue110(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.r: expected a non-null value")
@@ -1755,7 +1794,7 @@ func parseValue110(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue111(raw json.RawMessage) (Quantity, error) {
+func parseValue111(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.s: expected a non-null value")
@@ -1767,23 +1806,23 @@ func parseValue111(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue112(raw json.RawMessage) (Address, error) {
+func parseValue112(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.to.oneOf[1]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.to.oneOf[1]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue113(raw json.RawMessage) (*Address, error) {
+func parseValue113(raw json.RawMessage, keepStrings bool) (*Address, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue112(raw)
+	value, err := parseValue112(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
@@ -1792,7 +1831,7 @@ func parseValue113(raw json.RawMessage) (*Address, error) {
 
 var parseValue114Pattern = regexp.MustCompile("^0x2$")
 
-func parseValue114(raw json.RawMessage) (Quantity, error) {
+func parseValue114(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.type: expected a non-null value")
@@ -1807,19 +1846,19 @@ func parseValue114(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue115(raw json.RawMessage) (HexByte, error) {
+func parseValue115(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.v: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.v: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue116(raw json.RawMessage) (Quantity, error) {
+func parseValue116(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.value: expected a non-null value")
@@ -1831,19 +1870,19 @@ func parseValue116(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue117(raw json.RawMessage) (HexByte, error) {
+func parseValue117(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue118(raw json.RawMessage) (Hash, error) {
+func parseValue118(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.blockHash: expected a non-null value")
@@ -1855,7 +1894,7 @@ func parseValue118(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue119(raw json.RawMessage) (Quantity, error) {
+func parseValue119(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.blockNumber: expected a non-null value")
@@ -1867,7 +1906,7 @@ func parseValue119(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue120(raw json.RawMessage) (Quantity, error) {
+func parseValue120(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.blockTimestamp: expected a non-null value")
@@ -1879,19 +1918,19 @@ func parseValue120(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue121(raw json.RawMessage) (Address, error) {
+func parseValue121(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue122(raw json.RawMessage) (Hash, error) {
+func parseValue122(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.hash: expected a non-null value")
@@ -1903,7 +1942,7 @@ func parseValue122(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue123(raw json.RawMessage) (Quantity, error) {
+func parseValue123(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2].properties.transactionIndex: expected a non-null value")
@@ -1915,7 +1954,7 @@ func parseValue123(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue124(raw json.RawMessage) ([]AccessListItem, error) {
+func parseValue124(raw json.RawMessage, keepStrings bool) ([]AccessListItem, error) {
 	var out []AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.accessList: expected a non-null value")
@@ -1926,7 +1965,7 @@ func parseValue124(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	out = make([]AccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := NewAccessListItem(row)
+		value, err := parseAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.accessList[%d]: %w", i, err)
 		}
@@ -1934,7 +1973,7 @@ func parseValue124(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue125(raw json.RawMessage) (Quantity, error) {
+func parseValue125(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.chainId: expected a non-null value")
@@ -1946,7 +1985,7 @@ func parseValue125(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue126(raw json.RawMessage) (Quantity, error) {
+func parseValue126(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.gas: expected a non-null value")
@@ -1958,7 +1997,7 @@ func parseValue126(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue127(raw json.RawMessage) (Quantity, error) {
+func parseValue127(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.gasPrice: expected a non-null value")
@@ -1970,7 +2009,7 @@ func parseValue127(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue128(raw json.RawMessage) (Data, error) {
+func parseValue128(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.input: expected a non-null value")
@@ -1982,7 +2021,7 @@ func parseValue128(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue129(raw json.RawMessage) (Quantity, error) {
+func parseValue129(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.nonce: expected a non-null value")
@@ -1994,7 +2033,7 @@ func parseValue129(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue130(raw json.RawMessage) (Quantity, error) {
+func parseValue130(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.r: expected a non-null value")
@@ -2006,7 +2045,7 @@ func parseValue130(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue131(raw json.RawMessage) (Quantity, error) {
+func parseValue131(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.s: expected a non-null value")
@@ -2018,23 +2057,23 @@ func parseValue131(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue132(raw json.RawMessage) (Address, error) {
+func parseValue132(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.to.oneOf[1]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.to.oneOf[1]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue133(raw json.RawMessage) (*Address, error) {
+func parseValue133(raw json.RawMessage, keepStrings bool) (*Address, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue132(raw)
+	value, err := parseValue132(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
@@ -2043,7 +2082,7 @@ func parseValue133(raw json.RawMessage) (*Address, error) {
 
 var parseValue134Pattern = regexp.MustCompile("^0x1$")
 
-func parseValue134(raw json.RawMessage) (Quantity, error) {
+func parseValue134(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.type: expected a non-null value")
@@ -2058,19 +2097,19 @@ func parseValue134(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue135(raw json.RawMessage) (HexByte, error) {
+func parseValue135(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.v: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.v: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue136(raw json.RawMessage) (Quantity, error) {
+func parseValue136(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.value: expected a non-null value")
@@ -2082,19 +2121,19 @@ func parseValue136(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue137(raw json.RawMessage) (HexByte, error) {
+func parseValue137(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue138(raw json.RawMessage) (Hash, error) {
+func parseValue138(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.blockHash: expected a non-null value")
@@ -2106,7 +2145,7 @@ func parseValue138(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue139(raw json.RawMessage) (Quantity, error) {
+func parseValue139(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.blockNumber: expected a non-null value")
@@ -2118,7 +2157,7 @@ func parseValue139(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue140(raw json.RawMessage) (Quantity, error) {
+func parseValue140(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.blockTimestamp: expected a non-null value")
@@ -2130,19 +2169,19 @@ func parseValue140(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue141(raw json.RawMessage) (Address, error) {
+func parseValue141(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue142(raw json.RawMessage) (Hash, error) {
+func parseValue142(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.hash: expected a non-null value")
@@ -2154,7 +2193,7 @@ func parseValue142(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue143(raw json.RawMessage) (Quantity, error) {
+func parseValue143(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3].properties.transactionIndex: expected a non-null value")
@@ -2166,7 +2205,7 @@ func parseValue143(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue144(raw json.RawMessage) (Quantity, error) {
+func parseValue144(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.chainId: expected a non-null value")
@@ -2178,7 +2217,7 @@ func parseValue144(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue145(raw json.RawMessage) (Quantity, error) {
+func parseValue145(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.gas: expected a non-null value")
@@ -2190,7 +2229,7 @@ func parseValue145(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue146(raw json.RawMessage) (Quantity, error) {
+func parseValue146(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.gasPrice: expected a non-null value")
@@ -2202,7 +2241,7 @@ func parseValue146(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue147(raw json.RawMessage) (Data, error) {
+func parseValue147(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.input: expected a non-null value")
@@ -2214,7 +2253,7 @@ func parseValue147(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue148(raw json.RawMessage) (Quantity, error) {
+func parseValue148(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.nonce: expected a non-null value")
@@ -2226,7 +2265,7 @@ func parseValue148(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue149(raw json.RawMessage) (Quantity, error) {
+func parseValue149(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.r: expected a non-null value")
@@ -2238,7 +2277,7 @@ func parseValue149(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue150(raw json.RawMessage) (Quantity, error) {
+func parseValue150(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.s: expected a non-null value")
@@ -2250,23 +2289,23 @@ func parseValue150(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue151(raw json.RawMessage) (Address, error) {
+func parseValue151(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.to.oneOf[1]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.to.oneOf[1]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue152(raw json.RawMessage) (*Address, error) {
+func parseValue152(raw json.RawMessage, keepStrings bool) (*Address, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue151(raw)
+	value, err := parseValue151(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
@@ -2275,7 +2314,7 @@ func parseValue152(raw json.RawMessage) (*Address, error) {
 
 var parseValue153Pattern = regexp.MustCompile("^0x0$")
 
-func parseValue153(raw json.RawMessage) (Quantity, error) {
+func parseValue153(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.type: expected a non-null value")
@@ -2290,7 +2329,7 @@ func parseValue153(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue154(raw json.RawMessage) (Quantity, error) {
+func parseValue154(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.v: expected a non-null value")
@@ -2302,7 +2341,7 @@ func parseValue154(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue155(raw json.RawMessage) (Quantity, error) {
+func parseValue155(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.value: expected a non-null value")
@@ -2314,7 +2353,7 @@ func parseValue155(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue156(raw json.RawMessage) (Hash, error) {
+func parseValue156(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.blockHash: expected a non-null value")
@@ -2326,7 +2365,7 @@ func parseValue156(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue157(raw json.RawMessage) (Quantity, error) {
+func parseValue157(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.blockNumber: expected a non-null value")
@@ -2338,7 +2377,7 @@ func parseValue157(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue158(raw json.RawMessage) (Quantity, error) {
+func parseValue158(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.blockTimestamp: expected a non-null value")
@@ -2350,19 +2389,19 @@ func parseValue158(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue159(raw json.RawMessage) (Address, error) {
+func parseValue159(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue160(raw json.RawMessage) (Hash, error) {
+func parseValue160(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.hash: expected a non-null value")
@@ -2374,7 +2413,7 @@ func parseValue160(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue161(raw json.RawMessage) (Quantity, error) {
+func parseValue161(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4].properties.transactionIndex: expected a non-null value")
@@ -2386,7 +2425,7 @@ func parseValue161(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue162(raw json.RawMessage) ([]BlockTransaction, error) {
+func parseValue162(raw json.RawMessage, keepStrings bool) ([]BlockTransaction, error) {
 	var out []BlockTransaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1]: expected a non-null value")
@@ -2397,7 +2436,7 @@ func parseValue162(raw json.RawMessage) ([]BlockTransaction, error) {
 	}
 	out = make([]BlockTransaction, len(rows))
 	for i, row := range rows {
-		value, err := NewBlockTransaction(row)
+		value, err := parseBlockTransaction(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1][%d]: %w", i, err)
 		}
@@ -2405,7 +2444,7 @@ func parseValue162(raw json.RawMessage) ([]BlockTransaction, error) {
 	}
 	return out, nil
 }
-func parseValue163(raw json.RawMessage) (Hash, error) {
+func parseValue163(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.transactionsRoot: expected a non-null value")
@@ -2417,7 +2456,7 @@ func parseValue163(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue164(raw json.RawMessage) (Hash, error) {
+func parseValue164(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.uncles.items: expected a non-null value")
@@ -2429,7 +2468,7 @@ func parseValue164(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue165(raw json.RawMessage) ([]Hash, error) {
+func parseValue165(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.uncles: expected a non-null value")
@@ -2440,7 +2479,7 @@ func parseValue165(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue164(row)
+		value, err := parseValue164(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.uncles[%d]: %w", i, err)
 		}
@@ -2448,19 +2487,19 @@ func parseValue165(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue166(raw json.RawMessage) (Address, error) {
+func parseValue166(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.withdrawals.items.properties.address: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.withdrawals.items.properties.address: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue167(raw json.RawMessage) (Quantity256, error) {
+func parseValue167(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.withdrawals.items.properties.amount: expected a non-null value")
@@ -2472,7 +2511,7 @@ func parseValue167(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue168(raw json.RawMessage) (Quantity64, error) {
+func parseValue168(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.withdrawals.items.properties.index: expected a non-null value")
@@ -2484,7 +2523,7 @@ func parseValue168(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue169(raw json.RawMessage) (Quantity64, error) {
+func parseValue169(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.withdrawals.items.properties.validatorIndex: expected a non-null value")
@@ -2496,7 +2535,7 @@ func parseValue169(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue170(raw json.RawMessage) ([]Withdrawal, error) {
+func parseValue170(raw json.RawMessage, keepStrings bool) ([]Withdrawal, error) {
 	var out []Withdrawal
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.withdrawals: expected a non-null value")
@@ -2507,7 +2546,7 @@ func parseValue170(raw json.RawMessage) ([]Withdrawal, error) {
 	}
 	out = make([]Withdrawal, len(rows))
 	for i, row := range rows {
-		value, err := NewWithdrawal(row)
+		value, err := parseWithdrawal(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.withdrawals[%d]: %w", i, err)
 		}
@@ -2515,7 +2554,7 @@ func parseValue170(raw json.RawMessage) ([]Withdrawal, error) {
 	}
 	return out, nil
 }
-func parseValue171(raw json.RawMessage) (Hash, error) {
+func parseValue171(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockByHash.result.oneOf[1].properties.withdrawalsRoot: expected a non-null value")
@@ -2527,27 +2566,27 @@ func parseValue171(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue172(raw json.RawMessage) (*Block, error) {
+func parseValue172(raw json.RawMessage, keepStrings bool) (*Block, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := NewBlock(raw)
+	value, err := parseBlock(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue173(raw json.RawMessage) (*Block, error) {
+func parseValue173(raw json.RawMessage, keepStrings bool) (*Block, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := NewBlock(raw)
+	value, err := parseBlock(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue174(raw json.RawMessage) (Quantity, error) {
+func parseValue174(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.blobGasPrice: expected a non-null value")
@@ -2559,7 +2598,7 @@ func parseValue174(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue175(raw json.RawMessage) (Quantity, error) {
+func parseValue175(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.blobGasUsed: expected a non-null value")
@@ -2571,7 +2610,7 @@ func parseValue175(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue176(raw json.RawMessage) (Hash, error) {
+func parseValue176(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.blockHash: expected a non-null value")
@@ -2583,7 +2622,7 @@ func parseValue176(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue177(raw json.RawMessage) (Quantity, error) {
+func parseValue177(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.blockNumber: expected a non-null value")
@@ -2595,29 +2634,29 @@ func parseValue177(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue178(raw json.RawMessage) (Address, error) {
+func parseValue178(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.contractAddress.oneOf[0]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.contractAddress.oneOf[0]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue179(raw json.RawMessage) (*Address, error) {
+func parseValue179(raw json.RawMessage, keepStrings bool) (*Address, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue178(raw)
+	value, err := parseValue178(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue180(raw json.RawMessage) (Quantity, error) {
+func parseValue180(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.cumulativeGasUsed: expected a non-null value")
@@ -2629,7 +2668,7 @@ func parseValue180(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue181(raw json.RawMessage) (Quantity, error) {
+func parseValue181(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.effectiveGasPrice: expected a non-null value")
@@ -2641,19 +2680,19 @@ func parseValue181(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue182(raw json.RawMessage) (Address, error) {
+func parseValue182(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue183(raw json.RawMessage) (Quantity, error) {
+func parseValue183(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.gasUsed: expected a non-null value")
@@ -2665,19 +2704,19 @@ func parseValue183(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue184(raw json.RawMessage) (Address, error) {
+func parseValue184(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.address: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.address: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue185(raw json.RawMessage) (Hash, error) {
+func parseValue185(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.blockHash: expected a non-null value")
@@ -2689,7 +2728,7 @@ func parseValue185(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue186(raw json.RawMessage) (Quantity, error) {
+func parseValue186(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.blockNumber: expected a non-null value")
@@ -2701,7 +2740,7 @@ func parseValue186(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue187(raw json.RawMessage) (Quantity, error) {
+func parseValue187(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.blockTimestamp: expected a non-null value")
@@ -2713,7 +2752,7 @@ func parseValue187(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue188(raw json.RawMessage) (Data, error) {
+func parseValue188(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.data: expected a non-null value")
@@ -2725,7 +2764,7 @@ func parseValue188(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue189(raw json.RawMessage) (Quantity, error) {
+func parseValue189(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.logIndex: expected a non-null value")
@@ -2737,7 +2776,7 @@ func parseValue189(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue190(raw json.RawMessage) (bool, error) {
+func parseValue190(raw json.RawMessage, keepStrings bool) (bool, error) {
 	var out bool
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.removed: expected a non-null value")
@@ -2747,7 +2786,7 @@ func parseValue190(raw json.RawMessage) (bool, error) {
 	}
 	return out, nil
 }
-func parseValue191(raw json.RawMessage) (Hash, error) {
+func parseValue191(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.topics.items: expected a non-null value")
@@ -2759,7 +2798,7 @@ func parseValue191(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue192(raw json.RawMessage) ([]Hash, error) {
+func parseValue192(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.topics: expected a non-null value")
@@ -2770,7 +2809,7 @@ func parseValue192(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue191(row)
+		value, err := parseValue191(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.topics[%d]: %w", i, err)
 		}
@@ -2778,7 +2817,7 @@ func parseValue192(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue193(raw json.RawMessage) (Hash, error) {
+func parseValue193(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.transactionHash: expected a non-null value")
@@ -2790,7 +2829,7 @@ func parseValue193(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue194(raw json.RawMessage) (Quantity, error) {
+func parseValue194(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs.items.properties.transactionIndex: expected a non-null value")
@@ -2802,7 +2841,7 @@ func parseValue194(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue195(raw json.RawMessage) ([]Log, error) {
+func parseValue195(raw json.RawMessage, keepStrings bool) ([]Log, error) {
 	var out []Log
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs: expected a non-null value")
@@ -2813,7 +2852,7 @@ func parseValue195(raw json.RawMessage) ([]Log, error) {
 	}
 	out = make([]Log, len(rows))
 	for i, row := range rows {
-		value, err := NewLog(row)
+		value, err := parseLog(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logs[%d]: %w", i, err)
 		}
@@ -2821,7 +2860,7 @@ func parseValue195(raw json.RawMessage) ([]Log, error) {
 	}
 	return out, nil
 }
-func parseValue196(raw json.RawMessage) (Bloom, error) {
+func parseValue196(raw json.RawMessage, keepStrings bool) (Bloom, error) {
 	var out Bloom
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.logsBloom: expected a non-null value")
@@ -2833,7 +2872,7 @@ func parseValue196(raw json.RawMessage) (Bloom, error) {
 	out = value
 	return out, nil
 }
-func parseValue197(raw json.RawMessage) (Hash, error) {
+func parseValue197(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.root: expected a non-null value")
@@ -2845,7 +2884,7 @@ func parseValue197(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue198(raw json.RawMessage) (Quantity, error) {
+func parseValue198(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.status: expected a non-null value")
@@ -2857,29 +2896,29 @@ func parseValue198(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue199(raw json.RawMessage) (Address, error) {
+func parseValue199(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.to.oneOf[1]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.to.oneOf[1]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue200(raw json.RawMessage) (*Address, error) {
+func parseValue200(raw json.RawMessage, keepStrings bool) (*Address, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue199(raw)
+	value, err := parseValue199(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue201(raw json.RawMessage) (Hash, error) {
+func parseValue201(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.transactionHash: expected a non-null value")
@@ -2891,7 +2930,7 @@ func parseValue201(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue202(raw json.RawMessage) (Quantity, error) {
+func parseValue202(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.transactionIndex: expected a non-null value")
@@ -2903,19 +2942,19 @@ func parseValue202(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue203(raw json.RawMessage) (HexByte, error) {
+func parseValue203(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.type: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1].items.properties.type: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue204(raw json.RawMessage) ([]Receipt, error) {
+func parseValue204(raw json.RawMessage, keepStrings bool) ([]Receipt, error) {
 	var out []Receipt
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1]: expected a non-null value")
@@ -2926,7 +2965,7 @@ func parseValue204(raw json.RawMessage) ([]Receipt, error) {
 	}
 	out = make([]Receipt, len(rows))
 	for i, row := range rows {
-		value, err := NewReceipt(row)
+		value, err := parseReceipt(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getBlockReceipts.result.oneOf[1][%d]: %w", i, err)
 		}
@@ -2934,17 +2973,17 @@ func parseValue204(raw json.RawMessage) ([]Receipt, error) {
 	}
 	return out, nil
 }
-func parseValue205(raw json.RawMessage) (*[]Receipt, error) {
+func parseValue205(raw json.RawMessage, keepStrings bool) (*[]Receipt, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue204(raw)
+	value, err := parseValue204(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue206(raw json.RawMessage) (Data, error) {
+func parseValue206(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getCode.result: expected a non-null value")
@@ -2956,7 +2995,7 @@ func parseValue206(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue207(raw json.RawMessage) (Quantity, error) {
+func parseValue207(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.baseFeePerGas: expected a non-null value")
@@ -2968,7 +3007,7 @@ func parseValue207(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue208(raw json.RawMessage) (Quantity, error) {
+func parseValue208(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.blobGasUsed: expected a non-null value")
@@ -2980,7 +3019,7 @@ func parseValue208(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue209(raw json.RawMessage) (Hash, error) {
+func parseValue209(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.blockAccessListHash: expected a non-null value")
@@ -2992,7 +3031,7 @@ func parseValue209(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue210(raw json.RawMessage) (Quantity, error) {
+func parseValue210(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.difficulty: expected a non-null value")
@@ -3004,7 +3043,7 @@ func parseValue210(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue211(raw json.RawMessage) (Quantity, error) {
+func parseValue211(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.excessBlobGas: expected a non-null value")
@@ -3016,7 +3055,7 @@ func parseValue211(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue212(raw json.RawMessage) (Data, error) {
+func parseValue212(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.extraData: expected a non-null value")
@@ -3028,7 +3067,7 @@ func parseValue212(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue213(raw json.RawMessage) (Quantity, error) {
+func parseValue213(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.gasLimit: expected a non-null value")
@@ -3040,7 +3079,7 @@ func parseValue213(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue214(raw json.RawMessage) (Quantity, error) {
+func parseValue214(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.gasUsed: expected a non-null value")
@@ -3052,7 +3091,7 @@ func parseValue214(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue215(raw json.RawMessage) (Hash, error) {
+func parseValue215(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.hash: expected a non-null value")
@@ -3064,7 +3103,7 @@ func parseValue215(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue216(raw json.RawMessage) (Bloom, error) {
+func parseValue216(raw json.RawMessage, keepStrings bool) (Bloom, error) {
 	var out Bloom
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.logsBloom: expected a non-null value")
@@ -3076,19 +3115,19 @@ func parseValue216(raw json.RawMessage) (Bloom, error) {
 	out = value
 	return out, nil
 }
-func parseValue217(raw json.RawMessage) (Address, error) {
+func parseValue217(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.miner: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.miner: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue218(raw json.RawMessage) (Hash, error) {
+func parseValue218(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.mixHash: expected a non-null value")
@@ -3100,7 +3139,7 @@ func parseValue218(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue219(raw json.RawMessage) (BlockNonce, error) {
+func parseValue219(raw json.RawMessage, keepStrings bool) (BlockNonce, error) {
 	var out BlockNonce
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.nonce: expected a non-null value")
@@ -3112,7 +3151,7 @@ func parseValue219(raw json.RawMessage) (BlockNonce, error) {
 	out = value
 	return out, nil
 }
-func parseValue220(raw json.RawMessage) (Quantity, error) {
+func parseValue220(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.number: expected a non-null value")
@@ -3124,7 +3163,7 @@ func parseValue220(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue221(raw json.RawMessage) (Hash, error) {
+func parseValue221(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.parentBeaconBlockRoot: expected a non-null value")
@@ -3136,7 +3175,7 @@ func parseValue221(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue222(raw json.RawMessage) (Hash, error) {
+func parseValue222(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.parentHash: expected a non-null value")
@@ -3148,7 +3187,7 @@ func parseValue222(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue223(raw json.RawMessage) (Hash, error) {
+func parseValue223(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.receiptsRoot: expected a non-null value")
@@ -3160,7 +3199,7 @@ func parseValue223(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue224(raw json.RawMessage) (Hash, error) {
+func parseValue224(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.requestsHash: expected a non-null value")
@@ -3172,7 +3211,7 @@ func parseValue224(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue225(raw json.RawMessage) (Hash, error) {
+func parseValue225(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.sha3Uncles: expected a non-null value")
@@ -3184,7 +3223,7 @@ func parseValue225(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue226(raw json.RawMessage) (Quantity64, error) {
+func parseValue226(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.slotNumber: expected a non-null value")
@@ -3196,7 +3235,7 @@ func parseValue226(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue227(raw json.RawMessage) (Hash, error) {
+func parseValue227(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.stateRoot: expected a non-null value")
@@ -3208,7 +3247,7 @@ func parseValue227(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue228(raw json.RawMessage) (Quantity, error) {
+func parseValue228(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.timestamp: expected a non-null value")
@@ -3220,7 +3259,7 @@ func parseValue228(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue229(raw json.RawMessage) (Hash, error) {
+func parseValue229(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.transactionsRoot: expected a non-null value")
@@ -3232,7 +3271,7 @@ func parseValue229(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue230(raw json.RawMessage) (Hash, error) {
+func parseValue230(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getHeaderByHash.result.oneOf[1].properties.withdrawalsRoot: expected a non-null value")
@@ -3244,27 +3283,27 @@ func parseValue230(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue231(raw json.RawMessage) (*Header, error) {
+func parseValue231(raw json.RawMessage, keepStrings bool) (*Header, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := NewHeader(raw)
+	value, err := parseHeader(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue232(raw json.RawMessage) (*Header, error) {
+func parseValue232(raw json.RawMessage, keepStrings bool) (*Header, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := NewHeader(raw)
+	value, err := parseHeader(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue233(raw json.RawMessage) (Hash, error) {
+func parseValue233(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.result.anyOf[0].items: expected a non-null value")
@@ -3276,7 +3315,7 @@ func parseValue233(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue234(raw json.RawMessage) ([]Hash, error) {
+func parseValue234(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.result.anyOf[0]: expected a non-null value")
@@ -3287,7 +3326,7 @@ func parseValue234(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue233(row)
+		value, err := parseValue233(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getLogs.result.anyOf[0][%d]: %w", i, err)
 		}
@@ -3295,7 +3334,7 @@ func parseValue234(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue235(raw json.RawMessage) ([]Log, error) {
+func parseValue235(raw json.RawMessage, keepStrings bool) ([]Log, error) {
 	var out []Log
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.result.anyOf[1]: expected a non-null value")
@@ -3306,7 +3345,7 @@ func parseValue235(raw json.RawMessage) ([]Log, error) {
 	}
 	out = make([]Log, len(rows))
 	for i, row := range rows {
-		value, err := NewLog(row)
+		value, err := parseLog(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getLogs.result.anyOf[1][%d]: %w", i, err)
 		}
@@ -3314,7 +3353,7 @@ func parseValue235(raw json.RawMessage) ([]Log, error) {
 	}
 	return out, nil
 }
-func parseValue236(raw json.RawMessage) (Data, error) {
+func parseValue236(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.accountProof.items: expected a non-null value")
@@ -3326,7 +3365,7 @@ func parseValue236(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue237(raw json.RawMessage) ([]Data, error) {
+func parseValue237(raw json.RawMessage, keepStrings bool) ([]Data, error) {
 	var out []Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.accountProof: expected a non-null value")
@@ -3337,7 +3376,7 @@ func parseValue237(raw json.RawMessage) ([]Data, error) {
 	}
 	out = make([]Data, len(rows))
 	for i, row := range rows {
-		value, err := parseValue236(row)
+		value, err := parseValue236(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getProof.result.properties.accountProof[%d]: %w", i, err)
 		}
@@ -3345,19 +3384,19 @@ func parseValue237(raw json.RawMessage) ([]Data, error) {
 	}
 	return out, nil
 }
-func parseValue238(raw json.RawMessage) (Address, error) {
+func parseValue238(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.address: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getProof.result.properties.address: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue239(raw json.RawMessage) (Quantity256, error) {
+func parseValue239(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.balance: expected a non-null value")
@@ -3369,7 +3408,7 @@ func parseValue239(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue240(raw json.RawMessage) (Hash, error) {
+func parseValue240(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.codeHash: expected a non-null value")
@@ -3381,7 +3420,7 @@ func parseValue240(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue241(raw json.RawMessage) (Quantity64, error) {
+func parseValue241(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.nonce: expected a non-null value")
@@ -3393,7 +3432,7 @@ func parseValue241(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue242(raw json.RawMessage) (Hash, error) {
+func parseValue242(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.storageHash: expected a non-null value")
@@ -3405,7 +3444,7 @@ func parseValue242(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue243(raw json.RawMessage) (StorageKey, error) {
+func parseValue243(raw json.RawMessage, keepStrings bool) (StorageKey, error) {
 	var out StorageKey
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.storageProof.items.properties.key: expected a non-null value")
@@ -3417,7 +3456,7 @@ func parseValue243(raw json.RawMessage) (StorageKey, error) {
 	out = value
 	return out, nil
 }
-func parseValue244(raw json.RawMessage) (Data, error) {
+func parseValue244(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.storageProof.items.properties.proof.items: expected a non-null value")
@@ -3429,7 +3468,7 @@ func parseValue244(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue245(raw json.RawMessage) ([]Data, error) {
+func parseValue245(raw json.RawMessage, keepStrings bool) ([]Data, error) {
 	var out []Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.storageProof.items.properties.proof: expected a non-null value")
@@ -3440,7 +3479,7 @@ func parseValue245(raw json.RawMessage) ([]Data, error) {
 	}
 	out = make([]Data, len(rows))
 	for i, row := range rows {
-		value, err := parseValue244(row)
+		value, err := parseValue244(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getProof.result.properties.storageProof.items.properties.proof[%d]: %w", i, err)
 		}
@@ -3448,7 +3487,7 @@ func parseValue245(raw json.RawMessage) ([]Data, error) {
 	}
 	return out, nil
 }
-func parseValue246(raw json.RawMessage) (Quantity256, error) {
+func parseValue246(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.storageProof.items.properties.value: expected a non-null value")
@@ -3460,7 +3499,7 @@ func parseValue246(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue247(raw json.RawMessage) ([]StorageProof, error) {
+func parseValue247(raw json.RawMessage, keepStrings bool) ([]StorageProof, error) {
 	var out []StorageProof
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getProof.result.properties.storageProof: expected a non-null value")
@@ -3471,7 +3510,7 @@ func parseValue247(raw json.RawMessage) ([]StorageProof, error) {
 	}
 	out = make([]StorageProof, len(rows))
 	for i, row := range rows {
-		value, err := NewStorageProof(row)
+		value, err := parseStorageProof(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getProof.result.properties.storageProof[%d]: %w", i, err)
 		}
@@ -3479,7 +3518,7 @@ func parseValue247(raw json.RawMessage) ([]StorageProof, error) {
 	}
 	return out, nil
 }
-func parseValue248(raw json.RawMessage) (Data, error) {
+func parseValue248(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getStorageAt.result: expected a non-null value")
@@ -3491,7 +3530,7 @@ func parseValue248(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue249(raw json.RawMessage) ([]AccessListItem, error) {
+func parseValue249(raw json.RawMessage, keepStrings bool) ([]AccessListItem, error) {
 	var out []AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.accessList: expected a non-null value")
@@ -3502,7 +3541,7 @@ func parseValue249(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	out = make([]AccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := NewAccessListItem(row)
+		value, err := parseAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.accessList[%d]: %w", i, err)
 		}
@@ -3510,7 +3549,7 @@ func parseValue249(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue250(raw json.RawMessage) ([]AuthorizationTuple, error) {
+func parseValue250(raw json.RawMessage, keepStrings bool) ([]AuthorizationTuple, error) {
 	var out []AuthorizationTuple
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.authorizationList: expected a non-null value")
@@ -3521,7 +3560,7 @@ func parseValue250(raw json.RawMessage) ([]AuthorizationTuple, error) {
 	}
 	out = make([]AuthorizationTuple, len(rows))
 	for i, row := range rows {
-		value, err := NewAuthorizationTuple(row)
+		value, err := parseAuthorizationTuple(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.authorizationList[%d]: %w", i, err)
 		}
@@ -3529,7 +3568,7 @@ func parseValue250(raw json.RawMessage) ([]AuthorizationTuple, error) {
 	}
 	return out, nil
 }
-func parseValue251(raw json.RawMessage) (Quantity, error) {
+func parseValue251(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.chainId: expected a non-null value")
@@ -3541,7 +3580,7 @@ func parseValue251(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue252(raw json.RawMessage) (Quantity, error) {
+func parseValue252(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.gas: expected a non-null value")
@@ -3553,7 +3592,7 @@ func parseValue252(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue253(raw json.RawMessage) (Quantity, error) {
+func parseValue253(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.gasPrice: expected a non-null value")
@@ -3565,7 +3604,7 @@ func parseValue253(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue254(raw json.RawMessage) (Data, error) {
+func parseValue254(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.input: expected a non-null value")
@@ -3577,7 +3616,7 @@ func parseValue254(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue255(raw json.RawMessage) (Quantity, error) {
+func parseValue255(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.maxFeePerGas: expected a non-null value")
@@ -3589,7 +3628,7 @@ func parseValue255(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue256(raw json.RawMessage) (Quantity, error) {
+func parseValue256(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.maxPriorityFeePerGas: expected a non-null value")
@@ -3601,7 +3640,7 @@ func parseValue256(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue257(raw json.RawMessage) (Quantity, error) {
+func parseValue257(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.nonce: expected a non-null value")
@@ -3613,7 +3652,7 @@ func parseValue257(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue258(raw json.RawMessage) (Quantity, error) {
+func parseValue258(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.r: expected a non-null value")
@@ -3625,7 +3664,7 @@ func parseValue258(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue259(raw json.RawMessage) (Quantity, error) {
+func parseValue259(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.s: expected a non-null value")
@@ -3637,12 +3676,12 @@ func parseValue259(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue260(raw json.RawMessage) (Address, error) {
+func parseValue260(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.to: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.to: %w", err)
 	}
@@ -3652,7 +3691,7 @@ func parseValue260(raw json.RawMessage) (Address, error) {
 
 var parseValue261Pattern = regexp.MustCompile("^0x4$")
 
-func parseValue261(raw json.RawMessage) (Quantity, error) {
+func parseValue261(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.type: expected a non-null value")
@@ -3667,19 +3706,19 @@ func parseValue261(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue262(raw json.RawMessage) (HexByte, error) {
+func parseValue262(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.v: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.v: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue263(raw json.RawMessage) (Quantity, error) {
+func parseValue263(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.value: expected a non-null value")
@@ -3691,19 +3730,19 @@ func parseValue263(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue264(raw json.RawMessage) (HexByte, error) {
+func parseValue264(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue265(raw json.RawMessage) (Hash, error) {
+func parseValue265(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.blockHash.oneOf[1]: expected a non-null value")
@@ -3715,17 +3754,17 @@ func parseValue265(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue266(raw json.RawMessage) (*Hash, error) {
+func parseValue266(raw json.RawMessage, keepStrings bool) (*Hash, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue265(raw)
+	value, err := parseValue265(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue267(raw json.RawMessage) (Quantity, error) {
+func parseValue267(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.blockNumber.oneOf[1]: expected a non-null value")
@@ -3737,17 +3776,17 @@ func parseValue267(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue268(raw json.RawMessage) (*Quantity, error) {
+func parseValue268(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue267(raw)
+	value, err := parseValue267(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue269(raw json.RawMessage) (Quantity, error) {
+func parseValue269(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.blockTimestamp.oneOf[1]: expected a non-null value")
@@ -3759,29 +3798,29 @@ func parseValue269(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue270(raw json.RawMessage) (*Quantity, error) {
+func parseValue270(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue269(raw)
+	value, err := parseValue269(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue271(raw json.RawMessage) (Address, error) {
+func parseValue271(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue272(raw json.RawMessage) (Hash, error) {
+func parseValue272(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.hash: expected a non-null value")
@@ -3793,7 +3832,7 @@ func parseValue272(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue273(raw json.RawMessage) (Quantity, error) {
+func parseValue273(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[0].properties.transactionIndex.oneOf[1]: expected a non-null value")
@@ -3805,17 +3844,17 @@ func parseValue273(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue274(raw json.RawMessage) (*Quantity, error) {
+func parseValue274(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue273(raw)
+	value, err := parseValue273(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue275(raw json.RawMessage) ([]AccessListItem, error) {
+func parseValue275(raw json.RawMessage, keepStrings bool) ([]AccessListItem, error) {
 	var out []AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.accessList: expected a non-null value")
@@ -3826,7 +3865,7 @@ func parseValue275(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	out = make([]AccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := NewAccessListItem(row)
+		value, err := parseAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.accessList[%d]: %w", i, err)
 		}
@@ -3834,7 +3873,7 @@ func parseValue275(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue276(raw json.RawMessage) (Hash, error) {
+func parseValue276(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.blobVersionedHashes.items: expected a non-null value")
@@ -3846,7 +3885,7 @@ func parseValue276(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue277(raw json.RawMessage) ([]Hash, error) {
+func parseValue277(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.blobVersionedHashes: expected a non-null value")
@@ -3857,7 +3896,7 @@ func parseValue277(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue276(row)
+		value, err := parseValue276(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.blobVersionedHashes[%d]: %w", i, err)
 		}
@@ -3865,7 +3904,7 @@ func parseValue277(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue278(raw json.RawMessage) (Quantity, error) {
+func parseValue278(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.chainId: expected a non-null value")
@@ -3877,7 +3916,7 @@ func parseValue278(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue279(raw json.RawMessage) (Quantity, error) {
+func parseValue279(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.gas: expected a non-null value")
@@ -3889,7 +3928,7 @@ func parseValue279(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue280(raw json.RawMessage) (Quantity, error) {
+func parseValue280(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.gasPrice: expected a non-null value")
@@ -3901,7 +3940,7 @@ func parseValue280(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue281(raw json.RawMessage) (Data, error) {
+func parseValue281(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.input: expected a non-null value")
@@ -3913,7 +3952,7 @@ func parseValue281(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue282(raw json.RawMessage) (Quantity, error) {
+func parseValue282(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.maxFeePerBlobGas: expected a non-null value")
@@ -3925,7 +3964,7 @@ func parseValue282(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue283(raw json.RawMessage) (Quantity, error) {
+func parseValue283(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.maxFeePerGas: expected a non-null value")
@@ -3937,7 +3976,7 @@ func parseValue283(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue284(raw json.RawMessage) (Quantity, error) {
+func parseValue284(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.maxPriorityFeePerGas: expected a non-null value")
@@ -3949,7 +3988,7 @@ func parseValue284(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue285(raw json.RawMessage) (Quantity, error) {
+func parseValue285(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.nonce: expected a non-null value")
@@ -3961,7 +4000,7 @@ func parseValue285(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue286(raw json.RawMessage) (Quantity, error) {
+func parseValue286(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.r: expected a non-null value")
@@ -3973,7 +4012,7 @@ func parseValue286(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue287(raw json.RawMessage) (Quantity, error) {
+func parseValue287(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.s: expected a non-null value")
@@ -3985,12 +4024,12 @@ func parseValue287(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue288(raw json.RawMessage) (Address, error) {
+func parseValue288(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.to: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.to: %w", err)
 	}
@@ -4000,7 +4039,7 @@ func parseValue288(raw json.RawMessage) (Address, error) {
 
 var parseValue289Pattern = regexp.MustCompile("^0x3$")
 
-func parseValue289(raw json.RawMessage) (Quantity, error) {
+func parseValue289(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.type: expected a non-null value")
@@ -4015,19 +4054,19 @@ func parseValue289(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue290(raw json.RawMessage) (HexByte, error) {
+func parseValue290(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.v: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.v: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue291(raw json.RawMessage) (Quantity, error) {
+func parseValue291(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.value: expected a non-null value")
@@ -4039,19 +4078,19 @@ func parseValue291(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue292(raw json.RawMessage) (HexByte, error) {
+func parseValue292(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue293(raw json.RawMessage) (Hash, error) {
+func parseValue293(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.blockHash.oneOf[1]: expected a non-null value")
@@ -4063,17 +4102,17 @@ func parseValue293(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue294(raw json.RawMessage) (*Hash, error) {
+func parseValue294(raw json.RawMessage, keepStrings bool) (*Hash, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue293(raw)
+	value, err := parseValue293(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue295(raw json.RawMessage) (Quantity, error) {
+func parseValue295(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.blockNumber.oneOf[1]: expected a non-null value")
@@ -4085,17 +4124,17 @@ func parseValue295(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue296(raw json.RawMessage) (*Quantity, error) {
+func parseValue296(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue295(raw)
+	value, err := parseValue295(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue297(raw json.RawMessage) (Quantity, error) {
+func parseValue297(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.blockTimestamp.oneOf[1]: expected a non-null value")
@@ -4107,29 +4146,29 @@ func parseValue297(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue298(raw json.RawMessage) (*Quantity, error) {
+func parseValue298(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue297(raw)
+	value, err := parseValue297(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue299(raw json.RawMessage) (Address, error) {
+func parseValue299(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue300(raw json.RawMessage) (Hash, error) {
+func parseValue300(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.hash: expected a non-null value")
@@ -4141,7 +4180,7 @@ func parseValue300(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue301(raw json.RawMessage) (Quantity, error) {
+func parseValue301(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[1].properties.transactionIndex.oneOf[1]: expected a non-null value")
@@ -4153,17 +4192,17 @@ func parseValue301(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue302(raw json.RawMessage) (*Quantity, error) {
+func parseValue302(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue301(raw)
+	value, err := parseValue301(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue303(raw json.RawMessage) ([]AccessListItem, error) {
+func parseValue303(raw json.RawMessage, keepStrings bool) ([]AccessListItem, error) {
 	var out []AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.accessList: expected a non-null value")
@@ -4174,7 +4213,7 @@ func parseValue303(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	out = make([]AccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := NewAccessListItem(row)
+		value, err := parseAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.accessList[%d]: %w", i, err)
 		}
@@ -4182,7 +4221,7 @@ func parseValue303(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue304(raw json.RawMessage) (Quantity, error) {
+func parseValue304(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.chainId: expected a non-null value")
@@ -4194,7 +4233,7 @@ func parseValue304(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue305(raw json.RawMessage) (Quantity, error) {
+func parseValue305(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.gas: expected a non-null value")
@@ -4206,7 +4245,7 @@ func parseValue305(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue306(raw json.RawMessage) (Quantity, error) {
+func parseValue306(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.gasPrice: expected a non-null value")
@@ -4218,7 +4257,7 @@ func parseValue306(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue307(raw json.RawMessage) (Data, error) {
+func parseValue307(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.input: expected a non-null value")
@@ -4230,7 +4269,7 @@ func parseValue307(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue308(raw json.RawMessage) (Quantity, error) {
+func parseValue308(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.maxFeePerGas: expected a non-null value")
@@ -4242,7 +4281,7 @@ func parseValue308(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue309(raw json.RawMessage) (Quantity, error) {
+func parseValue309(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.maxPriorityFeePerGas: expected a non-null value")
@@ -4254,7 +4293,7 @@ func parseValue309(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue310(raw json.RawMessage) (Quantity, error) {
+func parseValue310(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.nonce: expected a non-null value")
@@ -4266,7 +4305,7 @@ func parseValue310(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue311(raw json.RawMessage) (Quantity, error) {
+func parseValue311(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.r: expected a non-null value")
@@ -4278,7 +4317,7 @@ func parseValue311(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue312(raw json.RawMessage) (Quantity, error) {
+func parseValue312(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.s: expected a non-null value")
@@ -4290,23 +4329,23 @@ func parseValue312(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue313(raw json.RawMessage) (Address, error) {
+func parseValue313(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.to.oneOf[1]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.to.oneOf[1]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue314(raw json.RawMessage) (*Address, error) {
+func parseValue314(raw json.RawMessage, keepStrings bool) (*Address, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue313(raw)
+	value, err := parseValue313(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
@@ -4315,7 +4354,7 @@ func parseValue314(raw json.RawMessage) (*Address, error) {
 
 var parseValue315Pattern = regexp.MustCompile("^0x2$")
 
-func parseValue315(raw json.RawMessage) (Quantity, error) {
+func parseValue315(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.type: expected a non-null value")
@@ -4330,19 +4369,19 @@ func parseValue315(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue316(raw json.RawMessage) (HexByte, error) {
+func parseValue316(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.v: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.v: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue317(raw json.RawMessage) (Quantity, error) {
+func parseValue317(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.value: expected a non-null value")
@@ -4354,19 +4393,19 @@ func parseValue317(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue318(raw json.RawMessage) (HexByte, error) {
+func parseValue318(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue319(raw json.RawMessage) (Hash, error) {
+func parseValue319(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.blockHash.oneOf[1]: expected a non-null value")
@@ -4378,17 +4417,17 @@ func parseValue319(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue320(raw json.RawMessage) (*Hash, error) {
+func parseValue320(raw json.RawMessage, keepStrings bool) (*Hash, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue319(raw)
+	value, err := parseValue319(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue321(raw json.RawMessage) (Quantity, error) {
+func parseValue321(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.blockNumber.oneOf[1]: expected a non-null value")
@@ -4400,17 +4439,17 @@ func parseValue321(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue322(raw json.RawMessage) (*Quantity, error) {
+func parseValue322(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue321(raw)
+	value, err := parseValue321(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue323(raw json.RawMessage) (Quantity, error) {
+func parseValue323(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.blockTimestamp.oneOf[1]: expected a non-null value")
@@ -4422,29 +4461,29 @@ func parseValue323(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue324(raw json.RawMessage) (*Quantity, error) {
+func parseValue324(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue323(raw)
+	value, err := parseValue323(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue325(raw json.RawMessage) (Address, error) {
+func parseValue325(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue326(raw json.RawMessage) (Hash, error) {
+func parseValue326(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.hash: expected a non-null value")
@@ -4456,7 +4495,7 @@ func parseValue326(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue327(raw json.RawMessage) (Quantity, error) {
+func parseValue327(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[2].properties.transactionIndex.oneOf[1]: expected a non-null value")
@@ -4468,17 +4507,17 @@ func parseValue327(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue328(raw json.RawMessage) (*Quantity, error) {
+func parseValue328(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue327(raw)
+	value, err := parseValue327(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue329(raw json.RawMessage) ([]AccessListItem, error) {
+func parseValue329(raw json.RawMessage, keepStrings bool) ([]AccessListItem, error) {
 	var out []AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.accessList: expected a non-null value")
@@ -4489,7 +4528,7 @@ func parseValue329(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	out = make([]AccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := NewAccessListItem(row)
+		value, err := parseAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.accessList[%d]: %w", i, err)
 		}
@@ -4497,7 +4536,7 @@ func parseValue329(raw json.RawMessage) ([]AccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue330(raw json.RawMessage) (Quantity, error) {
+func parseValue330(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.chainId: expected a non-null value")
@@ -4509,7 +4548,7 @@ func parseValue330(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue331(raw json.RawMessage) (Quantity, error) {
+func parseValue331(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.gas: expected a non-null value")
@@ -4521,7 +4560,7 @@ func parseValue331(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue332(raw json.RawMessage) (Quantity, error) {
+func parseValue332(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.gasPrice: expected a non-null value")
@@ -4533,7 +4572,7 @@ func parseValue332(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue333(raw json.RawMessage) (Data, error) {
+func parseValue333(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.input: expected a non-null value")
@@ -4545,7 +4584,7 @@ func parseValue333(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue334(raw json.RawMessage) (Quantity, error) {
+func parseValue334(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.nonce: expected a non-null value")
@@ -4557,7 +4596,7 @@ func parseValue334(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue335(raw json.RawMessage) (Quantity, error) {
+func parseValue335(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.r: expected a non-null value")
@@ -4569,7 +4608,7 @@ func parseValue335(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue336(raw json.RawMessage) (Quantity, error) {
+func parseValue336(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.s: expected a non-null value")
@@ -4581,23 +4620,23 @@ func parseValue336(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue337(raw json.RawMessage) (Address, error) {
+func parseValue337(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.to.oneOf[1]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.to.oneOf[1]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue338(raw json.RawMessage) (*Address, error) {
+func parseValue338(raw json.RawMessage, keepStrings bool) (*Address, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue337(raw)
+	value, err := parseValue337(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
@@ -4606,7 +4645,7 @@ func parseValue338(raw json.RawMessage) (*Address, error) {
 
 var parseValue339Pattern = regexp.MustCompile("^0x1$")
 
-func parseValue339(raw json.RawMessage) (Quantity, error) {
+func parseValue339(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.type: expected a non-null value")
@@ -4621,19 +4660,19 @@ func parseValue339(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue340(raw json.RawMessage) (HexByte, error) {
+func parseValue340(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.v: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.v: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue341(raw json.RawMessage) (Quantity, error) {
+func parseValue341(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.value: expected a non-null value")
@@ -4645,19 +4684,19 @@ func parseValue341(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue342(raw json.RawMessage) (HexByte, error) {
+func parseValue342(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue343(raw json.RawMessage) (Hash, error) {
+func parseValue343(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.blockHash.oneOf[1]: expected a non-null value")
@@ -4669,17 +4708,17 @@ func parseValue343(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue344(raw json.RawMessage) (*Hash, error) {
+func parseValue344(raw json.RawMessage, keepStrings bool) (*Hash, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue343(raw)
+	value, err := parseValue343(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue345(raw json.RawMessage) (Quantity, error) {
+func parseValue345(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.blockNumber.oneOf[1]: expected a non-null value")
@@ -4691,17 +4730,17 @@ func parseValue345(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue346(raw json.RawMessage) (*Quantity, error) {
+func parseValue346(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue345(raw)
+	value, err := parseValue345(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue347(raw json.RawMessage) (Quantity, error) {
+func parseValue347(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.blockTimestamp.oneOf[1]: expected a non-null value")
@@ -4713,29 +4752,29 @@ func parseValue347(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue348(raw json.RawMessage) (*Quantity, error) {
+func parseValue348(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue347(raw)
+	value, err := parseValue347(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue349(raw json.RawMessage) (Address, error) {
+func parseValue349(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue350(raw json.RawMessage) (Hash, error) {
+func parseValue350(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.hash: expected a non-null value")
@@ -4747,7 +4786,7 @@ func parseValue350(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue351(raw json.RawMessage) (Quantity, error) {
+func parseValue351(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[3].properties.transactionIndex.oneOf[1]: expected a non-null value")
@@ -4759,17 +4798,17 @@ func parseValue351(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue352(raw json.RawMessage) (*Quantity, error) {
+func parseValue352(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue351(raw)
+	value, err := parseValue351(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue353(raw json.RawMessage) (Quantity, error) {
+func parseValue353(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.chainId: expected a non-null value")
@@ -4781,7 +4820,7 @@ func parseValue353(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue354(raw json.RawMessage) (Quantity, error) {
+func parseValue354(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.gas: expected a non-null value")
@@ -4793,7 +4832,7 @@ func parseValue354(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue355(raw json.RawMessage) (Quantity, error) {
+func parseValue355(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.gasPrice: expected a non-null value")
@@ -4805,7 +4844,7 @@ func parseValue355(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue356(raw json.RawMessage) (Data, error) {
+func parseValue356(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.input: expected a non-null value")
@@ -4817,7 +4856,7 @@ func parseValue356(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue357(raw json.RawMessage) (Quantity, error) {
+func parseValue357(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.nonce: expected a non-null value")
@@ -4829,7 +4868,7 @@ func parseValue357(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue358(raw json.RawMessage) (Quantity, error) {
+func parseValue358(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.r: expected a non-null value")
@@ -4841,7 +4880,7 @@ func parseValue358(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue359(raw json.RawMessage) (Quantity, error) {
+func parseValue359(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.s: expected a non-null value")
@@ -4853,23 +4892,23 @@ func parseValue359(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue360(raw json.RawMessage) (Address, error) {
+func parseValue360(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.to.oneOf[1]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.to.oneOf[1]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue361(raw json.RawMessage) (*Address, error) {
+func parseValue361(raw json.RawMessage, keepStrings bool) (*Address, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue360(raw)
+	value, err := parseValue360(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
@@ -4878,7 +4917,7 @@ func parseValue361(raw json.RawMessage) (*Address, error) {
 
 var parseValue362Pattern = regexp.MustCompile("^0x0$")
 
-func parseValue362(raw json.RawMessage) (Quantity, error) {
+func parseValue362(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.type: expected a non-null value")
@@ -4893,7 +4932,7 @@ func parseValue362(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue363(raw json.RawMessage) (Quantity, error) {
+func parseValue363(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.v: expected a non-null value")
@@ -4905,7 +4944,7 @@ func parseValue363(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue364(raw json.RawMessage) (Quantity, error) {
+func parseValue364(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.value: expected a non-null value")
@@ -4917,7 +4956,7 @@ func parseValue364(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue365(raw json.RawMessage) (Hash, error) {
+func parseValue365(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.blockHash.oneOf[1]: expected a non-null value")
@@ -4929,17 +4968,17 @@ func parseValue365(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue366(raw json.RawMessage) (*Hash, error) {
+func parseValue366(raw json.RawMessage, keepStrings bool) (*Hash, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue365(raw)
+	value, err := parseValue365(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue367(raw json.RawMessage) (Quantity, error) {
+func parseValue367(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.blockNumber.oneOf[1]: expected a non-null value")
@@ -4951,17 +4990,17 @@ func parseValue367(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue368(raw json.RawMessage) (*Quantity, error) {
+func parseValue368(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue367(raw)
+	value, err := parseValue367(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue369(raw json.RawMessage) (Quantity, error) {
+func parseValue369(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.blockTimestamp.oneOf[1]: expected a non-null value")
@@ -4973,29 +5012,29 @@ func parseValue369(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue370(raw json.RawMessage) (*Quantity, error) {
+func parseValue370(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue369(raw)
+	value, err := parseValue369(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue371(raw json.RawMessage) (Address, error) {
+func parseValue371(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue372(raw json.RawMessage) (Hash, error) {
+func parseValue372(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.hash: expected a non-null value")
@@ -5007,7 +5046,7 @@ func parseValue372(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue373(raw json.RawMessage) (Quantity, error) {
+func parseValue373(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionByHash.result.oneOf[1].oneOf[4].properties.transactionIndex.oneOf[1]: expected a non-null value")
@@ -5019,27 +5058,27 @@ func parseValue373(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue374(raw json.RawMessage) (*Quantity, error) {
+func parseValue374(raw json.RawMessage, keepStrings bool) (*Quantity, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue373(raw)
+	value, err := parseValue373(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue375(raw json.RawMessage) (*Transaction, error) {
+func parseValue375(raw json.RawMessage, keepStrings bool) (*Transaction, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := NewTransaction(raw)
+	value, err := parseTransaction(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue376(raw json.RawMessage) (Quantity, error) {
+func parseValue376(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getTransactionCount.result: expected a non-null value")
@@ -5051,17 +5090,17 @@ func parseValue376(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue377(raw json.RawMessage) (*Receipt, error) {
+func parseValue377(raw json.RawMessage, keepStrings bool) (*Receipt, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := NewReceipt(raw)
+	value, err := parseReceipt(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue378(raw json.RawMessage) (Quantity, error) {
+func parseValue378(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_maxPriorityFeePerGas.result: expected a non-null value")
@@ -5073,7 +5112,7 @@ func parseValue378(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue379(raw json.RawMessage) (Hash, error) {
+func parseValue379(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_sendRawTransaction.result: expected a non-null value")
@@ -5085,7 +5124,7 @@ func parseValue379(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue380(raw json.RawMessage) (Quantity, error) {
+func parseValue380(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.baseFeePerGas: expected a non-null value")
@@ -5097,7 +5136,7 @@ func parseValue380(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue381(raw json.RawMessage) (Quantity, error) {
+func parseValue381(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.blobGasUsed: expected a non-null value")
@@ -5109,7 +5148,7 @@ func parseValue381(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue382(raw json.RawMessage) (Hash, error) {
+func parseValue382(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.blockAccessListHash: expected a non-null value")
@@ -5121,23 +5160,25 @@ func parseValue382(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue383(raw json.RawMessage) (int, error) {
+func parseValue383(raw json.RawMessage, keepStrings bool) (int, error) {
 	var out int
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0].properties.code: expected a non-null value")
 	}
-	if err := json.Unmarshal(raw, &out); err != nil {
+	number, err := ethcodec.CanonicalNumber(raw)
+	if err != nil {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0].properties.code: %w", err)
 	}
-	if out != 3 {
+	if ethcodec.CompareNumbers(number, json.Number("3")) != 0 {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0].properties.code: expected constant")
 	}
+	out = 3
 	return out, nil
 }
 
 var parseValue384Pattern = regexp.MustCompile("^execution reverted.*")
 
-func parseValue384(raw json.RawMessage) (Text, error) {
+func parseValue384(raw json.RawMessage, keepStrings bool) (Text, error) {
 	var out Text
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0].properties.message: expected a non-null value")
@@ -5152,20 +5193,22 @@ func parseValue384(raw json.RawMessage) (Text, error) {
 	}
 	return out, nil
 }
-func parseValue385(raw json.RawMessage) (int, error) {
+func parseValue385(raw json.RawMessage, keepStrings bool) (int, error) {
 	var out int
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1].properties.code: expected a non-null value")
 	}
-	if err := json.Unmarshal(raw, &out); err != nil {
+	number, err := ethcodec.CanonicalNumber(raw)
+	if err != nil {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1].properties.code: %w", err)
 	}
-	if out != -32015 {
+	if ethcodec.CompareNumbers(number, json.Number("-32015")) != 0 {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1].properties.code: expected constant")
 	}
+	out = -32015
 	return out, nil
 }
-func parseValue386(raw json.RawMessage) (Text, error) {
+func parseValue386(raw json.RawMessage, keepStrings bool) (Text, error) {
 	var out Text
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1].properties.message: expected a non-null value")
@@ -5177,7 +5220,7 @@ func parseValue386(raw json.RawMessage) (Text, error) {
 	out = value
 	return out, nil
 }
-func parseValue387(raw json.RawMessage) (Quantity64, error) {
+func parseValue387(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.gasUsed: expected a non-null value")
@@ -5189,7 +5232,7 @@ func parseValue387(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue388(raw json.RawMessage) (Quantity64, error) {
+func parseValue388(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.maxUsedGas: expected a non-null value")
@@ -5201,7 +5244,7 @@ func parseValue388(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue389(raw json.RawMessage) (Data, error) {
+func parseValue389(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.returnData: expected a non-null value")
@@ -5216,7 +5259,7 @@ func parseValue389(raw json.RawMessage) (Data, error) {
 
 var parseValue390Pattern = regexp.MustCompile("^0x0$")
 
-func parseValue390(raw json.RawMessage) (Quantity, error) {
+func parseValue390(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.status: expected a non-null value")
@@ -5231,7 +5274,7 @@ func parseValue390(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue391(raw json.RawMessage) (Quantity64, error) {
+func parseValue391(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[1].properties.gasUsed: expected a non-null value")
@@ -5243,7 +5286,7 @@ func parseValue391(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue392(raw json.RawMessage) ([]Log, error) {
+func parseValue392(raw json.RawMessage, keepStrings bool) ([]Log, error) {
 	var out []Log
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[1].properties.logs: expected a non-null value")
@@ -5254,7 +5297,7 @@ func parseValue392(raw json.RawMessage) ([]Log, error) {
 	}
 	out = make([]Log, len(rows))
 	for i, row := range rows {
-		value, err := NewLog(row)
+		value, err := parseLog(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[1].properties.logs[%d]: %w", i, err)
 		}
@@ -5262,7 +5305,7 @@ func parseValue392(raw json.RawMessage) ([]Log, error) {
 	}
 	return out, nil
 }
-func parseValue393(raw json.RawMessage) (Quantity64, error) {
+func parseValue393(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[1].properties.maxUsedGas: expected a non-null value")
@@ -5274,7 +5317,7 @@ func parseValue393(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue394(raw json.RawMessage) (Data, error) {
+func parseValue394(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[1].properties.returnData: expected a non-null value")
@@ -5289,7 +5332,7 @@ func parseValue394(raw json.RawMessage) (Data, error) {
 
 var parseValue395Pattern = regexp.MustCompile("^0x1$")
 
-func parseValue395(raw json.RawMessage) (Quantity, error) {
+func parseValue395(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls.items.oneOf[1].properties.status: expected a non-null value")
@@ -5304,7 +5347,7 @@ func parseValue395(raw json.RawMessage) (Quantity, error) {
 	}
 	return out, nil
 }
-func parseValue396(raw json.RawMessage) ([]SimulateCallResult, error) {
+func parseValue396(raw json.RawMessage, keepStrings bool) ([]SimulateCallResult, error) {
 	var out []SimulateCallResult
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls: expected a non-null value")
@@ -5315,7 +5358,7 @@ func parseValue396(raw json.RawMessage) ([]SimulateCallResult, error) {
 	}
 	out = make([]SimulateCallResult, len(rows))
 	for i, row := range rows {
-		value, err := NewSimulateCallResult(row)
+		value, err := parseSimulateCallResult(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.result.items.properties.calls[%d]: %w", i, err)
 		}
@@ -5323,7 +5366,7 @@ func parseValue396(raw json.RawMessage) ([]SimulateCallResult, error) {
 	}
 	return out, nil
 }
-func parseValue397(raw json.RawMessage) (Quantity, error) {
+func parseValue397(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.difficulty: expected a non-null value")
@@ -5335,7 +5378,7 @@ func parseValue397(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue398(raw json.RawMessage) (Quantity, error) {
+func parseValue398(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.excessBlobGas: expected a non-null value")
@@ -5347,7 +5390,7 @@ func parseValue398(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue399(raw json.RawMessage) (Data, error) {
+func parseValue399(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.extraData: expected a non-null value")
@@ -5359,7 +5402,7 @@ func parseValue399(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue400(raw json.RawMessage) (Quantity, error) {
+func parseValue400(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.gasLimit: expected a non-null value")
@@ -5371,7 +5414,7 @@ func parseValue400(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue401(raw json.RawMessage) (Quantity, error) {
+func parseValue401(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.gasUsed: expected a non-null value")
@@ -5383,7 +5426,7 @@ func parseValue401(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue402(raw json.RawMessage) (Hash, error) {
+func parseValue402(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.hash: expected a non-null value")
@@ -5395,7 +5438,7 @@ func parseValue402(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue403(raw json.RawMessage) (Bloom, error) {
+func parseValue403(raw json.RawMessage, keepStrings bool) (Bloom, error) {
 	var out Bloom
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.logsBloom: expected a non-null value")
@@ -5407,19 +5450,19 @@ func parseValue403(raw json.RawMessage) (Bloom, error) {
 	out = value
 	return out, nil
 }
-func parseValue404(raw json.RawMessage) (Address, error) {
+func parseValue404(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.miner: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.miner: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue405(raw json.RawMessage) (Hash, error) {
+func parseValue405(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.mixHash: expected a non-null value")
@@ -5431,7 +5474,7 @@ func parseValue405(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue406(raw json.RawMessage) (BlockNonce, error) {
+func parseValue406(raw json.RawMessage, keepStrings bool) (BlockNonce, error) {
 	var out BlockNonce
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.nonce: expected a non-null value")
@@ -5443,7 +5486,7 @@ func parseValue406(raw json.RawMessage) (BlockNonce, error) {
 	out = value
 	return out, nil
 }
-func parseValue407(raw json.RawMessage) (Quantity, error) {
+func parseValue407(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.number: expected a non-null value")
@@ -5455,7 +5498,7 @@ func parseValue407(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue408(raw json.RawMessage) (Hash, error) {
+func parseValue408(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.parentBeaconBlockRoot: expected a non-null value")
@@ -5467,7 +5510,7 @@ func parseValue408(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue409(raw json.RawMessage) (Hash, error) {
+func parseValue409(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.parentHash: expected a non-null value")
@@ -5479,7 +5522,7 @@ func parseValue409(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue410(raw json.RawMessage) (Hash, error) {
+func parseValue410(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.receiptsRoot: expected a non-null value")
@@ -5491,7 +5534,7 @@ func parseValue410(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue411(raw json.RawMessage) (Hash, error) {
+func parseValue411(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.requestsHash: expected a non-null value")
@@ -5503,7 +5546,7 @@ func parseValue411(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue412(raw json.RawMessage) (Hash, error) {
+func parseValue412(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.sha3Uncles: expected a non-null value")
@@ -5515,7 +5558,7 @@ func parseValue412(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue413(raw json.RawMessage) (Quantity, error) {
+func parseValue413(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.size: expected a non-null value")
@@ -5527,7 +5570,7 @@ func parseValue413(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue414(raw json.RawMessage) (Quantity64, error) {
+func parseValue414(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.slotNumber: expected a non-null value")
@@ -5539,7 +5582,7 @@ func parseValue414(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue415(raw json.RawMessage) (Hash, error) {
+func parseValue415(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.stateRoot: expected a non-null value")
@@ -5551,7 +5594,7 @@ func parseValue415(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue416(raw json.RawMessage) (Quantity, error) {
+func parseValue416(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.timestamp: expected a non-null value")
@@ -5563,7 +5606,7 @@ func parseValue416(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue417(raw json.RawMessage) (Hash, error) {
+func parseValue417(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.transactionsRoot: expected a non-null value")
@@ -5575,7 +5618,7 @@ func parseValue417(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue418(raw json.RawMessage) (Hash, error) {
+func parseValue418(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.uncles.items: expected a non-null value")
@@ -5587,7 +5630,7 @@ func parseValue418(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue419(raw json.RawMessage) ([]Hash, error) {
+func parseValue419(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.uncles: expected a non-null value")
@@ -5598,7 +5641,7 @@ func parseValue419(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue418(row)
+		value, err := parseValue418(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.result.items.properties.uncles[%d]: %w", i, err)
 		}
@@ -5606,7 +5649,7 @@ func parseValue419(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue420(raw json.RawMessage) ([]Withdrawal, error) {
+func parseValue420(raw json.RawMessage, keepStrings bool) ([]Withdrawal, error) {
 	var out []Withdrawal
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.withdrawals: expected a non-null value")
@@ -5617,7 +5660,7 @@ func parseValue420(raw json.RawMessage) ([]Withdrawal, error) {
 	}
 	out = make([]Withdrawal, len(rows))
 	for i, row := range rows {
-		value, err := NewWithdrawal(row)
+		value, err := parseWithdrawal(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.result.items.properties.withdrawals[%d]: %w", i, err)
 		}
@@ -5625,7 +5668,7 @@ func parseValue420(raw json.RawMessage) ([]Withdrawal, error) {
 	}
 	return out, nil
 }
-func parseValue421(raw json.RawMessage) (Hash, error) {
+func parseValue421(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result.items.properties.withdrawalsRoot: expected a non-null value")
@@ -5637,7 +5680,7 @@ func parseValue421(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue422(raw json.RawMessage) ([]SimulateBlock, error) {
+func parseValue422(raw json.RawMessage, keepStrings bool) ([]SimulateBlock, error) {
 	var out []SimulateBlock
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.result: expected a non-null value")
@@ -5648,7 +5691,7 @@ func parseValue422(raw json.RawMessage) ([]SimulateBlock, error) {
 	}
 	out = make([]SimulateBlock, len(rows))
 	for i, row := range rows {
-		value, err := NewSimulateBlock(row)
+		value, err := parseSimulateBlock(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.result[%d]: %w", i, err)
 		}
@@ -5656,7 +5699,7 @@ func parseValue422(raw json.RawMessage) ([]SimulateBlock, error) {
 	}
 	return out, nil
 }
-func parseValue423(raw json.RawMessage) (Quantity, error) {
+func parseValue423(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_syncing.result.oneOf[0].properties.currentBlock: expected a non-null value")
@@ -5668,7 +5711,7 @@ func parseValue423(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue424(raw json.RawMessage) (Quantity, error) {
+func parseValue424(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_syncing.result.oneOf[0].properties.highestBlock: expected a non-null value")
@@ -5680,7 +5723,7 @@ func parseValue424(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue425(raw json.RawMessage) (Quantity, error) {
+func parseValue425(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_syncing.result.oneOf[0].properties.startingBlock: expected a non-null value")
@@ -5692,7 +5735,7 @@ func parseValue425(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue426(raw json.RawMessage) (bool, error) {
+func parseValue426(raw json.RawMessage, keepStrings bool) (bool, error) {
 	var out bool
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_syncing.result.oneOf[1]: expected a non-null value")
@@ -5702,7 +5745,7 @@ func parseValue426(raw json.RawMessage) (bool, error) {
 	}
 	return out, nil
 }
-func parseValue427(raw json.RawMessage) (DecimalString, error) {
+func parseValue427(raw json.RawMessage, keepStrings bool) (DecimalString, error) {
 	var out DecimalString
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("net_version.result: expected a non-null value")
@@ -5714,19 +5757,19 @@ func parseValue427(raw json.RawMessage) (DecimalString, error) {
 	out = value
 	return out, nil
 }
-func parseValue428(raw json.RawMessage) (Address, error) {
+func parseValue428(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.accessList.items.properties.address: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_call.params[0].properties.accessList.items.properties.address: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue429(raw json.RawMessage) (Hash, error) {
+func parseValue429(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.accessList.items.properties.storageKeys.items: expected a non-null value")
@@ -5738,7 +5781,7 @@ func parseValue429(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue430(raw json.RawMessage) ([]Hash, error) {
+func parseValue430(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.accessList.items.properties.storageKeys: expected a non-null value")
@@ -5749,7 +5792,7 @@ func parseValue430(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue429(row)
+		value, err := parseValue429(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_call.params[0].properties.accessList.items.properties.storageKeys[%d]: %w", i, err)
 		}
@@ -5757,7 +5800,7 @@ func parseValue430(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue431(raw json.RawMessage) ([]SimulateAccessListItem, error) {
+func parseValue431(raw json.RawMessage, keepStrings bool) ([]SimulateAccessListItem, error) {
 	var out []SimulateAccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.accessList: expected a non-null value")
@@ -5768,7 +5811,7 @@ func parseValue431(raw json.RawMessage) ([]SimulateAccessListItem, error) {
 	}
 	out = make([]SimulateAccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := parseSimulateAccessListItem(row)
+		value, err := parseSimulateAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_call.params[0].properties.accessList[%d]: %w", i, err)
 		}
@@ -5776,19 +5819,19 @@ func parseValue431(raw json.RawMessage) ([]SimulateAccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue432(raw json.RawMessage) (Address, error) {
+func parseValue432(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.authorizationList.items.properties.address: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_call.params[0].properties.authorizationList.items.properties.address: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue433(raw json.RawMessage) (Quantity, error) {
+func parseValue433(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.authorizationList.items.properties.chainId: expected a non-null value")
@@ -5800,7 +5843,7 @@ func parseValue433(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue434(raw json.RawMessage) (Quantity, error) {
+func parseValue434(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.authorizationList.items.properties.nonce: expected a non-null value")
@@ -5812,7 +5855,7 @@ func parseValue434(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue435(raw json.RawMessage) (Quantity256, error) {
+func parseValue435(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.authorizationList.items.properties.r: expected a non-null value")
@@ -5824,7 +5867,7 @@ func parseValue435(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue436(raw json.RawMessage) (Quantity256, error) {
+func parseValue436(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.authorizationList.items.properties.s: expected a non-null value")
@@ -5836,19 +5879,19 @@ func parseValue436(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue437(raw json.RawMessage) (HexByte, error) {
+func parseValue437(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.authorizationList.items.properties.yParity: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_call.params[0].properties.authorizationList.items.properties.yParity: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue438(raw json.RawMessage) ([]CallAuthorization, error) {
+func parseValue438(raw json.RawMessage, keepStrings bool) ([]CallAuthorization, error) {
 	var out []CallAuthorization
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.authorizationList: expected a non-null value")
@@ -5859,7 +5902,7 @@ func parseValue438(raw json.RawMessage) ([]CallAuthorization, error) {
 	}
 	out = make([]CallAuthorization, len(rows))
 	for i, row := range rows {
-		value, err := parseCallAuthorization(row)
+		value, err := parseCallAuthorization(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_call.params[0].properties.authorizationList[%d]: %w", i, err)
 		}
@@ -5867,7 +5910,7 @@ func parseValue438(raw json.RawMessage) ([]CallAuthorization, error) {
 	}
 	return out, nil
 }
-func parseValue439(raw json.RawMessage) (Hash, error) {
+func parseValue439(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.blobVersionedHashes.items: expected a non-null value")
@@ -5879,7 +5922,7 @@ func parseValue439(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue440(raw json.RawMessage) ([]Hash, error) {
+func parseValue440(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.blobVersionedHashes: expected a non-null value")
@@ -5890,7 +5933,7 @@ func parseValue440(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue439(row)
+		value, err := parseValue439(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_call.params[0].properties.blobVersionedHashes[%d]: %w", i, err)
 		}
@@ -5898,7 +5941,7 @@ func parseValue440(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue441(raw json.RawMessage) (Data, error) {
+func parseValue441(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.blobs.items: expected a non-null value")
@@ -5910,7 +5953,7 @@ func parseValue441(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue442(raw json.RawMessage) ([]Data, error) {
+func parseValue442(raw json.RawMessage, keepStrings bool) ([]Data, error) {
 	var out []Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.blobs: expected a non-null value")
@@ -5921,7 +5964,7 @@ func parseValue442(raw json.RawMessage) ([]Data, error) {
 	}
 	out = make([]Data, len(rows))
 	for i, row := range rows {
-		value, err := parseValue441(row)
+		value, err := parseValue441(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_call.params[0].properties.blobs[%d]: %w", i, err)
 		}
@@ -5929,7 +5972,7 @@ func parseValue442(raw json.RawMessage) ([]Data, error) {
 	}
 	return out, nil
 }
-func parseValue443(raw json.RawMessage) (Quantity, error) {
+func parseValue443(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.chainId: expected a non-null value")
@@ -5941,7 +5984,7 @@ func parseValue443(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue444(raw json.RawMessage) (Data, error) {
+func parseValue444(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.commitments.items: expected a non-null value")
@@ -5953,7 +5996,7 @@ func parseValue444(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue445(raw json.RawMessage) ([]Data, error) {
+func parseValue445(raw json.RawMessage, keepStrings bool) ([]Data, error) {
 	var out []Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.commitments: expected a non-null value")
@@ -5964,7 +6007,7 @@ func parseValue445(raw json.RawMessage) ([]Data, error) {
 	}
 	out = make([]Data, len(rows))
 	for i, row := range rows {
-		value, err := parseValue444(row)
+		value, err := parseValue444(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_call.params[0].properties.commitments[%d]: %w", i, err)
 		}
@@ -5972,19 +6015,19 @@ func parseValue445(raw json.RawMessage) ([]Data, error) {
 	}
 	return out, nil
 }
-func parseValue446(raw json.RawMessage) (Address, error) {
+func parseValue446(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_call.params[0].properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue447(raw json.RawMessage) (Quantity, error) {
+func parseValue447(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.gas: expected a non-null value")
@@ -5996,7 +6039,7 @@ func parseValue447(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue448(raw json.RawMessage) (Quantity, error) {
+func parseValue448(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.gasPrice: expected a non-null value")
@@ -6008,7 +6051,7 @@ func parseValue448(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue449(raw json.RawMessage) (Data, error) {
+func parseValue449(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.input: expected a non-null value")
@@ -6020,7 +6063,7 @@ func parseValue449(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue450(raw json.RawMessage) (Quantity, error) {
+func parseValue450(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.maxFeePerBlobGas: expected a non-null value")
@@ -6032,7 +6075,7 @@ func parseValue450(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue451(raw json.RawMessage) (Quantity, error) {
+func parseValue451(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.maxFeePerGas: expected a non-null value")
@@ -6044,7 +6087,7 @@ func parseValue451(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue452(raw json.RawMessage) (Quantity, error) {
+func parseValue452(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.maxPriorityFeePerGas: expected a non-null value")
@@ -6056,7 +6099,7 @@ func parseValue452(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue453(raw json.RawMessage) (Quantity, error) {
+func parseValue453(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.nonce: expected a non-null value")
@@ -6068,7 +6111,7 @@ func parseValue453(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue454(raw json.RawMessage) (Data, error) {
+func parseValue454(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.proofs.items: expected a non-null value")
@@ -6080,7 +6123,7 @@ func parseValue454(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue455(raw json.RawMessage) ([]Data, error) {
+func parseValue455(raw json.RawMessage, keepStrings bool) ([]Data, error) {
 	var out []Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.proofs: expected a non-null value")
@@ -6091,7 +6134,7 @@ func parseValue455(raw json.RawMessage) ([]Data, error) {
 	}
 	out = make([]Data, len(rows))
 	for i, row := range rows {
-		value, err := parseValue454(row)
+		value, err := parseValue454(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_call.params[0].properties.proofs[%d]: %w", i, err)
 		}
@@ -6099,41 +6142,41 @@ func parseValue455(raw json.RawMessage) ([]Data, error) {
 	}
 	return out, nil
 }
-func parseValue456(raw json.RawMessage) (Address, error) {
+func parseValue456(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.to.oneOf[1]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_call.params[0].properties.to.oneOf[1]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue457(raw json.RawMessage) (*Address, error) {
+func parseValue457(raw json.RawMessage, keepStrings bool) (*Address, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue456(raw)
+	value, err := parseValue456(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue458(raw json.RawMessage) (HexByte, error) {
+func parseValue458(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.type: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_call.params[0].properties.type: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue459(raw json.RawMessage) (Quantity, error) {
+func parseValue459(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_call.params[0].properties.value: expected a non-null value")
@@ -6145,7 +6188,7 @@ func parseValue459(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue460(raw json.RawMessage) (Quantity, error) {
+func parseValue460(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.params[0].anyOf[0]: expected a non-null value")
@@ -6157,7 +6200,7 @@ func parseValue460(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue461(raw json.RawMessage) (Text, error) {
+func parseValue461(raw json.RawMessage, keepStrings bool) (Text, error) {
 	var out Text
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.params[0].anyOf[1]: expected a non-null value")
@@ -6172,7 +6215,7 @@ func parseValue461(raw json.RawMessage) (Text, error) {
 	}
 	return out, nil
 }
-func parseValue462(raw json.RawMessage) (Hash, error) {
+func parseValue462(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.params[0].anyOf[2]: expected a non-null value")
@@ -6184,7 +6227,7 @@ func parseValue462(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue463(raw json.RawMessage) (Quantity, error) {
+func parseValue463(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.params[0].anyOf[3].properties.blockNumber: expected a non-null value")
@@ -6196,7 +6239,7 @@ func parseValue463(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue464(raw json.RawMessage) (Hash, error) {
+func parseValue464(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.params[0].anyOf[4].properties.blockHash: expected a non-null value")
@@ -6208,7 +6251,7 @@ func parseValue464(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue465(raw json.RawMessage) (bool, error) {
+func parseValue465(raw json.RawMessage, keepStrings bool) (bool, error) {
 	var out bool
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getBlockReceipts.params[0].anyOf[4].properties.requireCanonical: expected a non-null value")
@@ -6218,31 +6261,31 @@ func parseValue465(raw json.RawMessage) (bool, error) {
 	}
 	return out, nil
 }
-func parseValue466(raw json.RawMessage) (Address, error) {
+func parseValue466(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.address.oneOf[1]: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.address.oneOf[1]: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue467(raw json.RawMessage) (Address, error) {
+func parseValue467(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.address.oneOf[2].items: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.address.oneOf[2].items: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue468(raw json.RawMessage) ([]Address, error) {
+func parseValue468(raw json.RawMessage, keepStrings bool) ([]Address, error) {
 	var out []Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.address.oneOf[2]: expected a non-null value")
@@ -6253,7 +6296,7 @@ func parseValue468(raw json.RawMessage) ([]Address, error) {
 	}
 	out = make([]Address, len(rows))
 	for i, row := range rows {
-		value, err := parseValue467(row)
+		value, err := parseValue467(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.address.oneOf[2][%d]: %w", i, err)
 		}
@@ -6261,7 +6304,7 @@ func parseValue468(raw json.RawMessage) ([]Address, error) {
 	}
 	return out, nil
 }
-func parseValue469(raw json.RawMessage) (Quantity, error) {
+func parseValue469(raw json.RawMessage, keepStrings bool) (Quantity, error) {
 	var out Quantity
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.fromBlock.oneOf[0]: expected a non-null value")
@@ -6273,7 +6316,7 @@ func parseValue469(raw json.RawMessage) (Quantity, error) {
 	out = value
 	return out, nil
 }
-func parseValue470(raw json.RawMessage) (Text, error) {
+func parseValue470(raw json.RawMessage, keepStrings bool) (Text, error) {
 	var out Text
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.fromBlock.oneOf[1]: expected a non-null value")
@@ -6288,7 +6331,7 @@ func parseValue470(raw json.RawMessage) (Text, error) {
 	}
 	return out, nil
 }
-func parseValue471(raw json.RawMessage) (Hash, error) {
+func parseValue471(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.topics.oneOf[1].items.oneOf[1]: expected a non-null value")
@@ -6300,7 +6343,7 @@ func parseValue471(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue472(raw json.RawMessage) (Hash, error) {
+func parseValue472(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.topics.oneOf[1].items.oneOf[2].items: expected a non-null value")
@@ -6312,7 +6355,7 @@ func parseValue472(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue473(raw json.RawMessage) ([]Hash, error) {
+func parseValue473(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.topics.oneOf[1].items.oneOf[2]: expected a non-null value")
@@ -6323,7 +6366,7 @@ func parseValue473(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue472(row)
+		value, err := parseValue472(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.topics.oneOf[1].items.oneOf[2][%d]: %w", i, err)
 		}
@@ -6331,7 +6374,7 @@ func parseValue473(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue474(raw json.RawMessage) ([]FilterTopic, error) {
+func parseValue474(raw json.RawMessage, keepStrings bool) ([]FilterTopic, error) {
 	var out []FilterTopic
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.topics.oneOf[1]: expected a non-null value")
@@ -6342,7 +6385,7 @@ func parseValue474(raw json.RawMessage) ([]FilterTopic, error) {
 	}
 	out = make([]FilterTopic, len(rows))
 	for i, row := range rows {
-		value, err := parseFilterTopic(row)
+		value, err := parseFilterTopic(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getLogs.params[0].oneOf[0].properties.topics.oneOf[1][%d]: %w", i, err)
 		}
@@ -6350,17 +6393,17 @@ func parseValue474(raw json.RawMessage) ([]FilterTopic, error) {
 	}
 	return out, nil
 }
-func parseValue475(raw json.RawMessage) (*[]FilterTopic, error) {
+func parseValue475(raw json.RawMessage, keepStrings bool) (*[]FilterTopic, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue474(raw)
+	value, err := parseValue474(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue476(raw json.RawMessage) (Hash, error) {
+func parseValue476(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[1].properties.blockHash: expected a non-null value")
@@ -6372,7 +6415,7 @@ func parseValue476(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue477(raw json.RawMessage) ([]FilterTopic, error) {
+func parseValue477(raw json.RawMessage, keepStrings bool) ([]FilterTopic, error) {
 	var out []FilterTopic
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_getLogs.params[0].oneOf[1].properties.topics.oneOf[1]: expected a non-null value")
@@ -6383,7 +6426,7 @@ func parseValue477(raw json.RawMessage) ([]FilterTopic, error) {
 	}
 	out = make([]FilterTopic, len(rows))
 	for i, row := range rows {
-		value, err := parseFilterTopic(row)
+		value, err := parseFilterTopic(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_getLogs.params[0].oneOf[1].properties.topics.oneOf[1][%d]: %w", i, err)
 		}
@@ -6391,17 +6434,17 @@ func parseValue477(raw json.RawMessage) ([]FilterTopic, error) {
 	}
 	return out, nil
 }
-func parseValue478(raw json.RawMessage) (*[]FilterTopic, error) {
+func parseValue478(raw json.RawMessage, keepStrings bool) (*[]FilterTopic, error) {
 	if ethcodec.IsJSONNull(raw) {
 		return nil, nil
 	}
-	value, err := parseValue477(raw)
+	value, err := parseValue477(raw, keepStrings)
 	if err != nil {
 		return nil, err
 	}
 	return &value, nil
 }
-func parseValue479(raw json.RawMessage) (Hash, error) {
+func parseValue479(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_subscribe.params[1]/oneOf/2.properties.transactionHashes.items: expected a non-null value")
@@ -6413,7 +6456,7 @@ func parseValue479(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue480(raw json.RawMessage) ([]Hash, error) {
+func parseValue480(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_subscribe.params[1]/oneOf/2.properties.transactionHashes: expected a non-null value")
@@ -6424,7 +6467,7 @@ func parseValue480(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue479(row)
+		value, err := parseValue479(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_subscribe.params[1]/oneOf/2.properties.transactionHashes[%d]: %w", i, err)
 		}
@@ -6432,7 +6475,7 @@ func parseValue480(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue481(raw json.RawMessage) (Quantity256, error) {
+func parseValue481(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.baseFeePerGas: expected a non-null value")
@@ -6444,7 +6487,7 @@ func parseValue481(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue482(raw json.RawMessage) (Quantity64, error) {
+func parseValue482(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.blobBaseFee: expected a non-null value")
@@ -6456,19 +6499,19 @@ func parseValue482(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue483(raw json.RawMessage) (Address, error) {
+func parseValue483(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.feeRecipient: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.feeRecipient: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue484(raw json.RawMessage) (Quantity64, error) {
+func parseValue484(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.gasLimit: expected a non-null value")
@@ -6480,7 +6523,7 @@ func parseValue484(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue485(raw json.RawMessage) (Quantity64, error) {
+func parseValue485(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.number: expected a non-null value")
@@ -6492,7 +6535,7 @@ func parseValue485(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue486(raw json.RawMessage) (Hash, error) {
+func parseValue486(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.prevRandao: expected a non-null value")
@@ -6504,7 +6547,7 @@ func parseValue486(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue487(raw json.RawMessage) (Quantity64, error) {
+func parseValue487(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.time: expected a non-null value")
@@ -6516,19 +6559,19 @@ func parseValue487(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue488(raw json.RawMessage) (Address, error) {
+func parseValue488(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals.items.properties.address: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals.items.properties.address: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue489(raw json.RawMessage) (Quantity256, error) {
+func parseValue489(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals.items.properties.amount: expected a non-null value")
@@ -6540,7 +6583,7 @@ func parseValue489(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue490(raw json.RawMessage) (Quantity64, error) {
+func parseValue490(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals.items.properties.index: expected a non-null value")
@@ -6552,7 +6595,7 @@ func parseValue490(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue491(raw json.RawMessage) (Quantity64, error) {
+func parseValue491(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals.items.properties.validatorIndex: expected a non-null value")
@@ -6564,7 +6607,7 @@ func parseValue491(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue492(raw json.RawMessage) ([]SimulateWithdrawal, error) {
+func parseValue492(raw json.RawMessage, keepStrings bool) ([]SimulateWithdrawal, error) {
 	var out []SimulateWithdrawal
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals: expected a non-null value")
@@ -6575,7 +6618,7 @@ func parseValue492(raw json.RawMessage) ([]SimulateWithdrawal, error) {
 	}
 	out = make([]SimulateWithdrawal, len(rows))
 	for i, row := range rows {
-		value, err := parseSimulateWithdrawal(row)
+		value, err := parseSimulateWithdrawal(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals[%d]: %w", i, err)
 		}
@@ -6583,7 +6626,7 @@ func parseValue492(raw json.RawMessage) ([]SimulateWithdrawal, error) {
 	}
 	return out, nil
 }
-func parseValue493(raw json.RawMessage) ([]SimulateAccessListItem, error) {
+func parseValue493(raw json.RawMessage, keepStrings bool) ([]SimulateAccessListItem, error) {
 	var out []SimulateAccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.accessList: expected a non-null value")
@@ -6594,7 +6637,7 @@ func parseValue493(raw json.RawMessage) ([]SimulateAccessListItem, error) {
 	}
 	out = make([]SimulateAccessListItem, len(rows))
 	for i, row := range rows {
-		value, err := parseSimulateAccessListItem(row)
+		value, err := parseSimulateAccessListItem(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.accessList[%d]: %w", i, err)
 		}
@@ -6602,7 +6645,7 @@ func parseValue493(raw json.RawMessage) ([]SimulateAccessListItem, error) {
 	}
 	return out, nil
 }
-func parseValue494(raw json.RawMessage) (Hash, error) {
+func parseValue494(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.blobVersionedHashes.items: expected a non-null value")
@@ -6614,7 +6657,7 @@ func parseValue494(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue495(raw json.RawMessage) ([]Hash, error) {
+func parseValue495(raw json.RawMessage, keepStrings bool) ([]Hash, error) {
 	var out []Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.blobVersionedHashes: expected a non-null value")
@@ -6625,7 +6668,7 @@ func parseValue495(raw json.RawMessage) ([]Hash, error) {
 	}
 	out = make([]Hash, len(rows))
 	for i, row := range rows {
-		value, err := parseValue494(row)
+		value, err := parseValue494(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.blobVersionedHashes[%d]: %w", i, err)
 		}
@@ -6633,19 +6676,19 @@ func parseValue495(raw json.RawMessage) ([]Hash, error) {
 	}
 	return out, nil
 }
-func parseValue496(raw json.RawMessage) (Address, error) {
+func parseValue496(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.from: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.from: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue497(raw json.RawMessage) (Quantity64, error) {
+func parseValue497(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.gas: expected a non-null value")
@@ -6657,7 +6700,7 @@ func parseValue497(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue498(raw json.RawMessage) (Quantity256, error) {
+func parseValue498(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.gasPrice: expected a non-null value")
@@ -6669,7 +6712,7 @@ func parseValue498(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue499(raw json.RawMessage) (Data, error) {
+func parseValue499(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.input: expected a non-null value")
@@ -6681,7 +6724,7 @@ func parseValue499(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue500(raw json.RawMessage) (Quantity256, error) {
+func parseValue500(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.maxFeePerBlobGas: expected a non-null value")
@@ -6693,7 +6736,7 @@ func parseValue500(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue501(raw json.RawMessage) (Quantity256, error) {
+func parseValue501(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.maxFeePerGas: expected a non-null value")
@@ -6705,7 +6748,7 @@ func parseValue501(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue502(raw json.RawMessage) (Quantity256, error) {
+func parseValue502(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.maxPriorityFeePerGas: expected a non-null value")
@@ -6717,7 +6760,7 @@ func parseValue502(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue503(raw json.RawMessage) (Quantity64, error) {
+func parseValue503(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.nonce: expected a non-null value")
@@ -6729,31 +6772,31 @@ func parseValue503(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue504(raw json.RawMessage) (Address, error) {
+func parseValue504(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.to: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.to: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue505(raw json.RawMessage) (HexByte, error) {
+func parseValue505(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	var out HexByte
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.type: expected a non-null value")
 	}
-	value, err := NewHexByte(raw)
+	value, err := parseHexByte(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.type: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue506(raw json.RawMessage) (Quantity256, error) {
+func parseValue506(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.value: expected a non-null value")
@@ -6765,7 +6808,7 @@ func parseValue506(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue507(raw json.RawMessage) ([]SimulateCall, error) {
+func parseValue507(raw json.RawMessage, keepStrings bool) ([]SimulateCall, error) {
 	var out []SimulateCall
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls: expected a non-null value")
@@ -6776,7 +6819,7 @@ func parseValue507(raw json.RawMessage) ([]SimulateCall, error) {
 	}
 	out = make([]SimulateCall, len(rows))
 	for i, row := range rows {
-		value, err := parseSimulateCall(row)
+		value, err := parseSimulateCall(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls[%d]: %w", i, err)
 		}
@@ -6784,7 +6827,7 @@ func parseValue507(raw json.RawMessage) ([]SimulateCall, error) {
 	}
 	return out, nil
 }
-func parseValue508(raw json.RawMessage) (Quantity256, error) {
+func parseValue508(raw json.RawMessage, keepStrings bool) (Quantity256, error) {
 	var out Quantity256
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.balance: expected a non-null value")
@@ -6796,7 +6839,7 @@ func parseValue508(raw json.RawMessage) (Quantity256, error) {
 	out = value
 	return out, nil
 }
-func parseValue509(raw json.RawMessage) (Data, error) {
+func parseValue509(raw json.RawMessage, keepStrings bool) (Data, error) {
 	var out Data
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.code: expected a non-null value")
@@ -6808,19 +6851,19 @@ func parseValue509(raw json.RawMessage) (Data, error) {
 	out = value
 	return out, nil
 }
-func parseValue510(raw json.RawMessage) (Address, error) {
+func parseValue510(raw json.RawMessage, keepStrings bool) (Address, error) {
 	var out Address
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.movePrecompileToAddress: expected a non-null value")
 	}
-	value, err := NewAddress(raw)
+	value, err := parseAddress(raw, keepStrings)
 	if err != nil {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.movePrecompileToAddress: %w", err)
 	}
 	out = value
 	return out, nil
 }
-func parseValue511(raw json.RawMessage) (Quantity64, error) {
+func parseValue511(raw json.RawMessage, keepStrings bool) (Quantity64, error) {
 	var out Quantity64
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.nonce: expected a non-null value")
@@ -6832,7 +6875,7 @@ func parseValue511(raw json.RawMessage) (Quantity64, error) {
 	out = value
 	return out, nil
 }
-func parseValue512(raw json.RawMessage) (Hash, error) {
+func parseValue512(raw json.RawMessage, keepStrings bool) (Hash, error) {
 	var out Hash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.state.patternProperties.^0x[a-fA-F0-9]{64}$: expected a non-null value")
@@ -6844,7 +6887,7 @@ func parseValue512(raw json.RawMessage) (Hash, error) {
 	out = value
 	return out, nil
 }
-func parseValue513(raw json.RawMessage) ([]BlockStateCall, error) {
+func parseValue513(raw json.RawMessage, keepStrings bool) ([]BlockStateCall, error) {
 	var out []BlockStateCall
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls: expected a non-null value")
@@ -6855,7 +6898,7 @@ func parseValue513(raw json.RawMessage) ([]BlockStateCall, error) {
 	}
 	out = make([]BlockStateCall, len(rows))
 	for i, row := range rows {
-		value, err := parseBlockStateCall(row)
+		value, err := parseBlockStateCall(row, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls[%d]: %w", i, err)
 		}
@@ -6863,7 +6906,7 @@ func parseValue513(raw json.RawMessage) ([]BlockStateCall, error) {
 	}
 	return out, nil
 }
-func parseValue514(raw json.RawMessage) (bool, error) {
+func parseValue514(raw json.RawMessage, keepStrings bool) (bool, error) {
 	var out bool
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.returnFullTransactions: expected a non-null value")
@@ -6873,7 +6916,7 @@ func parseValue514(raw json.RawMessage) (bool, error) {
 	}
 	return out, nil
 }
-func parseValue515(raw json.RawMessage) (bool, error) {
+func parseValue515(raw json.RawMessage, keepStrings bool) (bool, error) {
 	var out bool
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.traceTransfers: expected a non-null value")
@@ -6883,7 +6926,7 @@ func parseValue515(raw json.RawMessage) (bool, error) {
 	}
 	return out, nil
 }
-func parseValue516(raw json.RawMessage) (bool, error) {
+func parseValue516(raw json.RawMessage, keepStrings bool) (bool, error) {
 	var out bool
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.validation: expected a non-null value")
@@ -6904,9 +6947,9 @@ func NewAccountStorage(raw json.RawMessage) (AccountStorage, error) {
 		var zero AccountStorage
 		return zero, err
 	}
-	return parseAccountStorage(raw)
+	return parseAccountStorage(raw, false)
 }
-func parseAccountStorage(raw json.RawMessage) (AccountStorage, error) {
+func parseAccountStorage(raw json.RawMessage, keepStrings bool) (AccountStorage, error) {
 	var out AccountStorage
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.state: expected a non-null object")
@@ -6920,7 +6963,7 @@ func parseAccountStorage(raw json.RawMessage) (AccountStorage, error) {
 		if !(false || AccountStorageKeyPattern0.MatchString(key)) {
 			return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.state: unknown dictionary key %q", key)
 		}
-		value, err := parseValue512(member)
+		value, err := parseValue512(member, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.state[%q]: %w", key, err)
 		}
@@ -6942,9 +6985,9 @@ func NewStateOverrides(raw json.RawMessage) (StateOverrides, error) {
 		var zero StateOverrides
 		return zero, err
 	}
-	return parseStateOverrides(raw)
+	return parseStateOverrides(raw, false)
 }
-func parseStateOverrides(raw json.RawMessage) (StateOverrides, error) {
+func parseStateOverrides(raw json.RawMessage, keepStrings bool) (StateOverrides, error) {
 	var out StateOverrides
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides: expected a non-null object")
@@ -6958,7 +7001,7 @@ func parseStateOverrides(raw json.RawMessage) (StateOverrides, error) {
 		if !(false || StateOverridesKeyPattern0.MatchString(key)) {
 			return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides: unknown dictionary key %q", key)
 		}
-		value, err := parseAccountOverride(member)
+		value, err := parseAccountOverride(member, keepStrings)
 		if err != nil {
 			return out, fmt.Errorf("eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides[%q]: %w", key, err)
 		}
@@ -6979,30 +7022,38 @@ type AccessListItem struct {
 }
 
 func NewAccessListItem(raw json.RawMessage) (AccessListItem, error) {
+	return parseAccessListItem(raw, false)
+}
+func parseAccessListItem(raw json.RawMessage, keepStrings bool) (AccessListItem, error) {
 	var out AccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("AccessListItem: expected a non-null object")
 	}
-	var fields struct {
-		Address     json.RawMessage `json:"address"`
-		StorageKeys json.RawMessage `json:"storageKeys"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("AccessListItem: expected object: %w", err)
 	}
-	if len(fields.Address) == 0 {
+	for key, member := range members {
+		switch key {
+		case "address", "storageKeys":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("AccessListItem: unknown property %q", key)
+	}
+	if len(members["address"]) == 0 {
 		return out, fmt.Errorf("AccessListItem: missing required field address")
 	} else {
-		value, err := parseValue4(fields.Address)
+		value, err := parseValue4(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Address = value
 	}
-	if len(fields.StorageKeys) == 0 {
+	if len(members["storageKeys"]) == 0 {
 		return out, fmt.Errorf("AccessListItem: missing required field storageKeys")
 	} else {
-		value, err := parseValue6(fields.StorageKeys)
+		value, err := parseValue6(members["storageKeys"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -7029,37 +7080,44 @@ type AccessListResult struct {
 }
 
 func NewAccessListResult(raw json.RawMessage) (AccessListResult, error) {
+	return parseAccessListResult(raw, false)
+}
+func parseAccessListResult(raw json.RawMessage, keepStrings bool) (AccessListResult, error) {
 	var out AccessListResult
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("AccessListResult: expected a non-null object")
 	}
-	var fields struct {
-		AccessList json.RawMessage `json:"accessList"`
-		Error      json.RawMessage `json:"error"`
-		GasUsed    json.RawMessage `json:"gasUsed"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("AccessListResult: expected object: %w", err)
 	}
-	if len(fields.AccessList) == 0 {
+	for key, member := range members {
+		switch key {
+		case "accessList", "error", "gasUsed":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("AccessListResult: unknown property %q", key)
+	}
+	if len(members["accessList"]) == 0 {
 	} else {
-		value, err := parseValue7(fields.AccessList)
+		value, err := parseValue7(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccessList = &value
 	}
-	if len(fields.Error) == 0 {
+	if len(members["error"]) == 0 {
 	} else {
-		value, err := parseValue8(fields.Error)
+		value, err := parseValue8(members["error"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Error = &value
 	}
-	if len(fields.GasUsed) == 0 {
+	if len(members["gasUsed"]) == 0 {
 	} else {
-		value, err := parseValue9(fields.GasUsed)
+		value, err := parseValue9(members["gasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -7091,67 +7149,71 @@ type FeeHistoryResult struct {
 }
 
 func NewFeeHistoryResult(raw json.RawMessage) (FeeHistoryResult, error) {
+	return parseFeeHistoryResult(raw, false)
+}
+func parseFeeHistoryResult(raw json.RawMessage, keepStrings bool) (FeeHistoryResult, error) {
 	var out FeeHistoryResult
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("FeeHistoryResult: expected a non-null object")
 	}
-	var fields struct {
-		OldestBlock       json.RawMessage `json:"oldestBlock"`
-		BaseFeePerGas     json.RawMessage `json:"baseFeePerGas"`
-		GasUsedRatio      json.RawMessage `json:"gasUsedRatio"`
-		Reward            json.RawMessage `json:"reward"`
-		BaseFeePerBlobGas json.RawMessage `json:"baseFeePerBlobGas"`
-		BlobGasUsedRatio  json.RawMessage `json:"blobGasUsedRatio"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("FeeHistoryResult: expected object: %w", err)
 	}
-	if len(fields.OldestBlock) == 0 {
+	for key, member := range members {
+		switch key {
+		case "baseFeePerBlobGas", "baseFeePerGas", "blobGasUsedRatio", "gasUsedRatio", "oldestBlock", "reward":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("FeeHistoryResult: unknown property %q", key)
+	}
+	if len(members["oldestBlock"]) == 0 {
 		return out, fmt.Errorf("FeeHistoryResult: missing required field oldestBlock")
 	} else {
-		value, err := parseValue19(fields.OldestBlock)
+		value, err := parseValue19(members["oldestBlock"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.OldestBlock = value
 	}
-	if len(fields.BaseFeePerGas) == 0 {
+	if len(members["baseFeePerGas"]) == 0 {
 		return out, fmt.Errorf("FeeHistoryResult: missing required field baseFeePerGas")
 	} else {
-		value, err := parseValue14(fields.BaseFeePerGas)
+		value, err := parseValue14(members["baseFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BaseFeePerGas = value
 	}
-	if len(fields.GasUsedRatio) == 0 {
+	if len(members["gasUsedRatio"]) == 0 {
 		return out, fmt.Errorf("FeeHistoryResult: missing required field gasUsedRatio")
 	} else {
-		value, err := parseValue18(fields.GasUsedRatio)
+		value, err := parseValue18(members["gasUsedRatio"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasUsedRatio = value
 	}
-	if len(fields.Reward) == 0 {
+	if len(members["reward"]) == 0 {
 	} else {
-		value, err := parseValue22(fields.Reward)
+		value, err := parseValue22(members["reward"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Reward = &value
 	}
-	if len(fields.BaseFeePerBlobGas) == 0 {
+	if len(members["baseFeePerBlobGas"]) == 0 {
 	} else {
-		value, err := parseValue12(fields.BaseFeePerBlobGas)
+		value, err := parseValue12(members["baseFeePerBlobGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BaseFeePerBlobGas = &value
 	}
-	if len(fields.BlobGasUsedRatio) == 0 {
+	if len(members["blobGasUsedRatio"]) == 0 {
 	} else {
-		value, err := parseValue16(fields.BlobGasUsedRatio)
+		value, err := parseValue16(members["blobGasUsedRatio"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -7190,70 +7252,66 @@ type AuthorizationTuple struct {
 }
 
 func NewAuthorizationTuple(raw json.RawMessage) (AuthorizationTuple, error) {
+	return parseAuthorizationTuple(raw, false)
+}
+func parseAuthorizationTuple(raw json.RawMessage, keepStrings bool) (AuthorizationTuple, error) {
 	var out AuthorizationTuple
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("AuthorizationTuple: expected a non-null object")
 	}
-	var fields struct {
-		Address json.RawMessage `json:"address"`
-		ChainId json.RawMessage `json:"chainId"`
-		Nonce   json.RawMessage `json:"nonce"`
-		R       json.RawMessage `json:"r"`
-		S       json.RawMessage `json:"s"`
-		YParity json.RawMessage `json:"yParity"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("AuthorizationTuple: expected object: %w", err)
 	}
-	if len(fields.Address) == 0 {
+	if len(members["address"]) == 0 {
 		return out, fmt.Errorf("AuthorizationTuple: missing required field address")
 	} else {
-		value, err := parseValue51(fields.Address)
+		value, err := parseValue51(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Address = value
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("AuthorizationTuple: missing required field chainId")
 	} else {
-		value, err := parseValue52(fields.ChainId)
+		value, err := parseValue52(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("AuthorizationTuple: missing required field nonce")
 	} else {
-		value, err := parseValue53(fields.Nonce)
+		value, err := parseValue53(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("AuthorizationTuple: missing required field r")
 	} else {
-		value, err := parseValue54(fields.R)
+		value, err := parseValue54(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("AuthorizationTuple: missing required field s")
 	} else {
-		value, err := parseValue55(fields.S)
+		value, err := parseValue55(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.YParity) == 0 {
+	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("AuthorizationTuple: missing required field yParity")
 	} else {
-		value, err := parseValue56(fields.YParity)
+		value, err := parseValue56(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -7307,228 +7365,208 @@ type BlockSetCodeTransaction struct {
 }
 
 func NewBlockSetCodeTransaction(raw json.RawMessage) (BlockSetCodeTransaction, error) {
+	return parseBlockSetCodeTransaction(raw, false)
+}
+func parseBlockSetCodeTransaction(raw json.RawMessage, keepStrings bool) (BlockSetCodeTransaction, error) {
 	var out BlockSetCodeTransaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlockSetCodeTransaction: expected a non-null object")
 	}
-	var fields struct {
-		AccessList           json.RawMessage `json:"accessList"`
-		AuthorizationList    json.RawMessage `json:"authorizationList"`
-		ChainId              json.RawMessage `json:"chainId"`
-		Gas                  json.RawMessage `json:"gas"`
-		GasPrice             json.RawMessage `json:"gasPrice"`
-		Input                json.RawMessage `json:"input"`
-		MaxFeePerGas         json.RawMessage `json:"maxFeePerGas"`
-		MaxPriorityFeePerGas json.RawMessage `json:"maxPriorityFeePerGas"`
-		Nonce                json.RawMessage `json:"nonce"`
-		R                    json.RawMessage `json:"r"`
-		S                    json.RawMessage `json:"s"`
-		To                   json.RawMessage `json:"to"`
-		Type                 json.RawMessage `json:"type"`
-		V                    json.RawMessage `json:"v"`
-		Value                json.RawMessage `json:"value"`
-		YParity              json.RawMessage `json:"yParity"`
-		BlockHash            json.RawMessage `json:"blockHash"`
-		BlockNumber          json.RawMessage `json:"blockNumber"`
-		BlockTimestamp       json.RawMessage `json:"blockTimestamp"`
-		From                 json.RawMessage `json:"from"`
-		Hash                 json.RawMessage `json:"hash"`
-		TransactionIndex     json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("BlockSetCodeTransaction: expected object: %w", err)
 	}
-	if len(fields.AccessList) == 0 {
+	if len(members["accessList"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field accessList")
 	} else {
-		value, err := parseValue50(fields.AccessList)
+		value, err := parseValue50(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccessList = value
 	}
-	if len(fields.AuthorizationList) == 0 {
+	if len(members["authorizationList"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field authorizationList")
 	} else {
-		value, err := parseValue57(fields.AuthorizationList)
+		value, err := parseValue57(members["authorizationList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AuthorizationList = value
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field chainId")
 	} else {
-		value, err := parseValue58(fields.ChainId)
+		value, err := parseValue58(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field gas")
 	} else {
-		value, err := parseValue59(fields.Gas)
+		value, err := parseValue59(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 	} else {
-		value, err := parseValue60(fields.GasPrice)
+		value, err := parseValue60(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = &value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field input")
 	} else {
-		value, err := parseValue61(fields.Input)
+		value, err := parseValue61(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.MaxFeePerGas) == 0 {
+	if len(members["maxFeePerGas"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field maxFeePerGas")
 	} else {
-		value, err := parseValue62(fields.MaxFeePerGas)
+		value, err := parseValue62(members["maxFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxFeePerGas = value
 	}
-	if len(fields.MaxPriorityFeePerGas) == 0 {
+	if len(members["maxPriorityFeePerGas"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field maxPriorityFeePerGas")
 	} else {
-		value, err := parseValue63(fields.MaxPriorityFeePerGas)
+		value, err := parseValue63(members["maxPriorityFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxPriorityFeePerGas = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field nonce")
 	} else {
-		value, err := parseValue64(fields.Nonce)
+		value, err := parseValue64(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field r")
 	} else {
-		value, err := parseValue65(fields.R)
+		value, err := parseValue65(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field s")
 	} else {
-		value, err := parseValue66(fields.S)
+		value, err := parseValue66(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field to")
 	} else {
-		value, err := parseValue67(fields.To)
+		value, err := parseValue67(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field type")
 	} else {
-		value, err := parseValue68(fields.Type)
+		value, err := parseValue68(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 	} else {
-		value, err := parseValue69(fields.V)
+		value, err := parseValue69(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = &value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field value")
 	} else {
-		value, err := parseValue70(fields.Value)
+		value, err := parseValue70(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.YParity) == 0 {
+	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field yParity")
 	} else {
-		value, err := parseValue71(fields.YParity)
+		value, err := parseValue71(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.YParity = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field blockHash")
 	} else {
-		value, err := parseValue72(fields.BlockHash)
+		value, err := parseValue72(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue73(fields.BlockNumber)
+		value, err := parseValue73(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue74(fields.BlockTimestamp)
+		value, err := parseValue74(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field from")
 	} else {
-		value, err := parseValue75(fields.From)
+		value, err := parseValue75(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field hash")
 	} else {
-		value, err := parseValue76(fields.Hash)
+		value, err := parseValue76(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("BlockSetCodeTransaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue77(fields.TransactionIndex)
+		value, err := parseValue77(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -7615,238 +7653,217 @@ type BlockBlobTransaction struct {
 }
 
 func NewBlockBlobTransaction(raw json.RawMessage) (BlockBlobTransaction, error) {
+	return parseBlockBlobTransaction(raw, false)
+}
+func parseBlockBlobTransaction(raw json.RawMessage, keepStrings bool) (BlockBlobTransaction, error) {
 	var out BlockBlobTransaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlockBlobTransaction: expected a non-null object")
 	}
-	var fields struct {
-		AccessList           json.RawMessage `json:"accessList"`
-		BlobVersionedHashes  json.RawMessage `json:"blobVersionedHashes"`
-		ChainId              json.RawMessage `json:"chainId"`
-		Gas                  json.RawMessage `json:"gas"`
-		GasPrice             json.RawMessage `json:"gasPrice"`
-		Input                json.RawMessage `json:"input"`
-		MaxFeePerBlobGas     json.RawMessage `json:"maxFeePerBlobGas"`
-		MaxFeePerGas         json.RawMessage `json:"maxFeePerGas"`
-		MaxPriorityFeePerGas json.RawMessage `json:"maxPriorityFeePerGas"`
-		Nonce                json.RawMessage `json:"nonce"`
-		R                    json.RawMessage `json:"r"`
-		S                    json.RawMessage `json:"s"`
-		To                   json.RawMessage `json:"to"`
-		Type                 json.RawMessage `json:"type"`
-		V                    json.RawMessage `json:"v"`
-		Value                json.RawMessage `json:"value"`
-		YParity              json.RawMessage `json:"yParity"`
-		BlockHash            json.RawMessage `json:"blockHash"`
-		BlockNumber          json.RawMessage `json:"blockNumber"`
-		BlockTimestamp       json.RawMessage `json:"blockTimestamp"`
-		From                 json.RawMessage `json:"from"`
-		Hash                 json.RawMessage `json:"hash"`
-		TransactionIndex     json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("BlockBlobTransaction: expected object: %w", err)
 	}
-	if len(fields.AccessList) == 0 {
+	if len(members["accessList"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field accessList")
 	} else {
-		value, err := parseValue78(fields.AccessList)
+		value, err := parseValue78(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccessList = value
 	}
-	if len(fields.BlobVersionedHashes) == 0 {
+	if len(members["blobVersionedHashes"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field blobVersionedHashes")
 	} else {
-		value, err := parseValue80(fields.BlobVersionedHashes)
+		value, err := parseValue80(members["blobVersionedHashes"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlobVersionedHashes = value
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field chainId")
 	} else {
-		value, err := parseValue81(fields.ChainId)
+		value, err := parseValue81(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field gas")
 	} else {
-		value, err := parseValue82(fields.Gas)
+		value, err := parseValue82(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 	} else {
-		value, err := parseValue83(fields.GasPrice)
+		value, err := parseValue83(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = &value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field input")
 	} else {
-		value, err := parseValue84(fields.Input)
+		value, err := parseValue84(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.MaxFeePerBlobGas) == 0 {
+	if len(members["maxFeePerBlobGas"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field maxFeePerBlobGas")
 	} else {
-		value, err := parseValue85(fields.MaxFeePerBlobGas)
+		value, err := parseValue85(members["maxFeePerBlobGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxFeePerBlobGas = value
 	}
-	if len(fields.MaxFeePerGas) == 0 {
+	if len(members["maxFeePerGas"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field maxFeePerGas")
 	} else {
-		value, err := parseValue86(fields.MaxFeePerGas)
+		value, err := parseValue86(members["maxFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxFeePerGas = value
 	}
-	if len(fields.MaxPriorityFeePerGas) == 0 {
+	if len(members["maxPriorityFeePerGas"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field maxPriorityFeePerGas")
 	} else {
-		value, err := parseValue87(fields.MaxPriorityFeePerGas)
+		value, err := parseValue87(members["maxPriorityFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxPriorityFeePerGas = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field nonce")
 	} else {
-		value, err := parseValue88(fields.Nonce)
+		value, err := parseValue88(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field r")
 	} else {
-		value, err := parseValue89(fields.R)
+		value, err := parseValue89(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field s")
 	} else {
-		value, err := parseValue90(fields.S)
+		value, err := parseValue90(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field to")
 	} else {
-		value, err := parseValue91(fields.To)
+		value, err := parseValue91(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field type")
 	} else {
-		value, err := parseValue92(fields.Type)
+		value, err := parseValue92(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 	} else {
-		value, err := parseValue93(fields.V)
+		value, err := parseValue93(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = &value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field value")
 	} else {
-		value, err := parseValue94(fields.Value)
+		value, err := parseValue94(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.YParity) == 0 {
+	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field yParity")
 	} else {
-		value, err := parseValue95(fields.YParity)
+		value, err := parseValue95(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.YParity = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field blockHash")
 	} else {
-		value, err := parseValue96(fields.BlockHash)
+		value, err := parseValue96(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue97(fields.BlockNumber)
+		value, err := parseValue97(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue98(fields.BlockTimestamp)
+		value, err := parseValue98(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field from")
 	} else {
-		value, err := parseValue99(fields.From)
+		value, err := parseValue99(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field hash")
 	} else {
-		value, err := parseValue100(fields.Hash)
+		value, err := parseValue100(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("BlockBlobTransaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue101(fields.TransactionIndex)
+		value, err := parseValue101(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -7933,218 +7950,199 @@ type BlockEIP1559Transaction struct {
 }
 
 func NewBlockEIP1559Transaction(raw json.RawMessage) (BlockEIP1559Transaction, error) {
+	return parseBlockEIP1559Transaction(raw, false)
+}
+func parseBlockEIP1559Transaction(raw json.RawMessage, keepStrings bool) (BlockEIP1559Transaction, error) {
 	var out BlockEIP1559Transaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlockEIP1559Transaction: expected a non-null object")
 	}
-	var fields struct {
-		AccessList           json.RawMessage `json:"accessList"`
-		ChainId              json.RawMessage `json:"chainId"`
-		Gas                  json.RawMessage `json:"gas"`
-		GasPrice             json.RawMessage `json:"gasPrice"`
-		Input                json.RawMessage `json:"input"`
-		MaxFeePerGas         json.RawMessage `json:"maxFeePerGas"`
-		MaxPriorityFeePerGas json.RawMessage `json:"maxPriorityFeePerGas"`
-		Nonce                json.RawMessage `json:"nonce"`
-		R                    json.RawMessage `json:"r"`
-		S                    json.RawMessage `json:"s"`
-		To                   json.RawMessage `json:"to"`
-		Type                 json.RawMessage `json:"type"`
-		V                    json.RawMessage `json:"v"`
-		Value                json.RawMessage `json:"value"`
-		YParity              json.RawMessage `json:"yParity"`
-		BlockHash            json.RawMessage `json:"blockHash"`
-		BlockNumber          json.RawMessage `json:"blockNumber"`
-		BlockTimestamp       json.RawMessage `json:"blockTimestamp"`
-		From                 json.RawMessage `json:"from"`
-		Hash                 json.RawMessage `json:"hash"`
-		TransactionIndex     json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("BlockEIP1559Transaction: expected object: %w", err)
 	}
-	if len(fields.AccessList) == 0 {
+	if len(members["accessList"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field accessList")
 	} else {
-		value, err := parseValue102(fields.AccessList)
+		value, err := parseValue102(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccessList = value
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field chainId")
 	} else {
-		value, err := parseValue103(fields.ChainId)
+		value, err := parseValue103(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field gas")
 	} else {
-		value, err := parseValue104(fields.Gas)
+		value, err := parseValue104(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field gasPrice")
 	} else {
-		value, err := parseValue105(fields.GasPrice)
+		value, err := parseValue105(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field input")
 	} else {
-		value, err := parseValue106(fields.Input)
+		value, err := parseValue106(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.MaxFeePerGas) == 0 {
+	if len(members["maxFeePerGas"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field maxFeePerGas")
 	} else {
-		value, err := parseValue107(fields.MaxFeePerGas)
+		value, err := parseValue107(members["maxFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxFeePerGas = value
 	}
-	if len(fields.MaxPriorityFeePerGas) == 0 {
+	if len(members["maxPriorityFeePerGas"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field maxPriorityFeePerGas")
 	} else {
-		value, err := parseValue108(fields.MaxPriorityFeePerGas)
+		value, err := parseValue108(members["maxPriorityFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxPriorityFeePerGas = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field nonce")
 	} else {
-		value, err := parseValue109(fields.Nonce)
+		value, err := parseValue109(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field r")
 	} else {
-		value, err := parseValue110(fields.R)
+		value, err := parseValue110(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field s")
 	} else {
-		value, err := parseValue111(fields.S)
+		value, err := parseValue111(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 	} else {
-		value, err := parseValue113(fields.To)
+		value, err := parseValue113(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = &value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field type")
 	} else {
-		value, err := parseValue114(fields.Type)
+		value, err := parseValue114(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 	} else {
-		value, err := parseValue115(fields.V)
+		value, err := parseValue115(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = &value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field value")
 	} else {
-		value, err := parseValue116(fields.Value)
+		value, err := parseValue116(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.YParity) == 0 {
+	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field yParity")
 	} else {
-		value, err := parseValue117(fields.YParity)
+		value, err := parseValue117(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.YParity = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field blockHash")
 	} else {
-		value, err := parseValue118(fields.BlockHash)
+		value, err := parseValue118(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue119(fields.BlockNumber)
+		value, err := parseValue119(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue120(fields.BlockTimestamp)
+		value, err := parseValue120(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field from")
 	} else {
-		value, err := parseValue121(fields.From)
+		value, err := parseValue121(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field hash")
 	} else {
-		value, err := parseValue122(fields.Hash)
+		value, err := parseValue122(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("BlockEIP1559Transaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue123(fields.TransactionIndex)
+		value, err := parseValue123(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -8225,198 +8223,181 @@ type BlockAccessListTransaction struct {
 }
 
 func NewBlockAccessListTransaction(raw json.RawMessage) (BlockAccessListTransaction, error) {
+	return parseBlockAccessListTransaction(raw, false)
+}
+func parseBlockAccessListTransaction(raw json.RawMessage, keepStrings bool) (BlockAccessListTransaction, error) {
 	var out BlockAccessListTransaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlockAccessListTransaction: expected a non-null object")
 	}
-	var fields struct {
-		AccessList       json.RawMessage `json:"accessList"`
-		ChainId          json.RawMessage `json:"chainId"`
-		Gas              json.RawMessage `json:"gas"`
-		GasPrice         json.RawMessage `json:"gasPrice"`
-		Input            json.RawMessage `json:"input"`
-		Nonce            json.RawMessage `json:"nonce"`
-		R                json.RawMessage `json:"r"`
-		S                json.RawMessage `json:"s"`
-		To               json.RawMessage `json:"to"`
-		Type             json.RawMessage `json:"type"`
-		V                json.RawMessage `json:"v"`
-		Value            json.RawMessage `json:"value"`
-		YParity          json.RawMessage `json:"yParity"`
-		BlockHash        json.RawMessage `json:"blockHash"`
-		BlockNumber      json.RawMessage `json:"blockNumber"`
-		BlockTimestamp   json.RawMessage `json:"blockTimestamp"`
-		From             json.RawMessage `json:"from"`
-		Hash             json.RawMessage `json:"hash"`
-		TransactionIndex json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("BlockAccessListTransaction: expected object: %w", err)
 	}
-	if len(fields.AccessList) == 0 {
+	if len(members["accessList"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field accessList")
 	} else {
-		value, err := parseValue124(fields.AccessList)
+		value, err := parseValue124(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccessList = value
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field chainId")
 	} else {
-		value, err := parseValue125(fields.ChainId)
+		value, err := parseValue125(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field gas")
 	} else {
-		value, err := parseValue126(fields.Gas)
+		value, err := parseValue126(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field gasPrice")
 	} else {
-		value, err := parseValue127(fields.GasPrice)
+		value, err := parseValue127(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field input")
 	} else {
-		value, err := parseValue128(fields.Input)
+		value, err := parseValue128(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field nonce")
 	} else {
-		value, err := parseValue129(fields.Nonce)
+		value, err := parseValue129(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field r")
 	} else {
-		value, err := parseValue130(fields.R)
+		value, err := parseValue130(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field s")
 	} else {
-		value, err := parseValue131(fields.S)
+		value, err := parseValue131(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 	} else {
-		value, err := parseValue133(fields.To)
+		value, err := parseValue133(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = &value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field type")
 	} else {
-		value, err := parseValue134(fields.Type)
+		value, err := parseValue134(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 	} else {
-		value, err := parseValue135(fields.V)
+		value, err := parseValue135(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = &value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field value")
 	} else {
-		value, err := parseValue136(fields.Value)
+		value, err := parseValue136(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.YParity) == 0 {
+	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field yParity")
 	} else {
-		value, err := parseValue137(fields.YParity)
+		value, err := parseValue137(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.YParity = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field blockHash")
 	} else {
-		value, err := parseValue138(fields.BlockHash)
+		value, err := parseValue138(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue139(fields.BlockNumber)
+		value, err := parseValue139(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue140(fields.BlockTimestamp)
+		value, err := parseValue140(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field from")
 	} else {
-		value, err := parseValue141(fields.From)
+		value, err := parseValue141(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field hash")
 	} else {
-		value, err := parseValue142(fields.Hash)
+		value, err := parseValue142(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("BlockAccessListTransaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue143(fields.TransactionIndex)
+		value, err := parseValue143(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -8491,178 +8472,163 @@ type BlockLegacyTransaction struct {
 }
 
 func NewBlockLegacyTransaction(raw json.RawMessage) (BlockLegacyTransaction, error) {
+	return parseBlockLegacyTransaction(raw, false)
+}
+func parseBlockLegacyTransaction(raw json.RawMessage, keepStrings bool) (BlockLegacyTransaction, error) {
 	var out BlockLegacyTransaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlockLegacyTransaction: expected a non-null object")
 	}
-	var fields struct {
-		ChainId          json.RawMessage `json:"chainId"`
-		Gas              json.RawMessage `json:"gas"`
-		GasPrice         json.RawMessage `json:"gasPrice"`
-		Input            json.RawMessage `json:"input"`
-		Nonce            json.RawMessage `json:"nonce"`
-		R                json.RawMessage `json:"r"`
-		S                json.RawMessage `json:"s"`
-		To               json.RawMessage `json:"to"`
-		Type             json.RawMessage `json:"type"`
-		V                json.RawMessage `json:"v"`
-		Value            json.RawMessage `json:"value"`
-		BlockHash        json.RawMessage `json:"blockHash"`
-		BlockNumber      json.RawMessage `json:"blockNumber"`
-		BlockTimestamp   json.RawMessage `json:"blockTimestamp"`
-		From             json.RawMessage `json:"from"`
-		Hash             json.RawMessage `json:"hash"`
-		TransactionIndex json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("BlockLegacyTransaction: expected object: %w", err)
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 	} else {
-		value, err := parseValue144(fields.ChainId)
+		value, err := parseValue144(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = &value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field gas")
 	} else {
-		value, err := parseValue145(fields.Gas)
+		value, err := parseValue145(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field gasPrice")
 	} else {
-		value, err := parseValue146(fields.GasPrice)
+		value, err := parseValue146(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field input")
 	} else {
-		value, err := parseValue147(fields.Input)
+		value, err := parseValue147(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field nonce")
 	} else {
-		value, err := parseValue148(fields.Nonce)
+		value, err := parseValue148(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field r")
 	} else {
-		value, err := parseValue149(fields.R)
+		value, err := parseValue149(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field s")
 	} else {
-		value, err := parseValue150(fields.S)
+		value, err := parseValue150(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 	} else {
-		value, err := parseValue152(fields.To)
+		value, err := parseValue152(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = &value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field type")
 	} else {
-		value, err := parseValue153(fields.Type)
+		value, err := parseValue153(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field v")
 	} else {
-		value, err := parseValue154(fields.V)
+		value, err := parseValue154(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field value")
 	} else {
-		value, err := parseValue155(fields.Value)
+		value, err := parseValue155(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field blockHash")
 	} else {
-		value, err := parseValue156(fields.BlockHash)
+		value, err := parseValue156(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue157(fields.BlockNumber)
+		value, err := parseValue157(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue158(fields.BlockTimestamp)
+		value, err := parseValue158(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field from")
 	} else {
-		value, err := parseValue159(fields.From)
+		value, err := parseValue159(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field hash")
 	} else {
-		value, err := parseValue160(fields.Hash)
+		value, err := parseValue160(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("BlockLegacyTransaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue161(fields.TransactionIndex)
+		value, err := parseValue161(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -8721,50 +8687,56 @@ type Withdrawal struct {
 }
 
 func NewWithdrawal(raw json.RawMessage) (Withdrawal, error) {
+	return parseWithdrawal(raw, false)
+}
+func parseWithdrawal(raw json.RawMessage, keepStrings bool) (Withdrawal, error) {
 	var out Withdrawal
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("Withdrawal: expected a non-null object")
 	}
-	var fields struct {
-		Address        json.RawMessage `json:"address"`
-		Amount         json.RawMessage `json:"amount"`
-		Index          json.RawMessage `json:"index"`
-		ValidatorIndex json.RawMessage `json:"validatorIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("Withdrawal: expected object: %w", err)
 	}
-	if len(fields.Address) == 0 {
+	for key, member := range members {
+		switch key {
+		case "address", "amount", "index", "validatorIndex":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("Withdrawal: unknown property %q", key)
+	}
+	if len(members["address"]) == 0 {
 		return out, fmt.Errorf("Withdrawal: missing required field address")
 	} else {
-		value, err := parseValue166(fields.Address)
+		value, err := parseValue166(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Address = value
 	}
-	if len(fields.Amount) == 0 {
+	if len(members["amount"]) == 0 {
 		return out, fmt.Errorf("Withdrawal: missing required field amount")
 	} else {
-		value, err := parseValue167(fields.Amount)
+		value, err := parseValue167(members["amount"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Amount = value
 	}
-	if len(fields.Index) == 0 {
+	if len(members["index"]) == 0 {
 		return out, fmt.Errorf("Withdrawal: missing required field index")
 	} else {
-		value, err := parseValue168(fields.Index)
+		value, err := parseValue168(members["index"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Index = value
 	}
-	if len(fields.ValidatorIndex) == 0 {
+	if len(members["validatorIndex"]) == 0 {
 		return out, fmt.Errorf("Withdrawal: missing required field validatorIndex")
 	} else {
-		value, err := parseValue169(fields.ValidatorIndex)
+		value, err := parseValue169(members["validatorIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -8821,280 +8793,254 @@ type Block struct {
 }
 
 func NewBlock(raw json.RawMessage) (Block, error) {
+	return parseBlock(raw, false)
+}
+func parseBlock(raw json.RawMessage, keepStrings bool) (Block, error) {
 	var out Block
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("Block: expected a non-null object")
 	}
-	var fields struct {
-		BaseFeePerGas         json.RawMessage `json:"baseFeePerGas"`
-		BlobGasUsed           json.RawMessage `json:"blobGasUsed"`
-		BlockAccessListHash   json.RawMessage `json:"blockAccessListHash"`
-		Difficulty            json.RawMessage `json:"difficulty"`
-		ExcessBlobGas         json.RawMessage `json:"excessBlobGas"`
-		ExtraData             json.RawMessage `json:"extraData"`
-		GasLimit              json.RawMessage `json:"gasLimit"`
-		GasUsed               json.RawMessage `json:"gasUsed"`
-		Hash                  json.RawMessage `json:"hash"`
-		LogsBloom             json.RawMessage `json:"logsBloom"`
-		Miner                 json.RawMessage `json:"miner"`
-		MixHash               json.RawMessage `json:"mixHash"`
-		Nonce                 json.RawMessage `json:"nonce"`
-		Number                json.RawMessage `json:"number"`
-		ParentBeaconBlockRoot json.RawMessage `json:"parentBeaconBlockRoot"`
-		ParentHash            json.RawMessage `json:"parentHash"`
-		ReceiptsRoot          json.RawMessage `json:"receiptsRoot"`
-		RequestsHash          json.RawMessage `json:"requestsHash"`
-		Sha3uncles            json.RawMessage `json:"sha3Uncles"`
-		Size                  json.RawMessage `json:"size"`
-		SlotNumber            json.RawMessage `json:"slotNumber"`
-		StateRoot             json.RawMessage `json:"stateRoot"`
-		Timestamp             json.RawMessage `json:"timestamp"`
-		Transactions          json.RawMessage `json:"transactions"`
-		TransactionsRoot      json.RawMessage `json:"transactionsRoot"`
-		Uncles                json.RawMessage `json:"uncles"`
-		Withdrawals           json.RawMessage `json:"withdrawals"`
-		WithdrawalsRoot       json.RawMessage `json:"withdrawalsRoot"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("Block: expected object: %w", err)
 	}
-	if len(fields.BaseFeePerGas) == 0 {
+	if len(members["baseFeePerGas"]) == 0 {
 	} else {
-		value, err := parseValue25(fields.BaseFeePerGas)
+		value, err := parseValue25(members["baseFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BaseFeePerGas = &value
 	}
-	if len(fields.BlobGasUsed) == 0 {
+	if len(members["blobGasUsed"]) == 0 {
 	} else {
-		value, err := parseValue26(fields.BlobGasUsed)
+		value, err := parseValue26(members["blobGasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlobGasUsed = &value
 	}
-	if len(fields.BlockAccessListHash) == 0 {
+	if len(members["blockAccessListHash"]) == 0 {
 	} else {
-		value, err := parseValue27(fields.BlockAccessListHash)
+		value, err := parseValue27(members["blockAccessListHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockAccessListHash = &value
 	}
-	if len(fields.Difficulty) == 0 {
+	if len(members["difficulty"]) == 0 {
 	} else {
-		value, err := parseValue28(fields.Difficulty)
+		value, err := parseValue28(members["difficulty"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Difficulty = &value
 	}
-	if len(fields.ExcessBlobGas) == 0 {
+	if len(members["excessBlobGas"]) == 0 {
 	} else {
-		value, err := parseValue29(fields.ExcessBlobGas)
+		value, err := parseValue29(members["excessBlobGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ExcessBlobGas = &value
 	}
-	if len(fields.ExtraData) == 0 {
+	if len(members["extraData"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field extraData")
 	} else {
-		value, err := parseValue30(fields.ExtraData)
+		value, err := parseValue30(members["extraData"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ExtraData = value
 	}
-	if len(fields.GasLimit) == 0 {
+	if len(members["gasLimit"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field gasLimit")
 	} else {
-		value, err := parseValue31(fields.GasLimit)
+		value, err := parseValue31(members["gasLimit"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasLimit = value
 	}
-	if len(fields.GasUsed) == 0 {
+	if len(members["gasUsed"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field gasUsed")
 	} else {
-		value, err := parseValue32(fields.GasUsed)
+		value, err := parseValue32(members["gasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasUsed = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field hash")
 	} else {
-		value, err := parseValue33(fields.Hash)
+		value, err := parseValue33(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.LogsBloom) == 0 {
+	if len(members["logsBloom"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field logsBloom")
 	} else {
-		value, err := parseValue34(fields.LogsBloom)
+		value, err := parseValue34(members["logsBloom"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.LogsBloom = value
 	}
-	if len(fields.Miner) == 0 {
+	if len(members["miner"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field miner")
 	} else {
-		value, err := parseValue35(fields.Miner)
+		value, err := parseValue35(members["miner"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Miner = value
 	}
-	if len(fields.MixHash) == 0 {
+	if len(members["mixHash"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field mixHash")
 	} else {
-		value, err := parseValue36(fields.MixHash)
+		value, err := parseValue36(members["mixHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MixHash = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field nonce")
 	} else {
-		value, err := parseValue37(fields.Nonce)
+		value, err := parseValue37(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.Number) == 0 {
+	if len(members["number"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field number")
 	} else {
-		value, err := parseValue38(fields.Number)
+		value, err := parseValue38(members["number"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Number = value
 	}
-	if len(fields.ParentBeaconBlockRoot) == 0 {
+	if len(members["parentBeaconBlockRoot"]) == 0 {
 	} else {
-		value, err := parseValue39(fields.ParentBeaconBlockRoot)
+		value, err := parseValue39(members["parentBeaconBlockRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ParentBeaconBlockRoot = &value
 	}
-	if len(fields.ParentHash) == 0 {
+	if len(members["parentHash"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field parentHash")
 	} else {
-		value, err := parseValue40(fields.ParentHash)
+		value, err := parseValue40(members["parentHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ParentHash = value
 	}
-	if len(fields.ReceiptsRoot) == 0 {
+	if len(members["receiptsRoot"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field receiptsRoot")
 	} else {
-		value, err := parseValue41(fields.ReceiptsRoot)
+		value, err := parseValue41(members["receiptsRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ReceiptsRoot = value
 	}
-	if len(fields.RequestsHash) == 0 {
+	if len(members["requestsHash"]) == 0 {
 	} else {
-		value, err := parseValue42(fields.RequestsHash)
+		value, err := parseValue42(members["requestsHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.RequestsHash = &value
 	}
-	if len(fields.Sha3uncles) == 0 {
+	if len(members["sha3Uncles"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field sha3Uncles")
 	} else {
-		value, err := parseValue43(fields.Sha3uncles)
+		value, err := parseValue43(members["sha3Uncles"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Sha3uncles = value
 	}
-	if len(fields.Size) == 0 {
+	if len(members["size"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field size")
 	} else {
-		value, err := parseValue44(fields.Size)
+		value, err := parseValue44(members["size"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Size = value
 	}
-	if len(fields.SlotNumber) == 0 {
+	if len(members["slotNumber"]) == 0 {
 	} else {
-		value, err := parseValue45(fields.SlotNumber)
+		value, err := parseValue45(members["slotNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.SlotNumber = &value
 	}
-	if len(fields.StateRoot) == 0 {
+	if len(members["stateRoot"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field stateRoot")
 	} else {
-		value, err := parseValue46(fields.StateRoot)
+		value, err := parseValue46(members["stateRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.StateRoot = value
 	}
-	if len(fields.Timestamp) == 0 {
+	if len(members["timestamp"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field timestamp")
 	} else {
-		value, err := parseValue47(fields.Timestamp)
+		value, err := parseValue47(members["timestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Timestamp = value
 	}
-	if len(fields.Transactions) == 0 {
+	if len(members["transactions"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field transactions")
 	} else {
-		value, err := NewBlockTransactions(fields.Transactions)
+		value, err := parseBlockTransactions(members["transactions"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Transactions = value
 	}
-	if len(fields.TransactionsRoot) == 0 {
+	if len(members["transactionsRoot"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field transactionsRoot")
 	} else {
-		value, err := parseValue163(fields.TransactionsRoot)
+		value, err := parseValue163(members["transactionsRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.TransactionsRoot = value
 	}
-	if len(fields.Uncles) == 0 {
+	if len(members["uncles"]) == 0 {
 		return out, fmt.Errorf("Block: missing required field uncles")
 	} else {
-		value, err := parseValue165(fields.Uncles)
+		value, err := parseValue165(members["uncles"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Uncles = value
 	}
-	if len(fields.Withdrawals) == 0 {
+	if len(members["withdrawals"]) == 0 {
 	} else {
-		value, err := parseValue170(fields.Withdrawals)
+		value, err := parseValue170(members["withdrawals"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Withdrawals = &value
 	}
-	if len(fields.WithdrawalsRoot) == 0 {
+	if len(members["withdrawalsRoot"]) == 0 {
 	} else {
-		value, err := parseValue171(fields.WithdrawalsRoot)
+		value, err := parseValue171(members["withdrawalsRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -9181,101 +9127,101 @@ type Log struct {
 }
 
 func NewLog(raw json.RawMessage) (Log, error) {
+	return parseLog(raw, false)
+}
+func parseLog(raw json.RawMessage, keepStrings bool) (Log, error) {
 	var out Log
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("Log: expected a non-null object")
 	}
-	var fields struct {
-		Address          json.RawMessage `json:"address"`
-		Topics           json.RawMessage `json:"topics"`
-		Data             json.RawMessage `json:"data"`
-		BlockNumber      json.RawMessage `json:"blockNumber"`
-		TransactionHash  json.RawMessage `json:"transactionHash"`
-		TransactionIndex json.RawMessage `json:"transactionIndex"`
-		BlockHash        json.RawMessage `json:"blockHash"`
-		LogIndex         json.RawMessage `json:"logIndex"`
-		Removed          json.RawMessage `json:"removed"`
-		BlockTimestamp   json.RawMessage `json:"blockTimestamp"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("Log: expected object: %w", err)
 	}
-	if len(fields.Address) == 0 {
+	for key, member := range members {
+		switch key {
+		case "address", "blockHash", "blockNumber", "blockTimestamp", "data", "logIndex", "removed", "topics", "transactionHash", "transactionIndex":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("Log: unknown property %q", key)
+	}
+	if len(members["address"]) == 0 {
 	} else {
-		value, err := parseValue184(fields.Address)
+		value, err := parseValue184(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Address = &value
 	}
-	if len(fields.Topics) == 0 {
+	if len(members["topics"]) == 0 {
 	} else {
-		value, err := parseValue192(fields.Topics)
+		value, err := parseValue192(members["topics"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Topics = &value
 	}
-	if len(fields.Data) == 0 {
+	if len(members["data"]) == 0 {
 	} else {
-		value, err := parseValue188(fields.Data)
+		value, err := parseValue188(members["data"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Data = &value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 	} else {
-		value, err := parseValue186(fields.BlockNumber)
+		value, err := parseValue186(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = &value
 	}
-	if len(fields.TransactionHash) == 0 {
+	if len(members["transactionHash"]) == 0 {
 		return out, fmt.Errorf("Log: missing required field transactionHash")
 	} else {
-		value, err := parseValue193(fields.TransactionHash)
+		value, err := parseValue193(members["transactionHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.TransactionHash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 	} else {
-		value, err := parseValue194(fields.TransactionIndex)
+		value, err := parseValue194(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.TransactionIndex = &value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 	} else {
-		value, err := parseValue185(fields.BlockHash)
+		value, err := parseValue185(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = &value
 	}
-	if len(fields.LogIndex) == 0 {
+	if len(members["logIndex"]) == 0 {
 	} else {
-		value, err := parseValue189(fields.LogIndex)
+		value, err := parseValue189(members["logIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.LogIndex = &value
 	}
-	if len(fields.Removed) == 0 {
+	if len(members["removed"]) == 0 {
 	} else {
-		value, err := parseValue190(fields.Removed)
+		value, err := parseValue190(members["removed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Removed = &value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 	} else {
-		value, err := parseValue187(fields.BlockTimestamp)
+		value, err := parseValue187(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -9333,173 +9279,166 @@ type Receipt struct {
 }
 
 func NewReceipt(raw json.RawMessage) (Receipt, error) {
+	return parseReceipt(raw, false)
+}
+func parseReceipt(raw json.RawMessage, keepStrings bool) (Receipt, error) {
 	var out Receipt
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("Receipt: expected a non-null object")
 	}
-	var fields struct {
-		TransactionHash   json.RawMessage `json:"transactionHash"`
-		TransactionIndex  json.RawMessage `json:"transactionIndex"`
-		BlockHash         json.RawMessage `json:"blockHash"`
-		BlockNumber       json.RawMessage `json:"blockNumber"`
-		From              json.RawMessage `json:"from"`
-		CumulativeGasUsed json.RawMessage `json:"cumulativeGasUsed"`
-		GasUsed           json.RawMessage `json:"gasUsed"`
-		EffectiveGasPrice json.RawMessage `json:"effectiveGasPrice"`
-		LogsBloom         json.RawMessage `json:"logsBloom"`
-		Logs              json.RawMessage `json:"logs"`
-		Status            json.RawMessage `json:"status"`
-		Root              json.RawMessage `json:"root"`
-		Type              json.RawMessage `json:"type"`
-		ContractAddress   json.RawMessage `json:"contractAddress"`
-		To                json.RawMessage `json:"to"`
-		BlobGasUsed       json.RawMessage `json:"blobGasUsed"`
-		BlobGasPrice      json.RawMessage `json:"blobGasPrice"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("Receipt: expected object: %w", err)
 	}
-	if len(fields.TransactionHash) == 0 {
+	for key, member := range members {
+		switch key {
+		case "blobGasPrice", "blobGasUsed", "blockHash", "blockNumber", "contractAddress", "cumulativeGasUsed", "effectiveGasPrice", "from", "gasUsed", "logs", "logsBloom", "root", "status", "to", "transactionHash", "transactionIndex", "type":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("Receipt: unknown property %q", key)
+	}
+	if len(members["transactionHash"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field transactionHash")
 	} else {
-		value, err := parseValue201(fields.TransactionHash)
+		value, err := parseValue201(members["transactionHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.TransactionHash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field transactionIndex")
 	} else {
-		value, err := parseValue202(fields.TransactionIndex)
+		value, err := parseValue202(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.TransactionIndex = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field blockHash")
 	} else {
-		value, err := parseValue176(fields.BlockHash)
+		value, err := parseValue176(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field blockNumber")
 	} else {
-		value, err := parseValue177(fields.BlockNumber)
+		value, err := parseValue177(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field from")
 	} else {
-		value, err := parseValue182(fields.From)
+		value, err := parseValue182(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.CumulativeGasUsed) == 0 {
+	if len(members["cumulativeGasUsed"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field cumulativeGasUsed")
 	} else {
-		value, err := parseValue180(fields.CumulativeGasUsed)
+		value, err := parseValue180(members["cumulativeGasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.CumulativeGasUsed = value
 	}
-	if len(fields.GasUsed) == 0 {
+	if len(members["gasUsed"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field gasUsed")
 	} else {
-		value, err := parseValue183(fields.GasUsed)
+		value, err := parseValue183(members["gasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasUsed = value
 	}
-	if len(fields.EffectiveGasPrice) == 0 {
+	if len(members["effectiveGasPrice"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field effectiveGasPrice")
 	} else {
-		value, err := parseValue181(fields.EffectiveGasPrice)
+		value, err := parseValue181(members["effectiveGasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.EffectiveGasPrice = value
 	}
-	if len(fields.LogsBloom) == 0 {
+	if len(members["logsBloom"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field logsBloom")
 	} else {
-		value, err := parseValue196(fields.LogsBloom)
+		value, err := parseValue196(members["logsBloom"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.LogsBloom = value
 	}
-	if len(fields.Logs) == 0 {
+	if len(members["logs"]) == 0 {
 		return out, fmt.Errorf("Receipt: missing required field logs")
 	} else {
-		value, err := parseValue195(fields.Logs)
+		value, err := parseValue195(members["logs"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Logs = value
 	}
-	if len(fields.Status) == 0 {
+	if len(members["status"]) == 0 {
 	} else {
-		value, err := parseValue198(fields.Status)
+		value, err := parseValue198(members["status"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Status = &value
 	}
-	if len(fields.Root) == 0 {
+	if len(members["root"]) == 0 {
 	} else {
-		value, err := parseValue197(fields.Root)
+		value, err := parseValue197(members["root"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Root = &value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 	} else {
-		value, err := parseValue203(fields.Type)
+		value, err := parseValue203(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = &value
 	}
-	if len(fields.ContractAddress) == 0 {
+	if len(members["contractAddress"]) == 0 {
 	} else {
-		value, err := parseValue179(fields.ContractAddress)
+		value, err := parseValue179(members["contractAddress"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ContractAddress = &value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 	} else {
-		value, err := parseValue200(fields.To)
+		value, err := parseValue200(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = &value
 	}
-	if len(fields.BlobGasUsed) == 0 {
+	if len(members["blobGasUsed"]) == 0 {
 	} else {
-		value, err := parseValue175(fields.BlobGasUsed)
+		value, err := parseValue175(members["blobGasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlobGasUsed = &value
 	}
-	if len(fields.BlobGasPrice) == 0 {
+	if len(members["blobGasPrice"]) == 0 {
 	} else {
-		value, err := parseValue174(fields.BlobGasPrice)
+		value, err := parseValue174(members["blobGasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -9578,242 +9517,228 @@ type Header struct {
 }
 
 func NewHeader(raw json.RawMessage) (Header, error) {
+	return parseHeader(raw, false)
+}
+func parseHeader(raw json.RawMessage, keepStrings bool) (Header, error) {
 	var out Header
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("Header: expected a non-null object")
 	}
-	var fields struct {
-		BaseFeePerGas         json.RawMessage `json:"baseFeePerGas"`
-		BlobGasUsed           json.RawMessage `json:"blobGasUsed"`
-		BlockAccessListHash   json.RawMessage `json:"blockAccessListHash"`
-		Difficulty            json.RawMessage `json:"difficulty"`
-		ExcessBlobGas         json.RawMessage `json:"excessBlobGas"`
-		ExtraData             json.RawMessage `json:"extraData"`
-		GasLimit              json.RawMessage `json:"gasLimit"`
-		GasUsed               json.RawMessage `json:"gasUsed"`
-		Hash                  json.RawMessage `json:"hash"`
-		LogsBloom             json.RawMessage `json:"logsBloom"`
-		Miner                 json.RawMessage `json:"miner"`
-		MixHash               json.RawMessage `json:"mixHash"`
-		Nonce                 json.RawMessage `json:"nonce"`
-		Number                json.RawMessage `json:"number"`
-		ParentBeaconBlockRoot json.RawMessage `json:"parentBeaconBlockRoot"`
-		ParentHash            json.RawMessage `json:"parentHash"`
-		ReceiptsRoot          json.RawMessage `json:"receiptsRoot"`
-		RequestsHash          json.RawMessage `json:"requestsHash"`
-		Sha3uncles            json.RawMessage `json:"sha3Uncles"`
-		SlotNumber            json.RawMessage `json:"slotNumber"`
-		StateRoot             json.RawMessage `json:"stateRoot"`
-		Timestamp             json.RawMessage `json:"timestamp"`
-		TransactionsRoot      json.RawMessage `json:"transactionsRoot"`
-		WithdrawalsRoot       json.RawMessage `json:"withdrawalsRoot"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("Header: expected object: %w", err)
 	}
-	if len(fields.BaseFeePerGas) == 0 {
+	for key, member := range members {
+		switch key {
+		case "baseFeePerGas", "blobGasUsed", "blockAccessListHash", "difficulty", "excessBlobGas", "extraData", "gasLimit", "gasUsed", "hash", "logsBloom", "miner", "mixHash", "nonce", "number", "parentBeaconBlockRoot", "parentHash", "receiptsRoot", "requestsHash", "sha3Uncles", "slotNumber", "stateRoot", "timestamp", "transactionsRoot", "withdrawalsRoot":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("Header: unknown property %q", key)
+	}
+	if len(members["baseFeePerGas"]) == 0 {
 	} else {
-		value, err := parseValue207(fields.BaseFeePerGas)
+		value, err := parseValue207(members["baseFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BaseFeePerGas = &value
 	}
-	if len(fields.BlobGasUsed) == 0 {
+	if len(members["blobGasUsed"]) == 0 {
 	} else {
-		value, err := parseValue208(fields.BlobGasUsed)
+		value, err := parseValue208(members["blobGasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlobGasUsed = &value
 	}
-	if len(fields.BlockAccessListHash) == 0 {
+	if len(members["blockAccessListHash"]) == 0 {
 	} else {
-		value, err := parseValue209(fields.BlockAccessListHash)
+		value, err := parseValue209(members["blockAccessListHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockAccessListHash = &value
 	}
-	if len(fields.Difficulty) == 0 {
+	if len(members["difficulty"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field difficulty")
 	} else {
-		value, err := parseValue210(fields.Difficulty)
+		value, err := parseValue210(members["difficulty"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Difficulty = value
 	}
-	if len(fields.ExcessBlobGas) == 0 {
+	if len(members["excessBlobGas"]) == 0 {
 	} else {
-		value, err := parseValue211(fields.ExcessBlobGas)
+		value, err := parseValue211(members["excessBlobGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ExcessBlobGas = &value
 	}
-	if len(fields.ExtraData) == 0 {
+	if len(members["extraData"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field extraData")
 	} else {
-		value, err := parseValue212(fields.ExtraData)
+		value, err := parseValue212(members["extraData"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ExtraData = value
 	}
-	if len(fields.GasLimit) == 0 {
+	if len(members["gasLimit"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field gasLimit")
 	} else {
-		value, err := parseValue213(fields.GasLimit)
+		value, err := parseValue213(members["gasLimit"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasLimit = value
 	}
-	if len(fields.GasUsed) == 0 {
+	if len(members["gasUsed"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field gasUsed")
 	} else {
-		value, err := parseValue214(fields.GasUsed)
+		value, err := parseValue214(members["gasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasUsed = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field hash")
 	} else {
-		value, err := parseValue215(fields.Hash)
+		value, err := parseValue215(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.LogsBloom) == 0 {
+	if len(members["logsBloom"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field logsBloom")
 	} else {
-		value, err := parseValue216(fields.LogsBloom)
+		value, err := parseValue216(members["logsBloom"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.LogsBloom = value
 	}
-	if len(fields.Miner) == 0 {
+	if len(members["miner"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field miner")
 	} else {
-		value, err := parseValue217(fields.Miner)
+		value, err := parseValue217(members["miner"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Miner = value
 	}
-	if len(fields.MixHash) == 0 {
+	if len(members["mixHash"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field mixHash")
 	} else {
-		value, err := parseValue218(fields.MixHash)
+		value, err := parseValue218(members["mixHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MixHash = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field nonce")
 	} else {
-		value, err := parseValue219(fields.Nonce)
+		value, err := parseValue219(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.Number) == 0 {
+	if len(members["number"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field number")
 	} else {
-		value, err := parseValue220(fields.Number)
+		value, err := parseValue220(members["number"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Number = value
 	}
-	if len(fields.ParentBeaconBlockRoot) == 0 {
+	if len(members["parentBeaconBlockRoot"]) == 0 {
 	} else {
-		value, err := parseValue221(fields.ParentBeaconBlockRoot)
+		value, err := parseValue221(members["parentBeaconBlockRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ParentBeaconBlockRoot = &value
 	}
-	if len(fields.ParentHash) == 0 {
+	if len(members["parentHash"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field parentHash")
 	} else {
-		value, err := parseValue222(fields.ParentHash)
+		value, err := parseValue222(members["parentHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ParentHash = value
 	}
-	if len(fields.ReceiptsRoot) == 0 {
+	if len(members["receiptsRoot"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field receiptsRoot")
 	} else {
-		value, err := parseValue223(fields.ReceiptsRoot)
+		value, err := parseValue223(members["receiptsRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ReceiptsRoot = value
 	}
-	if len(fields.RequestsHash) == 0 {
+	if len(members["requestsHash"]) == 0 {
 	} else {
-		value, err := parseValue224(fields.RequestsHash)
+		value, err := parseValue224(members["requestsHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.RequestsHash = &value
 	}
-	if len(fields.Sha3uncles) == 0 {
+	if len(members["sha3Uncles"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field sha3Uncles")
 	} else {
-		value, err := parseValue225(fields.Sha3uncles)
+		value, err := parseValue225(members["sha3Uncles"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Sha3uncles = value
 	}
-	if len(fields.SlotNumber) == 0 {
+	if len(members["slotNumber"]) == 0 {
 	} else {
-		value, err := parseValue226(fields.SlotNumber)
+		value, err := parseValue226(members["slotNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.SlotNumber = &value
 	}
-	if len(fields.StateRoot) == 0 {
+	if len(members["stateRoot"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field stateRoot")
 	} else {
-		value, err := parseValue227(fields.StateRoot)
+		value, err := parseValue227(members["stateRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.StateRoot = value
 	}
-	if len(fields.Timestamp) == 0 {
+	if len(members["timestamp"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field timestamp")
 	} else {
-		value, err := parseValue228(fields.Timestamp)
+		value, err := parseValue228(members["timestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Timestamp = value
 	}
-	if len(fields.TransactionsRoot) == 0 {
+	if len(members["transactionsRoot"]) == 0 {
 		return out, fmt.Errorf("Header: missing required field transactionsRoot")
 	} else {
-		value, err := parseValue229(fields.TransactionsRoot)
+		value, err := parseValue229(members["transactionsRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.TransactionsRoot = value
 	}
-	if len(fields.WithdrawalsRoot) == 0 {
+	if len(members["withdrawalsRoot"]) == 0 {
 	} else {
-		value, err := parseValue230(fields.WithdrawalsRoot)
+		value, err := parseValue230(members["withdrawalsRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -9884,40 +9809,47 @@ type StorageProof struct {
 }
 
 func NewStorageProof(raw json.RawMessage) (StorageProof, error) {
+	return parseStorageProof(raw, false)
+}
+func parseStorageProof(raw json.RawMessage, keepStrings bool) (StorageProof, error) {
 	var out StorageProof
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("StorageProof: expected a non-null object")
 	}
-	var fields struct {
-		Key   json.RawMessage `json:"key"`
-		Proof json.RawMessage `json:"proof"`
-		Value json.RawMessage `json:"value"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("StorageProof: expected object: %w", err)
 	}
-	if len(fields.Key) == 0 {
+	for key, member := range members {
+		switch key {
+		case "key", "proof", "value":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("StorageProof: unknown property %q", key)
+	}
+	if len(members["key"]) == 0 {
 		return out, fmt.Errorf("StorageProof: missing required field key")
 	} else {
-		value, err := parseValue243(fields.Key)
+		value, err := parseValue243(members["key"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Key = value
 	}
-	if len(fields.Proof) == 0 {
+	if len(members["proof"]) == 0 {
 		return out, fmt.Errorf("StorageProof: missing required field proof")
 	} else {
-		value, err := parseValue245(fields.Proof)
+		value, err := parseValue245(members["proof"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Proof = value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("StorageProof: missing required field value")
 	} else {
-		value, err := parseValue246(fields.Value)
+		value, err := parseValue246(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -9950,80 +9882,83 @@ type AccountProofResult struct {
 }
 
 func NewAccountProofResult(raw json.RawMessage) (AccountProofResult, error) {
+	return parseAccountProofResult(raw, false)
+}
+func parseAccountProofResult(raw json.RawMessage, keepStrings bool) (AccountProofResult, error) {
 	var out AccountProofResult
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("AccountProofResult: expected a non-null object")
 	}
-	var fields struct {
-		AccountProof json.RawMessage `json:"accountProof"`
-		Address      json.RawMessage `json:"address"`
-		Balance      json.RawMessage `json:"balance"`
-		CodeHash     json.RawMessage `json:"codeHash"`
-		Nonce        json.RawMessage `json:"nonce"`
-		StorageHash  json.RawMessage `json:"storageHash"`
-		StorageProof json.RawMessage `json:"storageProof"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("AccountProofResult: expected object: %w", err)
 	}
-	if len(fields.AccountProof) == 0 {
+	for key, member := range members {
+		switch key {
+		case "accountProof", "address", "balance", "codeHash", "nonce", "storageHash", "storageProof":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("AccountProofResult: unknown property %q", key)
+	}
+	if len(members["accountProof"]) == 0 {
 		return out, fmt.Errorf("AccountProofResult: missing required field accountProof")
 	} else {
-		value, err := parseValue237(fields.AccountProof)
+		value, err := parseValue237(members["accountProof"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccountProof = value
 	}
-	if len(fields.Address) == 0 {
+	if len(members["address"]) == 0 {
 		return out, fmt.Errorf("AccountProofResult: missing required field address")
 	} else {
-		value, err := parseValue238(fields.Address)
+		value, err := parseValue238(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Address = value
 	}
-	if len(fields.Balance) == 0 {
+	if len(members["balance"]) == 0 {
 		return out, fmt.Errorf("AccountProofResult: missing required field balance")
 	} else {
-		value, err := parseValue239(fields.Balance)
+		value, err := parseValue239(members["balance"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Balance = value
 	}
-	if len(fields.CodeHash) == 0 {
+	if len(members["codeHash"]) == 0 {
 		return out, fmt.Errorf("AccountProofResult: missing required field codeHash")
 	} else {
-		value, err := parseValue240(fields.CodeHash)
+		value, err := parseValue240(members["codeHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.CodeHash = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("AccountProofResult: missing required field nonce")
 	} else {
-		value, err := parseValue241(fields.Nonce)
+		value, err := parseValue241(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.StorageHash) == 0 {
+	if len(members["storageHash"]) == 0 {
 		return out, fmt.Errorf("AccountProofResult: missing required field storageHash")
 	} else {
-		value, err := parseValue242(fields.StorageHash)
+		value, err := parseValue242(members["storageHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.StorageHash = value
 	}
-	if len(fields.StorageProof) == 0 {
+	if len(members["storageProof"]) == 0 {
 		return out, fmt.Errorf("AccountProofResult: missing required field storageProof")
 	} else {
-		value, err := parseValue247(fields.StorageProof)
+		value, err := parseValue247(members["storageProof"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -10079,228 +10014,208 @@ type SetCodeTransaction struct {
 }
 
 func NewSetCodeTransaction(raw json.RawMessage) (SetCodeTransaction, error) {
+	return parseSetCodeTransaction(raw, false)
+}
+func parseSetCodeTransaction(raw json.RawMessage, keepStrings bool) (SetCodeTransaction, error) {
 	var out SetCodeTransaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SetCodeTransaction: expected a non-null object")
 	}
-	var fields struct {
-		AccessList           json.RawMessage `json:"accessList"`
-		AuthorizationList    json.RawMessage `json:"authorizationList"`
-		ChainId              json.RawMessage `json:"chainId"`
-		Gas                  json.RawMessage `json:"gas"`
-		GasPrice             json.RawMessage `json:"gasPrice"`
-		Input                json.RawMessage `json:"input"`
-		MaxFeePerGas         json.RawMessage `json:"maxFeePerGas"`
-		MaxPriorityFeePerGas json.RawMessage `json:"maxPriorityFeePerGas"`
-		Nonce                json.RawMessage `json:"nonce"`
-		R                    json.RawMessage `json:"r"`
-		S                    json.RawMessage `json:"s"`
-		To                   json.RawMessage `json:"to"`
-		Type                 json.RawMessage `json:"type"`
-		V                    json.RawMessage `json:"v"`
-		Value                json.RawMessage `json:"value"`
-		YParity              json.RawMessage `json:"yParity"`
-		BlockHash            json.RawMessage `json:"blockHash"`
-		BlockNumber          json.RawMessage `json:"blockNumber"`
-		BlockTimestamp       json.RawMessage `json:"blockTimestamp"`
-		From                 json.RawMessage `json:"from"`
-		Hash                 json.RawMessage `json:"hash"`
-		TransactionIndex     json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("SetCodeTransaction: expected object: %w", err)
 	}
-	if len(fields.AccessList) == 0 {
+	if len(members["accessList"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field accessList")
 	} else {
-		value, err := parseValue249(fields.AccessList)
+		value, err := parseValue249(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccessList = value
 	}
-	if len(fields.AuthorizationList) == 0 {
+	if len(members["authorizationList"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field authorizationList")
 	} else {
-		value, err := parseValue250(fields.AuthorizationList)
+		value, err := parseValue250(members["authorizationList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AuthorizationList = value
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field chainId")
 	} else {
-		value, err := parseValue251(fields.ChainId)
+		value, err := parseValue251(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field gas")
 	} else {
-		value, err := parseValue252(fields.Gas)
+		value, err := parseValue252(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 	} else {
-		value, err := parseValue253(fields.GasPrice)
+		value, err := parseValue253(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = &value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field input")
 	} else {
-		value, err := parseValue254(fields.Input)
+		value, err := parseValue254(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.MaxFeePerGas) == 0 {
+	if len(members["maxFeePerGas"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field maxFeePerGas")
 	} else {
-		value, err := parseValue255(fields.MaxFeePerGas)
+		value, err := parseValue255(members["maxFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxFeePerGas = value
 	}
-	if len(fields.MaxPriorityFeePerGas) == 0 {
+	if len(members["maxPriorityFeePerGas"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field maxPriorityFeePerGas")
 	} else {
-		value, err := parseValue256(fields.MaxPriorityFeePerGas)
+		value, err := parseValue256(members["maxPriorityFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxPriorityFeePerGas = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field nonce")
 	} else {
-		value, err := parseValue257(fields.Nonce)
+		value, err := parseValue257(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field r")
 	} else {
-		value, err := parseValue258(fields.R)
+		value, err := parseValue258(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field s")
 	} else {
-		value, err := parseValue259(fields.S)
+		value, err := parseValue259(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field to")
 	} else {
-		value, err := parseValue260(fields.To)
+		value, err := parseValue260(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field type")
 	} else {
-		value, err := parseValue261(fields.Type)
+		value, err := parseValue261(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 	} else {
-		value, err := parseValue262(fields.V)
+		value, err := parseValue262(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = &value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field value")
 	} else {
-		value, err := parseValue263(fields.Value)
+		value, err := parseValue263(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.YParity) == 0 {
+	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field yParity")
 	} else {
-		value, err := parseValue264(fields.YParity)
+		value, err := parseValue264(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.YParity = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field blockHash")
 	} else {
-		value, err := parseValue266(fields.BlockHash)
+		value, err := parseValue266(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue268(fields.BlockNumber)
+		value, err := parseValue268(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue270(fields.BlockTimestamp)
+		value, err := parseValue270(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field from")
 	} else {
-		value, err := parseValue271(fields.From)
+		value, err := parseValue271(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field hash")
 	} else {
-		value, err := parseValue272(fields.Hash)
+		value, err := parseValue272(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("SetCodeTransaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue274(fields.TransactionIndex)
+		value, err := parseValue274(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -10387,238 +10302,217 @@ type BlobTransaction struct {
 }
 
 func NewBlobTransaction(raw json.RawMessage) (BlobTransaction, error) {
+	return parseBlobTransaction(raw, false)
+}
+func parseBlobTransaction(raw json.RawMessage, keepStrings bool) (BlobTransaction, error) {
 	var out BlobTransaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlobTransaction: expected a non-null object")
 	}
-	var fields struct {
-		AccessList           json.RawMessage `json:"accessList"`
-		BlobVersionedHashes  json.RawMessage `json:"blobVersionedHashes"`
-		ChainId              json.RawMessage `json:"chainId"`
-		Gas                  json.RawMessage `json:"gas"`
-		GasPrice             json.RawMessage `json:"gasPrice"`
-		Input                json.RawMessage `json:"input"`
-		MaxFeePerBlobGas     json.RawMessage `json:"maxFeePerBlobGas"`
-		MaxFeePerGas         json.RawMessage `json:"maxFeePerGas"`
-		MaxPriorityFeePerGas json.RawMessage `json:"maxPriorityFeePerGas"`
-		Nonce                json.RawMessage `json:"nonce"`
-		R                    json.RawMessage `json:"r"`
-		S                    json.RawMessage `json:"s"`
-		To                   json.RawMessage `json:"to"`
-		Type                 json.RawMessage `json:"type"`
-		V                    json.RawMessage `json:"v"`
-		Value                json.RawMessage `json:"value"`
-		YParity              json.RawMessage `json:"yParity"`
-		BlockHash            json.RawMessage `json:"blockHash"`
-		BlockNumber          json.RawMessage `json:"blockNumber"`
-		BlockTimestamp       json.RawMessage `json:"blockTimestamp"`
-		From                 json.RawMessage `json:"from"`
-		Hash                 json.RawMessage `json:"hash"`
-		TransactionIndex     json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("BlobTransaction: expected object: %w", err)
 	}
-	if len(fields.AccessList) == 0 {
+	if len(members["accessList"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field accessList")
 	} else {
-		value, err := parseValue275(fields.AccessList)
+		value, err := parseValue275(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccessList = value
 	}
-	if len(fields.BlobVersionedHashes) == 0 {
+	if len(members["blobVersionedHashes"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field blobVersionedHashes")
 	} else {
-		value, err := parseValue277(fields.BlobVersionedHashes)
+		value, err := parseValue277(members["blobVersionedHashes"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlobVersionedHashes = value
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field chainId")
 	} else {
-		value, err := parseValue278(fields.ChainId)
+		value, err := parseValue278(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field gas")
 	} else {
-		value, err := parseValue279(fields.Gas)
+		value, err := parseValue279(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 	} else {
-		value, err := parseValue280(fields.GasPrice)
+		value, err := parseValue280(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = &value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field input")
 	} else {
-		value, err := parseValue281(fields.Input)
+		value, err := parseValue281(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.MaxFeePerBlobGas) == 0 {
+	if len(members["maxFeePerBlobGas"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field maxFeePerBlobGas")
 	} else {
-		value, err := parseValue282(fields.MaxFeePerBlobGas)
+		value, err := parseValue282(members["maxFeePerBlobGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxFeePerBlobGas = value
 	}
-	if len(fields.MaxFeePerGas) == 0 {
+	if len(members["maxFeePerGas"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field maxFeePerGas")
 	} else {
-		value, err := parseValue283(fields.MaxFeePerGas)
+		value, err := parseValue283(members["maxFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxFeePerGas = value
 	}
-	if len(fields.MaxPriorityFeePerGas) == 0 {
+	if len(members["maxPriorityFeePerGas"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field maxPriorityFeePerGas")
 	} else {
-		value, err := parseValue284(fields.MaxPriorityFeePerGas)
+		value, err := parseValue284(members["maxPriorityFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxPriorityFeePerGas = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field nonce")
 	} else {
-		value, err := parseValue285(fields.Nonce)
+		value, err := parseValue285(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field r")
 	} else {
-		value, err := parseValue286(fields.R)
+		value, err := parseValue286(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field s")
 	} else {
-		value, err := parseValue287(fields.S)
+		value, err := parseValue287(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field to")
 	} else {
-		value, err := parseValue288(fields.To)
+		value, err := parseValue288(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field type")
 	} else {
-		value, err := parseValue289(fields.Type)
+		value, err := parseValue289(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 	} else {
-		value, err := parseValue290(fields.V)
+		value, err := parseValue290(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = &value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field value")
 	} else {
-		value, err := parseValue291(fields.Value)
+		value, err := parseValue291(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.YParity) == 0 {
+	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field yParity")
 	} else {
-		value, err := parseValue292(fields.YParity)
+		value, err := parseValue292(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.YParity = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field blockHash")
 	} else {
-		value, err := parseValue294(fields.BlockHash)
+		value, err := parseValue294(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue296(fields.BlockNumber)
+		value, err := parseValue296(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue298(fields.BlockTimestamp)
+		value, err := parseValue298(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field from")
 	} else {
-		value, err := parseValue299(fields.From)
+		value, err := parseValue299(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field hash")
 	} else {
-		value, err := parseValue300(fields.Hash)
+		value, err := parseValue300(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("BlobTransaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue302(fields.TransactionIndex)
+		value, err := parseValue302(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -10705,218 +10599,199 @@ type EIP1559Transaction struct {
 }
 
 func NewEIP1559Transaction(raw json.RawMessage) (EIP1559Transaction, error) {
+	return parseEIP1559Transaction(raw, false)
+}
+func parseEIP1559Transaction(raw json.RawMessage, keepStrings bool) (EIP1559Transaction, error) {
 	var out EIP1559Transaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("EIP1559Transaction: expected a non-null object")
 	}
-	var fields struct {
-		AccessList           json.RawMessage `json:"accessList"`
-		ChainId              json.RawMessage `json:"chainId"`
-		Gas                  json.RawMessage `json:"gas"`
-		GasPrice             json.RawMessage `json:"gasPrice"`
-		Input                json.RawMessage `json:"input"`
-		MaxFeePerGas         json.RawMessage `json:"maxFeePerGas"`
-		MaxPriorityFeePerGas json.RawMessage `json:"maxPriorityFeePerGas"`
-		Nonce                json.RawMessage `json:"nonce"`
-		R                    json.RawMessage `json:"r"`
-		S                    json.RawMessage `json:"s"`
-		To                   json.RawMessage `json:"to"`
-		Type                 json.RawMessage `json:"type"`
-		V                    json.RawMessage `json:"v"`
-		Value                json.RawMessage `json:"value"`
-		YParity              json.RawMessage `json:"yParity"`
-		BlockHash            json.RawMessage `json:"blockHash"`
-		BlockNumber          json.RawMessage `json:"blockNumber"`
-		BlockTimestamp       json.RawMessage `json:"blockTimestamp"`
-		From                 json.RawMessage `json:"from"`
-		Hash                 json.RawMessage `json:"hash"`
-		TransactionIndex     json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("EIP1559Transaction: expected object: %w", err)
 	}
-	if len(fields.AccessList) == 0 {
+	if len(members["accessList"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field accessList")
 	} else {
-		value, err := parseValue303(fields.AccessList)
+		value, err := parseValue303(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccessList = value
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field chainId")
 	} else {
-		value, err := parseValue304(fields.ChainId)
+		value, err := parseValue304(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field gas")
 	} else {
-		value, err := parseValue305(fields.Gas)
+		value, err := parseValue305(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field gasPrice")
 	} else {
-		value, err := parseValue306(fields.GasPrice)
+		value, err := parseValue306(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field input")
 	} else {
-		value, err := parseValue307(fields.Input)
+		value, err := parseValue307(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.MaxFeePerGas) == 0 {
+	if len(members["maxFeePerGas"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field maxFeePerGas")
 	} else {
-		value, err := parseValue308(fields.MaxFeePerGas)
+		value, err := parseValue308(members["maxFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxFeePerGas = value
 	}
-	if len(fields.MaxPriorityFeePerGas) == 0 {
+	if len(members["maxPriorityFeePerGas"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field maxPriorityFeePerGas")
 	} else {
-		value, err := parseValue309(fields.MaxPriorityFeePerGas)
+		value, err := parseValue309(members["maxPriorityFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxPriorityFeePerGas = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field nonce")
 	} else {
-		value, err := parseValue310(fields.Nonce)
+		value, err := parseValue310(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field r")
 	} else {
-		value, err := parseValue311(fields.R)
+		value, err := parseValue311(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field s")
 	} else {
-		value, err := parseValue312(fields.S)
+		value, err := parseValue312(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 	} else {
-		value, err := parseValue314(fields.To)
+		value, err := parseValue314(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = &value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field type")
 	} else {
-		value, err := parseValue315(fields.Type)
+		value, err := parseValue315(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 	} else {
-		value, err := parseValue316(fields.V)
+		value, err := parseValue316(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = &value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field value")
 	} else {
-		value, err := parseValue317(fields.Value)
+		value, err := parseValue317(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.YParity) == 0 {
+	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field yParity")
 	} else {
-		value, err := parseValue318(fields.YParity)
+		value, err := parseValue318(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.YParity = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field blockHash")
 	} else {
-		value, err := parseValue320(fields.BlockHash)
+		value, err := parseValue320(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue322(fields.BlockNumber)
+		value, err := parseValue322(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue324(fields.BlockTimestamp)
+		value, err := parseValue324(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field from")
 	} else {
-		value, err := parseValue325(fields.From)
+		value, err := parseValue325(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field hash")
 	} else {
-		value, err := parseValue326(fields.Hash)
+		value, err := parseValue326(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("EIP1559Transaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue328(fields.TransactionIndex)
+		value, err := parseValue328(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -10997,198 +10872,181 @@ type AccessListTransaction struct {
 }
 
 func NewAccessListTransaction(raw json.RawMessage) (AccessListTransaction, error) {
+	return parseAccessListTransaction(raw, false)
+}
+func parseAccessListTransaction(raw json.RawMessage, keepStrings bool) (AccessListTransaction, error) {
 	var out AccessListTransaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("AccessListTransaction: expected a non-null object")
 	}
-	var fields struct {
-		AccessList       json.RawMessage `json:"accessList"`
-		ChainId          json.RawMessage `json:"chainId"`
-		Gas              json.RawMessage `json:"gas"`
-		GasPrice         json.RawMessage `json:"gasPrice"`
-		Input            json.RawMessage `json:"input"`
-		Nonce            json.RawMessage `json:"nonce"`
-		R                json.RawMessage `json:"r"`
-		S                json.RawMessage `json:"s"`
-		To               json.RawMessage `json:"to"`
-		Type             json.RawMessage `json:"type"`
-		V                json.RawMessage `json:"v"`
-		Value            json.RawMessage `json:"value"`
-		YParity          json.RawMessage `json:"yParity"`
-		BlockHash        json.RawMessage `json:"blockHash"`
-		BlockNumber      json.RawMessage `json:"blockNumber"`
-		BlockTimestamp   json.RawMessage `json:"blockTimestamp"`
-		From             json.RawMessage `json:"from"`
-		Hash             json.RawMessage `json:"hash"`
-		TransactionIndex json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("AccessListTransaction: expected object: %w", err)
 	}
-	if len(fields.AccessList) == 0 {
+	if len(members["accessList"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field accessList")
 	} else {
-		value, err := parseValue329(fields.AccessList)
+		value, err := parseValue329(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.AccessList = value
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field chainId")
 	} else {
-		value, err := parseValue330(fields.ChainId)
+		value, err := parseValue330(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field gas")
 	} else {
-		value, err := parseValue331(fields.Gas)
+		value, err := parseValue331(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field gasPrice")
 	} else {
-		value, err := parseValue332(fields.GasPrice)
+		value, err := parseValue332(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field input")
 	} else {
-		value, err := parseValue333(fields.Input)
+		value, err := parseValue333(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field nonce")
 	} else {
-		value, err := parseValue334(fields.Nonce)
+		value, err := parseValue334(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field r")
 	} else {
-		value, err := parseValue335(fields.R)
+		value, err := parseValue335(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field s")
 	} else {
-		value, err := parseValue336(fields.S)
+		value, err := parseValue336(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 	} else {
-		value, err := parseValue338(fields.To)
+		value, err := parseValue338(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = &value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field type")
 	} else {
-		value, err := parseValue339(fields.Type)
+		value, err := parseValue339(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 	} else {
-		value, err := parseValue340(fields.V)
+		value, err := parseValue340(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = &value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field value")
 	} else {
-		value, err := parseValue341(fields.Value)
+		value, err := parseValue341(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.YParity) == 0 {
+	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field yParity")
 	} else {
-		value, err := parseValue342(fields.YParity)
+		value, err := parseValue342(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.YParity = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field blockHash")
 	} else {
-		value, err := parseValue344(fields.BlockHash)
+		value, err := parseValue344(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue346(fields.BlockNumber)
+		value, err := parseValue346(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue348(fields.BlockTimestamp)
+		value, err := parseValue348(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field from")
 	} else {
-		value, err := parseValue349(fields.From)
+		value, err := parseValue349(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field hash")
 	} else {
-		value, err := parseValue350(fields.Hash)
+		value, err := parseValue350(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("AccessListTransaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue352(fields.TransactionIndex)
+		value, err := parseValue352(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -11263,178 +11121,163 @@ type LegacyTransaction struct {
 }
 
 func NewLegacyTransaction(raw json.RawMessage) (LegacyTransaction, error) {
+	return parseLegacyTransaction(raw, false)
+}
+func parseLegacyTransaction(raw json.RawMessage, keepStrings bool) (LegacyTransaction, error) {
 	var out LegacyTransaction
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("LegacyTransaction: expected a non-null object")
 	}
-	var fields struct {
-		ChainId          json.RawMessage `json:"chainId"`
-		Gas              json.RawMessage `json:"gas"`
-		GasPrice         json.RawMessage `json:"gasPrice"`
-		Input            json.RawMessage `json:"input"`
-		Nonce            json.RawMessage `json:"nonce"`
-		R                json.RawMessage `json:"r"`
-		S                json.RawMessage `json:"s"`
-		To               json.RawMessage `json:"to"`
-		Type             json.RawMessage `json:"type"`
-		V                json.RawMessage `json:"v"`
-		Value            json.RawMessage `json:"value"`
-		BlockHash        json.RawMessage `json:"blockHash"`
-		BlockNumber      json.RawMessage `json:"blockNumber"`
-		BlockTimestamp   json.RawMessage `json:"blockTimestamp"`
-		From             json.RawMessage `json:"from"`
-		Hash             json.RawMessage `json:"hash"`
-		TransactionIndex json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("LegacyTransaction: expected object: %w", err)
 	}
-	if len(fields.ChainId) == 0 {
+	if len(members["chainId"]) == 0 {
 	} else {
-		value, err := parseValue353(fields.ChainId)
+		value, err := parseValue353(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ChainId = &value
 	}
-	if len(fields.Gas) == 0 {
+	if len(members["gas"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field gas")
 	} else {
-		value, err := parseValue354(fields.Gas)
+		value, err := parseValue354(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Gas = value
 	}
-	if len(fields.GasPrice) == 0 {
+	if len(members["gasPrice"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field gasPrice")
 	} else {
-		value, err := parseValue355(fields.GasPrice)
+		value, err := parseValue355(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasPrice = value
 	}
-	if len(fields.Input) == 0 {
+	if len(members["input"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field input")
 	} else {
-		value, err := parseValue356(fields.Input)
+		value, err := parseValue356(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Input = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field nonce")
 	} else {
-		value, err := parseValue357(fields.Nonce)
+		value, err := parseValue357(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.R) == 0 {
+	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field r")
 	} else {
-		value, err := parseValue358(fields.R)
+		value, err := parseValue358(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.R = value
 	}
-	if len(fields.S) == 0 {
+	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field s")
 	} else {
-		value, err := parseValue359(fields.S)
+		value, err := parseValue359(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.S = value
 	}
-	if len(fields.To) == 0 {
+	if len(members["to"]) == 0 {
 	} else {
-		value, err := parseValue361(fields.To)
+		value, err := parseValue361(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.To = &value
 	}
-	if len(fields.Type) == 0 {
+	if len(members["type"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field type")
 	} else {
-		value, err := parseValue362(fields.Type)
+		value, err := parseValue362(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Type = value
 	}
-	if len(fields.V) == 0 {
+	if len(members["v"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field v")
 	} else {
-		value, err := parseValue363(fields.V)
+		value, err := parseValue363(members["v"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.V = value
 	}
-	if len(fields.Value) == 0 {
+	if len(members["value"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field value")
 	} else {
-		value, err := parseValue364(fields.Value)
+		value, err := parseValue364(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Value = value
 	}
-	if len(fields.BlockHash) == 0 {
+	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field blockHash")
 	} else {
-		value, err := parseValue366(fields.BlockHash)
+		value, err := parseValue366(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockHash = value
 	}
-	if len(fields.BlockNumber) == 0 {
+	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field blockNumber")
 	} else {
-		value, err := parseValue368(fields.BlockNumber)
+		value, err := parseValue368(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockNumber = value
 	}
-	if len(fields.BlockTimestamp) == 0 {
+	if len(members["blockTimestamp"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field blockTimestamp")
 	} else {
-		value, err := parseValue370(fields.BlockTimestamp)
+		value, err := parseValue370(members["blockTimestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockTimestamp = value
 	}
-	if len(fields.From) == 0 {
+	if len(members["from"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field from")
 	} else {
-		value, err := parseValue371(fields.From)
+		value, err := parseValue371(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.From = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field hash")
 	} else {
-		value, err := parseValue372(fields.Hash)
+		value, err := parseValue372(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.TransactionIndex) == 0 {
+	if len(members["transactionIndex"]) == 0 {
 		return out, fmt.Errorf("LegacyTransaction: missing required field transactionIndex")
 	} else {
-		value, err := parseValue374(fields.TransactionIndex)
+		value, err := parseValue374(members["transactionIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -11490,30 +11333,30 @@ type SimulateErrorRevert struct {
 }
 
 func NewSimulateErrorRevert(raw json.RawMessage) (SimulateErrorRevert, error) {
+	return parseSimulateErrorRevert(raw, false)
+}
+func parseSimulateErrorRevert(raw json.RawMessage, keepStrings bool) (SimulateErrorRevert, error) {
 	var out SimulateErrorRevert
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SimulateErrorRevert: expected a non-null object")
 	}
-	var fields struct {
-		Code    json.RawMessage `json:"code"`
-		Message json.RawMessage `json:"message"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("SimulateErrorRevert: expected object: %w", err)
 	}
-	if len(fields.Code) == 0 {
+	if len(members["code"]) == 0 {
 		return out, fmt.Errorf("SimulateErrorRevert: missing required field code")
 	} else {
-		value, err := parseValue383(fields.Code)
+		value, err := parseValue383(members["code"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Code = value
 	}
-	if len(fields.Message) == 0 {
+	if len(members["message"]) == 0 {
 		return out, fmt.Errorf("SimulateErrorRevert: missing required field message")
 	} else {
-		value, err := parseValue384(fields.Message)
+		value, err := parseValue384(members["message"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -11539,30 +11382,30 @@ type SimulateErrorVM struct {
 }
 
 func NewSimulateErrorVM(raw json.RawMessage) (SimulateErrorVM, error) {
+	return parseSimulateErrorVM(raw, false)
+}
+func parseSimulateErrorVM(raw json.RawMessage, keepStrings bool) (SimulateErrorVM, error) {
 	var out SimulateErrorVM
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SimulateErrorVM: expected a non-null object")
 	}
-	var fields struct {
-		Code    json.RawMessage `json:"code"`
-		Message json.RawMessage `json:"message"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("SimulateErrorVM: expected object: %w", err)
 	}
-	if len(fields.Code) == 0 {
+	if len(members["code"]) == 0 {
 		return out, fmt.Errorf("SimulateErrorVM: missing required field code")
 	} else {
-		value, err := parseValue385(fields.Code)
+		value, err := parseValue385(members["code"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Code = value
 	}
-	if len(fields.Message) == 0 {
+	if len(members["message"]) == 0 {
 		return out, fmt.Errorf("SimulateErrorVM: missing required field message")
 	} else {
-		value, err := parseValue386(fields.Message)
+		value, err := parseValue386(members["message"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -11591,59 +11434,56 @@ type SimulateCallFailure struct {
 }
 
 func NewSimulateCallFailure(raw json.RawMessage) (SimulateCallFailure, error) {
+	return parseSimulateCallFailure(raw, false)
+}
+func parseSimulateCallFailure(raw json.RawMessage, keepStrings bool) (SimulateCallFailure, error) {
 	var out SimulateCallFailure
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SimulateCallFailure: expected a non-null object")
 	}
-	var fields struct {
-		Error      json.RawMessage `json:"error"`
-		GasUsed    json.RawMessage `json:"gasUsed"`
-		MaxUsedGas json.RawMessage `json:"maxUsedGas"`
-		ReturnData json.RawMessage `json:"returnData"`
-		Status     json.RawMessage `json:"status"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("SimulateCallFailure: expected object: %w", err)
 	}
-	if len(fields.Error) == 0 {
+	if len(members["error"]) == 0 {
 		return out, fmt.Errorf("SimulateCallFailure: missing required field error")
 	} else {
-		value, err := NewSimulateCallError(fields.Error)
+		value, err := parseSimulateCallError(members["error"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Error = value
 	}
-	if len(fields.GasUsed) == 0 {
+	if len(members["gasUsed"]) == 0 {
 		return out, fmt.Errorf("SimulateCallFailure: missing required field gasUsed")
 	} else {
-		value, err := parseValue387(fields.GasUsed)
+		value, err := parseValue387(members["gasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasUsed = value
 	}
-	if len(fields.MaxUsedGas) == 0 {
+	if len(members["maxUsedGas"]) == 0 {
 	} else {
-		value, err := parseValue388(fields.MaxUsedGas)
+		value, err := parseValue388(members["maxUsedGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxUsedGas = &value
 	}
-	if len(fields.ReturnData) == 0 {
+	if len(members["returnData"]) == 0 {
 		return out, fmt.Errorf("SimulateCallFailure: missing required field returnData")
 	} else {
-		value, err := parseValue389(fields.ReturnData)
+		value, err := parseValue389(members["returnData"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ReturnData = value
 	}
-	if len(fields.Status) == 0 {
+	if len(members["status"]) == 0 {
 		return out, fmt.Errorf("SimulateCallFailure: missing required field status")
 	} else {
-		value, err := parseValue390(fields.Status)
+		value, err := parseValue390(members["status"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -11678,59 +11518,56 @@ type SimulateCallSuccess struct {
 }
 
 func NewSimulateCallSuccess(raw json.RawMessage) (SimulateCallSuccess, error) {
+	return parseSimulateCallSuccess(raw, false)
+}
+func parseSimulateCallSuccess(raw json.RawMessage, keepStrings bool) (SimulateCallSuccess, error) {
 	var out SimulateCallSuccess
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SimulateCallSuccess: expected a non-null object")
 	}
-	var fields struct {
-		GasUsed    json.RawMessage `json:"gasUsed"`
-		Logs       json.RawMessage `json:"logs"`
-		MaxUsedGas json.RawMessage `json:"maxUsedGas"`
-		ReturnData json.RawMessage `json:"returnData"`
-		Status     json.RawMessage `json:"status"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("SimulateCallSuccess: expected object: %w", err)
 	}
-	if len(fields.GasUsed) == 0 {
+	if len(members["gasUsed"]) == 0 {
 		return out, fmt.Errorf("SimulateCallSuccess: missing required field gasUsed")
 	} else {
-		value, err := parseValue391(fields.GasUsed)
+		value, err := parseValue391(members["gasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasUsed = value
 	}
-	if len(fields.Logs) == 0 {
+	if len(members["logs"]) == 0 {
 		return out, fmt.Errorf("SimulateCallSuccess: missing required field logs")
 	} else {
-		value, err := parseValue392(fields.Logs)
+		value, err := parseValue392(members["logs"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Logs = value
 	}
-	if len(fields.MaxUsedGas) == 0 {
+	if len(members["maxUsedGas"]) == 0 {
 	} else {
-		value, err := parseValue393(fields.MaxUsedGas)
+		value, err := parseValue393(members["maxUsedGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MaxUsedGas = &value
 	}
-	if len(fields.ReturnData) == 0 {
+	if len(members["returnData"]) == 0 {
 		return out, fmt.Errorf("SimulateCallSuccess: missing required field returnData")
 	} else {
-		value, err := parseValue394(fields.ReturnData)
+		value, err := parseValue394(members["returnData"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ReturnData = value
 	}
-	if len(fields.Status) == 0 {
+	if len(members["status"]) == 0 {
 		return out, fmt.Errorf("SimulateCallSuccess: missing required field status")
 	} else {
-		value, err := parseValue395(fields.Status)
+		value, err := parseValue395(members["status"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -11789,290 +11626,263 @@ type SimulateBlock struct {
 }
 
 func NewSimulateBlock(raw json.RawMessage) (SimulateBlock, error) {
+	return parseSimulateBlock(raw, false)
+}
+func parseSimulateBlock(raw json.RawMessage, keepStrings bool) (SimulateBlock, error) {
 	var out SimulateBlock
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SimulateBlock: expected a non-null object")
 	}
-	var fields struct {
-		BaseFeePerGas         json.RawMessage `json:"baseFeePerGas"`
-		BlobGasUsed           json.RawMessage `json:"blobGasUsed"`
-		BlockAccessListHash   json.RawMessage `json:"blockAccessListHash"`
-		Calls                 json.RawMessage `json:"calls"`
-		Difficulty            json.RawMessage `json:"difficulty"`
-		ExcessBlobGas         json.RawMessage `json:"excessBlobGas"`
-		ExtraData             json.RawMessage `json:"extraData"`
-		GasLimit              json.RawMessage `json:"gasLimit"`
-		GasUsed               json.RawMessage `json:"gasUsed"`
-		Hash                  json.RawMessage `json:"hash"`
-		LogsBloom             json.RawMessage `json:"logsBloom"`
-		Miner                 json.RawMessage `json:"miner"`
-		MixHash               json.RawMessage `json:"mixHash"`
-		Nonce                 json.RawMessage `json:"nonce"`
-		Number                json.RawMessage `json:"number"`
-		ParentBeaconBlockRoot json.RawMessage `json:"parentBeaconBlockRoot"`
-		ParentHash            json.RawMessage `json:"parentHash"`
-		ReceiptsRoot          json.RawMessage `json:"receiptsRoot"`
-		RequestsHash          json.RawMessage `json:"requestsHash"`
-		Sha3uncles            json.RawMessage `json:"sha3Uncles"`
-		Size                  json.RawMessage `json:"size"`
-		SlotNumber            json.RawMessage `json:"slotNumber"`
-		StateRoot             json.RawMessage `json:"stateRoot"`
-		Timestamp             json.RawMessage `json:"timestamp"`
-		Transactions          json.RawMessage `json:"transactions"`
-		TransactionsRoot      json.RawMessage `json:"transactionsRoot"`
-		Uncles                json.RawMessage `json:"uncles"`
-		Withdrawals           json.RawMessage `json:"withdrawals"`
-		WithdrawalsRoot       json.RawMessage `json:"withdrawalsRoot"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("SimulateBlock: expected object: %w", err)
 	}
-	if len(fields.BaseFeePerGas) == 0 {
+	if len(members["baseFeePerGas"]) == 0 {
 	} else {
-		value, err := parseValue380(fields.BaseFeePerGas)
+		value, err := parseValue380(members["baseFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BaseFeePerGas = &value
 	}
-	if len(fields.BlobGasUsed) == 0 {
+	if len(members["blobGasUsed"]) == 0 {
 	} else {
-		value, err := parseValue381(fields.BlobGasUsed)
+		value, err := parseValue381(members["blobGasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlobGasUsed = &value
 	}
-	if len(fields.BlockAccessListHash) == 0 {
+	if len(members["blockAccessListHash"]) == 0 {
 	} else {
-		value, err := parseValue382(fields.BlockAccessListHash)
+		value, err := parseValue382(members["blockAccessListHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.BlockAccessListHash = &value
 	}
-	if len(fields.Calls) == 0 {
+	if len(members["calls"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field calls")
 	} else {
-		value, err := parseValue396(fields.Calls)
+		value, err := parseValue396(members["calls"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Calls = value
 	}
-	if len(fields.Difficulty) == 0 {
+	if len(members["difficulty"]) == 0 {
 	} else {
-		value, err := parseValue397(fields.Difficulty)
+		value, err := parseValue397(members["difficulty"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Difficulty = &value
 	}
-	if len(fields.ExcessBlobGas) == 0 {
+	if len(members["excessBlobGas"]) == 0 {
 	} else {
-		value, err := parseValue398(fields.ExcessBlobGas)
+		value, err := parseValue398(members["excessBlobGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ExcessBlobGas = &value
 	}
-	if len(fields.ExtraData) == 0 {
+	if len(members["extraData"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field extraData")
 	} else {
-		value, err := parseValue399(fields.ExtraData)
+		value, err := parseValue399(members["extraData"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ExtraData = value
 	}
-	if len(fields.GasLimit) == 0 {
+	if len(members["gasLimit"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field gasLimit")
 	} else {
-		value, err := parseValue400(fields.GasLimit)
+		value, err := parseValue400(members["gasLimit"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasLimit = value
 	}
-	if len(fields.GasUsed) == 0 {
+	if len(members["gasUsed"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field gasUsed")
 	} else {
-		value, err := parseValue401(fields.GasUsed)
+		value, err := parseValue401(members["gasUsed"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.GasUsed = value
 	}
-	if len(fields.Hash) == 0 {
+	if len(members["hash"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field hash")
 	} else {
-		value, err := parseValue402(fields.Hash)
+		value, err := parseValue402(members["hash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Hash = value
 	}
-	if len(fields.LogsBloom) == 0 {
+	if len(members["logsBloom"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field logsBloom")
 	} else {
-		value, err := parseValue403(fields.LogsBloom)
+		value, err := parseValue403(members["logsBloom"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.LogsBloom = value
 	}
-	if len(fields.Miner) == 0 {
+	if len(members["miner"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field miner")
 	} else {
-		value, err := parseValue404(fields.Miner)
+		value, err := parseValue404(members["miner"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Miner = value
 	}
-	if len(fields.MixHash) == 0 {
+	if len(members["mixHash"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field mixHash")
 	} else {
-		value, err := parseValue405(fields.MixHash)
+		value, err := parseValue405(members["mixHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.MixHash = value
 	}
-	if len(fields.Nonce) == 0 {
+	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field nonce")
 	} else {
-		value, err := parseValue406(fields.Nonce)
+		value, err := parseValue406(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Nonce = value
 	}
-	if len(fields.Number) == 0 {
+	if len(members["number"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field number")
 	} else {
-		value, err := parseValue407(fields.Number)
+		value, err := parseValue407(members["number"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Number = value
 	}
-	if len(fields.ParentBeaconBlockRoot) == 0 {
+	if len(members["parentBeaconBlockRoot"]) == 0 {
 	} else {
-		value, err := parseValue408(fields.ParentBeaconBlockRoot)
+		value, err := parseValue408(members["parentBeaconBlockRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ParentBeaconBlockRoot = &value
 	}
-	if len(fields.ParentHash) == 0 {
+	if len(members["parentHash"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field parentHash")
 	} else {
-		value, err := parseValue409(fields.ParentHash)
+		value, err := parseValue409(members["parentHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ParentHash = value
 	}
-	if len(fields.ReceiptsRoot) == 0 {
+	if len(members["receiptsRoot"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field receiptsRoot")
 	} else {
-		value, err := parseValue410(fields.ReceiptsRoot)
+		value, err := parseValue410(members["receiptsRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.ReceiptsRoot = value
 	}
-	if len(fields.RequestsHash) == 0 {
+	if len(members["requestsHash"]) == 0 {
 	} else {
-		value, err := parseValue411(fields.RequestsHash)
+		value, err := parseValue411(members["requestsHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.RequestsHash = &value
 	}
-	if len(fields.Sha3uncles) == 0 {
+	if len(members["sha3Uncles"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field sha3Uncles")
 	} else {
-		value, err := parseValue412(fields.Sha3uncles)
+		value, err := parseValue412(members["sha3Uncles"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Sha3uncles = value
 	}
-	if len(fields.Size) == 0 {
+	if len(members["size"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field size")
 	} else {
-		value, err := parseValue413(fields.Size)
+		value, err := parseValue413(members["size"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Size = value
 	}
-	if len(fields.SlotNumber) == 0 {
+	if len(members["slotNumber"]) == 0 {
 	} else {
-		value, err := parseValue414(fields.SlotNumber)
+		value, err := parseValue414(members["slotNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.SlotNumber = &value
 	}
-	if len(fields.StateRoot) == 0 {
+	if len(members["stateRoot"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field stateRoot")
 	} else {
-		value, err := parseValue415(fields.StateRoot)
+		value, err := parseValue415(members["stateRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.StateRoot = value
 	}
-	if len(fields.Timestamp) == 0 {
+	if len(members["timestamp"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field timestamp")
 	} else {
-		value, err := parseValue416(fields.Timestamp)
+		value, err := parseValue416(members["timestamp"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Timestamp = value
 	}
-	if len(fields.Transactions) == 0 {
+	if len(members["transactions"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field transactions")
 	} else {
-		value, err := NewBlockTransactions(fields.Transactions)
+		value, err := parseBlockTransactions(members["transactions"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Transactions = value
 	}
-	if len(fields.TransactionsRoot) == 0 {
+	if len(members["transactionsRoot"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field transactionsRoot")
 	} else {
-		value, err := parseValue417(fields.TransactionsRoot)
+		value, err := parseValue417(members["transactionsRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.TransactionsRoot = value
 	}
-	if len(fields.Uncles) == 0 {
+	if len(members["uncles"]) == 0 {
 		return out, fmt.Errorf("SimulateBlock: missing required field uncles")
 	} else {
-		value, err := parseValue419(fields.Uncles)
+		value, err := parseValue419(members["uncles"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Uncles = value
 	}
-	if len(fields.Withdrawals) == 0 {
+	if len(members["withdrawals"]) == 0 {
 	} else {
-		value, err := parseValue420(fields.Withdrawals)
+		value, err := parseValue420(members["withdrawals"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.Withdrawals = &value
 	}
-	if len(fields.WithdrawalsRoot) == 0 {
+	if len(members["withdrawalsRoot"]) == 0 {
 	} else {
-		value, err := parseValue421(fields.WithdrawalsRoot)
+		value, err := parseValue421(members["withdrawalsRoot"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12153,37 +11963,44 @@ type SyncProgress struct {
 }
 
 func NewSyncProgress(raw json.RawMessage) (SyncProgress, error) {
+	return parseSyncProgress(raw, false)
+}
+func parseSyncProgress(raw json.RawMessage, keepStrings bool) (SyncProgress, error) {
 	var out SyncProgress
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SyncProgress: expected a non-null object")
 	}
-	var fields struct {
-		CurrentBlock  json.RawMessage `json:"currentBlock"`
-		HighestBlock  json.RawMessage `json:"highestBlock"`
-		StartingBlock json.RawMessage `json:"startingBlock"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
 		return out, fmt.Errorf("SyncProgress: expected object: %w", err)
 	}
-	if len(fields.CurrentBlock) == 0 {
+	for key, member := range members {
+		switch key {
+		case "currentBlock", "highestBlock", "startingBlock":
+			continue
+		}
+		_ = member
+		return out, fmt.Errorf("SyncProgress: unknown property %q", key)
+	}
+	if len(members["currentBlock"]) == 0 {
 	} else {
-		value, err := parseValue423(fields.CurrentBlock)
+		value, err := parseValue423(members["currentBlock"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.CurrentBlock = &value
 	}
-	if len(fields.HighestBlock) == 0 {
+	if len(members["highestBlock"]) == 0 {
 	} else {
-		value, err := parseValue424(fields.HighestBlock)
+		value, err := parseValue424(members["highestBlock"], keepStrings)
 		if err != nil {
 			return out, err
 		}
 		out.HighestBlock = &value
 	}
-	if len(fields.StartingBlock) == 0 {
+	if len(members["startingBlock"]) == 0 {
 	} else {
-		value, err := parseValue425(fields.StartingBlock)
+		value, err := parseValue425(members["startingBlock"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12216,9 +12033,9 @@ func NewSimulateAccessListItem(raw json.RawMessage) (SimulateAccessListItem, err
 		var zero SimulateAccessListItem
 		return zero, err
 	}
-	return parseSimulateAccessListItem(raw)
+	return parseSimulateAccessListItem(raw, false)
 }
-func parseSimulateAccessListItem(raw json.RawMessage) (SimulateAccessListItem, error) {
+func parseSimulateAccessListItem(raw json.RawMessage, keepStrings bool) (SimulateAccessListItem, error) {
 	var out SimulateAccessListItem
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SimulateAccessListItem: expected a non-null object")
@@ -12238,7 +12055,7 @@ func parseSimulateAccessListItem(raw json.RawMessage) (SimulateAccessListItem, e
 	if len(members["address"]) == 0 {
 		return out, fmt.Errorf("SimulateAccessListItem: missing required field address")
 	} else {
-		value, err := parseValue428(members["address"])
+		value, err := parseValue428(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12247,7 +12064,7 @@ func parseSimulateAccessListItem(raw json.RawMessage) (SimulateAccessListItem, e
 	if len(members["storageKeys"]) == 0 {
 		return out, fmt.Errorf("SimulateAccessListItem: missing required field storageKeys")
 	} else {
-		value, err := parseValue430(members["storageKeys"])
+		value, err := parseValue430(members["storageKeys"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12282,9 +12099,9 @@ func NewCallAuthorization(raw json.RawMessage) (CallAuthorization, error) {
 		var zero CallAuthorization
 		return zero, err
 	}
-	return parseCallAuthorization(raw)
+	return parseCallAuthorization(raw, false)
 }
-func parseCallAuthorization(raw json.RawMessage) (CallAuthorization, error) {
+func parseCallAuthorization(raw json.RawMessage, keepStrings bool) (CallAuthorization, error) {
 	var out CallAuthorization
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("CallAuthorization: expected a non-null object")
@@ -12306,7 +12123,7 @@ func parseCallAuthorization(raw json.RawMessage) (CallAuthorization, error) {
 	if len(members["address"]) == 0 {
 		return out, fmt.Errorf("CallAuthorization: missing required field address")
 	} else {
-		value, err := parseValue432(members["address"])
+		value, err := parseValue432(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12315,7 +12132,7 @@ func parseCallAuthorization(raw json.RawMessage) (CallAuthorization, error) {
 	if len(members["chainId"]) == 0 {
 		return out, fmt.Errorf("CallAuthorization: missing required field chainId")
 	} else {
-		value, err := parseValue433(members["chainId"])
+		value, err := parseValue433(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12324,7 +12141,7 @@ func parseCallAuthorization(raw json.RawMessage) (CallAuthorization, error) {
 	if len(members["nonce"]) == 0 {
 		return out, fmt.Errorf("CallAuthorization: missing required field nonce")
 	} else {
-		value, err := parseValue434(members["nonce"])
+		value, err := parseValue434(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12333,7 +12150,7 @@ func parseCallAuthorization(raw json.RawMessage) (CallAuthorization, error) {
 	if len(members["r"]) == 0 {
 		return out, fmt.Errorf("CallAuthorization: missing required field r")
 	} else {
-		value, err := parseValue435(members["r"])
+		value, err := parseValue435(members["r"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12342,7 +12159,7 @@ func parseCallAuthorization(raw json.RawMessage) (CallAuthorization, error) {
 	if len(members["s"]) == 0 {
 		return out, fmt.Errorf("CallAuthorization: missing required field s")
 	} else {
-		value, err := parseValue436(members["s"])
+		value, err := parseValue436(members["s"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12351,7 +12168,7 @@ func parseCallAuthorization(raw json.RawMessage) (CallAuthorization, error) {
 	if len(members["yParity"]) == 0 {
 		return out, fmt.Errorf("CallAuthorization: missing required field yParity")
 	} else {
-		value, err := parseValue437(members["yParity"])
+		value, err := parseValue437(members["yParity"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12408,9 +12225,9 @@ func NewCallMsg(raw json.RawMessage) (CallMsg, error) {
 		var zero CallMsg
 		return zero, err
 	}
-	return parseCallMsg(raw)
+	return parseCallMsg(raw, false)
 }
-func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
+func parseCallMsg(raw json.RawMessage, keepStrings bool) (CallMsg, error) {
 	var out CallMsg
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("CallMsg: expected a non-null object")
@@ -12429,7 +12246,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["accessList"]) == 0 {
 	} else {
-		value, err := parseValue431(members["accessList"])
+		value, err := parseValue431(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12437,7 +12254,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["authorizationList"]) == 0 {
 	} else {
-		value, err := parseValue438(members["authorizationList"])
+		value, err := parseValue438(members["authorizationList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12445,7 +12262,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["blobVersionedHashes"]) == 0 {
 	} else {
-		value, err := parseValue440(members["blobVersionedHashes"])
+		value, err := parseValue440(members["blobVersionedHashes"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12453,7 +12270,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["blobs"]) == 0 {
 	} else {
-		value, err := parseValue442(members["blobs"])
+		value, err := parseValue442(members["blobs"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12461,7 +12278,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["chainId"]) == 0 {
 	} else {
-		value, err := parseValue443(members["chainId"])
+		value, err := parseValue443(members["chainId"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12469,7 +12286,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["commitments"]) == 0 {
 	} else {
-		value, err := parseValue445(members["commitments"])
+		value, err := parseValue445(members["commitments"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12477,7 +12294,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["from"]) == 0 {
 	} else {
-		value, err := parseValue446(members["from"])
+		value, err := parseValue446(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12485,7 +12302,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["gas"]) == 0 {
 	} else {
-		value, err := parseValue447(members["gas"])
+		value, err := parseValue447(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12493,7 +12310,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["gasPrice"]) == 0 {
 	} else {
-		value, err := parseValue448(members["gasPrice"])
+		value, err := parseValue448(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12501,7 +12318,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["input"]) == 0 {
 	} else {
-		value, err := parseValue449(members["input"])
+		value, err := parseValue449(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12509,7 +12326,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["maxFeePerBlobGas"]) == 0 {
 	} else {
-		value, err := parseValue450(members["maxFeePerBlobGas"])
+		value, err := parseValue450(members["maxFeePerBlobGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12517,7 +12334,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["maxFeePerGas"]) == 0 {
 	} else {
-		value, err := parseValue451(members["maxFeePerGas"])
+		value, err := parseValue451(members["maxFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12525,7 +12342,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["maxPriorityFeePerGas"]) == 0 {
 	} else {
-		value, err := parseValue452(members["maxPriorityFeePerGas"])
+		value, err := parseValue452(members["maxPriorityFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12533,7 +12350,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["nonce"]) == 0 {
 	} else {
-		value, err := parseValue453(members["nonce"])
+		value, err := parseValue453(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12541,7 +12358,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["proofs"]) == 0 {
 	} else {
-		value, err := parseValue455(members["proofs"])
+		value, err := parseValue455(members["proofs"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12549,7 +12366,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["to"]) == 0 {
 	} else {
-		value, err := parseValue457(members["to"])
+		value, err := parseValue457(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12557,7 +12374,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["type"]) == 0 {
 	} else {
-		value, err := parseValue458(members["type"])
+		value, err := parseValue458(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12565,7 +12382,7 @@ func parseCallMsg(raw json.RawMessage) (CallMsg, error) {
 	}
 	if len(members["value"]) == 0 {
 	} else {
-		value, err := parseValue459(members["value"])
+		value, err := parseValue459(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12626,9 +12443,9 @@ func NewBlockNumberReference(raw json.RawMessage) (BlockNumberReference, error) 
 		var zero BlockNumberReference
 		return zero, err
 	}
-	return parseBlockNumberReference(raw)
+	return parseBlockNumberReference(raw, false)
 }
-func parseBlockNumberReference(raw json.RawMessage) (BlockNumberReference, error) {
+func parseBlockNumberReference(raw json.RawMessage, keepStrings bool) (BlockNumberReference, error) {
 	var out BlockNumberReference
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlockNumberReference: expected a non-null object")
@@ -12648,7 +12465,7 @@ func parseBlockNumberReference(raw json.RawMessage) (BlockNumberReference, error
 	if len(members["blockNumber"]) == 0 {
 		return out, fmt.Errorf("BlockNumberReference: missing required field blockNumber")
 	} else {
-		value, err := parseValue463(members["blockNumber"])
+		value, err := parseValue463(members["blockNumber"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12674,9 +12491,9 @@ func NewBlockHashReference(raw json.RawMessage) (BlockHashReference, error) {
 		var zero BlockHashReference
 		return zero, err
 	}
-	return parseBlockHashReference(raw)
+	return parseBlockHashReference(raw, false)
 }
-func parseBlockHashReference(raw json.RawMessage) (BlockHashReference, error) {
+func parseBlockHashReference(raw json.RawMessage, keepStrings bool) (BlockHashReference, error) {
 	var out BlockHashReference
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlockHashReference: expected a non-null object")
@@ -12696,7 +12513,7 @@ func parseBlockHashReference(raw json.RawMessage) (BlockHashReference, error) {
 	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("BlockHashReference: missing required field blockHash")
 	} else {
-		value, err := parseValue464(members["blockHash"])
+		value, err := parseValue464(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12704,7 +12521,7 @@ func parseBlockHashReference(raw json.RawMessage) (BlockHashReference, error) {
 	}
 	if len(members["requireCanonical"]) == 0 {
 	} else {
-		value, err := parseValue465(members["requireCanonical"])
+		value, err := parseValue465(members["requireCanonical"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12737,9 +12554,9 @@ func NewFilterQueryRange(raw json.RawMessage) (FilterQueryRange, error) {
 		var zero FilterQueryRange
 		return zero, err
 	}
-	return parseFilterQueryRange(raw)
+	return parseFilterQueryRange(raw, false)
 }
-func parseFilterQueryRange(raw json.RawMessage) (FilterQueryRange, error) {
+func parseFilterQueryRange(raw json.RawMessage, keepStrings bool) (FilterQueryRange, error) {
 	var out FilterQueryRange
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("FilterQueryRange: expected a non-null object")
@@ -12767,7 +12584,7 @@ func parseFilterQueryRange(raw json.RawMessage) (FilterQueryRange, error) {
 	}
 	if len(members["address"]) == 0 {
 	} else {
-		value, err := parseFilterAddress(members["address"])
+		value, err := parseFilterAddress(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12775,7 +12592,7 @@ func parseFilterQueryRange(raw json.RawMessage) (FilterQueryRange, error) {
 	}
 	if len(members["fromBlock"]) == 0 {
 	} else {
-		value, err := parseFilterBlock(members["fromBlock"])
+		value, err := parseFilterBlock(members["fromBlock"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12783,7 +12600,7 @@ func parseFilterQueryRange(raw json.RawMessage) (FilterQueryRange, error) {
 	}
 	if len(members["toBlock"]) == 0 {
 	} else {
-		value, err := parseFilterBlock(members["toBlock"])
+		value, err := parseFilterBlock(members["toBlock"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12791,7 +12608,7 @@ func parseFilterQueryRange(raw json.RawMessage) (FilterQueryRange, error) {
 	}
 	if len(members["topics"]) == 0 {
 	} else {
-		value, err := parseValue475(members["topics"])
+		value, err := parseValue475(members["topics"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12840,9 +12657,9 @@ func NewFilterQueryHash(raw json.RawMessage) (FilterQueryHash, error) {
 		var zero FilterQueryHash
 		return zero, err
 	}
-	return parseFilterQueryHash(raw)
+	return parseFilterQueryHash(raw, false)
 }
-func parseFilterQueryHash(raw json.RawMessage) (FilterQueryHash, error) {
+func parseFilterQueryHash(raw json.RawMessage, keepStrings bool) (FilterQueryHash, error) {
 	var out FilterQueryHash
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("FilterQueryHash: expected a non-null object")
@@ -12863,7 +12680,7 @@ func parseFilterQueryHash(raw json.RawMessage) (FilterQueryHash, error) {
 	}
 	if len(members["address"]) == 0 {
 	} else {
-		value, err := parseFilterAddress(members["address"])
+		value, err := parseFilterAddress(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12872,7 +12689,7 @@ func parseFilterQueryHash(raw json.RawMessage) (FilterQueryHash, error) {
 	if len(members["blockHash"]) == 0 {
 		return out, fmt.Errorf("FilterQueryHash: missing required field blockHash")
 	} else {
-		value, err := parseValue476(members["blockHash"])
+		value, err := parseValue476(members["blockHash"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12880,7 +12697,7 @@ func parseFilterQueryHash(raw json.RawMessage) (FilterQueryHash, error) {
 	}
 	if len(members["topics"]) == 0 {
 	} else {
-		value, err := parseValue478(members["topics"])
+		value, err := parseValue478(members["topics"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12921,9 +12738,9 @@ func NewTransactionReceiptsQuery(raw json.RawMessage) (TransactionReceiptsQuery,
 		var zero TransactionReceiptsQuery
 		return zero, err
 	}
-	return parseTransactionReceiptsQuery(raw)
+	return parseTransactionReceiptsQuery(raw, false)
 }
-func parseTransactionReceiptsQuery(raw json.RawMessage) (TransactionReceiptsQuery, error) {
+func parseTransactionReceiptsQuery(raw json.RawMessage, keepStrings bool) (TransactionReceiptsQuery, error) {
 	var out TransactionReceiptsQuery
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("TransactionReceiptsQuery: expected a non-null object")
@@ -12942,7 +12759,7 @@ func parseTransactionReceiptsQuery(raw json.RawMessage) (TransactionReceiptsQuer
 	}
 	if len(members["transactionHashes"]) == 0 {
 	} else {
-		value, err := parseValue480(members["transactionHashes"])
+		value, err := parseValue480(members["transactionHashes"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -12970,9 +12787,9 @@ func NewSimulateWithdrawal(raw json.RawMessage) (SimulateWithdrawal, error) {
 		var zero SimulateWithdrawal
 		return zero, err
 	}
-	return parseSimulateWithdrawal(raw)
+	return parseSimulateWithdrawal(raw, false)
 }
-func parseSimulateWithdrawal(raw json.RawMessage) (SimulateWithdrawal, error) {
+func parseSimulateWithdrawal(raw json.RawMessage, keepStrings bool) (SimulateWithdrawal, error) {
 	var out SimulateWithdrawal
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SimulateWithdrawal: expected a non-null object")
@@ -12992,7 +12809,7 @@ func parseSimulateWithdrawal(raw json.RawMessage) (SimulateWithdrawal, error) {
 	if len(members["address"]) == 0 {
 		return out, fmt.Errorf("SimulateWithdrawal: missing required field address")
 	} else {
-		value, err := parseValue488(members["address"])
+		value, err := parseValue488(members["address"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13001,7 +12818,7 @@ func parseSimulateWithdrawal(raw json.RawMessage) (SimulateWithdrawal, error) {
 	if len(members["amount"]) == 0 {
 		return out, fmt.Errorf("SimulateWithdrawal: missing required field amount")
 	} else {
-		value, err := parseValue489(members["amount"])
+		value, err := parseValue489(members["amount"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13010,7 +12827,7 @@ func parseSimulateWithdrawal(raw json.RawMessage) (SimulateWithdrawal, error) {
 	if len(members["index"]) == 0 {
 		return out, fmt.Errorf("SimulateWithdrawal: missing required field index")
 	} else {
-		value, err := parseValue490(members["index"])
+		value, err := parseValue490(members["index"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13019,7 +12836,7 @@ func parseSimulateWithdrawal(raw json.RawMessage) (SimulateWithdrawal, error) {
 	if len(members["validatorIndex"]) == 0 {
 		return out, fmt.Errorf("SimulateWithdrawal: missing required field validatorIndex")
 	} else {
-		value, err := parseValue491(members["validatorIndex"])
+		value, err := parseValue491(members["validatorIndex"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13060,9 +12877,9 @@ func NewBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
 		var zero BlockOverrides
 		return zero, err
 	}
-	return parseBlockOverrides(raw)
+	return parseBlockOverrides(raw, false)
 }
-func parseBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
+func parseBlockOverrides(raw json.RawMessage, keepStrings bool) (BlockOverrides, error) {
 	var out BlockOverrides
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlockOverrides: expected a non-null object")
@@ -13083,7 +12900,7 @@ func parseBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
 	}
 	if len(members["baseFeePerGas"]) == 0 {
 	} else {
-		value, err := parseValue481(members["baseFeePerGas"])
+		value, err := parseValue481(members["baseFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13091,7 +12908,7 @@ func parseBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
 	}
 	if len(members["blobBaseFee"]) == 0 {
 	} else {
-		value, err := parseValue482(members["blobBaseFee"])
+		value, err := parseValue482(members["blobBaseFee"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13099,7 +12916,7 @@ func parseBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
 	}
 	if len(members["feeRecipient"]) == 0 {
 	} else {
-		value, err := parseValue483(members["feeRecipient"])
+		value, err := parseValue483(members["feeRecipient"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13107,7 +12924,7 @@ func parseBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
 	}
 	if len(members["gasLimit"]) == 0 {
 	} else {
-		value, err := parseValue484(members["gasLimit"])
+		value, err := parseValue484(members["gasLimit"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13115,7 +12932,7 @@ func parseBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
 	}
 	if len(members["number"]) == 0 {
 	} else {
-		value, err := parseValue485(members["number"])
+		value, err := parseValue485(members["number"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13123,7 +12940,7 @@ func parseBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
 	}
 	if len(members["prevRandao"]) == 0 {
 	} else {
-		value, err := parseValue486(members["prevRandao"])
+		value, err := parseValue486(members["prevRandao"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13131,7 +12948,7 @@ func parseBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
 	}
 	if len(members["time"]) == 0 {
 	} else {
-		value, err := parseValue487(members["time"])
+		value, err := parseValue487(members["time"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13139,7 +12956,7 @@ func parseBlockOverrides(raw json.RawMessage) (BlockOverrides, error) {
 	}
 	if len(members["withdrawals"]) == 0 {
 	} else {
-		value, err := parseValue492(members["withdrawals"])
+		value, err := parseValue492(members["withdrawals"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13210,9 +13027,9 @@ func NewSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 		var zero SimulateCall
 		return zero, err
 	}
-	return parseSimulateCall(raw)
+	return parseSimulateCall(raw, false)
 }
-func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
+func parseSimulateCall(raw json.RawMessage, keepStrings bool) (SimulateCall, error) {
 	var out SimulateCall
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SimulateCall: expected a non-null object")
@@ -13233,7 +13050,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["accessList"]) == 0 {
 	} else {
-		value, err := parseValue493(members["accessList"])
+		value, err := parseValue493(members["accessList"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13241,7 +13058,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["blobVersionedHashes"]) == 0 {
 	} else {
-		value, err := parseValue495(members["blobVersionedHashes"])
+		value, err := parseValue495(members["blobVersionedHashes"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13249,7 +13066,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["from"]) == 0 {
 	} else {
-		value, err := parseValue496(members["from"])
+		value, err := parseValue496(members["from"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13257,7 +13074,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["gas"]) == 0 {
 	} else {
-		value, err := parseValue497(members["gas"])
+		value, err := parseValue497(members["gas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13265,7 +13082,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["gasPrice"]) == 0 {
 	} else {
-		value, err := parseValue498(members["gasPrice"])
+		value, err := parseValue498(members["gasPrice"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13273,7 +13090,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["input"]) == 0 {
 	} else {
-		value, err := parseValue499(members["input"])
+		value, err := parseValue499(members["input"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13281,7 +13098,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["maxFeePerBlobGas"]) == 0 {
 	} else {
-		value, err := parseValue500(members["maxFeePerBlobGas"])
+		value, err := parseValue500(members["maxFeePerBlobGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13289,7 +13106,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["maxFeePerGas"]) == 0 {
 	} else {
-		value, err := parseValue501(members["maxFeePerGas"])
+		value, err := parseValue501(members["maxFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13297,7 +13114,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["maxPriorityFeePerGas"]) == 0 {
 	} else {
-		value, err := parseValue502(members["maxPriorityFeePerGas"])
+		value, err := parseValue502(members["maxPriorityFeePerGas"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13305,7 +13122,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["nonce"]) == 0 {
 	} else {
-		value, err := parseValue503(members["nonce"])
+		value, err := parseValue503(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13313,7 +13130,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["to"]) == 0 {
 	} else {
-		value, err := parseValue504(members["to"])
+		value, err := parseValue504(members["to"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13321,7 +13138,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["type"]) == 0 {
 	} else {
-		value, err := parseValue505(members["type"])
+		value, err := parseValue505(members["type"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13329,7 +13146,7 @@ func parseSimulateCall(raw json.RawMessage) (SimulateCall, error) {
 	}
 	if len(members["value"]) == 0 {
 	} else {
-		value, err := parseValue506(members["value"])
+		value, err := parseValue506(members["value"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13408,9 +13225,9 @@ func NewAccountOverride(raw json.RawMessage) (AccountOverride, error) {
 		var zero AccountOverride
 		return zero, err
 	}
-	return parseAccountOverride(raw)
+	return parseAccountOverride(raw, false)
 }
-func parseAccountOverride(raw json.RawMessage) (AccountOverride, error) {
+func parseAccountOverride(raw json.RawMessage, keepStrings bool) (AccountOverride, error) {
 	var out AccountOverride
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("AccountOverride: expected a non-null object")
@@ -13441,7 +13258,7 @@ func parseAccountOverride(raw json.RawMessage) (AccountOverride, error) {
 	}
 	if len(members["balance"]) == 0 {
 	} else {
-		value, err := parseValue508(members["balance"])
+		value, err := parseValue508(members["balance"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13449,7 +13266,7 @@ func parseAccountOverride(raw json.RawMessage) (AccountOverride, error) {
 	}
 	if len(members["code"]) == 0 {
 	} else {
-		value, err := parseValue509(members["code"])
+		value, err := parseValue509(members["code"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13457,7 +13274,7 @@ func parseAccountOverride(raw json.RawMessage) (AccountOverride, error) {
 	}
 	if len(members["movePrecompileToAddress"]) == 0 {
 	} else {
-		value, err := parseValue510(members["movePrecompileToAddress"])
+		value, err := parseValue510(members["movePrecompileToAddress"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13465,7 +13282,7 @@ func parseAccountOverride(raw json.RawMessage) (AccountOverride, error) {
 	}
 	if len(members["nonce"]) == 0 {
 	} else {
-		value, err := parseValue511(members["nonce"])
+		value, err := parseValue511(members["nonce"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13473,7 +13290,7 @@ func parseAccountOverride(raw json.RawMessage) (AccountOverride, error) {
 	}
 	if len(members["state"]) == 0 {
 	} else {
-		value, err := parseAccountStorage(members["state"])
+		value, err := parseAccountStorage(members["state"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13481,7 +13298,7 @@ func parseAccountOverride(raw json.RawMessage) (AccountOverride, error) {
 	}
 	if len(members["stateDiff"]) == 0 {
 	} else {
-		value, err := parseAccountStorage(members["stateDiff"])
+		value, err := parseAccountStorage(members["stateDiff"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13536,9 +13353,9 @@ func NewBlockStateCall(raw json.RawMessage) (BlockStateCall, error) {
 		var zero BlockStateCall
 		return zero, err
 	}
-	return parseBlockStateCall(raw)
+	return parseBlockStateCall(raw, false)
 }
-func parseBlockStateCall(raw json.RawMessage) (BlockStateCall, error) {
+func parseBlockStateCall(raw json.RawMessage, keepStrings bool) (BlockStateCall, error) {
 	var out BlockStateCall
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("BlockStateCall: expected a non-null object")
@@ -13559,7 +13376,7 @@ func parseBlockStateCall(raw json.RawMessage) (BlockStateCall, error) {
 	}
 	if len(members["blockOverrides"]) == 0 {
 	} else {
-		value, err := parseBlockOverrides(members["blockOverrides"])
+		value, err := parseBlockOverrides(members["blockOverrides"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13567,7 +13384,7 @@ func parseBlockStateCall(raw json.RawMessage) (BlockStateCall, error) {
 	}
 	if len(members["calls"]) == 0 {
 	} else {
-		value, err := parseValue507(members["calls"])
+		value, err := parseValue507(members["calls"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13575,7 +13392,7 @@ func parseBlockStateCall(raw json.RawMessage) (BlockStateCall, error) {
 	}
 	if len(members["stateOverrides"]) == 0 {
 	} else {
-		value, err := parseStateOverrides(members["stateOverrides"])
+		value, err := parseStateOverrides(members["stateOverrides"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13622,9 +13439,9 @@ func NewSimulateV1Request(raw json.RawMessage) (SimulateV1Request, error) {
 		var zero SimulateV1Request
 		return zero, err
 	}
-	return parseSimulateV1Request(raw)
+	return parseSimulateV1Request(raw, false)
 }
-func parseSimulateV1Request(raw json.RawMessage) (SimulateV1Request, error) {
+func parseSimulateV1Request(raw json.RawMessage, keepStrings bool) (SimulateV1Request, error) {
 	var out SimulateV1Request
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return out, fmt.Errorf("SimulateV1Request: expected a non-null object")
@@ -13646,7 +13463,7 @@ func parseSimulateV1Request(raw json.RawMessage) (SimulateV1Request, error) {
 	if len(members["blockStateCalls"]) == 0 {
 		return out, fmt.Errorf("SimulateV1Request: missing required field blockStateCalls")
 	} else {
-		value, err := parseValue513(members["blockStateCalls"])
+		value, err := parseValue513(members["blockStateCalls"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13654,7 +13471,7 @@ func parseSimulateV1Request(raw json.RawMessage) (SimulateV1Request, error) {
 	}
 	if len(members["returnFullTransactions"]) == 0 {
 	} else {
-		value, err := parseValue514(members["returnFullTransactions"])
+		value, err := parseValue514(members["returnFullTransactions"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13662,7 +13479,7 @@ func parseSimulateV1Request(raw json.RawMessage) (SimulateV1Request, error) {
 	}
 	if len(members["traceTransfers"]) == 0 {
 	} else {
-		value, err := parseValue515(members["traceTransfers"])
+		value, err := parseValue515(members["traceTransfers"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13670,7 +13487,7 @@ func parseSimulateV1Request(raw json.RawMessage) (SimulateV1Request, error) {
 	}
 	if len(members["validation"]) == 0 {
 	} else {
-		value, err := parseValue516(members["validation"])
+		value, err := parseValue516(members["validation"], keepStrings)
 		if err != nil {
 			return out, err
 		}
@@ -13719,25 +13536,28 @@ type BlockTransaction struct {
 }
 
 func NewBlockTransaction(raw json.RawMessage) (BlockTransaction, error) {
+	return parseBlockTransaction(raw, false)
+}
+func parseBlockTransaction(raw json.RawMessage, keepStrings bool) (BlockTransaction, error) {
 	var out BlockTransaction
 	matches := 0
-	if value, err := NewBlockSetCodeTransaction(raw); err == nil {
+	if value, err := parseBlockSetCodeTransaction(raw, true); err == nil {
 		matches++
 		out.Signed7702Transaction = &value
 	}
-	if value, err := NewBlockBlobTransaction(raw); err == nil {
+	if value, err := parseBlockBlobTransaction(raw, true); err == nil {
 		matches++
 		out.Signed4844Transaction = &value
 	}
-	if value, err := NewBlockEIP1559Transaction(raw); err == nil {
+	if value, err := parseBlockEIP1559Transaction(raw, true); err == nil {
 		matches++
 		out.Signed1559Transaction = &value
 	}
-	if value, err := NewBlockAccessListTransaction(raw); err == nil {
+	if value, err := parseBlockAccessListTransaction(raw, true); err == nil {
 		matches++
 		out.Signed2930Transaction = &value
 	}
-	if value, err := NewBlockLegacyTransaction(raw); err == nil {
+	if value, err := parseBlockLegacyTransaction(raw, true); err == nil {
 		matches++
 		out.SignedLegacyTransaction = &value
 	}
@@ -13792,12 +13612,15 @@ type BlockTransactions struct {
 }
 
 func NewBlockTransactions(raw json.RawMessage) (BlockTransactions, error) {
+	return parseBlockTransactions(raw, false)
+}
+func parseBlockTransactions(raw json.RawMessage, keepStrings bool) (BlockTransactions, error) {
 	var out BlockTransactions
-	if value, err := parseValue49(raw); err == nil {
+	if value, err := parseValue49(raw, true); err == nil {
 		out.TransactionHashes = &value
 		return out, nil
 	}
-	if value, err := parseValue162(raw); err == nil {
+	if value, err := parseValue162(raw, true); err == nil {
 		out.FullTransactions = &value
 		return out, nil
 	}
@@ -13830,12 +13653,15 @@ type FilterResults struct {
 }
 
 func NewFilterResults(raw json.RawMessage) (FilterResults, error) {
+	return parseFilterResults(raw, false)
+}
+func parseFilterResults(raw json.RawMessage, keepStrings bool) (FilterResults, error) {
 	var out FilterResults
-	if value, err := parseValue234(raw); err == nil {
+	if value, err := parseValue234(raw, true); err == nil {
 		out.NewBlockOrTransactionHashes = &value
 		return out, nil
 	}
-	if value, err := parseValue235(raw); err == nil {
+	if value, err := parseValue235(raw, true); err == nil {
 		out.NewLogs = &value
 		return out, nil
 	}
@@ -13874,25 +13700,28 @@ type Transaction struct {
 }
 
 func NewTransaction(raw json.RawMessage) (Transaction, error) {
+	return parseTransaction(raw, false)
+}
+func parseTransaction(raw json.RawMessage, keepStrings bool) (Transaction, error) {
 	var out Transaction
 	matches := 0
-	if value, err := NewSetCodeTransaction(raw); err == nil {
+	if value, err := parseSetCodeTransaction(raw, true); err == nil {
 		matches++
 		out.Signed7702Transaction = &value
 	}
-	if value, err := NewBlobTransaction(raw); err == nil {
+	if value, err := parseBlobTransaction(raw, true); err == nil {
 		matches++
 		out.Signed4844Transaction = &value
 	}
-	if value, err := NewEIP1559Transaction(raw); err == nil {
+	if value, err := parseEIP1559Transaction(raw, true); err == nil {
 		matches++
 		out.Signed1559Transaction = &value
 	}
-	if value, err := NewAccessListTransaction(raw); err == nil {
+	if value, err := parseAccessListTransaction(raw, true); err == nil {
 		matches++
 		out.Signed2930Transaction = &value
 	}
-	if value, err := NewLegacyTransaction(raw); err == nil {
+	if value, err := parseLegacyTransaction(raw, true); err == nil {
 		matches++
 		out.SignedLegacyTransaction = &value
 	}
@@ -13946,13 +13775,16 @@ type SimulateCallError struct {
 }
 
 func NewSimulateCallError(raw json.RawMessage) (SimulateCallError, error) {
+	return parseSimulateCallError(raw, false)
+}
+func parseSimulateCallError(raw json.RawMessage, keepStrings bool) (SimulateCallError, error) {
 	var out SimulateCallError
 	matches := 0
-	if value, err := NewSimulateErrorRevert(raw); err == nil {
+	if value, err := parseSimulateErrorRevert(raw, true); err == nil {
 		matches++
 		out.SimulateErrorRevert = &value
 	}
-	if value, err := NewSimulateErrorVM(raw); err == nil {
+	if value, err := parseSimulateErrorVM(raw, true); err == nil {
 		matches++
 		out.SimulateErrorVM = &value
 	}
@@ -13988,13 +13820,16 @@ type SimulateCallResult struct {
 }
 
 func NewSimulateCallResult(raw json.RawMessage) (SimulateCallResult, error) {
+	return parseSimulateCallResult(raw, false)
+}
+func parseSimulateCallResult(raw json.RawMessage, keepStrings bool) (SimulateCallResult, error) {
 	var out SimulateCallResult
 	matches := 0
-	if value, err := NewSimulateCallFailure(raw); err == nil {
+	if value, err := parseSimulateCallFailure(raw, true); err == nil {
 		matches++
 		out.ResultOfCallFailure = &value
 	}
-	if value, err := NewSimulateCallSuccess(raw); err == nil {
+	if value, err := parseSimulateCallSuccess(raw, true); err == nil {
 		matches++
 		out.ResultOfCallSuccess = &value
 	}
@@ -14030,13 +13865,16 @@ type SyncingStatus struct {
 }
 
 func NewSyncingStatus(raw json.RawMessage) (SyncingStatus, error) {
+	return parseSyncingStatus(raw, false)
+}
+func parseSyncingStatus(raw json.RawMessage, keepStrings bool) (SyncingStatus, error) {
 	var out SyncingStatus
 	matches := 0
-	if value, err := NewSyncProgress(raw); err == nil {
+	if value, err := parseSyncProgress(raw, true); err == nil {
 		matches++
 		out.SyncingProgress = &value
 	}
-	if value, err := parseValue426(raw); err == nil {
+	if value, err := parseValue426(raw, true); err == nil {
 		matches++
 		out.NotSyncing = &value
 	}
@@ -14083,27 +13921,27 @@ func NewBlockReference(raw json.RawMessage) (BlockReference, error) {
 		var zero BlockReference
 		return zero, err
 	}
-	return parseBlockReference(raw)
+	return parseBlockReference(raw, false)
 }
-func parseBlockReference(raw json.RawMessage) (BlockReference, error) {
+func parseBlockReference(raw json.RawMessage, keepStrings bool) (BlockReference, error) {
 	var out BlockReference
-	if value, err := parseValue460(raw); err == nil {
+	if value, err := parseValue460(raw, true); err == nil {
 		out.BlockNumber = &value
 		return out, nil
 	}
-	if value, err := parseValue461(raw); err == nil {
+	if value, err := parseValue461(raw, true); err == nil {
 		out.BlockTag = &value
 		return out, nil
 	}
-	if value, err := parseValue462(raw); err == nil {
+	if value, err := parseValue462(raw, true); err == nil {
 		out.BlockHash = &value
 		return out, nil
 	}
-	if value, err := parseBlockNumberReference(raw); err == nil {
+	if value, err := parseBlockNumberReference(raw, true); err == nil {
 		out.Eip1898BlockNumberObject = &value
 		return out, nil
 	}
-	if value, err := parseBlockHashReference(raw); err == nil {
+	if value, err := parseBlockHashReference(raw, true); err == nil {
 		out.Eip1898BlockHashObject = &value
 		return out, nil
 	}
@@ -14158,19 +13996,19 @@ func NewFilterAddress(raw json.RawMessage) (FilterAddress, error) {
 		var zero FilterAddress
 		return zero, err
 	}
-	return parseFilterAddress(raw)
+	return parseFilterAddress(raw, false)
 }
-func parseFilterAddress(raw json.RawMessage) (FilterAddress, error) {
+func parseFilterAddress(raw json.RawMessage, keepStrings bool) (FilterAddress, error) {
 	var out FilterAddress
 	matches := 0
 	if ethcodec.IsJSONNull(raw) {
 		matches++
 	}
-	if value, err := parseValue466(raw); err == nil {
+	if value, err := parseValue466(raw, true); err == nil {
 		matches++
 		out.Address = &value
 	}
-	if value, err := parseValue468(raw); err == nil {
+	if value, err := parseValue468(raw, true); err == nil {
 		matches++
 		out.Addresses = &value
 	}
@@ -14213,16 +14051,16 @@ func NewFilterBlock(raw json.RawMessage) (FilterBlock, error) {
 		var zero FilterBlock
 		return zero, err
 	}
-	return parseFilterBlock(raw)
+	return parseFilterBlock(raw, false)
 }
-func parseFilterBlock(raw json.RawMessage) (FilterBlock, error) {
+func parseFilterBlock(raw json.RawMessage, keepStrings bool) (FilterBlock, error) {
 	var out FilterBlock
 	matches := 0
-	if value, err := parseValue469(raw); err == nil {
+	if value, err := parseValue469(raw, true); err == nil {
 		matches++
 		out.BlockNumber = &value
 	}
-	if value, err := parseValue470(raw); err == nil {
+	if value, err := parseValue470(raw, true); err == nil {
 		matches++
 		out.BlockTag = &value
 	}
@@ -14262,19 +14100,19 @@ func NewFilterTopic(raw json.RawMessage) (FilterTopic, error) {
 		var zero FilterTopic
 		return zero, err
 	}
-	return parseFilterTopic(raw)
+	return parseFilterTopic(raw, false)
 }
-func parseFilterTopic(raw json.RawMessage) (FilterTopic, error) {
+func parseFilterTopic(raw json.RawMessage, keepStrings bool) (FilterTopic, error) {
 	var out FilterTopic
 	matches := 0
 	if ethcodec.IsJSONNull(raw) {
 		matches++
 	}
-	if value, err := parseValue471(raw); err == nil {
+	if value, err := parseValue471(raw, true); err == nil {
 		matches++
 		out.SingleTopicMatch = &value
 	}
-	if value, err := parseValue473(raw); err == nil {
+	if value, err := parseValue473(raw, true); err == nil {
 		matches++
 		out.MultipleTopicMatch = &value
 	}
@@ -14317,16 +14155,16 @@ func NewFilterQuery(raw json.RawMessage) (FilterQuery, error) {
 		var zero FilterQuery
 		return zero, err
 	}
-	return parseFilterQuery(raw)
+	return parseFilterQuery(raw, false)
 }
-func parseFilterQuery(raw json.RawMessage) (FilterQuery, error) {
+func parseFilterQuery(raw json.RawMessage, keepStrings bool) (FilterQuery, error) {
 	var out FilterQuery
 	matches := 0
-	if value, err := parseFilterQueryRange(raw); err == nil {
+	if value, err := parseFilterQueryRange(raw, true); err == nil {
 		matches++
 		out.FilterByBlockRange = &value
 	}
-	if value, err := parseFilterQueryHash(raw); err == nil {
+	if value, err := parseFilterQueryHash(raw, true); err == nil {
 		matches++
 		out.FilterByBlockHash = &value
 	}
@@ -14361,125 +14199,125 @@ func NewSimulateBlockReference(raw json.RawMessage) (SimulateBlockReference, err
 
 // NewBlobBaseFeeResult parses the complete official eth_blobBaseFee result.
 func NewBlobBaseFeeResult(raw json.RawMessage) (Quantity, error) {
-	return parseValue0(raw)
+	return parseValue0(raw, false)
 }
 
 // NewBlockNumberResult parses the complete official eth_blockNumber result.
 func NewBlockNumberResult(raw json.RawMessage) (Quantity, error) {
-	return parseValue1(raw)
+	return parseValue1(raw, false)
 }
 
 // NewCallResult parses the complete official eth_call result.
 func NewCallResult(raw json.RawMessage) (Data, error) {
-	return parseValue2(raw)
+	return parseValue2(raw, false)
 }
 
 // NewChainIdResult parses the complete official eth_chainId result.
 func NewChainIdResult(raw json.RawMessage) (Quantity, error) {
-	return parseValue3(raw)
+	return parseValue3(raw, false)
 }
 
 // NewCreateAccessListResult parses the complete official eth_createAccessList result.
 func NewCreateAccessListResult(raw json.RawMessage) (AccessListResult, error) {
-	return NewAccessListResult(raw)
+	return parseAccessListResult(raw, false)
 }
 
 // NewEstimateGasResult parses the complete official eth_estimateGas result.
 func NewEstimateGasResult(raw json.RawMessage) (Quantity, error) {
-	return parseValue10(raw)
+	return parseValue10(raw, false)
 }
 
 // NewGasPriceResult parses the complete official eth_gasPrice result.
 func NewGasPriceResult(raw json.RawMessage) (Quantity, error) {
-	return parseValue23(raw)
+	return parseValue23(raw, false)
 }
 
 // NewGetBalanceResult parses the complete official eth_getBalance result.
 func NewGetBalanceResult(raw json.RawMessage) (Quantity, error) {
-	return parseValue24(raw)
+	return parseValue24(raw, false)
 }
 
 // NewGetBlockByHashResult parses the complete official eth_getBlockByHash result.
 func NewGetBlockByHashResult(raw json.RawMessage) (*Block, error) {
-	return parseValue172(raw)
+	return parseValue172(raw, false)
 }
 
 // NewGetBlockByNumberResult parses the complete official eth_getBlockByNumber result.
 func NewGetBlockByNumberResult(raw json.RawMessage) (*Block, error) {
-	return parseValue173(raw)
+	return parseValue173(raw, false)
 }
 
 // NewGetBlockReceiptsResult parses the complete official eth_getBlockReceipts result.
 func NewGetBlockReceiptsResult(raw json.RawMessage) (*[]Receipt, error) {
-	return parseValue205(raw)
+	return parseValue205(raw, false)
 }
 
 // NewGetCodeResult parses the complete official eth_getCode result.
 func NewGetCodeResult(raw json.RawMessage) (Data, error) {
-	return parseValue206(raw)
+	return parseValue206(raw, false)
 }
 
 // NewGetHeaderByHashResult parses the complete official eth_getHeaderByHash result.
 func NewGetHeaderByHashResult(raw json.RawMessage) (*Header, error) {
-	return parseValue231(raw)
+	return parseValue231(raw, false)
 }
 
 // NewGetHeaderByNumberResult parses the complete official eth_getHeaderByNumber result.
 func NewGetHeaderByNumberResult(raw json.RawMessage) (*Header, error) {
-	return parseValue232(raw)
+	return parseValue232(raw, false)
 }
 
 // NewGetLogsResult parses the complete official eth_getLogs result.
 func NewGetLogsResult(raw json.RawMessage) (FilterResults, error) {
-	return NewFilterResults(raw)
+	return parseFilterResults(raw, false)
 }
 
 // NewGetProofResult parses the complete official eth_getProof result.
 func NewGetProofResult(raw json.RawMessage) (AccountProofResult, error) {
-	return NewAccountProofResult(raw)
+	return parseAccountProofResult(raw, false)
 }
 
 // NewGetStorageAtResult parses the complete official eth_getStorageAt result.
 func NewGetStorageAtResult(raw json.RawMessage) (Data, error) {
-	return parseValue248(raw)
+	return parseValue248(raw, false)
 }
 
 // NewGetTransactionByHashResult parses the complete official eth_getTransactionByHash result.
 func NewGetTransactionByHashResult(raw json.RawMessage) (*Transaction, error) {
-	return parseValue375(raw)
+	return parseValue375(raw, false)
 }
 
 // NewGetTransactionCountResult parses the complete official eth_getTransactionCount result.
 func NewGetTransactionCountResult(raw json.RawMessage) (Quantity, error) {
-	return parseValue376(raw)
+	return parseValue376(raw, false)
 }
 
 // NewGetTransactionReceiptResult parses the complete official eth_getTransactionReceipt result.
 func NewGetTransactionReceiptResult(raw json.RawMessage) (*Receipt, error) {
-	return parseValue377(raw)
+	return parseValue377(raw, false)
 }
 
 // NewMaxPriorityFeePerGasResult parses the complete official eth_maxPriorityFeePerGas result.
 func NewMaxPriorityFeePerGasResult(raw json.RawMessage) (Quantity, error) {
-	return parseValue378(raw)
+	return parseValue378(raw, false)
 }
 
 // NewSendRawTransactionResult parses the complete official eth_sendRawTransaction result.
 func NewSendRawTransactionResult(raw json.RawMessage) (Hash, error) {
-	return parseValue379(raw)
+	return parseValue379(raw, false)
 }
 
 // NewSimulateV1Result parses the complete official eth_simulateV1 result.
 func NewSimulateV1Result(raw json.RawMessage) ([]SimulateBlock, error) {
-	return parseValue422(raw)
+	return parseValue422(raw, false)
 }
 
 // NewSyncingResult parses the complete official eth_syncing result.
 func NewSyncingResult(raw json.RawMessage) (SyncingStatus, error) {
-	return NewSyncingStatus(raw)
+	return parseSyncingStatus(raw, false)
 }
 
 // NewVersionResult parses the complete official net_version result.
 func NewVersionResult(raw json.RawMessage) (DecimalString, error) {
-	return parseValue427(raw)
+	return parseValue427(raw, false)
 }

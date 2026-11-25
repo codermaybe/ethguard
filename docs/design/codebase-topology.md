@@ -16,7 +16,8 @@
 | `internal/reference` | finalized 等候选／确认算法及其 consumer-owned HeadReader／HeadCodec 接口 | 直接依赖 pool、methods 或构造 aggregator／policy |
 | `ethapi`／`internal/ethcodec` | 公开 schema 生成业务模型／共享数值和 JSON 原语 | 传输、投票、执行策略 |
 | `internal/executionapi` | 固定参考 bundle／显式标准勘误的统一读取与身份检查 | 按来源或调用动态改写 schema、响应兼容或方法注册 |
-| `internal/ethobject/{header,receipt,log}` | 查询与订阅内容供应共享的对象结构／完整块承诺及规范编码；不依赖RPC私有包 | 方法装配、请求绑定、投票、网络 |
+| `internal/ethobject/{header,receipt,log,syncing}` | 跨入口共用的对象结构、显式输入投影及规范编码；Header／Receipt／Log另有内容检查，不依赖RPC私有包 | 方法装配、请求绑定、投票、网络 |
+| `internal/ethobject/hexcompat` | BlockBody／Transaction／SimulateResult的有限已知字段拼写兼容及明确嵌套投影，字段形态取自生成模型 | 通用规则注册、任意未知字段遍历、schema校验、业务派生或承诺 |
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
 | `internal/transport/{http,wss}` | 原生 HTTP／raw WSS 的协议和保真 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
@@ -56,6 +57,8 @@ Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个
 已确认的规则组织为**外层按官方直接 key 分支，内层按该 key 的完整形态／状态分支**。方法文件拥有经审核的整 key 兼容转换和方法接受域；wire／ethcodec 拥有通用原语和来源驱动的投影；ethapi 拥有生成结构约束；objects 拥有共享对象一致性和规范编码；Header／Receipt／Log跨查询与订阅的共同内核位于root internal/ethobject，RPC对象包保留方法绑定与必要转发，typed只作类型投影，不复制内核检查。内层状态判断不授权嵌套路径或数组元素局部修正，不构成组合注册表；无额外兼容规则的方法不需要空 switch。
 
 状态判定读取原始同源只读上下文，修正写入独立候选；缺失规则与已有 key 去重，每个 key 只处理一次。未命中修正仍须完整校验、编码和比较。当前 PruneMethod 还包含 hex 规范化，消除职责重叠须检查实际实现，不能仅修改归属描述。两 transaction 方法已完成双 switch 收敛，全部方法已按本节自治组织。
+
+标准增强由 `executionapi` 在固定数据上执行，`ethapi` 忠实检查有效schema。既有大小写兼容由实际入口选择已知hex字段，再调用 `ethcodec.FoldHexSpelling`，不处理自由文本或未知扩展。Syncing的官方字段投影与检查由 `internal/ethobject/syncing` 同时供方法和typed入口使用；新增此owner是为了共用实际行为，不复制官方字段清单。完整生成与表示合同见 [wire-codegen](wire-codegen.md)。
 
 ## 2. 依赖与稳定 seam
 

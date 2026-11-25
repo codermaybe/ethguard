@@ -153,6 +153,31 @@ func TestSimulateV1RejectsInvalidEIP1898Object(t *testing.T) {
 	}
 }
 
+func TestSimulateErrorMessageKeepsTextSemantics(t *testing.T) {
+	vectors, err := conformance.ParseVector(spec.VectorsFS(), "vectors/eth_simulateV1/ethSimulate-empty.io")
+	if err != nil || len(vectors) == 0 {
+		t.Fatalf("official fixture: %v", err)
+	}
+	var blocks []map[string]json.RawMessage
+	if err := json.Unmarshal(vectors[0].Result, &blocks); err != nil || len(blocks) == 0 {
+		t.Fatalf("official fixture blocks: %v", err)
+	}
+	for _, message := range []string{"0xAB", "0XAB"} {
+		blocks[0]["calls"] = json.RawMessage(`[{"error":{"code":-32015.0,"message":"` + message + `"},"gasUsed":"0x1","returnData":"0x00","status":"0x0"}]`)
+		raw, err := json.Marshal(blocks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := encodeSimulateV1(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(out, []byte(`"message":"`+message+`"`)) {
+			t.Fatalf("error message was interpreted as hex: %s", out)
+		}
+	}
+}
+
 func TestSimulateV1PreparationConsumesAllOfficialRequests(t *testing.T) {
 	plan, err := CompilePlan(simulateV1Spec())
 	if err != nil {

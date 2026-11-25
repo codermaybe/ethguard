@@ -22,6 +22,7 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
+	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
@@ -199,17 +200,9 @@ func t09TypedWantTransaction(t *testing.T, raw json.RawMessage) string {
 
 func t09TypedWantLogs(t *testing.T, raw json.RawMessage) string {
 	t.Helper()
-	var rows []json.RawMessage
-	if err := json.Unmarshal(t09SemanticJSON(t, raw), &rows); err != nil {
+	logs, err := typed.DecodeLogs(t09SemanticJSON(t, raw))
+	if err != nil {
 		t.Fatalf("decode expected logs: %v", err)
-	}
-	logs := make([]ethapi.Log, 0, len(rows))
-	for i, row := range rows {
-		log, err := ethapi.NewLog(row)
-		if err != nil {
-			t.Fatalf("decode expected log %d: %v", i, err)
-		}
-		logs = append(logs, log)
 	}
 	return t09SummaryLogs(logs)
 }

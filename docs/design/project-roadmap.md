@@ -2,7 +2,39 @@
 
 本文可直接用于重启对话：说明当前基线、下一步、执行顺序和未完成事项，不依赖旧聊天、`docs/tmp/`或`/tmp`材料。具体业务合同由末尾链接的正式文档维护。
 
-**当前状态（2026-11-25）：公共数据管线 A-G、27 个注册 read 方法、响应模型整体替换、广播/同步写入及 NewHead、Logs、Receipts 连续订阅均已通过本地验收。** 用户已确认没有兼容或实际用户负担，受影响接口及仓内消费者直接迁移，旧订阅channel及事件聚合桥接已删除。Sender、Header、Anchor和跨入口生命周期也已验收。Receipts/生命周期Go修改按用户要求保存为本地提交`f40a9e8`，未推送。全仓质量治理七切片及用户追加的最小安全升级均已完成本地独立验收。Go1.26.11新基线普通/race各52包7096测试事件通过，17规则默认/anvil零问题，漏洞复扫0可达；完整范围及保留的上游fixture失败见发布合同。当前主控规划、编排与验收，最多2个执行者按互斥文件并行，可读性同属门槛。
+**当前状态（2026-11-26）：ethapi“前置增强 + 官方兜底”的实现、交叉审查和最终独立验收已完成。** 本轮验收父基线为 `981683e`（`audit/rpc-quality`）；用户已确认任务结束并授权将实现、测试和正式文档本地保存，提交身份以 Git 历史为准，未授权推送。主控规划、编排与验收，最多两个执行者按互斥文件并行，用户主动要求后才降为一个。
+
+此前公共数据管线 A-G、27 个注册 read 方法、响应模型、广播/同步写入、Sender/Header/Anchor、NewHead/Logs/Receipts 及跨入口生命周期均已验收。旧订阅 channel 和事件聚合桥已删除。质量治理七切片和最小安全升级也已验收并保存为本地提交，未推送；Go1.26.11 基线普通/race各52包7096测试事件、17规则默认/anvil和漏洞复扫属于该历史范围，完整边界见发布合同，不替代本次 ethapi 验收。
+
+## 当前接续：标准生成已验收，下一轮规划IPC与外部调用适配
+
+局部入口为 [ethapi README](../../ethapi/README.md)，来源、勘误、生成和表示的唯一详细合同为 [wire-codegen](wire-codegen.md)。本轮保留官方原件和原三份勘误，新增 22 份 DATA 勘误覆盖 64 个节点，显式修正完整字节约束。构造器先检查有效 schema，再执行合法值表示政策；精确字段名、封闭对象、数值 const 和组合字符串身份均有独立反例。开放结果投影可能改变组合分支时，生成期必须证明稳定，否则拒绝生成。该证明不进入库运行时。
+
+消费者既有大小写、HexByte 及字段投影兼容已移至明确前置 owner，原始来源证据保持；CallMsg／Simulate 原始请求和直接标准构造仍按有效 schema。公开模型声明及函数签名保持，Go 和 audit 均可从固定来源重新生成。本轮不补整项缺失 schema 的通用注册机制，不升级来源或依赖。
+
+成本分别记账：用户确认生成期成本不作为库调用性能问题，运行时必要规则可以付出少量性能成本；不由此接受任意回退。去除重复 transaction 解码和无变化重编码后，固定本机样本三次中位值如下，基线 `981683e` → 本轮实现：
+
+| 运行路径 | ns/op | B/op | allocs/op |
+| --- | --- | --- | --- |
+| TypedProjectionRawBlock | 387892 → 425723 | 86715 → 102941 | 1376 → 1709 |
+| TransactionByHashNormalize | 202185 → 245127 | 62499 → 84345 | 1220 → 1616 |
+| TransactionByHashAdmit | 242602 → 282763 | 64243 → 86107 | 1284 → 1680 |
+
+复现入口为 `internal/typed/typed_projection_cost_bench_test.go` 和 `rpc/methods/transaction_bench_test.go`，参数 `-run '^$' -bench '^(BenchmarkTypedProjectionRawBlock|BenchmarkTransactionByHash(Normalize|Admit))$' -benchmem -benchtime=500ms -count=3 -cpu=2`。耗时约增加 10%／21%／17%，分配也增加；构造器局部样本的分配下降不代表消费者整体下降。这些是本地固定 fixture，不代表网络或生产延迟。
+
+首次全仓普通验收失败后，已修复依赖旧宽容构造器的 Block／TransactionSender／Simulate 消费入口及测试 helper。另一个 Receipts reorg 测试在旧 HEAD 和当前均复现，原因是异步两源通知与有限历史 fixture 的调度；仅在该测试中用 synctest 和查询 gate 确定事件顺序，保留全部原断言，不改生产恢复逻辑。该修正的独立 overlay 在 race 下覆盖 CPU 1/2/8 共 300 次，落入仓库后普通 300 次和 race 60 次通过。
+
+最终独立验收通过：`go test -p 2 -json ./... -count=1` 与 `go test -race -p 2 -json ./... -count=1` 各 54 包、7263 测试事件通过，8 包无测试，无失败或测试跳过。`go vet ./...`、`go build ./...`、固定 lint2.15.0 的默认/anvil 全仓检查均通过，lint 两路各 0 issues；`go test -p 2 -tags anvil -run '^$' ./...` 完成 64 包编译检查，未运行本地链。独立生成 Go/audit 逐字节一致，9 份官方原件／原勘误／依赖身份保持，65 份本轮 Go/JSON 文件在验收前后内容不变，格式与 diff 检查通过。当前生成 41 objects、435 fields、12 unions、25 shims，audit 覆盖 32 个选择根及 772 条标量／对象政策路径，不能称为所有 schema 节点的完整索引。
+
+首次汇报已完成，用户要求结束本次工作，将IPC提供及以下议题列入下一轮待执行规划；具体计划保存在现有module-simplification TMP README，本次不启动新能力实施。事实入口为 [兼容政策](go-ethereum-compatibility-policy.md) 与 [方法覆盖](method-transport-coverage.md)：
+
+| 讨论方向 | 现行行为及需决定的事项 |
+| --- | --- |
+| IPC 与连接构造 | 当前 HTTP(S)/WS(S)，普通 Dial 要求至少两个不同端点，单源显式选择；下一轮计划提供 IPC，平台范围及其来源、订阅和生命周期语义需单独设计 |
+| geth 类型适配 | common.Address/Hash 及业务对象在适配层转换；审查缺失/null/零值、数值范围、失败和调用方生态接口，不改标准生成模型来承接 |
+| 对外行为 | policy+Next/Basis/Close 订阅、pending 支持范围、moving tag/reference、同步发送和错误 helper 均有独立合同；逐项决定保留、解释或提供适配 |
+
+完整 Simulate 语义、F1、共享 Hub/持久化、真实 provider/Anvil 执行和发布证据继续独立。本次验收不将历史待办自动标为完成。
 
 ## 1. 当前基线
 

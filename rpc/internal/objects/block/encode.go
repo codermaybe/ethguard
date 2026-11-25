@@ -8,6 +8,7 @@ import (
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	objectheader "github.com/codermaybe/ethguard/internal/ethobject/header"
+	"github.com/codermaybe/ethguard/internal/ethobject/hexcompat"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -55,10 +56,12 @@ func Encode(raw json.RawMessage) (json.RawMessage, error) {
 			return objectheader.Normalize(raw)
 		}
 	}
-	for _, name := range []string{"size", "transactions", "uncles", "withdrawals"} {
-		if value, exists := source[name]; exists {
-			fields[name] = value
-		}
+	body, err := hexcompat.BlockBody(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
 	}
 	candidate, err := ethcodec.MarshalNoEscape(fields)
 	if err != nil {

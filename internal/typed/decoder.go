@@ -21,6 +21,7 @@ import (
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	headerobject "github.com/codermaybe/ethguard/internal/ethobject/header"
+	"github.com/codermaybe/ethguard/internal/ethobject/hexcompat"
 	receiptobject "github.com/codermaybe/ethguard/internal/ethobject/receipt"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -77,10 +78,12 @@ func DecodeBlockWithEvidence(raw json.RawMessage, evidence json.RawMessage) (*et
 	if err := json.Unmarshal(projected, &fields); err != nil {
 		return nil, wrapMalformed("decode block body", err)
 	}
-	for _, name := range []string{"size", "transactions", "uncles", "withdrawals"} {
-		if value, present := source[name]; present {
-			fields[name] = value
-		}
+	bodyCandidate, err := hexcompat.BlockBody(raw)
+	if err != nil {
+		return nil, wrapMalformed("decode block body", err)
+	}
+	if err := json.Unmarshal(bodyCandidate, &fields); err != nil {
+		return nil, wrapMalformed("decode block body", err)
 	}
 	candidate, err := ethcodec.MarshalNoEscape(fields)
 	if err != nil {
@@ -265,7 +268,11 @@ func DecodeTransaction(raw json.RawMessage) (*ethapi.Transaction, bool, error) {
 	if jsonNull(raw) {
 		return nil, false, ethereum.NotFound
 	}
-	union, err := ethapi.NewTransaction(raw)
+	candidate, err := hexcompat.Transaction(raw)
+	if err != nil {
+		return nil, false, wrapMalformed("decode transaction", err)
+	}
+	union, err := ethapi.NewTransaction(candidate)
 	if err != nil {
 		return nil, false, wrapMalformed("decode transaction", err)
 	}
@@ -342,7 +349,7 @@ func DecodeTransactionInBlock(raw json.RawMessage, blockHash ethapi.Hash, index 
 	if err != nil {
 		return nil, wrapMalformed("transaction sender", err)
 	}
-	from, err := ethapi.NewAddress(fromRaw)
+	from, err := ethapi.NewAddress(ethcodec.FoldHexSpelling(fromRaw))
 	if err != nil {
 		return nil, wrapMalformed("transaction sender", err)
 	}
@@ -427,7 +434,11 @@ func TransactionPayload(tx *ethapi.Transaction) (*types.Transaction, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ethguard: transaction union: %v: %w", err, rpc.ErrInvalidRequest)
 	}
-	checked, err := ethapi.NewTransaction(raw)
+	candidate, err := hexcompat.Transaction(raw)
+	if err != nil {
+		return nil, fmt.Errorf("ethguard: transaction candidate: %v: %w", err, rpc.ErrInvalidRequest)
+	}
+	checked, err := ethapi.NewTransaction(candidate)
 	if err != nil {
 		return nil, fmt.Errorf("ethguard: transaction structure: %v: %w", err, rpc.ErrInvalidRequest)
 	}

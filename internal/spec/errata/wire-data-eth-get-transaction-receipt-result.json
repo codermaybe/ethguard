@@ -1,0 +1,29 @@
+{
+  "id": "wire-data-eth-get-transaction-receipt-result",
+  "sourceVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "sourceCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "target": {
+    "method": "eth_getTransactionReceipt",
+    "part": "result"
+  },
+  "reason": "The pinned DATA pattern permits an odd number of hexadecimal digits, although EIP-1474 defines DATA as complete bytes with two hexadecimal digits per byte. Restrict only the reviewed DATA nodes to pairs of lowercase hexadecimal digits. Keep empty DATA and leading zero bytes, and do not change QUANTITY, HexByte, StorageKey, field presence or other constraints. This correction is applied after the existing structural errata; its input digest identifies that effective root.",
+  "references": [
+    "https://eips.ethereum.org/EIPS/eip-1474#data",
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/schemas/base-types.yaml"
+  ],
+  "retireWhen": "Review on every source pin or prerequisite erratum change. Remove once the upstream definitions in this target require complete DATA bytes; revise each reviewed path and both digests if upstream changes the schema. Never silently apply this rule to other hex-string families or new source nodes.",
+  "inputSchemaSHA256": "cf512e740cc1642ccb5ddd81e4790d2d710dbef0b40494f0946879cc9a0db27c",
+  "outputSchemaSHA256": "7138c925766d2cf1e0224b1e9c5fb484d85f6fc68061335ed7be5b1d562e6a8b",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/oneOf/1/properties/logs/items/properties/data/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/oneOf/1/properties/logs/items/properties/data/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    }
+  ]
+}

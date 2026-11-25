@@ -8,7 +8,7 @@ import (
 
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
-	"github.com/codermaybe/ethguard/internal/jsonsafe"
+	"github.com/codermaybe/ethguard/internal/ethobject/hexcompat"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -75,10 +75,11 @@ func prepareSimulateV1Request(_ context.Context, req rpc.Request) (rpc.Request, 
 }
 
 func encodeSimulateV1(raw json.RawMessage) (json.RawMessage, error) {
-	if err := jsonsafe.Validate(raw); err != nil {
+	candidate, err := hexcompat.SimulateResult(raw)
+	if err != nil {
 		return nil, fmt.Errorf("simulate result JSON: %w", err)
 	}
-	value, err := ethapi.NewSimulateV1Result(raw)
+	value, err := ethapi.NewSimulateV1Result(candidate)
 	if err != nil {
 		return nil, err
 	}

@@ -15,10 +15,9 @@ func TestErrataReviewedInventoryAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	effective, err := Read()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Keep the three structural corrections independently checked; the DATA
+	// corrections compose afterward and have their own complete scope audit.
+	effective := beforeDataWidthErrata(t)
 	ids := []string{}
 	for _, e := range effective.Errata {
 		ids = append(ids, e.ID)

@@ -24,7 +24,21 @@ func TestEmittedParsersPreserveSchemaSemantics(t *testing.T) {
 			"bounded":{"type":"number","minimum":0.30000000000000001,"maximum":0.30000000000000002},
 			"optional":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^kept$"}]},
 			"code":{"const":-32015},
-			"html":{"type":"string","const":"<&>"}
+			"html":{"type":"string","const":"<&>"},
+			"hexConst":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$","const":"0xABCDEF0000000000000000000000000000000000"},
+			"nativeChoice":{"title":"Native choice","oneOf":[{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"},{"type":"string","const":"0x4A"}]},
+			"nativeAlternative":{"title":"Native alternative","anyOf":[{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"},{"type":"string","const":"0x4A"}]},
+			"byteChoice":{"title":"Byte choice","oneOf":[{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"},{"type":"string","const":"0x4"}]},
+			"byteAlternative":{"title":"Byte alternative","anyOf":[{"type":"string","const":"0x4"},{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}]},
+			"addressChoice":{"title":"Address choice","oneOf":[{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"},{"type":"string","const":"0xabcdef0000000000000000000000000000000000"}]},
+			"ordinaryCarrier":{"type":"object","title":"Literal carrier","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}}},
+			"nullableCarrier":{"anyOf":[{"type":"null"},{"type":"object","title":"Literal carrier","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}}}]},
+			"nestedChoice":{"title":"Nested choice","oneOf":[{"type":"object","title":"Literal carrier","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}}},{"type":"object","title":"Constant carrier","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","const":"0x4"}}}]},
+			"nestedAlternative":{"title":"Nested alternative","anyOf":[{"type":"object","title":"Constant carrier","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","const":"0x4"}}},{"type":"object","title":"Literal carrier","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}}}]},
+			"nullableChoice":{"title":"Nullable choice","oneOf":[{"type":"object","title":"Nullable literal carrier","additionalProperties":false,"required":["value"],"properties":{"value":{"oneOf":[{"type":"null"},{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}]}}},{"type":"object","title":"Constant carrier","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","const":"0x4"}}}]},
+			"numberChoice":{"title":"Number choice","oneOf":[{"type":"number","const":3},{"type":"boolean"}]},
+			"arrayChoice":{"title":"Array choice","oneOf":[{"type":"array","items":{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}},{"type":"array","items":{"type":"string","const":"0x4"}}]},
+			"dictionaryChoice":{"title":"Dictionary choice","oneOf":[{"type":"object","title":"Literal dictionary","patternProperties":{"^x$":{"type":"string","pattern":"^0x[0-9a-f]{1,2}$"}},"additionalProperties":false},{"type":"object","title":"Constant dictionary","patternProperties":{"^x$":{"type":"string","const":"0x4"}},"additionalProperties":false}]}
 		}
 	}`), "eth_emitterFixture.result")
 	if err != nil {
@@ -137,6 +151,24 @@ func TestGeneratedBehavior(t *testing.T) {
 		{name:"null",field:"optional",value:"null"},
 		{name:"present",field:"optional",value:"\"kept\""},
 		{name:"optional const",field:"code",value:"-32015"},
+		{name:"integer constant decimal",field:"code",value:"-32015.0"},
+		{name:"string const preserves literal",field:"hexConst",value:"\"0xABCDEF0000000000000000000000000000000000\""},
+		{name:"string const rejects rewritten literal",field:"hexConst",value:"\"0xabcdef0000000000000000000000000000000000\"",wantErr:"eth_emitterFixture.result.properties.hexConst: expected constant"},
+		{name:"oneOf native input identity",field:"nativeChoice",value:"\"0x4A\""},
+		{name:"anyOf native input identity",field:"nativeAlternative",value:"\"0x4A\""},
+		{name:"oneOf byte representation",field:"byteChoice",value:"\"0x04\""},
+		{name:"oneOf byte actual overlap",field:"byteChoice",value:"\"0x4\"",wantErr:"ByteChoice: expected oneOf branch match, got 2"},
+		{name:"oneOf still validates pattern",field:"byteChoice",value:"\"0x4A\"",wantErr:"ByteChoice: expected oneOf branch match, got 0"},
+		{name:"anyOf byte representation",field:"byteAlternative",value:"\"0x04\""},
+		{name:"oneOf address representation",field:"addressChoice",value:"\"0xABCDEF0000000000000000000000000000000000\""},
+		{name:"ordinary carrier representation",field:"ordinaryCarrier",value:"{\"value\":\"0x04\"}"},
+		{name:"nullable carrier representation",field:"nullableCarrier",value:"{\"value\":\"0x04\"}"},
+		{name:"oneOf nested representation",field:"nestedChoice",value:"{\"value\":\"0x04\"}"},
+		{name:"anyOf nested representation",field:"nestedAlternative",value:"{\"value\":\"0x04\"}"},
+		{name:"oneOf nullable representation",field:"nullableChoice",value:"{\"value\":\"0x04\"}"},
+		{name:"oneOf exact numeric representation",field:"numberChoice",value:"3e0"},
+		{name:"oneOf array representation",field:"arrayChoice",value:"[\"0x04\"]"},
+		{name:"oneOf dictionary representation",field:"dictionaryChoice",value:"{\"x\":\"0x04\"}"},
 		{name:"exact equivalent",field:"exact",value:"1.000000000000000000000000100"},
 		{name:"upper bound",field:"bounded",value:"0.30000000000000002"},
 		{name:"optional pattern",field:"optional",value:"\"lost\"",wantErr:"eth_emitterFixture.result.properties.optional.anyOf[1]: does not match official pattern"},
@@ -169,16 +201,31 @@ func TestGeneratedBehavior(t *testing.T) {
 			output:=json.NewDecoder(bytes.NewReader(out));output.UseNumber()
 			if err:=input.Decode(&before);err!=nil{t.Fatal(err)}
 			if err:=output.Decode(&after);err!=nil{t.Fatal(err)}
-			// Exact-equal decimal spellings normalize; all other content and
-			// absent/null distinctions must survive unchanged.
+			// Ordinary constructors retain their explicit representation;
+			// competing composition branches preserve JSON string identity.
 			if tc.name=="exact equivalent" {before.(map[string]any)["exact"]=json.Number("1.0000000000000000000000001")}
+			if tc.name=="integer constant decimal" {before.(map[string]any)["code"]=json.Number("-32015")}
+			if tc.name=="oneOf exact numeric representation" {before.(map[string]any)["numberChoice"]=json.Number("3")}
+			if tc.name=="ordinary carrier representation" || tc.name=="nullable carrier representation" {before.(map[string]any)[tc.field]=map[string]any{"value":"0x4"}}
 			if !reflect.DeepEqual(before,after){t.Fatalf("content changed: %s -> %s",raw,out)}
 			if !bytes.Contains(out,[]byte("<&>")){t.Fatalf("HTML spelling changed: %s",out)}
 			again,err:=NewEmitterFixtureResult(out);if err!=nil{t.Fatal(err)}
+			if !reflect.DeepEqual(value,again){t.Fatalf("branch or typed value changed after reconstruction: %#v -> %#v",value,again)}
 			second,err:=ethcodec.MarshalNoEscape(again)
 			if err!=nil||!bytes.Equal(out,second){t.Fatalf("not idempotent: %s / %s (%v)",out,second,err)}
 		})
 	}
+}
+
+func TestCompositionKeepsNativeTypesAndSharedModels(t *testing.T) {
+ ordinary,err:=NewLiteralCarrier([]byte("{\"value\":\"0x04\"}"));if err!=nil{t.Fatal(err)}
+ if ordinary.Value!=HexByte("0x4"){t.Fatalf("ordinary shared model stopped canonicalizing: %#v",ordinary)}
+ choice,err:=NewNestedChoice([]byte("{\"value\":\"0x04\"}"));if err!=nil{t.Fatal(err)}
+ var shared *LiteralCarrier=choice.LiteralCarrier
+ if shared==nil||shared.Value!=HexByte("0x04"){t.Fatalf("composition changed its native value: %#v",choice)}
+ address,err:=NewAddressChoice([]byte("\"0xABCDEF0000000000000000000000000000000000\""));if err!=nil{t.Fatal(err)}
+ var native *Address=address.Branch0
+ if native==nil||*native!=Address("0xABCDEF0000000000000000000000000000000000"){t.Fatalf("composition changed its native address: %#v",address)}
 }
 `
 

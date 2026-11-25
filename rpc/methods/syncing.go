@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
+	syncingobject "github.com/codermaybe/ethguard/internal/ethobject/syncing"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -52,7 +52,7 @@ func normalizeSyncing(value json.RawMessage) (string, error) {
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return "", fmt.Errorf("syncing: expected false or an object")
 	}
-	if _, err := ethapi.NewSyncingResult(trimmed); err != nil {
+	if _, err := syncingobject.Decode(trimmed); err != nil {
 		return "", fmt.Errorf("syncing: invalid official progress fields: %w", err)
 	}
 	return rpc.CanonicalJSON(value)
@@ -62,7 +62,7 @@ func normalizeSyncing(value json.RawMessage) (string, error) {
 // Original source observations remain available for extension/diagnostic and
 // explicitly budgeted raw-evidence delivery.
 func encodeSyncing(raw json.RawMessage) (json.RawMessage, error) {
-	value, err := ethapi.NewSyncingResult(raw)
+	value, err := syncingobject.Decode(raw)
 	if err != nil {
 		return nil, err
 	}

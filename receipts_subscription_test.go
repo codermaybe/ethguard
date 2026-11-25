@@ -446,34 +446,55 @@ func TestReceiptsSlowMinorityDoesNotDelayQButCloseJoins(t *testing.T) {
 }
 
 func TestReceiptsReorgPreBirthAndReentryRemainAtomic(t *testing.T) {
-	common := makeLogsBlock(t, nil, 98, 1)
-	old99 := makeLogsBlock(t, common.head, 99, 1, 1)
-	old100 := makeLogsBlock(t, old99.head, 100, 1, 1)
-	alt99 := makeLogsBlock(t, common.head, 99, 2, 1)
-	alt100 := makeLogsBlock(t, alt99.head, 100, 2, 1)
-	last99 := makeLogsBlock(t, common.head, 99, 3, 1)
-	lookup := receiptLookup(t, common, old99, old100, alt99, alt100, last99)
-	s, feeds := startTestReceipts(t, context.Background(), nil, testReceiptsPolicy(), lookup, lookup)
-	pushLogsHead(feeds, old100.head)
-	birth := nextReceipts(t, s)
-	if len(birth.Path.Appended) != 1 || birth.Path.Appended[0].Node.Number != 100 {
-		t.Fatal("birth replayed earlier receipts")
-	}
-	pushLogsHead(feeds, alt100.head)
-	replaced := nextReceipts(t, s)
-	if replaced.Path.Reason != HeadPreBirthReorg || len(replaced.Path.Appended) != 2 || replaced.Path.Appended[0].Node.Hash != alt99.head.Hash() || len(replaced.Path.Retracted) != 1 {
-		t.Fatalf("prebirth: %+v", replaced)
-	}
-	pushLogsHead(feeds, last99.head)
-	last := nextReceipts(t, s)
-	if len(last.Path.Retracted) != 2 || last.Path.Retracted[1].Hash != alt99.head.Hash() {
-		t.Fatalf("multi-block retraction: %+v", last)
-	}
-	pushLogsHead(feeds, alt100.head)
-	reentry := nextReceipts(t, s)
-	if len(reentry.Path.Appended) != 2 || reentry.Path.NewVersion != 4 || reentry.Path.BaseVersion != 3 {
-		t.Fatalf("reentry: %+v", reentry)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		common := makeLogsBlock(t, nil, 98, 1)
+		old99 := makeLogsBlock(t, common.head, 99, 1, 1)
+		old100 := makeLogsBlock(t, old99.head, 100, 1, 1)
+		alt99 := makeLogsBlock(t, common.head, 99, 2, 1)
+		alt100 := makeLogsBlock(t, alt99.head, 100, 2, 1)
+		last99 := makeLogsBlock(t, common.head, 99, 3, 1)
+		lookup := receiptLookup(t, common, old99, old100, alt99, alt100, last99)
+		var fetchGate chan struct{}
+		gatedLookup := func(ctx context.Context, method string, args ...any) rpc.Response {
+			select {
+			case <-ctx.Done():
+				return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: ctx.Err()}}
+			case <-fetchGate:
+				return lookup(ctx, method, args...)
+			}
+		}
+		s, feeds := startTestReceipts(t, context.Background(), nil, testReceiptsPolicy(), gatedLookup, gatedLookup)
+		push := func(head *types.Header) {
+			// Sequential feed sends can start recovery while the other source
+			// still has its old tip. This fixture contains only the scripted
+			// forks, so settle both new tips before answering recovery requests.
+			synctest.Wait()
+			fetchGate = make(chan struct{})
+			pushLogsHead(feeds, head)
+			synctest.Wait()
+			close(fetchGate)
+		}
+		push(old100.head)
+		birth := nextReceipts(t, s)
+		if len(birth.Path.Appended) != 1 || birth.Path.Appended[0].Node.Number != 100 {
+			t.Fatal("birth replayed earlier receipts")
+		}
+		push(alt100.head)
+		replaced := nextReceipts(t, s)
+		if replaced.Path.Reason != HeadPreBirthReorg || len(replaced.Path.Appended) != 2 || replaced.Path.Appended[0].Node.Hash != alt99.head.Hash() || len(replaced.Path.Retracted) != 1 {
+			t.Fatalf("prebirth: %+v", replaced)
+		}
+		push(last99.head)
+		last := nextReceipts(t, s)
+		if len(last.Path.Retracted) != 2 || last.Path.Retracted[1].Hash != alt99.head.Hash() {
+			t.Fatalf("multi-block retraction: %+v", last)
+		}
+		push(alt100.head)
+		reentry := nextReceipts(t, s)
+		if len(reentry.Path.Appended) != 2 || reentry.Path.NewVersion != 4 || reentry.Path.BaseVersion != 3 {
+			t.Fatalf("reentry: %+v", reentry)
+		}
+	})
 }
 
 func TestReceiptsContinuousConsumptionReturnsHistoricalBudgets(t *testing.T) {

@@ -92,7 +92,7 @@ func emit(reg *registry, version string, roots map[string]*ref, outPath string) 
 		}
 		f.Commentf("%s parses the complete official %s result.", methodShimName(method), method)
 		f.Func().Id(methodShimName(method)).Params(rawParameter()).Params(typeCode(r), jen.Error()).Block(
-			jen.Return(jen.Id(r.parser).Call(jen.Id("raw"))),
+			jen.Return(jen.Id(r.parser).Call(jen.Id("raw"), jen.False())),
 		)
 	}
 	if err := f.Save(outPath); err != nil {
@@ -107,6 +107,10 @@ func rootUsesConstructor(method string, r *ref) bool {
 
 func rawParameter() *jen.Statement {
 	return jen.Id("raw").Qual("encoding/json", "RawMessage")
+}
+
+func keepStringsParameter() *jen.Statement {
+	return jen.Id("keepStrings").Bool()
 }
 
 func errorf(message string, args ...jen.Code) *jen.Statement {
@@ -135,40 +139,49 @@ func emitNative(f *jen.File, n nativeDescriptor) {
 	if n.pattern != "" {
 		f.Var().Id(pattern).Op("=").Qual("regexp", "MustCompile").Call(jen.Lit(n.pattern))
 	}
-	f.Func().Id("New"+n.name).Params(rawParameter()).Params(jen.Id(n.name), jen.Error()).BlockFunc(func(g *jen.Group) {
+	constructor := "New" + n.name
+	parameters := []jen.Code{rawParameter()}
+	if n.rewritesString() {
+		f.Func().Id(constructor).Params(rawParameter()).Params(jen.Id(n.name), jen.Error()).Block(
+			jen.Return(jen.Id("parse"+n.name).Call(jen.Id("raw"), jen.False())),
+		)
+		constructor = "parse" + n.name
+		parameters = append(parameters, keepStringsParameter())
+	}
+	f.Func().Id(constructor).Params(parameters...).Params(jen.Id(n.name), jen.Error()).BlockFunc(func(g *jen.Group) {
 		g.If(jen.Len(jen.Id("raw")).Op("==").Lit(0).Op("||").Qual(codecPackage, "IsJSONNull").Call(jen.Id("raw"))).Block(
 			jen.Return(jen.Lit(""), errorf(n.name+": expected a non-null value")),
 		)
-		if n.parse.fn != "" {
-			args := []jen.Code{jen.Id("raw")}
-			for _, arg := range n.parse.extraArgs {
-				args = append(args, jen.Lit(arg))
-			}
-			g.List(jen.Id("text"), jen.Err()).Op(":=").Qual(codecPackage, n.parse.fn).Call(args...)
+		if n.representation == exactNumber {
+			g.List(jen.Id("number"), jen.Err()).Op(":=").Qual(codecPackage, "CanonicalNumber").Call(jen.Id("raw"))
 			g.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Lit(""), jen.Err()))
-			if n.parse.number {
-				g.Return(jen.Id(n.name).Call(jen.Id("text").Dot("String").Call()), jen.Nil())
-				return
-			}
-		} else {
-			g.Var().Id("text").String()
-			g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("text")), jen.Err().Op("!=").Nil()).Block(
-				jen.Return(jen.Lit(""), errorf("expected string: %w", jen.Err())),
+			g.Return(jen.Id(n.name).Call(jen.Id("number").Dot("String").Call()), jen.Nil())
+			return
+		}
+		g.Var().Id("text").String()
+		g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("text")), jen.Err().Op("!=").Nil()).Block(
+			jen.Return(jen.Lit(""), errorf("expected string: %w", jen.Err())),
+		)
+		if n.pattern != "" {
+			g.If(jen.Op("!").Id(pattern).Dot("MatchString").Call(jen.Id("text"))).Block(
+				jen.Return(jen.Lit(""), errorf(n.name+": invalid input spelling %q", jen.Id("text"))),
 			)
 		}
-		if n.pattern != "" {
-			message := n.name + ": invalid spelling %q"
-			if n.parse.fn != "" {
-				message = n.name + ": canonical spelling %q does not match official pattern"
-			}
-			g.If(jen.Op("!").Id(pattern).Dot("MatchString").Call(jen.Id("text"))).Block(
-				jen.Return(jen.Lit(""), errorf(message, jen.Id("text"))),
+		if n.rewritesString() {
+			g.If(jen.Id("keepStrings")).Block(jen.Return(jen.Id(n.name).Call(jen.Id("text")), jen.Nil()))
+		}
+		switch n.representation {
+		case lowercaseAddress:
+			g.Id("text").Op("=").Qual("strings", "ToLower").Call(jen.Id("text"))
+		case minimalHexByte:
+			g.If(jen.Len(jen.Id("text")).Op("==").Lit(4).Op("&&").Id("text").Index(jen.Lit(2)).Op("==").Lit(byte('0'))).Block(
+				jen.Id("text").Op("=").Lit("0x").Op("+").Id("text").Index(jen.Lit(3), jen.Empty()),
 			)
 		}
 		g.Return(jen.Id(n.name).Call(jen.Id("text")), jen.Nil())
 	})
 	f.Func().Params(jen.Id("v").Id(n.name)).Id("MarshalJSON").Params().Params(jen.Index().Byte(), jen.Error()).BlockFunc(func(g *jen.Group) {
-		if n.parse.number {
+		if n.representation == exactNumber {
 			g.Return(jen.Index().Byte().Call(jen.Id("v")), jen.Nil())
 		} else {
 			g.Return(jen.Qual(codecPackage, "MarshalNoEscape").Call(jen.String().Call(jen.Id("v"))))
@@ -184,10 +197,10 @@ func emitValue(f *jen.File, r *ref) {
 	if pattern != "" {
 		f.Var().Id(r.parser+"Pattern").Op("=").Qual("regexp", "MustCompile").Call(jen.Lit(pattern))
 	}
-	f.Func().Id(r.parser).Params(rawParameter()).Params(typeCode(r), jen.Error()).BlockFunc(func(g *jen.Group) {
+	f.Func().Id(r.parser).Params(rawParameter(), keepStringsParameter()).Params(typeCode(r), jen.Error()).BlockFunc(func(g *jen.Group) {
 		if r.pointer {
 			g.If(jen.Qual(codecPackage, "IsJSONNull").Call(jen.Id("raw"))).Block(jen.Return(jen.Nil(), jen.Nil()))
-			g.List(jen.Id("value"), jen.Err()).Op(":=").Id(r.inner.parser).Call(jen.Id("raw"))
+			g.List(jen.Id("value"), jen.Err()).Op(":=").Id(r.inner.parser).Call(jen.Id("raw"), jen.Id("keepStrings"))
 			g.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Nil(), jen.Err()))
 			g.Return(jen.Op("&").Id("value"), jen.Nil())
 			return
@@ -200,17 +213,28 @@ func emitValue(f *jen.File, r *ref) {
 		}
 		switch r.kind {
 		case refScalar:
-			if r.native == "bool" || r.native == "int" {
+			if r.native == "int" {
+				g.List(jen.Id("number"), jen.Err()).Op(":=").Qual(codecPackage, "CanonicalNumber").Call(jen.Id("raw"))
+				g.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(r.path+": %w", jen.Err())))
+				g.If(jen.Qual(codecPackage, "CompareNumbers").Call(jen.Id("number"), jen.Qual("encoding/json", "Number").Call(jen.Lit(fmt.Sprint(r.constant)))).Op("!=").Lit(0)).Block(
+					jen.Return(jen.Id("out"), errorf(r.path+": expected constant")),
+				)
+				g.Id("out").Op("=").Add(constCode(r.constant))
+			} else if r.native == "bool" {
 				g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("out")), jen.Err().Op("!=").Nil()).Block(
 					jen.Return(jen.Id("out"), errorf(r.path+": %w", jen.Err())),
 				)
 			} else {
-				g.List(jen.Id("value"), jen.Err()).Op(":=").Id("New" + r.native).Call(jen.Id("raw"))
+				parse := jen.Id("New" + r.native).Call(jen.Id("raw"))
+				if nativeRewritesString(r.native) {
+					parse = jen.Id("parse"+r.native).Call(jen.Id("raw"), jen.Id("keepStrings"))
+				}
+				g.List(jen.Id("value"), jen.Err()).Op(":=").Add(parse)
 				g.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(r.path+": %w", jen.Err())))
 				g.Id("out").Op("=").Id("value")
 			}
 		case refObject, refUnion, refMap:
-			g.List(jen.Id("value"), jen.Err()).Op(":=").Id("New" + r.typeName).Call(jen.Id("raw"))
+			g.List(jen.Id("value"), jen.Err()).Op(":=").Id("parse"+r.typeName).Call(jen.Id("raw"), jen.Id("keepStrings"))
 			g.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), jen.Err()))
 			g.Id("out").Op("=").Id("value")
 		case refArray:
@@ -220,7 +244,7 @@ func emitValue(f *jen.File, r *ref) {
 			)
 			g.Id("out").Op("=").Make(typeCode(r), jen.Len(jen.Id("rows")))
 			g.For(jen.List(jen.Id("i"), jen.Id("row")).Op(":=").Range().Id("rows")).Block(
-				jen.List(jen.Id("value"), jen.Err()).Op(":=").Id(r.elem.parser).Call(jen.Id("row")),
+				jen.List(jen.Id("value"), jen.Err()).Op(":=").Id(r.elem.parser).Call(jen.Id("row"), jen.Id("keepStrings")),
 				jen.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(r.path+"[%d]: %w", jen.Id("i"), jen.Err()))),
 				jen.Id("out").Index(jen.Id("i")).Op("=").Id("value"),
 			)
@@ -239,7 +263,7 @@ func emitValue(f *jen.File, r *ref) {
 		if r.hasEnum {
 			emitEnumCheck(g, r)
 		}
-		if r.hasConst {
+		if r.hasConst && r.native != "int" {
 			var condition *jen.Statement
 			if r.native == "Number" {
 				condition = compareNumber(fmt.Sprint(r.constant)).Op("!=").Lit(0)
@@ -313,48 +337,29 @@ func emitObject(f *jen.File, obj *objectModel) {
 		f.Commentf("Shape shared by: %s.", strings.Join(obj.from, ", "))
 	}
 	f.Type().Id(obj.name).StructFunc(func(g *jen.Group) { emitFields(g, obj) })
-	constructor := "New" + obj.name
-	if obj.request {
-		emitRequestGuard(f, obj.name)
-		constructor = "parse" + obj.name
-	}
-	f.Func().Id(constructor).Params(rawParameter()).Params(jen.Id(obj.name), jen.Error()).BlockFunc(func(g *jen.Group) {
+	emitConstructor(f, obj.name, obj.request)
+	f.Func().Id("parse"+obj.name).Params(rawParameter(), keepStringsParameter()).Params(jen.Id(obj.name), jen.Error()).BlockFunc(func(g *jen.Group) {
 		g.Var().Id("out").Id(obj.name)
 		g.If(jen.Len(jen.Id("raw")).Op("==").Lit(0).Op("||").Qual(codecPackage, "IsJSONNull").Call(jen.Id("raw"))).Block(
 			jen.Return(jen.Id("out"), errorf(obj.name+": expected a non-null object")),
 		)
-		if obj.closed || obj.retainAdditional || obj.hasForbiddenRequired {
-			g.Var().Id("members").Map(jen.String()).Qual("encoding/json", "RawMessage")
-			g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("members")), jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(obj.name+": expected object: %w", jen.Err())))
-			if obj.hasForbiddenRequired {
-				emitForbiddenRequired(g, obj)
-			}
-			if obj.closed || obj.retainAdditional {
-				emitAdditionalMembers(g, obj)
-			}
+		g.Var().Id("members").Map(jen.String()).Qual("encoding/json", "RawMessage")
+		g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("members")), jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(obj.name+": expected object: %w", jen.Err())))
+		if obj.hasForbiddenRequired {
+			emitForbiddenRequired(g, obj)
 		}
-		if !obj.request {
-			g.Var().Id("fields").StructFunc(func(fields *jen.Group) {
-				for _, field := range obj.fields {
-					fields.Id(field.goName).Qual("encoding/json", "RawMessage").Tag(map[string]string{"json": field.json})
-				}
-			})
-			g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("fields")), jen.Err().Op("!=").Nil()).Block(
-				jen.Return(jen.Id("out"), errorf(obj.name+": expected object: %w", jen.Err())),
-			)
+		if obj.closed || obj.retainAdditional {
+			emitAdditionalMembers(g, obj)
 		}
 
 		for _, field := range obj.fields {
-			rawField := jen.Id("fields").Dot(field.goName)
-			if obj.request {
-				rawField = jen.Id("members").Index(jen.Lit(field.json))
-			}
+			rawField := jen.Id("members").Index(jen.Lit(field.json))
 			g.If(jen.Len(rawField).Op("==").Lit(0)).BlockFunc(func(missing *jen.Group) {
 				if field.req {
 					missing.Return(jen.Id("out"), errorf(obj.name+": missing required field "+field.json))
 				}
 			}).Else().BlockFunc(func(present *jen.Group) {
-				present.List(jen.Id("value"), jen.Err()).Op(":=").Id(field.ref.parser).Call(rawField)
+				present.List(jen.Id("value"), jen.Err()).Op(":=").Id(field.ref.parser).Call(rawField, jen.Id("keepStrings"))
 				present.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), jen.Err()))
 				value := jen.Id("value")
 				if !field.req {
@@ -396,13 +401,15 @@ func emitUnion(f *jen.File, u *unionModel) {
 			g.Id(b.goName).Op("*").Add(typeCode(b.ref)).Tag(map[string]string{"json": "-"})
 		}
 	})
-	constructor := "New" + u.name
-	if u.request {
-		emitRequestGuard(f, u.name)
-		constructor = "parse" + u.name
-	}
-	f.Func().Id(constructor).Params(rawParameter()).Params(jen.Id(u.name), jen.Error()).BlockFunc(func(g *jen.Group) {
+	emitConstructor(f, u.name, u.request)
+	f.Func().Id("parse"+u.name).Params(rawParameter(), keepStringsParameter()).Params(jen.Id(u.name), jen.Error()).BlockFunc(func(g *jen.Group) {
 		g.Var().Id("out").Id(u.name)
+		// Competing branches inspect JSON string identity. Preserve it through
+		// every selected child so representation cannot create a new match.
+		branchKeepStrings := jen.Id("keepStrings")
+		if len(u.branches) > 1 {
+			branchKeepStrings = jen.True()
+		}
 		// anyOf returns on the first accepted branch, so it needs no match
 		// counter: falling off the end of the constructor means zero branches
 		// accepted, and the terminal error says so without a dead variable.
@@ -419,7 +426,7 @@ func emitUnion(f *jen.File, u *unionModel) {
 			})
 		}
 		for _, b := range u.branches {
-			g.If(jen.List(jen.Id("value"), jen.Err()).Op(":=").Id(b.ref.parser).Call(jen.Id("raw")), jen.Err().Op("==").Nil()).BlockFunc(func(match *jen.Group) {
+			g.If(jen.List(jen.Id("value"), jen.Err()).Op(":=").Id(b.ref.parser).Call(jen.Id("raw"), branchKeepStrings), jen.Err().Op("==").Nil()).BlockFunc(func(match *jen.Group) {
 				if u.kind == "oneOf" {
 					match.Id("matches").Op("++")
 				}
@@ -582,12 +589,8 @@ func emitDictionary(f *jen.File, m *mapModel) {
 	for i, pattern := range m.patterns {
 		f.Var().Id(m.name+"KeyPattern"+itoa(i)).Op("=").Qual("regexp", "MustCompile").Call(jen.Lit(pattern))
 	}
-	constructor := "New" + m.name
-	if m.request {
-		emitRequestGuard(f, m.name)
-		constructor = "parse" + m.name
-	}
-	f.Func().Id(constructor).Params(rawParameter()).Params(jen.Id(m.name), jen.Error()).BlockFunc(func(g *jen.Group) {
+	emitConstructor(f, m.name, m.request)
+	f.Func().Id("parse"+m.name).Params(rawParameter(), keepStringsParameter()).Params(jen.Id(m.name), jen.Error()).BlockFunc(func(g *jen.Group) {
 		g.Var().Id("out").Id(m.name)
 		g.If(jen.Len(jen.Id("raw")).Op("==").Lit(0).Op("||").Qual(codecPackage, "IsJSONNull").Call(jen.Id("raw"))).Block(jen.Return(jen.Id("out"), errorf(m.path+": expected a non-null object")))
 		g.Var().Id("members").Map(jen.String()).Qual("encoding/json", "RawMessage")
@@ -599,7 +602,7 @@ func emitDictionary(f *jen.File, m *mapModel) {
 				valid.Op("||").Id(m.name + "KeyPattern" + itoa(i)).Dot("MatchString").Call(jen.Id("key"))
 			}
 			loop.If(jen.Op("!").Parens(valid)).Block(jen.Return(jen.Id("out"), errorf(m.path+": unknown dictionary key %q", jen.Id("key"))))
-			loop.List(jen.Id("value"), jen.Err()).Op(":=").Id(m.elem.parser).Call(jen.Id("member"))
+			loop.List(jen.Id("value"), jen.Err()).Op(":=").Id(m.elem.parser).Call(jen.Id("member"), jen.Id("keepStrings"))
 			loop.If(jen.Err().Op("!=").Nil()).Block(jen.Return(jen.Id("out"), errorf(m.path+"[%q]: %w", jen.Id("key"), jen.Err())))
 			loop.Id("out").Index(jen.Id("key")).Op("=").Id("value")
 		})
@@ -608,11 +611,14 @@ func emitDictionary(f *jen.File, m *mapModel) {
 	f.Func().Params(jen.Id("v").Id(m.name)).Id("MarshalJSON").Params().Params(jen.Index().Byte(), jen.Error()).Block(jen.Return(jen.Qual(codecPackage, "MarshalNoEscape").Call(jen.Map(jen.String()).Add(typeCode(m.elem)).Call(jen.Id("v")))))
 }
 
-// Public request constructors validate JSON syntax and safety once. Generated
-// request children call private parsers, sharing their caller's validated tree.
-func emitRequestGuard(f *jen.File, name string) {
-	f.Func().Id("New"+name).Params(rawParameter()).Params(jen.Id(name), jen.Error()).Block(
-		jen.If(jen.Err().Op(":=").Qual(safePackage, "Validate").Call(jen.Id("raw")), jen.Err().Op("!=").Nil()).Block(jen.Var().Id("zero").Id(name), jen.Return(jen.Id("zero"), jen.Err())),
-		jen.Return(jen.Id("parse"+name).Call(jen.Id("raw"))),
-	)
+// Public constructors start without a composition context. Request roots also
+// validate JSON safety once; children preserve that guard and their caller's
+// string context through private parsers without changing the public model.
+func emitConstructor(f *jen.File, name string, request bool) {
+	f.Func().Id("New"+name).Params(rawParameter()).Params(jen.Id(name), jen.Error()).BlockFunc(func(g *jen.Group) {
+		if request {
+			g.If(jen.Err().Op(":=").Qual(safePackage, "Validate").Call(jen.Id("raw")), jen.Err().Op("!=").Nil()).Block(jen.Var().Id("zero").Id(name), jen.Return(jen.Id("zero"), jen.Err()))
+		}
+		g.Return(jen.Id("parse"+name).Call(jen.Id("raw"), jen.False()))
+	})
 }

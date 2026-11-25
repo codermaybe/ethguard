@@ -51,7 +51,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 		out.Error = &text
 	}
 	if resolved.gasUsed != nil {
-		gas, err := ethapi.NewQuantity(resolved.gasUsed)
+		gas, err := ethapi.NewQuantity(ethcodec.FoldHexSpelling(resolved.gasUsed))
 		if err != nil {
 			return nil, fmt.Errorf("accessList: gasUsed: %w", err)
 		}
@@ -96,13 +96,13 @@ func checkItems(accessList json.RawMessage) ([]ethapi.AccessListItem, error) {
 		if shape.StorageKeys == nil {
 			return nil, fmt.Errorf("accessList[%d]: missing storageKeys", i)
 		}
-		address, err := ethapi.NewAddress(shape.Address)
+		address, err := ethapi.NewAddress(ethcodec.FoldHexSpelling(shape.Address))
 		if err != nil {
 			return nil, fmt.Errorf("accessList[%d]: address: %w", i, err)
 		}
 		keys := make([]ethapi.Hash, len(shape.StorageKeys))
 		for j, key := range shape.StorageKeys {
-			keys[j], err = ethapi.NewHash(key)
+			keys[j], err = ethapi.NewHash(ethcodec.FoldHexSpelling(key))
 			if err != nil {
 				return nil, fmt.Errorf("accessList[%d]: storageKeys[%d]: %w", i, j, err)
 			}

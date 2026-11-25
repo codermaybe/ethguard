@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
@@ -65,7 +66,7 @@ func validateAddress(v ethapi.Address) (ethapi.Address, error) {
 	if err != nil {
 		return "", fmt.Errorf("ethguard: invalid address: %w", ErrInvalidRequest)
 	}
-	canon, err := ethapi.NewAddress(quoted)
+	canon, err := ethapi.NewAddress(ethcodec.FoldHexSpelling(quoted))
 	if err != nil {
 		return "", fmt.Errorf("ethguard: invalid address %q: %w", string(v), ErrInvalidRequest)
 	}
@@ -73,14 +74,14 @@ func validateAddress(v ethapi.Address) (ethapi.Address, error) {
 }
 
 // validateHash is the hash-side twin of validateAddress: the generated
-// constructor is the acceptance gate (fixed-hex-v1, 32 bytes, any-case
-// input, lowercase canonical output) and no entry sends the raw spelling.
+// constructor validates the explicitly case-folded 32-byte input, and no
+// entry sends the raw spelling.
 func validateHash(v ethapi.Hash) (ethapi.Hash, error) {
 	quoted, err := json.Marshal(string(v))
 	if err != nil {
 		return "", fmt.Errorf("ethguard: invalid hash: %w", ErrInvalidRequest)
 	}
-	canon, err := ethapi.NewHash(quoted)
+	canon, err := ethapi.NewHash(ethcodec.FoldHexSpelling(quoted))
 	if err != nil {
 		return "", fmt.Errorf("ethguard: invalid hash %q: %w", string(v), ErrInvalidRequest)
 	}
@@ -1089,6 +1090,10 @@ func (c *Client) filterLogsExec(ctx context.Context, q ethapi.FilterQuery) ([]et
 // model, including the method-level exclusion of hash and range selectors.
 func freezeFilterQuery(q ethapi.FilterQuery) (ethapi.FilterQuery, error) {
 	raw, err := json.Marshal(q)
+	if err != nil {
+		return ethapi.FilterQuery{}, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
+	}
+	raw, err = foldFilterSpelling(raw)
 	if err != nil {
 		return ethapi.FilterQuery{}, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/codermaybe/ethguard/ethapi"
 	logobject "github.com/codermaybe/ethguard/internal/ethobject/log"
+	syncingobject "github.com/codermaybe/ethguard/internal/ethobject/syncing"
 )
 
 // jsonNull reports whether the raw value is JSON null (whitespace tolerated).
@@ -90,7 +91,7 @@ func DecodeLogs(raw json.RawMessage) ([]ethapi.Log, error) {
 // result means the source reports no ongoing sync. Provider-specific counters
 // are delivered separately by the execution evidence channels.
 func DecodeSyncProgress(raw json.RawMessage) (*ethapi.SyncProgress, error) {
-	status, err := ethapi.NewSyncingResult(raw)
+	status, err := syncingobject.Decode(raw)
 	if err != nil {
 		return nil, wrapMalformed("decode sync progress", err)
 	}

@@ -187,7 +187,7 @@ func correctTransactionByHashKey(key string, value json.RawMessage, original map
 		if key == "blockHash" && ethcodec.IsJSONNull(value) {
 			return json.RawMessage("null"), true, nil
 		}
-		canonical, err := ethapi.NewHash(value)
+		canonical, err := ethapi.NewHash(ethcodec.FoldHexSpelling(value))
 		if err != nil {
 			return nil, true, err
 		}
@@ -197,7 +197,7 @@ func correctTransactionByHashKey(key string, value json.RawMessage, original map
 		if key == "to" && ethcodec.IsJSONNull(value) {
 			return json.RawMessage("null"), true, nil
 		}
-		canonical, err := ethapi.NewAddress(value)
+		canonical, err := ethapi.NewAddress(ethcodec.FoldHexSpelling(value))
 		if err != nil {
 			return nil, true, err
 		}

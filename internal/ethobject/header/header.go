@@ -45,8 +45,8 @@ func ReferenceOnly(source map[string]json.RawMessage) bool {
 	return true
 }
 
-// Projection selects the official Header members and folds geth's unset
-// optional pointer nulls to omission. It does not validate a header or supply
+// Projection selects the official Header members, folds their hex spelling,
+// and folds geth's unset optional pointer nulls to omission. It does not validate a header or supply
 // missing members. Block uses the same explicit projection before its own
 // generated contract is checked.
 func Projection(raw json.RawMessage) (json.RawMessage, error) {
@@ -67,7 +67,7 @@ func projectFields(source map[string]json.RawMessage) map[string]json.RawMessage
 		if !present || (optional(name) && ethcodec.IsJSONNull(value)) {
 			continue
 		}
-		out[name] = value
+		out[name] = ethcodec.FoldHexSpelling(value)
 	}
 	return out
 }
@@ -90,7 +90,7 @@ func optional(name string) bool {
 }
 
 // Decode checks the original declared wire hash against the header's own
-// hash. Generated scalar canonicalization runs before the private geth bridge,
+// hash. Explicit scalar spelling folding runs before the generated check and private geth bridge,
 // so valid JSON escapes and equivalent scalar spellings remain transparent.
 // A Header has no uncle payload; a historical nonempty uncle root is valid.
 func Decode(raw json.RawMessage) (*types.Header, error) {
@@ -115,7 +115,7 @@ func prepare(raw json.RawMessage) (json.RawMessage, *types.Header, error) {
 		return nil, nil, fmt.Errorf("header: expected object")
 	}
 	// Retain the source declaration before any algorithm representation is
-	// constructed. The generated model canonicalizes spelling, never meaning.
+	// constructed. The projection folds spelling before schema validation.
 	declared, err := ethcodec.ValidateWireFixedHex(source["hash"], 64, "hash")
 	if err != nil {
 		return nil, nil, fmt.Errorf("header hash: %w", err)

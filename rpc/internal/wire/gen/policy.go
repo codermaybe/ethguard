@@ -158,34 +158,32 @@ func schemaAtPointer(raw json.RawMessage, pointer string) (json.RawMessage, erro
 	return raw, nil
 }
 
-// These are the existing codec policies, not upstream schema amendments.
-// Naming every normalizer explicitly makes newly introduced input widening
-// fail generation until its representation policy is reviewed here.
-var normalizationPolicies = map[string]string{
-	"CanonicalQuantity":      "quantity-v1: case-insensitive hex, canonical lowercase quantity; reject leading zeros",
-	"NormalizeWireData":      "data-v1: case-insensitive prefix and even hex bytes, preserve byte length, lowercase output",
-	"ValidateWireFixedHex":   "fixed-hex-v1: case-insensitive prefix and fixed-width hex, lowercase output",
-	"CanonicalHexByte":       "hex-byte-v1: case-insensitive one-byte quantity, fold redundant leading zeros",
-	"NormalizeDecimalString": "decimal-v1: parse decimal integer, canonicalize sign and leading zeros, then enforce canonical pattern",
-	"CanonicalNumber":        "number-v1: finite exact JSON number, no binary floating-point rounding",
+// String input is checked against its effective-schema pattern first. These
+// policies select only the representation of values that already passed it;
+// compatibility input and schema amendments belong to their explicit owners.
+var representationPolicies = map[scalarRepresentation]string{
+	preserveLiteral:  "literal-v1: validate decoded input against effective-schema constraints; preserve string value",
+	lowercaseAddress: "address-v2: validate decoded input against effective-schema constraints; lowercase accepted address digits",
+	minimalHexByte:   "hex-byte-v2: validate decoded input against effective-schema constraints; fold one redundant leading zero",
+	exactNumber:      "number-v1: finite exact JSON number, no binary floating-point rounding",
 }
 
 type scalarPolicy struct {
 	Name       string `json:"name"`
-	Pattern    string `json:"canonicalPattern,omitempty"`
+	Pattern    string `json:"inputPattern,omitempty"`
 	Normalizer string `json:"normalizer,omitempty"`
-	Arguments  []any  `json:"arguments,omitempty"`
 	Policy     string `json:"representationPolicy"`
 }
 
 type schemaPolicy struct {
-	Path       string `json:"path"`
-	Role       string `json:"role"`
-	Pattern    string `json:"sourcePattern,omitempty"`
-	Native     string `json:"native,omitempty"`
-	Normalizer string `json:"normalizer,omitempty"`
-	Policy     string `json:"representationPolicy,omitempty"`
-	Object     string `json:"objectPolicy,omitempty"`
+	Path        string `json:"path"`
+	Role        string `json:"role"`
+	Pattern     string `json:"sourcePattern,omitempty"`
+	Native      string `json:"native,omitempty"`
+	Normalizer  string `json:"normalizer,omitempty"`
+	Policy      string `json:"representationPolicy,omitempty"`
+	Object      string `json:"objectPolicy,omitempty"`
+	KeepStrings bool   `json:"keepStrings,omitempty"`
 }
 
 type auditRoot struct {
@@ -213,15 +211,15 @@ type generationAudit struct {
 func reviewedScalarPolicies() ([]scalarPolicy, error) {
 	var policies []scalarPolicy
 	for _, n := range natives {
-		policy := "literal-v1: preserve string value; enforce declared constraints"
-		if n.parse.fn != "" {
-			var ok bool
-			policy, ok = normalizationPolicies[n.parse.fn]
-			if !ok {
-				return nil, fmt.Errorf("unreviewed normalizer %q for %s", n.parse.fn, n.name)
-			}
+		policy, ok := representationPolicies[n.representation]
+		if !ok {
+			return nil, fmt.Errorf("unreviewed scalar representation %q for %s", n.representation, n.name)
 		}
-		policies = append(policies, scalarPolicy{n.name, n.pattern, n.parse.fn, n.parse.extraArgs, policy})
+		normalizer := ""
+		if n.representation == exactNumber {
+			normalizer = "CanonicalNumber"
+		}
+		policies = append(policies, scalarPolicy{n.name, n.pattern, normalizer, policy})
 	}
 	return policies, nil
 }
@@ -243,7 +241,7 @@ func writeGenerationAudit(bundle executionapi.Bundle, generated, target string) 
 		}
 		digest := sha256.Sum256(raw)
 		audit.Roots = append(audit.Roots, auditRoot{path, hex.EncodeToString(digest[:])})
-		collectSchemaPolicies(node, path, role, false, &audit.Usages)
+		collectSchemaPolicies(node, path, role, false, false, &audit.Usages)
 		return nil
 	}
 	for method, raw := range bundle.Results {
@@ -277,8 +275,9 @@ func writeGenerationAudit(bundle executionapi.Bundle, generated, target string) 
 
 // Traverse source nodes independently of model deduplication: the audit must
 // retain each method/path even when several paths share one generated type.
-func collectSchemaPolicies(n *schema, path, role string, preserve bool, out *[]schemaPolicy) {
-	policy := schemaPolicy{Path: path, Role: role, Pattern: n.pattern}
+func collectSchemaPolicies(n *schema, path, role string, preserve, keepStrings bool, out *[]schemaPolicy) {
+	keepStrings = keepStrings || len(nonNullBranches(n.branches)) > 1
+	policy := schemaPolicy{Path: path, Role: role, Pattern: n.pattern, KeepStrings: keepStrings}
 	if n.typeVal == "string" || n.typeVal == "number" {
 		policy.Native = nativeForPattern(n.pattern)
 		if n.typeVal == "number" {
@@ -289,10 +288,12 @@ func collectSchemaPolicies(n *schema, path, role string, preserve bool, out *[]s
 		}
 		for _, native := range natives {
 			if native.name == policy.Native {
-				policy.Normalizer = native.parse.fn
-				policy.Policy = normalizationPolicies[native.parse.fn]
-				if policy.Normalizer == "" {
-					policy.Policy = "literal-v1: preserve string value; enforce declared constraints"
+				policy.Policy = representationPolicies[native.representation]
+				if keepStrings && native.rewritesString() {
+					policy.Policy = representationPolicies[preserveLiteral]
+				}
+				if native.representation == exactNumber {
+					policy.Normalizer = "CanonicalNumber"
 				}
 			}
 		}
@@ -307,41 +308,42 @@ func collectSchemaPolicies(n *schema, path, role string, preserve bool, out *[]s
 			policy.Native = "bool"
 		case json.Number:
 			policy.Native = "int"
+			policy.Normalizer = "CanonicalNumber"
+			policy.Policy = "integer-const-v2: compare exact JSON numeric value with the declared constant before assigning its Go int representation"
 			if _, err := strconv.ParseInt(n.constVal, 10, 32); err != nil {
 				policy.Native = "Number"
-				policy.Normalizer = "CanonicalNumber"
-				policy.Policy = normalizationPolicies[policy.Normalizer]
+				policy.Policy = representationPolicies[exactNumber]
 			}
 		}
 	}
 	if n.typeVal == "object" {
-		policy.Object = "declared-field result projection"
+		policy.Object = "exact-key declared-field result projection"
 		if role == "request" {
-			policy.Object = "preserve additional input members"
-			if string(n.additionalProperties) == "false" {
-				policy.Object = "reject undeclared input members"
-			}
+			policy.Object = "exact-key construction; preserve additional input members"
+		}
+		if string(n.additionalProperties) == "false" {
+			policy.Object = "exact-key construction; reject undeclared input members"
 		}
 	}
 	if policy.Native != "" || policy.Object != "" {
 		*out = append(*out, policy)
 	}
 	for _, field := range n.properties {
-		collectSchemaPolicies(field.schema, path+".properties."+field.name, role, preserve, out)
+		collectSchemaPolicies(field.schema, path+".properties."+field.name, role, preserve, keepStrings, out)
 	}
 	for _, field := range n.patternProperties {
-		collectSchemaPolicies(field.schema, path+".patternProperties."+field.name, role, preserve, out)
+		collectSchemaPolicies(field.schema, path+".patternProperties."+field.name, role, preserve, keepStrings, out)
 	}
 	if n.items != nil {
-		collectSchemaPolicies(n.items, path+".items", role, preserve || n.uniqueItems, out)
+		collectSchemaPolicies(n.items, path+".items", role, preserve || n.uniqueItems, keepStrings, out)
 	}
 	for i, branch := range n.branches {
-		collectSchemaPolicies(branch, fmt.Sprintf("%s.%s[%d]", path, n.compKind, i), role, preserve, out)
+		collectSchemaPolicies(branch, fmt.Sprintf("%s.%s[%d]", path, n.compKind, i), role, preserve, keepStrings, out)
 	}
 }
 
 func stringNative(n *schema, preserve bool) string {
-	if n.hasEnum || preserve {
+	if n.hasConst || n.hasEnum || preserve {
 		return "Text"
 	}
 	if native := nativeForPattern(n.pattern); native != "" {

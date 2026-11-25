@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -14,6 +16,21 @@ import (
 	"github.com/codermaybe/ethguard/internal/ethobject/log"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 )
+
+// Receipt projection follows the audited generated model's member inventory.
+// Only its declared scalars receive hex spelling compatibility; logs use
+// their own protected encoder and provider extensions stay outside the value.
+var receiptFields = func() []string {
+	t := reflect.TypeOf(ethapi.Receipt{})
+	names := make([]string, 0, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		name := strings.Split(t.Field(i).Tag.Get("json"), ",")[0]
+		if name != "" && name != "-" && name != "logs" {
+			names = append(names, name)
+		}
+	}
+	return names
+}()
 
 // EncodeBlock encodes one complete eth_getBlockReceipts response using the
 // same protected receipt model as Encode. Null is an absent block; [] is an
@@ -89,8 +106,14 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	fields["logs"] = canonicalLogs
-	checked, err := ethcodec.MarshalNoEscape(fields)
+	candidate := make(map[string]json.RawMessage, len(receiptFields)+1)
+	for _, name := range receiptFields {
+		if raw, present := fields[name]; present {
+			candidate[name] = ethcodec.FoldHexSpelling(raw)
+		}
+	}
+	candidate["logs"] = canonicalLogs
+	checked, err := ethcodec.MarshalNoEscape(candidate)
 	if err != nil {
 		return nil, err
 	}
