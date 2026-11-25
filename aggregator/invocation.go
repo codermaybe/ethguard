@@ -87,6 +87,10 @@ type invocationState struct {
 	// (admission, resolution, faults, events, health) consults this value
 	// instead of re-deriving it.
 	processorRoute rpc.CanonicalProcessor
+	// canonicalResolver carries the capability checked when prepare freezes
+	// the processing route. A missing capability records an internal fault,
+	// so the round never reaches this resolver.
+	canonicalResolver rpc.CanonicalOutcomeResolver
 	// canonicalObservations holds the per-source slot pairing for the
 	// canonical route: each attempted source keeps its slot, failed ones
 	// without a result.
@@ -152,7 +156,10 @@ func (state *invocationState) forwarded() bool {
 // every input has a judgment, including unassessed inputs on early exits.
 func (state *invocationState) resolve() (rpc.Outcome, error) {
 	if state.processorRoute != nil {
-		return resolveCanonicalInvocation(state.plan, state.snap, state.snapOK, state.canonicalObservations)
+		if state.snapOK && state.plan.Corroborating() {
+			return state.canonicalResolver.ResolveCanonicalCorroborated(state.snap, state.canonicalObservations)
+		}
+		return state.canonicalResolver.ResolveCanonical(state.canonicalObservations)
 	}
 	return resolvePlannedInvocation(state.plan, state.snap, state.snapOK, state.pendingLocal, state.observations)
 }

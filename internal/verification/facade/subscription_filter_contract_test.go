@@ -130,7 +130,7 @@ func TestSubscribeTransactionReceiptsPublicEntrypointsFollowHeadAndFreezeFilter(
 					if err != nil {
 						t.Fatal(err)
 					}
-					defer subscription.Close()
+					defer subscription.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 					if query != nil && query.TransactionHashes != nil && len(*query.TransactionHashes) != 0 {
 						(*query.TransactionHashes)[0] = ethapi.Hash("0x1")
 					}
@@ -231,7 +231,7 @@ func TestSubscribeFilterLogsPublicEntrypointsDeliverZeroMatchProgress(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer sub.Close()
+			defer sub.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 			event, err := sub.Next(ctx)
 			if err != nil || len(event.Path.Appended) != 1 || event.Path.Appended[0].Node.Number != 17 || event.Path.Appended[0].Logs == nil || len(event.Path.Appended[0].Logs) != 0 || event.Path.Appended[0].Proof != ethguard.LogsFilterExcluded {
 				t.Fatalf("event=%+v err=%v", event, err)
@@ -289,7 +289,7 @@ func TestBlockReceiptsRequireCanonicalPresenceOnWire(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client, nodes := fleet(t, 2)
 			for _, node := range nodes {
-				node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{json.RawMessage(raw)})
+				node.Return(methods.MethodGetBlockReceipts, []json.RawMessage{raw})
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -358,12 +358,12 @@ func TestFilterLogsWireSpellsCanonicalCopy(t *testing.T) {
 				blockHash = "0x" + strings.Repeat("22", 32)
 				block := fixtureBlock(t, 16)
 				for _, node := range nodes {
-					node.Return(methods.MethodGetBlockByNumber, json.RawMessage(block))
+					node.Return(methods.MethodGetBlockByNumber, block)
 				}
 			}
 			log := fixtureSubscriptionLog(blockHash)
 			for _, node := range nodes {
-				node.Return(methods.MethodGetLogs, []json.RawMessage{json.RawMessage(log)})
+				node.Return(methods.MethodGetLogs, []json.RawMessage{log})
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -410,7 +410,7 @@ func TestFilterLogsMixedBranchIsLocalInputError(t *testing.T) {
 	if !errors.Is(err, ethguard.ErrInvalidRequest) || logs != nil {
 		t.Fatalf("mixed filter = %v, %v, want ErrInvalidRequest", logs, err)
 	}
-	if result.Decision != nil || result.Err != err {
+	if result.Decision != nil || result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 		t.Fatalf("local rejection result = %+v, want nil decision and equal Err", result)
 	}
 	viewLogs, viewErr := client.EthClient().FilterLogs(ctx, q)
@@ -424,19 +424,47 @@ func TestFilterLogsMixedBranchIsLocalInputError(t *testing.T) {
 	}
 }
 
-// Unsupported semantic extensions and finality tags must fail before network
-// registration on both public facades.
+// Invalid unions and unsupported filters must fail before any new RPC on
+// both public facades, including reference and identity requests.
 func TestSubscribeFilterLogsRejectsUnsupportedQueriesBeforeNetwork(t *testing.T) {
+	pending := ethapi.Text("pending")
+	address := ethapi.Address("0x" + strings.Repeat("cc", 20))
+	hash := ethapi.Hash("0x" + strings.Repeat("ab", 32))
+	topics := []ethapi.FilterTopic{{SingleTopicMatch: &hash, MultipleTopicMatch: &[]ethapi.Hash{hash}}}
+	topicList := &topics
+	cases := []struct {
+		name  string
+		raw   string
+		query ethapi.FilterQuery
+	}{
+		{name: "extension", raw: `{"customFloor":123456789012345678901234567890}`},
+		{name: "safe", raw: `{"fromBlock":"safe"}`},
+		{name: "finalized", raw: `{"toBlock":"finalized"}`},
+		{name: "range overflow", raw: `{"fromBlock":"0x10000000000000000"}`},
+		{name: "inverted range", raw: `{"fromBlock":"0x2","toBlock":"0x1"}`},
+		{name: "hash with null range", raw: `{"blockHash":"0x` + strings.Repeat("ab", 32) + `","fromBlock":null}`},
+		{name: "unset query"},
+		{name: "multiple query branches", query: ethapi.FilterQuery{FilterByBlockRange: &ethapi.FilterQueryRange{}, FilterByBlockHash: &ethapi.FilterQueryHash{BlockHash: hash}}},
+		{name: "unset block", query: ethapi.FilterQuery{FilterByBlockRange: &ethapi.FilterQueryRange{FromBlock: &ethapi.FilterBlock{}}}},
+		{name: "pending", query: ethapi.FilterQuery{FilterByBlockRange: &ethapi.FilterQueryRange{FromBlock: &ethapi.FilterBlock{BlockTag: &pending}}}},
+		{name: "multiple address branches", query: ethapi.FilterQuery{FilterByBlockRange: &ethapi.FilterQueryRange{Address: &ethapi.FilterAddress{Address: &address, Addresses: &[]ethapi.Address{address}}}}},
+		{name: "multiple topic branches", query: ethapi.FilterQuery{FilterByBlockRange: &ethapi.FilterQueryRange{Topics: &topicList}}},
+	}
 	for _, view := range []bool{false, true} {
-		for _, raw := range []string{`{"customFloor":123456789012345678901234567890}`, `{"fromBlock":"safe"}`, `{"toBlock":"finalized"}`} {
-			t.Run(fmt.Sprintf("%t/%s", view, raw), func(t *testing.T) {
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("%t/%s", view, tc.name), func(t *testing.T) {
 				a := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
 				b := newSubscriptionPeer(t, map[string][]byte{"eth_chainId": []byte(`"0x1"`)})
 				client := subscriptionClient(t, a, b)
-				q, err := ethapi.NewFilterQuery(json.RawMessage(raw))
-				if err != nil {
-					t.Fatal(err)
+				q := tc.query
+				var err error
+				if tc.raw != "" {
+					q, err = ethapi.NewFilterQuery(json.RawMessage(tc.raw))
+					if err != nil {
+						t.Fatal(err)
+					}
 				}
+				before := []int{len(a.requestedMethods()), len(b.requestedMethods())}
 				var sub *ethguard.LogsSubscription
 				if view {
 					sub, err = client.EthClient().SubscribeFilterLogs(context.Background(), q, logsFacadePolicy())
@@ -444,16 +472,15 @@ func TestSubscribeFilterLogsRejectsUnsupportedQueriesBeforeNetwork(t *testing.T)
 					sub, err = client.SubscribeFilterLogs(context.Background(), q, logsFacadePolicy())
 				}
 				if sub != nil {
-					defer sub.Close()
+					defer sub.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
+					t.Fatal("rejected query returned a subscription")
 				}
 				if err == nil || !errors.Is(err, ethguard.ErrInvalidRequest) {
 					t.Fatalf("unexpected result %v", err)
 				}
-				for _, peer := range []*subscriptionPeer{a, b} {
-					for _, method := range peer.requestedMethods() {
-						if method == "eth_subscribe" {
-							t.Fatal("invalid filter reached network")
-						}
+				for i, peer := range []*subscriptionPeer{a, b} {
+					if methods := peer.requestedMethods(); len(methods) != before[i] {
+						t.Fatalf("invalid filter added RPCs: before %d, after %v", before[i], methods)
 					}
 				}
 			})
@@ -541,7 +568,7 @@ func TestSubscribeFilterLogsPublicEntrypointsProveNonemptyBlock(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer subscription.Close()
+			defer subscription.Close() //nolint:errcheck // Subscription cleanup only joins work and releases memory; Close always returns nil.
 			basis := subscription.Basis()
 			if tc.single && (basis.Tier != ethguard.HeadForwarded || len(basis.Members) != 1 || basis.Quorum != 1) {
 				t.Fatalf("single source basis=%+v", basis)

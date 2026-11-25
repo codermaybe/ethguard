@@ -66,27 +66,6 @@ func resolvePlannedInvocation(plan *rpc.ReadPlan, snap rpc.Corroboration, snapOK
 	return plan.Resolver.Resolve(obs)
 }
 
-// resolveCanonicalInvocation resolves one processed observation set through
-// the plan's canonical consumption capability. The entries mirror the raw
-// chain exactly: the frozen snapshot adjudicates when the invocation captured
-// one, and the resolver's construction-time configuration answers otherwise —
-// there is no zero-snapshot shortcut for the corroborated entry, and the
-// pending-local shape never reaches this function because the frozen route
-// stays raw for it. The canonical capability is outcome-shaped by contract,
-// so the outcome passes through unchanged.
-func resolveCanonicalInvocation(plan *rpc.ReadPlan, snap rpc.Corroboration, snapOK bool, cobs []rpc.CanonicalObservation) (rpc.Outcome, error) {
-	// The prepare phase already verified the canonical consumption capability
-	// when it froze the route: a plan whose resolver cannot consume canonical
-	// observations takes the one internal contract exit there and never
-	// reaches resolution. The compiler rejects the same mismatch for compiled
-	// specs.
-	resolver := plan.Resolver.(rpc.CanonicalOutcomeResolver)
-	if snapOK && plan.Corroborating() {
-		return resolver.ResolveCanonicalCorroborated(snap, cobs)
-	}
-	return resolver.ResolveCanonical(cobs)
-}
-
 // planPendingLocalRoute is the plan's pending-local routing check, computed
 // once at prepare time from the final prepared request: a pending request
 // shape on a pending-observation method resolves as a node-local

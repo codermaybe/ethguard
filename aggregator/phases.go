@@ -108,7 +108,9 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	// contract exit instead of reaching the resolution or any raw-hook
 	// fallback.
 	if state.processorRoute != nil {
-		if _, ok := plan.Resolver.(rpc.CanonicalOutcomeResolver); !ok {
+		var ok bool
+		state.canonicalResolver, ok = plan.Resolver.(rpc.CanonicalOutcomeResolver)
+		if !ok {
 			state.internalFault = fmt.Errorf("%w: %s resolver cannot consume canonical observations", rpc.ErrInvalidCanonicalResult, plan.Method)
 		}
 	}

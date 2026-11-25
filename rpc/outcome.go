@@ -346,9 +346,6 @@ func completeOutcome(obs []Observation, decision Decision, verdicts []SourceVerd
 		o.Decision.Status = Unknown
 		o.Decision.Adjudication.Reason = ReasonInternalFailure
 	}
-	if errors.Is(err, ErrInvalidCanonicalResult) || errors.Is(err, ErrInvalidOutcome) {
-		o.Decision.Adjudication.Reason = ReasonInternalFailure
-	}
 	o.ProjectSources(obs)
 	return o, err
 }

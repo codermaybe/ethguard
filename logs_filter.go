@@ -1,6 +1,7 @@
 package ethguard
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -38,65 +39,89 @@ func logsFilterBytes(f logsFilter) uint64 {
 }
 
 func compileLogsFilter(q ethapi.FilterQuery) (logsFilter, error) {
-	arg, err := toFilterArg(q)
+	checked, err := freezeFilterQuery(q)
 	if err != nil {
 		return logsFilter{}, err
 	}
 	var out logsFilter
-	for key, value := range arg {
-		switch key {
-		case "blockHash":
-			h := common.HexToHash(value.(string))
-			out.hash = &h
-		case "fromBlock", "toBlock":
-			text := value.(string)
-			if text == "latest" {
-				continue
-			}
-			if text == "safe" || text == "finalized" {
-				return logsFilter{}, fmt.Errorf("%w: logs stream does not support %s", rpc.ErrInvalidRequest, text)
-			}
-			n, err := strconv.ParseUint(strings.TrimPrefix(text, "0x"), 16, 64)
-			if err != nil {
-				return logsFilter{}, fmt.Errorf("%w: logs %s is outside uint64", rpc.ErrInvalidRequest, key)
-			}
-			if key == "fromBlock" {
-				out.from = &n
-			} else {
-				out.to = &n
-			}
-		case "address":
-			out.addresses = logsAlternatives(value)
-		case "topics":
-			if entries, ok := value.([]any); ok {
-				out.topics = make([][]string, len(entries))
-				for i, entry := range entries {
-					out.topics[i] = logsAlternatives(entry)
-				}
-			}
-		default:
-			return logsFilter{}, fmt.Errorf("%w: unsupported logs filter field %q", rpc.ErrInvalidRequest, key)
+	var address *ethapi.FilterAddress
+	var topics **[]ethapi.FilterTopic
+	var from, to *ethapi.FilterBlock
+	var extras map[string]json.RawMessage
+	if query := checked.FilterByBlockRange; query != nil {
+		address, topics, extras = query.Address, query.Topics, query.AdditionalProperties
+		from, to = query.FromBlock, query.ToBlock
+		start := uint64(0)
+		out.from = &start
+	} else {
+		query := checked.FilterByBlockHash
+		address, topics, extras = query.Address, query.Topics, query.AdditionalProperties
+		hash := common.HexToHash(string(query.BlockHash))
+		out.hash = &hash
+	}
+	for key := range extras {
+		return logsFilter{}, fmt.Errorf("%w: unsupported logs filter field %q", rpc.ErrInvalidRequest, key)
+	}
+	if from != nil {
+		out.from, err = logsFilterBound("fromBlock", *from)
+		if err != nil {
+			return logsFilter{}, err
+		}
+	}
+	if to != nil {
+		out.to, err = logsFilterBound("toBlock", *to)
+		if err != nil {
+			return logsFilter{}, err
 		}
 	}
 	if out.from != nil && out.to != nil && *out.from > *out.to {
 		return logsFilter{}, fmt.Errorf("%w: logs fromBlock exceeds toBlock", rpc.ErrInvalidRequest)
 	}
+	if address != nil {
+		if address.Address != nil {
+			out.addresses = []string{string(*address.Address)}
+		} else if address.Addresses != nil {
+			out.addresses = make([]string, len(*address.Addresses))
+			for i, value := range *address.Addresses {
+				out.addresses[i] = string(value)
+			}
+		}
+	}
+	if topics != nil && *topics != nil {
+		out.topics = make([][]string, len(**topics))
+		for i, topic := range **topics {
+			if topic.SingleTopicMatch != nil {
+				out.topics[i] = []string{string(*topic.SingleTopicMatch)}
+			} else if topic.MultipleTopicMatch != nil {
+				out.topics[i] = make([]string, len(*topic.MultipleTopicMatch))
+				for j, value := range *topic.MultipleTopicMatch {
+					out.topics[i][j] = string(value)
+				}
+			}
+		}
+	}
 	return out, nil
 }
 
-func logsAlternatives(value any) []string {
-	switch value := value.(type) {
-	case string:
-		return []string{value}
-	case []any:
-		out := make([]string, len(value))
-		for i, item := range value {
-			out[i] = item.(string)
+// logsFilterBound consumes a union already validated by freezeFilterQuery.
+// latest follows the live path; earliest is the explicit zero height.
+func logsFilterBound(field string, bound ethapi.FilterBlock) (*uint64, error) {
+	if bound.BlockTag != nil {
+		switch tag := string(*bound.BlockTag); tag {
+		case "latest":
+			return nil, nil
+		case "earliest":
+			zero := uint64(0)
+			return &zero, nil
+		default:
+			return nil, fmt.Errorf("%w: logs stream does not support %s", rpc.ErrInvalidRequest, tag)
 		}
-		return out
-	default:
-		return nil
 	}
+	n, err := strconv.ParseUint(strings.TrimPrefix(string(*bound.BlockNumber), "0x"), 16, 64)
+	if err != nil {
+		return nil, fmt.Errorf("%w: logs %s is outside uint64", rpc.ErrInvalidRequest, field)
+	}
+	return &n, nil
 }
 
 func (f logsFilter) includes(node AnchorNode) bool {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -229,21 +231,39 @@ func TestLogsFilterOfficialMatchingAndRange(t *testing.T) {
 			}
 		})
 	}
-	for _, raw := range []string{`{"fromBlock":"safe"}`, `{"toBlock":"finalized"}`, `{"extension":1}`, `{"fromBlock":"0x10","toBlock":"0xf"}`} {
+	for _, raw := range []string{`{"fromBlock":"safe"}`, `{"toBlock":"finalized"}`, `{"extension":1}`, `{"fromBlock":"0x10","toBlock":"0xf"}`, `{"fromBlock":"0x10000000000000000"}`, `{"toBlock":"0x10000000000000000"}`} {
 		if _, err := compileLogsFilter(logsQuery(t, raw)); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}
 	}
-	filter, err := compileLogsFilter(logsQuery(t, `{"fromBlock":"0x64","toBlock":"0x65"}`))
-	if err != nil {
-		t.Fatal(err)
+	zero, lower, upper, maximum := uint64(0), uint64(100), uint64(101), uint64(math.MaxUint64)
+	for _, tc := range []struct {
+		raw        string
+		from, to   *uint64
+		boundaries map[uint64]bool
+	}{
+		{`{}`, &zero, nil, map[uint64]bool{0: true, maximum: true}},
+		{`{"fromBlock":"latest","toBlock":"latest"}`, nil, nil, map[uint64]bool{0: true, maximum: true}},
+		{`{"fromBlock":"earliest","toBlock":"earliest"}`, &zero, &zero, map[uint64]bool{0: true, 1: false}},
+		{`{"fromBlock":"0x64","toBlock":"0x65"}`, &lower, &upper, map[uint64]bool{99: false, 100: true, 101: true, 102: false}},
+		{`{"fromBlock":"0xffffffffffffffff","toBlock":"0xffffffffffffffff"}`, &maximum, &maximum, map[uint64]bool{maximum - 1: false, maximum: true}},
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			filter, err := compileLogsFilter(logsQuery(t, tc.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(filter.from, tc.from) || !reflect.DeepEqual(filter.to, tc.to) {
+				t.Fatalf("bounds = %v/%v, want %v/%v", filter.from, filter.to, tc.from, tc.to)
+			}
+			for height, want := range tc.boundaries {
+				if filter.includes(AnchorNode{Number: height}) != want {
+					t.Fatalf("range at %d: want included=%t", height, want)
+				}
+			}
+		})
 	}
-	for n, want := range map[uint64]bool{99: false, 100: true, 101: true, 102: false} {
-		if filter.includes(AnchorNode{Number: n}) != want {
-			t.Fatalf("range at %d", n)
-		}
-	}
-	filter, err = compileLogsFilter(logsQuery(t, fmt.Sprintf(`{"blockHash":%q}`, f.head.Hash().Hex())))
+	filter, err := compileLogsFilter(logsQuery(t, fmt.Sprintf(`{"blockHash":%q}`, f.head.Hash().Hex())))
 	if err != nil || !filter.includes(AnchorNode{Hash: f.head.Hash()}) || filter.includes(AnchorNode{}) {
 		t.Fatalf("hash filter: %v", err)
 	}
@@ -255,12 +275,22 @@ func TestLogsFilterOwnsQueryAndPreservesGlobalIndicesAfterMatching(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	query := logsQuery(t, fmt.Sprintf(`{"address":[%q],"topics":[%q]}`, *all[0].Address, (*all[2].Topics)[0]))
+	query := logsQuery(t, fmt.Sprintf(`{"fromBlock":"0x64","toBlock":"0x65","address":[%q],"topics":[[%q]]}`, *all[0].Address, (*all[2].Topics)[0]))
+	(*query.FilterByBlockRange.Address.Addresses)[0] = ethapi.Address(strings.ToUpper(string(*all[0].Address)))
+	(*(**query.FilterByBlockRange.Topics)[0].MultipleTopicMatch)[0] = ethapi.Hash(strings.ToUpper(string((*all[2].Topics)[0])))
 	filter, err := compileLogsFilter(query)
 	if err != nil {
 		t.Fatal(err)
 	}
 	(*query.FilterByBlockRange.Address.Addresses)[0] = ethapi.Address(common.Address{}.Hex())
+	(*(**query.FilterByBlockRange.Topics)[0].MultipleTopicMatch)[0] = ethapi.Hash(common.Hash{}.Hex())
+	*query.FilterByBlockRange.FromBlock.BlockNumber = "0x0"
+	*query.FilterByBlockRange.ToBlock.BlockNumber = "0x0"
+	for n, want := range map[uint64]bool{99: false, 100: true, 101: true, 102: false} {
+		if filter.includes(AnchorNode{Number: n}) != want {
+			t.Fatalf("range changed after caller mutation at %d", n)
+		}
+	}
 	var matched []ethapi.Log
 	for _, entry := range all {
 		if filter.matches(entry) {
@@ -269,5 +299,35 @@ func TestLogsFilterOwnsQueryAndPreservesGlobalIndicesAfterMatching(t *testing.T)
 	}
 	if len(matched) != 1 || *matched[0].LogIndex != "0x2" || *matched[0].TransactionIndex != "0x1" {
 		t.Fatalf("filter altered global location or was not frozen: %+v", matched)
+	}
+	hashQuery := ethapi.FilterQuery{FilterByBlockHash: &ethapi.FilterQueryHash{BlockHash: ethapi.Hash(strings.ToUpper(f.head.Hash().Hex()))}}
+	hashFilter, err := compileLogsFilter(hashQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashQuery.FilterByBlockHash.BlockHash = ethapi.Hash(common.Hash{}.Hex())
+	if !hashFilter.includes(AnchorNode{Hash: f.head.Hash()}) || hashFilter.includes(AnchorNode{}) {
+		t.Fatal("hash filter was not canonicalized and frozen")
+	}
+}
+
+func BenchmarkCompileLogsFilter(b *testing.B) {
+	for _, tc := range []struct{ name, raw string }{
+		{"empty", `{}`},
+		{"nested", `{"fromBlock":"0x64","toBlock":"latest","address":["0xcccccccccccccccccccccccccccccccccccccccc","0xdddddddddddddddddddddddddddddddddddddddd"],"topics":[null,["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]]}`},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			query, err := ethapi.NewFilterQuery(json.RawMessage(tc.raw))
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, err := compileLogsFilter(query); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

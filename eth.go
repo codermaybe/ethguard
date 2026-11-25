@@ -969,7 +969,9 @@ func (e *RevertError) Error() string {
 }
 
 // ErrorData makes RevertError compatible with go-ethereum's rpc.DataError.
-// A hex string is returned as that string so RevertErrorData can decode it.
+// A hex string is returned unchanged. RevertError does not implement rpc.Error:
+// go-ethereum's RevertErrorData helper also requires ErrorCode() == 3, so callers
+// should use errors.As to read this error's Data or DataRaw directly.
 // A structured value is returned as decoded JSON, never coerced to hex.
 // Missing and JSON null return nil rather than an empty "0x", so absence
 // is not presented as empty bytes.
@@ -1083,6 +1085,28 @@ func (c *Client) filterLogsExec(ctx context.Context, q ethapi.FilterQuery) ([]et
 	return logs, CallResult{Decision: decisionOf(decision)}, err
 }
 
+// freezeFilterQuery gives unary and streaming filters an owned canonical
+// model, including the method-level exclusion of hash and range selectors.
+func freezeFilterQuery(q ethapi.FilterQuery) (ethapi.FilterQuery, error) {
+	raw, err := json.Marshal(q)
+	if err != nil {
+		return ethapi.FilterQuery{}, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
+	}
+	checked, err := ethapi.NewFilterQuery(raw)
+	if err != nil {
+		return ethapi.FilterQuery{}, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
+	}
+	if hash := checked.FilterByBlockHash; hash != nil {
+		// The hash schema is open, so this exclusion belongs to the method.
+		_, from := hash.AdditionalProperties["fromBlock"]
+		_, to := hash.AdditionalProperties["toBlock"]
+		if from || to {
+			return ethapi.FilterQuery{}, fmt.Errorf("ethguard: cannot specify both block hash and from/to blocks: %w", ErrInvalidRequest)
+		}
+	}
+	return checked, nil
+}
+
 // toFilterArg re-validates the generated filter union and spells the wire
 // argument from the constructor's canonical copy: the re-validated model is
 // re-marshalled and that frozen canonical spelling is what the request
@@ -1096,13 +1120,9 @@ func (c *Client) filterLogsExec(ctx context.Context, q ethapi.FilterQuery) ([]et
 // is an open object, so from/to members cannot be schema-forbidden there;
 // the method's own mutual exclusion rejects them as an input error.
 func toFilterArg(q ethapi.FilterQuery) (map[string]any, error) {
-	raw, err := json.Marshal(q)
+	checked, err := freezeFilterQuery(q)
 	if err != nil {
-		return nil, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
-	}
-	checked, err := ethapi.NewFilterQuery(raw)
-	if err != nil {
-		return nil, fmt.Errorf("%w: filter query: %v", ErrInvalidRequest, err)
+		return nil, err
 	}
 	// Consume the constructor's canonical copy: the original bytes are
 	// discarded after validation, so the wire spelling is the audited
@@ -1119,13 +1139,6 @@ func toFilterArg(q ethapi.FilterQuery) (map[string]any, error) {
 	}
 	arg := make(map[string]any, len(members))
 	if rawHash, present := members["blockHash"]; present {
-		// Hash branch: the schema leaves the object open, so the method's
-		// own contract rejects range members instead of the parser.
-		for _, banned := range []string{"fromBlock", "toBlock"} {
-			if _, present := members[banned]; present {
-				return nil, fmt.Errorf("ethguard: cannot specify both block hash and from/to blocks: %w", ErrInvalidRequest)
-			}
-		}
 		hashText, _ := rawHash.(string)
 		arg["blockHash"] = hashText
 	} else {

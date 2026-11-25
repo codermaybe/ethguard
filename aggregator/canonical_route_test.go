@@ -126,6 +126,41 @@ func TestCanonicalRouteProcessesOncePerSource(t *testing.T) {
 	}
 }
 
+func TestCanonicalRouteRetainsConstructorQuorumWithoutSnapshot(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		bodies    []string
+		available int
+		status    rpc.Status
+		err       error
+	}{
+		{name: "insufficient support", bodies: []string{`"same"`, `"same"`, ""}, available: 2, status: rpc.Unknown, err: rpc.ErrInsufficientSupport},
+		{name: "quorum reached", bodies: []string{`"same"`, `"same"`, `"same"`}, available: 3, status: rpc.Corroborated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hooks := &processingHooks{}
+			plan := processingPlan(hooks, echoProcessor(hooks))
+			plan.Resolver = rpc.Strict(rpc.CanonicalJSON, rpc.WithCanonicalValue(rpc.EncodeCanonicalJSON), rpc.WithQuorum(3))
+			fixture, _ := canonicalAggregator(t, plan, tc.bodies...)
+			agg := New(fixture.pool, WithPlans(map[string]rpc.ReadPlan{"m": plan}))
+			decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+			if !errors.Is(err, tc.err) || decision.Status != tc.status || decision.Adjudication.Required != 3 || decision.Adjudication.Basis != 3 {
+				t.Fatalf("constructor quorum was not retained: %+v, %v", decision, err)
+			}
+			if len(decision.Support) != tc.available {
+				t.Fatalf("support = %d, want %d", len(decision.Support), tc.available)
+			}
+			if err == nil && string(decision.Value) != `"same"` {
+				t.Fatalf("committed value = %s", decision.Value)
+			}
+			_, _, process := hooks.snapshot()
+			if process != tc.available {
+				t.Fatalf("processor ran %d times for %d available sources", process, tc.available)
+			}
+		})
+	}
+}
+
 // TestCanonicalRouteZeroProcessingOnDegradedExits pins the exit contracts:
 // jsonsafe-malformed responses never reach the processor, degraded exits
 // never re-run raw hooks, and the frozen route is shared by all four phases.
@@ -547,7 +582,7 @@ func TestCanonicalRouteWithoutCanonicalConsumerAbortsInternally(t *testing.T) {
 	consumerless := struct{ rpc.Policy }{processingPlan(hooks, echoProcessor(hooks)).Resolver}
 	plan := processingPlan(hooks, echoProcessor(hooks))
 	plan.Resolver = consumerless
-	agg, _ := canonicalAggregator(t, plan, `"same"`, `"same"`)
+	agg, nodes := canonicalAggregator(t, plan, `"same"`, `"same"`)
 	agg.rec = &captureRecorder{}
 	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
 	if !errors.Is(err, rpc.ErrInvalidCanonicalResult) {
@@ -556,5 +591,10 @@ func TestCanonicalRouteWithoutCanonicalConsumerAbortsInternally(t *testing.T) {
 	normalize, encode, process := hooks.snapshot()
 	if process != 0 || normalize != 0 || encode != 0 {
 		t.Fatalf("mismatched plan ran hooks: process=%d normalize=%d encode=%d", process, normalize, encode)
+	}
+	for _, node := range nodes {
+		if calls := node.Calls(); len(calls) != 1 || calls[0].Method != "m" {
+			t.Fatalf("canonical capability failure changed collection: %+v", calls)
+		}
 	}
 }
