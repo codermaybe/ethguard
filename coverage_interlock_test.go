@@ -35,7 +35,7 @@ var zeroDirectTestAllowlist = map[string]string{
 // TestPackageTestInventoryInterlock keeps the zero-direct-test set in sync
 // with the allowlist in both directions.
 func TestPackageTestInventoryInterlock(t *testing.T) {
-	out, err := exec.Command("go", "list", "-f",
+	out, err := exec.CommandContext(t.Context(), "go", "list", "-f",
 		"{{.ImportPath}}\t{{len .TestGoFiles}}\t{{len .XTestGoFiles}}", "./...").Output()
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, out)

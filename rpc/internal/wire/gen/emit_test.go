@@ -110,7 +110,7 @@ func TestEmittedParsersPreserveSchemaSemantics(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command("go", "test", "-count=1", "./...")
+	cmd := exec.CommandContext(t.Context(), "go", "test", "-count=1", "./...")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off")
 	if output, err := cmd.CombinedOutput(); err != nil {

@@ -110,6 +110,12 @@ func Compose(in Composition) (*Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("register upstreams: %w", err)
 	}
+	composed := false
+	defer func() {
+		if !composed {
+			rpcPool.Close()
+		}
+	}()
 	// The voting basis must stay exactly what the configuration declared:
 	// pool folds spelling variants of one endpoint (case, default port,
 	// trailing slash) into one member, and a silent fold would shrink the
@@ -157,6 +163,7 @@ func Compose(in Composition) (*Bundle, error) {
 	bundle.Pool = rpcPool
 	bundle.Corroboration = corrob
 	bundle.Resolver = resolver
+	composed = true
 	return bundle, nil
 }
 

@@ -202,14 +202,15 @@ func (q *EventQueue) next(ctx context.Context, destination MemoryBudget) (Event,
 				var retained func()
 				if destination != nil {
 					size := uint64(unsafe.Sizeof(TerminalError{}))
-					if terminal, ok := err.(*TerminalError); ok {
+					var terminal *TerminalError
+					if errors.As(err, &terminal) {
 						size += transferAuditBytes(terminal.Audit)
 					}
 					var reserveErr error
 					retained, reserveErr = destination.Reserve(size)
 					if reserveErr != nil {
 						var audit AuditRange
-						if terminal, ok := err.(*TerminalError); ok {
+						if errors.As(err, &terminal) {
 							audit = terminal.Audit
 							terminal.Audit = AuditRange{}
 						}
@@ -220,9 +221,7 @@ func (q *EventQueue) next(ctx context.Context, destination MemoryBudget) (Event,
 				q.errorReturned = true
 				q.doneLocked()
 				q.terminal = nil
-				if owned, ok := err.(interface{ releaseOwned() }); ok {
-					owned.releaseOwned()
-				}
+				releaseTerminalOwned(err)
 				q.mu.Unlock()
 				if err == nil {
 					err = ErrClosed
@@ -275,9 +274,7 @@ func (q *EventQueue) Close(reason ...error) error {
 	if q.closed {
 		q.mu.Unlock()
 		if len(reason) > 0 {
-			if owned, ok := reason[0].(interface{ releaseOwned() }); ok {
-				owned.releaseOwned()
-			}
+			releaseTerminalOwned(reason[0])
 		}
 		return nil
 	}
@@ -325,10 +322,19 @@ func (q *EventQueue) cancel(err error) {
 	q.mu.Unlock()
 	q.signal()
 }
-func (q *EventQueue) dropTerminalLocked() {
-	if owned, ok := q.terminal.(interface{ releaseOwned() }); ok {
+func releaseTerminalOwned(err error) {
+	if owned, ok := err.(interface{ releaseOwned() }); ok {
 		owned.releaseOwned()
+		return
 	}
+	var terminal *TerminalError
+	if errors.As(err, &terminal) {
+		terminal.releaseOwned()
+	}
+}
+
+func (q *EventQueue) dropTerminalLocked() {
+	releaseTerminalOwned(q.terminal)
 	q.terminal = nil
 }
 

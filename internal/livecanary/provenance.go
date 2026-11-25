@@ -1,6 +1,7 @@
 package livecanary
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -118,7 +119,7 @@ func detectEnvironment(getenv func(string) string) (Environment, error) {
 }
 
 func defaultGitHead() (string, error) {
-	out, err := exec.Command("git", "rev-parse", "--verify", "HEAD").Output()
+	out, err := exec.CommandContext(context.Background(), "git", "rev-parse", "--verify", "HEAD").Output()
 	if err != nil {
 		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
 	}

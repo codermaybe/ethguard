@@ -64,7 +64,7 @@ type packageImports struct {
 // tests are allowed to consume production seams, while production code may
 // not depend on verification or testkit.
 func TestArchitectureDependencyInterlock(t *testing.T) {
-	cmd := exec.Command("go", "list", "-json", "./...")
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-json", "./...")
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +187,7 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 // default build only through go-ethereum's own packages, no EthGuard package
 // may link it directly, and the WSS production path stays absolute.
 func TestDefaultBuildExcludesEthclient(t *testing.T) {
-	out, err := exec.Command("go", "list", "-deps", ".", "./internal/runtime").Output()
+	out, err := exec.CommandContext(t.Context(), "go", "list", "-deps", ".", "./internal/runtime").Output()
 	if err != nil {
 		t.Fatalf("go list -deps root/runtime: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestDefaultBuildExcludesEthclient(t *testing.T) {
 			t.Fatal("the default build links the abi/bind backend set; the bind/v2 view commitments are a test-only check")
 		}
 	}
-	importers, err := gorillaImporters(".")
+	importers, err := gorillaImporters(t, ".")
 	if err != nil {
 		t.Fatalf("inspect gorilla/websocket importers: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestDefaultBuildExcludesEthclient(t *testing.T) {
 			t.Fatalf("default build links gorilla/websocket from %s; only go-ethereum's own packages may carry it", importer)
 		}
 	}
-	wire, err := exec.Command("go", "list", "-deps", "./internal/transport/wss", "./cmd/wsscapture").Output()
+	wire, err := exec.CommandContext(t.Context(), "go", "list", "-deps", "./internal/transport/wss", "./cmd/wsscapture").Output()
 	if err != nil {
 		t.Fatalf("go list -deps wss/capture: %v", err)
 	}
@@ -231,8 +231,8 @@ func TestDefaultBuildExcludesEthclient(t *testing.T) {
 
 // gorillaImporters names every package in the build graph of the given
 // patterns that imports gorilla/websocket.
-func gorillaImporters(pattern string) ([]string, error) {
-	out, err := exec.Command("go", "list", "-deps", "-json", pattern).Output()
+func gorillaImporters(t *testing.T, pattern string) ([]string, error) {
+	out, err := exec.CommandContext(t.Context(), "go", "list", "-deps", "-json", pattern).Output()
 	if err != nil {
 		return nil, err
 	}

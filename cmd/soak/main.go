@@ -433,7 +433,9 @@ func load(file string, chainID uint64, max int) []chainlist.Endpoint {
 		defer f.Close()
 		r = f
 	} else {
-		req, err := http.NewRequest(http.MethodGet, registryURL, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, registryURL, nil)
 		if err != nil {
 			fail("build request: %v", err)
 		}

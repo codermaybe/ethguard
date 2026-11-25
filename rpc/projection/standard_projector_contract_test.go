@@ -67,7 +67,6 @@ func TestStandardProjectorOwnsDeclarationsAndDeliveredEvidence(t *testing.T) {
 	projector := NewStandardProjector(fields)
 	fields[0] = StandardField{Path: "/vendor"}
 	fields[1] = StandardField{Path: "/different/*"}
-	fields = append(fields, StandardField{Path: "/other"})
 
 	evaluation := rpc.Evaluation{Accepted: projectionObservations("/vendor", "", "/logs/0/address")}
 	want, err := rpc.NewExtensionSet(json.RawMessage(`"0x1"`), projectionObservations("/vendor"))

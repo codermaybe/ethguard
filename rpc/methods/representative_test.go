@@ -15,8 +15,6 @@ import (
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
-var errExecutionReverted = errors.New("execution reverted")
-
 // TestRepresentativeIsFirstCapturedSource pins the source selection rule:
 // when two sources share a comparison key but spell the payload differently,
 // Representative, Provenance, and withheld data come from the first source in

@@ -40,7 +40,13 @@ func TestCaptureSnapshotPreservesHeadersWhenBodyIsCanceled(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
-	go func() { _, err := tr.RoundTrip(req); done <- err }()
+	go func() {
+		resp, err := tr.RoundTrip(req)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		done <- err
+	}()
 	<-entered
 	raw, present, progress, status := box.snapshot()
 	if raw != nil || present || progress != rpc.ExchangeResponded || status != 503 {

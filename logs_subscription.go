@@ -352,7 +352,8 @@ func (s *LogsSubscription) finish(err error, audit HeadAuditRange, content []Log
 	for _, request := range s.active {
 		s.appendAuditLocked(request, LogsRequestUnfinished)
 	}
-	content, releases = s.takeAuditLocked(releases)
+	pending, releases := s.takeAuditLocked(releases)
+	content = append(content, pending...)
 	s.terminal = &LogsTerminalError{Cause: err, CommittedTip: s.committedTip, PathVersion: s.pathVersion, Audit: audit, ContentAudit: content}
 	s.terminalReleases = append(releases, s.terminalReserve)
 	s.terminalReserve = nil
@@ -460,10 +461,12 @@ func (s *LogsSubscription) run(fixed func()) {
 				return
 			}
 			var audit HeadAuditRange
-			if terminal, ok := err.(*sub.TerminalError); ok {
+			var terminal *sub.TerminalError
+			if errors.As(err, &terminal) {
 				audit = terminal.Audit
 			}
-			if transfer, ok := err.(*sub.TransferError); ok {
+			var transfer *sub.TransferError
+			if errors.As(err, &transfer) {
 				audit = transfer.Audit
 			}
 			s.finish(err, audit, nil, []func(){hold})

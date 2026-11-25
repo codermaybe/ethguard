@@ -115,6 +115,10 @@ transport.NotificationPolicy 表达 Messages、Bytes、MaxMessageBytes 及可选
 
 Subscribe 的调用 context 只约束建立；直接 OpenNotificationStream 的 context 拥有流生命周期。两者不混同。调用方已经接收的通知由其 Release 释放，Unsubscribe 不提前归还已交付租约。连接 Close 对在途 unary 的既有规则不变。
 
+建立取消按实际请求写入及已关联回答清理：请求未写出（包括等待写锁时取消）只结束本次建立；已经得到合法RPC拒绝也不关闭共享连接；已关联合法订阅ID时定向发送eth_unsubscribe。请求已完整写出但取消时尚无可用ID，连接必须终止，以释放可能已在服务端建立的未知订阅；该错误同时保留取消与ErrConnectionClosed，其他共享调用也会观察到断连。ExchangeStarted不保证请求帧已写出，因此这一清理判断使用传输内部写入完成事实，不改变公开Response语义。绑定前预算失败但ID已知，同样先本地清理再尽力退订服务端ID。
+
+握手拒绝不等待响应正文读完：拒绝连接先关闭socket，再关闭HTTP响应体。升级成功的连接交接先停止握手context的取消回调并清除期限；取消已抢先接管socket时返回取消错误，不交付已关闭的连接。帧写失败保留原始写错误及ErrConnectionClosed，并使其他pending与订阅观察到相同原因。
+
 ## 3. 明确不实现
 
 - 通用 WebSocket API；订阅能力仅限当前 transport/subscription 契约定义的

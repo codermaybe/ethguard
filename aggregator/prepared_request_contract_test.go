@@ -327,7 +327,3 @@ type failingMarshaler struct{}
 func (failingMarshaler) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("unserializable parameter")
 }
-
-func jsonBytesEqual(a, b []byte) bool {
-	return string(a) == string(b)
-}

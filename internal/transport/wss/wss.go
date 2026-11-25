@@ -364,13 +364,17 @@ func (s *Subscription) Unsubscribe() {
 		s.stream.Unsubscribe()
 		// Best effort: the stream is always closed locally even when the
 		// server-side unsubscribe cannot be delivered because the socket died.
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		var ok bool
 		if s.transport != nil {
-			_ = s.transport.Call(ctx, "eth_unsubscribe", s.id).Decode(&ok)
+			s.transport.unsubscribeServer(s.id)
 		}
 	})
+}
+
+func (t *Transport) unsubscribeServer(id string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var ok bool
+	_ = t.Call(ctx, "eth_unsubscribe", id).Decode(&ok)
 }
 
 // Subscribe opens an eth namespace subscription and binds its notifications
@@ -400,8 +404,12 @@ func (t *Transport) subscribe(ctx context.Context, policy transport.Notification
 	params := make([]any, 0, len(args)+1)
 	params = append(params, kind)
 	params = append(params, args...)
-	if err := t.Call(ctx, "eth_subscribe", params...).Decode(&id); err != nil {
+	response, requestWritten := t.call(ctx, "eth_subscribe", params...)
+	if err := response.Decode(&id); err != nil {
 		stream.Unsubscribe()
+		if ctx.Err() != nil {
+			err = t.cancelSubscribeSetup(response, requestWritten, err)
+		}
 		return nil, err
 	}
 	if id == "" {
@@ -413,12 +421,35 @@ func (t *Transport) subscribe(ctx context.Context, policy transport.Notification
 		cause := stream.terminal
 		stream.mu.Unlock()
 		stream.Unsubscribe()
+		t.unsubscribeServer(id)
 		if cause == nil {
 			cause = ErrNotificationBackpressure
 		}
 		return nil, cause
 	}
 	return &Subscription{transport: t, stream: stream, id: id}, nil
+}
+
+// cancelSubscribeSetup retires only resources that the canceled call could
+// have created. The response can retain an associated answer even when Decode
+// returns the exchange's cancellation; consume that answer without replacing
+// its communication facts.
+func (t *Transport) cancelSubscribeSetup(response rpc.Response, requestWritten bool, cause error) error {
+	if !requestWritten || response.Answer.Kind == rpc.AnswerProtocolError {
+		return cause
+	}
+	if response.Answer.Kind == rpc.AnswerResult {
+		var id string
+		if err := json.Unmarshal(response.Answer.Result, &id); err == nil && id != "" {
+			t.unsubscribeServer(id)
+			return cause
+		}
+	}
+	// Once written, an unanswered request may have created a server-side
+	// subscription with an unknown ID. Retiring the socket releases it.
+	err := fmt.Errorf("wss: subscribe setup: %w: %w", cause, transport.ErrConnectionClosed)
+	t.abort(err)
+	return err
 }
 
 // SubscribeCapability adapts the concrete WSS subscription to the optional
@@ -455,6 +486,14 @@ var _ transport.Dialer = Dialer{}
 // Call performs one unary exchange on the shared socket. Only a frame
 // associated with this request can advance it beyond Started.
 func (t *Transport) Call(ctx context.Context, method string, args ...any) rpc.Response {
+	response, _ := t.call(ctx, method, args...)
+	return response
+}
+
+// call also reports successful request-frame completion for subscription
+// setup cleanup. ExchangeStarted alone cannot supply this fact: execution
+// starts before acquiring the writer, and does not promise delivery.
+func (t *Transport) call(ctx context.Context, method string, args ...any) (rpc.Response, bool) {
 	exchange := rpc.Exchange{}
 	failed := func(err error) rpc.Response {
 		if cerr := ctx.Err(); cerr != nil {
@@ -464,31 +503,31 @@ func (t *Transport) Call(ctx context.Context, method string, args ...any) rpc.Re
 		return rpc.Response{Exchange: exchange}
 	}
 	if err := ctx.Err(); err != nil {
-		return failed(err)
+		return failed(err), false
 	}
 	t.mu.Lock()
 	closed := t.closed || t.closing
 	t.mu.Unlock()
 	if closed {
-		return failed(ErrTransportClosed)
+		return failed(ErrTransportClosed), false
 	}
 	id := t.ids.Next()
 	body, err := rpcwire.EncodeRequest(id, method, args)
 	if err != nil {
-		return failed(fmt.Errorf("wss: encode request: %w", err))
+		return failed(fmt.Errorf("wss: encode request: %w", err)), false
 	}
 	waiter := make(chan frameResult, 1)
 	t.mu.Lock()
 	if t.closed || t.closing {
 		t.mu.Unlock()
-		return failed(ErrTransportClosed)
+		return failed(ErrTransportClosed), false
 	}
 	t.pending[string(id)] = waiter
 	t.mu.Unlock()
 	exchange.Progress = rpc.ExchangeStarted
 	if err := t.write(ctx, body); err != nil {
 		t.removePending(string(id))
-		return failed(err)
+		return failed(err), false
 	}
 	complete := func(frame frameResult) rpc.Response {
 		if frame.err != nil {
@@ -500,7 +539,7 @@ func (t *Transport) Call(ctx context.Context, method string, args ...any) rpc.Re
 	}
 	select {
 	case frame := <-waiter:
-		return complete(frame)
+		return complete(frame), true
 	case <-ctx.Done():
 		// Synchronize removal with read-loop association. An already associated
 		// frame remains a fact even when cancellation wins final error delivery.
@@ -509,11 +548,11 @@ func (t *Transport) Call(ctx context.Context, method string, args ...any) rpc.Re
 		select {
 		case frame := <-waiter:
 			t.mu.Unlock()
-			return complete(frame)
+			return complete(frame), true
 		default:
 			t.mu.Unlock()
 			t.drainCloseIfSettled()
-			return failed(ctx.Err())
+			return failed(ctx.Err()), true
 		}
 	}
 }
@@ -751,7 +790,7 @@ func (t *Transport) write(ctx context.Context, body []byte) error {
 	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
 		return ctxErr
 	}
-	writeErr := fmt.Errorf("wss: write request: %w", transport.ErrConnectionClosed)
+	writeErr := fmt.Errorf("wss: write request: %w: %w", err, transport.ErrConnectionClosed)
 	t.abort(writeErr)
 	return writeErr
 }

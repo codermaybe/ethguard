@@ -3,6 +3,7 @@ package rpc
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -124,5 +125,36 @@ func TestOutcomeKeepsNonComparableCauseAndUnassessedTail(t *testing.T) {
 	outcome, err = local.Resolve(inputs)
 	if err != nil || calls != 1 || outcome.Verdicts[1].Kind != VerdictUnassessed || outcome.Verdicts[2].Kind != VerdictUnassessed {
 		t.Fatalf("local evaluated tail: %v %+v calls=%d", err, outcome.Verdicts, calls)
+	}
+}
+
+func TestOutcomeSourceProjectionPreservesCompositeDiagnostics(t *testing.T) {
+	for _, wrapped := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wrapped=%t", wrapped), func(t *testing.T) {
+			sourceCause := errors.New("source disconnected")
+			coordinatorCause := errors.New("collection interrupted")
+			inputs := []Observation{obs(`1`), obs(`1`), {Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Cause: sourceCause}}}}
+			outcome, err := Strict(CanonicalJSON, WithQuorum(2)).Resolve(inputs)
+			if err != nil || len(outcome.Decision.Faults) != 1 {
+				t.Fatalf("resolve = %+v, %v", outcome.Decision, err)
+			}
+			// A resolver/coordinator may attach its own diagnostic context to
+			// a previously projected source cause. Only the direct view is ours
+			// to replace, not the enclosing diagnostic or its sibling causes.
+			diagnostic := errors.Join(coordinatorCause, outcome.Decision.Faults[0])
+			if wrapped {
+				diagnostic = fmt.Errorf("collection context: %w", diagnostic)
+			}
+			outcome.Decision.Faults = append(outcome.Decision.Faults, diagnostic)
+			for range 2 {
+				outcome.ProjectSources(inputs)
+				if len(outcome.Decision.Faults) != 2 || len(outcome.Decision.SourceFaults) != 1 {
+					t.Fatalf("projection lost or duplicated diagnostics: %+v", outcome.Decision)
+				}
+				if outcome.Decision.Faults[0] != diagnostic || !errors.Is(outcome.Decision.Faults[0], coordinatorCause) {
+					t.Fatal("projection discarded coordinator context")
+				}
+			}
+		})
 	}
 }

@@ -109,7 +109,7 @@ func TestNoThirdPartyWebSocketLibraryEntersTheWireLayer(t *testing.T) {
 }
 
 func TestWireLayerLinkGraph(t *testing.T) {
-	out, err := exec.Command("go", "list", "-deps", ".").Output()
+	out, err := exec.CommandContext(t.Context(), "go", "list", "-deps", ".").Output()
 	if err != nil {
 		t.Fatalf("go list -deps .: %v", err)
 	}

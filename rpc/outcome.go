@@ -256,7 +256,9 @@ func (o *Outcome) projectSourceFaults() {
 	o.Decision.SourceFaults = nil
 	faults := make([]error, 0, len(o.Decision.Faults))
 	for _, fault := range o.Decision.Faults {
-		if _, generated := fault.(sourceFaultView); !generated {
+		// Only this owner's direct projection is replaceable. An enclosing
+		// diagnostic may carry independent coordinator context or joined causes.
+		if _, generated := fault.(sourceFaultView); !generated { //nolint:errorlint // Ownership marker, not classification through an error chain.
 			faults = append(faults, fault)
 		}
 	}

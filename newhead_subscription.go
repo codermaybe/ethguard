@@ -291,7 +291,6 @@ func startNewHeadSubscription(ownerCtx, setupCtx context.Context, sources []iden
 	s := &HeadSubscription{life: life, cancel: cancel, done: make(chan struct{}), queue: sub.NewEventQueue(budget), budget: budget, arena: sub.NewPayloadArena(budget), tracker: tracker, sessions: sessions, sources: append([]identifiedSubscriptionSource(nil), sources...), policy: policy, wake: make(chan struct{}, 1), gateDuration: policy.Gate.Initial, sourceWorkers: len(sources), sampleWake: make(chan struct{}, 1), fixedRelease: fixedRelease}
 	s.mu.Lock()
 	for _, source := range sources {
-		source := source
 		s.launchLocked(func() { s.runSource(source) })
 	}
 	s.launchLocked(s.runClock)
@@ -628,7 +627,6 @@ func (s *HeadSubscription) fetchOne(f *headFetch, target headFetchTarget) {
 			}
 			node, lease, err = s.decode(raw)
 		}
-		raw = nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

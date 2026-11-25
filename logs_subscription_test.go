@@ -338,7 +338,17 @@ func TestLogsStreamBudgetReturnsWithoutHistoricalPayloads(t *testing.T) {
 	for i, block := range blocks {
 		pushLogsHead(feeds, block.head)
 		_ = nextLogs(t, s)
-		waitLogs(t, func() bool { return len(s.slots) == 0 })
+		// This delta has been consumed and the next block has not been sent,
+		// so the producer has no new content task to register during Wait.
+		// A released slot alone is insufficient: worker defers return the
+		// shared Header lease after returning the slot, then signal Done.
+		s.wg.Wait()
+		s.mu.Lock()
+		active := len(s.active)
+		s.mu.Unlock()
+		if active != 0 || len(s.slots) != 0 {
+			t.Fatalf("completed block retained requests: active=%d slots=%d", active, len(s.slots))
+		}
 		used := s.budget.Used()
 		if i == 0 {
 			baseline = used

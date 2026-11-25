@@ -2,6 +2,7 @@ package wss
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -182,6 +183,20 @@ func TestSubscribePendingBudgetOverflowFailsSetup(t *testing.T) {
 			peer.writeFrame(notificationFrame(fmt.Sprintf("foreign-%d", i), `"0x1"`))
 		}
 		peer.respond(request, `"new-subscription"`)
+		unsubscribe := <-peer.requests
+		var wire struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		if err := json.Unmarshal(unsubscribe, &wire); err != nil {
+			peer.t.Errorf("decode unsubscribe: %v", err)
+			return
+		}
+		if wire.Method != "eth_unsubscribe" || len(wire.Params) != 1 || string(wire.Params[0]) != `"new-subscription"` {
+			peer.t.Errorf("setup failure did not retire server subscription: %s", unsubscribe)
+			return
+		}
+		peer.respond(unsubscribe, `true`)
 	})
 	tr := dialTestTransport(t, peerURL, 0)
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)

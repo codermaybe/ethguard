@@ -143,14 +143,15 @@ type CollectOptions struct {
 	DeferHealth bool
 }
 
-// The default fan-out bound lives in config (DefaultCollectTimeout): one
-// source for both the YAML and Go construction paths, so they cannot drift
-// (decision 0004). A zero CollectOptions.Timeout selects it.
 // ErrSourceGated reports that a voting member's request was skipped by a
 // scheduling gate (cooldown circuit or freshness bound). The member still
 // occupies the invocation's voting basis (decision 0062): this error marks a
 // paused request, not a health observation — gated members receive no
 // failure accounting.
+//
+// The default fan-out bound lives in config (DefaultCollectTimeout): one
+// source for both the YAML and Go construction paths, so they cannot drift
+// (decision 0004). A zero CollectOptions.Timeout selects it.
 var ErrSourceGated = errors.New("pool: source gated; request paused, voting basis retained")
 
 // GateReason identifies the scheduling gate that paused a source.

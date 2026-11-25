@@ -76,6 +76,7 @@ func (c *ResultCapture) bind() bool {
 		c.state = captureRunning
 		return true
 	default:
+		c.result = CallResult{}
 		c.state = captureInvalidated
 		return false
 	}

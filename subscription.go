@@ -445,15 +445,6 @@ func (s *aggregateEthSubscription[T]) startPendingPulls(now time.Time, sources [
 	}
 }
 
-func (s *aggregateEthSubscription[T]) isStopping() bool {
-	select {
-	case <-s.stop:
-		return true
-	default:
-		return false
-	}
-}
-
 func startAggregatedSubscription[T any](ctx context.Context, sources []identifiedSubscriptionSource, kind internalsubscription.Kind, args []any, out chan<- T, decode func([]byte, string) (internalsubscription.Observation, T, error)) (ethereum.Subscription, error) {
 	return startAggregatedSubscriptionWithPull(ctx, sources, kind, args, out, decode, nil)
 }

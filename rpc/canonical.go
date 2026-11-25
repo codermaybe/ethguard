@@ -7,8 +7,15 @@ import (
 	"fmt"
 )
 
-// The canonical single-source processing seam. One method-owned processor
-// turns one source's raw response into an immutable canonical result, and the
+// ErrInvalidCanonicalResult is the internal contract sentinel of the
+// canonical seam: a constructor handed illegal output, a processor returned a
+// result beside an error, a success observation lacks its result, or a
+// consumer capability/slot pairing is broken. It is a process defect, not a
+// provider verdict: the coordinator must distinguish it from
+// ErrMalformedResponse before attributing anything to a source.
+//
+// The canonical single-source processing seam uses one method-owned processor
+// to turn one source's raw response into an immutable canonical result, and the
 // strict resolver consumes those results directly: the canonical bytes are
 // the comparison key, so the resolver never re-runs the method's raw
 // normalizer or encoder. The seam is a method-processing entry point, not a
@@ -20,12 +27,6 @@ import (
 // identity, request, or invocation token; the coordinator places one result
 // back into the one source slot it came from; results are used only inside
 // the current invocation, and nothing here interprets Ethereum fields.
-// ErrInvalidCanonicalResult is the internal contract sentinel of the
-// canonical seam: a constructor handed illegal output, a processor returned a
-// result beside an error, a success observation lacks its result, or a
-// consumer capability/slot pairing is broken. It is a process defect, not a
-// provider verdict: the coordinator must distinguish it from
-// ErrMalformedResponse before attributing anything to a source.
 var ErrInvalidCanonicalResult = errors.New("rpc: invalid canonical result")
 
 // CanonicalProcessor is one method's controlled processing entry. The

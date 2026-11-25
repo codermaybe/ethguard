@@ -75,6 +75,12 @@ func TestResultCaptureReuseIsPermanentAndDetected(t *testing.T) {
 	if capture.bind() {
 		t.Fatal("second bind must be refused")
 	}
+	capture.mu.Lock()
+	retained := capture.result
+	capture.mu.Unlock()
+	if retained.Decision != nil || retained.WriteDecision != nil || retained.ReceiptWait != nil || retained.Uncertain != nil || retained.Err != nil {
+		t.Fatalf("invalidated capture retained its old result: %+v", retained)
+	}
 	result, published, err := capture.Result()
 	if published || !errors.Is(err, ErrCaptureReused) || result.Decision != nil {
 		t.Fatalf("reused read = %+v, %v, %v", result, published, err)

@@ -189,6 +189,8 @@ func TestReadLimitFailsPendingCallsAndClosesTheTransport(t *testing.T) {
 	}
 }
 
+var errInjectedFrameWrite = errors.New("injected frame write failure")
+
 type failingWriteConn struct {
 	net.Conn
 	fail atomic.Bool
@@ -196,7 +198,7 @@ type failingWriteConn struct {
 
 func (c *failingWriteConn) Write(body []byte) (int, error) {
 	if c.fail.Load() {
-		return 0, errors.New("injected frame write failure")
+		return 0, errInjectedFrameWrite
 	}
 	return c.Conn.Write(body)
 }
@@ -221,16 +223,23 @@ func TestFrameWriteFailureAbortsOtherPendingCalls(t *testing.T) {
 	tr := &Transport{ws: newConn(result, DefaultReadLimit), ids: rpcwire.NewIDGen(), limit: DefaultReadLimit, pending: make(map[string]chan frameResult)}
 	t.Cleanup(tr.Close)
 	go tr.readLoop()
+	stream, err := tr.openNotificationStreamWithID(ctx, "source", 1, 1, "sub-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	result1 := make(chan error, 1)
 	go func() { var value string; result1 <- tr.Call(ctx, "eth_pending").Decode(&value) }()
 	awaitLifecycleSignal(t, received)
 	network.fail.Store(true)
 	var value string
-	if err := tr.Call(ctx, "eth_write").Decode(&value); !errors.Is(err, transport.ErrConnectionClosed) {
-		t.Fatalf("frame write: %v", err)
+	if err := tr.Call(ctx, "eth_write").Decode(&value); !errors.Is(err, transport.ErrConnectionClosed) || !errors.Is(err, errInjectedFrameWrite) {
+		t.Fatalf("frame write lost its causes: %v", err)
 	}
-	if err := lifecycleResult(t, result1); !errors.Is(err, transport.ErrConnectionClosed) {
-		t.Fatalf("other pending survived broken frame: %v", err)
+	if err := lifecycleResult(t, result1); !errors.Is(err, transport.ErrConnectionClosed) || !errors.Is(err, errInjectedFrameWrite) {
+		t.Fatalf("other pending lost its causes: %v", err)
+	}
+	if err := lifecycleResult(t, stream.Err()); !errors.Is(err, transport.ErrConnectionClosed) || !errors.Is(err, errInjectedFrameWrite) {
+		t.Fatalf("subscription lost its causes: %v", err)
 	}
 	if err := tr.Call(ctx, "eth_after").Decode(&value); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("failed writer reused: %v", err)

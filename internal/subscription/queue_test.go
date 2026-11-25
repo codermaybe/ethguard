@@ -131,33 +131,95 @@ func TestEventQueueFailedTransferPreservesSourceOwnership(t *testing.T) {
 }
 
 func TestEventQueueTransfersProducerTerminalAudit(t *testing.T) {
-	source, destination := NewMemoryBudget(0), NewMemoryBudget(0)
-	queue := NewEventQueue(source)
-	release, err := source.Reserve(100)
-	if err != nil {
-		t.Fatal(err)
+	for _, wrapped := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wrapped=%t", wrapped), func(t *testing.T) {
+			source, destination := NewMemoryBudget(0), NewMemoryBudget(0)
+			queue := NewEventQueue(source)
+			release, err := source.Reserve(100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var releases atomic.Int32
+			a := &auditEntry{record: AuditRecord{Sequence: 1, Kind: InvalidObject}, release: func() {
+				releases.Add(1)
+				release()
+			}}
+			terminal := &TerminalError{Cause: ErrRecoveryExhausted, Audit: AuditRange{First: 1, Last: 1, first: a}}
+			var reason error = terminal
+			if wrapped {
+				reason = fmt.Errorf("wrapped: %w", terminal)
+			}
+			_ = queue.Close(reason)
+			_, retained, err := queue.NextWithBudget(context.Background(), destination)
+			if !errors.Is(err, ErrRecoveryExhausted) || retained == nil {
+				t.Fatalf("terminal: %v", err)
+			}
+			var got *TerminalError
+			if !errors.As(err, &got) {
+				t.Fatalf("terminal type lost: %v", err)
+			}
+			count := 0
+			for record := range got.Audit.All() {
+				if record.Sequence != 1 {
+					t.Fatal(record)
+				}
+				count++
+			}
+			if count != 1 || source.Used() != 0 || destination.Used() == 0 {
+				t.Fatal("terminal audit ownership lost")
+			}
+			retained()
+			if destination.Used() != 0 {
+				t.Fatal("terminal destination leaked")
+			}
+			if releases.Load() != 1 {
+				t.Fatalf("terminal audit released %d times", releases.Load())
+			}
+		})
 	}
-	a := &auditEntry{record: AuditRecord{Sequence: 1, Kind: InvalidObject}, release: release}
-	terminal := &TerminalError{Cause: ErrRecoveryExhausted, Audit: AuditRange{First: 1, Last: 1, first: a}}
-	_ = queue.Close(terminal)
-	_, retained, err := queue.NextWithBudget(context.Background(), destination)
-	if !errors.Is(err, ErrRecoveryExhausted) || retained == nil {
-		t.Fatalf("terminal: %v", err)
-	}
-	got := err.(*TerminalError)
-	count := 0
-	for record := range got.Audit.All() {
-		if record.Sequence != 1 {
-			t.Fatal(record)
+}
+
+func TestEventQueueReleasesTerminalOnAbortAndRepeatedClose(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		clean func(*EventQueue, error)
+	}{
+		{name: "abort", clean: func(queue *EventQueue, reason error) {
+			_ = queue.Close(reason)
+			queue.Abort()
+		}},
+		{name: "repeated_close", clean: func(queue *EventQueue, reason error) {
+			_ = queue.Close()
+			_ = queue.Close(reason)
+		}},
+	} {
+		for _, wrapped := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/wrapped=%t", test.name, wrapped), func(t *testing.T) {
+				source := NewMemoryBudget(0)
+				queue := NewEventQueue(source)
+				release, err := source.Reserve(100)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var releases atomic.Int32
+				entry := &auditEntry{record: AuditRecord{Sequence: 1, Kind: InvalidObject}, release: func() {
+					releases.Add(1)
+					release()
+				}}
+				terminal := &TerminalError{Cause: ErrRecoveryExhausted, Audit: AuditRange{First: 1, Last: 1, first: entry}}
+				var reason error = terminal
+				if wrapped {
+					reason = fmt.Errorf("wrapped: %w", terminal)
+				}
+				test.clean(queue, reason)
+				if source.Used() != 0 {
+					t.Fatalf("terminal source budget leaked: %d", source.Used())
+				}
+				if releases.Load() != 1 {
+					t.Fatalf("terminal audit released %d times", releases.Load())
+				}
+			})
 		}
-		count++
-	}
-	if count != 1 || source.Used() != 0 || destination.Used() == 0 {
-		t.Fatal("terminal audit ownership lost")
-	}
-	retained()
-	if destination.Used() != 0 {
-		t.Fatal("terminal destination leaked")
 	}
 }
 

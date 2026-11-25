@@ -209,6 +209,38 @@ func TestHandshakeUpgradesLoopbackConnection(t *testing.T) {
 	}
 }
 
+func TestHandshakeCancellationAtHandoffNeverReturnsClosedSocket(t *testing.T) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+		writeUpgradeAccept(t, rw, r)
+		time.Sleep(100 * time.Millisecond)
+		_, _ = conn.Write([]byte{0x81, 0x01, 'A'})
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result, err := dialWebSocket(ctx, wsURL(srv), dialOptions{beforeHandoff: func() {
+		cancel()
+		// Let the cancellation callback enter its close path before stopAbort.
+		time.Sleep(20 * time.Millisecond)
+	}})
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("handoff error = %v, want context cancellation", err)
+		}
+		return
+	}
+	defer result.conn.Close()
+	if err := result.conn.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	frame := make([]byte, 3)
+	if _, err := io.ReadFull(result.br, frame); err != nil {
+		t.Fatalf("successful handoff returned a closed socket: %v", err)
+	}
+	if string(frame) != "\x81\x01A" {
+		t.Fatalf("frame = %v", frame)
+	}
+}
+
 func TestHandshakePreservesPathQueryAndHost(t *testing.T) {
 	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		if r.RequestURI != "/eth?chain=main" {
@@ -257,6 +289,49 @@ func TestHandshakeRejectsNon101Responses(t *testing.T) {
 				t.Fatalf("status = %d, want %d", handshake.StatusCode, tc.wantStatus)
 			}
 		})
+	}
+}
+
+func TestHandshakeRejectsWithoutWaitingForResponseBody(t *testing.T) {
+	peerClosed := make(chan struct{})
+	srv := startRawServer(t, func(t testing.TB, _ *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+		if _, err := rw.WriteString("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 1\r\n\r\n"); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := rw.Flush(); err != nil {
+			t.Error(err)
+			return
+		}
+		// The status is enough to reject this connection. Deliberately keep
+		// the advertised body unfinished until the client closes its socket.
+		_, _ = conn.Read(make([]byte, 1))
+		close(peerClosed)
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		result, err := dialWebSocket(ctx, wsURL(srv), dialOptions{})
+		if result != nil {
+			_ = result.conn.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "503") {
+			t.Fatalf("handshake refusal = %v", err)
+		}
+	case <-time.After(time.Second):
+		cancel()
+		<-done
+		t.Fatal("handshake refusal waited for the unfinished response body")
+	}
+	select {
+	case <-peerClosed:
+	case <-time.After(time.Second):
+		t.Fatal("rejected handshake did not close its socket")
 	}
 }
 
