@@ -1,6 +1,6 @@
 # 订阅合同
 
-状态：2026-11-24。NewHead 使用单订阅 Tip+DAG、连续路径与审计模型；Logs已完成复用Head的完整连续批次及本地方法验收；receipts保持独立事件聚合实现。本文描述公开保证与限制，WSS 字节和连接生命周期见 [WSS wire 合同](wss-wire-contract.md)，真实 provider 证据见 [WSS 观察记录](wss-provider-evidence.md)。
+状态：2026-11-25。NewHead 使用单订阅 Tip+DAG、连续路径与审计模型；Logs与Receipts完整连续流及跨入口生命周期收敛已完成本地验收，全仓质量治理随后执行。本文描述公开保证与限制，WSS 字节和连接生命周期见 [WSS wire 合同](wss-wire-contract.md)，真实 provider 证据见 [WSS 观察记录](wss-provider-evidence.md)。
 
 ## 1. 公开接口与来源
 
@@ -17,6 +17,8 @@ SubscribeNewHead(context.Context, HeadSubscriptionPolicy) (*HeadSubscription, er
 
 成员只来自固定 WSS source snapshot。HTTP 能力不产生 push 来源，也不能借其他 endpoint 补票。strict 使用固定多数 Q，并至少要求两个成员；multi-source Client 只有一个 WSS 来源时拒绝建立。显式单源 Client 使用 Forwarded 保证，不升级为 Corroborated；没有公开独立 Selected 订阅模式。
 
+Client关闭后，root/view的三个订阅入口均在网络前返回ErrPoolClosed，不创建流句柄。非法查询/策略保留各入口既有的检查顺序；HTTP-only及strict仅一个WSS的能力拒绝也在本地完成。
+
 Basis 返回方法域、固定成员、Q 和证据等级的副本。DomainID 以 newHeads/<进程内递增 ID> 区分本进程的订阅实例，不是跨进程或重启后的全局唯一 ID。不同订阅有独立账本、版本、缓存、预算和终态。
 
 Logs 的 root/view 入口已统一迁移并完成本地方法验收：
@@ -31,13 +33,17 @@ SubscribeFilterLogs(context.Context, ethapi.FilterQuery, LogsSubscriptionPolicy)
 
 不保留旧 chan Log 或第二个版本。Logs 的 Basis 表示其私有 Head 的固定路径成员和 Q，不能解释成日志载荷已被 Q 源逐字段投票。CommittedTip 是 Logs 已原子入队的提交位置，不是调用方已处理或持久化的位置。路径、内容与资源合同见第 7 节。
 
-receipts 仍使用生成模型 channel 及 ethereum.Subscription，尚未迁移到连续流：
+Receipts 的 root/view 使用同一完整连续流接口：
 
 ~~~go
-SubscribeTransactionReceipts(context.Context, *ethapi.TransactionReceiptsQuery, chan<- []ethapi.Receipt) (ethereum.Subscription, error)
+SubscribeTransactionReceipts(context.Context, *ethapi.TransactionReceiptsQuery, ReceiptsSubscriptionPolicy) (*ReceiptsSubscription, error)
+(*ReceiptsSubscription).Next(context.Context) (ReceiptsEvent, error)
+(*ReceiptsSubscription).Basis() HeadEvidenceBasis
+(*ReceiptsSubscription).CommittedTip() (AnchorNode, uint64)
+(*ReceiptsSubscription).Close() error
 ~~~
 
-该 channel 由调用方拥有，库不关闭。已确认的后续语义与当前实现差距见第 8 节。
+不保留收据channel或ethereum.Subscription桥接。Basis表示私有Head的固定路径成员和Q；每块收据的字段支持另由ReceiptSupport表达。CommittedTip是内容完整且已原子入队的位置，不是业务Ack。范围、字段和资源合同见第8节，实际验收状态见第9节。
 
 ## 2. NewHead 的支持与连续路径
 
@@ -108,6 +114,8 @@ Gate 由 Initial、Min、Max 和可选 Estimate 组成；全部零值关闭。�
 
 Estimate 只接收已提交目标的同 hash 多源到达样本，单个有界 worker 在核心锁外运行，结果钳位。不同高度间的时间差不是同块到达样本，样本不足沿用初始或已有估算；待处理样本可以更新为最近一次合格提交。回调必须及时返回，不得调用本订阅的 Close；Close 会等待该 worker，库不能强制终止任意用户函数。
 
+样本领取与停止在同一控制锁内判定。停止先发生时不再领取新样本；已领取的回调允许继续，Close等待其实际返回，不增加隐含回调期限。
+
 ## 5. 审计与终止
 
 AuditRecord 用连续序号和有界字段保留来源改报、撤票、会话断开、非法对象、请求失败、评估替换和等待到期等必要事实。通知容量、消息过大、来源建立失败有独立原因；不默认保存任意原文或错误字符串。来源改报不是自动判定恶意。
@@ -125,6 +133,10 @@ Audit.First/Last 定义交付范围，通过 All() 逐条读取。不要把直�
 | Client / view Close | 触发订阅主动丢弃与异步清理；其返回不保证每个 Head 已退出，需要屏障时调用 Head.Close |
 
 主动关闭可覆盖生产端失败后的排空状态。即使生产任务已经结束，owner 随后关闭仍会清理未消费队列。Next 串行化消费者；业务上应由一个消费循环按序处理。
+
+工作停止和交付结束分别管理。全部来源已耗尽重试机会时，FIFO之后的终态不等待慢退订；Head.Close仍等待来源退订、在途请求、估算回调及独立owner watcher真正退出。Logs/Receipts.Close同样等待各自内容任务、私有Head和owner watcher。Client.Close只取消owner并等待Pool自身关闭义务，不扩张为所有订阅的完成屏障。
+
+来源会话在同一Head控制锁内检查停止、Open和Bind；停止之后不再准入新会话。已经准入的Subscribe可以在取消后迟到返回，其inner仍由原来源任务唯一退订，不再读取该迟到流。会话先退休，再撤票，网络清理在锁外；已取消但未返回的实际请求继续占并发槽。外部实现若忽略取消或阻塞退订，所属订阅的Close也会继续等待。
 
 公开错误可用 errors.Is 识别 ErrHeadMemoryBudget、ErrHeadRecoveryExhausted、ErrHeadAuditTimeout、ErrHeadClosed 与 ErrHeadTerminalReturned；用 errors.As 取得 HeadTerminalError 后遍历剩余审计。资源准入失败不先接受事实再静默丢弃；建流时预留最小终态控制空间，已有审计通过所有权转移进入终态。
 
@@ -155,7 +167,7 @@ Logs 复用私有 Head 的出生锚点和完整 FIFO 路径，拥有独立的内
 | Path.Appended | 按路径顺序排列的 LogsDelivery，每块都有身份及全部匹配日志；零命中是非 nil 空列表 |
 | Path.PreBirthProof / Reason | 保留 Head 的出生前关系证明和路径变化原因 |
 | Evaluation / Audit | 该 Head 路径的冻结证人与窗口审计；Audit 通过 All() 导出 |
-| ContentAudit | 内容请求的有界事实，含连续序号、attempt、session、requestID、目标块、原因和时间 |
+| ContentAudit | Logs/Receipts共用的内容请求事实，含Kind、连续序号、attempt、session、requestID、目标块、原因和时间；不保留原文或任意错误字符串 |
 
 每个 LogsDelivery 记录 Proof、ObjectSupplier 和 ContentSource。Proof 区分范围/hash 排除、Header bloom 否定匹配、完整区块承诺证明；无需取内容时 supplier 为空。供应来源可以不是当前路径证人，但必须属于冻结成员，发起和完成均检查绑定的会话代次。一次完整块供应任务的 RequestID 关联它的按 hash 取数及必要同源依赖调用，不等同于传输 JSON-RPC 请求编号。
 
@@ -169,42 +181,65 @@ LogsSubscriptionPolicy.Head 管理拓扑，独立 MemoryBytes 管理内容；Max
 
 完成事实进入下一个成功批次的审计窗口；首份成功不等待慢少数派清理，随后完成的请求进入后续窗口。生产端失败时，在锁内封闭终态窗口，记录仍未退出任务的身份和 Unfinished 事实，再让终态可见；后到结果不能修改已交付审计。生产错误先排空已提交 FIFO，再一次返回 LogsTerminalError，含 Cause、Logs 最后提交位置/版本以及剩余 Head/内容审计。Close 才是所有后台任务的完成屏障。主动 Close、Next context 取消和 owner 关闭丢弃未消费事件；不承诺主动放弃后仍保存审计，也不提供持久化/Ack/Replay。
 
-## 8. receipts 的已确认目标与当前实现
+## 8. Receipts 完整连续流
 
-本节始于2026-11-23，记录已确认的目标语义和局部候选修复。输入范围、出生锚点与完整性责任已由用户确认；数据供应、字段证明、交付接口及资源细节仍待设计。用户随后授权恢复执行；已修NewHead重复恢复请求的测试fixture，未改Head生产行为。最终fixture定向普通/race各20次、root普通及主控独立race通过；历史全仓普通失败记录保留，当时未据局部复验宣称全仓重跑。2026-11-24全仓普通/race结果见第9节，代码已随`ee589ce`本地保存；目标合同尚未完整实现，receipts方法未整体验收。
+Receipts复用私有Head的固定成员、Q、出生锚点和完整重组路径，与Logs共用内容交付、预算和实际任务回收。收据具有独立提交位置；Head前进不等于收据内容已完成。以下合同已于2026-11-25通过本地方法验收；单次TransactionReceipt/BlockReceipts属于此前read验收，不代替本流验证。
 
-这里的receipts待办指`SubscribeTransactionReceipts`实时订阅；单次读取`TransactionReceipt`与`BlockReceipts`已属于此前read验收。已保存的`internal/ethobject/receipt/block_commitment.go`验证完整收据数量、顺序、块/交易身份、type及ReceiptsRoot，且已被Logs复用；它不证明官方Receipt全部字段。接续仍需收口from/to、单笔gasUsed、effectiveGasPrice、contractAddress、blob字段及presence与链分叉规则，以及独立收据提交位置、连续事件/撤回、供应和预算。当前公开出口仍是收据channel，不能将此提交误认为Next/Close完整收据流已经交付。
+nil query、TransactionHashes未设置或空列表都表示全量实时收据；非空列表在入口校验并冻结为目标交易集合。非法hash在网络前拒绝，不能通过忽略坏项扩大范围。流只订阅newHeads，通过按hash读取完整区块和收据证明内容，不依赖原生transactionReceipts推送，也不把过滤后的共同漏推视为完整性。
 
-**已确认决策：查询范围与实时出生锚点（2026-11-23）**
+首个来源仅提供出生候选，最终出生块B由Head固定Q路径支持及对象验证确定。首次交付覆盖B整块的所有目标命中；初始化期间先看到100、最终在103出生，不承诺补播100–102。出生后的每次已提交推进逐块完整，有块身份的零命中是有效完成事实。pre-birth重组、完整撤回与重入沿Head合同处理，不能以初始出生高度屏蔽后来已交付的较低路径。证据不足时等待或显式终止，不跳块，也不发布半个delta。
 
-1. nil query、TransactionHashes未设置或空列表均表示全量实时观察；非空列表表示建流时冻结的目标交易集合。不增加额外全量范围selector，不拒绝合法空集合；非法hash仍是输入错误，不能丢弃后扩大查询范围。
-2. 复用现有Head控制面。首个合法来源反馈只提供候选区块身份或取数线索；多源最终出生锚点由固定成员的Q路径支持及对象验证确定。未提交候选允许被后续有效评估替换，各来源可并行对齐，迟到观察沿既有规则处理，达Q不等全员、不缩分母。
-3. 首次交付明确实际出生块B的BlockHash/height，并覆盖B整块的应交付集合：全量覆盖全部收据，过滤覆盖全部目标命中。不能从B中第一笔被观察到的交易中途开始；无身份的原始[]不能建立出生锚点。
-4. B之前不承诺历史补播，初始化期间的首个观察块也不自动成为固定起点。例如先观察100、最终在103出生，不承诺回补100–102。选择nil即选择无筛选的实时观察，调用方承担初始化等待、此前交易可能不在覆盖范围及全量处理成本；库必须明确实际起点。
-5. 从B开始，收据每次已提交推进的区间均须完成逐块检查并交付全部目标命中。证据不足不能跳块宣称完成；等待或按显式资源策略终止。nil不降低出生后的完整性、连续性和重组责任，也不表示允许静默漏收。有区块身份的零命中是合法完成事实。
-6. 全量与过滤共用管线和保证，只改变目标集合。既有重组/pre-birth规则涉及已交付下界时仍完整处理，不因“出生前无历史补播”忽略已承诺的撤回。该合同不承诺任意历史回放、链最终性或无限资源下的永远成功。
+| ReceiptsEvent / ReceiptsDelivery | 含义 |
+| --- | --- |
+| Path | 本内容流的BaseVersion/NewVersion、共同祖先、完整Retracted/Appended及PreBirthProof/Reason |
+| Evaluation / Audit | 对应Head路径的冻结证人及窗口审计 |
+| ContentAudit | 共用ContentAudit；Kind区分完整Logs供应、交易供应和收据供应，RequestID关联具体请求任务 |
+| Node / Receipts | 块身份及按交易顺序排列的全部目标收据；零命中为非nil空列表 |
+| BlockSupplier | 提供完整且通过交易根验证的区块来源/session/request；可以不是路径证人或Receipt字段支持者 |
+| ReceiptSupport | 字段一致声明的Status、固定Basis/Required、Attempt、Representative和Suppliers；零命中/空块不虚构支持者 |
+| Proof | TransactionsExcluded、EmptyBlock或BlockCommitment，区分无需收据请求与完整收据证明 |
 
-以上决策不再作为未决选项。查询形态与事件载体分别设计；A/B供应策略、官方字段推导、Receipt独立提交位置、Next/Close及预算策略仍待收口。以下channel与独立事件聚合描述当前尚未迁移的实现。
+每块先从固定成员取得一份合法完整区块，复用GetBlockByHash准入及编码，验证目标头hash、完整有序交易列表和TransactionsRoot；随后冻结交易及命中索引。过滤集合零命中直接交付带身份空集合。全量空块也无需收据网络请求，但仍验证空收据列表与头的ReceiptsRoot一致，拒绝矛盾的非空收据根。
 
-receipts 仍由独立 Aggregator 处理，固定 WSS snapshot、strict Q、物理会话检查和同源 Pull 保持。一个来源的 push 与 Pull 在同一事件最多一票；不能借其他 endpoint 回答补该来源。重连不修改成员分母。
+有命中时，固定成员各自提供完整收据列表。共享receipt内核验证数量、顺序、块/交易身份、type和ReceiptsRoot；所有日志的块、交易及全块索引、removed和提供的时间戳在过滤前核对。非命中行的结构、身份或根错误仍拒绝整份回答。证明成功后才本地过滤，实际交付的完整规范官方字段进入既有CanonicalOutcomeResolver的固定Q裁定；非命中行的非根声明差异不改变过滤后的候选。
 
-receipts 的字段保护由锁定 Execution APIs、已审查 errata、生成 Receipt 和共享内核拥有；provider 任意扩展不自动成为稳定交付字段。Receipt 内核和日志/bloom 检查之外，非空批次必须同 blockHash/height，transactionHash 与 transactionIndex 分别唯一；允许非连续索引的过滤子集，候选按规范顺序比较。
+ReceiptsRoot不覆盖from/to、单笔gasUsed、effectiveGasPrice、contractAddress和blob等全部官方字段。这些值获得的是Q份来源一致声明，不是独立执行或链规则验证；不引入ChainConfig，不猜测主网fork。root/status同时提供时，根编码未使用的额外status仍参与Q比较。optional/nullable按既有Receipt/Log Encode合同保留或规范化；例如Log.blockTimestamp的显式null沿既有规则规范化为缺席，不另造统一null政策。仅胜出规范值解码为ethapi.Receipt，provider扩展不自动进入稳定主值。
 
-receipts 查询先私有快照，wire 使用生成 transactionHashes，nil/未设置/空列表发送 {}。root/view、单源/多源都检查非空推送是否属于冻结过滤条件：出现 query 外交易时拒绝整批并沿现有解码错误路径终止。相同来源的 eth_getBlockReceipts Pull 在过滤前校验完整返回批次，并绑定 seed 的区块 hash/height，再过滤及比较；被过滤掉的异常行不能隐藏坏上下文或重复身份。过滤子集以及查询内所有来源的一致回答，都不证明整块或整个查询结果完整。
+每成员、每块、每次收据attempt至多一槽，失败、未回答及尚未调度成员仍在固定分母中；重试清除该轮候选，重连不能新增票。成员之间的session generation不要求相等。发起及完成检查既有SessionGate，断连退休先于慢退订；完成接纳先于退休的已证明事实可保留，先退休则拒绝旧结果。显式单源保持Forwarded，不冒称Q多源互证。
 
-非空收据批次以块身份聚合；重组后的不同 blockHash 是独立事件，没有整条链连续性、撤回或 finality 保证。已确认目标要求带块身份的零命中；当前原始空数组实现尚未迁移：单源按通知交付 []，多源统一使用 receipts:empty，不能区分不同时间的空批次，首次交付后会抑制同键后续空批次；也没有可用于按块 Pull 的身份。本轮不改变该行为，receipts 方法整体尚未验收。
+ReceiptsSubscriptionPolicy.Head管理路径，MemoryBytes管理内容；MaxResponseBytes与MaxConcurrentRequests必须为正。RequestTimeout限制每个供应任务，RecoveryTimeout覆盖当前块的交易供应和收据裁定，RetryDelay=0关闭重试、MaxRecoveryAttempts=0关闭尝试上限。交易供应与收据裁定各自计attempt，共用该块恢复期限和实际并发槽。达Q可取消剩余任务，任务真正退出才归还槽及头/交易租约；慢少数派不必阻塞已达Q交付，但Close等待其清理。单槽或不设置期限时不承诺及时换源或有限时间返回。
 
-共享 channel 桥接在收到通知后负责释放 Notification 租约，正常解码、错误和旧会话拒绝分支均释放。多源断连先退休旧会话，再由该来源 worker 完成旧句柄退订；新流建立成功后才激活下一代，会话退休不改变固定分母。单源自然结束或错误结束也完成底层清理。Unsubscribe 等待本订阅的来源任务和清理完成；聚合句柄完成后释放其历史批次、Pull 和回调引用。Err 表达终止错误，调用方需要清理完成屏障时仍调用 Unsubscribe。
+pool.Source.Call保留真实Response，CallContext仅投影，不从raw/error重建交换和回答事实。完整Response、规范候选、resolver临时复制、胜出typed值、队列和审计均计内容预算；无法取得保留预算时显式失败，不让未计费载荷跨任务保留。正常Head交接先预留目的预算，失败审计可继续持有原Head租约，消费或主动关闭后归还；预算不是Go heap/RSS硬上限。
 
-多源桥接只保留一个待交付值，按 FIFO 等待业务 channel，同时继续处理期限、Pull、错误和 stop。原事件队列仍有界，积压超限会显式终止；没有统一的 Head Next、路径版本、窗口审计或完整重组保证。root 聚合配置为 Queue=256、HardTimeout=30s、MaxPayloadBytes=8MiB、MaxEvidenceBytes=64MiB。64MiB 是订阅生命期累计准入票据 payload 额度，已交付事件不返还额度，运行中的历史 context/candidate 仍保留；这不是滚动缓存或无限持续订阅保证。内部预算零值规则不能用于解释 HeadPolicy。
+每次delta全部成功才原子入队并推进版本。生产失败先排空已提交FIFO，再一次返回ReceiptsTerminalError，包含Cause、最后内容提交位置/版本和剩余Head/ContentAudit；终态冻结时记录未退出任务，慢清理不延迟错误可见。主动Close、Next取消及owner关闭丢弃未消费交付；Close等待实际工作、方法资源清理和独立owner watcher。生产工作结束与交付排空是不同事实，producer结束后owner取消仍能释放未消费材料。
 
-后续 S1 继续核对 receipts 连续流迁移、公开配置、事件证据、恢复范围、跨入口生命周期、诊断和真实 provider 行为；共享桥接修复不自动完成这些专项。也不引入共享 Hub、跨订阅 single-flight、持久 WAL/Ack/Replay 或默认确认深度。
+旧channel桥接、事件Aggregator、同源Pull探测和生命期累计票据预算已从工作区删除；Head的Mode、SessionGate、队列和滚动所有权预算保留。跨入口生命周期收敛已验收，诊断及真实provider观察仍独立待办；没有共享Hub、跨订阅single-flight、WAL/Ack/Replay、历史补播或finality保证。
 
 ## 9. 验证与实现入口
 
-HeadTracker、内存预算、审计、队列和恢复事实位于 internal/subscription；根 newhead_subscription.go 编排头网络与公开交付，logs_subscription.go 拥有日志准备/交付与资源，logs_content.go、logs_filter.go 消费既有方法/对象内核，root/view 使用同一执行。WSS notification 的缓存与租约由 internal/transport/wss 拥有，pool 透传中立有界订阅能力。
+HeadTracker、内存预算、审计、队列和恢复事实位于internal/subscription；根newhead_subscription.go编排头网络与公开交付。私有contentSubscription[E]仅为Logs/Receipts共用typed FIFO、版本提交、预算、实际任务、审计及关闭；方法各自拥有run/fetch/过滤/证明与重试，receipts复用rpc的规范值裁定。logs_content.go、logs_filter.go、receipts_content.go消费既有方法/对象内核，root/view使用同一执行。WSS notification的缓存与租约由internal/transport/wss拥有，pool透传中立有界订阅能力并保留真实Response。
 
 反例覆盖共同祖先支持、迟到合票、会话撤票、完整 gap/reorg、证人替换、未知跳高与恢复活性、发布原子性、审计前缀/期限、慢消费者、长期保留、图缩容、并发关闭和 WSS pre-bind/原文释放。合成对象测试、完整 Header、真实本地 WSS peer、Anvil 和真实 provider 是不同证据层；本轮没有新增 Anvil 或 provider 采集。
+
+### 2026-11-25 生命周期本地验收
+
+Head会话准入/退休、唯一退订、来源生产耗尽与实际退出、独立owner watcher完成屏障以及root/view三流关闭后拒绝已收口。旧实现的慢退订遮挡终态及取消后读取迟到inner均由反例复现；新增证据覆盖停止先行、重连Bind失败、建立失败仍可重试、并发Close等待Estimate与watcher、owner取消先于watcher获锁，以及能力/策略拒绝不触网。保留三流既有迟到/重组/预算/长期回收证据。
+
+冻结代码由主控独立执行整仓普通与race（-p 2、-count=1、timeout分别180s/240s），均退出0，各51包通过、9包无测试、0失败。vet/build、lint零告警、格式和生成资产逐字节一致；build有非致命模块stat缓存只读警告。没有新增provider或发布证据，代码未提交。
+
+每成功Head会话删除一辅助goroutine、两协调channel和一个Once；每Head增加一个watcher完成channel。实际来源任务、请求、clock、可选estimator及transport任务保留。完整Receipts流程的请求数、响应字节和消费后保留量不变，耗时样本与专项race并行，不据此宣称性能变化。关闭只承诺等待实际完成，无法强制中断任意外部回调。
+
+2026-11-25重启前保存：用户要求已修改Go代码落Git，Receipts及生命周期的30个Go文件统一保存为本地提交f40a9e8（父提交d3b18e3），未推送。上述冻结验证对应此提交的Go内容；质量治理只读盘点没有混入代码修改。正式Markdown当前仍保留工作区差异。
+
+### 2026-11-25 Receipts本地验收
+
+root/view新入口、完整块证明及固定Q、共享内容owner和旧桥接删除已完成。反例覆盖完整出生/跳高/空块、非根字段及额外status的Q冲突/一致、presence、过滤前完整性、固定分母/Forwarded、跨attempt、pre-birth重组重入、后段块失败不发布半个delta、断连慢退订拒绝旧票、慢少数派、FIFO终态、并发Close、Head/内容审计以及交接/候选/胜出值预算失败。真实本地WSS覆盖root/view×单源/多源，旧通知释放和建立/重连清理保障迁到Head反例。
+
+主控独立整仓普通`go test -json -p 2 -count=1 -timeout=180s ./...`及race（timeout=240s）均退出0，各51包通过、9包无测试；vet/build、gofmt/diff及生成Go/审计资产重新生成逐字节一致。首次lint发现一处错误哨兵直接比较，改为errors.Is后lint为0告警，修后Receipts全组race独立复验通过（4.377s）；整仓结果对应该单行修复前冻结代码，差异及定向补验分别记账。build的只读模块stat缓存警告非致命，不记作无警告构建。依赖、schema及历史采集未变；没有新增Anvil/公网provider证据，代码尚未提交。
+
+最小完整流程benchmark包含Head输入、证明、Q及typed交付，排除网络和fixture构造。执行者两次测量Forwarded约3.51ms/770KB/14701 allocs，Q=2约4.23–4.35ms/947–948KB/17696 allocs，零命中Q=2约2.93–3.03ms/677–678KB/13045 allocs。每次分别为1 block+1 receipt/5160B、1 block+2 receipts/7524B、1 block+0 receipt/2796B；主控20次复测确认调用/字节及消费后内容保留量18,408/18,920/19,112B，耗时在并发race负载下波动，不据此推断性能提升。35块连续消费保留量不超过首块基线+4096B，关闭后Head和内容预算归零；这些是预算账本及本次负载证据，不是RSS上限。
+
+Receipts验收时跨入口生命周期仍独立待办；准确Unsubscribe次数、迟到事件不读取、Head owner watcher完成及生产耗尽先于慢清理随后由上方生命周期专项验收，不以本方法结果代替。
 
 ### 2026-11-24 Logs 本地验收
 

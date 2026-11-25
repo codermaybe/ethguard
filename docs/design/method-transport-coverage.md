@@ -6,13 +6,13 @@
 
 上游 ethclient.Client 有48个导出 receiver 方法，Client() 底层访问器明确排除，剩余47项含 Close。`scripts/ethclient-method-diff.sh` 检查名称集合，TestEthClientBusinessSignatures 按项目生成类型合同检查完整签名。27是注册读RPC数，一个RPC可以服务多个普通／AtHash／Pending入口；写入、订阅、派生和root扩展分别记账。
 
-公开业务模型统一为 ethapi，写入使用 BinaryTransaction。view 有对应业务方法形态但不承诺 geth Go 名义类型身份。Root 返回业务值、CallResult、error；view省略CallResult。NewHead和Logs在两入口均使用显式policy及Next/Basis/Close交付路径与证据；Logs新接口已于2026-11-24本地验收。receipts仍使用生成模型channel和ethereum.Subscription。CreateAccessList的any请求仍是明确扩展，不是未完成的geth类型迁移。
+公开业务模型统一为 ethapi，写入使用 BinaryTransaction。view 有对应业务方法形态但不承诺 geth Go 名义类型身份。Root 返回业务值、CallResult、error；view省略CallResult。NewHead、Logs和Receipts在两入口均使用显式policy及Next/Basis/Close交付路径与证据，内容流另有CommittedTip。Logs新接口已于2026-11-24本地验收，Receipts已于2026-11-25本地验收；不保留channel和ethereum.Subscription桥接。CreateAccessList的any请求仍是明确扩展，不是未完成的geth类型迁移。
 
 ## 2. 覆盖分类与证据状态
 
 Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录request能力，Subscription记录独立流式能力。Evidence分别覆盖值、裁定、错误、reference、材料与生命周期，不能由Registered推出。
 
-多源订阅使用固定WSS来源snapshot与strict quorum。NewHead每源一个当前Tip，沿验证后的父链计票，按hash补齐连续路径与完整重组，路径证人与对象供应独立记录；Logs复用私有Head并按hash取得完整块/收据证明；receipts继续使用同源Pull。NewHead的SourceSession是订阅会话代次，不是TCP连接ID。没有独立Selected订阅模式，multi-source Client只有一个WSS来源时拒绝，显式单源Client保持Forwarded。NewHead已于2026-11-23验收，Logs已于2026-11-24验收；其余S1待办见订阅合同。
+多源订阅使用固定WSS来源snapshot与strict quorum。NewHead每源一个当前Tip，沿验证后的父链计票，按hash补齐连续路径与完整重组，路径证人与对象供应独立记录；Logs和Receipts复用私有Head并按hash取得完整块/收据证明，Receipts另对实际交付的规范官方字段作固定Q裁定。内容流不依赖原生logs/transactionReceipts推送。NewHead的SourceSession是订阅会话代次，不是TCP连接ID。没有独立Selected订阅模式，multi-source Client只有一个WSS来源时拒绝，显式单源Client保持Forwarded。NewHead已于2026-11-23验收，Logs已于2026-11-24验收；Receipts已于2026-11-25验收，其余S1待办见订阅合同。
 
 ## 项目 catalog 与现有切面
 
@@ -102,6 +102,24 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 
 ## go-ethereum v1.17.10 官方 ethclient 方法
 
+2026-11-25按锁定模块源码重新核对：`scripts/ethclient-method-diff.sh`实际输出上游48项、本项目view47项、业务缺失0；`TestEthClientMethodSetIsExact`与`TestEthClientBusinessSignatures`本轮重新通过。该检查覆盖receiver方法名称和项目声明的完整签名，并不包含上游包级函数，也不意味着所有参数选择与使用方式相同。
+
+| 用户可调用选择 | 本仓库表面及限制 |
+| --- | --- |
+| 47项业务receiver方法（含Close） | 全部有入口；普通/AtHash/Pending、gas估算、同步写入、Simulate与三种订阅均在集合内 |
+| 上游`Client()`与`NewClient(*rpc.Client)` | 不提供底层geth RPC访问器，也不接管任意geth连接；本仓库使用`New(config, opts...)`与`Client.EthClient()` |
+| 包级`Dial`、`DialContext` | 有对应入口但合同不同：本仓库惰性构造，至少两个不同端点；单源显式`DialUncorroborated`；配置URL支持HTTP(S)/WS(S)，不包含IPC路径 |
+| geth名义类型及bind接口 | 业务类型采用`ethapi`，不直接满足geth的`bind/v2`接口；需要调用方适配 |
+| 数字高度、hash、latest/safe/finalized/earliest | 有对应入口和selector；moving tag按本项目reference策略建立证据，finalized preset的default/latest采用保守finalized算法；不能按上游单源latest保证解释 |
+| pending选择 | 状态读取、call、交易数等提供pending-local路径；typed Block/Header、BlockReceipts及FilterLogs的pending范围明确本地拒绝。入口名称齐全不表示接受域一致 |
+| 三种订阅 | policy＋Next/Basis/Close（内容流另有CommittedTip），完整连续批次与审计；没有上游channel/ethereum.Subscription方式，出生前不补历史 |
+| 同步发送 | 对应方法存在，项目执行一次广播＋客户端receipt观察；上游调用服务端`eth_sendRawTransactionSync`。期限与证据按项目同步写入合同，不能认为执行机制等价 |
+| Simulate选项 | 生成模型具备blockStateCalls、traceTransfers、validation、returnFullTransactions及base selector；完整模拟行为及真实provider证据仍独立 |
+| 包级`RevertErrorData` | 本仓库没有同名helper；`RevertError`有Data/DataRaw/ErrorData，但没有ErrorCode。将其交给锁定上游helper得到`nil,false`，不能直接互用；调用方可`errors.As`取得项目错误后读取数据 |
+| gethclient扩展 | GetProof、overrides/Trace、pending交易订阅等不属于上述47项；`eth_getProof`明确unsupported，未知公开Call不能补齐它们 |
+
+Revert helper差异已用实际Go程序核对：``&ethguard.RevertError{Data: []byte{0xde,0xad}, DataRaw: json.RawMessage(`"0xdead"`)}``的`ErrorData()`为`0xdead`，上游`ethclient.RevertErrorData`却返回`nil,false`，因为还要求`rpc.Error.ErrorCode()==3`。现有DataError测试不证明该包级helper兼容；这是当前使用方式差异，不据此静默增加JSON-RPC错误码或改变聚合错误语义。
+
 下面列出锁定版本 `ethclient.Client` 的公开方法。当前目标方法集合为 47 项；上游
 `Client()` 只作为显式排除项记录。方法名出现在 facade 后，仍须逐项闭合语义证据；
 入口接入或计数完整不能将“待验收”当作已完成。
@@ -134,7 +152,7 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | `NonceAt` | 已有 | `Client.NonceAt` | 入口已接入；逐方法证据仍按本清单验收 |
 | `NonceAtHash` | 已有 | `Client.NonceAtHash` | 已接入；EIP-1898 hash object |
 | `FilterLogs` | 已有 | `Client.FilterLogs` | 入口已接入；逐方法证据仍按本清单验收 |
-| `SubscribeTransactionReceipts` | 已有（WSS 单源/多源） | `Client.SubscribeTransactionReceipts` | 固定 snapshot strict quorum、per-source reconnect、同源逐 receipt Pull；跨 transport 证据待补 |
+| `SubscribeTransactionReceipts` | 已有（WSS 单源/多源） | `Client.SubscribeTransactionReceipts` | policy+Next完整连续流已迁移；Head路径、完整块承诺与固定Q官方字段支持分离；2026-11-25本地验收通过，真实provider证据独立 |
 | `SubscribeNewHead` | 已验收（WSS 单源/多源） | `Client.SubscribeNewHead`、view同合同 | 固定Tip+DAG、Q路径证人与独立hash对象供应、完整连续delta/reorg、审计及显式预算；`TestSubscribeNewHeadPublicEntrypointsUsePathWitnessesAndHashRecovery`覆盖root/view本地真实WSS，`newhead_integration_test.go`覆盖恢复活性、取消、慢消费、长期回收；2026-11-23全仓普通/race通过，未新增真实provider证据 |
 | `SubscribeFilterLogs` | 已完成本地方法验收（2026-11-24） | `Client.SubscribeFilterLogs` / view，同一policy+Next/Basis/Close | 私有Head出生路径、独立版本与队列、完整块撤回和零命中；交易/收据根验证后冻结过滤、构造全部Log定位字段；root/view×单/多源真实WSS、终态审计、预算/生命周期和全仓普通/race通过 |
 | `PendingBalanceAt` | 已有 | `Client.PendingBalanceAt` | pending-local；跨 transport 证据待补 |
@@ -153,8 +171,8 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | `EstimateGasAtBlock` | 已有 | `Client.EstimateGasAtBlock` | 参数/错误/跨 transport 证据待补 |
 | `EstimateGasAtBlockHash` | 已有 | `Client.EstimateGasAtBlockHash` | EIP-1898/跨 transport 证据待补 |
 | `SendTransaction` | 已有 | `Client.SendRawTransaction` / view SendTransaction | 入口已接入；逐方法证据仍按本清单验收 |
-| `SendTransactionSync` | 已有 | `Client.SendTransactionSync` | broadcast+receipt polling；语义证据待补 |
-| `SendRawTransactionSync` | 已有 | `Client.SendRawTransactionSync` | broadcast+receipt polling；语义证据待补 |
+| `SendTransactionSync` | 已有且方法级验收 | `Client.SendTransactionSync` | broadcast+receipt polling；取消/期限/最后尝试与最近观察已验收，不扩张为inclusion/finality/reorg保证 |
+| `SendRawTransactionSync` | 已有且方法级验收 | `Client.SendRawTransactionSync` | 同上，四入口共享一次广播和客户端receipt观察 |
 | `SimulateV1` | native 入口已接入；语义验收待完成 | `Client.SimulateV1` / view / Raw Call 共用注册计划 | 请求为 `ethapi.SimulateV1Request`，返回 `[]ethapi.SimulateBlock`；base 为 `*ethapi.SimulateBlockReference`，nil 表示 latest；强类型和方法数闭合均不等于逐方法语义验收 |
 
 `go-ethereum/ethclient/gethclient` 还提供扩展方法，例如 `GetProof`、`CallContract` overrides、`Trace*`、`SubscribePendingTransactions` 和调试统计。它们不自动进入 EthClient；必须单独决定是否属于项目的生态承诺。
@@ -167,7 +185,7 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | request ID demux | HTTP 请求级 | 已有 | 由 geth | WSS raw-call 已测试乱序和 pending 清理 |
 | `ChainID` / `Close` | 已有 | 已有 | 不适用 | oracle 不提供生产 Client 生命周期 |
 | `error.data` presence | 已有四态 | native raw 可保留；provider golden 未闭合 | 诊断参考 | missing/null/value/unknown 必须分开记录 |
-| 普通订阅 | 不适用 | 已有 capability 与单源／多源 facade | 未承诺 | capability不扩张unary Transport；NewHead连续路径/hash恢复/审计/有界内存已验收，Logs完整连续流已验收，receipts保留同源Pull；其余方法级生命周期和真实provider证据独立待办 |
+| 普通订阅 | 不适用 | 已有 capability 与单源／多源 facade | 未承诺 | capability不扩张unary Transport；NewHead/Logs/Receipts完整连续流及跨入口生命周期已验收；真实provider证据独立 |
 | HTTP Pull 补查 | 可用 | 仅当同一 source 有配置 | 不适用 | 不得把任意 HTTP endpoint 当作同一 source |
 | reconnect / keepalive / queue | 无通用 replay | 通知条数/字节/单消息与pre-bind总额有界，Release租约覆盖接收方解码；adapter不自动重连，root重建会话 | 不统一承诺 | 生产失败排空和主动关闭丢弃均有反例；不承诺主动keepalive、无限恢复或真实provider支持 |
 
@@ -185,11 +203,11 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | --- | --- |
 | SimulateV1 | 模拟块与内层结果、顶层错误、完整base/reference与真实provider行为 |
 | 跨传输 | 同输入HTTP／raw WSS的成功、null、畸形、冲突、取消、Close、原始材料与错误presence |
-| 订阅 | NewHead本地接口/路径/审计/预算与资源验收完成；Logs连续流本地验收完成；receipts独立方法审查、其余S1裁决和真实provider观察仍待完成 |
+| 订阅 | NewHead/Logs/Receipts连续流、证明与资源验收完成；跨入口生命周期于2026-11-25验收，覆盖准入/退休/真实退出及双入口三流本地拒绝；其余S1裁决和真实provider观察仍独立 |
 | Provider | WSS error.data:null、syncing对象、权限／方法能力差异、历史分叉与可重跑来源 |
 | freshness | F1请求范围、样本有效性、finalized配置组合及真实更新时间分布 |
 | 整体实现 | 历史decision梳理、手写定义与逐模块优化；文档完成不代表代码任务完成 |
 
 每项交付值／错误／status／reference／来源归因／材料／生命周期的实际证据，记录命令、退出码和未覆盖范围。离线、本地链和真实provider独立记账；默认测试不联网。具体断言与命令归 [验证合同](method-verification-pipeline.md)，正式质量／race／fuzz／发布门归 [发布合同](release-contract.md)。
 
-当前Sender、Header、Anchor和Logs均已验收，剩余receipts与跨入口生命周期按路线图独立推进。各方法的定向证据不替代全仓发布、Anvil或公网采集；历史测试通过不代替目标提交结果。
+当前Sender、Header、Anchor、Logs、Receipts及跨入口生命周期均已验收，随后按路线图执行全仓质量治理。各方法的定向证据不替代全仓发布、Anvil或公网采集；历史测试通过不代替目标提交结果。

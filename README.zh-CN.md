@@ -86,11 +86,15 @@ saved, published, captureErr := capture.Result()
 
 同步写入只广播一次，再轮询收据。CallResult.ReceiptWait保留最后尝试与最近形成的收据观察，各有自己的序号、Decision和错误。最后一次查询中断不会覆盖此前的null或冲突观察；操作Err只表达最终结论。这些事实不依赖可选原文预算，默认最多保留两个查询位置。库不签名、不选择gas、不分配nonce、不管理替换交易。
 
-root和view的SubscribeNewHead(ctx, policy)返回提供Next、Basis、Close的HeadSubscription。事件包含完整连续路径变化、重组撤回、冻结路径证人与审计记录；固定WSS成员提供多数支持，缺失对象按hash恢复，内存、通知队列和请求并发显式限额。多源Client仅一个WSS来源会拒绝，显式单源Client保持Forwarded。SubscribeFilterLogs(ctx,query,policy)已迁移为LogsSubscription.Next/Basis/Close及独立提交位置，已于2026-11-24通过本地验收：沿Head出生路径逐块交付全部匹配日志、零命中及完整块撤回，内容通过交易与收据承诺证明；数字/hash过滤只筛选实时路径、不补历史。SubscribeTransactionReceipts仍使用生成模型channel及ethereum.Subscription。策略字段、审计导出与保证边界见 [订阅合同](docs/design/subscription-contract.md)。
+root和view的SubscribeNewHead(ctx, policy)返回提供Next、Basis、Close的HeadSubscription。事件包含完整连续路径变化、重组撤回、冻结路径证人与审计记录；固定WSS成员提供多数支持，缺失对象按hash恢复，内存、通知队列和请求并发显式限额。多源Client仅一个WSS来源会拒绝，显式单源Client保持Forwarded。
+
+SubscribeFilterLogs(ctx,query,policy)返回提供Next/Basis/CommittedTip/Close的LogsSubscription，已于2026-11-24通过本地验收：沿Head出生路径逐块交付全部匹配日志、零命中及完整块撤回，内容通过交易与收据承诺证明；数字/hash过滤只筛选实时路径、不补历史。
+
+SubscribeTransactionReceipts(ctx,query,policy)使用ReceiptsSubscriptionPolicy，返回具有相同交付操作的ReceiptsSubscription。nil/空查询表示Head出生块起全量实时收据；完整交易/收据承诺证明覆盖范围，固定Q比较实际交付的官方字段，包括未被收据根覆盖的声明。BlockSupplier与ReceiptSupport分别记录这两种证据，不引入链配置或冒称独立执行证明。收据连续流已于2026-11-25通过本地验收。策略字段、审计导出与保证边界见 [订阅合同](docs/design/subscription-contract.md)。
 
 raw WSS提供ID demux与有界通知；adapter不自动重连／replay，root订阅worker可以重建来源会话。不承诺通用keepalive或无限恢复。HTTP/WSS错误presence、合成测试和真实provider观察分别记账。
 
-任一facade Close停止共享Client，新请求在网络前失败，在途公开操作随owner结束。Client.Close触发Head异步清理，需要等待该订阅任务全部退出时调用HeadSubscription.Close。主动Head关闭或Next取消会放弃未读事件；生产端失败先排空已提交事件，再返回携带剩余审计的终态错误。其他订阅和transport生命周期分别由对应合同说明。
+任一facade Close停止共享Client，新请求在网络前失败，在途公开操作随owner结束。Client.Close触发订阅异步清理；需要完成屏障时，调用HeadSubscription.Close、LogsSubscription.Close或ReceiptsSubscription.Close，等待该流的任务和owner watcher全部退出。主动关闭或Next取消会放弃未读事件；生产端失败先排空已提交事件，再返回携带剩余审计的终态错误。终态可见时慢清理仍可继续，该流的Close仍等待其完成。
 
 ## 模块与验证
 

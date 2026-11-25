@@ -6,7 +6,7 @@
 
 | Module | 拥有的知识与入口 | 不应拥有 |
 | --- | --- | --- |
-| root `ethguard.Client`／`EthClient` view | 公共 API、单次 CallResult、捕获与生命周期；共享一个私有执行 owner；Logs编排私有Head、块内容证明和完整批次交付 | 第二套装配、typed decoder 或方法字段表 |
+| root `ethguard.Client`／`EthClient` view | 公共 API、单次 CallResult、捕获与生命周期；共享一个私有执行 owner；Logs/Receipts编排私有Head、块内容证明和完整批次交付 | 第二套装配、typed decoder 或方法字段表 |
 | `internal/runtime` | 唯一生产 Composition Root；pool、aggregator、method、reference、projector 的组装 | 公共 API、第二套业务规则 |
 | `pool` | 固定成员、source 生命周期、健康、调度、fan-out，消费 Transport Port | Ethereum 字段含义、裁决公式 |
 | `aggregator` | invocation 顺序、reference／业务轮、收集与证据装配 | 具体 transport、字段语义、schema 解释 |
@@ -16,11 +16,11 @@
 | `internal/reference` | finalized 等候选／确认算法及其 consumer-owned HeadReader／HeadCodec 接口 | 直接依赖 pool、methods 或构造 aggregator／policy |
 | `ethapi`／`internal/ethcodec` | 公开 schema 生成业务模型／共享数值和 JSON 原语 | 传输、投票、执行策略 |
 | `internal/executionapi` | 固定参考 bundle／显式标准勘误的统一读取与身份检查 | 按来源或调用动态改写 schema、响应兼容或方法注册 |
-| `internal/ethobject/{header,receipt,log}` | 查询、订阅事件与同源Pull共享的对象结构／内部完整性及规范编码；不依赖RPC私有包 | 方法装配、请求绑定、投票、网络 |
+| `internal/ethobject/{header,receipt,log}` | 查询与订阅内容供应共享的对象结构／完整块承诺及规范编码；不依赖RPC私有包 | 方法装配、请求绑定、投票、网络 |
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
 | `internal/transport/{http,wss}` | 原生 HTTP／raw WSS 的协议和保真 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
-| `internal/subscription` | NewHead Tip+DAG、连续路径/重组、证人/审计、预算/队列；receipts事件聚合与source/session归属 | 网络I/O、复用unary CallResult假装流式生命周期 |
+| `internal/subscription` | NewHead Tip+DAG、连续路径/重组、证人/审计、预算/队列与source/session归属 | 网络I/O、第二套内容投票器、复用unary CallResult假装流式生命周期 |
 | `internal/verification`、`internal/testkit`、`rpctest` | 公开 seam 的黑盒、跨模块和 fixture 验证 | 被生产 Module 反向导入或成为生产事实源 |
 | `observe` | 被动事件记录 | retry、调度与安全决策 |
 | `cmd`／`examples` | 操作入口、捕获与示例 | 独立实现核心规则 |
@@ -28,6 +28,10 @@
 公共 `gethcompat` 构造与单源 Simulate seam 退出。`internal/testkit/gethoracle` 仅供测试和显式诊断使用，不是生产 runtime；native 执行图不得依赖 `ethclient`。迁移边界见 [兼容政策](go-ethereum-compatibility-policy.md)。
 
 目录必须隐藏实际行为并拥有清楚的 seam；不为视觉分组创建浅层 forwarding package。`rpc/methods` 保持一个生产模块，不因文件数增加就拆成名词包。
+
+Logs与Receipts的私有`contentSubscription[E]`只共用typed FIFO、版本提交、预算、请求登记、租约、窗口审计和关闭完成屏障；泛型参数仅表示交付值。各方法保留具体内容准备、过滤、证明、重试和公开事件。Receipts使用现有`CanonicalOutcomeResolver`固定成员裁定，`pool.Source.Call`保留真实Response，`CallContext`只作投影；不新增通用pipeline或另一套Q算法。旧收据channel、事件Aggregator、Pull探测及累计票据预算已从工作区移除，最终方法验收状态见路线图。
+
+Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个runSource唯一拥有inner及锁外退订，生产机会耗尽与wg实际退出分开。reapWork只等待实际工作再释放工作资源，owner watcher独立保护未消费队列，并由各订阅Close单独等待。锁方向为Head→queue/gate/budget、content→budget；网络、等待和Estimate位于主锁外，不引入Head/content嵌套锁。Client.Close保留owner取消及Pool自身关闭义务，订阅Close提供各自完成屏障，不新增通用生命周期管理器。
 
 ### 响应事实与裁定的模块归属（2026-11-21，已验收）
 
@@ -141,3 +145,24 @@ Outcome是Policy本身的强制合同，不是额外的可选能力。编译对r
 先审查 aggregator 的 invocation 状态、阶段结果、fault／health／材料和所有退出路径，再沿调用链逐模块处理。接口应隐藏业务复杂性，减少调用方必须同时掌握的规则；拆包、删除适配器或减少行数不能单独证明改进。实现验收通过真实模块接口，并保留独立反例。
 
 架构 interlock、默认 build 依赖、能力互锁及公开调用链共同验证结构。[方法合同](method-contracts.md)拥有业务保证，[返回值合同](return-value-design.md)拥有结果交付，[验证合同](method-verification-pipeline.md)拥有测试与证据要求。
+
+
+### 可读性与结构诊断的处置（2026-11-25）
+
+质量审查把可读性与错误、所有权、资源合同一起验收。工具的重复度、函数长度、值复制和魔数报告是审查线索，不是要求合并或拆分的指令。
+
+| 现有结构 | 保留或收敛依据 |
+| --- | --- |
+| `blockAt` / `headerAt` | 请求路由相似，但 fullTx、返回投影、hash/height绑定与错误文案分别直观可见；抽成泛型回调会让调用者同时理解投影和错误模板，当前保留两个直接实现 |
+| `rpc/internal/objects/{receipt,log}` | 共享对象内核位于internal/ethobject，本层仍拥有方法的null/array接受域与请求hash/height绑定；删除本层会把这些规则散到方法调用者 |
+| `projectSourceFaults` | Exchange→Interpretation→Answer是可消费的原因优先级，直接sourceFaultView断言标识本owner产物；不能用errors.As吞掉包装或Join中的独立诊断 |
+| Canonical invocation | prepare核对一次resolver能力，状态传递typed能力供resolve消费；缺能力仍按原collect后失败的时序，未改为提前返回 |
+| Logs过滤 | freezeFilterQuery共享已验证canonical副本，stream直接读取生成类型；unary继续保留UseNumber、扩展字段与原请求语义 |
+| Simulate冻结断言 | FreezeParams成功时逐项产生RawMessage且保留长度，私有消费者紧接校验两个参数；保留两个有构造证明的断言，避免为语法检查增加表示和转换 |
+| 工具与fixture错误 | 普通报告接受writer并返回写出错误；rpctest在提交HTTP响应前完成JSON编码。失败沿已有owner返回，取消后清理不误归RPC协议错误；不为静态规则新增统一错误包装层 |
+| 预算公式 | content固定开销、Head工作空间和AtomicMemoryBudget分别在原owner检查乘加/累计可表示性；零配置额度仍表示无额度上限，账本不能绕回。局部公式便于验证，预算数值保持，不抽全局算术helper |
+| 剩余测试evalOrder | VotingMembers/Sources/Hash返回附属值时不改变同条return中的指针或slice值，三个报告保留；原三个解码return已显式先decode后return，使顺序直观可读 |
+| 内容终止的append | releases连同terminalReserve移交terminal所有者，随后清空旧owner；appendAssign报告不构成丢失租约 |
+| 调度常量 | pool的128样本窗口、每源并发/节拍和100ms唤醒兜底各有调度用途；同步写入100ms收据轮询是既有行为策略，不随常量整理改变 |
+
+诊断中的hugeParam/rangeValCopy涉及不可变快照、goroutine交付及调用者隔离，不能统一改成指针。测试中的重复来源回调代表不同投票槽；有限循环的defer保持整个fixture生命周期。剩余evalOrder中的VotingMembers/Sources/Hash读取不替换被返回的对象，Panic(uint256)注释是ABI selector含义；这些均保留。三处先返回变量再在同一return表达式Unmarshal的测试改为显式解码顺序，仅作为可读性改进，不宣称原实现已证明有行为错误。

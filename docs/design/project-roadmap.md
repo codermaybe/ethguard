@@ -2,7 +2,7 @@
 
 本文可直接用于重启对话：说明当前基线、下一步、执行顺序和未完成事项，不依赖旧聊天、`docs/tmp/`或`/tmp`材料。具体业务合同由末尾链接的正式文档维护。
 
-**当前状态（2026-11-24）：公共数据管线 A-G、27 个注册 read 方法、响应模型整体替换、广播/同步写入与 NewHead 连续订阅均已验收。** 用户已确认没有兼容或实际用户负担，受影响接口及仓内消费者直接迁移，旧 NewHead 出口已删除。Sender、Header和Anchor也已验收；Logs完整实时流已于2026-11-24完成本地验收，接下来恢复receipts保存断点，跨入口生命周期随后独立收口。
+**当前状态（2026-11-25）：公共数据管线 A-G、27 个注册 read 方法、响应模型整体替换、广播/同步写入及 NewHead、Logs、Receipts 连续订阅均已通过本地验收。** 用户已确认没有兼容或实际用户负担，受影响接口及仓内消费者直接迁移，旧订阅channel及事件聚合桥接已删除。Sender、Header、Anchor和跨入口生命周期也已验收。Receipts/生命周期Go修改按用户要求保存为本地提交`f40a9e8`，未推送。全仓质量治理七切片及用户追加的最小安全升级均已完成本地独立验收。Go1.26.11新基线普通/race各52包7096测试事件通过，17规则默认/anvil零问题，漏洞复扫0可达；完整范围及保留的上游fixture失败见发布合同。当前主控规划、编排与验收，最多2个执行者按互斥文件并行，可读性同属门槛。
 
 ## 1. 当前基线
 
@@ -11,7 +11,7 @@
 NewHead于2026-11-23完成实现与独立验收：单订阅Tip+DAG、连续原子路径、完整重组、冻结证人与审计，以及WSS有界通知和长期回收已接入。普通/race全仓测试、vet、build、tidy、生成资产一致性与格式检查通过。2026-11-24按用户授权在`audit/rpc-quality`逐文件分组保存：`efe95f6`为Sender/Header/Anchor补证与注释，`ee589ce`为NewHead、Logs、共享订阅基础及receipts局部修复；此前基线为`e7ac360`。正式文档随后的独立提交记录合同与接续点；没有推送。恢复工作先核对实际Git状态，不把已保存等同已发布。以下A-G/read成本与验证记录属于此前基线。
 
 - 2026-11-20 已完成 A-G 与本轮 27 个 read 方法的代码验收，本轮父基线为 `943133e`。新会话先用 `git log`、`git status` 和未提交差异核对实际实现提交与工作树，不覆盖已有改动。此前 `8e0e77a` 的 AccessList 字段/生成类型复用和 codec 字符串优化保持。
-- 项目仍固定Go **1.26.10**。Go1.27.3只做过隔离评估，未改`go.mod`、生产JSON import、生成器或生成资产。**Go1.27暂不引入**，后续整体评估，收益不计入现有实现优化。
+- 项目当前固定Go **1.26.11**，由用户授权的安全补丁从1.26.10提升。Go1.27.3只做过隔离评估，生产JSON import、生成器及生成资产保持。**Go1.27暂不引入**，后续整体评估，收益不计入现有实现优化。
 - 现行设计文档系列、公开`ethapi`类型迁移和首轮逐模块整理已完成。目标仍为固定go-ethereum v1.17.10的47项目标方法名称集合，已有27个注册读RPC以及独立写入、订阅和派生能力；这些数量不代表完整兼容。
 - A-G 公共管线已验收：准备事实冻结、显式 reference evidence、来源槽位与传输所有权、Outcome 裁定、双 facade 交付/观测均已核对；frozen params transport 仍等待端到端瓶颈证据，exported ReferenceStage 的兼容风险留待发布说明。
 - 两个交易查询与单收据strict canonical路径已接入。receipt复用已校验canonical字节；AccessList仍使用现有方法规则和生成模型，不以新增processor数量衡量完成度。
@@ -79,9 +79,9 @@ NewHead于2026-11-23完成实现与独立验收：单订阅Tip+DAG、连续原�
 
 1. 先结合 catalog、公开 facade 和 [覆盖清单](method-transport-coverage.md) 做源码事实盘点，区分独立写入及同步等待、订阅、派生与生命周期入口，以及显式 unsupported 能力。47 个上游公开方法与 27 个注册读 RPC 的口径不同，不能用相减确定剩余任务，也不能将 facade 名称不同自动当成新 RPC。
 2. 为候选方法说明：反馈表示已接受、已观察、已确认还是结果未知；成功值、错误、诊断和来源材料分别包含哪些事实；请求／区块／交易／会话锚点从哪里建立、何时失效，以及等待、重组和恢复时是否仍成立。继续核对成员与门槛、原文与规范值、顺序与所有权、取消／关闭、重试或重放边界；由现行合同和反例支持结论，不把读方法的裁定与 reference 规则机械套用。
-3. 选定一个方法后才制定独立计划，列出调用者、Interface、接受域、错误阶段、变更文件、反例、必要成本证据、完成门槛及未决政策。主控规划和验收，按当前用户授权使用唯一代码执行agent；本轮NewHead由`gpt-6-astra/high`实施并书面交付，主控维护文档。阶段计划仍写现有module-simplification README TMP，验收后迁移结论并清空；不新增阶段目录或总结文件。
+3. 选定一个方法后才制定独立计划，列出调用者、Interface、接受域、错误阶段、变更文件、反例、必要成本证据、完成门槛及未决政策。主控规划、编排和独立验收；当前用户授权最多2个执行者按互斥文件并行，主控维护文档。NewHead当时由单一执行者实施是历史事实，不限制后续授权。阶段计划仍写现有module-simplification README TMP，验收后迁移结论并清空；不新增阶段目录或总结文件。
 
-写入的accepted／unknown／rejected与链上观察关系归 [方法合同](method-contracts.md) 和 [返回值合同](return-value-design.md)；NewHead连续路径、证人、审计、恢复与终止，Logs完整批次和receipts同源Pull归 [订阅合同](subscription-contract.md)；锚点保证归 [reference合同](reference-freshness-policy.md)。现行保证与待裁决事项分别记录，unsupported不自动变为新增实现任务。F1／剩余S1、工具链、provider证据和发布缺口继续独立维护。
+写入的accepted／unknown／rejected与链上观察关系归 [方法合同](method-contracts.md) 和 [返回值合同](return-value-design.md)；NewHead连续路径、证人、审计、恢复与终止，以及Logs/Receipts完整证明和交付归 [订阅合同](subscription-contract.md)；锚点保证归 [reference合同](reference-freshness-policy.md)。现行保证与待裁决事项分别记录，unsupported不自动变为新增实现任务。F1／剩余S1、工具链、provider证据和发布缺口继续独立维护。
 
 ### 非 read 入口推进状态（2026-11-24）
 
@@ -95,16 +95,17 @@ NewHead于2026-11-23完成实现与独立验收：单订阅Tip+DAG、连续原�
 | 4 | TransactionSender：输入交易与block/index绑定、官方from声明和事实交付 | 已验收；生产实现保留，官方from异值与共同声明的HTTP/raw WSS及root/view补证完成；11项方法定向普通/race通过 |
 | 5 | Header 视图、AnchorBlockHash/ForTag/Height：派生与锚点绑定、事实交付 | 均已验收；Header 5项定向普通/race及6项内核普通检查，Anchor 26项普通/25项独立race通过；运行实现保留，finalized preset的default/latest例外已明确 |
 | 6 | SubscribeFilterLogs | 已验收（2026-11-24）；Head出生后的完整过滤连续流、policy+Next/Basis/Close、实时range/hash无历史补播；完整块证明、重组/零命中/字段/审计及资源均已核对；全仓普通/race各51包通过 |
-| 7 | SubscribeTransactionReceipts | 下一项；既有补丁及整块承诺基础保存，nil全量/出生/完整性保持已确认，官方字段/链规则及独立交付资源待收口 |
-| 8 | Close/Unsubscribe/取消及显式 unsupported：资源完成、错误与能力边界 | 未开始；跨入口最终验收 |
+| 7 | SubscribeTransactionReceipts | 已验收（2026-11-25）；完整块证明和固定Q官方字段互证，root/view统一policy+Next；共享内容owner及旧桥接删除完成，整仓普通/race各51包通过，静态和生成资产检查通过 |
+| 8 | Close/Unsubscribe/取消及显式 unsupported：资源完成、错误与能力边界 | 已完成（2026-11-25）；来源准入/退休、唯一退订、生产耗尽及完成屏障收口；root/view三流关闭/能力/策略拒绝补证，冻结代码整仓普通/race各51包通过 |
+| 9 | 全仓质量治理：静态检查扩围及整体执行流程审查 | 七切片及最小安全升级已验收；17规则默认/anvil全仓门禁接入本地/CI/release。最终普通/race各52包7096测试事件、vet/build/生成/平台覆盖及0可达漏洞通过；边界及上游fixture失败归发布合同 |
 
 响应结果模型、同步写入方法级审查和NewHead分别完成，不能相互替代验收。NewHead的500高度完整Header测试交付598个delta，消费后稳定状态预算峰值39,669 B，Close后归零；3,000步合成tracker保留峰值7,259 B，300块恢复后图容量缩回16。这些是预算账本测量，不是Go heap/RSS硬上限。按hash请求与push的来源会话绑定不证明相同TCP连接；Gate只记录等待到期并重评估，RPC期限与重试另行配置；Client.Close触发异步Head清理，Head.Close提供完成屏障。完整使用约定、审计导出和成本限制由订阅合同拥有。
 
 2026-11-24最新恢复点：Logs已完成本地方法验收，正式范围/交付见订阅合同第7节，验证历史见第9节；总规划和下一项保留在现有module-simplification README的TMP上方，Logs TMP已清理。最终全仓普通/race使用-p 2，各51包通过、9包无测试；vet/build和格式检查通过。此前NewHead fixture重复关闭及新增Logs WSS fixture缺字段/错时间戳均已修正，历史失败记录保留；首次并行整仓普通曾出现既有同步写入250ms观察断言失败，最终降低争用复验通过，该方法未改。没有新增provider/Anvil或发布证据。
 
-接续SubscribeTransactionReceipts时，先读module-simplification/ethguard.md保存断点及订阅合同第8节。nil/未设置/空集合全量实时、首源候选而非最终锚、固定Q出生块及出生后完整性均已确认，不重问。保留既有过滤/生命周期修复和block_commitment内核，收口完整官方Receipt字段、链分叉参数、供应策略与独立提交/交付/资源。Logs通过不等于这些收据派生字段已证明。
+接续SubscribeTransactionReceipts时，先读module-simplification/ethguard.md保存断点及订阅合同第8节。nil/未设置/空集合全量实时、首源候选而非最终锚、固定Q出生块及出生后完整性均已确认，不重问。2026-11-25用户确认根证明完整性、其余官方字段固定Q互证，不新增链分叉配置。保留既有过滤/生命周期修复和block_commitment内核，复用Head/Logs及规范值裁定，完成供应与独立提交/交付/资源；Logs通过不等于Receipt派生字段已证明。生命周期整体收敛设计保存在现有internal-subscription模块第15节，作为后续阶段评估输入。
 
-本轮方法队列还剩receipts及跨入口生命周期两项，不能按两个小补丁估算。F1、完整Simulate、共享Hub/single-flight、持久化、provider/Anvil、工具链及发布仍独立。代码已本地提交、未推送，不重启已验收方法。
+2026-11-25接续：Receipts完整流及跨入口生命周期已通过本地验收，Go内容保存为f40a9e8；质量治理随后按数值边界、确定冗余、类型事实、错误/工具、资源/结构和全仓门禁推进。可读性与行为一起验收，保留有真实职责的直接实现、快照值复制及错误原因优先级；结构规则只用于定位，不以零告警或机械拆函数替代整体效果。新共享lint入口固定2.15.0，撤销整测试/工具路径豁免，默认/anvil与生成代码均纳入；G115和类型断言按范围/构造证明保留审查报告。实现基线全仓普通/race各52包7096测试事件通过，8包无测试，无失败/测试跳过。最终govulncheck发现3项可达告警后，用户明确授权Go1.26.11、OTel1.47.0同族及Gorilla修复伪版本的最小安全升级，新基线已重新独立普通/race、静态/生成及跨平台验收通过，漏洞扫描0可达/0导入包、7仅模块层报告；真实代理契约通过，上游两个旧/新版本均失败的夹具明确保留。TMP已清空。版本、报告及完成状态以[发布合同](release-contract.md)为准。Go1.27、F1、完整Simulate、共享Hub/single-flight、持久化、provider/Anvil实际执行及发布仍独立；用户随后授权按改动分组保存：数值/资源7908ab5、类型事实59fae6b、错误/测试d86b903、lint/CI bc1bf17、安全升级7493d0d，正式文档单独提交；未推送，TMP保持忽略。
 
 以上是已有入口的合同与实现审查，不把`47−27`作为待办数。NewHead公开配置与事件接口已定；其余S1、F1默认值、真实provider、工具链和发布保持独立，无收益的实现允许有证据保留。
 
@@ -113,7 +114,7 @@ NewHead于2026-11-23完成实现与独立验收：单订阅Tip+DAG、连续原�
 | 专题 | 当前事实与未决项 |
 | --- | --- |
 | F1 freshness | 已有请求scope和tip样本过期机制；默认lag、样本窗口／最低覆盖、豁免、结构化原因及finalized／单源组合未定，不能从零重新实施或自行选默认值 |
-| S1订阅 | NewHead的路径/证据/策略/内存/终态已验收；Logs完整实时批次及终态/预算/方法生命周期已验收；receipts保持独立迁移。诊断及provider行为继续独立。共享Hub与持久化没有纳入本轮 |
+| S1订阅 | NewHead的路径/证据/策略/内存/终态已验收；Logs完整实时批次及终态/预算/方法生命周期已验收；receipts完整证明及固定Q字段连续流已验收。诊断及provider行为继续独立。共享Hub与持久化没有纳入本轮 |
 | Go与JSON | Go1.27暂缓引入。已知保留旧JSON API也能受益于新内核，但B/op可能增加；直接使用json/v2默认语义会改变大小写匹配、重复键、UTF-8、空数组和omitempty，需独立验收 |
 | 验证维护 | 手工feature／noCapture登记、cell到真实断言的追溯、canary阈值互锁、时间敏感测试及未完成wire大预算fuzz，分别诊断，不用自述表代替独立断言 |
 

@@ -6,6 +6,8 @@
 
 业务方法参考为 `go.mod` 锁定的 go-ethereum v1.17.10。其 `ethclient.Client` 有 48 个导出 receiver 方法；底层 `Client()` 访问器明确排除，目标为剩余 47 项（含 Close）。`scripts/ethclient-method-diff.sh` 检查名称集合，完整签名由 `TestEthClientBusinessSignatures` 按项目类型合同检查；两者均不证明逐方法行为全部兼容。
 
+2026-11-25重新运行名称差异与签名检查，业务缺失为0。该分母不包含包级Dial/DialContext/NewClient/RevertErrorData，也不覆盖参数接受域差异。构造与传输、pending选择、同步发送机制及订阅用法的实际映射见[覆盖清单](method-transport-coverage.md#go-ethereum-v11710-官方-ethclient-方法)。其中项目RevertError只提供DataError而没有ErrorCode；已实际确认上游RevertErrorData不能直接消费它，应用应通过errors.As读取项目Data/DataRaw，不把错误data存在等同上游helper兼容。
+
 公开 JSON 业务模型以固定 execution-apis 原始来源及审核勘误为源，由 `ethapi` 生成。标量输入为 `ethapi.Address`／`ethapi.Hash` 等；Block、Header、Receipt、Transaction、Log、查询请求和 Simulate 使用项目生成模型。数值、context、错误和订阅生命周期接口按各自职责保留。写入接受 `BinaryTransaction`（提供 MarshalBinary 的载体），可消费 geth transaction，但不把 geth 业务对象重新作为公共模型。
 
 项目不承诺 geth Go 名义类型身份或其接口的直接满足。`EthClient` 具有相应业务方法形态，使用项目生成类型；依赖 `bind/v2` 等 geth 接口的调用方需显式适配。当前没有“未迁移的公开业务类型”施工阶段；内部重复定义属于下一阶段实现审查，不能与公开迁移混记。
@@ -16,7 +18,7 @@
 
 ## 2. 两个 facade，一个执行 owner
 
-Root Client返回业务值、单次`CallResult`和业务错误；EthClient view投影同一执行并省略CallResult。NewHead两入口均接受`HeadSubscriptionPolicy`并返回`HeadSubscription`，通过Next/Basis/Close交付连续路径、重组与来源证据；其签名与上游channel接口不同。Logs也已迁移为`LogsSubscriptionPolicy`与`LogsSubscription.Next/Basis/Close`，交付完整实时批次并显式处理撤回，2026-11-24本地验收通过；该签名同样不同于上游channel。receipts保留生成模型channel与`ethereum.Subscription`。流式合同独立，不把unary CallResult延伸为订阅事件，详见[订阅合同](subscription-contract.md)。
+Root Client返回业务值、单次`CallResult`和业务错误；EthClient view投影同一执行并省略CallResult。NewHead两入口均接受`HeadSubscriptionPolicy`并返回`HeadSubscription`，通过Next/Basis/Close交付连续路径、重组与来源证据；其签名与上游channel接口不同。Logs使用`LogsSubscriptionPolicy`与`LogsSubscription.Next/Basis/CommittedTip/Close`，交付完整实时批次并显式处理撤回，2026-11-24本地验收通过。Receipts已统一为`ReceiptsSubscriptionPolicy`与`ReceiptsSubscription`，提供相同交付操作，以完整块证明和固定Q字段声明交付完整收据批次；2026-11-25本地验收通过。三种流均不保留channel/`ethereum.Subscription`兼容桥。流式合同独立，不把unary CallResult延伸为订阅事件，详见[订阅合同](subscription-contract.md)。
 
 view 不提供 `Client()` 逃生口。runtime 是唯一生产装配点，typed projection 只有一份；未知公开 Call 本地拒绝，不能通过默认 forwarding 补齐缺失方法。低层 rpc Registry 的 forwarding 能力不等于公开客户端授权。
 
