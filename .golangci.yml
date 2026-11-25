@@ -6,12 +6,12 @@
 #   ST1003 would churn public API names (e.g. the ethclient-compat ChainId
 #   capitalization). QF* rewrites audit-sensitive conditions (e.g. De Morgan)
 #   without fixing anything.
-# - errcheck is excluded on _test.go (fixtures fail loudly on wrong behavior)
-#   and on tooling paths (cmd/, rpctest/, internal sampling/conformance tools)
-#   whose I/O is best-effort by design.
-# - errorlint: enabled with two documented exclusions. (1) tests compare
-#   sentinel identity on purpose (membership checks between known classes);
-#   (2) the production idiom `fmt.Errorf("%w: ... %v", ClassSentinel, cause)`
+# - errcheck and errorlint include tests and tooling. Deliberate identity or
+#   ownership assertions use line-level exceptions with a specific reason.
+#   Cleanup that owns no pending output may explicitly discard its error;
+#   report writes and fixture encoding must handle failures.
+# - errorlint: the production idiom
+#   `fmt.Errorf("%w: ... %v", ClassSentinel, cause)`
 #   wraps the decision-class sentinel with %w and carries the cause as detail,
 #   so errors.Is against the class already works — the "non-wrapping format
 #   verb" finding on that pattern is deliberate, not a bug.
@@ -20,7 +20,15 @@
 #   nilerr flags the intentional fallback/degrade returns (e.g. rawbody falls
 #   back to the ordinary dialer; conformance records an Issue and returns),
 #   contextcheck false-positives on pool.Source.dial which does inherit ctx.
+# - G115, forcetypeassert and structural/style rules remain review reports:
+#   checked numeric domains, frozen types and immutable snapshots need owner
+#   reasoning, not broad exclusions or mechanical pointer/helper rewrites.
 version: "2"
+
+run:
+  timeout: 8m
+  tests: true
+  relative-path-mode: wd
 
 linters:
   default: standard
@@ -34,6 +42,9 @@ linters:
     - makezero
     - misspell
     - noctx
+    - nolintlint
+    - unconvert
+    - wastedassign
   settings:
     staticcheck:
       checks:
@@ -47,12 +58,16 @@ linters:
         - -QF*
     errorlint:
       errorf: false
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
   exclusions:
-    rules:
-      - path: _test\.go
-        linters:
-          - errcheck
-          - errorlint
-      - path: (cmd|rpctest|internal/(livecanary|rpcsample|shapeprobe|spec/conformance|transport/contract))/
-        linters:
-          - errcheck
+    generated: disable
+    presets: []
+    paths: []
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false

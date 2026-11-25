@@ -36,6 +36,10 @@ fi
 
 echo "==> running static analysis"
 go vet ./...
+bash ./scripts/lint.sh
+
+echo "==> compiling the opt-in anvil tests without starting a chain"
+go test -tags anvil -run '^$' ./...
 
 echo "==> building all packages"
 go build ./...

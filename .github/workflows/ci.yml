@@ -82,12 +82,13 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
+      - name: compile opt-in anvil tests without starting a chain
+        run: go test -tags anvil -run '^$' ./...
 
   # Gate 2: unit + race (part of the full suite; kept as one job while the
   # suite stays this fast — split into shards only when it grows).
-  # Every `go test` invocation in this repository carries -race: the
-  # concurrency-sensitive pool/aggregator paths only surface data races under
-  # the detector, and the suite is fast enough that race coverage is free.
+  # The full suite uses -race; compile-only and focused transport checks are
+  # separate gates with their own scope.
   test:
     name: test (full suite)
     runs-on: ubuntu-latest
@@ -194,8 +195,9 @@ jobs:
   # Scheduled fuzzing exercises untrusted JSON and WebSocket frame parsers
   # outside the pull-request critical path. Any discovered input is emitted by
   # Go as a corpus file and must be committed as a deterministic regression.
+  # Use the release contract's count budget to avoid Go duration-deadline races.
   fuzz:
-    name: scheduled fuzz (short budget)
+    name: scheduled fuzz (count budget)
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     needs: check
@@ -205,27 +207,27 @@ jobs:
         with:
           go-version-file: go.mod
       - name: JSON safety
-        run: go test ./internal/jsonsafe -run=^$ -fuzz=FuzzValidateClassifies -fuzztime=30s
+        run: go test ./internal/jsonsafe -run=^$ -fuzz=FuzzValidateClassifies -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: JSON-RPC response decoder
-        run: go test ./internal/rpcwire -run=^$ -fuzz=FuzzDecodeResponse -fuzztime=30s
+        run: go test ./internal/rpcwire -run=^$ -fuzz=FuzzDecodeResponse -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: WebSocket frame stream
-        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzFrameStream -fuzztime=30s
+        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzFrameStream -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: WebSocket frame writer
-        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzWriteFrameRoundTrip -fuzztime=30s
+        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzWriteFrameRoundTrip -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: access-list encoder
-        run: go test ./rpc/internal/objects/accesslist -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/accesslist -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: block encoder
-        run: go test ./rpc/internal/objects/block -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/block -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: fee-history encoder
-        run: go test ./rpc/internal/objects/feehistory -run=^$ -fuzz=FuzzEncodeIdempotentAndNormalizeAgrees -fuzztime=30s
+        run: go test ./rpc/internal/objects/feehistory -run=^$ -fuzz=FuzzEncodeIdempotentAndNormalizeAgrees -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: log encoder
-        run: go test ./rpc/internal/objects/log -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/log -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: receipt encoder
-        run: go test ./rpc/internal/objects/receipt -run=^$ -fuzz=FuzzEncodeKeyStableAndIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/receipt -run=^$ -fuzz=FuzzEncodeKeyStableAndIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: transaction encoder
-        run: go test ./rpc/internal/objects/transaction -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/transaction -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: canonical wire normalizer
-        run: go test ./rpc/internal/wire -run=^$ -fuzz=FuzzNormalize -fuzztime=30s
+        run: go test ./rpc/internal/wire -run=^$ -fuzz=FuzzNormalize -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: archive discovered fuzz corpus
         if: always()
         uses: actions/upload-artifact@v7
@@ -255,9 +257,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.15.0
+      - name: pinned lint, default and anvil
+        run: bash ./scripts/lint.sh
 
   # Reachable vulnerabilities are a release gate. The repository-owned script
   # pins the scanner version so @latest cannot silently raise the Go toolchain
