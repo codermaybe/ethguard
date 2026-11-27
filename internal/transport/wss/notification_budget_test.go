@@ -103,6 +103,91 @@ func TestByteLimitAndPendingTransferDoNotDropSilently(t *testing.T) {
 	}
 }
 
+// Keep the failed setup registered while its pump waits to publish the
+// terminal error. This reproduces the interval before asynchronous removal
+// without making receipt of Err a cleanup barrier.
+func holdFailedSetup(t *testing.T, tr *Transport) (*NotificationStream, func()) {
+	t.Helper()
+	tr.pendingMessagesLimit = 1
+	s, err := tr.openNotificationStreamWithID(context.Background(), "failed", 1, 8, pendingSubscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := errors.New("hold terminal delivery")
+	s.errs <- held
+	release := sync.OnceFunc(func() {
+		if err := <-s.errs; !errors.Is(err, held) {
+			t.Errorf("terminal delivery barrier replaced: %v", err)
+		}
+	})
+	t.Cleanup(func() { release(); s.Unsubscribe() })
+	pushNotification(t, tr, "early")
+	pushNotification(t, tr, "overflow")
+	if s.bindSubscriptionID("early") {
+		t.Fatal("overflowed setup bound successfully")
+	}
+	return s, release
+}
+
+func TestFailedSetupDoesNotRebuildPendingNotifications(t *testing.T) {
+	tr := newPendingTestTransport(t)
+	holdFailedSetup(t, tr)
+	pushNotification(t, tr, "after-failure")
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.pendingBytes != 0 || tr.pendingMessages != 0 || len(tr.pendingNotifications) != 0 || len(tr.pendingNotificationOrder) != 0 {
+		t.Fatalf("failed setup rebuilt pending notifications: bytes=%d messages=%d ids=%d", tr.pendingBytes, tr.pendingMessages, len(tr.pendingNotifications))
+	}
+}
+
+func TestFailedAndLiveSetupsKeepPendingOwnership(t *testing.T) {
+	for _, retireFailed := range []bool{false, true} {
+		name := "bind-before-failed-pump-exits"
+		if retireFailed {
+			name = "failed-pump-exits-before-bind"
+		}
+		t.Run(name, func(t *testing.T) {
+			tr := newPendingTestTransport(t)
+			failed, release := holdFailedSetup(t, tr)
+			tr.pendingMessagesLimit = 20
+			live, err := tr.openNotificationStreamWithID(context.Background(), "live", 2, 8, pendingSubscriptionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer live.Unsubscribe()
+			pushNotification(t, tr, "late-failed")
+			pushNotification(t, tr, "live-id")
+			if retireFailed {
+				release()
+				<-failed.pumpDone
+			}
+			tr.mu.Lock()
+			messages, retained := tr.pendingMessages, len(tr.pendingNotifications["live-id"])
+			tr.mu.Unlock()
+			if messages != 2 || retained != 1 {
+				t.Fatalf("live setup lost its pending notification: messages=%d live=%d", messages, retained)
+			}
+			if !live.bindSubscriptionID("live-id") {
+				t.Fatal("live setup failed to bind")
+			}
+			select {
+			case n := <-live.Events():
+				if n.SubscriptionID != "live-id" || n.SourceID != "live" || n.Generation != 2 {
+					t.Fatalf("live setup received another setup's notification: %+v", n)
+				}
+				n.Release()
+			case <-time.After(time.Second):
+				t.Fatal("live setup lost its early notification")
+			}
+			tr.mu.Lock()
+			defer tr.mu.Unlock()
+			if tr.pendingBytes != 0 || tr.pendingMessages != 0 || len(tr.pendingNotifications) != 0 || len(tr.pendingNotificationOrder) != 0 {
+				t.Fatal("last live setup bound but failed setup retained pending notifications")
+			}
+		})
+	}
+}
+
 func TestProducerFailureThenContextCancelDiscardsUnreadNotifications(t *testing.T) {
 	tr := newPendingTestTransport(t)
 	b := &notificationBudget{}

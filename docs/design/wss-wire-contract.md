@@ -109,7 +109,7 @@ transport.NotificationPolicy 表达 Messages、Bytes、MaxMessageBytes 及可选
 
 每流使用私有有界队列和无缓冲交付 pump。字节记账覆盖 Raw 与 Result 各自的 backing capacity、身份字符串及控制余量；Raw/Result 并非默认零复制重叠。通知持有幂等 Release 租约，接收方完成解码后释放；发送成功不等于原文已经释放。队列条数/字节限制控制尚未交付的通知，已交给接收方的租约继续占相应共享预算，接收方不能无限保存而忘记 Release。
 
-绑定前的未知 subscription ID 尚无确定 owner，仅在存在 eth_subscribe 建立尝试期间缓存。Dialer.PendingMessages 与 PendingBytes 约束整个连接的这类暂存；默认分别为 256 条、8 MiB，不按 ID 各给一份额度。超限使受影响建立尝试明确失败，不静默淘汰后继续宣称流完整。绑定时先取得目标流准入，再释放连接记账；所有建立尝试结束后清空剩余未知 ID。
+绑定前的未知 subscription ID 尚无确定 owner，仅在存在 eth_subscribe 建立尝试期间缓存。Dialer.PendingMessages 与 PendingBytes 约束整个连接的这类暂存；默认分别为 256 条、8 MiB，不按 ID 各给一份额度。超限使受影响建立尝试明确失败，不静默淘汰后继续宣称流完整。预算失败的尝试即使等待 pump 异步退出，也不能重新持有未知 ID 缓存；同连接仍活跃的建立尝试保留其缓存与交付资格。绑定时先取得目标流准入，再释放连接记账；最后一个活跃建立尝试结束后清空剩余未知 ID。
 
 生产端失败先按 FIFO 交付已经准入的通知，再交付终态。通知数/字节超限可识别为 transport.ErrNotificationBackpressure，单通知过大为 ErrBodyTooLarge，Reserve 失败保留其原因。主动 Unsubscribe、直接流 context 取消和 owner Close 可以覆盖排空状态，丢弃未读原文并等待 pump 退出；owner 仍能找到已经生产失败但未消费完的流。本地清理先于尽力而为的网络 eth_unsubscribe，不等待网络退订超时才释放缓存。
 
