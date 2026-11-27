@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	subcore "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -25,7 +24,7 @@ func TestHeadReleasesAcceptedAndRejectedNotifications(t *testing.T) {
 		t.Run(shape, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				source, feed := newHeadSource("a")
-				s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{source}, testHeadPolicy(), rpc.CorroborationForwarded)
+				s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{source}, testHeadPolicy(), rpc.CorroborationForwarded)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -126,7 +125,7 @@ func TestHeadEstablishmentAndReconnectJoinOwnerClose(t *testing.T) {
 				owner, cancel := context.WithCancel(context.Background())
 				p := testHeadPolicy()
 				p.RetryDelay = time.Millisecond
-				s, err := startNewHeadSubscription(owner, context.Background(), []identifiedSubscriptionSource{blocking}, p, rpc.CorroborationForwarded)
+				s, err := startNewHeadSubscription(owner, context.Background(), []Source{blocking}, p, rpc.CorroborationForwarded)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -190,7 +189,7 @@ func TestHeadExhaustedSourcesPublishTerminalBeforeSlowCleanup(t *testing.T) {
 		releaseOnce := sync.OnceFunc(func() { close(release) })
 		var unsubscribes atomic.Int32
 		feed.cleanup = func() { unsubscribes.Add(1); cleaning <- struct{}{}; <-release }
-		s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{source}, testHeadPolicy(), rpc.CorroborationForwarded)
+		s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{source}, testHeadPolicy(), rpc.CorroborationForwarded)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -219,7 +218,7 @@ func TestHeadExhaustedSourcesPublishTerminalBeforeSlowCleanup(t *testing.T) {
 			if !errors.As(err, &ended) || ended.Audit.First == 0 {
 				t.Errorf("terminal: %v", err)
 			}
-			if _, err := s.Next(context.Background()); !errors.Is(err, subcore.ErrNextAfterTerminal) {
+			if _, err := s.Next(context.Background()); !errors.Is(err, ErrNextAfterTerminal) {
 				t.Errorf("terminal repeated: %v", err)
 			}
 		default:
@@ -269,7 +268,7 @@ func TestHeadStopBeforeSessionAdmissionPreventsSubscribe(t *testing.T) {
 		source, _ := newHeadSource("a")
 		delayed := &delayedHeadIdentitySource{newHeadTestSource: source, beforeAdmission: make(chan struct{}), releaseAdmission: make(chan struct{})}
 		release := sync.OnceFunc(func() { close(delayed.releaseAdmission) })
-		s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{delayed}, testHeadPolicy(), rpc.CorroborationForwarded)
+		s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{delayed}, testHeadPolicy(), rpc.CorroborationForwarded)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -308,7 +307,7 @@ func TestHeadBindFailureRetiresOpenedSessionBeforeOtherCleanup(t *testing.T) {
 		fa.cleanup = func() { cleaning <- struct{}{}; <-cleanup }
 		p := testHeadPolicy()
 		p.RetryDelay = time.Millisecond
-		s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, delayed}, p, rpc.CorroborationMajority)
+		s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, delayed}, p, rpc.CorroborationMajority)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -325,14 +324,14 @@ func TestHeadBindFailureRetiresOpenedSessionBeforeOtherCleanup(t *testing.T) {
 		defer hold()
 		releaseAdmission()
 		<-cleaning
-		if _, err := s.sessions.Current("b"); !errors.Is(err, subcore.ErrSessionStale) {
+		if _, err := s.sessions.Current("b"); !errors.Is(err, ErrSessionStale) {
 			t.Fatalf("failed Bind retained opened generation: %v", err)
 		}
 		if delayed.subscriptions.Load() != 1 {
 			t.Fatal("failed rebind started another Subscribe")
 		}
 		_, err = s.Next(context.Background())
-		if !errors.Is(err, subcore.ErrMemoryBudget) {
+		if !errors.Is(err, ErrMemoryBudget) {
 			t.Fatalf("Bind failure: %v", err)
 		}
 		releaseCleanup()
@@ -356,7 +355,7 @@ func TestHeadSetupFailureRetiresSessionAndKeepsRetryOpportunity(t *testing.T) {
 		}}
 		p := testHeadPolicy()
 		p.RetryDelay = time.Hour
-		s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{retrying}, p, rpc.CorroborationForwarded)
+		s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{retrying}, p, rpc.CorroborationForwarded)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -365,7 +364,7 @@ func TestHeadSetupFailureRetiresSessionAndKeepsRetryOpportunity(t *testing.T) {
 		if attempts.Load() != 1 {
 			t.Fatal("missing failed setup")
 		}
-		if _, err := s.sessions.Current("a"); !errors.Is(err, subcore.ErrSessionStale) {
+		if _, err := s.sessions.Current("a"); !errors.Is(err, ErrSessionStale) {
 			t.Fatalf("failed setup remained active: %v", err)
 		}
 		time.Sleep(time.Hour)
@@ -406,7 +405,7 @@ func TestHeadConcurrentCloseJoinsEstimatorAndOwnerWatcher(t *testing.T) {
 			return time.Millisecond
 		}}
 		var err error
-		s, err = startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b}, p, rpc.CorroborationMajority)
+		s, err = startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b}, p, rpc.CorroborationMajority)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -454,7 +453,7 @@ func TestHeadVisibleOwnerCancellationWinsBeforeWatcherObtainsControl(t *testing.
 	synctest.Test(t, func(t *testing.T) {
 		source, _ := newHeadSource("a")
 		owner, cancel := context.WithCancel(context.Background())
-		s, err := startNewHeadSubscription(owner, context.Background(), []identifiedSubscriptionSource{source}, testHeadPolicy(), rpc.CorroborationForwarded)
+		s, err := startNewHeadSubscription(owner, context.Background(), []Source{source}, testHeadPolicy(), rpc.CorroborationForwarded)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -466,7 +465,7 @@ func TestHeadVisibleOwnerCancellationWinsBeforeWatcherObtainsControl(t *testing.
 		cancel()
 		s.finishLocked(errors.New("source sessions ended"))
 		s.mu.Unlock()
-		if _, err := s.Next(context.Background()); !errors.Is(err, subcore.ErrClosed) {
+		if _, err := s.Next(context.Background()); !errors.Is(err, ErrClosed) {
 			t.Fatalf("owner cancellation became producer terminal: %v", err)
 		}
 		_ = s.Close()

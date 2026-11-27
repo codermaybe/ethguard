@@ -51,7 +51,7 @@ func DecodeWithEvidence(raw, evidence json.RawMessage) (*ethapi.Block, error) {
 	if err := json.Unmarshal(normalized, &body); err != nil {
 		return nil, decodeError("decode block body", err)
 	}
-	// The direct entry keeps the old per-transaction private payload parse,
+	// The direct entry validates every private transaction payload,
 	// now over the canonical transaction bytes: geth's decoder rejects
 	// unsupported transaction types, quantities beyond their width, and
 	// malformed signatures — checks the generated schema cannot express.

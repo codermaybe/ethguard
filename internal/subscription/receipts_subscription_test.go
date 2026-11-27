@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"context"
@@ -19,8 +19,6 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 
 	objectreceipt "github.com/codermaybe/ethguard/internal/ethobject/receipt"
-
-	subcore "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -59,22 +57,18 @@ func testReceiptsPolicy() ReceiptsSubscriptionPolicy {
 
 func startTestReceipts(t *testing.T, owner context.Context, query *ethapi.TransactionReceiptsQuery, p ReceiptsSubscriptionPolicy, calls ...func(context.Context, string, ...any) rpc.Response) (*ReceiptsSubscription, []*newHeadTestFeed) {
 	t.Helper()
-	sources := make([]identifiedSubscriptionSource, len(calls))
+	sources := make([]Source, len(calls))
 	feeds := make([]*newHeadTestFeed, len(calls))
 	for i, call := range calls {
 		source, feed := newHeadSource(fmt.Sprintf("source-%d", i))
 		feeds[i] = feed
 		sources[i] = &receiptTestSource{source, call}
 	}
-	filter, err := compileReceiptsFilter(query)
-	if err != nil {
-		t.Fatal(err)
-	}
 	mode := rpc.CorroborationMajority
 	if len(calls) == 1 {
 		mode = rpc.CorroborationForwarded
 	}
-	s, err := startReceiptsSubscription(owner, context.Background(), sources, filter, p, mode)
+	s, err := NewReceipts(owner, context.Background(), func() ([]Source, error) { return sources, nil }, query, p, mode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +357,7 @@ func TestReceiptsRetriesNeverCombineOldVotes(t *testing.T) {
 	s, feeds := startTestReceipts(t, context.Background(), nil, p, calls...)
 	pushLogsHead(feeds, f.head)
 	_, err := s.Next(context.Background())
-	if !errors.Is(err, subcore.ErrRecoveryExhausted) {
+	if !errors.Is(err, ErrRecoveryExhausted) {
 		t.Fatalf("cross-attempt votes reached Q: %v", err)
 	}
 	if _, v := s.CommittedTip(); v != 0 {
@@ -582,16 +576,18 @@ func TestReceiptsDisconnectedSupplierCannotVoteDuringSlowUnsubscribe(t *testing.
 		p := testReceiptsPolicy()
 		p.MaxConcurrentRequests = 1
 		p.RequestTimeout = 0
-		s, err := startReceiptsSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{
-			&receiptTestSource{a, func(ctx context.Context, method string, args ...any) rpc.Response {
-				if method == "eth_getBlockReceipts" {
-					close(requested)
-					<-returnContent
-				}
-				return lookup(ctx, method, args...)
-			}},
-			&receiptTestSource{b, lookup},
-			&receiptTestSource{c, lookup},
+		s, err := NewReceipts(context.Background(), context.Background(), func() ([]Source, error) {
+			return []Source{
+				&receiptTestSource{a, func(ctx context.Context, method string, args ...any) rpc.Response {
+					if method == "eth_getBlockReceipts" {
+						close(requested)
+						<-returnContent
+					}
+					return lookup(ctx, method, args...)
+				}},
+				&receiptTestSource{b, lookup},
+				&receiptTestSource{c, lookup},
+			}, nil
 		}, nil, p, rpc.CorroborationMajority)
 		if err != nil {
 			t.Fatal(err)
@@ -647,7 +643,7 @@ func TestReceiptsProducerTerminalPreservesFIFOAndOwnerCanDiscard(t *testing.T) {
 				if discard {
 					cancel()
 					synctest.Wait()
-					if _, err := s.Next(context.Background()); !errors.Is(err, subcore.ErrClosed) {
+					if _, err := s.Next(context.Background()); !errors.Is(err, ErrClosed) {
 						t.Fatalf("unread queue survived owner cancellation: %v", err)
 					}
 				} else {
@@ -662,7 +658,7 @@ func TestReceiptsProducerTerminalPreservesFIFOAndOwnerCanDiscard(t *testing.T) {
 					if !errors.As(err, &terminal) || terminal.PathVersion != 2 || terminal.CommittedTip.Hash != second.head.Hash() || terminal.Audit.First == 0 {
 						t.Fatalf("terminal: %v", err)
 					}
-					if _, err := s.Next(context.Background()); !errors.Is(err, subcore.ErrNextAfterTerminal) {
+					if _, err := s.Next(context.Background()); !errors.Is(err, ErrNextAfterTerminal) {
 						t.Fatalf("repeated terminal: %v", err)
 					}
 					synctest.Wait()
@@ -841,11 +837,11 @@ func TestReceiptsBudgetFailuresDoNotCommitOrLoseAudit(t *testing.T) {
 			pushLogsHead(feeds, f.head)
 			_, err := s.Next(context.Background())
 			var terminal *ReceiptsTerminalError
-			if !errors.As(err, &terminal) || !errors.Is(err, subcore.ErrMemoryBudget) || terminal.Audit.First == 0 || terminal.PathVersion != 0 {
+			if !errors.As(err, &terminal) || !errors.Is(err, ErrMemoryBudget) || terminal.Audit.First == 0 || terminal.PathVersion != 0 {
 				t.Fatalf("failure lost evidence or advanced path: %v", err)
 			}
 			if stage == "head-transfer" {
-				var transfer *subcore.TransferError
+				var transfer *TransferError
 				if !errors.As(err, &transfer) {
 					t.Fatalf("expected transfer failure: %v", err)
 				}

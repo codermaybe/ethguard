@@ -3,6 +3,9 @@ package ethguard
 import (
 	"bytes"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
@@ -38,6 +41,7 @@ var corePackages = map[string]bool{
 	modulePath + "/internal/runtime":        true,
 	modulePath + "/internal/reference":      true,
 	modulePath + "/internal/typed":          true,
+	modulePath + "/internal/subscription":   true,
 	modulePath + "/internal/transport":      true,
 	modulePath + "/internal/transport/http": true,
 	modulePath + "/internal/transport/wss":  true,
@@ -54,8 +58,10 @@ func banToolImports(t *testing.T, pkg packageImports, imports map[string]bool) {
 }
 
 type packageImports struct {
-	ImportPath string
-	Imports    []string
+	ImportPath   string
+	Imports      []string
+	TestImports  []string
+	XTestImports []string
 }
 
 // TestArchitectureDependencyInterlock keeps the topology's one-way package
@@ -162,6 +168,20 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		case modulePath + "/internal/uncertain":
 			if imports[modulePath+"/internal/rpcengine"] {
 				t.Error("uncertain imports rpcengine; the collector satisfies the invocation capture port directly")
+			}
+		case modulePath + "/internal/subscription":
+			// The owner orchestrates injected source capabilities. It may use
+			// rpcengine and the neutral transport port, including in tests.
+			allImports := append(append(append([]string(nil), pkg.Imports...), pkg.TestImports...), pkg.XTestImports...)
+			for _, imp := range allImports {
+				if imp == modulePath || strings.HasPrefix(imp, modulePath+"/internal/transport/") {
+					t.Errorf("subscription imports connection implementation or facade %s", imp)
+				}
+				for _, implementation := range []string{"/pool", "/internal/pool", "/aggregator", "/internal/aggregator", "/rpc/methods", "/internal/methods", "/internal/runtime"} {
+					if imp == modulePath+implementation || strings.HasPrefix(imp, modulePath+implementation+"/") {
+						t.Errorf("subscription imports concrete implementation %s; inject source capabilities", imp)
+					}
+				}
 			}
 		case modulePath + "/internal/reference":
 			for banned := range map[string]string{
@@ -292,11 +312,59 @@ func gorillaImporters(t *testing.T, pattern string) ([]string, error) {
 	return importers, nil
 }
 
-// The implementation packages have one internal owner, without public aliases.
 func TestExecutionPackagesAreInternal(t *testing.T) {
 	for _, retired := range []string{"aggregator", "pool", "rpc/methods", "rpc/projection"} {
 		if _, err := os.Stat(retired); !os.IsNotExist(err) {
 			t.Errorf("retired execution package %s remains: %v", retired, err)
+		}
+	}
+}
+
+func TestSubscriptionOwnerSurface(t *testing.T) {
+	for _, name := range []string{"newhead_subscription.go", "logs_subscription.go", "receipts_subscription.go", "content_subscription.go"} {
+		file, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, declaration := range file.Decls {
+			group, ok := declaration.(*ast.GenDecl)
+			if !ok {
+				t.Errorf("%s retains subscription behavior at root", name)
+				continue
+			}
+			for _, spec := range group.Specs {
+				if value, ok := spec.(*ast.TypeSpec); ok && !value.Assign.IsValid() {
+					t.Errorf("%s owns type %s; public subscription types must alias their owner", name, value.Name.Name)
+				}
+			}
+		}
+	}
+	for _, name := range []string{"logs_content.go", "logs_filter.go", "receipts_content.go"} {
+		if _, err := os.Stat(name); !os.IsNotExist(err) {
+			t.Errorf("%s must belong to internal/subscription", name)
+		}
+	}
+	entry, err := parser.ParseFile(token.NewFileSet(), "subscription.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range entry.Decls {
+		method, ok := declaration.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		if method.Recv == nil || len(method.Recv.List) != 1 {
+			t.Errorf("root subscription entry retains private helper %s", method.Name.Name)
+			continue
+		}
+		receiver, ok := method.Recv.List[0].Type.(*ast.StarExpr)
+		if !ok {
+			t.Errorf("unexpected subscription receiver for %s", method.Name.Name)
+			continue
+		}
+		name, ok := receiver.X.(*ast.Ident)
+		if !ok || name.Name != "Client" {
+			t.Errorf("root owns subscription method %s", method.Name.Name)
 		}
 	}
 }

@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"context"
@@ -13,7 +13,6 @@ import (
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/ethereum/go-ethereum/core/types"
 
-	subcore "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -57,18 +56,14 @@ func logsFixtureLookup(t testing.TB, blocks ...logsBlockFixture) func(context.Co
 
 func startTestLogs(t *testing.T, owner context.Context, query string, p LogsSubscriptionPolicy, lookup func(context.Context, string, ...any) (json.RawMessage, error)) (*LogsSubscription, []*newHeadTestFeed) {
 	t.Helper()
-	var sources []identifiedSubscriptionSource
+	var sources []Source
 	var feeds []*newHeadTestFeed
 	for _, id := range []string{"a", "b"} {
 		source, feed := newHeadSource(id)
 		sources = append(sources, &headLookupSource{source, lookup})
 		feeds = append(feeds, feed)
 	}
-	filter, err := compileLogsFilter(logsQuery(t, query))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := startLogsSubscription(owner, context.Background(), sources, filter, p, rpc.CorroborationMajority)
+	s, err := NewLogs(owner, context.Background(), func() ([]Source, error) { return sources, nil }, logsQuery(t, query), p, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,10 +177,12 @@ func TestLogsStreamInvalidSupplierAuditedBeforeValidFallback(t *testing.T) {
 	valid := logsFixtureLookup(t, f)
 	a, fa := newHeadSource("a")
 	b, fb := newHeadSource("b")
-	filter, _ := compileLogsFilter(logsQuery(t, `{}`))
+	query := logsQuery(t, `{}`)
 	p := testLogsPolicy()
 	p.MaxConcurrentRequests = 1
-	s, err := startLogsSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{&headLookupSource{a, func(context.Context, string, ...any) (json.RawMessage, error) { return json.RawMessage(`null`), nil }}, &headLookupSource{b, valid}}, filter, p, rpc.CorroborationMajority)
+	s, err := NewLogs(context.Background(), context.Background(), func() ([]Source, error) {
+		return []Source{&headLookupSource{a, func(context.Context, string, ...any) (json.RawMessage, error) { return json.RawMessage(`null`), nil }}, &headLookupSource{b, valid}}, nil
+	}, query, p, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,9 +222,11 @@ func TestLogsStreamSlowMinorityDoesNotDelayDeliveryButCloseJoins(t *testing.T) {
 		<-release
 		return nil, ctx.Err()
 	}
-	filter, _ := compileLogsFilter(logsQuery(t, `{}`))
+	query := logsQuery(t, `{}`)
 	p := testLogsPolicy()
-	s, err := startLogsSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{&headLookupSource{a, fast}, &headLookupSource{b, fast}, &headLookupSource{c, slow}}, filter, p, rpc.CorroborationMajority)
+	s, err := NewLogs(context.Background(), context.Background(), func() ([]Source, error) {
+		return []Source{&headLookupSource{a, fast}, &headLookupSource{b, fast}, &headLookupSource{c, slow}}, nil
+	}, query, p, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +319,7 @@ func TestLogsOwnerCloseAfterProducerEndDiscardsUnreadEvents(t *testing.T) {
 	}
 	cancel()
 	waitLogs(t, func() bool { return s.budget.Used() == 0 })
-	if _, err := s.Next(context.Background()); !errors.Is(err, subcore.ErrClosed) {
+	if _, err := s.Next(context.Background()); !errors.Is(err, ErrClosed) {
 		t.Fatalf("owner close did not discard queue: %v", err)
 	}
 }
@@ -481,22 +480,21 @@ func TestLogsDisconnectedSupplierCannotCommitDuringSlowUnsubscribe(t *testing.T)
 	releaseContent := sync.OnceFunc(func() { close(returnContent) })
 	releaseCleanup := sync.OnceFunc(func() { close(returnCleanup) })
 	fa.cleanup = sync.OnceFunc(func() { close(cleanupStarted); <-returnCleanup })
-	filter, err := compileLogsFilter(logsQuery(t, `{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	query := logsQuery(t, `{}`)
 	p := testLogsPolicy()
 	p.MaxConcurrentRequests = 1
 	p.RequestTimeout = 0
 	started := sync.OnceFunc(func() { close(requested) })
-	s, err := startLogsSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{
-		&headLookupSource{a, func(ctx context.Context, method string, args ...any) (json.RawMessage, error) {
-			started()
-			<-returnContent
-			return lookup(ctx, method, args...)
-		}},
-		&headLookupSource{b, lookup},
-	}, filter, p, rpc.CorroborationMajority)
+	s, err := NewLogs(context.Background(), context.Background(), func() ([]Source, error) {
+		return []Source{
+			&headLookupSource{a, func(ctx context.Context, method string, args ...any) (json.RawMessage, error) {
+				started()
+				<-returnContent
+				return lookup(ctx, method, args...)
+			}},
+			&headLookupSource{b, lookup},
+		}, nil
+	}, query, p, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,8 +538,8 @@ func TestLogsHeadTransferBudgetFailurePreservesAudit(t *testing.T) {
 	defer cancel()
 	_, err = s.Next(ctx)
 	var terminal *LogsTerminalError
-	var transfer *subcore.TransferError
-	if !errors.As(err, &terminal) || !errors.As(err, &transfer) || !errors.Is(err, subcore.ErrMemoryBudget) || terminal.Audit.First == 0 {
+	var transfer *TransferError
+	if !errors.As(err, &terminal) || !errors.As(err, &transfer) || !errors.Is(err, ErrMemoryBudget) || terminal.Audit.First == 0 {
 		t.Fatalf("budget terminal lost Head audit: %v", err)
 	}
 	_ = s.Close()
@@ -579,7 +577,7 @@ func TestLogsOversizeAndContentBudgetFailuresKeepAudit(t *testing.T) {
 				if !found {
 					t.Fatal("oversize not audited")
 				}
-			} else if !errors.Is(err, subcore.ErrMemoryBudget) {
+			} else if !errors.Is(err, ErrMemoryBudget) {
 				t.Fatalf("workspace result=%v", err)
 			}
 			_ = s.Close()
@@ -608,8 +606,10 @@ func TestLogsLateCompletionAuditAppearsInFollowingDelta(t *testing.T) {
 		<-release
 		return nil, ctx.Err()
 	}
-	filter, _ := compileLogsFilter(logsQuery(t, `{}`))
-	s, err := startLogsSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{&headLookupSource{a, fast}, &headLookupSource{b, fast}, &headLookupSource{c, slow}}, filter, testLogsPolicy(), rpc.CorroborationMajority)
+	query := logsQuery(t, `{}`)
+	s, err := NewLogs(context.Background(), context.Background(), func() ([]Source, error) {
+		return []Source{&headLookupSource{a, fast}, &headLookupSource{b, fast}, &headLookupSource{c, slow}}, nil
+	}, query, testLogsPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +633,7 @@ func TestLogsLateCompletionAuditAppearsInFollowingDelta(t *testing.T) {
 }
 
 func TestLogsPublishBudgetFailureKeepsVersionAndAudits(t *testing.T) {
-	budget := subcore.NewMemoryBudget(4096)
+	budget := NewMemoryBudget(4096)
 	terminalReserve, err := budget.Reserve(256)
 	if err != nil {
 		t.Fatal(err)
@@ -653,7 +653,7 @@ func TestLogsPublishBudgetFailureKeepsVersionAndAudits(t *testing.T) {
 	s.auditLast = s.auditFirst
 	headAudit := HeadAuditRange{First: 9, Last: 10}
 	e := LogsEvent{Path: LogsPathDelta{BaseVersion: 1, NewVersion: 2, Appended: []LogsDelivery{{Node: AnchorNode{Number: 101}, Logs: []ethapi.Log{}}}}, Audit: headAudit}
-	if err := s.publish(e, []func(){proofHold}); !errors.Is(err, subcore.ErrMemoryBudget) {
+	if err := s.publish(e, []func(){proofHold}); !errors.Is(err, ErrMemoryBudget) {
 		t.Fatalf("publish=%v", err)
 	} else {
 		s.finish(err, e.Audit, nil, []func(){proofHold})

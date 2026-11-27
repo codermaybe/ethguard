@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"context"
@@ -38,15 +38,16 @@ func BenchmarkReceiptsContentRoundTrip(b *testing.B) {
 				}
 				return response
 			}
-			sources := make([]identifiedSubscriptionSource, tc.members)
+			sources := make([]Source, tc.members)
 			feeds := make([]*newHeadTestFeed, tc.members)
 			for i := range sources {
 				source, feed := newHeadSource(fmt.Sprint(i))
 				sources[i], feeds[i] = &receiptTestSource{source, call}, feed
 			}
-			filter := receiptsFilter{}
+			var query *ethapi.TransactionReceiptsQuery
 			if tc.excluded {
-				filter[ethapi.Hash(common.HexToHash("0xab").Hex())] = struct{}{}
+				hashes := []ethapi.Hash{ethapi.Hash(common.HexToHash("0xab").Hex())}
+				query = &ethapi.TransactionReceiptsQuery{TransactionHashes: &hashes}
 			}
 			mode := rpc.CorroborationMajority
 			if tc.members == 1 {
@@ -55,7 +56,7 @@ func BenchmarkReceiptsContentRoundTrip(b *testing.B) {
 			p := testReceiptsPolicy()
 			p.MaxConcurrentRequests = 1
 			p.RequestTimeout, p.RecoveryTimeout = 0, 0
-			s, err := startReceiptsSubscription(context.Background(), context.Background(), sources, filter, p, mode)
+			s, err := NewReceipts(context.Background(), context.Background(), func() ([]Source, error) { return sources, nil }, query, p, mode)
 			if err != nil {
 				b.Fatal(err)
 			}

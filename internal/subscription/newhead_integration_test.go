@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"context"
@@ -13,7 +13,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/core/types"
 
-	internalsubscription "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -69,7 +68,7 @@ func TestHeadFixedBudgetArithmeticBoundaries(t *testing.T) {
 	for _, sources := range []uint64{0, 1, 3, maximumSources, maximumSources + 1, 1 << 55} {
 		bytes, err := headSubscriptionFixedBytes(sources)
 		if sources > maximumSources {
-			if !errors.Is(err, internalsubscription.ErrMemoryBudget) || bytes != 0 {
+			if !errors.Is(err, ErrMemoryBudget) || bytes != 0 {
 				t.Fatalf("synthetic source count %d: bytes=%d error=%v", sources, bytes, err)
 			}
 		} else if err != nil || bytes != base+sources*4608 {
@@ -81,7 +80,7 @@ func TestHeadFixedBudgetArithmeticBoundaries(t *testing.T) {
 func TestNewHeadQuorumDeduplicatesAndReplacesSourceTips(t *testing.T) {
 	a, fa := newHeadSource("a")
 	b, fb := newHeadSource("b")
-	sub, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
+	sub, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +113,7 @@ func TestNewHeadOwnerCancelDoesNotPublishIntentionalCloseError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a, _ := newHeadSource("a")
 	b, _ := newHeadSource("b")
-	s, err := startNewHeadSubscription(ctx, context.Background(), []identifiedSubscriptionSource{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(ctx, context.Background(), []Source{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +155,7 @@ func TestHeadAncestorNeedsOneObjectAndReturnsAtomicGapDelta(t *testing.T) {
 			}
 			policy := testHeadPolicy()
 			policy.RecoveryTimeout = time.Second
-			s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{&headLookupSource{a, lookup(false)}, &headLookupSource{b, lookup(!enough)}}, policy, rpc.CorroborationMajority)
+			s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{&headLookupSource{a, lookup(false)}, &headLookupSource{b, lookup(!enough)}}, policy, rpc.CorroborationMajority)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -228,7 +227,7 @@ func TestHeadOneObjectArrivalDrainsRecoveringAndNewerReadyTargets(t *testing.T) 
 	}
 	policy := testHeadPolicy()
 	policy.MaxConcurrentRequests = 1
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{&headLookupSource{a, lookup}, b}, policy, rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{&headLookupSource{a, lookup}, b}, policy, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +266,7 @@ func TestHeadOneObjectArrivalDrainsRecoveringAndNewerReadyTargets(t *testing.T) 
 func TestHeadProducerFailureDrainsMultipleDeltasAndCloseReleases(t *testing.T) {
 	a, fa := newHeadSource("a")
 	b, fb := newHeadSource("b")
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,8 +320,8 @@ func TestHeadOpenReservesTerminalControlBeforeNetwork(t *testing.T) {
 	policy.MemoryBytes = 16
 	policy.WireBytes = 16
 	policy.MaxMessageBytes = 16
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b}, policy, rpc.CorroborationMajority)
-	if s != nil || !errors.Is(err, internalsubscription.ErrMemoryBudget) {
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b}, policy, rpc.CorroborationMajority)
+	if s != nil || !errors.Is(err, ErrMemoryBudget) {
 		t.Fatalf("open admission %v %v", s, err)
 	}
 }
@@ -332,7 +331,7 @@ func TestHeadProducerFinishedThenOwnerCancelReleasesUnreadQueue(t *testing.T) {
 	defer cancel()
 	a, fa := newHeadSource("a")
 	b, fb := newHeadSource("b")
-	s, err := startNewHeadSubscription(owner, context.Background(), []identifiedSubscriptionSource{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(owner, context.Background(), []Source{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +383,7 @@ func TestHeadDisconnectRevokesBeforeSlowCleanupAndHealthyQuorumContinues(t *test
 	started, release := make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	fa.cleanup = sync.OnceFunc(func() { close(started); <-release })
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b, c}, testHeadPolicy(), rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b, c}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +435,7 @@ func TestHeadInvalidParentHeightRevokesOnlyThatSource(t *testing.T) {
 	a, fa := newHeadSource("a")
 	b, fb := newHeadSource("b")
 	c, fc := newHeadSource("c")
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b, c}, testHeadPolicy(), rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b, c}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +475,7 @@ func TestHeadInvalidParentHeightRevokesOnlyThatSource(t *testing.T) {
 func TestHeadDisconnectAuditAdmissionFailureTerminates(t *testing.T) {
 	a, fa := newHeadSource("a")
 	b, fb := newHeadSource("b")
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +494,7 @@ func TestHeadDisconnectAuditAdmissionFailureTerminates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.disconnectNow(internalsubscription.SourceSession{SourceID: "b", Generation: 1}, errors.New("lost"), false)
+	s.disconnectNow(SourceSession{SourceID: "b", Generation: 1}, errors.New("lost"), false)
 	release()
 	if _, err := s.Next(ctx); !errors.Is(err, ErrHeadMemoryBudget) {
 		t.Fatalf("disconnect audit failure disappeared: %v", err)
@@ -508,7 +507,7 @@ func TestHeadRealHeaderLongAdvanceAndForkRetentionPlateaus(t *testing.T) {
 	c, fc := newHeadSource("c")
 	policy := testHeadPolicy()
 	policy.RetainedNodes = 4
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b, c}, policy, rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b, c}, policy, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,7 +566,7 @@ func TestHeadAuditClockExpiresOldestFactWithUnreadQueue(t *testing.T) {
 	policy := testHeadPolicy()
 	policy.AuditTimeout = 50 * time.Millisecond
 	policy.Gate = HeadGatePolicy{Initial: time.Millisecond, Min: time.Millisecond, Max: time.Millisecond}
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b}, policy, rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b}, policy, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,7 +616,7 @@ func TestHeadEstimatorUsesCommittedSameHashOutsideLockAndClamps(t *testing.T) {
 		return time.Hour
 	}
 	var err error
-	s, err = startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b}, policy, rpc.CorroborationMajority)
+	s, err = startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b}, policy, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -677,7 +676,7 @@ func TestHeadCanceledObsoleteRequestOccupiesLimitUntilItExits(t *testing.T) {
 	}
 	policy := testHeadPolicy()
 	policy.MaxConcurrentRequests = 1
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{&headLookupSource{a, lookup}, b}, policy, rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{&headLookupSource{a, lookup}, b}, policy, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -730,7 +729,7 @@ func TestHeadCanceledObsoleteRequestOccupiesLimitUntilItExits(t *testing.T) {
 func TestHeadUnreadReorgRoundTripKeepsEveryDelta(t *testing.T) {
 	a, fa := newHeadSource("a")
 	b, fb := newHeadSource("b")
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{a, b}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -772,7 +771,7 @@ func TestHeadCloseJoinsCancelledLookupBeforeReturning(t *testing.T) {
 		<-release
 		return nil, ctx.Err()
 	}
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{&headLookupSource{a, lookup}, &headLookupSource{b, lookup}}, testHeadPolicy(), rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{&headLookupSource{a, lookup}, &headLookupSource{b, lookup}}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -841,7 +840,7 @@ func TestHeadAncestorResponseCannotBeResignedAfterSessionChange(t *testing.T) {
 	}
 	policy := testHeadPolicy()
 	policy.AuditTimeout = 200 * time.Millisecond
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{&headLookupSource{a, lookup}, &headLookupSource{b, lookup}}, policy, rpc.CorroborationMajority)
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{&headLookupSource{a, lookup}, &headLookupSource{b, lookup}}, policy, rpc.CorroborationMajority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -877,7 +876,7 @@ func TestHeadAncestorResponseCannotBeResignedAfterSessionChange(t *testing.T) {
 		}
 	}
 	close(release)
-	if event, err := s.Next(ctx); !errors.Is(err, internalsubscription.ErrRecoveryExhausted) && !errors.Is(err, internalsubscription.ErrAuditTimeout) {
+	if event, err := s.Next(ctx); !errors.Is(err, ErrRecoveryExhausted) && !errors.Is(err, ErrAuditTimeout) {
 		t.Fatalf("old sessions entered ancestor quorum: %+v %v", event, err)
 	}
 }
@@ -918,7 +917,7 @@ func TestHeadAncestorQuorumDoesNotWaitForBlockedMinority(t *testing.T) {
 		<-releaseSlow
 		return nil, ctx.Err()
 	}
-	s, err := startNewHeadSubscription(context.Background(), context.Background(), []identifiedSubscriptionSource{
+	s, err := startNewHeadSubscription(context.Background(), context.Background(), []Source{
 		&headLookupSource{a, fast()}, &headLookupSource{b, fast()}, &headLookupSource{c, slow},
 	}, testHeadPolicy(), rpc.CorroborationMajority)
 	if err != nil {

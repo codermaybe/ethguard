@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"encoding/json"
@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	objectlog "github.com/codermaybe/ethguard/internal/ethobject/log"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -39,7 +40,7 @@ func logsFilterBytes(f logsFilter) uint64 {
 }
 
 func compileLogsFilter(q ethapi.FilterQuery) (logsFilter, error) {
-	checked, err := freezeFilterQuery(q)
+	checked, err := objectlog.FreezeFilterQuery(q)
 	if err != nil {
 		return logsFilter{}, err
 	}
@@ -103,7 +104,7 @@ func compileLogsFilter(q ethapi.FilterQuery) (logsFilter, error) {
 	return out, nil
 }
 
-// logsFilterBound consumes a union already validated by freezeFilterQuery.
+// logsFilterBound consumes a union already validated by objectlog.FreezeFilterQuery.
 // latest follows the live path; earliest is the explicit zero height.
 func logsFilterBound(field string, bound ethapi.FilterBlock) (*uint64, error) {
 	if bound.BlockTag != nil {

@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 type receiptsFilter map[ethapi.Hash]struct{}
@@ -16,9 +17,13 @@ func compileReceiptsFilter(query *ethapi.TransactionReceiptsQuery) (receiptsFilt
 	filter := make(receiptsFilter)
 	if query != nil && query.TransactionHashes != nil {
 		for _, hash := range *query.TransactionHashes {
-			canonical, err := validateHash(hash)
+			quoted, err := json.Marshal(string(hash))
 			if err != nil {
-				return nil, fmt.Errorf("%w: invalid receipt transaction hash %q", ErrInvalidRequest, hash)
+				return nil, fmt.Errorf("%w: invalid receipt transaction hash %q", rpc.ErrInvalidRequest, hash)
+			}
+			canonical, err := ethapi.NewHash(ethcodec.FoldHexSpelling(quoted))
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid receipt transaction hash %q", rpc.ErrInvalidRequest, hash)
 			}
 			filter[canonical] = struct{}{}
 		}

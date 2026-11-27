@@ -1,12 +1,12 @@
 # 代码库拓扑与模块所有权
 
-状态：2026-11-27 对象单树、编码生成归属与内部执行引擎已收敛。本文统一定义模块所有权、依赖、ReadPlan／resolver／reference seam 与读取流程；后续目标与未实施改动按路线图推进。
+状态：2026-11-27 对象单树、编码生成、内部执行引擎及订阅 owner已收敛。本文统一定义模块所有权、依赖、ReadPlan／resolver／reference seam 与读取流程；后续目标与未实施改动按路线图推进。
 
 ## 1. 模块地图
 
 | Module | 拥有的知识与入口 | 不应拥有 |
 | --- | --- | --- |
-| root `ethguard.Client`／`EthClient` view | 公共 API、单次 CallResult、捕获与生命周期；共享一个私有执行 owner；Logs/Receipts编排私有Head、块内容证明和完整批次交付 | 第二套装配、typed decoder 或方法字段表 |
+| root `ethguard.Client`／`EthClient` view | 公共 API、单次 CallResult、捕获与 Client 生命周期；订阅入口注入固定来源能力并公开 owner 的稳定类型 alias | 第二套装配、typed decoder 或方法字段表 |
 | `internal/runtime` | 唯一生产 Composition Root；pool、aggregator、method、reference、projector 的组装 | 公共 API、第二套业务规则 |
 | `internal/pool` | 固定成员、source 生命周期、健康、调度、fan-out，消费 Transport Port | Ethereum 字段含义、裁决公式 |
 | `internal/aggregator` | invocation 顺序、reference／业务轮、收集与证据装配 | 具体 transport、字段语义、schema 解释 |
@@ -24,7 +24,7 @@
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
 | `internal/transport/{http,wss}` | 原生 HTTP／raw WSS 的协议和保真 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
-| `internal/subscription` | NewHead Tip+DAG、连续路径/重组、证人/审计、预算/队列与source/session归属 | 网络I/O、第二套内容投票器、复用unary CallResult假装流式生命周期 |
+| `internal/subscription` | Head/Logs/Receipts 状态机、Tip+DAG、连续路径/重组、过滤与内容证明、worker/恢复、证人/审计、预算/队列与source/session归属；通过注入能力编排 | 连接实现、pool/runtime/methods 具体依赖、第二套内容投票器、复用unary CallResult假装流式生命周期 |
 | `internal/verification`、`internal/testkit`、`rpctest` | 公开 seam 的黑盒、跨模块和 fixture 验证 | 被生产 Module 反向导入或成为生产事实源 |
 | `observe` | 被动事件记录 | retry、调度与安全决策 |
 | `cmd`／`examples` | 操作入口、捕获与示例 | 独立实现核心规则 |
@@ -35,7 +35,7 @@
 
 目录必须隐藏实际行为并拥有清楚的 seam；不为视觉分组创建浅层 forwarding package。`internal/methods` 保持一个生产模块，不因文件数增加就拆成名词包。
 
-Logs与Receipts的私有`contentSubscription[E]`只共用typed FIFO、版本提交、预算、请求登记、租约、窗口审计和关闭完成屏障；泛型参数仅表示交付值。各方法保留具体内容准备、过滤、证明、重试和公开事件。Receipts使用现有`CanonicalOutcomeResolver`固定成员裁定，`pool.Source.Call`保留真实Response，`CallContext`只作投影；不新增通用pipeline或另一套Q算法。旧收据channel、事件Aggregator、Pull探测及累计票据预算已从工作区移除，最终方法验收状态见路线图。
+`internal/subscription` 是三种订阅的唯一执行 owner，root 只保留公开入口/类型和 Client 生命周期适配。该 owner 通过注入能力编排，不拥有连接实现；固定成员快照回调保持查询/策略验证与成员获取的既有顺序，Source 的订阅、unary 与真实 Response 能力由调用方提供。Logs与Receipts的私有`contentSubscription[E]`只共用typed FIFO、版本提交、预算、请求登记、租约、窗口审计和关闭完成屏障；泛型参数仅表示交付值。各方法保留具体内容准备、过滤、证明、重试和公开事件。Receipts使用`internal/rpcengine.CanonicalOutcomeResolver`固定成员裁定，`pool.Source.Call`保留真实Response，`CallContext`只作投影；不新增通用pipeline或另一套Q算法。旧收据channel、事件Aggregator、Pull探测及累计票据预算已从工作区移除，最终方法验收状态见路线图。
 
 Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个runSource唯一拥有inner及锁外退订，生产机会耗尽与wg实际退出分开。reapWork只等待实际工作再释放工作资源，owner watcher独立保护未消费队列，并由各订阅Close单独等待。锁方向为Head→queue/gate/budget、content→budget；网络、等待和Estimate位于主锁外，不引入Head/content嵌套锁。Client.Close保留owner取消及Pool自身关闭义务，订阅Close提供各自完成屏障，不新增通用生命周期管理器。
 
@@ -71,6 +71,12 @@ Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个
 flowchart TD
     Facade[Root Client 与私有 EthClient view] --> Runtime[internal/runtime]
     Facade --> Typed[internal/typed]
+    Facade --> Subscription[internal/subscription]
+    Subscription --> Sources[注入 Source 能力]
+    Subscription --> Objects
+    Subscription --> RPC
+    Subscription --> Engine
+    Subscription --> Port
     Runtime --> Pool[internal/pool]
     Runtime --> Aggregator[internal/aggregator]
     Runtime --> Methods[internal/methods]
@@ -103,7 +109,8 @@ flowchart TD
 4. pool 不解释 Ethereum 方法参数；aggregator 不解释字段表；生产不导入 verification／testkit。
 5. 只有一个 Composition Root 和一个 typed 实现。root 与官方形状 view 不得各自实现一套执行、重试、解析或证据链。
 6. 对象结构、编码与请求绑定只属于 internal/ethobject 单树；对象允许依赖 rpc 数据合同，禁止反向导入 rpcengine、methods、aggregator、pool、projection、runtime 或 root facade。标量原语属于 ethcodec，离线生成器属于 wiregen；生产不得导入 testkit 的 encoder coverage helper。
-7. geth 的具体 client／rpc 依赖按显式 adapter 与现有静态 interlock 白名单管理；不能从兼容逃生舱推导默认原生 build 已解除限制。
+7. 订阅仅由 internal/subscription 执行，允许消费 rpcengine 及中立 transport port；禁止导入 root、pool、runtime、methods 或具体 transport。白盒测试随 owner，公开入口验收留在 root／verification。
+8. geth 的具体 client／rpc 依赖按显式 adapter 与现有静态 interlock 白名单管理；不能从兼容逃生舱推导默认原生 build 已解除限制。
 
 ## 3. 单次读取与阶段所有权
 
@@ -174,7 +181,7 @@ Resolver只要求Normalize与Resolve；准备、准入及reference属于ReadPlan
 | `internal/ethobject/{receipt,log}` | 编码内核与null/array接受域、请求hash/height绑定在同一对象包；全部消费者直接使用该包，没有转发对象树 |
 | `projectSourceFaults` | Exchange→Interpretation→Answer是可消费的原因优先级，直接sourceFaultView断言标识本owner产物；不能用errors.As吞掉包装或Join中的独立诊断 |
 | Canonical invocation | prepare核对一次resolver能力，状态传递typed能力供resolve消费；缺能力仍按原collect后失败的时序，未改为提前返回 |
-| Logs过滤 | freezeFilterQuery共享已验证canonical副本，stream直接读取生成类型；unary继续保留UseNumber、扩展字段与原请求语义 |
+| Logs过滤 | ethobject/log.FreezeFilterQuery 共享已验证 canonical 副本；FilterArgument 拥有 unary wire 构造及 UseNumber/扩展字段，subscription 拥有 stream 过滤且拒绝未知扩展 |
 | Simulate冻结断言 | FreezeParams成功时逐项产生RawMessage且保留长度，私有消费者紧接校验两个参数；保留两个有构造证明的断言，避免为语法检查增加表示和转换 |
 | 工具与fixture错误 | 普通报告接受writer并返回写出错误；rpctest在提交HTTP响应前完成JSON编码。失败沿已有owner返回，取消后清理不误归RPC协议错误；不为静态规则新增统一错误包装层 |
 | 预算公式 | content固定开销、Head工作空间和AtomicMemoryBudget分别在原owner检查乘加/累计可表示性；零配置额度仍表示无额度上限，账本不能绕回。局部公式便于验证，预算数值保持，不抽全局算术helper |

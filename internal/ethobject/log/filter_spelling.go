@@ -1,4 +1,4 @@
-package ethguard
+package log
 
 import (
 	"encoding/json"

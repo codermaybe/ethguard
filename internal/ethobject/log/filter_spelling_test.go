@@ -1,4 +1,4 @@
-package ethguard
+package log
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ func TestFilterCompatibilityPreservesOpenRequestContent(t *testing.T) {
 	q := ethapi.FilterQuery{FilterByBlockRange: &ethapi.FilterQueryRange{
 		AdditionalProperties: map[string]json.RawMessage{"custom": extra},
 	}}
-	frozen, err := freezeFilterQuery(q)
+	frozen, err := FreezeFilterQuery(q)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"context"
@@ -21,8 +21,8 @@ func verifyBlockTransactions(ctx context.Context, head *types.Header, raw json.R
 	if head == nil || head.Number == nil || !head.Number.IsUint64() {
 		return nil, fmt.Errorf("ethguard: invalid content header")
 	}
-	// The method's exact null response used to bypass admission and reach
-	// the delivery shape check. Keep that absence stage and its error.
+	// An exact null response reaches the delivery absence stage; other
+	// spellings pass through full-block admission and its header checks.
 	if string(raw) == "null" {
 		return nil, fmt.Errorf("ethguard: full block has no transaction list: %v", nil)
 	}

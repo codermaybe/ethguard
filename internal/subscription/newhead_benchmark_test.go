@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	sub "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -23,8 +22,8 @@ func BenchmarkHeadDecode(b *testing.B) {
 		raw  []byte
 	}{{"normal", normal}, {"4000_short_unknown_fields", []byte(extra.String())}} {
 		b.Run(tc.name, func(b *testing.B) {
-			budget := sub.NewMemoryBudget(64 << 20)
-			s := &HeadSubscription{budget: budget, arena: sub.NewPayloadArena(budget), policy: HeadSubscriptionPolicy{MaxMessageBytes: 1 << 20}}
+			budget := NewMemoryBudget(64 << 20)
+			s := &HeadSubscription{budget: budget, arena: NewPayloadArena(budget), policy: HeadSubscriptionPolicy{MaxMessageBytes: 1 << 20}}
 			b.ReportAllocs()
 			for b.Loop() {
 				_, lease, err := s.decode(tc.raw)

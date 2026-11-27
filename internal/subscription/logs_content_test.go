@@ -1,4 +1,4 @@
-package ethguard
+package subscription
 
 import (
 	"context"
