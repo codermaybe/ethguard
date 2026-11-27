@@ -4,7 +4,7 @@
 
 **当前状态（2026-11-28）：ethapi 标准管线已完成实施、本地主控验收及 Gemini 外部终审，结论 PASS、零阻塞缺陷。** 唯一构建 Manifest、规则型 Overlay、双向 specdiff、离线 specsync 和运行时严格根消费已落地；长期合同见 [标准生成与升级合同](wire-codegen.md)，包用户入口见 [ethapi README](../../ethapi/README.md)。完整 release_check（含 55 个测试包的 race）、18 个发布二进制构建及发布版 specsync 完整离线演练均通过。原有公开声明无删除或改签名；`net_version` 负非零值和 FeeHistory 部分非法数组输入的接受域收紧、Block 最小身份分支的保证范围均已显式记录。该结论不包含新一轮性能优化、真实 provider replay 或正式发布；当前按阶段保存为本地提交，未推送。
 
-**后续性能首轮（2026-11-28）：Wave 0 → Wave 1A 已完成独立本地验收，改动尚未提交。** 两个执行者分别完成 codec／基准和 wiregen／生成资产，主控负责设计与验收。严格 ASCII 原语、精确 pattern 绑定及 Quantity 去数值往返已落地；冻结参数、Log 整数组、100 笔交易块和 Receipt 大样本基准已核验或修复。全仓普通／race 各 55 测试包通过，三组差分各 100 万次通过；135 组串行对照显示典型 Quantity 编码耗时约 −66%、分配 13→5，64 条 Log 与 100／1000 条 Log 的 Receipt 编码约 −15%～−16%。三源 HTTP 总体无稳定提速，投影初测上浮在加长复测未复现。完整证据、限制及后续 Wave 1B → 2A → 2B → 3 的验收口径见 [性能优化计划与首次验证](performance-verification.md)；AccessList 方法根值验证仍仅为设计，不新增模型 Validate API。
+**性能优化（2026-11-28）：Wave 0 → 1A → 1B → 2A → 2B → 3 已完成本地主控终审，尚待 Gemini 独立外审。** 性能代码相对 `0550b7a` 保存为五个本地提交，最后为 `e40851d`，未推送。严格标量与 JSON 快路径、Receipt 同一字节复用、AccessList 唯一方法根值验证试点、Block／Transaction 局部复用、投影单次分段和请求拼装已落地。终审拦下投影首版 CPU 回退，修正后重新通过全仓普通／race 各 55 测试包及静态检查。最初基线到终态的同样本测量显示典型 Quantity 编码约快 83%、AccessList64 约快 56%、Log64 约快 46%，三源 HTTP 不主张普遍稳定提速。Block／Logs 的 Canonical 路线扩围、Transaction wiremask 改造及异构 field aggregation 经审计后保留当前实现，边界和理由已记录。可直接转交 [性能终审交接](performance-final-review.md)；完整阶段数据、已知成本与复现口径见 [性能分阶段验证](performance-verification.md)。
 
 **前一架构阶段（2026-11-28）：目录与 SDK 职责收敛、对象旧入口删除、诊断执行身份收口及交易表示简化已通过独立组合验收，保存为 `58af037`。** 前轮生产基线 `f251f67` 的组合验收和对象分支 `10f3323` 的文档整理均已保留。主控负责规划、正式文档与独立验收，两个执行者承担互斥范围内的代码修改；下方“本轮减法与验收”保留该架构阶段的证据，不将其计为后续性能优化成果。
 

@@ -1,6 +1,6 @@
 # 性能优化分阶段验证
 
-首次验证范围为 Wave 0 → Wave 1A，已保存为 `23e24db`。用户随后授权按 Wave 1B → 2A → 2B → 3 持续实施与阶段提交。主控负责设计、编排、审查、独立验收和文档；两个执行者负责生产改动。各阶段分别记录证据，不将计划写成完成事实。
+Wave 0 → 1A → 1B → 2A → 2B → 3 已完成本地主控终审，性能代码范围为 `0550b7a..e40851d`，分五个本地提交保存，未推送；本批仍待 Gemini 独立外审。主控负责设计、编排、审查、独立验收和文档；两个执行者负责生产改动。本文按阶段记录证据；外部评审可先读 [终审交接](performance-final-review.md)。
 
 ## 基线与阶段
 
@@ -52,7 +52,7 @@
 
 Log 精确 key 准入与大小写别名编码的双语义继续保留；blockTimestamp 错误仍归编码阶段。BlockByNumber 的 PendingObserve 与现有 CanonicalProcessor 装配互斥；BlockByHash 单独评审。生成模型、JSON 安全、对象完整性、请求绑定与多源裁定分别拥有自己的证明，不合成一个含糊的 validated 标签。
 
-## 本轮结果
+## 首轮 Wave 0 → 1A 结果
 
 Wave 0 → Wave 1A 已通过本地验收。最后补审发现的历史 Receipt 大样本基准也已单独修复和补测，不修改生产规则。
 
@@ -96,7 +96,7 @@ Transaction 方法 Normalize／Process 分配不变，耗时约 −2.7%／−1.6
 
 冻结参数的准备数组原型在 128KiB 样本中约为元素重编码成本的一半，并由 13 次分配降至 11 次；这是原型间的基线对比，既非 Wave 1A 的生产收益，也不能证明“直拼”方案已完成或值得优先接入。
 
-## 剖析结论与下一步验收口径
+## 首轮剖析结论与当时的后续验收口径
 
 8 个代表场景各采旧新 CPU、alloc_space、alloc_objects。剖析与计时分开，包含进程准备／清理成本；下列分配占比均指 alloc_space（分配字节）。累计占比只用于定位调用链，互相可能重叠，不能相加或直接当作可删除成本。
 
@@ -105,13 +105,13 @@ Transaction 方法 Normalize／Process 分配不变，耗时约 −2.7%／−1.6
 - **Block／Transaction 仍需各自优化。** block 样本 map 分配约占 22%，RawMessage 复制约 12%；Transaction Process 中 map 分配约 26%，jsonsafe.walk 累计约 26%。这些并非标量 ASCII 能消除，应按 Wave 3 审计准备产物与重复反序列化。
 - **投影 Trie 保持次级局部候选。** Block100Tx 扩展投影样本中 strings.genSplit 约占 6% 分配，而 CoreObjectFingerprint 累计约 90%。先用单独基准约束 Trie 的收益上限；不能仅因路径拆分明显就宣称它是主瓶颈。异构 field aggregation 仍由候选收集、JSON 安全和树转换占主导。
 
-下一步仍为 Wave 1B → 2A → 2B → 3。Wave 1B 单独比较无转义合法值、含转义合法值、非法 UTF-8、裸控制字符、尾随 JSON 及长非法输入；保留标准库错误路径与接受域。Wave 2A 先写明“谁证明了哪份字节、预算是否变化、错误属于哪一阶段”，再删除相应重复检查。Wave 2B 只开放 AccessList 方法根试点，验收同源约束、只读不改值、当前模型到编码语义的等价性，并在前两阶段新基线上重新判断收益。未实施这些阶段，也没有改变 PendingObserve／CanonicalProcessor 的装配约束。
+首轮结束时，后续顺序确定为 Wave 1B → 2A → 2B → 3。Wave 1B 单独比较无转义合法值、含转义合法值、非法 UTF-8、裸控制字符、尾随 JSON 及长非法输入；保留标准库错误路径与接受域。Wave 2A 先写明“谁证明了哪份字节、预算是否变化、错误属于哪一阶段”，再删除相应重复检查。Wave 2B 只开放 AccessList 方法根试点，验收同源约束、只读不改值、当前模型到编码语义的等价性，并在前两阶段新基线上重新判断收益。以下续轮记录这些阶段的实际实施与验收，PendingObserve／CanonicalProcessor 装配约束始终保持。
 
 ## 续轮 Wave 1B 验收
 
 本阶段以 `23e24db` 为基线。`DecodeJSONString` 对完整无转义 ASCII 字符串复制返回，其他输入交给原始 `json.Unmarshal`；生成构造器和具名兼容层共用该实现。Quantity／Data 编码继续调用真实生成方法根，随后返回兼容层已产出的紧凑 JSON；可空 Quantity 编码不再做十进制转换或第二次折合。Number、null 门禁、字符串表示政策和未知 pattern 回退保持。
 
-独立验收：ethcodec、ethapi、methods、wiregen 全包通过，受影响包 lint 为 0 issues。JSON 字符串差分执行 1,000,000 次，兼容折合与生成标量各 100,000 次，方法路线 20,000 次；另有全部单字节、1MiB 长非法输入、错误对象与输入所有权测试。生成资产仅有 12 个 native 字符串解码调用和对应摘要变化。完整回归及 race 留到续轮最终状态统一执行。
+独立验收：ethcodec、ethapi、methods、wiregen 全包通过，受影响包 lint 为 0 issues。JSON 字符串差分执行 1,000,000 次，兼容折合与生成标量各 100,000 次，方法路线 20,000 次；另有全部单字节、1MiB 长非法输入、错误对象与输入所有权测试。生成资产仅有 12 个 native 字符串解码调用和对应摘要变化。完整回归及 race 在续轮最终状态统一执行，结果见终态验收。
 
 测量材料位于 `/tmp/ethguard-continuation-review/evidence/`，包含冻结源码摘要、测试／fuzz／lint 日志、旧新二进制、61 组微基准及汇总。固定 GOMAXPROCS=2；旧→新→新→旧，每次两份样本，构造器和标量方法 150ms、对象 200ms。基线和新版本使用同一方法基准代码。
 
@@ -132,7 +132,7 @@ Transaction 方法 Normalize／Process 分配不变，耗时约 −2.7%／−1.6
 
 Client 的两个成功 Receipt 读取路径改为 admitted 交付：准入、规范结果私有 string、裁定提交到 decision.Value 的字节链不变，字段聚合只附加扩展与诊断。交付仍对最终规范字节执行一次 jsonsafe，再调用生成构造器；重新编码不能继承原始输入的大小预算。原始／批量／订阅解码入口仍拥有原有检查。
 
-独立 log、receipt、typed、methods、aggregator、facade 和 internal/subscription 包全部通过；两位执行者交叉审查字节链、别名阶段、绑定顺序和 bloom 与 geth 的一致性，无阻塞。第一次主控命令误写 `./subscription`，其它六包已通过；修正为 `./internal/subscription` 后通过，保留两份日志。子代理环境禁止本地监听的 HTTP 测试由主控可监听环境补验通过。全仓回归和 race 在续轮最终状态统一执行。
+独立 log、receipt、typed、methods、aggregator、facade 和 internal/subscription 包全部通过；两位执行者交叉审查字节链、别名阶段、绑定顺序和 bloom 与 geth 的一致性，无阻塞。第一次主控命令误写 `./subscription`，其它六包已通过；修正为 `./internal/subscription` 后通过，保留两份日志。子代理环境禁止本地监听的 HTTP 测试由主控可监听环境补验通过。全仓回归和 race 在续轮最终状态统一执行，结果见终态验收。
 
 13 组增量比较按旧→新→新→旧，每次两份样本；微基准 250ms，三源 HTTP 固定 100 次。新增 HTTP fixture 在计时前验证 Corroborated，并核对每次调用确实产生三个 Receipt 请求。旧源码只复制相同的 benchmark／fixture helper，生产文件不改。
 
@@ -168,3 +168,69 @@ AccessList 唯一试点已通过本地主控验收。Manifest 选择 `eth_create
 HTTP 64 项的旧新区间为 5.10–7.44ms／3.88–6.70ms，调度波动较大，不认定中位数 −18% 为稳定网络收益；分配字节下降约 22.4%。直接值验证在 0／1／32／256 项的成功样本均为 0 B/op、0 allocs/op，64 项完整 Encode 仍有 1,699 次分配。额外标量扫描是完整自证方法根的必要成本，JSON 编码及 typed 交付继续各自承担职责。生成能力增加局限于试点可达形态；unsupported graph 会显式阻止升级，不制造平行规则或运行时 schema 解释器。
 
 原始材料在同一证据目录的 `wave2b-*`。本阶段按流程统一、可读性和实测收益接受，终态全仓与 race 验收另列。
+
+## 续轮 Wave 3 实现与范围判定
+
+Block 通过窄入口 `header.DecodeWithCanonical` 取得同一次 header 准备的两个产物。AdmitBlock 复用规范头与一份原始 exact-key 成员视图；交易仍保留原始 struct 读取，以守住大小写别名顺序及 null 覆盖语义。公开 Encode 的先后次序保持，header-only 分支直接返回已检查的规范头。独立冻结参考覆盖规范字节、错误对象、所有权、完整／仅头／引用形态和 0／1／100 笔交易。Header 与 Block 的共用字段约束在当前 schema 下等价，未来 schema 变更仍须运行这些见证，不能把它提升成对任意 schema 的假设。
+
+Transaction 的私有 `validatedContext` 返回本次 payload 检查已经取得的 hash、blockHash 和规范 index；两个准入入口随后复用它做请求绑定。Candidate 没有新增缓存或可变状态，原始 exact-key 声明检查、请求错误优先级、签名与 hash 承诺均保持。
+
+Projection 保留 exact map、预拆分的声明及原有段数／通配匹配。候选路径只拆分一次，最多 8 段使用函数内局部数组，超长路径由 append 正常扩容；没有 Trie、跨调用缓存或新公开接口。不能将短路径实测零分配外推到任意深度。
+
+rpcwire 仍依次检查 ID、method、编码 params，再编码小型请求头。参数数组已由标准库编码一次，随后直接附加到请求头；保留 ID 复制时机、nil／空数组、HTML／Unicode 转义、自定义 Marshal 调用和错误优先级。冻结完整旧实现用于字节与错误对象差分。这是每次请求内避免重复扫描参数，尚非跨来源复用 frozen-array 的 transport API。
+
+以下候选经过审计后未纳入本轮生产修改：
+
+- BlockByNumber 的 PendingObserve 与 ProcessCanonical 仍互斥；BlockByHash 的 fullTx=false 当前跳过准入，直接迁移会把现有编码错误提前；Logs 的 timestamp／别名错误亦归编码阶段。新增阶段见证保留这些事实，Block／Logs 继续走原 raw 合同。
+- Transaction 的 wiremask any 树和原始字段视图保留。开放扩展递归 hex 折合、HTML 转义膨胀预算、分支投影及 exact-key 原始声明各有职责，本轮只删除已经证明冗余的绑定解码。
+- 异构 field aggregation 没有引入额外的原文到候选索引或分组重放状态；现有同值复用保持，2-vs-1 基准作为对照。Log／FeeHistory 也没有扩大方法根值验证试点。
+
+两位执行者互审 Block／Header／rpcwire 和 Transaction／Projection；主控独立检查差异、测试及计时。第一版投影虽减少约 1,700 次分配，却使 Block100Tx 的两种投影样本耗时增加 12%–15%，旧新四份区间不重叠；累计对照也复现该问题。原因是逐条通配规则重复扫描候选路径。该版没有提交，改成上述单次分段后重新完成测试、百万次冻结 Split 差分与加长复测。初测日志继续保留于 `wave3-*` 和 `final-*`，修正结果独立记为 `projection-repair-*` 与 `wave3final-*`，不挑选初测中有利的数字。
+
+投影修正专项按旧→新→新→旧，每轮 1s × 2：Block100Tx 无扩展 2.934ms→2.810ms（−4.2%），两个扩展 3.646ms→3.498ms（−4.1%）；分配分别从 31,557→29,857、约 35,122→33,421 次。Receipt16Logs 两场景中位数 −1.0%／−1.9%，部分区间重叠，不主张稳定耗时改善。常见路径减少分配的结果保留，匹配行为继续接受冻结 Split 差分检验。
+
+## 终态正确性验收（2026-11-28）
+
+投影修正后对最终源码重新执行完整验收，没有沿用修正前的全仓通过结论：
+
+- `go test ./... -count=1` 与 `go test -race ./... -count=1` 各 55 个测试包通过，另 8 包无测试；包括真实本地 HTTP、WSS、integration 及 wiregen schema 变异测试。
+- `go vet ./...`、`go build ./...`、`go mod tidy -diff` 均通过；golangci-lint 2.15.0 默认与 anvil 两路各 0 issues。`go test -tags anvil -run '^$' ./...` 完成 65 包编译，其中 56 包含测试，未启动链。
+- Wave 1A 三组冻结差分各 100 万次；Wave 1B JSON 解码 100 万次，兼容折合／生成标量各 10 万次，方法路线 2 万次；Wave 2B 值验证等价 100 万次。投影修正后再完成 100 万次冻结 Split 差分。rpcwire 完整旧函数差分 100 万次由执行者完成，证据是原始工具会话摘录，不冒充主控独立日志。
+- 独立生成的 Go／audit 与终态资产逐字节一致；最终 Wave 3 的 13 份源码／测试与不可变测量快照摘要一致。原始来源、Overlay 与依赖未改变；Manifest 只增加已记载的值验证选择。
+- 两位执行者互相只读审查，主控独立验收并拦下投影首版回退；修正版经过再次交叉审查。生产源码冻结后仅整理文档及提交，代码检查结果对应实际交付版本。
+
+终态日志位于 `evidence/final-{test,race,vet,build,tidy,lint,anvil-compile}.log`，机器汇总为 `final-checks.json`；修正前日志以 `before-projection-repair-` 前缀保留。后续计时使用预先编译的独立旧新二进制，完成全部测试／编译之后才开始，不与这些负载并发。
+
+## 终态性能结果
+
+最终 Wave 3 相对 `d6fa11e` 完成 19 组对照（`wave3final-summary.json`）；每版四份样本，微基准 250ms，三源 HTTP 固定 100 次。以下为中位数，分配为每次操作次数。
+
+| 路径 | Wave 2 结束 → Wave 3 最终 | 分配次数旧 → 新 |
+| --- | --- | --- |
+| 完整 Block 准入，1 笔交易 | 1.074ms → 0.758ms（−29.4%） | 5,993 → 4,128 |
+| 完整 Block 准入，100 笔交易 | 50.370ms → 44.012ms（−12.6%） | 约 313,596 → 258,170 |
+| TransactionByHash Process | 225.679µs → 223.277µs（−1.1%） | 1,577 → 1,572 |
+| Block100Tx 投影，两个扩展 | 3.630ms → 3.505ms（−3.5%） | 约 35,123 → 33,418 |
+| 请求拼装，64B 参数样本 | 2.232µs → 1.821µs（−18.4%） | 13 → 14 |
+| 请求拼装，512B 参数样本 | 6.830µs → 4.197µs（−38.6%） | 13 → 14 |
+| 请求拼装，128KiB 参数样本 | 1.380ms → 0.705ms（−48.9%） | 13 → 14 |
+
+三个请求样本的分配字节分别增加约 1.7%／1.3%／0.2%；保留这项缓冲成本。公开三源 TransactionByHash／InBlock 耗时分别约 +0.1%／−1.6%，分配约少 22／44 次，不认定稳定端到端提速。异构 logs-array 2-vs-1 控制样本为 124.168µs→125.313µs（+0.9%），仍为 1,379 次分配，没有把保留算法计为优化收益。公开完整 Block Encode 的分配基本不变，本阶段收益主要来自 AdmitBlock 的重复 header 工作消失。
+
+另以最初 `0550b7a` 基线到最终源码重新完成 9 组同样本累计测量（`cumulative-summary.json`），未将阶段百分比相乘。对应基准文件与基线副本逐字节一致；旧二进制及源码摘要保留。
+
+| 路径 | 最初基线 → 最终实现 | 耗时变化 | 分配次数旧 → 新 |
+| --- | --- | --- | --- |
+| Quantity 编码，典型值 | 1.323µs → 0.226µs | −82.9% | 13 → 3 |
+| Log 整数组，64 条 | 6.392ms → 3.435ms | −46.3% | 约 36,427 → 20,754 |
+| Receipt，1000 条 Log | 116.806ms → 78.698ms | −32.6% | 约 644,605 → 395,534 |
+| AccessList Encode，64 项 | 1.193ms → 0.526ms | −55.9% | 4,111 → 1,699 |
+| 完整 Block 准入，100 笔交易 | 52.917ms → 43.661ms | −17.5% | 约 322,950 → 258,174 |
+| FeeHistory Encode，64 块 | 0.903ms → 0.667ms | −26.2% | 约 7,245 → 6,208 |
+| Block100Tx 投影，两个扩展 | 3.610ms → 3.470ms | −3.9% | 约 35,121 → 33,419 |
+| 三源 HTTP AccessList，64 项 | 6.980ms → 5.233ms | −25.0% | 约 25,824 → 18,587 |
+| 三源 HTTP TransactionByHash | 6.159ms → 6.212ms | +0.9% | 约 12,161 → 11,643 |
+
+AccessList HTTP 的旧新区间仍明显重叠：5.82–8.27ms／3.84–6.65ms；分配字节下降约 30.1%，但 −25% 仅是本组中位数，不能认定为稳定网络延迟收益。Transaction HTTP 区间为 6.15–6.20ms／6.18–6.28ms，分配字节下降约 5.9%，耗时没有稳定改善。对象微基准与三源 HTTP 分开解释。
+
+终态另采七个场景的 CPU、alloc_space 和 alloc_objects：Block100 准入、Log64、Receipt64 typed HTTP、AccessList64 HTTP、Transaction Process、Block100 投影和异构 field aggregation。JSON 字符串扫描与解码仍是主要 CPU 成本；Block 的 map／RawMessage 约占采样分配字节的 24%／13%，Log 的 Unmarshal 与 jsonsafe.walk 累计约 49%／23%。投影的 CanonicalJSON 指纹链仍占约 92% 分配字节，异构聚合中的候选收集与 JSON 安全遍历继续显著。这些比例可能重叠，分母也随优化变化，不能相加或直接作为下一轮可删除成本；它们解释为什么本轮不能宣称已经消除所有 JSON 重复工作。原始 profile 与三个视角的文本位于 `final-profile-*`。
