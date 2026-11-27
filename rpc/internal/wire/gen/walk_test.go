@@ -72,6 +72,42 @@ func TestNumberModelKeepsArbitraryExactBounds(t *testing.T) {
 	}
 }
 
+func TestIntegerConstantsUsePortableRepresentation(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		inInt bool
+	}{
+		{value: "-2147483649"},
+		{value: "-2147483648", inInt: true},
+		{value: "2147483647", inInt: true},
+		{value: "2147483648"},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			constant, err := testRegistry().walk(testSchema(t, `{"const":`+tc.value+`}`), "constant.result")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantNative := "Number"
+			if tc.inInt {
+				wantNative = "int"
+			}
+			if constant.native != wantNative || constant.constant != json.Number(tc.value) {
+				t.Fatalf("untyped constant = %+v, want %s with value %s", constant, wantNative, tc.value)
+			}
+			integer, err := testRegistry().walk(testSchema(t, `{"type":"integer","const":`+tc.value+`}`), "integer.result")
+			if !tc.inInt {
+				if err == nil || !strings.Contains(err.Error(), "integer.result: unsupported integer const") {
+					t.Fatalf("out-of-range integer: %v", err)
+				}
+				return
+			}
+			if err != nil || integer.native != "int" || integer.constant != json.Number(tc.value) {
+				t.Fatalf("integer constant = %+v, error = %v", integer, err)
+			}
+		})
+	}
+}
+
 func TestUnsupportedSemanticsFailAtTheirSchemaPath(t *testing.T) {
 	cases := []struct{ name, raw, path string }{
 		{"allOf", `{"allOf":[{"type":"string"}]}`, "example.result"},

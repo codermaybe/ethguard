@@ -2,11 +2,38 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestConstCodeIntegerRange(t *testing.T) {
+	for _, value := range []string{"-2147483648", "-32015", "0", "2147483647"} {
+		t.Run(value, func(t *testing.T) {
+			if got := fmt.Sprintf("%#v", constCode(json.Number(value))); got != value {
+				t.Fatalf("emitted constant = %s, want %s", got, value)
+			}
+		})
+	}
+	// The emitter keeps the walker's portable int range even when called
+	// directly; a 32-bit generator must not silently truncate a constant.
+	for _, value := range []string{"-2147483649", "2147483648"} {
+		t.Run(value, func(t *testing.T) {
+			var emitted string
+			defer func() {
+				failure := recover()
+				if failure == nil || !strings.Contains(fmt.Sprint(failure), "emit: invalid integer constant") {
+					t.Fatalf("out-of-range constant %s: emitted = %s, panic = %v", value, emitted, failure)
+				}
+			}()
+			emitted = fmt.Sprintf("%#v", constCode(json.Number(value)))
+		})
+	}
+}
 
 // Compile and execute freshly emitted code, including shapes not used by the
 // pinned result bundle. Model-only tests cannot catch broken literals, pointer

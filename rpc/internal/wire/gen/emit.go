@@ -317,8 +317,8 @@ func compareNumber(value string) *jen.Statement {
 func constCode(value any) *jen.Statement {
 	if number, ok := value.(json.Number); ok {
 		// Non-integer numeric constants are compared as exact Number values.
-		// The walker has already checked the integer range for int constants.
-		integer, err := strconv.ParseInt(number.String(), 10, 64)
+		// Keep the walker's portable int range before converting on any host.
+		integer, err := strconv.ParseInt(number.String(), 10, 32)
 		if err != nil {
 			panic(fmt.Sprintf("emit: invalid integer constant %q: %v", number, err))
 		}
