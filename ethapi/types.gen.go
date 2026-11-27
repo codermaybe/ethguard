@@ -140,8 +140,6 @@ func (v Data) MarshalJSON() ([]byte, error) {
 // Hash is the fixed 32-byte hex word.
 type Hash string
 
-var nativeHashPattern = regexp.MustCompile("^0x[0-9a-f]{64}$")
-
 func NewHash(raw json.RawMessage) (Hash, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Hash: expected a non-null value")
@@ -150,7 +148,7 @@ func NewHash(raw json.RawMessage) (Hash, error) {
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
-	if !nativeHashPattern.MatchString(text) {
+	if !ethcodec.IsLowerFixedHex(text, 64) {
 		return "", fmt.Errorf("Hash: invalid input spelling %q", text)
 	}
 	return Hash(text), nil
@@ -191,8 +189,6 @@ func (v Address) MarshalJSON() ([]byte, error) {
 // Bloom is the fixed 256-byte logs bloom.
 type Bloom string
 
-var nativeBloomPattern = regexp.MustCompile("^0x[0-9a-f]{512}$")
-
 func NewBloom(raw json.RawMessage) (Bloom, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Bloom: expected a non-null value")
@@ -201,7 +197,7 @@ func NewBloom(raw json.RawMessage) (Bloom, error) {
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
-	if !nativeBloomPattern.MatchString(text) {
+	if !ethcodec.IsLowerFixedHex(text, 512) {
 		return "", fmt.Errorf("Bloom: invalid input spelling %q", text)
 	}
 	return Bloom(text), nil
@@ -213,8 +209,6 @@ func (v Bloom) MarshalJSON() ([]byte, error) {
 // BlockNonce is the fixed 8-byte header nonce.
 type BlockNonce string
 
-var nativeBlockNoncePattern = regexp.MustCompile("^0x[0-9a-f]{16}$")
-
 func NewBlockNonce(raw json.RawMessage) (BlockNonce, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("BlockNonce: expected a non-null value")
@@ -223,7 +217,7 @@ func NewBlockNonce(raw json.RawMessage) (BlockNonce, error) {
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
-	if !nativeBlockNoncePattern.MatchString(text) {
+	if !ethcodec.IsLowerFixedHex(text, 16) {
 		return "", fmt.Errorf("BlockNonce: invalid input spelling %q", text)
 	}
 	return BlockNonce(text), nil

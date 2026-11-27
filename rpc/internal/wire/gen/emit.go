@@ -136,7 +136,8 @@ func emitNative(f *jen.File, n nativeDescriptor) {
 	f.Commentf("%s is the %s.", n.name, n.doc)
 	f.Type().Id(n.name).String()
 	pattern := "native" + n.name + "Pattern"
-	if n.pattern != "" {
+	fixedHexDigits := fixedLowerHexPatternDigits(n.pattern)
+	if n.pattern != "" && fixedHexDigits == 0 {
 		f.Var().Id(pattern).Op("=").Qual("regexp", "MustCompile").Call(jen.Lit(n.pattern))
 	}
 	constructor := "New" + n.name
@@ -163,7 +164,11 @@ func emitNative(f *jen.File, n nativeDescriptor) {
 			jen.Return(jen.Lit(""), errorf("expected string: %w", jen.Err())),
 		)
 		if n.pattern != "" {
-			g.If(jen.Op("!").Id(pattern).Dot("MatchString").Call(jen.Id("text"))).Block(
+			match := jen.Id(pattern).Dot("MatchString").Call(jen.Id("text"))
+			if fixedHexDigits != 0 {
+				match = jen.Qual(codecPackage, "IsLowerFixedHex").Call(jen.Id("text"), jen.Lit(fixedHexDigits))
+			}
+			g.If(jen.Op("!").Add(match)).Block(
 				jen.Return(jen.Lit(""), errorf(n.name+": invalid input spelling %q", jen.Id("text"))),
 			)
 		}
@@ -187,6 +192,21 @@ func emitNative(f *jen.File, n nativeDescriptor) {
 			g.Return(jen.Qual(codecPackage, "MarshalNoEscape").Call(jen.String().Call(jen.Id("v"))))
 		}
 	})
+}
+
+// Specialize only these reviewed native patterns. A different spelling or
+// future schema pattern keeps the regular-expression implementation.
+func fixedLowerHexPatternDigits(pattern string) int {
+	switch pattern {
+	case `^0x[0-9a-f]{64}$`:
+		return 64
+	case `^0x[0-9a-f]{512}$`:
+		return 512
+	case `^0x[0-9a-f]{16}$`:
+		return 16
+	default:
+		return 0
+	}
 }
 
 func emitValue(f *jen.File, r *ref) {
