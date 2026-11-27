@@ -85,9 +85,14 @@ func corroboratingResolvers(kind ResolverKind) bool {
 type ReadPlan struct {
 	Method string
 
-	// Resolver owns normalization, clustering, and adjudication. Request
-	// preparation, admission, and reference handling are plan responsibilities.
-	Resolver Resolver
+	// Normalize is the method's standalone comparison-key function. Diagnostics
+	// and public helpers use it independently of the execution route.
+	Normalize func(json.RawMessage) (string, error)
+
+	// Resolver and Admit form the raw execution contract. Canonical is the
+	// alternative processed-input contract. Exactly one is executable.
+	Resolver  Resolver
+	Canonical *CanonicalRead
 	// ResolverKind is the declared resolver class. It selects the collection
 	// mode and the resolution entry point; plan validation keeps it and the
 	// resolver value's own capabilities from diverging.
@@ -113,17 +118,33 @@ type ReadPlan struct {
 	// coordinator supplies. A nil hook admits nothing.
 	Admit func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error)
 
-	// ProcessCanonical is the plan's controlled single-source processing
-	// entry. A nil value keeps the read entirely on the raw route; a declared
-	// processor is the coordinator's only signal that one frozen invocation
-	// may select the canonical route. The raw route stays intact for
-	// pending-local resolution and Forwarded resolvers without canonical
-	// consumption or with an explicit single-source Resolve contract.
-	ProcessCanonical CanonicalProcessor
-
 	// ProjectorID names the runtime-bound observation projector. The plan
 	// never carries a factory; the runtime binds the projector by method.
 	ProjectorID string
+}
+
+// CanonicalRead pairs a method processor with a resolver that consumes only
+// processed observations. It carries no raw admission or encoding fallback.
+type CanonicalRead struct {
+	Process  CanonicalProcessor
+	Resolver CanonicalOutcomeResolver
+}
+
+// ValidateExecution rejects missing or mixed contracts before network work.
+func (p ReadPlan) ValidateExecution() error {
+	if p.Canonical != nil {
+		if p.Resolver != nil || p.Admit != nil || p.Canonical.Process == nil || p.Canonical.Resolver == nil || p.ResolverKind != ResolverStrict || p.Pending.Mode == PendingObserve {
+			return fmt.Errorf("rpc: invalid canonical execution for %q: %w", p.Method, rpc.ErrInvalidReadPlan)
+		}
+		return nil
+	}
+	if p.Resolver == nil {
+		return fmt.Errorf("rpc: read plan for %q has no resolver: %w", p.Method, rpc.ErrInvalidReadPlan)
+	}
+	if p.Pending.Mode == PendingObserve && p.Normalize == nil {
+		return fmt.Errorf("rpc: pending read %q has no normalizer: %w", p.Method, rpc.ErrInvalidReadPlan)
+	}
+	return nil
 }
 
 // Corroborating reports whether the plan resolves under an invocation's
@@ -517,7 +538,11 @@ func PendingRejectAt(pos int, method string) func(rpc.Request) error {
 // Pending from its declarations.
 func (p ReadPlan) MethodRule() MethodRule {
 	rule := MethodRule{}
-	if source, ok := p.Resolver.(MethodRuleSource); ok {
+	if p.Canonical != nil {
+		if source, ok := p.Canonical.Resolver.(MethodRuleSource); ok {
+			rule = source.MethodRule()
+		}
+	} else if source, ok := p.Resolver.(MethodRuleSource); ok {
 		rule = source.MethodRule()
 	}
 	switch p.Reference.Kind {

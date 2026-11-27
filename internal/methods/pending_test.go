@@ -25,7 +25,7 @@ func pendingObs(values ...string) []rpc.Observation {
 // resolution over the plan's own resolver.
 func resolveLocalThroughPlan(t *testing.T, plan rpcengine.ReadPlan, obs []rpc.Observation) rpc.Decision {
 	t.Helper()
-	decision, err := rpcengine.ResolveLocalObservation(plan.Resolver, obs)
+	decision, err := rpcengine.ResolveLocalObservation(plan.Normalize, plan.Resolver, obs)
 	if err != nil {
 		t.Fatalf("resolve local: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestPendingLocalSlice(t *testing.T) {
 				first, second, third = `"0x64"`, `"0x65"`, `"0x66"`
 			}
 			obs := pendingObs(first, second, third)
-			decision, err := rpcengine.ResolveLocalObservation(tc.plan.Resolver, obs)
+			decision, err := rpcengine.ResolveLocalObservation(tc.plan.Normalize, tc.plan.Resolver, obs)
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
@@ -104,7 +104,7 @@ func TestPendingLocalSlice(t *testing.T) {
 				{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("down")}}},
 				{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"not-hex"`)}}},
 			}
-			decision, err := rpcengine.ResolveLocalObservation(tc.plan.Resolver, failed)
+			decision, err := rpcengine.ResolveLocalObservation(tc.plan.Normalize, tc.plan.Resolver, failed)
 			if err == nil || !errors.Is(err, rpc.ErrNoValidResponse) {
 				t.Fatalf("%s: got %v, want ErrNoValidResponse", tc.name, err)
 			}
@@ -128,7 +128,7 @@ func TestPendingLocalSlice(t *testing.T) {
 		call := compiledPlan(t, MethodCall)
 		revert := &rpc.RPCError{Code: -32000, Message: "execution reverted"}
 		obs := []rpc.Observation{{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: revert, Cause: rpctest.RPCError(-32000, "execution reverted")}}}}
-		decision, err := rpcengine.ResolveLocalObservation(call.Resolver, obs)
+		decision, err := rpcengine.ResolveLocalObservation(call.Normalize, call.Resolver, obs)
 		if err != nil {
 			t.Fatalf("pending revert: %v", err)
 		}

@@ -48,9 +48,9 @@ func BenchmarkTransactionByHashNormalize(b *testing.B) {
 	}
 }
 
-// BenchmarkTransactionByHashAdmit measures the admission half: preparation
+// BenchmarkTransactionByHashProcess measures canonical processing: preparation
 // plus the request-bound object validation the voter runs before its vote.
-func BenchmarkTransactionByHashAdmit(b *testing.B) {
+func BenchmarkTransactionByHashProcess(b *testing.B) {
 	raw := benchmarkTransactionRecord(b)
 	if raw == nil {
 		b.Skip("no recorded transaction fixture")
@@ -65,7 +65,7 @@ func BenchmarkTransactionByHashAdmit(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := admitTransactionByHash(context.Background(), request, raw, nil); err != nil {
+		if _, err := processTransactionByHash(context.Background(), request, raw, nil); err != nil {
 			b.Fatal(err)
 		}
 	}

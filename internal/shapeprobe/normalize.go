@@ -15,5 +15,5 @@ func NormalizeResult(method string, result json.RawMessage) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("shapeprobe: %s has no registered normalizer: %w", method, err)
 	}
-	return plan.Resolver.Normalize(result)
+	return plan.Normalize(result)
 }

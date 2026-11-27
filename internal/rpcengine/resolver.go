@@ -6,14 +6,13 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// Resolver normalizes responses and resolves raw observations. Preparation,
+// Resolver resolves raw observations. Standalone normalization, preparation,
 // admission, and reference requirements belong to ReadPlan. The engine owns
 // generic resolution; internal/methods supplies method semantics and plans,
 // one file per RPC method. Resolve must cover every input with
 // method judgment and relation. Outcome.ProjectSources derives default source
 // and fault views; custom resolvers only supply non-source diagnostics in Faults.
 type Resolver interface {
-	Normalize(json.RawMessage) (string, error)
 	Resolve([]rpc.Observation) (Outcome, error)
 }
 

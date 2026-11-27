@@ -26,7 +26,6 @@ func getBlockReceiptsSpec() MethodSpec {
 		Method:      MethodGetBlockReceipts,
 		Resolver:    ResolverStrict,
 		Normalize:   normalizeBlockReceiptList,
-		Encode:      receiptobject.EncodeBlock,
 		KeySource:   rpcengine.RuleKeyCanonicalBytes,
 		CompareKind: rpcengine.RuleCompareMethodSpecific,
 		Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{0}, EIP1898: true},
@@ -34,7 +33,6 @@ func getBlockReceiptsSpec() MethodSpec {
 		Prepare: func(ctx context.Context, req rpc.Request) (rpc.Request, error) {
 			return req, validateBlockReceiptsRequest(ctx, req)
 		},
-		Admit:                  admitBlockReceipts,
 		ProcessCanonical:       processBlockReceipts,
 		ObservationProjectorID: ProjectorBlockReceipts,
 	}
@@ -50,13 +48,6 @@ func getBlockReceiptsDescriptor() MethodDescriptor {
 		Adapter:   "BlockReceipts",
 		Alignment: "v1.17.10",
 	}
-}
-
-func admitBlockReceipts(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	if err := receiptobject.AdmitBlock(req, value); err != nil {
-		return nil, err
-	}
-	return nil, nil
 }
 
 // processBlockReceipts reuses the canonical row bytes checked during admission.

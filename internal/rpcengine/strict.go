@@ -130,10 +130,6 @@ type strictFunc struct {
 	objectEncode    CanonicalEncoder
 }
 
-func (f strictFunc) Normalize(value json.RawMessage) (string, error) {
-	return f.normalize(value)
-}
-
 func (f strictFunc) RequiresAgreement() bool { return true }
 
 func (f strictFunc) IncludeRPCError() bool { return f.includeRPCError }
@@ -271,25 +267,6 @@ func (f strictFunc) ResolveCorroborated(c Corroboration, obs []rpc.Observation) 
 	return f.outcome(c, obs)
 }
 
-// ResolveCanonical is the canonical route of the same resolution: processed
-// observations in, the same clustering, adjudication, verdicts, and commit
-// kernel out. The raw normalizer and encoder are never consulted here — the
-// canonical bytes are the comparison key and the commit material. The
-// construction-time corroboration configuration decides the mode exactly as
-// Resolve does; without options, every valid answer must agree.
-func (f strictFunc) ResolveCanonical(cobs []CanonicalObservation) (Outcome, error) {
-	if f.corroboration == nil {
-		return f.canonicalValidAnswers(cobs)
-	}
-	return f.canonicalCore(*f.corroboration, cobs)
-}
-
-// ResolveCanonicalCorroborated is the canonical route under the invocation's
-// frozen corroboration snapshot, mirroring ResolveCorroborated.
-func (f strictFunc) ResolveCanonicalCorroborated(c Corroboration, cobs []CanonicalObservation) (Outcome, error) {
-	return f.canonicalCore(c, cobs)
-}
-
 // adjudicationCore is the shared corroborated kernel of the raw and canonical
 // routes: adjudicate the ranked clusters against the fixed basis, apply the
 // route's commit, and state every source. A failed clustering keeps the
@@ -348,7 +325,7 @@ func (f strictFunc) validAnswersCore(obs []rpc.Observation) (rpc.Decision, []Sou
 
 // canonicalCore is the corroborated canonical route: the same adjudication
 // and commit kernel as the raw route, over processed results.
-func (f strictFunc) canonicalCore(c Corroboration, cobs []CanonicalObservation) (Outcome, error) {
+func (f canonicalStrict) canonicalCore(c Corroboration, cobs []CanonicalObservation) (Outcome, error) {
 	ranked, skipped, err := clusterCanonical(cobs)
 	decision, verdicts, err := adjudicationCore(c, len(cobs), ranked, skipped, err, commitProcessed,
 		func(ranked []cluster, skipped []skippedAnswer) []SourceVerdict {
@@ -363,7 +340,7 @@ func (f strictFunc) canonicalCore(c Corroboration, cobs []CanonicalObservation) 
 // canonicalValidAnswers is the no-snapshot canonical route: the decision-0006
 // valid-answer agreement over processed results, sharing its cluster core
 // with the raw route and committing through the unconditional kernel.
-func (f strictFunc) canonicalValidAnswers(cobs []CanonicalObservation) (Outcome, error) {
+func (f canonicalStrict) canonicalValidAnswers(cobs []CanonicalObservation) (Outcome, error) {
 	ranked, skipped, err := clusterCanonical(cobs)
 	if err != nil {
 		decision := rpc.Decision{Status: rpc.Unknown, Faults: nil}

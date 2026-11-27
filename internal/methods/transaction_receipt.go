@@ -24,10 +24,8 @@ func getTransactionReceiptSpec() MethodSpec {
 		Method:                 MethodGetTransactionReceipt,
 		Resolver:               ResolverStrict,
 		Normalize:              normalizeReceiptObject,
-		Encode:                 receiptobject.Encode,
 		KeySource:              rpcengine.RuleKeyCanonicalBytes,
 		CompareKind:            rpcengine.RuleCompareMethodSpecific,
-		Admit:                  admitReceipt,
 		ProcessCanonical:       processReceipt,
 		ObservationProjectorID: ProjectorReceipt,
 	}
@@ -43,13 +41,6 @@ func getTransactionReceiptDescriptor() MethodDescriptor {
 		Adapter:   "TransactionReceipt",
 		Alignment: "v1.17.10",
 	}
-}
-
-func admitReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	if err := receiptobject.AdmitTransaction(req, value); err != nil {
-		return nil, err
-	}
-	return nil, nil
 }
 
 // processReceipt is the method's canonical processing entry: the single

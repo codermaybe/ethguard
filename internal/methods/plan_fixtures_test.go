@@ -2,6 +2,8 @@ package methods
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/codermaybe/ethguard/internal/rpcengine"
@@ -92,4 +94,39 @@ func preparePlanRequest(t *testing.T, plan rpcengine.ReadPlan, req rpc.Request) 
 	}
 	evidence, ok := establishedEvidence(t, plan, req)
 	return plan.PrepareWithReference(req, evidence, ok)
+}
+
+// resolveCanonical drives the compiled method processor and its processed-only
+// resolver with an explicit request. Failed processing retains the source slot.
+func resolveCanonical(t *testing.T, req rpc.Request, c rpcengine.Corroboration, obs []rpc.Observation) (rpcengine.Outcome, error) {
+	t.Helper()
+	plan := compiledPlan(t, req.Method)
+	processed := make([]rpcengine.CanonicalObservation, len(obs))
+	for i, item := range obs {
+		var result rpcengine.CanonicalResult
+		if item.Response.Err() == nil {
+			var err error
+			result, err = plan.Canonical.Process(context.Background(), req, item.Response.Answer.Result, nil)
+			if err != nil {
+				item.Response.Answer.Interpretation = rpc.Interpretation{State: rpc.InterpretationRejected, Cause: fmt.Errorf("admission: %w", err)}
+			}
+		}
+		var err error
+		processed[i], err = rpcengine.NewCanonicalObservation(item, result)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return plan.Canonical.Resolver.ResolveCanonicalCorroborated(c, processed)
+}
+
+func receiptRequest(t *testing.T) rpc.Request {
+	t.Helper()
+	var fields struct {
+		Hash string `json:"transactionHash"`
+	}
+	if err := json.Unmarshal(sampleReceipt(t), &fields); err != nil {
+		t.Fatal(err)
+	}
+	return rpc.Request{Method: MethodGetTransactionReceipt, Params: []any{fields.Hash}}
 }

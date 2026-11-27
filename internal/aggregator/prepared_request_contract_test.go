@@ -155,52 +155,38 @@ func TestWireParamsKeepNilAndEmptyDistinct(t *testing.T) {
 	}
 }
 
-// TestAdmissionAndProcessorShareTheFrozenSemantics pins the one-JSON-fact
-// contract on the transaction route: whichever per-source stage a route
-// freezes — the canonical processor or the raw admission hook — it receives
-// the same semantic request, decoded once from the same frozen array snapshot
-// the wire carried and the record owns.
+// The processor receives the semantic request frozen for wire and evidence.
 func TestAdmissionAndProcessorShareTheFrozenSemantics(t *testing.T) {
 	raw, hash, _, _ := minedTransactionVector(t)
 	request := rpc.Request{Method: methods.MethodGetTransactionByHash, Params: []any{hash}}
-	stageView := func(t *testing.T, canonical bool) string {
+	stageView := func(t *testing.T) string {
 		t.Helper()
 		plan := planFor(t, methods.MethodGetTransactionByHash)
-		if !canonical {
-			plan.ProcessCanonical = nil
-		}
+
 		var (
 			mu    sync.Mutex
 			seen  rpc.Request
 			calls int
 		)
-		if canonical {
-			origProcess := plan.ProcessCanonical
-			plan.ProcessCanonical = func(ctx context.Context, req rpc.Request, value json.RawMessage, caller rpc.AdmissionCaller) (rpcengine.CanonicalResult, error) {
-				mu.Lock()
-				seen, calls = req, calls+1
-				mu.Unlock()
-				return origProcess(ctx, req, value, caller)
-			}
-		} else {
-			origAdmit := plan.Admit
-			plan.Admit = func(ctx context.Context, req rpc.Request, value json.RawMessage, caller rpc.AdmissionCaller) (json.RawMessage, error) {
-				mu.Lock()
-				seen, calls = req, calls+1
-				mu.Unlock()
-				return origAdmit(ctx, req, value, caller)
-			}
+
+		origProcess := plan.Canonical.Process
+		plan.Canonical.Process = func(ctx context.Context, req rpc.Request, value json.RawMessage, caller rpc.AdmissionCaller) (rpcengine.CanonicalResult, error) {
+			mu.Lock()
+			seen, calls = req, calls+1
+			mu.Unlock()
+			return origProcess(ctx, req, value, caller)
 		}
+
 		agg := transactionWorkFleet(t, methods.MethodGetTransactionByHash, plan, raw)
 		decision, aggErr := agg.Aggregate(context.Background(), request)
 		if aggErr != nil || decision.Status != rpc.Corroborated {
-			t.Fatalf("route (canonical=%v) failed: %v, %v", canonical, decision.Status, aggErr)
+			t.Fatalf("route (canonical) failed: %v, %v", decision.Status, aggErr)
 		}
 		if calls != 3 || reflect.DeepEqual(seen, rpc.Request{}) {
-			t.Fatalf("route (canonical=%v) ran its per-source stage %d times, want once per source", canonical, calls)
+			t.Fatalf("route (canonical) ran its per-source stage %d times, want once per source", calls)
 		}
 		if seen.Method != decision.Prepared.Method {
-			t.Fatalf("route (canonical=%v): semantic method %q diverged from the record %q", canonical, seen.Method, decision.Prepared.Method)
+			t.Fatalf("route (canonical): semantic method %q diverged from the record %q", seen.Method, decision.Prepared.Method)
 		}
 		// The stage's semantic view decodes equal to a UseNumber pass over
 		// the record's frozen bytes: one JSON fact, three consumers.
@@ -219,15 +205,11 @@ func TestAdmissionAndProcessorShareTheFrozenSemantics(t *testing.T) {
 			t.Fatal(err)
 		}
 		if string(view) != string(recordJSON) {
-			t.Fatalf("route (canonical=%v): the semantic view diverged from the record: %s / %s", canonical, view, recordJSON)
+			t.Fatalf("route (canonical): the semantic view diverged from the record: %s / %s", view, recordJSON)
 		}
 		return string(view)
 	}
-	processor := stageView(t, true)
-	admission := stageView(t, false)
-	if processor != admission {
-		t.Fatalf("the two routes saw different JSON semantics: %s / %s", processor, admission)
-	}
+	stageView(t)
 }
 
 // TestFreezeFailureKeepsEvidenceAndZeroFanOut pins the freeze-failure

@@ -14,13 +14,8 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// The processing entries' differential witnesses: each method's canonical
-// processor must produce the same verdict class and the same canonical bytes
-// as the raw route's prepare+compat-admission on every input class, and the
-// processing witnesses (preparation idempotence, input immutability, output
-// immutability, source isolation) must hold. The production plan is not
-// switched here; the processors exist so the pilot wiring can adopt them.
-
+// Canonical preparation is idempotent, does not mutate raw inputs, and keeps
+// output copies and source results isolated.
 func transactionProcessorFixtures(t *testing.T) []json.RawMessage {
 	t.Helper()
 	var fixtures []json.RawMessage
@@ -79,10 +74,8 @@ func declaredHash(t *testing.T, raw json.RawMessage) (string, bool) {
 	return fields.Hash, true
 }
 
-// TestTransactionByHashProcessorMatchesRawRoute runs both routes on every
-// fixture class with the same request: same verdict class, and on success
-// the same canonical bytes the raw route would commit.
-func TestTransactionByHashProcessorMatchesRawRoute(t *testing.T) {
+// Processing an already prepared value preserves the verdict and bytes.
+func TestTransactionByHashProcessorPreparationIdempotence(t *testing.T) {
 	for i, raw := range transactionProcessorFixtures(t) {
 		name := "fixture"
 		if hash, ok := declaredHash(t, raw); ok {
@@ -93,12 +86,12 @@ func TestTransactionByHashProcessorMatchesRawRoute(t *testing.T) {
 			if hash, ok := declaredHash(t, raw); ok {
 				request.Params[0] = hash
 			}
-			rawRoute := func() (json.RawMessage, error) {
+			preparedRoute := func() (json.RawMessage, error) {
 				candidate, err := prepareTransactionByHash(raw)
 				if err != nil {
 					return nil, err
 				}
-				if _, err := admitTransactionByHash(context.Background(), request, candidate, nil); err != nil {
+				if _, err := processTransactionByHash(context.Background(), request, candidate, nil); err != nil {
 					return nil, err
 				}
 				return candidate, nil
@@ -110,23 +103,21 @@ func TestTransactionByHashProcessorMatchesRawRoute(t *testing.T) {
 				}
 				return result.Value(), nil
 			}
-			want, wantErr := rawRoute()
+			want, wantErr := preparedRoute()
 			got, gotErr := processRoute()
 			if transactionVerdictClass(wantErr) != transactionVerdictClass(gotErr) {
-				t.Fatalf("verdict classes differ: raw=%v (%q) processor=%v (%q)", wantErr, wantErr, gotErr, gotErr)
+				t.Fatalf("verdict classes differ: prepared=%v (%q) processor=%v (%q)", wantErr, wantErr, gotErr, gotErr)
 			}
 			if wantErr == nil && !bytes.Equal(want, got) {
-				t.Fatalf("canonical bytes differ: raw=%s processor=%s", want, got)
+				t.Fatalf("canonical bytes differ: prepared=%s processor=%s", want, got)
 			}
 			_ = i
 		})
 	}
 }
 
-// TestTransactionInBlockProcessorMatchesRawRoute mirrors the differential for
-// the block-addressed method, with each mined fixture's own inclusion
-// context as the request and pending/root-null shapes rejected equally.
-func TestTransactionInBlockProcessorMatchesRawRoute(t *testing.T) {
+// Block-addressed preparation has the same idempotence contract.
+func TestTransactionInBlockProcessorPreparationIdempotence(t *testing.T) {
 	for _, raw := range transactionProcessorFixtures(t) {
 		var fields struct {
 			Hash             string `json:"hash"`
@@ -142,12 +133,12 @@ func TestTransactionInBlockProcessorMatchesRawRoute(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			request := rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: []any{fields.BlockHash, fields.TransactionIndex}}
-			rawRoute := func() (json.RawMessage, error) {
+			preparedRoute := func() (json.RawMessage, error) {
 				candidate, err := prepareTransactionInBlock(raw)
 				if err != nil {
 					return nil, err
 				}
-				if _, err := admitTransactionInBlock(context.Background(), request, candidate, nil); err != nil {
+				if _, err := processTransactionInBlock(context.Background(), request, candidate, nil); err != nil {
 					return nil, err
 				}
 				return candidate, nil
@@ -159,13 +150,13 @@ func TestTransactionInBlockProcessorMatchesRawRoute(t *testing.T) {
 				}
 				return result.Value(), nil
 			}
-			want, wantErr := rawRoute()
+			want, wantErr := preparedRoute()
 			got, gotErr := processRoute()
 			if transactionVerdictClass(wantErr) != transactionVerdictClass(gotErr) {
-				t.Fatalf("verdict classes differ: raw=%v (%q) processor=%v (%q)", wantErr, wantErr, gotErr, gotErr)
+				t.Fatalf("verdict classes differ: prepared=%v (%q) processor=%v (%q)", wantErr, wantErr, gotErr, gotErr)
 			}
 			if wantErr == nil && !bytes.Equal(want, got) {
-				t.Fatalf("canonical bytes differ: raw=%s processor=%s", want, got)
+				t.Fatalf("canonical bytes differ: prepared=%s processor=%s", want, got)
 			}
 		})
 	}

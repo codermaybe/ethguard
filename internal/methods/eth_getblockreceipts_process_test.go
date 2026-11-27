@@ -27,14 +27,12 @@ func blockReceiptProcessingRequest(t *testing.T, raw json.RawMessage) rpc.Reques
 func TestBlockReceiptsProcessingEntryRegistered(t *testing.T) {
 	spec := getBlockReceiptsSpec()
 	plan, err := CompilePlan(spec)
-	if err != nil || spec.ProcessCanonical == nil || plan.ProcessCanonical == nil || plan.Admit == nil || spec.KeySource != rpcengine.RuleKeyCanonicalBytes {
+	if err != nil || spec.ProcessCanonical == nil || plan.Canonical == nil || plan.Resolver != nil || plan.Admit != nil || spec.KeySource != rpcengine.RuleKeyCanonicalBytes {
 		t.Fatalf("incomplete processing registration: %+v, %v", spec, err)
 	}
 }
 
-// The raw entry remains executable in every revision, including the frozen
-// pre-processor baseline. A registered processor must produce the same bytes
-// and absent evidence; no comparison normalizer is used as the expected value.
+// The registered processor commits the object encoder output and no evidence.
 func TestBlockReceiptsProcessingDelivery(t *testing.T) {
 	receipt := sampleReceipt(t)
 	req := blockReceiptProcessingRequest(t, receipt)
@@ -48,14 +46,7 @@ func TestBlockReceiptsProcessingDelivery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		evidence, err := spec.Admit(context.Background(), req, raw, nil)
-		if err != nil || evidence != nil {
-			t.Fatalf("raw admission = %s, %v", evidence, err)
-		}
-		got, err := spec.Encode(raw)
-		if err != nil || !bytes.Equal(got, want) {
-			t.Fatalf("raw bytes = %s, want %s: %v", got, want, err)
-		}
+
 		if spec.ProcessCanonical != nil {
 			result, err := spec.ProcessCanonical(context.Background(), req, raw, nil)
 			if err != nil || !bytes.Equal(result.Value(), want) || result.Evidence() != nil {
@@ -73,14 +64,11 @@ func TestBlockReceiptsProcessingFailures(t *testing.T) {
 		json.RawMessage(`[null]`), json.RawMessage(`{}`),
 		receiptArray(t, receipt, deleteReceiptField(t, receipt, "logs")),
 	} {
-		evidence, want := spec.Admit(context.Background(), req, raw, nil)
-		if evidence != nil || !errors.Is(want, rpc.ErrMalformedResponse) {
-			t.Fatalf("raw error = %v, evidence=%s", want, evidence)
-		}
+
 		if spec.ProcessCanonical != nil {
 			result, err := spec.ProcessCanonical(context.Background(), req, raw, nil)
-			if !errors.Is(err, rpc.ErrMalformedResponse) || err.Error() != want.Error() || result.Value() != nil || result.Evidence() != nil {
-				t.Fatalf("processed failure = %+v, %v; want %v", result, err, want)
+			if !errors.Is(err, rpc.ErrMalformedResponse) || result.Value() != nil || result.Evidence() != nil {
+				t.Fatalf("processed failure = %+v, %v", result, err)
 			}
 		}
 	}

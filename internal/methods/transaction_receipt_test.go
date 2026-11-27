@@ -12,7 +12,7 @@ func TestGetTransactionReceiptDefinition(t *testing.T) {
 	if spec.Method != MethodGetTransactionReceipt || descriptor.Name != spec.Method {
 		t.Fatalf("method identity is not self-contained: spec=%+v descriptor=%+v", spec, descriptor)
 	}
-	if spec.Normalize == nil || spec.Admit == nil {
+	if spec.Normalize == nil || spec.ProcessCanonical == nil || spec.Admit != nil || spec.Encode != nil {
 		t.Fatalf("method definition is incomplete: %+v", spec)
 	}
 	if descriptor.Adapter != "TransactionReceipt" {

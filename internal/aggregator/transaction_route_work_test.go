@@ -21,28 +21,8 @@ import (
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
-// The route-work witness: what one invocation of the compiled transaction
-// plans really spends on full-representation work per route, counted at the
-// compiled plan's own hooks — the admission entry, the resolver's canonical
-// encoder, the normalizer — plus the processor entries on the canonical
-// route. These counters are hook-entry counts. They are not object
-// preparation counts by themselves, and they are not JSON parse counts.
-//
-// The three numbers are measured separately: hook entries here; full
-// transaction.Prepare calls and transaction-package json.Unmarshal calls
-// with the object-kernel overlay witness recorded in
-// docs/design/tmp/codeanalyze-rpc-quality-plan.md. Per usable source that
-// witness measured, through the real compiled plan and production assembler:
-// canonical route 1 Prepare and 6 unmarshals; raw route 2 Prepares and 9
-// unmarshals (admission's Prepare plus the resolver encoder's Prepare; each
-// Prepare does 3 unmarshals — the field view, the official projection, the
-// typed merge — and each binding does 3 more). The witness excludes the
-// wire and jsonsafe packages, so the unmarshal figures are a lower bound of
-// the JSON work, not a parse total. Before the admission entries bound
-// through the prepared candidate they prepared the canonical bytes a second
-// time: the same witness at f12eefe measured 3 Prepares and 13 unmarshals
-// per source on the raw route.
-
+// Counters observe registered hook entries, independently of JSON parse counts.
+// Historical raw-route measurements remain in Git and the recorded baseline.
 type workCounters struct {
 	admit     atomic.Int64
 	encode    atomic.Int64
@@ -183,16 +163,7 @@ func forwardedFleet(tb testing.TB, method string, plan rpcengine.ReadPlan, body 
 	return New(p, WithPlans(map[string]rpcengine.ReadPlan{method: plan}), WithCorroboration(shared))
 }
 
-// TestTransactionRouteWorkCounts pins the per-route work shape of the two
-// pilot methods with counting witnesses. On the canonical route one
-// invocation runs the processor exactly once per source and never touches
-// the raw hooks; on the raw route one invocation runs the admission entry
-// and the resolver's canonical encoder exactly once per usable source, each
-// running the object kernel once — two full preparations, measured at the
-// kernel entry by the overlay witness in the plan document, not inferred
-// from these hook counts — and never re-normalizes, because the comparison
-// key is the canonical bytes. A second identical invocation doubles every
-// count: nothing survives an invocation.
+// Each invocation processes each source once; no prepared result is cached.
 func TestTransactionRouteWorkCounts(t *testing.T) {
 	raw, hash, blockHash, index := minedTransactionVector(t)
 	for _, method := range []string{methods.MethodGetTransactionByHash, methods.MethodGetTransactionByBlockHashAndIndex} {
@@ -218,27 +189,7 @@ func TestTransactionRouteWorkCounts(t *testing.T) {
 					t.Fatalf("canonical route re-ran raw hooks: admit=%d encode=%d normalize=%d", counts.admit.Load(), counts.encode.Load(), counts.normalize.Load())
 				}
 			})
-			t.Run("raw", func(t *testing.T) {
-				counts := &workCounters{}
-				plan := instrumentedPlan(t, method, counts)
-				plan.ProcessCanonical = nil
-				agg := transactionWorkFleet(t, method, plan, raw)
-				for round := 1; round <= 2; round++ {
-					decision, err := agg.Aggregate(context.Background(), request)
-					if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
-						t.Fatalf("round %d = %+v, %v", round, decision, err)
-					}
-				}
-				if counts.admit.Load() != 6 || counts.encode.Load() != 6 {
-					t.Fatalf("raw route work = admit %d / encode %d, want 3 per invocation × 2 rounds each", counts.admit.Load(), counts.encode.Load())
-				}
-				if counts.normalize.Load() != 0 {
-					t.Fatalf("raw route re-normalized beside the canonical-bytes key: %d calls", counts.normalize.Load())
-				}
-				if counts.process.Load() != 0 {
-					t.Fatalf("raw route ran the processor %d times", counts.process.Load())
-				}
-			})
+
 		})
 	}
 }

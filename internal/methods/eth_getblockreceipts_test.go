@@ -37,13 +37,12 @@ func TestBlockReceiptSpellingsAndFromShareCanonicalValue(t *testing.T) {
 		// Equivalent JSON string escape spelling.
 		json.RawMessage(strings.Replace(string(receiptArray(t, raw)), `"0x`, `"\u0030x`, 1)),
 	}
-	policy := planResolver(t, MethodGetBlockReceipts, rpcengine.WithQuorum(1))
 	var baseline json.RawMessage
 	for i := range variants {
 		a := observation(rpc.SourceRef{ID: "a"}, string(variants[0]), `{"source":"a"}`)
 		b := observation(rpc.SourceRef{ID: "b"}, string(variants[i]), `{"source":"b"}`)
 		for _, order := range [][]rpc.Observation{{a, b}, {b, a}} {
-			decision, err := policy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, order)
+			decision, err := resolveCanonical(t, blockReceiptProcessingRequest(t, sampleReceipt(t)), rpcengine.Corroboration{Floor: 1}, order)
 			if err != nil || decision.Decision.Status != rpc.Corroborated || len(decision.Decision.Support) != 2 {
 				t.Fatalf("variant %d decision = %+v err %v", i, decision, err)
 			}
@@ -52,7 +51,7 @@ func TestBlockReceiptSpellingsAndFromShareCanonicalValue(t *testing.T) {
 			} else if !bytes.Equal(baseline, decision.Decision.Value) {
 				t.Fatal("capture order/spelling changed Value")
 			}
-			if decision.Decision.Representative != order[0].Source || !bytes.Equal(decision.Decision.Provenance, order[0].Evidence) {
+			if decision.Decision.Representative != order[0].Source || len(decision.Decision.Provenance) != 0 {
 				t.Fatalf("representative/evidence = %+v", decision)
 			}
 		}
@@ -62,9 +61,8 @@ func TestBlockReceiptSpellingsAndFromShareCanonicalValue(t *testing.T) {
 func TestBlockReceiptsNullEmptyAndArrayOrder(t *testing.T) {
 	first := sampleReceipt(t)
 	second := replaceReceiptField(t, first, "gasUsed", `"0x1"`)
-	policy := planResolver(t, MethodGetBlockReceipts, rpcengine.WithQuorum(1)).(rpcengine.CorroboratingResolver)
 	for _, body := range []string{`null`, `[]`} {
-		d, err := policy.ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, []rpc.Observation{observation(rpc.SourceRef{ID: "a"}, body, ""), observation(rpc.SourceRef{ID: "b"}, body, "")})
+		d, err := resolveCanonical(t, blockReceiptProcessingRequest(t, sampleReceipt(t)), rpcengine.Corroboration{Floor: 1}, []rpc.Observation{observation(rpc.SourceRef{ID: "a"}, body, ""), observation(rpc.SourceRef{ID: "b"}, body, "")})
 		if err != nil || string(d.Decision.Value) != body || d.Decision.Status != rpc.Corroborated {
 			t.Fatalf("body %s = %+v err %v", body, d, err)
 		}
@@ -74,7 +72,7 @@ func TestBlockReceiptsNullEmptyAndArrayOrder(t *testing.T) {
 		{string(receiptArray(t, first, second)), string(receiptArray(t, second, first))},
 		{string(receiptArray(t, first)), string(receiptArray(t, second))},
 	} {
-		d, err := policy.ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, []rpc.Observation{observation(rpc.SourceRef{ID: "a"}, pair[0], ""), observation(rpc.SourceRef{ID: "b"}, pair[1], "")})
+		d, err := resolveCanonical(t, blockReceiptProcessingRequest(t, sampleReceipt(t)), rpcengine.Corroboration{Floor: 1}, []rpc.Observation{observation(rpc.SourceRef{ID: "a"}, pair[0], ""), observation(rpc.SourceRef{ID: "b"}, pair[1], "")})
 		if !errors.Is(err, rpc.ErrConflict) || d.Decision.Status != rpc.Unknown || len(d.Decision.Support) != 1 || len(d.Decision.Reject) != 1 {
 			t.Fatalf("pair = %+v err %v", d, err)
 		}
@@ -96,10 +94,10 @@ func TestBlockReceiptInvalidElementKeepsWholeSourceInDenominator(t *testing.T) {
 	good := receiptArray(t, sampleReceipt(t))
 	other := receiptArray(t, replaceReceiptField(t, sampleReceipt(t), "gasUsed", `"0x1"`))
 	for _, bad := range []json.RawMessage{receiptArray(t, sampleReceipt(t), json.RawMessage(`null`)), receiptArray(t, sampleReceipt(t), deleteReceiptField(t, sampleReceipt(t), "logs"))} {
-		d, err := planResolver(t, MethodGetBlockReceipts, rpcengine.WithQuorum(2)).(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
+		d, err := resolveCanonical(t, blockReceiptProcessingRequest(t, sampleReceipt(t)), rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
 			observation(rpc.SourceRef{ID: "a"}, string(good), ""), observation(rpc.SourceRef{ID: "b"}, string(good), ""), observation(rpc.SourceRef{ID: "c"}, string(other), ""), observation(rpc.SourceRef{ID: "d"}, string(bad), ""),
 		})
-		if !errors.Is(err, rpc.ErrConflict) || d.Decision.Status != rpc.Unknown || len(d.Decision.Support) != 2 || len(d.Decision.Reject) != 1 || len(d.Decision.Faults) != 1 || !strings.Contains(d.Decision.Faults[0].Error(), "encode:") {
+		if !errors.Is(err, rpc.ErrConflict) || d.Decision.Status != rpc.Unknown || len(d.Decision.Support) != 2 || len(d.Decision.Reject) != 1 || len(d.Decision.Faults) != 1 || !strings.Contains(d.Decision.Faults[0].Error(), "admission:") {
 			t.Fatalf("decision = %+v err %v", d, err)
 		}
 	}
@@ -199,15 +197,15 @@ func TestBlockReceiptEscapesPreserveAdmissionChecks(t *testing.T) {
 		return json.RawMessage(strings.ReplaceAll(string(value), `"0x`, `"\u0030x`))
 	}
 	req := rpc.Request{Method: MethodGetBlockReceipts, Params: []any{hash}}
-	if _, err := admitBlockReceipts(context.Background(), req, escape(receiptArray(t, raw)), nil); err != nil {
+	if _, err := processBlockReceipts(context.Background(), req, escape(receiptArray(t, raw)), nil); err != nil {
 		t.Fatal(err)
 	}
 	foreign := rpc.Request{Method: MethodGetBlockReceipts, Params: []any{"0x" + strings.Repeat("34", 32)}}
-	if _, err := admitBlockReceipts(context.Background(), foreign, escape(receiptArray(t, raw)), nil); !errors.Is(err, rpc.ErrMalformedResponse) {
+	if _, err := processBlockReceipts(context.Background(), foreign, escape(receiptArray(t, raw)), nil); !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("foreign block = %v", err)
 	}
 	badBloom := replaceReceiptField(t, raw, "logsBloom", `"0x`+strings.Repeat("00", 255)+`01"`)
-	if _, err := admitBlockReceipts(context.Background(), req, escape(receiptArray(t, badBloom)), nil); !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "logsBloom disagrees with logs") {
+	if _, err := processBlockReceipts(context.Background(), req, escape(receiptArray(t, badBloom)), nil); !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "logsBloom disagrees with logs") {
 		t.Fatalf("bloom = %v", err)
 	}
 }

@@ -315,7 +315,7 @@ func TestCompilePlanCoversTheInventory(t *testing.T) {
 		if plan.Method != spec.Method {
 			t.Fatalf("plan method %q, want %q", plan.Method, spec.Method)
 		}
-		if plan.Resolver == nil {
+		if plan.Resolver == nil && plan.Canonical == nil {
 			t.Fatalf("%s compiled no resolver", spec.Method)
 		}
 	}
@@ -414,6 +414,9 @@ func TestCompilePlanBindingsFollowResolverClass(t *testing.T) {
 			t.Fatalf("%s: compile plan: %v", spec.Method, err)
 		}
 		_, corroborating := plan.Resolver.(rpcengine.CorroboratingResolver)
+		if plan.Canonical != nil {
+			corroborating = true
+		}
 		if plan.Corroborating() != corroborating {
 			t.Fatalf("%s: declared corroborating=%v, resolver capability=%v", spec.Method, plan.Corroborating(), corroborating)
 		}

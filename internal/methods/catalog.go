@@ -95,7 +95,7 @@ func ValidatePlanCoverage(plans map[string]rpcengine.ReadPlan) error {
 		if method.Kind != RegisteredMethod {
 			continue
 		}
-		if plans[method.Name].Resolver == nil {
+		if err := plans[method.Name].ValidateExecution(); err != nil {
 			return fmt.Errorf("method catalog: registered method %q has no execution plan", method.Name)
 		}
 	}

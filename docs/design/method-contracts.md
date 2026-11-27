@@ -104,7 +104,7 @@ NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观
 
 对象准备使用有效生成 query 模型，保留 payload hash、签名形态、from 语法、包含上下文及请求绑定检查；protected legacy 的 chainId 声明与签名派生值核对。当前不做 sender recovery 或 inclusion proof。未知 typed payload 无法验证时保留可分类拒绝与原始材料，不能因 raw 一致获得已验证交易的保证。
 
-`Candidate` 共享对象准备，两个 processor 消费同一结果；raw Normalize／Encode／Admit 适配保留。canonical 结果只在一次 invocation 内复用，不按 hash 跨调用缓存。规范 typed 值优先，仅补回官方 mask 保留而当前分支未表达的成员：开放分支中官方容忍的跨分支附加项保持；闭子对象的域外成员由 mask 隔离，差异不处罚健康。mask 成员身份不等于值已验证，不以合并掩盖覆盖缺口。
+`Candidate` 共享对象准备，两个 processor 消费同一结果；Normalize 作为方法的独立比较键能力保留，生产 canonical 执行不再装配 raw Encode／Admit 适配器。canonical 结果只在一次 invocation 内复用，不按 hash 跨调用缓存。规范 typed 值优先，仅补回官方 mask 保留而当前分支未表达的成员：开放分支中官方容忍的跨分支附加项保持；闭子对象的域外成员由 mask 隔离，差异不处罚健康。mask 成员身份不等于值已验证，不以合并掩盖覆盖缺口。
 
 独立 query 与 BlockTransaction 的有效上下文合同不同。完整块输出已经接入生成 Block；当前 block admission 仍有 transaction Candidate／私有 geth 处理，不能沿用旧“内嵌交易完全不走独立内核”的描述，也不能只凭代码复用宣称两者接受域完全一致。该关系属于后续审查，本文不修改生产行为。
 

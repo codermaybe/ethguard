@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -110,27 +109,6 @@ func forwardedCanonicalAggregate(t *testing.T, ctx context.Context, plan rpcengi
 	return run
 }
 
-func compareForwardedCanonicalRuns(t *testing.T, baseline, candidate forwardedCanonicalRun) {
-	t.Helper()
-	compareReceiptRoutes(t, baseline.receiptRouteRun, candidate.receiptRouteRun)
-	compareReceiptMaterial(t, baseline.raw, candidate.raw)
-	compareReceiptHealth(t, baseline.health, candidate.health)
-	if !reflect.DeepEqual(baseline.decision.Sources, candidate.decision.Sources) || !reflect.DeepEqual(baseline.decision.Reference, candidate.decision.Reference) || baseline.decision.BlockRef != candidate.decision.BlockRef || !reflect.DeepEqual(baseline.decision.Revert, candidate.decision.Revert) || !reflect.DeepEqual(baseline.decision.Dimensions, candidate.decision.Dimensions) || !reflect.DeepEqual(baseline.decision.DeletedFields, candidate.decision.DeletedFields) {
-		t.Fatalf("remaining decision evidence differs:\n%+v\n%+v", baseline.decision, candidate.decision)
-	}
-	if !reflect.DeepEqual(baseline.event, candidate.event) {
-		t.Fatalf("events differ:\n%+v\n%+v", baseline.event, candidate.event)
-	}
-	if candidate.decision.Extensions != nil || candidate.decision.Diagnostics != nil {
-		t.Fatalf("Forwarded gained corroborated field evidence: %+v", candidate.decision)
-	}
-	for _, class := range []error{rpc.ErrUnsupportedTypedObject, rpc.ErrNoValidResponse, context.Canceled, rpc.ErrReferenceRequired} {
-		if errors.Is(baseline.err, class) != errors.Is(candidate.err, class) {
-			t.Fatalf("error class %v changed: raw=%v canonical=%v", class, baseline.err, candidate.err)
-		}
-	}
-}
-
 func assertForwardedCanonicalRequests(t *testing.T, nodes []*rpctest.Node, req rpc.Request, firstCalls int) {
 	t.Helper()
 	want, err := json.Marshal(req.Params)
@@ -155,19 +133,13 @@ func assertForwardedCanonicalRequests(t *testing.T, nodes []*rpctest.Node, req r
 	}
 }
 
-func forwardedCanonicalCompare(t *testing.T, ctx context.Context, fixture forwardedCanonicalFixture, capture bool, requests int) forwardedCanonicalRun {
+func forwardedCanonicalExecute(t *testing.T, ctx context.Context, fixture forwardedCanonicalFixture, capture bool, requests int) forwardedCanonicalRun {
 	t.Helper()
 	members, nodes := forwardedCanonicalNodes(t, fixture.req.Method, fixture.raw)
 	counts := &workCounters{}
-	baselinePlan := instrumentedPlan(t, fixture.req.Method, counts)
-	baselinePlan.ProcessCanonical = nil
-	baseline := forwardedCanonicalAggregate(t, ctx, baselinePlan, members, fixture.req, capture)
-	assertForwardedCanonicalRequests(t, nodes, fixture.req, requests)
-	counts.reset()
 	candidatePlan := instrumentedPlan(t, fixture.req.Method, counts)
 	candidate := forwardedCanonicalAggregate(t, ctx, candidatePlan, members, fixture.req, capture)
-	assertForwardedCanonicalRequests(t, nodes, fixture.req, requests*2)
-	compareForwardedCanonicalRuns(t, baseline, candidate)
+	assertForwardedCanonicalRequests(t, nodes, fixture.req, requests)
 	if requests == 1 {
 		// An admission exit keeps the invocation's fixed majority bound; only
 		// completed Forwarded adjudication states the one-source requirement.
@@ -187,14 +159,69 @@ func forwardedCanonicalCompare(t *testing.T, ctx context.Context, fixture forwar
 			}
 		}
 	}
-	// This assertion follows the declared route so the same tests compile and
-	// run against the frozen pre-change baseline as well as the new gate.
-	canonical := frozenProcessorRoute(&candidatePlan, false, rpcengine.Corroboration{Mode: rpc.CorroborationForwarded}, true) != nil
+	// Forwarded uses the plan's declared processing contract.
+	canonical := candidatePlan.Canonical != nil
 	if requests > 0 && canonical && counts.process.Load() != 1 {
 		t.Fatalf("Forwarded processor calls=%d, want one", counts.process.Load())
 	}
 	if canonical && (counts.admit.Load() != 0 || counts.encode.Load() != 0 || counts.normalize.Load() != 0) {
 		t.Fatalf("canonical Forwarded reran raw hooks: admit=%d encode=%d normalize=%d", counts.admit.Load(), counts.encode.Load(), counts.normalize.Load())
+	}
+	if candidate.decision.Extensions != nil || candidate.decision.Diagnostics != nil {
+		t.Fatal("Forwarded gained agreement evidence")
+	}
+
+	if candidate.decision.Reference != nil || candidate.decision.Revert != nil || len(candidate.decision.Dimensions) != 0 || len(candidate.decision.DeletedFields) != 0 {
+		t.Fatalf("object read gained unrelated evidence: %+v", candidate.decision)
+	}
+	wantEvent := "forwarded"
+	if candidate.err != nil {
+		wantEvent = "failed"
+	}
+	if candidate.event.Status != wantEvent || candidate.event.Method != fixture.req.Method || candidate.event.Conflict {
+		t.Fatalf("event = %+v, want status %s", candidate.event, wantEvent)
+	}
+	if !capture && len(candidate.raw) != 0 {
+		t.Fatal("disabled capture retained material")
+	}
+	delivered := 0
+	for _, raw := range candidate.raw {
+		if len(raw.Value) == 0 {
+			continue
+		}
+		delivered++
+		if raw.Stage != "response" || raw.Source.Name != "forwarded-0" || raw.Method != fixture.req.Method || !bytes.Equal(bytes.TrimSpace(raw.Value), bytes.TrimSpace(fixture.raw)) || raw.Truncated {
+			t.Fatalf("capture lost original source value: %+v", raw)
+		}
+	}
+	wantDelivered := 0
+	if capture {
+		wantDelivered = requests
+	}
+	if delivered != wantDelivered {
+		t.Fatalf("captured delivered answers=%d, want %d", delivered, wantDelivered)
+	}
+	var successes, failures uint64
+	for _, health := range candidate.health {
+		successes += health.Successes
+		failures += health.Failures
+	}
+	wantSuccess, wantFailure := uint64(0), uint64(0)
+	if requests == 1 {
+		if candidate.err == nil {
+			wantSuccess = 1
+		} else {
+			wantFailure = 1
+		}
+	}
+	if successes != wantSuccess || failures != wantFailure {
+		t.Fatalf("health = %d successes/%d failures, want %d/%d", successes, failures, wantSuccess, wantFailure)
+	}
+	if len(candidate.event.Attempts) != requests {
+		t.Fatalf("attempts = %+v", candidate.event.Attempts)
+	}
+	if requests == 1 && (candidate.event.Attempts[0].Source != "forwarded-0" || candidate.event.Attempts[0].Failed != (candidate.err != nil)) {
+		t.Fatalf("attempt attribution = %+v", candidate.event.Attempts)
 	}
 	return candidate
 }
@@ -228,7 +255,7 @@ func TestForwardedCanonicalRegisteredRoutes(t *testing.T) {
 							tc.req.Params[0] = "0x" + strings.Repeat("22", 32)
 							want = rpc.ErrMalformedResponse
 						}
-						run := forwardedCanonicalCompare(t, context.Background(), tc, capture, 1)
+						run := forwardedCanonicalExecute(t, context.Background(), tc, capture, 1)
 						if !errors.Is(run.err, want) || (want == nil && run.decision.Status != rpc.Forwarded) {
 							t.Fatalf("outcome=%+v, err=%v, want %v", run.decision, run.err, want)
 						}
@@ -244,7 +271,7 @@ func TestForwardedCanonicalCancellationAndPendingRequest(t *testing.T) {
 	cancel()
 	for _, fixture := range forwardedCanonicalFixtures(t) {
 		t.Run(fixture.req.Method, func(t *testing.T) {
-			run := forwardedCanonicalCompare(t, ctx, fixture, true, 0)
+			run := forwardedCanonicalExecute(t, ctx, fixture, true, 0)
 			if !errors.Is(run.err, context.Canceled) {
 				t.Fatalf("canceled = %v", run.err)
 			}
@@ -252,12 +279,12 @@ func TestForwardedCanonicalCancellationAndPendingRequest(t *testing.T) {
 	}
 	fixture := forwardedCanonicalFixtures(t)[3]
 	fixture.req.Params = []any{"pending"}
-	run := forwardedCanonicalCompare(t, context.Background(), fixture, true, 0)
+	run := forwardedCanonicalExecute(t, context.Background(), fixture, true, 0)
 	if !errors.Is(run.err, rpc.ErrInvalidRequest) {
 		t.Fatalf("pending block receipts = %v", run.err)
 	}
 	fixture.req.Params = []any{"latest"}
-	run = forwardedCanonicalCompare(t, context.Background(), fixture, true, 0)
+	run = forwardedCanonicalExecute(t, context.Background(), fixture, true, 0)
 	if !errors.Is(run.err, rpc.ErrReferenceRequired) {
 		t.Fatalf("moving tag bypassed reference establishment: %v", run.err)
 	}
@@ -287,75 +314,14 @@ func TestForwardedCanonicalPendingTransaction(t *testing.T) {
 		t.Fatalf("pending capture identity: %v", err)
 	}
 	fixture := forwardedCanonicalFixture{rpc.Request{Method: methods.MethodGetTransactionByHash, Params: []any{tx.Hash}}, response.Result}
-	run := forwardedCanonicalCompare(t, context.Background(), fixture, true, 1)
+	run := forwardedCanonicalExecute(t, context.Background(), fixture, true, 1)
 	if run.err != nil || run.decision.Status != rpc.Forwarded {
 		t.Fatalf("pending by-hash = %+v, %v", run.decision, run.err)
 	}
 	fixture.req = forwardedCanonicalFixtures(t)[1].req
-	run = forwardedCanonicalCompare(t, context.Background(), fixture, true, 1)
+	run = forwardedCanonicalExecute(t, context.Background(), fixture, true, 1)
 	if !errors.Is(run.err, rpc.ErrMalformedResponse) {
 		t.Fatalf("pending transaction in a mined block = %v", run.err)
-	}
-}
-
-type forwardedRawOnlyResolver struct {
-	rpcengine.Resolver
-	calls *atomic.Int64
-}
-
-func (p forwardedRawOnlyResolver) Resolve(obs []rpc.Observation) (rpcengine.Outcome, error) {
-	p.calls.Add(1)
-	return p.Resolver.Resolve(obs)
-}
-
-type forwardedSingleCanonicalResolver struct {
-	forwardedRawOnlyResolver
-	rpcengine.CanonicalOutcomeResolver
-}
-
-func (forwardedSingleCanonicalResolver) SingleSource() bool { return true }
-
-func TestForwardedCanonicalCustomRawCompatibility(t *testing.T) {
-	for _, single := range []bool{false, true} {
-		t.Run(fmt.Sprintf("single=%t", single), func(t *testing.T) {
-			var resolved, processed, admitted atomic.Int64
-			strict := rpcengine.Strict(rpc.CanonicalJSON, rpcengine.WithCanonicalValue(rpc.EncodeCanonicalJSON))
-			raw := forwardedRawOnlyResolver{Resolver: strict, calls: &resolved}
-			var resolver rpcengine.Resolver = raw
-			if single {
-				resolver = forwardedSingleCanonicalResolver{raw, strict.(rpcengine.CanonicalOutcomeResolver)}
-			}
-			plan := rpcengine.ReadPlan{Method: "custom", Resolver: resolver,
-				Admit: func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error) {
-					admitted.Add(1)
-					return nil, nil
-				},
-				ProcessCanonical: func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (rpcengine.CanonicalResult, error) {
-					processed.Add(1)
-					return rpcengine.CanonicalResult{}, rpc.ErrInvalidCanonicalResult
-				},
-			}
-			members, nodes := forwardedCanonicalNodes(t, "custom", json.RawMessage(`1`))
-			req := rpc.Request{Method: "custom"}
-			run := forwardedCanonicalAggregate(t, context.Background(), plan, members, req, true)
-			assertForwardedCanonicalRequests(t, nodes, req, 1)
-			if run.err != nil || run.decision.Status != rpc.Forwarded || processed.Load() != 0 || admitted.Load() != 1 || resolved.Load() != 1 {
-				t.Fatalf("custom raw compatibility: %+v, %v; process=%d admit=%d resolve=%d", run.decision, run.err, processed.Load(), admitted.Load(), resolved.Load())
-			}
-			if !single && frozenProcessorRoute(&plan, false, rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}, true) == nil {
-				t.Fatal("ordinary mode silently suppressed its existing canonical capability error")
-			}
-		})
-	}
-	// WithPlans skips an empty declaration; the ordinary unknown-method
-	// fallback must therefore install and execute its own ForwardPolicy.
-	plan := rpcengine.ReadPlan{Method: "unregistered"}
-	members, nodes := forwardedCanonicalNodes(t, plan.Method, json.RawMessage(`{"vendor":1}`))
-	req := rpc.Request{Method: plan.Method}
-	run := forwardedCanonicalAggregate(t, context.Background(), plan, members, req, true)
-	assertForwardedCanonicalRequests(t, nodes, req, 1)
-	if run.err != nil || run.decision.Status != rpc.Forwarded || string(run.decision.Value) != `{"vendor":1}` || run.decision.Extensions != nil {
-		t.Fatalf("unknown method semantics changed: %+v, %v", run.decision, run.err)
 	}
 }
 
@@ -365,7 +331,7 @@ func TestForwardedCanonicalInternalContractFault(t *testing.T) {
 			fixture := forwardedCanonicalFixtures(t)[2]
 			counts := &workCounters{}
 			plan := instrumentedPlan(t, fixture.req.Method, counts)
-			plan.ProcessCanonical = func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (rpcengine.CanonicalResult, error) {
+			plan.Canonical.Process = func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (rpcengine.CanonicalResult, error) {
 				counts.process.Add(1)
 				if withResult {
 					result, err := rpcengine.NewCanonicalResult(json.RawMessage(`null`), nil)
@@ -404,17 +370,38 @@ func TestForwardedCanonicalProtocolAnswer(t *testing.T) {
 			nodes[0].FailWithData(fixture.req.Method, -32000, "not available", json.RawMessage(`{"detail":1}`), true)
 			counts := &workCounters{}
 			plan := instrumentedPlan(t, fixture.req.Method, counts)
-			plan.ProcessCanonical = nil
-			baseline := forwardedCanonicalAggregate(t, context.Background(), plan, members, fixture.req, true)
-			assertForwardedCanonicalRequests(t, nodes, fixture.req, 1)
-			counts.reset()
-			plan = instrumentedPlan(t, fixture.req.Method, counts)
 			candidate := forwardedCanonicalAggregate(t, context.Background(), plan, members, fixture.req, true)
-			assertForwardedCanonicalRequests(t, nodes, fixture.req, 2)
-			compareForwardedCanonicalRuns(t, baseline, candidate)
+			if candidate.decision.Status != rpc.Unknown || candidate.err == nil {
+				t.Fatalf("protocol error = %+v, %v", candidate.decision, candidate.err)
+			}
+			assertForwardedCanonicalRequests(t, nodes, fixture.req, 1)
 			if counts.process.Load() != 0 || counts.admit.Load() != 0 || counts.encode.Load() != 0 || counts.normalize.Load() != 0 {
 				t.Fatal("protocol error entered a result processor")
 			}
+			if candidate.event.Status != "failed" || len(candidate.event.Attempts) != 1 || candidate.event.Attempts[0].Failed || len(candidate.decision.SourceFaults) != 1 {
+				t.Fatalf("protocol failure attribution = %+v / %+v", candidate.decision, candidate.event)
+			}
+			var successes, failures uint64
+			for _, h := range candidate.health {
+				successes += h.Successes
+				failures += h.Failures
+			}
+			if successes != 0 || failures != 1 {
+				t.Fatalf("RPC error health attribution: %+v", candidate.health)
+			}
+			found := false
+			for _, raw := range candidate.raw {
+				if raw.Stage == "response" && raw.Source.Name == "forwarded-0" {
+					found = true
+					if raw.Error != "not available" || len(raw.Value) != 0 {
+						t.Fatalf("RPC error material = %+v", raw)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("RPC error source material missing")
+			}
+
 		})
 	}
 }
@@ -422,17 +409,12 @@ func TestForwardedCanonicalProtocolAnswer(t *testing.T) {
 func BenchmarkForwardedCanonicalAggregate(b *testing.B) {
 	for _, fixture := range forwardedCanonicalFixtures(b) {
 		b.Run(fixture.req.Method, func(b *testing.B) {
-			for _, processed := range []bool{false, true} {
-				name := "raw-plan"
-				if processed {
-					name = "processor-plan"
-				}
+			{
+				name := "canonical"
 				b.Run(name, func(b *testing.B) {
 					counts := &workCounters{}
 					plan := instrumentedPlan(b, fixture.req.Method, counts)
-					if !processed {
-						plan.ProcessCanonical = nil
-					}
+
 					members, nodes := forwardedCanonicalNodes(b, fixture.req.Method, fixture.raw)
 					var calls [3]atomic.Int64
 					for i, node := range nodes {

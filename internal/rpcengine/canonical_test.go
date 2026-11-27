@@ -93,30 +93,6 @@ func TestCanonicalObservationPairing(t *testing.T) {
 	}
 }
 
-// canonicalCountingResolver returns a strict resolver whose raw hooks count
-// invocations, plus the counters.
-func canonicalCountingResolver(normalizeCalls, encodeCalls *int) Resolver {
-	normalize := func(raw json.RawMessage) (string, error) {
-		*normalizeCalls++
-		var decoded any
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			return "", err
-		}
-		encoded, _ := json.Marshal(decoded)
-		return string(encoded), nil
-	}
-	encode := func(raw json.RawMessage) (json.RawMessage, error) {
-		*encodeCalls++
-		var decoded any
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			return nil, err
-		}
-		encoded, _ := json.Marshal(decoded)
-		return encoded, nil
-	}
-	return Strict(normalize, WithCanonicalValue(encode), WithQuorum(2))
-}
-
 // canonicalObservation binds one canonical result to a named source slot.
 // raw is the observation's original spelling; value is the processed bytes a
 // processor would have produced — the two may differ, which is the seam's
@@ -136,15 +112,9 @@ func canonicalObservation(t *testing.T, id, raw, value string) CanonicalObservat
 
 // TestStrictCanonicalRouteNeverCallsRawHooks pins the seam's core promise:
 // the canonical route resolves from the processed bytes alone. The raw
-// normalizer and encoder exist on the resolver (the compatibility adapters
-// are intact) but are not consulted on the canonical entries.
+// resolver exposes only processed entries, with no raw execution hooks.
 func TestStrictCanonicalRouteNeverCallsRawHooks(t *testing.T) {
-	normalizeCalls, encodeCalls := 0, 0
-	policy := canonicalCountingResolver(&normalizeCalls, &encodeCalls)
-	resolver, ok := policy.(CanonicalOutcomeResolver)
-	if !ok {
-		t.Fatal("strict resolver does not declare the canonical consumption capability")
-	}
+	resolver := CanonicalStrict(RuleCompareMethodSpecific)
 	outcome, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 2}, []CanonicalObservation{
 		// Different raw spellings, one processed shape: the convergence a
 		// method processor produces is what the route clusters on.
@@ -154,9 +124,7 @@ func TestStrictCanonicalRouteNeverCallsRawHooks(t *testing.T) {
 	if err != nil || outcome.Decision.Status != rpc.Corroborated {
 		t.Fatalf("canonical resolution = %+v, %v", outcome.Decision, err)
 	}
-	if normalizeCalls != 0 || encodeCalls != 0 {
-		t.Fatalf("canonical route ran raw hooks: normalize=%d encode=%d", normalizeCalls, encodeCalls)
-	}
+
 	// The two spellings clustered as one: the canonical bytes were compared
 	// directly, not re-encoded from the raw observations.
 	if len(outcome.Decision.Support) != 2 || len(outcome.Decision.Reject) != 0 {
@@ -174,9 +142,7 @@ func TestStrictCanonicalRouteNeverCallsRawHooks(t *testing.T) {
 // identity rules: an empty source identity and a duplicate are the
 // process-conflict sentinel, not per-source skips.
 func TestStrictCanonicalRouteRejectsBrokenIdentity(t *testing.T) {
-	normalizeCalls, encodeCalls := 0, 0
-	policy := canonicalCountingResolver(&normalizeCalls, &encodeCalls)
-	resolver := policy.(CanonicalOutcomeResolver)
+	resolver := CanonicalStrict(RuleCompareMethodSpecific)
 	empty := canonicalObservation(t, "a", `"x"`, `"x"`)
 	empty.observation.Source.ID = ""
 	if _, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 2}, []CanonicalObservation{empty}); !errors.Is(err, rpc.ErrInvalidOutcome) {
@@ -194,9 +160,7 @@ func TestStrictCanonicalRouteRejectsBrokenIdentity(t *testing.T) {
 // response. Two valid answers beside one failure still corroborate against a
 // three-member basis.
 func TestStrictCanonicalRouteKeepsFailedSlots(t *testing.T) {
-	normalizeCalls, encodeCalls := 0, 0
-	policy := canonicalCountingResolver(&normalizeCalls, &encodeCalls)
-	resolver := policy.(CanonicalOutcomeResolver)
+	resolver := CanonicalStrict(RuleCompareMethodSpecific)
 	failed := rpc.Observation{Attempted: true, Source: rpc.SourceRef{ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("transport: refused")}}}
 	bound, err := NewCanonicalObservation(failed, CanonicalResult{})
 	if err != nil {
@@ -244,9 +208,8 @@ func TestStrictCanonicalRouteEquivalenceWithRawRoute(t *testing.T) {
 		return json.RawMessage(encoded), err
 	}
 	rawPolicy := Strict(normalize, WithCanonicalValue(encoder), WithQuorum(2))
-	// The canonical route's resolver carries the same hooks (intact
-	// adapters); they are simply not consulted.
-	canonicalPolicy := Strict(normalize, WithCanonicalValue(encoder), WithQuorum(2))
+	// The canonical contract consumes the processed values only.
+	canonicalPolicy := CanonicalStrict(RuleCompareMethodSpecific)
 
 	rawObservations := []rpc.Observation{
 		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Evidence: json.RawMessage(`"ea"`), Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`{"k":"v"}`)}}},
@@ -274,7 +237,7 @@ func TestStrictCanonicalRouteEquivalenceWithRawRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonicalOutcome, err := canonicalPolicy.(CanonicalOutcomeResolver).ResolveCanonicalCorroborated(corrob, cobs)
+	canonicalOutcome, err := canonicalPolicy.ResolveCanonicalCorroborated(corrob, cobs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +256,7 @@ func TestStrictCanonicalRouteEquivalenceWithRawRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonicalLegacy, err := canonicalPolicy.(CanonicalOutcomeResolver).ResolveCanonical(cobs)
+	canonicalLegacy, err := canonicalPolicy.ResolveCanonical(cobs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,13 +273,9 @@ func TestStrictCanonicalRouteEquivalenceWithRawRoute(t *testing.T) {
 
 // TestStrictCanonicalRouteFloorEnforcement pins the snapshot semantics: the
 // frozen floor applies to the canonical route unchanged, and the no-snapshot
-// entries keep the legacy downgrade instead of claiming corroboration. A
-// resolver with a construction-time floor enforces it on its no-snapshot
-// entries too — the same rule the raw route follows.
+// entries keep valid-answer agreement and downgrade a lone answer.
 func TestStrictCanonicalRouteFloorEnforcement(t *testing.T) {
-	normalizeCalls, encodeCalls := 0, 0
-	policy := canonicalCountingResolver(&normalizeCalls, &encodeCalls)
-	resolver := policy.(CanonicalOutcomeResolver)
+	resolver := CanonicalStrict(RuleCompareMethodSpecific)
 	cobs := []CanonicalObservation{
 		canonicalObservation(t, "a", `"x"`, `"x"`),
 		canonicalObservation(t, "b", `"x"`, `"x"`),
@@ -328,12 +287,9 @@ func TestStrictCanonicalRouteFloorEnforcement(t *testing.T) {
 	if err != nil || legacy.Decision.Status != rpc.Corroborated {
 		t.Fatalf("two agreeing legacy answers = %+v, %v", legacy.Decision, err)
 	}
-	if _, err := resolver.ResolveCanonical([]CanonicalObservation{canonicalObservation(t, "a", `"x"`, `"x"`)}); !errors.Is(err, rpc.ErrInsufficientSupport) {
-		t.Fatalf("construction-time floor not enforced on the no-snapshot entry: %v", err)
-	}
 	// A resolver without corroboration options keeps the decision-0006
 	// default on its canonical entries: a lone answer stays Selected.
-	legacyPolicy := Strict(func(raw json.RawMessage) (string, error) { return string(raw), nil }).(CanonicalOutcomeResolver)
+	legacyPolicy := CanonicalStrict(RuleCompareMethodSpecific)
 	single, err := legacyPolicy.ResolveCanonical([]CanonicalObservation{canonicalObservation(t, "a", `"x"`, `"x"`)})
 	if err != nil || single.Decision.Status != rpc.Selected {
 		t.Fatalf("lone legacy answer = %+v, %v (must stay Selected, not claim corroboration)", single.Decision, err)
@@ -345,9 +301,7 @@ func TestStrictCanonicalRouteFloorEnforcement(t *testing.T) {
 // verdict, the winner's provenance is the first supporter's processed
 // evidence, and the committed bytes are the winner's canonical value.
 func TestStrictCanonicalRouteDissentAndProvenance(t *testing.T) {
-	normalizeCalls, encodeCalls := 0, 0
-	policy := canonicalCountingResolver(&normalizeCalls, &encodeCalls)
-	resolver := policy.(CanonicalOutcomeResolver)
+	resolver := CanonicalStrict(RuleCompareMethodSpecific)
 	winner, err := NewCanonicalResult(json.RawMessage(`"win"`), json.RawMessage(`"winner-evidence"`))
 	if err != nil {
 		t.Fatal(err)

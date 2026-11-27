@@ -34,7 +34,10 @@ func TestEveryDeclaredResolverHonorsItsClass(t *testing.T) {
 func assertClassBinding(t *testing.T, method string, plan rpcengine.ReadPlan) {
 	t.Helper()
 	_, corroborating := plan.Resolver.(rpcengine.CorroboratingResolver)
-	_, outcomeCorroborating := plan.Resolver.(rpcengine.CorroboratingResolver)
+	if plan.Canonical != nil {
+		corroborating = true
+	}
+	outcomeCorroborating := corroborating
 	switch plan.Corroborating() {
 	case true:
 		if !corroborating || !outcomeCorroborating {
@@ -111,6 +114,12 @@ func TestCompiledResolverAgreementMatchesItsCorroborationClass(t *testing.T) {
 		plan, err := CompilePlan(spec)
 		if err != nil {
 			t.Fatalf("%s: compile plan: %v", spec.Method, err)
+		}
+		if plan.Canonical != nil {
+			if plan.ResolverKind != rpcengine.ResolverStrict || plan.Canonical.Resolver == nil {
+				t.Fatal("invalid canonical contract")
+			}
+			continue
 		}
 		agreement, hasAgreement := plan.Resolver.(rpcengine.AgreementResolver)
 		if hasAgreement != plan.Corroborating() {

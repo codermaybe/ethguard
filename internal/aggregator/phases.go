@@ -53,16 +53,15 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	// be bypassed by the unknown-method forward fallback. Once those checks
 	// pass, however, the plan is not executable: fail closed before reference
 	// establishment or any provider fan-out.
-	if plan.Resolver == nil {
-		return a.prepareFailureExit(state, started, req, fmt.Errorf("rpc: read plan for %q has no resolver: %w", req.Method, rpc.ErrInvalidReadPlan))
+	if err := plan.ValidateExecution(); err != nil {
+		return a.prepareFailureExit(state, started, req, err)
 	}
 	// ReferenceRequirement: the declaration and the request decide whether
 	// this read needs its reference; a request without a moving tag never
 	// establishes.
 	request, needed := plan.ReferenceRequirement(req)
 	// ReferenceStage: the one establishment path. The rounds run on this
-	// invocation's frozen basis; the evidence lands on the invocation and
-	// the transitional capture.
+	// invocation's frozen basis; the evidence belongs to that invocation.
 	ref, refOK := rpc.ReferenceEvidence{}, false
 	if needed {
 		if exit := a.establishPlannedReference(state, started, req, request, &ref, &refOK); exit != nil {
@@ -95,23 +94,9 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	state.pendingLocal = planPendingLocalRoute(plan, prepared, state.snap, state.snapOK)
 	state.freshness = preparedTipFreshness(plan, prepared)
 	state.preparedMethod = prepared.Method
-	// A plan processor can serve strict rounds, including Forwarded rounds
-	// whose resolver supports canonical consumption. Pending-local and
-	// Forwarded custom raw-only/single-source resolvers retain their raw
-	// route. Every later phase reads this frozen value.
-	state.processorRoute = frozenProcessorRoute(plan, state.pendingLocal, state.snap, state.snapOK)
-	// A frozen canonical route needs the resolver's canonical consumption
-	// capability. The compiler rejects the mismatch for compiled specs; a
-	// plan installed directly through WithPlans carries the same
-	// requirement, detected here so the round takes the one internal
-	// contract exit instead of reaching the resolution or any raw-hook
-	// fallback.
-	if state.processorRoute != nil {
-		var ok bool
-		state.canonicalResolver, ok = plan.Resolver.(rpcengine.CanonicalOutcomeResolver)
-		if !ok {
-			state.internalFault = fmt.Errorf("%w: %s resolver cannot consume canonical observations", rpc.ErrInvalidCanonicalResult, plan.Method)
-		}
+	if plan.Canonical != nil {
+		state.processorRoute = plan.Canonical.Process
+		state.canonicalResolver = plan.Canonical.Resolver
 	}
 	// The per-source stage reads the wire's semantic JSON once, shared
 	// read-only across sources. Keep numeric tokens exact rather than
@@ -130,30 +115,6 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 		}
 	}
 	return nil
-}
-
-// frozenProcessorRoute decides the invocation's processing route from the
-// plan's declarations, the frozen pending-local fact, and the captured
-// corroboration mode. Pending-local rounds keep their local raw resolution.
-// Forwarded rounds can reuse canonical processing when the resolver supports
-// it, while raw-only and explicitly single-source custom resolvers preserve
-// their existing Resolve entry. This is capability-based, not a method registry.
-func frozenProcessorRoute(plan *rpcengine.ReadPlan, pendingLocal bool, snap rpcengine.Corroboration, snapOK bool) rpcengine.CanonicalProcessor {
-	if plan.ProcessCanonical == nil {
-		return nil
-	}
-	if pendingLocal {
-		return nil
-	}
-	if snapOK && snap.Mode == rpc.CorroborationForwarded {
-		if singleSourcePolicy(plan.Resolver) {
-			return nil
-		}
-		if _, ok := plan.Resolver.(rpcengine.CanonicalOutcomeResolver); !ok {
-			return nil
-		}
-	}
-	return plan.ProcessCanonical
 }
 
 // preparedTipFreshness reports whether the prepared business request still

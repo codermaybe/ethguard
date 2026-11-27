@@ -21,7 +21,7 @@ func TestTransactionByHashDefinition(t *testing.T) {
 	if spec.Method != MethodGetTransactionByHash || descriptor.Name != spec.Method || descriptor.Adapter != "TransactionByHash" {
 		t.Fatalf("method identity is not self-contained: spec=%+v descriptor=%+v", spec, descriptor)
 	}
-	if spec.Admit == nil || spec.Normalize == nil || spec.Encode == nil || spec.Resolver != ResolverStrict {
+	if spec.Admit != nil || spec.Normalize == nil || spec.Encode != nil || spec.ProcessCanonical == nil || spec.Resolver != ResolverStrict {
 		t.Fatalf("method definition is incomplete: %+v", spec)
 	}
 	if _, err := CompilePlan(spec); err != nil {
@@ -35,14 +35,13 @@ func TestTransactionRequiredFieldsRejectBeforeVoting(t *testing.T) {
 		t.Run(field, func(t *testing.T) {
 			missing := deleteField(t, raw, field)
 			request := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{txHash(t, raw)}}
-			if _, err := admitTransactionByHash(context.Background(), request, missing, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
+			if _, err := processTransactionByHash(context.Background(), request, missing, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
 				t.Fatalf("missing %s admission = %v", field, err)
 			}
 			if _, err := normalizeTransactionByHash(missing); err == nil {
 				t.Fatalf("missing %s contributed a comparison key", field)
 			}
-			policy := planResolver(t, MethodGetTransactionByHash, rpcengine.WithQuorum(2)).(rpcengine.CorroboratingResolver)
-			decision, err := policy.ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
+			decision, err := resolveCanonical(t, request, rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
 				{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: missing}}},
 				{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: missing}}},
 			})
@@ -61,19 +60,18 @@ func TestTransactionMethodRulesShareCanonicalOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{txHash(t, raw)}}
-	if _, err := admitTransactionByHash(context.Background(), request, upper, nil); err != nil {
+	if _, err := processTransactionByHash(context.Background(), request, upper, nil); err != nil {
 		t.Fatalf("whole-key case compatibility rejected: %v", err)
 	}
 	got, err := normalizeTransactionByHash(upper)
 	if err != nil || got != want {
 		t.Fatalf("case compatibility = %s, %v; want %s", got, err, want)
 	}
-	policy := planResolver(t, MethodGetTransactionByHash, rpcengine.WithQuorum(2)).(rpcengine.CorroboratingResolver)
 	for _, observations := range [][]rpc.Observation{
 		{{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}, {Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: upper}}}},
 		{{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: upper}}}, {Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}},
 	} {
-		decision, err := policy.ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, observations)
+		decision, err := resolveCanonical(t, request, rpcengine.Corroboration{Floor: 2}, observations)
 		if err != nil || decision.Decision.Status != rpc.Corroborated || string(decision.Decision.Value) != want {
 			t.Fatalf("canonical decision = %+v, %v; want %s", decision, err, want)
 		}
@@ -177,12 +175,11 @@ func TestTransactionByHashPendingTimestampPreservesEvidenceAndPayload(t *testing
 	if !bytes.Equal(originalPayload, candidatePayload) || originalTx.Hash() != candidateTx.Hash() || originalTx.Hash().Hex() != request.Params[0] {
 		t.Fatal("pending derivation changed signed payload or hash")
 	}
-	if _, err := admitTransactionByHash(context.Background(), request, raw, nil); err != nil {
+	if _, err := processTransactionByHash(context.Background(), request, raw, nil); err != nil {
 		t.Fatal(err)
 	}
 	explicit := injectField(t, raw, "blockTimestamp", `null`)
-	policy := planResolver(t, MethodGetTransactionByHash, rpcengine.WithQuorum(2)).(rpcengine.CorroboratingResolver)
-	decision, err := policy.ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
+	decision, err := resolveCanonical(t, request, rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
 		{Attempted: true, Source: rpc.SourceRef{ID: "derived"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
 		{Attempted: true, Source: rpc.SourceRef{ID: "explicit"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: explicit}}},
 	})
@@ -217,7 +214,7 @@ func TestTransactionByHashPendingTimestampRequiresExplicitPendingState(t *testin
 				if _, err := prepareTransactionByHash(mutated); !errors.Is(err, rpc.ErrMalformedResponse) {
 					t.Fatalf("invalid context acquired canonical Value: %v", err)
 				}
-				if _, err := admitTransactionByHash(context.Background(), request, mutated, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
+				if _, err := processTransactionByHash(context.Background(), request, mutated, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
 					t.Fatalf("invalid context admitted: %v", err)
 				}
 			})
@@ -239,13 +236,12 @@ func TestTransactionByHashPendingTimestampRequiresExplicitPendingState(t *testin
 func TestTransactionByHashLegacyChainIDMatchesSignedPayload(t *testing.T) {
 	request, raw, _ := observedPendingTransaction(t)
 	conflicting := injectField(t, raw, "chainId", `"0x1"`)
-	if _, err := admitTransactionByHash(context.Background(), request, conflicting, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
+	if _, err := processTransactionByHash(context.Background(), request, conflicting, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
 		var tx types.Transaction
 		if decodeErr := json.Unmarshal(conflicting, &tx); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		policy := planResolver(t, request.Method, rpcengine.WithQuorum(2)).(rpcengine.CorroboratingResolver)
-		decision, resolveErr := policy.ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
+		decision, resolveErr := resolveCanonical(t, request, rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
 			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: conflicting}}},
 			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: conflicting}}},
 		})
@@ -263,12 +259,11 @@ func TestTransactionByHashPendingTimestampDoesNotRescueInvalidPayload(t *testing
 		t.Run(edit.key, func(t *testing.T) {
 			invalid := injectField(t, raw, edit.key, edit.value)
 			before := bytes.Clone(invalid)
-			_, admissionErr := admitTransactionByHash(context.Background(), request, invalid, nil)
+			_, admissionErr := processTransactionByHash(context.Background(), request, invalid, nil)
 			if !errors.Is(admissionErr, rpc.ErrMalformedResponse) {
 				t.Fatalf("pending correction rescued invalid %s: %v", edit.key, admissionErr)
 			}
-			policy := planResolver(t, request.Method, rpcengine.WithQuorum(2)).(rpcengine.CorroboratingResolver)
-			decision, err := policy.ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
+			decision, err := resolveCanonical(t, request, rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
 				{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
 				{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
 				{Attempted: true, Source: rpc.SourceRef{ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage("null")}}},

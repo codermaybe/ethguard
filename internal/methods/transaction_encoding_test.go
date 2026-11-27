@@ -19,9 +19,9 @@ import (
 
 func TestTransactionPolicyCanonicalizesValueWithoutSplicingSources(t *testing.T) {
 	raw := sampleResults(t, "block-receipt-tx", "tx-one")[0]
+	request := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{txHash(t, raw)}}
 	withVendor := injectField(t, raw, "vendorExtension", `"outside"`)
-	policy := planResolver(t, MethodGetTransactionByHash, rpcengine.WithQuorum(2)).(rpcengine.CorroboratingResolver)
-	decision, err := policy.ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
+	decision, err := resolveCanonical(t, request, rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
 		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
 		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: withVendor}}},
 	})
@@ -69,7 +69,7 @@ func TestTransactionMethodsAcceptOfficialPayloadTypes(t *testing.T) {
 				}
 				covered[fields.Type] = true
 				request := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{fields.Hash}}
-				if _, err := admitTransactionByHash(context.Background(), request, vector.Result, nil); err != nil {
+				if _, err := processTransactionByHash(context.Background(), request, vector.Result, nil); err != nil {
 					t.Fatalf("official by-hash type %s rejected: %v", fields.Type, err)
 				}
 				byHash, err := normalizeTransactionByHash(vector.Result)
@@ -77,7 +77,7 @@ func TestTransactionMethodsAcceptOfficialPayloadTypes(t *testing.T) {
 					t.Fatal(err)
 				}
 				request = rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: []any{fields.BlockHash, fields.Index}}
-				if _, err := admitTransactionInBlock(context.Background(), request, vector.Result, nil); err != nil {
+				if _, err := processTransactionInBlock(context.Background(), request, vector.Result, nil); err != nil {
 					t.Fatalf("official block/index type %s rejected: %v", fields.Type, err)
 				}
 				byBlock, err := normalizeTransactionInBlock(vector.Result)
@@ -105,7 +105,7 @@ func TestTransactionPendingContextIsAnEntireConsistentState(t *testing.T) {
 		pending = injectField(t, pending, field, `null`)
 	}
 	request := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{txHash(t, raw)}}
-	if _, err := admitTransactionByHash(context.Background(), request, pending, nil); err != nil {
+	if _, err := processTransactionByHash(context.Background(), request, pending, nil); err != nil {
 		t.Fatalf("pending admission = %v", err)
 	}
 	key, err := normalizeTransactionByHash(pending)
@@ -123,12 +123,12 @@ func TestTransactionPendingContextIsAnEntireConsistentState(t *testing.T) {
 		if field == "blockTimestamp" {
 			continue
 		}
-		if _, err := admitTransactionByHash(context.Background(), request, deleteField(t, pending, field), nil); !errors.Is(err, rpc.ErrMalformedResponse) {
+		if _, err := processTransactionByHash(context.Background(), request, deleteField(t, pending, field), nil); !errors.Is(err, rpc.ErrMalformedResponse) {
 			t.Fatalf("missing pending %s admission = %v", field, err)
 		}
 	}
 	mixed := injectField(t, raw, "blockHash", `null`)
-	if _, err := admitTransactionByHash(context.Background(), request, mixed, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
+	if _, err := processTransactionByHash(context.Background(), request, mixed, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("mixed inclusion state admission = %v", err)
 	}
 	var mined struct {
@@ -142,10 +142,10 @@ func TestTransactionPendingContextIsAnEntireConsistentState(t *testing.T) {
 	if _, err := normalizeTransactionInBlock(pending); !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("pending transaction contributed a block/index comparison key: %v", err)
 	}
-	if _, err := admitTransactionInBlock(context.Background(), byBlock, pending, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
+	if _, err := processTransactionInBlock(context.Background(), byBlock, pending, nil); !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("pending transaction accepted by block/index: %v", err)
 	}
-	if _, err := admitTransactionInBlock(context.Background(), byBlock, foldHex(t, raw), nil); err != nil {
+	if _, err := processTransactionInBlock(context.Background(), byBlock, foldHex(t, raw), nil); err != nil {
 		t.Fatalf("mined case compatibility rejected by block/index: %v", err)
 	}
 }

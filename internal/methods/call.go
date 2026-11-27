@@ -26,7 +26,7 @@ func callSpec() MethodSpec {
 	return MethodSpec{
 		Method:                 MethodCall,
 		Resolver:               ResolverCallRevert,
-		Normalize:              normalizeCallOutcome,
+		Normalize:              normalizeCallComparisonKey,
 		CompareKind:            rpcengine.RuleCompareMethodSpecific,
 		Reference:              ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
 		Pending:                PendingSpec{Mode: PendingObserve, Pos: 1},
@@ -43,6 +43,27 @@ func callDescriptor() MethodDescriptor {
 		Policy:    "CompilePlan",
 		Adapter:   "CallContract",
 		Alignment: "v1.17.10",
+	}
+}
+
+// normalizeCallComparisonKey preserves the standalone diagnostic key, including
+// the distinct missing, null, empty and concrete revert-data states.
+func normalizeCallComparisonKey(value json.RawMessage) (string, error) {
+	flat, err := normalizeCallOutcome(value)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case strings.HasPrefix(flat, "ok|"):
+		return "execution:" + flat, nil
+	case flat == "reverted|missing":
+		return "execution:reverted|data:abstain:missing", nil
+	case flat == "reverted|null":
+		return "execution:reverted|data:abstain:null", nil
+	case strings.HasPrefix(flat, "reverted|"):
+		return "execution:reverted|data:" + strings.TrimPrefix(flat, "reverted|"), nil
+	default:
+		return flat, nil
 	}
 }
 

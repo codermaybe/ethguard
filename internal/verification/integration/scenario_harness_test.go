@@ -363,13 +363,7 @@ func t09AssertNoPendingForm(t *testing.T, method string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := plan.Resolver
-	_ = policy
-	source, ok := policy.(rpcengine.MethodRuleSource)
-	if !ok {
-		t.Fatalf("%s: policy %T does not report a method rule", method, policy)
-	}
-	rule := source.MethodRule()
+	rule := plan.MethodRule()
 	if rule.Pending != "" {
 		t.Fatalf("%s: pending declaration = %q, want none", method, rule.Pending)
 	}

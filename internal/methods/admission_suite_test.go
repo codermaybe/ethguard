@@ -201,11 +201,10 @@ func admissionCases(t *testing.T) []admissionCase {
 					// An absent block and an empty block are different answers.
 					// Folding them together would let a source report no
 					// receipts for a block that has them.
-					decision, err := planResolver(t, MethodGetBlockReceipts, rpcengine.WithQuorum(1)).(rpcengine.CorroboratingResolver).
-						ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
-							observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
-							observation(rpc.SourceRef{Name: "b", ID: "b"}, `[]`, ""),
-						})
+					decision, err := resolveCanonical(t, blockReceiptProcessingRequest(t, receipt), rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
+						observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
+						observation(rpc.SourceRef{Name: "b", ID: "b"}, `[]`, ""),
+					})
 					if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
 						t.Fatalf("null and [] formed one answer: %+v err %v", decision, err)
 					}
@@ -219,20 +218,19 @@ func admissionCases(t *testing.T) []admissionCase {
 					good := receiptArray(t, receipt)
 					other := receiptArray(t, replaceReceiptField(t, receipt, "gasUsed", `"0x1"`))
 					broken := receiptArray(t, receipt, json.RawMessage("null"))
-					decision, err := planResolver(t, MethodGetBlockReceipts, rpcengine.WithQuorum(2)).(rpcengine.CorroboratingResolver).
-						ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
-							observation(rpc.SourceRef{Name: "a", ID: "a"}, string(good), ""),
-							observation(rpc.SourceRef{Name: "b", ID: "b"}, string(good), ""),
-							observation(rpc.SourceRef{Name: "c", ID: "c"}, string(other), ""),
-							observation(rpc.SourceRef{Name: "d", ID: "d"}, string(broken), ""),
-						})
+					decision, err := resolveCanonical(t, blockReceiptProcessingRequest(t, receipt), rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
+						observation(rpc.SourceRef{Name: "a", ID: "a"}, string(good), ""),
+						observation(rpc.SourceRef{Name: "b", ID: "b"}, string(good), ""),
+						observation(rpc.SourceRef{Name: "c", ID: "c"}, string(other), ""),
+						observation(rpc.SourceRef{Name: "d", ID: "d"}, string(broken), ""),
+					})
 					if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
 						t.Fatalf("decision = %+v err %v", decision, err)
 					}
 					if len(decision.Decision.Support) != 2 || len(decision.Decision.Reject) != 1 {
 						t.Fatalf("membership = support %d reject %d", len(decision.Decision.Support), len(decision.Decision.Reject))
 					}
-					if len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "encode:") {
+					if len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "admission:") {
 						t.Fatalf("faults = %v, want one encode fault", decision.Decision.Faults)
 					}
 				},
@@ -240,11 +238,10 @@ func admissionCases(t *testing.T) []admissionCase {
 					other := replaceReceiptField(t, receipt, "gasUsed", `"0x1"`)
 					first := receiptArray(t, receipt, other)
 					second := receiptArray(t, other, receipt)
-					decision, err := planResolver(t, MethodGetBlockReceipts, rpcengine.WithQuorum(1)).(rpcengine.CorroboratingResolver).
-						ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
-							observation(rpc.SourceRef{Name: "a", ID: "a"}, string(first), ""),
-							observation(rpc.SourceRef{Name: "b", ID: "b"}, string(second), ""),
-						})
+					decision, err := resolveCanonical(t, blockReceiptProcessingRequest(t, receipt), rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
+						observation(rpc.SourceRef{Name: "a", ID: "a"}, string(first), ""),
+						observation(rpc.SourceRef{Name: "b", ID: "b"}, string(second), ""),
+					})
 					if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
 						t.Fatalf("reordering the array formed one answer: %+v err %v", decision, err)
 					}
@@ -359,12 +356,23 @@ func admissionCases(t *testing.T) []admissionCase {
 func TestAdmissionProtectedDomainClustering(t *testing.T) {
 	for _, item := range admissionCases(t) {
 		t.Run(item.method, func(t *testing.T) {
-			policy := planResolver(t, item.method, rpcengine.WithQuorum(1))
+			plan := compiledPlan(t, item.method)
 			resolve := func(a, b string) (rpc.Decision, error) {
-				outcome, err := policy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
+				obs := []rpc.Observation{
 					observation(rpc.SourceRef{Name: "a", ID: "a"}, a, ""),
 					observation(rpc.SourceRef{Name: "b", ID: "b"}, b, ""),
-				})
+				}
+				var outcome rpcengine.Outcome
+				var err error
+				if plan.Canonical != nil {
+					req := receiptRequest(t)
+					if item.method == MethodGetBlockReceipts {
+						req = blockReceiptProcessingRequest(t, sampleReceipt(t))
+					}
+					outcome, err = resolveCanonical(t, req, rpcengine.Corroboration{Floor: 1}, obs)
+				} else {
+					outcome, err = plan.Resolver.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, obs)
+				}
 				return outcome.Decision, err
 			}
 			decision, err := resolve(string(item.valid), string(item.outside))

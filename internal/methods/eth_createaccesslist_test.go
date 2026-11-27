@@ -148,7 +148,7 @@ func TestAccessListCanonicalBytesDisagreeWithinCluster(t *testing.T) {
 func TestAccessListPendingEncodesTheSelectedSource(t *testing.T) {
 	plan := compiledPlan(t, MethodCreateAccessList)
 	selected := accessListBody(strings.ToUpper(accessAddress), []string{strings.ToUpper(accessKey)}, "0x5208", "")
-	decision, err := rpcengine.ResolveLocalObservation(plan.Resolver, []rpc.Observation{
+	decision, err := rpcengine.ResolveLocalObservation(plan.Normalize, plan.Resolver, []rpc.Observation{
 		{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(selected)}}},
 		{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Response: rpc.Response{
 			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
@@ -198,11 +198,11 @@ func TestAccessListHexErrorTextCannotSilentlyMerge(t *testing.T) {
 	policy := planResolver(t, MethodCreateAccessList, rpcengine.WithQuorum(1))
 	first := json.RawMessage(`{"accessList":[],"error":"0xAB"}`)
 	second := json.RawMessage(`{"accessList":[],"error":"0xab"}`)
-	firstKey, err := policy.Normalize(first)
+	firstKey, err := compiledPlan(t, MethodCreateAccessList).Normalize(first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondKey, err := policy.Normalize(second)
+	secondKey, err := compiledPlan(t, MethodCreateAccessList).Normalize(second)
 	if err != nil {
 		t.Fatal(err)
 	}

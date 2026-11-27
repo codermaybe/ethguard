@@ -233,7 +233,7 @@ func TestFeeHistoryCanonicalBytesDisagreeWithinCluster(t *testing.T) {
 // stays Selected.
 func TestFeeHistoryPendingEncodesTheSelectedSource(t *testing.T) {
 	plan := compiledPlan(t, MethodFeeHistory)
-	decision, err := rpcengine.ResolveLocalObservation(plan.Resolver, []rpc.Observation{
+	decision, err := rpcengine.ResolveLocalObservation(plan.Normalize, plan.Resolver, []rpc.Observation{
 		{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(feeHistory("0xA", "0.50", ""))}}},
 		{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(feeHistory("0x1", "0.1", ""))}}},
 	})

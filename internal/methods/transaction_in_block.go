@@ -17,14 +17,12 @@ func transactionInBlockSpec() MethodSpec {
 		Method:    MethodGetTransactionByBlockHashAndIndex,
 		Resolver:  ResolverStrict,
 		Normalize: normalizeTransactionInBlock,
-		Encode:    prepareTransactionInBlock,
 		// KeySource is canonical-bytes for the same convergence as by-hash:
 		// the normalizer returns the encoder's bytes, so the clusters and
 		// their ordering are unchanged while the declared key source now
 		// names what the route actually compares.
 		KeySource:              rpcengine.RuleKeyCanonicalBytes,
 		CompareKind:            rpcengine.RuleCompareMethodSpecific,
-		Admit:                  admitTransactionInBlock,
 		ProcessCanonical:       processTransactionInBlock,
 		ObservationProjectorID: ProjectorTransaction,
 	}
@@ -40,24 +38,6 @@ func transactionInBlockDescriptor() MethodDescriptor {
 		Adapter:   "TransactionInBlock",
 		Alignment: "v1.17.10",
 	}
-}
-
-func admitTransactionInBlock(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	// Same kernel reuse as the by-hash admission: prepare once, bind through
-	// the candidate instead of re-preparing the canonical bytes in the
-	// compatibility entry. The in-block preparation's mined-only check runs
-	// before the request grammar, as the processing entry already does; the
-	// request still precedes any payload verdict, so the pinned error classes
-	// (ErrInvalidRequest for a bad block hash or index) are unchanged —
-	// TestTransactionAdmissionMatchesCompatChain compares both paths.
-	candidate, err := prepareTransactionCandidateInBlock(value)
-	if err != nil {
-		return nil, err
-	}
-	if err := candidate.AdmitInBlock(req); err != nil {
-		return nil, err
-	}
-	return nil, nil
 }
 
 // processTransactionInBlock is the method's canonical processing entry. Its

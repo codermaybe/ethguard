@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -52,7 +51,7 @@ func blockReceiptsRouteRequest(tb testing.TB, receipt json.RawMessage) rpc.Reque
 	return rpc.Request{Method: blockReceiptsRouteMethod, Params: []any{fields.BlockHash}}
 }
 
-func blockReceiptsRoutePlan(tb testing.TB, processed bool) rpcengine.ReadPlan {
+func blockReceiptsRoutePlan(tb testing.TB) rpcengine.ReadPlan {
 	tb.Helper()
 	spec, ok := methods.SpecFor(blockReceiptsRouteMethod)
 	if !ok {
@@ -62,9 +61,7 @@ func blockReceiptsRoutePlan(tb testing.TB, processed bool) rpcengine.ReadPlan {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	if !processed {
-		plan.ProcessCanonical = nil
-	}
+
 	return plan
 }
 
@@ -146,28 +143,15 @@ func blockReceiptsRouteAggregate(t *testing.T, plan rpcengine.ReadPlan, members 
 	return run
 }
 
-func blockReceiptsRouteCompare(t *testing.T, bodies []json.RawMessage, req rpc.Request) blockReceiptsRouteRun {
+func blockReceiptsRouteExecute(t *testing.T, bodies []json.RawMessage, req rpc.Request) blockReceiptsRouteRun {
 	t.Helper()
 	members, nodes := blockReceiptsRouteNodes(t, bodies)
-	baseline := blockReceiptsRouteAggregate(t, blockReceiptsRoutePlan(t, false), members, req)
+	run := blockReceiptsRouteAggregate(t, blockReceiptsRoutePlan(t), members, req)
 	assertBlockReceiptsRouteRequests(t, nodes, req, 1)
-	candidate := blockReceiptsRouteAggregate(t, blockReceiptsRoutePlan(t, true), members, req)
-	assertBlockReceiptsRouteRequests(t, nodes, req, 2)
-	compareReceiptRoutes(t, baseline.receiptRouteRun, candidate.receiptRouteRun)
-	compareReceiptMaterial(t, baseline.raw, candidate.raw)
-	compareReceiptHealth(t, baseline.health, candidate.health)
-	if !reflect.DeepEqual(baseline.evaluation, candidate.evaluation) {
-		t.Fatalf("full raw evaluation differs:\n%+v\n%+v", baseline.evaluation, candidate.evaluation)
-	}
-	if !bytes.Equal(jsonOf(t, baseline.decision.Sources), jsonOf(t, candidate.decision.Sources)) || !reflect.DeepEqual(baseline.decision.BlockRef, candidate.decision.BlockRef) {
-		t.Fatal("source summaries or block pin changed")
-	}
-	return candidate
+	return run
 }
 
-// Both plans use the registered method and real HTTP collection. Clearing only
-// ProcessCanonical freezes the old route; all raw votes, faults, projection,
-// retained material, source health and request counts are compared.
+// Registered block receipts are exercised through real HTTP collection.
 func TestBlockReceiptsCanonicalRoute(t *testing.T) {
 	receipt := receiptRouteFixture(t)
 	req := blockReceiptsRouteRequest(t, receipt)
@@ -205,7 +189,7 @@ func TestBlockReceiptsCanonicalRoute(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			run := blockReceiptsRouteCompare(t, tc.bodies, req)
+			run := blockReceiptsRouteExecute(t, tc.bodies, req)
 			if run.decision.Status != tc.want || !errors.Is(run.err, tc.class) || len(run.decision.Support) != tc.support || len(run.decision.SourceFaults) != tc.faults {
 				t.Fatalf("decision = %+v, err=%v", run.decision, run.err)
 			}
@@ -232,7 +216,7 @@ func TestBlockReceiptsCanonicalRouteExtensions(t *testing.T) {
 	a := blockReceiptsRouteArray(t, receiptRouteReplace(t, base, "minority", `1`))
 	b := blockReceiptsRouteArray(t, receiptRouteFoldHex(t, base))
 	c := blockReceiptsRouteArray(t, base)
-	run := blockReceiptsRouteCompare(t, []json.RawMessage{a, b, c}, blockReceiptsRouteRequest(t, receipt))
+	run := blockReceiptsRouteExecute(t, []json.RawMessage{a, b, c}, blockReceiptsRouteRequest(t, receipt))
 	if run.err != nil || run.evaluation == nil || run.decision.Extensions == nil || len(run.decision.Extensions.Fields) != 1 {
 		t.Fatalf("projection = %+v, %v", run.decision, run.err)
 	}
@@ -265,7 +249,7 @@ func TestBlockReceiptsCanonicalRouteHeightBinding(t *testing.T) {
 	valid := blockReceiptsRouteArray(t, receipt)
 	foreign := blockReceiptsRouteArray(t, receipt, receiptRouteReplace(t, receipt, "blockNumber", `"0x1"`))
 	for _, reference := range []any{fields.BlockNumber, map[string]any{"blockNumber": fields.BlockNumber}} {
-		run := blockReceiptsRouteCompare(t, []json.RawMessage{valid, valid, foreign}, rpc.Request{Method: blockReceiptsRouteMethod, Params: []any{reference}})
+		run := blockReceiptsRouteExecute(t, []json.RawMessage{valid, valid, foreign}, rpc.Request{Method: blockReceiptsRouteMethod, Params: []any{reference}})
 		if run.err != nil || len(run.decision.SourceFaults) != 1 || !strings.Contains(run.decision.SourceFaults[0].Err.Error(), "receipt 1 block number does not match requested number") {
 			t.Fatalf("height binding = %+v, %v", run.decision, run.err)
 		}
@@ -277,24 +261,20 @@ func TestBlockReceiptsCanonicalRouteWorkCounts(t *testing.T) {
 	valid := blockReceiptsRouteArray(t, receipt)
 	req := blockReceiptsRouteRequest(t, receipt)
 	members, nodes := blockReceiptsRouteNodes(t, []json.RawMessage{valid, valid, valid})
-	for index, processed := range []bool{false, true} {
+	{
 		counts := &workCounters{}
 		plan := instrumentedPlan(t, blockReceiptsRouteMethod, counts)
-		if !processed {
-			plan.ProcessCanonical = nil
-		}
+
 		run := blockReceiptsRouteAggregate(t, plan, members, req)
-		assertBlockReceiptsRouteRequests(t, nodes, req, index+1)
+		assertBlockReceiptsRouteRequests(t, nodes, req, 1)
 		if run.err != nil || run.decision.Status != rpc.Corroborated {
 			t.Fatalf("aggregate = %+v, %v", run.decision, run.err)
 		}
-		if plan.ProcessCanonical != nil {
-			if counts.process.Load() != 3 || counts.admit.Load() != 0 || counts.encode.Load() != 0 || counts.normalize.Load() != 0 {
-				t.Fatalf("canonical hooks: process=%d admit=%d encode=%d normalize=%d", counts.process.Load(), counts.admit.Load(), counts.encode.Load(), counts.normalize.Load())
-			}
-		} else if counts.process.Load() != 0 || counts.admit.Load() != 3 || counts.encode.Load() != 3 || counts.normalize.Load() != 0 {
-			t.Fatalf("raw hooks: process=%d admit=%d encode=%d normalize=%d", counts.process.Load(), counts.admit.Load(), counts.encode.Load(), counts.normalize.Load())
+
+		if counts.process.Load() != 3 || counts.admit.Load() != 0 || counts.encode.Load() != 0 || counts.normalize.Load() != 0 {
+			t.Fatalf("canonical hooks: process=%d admit=%d encode=%d normalize=%d", counts.process.Load(), counts.admit.Load(), counts.encode.Load(), counts.normalize.Load())
 		}
+
 	}
 }
 
@@ -358,7 +338,7 @@ func TestBlockReceiptsCanonicalRouteSafetyBeforeProcessor(t *testing.T) {
 			p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(blockReceiptsSafetyDialer{tr})}, pool.Member{Name: "unsafe", URL: "http://block-receipts-safety.invalid"})
 			counts := &workCounters{}
 			plan := instrumentedPlan(t, blockReceiptsRouteMethod, counts)
-			if plan.ProcessCanonical == nil {
+			if plan.Canonical.Process == nil {
 				t.Fatal("processor is not registered")
 			}
 			shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 1)
@@ -391,32 +371,20 @@ func BenchmarkBlockReceiptsCanonicalMicro(b *testing.B) {
 			}
 			raw := blockReceiptsRouteArray(b, items...)
 			req := blockReceiptsRouteRequest(b, receipt)
-			for _, processed := range []bool{false, true} {
-				name := "baseline-admit-plus-encode"
-				if processed {
-					name = "candidate-process-canonical"
-				}
+			{
+				name := "canonical"
 				b.Run(name, func(b *testing.B) {
-					plan := blockReceiptsRoutePlan(b, processed)
-					if processed && plan.ProcessCanonical == nil {
-						b.Skip("canonical entry is not registered in this baseline")
-					}
+					plan := blockReceiptsRoutePlan(b)
+
 					b.ReportAllocs()
 					b.SetBytes(int64(len(raw)))
 					b.ResetTimer()
 					for range b.N {
-						if processed {
-							if _, err := plan.ProcessCanonical(context.Background(), req, raw, nil); err != nil {
-								b.Fatal(err)
-							}
-						} else {
-							if _, err := plan.Admit(context.Background(), req, raw, nil); err != nil {
-								b.Fatal(err)
-							}
-							if _, err := rpcengine.CanonicalOf(plan.Resolver, raw); err != nil {
-								b.Fatal(err)
-							}
+
+						if _, err := plan.Canonical.Process(context.Background(), req, raw, nil); err != nil {
+							b.Fatal(err)
 						}
+
 					}
 				})
 			}
@@ -441,16 +409,11 @@ func BenchmarkBlockReceiptsCanonicalAggregate(b *testing.B) {
 			}
 			req := blockReceiptsRouteRequest(b, receipt)
 			members, _ := blockReceiptsRouteNodes(b, []json.RawMessage{raw, raw, raw})
-			for _, processed := range []bool{false, true} {
-				name := "baseline-raw-route"
-				if processed {
-					name = "candidate-canonical-route"
-				}
+			{
+				name := "canonical"
 				b.Run(name, func(b *testing.B) {
-					plan := blockReceiptsRoutePlan(b, processed)
-					if processed && plan.ProcessCanonical == nil {
-						b.Skip("canonical entry is not registered in this baseline")
-					}
+					plan := blockReceiptsRoutePlan(b)
+
 					p := receiptRouteBenchPool(b, members)
 					shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
 					if err != nil {

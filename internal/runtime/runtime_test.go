@@ -32,7 +32,7 @@ func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
 		t.Fatalf("runtime registered %d plans, want %d", len(bundle.Plans), len(methods.RegisteredNames()))
 	}
 	for _, method := range methods.RegisteredNames() {
-		if bundle.Plans[method].Resolver == nil {
+		if err := bundle.Plans[method].ValidateExecution(); err != nil {
 			t.Fatalf("runtime omitted the %s plan", method)
 		}
 	}

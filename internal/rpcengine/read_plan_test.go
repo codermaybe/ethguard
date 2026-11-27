@@ -273,13 +273,14 @@ func TestPlanMethodRuleProjectsDeclarationsAndResolverRule(t *testing.T) {
 }
 
 func TestPlanResolveLocalObservationStandsFirstNormalizableSource(t *testing.T) {
-	policy := Strict(func(value json.RawMessage) (string, error) { return string(value), nil })
+	normalize := func(value json.RawMessage) (string, error) { return string(value), nil }
+	policy := Strict(normalize)
 	obs := []rpc.Observation{
 		{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("transport fault")}}},
 		{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Evidence: json.RawMessage(`"ev"`), Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x64"`)}}},
 		{Attempted: true, Source: rpc.SourceRef{Name: "c", ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x65"`)}}},
 	}
-	decision, err := ResolveLocalObservation(policy, obs)
+	decision, err := ResolveLocalObservation(normalize, policy, obs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +294,7 @@ func TestPlanResolveLocalObservationStandsFirstNormalizableSource(t *testing.T) 
 		t.Fatalf("provenance=%s, want the source's own evidence", decision.Decision.Provenance)
 	}
 	// No usable source fails Unknown with the no-valid-response class.
-	decision, err = ResolveLocalObservation(policy, obs[:1])
+	decision, err = ResolveLocalObservation(normalize, policy, obs[:1])
 	if decision.Decision.Status != rpc.Unknown || err == nil {
 		t.Fatalf("no usable source: status=%v err=%v, want Unknown with an error", decision.Decision.Status, err)
 	}

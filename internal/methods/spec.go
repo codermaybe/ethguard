@@ -108,13 +108,9 @@ type MethodSpec struct {
 	Prepare func(context.Context, rpc.Request) (rpc.Request, error)
 	Admit   AdmissionFunc
 
-	// ProcessCanonical is the method's controlled single-source processing
-	// entry (the canonical seam). Declaring it is an assembly extension, not
-	// a mode switch: the compiler accepts it only on a strict resolver
-	// declaring canonical-bytes, and the plan then carries the same processor
-	// so the coordinator can select the processing route for one invocation.
-	// The Normalize/Encode/Admit hooks expose the raw route through the same
-	// object kernel; declaring a processor keeps all raw hooks intact.
+	// ProcessCanonical selects the processed-only execution contract. It
+	// requires Strict and canonical-bytes, excludes Admit/Encode and pending
+	// local observation, and leaves Normalize independently available.
 	ProcessCanonical rpcengine.CanonicalProcessor
 
 	// ObservationProjectorID names the runtime-bound projector; the spec

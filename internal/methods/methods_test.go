@@ -68,7 +68,7 @@ func TestStateReadPoliciesPinMovingTagsAndPreserveExplicitReferences(t *testing.
 }
 
 func TestChainIDPolicyNormalizesQuantities(t *testing.T) {
-	p := compiledPlan(t, MethodChainID).Resolver
+	p := compiledPlan(t, MethodChainID)
 	first, err := p.Normalize(json.RawMessage(`"0x1"`))
 	if err != nil {
 		t.Fatal(err)
@@ -116,13 +116,13 @@ func TestStrictWireScalarHelpers(t *testing.T) {
 func TestQuantityPoliciesRejectNonCanonicalWireValues(t *testing.T) {
 	policies := []struct {
 		name   string
-		policy rpcengine.Resolver
+		policy rpcengine.ReadPlan
 	}{
-		{"chain id", compiledPlan(t, MethodChainID).Resolver},
-		{"block number", compiledPlan(t, MethodBlockNumber).Resolver},
-		{"blob base fee", compiledPlan(t, MethodBlobBaseFee).Resolver},
-		{"gas price", compiledPlan(t, MethodGasPrice).Resolver},
-		{"priority fee", compiledPlan(t, MethodMaxPriorityFeePerGas).Resolver},
+		{"chain id", compiledPlan(t, MethodChainID)},
+		{"block number", compiledPlan(t, MethodBlockNumber)},
+		{"blob base fee", compiledPlan(t, MethodBlobBaseFee)},
+		{"gas price", compiledPlan(t, MethodGasPrice)},
+		{"priority fee", compiledPlan(t, MethodMaxPriorityFeePerGas)},
 	}
 	for _, tc := range policies {
 		t.Run(tc.name, func(t *testing.T) {
@@ -135,7 +135,7 @@ func TestQuantityPoliciesRejectNonCanonicalWireValues(t *testing.T) {
 
 func TestTransactionAdmissionClassifiesUnsupportedTypedObject(t *testing.T) {
 	plan := compiledPlan(t, MethodGetTransactionByHash)
-	_, err := plan.Admit(context.Background(), rpc.Request{
+	_, err := plan.Canonical.Process(context.Background(), rpc.Request{
 		Method: MethodGetTransactionByHash,
 		Params: []any{"0x0000000000000000000000000000000000000000000000000000000000000001"},
 	}, json.RawMessage(`{"type":"0x7f"}`), nil)
@@ -148,7 +148,7 @@ func TestTransactionAdmissionClassifiesUnsupportedTypedObject(t *testing.T) {
 }
 
 func TestBlockByHashPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
-	p := compiledPlan(t, MethodGetBlockByHash).Resolver
+	p := compiledPlan(t, MethodGetBlockByHash)
 	first, err := p.Normalize(json.RawMessage(`{"hash":"0xAB","number":"0x1","transactions":[]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestBlockByHashPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
 }
 
 func TestBlockByNumberPolicyComparesHeightsNumerically(t *testing.T) {
-	p := compiledPlan(t, MethodGetBlockByNumber).Resolver
+	p := compiledPlan(t, MethodGetBlockByNumber)
 	first, err := p.Normalize(json.RawMessage(`{"number":"0x010f","hash":"0xAB"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestBlockByNumberPolicyComparesHeightsNumerically(t *testing.T) {
 }
 
 func TestTransactionReceiptPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
-	p := compiledPlan(t, MethodGetTransactionReceipt).Resolver
+	p := compiledPlan(t, MethodGetTransactionReceipt)
 	first, err := p.Normalize(json.RawMessage(`{"transactionHash":"0xAB","status":"0x1","gasUsed":"0x10","logs":[]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -193,16 +193,16 @@ func TestTransactionReceiptPolicyIgnoresObjectOrderAndHexCase(t *testing.T) {
 }
 
 func TestTransactionPoliciesRejectIncompleteObjectsBeforeClustering(t *testing.T) {
-	if _, err := compiledPlan(t, MethodGetTransactionByHash).Resolver.Normalize(json.RawMessage(`{"hash":"0x01"}`)); err == nil {
+	if _, err := compiledPlan(t, MethodGetTransactionByHash).Normalize(json.RawMessage(`{"hash":"0x01"}`)); err == nil {
 		t.Fatal("expected incomplete transaction context to be rejected")
 	}
-	if _, err := compiledPlan(t, MethodGetTransactionReceipt).Resolver.Normalize(json.RawMessage(`{"transactionHash":"0x01"}`)); err == nil {
+	if _, err := compiledPlan(t, MethodGetTransactionReceipt).Normalize(json.RawMessage(`{"transactionHash":"0x01"}`)); err == nil {
 		t.Fatal("expected incomplete receipt to be rejected")
 	}
 }
 
 func TestBlockReceiptsPolicyPreservesEmptyArrayAndRejectsNullElement(t *testing.T) {
-	p := compiledPlan(t, MethodGetBlockReceipts).Resolver
+	p := compiledPlan(t, MethodGetBlockReceipts)
 	if got, err := p.Normalize(json.RawMessage(`[]`)); err != nil || got != `[]` {
 		t.Fatalf("expected empty receipt list to remain valid, got %q: %v", got, err)
 	}

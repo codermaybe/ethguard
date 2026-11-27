@@ -1,7 +1,6 @@
 package methods
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
@@ -10,10 +9,8 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// Compiler-side contracts of the canonical processing dimension: a declared
-// processor is a strict-only, canonical-bytes-only assembly with its raw
-// compatibility adapters intact, and the compiled plan carries the same
-// processor. TestRegisteredSpecsDeclareOnlyReviewedProcessors below pins the
+// Canonical methods compile a processed-only execution contract and keep
+// their standalone diagnostic normalizer. TestRegisteredSpecsDeclareOnlyReviewedProcessors below pins the
 // reviewed transaction and receipt methods in both directions: every reviewed
 // method declares a processor, and no other registered method does.
 func processingSpec(method string, mutate func(*MethodSpec)) MethodSpec {
@@ -21,7 +18,6 @@ func processingSpec(method string, mutate func(*MethodSpec)) MethodSpec {
 		Method:      method,
 		Resolver:    ResolverStrict,
 		Normalize:   func(raw json.RawMessage) (string, error) { return string(raw), nil },
-		Encode:      func(raw json.RawMessage) (json.RawMessage, error) { return raw, nil },
 		KeySource:   rpcengine.RuleKeyCanonicalBytes,
 		CompareKind: rpcengine.RuleCompareMethodSpecific,
 	}
@@ -48,7 +44,13 @@ func TestCompilePlanProcessorRequiresStrictCanonicalBytes(t *testing.T) {
 		{"call-revert-resolver", func(s *MethodSpec) { s.Resolver = ResolverCallRevert; s.KeySource = "" }},
 		{"normalizer-key", func(s *MethodSpec) { s.KeySource = rpcengine.RuleKeyNormalizer }},
 		{"no-normalizer-adapter", func(s *MethodSpec) { s.Normalize = nil }},
-		{"no-encoder-adapter", func(s *MethodSpec) { s.Encode = nil; s.KeySource = rpcengine.RuleKeyNormalizer }},
+		{"raw-encoder", func(s *MethodSpec) { s.Encode = func(raw json.RawMessage) (json.RawMessage, error) { return raw, nil } }},
+		{"raw-admission", func(s *MethodSpec) {
+			s.Admit = func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error) {
+				return nil, nil
+			}
+		}},
+		{"pending-observation", func(s *MethodSpec) { s.Pending = rpcengine.PendingSpec{Mode: rpcengine.PendingObserve} }},
 	}
 	for _, item := range cases {
 		t.Run(item.name, func(t *testing.T) {
@@ -63,37 +65,39 @@ func TestCompilePlanProcessorRequiresStrictCanonicalBytes(t *testing.T) {
 	}
 }
 
-func TestCompilePlanCarriesProcessorWithIntactAdapters(t *testing.T) {
+func TestCompilePlanCanonicalContractHasIndependentNormalize(t *testing.T) {
 	calls := 0
-	processor := func(ctx context.Context, req rpc.Request, raw json.RawMessage, caller rpc.AdmissionCaller) (rpcengine.CanonicalResult, error) {
-		calls++
-		return rpcengine.NewCanonicalResult(raw, nil)
-	}
 	spec := processingSpec("test_processor_valid", func(s *MethodSpec) {
-		s.ProcessCanonical = processor
-		s.Admit = func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error) {
-			return nil, nil
+		s.ProcessCanonical = func(_ context.Context, _ rpc.Request, raw json.RawMessage, _ rpc.AdmissionCaller) (rpcengine.CanonicalResult, error) {
+			calls++
+			return rpcengine.NewCanonicalResult(raw, nil)
 		}
 	})
 	plan, err := CompilePlan(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.ProcessCanonical == nil {
-		t.Fatal("compiled plan dropped the processor")
-	}
-	// The raw route stays fully assembled beside the processor: the plan's
-	// admission hook is intact and the resolver still answers raw entries.
-	if plan.Admit == nil {
-		t.Fatal("processor declaration nilled the raw admission adapter")
-	}
-	if _, ok := plan.Resolver.(rpcengine.CanonicalOutcomeResolver); !ok {
-		t.Fatal("compiled resolver cannot consume canonical observations")
+	if plan.Canonical == nil || plan.Resolver != nil || plan.Admit != nil {
+		t.Fatalf("mixed or absent execution: %+v", plan)
 	}
 	raw := json.RawMessage(`"probe"`)
-	observations := []rpc.Observation{{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}}
-	if _, err := plan.Resolver.Resolve(observations); err != nil {
-		t.Fatalf("raw route broken after processor declaration: %v", err)
+	if key, err := plan.Normalize(raw); err != nil || key != string(raw) || calls != 0 {
+		t.Fatalf("standalone normalization = %q, %v; processing calls %d", key, err, calls)
+	}
+	result, err := plan.Canonical.Process(context.Background(), rpc.Request{Method: plan.Method}, raw, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs, err := rpcengine.NewCanonicalObservation(rpc.Observation{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}, result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := plan.Canonical.Resolver.ResolveCanonicalCorroborated(rpcengine.Corroboration{Floor: 1}, []rpcengine.CanonicalObservation{obs})
+	if err != nil || string(outcome.Decision.Value) != string(raw) || calls != 1 {
+		t.Fatalf("canonical resolution = %+v, %v; calls=%d", outcome, err, calls)
+	}
+	if _, err := assembleResolver(spec, nil); err == nil {
+		t.Fatal("canonical spec assembled a raw resolver")
 	}
 }
 
@@ -112,62 +116,5 @@ func TestRegisteredSpecsDeclareOnlyReviewedProcessors(t *testing.T) {
 	}
 	for method := range reviewed {
 		t.Errorf("reviewed processor method %s is not registered", method)
-	}
-}
-
-// TestTransactionKeySourceSwitchKeepsClusters is the equivalence evidence for
-// the two pilot methods' key-source switch: the old declaration (normalizer
-// key with a canonical object encoder) and the compiled plan (canonical-bytes
-// key) cluster the same observations identically — same support, same
-// representative, same committed bytes — because this method's normalizer
-// returns exactly its encoder's output.
-func TestTransactionKeySourceSwitchKeepsClusters(t *testing.T) {
-	raw := sampleResults(t, "block-receipt-tx", "tx-one")[0]
-	variants := []json.RawMessage{
-		raw,
-		foldHex(t, injectField(t, raw, "vendorExtension", `"x"`)),
-	}
-	for _, method := range []string{MethodGetTransactionByHash, MethodGetTransactionByBlockHashAndIndex} {
-		t.Run(method, func(t *testing.T) {
-			spec, ok := SpecFor(method)
-			if !ok || spec.Normalize == nil || spec.Encode == nil {
-				t.Fatalf("%s: missing raw hooks", method)
-			}
-			legacy := rpcengine.Strict(spec.Normalize,
-				rpcengine.WithRuleCompareKind(spec.CompareKind),
-				rpcengine.WithCanonicalObject(spec.Encode),
-				rpcengine.WithQuorum(2))
-			plan, err := CompilePlan(spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			observations := make([]rpc.Observation, 0, len(variants))
-			for i, value := range variants {
-				id := string(rune('a' + i))
-				observations = append(observations, rpc.Observation{Attempted: true, Source: rpc.SourceRef{ID: id}, Evidence: json.RawMessage(`"` + id + `"`), Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: value}}})
-			}
-			legacyDecision, legacyErr := legacy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, observations)
-			plannedDecision, plannedErr := plan.Resolver.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, observations)
-			if (legacyErr == nil) != (plannedErr == nil) {
-				t.Fatalf("verdicts differ: legacy=%v planned=%v", legacyErr, plannedErr)
-			}
-			if legacyErr != nil {
-				return
-			}
-			if legacyDecision.Decision.Status != plannedDecision.Decision.Status || !bytes.Equal(legacyDecision.Decision.Value, plannedDecision.Decision.Value) {
-				t.Fatalf("decisions differ: %+v vs %+v", legacyDecision, plannedDecision)
-			}
-			if legacyDecision.Decision.Representative.ID != plannedDecision.Decision.Representative.ID || len(legacyDecision.Decision.Support) != len(plannedDecision.Decision.Support) {
-				t.Fatalf("cluster shape differs: %+v vs %+v", legacyDecision, plannedDecision)
-			}
-			// Source order cannot change the clustered outcome under either
-			// declaration.
-			reversed := []rpc.Observation{observations[1], observations[0]}
-			legacyReversed, legacyRevErr := legacy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, reversed)
-			plannedReversed, plannedRevErr := plan.Resolver.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, reversed)
-			if legacyRevErr != nil || plannedRevErr != nil || string(legacyReversed.Decision.Value) != string(plannedReversed.Decision.Value) {
-				t.Fatalf("reversed order diverged: %v / %v", legacyRevErr, plannedRevErr)
-			}
-		})
 	}
 }

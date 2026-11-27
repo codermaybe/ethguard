@@ -43,14 +43,6 @@ type callRevertFunc struct {
 	encode          CanonicalEncoder
 }
 
-func (p callRevertFunc) Normalize(value json.RawMessage) (string, error) {
-	flat, err := p.normalize(value)
-	if err != nil {
-		return "", err
-	}
-	return callComparisonKey(flat), nil
-}
-
 func (p callRevertFunc) RequiresAgreement() bool { return true }
 
 func (p callRevertFunc) IncludeRPCError() bool { return p.includeRPCError }
@@ -290,21 +282,6 @@ func classifyCall(source rpc.SourceRef, value, evidence json.RawMessage, flat st
 		}
 	}
 	return answer, nil
-}
-
-func callComparisonKey(flat string) string {
-	switch {
-	case strings.HasPrefix(flat, "ok|"):
-		return "execution:" + flat
-	case flat == "reverted|missing":
-		return "execution:reverted|data:abstain:missing"
-	case flat == "reverted|null":
-		return "execution:reverted|data:abstain:null"
-	case strings.HasPrefix(flat, "reverted|"):
-		return "execution:reverted|data:" + strings.TrimPrefix(flat, "reverted|")
-	default:
-		return flat
-	}
 }
 
 // projectRevertData applies rule 4e to a corroborated revert. Abstainers stay

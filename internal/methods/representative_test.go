@@ -265,8 +265,8 @@ func TestTypedQuantityReadsCanonicalValue(t *testing.T) {
 	if string(decision.Value) != `"0xa"` {
 		t.Fatalf("value = %s, want canonical 0xa", decision.Value)
 	}
-	got := typedQuantity(t, policy, decision.Value)
-	want := typedQuantity(t, policy, json.RawMessage(`"0xa"`))
+	got := typedQuantity(t, compiledPlan(t, MethodChainID).Normalize, decision.Value)
+	want := typedQuantity(t, compiledPlan(t, MethodChainID).Normalize, json.RawMessage(`"0xa"`))
 	if got.Cmp(want) != 0 {
 		t.Fatalf("typed value = %s, typed canonical = %s", got, want)
 	}
@@ -475,7 +475,7 @@ func TestLocalPeerCountEncodesOnlyTheSelectedSource(t *testing.T) {
 func TestResolveLocalKeepsRepresentativeZero(t *testing.T) {
 	policy := compiledPlan(t, MethodGetBalance).Resolver
 	first := rpc.SourceRef{Name: "a", ID: "a"}
-	decision, err := rpcengine.ResolveLocalObservation(policy, []rpc.Observation{
+	decision, err := rpcengine.ResolveLocalObservation(compiledPlan(t, MethodGetBalance).Normalize, policy, []rpc.Observation{
 		{Attempted: true, Source: first, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0xA"`)}}},
 		{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}},
 	})
@@ -490,9 +490,9 @@ func TestResolveLocalKeepsRepresentativeZero(t *testing.T) {
 	}
 }
 
-func typedQuantity(t *testing.T, policy rpcengine.Resolver, raw json.RawMessage) *big.Int {
+func typedQuantity(t *testing.T, normalize func(json.RawMessage) (string, error), raw json.RawMessage) *big.Int {
 	t.Helper()
-	text, err := policy.Normalize(raw)
+	text, err := normalize(raw)
 	if err != nil {
 		t.Fatal(err)
 	}

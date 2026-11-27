@@ -27,15 +27,15 @@ func TestReceiptProcessingEntryIsRegistered(t *testing.T) {
 	if spec.ProcessCanonical == nil {
 		t.Fatal("receipt spec declares no processor")
 	}
-	if spec.KeySource != rpcengine.RuleKeyCanonicalBytes || spec.Admit == nil || spec.Encode == nil {
+	if spec.KeySource != rpcengine.RuleKeyCanonicalBytes || spec.Admit != nil || spec.Encode != nil {
 		t.Fatalf("processing assembly prerequisites changed: %+v", spec)
 	}
 	plan, err := CompilePlan(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.ProcessCanonical == nil || plan.Admit == nil {
-		t.Fatalf("compiled plan lost its route: process=%t admit=%t", plan.ProcessCanonical != nil, plan.Admit != nil)
+	if plan.Canonical == nil || plan.Admit != nil || plan.Resolver != nil {
+		t.Fatalf("compiled plan lost its route: process=%t admit=%t", plan.Canonical != nil, plan.Admit != nil)
 	}
 }
 

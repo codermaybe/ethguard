@@ -20,7 +20,6 @@ func transactionByHashSpec() MethodSpec {
 		Method:    MethodGetTransactionByHash,
 		Resolver:  ResolverStrict,
 		Normalize: normalizeTransactionByHash,
-		Encode:    prepareTransactionByHash,
 		// KeySource is canonical-bytes: the comparison key is the encoder's
 		// output. The normalizer returns exactly those bytes for this method,
 		// so the clusters are unchanged — the declaration converges the
@@ -30,7 +29,6 @@ func transactionByHashSpec() MethodSpec {
 		// carries it for narrow-key methods.
 		KeySource:              rpcengine.RuleKeyCanonicalBytes,
 		CompareKind:            rpcengine.RuleCompareMethodSpecific,
-		Admit:                  admitTransactionByHash,
 		ProcessCanonical:       processTransactionByHash,
 		ObservationProjectorID: ProjectorTransaction,
 	}
@@ -46,22 +44,6 @@ func transactionByHashDescriptor() MethodDescriptor {
 		Adapter:   "TransactionByHash",
 		Alignment: "v1.17.10",
 	}
-}
-
-func admitTransactionByHash(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (json.RawMessage, error) {
-	// The admission entry prepares once and binds through the kernel: the
-	// compatibility Admit would prepare the same canonical bytes a second
-	// time. The two paths keep the same request/payload order and sentinel
-	// classes, pinned by TestTransactionAdmissionMatchesCompatChain and by
-	// TestCandidateBindingsMatchCompatEntries.
-	candidate, err := prepareTransactionCandidateByHash(value)
-	if err != nil {
-		return nil, err
-	}
-	if err := candidate.AdmitByHash(req); err != nil {
-		return nil, err
-	}
-	return nil, nil
 }
 
 // processTransactionByHash is the method's canonical processing entry: one

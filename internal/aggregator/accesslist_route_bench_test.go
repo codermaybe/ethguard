@@ -156,7 +156,7 @@ func BenchmarkAccessListRoute(b *testing.B) {
 	// same resolver class, same reference and pending columns) and swaps only
 	// the value encoder for the pre-migration one.
 	baselinePlan := plan
-	baselinePlan.Resolver = rpcengine.Strict(plan.Resolver.Normalize, rpcengine.WithCanonicalValue(baselineAccessListEncode))
+	baselinePlan.Resolver = rpcengine.Strict(plan.Normalize, rpcengine.WithCanonicalValue(baselineAccessListEncode))
 	sizes := []struct {
 		name  string
 		items int

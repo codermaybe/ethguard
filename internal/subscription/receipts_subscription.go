@@ -124,10 +124,7 @@ func NewReceipts(owner, setup context.Context, load func() ([]Source, error), q 
 	if err != nil {
 		return nil, err
 	}
-	resolver, ok := rpcengine.Strict(rpc.CanonicalJSON).(rpcengine.CanonicalOutcomeResolver)
-	if !ok {
-		return nil, rpc.ErrInvalidCanonicalResult
-	}
+	resolver := rpcengine.CanonicalStrict(rpcengine.RuleCompareMethodSpecific)
 	shared, err := newContentSubscription[ReceiptsEvent](owner, setup, sources, p.Head, p.MemoryBytes, p.MaxConcurrentRequests, uint64(unsafe.Sizeof(ReceiptsSubscription{}))+uint64(len(filter))*192, mode)
 	if err != nil {
 		return nil, err

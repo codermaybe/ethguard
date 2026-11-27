@@ -140,7 +140,7 @@ ReferenceStage 通过 runtime 绑定的 HeadReader／HeadCodec 与 Transport Por
 
 | 类别 | 现行能力与语义 |
 | --- | --- |
-| Strict | 普通与 corroborated Outcome；显式 KeySource；可声明 RPC error body 和 canonical 消费能力 |
+| Strict／CanonicalStrict | raw Strict 接收原始观察；CanonicalStrict 只接收已处理观察；两者共用裁决内核 |
 | Block 方法 | 直接使用 Strict，以 canonical bytes 聚类；spec／plan 的 Admit 绑定 by-hash/by-number，reference HeadCodec 另用 number/hash 身份 |
 | CallRevert | execution 与 data 独立裁决，共享 Outcome 内核；data 弃权不冒充 Reject；provider 文案只是上下文 |
 | Median／Local | 强制返回逐源Outcome；普通解析与编码，Selected 封顶；有 corroboration snapshot 也不获得 agreement |
@@ -148,21 +148,21 @@ ReferenceStage 通过 runtime 绑定的 HeadReader／HeadCodec 与 Transport Por
 
 裁定的Required由实际执行的resolver合同形成：有snapshot的入口消费冻结配置，无snapshot的入口保留构造器或默认规则。coordinator核对输入与冻结成员一致，不能在Validate之后覆写Required，或靠覆盖Basis修补不一致。
 
-Resolver只要求Normalize与Resolve；准备、准入及reference属于ReadPlan。MethodRule直接读取resolver与plan声明，CanonicalOf直接读取编码能力，不再遍历装饰链。Outcome是Resolver本身的强制合同，不是额外的可选能力。编译对resolver kind、实际Go能力、agreement、KeySource与processor配对双向校验，失败不注册；运行时仍对外部装配的能力矛盾和Outcome覆盖矛盾返回内部合同错误。KeySource 不从 encoder 是否存在推断；normalizer+encoder 可表达窄键与较宽值，具体装配见生成索引。Block 方法不再拥有 resolver wrapper；admission 由 spec／plan 直接声明。head 身份、full/header/null、请求绑定和 body 承诺分别验证。
+Resolver只要求Resolve；Normalize是MethodSpec／ReadPlan独立能力；准备、准入及reference属于ReadPlan。MethodRule直接读取resolver与plan声明，CanonicalOf直接读取编码能力，不再遍历装饰链。Outcome是Resolver本身的强制合同，不是额外的可选能力。编译对resolver kind、实际Go能力、agreement、KeySource与processor配对双向校验，失败不注册；运行时仍对外部装配的能力矛盾和Outcome覆盖矛盾返回内部合同错误。KeySource 不从 encoder 是否存在推断；normalizer+encoder 可表达窄键与较宽值，具体装配见生成索引。Block 方法不再拥有 resolver wrapper；admission 由 spec／plan 直接声明。head 身份、full/header/null、请求绑定和 body 承诺分别验证。
 
 ### Canonical 单源处理路线
 
 `CanonicalProcessor` 接收冻结语义请求、来源原文与同源 caller，返回不可变 `CanonicalResult`。结果只带 canonical JSON 与可选准入 evidence；不带来源、请求或跨调用缓存。合法 null 是非空的 `"null"`，零 result 表示无成功结果，getter 返回副本。
 
-处理路线在 prepare 末尾冻结一次：plan 声明 processor 且普通 strict 轮走 canonical；Forwarded 在 resolver 具备 canonical 消费能力且未声明 SingleSource 时也可复用处理结果。pending-local、Forwarded 的 raw-only 或 SingleSource 自定义 resolver 保持 raw 路线；普通模式缺少 canonical 消费能力仍是内部合同错误。准入、resolve、fault/event 和 health 共同消费这个事实，不重复判断。当前生产接入为两个独立 transaction 查询、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts`。Forwarded 的成员、单次请求、状态、reference 与字段证据语义不因处理路线变化。
+ReadPlan 的执行合同互斥：raw 路线携带 Resolver 与可选 Admit；canonical 路线携带 CanonicalRead（Process 与 CanonicalOutcomeResolver），不装配 raw Resolver／Admit／Encode。缺失或混合合同在 reference／业务网络之前拒绝。Normalize 独立供 Client.Normalize、typed 数量解析与诊断工具使用，不参与 canonical 裁决。处理路线在 prepare 末尾冻结一次，准入、resolve、fault/event 和 health 共同消费它。四个生产 canonical 方法均无 PendingObserve；真实 pending-local 方法仍通过独立 Normalize 与 raw resolver 执行。Forwarded 同样消费已处理结果，成员、单次请求、状态、reference 与字段证据语义保持。
 
 - 每可用来源执行一次 processor；canonical resolver 直接消费结果，不重跑 raw normalizer/encoder，不在失败后重试或回退。
 - 失败来源保留槽位且无结果；成功必须有结果。非法 JSON、错误的槽位配对、成功缺结果、非零 result+error 是 `ErrInvalidCanonicalResult`，整轮失败，不能归罪 provider。
 - 内部合同错误不新增来源失败、连续失败或来源错误；确实完成的 transport 成功和延迟仍由 finalizer 记账一次，不跳过 finalizer。
 - 方法处理失败保持 `admission: %w` 归因、同源依赖捕获和并发槽位语义。raw 路线的 encode/normalize 故障阶段保持原合同。
-- BlockReceipts 复用逐条 receipt 准入已验证的 canonical bytes；保持 null、列表形状、请求、逐条完整验证与绑定的原顺序，成功后才编码数组。整列表的大小和深度由 coordinator 的 `RejectUnsafeJSON` 前置安全门保护；逐条检查不替代整列表检查，raw Admit 不为丢弃结果额外编码数组。
+- BlockReceipts 复用逐条 receipt 准入已验证的 canonical bytes；保持 null、列表形状、请求、逐条完整验证与绑定的原顺序，成功后才编码数组。整列表的大小和深度由 coordinator 的 `RejectUnsafeJSON` 前置安全门保护；逐条检查不替代整列表检查，不再保留重复准备的 raw Admit／Encode 适配器。
 - 两路共用聚类、排序、裁定、verdict 与提交内核；raw finish 保留 encoder 声明门，canonical 直接提交已验证结果。
-- 编译目前只允许 Strict + canonical-bytes + canonical 消费能力；保留 raw Normalize／Encode／原 Admit。Block 方法尚未声明 processor；CallRevert、Median、Local 不直接套用此 seam；无 Admit 方法不能凭空补空 hook 改写错误阶段。
+- 编译只允许 Strict + canonical-bytes 的 CanonicalRead；独立 Normalize 保留，raw Encode／Admit 必须为空。Block 方法尚未声明 processor；CallRevert、Median、Local 不直接套用此 seam；无 Admit 方法不能凭空补空 hook 改写错误阶段。
 
 ## 4. 后续整体优化的设计标准
 

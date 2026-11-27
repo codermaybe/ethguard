@@ -22,7 +22,7 @@ func TestTransactionRequestBindingErrorClasses(t *testing.T) {
 	raw := sampleResults(t, "block-receipt-tx", "tx-one")[0]
 	valid := raw
 	byHash := func(params []any) error {
-		_, err := admitTransactionByHash(context.Background(), rpc.Request{Method: MethodGetTransactionByHash, Params: params}, valid, nil)
+		_, err := processTransactionByHash(context.Background(), rpc.Request{Method: MethodGetTransactionByHash, Params: params}, valid, nil)
 		return err
 	}
 	for name, params := range map[string][]any{
@@ -39,7 +39,7 @@ func TestTransactionRequestBindingErrorClasses(t *testing.T) {
 		})
 	}
 	inBlock := func(params []any) error {
-		_, err := admitTransactionInBlock(context.Background(), rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: params}, valid, nil)
+		_, err := processTransactionInBlock(context.Background(), rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: params}, valid, nil)
 		return err
 	}
 	blockHash := `"0x` + string(bytes.Repeat([]byte("aa"), 32)) + `"`
@@ -111,7 +111,7 @@ func TestTransactionAdmissionMatchesCompatChain(t *testing.T) {
 				} else {
 					retiredErr = err
 				}
-				_, boundErr = admitTransactionByHash(context.Background(), item.request, raw, nil)
+				_, boundErr = processTransactionByHash(context.Background(), item.request, raw, nil)
 			default:
 				canonical, err := prepareTransactionInBlock(raw)
 				if err == nil {
@@ -119,7 +119,7 @@ func TestTransactionAdmissionMatchesCompatChain(t *testing.T) {
 				} else {
 					retiredErr = err
 				}
-				_, boundErr = admitTransactionInBlock(context.Background(), item.request, raw, nil)
+				_, boundErr = processTransactionInBlock(context.Background(), item.request, raw, nil)
 			}
 			if retirementSentinels(retiredErr) != retirementSentinels(boundErr) {
 				t.Fatalf("%s sentinel sets differ: retired=%q (%v) bound=%q (%v)",
@@ -224,7 +224,7 @@ func TestTransactionPreparationIsIdempotentOnCanonicalInput(t *testing.T) {
 	if err != nil || !bytes.Equal(pendingOnce, pendingTwice) {
 		t.Fatalf("pending derivation not stable under re-entry: %v", err)
 	}
-	if _, err := admitTransactionByHash(context.Background(), request, pendingTwice, nil); err != nil {
+	if _, err := processTransactionByHash(context.Background(), request, pendingTwice, nil); err != nil {
 		t.Fatalf("prepared candidate re-admission = %v", err)
 	}
 }
@@ -273,7 +273,7 @@ func TestTransactionMissingSignatureFieldsReject(t *testing.T) {
 	for _, key := range []string{"r", "s", "v", "hash", "from"} {
 		t.Run(key, func(t *testing.T) {
 			missing := deleteField(t, raw, key)
-			_, err := admitTransactionByHash(context.Background(), request, missing, nil)
+			_, err := processTransactionByHash(context.Background(), request, missing, nil)
 			if !errors.Is(err, rpc.ErrMalformedResponse) {
 				t.Fatalf("absent %s admitted: %v", key, err)
 			}

@@ -69,7 +69,7 @@ func TestSameFixtureReplaysThroughPolicyAndAggregator(t *testing.T) {
 		records := recordsByID(revert, "revert-empty-1")
 		policy := callPlan.Resolver
 		assertReplay(t, records, callPlan, true)
-		assertDataStatesDiffer(t, policy, records)
+		assertDataStatesDiffer(t, callPlan.Normalize, records)
 		obs := []rpc.Observation{observationFromRecord(t, records[0]), observationFromRecord(t, records[1])}
 		decision, err := policy.Resolve(obs)
 		if err != nil || decision.Decision.Status != rpc.Corroborated {
@@ -90,6 +90,11 @@ func TestSameFixtureReplaysThroughPolicyAndAggregator(t *testing.T) {
 
 func TestReplayErrorDataStatesStayDistinct(t *testing.T) {
 	policy := callPlan(t)
+	plan, err := methods.PlanFor(methods.MethodCall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalize := plan.Normalize
 	states := []struct {
 		name    string
 		present bool
@@ -138,7 +143,7 @@ func TestReplayErrorDataStatesStayDistinct(t *testing.T) {
 					t.Fatalf("anchor tags = %#v, want latest", tags)
 				}
 			}
-			key, err := policy.Normalize(left.Response.Answer.RPCError.Raw())
+			key, err := normalize(left.Response.Answer.RPCError.Raw())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -232,7 +237,7 @@ func TestReplayChainIDAgreesWithoutAnchor(t *testing.T) {
 		},
 		},
 	}
-	if _, err := policy.Normalize(value); err != nil {
+	if _, err := chainPlan.Normalize(value); err != nil {
 		t.Fatal(err)
 	}
 	policyDecision, policyErr := policy.Resolve(obs)
@@ -265,7 +270,7 @@ func assertReplay(t *testing.T, records []rpcsample.Record, plan rpcengine.ReadP
 					t.Fatalf("admit %s: %v", item.Source.ID, err)
 				}
 			}
-			if _, err := plan.Resolver.Normalize(item.Response.Answer.Result); err != nil {
+			if _, err := plan.Normalize(item.Response.Answer.Result); err != nil {
 				t.Fatal(err)
 			}
 			continue
@@ -273,11 +278,28 @@ func assertReplay(t *testing.T, records []rpcsample.Record, plan rpcengine.ReadP
 		if item.Response.Answer.RPCError == nil {
 			t.Fatal("error observation lost RPCError")
 		}
-		if _, err := plan.Resolver.Normalize(item.Response.Answer.RPCError.Raw()); err != nil {
+		if _, err := plan.Normalize(item.Response.Answer.RPCError.Raw()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	policyDecision, policyErr := plan.Resolver.Resolve(obs)
+	var policyDecision rpcengine.Outcome
+	var policyErr error
+	if plan.Canonical != nil {
+		processed := make([]rpcengine.CanonicalObservation, len(obs))
+		for i, item := range obs {
+			result, err := plan.Canonical.Process(context.Background(), req, item.Response.Answer.Result, refuseCaller(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			processed[i], err = rpcengine.NewCanonicalObservation(item, result)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		policyDecision, policyErr = plan.Canonical.Resolver.ResolveCanonical(processed)
+	} else {
+		policyDecision, policyErr = plan.Resolver.Resolve(obs)
+	}
 
 	agg, nodes := newReplayAggregator(t, 2)
 	if anchored {
@@ -307,15 +329,15 @@ func assertReplay(t *testing.T, records []rpcsample.Record, plan rpcengine.ReadP
 	}
 }
 
-func assertDataStatesDiffer(t *testing.T, policy rpcengine.Resolver, records []rpcsample.Record) {
+func assertDataStatesDiffer(t *testing.T, normalize func(json.RawMessage) (string, error), records []rpcsample.Record) {
 	t.Helper()
 	left := observationFromRecord(t, records[0])
 	right := observationFromRecord(t, records[1])
-	leftKey, err := policy.Normalize(left.Response.Answer.RPCError.Raw())
+	leftKey, err := normalize(left.Response.Answer.RPCError.Raw())
 	if err != nil {
 		t.Fatal(err)
 	}
-	rightKey, err := policy.Normalize(right.Response.Answer.RPCError.Raw())
+	rightKey, err := normalize(right.Response.Answer.RPCError.Raw())
 	if err != nil {
 		t.Fatal(err)
 	}

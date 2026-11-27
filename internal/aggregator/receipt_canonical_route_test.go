@@ -29,14 +29,8 @@ import (
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
-// The receipt canonical route's real-coordinator acceptance. Both sides call
-// Aggregator.Aggregate through the same compiled plan over the same scripted
-// sources; the baseline plan only drops ProcessCanonical, keeping Admit and
-// the strict resolver, while the candidate keeps the production processor.
-// No CanonicalObservation is hand-built here: the coordinator's own
-// processing, fault attribution, health accounting, diagnostics, and
-// extensions are the material under test.
-
+// Receipt acceptance runs the registered canonical plan through real HTTP
+// collection, processing, diagnostics, field projection and health accounting.
 // receiptRouteMethod is the method under test.
 const receiptRouteMethod = methods.MethodGetTransactionReceipt
 
@@ -233,9 +227,8 @@ func receiptRouteProjector(tb testing.TB) rpcengine.ObservationProjector {
 	return projector
 }
 
-// receiptRouteCompiledPlan compiles the registered receipt spec. The
-// baseline only clears ProcessCanonical; every other declaration is shared.
-func receiptRouteCompiledPlan(tb testing.TB, withProcessor bool) rpcengine.ReadPlan {
+// receiptRouteCompiledPlan compiles the registered receipt contract.
+func receiptRouteCompiledPlan(tb testing.TB) rpcengine.ReadPlan {
 	tb.Helper()
 	spec, ok := methods.SpecFor(receiptRouteMethod)
 	if !ok {
@@ -248,9 +241,7 @@ func receiptRouteCompiledPlan(tb testing.TB, withProcessor bool) rpcengine.ReadP
 	if err != nil {
 		tb.Fatal(err)
 	}
-	if !withProcessor {
-		plan.ProcessCanonical = nil
-	}
+
 	return plan
 }
 
@@ -317,164 +308,13 @@ func receiptRouteAggregate(t *testing.T, plan rpcengine.ReadPlan, members []pool
 	return run
 }
 
-// compareReceiptRoutes asserts the candidate's business outcome, evidence,
-// fault attribution, retained material, and health match the baseline.
-func compareReceiptRoutes(t *testing.T, baseline, candidate receiptRouteRun) {
-	t.Helper()
-	if (baseline.err == nil) != (candidate.err == nil) {
-		t.Fatalf("verdicts differ: baseline=%v candidate=%v", baseline.err, candidate.err)
-	}
-	if baseline.err != nil {
-		if baseline.err.Error() != candidate.err.Error() {
-			t.Fatalf("error texts differ:\nbaseline  %q\ncandidate %q", baseline.err, candidate.err)
-		}
-		for _, class := range []error{rpc.ErrInvalidRequest, rpc.ErrMalformedResponse, rpc.ErrConflict, rpc.ErrInsufficientSupport} {
-			if errors.Is(baseline.err, class) != errors.Is(candidate.err, class) {
-				t.Fatalf("error class %v differs: baseline=%v candidate=%v", class, baseline.err, candidate.err)
-			}
-		}
-	}
-	if baseline.decision.Status != candidate.decision.Status {
-		t.Fatalf("status differs: baseline=%v candidate=%v", baseline.decision.Status, candidate.decision.Status)
-	}
-	if !reflect.DeepEqual(baseline.decision.Adjudication, candidate.decision.Adjudication) {
-		t.Fatalf("adjudication differs: baseline=%+v candidate=%+v", baseline.decision.Adjudication, candidate.decision.Adjudication)
-	}
-	if !bytes.Equal(baseline.decision.Value, candidate.decision.Value) {
-		t.Fatalf("value differs:\nbaseline  %s\ncandidate %s", baseline.decision.Value, candidate.decision.Value)
-	}
-	if !reflect.DeepEqual(baseline.decision.Support, candidate.decision.Support) {
-		t.Fatalf("support differs:\nbaseline  %+v\ncandidate %+v", baseline.decision.Support, candidate.decision.Support)
-	}
-	if !reflect.DeepEqual(baseline.decision.Reject, candidate.decision.Reject) {
-		t.Fatalf("reject differs:\nbaseline  %+v\ncandidate %+v", baseline.decision.Reject, candidate.decision.Reject)
-	}
-	if baseline.decision.Representative != candidate.decision.Representative {
-		t.Fatalf("representative differs: baseline=%+v candidate=%+v", baseline.decision.Representative, candidate.decision.Representative)
-	}
-	if !reflect.DeepEqual(baseline.decision.Participants, candidate.decision.Participants) {
-		t.Fatalf("participants differ:\nbaseline  %+v\ncandidate %+v", baseline.decision.Participants, candidate.decision.Participants)
-	}
-	if !bytes.Equal(baseline.decision.Provenance, candidate.decision.Provenance) {
-		t.Fatalf("provenance differs:\nbaseline  %s\ncandidate %s", baseline.decision.Provenance, candidate.decision.Provenance)
-	}
-	baselinePrepared, candidatePrepared := baseline.decision.Prepared, candidate.decision.Prepared
-	if (baselinePrepared == nil) != (candidatePrepared == nil) {
-		t.Fatalf("prepared request differs: baseline=%+v candidate=%+v", baselinePrepared, candidatePrepared)
-	}
-	if baselinePrepared != nil && (baselinePrepared.Method != candidatePrepared.Method || !bytes.Equal(baselinePrepared.Params, candidatePrepared.Params)) {
-		t.Fatalf("prepared request differs: baseline=%+v candidate=%+v", baselinePrepared, candidatePrepared)
-	}
-	if (baseline.decision.Reference == nil) != (candidate.decision.Reference == nil) {
-		t.Fatalf("reference presence differs: baseline=%+v candidate=%+v", baseline.decision.Reference, candidate.decision.Reference)
-	}
-	if want, got := faultTexts(baseline.decision.Faults), faultTexts(candidate.decision.Faults); !reflect.DeepEqual(want, got) {
-		t.Fatalf("faults differ:\nbaseline  %v\ncandidate %v", want, got)
-	}
-	if want, got := collectionFaultTexts(baseline.decision.CollectionFaults), collectionFaultTexts(candidate.decision.CollectionFaults); !reflect.DeepEqual(want, got) {
-		t.Fatalf("collection faults differ:\nbaseline  %v\ncandidate %v", want, got)
-	}
-	compareReceiptSourceFaults(t, baseline.decision.SourceFaults, candidate.decision.SourceFaults)
-	if want, got := jsonOf(t, baseline.decision.Diagnostics), jsonOf(t, candidate.decision.Diagnostics); !bytes.Equal(want, got) {
-		t.Fatalf("diagnostics differ:\nbaseline  %s\ncandidate %s", want, got)
-	}
-	if want, got := jsonOf(t, baseline.decision.Extensions), jsonOf(t, candidate.decision.Extensions); !bytes.Equal(want, got) {
-		t.Fatalf("extensions differ:\nbaseline  %s\ncandidate %s", want, got)
-	}
-}
-
-// faultTexts renders a fault list as a sorted multiset, preserving
-// duplicates while ignoring only collection order.
-func faultTexts(faults []error) []string {
-	out := make([]string, len(faults))
-	for i, fault := range faults {
-		out[i] = fault.Error()
-	}
-	sort.Strings(out)
-	return out
-}
-
-// collectionFaultTexts is the collection-fault list in the same shape.
-func collectionFaultTexts(faults []error) []string { return faultTexts(faults) }
-
-// jsonOf renders a diagnostic view deterministically for comparison.
-func jsonOf(t *testing.T, value any) []byte {
-	t.Helper()
-	raw, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
-
-// compareReceiptSourceFaults compares structured attribution by source
-// identity, so an undiffering pair of lists cannot pass on length alone.
-func compareReceiptSourceFaults(t *testing.T, baseline, candidate []rpc.SourceFault) {
-	t.Helper()
-	if len(baseline) != len(candidate) {
-		t.Fatalf("source fault counts differ: baseline=%d candidate=%d", len(baseline), len(candidate))
-	}
-	for i := range baseline {
-		if baseline[i].Source != candidate[i].Source {
-			t.Fatalf("source fault %d attribution differs: baseline=%+v candidate=%+v", i, baseline[i].Source, candidate[i].Source)
-		}
-		be, ce := "", ""
-		if baseline[i].Err != nil {
-			be = baseline[i].Err.Error()
-		}
-		if candidate[i].Err != nil {
-			ce = candidate[i].Err.Error()
-		}
-		if be != ce {
-			t.Fatalf("source fault %d error differs: baseline=%q candidate=%q", i, be, ce)
-		}
-	}
-}
-
-// receiptRouteMaterial renders the retained raw records as a sorted
-// identity-of-source multiset. Timestamps never enter the snapshot.
-func receiptRouteMaterial(raw []uncertain.Response) []string {
-	out := make([]string, len(raw))
-	for i, item := range raw {
-		out[i] = fmt.Sprintf("%s|%s|%s|%s|%s|%t", item.Stage, item.Method, item.Source.ID, item.Value, item.Error, item.Truncated)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// compareReceiptMaterial asserts both routes retained the same original
-// response material, keyed by source identity.
-func compareReceiptMaterial(t *testing.T, baseline, candidate []uncertain.Response) {
-	t.Helper()
-	want, got := receiptRouteMaterial(baseline), receiptRouteMaterial(candidate)
-	if !reflect.DeepEqual(want, got) {
-		t.Fatalf("raw material differs:\nbaseline  %v\ncandidate %v", want, got)
-	}
-}
-
-// compareReceiptHealth asserts per-source health accounting matches without
-// comparing timestamps or latency.
-func compareReceiptHealth(t *testing.T, baseline, candidate map[string]receiptRouteHealth) {
-	t.Helper()
-	if !reflect.DeepEqual(baseline, candidate) {
-		t.Fatalf("source health differs:\nbaseline  %+v\ncandidate %+v", baseline, candidate)
-	}
-}
-
-// receiptRouteCompare runs the same sources through the baseline (no
-// processor) and candidate (production processor) plans and asserts the
-// complete route-visible contract.
-func receiptRouteCompare(t *testing.T, bodies []json.RawMessage, requestHash string, mode rpc.CorroborationMode, floor int) (receiptRouteRun, receiptRouteRun) {
+// receiptRouteExecute runs one production invocation over scripted sources.
+func receiptRouteExecute(t *testing.T, bodies []json.RawMessage, requestHash string, mode rpc.CorroborationMode, floor int) receiptRouteRun {
 	t.Helper()
 	members, nodes := receiptRouteNodes(t, bodies)
-	baseline := receiptRouteAggregate(t, receiptRouteCompiledPlan(t, false), members, receiptRouteRequest(requestHash), mode, floor)
+	run := receiptRouteAggregate(t, receiptRouteCompiledPlan(t), members, receiptRouteRequest(requestHash), mode, floor)
 	assertReceiptRouteRequests(t, nodes, 1, requestHash)
-	candidate := receiptRouteAggregate(t, receiptRouteCompiledPlan(t, true), members, receiptRouteRequest(requestHash), mode, floor)
-	assertReceiptRouteRequests(t, nodes, 2, requestHash)
-	compareReceiptRoutes(t, baseline, candidate)
-	compareReceiptMaterial(t, baseline.raw, candidate.raw)
-	compareReceiptHealth(t, baseline.health, candidate.health)
-	return baseline, candidate
+	return run
 }
 
 // receiptRouteSourceByIndex names the scripted source the way the pool does.
@@ -486,7 +326,7 @@ func TestReceiptCanonicalRouteSpellings(t *testing.T) {
 	valid := receiptRouteFixture(t)
 	self := receiptRouteHash(t, valid)
 	bodies := []json.RawMessage{valid, receiptRouteFoldHex(t, valid), receiptRouteReorder(t, valid)}
-	_, candidate := receiptRouteCompare(t, bodies, self, rpc.CorroborationMajority, 2)
+	candidate := receiptRouteExecute(t, bodies, self, rpc.CorroborationMajority, 2)
 	if candidate.decision.Status != rpc.Corroborated {
 		t.Fatalf("status = %v", candidate.decision.Status)
 	}
@@ -515,7 +355,7 @@ func TestReceiptCanonicalRouteSpellings(t *testing.T) {
 func TestReceiptCanonicalRouteNull(t *testing.T) {
 	null := json.RawMessage(`null`)
 	bodies := []json.RawMessage{null, null, null}
-	_, candidate := receiptRouteCompare(t, bodies, "0x"+strings.Repeat("11", 32), rpc.CorroborationMajority, 2)
+	candidate := receiptRouteExecute(t, bodies, "0x"+strings.Repeat("11", 32), rpc.CorroborationMajority, 2)
 	if candidate.decision.Status != rpc.Corroborated || string(candidate.decision.Value) != "null" {
 		t.Fatalf("null = %s status %v", candidate.decision.Value, candidate.decision.Status)
 	}
@@ -544,7 +384,7 @@ func TestReceiptCanonicalRouteDissent(t *testing.T) {
 	for _, item := range cases {
 		t.Run(item.name, func(t *testing.T) {
 			bodies := []json.RawMessage{valid, valid, item.other}
-			_, candidate := receiptRouteCompare(t, bodies, self, rpc.CorroborationMajority, 2)
+			candidate := receiptRouteExecute(t, bodies, self, rpc.CorroborationMajority, 2)
 			if candidate.decision.Status != rpc.Corroborated {
 				t.Fatalf("status = %v", candidate.decision.Status)
 			}
@@ -567,7 +407,7 @@ func TestReceiptCanonicalRouteDenominator(t *testing.T) {
 	gasOther := receiptRouteReplace(t, valid, "gasUsed", `"0x1"`)
 	missingLogs := receiptRouteDelete(t, valid, "logs")
 	bodies := []json.RawMessage{valid, valid, gasOther, missingLogs}
-	_, candidate := receiptRouteCompare(t, bodies, self, rpc.CorroborationMajority, 2)
+	candidate := receiptRouteExecute(t, bodies, self, rpc.CorroborationMajority, 2)
 	if candidate.decision.Status != rpc.Unknown || !errors.Is(candidate.err, rpc.ErrConflict) {
 		t.Fatalf("status/error = %v/%v", candidate.decision.Status, candidate.err)
 	}
@@ -585,7 +425,7 @@ func TestReceiptCanonicalRouteDenominator(t *testing.T) {
 func TestReceiptCanonicalRouteIdenticalMinorityRemainsResidual(t *testing.T) {
 	valid := receiptRouteFixture(t)
 	bad := receiptRouteDelete(t, valid, "logs")
-	_, candidate := receiptRouteCompare(t, []json.RawMessage{valid, valid, bad, bad, bad}, receiptRouteHash(t, valid), rpc.CorroborationMajority, 2)
+	candidate := receiptRouteExecute(t, []json.RawMessage{valid, valid, bad, bad, bad}, receiptRouteHash(t, valid), rpc.CorroborationMajority, 2)
 	decision := candidate.decision
 	if !errors.Is(candidate.err, rpc.ErrInsufficientSupport) || decision.Status != rpc.Unknown {
 		t.Fatalf("identical minority status/error = %v/%v", decision.Status, candidate.err)
@@ -633,7 +473,7 @@ func TestReceiptCanonicalRouteTimestampSpellingRemainsDiagnostic(t *testing.T) {
 		return receiptRouteReplace(t, withLog, "logs", string(raw))
 	}
 	lower, upper := withTimestamp("0xab"), withTimestamp("0xAB")
-	_, candidate := receiptRouteCompare(t, []json.RawMessage{upper, lower, lower}, self, rpc.CorroborationMajority, 2)
+	candidate := receiptRouteExecute(t, []json.RawMessage{upper, lower, lower}, self, rpc.CorroborationMajority, 2)
 	if candidate.err != nil || candidate.decision.Status != rpc.Corroborated || len(candidate.decision.Support) != 3 {
 		t.Fatalf("canonical timestamp spellings did not agree: %+v / %v", candidate.decision, candidate.err)
 	}
@@ -661,7 +501,7 @@ func TestReceiptCanonicalRouteAllMalformed(t *testing.T) {
 	self := receiptRouteHash(t, valid)
 	bad := receiptRouteDelete(t, valid, "logs")
 	bodies := []json.RawMessage{bad, bad, bad}
-	_, candidate := receiptRouteCompare(t, bodies, self, rpc.CorroborationMajority, 2)
+	candidate := receiptRouteExecute(t, bodies, self, rpc.CorroborationMajority, 2)
 	if candidate.decision.Status != rpc.Unknown || !errors.Is(candidate.err, rpc.ErrMalformedResponse) {
 		t.Fatalf("status/error = %v/%v", candidate.decision.Status, candidate.err)
 	}
@@ -680,7 +520,7 @@ func TestReceiptCanonicalRouteBadSources(t *testing.T) {
 	bloomBad := receiptRouteReplace(t, receiptRouteWithLogs(t, valid, self), "logsBloom", `"0x`+strings.Repeat("00", 255)+`01"`)
 	bindingBad := receiptRouteWithLogs(t, valid, other)
 	bodies := []json.RawMessage{valid, valid, valid, bloomBad, bindingBad}
-	_, candidate := receiptRouteCompare(t, bodies, self, rpc.CorroborationMajority, 2)
+	candidate := receiptRouteExecute(t, bodies, self, rpc.CorroborationMajority, 2)
 	if candidate.decision.Status != rpc.Corroborated || len(candidate.decision.Support) != 3 {
 		t.Fatalf("status/support = %v/%d", candidate.decision.Status, len(candidate.decision.Support))
 	}
@@ -717,7 +557,7 @@ func TestReceiptCanonicalRouteForeignRequest(t *testing.T) {
 	valid := receiptRouteFixture(t)
 	other := "0x" + strings.Repeat("22", 32)
 	bodies := []json.RawMessage{valid, valid, valid}
-	_, candidate := receiptRouteCompare(t, bodies, other, rpc.CorroborationMajority, 2)
+	candidate := receiptRouteExecute(t, bodies, other, rpc.CorroborationMajority, 2)
 	if !errors.Is(candidate.err, rpc.ErrMalformedResponse) ||
 		!strings.Contains(candidate.err.Error(), "does not match requested hash") {
 		t.Fatalf("error = %v", candidate.err)
@@ -734,12 +574,8 @@ func TestReceiptCanonicalRouteForwarded(t *testing.T) {
 	self := receiptRouteHash(t, valid)
 	members := receiptRouteMembers(t, []json.RawMessage{valid})
 	req := receiptRouteRequest(self)
-	baseline := receiptRouteAggregate(t, receiptRouteCompiledPlan(t, false), members, req, rpc.CorroborationForwarded, 0)
 	counts := &workCounters{}
 	candidate := receiptRouteAggregate(t, instrumentedPlan(t, receiptRouteMethod, counts), members, req, rpc.CorroborationForwarded, 0)
-	compareReceiptRoutes(t, baseline, candidate)
-	compareReceiptMaterial(t, baseline.raw, candidate.raw)
-	compareReceiptHealth(t, baseline.health, candidate.health)
 	if candidate.decision.Status != rpc.Forwarded {
 		t.Fatalf("status = %v", candidate.decision.Status)
 	}
@@ -758,7 +594,7 @@ func TestReceiptCanonicalRouteProjection(t *testing.T) {
 	extended := receiptRouteReplace(t, valid, "vendorExtension", `"x"`)
 	diagnostic := receiptRouteReplace(t, extended, "diagnosticOnly", `"y"`)
 	bodies := []json.RawMessage{diagnostic, extended, extended}
-	_, candidate := receiptRouteCompare(t, bodies, self, rpc.CorroborationMajority, 2)
+	candidate := receiptRouteExecute(t, bodies, self, rpc.CorroborationMajority, 2)
 	if bytes.Contains(candidate.decision.Value, []byte("vendorExtension")) || bytes.Contains(candidate.decision.Value, []byte("diagnosticOnly")) {
 		t.Fatalf("canonical value retained vendor members: %s", candidate.decision.Value)
 	}
@@ -794,10 +630,7 @@ func TestReceiptCanonicalRouteProjection(t *testing.T) {
 	}
 }
 
-// TestReceiptCanonicalRouteWorkCounts pins which compiled hooks run. These
-// are hook entries, not JSON parse counts: the candidate runs the processor
-// once per source and no raw hook; the baseline runs admission plus the
-// resolver encoder once per usable source.
+// Each usable source runs one processor and no standalone normalization.
 func TestReceiptCanonicalRouteWorkCounts(t *testing.T) {
 	valid := receiptRouteFixture(t)
 	self := receiptRouteHash(t, valid)
@@ -816,18 +649,6 @@ func TestReceiptCanonicalRouteWorkCounts(t *testing.T) {
 			counts.process.Load(), counts.admit.Load(), counts.encode.Load(), counts.normalize.Load())
 	}
 
-	counts = &workCounters{}
-	baselinePlan := instrumentedPlan(t, receiptRouteMethod, counts)
-	baselinePlan.ProcessCanonical = nil
-	baseline := receiptRouteAggregate(t, baselinePlan, members, req, rpc.CorroborationMajority, 2)
-	assertReceiptRouteRequests(t, nodes, 2, self)
-	if baseline.decision.Status != rpc.Corroborated {
-		t.Fatalf("baseline status = %v", baseline.decision.Status)
-	}
-	if counts.process.Load() != 0 || counts.admit.Load() != 3 || counts.encode.Load() != 3 || counts.normalize.Load() != 0 {
-		t.Fatalf("baseline work = process %d admit %d encode %d normalize %d",
-			counts.process.Load(), counts.admit.Load(), counts.encode.Load(), counts.normalize.Load())
-	}
 }
 
 // receiptRouteBenchPool builds one benchmark pool over the shared members.
@@ -855,59 +676,29 @@ func receiptRouteBenchAggregator(b *testing.B, p *pool.Pool, plan rpcengine.Read
 	)
 }
 
-// BenchmarkReceiptCanonicalMicro compares the two per-source hook chains on
-// the identical captured payload and request: the baseline admission (which
-// validates by decoding) plus the resolver's clustering encoder, against the
-// production processor that hands out the bytes its admission just checked.
+// BenchmarkReceiptCanonicalMicro measures the registered processor.
 func BenchmarkReceiptCanonicalMicro(b *testing.B) {
 	raw := receiptRouteFixture(b)
 	req := receiptRouteRequest(receiptRouteHash(b, raw))
-	baseline := receiptRouteCompiledPlan(b, false)
-	candidate := receiptRouteCompiledPlan(b, true)
-	ctx := context.Background()
-	b.Run("baseline-admit-plus-encode", func(b *testing.B) {
-		b.ReportAllocs()
-		b.SetBytes(int64(len(raw)))
-		b.ResetTimer()
-		for range b.N {
-			if _, err := baseline.Admit(ctx, req, raw, nil); err != nil {
-				b.Fatal(err)
-			}
-			if _, err := rpcengine.CanonicalOf(baseline.Resolver, raw); err != nil {
-				b.Fatal(err)
-			}
+	plan := receiptRouteCompiledPlan(b)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(raw)))
+	b.ResetTimer()
+	for range b.N {
+		if _, err := plan.Canonical.Process(context.Background(), req, raw, nil); err != nil {
+			b.Fatal(err)
 		}
-	})
-	b.Run("candidate-process-canonical", func(b *testing.B) {
-		b.ReportAllocs()
-		b.SetBytes(int64(len(raw)))
-		b.ResetTimer()
-		for range b.N {
-			if _, err := candidate.ProcessCanonical(ctx, req, raw, nil); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
+	}
 }
 
-// BenchmarkReceiptCanonicalAggregate measures a real Aggregate over three
-// scripted sources with identical fixture, request, and membership. Server
-// and connection setup and one warm-up invocation stay outside the timed
-// loop; the baseline plan only clears ProcessCanonical.
+// BenchmarkReceiptCanonicalAggregate measures a warmed production Aggregate.
 func BenchmarkReceiptCanonicalAggregate(b *testing.B) {
 	valid := receiptRouteFixture(b)
 	req := receiptRouteRequest(receiptRouteHash(b, valid))
 	members := receiptRouteMembers(b, []json.RawMessage{valid, valid, valid})
-	variants := []struct {
-		name string
-		plan bool
-	}{
-		{"baseline-raw-route", false},
-		{"candidate-canonical-route", true},
-	}
-	for _, variant := range variants {
-		b.Run(variant.name, func(b *testing.B) {
-			plan := receiptRouteCompiledPlan(b, variant.plan)
+	{
+		b.Run("canonical", func(b *testing.B) {
+			plan := receiptRouteCompiledPlan(b)
 			p := receiptRouteBenchPool(b, members)
 			agg := receiptRouteBenchAggregator(b, p, plan, rpc.CorroborationMajority, 2)
 			warm, err := agg.Aggregate(context.Background(), req)
@@ -931,7 +722,7 @@ func BenchmarkReceiptCanonicalAggregate(b *testing.B) {
 func TestReceiptAdmissionRetainsResponseFacts(t *testing.T) {
 	valid := receiptRouteFixture(t)
 	hash := receiptRouteHash(t, valid)
-	for _, processed := range []bool{false, true} {
+	{
 		for _, tc := range []struct {
 			name string
 			raw  json.RawMessage
@@ -940,7 +731,7 @@ func TestReceiptAdmissionRetainsResponseFacts(t *testing.T) {
 			{"missing-field", receiptRouteDelete(t, valid, "transactionHash"), rpc.InterpretationRejected},
 			{"null", json.RawMessage(`null`), rpc.InterpretationAdmitted},
 		} {
-			t.Run(fmt.Sprintf("%s/processed=%v", tc.name, processed), func(t *testing.T) {
+			t.Run(tc.name, func(t *testing.T) {
 				members := receiptRouteMembers(t, []json.RawMessage{tc.raw})
 				p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 				req := receiptRouteRequest(hash)
@@ -949,8 +740,8 @@ func TestReceiptAdmissionRetainsResponseFacts(t *testing.T) {
 					t.Fatalf("collect: %v (%d responses)", err, len(emissions))
 				}
 				before := emissions[0].Response
-				plan := receiptRouteCompiledPlan(t, processed)
-				state := &invocationState{ctx: context.Background(), plan: &plan, admissionRequest: req, preparedMethod: req.Method, processorRoute: plan.ProcessCanonical, emissions: emissions}
+				plan := receiptRouteCompiledPlan(t)
+				state := &invocationState{ctx: context.Background(), plan: &plan, admissionRequest: req, preparedMethod: req.Method, processorRoute: plan.Canonical.Process, emissions: emissions}
 				New(p).admitPhase(state)
 				got := state.emissions[0].Response
 				if got.Exchange != before.Exchange || got.Exchange.Progress != rpc.ExchangeCompleted || got.Exchange.HTTPStatus != 200 || got.Answer.Kind != rpc.AnswerResult || string(got.Answer.Result) != string(tc.raw) {

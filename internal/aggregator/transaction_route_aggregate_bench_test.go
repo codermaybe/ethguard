@@ -15,16 +15,8 @@ import (
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
-// The two transaction routes through one real Aggregate, measured end to
-// end: the compiled canonical route (processor per source, no raw hooks)
-// against the same read forced onto the raw route (admission plus the
-// resolver's canonical encoder per source, the normalizer never runs because
-// the comparison key is the canonical bytes). Server setup and one warm-up
-// invocation stay outside the timed loop; the per-op hook entries, B/op and
-// allocs/op report what one invocation of each route really spends per
-// source count, so any later shape change has a recorded baseline and an
-// unmeasured claim cannot stand in for one.
-
+// Measure the registered canonical transaction contract through real Aggregate.
+// Server setup and warm-up stay outside the timed loop.
 // routeAggregateFleet installs one scripted fleet of n members over the
 // method, all answering with the same official body.
 func routeAggregateFleet(b *testing.B, method string, body json.RawMessage, n int) *pool.Pool {
@@ -72,19 +64,11 @@ func BenchmarkTransactionRouteAggregate(b *testing.B) {
 			if sources == 1 {
 				wantStatus = rpc.Selected
 			}
-			for _, route := range []struct {
-				name      string
-				canonical bool
-			}{
-				{name: "canonical", canonical: true},
-				{name: "raw"},
-			} {
-				b.Run(route.name, func(b *testing.B) {
+			{
+				b.Run("canonical", func(b *testing.B) {
 					counts := &workCounters{}
 					plan := instrumentedPlan(b, method, counts)
-					if !route.canonical {
-						plan.ProcessCanonical = nil
-					}
+
 					agg := New(p, WithPlans(map[string]rpcengine.ReadPlan{method: plan}), WithCorroboration(shared))
 					warm, warmErr := agg.Aggregate(context.Background(), request)
 					if warmErr != nil || warm.Status != wantStatus || len(warm.Support) != sources {

@@ -298,7 +298,7 @@ func classifySource(t *testing.T, plan rpcengine.ReadPlan, req rpc.Request, item
 				return payload, "rejected", []string{err.Error()}, ""
 			}
 		}
-		key, err := plan.Resolver.Normalize(item.Response.Answer.Result)
+		key, err := plan.Normalize(item.Response.Answer.Result)
 		if err != nil {
 			return payload, "passed", []string{err.Error()}, ""
 		}
@@ -308,7 +308,7 @@ func classifySource(t *testing.T, plan rpcengine.ReadPlan, req rpc.Request, item
 		return nil, "not_applicable", []string{"fault"}, ""
 	}
 	payload := item.Response.Answer.RPCError.Raw()
-	key, err := plan.Resolver.Normalize(payload)
+	key, err := plan.Normalize(payload)
 	if err != nil {
 		return payload, "not_applicable", []string{err.Error()}, ""
 	}

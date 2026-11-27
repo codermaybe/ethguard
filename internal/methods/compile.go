@@ -9,6 +9,9 @@ import (
 // assembleResolver is the value-domain assembly shared by CompilePlan and
 // reference establishment. Preparation and admission remain plan hooks.
 func assembleResolver(spec MethodSpec, opts []rpcengine.StrictOption) (rpcengine.Resolver, error) {
+	if spec.ProcessCanonical != nil {
+		return nil, fmt.Errorf("methods: %s uses canonical execution", spec.Method)
+	}
 	switch spec.Resolver {
 	case ResolverStrict, ResolverCallRevert:
 		opts = append([]rpcengine.StrictOption{rpcengine.WithRuleCompareKind(spec.CompareKind)}, opts...)
@@ -49,7 +52,7 @@ func assembleResolver(spec MethodSpec, opts []rpcengine.StrictOption) (rpcengine
 		// escape's own identity, fixed here and pinned by the call-revert
 		// tests — not spec fields.
 		inner := append([]rpcengine.StrictOption{rpcengine.WithRPCErrorBodies(), rpcengine.WithCanonicalValue(encodeCallSuccess)}, opts...)
-		return rpcengine.NewCallRevertResolver(spec.Normalize, inner...), nil
+		return rpcengine.NewCallRevertResolver(normalizeCallOutcome, inner...), nil
 	default:
 		return nil, fmt.Errorf("methods: unknown resolver kind %q for %s", spec.Resolver, spec.Method)
 	}
@@ -73,20 +76,24 @@ func CompilePlan(spec MethodSpec) (rpcengine.ReadPlan, error) {
 	if err := validatePlanComposition(spec); err != nil {
 		return rpcengine.ReadPlan{}, err
 	}
-	resolver, err := assembleResolver(spec, nil)
-	if err != nil {
-		return rpcengine.ReadPlan{}, err
-	}
 	plan := rpcengine.ReadPlan{
-		Method:           spec.Method,
-		Resolver:         resolver,
-		ResolverKind:     spec.Resolver,
-		Reference:        spec.Reference,
-		Pending:          spec.Pending,
-		Prepare:          spec.Prepare,
-		Admit:            spec.Admit,
-		ProcessCanonical: spec.ProcessCanonical,
-		ProjectorID:      spec.ObservationProjectorID,
+		Method:       spec.Method,
+		Normalize:    spec.Normalize,
+		ResolverKind: spec.Resolver,
+		Reference:    spec.Reference,
+		Pending:      spec.Pending,
+		Prepare:      spec.Prepare,
+		Admit:        spec.Admit,
+		ProjectorID:  spec.ObservationProjectorID,
+	}
+	if spec.ProcessCanonical != nil {
+		plan.Canonical = &rpcengine.CanonicalRead{Process: spec.ProcessCanonical, Resolver: rpcengine.CanonicalStrict(spec.CompareKind)}
+	} else {
+		resolver, err := assembleResolver(spec, nil)
+		if err != nil {
+			return rpcengine.ReadPlan{}, err
+		}
+		plan.Resolver = resolver
 	}
 	// The declared pending rejection executes locally only when the method
 	// does not own its rejection in the validate hook; otherwise the

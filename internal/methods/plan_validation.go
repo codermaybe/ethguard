@@ -79,7 +79,7 @@ func validatePlanComposition(spec MethodSpec) error {
 	case ResolverStrict, ResolverCallRevert:
 		switch spec.KeySource {
 		case rpcengine.RuleKeyCanonicalBytes:
-			if spec.Encode == nil {
+			if spec.Encode == nil && spec.ProcessCanonical == nil {
 				return fmt.Errorf("methods: %s declares %s without a canonical encoder", spec.Method, spec.KeySource)
 			}
 		case rpcengine.RuleKeyNormalizer:
@@ -94,8 +94,8 @@ func validatePlanComposition(spec MethodSpec) error {
 	// The canonical processing route is a strict-only assembly: clustering on
 	// canonical bytes requires the strict resolver's cluster/commit kernel,
 	// and a processor beside a different key source would make the declared
-	// key and the processed bytes disagree. The raw route also needs its
-	// normalizer and encoder, so both remain required with a processor.
+	// key and the processed bytes disagree. Normalize remains independent;
+	// raw admission and encoding cannot coexist with canonical execution.
 	if spec.ProcessCanonical != nil {
 		if spec.Resolver != ResolverStrict {
 			return fmt.Errorf("methods: %s declares a canonical processor with resolver %q; the processing route requires %q",
@@ -105,8 +105,8 @@ func validatePlanComposition(spec MethodSpec) error {
 			return fmt.Errorf("methods: %s declares a canonical processor with key source %q; the processing route clusters on %q",
 				spec.Method, spec.KeySource, rpcengine.RuleKeyCanonicalBytes)
 		}
-		if spec.Normalize == nil || spec.Encode == nil {
-			return fmt.Errorf("methods: %s declares a canonical processor without its raw normalization and encoding hooks", spec.Method)
+		if spec.Encode != nil || spec.Admit != nil || spec.Pending.Mode == PendingObserve {
+			return fmt.Errorf("methods: %s mixes canonical processing with raw execution", spec.Method)
 		}
 	}
 	return nil
@@ -121,8 +121,11 @@ func validatePlanComposition(spec MethodSpec) error {
 // declared one. These are the ties that keep the declared facts and the
 // executed capabilities from diverging.
 func validatePlanBindings(plan rpcengine.ReadPlan, spec MethodSpec) error {
-	if plan.Resolver == nil {
-		return fmt.Errorf("methods: %s compiled no resolver", spec.Method)
+	if err := plan.ValidateExecution(); err != nil {
+		return err
+	}
+	if plan.Canonical != nil {
+		return nil
 	}
 	_, corroborating := plan.Resolver.(rpcengine.CorroboratingResolver)
 	if plan.Corroborating() != corroborating {
@@ -148,16 +151,6 @@ func validatePlanBindings(plan rpcengine.ReadPlan, spec MethodSpec) error {
 				return fmt.Errorf("methods: %s declares key source %q but its resolver projects %q",
 					spec.Method, spec.KeySource, projected.KeySource)
 			}
-		}
-	}
-	// A declared processor needs a resolver that can actually consume the
-	// processed observations through both resolution entries — the capability
-	// pairing the compiler can verify structurally. Whether the processor and
-	// the adapters share one object kernel is behavioral, proven by the
-	// cross-seam tests, not by this check.
-	if spec.ProcessCanonical != nil {
-		if _, ok := plan.Resolver.(rpcengine.CanonicalOutcomeResolver); !ok {
-			return fmt.Errorf("methods: %s declares a canonical processor but its resolver cannot consume canonical observations", spec.Method)
 		}
 	}
 	return nil

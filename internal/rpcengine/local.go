@@ -49,10 +49,6 @@ type localFunc struct {
 	encode      CanonicalEncoder
 }
 
-func (f localFunc) Normalize(value json.RawMessage) (string, error) {
-	return f.normalize(value)
-}
-
 // MethodRule reports local resolution and the coarse comparison-key class
 // supplied at construction. It does not participate in request handling.
 func (f localFunc) MethodRule() MethodRule {
@@ -64,5 +60,5 @@ func (f localFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) 
 }
 
 func (f localFunc) Resolve(obs []rpc.Observation) (Outcome, error) {
-	return resolveLocal(f, obs, false)
+	return resolveLocal(f.normalize, f, obs, false)
 }

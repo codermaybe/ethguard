@@ -83,13 +83,10 @@ type invocationState struct {
 
 	// processorRoute is the invocation's frozen processing route: non-nil
 	// when this round resolves through the plan's canonical processor. The
-	// decision is made once at prepare time from the local route and resolver
-	// capabilities. Every later phase (admission, resolution, faults, events,
+	// contract is validated before network work and frozen in prepare. Every later phase (admission, resolution, faults, events,
 	// health) consults this value instead of re-deriving it.
 	processorRoute rpcengine.CanonicalProcessor
-	// canonicalResolver carries the capability checked when prepare freezes
-	// the processing route. A missing capability records an internal fault,
-	// so the round never reaches this resolver.
+	// canonicalResolver is the processed-only resolver validated with the plan.
 	canonicalResolver rpcengine.CanonicalOutcomeResolver
 	// canonicalObservations holds the per-source slot pairing for the
 	// canonical route: each attempted source keeps its slot, failed ones
@@ -118,8 +115,7 @@ type invocationState struct {
 }
 
 // resolverPolicy is the policy whose validity contract classifies answers
-// and attempts: the plan's resolver value. Normalization and the
-// RPC-error-body opt-in live on it.
+// and attempts on the raw contract, including the RPC-error-body opt-in.
 func (state *invocationState) resolverPolicy() rpcengine.Resolver {
 	if state.plan == nil {
 		return nil
@@ -130,6 +126,9 @@ func (state *invocationState) resolverPolicy() rpcengine.Resolver {
 // requiresAgreement reports whether the read's resolution claims a
 // corroboration-bound agreement: the resolver's own capability.
 func (state *invocationState) requiresAgreement() bool {
+	if state.plan != nil && state.plan.Canonical != nil {
+		return true
+	}
 	agreement, ok := state.resolverPolicy().(rpcengine.AgreementResolver)
 	return ok && agreement.RequiresAgreement()
 }
@@ -149,8 +148,8 @@ func (state *invocationState) forwarded() bool {
 }
 
 // resolve runs the plan's declared resolution semantics. The canonical route
-// resolves through the same resolver's canonical consumption entries; the raw
-// route keeps the planned chain, reading the invocation's frozen pending
+// resolves through its processed-only resolver; the raw route reads the
+// invocation's frozen pending
 // fact instead of the prepared parameters. The outcome is the resolution's
 // one production fact: mandatory per-source verdicts travel with it;
 // every input has a judgment, including unassessed inputs on early exits.

@@ -114,7 +114,7 @@ func replayDirectory(dir string, out io.Writer) error {
 				return fmt.Errorf("%s/%s: eth_call data = %s, want %s", record.Provider, record.Scenario, value, record.DataRaw)
 			}
 		}
-		key, err := policy.Normalize(structured.Raw())
+		key, err := plan.Normalize(structured.Raw())
 		if err != nil {
 			return fmt.Errorf("%s/%s: eth_call normalize: %w", record.Provider, record.Scenario, err)
 		}

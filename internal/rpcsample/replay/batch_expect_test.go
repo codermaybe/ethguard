@@ -627,7 +627,26 @@ func resolveCaptured(plan rpcengine.ReadPlan, prepared rpc.Request, prepErr erro
 	// Pending observation and configured corroboration follow the same plan
 	// routing as the aggregator; every route must return a complete Outcome.
 	if plan.Pending.Mode == rpcengine.PendingObserve && snap.Mode != rpc.CorroborationForwarded && pendingShapeAt(plan.Pending.Pos, prepared) {
-		outcome, err = rpcengine.ResolveLocalObservation(plan.Resolver, obs)
+		outcome, err = rpcengine.ResolveLocalObservation(plan.Normalize, plan.Resolver, obs)
+	} else if plan.Canonical != nil {
+		processed := make([]rpcengine.CanonicalObservation, len(obs))
+		for i, item := range obs {
+			var result rpcengine.CanonicalResult
+			if item.Response.Err() == nil {
+				var processingErr error
+				result, processingErr = plan.Canonical.Process(context.Background(), prepared, item.Response.Answer.Result, nil)
+				if processingErr != nil {
+					item.Response.Answer.Interpretation = rpc.Interpretation{State: rpc.InterpretationRejected, Cause: fmt.Errorf("admission: %w", processingErr)}
+				}
+			}
+			var bindingErr error
+			processed[i], bindingErr = rpcengine.NewCanonicalObservation(item, result)
+			if bindingErr != nil {
+				return rpc.Decision{Status: rpc.Unknown}, bindingErr
+			}
+			obs[i] = item
+		}
+		outcome, err = plan.Canonical.Resolver.ResolveCanonicalCorroborated(snap, processed)
 	} else if resolver, ok := plan.Resolver.(rpcengine.CorroboratingResolver); ok && plan.Corroborating() {
 		outcome, err = resolver.ResolveCorroborated(snap, obs)
 	} else {
@@ -1257,14 +1276,19 @@ func TestCapturedAdmissionRetainsResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Admit == nil {
-		t.Fatal("receipt plan has no admission hook")
+	if plan.Canonical == nil {
+		t.Fatal("receipt plan has no canonical contract")
 	}
 	original := rpc.Observation{Attempted: true, Source: rpc.SourceRef{ID: "receipt", Name: "receipt"}, Response: rpc.Response{
 		Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted, HTTPStatus: 200},
 		Answer:   rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`{"status":"0x1"}`)},
 	}}
-	admitted := admitCaptured(t, plan, rpc.Request{Method: methods.MethodGetTransactionReceipt, Params: []any{replayHeadHash}}, original)
+	admitted := original
+	_, processingErr := plan.Canonical.Process(context.Background(), rpc.Request{Method: methods.MethodGetTransactionReceipt, Params: []any{replayHeadHash}}, original.Response.Answer.Result, nil)
+	if processingErr == nil {
+		t.Fatal("incomplete receipt processed successfully")
+	}
+	admitted.Response.Answer.Interpretation = rpc.Interpretation{State: rpc.InterpretationRejected, Cause: processingErr}
 	if admitted.Response.Exchange != original.Response.Exchange || admitted.Response.Answer.Kind != rpc.AnswerResult ||
 		!bytes.Equal(admitted.Response.Answer.Result, original.Response.Answer.Result) ||
 		admitted.Response.Answer.Interpretation.State != rpc.InterpretationRejected || !errors.Is(admitted.Response.Err(), rpc.ErrMalformedResponse) {

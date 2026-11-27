@@ -44,10 +44,6 @@ type medianFunc struct {
 	encode    CanonicalEncoder
 }
 
-func (f medianFunc) Normalize(value json.RawMessage) (string, error) {
-	return f.normalize(value)
-}
-
 // MethodRule reports median resolution. Median's contract is a base-10
 // integer key, so the coarse class is quantity. This method does not
 // participate in request handling.

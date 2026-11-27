@@ -20,11 +20,11 @@ import (
 // canonical encoder are the resolver's own, and the value domain includes
 // structured RPC error bodies only when the resolver opted in. The plan
 // selects this entry for its pending-local route.
-func ResolveLocalObservation(policy Resolver, obs []rpc.Observation) (Outcome, error) {
-	return resolveLocal(policy, obs, true)
+func ResolveLocalObservation(normalize func(json.RawMessage) (string, error), policy Resolver, obs []rpc.Observation) (Outcome, error) {
+	return resolveLocal(normalize, policy, obs, true)
 }
 
-func resolveLocal(policy Resolver, obs []rpc.Observation, pending bool) (Outcome, error) {
+func resolveLocal(normalize func(json.RawMessage) (string, error), policy Resolver, obs []rpc.Observation, pending bool) (Outcome, error) {
 	includeProtocol := false
 	if provider, ok := policy.(RPCErrorResolver); ok {
 		includeProtocol = provider.IncludeRPCError()
@@ -42,7 +42,7 @@ func resolveLocal(policy Resolver, obs []rpc.Observation, pending bool) (Outcome
 			}
 			continue
 		}
-		if _, err := policy.Normalize(value); err != nil {
+		if _, err := normalize(value); err != nil {
 			rejectVerdict(v, err)
 			continue
 		}

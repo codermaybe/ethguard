@@ -19,19 +19,12 @@ func forwardPlan(method string) rpcengine.ReadPlan {
 	return rpcengine.ReadPlan{Method: method, Resolver: rpcengine.ForwardResolver{}}
 }
 
-// WithPlans installs the read plans the aggregator executes through the
-// fixed phase pipeline. A method without a plan uses forwardPlan. A non-empty plan with a local
-// hook but no resolver is installed so its local checks still run, then fails
-// closed during preparation. Empty plans without a resolver or hook are skipped.
+// WithPlans installs explicit contracts. Missing or mixed execution fails
+// during local preparation; only unregistered methods use forwardPlan.
 func WithPlans(plans map[string]rpcengine.ReadPlan) Option {
 	return func(a *Aggregator) {
 		for method, plan := range plans {
-			// A plan without a resolver and without a local hook is not
-			// executable and is skipped; a validate-or-reject-only plan is
-			// the local rejection shape and installs fine.
-			if plan.Resolver != nil || plan.Prepare != nil || plan.PendingReject != nil {
-				a.plans[method] = plan
-			}
+			a.plans[method] = plan
 		}
 	}
 }
@@ -48,7 +41,7 @@ func resolvePlannedInvocation(plan *rpcengine.ReadPlan, snap rpcengine.Corrobora
 		return plan.Resolver.Resolve(obs)
 	}
 	if pendingLocal {
-		return rpcengine.ResolveLocalObservation(plan.Resolver, obs)
+		return rpcengine.ResolveLocalObservation(plan.Normalize, plan.Resolver, obs)
 	}
 	if snapOK && plan.Corroborating() {
 		resolver, ok := plan.Resolver.(rpcengine.CorroboratingResolver)

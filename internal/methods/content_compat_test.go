@@ -62,7 +62,7 @@ func TestRealShapesAgreeAfterPruneAndCaseFold(t *testing.T) {
 func TestMissingRequiredFieldsStayOutOfAdmission(t *testing.T) {
 	receipt := deleteField(t, sampleResults(t, "block-receipt-tx", "receipt-one")[0], "logs")
 	req := rpc.Request{Method: MethodGetTransactionReceipt, Params: []any{txHash(t, sampleResults(t, "block-receipt-tx", "receipt-one")[0])}}
-	_, err := admitReceipt(context.Background(), req, receipt, nil)
+	_, err := processReceipt(context.Background(), req, receipt, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("err = %v, want ErrMalformedResponse", err)
 	}
@@ -76,7 +76,7 @@ func TestMissingRequiredFieldsStayOutOfAdmission(t *testing.T) {
 
 	tx := deleteField(t, sampleResults(t, "block-receipt-tx", "tx-one")[0], "from")
 	txReq := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{txHash(t, sampleResults(t, "block-receipt-tx", "tx-one")[0])}}
-	_, err = admitTransactionByHash(context.Background(), txReq, tx, nil)
+	_, err = processTransactionByHash(context.Background(), txReq, tx, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("tx err = %v, want ErrMalformedResponse", err)
 	}
@@ -86,7 +86,7 @@ func TestAdmitDoesNotChangeComparisonKey(t *testing.T) {
 	raw := sampleResults(t, "block-receipt-tx", "receipt-one")[0]
 	before := mustNormalize(t, normalizeReceiptObject, raw)
 	req := rpc.Request{Method: MethodGetTransactionReceipt, Params: []any{txHash(t, raw)}}
-	if _, err := admitReceipt(context.Background(), req, raw, nil); err != nil {
+	if _, err := processReceipt(context.Background(), req, raw, nil); err != nil {
 		t.Fatal(err)
 	}
 	if mustNormalize(t, normalizeReceiptObject, raw) != before {
@@ -155,7 +155,7 @@ func TestReceiptFromAnotherTransactionIsRejected(t *testing.T) {
 	// also verifies the fixture); substitute a different hash.
 	_ = txHash(t, sampleResults(t, "block-receipt-tx", "tx-one")[0])
 	other := "0x" + strings.Repeat("12", 32)
-	_, err := admitReceipt(context.Background(), rpc.Request{Method: MethodGetTransactionReceipt, Params: []any{other}}, raw, nil)
+	_, err := processReceipt(context.Background(), rpc.Request{Method: MethodGetTransactionReceipt, Params: []any{other}}, raw, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("err = %v, want ErrMalformedResponse", err)
 	}
@@ -170,11 +170,11 @@ func TestReceiptFromAnotherTransactionIsRejected(t *testing.T) {
 	if err := json.Unmarshal(sampleResults(t, "block-receipt-tx", "block-filled-number")[0], &block); err != nil {
 		t.Fatal(err)
 	}
-	_, err = admitBlockReceipts(context.Background(), rpc.Request{Method: MethodGetBlockReceipts, Params: []any{block.Hash}}, json.RawMessage("[]"), nil)
+	_, err = processBlockReceipts(context.Background(), rpc.Request{Method: MethodGetBlockReceipts, Params: []any{block.Hash}}, json.RawMessage("[]"), nil)
 	if err != nil {
 		t.Fatalf("empty receipt array for a real block hash must stay legal: %v", err)
 	}
-	_, err = admitBlockReceipts(context.Background(), rpc.Request{Method: MethodGetBlockReceipts, Params: []any{"0x" + strings.Repeat("34", 32)}}, rows, nil)
+	_, err = processBlockReceipts(context.Background(), rpc.Request{Method: MethodGetBlockReceipts, Params: []any{"0x" + strings.Repeat("34", 32)}}, rows, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("receipts of another block: %v", err)
 	}

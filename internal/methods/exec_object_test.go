@@ -104,7 +104,7 @@ func TestEstimateGasObjectForms(t *testing.T) {
 		if plan.Pending.Mode != rpcengine.PendingObserve || plan.Pending.Pos != 1 {
 			t.Fatalf("pending declaration = %+v, want observe at 1", plan.Pending)
 		}
-		decision, err := rpcengine.ResolveLocalObservation(plan.Resolver, []rpc.Observation{
+		decision, err := rpcengine.ResolveLocalObservation(plan.Normalize, plan.Resolver, []rpc.Observation{
 			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x10"`)}}},
 			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x30"`)}}},
 			{Attempted: true, Source: rpc.SourceRef{ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x20"`)}}},
@@ -205,7 +205,7 @@ func TestCreateAccessListObjectForms(t *testing.T) {
 		if got := prepared.Params[1].(map[string]any); got["blockNumber"] != "pending" {
 			t.Fatalf("pending object rewritten: %#v", got)
 		}
-		decision, err := rpcengine.ResolveLocalObservation(plan.Resolver, []rpc.Observation{
+		decision, err := rpcengine.ResolveLocalObservation(plan.Normalize, plan.Resolver, []rpc.Observation{
 			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: body}}},
 			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: body}}},
 		})

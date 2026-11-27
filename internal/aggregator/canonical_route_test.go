@@ -37,9 +37,7 @@ func (h *processingHooks) snapshot() (normalize, encode, process int) {
 	return h.normalize, h.encode, h.process
 }
 
-// processingPlan assembles the same shape the two pilot methods compile: a
-// strict resolver with canonical-bytes clustering, intact raw hooks, and the
-// declared processor.
+// processingPlan has the same processed-only contract as registered methods.
 func processingPlan(hooks *processingHooks, process rpcengine.CanonicalProcessor) rpcengine.ReadPlan {
 	normalize := func(raw json.RawMessage) (string, error) {
 		hooks.mu.Lock()
@@ -47,18 +45,8 @@ func processingPlan(hooks *processingHooks, process rpcengine.CanonicalProcessor
 		hooks.mu.Unlock()
 		return string(raw), nil
 	}
-	encode := func(raw json.RawMessage) (json.RawMessage, error) {
-		hooks.mu.Lock()
-		hooks.encode++
-		hooks.mu.Unlock()
-		return raw, nil
-	}
-	return rpcengine.ReadPlan{
-		Method:           "m",
-		Resolver:         rpcengine.Strict(normalize, rpcengine.WithCanonicalValue(encode), rpcengine.WithQuorum(2)),
-		ResolverKind:     rpcengine.ResolverStrict,
-		ProcessCanonical: process,
-	}
+	return rpcengine.ReadPlan{Method: "m", Normalize: normalize, ResolverKind: rpcengine.ResolverStrict,
+		Canonical: &rpcengine.CanonicalRead{Process: process, Resolver: rpcengine.CanonicalStrict(rpcengine.RuleCompareMethodSpecific)}}
 }
 
 // echoProcessor is the minimal well-formed processor: the raw response is
@@ -128,7 +116,7 @@ func TestCanonicalRouteProcessesOncePerSource(t *testing.T) {
 	}
 }
 
-func TestCanonicalRouteRetainsConstructorQuorumWithoutSnapshot(t *testing.T) {
+func TestCanonicalRouteRetainsConfiguredQuorum(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		bodies    []string
@@ -142,9 +130,13 @@ func TestCanonicalRouteRetainsConstructorQuorumWithoutSnapshot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			hooks := &processingHooks{}
 			plan := processingPlan(hooks, echoProcessor(hooks))
-			plan.Resolver = rpcengine.Strict(rpc.CanonicalJSON, rpcengine.WithCanonicalValue(rpc.EncodeCanonicalJSON), rpcengine.WithQuorum(3))
+
 			fixture, _ := canonicalAggregator(t, plan, tc.bodies...)
-			agg := New(fixture.pool, WithPlans(map[string]rpcengine.ReadPlan{"m": plan}))
+			shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 3)
+			if err != nil {
+				t.Fatal(err)
+			}
+			agg := New(fixture.pool, WithPlans(map[string]rpcengine.ReadPlan{"m": plan}), WithCorroboration(shared))
 			decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
 			if !errors.Is(err, tc.err) || decision.Status != tc.status || decision.Adjudication.Required != 3 || decision.Adjudication.Basis != 3 {
 				t.Fatalf("constructor quorum was not retained: %+v, %v", decision, err)
@@ -314,9 +306,9 @@ func TestRawRouteKeepsFullAdmission(t *testing.T) {
 		mu.Unlock()
 		return json.RawMessage(`"evidence"`), nil
 	}
-	agg, _ := canonicalAggregator(t, processingPlan(hooks, nil), `"same"`, `"same"`)
+	agg, _ := canonicalAggregator(t, rawProcessingPlan(hooks), `"same"`, `"same"`)
 	agg.plans["m"] = func() rpcengine.ReadPlan {
-		plan := processingPlan(hooks, nil)
+		plan := rawProcessingPlan(hooks)
 		plan.Admit = admission
 		return plan
 	}()
@@ -573,30 +565,59 @@ func TestCanonicalProcessorPairingOutcomes(t *testing.T) {
 	})
 }
 
-// TestCanonicalRouteWithoutCanonicalConsumerAbortsInternally pins the
-// executable-plan composition guard: a plan installed directly through
-// WithPlans whose resolver cannot consume canonical observations takes the
-// one internal contract exit — the sentinel names the defect, the processor
-// never runs, and no raw hook runs anywhere, including behind the
-// observability recorder.
-func TestCanonicalRouteWithoutCanonicalConsumerAbortsInternally(t *testing.T) {
-	hooks := &processingHooks{}
-	consumerless := struct{ rpcengine.Resolver }{processingPlan(hooks, echoProcessor(hooks)).Resolver}
-	plan := processingPlan(hooks, echoProcessor(hooks))
-	plan.Resolver = consumerless
-	agg, nodes := canonicalAggregator(t, plan, `"same"`, `"same"`)
-	agg.rec = &captureRecorder{}
-	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
-	if !errors.Is(err, rpc.ErrInvalidCanonicalResult) {
-		t.Fatalf("consumer mismatch must abort with the internal sentinel; status=%v err=%v", decision.Status, err)
+// Contract defects must fail locally before collection or method hooks.
+func TestCanonicalExecutionRejectsMissingOrMixedContractsBeforeRequests(t *testing.T) {
+	for _, defect := range []string{"missing-contract", "missing-resolver", "missing-processor", "raw-resolver", "raw-admission", "pending-observe"} {
+		t.Run(defect, func(t *testing.T) {
+			hooks := &processingHooks{}
+			plan := processingPlan(hooks, echoProcessor(hooks))
+			switch defect {
+			case "missing-contract":
+				plan.Canonical = nil
+			case "missing-resolver":
+				plan.Canonical.Resolver = nil
+			case "missing-processor":
+				plan.Canonical.Process = nil
+			case "raw-resolver":
+				plan.Resolver = rpcengine.Strict(rpc.CanonicalJSON)
+			case "raw-admission":
+				plan.Admit = func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error) {
+					t.Fatal("raw admission ran")
+					return nil, nil
+				}
+			case "pending-observe":
+				plan.Pending = rpcengine.PendingSpec{Mode: rpcengine.PendingObserve}
+			}
+			agg, nodes := canonicalAggregator(t, plan, `"same"`, `"same"`)
+			decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+			if !errors.Is(err, rpc.ErrInvalidReadPlan) || decision.Status != rpc.Unknown {
+				t.Fatalf("invalid contract = %+v, %v", decision, err)
+			}
+			normalize, encode, process := hooks.snapshot()
+			if normalize != 0 || encode != 0 || process != 0 {
+				t.Fatal("invalid plan ran hooks")
+			}
+			for _, node := range nodes {
+				if len(node.Calls()) != 0 {
+					t.Fatal("invalid plan contacted a provider")
+				}
+			}
+		})
 	}
-	normalize, encode, process := hooks.snapshot()
-	if process != 0 || normalize != 0 || encode != 0 {
-		t.Fatalf("mismatched plan ran hooks: process=%d normalize=%d encode=%d", process, normalize, encode)
+}
+
+func rawProcessingPlan(hooks *processingHooks) rpcengine.ReadPlan {
+	normalize := func(raw json.RawMessage) (string, error) {
+		hooks.mu.Lock()
+		hooks.normalize++
+		hooks.mu.Unlock()
+		return string(raw), nil
 	}
-	for _, node := range nodes {
-		if calls := node.Calls(); len(calls) != 1 || calls[0].Method != "m" {
-			t.Fatalf("canonical capability failure changed collection: %+v", calls)
-		}
+	encode := func(raw json.RawMessage) (json.RawMessage, error) {
+		hooks.mu.Lock()
+		hooks.encode++
+		hooks.mu.Unlock()
+		return raw, nil
 	}
+	return rpcengine.ReadPlan{Method: "m", Normalize: normalize, ResolverKind: rpcengine.ResolverStrict, Resolver: rpcengine.Strict(normalize, rpcengine.WithCanonicalValue(encode))}
 }

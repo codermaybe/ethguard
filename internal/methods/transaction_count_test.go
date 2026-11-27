@@ -16,10 +16,10 @@ func TestTransactionCountPlanKeepsNullForNotFoundProjection(t *testing.T) {
 	if !plan.Corroborating() || plan.Pending.Mode != PendingNone {
 		t.Fatalf("plan = %+v, want strict immutable read without pending", plan)
 	}
-	if got, err := plan.Resolver.Normalize(json.RawMessage(`null`)); err != nil || got != "null" {
+	if got, err := plan.Normalize(json.RawMessage(`null`)); err != nil || got != "null" {
 		t.Fatalf("null normalization = %q, %v; want null key", got, err)
 	}
-	if got, err := plan.Resolver.Normalize(json.RawMessage(`"0x2"`)); err != nil || got != "2" {
+	if got, err := plan.Normalize(json.RawMessage(`"0x2"`)); err != nil || got != "2" {
 		t.Fatalf("quantity normalization = %q, %v; want decimal 2", got, err)
 	}
 	resolver, ok := plan.Resolver.(rpcengine.CorroboratingResolver)

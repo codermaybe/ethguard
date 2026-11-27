@@ -19,7 +19,6 @@ import (
 )
 
 func TestReceiptSpellingsShareOneCanonicalValue(t *testing.T) {
-	policy := planResolver(t, MethodGetTransactionReceipt, rpcengine.WithQuorum(1))
 	raw := sampleReceipt(t)
 	reordered := reorderReceipt(t, raw)
 	upper := foldReceiptHex(t, raw)
@@ -30,7 +29,7 @@ func TestReceiptSpellingsShareOneCanonicalValue(t *testing.T) {
 
 	resolve := func(order []rpc.Observation) rpc.Decision {
 		t.Helper()
-		decision, err := policy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, order)
+		decision, err := resolveCanonical(t, receiptRequest(t), rpcengine.Corroboration{Floor: 1}, order)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,16 +46,15 @@ func TestReceiptSpellingsShareOneCanonicalValue(t *testing.T) {
 	if forward.Representative != a || backward.Representative != b {
 		t.Fatalf("representatives = %+v %+v", forward.Representative, backward.Representative)
 	}
-	if !bytes.Equal(forward.Provenance, json.RawMessage(`{"from":"a"}`)) || !bytes.Equal(backward.Provenance, json.RawMessage(`{"from":"b"}`)) {
-		t.Fatal("evidence did not follow the first captured supporter")
+	if len(forward.Provenance) != 0 || len(backward.Provenance) != 0 {
+		t.Fatal("receipt processor unexpectedly supplied admission evidence")
 	}
 }
 
 func TestReceiptFromDisagreementSplitsTheCluster(t *testing.T) {
-	policy := planResolver(t, MethodGetTransactionReceipt, rpcengine.WithQuorum(1))
 	raw := sampleReceipt(t)
 	other := replaceReceiptField(t, raw, "from", `"0x0000000000000000000000000000000000000002"`)
-	decision, err := policy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
+	decision, err := resolveCanonical(t, receiptRequest(t), rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, string(raw), ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, string(other), ""),
 	})
@@ -66,11 +64,10 @@ func TestReceiptFromDisagreementSplitsTheCluster(t *testing.T) {
 }
 
 func TestReceiptMissingLogsStaysInTheDenominator(t *testing.T) {
-	policy := planResolver(t, MethodGetTransactionReceipt, rpcengine.WithQuorum(2))
 	good := string(sampleReceipt(t))
 	other := string(replaceReceiptField(t, sampleReceipt(t), "gasUsed", `"0x1"`))
 	incomplete := string(deleteReceiptField(t, sampleReceipt(t), "logs"))
-	decision, err := policy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
+	decision, err := resolveCanonical(t, receiptRequest(t), rpcengine.Corroboration{Floor: 2}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, good, ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, good, ""),
 		observation(rpc.SourceRef{Name: "d", ID: "d"}, other, ""),
@@ -82,14 +79,13 @@ func TestReceiptMissingLogsStaysInTheDenominator(t *testing.T) {
 	if decision.Decision.Status != rpc.Unknown || len(decision.Decision.Support) != 2 {
 		t.Fatalf("status %v support %d", decision.Decision.Status, len(decision.Decision.Support))
 	}
-	if len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "encode:") {
+	if len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "admission:") {
 		t.Fatalf("faults = %v", decision.Decision.Faults)
 	}
 }
 
 func TestReceiptNullEncodesAsNull(t *testing.T) {
-	policy := planResolver(t, MethodGetTransactionReceipt, rpcengine.WithQuorum(1))
-	decision, err := policy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
+	decision, err := resolveCanonical(t, receiptRequest(t), rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, `null`, ""),
 	})
@@ -323,10 +319,9 @@ func TestReceiptEncodingOptionalFieldsAndStatusRoot(t *testing.T) {
 	}
 }
 
-func TestReceiptBloomMismatchIsEncodeFault(t *testing.T) {
+func TestReceiptBloomMismatchIsProcessingFault(t *testing.T) {
 	raw := replaceReceiptField(t, sampleReceipt(t), "logsBloom", `"0x`+strings.Repeat("00", 255)+`01"`)
-	policy := planResolver(t, MethodGetTransactionReceipt, rpcengine.WithQuorum(1))
-	decision, err := policy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
+	decision, err := resolveCanonical(t, receiptRequest(t), rpcengine.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{ID: "a"}, string(raw), ""),
 	})
 	if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Decision.Status != rpc.Unknown || len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "logsBloom disagrees with logs") {

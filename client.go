@@ -272,7 +272,7 @@ func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("ethguard: %s has no canonical normalizer: %w", method, rpc.ErrInvalidRequest)
 	}
-	return plan.Resolver.Normalize(raw)
+	return plan.Normalize(raw)
 }
 
 // Close stops the client: it marks the client closed, cancels the owner
