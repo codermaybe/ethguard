@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/projection"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 // T09.2 locks the lifecycle of every protected field: representation

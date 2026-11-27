@@ -13,11 +13,12 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/transport"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/internal/transport/wss"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -136,7 +137,7 @@ func Compose(in Composition) (*Bundle, error) {
 	if mode == rpc.CorroborationForwarded {
 		floor = 0
 	}
-	corrob, err := rpc.NewCorroborationShared(mode, floor)
+	corrob, err := rpcengine.NewCorroborationShared(mode, floor)
 	if err != nil {
 		return nil, err
 	}
@@ -144,9 +145,9 @@ func Compose(in Composition) (*Bundle, error) {
 	// Construction-time defaults mirror the shared configuration so policies
 	// resolved outside a snapshot-bearing aggregator agree with the client
 	// default.
-	var strictOpts []rpc.StrictOption
+	var strictOpts []rpcengine.StrictOption
 	if floor > 0 {
-		strictOpts = append(strictOpts, rpc.WithQuorum(floor))
+		strictOpts = append(strictOpts, rpcengine.WithQuorum(floor))
 	}
 	bundle, err := Build(Inputs{
 		Pool:           rpcPool,
@@ -173,7 +174,7 @@ func Compose(in Composition) (*Bundle, error) {
 // the stage's strict head rounds to the strict head service. The facade and
 // the invocation's business reads therefore establish through one
 // establishment with one configuration.
-func composeResolver(in Composition, stage *ReferenceStage, corrob *rpc.CorroborationShared, floor int) ReferenceResolver {
+func composeResolver(in Composition, stage *ReferenceStage, corrob *rpcengine.CorroborationShared, floor int) ReferenceResolver {
 	if in.Anchoring != nil && in.Anchoring.Finalized {
 		return &FinalizedHeadAnchor{anchorFacade{NewFinalizedHeadService(stage)}}
 	}

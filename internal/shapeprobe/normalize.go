@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/internal/methods"
 )
 
 // NormalizeResult calls the registered plan resolver's Normalize. It does

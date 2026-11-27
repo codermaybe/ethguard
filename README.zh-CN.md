@@ -98,7 +98,7 @@ raw WSS提供ID demux与有界通知；adapter不自动重连／replay，root订
 
 ## 模块与验证
 
-唯一生产装配位于internal/runtime；rpc拥有通用裁决，methods拥有方法语义，aggregator编排调用，pool拥有成员／收集／健康。ethapi与ethcodec提供模型和原语，objects／ethobject拥有绑定与对象保护；typed只有一份。transport与subscription分别拥有协议和流，工具／测试消费核心而不被核心反向导入。
+唯一生产装配位于internal/runtime；rpc拥有公开请求、响应、裁定与证据数据合同及纯值函数，internal/rpcengine拥有Resolver、执行计划与裁决算法，internal/methods拥有方法语义，internal/projection装配官方字段投影，internal/aggregator编排调用，internal/pool拥有成员／收集／健康。ethapi与ethcodec提供模型和原语，internal/ethobject单树拥有绑定与对象保护；typed只有一份。transport与subscription分别拥有协议和流，工具／测试消费核心而不被核心反向导入。
 
 从 [文档导航](docs/design/README.md)进入完整现行合同。历史decision供追溯，不是另一份执行计划。公共管线、响应模型、read精调、同步写入及NewHead已验收；其余方法、运行期专题和外部证据按路线图独立推进。
 

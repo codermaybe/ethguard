@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/internal/methods"
 )
 
 func TestBlockParamRequestsRepeatAtSameAnchor(t *testing.T) {

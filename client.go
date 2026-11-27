@@ -10,12 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/runtime"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -28,13 +29,13 @@ type Client struct {
 	aggregator *aggregator.Aggregator
 	// plans are the read methods driven by explicit execution plans; their
 	// resolvers own canonical normalization at the facade boundary.
-	plans map[string]rpc.ReadPlan
+	plans map[string]rpcengine.ReadPlan
 	// resolver is the runtime-owned anchor establishment strategy; the facade
 	// only queries it (AnchorBlockHash and friends), never replaces it.
 	resolver runtime.ReferenceResolver
 	// corrob is the internal adjudication snapshot source; callers do not
 	// configure its mode or support floor.
-	corrob *rpc.CorroborationShared
+	corrob *rpcengine.CorroborationShared
 	// collectTimeout bounds each write fan-out; the read aggregator owns its
 	// own copy supplied at construction.
 	collectTimeout time.Duration

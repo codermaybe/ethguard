@@ -63,6 +63,6 @@ ForTag 将输入转为小写，仅接受 latest／safe／finalized；其他值�
 | 自定义 reader 身份 | Confirm 的陌生成员身份处理属于 seam hardening 候选；普通冻结 reader 未证实可达，不登记为生产漏洞 |
 | 证据交付 | C 模块已改为 `ReferenceStage.Establish` 显式返回 `(*rpc.ReferenceEvidence, error)`，coordinator 保留部分失败证据并统一交付；`internal/refcontext` 已删除 |
 
-`pool/freshness_scope_test.go` 保存 gate 范围、24h 旧样本和不完整覆盖的现状基线；经裁决修复时应调整现状断言，不能让它们否决新合同。其他入口包括 TestTipTrackingQuarantinesLaggingSource、TestCollectVotingKeepsCoolingMemberInBasis、TestFinalizedAnchoringIsolatesStaleReporter 和 TestBroadcastTrailingSourceStillContacted。
+`internal/pool/freshness_scope_test.go` 保存 gate 范围、24h 旧样本和不完整覆盖的现状基线；经裁决修复时应调整现状断言，不能让它们否决新合同。其他入口包括 TestTipTrackingQuarantinesLaggingSource、TestCollectVotingKeepsCoolingMemberInBasis、TestFinalizedAnchoringIsolatesStaleReporter 和 TestBroadcastTrailingSourceStillContacted。
 
 历史 2026-10-31 两轮四源观察约 6分22秒，latest spread 最大1、safe224、finalized96，一个源的 safe/finalized 未变化；没有观察到 reorg 或同高 hash 分歧。这不足以选定阈值。本轮文档整理未重采 provider；后续分别补齐真实更新时间分布、回退／reorg、停止采样、样本过期、请求豁免与确认轮分母证据。

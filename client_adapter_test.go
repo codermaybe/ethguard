@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/rpcwire"
-	"github.com/codermaybe/ethguard/pool"
 )
 
 // A mismatched response ID makes native adapter selection observable.

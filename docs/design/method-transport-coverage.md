@@ -18,7 +18,7 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 
 | RPC 方法 | Catalog | Root | View | HTTP/WSS request | Subscription | 主要实现 | 当前缺口 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `eth_chainId` | Registered | `ChainID` | `ChainID` | native HTTP/WSS raw call | 不适用 | `eth.go`, `ethclient_view.go`, `rpc/methods` | 跨 transport 同 fixture 结果矩阵 |
+| `eth_chainId` | Registered | `ChainID` | `ChainID` | native HTTP/WSS raw call | 不适用 | `eth.go`, `ethclient_view.go`, `internal/methods` | 跨 transport 同 fixture 结果矩阵 |
 | `eth_getBlockByHash` | Registered | `BlockByHash` | `BlockByHash` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | full/header、uncle 和大区块成本 |
 | `eth_getBlockByNumber` | Registered | `BlockByNumber` | `BlockByNumber` | native HTTP/WSS raw call | 不适用 | `eth.go`, `anchor.go`, `typed` | moving tag、pending-local、历史块跨 transport |
 | `eth_getBalance` | Registered | `BalanceAt` | `BalanceAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | null、历史高度和跨 transport |
@@ -26,14 +26,14 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | `eth_getTransactionByHash` | Registered | `TransactionByHash` | `TransactionByHash` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending 与 absent 的跨 transport 矩阵 |
 | `eth_getBlockReceipts` | Registered | `BlockReceipts` | `BlockReceipts` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, receipt objects | 与单 receipt 共用官方形态／保护合同；nullable presence／DATA 异见、逐条绑定与首错顺序、整列表安全门及 1/16 条 receipt 的真实 HTTP 聚合成本已验收；更大批次和真实 provider 非空批次证据仍独立 |
 | `eth_getTransactionCount` | Registered | `NonceAt` | `NonceAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending-local、历史引用和跨 transport |
-| `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `compat_methods.go`, `typed`, `rpc/methods` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity`、`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
-| `eth_getBlockTransactionCountByNumber` | Registered | `PendingTransactionCount` | `PendingTransactionCount` | native HTTP/WSS raw call | 不适用 | `pending_count.go`, `typed`, `rpc/methods` | PendingObserve 的多源 dissent/malformed 已由 `TestPendingTransactionCountDissentStaysSelected`、`TestPendingTransactionCountSkipsMalformedSource`、`TestPendingTransactionCountAllMalformedIsUnknown` 覆盖；跨 transport 证据仍待补 |
+| `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `compat_methods.go`, `typed`, `internal/methods` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity`、`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
+| `eth_getBlockTransactionCountByNumber` | Registered | `PendingTransactionCount` | `PendingTransactionCount` | native HTTP/WSS raw call | 不适用 | `pending_count.go`, `typed`, `internal/methods` | PendingObserve 的多源 dissent/malformed 已由 `TestPendingTransactionCountDissentStaysSelected`、`TestPendingTransactionCountSkipsMalformedSource`、`TestPendingTransactionCountAllMalformedIsUnknown` 覆盖；跨 transport 证据仍待补 |
 | `eth_getStorageAt` | Registered | `StorageAt` | `StorageAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 空 bytes、EIP-1898 和跨 transport |
 | `eth_getCode` | Registered | `CodeAt` | `CodeAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | empty code、历史引用和跨 transport |
 | `eth_call` | Registered | `CallContract` | `CallContract` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, call rules | overrides、provider golden `error.data=null` |
 | `eth_estimateGas` | Registered | `EstimateGas` | `EstimateGas` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | provider revert golden、边界参数 |
 | `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | Logs订阅已改为Head+完整块承诺，不消费eth_getLogs子集 | `eth.go`, `typed`, `logs_subscription.go` | unary方法已验收；Logs连续流已验收，跨transport/provider及大范围成本独立 |
-| `eth_simulateV1` | Registered | `SimulateV1` | `SimulateV1` | native HTTP/WSS raw call | 不适用 | `simulate.go`, `rpc/methods/simulate.go` | 生成 payload/base；Prepare 统一校验及固定输入。逐方法模拟语义与 provider 证据继续验收。完整 base/reference 矩阵见 [moving-tag-matrix](moving-tag-matrix.md#c-execution-ranges-fee-history) |
+| `eth_simulateV1` | Registered | `SimulateV1` | `SimulateV1` | native HTTP/WSS raw call | 不适用 | `simulate.go`, `internal/methods/simulate.go` | 生成 payload/base；Prepare 统一校验及固定输入。逐方法模拟语义与 provider 证据继续验收。完整 base/reference 矩阵见 [moving-tag-matrix](moving-tag-matrix.md#c-execution-ranges-fee-history) |
 | `eth_feeHistory` | Registered | `FeeHistory` | `FeeHistory` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 历史高度、percentile 边界和跨 transport |
 | `eth_gasPrice` | Registered | `SuggestGasPrice` | `SuggestGasPrice` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
 | `eth_maxPriorityFeePerGas` | Registered | `SuggestGasTipCap` | `SuggestGasTipCap` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
@@ -49,11 +49,11 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 
 两个计数口径不同，不能互相换算：**47** 是锁定上游 ethclient 的用户可调用方法面（含 Close，排除 `Client()`），**27** 是本项目 catalog 当前登记的注册读 RPC 条目——一个 RPC 可服务普通／AtHash／Pending 多个公开入口，另有写入条目与显式 unsupported 条目及 root 扩展在 47 的分母内但不占 27 的行。catalog 的注册不等于跨 transport、provider 或订阅证据已经完成。
 
-## 读注册归属（rpc/methods）
+## 读注册归属（internal/methods）
 
-27 个注册读方法各由自己的方法文件拥有 RPC 名称与执行定义；SimulateV1 已纳入同一库存。`spec_inventory.go` 与 `catalog.go` 只收集定义函数。`eth_sendRawTransaction`（WriteMethod）与 `eth_getProof`（UnsupportedMethod）无读 spec。无遗留 `XxxPolicy()` 构造器；`blockPolicy` 是 block 包装 resolver 的装配。
+27 个注册读方法各由自己的方法文件拥有 RPC 名称与执行定义；SimulateV1 已纳入同一库存。`spec_inventory.go` 与 `catalog.go` 只收集定义函数。`eth_sendRawTransaction`（WriteMethod）与 `eth_getProof`（UnsupportedMethod）无读 spec。无遗留 `XxxPolicy()` 构造器或 block 包装 resolver；block 方法直接装配 Strict，准入由 spec／plan 声明。
 
-| RPC 方法 | Owner 文件（rpc/methods） | 执行类别 | 公开入口（共享同一 plan） |
+| RPC 方法 | Owner 文件（internal/methods） | 执行类别 | 公开入口（共享同一 plan） |
 | --- | --- | --- | --- |
 | `eth_simulateV1` | `simulate.go` | strict + reference / pending-local | `Client.SimulateV1`、`EthClient.SimulateV1`、Raw Call |
 | `eth_getTransactionByHash` | `transaction_by_hash.go` | strict 事务对象 | `TransactionByHash` |

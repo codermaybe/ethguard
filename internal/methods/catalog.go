@@ -1,0 +1,146 @@
+package methods
+
+import (
+	"fmt"
+
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+)
+
+// MethodKind describes how a JSON-RPC method is exposed by EthGuard.  A
+// registered method has a method-aware policy in this package.  Derived
+// methods are intentionally absent from the RPC registry because the root
+// client obtains their value from an already established reference.  Known
+// unsupported methods are listed explicitly so an omission cannot be mistaken
+// for a transparent corroboration guarantee.  Write methods are supported
+// through the dedicated write pipeline outside the read registry, so they
+// carry no read-registry policy.
+type MethodKind uint8
+
+const (
+	RegisteredMethod MethodKind = iota
+	DerivedMethod
+	UnsupportedMethod
+	WriteMethod
+)
+
+// MethodFamily is the execution family a method belongs to. The family —
+// not the method count — decides the execution model: read runs the
+// one-shot fan-out pipeline, write runs the broadcast pipeline, stream and
+// verification are separate families, and derivation needs no RPC.
+type MethodFamily string
+
+const (
+	FamilyRead         MethodFamily = "read"
+	FamilyWrite        MethodFamily = "write"
+	FamilyStream       MethodFamily = "stream"
+	FamilyVerification MethodFamily = "verification"
+	FamilyDerivation   MethodFamily = "derivation"
+)
+
+// MethodCoverage is the independent coverage classification: registered
+// methods have a method-aware policy, unsupported methods are listed
+// explicitly so an omission cannot masquerade as a guarantee, and forwarded
+// methods are unregistered transparent passthroughs. It deliberately does
+// not extend MethodKind: Kind is the registry shape, Coverage is the
+// safety-contract evidence state.
+type MethodCoverage string
+
+const (
+	CoverageRegistered  MethodCoverage = "registered"
+	CoverageUnsupported MethodCoverage = "unsupported"
+	CoverageForwarded   MethodCoverage = "forwarded"
+)
+
+// MethodDescriptor is the public inventory of method coverage.  Adapter is
+// the ethclient-shaped method when one exists; an empty Adapter means callers
+// use Client.Call or the root Client wrapper instead. Alignment records the
+// go-ethereum version the adapter mapping was last reviewed against.
+type MethodDescriptor struct {
+	Name      string
+	Kind      MethodKind
+	Family    MethodFamily
+	Coverage  MethodCoverage
+	Policy    string
+	Adapter   string
+	Alignment string
+	Notes     string
+}
+
+// Catalog returns a fresh copy of the method coverage inventory.  Returning a
+// copy keeps callers from mutating package-level coverage metadata while
+// still allowing tooling and documentation checks to enumerate the registry.
+func Catalog() []MethodDescriptor {
+	return append([]MethodDescriptor(nil), methodCatalog...)
+}
+
+// RegisteredNames returns the methods that have method-aware policies in the
+// default ethguard registry.  The order is stable and follows client.go's
+// construction order so diagnostics remain deterministic.
+func RegisteredNames() []string {
+	names := make([]string, 0, len(methodCatalog))
+	for _, method := range methodCatalog {
+		if method.Kind == RegisteredMethod {
+			names = append(names, method.Name)
+		}
+	}
+	return names
+}
+
+// ValidatePlanCoverage checks that every registered descriptor is driven by
+// an explicit execution plan: a registered method without a plan would fall
+// through to transparent forwarding, and the catalog does not allow that to
+// happen silently.
+func ValidatePlanCoverage(plans map[string]rpcengine.ReadPlan) error {
+	for _, method := range methodCatalog {
+		if method.Kind != RegisteredMethod {
+			continue
+		}
+		if plans[method.Name].Resolver == nil {
+			return fmt.Errorf("method catalog: registered method %q has no execution plan", method.Name)
+		}
+	}
+	return nil
+}
+
+var methodCatalog = []MethodDescriptor{
+	chainIDDescriptor(),
+	getBlockByHashDescriptor(),
+	getBlockByNumberDescriptor(),
+	getBalanceDescriptor(),
+	getTransactionReceiptDescriptor(),
+	transactionByHashDescriptor(),
+	getBlockReceiptsDescriptor(),
+	getTransactionCountDescriptor(),
+	blockTransactionCountByHashDescriptor(),
+	blockTransactionCountByNumberDescriptor(),
+	transactionInBlockDescriptor(),
+	getStorageAtDescriptor(),
+	getCodeDescriptor(),
+	callDescriptor(),
+	simulateV1Descriptor(),
+	estimateGasDescriptor(),
+	getLogsDescriptor(),
+	feeHistoryDescriptor(),
+	gasPriceDescriptor(),
+	maxPriorityFeePerGasDescriptor(),
+	blobBaseFeeDescriptor(),
+	blockNumberDescriptor(),
+	createAccessListDescriptor(),
+	peerCountDescriptor(),
+	syncingDescriptor(),
+	netVersionDescriptor(),
+	listeningDescriptor(),
+	// Write path (decision-map #4): a dedicated pipeline outside the read
+	// registry. Broadcast to the full voting basis + relative-trust
+	// adjudication; WriteMethod entries are skipped by ValidateRegistry.
+	sendRawTransactionDescriptor(),
+	// Verification family: eth_getProof stays explicitly unsupported until a
+	// real-provider evidence contract exists (proposal section 8); it is
+	// never a silent omission.
+	getProofDescriptor(),
+	// Stream family: subscriptions are deferred until the native WSS design
+	// lands; the transport Port deliberately carries no Subscribe (frozen
+	// decision D12/D13).
+	// Derivation family: TransactionSender and header projection are local
+	// derivations on the facade side; they register no RPC policy.
+}

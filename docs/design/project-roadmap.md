@@ -34,7 +34,7 @@
 | TransactionByHashNormalize | 202185 → 245127 | 62499 → 84345 | 1220 → 1616 |
 | TransactionByHashAdmit | 242602 → 282763 | 64243 → 86107 | 1284 → 1680 |
 
-复现入口为 `internal/typed/typed_projection_cost_bench_test.go` 和 `rpc/methods/transaction_bench_test.go`，参数 `-run '^$' -bench '^(BenchmarkTypedProjectionRawBlock|BenchmarkTransactionByHash(Normalize|Admit))$' -benchmem -benchtime=500ms -count=3 -cpu=2`。耗时约增加 10%／21%／17%，分配也增加；构造器局部样本的分配下降不代表消费者整体下降。这些是本地固定 fixture，不代表网络或生产延迟。
+复现入口为 `internal/typed/typed_projection_cost_bench_test.go` 和 `internal/methods/transaction_bench_test.go`，参数 `-run '^$' -bench '^(BenchmarkTypedProjectionRawBlock|BenchmarkTransactionByHash(Normalize|Admit))$' -benchmem -benchtime=500ms -count=3 -cpu=2`。耗时约增加 10%／21%／17%，分配也增加；构造器局部样本的分配下降不代表消费者整体下降。这些是本地固定 fixture，不代表网络或生产延迟。
 
 首次全仓普通验收失败后，已修复依赖旧宽容构造器的 Block／TransactionSender／Simulate 消费入口及测试 helper。另一个 Receipts reorg 测试在旧 HEAD 和当前均复现，原因是异步两源通知与有限历史 fixture 的调度；仅在该测试中用 synctest 和查询 gate 确定事件顺序，保留全部原断言，不改生产恢复逻辑。该修正的独立 overlay 在 race 下覆盖 CPU 1/2/8 共 300 次，落入仓库后普通 300 次和 race 60 次通过。
 
@@ -52,7 +52,7 @@
 
 ## 1. 当前基线
 
-响应模型于2026-11-21完成验收：HTTP/WSS unary与rpcwire使用`rpc.Response{Exchange, Answer}`；方法拒绝保留原回答，Policy强制返回逐源Outcome，Sources/Adjudication及canary/replay消费者已完整迁移。框架保存提交为`6fb6a2b`；同步写入方法级审查也已完成，ReceiptWait保留最后receipt尝试与最近观察，广播保持独立。
+响应模型于2026-11-21完成验收：HTTP/WSS unary与rpcwire使用`rpc.Response{Exchange, Answer}`；方法拒绝保留原回答，Resolver强制返回逐源Outcome，Sources/Adjudication及canary/replay消费者已完整迁移。框架保存提交为`6fb6a2b`；同步写入方法级审查也已完成，ReceiptWait保留最后receipt尝试与最近观察，广播保持独立。
 
 NewHead于2026-11-23完成实现与独立验收：单订阅Tip+DAG、连续原子路径、完整重组、冻结证人与审计，以及WSS有界通知和长期回收已接入。普通/race全仓测试、vet、build、tidy、生成资产一致性与格式检查通过。2026-11-24按用户授权在`audit/rpc-quality`逐文件分组保存：`efe95f6`为Sender/Header/Anchor补证与注释，`ee589ce`为NewHead、Logs、共享订阅基础及receipts局部修复；此前基线为`e7ac360`。正式文档随后的独立提交记录合同与接续点；没有推送。恢复工作先核对实际Git状态，不把已保存等同已发布。以下A-G/read成本与验证记录属于此前基线。
 
@@ -74,7 +74,7 @@ NewHead于2026-11-23完成实现与独立验收：单订阅Tip+DAG、连续原�
 可复现入口在已跟踪源码：
 
 - 对象基准：`internal/ethobject/accesslist/bench_test.go`；归因基准：同目录`cost_decomposition_bench_test.go`。
-- 真实聚合基准：`aggregator/accesslist_route_bench_test.go`，覆盖空／典型／64项和1/3/5来源；同一fixture保留冻结旧encoder控制组。
+- 真实聚合基准：`internal/aggregator/accesslist_route_bench_test.go`，覆盖空／典型／64项和1/3/5来源；同一fixture保留冻结旧encoder控制组。
 - 独立字节对照及fuzz：`internal/ethcodec/helpers_test.go`；条目接受域与顺序反例：`internal/ethobject/accesslist/acceptance_domain_test.go`。
 - Log真实消费者反例：`internal/typed/log_alias_projection_test.go`、`internal/ethobject/receipt/log_alias_test.go`。
 

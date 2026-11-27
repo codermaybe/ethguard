@@ -188,7 +188,7 @@ func TestTransactionLifecycle(t *testing.T) {
 		t.Fatal("genesis changed after revert")
 	}
 	oracle.absent("eth_getBlockByNumber", "0x1", true)
-	// Snapshot recovery may leave pool/history caches. Identify precisely what
+	// Snapshot recovery may leave internal/pool/history caches. Identify precisely what
 	// survived; only exact prior objects or the same signed pending transaction
 	// are accepted here. This is NOT a claim of complete isolation.
 	recoveredTx := oracle.raw("eth_getTransactionByHash", tx.Hash())
@@ -243,7 +243,7 @@ func TestTransactionLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A fresh process is the isolation boundary even when this particular
-	// snapshot appears complete. No pool/cache reset is silently assumed.
+	// snapshot appears complete. No internal/pool/cache reset is silently assumed.
 	fresh := start()
 	freshOracle := &stateOracle{t: t, ctx: ctx, node: fresh, evidence: evidence}
 	freshOracle.quantity("eth_blockNumber", 0)

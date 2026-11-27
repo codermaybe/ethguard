@@ -15,11 +15,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
-	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // AnchoringStrategy selects the establishment strategy for moving-tag reads.
@@ -38,10 +38,10 @@ type AnchoringStrategy struct {
 // its consumption-only anchor readers.
 type Inputs struct {
 	Pool           *pool.Pool
-	StrictOptions  []rpc.StrictOption
+	StrictOptions  []rpcengine.StrictOption
 	Recorder       observe.Recorder
 	CollectTimeout time.Duration
-	Corroboration  *rpc.CorroborationShared
+	Corroboration  *rpcengine.CorroborationShared
 	// Anchoring is nil for the strict-head strategy; the finalized preset
 	// passes the strategy with its lag bound.
 	Anchoring *AnchoringStrategy
@@ -53,9 +53,9 @@ type Inputs struct {
 // (tests, synthetic fleets) leaves them zero.
 type Bundle struct {
 	Pool          *pool.Pool
-	Corroboration *rpc.CorroborationShared
+	Corroboration *rpcengine.CorroborationShared
 	Resolver      ReferenceResolver
-	Plans         map[string]rpc.ReadPlan
+	Plans         map[string]rpcengine.ReadPlan
 	Aggregator    *aggregator.Aggregator
 	Stage         *ReferenceStage
 }

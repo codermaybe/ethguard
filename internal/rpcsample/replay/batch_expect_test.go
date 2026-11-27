@@ -14,12 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -429,7 +430,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	for i, record := range group {
 		names[i] = record.Source.ID
 	}
-	shared, err := rpc.NewCorroborationShared(snap.Mode, snap.Floor)
+	shared, err := rpcengine.NewCorroborationShared(snap.Mode, snap.Floor)
 	if err != nil {
 		return expectCase{}, err
 	}
@@ -617,17 +618,17 @@ func capturedValueSHA256(method string, value json.RawMessage) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func resolveCaptured(plan rpc.ReadPlan, prepared rpc.Request, prepErr error, snap rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
+func resolveCaptured(plan rpcengine.ReadPlan, prepared rpc.Request, prepErr error, snap rpcengine.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
 	if prepErr != nil {
 		return rpc.Decision{Status: rpc.Unknown}, prepErr
 	}
-	var outcome rpc.Outcome
+	var outcome rpcengine.Outcome
 	var err error
 	// Pending observation and configured corroboration follow the same plan
 	// routing as the aggregator; every route must return a complete Outcome.
-	if plan.Pending.Mode == rpc.PendingObserve && snap.Mode != rpc.CorroborationForwarded && pendingShapeAt(plan.Pending.Pos, prepared) {
-		outcome, err = rpc.ResolveLocalObservation(plan.Resolver, obs)
-	} else if resolver, ok := plan.Resolver.(rpc.CorroboratingPolicy); ok && plan.Corroborating() {
+	if plan.Pending.Mode == rpcengine.PendingObserve && snap.Mode != rpc.CorroborationForwarded && pendingShapeAt(plan.Pending.Pos, prepared) {
+		outcome, err = rpcengine.ResolveLocalObservation(plan.Resolver, obs)
+	} else if resolver, ok := plan.Resolver.(rpcengine.CorroboratingResolver); ok && plan.Corroborating() {
 		outcome, err = resolver.ResolveCorroborated(snap, obs)
 	} else {
 		outcome, err = plan.Resolver.Resolve(obs)
@@ -654,7 +655,7 @@ func pendingShapeAt(pos int, prepared rpc.Request) bool {
 	return false
 }
 
-func admitCaptured(t *testing.T, plan rpc.ReadPlan, prepared rpc.Request, item rpc.Observation) rpc.Observation {
+func admitCaptured(t *testing.T, plan rpcengine.ReadPlan, prepared rpc.Request, item rpc.Observation) rpc.Observation {
 	t.Helper()
 	if item.Response.Err() != nil || len(item.Response.Answer.Result) == 0 || plan.Admit == nil {
 		return item
@@ -687,16 +688,16 @@ func capturedDimensions(decision rpc.Decision, decisionErr error) []rpc.Dimensio
 	}}
 }
 
-func assertCapturedGate(t *testing.T, agg *aggregator.Aggregator, plan rpc.ReadPlan, snap rpc.Corroboration, prepared rpc.Request, req rpc.Request, decision rpc.Decision, decisionErr error) error {
+func assertCapturedGate(t *testing.T, agg *aggregator.Aggregator, plan rpcengine.ReadPlan, snap rpcengine.Corroboration, prepared rpc.Request, req rpc.Request, decision rpc.Decision, decisionErr error) error {
 	t.Helper()
-	agreement, ok := plan.Resolver.(rpc.AgreementPolicy)
+	agreement, ok := plan.Resolver.(rpcengine.AgreementResolver)
 	if !ok || !agreement.RequiresAgreement() {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	gated, gatedErr := agg.AggregateStrict(ctx, req)
-	if plan.Pending.Mode == rpc.PendingObserve && snap.Mode != rpc.CorroborationForwarded && pendingShapeAt(plan.Pending.Pos, prepared) {
+	if plan.Pending.Mode == rpcengine.PendingObserve && snap.Mode != rpc.CorroborationForwarded && pendingShapeAt(plan.Pending.Pos, prepared) {
 		if gatedErr != nil || gated.Status != rpc.Selected {
 			return fmt.Errorf("pending typed gate status %s err %v", gated.Status, gatedErr)
 		}

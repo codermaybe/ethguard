@@ -1,0 +1,37 @@
+package methods
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+	"github.com/codermaybe/ethguard/rpc"
+)
+
+func TestTransactionCountPlanKeepsNullForNotFoundProjection(t *testing.T) {
+	plan, err := PlanFor(MethodGetBlockTransactionCountByHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Corroborating() || plan.Pending.Mode != PendingNone {
+		t.Fatalf("plan = %+v, want strict immutable read without pending", plan)
+	}
+	if got, err := plan.Resolver.Normalize(json.RawMessage(`null`)); err != nil || got != "null" {
+		t.Fatalf("null normalization = %q, %v; want null key", got, err)
+	}
+	if got, err := plan.Resolver.Normalize(json.RawMessage(`"0x2"`)); err != nil || got != "2" {
+		t.Fatalf("quantity normalization = %q, %v; want decimal 2", got, err)
+	}
+	resolver, ok := plan.Resolver.(rpcengine.CorroboratingResolver)
+	if !ok {
+		t.Fatal("transaction count resolver is not corroborating")
+	}
+	decision, err := resolver.ResolveCorroborated(rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}, []rpc.Observation{
+		{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`null`)}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`null`)}}},
+		{Attempted: true, Source: rpc.SourceRef{ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`null`)}}},
+	})
+	if err != nil || string(decision.Decision.Value) != "null" || decision.Decision.Status != rpc.Corroborated {
+		t.Fatalf("null decision = %+v, %v", decision, err)
+	}
+}

@@ -13,8 +13,8 @@
 | `internal/transport` | Port 表面（`Transport`/`Dialer`）与中立哨兵（`ErrConnectionClosed`、`ErrBodyTooLarge`） |
 | `rpc` | `ParseHexQuantity`（ChainID probe 的数量解析） |
 
-除此之外的任何项目内部包（aggregator、rpc/methods、runtime、reference、typed、
-pool 等）都禁止导入；该规则同时由根目录
+除此之外的任何项目内部包（internal/rpcengine、internal/aggregator、internal/methods、internal/projection、
+internal/runtime、internal/reference、internal/typed、internal/pool 等）都禁止导入；该规则同时由根目录
 `TestArchitectureDependencyInterlock` 的 WSS 条目锁定。
 
 ## 2. 允许的标准库依赖（wire 层文件）

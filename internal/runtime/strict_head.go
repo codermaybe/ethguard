@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // taggedOriginTag keeps the establishment evidence's tag contract: latest
@@ -40,12 +41,12 @@ type StrictHeadEstablishment struct {
 	// head is the getBlockByNumber resolver the round's head identity rides:
 	// the plan compiler's own assembly, with the establishment's strict
 	// options.
-	head rpc.Policy
+	head rpcengine.Resolver
 }
 
 // NewStrictHeadEstablishment builds the strict head establishment engine over
 // one pool. A zero timeout selects the pool's conservative collect default.
-func NewStrictHeadEstablishment(p *pool.Pool, rec observe.Recorder, timeout time.Duration, opts ...rpc.StrictOption) *StrictHeadEstablishment {
+func NewStrictHeadEstablishment(p *pool.Pool, rec observe.Recorder, timeout time.Duration, opts ...rpcengine.StrictOption) *StrictHeadEstablishment {
 	spec, _ := methods.SpecFor(methods.MethodGetBlockByNumber)
 	head, err := methods.CompileResolver(spec, opts)
 	if err != nil {
@@ -85,7 +86,7 @@ func referenceTipFreshness(tag string) pool.TipFreshnessScope {
 // round keeps the collection and the agreement semantics of direct
 // construction. A failed round returns the partial evidence alongside the
 // error: the faults stay on the reference the caller sees.
-func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool.Source, snap rpc.Corroboration, snapOK bool, tag string) (strictHeadRound, error) {
+func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool.Source, snap rpcengine.Corroboration, snapOK bool, tag string) (strictHeadRound, error) {
 	started := time.Now()
 	policy := headAnchorPolicy{e.head}
 	if members == nil {
@@ -140,11 +141,11 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 	}
 
 	var resolveErr error
-	var outcome rpc.Outcome
-	var verdicts []rpc.SourceVerdict
-	var resolution rpc.Policy = policy
+	var outcome rpcengine.Outcome
+	var verdicts []rpcengine.SourceVerdict
+	var resolution rpcengine.Resolver = policy
 	if snapOK {
-		if corroborating, ok := resolution.(rpc.CorroboratingPolicy); ok {
+		if corroborating, ok := resolution.(rpcengine.CorroboratingResolver); ok {
 			outcome, resolveErr = corroborating.ResolveCorroborated(snap, observations)
 		} else {
 			outcome, resolveErr = resolution.Resolve(observations)
@@ -213,7 +214,7 @@ func evidenceFromDecision(decision rpc.Decision, tag string) rpc.ReferenceEviden
 // record folds one completed round into exactly one observability event under
 // the anchor method label — the same statement the aggregation pipeline
 // records for the facade service's rounds.
-func (e *StrictHeadEstablishment) record(started time.Time, decision rpc.Decision, resolveErr error, emissions []pool.Emission, verdicts []rpc.SourceVerdict) {
+func (e *StrictHeadEstablishment) record(started time.Time, decision rpc.Decision, resolveErr error, emissions []pool.Emission, verdicts []rpcengine.SourceVerdict) {
 	if e.rec == nil || e.rec == observe.Nop {
 		return
 	}

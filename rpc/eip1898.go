@@ -5,9 +5,6 @@ import (
 	"strings"
 )
 
-// EIP-1898 BlockNumberOrHash request validation and reference rewriting
-// belong to the execution plan.
-
 // ValidateEIP1898Object checks one EIP-1898 BlockNumberOrHash object at an
 // anchored position. It returns whether requireCanonical was set, whether
 // the object carries a moving tag that still needs its reference, and the

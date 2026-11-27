@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -129,7 +130,7 @@ func TestWritePreservesMissingAndCanceledAnswers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			answer := writeAnswer(rpc.SourceRef{ID: "a"}, &tc.response)
 			answer.Attempted = true
-			decision, err := rpc.ResolveWriteBroadcast(1, rpc.Corroboration{Floor: 1}, hash, []rpc.SourceAnswer{answer}, nil)
+			decision, err := rpcengine.ResolveWriteBroadcast(1, rpcengine.Corroboration{Floor: 1}, hash, []rpc.SourceAnswer{answer}, nil)
 			if !errors.Is(err, tc.want) || decision.Adjudication.Reason != tc.reason || decision.Status != rpc.WriteUnconfirmed {
 				t.Fatalf("decision=%+v err=%v", decision, err)
 			}

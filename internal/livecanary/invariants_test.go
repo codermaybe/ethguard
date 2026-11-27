@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 

@@ -4,7 +4,7 @@
 
 ## 1. 权威来源与职责
 
-方法声明位于 `rpc/methods` 各自文件；`Specs()`／Catalog 只收集，`CompilePlan` 产生唯一生产 ReadPlan。[method-rules.md](method-rules.md)是自动生成的装配索引，不手改。模块与执行流程由 [拓扑](codebase-topology.md)拥有；字段来源与生成由 [生成合同](wire-codegen.md)拥有；Value 和材料交付由 [返回值合同](return-value-design.md)拥有。
+方法声明位于 `internal/methods` 各自文件；`Specs()`／Catalog 只收集，`CompilePlan` 产生唯一生产 ReadPlan。[method-rules.md](method-rules.md)是自动生成的装配索引，不手改。模块与执行流程由 [拓扑](codebase-topology.md)拥有；字段来源与生成由 [生成合同](wire-codegen.md)拥有；Value 和材料交付由 [返回值合同](return-value-design.md)拥有。
 
 每个方法说明它返回什么事实、参考什么状态、比较和保护什么、失败如何表达，以及成本和未证明范围。schema requiredness、方法绑定、算法承诺和多源信任是不同职责；不能用其中一项通过推导其他项完成。
 
@@ -52,7 +52,7 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 | 写入 | 冻结原始字节，先本地解码与签名恢复检查，再广播并按relative-trust响应分类；非法签名在业务网络前拒绝 | 不签名、替换、自动重试或管理交易生命周期；不是读取 quorum |
 | 未注册／显式 unsupported | 按 catalog 和公开入口规则处理 | “未知方法曾可 Forward”不代表当前已注册只读 `Call` 会绕过 allow-list；不能以未知转发补齐兼容缺口 |
 
-实现入口为 `internal/ethobject/{block,transaction,receipt,log,feehistory,accesslist}` 与 `rpc/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。
+实现入口为 `internal/ethobject/{block,transaction,receipt,log,feehistory,accesslist}` 与 `internal/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。
 
 ### TransactionSender 的派生保证（2026-11-23，已验收）
 
@@ -130,6 +130,6 @@ NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观
 
 ## 7. 验证入口
 
-`eth_call` 的 execution／data 边界由 [`TestNormalizeCallOutcomeSeparatesRevertDataStates`](../../rpc/methods/eth_call_revert_test.go) 等回归验证：revert data 的缺失、null、空 DATA 与具体字节不得在没有规则依据时折合，provider 错误 message 不进入受保护 data。
+`eth_call` 的 execution／data 边界由 [`TestNormalizeCallOutcomeSeparatesRevertDataStates`](../../internal/methods/eth_call_revert_test.go) 等回归验证：revert data 的缺失、null、空 DATA 与具体字节不得在没有规则依据时折合，provider 错误 message 不进入受保护 data。
 
-完整 block 的合法空 uncle 集合与外块绑定拒绝由 [`TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected`](../../rpc/methods/content_compat_test.go) 验证。reference 的失败不触发业务 fan-out、每次调用重新建立及失败证据交付，分别由 [`TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout`](../../internal/verification/integration/reference_freshness_test.go)、[`TestReferenceEstablishedFreshPerCall`](../../internal/verification/integration/reference_freshness_test.go) 和 [`TestReferenceFailureEvidenceIsUnknownWithObservedAt`](../../internal/verification/integration/reference_freshness_test.go) 验证；这些测试引用说明合同落点，不表示本次文档更新重跑了对应运行场景。
+完整 block 的合法空 uncle 集合与外块绑定拒绝由 [`TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected`](../../internal/methods/content_compat_test.go) 验证。reference 的失败不触发业务 fan-out、每次调用重新建立及失败证据交付，分别由 [`TestReferenceAnchorFailureKeepsPrepareErrorAndSkipsBusinessFanout`](../../internal/verification/integration/reference_freshness_test.go)、[`TestReferenceEstablishedFreshPerCall`](../../internal/verification/integration/reference_freshness_test.go) 和 [`TestReferenceFailureEvidenceIsUnknownWithObservedAt`](../../internal/verification/integration/reference_freshness_test.go) 验证；这些测试引用说明合同落点，不表示本次文档更新重跑了对应运行场景。

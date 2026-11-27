@@ -3,9 +3,9 @@ package runtime
 import (
 	"fmt"
 
-	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
-	"github.com/codermaybe/ethguard/rpc/projection"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/projection"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
 
 // The projector registry binds the runtime-owned semantic projectors by the
@@ -13,7 +13,7 @@ import (
 // plans on purpose: a plan names its projector as a business identity —
 // two methods sharing one observation shape share one ID, and a registry
 // rename or alias cannot silently detach a method's projection — and this
-// assembly decides what each ID resolves to, so rpc/methods stays clear of
+// assembly decides what each ID resolves to, so internal/methods stays clear of
 // the projection and typed layers. A plan with an empty projector ID stays
 // unprojected by name.
 
@@ -42,8 +42,8 @@ func projectionSchemas() []struct {
 
 // buildProjectorRegistry assembles the observation projectors the default
 // composition binds, keyed by the projector IDs the specs declare.
-func buildProjectorRegistry() (map[string]rpc.ObservationProjector, error) {
-	projectors := map[string]rpc.ObservationProjector{
+func buildProjectorRegistry() (map[string]rpcengine.ObservationProjector, error) {
+	projectors := map[string]rpcengine.ObservationProjector{
 		methods.ProjectorScalarStandard: projection.ScalarStandardProjector(),
 	}
 	for _, binding := range projectionSchemas() {

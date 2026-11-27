@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/ethapi"
-	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/internal/methods"
 )
 
 // EthClient is the ethclient-shaped view of one Client: the official

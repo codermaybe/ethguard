@@ -6,11 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -60,11 +62,11 @@ func BenchmarkTransactionRouteComparison(b *testing.B) {
 					b.Fatal(err)
 				}
 				b.Cleanup(p.Close)
-				shared, err := rpc.NewCorroborationShared(rpc.CorroborationMajority, 2)
+				shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
 				if err != nil {
 					b.Fatal(err)
 				}
-				agg := aggregator.New(p, aggregator.WithPlans(map[string]rpc.ReadPlan{methods.MethodGetTransactionByHash: plan}), aggregator.WithCorroboration(shared))
+				agg := aggregator.New(p, aggregator.WithPlans(map[string]rpcengine.ReadPlan{methods.MethodGetTransactionByHash: plan}), aggregator.WithCorroboration(shared))
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				defer cancel()
 				request := rpc.Request{Method: methods.MethodGetTransactionByHash, Params: []any{string(hash)}}

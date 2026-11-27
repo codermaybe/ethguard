@@ -95,17 +95,6 @@ type Response struct {
 	Truncated bool
 }
 
-// InvocationCapture adapts the collector to the rpc.InvocationCapture seam:
-// the one production binding both the aggregator pipeline and the runtime's
-// facade establishment rounds record through.
-func (c *Capture) InvocationCapture() rpc.InvocationCapture { return invocationCapture{c} }
-
-type invocationCapture struct{ c *Capture }
-
-func (a invocationCapture) Record(stage, method string, source rpc.SourceRef, value []byte, errText string) {
-	a.c.Record(stage, method, source, value, errText)
-}
-
 // Snapshot is the immutable collection snapshot.
 type Snapshot struct {
 	Fields    []Field

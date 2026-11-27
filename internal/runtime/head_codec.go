@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/reference"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // MethodHeadCodec binds the block method's head contract to the reference

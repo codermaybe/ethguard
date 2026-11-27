@@ -12,15 +12,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/runtime"
+
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -249,7 +251,7 @@ func TestReplayChainIDAgreesWithoutAnchor(t *testing.T) {
 	}
 }
 
-func assertReplay(t *testing.T, records []rpcsample.Record, plan rpc.ReadPlan, anchored bool) {
+func assertReplay(t *testing.T, records []rpcsample.Record, plan rpcengine.ReadPlan, anchored bool) {
 	t.Helper()
 	if len(records) != 2 {
 		t.Fatalf("records = %d, want 2", len(records))
@@ -305,7 +307,7 @@ func assertReplay(t *testing.T, records []rpcsample.Record, plan rpc.ReadPlan, a
 	}
 }
 
-func assertDataStatesDiffer(t *testing.T, policy rpc.Policy, records []rpcsample.Record) {
+func assertDataStatesDiffer(t *testing.T, policy rpcengine.Resolver, records []rpcsample.Record) {
 	t.Helper()
 	left := observationFromRecord(t, records[0])
 	right := observationFromRecord(t, records[1])
@@ -365,7 +367,7 @@ func newReplayAggregator(t *testing.T, count int) (*aggregator.Aggregator, []*rp
 	return newNamedReplayAggregator(t, names, nil)
 }
 
-func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node) {
+func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpcengine.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node) {
 	t.Helper()
 	agg, nodes, _ := newSharedReplayAggregator(t, names, corrob)
 	return agg, nodes
@@ -378,7 +380,7 @@ type replayStage struct {
 	reference func(ctx context.Context, tag string) (rpc.ReferenceEvidence, error)
 }
 
-func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
+func (s replayStage) Establish(ctx context.Context, invocation rpcengine.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
 	tag := ""
 	switch request.Kind {
 	case rpc.ReferenceSafe:
@@ -403,7 +405,7 @@ func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, r
 // layers (Policy Prepare and Aggregate) take this one resolver, so a moving
 // tag resolves to the same reference in both layers, against the same member
 // order and the same pool.
-func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, func(string) (rpc.ReferenceEvidence, error)) {
+func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpcengine.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, func(string) (rpc.ReferenceEvidence, error)) {
 	t.Helper()
 	nodes := make([]*rpctest.Node, 0, len(names))
 	members := make([]pool.Member, 0, len(names))
@@ -457,7 +459,7 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobo
 }
 
 // callPlan compiles the eth_call plan for the replay assertions.
-func callPlan(t *testing.T) rpc.Policy {
+func callPlan(t *testing.T) rpcengine.Resolver {
 	t.Helper()
 	plan, err := methods.PlanFor(methods.MethodCall)
 	if err != nil {
@@ -468,9 +470,9 @@ func callPlan(t *testing.T) rpc.Policy {
 
 // replayPlans compiles the full registered plan inventory: the replay layer
 // drives exactly the plans the runtime registry installs.
-func replayPlans(t *testing.T) map[string]rpc.ReadPlan {
+func replayPlans(t *testing.T) map[string]rpcengine.ReadPlan {
 	t.Helper()
-	plans := make(map[string]rpc.ReadPlan, len(methods.RegisteredNames()))
+	plans := make(map[string]rpcengine.ReadPlan, len(methods.RegisteredNames()))
 	for _, name := range methods.RegisteredNames() {
 		plan, err := methods.PlanFor(name)
 		if err != nil {
@@ -827,7 +829,7 @@ func TestReplaySourceEvidenceDetectsTampering(t *testing.T) {
 			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x2"`),
 				Interpretation: rpc.Interpretation{State: rpc.InterpretationRejected, Cause: rpc.ErrMalformedResponse}}}},
 	}
-	outcome, err := rpc.Strict(rpc.CanonicalJSON).Resolve(obs)
+	outcome, err := rpcengine.Strict(rpc.CanonicalJSON).Resolve(obs)
 	if err != nil || len(outcome.Decision.SourceFaults) != 2 {
 		t.Fatalf("outcome=%+v err=%v", outcome, err)
 	}

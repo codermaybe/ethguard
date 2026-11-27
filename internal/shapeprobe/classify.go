@@ -3,8 +3,9 @@ package shapeprobe
 import (
 	"encoding/json"
 
+	"github.com/codermaybe/ethguard/internal/projection"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 // FieldClassification is a report-only projection of one observation batch.
@@ -35,7 +36,7 @@ func ClassifyFields(method string, samples []FieldSample) (FieldClassification, 
 			Source: rpc.SourceRef{ID: sample.SourceID}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: append(json.RawMessage(nil), sample.Result...)}},
 		}
 	}
-	evaluation, err := rpc.AggregateFieldsWithCorroboration(observations, rpc.FreezeBasis(sourceRefs(samples), rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}))
+	evaluation, err := rpcengine.AggregateFieldsWithCorroboration(observations, rpcengine.FreezeBasis(sourceRefs(samples), rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}))
 	if err != nil {
 		return FieldClassification{}, err
 	}

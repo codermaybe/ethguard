@@ -12,12 +12,14 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie"
 
-	"github.com/codermaybe/ethguard/ethapi"
 	objectreceipt "github.com/codermaybe/ethguard/internal/ethobject/receipt"
+
 	subcore "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
@@ -786,11 +788,11 @@ func TestReceiptsHeadProducerTerminalRetainsAudit(t *testing.T) {
 }
 
 type receiptsTestResolver struct {
-	rpc.CanonicalOutcomeResolver
-	resolve func(rpc.Corroboration, []rpc.CanonicalObservation) (rpc.Outcome, error)
+	rpcengine.CanonicalOutcomeResolver
+	resolve func(rpcengine.Corroboration, []rpcengine.CanonicalObservation) (rpcengine.Outcome, error)
 }
 
-func (r receiptsTestResolver) ResolveCanonicalCorroborated(rule rpc.Corroboration, observations []rpc.CanonicalObservation) (rpc.Outcome, error) {
+func (r receiptsTestResolver) ResolveCanonicalCorroborated(rule rpcengine.Corroboration, observations []rpcengine.CanonicalObservation) (rpcengine.Outcome, error) {
 	return r.resolve(rule, observations)
 }
 
@@ -828,7 +830,7 @@ func TestReceiptsBudgetFailuresDoNotCommitOrLoseAudit(t *testing.T) {
 			}
 			if stage == "winner" {
 				base := s.resolver
-				s.resolver = receiptsTestResolver{base, func(rule rpc.Corroboration, observations []rpc.CanonicalObservation) (rpc.Outcome, error) {
+				s.resolver = receiptsTestResolver{base, func(rule rpcengine.Corroboration, observations []rpcengine.CanonicalObservation) (rpcengine.Outcome, error) {
 					outcome, err := base.ResolveCanonicalCorroborated(rule, observations)
 					if err == nil {
 						fill()
@@ -896,8 +898,8 @@ func TestReceiptsOversizeAnswerAndInternalResolverFailureRemainDistinct(t *testi
 				return response
 			})
 			if internal {
-				s.resolver = receiptsTestResolver{s.resolver, func(rpc.Corroboration, []rpc.CanonicalObservation) (rpc.Outcome, error) {
-					return rpc.Outcome{}, rpc.ErrInvalidOutcome
+				s.resolver = receiptsTestResolver{s.resolver, func(rpcengine.Corroboration, []rpcengine.CanonicalObservation) (rpcengine.Outcome, error) {
+					return rpcengine.Outcome{}, rpc.ErrInvalidOutcome
 				}}
 			}
 			pushLogsHead(feeds, f.head)

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // ReproductionNote is stored in the batch metadata. The anchor makes the

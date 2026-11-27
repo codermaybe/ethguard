@@ -1,7 +1,7 @@
 package runtime
 
 import (
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 
 	"context"
 	"encoding/json"
@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -43,7 +44,7 @@ type traceRecorder struct {
 
 	mu          sync.Mutex
 	events      []string
-	invocations []rpc.Invocation
+	invocations []rpcengine.Invocation
 	kinds       []rpc.ReferenceKind
 }
 
@@ -54,7 +55,7 @@ func (r *traceRecorder) observe(ctx context.Context, req rpc.Request) (rpc.Reque
 	return req, nil
 }
 
-func (r *traceRecorder) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
+func (r *traceRecorder) Establish(ctx context.Context, invocation rpcengine.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
 	r.mu.Lock()
 	r.events = append(r.events, "establish")
 	r.invocations = append(r.invocations, invocation)
@@ -63,17 +64,17 @@ func (r *traceRecorder) Establish(ctx context.Context, invocation rpc.Invocation
 	return r.inner.Establish(ctx, invocation, request)
 }
 
-func (r *traceRecorder) trace() ([]string, []rpc.Invocation, []rpc.ReferenceKind) {
+func (r *traceRecorder) trace() ([]string, []rpcengine.Invocation, []rpc.ReferenceKind) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.events...),
-		append([]rpc.Invocation(nil), r.invocations...),
+		append([]rpcengine.Invocation(nil), r.invocations...),
 		append([]rpc.ReferenceKind(nil), r.kinds...)
 }
 
-func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc.CorroborationShared {
+func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpcengine.CorroborationShared {
 	t.Helper()
-	shared, err := rpc.NewCorroborationShared(mode, floor)
+	shared, err := rpcengine.NewCorroborationShared(mode, floor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +102,7 @@ func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (
 	}
 	recorded := &traceRecorder{inner: bundle.Stage}
 	plan.Prepare = recorded.observe
-	return aggregator.New(p, aggregator.WithPlans(map[string]rpc.ReadPlan{
+	return aggregator.New(p, aggregator.WithPlans(map[string]rpcengine.ReadPlan{
 		methods.MethodGetBalance: plan,
 	}),
 		aggregator.WithCorroboration(mustCorroboration(t, rpc.CorroborationMajority, 2)),

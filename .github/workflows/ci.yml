@@ -177,7 +177,7 @@ jobs:
           go-version-file: go.mod
       - name: native execution graph excludes ethclient
         run: |
-          native_packages="$(go list -deps . ./internal/runtime ./pool ./rpc)"
+          native_packages="$(go list -deps . ./internal/runtime ./internal/pool ./internal/rpcengine ./rpc)"
           if grep -q 'go-ethereum/ethclient' <<< "$native_packages"; then
             echo "::error::the native execution graph links ethclient"
             grep 'go-ethereum/ethclient' <<< "$native_packages"

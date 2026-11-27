@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/methods"
 	internaluncertain "github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/rpcwire"
-	"github.com/codermaybe/ethguard/pool"
 )
 
 // TestExecutorHTTPAdapterThreadsIntoClient locks the native adapter selection

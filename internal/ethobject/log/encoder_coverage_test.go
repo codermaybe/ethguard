@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/projection"
 	"github.com/codermaybe/ethguard/internal/testkit/coverage"
-	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 func TestCanonicalLogEncoderCoversOfficialPaths(t *testing.T) {

@@ -136,7 +136,7 @@ Subscribe 的调用 context 只约束建立；直接 OpenNotificationStream 的 
 
 | 边界 | 已有源码入口（测试存在不等于本次已执行） |
 | --- | --- |
-| 生产 wire 不依赖第三方 WS/geth client、不得反向导入 aggregator/rpc/methods/runtime/reference/typed | `dependencies_test.go` 与架构 interlock |
+| 生产 wire 不依赖第三方 WS/geth client、不得反向导入 internal/{rpcengine,aggregator,methods,projection,runtime,reference,typed} | `dependencies_test.go` 与架构 interlock |
 | Upgrade、TLS、非 101、坏头、超时/取消、重定向/未协商扩展拒绝 | `websocket_handshake_test.go`、`websocket_handshake_ipv6_test.go` |
 | RFC6455、malformed、长度/UTF-8/read limit、分片 | `websocket_frame_test.go`、`websocket_frame_fuzz_test.go` |
 | 单 reader、控制帧、写串行化与连接失败 | `websocket_connection_test.go`、`write_wedge_test.go` |

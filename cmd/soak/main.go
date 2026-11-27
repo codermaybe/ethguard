@@ -43,10 +43,10 @@ import (
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/chainlist"
 	"github.com/codermaybe/ethguard/internal/limits"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/typed"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Well-known, stable mainnet fixtures. These are observation targets, not

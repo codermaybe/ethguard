@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // SimulateV1 executes a generated simulation request through the native method plan.

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Official keys outside the active legacy branch remain protected in full.

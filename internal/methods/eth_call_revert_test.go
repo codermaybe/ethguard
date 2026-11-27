@@ -1,0 +1,241 @@
+package methods
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpctest"
+)
+
+func TestNormalizeCallOutcomeSeparatesRevertDataStates(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{"missing data", `{"code":3,"message":"execution reverted"}`, "reverted|missing"},
+		{"json null data", `{"code":3,"message":"execution reverted","data":null}`, "reverted|null"},
+		{"empty bytes", `{"code":3,"message":"execution reverted","data":"0x"}`, "reverted|empty"},
+		{"empty bytes uppercase prefix", `{"code":-32000,"message":"execution reverted","data":"0X"}`, "reverted|empty"},
+		{"non-empty hex", `{"code":3,"message":"execution reverted","data":"0xDEAD"}`, "reverted|hex:0xdead"},
+		{"one non-zero byte is not empty", `{"code":3,"message":"execution reverted","data":"0x00"}`, "reverted|hex:0x00"},
+		{"empty string is not empty bytes", `{"code":3,"message":"execution reverted","data":""}`, `reverted|raw:""`},
+		{"structured data stays raw", `{"code":3,"message":"execution reverted","data":{"reason":"nope","code":1}}`, `reverted|raw:{"code":1,"reason":"nope"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeCallOutcome(json.RawMessage(tc.payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("key = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeCallOutcomeSameWordingDifferentDataDisagrees(t *testing.T) {
+	const message = "execution reverted"
+	left, err := normalizeCallOutcome(json.RawMessage(`{"code":3,"message":"` + message + `","data":"0xdead"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := normalizeCallOutcome(json.RawMessage(`{"code":-32000,"message":"` + message + `","data":"0xbeef"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left == right {
+		t.Fatalf("same wording hid different data: %s", left)
+	}
+	sameData, err := normalizeCallOutcome(json.RawMessage(`{"code":3,"message":"execution reverted: other wording","data":"0xDEAD"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameData != left {
+		t.Fatalf("wording or vendor code changed the data key: %s vs %s", sameData, left)
+	}
+}
+
+func TestCallRevertDataConflictIsNotSwallowed(t *testing.T) {
+	// The plan's resolver receives established evidence as a value: no
+	// anchor callback exists to run.
+	policy := planResolver(t, MethodCall)
+	obs := []rpc.Observation{
+		rpcErrorObs("a", -32000, "execution reverted", `"0xdead"`),
+		rpcErrorObs("b", 3, "execution reverted", `"0xbeef"`),
+	}
+	decision, err := policy.Resolve(obs)
+	if err != nil {
+		t.Fatalf("err = %v, want a corroborated revert with data withheld", err)
+	}
+	if decision.Decision.Status != rpc.Corroborated {
+		t.Fatalf("status = %v, want Corroborated", decision.Decision.Status)
+	}
+	if bytes.Contains(decision.Decision.Value, []byte("0xdead")) || bytes.Contains(decision.Decision.Value, []byte("0xbeef")) {
+		t.Fatalf("concrete data was returned: %s", decision.Decision.Value)
+	}
+	if len(decision.Decision.DeletedFields) != 1 || decision.Decision.DeletedFields[0] != "data" {
+		t.Fatalf("deleted = %v", decision.Decision.DeletedFields)
+	}
+	if !bytes.Contains(decision.Decision.Provenance, []byte("0xbeef")) || bytes.Contains(decision.Decision.Provenance, []byte("0xdead")) {
+		t.Fatalf("withheld evidence = %s, want only b's data", decision.Decision.Provenance)
+	}
+}
+
+func TestCallRevertContextStaysOutsideProtectedValue(t *testing.T) {
+	policy := planResolver(t, MethodCall, rpcengine.WithQuorum(2))
+	first := rpc.Observation{Attempted: true,
+		Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+			Answer:   rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: &rpc.RPCError{Code: 3, Message: "execution reverted: provider-a", Data: json.RawMessage(`"0xdead"`)}, Cause: rpctest.RPCError(3, "execution reverted: provider-a")},
+		},
+	}
+	second := rpc.Observation{Attempted: true,
+		Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+			Answer:   rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: &rpc.RPCError{Code: -32000, Message: "execution reverted: provider-b", Data: json.RawMessage(`"0xDEAD"`)}, Cause: rpctest.RPCError(-32000, "execution reverted: provider-b")},
+		},
+	}
+	decision, err := policy.Resolve([]rpc.Observation{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decision.Decision.Value) != `{"data":"0xdead"}` {
+		t.Fatalf("protected value = %s", decision.Decision.Value)
+	}
+	if decision.Decision.Revert == nil || decision.Decision.Revert.Code != 3 || decision.Decision.Revert.Message != "execution reverted: provider-a" {
+		t.Fatalf("revert context = %+v", decision.Decision.Revert)
+	}
+}
+
+func TestCallProviderErrorDoesNotEnterRevertKey(t *testing.T) {
+	policy := planResolver(t, MethodCall)
+	obs := []rpc.Observation{
+		rpcErrorObs("a", -32002, "request timed out", ""),
+		rpcErrorObs("b", -32003, "response too large", ""),
+		rpcErrorObs("c", -32603, "panic", ""),
+		{Attempted: true, Source: rpc.SourceRef{Name: "d", ID: "d"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("429 too many requests")}}},
+	}
+	decision, err := policy.Resolve(obs)
+	if !errors.Is(err, rpc.ErrNoValidResponse) {
+		t.Fatalf("err = %v, want ErrNoValidResponse", err)
+	}
+	if errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
+		t.Fatalf("provider errors entered adjudication: status %v err %v", decision.Decision.Status, err)
+	}
+}
+
+func TestCallRPCErrorRawPreservesDataAbsence(t *testing.T) {
+	missing := rpc.RPCError{Code: 3, Message: "execution reverted"}.Raw()
+	nullData := rpc.RPCError{Code: 3, Message: "execution reverted", Data: json.RawMessage("null")}.Raw()
+	empty := rpc.RPCError{Code: 3, Message: "execution reverted", Data: json.RawMessage(`"0x"`)}.Raw()
+	gotMissing, err := normalizeCallOutcome(missing)
+	if err != nil || gotMissing != "reverted|missing" {
+		t.Fatalf("missing raw %s -> %s, %v", missing, gotMissing, err)
+	}
+	gotNull, err := normalizeCallOutcome(nullData)
+	if err != nil || gotNull != "reverted|null" {
+		t.Fatalf("null raw %s -> %s, %v", nullData, gotNull, err)
+	}
+	gotEmpty, err := normalizeCallOutcome(empty)
+	if err != nil || gotEmpty != "reverted|empty" {
+		t.Fatalf("empty raw %s -> %s, %v", empty, gotEmpty, err)
+	}
+}
+
+func rpcErrorObs(id string, code int, message, data string) rpc.Observation {
+	errBody := &rpc.RPCError{Code: code, Message: message}
+	if data != "" {
+		errBody.Data = json.RawMessage(data)
+	}
+	return rpc.Observation{Attempted: true,
+		Source: rpc.SourceRef{Name: id, ID: id}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: errBody, Cause: rpctest.RPCError(code, message)}},
+	}
+}
+
+func TestRevertSamplesUseDistinctDataKeys(t *testing.T) {
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "rpcsample", "testdata", "revert-data", "2026-09-23"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]map[string]bool{}
+	for _, record := range records {
+		_, body, err := replay.BodyOf(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Error json.RawMessage `json:"error"`
+		}
+		if err := json.Unmarshal(body, &doc); err != nil || len(doc.Error) == 0 {
+			t.Fatalf("%s/%s: %v", record.RequestID, record.Source.ID, err)
+		}
+		key, err := normalizeCallOutcome(doc.Error)
+		if err != nil {
+			t.Fatalf("%s/%s: %v", record.RequestID, record.Source.ID, err)
+		}
+		group := record.RequestID
+		if strings.HasPrefix(group, "revert-empty") {
+			group = "revert-empty"
+		}
+		if keys[group] == nil {
+			keys[group] = map[string]bool{}
+		}
+		keys[group][key] = true
+	}
+	if len(keys["revert-empty"]) < 2 {
+		t.Fatalf("empty-revert sample keys = %v, want missing and empty", keys["revert-empty"])
+	}
+	hexKeys := keys["revert-hex"]
+	if len(hexKeys) != 1 {
+		t.Fatalf("hex sample keys = %v", hexKeys)
+	}
+	for key := range hexKeys {
+		if _, dup := keys["revert-empty"][key]; dup {
+			t.Fatalf("non-empty hex collapsed into an empty-revert key %s", key)
+		}
+	}
+	for key := range keys["revert-error-string"] {
+		if _, dup := hexKeys[key]; dup {
+			t.Fatalf("Error(string) data collapsed into the selector key %s", key)
+		}
+	}
+}
+
+// TestCallRevertCanonicalDataValue pins 0061: the accepted data projection
+// has one spelling, while the representative still follows capture order.
+func TestCallRevertCanonicalDataValue(t *testing.T) {
+	policy := planResolver(t, MethodCall, rpcengine.WithQuorum(2))
+	a := rpc.SourceRef{Name: "a", ID: "a"}
+	b := rpc.SourceRef{Name: "b", ID: "b"}
+	hexA := rpcErrorObs("a", 3, "execution reverted", `"0xDEAD"`)
+	hexB := rpcErrorObs("b", -32000, "execution reverted", `"0xdead"`)
+	for _, order := range [][]rpc.Observation{{hexA, hexB}, {hexB, hexA}} {
+		decision := resolvePair(t, policy, order...)
+		if string(decision.Value) != `{"data":"0xdead"}` {
+			t.Fatalf("hex data Value = %s", decision.Value)
+		}
+	}
+	objectA := rpcErrorObs("a", 3, "execution reverted", `{"b":2,"a":1}`)
+	objectB := rpcErrorObs("b", 3, "execution reverted", `{ "a": 1, "b": 2 }`)
+	objectC := rpcErrorObs("c", 3, "execution reverted", `{"a":1.0,"b":2}`)
+	for _, order := range [][]rpc.Observation{{objectA, objectB, objectC}, {objectC, objectA, objectB}} {
+		decision := resolvePair(t, policy, order...)
+		if string(decision.Value) != `{"data":{"a":1,"b":2}}` {
+			t.Fatalf("non-hex data Value = %s", decision.Value)
+		}
+	}
+	first := resolvePair(t, policy, hexA, hexB)
+	second := resolvePair(t, policy, hexB, hexA)
+	if first.Representative != a || second.Representative != b {
+		t.Fatalf("representatives = %+v/%+v, want a/b", first.Representative, second.Representative)
+	}
+}

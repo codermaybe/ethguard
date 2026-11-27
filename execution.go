@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/uncertain"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 

@@ -1,18 +1,19 @@
 package runtime
 
+import (
+	"context"
+
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+	"github.com/codermaybe/ethguard/observe"
+	"github.com/codermaybe/ethguard/rpc"
+)
+
 // The reference resolver facades. The establishment algorithms live in the
 // services (strict_head.go, reference_service.go); these types are the public
 // API's forwarding targets and the composition root's resolver products. The
 // root facade aliases them, so external code keeps constructing them through
 // the ethguard package.
-
-import (
-	"context"
-
-	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
-	"github.com/codermaybe/ethguard/rpc"
-)
 
 // ReferenceResolver is the runtime's established-reference seam: what a
 // composed client hands to its anchored reads. The root facade re-exports it
@@ -65,7 +66,7 @@ type StrictHeadAnchor struct {
 // NewStrictHeadAnchor builds the default latest-head resolver: its own
 // stage, the strict-head strategy, and no shared snapshot (each round
 // adjudicates at the establishment's own thresholds).
-func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...rpc.StrictOption) *StrictHeadAnchor {
+func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...rpcengine.StrictOption) *StrictHeadAnchor {
 	stage := NewReferenceStage(ReferenceStageConfig{
 		Pool:          p,
 		Recorder:      rec,

@@ -12,8 +12,8 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 const generatedCallPolicyRequest = `{"to":null,"gas":"0x5208","input":"0x0001","accessList":[],"commitments":[],"proofs":[],"authorizationList":[{"address":"0x0000000000000000000000000000000000000001","chainId":"0x1","nonce":"0x0","r":"0x1","s":"0x2","yParity":"0x0","vendor":{"integer":900719925474099312345678901234567890,"nullable":null},"optional":null}]}`

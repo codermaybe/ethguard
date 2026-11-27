@@ -3,8 +3,8 @@ package runtime
 import (
 	"fmt"
 
-	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
 
 // The method registry is the ReadPlan registry of the default composition:
@@ -14,8 +14,8 @@ import (
 // forwarding.
 
 // buildMethodRegistry compiles the registered catalog into execution plans.
-func buildMethodRegistry() (map[string]rpc.ReadPlan, error) {
-	plans := make(map[string]rpc.ReadPlan, len(methods.Specs()))
+func buildMethodRegistry() (map[string]rpcengine.ReadPlan, error) {
+	plans := make(map[string]rpcengine.ReadPlan, len(methods.Specs()))
 	for _, spec := range methods.Specs() {
 		plan, err := methods.CompilePlan(spec)
 		if err != nil {

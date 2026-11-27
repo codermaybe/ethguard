@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/pool"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 

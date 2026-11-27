@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+
+	"github.com/codermaybe/ethguard/internal/pool"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -16,7 +18,7 @@ import (
 // tipScopedFleet builds three established sources whose sampled latest tips
 // are 100/100/10. The third source is far behind, so it is the observation
 // that distinguishes a latest-scoped round from a safe/finalized round.
-func tipScopedFleet(t *testing.T) (*pool.Pool, []*rpctest.Node, []*pool.Source, rpc.Corroboration) {
+func tipScopedFleet(t *testing.T) (*pool.Pool, []*rpctest.Node, []*pool.Source, rpcengine.Corroboration) {
 	t.Helper()
 	heights := []string{"0x64", "0x64", "0xa"}
 	nodes := make([]*rpctest.Node, len(heights))
@@ -58,7 +60,7 @@ func tipScopedFleet(t *testing.T) (*pool.Pool, []*rpctest.Node, []*pool.Source, 
 		}
 	}
 
-	shared, err := rpc.NewCorroborationShared(rpc.CorroborationMajority, 2)
+	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

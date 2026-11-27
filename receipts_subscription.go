@@ -8,10 +8,12 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/codermaybe/ethguard/ethapi"
 	objectreceipt "github.com/codermaybe/ethguard/internal/ethobject/receipt"
+
 	sub "github.com/codermaybe/ethguard/internal/subscription"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
@@ -90,8 +92,8 @@ type ReceiptsSubscription struct {
 	*contentSubscription[ReceiptsEvent]
 	policy   ReceiptsSubscriptionPolicy
 	filter   receiptsFilter
-	rule     rpc.Corroboration
-	resolver rpc.CanonicalOutcomeResolver
+	rule     rpcengine.Corroboration
+	resolver rpcengine.CanonicalOutcomeResolver
 }
 
 type subscriptionResponseSource interface {
@@ -115,7 +117,7 @@ func startReceiptsSubscription(owner, setup context.Context, sources []identifie
 	if err := validateReceiptsPolicy(p); err != nil {
 		return nil, err
 	}
-	resolver, ok := rpc.Strict(rpc.CanonicalJSON).(rpc.CanonicalOutcomeResolver)
+	resolver, ok := rpcengine.Strict(rpc.CanonicalJSON).(rpcengine.CanonicalOutcomeResolver)
 	if !ok {
 		return nil, rpc.ErrInvalidCanonicalResult
 	}
@@ -124,9 +126,9 @@ func startReceiptsSubscription(owner, setup context.Context, sources []identifie
 		return nil, err
 	}
 	basis := shared.Basis()
-	rule := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: basis.Quorum}
+	rule := rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: basis.Quorum}
 	if basis.Tier == HeadForwarded {
-		rule = rpc.Corroboration{Mode: rpc.CorroborationForwarded}
+		rule = rpcengine.Corroboration{Mode: rpc.CorroborationForwarded}
 	}
 	s := &ReceiptsSubscription{contentSubscription: shared, policy: p, filter: filter, rule: rule, resolver: resolver}
 	go s.run()
@@ -438,7 +440,7 @@ var errReceiptUnfinished = errors.New("ethguard: receipt request unfinished at d
 type receiptContentResult struct {
 	index       int
 	observation rpc.Observation
-	canonical   rpc.CanonicalResult
+	canonical   rpcengine.CanonicalResult
 	supplier    HeadObjectSupplier
 	release     func()
 	err         error
@@ -535,9 +537,9 @@ func (s *ReceiptsSubscription) receiptAttempt(ctx context.Context, head *types.H
 			if valid < s.rule.Required(len(answers)) {
 				continue
 			}
-			canonical := make([]rpc.CanonicalObservation, len(answers))
+			canonical := make([]rpcengine.CanonicalObservation, len(answers))
 			for i, answer := range answers {
-				canonical[i], err = rpc.NewCanonicalObservation(answer.observation, answer.canonical)
+				canonical[i], err = rpcengine.NewCanonicalObservation(answer.observation, answer.canonical)
 				if err != nil {
 					return nil, ReceiptSupport{}, nil, err
 				}
@@ -591,7 +593,7 @@ func (s *ReceiptsSubscription) fetchReceiptSupplier(ctx context.Context, source 
 			out.err, out.reason = err, ContentStaleSession
 		}
 		if out.err != nil {
-			out.canonical = rpc.CanonicalResult{}
+			out.canonical = rpcengine.CanonicalResult{}
 			if out.observation.Response.Answer.Kind == rpc.AnswerResult && out.observation.Response.Err() == nil {
 				state := rpc.InterpretationUnassessed
 				if out.reason == ContentInvalid {
@@ -671,7 +673,7 @@ func (s *ReceiptsSubscription) fetchReceiptSupplier(ctx context.Context, source 
 		out.err = err
 		return
 	}
-	out.canonical, out.err = rpc.NewCanonicalResult(canonical, nil)
+	out.canonical, out.err = rpcengine.NewCanonicalResult(canonical, nil)
 	if out.err == nil {
 		out.reason = ContentVerified
 	}

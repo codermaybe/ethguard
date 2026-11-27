@@ -11,9 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 func (c *Client) pendingBalanceAtExec(ctx context.Context, account ethapi.Address) (*big.Int, CallResult, error) {

@@ -18,8 +18,8 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Anchor transport tests pin the production seam: HTTP and WSS are both dialed

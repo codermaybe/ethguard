@@ -15,9 +15,9 @@ import (
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // callTyped is the typed facade's aggregate entry. The corroboration

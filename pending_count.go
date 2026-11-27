@@ -5,7 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
-	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/internal/methods"
 )
 
 // pendingTransactionCountExec returns the selected local observation of the

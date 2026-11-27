@@ -26,3 +26,11 @@ var ErrUnsupportedTypedObject = errors.New("rpc: unsupported typed object")
 // or unsuitable evidence before business collection; the coordinator also
 // rejects a missing stage or an establishment without evidence.
 var ErrReferenceRequired = errors.New("rpc: reference required for moving-tag read")
+
+// ErrInvalidCanonicalResult is the internal contract sentinel of the
+// canonical seam: a constructor handed illegal output, a processor returned a
+// result beside an error, a success observation lacks its result, or a
+// consumer capability/slot pairing is broken. It is a process defect, not a
+// provider verdict: the coordinator must distinguish it from
+// ErrMalformedResponse before attributing anything to a source.
+var ErrInvalidCanonicalResult = errors.New("rpc: invalid canonical result")

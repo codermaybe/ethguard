@@ -1,0 +1,87 @@
+package aggregator
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpctest"
+)
+
+func TestAggregateRejectedEncodingDoesNotChangeVotingBasis(t *testing.T) {
+	const method = "test_canonical_object"
+	members := make([]pool.Member, 0, 5)
+	for i, body := range []string{`{"key":"winner","value":"v1"}`, `{"key":"winner","value":"v1"}`, `{"key":"winner","value":"v1"}`, `{"key":"loser","value":"v2"}`, `{"key":"loser","value":"v3"}`} {
+		node := rpctest.NewNode(1)
+		t.Cleanup(node.Close)
+		node.Return(method, json.RawMessage(body))
+		members = append(members, pool.Member{Name: fmt.Sprintf("source-%d", i), URL: node.URL()})
+	}
+	sources := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
+	policy := rpcengine.Strict(func(raw json.RawMessage) (string, error) {
+		var x struct {
+			Key string `json:"key"`
+		}
+		err := json.Unmarshal(raw, &x)
+		return x.Key, err
+	}, rpcengine.WithCanonicalObject(func(raw json.RawMessage) (json.RawMessage, error) {
+		var x struct {
+			Value string `json:"value"`
+		}
+		if err := json.Unmarshal(raw, &x); err != nil {
+			return nil, err
+		}
+		return json.Marshal(x.Value)
+	}))
+	corrob, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agg := New(sources, WithPlans(map[string]rpcengine.ReadPlan{method: {Method: method, Resolver: policy, ResolverKind: methods.ResolverStrict}}), WithCorroboration(corrob))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, floor := range []int{3, 4} {
+		if err := corrob.Set(rpc.CorroborationMajority, floor); err != nil {
+			t.Fatal(err)
+		}
+		d, err := agg.Aggregate(ctx, rpc.Request{Method: method})
+		if floor == 3 {
+			if err != nil || d.Status != rpc.Corroborated {
+				t.Fatalf("floor3 = %+v err %v", d, err)
+			}
+		} else if !errors.Is(err, rpc.ErrConflict) || d.Status != rpc.Unknown {
+			t.Fatalf("floor4 = %+v err %v", d, err)
+		}
+		if len(d.Participants) != 5 || len(d.Support) != 3 || len(d.Reject) != 2 || string(d.Value) != `"v1"` || len(d.Faults) != 1 || !errors.Is(d.Faults[0], rpc.ErrInvalidCanonicalResult) {
+			t.Fatalf("voting basis = %+v", d)
+		}
+		for i, source := range d.Reject {
+			canonical := []byte(`"v2"`)
+			if i == 1 {
+				canonical = []byte(`"v3"`)
+			}
+			digest := sha256.Sum256(canonical)
+			want := fmt.Sprintf("source %q canonical length %d sha256 %x", source.ID, len(canonical), digest)
+			if !strings.Contains(d.Faults[0].Error(), want) {
+				t.Fatalf("fault does not bind source to its encoded bytes: want %s got %v", want, d.Faults)
+			}
+		}
+		if strings.Count(d.Faults[0].Error(), " sha256 ") != 2 || strings.Contains(d.Faults[0].Error(), `"key"`) || strings.Contains(d.Faults[0].Error(), `"v2"`) || strings.Contains(d.Faults[0].Error(), `"v3"`) {
+			t.Fatalf("diagnostic contains unexpected material: %v", d.Faults)
+		}
+		if d.Representative != d.Support[0] {
+			t.Fatalf("representative = %+v", d)
+		}
+	}
+}

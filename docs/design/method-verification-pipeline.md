@@ -53,7 +53,7 @@ MethodSpec／CompilePlan／ReadPlan 是运行时声明；method-rules.md 是只�
 - `Unknown`、`Conflict`、`Selected` 及方法允许的 `Corroborated`；
 - 固定分母下 Support、Reject、Faults、各维度 Abstain；
 - 代表源与 Value 的同源/规范编码关系；
-- Policy、真实 Aggregator 和 typed adapter 的公开结果。
+- Resolver、真实 Aggregator 和 typed adapter 的可观察结果。
 
 场景矩阵是进程内合成证据，不进入 provider capture 目录、不产生 provider
 兼容性结论。错误、admission failure 与 reference 结果必须沿生产边界构造，

@@ -28,9 +28,11 @@ var toolPackages = []string{
 var corePackages = map[string]bool{
 	modulePath:                              true,
 	modulePath + "/rpc":                     true,
-	modulePath + "/rpc/methods":             true,
-	modulePath + "/pool":                    true,
-	modulePath + "/aggregator":              true,
+	modulePath + "/internal/methods":        true,
+	modulePath + "/internal/projection":     true,
+	modulePath + "/internal/rpcengine":      true,
+	modulePath + "/internal/pool":           true,
+	modulePath + "/internal/aggregator":     true,
 	modulePath + "/config":                  true,
 	modulePath + "/observe":                 true,
 	modulePath + "/internal/runtime":        true,
@@ -128,8 +130,8 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 					t.Errorf("object package %s imports the root facade", pkg.ImportPath)
 				}
 				for _, engine := range []string{
-					"/rpc/methods", "/aggregator", "/pool", "/internal/runtime",
-					"/internal/methods", "/internal/aggregator", "/internal/pool", "/internal/engine", "/internal/rpcengine",
+					"/internal/methods", "/internal/aggregator", "/internal/pool",
+					"/internal/runtime", "/internal/rpcengine", "/internal/projection",
 				} {
 					if imp == modulePath+engine || strings.HasPrefix(imp, modulePath+engine+"/") {
 						t.Errorf("object package %s imports execution package %s", pkg.ImportPath, imp)
@@ -146,25 +148,37 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 				t.Error("root facade imports a concrete transport; the composition root assembles them in internal/runtime")
 			}
 		case modulePath + "/rpc":
-			if imports[modulePath+"/rpc/methods"] {
-				t.Error("rpc imports rpc/methods")
+			for _, execution := range []string{"rpcengine", "methods", "aggregator", "pool", "projection", "runtime", "reference"} {
+				if imports[modulePath+"/internal/"+execution] {
+					t.Errorf("rpc data contracts import execution package %s", execution)
+				}
+			}
+		case modulePath + "/internal/rpcengine":
+			for _, owner := range []string{"methods", "aggregator", "pool", "projection", "runtime"} {
+				if imports[modulePath+"/internal/"+owner] {
+					t.Errorf("rpcengine imports its consumer %s", owner)
+				}
+			}
+		case modulePath + "/internal/uncertain":
+			if imports[modulePath+"/internal/rpcengine"] {
+				t.Error("uncertain imports rpcengine; the collector satisfies the invocation capture port directly")
 			}
 		case modulePath + "/internal/reference":
 			for banned := range map[string]string{
-				modulePath + "/pool":             "pool",
-				modulePath + "/rpc/methods":      "rpc/methods",
-				modulePath + "/aggregator":       "aggregator",
-				modulePath + "/internal/runtime": "internal/runtime",
+				modulePath + "/internal/pool":       "pool",
+				modulePath + "/internal/methods":    "internal/methods",
+				modulePath + "/internal/aggregator": "aggregator",
+				modulePath + "/internal/runtime":    "internal/runtime",
 			} {
 				if imports[banned] {
 					t.Errorf("internal/reference imports %s; reference owns only the head seam and the selection algorithms", banned)
 				}
 			}
-		case modulePath + "/aggregator":
+		case modulePath + "/internal/aggregator":
 			if imports[modulePath+"/internal/runtime"] {
 				t.Error("aggregator imports internal/runtime; runtime composes aggregator, never the reverse")
 			}
-		case modulePath + "/pool", modulePath + "/rpc/methods":
+		case modulePath + "/internal/pool", modulePath + "/internal/methods":
 			for _, imp := range pkg.Imports {
 				if strings.HasPrefix(imp, "github.com/ethereum/go-ethereum") {
 					t.Errorf("%s imports %s; core packages stay on the transport Port", pkg.ImportPath, imp)
@@ -175,11 +189,13 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 			// method plans, adjudication, reference establishment, or typed
 			// projection.
 			for banned := range map[string]string{
-				modulePath + "/aggregator":         "aggregator",
-				modulePath + "/rpc/methods":        "rpc/methods",
-				modulePath + "/internal/runtime":   "internal/runtime",
-				modulePath + "/internal/reference": "internal/reference",
-				modulePath + "/internal/typed":     "internal/typed",
+				modulePath + "/internal/aggregator": "aggregator",
+				modulePath + "/internal/methods":    "internal/methods",
+				modulePath + "/internal/runtime":    "internal/runtime",
+				modulePath + "/internal/reference":  "internal/reference",
+				modulePath + "/internal/typed":      "internal/typed",
+				modulePath + "/internal/rpcengine":  "internal/rpcengine",
+				modulePath + "/internal/projection": "internal/projection",
 			} {
 				if imports[banned] {
 					t.Errorf("internal/transport/wss imports %s; WSS owns only the raw-call transport seam", banned)
@@ -274,4 +290,13 @@ func gorillaImporters(t *testing.T, pattern string) ([]string, error) {
 		}
 	}
 	return importers, nil
+}
+
+// The implementation packages have one internal owner, without public aliases.
+func TestExecutionPackagesAreInternal(t *testing.T) {
+	for _, retired := range []string{"aggregator", "pool", "rpc/methods", "rpc/projection"} {
+		if _, err := os.Stat(retired); !os.IsNotExist(err) {
+			t.Errorf("retired execution package %s remains: %v", retired, err)
+		}
+	}
 }

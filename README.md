@@ -102,8 +102,10 @@ Close on either facade stops the shared Client. New operations fail before netwo
 | --- | --- |
 | root Client / EthClient | Public methods, CallResult, lifecycle and the shared execution view |
 | internal/runtime | The sole production composition root |
-| rpc / rpc/methods | Generic decision model and resolvers / method semantics and plans |
-| aggregator / pool | Invocation orchestration and evidence / fixed members, collection and health |
+| rpc | Public request, response, decision and evidence contracts; pure value helpers |
+| internal/rpcengine | Resolvers, read plans, canonical processing and adjudication |
+| internal/methods / internal/projection | Method semantics and plans / official-field projection assembly |
+| internal/aggregator / internal/pool | Invocation orchestration and evidence / fixed members, collection and health |
 | ethapi / internal/ethcodec | Generated business models / shared numeric and JSON primitives |
 | internal/ethobject | Object integrity, canonical representation, and request binding |
 | internal/transport / internal/subscription | Native adapters / stream aggregation and sessions |

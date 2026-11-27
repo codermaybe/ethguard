@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -18,23 +19,23 @@ const anchorMethodName = "anchor"
 // preserves the winning source's spelling in the decision value (the anchor
 // evidence keeps the source's own wire form; the request path lowercases the
 // derived hash separately), and requires a corroborated result.
-type headAnchorPolicy struct{ rpc.Policy }
+type headAnchorPolicy struct{ rpcengine.Resolver }
 
-func (p headAnchorPolicy) Resolve(obs []rpc.Observation) (rpc.Outcome, error) {
-	d, err := p.Policy.Resolve(obs)
+func (p headAnchorPolicy) Resolve(obs []rpc.Observation) (rpcengine.Outcome, error) {
+	d, err := p.Resolver.Resolve(obs)
 	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
 	return p.requireCorroborated(d, err)
 }
 
-func (p headAnchorPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
+func (p headAnchorPolicy) ResolveCorroborated(c rpcengine.Corroboration, obs []rpc.Observation) (rpcengine.Outcome, error) {
 	var (
-		d   rpc.Outcome
+		d   rpcengine.Outcome
 		err error
 	)
-	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
+	if cp, ok := p.Resolver.(rpcengine.CorroboratingResolver); ok {
 		d, err = cp.ResolveCorroborated(c, obs)
 	} else {
-		d, err = p.Policy.Resolve(obs)
+		d, err = p.Resolver.Resolve(obs)
 	}
 	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
 	return p.requireCorroborated(d, err)
@@ -56,7 +57,7 @@ func restoreAnchorSourceValue(d rpc.Decision, obs []rpc.Observation) rpc.Decisio
 	return d
 }
 
-func (p headAnchorPolicy) requireCorroborated(d rpc.Outcome, err error) (rpc.Outcome, error) {
+func (p headAnchorPolicy) requireCorroborated(d rpcengine.Outcome, err error) (rpcengine.Outcome, error) {
 	if err == nil && d.Decision.Status != rpc.Corroborated {
 		d.Decision.Adjudication.Reason = rpc.ReasonGuaranteeNotMet
 		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrGuaranteeNotMet)
@@ -85,21 +86,21 @@ func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
 // produce the same evidence on both paths.
 type StrictHeadService struct {
 	stage    *ReferenceStage
-	corrob   *rpc.CorroborationShared
+	corrob   *rpcengine.CorroborationShared
 	corrobOK bool
 }
 
 // NewStrictHeadService builds the default latest-head establishment service
 // over the shared stage.
-func NewStrictHeadService(stage *ReferenceStage, corrob *rpc.CorroborationShared) *StrictHeadService {
+func NewStrictHeadService(stage *ReferenceStage, corrob *rpcengine.CorroborationShared) *StrictHeadService {
 	return &StrictHeadService{stage: stage, corrob: corrob, corrobOK: corrob != nil}
 }
 
 // snapshot captures the service's shared adjudication configuration for one
 // round.
-func (s *StrictHeadService) snapshot() (rpc.Corroboration, bool) {
+func (s *StrictHeadService) snapshot() (rpcengine.Corroboration, bool) {
 	if !s.corrobOK {
-		return rpc.Corroboration{}, false
+		return rpcengine.Corroboration{}, false
 	}
 	return s.corrob.Snapshot(), true
 }
@@ -177,7 +178,7 @@ func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) 
 func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
 	// The finalized preset defaults to the majority floor with the
 	// documented lag bound: the stage's own configuration.
-	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
+	snap := rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	refs := s.stage.memberRefs()
 	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
 	if err != nil {
@@ -198,10 +199,10 @@ func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.Reference
 // establish round. When the operation's context carries a material
 // collector, the round's raw responses record into it — the establishment
 // is this call's material like any other source round.
-func facadeInvocation(ctx context.Context, refs []rpc.SourceRef, snap rpc.Corroboration) rpc.Invocation {
-	opts := []rpc.InvocationOption(nil)
+func facadeInvocation(ctx context.Context, refs []rpc.SourceRef, snap rpcengine.Corroboration) rpcengine.Invocation {
+	opts := []rpcengine.InvocationOption(nil)
 	if collector := uncertain.CollectorFromContext(ctx); collector != nil {
-		opts = []rpc.InvocationOption{rpc.WithInvocationCapture(collector.InvocationCapture())}
+		opts = []rpcengine.InvocationOption{rpcengine.WithInvocationCapture(collector)}
 	}
-	return rpc.NewInvocation(rpc.NewInvocationID(), rpc.FreezeBasis(refs, snap), opts...)
+	return rpcengine.NewInvocation(rpcengine.NewInvocationID(), rpcengine.FreezeBasis(refs, snap), opts...)
 }

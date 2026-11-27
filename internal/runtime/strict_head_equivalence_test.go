@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+
+	"github.com/codermaybe/ethguard/internal/pool"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -74,7 +76,7 @@ func equivPool(t *testing.T, nodes []*rpctest.Node) (*pool.Pool, []*pool.Source)
 // establishService establishes through the facade service, which since the
 // facade flattening runs the client's own reference stage — the same
 // establishment the invocation path drives.
-func establishService(t *testing.T, nodes []*rpctest.Node, shared *rpc.CorroborationShared, opts []rpc.StrictOption, tag string) (rpc.ReferenceEvidence, error) {
+func establishService(t *testing.T, nodes []*rpctest.Node, shared *rpcengine.CorroborationShared, opts []rpcengine.StrictOption, tag string) (rpc.ReferenceEvidence, error) {
 	t.Helper()
 	pool, _ := equivPool(t, nodes)
 	stage := NewReferenceStage(ReferenceStageConfig{
@@ -103,9 +105,9 @@ func assertEvidenceShape(t *testing.T, name string, service rpc.ReferenceEvidenc
 	}
 }
 
-func sharedCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpc.CorroborationShared {
+func sharedCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpcengine.CorroborationShared {
 	t.Helper()
-	shared, err := rpc.NewCorroborationShared(mode, floor)
+	shared, err := rpcengine.NewCorroborationShared(mode, floor)
 	if err != nil {
 		t.Fatal(err)
 	}

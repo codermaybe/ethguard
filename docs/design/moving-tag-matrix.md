@@ -2,7 +2,7 @@
 
 Status: documentation baseline 2026-11-17; current per-method reference contract. Historical observation dates remain unchanged. This file is the per-method
 compatibility contract for block references. It answers, for every
-`RegisteredMethod` in `rpc/methods/catalog.go`, three separate questions
+`RegisteredMethod` in `internal/methods/catalog.go`, three separate questions
 that must not be conflated:
 
 1. **Ethereum official request semantics** — what the Execution API
@@ -177,7 +177,7 @@ The per-tag level descriptions above apply to the default strict anchor preset. 
 
 ## Interlock
 
-`rpc/methods/moving_tag_matrix_test.go` (`TestCatalogMatrixInterlock`)
+`internal/methods/moving_tag_matrix_test.go` (`TestCatalogMatrixInterlock`)
 parses this file: every `RegisteredMethod` must have exactly one row, no
 row may name an unregistered method, and every row's support cells must be
 explicitly filled (no blanks that could hide an undecided contract).

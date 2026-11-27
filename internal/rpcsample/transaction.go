@@ -19,10 +19,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/projection"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/projection"
 )
 
 type TransactionTarget struct {
@@ -412,7 +413,7 @@ func transactionReport(records []Record, network Network, target TransactionTarg
 		}
 		// Threshold one recovers one source's structural inventory, not
 		// cross-provider corroboration. Original raw bytes remain in records.
-		evaluation, err := rpc.AggregateFields([]rpc.Observation{{Attempted: true, Source: rpc.SourceRef{ID: record.Source.ID}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}}, 1)
+		evaluation, err := rpcengine.AggregateFields([]rpc.Observation{{Attempted: true, Source: rpc.SourceRef{ID: record.Source.ID}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}}}, 1)
 		if err != nil {
 			report.Findings = append(report.Findings, record.RequestID+"/"+record.Source.ID+": field inventory: "+err.Error())
 		} else {

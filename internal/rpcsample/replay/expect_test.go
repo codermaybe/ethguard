@@ -12,10 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // expectSchemaV1 is the golden data format. The file pins a request, the
@@ -170,7 +171,7 @@ func matchBatchExpect(t *testing.T, dir string, raw []byte) error {
 	return fmt.Errorf("golden mismatch\n%s", reviewableDiff(wantCanon, gotCanon))
 }
 
-func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.Record) (expectCase, error) {
+func replayRevertCase(t *testing.T, snap rpcengine.Corroboration, records []rpcsample.Record) (expectCase, error) {
 	t.Helper()
 	if len(records) == 0 {
 		return expectCase{}, errors.New("empty request group")
@@ -190,7 +191,7 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 		return expectCase{}, err
 	}
 	policy := plan.Resolver
-	resolver, ok := policy.(rpc.CorroboratingPolicy)
+	resolver, ok := policy.(rpcengine.CorroboratingResolver)
 	if !ok {
 		return expectCase{}, errors.New("eth_call policy lost ResolveCorroborated")
 	}
@@ -211,7 +212,7 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 	for i, record := range records {
 		names[i] = record.Source.ID
 	}
-	shared, err := rpc.NewCorroborationShared(snap.Mode, snap.Floor)
+	shared, err := rpcengine.NewCorroborationShared(snap.Mode, snap.Floor)
 	if err != nil {
 		return expectCase{}, err
 	}
@@ -287,7 +288,7 @@ func replayRevertCase(t *testing.T, snap rpc.Corroboration, records []rpcsample.
 	}, nil
 }
 
-func classifySource(t *testing.T, plan rpc.ReadPlan, req rpc.Request, item rpc.Observation) (json.RawMessage, string, []string, string) {
+func classifySource(t *testing.T, plan rpcengine.ReadPlan, req rpc.Request, item rpc.Observation) (json.RawMessage, string, []string, string) {
 	t.Helper()
 	faults := []string{}
 	if item.Response.Err() == nil {
@@ -314,7 +315,7 @@ func classifySource(t *testing.T, plan rpc.ReadPlan, req rpc.Request, item rpc.O
 	return payload, "not_applicable", faults, key
 }
 
-func snapshotOf(mode string, floor int) (rpc.Corroboration, error) {
+func snapshotOf(mode string, floor int) (rpcengine.Corroboration, error) {
 	var parsed rpc.CorroborationMode
 	switch mode {
 	case "majority":
@@ -324,12 +325,12 @@ func snapshotOf(mode string, floor int) (rpc.Corroboration, error) {
 	case "forwarded":
 		parsed = rpc.CorroborationForwarded
 	default:
-		return rpc.Corroboration{}, fmt.Errorf("unknown corroboration mode %q", mode)
+		return rpcengine.Corroboration{}, fmt.Errorf("unknown corroboration mode %q", mode)
 	}
-	if _, err := rpc.NewCorroborationShared(parsed, floor); err != nil {
-		return rpc.Corroboration{}, err
+	if _, err := rpcengine.NewCorroborationShared(parsed, floor); err != nil {
+		return rpcengine.Corroboration{}, err
 	}
-	return rpc.Corroboration{Mode: parsed, Floor: floor}, nil
+	return rpcengine.Corroboration{Mode: parsed, Floor: floor}, nil
 }
 
 func decisionError(err error) string {
@@ -485,7 +486,7 @@ func sameRequest(records []rpcsample.Record) (json.RawMessage, error) {
 // the canonical encoding of the representative payload, or of the one source
 // Local / ResolveLocal selected. An empty value is a failed decision: batch
 // replay does not add a new must-match-an-original assertion for it.
-func replayValueAgrees(t *testing.T, policy rpc.Policy, decision rpc.Decision, payloads []json.RawMessage, sources []expectSource, deleted []string, allowEmpty bool) error {
+func replayValueAgrees(t *testing.T, policy rpcengine.Resolver, decision rpc.Decision, payloads []json.RawMessage, sources []expectSource, deleted []string, allowEmpty bool) error {
 	t.Helper()
 	if isCallRevertPolicy(policy) && len(decision.Value) > 0 && containsObjectFields(t, decision.Value, []string{"code", "message"}) {
 		return fmt.Errorf("eth_call decision Value contains provider envelope fields")
@@ -509,7 +510,7 @@ func replayValueAgrees(t *testing.T, policy rpc.Policy, decision rpc.Decision, p
 	if projectionMatches(t, decision.Value, payloads, deleted) {
 		return nil
 	}
-	encoded, err := rpc.CanonicalOf(policy, replaySourcePayload(decision, payloads, sources))
+	encoded, err := rpcengine.CanonicalOf(policy, replaySourcePayload(decision, payloads, sources))
 	if err != nil || !bytes.Equal(encoded, decision.Value) {
 		return fmt.Errorf("decision value is not one source payload with %v removed", deleted)
 	}
@@ -537,9 +538,9 @@ func TestReplayValueAgreesAllowsCanonicalCallData(t *testing.T) {
 	}
 }
 
-func isCallRevertPolicy(policy rpc.Policy) bool {
-	source, ok := policy.(rpc.MethodRuleSource)
-	return ok && source.MethodRule().Resolver == rpc.RuleResolverCallRevert
+func isCallRevertPolicy(policy rpcengine.Resolver) bool {
+	source, ok := policy.(rpcengine.MethodRuleSource)
+	return ok && source.MethodRule().Resolver == rpcengine.RuleResolverCallRevert
 }
 
 func containsObjectFields(t *testing.T, raw json.RawMessage, fields []string) bool {
@@ -814,7 +815,7 @@ func TestArchiveErrorLabelKeepsCurrentAdjudicationDistinct(t *testing.T) {
 			if distinct {
 				obs[1].Response = rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`2`)}}
 			}
-			outcome, resolveErr := rpc.Strict(rpc.CanonicalJSON, rpc.WithQuorum(2)).Resolve(obs)
+			outcome, resolveErr := rpcengine.Strict(rpc.CanonicalJSON, rpcengine.WithQuorum(2)).Resolve(obs)
 			wantCause, wantClass := rpc.ErrInsufficientSupport, "insufficient_support"
 			if distinct {
 				wantCause, wantClass = rpc.ErrConflict, "conflict"

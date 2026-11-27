@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/methods"
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/reference"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // PoolHeadReader adapts the pool to the reference HeadReader seam. It is the

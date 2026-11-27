@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codermaybe/ethguard/pool"
+	"github.com/codermaybe/ethguard/internal/pool"
 )
 
 func readTestdata(t *testing.T, name string) []byte {
