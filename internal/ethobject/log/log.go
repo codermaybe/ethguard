@@ -15,6 +15,10 @@ func Validate(value json.RawMessage) error {
 	if err := jsonsafe.Validate(value); err != nil {
 		return fmt.Errorf("log JSON: %w", err)
 	}
+	return validateJSONChecked(value)
+}
+
+func validateJSONChecked(value json.RawMessage) error {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(value, &obj); err != nil || obj == nil {
 		return fmt.Errorf("expected an object")
@@ -84,7 +88,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	}
 	out := make([]CanonicalLog, len(rows))
 	for i, row := range rows {
-		encoded, err := EncodeOne(row)
+		encoded, err := EncodeOneJSONChecked(row)
 		if err != nil {
 			return nil, fmt.Errorf("logs[%d]: %w", i, err)
 		}
@@ -99,7 +103,19 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 // reject the same payloads with the same messages. The returned canonical
 // field order is the CanonicalLog struct order.
 func EncodeOne(value json.RawMessage) (CanonicalLog, error) {
-	if err := Validate(value); err != nil {
+	if err := jsonsafe.Validate(value); err != nil {
+		return CanonicalLog{}, fmt.Errorf("log JSON: %w", err)
+	}
+	return EncodeOneJSONChecked(value)
+}
+
+// EncodeOneJSONChecked is the per-log entry for a checked enclosing response.
+// The caller must have passed these same, unmodified bytes (or their enclosing
+// JSON value) through jsonsafe.Validate. RawMessage extraction preserves that
+// proof; re-encoding does not. Required exact keys are still checked before
+// the separate alias-aware encoding pass, including its timestamp checks.
+func EncodeOneJSONChecked(value json.RawMessage) (CanonicalLog, error) {
+	if err := validateJSONChecked(value); err != nil {
 		return CanonicalLog{}, err
 	}
 	var raw struct {

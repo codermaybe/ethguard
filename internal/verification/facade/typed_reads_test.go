@@ -391,7 +391,7 @@ func blockHashOf(t testing.TB, raw json.RawMessage) string {
 // receipt claims the given height while its BlockHash stays the fleet's
 // canonical pin, so hash-form and height-form bindings can be tested
 // independently.
-func fixtureReceipt(t *testing.T, txHash ethapi.Hash, height int64) json.RawMessage {
+func fixtureReceipt(t testing.TB, txHash ethapi.Hash, height int64) json.RawMessage {
 	t.Helper()
 	gethTxHash := common.HexToHash(string(txHash))
 	receipt := &types.Receipt{

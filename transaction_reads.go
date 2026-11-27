@@ -193,7 +193,7 @@ func (c *Client) transactionReceiptExec(ctx context.Context, hash ethapi.Hash) (
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	receipt, err := typed.DecodeReceipt(decision.Value)
+	receipt, err := typed.DecodeReceiptAdmitted(decision.Value)
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
@@ -241,7 +241,7 @@ func (c *Client) blockReceiptsExec(ctx context.Context, blockRef ethapi.BlockRef
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
-	receipts, err := typed.DecodeReceipts(decision.Value)
+	receipts, err := typed.DecodeReceiptsAdmitted(decision.Value)
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}

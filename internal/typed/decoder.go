@@ -24,6 +24,7 @@ import (
 	headerobject "github.com/codermaybe/ethguard/internal/ethobject/header"
 	"github.com/codermaybe/ethguard/internal/ethobject/hexcompat"
 	receiptobject "github.com/codermaybe/ethguard/internal/ethobject/receipt"
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -122,6 +123,38 @@ func DecodeReceipt(raw json.RawMessage) (*ethapi.Receipt, error) {
 	return &value, nil
 }
 
+// DecodeReceiptAdmitted projects only a successful receipt read's committed
+// canonical value. Its owner already checked log bindings, bloom, status and
+// request identity. Field aggregation adds diagnostics without rebuilding this
+// value. Check the final bytes' safety budget because encoding cannot inherit
+// the original response's byte budget, then construct the public model.
+func DecodeReceiptAdmitted(raw json.RawMessage) (*ethapi.Receipt, error) {
+	if jsonNull(raw) {
+		return nil, ethereum.NotFound
+	}
+	if err := jsonsafe.Validate(raw); err != nil {
+		return nil, wrapMalformed("decode receipt", fmt.Errorf("receipt JSON: %w", err))
+	}
+	value, err := ethapi.NewReceipt(raw)
+	if err != nil {
+		return nil, wrapMalformed("decode receipt", err)
+	}
+	return &value, nil
+}
+
+// DecodeReceiptsAdmitted is the batch counterpart of DecodeReceiptAdmitted.
+// Only a successful block-receipt read may use it; raw and subscription
+// payloads still require DecodeReceipts or DecodeReceiptBatch.
+func DecodeReceiptsAdmitted(raw json.RawMessage) ([]ethapi.Receipt, error) {
+	if jsonNull(raw) {
+		return nil, ethereum.NotFound
+	}
+	if err := jsonsafe.Validate(raw); err != nil {
+		return nil, wrapMalformed("decode receipts", fmt.Errorf("receipt JSON: %w", err))
+	}
+	return projectReceiptRows(raw)
+}
+
 // DecodeReceipts keeps null/NotFound distinct from a non-nil empty array.
 // Each element uses the same object checks as queries and subscription events.
 func DecodeReceipts(raw json.RawMessage) ([]ethapi.Receipt, error) {
@@ -141,19 +174,27 @@ func DecodeReceiptBatch(raw json.RawMessage) ([]ethapi.Receipt, json.RawMessage,
 	if err != nil {
 		return nil, nil, wrapMalformed("decode receipts", err)
 	}
+	values, err := projectReceiptRows(canonical)
+	if err != nil {
+		return nil, nil, err
+	}
+	return values, canonical, nil
+}
+
+func projectReceiptRows(canonical json.RawMessage) ([]ethapi.Receipt, error) {
 	var rows []json.RawMessage
 	if err := json.Unmarshal(canonical, &rows); err != nil {
-		return nil, nil, wrapMalformed("decode receipts", err)
+		return nil, wrapMalformed("decode receipts", err)
 	}
 	values := make([]ethapi.Receipt, 0, len(rows))
 	for i, row := range rows {
 		value, err := ethapi.NewReceipt(row)
 		if err != nil {
-			return nil, nil, wrapMalformed(fmt.Sprintf("decode receipts[%d]", i), err)
+			return nil, wrapMalformed(fmt.Sprintf("decode receipts[%d]", i), err)
 		}
 		values = append(values, value)
 	}
-	return values, canonical, nil
+	return values, nil
 }
 
 // DecodeTransaction shapes one corroborated eth_getTransactionByHash response

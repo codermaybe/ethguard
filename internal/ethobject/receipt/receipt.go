@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -53,7 +54,7 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 			return nil, fmt.Errorf("block receipts[%d]: null receipt", i)
 		}
 		var err error
-		encoded[i], err = Encode(row)
+		encoded[i], err = encodeJSONChecked(row)
 		if err != nil {
 			return nil, fmt.Errorf("block receipts[%d]: %w", i, err)
 		}
@@ -79,6 +80,12 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err := jsonsafe.Validate(value); err != nil {
 		return nil, fmt.Errorf("receipt JSON: %w", err)
 	}
+	return encodeJSONChecked(value)
+}
+
+// encodeJSONChecked consumes unmodified receipt bytes from a successful
+// jsonsafe.Validate of this value or its enclosing response.
+func encodeJSONChecked(value json.RawMessage) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(value)
 	if ethcodec.IsJSONNull(trimmed) {
 		return json.RawMessage("null"), nil
@@ -93,7 +100,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	}
 	logs := make([]log.CanonicalLog, len(rows))
 	for i, row := range rows {
-		item, err := log.EncodeOne(row)
+		item, err := log.EncodeOneJSONChecked(row)
 		if err != nil {
 			return nil, fmt.Errorf("receipt logs[%d]: %w", i, err)
 		}
@@ -164,16 +171,21 @@ func checkLogBindings(logs []log.CanonicalLog, transactionHash, blockHash string
 // the emitted logsBloom is checked against the value EthGuard ships rather
 // than against a second decoding of the source payload.
 func canonicalBloom(logs []log.CanonicalLog) string {
-	decoded := make([]*types.Log, len(logs))
-	for i, item := range logs {
-		entry := &types.Log{Address: common.HexToAddress(item.Address)}
-		entry.Topics = make([]common.Hash, len(item.Topics))
-		for j, topic := range item.Topics {
-			entry.Topics[j] = common.HexToHash(topic)
+	var bloom types.Bloom
+	var address [common.AddressLength]byte
+	var topic [common.HashLength]byte
+	var scratch [6]byte
+	for _, item := range logs {
+		// The log encoder already proved the exact widths and hex alphabet.
+		// Decode into fixed storage instead of building a second log tree.
+		_, _ = hex.Decode(address[:], []byte(item.Address[2:]))
+		bloom.AddWithBuffer(address[:], &scratch)
+		for _, text := range item.Topics {
+			_, _ = hex.Decode(topic[:], []byte(text[2:]))
+			bloom.AddWithBuffer(topic[:], &scratch)
 		}
-		decoded[i] = entry
 	}
-	return hexutil.Encode(types.CreateBloom(&types.Receipt{Logs: decoded}).Bytes())
+	return hexutil.Encode(bloom[:])
 }
 
 // Decode checks the canonical receipt, its logs and bloom, and its mined
@@ -191,7 +203,16 @@ func Decode(value json.RawMessage) (*types.Receipt, error) {
 // are validated, then handed out, never rebuilt. On failure both returns are
 // nil and the error is exactly Decode's.
 func DecodeWithCanonical(value json.RawMessage) (json.RawMessage, *types.Receipt, error) {
-	canonical, err := Encode(value)
+	if err := jsonsafe.Validate(value); err != nil {
+		return nil, nil, fmt.Errorf("receipt JSON: %w", err)
+	}
+	return decodeWithCanonicalJSONChecked(value)
+}
+
+// decodeWithCanonicalJSONChecked keeps the private geth projection and mined
+// identity checks after encoding, while reusing the enclosing JSON safety gate.
+func decodeWithCanonicalJSONChecked(value json.RawMessage) (json.RawMessage, *types.Receipt, error) {
+	canonical, err := encodeJSONChecked(value)
 	if err != nil {
 		return nil, nil, err
 	}

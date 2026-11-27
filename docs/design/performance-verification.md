@@ -1,4 +1,4 @@
-# 性能优化计划与首次验证
+# 性能优化分阶段验证
 
 首次验证范围为 Wave 0 → Wave 1A，已保存为 `23e24db`。用户随后授权按 Wave 1B → 2A → 2B → 3 持续实施与阶段提交。主控负责设计、编排、审查、独立验收和文档；两个执行者负责生产改动。各阶段分别记录证据，不将计划写成完成事实。
 
@@ -125,3 +125,26 @@ Transaction 方法 Normalize／Process 分配不变，耗时约 −2.7%／−1.6
 | 64 项 AccessList 编码 | 1.157ms → 0.976ms | 4,110 → 3,334 |
 
 拒绝成本单独测量 Standard／Fast，每组 150ms × 3：64KiB 尾部控制字符、坏转义、尾随内容分别约多 16%、17%、25% 时间，分配不变；原因是探测后仍由标准库完整报告错误。合法 64KiB ASCII 约快 88%；转义、Unicode、非法 UTF-8 的短输入基本持平。接受这一有界额外扫描，不以修改错误语义换取拒绝速度。以上是微基准，未推断 HTTP 聚合延迟。
+
+## 续轮 Wave 2A 验收
+
+以 `31feb32` 为基线，隔离快照只叠加本阶段 11 份文件，未混入并行实施的值验证或 Wave 3。Log／Receipt 的公开原始入口继续执行安全门；批量父入口只把同一未改写原文提取的 RawMessage 交给窄内部入口。精确 key 准入与 struct 大小写别名编码仍各自执行，timestamp 错误阶段保持。PrepareTransaction／PrepareBlock 保留原直接调用顺序。Bloom 使用固定地址／topic 缓冲和 geth 相同的 AddWithBuffer 累加，删除第二份日志树。
+
+Client 的两个成功 Receipt 读取路径改为 admitted 交付：准入、规范结果私有 string、裁定提交到 decision.Value 的字节链不变，字段聚合只附加扩展与诊断。交付仍对最终规范字节执行一次 jsonsafe，再调用生成构造器；重新编码不能继承原始输入的大小预算。原始／批量／订阅解码入口仍拥有原有检查。
+
+独立 log、receipt、typed、methods、aggregator、facade 和 internal/subscription 包全部通过；两位执行者交叉审查字节链、别名阶段、绑定顺序和 bloom 与 geth 的一致性，无阻塞。第一次主控命令误写 `./subscription`，其它六包已通过；修正为 `./internal/subscription` 后通过，保留两份日志。子代理环境禁止本地监听的 HTTP 测试由主控可监听环境补验通过。全仓回归和 race 在续轮最终状态统一执行。
+
+13 组增量比较按旧→新→新→旧，每次两份样本；微基准 250ms，三源 HTTP 固定 100 次。新增 HTTP fixture 在计时前验证 Corroborated，并核对每次调用确实产生三个 Receipt 请求。旧源码只复制相同的 benchmark／fixture helper，生产文件不改。
+
+| 路径 | Wave 1B → Wave 2A | 分配次数旧 → 新 |
+| --- | --- | --- |
+| Log 整数组，64 条 | 4.361ms → 3.443ms（−21.1%） | 30,675 → 约 20,753 |
+| Receipt，100 条 Log | 9.098ms → 7.933ms（−12.8%） | 55,027 → 39,928 |
+| Receipt，1000 条 Log | 98.642ms → 81.248ms（−17.6%） | 约 546,555 → 395,536 |
+| BlockReceipts，1000 条 Receipt | 99.710ms → 79.558ms（−20.2%） | 589,155 → 约 394,127 |
+| 三源 HTTP typed Receipt，1 条 Log | 6.074ms → 5.936ms | 约 6,564 → 5,524 |
+| 三源 HTTP typed Receipt，64 条 Log | 28.010ms → 21.086ms（−24.7%） | 约 210,419 → 155,280 |
+
+64 条 Log 的 HTTP 样本区间分别为 27.74–29.35ms／20.16–22.13ms；这是本机固定 fixture 的实测，不是 provider 网络延迟保证。Bloom 独立树参考在 1000 条日志中分配 4,804 次，新实现固定 5 次，耗时约 1.55ms→1.33ms；整个函数并非零分配，空日志反而由 3 次增至 5 次，固定缓冲逃逸及最终 hex 字符串成本如实保留。typed raw／admitted 对照使用相同规范字节，仅解释交付成本，不能当作完整 RPC 的旧新收益。
+
+原始记录在 `/tmp/ethguard-continuation-review/evidence/` 的 `wave2a-*`，包括独立快照摘要、13 组汇总、Bloom 和交付单点对照。生成源码和消费者的后续变化独立记账。
