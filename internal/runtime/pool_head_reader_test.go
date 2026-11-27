@@ -79,7 +79,11 @@ func TestPoolHeadReaderAddressesBasisMembers(t *testing.T) {
 
 // A basis naming an unregistered member fails before any network round.
 func TestPoolHeadReaderRejectsUnknownBasisMember(t *testing.T) {
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
+	p, err := pool.NewWithMembers(0, nil, pool.WithDialer(nativehttp.NewDialer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
 	stage := NewReferenceStage(ReferenceStageConfig{Pool: p, Recorder: observe.Nop})
 	if _, err := stage.basisSources(rpcengine.FreezeBasis([]rpc.SourceRef{{ID: "missing"}}, rpcengine.Corroboration{})); err == nil {
 		t.Fatal("unknown basis member must fail resolution")

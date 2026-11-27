@@ -36,7 +36,7 @@ type Client struct {
 	// corrob is the internal adjudication snapshot source; callers do not
 	// configure its mode or support floor.
 	corrob *rpcengine.CorroborationShared
-	// collectTimeout bounds each write fan-out; the read aggregator owns its
+	// collectTimeout bounds each write and diagnostic fan-out; the read aggregator owns its
 	// own copy supplied at construction.
 	collectTimeout time.Duration
 	// lifeCtx is the owner lifecycle signal: Close cancels it with the
@@ -115,7 +115,8 @@ func WithRecorder(r observe.Recorder) Option {
 	return func(o *clientOptions) { o.recorder = r }
 }
 
-// WithCollectTimeout bounds each aggregate collection or forwarded attempt.
+// WithCollectTimeout bounds each aggregate collection, diagnostic sample, or
+// forwarded attempt.
 // A non-positive timeout panics: an Option cannot return an error, and a
 // silently ignored timeout would trade a loud construction failure for
 // unbounded collections.
@@ -272,14 +273,6 @@ func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
 		return "", fmt.Errorf("ethguard: %s has no canonical normalizer: %w", method, rpc.ErrInvalidRequest)
 	}
 	return plan.Resolver.Normalize(raw)
-}
-
-// Pool exposes the underlying multi-source manager for advanced diagnostics.
-// Membership is fixed at construction; the pool exposes no Join/Remove, and
-// health/scheduling can never change the voting basis. Prefer Client methods
-// for normal application code.
-func (c *Client) Pool() *pool.Pool {
-	return c.pool
 }
 
 // Close stops the client: it marks the client closed, cancels the owner

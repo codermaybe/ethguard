@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/codermaybe/ethguard/config"
 	upstream "github.com/codermaybe/ethguard/internal/transport"
 )
 
@@ -76,38 +75,6 @@ func WithTipSampleMaxAge(age time.Duration) PoolOption {
 			c.tipSampleMaxAgeSet = true
 		}
 	}
-}
-
-// NewPoolWithOptions creates an empty pool tuned by opts. Production
-// construction uses NewWithMembers; an empty pool has no membership.
-func NewPoolWithOptions(chainID uint64, opts ...PoolOption) *Pool {
-	return newPoolWithDialerAndOptions(nil, chainID, opts...)
-}
-
-// newPoolWithDialerAndOptions lets tests combine an injected transport with
-// option tuning.
-func newPoolWithDialerAndOptions(d dialer, chainID uint64, opts ...PoolOption) *Pool {
-	cfg := poolConfig{
-		tipInterval: config.DefaultTipInterval(),
-		maxTipLag:   config.DefaultTipMaxBehind(),
-		dialer:      d,
-	}
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-	p := newPoolWithDialerAndChainID(cfg.dialer, chainID)
-	p.maxTipLag = cfg.maxTipLag
-	if cfg.tipEnabled {
-		if !cfg.tipSampleMaxAgeSet {
-			cfg.tipSampleMaxAge = 3 * cfg.tipInterval
-		}
-		p.tipInterval = cfg.tipInterval
-		p.tipSampleMaxAge = cfg.tipSampleMaxAge
-		p.stopTips = make(chan struct{})
-		p.tipsDone = make(chan struct{})
-		go p.tipLoop(cfg.tipInterval)
-	}
-	return p
 }
 
 // tipLoop samples tips until the pool closes. The first sample waits one

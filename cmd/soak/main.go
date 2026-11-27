@@ -44,7 +44,6 @@ import (
 	"github.com/codermaybe/ethguard/internal/chainlist"
 	"github.com/codermaybe/ethguard/internal/limits"
 	"github.com/codermaybe/ethguard/internal/methods"
-	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -382,7 +381,7 @@ func classify(dec *rpc.Decision, err error, detail string) (stepReport, error) {
 	return report, nil
 }
 
-// diveInto re-collects a step straight from the pool and clusters each
+// diveInto samples a step again through the client and clusters each
 // source's canonical answer. This is a second fan-out and costs one extra
 // round of requests; it runs on strict-comparable conflicts and on whole-
 // step failures, where "which source said what, and which failed how" is
@@ -394,7 +393,7 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	emissions, err := client.Pool().Collect(ctx, s.method, s.params, pool.CollectOptions{})
+	emissions, err := client.Sample(ctx, s.method, s.params...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  deep-dive %s: collect: %v\n", s.name, err)
 		return
@@ -420,7 +419,7 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 		if _, seen := clusters[canonical]; !seen {
 			order = append(order, canonical)
 		}
-		clusters[canonical] = append(clusters[canonical], em.Src.Name())
+		clusters[canonical] = append(clusters[canonical], em.Source.Name)
 	}
 	fmt.Fprintf(os.Stderr, "  deep-dive %s: %d clusters, %d faulted\n", s.name, len(order), faulted)
 	for _, canonical := range order {
@@ -548,15 +547,15 @@ func printReport(out io.Writer, sources int, chainID uint64, anchoring string, s
 }
 
 func printSources(out io.Writer, client *ethguard.Client) error {
-	sources := client.Pool().Sources()
-	sort.Slice(sources, func(i, j int) bool { return sources[i].Name() < sources[j].Name() })
+	sources := client.Sources()
+	sort.Slice(sources, func(i, j int) bool { return sources[i].Source.Name < sources[j].Source.Name })
 	if _, err := fmt.Fprintln(out, "\n-- source health --"); err != nil {
 		return err
 	}
 	for _, s := range sources {
-		h := s.Health()
+		h := s.Health
 		if _, err := fmt.Fprintf(out, "%-10s %-52s ok=%-5d fail=%-4d 429=%-3d p95=%s\n",
-			s.Name(), truncate(s.URL(), 52), h.Successes, h.Failures, h.RateLimited, h.LatencyP95); err != nil {
+			s.Source.Name, truncate(s.Source.URL, 52), h.Successes, h.Failures, h.RateLimited, h.LatencyP95); err != nil {
 			return err
 		}
 	}
@@ -588,9 +587,9 @@ func encodeJSON(outWriter io.Writer, client *ethguard.Client, steps []step, resu
 		out.Steps = append(out.Steps, row{Step: s.name, Outcome: results[i].outcome,
 			Support: results[i].support, Reject: results[i].reject, Faults: results[i].faults, Detail: results[i].detail})
 	}
-	for _, s := range client.Pool().Sources() {
-		h := s.Health()
-		out.Sources = append(out.Sources, src{Name: s.Name(), URL: s.URL(), Successes: h.Successes,
+	for _, s := range client.Sources() {
+		h := s.Health
+		out.Sources = append(out.Sources, src{Name: s.Source.Name, URL: s.Source.URL, Successes: h.Successes,
 			Failures: h.Failures, RateLimited: h.RateLimited, LatencyP95: h.LatencyP95.String()})
 	}
 	return json.NewEncoder(outWriter).Encode(out)

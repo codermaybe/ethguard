@@ -36,7 +36,7 @@ func TestSourceCallRetainsExchangeAndAnswerThroughProjection(t *testing.T) {
 		t.Run(fmt.Sprintf("%d/%d/%d", response.Exchange.Progress, response.Exchange.HTTPStatus, response.Answer.Kind), func(t *testing.T) {
 			tr := &responseSourceTransport{response: response}
 			tr.chainID = big.NewInt(1)
-			p := newPoolWithDialerAndChainID(&contractDialer{transport: tr}, 1)
+			p := testPool(t, 1, WithDialer(&contractDialer{transport: tr}))
 			defer p.Close()
 			source, err := p.join("a", "wss://a.example")
 			if err != nil {
@@ -85,7 +85,7 @@ func TestSubscribeDiscardsDeadTransportSoReconnectRedials(t *testing.T) {
 	tr := &subscribingDeadTransport{}
 	tr.chainID = big.NewInt(1)
 	dialer := &contractDialer{transport: tr}
-	p := newPoolWithDialerAndChainID(dialer, 1)
+	p := testPool(t, 1, WithDialer(dialer))
 	defer p.Close()
 
 	source, err := p.join("a", "wss://a.example")
@@ -133,7 +133,7 @@ func TestCallContextDoesNotBlameSourceForCallerCancellation(t *testing.T) {
 	tr := &hangingTransport{entered: make(chan struct{}, 1)}
 	tr.chainID = big.NewInt(1)
 	dialer := &contractDialer{transport: tr}
-	p := newPoolWithDialerAndChainID(dialer, 1)
+	p := testPool(t, 1, WithDialer(dialer))
 	defer p.Close()
 
 	source, err := p.join("a", "wss://a.example")

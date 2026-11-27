@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	upstream "github.com/codermaybe/ethguard/internal/transport"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,7 +19,7 @@ import (
 )
 
 // healthRPCPeer exercises the same provider responses through both adapters.
-func healthRPCPeer(t *testing.T, websocketMode bool, code int) (string, dialer) {
+func healthRPCPeer(t *testing.T, websocketMode bool, code int) (string, upstream.Dialer) {
 	t.Helper()
 	respond := func(body []byte) []byte {
 		var req struct {

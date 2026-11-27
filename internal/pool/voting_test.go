@@ -14,7 +14,7 @@ import (
 
 func TestCollectVotingReturnsOneEmissionPerMember(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	for _, name := range []string{"a", "b", "c"} {
 		if _, err := p.join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -43,7 +43,7 @@ func TestCollectVotingReturnsOneEmissionPerMember(t *testing.T) {
 // health accounting changed.
 func TestCollectVotingKeepsCoolingMemberInBasis(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestCollectVotingKeepsCoolingMemberInBasis(t *testing.T) {
 // upstream round-trip.
 func TestCollectVotingAllGatedIsNoEligibleSource(t *testing.T) {
 	t.Run("empty pool", func(t *testing.T) {
-		p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
+		p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
 		if _, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil, CollectOptions{}); !errors.Is(err, ErrNoEligibleSource) {
 			t.Fatalf("expected no-eligible-source for an empty basis, got %v", err)
 		}
@@ -99,7 +99,7 @@ func TestCollectVotingAllGatedIsNoEligibleSource(t *testing.T) {
 
 	t.Run("identity-gated member", func(t *testing.T) {
 		d := &newFakeDialer{dials: make(map[string]int)}
-		p := newPoolWithDialerAndChainID(d, 5) // pool expects chain 5, node answers 1
+		p := testPool(t, 5, WithDialer(d)) // pool expects chain 5, node answers 1
 		if _, err := p.join("a", "https://a.example"); err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +115,7 @@ func TestCollectVotingAllGatedIsNoEligibleSource(t *testing.T) {
 }
 
 func TestCollectVotingRejectsFixedMembershipOption(t *testing.T) {
-	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
+	p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
 	if _, err := p.join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestCollectVotingTimeoutOutranksUsableAnswer(t *testing.T) {
 	defer laggard.Close()
 	laggard.Hang("eth_blockNumber", time.Second)
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	if _, err := p.join("fast", fast.URL()); err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestCollectVotingTimeoutOutranksUsableAnswer(t *testing.T) {
 // slot, and the live members of the same basis still answer.
 func TestCollectVotingClosedMemberKeepsItsSlotAndFailsClosed(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	doomed, err := p.join("doomed", "https://doomed.example")
 	if err != nil {
 		t.Fatal(err)

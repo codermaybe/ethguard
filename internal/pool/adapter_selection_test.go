@@ -31,7 +31,7 @@ func TestPoolOptionWithDialerSelectsAdapter(t *testing.T) {
 		// A pool without a configured adapter fails every call before any
 		// dial bookkeeping; the root facade always installs
 		// one (native by default).
-		p := NewPoolWithOptions(0)
+		p := testPool(t, 0)
 		t.Cleanup(p.Close)
 		src, err := p.join("none", srv.URL)
 		if err != nil {
@@ -50,7 +50,7 @@ func TestPoolOptionWithDialerSelectsAdapter(t *testing.T) {
 	})
 
 	t.Run("native-dialer-rejects-by-contract", func(t *testing.T) {
-		p := NewPoolWithOptions(0, WithDialer(nativehttp.NewDialer()))
+		p := testPool(t, 0, WithDialer(nativehttp.NewDialer()))
 		t.Cleanup(p.Close)
 		src, err := p.join("native", srv.URL)
 		if err != nil {

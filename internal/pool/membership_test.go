@@ -114,9 +114,6 @@ func TestSubscriptionSourcesReturnsAllWSSMembersAsCopy(t *testing.T) {
 	if err != nil || len(again) != 2 || again[0] == nil {
 		t.Fatalf("snapshot was not copied: %#v, err=%v", again, err)
 	}
-	if _, err := p.SubscriptionSource(); !errors.Is(err, ErrMultipleWSSSources) {
-		t.Fatalf("SubscriptionSource err = %v, want ErrMultipleWSSSources", err)
-	}
 }
 
 func TestClosedPoolKeepsConfiguredMembersAddressable(t *testing.T) {

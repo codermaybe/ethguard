@@ -41,6 +41,8 @@ Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个
 
 ### 响应事实与裁定的模块归属（2026-11-21，已验收）
 
+公开诊断只通过 `Client.Sources()` 的 `SourceSnapshot{Source rpc.SourceRef, Health observe.HealthSnapshot}` 值快照与 `Client.Sample(ctx, method, params...)` 原始采样进入。`HealthSnapshot` 的定义属于 `observe`，pool 只生产该数据。`Sample` 复用 client lifecycle、单次参数冻结及 Collect 的来源顺序、eligibility/健康和默认 latest-tip gate，使用 client collect timeout；完整返回 `rpc.Observation.Response` 与 Attempted/Source，Evidence 为空，不做 reference、admit 或裁决，也不经过限额 capture。收集错误与已有 observation 一同返回；响应可变字节由调用方独占。soak 的 deep-dive 保持第二轮真实请求与 Normalize 聚类。公开 API 不暴露 pool/source 执行句柄；pool 唯一生产工厂为 `NewWithMembers`。
+
 本轮响应结果模型采用通信交换与回答含义两个事实域。`rpc`拥有可交付的中立Response及裁定事实；`internal/transport/{http,wss}`产生实际通信事实，`internal/rpcwire`拥有信封及请求关联；`internal/methods`及对象模块解释方法内容；`internal/pool`负责调度与健康，`internal/aggregator`编排并消费解释结果，root负责操作组合和交付。Decision与operation不成为新的网络层。
 
 逐源数据使用同一个`rpc.Response`：`pool.Emission`附加Source、Attempted、RTT和同源准入evidence，`rpc.Observation`与reference的`HeadObservation`继续携带它，不复制平面的value/error三元组。`Answer.Interpretation`记录方法准入、完成验证、拒绝、局部候选排除或内部失败；它不重写Exchange，也不删除原Answer.Kind与载荷。候选高度不适用属于局部排除，不能伪造来源未回答。错误投影和候选资格读取集中在Response；下游不从error反向重建协议答案。

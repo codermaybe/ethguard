@@ -76,7 +76,7 @@ func TestVotingTipGateRequestScope(t *testing.T) {
 // declare request semantics keeps the historical gate-all behavior. The
 // production aggregator and reference rounds always set an explicit scope.
 func TestVotingTipGateZeroScopePreservesLegacyGateAll(t *testing.T) {
-	p := NewPoolWithOptions(0, WithTipTracking(time.Hour, 16))
+	p := testPool(t, 0, WithTipTracking(time.Hour, 16))
 	t.Cleanup(p.Close)
 	for i := range 3 {
 		if _, err := p.join(fmt.Sprintf("source-%d", i), fmt.Sprintf("https://source-%d.example", i)); err != nil {
@@ -127,7 +127,7 @@ func TestScopedGateDoesNotBypassCooldownOrIdentity(t *testing.T) {
 
 	t.Run("identity", func(t *testing.T) {
 		d := &newFakeDialer{dials: make(map[string]int)}
-		p := newPoolWithDialerAndChainID(d, 5) // node answers chain 1
+		p := testPool(t, 5, WithDialer(d)) // node answers chain 1
 		t.Cleanup(p.Close)
 		if _, err := p.join("source-0", "https://source-0.example"); err != nil {
 			t.Fatal(err)
@@ -151,7 +151,7 @@ func TestScopedGateDoesNotBypassCooldownOrIdentity(t *testing.T) {
 // unknown and a minority of fresh high samples cannot manufacture a floor
 // that pauses another member.
 func TestTipReferenceRequiresFreshBasisCoverage(t *testing.T) {
-	p := NewPoolWithOptions(0, WithTipTracking(time.Hour, 16), WithTipSampleMaxAge(time.Minute))
+	p := testPool(t, 0, WithTipTracking(time.Hour, 16), WithTipSampleMaxAge(time.Minute))
 	t.Cleanup(p.Close)
 	for i := range 5 {
 		if _, err := p.join(fmt.Sprintf("source-%d", i), fmt.Sprintf("https://source-%d.example", i)); err != nil {

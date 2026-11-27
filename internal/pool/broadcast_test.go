@@ -25,7 +25,7 @@ func TestBroadcastContactsAllSourcesWithoutFreshnessGate(t *testing.T) {
 	// the other two answers are returned alongside its timeout emission.
 	nodes[2].Hang("eth_sendRawTransaction", 2*time.Second)
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	for i, u := range urls {
 		if _, err := p.join(string(rune('a'+i)), u); err != nil {
 			t.Fatal(err)
@@ -64,7 +64,7 @@ func TestBroadcastShortCircuitNeverStopsFleet(t *testing.T) {
 		defer nodes[i].Close()
 		nodes[i].Return("eth_sendRawTransaction", "0xabc")
 	}
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	for i, n := range nodes {
 		if _, err := p.join(string(rune('a'+i)), n.URL()); err != nil {
 			t.Fatal(err)
@@ -86,7 +86,7 @@ func TestBroadcastCoolingSourceIsGatedNotFailed(t *testing.T) {
 	defer node.Close()
 	node.Fail("eth_sendRawTransaction", -32010, "nonce too low")
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	src, err := p.join("a", node.URL())
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestBroadcastCoolingSourceIsGatedNotFailed(t *testing.T) {
 }
 
 func TestBroadcastClosedPool(t *testing.T) {
-	p := NewPoolWithOptions(0, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 0, WithDialer(nativehttp.NewDialer()))
 	p.Close()
 	_, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x01"})
 	if !errors.Is(err, ErrClosed) {
@@ -122,7 +122,7 @@ func TestBroadcastClosedPool(t *testing.T) {
 }
 
 func TestBroadcastEmptyPool(t *testing.T) {
-	p := NewPoolWithOptions(0, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 0, WithDialer(nativehttp.NewDialer()))
 	_, err := p.Broadcast(context.Background(), "eth_sendRawTransaction", []any{"0x01"})
 	if !errors.Is(err, ErrNoEligibleSource) {
 		t.Fatalf("err = %v, want ErrNoEligibleSource", err)
@@ -136,7 +136,7 @@ func TestBroadcastTrailingSourceStillContacted(t *testing.T) {
 	defer node.Close()
 	node.Return("eth_sendRawTransaction", "0xabc")
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	if _, err := p.join("a", node.URL()); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestBroadcastProtocolErrorIsUsableAnswer(t *testing.T) {
 	defer node.Close()
 	node.Fail("eth_sendRawTransaction", -32010, "nonce too low")
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	if _, err := p.join("a", node.URL()); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestBroadcastMaxConcurrentPacesWithoutShrinking(t *testing.T) {
 		defer nodes[i].Close()
 	}
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	for i, n := range nodes {
 		if _, err := p.join(string(rune('a'+i)), n.URL()); err != nil {
@@ -237,7 +237,7 @@ func TestBroadcastFixedBasisKeepsGatedMemberSlot(t *testing.T) {
 	defer healthy.Close()
 	healthy.Return("eth_sendRawTransaction", "0xabc")
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	gatedSrc, err := p.join("cooling", cooling.URL())
 	if err != nil {
@@ -296,7 +296,7 @@ func TestBroadcastClosedMemberStaysVisibleInSnapshotBasis(t *testing.T) {
 	defer healthy.Close()
 	healthy.Return("eth_sendRawTransaction", "0xabc")
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	doomed, err := p.join("doomed", "https://doomed.example")
 	if err != nil {

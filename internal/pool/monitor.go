@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/codermaybe/ethguard/observe"
+
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -70,32 +72,6 @@ type monitor struct {
 	scheduleInFlight  int
 	scheduleSuccesses uint64
 	scheduleWake      chan struct{}
-}
-
-// HealthSnapshot is a point-in-time copy of source health observations.
-type HealthSnapshot struct {
-	Successes            uint64
-	Failures             uint64
-	ConsecutiveFailures  uint64
-	RateLimited          uint64
-	ProtocolServerErrors uint64
-	LatencyEWMA          time.Duration
-	// LatencyP95 and LatencyP99 are nearest-rank percentiles over the recent
-	// sample window; while fewer samples than the rank requires exist they
-	// degrade to the window's largest available rank estimate, and they are
-	// zero only before the first sample.
-	LatencyP95 time.Duration
-	LatencyP99 time.Duration
-	// RequestPace is the current per-source inter-request target selected by
-	// the adaptive scheduler. The in-flight fields expose its local bound.
-	RequestPace          time.Duration
-	RequestInFlight      int
-	RequestInFlightLimit int
-	LastSuccess          time.Time
-	LastFailure          time.Time
-	LastError            error
-	TipHeight            uint64
-	TipObservedAt        time.Time
 }
 
 // eligibleFailureThreshold is deliberately small: repeated transport
@@ -303,11 +279,11 @@ func (m *monitor) circuitState() (consecutiveFailures uint64, lastFailure time.T
 	return m.consecutiveFailures, m.lastFailure
 }
 
-func (m *monitor) snapshot() HealthSnapshot {
+func (m *monitor) snapshot() observe.HealthSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	snap := HealthSnapshot{
+	snap := observe.HealthSnapshot{
 		Successes:            m.successes,
 		Failures:             m.failures,
 		ConsecutiveFailures:  m.consecutiveFailures,

@@ -19,7 +19,7 @@ func newTipPool(t *testing.T, maxLag uint64, heights ...int64) (*Pool, *newFakeD
 	for i, name := range names {
 		d.offsets["https://"+name+".example"] = heights[i]
 	}
-	p := newPoolWithDialerAndOptions(d, 0, WithTipTracking(time.Hour, maxLag))
+	p := testPool(t, 0, WithDialer(d), WithTipTracking(time.Hour, maxLag))
 	t.Cleanup(p.Close)
 	for _, name := range names {
 		if _, err := p.join(name, "https://"+name+".example"); err != nil {
@@ -56,7 +56,7 @@ func TestTipSamplingRecordsHeights(t *testing.T) {
 // probes observe established connections, they do not create them.
 func TestProbeNeverDialsColdSources(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndOptions(d, 0, WithTipTracking(time.Hour, 32))
+	p := testPool(t, 0, WithDialer(d), WithTipTracking(time.Hour, 32))
 	defer p.Close()
 	if _, err := p.join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestProbeNeverDialsColdSources(t *testing.T) {
 }
 
 func TestRefreshTipsIsANoOpWhenDisabled(t *testing.T) {
-	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
+	p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
 	defer p.Close()
 	if _, err := p.join("a", "https://a.example"); err != nil {
 		t.Fatal(err)

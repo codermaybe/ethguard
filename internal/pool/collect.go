@@ -91,19 +91,15 @@ func accountEmission(parent context.Context, e *Emission, deferred bool) {
 // depend on the fleet's sampled latest tips. The caller that owns request
 // semantics supplies it; the pool never parses method parameters to infer it.
 //
-// The zero value preserves the historical gate-all behavior for direct pool
-// callers that do not declare request semantics. Production callers — the
+// The zero value applies the latest-tip gate. Production callers — the
 // aggregator's business rounds and the runtime's reference rounds — set an
 // explicit scope.
 type TipFreshnessScope uint8
 
 const (
-	// TipFreshnessUnspecified applies the sampled-latest-tip gate to every
-	// source. It is the compatibility zero value for direct Pool calls.
-	TipFreshnessUnspecified TipFreshnessScope = iota
 	// TipFreshnessLatest applies the sampled-latest-tip gate. Use it for a
 	// request that reads the latest moving tag.
-	TipFreshnessLatest
+	TipFreshnessLatest TipFreshnessScope = iota
 	// TipFreshnessExempt skips the tip gate. Use it for explicit heights and
 	// hashes, pending reads, methods with no block reference, and
 	// safe/finalized reads: latest block-number samples do not describe
@@ -113,7 +109,7 @@ const (
 
 // gatesLatestTip reports whether the scope consults the sampled latest tip.
 func (s TipFreshnessScope) gatesLatestTip() bool {
-	return s == TipFreshnessUnspecified || s == TipFreshnessLatest
+	return s == TipFreshnessLatest
 }
 
 // CollectOptions configures one fan-out. Zero value is a sensible default.
@@ -133,8 +129,7 @@ type CollectOptions struct {
 	// Zero uses the number of eligible sources (unbounded symmetric fan-out).
 	MaxConcurrent int
 	// TipFreshness declares whether this request may be paused by the
-	// sampled-latest-tip gate. The zero value keeps the historical gate-all
-	// behavior; see TipFreshnessScope.
+	// sampled-latest-tip gate. The zero value applies that gate.
 	TipFreshness TipFreshnessScope
 	// DeferHealth leaves final accounting to the caller after response
 	// validation. Every returned attempted emission must be finalized with

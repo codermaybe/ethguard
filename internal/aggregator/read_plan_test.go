@@ -13,6 +13,7 @@ import (
 	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/pool"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -123,16 +124,16 @@ func probePlanWithoutResolver(t *testing.T) rpcengine.ReadPlan {
 	return plan
 }
 
-func probeHealthSnapshots(p *pool.Pool) []pool.HealthSnapshot {
+func probeHealthSnapshots(p *pool.Pool) []observe.HealthSnapshot {
 	members := p.VotingMembers()
-	snapshots := make([]pool.HealthSnapshot, len(members))
+	snapshots := make([]observe.HealthSnapshot, len(members))
 	for i, member := range members {
 		snapshots[i] = member.Health()
 	}
 	return snapshots
 }
 
-func assertProbeHealthUnchanged(t *testing.T, p *pool.Pool, before []pool.HealthSnapshot) {
+func assertProbeHealthUnchanged(t *testing.T, p *pool.Pool, before []observe.HealthSnapshot) {
 	t.Helper()
 	members := p.VotingMembers()
 	if len(members) != len(before) {

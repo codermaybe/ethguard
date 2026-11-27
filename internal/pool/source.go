@@ -10,6 +10,7 @@ import (
 	"time"
 
 	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -27,7 +28,7 @@ type Source struct {
 	id string
 
 	// dialer dials the endpoint on first use. Injected for testability.
-	dialer           dialer
+	dialer           upstream.Dialer
 	expectedChainID  uint64
 	identityMu       sync.Mutex
 	identityChecked  bool
@@ -400,7 +401,7 @@ func (s *Source) State() SourceState {
 }
 
 // Health returns a consistent, read-only snapshot of source observations.
-func (s *Source) Health() HealthSnapshot {
+func (s *Source) Health() observe.HealthSnapshot {
 	return s.stats.snapshot()
 }
 

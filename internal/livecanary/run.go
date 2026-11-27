@@ -184,16 +184,16 @@ func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	sources := client.Pool().Sources()
+	sources := client.Sources()
 	if len(sources) != len(selected) {
 		client.Close()
 		return nil, fmt.Errorf("%w: %d client sources, %d selected", errBasisChanged, len(sources), len(selected))
 	}
 	for i, source := range sources {
-		if source.Name() != selected[i].SourceID || source.URL() != selected[i].URL {
+		if source.Source.Name != selected[i].SourceID || source.Source.URL != selected[i].URL {
 			client.Close()
 			return nil, fmt.Errorf("%w: source %d is %s/%s, want %s/%s",
-				errBasisChanged, i, source.Name(), source.URL(), selected[i].SourceID, selected[i].URL)
+				errBasisChanged, i, source.Source.Name, source.Source.URL, selected[i].SourceID, selected[i].URL)
 		}
 	}
 	return client, nil
@@ -259,13 +259,13 @@ func (s *runState) checkBasis() error {
 	if got := VotingBasisSHA256(s.manifest.Selection.Selected); got != s.manifest.Selection.VotingBasisSHA256 {
 		return fmt.Errorf("%w: voting basis digest %s, want %s", errBasisChanged, got, s.manifest.Selection.VotingBasisSHA256)
 	}
-	sources := s.client.Pool().Sources()
+	sources := s.client.Sources()
 	if len(sources) != len(s.manifest.Selection.Selected) {
 		return fmt.Errorf("%w: %d client sources, %d selected", errBasisChanged, len(sources), len(s.manifest.Selection.Selected))
 	}
 	for i, source := range sources {
-		if source.Name() != s.manifest.Selection.Selected[i].SourceID {
-			return fmt.Errorf("%w: source %d is %q, want %q", errBasisChanged, i, source.Name(), s.manifest.Selection.Selected[i].SourceID)
+		if source.Source.Name != s.manifest.Selection.Selected[i].SourceID {
+			return fmt.Errorf("%w: source %d is %q, want %q", errBasisChanged, i, source.Source.Name, s.manifest.Selection.Selected[i].SourceID)
 		}
 	}
 	return nil
@@ -428,13 +428,13 @@ func (s *runState) collectSourceHealth() {
 		s.sourceHealth = []SourceHealthReport{}
 		return
 	}
-	sources := s.client.Pool().Sources()
+	sources := s.client.Sources()
 	selected := s.selectedIDs()
 	if len(sources) != len(selected) {
 		s.addReason("denominator_changed", nil, "", "source health basis differs from manifest selection")
 	} else {
 		for i, source := range sources {
-			if source.Name() != selected[i] {
+			if source.Source.Name != selected[i] {
 				s.addReason("denominator_changed", nil, "", "source health order differs from manifest selection")
 				break
 			}
@@ -442,14 +442,14 @@ func (s *runState) collectSourceHealth() {
 	}
 	health := make([]SourceHealthReport, 0, len(sources))
 	for _, source := range sources {
-		snapshot := source.Health()
+		snapshot := source.Health
 		lastError := ""
 		if snapshot.LastError != nil {
 			lastError = classifyFaultError(snapshot.LastError)
 		}
 		health = append(health, SourceHealthReport{
-			SourceID:             source.Name(),
-			URL:                  source.URL(),
+			SourceID:             source.Source.Name,
+			URL:                  source.Source.URL,
 			Successes:            snapshot.Successes,
 			Failures:             snapshot.Failures,
 			RateLimited:          snapshot.RateLimited,

@@ -12,7 +12,12 @@ import (
 )
 
 func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
-	bundle, err := Build(Inputs{Pool: pool.NewPool()})
+	p, err := pool.NewWithMembers(0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	bundle, err := Build(Inputs{Pool: p})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -71,7 +71,7 @@ func eventBenchResolution(b *testing.B, sources []*pool.Source) (rpcengine.Resol
 func benchmarkDecisionEventAssembly(b *testing.B, rec observe.Recorder) {
 	sources := eventBenchFleet(b)
 	_, decision, emissions, verdicts := eventBenchResolution(b, sources)
-	agg := New(pool.NewPool(), WithRecorder(rec))
+	agg := New(fixedPool(b), WithRecorder(rec))
 	started := time.Now()
 	b.ReportAllocs()
 	b.ResetTimer()

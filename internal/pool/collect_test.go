@@ -167,7 +167,7 @@ func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (upstrea
 
 func TestCollectFanoutReturnsOneEmissionPerSource(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 
 	if _, err := p.join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestCollectFanoutReturnsOneEmissionPerSource(t *testing.T) {
 
 func TestCollectRejectsUnexpectedChainID(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 5)
+	p := testPool(t, 5, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +213,7 @@ func TestCollectRejectsUnexpectedChainID(t *testing.T) {
 
 func TestCollectDialOncePerSource(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	if _, err := p.join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestCollectDeadlineIncludesWaitForSharedDial(t *testing.T) {
 		dialEntered: entered,
 		dialRelease: release,
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	defer p.Close()
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
@@ -305,7 +305,7 @@ func TestCollectRespectsMaxConcurrent(t *testing.T) {
 		dials: make(map[string]int),
 		track: tracker,
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
 		if _, err := p.join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -332,7 +332,7 @@ func TestCollectRecordsPerSourceHealthWithoutBlockingSuccess(t *testing.T) {
 		dials: make(map[string]int),
 		fails: map[string]error{"https://b.example": dialErr},
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	a, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -372,7 +372,7 @@ func TestCollectRecordsPerSourceHealthWithoutBlockingSuccess(t *testing.T) {
 
 func TestCollectTreatsJSONRPCErrorAsAHealthyResponse(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +395,7 @@ func TestCollectTreatsJSONRPCErrorAsAHealthyResponse(t *testing.T) {
 
 func TestCollectRecordsJSONRPCProtocolErrorAsFailure(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -418,7 +418,7 @@ func TestCollectRecordsJSONRPCProtocolErrorAsFailure(t *testing.T) {
 
 func TestCollectTemporarilyExcludesRepeatedlyFailingSource(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -450,7 +450,7 @@ func TestCollectDoesNotBlameSourceForCallerDeadline(t *testing.T) {
 		dials: make(map[string]int),
 		track: tracker,
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -470,7 +470,7 @@ func TestCollectDoesNotBlameSourceForCallerDeadline(t *testing.T) {
 
 func TestCollectDoesNotBlameSourceForCallerCancellation(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -492,7 +492,7 @@ func TestCollectDoesNotBlameSourceThatNeverAcquiredConcurrencySlot(t *testing.T)
 		dials: make(map[string]int),
 		track: tracker,
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	for _, name := range []string{"a", "b"} {
 		if _, err := p.join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -521,7 +521,7 @@ func TestCollectLatencyExcludesConcurrencyQueueTime(t *testing.T) {
 		dials: make(map[string]int),
 		track: tracker,
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	for _, name := range []string{"a", "b", "c", "d", "e"} {
 		if _, err := p.join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -559,7 +559,7 @@ func TestCollectLatencyExcludesLazyDialOnFirstSample(t *testing.T) {
 		rttAllowance = 50 * time.Millisecond
 	)
 	d := &newFakeDialer{dials: make(map[string]int), dialDelay: dialDelay}
-	p := newPoolWithDialerAndChainID(d, 1) // first call also pays eth_chainId
+	p := testPool(t, 1, WithDialer(d)) // first call also pays eth_chainId
 	for _, name := range []string{"a", "b"} {
 		if _, err := p.join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -606,7 +606,7 @@ func TestPoolCloseReleasesConnectionsAndRejectsFurtherUse(t *testing.T) {
 		dials:   make(map[string]int),
 		clients: make(map[string][]*ethclient.Client),
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	if _, err := p.join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestPoolCloseDoesNotBlameOrReviveInFlightSource(t *testing.T) {
 		dials: make(map[string]int),
 		track: &callTracker{entered: entered, release: release},
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -670,7 +670,7 @@ func TestPoolCloseCancelsInFlightDial(t *testing.T) {
 		dialEntered: entered,
 		dialRelease: release,
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	if _, err := p.join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -704,7 +704,7 @@ func TestCollectRedialsAfterUnrecoverableClientFailure(t *testing.T) {
 		dials:      make(map[string]int),
 		closeFirst: map[string]bool{"https://a.example": true},
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -725,7 +725,7 @@ func TestCollectRedialsAfterUnrecoverableClientFailure(t *testing.T) {
 }
 
 func TestPoolMemberAdmissionIsAtomicAndReturnsCanonicalSource(t *testing.T) {
-	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
+	p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
 	const goroutines = 32
 	results := make(chan *Source, goroutines)
 	errs := make(chan error, goroutines)
@@ -763,7 +763,7 @@ func TestPoolMemberAdmissionIsAtomicAndReturnsCanonicalSource(t *testing.T) {
 }
 
 func TestPoolMembersDeduplicateNormalizedEndpoints(t *testing.T) {
-	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
+	p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
 	first, err := p.join("first", "HTTPS://EXAMPLE.COM/")
 	if err != nil {
 		t.Fatal(err)
@@ -778,7 +778,7 @@ func TestPoolMembersDeduplicateNormalizedEndpoints(t *testing.T) {
 }
 
 func TestPoolMembersRejectDuplicateDisplayNames(t *testing.T) {
-	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
+	p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
 	if _, err := p.join("same", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -788,7 +788,7 @@ func TestPoolMembersRejectDuplicateDisplayNames(t *testing.T) {
 }
 
 func TestPoolMembersRejectUnsupportedScheme(t *testing.T) {
-	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
+	p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
 	if _, err := p.join("bad", "ftp://example.com"); err == nil {
 		t.Fatal("expected unsupported scheme to be rejected")
 	}
@@ -815,7 +815,7 @@ func TestCollectVerdictIsIndependentOfMemberOrder(t *testing.T) {
 		{"sentinel last", honest, mismatched},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := NewPoolWithOptions(5, WithDialer(nativehttp.NewDialer()))
+			p := testPool(t, 5, WithDialer(nativehttp.NewDialer()))
 			defer p.Close()
 			if _, err := p.join("a", tc.first.URL()); err != nil {
 				t.Fatal(err)
@@ -855,7 +855,7 @@ func TestCollectUsableAnswerOutranksFanoutTimeout(t *testing.T) {
 	defer laggard.Close()
 	laggard.Hang("eth_blockNumber", time.Second)
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	if _, err := p.join("fast", fast.URL()); err != nil {
 		t.Fatal(err)
@@ -882,7 +882,7 @@ func TestCollectUsableAnswerOutranksFanoutTimeout(t *testing.T) {
 }
 
 func TestCollectClassifiesEmptyPoolAsNoEligibleSource(t *testing.T) {
-	p := newPoolWithDialerAndChainID(&newFakeDialer{dials: make(map[string]int)}, 0)
+	p := testPool(t, 0, WithDialer(&newFakeDialer{dials: make(map[string]int)}))
 	emissions, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{})
 	if !errors.Is(err, ErrNoEligibleSource) {
 		t.Fatalf("expected no-eligible-source class, got %v", err)
@@ -901,7 +901,7 @@ func TestCollectClassifiesDeadFleetAsAllSourcesDown(t *testing.T) {
 			"https://b.example": dialErr,
 		},
 	}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	for _, name := range []string{"a", "b"} {
 		if _, err := p.join(name, "https://"+name+".example"); err != nil {
 			t.Fatal(err)
@@ -924,7 +924,7 @@ func TestCollectClassifiesDeadFleetAsAllSourcesDown(t *testing.T) {
 
 func TestForwardFailsOverTransportErrorsInPoolOrder(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int), closeFirst: map[string]bool{"https://a.example": true}}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	if _, err := p.join("a", "https://a.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -945,7 +945,7 @@ func TestForwardFailsOverTransportErrorsInPoolOrder(t *testing.T) {
 
 func TestServerErrorsHaveDedicatedHealthBucket(t *testing.T) {
 	d := &newFakeDialer{dials: make(map[string]int)}
-	p := newPoolWithDialerAndChainID(d, 0)
+	p := testPool(t, 0, WithDialer(d))
 	src, err := p.join("a", "https://a.example")
 	if err != nil {
 		t.Fatal(err)
@@ -969,7 +969,7 @@ func TestForwardGatedKeepsDeadlineCause(t *testing.T) {
 	defer node.Close()
 	node.Hang("eth_blockNumber", 2*time.Second)
 
-	p := NewPoolWithOptions(1, WithDialer(nativehttp.NewDialer()))
+	p := testPool(t, 1, WithDialer(nativehttp.NewDialer()))
 	defer p.Close()
 	if _, err := p.join("a", node.URL()); err != nil {
 		t.Fatal(err)

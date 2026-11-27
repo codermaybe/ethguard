@@ -9,13 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/codermaybe/ethguard/config"
 	upstream "github.com/codermaybe/ethguard/internal/transport"
 )
 
 var (
-	ErrClosed             = errors.New("pool: closed")
-	ErrNoWSSSource        = errors.New("pool: no WSS source configured")
-	ErrMultipleWSSSources = errors.New("pool: subscriptions require one explicit WSS source")
+	ErrClosed      = errors.New("pool: closed")
+	ErrNoWSSSource = errors.New("pool: no WSS source configured")
 
 	// ErrNoEligibleSource reports that a fan-out was impossible: the pool has
 	// no registered source, or none passed its eligibility gates (open
@@ -52,21 +52,6 @@ func (p *Pool) SubscriptionSources() ([]*Source, error) {
 	return out, nil
 }
 
-// SubscriptionSource returns the sole explicitly configured WebSocket source.
-// It is retained for compatibility with the S1 single-source path. New
-// subscription code should use SubscriptionSources so quorum can keep the
-// complete WSS membership snapshot.
-func (p *Pool) SubscriptionSource() (*Source, error) {
-	sources, err := p.SubscriptionSources()
-	if err != nil {
-		return nil, err
-	}
-	if len(sources) != 1 {
-		return nil, ErrMultipleWSSSources
-	}
-	return sources[0], nil
-}
-
 // Pool is the concurrent-safe multi-source RPC manager.
 // One Pool is shared by a single ethguard.Client and all caller goroutines.
 //
@@ -80,7 +65,7 @@ type Pool struct {
 	sources []*Source
 	byID    map[string]*Source
 
-	dialer          dialer
+	dialer          upstream.Dialer
 	expectedChainID uint64
 	closed          bool
 
@@ -119,34 +104,28 @@ type Member struct {
 // and scheduling may pause requests to a member, but cannot add, remove, or
 // resize the voting basis.
 func NewWithMembers(chainID uint64, members []Member, opts ...PoolOption) (*Pool, error) {
-	p := newPoolWithDialerAndOptions(nil, chainID, opts...)
+	cfg := poolConfig{tipInterval: config.DefaultTipInterval(), maxTipLag: config.DefaultTipMaxBehind()}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	p := &Pool{byID: make(map[string]*Source), dialer: cfg.dialer, expectedChainID: chainID, maxTipLag: cfg.maxTipLag}
 	for _, member := range members {
 		if _, err := p.admit(member); err != nil {
 			p.Close()
 			return nil, fmt.Errorf("pool: member %q: %w", member.Name, err)
 		}
 	}
-	return p, nil
-}
-
-// NewPool creates an empty pool. Production construction uses
-// NewWithMembers; an empty pool has no membership and cannot fan out.
-func NewPool() *Pool {
-	return NewPoolWithChainID(0)
-}
-
-// NewPoolWithChainID creates an empty pool that rejects sources reporting
-// another Ethereum chain. A zero chain ID disables the check for compatibility.
-func NewPoolWithChainID(chainID uint64) *Pool {
-	return newPoolWithDialerAndChainID(nil, chainID)
-}
-
-func newPoolWithDialerAndChainID(d dialer, chainID uint64) *Pool {
-	return &Pool{
-		byID:            make(map[string]*Source),
-		dialer:          d,
-		expectedChainID: chainID,
+	if cfg.tipEnabled {
+		if !cfg.tipSampleMaxAgeSet {
+			cfg.tipSampleMaxAge = 3 * cfg.tipInterval
+		}
+		p.tipInterval = cfg.tipInterval
+		p.tipSampleMaxAge = cfg.tipSampleMaxAge
+		p.stopTips = make(chan struct{})
+		p.tipsDone = make(chan struct{})
+		go p.tipLoop(cfg.tipInterval)
 	}
+	return p, nil
 }
 
 // admit registers one construction-time member. Calls for the same normalized

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	upstream "github.com/codermaybe/ethguard/internal/transport"
 	"io"
 	"net"
 	nethttp "net/http"
@@ -103,7 +104,7 @@ func TestNativeAdapterPoolHealthyAnswer(t *testing.T) {
 		}
 		return []byte(`"error":{"code":-32000,"message":"execution reverted","data":"0xdead"}`)
 	})
-	p := newPoolWithDialerAndChainID(nativehttp.NewDialer(), 0)
+	p := testPool(t, 0, WithDialer(nativehttp.NewDialer()))
 	t.Cleanup(p.Close)
 	src, err := p.join("native", srv.srv.URL)
 	if err != nil {
@@ -157,7 +158,7 @@ func TestNativeAdapterPoolRateLimitClassifiesThrottling(t *testing.T) {
 	srv := newPoolEchoServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		nethttp.Error(w, `{"error":"slow down"}`, nethttp.StatusTooManyRequests)
 	}))
-	p := newPoolWithDialerAndChainID(nativehttp.NewDialer(), 0)
+	p := testPool(t, 0, WithDialer(nativehttp.NewDialer()))
 	t.Cleanup(p.Close)
 	src, err := p.join("native", srv.srv.URL)
 	if err != nil {
@@ -197,7 +198,7 @@ func TestNativeAdapterPoolMalformedIsFailure(t *testing.T) {
 			srv := newPoolEchoServer(t, func(n int, req poolCapturedRequest) []byte {
 				return []byte(tc.body)
 			})
-			p := newPoolWithDialerAndChainID(nativehttp.NewDialer(), 0)
+			p := testPool(t, 0, WithDialer(nativehttp.NewDialer()))
 			t.Cleanup(p.Close)
 			src, err := p.join("native", srv.srv.URL)
 			if err != nil {
@@ -235,13 +236,13 @@ func TestDegenerateErrorMemberMalformedEverywhere(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		dialer dialer
+		dialer upstream.Dialer
 	}{
 		{name: "geth", dialer: gethadapter.StandardDialer{}},
 		{name: "native", dialer: nativehttp.NewDialer()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := newPoolWithDialerAndChainID(tc.dialer, 0)
+			p := testPool(t, 0, WithDialer(tc.dialer))
 			t.Cleanup(p.Close)
 			src, err := p.join(tc.name, srv.srv.URL)
 			if err != nil {

@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/rpcwire"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // A mismatched response ID makes native adapter selection observable.
@@ -25,9 +25,9 @@ func wrongIDServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func collectOnce(t *testing.T, c *Client) ([]pool.Emission, error) {
+func collectOnce(t *testing.T, c *Client) ([]rpc.Observation, error) {
 	t.Helper()
-	return c.Pool().Collect(context.Background(), "eth_chainId", nil, pool.CollectOptions{})
+	return c.Sample(context.Background(), "eth_chainId")
 }
 
 func TestDefaultClientUsesNativeAdapter(t *testing.T) {
@@ -56,7 +56,7 @@ func TestWithHTTPAdapterNativeSelectsNativeAdapter(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Collect = %+v, want the native adapter to reject the mismatched response id", emissions)
 	}
-	var nativeErr pool.Emission
+	var nativeErr rpc.Observation
 	found := false
 	for _, e := range emissions {
 		if e.Response.Err() != nil {

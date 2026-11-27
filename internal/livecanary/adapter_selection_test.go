@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard"
-	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/rpcwire"
 )
 
@@ -40,8 +39,8 @@ func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(client.Close)
-		emissions, err := client.Pool().Collect(context.Background(), "eth_chainId", nil, pool.CollectOptions{})
-		if !errors.Is(err, pool.ErrAllSourcesDown) {
+		emissions, err := client.Sample(context.Background(), "eth_chainId")
+		if !errors.Is(err, ethguard.ErrAllSourcesDown) {
 			t.Fatalf("default executor Collect err = %v, want the native adapter's mismatched-id rejection", err)
 		}
 		if len(emissions) != 1 || !errors.Is(emissions[0].Response.Err(), rpcwire.ErrIDMismatch) {
@@ -58,8 +57,8 @@ func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(client.Close)
-		emissions, err := client.Pool().Collect(context.Background(), "eth_chainId", nil, pool.CollectOptions{})
-		if !errors.Is(err, pool.ErrAllSourcesDown) {
+		emissions, err := client.Sample(context.Background(), "eth_chainId")
+		if !errors.Is(err, ethguard.ErrAllSourcesDown) {
 			t.Fatalf("native executor Collect err = %v, want rejection", err)
 		}
 		if len(emissions) != 1 || emissions[0].Response.Err() == nil {

@@ -136,7 +136,7 @@ func TestStatedVerdictsSkipSecondNormalize(t *testing.T) {
 		err := json.Unmarshal(v, &s)
 		return s, err
 	})
-	p := pool.NewPoolWithOptions(0, pool.WithDialer(nativehttp.NewDialer()))
+	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())})
 	rec := &captureRecorder{}
 	a := New(p, WithRecorder(rec))
 	sources := namedSources(t, "a")

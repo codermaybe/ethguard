@@ -23,7 +23,7 @@ func (c *captureRecorder) RecordDecision(e observe.DecisionEvent) {
 }
 
 func TestAggregateEmptyPoolReturnsCollectionError(t *testing.T) {
-	a := New(pool.NewPool())
+	a := New(fixedPool(t))
 	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 	if err == nil {
 		t.Fatal("expected empty pool to fail")
@@ -96,7 +96,7 @@ func TestAggregateDefaultsToNopRecorder(t *testing.T) {
 			t.Fatalf("default recorder panicked: %v", r)
 		}
 	}()
-	p := pool.NewPool()
+	p := fixedPool(t)
 	a := New(p)
 	_, _ = a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 }
@@ -138,7 +138,7 @@ func eventPolicy(opts ...rpcengine.StrictOption) rpcengine.Resolver {
 
 func TestEventMarksOnlyUnusableAttemptsFailed(t *testing.T) {
 	policy := eventPolicy(rpcengine.WithRPCErrorBodies())
-	a := New(pool.NewPool(), WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
+	a := New(fixedPool(t), WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
 	rec := &captureRecorder{}
 	a.rec = rec
 
@@ -172,7 +172,7 @@ func TestEventMethodDomainExclusionDoesNotBlameSource(t *testing.T) {
 	// Without WithRPCErrorBodies the protocol error is not part of the value
 	// domain, so the attempt provided no usable answer.
 	policy := eventPolicy()
-	a := New(pool.NewPool(), WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
+	a := New(fixedPool(t), WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
 	rec := &captureRecorder{}
 	a.rec = rec
 
@@ -186,7 +186,7 @@ func TestEventMethodDomainExclusionDoesNotBlameSource(t *testing.T) {
 
 func TestEventMarksConflictAsFailed(t *testing.T) {
 	policy := eventPolicy()
-	a := New(pool.NewPool(), WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
+	a := New(fixedPool(t), WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
 	rec := &captureRecorder{}
 	a.rec = rec
 

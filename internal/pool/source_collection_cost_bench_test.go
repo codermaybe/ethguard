@@ -81,7 +81,7 @@ func newBenchFleet(tb testing.TB, n int) *benchFleet {
 		f.transports[i] = tr
 		f.dialer.transports[url] = tr
 	}
-	f.p = newPoolWithDialerAndChainID(f.dialer, 0)
+	f.p = testPool(tb, 0, WithDialer(f.dialer))
 	for i := range n {
 		url := "https://fleet-" + string(rune('a'+i)) + ".bench"
 		src, err := f.p.join("fleet-"+string(rune('a'+i)), url)
