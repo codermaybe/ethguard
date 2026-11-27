@@ -1,31 +1,9 @@
 # Aggregator
 
-The orchestration seam between the upstream pool and per-method policies. It
-accepts a normalized RPC request, looks up its method policy, delegates one
-bounded fan-out to the pool, resolves the emissions through the policy, and
-returns a classified result with evidence.
+This module owns one invocation's orchestration between collection and the compiled rpc.ReadPlan. It freezes membership, prepares and snapshots requests, establishes any required reference, collects responses, runs raw admission or the frozen canonical processor route, resolves outcomes, and assembles faults, projection, material, health and one decision event.
 
-It owns:
+Prepared wire parameters and Decision.Prepared agree byte for byte. Admission reads a frozen semantic request with json.Number values, so caller marshalers and numeric conversion cannot make validation observe a different request. Canonical observations retain original source records while carrying immutable processed values separately.
 
-- the prepare → collect → resolve pipeline (`Aggregator.Aggregate`);
-- faults attached to decisions (`Decision.Faults`), keeping partial
-  fan-outs diagnosable;
-- exactly one observability event per aggregate decision (decision 0008).
+The aggregator does not interpret Ethereum schemas or fields, own connection lifecycle, choose a second quorum algorithm or re-run raw hooks on canonical failures. Internal processor contract errors are distinct from provider faults; all exit paths retain final health accounting and cleanup responsibilities.
 
-Prepared parameters are serialized once for both business fan-out and
-`Decision.Prepared`. Admission decodes that frozen JSON once and shares the
-read-only semantic request across sources; numbers remain `json.Number` so
-uint64 counts and transaction indexes are not rounded through float64. Plan
-and reference queries retain their prepared Go values. A custom marshaler or
-boolean wrapper therefore cannot make full-block admission inspect a
-different flag from the one sent on the wire.
-
-It does not own Ethereum method semantics (those live in `rpc/methods`
-policies), connection lifecycle or concurrency bounds (`pool.Collect`),
-telemetry storage, gas optimization, nonce management, signing, or
-transaction retries.
-
-Resolution semantics — strict corroboration, quorum options, anchoring,
-median and local selection, and transparent forwarding that never claims
-`Corroborated` — are implemented by the strategies in the parent `rpc` package
-and selected per method; see `docs/decisions.md` 0006–0013.
+The complete current flow and route contract live in [module topology](../docs/design/codebase-topology.md). [Method contracts](../docs/design/method-contracts.md) own semantics and thresholds; [verification](../docs/design/method-verification-pipeline.md) owns route comparisons and evidence. Implementation optimization waits for the documentation checkpoint and must not transfer orchestration complexity into method owners.

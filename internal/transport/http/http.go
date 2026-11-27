@@ -15,18 +15,16 @@ package http
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-
-	"github.com/codermaybe/ethguard/internal/limits"
 	"math/big"
 	nethttp "net/http"
 	"net/url"
-	"reflect"
 	"sync"
 	"sync/atomic"
 
+	"github.com/codermaybe/ethguard/internal/limits"
 	"github.com/codermaybe/ethguard/internal/rpcwire"
 	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/rpc"
@@ -128,73 +126,82 @@ func newTransport(rawURL string, limit int64) *Transport {
 	}
 }
 
-// CallContext performs one JSON-RPC call. result must be nil, a
-// *json.RawMessage (receives the raw result bytes), or another JSON pointer.
-func (t *Transport) CallContext(ctx context.Context, result any, method string, args ...any) error {
+// Call executes one exchange and preserves progress independently of its answer.
+func (t *Transport) Call(ctx context.Context, method string, args ...any) rpc.Response {
+	exchange := rpc.Exchange{}
+	failed := func(err error) rpc.Response {
+		if cerr := ctx.Err(); cerr != nil {
+			err = cerr
+		}
+		exchange.Cause = err
+		return rpc.Response{Exchange: exchange}
+	}
+	if err := ctx.Err(); err != nil {
+		return failed(err)
+	}
 	if t.closed.Load() {
-		return ErrTransportClosed
+		return failed(ErrTransportClosed)
 	}
 	id := t.ids.Next()
 	body, err := rpcwire.EncodeRequest(id, method, args)
 	if err != nil {
-		return fmt.Errorf("http: encode request: %w", err)
+		return failed(fmt.Errorf("http: encode request: %w", err))
 	}
 	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, t.url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("http: build request: %w", err)
+		return failed(fmt.Errorf("http: build request: %w", err))
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-
+	exchange.Progress = rpc.ExchangeStarted
 	resp, err := t.client.Do(req)
+	if resp != nil {
+		exchange.Progress = rpc.ExchangeResponded
+		exchange.HTTPStatus = resp.StatusCode
+	}
 	if err != nil {
-		// Kept unwrapped so errors.Is resolves context.Canceled and
-		// context.DeadlineExceeded exactly as in the audited baseline.
-		return err
+		return failed(err)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return statusErrorFromBody(ctx, resp)
+	limit := t.limit
+	statusFailure := resp.StatusCode < 200 || resp.StatusCode >= 300
+	if statusFailure {
+		limit = maxStatusBody
 	}
-
-	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, t.limit+1))
-	// Deliberately no drain: the read already decided the outcome, and an
-	// oversized or failed body leaves the connection unreusable, which
-	// net/http handles when the body is closed.
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	_ = resp.Body.Close()
-
-	// Error precedence mirrors the audited class A layering; each layer
-	// strictly dominates the next:
-	//  1. call-context cancellation or deadline,
-	//  2. byte-count overrun (truncated prefixes never reach the decoder),
-	//  3. the read failure itself.
-	if cerr := ctx.Err(); cerr != nil {
-		return cerr
+	oversized := int64(len(raw)) > limit
+	if readErr == nil && !oversized {
+		exchange.Progress = rpc.ExchangeCompleted
 	}
-	if int64(len(raw)) > t.limit {
-		return fmt.Errorf("http: response body exceeds limit %d: %w", t.limit, transport.ErrBodyTooLarge)
+	if statusFailure {
+		status := &statusError{status: resp.Status, code: resp.StatusCode, body: raw, truncated: oversized, cause: readErr}
+		if oversized {
+			status.body = raw[:limit]
+			status.cause = errors.Join(readErr, transport.ErrBodyTooLarge)
+		}
+		// Status remains the final non-2xx classification unless context terminated.
+		// Progress separately records whether the bounded read completed.
+		return failed(status)
+	}
+	if oversized {
+		return failed(fmt.Errorf("http: response body exceeds limit %d: %w", limit, transport.ErrBodyTooLarge))
 	}
 	if readErr != nil {
-		return readErr
+		return failed(readErr)
 	}
-
-	decoded, err := rpcwire.DecodeResponse(raw, id)
-	if err != nil {
-		return err
-	}
-	if decoded.Error != nil {
-		return decoded.Error
-	}
-	return decodeResult(decoded.Result, result)
+	// Interpret complete bytes even when cancellation wins final delivery.
+	exchange.Cause = ctx.Err()
+	return rpcwire.CompleteCall(raw, id, exchange)
 }
 
 // ChainID implements transport.Transport via a plain eth_chainId call and
 // the project-owned hex quantity decoder; it does not use ethclient.
 func (t *Transport) ChainID(ctx context.Context) (*big.Int, error) {
-	var raw json.RawMessage
-	if err := t.CallContext(ctx, &raw, "eth_chainId"); err != nil {
+	response := t.Call(ctx, "eth_chainId")
+	if err := response.Err(); err != nil {
 		return nil, err
 	}
-	return decodeHexQuantity(raw)
+	return decodeHexQuantity(response.Answer.Result)
 }
 
 // Close marks the transport closed (rejecting new calls) and releases idle
@@ -207,25 +214,6 @@ func (t *Transport) Close() {
 	})
 }
 
-// decodeResult fills the caller's result target from the raw result bytes.
-func decodeResult(raw json.RawMessage, result any) error {
-	switch target := result.(type) {
-	case nil:
-		return nil
-	case *json.RawMessage:
-		*target = append((*target)[:0], raw...)
-		return nil
-	default:
-		if reflect.ValueOf(result).Kind() != reflect.Pointer {
-			return fmt.Errorf("http: result must be pointer or nil, got %T", result)
-		}
-		if err := json.Unmarshal(raw, result); err != nil {
-			return fmt.Errorf("http: decode result: %w", err)
-		}
-		return nil
-	}
-}
-
 // statusError is the native HTTP status failure. It carries the retained
 // (bounded) body and structurally satisfies rpc.HTTPStatusError and, for
 // 429, rpc.RateLimitError; the assertions live in the test file.
@@ -234,33 +222,7 @@ type statusError struct {
 	code      int
 	body      []byte
 	truncated bool
-}
-
-// statusErrorFromBody retains a bounded prefix of a non-2xx body and
-// classifies the exchange by its HTTP status. The body read is subject to the
-// frozen context precedence: if the call context has fired by the time the
-// outcome is known — including while a stalled error body is still being
-// read — the status outcome is discarded and the context error is returned
-// (contract §6). A plain read failure without context cancellation does not
-// change the classification: the status is the outcome, and the retained
-// prefix (possibly empty) stays available for diagnostics and text rules.
-func statusErrorFromBody(ctx context.Context, resp *nethttp.Response) error {
-	// Retain a bounded prefix of the body for diagnostics and text rules;
-	// reading one extra byte detects truncation. The remainder is never
-	// pulled in and the connection is abandoned on Close.
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxStatusBody+1))
-	_ = resp.Body.Close()
-	if cerr := ctx.Err(); cerr != nil {
-		return cerr
-	}
-	e := &statusError{status: resp.Status, code: resp.StatusCode}
-	if len(raw) > maxStatusBody {
-		e.body = raw[:maxStatusBody]
-		e.truncated = true
-	} else {
-		e.body = raw
-	}
-	return e
+	cause     error
 }
 
 func (e *statusError) Error() string {
@@ -272,6 +234,9 @@ func (e *statusError) Error() string {
 	}
 	return fmt.Sprintf("%s: %s", e.status, e.body)
 }
+
+// Unwrap retains an interrupted body read without losing HTTP capabilities.
+func (e *statusError) Unwrap() error { return e.cause }
 
 // HTTPStatusCode returns the HTTP status of the failed exchange.
 func (e *statusError) HTTPStatusCode() int { return e.code }

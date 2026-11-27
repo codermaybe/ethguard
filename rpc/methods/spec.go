@@ -52,7 +52,7 @@ const (
 // all a method does: the aggregator establishes the reference through the
 // reference stage on the invocation's frozen basis, and the anchor layers
 // rewrite from the established evidence. A zero spec means the method never
-// needs a reference. See docs/design/method-spec-reference-freeze.md.
+// needs a reference. See docs/design/codebase-topology.md.
 type ReferenceSpec = rpc.ReferenceSpec
 
 // AdmissionFunc is the method-owned admission hook signature.
@@ -80,6 +80,9 @@ const (
 	ProjectorLogs = "logs"
 	// ProjectorFeeHistory is the fee-history range projection.
 	ProjectorFeeHistory = "fee-history"
+	// ProjectorSyncing separates official progress from provider counters.
+	ProjectorSyncing    = "syncing"
+	ProjectorSimulateV1 = "simulate-v1"
 )
 
 // MethodSpec is the data form of one read method's contract: resolver, value
@@ -109,11 +112,21 @@ type MethodSpec struct {
 	Reference ReferenceSpec
 	Pending   PendingSpec
 
-	// Validate runs before any anchor layer; Admit runs after collection
+	// Prepare runs before any anchor layer; Admit runs after collection
 	// with the same-source caller. Both are v1 hooks: the order is fixed by
 	// Compile, not by the method.
-	Validate func(context.Context, rpc.Request) error
-	Admit    AdmissionFunc
+	Prepare func(context.Context, rpc.Request) (rpc.Request, error)
+	Admit   AdmissionFunc
+
+	// ProcessCanonical is the method's controlled single-source processing
+	// entry (the canonical seam). Declaring it is an assembly extension, not
+	// a mode switch: the compiler accepts it only on a strict resolver
+	// declaring canonical-bytes, and the plan then carries the same processor
+	// so the coordinator can select the processing route for one invocation.
+	// The Normalize/Encode/Admit hooks stay available as the compatibility
+	// adapters of the same object kernel; declaring a processor never nils
+	// them out, and the raw route keeps working unchanged.
+	ProcessCanonical rpc.CanonicalProcessor
 
 	// ObservationProjectorID names the runtime-bound projector; the spec
 	// never carries a factory (rpc/methods stays clear of projection/typed).

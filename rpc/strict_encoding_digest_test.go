@@ -30,7 +30,8 @@ func assertEncodingDigests(t *testing.T, fault error, observations []Observation
 		var object struct {
 			Value string `json:"value"`
 		}
-		if err := json.Unmarshal(observation.Value, &object); err != nil {
+		if err := json.Unmarshal(observation.Response.Answer.Result,
+			&object); err != nil {
 			t.Fatal(err)
 		}
 		canonical, err := json.Marshal(object.Value)
@@ -53,8 +54,8 @@ func assertEncodingDigests(t *testing.T, fault error, observations []Observation
 func TestStrictInconsistentClustersRecordActualEncodingDigests(t *testing.T) {
 	observations := rejectedEncodingObservations()
 	// Different lengths and repeated identical bytes prove source association.
-	observations[2].Value = json.RawMessage(`{"key":"winner","value":"different-winner"}`)
-	observations[4].Value = json.RawMessage(`{"key":"loser","value":"longer-loser"}`)
+	observations[2].Response.Answer.Result = json.RawMessage(`{"key":"winner","value":"different-winner"}`)
+	observations[4].Response.Answer.Result = json.RawMessage(`{"key":"loser","value":"longer-loser"}`)
 	// Quoted IDs must remain unambiguously associated with their digest.
 	observations[0].Source.ID = "source \"quoted\""
 	for _, entry := range []string{"Resolve", "ResolveCorroborated", "legacy"} {
@@ -64,18 +65,18 @@ func TestStrictInconsistentClustersRecordActualEncodingDigests(t *testing.T) {
 				opts = nil
 			}
 			p, calls := rejectedEncodingPolicy(t, opts...)
-			var d Decision
+			var d Outcome
 			var err error
 			if entry == "ResolveCorroborated" {
 				d, err = p.(CorroboratingPolicy).ResolveCorroborated(Corroboration{Floor: 3}, observations)
 			} else {
 				d, err = p.Resolve(observations)
 			}
-			if !errors.Is(err, ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") || d.Status != Unknown || len(d.Value) != 0 || len(d.Faults) != 2 || *calls != 5 {
+			if !errors.Is(err, ErrInvalidCanonicalResult) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") || d.Decision.Status != Unknown || len(d.Decision.Value) != 0 || len(d.Decision.Faults) != 2 || *calls != 5 {
 				t.Fatalf("decision = %+v err %v calls %d", d, err, *calls)
 			}
-			assertEncodingDigests(t, d.Faults[0], observations[3:])
-			assertEncodingDigests(t, d.Faults[1], observations[:3])
+			assertEncodingDigests(t, d.Decision.Faults[0], observations[3:])
+			assertEncodingDigests(t, d.Decision.Faults[1], observations[:3])
 		})
 	}
 }

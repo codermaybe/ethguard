@@ -195,6 +195,46 @@ func TestUserCancellationKeepsItsOwnCause(t *testing.T) {
 	}
 }
 
+// TestOwnerCloseWithLiveCallerContextKeepsBothCauses locks the joined
+// lifecycle error: when the owner closes while the caller's context is still
+// alive, the returned error recognizes both facts — the owner close (why the
+// fleet stopped) and the in-flight cancellation (the request did not finish
+// normally). Neither sentinel masks the other.
+func TestOwnerCloseWithLiveCallerContextKeepsBothCauses(t *testing.T) {
+	client, nodes := anchoredFleet(t, 2)
+	started := make(chan struct{})
+	var once sync.Once
+	blocker := make(chan struct{})
+	defer close(blocker)
+	for _, node := range nodes {
+		node.Handle(methods.MethodGetBlockByNumber, func(c rpctest.Call) (any, error) {
+			once.Do(func() { close(started) })
+			<-blocker
+			return map[string]any{"number": "0x10", "hash": "0x1111111111111111111111111111111111111111111111111111111111111111"}, nil
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := client.AnchorBlockHash(ctx)
+		done <- err
+	}()
+	<-started
+	client.Close()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ethguard.ErrPoolClosed) {
+			t.Fatalf("owner close cause lost: %v", err)
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("the in-flight cancellation fact was masked: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the in-flight call did not converge on owner close")
+	}
+}
+
 // TestConcurrentCloseSharesOneCompletion: every concurrent closer returns
 // under the same background-task completion conditions.
 func TestConcurrentCloseSharesOneCompletion(t *testing.T) {

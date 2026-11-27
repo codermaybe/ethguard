@@ -16,8 +16,8 @@ import (
 // T09.2 locks the lifecycle of every protected field: representation
 // variation, protected-field mutation, round-trip through the canonical
 // encoder, and field conservation. All assertions run through the real
-// aggregator and method policies; no testdata, golden, or live provider is
-// involved.
+// aggregator and method policies. Simulate uses a pinned official result vector;
+// no golden output or live provider is involved.
 
 type t09Resolution int
 
@@ -76,9 +76,14 @@ type t09FieldRow struct {
 	// coverage test rejects any other missing schema.
 	noSchema  bool
 	projector bool
-	// nullPreserved declares that the canonical encoder materializes optional
-	// JSON null fields (the typed block header does); otherwise null means
-	// absence and must not appear in Value.
+	// nullOmitted lists protected members whose source JSON null folds to
+	// omission (the registered geth unset-pointer fold for the post-fork
+	// optional header members), while other protected nulls keep their
+	// row-level nullPreserved treatment.
+	nullOmitted []string
+	// nullPreserved declares that admitted protected JSON null fields survive
+	// encoding (block headers and standalone transactions). Other rows retain
+	// their existing projection contract, where null is omitted from Value.
 	nullPreserved bool
 	// whole marks upstream-local methods whose entire answer is the selected
 	// value. They have no cross-source protected-field admission; the typed
@@ -119,6 +124,7 @@ var t09BlockSchemaPaths = []string{
 	"/receiptsRoot",
 	"/requestsHash",
 	"/sha3Uncles",
+	"/slotNumber",
 	"/size",
 	"/stateRoot",
 	"/timestamp",
@@ -316,6 +322,104 @@ var t09SyncingSchemaPaths = []string{
 	"/startingBlock",
 }
 
+// Pinned Simulate result paths, including nested calls, logs, and transactions.
+var t09SimulateSchemaPaths = []string{
+	"/*",
+	"/*/baseFeePerGas",
+	"/*/blobGasUsed",
+	"/*/blockAccessListHash",
+	"/*/calls",
+	"/*/calls/*",
+	"/*/calls/*/error",
+	"/*/calls/*/error/code",
+	"/*/calls/*/error/message",
+	"/*/calls/*/gasUsed",
+	"/*/calls/*/logs",
+	"/*/calls/*/logs/*",
+	"/*/calls/*/logs/*/address",
+	"/*/calls/*/logs/*/blockHash",
+	"/*/calls/*/logs/*/blockNumber",
+	"/*/calls/*/logs/*/blockTimestamp",
+	"/*/calls/*/logs/*/data",
+	"/*/calls/*/logs/*/logIndex",
+	"/*/calls/*/logs/*/removed",
+	"/*/calls/*/logs/*/topics",
+	"/*/calls/*/logs/*/topics/*",
+	"/*/calls/*/logs/*/transactionHash",
+	"/*/calls/*/logs/*/transactionIndex",
+	"/*/calls/*/maxUsedGas",
+	"/*/calls/*/returnData",
+	"/*/calls/*/status",
+	"/*/difficulty",
+	"/*/excessBlobGas",
+	"/*/extraData",
+	"/*/gasLimit",
+	"/*/gasUsed",
+	"/*/hash",
+	"/*/logsBloom",
+	"/*/miner",
+	"/*/mixHash",
+	"/*/nonce",
+	"/*/number",
+	"/*/parentBeaconBlockRoot",
+	"/*/parentHash",
+	"/*/receiptsRoot",
+	"/*/requestsHash",
+	"/*/sha3Uncles",
+	"/*/slotNumber",
+	"/*/size",
+	"/*/stateRoot",
+	"/*/timestamp",
+	"/*/transactions",
+	"/*/transactions/*",
+	"/*/transactions/*/accessList",
+	"/*/transactions/*/accessList/*",
+	"/*/transactions/*/accessList/*/address",
+	"/*/transactions/*/accessList/*/storageKeys",
+	"/*/transactions/*/accessList/*/storageKeys/*",
+	"/*/transactions/*/authorizationList",
+	"/*/transactions/*/authorizationList/*",
+	"/*/transactions/*/authorizationList/*/address",
+	"/*/transactions/*/authorizationList/*/chainId",
+	"/*/transactions/*/authorizationList/*/nonce",
+	"/*/transactions/*/authorizationList/*/r",
+	"/*/transactions/*/authorizationList/*/s",
+	"/*/transactions/*/authorizationList/*/yParity",
+	"/*/transactions/*/blobVersionedHashes",
+	"/*/transactions/*/blobVersionedHashes/*",
+	"/*/transactions/*/blockHash",
+	"/*/transactions/*/blockNumber",
+	"/*/transactions/*/blockTimestamp",
+	"/*/transactions/*/chainId",
+	"/*/transactions/*/from",
+	"/*/transactions/*/gas",
+	"/*/transactions/*/gasPrice",
+	"/*/transactions/*/hash",
+	"/*/transactions/*/input",
+	"/*/transactions/*/maxFeePerBlobGas",
+	"/*/transactions/*/maxFeePerGas",
+	"/*/transactions/*/maxPriorityFeePerGas",
+	"/*/transactions/*/nonce",
+	"/*/transactions/*/r",
+	"/*/transactions/*/s",
+	"/*/transactions/*/to",
+	"/*/transactions/*/transactionIndex",
+	"/*/transactions/*/type",
+	"/*/transactions/*/v",
+	"/*/transactions/*/value",
+	"/*/transactions/*/yParity",
+	"/*/transactionsRoot",
+	"/*/uncles",
+	"/*/uncles/*",
+	"/*/withdrawals",
+	"/*/withdrawals/*",
+	"/*/withdrawals/*/address",
+	"/*/withdrawals/*/amount",
+	"/*/withdrawals/*/index",
+	"/*/withdrawals/*/validatorIndex",
+	"/*/withdrawalsRoot",
+}
+
 func t09FieldRows(t *testing.T) []t09FieldRow {
 	t.Helper()
 	chain := t09NewChain(t)
@@ -350,7 +454,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 		"gasUsed", "timestamp", "extraData", "mixHash", "nonce",
 		"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas",
 		"parentBeaconBlockRoot", "requestsHash", "blockAccessListHash",
-		"slotNumber", "hash", "transactions", "uncles", "withdrawals",
+		"slotNumber", "hash", "size", "transactions", "uncles", "withdrawals",
 	}
 	receiptProtected := []string{
 		"transactionHash", "transactionIndex", "blockHash", "blockNumber",
@@ -373,7 +477,21 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 	feeProtected := []string{"oldestBlock", "baseFeePerGas", "gasUsedRatio", "reward", "baseFeePerBlobGas", "blobGasUsedRatio"}
 	accessProtected := []string{"accessList", "gasUsed", "error"}
 
+	simulate := t09SimulateResult(t)
+	simulateOther := t09SetNestedField(t, simulate, 0, "gasUsed", "0x1")
+	simulateMutation := t09DeleteNestedField(t, simulate, 0, "calls")
+
 	return []t09FieldRow{
+		{
+			method:   methods.MethodSimulateV1,
+			params:   []any{map[string]any{"blockStateCalls": []any{map[string]any{}}}, "0x10"},
+			variants: t09Variants(t, simulate), other: simulateOther, mutation: simulateMutation,
+			fieldHint: "SimulateBlock", decode: t09DecodeSimulate, typed: t09TypedSimulate,
+			schema: t09SimulateSchemaPaths, resolution: t09Strict,
+			protected: append(append([]string{}, blockProtected...), "calls"),
+			outside:   []string{"vendor"}, projector: true,
+			mutationExpect: t09MutationStrict, mutationReject: 1,
+		},
 		{
 			method:         methods.MethodChainID,
 			variants:       t09Variants(t, json.RawMessage(`"0x1"`)),
@@ -390,19 +508,18 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 		{
 			method:         methods.MethodGetBlockByHash,
 			params:         []any{blockHash, true},
-			variants:       t09VariantsNoEscape(t, block),
+			variants:       t09Variants(t, block),
 			other:          otherHeight,
 			mutation:       t09DeleteField(t, block, "hash"),
 			fieldHint:      "block",
 			decode:         t09DecodeBlock,
 			typed:          t09TypedBlockByHash,
 			schema:         t09BlockSchemaPaths,
-			schemaOmitted:  []string{"/transactions/*/blockHash", "/transactions/*/blockNumber", "/transactions/*/transactionIndex", "/transactions/*/from"},
 			resolution:     t09Strict,
 			protected:      blockProtected,
 			outside:        []string{"totalDifficulty", "vendor"},
-			omitted:        []string{"size", "blockNumber", "transactionIndex", "blockHash", "from"},
 			projector:      true,
+			nullOmitted:    []string{"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "blockAccessListHash", "slotNumber"},
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 0,
@@ -411,19 +528,18 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 		{
 			method:         methods.MethodGetBlockByNumber,
 			params:         []any{fmt.Sprintf("0x%x", t09AnchorHeight), true},
-			variants:       t09VariantsNoEscape(t, block),
+			variants:       t09Variants(t, block),
 			other:          fork,
 			mutation:       t09DeleteField(t, block, "hash"),
 			fieldHint:      "block",
 			decode:         t09DecodeBlock,
 			typed:          t09TypedBlockByNumber,
 			schema:         t09BlockSchemaPaths,
-			schemaOmitted:  []string{"/transactions/*/blockHash", "/transactions/*/blockNumber", "/transactions/*/transactionIndex", "/transactions/*/from"},
 			resolution:     t09Strict,
 			protected:      blockProtected,
 			outside:        []string{"totalDifficulty", "vendor"},
-			omitted:        []string{"size", "blockNumber", "transactionIndex", "blockHash", "from"},
 			projector:      true,
+			nullOmitted:    []string{"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas", "parentBeaconBlockRoot", "requestsHash", "blockAccessListHash", "slotNumber"},
 			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
@@ -474,9 +590,10 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			protected:      txProtected,
 			outside:        []string{"vendor"},
 			projector:      true,
+			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
-			notes:          "JSON-escaped hex is covered by TestVerificationEscapedHexAdmissionBoundary; null fee fields are dropped as absence",
+			notes:          "JSON-escaped hex is covered by TestVerificationEscapedHexAdmissionBoundary; legal official null fee fields retain their presence",
 		},
 		{
 			method:         methods.MethodGetBlockReceipts,
@@ -567,6 +684,7 @@ func t09FieldRows(t *testing.T) []t09FieldRow {
 			protected:      txProtected,
 			outside:        []string{"vendor"},
 			projector:      true,
+			nullPreserved:  true,
 			mutationExpect: t09MutationStrict,
 			mutationReject: 1,
 			notes:          "inclusion context is part of the protected transaction envelope; vendor metadata is projected out",
@@ -1058,7 +1176,11 @@ func TestVerificationProtectedMutationFails(t *testing.T) {
 			decision, err := callDecision(fleet.client.Call(fleet.context(t), row.method, row.params...))
 			switch row.mutationExpect {
 			case t09MutationStrict:
-				if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
+				wantErr := rpc.ErrConflict
+				if row.mutationReject == 0 {
+					wantErr = rpc.ErrInsufficientSupport
+				}
+				if !errors.Is(err, wantErr) || decision.Status != rpc.Unknown {
 					t.Fatalf("mutation was accepted: status %v err %v", decision.Status, err)
 				}
 				if len(decision.Support) != 2 || len(decision.Reject) != row.mutationReject {
@@ -1102,11 +1224,9 @@ func TestVerificationProtectedMutationFails(t *testing.T) {
 	}
 }
 
-// TestVerificationEscapedHexAdmissionBoundary records the method boundary for the
-// three responses admitted through geth's typed wire decoders: those decoders
-// require a literal 0x prefix, so JSON-escaped hex is an admission fault, not
-// a silent variant. The fault stays in the fixed basis and the cluster still
-// reaches Q from the two literal sources without borrowing their fields.
+// TestVerificationEscapedHexAdmissionBoundary checks that equivalent JSON string
+// escapes are transparent before the private geth payload bridge. All sources
+// must remain valid votes; no representation-dependent fault may be hidden.
 func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 	chain := t09NewChain(t)
 	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
@@ -1124,6 +1244,7 @@ func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 		t.Run(tc.method, func(t *testing.T) {
 			fleet := t09NewFleet(t, 3)
 			escaped := t09EscapeFirstHex(t, tc.legal)
+			wantSupport, firstSupport := 3, 0
 			if bytes.Equal(escaped, tc.legal) {
 				t.Fatal("escaped variant did not change the wire bytes")
 			}
@@ -1134,16 +1255,54 @@ func TestVerificationEscapedHexAdmissionBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatalf("literal sources did not carry the quorum: %v", err)
 			}
-			if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 0 {
-				t.Fatalf("decision = %+v, want 2 supporting literal sources", decision)
+			if decision.Status != rpc.Corroborated || len(decision.Support) != wantSupport || len(decision.Reject) != 0 {
+				t.Fatalf("decision = %+v, want %d supporting sources", decision, wantSupport)
 			}
-			if decision.Representative.Name != fleet.names[1] || decision.Support[0].Name != fleet.names[1] {
-				t.Fatalf("representative/support = %q/%+v, want first literal source %q", decision.Representative.Name, decision.Support, fleet.names[1])
+			if decision.Representative.Name != fleet.names[firstSupport] || decision.Support[0].Name != fleet.names[firstSupport] {
+				t.Fatalf("representative/support = %q/%+v, want first admitted source %q", decision.Representative.Name, decision.Support, fleet.names[firstSupport])
 			}
-			if len(decision.Faults) != 1 || !strings.Contains(strings.ToLower(decision.Faults[0].Error()), tc.field) {
+			if wantSupport == 3 {
+				if len(decision.Faults) != 0 {
+					t.Fatalf("equivalent transaction escape faulted: %v", decision.Faults)
+				}
+			} else if len(decision.Faults) != 1 || !strings.Contains(strings.ToLower(decision.Faults[0].Error()), tc.field) {
 				t.Fatalf("escaped source fault = %v, want %q admission fault", decision.Faults, tc.field)
 			}
 			t09AssertDecodedValue(t, tc.method, t09FieldRowFor(t, tc.method).decode, tc.legal, decision.Value)
+		})
+	}
+}
+
+// JSON string compatibility must not repair a false hash declaration or
+// bypass binding the signed transaction to the requested identity/context.
+func TestVerificationTransactionEscapedHexBinding(t *testing.T) {
+	chain := t09NewChain(t)
+	_, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
+	tx := chain.txObject(true, hash, t09AnchorHeight, 0)
+	wrongHash := "0x" + strings.Repeat("77", 32)
+	for _, tc := range []struct {
+		name, method string
+		params       []any
+		bad          json.RawMessage
+	}{
+		{"declared_hash", methods.MethodGetTransactionByHash, []any{chain.txHash}, t09SetField(t, tx, "hash", wrongHash)},
+		{"requested_hash", methods.MethodGetTransactionByHash, []any{chain.txHash}, chain.tx2Object(true, hash, t09AnchorHeight, 0)},
+		{"requested_block", methods.MethodGetTransactionByBlockHashAndIndex, []any{hash, "0x0"}, t09SetField(t, tx, "blockHash", wrongHash)},
+		{"requested_index", methods.MethodGetTransactionByBlockHashAndIndex, []any{hash, "0x0"}, t09SetField(t, tx, "transactionIndex", "0x1")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fleet := t09NewFleet(t, 3)
+			fleet.nodes[0].ReturnRaw(tc.method, tx)
+			fleet.nodes[1].ReturnRaw(tc.method, tx)
+			fleet.nodes[2].ReturnRaw(tc.method, t09EscapeFirstHex(t, tc.bad))
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), tc.method, tc.params...))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 0 || len(decision.Faults) != 1 || len(decision.Participants) != 3 {
+				t.Fatalf("escape bypassed transaction binding: %+v", decision)
+			}
+			t09AssertSourceAbsent(t, tc.method, fleet.names[2], decision.Support, decision.Reject)
 		})
 	}
 }
@@ -1227,7 +1386,7 @@ func t09AssertConservation(t *testing.T, row t09FieldRow, raw json.RawMessage, d
 		}
 		_, inValue := valueObject[key]
 		if bytes.Equal(bytes.TrimSpace(rawValue), []byte("null")) {
-			if row.nullPreserved {
+			if row.nullPreserved && !containsString(row.nullOmitted, key) {
 				if !inValue || !bytes.Equal(bytes.TrimSpace(valueObject[key]), []byte("null")) {
 					t.Fatalf("null field %q was not preserved by the canonical encoder", key)
 				}

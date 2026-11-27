@@ -56,7 +56,7 @@ func TestVotingTipGateRequestScope(t *testing.T) {
 			}
 			calls, _, _ := peers[2].counts()
 			if tc.wantGated {
-				if emission := emissions[2]; emission.Attempted || !errors.Is(emission.Err, ErrSourceGated) || calls != 0 {
+				if emission := emissions[2]; emission.Attempted || !errors.Is(emission.Response.Err(), ErrSourceGated) || calls != 0 {
 					t.Fatalf("lagging member = %+v, wire calls = %d", emission, calls)
 				}
 				if h := sources[2].Health(); h.Successes != 0 || h.Failures != 0 {
@@ -64,7 +64,7 @@ func TestVotingTipGateRequestScope(t *testing.T) {
 				}
 				return
 			}
-			if emission := emissions[2]; !emission.Attempted || emission.Err != nil || calls != 1 {
+			if emission := emissions[2]; !emission.Attempted || emission.Response.Err() != nil || calls != 1 {
 				t.Fatalf("exempt member = %+v, wire calls = %d", emission, calls)
 			}
 		})
@@ -91,7 +91,7 @@ func TestVotingTipGateZeroScopePreservesLegacyGateAll(t *testing.T) {
 	if len(emissions) != 3 {
 		t.Fatalf("basis = %+v", emissions)
 	}
-	if emission := emissions[2]; emission.Attempted || !errors.Is(emission.Err, ErrSourceGated) {
+	if emission := emissions[2]; emission.Attempted || !errors.Is(emission.Response.Err(), ErrSourceGated) {
 		t.Fatalf("zero scope did not preserve the legacy gate: %+v", emission)
 	}
 }
@@ -120,7 +120,7 @@ func TestScopedGateDoesNotBypassCooldownOrIdentity(t *testing.T) {
 		if !errors.Is(err, ErrNoEligibleSource) {
 			t.Fatalf("expected cooling source to gate the fan-out, got %v", err)
 		}
-		if len(emissions) != 1 || emissions[0].Attempted || !errors.Is(emissions[0].Err, ErrSourceGated) {
+		if len(emissions) != 1 || emissions[0].Attempted || !errors.Is(emissions[0].Response.Err(), ErrSourceGated) {
 			t.Fatalf("cooldown was bypassed: %+v", emissions)
 		}
 	})
@@ -141,7 +141,7 @@ func TestScopedGateDoesNotBypassCooldownOrIdentity(t *testing.T) {
 		if !errors.Is(err, ErrNoEligibleSource) {
 			t.Fatalf("expected identity-invalid source to gate the fan-out, got %v", err)
 		}
-		if len(emissions) != 1 || emissions[0].Attempted || !errors.Is(emissions[0].Err, ErrChainIDMismatch) {
+		if len(emissions) != 1 || emissions[0].Attempted || !errors.Is(emissions[0].Response.Err(), ErrChainIDMismatch) {
 			t.Fatalf("identity gate was bypassed: %+v", emissions)
 		}
 	})

@@ -25,9 +25,9 @@ func BenchmarkStrictResolveReceipt(b *testing.B) {
 	}
 	encode := receipt.Encode
 	observations := []rpc.Observation{
-		{Source: rpc.SourceRef{Name: "a", ID: "a"}, Value: raw},
-		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: raw},
-		{Source: rpc.SourceRef{Name: "c", ID: "c"}, Value: raw},
+		{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
+		{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
+		{Attempted: true, Source: rpc.SourceRef{Name: "c", ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: raw}}},
 	}
 	wirings := []struct {
 		name string
@@ -43,7 +43,7 @@ func BenchmarkStrictResolveReceipt(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				decision, err := policy.ResolveCorroborated(rpc.Corroboration{Floor: 2}, observations)
-				if err != nil || decision.Status != rpc.Corroborated {
+				if err != nil || decision.Decision.Status != rpc.Corroborated {
 					b.Fatalf("decision = %+v err %v", decision, err)
 				}
 			}

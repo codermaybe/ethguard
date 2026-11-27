@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -81,6 +82,36 @@ func TestReplayChecksPresenceAndCallPolicy(t *testing.T) {
 	}
 }
 
+func TestReplayReturnsSummaryWriteFailures(t *testing.T) {
+	dir := writeSyntheticCapture(t, []captureRecord{chainRecord()})
+	var complete bytes.Buffer
+	if err := replayDirectory(dir, &complete); err != nil {
+		t.Fatal(err)
+	}
+	for _, limit := range []int{0, complete.Len() / 2} {
+		failure := errors.New("summary destination failed")
+		writer := &summaryFailureWriter{remaining: limit, err: failure}
+		if err := replayDirectory(dir, writer); !errors.Is(err, failure) || !strings.Contains(err.Error(), "write replay summary") {
+			t.Fatalf("replay after %d output bytes = %v, want summary write failure", limit, err)
+		}
+		if !bytes.Equal(writer.written.Bytes(), complete.Bytes()[:limit]) {
+			t.Fatalf("partial summary = %q, want first %d bytes", writer.written.Bytes(), limit)
+		}
+	}
+}
+
+type summaryFailureWriter struct {
+	remaining int
+	err       error
+	written   bytes.Buffer
+}
+
+func (w *summaryFailureWriter) Write(p []byte) (int, error) {
+	n, _ := w.written.Write(p[:min(len(p), w.remaining)])
+	w.remaining -= n
+	return n, w.err
+}
+
 func TestBlockHashPositionScenarioIsEIP1898Object(t *testing.T) {
 	for _, sc := range scenarios {
 		if sc.Name != "block-hash-position" {
@@ -107,7 +138,7 @@ func TestCaptureAndReplayLocalFrames(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck // The probe closes each connection after its reply; the peer may already be disconnected.
 		for {
 			frame, err := conn.ReadMessage()
 			if err != nil {

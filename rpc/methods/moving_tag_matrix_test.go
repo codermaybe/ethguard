@@ -338,12 +338,10 @@ func TestMethodContractsForbiddenClaims(t *testing.T) {
 	}
 }
 
-// TestRuntimeEvidenceDocsForbiddenClaims covers the T05 documents that sit
-// outside the method matrix: the decision record, the current roadmap hub,
-// and the metrics migration comment. T05's historical execution section was
-// intentionally removed when the roadmap was reset around architecture
-// convergence; the current roadmap keeps only its safety wording, phase, and
-// acceptance exit.
+// TestRuntimeEvidenceDocsForbiddenClaims keeps externally visible claims
+// aligned across decisions, the public roadmap, and metrics documentation.
+// The roadmap describes capabilities and release milestones; detailed check
+// commands belong to the linked release contract rather than execution logs.
 func TestRuntimeEvidenceDocsForbiddenClaims(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "decisions.md"),
@@ -354,8 +352,8 @@ func TestRuntimeEvidenceDocsForbiddenClaims(t *testing.T) {
 	roadmap := readRepoDoc(t, filepath.Join("docs", "design", "project-roadmap.md"))
 	for _, wording := range []string{
 		"provider-backed cross-source evidence",
-		"架构收敛",
-		"go test ./... -race -count=1",
+		"稳定发布",
+		"release-contract.md",
 	} {
 		if !strings.Contains(roadmap, wording) {
 			t.Fatalf("roadmap lost current safety or acceptance wording %q", wording)

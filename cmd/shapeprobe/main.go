@@ -136,7 +136,7 @@ func loadCandidates(ctx context.Context, file string, maxScan int) ([]chainlist.
 		if err != nil {
 			return nil, err
 		}
-		defer opened.Close()
+		defer opened.Close() //nolint:errcheck // Read-only registry input; parsing owns data errors and Close commits no output.
 		reader = opened
 	} else {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, registryURL, nil)
@@ -148,7 +148,7 @@ func loadCandidates(ctx context.Context, file string, maxScan int) ([]chainlist.
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck // Read-only response; parsing owns data errors and Close only releases the connection.
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("chainlist: status %s", resp.Status)
 		}

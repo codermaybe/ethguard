@@ -20,10 +20,10 @@ import (
 //   - methods.pendingTag: pending only, including case, JSON, and
 //     {blockNumber: pending}. RejectPending uses pendingReference below,
 //     which recognizes that same pending shape.
-//   - the facade's toBlockNumArg / blockRefArg: Geth negative numbers
-//     (-1 pending, -2 latest, -3 finalized, -4 safe, -5 earliest as 0x0).
-//     Typed BlockByNumber(-1) is rejected in blockByNegativeNumber and
-//     never reaches this set.
+//   - the facade's toBlockNumArg (and the typed BlockReceipts reference
+//     prep): Geth negative numbers (-1 pending, -2 latest, -3 finalized,
+//     -4 safe, -5 earliest as 0x0). Typed BlockByNumber(-1) is rejected in
+//     blockByNegativeNumber and never reaches this set.
 //
 // Do not fold these into one cross-package table: pending is not a moving
 // tag, and earliest is an explicit height for some entry points.

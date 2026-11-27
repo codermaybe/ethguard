@@ -2,16 +2,10 @@ package ethguard
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"time"
 
-	ethereum "github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
-
-	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
@@ -25,8 +19,11 @@ import (
 // the native methods run, with the view flag telling the entry to omit raw
 // material collection when no ResultCapture is bound (nothing would consume
 // it). No pointer-identity or zero-allocation promise is made. It is not
-// go-ethereum's concrete *ethclient.Client — the interface commitments are
-// exactly bind/v2's ContractCaller and DeployBackend, checked by the API
+// go-ethereum's concrete *ethclient.Client. After the public type migration
+// its scalar entries take the generated ethapi.Address/ethapi.Hash and its
+// object entries return the generated models, so bind/v2's DeployBackend and
+// ContractCaller are intentionally no longer satisfied; call inputs remain
+// the project's generated ethapi.CallMsg. Both facts are checked by the API
 // contract test.
 type EthClient struct {
 	// owner is the Client whose shared execution this view projects.
@@ -59,7 +56,7 @@ func (ec *EthClient) NetworkID(ctx context.Context) (*big.Int, error) {
 
 // BalanceAt returns the corroborated balance of account at blockNumber; nil
 // means the currently corroborated reference behind "latest".
-func (ec *EthClient) BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error) {
+func (ec *EthClient) BalanceAt(ctx context.Context, account ethapi.Address, blockNumber *big.Int) (*big.Int, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*big.Int, CallResult, error) {
 		return ec.owner.balanceAtExec(opCtx, account, blockNumber)
 	})
@@ -67,7 +64,7 @@ func (ec *EthClient) BalanceAt(ctx context.Context, account common.Address, bloc
 }
 
 // BalanceAtHash returns the corroborated balance of account at blockHash.
-func (ec *EthClient) BalanceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (*big.Int, error) {
+func (ec *EthClient) BalanceAtHash(ctx context.Context, account ethapi.Address, blockHash ethapi.Hash) (*big.Int, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*big.Int, CallResult, error) {
 		return ec.owner.balanceAtHashExec(opCtx, account, blockHash)
 	})
@@ -76,7 +73,7 @@ func (ec *EthClient) BalanceAtHash(ctx context.Context, account common.Address, 
 
 // NonceAt returns the corroborated account nonce of account at blockNumber;
 // nil pins the moving tag to the currently corroborated reference.
-func (ec *EthClient) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error) {
+func (ec *EthClient) NonceAt(ctx context.Context, account ethapi.Address, blockNumber *big.Int) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
 		return ec.owner.nonceAtExec(opCtx, account, blockNumber)
 	})
@@ -84,7 +81,7 @@ func (ec *EthClient) NonceAt(ctx context.Context, account common.Address, blockN
 }
 
 // NonceAtHash returns the corroborated account nonce at blockHash.
-func (ec *EthClient) NonceAtHash(ctx context.Context, account common.Address, blockHash common.Hash) (uint64, error) {
+func (ec *EthClient) NonceAtHash(ctx context.Context, account ethapi.Address, blockHash ethapi.Hash) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
 		return ec.owner.nonceAtHashExec(opCtx, account, blockHash)
 	})
@@ -93,7 +90,7 @@ func (ec *EthClient) NonceAtHash(ctx context.Context, account common.Address, bl
 
 // StorageAt returns the corroborated value of key in account's storage at
 // blockNumber; nil pins the moving tag to the currently corroborated reference.
-func (ec *EthClient) StorageAt(ctx context.Context, account common.Address, key common.Hash, blockNumber *big.Int) ([]byte, error) {
+func (ec *EthClient) StorageAt(ctx context.Context, account ethapi.Address, key ethapi.Hash, blockNumber *big.Int) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.storageAtExec(opCtx, account, key, blockNumber)
 	})
@@ -101,7 +98,7 @@ func (ec *EthClient) StorageAt(ctx context.Context, account common.Address, key 
 }
 
 // StorageAtHash returns the corroborated storage value at blockHash.
-func (ec *EthClient) StorageAtHash(ctx context.Context, account common.Address, key common.Hash, blockHash common.Hash) ([]byte, error) {
+func (ec *EthClient) StorageAtHash(ctx context.Context, account ethapi.Address, key ethapi.Hash, blockHash ethapi.Hash) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.storageAtHashExec(opCtx, account, key, blockHash)
 	})
@@ -111,7 +108,7 @@ func (ec *EthClient) StorageAtHash(ctx context.Context, account common.Address, 
 // CodeAt returns the corroborated contract code of account at blockNumber;
 // nil pins the moving tag to the currently corroborated reference. An
 // externally owned account answers empty code, not an error.
-func (ec *EthClient) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
+func (ec *EthClient) CodeAt(ctx context.Context, account ethapi.Address, blockNumber *big.Int) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.codeAtExec(opCtx, account, blockNumber)
 	})
@@ -119,7 +116,7 @@ func (ec *EthClient) CodeAt(ctx context.Context, account common.Address, blockNu
 }
 
 // CodeAtHash returns the corroborated contract code at blockHash.
-func (ec *EthClient) CodeAtHash(ctx context.Context, account common.Address, blockHash common.Hash) ([]byte, error) {
+func (ec *EthClient) CodeAtHash(ctx context.Context, account ethapi.Address, blockHash ethapi.Hash) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.codeAtHashExec(opCtx, account, blockHash)
 	})
@@ -127,19 +124,17 @@ func (ec *EthClient) CodeAtHash(ctx context.Context, account common.Address, blo
 }
 
 // BlockByHash returns the corroborated block with the given hash.
-func (ec *EthClient) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
-	block, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Block, CallResult, error) {
-		b, decision, blockErr := ec.owner.blockAt(opCtx, hash.Hex())
-		return b, CallResult{Decision: decisionOf(decision)}, blockErr
+func (ec *EthClient) BlockByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Block, error) {
+	block, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Block, CallResult, error) {
+		return ec.owner.blockByHashExec(opCtx, hash)
 	})
 	return block, err
 }
 
 // HeaderByHash returns the corroborated header with the given hash.
-func (ec *EthClient) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
-	header, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Header, CallResult, error) {
-		h, decision, headerErr := ec.owner.headerAt(opCtx, hash.Hex())
-		return h, CallResult{Decision: decisionOf(decision)}, headerErr
+func (ec *EthClient) HeaderByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Header, error) {
+	header, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Header, CallResult, error) {
+		return ec.owner.headerByHashExec(opCtx, hash)
 	})
 	return header, err
 }
@@ -148,8 +143,8 @@ func (ec *EthClient) HeaderByHash(ctx context.Context, hash common.Hash) (*types
 // negative-tag contract: -1 pending is rejected locally, -2/-3/-4 establish
 // their own level's reference, -5 is earliest (height 0), nil pins the
 // currently corroborated reference.
-func (ec *EthClient) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
-	block, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Block, CallResult, error) {
+func (ec *EthClient) BlockByNumber(ctx context.Context, number *big.Int) (*ethapi.Block, error) {
+	block, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Block, CallResult, error) {
 		return ec.owner.blockByNumberExec(opCtx, number)
 	})
 	return block, err
@@ -157,8 +152,8 @@ func (ec *EthClient) BlockByNumber(ctx context.Context, number *big.Int) (*types
 
 // HeaderByNumber returns a corroborated header at number. The moving-tag and
 // pending rules match the root Client's HeaderByNumber contract.
-func (ec *EthClient) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
-	header, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Header, CallResult, error) {
+func (ec *EthClient) HeaderByNumber(ctx context.Context, number *big.Int) (*ethapi.Header, error) {
+	header, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Header, CallResult, error) {
 		return ec.owner.headerByNumberExec(opCtx, number)
 	})
 	return header, err
@@ -175,9 +170,9 @@ func (ec *EthClient) BlockNumber(ctx context.Context) (uint64, error) {
 // BlockReceipts returns the fleet-corroborated receipts of one block, with
 // request-answer binding per reference form and corroborated absence mapped
 // to ethereum.NotFound.
-func (ec *EthClient) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.BlockNumberOrHash) ([]*types.Receipt, error) {
-	receipts, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]*types.Receipt, CallResult, error) {
-		return ec.owner.blockReceiptsExec(opCtx, blockNrOrHash)
+func (ec *EthClient) BlockReceipts(ctx context.Context, blockRef ethapi.BlockReference) ([]ethapi.Receipt, error) {
+	receipts, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]ethapi.Receipt, CallResult, error) {
+		return ec.owner.blockReceiptsExec(opCtx, blockRef)
 	})
 	return receipts, err
 }
@@ -185,8 +180,8 @@ func (ec *EthClient) BlockReceipts(ctx context.Context, blockNrOrHash gethrpc.Bl
 // TransactionReceipt returns the fleet-corroborated receipt for the
 // transaction hash; ethereum.NotFound when the fleet corroborates the
 // transaction has no receipt yet.
-func (ec *EthClient) TransactionReceipt(ctx context.Context, hash common.Hash) (*types.Receipt, error) {
-	receipt, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
+func (ec *EthClient) TransactionReceipt(ctx context.Context, hash ethapi.Hash) (*ethapi.Receipt, error) {
+	receipt, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Receipt, CallResult, error) {
 		return ec.owner.transactionReceiptExec(opCtx, hash)
 	})
 	return receipt, err
@@ -195,8 +190,8 @@ func (ec *EthClient) TransactionReceipt(ctx context.Context, hash common.Hash) (
 // TransactionByHash returns the fleet-corroborated transaction for the hash
 // and whether the fleet saw it as still pending; ethereum.NotFound when the
 // fleet corroborates no such transaction exists.
-func (ec *EthClient) TransactionByHash(ctx context.Context, hash common.Hash) (*types.Transaction, bool, error) {
-	tx, pending, _, err := operationPair(ec.owner, ctx, true, func(opCtx context.Context) (*types.Transaction, bool, CallResult, error) {
+func (ec *EthClient) TransactionByHash(ctx context.Context, hash ethapi.Hash) (*ethapi.Transaction, bool, error) {
+	tx, pending, _, err := operationPair(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Transaction, bool, CallResult, error) {
 		return ec.owner.transactionByHashExec(opCtx, hash)
 	})
 	return tx, pending, err
@@ -204,7 +199,7 @@ func (ec *EthClient) TransactionByHash(ctx context.Context, hash common.Hash) (*
 
 // TransactionCount returns the fleet-corroborated transaction count for an
 // immutable block hash. A corroborated JSON null maps to ethereum.NotFound.
-func (ec *EthClient) TransactionCount(ctx context.Context, blockHash common.Hash) (uint, error) {
+func (ec *EthClient) TransactionCount(ctx context.Context, blockHash ethapi.Hash) (uint, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint, CallResult, error) {
 		return ec.owner.transactionCountExec(opCtx, blockHash)
 	})
@@ -213,17 +208,19 @@ func (ec *EthClient) TransactionCount(ctx context.Context, blockHash common.Hash
 
 // TransactionInBlock returns the transaction at an index in an immutable
 // block, or ethereum.NotFound when the block/index has no transaction.
-func (ec *EthClient) TransactionInBlock(ctx context.Context, blockHash common.Hash, index uint) (*types.Transaction, error) {
-	tx, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Transaction, CallResult, error) {
+func (ec *EthClient) TransactionInBlock(ctx context.Context, blockHash ethapi.Hash, index uint) (*ethapi.Transaction, error) {
+	tx, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Transaction, CallResult, error) {
 		return ec.owner.transactionInBlockExec(opCtx, blockHash, index)
 	})
 	return tx, err
 }
 
 // TransactionSender returns the sender reported for the transaction at the
-// requested immutable block/index.
-func (ec *EthClient) TransactionSender(ctx context.Context, tx *types.Transaction, blockHash common.Hash, index uint) (common.Address, error) {
-	sender, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (common.Address, CallResult, error) {
+// requested immutable block/index. The input is the same generated public
+// transaction the query methods return; the sender is the RPC-declared
+// sender at this decision's trust level.
+func (ec *EthClient) TransactionSender(ctx context.Context, tx *ethapi.Transaction, blockHash ethapi.Hash, index uint) (ethapi.Address, error) {
+	sender, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (ethapi.Address, CallResult, error) {
 		return ec.owner.transactionSenderExec(opCtx, tx, blockHash, index)
 	})
 	return sender, err
@@ -246,7 +243,7 @@ func (ec *EthClient) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 // CallContract returns the fleet-corroborated result of executing msg at
 // blockNumber; nil pins the moving tag to the currently corroborated
 // reference. A fleet-corroborated revert is returned as a *RevertError.
-func (ec *EthClient) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+func (ec *EthClient) CallContract(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) ([]byte, error) {
 	data, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.callContractExec(opCtx, msg, blockNumber)
 	})
@@ -255,7 +252,7 @@ func (ec *EthClient) CallContract(ctx context.Context, msg ethereum.CallMsg, blo
 
 // EstimateGas returns the fleet's lower-median gas estimate for msg at the
 // currently corroborated reference — a variable result, Selected at best.
-func (ec *EthClient) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
+func (ec *EthClient) EstimateGas(ctx context.Context, msg ethapi.CallMsg) (uint64, error) {
 	gas, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
 		return ec.owner.estimateGasExec(opCtx, msg)
 	})
@@ -264,8 +261,8 @@ func (ec *EthClient) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uin
 
 // FilterLogs returns the fleet-corroborated logs matching q. Range filters
 // are pinned to the corroborated reference like any other anchored read.
-func (ec *EthClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
-	logs, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]types.Log, CallResult, error) {
+func (ec *EthClient) FilterLogs(ctx context.Context, q ethapi.FilterQuery) ([]ethapi.Log, error) {
+	logs, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]ethapi.Log, CallResult, error) {
 		return ec.owner.filterLogsExec(opCtx, q)
 	})
 	return logs, err
@@ -280,15 +277,15 @@ func (ec *EthClient) PeerCount(ctx context.Context) (uint64, error) {
 
 // SyncProgress reports the consulted source's sync state; nil means it
 // considers itself fully synced.
-func (ec *EthClient) SyncProgress(ctx context.Context) (*ethereum.SyncProgress, error) {
+func (ec *EthClient) SyncProgress(ctx context.Context) (*ethapi.SyncProgress, error) {
 	progress, _, err := operation(ec.owner, ctx, true, ec.owner.syncProgressExec)
 	return progress, err
 }
 
 // FeeHistory returns the fleet-corroborated fee history ending at the
 // corroborated reference: lastBlock nil pins the moving "latest" tag.
-func (ec *EthClient) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error) {
-	history, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethereum.FeeHistory, CallResult, error) {
+func (ec *EthClient) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethapi.FeeHistoryResult, error) {
+	history, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.FeeHistoryResult, CallResult, error) {
 		return ec.owner.feeHistoryExec(opCtx, blockCount, lastBlock, rewardPercentiles)
 	})
 	return history, err
@@ -302,113 +299,95 @@ func (ec *EthClient) BlobBaseFee(ctx context.Context) (*big.Int, error) {
 }
 
 // SendTransaction mirrors go-ethereum's ethclient.SendTransaction: encode
-// the signed transaction and broadcast its raw bytes. The completion result
-// still publishes to a bound ResultCapture — the error is the view's only
-// direct return.
-func (ec *EthClient) SendTransaction(ctx context.Context, tx *types.Transaction) error {
+// the signed transaction once through the BinaryTransaction contract and
+// broadcast its raw bytes. The completion result still publishes to a bound
+// ResultCapture — the error is the view's only direct return.
+func (ec *EthClient) SendTransaction(ctx context.Context, tx BinaryTransaction) error {
 	_, err := writeOperation(ec.owner, ctx, true, func(opCtx context.Context) (CallResult, error) {
-		if tx == nil {
-			return CallResult{}, fmt.Errorf("%w: nil transaction", rpc.ErrInvalidRequest)
-		}
-		raw, err := tx.MarshalBinary()
-		if err != nil {
-			return CallResult{}, fmt.Errorf("%w: encode transaction: %v", rpc.ErrInvalidRequest, err)
-		}
-		return ec.owner.sendRawTransaction(opCtx, raw)
+		return ec.owner.sendTransactionExec(opCtx, tx)
 	})
 	return err
 }
 
-func (ec *EthClient) SendTransactionSync(ctx context.Context, tx *types.Transaction, timeout *time.Duration) (*types.Receipt, error) {
-	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
-		if tx == nil {
-			return nil, CallResult{}, fmt.Errorf("%w: nil transaction", rpc.ErrInvalidRequest)
-		}
-		raw, marshalErr := tx.MarshalBinary()
-		if marshalErr != nil {
-			return nil, CallResult{}, fmt.Errorf("%w: encode transaction: %v", rpc.ErrInvalidRequest, marshalErr)
-		}
-		return ec.owner.sendRawTransactionSyncExec(opCtx, raw, timeout)
+func (ec *EthClient) SendTransactionSync(ctx context.Context, tx BinaryTransaction, timeout *time.Duration) (*ethapi.Receipt, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Receipt, CallResult, error) {
+		return ec.owner.sendTransactionSyncExec(opCtx, tx, timeout)
 	})
 	return value, err
 }
 
-func (ec *EthClient) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*types.Receipt, error) {
-	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*types.Receipt, CallResult, error) {
+func (ec *EthClient) SendRawTransactionSync(ctx context.Context, rawTx []byte, timeout *time.Duration) (*ethapi.Receipt, error) {
+	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*ethapi.Receipt, CallResult, error) {
 		return ec.owner.sendRawTransactionSyncExec(opCtx, rawTx, timeout)
 	})
 	return value, err
 }
 
 // PendingBalanceAt returns the node-local pending balance.
-func (ec *EthClient) PendingBalanceAt(ctx context.Context, account common.Address) (*big.Int, error) {
+func (ec *EthClient) PendingBalanceAt(ctx context.Context, account ethapi.Address) (*big.Int, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (*big.Int, CallResult, error) {
 		return ec.owner.pendingBalanceAtExec(opCtx, account)
 	})
 	return value, err
 }
 
-func (ec *EthClient) PendingStorageAt(ctx context.Context, account common.Address, key common.Hash) ([]byte, error) {
+func (ec *EthClient) PendingStorageAt(ctx context.Context, account ethapi.Address, key ethapi.Hash) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.pendingStorageAtExec(opCtx, account, key)
 	})
 	return value, err
 }
 
-func (ec *EthClient) PendingCodeAt(ctx context.Context, account common.Address) ([]byte, error) {
+func (ec *EthClient) PendingCodeAt(ctx context.Context, account ethapi.Address) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.pendingCodeAtExec(opCtx, account)
 	})
 	return value, err
 }
 
-func (ec *EthClient) PendingNonceAt(ctx context.Context, account common.Address) (uint64, error) {
+func (ec *EthClient) PendingNonceAt(ctx context.Context, account ethapi.Address) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
 		return ec.owner.pendingNonceAtExec(opCtx, account)
 	})
 	return value, err
 }
 
-func (ec *EthClient) CallContractAtHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, error) {
+func (ec *EthClient) CallContractAtHash(ctx context.Context, msg ethapi.CallMsg, blockHash ethapi.Hash) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.callContractAtHashExec(opCtx, msg, blockHash)
 	})
 	return value, err
 }
 
-func (ec *EthClient) PendingCallContract(ctx context.Context, msg ethereum.CallMsg) ([]byte, error) {
+func (ec *EthClient) PendingCallContract(ctx context.Context, msg ethapi.CallMsg) ([]byte, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return ec.owner.pendingCallContractExec(opCtx, msg)
 	})
 	return value, err
 }
 
-func (ec *EthClient) EstimateGasAtBlock(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) (uint64, error) {
+func (ec *EthClient) EstimateGasAtBlock(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
-		arg, localErr := checkedBlockNumArg(blockNumber)
-		if localErr != nil {
-			return 0, CallResult{Err: localErr}, localErr
-		}
-		return ec.owner.estimateGasWithArgExec(opCtx, toCallArg(msg), arg)
+		return ec.owner.estimateGasAtBlockExec(opCtx, msg, blockNumber)
 	})
 	return value, err
 }
 
-func (ec *EthClient) EstimateGasAtBlockHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) (uint64, error) {
+func (ec *EthClient) EstimateGasAtBlockHash(ctx context.Context, msg ethapi.CallMsg, blockHash ethapi.Hash) (uint64, error) {
 	value, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) (uint64, CallResult, error) {
-		return ec.owner.estimateGasWithArgExec(opCtx, toCallArg(msg), hashBlockArg(blockHash))
+		return ec.owner.estimateGasAtBlockHashExec(opCtx, msg, blockHash)
 	})
 	return value, err
 }
 
-func (ec *EthClient) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
-	return ec.owner.SubscribeNewHead(ctx, ch)
+func (ec *EthClient) SubscribeNewHead(ctx context.Context, policy HeadSubscriptionPolicy) (*HeadSubscription, error) {
+	return ec.owner.SubscribeNewHead(ctx, policy)
 }
 
-func (ec *EthClient) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
-	return ec.owner.SubscribeFilterLogs(ctx, q, ch)
+func (ec *EthClient) SubscribeFilterLogs(ctx context.Context, q ethapi.FilterQuery, policy LogsSubscriptionPolicy) (*LogsSubscription, error) {
+	return ec.owner.SubscribeFilterLogs(ctx, q, policy)
 }
 
-func (ec *EthClient) SubscribeTransactionReceipts(ctx context.Context, q *ethereum.TransactionReceiptsQuery, ch chan<- []*types.Receipt) (ethereum.Subscription, error) {
-	return ec.owner.SubscribeTransactionReceipts(ctx, q, ch)
+func (ec *EthClient) SubscribeTransactionReceipts(ctx context.Context, q *ethapi.TransactionReceiptsQuery, policy ReceiptsSubscriptionPolicy) (*ReceiptsSubscription, error) {
+	return ec.owner.SubscribeTransactionReceipts(ctx, q, policy)
 }

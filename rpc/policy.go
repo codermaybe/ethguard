@@ -7,11 +7,13 @@ import (
 
 // Policy prepares requests and resolves raw observations. The contract lives
 // beside the transport model; concrete per-method implementations live in
-// rpc/methods, one file per RPC method.
+// rpc/methods, one file per RPC method. Resolve must cover every input with
+// method judgment and relation. Outcome.ProjectSources derives default source
+// and fault views; custom resolvers only supply non-source diagnostics in Faults.
 type Policy interface {
 	Prepare(context.Context, Request) (Request, error)
 	Normalize(json.RawMessage) (string, error)
-	Resolve([]Observation) (Decision, error)
+	Resolve([]Observation) (Outcome, error)
 }
 
 // AdmissionCaller performs a dependent request against the same upstream
@@ -44,7 +46,7 @@ type ObservationProjector interface {
 // aggregator: every voting member is represented in the observation set,
 // including members whose request a scheduling gate skipped.
 type CorroboratingPolicy interface {
-	ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error)
+	ResolveCorroborated(c Corroboration, obs []Observation) (Outcome, error)
 }
 
 // RPCErrorPolicy is an optional capability for policies whose value domain

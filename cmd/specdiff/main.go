@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ func main() {
 	afterPath := flag.String("after", "", "candidate methods.json (required)")
 	check := flag.Bool("check", false, "fail unless schema changes have an exact migration manifest and both verification checks")
 	migrationPath := flag.String("migration", "", "migration manifest used by -check")
+	jsonOutput := flag.Bool("json", false, "emit the complete schema diff as JSON")
 	flag.Parse()
 	if *beforePath == "" || *afterPath == "" {
 		flag.Usage()
@@ -43,6 +45,12 @@ func main() {
 		if err := conformance.ValidateMigration(diff, manifest); err != nil {
 			fail("migration gate: %v", err)
 		}
+	}
+	if *jsonOutput {
+		if err := json.NewEncoder(os.Stdout).Encode(diff); err != nil {
+			fail("write diff: %v", err)
+		}
+		return
 	}
 	fmt.Printf("# execution-apis result schema diff\n\n- before: %s\n- after: %s\n", diff.BeforeVersion, diff.AfterVersion)
 	if len(diff.Methods) == 0 {

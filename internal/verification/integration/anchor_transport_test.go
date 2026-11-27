@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/codermaybe/ethguard/gethcompat"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -24,8 +23,7 @@ import (
 )
 
 // Anchor transport tests pin the production seam: HTTP and WSS are both dialed
-// by the configured connection Adapter. The resolver never inspects the URL
-// scheme, and these tests do not add a second one.
+// by the configured native client transport.
 
 type anchorTransport string
 
@@ -157,13 +155,11 @@ func (n *scriptNode) reset() {
 	n.mu.Unlock()
 }
 
-// anchorChannel names the connection channel under test: the strategic native
-// default or the gethcompat compatibility channel.
+// anchorChannel names the client channel under test.
 type anchorChannel string
 
 const (
 	channelNative anchorChannel = "native"
-	channelCompat anchorChannel = "compat"
 )
 
 func newAnchorFleetOn(t *testing.T, kind anchorTransport, count int, channel anchorChannel) (*ethguard.Client, []*scriptNode) {
@@ -173,23 +169,20 @@ func newAnchorFleetOn(t *testing.T, kind anchorTransport, count int, channel anc
 	for index := range count {
 		node := newScriptNode(t, kind, 1)
 		nodes = append(nodes, node)
+		transport := config.TransportNativeHTTP
+		if kind == transportWS {
+			transport = config.TransportWSS
+		}
 		cfg.Upstreams = append(cfg.Upstreams, config.Upstream{
-			ID:       fmt.Sprintf("node-%d", index),
-			Endpoint: node.URL(),
+			ID:        fmt.Sprintf("node-%d", index),
+			Endpoint:  node.URL(),
+			Transport: transport,
 		})
 	}
-	var (
-		client *ethguard.Client
-		err    error
-	)
-	switch channel {
-	case channelNative:
-		client, err = ethguard.New(cfg)
-	case channelCompat:
-		client, err = gethcompat.New(cfg)
-	default:
+	if channel != channelNative {
 		t.Fatalf("unknown anchor channel %q", channel)
 	}
+	client, err := ethguard.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,14 +190,10 @@ func newAnchorFleetOn(t *testing.T, kind anchorTransport, count int, channel anc
 	return client, nodes
 }
 
-// newAnchorFleet keeps the historical fleet shape: gethcompat. The
-// cross-transport matrix tests compare HTTP against WSS, and only the
-// compatibility channel serves both schemes through one Adapter, so those
-// tests stay compat-only by design; the HTTP-only spelling tests below
-// exercise both channels.
+// newAnchorFleet creates a native-client fleet for the requested transport.
 func newAnchorFleet(t *testing.T, kind anchorTransport, count int) (*ethguard.Client, []*scriptNode) {
 	t.Helper()
-	return newAnchorFleetOn(t, kind, count, channelCompat)
+	return newAnchorFleetOn(t, kind, count, channelNative)
 }
 
 func newDeadFleet(t *testing.T, scheme string) *ethguard.Client {
@@ -432,7 +421,7 @@ func TestAnchorRequestHashIsLowercase(t *testing.T) {
 		upper  = "0Xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		lower  = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
-	for _, channel := range []anchorChannel{channelNative, channelCompat} {
+	for _, channel := range []anchorChannel{channelNative} {
 		t.Run(string(channel), func(t *testing.T) {
 			client, nodes := newAnchorFleetOn(t, transportHTTP, 2, channel)
 			scriptSame(nodes, func(method string, args []any) (any, error) {
@@ -489,7 +478,7 @@ func TestAnchorRequestHashStableWhenSourceOrderSwaps(t *testing.T) {
 		upper = "0Xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		lower = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
-	for _, channel := range []anchorChannel{channelNative, channelCompat} {
+	for _, channel := range []anchorChannel{channelNative} {
 		t.Run(string(channel), func(t *testing.T) {
 			run := func(spellings []string) string {
 				t.Helper()

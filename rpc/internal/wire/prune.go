@@ -1,17 +1,20 @@
 package wire
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 
-	"github.com/codermaybe/ethguard/internal/spec"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
+	"github.com/codermaybe/ethguard/internal/executionapi"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
 // MaskNode is a whitelist tree compiled from the official execution-apis
-// result contracts (internal/spec/methods.json). It describes JSON topology
+// result contracts plus reviewed errata from internal/executionapi. It describes JSON topology
 // only: no business types, no requiredness, no value validation. Requiredness
 // stays fork-aware and hand-written in the object slices; this tree decides
 // only which fields participate in comparison.
@@ -49,10 +52,8 @@ func Prune(data any, mask *MaskNode) any {
 		}
 		cleaned := make(map[string]any, len(mask.Properties))
 		for allowedKey, childMask := range mask.Properties {
-			if val, exists := v[allowedKey]; exists {
-				if prunedVal := Prune(val, childMask); prunedVal != nil {
-					cleaned[allowedKey] = prunedVal
-				}
+			if val, exists := v[allowedKey]; exists && childMask != nil {
+				cleaned[allowedKey] = Prune(val, childMask)
 			}
 		}
 		return cleaned
@@ -61,11 +62,9 @@ func Prune(data any, mask *MaskNode) any {
 		if mask.Items == nil {
 			return v
 		}
-		cleanedArr := make([]any, 0, len(v))
-		for _, item := range v {
-			if prunedItem := Prune(item, mask.Items); prunedItem != nil {
-				cleanedArr = append(cleanedArr, prunedItem)
-			}
+		cleanedArr := make([]any, len(v))
+		for index, item := range v {
+			cleanedArr[index] = Prune(item, mask.Items)
 		}
 		return cleanedArr
 
@@ -206,17 +205,11 @@ func MethodMasks() (map[string]*MaskNode, error) {
 }
 
 func compileBundle() (map[string]*MaskNode, error) {
-	var bundle struct {
-		Version string         `json:"version"`
-		Results map[string]any `json:"results"`
+	bundle, err := executionapi.Read()
+	if err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal(spec.MethodsJSON(), &bundle); err != nil {
-		return nil, fmt.Errorf("spec bundle: %w", err)
-	}
-	if bundle.Version != spec.Version() {
-		return nil, fmt.Errorf("spec bundle: methods.json version %q != VERSION pin %q",
-			bundle.Version, spec.Version())
-	}
+
 	out := make(map[string]*MaskNode, len(bundle.Results))
 	names := make([]string, 0, len(bundle.Results))
 	for name := range bundle.Results {
@@ -224,7 +217,11 @@ func compileBundle() (map[string]*MaskNode, error) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		built, err := buildMask(bundle.Results[name])
+		var schema any
+		if err := json.Unmarshal(bundle.Results[name], &schema); err != nil {
+			return nil, fmt.Errorf("spec bundle: method %q: %w", name, err)
+		}
+		built, err := buildMask(schema)
 		if err != nil {
 			return nil, fmt.Errorf("spec bundle: method %q: %w", name, err)
 		}
@@ -248,11 +245,20 @@ func PruneMethod(method string, raw json.RawMessage) (string, error) {
 		return "", fmt.Errorf("%w: no spec mask for method %q", rpc.ErrInvalidRequest, method)
 	}
 	var data any
-	if err := json.Unmarshal(raw, &data); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&data); err != nil {
 		return "", err
 	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("prune method: multiple JSON values")
+	}
 	pruned := Prune(data, mask)
-	CanonicalizeHex(&pruned)
+	ethcodec.CanonicalizeHex(&pruned)
 	encoded, err := json.Marshal(pruned)
 	if err != nil {
 		return "", err

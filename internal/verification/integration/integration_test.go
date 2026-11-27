@@ -17,11 +17,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 	promclient "github.com/prometheus/client_golang/prometheus"
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/observe"
 	dprom "github.com/codermaybe/ethguard/observe/prometheus"
@@ -50,9 +50,9 @@ func chainIDOf(t *testing.T, client *ethguard.Client, decision rpc.Decision) *bi
 // of the same request. The clean-value typed boundary owns classification
 // (NotFound, malformed, sentinel); the Call decision shows what the
 // aggregation layer concluded for the identical wire request.
-func typedReceiptProbe(ctx context.Context, client *ethguard.Client, hash common.Hash) (*types.Receipt, rpc.Decision, error) {
+func typedReceiptProbe(ctx context.Context, client *ethguard.Client, hash ethapi.Hash) (*ethapi.Receipt, rpc.Decision, error) {
 	receipt, _, err := client.TransactionReceipt(ctx, hash)
-	decision, callErr := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
+	decision, callErr := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, string(hash)))
 	if callErr != nil {
 		err = errors.Join(err, callErr)
 	}
@@ -110,12 +110,16 @@ func agreeOnHead(nodes []*rpctest.Node) {
 
 // scriptFinalizedHeads answers the anchor pipeline's finalized-tag query
 // per node (finalized(i)) while the plain latest tag returns latest(i).
-func scriptFinalizedHeads(nodes []*rpctest.Node, latest, finalized func(i int) map[string]any) {
+func scriptFinalizedHeads(t testing.TB, nodes []*rpctest.Node, latest, finalized func(i int) map[string]any) {
+	t.Helper()
 	for i, node := range nodes {
 		node.Handle("eth_getBlockByNumber", func(c rpctest.Call) (any, error) {
 			var tag string
 			if len(c.Params) > 0 {
-				json.Unmarshal(c.Params[0], &tag)
+				if err := json.Unmarshal(c.Params[0], &tag); err != nil {
+					t.Errorf("decode fixture request: %v", err)
+					return nil, err
+				}
 			}
 			if tag == "finalized" {
 				return finalized(i), nil
@@ -330,16 +334,17 @@ func TestClientNormalizesBlockResponsesAcrossSources(t *testing.T) {
 	// Providers spell hexadecimal differently; the method policy must treat
 	// both answers as one canonical value.
 	client, nodes := fleet(t, 1, 1, 2)
-	nodes[0].Handle("eth_getBlockByHash", rpctest.Value(map[string]any{
-		"hash": "0xAB", "number": "0x1", "transactions": []any{},
-	}))
-	nodes[1].Handle("eth_getBlockByHash", rpctest.Value(map[string]any{
-		"hash": "0xab", "number": "0x1", "transactions": []any{},
-	}))
+	raw := json.RawMessage(fixtureBlock(t, 1))
+	var object map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &object)
+	var hash string
+	_ = json.Unmarshal(object["hash"], &hash)
+	nodes[0].ReturnRaw(methods.MethodGetBlockByHash, t09UpperHex(t, raw))
+	nodes[1].ReturnRaw(methods.MethodGetBlockByHash, raw)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	decision, err := callDecision(client.Call(ctx, methods.MethodGetBlockByHash, "0xab", false))
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetBlockByHash, hash, false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +362,7 @@ func TestClientRejectsBlockThatDoesNotMatchRequestedHash(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
+	requested := ethapi.Hash(common.HexToHash("0x" + strings.Repeat("42", 32)).Hex())
 	if _, _, err := client.BlockByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested block, got %v", err)
 	}
@@ -386,17 +391,17 @@ func TestMalformedFullBlockCannotJoinTheWinningCluster(t *testing.T) {
 	if err := json.Unmarshal([]byte(valid), &object); err != nil {
 		t.Fatal(err)
 	}
-	var requested common.Hash
+	var requested string
 	if err := json.Unmarshal(object["hash"], &requested); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	block, _, err := client.BlockByHash(ctx, requested)
+	block, _, err := client.BlockByHash(ctx, ethapi.Hash(requested))
 	if err != nil {
 		t.Fatalf("valid majority should survive one malformed body: %v", err)
 	}
-	decision, _ := callDecision(client.Call(ctx, methods.MethodGetBlockByHash, requested.Hex(), true))
+	decision, _ := callDecision(client.Call(ctx, methods.MethodGetBlockByHash, requested, true))
 	if block == nil || len(decision.Support) != 2 {
 		t.Fatalf("expected two valid supporters, got block=%v decision=%+v", block, decision)
 	}
@@ -708,7 +713,7 @@ func TestFinalizedAnchoringToleratesDivergentTips(t *testing.T) {
 	pm := dprom.New()
 	client, nodes := fleet(t, 1, 1, 3,
 		ethguard.WithRecorder(pm), ethguard.WithFinalizedAnchoring())
-	scriptFinalizedHeads(nodes,
+	scriptFinalizedHeads(t, nodes,
 		func(i int) map[string]any {
 			return map[string]any{"number": fmt.Sprintf("0x%x", 0x65+i), "hash": fmt.Sprintf("0xtip%d", i)}
 		},
@@ -749,12 +754,12 @@ func TestFinalizedAnchoringToleratesDivergentTips(t *testing.T) {
 
 // TestFinalizedAnchoringIsolatesStaleReporter proves the freshness bound:
 // a provider whose finalized view trails far behind is excluded from pinning
-// the reference and surfaces as an anchor fault, without blocking the read.
+// the reference without blaming a provider for a valid but inapplicable head.
 func TestFinalizedAnchoringIsolatesStaleReporter(t *testing.T) {
 	pm := dprom.New()
 	client, nodes := fleet(t, 1, 1, 3,
 		ethguard.WithRecorder(pm), ethguard.WithFinalizedAnchoring())
-	scriptFinalizedHeads(nodes,
+	scriptFinalizedHeads(t, nodes,
 		func(int) map[string]any { return map[string]any{"number": "0x66", "hash": "0xtip"} },
 		func(i int) map[string]any {
 			if i == 2 {
@@ -770,12 +775,41 @@ func TestFinalizedAnchoringIsolatesStaleReporter(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest"); err != nil {
+	result, err := client.Call(ctx, methods.MethodGetBalance, "0xaddr", "latest")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sampleValue(t, reg, "ethguard_faults_total",
-		map[string]string{"method": "anchor"}); got != 1 {
-		t.Fatalf("expected the stale reporter as one anchor fault, faults_total = %v", got)
+	if result.Decision == nil || result.Decision.Reference == nil {
+		t.Fatal("missing reference evidence")
+	}
+	ref := result.Decision.Reference
+	if len(ref.SourceFaults) != 0 {
+		t.Fatalf("valid stale head blamed: %+v", ref.SourceFaults)
+	}
+	var excluded int
+	for _, source := range ref.Sources {
+		if source.Answer.Interpretation.State == rpc.InterpretationExcluded {
+			excluded++
+		}
+	}
+	if excluded != 1 {
+		t.Fatalf("stale exclusion evidence = %+v", ref.Sources)
+	}
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range families {
+		if family.GetName() != "ethguard_faults_total" {
+			continue
+		}
+		for _, metric := range family.Metric {
+			for _, label := range metric.Label {
+				if label.GetName() == "method" && label.GetValue() == "anchor" && metric.GetCounter().GetValue() != 0 {
+					t.Fatalf("stale head recorded as anchor fault: %v", metric)
+				}
+			}
+		}
 	}
 }
 
@@ -786,7 +820,7 @@ func TestFinalizedAnchoringRejectsForkAtPinnedHeight(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3, ethguard.WithFinalizedAnchoring())
 	hashA := "0x" + strings.Repeat("aa", 32)
 	hashB := "0x" + strings.Repeat("bb", 32)
-	scriptFinalizedHeads(nodes,
+	scriptFinalizedHeads(t, nodes,
 		func(int) map[string]any { return map[string]any{"number": "0x66", "hash": "0xtip"} },
 		func(i int) map[string]any {
 			if i < 2 {
@@ -1019,7 +1053,7 @@ func TestSyncingReportsConsultedSourceState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if progress == nil || progress.CurrentBlock != 100 || progress.HighestBlock != 200 {
+	if progress == nil || progress.CurrentBlock == nil || *progress.CurrentBlock != "0x64" || progress.HighestBlock == nil || *progress.HighestBlock != "0xc8" {
 		t.Fatalf("expected decoded sync progress, got %+v", progress)
 	}
 }
@@ -1098,12 +1132,12 @@ func TestClientCorroboratesReceiptAcrossSources(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	receipt, _, err := client.TransactionReceipt(ctx, common.HexToHash(txHash))
+	receipt, _, err := client.TransactionReceipt(ctx, ethapi.Hash(txHash))
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, common.HexToHash(txHash).Hex()))
-	if receipt.TxHash != common.HexToHash(txHash) || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, txHash))
+	if string(receipt.TransactionHash) != txHash || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 		t.Fatalf("expected corroborated receipt across three sources, got %+v %+v", receipt, decision)
 	}
 
@@ -1192,7 +1226,7 @@ func TestClientRejectsReceiptThatDoesNotMatchRequestedTransaction(t *testing.T) 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	requested := common.HexToHash("0x" + strings.Repeat("43", 32))
+	requested := ethapi.Hash(common.HexToHash("0x" + strings.Repeat("43", 32)).Hex())
 	if _, _, err := client.TransactionReceipt(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested receipt, got %v", err)
 	}
@@ -1206,7 +1240,7 @@ func TestClientCorroboratesReceiptAbsenceAsNotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, decision, err := typedReceiptProbe(ctx, client, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	_, decision, err := typedReceiptProbe(ctx, client, ethapi.Hash(common.HexToHash("0x"+strings.Repeat("42", 32)).Hex()))
 	if !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
@@ -1233,7 +1267,7 @@ func TestClientResolvesReceiptPresenceSplitByMajority(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, decision, err := typedReceiptProbe(ctx, client, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	_, decision, err := typedReceiptProbe(ctx, client, ethapi.Hash(common.HexToHash("0x"+strings.Repeat("42", 32)).Hex()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1254,7 +1288,7 @@ func TestClientKeepsPresenceSplitOnTheDynamicMajorityPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, decision, err := typedReceiptProbe(ctx, client, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	_, decision, err := typedReceiptProbe(ctx, client, ethapi.Hash(common.HexToHash("0x"+strings.Repeat("42", 32)).Hex()))
 	if err != nil {
 		t.Fatalf("expected dynamic majority to accept the object cluster, got %v", err)
 	}
@@ -1278,7 +1312,7 @@ func TestClientRejectsUnanimousReceiptMissingRequiredFields(t *testing.T) {
 	// admission: no cluster forms, the decision is Unknown, and the typed
 	// boundary never runs. Scheme B: an error return must not carry
 	// Corroborated even when every source agrees on the bytes.
-	_, decision, err := typedReceiptProbe(ctx, client, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	_, decision, err := typedReceiptProbe(ctx, client, ethapi.Hash(common.HexToHash("0x"+strings.Repeat("42", 32)).Hex()))
 	if !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for schema-invalid unanimous payload, got %v", err)
 	}
@@ -1314,6 +1348,13 @@ func signedTxFixture(t *testing.T, mined bool) json.RawMessage {
 	obj["from"] = json.RawMessage(fmt.Sprintf("%q", crypto.PubkeyToAddress(key.PublicKey).Hex()))
 	if mined {
 		obj["blockNumber"] = json.RawMessage(`"0x10"`)
+		obj["blockHash"] = json.RawMessage(`"0x0000000000000000000000000000000000000000000000000000000000000001"`)
+		obj["blockTimestamp"] = json.RawMessage(`"0x1"`)
+		obj["transactionIndex"] = json.RawMessage(`"0x0"`)
+	} else {
+		for _, field := range []string{"blockHash", "blockNumber", "blockTimestamp", "transactionIndex"} {
+			obj[field] = json.RawMessage("null")
+		}
 	}
 	out, err := json.Marshal(obj)
 	if err != nil {
@@ -1330,17 +1371,17 @@ func TestClientCorroboratesTransactionByHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, node := range nodes {
-		node.Return(methods.MethodGetTransactionByHash, json.RawMessage(raw))
+		node.Return(methods.MethodGetTransactionByHash, raw)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	tx, _, _, err := client.TransactionByHash(ctx, want.Hash())
+	tx, _, _, err := client.TransactionByHash(ctx, ethapi.Hash(want.Hash().Hex()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	decision, _ := callDecision(client.Call(ctx, methods.MethodGetTransactionByHash, want.Hash().Hex()))
-	if tx.Hash() != want.Hash() || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+	if typedTransactionBridge(t, tx).Hash() != want.Hash() || decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
 		t.Fatalf("expected corroborated transaction across three sources, got %+v %+v", tx, decision)
 	}
 }
@@ -1349,12 +1390,12 @@ func TestClientRejectsTransactionThatDoesNotMatchRequestedHash(t *testing.T) {
 	client, nodes := fleet(t, 1, 1, 3)
 	raw := signedTxFixture(t, true)
 	for _, node := range nodes {
-		node.Return(methods.MethodGetTransactionByHash, json.RawMessage(raw))
+		node.Return(methods.MethodGetTransactionByHash, raw)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	requested := common.HexToHash("0x" + strings.Repeat("42", 32))
+	requested := ethapi.Hash(common.HexToHash("0x" + strings.Repeat("42", 32)).Hex())
 	if _, _, _, err := client.TransactionByHash(ctx, requested); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for wrong requested transaction, got %v", err)
 	}
@@ -1380,7 +1421,7 @@ func TestClientRejectsTransactionWithFabricatedHash(t *testing.T) {
 
 	// The fleet agrees, so corroboration passes; the wire hash disagrees with
 	// the recomputed signature hash, so the typed boundary rejects it.
-	if _, _, _, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32))); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	if _, _, _, err := client.TransactionByHash(ctx, ethapi.Hash(common.HexToHash("0x"+strings.Repeat("42", 32)).Hex())); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for fabricated wire hash, got %v", err)
 	}
 }
@@ -1393,7 +1434,7 @@ func TestClientMapsTransactionAbsenceToNotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, _, _, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	_, _, _, err := client.TransactionByHash(ctx, ethapi.Hash(common.HexToHash("0x"+strings.Repeat("42", 32)).Hex()))
 	if !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
@@ -1414,7 +1455,10 @@ func TestClientPinsBlockReceiptsToCorroboratedReference(t *testing.T) {
 		node.Return("eth_getBlockByNumber", map[string]any{"number": "0x10", "hash": "0x" + strings.Repeat("ab", 32)})
 		node.Handle(methods.MethodGetBlockReceipts, func(c rpctest.Call) (any, error) {
 			var ref string
-			json.Unmarshal(c.Params[0], &ref)
+			if err := json.Unmarshal(c.Params[0], &ref); err != nil {
+				t.Errorf("decode fixture request: %v", err)
+				return nil, err
+			}
 			if ref == "0x"+strings.Repeat("ab", 32) {
 				return receipts, nil
 			}
@@ -1452,7 +1496,8 @@ func TestClientMapsUnknownBlockReceiptsToNotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(common.HexToHash("0x"+strings.Repeat("11", 32)), false)); !errors.Is(err, ethereum.NotFound) {
+	requestedHash := ethapi.Hash(common.HexToHash("0x" + strings.Repeat("11", 32)).Hex())
+	if _, _, err := client.BlockReceipts(ctx, blockHashRef(string(requestedHash))); !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("expected ethereum.NotFound, got %v", err)
 	}
 }
@@ -1467,8 +1512,8 @@ func TestClientRejectsBlockReceiptsFromAnotherBlock(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	requested := common.HexToHash("0x" + strings.Repeat("22", 32))
-	if _, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(requested, false)); !errors.Is(err, ethguard.ErrMalformedResponse) {
+	requested := ethapi.Hash(common.HexToHash("0x" + strings.Repeat("22", 32)).Hex())
+	if _, _, err := client.BlockReceipts(ctx, blockHashRef(string(requested))); !errors.Is(err, ethguard.ErrMalformedResponse) {
 		t.Fatalf("expected ErrMalformedResponse for receipts from another block, got %v", err)
 	}
 }
@@ -1628,6 +1673,7 @@ func fixtureBlock(t *testing.T, number int64) string {
 		t.Fatal(err)
 	}
 	obj["hash"] = json.RawMessage(fmt.Sprintf("%q", block.Hash().Hex()))
+	obj["size"] = json.RawMessage(fmt.Sprintf("%q", fmt.Sprintf("0x%x", block.Size())))
 	obj["transactions"] = json.RawMessage(`[]`)
 	obj["uncles"] = json.RawMessage(`[]`)
 	out, err := json.Marshal(obj)
@@ -1870,7 +1916,7 @@ func TestFeeHistoryPinsNewestToTheCorroboratedHeight(t *testing.T) {
 	if decision.Status != rpc.Corroborated || decision.BlockRef != "0x10" {
 		t.Fatalf("expected corroborated height-pinned history, got %+v", decision)
 	}
-	if history.OldestBlock.Uint64() != 15 || len(history.BaseFee) != 4 {
+	if history.OldestBlock != "0xf" || len(history.BaseFeePerGas) != 4 {
 		t.Fatalf("unexpected decoded history: %+v", history)
 	}
 }
@@ -1891,7 +1937,7 @@ func TestConfigPresetSpellingSelectsTheSameStrategy(t *testing.T) {
 			Endpoint: node.URL(),
 		})
 	}
-	scriptFinalizedHeads(nodes,
+	scriptFinalizedHeads(t, nodes,
 		func(i int) map[string]any { // divergent latest heads
 			return map[string]any{"number": fmt.Sprintf("0x%x", 16-i), "hash": fmt.Sprintf("0xhead%d", i)}
 		},
@@ -2087,11 +2133,11 @@ func TestClientResolvesNewMethods(t *testing.T) {
 		if d.Status != rpc.Corroborated {
 			t.Fatalf("status = %v, want Corroborated", d.Status)
 		}
-		if res.GasUsed != 0x5208 {
+		if res.GasUsed == nil || *res.GasUsed != "0x5208" {
 			t.Fatalf("gasUsed = %d, want %d", res.GasUsed, 0x5208)
 		}
-		if len(res.AccessList) != 1 {
-			t.Fatalf("accessList length = %d, want 1", len(res.AccessList))
+		if res.AccessList == nil || len(*res.AccessList) != 1 {
+			t.Fatalf("accessList length = %d, want 1", len(*res.AccessList))
 		}
 	})
 }

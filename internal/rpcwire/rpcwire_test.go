@@ -511,3 +511,92 @@ func FuzzDecodeResponse(f *testing.F) {
 		}
 	})
 }
+
+// A delivered result is the caller's own copy: mutating the bytes a
+// CompleteCall or Response.Decode handed out must not corrupt the raw body the
+// exchange produced, another consumer's delivery from the same body, or a
+// later decode of that body. This pins the isolation contract both public
+// entry points promise, no matter which adapter shares the underlying body
+// bytes between two in-process consumers.
+func TestDeliveredResultBytesAreIsolatedAcrossConsumers(t *testing.T) {
+	const body = `{"jsonrpc":"2.0","id":1,"result":{"blocks":["0x1","0x2"],"tag":"latest"}}`
+	rawBody := []byte(body)
+	requestID := json.RawMessage(`1`)
+
+	// Two CompleteCall deliveries against the same body bytes land in
+	// independent targets: scratching one target's buffer must not touch the
+	// other delivery, the shared body, or the caller's own view of the second
+	// delivery.
+	var first, second json.RawMessage
+	if err := CompleteCall(rawBody, requestID, rpc.Exchange{Progress: rpc.ExchangeCompleted}).Decode(&first); err != nil {
+		t.Fatalf("first CompleteCall: %v", err)
+	}
+	if err := CompleteCall(rawBody, requestID, rpc.Exchange{Progress: rpc.ExchangeCompleted}).Decode(&second); err != nil {
+		t.Fatalf("second CompleteCall: %v", err)
+	}
+	for i := range first {
+		first[i] = 'X'
+	}
+	if string(second) != `{"blocks":["0x1","0x2"],"tag":"latest"}` {
+		t.Fatalf("second delivery was polluted by mutating the first: %s", second)
+	}
+	if string(rawBody) != body {
+		t.Fatalf("shared body bytes were mutated through a delivered result: %s", rawBody)
+	}
+
+	// A fresh decode of the same body is unaffected by the scratch.
+	resp, err := DecodeResponse(rawBody, requestID)
+	if err != nil {
+		t.Fatalf("DecodeResponse after scratch: %v", err)
+	}
+	if string(resp.Result) != `{"blocks":["0x1","0x2"],"tag":"latest"}` {
+		t.Fatalf("decoded result polluted: %s", resp.Result)
+	}
+
+	// The decoded view of a second consumer: mutating a response's Result
+	// bytes must not corrupt the body or the other response's result.
+	other, err := DecodeResponse(rawBody, requestID)
+	if err != nil {
+		t.Fatalf("second DecodeResponse: %v", err)
+	}
+	for i := range other.Result {
+		other.Result[i] = '-'
+	}
+	if string(resp.Result) != `{"blocks":["0x1","0x2"],"tag":"latest"}` {
+		t.Fatalf("mutating one response's result corrupted another's: %s", resp.Result)
+	}
+	if string(rawBody) != body {
+		t.Fatalf("body corrupted through a decoded response: %s", rawBody)
+	}
+
+	// Response.Decode copies into a RawMessage target: the target owns its bytes
+	// and the raw input keeps its own.
+	var target json.RawMessage
+	if err := (rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: resp.Result}}).Decode(&target); err != nil {
+		t.Fatalf("Response.Decode: %v", err)
+	}
+	for i := range target {
+		target[i] = '#'
+	}
+	if string(resp.Result) != `{"blocks":["0x1","0x2"],"tag":"latest"}` {
+		t.Fatalf("Response.Decode target shares the source bytes: %s", resp.Result)
+	}
+	if string(rawBody) != body {
+		t.Fatalf("body corrupted through a Response.Decode target: %s", rawBody)
+	}
+
+	// A typed decode target is equally isolated from the raw bytes.
+	type blocksView struct {
+		Blocks []string `json:"blocks"`
+	}
+	var typed blocksView
+	if err := CompleteCall(rawBody, requestID, rpc.Exchange{Progress: rpc.ExchangeCompleted}).Decode(&typed); err != nil {
+		t.Fatalf("typed CompleteCall: %v", err)
+	}
+	if len(typed.Blocks) != 2 || typed.Blocks[1] != "0x2" {
+		t.Fatalf("typed decode lost the result: %+v", typed)
+	}
+	if string(rawBody) != body {
+		t.Fatalf("body corrupted through a typed decode: %s", rawBody)
+	}
+}

@@ -22,13 +22,13 @@ func TestMedianPicksLowerMedianOverDistinctValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Selected {
-		t.Fatalf("variable results must stay selected, got %v", decision.Status)
+	if decision.Decision.Status != Selected {
+		t.Fatalf("variable results must stay selected, got %v", decision.Decision.Status)
 	}
-	if string(decision.Value) != `"2"` {
-		t.Fatalf("expected lower median 2, got %s", decision.Value)
+	if string(decision.Decision.Value) != `"2"` {
+		t.Fatalf("expected lower median 2, got %s", decision.Decision.Value)
 	}
-	if len(decision.Support) != 1 || len(decision.Reject) != 2 {
+	if len(decision.Decision.Support) != 1 || len(decision.Decision.Reject) != 2 {
 		t.Fatalf("expected the median reporter in support and outliers as evidence, got %+v", decision)
 	}
 }
@@ -39,10 +39,10 @@ func TestMedianEvenCountPrefersLowerMiddle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(decision.Value) != `"2"` {
-		t.Fatalf("expected lower-middle 2, got %s", decision.Value)
+	if string(decision.Decision.Value) != `"2"` {
+		t.Fatalf("expected lower-middle 2, got %s", decision.Decision.Value)
 	}
-	if len(decision.Support) != 1 || len(decision.Reject) != 3 {
+	if len(decision.Decision.Support) != 1 || len(decision.Decision.Reject) != 3 {
 		t.Fatalf("expected one supporter, got %+v", decision)
 	}
 }
@@ -55,10 +55,10 @@ func TestMedianUnanimousFleetStaysSelected(t *testing.T) {
 	}
 	// The red line: agreement on a moving value is coincidence, so the
 	// ceiling is Selected no matter how many sources agree.
-	if decision.Status != Selected {
-		t.Fatalf("median selection must never claim corroborated, got %v", decision.Status)
+	if decision.Decision.Status != Selected {
+		t.Fatalf("median selection must never claim corroborated, got %v", decision.Decision.Status)
 	}
-	if len(decision.Support) != 3 || len(decision.Reject) != 0 {
+	if len(decision.Decision.Support) != 3 || len(decision.Decision.Reject) != 0 {
 		t.Fatalf("unanimous fleet should sit fully in support, got %+v", decision)
 	}
 }
@@ -69,8 +69,8 @@ func TestMedianDuplicatesClusterAroundWinner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(decision.Value) != `"5"` || len(decision.Support) != 2 || len(decision.Reject) != 1 {
-		t.Fatalf("expected duplicated low cluster to win, got %s %+v", decision.Value, decision)
+	if string(decision.Decision.Value) != `"5"` || len(decision.Decision.Support) != 2 || len(decision.Decision.Reject) != 1 {
+		t.Fatalf("expected duplicated low cluster to win, got %s %+v", decision.Decision.Value, decision)
 	}
 }
 
@@ -86,8 +86,8 @@ func TestMedianUsesFirstPoolOrderSpellingOnEqualValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(decision.Value) != `"0x01"` {
-		t.Fatalf("expected first pool-order spelling to win, got %s", decision.Value)
+	if string(decision.Decision.Value) != `"0x01"` {
+		t.Fatalf("expected first pool-order spelling to win, got %s", decision.Decision.Value)
 	}
 }
 
@@ -95,23 +95,23 @@ func TestMedianInvalidResponsesRideAsFaults(t *testing.T) {
 	p := Median(decimal)
 	decision, err := p.Resolve([]Observation{
 		obs(`"5"`),
-		{Source: src(), Err: errors.New("timeout")},
+		{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("timeout")}}},
 		obs(`"not-a-number"`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(decision.Value) != `"5"` {
-		t.Fatalf("expected the only valid sample to win, got %s", decision.Value)
+	if string(decision.Decision.Value) != `"5"` {
+		t.Fatalf("expected the only valid sample to win, got %s", decision.Decision.Value)
 	}
-	if len(decision.Faults) != 1 {
-		t.Fatalf("expected the unparseable payload as a fault, got %+v", decision.Faults)
+	if len(decision.Decision.Faults) != 2 {
+		t.Fatalf("expected the unparseable payload as a fault, got %+v", decision.Decision.Faults)
 	}
 }
 
 func TestMedianAllInvalidIsNoValidResponse(t *testing.T) {
 	p := Median(decimal)
-	_, err := p.Resolve([]Observation{obs(`"junk"`), {Source: src(), Err: errors.New("down")}})
+	_, err := p.Resolve([]Observation{obs(`"junk"`), {Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("down")}}}})
 	if !errors.Is(err, ErrNoValidResponse) {
 		t.Fatalf("expected no-valid-response class, got %v", err)
 	}

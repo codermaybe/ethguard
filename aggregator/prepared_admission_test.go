@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -35,7 +36,7 @@ func TestPreparedBlockAdmissionUsesFrozenSemanticParams(t *testing.T) {
 				{"changing-marshaler", func() any { return &firstTrueMarshaler{} }},
 			} {
 				t.Run(flag.name, func(t *testing.T) {
-					for _, response := range []string{"valid", "header-only", "hash-only-body", "wrong-root", "wrong-wire-hash", "wrong-request-hash"} {
+					for _, response := range []string{"valid", "missing-size", "header-only", "hash-only-body", "wrong-root", "wrong-wire-hash", "wrong-request-hash"} {
 						if response == "wrong-request-hash" && method != methods.MethodGetBlockByHash {
 							continue
 						}
@@ -57,6 +58,9 @@ func TestPreparedBlockAdmissionUsesFrozenSemanticParams(t *testing.T) {
 							if response == "valid" {
 								if err != nil || decision.Status != rpc.Corroborated || len(decision.Value) == 0 {
 									t.Fatalf("valid full block rejected: status %v, value %s, err %v", decision.Status, decision.Value, err)
+								}
+								if _, err := ethapi.NewBlock(decision.Value); err != nil {
+									t.Fatalf("committed valid block is incomplete: %v", err)
 								}
 							} else if !errors.Is(err, rpc.ErrMalformedResponse) || decision.Status != rpc.Unknown || len(decision.Value) != 0 {
 								t.Fatalf("unsafe full block admitted: status %v, value %s, err %v", decision.Status, decision.Value, err)
@@ -131,6 +135,7 @@ func TestPreparedAdmissionPreservesNumericTransactionIndex(t *testing.T) {
 	body["from"] = crypto.PubkeyToAddress(key.PublicKey).Hex()
 	body["blockHash"] = blockHash
 	body["blockNumber"] = "0x1"
+	body["blockTimestamp"] = "0x1"
 	for _, index := range []struct {
 		name  string
 		param any
@@ -160,6 +165,16 @@ func TestPreparedAdmissionPreservesNumericTransactionIndex(t *testing.T) {
 						}
 					} else if err != nil || decision.Status != rpc.Corroborated || len(decision.Value) == 0 {
 						t.Fatalf("numeric transaction index rejected: status %v, value %s, err %v", decision.Status, decision.Value, err)
+					} else {
+						var result struct {
+							TransactionIndex string `json:"transactionIndex"`
+						}
+						if err := json.Unmarshal(decision.Value, &result); err != nil {
+							t.Fatal(err)
+						}
+						if result.TransactionIndex != hexutil.EncodeUint64(index.value) {
+							t.Fatalf("transaction index lost precision: got %s, want %s", result.TransactionIndex, hexutil.EncodeUint64(index.value))
+						}
 					}
 				})
 			}
@@ -202,7 +217,15 @@ func frozenAdmissionBlock(t *testing.T, variant string) (json.RawMessage, common
 	}
 	body["transactions"] = json.RawMessage(`[]`)
 	body["uncles"] = json.RawMessage(`[]`)
+	// This fixture serves a complete empty block. Its source-local size is the
+	// actual RLP block size, not a default added by the production encoder.
+	body["size"], err = json.Marshal(hexutil.EncodeUint64(types.NewBlockWithHeader(header).Size()))
+	if err != nil {
+		t.Fatal(err)
+	}
 	switch variant {
+	case "missing-size":
+		delete(body, "size")
 	case "header-only":
 		body = map[string]json.RawMessage{"number": body["number"], "hash": body["hash"]}
 	case "hash-only-body":

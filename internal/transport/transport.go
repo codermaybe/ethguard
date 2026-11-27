@@ -1,9 +1,7 @@
 // Package transport is the Port-only physical home of the connection seam:
 // the Transport and Dialer interfaces pool consumes, and the neutral
 // sentinels core packages classify on. It owns no adapter implementation —
-// the native HTTP adapter lives in internal/transport/http and the go-ethereum
-// compatibility adapter in internal/transport/geth — so the default build
-// never links ethclient.
+// the native HTTP adapter lives in internal/transport/http.
 package transport
 
 import (
@@ -12,14 +10,16 @@ import (
 	"errors"
 	"math/big"
 	"time"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // Transport is one long-lived upstream connection. It deliberately exposes
 // only a raw JSON-RPC call, the chain identity probe used by source admission,
-// and lifecycle close. Protocol adapters may attach structured wire errors to
-// the returned error without expanding this interface.
+// and lifecycle close. Each call returns
+// communication progress and a distinct protocol answer in rpc.Response.
 type Transport interface {
-	CallContext(context.Context, any, string, ...any) error
+	Call(context.Context, string, ...any) rpc.Response
 	ChainID(context.Context) (*big.Int, error)
 	Close()
 }
@@ -40,6 +40,17 @@ type Notification struct {
 	Result         json.RawMessage
 	Raw            json.RawMessage
 	ReceivedAt     time.Time
+	// Release returns raw-byte ownership after the receiver finishes decoding.
+	Release func()
+}
+
+type NotificationPolicy struct {
+	Messages               int
+	Bytes, MaxMessageBytes uint64
+	Reserve                func(uint64) (func(), error)
+}
+type BoundedSubscriber interface {
+	SubscribeBounded(context.Context, NotificationPolicy, string, ...any) (Subscription, error)
 }
 
 // Subscription is the transport-neutral lifecycle surface used by the root
@@ -69,3 +80,6 @@ var ErrConnectionClosed = errors.New("transport: connection closed")
 // it were a complete JSON-RPC response: the transport fails the call with
 // this error instead, so no adapter vouches for truncated bytes.
 var ErrBodyTooLarge = errors.New("transport: response body exceeds limit")
+
+// ErrNotificationBackpressure identifies a bounded notification queue overflow.
+var ErrNotificationBackpressure = errors.New("transport: notification backpressure")

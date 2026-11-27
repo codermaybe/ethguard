@@ -8,61 +8,80 @@ import (
 	"strconv"
 
 	ethereum "github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/typed"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
-func (c *Client) pendingBalanceAtExec(ctx context.Context, account common.Address) (*big.Int, CallResult, error) {
-	return readQuantityExec(ctx, c, methods.MethodGetBalance, account.Hex(), "pending")
+func (c *Client) pendingBalanceAtExec(ctx context.Context, account ethapi.Address) (*big.Int, CallResult, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	return readQuantityExec(ctx, c, methods.MethodGetBalance, string(account), "pending")
 }
-func (c *Client) PendingBalanceAt(ctx context.Context, account common.Address) (*big.Int, CallResult, error) {
+func (c *Client) PendingBalanceAt(ctx context.Context, account ethapi.Address) (*big.Int, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (*big.Int, CallResult, error) {
 		return c.pendingBalanceAtExec(opCtx, account)
 	})
 }
 
-func (c *Client) pendingStorageAtExec(ctx context.Context, account common.Address, key common.Hash) ([]byte, CallResult, error) {
-	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetStorageAt, account.Hex(), key.Hex(), "pending")
+func (c *Client) pendingStorageAtExec(ctx context.Context, account ethapi.Address, key ethapi.Hash) ([]byte, CallResult, error) {
+	account, key, err := validateAddressHash(account, key)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetStorageAt, string(account), string(key), "pending")
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
 	return []byte(*value), CallResult{Decision: decisionOf(decision)}, nil
 }
-func (c *Client) PendingStorageAt(ctx context.Context, account common.Address, key common.Hash) ([]byte, CallResult, error) {
+func (c *Client) PendingStorageAt(ctx context.Context, account ethapi.Address, key ethapi.Hash) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return c.pendingStorageAtExec(opCtx, account, key)
 	})
 }
 
-func (c *Client) pendingCodeAtExec(ctx context.Context, account common.Address) ([]byte, CallResult, error) {
-	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetCode, account.Hex(), "pending")
+func (c *Client) pendingCodeAtExec(ctx context.Context, account ethapi.Address) ([]byte, CallResult, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	value, decision, err := aggregateInto[hexutil.Bytes](ctx, c, methods.MethodGetCode, string(account), "pending")
 	if err != nil {
 		return nil, CallResult{Decision: decisionOf(decision)}, err
 	}
 	return []byte(*value), CallResult{Decision: decisionOf(decision)}, nil
 }
-func (c *Client) PendingCodeAt(ctx context.Context, account common.Address) ([]byte, CallResult, error) {
+func (c *Client) PendingCodeAt(ctx context.Context, account ethapi.Address) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) { return c.pendingCodeAtExec(opCtx, account) })
 }
 
-func (c *Client) pendingNonceAtExec(ctx context.Context, account common.Address) (uint64, CallResult, error) {
-	value, decision, err := aggregateInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, account.Hex(), "pending")
+func (c *Client) pendingNonceAtExec(ctx context.Context, account ethapi.Address) (uint64, CallResult, error) {
+	account, err := validateAddress(account)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	value, decision, err := aggregateInto[hexutil.Uint64](ctx, c, methods.MethodGetTransactionCount, string(account), "pending")
 	if err != nil {
 		return 0, CallResult{Decision: decisionOf(decision)}, err
 	}
 	return uint64(*value), CallResult{Decision: decisionOf(decision)}, nil
 }
-func (c *Client) PendingNonceAt(ctx context.Context, account common.Address) (uint64, CallResult, error) {
+func (c *Client) PendingNonceAt(ctx context.Context, account ethapi.Address) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) { return c.pendingNonceAtExec(opCtx, account) })
 }
 
-func (c *Client) transactionCountExec(ctx context.Context, blockHash common.Hash) (uint, CallResult, error) {
-	decision, err := c.callTyped(ctx, methods.MethodGetBlockTransactionCountByHash, blockHash.Hex())
+func (c *Client) transactionCountExec(ctx context.Context, blockHash ethapi.Hash) (uint, CallResult, error) {
+	blockHash, err := validateHash(blockHash)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodGetBlockTransactionCountByHash, string(blockHash))
 	if err != nil {
 		decision.Value = nil
 		return 0, CallResult{Decision: decisionOf(decision)}, err
@@ -83,14 +102,18 @@ func (c *Client) transactionCountExec(ctx context.Context, blockHash common.Hash
 
 // TransactionCount returns the fleet-corroborated transaction count for an
 // immutable block hash. A corroborated JSON null maps to ethereum.NotFound.
-func (c *Client) TransactionCount(ctx context.Context, blockHash common.Hash) (uint, CallResult, error) {
+func (c *Client) TransactionCount(ctx context.Context, blockHash ethapi.Hash) (uint, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint, CallResult, error) {
 		return c.transactionCountExec(opCtx, blockHash)
 	})
 }
 
-func (c *Client) transactionInBlockExec(ctx context.Context, blockHash common.Hash, index uint) (*types.Transaction, CallResult, error) {
-	decision, err := c.callTyped(ctx, methods.MethodGetTransactionByBlockHashAndIndex, blockHash.Hex(), hexutil.Uint64(index))
+func (c *Client) transactionInBlockExec(ctx context.Context, blockHash ethapi.Hash, index uint) (*ethapi.Transaction, CallResult, error) {
+	blockHash, err := validateHash(blockHash)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodGetTransactionByBlockHashAndIndex, string(blockHash), hexutil.Uint64(index))
 	if err != nil {
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
@@ -104,45 +127,64 @@ func (c *Client) transactionInBlockExec(ctx context.Context, blockHash common.Ha
 
 // TransactionInBlock returns the transaction at an index in an immutable
 // block, or ethereum.NotFound when the block/index has no transaction.
-func (c *Client) TransactionInBlock(ctx context.Context, blockHash common.Hash, index uint) (*types.Transaction, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (*types.Transaction, CallResult, error) {
+func (c *Client) TransactionInBlock(ctx context.Context, blockHash ethapi.Hash, index uint) (*ethapi.Transaction, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (*ethapi.Transaction, CallResult, error) {
 		return c.transactionInBlockExec(opCtx, blockHash, index)
 	})
 }
 
-func (c *Client) transactionSenderExec(ctx context.Context, tx *types.Transaction, blockHash common.Hash, index uint) (common.Address, CallResult, error) {
-	if tx == nil {
-		return common.Address{}, CallResult{}, fmt.Errorf("ethguard: nil transaction: %w", rpc.ErrInvalidRequest)
+func (c *Client) transactionSenderExec(ctx context.Context, tx *ethapi.Transaction, blockHash ethapi.Hash, index uint) (ethapi.Address, CallResult, error) {
+	// The caller's value is re-validated and its signed-payload hash
+	// recomputed before any network contact: a nil, zero-selected,
+	// multi-selected, structurally illegal, unsigned, or misdeclared input
+	// fails locally instead of binding a foreign sender.
+	payload, err := typed.TransactionPayload(tx)
+	if err != nil {
+		return "", CallResult{}, err
 	}
-	decision, err := c.callTyped(ctx, methods.MethodGetTransactionByBlockHashAndIndex, blockHash.Hex(), hexutil.Uint64(index))
+	blockHash, err = validateHash(blockHash)
+	if err != nil {
+		return "", CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodGetTransactionByBlockHashAndIndex, string(blockHash), hexutil.Uint64(index))
 	if err != nil {
 		decision.Value = nil
-		return common.Address{}, CallResult{Decision: decisionOf(decision)}, err
+		return "", CallResult{Decision: decisionOf(decision)}, err
 	}
 	decoded, err := typed.DecodeTransactionInBlock(decision.Value, blockHash, uint64(index))
 	if err != nil {
-		return common.Address{}, CallResult{Decision: decisionOf(decision)}, err
+		return "", CallResult{Decision: decisionOf(decision)}, err
 	}
-	if decoded.Tx.Hash() != tx.Hash() {
-		return common.Address{}, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: remote transaction hash %s does not match input %s", rpc.ErrMalformedResponse, decoded.Tx.Hash(), tx.Hash())
+	if string(decoded.TxHash) != payload.Hash().Hex() {
+		return "", CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: remote transaction hash %s does not match input %s", rpc.ErrMalformedResponse, decoded.TxHash, payload.Hash())
 	}
 	if !decoded.HasFrom {
-		return common.Address{}, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: transaction response has no sender", rpc.ErrMalformedResponse)
+		return "", CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: transaction response has no sender", rpc.ErrMalformedResponse)
 	}
 	return decoded.From, CallResult{Decision: decisionOf(decision)}, nil
 }
 
 // TransactionSender returns the sender reported for the transaction at the
 // requested immutable block/index. It deliberately performs a fresh RPC read
-// and never relies on hidden sender state attached to the transaction value.
-func (c *Client) TransactionSender(ctx context.Context, tx *types.Transaction, blockHash common.Hash, index uint) (common.Address, CallResult, error) {
-	return operation(c, ctx, false, func(opCtx context.Context) (common.Address, CallResult, error) {
+// and never relies on hidden sender state attached to the transaction value;
+// the returned address is the RPC-declared sender at this decision's trust
+// level, not a recovered or inclusion-proven identity.
+func (c *Client) TransactionSender(ctx context.Context, tx *ethapi.Transaction, blockHash ethapi.Hash, index uint) (ethapi.Address, CallResult, error) {
+	return operation(c, ctx, false, func(opCtx context.Context) (ethapi.Address, CallResult, error) {
 		return c.transactionSenderExec(opCtx, tx, blockHash, index)
 	})
 }
 
-func (c *Client) callContractAtHashExec(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, CallResult, error) {
-	decision, err := c.callTyped(ctx, methods.MethodCall, toCallArg(msg), hashBlockArg(blockHash))
+func (c *Client) callContractAtHashExec(ctx context.Context, msg ethapi.CallMsg, blockHash ethapi.Hash) ([]byte, CallResult, error) {
+	blockHash, err := validateHash(blockHash)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	call, err := toCallArg(msg)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodCall, call, hashBlockArg(blockHash))
 	if err != nil {
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
@@ -150,14 +192,18 @@ func (c *Client) callContractAtHashExec(ctx context.Context, msg ethereum.CallMs
 	data, err := decodeCallDecision(decision)
 	return data, CallResult{Decision: decisionOf(decision)}, err
 }
-func (c *Client) CallContractAtHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) ([]byte, CallResult, error) {
+func (c *Client) CallContractAtHash(ctx context.Context, msg ethapi.CallMsg, blockHash ethapi.Hash) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) {
 		return c.callContractAtHashExec(opCtx, msg, blockHash)
 	})
 }
 
-func (c *Client) pendingCallContractExec(ctx context.Context, msg ethereum.CallMsg) ([]byte, CallResult, error) {
-	decision, err := c.callTyped(ctx, methods.MethodCall, toCallArg(msg), "pending")
+func (c *Client) pendingCallContractExec(ctx context.Context, msg ethapi.CallMsg) ([]byte, CallResult, error) {
+	call, err := toCallArg(msg)
+	if err != nil {
+		return nil, CallResult{}, err
+	}
+	decision, err := c.callTyped(ctx, methods.MethodCall, call, "pending")
 	if err != nil {
 		decision.Value = nil
 		return nil, CallResult{Decision: decisionOf(decision)}, err
@@ -165,7 +211,7 @@ func (c *Client) pendingCallContractExec(ctx context.Context, msg ethereum.CallM
 	data, err := decodeCallDecision(decision)
 	return data, CallResult{Decision: decisionOf(decision)}, err
 }
-func (c *Client) PendingCallContract(ctx context.Context, msg ethereum.CallMsg) ([]byte, CallResult, error) {
+func (c *Client) PendingCallContract(ctx context.Context, msg ethapi.CallMsg) ([]byte, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) ([]byte, CallResult, error) { return c.pendingCallContractExec(opCtx, msg) })
 }
 
@@ -178,20 +224,42 @@ func (c *Client) estimateGasWithArgExec(ctx context.Context, call map[string]any
 	gas, err := typed.DecodeGasEstimate(decision.Value)
 	return gas, CallResult{Decision: decisionOf(decision)}, err
 }
-func (c *Client) estimateGasWithArg(ctx context.Context, call map[string]any, blockArg any) (uint64, CallResult, error) {
+func (c *Client) EstimateGasAtBlock(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
-		return c.estimateGasWithArgExec(opCtx, call, blockArg)
+		return c.estimateGasAtBlockExec(opCtx, msg, blockNumber)
 	})
 }
-func (c *Client) EstimateGasAtBlock(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) (uint64, CallResult, error) {
+
+// estimateGasAtBlockExec prepares the block argument and call object for
+// both facades, then rides the shared estimate execution.
+func (c *Client) estimateGasAtBlockExec(ctx context.Context, msg ethapi.CallMsg, blockNumber *big.Int) (uint64, CallResult, error) {
+	arg, err := checkedBlockNumArg(blockNumber)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	call, err := toCallArg(msg)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	return c.estimateGasWithArgExec(ctx, call, arg)
+}
+
+func (c *Client) EstimateGasAtBlockHash(ctx context.Context, msg ethapi.CallMsg, blockHash ethapi.Hash) (uint64, CallResult, error) {
 	return operation(c, ctx, false, func(opCtx context.Context) (uint64, CallResult, error) {
-		arg, err := checkedBlockNumArg(blockNumber)
-		if err != nil {
-			return 0, CallResult{}, err
-		}
-		return c.estimateGasWithArgExec(opCtx, toCallArg(msg), arg)
+		return c.estimateGasAtBlockHashExec(opCtx, msg, blockHash)
 	})
 }
-func (c *Client) EstimateGasAtBlockHash(ctx context.Context, msg ethereum.CallMsg, blockHash common.Hash) (uint64, CallResult, error) {
-	return c.estimateGasWithArg(ctx, toCallArg(msg), hashBlockArg(blockHash))
+
+// estimateGasAtBlockHashExec prepares the EIP-1898 hash object for both
+// facades, then rides the shared estimate execution.
+func (c *Client) estimateGasAtBlockHashExec(ctx context.Context, msg ethapi.CallMsg, blockHash ethapi.Hash) (uint64, CallResult, error) {
+	blockHash, err := validateHash(blockHash)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	call, err := toCallArg(msg)
+	if err != nil {
+		return 0, CallResult{}, err
+	}
+	return c.estimateGasWithArgExec(ctx, call, hashBlockArg(blockHash))
 }

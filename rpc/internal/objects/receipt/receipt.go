@@ -2,38 +2,55 @@
 package receipt
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
+	objectreceipt "github.com/codermaybe/ethguard/internal/ethobject/receipt"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // Pruner removes fields that are outside the method's comparison shape.
 type Pruner func(method string, raw json.RawMessage) (string, error)
 
-func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
+// PrepareTransaction runs the original AdmitTransaction order once and hands
+// out the canonical bytes it validated, so a caller that also commits those
+// bytes never encodes the response a second time. The fixed order: a JSON
+// null short-circuits to the canonical "null" before any request parsing;
+// the requested hash is parsed next so a request error keeps its class and
+// precedence over any payload verdict; DecodeWithCanonical then performs the
+// complete wire validation (encoder, private geth decode, nil and zero-hash
+// checks) and returns the already-validated canonical bytes; finally the
+// decoded receipt's transaction hash must match the request. Errors keep the
+// original admission texts and wrapping exactly.
+func PrepareTransaction(req rpc.Request, value json.RawMessage) (json.RawMessage, error) {
 	if IsJSONNull(value) {
-		return nil
+		return json.RawMessage("null"), nil
 	}
 	want, err := RequestedHash(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	r, err := validateAndDecode(value)
+	canonical, r, err := objectreceipt.DecodeWithCanonical(value)
 	if err != nil {
-		return fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
+		return nil, fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)
 	}
 	if r == nil || r.TxHash != want {
-		return fmt.Errorf("%w: receipt transaction hash does not match requested hash", rpc.ErrMalformedResponse)
+		return nil, fmt.Errorf("%w: receipt transaction hash does not match requested hash", rpc.ErrMalformedResponse)
 	}
-	return nil
+	return canonical, nil
+}
+
+func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
+	// The admission entry needs only the verdict; the canonical bytes it
+	// prepared are discarded here. The canonical processing entry hands the
+	// same bytes to the result instead of re-encoding.
+	_, err := PrepareTransaction(req, value)
+	return err
 }
 
 // AdmitBlock checks each receipt against the requested block. A JSON null
@@ -41,30 +58,53 @@ func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
 // not a missing response. This is per-response integrity against the
 // request, not a completeness claim over every receipt that could exist.
 func AdmitBlock(req rpc.Request, value json.RawMessage) error {
+	_, err := prepareBlockRows(req, value)
+	return err
+}
+
+// PrepareBlock retains the canonical bytes already checked by block admission.
+// It keeps the original order: null, array shape, request, then each receipt's
+// complete validation and binding before visiting the next receipt. Like
+// AdmitBlock, this controlled method entry relies on the coordinator's prior
+// RejectUnsafeJSON check for the whole list's byte and nesting bounds; it does
+// not replace that safety stage with per-row checks.
+func PrepareBlock(req rpc.Request, value json.RawMessage) (json.RawMessage, error) {
+	rows, err := prepareBlockRows(req, value)
+	if err != nil {
+		return nil, err
+	}
+	return ethcodec.MarshalNoEscape(rows)
+}
+
+// prepareBlockRows reuses the decoded row slice for the checked encodings. A
+// nil slice denotes null; an empty non-nil slice denotes []. Admission can
+// discard this result without paying for a complete array marshal.
+func prepareBlockRows(req rpc.Request, value json.RawMessage) ([]json.RawMessage, error) {
 	if IsJSONNull(value) {
-		return nil
+		return nil, nil
 	}
 	var rows []json.RawMessage
 	if err := json.Unmarshal(value, &rows); err != nil || rows == nil {
-		return fmt.Errorf("%w: block receipts must be an array", rpc.ErrMalformedResponse)
+		return nil, fmt.Errorf("%w: block receipts must be an array", rpc.ErrMalformedResponse)
 	}
 	hash, height, err := RequestedBlockRef(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for i, row := range rows {
-		r, err := validateAndDecode(row)
+		canonical, r, err := objectreceipt.DecodeWithCanonical(row)
 		if err != nil || r == nil {
-			return fmt.Errorf("%w: receipt %d: %v", rpc.ErrMalformedResponse, i, err)
+			return nil, fmt.Errorf("%w: receipt %d: %v", rpc.ErrMalformedResponse, i, err)
 		}
 		if hash != nil && r.BlockHash != *hash {
-			return fmt.Errorf("%w: receipt %d block hash does not match requested hash", rpc.ErrMalformedResponse, i)
+			return nil, fmt.Errorf("%w: receipt %d block hash does not match requested hash", rpc.ErrMalformedResponse, i)
 		}
 		if height != nil && (r.BlockNumber == nil || r.BlockNumber.Cmp(height) != 0) {
-			return fmt.Errorf("%w: receipt %d block number does not match requested number", rpc.ErrMalformedResponse, i)
+			return nil, fmt.Errorf("%w: receipt %d block number does not match requested number", rpc.ErrMalformedResponse, i)
 		}
+		rows[i] = canonical
 	}
-	return nil
+	return rows, nil
 }
 
 func RequestedHash(req rpc.Request) (common.Hash, error) {
@@ -118,7 +158,7 @@ func ParseBlockHeight(value any) (*common.Hash, *big.Int, error) {
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: block number must be a hex quantity", rpc.ErrInvalidRequest)
 	}
-	canonical, err := wire.NormalizeHexQuantity(json.RawMessage(fmt.Sprintf("%q", s)))
+	canonical, err := ethcodec.NormalizeHexQuantity(json.RawMessage(fmt.Sprintf("%q", s)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: invalid block number: %v", rpc.ErrInvalidRequest, err)
 	}
@@ -133,7 +173,7 @@ func ParseBlockHeight(value any) (*common.Hash, *big.Int, error) {
 // whitelist prune and are not rejected here. Any non-object payload and an
 // object carrying at most one field are incomplete answers, not votes. A
 // value with no canonical form errors. Required-field rejection belongs to
-// validateAndDecode and the Admit functions.
+// receipt decoding and the Admit functions.
 func Normalize(value json.RawMessage, prune Pruner, method string) (string, error) {
 	if IsJSONNull(value) {
 		return "null", nil
@@ -143,96 +183,6 @@ func Normalize(value json.RawMessage, prune Pruner, method string) (string, erro
 		return "", fmt.Errorf("receipt: incomplete object")
 	}
 	return prune(method, value)
-}
-
-// validateAndDecode runs every wire check and returns the decoded receipt, so
-// a caller that must bind the receipt to its request does not decode the same
-// bytes a second time.
-func validateAndDecode(value json.RawMessage) (*types.Receipt, error) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(value, &obj); err != nil || obj == nil {
-		return nil, fmt.Errorf("receipt: expected object")
-	}
-	for _, f := range []string{"transactionHash", "transactionIndex", "blockHash", "blockNumber", "cumulativeGasUsed", "gasUsed", "logsBloom", "logs"} {
-		if !PresentNonNull(obj[f]) {
-			return nil, fmt.Errorf("receipt: missing %s", f)
-		}
-	}
-	for _, f := range []string{"transactionHash", "blockHash"} {
-		if _, err := wire.ValidateWireFixedHex(obj[f], 64, f); err != nil {
-			return nil, fmt.Errorf("receipt: %s: %w", f, err)
-		}
-	}
-	for _, f := range []string{"transactionIndex", "blockNumber", "cumulativeGasUsed", "gasUsed"} {
-		if _, err := wire.NormalizeWireQuantity(obj[f]); err != nil {
-			return nil, fmt.Errorf("receipt: %s: %w", f, err)
-		}
-	}
-	if _, err := wire.ValidateWireFixedHex(obj["logsBloom"], 512, "logsBloom"); err != nil {
-		return nil, fmt.Errorf("receipt: logsBloom: %w", err)
-	}
-	status, root := PresentNonNull(obj["status"]), PresentNonNull(obj["root"])
-	if !status && !root {
-		return nil, fmt.Errorf("receipt: missing status or root")
-	}
-	if status {
-		if _, err := wire.NormalizeWireQuantity(obj["status"]); err != nil {
-			return nil, fmt.Errorf("receipt: status: %w", err)
-		}
-	} else if _, err := wire.ValidateWireFixedHex(obj["root"], 64, "root"); err != nil {
-		return nil, fmt.Errorf("receipt: root: %w", err)
-	}
-	if s := strings.TrimSpace(string(obj["logs"])); len(s) == 0 || s[0] != '[' {
-		return nil, fmt.Errorf("receipt: logs must be an array")
-	}
-	r, err := decodeReceipt(value)
-	if err != nil || r == nil {
-		return nil, fmt.Errorf("receipt: invalid payload")
-	}
-	if r.TxHash == (common.Hash{}) || r.BlockHash == (common.Hash{}) {
-		return nil, fmt.Errorf("receipt: missing transaction or block hash")
-	}
-	for i, l := range r.Logs {
-		if l == nil {
-			return nil, fmt.Errorf("receipt: null log %d", i)
-		}
-		if l.TxHash != (common.Hash{}) && l.TxHash != r.TxHash {
-			return nil, fmt.Errorf("receipt: log %d transaction hash mismatch", i)
-		}
-		if l.BlockHash != (common.Hash{}) && l.BlockHash != r.BlockHash {
-			return nil, fmt.Errorf("receipt: log %d block hash mismatch", i)
-		}
-	}
-	if r.Bloom != types.CreateBloom(r) {
-		return nil, fmt.Errorf("receipt: logsBloom disagrees with logs")
-	}
-	return r, nil
-}
-
-// decodeReceipt decodes JSON string escapes before geth's hex codecs see the
-// temporary payload. UseNumber preserves numeric tokens exactly. This is
-// semantic parsing for validation and binding; it does not project fields,
-// canonicalize hex, or modify the source payload.
-func decodeReceipt(value json.RawMessage) (*types.Receipt, error) {
-	plain, err := receiptSemanticJSON(value)
-	if err != nil {
-		return nil, err
-	}
-	var r *types.Receipt
-	if err := json.Unmarshal(plain, &r); err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-
-func receiptSemanticJSON(value json.RawMessage) (json.RawMessage, error) {
-	decoder := json.NewDecoder(bytes.NewReader(value))
-	decoder.UseNumber()
-	var decoded any
-	if err := decoder.Decode(&decoded); err != nil {
-		return nil, err
-	}
-	return json.Marshal(decoded)
 }
 
 func NormalizeBlock(value json.RawMessage, prune Pruner, method string) (string, error) {
@@ -251,9 +201,6 @@ func NormalizeBlock(value json.RawMessage, prune Pruner, method string) (string,
 	return prune(method, value)
 }
 
-// IsJSONNull and PresentNonNull forward to the shared wire spellings so every
-// object package answers the null/presence question identically.
-func IsJSONNull(value json.RawMessage) bool { return wire.IsJSONNull(value) }
-func PresentNonNull(value json.RawMessage) bool {
-	return wire.PresentNonNull(value)
-}
+// IsJSONNull forwards to the shared wire spelling so every
+// object package answers the null question identically.
+func IsJSONNull(value json.RawMessage) bool { return ethcodec.IsJSONNull(value) }

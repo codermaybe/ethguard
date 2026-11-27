@@ -197,7 +197,7 @@ func writeOperation(c *Client, ctx context.Context, view bool, body func(opCtx c
 func (c *Client) establishAnchor(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 	ref, err := resolveReference(ctx, c.resolver, tag)
 	if err == nil && ref.Status != rpc.Corroborated {
-		err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
+		err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrGuaranteeNotMet)
 	}
 	return ref, err
 }

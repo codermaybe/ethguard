@@ -1,11 +1,10 @@
 package aggregator
 
 import (
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
-
 	"context"
 	"testing"
 
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -27,10 +26,8 @@ func TestForwardPlanContactsOneSourceAndAcceptsProtocolAnswer(t *testing.T) {
 	rec := &captureRecorder{}
 	agg := New(p, WithPlans(map[string]rpc.ReadPlan{"custom_write": {Method: "custom_write", Resolver: rpc.ForwardPolicy{}}}), WithRecorder(rec))
 	d, err := agg.Aggregate(context.Background(), rpc.Request{Method: "custom_write"})
-	// Scheme B: an error return carries Status Unknown even when the
-	// protocol answer is authoritative. Provenance stays on Support and
-	// the attempt stays usable; no confidence class is claimed.
-	if err == nil || d.Status != rpc.Unknown || len(d.Support) != 1 || len(d.Faults) != 0 {
+	// A forwarded protocol answer keeps its formed status beside the error.
+	if err == nil || d.Status != rpc.Forwarded || len(d.Support) != 1 || len(d.Faults) != 0 {
 		t.Fatalf("protocol answer changed: %+v %v", d, err)
 	}
 	if len(b.Calls()) != 0 || len(a.Calls()) != 1 {

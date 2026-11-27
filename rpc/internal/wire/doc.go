@@ -1,16 +1,14 @@
-// Package wire owns method-independent JSON wire handling: bounded
-// structural validation is delegated to internal/jsonsafe, value
-// normalization to the primitive normalizers here (quantity, data, hash,
-// address, bloom), and spec-driven pruning to the mask compiler, which
-// builds the comparison whitelists from the pinned execution-apis bundle.
+// Package wire owns shared JSON wire normalization, schema-driven pruning,
+// and result types generated from the pinned execution-apis bundle.
 //
-// It holds no Ethereum method semantics: which fields a given method
-// requires, how a request binds to a response, and what a valid answer
-// means all live in rpc/methods. Unknown or vendor fields are pruned out of
-// comparison keys without being deleted from the winning payload, where they
-// stay available to invocation-scoped Uncertain capture.
+// Generated New* constructors check supported official result shapes,
+// required fields, value constraints and nullability. Shared normalizers
+// define canonical bytes; the mask compiler builds comparison whitelists.
+// These responsibilities do not replace object and method admission:
+// request binding, content commitments, protected-field projection and
+// provider agreement remain outside this package.
 //
-// Normalizers and Prune produce a canonical comparison form. They error only
-// when a value has no canonical form. They do not admit a response: missing
-// required fields are rejected by object Validate and method Admit.
+// Official numeric bounds come from the schema and use exact decimal
+// comparison. The protected encoder's CanonicalRatio policy is separate
+// from the generated Number type and must not narrow the official model.
 package wire

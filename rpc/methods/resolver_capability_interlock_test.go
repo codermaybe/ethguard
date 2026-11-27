@@ -34,7 +34,7 @@ func TestEveryDeclaredResolverHonorsItsClass(t *testing.T) {
 func assertClassBinding(t *testing.T, method string, plan rpc.ReadPlan) {
 	t.Helper()
 	_, corroborating := plan.Resolver.(rpc.CorroboratingPolicy)
-	_, outcomeCorroborating := plan.Resolver.(rpc.CorroboratingOutcomeResolver)
+	_, outcomeCorroborating := plan.Resolver.(rpc.CorroboratingPolicy)
 	switch plan.Corroborating() {
 	case true:
 		if !corroborating || !outcomeCorroborating {

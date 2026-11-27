@@ -80,3 +80,68 @@ because they may also occur in unrelated metadata. Treat short credentials
 as sensitive despite this scan limitation. Files use same-directory temporary
 files with mode `0600`, sync and close before atomic rename, and remove
 temporary files on failure.
+
+## Frozen historical transaction scenario
+
+This is an implemented explicit scenario in the CLI. A saved plan and implementation do not mean a new provider run has been performed. It remains a recording and findings tool, with compatibility unassessed.
+
+The reviewed `plan.transaction.json` uses the existing
+v1 plan schema and mainnet Cancun block **20,000,000 (`0x1312d00`)**. Discovery
+does not read local samples. Set both endpoints before running; source order is
+the reviewed plan order, not an availability-based preselection:
+
+```sh
+export RPC_A_URL='https://ethereum-rpc.publicnode.com'
+export RPC_B_URL='https://eth.llamarpc.com'
+go run ./cmd/rpcsample -scenario transaction \
+  -plan cmd/rpcsample/plan.transaction.json \
+  -out /tmp/ethguard-transaction-evidence-20261111
+```
+
+The output directory must not exist, including an empty directory; the parent
+directory must exist. Re-running requires a new output path. HTTP request
+timeouts and response limits use the ordinary CLI flags. No compatibility
+golden is generated and compatibility is always **unassessed**.
+
+All sources receive discovery. The first successful valid JSON-RPC block at
+the requested height containing a transaction hash selects transaction index
+zero. The transaction hash, block hash, height and index are frozen before
+capture. Every configured source, including failed discovery sources, then
+receives chain identity, network identity and client-version requests, and
+the frozen transaction-by-hash, transaction-by-block-hash-and-index, block and
+receipt requests. Endpoints and header values are resolved once for the run.
+When no target is found, discovery and identity observations are retained and
+the command fails rather than manufacturing a transaction.
+
+The bundle contains:
+
+- `plan.json`: reviewed plan after the existing redaction policy;
+- `batch.json`: frozen target and concrete capture requests;
+- `index.json`, `records/*.json`: all original classified observations,
+  including failures, with digests of persisted record bytes;
+- `provenance.json`: tool/build identity, VCS revision when embedded by Go
+  (otherwise explicitly unknown), pinned spec version/digest and timestamps;
+- `report.json`: pinned-schema conformance errors, missing official keys,
+  raw top-level official/external values and differences, identity and frozen
+  reference findings. Membership comes from the shared pinned-schema projection
+  API, not a scenario-specific official field list. The two transaction methods
+  share a raw-comparison group. Differences are not equivalence decisions.
+
+Records also include SHA-256 digests of exact request bytes and response bytes
+read **before redaction**. For a truncated response the latter covers only the
+retained prefix, not the unread original response. Raw persisted bodies remain
+redacted; credentials are never deliberately stored. An interrupted run may
+leave an incomplete reserved directory; inspect its index and batch rather
+than retrying into it. Missing required fields, inconsistent identities and
+provider failures are findings, never repaired or omitted from membership.
+
+Narrow deterministic checks (no provider contact):
+
+```sh
+go test ./internal/rpcsample -run '^TestTransaction'
+```
+
+Provenance also hashes the actual running executable and persisted redacted
+`plan.json`. The VCS revision and modified flag, when embedded, are descriptive
+metadata rather than a complete source snapshot; the executable digest pins
+the implementation that produced the run, including uncommitted changes.

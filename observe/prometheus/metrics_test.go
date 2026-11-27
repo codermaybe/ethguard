@@ -94,7 +94,7 @@ func TestHandlerServesExposition(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	m.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	m.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", "/metrics", nil))
 	if rec.Code != 200 {
 		t.Fatalf("handler status = %d", rec.Code)
 	}

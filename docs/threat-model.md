@@ -1,6 +1,6 @@
 # Threat Model
 
-Status: Draft
+Status: current trust model, documentation baseline 2026-11-17. Operational visibility and policy choices explicitly marked pending remain unimplemented goals.
 
 EthGuard is designed for cautious data selection in the presence of unreliable
 or dishonest RPC providers. It is not a proof system and does not make a

@@ -12,8 +12,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
+	objectheader "github.com/codermaybe/ethguard/internal/ethobject/header"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
 )
 
 type blockWire struct {
@@ -24,17 +26,31 @@ type blockWire struct {
 }
 
 func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHash bool, call rpc.AdmissionCaller) (json.RawMessage, error) {
-	var head *types.Header
-	if err := json.Unmarshal(raw, &head); err != nil || head == nil {
-		if err == nil {
-			err = fmt.Errorf("null block")
-		}
+	head, err := objectheader.Decode(raw)
+	if err != nil {
 		return nil, malformed("block header", err)
 	}
+	// Validate the complete source-local official object before accepting any
+	// payload commitment. Required metadata cannot be supplied by another source.
+	canonicalBlock, err := Encode(raw)
+	if err != nil {
+		return nil, malformed("block shape", err)
+	}
+	// The generated contract canonicalizes only this source's declarations.
+	// Algorithm-only geth body types consume those bytes, so valid JSON string
+	// escapes cannot become a contradictory second wire grammar. Keep original
+	// transaction objects separately for Candidate's declaration checks below.
 	var body blockWire
-	if err := json.Unmarshal(raw, &body); err != nil {
+	if err := json.Unmarshal(canonicalBlock, &body); err != nil {
 		return nil, malformed("block body", err)
 	}
+	var original struct {
+		Transactions []json.RawMessage `json:"transactions"`
+	}
+	if err := json.Unmarshal(raw, &original); err != nil {
+		return nil, malformed("block transactions", err)
+	}
+	body.Transactions = original.Transactions
 	if err := validateBlockWireScalars(raw); err != nil {
 		return nil, malformed("block scalar", err)
 	}
@@ -54,8 +70,22 @@ func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || trimmed[0] == '"' {
 			return nil, malformed(fmt.Sprintf("transaction %d is hash-only", i), nil)
 		}
+		candidate, err := transaction.Prepare(item)
+		if err != nil {
+			return nil, malformed(fmt.Sprintf("transaction %d", i), err)
+		}
+		// Candidate validates the source's signed payload and declarations
+		// before its canonical bytes cross the private geth bridge. JSON
+		// string escapes must not become a second, contradictory wire gate.
+		if err := candidate.AdmitInBlock(rpc.Request{Params: []any{body.Hash.Hex(), fmt.Sprintf("0x%x", i)}}); err != nil {
+			return nil, malformed(fmt.Sprintf("transaction %d", i), err)
+		}
+		canonical := candidate.Canonical()
+		if err := bindTransaction(canonical, head, i); err != nil {
+			return nil, malformed(fmt.Sprintf("transaction %d context", i), err)
+		}
 		tx := new(types.Transaction)
-		if err := json.Unmarshal(item, tx); err != nil {
+		if err := json.Unmarshal(canonical, tx); err != nil {
 			return nil, malformed(fmt.Sprintf("transaction %d", i), err)
 		}
 		txs[i] = tx
@@ -119,8 +149,8 @@ func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 		if string(rawUncle) == "null" {
 			return nil, malformed(fmt.Sprintf("uncle %d is null", i), nil)
 		}
-		var uncle *types.Header
-		if err := json.Unmarshal(rawUncle, &uncle); err != nil || uncle == nil {
+		uncle, err := objectheader.Decode(rawUncle)
+		if err != nil {
 			return nil, malformed(fmt.Sprintf("uncle %d header", i), err)
 		}
 		if uncle.Hash() != expected {
@@ -145,35 +175,35 @@ func validateBlockWireScalars(raw json.RawMessage) error {
 	}
 	for _, field := range []string{"hash", "parentHash", "sha3Uncles", "transactionsRoot", "stateRoot", "receiptsRoot", "withdrawalsRoot", "parentBeaconBlockRoot", "requestsHash"} {
 		if value, ok := obj[field]; ok && !isJSONNull(value) {
-			if _, err := wire.ValidateWireFixedHex(value, 64, field); err != nil {
+			if _, err := ethcodec.ValidateWireFixedHex(value, 64, field); err != nil {
 				return fmt.Errorf("%s: %w", field, err)
 			}
 		}
 	}
 	for _, field := range []string{"number", "gasLimit", "gasUsed", "timestamp", "size", "baseFeePerGas", "blobGasUsed", "excessBlobGas"} {
 		if value, ok := obj[field]; ok && !isJSONNull(value) {
-			if _, err := wire.NormalizeWireQuantity(value); err != nil {
+			if _, err := ethcodec.NormalizeWireQuantity(value); err != nil {
 				return fmt.Errorf("%s: %w", field, err)
 			}
 		}
 	}
 	if value, ok := obj["logsBloom"]; ok && !isJSONNull(value) {
-		if _, err := wire.ValidateWireFixedHex(value, 512, "logsBloom"); err != nil {
+		if _, err := ethcodec.ValidateWireFixedHex(value, 512, "logsBloom"); err != nil {
 			return err
 		}
 	}
 	if value, ok := obj["nonce"]; ok && !isJSONNull(value) {
-		if _, err := wire.ValidateWireFixedHex(value, 16, "nonce"); err != nil {
+		if _, err := ethcodec.ValidateWireFixedHex(value, 16, "nonce"); err != nil {
 			return err
 		}
 	}
 	if value, ok := obj["extraData"]; ok && !isJSONNull(value) {
-		if _, err := wire.NormalizeWireData(value); err != nil {
+		if _, err := ethcodec.NormalizeWireData(value); err != nil {
 			return fmt.Errorf("extraData: %w", err)
 		}
 	}
 	if value, ok := obj["miner"]; ok && !isJSONNull(value) {
-		if _, err := wire.ValidateWireFixedHex(value, 40, "miner"); err != nil {
+		if _, err := ethcodec.ValidateWireFixedHex(value, 40, "miner"); err != nil {
 			return err
 		}
 	}
@@ -215,4 +245,34 @@ func malformed(what string, cause error) error {
 	return fmt.Errorf("%w: %s: %v", rpc.ErrMalformedResponse, what, cause)
 }
 
-func isJSONNull(value json.RawMessage) bool { return string(bytes.TrimSpace(value)) == "null" }
+// bindTransaction checks the original declarations against the block carrying
+// them. Sender syntax and signed-payload hash are checked by the transaction Candidate;
+// the sender remains a provider declaration rather than a recovered identity.
+func bindTransaction(raw json.RawMessage, head *types.Header, index int) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	hash, err := ethcodec.ValidateWireFixedHex(fields["blockHash"], 64, "blockHash")
+	if err != nil {
+		return err
+	}
+	if common.HexToHash(hash) != head.Hash() {
+		return fmt.Errorf("blockHash does not match containing block")
+	}
+	for _, item := range []struct {
+		name string
+		want string
+	}{
+		{"blockNumber", head.Number.String()}, {"blockTimestamp", fmt.Sprintf("%d", head.Time)}, {"transactionIndex", fmt.Sprintf("%d", index)},
+	} {
+		got, err := ethcodec.NormalizeWireQuantity(fields[item.name])
+		if err != nil {
+			return fmt.Errorf("%s: %w", item.name, err)
+		}
+		if got != item.want {
+			return fmt.Errorf("%s does not match containing block", item.name)
+		}
+	}
+	return nil
+}

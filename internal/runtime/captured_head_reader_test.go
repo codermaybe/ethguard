@@ -67,12 +67,12 @@ func TestCapturedHeadReaderRecordsBothRoundsAndCollectErrors(t *testing.T) {
 	collectErr := errors.New("collect: deadline")
 	inner := &stubHeadReader{
 		readObservations: []reference.HeadObservation{
-			{Source: rpc.SourceRef{ID: "a", Name: "a"}, Value: []byte(`{"number":"0x64"}`)},
-			{Source: rpc.SourceRef{ID: "b", Name: "b"}, Err: errors.New("timeout")},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a", Name: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: []byte(`{"number":"0x64"}`)}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b", Name: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("timeout")}}},
 		},
 		readErr: collectErr,
 		confirmObservations: []reference.HeadObservation{
-			{Source: rpc.SourceRef{ID: "c", Name: "c"}, Value: []byte(`{"number":"0x64"}`)},
+			{Attempted: true, Source: rpc.SourceRef{ID: "c", Name: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: []byte(`{"number":"0x64"}`)}}},
 		},
 	}
 	capture := &recordingCapture{}

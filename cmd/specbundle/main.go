@@ -16,6 +16,7 @@ func main() {
 	methodsPath := flag.String("methods-from", "", "existing methods.json whose method set is preserved")
 	methodsListPath := flag.String("methods", "", "newline-delimited project method policy (alternative to -methods-from)")
 	outPath := flag.String("out", "", "output methods.json (required)")
+	requestsPath := flag.String("requests-out", "", "also write the complete official Ethereum request-schema inventory")
 	flag.Parse()
 	if *openRPCPath == "" || *version == "" || *outPath == "" || (*methodsPath == "" && *methodsListPath == "") || (*methodsPath != "" && *methodsListPath != "") {
 		flag.Usage()
@@ -53,6 +54,16 @@ func main() {
 		fail("write bundle: %v", err)
 	}
 	fmt.Printf("wrote %s (%s, %d methods)\n", *outPath, *version, len(methods))
+	if *requestsPath != "" {
+		requests, err := builder.BuildRequests(openRPC, *version)
+		if err != nil {
+			fail("build requests: %v", err)
+		}
+		if err := os.WriteFile(*requestsPath, requests, 0o644); err != nil {
+			fail("write requests: %v", err)
+		}
+		fmt.Printf("wrote %s (%s request schemas)\n", *requestsPath, *version)
+	}
 }
 
 func fail(format string, args ...any) {

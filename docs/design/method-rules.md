@@ -3,19 +3,20 @@
 | 方法 | 锚定 | 区块引用形态 | pending 处理 | resolver | 比较键种类 | 键来源 | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | eth_chainId | none | none | none | strict | quantity | canonical-bytes | canonical |
-| eth_getBlockByHash | none | none | none | strict | method-specific | normalizer | canonical |
-| eth_getBlockByNumber | none | none | local-observation | strict | method-specific | normalizer | canonical |
+| eth_getBlockByHash | none | none | none | strict | method-specific | canonical-bytes | canonical |
+| eth_getBlockByNumber | none | none | local-observation | strict | method-specific | canonical-bytes | canonical |
 | eth_getBalance | hash@1 | eip1898 | local-observation | strict | quantity | canonical-bytes | canonical |
 | eth_getTransactionReceipt | none | none | none | strict | method-specific | canonical-bytes | canonical |
-| eth_getTransactionByHash | none | none | none | strict | method-specific | normalizer | canonical |
+| eth_getTransactionByHash | none | none | none | strict | method-specific | canonical-bytes | canonical |
 | eth_getBlockReceipts | hash@0 | eip1898 | local-reject | strict | method-specific | canonical-bytes | canonical |
 | eth_getTransactionCount | hash@1 | eip1898 | local-observation | strict | quantity | canonical-bytes | canonical |
 | eth_getBlockTransactionCountByHash | none | none | none | strict | quantity | normalizer | canonical |
 | eth_getBlockTransactionCountByNumber | height@0 | none | local-observation | strict | quantity | canonical-bytes | canonical |
-| eth_getTransactionByBlockHashAndIndex | none | none | none | strict | method-specific | normalizer | canonical |
+| eth_getTransactionByBlockHashAndIndex | none | none | none | strict | method-specific | canonical-bytes | canonical |
 | eth_getStorageAt | hash@2 | eip1898 | local-observation | strict | method-specific | canonical-bytes | canonical |
 | eth_getCode | hash@1 | eip1898 | local-observation | strict | method-specific | canonical-bytes | canonical |
 | eth_call | hash@1 | eip1898 | local-observation | call-revert | method-specific | none | canonical |
+| eth_simulateV1 | hash@1 | eip1898 | local-observation | strict | object | canonical-bytes | canonical |
 | eth_estimateGas | hash@1 | eip1898 | local-observation | median | quantity | none | canonical |
 | eth_getLogs | height@0.fromBlock,toBlock | none | local-reject | strict | method-specific | canonical-bytes | canonical |
 | eth_feeHistory | height@1 | none | local-observation | strict | method-specific | canonical-bytes | canonical |

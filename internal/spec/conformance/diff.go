@@ -1,8 +1,10 @@
 package conformance
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 )
@@ -175,8 +177,13 @@ func decodeBundle(raw []byte) (decodedBundle, error) {
 		Version string         `json:"version"`
 		Results map[string]any `json:"results"`
 	}
-	if err := json.Unmarshal(raw, &value); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
 		return decodedBundle{}, err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return decodedBundle{}, fmt.Errorf("trailing bundle data")
 	}
 	if value.Version == "" {
 		return decodedBundle{}, fmt.Errorf("missing version")
@@ -227,21 +234,48 @@ func diffSchema(before, after any) []SchemaChange {
 }
 
 func indexSchema(node any, path string, required bool, out map[string]schemaEntry) {
+	if boolean, ok := node.(bool); ok {
+		out[path] = schemaEntry{Required: required, Summary: fmt.Sprint(boolean)}
+		return
+	}
 	m, ok := node.(map[string]any)
 	if !ok {
 		return
 	}
 	typeName, _ := m["type"].(string)
 	selected := make(map[string]any)
-	for _, key := range []string{"type", "pattern", "additionalProperties", "enum", "minimum", "maximum", "minItems", "maxItems"} {
-		if value, exists := m[key]; exists {
+	for key, value := range m {
+		// Properties, items and compositions have their own indexed paths.
+		// Requiredness is recorded on each declared property. Keep every
+		// other assertion, including unfamiliar vocabulary, in the summary
+		// so an upgrade cannot silently omit a semantic change from review.
+		switch key {
+		case "title", "description", "$schema", "properties", "required", "items", "oneOf", "anyOf", "allOf":
+		default:
 			selected[key] = value
 		}
+	}
+	properties, _ := m["properties"].(map[string]any)
+	// A required name need not have a properties entry (not/required and
+	// patternProperties commonly use this). Such names have no child path
+	// on which to record requiredness, so retain them on the parent.
+	var undeclaredRequired []string
+	if required, ok := m["required"].([]any); ok {
+		for _, value := range required {
+			if name, ok := value.(string); ok {
+				if _, declared := properties[name]; !declared {
+					undeclaredRequired = append(undeclaredRequired, name)
+				}
+			}
+		}
+	}
+	if len(undeclaredRequired) > 0 {
+		sort.Strings(undeclaredRequired)
+		selected["required"] = undeclaredRequired
 	}
 	encoded, _ := json.Marshal(selected)
 	out[path] = schemaEntry{Type: typeName, Required: required, Summary: string(encoded)}
 
-	properties, _ := m["properties"].(map[string]any)
 	requiredNames := map[string]bool{}
 	if items, ok := m["required"].([]any); ok {
 		for _, item := range items {

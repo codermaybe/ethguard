@@ -1,14 +1,82 @@
 package ethguard_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpc/methods"
 )
+
+// Official keys outside the active legacy branch remain protected in full.
+// No rule authorizes folding their explicit null into a missing member.
+func TestVerificationTransactionNullPresence(t *testing.T) {
+	chain := t09NewChain(t)
+	_, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
+	base := chain.txObject(true, hash, t09AnchorHeight, 0)
+	for _, method := range []string{methods.MethodGetTransactionByHash, methods.MethodGetTransactionByBlockHashAndIndex} {
+		params := []any{chain.txHash}
+		if method == methods.MethodGetTransactionByBlockHashAndIndex {
+			params = []any{hash, "0x0"}
+		}
+		t.Run(method, func(t *testing.T) {
+			for _, field := range []string{"maxFeePerGas", "maxPriorityFeePerGas"} {
+				t.Run(field, func(t *testing.T) {
+					withNull := t09SetField(t, base, field, nil)
+					missing := t09DeleteField(t, base, field)
+					for _, preserveNull := range []bool{true, false} {
+						t.Run(fmt.Sprintf("null_majority_%t", preserveNull), func(t *testing.T) {
+							majority, minority := withNull, missing
+							if !preserveNull {
+								majority, minority = missing, withNull
+							}
+							fleet := t09NewFleet(t, 3)
+							fleet.nodes[0].ReturnRaw(method, majority)
+							fleet.nodes[1].ReturnRaw(method, majority)
+							fleet.nodes[2].ReturnRaw(method, minority)
+							decision, err := callDecision(fleet.client.Call(fleet.context(t), method, params...))
+							if err != nil {
+								t.Fatal(err)
+							}
+							if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 0 || len(decision.Participants) != 3 {
+								t.Fatalf("null/missing must be legal distinct answers: %+v", decision)
+							}
+							if decision.Reject[0].Name != fleet.names[2] {
+								t.Fatalf("reject = %+v, want minority %q", decision.Reject, fleet.names[2])
+							}
+							value, present := t09FirstObject(t, decision.Value)[field]
+							if present != preserveNull || (present && !bytes.Equal(bytes.TrimSpace(value), []byte("null"))) {
+								t.Fatalf("%s presence = %t, value = %s, want null presence %t", field, present, value, preserveNull)
+							}
+						})
+					}
+				})
+			}
+			// Legacy gasPrice and nonce are active, non-nullable fields.
+			for _, field := range []string{"gasPrice", "nonce"} {
+				t.Run(field+"_null_rejected", func(t *testing.T) {
+					fleet := t09NewFleet(t, 3)
+					fleet.nodes[0].ReturnRaw(method, base)
+					fleet.nodes[1].ReturnRaw(method, base)
+					fleet.nodes[2].ReturnRaw(method, t09SetField(t, base, field, nil))
+					decision, err := callDecision(fleet.client.Call(fleet.context(t), method, params...))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 0 || len(decision.Faults) != 1 || len(decision.Participants) != 3 {
+						t.Fatalf("active non-nullable %s accepted: %+v", field, decision)
+					}
+					t09AssertSourceAbsent(t, method, fleet.names[2], decision.Support, decision.Reject)
+				})
+			}
+		})
+	}
+}
 
 // T09.2 conservation traces every field of every observation, including every
 // array element and nested object, to one declared destination. Nothing is
@@ -97,25 +165,29 @@ func TestVerificationEvidenceOutsideDiagnosticsPerObservation(t *testing.T) {
 	}
 }
 
-// TestVerificationEvidenceNestedDerivedFieldRecomputation covers a nested protected object
-// whose JSON hash is derived, not authored: a tampered transaction hash inside
-// a block body does not enter Value. The canonical encoder recomputes it from
-// the signed transaction, and the source remains a supporter because the
-// transaction root still agrees.
-func TestVerificationEvidenceNestedDerivedFieldRecomputation(t *testing.T) {
+// TestVerificationEvidenceNestedDeclaredHashBinding checks the original embedded
+// transaction hash against its signed payload. A false declaration faults its
+// source before clustering, while two honest sources retain the full value.
+func TestVerificationEvidenceNestedDeclaredHashBinding(t *testing.T) {
 	chain := t09NewChain(t)
 	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
 	tampered := "0x" + strings.Repeat("77", 32)
 	transactions := t09SetNestedField(t, fieldOf(t, block, "transactions"), 0, "hash", tampered)
 	payload := t09SetField(t, block, "transactions", transactions)
 	fleet := t09NewFleet(t, 3)
-	fleet.returnOne(t09FieldRowFor(t, "eth_getBlockByHash").method, payload)
+	fleet.nodes[0].ReturnRaw(methods.MethodGetBlockByHash, block)
+	fleet.nodes[1].ReturnRaw(methods.MethodGetBlockByHash, block)
+	fleet.nodes[2].ReturnRaw(methods.MethodGetBlockByHash, payload)
 	decision, err := callDecision(fleet.client.Call(fleet.context(t), "eth_getBlockByHash", hash, true))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != rpc.Corroborated || len(decision.Support) != 3 {
+	if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Faults) != 1 {
 		t.Fatalf("decision = %+v", decision)
+	}
+	t09AssertSourceAbsent(t, methods.MethodGetBlockByHash, fleet.names[2], decision.Support, decision.Reject)
+	if !strings.Contains(decision.Faults[0].Error(), "hash does not match signed payload") {
+		t.Fatalf("wrong fault: %v", decision.Faults)
 	}
 	if bytesContain(decision.Value, []byte(tampered)) {
 		t.Fatalf("tampered nested hash entered Value")
@@ -129,7 +201,7 @@ func TestVerificationEvidenceNestedDerivedFieldRecomputation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(decoded.Transactions) != 2 || decoded.Transactions[0].Hash != chain.txHash || decoded.Transactions[1].Hash != chain.txHash2 {
-		t.Fatalf("derived transaction hashes = %+v, want %q and %q", decoded.Transactions, chain.txHash, chain.txHash2)
+		t.Fatalf("checked declared transaction hashes = %+v, want %q and %q", decoded.Transactions, chain.txHash, chain.txHash2)
 	}
 }
 
@@ -159,7 +231,7 @@ func t09TraceConservation(t *testing.T, row t09FieldRow, payload, value json.Raw
 				}
 				canonicalChild, present := canonicalObject[key]
 				if rawChild == nil {
-					if row.nullPreserved {
+					if row.nullPreserved && !containsString(row.nullOmitted, key) {
 						if !present || canonicalChild != nil {
 							t.Fatalf("%s: null protected field was not preserved", childPath)
 						}
@@ -370,4 +442,55 @@ func trimValue(raw json.RawMessage) string {
 		return string(raw[:120]) + "..."
 	}
 	return string(raw)
+}
+
+// Full Block metadata belongs to the same protected value as its commitments.
+// This checks a real Call quorum, independent of the private geth projection,
+// which does not expose the declared sender or the provider's size member.
+func TestVerificationCompleteBlockOriginalDeclarationsAreProtected(t *testing.T) {
+	chain := t09NewChain(t)
+	block, hash := chain.block(t09AnchorHeight, 1_700_000_000, 21_000)
+	changed := t09SetField(t, block, "size", "0x999")
+	transactions := t09SetNestedField(t, fieldOf(t, changed, "transactions"), 0, "from", "0x"+strings.Repeat("77", 20))
+	changed = t09SetField(t, changed, "transactions", transactions)
+	for _, method := range []string{methods.MethodGetBlockByHash, methods.MethodGetBlockByNumber} {
+		t.Run(method, func(t *testing.T) {
+			fleet := t09NewFleet(t, 3)
+			fleet.nodes[0].ReturnRaw(method, block)
+			fleet.nodes[1].ReturnRaw(method, changed)
+			fleet.nodes[2].ReturnRaw(method, changed)
+			ref := hash
+			if method == methods.MethodGetBlockByNumber {
+				ref = fmt.Sprintf("0x%x", t09AnchorHeight)
+			}
+			decision, err := callDecision(fleet.client.Call(fleet.context(t), method, ref, true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Status != rpc.Corroborated || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 0 || decision.Reject[0].Name != fleet.names[0] {
+				t.Fatalf("complete declarations did not form the actual clusters: %+v", decision)
+			}
+			value, err := ethapi.NewBlock(decision.Value)
+			if err != nil || value.Size != "0x999" {
+				t.Fatalf("winning official Block = %s: %v", decision.Value, err)
+			}
+			var output struct {
+				Transactions []map[string]json.RawMessage `json:"transactions"`
+			}
+			if err := json.Unmarshal(decision.Value, &output); err != nil {
+				t.Fatal(err)
+			}
+			var original struct {
+				Transactions []map[string]json.RawMessage `json:"transactions"`
+			}
+			_ = json.Unmarshal(changed, &original)
+			for i := range original.Transactions {
+				for _, name := range []string{"hash", "from", "blockHash", "blockNumber", "blockTimestamp", "transactionIndex"} {
+					if !strings.EqualFold(string(original.Transactions[i][name]), string(output.Transactions[i][name])) {
+						t.Fatalf("transaction %d declared %s lost", i, name)
+					}
+				}
+			}
+		})
+	}
 }

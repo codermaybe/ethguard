@@ -6,7 +6,7 @@
 // The capture mode dials explicit endpoints, sends read-only probes, and
 // writes redacted raw response frames to a caller-selected directory. The
 // replay mode reads that directory without network access and checks the
-// captured envelopes through rpcwire, aggregator.ObservationRPCError, and the
+// captured envelopes through rpcwire, rpc.ProtocolAnswer, and the
 // real eth_call policy.
 package main
 
@@ -55,8 +55,9 @@ func main() {
 		RedactEnv:     splitList(*redactEnv),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	if err := capture(ctx, urls, *out, cfg); err != nil {
+	err = capture(ctx, urls, *out, cfg)
+	cancel()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "wsscapture: %v\n", err)
 		os.Exit(1)
 	}

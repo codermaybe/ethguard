@@ -183,7 +183,7 @@ func TestReportRejectsInconsistentEvidence(t *testing.T) {
 		{"reference without hash", true, func(t *testing.T, report map[string]any) {
 			referenceField(t, report, 1)["hash"] = ""
 		}},
-		{"reference unpartitioned participant", true, func(t *testing.T, report map[string]any) {
+		{"reference reject contradicts source relation", true, func(t *testing.T, report map[string]any) {
 			reference := referenceField(t, report, 1)
 			reference["reject"] = []any{"node-01"}
 		}},
@@ -266,4 +266,60 @@ func typedField(t *testing.T, report map[string]any, index int) map[string]any {
 		t.Fatalf("step %d has no typed result", index)
 	}
 	return typed
+}
+
+func TestReportRejectsContradictorySourceDispositions(t *testing.T) {
+	schema := loadReportSchema(t)
+	for _, owner := range []string{"decision", "reference"} {
+		for _, test := range []struct {
+			name       string
+			structural bool
+			mutate     func(map[string]any)
+		}{
+			{"missing sources", true, func(e map[string]any) { delete(e, "sources") }},
+			{"null sources", true, func(e map[string]any) { e["sources"] = nil }},
+			{"incomplete coverage", false, func(e map[string]any) { e["sources"] = e["sources"].([]any)[:2] }},
+			{"duplicate source", false, func(e map[string]any) {
+				sources := e["sources"].([]any)
+				sources[2] = sources[1]
+			}},
+			{"unknown source", false, func(e map[string]any) { e["sources"].([]any)[2].(map[string]any)["source_id"] = "node-04" }},
+			{"unknown relation", true, func(e map[string]any) { e["sources"].([]any)[2].(map[string]any)["relation"] = "invented" }},
+			{"missing attempted", true, func(e map[string]any) { delete(e["sources"].([]any)[2].(map[string]any), "attempted") }},
+			{"null attempted", true, func(e map[string]any) { e["sources"].([]any)[2].(map[string]any)["attempted"] = nil }},
+			{"extra source field", true, func(e map[string]any) { e["sources"].([]any)[2].(map[string]any)["result"] = "raw" }},
+			{"unattempted supporter", false, func(e map[string]any) { e["sources"].([]any)[2].(map[string]any)["attempted"] = false }},
+			{"attempted absent", false, func(e map[string]any) {
+				e["sources"].([]any)[2].(map[string]any)["relation"] = "absent"
+				e["support"] = []any{"node-01", "node-02"}
+			}},
+			{"excluded supporter", false, func(e map[string]any) { e["sources"].([]any)[2].(map[string]any)["relation"] = "excluded" }},
+			{"omitted supporter", false, func(e map[string]any) { e["support"] = []any{"node-01", "node-02"} }},
+			{"supported fault", false, func(e map[string]any) {
+				e["faults"] = []any{map[string]any{"source_id": "node-03", "category": "provider_timeout", "detail": "timeout"}}
+			}},
+			{"dissented fault", false, func(e map[string]any) {
+				e["sources"].([]any)[2].(map[string]any)["relation"] = "dissented"
+				e["support"] = []any{"node-01", "node-02"}
+				e["reject"] = []any{"node-03"}
+				e["faults"] = []any{map[string]any{"source_id": "node-03", "category": "provider_timeout", "detail": "timeout"}}
+			}},
+		} {
+			t.Run(owner+"/"+test.name, func(t *testing.T) {
+				example := reportExample(t)
+				evidence := reportStep(t, example, 1)[owner].(map[string]any)
+				test.mutate(evidence)
+				if err := schema.validate(example); err == nil && test.structural {
+					t.Fatal("schema accepted malformed source disposition")
+				}
+				data, err := json.Marshal(example)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := ParseReport(data); err == nil {
+					t.Fatal("ParseReport accepted contradictory source dispositions")
+				}
+			})
+		}
+	}
 }

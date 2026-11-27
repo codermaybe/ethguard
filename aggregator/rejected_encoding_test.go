@@ -1,8 +1,6 @@
 package aggregator
 
 import (
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
-
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -12,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
@@ -62,7 +61,7 @@ func TestAggregateRejectedEncodingDoesNotChangeVotingBasis(t *testing.T) {
 		} else if !errors.Is(err, rpc.ErrConflict) || d.Status != rpc.Unknown {
 			t.Fatalf("floor4 = %+v err %v", d, err)
 		}
-		if len(d.Participants) != 5 || len(d.Support) != 3 || len(d.Reject) != 2 || string(d.Value) != `"v1"` || len(d.Faults) != 1 || !errors.Is(d.Faults[0], rpc.ErrMalformedResponse) {
+		if len(d.Participants) != 5 || len(d.Support) != 3 || len(d.Reject) != 2 || string(d.Value) != `"v1"` || len(d.Faults) != 1 || !errors.Is(d.Faults[0], rpc.ErrInvalidCanonicalResult) {
 			t.Fatalf("voting basis = %+v", d)
 		}
 		for i, source := range d.Reject {

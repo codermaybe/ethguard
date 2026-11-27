@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math/big"
 	"testing"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // The Port is the seam every adapter implements and core packages consume.
@@ -33,9 +35,11 @@ func TestPortSurface(t *testing.T) {
 
 type portStub struct{}
 
-func (portStub) CallContext(context.Context, any, string, ...any) error { return nil }
-func (portStub) ChainID(context.Context) (*big.Int, error)              { return nil, nil }
-func (portStub) Close()                                                 {}
+func (portStub) Call(context.Context, string, ...any) rpc.Response {
+	return rpc.Response{Exchange: rpc.Exchange{Cause: ErrConnectionClosed}}
+}
+func (portStub) ChainID(context.Context) (*big.Int, error) { return nil, nil }
+func (portStub) Close()                                    {}
 
 type dialerStub struct{}
 

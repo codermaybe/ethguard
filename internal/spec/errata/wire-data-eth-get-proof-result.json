@@ -1,0 +1,39 @@
+{
+  "id": "wire-data-eth-get-proof-result",
+  "sourceVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "sourceCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "target": {
+    "method": "eth_getProof",
+    "part": "result"
+  },
+  "reason": "The pinned DATA pattern permits an odd number of hexadecimal digits, although EIP-1474 defines DATA as complete bytes with two hexadecimal digits per byte. Restrict only the reviewed DATA nodes to pairs of lowercase hexadecimal digits. Keep empty DATA and leading zero bytes, and do not change QUANTITY, HexByte, StorageKey, field presence or other constraints. This correction is applied after the existing structural errata; its input digest identifies that effective root.",
+  "references": [
+    "https://eips.ethereum.org/EIPS/eip-1474#data",
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/schemas/base-types.yaml"
+  ],
+  "retireWhen": "Review on every source pin or prerequisite erratum change. Remove once the upstream definitions in this target require complete DATA bytes; revise each reviewed path and both digests if upstream changes the schema. Never silently apply this rule to other hex-string families or new source nodes.",
+  "inputSchemaSHA256": "6b85eb99c2a95ffb2ff7f4c36e10331b52e6553e62d57b98953a056a77f45eec",
+  "outputSchemaSHA256": "4b91ae043dc36b760693d722e9a0abca579a3eefe8624637a7d8af7d42ecd251",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/properties/accountProof/items/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/properties/accountProof/items/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    },
+    {
+      "op": "test",
+      "path": "/properties/storageProof/items/properties/proof/items/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/properties/storageProof/items/properties/proof/items/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    }
+  ]
+}

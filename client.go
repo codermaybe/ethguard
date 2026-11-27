@@ -54,25 +54,13 @@ type Client struct {
 	closed atomic.Bool
 }
 
-// HTTPAdapter names the connection adapter a Client's pool dials upstreams
-// with. HTTPAdapterNative selects the project-owned HTTP adapter and is the
-// strategic default; HTTPAdapterGeth names the go-ethereum compatibility
-// adapter, which the default build does not link — a bare selection fails
-// construction with a pointer to ethguard/gethcompat, the explicit
-// construction entry for that channel (gethcompat composes this option with
-// its own dialer). The selection entry is retained for one migration cycle
-// as this diagnostic. The naming is owned by the runtime composition root.
+// HTTPAdapter names the connection adapter a Client's pool uses for HTTP.
+// The native adapter is the default.
 type HTTPAdapter = runtime.Adapter
 
-const (
-	HTTPAdapterGeth   = runtime.AdapterGeth
-	HTTPAdapterNative = runtime.AdapterNative
-)
+const HTTPAdapterNative = runtime.AdapterNative
 
-// WithHTTPAdapter selects the connection adapter for this Client. An empty
-// name keeps the strategic native default; only the native and geth names are
-// known, and a bare geth selection fails construction with the seam pointer
-// above.
+// WithHTTPAdapter selects the HTTP adapter. An empty name selects native.
 func WithHTTPAdapter(a HTTPAdapter) Option {
 	return func(o *clientOptions) { o.httpAdapter = a }
 }
@@ -81,10 +69,7 @@ func WithHTTPAdapter(a HTTPAdapter) Option {
 type Option func(*clientOptions)
 
 // DialerOption installs an explicit connection adapter dialer for the pool.
-// It exists for the gethcompat construction seam, which links the go-ethereum
-// compatibility adapter; production code must not use it to grow a second
-// channel-selection surface. The import interlock pins gethcompat as the only
-// production importer of the compatibility adapter.
+// It cannot be combined with per-source transport selections.
 func DialerOption(d transport.Dialer) Option {
 	return func(o *clientOptions) {
 		if d != nil {
@@ -107,8 +92,8 @@ type clientOptions struct {
 	// lag bound. The facade resolver keeps its own configuration.
 	useFinalizedAnchoring bool
 	finalizedMaxLag       uint64
-	// dialer is a pool dialer injected by DialerOption (the gethcompat
-	// seam); the default adapter selection yields to it.
+	// dialer is a pool dialer injected by DialerOption; the default adapter
+	// selection yields to it.
 	dialer transport.Dialer
 	// chainID pins the client to one Ethereum network when WithChainID was
 	// used. A Go option always wins over the configuration value; nil leaves

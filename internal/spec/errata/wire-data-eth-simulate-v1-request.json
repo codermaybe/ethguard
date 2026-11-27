@@ -1,0 +1,40 @@
+{
+  "id": "wire-data-eth-simulate-v1-request",
+  "sourceVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "sourceCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "target": {
+    "method": "eth_simulateV1",
+    "part": "request",
+    "parameter": 0
+  },
+  "reason": "The pinned DATA pattern permits an odd number of hexadecimal digits, although EIP-1474 defines DATA as complete bytes with two hexadecimal digits per byte. Restrict only the reviewed DATA nodes to pairs of lowercase hexadecimal digits. Keep empty DATA and leading zero bytes, and do not change QUANTITY, HexByte, StorageKey, field presence or other constraints. This correction is applied after the existing structural errata; its input digest identifies that effective root.",
+  "references": [
+    "https://eips.ethereum.org/EIPS/eip-1474#data",
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/schemas/base-types.yaml"
+  ],
+  "retireWhen": "Review on every source pin or prerequisite erratum change. Remove once the upstream definitions in this target require complete DATA bytes; revise each reviewed path and both digests if upstream changes the schema. Never silently apply this rule to other hex-string families or new source nodes.",
+  "inputSchemaSHA256": "2395f79eeb629044de23c59245fd348c61650dea1bff7d11b74186c4c23ef75d",
+  "outputSchemaSHA256": "3a6ece8254d4b20b60b4a540fd66e1681d794442772d90385c46be8af13db789",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/properties/blockStateCalls/items/properties/calls/items/properties/input/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/properties/blockStateCalls/items/properties/calls/items/properties/input/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    },
+    {
+      "op": "test",
+      "path": "/properties/blockStateCalls/items/properties/stateOverrides/patternProperties/^0x[a-fA-F0-9]{40}$/properties/code/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/properties/blockStateCalls/items/properties/stateOverrides/patternProperties/^0x[a-fA-F0-9]{40}$/properties/code/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    }
+  ]
+}

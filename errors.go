@@ -19,8 +19,10 @@ import (
 //	                      transport-level response
 //	ErrChainIDMismatch    a source reported a foreign chain and was rejected
 //	ErrPoolClosed         the client's pool has been closed
-//	ErrConflict           sources disagreed under corroboration, or a quorum
-//	                      went unmet; Decision evidence names the clusters
+//	ErrConflict           distinct candidate groups prevented acceptance
+//	ErrInsufficientSupport one candidate group did not meet the fixed support bound
+//	ErrGuaranteeNotMet    a formed result did not meet the requested guarantee
+//	ErrHashMismatch       the reported write hash differs from submitted bytes
 //	ErrNoValidResponse    sources answered but no response survived
 //	                      normalization
 //	ErrMalformedResponse  a resolved value cannot be shaped at a typed
@@ -38,6 +40,9 @@ var (
 	ErrChainIDMismatch        = pool.ErrChainIDMismatch
 	ErrPoolClosed             = pool.ErrClosed
 	ErrConflict               = rpc.ErrConflict
+	ErrInsufficientSupport    = rpc.ErrInsufficientSupport
+	ErrGuaranteeNotMet        = rpc.ErrGuaranteeNotMet
+	ErrHashMismatch           = rpc.ErrHashMismatch
 	ErrNoValidResponse        = rpc.ErrNoValidResponse
 	ErrMalformedResponse      = rpc.ErrMalformedResponse
 	ErrInvalidRequest         = rpc.ErrInvalidRequest

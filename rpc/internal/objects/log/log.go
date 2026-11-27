@@ -10,52 +10,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
+	objectlog "github.com/codermaybe/ethguard/internal/ethobject/log"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
-// Validate checks the required fields and wire shapes of one log object.
-func Validate(value json.RawMessage) error {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(value, &obj); err != nil || obj == nil {
-		return fmt.Errorf("expected an object")
-	}
-	for _, field := range []string{"address", "topics", "data", "blockNumber", "transactionHash", "transactionIndex", "blockHash", "logIndex", "removed"} {
-		if raw, ok := obj[field]; !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			return fmt.Errorf("missing %s", field)
-		}
-	}
-	if _, err := wire.ValidateWireFixedHex(obj["address"], 40, "address"); err != nil {
-		return fmt.Errorf("address: %w", err)
-	}
-	var topics []json.RawMessage
-	if err := json.Unmarshal(obj["topics"], &topics); err != nil || topics == nil {
-		return fmt.Errorf("topics must be an array")
-	}
-	for i, topic := range topics {
-		if _, err := wire.ValidateWireFixedHex(topic, 64, "hash"); err != nil {
-			return fmt.Errorf("topics[%d]: %w", i, err)
-		}
-	}
-	if _, err := wire.NormalizeWireData(obj["data"]); err != nil {
-		return fmt.Errorf("data: %w", err)
-	}
-	for _, field := range []string{"blockNumber", "transactionIndex", "logIndex"} {
-		if _, err := wire.NormalizeWireQuantity(obj[field]); err != nil {
-			return fmt.Errorf("%s: %w", field, err)
-		}
-	}
-	for _, field := range []string{"transactionHash", "blockHash"} {
-		if _, err := wire.ValidateWireFixedHex(obj[field], 64, "hash"); err != nil {
-			return fmt.Errorf("%s: %w", field, err)
-		}
-	}
-	var removed bool
-	if err := json.Unmarshal(obj["removed"], &removed); err != nil {
-		return fmt.Errorf("removed must be boolean")
-	}
-	return nil
-}
+// Validate checks the shared log object contract.
+func Validate(value json.RawMessage) error { return objectlog.Validate(value) }
 
 // ValidateResponse validates a getLogs response and binds it to its request.
 func ValidateResponse(req rpc.Request, value json.RawMessage) error {
@@ -125,7 +86,7 @@ func ValidateRequestBinding(req rpc.Request, rows []json.RawMessage) error {
 		if err := json.Unmarshal(row, &obj); err != nil {
 			return fmt.Errorf("log %d is malformed: %w", i, err)
 		}
-		block, err := wire.NormalizeWireQuantity(obj["blockNumber"])
+		block, err := ethcodec.NormalizeWireQuantity(obj["blockNumber"])
 		if err != nil {
 			return fmt.Errorf("log %d blockNumber: %w", i, err)
 		}

@@ -17,13 +17,10 @@ import (
 // It carries the raw, unjudged response (or error) from one source; semantic
 // comparison is owned by the aggregator, not the pool.
 type Emission struct {
+	// Response retains communication, protocol and method facts without flattening.
+	Response rpc.Response
 	// Src is the source that answered (or failed).
 	Src *Source
-	// Val is the raw RPC response value. Only set when Err == nil.
-	Val json.RawMessage
-	// Err reports this source's transport/JSON-RPC-level failure or timeout.
-	// A non-nil Err means this source did not contribute a value.
-	Err error
 	// RTT is the round-trip time of the attempted call; zero when the call
 	// never started or failed before reaching the wire.
 	RTT time.Duration
@@ -34,6 +31,60 @@ type Emission struct {
 	// Evidence is populated by an admission stage after collection. It stays
 	// attached to this source and is never combined across sources.
 	Evidence json.RawMessage
+
+	health *emissionHealth
+}
+
+// FinalizeHealth completes deferred health accounting once, even across copies
+// of an emission. Only an explicit malformed successful response can override
+// the original transport classification. Unattempted and already-accounted
+// emissions are no-ops. Callers using DeferHealth must call this on every exit.
+func (e Emission) FinalizeHealth(responseErr error) {
+	if e.health == nil {
+		return
+	}
+	e.health.once.Do(func() {
+		h := e.health
+		err, failed := h.err, h.recordFailure
+		if err == nil && errors.Is(responseErr, rpc.ErrMalformedResponse) {
+			err, failed = responseErr, true
+		}
+		accountAttempt(h.src, err, h.rtt, failed)
+	})
+}
+
+type emissionHealth struct {
+	once          sync.Once
+	src           *Source
+	err           error
+	rtt           time.Duration
+	recordFailure bool
+}
+
+// accountAttempt applies one health outcome to a source: a transport-healthy
+// exchange records success, a recordable failure cools the source, and
+// anything else (caller cancellation, closed pool, dial wait) records
+// nothing. It is the one classification both the immediate and the deferred
+// accounting paths apply.
+func accountAttempt(src *Source, err error, rtt time.Duration, failed bool) {
+	if isHealthyRPCResponse(err) {
+		src.recordSuccessfulCall(rtt)
+	} else if failed {
+		src.recordFailedCall(err)
+	}
+}
+
+// accountEmission freezes the transport classification at completion, before
+// later admission work or caller cancellation can change its meaning.
+func accountEmission(parent context.Context, e *Emission, deferred bool) {
+	if !e.Attempted {
+		return
+	}
+	if deferred {
+		e.health = &emissionHealth{src: e.Src, err: e.Response.Err(), rtt: e.RTT, recordFailure: shouldRecordFailure(parent, e.Response.Err())}
+		return
+	}
+	accountAttempt(e.Src, e.Response.Err(), e.RTT, shouldRecordFailure(parent, e.Response.Err()))
 }
 
 // TipFreshnessScope tells the pool whether one request's scheduling may
@@ -85,17 +136,22 @@ type CollectOptions struct {
 	// sampled-latest-tip gate. The zero value keeps the historical gate-all
 	// behavior; see TipFreshnessScope.
 	TipFreshness TipFreshnessScope
+	// DeferHealth leaves final accounting to the caller after response
+	// validation. Every returned attempted emission must be finalized with
+	// FinalizeHealth, including on cancellation and early returns. The default
+	// accounts at transport completion; Broadcast always keeps that behavior.
+	DeferHealth bool
 }
-
-// The default fan-out bound lives in config (DefaultCollectTimeout): one
-// source for both the YAML and Go construction paths, so they cannot drift
-// (decision 0004). A zero CollectOptions.Timeout selects it.
 
 // ErrSourceGated reports that a voting member's request was skipped by a
 // scheduling gate (cooldown circuit or freshness bound). The member still
 // occupies the invocation's voting basis (decision 0062): this error marks a
 // paused request, not a health observation — gated members receive no
 // failure accounting.
+//
+// The default fan-out bound lives in config (DefaultCollectTimeout): one
+// source for both the YAML and Go construction paths, so they cannot drift
+// (decision 0004). A zero CollectOptions.Timeout selects it.
 var ErrSourceGated = errors.New("pool: source gated; request paused, voting basis retained")
 
 // GateReason identifies the scheduling gate that paused a source.
@@ -132,6 +188,34 @@ func (e *SourceGateError) Error() string {
 
 func (e *SourceGateError) Unwrap() error { return ErrSourceGated }
 
+// boundedFanout applies the collection-default timeout when the caller left
+// the fan-out timeout unset. Every fan-out path shares this preamble.
+func boundedFanout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		timeout = config.DefaultCollectTimeout()
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+// gateDeadline distinguishes a scheduling pause from a caller deadline: an
+// acquire timeout under a still-live caller is the source's local pacing
+// gate, not the request's own deadline.
+func gateDeadline(parent context.Context, err error) error {
+	if err != nil && parent.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %w", ErrSourceGated, err)
+	}
+	return err
+}
+
+// symmetricSemaphore caps a symmetric fan-out: zero or an over-large cap
+// means unbounded across the captured members.
+func symmetricSemaphore(cap int, members int) chan struct{} {
+	if cap <= 0 || cap > members {
+		cap = members
+	}
+	return make(chan struct{}, cap)
+}
+
 // Collect fans a single request out to all eligible sources symmetrically and
 // returns each source's raw response, unjudged.
 //
@@ -167,11 +251,7 @@ func (p *Pool) Collect(ctx context.Context, method string, params []any, opts Co
 // A member that fails its lazily-verified chain identity during this
 // collection fails as one member; the invocation continues without it.
 func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = config.DefaultCollectTimeout()
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	callCtx, cancel := boundedFanout(ctx, opts.Timeout)
 	defer cancel()
 	if p.isClosed() {
 		return nil, ErrClosed
@@ -193,48 +273,41 @@ func (p *Pool) CollectVoting(ctx context.Context, method string, params []any, o
 	}
 
 	// Gates are decided before dispatch so paused members never consume a
-	// concurrency slot. The freshness reference is computed over the whole
-	// basis, as in the eligible path, and only when the request's declared
-	// scope depends on the sampled latest tip.
+	// concurrency slot. Each pause is recorded directly into the slot that
+	// carries it, so the dispatch loop below skips exactly the slots that
+	// already hold their member's outcome; there is no separate gate map to
+	// allocate and consult once per member. The freshness reference is
+	// computed over the whole basis, as in the eligible path, and only when
+	// the request's declared scope depends on the sampled latest tip.
 	now := time.Now()
 	reference := tipReference{}
 	if opts.TipFreshness.gatesLatestTip() {
 		reference = p.tipReference(members, now)
 	}
-	gated := make(map[int]error, len(members))
-	attemptable := 0
+	var (
+		emissions   = make([]Emission, len(members))
+		attemptable int
+	)
 	for i, src := range members {
 		if gate := votingGate(src, reference, now); gate != nil {
-			gated[i] = gate
+			emissions[i] = Emission{Src: src, Response: rpc.Response{Exchange: rpc.Exchange{Cause: gate}}}
 			continue
 		}
 		attemptable++
 	}
 	if attemptable == 0 {
 		// Preserve the captured basis even when no request can start.
-		emissions := make([]Emission, len(members))
-		for i, src := range members {
-			emissions[i] = Emission{Src: src, Err: gated[i]}
-		}
 		return emissions, ErrNoEligibleSource
 	}
 
-	maxConcurrent := opts.MaxConcurrent
-	if maxConcurrent <= 0 || maxConcurrent > len(members) {
-		maxConcurrent = len(members)
-	}
-	sem := make(chan struct{}, maxConcurrent)
+	sem := symmetricSemaphore(opts.MaxConcurrent, len(members))
 
-	var (
-		emissions = make([]Emission, len(members))
-		wg        sync.WaitGroup
-	)
+	var wg sync.WaitGroup
 	for i, src := range members {
-		if gate, skip := gated[i]; skip {
-			emissions[i] = Emission{Src: src, Err: gate}
-			continue
+		if emissions[i].Src != nil {
+			continue // this slot already records its member's pause
 		}
-		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg, opts.DeferHealth)
 	}
 	wg.Wait()
 	// Usable answers ride alongside a fan-out timeout: the caller adjudicates
@@ -270,17 +343,17 @@ func votingGate(src *Source, reference tipReference, now time.Time) error {
 }
 
 // dispatchOne attempts one member's call under the shared semaphore and
-// records its emission. Attempted calls report health here, so callers cannot
-// accidentally hide a dead source by forgetting a separate report step; a
+// records its emission. Attempted calls report health here unless the read
+// coordinator explicitly defers accounting through response validation. A
 // caller that never acquires a local slot records nothing. Shared by the
 // read paths and Broadcast: a broadcast failure cools the source for reads
 // too, and a read failure cools it for writes.
-func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src *Source, method string, params []any, emissions []Emission, wg *sync.WaitGroup) {
+func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src *Source, method string, params []any, emissions []Emission, wg *sync.WaitGroup, deferHealth bool) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		var val json.RawMessage
+		var response rpc.Response
 		var err error
 		var rtt time.Duration
 		attempted := false
@@ -289,15 +362,13 @@ func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src 
 			if err = callCtx.Err(); err == nil {
 				var release func()
 				release, err = src.acquireRequest(callCtx)
-				if err != nil && parent.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
-					err = fmt.Errorf("%w: %w", ErrSourceGated, err)
-				}
+				err = gateDeadline(parent, err)
 				if err == nil {
 					attempted = true
 					// Released by defer: a panic below must not leak the
 					// scheduling slot and slowly wedge this source.
 					defer release()
-					val, rtt, err = collectOne(callCtx, src, method, params)
+					response, rtt = collectOne(callCtx, src, method, params)
 				}
 			}
 			<-sem
@@ -305,15 +376,11 @@ func dispatchOne(callCtx, parent context.Context, sem chan struct{}, i int, src 
 			err = callCtx.Err()
 		}
 
-		if attempted {
-			if isHealthyRPCResponse(err) {
-				src.recordSuccessfulCall(rtt)
-			} else if shouldRecordFailure(parent, err) {
-				src.recordFailedCall(err)
-			}
+		if !attempted {
+			response.Exchange.Cause = err
 		}
-
-		emissions[i] = Emission{Src: src, Val: val, Err: err, RTT: rtt, Attempted: attempted}
+		emissions[i] = Emission{Src: src, Response: response, RTT: rtt, Attempted: attempted}
+		accountEmission(parent, &emissions[i], deferHealth)
 	}()
 }
 
@@ -335,11 +402,7 @@ type collectPlan struct {
 // collect is Collect with a switch for the eligibility rules; tip probes use
 // a relaxed plan so a stale or cooling fleet can still be observed.
 func (p *Pool) collect(ctx context.Context, method string, params []any, opts CollectOptions, plan collectPlan) ([]Emission, error) {
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = config.DefaultCollectTimeout()
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	callCtx, cancel := boundedFanout(ctx, opts.Timeout)
 	defer cancel()
 	if p.isClosed() {
 		return nil, ErrClosed
@@ -360,11 +423,7 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 	if len(sources) == 0 {
 		return nil, ErrNoEligibleSource
 	}
-	maxConcurrent := opts.MaxConcurrent
-	if maxConcurrent <= 0 || maxConcurrent > len(sources) {
-		maxConcurrent = len(sources)
-	}
-	sem := make(chan struct{}, maxConcurrent)
+	sem := symmetricSemaphore(opts.MaxConcurrent, len(sources))
 
 	var (
 		emissions = make([]Emission, len(sources))
@@ -372,7 +431,7 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 	)
 
 	for i, src := range sources {
-		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg)
+		dispatchOne(callCtx, ctx, sem, i, src, method, params, emissions, &wg, opts.DeferHealth)
 	}
 	wg.Wait()
 
@@ -391,11 +450,7 @@ func (p *Pool) collect(ctx context.Context, method string, params []any, opts Co
 // unknown, heavy, or non-idempotent methods. The returned emissions contain
 // only sources that were actually attempted.
 func (p *Pool) Forward(ctx context.Context, method string, params []any, opts CollectOptions) ([]Emission, error) {
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = config.DefaultCollectTimeout()
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	callCtx, cancel := boundedFanout(ctx, opts.Timeout)
 	defer cancel()
 	if p.isClosed() {
 		return nil, ErrClosed
@@ -424,10 +479,8 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 		}
 		release, waitErr := src.acquireRequest(callCtx)
 		if waitErr != nil {
-			if ctx.Err() == nil && errors.Is(waitErr, context.DeadlineExceeded) {
-				waitErr = fmt.Errorf("%w: %w", ErrSourceGated, waitErr)
-			}
-			emissions = append(emissions, Emission{Src: src, Err: waitErr})
+			waitErr = gateDeadline(ctx, waitErr)
+			emissions = append(emissions, Emission{Src: src, Response: rpc.Response{Exchange: rpc.Exchange{Cause: waitErr}}})
 			// The caller's cancellation is not fleet silence. In particular,
 			// the final member may never have acquired a scheduling slot;
 			// preserve that cause instead of falling through to AllSourcesDown.
@@ -441,13 +494,11 @@ func (p *Pool) Forward(ctx context.Context, method string, params []any, opts Co
 			}
 			continue
 		}
-		val, rtt, callErr := collectWithSlot(callCtx, src, method, params, release)
-		emission := Emission{Src: src, Val: val, Err: callErr, RTT: rtt, Attempted: true}
-		if isHealthyRPCResponse(callErr) {
-			src.recordSuccessfulCall(rtt)
-		} else if shouldRecordFailure(ctx, callErr) {
-			src.recordFailedCall(callErr)
-		}
+		response, rtt := collectWithSlot(callCtx, src, method, params, release)
+		emission := Emission{Src: src, Response: response, RTT: rtt, Attempted: true}
+		callErr := emission.Response.Err()
+
+		accountEmission(ctx, &emission, opts.DeferHealth)
 		emissions = append(emissions, emission)
 
 		if callErr == nil || isJSONRPCResponseError(callErr) {
@@ -475,15 +526,15 @@ func (p *Pool) CallSource(ctx context.Context, src *Source, method string, param
 		return nil, err
 	}
 	defer release()
-	val, _, err := collectOne(ctx, src, method, params)
-	return val, err
+	response, _ := collectOne(ctx, src, method, params)
+	if err := response.Err(); err != nil {
+		return nil, err
+	}
+	return response.Answer.Result, nil
 }
 
 func shouldRecordFailure(parent context.Context, err error) bool {
-	return err != nil &&
-		parent.Err() == nil &&
-		!errors.Is(err, ErrClosed) &&
-		!errors.Is(err, errWaitingForDial)
+	return err != nil && parent.Err() == nil && !errors.Is(err, ErrClosed) && !errors.Is(err, errWaitingForDial)
 }
 
 // fanoutVerdict reduces one completed fan-out's emissions to the call's
@@ -497,7 +548,7 @@ func shouldRecordFailure(parent context.Context, err error) bool {
 func fanoutVerdict(emissions []Emission, callCtx context.Context, usableFirst bool) error {
 	hasUsable := func() bool {
 		for _, emission := range emissions {
-			if emission.Val != nil || isJSONRPCResponseError(emission.Err) {
+			if emission.Response.CandidateErr(true) == nil {
 				return true
 			}
 		}
@@ -513,8 +564,8 @@ func fanoutVerdict(emissions []Emission, callCtx context.Context, usableFirst bo
 		return nil
 	}
 	for _, emission := range emissions {
-		if errors.Is(emission.Err, ErrChainIDMismatch) {
-			return emission.Err
+		if errors.Is(emission.Response.Err(), ErrChainIDMismatch) {
+			return emission.Response.Err()
 		}
 	}
 	return ErrAllSourcesDown
@@ -545,42 +596,34 @@ func isHealthyRPCResponse(err error) bool {
 // defer release, so a panicking adapter cannot permanently wedge the
 // source's scheduling budget. The caller records health after the call so
 // recording still happens with the slot already freed.
-func collectWithSlot(ctx context.Context, src *Source, method string, params []any, release func()) (json.RawMessage, time.Duration, error) {
+func collectWithSlot(ctx context.Context, src *Source, method string, params []any, release func()) (rpc.Response, time.Duration) {
 	defer release()
 	return collectOne(ctx, src, method, params)
 }
 
-// collectOne performs a single JSON-RPC call on one source, dialing lazily if
-// needed. It returns the raw result value (or an error for transport/timeout)
-// and the round-trip time of the CallContext exchange alone: lazy dialing and
-// the first-use chain-ID verification stay outside the measured window, so
-// health percentiles describe the wire rather than connection setup.
-func collectOne(ctx context.Context, src *Source, method string, params []any) (json.RawMessage, time.Duration, error) {
+// collectOne retains the transport response and measures only the call, keeping
+// lazy connection setup and identity probing outside the measured window.
+func collectOne(ctx context.Context, src *Source, method string, params []any) (rpc.Response, time.Duration) {
 	client, err := src.clientForCall(ctx)
 	if err != nil {
-		return nil, 0, err
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}, 0
 	}
 	if err := src.verifyChainID(ctx, client); err != nil {
 		if shouldDiscardClient(err) {
 			src.discardClient(client)
 		}
-		return nil, 0, err
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}, 0
 	}
-
-	var result json.RawMessage
 	start := time.Now()
-	err = client.CallContext(ctx, &result, method, params...)
+	response := client.Call(ctx, method, params...)
 	rtt := time.Since(start)
 	if src.isClosed() {
-		return nil, rtt, ErrClosed
+		response.Exchange.Cause = ErrClosed
 	}
-	if err != nil {
-		if shouldDiscardClient(err) {
-			src.discardClient(client)
-		}
-		return nil, rtt, err
+	if shouldDiscardClient(response.Err()) {
+		src.discardClient(client)
 	}
-	return result, rtt, nil
+	return response, rtt
 }
 
 // shouldDiscardClient reports whether the connection is finished and must be

@@ -26,16 +26,63 @@ type Projection struct {
 	Missing            []string
 }
 
-type standardProjector struct{ fields []StandardField }
+type standardProjector struct {
+	exactPaths       map[string]struct{}
+	wildcardPatterns [][]string
+	requiredPaths    []string
+}
 
 // NewStandardProjector builds the reusable method projector used by the
-// aggregator assembly map. It owns a copy of the field declaration.
+// aggregator assembly map. It owns the compiled field declaration.
 func NewStandardProjector(fields []StandardField) rpc.ObservationProjector {
-	return standardProjector{fields: append([]StandardField(nil), fields...)}
+	return compileStandardFields(fields)
+}
+
+func compileStandardFields(fields []StandardField) standardProjector {
+	declared := make(map[string]StandardField, len(fields))
+	p := standardProjector{exactPaths: make(map[string]struct{}, len(fields))}
+	for _, field := range fields {
+		declared[field.Path] = field
+		// Requiredness belongs to each declaration, including duplicates, and
+		// uses the original path rather than the matching normalization.
+		if field.Required && !strings.Contains(field.Path, "/*") {
+			p.requiredPaths = append(p.requiredPaths, field.Path)
+		}
+	}
+	for path := range declared {
+		path = strings.TrimPrefix(path, "/")
+		parts := strings.Split(path, "/")
+		wildcard := false
+		for _, part := range parts {
+			if part == "*" {
+				wildcard = true
+				break
+			}
+		}
+		if wildcard {
+			p.wildcardPatterns = append(p.wildcardPatterns, parts)
+		} else {
+			// The previous matcher removed one leading slash even for exact
+			// declarations, so "" and "/" classify the same accepted paths.
+			p.exactPaths[path] = struct{}{}
+		}
+	}
+	return p
 }
 
 func (p standardProjector) ProjectObservation(value json.RawMessage, evaluation rpc.Evaluation) (rpc.ExtensionSet, error) {
-	return ProjectStandard(evaluation, p.fields).Carrier(value)
+	return rpc.NewExtensionSet(value, p.acceptedExtensions(evaluation))
+}
+
+func (p standardProjector) acceptedExtensions(evaluation rpc.Evaluation) []rpc.FieldObservation {
+	var accepted []rpc.FieldObservation
+	for _, field := range evaluation.Accepted {
+		if !p.matchesPath(field.Path) {
+			accepted = append(accepted, field)
+		}
+	}
+	sort.Slice(accepted, func(i, j int) bool { return accepted[i].Path < accepted[j].Path })
+	return accepted
 }
 
 // ProjectStandard classifies already-accepted observations into a method's
@@ -45,29 +92,23 @@ func (p standardProjector) ProjectObservation(value json.RawMessage, evaluation 
 // absent from Accepted are reported in Missing. Diagnostics stay on the
 // evaluation and do not become extensions.
 func ProjectStandard(evaluation rpc.Evaluation, fields []StandardField) Projection {
-	declared := make(map[string]StandardField, len(fields))
-	for _, field := range fields {
-		declared[field.Path] = field
-	}
+	return compileStandardFields(fields).project(evaluation)
+}
 
+func (p standardProjector) project(evaluation rpc.Evaluation) Projection {
 	result := Projection{}
 	seen := make(map[string]struct{}, len(evaluation.Accepted))
 	for _, field := range evaluation.Accepted {
 		seen[field.Path] = struct{}{}
-		if _, ok := standardFieldForPath(field.Path, declared); ok {
+		if p.matchesPath(field.Path) {
 			result.Core = append(result.Core, field)
 		} else {
 			result.AcceptedExtensions = append(result.AcceptedExtensions, field)
 		}
 	}
-	for _, field := range fields {
-		if field.Required {
-			if strings.Contains(field.Path, "/*") {
-				continue
-			}
-			if _, ok := seen[field.Path]; !ok {
-				result.Missing = append(result.Missing, field.Path)
-			}
+	for _, path := range p.requiredPaths {
+		if _, ok := seen[path]; !ok {
+			result.Missing = append(result.Missing, path)
 		}
 	}
 	sort.Slice(result.Core, func(i, j int) bool { return result.Core[i].Path < result.Core[j].Path })
@@ -76,21 +117,30 @@ func ProjectStandard(evaluation rpc.Evaluation, fields []StandardField) Projecti
 	return result
 }
 
-func standardFieldForPath(path string, fields map[string]StandardField) (StandardField, bool) {
-	if field, ok := fields[path]; ok {
-		return field, true
+func (p standardProjector) matchesPath(path string) bool {
+	path = strings.TrimPrefix(path, "/")
+	if _, ok := p.exactPaths[path]; ok {
+		return true
 	}
-	for pattern, field := range fields {
-		if matchJSONPointerPattern(pattern, path) {
-			return field, true
+	if len(p.wildcardPatterns) == 0 {
+		return false
+	}
+	parts := strings.Split(path, "/")
+	for _, pattern := range p.wildcardPatterns {
+		if matchJSONPointerParts(pattern, parts) {
+			return true
 		}
 	}
-	return StandardField{}, false
+	return false
 }
 
 func matchJSONPointerPattern(pattern, path string) bool {
 	patternParts := strings.Split(strings.TrimPrefix(pattern, "/"), "/")
 	pathParts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	return matchJSONPointerParts(patternParts, pathParts)
+}
+
+func matchJSONPointerParts(patternParts, pathParts []string) bool {
 	if len(patternParts) != len(pathParts) {
 		return false
 	}

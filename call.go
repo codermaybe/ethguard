@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/internal/typed"
 )
@@ -57,26 +57,28 @@ func (c *Client) checkCallRoute(method string) error {
 
 // DecodeBlock delegates the public root decoding entry point to the shared
 // production typed projection module.
-func DecodeBlock(raw json.RawMessage) (*types.Block, error) {
+func DecodeBlock(raw json.RawMessage) (*ethapi.Block, error) {
 	return typed.DecodeBlock(raw)
 }
 
-// DecodeBlockHeaderOnly delegates header projection to internal/typed.
-func DecodeBlockHeaderOnly(raw json.RawMessage) (*types.Block, error) {
+// DecodeBlockHeaderOnly delegates the header projection of a fullTx=false
+// block response to internal/typed; the public value is the official
+// generated Header.
+func DecodeBlockHeaderOnly(raw json.RawMessage) (*ethapi.Header, error) {
 	return typed.DecodeBlockHeaderOnly(raw)
 }
 
 // DecodeReceipt delegates receipt projection to internal/typed.
-func DecodeReceipt(raw json.RawMessage) (*types.Receipt, error) {
+func DecodeReceipt(raw json.RawMessage) (*ethapi.Receipt, error) {
 	return typed.DecodeReceipt(raw)
 }
 
 // DecodeReceipts delegates receipt-list projection to internal/typed.
-func DecodeReceipts(raw json.RawMessage) ([]*types.Receipt, error) {
+func DecodeReceipts(raw json.RawMessage) ([]ethapi.Receipt, error) {
 	return typed.DecodeReceipts(raw)
 }
 
 // DecodeTransaction delegates transaction projection to internal/typed.
-func DecodeTransaction(raw json.RawMessage) (*types.Transaction, bool, error) {
+func DecodeTransaction(raw json.RawMessage) (*ethapi.Transaction, bool, error) {
 	return typed.DecodeTransaction(raw)
 }

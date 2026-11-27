@@ -1,6 +1,8 @@
 package aggregator
 
 import (
+	"fmt"
+
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -22,56 +24,54 @@ func forwardPlan(method string) rpc.ReadPlan {
 
 // WithPlans installs the read plans the aggregator executes through the
 // fixed phase pipeline. A method with a plan runs the plan path; every
-// other method keeps the compiled policy path. Plans without a resolver
-// value are not executable and are skipped.
+// other method keeps the compiled policy path. A non-empty plan with a local
+// hook but no resolver is installed so its local checks still run, then fails
+// closed during preparation. Empty plans without a resolver or hook are skipped.
 func WithPlans(plans map[string]rpc.ReadPlan) Option {
 	return func(a *Aggregator) {
 		for method, plan := range plans {
 			// A plan without a resolver and without a local hook is not
 			// executable and is skipped; a validate-or-reject-only plan is
 			// the local rejection shape and installs fine.
-			if plan.Resolver != nil || plan.Validate != nil || plan.PendingReject != nil {
+			if plan.Resolver != nil || plan.Prepare != nil || plan.PendingReject != nil {
 				a.plans[method] = plan
 			}
 		}
 	}
 }
 
-// resolvePlannedInvocation resolves one observation set from the plan's
-// declared semantics: the pending-local route first, then the resolver's
-// corroborated or plain outcome capability. The fallback chain mirrors the
-// legacy invocation resolution exactly — the same capabilities, consulted in
-// the same order — with the plan's declarations replacing the type
-// assertions over decorator layers. Corroboration is gated on the plan's
-// declared class (plan.Corroborating), and the resolver value's own
-// capabilities are read straight off that value, never by walking decorators.
-func resolvePlannedInvocation(plan *rpc.ReadPlan, prepared rpc.Request, snap rpc.Corroboration, snapOK bool, obs []rpc.Observation) invocationResolution {
-	if planPendingLocalRoute(plan, prepared, snap, snapOK) {
-		decision, err := rpc.ResolveLocalObservation(plan.Resolver, obs)
-		return invocationResolution{decision: decision, err: err}
+// resolvePlannedInvocation selects the request's frozen local/corroborating
+// semantics. Every route returns the same mandatory source judgments.
+func resolvePlannedInvocation(plan *rpc.ReadPlan, snap rpc.Corroboration, snapOK bool, pendingLocal bool, obs []rpc.Observation) (rpc.Outcome, error) {
+	if plan == nil || plan.Resolver == nil {
+		outcome := rpc.UnassessedOutcome(obs)
+		outcome.Decision.Adjudication.Reason = rpc.ReasonInternalFailure
+		return outcome, fmt.Errorf("missing resolver: %w", rpc.ErrInvalidOutcome)
+	}
+	if singleSourcePolicy(plan.Resolver) {
+		return plan.Resolver.Resolve(obs)
+	}
+	if pendingLocal {
+		return rpc.ResolveLocalObservation(plan.Resolver, obs)
 	}
 	if snapOK && plan.Corroborating() {
-		if corrob, ok := plan.Resolver.(rpc.CorroboratingOutcomeResolver); ok {
-			outcome, err := corrob.ResolveOutcomeCorroborated(snap, obs)
-			return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}
+		resolver, ok := plan.Resolver.(rpc.CorroboratingPolicy)
+		if !ok {
+			outcome := rpc.UnassessedOutcome(obs)
+			outcome.Decision.Adjudication.Reason = rpc.ReasonInternalFailure
+			return outcome, fmt.Errorf("declared corroborating resolver lacks resolution entry: %w", rpc.ErrInvalidOutcome)
 		}
-		if corrob, ok := plan.Resolver.(rpc.CorroboratingPolicy); ok {
-			decision, err := corrob.ResolveCorroborated(snap, obs)
-			return invocationResolution{decision: decision, err: err}
-		}
+		return resolver.ResolveCorroborated(snap, obs)
 	}
-	if outcomeResolver, ok := plan.Resolver.(rpc.OutcomeResolver); ok {
-		outcome, err := outcomeResolver.ResolveOutcome(obs)
-		return invocationResolution{decision: outcome.Decision, verdicts: outcome.Verdicts, err: err}
-	}
-	decision, err := plan.Resolver.Resolve(obs)
-	return invocationResolution{decision: decision, err: err}
+	return plan.Resolver.Resolve(obs)
 }
 
-// planPendingLocalRoute is the plan's pending-local routing check: a pending
-// request shape on a pending-observation method resolves as a node-local
+// planPendingLocalRoute is the plan's pending-local routing check, computed
+// once at prepare time from the final prepared request: a pending request
+// shape on a pending-observation method resolves as a node-local
 // observation, except in Forwarded mode, where the pending shape still
-// forwards.
+// forwards. Its result freezes into the invocation; nothing recomputes it
+// from the parameters after preparation.
 func planPendingLocalRoute(plan *rpc.ReadPlan, prepared rpc.Request, snap rpc.Corroboration, snapOK bool) bool {
 	if plan.Pending.Mode != rpc.PendingObserve {
 		return false

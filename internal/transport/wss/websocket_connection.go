@@ -169,7 +169,9 @@ func (c *Conn) WriteMessage(ctx context.Context, data []byte) error {
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
 	}
-	_ = c.raw.SetWriteDeadline(deadline)
+	if err := c.raw.SetWriteDeadline(deadline); err != nil {
+		return fmt.Errorf("wss: set write deadline: %w", err)
+	}
 	return writeFrame(c.raw, clientSide, opText, data)
 }
 

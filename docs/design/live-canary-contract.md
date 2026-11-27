@@ -1,10 +1,11 @@
-# Live canary 契约（T10.0）
+# Live canary 契约
 
-状态：**已冻结（2026-10-23）**。本文件是 T10 live canary 的规则正文；
-决策见 `decisions.md` 0059。T10.1 起按本契约生成 schema、manifest 和 report。
+状态：2026-11-17 文档基线；固定观察契约起于 2026-10-23，决策依据为 0059。
+本文拥有 live observation 的 state、固定成员、plan、manifest/report 与 recheck
+边界；§12 单独保存 dated evidence，不把历史执行结论写成当前通过状态。
 本文件不改变 reference policy、`expect/v1`、`batch.json` 或生产裁决语义。
 
-关联：`project-roadmap.md`、`capture-golden-contract.md` G1–G5、
+关联：`project-roadmap.md`、[验证合同](method-verification-pipeline.md#6-捕获与-golden) G1–G5、
 `reference-freshness-policy.md`、决策 0026/0037/0056/0058。
 
 ---
@@ -216,7 +217,7 @@ v1 固定值：
 | `reference.finalized-balance` | reference | client_call | `eth_getBalance` | `[vitalik, "finalized"]` | decision；`corroborated`；step reference `corroborated`，并成为 run reference；prepared 区块参数等于该 reference hash |
 | `pinned.block` | business | client_call | `eth_getBlockByHash` | `[$reference.hash, false]` | decision；`corroborated`；值 kind 为 object；参数使用 run reference hash |
 | `business.fee-history.finalized` | business | client_call | `eth_feeHistory` | `[2, "finalized", [25, 50, 75]]` | decision；`corroborated`；step reference `corroborated`；prepared newestBlock 等于该 step reference height |
-| `typed.block` | typed | typed_block | `eth_getBlockByHash` | `[$reference.hash]` | 无 decision；typed block hash/height 等于 run reference |
+| `typed.block` | typed | typed_block | `eth_getBlockByHash` | `[$reference.hash]` | report 无 decision；typed block hash/height 等于 run reference（report 不保存该次内部 Decision） |
 | `negative.notfound-receipt` | negative | typed_receipt | `eth_getTransactionReceipt` | `[zeroHash]` | decision `corroborated` 且 value 为 null；typed decode 返回 `not_found` |
 
 固定 fixture：
@@ -233,10 +234,7 @@ v1 固定值：
   provider-backed corroboration。
 - `pinned.block`、`typed.block` 使用同一个 `$reference.hash`，即
   `reference.finalized-balance` 建立的 **run reference**，不是它们自己的
-  step reference。`typed.block` 走根 Client 的类型化 `BlockByHash`，不产生新的 decision；它的
-  typed hash/height 必须与 run reference 和被 pin 的区块一致。`pinned.block`
-  的 header-only decision 已通过 block hash 承诺完整区块内容；typed step 只
-  新增 typed decode 断言，不另行制造第二份 block 证据。
+  step reference。`typed.block` 走根 Client 的类型化 `BlockByHash`；该调用正常执行自己的 plan 和裁决，但 canary typed-only report 不保存其 CallResult.Decision。它的 typed hash/height 必须与 run reference 一致。`pinned.block` 的 fullTx=false 路径验证适用的 header／官方对象，不能宣称已经核对完整 body；typed full-block 调用另经过当前完整块准入。报告只对其声明字段提供证据，不能把被省略的 Decision 冒充可审阅的第二份记录。
 - `business.fee-history.finalized` 覆盖需要高度改写的 block-reference 方法：
   它自己建立 **step reference**，prepared request 的 newestBlock 必须是该
   step reference 的 hex height，不能仍是 `finalized`；该 step reference 不得
@@ -278,10 +276,10 @@ v1 固定值：
 | --- | --- |
 | `request_binding` | 需要绑定时，prepared request 的区块参数必须等于**该步骤自己的 reference** hash（按字节比较）或 height（按数值比较）；`business.fee-history.finalized` 使用它的 step reference，`reference.finalized-balance` 的 step reference 同时是 run reference。moving tag 不得留在 prepared request 中。`binding=none` 的 `client_call` 步骤，prepared 必须与 logical 一致（占位符替换后）；typed-only 步骤不适用。 |
 | `status_allowed` | `decision.status` 必须属于 plan 的 `expect.statuses`；error 路径按 `expect.error` 检查。`corroborated` 的 support 还必须达到固定门槛 `Q = max(2, floor(N/2)+1)`；低于 Q 视为门槛被改动或 decision 损坏。 |
-| `evidence_conservation` | `n == len(participants)`；`support`、`reject`、source-attributed `faults` 两两不相交，并集等于 `participants`；`collection_faults` 单独记录；`participants` 数量与顺序等于 manifest selected basis。 |
+| `evidence_conservation` | `n == len(participants)`；`sources`对每个participant恰有一个真实处置，attempted与absent不矛盾；support/reject与supported/dissented对应，source faults保留真实归因且不能与有效候选矛盾；collection_faults单独记录。participants数量与顺序等于manifest selected basis。 |
 | `representative_in_support` | `representative` 必须等于 `support` 的第一个来源；`support` 顺序保持本次 basis 顺序。 |
-| `reference_status` | 需要 reference 的步骤必须携带**该步骤自己的** `ReferenceEvidence`；`status == corroborated`；`tag` 等于请求的 moving tag；`hash`/`height` 非空（按方法需要）；reference 的 support 达到固定门槛 `Q`；reference 的 support/reject/source faults 与 participants 按同一规则检查，collection-level fault 单独记录。`reference.finalized-balance` 的这一对象同时是 run reference。 |
-| `error_status_exclusive` | `rpc.Call` 返回 error 时 decision status 必须是 `unknown`；成功 status 不得携带 error；不得把 provider error 包成成功。该不变量不约束 typed decode 的预期 `not_found`，后者由 `typed_decode` 检查。 |
+| `reference_status` | 需要 reference 的步骤必须携带**该步骤自己的** `ReferenceEvidence`；`status == corroborated`；`tag` 等于请求的 moving tag；`hash`/`height` 非空（按方法需要）；reference 的 support 达到固定门槛 `Q`；reference的Sources覆盖、support/reject关系与source faults按同一规则检查，collection-level fault单独记录。`reference.finalized-balance` 的这一对象同时是 run reference。 |
+| `error_status_exclusive` | 本固定plan的原始read步骤不接受非预期error搭配成功status，不能把provider错误包装成plan成功；typed decode预期not_found由typed_decode检查。这是canary plan的期望检查，不是全项目“非nil error必须擦除已形成Status”的规则；Forward协议回答等独立合同不由本plan改写。 |
 | `basis_unchanged` | 本次 run 的 members 始终等于 manifest selected；不得替换、缩小或重排分母；`voting_basis_sha256` 必须一致。 |
 | `typed_decode` | typed adapter 必须成功解码，且 hash/height 与本次 run reference 一致（typed block 不要求步骤自带 reference 对象）；negative 路径必须得到预期 `not_found`。 |
 | `shape_matches_plan` | actual `value_kind` 必须等于 plan 的 `expect.value_kind`；shape drift 必须记录，不得静默改写。 |
@@ -289,19 +287,15 @@ v1 固定值：
 强制规则：
 
 - prepared request 必须是 **观察到的**，不得由 logical request 和 reference
-  反推后冒充证据。若当前 seam 无法取得 prepared request，T10.3 必须增加
-  不改变裁决语义的诊断 seam；仍无法取得时，run 为 `failed`
+  反推后冒充证据。若当前 seam 无法取得 prepared request，须报告证据缺口；仍无法取得时，run 为 `failed`
   （`evidence_missing`），不得降低要求。
 - run reference 只能来自 `reference.finalized-balance` 的 step reference；
   不得从 feeHistory 或其他步骤的 step reference 推导、替换或刷新 run
   reference。step reference 只在该步骤内有效。
 - 不得断言 step reference 与 run reference 相等；两者相同是允许的观察，
   不是 canary 契约。
-- per-source fault 归属必须来自结构化证据通道（例如 `WithUncertain` 的
-  per-source response/error、pool source health，或 T10.3 增加的等价诊断
-  seam），不得靠错误字符串猜来源。
-- 每个 participant 的处置必须可追踪到 support、reject、source fault、
-  collection fault 或 typed 边界；不得无记录消失。
+- per-source fault 归属必须来自结构化证据通道（例如 Decision.SourceFaults／CollectionFaults、WithSourceEvidence 保留的逐源响应／错误以及 source health），不得靠错误字符串猜来源。
+- 每个participant必须在Sources中有独立处置；未尝试、未评估与局部排除不能补成Reject。collection fault属于整轮，不能代替缺失的来源身份。
 - 少数派 `reject` 不使 run 变成 `inconclusive`；它是被保留的观察。
 - **可用性 fault**（不可达、429、超时、未尝试的 gated member、无响应）使
   run 为 `inconclusive`，即使当时 decision 仍达到了期望状态。
@@ -333,7 +327,7 @@ v1 固定值：
 | `code_error` | 未分类的本地错误、panic、report 序列化/写出失败、fan-out 前不可解释的错误。 |
 | `request_binding` | prepared request 未绑定到本次 reference；moving tag 残留；hash/height 不匹配。 |
 | `evidence_missing` | 必需 evidence 缺失：reference、participants、support/reject/fault 归属、prepared request、value digest、source health、plan/manifest hash 等。 |
-| `illegal_state` | error 携带成功 status；成功 status 为 `unknown`；status 不在允许集合；representative 不在 support；重复来源；support/reject/faults 不是 participant 的划分；N>=3 时出现 selected/forwarded 语义。 |
+| `illegal_state` | error 携带成功 status；成功 status 为 `unknown`；status 不在允许集合；representative 不在 support；重复来源；Sources没有覆盖participant或与支持/异值/故障视图矛盾；N>=3 时出现 selected/forwarded 语义。 |
 | `identity_mismatch` | identity decision 成功但值不等于 `chain_id`。 |
 | `denominator_changed` | 成员集合、顺序或数量与 manifest selected 不一致；运行中换成员或缩分母。 |
 | `schema_error` | manifest/report 不满足 schema，或 manifest/plan digest 不匹配。 |
@@ -541,6 +535,9 @@ run，也不是证据。
 
 ### 9.3 decision 字段
 
+2026-11-21响应模型迁移：报告处置改由默认Sources摘要驱动，成员可以明确为supported、dissented、unusable、absent、excluded或unassessed。支持/异值/来源错误不再构成唯一的三分集合；缺少处置摘要是证据错误，不能补成异值或来源故障。对应报告类型、严格字段校验、比较器、schema与合成example已同步并通过全仓普通/race验收，历史真实采集材料保持原样，其含义按采集revision解释，不反写为新观察。
+
+
 | 字段 | 生产用途 |
 | --- | --- |
 | `status` | 允许集合检查 |
@@ -548,7 +545,8 @@ run，也不是证据。
 | `error_detail` | 脱敏、限长的诊断；不得作为裁决依据 |
 | `n` | 固定分母快速核对；必须等于 `len(participants)` |
 | `participants` | 本次 voting basis，按 manifest 顺序 |
-| `support` / `reject` | 聚类结果 |
+| `sources` | 每个participant的source_id、attempted与relation，按真实来源摘要记录；用于完整覆盖校验 |
+| `support` / `reject` | 实际支持与异值来源；不能用Reject填补未归类成员 |
 | `faults` | source-attributed faults：`source_id`、`category`、脱敏 `detail` |
 | `collection_faults` | pool-level faults：`category`、脱敏 `detail` |
 | `representative` | 代表源；必须是 support 第一个 |
@@ -556,7 +554,7 @@ run，也不是证据。
 | `value_kind` | 实际 value 形态：`quantity`、`data`、`array`、`object`、`null`、`bool`、`string`；shape drift 依据 |
 
 `reference` 对象字段：`status`、`tag`、`height`、`hash`、`origin`、
-`observed_at`、`n`、`participants`、`support`、`reject`、`faults`、
+`observed_at`、`n`、`participants`、`sources`、`support`、`reject`、`faults`、
 `collection_faults`。`faults` 是 source-attributed；`collection_faults` 是
 pool-level。
 
@@ -657,14 +655,77 @@ Attestation：
 
 ---
 
-## 12. T10.0 出口与后续
+## 12. Dated evidence（2026-10-23 至 2026-10-24）
 
-T10.0 的产物：
+本节合并原 `live-canary/runs/` 下 T10.6 local、T10.7 local 与 T10.7 external
+三份阶段报告。以下是当时记录的执行结果与 provenance，不是本次整理重新执行的
+验证，也不是当前 release 或 freshness 状态。native HTTP 的 2026-10-25 smoke
+单独归入 [transport-contract.md](transport-contract.md) §5；WSS presence 真实证据
+单独归入 [wss-provider-evidence.md](wss-provider-evidence.md)，不混入 HTTPS canary。
 
-1. 本契约；
-2. `manifest.example.json` 和 `report.example.json`；
-3. 决策 0059；
-4. roadmap 的 T10.0 状态记录。
+### 12.1 2026-10-23 本机 live observation 与同机复跑
 
-后续按 T10 行动规划表逐行执行。T10.1 必须先实现 manifest schema、生成器和
-schema/脱敏测试；在维护者审计 T10.0 之前不得开启 T10.1。
+- source commit：`63d5ac7e91b1184e9b1d83653201eaf73e21d81d`；run ID：
+  `01M5ME05WRGF9QN8RTPAD4HHZ9`；generated_at：`2026-10-23T13:07:59Z`。
+- environment 为 `local/local`；作者本机运行，bundle 未发布。当时无 GitHub API
+  凭据，维护者选择本地证据；不满足 external/attested evidence 或外部复核出口。
+- `go run ./cmd/livecanary run -out <dir>/manifest.json` 只获取一次
+  `https://chainlist.org/rpcs.json`，抓取时间 `2026-10-23T13:08:00Z`。
+  `chainlist-sorted-v2` 共 66 candidates、12 selected、54 filtered，redaction 为
+  `url_credentials`。selected 已检查不含 userinfo、敏感 query、template、UUID、
+  32+ hex segment 或 `/v2/`/`/v3/` key slot。
+- 初次真实尝试使用 v1 时曾选入 path 凭据（Dwellir UUID、NodeReal 32-hex、
+  Alchemy `/v2/demo`），并出现在 manifest/registry。记录的修复 commit `0fc22eb`
+  升级到 v2，增加 path 过滤/脱敏、selected URL 校验与脱敏副本复现测试；下列
+  acceptance bundle 是修复后的 v2，不发布旧凭据 URL。
+- 同机 fresh clone checkout exact source commit，执行
+  `go run ./cmd/livecanary rerun -manifest <manifest> -out <recheck>/report.json`；
+  不读取 Chainlist、不使用原工作树、环境覆盖或手改文件，仍不是独立 runner。
+  两 bundle 的 `livecanary verify -dir` 当时均接受 digest/run/plan/registry 绑定。
+
+| 绑定/产物（本机文件在仓库外） | SHA-256 |
+| --- | --- |
+| registry 原始字节 | `a37e5e7b36e078ae9e844995a05d6776bc6f7b26bdfa7a4c4fc3d529bdfb065f` |
+| registry 发布副本 | `b81bd14fccf8546267ac8b1f323b683992b6831561c22dd6f89429f774a836ba` |
+| voting basis | `fdeefbeed401086e37d535762757ee61d2509b3536c7d1824dfd2819033ef6a1` |
+| `mainnet-canary-v1` plan | `d99a78e6a56ffe34ee5351fbd74b14951afb5fef31023280d9d9412b3b2124d8` |
+| manifest.json（两次相同） | `1d63f7773866d56d398d199b399ec3c83f1d1e1c33c2a9a4d793a4587c5e93e1` |
+| original report.json | `a942b3d4cd3a6732989330f790977cbe1f75ab6e0cbc4fa4aa851d88e51c7534` |
+| original run.log | `e1648d3812c5a356f0ed639a928049d6840853800bbb840db17beb8914baaa02` |
+| recheck report.json | `7dc10f1a318f475307060c5133e2a6a6d2269e8c68f96bdfc0599fffe4155e0d` |
+| recheck rerun.log | `be3dbcb5197326ce8c6a98d108b375725a1211370a608f69ee2fe32efa32d386` |
+
+两次均为 **inconclusive**、无 failed reason：原 run 有 15 provider_unavailable +
+7 provider_rate_limited，复跑为 15 + 6。所有六步均执行；五个 decision 达到
+corroborated，support 为 7–9/12（Q=7），各步支持成员随 429/403/EOF/gate 波动。
+原 run 的两个 step reference 恰同为高度 26255441、hash
+`0x44b552c5803421e392637825f8d9dd7baab948b247f278636fe67cdcb419186f`；
+复跑相同，**不产生跨步骤 reference 必须相等的规则**。identity/value digest、
+pinned block、feeHistory、typed block height/hash、notfound 的 `not_found` 与所有
+适用 invariant 均相同且 invariant 为 true。没有观察到 schema、selection、plan、
+分母、code 或 request binding 差异。可用性 fault 保留完整分母并使 aggregate
+inconclusive，不能因期望 decision 达成而改成 passed。不同时间戳与 report digest
+是两次 observation 的自然差异；本机 digest 绑定文件，不是发布 attestation。
+
+### 12.2 2026-10-24 外部 workflow recheck
+
+| 定位 | 当时记录 |
+| --- | --- |
+| source run / artifact | `39983945116` / `live-canary-39983945116-1` |
+| recheck run / workflow | `40078416681` / `live-canary-recheck` |
+| recheck artifact | `live-canary-recheck-39983945116-40078416681-1`，当时 retention 为 90 天 |
+
+GitHub-hosted 的独立 workflow 下载 source artifact，核对 `SHA256SUMS` 并执行
+`livecanary verify -dir`；从 manifest 读取 source_commit，checkout exact commit
+构建 rerun，只消费原 manifest/registry 字节，不重新获取 Chainlist。compare 使用
+recheck workflow commit 的二进制，生成 `ethguard.live-comparison/v1`。
+
+当时 `comparison.json` 为 `repeatable=true`，无 code mismatch/registry drift，
+差异均为 provider fluctuation；两次 observation 均因不可达/限流而 inconclusive。
+rerun exit 2 由 `continue-on-error` 保留；compare 成功，最终 repeatability
+enforcement step 被跳过。这是该 manifest pair 的契约级复现，不是 canary passed。
+
+此记录证明当时完成 separate-workflow/GitHub-hosted 复跑，不是另一 repository、
+独立审计或 provider 独立性证明。90 天 retention 是当时设置，不保证 artifact
+现在仍可取得；本次整理不声称重新下载核验。live 值仍只在 artifact，不入 golden。
+两次近时观察都不证明长期兼容性、consensus、canonicality 或 finality。

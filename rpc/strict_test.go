@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // src returns a distinct source identity without constructing real connections.
@@ -18,7 +20,7 @@ func src() SourceRef {
 }
 
 func obs(value string) Observation {
-	return Observation{Source: src(), Value: json.RawMessage(value)}
+	return Observation{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(value)}}}
 }
 
 func TestStrictUnanimousCorroborates(t *testing.T) {
@@ -31,10 +33,10 @@ func TestStrictUnanimousCorroborates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Corroborated {
-		t.Fatalf("expected corroborated, got %v", decision.Status)
+	if decision.Decision.Status != Corroborated {
+		t.Fatalf("expected corroborated, got %v", decision.Decision.Status)
 	}
-	if len(decision.Support) != 3 {
+	if len(decision.Decision.Support) != 3 {
 		t.Fatalf("expected three supporters, got %+v", decision)
 	}
 }
@@ -42,14 +44,14 @@ func TestStrictUnanimousCorroborates(t *testing.T) {
 func TestStrictSingleResponseDowngradesToSelected(t *testing.T) {
 	p := Strict(CanonicalJSON)
 	decision, err := p.Resolve([]Observation{
-		{Source: src(), Err: errors.New("timeout")},
+		{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("timeout")}}},
 		obs(`true`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Selected {
-		t.Fatalf("expected selected for uncorroborated response, got %v", decision.Status)
+	if decision.Decision.Status != Selected {
+		t.Fatalf("expected selected for uncorroborated response, got %v", decision.Decision.Status)
 	}
 }
 
@@ -62,11 +64,11 @@ func TestStrictDissentConflictsByDefault(t *testing.T) {
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected conflict, got %v", err)
 	}
-	if len(decision.Support) != 3 || len(decision.Reject) != 1 {
+	if len(decision.Decision.Support) != 3 || len(decision.Decision.Reject) != 1 {
 		t.Fatalf("expected 3 support and 1 reject, got %+v", decision)
 	}
-	if string(decision.Value) != `1` {
-		t.Fatalf("expected majority value to win evidence, got %s", decision.Value)
+	if string(decision.Decision.Value) != `1` {
+		t.Fatalf("expected majority value to win evidence, got %s", decision.Decision.Value)
 	}
 }
 
@@ -80,8 +82,8 @@ func TestStrictTieBreakIsDeterministic(t *testing.T) {
 		if !errors.Is(err, ErrConflict) {
 			t.Fatalf("expected conflict on tie, got %v", err)
 		}
-		if string(decision.Value) != `1` {
-			t.Fatalf("tie winner drifted: %s", decision.Value)
+		if string(decision.Decision.Value) != `1` {
+			t.Fatalf("tie winner drifted: %s", decision.Decision.Value)
 		}
 	}
 }
@@ -93,7 +95,7 @@ func TestQuorumRequiresFloorAndFleetMajority(t *testing.T) {
 			observers = append(observers, obs(v))
 		}
 		for range failures {
-			observers = append(observers, Observation{Source: src(), Err: errors.New("timeout")})
+			observers = append(observers, Observation{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("timeout")}}})
 		}
 		return observers
 	}
@@ -116,16 +118,20 @@ func TestQuorumRequiresFloorAndFleetMajority(t *testing.T) {
 			p := Strict(CanonicalJSON, WithQuorum(tc.quorum))
 			decision, err := p.Resolve(fleet(tc.values, tc.failures))
 			if tc.wantErr {
-				if !errors.Is(err, ErrConflict) {
-					t.Fatalf("expected conflict, got %v", err)
+				want := ErrInsufficientSupport
+				if tc.name == "floor above top cluster" {
+					want = ErrConflict
+				}
+				if !errors.Is(err, want) {
+					t.Fatalf("expected %v, got %v", want, err)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if decision.Status != Corroborated {
-				t.Fatalf("expected corroborated, got %v", decision.Status)
+			if decision.Decision.Status != Corroborated {
+				t.Fatalf("expected corroborated, got %v", decision.Decision.Status)
 			}
 		})
 	}
@@ -149,8 +155,8 @@ func TestQuorumSingleSourceFleetStaysSelected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Selected {
-		t.Fatalf("expected selected for a single uncorroborated response, got %v", decision.Status)
+	if decision.Decision.Status != Selected {
+		t.Fatalf("expected selected for a single uncorroborated response, got %v", decision.Decision.Status)
 	}
 }
 
@@ -161,10 +167,10 @@ func TestQuorumSingleSurvivorConflicts(t *testing.T) {
 	p := Strict(CanonicalJSON, WithQuorum(1))
 	_, err := p.Resolve([]Observation{
 		obs(`1`),
-		{Source: src(), Err: errors.New("timeout")},
-		{Source: src(), Err: errors.New("timeout")},
+		{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("timeout")}}},
+		{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("timeout")}}},
 	})
-	if !errors.Is(err, ErrConflict) {
+	if !errors.Is(err, ErrInsufficientSupport) {
 		t.Fatalf("expected conflict for a lone survivor of three, got %v", err)
 	}
 }
@@ -176,8 +182,30 @@ func TestQuorumTwoSupportersCorroborate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Corroborated {
-		t.Fatalf("expected corroborated with two supporters, got %v", decision.Status)
+	if decision.Decision.Status != Corroborated {
+		t.Fatalf("expected corroborated with two supporters, got %v", decision.Decision.Status)
+	}
+}
+
+// TestStrictProvenanceStaysTheFirstSupporter'sOwnEvidence pins the
+// representative rule at the cluster seam: the winner's evidence is the first
+// supporter's own, and a later supporter's evidence is never substituted
+// when the first supporter has none.
+func TestStrictProvenanceStaysTheFirstSupporterOwnEvidence(t *testing.T) {
+	p := Strict(CanonicalJSON)
+	first, later := src(), src()
+	decision, err := p.Resolve([]Observation{
+		{Attempted: true, Source: first, Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`1`)}}},
+		{Attempted: true, Source: later, Evidence: json.RawMessage(`"later-evidence"`), Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(` 1 `)}}},
+	})
+	if err != nil || decision.Decision.Status != Corroborated {
+		t.Fatalf("decision = %+v, %v, want a corroborated pair", decision.Decision.Status, err)
+	}
+	if decision.Decision.Representative != first {
+		t.Fatalf("representative = %+v, want the first supporter", decision.Decision.Representative)
+	}
+	if len(decision.Decision.Provenance) != 0 {
+		t.Fatalf("provenance = %s, want empty: a later supporter's evidence is never substituted", decision.Decision.Provenance)
 	}
 }
 
@@ -186,15 +214,15 @@ func TestNormalizeFailureBecomesFault(t *testing.T) {
 	decision, err := p.Resolve([]Observation{
 		obs(`1`),
 		obs(`1`),
-		{Source: src(), Value: json.RawMessage(`not-json`)},
+		{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeCompleted}, Answer: Answer{Kind: AnswerResult, Result: json.RawMessage(`not-json`)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(decision.Faults) != 1 {
-		t.Fatalf("expected one normalize fault, got %+v", decision.Faults)
+	if len(decision.Decision.Faults) != 1 {
+		t.Fatalf("expected one normalize fault, got %+v", decision.Decision.Faults)
 	}
-	if decision.Status != Corroborated || len(decision.Support) != 2 {
+	if decision.Decision.Status != Corroborated || len(decision.Decision.Support) != 2 {
 		t.Fatalf("valid responses should still corroborate, got %+v", decision)
 	}
 }
@@ -203,19 +231,19 @@ func TestStrictClassifiesFleetWithoutValidResponses(t *testing.T) {
 	p := Strict(CanonicalJSON)
 	decision, err := p.Resolve([]Observation{
 		obs(`not-json`),
-		{Source: src(), Err: errors.New("timeout")},
+		{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("timeout")}}},
 	})
 	if !errors.Is(err, ErrNoValidResponse) {
 		t.Fatalf("expected no-valid-response class, got %v", err)
 	}
-	if len(decision.Faults) != 1 {
-		t.Fatalf("expected the normalize failure on faults, got %+v", decision.Faults)
+	if len(decision.Decision.Faults) != 2 {
+		t.Fatalf("expected the normalize failure on faults, got %+v", decision.Decision.Faults)
 	}
 }
 
 func TestForwardWithoutResponseIsNoValidResponse(t *testing.T) {
 	p := ForwardPolicy{}
-	if _, err := p.Resolve([]Observation{{Source: src(), Err: errors.New("down")}}); !errors.Is(err, ErrNoValidResponse) {
+	if _, err := p.Resolve([]Observation{{Attempted: true, Source: src(), Response: Response{Exchange: Exchange{Progress: ExchangeStarted, Cause: errors.New("down")}}}}); !errors.Is(err, ErrNoValidResponse) {
 		t.Fatalf("expected no-valid-response class, got %v", err)
 	}
 }
@@ -223,13 +251,21 @@ func TestForwardWithoutResponseIsNoValidResponse(t *testing.T) {
 func TestStrictCanOptIntoRPCErrorBodyClustering(t *testing.T) {
 	p := Strict(CanonicalJSON, WithRPCErrorBodies())
 	decision, err := p.Resolve([]Observation{
-		{Source: src(), Err: errors.New("rpc error"), RPCError: &RPCError{Code: -32000, Message: "execution reverted"}},
-		{Source: src(), Err: errors.New("rpc error"), RPCError: &RPCError{Code: -32000, Message: "execution reverted"}},
+		{Attempted: true, Source: src(), Response: Response{
+			Exchange: Exchange{Progress: ExchangeCompleted},
+			Answer:   Answer{Kind: AnswerProtocolError, RPCError: &RPCError{Code: -32000, Message: "execution reverted"}, Cause: rpctest.RPCError(-32000, "execution reverted")},
+		},
+		},
+		{Attempted: true, Source: src(), Response: Response{
+			Exchange: Exchange{Progress: ExchangeCompleted},
+			Answer:   Answer{Kind: AnswerProtocolError, RPCError: &RPCError{Code: -32000, Message: "execution reverted"}, Cause: rpctest.RPCError(-32000, "execution reverted")},
+		},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Status != Corroborated || len(decision.Support) != 2 {
+	if decision.Decision.Status != Corroborated || len(decision.Decision.Support) != 2 {
 		t.Fatalf("expected clustered protocol errors, got %+v", decision)
 	}
 }
@@ -248,7 +284,7 @@ func TestFinishRejectsCanonicalDisagreement(t *testing.T) {
 		json.RawMessage(`"0x01"`),
 	}}
 	got, err := f.finish(decision, nil, []cluster{winner})
-	if !errors.Is(err, ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
+	if !errors.Is(err, ErrInvalidCanonicalResult) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
 		t.Fatalf("err = %v", err)
 	}
 	if got.Status != Unknown || len(got.Value) != 0 {

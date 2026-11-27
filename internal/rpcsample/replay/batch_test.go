@@ -1,7 +1,7 @@
 package replay
 
 // Offline tests of the batch.json reference_context reading contract
-// (capture-golden-contract §2.1bis). Fixtures are synthesized in temporary
+// (method-verification-pipeline capture contract). Fixtures are synthesized in temporary
 // directories: this exercises the reader and validator, it does not invent
 // provider captures, and no test touches the network.
 

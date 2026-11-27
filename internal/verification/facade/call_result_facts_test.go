@@ -10,10 +10,10 @@ import (
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/codermaybe/ethguard/rpctest"
@@ -34,7 +34,7 @@ func TestCallResultErrMatchesTrailingErrorOnSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Err != nil || result.Err != err {
+	if result.Err != nil || result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 		t.Fatalf("result.Err = %v, trailing = %v", result.Err, err)
 	}
 	if !result.IsCorroborated() || id == nil {
@@ -56,7 +56,7 @@ func TestCallResultAggregationFailureClearsValueKeepsFacts(t *testing.T) {
 	if err == nil || id != nil {
 		t.Fatalf("conflicting fleet = %v, %v", id, err)
 	}
-	if result.Err != err {
+	if result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 		t.Fatalf("result.Err = %v, trailing = %v", result.Err, err)
 	}
 	if result.IsCorroborated() {
@@ -114,14 +114,14 @@ func TestCallResultLocalRejectionCarriesNoDecision(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	balance, result, err := client.BalanceAt(ctx, [20]byte{}, big.NewInt(-99))
+	balance, result, err := client.BalanceAt(ctx, ethapi.Address("0x0000000000000000000000000000000000000000"), big.NewInt(-99))
 	if err == nil || balance != nil {
 		t.Fatalf("invalid block arg = %v, %v", balance, err)
 	}
 	if !errors.Is(err, ethguard.ErrInvalidRequest) {
 		t.Fatalf("error = %v, want ErrInvalidRequest", err)
 	}
-	if result.Err != err {
+	if result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 		t.Fatalf("result.Err = %v, trailing = %v", result.Err, err)
 	}
 	if result.Decision != nil {
@@ -171,7 +171,7 @@ func TestCallResultCorroboratedReceiptNullKeepsValueAndSupport(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	receipt, result, err := client.TransactionReceipt(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	receipt, result, err := client.TransactionReceipt(ctx, ethapi.Hash("0x"+strings.Repeat("42", 32)))
 	if !errors.Is(err, ethereum.NotFound) || receipt != nil {
 		t.Fatalf("null receipt = %+v, %v", receipt, err)
 	}
@@ -179,7 +179,7 @@ func TestCallResultCorroboratedReceiptNullKeepsValueAndSupport(t *testing.T) {
 	if !result.IsCorroborated() {
 		t.Fatalf("corroborated null status = %+v", result.Decision)
 	}
-	if result.Err != err || result.Err == nil {
+	if result.Err != err || result.Err == nil { //nolint:errorlint // The result must retain the exact error returned to the caller.
 		t.Fatalf("result.Err = %v, trailing = %v", result.Err, err)
 	}
 	if result.Decision.Value == nil || string(result.Decision.Value) != "null" {
@@ -231,7 +231,7 @@ func TestCallResultAnchorFailureKeepsEstablishmentEvidence(t *testing.T) {
 	if result.Decision.Reference.Status.String() != "unknown" || len(result.Decision.Reference.Faults) == 0 {
 		t.Fatalf("reference evidence = %+v, want unknown status with faults", result.Decision.Reference)
 	}
-	if result.Err != err {
+	if result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 		t.Fatalf("result.Err = %v, trailing = %v", result.Err, err)
 	}
 }
@@ -271,8 +271,8 @@ func TestCallResultWriteDecisionReachesTheCapture(t *testing.T) {
 	if !result.IsWriteAccepted() || result.WriteDecision.Hash != strings.ToLower(hashHex) {
 		t.Fatalf("write result = %+v", result.WriteDecision)
 	}
-	if result.WriteDecision.Basis != 3 {
-		t.Fatalf("basis = %d, want the fixed 3-member basis", result.WriteDecision.Basis)
+	if result.WriteDecision.Adjudication.Basis != 3 {
+		t.Fatalf("basis = %d, want the fixed 3-member basis", result.WriteDecision.Adjudication.Basis)
 	}
 	if result.Decision != nil {
 		t.Fatal("a write result carries no read decision")
@@ -302,7 +302,7 @@ func TestCallResultNilTransactionRejectedLocally(t *testing.T) {
 	if !errors.Is(err, ethguard.ErrInvalidRequest) {
 		t.Fatalf("nil tx = %v, want ErrInvalidRequest", err)
 	}
-	if result.WriteDecision != nil || result.Err != err {
+	if result.WriteDecision != nil || result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 		t.Fatalf("local rejection result = %+v", result)
 	}
 	published, ok, _ := capture.Result()
@@ -381,15 +381,15 @@ func TestCallResultCompositeReadCarriesReferenceOnSuccess(t *testing.T) {
 			if full || ref != "latest" {
 				return nil, rpctest.RPCError(-32602, "unexpected probe "+ref)
 			}
-			return map[string]any{"number": "0x10", "hash": blockHashOf(head)}, nil
+			return map[string]any{"number": "0x10", "hash": blockHashOf(t, head)}, nil
 		})
 		node.Handle(methods.MethodGetBlockByHash, func(c rpctest.Call) (any, error) {
 			var hash string
 			if len(c.Params) > 0 {
 				_ = json.Unmarshal(c.Params[0], &hash)
 			}
-			if hash == blockHashOf(head) {
-				return json.RawMessage(head), nil
+			if hash == blockHashOf(t, head) {
+				return head, nil
 			}
 			return nil, rpctest.RPCError(-32602, "unknown hash "+hash)
 		})

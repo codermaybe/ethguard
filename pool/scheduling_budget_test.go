@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // budgetPeer is a controlled upstream, not a provider compatibility sample.
@@ -17,15 +19,14 @@ type budgetPeer struct {
 	calls   atomic.Int32
 }
 
-func (p *budgetPeer) CallContext(ctx context.Context, result any, method string, _ ...any) error {
+func (p *budgetPeer) Call(ctx context.Context, method string, _ ...any) rpc.Response {
 	p.calls.Add(1)
 	p.entered <- method
 	select {
 	case <-p.release:
-		*result.(*json.RawMessage) = json.RawMessage(`"0x1"`)
-		return nil
+		return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}
 	case <-ctx.Done():
-		return ctx.Err()
+		return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: ctx.Err()}}
 	}
 }
 
@@ -105,7 +106,7 @@ func TestSourceBudgetSharedByReadWriteAndAdmission(t *testing.T) {
 		}
 	}
 	emissions, err := p.CollectVoting(ctx, "eth_getBalance", nil, CollectOptions{})
-	if err != nil || len(emissions) != 1 || !emissions[0].Attempted || emissions[0].Err != nil {
+	if err != nil || len(emissions) != 1 || !emissions[0].Attempted || emissions[0].Response.Err() != nil {
 		t.Fatalf("budget did not recover: %+v, err = %v", emissions, err)
 	}
 	if h := source.Health(); h.Successes != 3 || h.Failures != 0 || h.RequestInFlight != 0 || peer.calls.Load() != 3 {

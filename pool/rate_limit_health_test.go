@@ -46,7 +46,7 @@ func healthRPCPeer(t *testing.T, websocketMode bool, code int) (string, dialer) 
 				t.Errorf("upgrade: %v", err)
 				return
 			}
-			defer conn.Close()
+			defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 			for {
 				body, err := conn.ReadMessage()
 				if err != nil {
@@ -94,7 +94,8 @@ func TestRateLimitHealthAcrossTransports(t *testing.T) {
 					t.Fatalf("protocol answer lost: %v", err)
 				}
 				var protocol rpc.ProtocolError
-				if len(emissions) != 1 || !emissions[0].Attempted || !errors.As(emissions[0].Err, &protocol) || protocol.ErrorCode() != code {
+				if len(emissions) != 1 || !emissions[0].Attempted || !errors.As(emissions[0].Response.Err(),
+					&protocol) || protocol.ErrorCode() != code {
 					t.Fatalf("emissions = %+v, want attempted protocol error %d", emissions, code)
 				}
 				after := src.Health()
@@ -149,7 +150,7 @@ func TestRateLimitCooldownRetainsReadWriteMembership(t *testing.T) {
 				} else {
 					emissions, err = p.CollectVoting(ctx, "eth_ok", nil, CollectOptions{})
 				}
-				if !errors.Is(err, ErrNoEligibleSource) || len(emissions) != 1 || emissions[0].Src != src || emissions[0].Attempted || !errors.Is(emissions[0].Err, ErrSourceGated) {
+				if !errors.Is(err, ErrNoEligibleSource) || len(emissions) != 1 || emissions[0].Src != src || emissions[0].Attempted || !errors.Is(emissions[0].Response.Err(), ErrSourceGated) {
 					t.Fatalf("write=%t gated emission=%+v err=%v", write, emissions, err)
 				}
 			}

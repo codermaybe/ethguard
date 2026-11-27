@@ -18,13 +18,24 @@ on:
     - cron: '17 3 * * *'
   push:
     tags: ['v*']
+  workflow_call:
+    inputs:
+      commit_sha:
+        description: 'Exact commit validated by the release workflow'
+        required: true
+        type: string
+      release_tag:
+        description: 'Published tag, used only for prerelease observation policy'
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       http_adapter:
-        description: 'Connection adapter for the run: geth (default, built through gethcompat) or native (strategic default adapter)'
+        description: 'Native HTTP adapter used for the run'
         required: false
-        default: 'geth'
-        type: string
+        default: 'native'
+        type: choice
+        options: ['native']
 
 permissions:
   contents: read
@@ -42,7 +53,7 @@ jobs:
       - name: checkout exact commit
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.commit_sha || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-go@v7
@@ -50,7 +61,9 @@ jobs:
           go-version-file: go.mod
 
       - name: assert exact commit
-        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+        env:
+          EXPECTED_SHA: ${{ inputs.commit_sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
 
       - name: build livecanary
         run: go build -trimpath -o "${RUNNER_TEMP}/livecanary" ./cmd/livecanary
@@ -59,7 +72,7 @@ jobs:
         id: canary
         env:
           OUT_DIR: ${{ runner.temp }}/live-canary
-          HTTP_ADAPTER: ${{ inputs.http_adapter || 'geth' }}
+          HTTP_ADAPTER: ${{ inputs.http_adapter || 'native' }}
         run: |
           set -euo pipefail
           mkdir -p "${OUT_DIR}"
@@ -107,14 +120,16 @@ jobs:
           set -euo pipefail
           state="$(jq -er '.state' "${OUT_DIR}/report.json")"
           echo "state=${state}" >> "${GITHUB_OUTPUT}"
-          echo "### Live canary observation: ${state}" >> "${GITHUB_STEP_SUMMARY}"
-          if [ "${EVENT_NAME}" = schedule ] && [ "${state}" != passed ]; then
-            echo "Temporary scheduled report-only policy: non-approval is expected; this is not an audit pass or release approval." >> "${GITHUB_STEP_SUMMARY}"
-          fi
-          jq -r '.state_reasons[] | "- \(.category): \(.detail)"' "${OUT_DIR}/report.json" >> "${GITHUB_STEP_SUMMARY}"
-          echo '```' >> "${GITHUB_STEP_SUMMARY}"
-          cat "${OUT_DIR}/SHA256SUMS" >> "${GITHUB_STEP_SUMMARY}"
-          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          {
+            echo "### Live canary observation: ${state}"
+            if [ "${EVENT_NAME}" = schedule ] && [ "${state}" != passed ]; then
+              echo "Temporary scheduled report-only policy: non-approval is expected; this is not an audit pass or release approval."
+            fi
+            jq -r '.state_reasons[] | "- \(.category): \(.detail)"' "${OUT_DIR}/report.json"
+            echo '```'
+            cat "${OUT_DIR}/SHA256SUMS"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: upload immutable observation artifact
         if: always()
@@ -128,8 +143,8 @@ jobs:
       - name: enforce observation result
         env:
           EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ inputs.release_tag || github.ref_name }}
+          REF_TYPE: ${{ inputs.release_tag != '' && 'tag' || github.ref_type }}
           OBSERVED_STATE: ${{ steps.observation.outputs.state }}
           CANARY_EXIT_CODE: ${{ steps.canary.outputs.exit_code }}
         run: |

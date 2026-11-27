@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 )
 
@@ -21,18 +20,24 @@ func (ForwardPolicy) Prepare(_ context.Context, req Request) (Request, error) {
 	return req, nil
 }
 func (ForwardPolicy) Normalize(value json.RawMessage) (string, error) { return string(value), nil }
-func (ForwardPolicy) Resolve(obs []Observation) (Decision, error) {
-	for _, item := range obs {
-		if item.Err == nil {
-			return Decision{Status: Forwarded, Value: item.Value, Support: []SourceRef{item.Source}}, nil
+func (ForwardPolicy) Resolve(obs []Observation) (Outcome, error) {
+	verdicts := initialVerdicts(obs)
+	decision := Decision{Adjudication: Adjudication{Basis: len(obs), Required: 1, Reason: ReasonNoCandidate}}
+	for i, item := range obs {
+		if item.Response.CandidateErr(true) != nil {
+			unavailableVerdict(&verdicts[i], item.Response)
+			continue
 		}
-		var protocolErr ProtocolError
-		if errors.As(item.Err, &protocolErr) {
-			// The selected provider's protocol response is authoritative for a
-			// forwarded method; preserve the original RPC error for the caller.
-			// No confidence claim is made on an error return: Unknown, not Forwarded.
-			return Decision{Status: Unknown, Support: []SourceRef{item.Source}}, item.Err
+		verdicts[i].Kind, verdicts[i].Method = VerdictSupported, Interpretation{State: InterpretationValidated}
+		decision.Support = []SourceRef{item.Source}
+		decision.Status = Forwarded
+		decision.Adjudication.Reason = ReasonAccepted
+		decision.Adjudication.Candidates = []CandidateGroup{{Sources: decision.Support}}
+		if item.Response.Answer.Kind == AnswerProtocolError {
+			return completeOutcome(obs, decision, verdicts, item.Response.Answer.Cause)
 		}
+		decision.Status, decision.Value = Forwarded, item.Response.Answer.Result
+		return completeOutcome(obs, decision, verdicts, nil)
 	}
-	return Decision{Status: Unknown}, fmt.Errorf("forward: no source responded: %w", ErrNoValidResponse)
+	return completeOutcome(obs, decision, verdicts, fmt.Errorf("forward: no source responded: %w", ErrNoValidResponse))
 }

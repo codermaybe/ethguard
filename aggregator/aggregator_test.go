@@ -143,14 +143,14 @@ func TestEventMarksOnlyUnusableAttemptsFailed(t *testing.T) {
 
 	sources := namedSources(t, "a", "b", "c", "d", "e", "f")
 	emissions := []pool.Emission{
-		{Src: sources[0], Val: json.RawMessage(`"1"`), Attempted: true},                     // valid answer
-		{Src: sources[1], Val: json.RawMessage(`"junk"`), Attempted: true},                  // delivered but malformed
-		{Src: sources[2], Err: context.DeadlineExceeded, Attempted: true},                   // transport/timeout fault
-		{Src: sources[3], Err: fakeRPCError{-32000, "execution reverted"}, Attempted: true}, // opt-in: an observation
-		{Src: sources[4], Err: fakeRPCError{-32603, "panic"}, Attempted: true},              // opt-in: still rejected by the normalizer
+		{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"1"`)}}},    // valid answer
+		{Src: sources[1], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"junk"`)}}}, // delivered but malformed
+		{Src: sources[2], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: context.DeadlineExceeded}}},                                                 // transport/timeout fault
+		{Src: sources[3], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.ProtocolAnswer(fakeRPCError{-32000, "execution reverted"})}},        // opt-in: an observation
+		{Src: sources[4], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.ProtocolAnswer(fakeRPCError{-32603, "panic"})}},                     // opt-in: still rejected by the normalizer
 		{Src: sources[5]}, // never acquired a slot: absent from attempts
 	}
-	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated}, nil, emissions, nil)
+	a.recordDecision(time.Now(), "m", rpc.Decision{Status: rpc.Corroborated}, nil, emissions, resolvedEventVerdicts(t, policy, emissions))
 
 	if len(rec.events) != 1 {
 		t.Fatalf("expected exactly one event, got %d", len(rec.events))
@@ -167,7 +167,7 @@ func TestEventMarksOnlyUnusableAttemptsFailed(t *testing.T) {
 	}
 }
 
-func TestEventMarksRevertAsFailureForPoliciesWithoutErrorBodies(t *testing.T) {
+func TestEventMethodDomainExclusionDoesNotBlameSource(t *testing.T) {
 	// Without WithRPCErrorBodies the protocol error is not part of the value
 	// domain, so the attempt provided no usable answer.
 	policy := eventPolicy()
@@ -176,11 +176,10 @@ func TestEventMarksRevertAsFailureForPoliciesWithoutErrorBodies(t *testing.T) {
 	a.rec = rec
 
 	sources := namedSources(t, "a")
-	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated}, nil, []pool.Emission{
-		{Src: sources[0], Err: fakeRPCError{-32000, "execution reverted"}, Attempted: true},
-	}, nil)
-	if !rec.events[0].Attempts[0].Failed {
-		t.Fatalf("expected a revert to count as failed for a policy without error bodies")
+	emissions := []pool.Emission{{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.ProtocolAnswer(fakeRPCError{-32000, "execution reverted"})}}}
+	a.recordDecision(time.Now(), "m", rpc.Decision{}, nil, emissions, resolvedEventVerdicts(t, policy, emissions))
+	if rec.events[0].Attempts[0].Failed {
+		t.Fatalf("a legal protocol answer excluded from the method domain must not blame the source")
 	}
 }
 
@@ -191,9 +190,9 @@ func TestEventMarksConflictAsFailed(t *testing.T) {
 	a.rec = rec
 
 	sources := namedSources(t, "a")
-	a.recordDecision(time.Now(), "m", policy, rpc.Decision{Status: rpc.Corroborated},
+	a.recordDecision(time.Now(), "m", rpc.Decision{Status: rpc.Corroborated},
 		fmt.Errorf("strict: %w", rpc.ErrConflict), []pool.Emission{
-			{Src: sources[0], Val: json.RawMessage(`"2"`), Attempted: true},
+			{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"2"`)}}},
 		}, nil)
 	event := rec.events[0]
 	if event.Status != "failed" || !event.Conflict {
@@ -235,17 +234,26 @@ func TestStructuredSourceFaultsIncludeGatedMember(t *testing.T) {
 	source := p.VotingMembers()[0]
 	emissions := []pool.Emission{{
 		Src:       source,
-		Err:       pool.ErrSourceGated,
-		Attempted: false,
+		Attempted: false, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: pool.ErrSourceGated}},
 	}}
-	faults := structuredSourceFaults(nil, emissions, nil)
+	faults := RoundOutcome(emissions).Decision.SourceFaults
 	if len(faults) != 1 {
 		t.Fatalf("faults=%d, want 1", len(faults))
 	}
 	if faults[0].Source.Name != "node-01" || !errors.Is(faults[0].Err, pool.ErrSourceGated) {
 		t.Fatalf("unexpected fault: %+v", faults[0])
 	}
-	if !errors.Is(emissions[0].Err, pool.ErrSourceGated) {
+	if !errors.Is(emissions[0].Response.Err(), pool.ErrSourceGated) {
 		t.Fatal("gate evidence was rewritten")
 	}
+}
+
+func resolvedEventVerdicts(t *testing.T, policy rpc.Policy, emissions []pool.Emission) []rpc.SourceVerdict {
+	t.Helper()
+	obs := make([]rpc.Observation, len(emissions))
+	for i, emission := range emissions {
+		obs[i] = ObservationFromEmission(emission)
+	}
+	outcome, _ := policy.Resolve(obs)
+	return outcome.Verdicts
 }

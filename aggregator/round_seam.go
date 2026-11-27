@@ -3,6 +3,7 @@ package aggregator
 import (
 	"fmt"
 
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -15,18 +16,10 @@ import (
 // here once and both the pipeline and the establishment engine project rounds
 // through this seam. It is evidence-only by contract: nothing here resolves,
 // prepares, or touches a registry.
-
 // ObservationFromEmission projects one emission into the observation the
-// pipeline resolves against, attributing structured protocol errors through
-// the project-owned capabilities.
+// pipeline resolves against, retaining its response and method evidence.
 func ObservationFromEmission(emission pool.Emission) rpc.Observation {
-	return rpc.Observation{
-		Source:   SourceRefOf(emission.Src),
-		Value:    emission.Val,
-		Err:      emission.Err,
-		RPCError: ObservationRPCError(emission.Err),
-		Evidence: emission.Evidence,
-	}
+	return rpc.Observation{Attempted: emission.Attempted, Source: SourceRefOf(emission.Src), Response: emission.Response, Evidence: emission.Evidence}
 }
 
 // SourceRefOf copies a pool source's identity for evidence records; a nil
@@ -52,24 +45,37 @@ func RoundMalformedFault(emissions []pool.Emission) (bool, error) {
 	return hasMalformedAdmission(emissions), firstMalformedAdmission(emissions)
 }
 
-// RoundFaults folds one completed round's fault tables against the policy's
-// validity contract. The first table is the human-readable fault list used on
-// decisions (attempted calls that failed their class), the second the
-// structured per-source attribution reports use. When the policy stated
-// per-source verdicts they remain authoritative for their sources.
-func RoundFaults(policy rpc.Policy, emissions []pool.Emission, verdicts []rpc.SourceVerdict) (faultList []error, sourceFaultList []rpc.SourceFault) {
-	return sourceFaults(policy, emissions, verdicts), structuredSourceFaults(policy, emissions, verdicts)
+// RoundOutcome preserves source facts on exits before adjudication. Available
+// answers remain unassessed, and the conclusion remains ReasonUnassessed.
+func RoundOutcome(emissions []pool.Emission) rpc.Outcome {
+	obs := make([]rpc.Observation, len(emissions))
+	for i, emission := range emissions {
+		obs[i] = ObservationFromEmission(emission)
+	}
+	return rpc.UnassessedOutcome(obs)
 }
 
-// RoundAttempts classifies the attempted emissions of one round for an
-// observability event, reusing the resolution's per-source verdicts when the
-// policy stated them and the policy's validity contract otherwise.
-func RoundAttempts(policy rpc.Policy, verdicts []rpc.SourceVerdict) func(pool.Emission) bool {
-	return attemptClassifier(policy, verdicts)
+// RoundAttempts consumes judgments already formed by the round.
+func RoundAttempts(verdicts []rpc.SourceVerdict) func(pool.Emission) bool {
+	return attemptClassifier(verdicts)
 }
 
 // CollectFault renders one fan-out-level failure the way decision faults
 // spell it.
 func CollectFault(err error) error {
 	return fmt.Errorf("collect: %w", err)
+}
+
+// RejectUnsafeJSON refuses unsafe values without altering the protocol answer
+// or its original bytes. Only delivered result answers undergo this check.
+func RejectUnsafeJSON(emissions []pool.Emission) {
+	for i := range emissions {
+		response := &emissions[i].Response
+		if response.Answer.Kind != rpc.AnswerResult || response.Err() != nil {
+			continue
+		}
+		if err := jsonsafe.Validate(response.Answer.Result); err != nil {
+			response.Answer.Interpretation = rpc.Interpretation{State: rpc.InterpretationRejected, Cause: fmt.Errorf("%w: %v", rpc.ErrMalformedResponse, err)}
+		}
+	}
 }

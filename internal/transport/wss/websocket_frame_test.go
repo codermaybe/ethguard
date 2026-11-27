@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -314,8 +315,39 @@ func TestMessageLimitAppliesAcrossFragments(t *testing.T) {
 	var wire []byte
 	wire = append(wire, rawServerFrame(false, opText, bytes.Repeat([]byte("a"), 90))...)
 	wire = append(wire, rawServerFrame(true, opContinuation, bytes.Repeat([]byte("b"), 20))...)
-	if _, _, err := readOneMessage(t, wire, 100); !errors.Is(err, ErrFrameTooLarge) {
-		t.Fatalf("err = %v, want the frame-too-large sentinel", err)
+	for _, tc := range []struct {
+		name    string
+		limit   int64
+		tooLong bool
+	}{
+		{name: "combined payload exceeds limit", limit: 100, tooLong: true},
+		{name: "exact limit", limit: 110},
+		{name: "below limit", limit: 111},
+		{name: "largest limit", limit: math.MaxInt64},
+		{name: "zero is unbounded"},
+		{name: "negative is unbounded", limit: -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opcode, data, err := readOneMessage(t, wire, tc.limit)
+			if tc.tooLong {
+				if !errors.Is(err, ErrFrameTooLarge) {
+					t.Fatalf("err = %v, want the frame-too-large sentinel", err)
+				}
+				return
+			}
+			want := strings.Repeat("a", 90) + strings.Repeat("b", 20)
+			if err != nil || opcode != opText || string(data) != want {
+				t.Fatalf("fragment assembly = %d %q %v", opcode, data, err)
+			}
+		})
+	}
+}
+
+func TestMessageLimitRejectsAlreadyOversizedAssembly(t *testing.T) {
+	assembled := []byte("abc")
+	_, got, complete, err := appendFrameData(2, assembled, frame{fin: true}, opText)
+	if !errors.Is(err, ErrFrameTooLarge) || complete || !bytes.Equal(got, assembled) {
+		t.Fatalf("oversized assembly = %q complete=%t err=%v", got, complete, err)
 	}
 }
 

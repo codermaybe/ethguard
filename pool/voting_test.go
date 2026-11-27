@@ -1,13 +1,12 @@
 package pool
 
 import (
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
-
 	"context"
 	"errors"
 	"testing"
 	"time"
 
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -30,7 +29,7 @@ func TestCollectVotingReturnsOneEmissionPerMember(t *testing.T) {
 		t.Fatalf("expected one emission per member, got %d", len(ems))
 	}
 	for i, em := range ems {
-		if em.Err != nil || !em.Attempted {
+		if em.Response.Err() != nil || !em.Attempted {
 			t.Fatalf("emission %d not attempted cleanly: %+v", i, em)
 		}
 	}
@@ -59,7 +58,7 @@ func TestCollectVotingKeepsCoolingMemberInBasis(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failure round %d: %v", i+1, err)
 		}
-		if len(ems) != 2 || ems[0].Err == nil || ems[1].Err == nil {
+		if len(ems) != 2 || ems[0].Response.Err() == nil || ems[1].Response.Err() == nil {
 			t.Fatalf("failure round %d: expected both members to fail, got %+v", i+1, ems)
 		}
 	}
@@ -76,7 +75,7 @@ func TestCollectVotingKeepsCoolingMemberInBasis(t *testing.T) {
 		t.Fatalf("expected captured members even when all gated, got %+v", ems)
 	}
 	for _, em := range ems {
-		if em.Attempted || !errors.Is(em.Err, ErrSourceGated) {
+		if em.Attempted || !errors.Is(em.Response.Err(), ErrSourceGated) {
 			t.Fatalf("gated emission must carry no attempt: %+v", em)
 		}
 	}
@@ -154,11 +153,43 @@ func TestCollectVotingTimeoutOutranksUsableAnswer(t *testing.T) {
 	}
 	answered := 0
 	for _, em := range emissions {
-		if em.Val != nil {
+		if em.Response.Answer.Result != nil {
 			answered++
 		}
 	}
 	if answered != 1 {
 		t.Fatalf("want the answered member's emission to ride along, got %d answers in %+v", answered, emissions)
+	}
+}
+
+// A member captured into an explicit voting basis that has since closed
+// keeps its slot and fails as ErrClosed with no attempt: closing a member
+// after the basis was captured must not shrink the denominator or skip the
+// slot, and the live members of the same basis still answer.
+func TestCollectVotingClosedMemberKeepsItsSlotAndFailsClosed(t *testing.T) {
+	d := &newFakeDialer{dials: make(map[string]int)}
+	p := newPoolWithDialerAndChainID(d, 0)
+	doomed, err := p.join("doomed", "https://doomed.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.join("live", "https://live.example"); err != nil {
+		t.Fatal(err)
+	}
+	doomed.close()
+
+	emissions, err := p.CollectVoting(context.Background(), "eth_blockNumber", nil,
+		CollectOptions{Sources: []*Source{doomed, p.Sources()[1]}})
+	if err != nil {
+		t.Fatalf("closed member must not fail the whole basis: %v", err)
+	}
+	if len(emissions) != 2 {
+		t.Fatalf("emissions = %d, want the closed member's slot preserved", len(emissions))
+	}
+	if emissions[0].Src != doomed || emissions[0].Attempted || !errors.Is(emissions[0].Response.Err(), ErrClosed) {
+		t.Fatalf("closed member emission = %+v, want ErrClosed with no attempt", emissions[0])
+	}
+	if emissions[1].Response.Err() != nil || !emissions[1].Attempted {
+		t.Fatalf("live member emission = %+v, want a clean attempt", emissions[1])
 	}
 }

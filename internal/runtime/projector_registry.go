@@ -35,6 +35,8 @@ func projectionSchemas() []struct {
 		{methods.ProjectorTransaction, methods.MethodGetTransactionByHash},
 		{methods.ProjectorLogs, methods.MethodGetLogs},
 		{methods.ProjectorFeeHistory, methods.MethodFeeHistory},
+		{methods.ProjectorSyncing, methods.MethodSyncing},
+		{methods.ProjectorSimulateV1, methods.MethodSimulateV1},
 	}
 }
 

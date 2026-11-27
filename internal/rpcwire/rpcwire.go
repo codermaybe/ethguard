@@ -142,70 +142,113 @@ type Response struct {
 // the contract rejects. It applies the same empty/malformed classification
 // as DecodeResponse.
 func ValidateBody(body []byte) error {
+	wire, err := decodeEnvelope(body)
+	if err != nil {
+		return err
+	}
+	_, _, _, err = wire.classify()
+	return err
+}
+
+// decodeEnvelope applies the envelope checks both body validation and
+// response decoding share: non-empty body, one complete JSON object, and the
+// pinned jsonrpc version. json.Unmarshal (not a streaming decoder) rejects
+// trailing garbage after the top-level value and accepts only one complete
+// value, which is the one-request-one-response rule of the contract.
+func decodeEnvelope(body []byte) (wireResponse, error) {
 	if len(bytes.TrimSpace(body)) == 0 {
-		return ErrEmptyResponse
+		return wireResponse{}, ErrEmptyResponse
 	}
 	var wire wireResponse
 	if err := json.Unmarshal(body, &wire); err != nil {
-		return malformedf("body is not a JSON object: %v", err)
+		return wireResponse{}, malformedf("body is not a JSON object: %v", err)
 	}
 	if string(wire.Version) != strconv.Quote(Version) {
-		return malformedf("unsupported or missing jsonrpc version %s", wire.Version)
+		return wireResponse{}, malformedf("unsupported or missing jsonrpc version %s", wire.Version)
 	}
+	return wire, nil
+}
+
+// classify validates the member presence rules of one decoded envelope and
+// sorts it into its wire outcome: a decoded provider error, the raw success
+// result bytes, or a malformed-response classification. It is the one owner
+// of the result/error presence rules every consumer shares.
+func (wire wireResponse) classify() (*Error, json.RawMessage, bool, error) {
 	switch {
 	case wire.Result != nil && wire.Error != nil:
-		return malformedf("result and error are mutually exclusive")
+		return nil, nil, false, malformedf("result and error are mutually exclusive")
 	case wire.Error != nil:
-		if _, err := decodeError(wire.Error); err != nil {
-			return err
+		rpcErr, err := decodeError(wire.Error)
+		if err != nil {
+			return nil, nil, false, err
 		}
+		return rpcErr, nil, false, nil
 	case wire.Result != nil:
-		// A success body only needs the members checked above.
+		return nil, wire.Result, true, nil
 	default:
-		return malformedf("response has neither result nor error")
+		return nil, nil, false, malformedf("response has neither result nor error")
 	}
-	return nil
+}
+
+// checkedEnvelope applies the envelope and id checks both response consumers
+// share.
+func checkedEnvelope(body []byte, requestID json.RawMessage) (wireResponse, error) {
+	wire, err := decodeEnvelope(body)
+	if err != nil {
+		return wireResponse{}, err
+	}
+	if !idMatches(requestID, wire.ID) {
+		return wireResponse{}, fmt.Errorf("%w: request id %s, response id %s", ErrIDMismatch, requestID, wire.ID)
+	}
+	return wire, nil
 }
 
 // DecodeResponse parses one response body against the request ID and
 // validates the EthGuard native contract. It returns either a Response
 // (success or provider error) or an error wrapping one of the sentinels:
 // ErrEmptyResponse, ErrMalformedResponse, or ErrIDMismatch. Validation
-// failures never produce a protocol error or error-data presence.
+// failures never produce a protocol error or error-data presence. The
+// returned Response owns its bytes: a caller may keep and re-read it while
+// the exchange body is reused or released.
 func DecodeResponse(body []byte, requestID json.RawMessage) (*Response, error) {
-	if len(bytes.TrimSpace(body)) == 0 {
-		return nil, ErrEmptyResponse
+	wire, err := checkedEnvelope(body, requestID)
+	if err != nil {
+		return nil, err
 	}
-	var wire wireResponse
-	// json.Unmarshal (not a streaming decoder) rejects trailing garbage
-	// after the top-level value and accepts only one complete value, which
-	// is the one-request-one-response rule of the contract.
-	if err := json.Unmarshal(body, &wire); err != nil {
-		return nil, malformedf("body is not a JSON object: %v", err)
+	rpcErr, result, _, err := wire.classify()
+	if err != nil {
+		return nil, err
 	}
-	if string(wire.Version) != strconv.Quote(Version) {
-		return nil, malformedf("unsupported or missing jsonrpc version %s", wire.Version)
-	}
-	if !idMatches(requestID, wire.ID) {
-		return nil, fmt.Errorf("%w: request id %s, response id %s", ErrIDMismatch, requestID, wire.ID)
-	}
-	// Presence, not value: "result":null is present (success), while a
-	// missing member is absent. "error":null is present and then rejected
-	// because a valid error member must be an object.
-	switch {
-	case wire.Result != nil && wire.Error != nil:
-		return nil, malformedf("result and error are mutually exclusive")
-	case wire.Error != nil:
-		rpcErr, err := decodeError(wire.Error)
-		if err != nil {
-			return nil, err
-		}
+	if rpcErr != nil {
 		return &Response{ID: cloneRaw(wire.ID), Error: rpcErr}, nil
-	case wire.Result != nil:
-		return &Response{ID: cloneRaw(wire.ID), Result: cloneRaw(wire.Result)}, nil
-	default:
-		return nil, malformedf("response has neither result nor error")
 	}
+	return &Response{ID: cloneRaw(wire.ID), Result: cloneRaw(result)}, nil
+}
+
+// CompleteCall interprets one complete, request-associated exchange. The JSON
+// decoder allocates each member once; result ownership transfers directly into
+// the returned answer, without an intermediate clone or consumer-target decode.
+func CompleteCall(body []byte, requestID json.RawMessage, exchange rpc.Exchange) rpc.Response {
+	response := rpc.Response{Exchange: exchange}
+	wire, err := checkedEnvelope(body, requestID)
+	if err != nil {
+		kind := rpc.AnswerInvalid
+		if errors.Is(err, ErrEmptyResponse) {
+			kind = rpc.AnswerMissing
+		}
+		response.Answer = rpc.Answer{Kind: kind, Cause: err}
+		return response
+	}
+	protocol, result, _, err := wire.classify()
+	switch {
+	case err != nil:
+		response.Answer = rpc.Answer{Kind: rpc.AnswerInvalid, Cause: err}
+	case protocol != nil:
+		response.Answer = rpc.ProtocolAnswer(protocol)
+	default:
+		response.Answer = rpc.Answer{Kind: rpc.AnswerResult, Result: result}
+	}
+	return response
 }
 
 // Error is a project-owned JSON-RPC error object decoded from a response.
@@ -237,7 +280,8 @@ func (e *Error) ErrorDataJSON() (json.RawMessage, bool) {
 
 // ErrorData returns the decoded data value, or nil for an absent member and
 // for a JSON null. Decoding follows encoding/json defaults (numbers become
-// float64), mirroring the Geth baseline's decoded DataError view. Consumers
+// float64), mirroring the Geth baseline's decoded DataError view. Numbers
+// outside float64 can leave this view nil or partially decoded. Consumers
 // that need the exact wire bytes must use ErrorDataJSON.
 func (e *Error) ErrorData() any {
 	if e == nil {
@@ -281,9 +325,9 @@ func decodeError(raw json.RawMessage) (*Error, error) {
 	if data, present := fields["data"]; present {
 		e.dataPresent = true
 		e.data = append(json.RawMessage(nil), data...)
-		// The raw bytes came from a validated JSON body, so this cannot
-		// fail; on the impossible path the decoded view stays nil and the
-		// raw view remains authoritative.
+		// Keep the default decoded compatibility view best-effort: valid
+		// JSON numbers may exceed float64. The raw view remains authoritative
+		// even when decoding leaves nil or a partially populated value.
 		_ = json.Unmarshal(e.data, &e.decoded)
 	}
 	return e, nil

@@ -1,12 +1,13 @@
-# WSS Wire Contract（自有 WebSocket 底层实现范围冻结）
+# WSS Wire Contract（自有 WebSocket 底层契约）
 
-状态：**设计冻结（W0，2026-11-03）。本文件冻结 EthGuard 自有 WSS 底层的范围、
-分层与验收；后续 W1–W7 的每个提交只实现其中一层，不扩张本契约。**
+状态：2026-11-23 NewHead接入有界通知资源合同；2026-11-21 unary两层响应出口已实施；现有 wire 范围起于 2026-11-03。自有实现的握手、帧、连接与
+adapter 文件已存在；本文不再保留完成阶段的逐提交计划，也不据此宣称所有验收门
+或依赖清理均已完成。
 
-本文件是 WSS wire、连接生命周期和当前实现边界的唯一正文。目标：把
-`gorilla/websocket` 从生产依赖中移除，由 EthGuard 自有
-代码掌握 HTTP Upgrade、WebSocket 帧协议和调用生命周期；JSON-RPC 语义继续由
-`internal/rpcwire` 独占。
+本文件拥有 WSS wire、连接生命周期和实现范围；JSON-RPC 语义由
+`internal/rpcwire` 独占。订阅聚合由 [subscription-contract.md](subscription-contract.md)
+拥有；真实 provider 的 dated observations 与未观察项由
+[wss-provider-evidence.md](wss-provider-evidence.md) 拥有，不能反向扩大兼容性承诺。
 
 ## 0. 边界总纲
 
@@ -16,14 +17,17 @@
   [subscription-contract.md](subscription-contract.md)。不支持 batch、自动重连或重放。
 - **不自下而上重写传输。** 连接建立与字节流使用 Go 标准库（`net`、`crypto/tls`、
   `net/http`、`bufio`）；帧协议与调用生命周期由项目自有代码实现。
-- **不改变上层语义。** 不修改 `pool`、`aggregator`、`ReadPlan`、quorum、
-  reference、Decision、presence 或 typed projection。`transport.Transport`
-  Port 与中立哨兵（`ErrConnectionClosed`、`ErrBodyTooLarge`）保持不变。
-- **依赖规则。** 新 wire 层只依赖 Go 标准库与项目内部包（`internal/rpcwire`、
-  `internal/limits`、`internal/transport`、`rpc`）。`gorilla/websocket` 在过渡期
-  仅允许作为对照测试实现存在（server-side 测试 peer、差分验证 oracle），不得
-  进入任何新生产文件；W7 移除后 go.mod 不再出现该直接依赖。默认构建不链接
-  `ethclient` 的既有架构门不变。
+- **响应事实归属。** unary Port使用`Call(...) rpc.Response`，保留Exchange及Answer；
+  RPC信封仍由rpcwire解释，方法准入及quorum仍由上层负责。中立关闭和大小上限哨兵保持。
+  只有关联到当前请求的完整消息才能形成该请求的回答；未知ID和通知不能冒充它。
+  取消时保留已经关联的回答，最终错误仍由context决定；它不取消其他调用或污染socket。
+- **依赖规则。** 自有生产 wire 层只依赖 Go 标准库与项目内部包
+  （`internal/rpcwire`、`internal/limits`、`internal/transport`、`rpc`），
+  不得导入或链接第三方 WebSocket 库。`dependencies_test.go` 约束 WSS 包的
+  import/link 边界，`gorilla_interop_test.go` 只作为测试 peer。默认构建不链接
+  `ethclient` 的既有架构门不变。**范围区别**：`go.mod` 仍列有 gorilla，
+  不能把“自有 WSS 不链接 gorilla”写成“整个模块已移除 gorilla”；全模块依赖
+  去留不是本次文档整理的行为决定。
 
 ## 1. 分层与文件
 
@@ -32,9 +36,9 @@
 | 握手 | `websocket_handshake.go` | HTTP Upgrade、ws/wss 拨号、TLS、101 校验、Sec-WebSocket-Accept、deadline/取消 |
 | 帧编解码 | `websocket_frame.go` | 帧头、mask、opcode/RSV、fragmentation、UTF-8、close code、双重限制 |
 | 连接与生命周期 | `websocket_connection.go` | 单 reader、控制帧自处理、写串行化、read limit 分类、关闭语义 |
-| adapter 绑定 | `wss.go`（现有文件，W5 改造） | `transport.Dialer`/`Transport` 表面、pending demux、presence 透传 |
+| adapter 绑定 | `wss.go` | `transport.Dialer`/`Transport` 表面、pending demux、presence 透传 |
 
-每层单独提交、单独验收；禁止 `wss_phase_N.go`、migration 文件或跨层混合提交。
+分层保持独立；不以阶段编号、migration 文件或临时并行 wire 栈代替职责划分。
 
 ## 2. 支持范围（明确支持）
 
@@ -86,8 +90,9 @@
   close，不占用业务 pending 表与业务 request ID。
 - request ID demux、等待响应时取消只移除自身 pending、等待写锁时取消不发
   帧、写失败终止连接、读失败/read limit 失败全部 pending、Close 拒绝新调用
-  并等待在途调用、旧响应不交付新调用、不自动重放——逐条保持现有契约测试
-  的断言不变。
+  但不取消在途 unary 调用、旧响应不交付新调用、不自动重放。`Close()` 本身
+  不等待在途调用返回；socket 在最后一个 pending 完成/取消后释放，读写故障
+  仍可立即 abort（`wss.go` 的 `Close`、`finishCloseAfterPending`、`abort`）。
 - Close 清空未绑定订阅的 notification 缓存及淘汰顺序；进入 closing 或 closed 后，
   reader 不再缓存或分发 notification。在途 unary 响应仍正常交付，最后一个调用
   完成或取消后才释放 socket；不得因等待在途响应而重建 notification 缓存。
@@ -97,6 +102,22 @@
   pool 侧语义不变，adapter 只负责让失败可分类。
 - health、basis、fault 与 write outcome 语义不变；WSS 与 HTTP 的错误解释
   统一规则不变。
+
+### 2.4 通知队列、绑定前缓存与所有权
+
+transport.NotificationPolicy 表达 Messages、Bytes、MaxMessageBytes 及可选 Reserve 回调；BoundedSubscriber 将策略透传到实际 WSS 流。NewHead 必须使用该能力，没有无界 fallback；普通 Subscribe 使用有限传输默认值：256 条、8 MiB 字节上限、8 MiB 单通知上限。共享连接的默认 ReadLimit 仍为 32 MiB，组帧与通知解包临时量由该连接上限约束，不能声称被单个 Head 的 MemoryBytes 覆盖。
+
+每流使用私有有界队列和无缓冲交付 pump。字节记账覆盖 Raw 与 Result 各自的 backing capacity、身份字符串及控制余量；Raw/Result 并非默认零复制重叠。通知持有幂等 Release 租约，接收方完成解码后释放；发送成功不等于原文已经释放。队列条数/字节限制控制尚未交付的通知，已交给接收方的租约继续占相应共享预算，接收方不能无限保存而忘记 Release。
+
+绑定前的未知 subscription ID 尚无确定 owner，仅在存在 eth_subscribe 建立尝试期间缓存。Dialer.PendingMessages 与 PendingBytes 约束整个连接的这类暂存；默认分别为 256 条、8 MiB，不按 ID 各给一份额度。超限使受影响建立尝试明确失败，不静默淘汰后继续宣称流完整。绑定时先取得目标流准入，再释放连接记账；所有建立尝试结束后清空剩余未知 ID。
+
+生产端失败先按 FIFO 交付已经准入的通知，再交付终态。通知数/字节超限可识别为 transport.ErrNotificationBackpressure，单通知过大为 ErrBodyTooLarge，Reserve 失败保留其原因。主动 Unsubscribe、直接流 context 取消和 owner Close 可以覆盖排空状态，丢弃未读原文并等待 pump 退出；owner 仍能找到已经生产失败但未消费完的流。本地清理先于尽力而为的网络 eth_unsubscribe，不等待网络退订超时才释放缓存。
+
+Subscribe 的调用 context 只约束建立；直接 OpenNotificationStream 的 context 拥有流生命周期。两者不混同。调用方已经接收的通知由其 Release 释放，Unsubscribe 不提前归还已交付租约。连接 Close 对在途 unary 的既有规则不变。
+
+建立取消按实际请求写入及已关联回答清理：请求未写出（包括等待写锁时取消）只结束本次建立；已经得到合法RPC拒绝也不关闭共享连接；已关联合法订阅ID时定向发送eth_unsubscribe。请求已完整写出但取消时尚无可用ID，连接必须终止，以释放可能已在服务端建立的未知订阅；该错误同时保留取消与ErrConnectionClosed，其他共享调用也会观察到断连。ExchangeStarted不保证请求帧已写出，因此这一清理判断使用传输内部写入完成事实，不改变公开Response语义。绑定前预算失败但ID已知，同样先本地清理再尽力退订服务端ID。
+
+握手拒绝不等待响应正文读完：拒绝连接先关闭socket，再关闭HTTP响应体。升级成功的连接交接先停止握手context的取消回调并清除期限；取消已抢先接管socket时返回取消错误，不交付已关闭的连接。帧写失败保留原始写错误及ErrConnectionClosed，并使其他pending与订阅观察到相同原因。
 
 ## 3. 明确不实现
 
@@ -108,44 +129,34 @@
 - 自动重连、自动 replay、未知交易结果恢复（决策 0056.2 与生命周期契约继续
   禁止；pool-owned 下一次独立调用惰性重拨不变）；
 - provider-specific close/reconnect 行为适配；
-- 主动 keepalive、写队列/backpressure、连接代数——进入 W8 前不启动，且每种
-  能力须单独设计、单独提交、单独验收，不得混入 wire 替换提交。
+- 主动 keepalive、独立写队列/backpressure、连接代数：须另立设计与验收，
+  不因已有订阅有界队列就成为 wire 层的通用能力。
 
-## 4. 交付与验收序列
+## 4. 持续验收边界
 
-| 阶段 | 交付 | 验收焦点 |
-| --- | --- | --- |
-| W0 | 本文件 | 与现有契约一致；不动 pool/aggregator/ReadPlan/quorum |
-| W1 | wire 层依赖清单 + 架构互锁测试 | 生产 wire 文件不导入第三方 WS 包；过渡期 gorilla 仅测试可见 |
-| W2 | 握手层 + 测试 | loopback 握手、TLS 错误、非 101、坏头、超时/取消、拒绝重定向/压缩/未知扩展 |
-| W3 | 帧编解码 + 测试 + fuzz | RFC6455 基础向量、malformed 全类、64-bit 溢出、UTF-8、read limit、race |
-| W4 | 连接生命周期 + 测试 | 现有契约全表保持（取消、写失败、断连、Close、presence、不重放） |
-| W5 | adapter 换用自有栈 | 现有 WSS contract、mixed HTTP/WSS、presence 四态、ChainID/read limit/Close 全部通过 |
-| W6 | 双实现差分 | 同一 fixture 经自有与 gorilla 对照实现，差异逐条解释；race/fuzz/重复运行 |
-| W7 | 移除 gorilla | `go list -deps` 无 gorilla；全量 test/race/vet/architecture 门通过 |
+| 边界 | 已有源码入口（测试存在不等于本次已执行） |
+| --- | --- |
+| 生产 wire 不依赖第三方 WS/geth client、不得反向导入 aggregator/rpc/methods/runtime/reference/typed | `dependencies_test.go` 与架构 interlock |
+| Upgrade、TLS、非 101、坏头、超时/取消、重定向/未协商扩展拒绝 | `websocket_handshake_test.go`、`websocket_handshake_ipv6_test.go` |
+| RFC6455、malformed、长度/UTF-8/read limit、分片 | `websocket_frame_test.go`、`websocket_frame_fuzz_test.go` |
+| 单 reader、控制帧、写串行化与连接失败 | `websocket_connection_test.go`、`write_wedge_test.go` |
+| pending demux、取消、Close、不重放、presence 与通知隔离 | `wss_contract_test.go`、`lifecycle_test.go`、`notification_test.go`、`notification_pending_test.go` |
+| 通知字节/条数上限、pre-bind总额、租约交接、生产失败后主动释放 | `notification_budget_test.go`、`notification_pending_test.go`；2026-11-23相关与全仓race通过 |
+| 外部实现互操作 | `gorilla_interop_test.go`；测试 peer 不能充当真实 provider 证据 |
 
-W7 验收命令（目标：默认生产构建与 WSS 生产构建都不再引用 gorilla）：
+## 5. 不变量清单
 
-```text
-go list -deps . | grep -E 'gorilla/websocket|go-ethereum/(rpc|ethclient)'   # 仅允许 gethcompat 图内的既有命中
-go list -deps ./internal/transport/wss ./cmd/wsscapture | grep gorilla      # 必须为空
-go test ./... -count=1
-go test ./... -race -count=1
-go vet ./...
-go test ./internal/transport/wss -race -count=10
-go test . -run 'TestArchitecture|TestPackage|TestDefaultBuild' -count=1
-```
+1. 协议错误实现 `rpc.ProtocolError`、`rpc.DataError`、`rpc.ErrorDataPresence`，
+   data 原始字节逐字保留（missing/null/value；`0x` 仍是 present value）。
+2. malformed JSON-RPC 响应只失败该调用，帧边界完整时连接继续可用；wire
+   协议错误或 read limit 则终止连接，不混同两类失败。
+3. 取消/超时不损坏健康连接；写路径 invocation 失败不重试、不重放。
+4. 连接终止后新调用得到 `wss.ErrTransportClosed`；其与中立关闭哨兵的关系
+   保持既有 adapter 契约。
+5. 不新增第二套 adapter registry；`config.TransportWSS` 的显式组合根 dispatch
+   不变。pool 下一次独立调用的惰性重拨与根订阅 session 重建各自有 owner，
+   都不是 transport 自动 replay。
 
-## 5. 不变量清单（W1–W7 每个提交都不得破坏）
+## 6. 待后续实现阶段评估
 
-1. `internal/transport/wss` 不导入 aggregator、rpc/methods、runtime、
-   reference、typed（既有架构互锁测试继续生效）；
-2. 协议错误实现 `rpc.ProtocolError`、`rpc.DataError`、`rpc.ErrorDataPresence`
-   且 data 原始字节逐字保留（missing/null/value 三态）；
-3. malformed 响应只失败该调用，帧边界完整时连接继续可用；
-4. 取消/超时不损坏健康连接，已发调用的结果不被重置；
-5. 写路径 invocation 失败不重试、不重放；连接终止后新调用得到
-   `wss.ErrTransportClosed`；
-6. 不新增第二套 adapter registry；`config.TransportWSS` 显式选择的组合根
-   dispatch 不变；
-7. 每个提交单一业务意图，可用 `go test ./... -count=1` 复核。
+写阶段取消原因与部分写入后的 abort、TCP／TLS／Upgrade 的共同握手预算、Subscribe setup deadline 所有权、畸形通知的连接级影响与 ReceivedAt 的接收／交付含义，以及 direct dial／proxy 范围仍需逐项设计。旧探针没有在本轮重跑，不能直接登记为已复现缺陷。source session 重建、逻辑snapshot与最终错误由订阅owner负责，wire不据此增加自动replay。

@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -118,7 +117,7 @@ func WithCanonicalObject(encode CanonicalEncoder) StrictOption {
 // a single uncorroborated response is Selected rather than Corroborated. The
 // legacy default is retained for direct construction — the reference
 // establishment paths depend on it by recorded decision
-// (docs/design/acceptance-thresholds.md) — while the client's default path
+// (docs/design/method-contracts.md) — while the client's default path
 // always resolves under a captured corroboration snapshot through
 // ResolveCorroborated.
 func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOption) Policy {
@@ -134,16 +133,13 @@ func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOptio
 }
 
 type strictFunc struct {
+	requestPassthrough
 	normalize       func(json.RawMessage) (string, error)
 	corroboration   *Corroboration
 	includeRPCError bool
 	compareKind     string
 	encode          CanonicalEncoder
 	objectEncode    CanonicalEncoder
-}
-
-func (f strictFunc) Prepare(_ context.Context, req Request) (Request, error) {
-	return req, nil
 }
 
 func (f strictFunc) Normalize(value json.RawMessage) (string, error) {
@@ -183,11 +179,7 @@ func (f strictFunc) canonicalEncoder() CanonicalEncoder {
 }
 
 func (f strictFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
-	encode := f.canonicalEncoder()
-	if encode == nil {
-		return nil, ErrNotCanonicalScalar
-	}
-	return encode(raw)
+	return encodeCanonicalValue(f.canonicalEncoder(), raw)
 }
 
 // skippedAnswer records one observation that could not enter a cluster. A
@@ -201,47 +193,68 @@ type skippedAnswer struct {
 	err    error
 }
 
-// skippedFaults renders the fault-worthy skipped answers as the resolver's
-// fault list, keeping the attribution shape the resolve paths have always
-// produced. Response-cause skips are deliberately absent: the coordinator's
-// per-source fault seam owns transport errors.
-func skippedFaults(skipped []skippedAnswer) []error {
-	var faults []error
-	for _, item := range skipped {
-		if item.cause == "response" {
-			continue
-		}
-		faults = append(faults, sourceFault(item.source, item.cause, item.err))
-	}
-	return faults
-}
-
-// verdictsFromClassified is the shared per-source classification behind the
-// resolvers' outcome statements: a source in the winning set supported, a
-// source in the dissenting set dissented, and every other observed source
-// unusable, carrying its own skip error when one was recorded. The three sets
-// are exactly the fact each resolver's own resolution computes — strict from
-// its clusters, call-revert from its execution groups — so both statements
-// read from the same expression of "who lost what".
-func verdictsFromClassified(obs []Observation, supported, dissented map[string]struct{}, skipped []skippedAnswer) []SourceVerdict {
+// verdictsFromSources uses only facts produced by the actual interpretation
+// loop. A source not classified before an internal abort remains unassessed.
+func verdictsFromSources(obs []Observation, supported, dissented map[string]struct{}, skipped []skippedAnswer) []SourceVerdict {
 	unusable := make(map[string]skippedAnswer, len(skipped))
 	for _, item := range skipped {
 		unusable[item.source.ID] = item
 	}
-	verdicts := make([]SourceVerdict, 0, len(obs))
-	for _, item := range obs {
+	verdicts := initialVerdicts(obs)
+	for i := range verdicts {
+		v := &verdicts[i]
 		switch {
-		case containsSourceID(supported, item.Source.ID):
-			verdicts = append(verdicts, SourceVerdict{Source: item.Source, Kind: VerdictSupported})
-		case containsSourceID(dissented, item.Source.ID):
-			verdicts = append(verdicts, SourceVerdict{Source: item.Source, Kind: VerdictDissented})
+		case containsSourceID(supported, v.Source.ID):
+			v.Kind, v.Method = VerdictSupported, Interpretation{State: InterpretationValidated}
+		case containsSourceID(dissented, v.Source.ID):
+			v.Kind, v.Method = VerdictDissented, Interpretation{State: InterpretationValidated}
 		default:
-			skip := unusable[item.Source.ID]
-			verdicts = append(verdicts, SourceVerdict{Source: item.Source, Kind: VerdictUnusable, Err: skip.err})
+			if skip, exists := unusable[v.Source.ID]; exists {
+				if skip.cause != "response" {
+					rejectVerdict(v, fmt.Errorf("%s: %w", skip.cause, skip.err))
+				} else if obs[i].Response.CandidateErr(true) == nil {
+					v.Kind, v.Method = VerdictUnusable, Interpretation{State: InterpretationExcluded, Cause: skip.err}
+				} else {
+					unavailableVerdict(v, obs[i].Response)
+				}
+			}
 		}
 	}
 	sortSourceVerdicts(verdicts)
 	return verdicts
+}
+
+// verdictsFromRanked is the cluster-set entry of the statement builder: the
+// winning cluster's members supported, the losing clusters' dissented. An
+// empty cluster set — the shape a failed clustering reports — classifies
+// every source as unusable instead of panicking on the absent winner.
+func verdictsFromRanked(obs []Observation, ranked []cluster, skipped []skippedAnswer) []SourceVerdict {
+	supported := make(map[string]struct{})
+	dissented := make(map[string]struct{})
+	if len(ranked) > 0 {
+		for _, source := range ranked[0].sources {
+			supported[source.ID] = struct{}{}
+		}
+		for _, cl := range ranked[1:] {
+			for _, source := range cl.sources {
+				dissented[source.ID] = struct{}{}
+			}
+		}
+	}
+	return verdictsFromSources(obs, supported, dissented, skipped)
+}
+
+// verdictsFromClassified is the classified-set entry of the statement
+// builder, for resolvers that compute their own support and dissent sets.
+func verdictsFromClassified(obs []Observation, supported, dissented map[string]struct{}, skipped []skippedAnswer) []SourceVerdict {
+	return verdictsFromSources(obs, supported, dissented, skipped)
+}
+
+// verdictsFromCanonical is the canonical-route entry of the shared statement
+// builder: the slots come from the canonical observations, failed ones
+// included, so no source loses its statement.
+func verdictsFromCanonical(cobs []CanonicalObservation, ranked []cluster, skipped []skippedAnswer) []SourceVerdict {
+	return verdictsFromRanked(observationsOfCanonical(cobs), ranked, skipped)
 }
 
 // verdictsFromClusters classifies every observation once clustering and
@@ -251,19 +264,7 @@ func verdictsFromClassified(obs []Observation, supported, dissented map[string]s
 // resolver — it sees only observations — so the coordinator reclassifies it
 // as absent from its own attempt bookkeeping.
 func verdictsFromClusters(obs []Observation, ranked []cluster, skipped []skippedAnswer) []SourceVerdict {
-	supported := make(map[string]struct{})
-	if len(ranked) > 0 {
-		for _, source := range ranked[0].sources {
-			supported[source.ID] = struct{}{}
-		}
-	}
-	dissented := make(map[string]struct{})
-	for _, cl := range ranked[1:] {
-		for _, source := range cl.sources {
-			dissented[source.ID] = struct{}{}
-		}
-	}
-	return verdictsFromClassified(obs, supported, dissented, skipped)
+	return verdictsFromRanked(obs, ranked, skipped)
 }
 
 func containsSourceID(set map[string]struct{}, id string) bool {
@@ -271,103 +272,151 @@ func containsSourceID(set map[string]struct{}, id string) bool {
 	return ok
 }
 
-func (f strictFunc) Resolve(obs []Observation) (Decision, error) {
-	if f.corroboration == nil {
-		return f.resolveLegacy(obs)
-	}
-	return f.resolve(*f.corroboration, obs)
-}
-
-// ResolveCorroborated resolves under the invocation's frozen corroboration
-// snapshot, ignoring construction-time corroboration options. The aggregator
-// calls this with the mode and floor captured before any request was issued
-// (decision 0025).
-func (f strictFunc) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
-	decision, _, err := f.adjudicated(c, obs)
-	return decision, err
-}
-
-// ResolveOutcome is Resolve with the per-source statement attached: the same
-// decision, plus every source's verdict. Consumers project faults and
-// observability events from the outcome instead of re-running value
-// classification.
-func (f strictFunc) ResolveOutcome(obs []Observation) (Outcome, error) {
+func (f strictFunc) Resolve(obs []Observation) (Outcome, error) {
 	if f.corroboration == nil {
 		return f.outcomeLegacy(obs)
 	}
 	return f.outcome(*f.corroboration, obs)
 }
 
-// ResolveOutcomeCorroborated mirrors ResolveCorroborated with the per-source
-// statement attached.
-func (f strictFunc) ResolveOutcomeCorroborated(c Corroboration, obs []Observation) (Outcome, error) {
+func (f strictFunc) ResolveCorroborated(c Corroboration, obs []Observation) (Outcome, error) {
 	return f.outcome(c, obs)
 }
 
-// resolve clusters admissible answers and adjudicates them against the
-// invocation's voting basis.
-func (f strictFunc) resolve(c Corroboration, obs []Observation) (Decision, error) {
-	decision, _, err := f.adjudicated(c, obs)
-	return decision, err
+// ResolveCanonical is the canonical route of the same resolution: processed
+// observations in, the same clustering, adjudication, verdicts, and commit
+// kernel out. The raw normalizer and encoder are never consulted here — the
+// canonical bytes are the comparison key and the commit material. The
+// construction-time corroboration configuration decides the mode exactly as
+// Resolve does; there is no zero-snapshot shortcut for the legacy
+// route.
+func (f strictFunc) ResolveCanonical(cobs []CanonicalObservation) (Outcome, error) {
+	if f.corroboration == nil {
+		return f.canonicalLegacy(cobs)
+	}
+	return f.canonicalCore(*f.corroboration, cobs)
+}
+
+// ResolveCanonicalCorroborated is the canonical route under the invocation's
+// frozen corroboration snapshot, mirroring ResolveCorroborated.
+func (f strictFunc) ResolveCanonicalCorroborated(c Corroboration, cobs []CanonicalObservation) (Outcome, error) {
+	return f.canonicalCore(c, cobs)
+}
+
+// adjudicationCore is the shared corroborated kernel of the raw and canonical
+// routes: adjudicate the ranked clusters against the fixed basis, apply the
+// route's commit, and state every source. A failed clustering keeps the
+// Unknown decision and the judgments already formed. Unprocessed candidates
+// remain unassessed; no downstream consumer reruns method checks.
+func adjudicationCore(
+	c Corroboration,
+	attempted int,
+	ranked []cluster,
+	skipped []skippedAnswer,
+	clusterErr error,
+	commit func(Decision, error, []cluster) (Decision, error),
+	verdicts func([]cluster, []skippedAnswer) []SourceVerdict,
+	failedVerdicts func([]skippedAnswer) []SourceVerdict,
+) (Decision, []SourceVerdict, error) {
+	if clusterErr != nil {
+		var stated []SourceVerdict
+		if failedVerdicts != nil {
+			stated = failedVerdicts(skipped)
+		}
+		return Decision{Status: Unknown, Adjudication: rankedAdjudication(attempted, c.Required(attempted), nil), Faults: nil}, stated, clusterErr
+	}
+	decision, err := c.adjudicate(attempted, ranked, nil)
+	decision, err = commit(decision, err, ranked)
+	return decision, verdicts(ranked, skipped), err
 }
 
 // adjudicated is the shared core of resolve and outcome: cluster, adjudicate
 // against the fixed basis, commit canonical bytes, and classify every source.
 func (f strictFunc) adjudicated(c Corroboration, obs []Observation) (Decision, []SourceVerdict, error) {
 	ranked, skipped, err := f.cluster(obs)
-	if err != nil {
-		return Decision{Status: Unknown, Faults: skippedFaults(skipped)}, nil, err
-	}
-	decision, err := c.adjudicate(len(obs), ranked, skippedFaults(skipped))
-	decision, err = f.finish(decision, err, ranked)
-	return decision, verdictsFromClusters(obs, ranked, skipped), err
+	return adjudicationCore(c, len(obs), ranked, skipped, err, f.finish,
+		func(ranked []cluster, skipped []skippedAnswer) []SourceVerdict {
+			return verdictsFromClusters(obs, ranked, skipped)
+		},
+		func(skipped []skippedAnswer) []SourceVerdict { return verdictsFromClusters(obs, nil, skipped) })
 }
 
 func (f strictFunc) outcome(c Corroboration, obs []Observation) (Outcome, error) {
 	decision, verdicts, err := f.adjudicated(c, obs)
-	return Outcome{Decision: decision, Verdicts: verdicts}, err
-}
-
-// resolveLegacy is the decision-0006 default for policies constructed
-// without corroboration options: agreement among every valid response, with
-// one uncorroborated response downgraded to Selected.
-func (f strictFunc) resolveLegacy(obs []Observation) (Decision, error) {
-	decision, _, err := f.legacyCore(obs)
-	return decision, err
+	return completeOutcome(obs, decision, verdicts, err)
 }
 
 func (f strictFunc) outcomeLegacy(obs []Observation) (Outcome, error) {
 	decision, verdicts, err := f.legacyCore(obs)
-	return Outcome{Decision: decision, Verdicts: verdicts}, err
+	return completeOutcome(obs, decision, verdicts, err)
 }
 
 func (f strictFunc) legacyCore(obs []Observation) (Decision, []SourceVerdict, error) {
 	ranked, skipped, err := f.cluster(obs)
 	if err != nil {
-		return Decision{Status: Unknown, Faults: skippedFaults(skipped)}, nil, err
+		return Decision{Status: Unknown, Adjudication: rankedAdjudication(len(obs), 1, nil), Faults: nil}, verdictsFromClusters(obs, nil, skipped), err
 	}
-	var decision Decision
-	decision.Status = Unknown
-	decision.Faults = skippedFaults(skipped)
+	return legacyCoreClusters(ranked, skipped, obs, f.finish)
+}
+
+// canonicalCore is the corroborated canonical route: the same adjudication
+// and commit kernel as the raw route, over processed results.
+func (f strictFunc) canonicalCore(c Corroboration, cobs []CanonicalObservation) (Outcome, error) {
+	ranked, skipped, err := clusterCanonical(cobs)
+	decision, verdicts, err := adjudicationCore(c, len(cobs), ranked, skipped, err, commitProcessed,
+		func(ranked []cluster, skipped []skippedAnswer) []SourceVerdict {
+			return verdictsFromCanonical(cobs, ranked, skipped)
+		},
+		func(skipped []skippedAnswer) []SourceVerdict {
+			return verdictsFromCanonical(cobs, nil, skipped)
+		})
+	return completeOutcome(observationsOfCanonical(cobs), decision, verdicts, err)
+}
+
+// canonicalLegacy is the no-snapshot canonical route: the decision-0006
+// default over processed results, sharing the legacy cluster core with the
+// raw route and committing through the unconditional kernel.
+func (f strictFunc) canonicalLegacy(cobs []CanonicalObservation) (Outcome, error) {
+	ranked, skipped, err := clusterCanonical(cobs)
+	if err != nil {
+		decision := Decision{Status: Unknown, Faults: nil}
+		return completeOutcome(observationsOfCanonical(cobs), decision, verdictsFromCanonical(cobs, nil, skipped), err)
+	}
+	decision, verdicts, err := legacyCoreClusters(ranked, skipped, observationsOfCanonical(cobs), commitProcessed)
+	return completeOutcome(observationsOfCanonical(cobs), decision, verdicts, err)
+}
+
+func observationsOfCanonical(cobs []CanonicalObservation) []Observation {
+	obs := make([]Observation, len(cobs))
+	for i, item := range cobs {
+		obs[i] = item.observation
+	}
+	return obs
+}
+
+// legacyCoreClusters is the shared decision-0006 core over already-clustered
+// answers: the winner's value, provenance, and representative; agreement
+// among every valid response with a lone response downgraded to Selected;
+// then the route's commit (the raw route gates on its encoder declaration,
+// the canonical route commits unconditionally) and the shared per-source
+// statement.
+func legacyCoreClusters(ranked []cluster, skipped []skippedAnswer, obs []Observation, commit func(Decision, error, []cluster) (Decision, error)) (Decision, []SourceVerdict, error) {
 	winner := ranked[0]
-	decision.Value = winner.value
-	decision.Provenance = append(json.RawMessage(nil), winner.evidence...)
-	decision.Representative = winner.sources[0]
-	decision.Support = winner.sources
-	for _, cl := range ranked[1:] {
-		decision.Reject = append(decision.Reject, cl.sources...)
-	}
+	decision := winnerDecision(ranked, nil)
+	decision.Adjudication = rankedAdjudication(len(obs), 1, ranked)
+	decision.Adjudication.Reason = ReasonAccepted
 	var ret error
 	switch {
 	case len(ranked) != 1:
+		decision.Adjudication.Reason = ReasonConflictingCandidates
 		ret = fmt.Errorf("strict: %d disagreeing values: %w", len(ranked), ErrConflict)
 	case len(winner.sources) == 1:
 		decision.Status = Selected // no corroboration, no Corroborated claim
 	default:
 		decision.Status = Corroborated
 	}
-	decision, ret = f.finish(decision, ret, ranked)
-	return decision, verdictsFromClusters(obs, ranked, skipped), ret
+	decision, ret = commit(decision, ret, ranked)
+	return decision, verdictsFromRanked(obs, ranked, skipped), ret
 }
 
 // finish commits canonical bytes after the single resolve. EncodeCheck
@@ -376,17 +425,30 @@ func (f strictFunc) legacyCore(obs []Observation) (Decision, []SourceVerdict, er
 // vote again. Rejected-cluster disagreements are diagnostics only and do not
 // change the adjudication, membership, or denominator (design section 14.1).
 //
-// The guard below is always true for a method whose key is its canonical
-// bytes, because clustering on the key puts byte-equal values in one cluster;
-// it fires only for a method that keeps a narrower key than its value, such
-// as a block method wired with WithCanonicalObject. If it ever fires for a
-// WithCanonicalValue method, some path computed that method's key from
-// something other than its encoder, and the clusters were not decided by the
-// bytes being committed.
+// The gate below is the raw route's declaration that its comparison key is
+// committed canonical bytes; the commit itself is the shared kernel
+// commitProcessed, which the canonical route runs unconditionally — its
+// cluster material is already canonical, so committing never depends on the
+// raw encoder callbacks being attached.
 func (f strictFunc) finish(decision Decision, err error, ranked []cluster) (Decision, error) {
 	if f.canonicalEncoder() == nil {
 		return decision, err
 	}
+	return commitProcessed(decision, err, ranked)
+}
+
+// commitProcessed is the shared canonical commit kernel: rejected-cluster
+// encoding diagnostics, then the winning cluster's committed bytes onto
+// Value. Both routes call this one implementation; the routes differ only in
+// where their cluster material came from. The within-cluster guard below is
+// always true for a method whose key is its canonical bytes, because
+// clustering on the key puts byte-equal values in one cluster; it fires only
+// for a method that keeps a narrower key than its value, such as a block
+// method wired with WithCanonicalObject. If it ever fires for a
+// WithCanonicalValue method, some path computed that method's key from
+// something other than its encoder, and the clusters were not decided by the
+// bytes being committed.
+func commitProcessed(decision Decision, err error, ranked []cluster) (Decision, error) {
 	for _, rejected := range ranked[1:] {
 		if cerr := checkCanonical(rejected.canonical); cerr != nil {
 			decision.Faults = append(decision.Faults, fmt.Errorf("rejected cluster: %w", encodingDiagnostic(rejected, cerr)))
@@ -436,21 +498,16 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []skippedAnswer, erro
 	for i, item := range obs {
 		id := item.Source.ID
 		if id == "" {
-			return nil, skipped, fmt.Errorf("strict: observation %d has no source identity: %w", i, ErrConflict)
+			return nil, skipped, missingIdentity("strict", "observation", i)
 		}
 		if first, dup := seen[id]; dup {
-			return nil, skipped, fmt.Errorf(
-				"strict: duplicate observation for source %q (first at %d, again at %d): %w",
-				id, first, i, ErrConflict)
+			return nil, skipped, duplicateIdentity("strict", "observation", id, first, i)
 		}
 		seen[id] = i
-		value := item.Value
-		if item.Err != nil {
-			if !f.includeRPCError || item.RPCError == nil {
-				skipped = append(skipped, skippedAnswer{source: item.Source, cause: "response", err: item.Err})
-				continue
-			}
-			value = item.RPCError.Raw()
+		value, candidateErr := item.Response.Candidate(f.includeRPCError)
+		if candidateErr != nil {
+			skipped = append(skipped, skippedAnswer{source: item.Source, cause: "response", err: candidateErr})
+			continue
 		}
 		var canonical json.RawMessage
 		if encode := f.canonicalEncoder(); encode != nil {
@@ -474,9 +531,52 @@ func (f strictFunc) cluster(obs []Observation) ([]cluster, []skippedAnswer, erro
 		}
 		groups[key] = append(groups[key], representativeCandidate{source: item.Source, value: value, evidence: item.Evidence, canonical: canonical})
 	}
+	return rankClusters(groups, skipped, len(obs))
+}
+
+// clusterCanonical groups processed results by their canonical bytes — the
+// key by construction, so the route never calls the raw normalizer or
+// encoder, and the cluster's commit material is the result's own value. A
+// failed observation keeps its slot as a response-cause skip: the canonical
+// route processes only available sources, and structured provider error
+// bodies stay the raw routes' domain (no canonical method opts into them).
+// Identity rules mirror the raw route exactly: an empty or duplicated source
+// identity is the process-conflict sentinel, not a skipped answer.
+func clusterCanonical(cobs []CanonicalObservation) ([]cluster, []skippedAnswer, error) {
+	var skipped []skippedAnswer
+	groups := make(map[string][]representativeCandidate)
+	seen := make(map[string]int, len(cobs))
+	for i, item := range cobs {
+		id := item.observation.Source.ID
+		if id == "" {
+			return nil, skipped, missingIdentity("strict", "canonical observation", i)
+		}
+		if first, dup := seen[id]; dup {
+			return nil, skipped, duplicateIdentity("strict", "canonical observation", id, first, i)
+		}
+		seen[id] = i
+		if item.observation.Response.Err() != nil {
+			skipped = append(skipped, skippedAnswer{source: item.observation.Source, cause: "response", err: item.observation.Response.Err()})
+			continue
+		}
+		value := item.result.Value()
+		groups[string(value)] = append(groups[string(value)], representativeCandidate{
+			source:    item.observation.Source,
+			value:     value,
+			evidence:  item.result.Evidence(),
+			canonical: append(json.RawMessage(nil), value...),
+		})
+	}
+	return rankClusters(groups, skipped, len(cobs))
+}
+
+// rankClusters is the shared cluster assembly: size-ranked clusters with
+// key-ordered ties, each carrying its sources and its members' canonical
+// bytes in captured order. An empty group set is the no-valid-response
+// sentinel with the attempted count kept visible.
+func rankClusters(groups map[string][]representativeCandidate, skipped []skippedAnswer, attempted int) ([]cluster, []skippedAnswer, error) {
 	if len(groups) == 0 {
-		return nil, skipped, fmt.Errorf(
-			"strict: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
+		return nil, skipped, noValidResponse("strict", attempted)
 	}
 	keys := make([]string, 0, len(groups))
 	for key := range groups {

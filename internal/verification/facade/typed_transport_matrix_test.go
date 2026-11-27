@@ -1,10 +1,12 @@
 package ethguard_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"math/big"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,14 +14,15 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
 // TestTypedTransportMatrix exercises the same typed reads through native HTTP
@@ -28,7 +31,7 @@ import (
 // adding a second server or a subscription fixture.
 func TestTypedTransportMatrix(t *testing.T) {
 	rawBlock := fixtureBlock(t, 17)
-	receiptHash := common.HexToHash("0x" + strings.Repeat("42", 32))
+	receiptHash := ethapi.Hash("0x" + strings.Repeat("42", 32))
 	rawReceipt := fixtureReceipt(t, receiptHash, 17)
 	peers := []*sourceWirePeer{
 		newSourceWirePeer(t, false, func(req sourceWireRequest) string {
@@ -72,15 +75,19 @@ func TestTypedTransportMatrix(t *testing.T) {
 		t.Fatalf("ChainID = %v, err=%v", id, err)
 	}
 	header, _, err := client.HeaderByNumber(ctx, big.NewInt(17))
-	if err != nil || header == nil || header.Number.Uint64() != 17 {
+	if err != nil || header == nil {
+		t.Fatalf("HeaderByNumber = %v, err=%v", header, err)
+	}
+	headerHeight, headerHeightErr := rpc.ParseHexQuantity(string(header.Number))
+	if headerHeightErr != nil || headerHeight != 17 {
 		t.Fatalf("HeaderByNumber = %v, err=%v", header, err)
 	}
 	receipt, _, err := client.TransactionReceipt(ctx, receiptHash)
-	if err != nil || receipt == nil || receipt.TxHash != receiptHash {
+	if err != nil || receipt == nil || receipt.TransactionHash != receiptHash {
 		t.Fatalf("TransactionReceipt = %v, err=%v", receipt, err)
 	}
-	receipts, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithHash(receipt.BlockHash, false))
-	if err != nil || len(receipts) != 1 || receipts[0].TxHash != receiptHash {
+	receipts, _, err := client.BlockReceipts(ctx, hashRef(receipt.BlockHash))
+	if err != nil || len(receipts) != 1 || receipts[0].TransactionHash != receiptHash {
 		t.Fatalf("BlockReceipts = %v, err=%v", receipts, err)
 	}
 	if peers[0].httpConnections.Load() == 0 || peers[1].connections.Load() == 0 {
@@ -110,7 +117,7 @@ func TestTypedTransactionByHashTransportFixture(t *testing.T) {
 	if err := json.Unmarshal(rawTx, &wireTx); err != nil {
 		t.Fatal(err)
 	}
-	txHash := common.HexToHash(wireTx.Hash)
+	txHash := ethapi.Hash(wireTx.Hash)
 	var requests [2]atomic.Value
 	answer := func(slot *atomic.Value) func(sourceWireRequest) string {
 		return func(req sourceWireRequest) string {
@@ -136,7 +143,7 @@ func TestTypedTransactionByHashTransportFixture(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	got, pending, result, err := client.TransactionByHash(ctx, txHash)
-	if err != nil || pending || got == nil || got.Hash() != txHash {
+	if err != nil || pending || got == nil || txHashOf(got) != string(txHash) {
 		t.Fatalf("TransactionByHash = tx:%v pending:%v result:%+v err:%v", got, pending, result, err)
 	}
 	if result.Decision == nil || result.Decision.Status != rpc.Corroborated {
@@ -148,8 +155,8 @@ func TestTypedTransactionByHashTransportFixture(t *testing.T) {
 			t.Fatalf("transport %d did not receive eth_getTransactionByHash", i)
 		}
 		req := loaded.(sourceWireRequest)
-		if len(req.Params) != 1 || wireString(t, req.Params[0]) != txHash.Hex() {
-			t.Fatalf("transport %d request = %+v, want one hash parameter %q", i, req, txHash.Hex())
+		if len(req.Params) != 1 || wireString(t, req.Params[0]) != string(txHash) {
+			t.Fatalf("transport %d request = %+v, want one hash parameter %q", i, req, string(txHash))
 		}
 	}
 }
@@ -182,7 +189,7 @@ func TestTypedTransactionByHashTransportNullParity(t *testing.T) {
 	t.Cleanup(client.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _, result, err := client.TransactionByHash(ctx, common.HexToHash("0x"+strings.Repeat("42", 32)))
+	_, _, result, err := client.TransactionByHash(ctx, ethapi.Hash("0x"+strings.Repeat("42", 32)))
 	if !errors.Is(err, ethereum.NotFound) {
 		t.Fatalf("TransactionByHash null err = %v, want ethereum.NotFound", err)
 	}
@@ -197,11 +204,11 @@ func TestTypedTransactionByHashTransportNullParity(t *testing.T) {
 // request encoding, inclusion binding, and sender projection at the transport
 // boundary.
 func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
-	blockHash := common.HexToHash("0x" + strings.Repeat("33", 32))
+	blockHash := ethapi.Hash("0x" + strings.Repeat("33", 32))
 	rawTx := transactionInBlockFixture(t, blockHash, 0)
-	var tx types.Transaction
-	if err := json.Unmarshal(rawTx, &tx); err != nil {
-		t.Fatal(err)
+	tx, txErr := ethapi.NewTransaction(rawTx)
+	if txErr != nil {
+		t.Fatal(txErr)
 	}
 	type evidence struct {
 		count   atomic.Value
@@ -244,11 +251,11 @@ func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
 		t.Fatalf("TransactionCount = %d result=%+v err=%v", count, countResult, err)
 	}
 	got, inBlockResult, err := client.TransactionInBlock(ctx, blockHash, 0)
-	if err != nil || got == nil || got.Hash() != tx.Hash() || inBlockResult.Decision == nil || inBlockResult.Decision.Status != rpc.Corroborated {
+	if err != nil || got == nil || txHashOf(got) != txHashOf(&tx) || inBlockResult.Decision == nil || inBlockResult.Decision.Status != rpc.Corroborated {
 		t.Fatalf("TransactionInBlock = %v result=%+v err=%v", got, inBlockResult, err)
 	}
 	sender, senderResult, err := client.TransactionSender(ctx, &tx, blockHash, 0)
-	if err != nil || sender == (common.Address{}) || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
+	if err != nil || sender == "" || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
 		t.Fatalf("TransactionSender = %s result=%+v err=%v", sender, senderResult, err)
 	}
 
@@ -258,7 +265,7 @@ func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
 			t.Fatalf("source %d did not receive transaction count", i)
 		}
 		countReq := loaded.(sourceWireRequest)
-		if len(countReq.Params) != 1 || wireString(t, countReq.Params[0]) != blockHash.Hex() {
+		if len(countReq.Params) != 1 || wireString(t, countReq.Params[0]) != string(blockHash) {
 			t.Fatalf("source %d transaction count params=%s", i, countReq.Params)
 		}
 		for name, slot := range map[string]*atomic.Value{
@@ -270,10 +277,216 @@ func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
 				t.Fatalf("source %d did not receive %s request", i, name)
 			}
 			req := loaded.(sourceWireRequest)
-			if len(req.Params) != 2 || wireString(t, req.Params[0]) != blockHash.Hex() || wireString(t, req.Params[1]) != "0x0" {
+			if len(req.Params) != 2 || wireString(t, req.Params[0]) != string(blockHash) || wireString(t, req.Params[1]) != "0x0" {
 				t.Fatalf("source %d %s params=%s", i, name, req.Params)
 			}
 		}
+	}
+}
+
+func TestTransactionSenderFromOnlyConflictAcrossTransports(t *testing.T) {
+	blockHash := ethapi.Hash("0x" + strings.Repeat("46", 32))
+	original := transactionInBlockFixture(t, blockHash, 0)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(original, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["from"] = json.RawMessage(`"0x1111111111111111111111111111111111111111"`)
+	changed, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, surface := range []string{"root", "view"} {
+		t.Run(surface, func(t *testing.T) {
+			input, err := ethapi.NewTransaction(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var requests [2]atomic.Value
+			answer := func(index int, raw json.RawMessage) func(sourceWireRequest) string {
+				return func(req sourceWireRequest) string {
+					if req.Method != methods.MethodGetTransactionByBlockHashAndIndex {
+						return `"error":{"code":-32601,"message":"unexpected method"}`
+					}
+					requests[index].Store(req)
+					return `"result":` + string(raw)
+				}
+			}
+			peers := []*sourceWirePeer{
+				newSourceWirePeer(t, false, answer(0, original)),
+				newSourceWirePeer(t, true, answer(1, changed)),
+			}
+			client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+				{ID: "http", Endpoint: peers[0].endpoint},
+				{ID: "wss", Endpoint: peers[1].endpoint, Transport: config.TransportWSS},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(client.Close)
+			base, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ctx, capture := ethguard.WithResult(base)
+			var sender ethapi.Address
+			var direct ethguard.CallResult
+			if surface == "root" {
+				sender, direct, err = client.TransactionSender(ctx, &input, blockHash, 0)
+			} else {
+				sender, err = client.EthClient().TransactionSender(ctx, &input, blockHash, 0)
+			}
+			if sender != "" || !errors.Is(err, ethguard.ErrConflict) {
+				t.Fatalf("from-only conflict = sender:%s err:%v", sender, err)
+			}
+			result, published, captureErr := capture.Result()
+			if !published || captureErr != nil || result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
+				t.Fatalf("capture = published:%v error:%v business:%v, want %v", published, captureErr, result.Err, err)
+			}
+			if surface == "root" && (direct.Err != err || !reflect.DeepEqual(direct.Decision, result.Decision)) { //nolint:errorlint // The result must retain the exact error returned to the caller.
+				t.Fatalf("root and capture differ: direct:%+v captured:%+v", direct, result)
+			}
+			d := result.Decision
+			if d == nil || d.Status != rpc.Unknown || d.Value != nil || len(d.Faults) != 0 || len(d.Sources) != 2 ||
+				d.Adjudication.Basis != 2 || d.Adjudication.Required != 2 || d.Adjudication.Reason != rpc.ReasonConflictingCandidates || len(d.Adjudication.Candidates) != 2 {
+				t.Fatalf("from-only conflict lost adjudication facts: %+v", d)
+			}
+			candidateSources := make(map[string]bool)
+			for _, candidate := range d.Adjudication.Candidates {
+				if len(candidate.Sources) != 1 || candidateSources[candidate.Sources[0].ID] {
+					t.Fatalf("conflict candidates = %+v, want two distinct singleton groups", d.Adjudication.Candidates)
+				}
+				candidateSources[candidate.Sources[0].ID] = true
+			}
+			if !candidateSources[peers[0].endpoint] || !candidateSources[peers[1].endpoint] {
+				t.Fatalf("candidate sources = %v", candidateSources)
+			}
+			for _, source := range d.Sources {
+				if !source.Attempted || source.Exchange.Progress != rpc.ExchangeCompleted || source.Answer.Kind != rpc.AnswerResult ||
+					source.Answer.Interpretation.State != rpc.InterpretationValidated ||
+					(source.Relation != rpc.VerdictSupported && source.Relation != rpc.VerdictDissented) {
+					t.Fatalf("valid sender disagreement became a source failure: %+v", source)
+				}
+			}
+			for i := range requests {
+				loaded := requests[i].Load()
+				if loaded == nil {
+					t.Fatalf("transport %d did not receive the sender query", i)
+				}
+				req := loaded.(sourceWireRequest)
+				if len(req.Params) != 2 || wireString(t, req.Params[0]) != string(blockHash) || wireString(t, req.Params[1]) != "0x0" {
+					t.Fatalf("transport %d sender params = %s", i, req.Params)
+				}
+			}
+			after, err := json.Marshal(input)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("sender lookup mutated input: before:%s after:%s err:%v", before, after, err)
+			}
+		})
+	}
+}
+
+func TestTransactionSenderDeliversReportedSenderAcrossTransports(t *testing.T) {
+	blockHash := ethapi.Hash("0x" + strings.Repeat("47", 32))
+	original := transactionInBlockFixture(t, blockHash, 0)
+	var signed types.Transaction
+	if err := json.Unmarshal(original, &signed); err != nil {
+		t.Fatal(err)
+	}
+	signer, err := types.Sender(types.HomesteadSigner{}, &signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const reported = ethapi.Address("0x2222222222222222222222222222222222222222")
+	if strings.EqualFold(signer.Hex(), string(reported)) {
+		t.Fatal("fixture must report a sender different from its signer")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(original, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["from"], err = json.Marshal(reported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, surface := range []string{"root", "view"} {
+		t.Run(surface, func(t *testing.T) {
+			input, err := ethapi.NewTransaction(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var received [2]atomic.Int32
+			answer := func(index int) func(sourceWireRequest) string {
+				return func(req sourceWireRequest) string {
+					if req.Method != methods.MethodGetTransactionByBlockHashAndIndex {
+						return `"error":{"code":-32601,"message":"unexpected method"}`
+					}
+					received[index].Add(1)
+					return `"result":` + string(response)
+				}
+			}
+			peers := []*sourceWirePeer{
+				newSourceWirePeer(t, false, answer(0)),
+				newSourceWirePeer(t, true, answer(1)),
+			}
+			client, err := ethguard.New(config.Config{ChainID: 1, Upstreams: []config.Upstream{
+				{ID: "http", Endpoint: peers[0].endpoint},
+				{ID: "wss", Endpoint: peers[1].endpoint, Transport: config.TransportWSS},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(client.Close)
+			base, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ctx, capture := ethguard.WithResult(base)
+			var sender ethapi.Address
+			var direct ethguard.CallResult
+			if surface == "root" {
+				sender, direct, err = client.TransactionSender(ctx, &input, blockHash, 0)
+			} else {
+				sender, err = client.EthClient().TransactionSender(ctx, &input, blockHash, 0)
+			}
+			if err != nil || sender != reported {
+				t.Fatalf("sender = %s err:%v, want provider declaration %s (signer %s)", sender, err, reported, signer)
+			}
+			result, published, captureErr := capture.Result()
+			if !published || captureErr != nil || result.Err != nil || !result.IsCorroborated() {
+				t.Fatalf("capture = %+v published:%v error:%v", result, published, captureErr)
+			}
+			if surface == "root" && (direct.Err != nil || !reflect.DeepEqual(direct.Decision, result.Decision)) {
+				t.Fatalf("root and capture differ: direct:%+v captured:%+v", direct, result)
+			}
+			d := result.Decision
+			if len(d.Support) != 2 || len(d.Sources) != 2 || d.Adjudication.Basis != 2 || d.Adjudication.Required != 2 || d.Adjudication.Reason != rpc.ReasonAccepted {
+				t.Fatalf("reported sender support = %+v", d)
+			}
+			var delivered struct {
+				From ethapi.Address `json:"from"`
+			}
+			if err := json.Unmarshal(d.Value, &delivered); err != nil || delivered.From != reported {
+				t.Fatalf("protected from = %s err:%v, want %s", delivered.From, err, reported)
+			}
+			for i := range received {
+				if received[i].Load() != 1 {
+					t.Fatalf("transport %d sender queries = %d, want one fresh query", i, received[i].Load())
+				}
+			}
+			after, err := json.Marshal(input)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("sender lookup mutated input: before:%s after:%s err:%v", before, after, err)
+			}
+		})
 	}
 }
 
@@ -282,11 +495,11 @@ func TestTypedTransactionCompatibilityTransportMatrix(t *testing.T) {
 // family. A corroborated null is a typed NotFound result, not a malformed
 // response or an empty transaction value.
 func TestTypedTransactionCompatibilityNullParity(t *testing.T) {
-	blockHash := common.HexToHash("0x" + strings.Repeat("44", 32))
+	blockHash := ethapi.Hash("0x" + strings.Repeat("44", 32))
 	rawTx := transactionInBlockFixture(t, blockHash, 0)
-	var tx types.Transaction
-	if err := json.Unmarshal(rawTx, &tx); err != nil {
-		t.Fatal(err)
+	tx, txErr := ethapi.NewTransaction(rawTx)
+	if txErr != nil {
+		t.Fatal(txErr)
 	}
 	answer := func(req sourceWireRequest) string {
 		switch req.Method {
@@ -321,7 +534,7 @@ func TestTypedTransactionCompatibilityNullParity(t *testing.T) {
 		t.Fatalf("TransactionInBlock null = %v result=%+v err=%v", inBlock, inBlockResult, inBlockErr)
 	}
 	sender, senderResult, senderErr := client.TransactionSender(ctx, &tx, blockHash, 0)
-	if sender != (common.Address{}) || !errors.Is(senderErr, ethereum.NotFound) || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
+	if sender != "" || !errors.Is(senderErr, ethereum.NotFound) || senderResult.Decision == nil || senderResult.Decision.Status != rpc.Corroborated {
 		t.Fatalf("TransactionSender null = %s result=%+v err=%v", sender, senderResult, senderErr)
 	}
 }
@@ -356,7 +569,7 @@ func TestTypedFeeHistoryTransportFixture(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	history, result, err := client.FeeHistory(ctx, 2, big.NewInt(16), []float64{50})
-	if err != nil || history == nil || history.OldestBlock.Int64() != 16 || len(history.BaseFee) != 3 || len(history.Reward) != 2 || history.Reward[0][0].Int64() != 3 {
+	if err != nil || history == nil || history.OldestBlock != "0x10" || len(history.BaseFeePerGas) != 3 || history.Reward == nil || len(*history.Reward) != 2 || (*history.Reward)[0][0] != "0x3" {
 		t.Fatalf("FeeHistory = %+v result=%+v err=%v", history, result, err)
 	}
 	if result.Decision == nil || result.Decision.Status != rpc.Corroborated {
@@ -479,7 +692,7 @@ func TestTypedCallContractTransportFixture(t *testing.T) {
 	t.Cleanup(client.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	got, result, err := client.CallContract(ctx, ethereum.CallMsg{To: &to, Data: data}, nil)
+	got, result, err := client.CallContract(ctx, ethapitest.Call(ethereum.CallMsg{To: &to, Data: data}), nil)
 	if err != nil || result.Decision == nil || result.Decision.Status != rpc.Corroborated {
 		t.Fatalf("CallContract result=%+v data=%x err=%v", result, got, err)
 	}

@@ -104,7 +104,7 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		defer cancel()
 
 		_, _, err := client.ChainID(ctx)
-		if !errors.Is(err, ethguard.ErrConflict) {
+		if !errors.Is(err, ethguard.ErrInsufficientSupport) {
 			t.Fatalf("2-of-5 must not succeed while 3 members occupy the basis, got %v", err)
 		}
 	})
@@ -114,7 +114,8 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		for _, node := range nodes[:2] {
 			for i := 0; i < 3; i++ {
 				node.Fail(methods.MethodChainID, -32700, "probing outage")
-				client.Call(context.Background(), methods.MethodChainID)
+				// These probes accumulate member failures; quorum success varies as members cool.
+				_, _ = client.Call(context.Background(), methods.MethodChainID)
 			}
 			node.Return(methods.MethodChainID, "0x1")
 		}
@@ -155,7 +156,7 @@ func TestUnavailableMembersStayInDenominator(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrInsufficientSupport) {
 			t.Fatalf("2 agreeing of a 5-member basis must not corroborate, got %v", err)
 		}
 		if len(client.Pool().Sources()) != 5 {
@@ -189,7 +190,7 @@ func TestDynamicMajorityAcceptance(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrInsufficientSupport) {
 			t.Fatalf("2 agreeing of a 5-member basis must refuse, got %v", err)
 		}
 	})
@@ -236,7 +237,7 @@ func TestNoExtraVotes(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrInsufficientSupport) {
 			t.Fatalf("one answering member cannot outvote the basis, got %v", err)
 		}
 	})
@@ -351,7 +352,7 @@ func TestRefusesWithoutDegradation(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+	if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrInsufficientSupport) {
 		t.Fatalf("one answering member cannot outvote the floor-2 basis, got %v", err)
 	}
 	decision, _ := callDecision(client.Call(ctx, methods.MethodChainID))
@@ -372,7 +373,8 @@ func TestPoolVotingBasisExample(t *testing.T) {
 		for _, node := range nodes[:2] {
 			for i := 0; i < 3; i++ {
 				node.Fail(methods.MethodChainID, -32700, "probing outage")
-				client.Call(context.Background(), methods.MethodChainID)
+				// These probes accumulate member failures; quorum success varies as members cool.
+				_, _ = client.Call(context.Background(), methods.MethodChainID)
 			}
 			node.Return(methods.MethodChainID, "0x1")
 		}
@@ -391,14 +393,15 @@ func TestPoolVotingBasisExample(t *testing.T) {
 		for _, node := range nodes[:3] {
 			for i := 0; i < 3; i++ {
 				node.Fail(methods.MethodChainID, -32700, "probing outage")
-				client.Call(context.Background(), methods.MethodChainID)
+				// These probes accumulate member failures; quorum success varies as members cool.
+				_, _ = client.Call(context.Background(), methods.MethodChainID)
 			}
 			node.Return(methods.MethodChainID, "0x1")
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrConflict) {
+		if _, _, err := client.ChainID(ctx); !errors.Is(err, ethguard.ErrInsufficientSupport) {
 			t.Fatalf("decision 0062's refusal example failed, got %v", err)
 		}
 	})

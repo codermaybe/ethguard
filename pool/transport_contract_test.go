@@ -1,14 +1,15 @@
 package pool
 
 import (
-	upstream "github.com/codermaybe/ethguard/internal/transport"
-
 	"context"
 	"encoding/json"
 	"errors"
 	"math/big"
 	"sync"
 	"testing"
+
+	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // contractTransport is deliberately independent of go-ethereum. These tests
@@ -25,9 +26,9 @@ type contractTransport struct {
 	closeCalls   int
 }
 
-func (t *contractTransport) CallContext(ctx context.Context, result any, _ string, _ ...any) error {
+func (t *contractTransport) Call(ctx context.Context, _ string, _ ...any) rpc.Response {
 	if err := ctx.Err(); err != nil {
-		return err
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}
 	}
 	t.mu.Lock()
 	t.calls++
@@ -35,14 +36,9 @@ func (t *contractTransport) CallContext(ctx context.Context, result any, _ strin
 	value := append(json.RawMessage(nil), t.result...)
 	t.mu.Unlock()
 	if err != nil {
-		return err
+		return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: err}}
 	}
-	out, ok := result.(*json.RawMessage)
-	if !ok {
-		return errors.New("contract transport: result is not *json.RawMessage")
-	}
-	*out = value
-	return nil
+	return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: value}}
 }
 
 func (t *contractTransport) ChainID(context.Context) (*big.Int, error) {
@@ -103,9 +99,14 @@ func TestTransportSeamAcceptsIndependentAdapterAndReusesIt(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Collect[%d]: %v", i, err)
 		}
-		if len(emissions) != 1 || string(emissions[0].Val) != `"0x2a"` {
+		if len(emissions) != 1 || string(emissions[0].Response.Answer.Result) != `"0x2a"` {
 			t.Fatalf("Collect[%d] emissions = %+v, want one 0x2a value", i, emissions)
 		}
+		response := emissions[0].Response
+		if response.Err() != nil || response.Exchange.Progress != rpc.ExchangeCompleted || response.Answer.Kind != rpc.AnswerResult || string(response.Answer.Result) != `"0x2a"` {
+			t.Fatalf("transport facts were lost: %+v", response)
+		}
+
 	}
 
 	if got := dialer.dialCount(); got != 1 {
@@ -141,11 +142,19 @@ func TestTransportSeamChainIDMismatchStopsCall(t *testing.T) {
 	if !errors.Is(err, ErrChainIDMismatch) {
 		t.Fatalf("Collect error = %v, want ErrChainIDMismatch", err)
 	}
-	if len(emissions) != 1 || !errors.Is(emissions[0].Err, ErrChainIDMismatch) {
+	if len(emissions) != 1 || !errors.Is(emissions[0].Response.Err(), ErrChainIDMismatch) {
 		t.Fatalf("emissions = %+v, want one chain ID mismatch", emissions)
 	}
 	calls, chainIDCalls, _ := transport.counts()
 	if calls != 0 || chainIDCalls != 1 {
 		t.Fatalf("transport counts = calls:%d chainID:%d, want 0/1", calls, chainIDCalls)
+	}
+}
+
+func TestEmissionRetainsInterruptedAnswer(t *testing.T) {
+	response := rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted, Cause: context.Canceled}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`null`)}}
+	e := Emission{Response: response, Attempted: true}
+	if !errors.Is(e.Response.Err(), context.Canceled) || e.Response.Answer.Kind != rpc.AnswerResult || string(e.Response.Answer.Result) != "null" {
+		t.Fatalf("response lost: %+v", e)
 	}
 }

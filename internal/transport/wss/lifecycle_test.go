@@ -62,7 +62,7 @@ func TestDialContextCancellationKeepsEstablishedConnection(t *testing.T) {
 	callCtx, cancelCall := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancelCall()
 	var value string
-	if err := tr.CallContext(callCtx, &value, "eth_getBalance", "0x1", "pending"); err != nil || value != "0x64" {
+	if err := tr.Call(callCtx, "eth_getBalance", "0x1", "pending").Decode(&value); err != nil || value != "0x64" {
 		t.Fatalf("call after dial context canceled: value=%q err=%v", value, err)
 	}
 }
@@ -81,7 +81,7 @@ func TestCancellationClearsPendingAndKeepsTheConnection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	result := make(chan error, 1)
-	go func() { var value string; result <- tr.CallContext(ctx, &value, "eth_cancel") }()
+	go func() { var value string; result <- tr.Call(ctx, "eth_cancel").Decode(&value) }()
 	awaitLifecycleSignal(t, received)
 	cancel()
 	if err := lifecycleResult(t, result); !errors.Is(err, context.Canceled) {
@@ -94,7 +94,7 @@ func TestCancellationClearsPendingAndKeepsTheConnection(t *testing.T) {
 	followCtx, followCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer followCancel()
 	var value string
-	if err := tr.CallContext(followCtx, &value, "eth_followup"); err != nil || value != "ok" {
+	if err := tr.Call(followCtx, "eth_followup").Decode(&value); err != nil || value != "ok" {
 		t.Fatalf("late response leaked or socket closed: value=%q err=%v", value, err)
 	}
 }
@@ -115,7 +115,7 @@ func TestCancellationWaitingForWriterDoesNotSendOrAbort(t *testing.T) {
 	// the old mutex did.
 	releaseWriter := tr.ws.writeControlLock()
 	result := make(chan error, 1)
-	go func() { var value string; result <- tr.CallContext(ctx, &value, "eth_queued") }()
+	go func() { var value string; result <- tr.Call(ctx, "eth_queued").Decode(&value) }()
 	// The pending entry is installed before waiting on the single-writer lock.
 	deadline := time.NewTimer(3 * time.Second)
 	ticker := time.NewTicker(time.Millisecond)
@@ -137,7 +137,7 @@ func TestCancellationWaitingForWriterDoesNotSendOrAbort(t *testing.T) {
 	followCtx, followCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer followCancel()
 	var value string
-	if err := tr.CallContext(followCtx, &value, "eth_followup"); err != nil || value != "ok" {
+	if err := tr.Call(followCtx, "eth_followup").Decode(&value); err != nil || value != "ok" {
 		t.Fatalf("healthy socket poisoned: %q %v", value, err)
 	}
 }
@@ -153,7 +153,7 @@ func TestReadFailureAbortsEveryPendingCall(t *testing.T) {
 	defer cancel()
 	result := make(chan error, 2)
 	for range 2 {
-		go func() { var value string; result <- tr.CallContext(ctx, &value, "eth_pending") }()
+		go func() { var value string; result <- tr.Call(ctx, "eth_pending").Decode(&value) }()
 	}
 	for range 2 {
 		if err := lifecycleResult(t, result); !errors.Is(err, transport.ErrConnectionClosed) {
@@ -164,7 +164,7 @@ func TestReadFailureAbortsEveryPendingCall(t *testing.T) {
 		t.Fatal("abort left pending calls")
 	}
 	var value string
-	if err := tr.CallContext(ctx, &value, "eth_after"); !errors.Is(err, ErrTransportClosed) {
+	if err := tr.Call(ctx, "eth_after").Decode(&value); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("dead socket reused: %v", err)
 	}
 }
@@ -178,16 +178,18 @@ func TestReadLimitFailsPendingCallsAndClosesTheTransport(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	var value string
-	if err := tr.CallContext(ctx, &value, "eth_large"); !errors.Is(err, transport.ErrBodyTooLarge) {
+	if err := tr.Call(ctx, "eth_large").Decode(&value); !errors.Is(err, transport.ErrBodyTooLarge) {
 		t.Fatalf("limit: %v", err)
 	}
 	if tr.pendingCount() != 0 {
 		t.Fatal("read limit left pending calls")
 	}
-	if err := tr.CallContext(ctx, &value, "eth_after"); !errors.Is(err, ErrTransportClosed) {
+	if err := tr.Call(ctx, "eth_after").Decode(&value); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("read-limited socket reused: %v", err)
 	}
 }
+
+var errInjectedFrameWrite = errors.New("injected frame write failure")
 
 type failingWriteConn struct {
 	net.Conn
@@ -196,7 +198,7 @@ type failingWriteConn struct {
 
 func (c *failingWriteConn) Write(body []byte) (int, error) {
 	if c.fail.Load() {
-		return 0, errors.New("injected frame write failure")
+		return 0, errInjectedFrameWrite
 	}
 	return c.Conn.Write(body)
 }
@@ -221,18 +223,25 @@ func TestFrameWriteFailureAbortsOtherPendingCalls(t *testing.T) {
 	tr := &Transport{ws: newConn(result, DefaultReadLimit), ids: rpcwire.NewIDGen(), limit: DefaultReadLimit, pending: make(map[string]chan frameResult)}
 	t.Cleanup(tr.Close)
 	go tr.readLoop()
+	stream, err := tr.openNotificationStreamWithID(ctx, "source", 1, 1, "sub-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	result1 := make(chan error, 1)
-	go func() { var value string; result1 <- tr.CallContext(ctx, &value, "eth_pending") }()
+	go func() { var value string; result1 <- tr.Call(ctx, "eth_pending").Decode(&value) }()
 	awaitLifecycleSignal(t, received)
 	network.fail.Store(true)
 	var value string
-	if err := tr.CallContext(ctx, &value, "eth_write"); !errors.Is(err, transport.ErrConnectionClosed) {
-		t.Fatalf("frame write: %v", err)
+	if err := tr.Call(ctx, "eth_write").Decode(&value); !errors.Is(err, transport.ErrConnectionClosed) || !errors.Is(err, errInjectedFrameWrite) {
+		t.Fatalf("frame write lost its causes: %v", err)
 	}
-	if err := lifecycleResult(t, result1); !errors.Is(err, transport.ErrConnectionClosed) {
-		t.Fatalf("other pending survived broken frame: %v", err)
+	if err := lifecycleResult(t, result1); !errors.Is(err, transport.ErrConnectionClosed) || !errors.Is(err, errInjectedFrameWrite) {
+		t.Fatalf("other pending lost its causes: %v", err)
 	}
-	if err := tr.CallContext(ctx, &value, "eth_after"); !errors.Is(err, ErrTransportClosed) {
+	if err := lifecycleResult(t, stream.Err()); !errors.Is(err, transport.ErrConnectionClosed) || !errors.Is(err, errInjectedFrameWrite) {
+		t.Fatalf("subscription lost its causes: %v", err)
+	}
+	if err := tr.Call(ctx, "eth_after").Decode(&value); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("failed writer reused: %v", err)
 	}
 }
@@ -260,7 +269,7 @@ func TestCloseDrainsPendingWithoutAcceptingNewCalls(t *testing.T) {
 			result := make(chan error, 1)
 			go func() {
 				var value string
-				err := tr.CallContext(ctx, &value, "eth_pending")
+				err := tr.Call(ctx, "eth_pending").Decode(&value)
 				if err == nil && value != "drained" {
 					err = errors.New("pending response changed")
 				}
@@ -270,7 +279,7 @@ func TestCloseDrainsPendingWithoutAcceptingNewCalls(t *testing.T) {
 			tr.Close()
 			tr.Close()
 			var ignored string
-			if err := tr.CallContext(ctx, &ignored, "eth_new"); !errors.Is(err, ErrTransportClosed) {
+			if err := tr.Call(ctx, "eth_new").Decode(&ignored); !errors.Is(err, ErrTransportClosed) {
 				t.Fatalf("Close accepted new call: %v", err)
 			}
 			if tr.pendingCount() != 1 {

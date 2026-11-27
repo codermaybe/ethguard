@@ -9,7 +9,7 @@ import (
 
 // The admission threshold table pins Q = max(H, floor(n/2)+1) for every basis
 // size the client can present, including the degenerate empty set. See
-// docs/design/acceptance-thresholds.md section 1.1.
+// docs/design/method-contracts.md section 2.
 func TestAdmissionRequiredSupportTable(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -96,8 +96,8 @@ func TestAdmissionDenominatorNeverShrinks(t *testing.T) {
 	// still four, and the required support is three.
 	ranked := []cluster{{key: "a", sources: []SourceRef{{ID: "a"}, {ID: "b"}}}}
 	_, err := corroboration.adjudicate(4, ranked, nil)
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("adjudicate error = %v, want ErrConflict", err)
+	if !errors.Is(err, ErrInsufficientSupport) {
+		t.Fatalf("adjudicate error = %v, want ErrInsufficientSupport", err)
 	}
 	required := corroboration.Required(4)
 	if required != 3 {

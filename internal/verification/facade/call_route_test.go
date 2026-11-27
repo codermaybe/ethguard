@@ -23,7 +23,6 @@ func TestCallRejectsUnroutableMethodsLocally(t *testing.T) {
 		"eth_sendTransaction",        // account-managed write
 		"eth_sendRawTransactionSync", // mined/synchronous write extension
 		"eth_getProof",               // explicit unsupported verification method
-		"eth_simulateV1",             // unsupported execution extension
 		"debug_traceCall",            // debug/trace extension
 		"trace_replayTransaction",    // trace extension
 		"eth_subscribe",              // deferred stream family
@@ -48,7 +47,7 @@ func TestCallRejectsUnroutableMethodsLocally(t *testing.T) {
 		if !errors.Is(err, ethguard.ErrInvalidRequest) {
 			t.Fatalf("%s route = %v, want ErrInvalidRequest", method, err)
 		}
-		if result.Decision != nil || result.Err != err {
+		if result.Decision != nil || result.Err != err { //nolint:errorlint // The result must retain the exact error returned to the caller.
 			t.Fatalf("%s route rejection result = %+v", method, result)
 		}
 	}

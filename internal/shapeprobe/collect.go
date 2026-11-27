@@ -139,7 +139,7 @@ func blockNumber(ctx context.Context, client *http.Client, rawURL string) (uint6
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // Read-only response; the bounded read owns data errors.
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return 0, err

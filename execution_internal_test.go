@@ -82,9 +82,10 @@ func TestOperationPanicPropagatesAndAbortsCapture(t *testing.T) {
 				t.Fatalf("recovered = %v", r)
 			}
 		}()
-		operation(client, ctx, false, func(opCtx context.Context) (int, CallResult, error) {
+		_, _, _ = operation(client, ctx, false, func(opCtx context.Context) (int, CallResult, error) {
 			panic("boom")
 		})
+		t.Fatal("panicking operation returned normally")
 	}()
 	if _, published, err := capture.Result(); published || !errors.Is(err, ErrCaptureAborted) {
 		t.Fatalf("aborted capture = %v, %v", published, err)
@@ -100,14 +101,14 @@ func TestOperationPublishesBusinessFailure(t *testing.T) {
 	value, result, err := operation(client, ctx, false, func(opCtx context.Context) (int, CallResult, error) {
 		return 0, CallResult{Decision: &rpc.Decision{Status: rpc.Unknown}}, sentinel
 	})
-	if value != 0 || err != sentinel || result.Err != sentinel {
+	if value != 0 || err != sentinel || result.Err != sentinel { //nolint:errorlint // Operation and capture must preserve the original business error instance.
 		t.Fatalf("delivery mismatch: %v / %v / %v", value, result.Err, err)
 	}
 	published, ok, cerr := capture.Result()
 	if !ok || cerr != nil {
 		t.Fatalf("capture delivery = %v, %v", ok, cerr)
 	}
-	if published.Err != sentinel {
+	if published.Err != sentinel { //nolint:errorlint // Operation and capture must preserve the original business error instance.
 		t.Fatalf("published error = %v", published.Err)
 	}
 }

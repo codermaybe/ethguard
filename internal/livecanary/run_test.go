@@ -53,10 +53,14 @@ func (f *executorFleet) scriptAgreeingFleet(t *testing.T, height uint64) {
 			return blockJSON, nil
 		})
 		node.Handle("eth_feeHistory", func(rpctest.Call) (any, error) {
+			// The manifest step requests three percentiles, so the official
+			// answer carries reward rows of exactly that width (geth omits
+			// the member only when no percentiles are requested).
 			return map[string]any{
 				"oldestBlock":   fmt.Sprintf("0x%x", height-1),
 				"baseFeePerGas": []string{"0x1", "0x2", "0x3"},
 				"gasUsedRatio":  []float64{0.5, 0.6},
+				"reward":        [][]string{{"0x1", "0x2", "0x3"}, {"0x1", "0x2", "0x3"}},
 			}, nil
 		})
 		node.Return("eth_getTransactionReceipt", nil)
@@ -89,6 +93,9 @@ func fullBlockJSON(t *testing.T, number int64) (map[string]any, string) {
 	object["hash"] = hash
 	object["transactions"] = []any{}
 	object["uncles"] = []any{}
+	// The scripted source supplies a complete empty block, including its real
+	// RLP size; production must not invent this required declaration.
+	object["size"] = fmt.Sprintf("0x%x", block.Size())
 	return object, hash
 }
 
@@ -711,7 +718,7 @@ func TestGatedMemberMakesStepInconclusive(t *testing.T) {
 		Value:          value,
 		Participants:   []rpc.SourceRef{source(1), source(2), source(3)},
 		Support:        []rpc.SourceRef{source(2), source(3)},
-		Reject:         []rpc.SourceRef{source(1)},
+		Sources:        canarySummaries([]rpc.SourceRef{source(1), source(2), source(3)}, rpc.VerdictAbsent, rpc.VerdictSupported, rpc.VerdictSupported),
 		Representative: source(2),
 		SourceFaults: []rpc.SourceFault{{
 			Source: source(1),

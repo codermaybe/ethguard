@@ -1,10 +1,6 @@
 package pool
 
 import (
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
-
-	gethadapter "github.com/codermaybe/ethguard/internal/transport/geth"
-
 	"context"
 	"errors"
 	"sync"
@@ -12,10 +8,13 @@ import (
 	"testing"
 	"time"
 
-	upstream "github.com/codermaybe/ethguard/internal/transport"
-	"github.com/codermaybe/ethguard/rpctest"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/rpc"
+	gethrpc "github.com/ethereum/go-ethereum/rpc"
+
+	gethadapter "github.com/codermaybe/ethguard/internal/testkit/gethoracle"
+	upstream "github.com/codermaybe/ethguard/internal/transport"
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 // --- Fake dialer + fake RPC node --------------------------------------------
@@ -142,7 +141,7 @@ func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (upstrea
 	if d.offsets != nil {
 		n.blockOffset.Store(d.offsets[rawURL])
 	}
-	server := rpc.NewServer()
+	server := gethrpc.NewServer()
 	if err := server.RegisterName("eth", &fakeAPI{n: n}); err != nil {
 		return nil, err
 	}
@@ -152,7 +151,7 @@ func (d *newFakeDialer) DialContext(ctx context.Context, rawURL string) (upstrea
 		d.mu.Unlock()
 	}
 
-	client := ethclient.NewClient(rpc.DialInProc(server))
+	client := ethclient.NewClient(gethrpc.DialInProc(server))
 	if closeFirst && dialNumber == 1 {
 		client.Close()
 	}
@@ -188,10 +187,10 @@ func TestCollectFanoutReturnsOneEmissionPerSource(t *testing.T) {
 		t.Fatalf("expected 2 emissions, got %d", len(ems))
 	}
 	for i, em := range ems {
-		if em.Err != nil {
-			t.Fatalf("emission %d: unexpected err %v", i, em.Err)
+		if em.Response.Err() != nil {
+			t.Fatalf("emission %d: unexpected err %v", i, em.Response.Err())
 		}
-		if len(em.Val) == 0 {
+		if len(em.Response.Answer.Result) == 0 {
 			t.Fatalf("emission %d: no value", i)
 		}
 	}
@@ -272,9 +271,9 @@ func TestCollectDeadlineIncludesWaitForSharedDial(t *testing.T) {
 	case second = <-secondDone:
 	case <-time.After(200 * time.Millisecond):
 		close(release)
-		<-firstDone
+		firstErr := <-firstDone
 		<-secondDone
-		t.Fatal("Collect remained blocked waiting for another call's dial")
+		t.Fatalf("Collect remained blocked waiting for another call's dial (first call: %v)", firstErr)
 	}
 	if second.err == nil {
 		t.Fatal("expected the short collection to time out")
@@ -284,8 +283,7 @@ func TestCollectDeadlineIncludesWaitForSharedDial(t *testing.T) {
 	}
 	// The waiter gave up either on its own deadline or while waiting for the
 	// shared dial; both must surface the deadline cause, not a dial failure.
-	if !errors.Is(second.emissions[0].Err, context.DeadlineExceeded) &&
-		!errors.Is(second.emissions[0].Err, errWaitingForDial) {
+	if !errors.Is(second.emissions[0].Response.Err(), context.DeadlineExceeded) && !errors.Is(second.emissions[0].Response.Err(), errWaitingForDial) {
 		t.Fatalf("expected a deadline or waiting emission, got %+v", second.emissions)
 	}
 	if got := src.Health(); got.Failures != 0 {
@@ -351,10 +349,10 @@ func TestCollectRecordsPerSourceHealthWithoutBlockingSuccess(t *testing.T) {
 	if len(ems) != 2 {
 		t.Fatalf("expected 2 emissions, got %d", len(ems))
 	}
-	if ems[0].Src != a || ems[0].Err != nil || len(ems[0].Val) == 0 {
+	if ems[0].Src != a || ems[0].Response.Err() != nil || len(ems[0].Response.Answer.Result) == 0 {
 		t.Fatalf("unexpected successful emission: %+v", ems[0])
 	}
-	if ems[1].Src != b || !errors.Is(ems[1].Err, dialErr) || ems[1].Val != nil {
+	if ems[1].Src != b || !errors.Is(ems[1].Response.Err(), dialErr) || ems[1].Response.Answer.Result != nil {
 		t.Fatalf("unexpected failed emission: %+v", ems[1])
 	}
 
@@ -384,7 +382,7 @@ func TestCollectTreatsJSONRPCErrorAsAHealthyResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected valid JSON-RPC error to count as a response: %v", err)
 	}
-	if len(ems) != 1 || ems[0].Err == nil {
+	if len(ems) != 1 || ems[0].Response.Err() == nil {
 		t.Fatalf("expected the JSON-RPC error in its emission, got %+v", ems)
 	}
 	if got := src.Health(); got.Successes != 1 || got.Failures != 0 {
@@ -407,7 +405,7 @@ func TestCollectRecordsJSONRPCProtocolErrorAsFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected protocol error emission to be returned: %v", err)
 	}
-	if len(ems) != 1 || ems[0].Err == nil {
+	if len(ems) != 1 || ems[0].Response.Err() == nil {
 		t.Fatalf("expected protocol error emission, got %+v", ems)
 	}
 	if got := src.Health(); got.Successes != 0 || got.Failures != 1 {
@@ -553,7 +551,7 @@ func TestCollectLatencyExcludesConcurrencyQueueTime(t *testing.T) {
 
 func TestCollectLatencyExcludesLazyDialOnFirstSample(t *testing.T) {
 	// The first call through a source pays the lazy dial and the first-use
-	// chain-ID verification before its CallContext; neither may inflate the
+	// chain-ID verification before its Call; neither may inflate the
 	// RTT sample that health percentiles keep. A 100ms dial must not appear
 	// in the first sample of either fan-out path.
 	const (
@@ -575,7 +573,7 @@ func TestCollectLatencyExcludesLazyDialOnFirstSample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
-	if len(ems) != 1 || ems[0].Err != nil || ems[0].Val == nil {
+	if len(ems) != 1 || ems[0].Response.Err() != nil || ems[0].Response.Answer.Result == nil {
 		t.Fatalf("unexpected first emission: %+v", ems)
 	}
 	if got := ems[0].RTT; got > rttAllowance {
@@ -592,7 +590,7 @@ func TestCollectLatencyExcludesLazyDialOnFirstSample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Forward: %v", err)
 	}
-	if len(forwardEms) == 0 || forwardEms[0].Err != nil || forwardEms[0].Val == nil {
+	if len(forwardEms) == 0 || forwardEms[0].Response.Err() != nil || forwardEms[0].Response.Answer.Result == nil {
 		t.Fatalf("unexpected Forward emission: %+v", forwardEms)
 	}
 	if got := forwardEms[0].RTT; got > rttAllowance {
@@ -621,7 +619,7 @@ func TestPoolCloseReleasesConnectionsAndRejectsFurtherUse(t *testing.T) {
 
 	var result interface{}
 	client := d.clients["https://a.example"][0]
-	if err := client.Client().CallContext(context.Background(), &result, "eth_blockNumber"); !errors.Is(err, rpc.ErrClientQuit) {
+	if err := client.Client().CallContext(context.Background(), &result, "eth_blockNumber"); !errors.Is(err, gethrpc.ErrClientQuit) {
 		t.Fatalf("expected underlying client closed, got %v", err)
 	}
 	if _, err := p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{}); !errors.Is(err, ErrClosed) {
@@ -831,10 +829,10 @@ func TestCollectVerdictIsIndependentOfMemberOrder(t *testing.T) {
 			}
 			usable, mismatchedSentinel := 0, 0
 			for _, em := range emissions {
-				if em.Val != nil {
+				if em.Response.Answer.Result != nil {
 					usable++
 				}
-				if errors.Is(em.Err, ErrChainIDMismatch) {
+				if errors.Is(em.Response.Err(), ErrChainIDMismatch) {
 					mismatchedSentinel++
 				}
 			}
@@ -871,10 +869,10 @@ func TestCollectUsableAnswerOutranksFanoutTimeout(t *testing.T) {
 	}
 	usable, timedOut := 0, 0
 	for _, em := range emissions {
-		if em.Val != nil {
+		if em.Response.Answer.Result != nil {
 			usable++
 		}
-		if errors.Is(em.Err, context.DeadlineExceeded) {
+		if errors.Is(em.Response.Err(), context.DeadlineExceeded) {
 			timedOut++
 		}
 	}
@@ -918,8 +916,8 @@ func TestCollectClassifiesDeadFleetAsAllSourcesDown(t *testing.T) {
 		t.Fatalf("expected per-source emissions preserved, got %+v", emissions)
 	}
 	for i, em := range emissions {
-		if !errors.Is(em.Err, dialErr) {
-			t.Fatalf("emission %d: expected original cause preserved, got %v", i, em.Err)
+		if !errors.Is(em.Response.Err(), dialErr) {
+			t.Fatalf("emission %d: expected original cause preserved, got %v", i, em.Response.Err())
 		}
 	}
 }
@@ -937,7 +935,7 @@ func TestForwardFailsOverTransportErrorsInPoolOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Forward: %v", err)
 	}
-	if len(emissions) != 2 || emissions[0].Err == nil || emissions[1].Err != nil || len(emissions[1].Val) == 0 {
+	if len(emissions) != 2 || emissions[0].Response.Err() == nil || emissions[1].Response.Err() != nil || len(emissions[1].Response.Answer.Result) == 0 {
 		t.Fatalf("unexpected failover emissions: %+v", emissions)
 	}
 	if d.dials["https://a.example"] != 1 || d.dials["https://b.example"] != 1 {
@@ -990,7 +988,10 @@ func TestForwardGatedKeepsDeadlineCause(t *testing.T) {
 		return n
 	}
 	for i := 0; i < maxSourceInFlight; i++ {
-		go p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 10 * time.Second})
+		go func() {
+			// Only slot occupancy matters here; pool teardown may cancel these calls.
+			_, _ = p.Collect(context.Background(), "eth_blockNumber", nil, CollectOptions{Timeout: 10 * time.Second})
+		}()
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for hung() < maxSourceInFlight {
@@ -1004,10 +1005,10 @@ func TestForwardGatedKeepsDeadlineCause(t *testing.T) {
 	if !errors.Is(err, ErrSourceGated) {
 		t.Fatalf("err = %v, want ErrSourceGated", err)
 	}
-	if len(emissions) != 1 || !errors.Is(emissions[0].Err, ErrSourceGated) {
-		t.Fatalf("emission err = %v, want ErrSourceGated", emissions[0].Err)
+	if len(emissions) != 1 || !errors.Is(emissions[0].Response.Err(), ErrSourceGated) {
+		t.Fatalf("emission err = %v, want ErrSourceGated", emissions[0].Response.Err())
 	}
-	if !errors.Is(emissions[0].Err, context.DeadlineExceeded) {
-		t.Fatalf("gated emission dropped the deadline cause: %v", emissions[0].Err)
+	if !errors.Is(emissions[0].Response.Err(), context.DeadlineExceeded) {
+		t.Fatalf("gated emission dropped the deadline cause: %v", emissions[0].Response.Err())
 	}
 }

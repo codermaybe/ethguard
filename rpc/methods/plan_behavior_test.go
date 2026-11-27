@@ -1,9 +1,11 @@
 package methods
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
@@ -78,6 +80,25 @@ func planPrepareCases(method string) []planPrepareCase {
 		return hashAnchor([]any{"0x1"}, 1)
 	case MethodGetStorageAt:
 		return hashAnchor([]any{"0x1", "0x0"}, 2)
+	case MethodSimulateV1:
+		payload := json.RawMessage(`{"blockStateCalls":[]}`)
+		explicitHash := "0x1111111111111111111111111111111111111111111111111111111111111111"
+		return []planPrepareCase{
+			{name: "omitted base defaults to latest and pins the hash", params: []any{payload},
+				want: []any{payload, fixtureHash}, pin: fixtureHash, establish: true},
+			{name: "nil base defaults to latest and pins the hash", params: []any{payload, nil},
+				want: []any{payload, fixtureHash}, pin: fixtureHash, establish: true},
+			{name: "safe base pins the hash", params: []any{payload, "safe"},
+				want: []any{payload, fixtureHash}, pin: fixtureHash, establish: true},
+			{name: "explicit number passes through", params: []any{payload, "0x10"},
+				want: []any{payload, "0x10"}},
+			{name: "explicit hash passes through", params: []any{payload, explicitHash},
+				want: []any{payload, explicitHash}},
+			{name: "pending stays a local observation", params: []any{payload, "pending"},
+				want: []any{payload, "pending"}},
+			{name: "invalid EIP-1898 hash rejected locally", params: []any{payload, fixtureObjectRewrite(true)},
+				wantErr: rpc.ErrInvalidRequest},
+		}
 	case MethodCall:
 		return hashAnchor([]any{map[string]any{"to": "0x1"}}, 1)
 	case MethodCreateAccessList:
@@ -239,6 +260,10 @@ func TestPlansDriveTheBehaviorMatrix(t *testing.T) {
 // by their full contents, slices element-wise, everything else by identity
 // of value.
 func prepareParamsEqual(got, want any) bool {
+	if raw, ok := got.(json.RawMessage); ok {
+		wantRaw, ok := want.(json.RawMessage)
+		return ok && string(raw) == string(wantRaw)
+	}
 	if gotMap, ok := got.(map[string]any); ok {
 		wantMap, ok := want.(map[string]any)
 		if !ok || len(gotMap) != len(wantMap) {
@@ -306,7 +331,7 @@ func TestCompilePlanRejectsImpossibleDeclarations(t *testing.T) {
 	}{
 		{
 			name: "missing method name",
-			spec: MethodSpec{Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity},
+			spec: MethodSpec{Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity},
 		},
 		{
 			name: "missing normalizer",
@@ -314,46 +339,46 @@ func TestCompilePlanRejectsImpossibleDeclarations(t *testing.T) {
 		},
 		{
 			name: "unknown resolver kind",
-			spec: MethodSpec{Method: "eth_broken", Resolver: "exotic", Normalize: wire.NormalizeWireQuantity},
+			spec: MethodSpec{Method: "eth_broken", Resolver: "exotic", Normalize: ethcodec.NormalizeWireQuantity},
 		},
 		{
 			name: "hash anchor without positions",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Reference: ReferenceSpec{Kind: ReferenceShapeHashAt}},
 		},
 		{
 			name: "height fields without fields",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Reference: ReferenceSpec{Kind: ReferenceShapeHeightFieldsAt, ParamPos: 0}},
 		},
 		{
 			name: "eip-1898 without exactly one position",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1, 2}, EIP1898: true}},
 		},
 		{
 			name: "eip-1898 on a height shape",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Reference: ReferenceSpec{Kind: ReferenceShapeHeightAt, Positions: []int{1}, EIP1898: true}},
 		},
 		{
 			name: "unknown pending mode",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Pending: PendingSpec{Mode: "elsewhere", Pos: 0}},
 		},
 		{
 			name: "canonical bytes without an encoder",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				KeySource: rpc.RuleKeyCanonicalBytes},
 		},
 		{
 			name: "encoder without a key source",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
 				Encode: wire.EncodeQuantity},
 		},
 		{
 			name: "median with a non-quantity compare kind",
-			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverMedian, Normalize: wire.NormalizeWireQuantity,
+			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverMedian, Normalize: ethcodec.NormalizeWireQuantity,
 				CompareKind: rpc.RuleCompareObject},
 		},
 	}
@@ -372,7 +397,7 @@ func TestCompilePlanReportsInconsistentEIP1898Declaration(t *testing.T) {
 	_, err := CompilePlan(MethodSpec{
 		Method:    "eth_broken",
 		Resolver:  ResolverStrict,
-		Normalize: wire.NormalizeWireQuantity,
+		Normalize: ethcodec.NormalizeWireQuantity,
 		Reference: ReferenceSpec{Kind: ReferenceShapeHashAt, EIP1898: true},
 	})
 	if err == nil {
@@ -430,8 +455,8 @@ func TestPlansServeTheDeclaredTag(t *testing.T) {
 			// Uncorroborated evidence never rewrites a request.
 			unconfirmed := fixtureReference(tag)
 			unconfirmed.Status = rpc.Selected
-			if _, _, err := plan.PrepareWithReference(req, unconfirmed, true); !errors.Is(err, rpc.ErrConflict) {
-				t.Fatalf("uncorroborated: err = %v, want ErrConflict", err)
+			if _, _, err := plan.PrepareWithReference(req, unconfirmed, true); !errors.Is(err, rpc.ErrGuaranteeNotMet) {
+				t.Fatalf("uncorroborated: err = %v, want ErrGuaranteeNotMet", err)
 			}
 			// Serving evidence rewrites and records the pin.
 			_, pin, err := plan.PrepareWithReference(req, fixtureReference(tag), true)

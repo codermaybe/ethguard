@@ -1,0 +1,60 @@
+# GoReleaser OSS v2.20.0; scripts/release_build.sh enforces the installed version.
+# These are pre-tag snapshots. The protected publish job uploads the verified
+# files unchanged; GoReleaser must never create a release or publish a tag.
+version: 2
+project_name: ethguard
+dist: dist
+
+builds:
+  - id: soak
+    main: ./cmd/soak
+    binary: soak
+    targets: [linux_amd64, linux_arm64, darwin_arm64]
+    flags: [-trimpath]
+    # Explicit flags replace GoReleaser's default main.version/commit/date injections.
+    ldflags: [-s -w]
+    mod_timestamp: '{{ .CommitTimestamp }}'
+  - id: rpcsample
+    main: ./cmd/rpcsample
+    binary: rpcsample
+    targets: [linux_amd64, linux_arm64, darwin_arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: '{{ .CommitTimestamp }}'
+  - id: shapeprobe
+    main: ./cmd/shapeprobe
+    binary: shapeprobe
+    targets: [linux_amd64, linux_arm64, darwin_arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: '{{ .CommitTimestamp }}'
+  - id: specbundle
+    main: ./cmd/specbundle
+    binary: specbundle
+    targets: [linux_amd64, linux_arm64, darwin_arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: '{{ .CommitTimestamp }}'
+  - id: specdiff
+    main: ./cmd/specdiff
+    binary: specdiff
+    targets: [linux_amd64, linux_arm64, darwin_arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+# Leave CGO unset: preserve native Go defaults and its normal cross-build behavior.
+# Binary format marks the existing raw binaries as uploadable, without compression.
+archives:
+  - id: binaries
+    formats: [binary]
+    name_template: '{{ .Binary }}_{{ .Os }}_{{ .Arch }}'
+
+checksum:
+  name_template: checksums.sha256
+  algorithm: sha256
+
+changelog:
+  disable: true
+release:
+  disable: true

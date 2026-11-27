@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 )
@@ -25,18 +26,9 @@ const (
 	// WriteAccepted means an agreeing hash cluster met the write quorum over
 	// the full voting basis.
 	WriteAccepted
-	// WriteDisputed means sources answered with disagreeing hashes and no
-	// cluster met the write quorum. Nothing can be claimed about acceptance.
-	WriteDisputed
-	// WriteRejected means every answering source returned an execution-level
-	// rejection (txpool or protocol error). The transaction was not accepted
-	// by any answering source.
-	// Silent sources may already have received it; this status does not
-	// prove transaction invalidity or non-submission to the network.
-	WriteRejected
-	// WriteUnreachable means no source produced a usable answer at all
-	// (transport silence). Acceptance is unknown.
-	WriteUnreachable
+	// WriteUnconfirmed means at least one attempt ran, but the propagation
+	// condition was not confirmed. Adjudication and Sources carry the reasons.
+	WriteUnconfirmed
 )
 
 // String names the write status for observability.
@@ -44,12 +36,8 @@ func (s WriteStatus) String() string {
 	switch s {
 	case WriteAccepted:
 		return "accepted"
-	case WriteDisputed:
-		return "disputed"
-	case WriteRejected:
-		return "rejected"
-	case WriteUnreachable:
-		return "unreachable"
+	case WriteUnconfirmed:
+		return "unconfirmed"
 	default:
 		return "unknown"
 	}
@@ -60,7 +48,7 @@ func (s WriteStatus) String() string {
 // per source (for example, re-broadcasting to a source whose answer arrived
 // late).
 type SourceAnswer struct {
-	Source SourceRef
+	SourceSummary
 	// Hash is the accepted transaction hash this source reported. Empty when
 	// Rejected or unreachable. The wire value is normalized to lower-case by
 	// the client before it reaches the resolver.
@@ -78,24 +66,14 @@ type SourceAnswer struct {
 // configured support bound across the voting basis, with every other
 // outcome preserved as evidence.
 type WriteDecision struct {
-	Status   WriteStatus
-	Hash     string
-	Accepted []SourceAnswer
-	// Dissent preserves hash answers outside the winning cluster. A dissenting
-	// hash is evidence about propagation disagreement even when another cluster
-	// reaches the write quorum; it is never treated as a protocol rejection.
-	Dissent  []SourceAnswer
-	Rejected []SourceAnswer
-	Silent   []SourceRef
-	// Agreement is the size of the winning hash cluster.
-	Agreement int
-	// Basis is the number of voting members the outcome was adjudicated
-	// against (fixed before any request, decision 0025).
-	Basis int
-	// Required is the support bound the winning cluster met.
-	Required int
-	// Faults preserves per-source collection causes that did not change the
-	// classification.
+	Status WriteStatus
+	// SubmittedHash is frozen from the local signed transaction before broadcast.
+	SubmittedHash string
+	// Hash is the leading reported hash, even when support or binding fails.
+	Hash         string
+	Sources      []SourceAnswer
+	Adjudication Adjudication
+	// Faults contains collection-level failures. Source causes live in Sources.
 	Faults []error
 }
 
@@ -111,41 +89,83 @@ func WriteQuorum(n, h int) int {
 	return q
 }
 
-// ResolveWriteBroadcast adjudicates one completed broadcast's answers under
-// a fixed voting basis. Per-source outcomes are already classified by the
-// caller into SourceAnswer; this function only clusters and adjudicates. It
-// returns the decision; the winning hash rides on it for downstream receipt
-// binding.
-//
-// The relative-trust model (decision-map #4): a quorum-reaching hash cluster
-// is WriteAccepted even when a minority dissented — dissent is evidence on
-// the decision, not a failure. Only when no cluster reaches the bound does
-// the status fall back to Disputed (disagreeing hashes) or Rejected
-// (every answering source executed a rejection).
-func ResolveWriteBroadcast(basis int, floor int, answers []SourceAnswer, faults []error) (WriteDecision, error) {
-	decision := WriteDecision{Basis: basis, Required: WriteQuorum(basis, floor)}
-	decision.Faults = append(decision.Faults, faults...)
-
+// ResolveWriteBroadcast clusters already interpreted write answers against
+// the frozen basis and binds the winner to the locally submitted transaction.
+// Minority dissent does not defeat a quorum; a foreign winning hash does.
+func ResolveWriteBroadcast(basis int, rule Corroboration, expectedHash string, answers []SourceAnswer, faults []error) (WriteDecision, error) {
+	decision := WriteDecision{SubmittedHash: expectedHash, Sources: cloneSourceAnswers(answers),
+		Adjudication: Adjudication{Basis: basis, Required: rule.Required(basis), Reason: ReasonNoCandidate},
+		Faults:       append([]error(nil), faults...)}
+	if rule.Mode == CorroborationForwarded {
+		decision.Adjudication.Required = 1
+	}
+	invalid := func(message string) (WriteDecision, error) {
+		decision.Adjudication.Reason = ReasonInternalFailure
+		return decision, fmt.Errorf("write: %s: %w", message, ErrInvalidOutcome)
+	}
+	if expectedHash == "" || basis < 0 || basis != len(answers) || rule.Mode < CorroborationMajority || rule.Mode > CorroborationForwarded || rule.Floor < 0 {
+		return invalid("missing submitted hash or inconsistent voting basis")
+	}
 	clusters := make(map[string][]SourceRef)
-	var rejected []SourceAnswer
-	var silent []SourceRef
-	for _, answer := range answers {
+	seen := make(map[string]bool, len(answers))
+	rejected, malformed := 0, 0
+	for i := range decision.Sources {
+		answer := &decision.Sources[i]
+		if answer.Attempted {
+			decision.Status = WriteUnconfirmed
+		}
+		if answer.Source.ID == "" || seen[answer.Source.ID] {
+			return invalid("duplicate or missing source identity")
+		}
+		if !answer.Attempted && (answer.Exchange.Progress != ExchangeNotStarted || answer.Answer.Kind != AnswerUnassessed) {
+			return invalid("unattempted source carries an exchange or answer")
+		}
+		if err := validateResponseFacts(answer.Exchange, answer.Answer.Kind, answer.Answer.Interpretation); err != nil {
+			return invalid("invalid source response summary")
+		}
+		switch answer.Answer.Kind {
+		case AnswerUnassessed:
+			if answer.Answer.Cause != nil || (answer.Attempted && answer.Exchange.Cause == nil) {
+				return invalid("unassessed answer without termination")
+			}
+		case AnswerResult:
+			if answer.Answer.Cause != nil {
+				return invalid("result with protocol cause")
+			}
+		case AnswerMissing, AnswerInvalid, AnswerProtocolError:
+			if answer.Answer.Cause == nil {
+				return invalid("missing answer cause")
+			}
+		}
+		seen[answer.Source.ID] = true
+		answer.Relation = VerdictUnusable
+		if !answer.Attempted {
+			answer.Relation = VerdictAbsent
+		}
 		switch {
 		case answer.Hash != "":
+			if answer.Rejection != nil || answer.Answer.Kind != AnswerResult || answer.Answer.Interpretation.State != InterpretationValidated || answer.Exchange.Progress != ExchangeCompleted || answer.Exchange.Cause != nil {
+				return invalid("hash without validated result")
+			}
 			clusters[answer.Hash] = append(clusters[answer.Hash], answer.Source)
 		case answer.Rejection != nil:
-			rejected = append(rejected, answer)
-		default:
-			silent = append(silent, answer.Source)
+			var protocol ProtocolError
+			if answer.Answer.Kind != AnswerProtocolError || answer.Answer.Interpretation.State != InterpretationValidated || answer.Exchange.Cause != nil || !errors.As(answer.Answer.Cause, &protocol) || protocol.ErrorCode() != answer.Rejection.Code {
+				return invalid("rejection without validated protocol error")
+			}
+			rejected++
+		case answer.Exchange.Cause != nil:
+			// A communication termination retains any answer already observed.
+		case answer.Answer.Interpretation.State == InterpretationInternalFailure:
+			return invalid("internal write interpretation failure")
+		case answer.Answer.Kind == AnswerProtocolError:
+			return invalid("protocol answer without write rejection")
+		case answer.Answer.Kind == AnswerResult && answer.Answer.Interpretation.State != InterpretationRejected:
+			return invalid("result without a write method judgment")
+		case answer.Answer.Kind == AnswerInvalid || (answer.Answer.Kind == AnswerResult && answer.Answer.Interpretation.State == InterpretationRejected):
+			malformed++
 		}
 	}
-	decision.Accepted = nil
-	decision.Dissent = nil
-	decision.Rejected = rejected
-	decision.Silent = silent
-
-	// Rank clusters by size, tie-broken by hash, so identical inputs produce
-	// identical verdicts regardless of arrival order.
 	hashes := make([]string, 0, len(clusters))
 	for hash := range clusters {
 		hashes = append(hashes, hash)
@@ -156,34 +176,46 @@ func ResolveWriteBroadcast(basis int, floor int, answers []SourceAnswer, faults 
 		}
 		return hashes[i] < hashes[j]
 	})
-
-	anyHash := len(hashes) > 0
-	if anyHash {
-		winner := hashes[0]
-		decision.Hash = winner
-		decision.Agreement = len(clusters[winner])
-		for _, answer := range answers {
-			if answer.Hash == winner {
-				decision.Accepted = append(decision.Accepted, answer)
-			} else if answer.Hash != "" {
-				decision.Dissent = append(decision.Dissent, answer)
+	for _, hash := range hashes {
+		decision.Adjudication.Candidates = append(decision.Adjudication.Candidates, CandidateGroup{Sources: clusters[hash]})
+	}
+	agreement := 0
+	if len(hashes) > 0 {
+		decision.Hash = hashes[0]
+		agreement = len(clusters[decision.Hash])
+	}
+	for i := range decision.Sources {
+		answer := &decision.Sources[i]
+		if answer.Hash != "" {
+			answer.Relation = VerdictDissented
+			if answer.Hash == decision.Hash {
+				answer.Relation = VerdictSupported
 			}
 		}
 	}
-	if anyHash && decision.Agreement >= decision.Required {
-		decision.Status = WriteAccepted
+	if len(hashes) > 1 && agreement < decision.Adjudication.Required {
+		decision.Adjudication.Reason = ReasonConflictingCandidates
+		return decision, fmt.Errorf("write: %d hash groups below required support %d: %w", len(hashes), decision.Adjudication.Required, ErrConflict)
+	}
+	if decision.Hash != "" && decision.Hash != decision.SubmittedHash {
+		decision.Adjudication.Reason = ReasonHashMismatch
+		return decision, fmt.Errorf("write: reported hash %s differs from submitted hash %s: %w", decision.Hash, decision.SubmittedHash, ErrHashMismatch)
+	}
+	if agreement >= decision.Adjudication.Required {
+		decision.Status, decision.Adjudication.Reason = WriteAccepted, ReasonAccepted
 		return decision, nil
 	}
-	if anyHash && decision.Agreement > 0 {
-		decision.Status = WriteDisputed
-		return decision, fmt.Errorf("write: hash agreement %d below required %d: %w",
-			decision.Agreement, decision.Required, ErrConflict)
+	if len(hashes) == 1 {
+		decision.Adjudication.Reason = ReasonInsufficientSupport
+		return decision, fmt.Errorf("write: hash agreement %d below required %d: %w", agreement, decision.Adjudication.Required, ErrInsufficientSupport)
 	}
-	// No hash at all: every answer was a rejection or silence.
-	if len(rejected) > 0 {
-		decision.Status = WriteRejected
-		return decision, fmt.Errorf("write: all answering sources rejected: %w", ErrNoValidResponse)
+	if malformed > 0 {
+		return decision, fmt.Errorf("write: no method-valid hash: %w", ErrMalformedResponse)
 	}
-	decision.Status = WriteUnreachable
-	return decision, fmt.Errorf("write: no source answered: %w", ErrNoValidResponse)
+	if rejected > 0 {
+		decision.Adjudication.Reason = ReasonRejected
+		return decision, fmt.Errorf("write: answering sources rejected: %w", ErrNoValidResponse)
+	}
+	decision.Adjudication.Reason = ReasonUnassessed
+	return decision, fmt.Errorf("write: no protocol answer evaluated: %w", ErrNoValidResponse)
 }

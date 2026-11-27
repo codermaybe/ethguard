@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/reference"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
@@ -37,8 +36,9 @@ type ReferenceStageConfig struct {
 // reference rounds and the business round share members, thresholds, and
 // error assembly — the same assembly the facade's resolver service runs,
 // because both drive one StrictHeadEstablishment. Establishment failure
-// returns the invocation unchanged: the business fan-out never starts
-// without its reference.
+// returns the evidence the rounds formed beside the error: the caller keeps
+// that evidence visible to the decision and never starts the business
+// fan-out without its reference.
 type ReferenceStage struct {
 	pool    *pool.Pool
 	maxLag  uint64
@@ -76,22 +76,23 @@ func (s *ReferenceStage) memberRefs() []rpc.SourceRef {
 }
 
 // Establish performs the reference rounds for the declared kind and returns
-// the invocation carrying the evidence.
-func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
+// the evidence those rounds formed, whether or not the establishment
+// succeeded: the caller attaches success evidence to the invocation, and a
+// failed round's evidence stays visible to the decision.
+func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
 	if !request.IsValid() {
-		return invocation, fmt.Errorf("reference: unknown reference kind %q: %w", request.Kind, rpc.ErrInvalidRequest)
+		return nil, fmt.Errorf("reference: unknown reference kind %q: %w", request.Kind, rpc.ErrInvalidRequest)
 	}
 	// The reference rounds address exactly the invocation's frozen basis. A
 	// member removed from the pool since the basis froze stays resolvable as
 	// a closed source and fails closed inside the round.
 	members, err := s.basisSources(invocation.Basis())
 	if err != nil {
-		return invocation, err
+		return nil, err
 	}
 	var (
 		ref        rpc.ReferenceEvidence
 		emissions  []pool.Emission
-		trail      []pool.Emission
 		collectErr error
 	)
 	// The finalized strategy pins the default reference (latest) at the
@@ -112,35 +113,29 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocatio
 		snapshot := invocation.Basis().Corroboration
 		round, roundErr := s.strict.establish(ctx, members, snapshot, true, string(request.Kind))
 		ref, emissions, err = round.reference, round.emissions, roundErr
-		// The capture trail is the pre-admission copy: a malformed head is
-		// cleared from the working emissions but its wire bytes stay visible.
-		trail = round.raw
-		if trail == nil {
-			trail = emissions
-		}
 		collectErr = round.collectErr
 	default:
 		err = fmt.Errorf("reference: unknown reference kind %q: %w", request.Kind, rpc.ErrInvalidRequest)
 	}
-	if collectErr != nil || trail != nil {
+	if collectErr != nil || emissions != nil {
 		// The raw responses of the round stay on the invocation's own trail,
 		// exactly the records the pipeline's collect phase would keep.
-		captureEmission(invocation, trail, collectErr)
+		captureEmission(invocation, emissions, collectErr)
 	}
 	// The evidence records the requested tag: latest rides as the default
 	// reference with no tag, every other level names itself.
 	ref.Tag = taggedOriginTag(string(request.Kind))
 	if err != nil {
-		// A failed establishment keeps its evidence visible to the decision:
-		// the business fan-out never starts, and the recorded faults stay on
-		// the reference the caller sees. The evidence records the requested
-		// tag; the caller's wrapper owns the "anchor:" prefix.
-		refcontext.Publish(ctx, ref)
-		return invocation, err
+		// A failed establishment hands back the evidence it formed: the
+		// caller keeps it visible to the decision and never starts the
+		// business fan-out. The evidence records the requested tag; the
+		// caller's wrapper owns the "anchor:" prefix.
+		return &ref, err
 	}
-	// The evidence rides the invocation: the business read resolves against
-	// the established reference on the same basis.
-	return invocation.WithReference(ref)
+	// The evidence is the caller's: the business read resolves against the
+	// established reference on the same basis, and the caller attaches it to
+	// the invocation exactly once.
+	return &ref, nil
 }
 
 // basisSources resolves the invocation's frozen basis against the pool, so
@@ -168,10 +163,10 @@ func captureEmission(invocation rpc.Invocation, emissions []pool.Emission, colle
 	}
 	for _, emission := range emissions {
 		errText := ""
-		if emission.Err != nil {
-			errText = emission.Err.Error()
+		if emission.Response.Err() != nil {
+			errText = emission.Response.Err().Error()
 		}
-		value := emission.Val
+		value := emission.Response.Answer.Result
 		capture.Record("response", anchorMethodName, aggregator.SourceRefOf(emission.Src), value, errText)
 	}
 	if collectErr != nil {

@@ -121,7 +121,9 @@ func newServer(t *testing.T, respond func(n int, body []byte) (int, []byte)) *se
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(out)
+		if _, err := w.Write(out); err != nil && r.Context().Err() == nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	})
 }
 
@@ -148,15 +150,23 @@ func newRawServer(t *testing.T, handle func(w http.ResponseWriter, r *http.Reque
 
 // hang makes the server accept the request, flush the head, and stall until
 // the request context ends or the wait elapses, then write the given bytes.
-func (s *server) hang(writeAfter time.Duration, body []byte) {
+func (s *server) hang(t *testing.T, writeAfter time.Duration, body []byte) {
+	t.Helper()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.handle = func(w http.ResponseWriter, r *http.Request, n int, reqBody []byte) {
 		rc := http.NewResponseController(w)
-		rc.Flush()
+		if err := rc.Flush(); err != nil {
+			if r.Context().Err() == nil {
+				t.Errorf("flush fixture headers: %v", err)
+			}
+			return
+		}
 		select {
 		case <-time.After(writeAfter):
-			w.Write(body)
+			if _, err := w.Write(body); err != nil && r.Context().Err() == nil {
+				t.Errorf("write delayed fixture response: %v", err)
+			}
 		case <-r.Context().Done():
 		}
 	}
@@ -216,8 +226,8 @@ func testCallDeliversResult(t *testing.T, adapter Adapter) {
 	tr := adapter.Dial(t, srv.URL)
 	defer tr.Close()
 	var raw json.RawMessage
-	if err := tr.CallContext(context.Background(), &raw, "eth_chainId"); err != nil {
-		t.Fatalf("CallContext: %v", err)
+	if err := tr.Call(context.Background(), "eth_chainId").Decode(&raw); err != nil {
+		t.Fatalf("Call: %v", err)
 	}
 	if string(raw) != `"0x1"` {
 		t.Fatalf("result = %s, want the raw result bytes", raw)
@@ -244,11 +254,11 @@ func testResultTargetContract(t *testing.T, adapter Adapter) {
 	tr := adapter.Dial(t, srv.URL)
 	defer tr.Close()
 	// nil target: the call succeeds and the result is discarded.
-	if err := tr.CallContext(context.Background(), nil, "eth_chainId"); err != nil {
+	if err := tr.Call(context.Background(), "eth_chainId").Decode(nil); err != nil {
 		t.Fatalf("nil result target: %v", err)
 	}
 	// A non-pointer target is a caller error, not a transport outcome.
-	if err := tr.CallContext(context.Background(), map[string]any{}, "eth_chainId"); err == nil {
+	if err := tr.Call(context.Background(), "eth_chainId").Decode(map[string]any{}); err == nil {
 		t.Fatal("non-pointer result target must fail")
 	}
 }
@@ -261,7 +271,7 @@ func testProtocolErrorCapabilities(t *testing.T, adapter Adapter) {
 	tr := adapter.Dial(t, srv.URL)
 	defer tr.Close()
 	var raw json.RawMessage
-	err := tr.CallContext(context.Background(), &raw, "eth_call")
+	err := tr.Call(context.Background(), "eth_call").Decode(&raw)
 	var protocol rpc.ProtocolError
 	if !errors.As(err, &protocol) {
 		t.Fatalf("err = %v, want a ProtocolError capability", err)
@@ -301,7 +311,7 @@ func testProtocolErrorDataPresence(t *testing.T, adapter Adapter) {
 			tr := adapter.Dial(t, srv.URL)
 			defer tr.Close()
 			var raw json.RawMessage
-			err := tr.CallContext(context.Background(), &raw, "eth_call")
+			err := tr.Call(context.Background(), "eth_call").Decode(&raw)
 			var presence rpc.ErrorDataPresence
 			if !errors.As(err, &presence) {
 				t.Fatalf("err = %v, want the ErrorDataPresence capability", err)
@@ -340,7 +350,7 @@ func testDegenerateErrorMembers(t *testing.T, adapter Adapter) {
 			tr := adapter.Dial(t, srv.URL)
 			defer tr.Close()
 			var raw json.RawMessage
-			err := tr.CallContext(context.Background(), &raw, "eth_chainId")
+			err := tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 			if err == nil {
 				t.Fatal("degenerate error member must fail the call")
 			}
@@ -371,7 +381,7 @@ func testHTTPStatusClassification(t *testing.T, adapter Adapter) {
 			tr := adapter.Dial(t, srv.URL)
 			defer tr.Close()
 			var raw json.RawMessage
-			err := tr.CallContext(context.Background(), &raw, "eth_chainId")
+			err := tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 			var statusErr rpc.HTTPStatusError
 			if !errors.As(err, &statusErr) {
 				t.Fatalf("err = %v, want the HTTPStatusError capability", err)
@@ -409,7 +419,7 @@ func testEmptyAndMalformedBodies(t *testing.T, adapter Adapter) {
 			tr := adapter.Dial(t, srv.URL)
 			defer tr.Close()
 			var raw json.RawMessage
-			err := tr.CallContext(context.Background(), &raw, "eth_chainId")
+			err := tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
@@ -431,7 +441,7 @@ func testTrailingData(t *testing.T, adapter Adapter) {
 	tr := adapter.Dial(t, srv.URL)
 	defer tr.Close()
 	var raw json.RawMessage
-	err := tr.CallContext(context.Background(), &raw, "eth_chainId")
+	err := tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 	if !errors.Is(err, rpcwire.ErrMalformedResponse) {
 		t.Fatalf("err = %v, want the malformed-response sentinel", err)
 	}
@@ -447,7 +457,7 @@ func testDuplicateKeys(t *testing.T, adapter Adapter) {
 	tr := adapter.Dial(t, srv.URL)
 	defer tr.Close()
 	var raw json.RawMessage
-	err := tr.CallContext(context.Background(), &raw, "eth_chainId")
+	err := tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 	if err != nil {
 		t.Fatalf("duplicate keys: %v", err)
 	}
@@ -465,31 +475,31 @@ func testContextPrecedence(t *testing.T, adapter Adapter) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		var raw json.RawMessage
-		if err := tr.CallContext(ctx, &raw, "eth_chainId"); !errors.Is(err, context.Canceled) {
+		if err := tr.Call(ctx, "eth_chainId").Decode(&raw); !errors.Is(err, context.Canceled) {
 			t.Fatalf("err = %v, want context.Canceled", err)
 		}
 	})
 	t.Run("deadline-beats-hung-server", func(t *testing.T) {
 		srv := newServer(t, func(n int, body []byte) (int, []byte) { return 0, nil })
-		srv.hang(2*time.Second, nil)
+		srv.hang(t, 2*time.Second, nil)
 		tr := adapter.Dial(t, srv.URL)
 		defer tr.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
 		var raw json.RawMessage
-		if err := tr.CallContext(ctx, &raw, "eth_chainId"); !errors.Is(err, context.DeadlineExceeded) {
+		if err := tr.Call(ctx, "eth_chainId").Decode(&raw); !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 		}
 	})
 	t.Run("cancel-beats-status-outcome", func(t *testing.T) {
-		srv := newRawServer(t, statusBodyHandler(500, 2*time.Second, []byte("late error body")))
+		srv := newRawServer(t, statusBodyHandler(t, 500, 2*time.Second, []byte("late error body")))
 		tr := adapter.Dial(t, srv.URL)
 		defer tr.Close()
 		ctx, cancel := context.WithCancel(context.Background())
 		time.AfterFunc(100*time.Millisecond, cancel)
 		defer cancel()
 		var raw json.RawMessage
-		if err := tr.CallContext(ctx, &raw, "eth_chainId"); !errors.Is(err, context.Canceled) {
+		if err := tr.Call(ctx, "eth_chainId").Decode(&raw); !errors.Is(err, context.Canceled) {
 			t.Fatalf("err = %v, want the context error to dominate the status outcome", err)
 		}
 	})
@@ -504,7 +514,7 @@ func testBodyLimit(t *testing.T, adapter Adapter) {
 		tr := adapter.DialWithBodyLimit(t, srv.URL, 64)
 		defer tr.Close()
 		var raw json.RawMessage
-		err := tr.CallContext(context.Background(), &raw, "eth_chainId")
+		err := tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 		if !errors.Is(err, transport.ErrBodyTooLarge) {
 			t.Fatalf("err = %v, want the neutral body-limit sentinel", err)
 		}
@@ -517,7 +527,7 @@ func testBodyLimit(t *testing.T, adapter Adapter) {
 	tr := adapter.Dial(t, srv.URL)
 	defer tr.Close()
 	var raw json.RawMessage
-	err := tr.CallContext(context.Background(), &raw, "eth_chainId")
+	err := tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 	if !errors.Is(err, transport.ErrBodyTooLarge) {
 		t.Fatalf("err = %v, want the neutral body-limit sentinel", err)
 	}
@@ -532,7 +542,7 @@ func testCloseLifecycle(t *testing.T, adapter Adapter) {
 	tr.Close()
 	tr.Close() // idempotent: no panic, no change in state
 	var raw json.RawMessage
-	err := tr.CallContext(context.Background(), &raw, "eth_chainId")
+	err := tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 	if !errors.Is(err, transport.ErrConnectionClosed) {
 		t.Fatalf("post-close err = %v, want the neutral connection-closed sentinel", err)
 	}
@@ -547,10 +557,17 @@ func testInFlightSurvivesClose(t *testing.T, adapter Adapter) {
 	srv := newRawServer(t, func(w http.ResponseWriter, r *http.Request, n int, body []byte) {
 		close(started)
 		rc := http.NewResponseController(w)
-		rc.Flush()
+		if err := rc.Flush(); err != nil {
+			if r.Context().Err() == nil {
+				t.Errorf("flush fixture headers: %v", err)
+			}
+			return
+		}
 		select {
 		case <-time.After(300 * time.Millisecond):
-			w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+			if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`)); err != nil && r.Context().Err() == nil {
+				t.Errorf("write in-flight fixture response: %v", err)
+			}
 		case <-r.Context().Done():
 		}
 	})
@@ -559,7 +576,7 @@ func testInFlightSurvivesClose(t *testing.T, adapter Adapter) {
 	done := make(chan error, 1)
 	go func() {
 		var raw json.RawMessage
-		done <- tr.CallContext(context.Background(), &raw, "eth_chainId")
+		done <- tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 	}()
 	<-started
 	tr.Close()
@@ -586,7 +603,7 @@ func testConcurrentCalls(t *testing.T, adapter Adapter) {
 		go func() {
 			defer wg.Done()
 			var raw json.RawMessage
-			if err := tr.CallContext(context.Background(), &raw, "eth_chainId"); err != nil {
+			if err := tr.Call(context.Background(), "eth_chainId").Decode(&raw); err != nil {
 				errs <- err
 			}
 		}()
@@ -641,7 +658,7 @@ func testNoAutoRetry(t *testing.T, adapter Adapter) {
 	tr := adapter.Dial(t, srv.URL)
 	defer tr.Close()
 	var raw json.RawMessage
-	if err := tr.CallContext(context.Background(), &raw, "eth_chainId"); err == nil {
+	if err := tr.Call(context.Background(), "eth_chainId").Decode(&raw); err == nil {
 		t.Fatal("expected the failing exchange to fail")
 	}
 	if got := srv.count(); got != 1 {
@@ -655,14 +672,22 @@ const defaultLimitBytes = 32<<20 + 1
 
 // statusBodyHandler writes a bare status, flushes it, and then stalls before
 // writing the late body, so a caller can cancel mid-read.
-func statusBodyHandler(status int, writeAfter time.Duration, body []byte) func(http.ResponseWriter, *http.Request, int, []byte) {
+func statusBodyHandler(t *testing.T, status int, writeAfter time.Duration, body []byte) func(http.ResponseWriter, *http.Request, int, []byte) {
+	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request, n int, reqBody []byte) {
 		w.WriteHeader(status)
 		rc := http.NewResponseController(w)
-		rc.Flush()
+		if err := rc.Flush(); err != nil {
+			if r.Context().Err() == nil {
+				t.Errorf("flush fixture status: %v", err)
+			}
+			return
+		}
 		select {
 		case <-time.After(writeAfter):
-			w.Write(body)
+			if _, err := w.Write(body); err != nil && r.Context().Err() == nil {
+				t.Errorf("write delayed status body: %v", err)
+			}
 		case <-r.Context().Done():
 		}
 	}

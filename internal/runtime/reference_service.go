@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -21,15 +20,15 @@ const anchorMethodName = "anchor"
 // derived hash separately), and requires a corroborated result.
 type headAnchorPolicy struct{ rpc.Policy }
 
-func (p headAnchorPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
+func (p headAnchorPolicy) Resolve(obs []rpc.Observation) (rpc.Outcome, error) {
 	d, err := p.Policy.Resolve(obs)
-	d = restoreAnchorSourceValue(d, obs)
+	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
 	return p.requireCorroborated(d, err)
 }
 
-func (p headAnchorPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
+func (p headAnchorPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
 	var (
-		d   rpc.Decision
+		d   rpc.Outcome
 		err error
 	)
 	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
@@ -37,7 +36,7 @@ func (p headAnchorPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Obs
 	} else {
 		d, err = p.Policy.Resolve(obs)
 	}
-	d = restoreAnchorSourceValue(d, obs)
+	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
 	return p.requireCorroborated(d, err)
 }
 
@@ -50,17 +49,17 @@ func restoreAnchorSourceValue(d rpc.Decision, obs []rpc.Observation) rpc.Decisio
 	}
 	for _, item := range obs {
 		if item.Source.ID == d.Representative.ID {
-			d.Value = append(json.RawMessage(nil), item.Value...)
+			d.Value = append(json.RawMessage(nil), item.Response.Answer.Result...)
 			break
 		}
 	}
 	return d
 }
 
-func (p headAnchorPolicy) requireCorroborated(d rpc.Decision, err error) (rpc.Decision, error) {
-	if err == nil && d.Status != rpc.Corroborated {
-		d.Status = rpc.Unknown
-		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrConflict)
+func (p headAnchorPolicy) requireCorroborated(d rpc.Outcome, err error) (rpc.Outcome, error) {
+	if err == nil && d.Decision.Status != rpc.Corroborated {
+		d.Decision.Adjudication.Reason = rpc.ReasonGuaranteeNotMet
+		err = fmt.Errorf("uncorroborated anchor: %w", rpc.ErrGuaranteeNotMet)
 	}
 	return d, err
 }
@@ -124,26 +123,23 @@ func (s *StrictHeadService) ReferenceForTag(ctx context.Context, tag string) (rp
 
 // establish runs one stage round on a fresh invocation: the stage reads the
 // frozen basis's members and corroboration snapshot, exactly the inputs the
-// invocation path's business reads establish against.
+// invocation path's business reads establish against. The stage returns the
+// evidence the round formed beside its error, so a failed round's partial
+// evidence stays visible on the reference the caller sees.
 func (s *StrictHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
 	snap, _ := s.snapshot()
 	refs := s.stage.memberRefs()
-	// The facade establishment carries the same capture the invocation path
-	// does: a failed round's partial evidence stays visible on the reference
-	// the caller sees.
-	ctx, capture := refcontext.New(ctx)
-	completed, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
+	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
 	if err != nil {
-		if ref := capture.Reference(); ref != nil {
-			return *ref, err
+		if evidence == nil {
+			return rpc.ReferenceEvidence{}, err
 		}
-		return rpc.ReferenceEvidence{}, err
+		return *evidence, err
 	}
-	ref, ok := completed.Reference()
-	if !ok {
+	if evidence == nil {
 		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: establishment completed without evidence: %w", rpc.ErrReferenceRequired)
 	}
-	return ref, nil
+	return *evidence, nil
 }
 
 // FinalizedHeadService establishes a common reference from provider-reported
@@ -167,9 +163,10 @@ func (s *FinalizedHeadService) Reference(ctx context.Context) (rpc.ReferenceEvid
 	return s.establish(ctx, rpc.ReferenceLatest)
 }
 
-// ReferenceForTag routes the tag: latest and safe ride the strict head
-// algorithm, finalized rides the candidate-selection algorithm (the stage's
-// finalized strategy), anything else fails.
+// ReferenceForTag routes default/latest and finalized through the finalized
+// candidate-selection and confirmation algorithm; safe uses the strict safe
+// algorithm. The evidence tag records the requested intent, not independent
+// proof of the actual chain level. Other tags fail.
 func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 	if tag == "" || tag == "latest" {
 		return s.Reference(ctx)
@@ -182,19 +179,17 @@ func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.Reference
 	// documented lag bound: the stage's own configuration.
 	snap := rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	refs := s.stage.memberRefs()
-	ctx, capture := refcontext.New(ctx)
-	completed, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
+	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
 	if err != nil {
-		if ref := capture.Reference(); ref != nil {
-			return *ref, err
+		if evidence == nil {
+			return rpc.ReferenceEvidence{}, err
 		}
-		return rpc.ReferenceEvidence{}, err
+		return *evidence, err
 	}
-	ref, ok := completed.Reference()
-	if !ok {
+	if evidence == nil {
 		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: establishment completed without evidence: %w", rpc.ErrReferenceRequired)
 	}
-	return ref, nil
+	return *evidence, nil
 }
 
 // facadeInvocation freezes one facade establishment's basis: the pool's

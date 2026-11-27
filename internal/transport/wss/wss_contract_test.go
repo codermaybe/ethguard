@@ -25,16 +25,16 @@ import (
 // from the server side. The handler owns the response script; requests are
 // delivered in wire order.
 type scriptedPeer struct {
-	t        *testing.T
+	t        testing.TB
 	conn     net.Conn
 	frames   *serverFrames
 	requests <-chan []byte
 }
 
-func newScriptedPeer(t *testing.T, serve func(peer *scriptedPeer)) string {
+func newScriptedPeer(t testing.TB, serve func(peer *scriptedPeer)) string {
 	t.Helper()
 	requests := make(chan []byte, 32)
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		writeUpgradeAccept(t, rw, r)
 		frames := &serverFrames{t: t, conn: conn, br: rw.Reader}
 		go func() {
@@ -87,7 +87,7 @@ func (t *Transport) pendingCount() int {
 	return len(t.pending)
 }
 
-func dialTestTransport(t *testing.T, url string, limit int64) *Transport {
+func dialTestTransport(t testing.TB, url string, limit int64) *Transport {
 	t.Helper()
 	transportValue, err := Dialer{ReadLimit: limit}.DialContext(context.Background(), url)
 	if err != nil {
@@ -120,8 +120,8 @@ func TestCallDeliversOneRequestAndTheExactResult(t *testing.T) {
 	})
 	tr := dialTestTransport(t, peerURL, 0)
 	var raw json.RawMessage
-	if err := tr.CallContext(context.Background(), &raw, "eth_getBalance", "0x1", "latest"); err != nil {
-		t.Fatalf("CallContext: %v", err)
+	if err := tr.Call(context.Background(), "eth_getBalance", "0x1", "latest").Decode(&raw); err != nil {
+		t.Fatalf("Call: %v", err)
 	}
 	if string(raw) != `"0x64"` {
 		t.Fatalf("result = %s, want the raw result bytes", raw)
@@ -138,10 +138,10 @@ func TestResultTargetContract(t *testing.T) {
 		}
 	})
 	tr := dialTestTransport(t, peerURL, 0)
-	if err := tr.CallContext(context.Background(), nil, "eth_test"); err != nil {
+	if err := tr.Call(context.Background(), "eth_test").Decode(nil); err != nil {
 		t.Fatalf("nil result target: %v", err)
 	}
-	if err := tr.CallContext(context.Background(), map[string]any{}, "eth_test"); err == nil {
+	if err := tr.Call(context.Background(), "eth_test").Decode(map[string]any{}); err == nil {
 		t.Fatal("non-pointer result target must fail")
 	}
 }
@@ -166,7 +166,7 @@ func TestProtocolErrorsKeepErrorDataPresence(t *testing.T) {
 			})
 			tr := dialTestTransport(t, peerURL, 0)
 			var raw json.RawMessage
-			err := tr.CallContext(context.Background(), &raw, "eth_call")
+			err := tr.Call(context.Background(), "eth_call").Decode(&raw)
 			var protocol rpc.ProtocolError
 			if !errors.As(err, &protocol) || protocol.ErrorCode() != 3 {
 				t.Fatalf("err = %v, want the protocol error capability", err)
@@ -200,10 +200,10 @@ func TestMalformedFrameFailsTheCallAndKeepsTheConnection(t *testing.T) {
 	})
 	tr := dialTestTransport(t, peerURL, 0)
 	var raw json.RawMessage
-	if err := tr.CallContext(context.Background(), &raw, "eth_test"); !errors.Is(err, rpcwire.ErrMalformedResponse) {
+	if err := tr.Call(context.Background(), "eth_test").Decode(&raw); !errors.Is(err, rpcwire.ErrMalformedResponse) {
 		t.Fatalf("err = %v, want the malformed-response sentinel", err)
 	}
-	if err := tr.CallContext(context.Background(), &raw, "eth_test"); err != nil {
+	if err := tr.Call(context.Background(), "eth_test").Decode(&raw); err != nil {
 		t.Fatalf("call after malformed frame: %v", err)
 	}
 	if string(raw) != `"ok"` {
@@ -227,7 +227,7 @@ func TestOutOfOrderResponsesAreDemultiplexed(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			var value string
-			err := tr.CallContext(context.Background(), &value, "eth_test")
+			err := tr.Call(context.Background(), "eth_test").Decode(&value)
 			results <- outcome{value: value, err: err}
 		}()
 	}
@@ -259,7 +259,7 @@ func TestConcurrentCallsShareOneConnection(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			var value string
-			if err := tr.CallContext(context.Background(), &value, "eth_test"); err != nil {
+			if err := tr.Call(context.Background(), "eth_test").Decode(&value); err != nil {
 				errs <- err
 			}
 		}()
@@ -279,7 +279,7 @@ func TestNotificationsAreIgnored(t *testing.T) {
 	})
 	tr := dialTestTransport(t, peerURL, 0)
 	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_test"); err != nil {
+	if err := tr.Call(context.Background(), "eth_test").Decode(&value); err != nil {
 		t.Fatalf("call after notification: %v", err)
 	}
 	if value != "ok" {
@@ -321,13 +321,13 @@ func TestCanceledContextSendsNoRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var value string
-	if err := tr.CallContext(ctx, &value, "eth_canceled"); !errors.Is(err, context.Canceled) {
+	if err := tr.Call(ctx, "eth_canceled").Decode(&value); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if pending := tr.pendingCount(); pending != 0 {
 		t.Fatalf("pending after a rejected call = %d, want 0", pending)
 	}
-	if err := tr.CallContext(context.Background(), &value, "eth_followup"); err != nil {
+	if err := tr.Call(context.Background(), "eth_followup").Decode(&value); err != nil {
 		t.Fatalf("call after cancellation: %v", err)
 	}
 }
@@ -354,10 +354,10 @@ func TestFailedWriteInvocationIsNeverReplayed(t *testing.T) {
 	})
 	tr := dialTestTransport(t, peerURL, 0)
 	var value string
-	if err := tr.CallContext(context.Background(), &value, "eth_sendRawTransaction", "0x01"); !errors.Is(err, transport.ErrConnectionClosed) {
+	if err := tr.Call(context.Background(), "eth_sendRawTransaction", "0x01").Decode(&value); !errors.Is(err, transport.ErrConnectionClosed) {
 		t.Fatalf("invocation err = %v, want connection closed", err)
 	}
-	if err := tr.CallContext(context.Background(), &value, "eth_sendRawTransaction", "0x01"); !errors.Is(err, ErrTransportClosed) {
+	if err := tr.Call(context.Background(), "eth_sendRawTransaction", "0x01").Decode(&value); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("post-failure invocation err = %v, want transport closed", err)
 	}
 	awaitLifecycleSignal(t, peerDone)
@@ -401,10 +401,94 @@ func TestPoolCollectOverWSSAdapter(t *testing.T) {
 	if len(emissions) != 1 {
 		t.Fatalf("emissions = %d, want one per member", len(emissions))
 	}
-	if emissions[0].Err != nil {
-		t.Fatalf("emission failed: %v", emissions[0].Err)
+	if emissions[0].Response.Err() != nil {
+		t.Fatalf("emission failed: %v", emissions[0].Response.Err())
 	}
-	if string(emissions[0].Val) != `"0x64"` {
-		t.Fatalf("emission value = %s, want the raw result", emissions[0].Val)
+	if string(emissions[0].Response.Answer.Result) != `"0x64"` {
+		t.Fatalf("emission value = %s, want the raw result", emissions[0].Response.Answer.Result)
 	}
+}
+
+// A response frame whose request ID no pending call waits for — an ID the
+// transport never issued, or a duplicate reply for an already-completed call
+// — is dropped by the demultiplexer: it must not surface as a call result,
+// must not be rerouted into a notification stream, and must leave the
+// connection usable for the next real call. The single read loop processes
+// frames in wire order, so once the following real call has completed, the
+// ignored frame has already been dispatched.
+func TestUnknownResponseIDIsIgnoredAndConnectionStaysUsable(t *testing.T) {
+	t.Run("never-issued id", func(t *testing.T) {
+		// The peer holds the connection open until the test releases it:
+		// a serve function that returns mid-assertion closes the socket, and
+		// the read loop's abort then terminates the stream — the documented
+		// disconnect behavior, not a response-frame misroute.
+		releasePeer := make(chan struct{})
+		defer close(releasePeer)
+		peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+			// Push a response for an ID the transport never registered,
+			// before any call exists.
+			peer.writeFrame([]byte(`{"jsonrpc":"2.0","id":4242,"result":"0xstray"}`))
+			peer.respond(<-peer.requests, `"0x01"`)
+			select {
+			case <-peer.requests:
+			case <-releasePeer:
+			}
+		})
+		tr := dialTestTransport(t, peerURL, 0)
+		stream, err := tr.OpenNotificationStream(context.Background(), "src", 1, 8)
+		if err != nil {
+			t.Fatalf("open stream: %v", err)
+		}
+		defer stream.Unsubscribe()
+
+		var raw json.RawMessage
+		if err := tr.Call(context.Background(), "eth_blockNumber").Decode(&raw); err != nil {
+			t.Fatalf("call after stray response: %v", err)
+		}
+		if string(raw) != `"0x01"` {
+			t.Fatalf("result = %s, want the real call's answer", raw)
+		}
+		if pending := tr.pendingCount(); pending != 0 {
+			t.Fatalf("pending = %d, want 0", pending)
+		}
+		select {
+		case notification := <-stream.Events():
+			t.Fatalf("a response frame leaked into the notification stream: %+v", notification)
+		default:
+		}
+	})
+
+	t.Run("duplicate reply for a completed call", func(t *testing.T) {
+		releasePeer := make(chan struct{})
+		defer close(releasePeer)
+		peerURL := newScriptedPeer(t, func(peer *scriptedPeer) {
+			first := <-peer.requests
+			peer.respond(first, `"first"`)
+			// Re-send the same ID's answer after the call already consumed it.
+			peer.respond(first, `"duplicate"`)
+			peer.respond(<-peer.requests, `"second"`)
+			select {
+			case <-peer.requests:
+			case <-releasePeer:
+			}
+		})
+		tr := dialTestTransport(t, peerURL, 0)
+		var first json.RawMessage
+		if err := tr.Call(context.Background(), "eth_test").Decode(&first); err != nil {
+			t.Fatalf("first call: %v", err)
+		}
+		if string(first) != `"first"` {
+			t.Fatalf("first result = %s", first)
+		}
+		var second json.RawMessage
+		if err := tr.Call(context.Background(), "eth_test").Decode(&second); err != nil {
+			t.Fatalf("call after duplicate reply: %v", err)
+		}
+		if string(second) != `"second"` {
+			t.Fatalf("second result = %s, want the second call's own answer", second)
+		}
+		if pending := tr.pendingCount(); pending != 0 {
+			t.Fatalf("pending = %d, want 0", pending)
+		}
+	})
 }

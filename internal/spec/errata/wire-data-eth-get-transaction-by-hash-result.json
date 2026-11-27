@@ -1,0 +1,69 @@
+{
+  "id": "wire-data-eth-get-transaction-by-hash-result",
+  "sourceVersion": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "sourceCommit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "target": {
+    "method": "eth_getTransactionByHash",
+    "part": "result"
+  },
+  "reason": "The pinned DATA pattern permits an odd number of hexadecimal digits, although EIP-1474 defines DATA as complete bytes with two hexadecimal digits per byte. Restrict only the reviewed DATA nodes to pairs of lowercase hexadecimal digits. Keep empty DATA and leading zero bytes, and do not change QUANTITY, HexByte, StorageKey, field presence or other constraints. This correction is applied after the existing structural errata; its input digest identifies that effective root.",
+  "references": [
+    "https://eips.ethereum.org/EIPS/eip-1474#data",
+    "https://github.com/ethereum/execution-apis/blob/981aa66d79364be8322a9c358aaf0a571cca0873/src/schemas/base-types.yaml"
+  ],
+  "retireWhen": "Review on every source pin or prerequisite erratum change. Remove once the upstream definitions in this target require complete DATA bytes; revise each reviewed path and both digests if upstream changes the schema. Never silently apply this rule to other hex-string families or new source nodes.",
+  "inputSchemaSHA256": "cb10ef89a4da14f2bbf4403026ac535d6b4ce35a6fcca68d26b8b758b0841fa9",
+  "outputSchemaSHA256": "58c92dbccf5f44995f1df8d52c22619a778dd90239018da118d58a136071e59a",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/oneOf/1/oneOf/0/properties/input/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/oneOf/1/oneOf/0/properties/input/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    },
+    {
+      "op": "test",
+      "path": "/oneOf/1/oneOf/1/properties/input/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/oneOf/1/oneOf/1/properties/input/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    },
+    {
+      "op": "test",
+      "path": "/oneOf/1/oneOf/2/properties/input/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/oneOf/1/oneOf/2/properties/input/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    },
+    {
+      "op": "test",
+      "path": "/oneOf/1/oneOf/3/properties/input/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/oneOf/1/oneOf/3/properties/input/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    },
+    {
+      "op": "test",
+      "path": "/oneOf/1/oneOf/4/properties/input/pattern",
+      "value": "^0x[0-9a-f]*$"
+    },
+    {
+      "op": "replace",
+      "path": "/oneOf/1/oneOf/4/properties/input/pattern",
+      "value": "^0x([0-9a-f]{2})*$"
+    }
+  ]
+}

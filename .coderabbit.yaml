@@ -34,7 +34,7 @@ reviews:
     - path: "README.md"
       instructions: |
         Keep the README factual and user-facing. It must describe the current
-        ReadPlan-driven runtime, the 23 registered read methods, the supported
+        ReadPlan-driven runtime, the 27 registered read methods, the supported
         ethclient-shaped subset, native HTTP, and raw WSS call transport.
         Keep provider evidence gaps and intentionally deferred WSS lifecycle
         features explicit. Do not describe the project as a complete ethclient
@@ -44,9 +44,9 @@ reviews:
       instructions: |
         Keep this document semantically aligned with README.md. Review the
         Chinese wording for the same boundaries: ReadPlan is the runtime fact,
-        Policy remains a resolver seam, ethadapter is a supported subset, and
-        WSS is an EthGuard raw-call transport rather than a general WebSocket
-        client.
+        Policy remains a resolver seam, the ethclient-shaped adapter is the
+        root EthClient view, and WSS is an EthGuard raw-call transport rather
+        than a general WebSocket client.
 
     - path: "docs/design/**"
       instructions: |
@@ -120,21 +120,13 @@ reviews:
         subscriptions, reconnect, keepalive, or queue behavior without an
         explicit design record and lifecycle tests.
 
-    - path: "gethcompat/**"
+    - path: "internal/testkit/gethoracle/**"
       instructions: |
-        Keep this as the explicit go-ethereum compatibility construction seam.
-        It must not create a second Client implementation, registry, policy
-        assembly path, or default-build dependency on ethclient. Check that
-        compatibility behavior remains opt-in and that the default native
-        build boundaries stay enforced.
-
-    - path: "ethadapter/**"
-      instructions: |
-        Check ethclient-shaped signatures and compatibility behavior, including
-        negative block tags, local request rejection, NotFound mapping, request
-        binding, and typed decoding. The adapter may perform compatibility
-        validation, but it must reuse the shared internal/typed decoder and root
-        aggregation semantics rather than implement a second adjudicator.
+        Keep the geth comparison client isolated to differential tests and
+        explicit diagnostic tools. It must not create a production fallback,
+        second Client implementation, registry, or policy assembly path.
+        Native execution must not link ethclient or this oracle. Historical
+        geth captures must retain their original adapter identity.
 
     - path: "**/*_test.go"
       instructions: |
@@ -158,8 +150,9 @@ reviews:
         Review dependency additions as attack-surface and audit-surface changes.
         Standard-library use is acceptable. Third-party transport dependencies
         require an explicit seam, scope, and dependency-graph test. Preserve
-        the rule that the default build excludes ethclient while gethcompat
-        remains an explicit compatibility channel.
+        the rule that native execution excludes ethclient and the geth
+        differential oracle remains isolated to internal testkit and explicit
+        diagnostic tools.
 
   auto_review:
     enabled: true

@@ -55,7 +55,7 @@ type monitor struct {
 	// rtts is a ring of the most recent successful round-trip times, the raw
 	// material for P95/P99 estimates.
 	rtts  [latencyWindow]time.Duration
-	rttN  uint64 // total samples ever pushed
+	rttN  uint64 // populated samples, capped at latencyWindow
 	rttAt int    // next write index
 
 	// tip is the latest block height observed by the tip sampler;
@@ -120,7 +120,9 @@ func (m *monitor) observeSuccess(rtt time.Duration) {
 	}
 	m.rtts[m.rttAt] = rtt
 	m.rttAt = (m.rttAt + 1) % latencyWindow
-	m.rttN++
+	if m.rttN < latencyWindow {
+		m.rttN++
+	}
 	m.adaptSuccessLocked()
 }
 
@@ -329,9 +331,9 @@ func (m *monitor) snapshot() HealthSnapshot {
 // percentilesLocked computes nearest-rank P95/P99 over the live window.
 // Caller holds m.mu.
 func (m *monitor) percentilesLocked() (time.Duration, time.Duration) {
-	n := int(m.rttN)
-	if n > latencyWindow {
-		n = latencyWindow
+	n := latencyWindow
+	if m.rttN < latencyWindow {
+		n = int(m.rttN)
 	}
 	if n == 0 {
 		return 0, 0

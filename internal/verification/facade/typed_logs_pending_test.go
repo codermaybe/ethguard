@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/big"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/codermaybe/ethguard"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -58,24 +55,34 @@ func TestLogsPendingRangeSendsNoProviderRequest(t *testing.T) {
 		}
 	}
 
-	_, _, err := client.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: big.NewInt(-1)})
-	if !errors.Is(err, ethguard.ErrInvalidRequest) || !strings.Contains(err.Error(), "no stable corroboration semantics") {
-		t.Fatalf("FilterLogs(-1): got %v, want local pending-range rejection", err)
+	// The generated FilterQuery grammar spells range bounds as canonical
+	// quantities or the earliest/latest/safe/finalized tags, so a pending
+	// bound cannot be expressed through the parser; it rides the union
+	// directly and is rejected locally before any contact, like the bare-tag
+	// form the generic Call filters above already pin.
+	pendingTag := ethapi.Text("pending")
+	one := mustQuantity(t, 1)
+	address := ethapi.Address("0x0000000000000000000000000000000000000001")
+	pendingQueries := map[string]ethapi.FilterQuery{
+		"pending": {FilterByBlockRange: &ethapi.FilterQueryRange{FromBlock: &ethapi.FilterBlock{BlockTag: &pendingTag}}},
+		"mixed-pending": {FilterByBlockRange: &ethapi.FilterQueryRange{
+			FromBlock: &ethapi.FilterBlock{BlockNumber: &one},
+			ToBlock:   &ethapi.FilterBlock{BlockTag: &pendingTag},
+			Address:   &ethapi.FilterAddress{Address: &address},
+		}},
 	}
-	_, _, err = client.FilterLogs(ctx, ethereum.FilterQuery{
-		FromBlock: big.NewInt(1),
-		ToBlock:   big.NewInt(-1),
-		Addresses: []common.Address{common.HexToAddress("0x1")},
-	})
-	if !errors.Is(err, ethguard.ErrInvalidRequest) || !strings.Contains(err.Error(), "no stable corroboration semantics") {
-		t.Fatalf("FilterLogs mixed pending: got %v, want local pending-range rejection", err)
+	for name, query := range pendingQueries {
+		_, _, filterErr := client.FilterLogs(ctx, query)
+		if !errors.Is(filterErr, ethguard.ErrInvalidRequest) {
+			t.Fatalf("FilterLogs %s: got %v, want local ErrInvalidRequest", name, filterErr)
+		}
 	}
-	_, _, err = client.FilterLogs(ctx, ethereum.FilterQuery{
-		FromBlock: big.NewInt(16),
-		ToBlock:   big.NewInt(15),
-	})
-	if !errors.Is(err, ethguard.ErrInvalidRequest) || !strings.Contains(err.Error(), "fromBlock is greater than toBlock") {
-		t.Fatalf("FilterLogs reversed range: got %v, want local ErrInvalidRequest", err)
+	reversed, reversedErr := ethapi.NewFilterQuery(json.RawMessage(`{"fromBlock":"0x10","toBlock":"0xf"}`))
+	if reversedErr != nil {
+		t.Fatal(reversedErr)
+	}
+	if _, _, filterErr := client.FilterLogs(ctx, reversed); !errors.Is(filterErr, ethguard.ErrInvalidRequest) || !strings.Contains(filterErr.Error(), "fromBlock is greater than toBlock") {
+		t.Fatalf("FilterLogs reversed range: got %v, want local ErrInvalidRequest", filterErr)
 	}
 
 	for _, node := range nodes {

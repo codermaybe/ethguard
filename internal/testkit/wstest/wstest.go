@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"testing"
@@ -119,20 +120,24 @@ func (c *ServerConn) readFrame() (fin bool, opcode byte, payload []byte, err err
 	fin = header[0]&0x80 != 0
 	opcode = header[0] & 0x0F
 	masked := header[1]&0x80 != 0
-	length := int64(header[1] & 0x7F)
+	length := uint64(header[1] & 0x7F)
 	switch length {
 	case 126:
 		var ext [2]byte
 		if _, err := io.ReadFull(c.br, ext[:]); err != nil {
 			return false, 0, nil, fmt.Errorf("wstest: read 16-bit length: %w", err)
 		}
-		length = int64(binary.BigEndian.Uint16(ext[:]))
+		length = uint64(binary.BigEndian.Uint16(ext[:]))
 	case 127:
 		var ext [8]byte
 		if _, err := io.ReadFull(c.br, ext[:]); err != nil {
 			return false, 0, nil, fmt.Errorf("wstest: read 64-bit length: %w", err)
 		}
-		length = int64(binary.BigEndian.Uint64(ext[:]))
+		length = binary.BigEndian.Uint64(ext[:])
+		// RFC 6455 §5.2 reserves the high bit of the 64-bit length.
+		if length&(1<<63) != 0 {
+			return false, 0, nil, errors.New("wstest: 64-bit payload length has the high bit set")
+		}
 	}
 	if opcode&0x8 != 0 && length > 125 {
 		return false, 0, nil, errors.New("wstest: control frame payload over 125 bytes")
@@ -144,7 +149,10 @@ func (c *ServerConn) readFrame() (fin bool, opcode byte, payload []byte, err err
 	if _, err := io.ReadFull(c.br, mask[:]); err != nil {
 		return false, 0, nil, fmt.Errorf("wstest: read mask: %w", err)
 	}
-	payload = make([]byte, length)
+	if length > math.MaxInt {
+		return false, 0, nil, errors.New("wstest: frame payload exceeds int range")
+	}
+	payload = make([]byte, int(length))
 	if _, err := io.ReadFull(c.br, payload); err != nil {
 		return false, 0, nil, fmt.Errorf("wstest: read payload: %w", err)
 	}

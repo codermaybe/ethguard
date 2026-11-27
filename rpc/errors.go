@@ -2,6 +2,11 @@ package rpc
 
 import "errors"
 
+// ErrInvalidReadPlan reports an executable read plan whose required resolver
+// capability is absent. It is a plan configuration error, not a request or
+// provider failure.
+var ErrInvalidReadPlan = errors.New("rpc: invalid read plan")
+
 // ErrAnchorMismatch means a response does not belong to the reference used
 // to prepare the request. It can be joined with ErrMalformedResponse so old
 // callers retain the malformed-response classification.

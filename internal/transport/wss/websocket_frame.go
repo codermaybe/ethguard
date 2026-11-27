@@ -227,6 +227,24 @@ func (r *frameReader) readMessage(onControl func(opcode byte, payload []byte) er
 	return opcode, data, nil
 }
 
+// appendFrameData appends one data frame's payload to the assembling message
+// after the read-limit check. A closing frame validates the assembled
+// message's UTF-8/binary rules and reports it complete; the returned opcode
+// is the message's start opcode.
+func appendFrameData(limit int64, assembled []byte, f frame, startOpcode byte) (byte, []byte, bool, error) {
+	if overMessageLimit(limit, assembled, f.payload) {
+		return 0, assembled, false, fmt.Errorf("%w: message exceeds the limit %d", ErrFrameTooLarge, limit)
+	}
+	assembled = append(assembled, f.payload...)
+	if !f.fin {
+		return 0, assembled, false, nil
+	}
+	if err := validateDataMessage(startOpcode, assembled); err != nil {
+		return 0, assembled, false, err
+	}
+	return startOpcode, assembled, true, nil
+}
+
 func (r *frameReader) readMessageOnce(onControl func(opcode byte, payload []byte) error) (byte, []byte, error) {
 	var assembled []byte
 	started := false
@@ -243,29 +261,25 @@ func (r *frameReader) readMessageOnce(onControl func(opcode byte, payload []byte
 			}
 			started = true
 			startOpcode = f.opcode
-			if overMessageLimit(r.limit, assembled, f.payload) {
-				return 0, nil, fmt.Errorf("%w: message exceeds the limit %d", ErrFrameTooLarge, r.limit)
+			opcode, out, complete, err := appendFrameData(r.limit, assembled, f, startOpcode)
+			assembled = out
+			if err != nil {
+				return 0, nil, err
 			}
-			assembled = append(assembled, f.payload...)
-			if f.fin {
-				if err := validateDataMessage(startOpcode, assembled); err != nil {
-					return 0, nil, err
-				}
-				return startOpcode, assembled, nil
+			if complete {
+				return opcode, assembled, nil
 			}
 		case opContinuation:
 			if !started {
 				return 0, nil, &frameError{code: closeProtocolError, detail: "continuation frame with no message in progress"}
 			}
-			if overMessageLimit(r.limit, assembled, f.payload) {
-				return 0, nil, fmt.Errorf("%w: message exceeds the limit %d", ErrFrameTooLarge, r.limit)
+			opcode, out, complete, err := appendFrameData(r.limit, assembled, f, startOpcode)
+			assembled = out
+			if err != nil {
+				return 0, nil, err
 			}
-			assembled = append(assembled, f.payload...)
-			if f.fin {
-				if err := validateDataMessage(startOpcode, assembled); err != nil {
-					return 0, nil, err
-				}
-				return startOpcode, assembled, nil
+			if complete {
+				return opcode, assembled, nil
 			}
 		default:
 			if onControl == nil {
@@ -284,7 +298,8 @@ func overMessageLimit(limit int64, assembled, next []byte) bool {
 	if limit <= 0 {
 		return false
 	}
-	return int64(len(assembled)+len(next)) > limit
+	assembledLen := int64(len(assembled))
+	return assembledLen > limit || int64(len(next)) > limit-assembledLen
 }
 
 // validateDataMessage applies the message-level checks the codec owns:

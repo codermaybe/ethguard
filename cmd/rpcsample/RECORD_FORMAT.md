@@ -21,9 +21,7 @@ name, SHA-256 of the exact record bytes, and error kinds. The collector writes
 records in plan order (request order, then source order), so the index is stable
 for a fixed plan and run order.
 
-The plan is not itself copied into the output. Preserve the reviewed plan beside
-the output bundle when sharing it, after checking that it contains no endpoint
-or header credentials. The index and records are observations only: they do not
+In ordinary plan mode the plan is not automatically copied; preserve the reviewed, redacted plan beside the records. The explicit transaction scenario additionally writes plan.json, batch/provenance/report files as described in the CLI README. The index and records are observations only: they do not
 normalize responses, compare providers, or establish compatibility.
 
 Before sharing a bundle, search every output file for the configured endpoint,

@@ -65,6 +65,9 @@ type dialOptions struct {
 	// derived from the endpoint host when the config does not set it.
 	// Production adapters pass nil and get system root verification.
 	tlsConfig *tls.Config
+	// beforeHandoff is a deterministic cancellation test seam. Production
+	// adapters leave it nil.
+	beforeHandoff func()
 }
 
 // handshakeResult is one accepted upgrade: the live connection (TLS-wrapped
@@ -154,12 +157,28 @@ func dialWebSocket(ctx context.Context, rawURL string, opts dialOptions) (*hands
 	if err != nil {
 		return nil, contextOutcome(ctx, err, "wss: read handshake response: %w", err)
 	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		defer func() {
+			// A refused upgrade will never be reused. Close the socket first:
+			// Body.Close may otherwise drain an unfinished response indefinitely.
+			_ = conn.Close()
+			_ = resp.Body.Close()
+		}()
+	}
 	if err := validateUpgradeResponse(resp, key); err != nil {
 		return nil, err
 	}
+	if opts.beforeHandoff != nil {
+		opts.beforeHandoff()
+	}
 
+	if !stopAbort() {
+		return nil, ctx.Err()
+	}
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		return nil, contextOutcome(ctx, err, "wss: clear handshake deadline: %w", err)
+	}
 	accepted = true
-	_ = conn.SetDeadline(time.Time{})
 	return &handshakeResult{conn: conn, br: br}, nil
 }
 

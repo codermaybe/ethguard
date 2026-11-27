@@ -1,8 +1,6 @@
 package replay_test
 
 import (
-	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
-
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,10 +13,10 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/runtime"
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
@@ -35,7 +33,7 @@ const sampleBatchID = "2026-09-23"
 // featureBatchIDs pins each capture feature's authoritative batch id, in the
 // same correspondence as the package-replay copy in replay_test.go. The three
 // historical batches keep sampleBatchID; a new capture batch adds its own
-// entry and never moves sampleBatchID (capture-golden-contract §4.0).
+// entry and never moves sampleBatchID (method-verification-pipeline capture contract).
 var featureBatchIDs = map[string]string{
 	"read-local":    "2026-10-19",
 	"read-volatile": "2026-10-21",
@@ -72,14 +70,14 @@ func TestSameFixtureReplaysThroughPolicyAndAggregator(t *testing.T) {
 		assertDataStatesDiffer(t, policy, records)
 		obs := []rpc.Observation{observationFromRecord(t, records[0]), observationFromRecord(t, records[1])}
 		decision, err := policy.Resolve(obs)
-		if err != nil || decision.Status != rpc.Corroborated {
-			t.Fatalf("status %v err %v, want a corroborated revert", decision.Status, err)
+		if err != nil || decision.Decision.Status != rpc.Corroborated {
+			t.Fatalf("status %v err %v, want a corroborated revert", decision.Decision.Status, err)
 		}
-		if present, _ := dataField(t, decision.Value); present {
-			t.Fatalf("short data cluster returned data: %s", decision.Value)
+		if present, _ := dataField(t, decision.Decision.Value); present {
+			t.Fatalf("short data cluster returned data: %s", decision.Decision.Value)
 		}
-		if len(decision.DeletedFields) != 1 || decision.DeletedFields[0] != "data" {
-			t.Fatalf("deleted = %v", decision.DeletedFields)
+		if len(decision.Decision.DeletedFields) != 1 || decision.Decision.DeletedFields[0] != "data" {
+			t.Fatalf("deleted = %v", decision.Decision.DeletedFields)
 		}
 	})
 	t.Run("transaction admits and agrees", func(t *testing.T) {
@@ -107,8 +105,8 @@ func TestReplayErrorDataStatesStayDistinct(t *testing.T) {
 			left := observationFromError("s1", raw)
 			right := observationFromError("s2", raw)
 			policyDecision, policyErr := policy.Resolve([]rpc.Observation{left, right})
-			if policyErr != nil || policyDecision.Status != rpc.Corroborated {
-				t.Fatalf("policy status %v err %v", policyDecision.Status, policyErr)
+			if policyErr != nil || policyDecision.Decision.Status != rpc.Corroborated {
+				t.Fatalf("policy status %v err %v", policyDecision.Decision.Status, policyErr)
 			}
 			agg, nodes := newReplayAggregator(t, 2)
 			scriptLatest(nodes)
@@ -116,7 +114,7 @@ func TestReplayErrorDataStatesStayDistinct(t *testing.T) {
 				node.FailWithData(methods.MethodCall, 3, "execution reverted", json.RawMessage(state.data), state.present)
 			}
 			aggDecision, aggErr := aggregateCall(t, agg, false)
-			sameDecision(t, policyDecision, policyErr, aggDecision, aggErr)
+			sameDecision(t, policyDecision.Decision, policyErr, aggDecision, aggErr)
 			present, data := dataField(t, aggDecision.Value)
 			if state.name == "missing" || state.name == "null" {
 				if present {
@@ -138,7 +136,7 @@ func TestReplayErrorDataStatesStayDistinct(t *testing.T) {
 					t.Fatalf("anchor tags = %#v, want latest", tags)
 				}
 			}
-			key, err := policy.Normalize(left.RPCError.Raw())
+			key, err := policy.Normalize(left.Response.Answer.RPCError.Raw())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -159,11 +157,12 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := plan.Resolver
-	success := rpc.Observation{Source: rpc.SourceRef{Name: "s1", ID: "s1"}, Value: json.RawMessage(`"0x01"`)}
-	fault := rpc.Observation{
-		Source:   rpc.SourceRef{Name: "s2", ID: "s2"},
-		Err:      errors.New("panic"),
-		RPCError: &rpc.RPCError{Code: -32603, Message: "panic"},
+	success := rpc.Observation{Attempted: true, Source: rpc.SourceRef{Name: "s1", ID: "s1"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x01"`)}}}
+	fault := rpc.Observation{Attempted: true,
+		Source: rpc.SourceRef{Name: "s2", ID: "s2"}, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+			Answer:   rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: &rpc.RPCError{Code: -32603, Message: "panic"}, Cause: rpctest.RPCError(-32603, "panic")},
+		},
 	}
 	// eth_call declares no admission hook: its payload contract is the
 	// normalizer's (a payload with no canonical form errors and stays a
@@ -172,8 +171,8 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 		t.Fatal("eth_call plan grew an admission hook")
 	}
 	policyDecision, policyErr := policy.Resolve([]rpc.Observation{success, fault})
-	if policyErr != nil || policyDecision.Status != rpc.Selected {
-		t.Fatalf("policy status %v err %v, want Selected", policyDecision.Status, policyErr)
+	if policyErr != nil || policyDecision.Decision.Status != rpc.Selected {
+		t.Fatalf("policy status %v err %v, want Selected", policyDecision.Decision.Status, policyErr)
 	}
 
 	agg, nodes := newReplayAggregator(t, 2)
@@ -182,7 +181,7 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	nodes[1].Fail(methods.MethodCall, -32603, "panic")
 
 	openDecision, openErr := aggregateCall(t, agg, false)
-	sameDecision(t, policyDecision, policyErr, openDecision, openErr)
+	sameDecision(t, policyDecision.Decision, policyErr, openDecision, openErr)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -192,8 +191,14 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	// unmet corroboration requirement travels as the call error — the
 	// Decision contract's "failed call may still carry a non-Unknown
 	// Status" case.
-	if !errors.Is(gatedErr, rpc.ErrConflict) || gated.Status != rpc.Selected {
+	if !errors.Is(gatedErr, rpc.ErrGuaranteeNotMet) || gated.Status != rpc.Selected || gated.Adjudication.Reason != rpc.ReasonGuaranteeNotMet {
 		t.Fatalf("gated status %v err %v", gated.Status, gatedErr)
+	}
+	if errors.Is(gatedErr, rpc.ErrConflict) || len(gated.Adjudication.Candidates) != 1 || len(gated.Support) != 1 {
+		t.Fatalf("guarantee gate changed the formed candidate: %+v, err %v", gated, gatedErr)
+	}
+	if err := compareReplaySources(openDecision, gated); err != nil {
+		t.Fatal(err)
 	}
 	if gatedErr == nil || !bytes.Contains([]byte(gatedErr.Error()), []byte("typed read requires corroboration")) {
 		t.Fatalf("gate err = %v", gatedErr)
@@ -202,7 +207,7 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	if before < 1 {
 		t.Fatal("first call did not establish latest")
 	}
-	if _, err := agg.AggregateStrict(ctx, callRequest()); !errors.Is(err, rpc.ErrConflict) {
+	if _, err := agg.AggregateStrict(ctx, callRequest()); !errors.Is(err, rpc.ErrGuaranteeNotMet) {
 		t.Fatalf("second typed call err = %v", err)
 	}
 	if methodCount(nodes[0], methods.MethodGetBlockByNumber) <= before {
@@ -218,8 +223,12 @@ func TestReplayChainIDAgreesWithoutAnchor(t *testing.T) {
 	policy := chainPlan.Resolver
 	value := json.RawMessage(`"0x1"`)
 	obs := []rpc.Observation{
-		{Source: rpc.SourceRef{Name: "s1", ID: "s1"}, Value: value},
-		{Source: rpc.SourceRef{Name: "s2", ID: "s2"}, Value: append(json.RawMessage(nil), value...)},
+		{Attempted: true, Source: rpc.SourceRef{Name: "s1", ID: "s1"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: value}}},
+		{Attempted: true, Source: rpc.SourceRef{Name: "s2", ID: "s2"}, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+			Answer:   rpc.Answer{Kind: rpc.AnswerResult, Result: append(json.RawMessage(nil), value...)},
+		},
+		},
 	}
 	if _, err := policy.Normalize(value); err != nil {
 		t.Fatal(err)
@@ -229,7 +238,7 @@ func TestReplayChainIDAgreesWithoutAnchor(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	aggDecision, aggErr := agg.Aggregate(ctx, rpc.Request{Method: methods.MethodChainID})
-	sameDecision(t, policyDecision, policyErr, aggDecision, aggErr)
+	sameDecision(t, policyDecision.Decision, policyErr, aggDecision, aggErr)
 	if aggDecision.Status != rpc.Corroborated {
 		t.Fatalf("status = %v", aggDecision.Status)
 	}
@@ -248,21 +257,21 @@ func assertReplay(t *testing.T, records []rpcsample.Record, plan rpc.ReadPlan, a
 	obs := []rpc.Observation{observationFromRecord(t, records[0]), observationFromRecord(t, records[1])}
 	req := requestOf(t, records[0])
 	for _, item := range obs {
-		if item.Err == nil {
+		if item.Response.Err() == nil {
 			if plan.Admit != nil {
-				if _, err := plan.Admit(context.Background(), req, item.Value, refuseCaller(t)); err != nil {
+				if _, err := plan.Admit(context.Background(), req, item.Response.Answer.Result, refuseCaller(t)); err != nil {
 					t.Fatalf("admit %s: %v", item.Source.ID, err)
 				}
 			}
-			if _, err := plan.Resolver.Normalize(item.Value); err != nil {
+			if _, err := plan.Resolver.Normalize(item.Response.Answer.Result); err != nil {
 				t.Fatal(err)
 			}
 			continue
 		}
-		if item.RPCError == nil {
+		if item.Response.Answer.RPCError == nil {
 			t.Fatal("error observation lost RPCError")
 		}
-		if _, err := plan.Resolver.Normalize(item.RPCError.Raw()); err != nil {
+		if _, err := plan.Resolver.Normalize(item.Response.Answer.RPCError.Raw()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -279,7 +288,7 @@ func assertReplay(t *testing.T, records []rpcsample.Record, plan rpc.ReadPlan, a
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	aggDecision, aggErr := agg.Aggregate(ctx, req)
-	sameDecision(t, policyDecision, policyErr, aggDecision, aggErr)
+	sameDecision(t, policyDecision.Decision, policyErr, aggDecision, aggErr)
 	if anchored {
 		for _, node := range nodes {
 			if tags := callTags(node, records[0].Method, 1); len(tags) != 1 || tags[0] != replayHeadHash {
@@ -300,11 +309,11 @@ func assertDataStatesDiffer(t *testing.T, policy rpc.Policy, records []rpcsample
 	t.Helper()
 	left := observationFromRecord(t, records[0])
 	right := observationFromRecord(t, records[1])
-	leftKey, err := policy.Normalize(left.RPCError.Raw())
+	leftKey, err := policy.Normalize(left.Response.Answer.RPCError.Raw())
 	if err != nil {
 		t.Fatal(err)
 	}
-	rightKey, err := policy.Normalize(right.RPCError.Raw())
+	rightKey, err := policy.Normalize(right.Response.Answer.RPCError.Raw())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +378,7 @@ type replayStage struct {
 	reference func(ctx context.Context, tag string) (rpc.ReferenceEvidence, error)
 }
 
-func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (rpc.Invocation, error) {
+func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
 	tag := ""
 	switch request.Kind {
 	case rpc.ReferenceSafe:
@@ -379,9 +388,14 @@ func (s replayStage) Establish(ctx context.Context, invocation rpc.Invocation, r
 	}
 	ref, err := s.reference(ctx, tag)
 	if err != nil {
-		return invocation, err
+		// The evidence the resolver formed travels beside the error, exactly
+		// what the establishment contract hands the coordinator.
+		return &ref, err
 	}
-	return invocation.WithReference(ref)
+	if ref.Status != rpc.Corroborated {
+		return &ref, fmt.Errorf("uncorroborated reference: %w", rpc.ErrConflict)
+	}
+	return &ref, nil
 }
 
 // newSharedReplayAggregator builds one pool-backed reference resolver and
@@ -424,7 +438,6 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpc.Corrobo
 			ref, err = strictHead.AnchorReference(ctx)
 		}
 		ref.Tag = tag
-		refcontext.Publish(ctx, ref)
 		if err != nil {
 			return ref, err
 		}
@@ -539,11 +552,11 @@ func observationFromRecord(t *testing.T, record rpcsample.Record) rpc.Observatio
 	t.Helper()
 	source := rpc.SourceRef{Name: record.Source.ID, ID: record.Source.ID}
 	if strings.TrimSpace(record.Response.Body) == "" {
-		return rpc.Observation{Source: source, Err: errors.New(transportFault(record))}
+		return rpc.Observation{Attempted: true, Source: source, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New(transportFault(record))}}}
 	}
 	isError, body, err := replay.BodyOf(record)
 	if err != nil {
-		return rpc.Observation{Source: source, Err: errors.New("non-JSON response body")}
+		return rpc.Observation{Attempted: true, Source: source, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("non-JSON response body")}}}
 	}
 	var doc struct {
 		Result json.RawMessage `json:"result"`
@@ -553,7 +566,7 @@ func observationFromRecord(t *testing.T, record rpcsample.Record) rpc.Observatio
 		t.Fatal(err)
 	}
 	if !isError {
-		return rpc.Observation{Source: source, Value: doc.Result}
+		return rpc.Observation{Attempted: true, Source: source, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: doc.Result}}}
 	}
 	return observationFromError(record.Source.ID, doc.Error)
 }
@@ -585,19 +598,15 @@ func transportFault(record rpcsample.Record) string {
 func observationFromError(id string, raw json.RawMessage) rpc.Observation {
 	code, message, data, present, ok := errorObject(raw)
 	if !ok {
-		return rpc.Observation{
-			Source: rpc.SourceRef{Name: id, ID: id},
-			Err:    errors.New("non-object error body"),
+		return rpc.Observation{Attempted: true,
+			Source: rpc.SourceRef{Name: id, ID: id}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("non-object error body")}},
 		}
 	}
-	rpcErr := &rpc.RPCError{Code: code, Message: message}
-	if present {
-		rpcErr.Data = append(json.RawMessage(nil), data...)
-	}
-	return rpc.Observation{
-		Source:   rpc.SourceRef{Name: id, ID: id},
-		Err:      errors.New(message),
-		RPCError: rpcErr,
+	return rpc.Observation{Attempted: true,
+		Source: rpc.SourceRef{Name: id, ID: id}, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted},
+			Answer:   rpc.ProtocolAnswer(rpctest.RPCErrorWithData(code, message, data, present)),
+		},
 	}
 }
 
@@ -608,7 +617,7 @@ func errorRaw(t *testing.T, code int, message string, data json.RawMessage, pres
 		if len(data) == 0 {
 			data = json.RawMessage("null")
 		}
-		object["data"] = json.RawMessage(data)
+		object["data"] = data
 	}
 	raw, err := json.Marshal(object)
 	if err != nil {
@@ -740,5 +749,110 @@ func refuseCaller(t *testing.T) rpc.AdmissionCaller {
 	return func(context.Context, string, []any) (json.RawMessage, error) {
 		t.Fatal("admission issued a dependent call")
 		return nil, nil
+	}
+}
+
+// compareReplaySources compares the resolver's default Outcome projection with
+// the coordinator's projection. Recorded exchanges may lack HTTP status/timing
+// details supplied by the replay server; those are not invented for parity.
+func compareReplaySources(policy, aggregated rpc.Decision) error {
+	if len(policy.Sources) != policy.Adjudication.Basis || len(aggregated.Sources) != len(policy.Sources) {
+		return fmt.Errorf("sources coverage: policy %d basis %d aggregator %d", len(policy.Sources), policy.Adjudication.Basis, len(aggregated.Sources))
+	}
+	if policy.Adjudication.Basis != aggregated.Adjudication.Basis || policy.Adjudication.Required != aggregated.Adjudication.Required ||
+		len(policy.Adjudication.Candidates) != len(aggregated.Adjudication.Candidates) {
+		return fmt.Errorf("adjudication basis, required support or candidate groups diverged: policy %+v aggregator %+v", policy.Adjudication, aggregated.Adjudication)
+	}
+	for i, group := range policy.Adjudication.Candidates {
+		if strings.Join(namesOf(group.Sources), ",") != strings.Join(namesOf(aggregated.Adjudication.Candidates[i].Sources), ",") {
+			return fmt.Errorf("candidate group %d membership diverged", i)
+		}
+	}
+	seen := make(map[string]bool, len(policy.Sources))
+	for i, left := range policy.Sources {
+		right := aggregated.Sources[i]
+		name := left.Source.Name
+		if name == "" || seen[name] || right.Source.Name != name {
+			return fmt.Errorf("sources[%d]: duplicate or mismatched identity %q/%q", i, name, right.Source.Name)
+		}
+		seen[name] = true
+		if left.Attempted != right.Attempted || left.Relation != right.Relation ||
+			left.Answer.Kind != right.Answer.Kind || left.Answer.Interpretation.State != right.Answer.Interpretation.State ||
+			(left.Exchange.Cause == nil) != (right.Exchange.Cause == nil) ||
+			replayCauseClass(left.Answer.Cause) != replayCauseClass(right.Answer.Cause) ||
+			replayCauseClass(left.Answer.Interpretation.Cause) != replayCauseClass(right.Answer.Interpretation.Cause) {
+			return fmt.Errorf("source %s facts diverged: policy %+v aggregator %+v", name, left, right)
+		}
+	}
+	faults := make(map[string]string, len(policy.SourceFaults))
+	for _, fault := range policy.SourceFaults {
+		name := fault.Source.Name
+		if _, duplicate := faults[name]; duplicate || !seen[name] || fault.Err == nil {
+			return fmt.Errorf("policy source fault: duplicate, unknown or empty cause for %q", name)
+		}
+		faults[name] = replayCauseClass(fault.Err)
+	}
+	for _, fault := range aggregated.SourceFaults {
+		name := fault.Source.Name
+		cause, exists := faults[name]
+		if !exists || fault.Err == nil || cause != replayCauseClass(fault.Err) {
+			return fmt.Errorf("aggregator source fault: duplicate, unexpected or changed cause for %q: %v", name, fault.Err)
+		}
+		delete(faults, name)
+	}
+	if len(faults) != 0 {
+		return fmt.Errorf("aggregator omitted source faults: %v", faults)
+	}
+	if len(policy.Faults) != len(aggregated.Faults) || len(policy.CollectionFaults) != len(aggregated.CollectionFaults) {
+		return fmt.Errorf("fault views diverged: policy %d/%d aggregator %d/%d", len(policy.Faults), len(policy.CollectionFaults), len(aggregated.Faults), len(aggregated.CollectionFaults))
+	}
+	return nil
+}
+
+func replayCauseClass(err error) string {
+	var protocol rpc.ProtocolError
+	if errors.As(err, &protocol) {
+		return fmt.Sprintf("rpc %d: %s", protocol.ErrorCode(), protocol.Error())
+	}
+	return decisionError(err)
+}
+
+func TestReplaySourceEvidenceDetectsTampering(t *testing.T) {
+	obs := []rpc.Observation{
+		{Source: rpc.SourceRef{ID: "s1", Name: "s1"}, Attempted: true, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}},
+		{Source: rpc.SourceRef{ID: "s2", Name: "s2"}, Attempted: true, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: context.DeadlineExceeded}}},
+		{Source: rpc.SourceRef{ID: "s3", Name: "s3"}, Attempted: true, Response: rpc.Response{
+			Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x2"`),
+				Interpretation: rpc.Interpretation{State: rpc.InterpretationRejected, Cause: rpc.ErrMalformedResponse}}}},
+	}
+	outcome, err := rpc.Strict(rpc.CanonicalJSON).Resolve(obs)
+	if err != nil || len(outcome.Decision.SourceFaults) != 2 {
+		t.Fatalf("outcome=%+v err=%v", outcome, err)
+	}
+	if err := compareReplaySources(outcome.Decision, outcome.Decision.Clone()); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*rpc.Decision)
+	}{
+		{"omitted source", func(d *rpc.Decision) { d.Sources = d.Sources[:2] }},
+		{"changed relation", func(d *rpc.Decision) { d.Sources[1].Relation = rpc.VerdictExcluded }},
+		{"lost method rejection", func(d *rpc.Decision) { d.Sources[2].Answer.Interpretation = rpc.Interpretation{} }},
+		{"duplicated fault", func(d *rpc.Decision) { d.SourceFaults[1] = d.SourceFaults[0] }},
+		{"swapped causes", func(d *rpc.Decision) {
+			d.SourceFaults[0].Err, d.SourceFaults[1].Err = d.SourceFaults[1].Err, d.SourceFaults[0].Err
+		}},
+		{"omitted fault", func(d *rpc.Decision) { d.SourceFaults = d.SourceFaults[:1] }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := outcome.Decision.Clone()
+			test.mutate(&changed)
+			if err := compareReplaySources(outcome.Decision, changed); err == nil {
+				t.Fatal("tampered source facts matched")
+			}
+		})
 	}
 }

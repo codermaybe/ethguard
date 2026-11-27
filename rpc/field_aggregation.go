@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
@@ -57,17 +58,9 @@ type FieldDiagnostics struct {
 	Conflicts []ConflictField
 }
 
-// sourceFault prefixes a resolver-phase encode/normalize failure with the
-// observation's source, so Decision.Faults attributes per-source failures
-// without relying on a post-hoc mirror over the pool emissions. The ID is
-// preferred because it is the voting identity; a nameless fallback keeps
-// hand-built observations readable.
-func sourceFault(source SourceRef, cause string, err error) error {
-	id := source.ID
-	if id == "" {
-		id = source.Name
-	}
-	return fmt.Errorf("source %q: %s: %w", id, cause, err)
+type fieldCandidate struct {
+	value   json.RawMessage
+	sources []SourceRef
 }
 
 // AggregateFields flattens object and array responses into JSON Pointer paths
@@ -83,13 +76,12 @@ func AggregateFields(observations []Observation, quorum int) (Evaluation, error)
 		return Evaluation{}, fmt.Errorf("rpc: observation quorum must be positive")
 	}
 
-	type candidate struct {
-		value   json.RawMessage
-		sources []SourceRef
-	}
-	groups := make(map[string]map[string]*candidate)
+	groups := make(map[string]map[string]*fieldCandidate)
 	seen := make(map[string]int, len(observations))
 	var result Evaluation
+	reuseFields := identicalObservedResults(observations)
+	haveFirst := false
+	var firstErr error
 	for i, observation := range observations {
 		id := observation.Source.ID
 		if id == "" {
@@ -99,31 +91,34 @@ func AggregateFields(observations []Observation, quorum int) (Evaluation, error)
 			return Evaluation{}, fmt.Errorf("rpc: duplicate observation source %q at %d and %d", id, first, i)
 		}
 		seen[id] = i
-		if observation.Err != nil || observation.Value == nil {
+		if observation.Response.Err() != nil || observation.Response.Answer.Result == nil {
 			continue
 		}
 
-		value, err := decodeObservedJSON(observation.Value)
+		if reuseFields && haveFirst {
+			if firstErr != nil {
+				result.Malformed = append(result.Malformed, MalformedSource{Source: observation.Source, Err: firstErr})
+			} else {
+				// Every candidate belongs to the same validated raw result. Each
+				// still owns its source slice and receives this source's vote.
+				for _, byValue := range groups {
+					for _, item := range byValue {
+						item.sources = append(item.sources, observation.Source)
+					}
+				}
+			}
+			continue
+		}
+		value, err := decodeObservedJSON(observation.Response.Answer.Result)
+		if reuseFields {
+			haveFirst = true
+			firstErr = err
+		}
 		if err != nil {
 			result.Malformed = append(result.Malformed, MalformedSource{Source: observation.Source, Err: err})
 			continue
 		}
-		fields := make(map[string]json.RawMessage)
-		flattenJSON("", value, fields)
-		for path, raw := range fields {
-			key := string(raw)
-			byValue := groups[path]
-			if byValue == nil {
-				byValue = make(map[string]*candidate)
-				groups[path] = byValue
-			}
-			item := byValue[key]
-			if item == nil {
-				item = &candidate{value: append(json.RawMessage(nil), raw...)}
-				byValue[key] = item
-			}
-			item.sources = append(item.sources, observation.Source)
-		}
+		collectFieldCandidates("", value, observation.Source, groups)
 	}
 
 	if len(groups) == 0 && len(result.Malformed) > 0 {
@@ -146,8 +141,8 @@ func AggregateFields(observations []Observation, quorum int) (Evaluation, error)
 			})
 			field := FieldObservation{
 				Path:    path,
-				Value:   append(json.RawMessage(nil), item.value...),
-				Sources: append([]SourceRef(nil), item.sources...),
+				Value:   item.value,
+				Sources: item.sources,
 			}
 			if len(item.sources) >= quorum {
 				qualified = append(qualified, field)
@@ -188,6 +183,32 @@ func AggregateFieldsWithCorroboration(observations []Observation, basis Basis) (
 	return AggregateFields(observations, basis.Required())
 }
 
+// identicalObservedResults permits reuse only for an entirely identical set of
+// value-bearing responses. Mixed results keep the ordinary per-source path.
+// Source identities are checked by AggregateFields in their original order.
+func identicalObservedResults(observations []Observation) bool {
+	var first json.RawMessage
+	count := 0
+	for _, observation := range observations {
+		raw := observation.Response.Answer.Result
+		if observation.Response.Err() != nil || raw == nil {
+			continue
+		}
+		// Oversized values must reach the usual constant-time validation rejection
+		// without first comparing their entire contents. Do not trim JSON input.
+		if int64(len(raw)) > jsonsafe.MaxBodyBytes {
+			return false
+		}
+		if count == 0 {
+			first = raw
+		} else if !bytes.Equal(first, raw) {
+			return false
+		}
+		count++
+	}
+	return count > 1
+}
+
 func decodeObservedJSON(raw []byte) (any, error) {
 	if err := jsonsafe.Validate(raw); err != nil {
 		return nil, err
@@ -201,32 +222,39 @@ func decodeObservedJSON(raw []byte) (any, error) {
 	return value, nil
 }
 
-func flattenJSON(path string, value any, fields map[string]json.RawMessage) {
+// collectFieldCandidates consumes a completely validated tree. Each candidate
+// owns the bytes returned by json.Marshal and its source slice; both can be
+// transferred to the delivered observation without another copy.
+func collectFieldCandidates(path string, value any, source SourceRef, groups map[string]map[string]*fieldCandidate) {
 	switch current := value.(type) {
 	case map[string]any:
-		if len(current) == 0 {
-			fields[path] = mustMarshal(current)
+		if len(current) != 0 {
+			for key, item := range current {
+				collectFieldCandidates(joinJSONPointer(path, key), item, source, groups)
+			}
 			return
-		}
-		keys := make([]string, 0, len(current))
-		for key := range current {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			flattenJSON(joinJSONPointer(path, key), current[key], fields)
 		}
 	case []any:
-		if len(current) == 0 {
-			fields[path] = mustMarshal(current)
+		if len(current) != 0 {
+			for index, item := range current {
+				collectFieldCandidates(joinJSONPointer(path, strconv.Itoa(index)), item, source, groups)
+			}
 			return
 		}
-		for index, item := range current {
-			flattenJSON(joinJSONPointer(path, fmt.Sprint(index)), item, fields)
-		}
-	default:
-		fields[path] = mustMarshal(current)
 	}
+	raw := mustMarshal(value)
+	valueKey := string(raw)
+	byValue := groups[path]
+	if byValue == nil {
+		byValue = make(map[string]*fieldCandidate)
+		groups[path] = byValue
+	}
+	item := byValue[valueKey]
+	if item == nil {
+		item = &fieldCandidate{value: raw}
+		byValue[valueKey] = item
+	}
+	item.sources = append(item.sources, source)
 }
 
 func joinJSONPointer(path, token string) string {

@@ -1,8 +1,6 @@
 package pool
 
 import (
-	upstream "github.com/codermaybe/ethguard/internal/transport"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +8,9 @@ import (
 	"math/big"
 	"sync"
 	"time"
+
+	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 var errWaitingForDial = errors.New("pool: waiting for shared dial")
@@ -301,12 +302,7 @@ func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstr
 		return nil, fmt.Errorf("pool: source %q does not support subscriptions", s.name)
 	}
 	if err := s.verifyChainID(ctx, client); err != nil {
-		if shouldDiscardClient(err) {
-			s.discardClient(client)
-		}
-		if shouldRecordFailure(ctx, err) {
-			s.recordFailedCall(err)
-		}
+		s.noteFailedExchange(client, ctx, err)
 		return nil, err
 	}
 	sub, err := subscriber.SubscribeCapability(ctx, kind, args...)
@@ -316,24 +312,50 @@ func (s *Source) Subscribe(ctx context.Context, kind string, args ...any) (upstr
 		// attempt redials, and the failure must count toward health (unless
 		// the caller itself went away), or a closed socket stalls the
 		// subscription silently.
-		if shouldDiscardClient(err) {
-			s.discardClient(client)
-		}
-		if shouldRecordFailure(ctx, err) {
-			s.recordFailedCall(err)
-		}
+		s.noteFailedExchange(client, ctx, err)
 		return nil, err
 	}
 	return sub, nil
+}
+
+func (s *Source) SubscribeBounded(ctx context.Context, policy upstream.NotificationPolicy, kind string, args ...any) (upstream.Subscription, error) {
+	client, err := s.clientForCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	subscriber, ok := client.(upstream.BoundedSubscriber)
+	if !ok {
+		return nil, fmt.Errorf("pool: source %q does not support bounded subscriptions", s.name)
+	}
+	if err := s.verifyChainID(ctx, client); err != nil {
+		s.noteFailedExchange(client, ctx, err)
+		return nil, err
+	}
+	stream, err := subscriber.SubscribeBounded(ctx, policy, kind, args...)
+	if err != nil {
+		s.noteFailedExchange(client, ctx, err)
+	}
+	return stream, err
 }
 
 // CallContext performs one unary request on this source's managed transport.
 // It is the narrow same-source Pull seam for subscription compensation; it
 // does not alter pool membership or quorum state.
 func (s *Source) CallContext(ctx context.Context, method string, args ...any) (json.RawMessage, error) {
+	response := s.Call(ctx, method, args...)
+	if err := response.Err(); err != nil {
+		return nil, err
+	}
+	return response.Answer.Result, nil
+}
+
+// Call retains the managed transport's exchange and answer facts for one
+// same-source request. Scheduling, connection hygiene and health have the same
+// owner as CallContext; the latter only projects this result for raw callers.
+func (s *Source) Call(ctx context.Context, method string, args ...any) rpc.Response {
 	release, err := s.acquireRequest(ctx)
 	if err != nil {
-		return nil, err
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}
 	}
 	defer release()
 	client, err := s.clientForCall(ctx)
@@ -341,30 +363,33 @@ func (s *Source) CallContext(ctx context.Context, method string, args ...any) (j
 		if shouldRecordFailure(ctx, err) {
 			s.recordFailedCall(err)
 		}
-		return nil, err
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}
 	}
 	if err := s.verifyChainID(ctx, client); err != nil {
-		if shouldDiscardClient(err) {
-			s.discardClient(client)
-		}
-		if shouldRecordFailure(ctx, err) {
-			s.recordFailedCall(err)
-		}
-		return nil, err
+		s.noteFailedExchange(client, ctx, err)
+		return rpc.Response{Exchange: rpc.Exchange{Cause: err}}
 	}
-	var result json.RawMessage
 	started := time.Now()
-	if err := client.CallContext(ctx, &result, method, args...); err != nil {
-		if shouldDiscardClient(err) {
-			s.discardClient(client)
-		}
-		if shouldRecordFailure(ctx, err) {
-			s.recordFailedCall(err)
-		}
-		return nil, err
+	response := client.Call(ctx, method, args...)
+	if err := response.Err(); err != nil {
+		s.noteFailedExchange(client, ctx, err)
+		return response
 	}
 	s.recordSuccessfulCall(time.Since(started))
-	return result, nil
+	return response
+}
+
+// noteFailedExchange applies the shared transport hygiene after one failed
+// exchange on a source holding a client: a finished connection is dropped so
+// the next attempt redials, and the failure counts toward health unless the
+// caller itself went away. Both the unary and the subscription paths run it.
+func (s *Source) noteFailedExchange(client upstream.Transport, ctx context.Context, err error) {
+	if shouldDiscardClient(err) {
+		s.discardClient(client)
+	}
+	if shouldRecordFailure(ctx, err) {
+		s.recordFailedCall(err)
+	}
 }
 
 // State returns the current readiness state.

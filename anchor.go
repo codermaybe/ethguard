@@ -46,7 +46,7 @@ func resolveReference(ctx context.Context, resolver runtime.ReferenceResolver, t
 // is claimed. The establishment's supporters live on the Reference; the
 // decision does not duplicate the adjudication chain.
 func anchorResult(ref rpc.ReferenceEvidence, err error) CallResult {
-	evidence := ref
+	evidence := ref.Clone()
 	status := rpc.Unknown
 	if err == nil {
 		status = ref.Status
@@ -73,10 +73,10 @@ func attachEstablishedReference(decision *rpc.Decision, ref rpc.ReferenceEvidenc
 // read's result: whatever the anchor round formed travels on the decision.
 // A zero evidence maps to nil.
 func anchorReference(ref rpc.ReferenceEvidence) *rpc.ReferenceEvidence {
-	if ref.Status == rpc.Unknown && ref.Hash == "" && ref.Height == 0 && len(ref.Faults) == 0 && len(ref.SourceFaults) == 0 && len(ref.CollectionFaults) == 0 {
+	if ref.Status == rpc.Unknown && ref.Hash == "" && ref.Height == 0 && len(ref.Faults) == 0 && len(ref.SourceFaults) == 0 && len(ref.CollectionFaults) == 0 && len(ref.Sources) == 0 && len(ref.Participants) == 0 && len(ref.Support) == 0 && len(ref.Reject) == 0 && ref.Adjudication.Basis == 0 && ref.Adjudication.Required == 0 && len(ref.Adjudication.Candidates) == 0 && ref.Adjudication.Reason == rpc.ReasonUnassessed {
 		return nil
 	}
-	evidence := ref
+	evidence := ref.Clone()
 	return &evidence
 }
 
@@ -89,15 +89,16 @@ func (c *Client) AnchorBlockHash(ctx context.Context) (string, CallResult, error
 	})
 }
 
-// AnchorBlockHashForTag is the tag-aware adapter seam behind moving-tag
-// reads: it establishes the corroborated block reference for exactly the
-// requested tag ("latest", "safe", or "finalized") and returns its hash.
-// Each level keeps its meaning — safe is anchored at the safe reference,
-// finalized at the finalized reference, never silently latest — and the
-// returned evidence records the original tag. A reference that cannot reach
-// Corroborated fails instead of returning an uncorroborated hash; pending
-// and earliest are not moving tags and are rejected here (pending keeps its
-// node-state path, earliest is an explicit height).
+// AnchorBlockHashForTag establishes a corroborated block reference for a
+// moving tag ("latest", "safe", or "finalized") and returns its hash. The
+// default strict preset follows the requested tag. WithFinalizedAnchoring
+// makes default/latest use finalized candidate selection and confirmation;
+// safe still uses the strict safe algorithm, and finalized uses the
+// finalized algorithm. ReferenceEvidence.Tag records the requested intent,
+// not independent proof of the actual chain level. A reference that cannot
+// reach Corroborated fails instead of returning an uncorroborated hash.
+// Pending and earliest are not moving tags and are rejected here (pending
+// keeps its node-state path, earliest is an explicit height).
 func (c *Client) AnchorBlockHashForTag(ctx context.Context, tag string) (string, CallResult, error) {
 	// Validation runs inside the operation body: the capture is bound
 	// before any parameter check, so a local rejection still publishes its

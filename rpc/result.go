@@ -59,7 +59,7 @@ func CanonicalOf(policy Policy, raw json.RawMessage) (json.RawMessage, error) {
 
 // CommitCanonical writes the canonical bytes when every supporter in the
 // winning cluster encoded the same bytes. A disagreement is a code defect:
-// Unknown, ErrMalformedResponse, and no second vote. The caller must not
+// Unknown, ErrInvalidCanonicalResult, and no second vote. The caller must not
 // substitute another source's original payload.
 func CommitCanonical(parts []json.RawMessage) (json.RawMessage, error) {
 	if err := checkCanonical(parts); err != nil {
@@ -72,12 +72,12 @@ func CommitCanonical(parts []json.RawMessage) (json.RawMessage, error) {
 // that will never be returned.
 func checkCanonical(parts []json.RawMessage) error {
 	if len(parts) == 0 {
-		return fmt.Errorf("result encoding disagrees within cluster: %w", ErrMalformedResponse)
+		return fmt.Errorf("result encoding disagrees within cluster: %w", ErrInvalidCanonicalResult)
 	}
 	first := parts[0]
 	for _, part := range parts[1:] {
 		if !bytes.Equal(part, first) {
-			return fmt.Errorf("result encoding disagrees within cluster: %w", ErrMalformedResponse)
+			return fmt.Errorf("result encoding disagrees within cluster: %w", ErrInvalidCanonicalResult)
 		}
 	}
 	return nil

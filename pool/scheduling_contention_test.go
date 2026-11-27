@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 // sharedBudgetPeer answers its first call immediately so the test can warm a
@@ -20,7 +22,7 @@ type sharedBudgetPeer struct {
 	release chan struct{}
 }
 
-func (p *sharedBudgetPeer) CallContext(ctx context.Context, result any, method string, _ ...any) error {
+func (p *sharedBudgetPeer) Call(ctx context.Context, method string, _ ...any) rpc.Response {
 	p.mu.Lock()
 	p.calls++
 	warm := !p.warmed
@@ -28,16 +30,14 @@ func (p *sharedBudgetPeer) CallContext(ctx context.Context, result any, method s
 	p.mu.Unlock()
 
 	if warm {
-		*result.(*json.RawMessage) = json.RawMessage(`"0x1"`)
-		return nil
+		return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}
 	}
 	p.entered <- method
 	select {
 	case <-p.release:
-		*result.(*json.RawMessage) = json.RawMessage(`"0x1"`)
-		return nil
+		return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x1"`)}}
 	case <-ctx.Done():
-		return ctx.Err()
+		return rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: ctx.Err()}}
 	}
 }
 
@@ -134,7 +134,7 @@ func TestTipProbeAndReferenceConfirmationShareSourceBudget(t *testing.T) {
 	}
 
 	emissions, err = p.CollectVoting(ctx, "eth_getBlockByNumber", []any{"latest", false}, CollectOptions{Sources: []*Source{source}})
-	if err != nil || len(emissions) != 1 || !emissions[0].Attempted || emissions[0].Err != nil {
+	if err != nil || len(emissions) != 1 || !emissions[0].Attempted || emissions[0].Response.Err() != nil {
 		t.Fatalf("budget did not recover: %+v, err = %v", emissions, err)
 	}
 	if got := peer.callCount(); got != 4 {

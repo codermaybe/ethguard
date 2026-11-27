@@ -33,24 +33,24 @@ func TestEstimateGasObjectForms(t *testing.T) {
 		}
 		sources := []rpc.SourceRef{{ID: "a"}, {ID: "b"}, {ID: "c"}}
 		decision, err := plan.Resolver.Resolve([]rpc.Observation{
-			{Source: sources[0], Value: json.RawMessage(`"0x64"`)},
-			{Source: sources[1], Value: json.RawMessage(`"0x66"`)},
-			{Source: sources[2], Value: json.RawMessage(`"0x68"`)},
+			{Attempted: true, Source: sources[0], Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x64"`)}}},
+			{Attempted: true, Source: sources[1], Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x66"`)}}},
+			{Attempted: true, Source: sources[2], Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x68"`)}}},
 		})
-		if err != nil || decision.Status != rpc.Selected || string(decision.Value) != `"0x66"` {
+		if err != nil || decision.Decision.Status != rpc.Selected || string(decision.Decision.Value) != `"0x66"` {
 			t.Fatalf("median = %+v %v", decision, err)
 		}
-		if decision.Status == rpc.Corroborated {
+		if decision.Decision.Status == rpc.Corroborated {
 			t.Fatal("estimate claimed Corroborated")
 		}
 	})
 
 	t.Run("disagreement stays a selected median", func(t *testing.T) {
 		decision, err := plan.Resolver.Resolve([]rpc.Observation{
-			{Source: rpc.SourceRef{ID: "a"}, Value: json.RawMessage(`"0x10"`)},
-			{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`"0x30"`)},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x10"`)}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x30"`)}}},
 		})
-		if err != nil || decision.Status != rpc.Selected || len(decision.Reject) != 1 {
+		if err != nil || decision.Decision.Status != rpc.Selected || len(decision.Decision.Reject) != 1 {
 			t.Fatalf("disagreement = %+v %v", decision, err)
 		}
 	})
@@ -91,10 +91,10 @@ func TestEstimateGasObjectForms(t *testing.T) {
 			}
 		}
 		decision, err := plan.Resolver.Resolve([]rpc.Observation{
-			{Source: rpc.SourceRef{ID: "a"}, Value: json.RawMessage(`"0x64"`)},
-			{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`"0x64"`)},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x64"`)}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x64"`)}}},
 		})
-		if err != nil || decision.Status != rpc.Selected {
+		if err != nil || decision.Decision.Status != rpc.Selected {
 			t.Fatalf("pending agreement = %+v %v", decision, err)
 		}
 	})
@@ -104,24 +104,24 @@ func TestEstimateGasObjectForms(t *testing.T) {
 			t.Fatalf("pending declaration = %+v, want observe at 1", plan.Pending)
 		}
 		decision, err := rpc.ResolveLocalObservation(plan.Resolver, []rpc.Observation{
-			{Source: rpc.SourceRef{ID: "a"}, Value: json.RawMessage(`"0x10"`)},
-			{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`"0x30"`)},
-			{Source: rpc.SourceRef{ID: "c"}, Value: json.RawMessage(`"0x20"`)},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x10"`)}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x30"`)}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "c"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"0x20"`)}}},
 		})
-		if err != nil || decision.Status != rpc.Selected || string(decision.Value) != `"0x10"` || len(decision.Support) != 1 || decision.Support[0].ID != "a" {
+		if err != nil || decision.Decision.Status != rpc.Selected || string(decision.Decision.Value) != `"0x10"` || len(decision.Decision.Support) != 1 || decision.Decision.Support[0].ID != "a" {
 			t.Fatalf("pending local = %+v %v", decision, err)
 		}
-		if decision.Status == rpc.Corroborated {
+		if decision.Decision.Status == rpc.Corroborated {
 			t.Fatal("pending estimate claimed Corroborated")
 		}
 	})
 
 	t.Run("provider errors stay unknown", func(t *testing.T) {
 		decision, err := plan.Resolver.Resolve([]rpc.Observation{
-			{Source: rpc.SourceRef{ID: "a"}, Err: errors.New("transport")},
-			{Source: rpc.SourceRef{ID: "b"}, Err: errors.New("rpc")},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("transport")}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("rpc")}}},
 		})
-		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown {
+		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Decision.Status != rpc.Unknown {
 			t.Fatalf("provider error = %+v %v", decision, err)
 		}
 		if errors.Is(err, rpc.ErrConflict) || errors.Is(err, rpc.ErrMalformedResponse) {
@@ -159,10 +159,10 @@ func TestCreateAccessListObjectForms(t *testing.T) {
 			t.Fatal("lost the corroborating resolver")
 		}
 		decision, err := corroborating.ResolveCorroborated(rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}, []rpc.Observation{
-			{Source: rpc.SourceRef{ID: "a"}, Value: body},
-			{Source: rpc.SourceRef{ID: "b"}, Value: json.RawMessage(`{"gasUsed":"0x5208","accessList":[{"address":"0x0000000000000000000000000000000000000abc","storageKeys":["0x0000000000000000000000000000000000000000000000000000000000000001"]}]}`)},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: body}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`{"gasUsed":"0x5208","accessList":[{"address":"0x0000000000000000000000000000000000000abc","storageKeys":["0x0000000000000000000000000000000000000000000000000000000000000001"]}]}`)}}},
 		})
-		if err != nil || decision.Status != rpc.Corroborated || len(decision.Support) != 2 {
+		if err != nil || decision.Decision.Status != rpc.Corroborated || len(decision.Decision.Support) != 2 {
 			t.Fatalf("success = %+v %v", decision, err)
 		}
 	})
@@ -170,10 +170,10 @@ func TestCreateAccessListObjectForms(t *testing.T) {
 	t.Run("conflicting payloads stay unknown", func(t *testing.T) {
 		corroborating := plan.Resolver.(rpc.CorroboratingPolicy)
 		decision, err := corroborating.ResolveCorroborated(rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}, []rpc.Observation{
-			{Source: rpc.SourceRef{ID: "a"}, Value: body},
-			{Source: rpc.SourceRef{ID: "b"}, Value: other},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: body}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: other}}},
 		})
-		if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
+		if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
 			t.Fatalf("conflict = %+v %v", decision, err)
 		}
 	})
@@ -205,20 +205,20 @@ func TestCreateAccessListObjectForms(t *testing.T) {
 			t.Fatalf("pending object rewritten: %#v", got)
 		}
 		decision, err := rpc.ResolveLocalObservation(plan.Resolver, []rpc.Observation{
-			{Source: rpc.SourceRef{ID: "a"}, Value: body},
-			{Source: rpc.SourceRef{ID: "b"}, Value: body},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: body}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: body}}},
 		})
-		if err != nil || decision.Status != rpc.Selected || len(decision.Support) != 1 {
+		if err != nil || decision.Decision.Status != rpc.Selected || len(decision.Decision.Support) != 1 {
 			t.Fatalf("pending = %+v %v", decision, err)
 		}
 	})
 
 	t.Run("provider errors stay unknown", func(t *testing.T) {
 		decision, err := plan.Resolver.Resolve([]rpc.Observation{
-			{Source: rpc.SourceRef{ID: "a"}, Err: errors.New("down")},
-			{Source: rpc.SourceRef{ID: "b"}, Err: errors.New("down")},
+			{Attempted: true, Source: rpc.SourceRef{ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("down")}}},
+			{Attempted: true, Source: rpc.SourceRef{ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("down")}}},
 		})
-		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown {
+		if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Decision.Status != rpc.Unknown {
 			t.Fatalf("provider error = %+v %v", decision, err)
 		}
 	})

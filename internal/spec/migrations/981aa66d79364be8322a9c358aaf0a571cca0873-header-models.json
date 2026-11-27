@@ -1,0 +1,21 @@
+{
+  "kind": "official-result-model-coverage-extension",
+  "version": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "commit": "981aa66d79364be8322a9c358aaf0a571cca0873",
+  "dereferencedOpenRPCSHA256": "80efa2c6ab609d9ec48fa6d720650d1c3903065c887e03c600970ca97c2f09a5",
+  "beforeMethodsSHA256": "e4b0aa59e595f9fb030e8386b6e37b7f4ea33ea33acb043a88ac2e0081fae336",
+  "afterMethodsSHA256": "c600c7959d8ab76884f1db9d8fe5bd2c1a4f4a274afd2fdaf6f8cf5ff454f73a",
+  "beforeResultCount": 24,
+  "afterResultCount": 26,
+  "addedResultSchemasCompactSHA256": {
+    "eth_getHeaderByHash": "89e280d12c6d35f9490b5a01fdca58725928dd04c5aadbd06b66cdc976868ae5",
+    "eth_getHeaderByNumber": "89e280d12c6d35f9490b5a01fdca58725928dd04c5aadbd06b66cdc976868ae5"
+  },
+  "unchangedRequestsSHA256": "cf615db34c0affdae6589787de939a0e4df74f4d226a4be37d6c727626f3f397",
+  "unchangedErrataSHA256": {
+    "getlogs-empty-array-overlap.json": "56068b799e0030af3f539306a38ef816b575ec0c2717adf334e25924d7628186",
+    "simulate-block-state-calls-items.json": "285920d9477de90740e3f692e6dc626bc6501ebc34966c0a81f7d4f0ec5f6442",
+    "transaction-query-pending-context.json": "0d644ef9c910a4b523d15fe8531a41b8b3a3d4f3f90f81c7569e38cdc1e6fb4e"
+  },
+  "scope": "Header model generation only; no executable RPC registration"
+}

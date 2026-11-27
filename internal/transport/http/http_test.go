@@ -105,14 +105,20 @@ func newNativeServer(t *testing.T, respond func(n int, req capturedCall) []byte)
 	t.Helper()
 	var s *nativeServer
 	s = newNativeServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		body, _ := io.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read fixture request: %v", err)
+			return
+		}
 		req := capturedCall{Header: r.Header.Clone(), Body: body}
 		s.mu.Lock()
 		n := len(s.requests)
 		s.requests = append(s.requests, req)
 		s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(respond(n, req))
+		if _, err := w.Write(respond(n, req)); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	}))
 	return s
 }
@@ -137,7 +143,7 @@ func dialNative(t *testing.T, rawURL string, limit int64) *Transport {
 
 func call(t *testing.T, tr *Transport, ctx context.Context, result any, method string, args ...any) error {
 	t.Helper()
-	return tr.CallContext(ctx, result, method, args...)
+	return tr.Call(ctx, method, args...).Decode(result)
 }
 
 // TestNativeRequestEnvelope locks the native wire envelope: identical to the
@@ -161,7 +167,7 @@ func TestNativeRequestEnvelope(t *testing.T) {
 			})
 			tr := dialNative(t, srv.srv.URL, 0)
 			if err := call(t, tr, context.Background(), nil, tc.method, tc.args...); err != nil {
-				t.Fatalf("CallContext err = %v", err)
+				t.Fatalf("Call err = %v", err)
 			}
 			if srv.requestCount() != 1 {
 				t.Fatalf("request count = %d, want 1", srv.requestCount())
@@ -489,10 +495,17 @@ func TestNativeContextPrecedence(t *testing.T) {
 		srv := newNativeServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			rc := nethttp.NewResponseController(w)
-			rc.Flush()
+			if err := rc.Flush(); err != nil {
+				if r.Context().Err() == nil {
+					t.Errorf("flush fixture headers: %v", err)
+				}
+				return
+			}
 			select {
 			case <-time.After(300 * time.Millisecond):
-				w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+				if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`)); err != nil && r.Context().Err() == nil {
+					t.Errorf("write delayed fixture response: %v", err)
+				}
 			case <-r.Context().Done():
 			}
 		}))
@@ -509,11 +522,18 @@ func TestNativeContextPrecedence(t *testing.T) {
 		srv := newNativeServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			rc := nethttp.NewResponseController(w)
-			rc.Flush()
+			if err := rc.Flush(); err != nil {
+				if r.Context().Err() == nil {
+					t.Errorf("flush fixture headers: %v", err)
+				}
+				return
+			}
 			select {
 			case <-time.After(300 * time.Millisecond):
-				w.Write([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"late","data":"0x%s"}}`,
-					strings.Repeat("a", 8192))))
+				if _, err := w.Write([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"late","data":"0x%s"}}`,
+					strings.Repeat("a", 8192)))); err != nil && r.Context().Err() == nil {
+					t.Errorf("write delayed fixture response: %v", err)
+				}
 			case <-r.Context().Done():
 			}
 		}))
@@ -539,7 +559,10 @@ func TestNativeConcurrentCalls(t *testing.T) {
 		var parsed struct {
 			ID json.RawMessage `json:"id"`
 		}
-		json.Unmarshal(req.Body, &parsed)
+		if err := json.Unmarshal(req.Body, &parsed); err != nil {
+			t.Errorf("decode fixture request: %v", err)
+			return nil
+		}
 		return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"0x1"}`, parsed.ID))
 	})
 	tr := dialNative(t, srv.srv.URL, 0)
@@ -567,7 +590,9 @@ func TestNativeConcurrentCalls(t *testing.T) {
 		var parsed struct {
 			ID json.RawMessage `json:"id"`
 		}
-		json.Unmarshal(req.Body, &parsed)
+		if err := json.Unmarshal(req.Body, &parsed); err != nil {
+			t.Fatalf("decode recorded request: %v", err)
+		}
 		if seen[string(parsed.ID)] {
 			t.Fatalf("request %d repeats id %s", i, parsed.ID)
 		}
@@ -582,7 +607,10 @@ func TestNativeConnectionReuse(t *testing.T) {
 		var parsed struct {
 			ID json.RawMessage `json:"id"`
 		}
-		json.Unmarshal(req.Body, &parsed)
+		if err := json.Unmarshal(req.Body, &parsed); err != nil {
+			t.Errorf("decode fixture request: %v", err)
+			return nil
+		}
 		return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"0x1"}`, parsed.ID))
 	})
 	tr := dialNative(t, srv.srv.URL, 0)
@@ -609,7 +637,9 @@ func TestNativeClose(t *testing.T) {
 		once.Do(func() { close(started) })
 		time.Sleep(100 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`))
+		if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x2a"}`)); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	tr := dialNative(t, srv.URL, 0)
@@ -617,7 +647,7 @@ func TestNativeClose(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() {
 		var raw json.RawMessage
-		errCh <- tr.CallContext(context.Background(), &raw, "eth_chainId")
+		errCh <- tr.Call(context.Background(), "eth_chainId").Decode(&raw)
 	}()
 	<-started
 	// Idempotent: a double close must not panic.
@@ -627,7 +657,7 @@ func TestNativeClose(t *testing.T) {
 		t.Fatalf("in-flight call failed after Close: %v", err)
 	}
 	var raw json.RawMessage
-	if err := tr.CallContext(context.Background(), &raw, "eth_chainId"); !errors.Is(err, ErrTransportClosed) {
+	if err := tr.Call(context.Background(), "eth_chainId").Decode(&raw); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("post-close err = %v, want ErrTransportClosed", err)
 	}
 }
@@ -650,10 +680,17 @@ func TestNativeHTTPStatusContextPrecedence(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tc.status)
 				rc := nethttp.NewResponseController(w)
-				rc.Flush()
+				if err := rc.Flush(); err != nil {
+					if r.Context().Err() == nil {
+						t.Errorf("flush fixture headers: %v", err)
+					}
+					return
+				}
 				select {
 				case <-time.After(300 * time.Millisecond):
-					w.Write([]byte(`{"error":"late"}`))
+					if _, err := w.Write([]byte(`{"error":"late"}`)); err != nil && r.Context().Err() == nil {
+						t.Errorf("write delayed fixture response: %v", err)
+					}
 				case <-r.Context().Done():
 				}
 			}))
@@ -676,10 +713,17 @@ func TestNativeHTTPStatusContextPrecedence(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tc.status)
 				rc := nethttp.NewResponseController(w)
-				rc.Flush()
+				if err := rc.Flush(); err != nil {
+					if r.Context().Err() == nil {
+						t.Errorf("flush fixture headers: %v", err)
+					}
+					return
+				}
 				select {
 				case <-time.After(300 * time.Millisecond):
-					w.Write([]byte(`{"error":"late"}`))
+					if _, err := w.Write([]byte(`{"error":"late"}`)); err != nil && r.Context().Err() == nil {
+						t.Errorf("write delayed fixture response: %v", err)
+					}
 				case <-r.Context().Done():
 				}
 			}))
@@ -800,7 +844,7 @@ func TestNewTransportSurvivesReplacedDefaultTransport(t *testing.T) {
 	})
 	tr := newTransport(srv.URL, 1<<20)
 	var result json.RawMessage
-	if err := tr.CallContext(context.Background(), &result, "eth_blockNumber"); err != nil {
+	if err := tr.Call(context.Background(), "eth_blockNumber").Decode(&result); err != nil {
 		t.Fatalf("dial with a replaced global transport must not panic and must serve the call: %v", err)
 	}
 	if len(result) == 0 {
@@ -815,16 +859,20 @@ func (f roundTripperFunc) RoundTrip(r *nethttp.Request) (*nethttp.Response, erro
 	return f(r)
 }
 
-// TestCallContextRefusesRedirect pins the one-call-one-request contract:
+// TestCallRefusesRedirect pins the one-call-one-request contract:
 // a 3xx must be left to the status classification instead of being followed,
 // because the redirect's second hop is a body-less GET to an origin that is
 // not the configured source. The redirected endpoint's 200 answer must never
 // enter corroboration as this source's observation.
-func TestCallContextRefusesRedirect(t *testing.T) {
+func TestCallRefusesRedirect(t *testing.T) {
 	var secondMethod, secondBody string
 	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/final" {
-			body, _ := io.ReadAll(r.Body)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read fixture request: %v", err)
+				return
+			}
 			secondMethod, secondBody = r.Method, string(body)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"redirected-answer"}`))
@@ -836,7 +884,7 @@ func TestCallContextRefusesRedirect(t *testing.T) {
 
 	tr := newTransport(srv.URL, 1<<20)
 	var result json.RawMessage
-	err := tr.CallContext(context.Background(), &result, "eth_blockNumber")
+	err := tr.Call(context.Background(), "eth_blockNumber").Decode(&result)
 	if err == nil {
 		t.Fatalf("redirected response accepted as this source's observation: %s", result)
 	}

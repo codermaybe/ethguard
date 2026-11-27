@@ -251,3 +251,34 @@ func TestComparisonMarshalRejectsInconsistentReport(t *testing.T) {
 		t.Fatal("Marshal accepted repeatable code mismatch")
 	}
 }
+
+func TestCompareIncludesSourceDispositions(t *testing.T) {
+	manifestBytes, reportBytes := compareExample(t)
+	baseline := mutateReport(t, reportBytes, func(report *Report) {
+		step := compareReportStep(t, report, "reference.finalized-balance")
+		step.Decision.Support = step.Decision.Support[:2]
+		step.Decision.Sources[2].Relation = "unassessed"
+		step.Reference.Support = step.Reference.Support[:2]
+		step.Reference.Sources[2].Relation = "unassessed"
+	})
+	changed := mutateReport(t, baseline, func(report *Report) {
+		step := compareReportStep(t, report, "reference.finalized-balance")
+		step.Decision.Sources[2].Relation = "excluded"
+		step.Reference.Sources[2].Relation = "absent"
+		step.Reference.Sources[2].Attempted = false
+	})
+	comparison, err := CompareReports(manifestBytes, baseline, changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if comparison.Classification != DiffProviderFluctuation || !comparison.Repeatable || len(comparison.Differences) != 2 {
+		t.Fatalf("source changes lost or misclassified: %+v", comparison)
+	}
+	fields := make(map[string]bool)
+	for _, difference := range comparison.Differences {
+		fields[difference.Field] = true
+	}
+	if !fields["decision.sources"] || !fields["reference.sources"] {
+		t.Fatalf("missing source comparisons: %+v", comparison.Differences)
+	}
+}

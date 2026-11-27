@@ -33,6 +33,21 @@ func Validate(raw []byte) error {
 	if int64(len(raw)) > MaxBodyBytes {
 		return ErrTooLarge
 	}
+	// A valid root scalar cannot contain object keys or nested containers.
+	// Keep syntax and early rejection with the standard library, and preserve
+	// the original decoder's error type, details, and ordering on any failure.
+	for _, c := range raw {
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+			continue
+		}
+		switch c {
+		case '"', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 't', 'f', 'n':
+			if json.Valid(raw) {
+				return nil
+			}
+		}
+		break
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := walk(decoder, 0); err != nil {

@@ -33,10 +33,10 @@ func TestReceiptSpellingsShareOneCanonicalValue(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decision.Status != rpc.Corroborated || !bytes.Contains(decision.Value, []byte(`"from"`)) {
-			t.Fatalf("decision = %s status %v", decision.Value, decision.Status)
+		if decision.Decision.Status != rpc.Corroborated || !bytes.Contains(decision.Decision.Value, []byte(`"from"`)) {
+			t.Fatalf("decision = %s status %v", decision.Decision.Value, decision.Decision.Status)
 		}
-		return decision
+		return decision.Decision
 	}
 	forward := resolve([]rpc.Observation{first, second})
 	backward := resolve([]rpc.Observation{second, first})
@@ -59,7 +59,7 @@ func TestReceiptFromDisagreementSplitsTheCluster(t *testing.T) {
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, string(raw), ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, string(other), ""),
 	})
-	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown {
+	if !errors.Is(err, rpc.ErrConflict) || decision.Decision.Status != rpc.Unknown {
 		t.Fatalf("from disagreement was accepted: decision=%+v err=%v", decision, err)
 	}
 }
@@ -78,11 +78,11 @@ func TestReceiptMissingLogsStaysInTheDenominator(t *testing.T) {
 	if !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("err = %v, want the floor to hold against the unreduced denominator", err)
 	}
-	if decision.Status != rpc.Unknown || len(decision.Support) != 2 {
-		t.Fatalf("status %v support %d", decision.Status, len(decision.Support))
+	if decision.Decision.Status != rpc.Unknown || len(decision.Decision.Support) != 2 {
+		t.Fatalf("status %v support %d", decision.Decision.Status, len(decision.Decision.Support))
 	}
-	if len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), "encode:") {
-		t.Fatalf("faults = %v", decision.Faults)
+	if len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "encode:") {
+		t.Fatalf("faults = %v", decision.Decision.Faults)
 	}
 }
 
@@ -92,8 +92,8 @@ func TestReceiptNullEncodesAsNull(t *testing.T) {
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, `null`, ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, `null`, ""),
 	})
-	if err != nil || string(decision.Value) != "null" || decision.Status != rpc.Corroborated {
-		t.Fatalf("null = %s status %v err %v", decision.Value, decision.Status, err)
+	if err != nil || string(decision.Decision.Value) != "null" || decision.Decision.Status != rpc.Corroborated {
+		t.Fatalf("null = %s status %v err %v", decision.Decision.Value, decision.Decision.Status, err)
 	}
 }
 
@@ -114,11 +114,11 @@ func TestReceiptCanonicalBytesDisagreeWithinCluster(t *testing.T) {
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, string(marked), ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, string(body), ""),
 	})
-	if !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
+	if !errors.Is(err, rpc.ErrInvalidCanonicalResult) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
 		t.Fatalf("err = %v", err)
 	}
-	if decision.Status != rpc.Unknown || len(decision.Value) != 0 {
-		t.Fatalf("decision = %s status %v", decision.Value, decision.Status)
+	if decision.Decision.Status != rpc.Unknown || len(decision.Decision.Value) != 0 {
+		t.Fatalf("decision = %s status %v", decision.Decision.Value, decision.Decision.Status)
 	}
 }
 
@@ -281,7 +281,7 @@ func benchmarkReceipt(b *testing.B) json.RawMessage {
 
 func TestReceiptEncodingOptionalFieldsAndStatusRoot(t *testing.T) {
 	raw := sampleReceipt(t)
-	for _, name := range []string{"contractAddress", "to", "blobGasUsed", "blobGasPrice", "effectiveGasPrice", "type"} {
+	for _, name := range []string{"contractAddress", "to", "blobGasUsed", "blobGasPrice", "type"} {
 		t.Run(name, func(t *testing.T) {
 			missing := deleteReceiptField(t, raw, name)
 			encoded, err := receiptobj.Encode(missing)
@@ -292,11 +292,12 @@ func TestReceiptEncodingOptionalFieldsAndStatusRoot(t *testing.T) {
 				t.Fatalf("missing optional entered Value: %s", encoded)
 			}
 			encoded, err = receiptobj.Encode(replaceReceiptField(t, missing, name, "null"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if bytes.Contains(encoded, []byte(`"`+name+`"`)) {
-				t.Fatalf("null optional entered Value: %s", encoded)
+			if name == "contractAddress" || name == "to" {
+				if err != nil || !bytes.Contains(encoded, []byte(`"`+name+`":null`)) {
+					t.Fatalf("nullable address lost: %s, %v", encoded, err)
+				}
+			} else if err == nil {
+				t.Fatalf("nonnullable %s accepted null: %s", name, encoded)
 			}
 		})
 	}
@@ -305,8 +306,8 @@ func TestReceiptEncodingOptionalFieldsAndStatusRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(encoded, []byte(`"root"`)) || !bytes.Contains(encoded, []byte(`"status"`)) {
-		t.Fatalf("status priority = %s", encoded)
+	if !bytes.Contains(encoded, []byte(`"root"`)) || !bytes.Contains(encoded, []byte(`"status"`)) {
+		t.Fatalf("both status and root must survive: %s", encoded)
 	}
 	rootOnly := deleteReceiptField(t, both, "status")
 	encoded, err = receiptobj.Encode(rootOnly)
@@ -327,7 +328,7 @@ func TestReceiptBloomMismatchIsEncodeFault(t *testing.T) {
 	decision, err := policy.(rpc.CorroboratingPolicy).ResolveCorroborated(rpc.Corroboration{Floor: 1}, []rpc.Observation{
 		observation(rpc.SourceRef{ID: "a"}, string(raw), ""),
 	})
-	if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), "logsBloom disagrees with logs") {
+	if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Decision.Status != rpc.Unknown || len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "logsBloom disagrees with logs") {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
 }

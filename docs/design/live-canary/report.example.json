@@ -34,6 +34,23 @@
           "node-02",
           "node-03"
         ],
+        "sources": [
+          {
+            "source_id": "node-01",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-02",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-03",
+            "attempted": true,
+            "relation": "supported"
+          }
+        ],
         "support": [
           "node-01",
           "node-02",
@@ -92,6 +109,23 @@
           "node-02",
           "node-03"
         ],
+        "sources": [
+          {
+            "source_id": "node-01",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-02",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-03",
+            "attempted": true,
+            "relation": "supported"
+          }
+        ],
         "support": [
           "node-01",
           "node-02",
@@ -110,6 +144,23 @@
           "node-01",
           "node-02",
           "node-03"
+        ],
+        "sources": [
+          {
+            "source_id": "node-01",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-02",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-03",
+            "attempted": true,
+            "relation": "supported"
+          }
         ],
         "support": [
           "node-01",
@@ -166,6 +217,23 @@
           "node-01",
           "node-02",
           "node-03"
+        ],
+        "sources": [
+          {
+            "source_id": "node-01",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-02",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-03",
+            "attempted": true,
+            "relation": "supported"
+          }
         ],
         "support": [
           "node-01",
@@ -235,6 +303,23 @@
           "node-02",
           "node-03"
         ],
+        "sources": [
+          {
+            "source_id": "node-01",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-02",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-03",
+            "attempted": true,
+            "relation": "supported"
+          }
+        ],
         "support": [
           "node-01",
           "node-02",
@@ -253,6 +338,23 @@
           "node-01",
           "node-02",
           "node-03"
+        ],
+        "sources": [
+          {
+            "source_id": "node-01",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-02",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-03",
+            "attempted": true,
+            "relation": "dissented"
+          }
         ],
         "support": [
           "node-01",
@@ -342,6 +444,23 @@
           "node-01",
           "node-02",
           "node-03"
+        ],
+        "sources": [
+          {
+            "source_id": "node-01",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-02",
+            "attempted": true,
+            "relation": "supported"
+          },
+          {
+            "source_id": "node-03",
+            "attempted": true,
+            "relation": "supported"
+          }
         ],
         "support": [
           "node-01",

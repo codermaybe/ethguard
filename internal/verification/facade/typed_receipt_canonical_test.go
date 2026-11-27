@@ -9,9 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
-
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
@@ -56,7 +54,7 @@ func TestCanonicalReceiptLogTimestampThroughAdapter(t *testing.T) {
 	} {
 		t.Run(timestamp.name, func(t *testing.T) {
 			client, nodes := fleet(t, 3)
-			hash := common.HexToHash("0x" + strings.Repeat("ab", 32))
+			hash := ethapi.Hash("0x" + strings.Repeat("ab", 32))
 			raw := receiptLogField(t, fixtureReceipt(t, hash, 16), "blockTimestamp", timestamp.raw)
 			for _, node := range nodes {
 				node.Return(methods.MethodGetTransactionReceipt, raw)
@@ -67,10 +65,17 @@ func TestCanonicalReceiptLogTimestampThroughAdapter(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.Logs[0].BlockTimestamp != timestamp.want {
-				t.Fatalf("timestamp = %d", result.Logs[0].BlockTimestamp)
+			var gotTimestamp uint64
+			if result.Logs[0].BlockTimestamp != nil {
+				gotTimestamp, err = rpc.ParseHexQuantity(string(*result.Logs[0].BlockTimestamp))
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
-			decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
+			if gotTimestamp != timestamp.want {
+				t.Fatalf("timestamp = %d", gotTimestamp)
+			}
+			decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, string(hash)))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -87,7 +92,7 @@ func TestCanonicalReceiptLogTimestampThroughAdapter(t *testing.T) {
 
 func TestCanonicalReceiptTimestampDisagreementIsConflict(t *testing.T) {
 	client, nodes := fleet(t, 2)
-	hash := common.HexToHash("0x" + strings.Repeat("ab", 32))
+	hash := ethapi.Hash("0x" + strings.Repeat("ab", 32))
 	for i, node := range nodes {
 		timestamp := json.RawMessage(`"0x1"`)
 		if i == 1 {
@@ -97,7 +102,7 @@ func TestCanonicalReceiptTimestampDisagreementIsConflict(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
+	decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, string(hash)))
 	if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 1 || len(decision.Reject) != 1 {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
@@ -135,7 +140,7 @@ func TestCanonicalReceiptRemovedCannotDefaultFromNull(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client, nodes := fleet(t, 3)
-			hash := common.HexToHash("0x" + strings.Repeat("ab", 32))
+			hash := ethapi.Hash("0x" + strings.Repeat("ab", 32))
 			raw := receiptLogField(t, fixtureReceipt(t, hash, 16), "removed", test.raw)
 			for _, node := range nodes {
 				node.Return(methods.MethodGetTransactionReceipt, raw)
@@ -144,16 +149,16 @@ func TestCanonicalReceiptRemovedCannotDefaultFromNull(t *testing.T) {
 			defer cancel()
 			result, _, err := client.TransactionReceipt(ctx, hash)
 			if test.valid {
-				if err != nil || result.Logs[0].Removed {
+				if err != nil || result.Logs[0].Removed == nil || *result.Logs[0].Removed {
 					t.Fatalf("result = %+v err %v", result, err)
 				}
 				return
 			}
-			if !errors.Is(err, rpc.ErrNoValidResponse) {
+			if !errors.Is(err, rpc.ErrMalformedResponse) {
 				t.Fatalf("err = %v", err)
 			}
-			decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, hash.Hex()))
-			if !errors.Is(err, rpc.ErrNoValidResponse) || decision.Status != rpc.Unknown || len(decision.Support) != 0 || len(decision.Faults) != 3 {
+			decision, err := callDecision(client.Call(ctx, methods.MethodGetTransactionReceipt, string(hash)))
+			if !errors.Is(err, rpc.ErrMalformedResponse) || decision.Status != rpc.Unknown || len(decision.Support) != 0 || len(decision.Faults) != 3 {
 				t.Fatalf("decision = %+v err %v", decision, err)
 			}
 		})
@@ -162,7 +167,7 @@ func TestCanonicalReceiptRemovedCannotDefaultFromNull(t *testing.T) {
 
 func TestCanonicalBlockReceiptsThroughAdapter(t *testing.T) {
 	client, nodes := fleet(t, 3)
-	hash := common.HexToHash("0x" + strings.Repeat("ab", 32))
+	hash := ethapi.Hash("0x" + strings.Repeat("ab", 32))
 	raw := receiptLogField(t, fixtureReceipt(t, hash, 16), "blockTimestamp", json.RawMessage(`"0xAB"`))
 	for i, node := range nodes {
 		var obj map[string]json.RawMessage
@@ -182,11 +187,15 @@ func TestCanonicalBlockReceiptsThroughAdapter(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
+	result, _, err := client.BlockReceipts(ctx, numberRef(t, 16))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result) != 1 || result[0].TxHash != hash || result[0].Logs[0].BlockTimestamp != 171 {
+	if len(result) != 1 || result[0].TransactionHash != hash || result[0].Logs[0].BlockTimestamp == nil {
+		t.Fatalf("result = %+v", result)
+	}
+	ts, tsErr := rpc.ParseHexQuantity(string(*result[0].Logs[0].BlockTimestamp))
+	if tsErr != nil || ts != 171 {
 		t.Fatalf("result = %+v", result)
 	}
 	decision, err := callDecision(client.Call(ctx, methods.MethodGetBlockReceipts, "0x10"))
@@ -202,7 +211,7 @@ func TestCanonicalBlockReceiptsBadElementKeepsDenominator(t *testing.T) {
 	for _, badKind := range []string{"null", "missing-logs", "null-removed"} {
 		t.Run(badKind, func(t *testing.T) {
 			client, nodes := fleet(t, 4)
-			hash := common.HexToHash("0x" + strings.Repeat("ab", 32))
+			hash := ethapi.Hash("0x" + strings.Repeat("ab", 32))
 			good := fixtureReceipt(t, hash, 16)
 			var other map[string]json.RawMessage
 			if err := json.Unmarshal(good, &other); err != nil {
@@ -233,9 +242,6 @@ func TestCanonicalBlockReceiptsBadElementKeepsDenominator(t *testing.T) {
 			if !errors.Is(err, rpc.ErrConflict) || decision.Status != rpc.Unknown || len(decision.Support) != 2 || len(decision.Reject) != 1 || len(decision.Faults) != 1 {
 				t.Fatalf("decision = %+v err %v", decision, err)
 			}
-			if badKind == "null-removed" && !strings.Contains(decision.Faults[0].Error(), "encode:") {
-				t.Fatalf("fault = %v", decision.Faults)
-			}
 		})
 	}
 }
@@ -244,7 +250,7 @@ func TestCanonicalReceiptsAcceptProtectedStringEscapes(t *testing.T) {
 	for _, method := range []string{methods.MethodGetTransactionReceipt, methods.MethodGetBlockReceipts} {
 		t.Run(method, func(t *testing.T) {
 			client, nodes := fleet(t, 3)
-			hash := common.HexToHash("0x" + strings.Repeat("ab", 32))
+			hash := ethapi.Hash("0x" + strings.Repeat("ab", 32))
 			raw := fixtureReceipt(t, hash, 16)
 			// Escape every protected hex string: hash, quantity, log data, and bloom.
 			escaped := json.RawMessage(strings.ReplaceAll(string(raw), `"0x`, `"\u0030x`))
@@ -262,17 +268,17 @@ func TestCanonicalReceiptsAcceptProtectedStringEscapes(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if method == methods.MethodGetBlockReceipts {
-				result, _, err := client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(16))
-				if err != nil || len(result) != 1 || result[0].TxHash != hash || !bytes.Equal(result[0].Logs[0].Data, []byte{1, 2}) {
+				result, _, err := client.BlockReceipts(ctx, numberRef(t, 16))
+				if err != nil || len(result) != 1 || result[0].TransactionHash != hash || result[0].Logs[0].Data == nil || string(*result[0].Logs[0].Data) != "0x0102" {
 					t.Fatalf("result = %+v err %v", result, err)
 				}
 			} else {
 				result, _, err := client.TransactionReceipt(ctx, hash)
-				if err != nil || result.TxHash != hash || !bytes.Equal(result.Logs[0].Data, []byte{1, 2}) {
+				if err != nil || result.TransactionHash != hash || result.Logs[0].Data == nil || string(*result.Logs[0].Data) != "0x0102" {
 					t.Fatalf("result = %+v err %v", result, err)
 				}
 			}
-			ref := hash.Hex()
+			ref := string(hash)
 			if method == methods.MethodGetBlockReceipts {
 				ref = "0x10"
 			}

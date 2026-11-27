@@ -55,7 +55,9 @@ func TestAnchorBlockHashForTagKeepsTagLevels(t *testing.T) {
 				continue
 			}
 			var tag string
-			json.Unmarshal(c.Params[0], &tag)
+			if err := json.Unmarshal(c.Params[0], &tag); err != nil {
+				t.Fatalf("decode recorded request: %v", err)
+			}
 			seen[tag] = true
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
@@ -24,6 +26,106 @@ import (
 func TestBlockReceiptTxBatchMatchesExpect(t *testing.T) {
 	if err := matchCapturedExpect(t, "block-receipt-tx"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// These four digest changes are audited against unchanged archived sources,
+// not copied from a newly recorded replay. Complete official values retain
+// source size and omit the old geth encoder's fabricated optional null. The
+// filled block additionally adopts the official generated withdrawal field
+// order; every original field and array element remains semantically equal.
+func TestCapturedBlockValueDigestMigrationPreservesSourceDeclarations(t *testing.T) {
+	type transition struct{ before, after, size string }
+	empty := transition{"0a65860908f65abc926bc32d4289c763d9fab9893a3cca979323254f7a9ea9ef", "5ec66c86bdefe6b32c0fd609e6f9ea5d1b9c276da3f2d872bae6865431192a59", "0x219"}
+	filled := transition{"2707926ac8920dcb7a80d4c26eb3acc0d90b819a90ff08817208ac36cf121f88", "8808768e9b156a65121d3a495076d212c88192650a46a21b0610346d84107f5b", "0x20311"}
+	transitions := map[string]transition{"block-empty-hash": empty, "block-empty-number": empty, "block-filled-hash": filled, "block-filled-number": filled}
+	_, records, err := replay.LoadBatch(batchDir("block-receipt-tx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := map[string]int{}
+	for _, record := range records {
+		want, ok := transitions[record.RequestID]
+		if !ok {
+			continue
+		}
+		t.Run(record.RequestID+"/"+record.Source.ID, func(t *testing.T) {
+			observation := observationFromRecord(t, record)
+			if observation.Response.Err() != nil {
+				t.Fatal(observation.Response.Err())
+			}
+			plan, err := methods.PlanFor(record.Method)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decision, err := plan.Resolver.Resolve([]rpc.Observation{observation})
+			if err != nil || decision.Decision.Status != rpc.Selected || len(decision.Decision.Value) == 0 {
+				t.Fatalf("source cannot produce a valid value: %s, %v", decision.Decision.Status, err)
+			}
+			model, err := ethapi.NewBlock(decision.Decision.Value)
+			if err != nil {
+				t.Fatalf("value violates complete official Block: %v", err)
+			}
+			if string(model.Size) != want.size {
+				t.Fatalf("size=%s want %s", model.Size, want.size)
+			}
+			// This independent source oracle canonicalizes JSON without the generated
+			// model, object encoder, or comparison normalizer. No captured source
+			// member can disappear or change its value behind the new digest.
+			independent := canonicalJSON(t, observation.Response.Answer.Result)
+			if string(decision.Decision.Value) != independent {
+				t.Fatalf("canonical value differs from complete original declarations")
+			}
+			if got := capturedValueSHA256(record.Method, decision.Decision.Value); got != want.after {
+				t.Fatalf("new digest=%s want=%s", got, want.after)
+			}
+			var historical map[string]json.RawMessage
+			if err := json.Unmarshal(observation.Response.Answer.Result,
+				&historical); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := historical["blockAccessListHash"]; exists {
+				t.Fatal("archived source now declares blockAccessListHash; review transition")
+			}
+			delete(historical, "size")
+			historical["blockAccessListHash"] = json.RawMessage(`null`)
+			if raw, exists := historical["withdrawals"]; exists {
+				var source []map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &source); err != nil {
+					t.Fatal(err)
+				}
+				// The retired geth withdrawal encoder used this fixed field order.
+				type oldWithdrawal struct {
+					Index          json.RawMessage `json:"index"`
+					ValidatorIndex json.RawMessage `json:"validatorIndex"`
+					Address        json.RawMessage `json:"address"`
+					Amount         json.RawMessage `json:"amount"`
+				}
+				old := make([]oldWithdrawal, len(source))
+				for i, entry := range source {
+					old[i] = oldWithdrawal{entry["index"], entry["validatorIndex"], entry["address"], entry["amount"]}
+				}
+				encoded, err := json.Marshal(old)
+				if err != nil {
+					t.Fatal(err)
+				}
+				historical["withdrawals"] = encoded
+			}
+			before, err := json.Marshal(historical)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := capturedValueSHA256(record.Method, before); got != want.before {
+				t.Fatalf("historical digest=%s want=%s; transition changed beyond reviewed size/null/order", got, want.before)
+			}
+			t.Logf("unchanged archived source: %s -> %s; size %s retained, synthetic optional null removed, withdrawal fields ordered", want.before, want.after, want.size)
+			checked[record.RequestID]++
+		})
+	}
+	for id := range transitions {
+		if checked[id] != 2 {
+			t.Fatalf("%s checked %d archived sources, want 2", id, checked[id])
+		}
 	}
 }
 
@@ -146,6 +248,7 @@ func TestRegisteredMethodSampleStatus(t *testing.T) {
 	// absence explicit until a real provider capture is recorded; synthetic
 	// payloads must not be presented as live evidence.
 	noCapture := map[string]bool{
+		methods.MethodSimulateV1:                        true,
 		methods.MethodGetBlockTransactionCountByHash:    true,
 		methods.MethodGetBlockTransactionCountByNumber:  true,
 		methods.MethodGetTransactionByBlockHashAndIndex: true,
@@ -403,9 +506,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 		if wantMethod, wantParams, err := replay.PreparedBusinessRequest(*entry); err != nil {
 			return expectCase{}, fmt.Errorf("%s reference context: %w", id, err)
 		} else if canonicalAny(prepared.Params) != canonicalParamBytes(t, wantParams) {
-			return expectCase{}, fmt.Errorf(
-				"%s recomputed prepared request %s diverges from the expected reference %s",
-				id, canonicalAny(prepared.Params), wantParams)
+			return expectCase{}, fmt.Errorf("%s recomputed prepared request %s diverges from the expected reference %s", id, canonicalAny(prepared.Params), wantParams)
 		} else if wantMethod != method {
 			return expectCase{}, fmt.Errorf("%s prepared method %s, record %s", id, prepared.Method, method)
 		}
@@ -439,7 +540,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	policyDecision, policyErr := resolveCaptured(plan, prepared, prepErr, snap, obs)
 
 	aggDecision, aggErr := agg.Aggregate(ctx, req)
-	if policyDecision.Status != aggDecision.Status || decisionError(policyErr) != decisionError(aggErr) {
+	if policyDecision.Status != aggDecision.Status || policyDecision.Adjudication.Reason != aggDecision.Adjudication.Reason || decisionError(policyErr) != decisionError(aggErr) {
 		return expectCase{}, fmt.Errorf("%s policy %s/%s aggregator %s/%s", id, policyDecision.Status, decisionError(policyErr), aggDecision.Status, decisionError(aggErr))
 	}
 	if !sameCapturedValue(t, policyDecision.Value, aggDecision.Value) {
@@ -448,16 +549,17 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	if strings.Join(namesOf(policyDecision.Support), ",") != strings.Join(namesOf(aggDecision.Support), ",") || strings.Join(namesOf(policyDecision.Reject), ",") != strings.Join(namesOf(aggDecision.Reject), ",") {
 		return expectCase{}, fmt.Errorf("%s support/reject diverged: policy %v/%v aggregator %v/%v", id, namesOf(policyDecision.Support), namesOf(policyDecision.Reject), namesOf(aggDecision.Support), namesOf(aggDecision.Reject))
 	}
-	// The aggregator keeps resolver faults and also appends one source fault
-	// for every unusable answer (transport, rejected protocol error). The
-	// two layers still have to agree on that sum; a missing or doubled
-	// fault fails the case.
-	unusable := 0
 	if prepErr == nil {
-		unusable = unusableAnswers(policy, obs)
-	}
-	if len(aggDecision.Faults) != len(policyDecision.Faults)+unusable {
-		return expectCase{}, fmt.Errorf("%s faults policy %d aggregator %d unusable %d", id, len(policyDecision.Faults), len(aggDecision.Faults), unusable)
+		if err := compareReplaySources(policyDecision, aggDecision); err != nil {
+			return expectCase{}, fmt.Errorf("%s: %w", id, err)
+		}
+	} else if len(policyDecision.Sources) != 0 || len(aggDecision.Sources) != 0 ||
+		aggDecision.Adjudication.Reason != rpc.ReasonUnassessed || len(aggDecision.Adjudication.Candidates) != 0 ||
+		aggDecision.Adjudication.Basis != len(group) || len(aggDecision.SourceFaults) != 0 {
+		// Preparation failed before the policy ran: its zero Basis is not a
+		// resolution contract. The coordinator already froze its membership,
+		// but must not invent source answers or a formed adjudication.
+		return expectCase{}, fmt.Errorf("%s prepare failure invented source evidence: %+v", id, aggDecision)
 	}
 	if strings.Join(policyDecision.DeletedFields, ",") != strings.Join(aggDecision.DeletedFields, ",") || !sameDimensions(policyDecision.Dimensions, aggDecision.Dimensions) {
 		return expectCase{}, fmt.Errorf("%s projection diverged", id)
@@ -483,6 +585,10 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	if err := replayValueAgrees(t, policy, policyDecision, payloads, sources, deleted, true); err != nil {
 		return expectCase{}, fmt.Errorf("%s %w", id, err)
 	}
+	archivedError, err := archivedDecisionError(policyDecision, policyErr)
+	if err != nil {
+		return expectCase{}, fmt.Errorf("%s: %w", id, err)
+	}
 	dims := capturedDimensions(policyDecision, policyErr)
 	return expectCase{
 		RequestID:  id,
@@ -496,7 +602,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 		Projection: expectProjection{Reductive: len(policyDecision.DeletedFields) > 0, DeletedFields: deleted},
 		Decision: expectDecision{
 			Status:         policyDecision.Status.String(),
-			Error:          decisionError(policyErr),
+			Error:          archivedError,
 			Representative: representativeOf(policyDecision, group),
 			ValueSHA256:    capturedValueSHA256(method, policyDecision.Value),
 		},
@@ -511,43 +617,25 @@ func capturedValueSHA256(method string, value json.RawMessage) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func unusableAnswers(policy rpc.Policy, obs []rpc.Observation) int {
-	include := false
-	if provider, ok := policy.(rpc.RPCErrorPolicy); ok {
-		include = provider.IncludeRPCError()
-	}
-	count := 0
-	for _, item := range obs {
-		if item.Err == nil {
-			continue
-		}
-		if item.RPCError != nil && include {
-			if _, err := policy.Normalize(item.RPCError.Raw()); err == nil {
-				continue
-			}
-		}
-		count++
-	}
-	return count
-}
-
 func resolveCaptured(plan rpc.ReadPlan, prepared rpc.Request, prepErr error, snap rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
 	if prepErr != nil {
 		return rpc.Decision{Status: rpc.Unknown}, prepErr
 	}
-	// The plan's pending-local route: a pending shape on a pending-
-	// observation read resolves node-locally, except in Forwarded mode —
-	// the same routing the aggregator's pipeline applies.
-	if plan.Pending.Mode == rpc.PendingObserve && snap.Mode != rpc.CorroborationForwarded &&
-		pendingShapeAt(plan.Pending.Pos, prepared) {
-		return rpc.ResolveLocalObservation(plan.Resolver, obs)
+	var outcome rpc.Outcome
+	var err error
+	// Pending observation and configured corroboration follow the same plan
+	// routing as the aggregator; every route must return a complete Outcome.
+	if plan.Pending.Mode == rpc.PendingObserve && snap.Mode != rpc.CorroborationForwarded && pendingShapeAt(plan.Pending.Pos, prepared) {
+		outcome, err = rpc.ResolveLocalObservation(plan.Resolver, obs)
+	} else if resolver, ok := plan.Resolver.(rpc.CorroboratingPolicy); ok && plan.Corroborating() {
+		outcome, err = resolver.ResolveCorroborated(snap, obs)
+	} else {
+		outcome, err = plan.Resolver.Resolve(obs)
 	}
-	if plan.Corroborating() {
-		if resolver, ok := plan.Resolver.(rpc.CorroboratingPolicy); ok {
-			return resolver.ResolveCorroborated(snap, obs)
-		}
+	if invalid := outcome.Validate(obs); invalid != nil {
+		return outcome.Decision, fmt.Errorf("replay outcome: %w", invalid)
 	}
-	return plan.Resolver.Resolve(obs)
+	return outcome.Decision, err
 }
 
 // pendingShapeAt reports whether the prepared request addresses pending
@@ -568,13 +656,19 @@ func pendingShapeAt(pos int, prepared rpc.Request) bool {
 
 func admitCaptured(t *testing.T, plan rpc.ReadPlan, prepared rpc.Request, item rpc.Observation) rpc.Observation {
 	t.Helper()
-	if item.Err != nil || len(item.Value) == 0 || plan.Admit == nil {
+	if item.Response.Err() != nil || len(item.Response.Answer.Result) == 0 || plan.Admit == nil {
 		return item
 	}
-	if _, err := plan.Admit(context.Background(), prepared, item.Value, refuseCaller(t)); err != nil {
-		item.Err = fmt.Errorf("admission: %w", err)
-		item.Value = nil
-		item.RPCError = nil
+	evidence, err := plan.Admit(context.Background(), prepared, item.Response.Answer.Result, refuseCaller(t))
+	if err != nil {
+		state := rpc.InterpretationRejected
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			state = rpc.InterpretationUnassessed
+		}
+		item.Response.Answer.Interpretation = rpc.Interpretation{State: state, Cause: fmt.Errorf("admission: %w", err)}
+	} else {
+		item.Evidence = evidence
+		item.Response.Answer.Interpretation = rpc.Interpretation{State: rpc.InterpretationAdmitted}
 	}
 	return item
 }
@@ -975,7 +1069,6 @@ func comparableJSONRequest(raw json.RawMessage) (string, error) {
 // Offline block-reference fixture helpers. The synthetic records are in
 // memory only: no captured batch is invented, no test touches the network,
 // and no expected height is injected into any resolver.
-
 type recordSpec struct {
 	requestID string
 	sourceID  string
@@ -1155,5 +1248,28 @@ func TestBlockRefCaseWithoutContextFails(t *testing.T) {
 	_, err := capturedCase(t, replay.BatchMeta{}, records, "majority", 2, records)
 	if err == nil || !strings.Contains(err.Error(), "reference_context") {
 		t.Fatalf("err = %v, want the missing reference_context failure", err)
+	}
+}
+
+func TestCapturedAdmissionRetainsResponse(t *testing.T) {
+	plan, err := methods.PlanFor(methods.MethodGetTransactionReceipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Admit == nil {
+		t.Fatal("receipt plan has no admission hook")
+	}
+	original := rpc.Observation{Attempted: true, Source: rpc.SourceRef{ID: "receipt", Name: "receipt"}, Response: rpc.Response{
+		Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted, HTTPStatus: 200},
+		Answer:   rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`{"status":"0x1"}`)},
+	}}
+	admitted := admitCaptured(t, plan, rpc.Request{Method: methods.MethodGetTransactionReceipt, Params: []any{replayHeadHash}}, original)
+	if admitted.Response.Exchange != original.Response.Exchange || admitted.Response.Answer.Kind != rpc.AnswerResult ||
+		!bytes.Equal(admitted.Response.Answer.Result, original.Response.Answer.Result) ||
+		admitted.Response.Answer.Interpretation.State != rpc.InterpretationRejected || !errors.Is(admitted.Response.Err(), rpc.ErrMalformedResponse) {
+		t.Fatalf("method rejection changed response facts: %+v", admitted)
+	}
+	if err := admitted.Response.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

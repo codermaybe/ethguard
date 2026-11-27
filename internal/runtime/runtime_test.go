@@ -1,12 +1,14 @@
 package runtime
 
 import (
+	stdruntime "runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc/methods"
-	"strings"
 )
 
 func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
@@ -36,16 +38,31 @@ func TestBuildAssemblesRegisteredRuntime(t *testing.T) {
 // bypasses the configuration layer must still fail construction when pool
 // folds spelling variants of one endpoint into fewer members than declared.
 func TestComposeRejectsCollapsedBasis(t *testing.T) {
-	_, err := Compose(Composition{
+	input := Composition{
 		Upstreams: []config.Upstream{
 			{ID: "a", Endpoint: "https://node.example"},
 			{ID: "b", Endpoint: "https://node.example:443"},
 		},
-	})
-	if err == nil {
-		t.Fatal("expected Compose to reject the collapsed basis")
+		TipTracking: &TipTracking{Interval: time.Hour},
 	}
-	if !strings.Contains(err.Error(), "collapsed to 1 pool members") || !strings.Contains(err.Error(), "2 configured upstreams") {
-		t.Fatalf("backstop must name the fold, got %v", err)
+	// Repetition makes leaked sampler goroutines dominate unrelated runtime
+	// activity; the bounded wait accommodates their asynchronous exit.
+	before := stdruntime.NumGoroutine()
+	const attempts = 8
+	for i := 0; i < attempts; i++ {
+		_, err := Compose(input)
+		if err == nil {
+			t.Fatal("expected Compose to reject the collapsed basis")
+		}
+		if !strings.Contains(err.Error(), "collapsed to 1 pool members") || !strings.Contains(err.Error(), "2 configured upstreams") {
+			t.Fatalf("backstop must name the fold, got %v", err)
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for stdruntime.NumGoroutine() > before && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if after := stdruntime.NumGoroutine(); after > before {
+		t.Fatalf("failed Compose leaked goroutines: before=%d after=%d attempts=%d", before, after, attempts)
 	}
 }

@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -36,14 +35,11 @@ func NewCallRevertPolicy(normalize func(json.RawMessage) (string, error), opts .
 }
 
 type callRevertFunc struct {
+	requestPassthrough
 	normalize       func(json.RawMessage) (string, error)
 	fallback        *Corroboration
 	includeRPCError bool
 	encode          CanonicalEncoder
-}
-
-func (p callRevertFunc) Prepare(_ context.Context, req Request) (Request, error) {
-	return req, nil
 }
 
 func (p callRevertFunc) Normalize(value json.RawMessage) (string, error) {
@@ -66,68 +62,35 @@ func (p callRevertFunc) MethodRule() (MethodRule, Policy) {
 }
 
 func (p callRevertFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
-	if p.encode == nil {
-		return nil, ErrNotCanonicalScalar
-	}
-	return p.encode(raw)
+	return encodeCanonicalValue(p.encode, raw)
 }
 
-func (p callRevertFunc) Resolve(obs []Observation) (Decision, error) {
-	if p.fallback != nil {
-		return p.resolve(*p.fallback, false, obs)
-	}
-	return p.resolve(Corroboration{}, true, obs)
-}
-
-func (p callRevertFunc) ResolveCorroborated(c Corroboration, obs []Observation) (Decision, error) {
-	return p.resolve(c, false, obs)
-}
-
-// ResolveOutcome is Resolve with the per-source statement attached. The
-// statement classifies the execution dimension — the dimension that decides
-// whether an answer was usable at all: sources in the winning execution
-// group supported, sources in losing execution groups dissented, and every
-// answer that failed admission unusable. The data dimension's own states are
-// not second-guessed here: its abstentions and assertions stay on the
-// decision's Dimensions, Revert context, and Provenance, which carry exactly
-// which sources abstained (missing/null) and which asserted (0x/concrete
-// data). The outcome is therefore the ordinary Outcome shape at its one
-// well-defined dimension, and consumers project faults from it instead of
-// re-running the generic comparison key as a usability guess.
-func (p callRevertFunc) ResolveOutcome(obs []Observation) (Outcome, error) {
+func (p callRevertFunc) Resolve(obs []Observation) (Outcome, error) {
 	if p.fallback != nil {
 		return p.outcome(*p.fallback, false, obs)
 	}
 	return p.outcome(Corroboration{}, true, obs)
 }
 
-// ResolveOutcomeCorroborated mirrors ResolveCorroborated with the per-source
-// execution statement attached.
-func (p callRevertFunc) ResolveOutcomeCorroborated(c Corroboration, obs []Observation) (Outcome, error) {
+func (p callRevertFunc) ResolveCorroborated(c Corroboration, obs []Observation) (Outcome, error) {
 	return p.outcome(c, false, obs)
-}
-
-func (p callRevertFunc) resolve(c Corroboration, legacy bool, obs []Observation) (Decision, error) {
-	decision, _, err := p.adjudicated(c, legacy, obs)
-	return decision, err
 }
 
 func (p callRevertFunc) outcome(c Corroboration, legacy bool, obs []Observation) (Outcome, error) {
 	decision, verdicts, err := p.adjudicated(c, legacy, obs)
-	return Outcome{Decision: decision, Verdicts: verdicts}, err
+	return completeOutcome(obs, decision, verdicts, err)
 }
 
 // adjudicated is the shared core of every resolution entry: admit, rank the
 // execution groups, decide, and classify each source once.
 func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observation) (Decision, []SourceVerdict, error) {
 	admitted, skipped, err := p.admit(obs)
-	faults := skippedFaults(skipped)
+	var faults []error
 	if err != nil {
-		return Decision{Status: Unknown, Faults: faults}, nil, err
+		return Decision{Status: Unknown, Adjudication: Adjudication{Basis: len(obs), Required: c.Required(len(obs)), Reason: ReasonInternalFailure}, Faults: faults}, verdictsFromClassified(obs, nil, nil, skipped), err
 	}
 	if len(admitted) == 0 {
-		return Decision{Status: Unknown, Faults: faults}, verdictsFromClassified(obs, nil, nil, skipped), fmt.Errorf(
-			"call: no source produced a valid response (%d attempted): %w", len(obs), ErrNoValidResponse)
+		return Decision{Status: Unknown, Adjudication: Adjudication{Basis: len(obs), Required: c.Required(len(obs)), Reason: ReasonNoCandidate}, Faults: faults}, verdictsFromClassified(obs, nil, nil, skipped), noValidResponse("call", len(obs))
 	}
 	ranked := rankCallAnswers(admitted, func(a callAnswer) string { return a.execution })
 	winner := ranked[0]
@@ -143,6 +106,13 @@ func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observat
 		Revert:         cloneRevertContext(rep.revert),
 		Support:        sourcesOf(winner),
 		Reject:         sourcesOf(rejected),
+	}
+	decision.Adjudication = Adjudication{Basis: len(obs), Required: c.Required(len(obs)), Reason: ReasonAccepted}
+	if legacy || c.Mode == CorroborationForwarded {
+		decision.Adjudication.Required = 1
+	}
+	for _, group := range ranked {
+		decision.Adjudication.Candidates = append(decision.Adjudication.Candidates, CandidateGroup{Sources: sourcesOf(group)})
 	}
 	if len(winner) > 0 && winner[0].success && p.encode != nil {
 		canonical := make([]json.RawMessage, len(winner))
@@ -161,13 +131,21 @@ func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observat
 	var failed error
 	switch {
 	case legacy && len(ranked) != 1:
+		decision.Adjudication.Reason = ReasonConflictingCandidates
 		failed = fmt.Errorf("call: %d disagreeing execution values: %w", len(ranked), ErrConflict)
 	case !legacy && c.Mode == CorroborationUnanimity && len(ranked) > 1:
+		decision.Adjudication.Reason = ReasonConflictingCandidates
 		failed = fmt.Errorf("call: %d disagreeing execution values: %w", len(ranked), ErrConflict)
-	case !legacy && len(winner) < c.Required(len(obs)):
-		required := c.Required(len(obs))
-		failed = fmt.Errorf("call: required support %d, winning execution %d of %d voting members: %w",
-			required, len(winner), len(obs), ErrConflict)
+	case !legacy && len(winner) < decision.Adjudication.Required:
+		required := decision.Adjudication.Required
+		cause := ErrInsufficientSupport
+		decision.Adjudication.Reason = ReasonInsufficientSupport
+		if len(ranked) > 1 {
+			cause, decision.Adjudication.Reason = ErrConflict, ReasonConflictingCandidates
+		}
+		failed = fmt.Errorf("call: required support %d, winning execution %d of %d voting members: %w", required, len(winner), len(obs), cause)
+	case c.Mode == CorroborationForwarded:
+		decision.Status = Forwarded
 	case len(winner) == 1:
 		decision.Status = Selected
 	default:
@@ -179,7 +157,8 @@ func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observat
 		}
 		return decision, verdicts, failed
 	}
-	if rep.success || decision.Status == Selected {
+	// Single-source outcomes do not enter the cross-source revert-data projection.
+	if rep.success || decision.Status == Selected || decision.Status == Forwarded {
 		decision.Dimensions = callExecutionDimensions(decision, winner)
 		return decision, verdicts, nil
 	}
@@ -231,19 +210,16 @@ func (p callRevertFunc) admit(obs []Observation) ([]callAnswer, []skippedAnswer,
 	for i, item := range obs {
 		id := item.Source.ID
 		if id == "" {
-			return nil, skipped, fmt.Errorf("call: observation %d has no source identity: %w", i, ErrConflict)
+			return nil, skipped, missingIdentity("call", "observation", i)
 		}
 		if first, dup := seen[id]; dup {
-			return nil, skipped, fmt.Errorf("call: duplicate observation for source %q (first at %d, again at %d): %w", id, first, i, ErrConflict)
+			return nil, skipped, duplicateIdentity("call", "observation", id, first, i)
 		}
 		seen[id] = i
-		value := item.Value
-		if item.Err != nil {
-			if !p.includeRPCError || item.RPCError == nil {
-				skipped = append(skipped, skippedAnswer{source: item.Source, cause: "response", err: item.Err})
-				continue
-			}
-			value = item.RPCError.Raw()
+		value, candidateErr := item.Response.Candidate(p.includeRPCError)
+		if candidateErr != nil {
+			skipped = append(skipped, skippedAnswer{source: item.Source, cause: "response", err: candidateErr})
+			continue
 		}
 		var canonical json.RawMessage
 		if p.encode != nil {

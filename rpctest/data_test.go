@@ -55,11 +55,16 @@ func TestFailOmitsDataField(t *testing.T) {
 
 func postJSON(t *testing.T, url, payload string) string {
 	t.Helper()
-	resp, err := http.Post(url, "application/json", bytes.NewReader([]byte(payload)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, bytes.NewReader([]byte(payload)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // Read-only fixture response; ReadAll owns data errors.
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)

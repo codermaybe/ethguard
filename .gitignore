@@ -1,5 +1,5 @@
-docs/design/tmp
-
+# Local scratch documents, stage plans, audit notes and logs. Never force-add.
+/docs/tmp/
 # local build artifacts (go build -o <name> dropped in the repo root)
 /soak
 /nativesmoke
@@ -10,3 +10,7 @@ docs/design/tmp
 /wsscapture
 /livecanary
 /ethguard
+
+# GoReleaser output and archived release-candidate evidence.
+/dist/
+/release-evidence/

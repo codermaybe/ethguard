@@ -30,7 +30,7 @@ import (
 
 // startRawServer serves one connection per request: the handler hijacks the
 // connection and hands the exact wire to the script.
-func startRawServer(t *testing.T, serve func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn)) *httptest.Server {
+func startRawServer(t testing.TB, serve func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn)) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hijacker, ok := w.(http.Hijacker)
@@ -43,7 +43,7 @@ func startRawServer(t *testing.T, serve func(t *testing.T, r *http.Request, rw *
 			t.Errorf("hijack: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 		serve(t, r, rw, conn)
 	}))
 	t.Cleanup(srv.Close)
@@ -57,7 +57,7 @@ func wsURL(srv *httptest.Server) string {
 
 // writeUpgradeAccept answers a client handshake with a valid 101, optionally
 // followed by extra raw header lines the script controls.
-func writeUpgradeAccept(t *testing.T, rw *bufio.ReadWriter, r *http.Request, extra ...string) {
+func writeUpgradeAccept(t testing.TB, rw *bufio.ReadWriter, r *http.Request, extra ...string) {
 	t.Helper()
 	key := r.Header.Get("Sec-WebSocket-Key")
 	if key == "" {
@@ -139,7 +139,7 @@ func testAuthority(t *testing.T, leafDNS []string) (tls.Certificate, *x509.CertP
 
 // startTLSServer serves the hijack protocol over TLS with the given
 // certificate.
-func startTLSServer(t *testing.T, cert tls.Certificate, serve func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn)) *httptest.Server {
+func startTLSServer(t *testing.T, cert tls.Certificate, serve func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn)) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hijacker, ok := w.(http.Hijacker)
@@ -152,7 +152,7 @@ func startTLSServer(t *testing.T, cert tls.Certificate, serve func(t *testing.T,
 			t.Errorf("hijack: %v", err)
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 		serve(t, r, rw, conn)
 	}))
 	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
@@ -162,7 +162,7 @@ func startTLSServer(t *testing.T, cert tls.Certificate, serve func(t *testing.T,
 }
 
 func TestHandshakeUpgradesLoopbackConnection(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %q, want GET", r.Method)
 		}
@@ -199,7 +199,7 @@ func TestHandshakeUpgradesLoopbackConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialWebSocket: %v", err)
 	}
-	defer result.conn.Close()
+	defer result.conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 	frame := make([]byte, 3)
 	if _, err := io.ReadFull(result.br, frame); err != nil {
 		t.Fatalf("read after handshake deadline elapsed: %v", err)
@@ -209,8 +209,40 @@ func TestHandshakeUpgradesLoopbackConnection(t *testing.T) {
 	}
 }
 
+func TestHandshakeCancellationAtHandoffNeverReturnsClosedSocket(t *testing.T) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+		writeUpgradeAccept(t, rw, r)
+		time.Sleep(100 * time.Millisecond)
+		_, _ = conn.Write([]byte{0x81, 0x01, 'A'})
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result, err := dialWebSocket(ctx, wsURL(srv), dialOptions{beforeHandoff: func() {
+		cancel()
+		// Let the cancellation callback enter its close path before stopAbort.
+		time.Sleep(20 * time.Millisecond)
+	}})
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("handoff error = %v, want context cancellation", err)
+		}
+		return
+	}
+	defer result.conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
+	if err := result.conn.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	frame := make([]byte, 3)
+	if _, err := io.ReadFull(result.br, frame); err != nil {
+		t.Fatalf("successful handoff returned a closed socket: %v", err)
+	}
+	if string(frame) != "\x81\x01A" {
+		t.Fatalf("frame = %v", frame)
+	}
+}
+
 func TestHandshakePreservesPathQueryAndHost(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		if r.RequestURI != "/eth?chain=main" {
 			t.Errorf("request URI = %q, want /eth?chain=main", r.RequestURI)
 		}
@@ -224,7 +256,7 @@ func TestHandshakePreservesPathQueryAndHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialWebSocket: %v", err)
 	}
-	defer result.conn.Close()
+	defer result.conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 }
 
 func TestHandshakeRejectsNon101Responses(t *testing.T) {
@@ -239,7 +271,7 @@ func TestHandshakeRejectsNon101Responses(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+			srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				if _, err := rw.WriteString(tc.response); err != nil {
 					t.Errorf("write response: %v", err)
 				}
@@ -260,9 +292,52 @@ func TestHandshakeRejectsNon101Responses(t *testing.T) {
 	}
 }
 
+func TestHandshakeRejectsWithoutWaitingForResponseBody(t *testing.T) {
+	peerClosed := make(chan struct{})
+	srv := startRawServer(t, func(t testing.TB, _ *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+		if _, err := rw.WriteString("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 1\r\n\r\n"); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := rw.Flush(); err != nil {
+			t.Error(err)
+			return
+		}
+		// The status is enough to reject this connection. Deliberately keep
+		// the advertised body unfinished until the client closes its socket.
+		_, _ = conn.Read(make([]byte, 1))
+		close(peerClosed)
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		result, err := dialWebSocket(ctx, wsURL(srv), dialOptions{})
+		if result != nil {
+			_ = result.conn.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "503") {
+			t.Fatalf("handshake refusal = %v", err)
+		}
+	case <-time.After(time.Second):
+		cancel()
+		err := <-done
+		t.Fatalf("handshake refusal waited for the unfinished response body: %v", err)
+	}
+	select {
+	case <-peerClosed:
+	case <-time.After(time.Second):
+		t.Fatal("rejected handshake did not close its socket")
+	}
+}
+
 func TestHandshakeRefusesRedirects(t *testing.T) {
 	requests := 0
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		requests++
 		if _, err := rw.WriteString("HTTP/1.1 302 Found\r\nLocation: ws://elsewhere.invalid/socket\r\nContent-Length: 0\r\n\r\n"); err != nil {
 			t.Errorf("write redirect: %v", err)
@@ -291,7 +366,7 @@ func TestHandshakeRejectsBrokenUpgradeHeaders(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+			srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				// Write the 101 manually with the accept key but broken
 				// upgrade headers.
 				key := r.Header.Get("Sec-WebSocket-Key")
@@ -314,7 +389,7 @@ func TestHandshakeRejectsBrokenUpgradeHeaders(t *testing.T) {
 }
 
 func TestHandshakeRejectsWrongAcceptKey(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		lines := []string{
 			"HTTP/1.1 101 Switching Protocols",
 			"Upgrade: websocket",
@@ -345,7 +420,7 @@ func TestHandshakeRejectsNegotiatedExtensionAndSubprotocol(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+			srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				writeUpgradeAccept(t, rw, r, tc.extra...)
 			})
 			_, err := dialWebSocket(context.Background(), wsURL(srv), dialOptions{})
@@ -357,7 +432,7 @@ func TestHandshakeRejectsNegotiatedExtensionAndSubprotocol(t *testing.T) {
 }
 
 func TestHandshakeTimesOutWithoutContextDeadline(t *testing.T) {
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		// Stall forever: the client's own bound must end the handshake.
 		buf := make([]byte, 1)
 		for {
@@ -395,7 +470,7 @@ func TestHandshakeContextDeadlineAndCancellation(t *testing.T) {
 		}, want: context.Canceled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+			srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 				buf := make([]byte, 1)
 				for {
 					if _, err := conn.Read(buf); err != nil {
@@ -415,7 +490,7 @@ func TestHandshakeContextDeadlineAndCancellation(t *testing.T) {
 
 func TestHandshakeContextCancellationClosesTheConnection(t *testing.T) {
 	peerClosed := make(chan struct{})
-	srv := startRawServer(t, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startRawServer(t, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		buf := make([]byte, 1)
 		for {
 			if _, err := conn.Read(buf); err != nil {
@@ -442,7 +517,7 @@ func TestHandshakeContextCancellationClosesTheConnection(t *testing.T) {
 func TestHandshakeTLSNameAndCertificateErrors(t *testing.T) {
 	t.Run("unknown-authority", func(t *testing.T) {
 		cert, _ := testAuthority(t, []string{"localhost"})
-		srv := startTLSServer(t, cert, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+		srv := startTLSServer(t, cert, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 			writeUpgradeAccept(t, rw, r)
 		})
 		// Dial by DNS name so the name check passes and the failure is the
@@ -460,7 +535,7 @@ func TestHandshakeTLSNameAndCertificateErrors(t *testing.T) {
 	})
 	t.Run("wrong-server-name", func(t *testing.T) {
 		cert, pool := testAuthority(t, []string{"wrong.example"})
-		srv := startTLSServer(t, cert, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+		srv := startTLSServer(t, cert, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 			writeUpgradeAccept(t, rw, r)
 		})
 		cfg := &tls.Config{RootCAs: pool}
@@ -474,7 +549,7 @@ func TestHandshakeTLSNameAndCertificateErrors(t *testing.T) {
 
 func TestHandshakeTLSWithTrustedAuthoritySucceeds(t *testing.T) {
 	cert, pool := testAuthority(t, []string{"localhost"})
-	srv := startTLSServer(t, cert, func(t *testing.T, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
+	srv := startTLSServer(t, cert, func(t testing.TB, r *http.Request, rw *bufio.ReadWriter, conn net.Conn) {
 		writeUpgradeAccept(t, rw, r)
 	})
 	_, port, err := net.SplitHostPort(strings.TrimPrefix(srv.URL, "https://"))
@@ -485,7 +560,7 @@ func TestHandshakeTLSWithTrustedAuthoritySucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialWebSocket over wss: %v", err)
 	}
-	defer result.conn.Close()
+	defer result.conn.Close() //nolint:errcheck // Socket cleanup has no pending output; disconnects are expected at fixture teardown.
 }
 
 func TestHandshakeRejectsUnknownSchemesBeforeDialing(t *testing.T) {

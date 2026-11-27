@@ -6,14 +6,14 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/rpc"
+	"github.com/codermaybe/ethguard/rpctest"
 )
 
 func pendingObs(values ...string) []rpc.Observation {
 	obs := make([]rpc.Observation, 0, len(values))
 	for i, v := range values {
-		obs = append(obs, rpc.Observation{
-			Source: rpc.SourceRef{Name: string(rune('a' + i)), ID: string(rune('a' + i))},
-			Value:  json.RawMessage(v),
+		obs = append(obs, rpc.Observation{Attempted: true,
+			Source: rpc.SourceRef{Name: string(rune('a' + i)), ID: string(rune('a' + i))}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(v)}},
 		})
 	}
 	return obs
@@ -28,7 +28,7 @@ func resolveLocalThroughPlan(t *testing.T, plan rpc.ReadPlan, obs []rpc.Observat
 	if err != nil {
 		t.Fatalf("resolve local: %v", err)
 	}
-	return decision
+	return decision.Decision
 }
 
 // TestPendingLocalSlice pins decision 0035 for the five default-block state
@@ -91,8 +91,8 @@ func TestPendingLocalSlice(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
-			if decision.Status != rpc.Selected || string(decision.Value) != first {
-				t.Fatalf("%s pending split: status = %v value = %s, want selected first answer", tc.name, decision.Status, decision.Value)
+			if decision.Decision.Status != rpc.Selected || string(decision.Decision.Value) != first {
+				t.Fatalf("%s pending split: status = %v value = %s, want selected first answer", tc.name, decision.Decision.Status, decision.Decision.Value)
 			}
 		}
 	})
@@ -100,15 +100,15 @@ func TestPendingLocalSlice(t *testing.T) {
 	t.Run("pending without a usable source fails Unknown", func(t *testing.T) {
 		for _, tc := range slicePlans(t) {
 			failed := []rpc.Observation{
-				{Source: rpc.SourceRef{Name: "a", ID: "a"}, Err: errors.New("down")},
-				{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(`"not-hex"`)},
+				{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: errors.New("down")}}},
+				{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"not-hex"`)}}},
 			}
 			decision, err := rpc.ResolveLocalObservation(tc.plan.Resolver, failed)
 			if err == nil || !errors.Is(err, rpc.ErrNoValidResponse) {
 				t.Fatalf("%s: got %v, want ErrNoValidResponse", tc.name, err)
 			}
-			if decision.Status != rpc.Unknown {
-				t.Fatalf("%s: failed status = %v, want unknown", tc.name, decision.Status)
+			if decision.Decision.Status != rpc.Unknown {
+				t.Fatalf("%s: failed status = %v, want unknown", tc.name, decision.Decision.Status)
 			}
 		}
 	})
@@ -126,20 +126,20 @@ func TestPendingLocalSlice(t *testing.T) {
 	t.Run("pending eth_call keeps revert observations", func(t *testing.T) {
 		call := compiledPlan(t, MethodCall)
 		revert := &rpc.RPCError{Code: -32000, Message: "execution reverted"}
-		obs := []rpc.Observation{{Source: rpc.SourceRef{Name: "a", ID: "a"}, Err: errors.New("execution reverted"), RPCError: revert}}
+		obs := []rpc.Observation{{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerProtocolError, RPCError: revert, Cause: rpctest.RPCError(-32000, "execution reverted")}}}}
 		decision, err := rpc.ResolveLocalObservation(call.Resolver, obs)
 		if err != nil {
 			t.Fatalf("pending revert: %v", err)
 		}
-		if decision.Status != rpc.Selected {
-			t.Fatalf("pending revert status = %v, want selected", decision.Status)
+		if decision.Decision.Status != rpc.Selected {
+			t.Fatalf("pending revert status = %v, want selected", decision.Decision.Status)
 		}
 		var envelope struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
 		}
-		if err := json.Unmarshal(decision.Value, &envelope); err != nil || envelope.Code != -32000 {
-			t.Fatalf("pending revert value = %s, want the revert envelope", decision.Value)
+		if err := json.Unmarshal(decision.Decision.Value, &envelope); err != nil || envelope.Code != -32000 {
+			t.Fatalf("pending revert value = %s, want the revert envelope", decision.Decision.Value)
 		}
 	})
 
@@ -162,8 +162,8 @@ func TestPendingLocalSlice(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
-			if decision.Status != rpc.Corroborated {
-				t.Fatalf("%s unanimous mined: status = %v, want corroborated", tc.name, decision.Status)
+			if decision.Decision.Status != rpc.Corroborated {
+				t.Fatalf("%s unanimous mined: status = %v, want corroborated", tc.name, decision.Decision.Status)
 			}
 		}
 	})

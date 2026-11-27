@@ -55,12 +55,11 @@ func (e RPCError) Raw() json.RawMessage {
 
 // Observation is one source's raw response to a request.
 type Observation struct {
-	Source   SourceRef
-	Value    json.RawMessage
-	Err      error
-	RPCError *RPCError
-	// Evidence is method-specific admission evidence (for example, the
-	// same-source uncle headers needed to complete a block body).
+	// Attempted is scheduling evidence, independent of wire progress.
+	Attempted bool
+	Source    SourceRef
+	Response  Response
+	// Evidence remains same-source admission evidence, never a second raw answer.
 	Evidence json.RawMessage
 }
 
@@ -91,8 +90,7 @@ const (
 
 // ReferenceEvidence describes the prerequisite used for a moving-state read.
 // Reported finality is provider evidence, not an Ethereum consensus proof.
-// Status follows the same contract as Decision: Unknown with an error,
-// otherwise Corroborated, Selected, or Forwarded set explicitly.
+// Status follows Decision: a formed status survives a later guarantee failure.
 //
 // Freshness is this call only (decision 0026). The reference is established
 // inside the invocation that needs it and held only for that invocation's
@@ -101,9 +99,14 @@ const (
 // establishment time for this call, including when establishment fails.
 //
 // Failure is a Prepare-phase error wrapping the anchor cause. The business
-// method is not fanned out. Status stays Unknown, and Faults recorded by
-// the failed establishment stay on this evidence.
+// method is not fanned out. Any formed Status and the failed establishment
+// evidence remain available; Reason records an unmet guarantee separately.
+// Before final resolution, Adjudication.Candidates may record decoded head
+// groups compared by reference selection. Sources then remain Admitted and
+// unassessed as votes; a fork at that height prevents final resolution.
 type ReferenceEvidence struct {
+	Sources      []SourceSummary
+	Adjudication Adjudication
 	Tag          string
 	Hash         string
 	Height       uint64
@@ -121,11 +124,13 @@ type ReferenceEvidence struct {
 	CollectionFaults []error
 }
 
-// Decision is the minimal result returned by aggregation. Support and Reject
-// provide enough evidence for diagnostics without introducing an evidence
-// tree. Faults records collection-phase failures that did not prevent the
-// decision, so partial fan-outs stay diagnosable on success paths too.
+// Decision carries the selected result and its adjudication. Sources exposes
+// communication, protocol and method facts without copying every raw payload.
+// Support/Reject and fault views derive from the same resolver judgments;
+// collection and internal diagnostics remain independent of source blame.
 type Decision struct {
+	Sources      []SourceSummary
+	Adjudication Adjudication
 	Reference    *ReferenceEvidence
 	Participants []SourceRef
 	Status       Status
@@ -172,8 +177,8 @@ type Decision struct {
 	// must record this value rather than reconstructing it.
 	Prepared *PreparedRequest
 	// SourceFaults attributes each Fault that belongs to one source;
-	// CollectionFaults holds pool-level failures. Faults remains the
-	// human-readable union of both.
+	// CollectionFaults holds pool-level failures. Faults is the human-readable
+	// attempted-source, collection and internal diagnostic view.
 	SourceFaults     []SourceFault
 	CollectionFaults []error
 	// Provenance belongs to the selected value and is populated by an
@@ -239,8 +244,11 @@ func (s Status) String() string {
 
 // Error classes for the decision pipeline.
 var (
-	ErrConflict          = errors.New("rpc: conflicting responses")
-	ErrNoValidResponse   = errors.New("rpc: no valid response")
-	ErrMalformedResponse = errors.New("rpc: malformed response")
-	ErrInvalidRequest    = errors.New("rpc: invalid request")
+	ErrInsufficientSupport = errors.New("rpc: insufficient support")
+	ErrGuaranteeNotMet     = errors.New("rpc: required guarantee not met")
+	ErrHashMismatch        = errors.New("rpc: transaction hash does not match submitted payload")
+	ErrConflict            = errors.New("rpc: conflicting responses")
+	ErrNoValidResponse     = errors.New("rpc: no valid response")
+	ErrMalformedResponse   = errors.New("rpc: malformed response")
+	ErrInvalidRequest      = errors.New("rpc: invalid request")
 )

@@ -24,10 +24,43 @@ type ReferenceResolver interface {
 	AnchorReferenceForTag(context.Context, string) (rpc.ReferenceEvidence, error)
 }
 
+// headService is what an anchor facade delegates to: one preset's
+// establishment service.
+type headService interface {
+	Reference(ctx context.Context) (rpc.ReferenceEvidence, error)
+	ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error)
+}
+
+// anchorFacade is the shared forwarding body of both presets: the service
+// owns the establishment algorithm, the facade only exposes the seam.
+type anchorFacade struct {
+	service headService
+}
+
+func (f anchorFacade) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
+	return f.service.Reference(ctx)
+}
+
+func (f anchorFacade) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
+	return f.service.ReferenceForTag(ctx, tag)
+}
+
+func (f anchorFacade) AnchorBlockHash(ctx context.Context) (string, error) {
+	r, e := f.service.Reference(ctx)
+	return r.Hash, e
+}
+
+func (f anchorFacade) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
+	r, e := f.service.Reference(ctx)
+	return r.Hash, r.Height, e
+}
+
 // StrictHeadAnchor requires corroborated strict latest-head agreement. The
 // establishment algorithm is runtime-owned; the type stays as the public
 // facade of that service.
-type StrictHeadAnchor struct{ service *StrictHeadService }
+type StrictHeadAnchor struct {
+	anchorFacade
+}
 
 // NewStrictHeadAnchor builds the default latest-head resolver: its own
 // stage, the strict-head strategy, and no shared snapshot (each round
@@ -38,31 +71,13 @@ func NewStrictHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...rpc.StrictO
 		Recorder:      rec,
 		StrictOptions: opts,
 	})
-	return &StrictHeadAnchor{service: NewStrictHeadService(stage, nil)}
-}
-
-func (a *StrictHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	return a.service.Reference(ctx)
-}
-
-func (a *StrictHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	return a.service.ReferenceForTag(ctx, tag)
-}
-
-func (a *StrictHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, e
-}
-
-func (a *StrictHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, r.Height, e
+	return &StrictHeadAnchor{anchorFacade{NewStrictHeadService(stage, nil)}}
 }
 
 // FinalizedHeadAnchor establishes a common reference from provider-reported
 // finalized views.
 type FinalizedHeadAnchor struct {
-	service *FinalizedHeadService
+	anchorFacade
 }
 
 // FinalizedAnchorOption tunes the finalized preset's establishment.
@@ -97,23 +112,5 @@ func NewFinalizedHeadAnchor(p *pool.Pool, rec observe.Recorder, opts ...Finalize
 		FinalizedStrategy: true,
 		MaxLag:            FinalizedAnchorLag(opts...),
 	})
-	return &FinalizedHeadAnchor{service: NewFinalizedHeadService(stage)}
-}
-
-func (a *FinalizedHeadAnchor) AnchorReference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	return a.service.Reference(ctx)
-}
-
-func (a *FinalizedHeadAnchor) AnchorReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	return a.service.ReferenceForTag(ctx, tag)
-}
-
-func (a *FinalizedHeadAnchor) AnchorBlockHash(ctx context.Context) (string, error) {
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, e
-}
-
-func (a *FinalizedHeadAnchor) AnchorBlockRef(ctx context.Context) (string, uint64, error) {
-	r, e := a.AnchorReference(ctx)
-	return r.Hash, r.Height, e
+	return &FinalizedHeadAnchor{anchorFacade{NewFinalizedHeadService(stage)}}
 }

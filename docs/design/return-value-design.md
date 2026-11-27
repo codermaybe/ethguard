@@ -1,521 +1,134 @@
-# 返回值设计：受保护结果域与规范编码
+# 返回值：受保护结果与规范编码
 
-状态：T08 的区块、交易、eth_call revert context/value 和证据通道实现已完成；阶段 1、RV2 及 T07 的标准/coverage 闭环保持有效。数量、对象和成功 DATA 的 Value 均由方法 encoder 生成规范结果；窄键区块和交易保留各自的 normalizer key。执行顺序与任务出口只写在 `project-roadmap.md`；本文保留设计依据与历史决策。
+状态：2026-11-21 响应模型与同步操作组合已验收。本文统一受保护 Value、规范表示、typed 与来源材料的交付合同；历史实现理由由 Git／决策档案追溯，不把已完成迁移当待执行任务。
 
-0066 changes the public carrier only: every operation delivers its decision
-on `CallResult`, and a failed aggregation clears the public `Value` while the
-internal canonical-encoding rules below keep governing what successful
-decisions carry.
+## 1. 独立合同与语义等价
 
-0051 supersedes the older receipt-specific `from` exclusion wording below.
-0052 additionally separates `eth_call` revert `code`/`message` into
-`Decision.Revert`; the protected Value carries only the accepted data
-projection. 0061 canonicalizes that accepted data spelling so Value no longer
-follows the representative's hex case or JSON formatting. The older sections
-describing the full revert envelope or representative-spelling data in Value
-are historical statements of the pre-T08/pre-0061 implementation.
+| 合同 | 回答的问题 | 事实源 |
+| --- | --- | --- |
+| 官方 wire 合同 | 方法、结果字段、类型、required、nullable 和值约束是什么？ | 固定 execution-apis bundle 与对应版本的协议／方法说明；见 [spec 数据说明](../../internal/spec/README.md) |
+| EthGuard 保护合同 | 哪些内容经过请求绑定、内容承诺或跨源比较，可以进入受保护 Value？ | [方法合同](method-contracts.md)、适用对象检查与现行实现；历史理由见决策档案 |
+| 表示合同 | 同一个被接受的值如何编码成确定字节？ | `rpc/internal/wire` 与各对象 encoder；官方生成层见 [wire-codegen.md](wire-codegen.md) |
 
-2026-09-26 起写明的执行顺序、分母、派生字段和获胜簇规则，以及 2026-09-27 锁定的第 14 节，都是这份依据。T08 已落地其中的 eth_call、区块、交易和证据通道边界；下文保留的“阶段 0/3a/3b 尚未实现”句子是当时的历史快照，不描述当前代码。
+项目接受政策单独说明哪些非标准拼写可兼容读入，以及哪些官方合法输入因方法语义被拒。它既不改写官方 schema，也不自动形成额外保护。
 
-仍开放、且不挡住阶段 0 的只有一项。`from` 在 CPU 测量之后要不要定义成派生字段，默认留在域外；没有测量不能进域，也不能为此把整票判掉。原先并列的「Provenance 字节上限没有数字」随代表源 Raw 一起撤销，见第 14.6 节与决策 0048。
+比较等价关系由方法和字段语义定义，不由 shape 相同推出：大小写、转义、键序可归一；QUANTITY 按数值，DATA 按完整字节。`0x0000` 与 `0xDeadBef` 不因此等价；若另一方法只保护二者共有的业务结论，须明确该结论及输出合同，不能仍将其中一份原始 payload 当作获佐证结果。
 
-未注册的 Forward 路径仍可返回来源原文；已注册方法的 Value 均为规范结果。区块 Value 已按 T08.3 排除 `size`、`totalDifficulty` 和厂商字段。数量和成功 DATA 的 Value 是规范编码。`eth_feeHistory` 的 Value 是受保护字段的规范对象，键外字段不进 Value。`eth_getLogs` 的 Value 是掩码留下的日志字段的规范数组，掩码外字段不进 Value。`eth_createAccessList` 的 Value 是掩码留下的 access list 字段的规范对象，掩码外字段不进 Value。收据类方法的 `from` 口径以决策 0051 为准（官方收据字段留在规范受保护结果内并参与比较）。`eth_getBlockReceipts` 的 Value 是相同字段模型的规范数组，顶层 null 与空数组分别保留。
+**规范编码表示确定性，不自动表示符合完整官方结果 schema。** 在合法对象上增加请求绑定是更深锁定；拒绝部分官方合法输入是接受域收窄；删掉官方 required 字段、输出不允许的 null，则不是原对象 schema 的合法子集。当前实现包含这几种不同情况，不得混称为“比官方更严格”。
 
-问题记录、事实核对和执行标准已并入本文（2026-09-26）；返回值归一化设计不再单独成文，避免和正文分成两套设计。模型意见同样并入正文。
+公共 RPC 的实际响应有兼容性参考价值，但不是字段规范的来源。保留的 [shapeprobe 归档](../samples/2026-09-26-shapeprobe/README.md) 记录有限日期、端点和请求，不能推出普遍兼容。标准冲突与接受边界由各方法合同维护；receipt 裁决见决策 0068，独立 transaction 的首个实施检查点见 [方法合同](method-contracts.md#5-独立交易的有限兼容与对象合同)，完整 Block 与公开业务签名已接入生成模型，内部表示与接受域差异仍须逐对象审查。
 
-关联：`codebase-topology.md`、`method-verification-pipeline.md`、决策 0020、0024、0025、0028、0029、0039、0040。
+## 2. Value 的含义
 
----
+已注册方法的 Value 是方法声明的受保护结果，不是代表源原文。它必须来自一份已准入载荷的确定性编码：
 
-## 1. 结论
+- 不把多个来源的字段拼成新对象，不从比较键反序列化来重建回答。
+- 比较键覆盖的字段、被请求绑定或已验证承诺约束的字段、按公开规则派生的字段，才有进入保护域的依据。方法必须说明采用了哪一种依据。
+- 本地派生值需要与来源声明核对时，先核对；不把错误来源修成正确值后计票。
+- 未获保护的内容只进入声明的 Extensions／Diagnostics 或 opt-in 原始证据通道，不借 Value 暗示已佐证。
+- 多源 Corroborated 仍是 provider-backed evidence，不是 Ethereum consensus、canonicality、执行有效性或密码学 finality。
 
-下面第 1 点到第 8 点是规范编码全部落地后的结论。阶段 0 已完成，没有把全部方法改成规范编码。阶段 1 只让数量和成功 DATA 的 Value 变成规范编码。0042 再让 `eth_feeHistory` 的 Value 变成受保护字段的规范对象。0043 再让 `eth_getLogs` 的 Value 变成掩码留下的日志字段的规范数组。0044 再让 `eth_createAccessList` 的 Value 变成掩码留下的 access list 字段的规范对象。0045/0046 的收据口径以 0051 修订为准：官方 `from` 字段在存在时保留并参与比较，不再按旧文删除。0047 再把这五个方法的比较键改为规范编码，键与 Value 成为一个产物。其余未迁移方法的 Value 仍是代表源原文。阶段 0 做的是：代表源改成捕获顺序第一个；Value、Evidence、Withheld 与这个来源同源；StrictHeadAnchor 发出的区块 hash 改成小写。见第 7 节和第 11 节。
+完整区块现在按官方生成Block交付：`size`、内嵌交易的`from`、hash与inclusion上下文保留在逐源规范对象中，并与其余官方字段共同参与比较及提交。缺失required字段拒绝来源，不再通过geth重编码丢弃它们。`size`和`from`属于来源声明经多源比较保护，不宣称由RLP独立验真或sender recovery；交易payload hash、上下文和body承诺仍单独核对。仅number/hash的内部reference结果仍是较窄的身份表示，不冒称完整官方Block。
 
-1. `Decision.Value` 对已注册方法只表示受保护结果，不再同时充当来源原文。
-2. 受保护结果按方法定义为受保护结果域。Value 是该域的确定性规范编码。
-3. 编码器从已准入载荷生成规范字节，不从比较键反序列化，也不把多个来源的字段拼成一个新对象。
-4. 执行顺序是：逐源 EncodeCheck，通过后才按方法自己的比较键分簇，以本轮固定分母裁决一次，再提交规范 Value。编码失败记 Fault、不贡献支持，但来源仍留在分母里。这里的「裁决一次」不表示先调用代码中的 `Resolve` 再编码：当前 Strict 的 `Resolve` / `ResolveCorroborated` 入口内部包含编码、分簇、裁决和提交。
-5. 获胜簇内每个支持源的规范字节必须相同。不相同是比较键太窄或编码器越界，是代码缺陷，不是来源分歧。
-6. 逐字节相等是必要条件，不是充分条件。编码器不能靠删掉应受保护的字段来制造相等。字段表、变异测试和往返测试负责补上这一层。
-7. 来源证据走独立通道。已迁移的数量、成功 DATA、`eth_feeHistory`、`eth_getLogs`、`eth_createAccessList`、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts`：代表源只决定审计锚点，不决定 Value。未迁移方法的 Value 仍是代表源原文（4e 删减除外），见第 7 节。该通道不保留代表源 Raw，也不设字节上限：非 Core 字段只有达到动态门槛的单一值才进入 `Decision.Extensions`，其余观察进入 `Decision.Diagnostics`。
-8. 第 14 节是已锁定口径，0048 修订了其中的 14.2、14.3、14.6。它不给每个字段另写标准。code 与 message 在阶段 3a 之后不再对外暴露，随 `eth_call` 的信封一起留在受保护结果之外；区块 Value 只收已经核对过承诺的内容，`from` 默认留在域外。为什么不改成胜者原文透传，也不再加一层最终响应投影，见第 13 节。仍开放、且不挡住阶段 0 的，只有 `from` 的测量后归属。
+receipt 已采用官方形态与保护闭环：`from`／`effectiveGasPrice` 必须由来源提供并比较；nullable `to`／`contractAddress` 保留缺失、null、地址三个状态；可选非 nullable 字段存在时拒绝 null；`type` 受 byte 约束。`status`／`root` 至少一个存在，同时存在则独立校验、比较并保留。完整日志要求、bloom-log 一致性、请求绑定和零日志 hash 容忍仍按方法规则执行；后者不构成完整父子绑定证明。公开 typed 使用生成 `ethapi.Receipt`，保留受保护字段与 presence；私有 geth Receipt 只供算法检查，不能用它再编码主结果或丢掉 from／to。
 
-## 2. 事实前提
-
-这些事实约束本文，避免再把问题写成“响应谁先到”。
-
-生产路径按本次调用捕获的成员下标排列观察，不按响应到达顺序。`pool.Collect` 把结果写回 `emissions[i]`，aggregator 按同一下标构造观察。配置顺序就是这个顺序。把其中一个响应延迟，选中的原文字节不变。
-
-当前真正不稳定的是规则不统一，而且没有写在一个地方。下表是阶段 0 代码落地之前的现状。代码没改之前，这张表仍然属实：
-
-| 路径 | 阶段 0 之前 |
-|---|---|
-| Strict 的 `cluster` | 该比较键下后写入 map 的那一份，也就是捕获顺序中的最后一个 |
-| CallRevert 的 `representative` | 簇内切片的最后一个 |
-| Median | 与中位数值相等的样本中的第一个，注释里写了这条规则 |
-| Local | 第一个健康源；这是选取策略，不是平局规则 |
-
-因此同一组 `"0xA"` 和 `"0xa"`，Median 可能返回 `"0xA"`，Strict 返回 `"0xa"`。直接构造观察切片时（测试、replay），换顺序也会换 Value。`cluster` 的注释说 Value 与到达顺序无关，生产路径只是因为调用方已经排好了序。
-
-同一个 Decision 里，Value 和 Evidence 可以来自不同来源。Value 取簇内最后一个，Evidence 取第一个带 evidence 的观察。输入 `[a, b]` 时，Value 是 b 的字节，Evidence 是 a 的。这和“证据留在它所属的来源上、不跨源拼接”抵触。
-
-会被收进同一簇、但仍然留在原文里的差异，比“所有前导零”窄：
-
-- 多数数量路径不接受 QUANTITY 前导零。`NormalizeWireQuantity` 直接判无效。前导零目前只在少数路径被折成同一键，例如 `net_version` 的十进制、`net_peerCount`，以及未经准入的锚点区块号。
-- 实际会进同一簇的有：hex 字母大小写、部分路径的 `0X` 前缀、JSON 键序、空白、JSON 字符串转义，以及比较键没有覆盖的字段。
-- `gasUsedRatio` 今天解进 `[]float64` 再编码，所以 `0.5` 和 `0.50` 会进同一簇。这是数值相同，不是写错格式。
-
-现有 golden 不钉 `Decision.Value` 的字节，所以“golden 偶发不一致”现在还不会暴露。字节不稳定仍然影响调用结果，已核对过的例子：
-
-1. 两个来源返回同一 revert data，一个 `code` 为 3，一个为 -32000。配置顺序 `[3, -32000]` 时，ethclient 形状的 `RevertError` 拿到 -32000；顺序反过来就拿到 3。延迟任一方都不改变这个结果。
-2. 三个来源都返回 `eth_call` 结果 `0xdeadbeef`，其中一个写成 `"\u0030xdeadbeef"`。比较键相同，Status 可以是 Corroborated。转义那一份如果成为代表源，geth 的 hexutil 不解 JSON 转义，typed 读取失败；它不在代表位置时，调用成功。
-3. StrictHeadAnchor 把代表源 hash 的原始拼写放进随后发给所有来源的请求。第三源写成 `0X…AB` 时，后面的 `eth_getBalance` 都会带上这个拼写。FinalizedHeadAnchor 会先转小写，两条路径不一致。
-4. 区块比较键只有 `number|hash`。`size` 这类键外字段仍留在获胜载荷上，于是 Corroborated 的 Value 里可以出现只有一个来源断言过的内容。
-
-代码里已经有未声明的规范化和未声明的代表源选择。写路径返回小写 hash；finalized 参考把 hash 转小写；`decodedQuantity` 读规范形式；`eth_call` 的 4e 删字段后会把整个对象重新序列化。所以“返回来源原值”现在并不是一条处处成立的规则。
-
-## 3. 术语
-
-比较键、受保护结果域、规范编码、EncodeCheck、EncodeCommit、域外字段，都是规范编码落地后才启用的词。阶段 0 不实现它们。代表源从阶段 0 起就有，但两段含义不同，不能把后一段套到前一段上。
-
-| 术语 | 含义 |
-|---|---|
-| 比较键 | 方法用来分簇的键。EncodeCheck 之后才使用。数量和 DATA 的键就是规范编码；已迁移对象方法的键也是规范编码（0047）；区块的键仍是 `number\|hash`。整段规范 JSON 不代替比较键，刻意保留窄键的方法除外 |
-| 受保护结果域 | 方法声明返回、并且能被佐证覆盖的字段。构成见第 4 节 |
-| 规范编码 | 按第 5 节把受保护结果域写成确定的 JSON 字节 |
-| EncodeCheck | 裁决前，逐个来源回答：这份载荷能否在不改变原值的前提下编成规范字节。失败记 Fault |
-| EncodeCommit | 唯一一次 Resolve 之后，把获胜簇里已经相等的规范字节写入 `Decision.Value`。不再解释来源，也不重新投票 |
-| 代表源 | 获胜簇里本次捕获顺序的第一个支持源。未迁移方法：Value 就是它的原始载荷（4e 删减除外）。已迁移的数量和成功 DATA：Value 是规范编码，这个人只作审计锚点 |
-| 域外字段 | 已准入载荷里有、但编码器没有输出的字段。未迁移对象还没有这层编码器，这些字段仍留在代表源原文里 |
-
-## 4. 受保护结果域
-
-### 4.1 构成
-
-域由三部分组成，不能直接等于今天的比较键：
-
-1. 比较键覆盖的字段。
-2. 受约束的字段：被请求绑定，或被已经验证的内容承诺约束。区块头受 header hash 约束，交易签名内容受交易根约束，withdrawals 受 withdrawals root 约束，uncle 受 uncle hash 约束。
-3. 派生字段：由前两类按公开、确定的规则在本地算出。例如交易 hash，以及区块内交易的 `blockHash`、`transactionIndex`。
-
-不在域内：厂商扩展；没有佐证的上下文字段，例如 revert 的 code、message；来源自述但没有约束的字段，例如区块里的 `from`、`size`、`totalDifficulty`。`from` 的口径见第 14.3 节：默认留在域外。没有测量不能进域。未迁移对象（含区块）的 Value 仍是代表源原文，这些字段还会出现在结果里，要到阶段 3b 才从区块 Value 去掉。数量和成功 DATA 已是规范编码。
-
-区块的比较键可以仍是 `number|hash`。头、交易、withdrawals 和 uncle 只有在准入已经核对过承诺之后，才进入域。
-
-### 4.2 判定顺序
-
-一个字段能不能进入 Value，按这个顺序判断，并在编码器注释里写明依据：
+## 3. 准入、编码和裁决
 
 ```text
-字段在比较键里？                         → 进域
-不在，但被请求绑定或已验证承诺约束？     → 进域
-不在，但能由域内内容按公开规则派生？     → 进域（本地计算，不取来源给出的值）
-都不是                                   → 域外：Extensions / Observed / Uncertain
+冻结成员收集 → JSON 安全 → raw Admit + Encode 或 CanonicalProcessor
+  → 方法分簇／选择与固定分母裁决 → 提交同源已验证规范 Value
+  → 原始观察的附属投影与材料 → CallResult／typed
 ```
 
-到第四步就停。不为这个字段再写一条专用标准，也不把第 14 节变成字段登记表。方法契约可以记下某个字段走了哪一步，那是编码器测试的依据，不是第二份标准。下一个字段若这四步已经能判定，就不要再开一节。
+- 方法准入、EncodeCheck 或 processor 失败的来源记相应阶段 Fault，不贡献支持，仍留在本轮分母。不得先裁决、再删掉失败来源重算门槛。
+- 完整区块采用canonical字节作为比较键，独立交易的比较与编码使用同一完整候选对象；reference的HeadCodec仍使用number/hash身份，不因此扩大为完整block校验。数量、成功 DATA、feeHistory、logs、accessList 和 receipts 使用各自规范字节。实际装配见生成的 [method-rules.md](method-rules.md)，不在本文复制注册表。
+- 获胜簇内支持源的规范字节必须相同。同键却编码不同是保护域／比较键／实现不一致，返回 `ErrMalformedResponse`，不改选某份原文或逐字段投票。
+- 非获胜簇的同类不一致只形成 Faults，不否决已经达门槛且自身一致的获胜簇，不触发第二次投票。诊断保留 source ID、长度和摘要，不复制完整 Value。
+- Median 和 Local 保持 Selected；显式 Forwarded 没有跨源保护声明。低层 Registry 的默认 forwarding 不使公开 Call 接受未知方法。不能因编码一致把它们升级为 Corroborated。
+- 主聚合失败时清空公开 `Decision.Value`，但最终业务错误不抹去已形成的聚合事实。合法 null、revert，以及读取成功后发生的 typed／派生绑定失败可以保留所属 Decision；失败的业务返回值不因此成为成功结果，`CallResult.Err` 始终等于尾部 error。结果载体、隔离与生命周期以决策 0066 和 `call_result.go` 为准。
 
-### 4.3 逐字节相等检查什么，不检查什么
+字节相等只是必要条件：删掉应保护的字段也能制造相等。验证还必须覆盖字段处置、变异、请求绑定、派生和受保护语义往返，见 [验证管线](method-verification-pipeline.md)。
 
-支持源各自编码后的字节必须相同。这保证三件事：Value 不取决于挑中哪个来源；不存在把 A 的 `x`、B 的 `y`、C 的 `z` 拼成谁都没返回过的对象；比较键不需要可逆。
+## 4. 表示与空值
 
-反例：A=`{x:1,y:1,z:2}`，B=`{x:1,y:2,z:1}`，C=`{x:2,y:1,z:1}`。逐字段 2/3 多数会得到 `{x:1,y:1,z:1}`。这是 0024 禁止的拼装，本文也不做。
+| 类别 | 当前规则／边界 |
+| --- | --- |
+| QUANTITY | `0x`、小写、无多余前导零、零为 `0x0`；严格数量不把前导零当作另一种合法拼法 |
+| DATA | 保留字节长度与前导零；不得把 `0x00`、`0x`、`0x0` 合并。storage word 另要求 32 字节 |
+| 地址及对象 | 地址规范为小写；对象按 encoder 的字段顺序紧凑编码，关闭 HTML escaping；键序不表示语义优先级 |
+| 官方 Number | 精确保留 JSON 十进制数，界限来自 schema，不经 float64；由生成层处理 |
+| 受保护 feeHistory ratio | 仍执行项目 `CanonicalRatio` 的 float64 最短十进制保值 gate；`0.50` 可折合，`0.30000000000000001` 被拒。这是项目接受域限制，不是官方 number 定义 |
+| 缺失与 null | 不全局补空值。对象查询合法 null、空数组、字段缺失和显式 null 按具体方法区分；现有 optional 字段的 null→省略例外及其冲突见问题记录。Header／区块共享的null→省略例外：`baseFeePerGas`／`withdrawalsRoot`／`blobGasUsed`／`excessBlobGas`／`parentBeaconBlockRoot`／`requestsHash`／`blockAccessListHash`／`slotNumber` 在官方 schema 为 optional 且 non-nullable，而 geth 头部 marshal 对未设指针字段输出显式 null——这是 pre-fork 区块事实上的 wire 形状，按显式八项政策折合为省略；baseFeePerGas与blockAccessListHash在完整模型接入时补入，依据同一锁定geth生成编码事实，required null与其余畸形值仍拒绝，使受保护值满足对应官方schema（与 log `blockTimestamp:null`→省略同类） |
 
-逐字节相等不能单独证明编码器没有丢掉应受保护的字段。删掉一个两边不一致的域内字段，输出也会相等。所以还要有：
+标量与 JSON 原语由 internal/ethcodec 及 wire 适配维护；对象规则位于 rpc/internal/objects 与共享 internal/ethobject，公开模型来自 ethapi。算法输入视图不能冒充第二份官方模型。不要在文档再维护一份可独立漂移的字段清单。
 
-- 方法测试列出每个输出字段的进入依据：比较键、请求绑定、内容承诺或公开派生规则。
-- 变异测试：拿掉或改掉一个域内字段后，EncodeCheck 必须失败，不能靠省略制造相等。
-- 往返：对每个支持源，`typed(raw_i)` 等于 `typed(Encode(raw_i))`。派生字段另查 `derive(protected(raw_i))` 等于编码结果里的派生字段。
+## 5. 代表源和证据
 
-这些是普通表驱动测试，不新增 DSL，也不新增 `suite.RunAll`（0040）。运行时做逐源编码和簇内字节比较。完整字段表由方法测试和 golden 守住。
+代表源是获胜簇中本次捕获成员顺序的第一个来源，不按到达先后或 source ID 排序。对已规范编码的方法，它决定审计锚点，不决定 Value 拼写。
 
-来源给出的派生字段，规范编码后必须等于本地按公开规则算出的值。不相等，或方法要求该字段存在却缺失，则这份载荷自身不成立：EncodeCheck 失败，记 Fault，留在分母里，不投票。不得改写成算出的值后再计票。通过检查的来源，输出仍用本地算出的规范值，只统一拼写。
+Provenance 的准入证据、withheld 字节和代表源必须同源；不得从簇内其他成员补材料。Provenance 不保存代表源 Raw，也没有为 Raw 设定的字节上限。原始证据的保留预算属于 `CallResult.Uncertain`／source-evidence 通道，不能与此混为一谈。域外字段只有达到动态门槛的单一值才能进入 Extensions，其余为 Diagnostics；它们不成为受保护 Core。
 
-两人写下同一个错误 transaction hash，且它和签名载荷对不上时，两份都不成立。不能因为彼此相同就输出本地 hash 并标成 Corroborated。`0xABC` 与 `0xabc` 是同一枚 hash，继续投票。transaction hash 只约束签名载荷；`from`、`blockHash`、`blockNumber`、`transactionIndex` 不在 `tx.Hash()` 里。这些字段在被定义成派生或承诺字段之前不进 Value；一旦定义，对不上时同样排除整票。
+### 数据交付与责任范围
 
-## 5. 规范输出规则
+项目不以一个万能 struct 兼容所有 provider 响应。官方定义是受保护结果的语义基准，前置兼容只积累经审核的生态规则；责任边界见 [方法契约](method-contracts.md#前置生态兼容与官方语义检查)。字段未被官方类型或公开 Go 类型表达，不等于它没有交付价值，但也不能因此把它并入受保护 Value。
 
-Execution API 给出形状和约束，给不出唯一字节。数量、成功 DATA、`net_version` 的十进制和 `net_peerCount` 的折合数量，规则正文只在 `rpc/internal/wire/encode.go` 的包注释里。本文不保留第二份标量规则。
+| 交付通道 | 承载内容 | 责任与条件 |
+| --- | --- | --- |
+| Value 与 typed projection | 当前方法承诺保护的官方结果及其公开 Go 表示 | Value 沿方法合同准入、比较和编码；typed 可能无法表达其中全部官方信息，不能以 typed 零值或丢字段冒充完整保真 |
+| Extensions／Diagnostics | 域外字段的附属比较结果及来源差异 | 按既有附属规则交付，不承诺适配每种厂商字段的业务语义，不把它们升级为官方主结果 |
+| CallResult.Uncertain／source-evidence | 按来源保留的原始响应、字段与错误材料 | 按需开启，受现有安全限制、保留预算及截断规则约束；原文不因前置兼容被覆写，不作为主结果合法性的替代依据 |
 
-对象、地址、浮点和缺失与 null 的规则不在那份标量注释里。已迁移对象由各自的编码器实现；下表也约束后续迁移，不表示所有对象都已接入：
+“用户仍可取得来源提供的值”指通过上述不同形态取得受保护结果、附属内容及已保留的来源材料，不承诺默认、无条件、无限量保存所有原文字节。需要查看域外或无法规范交付的来源内容时，调用者应启用 `WithSourceEvidence` 并配置适当预算；实际丢弃和截断由 `Uncertain` 的记录状态说明。材料保留不足不能改变请求、比较范围、投票资格或门槛。 当前实现除调用方总 byte 预算外，还限制每份 raw response 为64KiB、raw与field合计最多256条、可变 metadata text最多4KiB；预算非正本地拒绝。capture句柄复用永久失效，panic使句柄aborted；这些交付错误不进入业务错误。
 
-| 项 | 规则 | 依据 |
-|---|---|---|
-| 地址 | 小写，不用 EIP-55 大小写 | spec 允许两种大小写；geth JSON 输出为小写 |
-| byte 类字段（`v`、`yParity`、`type`） | 按 QUANTITY 规则 | 与 geth 输出一致 |
-| 对象键顺序 | 由编码器的 Go struct 字段顺序固定；不承诺语义顺序 | golden 锁定 |
-| 空白 | 紧凑编码，不带空白 | `encoding/json` 默认 |
-| HTML 转义 | 关闭（`SetEscapeHTML(false)`） | 避免 `<>&` 被改写 |
-| 浮点（`gasUsedRatio`） | 用 `json.Number` 读入十进制原文，输出 Go 最短 round-trip（`strconv.FormatFloat(f, 'f', -1, 64)`）。只有最短形式的十进制值与原文不同，才不可准入 | 避免 float64 静默改数；尾随零不是错误 |
-| 大整数 JSON 数字 | 禁止 float64 解码，一律 `UseNumber` | 同上 |
-| 缺失与 null | 可选字段缺失即省略；只在方法契约允许 null 的位置输出 `null`；不把 null 补成空值 | 0022 |
-| 结果为 JSON null | 按原样输出 `null`（对象查询的 NotFound） | 0022 |
+处于方法承诺保护域内的官方信息不能仅因 Go struct 无法承载，就降为可关闭、可截断的原始证据。域外材料也不能为保留在一个返回结构中而污染官方 Value。多源 RPC 的响应形态差异通过语义规范结果与分通道材料表达，不通过无限扩充一个统一结构消除。
 
-浮点要按十进制值判断，不能按“字面量是不是已经最短”判断。
+`eth_call` 成功只输出规范 DATA。revert 分开裁决 execution 与 data：缺失/null 对 data 弃权，空字节、具体 hex 与非 hex JSON 是不同断言；未达门槛的 data 不进入 Value。provider code/message 留在 `Decision.Revert` 作为上下文，不拼装固定错误信封，也不声称文案获佐证。当前 `RevertError` 只承接受保护 data，不暴露旧 provider `ErrorCode()`。依据为决策 0039、0052、0054、0061。
 
-- `0.50`、`0.5000` 和 `0.5` 是同一个数。两者都通过 EncodeCheck，投同一票。Value 里写 `0.5`。`0.10` 与 `0.1`、`1.0` 与 `1` 同样处理。
-- `0.30000000000000001` 的最短形式是 `0.3`，float64 相等，但十进制原值变了。这个来源 EncodeCheck 失败，记 Fault，留在本轮分母里，不投票。它不是 `0.3` 的另一种拼法。
-- `1e-1` 与 `0.1` 的十进制值相同，按可规范化处理，输出 `0.1`。
+传输保真必须按 adapter 区分：历史 geth WSS seam 的 missing/null 折叠不能外推到现行 raw WSS，也不能用 HTTP 证据替代 WSS。具体范围由 [传输契约](transport-contract.md) 和 [WSS 契约](wss-wire-contract.md) 维护。
 
-范围检查仍然属于 Admit。`gasUsedRatio` 超出 `[0,1]`、NaN、Inf，在编码问题之前就已经是无效响应。
+### 同步写入的结果与诊断
 
-## 6. 处理流程
+同步写入通过同一个operation owner执行一次广播，再按明确的等待期限查询收据。`CallResult.WriteDecision`始终属于原广播；`CallResult.ReceiptWait`组合后续收据查询。顶层`Decision`仍属于普通read，同步操作的read证据有自己的嵌套位置。该组合及全部受影响消费者已通过全仓验收，范围见路线图。
 
-### 6.1 总顺序
+| 位置 | 所属事实 |
+| --- | --- |
+| WriteDecision | 原始广播的提交hash、传播裁定及逐源两层摘要 |
+| ReceiptWait.LastAttempt | 最后一次实际收据查询的Sequence、Decision和Err |
+| ReceiptWait.LastObservation | 最近一次形成收据方法含义或裁定的查询，保留该轮自己的Sequence、Decision和Err |
+| CallResult.Err | 整个公开操作的最终结论，与尾部error及capture一致 |
 
-投票分母和门槛在调用开始时固定（0025、0028、0029）。超时、无效响应、EncodeCheck 失败都不缩小分母，也不放低门槛。
+Sequence从1开始，每次实际调用前递增，表示收据查询轮次，不是单节点请求数。未进入等待时ReceiptWait为nil；等待已开始但未查询时可以没有LastAttempt。最近观察可以是合法null、实际分歧、单组支持不足、保证未达成或方法拒绝。仅通信中断、未形成方法判断的协议失败和内部中止不构成新的收据含义，不能覆盖此前观察。
 
-下面是语义流程。EncodeCheck 和规范 Value 已接入的方法见本文开头；Extensions 的路径归类仍是后续目标。图中的「裁决」是一次门槛与 Status 判定，不是 Go `Policy.Resolve` 的函数调用边界。
+例如第1轮null、第2轮合法异值、第3轮等待中断，最后尝试属于第3轮，最近观察属于第2轮；两者不共享票数。最终timeout只表达等待终止，错误链不包装历史NotFound或Conflict；历史错误在所属观察内消费。正常成功时两个位置可以指向同一轮，但各自拥有隔离的可变Decision数据。默认只保留这两个位置，内存不随轮询次数增长，不承诺完整历史、持续冲突、连续缺失或reorg证明。
 
-```text
-collect（按捕获成员顺序）
-  → jsonsafe.Validate
-  → Admit（必填、请求绑定、已验证承诺）
-  → EncodeCheck（逐源；失败则 Fault，不进入分簇）
-  → 方法比较键、分簇（只用通过 EncodeCheck 的来源）
-  → 裁决（分母保持 N，按门槛判定 Status，只此一次）
-  → EncodeCommit（检查获胜簇规范字节相等并提交 Value）
-  → Provenance 装配、Extensions 归类（后续目标）
-  → typed decode（只读 Value）
-```
+NotFound、Conflict、InsufficientSupport和GuaranteeNotMet允许后续查询，其他receipt执行错误按现有合同终止。只有广播已Accepted且绑定本地交易hash才进入等待；广播只执行一次，receipt计时从广播接受后开始。父context和owner生命周期仍由现有执行入口管理，不自动重播交易。
 
-Admit 仍在 EncodeCheck 之前。先编码、再比对，指的是比对投票之前完成编码检查，不是把 JSON 合法性或必填检查挪到编码之后。
+来源原文是独立的可选材料：root配置WithSourceEvidence后可直接消费，view需要ResultCapture。所有广播与查询共用单次调用预算；预算关闭、耗尽或截断都不删除上述默认事实，也不改变请求、门槛或终止结论。原文记录本身没有完整轮次索引，不能把有界材料冒充完整投票历史。CallResult.Clone和capture复制隔离广播、两个receipt位置、候选成员及来源切片；不可变error按既有合同共享。
 
-EncodeCheck 属于准入的效果：单源无法给出不改变原值的规范编码时，记 Fault，不贡献支持，来源仍占着分母里的位置（0020）。只有通过编码检查的来源进入比较簇，但完整 observations 仍用于确定分母，裁决只做一次。不要先裁决，再因为编码失败把人拿掉重算门槛。
+### 两层响应事实与裁定合同（2026-11-21，已验收）
 
-当前代码可逐段核对：
+结果模型先区分逐源通信事实与回答含义，再由Decision表达多源候选、固定Basis与保证结论。HTTP有响应不保证取得有效RPC回答；合法null、协议错误回答、方法准入失败、实际无回答、合法异值和支持不足须保留各自语义。下层前提缺失时，上层保持未评估；本地取消或资源上限不自动归责为网络故障。异值是否存在与支持是否达标分别表达，故障来源不从固定分母删除。
 
-- `aggregator/aggregator.go` 在调用开始时捕获成员、mode 和 floor，佐证路径调用 `pool.CollectVoting`。`pool/collect.go` 为每个捕获成员保留一个 emission，未发出请求或请求失败的成员也占一个位置。JSON 检查与 Admit 失败会标记错误、清空载荷，但不删除 emission；随后构造等长的 observations。
-- `rpc/strict.go` 的 `cluster` 对可用载荷先调用方法编码器。编码失败追加 `encode:` Fault，然后 `continue`，只是不进入 `groups`，不会缩短传入的 `obs`。标量用规范字节作键；对象编码通过后，仍用方法 normalizer 生成比较键。
-- 同文件的 `resolve` 调用 `c.adjudicate(len(obs), ranked, faults)`。`rpc/adjudicate.go` 用 `Q = max(H, floor(N/2)+1)` 计算门槛，N 是完整 observations 的长度，不是编码成功数或簇内人数。之后 `finish` 用 `CommitCanonical` 检查排名第一簇的规范字节并写入 Value；不重新编码、不第二次投票。
+用户于2026-11-21明确当前项目没有兼容负担或实际用户负担；本轮按一个目标模型整体替换，必要的公开签名、结果类型、错误分类与内部接口可以直接调整。不安排旧结果投影、弃用窗口或V2并存；所有受影响调用方、capture、工具和示例须在同一专题迁移，旧表示和临时转换删除后才算完成。已验证的方法业务规则继续作为回归依据，旧结构本身不构成保留要求。
 
-逐源 EncodeCheck 失败与簇内字节不一致是两种情况。前者在分簇前排除计票；后者表示每份载荷都编码成功，但同键的规范输出不一致，在提交处按第 6.4 节失败。不能把后者再当作单源失败，剔除一个来源后重算结果。
+transport的Exchange/Answer两层Response贯通Emission/Observation/HeadObservation；强制Outcome、公开Sources/Adjudication、同步操作组合及canary/replay消费者均已验收。全仓普通测试与全量race均通过（51个通过包、9个无测试包），vet/build、gofmt/diff、旧出口审查和生成资产一致性通过。历史真实采集未改，本次验证不构成新的外部provider证据。
 
-这段代码核对针对当前 Strict 佐证路径。`eth_call` 的 `admit` 同样先编码再生成执行键，门槛仍取 `c.Required(len(obs))`；成功 DATA 当前在执行簇排名后、门槛判定前提交，因为其执行键就是规范字节。revert 返回 `ErrNotCanonicalScalar` 表示尚未迁移，不记编码 Fault，继续按既有执行与 data 维度规则处理。Median 先编码再进入中位数样本，Local 对选中的来源编码；两者维持 Selected，不套用 Strict 的佐证门槛。未挂编码器的方法仍按原有键和代表源原文处理。
+`Decision.Sources`与`ReferenceEvidence.Sources`默认交付每个冻结来源的Attempted、Exchange、Answer摘要及Relation。Answer摘要保留协议种类、原始原因与方法判断，不复制所有result原文。Outcome中的SourceVerdict只拥有解释时新形成的判断和来源关系；来源身份、通信与原回答仍来自输入Observation。完整原文不再是区分“未回答”和“不合法回答”的前提。
 
-具体场景：三人，门槛 2。A 的 `gasUsedRatio` 是 `0.5`，B 是 `0.50`，C 是 `0.30000000000000001`。C 在 EncodeCheck 失败，不投票，分母仍是 3，门槛仍是 2。A 和 B 的规范值都是 `0.5`，进入同一簇。不能把分母改成 2，也不能先宣布成功再收回。若只有 A 能编码，支持数是 1，这一次就是失败，不能缩成分母 1 之后变成功。
+| 场景 | 裁定及来源事实 |
+| --- | --- |
+| 一组合法候选，其他节点失败，未达门槛 | InsufficientSupport；失败节点仍占Basis，不能声称观察到异值 |
+| 多组合法候选，无法接受其中一组 | ConflictingCandidates；保留每组成员 |
+| 多数已达门槛，另有合法少数异值 | Accepted与多个Candidates并存，少数异值不自动成为来源故障 |
+| 已形成Selected值，但调用要求Corroborated | 保留已形成Status，Reason为GuaranteeNotMet |
+| 收到完整回答后方法拒绝 | 保留Completed与Answer.Kind，Interpretation记录Rejected |
+| 所有源尚未形成方法判断即中断 | Reason保持Unassessed，终止原因留在相应交换或操作 |
+| resolver违反覆盖、身份或候选不变量 | InternalFailure；不能据此惩罚provider |
 
-已有 `TestFeeHistoryUnencodableRatioStaysInTheDenominator` 用四源把这一点钉住：A、B 同键且可编码，D 可编码但异键，C 编码失败。N 仍是 4，H 为 2 时 Q 为 3，A、B 两票返回 Unknown / `ErrConflict`，C 留下编码 Fault。若错误地删掉 C，N 会变成 3、Q 变成 2，使这两票误获成功。
+读Decision保留Support/Reject与故障便捷视图供现有事件和报告消费；这些视图由同一来源判断投影，不成为第二次分类入口。来源故障与collection故障分别归属来源摘要及coordinator，内部合同错误独立留在裁定或整轮诊断。写入统一在Sources保存来源回答，Faults只保留collection级错误，删除旧Accepted/Dissent/Rejected/Silent并列切片。
 
-### 6.2 比对用什么
+WriteStatus只陈述Unknown、Accepted或Unconfirmed，原因由Adjudication表达。SubmittedHash是本地签名交易的hash，Hash是领先的实际报告值；绑定失败时保留两者并返回HashMismatch。协议拒绝保留code/message与error.data的missing/null/value/unknown语义。空HTTP正文仍为Missing，非法hash为实际result的Rejected，不折叠成同一个“静默”字段。
 
-比对键是方法自己的比较键。已迁移的方法，比较键就是那一整段规范 JSON（0047）；刻意保留窄键的方法维持自己的键。
+## 6. 维护边界
 
-| 方法 | EncodeCheck | 比对 | EncodeCommit |
-|---|---|---|---|
-| 数量、成功的 DATA（chainId、balance、nonce、code、storage、成功的 eth_call 结果） | 规范编码就是比较键 | 比这份规范字节 | 同一份字节。三步看见的是同一结果 |
-| Median | 不能规范编码的数量先排除，不进入样本 | 在剩下的样本里按现有中位数规则取一次 | 把取中的那个数写成规范 QUANTITY。Status 维持 Selected，不因为编码一致升成 Corroborated（0012） |
-| feeHistory | 数量按 QUANTITY；`gasUsedRatio` 按第 5 节。比较键里的比例必须使用规范十进制，不再经 `[]float64` 把不同原值折成同一键 | 规范编码 | 获胜簇的规范对象。簇内字节不同则按 6.4 |
-| eth_getLogs | 掩码留下的字段按第 5 节。`log.Validate` 要求的字段缺失则失败。`blockTimestamp` 没有时省略 | 规范编码 | 获胜簇的规范数组。簇内字节不同则按 6.4 |
-| eth_createAccessList | 掩码留下的 `accessList`、`error`、`gasUsed`。缺 `address` 或 `storageKeys` 则失败。`error` 和 `gasUsed` 没有时省略 | 规范编码 | 获胜簇的规范对象。簇内字节不同则按 6.4 |
-| eth_getTransactionReceipt | 比较键留下的收据字段，但 `from` 不进键也不进 Value。缺必填字段或 `logsBloom` 与 logs 不一致则失败。`contractAddress`、`to`、blob 字段没有时省略 | 规范编码 | 获胜簇的规范对象。JSON null 编码为 `null`。簇内字节不同则按 6.4 |
-| eth_getBlockReceipts | 复用收据编码规则，元素 null 或任一元素无效则整份来源失败，仍占分母；顺序保留 | 规范编码 | 获胜簇规范数组；顶层 null 编为 `null`，空数组保留 `[]`。簇内字节不同则按 6.4 |
-| eth_call 的 data 维度、区块 | 只回答受保护内容能不能编码。此时还不知道 4e 会不会扣下 data，也不在这里重做区块承诺 | data 维度或 `number\|hash` 维持现行键。不用整段最终 JSON 投票 | 裁决之后才生成最终字节。data 未达门槛时由编码器省略，不再用 `deleteObjectField` 重序列化 |
-| Local | 被选中的那一个来源能否编码 | 不改 Local 的选取 | 该来源的规范编码。Status 仍为 Selected |
-| Forward（未注册） | 无编码器 | 现状 | 保持原值，Status 为 Forwarded，不作受保护声明 |
-
-`eth_call` 信封和区块重编码的口径见第 14.2、14.3 节。方向已锁，阶段 3a、3b 之前不实现。EncodeCheck 不得把 code、message 或未约束的区块字段编进受保护结果。阶段 1 接入的数量和成功 DATA，比较键就是规范字节：EncodeCheck、比对、EncodeCommit 看见同一串字节。eth_call 的 code、message 和未迁移对象的 Value 仍是代表源原文。
-
-### 6.3 公共检查与方法编码器
-
-公共代码只做三件事：对通过检查的来源调用该方法的编码器、要求获胜簇的规范字节相等、装配代表源和 Provenance。
-
-`func(json.RawMessage) (json.RawMessage, error)` 够用的范围只是数量和 DATA 这类单载荷标量。`eth_call` 的 data 维度、区块的请求绑定和承诺，都要额外输入。这两类的函数形状随第 14.2、14.3 节的口径走。阶段 3a、3b 之前不实现。不在本文假装已经有一个万能签名。
-
-编码器是可选能力，挂在方法装配处。没有编码器注册表。未声明编码器的已注册方法，在迁移期间保持原值。迁移状态记在方法规则索引的 result 列，不靠一套新的运行时契约语言。`ResultKind` 不作为公开字段，见第 14.4 节。
-
-### 6.4 簇内规范字节不一致
-
-同一个比较簇里，通过 EncodeCheck 的支持源却得到不同规范字节时：
-
-- 这一次 Resolve 的结果是 Unknown，返回 `ErrMalformedResponse`，原因是 `result encoding disagrees within cluster`；
-- 不改选另一个来源的原文，不逐字段取多数，不把不一致的来源剔除后再投一次；
-- 各支持源的编码摘要写入 Faults，用来区分是键太窄还是编码器越界；
-- 这是代码缺陷，必须有测试，不是正常的来源分歧。
-
-非获胜簇里的同类不一致，口径见第 14.1 节：记入 Faults，不否决已达门槛且自身字节一致的获胜簇。不能靠忽略它来触发第二次投票。获胜簇自己不一致仍按本节 Unknown。
-
-当前实现范围：挂编码器的 Strict 在 `finish` 中检查各簇规范字节。落选簇不一致只追加含该簇 Source ID 的 Fault，不复制该簇 Value，也不改变裁决；排名第一簇仍通过 `CommitCanonical` 提交。第 14.1 节的落选簇诊断及本节的编码摘要已实现：仅在不一致的簇，Fault 随簇错误记录每个来源的 Source ID、规范字节长度及 SHA-256，不记录完整比较键或 Value。获胜簇返回的错误仍是原有编码错误，摘要留在 Faults。这些方法的所有可计票来源已经逐源编码，这些摘要基于既有规范字节计算，不再编码或裁决，也不改变固定分母。当前 `finish` 在门槛判定返回错误后仍会检查排名第一簇，若该簇编码不一致，则返回编码错误；这也不触发重新投票。
-
-### 6.5 证据通道
-
-```text
-Representative   第 7 节选出的来源
-Admission        该来源的准入证据（区块的 uncle 头等）
-Withheld         4e 扣下的字节
-```
-
-Admission、Withheld 和 Representative 必须是同一个来源。禁止 Value 取最后一个、Evidence 取第一个、Withheld 再取另一个观察。
-
-这个通道里**没有代表源原文**（决策 0048）。域外字段的可见性由
-`Decision.Extensions` 和 `Decision.Diagnostics` 承担：前者只包含达到动态
-门槛的单一值，后者保留低支持和多值分歧。普通 typed 表面不需要读取这些
-诊断结构；已迁移方法不保留 Raw，也不设字节上限。
-
-`eth_call` 的 `RevertError.Code` 与 `Message` 是捕获顺序第一个人的 provider 写法，没有佐证。T08.6 已按 0054 删除这两个字段及 `ErrorCode()`；`RevertError` 不再实现 geth `rpc.Error`。`Data` 与 `DataRaw` 保留，它们来自受保护结果。
-
-Provenance 不依赖 Uncertain。Uncertain 仍是 opt-in 的全量原始捕获（0034），保留前 N 字节的策略与本通道无关，两者互不知情。`Decision.Provenance` 携带准入证据与规则 4e withheld bytes。
-
-### 6.6 Decision 上的结果
-
-| 字段 | 现状 | 设计后 |
-|---|---|---|
-| `Value` | 某一个来源的原始字节；4e 时是删减后的重序列化 | 受保护结果域的规范编码 |
-| `Evidence` | 准入证据加 4e 扣下的字节，可以和 Value 不同源 | 语义收窄为准入证据，与代表源同源；通道不再保留代表源原文 |
-| `Extensions` | 指纹依赖代表源拼写 | 指纹取规范 Value；域外字段由 `Observed` 相对 Value 归类 |
-| `DeletedFields` | 4e 删除的字段 | 保留，语义不变 |
-| `Representative` | 没有这个字段。Strict、CallRevert 在簇内取最后一人，Median 取等值样本里的第一个，而且可以和 Evidence 不同源 | 阶段 0 起就写入：Strict、CallRevert、Median 在带出获胜簇 Value 时记下捕获顺序第一人。Local 与 Forward 保持零值。规范编码落地后这个人只标审计锚点 |
-
-「设计后」一列里，`Value`、`Evidence`、`Extensions` 三格写的是规范编码落地后的终态。阶段 0 不把它们改成那一列，但仍然要改 Value 和 Evidence 的来源：从「Value 取簇内最后一人、Evidence 取另一个有证据的人」改成捕获顺序第一人，Withheld 也是这一人。改完之后，阶段 0 的 Value 字节仍是这个人的原始载荷（4e 删减除外），不是规范编码。阶段 1 的数量和成功 DATA 把 Value 写成规范编码；未迁移方法的 Value 仍是这个人的原始载荷。`Representative` 从阶段 0 起写入。Extensions 指纹和 Provenance 不在阶段 0 或这一刀开工。
-
-域外字段沿用 `corroborated_extension`、`provider_residual`、`conflict_field`。`AggregateFields` 只处理这些域外路径，并按规范化后的叶子值分组，不再按原始叶子字节分组。`projection.StandardFields` 是与编码器平行的第二份字段表。口径见第 14.3 节：它不作为区块 Value 的依据。阶段 0 不删。数组路径不能再因为匹配不到清单而被当成扩展或 Missing。
-
-## 7. 代表源
-
-- 定义：获胜簇中，本次调用捕获成员顺序里的第一个支持源。
-- 这个顺序和投票成员一起在调用开始时捕获（0025）。含义就是调用方配置的顺序。
-- 生产路径已经按成员下标写入。Policy 单测和 replay 必须传入同一个捕获顺序。replay 以 `index.json` 的来源顺序为准，并在 `expect.json` 记录 `ordinal`。
-- 不按 `Source.ID` 排序。已迁移标量的 Value 与代表源拼写无关；再按端点 URL 的拼写选审计锚点，会变成第二条规则。未迁移方法的 Value 仍是这份代表源原文，不能用「与代表源无关」把那些方法说成已经规范化。
-- Strict、CallRevert、Median 共用 `rpc.representative`。Local 的“第一个健康源”保持为选取策略。Forward 不选代表源。
-- 它替换 `cluster` 的 map 覆盖、`call_revert.representative`，以及 Median 里各自的选法。
-
-代表源、准入证据、Withheld 三者同源。代表源的准入证据为空时就保持空，不得改用簇内后一个来源的证据。测试若要证明“输入任意重排，规范 Value 仍相同”，必须显式重排后断言编码，不能借机改掉生产中的成员优先级。
-
-阶段 0 不改「Value 取哪一簇」，只把该簇内部从最后一人改成捕获顺序第一人。`eth_call` 的 4e 仍按现实现选簇：data 有具体值时，Value 来自 data 排名第一的那一簇（人数多的在前，人数相同再按键排序）；这一簇没达到门槛时，仍用它的信封，再删掉 data。全部在 data 上弃权时，才用执行簇。代表源是这一簇的第一人。Withheld 只放这一人扣下的 data，不收集其他来源的 data。
-
-未迁移方法的 Value 仍是代表源的原始载荷（4e 删减除外）。已迁移的数量和成功 DATA 上，代表源只决定审计锚点，不决定 Value。未迁移对象因此还不能把 Corroborated 写成语义安全：`from`、`size` 仍会随区块原文出现，要到阶段 3b 才从 Value 去掉。
-
-阶段 0 的 `Decision.Representative` 用现有的 `SourceRef`，放在 Evidence 旁。失败但仍带出获胜簇 Value 的路径也要填。Local、Forward，以及本地的 `ResolveLocal`，保持零值。
-
-## 8. 文件组织
-
-不新增顶层包。标量规则放 wire，对象字段表留在对象 slice，方法文件只装配。
-
-```text
-rpc/internal/wire/encode.go
-    标量、JSON token、第 5 节的字节规则
-
-rpc/internal/objects/<object>/encode.go
-    该对象的字段、承诺绑定、派生字段、typed 模型
-    receipt、transaction、log、feehistory 随阶段 2
-    block 等到区块决策，不提前新增第二份区块字段表
-
-rpc/methods/eth_*.go
-    把 admission、比较键、resolver、encoder 装在一起
-    只被一个方法使用的形状留在方法文件
-
-rpc/result.go
-    EncodeCheck、EncodeCommit、representative、Provenance 装配
-    只检查编码结果相等，不解释某个 Ethereum 字段
-
-aggregator
-    只编排。不解释 Value，不维护字段表
-```
-
-禁止：
-
-- 与编码器平行的 `StandardFields`、YAML 或运行时 schema；
-- 从比较键反推所有方法响应的万能编码器；
-- 用代表源原文加 mask 白名单当作规范形式。mask 比域宽，区块的 `size` 就在 mask 里，却不受承诺约束；
-- aggregator 了解某个方法的字段语义；
-- 每个方法复制一套 Resolve、Provenance 或 evidence 类型。
-
-比较键继续用现有的 `normalize.go` 和 `prune.go`，但只对未迁移方法与刻意保留窄键的方法成立；已迁移方法的键是编码器的输出（0047），`usableAnswer`、锚定校验与 pending 路径仍走 normalizer，所以 `normalize.go` 没有被取代。`prune.go` 不做序列化器。对象编码和准入共用同一个 typed 模型。派生字段只在编码器里计算一次，typed 层只解码 Value。
-
-新增文件限于 `rpc/result.go`、`wire/encode.go`，以及每个需要编码的对象 slice 一个 `encode.go`。再往外拆之前先检查是不是越界。
-
-## 9. 测试与进入条件
-
-每个方法在进入 canonical 交付前，除现有路线图的条件外，还要有：
-
-1. `method-contracts.md` 写明受保护结果域：每个进域字段的依据，以及域外字段去哪。依据只允许是第 4.2 节的四步之一，不另写字段标准。
-2. 编码器，以及第 4.3 节的同余、变异和往返测试。
-3. EncodeCheck 失败、获胜簇编码不一致、域外字段来源这三类测试。
-4. golden 钉住规范 `value` 字节、`representative`、每个来源的 `ordinal`、Provenance 和域外字段。`value` 用原样 JSON 还是 base64，实现时二选一并在样本说明里固定，不改变断言的字节。
-5. 更新 golden 必须带 diff 审阅。
-6. Policy 层，以及 Aggregator 到 typed 读取的离线回放。
-7. 大对象编码的分配和内存测量。口径见第 14.5 节：测量之前和之后都对每个支持源做全量 EncodeCheck，不抽样。不写未测量的配额。这一条随规范编码落地，不是阶段 0 的出口。
-
-位置遍历不能合成一句。规范编码落地之后：把表示变体放到每一个 pool 位置，`Decision.Value` 逐字节不变，typed 结果不变，`Representative` 按第 7 节变化。阶段 0，以及仍返回原文的方法，没有「换位置则 Value 字节不变」：把另一份拼写挪到捕获顺序第一位，Value 就变成那一份原文。这时要稳定的是规则，也就是第一人，并且与 Evidence、Withheld 同源。变体包括大小写、`0X`、键序、空白、JSON 转义和域外字段。
-
-方法规则索引增加 `result` 列，取值为 `canonical`、`raw` 或 `redacted`。迁移完成后，已注册方法不得再是 `raw`。索引只检查有没有注册编码器以及 result 列，不解释字段，也不生成测试（0040）。
-
-必须保留的固定用例：revert code 随配置顺序变化、JSON 转义导致 typed 成功或失败、锚点 hash 的 `0X` 拼写、区块键外字段进入了 Corroborated Value。阶段 0 之后，前三个里“选中哪一份原文”必须稳定；“转义代表源让 typed 失败”要保留为已知缺口，直到该方法改为从规范 Value 解码，不能把断言放宽。
-
-## 10. 采纳时要修订的既有表述
-
-| 位置 | 现文 | 改为 |
-|---|---|---|
-| 0039 规则 4e | methods that do not declare the projection still return that source value | 已注册且已迁移的方法返回受保护结果域的规范编码 |
-| 0039 第 2 类 | They stay on the winning payload as uncorroborated context | 这一刀不改。未迁移对象上它们仍留在 Value 里 |
-| `codebase-topology.md` 的 Value 约束 | 写入获胜簇的原始值，不改字段 | 已迁移标量写规范编码；未迁移 Strict 仍写捕获顺序第一人的原文 |
-| `codebase-topology.md` 的 Normalize 约束 | Normalize 不修改胜出 raw payload | 这句保留。Normalize 仍不改写原始载荷。另加一层：Encode 生成 Value |
-| `rpc.Decision.Value` 注释 | Generic Strict copies one admitted source value | 已迁移方法写规范编码；未迁移 Strict 仍是捕获顺序第一人的原文。原文不在 Provenance |
-| pipeline 1.1 目标语义第 2 条 | 未声明的方法仍返回来源原值 | 迁移期间 result 列为 `raw` 或 `canonical`。迁移完成前仍允许 `raw` |
-| `method-contracts.md` 第 0 节 | 取簇内最后一个池序成员的原始回答 | 已迁移方法的 Value 是规范编码；其余 Strict 方法仍是捕获顺序第一人的原文 |
-| `eth_getblockbyhash.go` 注释、method-contracts byHash 行 | 整对象比较 | 这一刀不改，也不写成「内容由承诺约束」 |
-
-上表是 0041 采纳时要改的句子，不是阶段 0 的改动清单。阶段 0 只改两处选源事实，而且必须和代码同一批改，不能先改文档：
-
-- `method-contracts.md` 第 0 节：「获胜簇的 Value 取簇内最后一个池序成员的原始回答」改为捕获顺序中的第一个。Value 仍是该来源的原始回答，不是规范编码。
-- 同文件 byNumber 归一化行：「获胜簇 Value 取簇内最后池序成员的原始对象」同样改为捕获顺序第一个。
-
-阶段 0 的那两处已经落地。0041 这一刀改成事实的只有这些句子：`method-contracts.md` 第 0 节、`Decision.Value` 注释、`codebase-topology.md` 里 Normalize 仍不改原文并补上 Encode、pipeline 1.1 的迁移期 result 列。0039 第 2 类没有改成已经离开 Value。byHash 没有改成「内容由承诺约束」。原文没有写入 Provenance。历史提交保留完整变更过程，当前路线不再维护阶段游标。
-
-0020 不用改。单源没有规范形式时记 Fault 并留在分母，就是 0020 已经要求的“不得静默进入受保护业务结果”。
-
-0039 的 4e 仍然只删除未达门槛的字段，不新增、不替换、不跨源拼接。本文把“未受保护的内容不进 Value”从 revert data 推广到域外字段。推广本身要等 0041，不能当成缺陷修复顺手改掉 0039。
-
-`method-verification-pipeline.md` 第 6 节的可缺席字段模式维持未采纳。0041 不把它收成框架。
-
-## 11. 分阶段落地
-
-| 阶段 | 内容 | 需要决策 | 出口 |
-|---|---|---|---|
-| 0 | 不引入规范编码，Value 仍是某一个来源的原始载荷。但 Strict 和 CallRevert 选中的那一份会从“簇内最后一个”改为“捕获顺序第一个”，所以原文字节会变，不能写成“不改 Value”。同时让 Value、Evidence、代表源同源，Decision 记下代表源。StrictHeadAnchor 的锚点 hash 改为规范小写，与 FinalizedHeadAnchor 一致。这个 hash 是 EthGuard 发给所有来源的请求参数，不是返回值规范化 | 否 | 锚点拼写用例通过；Value 与 Evidence 同源测试通过 |
-| 1 | 立 0041。增加 `rpc/result.go` 和 `wire/encode.go`。数量类和 DATA 类接入第 6 节的顺序 | 0041 | 这些方法的 result 列为 canonical；同余测试通过；typed 层改读 Value |
-| 2 | receipt、transaction、logs、blockReceipts、accessList、feeHistory。Extensions 改为差集；golden 钉 value。feeHistory 的比例按第 5 节，不再用 float64 比较键 | 否，前提是 0041 已覆盖对象编码 | JSON 转义用例改为从规范 Value 解码后通过 |
-| 3a | eth_call 信封：code 与 message 留在代表源，不进受保护域，不合成信封 | 方向已锁，见第 14.2 节。阶段 0 不实现，也不因此立 0041 | 阶段 0 的出口不包含这一行 |
-| 3b | 区块 Value 只重编码已经核对过承诺的内容。`size`、`totalDifficulty`、厂商字段和 `from` 不进 Value。`from` 测量之后要不要改成派生字段仍开放 | 方向已锁，见第 14.3 节。阶段 0 不实现 | 未迁移的区块 Value 仍会带上这些字段。这是已知缺口，不能写成已经语义安全 |
-| 4 | 索引断言已注册方法没有 `raw` | 否 | 第 9 节的断言生效 |
-
-每个阶段单独提交。出口是可复现的 `go test`、失败路径和 golden diff。
-
-阶段 0 选出的这个人，后面的阶段继续用同一个函数。未迁移方法仍由它决定 Value 用哪一份原文。已迁移标量的 Value 不随这个人的拼写变化。Evidence 和 Withheld 必须是同一人。不能把未迁移方法写成「只是审计锚点」。
-
-## 12. 明确不做
-
-- 不从比较键反序列化出响应，再当作 Value。数量和 DATA 的键本身就是规范字节，那是同一份输出，不是反推。
-- 不从 `AggregateFields.Common` 逐字段拼对象。
-- 不把“代表源原文经 mask 投影”定义成规范形式。
-- 不新增方法契约 DSL、字段清单语言或编码器注册表。
-- 不把可缺席字段收成通用框架。
-- 不逐方法、逐字段定档。进域与否只走第 4.2 节。
-- 不因编码失败缩小本轮分母或降低门槛。
-- 不在 Resolve 之后再裁决一次。
-- 不把 Median 或 Local 的 Selected 升成 Corroborated。
-- 不改比较键的含义来迁就编码器。同键却有不同规范输出时，核对受保护域、准入约束与编码器是否符合方法契约，按第 6.4 节失败；不能在本轮临时换一份额外 JSON 作键，也不能剔除来源后重新投票。仅扩大输出域不能证明同键输出相同。
-- 不把 EthGuard 改成后台共识组，也不在网关里把 `latest` 重写成块号。0026 不跨调用缓存引用，0033 把新鲜度和一致分开；高度对齐不能替代本次调用的裁决。
-- 不因 header hash 或 `transactionsRoot` 已经核对通过，就把 `from`、`size` 或整份代表源 JSON 当成受保护结果。
-- 不新增最终响应投影层，也不公开 Strict/Compatible、污点标记、字段掩码或投影器接口。
-- 不把未测量的字节上限或编码时限写进本文。输入界限仍用现有的 JSON 限制。
-
-## 13. 外部参考
-
-- geth 的 `RPCMarshalBlock`、`RPCMarshalHeader` 和 `hexutil` 只对照输出形状。不据此宣称兼容。
-- execution-apis 提供字段形状和模式，不提供第 5 节的字节规则。
-- proxyd 和 eRPC 返回单个后端的原始响应。它们信任后端；EthGuard 不信任。这是差异，不是对它们的否定。
-
-以后每加入一个外部参考，只回答两件事：它是否改变第 5 节的某条规则，以及是否改变第 4.2 节的判定。都不改变，就只留在背景里。
-
-### 13.1 2026-09-27 的两份外部意见
-
-产品选择已锁进第 14 节。这一节仍只作对照：不改变第 5 节的字节规则，也不改变第 4.2 节的四步。不写入 `docs/decisions.md`，不立 0041，不授权阶段 1 及以后的实现。
-
-两份意见争的是同一条边界：`Decision.Value` 到底是受保护结果，还是一份真实上游响应。对照之后，产品不改。EthGuard 仍是平权多源客户端。成员和分母在一次调用开始时冻结（0025）。多源一致只是提供商容错和防投毒证据，不是链共识。
-
-proxyd 在后台轮询各后端的 `latest`、`safe`、`finalized`，算出共识组，再把客户端的 `latest` 重写成具体块号；错误的 `code` 和 `message` 原样回传。它减少的是时间窗口里的高度差。这里不采用。引用不跨调用缓存（0026），新鲜度与一致分开（0033）。它不改变第 5 节，也不改变第 4.2 节。
-
-eRPC 用语义键分簇，达到门槛后返回获胜簇里一份上游原文，落选者只记遥测；区块看 `transactionsRoot`，不对每笔交易做 `ecrecover`。现状的 `Decision.Value` 就是这种簇内原文。提案要离开它，因为原文不稳定，而且会把没有承诺的字段带进 Corroborated。落选簇不否决胜者，这一点与第 14.1 节相同。它不改变第 5 节。
-
-有一句不能当成依据：header hash 或 `transactionsRoot` 通过，就等于锁住了 JSON 里的 `from` 和 `size`。交易 RLP 不含 `from`；`size` 不是区块头字段。块哈希和交易根都通过时，代表源仍可以写下另一个 `from` 或另一份 `size`。场景在第 14.3 节。因此不把「根通过就透传整份原文」定义为 Value。
-
-另一份意见把边界认对了：Status 只描述 Value；`code`、`message`、`size`、`from` 不进受保护域；获胜簇自己的规范字节必须相同（第 6.4 节）；证据走 Provenance。它随后加出来的第二套产品不采纳：最终响应的 Strict/Compatible、污点标记、字段掩码、投影器接口、对外的 `ResultKind`、合成出来的错误信封，以及没有测量的 64KiB、2ms、8MiB 配额。这些不改变第 4.2 节，也不进入第 14 节。
-
-执行仍按载荷，不按字段开清单。标量和成功的 DATA，规范编码就是比较和 Value。`eth_call` 的 revert 只保护 data，`code` 与 `message` 留在代表源（第 14.2 节）。区块和带承诺的对象，Value 只重编码准入已经核对过的承诺内容（第 14.3 节）。每个可能计票的来源都对受保护域做 EncodeCheck（第 14.5 节）：不为落选者的拼写单独打分，不把将要留在域外的字段再序列化一遍，不抽样，不新增配额表。
-
-## 14. 已锁定口径
-
-2026-09-27 锁定。它是阶段 0 及后续阶段的工程依据，不再标成不定档。仍不写入 `docs/decisions.md`，不立 0041，也不把第 11 节的阶段 3a、3b 变成可以开工的出口。阶段 3a、3b 的方向就在下面，阶段 0 不实现。
-
-这不是在给每个方法的每个字段定标准。
-
-一个字段进不进 Value，只走第 4.2 节的四步。走到“域外”就停，不为它再写一条规则。方法契约可以记下某个字段走了哪一步，那是编码器测试的依据，不是第二份标准。下一个字段若四步已经能判定，就不要再开一节，也不要进本节。
-
-下面七条都不是字段表。14.2 和 14.3 提到的 code、message、`size`、`from`，只是第 4.2 节的例子：前两个停在域外，区块则沿用第 4.1 节已经写过的承诺，不新列一份区块字段清单。
-
-### 14.1 非获胜簇编码不一致
-
-口径：做法乙。落选簇里规范字节不一致，记入 Faults，不否决已经达到门槛、并且自己字节一致的获胜簇。不第二次投票，不缩小分母，不改变这次已经做出的 Status。
-
-五人，门槛 3。A、B、C 的键是 `100|0xaaa`，规范字节都是 V1。结果是 Corroborated 的 V1。D、E 的键是 `100|0xbbb`，规范字节是 V2 和 V3，只写入 Faults。
-
-做法甲不是当前口径。那一枝是任何一个簇不一致就整次 Unknown，落选分叉上的一份坏编码就能否决已经成立的 V1。
-
-获胜簇自己不一致，没有这条口径。五人，门槛 3。C、D、E 同键但规范字节不同，A、B 只有两票。整次仍是 Unknown，返回 `ErrMalformedResponse`，原因是 `result encoding disagrees within cluster`。不能丢掉 E，再让 C、D 以两票当选。
-
-五人，门槛 4，只有 A、B、C 三票一致，D、E 同键但字节不同。失败是普通未达门槛，不是上面这个编码错误。D、E 可以记入 Faults，不能把分母缩成 3。
-
-这是一次调用怎么收场，不是某个字段的标准。第 13 节里「落选簇有致命不一致就整次失败」不采纳，那就是做法甲。
-
-### 14.2 `eth_call` 的 code 与 message
-
-口径：做法甲，已锁定。code 与 message 不进受保护域，也不按 geth 规则合成信封。做法乙（合成固定信封）不是未决项。要改成乙必须另立决策，不能在实现时选择。0052 进一步明确： corroborated revert 的 `Decision.Value` 只保留已接受的 data 投影，provider 的 code/message 改由 `Decision.Revert` 承载为上下文，不进入比较键与受保护 Core。0061 (2026-10-24) 进一步规定该 data 投影使用单一规范拼写：hex 小写且保留 `0x`，非 hex JSON 走与比较键相同的通用解码；代表源仍选择接受哪一份 data，但不再决定 Value 的拼写。下面的“阶段 3a 之前 / 之后”叙述保留为历史，其中“revert Value 随代表源整份原文改变”的拼写部分已被 0061 取代。
-
-Admission、Withheld 与代表源是同一个来源。两段时期不要写成同一句：
-
-- 成功 DATA 的 Value 已是规范编码，不含 `ok|`。revert 的 Value 仍是这个人的整份原文（4e 删减除外），所以 code 与 message 还在 revert 的 Value 里。下面例子里，顺序 A、B、C 时 Value 的 code 是 A 的 3；换成 B、A、C 时变成 B 的 -32000。这是选源结果，不是又一个未决项。
-- 阶段 3a 之后：Value 是受保护域的规范字节。簇内规范字节已经相等，代表源不再决定 Value。code 与 message 不再对外暴露（0048）。
-
-三人，门槛 2。三份都是 revert，data 都是 `0xdead`，data 达到门槛。A 的 code 是 3，message 是 `execution reverted`。B 的 code 是 -32000，message 是 `execution reverted: revert`。阶段 3a 之后，Value 是 revert 加 data `0xdead`，两种捕获顺序下逐字节相同。两人的 code 与 message 都不进 Value，也不对外暴露（0048）。阶段 3a 之前，revert 的 Value 仍是代表源整份原文，code 与 message 随第一人改变。成功结果不是这句：它的 Value 已是规范 DATA。
-
-data 未达门槛时，阶段 0 的 4e 仍用代表源信封，再删掉 data。code 与 message 还在这份 Value 里。不从别的来源补 data，也不合成 message。阶段 3a 才改为由编码器省略 data，并且 code 与 message 不进入 Value。
-
-这不是给 `eth_call` 的错误对象逐字段定标准。code 与 message 没有通过第 4.2 节，所以停在代表源上。data 仍用现有的比较键和 0039 规则 4e。第 13 节里的最小合成信封不采纳，那是做法乙。
-
-### 14.3 区块重编码，以及 `from`
-
-口径有两句。重编码方向已锁，阶段 0 不实现。`from` 测量之后的归属仍开放。
-
-区块 Value 按做法乙重编码。只收第 4.1 节已经写过的、准入核对过承诺的内容：头受 header hash 约束，交易签名内容受交易根约束，withdrawals 受 withdrawals root 约束，uncle 受 uncle hash 约束。不另列一份根字段清单。`size`、`totalDifficulty` 和厂商字段不进 Value，只经 `Observed` 可见，由 Extensions 归类。
-
-重编码落地之后：三人，门槛 2。三份的 `number|hash` 相同，捕获顺序 A、B、C，代表源是 A。A 的 `size` 是 `0x100`，B 的 `size` 是 `0x200`。比较键不分叉。Corroborated 的 Value 里没有这两份 `size`，也没有只在 A 上出现的 `totalDifficulty`。区块重编码还没有做，那两份 `size` 仍留在代表源原文里。
-
-`from` 口径以决策 0051 为准：它是官方收据字段，编码器在存在时保留其规范值并参与比较，不再默认留在域外。旧文“默认留在域外/不进 Value”仅适用于 0051 之前的实现快照。交易 `from` 与区块上下文口径见决策 0053：交易保留现有比较键作上下文佐证，明确非 inclusion proof。区块 Value 已按 T08.3 重编码，未约束字段不再随代表源原文进入结果。
-
-第 13 节的透传意见在这里不成立。三人，门槛 2。三份 `number|hash` 相同，交易根也通过。A 的 `from` 是 `0xaaa`，B 的是 `0xbbb`。捕获顺序 A、B、C 时，若把 A 的原文当作 Value，Corroborated 里的付款人只是 A 的断言；顺序改成 B、A、C，就变成 `0xbbb`。`size` 同样可以在块哈希不变时一个是 `0x100`、一个是 `0x200`。根核对通过，这两项仍停在第 4.2 节第四步。
-
-官方 schema projector 直接从 pinned result schema 生成，不再维护与 encoder 平行的 `StandardFields` 方法字段清单。
-
-### 14.4 名字与 `ResultKind`
-
-口径：证据通道叫 Provenance。`Decision.Provenance` 携带准入证据与规则 4e withheld bytes，并且和代表源同源。`ResultKind` 不出现在公开的 `Decision` 上。已注册方法规则索引的 result 列全部为 `canonical`；键从哪来由同一张表的 `键来源` 列记录（`canonical-bytes` / `normalizer` / `none`）。
-
-三人，门槛 2。`eth_call` 的执行维度达到门槛，data 只有一票，被 4e 扣下。调用方看 Status、Value、`DeletedFields` 和 Provenance。不用一个 `canonical` 或 `redacted` 概括整份结果。
-
-这是通道的名字，不是新的字段分类。第 13 节不为此再加最终响应投影，也不把 `ResultKind` 公开到 `Decision` 上。
-
-### 14.5 每个支持源都编码
-
-口径：做法甲。测量之前和测量之后一样，每个支持源都做完整 EncodeCheck。不抽掉某个来源，也不改成只抽大字段。
-
-五人，门槛 3。A、B、C 比较键相同。C 也要编码。C 的规范字节与 A、B 不同，整次按第 6.4 节 Unknown。C 编不出来，记 Fault，不贡献支持，分母仍是 5。不能因为没编码 C，就把 C 算进支持数。
-
-这是检查范围，不是字段标准。第 13 节否掉只编码代表源：那样会漏掉上面的 C。也否掉为 D、E 的拼写再打一轮分；它们不在获胜键上时，按第 14.1 节记 Fault，不否决胜者。EncodeCheck 只覆盖受保护域，不把留在域外的 `size`、`from` 或厂商字段再序列化一遍。不写 64KiB、2ms、8MiB 这类没有测量的配额。输入界限仍是现有的 JSON 限制。
-
-### 14.6 已撤销:Provenance 超限
-
-**本节整节撤销。** 它规定的是"代表源原文放不下时"怎么办,而 Provenance 不再保留代表源
-原文(第 6.5 节),所以没有可超限的对象。随之消失的还有:Provenance 的字节上限这个
-开放参数、可见截断标记、原始长度与 SHA-256 的诊断,以及"截断体不得再进入 Admit、
-EncodeCheck 或 Resolve"这一族约束。
-
-仍然存在的两件事与本节无关,不要混淆:
-
-- **Uncertain 有自己的预算**(`internal/uncertain/capture.go` 的 1MiB 总额、64KiB 单项,
-  不可配置),超限时的行为是**保留前 N 字节并置 `Truncated`**,与本节撤销的策略相反。
-  它是 opt-in 的调用级捕获,不是本文件的证据通道。
-- **输入界限不变**,仍是现有的 JSON 限制(键数、深度、单条大小)。第 12 节"不把未测量的
-  字节上限或编码时限写进本文"继续成立。
-
-**为什么撤销**(决策 0048):这一节是为一个从未实现、也没有消费者的通道写的。域外字段的
-可见性由 `Decision.Extensions` 与 `Decision.Diagnostics` 承担。为不存在的消费者定义容量
-参数,只会让后续读者以为存在一个待实现的配额。
-
-### 14.7 WSS 上的缺失与 null
-
-口径：做法甲。编码器只对还能分清缺失与 null 的输入承诺第 5 节。HTTP 上两者仍分开：缺失就省略，契约允许的 null 才写出 `null`。WSS 上两者在进入观察之前都已变成 nil，这次调用不得声称已经按第 5 节区分过。编码器不把它们收成同一种输出。传输缺口继续单独立项，不在本文修，也不因此停掉 HTTP 路径上的编码讨论。
-
-三人，门槛 2。A 的 revert data 缺失，B 的 data 是 JSON null，C 的 data 是 `0xdead`。走 HTTP 时，A 和 B 在 data 上弃权，C 只有一票，4e 扣下 data，编码输入是“没有 data 字段”。同样三份走 WSS 时，A 和 B 到达编码器之前已经分不清，不能编成同一种输出来假装第 5 节仍然成立。
-
-这不是给 null 再定一种字段标准。第 5 节的规则不动。
+当前行为由本合同、方法合同及实际入口共同核对；历史理由见决策档案。保护域、官方兼容或接受策略变化须明确目标、影响与独立预期，不能靠改写文档宣布实现完成。未决事项保存在对应正式合同，文档全系列整理并保存 Git 后再开始代码阶段。

@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/codermaybe/ethguard/rpc"
 	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
 type blockPolicy struct {
-	// Policy is the inner strict resolver the block wrapper restores
-	// header-only shapes over; the plan path reads its resolution and
-	// normalization capabilities directly.
+	// Policy is the inner strict resolver. Both production block specs
+	// compare and deliver complete canonical values, including header-only
+	// responses. The wrapper forwards that result; Normalize separately
+	// exposes the block identity for independent consumers.
 	Policy rpc.Policy
 	byHash bool
 }
@@ -23,8 +27,8 @@ func (p blockPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request,
 	return p.Policy.Prepare(ctx, req)
 }
 
-// Normalize forwards the inner resolver's canonical form: the block wrapper
-// changes identity handling, not the value encoding.
+// Normalize forwards the independent block identity normalizer. Production
+// comparison and delivery use the canonical value configured by the spec.
 func (p blockPolicy) Normalize(value json.RawMessage) (string, error) {
 	return p.Policy.Normalize(value)
 }
@@ -77,30 +81,14 @@ func (p blockPolicy) RequiresAgreement() bool {
 	return true
 }
 
-func (p blockPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Decision, error) {
+func (p blockPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
 	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
 		return cp.ResolveCorroborated(c, obs)
 	}
 	return p.Policy.Resolve(obs)
 }
 
-func (p blockPolicy) ResolveOutcome(obs []rpc.Observation) (rpc.Outcome, error) {
-	if inner, ok := p.Policy.(rpc.OutcomeResolver); ok {
-		return inner.ResolveOutcome(obs)
-	}
-	d, err := p.Resolve(obs)
-	return rpc.Outcome{Decision: d}, err
-}
-
-func (p blockPolicy) ResolveOutcomeCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
-	if inner, ok := p.Policy.(rpc.CorroboratingOutcomeResolver); ok {
-		return inner.ResolveOutcomeCorroborated(c, obs)
-	}
-	d, err := p.ResolveCorroborated(c, obs)
-	return rpc.Outcome{Decision: d}, err
-}
-
-func (p blockPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
+func (p blockPolicy) Resolve(obs []rpc.Observation) (rpc.Outcome, error) {
 	return p.Policy.Resolve(obs)
 }
 
@@ -108,4 +96,43 @@ func (p blockPolicy) Resolve(obs []rpc.Observation) (rpc.Decision, error) {
 // admission implementation. Header-only calls remain anchor reads.
 func (p blockPolicy) Admit(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
 	return admitBlockResponse(ctx, req, value, p.byHash, call)
+}
+
+// NormalizeBlockHead exposes the block identity contract to the reference
+// head codec without constructing a legacy policy chain. Reference reads and
+// standalone Normalize calls share this identity extraction; production block
+// comparison and delivery use complete canonical values.
+func NormalizeBlockHead(value json.RawMessage) (string, error) {
+	return normalizeBlockIdentity(value)
+}
+
+// normalizeBlockIdentity extracts the number/hash identity for standalone
+// Normalize and reference consumers. It ignores other fields and rejects a
+// missing number or hash. Header/body validation and request binding belong to
+// their encoding and admission paths. Both production block specs compare and
+// deliver complete canonical values through WithCanonicalValue.
+//
+// The identity is "<decimal number>|<lowercase hash>". Parsing the height
+// numerically makes equivalent hexadecimal spellings (for example 0x010f and
+// 0x10f) agree. The height is a uint64-shaped quantity, so the shared
+// wire-quantity primitive owns the spelling contract.
+func normalizeBlockIdentity(value json.RawMessage) (string, error) {
+	if string(value) == "null" {
+		return "null", nil
+	}
+	var head struct {
+		Number string `json:"number"`
+		Hash   string `json:"hash"`
+	}
+	if err := json.Unmarshal(value, &head); err != nil {
+		return "", err
+	}
+	if head.Number == "" || len(head.Hash) < 3 {
+		return "", fmt.Errorf("block head: missing number or hash")
+	}
+	height, err := rpc.ParseHexQuantity(head.Number)
+	if err != nil {
+		return "", fmt.Errorf("block head: %w", err)
+	}
+	return strconv.FormatUint(height, 10) + "|" + strings.ToLower(head.Hash), nil
 }

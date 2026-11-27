@@ -1,6 +1,6 @@
 # 2026-09-26 mainnet 响应形状探查（shapeprobe 归档）
 
-采集工具：`cmd/shapeprobe`（业务职责见 `docs/design/tooling.md`）。
+采集工具：`cmd/shapeprobe`（业务职责见 [工具职责](../../design/method-verification-pipeline.md#8-工具所有权与材料保留)）。
 锚定高度 0x18da226（26059302），4 个公开 mainnet 端点，读取方法含
 eth_chainId、net_version、eth_blockNumber、eth_gasPrice、eth_blobBaseFee、
 eth_feeHistory、eth_getLogs 等；`report.md` 是人工可读的观察报告，`records/`

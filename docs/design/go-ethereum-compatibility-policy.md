@@ -1,87 +1,40 @@
-# go-ethereum 版本兼容政策
+# 官方业务语义与 go-ethereum 覆盖政策
 
-状态：执行政策（2026-11-09）。
+状态：2026-11-23 NewHead接口合同已同步。公开业务类型与调用方迁移已完成，方法名称集合闭合；逐方法语义、跨传输和运行证据仍待完整验收。
 
-EthGuard 对外的 `EthClient` 契约按仓库锁定的 go-ethereum 版本定义。发布目标不是
-“当前已经接入的 ethclient 子集”，而是完整实现该版本 `ethclient.Client` 的业务方法
-集合。`v1.17.10` 导出的 48 个 receiver 中，`Client()` 只是返回底层 `*rpc.Client`
-的具体类型访问器，不属于 EthGuard 的业务 facade；因此当前锁定版本的兼容目标是
-47 个业务方法。当前 `EthClient` 已接入 46 个方法；仅 `SimulateV1` 因默认构建明确禁止
-生产根包导入 `go-ethereum/ethclient` 而暂缓，不能把该缺口伪装成已完成。当前集合只是
-接入过程中的内部检查点，不能作为最终兼容版本发布或对外能力承诺。
+## 1. 兼容目标与当前状态
 
-`gethcompat.SimulateClient` 提供了一个显式单源逃生舱：调用方主动导入
-`gethcompat` 后，可以使用官方 `ethclient.SimulateOptions`、
-`ethclient.SimulateBlockResult` 和 `SimulateV1` 签名。该适配器复用 go-ethereum
-`ethclient` 的连接与生命周期，不进入默认根包依赖图，不产生 `CallResult`、quorum
-或跨源证据，也不把 `SimulateV1` 计入 `EthClient` 的 47-method 完整性门禁。
-因此它解决了官方类型的可访问性，但没有改变完整兼容发布仍被 `SimulateV1` 阻塞的事实。
+业务方法参考为 `go.mod` 锁定的 go-ethereum v1.17.10。其 `ethclient.Client` 有 48 个导出 receiver 方法；底层 `Client()` 访问器明确排除，目标为剩余 47 项（含 Close）。`scripts/ethclient-method-diff.sh` 检查名称集合，完整签名由 `TestEthClientBusinessSignatures` 按项目类型合同检查；两者均不证明逐方法行为全部兼容。
 
-已核对当前锁定的 go-ethereum `v1.17.10` 官方 `ethclient` 源码：
-`SimulateOptions`、`SimulateBlockResult` 与 `SimulateV1` 仍定义在
-`github.com/ethereum/go-ethereum/ethclient` 包中。该版本没有解除默认根包的
-`ethclient` 导入门禁，因此默认生产拓扑仍按架构阻断处理；需要完整 `EthClient`
-兼容时，后续仍须另行决定是否调整 interlock 并为 `SimulateV1` 建立根执行、证据和
-生命周期契约。
+2026-11-25重新运行名称差异与签名检查，业务缺失为0。该分母不包含包级Dial/DialContext/NewClient/RevertErrorData，也不覆盖参数接受域差异。构造与传输、pending选择、同步发送机制及订阅用法的实际映射见[覆盖清单](method-transport-coverage.md#go-ethereum-v11710-官方-ethclient-方法)。其中项目RevertError只提供DataError而没有ErrorCode；已实际确认上游RevertErrorData不能直接消费它，应用应通过errors.As读取项目Data/DataRaw，不把错误data存在等同上游helper兼容。
 
-方法集合计数不证明返回字段已完整兼容。当前 `SyncProgress` 投影仍遗漏上游已有的
-`SyncedAccessLists`、`TotalAccessLists`、`TrieGenProgress`、`TxIndexFinishedBlocks`、
-`TxIndexRemainingBlocks`、`StateIndexRemaining` 和 `TrienodeIndexRemaining`。
-后三项被置零可能使 `Done()` 在索引尚未完成时返回 `true`。这些字段在 `v1.17.5`
-已经存在；这是既有行为缺口，不是 `v1.17.10` 升级回归，本次依赖升级未修改该逻辑。
+公开 JSON 业务模型以固定 execution-apis 原始来源及审核勘误为源，由 `ethapi` 生成。标量输入为 `ethapi.Address`／`ethapi.Hash` 等；Block、Header、Receipt、Transaction、Log、查询请求和 Simulate 使用项目生成模型。数值、context、错误和订阅生命周期接口按各自职责保留。写入接受 `BinaryTransaction`（提供 MarshalBinary 的载体），可消费 geth transaction，但不把 geth 业务对象重新作为公共模型。
 
-每个兼容版本必须满足：
+项目不承诺 geth Go 名义类型身份或其接口的直接满足。`EthClient` 具有相应业务方法形态，使用项目生成类型；依赖 `bind/v2` 等 geth 接口的调用方需显式适配。当前没有“未迁移的公开业务类型”施工阶段；内部重复定义属于下一阶段实现审查，不能与公开迁移混记。
 
-1. 从锁定的 go-ethereum 源码生成或核对完整 `ethclient.Client` 方法清单，并明确排除
-   `Client()` 这个底层 rpc 访问器；
-2. `EthClient` 的公开业务方法集合与该清单完全一致，包含 unary、pending、写入派生和
-   订阅方法；
-3. 每个方法都有 Root execution 映射、typed projection、参数与返回绑定、错误分层、
-   生命周期和 HTTP/WSS 证据；订阅方法还必须有 `ethereum.Subscription`、取消、重连、
-   背压、异步错误和 race 矩阵；
-4. 不支持的方法不能留在最终兼容版本的“已实现”集合中。若上游方法无法实现，发布必须
-   阻塞，不能用 `ErrUnsupported` 或未知 `Call` 把子集伪装成完整 client；
-5. 升级 go-ethereum 时先生成新旧方法差异，再补齐新增/变更方法和行为测试，最后把
-   `go.mod`、方法清单、兼容性测试和发布说明一起更新。
+`SyncProgress` 仅表达官方 startingBlock／currentBlock／highestBlock 三个 optional 字段，false 映射为未同步对象；不提供 geth Done()。geth 额外同步和索引计数通过附属及预算内原始材料交付。真实 syncing 对象观察仍有缺口。
 
-Root `Client` 继续提供带 `CallResult` 的证据型接口和必要的控制面；它可以比官方视图
-更丰富，但不替代 `EthClient` 的完整兼容承诺。`CallResult` 只用于单次 unary 调用，
-订阅使用独立事件结果和生命周期类型。
+`SimulateV1` 的 root、view 与 Raw Call 共用注册计划。强类型入口使用 `ethapi.SimulateV1Request`、`*ethapi.SimulateBlockReference` 和 `[]ethapi.SimulateBlock`；nil base 默认 latest。生成校验、输入快照与官方 selector 处理不替代模拟块、内层失败、顶层错误或真实 provider 的验收。
 
-`EthClient` 不暴露 `Client()`。调用底层 go-ethereum `*rpc.Client` 会绕过 EthGuard 的
-runtime、quorum、typed projection、证据和生命周期边界；需要底层访问的内部 adapter
-仍由生产组合根持有。方法差异脚本和 API contract test 都把该访问器标成显式排除项，
-不能用它把 47 个业务方法的缺口隐藏起来。
+## 2. 两个 facade，一个执行 owner
 
-外部反馈只发布一个版本化兼容声明：
+Root Client返回业务值、单次`CallResult`和业务错误；EthClient view投影同一执行并省略CallResult。NewHead两入口均接受`HeadSubscriptionPolicy`并返回`HeadSubscription`，通过Next/Basis/Close交付连续路径、重组与来源证据；其签名与上游channel接口不同。Logs使用`LogsSubscriptionPolicy`与`LogsSubscription.Next/Basis/CommittedTip/Close`，交付完整实时批次并显式处理撤回，2026-11-24本地验收通过。Receipts已统一为`ReceiptsSubscriptionPolicy`与`ReceiptsSubscription`，提供相同交付操作，以完整块证明和固定Q字段声明交付完整收据批次；2026-11-25本地验收通过。三种流均不保留channel/`ethereum.Subscription`兼容桥。流式合同独立，不把unary CallResult延伸为订阅事件，详见[订阅合同](subscription-contract.md)。
 
-```text
-go-ethereum: vX.Y.Z
-EthClient: complete
-Root Client: evidence facade over the same execution
-HTTP/WSS: unary + subscription status from the same method matrix
-```
+view 不提供 `Client()` 逃生口。runtime 是唯一生产装配点，typed projection 只有一份；未知公开 Call 本地拒绝，不能通过默认 forwarding 补齐缺失方法。低层 rpc Registry 的 forwarding 能力不等于公开客户端授权。
 
-内部可以继续按语义族分阶段开发、测试和审计，但阶段名称、当前完成百分比和中间子集不
-进入外部兼容版本语义。
+生产 geth adapter 与公共 gethcompat 已退出。`internal/testkit/gethoracle` 仅供差分测试和显式诊断；历史 geth 观察仍是当时的 adapter 证据，不改标为 native。私有 geth 算法桥仍用于签名、hash、bloom 和内容承诺，不承担公开业务模型的权威定义。
 
-## 2026-11-09 依赖升级记录
+## 3. 官方语义与数据交付
 
-- go-ethereum 从 `v1.17.5` 升至 `v1.17.10`；其依赖要求将
-  `golang.org/x/crypto` 从 `v0.48.0` 带至 `v0.55.0`，无需 `replace`。
-- 同批升级保留 Prometheus `client_golang v1.24.1 → v1.25.0`。
-  后者最低要求 Go 1.26.0，项目既有 Go 1.26.10 满足该要求；现有指标名与
-  label 契约不变，HTTP 导出增加用于内容协商的 `Vary` 响应头。
-- 重新运行 `scripts/ethclient-method-diff.sh`：上游仍为 48 个导出方法，
-  排除 `Client()` 后为 47 个业务方法；本项目保持 46 个，唯一缺失的方法仍为
-  `SimulateV1`。升级不构成完整兼容发布。
-- 在本地受控 JSON-RPC 节点上实际运行原生 HTTP/WSS 与 gethcompat HTTP/WSS：
-  核验区块解码、EIP-1898 state-hash、既有同步字段、receipt NotFound、revert data、
-  官方类型的单源 SimulateV1，以及真实调用产生的指标注册、Gather 与 HTTP 导出。
-  这些是本地运行证据，不是外部 provider 或真实 geth 节点的兼容保证。
-- 对同一份 `eth_syncing` 响应做实际对照：geth 保留剩余索引计数 `3/2/1`，
-  `Done()` 为 `false`；EthGuard 投影成 `0/0/0`，`Done()` 为 `true`。
-  此结果单独记录既有缺口，不计作升级通过项。
-- 升级后的全仓普通测试、race 包内覆盖率和 race 跨包覆盖率均通过（44 个测试包）；
-  build、vet、golangci-lint、staticcheck、模块校验和 `go mod tidy -diff` 均通过。
-  使用仓库锁定的 `govulncheck v1.9.0` 扫描，结果为 `No vulnerabilities found.`。
+官方定义、有限生态兼容和项目额外接受限制分别记录。生成形态不替代请求绑定与算法检查；多个来源一致也不能把非法输入投成有效对象。主 Value、附属比较与预算内原始材料的职责由 [返回值合同](return-value-design.md)统一维护。
+
+HTTP/WSS request、订阅、写入和派生入口分别验收；普通 WSS 调用能力不推出订阅兼容。固定成员、来源身份与 provider-backed evidence 不提供链共识、canonicality、finality 或 provider 独立性证明。
+
+## 4. 升级与发布
+
+1. 升级固定 geth 参考时重建方法差异，并明确项目公开签名与官方业务语义的映射。
+2. 官方字段变更沿 [生成合同](wire-codegen.md)审计原始来源、勘误、模型与消费者；不得手改生成物或补平行 DTO。
+3. 逐入口核对请求、结果字段、错误、reference、HTTP/WSS、证据与生命周期；订阅另核对重连、背压、取消和资源回收。
+4. 完成 [覆盖清单](method-transport-coverage.md)中的缺口后，对目标提交执行 [发布门禁](release-contract.md)。方法计数、构建或一次 provider 观察都不能代替完整验收。
+
+完整对外声明必须同时说明业务方法参考版本、固定 execution-apis 来源、项目生成业务类型、未承诺 geth Go 类型身份，以及已验收的传输／生命周期范围。当前仍是实现与证据完善阶段，不发布“已接入子集即完整兼容”的声明。

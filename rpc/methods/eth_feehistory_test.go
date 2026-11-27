@@ -12,6 +12,47 @@ import (
 	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
 
+// TestFeeHistoryAdmissionBindsRewardWidthToRequestedPercentiles pins the
+// official reward semantics: every sample row derives from the percentiles
+// the request declared, so a source answering rows of a width the request
+// never declared is not an official answer. Without this binding a fleet
+// that is uniformly wrong in the same way clusters into Corroborated.
+func TestFeeHistoryAdmissionBindsRewardWidthToRequestedPercentiles(t *testing.T) {
+	plan := compiledPlan(t, MethodFeeHistory)
+	head := `{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5]`
+	reject := []struct {
+		name    string
+		request []any
+		value   string
+	}{
+		{"wrong width with percentiles", []any{uint64(1), "latest", []float64{10, 50}}, head + `,"reward":[["0x10"]]}`},
+		{"absent reward with percentiles", []any{uint64(1), "latest", []float64{10}}, head + `}`},
+		{"null reward with percentiles", []any{uint64(1), "latest", []float64{10}}, head + `,"reward":null}`},
+		{"samples without requested percentiles", []any{uint64(1), "latest", []float64{}}, head + `,"reward":[["0x10"]]}`},
+	}
+	for _, tc := range reject {
+		_, err := plan.Admit(context.Background(), rpc.Request{Method: MethodFeeHistory, Params: tc.request}, json.RawMessage(tc.value), nil)
+		if !errors.Is(err, rpc.ErrMalformedResponse) {
+			t.Fatalf("%s: expected ErrMalformedResponse, got %v", tc.name, err)
+		}
+	}
+	admit := []struct {
+		name    string
+		request []any
+		value   string
+	}{
+		{"matching width", []any{uint64(1), "latest", []float64{10, 50}}, head + `,"reward":[["0x10","0x20"]]}`},
+		{"absent without percentiles", []any{uint64(1), "latest", []float64{}}, head + `}`},
+		{"null without percentiles", []any{uint64(1), "latest", []float64{}}, head + `,"reward":null}`},
+		{"empty rows without percentiles", []any{uint64(1), "latest", []float64{}}, head + `,"reward":[[]]}`},
+	}
+	for _, tc := range admit {
+		if _, err := plan.Admit(context.Background(), rpc.Request{Method: MethodFeeHistory, Params: tc.request}, json.RawMessage(tc.value), nil); err != nil {
+			t.Fatalf("%s: official shape rejected: %v", tc.name, err)
+		}
+	}
+}
+
 func TestNormalizeFeeHistoryChecksArrayRelationships(t *testing.T) {
 	valid := []byte(`{"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5],"reward":[["0x3"]]}`)
 	if _, err := normalizeFeeHistory(valid); err != nil {
@@ -114,10 +155,10 @@ func TestFeeHistoryRatioSpellingsShareOneCanonicalValue(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decision.Status != rpc.Corroborated || string(decision.Value) != want {
-			t.Fatalf("decision = %s status %v, want %s", decision.Value, decision.Status, want)
+		if decision.Decision.Status != rpc.Corroborated || string(decision.Decision.Value) != want {
+			t.Fatalf("decision = %s status %v, want %s", decision.Decision.Value, decision.Decision.Status, want)
 		}
-		return decision
+		return decision.Decision
 	}
 	forward := resolve([]rpc.Observation{first, second})
 	backward := resolve([]rpc.Observation{second, first})
@@ -147,11 +188,11 @@ func TestFeeHistoryUnencodableRatioStaysInTheDenominator(t *testing.T) {
 	if !errors.Is(err, rpc.ErrConflict) {
 		t.Fatalf("err = %v, want the floor to hold against the unreduced denominator", err)
 	}
-	if decision.Status != rpc.Unknown || len(decision.Support) != 2 {
-		t.Fatalf("status %v support %d, want unknown with the two encodable sources", decision.Status, len(decision.Support))
+	if decision.Decision.Status != rpc.Unknown || len(decision.Decision.Support) != 2 {
+		t.Fatalf("status %v support %d, want unknown with the two encodable sources", decision.Decision.Status, len(decision.Decision.Support))
 	}
-	if len(decision.Faults) != 1 || !strings.Contains(decision.Faults[0].Error(), "encode:") {
-		t.Fatalf("faults = %v", decision.Faults)
+	if len(decision.Decision.Faults) != 1 || !strings.Contains(decision.Decision.Faults[0].Error(), "encode:") {
+		t.Fatalf("faults = %v", decision.Decision.Faults)
 	}
 }
 
@@ -175,14 +216,14 @@ func TestFeeHistoryCanonicalBytesDisagreeWithinCluster(t *testing.T) {
 		observation(rpc.SourceRef{Name: "a", ID: "a"}, `{"mark":1,"oldestBlock":"0x1","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5]}`, ""),
 		observation(rpc.SourceRef{Name: "b", ID: "b"}, feeHistory("0x1", "0.50", ""), ""),
 	})
-	if !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
+	if !errors.Is(err, rpc.ErrInvalidCanonicalResult) || !strings.Contains(err.Error(), "result encoding disagrees within cluster") {
 		t.Fatalf("err = %v", err)
 	}
-	if decision.Status != rpc.Unknown || len(decision.Value) != 0 {
-		t.Fatalf("decision = %s status %v", decision.Value, decision.Status)
+	if decision.Decision.Status != rpc.Unknown || len(decision.Decision.Value) != 0 {
+		t.Fatalf("decision = %s status %v", decision.Decision.Value, decision.Decision.Status)
 	}
-	if decision.Representative != (rpc.SourceRef{Name: "a", ID: "a"}) {
-		t.Fatalf("representative = %+v, want the first captured supporter", decision.Representative)
+	if decision.Decision.Representative != (rpc.SourceRef{Name: "a", ID: "a"}) {
+		t.Fatalf("representative = %+v, want the first captured supporter", decision.Decision.Representative)
 	}
 }
 
@@ -192,20 +233,20 @@ func TestFeeHistoryCanonicalBytesDisagreeWithinCluster(t *testing.T) {
 func TestFeeHistoryPendingEncodesTheSelectedSource(t *testing.T) {
 	plan := compiledPlan(t, MethodFeeHistory)
 	decision, err := rpc.ResolveLocalObservation(plan.Resolver, []rpc.Observation{
-		{Source: rpc.SourceRef{Name: "a", ID: "a"}, Value: json.RawMessage(feeHistory("0xA", "0.50", ""))},
-		{Source: rpc.SourceRef{Name: "b", ID: "b"}, Value: json.RawMessage(feeHistory("0x1", "0.1", ""))},
+		{Attempted: true, Source: rpc.SourceRef{Name: "a", ID: "a"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(feeHistory("0xA", "0.50", ""))}}},
+		{Attempted: true, Source: rpc.SourceRef{Name: "b", ID: "b"}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(feeHistory("0x1", "0.1", ""))}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := `{"oldestBlock":"0xa","baseFeePerGas":["0x1","0x2"],"gasUsedRatio":[0.5]}`
-	if decision.Status != rpc.Selected || string(decision.Value) != want {
-		t.Fatalf("pending = %s status %v", decision.Value, decision.Status)
+	if decision.Decision.Status != rpc.Selected || string(decision.Decision.Value) != want {
+		t.Fatalf("pending = %s status %v", decision.Decision.Value, decision.Decision.Status)
 	}
-	if bytes.Contains(decision.Value, []byte("reward")) {
+	if bytes.Contains(decision.Decision.Value, []byte("reward")) {
 		t.Fatal("a missing reward was filled in")
 	}
-	if decision.Representative != (rpc.SourceRef{}) || len(decision.Support) != 1 {
+	if decision.Decision.Representative != (rpc.SourceRef{}) || len(decision.Decision.Support) != 1 {
 		t.Fatalf("decision = %+v", decision)
 	}
 }

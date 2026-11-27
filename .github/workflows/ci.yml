@@ -26,6 +26,25 @@ env:
   FORCE_COLOR: "1"
 
 jobs:
+  release-config:
+    name: release configuration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.20.0
+          install-only: true
+      - name: validate release configuration
+        run: |
+          goreleaser check
+          for script in scripts/*.sh; do bash -n "$script"; done
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
   # Gate 1: fast hygiene. Fail here before paying for the test matrix.
   check:
     name: gofmt / tidy / vet
@@ -45,14 +64,31 @@ jobs:
           fi
       - name: go mod tidy
         run: go mod tidy -diff
+      - name: generated wire freshness
+        run: |
+          generated="$(mktemp)"
+          audit="$(mktemp)"
+          trap 'rm -f "$generated" "$audit"' EXIT
+          go run ./rpc/internal/wire/gen -out "$generated" -audit-out "$audit"
+          if ! cmp -s "$generated" ethapi/types.gen.go; then
+            echo "::error::regenerate ethapi/types.gen.go with go generate ./ethapi"
+            diff -u ethapi/types.gen.go "$generated"
+            exit 1
+          fi
+          if ! cmp -s "$audit" ethapi/types.audit.json; then
+            echo "::error::regenerate ethapi/types.audit.json with go generate ./ethapi"
+            diff -u ethapi/types.audit.json "$audit"
+            exit 1
+          fi
       - name: go vet
         run: go vet ./...
+      - name: compile opt-in anvil tests without starting a chain
+        run: go test -tags anvil -run '^$' ./...
 
   # Gate 2: unit + race (part of the full suite; kept as one job while the
   # suite stays this fast — split into shards only when it grows).
-  # Every `go test` invocation in this repository carries -race: the
-  # concurrency-sensitive pool/aggregator paths only surface data races under
-  # the detector, and the suite is fast enough that race coverage is free.
+  # The full suite uses -race; compile-only and focused transport checks are
+  # separate gates with their own scope.
   test:
     name: test (full suite)
     runs-on: ubuntu-latest
@@ -77,9 +113,6 @@ jobs:
             coverage.out
             coverage-cross.out
           retention-days: 7
-
-  # Lint runs only on the weekly schedule until its config is tuned; it does
-  # not gate PRs yet. Drop the `if` and commit a .golangci.yml once stable.
 
   # The roadmap's closing checks declare a dedicated verification gate beyond
   # the unit suite: the ^TestVerification integration module under the race
@@ -131,11 +164,10 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-  # Link-time gate: the default build must not link the go-ethereum client,
-  # and the geth compatibility channel (gethcompat) must build and run its
-  # own tests. Both channels share one interlock, so the tests run here too.
+  # Link-time gate: production/native execution must not link ethclient.
+  # The internal geth oracle is isolated to testkit and diagnostic tools.
   linktime:
-    name: link-time channels (native default + gethcompat)
+    name: native architecture and oracle isolation
     runs-on: ubuntu-latest
     needs: check
     steps:
@@ -143,27 +175,29 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: default build excludes ethclient
+      - name: native execution graph excludes ethclient
         run: |
-          if go list -deps . | grep -q 'go-ethereum/ethclient'; then
-            echo "::error::the default build links ethclient"
-            go list -deps . | grep 'go-ethereum/ethclient'
+          native_packages="$(go list -deps . ./internal/runtime ./pool ./rpc)"
+          if grep -q 'go-ethereum/ethclient' <<< "$native_packages"; then
+            echo "::error::the native execution graph links ethclient"
+            grep 'go-ethereum/ethclient' <<< "$native_packages"
             exit 1
           fi
-      - name: gethcompat links the compatibility adapter
+      - name: geth oracle stays in internal testkit
         run: |
-          if ! go list -deps ./gethcompat | grep -q 'go-ethereum/ethclient'; then
-            echo "::error::gethcompat does not link the adapter it exposes"
+          if ! go list -deps ./internal/testkit/gethoracle | grep -q 'go-ethereum/ethclient'; then
+            echo "::error::the internal geth oracle does not expose its comparison client"
             exit 1
           fi
-      - name: compatibility channel tests
-        run: go test ./gethcompat/... ./internal/transport/geth/... ./internal/transport/http/...
+      - name: native transport and oracle tests
+        run: go test ./internal/testkit/gethoracle ./internal/transport/http/... ./internal/transport/wss/...
 
   # Scheduled fuzzing exercises untrusted JSON and WebSocket frame parsers
   # outside the pull-request critical path. Any discovered input is emitted by
   # Go as a corpus file and must be committed as a deterministic regression.
+  # Use the release contract's count budget to avoid Go duration-deadline races.
   fuzz:
-    name: scheduled fuzz (short budget)
+    name: scheduled fuzz (count budget)
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     needs: check
@@ -173,27 +207,27 @@ jobs:
         with:
           go-version-file: go.mod
       - name: JSON safety
-        run: go test ./internal/jsonsafe -run=^$ -fuzz=FuzzValidateClassifies -fuzztime=30s
+        run: go test ./internal/jsonsafe -run=^$ -fuzz=FuzzValidateClassifies -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: JSON-RPC response decoder
-        run: go test ./internal/rpcwire -run=^$ -fuzz=FuzzDecodeResponse -fuzztime=30s
+        run: go test ./internal/rpcwire -run=^$ -fuzz=FuzzDecodeResponse -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: WebSocket frame stream
-        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzFrameStream -fuzztime=30s
+        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzFrameStream -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: WebSocket frame writer
-        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzWriteFrameRoundTrip -fuzztime=30s
+        run: go test ./internal/transport/wss -run=^$ -fuzz=FuzzWriteFrameRoundTrip -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: access-list encoder
-        run: go test ./rpc/internal/objects/accesslist -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/accesslist -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: block encoder
-        run: go test ./rpc/internal/objects/block -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/block -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: fee-history encoder
-        run: go test ./rpc/internal/objects/feehistory -run=^$ -fuzz=FuzzEncodeIdempotentAndNormalizeAgrees -fuzztime=30s
+        run: go test ./rpc/internal/objects/feehistory -run=^$ -fuzz=FuzzEncodeIdempotentAndNormalizeAgrees -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: log encoder
-        run: go test ./rpc/internal/objects/log -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/log -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: receipt encoder
-        run: go test ./rpc/internal/objects/receipt -run=^$ -fuzz=FuzzEncodeKeyStableAndIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/receipt -run=^$ -fuzz=FuzzEncodeKeyStableAndIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: transaction encoder
-        run: go test ./rpc/internal/objects/transaction -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=30s
+        run: go test ./rpc/internal/objects/transaction -run=^$ -fuzz=FuzzEncodeIdempotent -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: canonical wire normalizer
-        run: go test ./rpc/internal/wire -run=^$ -fuzz=FuzzNormalize -fuzztime=30s
+        run: go test ./rpc/internal/wire -run=^$ -fuzz=FuzzNormalize -fuzztime=1000000x -parallel=2 -timeout=10m
       - name: archive discovered fuzz corpus
         if: always()
         uses: actions/upload-artifact@v7
@@ -223,9 +257,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.15.0
+      - name: pinned lint, default and anvil
+        run: bash ./scripts/lint.sh
 
   # Reachable vulnerabilities are a release gate. The repository-owned script
   # pins the scanner version so @latest cannot silently raise the Go toolchain

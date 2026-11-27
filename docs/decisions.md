@@ -1,9 +1,18 @@
 # Decisions
 
-This file records decisions that are stable enough to guide implementation.
-Unresolved proposals belong in `docs/design/` instead. A Status line marked
-Implemented names the implementing code; anything still marked pending is
-the remaining work list — do not maintain a second status ledger elsewhere.
+This is the historical decision/ADR archive. IDs, dates, original judgments and supersession records remain intact. An Accepted or Implemented status describes that decision at the recorded time; it is not a live inventory or an instruction to restore an older implementation.
+
+Current contracts are indexed in [the documentation guide](design/README.md). Read the current contract for behavior, ownership, open choices and implementation gaps; use this archive for rationale. The 2026-11-17 documentation checkpoint consolidates the following former documents without changing executable behavior:
+
+| Historical document | Current owner |
+| --- | --- |
+| resolver-seam-contract.md | [Execution and module topology](design/codebase-topology.md) |
+| acceptance-thresholds.md, business rules | [Method contracts](design/method-contracts.md#2-固定成员与裁定门槛) |
+| acceptance-thresholds.md, reference rules | [Reference/freshness](design/reference-freshness-policy.md#2-finalized-候选与确认) |
+| transaction-semantic-matching.md | [Method contracts](design/method-contracts.md#5-独立交易的有限兼容与对象合同) |
+| capture-golden-contract.md, external-rpc-test-framework.md, tooling.md | [Verification and evidence](design/method-verification-pipeline.md) |
+
+Historical paths below identify the documents used at the time; their original contents remain in Git. Public generated business types and the third processor (single receipt) are current facts recorded by the live contracts, not reasons to rewrite old observations or replay previous migration stages. Pending F1/S1 choices now live in their formal owners rather than unversioned temporary notes.
 
 ## 0001. Method-aware aggregation
 
@@ -2557,7 +2566,7 @@ and RPC-error capabilities should ever converge into fewer interfaces (no
 current evidence; do not pre-design).
 
 Focused evidence:
-`docs/design/resolver-behavior-inventory.md`,
+`docs/design/capture-golden-contract.md` (consolidated dated observations),
 `docs/design/resolver-seam-contract.md`,
 `rpc/methods/resolver_capability_interlock_test.go`,
 `aggregator/resolver_capability_interlock_test.go`,
@@ -2817,6 +2826,10 @@ with its review-fix round), the API-contract and view-surface tests
 `client_lifecycle_test.go`, `result_capture_test.go`, the budget collector
 suite), and the full G2/G3 gate results recorded in the execution plan.
 
+Historical-document note (2026-11-11 cleanup): the completed execution plan is
+retained in Git, not as a current instruction document. Its ongoing obligations
+now live in the topology, compatibility and method-verification contracts.
+
 ## 0067. EthClient view includes synchronous writes and subscriptions
 
 Status: Accepted and implemented (2026-11-07).
@@ -2841,3 +2854,276 @@ notification tests, and the full CI test, vet, build, and lint gates. Receipt
 Pulls reconstruct the complete block batch with `eth_getBlockReceipts`; transport
 keepalive/replay remain deferred, and `SimulateV1` remains exposed only through
 `gethcompat`.
+
+## 0068. Receipt wire fidelity and declared semantic equivalence
+
+Status: Accepted and implemented (2026-11-11). Supersedes receipt optional-requiredness,
+null omission and status-over-root projection in 0045/0046/0051; other object
+contracts are unchanged.
+
+Official result shape, compatibility input spelling, method semantics,
+comparison equivalence and typed projection are separate obligations. Shape
+validity does not establish equal values. Equivalence must preserve every
+protected claim: hex case, JSON escapes and object order may normalize;
+different DATA bytes or quantity values may not. A method that compares only
+a coarser conclusion cannot return one source's distinct payload as though
+that payload was corroborated.
+
+Receipt Value keeps the pinned official fields. `from` and `effectiveGasPrice`
+are required, non-null, source-provided and compared. Missing fields are not
+derived from a transaction, borrowed from another source or silently defaulted.
+`type` is optional but, when supplied, must be a non-null hex byte. Optional
+nonnullable quantities/hashes do not treat explicit null as absence. Nullable
+`to` and `contractAddress` retain missing/null/address separately; no implicit
+zero address and no equivalence between those states is asserted. When both
+`status` and `root` are supplied, both are validated, compared and delivered;
+at least one remains required by the method contract. This does not infer fork
+applicability or establish a state-root proof.
+
+The official `status` description permits only failure (0) or success (1),
+although its machine pattern accepts any QUANTITY. Both method admission and
+direct typed projection reject other outcomes; they do not collapse arbitrary
+nonzero values into success. `status:0x2` is a schema-valid counterexample used
+to verify semantic rejection and the unchanged denominator. Existing embedded
+log `blockTimestamp:null` compatibility still normalizes to omission before the
+official receipt constructor; the log objects validated for bloom and binding
+are the ones delivered, not metadata from a second source or interpretation.
+
+Admit binds the transaction/block request; Encode checks canonical protected
+fields and bloom/log consistency; the canonical bytes are the comparison key
+for both receipt methods. Faults cannot vote and stay in the frozen denominator.
+No cross-source assembly or representative metadata restoration is permitted.
+Existing complete-log requirements and zero-log-hash tolerance remain explicit
+project acceptance policy, not full official-input coverage or unconditional
+parent binding. Receipt-set completeness, trie inclusion, canonicality and
+execution correctness are not proved.
+
+The official Geth `types.Receipt` projection does not carry sender/recipient
+information or every wire-presence distinction. Those remain in the protected
+Decision.Value, not invented typed fields. Typed projection must retain the
+fields its upstream type actually exposes. SyncProgress separately retains all
+seven previously omitted upstream synchronization/index counters so upstream
+`Done()` sees the reported remaining work.
+
+Verification (2026-11-11): targeted `-run` checks passed for receipt objects,
+wire receipt parity/HexByte, method receipt/admission behavior, direct typed
+receipt/SyncProgress, public facade receipt/SyncProgress, receipt integration
+and field lifecycle/mutations/typed round-trips, synchronous-write receipts,
+the existing block-receipt-tx capture replay, and root receipt subscription
+aggregation. Consumer fixtures were corrected to supply the required sender
+and omit Geth's typed-only empty `root:"0x"`; production does not repair such
+malformed source claims. Obsolete error-wording/stage and null-omission pins
+were removed; evidence, classification and fixed-denominator assertions remain.
+
+`TestReceiptWireOfficialVectors` and `TestReceiptWireCapturedReplay` validate
+input/output against the independently decoded pinned schema and compare typed
+values with the original payload projection through native HTTP/raw WSS.
+The capture loader checks the original archive hashes. The latter replays the
+dated 2026-09-23 receipt-one/receipt-null records; re-transporting and synthetic
+spelling changes do not create provider observations. Syncing object cases are
+synthetic, not observed provider samples. No live RPC, Anvil, full release,
+repository-wide or race gate was run for this bounded change.
+
+## 0069. Autonomous method definitions and whole-key state branches
+
+Status: Accepted design (2026-11-11). The two-method organization pilot and
+preceding runtime slice were archived in separate commits on 2026-11-12;
+the switch refinement and full migration remain planned. Refines the per-method
+ownership direction in 0005; its historical facade/file layout is not revived.
+
+Each formal method owns its RPC name, public business mapping, existing
+MethodSpec, read-only descriptor, preparation, compatibility and admission
+assembly. Inventory and catalog collect definitions. Public Go signatures
+stay on the facade; shared object checks and codecs stay with their existing
+owners. Methods do not reuse sibling preparation or correction functions.
+One RPC policy may serve several public wrappers, and existing extensions or
+non-read families are not removed or turned into read policies by relocation.
+
+Audited compatibility is expressed as an outer switch on an official direct
+key and, where needed, an inner switch on that key's whole-value state.
+Context is read from an unchanged same-source snapshot; corrections go into
+a separate candidate. Missing-rule keys and present keys are dispatched once.
+No nested-path or array-element correction registry, state framework, second
+field schema or empty switch for methods without special rules is introduced.
+Unmatched official values still undergo validation, encoding and comparison.
+
+Official schema validation follows bounded compatibility conversion; shared
+object and request constraints remain mandatory before voting. Projection
+membership alone does not validate a value. Typed encoding must not silently
+drop protected official fields or restore unvalidated fields by merging.
+Original evidence, whole-source comparison, existing protection domains,
+fixed membership/denominators and health ownership remain unchanged.
+
+Reason: method exceptions and refusal conditions should be readable together,
+while shared correctness has one owner. Explicit state branches make audited
+alternatives reviewable without introducing a rule language or broadening the
+correction unit. Organization moves and semantic changes are delivered
+separately, in small batches accepted by the controller with at most two
+active agents. Temporary execution checklists are kept locally and removed
+after migration; permanent documents do not depend on them. The
+[roadmap](design/project-roadmap.md) records remaining work, and object
+contracts own individual rules.
+
+## 0070. Explicit schema errata before generic generation and runtime schema consumers
+
+Status: Accepted (2026-11-14). Refines 0069's fixed-standard boundary; its
+whole-key provider compatibility organization remains in force.
+
+Keep upstream execution-apis bundles, vectors and their source hashes intact.
+Reviewed standard corrections live separately in `internal/spec/errata/*.json`
+as RFC 6902 patches with a source version/commit, a single request-parameter
+or result target, input/output schema digests, reasons, references and an exit
+condition. `internal/executionapi.Read` applies the complete set atomically;
+`ReadOriginal` preserves an independent upstream oracle. Generation, masks
+and standard-field projection consume the same effective view. The generator
+translates that schema without RPC-specific AST changes.
+
+An upstream pin/input change, failed patch precondition, duplicate application,
+unchanged schema document, wrong output digest or incomplete audit record is
+an error requiring review or retirement. Do not silently skip or automatically
+rewrite a stale correction. Generated source records applied correction IDs
+and file digests; freshness checks bind those data changes to generated code.
+The pending-query correction moves out of the generator without changing its
+four-field scope, requiredness, embedded-transaction rules or method binding.
+Prefer official upstream fixes over adding equivalent local corrections.
+
+Reason: the machine schema cannot currently express every supported legitimate
+response, but hidden generator exceptions obscure both the standard and the
+project's interpretation. Keeping explicit, bounded correction data makes that
+trade-off externally reviewable and allows its removal when upstream catches
+up. JSON Pointer here addresses static schema data, not provider responses.
+This does not authorize blanket response-pattern warnings, invalid protected
+values voting, or unknown fields entering Core. Existing Extensions,
+Diagnostics and budgeted original-source evidence keep their separate roles.
+
+## 0071. Native SimulateV1 entry and retirement of the public geth adapter
+
+Status: Accepted (2026-11-14). Supersedes the forward-looking gethcompat
+retention and SimulateV1 exposure statements in 0066 and the pre-migration
+transport assumptions in 0065. Those decisions remain accurate descriptions
+of the architecture and evidence at their acceptance dates.
+
+`SimulateV1` uses the native method registration and shared root/view execution
+owner. Its current public request is `json.RawMessage`, result is
+`[]ethapi.SimulateBlock`, and base is `*gethrpc.BlockNumberOrHash` with nil
+meaning latest. This is an entry and transport migration only. Generated strong
+request types and method-specific semantic verification remain follow-up work;
+method-set closure at 47 business methods does not prove semantic completeness
+or by itself satisfy stable-release review. The current public `ethapi` shape
+is retained, and this change does not imply wholesale migration of geth
+business types.
+
+Retire the public `gethcompat` construction and single-source Simulate routes,
+and remove the production geth HTTP adapter and `HTTPAdapterGeth` option.
+`HTTPAdapterNative` / `WithHTTPAdapter` and the generic `DialerOption` remain.
+The internal comparison oracle belongs in `internal/testkit/gethoracle` for
+tests and explicit `cmd/nativesmoke` diagnostics; it is not a production
+fallback and is excluded from the native execution graph. Historical geth
+captures retain their original adapter identity and are never relabeled as
+native evidence.
+
+The prerelease exception that accepted exactly one missing `SimulateV1` method
+is retired. Release checks require the complete locked-version method set;
+separate method-level evidence review remains necessary before a compatibility
+claim or stable release.
+
+## 0072. Generated Simulate requests and explicit preparation before reference
+
+Status: Accepted (2026-11-14). Replaces the temporary JSON request and geth
+selector signatures in 0071 without changing the shared execution owner or
+the read pipeline's phase order.
+
+The root and view accept `ethapi.SimulateV1Request` and
+`*ethapi.SimulateBlockReference`. Both models and their nested values come from
+the fixed effective schema. Native execution accepts its five selector
+branches, including the two EIP-1898 objects added by the current upstream
+baseline. A nil or omitted base defaults to latest. Moving string tags retain
+the existing bare-hash pin; explicit objects retain their shape and the
+presence/value of `requireCanonical`. The official blockNumber object permits
+quantities, not moving tags. No selector claims independent chain canonicality.
+
+Replace the existing `MethodSpec.Validate` / `rpc.ReadPlan.Validate` hook with
+`Prepare(context.Context, Request) (Request, error)`. This is one explicit
+request-preparation declaration, not an additional policy dimension or a
+parallel registry. The aggregator consumes the returned request and rejects a
+changed method identity. Existing validate-only methods return their original
+request after the same checks. Local failures still precede reference and
+business network requests.
+
+Simulate preparation snapshots caller-owned inputs once, checks and normalizes
+them through the generated constructors, and returns owned JSON values. Raw
+Call and typed entries share that preparation. Reference rewriting and final
+wire freezing consume the owned values; caller MarshalJSON functions are not
+re-entered by the final freeze. Prepared evidence and each source request carry
+the same final bytes. This distinguishes the initial caller snapshot from the
+final executable snapshot; it does not claim only one JSON encoding operation.
+
+New request models distinguish closed schemas from open schemas. Closed
+objects reject unknown keys. Open objects retain unknown input in generated
+RawMessage maps without overwriting declared fields or rounding numbers.
+Result projection and existing CallMsg construction keep their prior
+strategies. This adds neither a universal response structure nor a runtime
+schema interpreter. Unsupported generator vocabulary fails explicitly.
+
+These are public type and low-level hook signature changes. They do not alter
+quorum, pending-local, Forwarded, response admission, write or stream semantics,
+and do not complete all method-level compatibility or public type migration.
+
+
+## 0073. Two response fact domains and complete replacement of flat outcomes
+
+Status: Accepted and implemented (2026-11-21); whole-repository tests, race,
+vet and build checks passed. Supersedes the compatibility-retention assumptions
+in 0065/0066 for this migration, the read/write exclusivity of 0066, and the
+classification of every unmet support threshold as a conflict. Existing
+request binding, fixed voting membership, method protection, capture lifecycle
+and immutable error ownership remain independent requirements.
+
+The project currently has no user or compatibility burden. Replace affected
+interfaces and their consumers together; do not add V2 APIs, deprecated aliases,
+permanent projections to the old representation, or a later cleanup dependency.
+Preserve established domain knowledge without preserving representations that
+lose it.
+
+A response has two fact domains: communication exchange and answer meaning.
+Native transports record observed progress and termination; rpcwire interprets
+the associated envelope; method owners interpret its value. Method refusal
+cannot erase a completed exchange or turn an actual answer into silence. A legal
+null and a legal protocol error are answers. Scheduling an attempt and starting
+the business RPC exchange are different facts: connection or identity checks
+can fail before the latter. Local cancellation never proves remote nonexecution.
+
+Resolvers must return their source judgments with their decision. Downstream
+health, observability and evidence consumers use that output without running
+normalization again. Unprocessed sources remain unassessed; internal contract
+failures do not become provider failures. Public source summaries retain the
+exchange, protocol kind, method judgment and decision relation without copying
+every source result body. Original payload retention remains optional and
+bounded. A new scenario must have a clear owner, a fact must be formed once,
+and invalid combinations must be prevented or rejected at the boundary.
+
+Adjudication records the fixed basis, support requirement, candidate groups and
+reason. No candidate, insufficient support, actual differing candidates, an unmet
+typed guarantee and a transaction-hash binding failure have distinct meanings.
+Minority disagreement can coexist with acceptance under a majority rule. Read
+assurance and write propagation retain their separate domain semantics. A
+malformed hash answer cannot be classified as an unreachable source.
+
+Synchronous writes compose the original broadcast with the last receipt attempt
+and the most recent formed receipt observation. Each has its own round identity;
+an interrupted last attempt cannot overwrite an earlier observation or inherit
+its votes. Retention stays bounded in polling count. The operation's final
+termination does not wrap an earlier NotFound or conflict as if it persisted;
+those facts belong to their recorded observations. The existing single execution
+owner serves root, view and capture, broadcasts once, and starts receipt timeout
+after broadcast acceptance. A full event journal and subscription lifecycle
+redesign are outside this migration.
+
+The topology stays within existing owners: neutral facts and adjudication in
+rpc, actual I/O in transport, envelope handling in rpcwire, method meaning in
+methods/objects, scheduling and health in pool, orchestration in aggregator and
+runtime, and operation composition at the root. No layer-manager package is
+introduced. The return-value, transport and method documents describe the
+implemented contract. Canary and replay consumers use the same source judgments;
+historical provider captures are unchanged. These checks do not replace a new
+external-provider observation or subscription-lifecycle acceptance.

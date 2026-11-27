@@ -18,6 +18,7 @@ package wire
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"math/big"
 )
 
@@ -25,7 +26,7 @@ import (
 // Leading zeros are rejected, matching NormalizeWireQuantity. For a migrated
 // quantity those bytes are the comparison key.
 func EncodeQuantity(value json.RawMessage) (json.RawMessage, error) {
-	decimal, err := NormalizeWireQuantity(value)
+	decimal, err := ethcodec.NormalizeWireQuantity(value)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +37,7 @@ func EncodeQuantity(value json.RawMessage) (json.RawMessage, error) {
 // folds, including leading zeros, and returns canonical QUANTITY JSON.
 // net_peerCount uses it. Strict wire quantities do not.
 func EncodeFoldedQuantity(value json.RawMessage) (json.RawMessage, error) {
-	decimal, err := NormalizeHexQuantity(value)
+	decimal, err := ethcodec.NormalizeHexQuantity(value)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +47,7 @@ func EncodeFoldedQuantity(value json.RawMessage) (json.RawMessage, error) {
 // EncodeDecimal returns the canonical decimal JSON string for net_version.
 // Leading zeros fold. The result is not a 0x quantity.
 func EncodeDecimal(value json.RawMessage) (json.RawMessage, error) {
-	text, err := NormalizeDecimalString(value)
+	text, err := ethcodec.NormalizeDecimalString(value)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +57,7 @@ func EncodeDecimal(value json.RawMessage) (json.RawMessage, error) {
 // EncodeData checks DATA and returns its canonical JSON string. Leading zeros
 // are kept. Odd lengths and non-hex text fail.
 func EncodeData(value json.RawMessage) (json.RawMessage, error) {
-	text, err := NormalizeHexData(value)
+	text, err := ethcodec.NormalizeHexData(value)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +67,7 @@ func EncodeData(value json.RawMessage) (json.RawMessage, error) {
 // EncodeStorageWord checks one 32-byte storage word and returns canonical DATA.
 // A shorter or longer string fails. It is not rewritten into a quantity.
 func EncodeStorageWord(value json.RawMessage) (json.RawMessage, error) {
-	text, err := NormalizeStorageWord(value)
+	text, err := ethcodec.NormalizeStorageWord(value)
 	if err != nil {
 		return nil, err
 	}

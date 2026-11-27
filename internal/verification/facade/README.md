@@ -1,9 +1,5 @@
 # Facade verification
 
-This package owns black-box verification of the public root `Client` and its
-`EthClient` view. The test files are kept unchanged during structural moves;
-only their package directory changes.
+This package owns black-box verification through the public root Client and EthClient view. Check business values, generated types, classified errors, decisions, source material and lifecycle through their actual shared execution.
 
-The narrow `internal/rpcsample` link preserves the existing replay fixture
-path used by the moved tests. It points to this repository's shared
-`internal/rpcsample` directory and must not point outside the repository.
+Internal rpcsample fixture access refers to this repository's shared internal/rpcsample directory. It is test data access, not another decoder or production execution path. Tests with real private-state requirements remain with their implementation owner; the complete ownership and evidence rules are in [the verification contract](../../../docs/design/method-verification-pipeline.md).

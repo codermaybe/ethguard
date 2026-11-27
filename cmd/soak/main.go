@@ -37,11 +37,10 @@ import (
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	gethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/chainlist"
 	"github.com/codermaybe/ethguard/internal/limits"
 	"github.com/codermaybe/ethguard/internal/typed"
@@ -81,6 +80,12 @@ type stepReport struct {
 }
 
 func main() {
+	if err := run(); err != nil {
+		fail("%v", err)
+	}
+}
+
+func run() error {
 	var (
 		file       = flag.String("file", "", "local rpcs.json (default: fetch "+registryURL+")")
 		chainFlag  = flag.Uint64("chain", 1, "chain id to soak")
@@ -118,7 +123,7 @@ func main() {
 	if sampleErr != nil {
 		// Sampling is data, not a prerequisite: report what the fleet said
 		// and continue — transaction steps degrade to "skipped".
-		fmt.Printf("sampling: %v\n", sampleErr)
+		fmt.Fprintf(os.Stderr, "sampling: %v\n", sampleErr)
 		diveInto(client, step{name: "sampling(getBlockByHash)", method: methods.MethodGetBlockByHash,
 			params: []any{anchor, true}}, 2**timeout)
 	}
@@ -148,11 +153,18 @@ func main() {
 	}
 
 	if *asJSON {
-		encodeJSON(client, steps, results)
-		return
+		if err := encodeJSON(os.Stdout, client, steps, results); err != nil {
+			return fmt.Errorf("write JSON report: %w", err)
+		}
+		return nil
 	}
-	printReport(len(endpoints), *chainFlag, *anchoring, steps, results)
-	printSources(client)
+	if err := printReport(os.Stdout, len(endpoints), *chainFlag, *anchoring, steps, results); err != nil {
+		return fmt.Errorf("write text report: %w", err)
+	}
+	if err := printSources(os.Stdout, client); err != nil {
+		return fmt.Errorf("write source health: %w", err)
+	}
+	return nil
 }
 
 // fleetState carries the derived references every step shares: one anchor
@@ -166,8 +178,8 @@ type fleetState struct {
 }
 
 func (f fleetState) buildSteps(chainID uint64) []step {
-	addr := common.HexToAddress(soakAddress)
-	contract := common.HexToAddress(soakContract)
+	addr := ethapi.Address(strings.ToLower(soakAddress))
+	contract := ethapi.Address(strings.ToLower(soakContract))
 	slot0 := common.Hash{}
 	return []step{
 		{"chainId", methods.MethodChainID, nil, true, func(ctx context.Context) (stepReport, error) {
@@ -190,13 +202,13 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 			if err != nil {
 				return stepReport{}, err
 			}
-			return stepReport{outcome: "ok", detail: block.Hash().Hex()}, nil
+			return stepReport{outcome: "ok", detail: string(block.Hash)}, nil
 		}},
 		{"getBlockByHash", methods.MethodGetBlockByHash, []any{f.anchor, true}, true, func(ctx context.Context) (stepReport, error) {
 			result, err := f.client.Call(ctx, methods.MethodGetBlockByHash, f.anchor, true)
-			var block *types.Block
+			var block *ethapi.Block
 			if err == nil {
-				block, err = ethguard.DecodeBlock(result.Decision.Value)
+				block, err = typed.DecodeBlockAdmitted(result.Decision.Value)
 			}
 			return classify(result.Decision, err, blockDetail(block))
 		}},
@@ -228,9 +240,9 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 				return stepReport{outcome: "skipped", detail: "no sampled transaction"}, nil
 			}
 			result, err := f.client.Call(ctx, methods.MethodGetTransactionByHash, f.txHash)
-			var tx *types.Transaction
+			var tx *ethapi.Transaction
 			if err == nil {
-				tx, _, err = ethguard.DecodeTransaction(result.Decision.Value)
+				tx, _, err = typed.DecodeTransaction(result.Decision.Value)
 			}
 			return classify(result.Decision, err, txDetail(tx))
 		}},
@@ -239,17 +251,17 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 				return stepReport{outcome: "skipped", detail: "no sampled transaction"}, nil
 			}
 			result, err := f.client.Call(ctx, methods.MethodGetTransactionReceipt, f.txHash)
-			var r *types.Receipt
+			var r *ethapi.Receipt
 			if err == nil {
-				r, err = ethguard.DecodeReceipt(result.Decision.Value)
+				r, err = typed.DecodeReceipt(result.Decision.Value)
 			}
 			return classify(result.Decision, err, receiptDetail(r))
 		}},
 		{"getBlockReceipts", methods.MethodGetBlockReceipts, []any{f.anchor}, true, func(ctx context.Context) (stepReport, error) {
 			result, err := f.client.Call(ctx, methods.MethodGetBlockReceipts, f.anchor)
-			var rs []*types.Receipt
+			var rs []ethapi.Receipt
 			if err == nil {
-				rs, err = ethguard.DecodeReceipts(result.Decision.Value)
+				rs, err = typed.DecodeReceipts(result.Decision.Value)
 			}
 			return classify(result.Decision, err, fmt.Sprintf("%d receipts", len(rs)))
 		}},
@@ -257,7 +269,11 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 			if f.anchorHeight > uint64(math.MaxInt64) {
 				return stepReport{}, fmt.Errorf("anchor height %d exceeds geth block number range", f.anchorHeight)
 			}
-			rs, _, err := f.client.BlockReceipts(ctx, gethrpc.BlockNumberOrHashWithNumber(gethrpc.BlockNumber(f.anchorHeight)))
+			ref, refErr := ethapi.NewBlockReference(json.RawMessage(fmt.Sprintf("%q", f.heightRef())))
+			if refErr != nil {
+				return stepReport{}, fmt.Errorf("build block reference: %w", refErr)
+			}
+			rs, _, err := f.client.BlockReceipts(ctx, ref)
 			if err != nil {
 				return stepReport{}, err
 			}
@@ -280,7 +296,7 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 			var detail string
 			if err == nil {
 				if history, derr := typed.DecodeFeeHistory(result.Decision.Value); derr == nil {
-					detail = fmt.Sprintf("oldest %d, %d base fees", history.OldestBlock.Uint64(), len(history.BaseFee))
+					detail = fmt.Sprintf("oldest %s, %d base fees", history.OldestBlock, len(history.BaseFeePerGas))
 				}
 			}
 			return classify(result.Decision, err, detail)
@@ -304,7 +320,7 @@ func (f fleetState) buildSteps(chainID uint64) []step {
 		}},
 		{"eth_syncing", methods.MethodSyncing, nil, false, func(ctx context.Context) (stepReport, error) {
 			result, err := f.client.Call(ctx, methods.MethodSyncing)
-			var progress *ethereum.SyncProgress
+			var progress *ethapi.SyncProgress
 			if err == nil {
 				progress, err = typed.DecodeSyncProgress(result.Decision.Value)
 			}
@@ -351,6 +367,9 @@ func classify(dec *rpc.Decision, err error, detail string) (stepReport, error) {
 	switch {
 	case err == nil && dec != nil:
 		report.outcome = dec.Status.String()
+	case errors.Is(err, rpc.ErrInsufficientSupport), errors.Is(err, rpc.ErrGuaranteeNotMet):
+		report.outcome = "support-unmet"
+		report.detail = ""
 	case errors.Is(err, rpc.ErrConflict):
 		report.outcome = "conflict"
 		report.detail = ""
@@ -367,7 +386,8 @@ func classify(dec *rpc.Decision, err error, detail string) (stepReport, error) {
 // source's canonical answer. This is a second fan-out and costs one extra
 // round of requests; it runs on strict-comparable conflicts and on whole-
 // step failures, where "which source said what, and which failed how" is
-// the finding itself.
+// the finding itself. These diagnostics go to stderr on a best-effort basis;
+// report output is checked separately.
 func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 	if s.method == "" {
 		return
@@ -376,7 +396,7 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 	defer cancel()
 	emissions, err := client.Pool().Collect(ctx, s.method, s.params, pool.CollectOptions{})
 	if err != nil {
-		fmt.Printf("  deep-dive %s: collect: %v\n", s.name, err)
+		fmt.Fprintf(os.Stderr, "  deep-dive %s: collect: %v\n", s.name, err)
 		return
 	}
 	var order []string
@@ -384,13 +404,13 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 	faults := map[string]int{}
 	faulted := 0
 	for _, em := range emissions {
-		if em.Err != nil {
-			msg := truncate(em.Err.Error(), 90)
+		if em.Response.Err() != nil {
+			msg := truncate(em.Response.Err().Error(), 90)
 			faults[msg]++
 			faulted++
 			continue
 		}
-		canonical, err := client.Normalize(s.method, em.Val)
+		canonical, err := client.Normalize(s.method, em.Response.Answer.Result)
 		if err != nil {
 			msg := "normalize: " + truncate(err.Error(), 80)
 			faults[msg]++
@@ -402,9 +422,9 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 		}
 		clusters[canonical] = append(clusters[canonical], em.Src.Name())
 	}
-	fmt.Printf("  deep-dive %s: %d clusters, %d faulted\n", s.name, len(order), faulted)
+	fmt.Fprintf(os.Stderr, "  deep-dive %s: %d clusters, %d faulted\n", s.name, len(order), faulted)
 	for _, canonical := range order {
-		fmt.Printf("    %2d× %-40s %s\n", len(clusters[canonical]),
+		fmt.Fprintf(os.Stderr, "    %2d× %-40s %s\n", len(clusters[canonical]),
 			strings.Join(clusters[canonical], ","), truncate(canonical, 120))
 	}
 	msgs := make([]string, 0, len(faults))
@@ -413,7 +433,7 @@ func diveInto(client *ethguard.Client, s step, timeout time.Duration) {
 	}
 	sort.Strings(msgs)
 	for _, msg := range msgs {
-		fmt.Printf("    fault %2d× %s\n", faults[msg], msg)
+		fmt.Fprintf(os.Stderr, "    fault %2d× %s\n", faults[msg], msg)
 	}
 }
 
@@ -424,10 +444,12 @@ func load(file string, chainID uint64, max int) []chainlist.Endpoint {
 		if err != nil {
 			fail("open %s: %v", file, err)
 		}
-		defer f.Close()
+		defer f.Close() //nolint:errcheck // Read-only registry input; parsing owns data errors and Close commits no output.
 		r = f
 	} else {
-		req, err := http.NewRequest(http.MethodGet, registryURL, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, registryURL, nil)
 		if err != nil {
 			fail("build request: %v", err)
 		}
@@ -437,7 +459,7 @@ func load(file string, chainID uint64, max int) []chainlist.Endpoint {
 		if err != nil {
 			fail("fetch registry: %v", err)
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck // Read-only response; parsing owns data errors and Close only releases the connection.
 		if resp.StatusCode != http.StatusOK {
 			fail("fetch registry: status %s", resp.Status)
 		}
@@ -481,15 +503,20 @@ func mustAnchor(client *ethguard.Client, timeout time.Duration) string {
 func sampleTx(client *ethguard.Client, anchor string, timeout time.Duration) (common.Hash, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	block, _, err := client.BlockByHash(ctx, common.HexToHash(anchor))
+	block, _, err := client.BlockByHash(ctx, ethapi.Hash(strings.ToLower(anchor)))
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("fetch pinned block: %w", err)
 	}
-	txs := block.Transactions()
-	if len(txs) == 0 {
+	txs := block.Transactions
+	if txs.FullTransactions == nil || len(*txs.FullTransactions) == 0 {
 		return common.Hash{}, nil
 	}
-	return txs[0].Hash(), nil
+	first := (*txs.FullTransactions)[0]
+	hash, ok := blockTransactionHash(first)
+	if !ok {
+		return common.Hash{}, fmt.Errorf("pinned block transaction %s carries no selected branch", string(firstHash(first)))
+	}
+	return common.HexToHash(hash), nil
 }
 
 // mustAnchorHeight resolves the pinned reference's height through the
@@ -504,27 +531,39 @@ func mustAnchorHeight(client *ethguard.Client, timeout time.Duration) uint64 {
 	return height
 }
 
-func printReport(sources int, chainID uint64, anchoring string, steps []step, results []stepReport) {
-	fmt.Printf("== soak: %d sources, chain %d, anchoring=%s ==\n", sources, chainID, anchoring)
-	fmt.Printf("%-28s %-30s %s\n", "step", "outcome", "sup/rej/fault  detail")
+func printReport(out io.Writer, sources int, chainID uint64, anchoring string, steps []step, results []stepReport) error {
+	if _, err := fmt.Fprintf(out, "== soak: %d sources, chain %d, anchoring=%s ==\n", sources, chainID, anchoring); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "%-28s %-30s %s\n", "step", "outcome", "sup/rej/fault  detail"); err != nil {
+		return err
+	}
 	for i, s := range steps {
 		r := results[i]
-		fmt.Printf("%-28s %-30s %d/%d/%d  %s\n", s.name, r.outcome, r.support, r.reject, r.faults, r.detail)
+		if _, err := fmt.Fprintf(out, "%-28s %-30s %d/%d/%d  %s\n", s.name, r.outcome, r.support, r.reject, r.faults, r.detail); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func printSources(client *ethguard.Client) {
+func printSources(out io.Writer, client *ethguard.Client) error {
 	sources := client.Pool().Sources()
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Name() < sources[j].Name() })
-	fmt.Printf("\n-- source health --\n")
+	if _, err := fmt.Fprintln(out, "\n-- source health --"); err != nil {
+		return err
+	}
 	for _, s := range sources {
 		h := s.Health()
-		fmt.Printf("%-10s %-52s ok=%-5d fail=%-4d 429=%-3d p95=%s\n",
-			s.Name(), truncate(s.URL(), 52), h.Successes, h.Failures, h.RateLimited, h.LatencyP95)
+		if _, err := fmt.Fprintf(out, "%-10s %-52s ok=%-5d fail=%-4d 429=%-3d p95=%s\n",
+			s.Name(), truncate(s.URL(), 52), h.Successes, h.Failures, h.RateLimited, h.LatencyP95); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func encodeJSON(client *ethguard.Client, steps []step, results []stepReport) {
+func encodeJSON(outWriter io.Writer, client *ethguard.Client, steps []step, results []stepReport) error {
 	type row struct {
 		Step    string `json:"step"`
 		Outcome string `json:"outcome"`
@@ -554,7 +593,7 @@ func encodeJSON(client *ethguard.Client, steps []step, results []stepReport) {
 		out.Sources = append(out.Sources, src{Name: s.Name(), URL: s.URL(), Successes: h.Successes,
 			Failures: h.Failures, RateLimited: h.RateLimited, LatencyP95: h.LatencyP95.String()})
 	}
-	json.NewEncoder(os.Stdout).Encode(out)
+	return json.NewEncoder(outWriter).Encode(out)
 }
 
 // heightRef spells the pinned anchor height — the wire form the
@@ -628,32 +667,84 @@ func identityDetail(v *big.Int, want uint64) string {
 	return fmt.Sprintf("%d", v)
 }
 
-func blockDetail(b *types.Block) string {
+func blockDetail(b *ethapi.Block) string {
 	if b == nil {
 		return ""
 	}
-	return fmt.Sprintf("height %d", b.NumberU64())
+	height, err := rpc.ParseHexQuantity(string(b.Number))
+	if err != nil {
+		return fmt.Sprintf("height %s", b.Number)
+	}
+	return fmt.Sprintf("height %d", height)
 }
 
-func txDetail(tx *types.Transaction) string {
+func txDetail(tx *ethapi.Transaction) string {
 	if tx == nil {
 		return ""
 	}
-	return fmt.Sprintf("nonce %d type %d", tx.Nonce(), tx.Type())
+	declared, err := typed.TransactionHash(tx)
+	if err != nil {
+		return "transaction union unselected"
+	}
+	return fmt.Sprintf("hash %s", declared)
 }
 
-func receiptDetail(r *types.Receipt) string {
+func receiptDetail(r *ethapi.Receipt) string {
 	if r == nil {
 		return ""
 	}
-	return fmt.Sprintf("status %d gas %d", r.Status, r.GasUsed)
+	detail := ""
+	if r.Status != nil {
+		if status, err := rpc.ParseHexQuantity(string(*r.Status)); err == nil {
+			detail = fmt.Sprintf("status %d ", status)
+		}
+	}
+	if gas, err := rpc.ParseHexQuantity(string(r.GasUsed)); err == nil {
+		detail += fmt.Sprintf("gas %d", gas)
+	}
+	return strings.TrimSpace(detail)
 }
 
-func syncingDetail(p *ethereum.SyncProgress) string {
+// blockTransactionHash reads the declared hash of the selected embedded
+// transaction branch; a zero-selected or multi-selected union reports false.
+func blockTransactionHash(tx ethapi.BlockTransaction) (string, bool) {
+	switch {
+	case tx.Signed7702Transaction != nil:
+		return string(tx.Signed7702Transaction.Hash), true
+	case tx.Signed4844Transaction != nil:
+		return string(tx.Signed4844Transaction.Hash), true
+	case tx.Signed1559Transaction != nil:
+		return string(tx.Signed1559Transaction.Hash), true
+	case tx.Signed2930Transaction != nil:
+		return string(tx.Signed2930Transaction.Hash), true
+	case tx.SignedLegacyTransaction != nil:
+		return string(tx.SignedLegacyTransaction.Hash), true
+	default:
+		return "", false
+	}
+}
+
+// firstHash keeps the sampleTx error message honest when no branch is
+// selected: the union's declared members cannot be read without a branch.
+func firstHash(tx ethapi.BlockTransaction) ethapi.Hash {
+	if hash, ok := blockTransactionHash(tx); ok {
+		return ethapi.Hash(hash)
+	}
+	return ""
+}
+
+func syncingDetail(p *ethapi.SyncProgress) string {
 	if p == nil {
 		return "synced"
 	}
-	return fmt.Sprintf("syncing %d/%d", p.CurrentBlock, p.HighestBlock)
+	current, highest := "unknown", "unknown"
+	if p.CurrentBlock != nil {
+		current = string(*p.CurrentBlock)
+	}
+	if p.HighestBlock != nil {
+		highest = string(*p.HighestBlock)
+	}
+	return fmt.Sprintf("syncing %s/%s", current, highest)
 }
 
 func bigDetail(v *big.Int) string {

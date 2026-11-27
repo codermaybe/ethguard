@@ -44,7 +44,7 @@ func TestDelayedResponseDeadlineUsesFakeTimeAndCancelsRequest(t *testing.T) {
 		defer cancel()
 
 		var result json.RawMessage
-		err := transport.CallContext(ctx, &result, "eth_getBalance", "0x1", "latest")
+		err := transport.Call(ctx, "eth_getBalance", "0x1", "latest").Decode(&result)
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 		}

@@ -17,7 +17,6 @@ import (
 // paths, so they cannot drift (decision 0004). The poll interval is
 // deliberately low-rate: probes ride the ordinary collection path and must
 // never compete with traffic.
-
 // maxTipProbeTimeout caps one RefreshTips probe regardless of how rarely the
 // fleet is polled: the poll interval paces the sampler, not how long one
 // manual probe may hold a caller.
@@ -172,10 +171,10 @@ func (p *Pool) RefreshTips(ctx context.Context) {
 		warmOnly: true,
 	})
 	for _, em := range emissions {
-		if em.Err != nil || !em.Attempted {
+		if em.Response.Err() != nil || !em.Attempted {
 			continue
 		}
-		height, err := parseTipValue(em.Val)
+		height, err := parseTipValue(em.Response.Answer.Result)
 		if err != nil {
 			continue
 		}

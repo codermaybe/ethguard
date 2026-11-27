@@ -3,14 +3,12 @@
 package aggregator
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/refcontext"
 	"github.com/codermaybe/ethguard/internal/uncertain"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/pool"
@@ -115,19 +113,6 @@ func (a *Aggregator) corroboration() (rpc.Corroboration, bool) {
 	return a.corrob.Snapshot(), true
 }
 
-// resolve applies the invocation's frozen corroboration snapshot when the
-// policy supports it; policies without the capability resolve with their
-// construction-time configuration.
-// invocationResolution is one resolution's complete statement: the decision
-// plus, when the policy stated them, every source's verdict. Nil verdicts
-// mean the policy cannot speak per-source outcomes, and classification falls
-// back to the policy's own validity contract.
-type invocationResolution struct {
-	decision rpc.Decision
-	verdicts []rpc.SourceVerdict
-	err      error
-}
-
 // Aggregate collects one request and resolves it according to its policy.
 //
 // The returned error reports why no classified decision was reached.
@@ -158,18 +143,15 @@ func (a *Aggregator) AggregateStrict(ctx context.Context, req rpc.Request) (rpc.
 
 func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorroboration bool) (rpc.Decision, error) {
 	started := time.Now()
-	// Material collection is opt-in: a per-call collector already installed
-	// by the public entry wins; otherwise the context's evidence
-	// configuration creates this call's collector. Without either, no
-	// material is recorded and no business path changes.
+	// Material collection rides the context's per-call collector, installed
+	// by the operation entry that owns and later snapshots it. Aggregate
+	// never creates a collector: one built here lives on a context that
+	// never escapes the invocation, so its records would have no consumer —
+	// an entry that declines collection (for example a view call without a
+	// bound capture) therefore also declines recording here, and a direct
+	// caller that wants material installs its own collector. Without a
+	// collector no material is recorded and no business path changes.
 	collector := uncertain.CollectorFromContext(ctx)
-	if collector == nil {
-		if cfg, ok := uncertain.ConfigFromContext(ctx); ok {
-			collector = uncertain.NewCollector(cfg)
-			ctx = uncertain.WithCollector(ctx, collector)
-		}
-	}
-	ctx, capture := refcontext.New(ctx)
 	// The corroboration mode and support floor are frozen here, before
 	// preparation and any request: a concurrent Set only reaches
 	// invocations that start later (decision 0025).
@@ -183,26 +165,25 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 		plan = forwardPlan(req.Method)
 	}
 	state := &invocationState{
-		ctx:           ctx,
-		plan:          &plan,
-		snap:          snap,
-		snapOK:        snapOK,
-		corroborating: snapOK && plan.Corroborating(),
-		members:       members,
-		capture:       capture,
+		ctx:       ctx,
+		plan:      &plan,
+		snap:      snap,
+		snapOK:    snapOK,
+		collector: collector,
 	}
-	state.invocation = beginInvocation(snap, snapOK, members, uncertain.CollectorFromContext(ctx), requireCorroboration)
+	state.invocation = beginInvocation(snap, snapOK, members, collector, requireCorroboration)
+	defer state.finalizeHealth()
 
 	if exit := a.planPreparePhase(state, started, req); exit != nil {
 		return exit.decision, exit.err
 	}
-	a.collectPhase(state)
+	a.collectPhase(state, members)
 	a.admitPhase(state)
 	if exit := a.resolvePhase(state, started); exit != nil {
 		return exit.decision, exit.err
 	}
 	decision, resolveErr := state.resolveValue()
-	return a.projectPhase(state, started, req, decision, resolveErr)
+	return a.projectPhase(state, started, decision, resolveErr)
 }
 
 // unknownDecision builds the shared shape of the two degraded early-return
@@ -244,7 +225,7 @@ func collectionFaultList(collectErr error) []error {
 
 func hasMalformedAdmission(emissions []pool.Emission) bool {
 	for _, emission := range emissions {
-		if errors.Is(emission.Err, rpc.ErrMalformedResponse) {
+		if errors.Is(emission.Response.Err(), rpc.ErrMalformedResponse) {
 			return true
 		}
 	}
@@ -253,38 +234,11 @@ func hasMalformedAdmission(emissions []pool.Emission) bool {
 
 func firstMalformedAdmission(emissions []pool.Emission) error {
 	for _, emission := range emissions {
-		if errors.Is(emission.Err, rpc.ErrMalformedResponse) {
-			return emission.Err
+		if errors.Is(emission.Response.Err(), rpc.ErrMalformedResponse) {
+			return emission.Response.Err()
 		}
 	}
 	return rpc.ErrMalformedResponse
-}
-
-// finalizeVerdicts reclassifies skipped members from the coordinator's attempt
-// bookkeeping. The resolver sees only observations, so a member whose request
-// a scheduling gate paused reads as unusable to it; the coordinator knows the
-// call never started and marks it absent. Verdicts stay ordered by source ID.
-func finalizeVerdicts(verdicts []rpc.SourceVerdict, emissions []pool.Emission) []rpc.SourceVerdict {
-	if verdicts == nil {
-		return nil
-	}
-	absent := make(map[string]struct{}, len(emissions))
-	for _, emission := range emissions {
-		if !emission.Attempted && emission.Src != nil {
-			absent[emission.Src.ID()] = struct{}{}
-		}
-	}
-	if len(absent) == 0 {
-		return verdicts
-	}
-	out := make([]rpc.SourceVerdict, len(verdicts))
-	copy(out, verdicts)
-	for i, verdict := range out {
-		if _, skipped := absent[verdict.Source.ID]; skipped && verdict.Kind == rpc.VerdictUnusable {
-			out[i].Kind = rpc.VerdictAbsent
-		}
-	}
-	return out
 }
 
 // recordDecision folds one completed aggregation into exactly one
@@ -295,7 +249,7 @@ func finalizeVerdicts(verdicts []rpc.SourceVerdict, emissions []pool.Emission) [
 // outcome capability keep the validity-contract classification. The no-op
 // sink skips assembly entirely, keeping the default call path free of
 // event-building costs.
-func (a *Aggregator) recordDecision(started time.Time, method string, policy rpc.Policy, decision rpc.Decision, resolveErr error, emissions []pool.Emission, verdicts []rpc.SourceVerdict) {
+func (a *Aggregator) recordDecision(started time.Time, method string, decision rpc.Decision, resolveErr error, emissions []pool.Emission, verdicts []rpc.SourceVerdict) {
 	if a.rec == observe.Nop {
 		return
 	}
@@ -313,7 +267,7 @@ func (a *Aggregator) recordDecision(started time.Time, method string, policy rpc
 	} else {
 		event.Status = decision.Status.String()
 	}
-	attemptClass := attemptClassifier(policy, verdicts)
+	attemptClass := attemptClassifier(verdicts)
 	for _, emission := range emissions {
 		if !emission.Attempted {
 			continue // never acquired a slot: no attempt, no observation
@@ -327,20 +281,16 @@ func (a *Aggregator) recordDecision(started time.Time, method string, policy rpc
 	a.rec.RecordDecision(event)
 }
 
-// attemptClassifier fixes how one attempted emission is judged usable: from
-// the resolution's verdicts when the policy stated them, otherwise from the
-// policy's validity contract.
-func attemptClassifier(policy rpc.Policy, verdicts []rpc.SourceVerdict) func(pool.Emission) bool {
-	if verdicts == nil {
-		return func(emission pool.Emission) bool { return usableAnswer(policy, emission) }
-	}
+// attemptClassifier projects the recorded source judgment without calling
+// policy hooks. Missing judgments are internal failures handled at the boundary.
+func attemptClassifier(verdicts []rpc.SourceVerdict) func(pool.Emission) bool {
 	index := verdictIndexByID(verdicts)
 	return func(emission pool.Emission) bool {
-		verdict, stated := index[emission.Src.ID()]
-		if !stated {
-			return usableAnswer(policy, emission)
+		v, ok := index[SourceRefOf(emission.Src).ID]
+		if !ok || v.Method.State == rpc.InterpretationInternalFailure || v.Method.State == rpc.InterpretationExcluded {
+			return true
 		}
-		return verdict.Kind == rpc.VerdictSupported || verdict.Kind == rpc.VerdictDissented
+		return v.Kind != rpc.VerdictUnusable
 	}
 }
 
@@ -352,118 +302,11 @@ func verdictIndexByID(verdicts []rpc.SourceVerdict) map[string]rpc.SourceVerdict
 	return index
 }
 
-// usableAnswer reports whether an attempted call provided an answer the
-// policy could use. A delivered value counts when the policy normalizes it
-// — a valid answer that simply lost the comparison is dissent, not a
-// failure. A structured protocol error counts only for policies that opted
-// into error bodies (rpc.RPCErrorPolicy) and accept the body: a corroborated
-// revert is an observation that contributed value. Everything else —
-// transport faults, timeouts, malformed payloads, protocol errors the
-// policy rejects — provided no usable answer.
-func usableAnswer(policy rpc.Policy, emission pool.Emission) bool {
-	if emission.Err == nil {
-		_, err := policy.Normalize(emission.Val)
-		return err == nil
-	}
-	structured := ObservationRPCError(emission.Err)
-	if structured == nil {
-		return false
-	}
-	if provider, ok := policy.(rpc.RPCErrorPolicy); ok && provider.IncludeRPCError() {
-		_, err := policy.Normalize(structured.Raw())
-		return err == nil
-	}
-	return false
-}
-
 func hasUsableEmission(emissions []pool.Emission) bool {
 	for _, emission := range emissions {
-		if emission.Val != nil {
-			return true
-		}
-		var protocolErr rpc.ProtocolError
-		if errors.As(emission.Err, &protocolErr) {
+		if emission.Response.CandidateErr(true) == nil {
 			return true
 		}
 	}
 	return false
-}
-
-// sourceFaults preserves rejected protocol answers as diagnostics, without
-// changing pool health or blaming calls that never started. A stated verdict
-// is authoritative for its source; without one the validity contract judges.
-func sourceFaults(policy rpc.Policy, emissions []pool.Emission, verdicts []rpc.SourceVerdict) []error {
-	attemptClass := attemptClassifier(policy, verdicts)
-	var faults []error
-	for _, emission := range emissions {
-		if emission.Attempted && emission.Err != nil && !attemptClass(emission) {
-			faults = append(faults, fmt.Errorf("source %q: %w", emission.Src.Name(), emission.Err))
-		}
-	}
-	return faults
-}
-
-// structuredSourceFaults mirrors sourceFaults with source attribution kept
-// outside the error text, and additionally records unattempted members that
-// failed a scheduling gate. Gated members keep their voting-basis slot, so a
-// report must classify them as availability faults even though Calls never
-// started; the human-readable Faults list intentionally stays unchanged.
-// Report generation must use this seam rather than parsing error strings.
-func structuredSourceFaults(policy rpc.Policy, emissions []pool.Emission, verdicts []rpc.SourceVerdict) []rpc.SourceFault {
-	attemptClass := attemptClassifier(policy, verdicts)
-	var faults []rpc.SourceFault
-	for _, emission := range emissions {
-		if emission.Err == nil {
-			continue
-		}
-		if emission.Attempted && attemptClass(emission) {
-			continue
-		}
-		faults = append(faults, rpc.SourceFault{
-			Source: SourceRefOf(emission.Src),
-			Err:    emission.Err,
-		})
-	}
-	return faults
-}
-
-// observationRPCError converts a source-attributed error into the structured
-// value policies read, using only the project-owned protocol-error
-// capabilities. Presence-preserving Adapters answer through
-// rpc.ErrorDataPresence; every other Adapter falls back to the decoded
-// rpc.DataError value, where an absent field and a JSON null are
-// indistinguishable and stay unknown presence.
-func ObservationRPCError(err error) *rpc.RPCError {
-	if err == nil {
-		return nil
-	}
-	var protocolErr rpc.ProtocolError
-	if !errors.As(err, &protocolErr) {
-		return nil
-	}
-	structured := &rpc.RPCError{Code: protocolErr.ErrorCode(), Message: protocolErr.Error()}
-	var preserved rpc.ErrorDataPresence
-	if errors.As(err, &preserved) {
-		if raw, present := preserved.ErrorDataJSON(); present {
-			structured.Data = append(json.RawMessage(nil), raw...)
-			if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-				structured.DataPresence = rpc.ErrorDataPresenceNull
-			} else {
-				structured.DataPresence = rpc.ErrorDataPresenceValue
-			}
-		} else {
-			structured.DataPresence = rpc.ErrorDataPresenceMissing
-		}
-		return structured
-	}
-	var dataErr rpc.DataError
-	if errors.As(err, &dataErr) {
-		if data := dataErr.ErrorData(); data != nil {
-			if raw, marshalErr := json.Marshal(data); marshalErr == nil {
-				structured.Data = raw
-				structured.DataPresence = rpc.ErrorDataPresenceValue
-			}
-		}
-	}
-	return structured
 }
