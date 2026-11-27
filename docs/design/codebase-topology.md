@@ -22,6 +22,7 @@
 | `internal/wiregen` | 离线 schema 编译、模型及 audit 生成；生成器测试与生产生成命令 | 运行期执行与 provider 接纳政策 |
 | `internal/ethobject/hexcompat` | BlockBody／Transaction／SimulateResult的有限已知字段拼写兼容及明确嵌套投影，字段形态取自生成模型 | 通用规则注册、任意未知字段遍历、schema校验、业务派生或承诺 |
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
+| `internal/diag/{livecanary,shapeprobe,rpcsample,chainlist}` | canary、形态探测、采集／回放、registry读取及各自fixture；消费核心能力 | 被核心生产包反向导入、独立实现核心规则 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
 | `internal/transport/{http,wss}` | 原生 HTTP／raw WSS 的协议和保真 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
 | `internal/subscription` | Head/Logs/Receipts 状态机、Tip+DAG、连续路径/重组、过滤与内容证明、worker/恢复、证人/审计、预算/队列与source/session归属；通过注入能力编排 | 连接实现、pool/runtime/methods 具体依赖、第二套内容投票器、复用unary CallResult假装流式生命周期 |
@@ -113,6 +114,7 @@ flowchart TD
 6. 对象结构、编码与请求绑定只属于 internal/ethobject 单树；对象允许依赖 rpc 数据合同，禁止反向导入 rpcengine、methods、aggregator、pool、projection、runtime 或 root facade。标量原语属于 ethcodec，离线生成器属于 wiregen；生产不得导入 testkit 的 encoder coverage helper。
 7. 订阅仅由 internal/subscription 执行，允许消费 rpcengine 及中立 transport port；禁止导入 root、pool、runtime、methods 或具体 transport。白盒测试随 owner，公开入口验收留在 root／verification。
 8. geth 的具体 client／rpc 依赖按显式 adapter 与现有静态 interlock 白名单管理；不能从兼容逃生舱推导默认原生 build 已解除限制。
+9. 核心生产包禁止导入整个 `internal/diag` 树，包括未来新增子包。interlock 按包边界排除 cmd、examples、rpctest、diag、testkit、verification 消费树，其余生产包默认受保护；新增核心 helper 不需逐包登记。诊断目录迁移保留原始 fixture 内容与历史 provenance。
 
 ## 3. 单次读取与阶段所有权
 

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/chainlist"
-	"github.com/codermaybe/ethguard/internal/rpcsample"
+	"github.com/codermaybe/ethguard/internal/diag/chainlist"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample"
 )
 
 // EndpointHeight is one public endpoint that answered eth_blockNumber.

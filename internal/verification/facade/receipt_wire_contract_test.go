@@ -15,8 +15,8 @@ import (
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/methods"
-	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/rpc"
@@ -155,7 +155,7 @@ func TestReceiptWireOfficialVectors(t *testing.T) {
 
 // These are dated observations replayed locally, not new provider observations.
 func TestReceiptWireCapturedReplay(t *testing.T) {
-	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "diag", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
 	if err != nil {
 		t.Fatal(err)
 	}

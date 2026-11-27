@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/chainlist"
+	"github.com/codermaybe/ethguard/internal/diag/chainlist"
 )
 
 func TestFilterPublicHTTPSAndMinHeight(t *testing.T) {

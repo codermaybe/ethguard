@@ -14,7 +14,7 @@ import (
 const uploadArtifactAction = "actions/upload-artifact@v"
 
 func TestLiveCanaryRecheckWorkflowContract(t *testing.T) {
-	path := filepath.Join("..", "..", ".github", "workflows", "live-canary-recheck.yml")
+	path := filepath.Join("..", "..", "..", ".github", "workflows", "live-canary-recheck.yml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read workflow: %v", err)

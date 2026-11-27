@@ -32,7 +32,7 @@ func loadReportSchema(t *testing.T) *jsonSchema {
 
 func loadLiveCanarySchema(t *testing.T, name string) *jsonSchema {
 	t.Helper()
-	path := filepath.Join("..", "..", "docs", "design", "live-canary", name)
+	path := filepath.Join("..", "..", "..", "docs", "design", "live-canary", name)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read schema: %v", err)

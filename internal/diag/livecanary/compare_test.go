@@ -9,11 +9,11 @@ import (
 
 func compareExample(t *testing.T) ([]byte, []byte) {
 	t.Helper()
-	manifestBytes, err := os.ReadFile(filepath.Join("..", "..", "docs", "design", "live-canary", "manifest.example.json"))
+	manifestBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "design", "live-canary", "manifest.example.json"))
 	if err != nil {
 		t.Fatalf("read manifest example: %v", err)
 	}
-	reportBytes, err := os.ReadFile(filepath.Join("..", "..", "docs", "design", "live-canary", "report.example.json"))
+	reportBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "design", "live-canary", "report.example.json"))
 	if err != nil {
 		t.Fatalf("read report example: %v", err)
 	}

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample"
 	"github.com/codermaybe/ethguard/internal/methods"
-	"github.com/codermaybe/ethguard/internal/rpcsample"
 )
 
 func TestReportDiffNamesRecordSHA256(t *testing.T) {

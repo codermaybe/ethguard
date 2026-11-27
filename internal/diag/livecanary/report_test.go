@@ -10,7 +10,7 @@ import (
 
 func reportExample(t *testing.T) map[string]any {
 	t.Helper()
-	path := filepath.Join("..", "..", "docs", "design", "live-canary", "report.example.json")
+	path := filepath.Join("..", "..", "..", "docs", "design", "live-canary", "report.example.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read report example: %v", err)

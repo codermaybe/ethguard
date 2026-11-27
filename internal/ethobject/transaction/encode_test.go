@@ -25,7 +25,7 @@ func TestEncodeKeepsProtectedTransactionShape(t *testing.T) {
 
 func sampleTransaction(t *testing.T) json.RawMessage {
 	t.Helper()
-	entries, err := os.ReadDir("../../rpcsample/testdata/block-receipt-tx/2026-09-23/records")
+	entries, err := os.ReadDir("../../diag/rpcsample/testdata/block-receipt-tx/2026-09-23/records")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func sampleTransaction(t *testing.T) json.RawMessage {
 		if len(entry.Name()) < len("tx-one") || entry.Name()[:len("tx-one")] != "tx-one" {
 			continue
 		}
-		raw, err := os.ReadFile("../../rpcsample/testdata/block-receipt-tx/2026-09-23/records/" + entry.Name())
+		raw, err := os.ReadFile("../../diag/rpcsample/testdata/block-receipt-tx/2026-09-23/records/" + entry.Name())
 		if err != nil {
 			t.Fatal(err)
 		}

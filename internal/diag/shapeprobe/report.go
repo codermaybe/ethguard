@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample"
 	"github.com/codermaybe/ethguard/internal/methods"
-	"github.com/codermaybe/ethguard/internal/rpcsample"
 	"github.com/codermaybe/ethguard/rpc"
 )
 

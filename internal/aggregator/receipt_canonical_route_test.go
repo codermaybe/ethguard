@@ -17,8 +17,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample/replay"
 	objectreceipt "github.com/codermaybe/ethguard/internal/ethobject/receipt"
-	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 
 	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/pool"
@@ -37,7 +37,7 @@ const receiptRouteMethod = methods.MethodGetTransactionReceipt
 // receiptRouteFixture loads one captured receipt response.
 func receiptRouteFixture(tb testing.TB) json.RawMessage {
 	tb.Helper()
-	_, records, err := replay.LoadBatch(filepath.Join("..", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "diag", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
 	if err != nil {
 		tb.Fatal(err)
 	}

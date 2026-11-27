@@ -13,8 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample/replay"
 	receiptobj "github.com/codermaybe/ethguard/internal/ethobject/receipt"
-	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -121,7 +121,7 @@ func TestReceiptCanonicalBytesDisagreeWithinCluster(t *testing.T) {
 
 func sampleReceipt(t *testing.T) json.RawMessage {
 	t.Helper()
-	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "diag", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func BenchmarkReceiptCanonicalValue(b *testing.B) {
 
 func benchmarkReceipt(b *testing.B) json.RawMessage {
 	b.Helper()
-	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "diag", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -25,7 +25,7 @@ func TestFixedPlanHashIsFrozen(t *testing.T) {
 }
 
 func TestManifestExampleParses(t *testing.T) {
-	path := filepath.Join("..", "..", "docs", "design", "live-canary", "manifest.example.json")
+	path := filepath.Join("..", "..", "..", "docs", "design", "live-canary", "manifest.example.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read example: %v", err)

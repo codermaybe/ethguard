@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/rpcsample"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample"
 )
 
 const batchSchemaV1 = "ethguard.batch/v1"

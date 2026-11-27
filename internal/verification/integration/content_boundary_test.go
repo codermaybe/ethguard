@@ -13,8 +13,8 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/methods"
-	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -130,7 +130,7 @@ func TestTypedLogsNullIsMalformed(t *testing.T) {
 
 func sampleResult(t *testing.T, requestID string) json.RawMessage {
 	t.Helper()
-	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "..", "internal", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "..", "internal", "diag", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23"))
 	if err != nil {
 		t.Fatal(err)
 	}

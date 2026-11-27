@@ -474,7 +474,7 @@ Manifest 生成纪律：
 - 所有字段由程序从输入、registry 和固定常量生成；人工和 AI 只能审阅，
   不得填写后再作为 run 产物。
 - `plan.sha256`、`voting_basis_sha256` 和 `manifest_sha256` 必须可重算。
-- 不写入历史 golden，不把 live 响应写进 `internal/rpcsample/testdata`。
+- 不写入历史 golden，不把 live 响应写进 `internal/diag/rpcsample/testdata`。
 
 ---
 

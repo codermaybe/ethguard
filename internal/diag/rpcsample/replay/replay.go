@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codermaybe/ethguard/internal/rpcsample"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample"
 )
 
 // LoadBatch reads dir/index.json and every record it names. The sha256 is

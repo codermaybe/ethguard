@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 
 	"github.com/codermaybe/ethguard"
-	"github.com/codermaybe/ethguard/internal/livecanary"
+	"github.com/codermaybe/ethguard/internal/diag/livecanary"
 )
 
 type dependencies struct {

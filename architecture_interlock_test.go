@@ -15,44 +15,33 @@ import (
 
 const modulePath = "github.com/codermaybe/ethguard"
 
-// toolPackages are the evidence and probe layers: consumers of the core
-// runtime, never dependencies of it (docs/design/method-verification-pipeline.md). cmd/* binaries
-// are unimportable by construction, so only the internal tool packages need
-// the ban.
-var toolPackages = []string{
-	modulePath + "/internal/livecanary",
-	modulePath + "/internal/shapeprobe",
-	modulePath + "/internal/rpcsample",
-	modulePath + "/internal/rpcsample/replay",
+func inPackageTree(path, root string) bool {
+	return path == root || strings.HasPrefix(path, root+"/")
 }
 
-// corePackages is the production core set the tool-import ban applies to:
-// the facade and every package below it except the tools themselves.
-var corePackages = map[string]bool{
-	modulePath:                              true,
-	modulePath + "/rpc":                     true,
-	modulePath + "/internal/methods":        true,
-	modulePath + "/internal/projection":     true,
-	modulePath + "/internal/rpcengine":      true,
-	modulePath + "/internal/pool":           true,
-	modulePath + "/internal/aggregator":     true,
-	modulePath + "/config":                  true,
-	modulePath + "/observe":                 true,
-	modulePath + "/internal/runtime":        true,
-	modulePath + "/internal/reference":      true,
-	modulePath + "/internal/typed":          true,
-	modulePath + "/internal/subscription":   true,
-	modulePath + "/internal/transport":      true,
-	modulePath + "/internal/transport/http": true,
-	modulePath + "/internal/transport/wss":  true,
-	modulePath + "/internal/rpcwire":        true,
+// Production packages are core unless they belong to an explicit consumer
+// tree. New helpers and subpackages inherit the diagnostic dependency ban
+// without requiring another package-by-package registration.
+func isCorePackage(path string) bool {
+	if !inPackageTree(path, modulePath) {
+		return false
+	}
+	for _, consumer := range []string{
+		"/cmd", "/examples", "/rpctest", "/internal/diag",
+		"/internal/testkit", "/internal/verification",
+	} {
+		if inPackageTree(path, modulePath+consumer) {
+			return false
+		}
+	}
+	return true
 }
 
-func banToolImports(t *testing.T, pkg packageImports, imports map[string]bool) {
+func banDiagnosticImports(t *testing.T, pkg packageImports, imports map[string]bool) {
 	t.Helper()
-	for _, tool := range toolPackages {
-		if imports[tool] {
-			t.Errorf("%s imports tool package %s; the core runtime is never a tool consumer's dependency", pkg.ImportPath, tool)
+	for imp := range imports {
+		if inPackageTree(imp, modulePath+"/internal/diag") {
+			t.Errorf("%s imports diagnostic package %s; core production packages must not depend on diagnostics", pkg.ImportPath, imp)
 		}
 	}
 }
@@ -69,7 +58,10 @@ type packageImports struct {
 // tests are allowed to consume production seams, while production code may
 // not depend on verification or testkit.
 func TestArchitectureDependencyInterlock(t *testing.T) {
-	for _, retired := range []string{"rpc/internal/objects", "rpc/internal/wire"} {
+	for _, retired := range []string{
+		"rpc/internal/objects", "rpc/internal/wire",
+		"internal/livecanary", "internal/shapeprobe", "internal/rpcsample", "internal/chainlist",
+	} {
 		if _, err := os.Stat(retired); !os.IsNotExist(err) {
 			t.Errorf("retired package tree %s must not exist (stat: %v)", retired, err)
 		}
@@ -104,27 +96,25 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 				t.Errorf("production package %s imports verification-only package %s", pkg.ImportPath, imp)
 			}
 		}
-		// Only the differential oracle may import ethclient. go-ethereum/rpc
-		// itself stays confined to the oracle, the root test surface, and
-		// cmd/* diagnostics; no production execution path links it.
+		// Only the differential oracle may import ethclient. Production
+		// imports of go-ethereum/rpc stay confined to the oracle and cmd/*
+		// diagnostics; core and transport packages cannot import it.
 		if imports["github.com/ethereum/go-ethereum/ethclient"] && pkg.ImportPath != modulePath+"/internal/testkit/gethoracle" {
 			t.Errorf("%s imports ethclient; it is confined to the differential oracle", pkg.ImportPath)
 		}
 		if imports["github.com/ethereum/go-ethereum/rpc"] {
 			switch {
 			case pkg.ImportPath == modulePath+"/internal/testkit/gethoracle",
-				pkg.ImportPath == modulePath,
 				strings.HasPrefix(pkg.ImportPath, modulePath+"/cmd/"):
 			default:
-				t.Errorf("%s imports gethrpc; it is confined to the oracle, root typed facade, and cmd/*", pkg.ImportPath)
+				t.Errorf("%s imports gethrpc; production imports are confined to the oracle and cmd/*", pkg.ImportPath)
 			}
 		}
 
-		// The core runtime is strictly downstream of no tool: tools and
-		// evidence layers consume it (docs/design/method-verification-pipeline.md). A reverse edge
-		// would let probe or canary concerns steer production behavior.
-		if corePackages[pkg.ImportPath] || strings.HasPrefix(pkg.ImportPath, modulePath+"/internal/ethobject/") {
-			banToolImports(t, pkg, imports)
+		// Diagnostics consume the core runtime. The whole diagnostic tree,
+		// including future packages, is forbidden in core production imports.
+		if isCorePackage(pkg.ImportPath) {
+			banDiagnosticImports(t, pkg, imports)
 		}
 
 		// Objects own representation, integrity and request binding in one
@@ -138,6 +128,7 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 				for _, engine := range []string{
 					"/internal/methods", "/internal/aggregator", "/internal/pool",
 					"/internal/runtime", "/internal/rpcengine", "/internal/projection",
+					"/internal/subscription",
 				} {
 					if imp == modulePath+engine || strings.HasPrefix(imp, modulePath+engine+"/") {
 						t.Errorf("object package %s imports execution package %s", pkg.ImportPath, imp)
@@ -154,7 +145,7 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 				t.Error("root facade imports a concrete transport; the composition root assembles them in internal/runtime")
 			}
 		case modulePath + "/rpc":
-			for _, execution := range []string{"rpcengine", "methods", "aggregator", "pool", "projection", "runtime", "reference"} {
+			for _, execution := range []string{"rpcengine", "methods", "aggregator", "pool", "projection", "runtime", "reference", "subscription"} {
 				if imports[modulePath+"/internal/"+execution] {
 					t.Errorf("rpc data contracts import execution package %s", execution)
 				}
@@ -238,11 +229,11 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 // dependency graph must not link the go-ethereum client, and neither the
 // default build nor the WSS production path may reach a third-party websocket
 // library on a production execution path — the owned wire stack replaced it.
-// The public BlockNumberOrHash signature moved to the generated ethapi model,
-// so no production package imports go-ethereum/rpc anymore; the gate below
-// keeps guarding the historical surface: gorilla/websocket may appear in the
-// default build only through go-ethereum's own packages, no EthGuard package
-// may link it directly, and the WSS production path stays absolute.
+// Core production packages cannot import go-ethereum/rpc; the direct-import
+// gate above permits only command diagnostics and the differential oracle.
+// gorilla/websocket may appear in the default build through go-ethereum's own
+// packages, but no EthGuard package may link it directly and the WSS production
+// dependency graph must exclude it entirely.
 func TestDefaultBuildExcludesEthclient(t *testing.T) {
 	out, err := exec.CommandContext(t.Context(), "go", "list", "-deps", ".", "./internal/runtime").Output()
 	if err != nil {

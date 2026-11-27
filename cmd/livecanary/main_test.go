@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/livecanary"
+	"github.com/codermaybe/ethguard/internal/diag/livecanary"
 )
 
 func commandProvenance() livecanary.Provenance {
@@ -104,7 +104,7 @@ func writeRegistrySnapshotAtURL(t *testing.T, dir string, raw []byte, registryUR
 
 func TestRunManifestWritesArtifactAndManifest(t *testing.T) {
 	dir := t.TempDir()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "livecanary", "testdata", "registry.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "diag", "livecanary", "testdata", "registry.json"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}

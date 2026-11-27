@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
-	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
 )
@@ -162,7 +162,7 @@ func rpcErrorObs(id string, code int, message, data string) rpc.Observation {
 }
 
 func TestRevertSamplesUseDistinctDataKeys(t *testing.T) {
-	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "rpcsample", "testdata", "revert-data", "2026-09-23"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "diag", "rpcsample", "testdata", "revert-data", "2026-09-23"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,7 @@ import (
 func TestCapturedReplayCompleteOfficialValue(t *testing.T) {
 	for _, name := range []string{"block-empty-hash", "block-empty-number", "block-filled-hash", "block-filled-number"} {
 		t.Run(name, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join("..", "..", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23", "records", name+"--s1.json"))
+			raw, err := os.ReadFile(filepath.Join("..", "..", "diag", "rpcsample", "testdata", "block-receipt-tx", "2026-09-23", "records", name+"--s1.json"))
 			if err != nil {
 				t.Fatal(err)
 			}

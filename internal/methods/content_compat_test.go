@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
-	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -193,7 +193,7 @@ func TestWireNormalizeDoesNotRejectUnknownFields(t *testing.T) {
 
 func sampleResults(t *testing.T, dir, requestID string) []json.RawMessage {
 	t.Helper()
-	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "rpcsample", "testdata", dir, "2026-09-23"))
+	_, records, err := replay.LoadBatch(filepath.Join("..", "..", "internal", "diag", "rpcsample", "testdata", dir, "2026-09-23"))
 	if err != nil {
 		t.Fatal(err)
 	}

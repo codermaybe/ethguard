@@ -91,7 +91,7 @@ G4：回放离线；网络只发生于显式采集。G5：N 是 Aggregate 入口
 ### 捕获目录、不可变记录与 golden
 
 ```text
-internal/rpcsample/testdata/<feature>/<batch-id>/
+internal/diag/rpcsample/testdata/<feature>/<batch-id>/
 ├── batch.json       # ethguard.batch/v1；批次 provenance、可选 reference_context
 ├── index.json       # 每条 record 的来源、请求、时间与 SHA-256
 ├── expect.json      # ethguard.expect/v1；冻结观察的回放预期
@@ -131,7 +131,7 @@ internal/rpcsample/testdata/<feature>/<batch-id>/
 - feature 和 batch-id 随批次登记，不能改全局 `sampleBatchID` 而覆盖历史批次。
 - 新 feature 同时加入 `TestRegisteredMethodSampleStatus` 遍历列表、其他 feature
   遍历入口及该批次的 expect 回放入口；不要在目录尚不存在时提前放空占位。
-- 对已归档方法更新 `internal/rpcsample/replay/batch_expect_test.go` 的 `noCapture`。
+- 对已归档方法更新 `internal/diag/rpcsample/replay/batch_expect_test.go` 的 `noCapture`。
   这个 map 的清空不证明必需 case 已全覆盖。
 - `TestRegisteredMethodSampleStatus` 只证明 record 中出现方法，既不证明有 expect，
   也不证明 expect 被执行；必须同时接通真实回放和 case 覆盖断言。
@@ -209,16 +209,17 @@ fork 是独立在线专项，需固定远端 chain、height 与 hash、版本、
 
 | 工具／资产 | 所有者与职责 |
 | --- | --- |
-| rpcsample | cmd/rpcsample、internal/rpcsample；通用 plan 录制 index/records，transaction scenario 另输出完整批次与 provenance，均不判兼容 passed |
-| replay | internal/rpcsample/replay；摘要、reference_context、policy 与端到端回放 |
-| shapeprobe | 固定参考上的形态分类；观察不建立业务合同 |
-| livecanary | 固定 registry／成员／plan、报告及重跑；真实产物在 artifact，不写入 golden |
+| rpcsample | cmd/rpcsample、internal/diag/rpcsample；通用 plan 录制 index/records，transaction scenario 另输出完整批次与 provenance，均不判兼容 passed |
+| replay | internal/diag/rpcsample/replay；摘要、reference_context、policy 与端到端回放 |
+| shapeprobe | cmd/shapeprobe、internal/diag/shapeprobe；固定参考上的形态分类，观察不建立业务合同 |
+| livecanary | cmd/livecanary、internal/diag/livecanary；固定 registry／成员／plan、报告及重跑，真实产物在 artifact，不写入 golden |
+| chainlist | internal/diag/chainlist；诊断工具共用的 registry 解析与端点选择 |
 | wsscapture／nativesmoke／soak | 显式手动取证与诊断，不进入普通 CI，不扩张方法保证 |
 | specbundle／specdiff | 原始规范裁剪、变更和迁移审计，不是运行时 schema 解释器 |
 
-工具与证据消费核心运行时，核心不得反向导入工具、verification 或 testkit。cmd 是 binary，internal 工具包的反向依赖由 architecture interlock 检查。
+工具与证据消费核心运行时，核心不得反向导入工具、verification 或 testkit。cmd 是 binary；内部诊断实现与活动 fixture 归 internal/diag，architecture interlock 禁止核心生产包导入整个目录树，未来新增子包也受约束。
 
-活动样本存放 internal/rpcsample/testdata、internal/livecanary/testdata；被测试引用就有归属。docs/samples 是有日期和采集说明的归档，独立原始证明价值不因无测试引用而消失。真实失败记录也不能被合成替代。原始输出入树须有活动测试或归档归属；仓库外产物可记录定位与摘要，不能冒充可下载 attestation。
+活动样本存放 internal/diag/rpcsample/testdata、internal/diag/livecanary/testdata；被测试引用就有归属。docs/samples 是有日期和采集说明的归档，独立原始证明价值不因无测试引用而消失。真实失败记录也不能被合成替代。原始输出入树须有活动测试或归档归属；仓库外产物可记录定位与摘要，不能冒充可下载 attestation。
 
 默认 CI 不采 provider；依赖下载、漏洞查询和显式 canary 的网络需求分别说明。完整发布与工具版本由发布合同维护，本文不重复另定 fuzz 或产物清理政策。
 

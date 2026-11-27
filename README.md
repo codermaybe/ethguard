@@ -110,6 +110,7 @@ Close on either facade stops the shared Client. New operations fail before netwo
 | internal/ethobject | Object integrity, canonical representation, and request binding |
 | internal/transport / internal/subscription | Native adapters / stream aggregation and sessions |
 | internal/typed | The sole production typed projection |
+| internal/diag/{livecanary,shapeprobe,rpcsample,chainlist} | Diagnostic consumers, capture/replay tools and their fixtures |
 | internal/verification / testkit / rpctest | Public-seam tests and local peers |
 | internal/spec / executionapi | Pinned raw sources / reviewed effective schemas |
 | cmd / observe | Explicit tools / passive operational events |

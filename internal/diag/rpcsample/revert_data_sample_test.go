@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/codermaybe/ethguard/internal/rpcsample"
-	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample/replay"
 )
 
 // Revert-data samples are an offline replay of one capture from two mainnet

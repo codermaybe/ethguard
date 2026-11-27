@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
-	"github.com/codermaybe/ethguard/internal/rpcsample"
-	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/internal/runtime"
 
 	"github.com/codermaybe/ethguard/internal/methods"
