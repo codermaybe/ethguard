@@ -434,8 +434,9 @@ func encodingDiagnostic(cl cluster, err error) error {
 // EncodeCommit writes those same bytes. A method that declared
 // WithCanonicalObject still runs EncodeCheck first and keeps a failure as a
 // Fault inside the denominator, but its key comes from the normalizer, and
-// EncodeCommit writes the value's own canonical bytes. Unmigrated methods keep
-// the normalizer key, including block number|hash. The cluster's Value and
+// EncodeCommit writes the value's own canonical bytes. A raw resolver without
+// an encoder declaration keeps its normalizer key and original representative
+// bytes. The cluster's Value and
 // Provenance both come from the first supporter in the captured member order,
 // which is the order of obs; when that supporter has no evidence the
 // cluster's evidence stays empty instead of borrowing a later supporter's.

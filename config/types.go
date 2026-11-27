@@ -12,9 +12,6 @@ type Config struct {
 	// Anchoring selects the moving-tag reference strategy. An omitted section
 	// means strict anchoring with the default finalized lag.
 	Anchoring *AnchoringConfig `yaml:"anchoring,omitempty" json:"anchoring,omitempty"`
-	// AnchorCacheTTL is a retired migration setting. Empty disables it; any
-	// configured duration is rejected by ethguard.New under decision 0037.
-	AnchorCacheTTL string `yaml:"anchor_cache_ttl,omitempty" json:"anchor_cache_ttl,omitempty"`
 	// TipTracking enables freshness-based source eligibility when present.
 	TipTracking *TipTrackingConfig `yaml:"tip_tracking,omitempty" json:"tip_tracking,omitempty"`
 	// CollectTimeout bounds one aggregate collection. Empty uses 30 seconds.
@@ -53,7 +50,7 @@ type Upstream struct {
 	ID string `yaml:"id" json:"id"`
 	// Endpoint is the RPC dial target (http(s) or ws(s)).
 	Endpoint string `yaml:"endpoint" json:"endpoint"`
-	// Transport is explicit per source. Empty keeps the client's default
-	// native HTTP adapter (or an explicitly injected compatibility dialer).
+	// Transport is explicit per source. Empty selects native HTTP;
+	// WebSocket endpoints require TransportWSS.
 	Transport Transport `yaml:"transport,omitempty" json:"transport,omitempty"`
 }

@@ -12,9 +12,8 @@ import (
 	"github.com/codermaybe/ethguard/internal/rpcwire"
 )
 
-// TestExecutorHTTPAdapterThreadsIntoClient locks the native adapter selection
-// used for newly built clients.
-func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
+// Newly built clients use native HTTP for both current and omitted provenance.
+func TestExecutorUsesNativeHTTP(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := w.Write([]byte(`{"jsonrpc":"2.0","id":999,"result":"0x2a"}`)); err != nil && r.Context().Err() == nil {
@@ -32,42 +31,22 @@ func TestExecutorHTTPAdapterThreadsIntoClient(t *testing.T) {
 		Timeouts:  Timeouts{StepMS: 2000},
 	}
 
-	t.Run("default-native", func(t *testing.T) {
-		e := Executor{}
-		client, err := e.clientFor(manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(client.Close)
-		emissions, err := client.Sample(context.Background(), "eth_chainId")
-		if !errors.Is(err, ethguard.ErrAllSourcesDown) {
-			t.Fatalf("default executor Collect err = %v, want the native adapter's mismatched-id rejection", err)
-		}
-		if len(emissions) != 1 || !errors.Is(emissions[0].Response.Err(), rpcwire.ErrIDMismatch) {
-			t.Fatalf("emissions = %+v, want the native rejection", emissions)
-		}
-	})
-
-	t.Run("native-selected", func(t *testing.T) {
-		e := Executor{HTTPAdapter: ethguard.HTTPAdapterNative}
-		nativeManifest := manifest
-		nativeManifest.HTTPAdapter = string(ethguard.HTTPAdapterNative)
-		client, err := e.clientFor(nativeManifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(client.Close)
-		emissions, err := client.Sample(context.Background(), "eth_chainId")
-		if !errors.Is(err, ethguard.ErrAllSourcesDown) {
-			t.Fatalf("native executor Collect err = %v, want rejection", err)
-		}
-		if len(emissions) != 1 || emissions[0].Response.Err() == nil {
-			t.Fatalf("emissions = %+v, want one failed emission", emissions)
-		}
-		if !errors.Is(emissions[0].Response.Err(), rpcwire.ErrIDMismatch) {
-			t.Fatalf("emission err = %v, want rpcwire.ErrIDMismatch", emissions[0].Response.Err())
-		}
-	})
+	for _, provenance := range []string{"", HTTPAdapterNative} {
+		t.Run(provenance, func(t *testing.T) {
+			e := Executor{}
+			current := manifest
+			current.HTTPAdapter = provenance
+			client, err := e.clientFor(current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(client.Close)
+			emissions, err := client.Sample(context.Background(), "eth_chainId")
+			if !errors.Is(err, ethguard.ErrAllSourcesDown) || len(emissions) != 1 || !errors.Is(emissions[0].Response.Err(), rpcwire.ErrIDMismatch) {
+				t.Fatalf("native executor did not reject the mismatched id: %+v, %v", emissions, err)
+			}
+		})
+	}
 }
 
 // Historical manifests preserve their geth provenance and cannot be rerun

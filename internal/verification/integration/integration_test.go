@@ -962,17 +962,6 @@ func anchorEstablishments(nodes []*rpctest.Node) int {
 	return total
 }
 
-// TestAnchorCacheTTLConfigIsRejected pins decision 0026's boundary on the
-// surviving configuration path: cross-call reference caching is retired, so
-// a configured anchor_cache_ttl must fail construction instead of silently
-// enabling a cache.
-func TestAnchorCacheTTLConfigIsRejected(t *testing.T) {
-	_, err := ethguard.New(config.Config{Upstreams: []config.Upstream{{ID: "a", Endpoint: "http://a.example"}}, AnchorCacheTTL: time.Hour.String()})
-	if err == nil || !strings.Contains(err.Error(), "anchor_cache_ttl") {
-		t.Fatalf("configured cache TTL must be rejected, got %v", err)
-	}
-}
-
 // TestGasPriceIsSelectedWithOutlierEvidence pins the Variable-group
 // contract end to end: the fleet's lower median wins, unanimous fleets still
 // stay Selected (never Corroborated), and outliers ride as evidence.

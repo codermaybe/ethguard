@@ -44,7 +44,7 @@ func TestStrictHeadMalformedResponsesKeepRawBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture := internaluncertain.NewCollector(internaluncertain.Config{BudgetBytes: internaluncertain.DefaultBudget})
+	capture := internaluncertain.NewCollector(internaluncertain.Config{BudgetBytes: 1 << 20})
 	ctx := internaluncertain.WithCollector(context.Background(), capture)
 	decision, err := bundle.Aggregator.Aggregate(ctx, rpc.Request{
 		Method: methods.MethodGetBalance,
@@ -111,7 +111,7 @@ func TestStrictHeadWellFormedResponsesKeepOneRawRecordPerMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture := internaluncertain.NewCollector(internaluncertain.Config{BudgetBytes: internaluncertain.DefaultBudget})
+	capture := internaluncertain.NewCollector(internaluncertain.Config{BudgetBytes: 1 << 20})
 	ctx := internaluncertain.WithCollector(context.Background(), capture)
 	if _, err := bundle.Aggregator.Aggregate(ctx, rpc.Request{
 		Method: methods.MethodGetBalance,

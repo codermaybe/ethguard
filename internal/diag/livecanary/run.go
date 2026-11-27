@@ -31,9 +31,6 @@ var errBasisChanged = errors.New("livecanary: client voting basis differs from m
 type Executor struct {
 	Now       func() time.Time
 	NewClient func(Manifest) (*ethguard.Client, error)
-	// HTTPAdapter selects the native HTTP adapter for the built client.
-	// Historical manifests that identify the geth adapter cannot be rerun.
-	HTTPAdapter ethguard.HTTPAdapter
 }
 
 type RunInput struct {
@@ -146,19 +143,7 @@ func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	selectedAdapter := string(e.HTTPAdapter)
-	if selectedAdapter == "" {
-		selectedAdapter = manifestAdapter
-	} else {
-		selectedAdapter, err = NormalizeHTTPAdapter(selectedAdapter)
-		if err != nil {
-			return nil, err
-		}
-		if selectedAdapter != manifestAdapter {
-			return nil, fmt.Errorf("livecanary: adapter %q does not match manifest adapter %q", selectedAdapter, manifestAdapter)
-		}
-	}
-	if selectedAdapter == "geth" {
+	if manifestAdapter == "geth" {
 		return nil, errors.New("livecanary: rerunning geth-adapter manifests is unsupported")
 	}
 	selected := manifest.Selection.Selected
@@ -178,7 +163,6 @@ func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 	opts := []ethguard.Option{
 		ethguard.WithCollectTimeout(time.Duration(manifest.Timeouts.StepMS) * time.Millisecond),
 		ethguard.WithFinalizedAnchoring(ethguard.WithMaxFinalizedLag(manifest.Reference.MaxLagBlocks)),
-		ethguard.WithHTTPAdapter(ethguard.HTTPAdapter(selectedAdapter)),
 	}
 	client, err := ethguard.New(cfg, opts...)
 	if err != nil {

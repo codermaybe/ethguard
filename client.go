@@ -15,7 +15,6 @@ import (
 	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/runtime"
-	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -28,7 +27,7 @@ type Client struct {
 	pool       *pool.Pool
 	aggregator *aggregator.Aggregator
 	// plans are the read methods driven by explicit execution plans; their
-	// resolvers own canonical normalization at the facade boundary.
+	// Normalize capability supplies standalone comparison keys.
 	plans map[string]rpcengine.ReadPlan
 	// resolver is the runtime-owned anchor establishment strategy; the facade
 	// only queries it (AnchorBlockHash and friends), never replaces it.
@@ -55,47 +54,21 @@ type Client struct {
 	closed atomic.Bool
 }
 
-// HTTPAdapter names the connection adapter a Client's pool uses for HTTP.
-// The native adapter is the default.
-type HTTPAdapter = runtime.Adapter
-
-const HTTPAdapterNative = runtime.AdapterNative
-
-// WithHTTPAdapter selects the HTTP adapter. An empty name selects native.
-func WithHTTPAdapter(a HTTPAdapter) Option {
-	return func(o *clientOptions) { o.httpAdapter = a }
-}
-
 // Option tunes a Client at construction time.
 type Option func(*clientOptions)
-
-// DialerOption installs an explicit connection adapter dialer for the pool.
-// It cannot be combined with per-source transport selections.
-func DialerOption(d transport.Dialer) Option {
-	return func(o *clientOptions) {
-		if d != nil {
-			o.dialer = d
-		}
-	}
-}
 
 type clientOptions struct {
 	logger         *slog.Logger
 	recorder       observe.Recorder
-	anchorCache    time.Duration
 	tipEnabled     bool
 	tipInterval    time.Duration
 	tipMaxBehind   uint64
 	collectTimeout time.Duration
-	httpAdapter    HTTPAdapter
 	// anchoring carries the business-read establishment strategy: the
 	// finalized preset selects the candidate-selection algorithm with its
 	// lag bound. The facade resolver keeps its own configuration.
 	useFinalizedAnchoring bool
 	finalizedMaxLag       uint64
-	// dialer is a pool dialer injected by DialerOption; the default adapter
-	// selection yields to it.
-	dialer transport.Dialer
 	// chainID pins the client to one Ethereum network when WithChainID was
 	// used. A Go option always wins over the configuration value; nil leaves
 	// cfg.ChainID untouched.
@@ -211,12 +184,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	if cfg.AnchorCacheTTL != "" {
-		co.anchorCache, _ = time.ParseDuration(cfg.AnchorCacheTTL)
-	}
-	if co.anchorCache != 0 {
-		return nil, fmt.Errorf("ethguard: anchor_cache_ttl is no longer supported; non-zero duration %s conflicts with decision 0026", co.anchorCache)
-	}
 	rec := co.recorder
 	if rec == nil && co.logger != nil {
 		rec = observe.NewLog(co.logger)
@@ -235,8 +202,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	runtimeBundle, err := runtime.Compose(runtime.Composition{
 		ChainID:        cfg.ChainID,
 		Upstreams:      cfg.Upstreams,
-		Adapter:        co.httpAdapter,
-		ExplicitDialer: co.dialer,
 		TipTracking:    tip,
 		Recorder:       rec,
 		CollectTimeout: co.collectTimeout,

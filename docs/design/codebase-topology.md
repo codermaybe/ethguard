@@ -125,7 +125,7 @@ flowchart TD
 5. 只有一个 Composition Root 和一个 typed 实现。root 与官方形状 view 不得各自实现一套执行、重试、解析或证据链。
 6. 对象结构、编码与请求绑定只属于 internal/ethobject 单树；对象允许依赖 rpc 数据合同，禁止反向导入 rpcengine、methods、aggregator、pool、projection、runtime 或 root facade。标量原语属于 ethcodec，离线生成器属于 wiregen；生产不得导入 testkit 的 encoder coverage helper。
 7. 订阅仅由 internal/subscription 执行，允许消费 rpcengine 及中立 transport port；禁止导入 root、pool、runtime、methods 或具体 transport。白盒测试随 owner，公开入口验收留在 root／verification。
-8. geth 的具体 client／rpc 依赖按显式 adapter 与现有静态 interlock 白名单管理；不能从兼容逃生舱推导默认原生 build 已解除限制。
+8. 生产只装配 native HTTP／raw WSS，由每个来源的 Transport 声明选择；SDK 不暴露 HTTP adapter 开关或 dialer 注入。geth 的具体 client／rpc 仅用于现有静态 interlock 允许的测试和显式诊断，历史观察保持原 provenance。
 9. 核心生产包禁止导入整个 `internal/diag` 树，包括未来新增子包。interlock 按包边界排除 cmd、examples、rpctest、diag、testkit、verification 消费树，其余生产包默认受保护；新增核心 helper 不需逐包登记。诊断目录迁移保留原始 fixture 内容与历史 provenance。
 
 ## 3. 单次读取与阶段所有权
@@ -161,6 +161,8 @@ ReferenceStage 通过 runtime 绑定的 HeadReader／HeadCodec 与 Transport Por
 | Forward／pending-local | 强制返回逐源Outcome；只判断实际处理的来源，后续来源保持未评估，不推导跨源一致 |
 
 SDK 成员与 Corroboration 在构造时确定，aggregator／runtime 接收值配置；不再有共享可变配置、Set／Snapshot 或可选 snapOK 分支。每次 invocation 仍在请求前冻结成员身份和规则副本到 Basis。生产 Strict／CallRevert 与唯一 canonical 入口消费该规则；直接引擎与 reference 的 raw resolver 保留各自真实构造合同。Required 由实际 resolver 形成，coordinator 核对输入与冻结成员一致，不能在 Validate 后覆写 Required 或 Basis。详见决策 0074。
+
+配置只保留现行能力。旧 AnchorCacheTTL 字段及迁移专用校验已删除；YAML 未知字段仍由通用配置解析拒绝，reference 每次调用重新建立。原始材料捕获必须提供明确预算，不保留过渡默认值。见决策 0075。
 
 Resolver只要求Resolve；Normalize是MethodSpec／ReadPlan独立能力；准备、准入及reference属于ReadPlan。MethodRule直接读取resolver与plan声明，CanonicalOf直接读取编码能力，不再遍历装饰链。Outcome是Resolver本身的强制合同，不是额外的可选能力。编译对resolver kind、实际Go能力、agreement、KeySource与processor配对双向校验，失败不注册；运行时仍对外部装配的能力矛盾和Outcome覆盖矛盾返回内部合同错误。KeySource 不从 encoder 是否存在推断；normalizer+encoder 可表达窄键与较宽值，具体装配见生成索引。Block 方法不再拥有 resolver wrapper；admission 由 spec／plan 直接声明。head 身份、full/header/null、请求绑定和 body 承诺分别验证。
 

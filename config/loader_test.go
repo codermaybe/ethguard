@@ -38,8 +38,6 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 			{ID: "b", Endpoint: "https://a.example"},
 		}}, "same member as upstreams[0]"},
 		{"unknown preset", Config{Upstreams: upstreams, Anchoring: &AnchoringConfig{Preset: "aggressive"}}, "must be strict or finalized"},
-		{"non-positive anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "-5s"}, "anchor_cache_ttl"},
-		{"garbage anchor ttl", Config{Upstreams: upstreams, AnchorCacheTTL: "soon"}, "anchor_cache_ttl"},
 		{"non-positive collect timeout", Config{Upstreams: upstreams, CollectTimeout: "0s"}, "collect_timeout"},
 		{"garbage collect timeout", Config{Upstreams: upstreams, CollectTimeout: "later"}, "collect_timeout"},
 		{"non-positive tip interval", Config{Upstreams: upstreams, TipTracking: &TipTrackingConfig{Interval: "0s"}}, "tip_tracking.interval"},
@@ -49,7 +47,6 @@ func TestValidateDomainMatchesEthguardNew(t *testing.T) {
 		{"valid every knob", Config{
 			Upstreams:      upstreams,
 			Anchoring:      &AnchoringConfig{Preset: "strict", MaxLag: 16},
-			AnchorCacheTTL: "30s",
 			TipTracking:    &TipTrackingConfig{Interval: "5s", MaxBehind: 8},
 			CollectTimeout: "10s",
 		}, ""},

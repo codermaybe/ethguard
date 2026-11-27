@@ -23,11 +23,8 @@ import (
 // metadata text (UTF-8), duplicate retention billed separately. It is a
 // budget metric, not a precise Go-heap measurement.
 const (
-	// DefaultBudget is the retention budget of the transitional
-	// material-only entry; explicit configuration replaces it.
-	DefaultBudget = 1 << 20
-	maxItemBytes  = 64 << 10
-	maxRecords    = 256
+	maxItemBytes = 64 << 10
+	maxRecords   = 256
 	// maxMetadataBytes caps one variable metadata text (an error string, a
 	// source identity component).
 	maxMetadataBytes = 4 << 10

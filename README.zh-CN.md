@@ -60,7 +60,7 @@ upstreams:
     transport: wss
 ```
 
-省略transport使用native HTTP，显式wss使用raw WebSocket adapter；显式来源transport与DialerOption不能混用。两种来源均参与固定成员读取与写入。更换成员需新建Client。
+省略transport使用native HTTP，显式wss使用raw WebSocket。两种来源均参与固定成员读取与写入。更换成员需新建Client。
 
 Go构造使用config.FromEndpoints和ethguard.New，可配置WithChainID、WithFinalizedAnchoring等同一配置模型的选项；Go链选项覆盖文件值。可运行示例为 `go run ./examples/basic -config ./config.yaml`。
 

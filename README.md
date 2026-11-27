@@ -60,7 +60,7 @@ upstreams:
     transport: wss
 ```
 
-Omitted transport selects native HTTP. Explicit wss selects the raw WebSocket adapter; explicit source transport cannot be combined with DialerOption. Both source kinds participate in the fixed membership for reads and writes. Configuration changes to membership require a new Client.
+Omitted transport selects native HTTP. Explicit wss selects raw WebSocket. Both source kinds participate in the fixed membership for reads and writes. Configuration changes to membership require a new Client.
 
 Programmatic configuration uses config.FromEndpoints and ethguard.New; options such as WithChainID and WithFinalizedAnchoring apply to the same configuration model. The Go chain option wins over the file value. A runnable example is `go run ./examples/basic -config ./config.yaml`.
 

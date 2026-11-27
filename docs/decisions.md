@@ -3152,3 +3152,28 @@ Field observations keep eligible original Answer.Result bytes and the same
 fixed Basis. Forwarded skips field aggregation and projection; eth_call revert
 does not gain an agreement claim. Current ownership and method semantics are
 maintained in design/codebase-topology.md and design/method-contracts.md.
+
+
+## 0075. Remove retired transport and capture configuration
+
+Status: Accepted and implemented (2026-11-27). Supersedes the retained
+HTTPAdapter/WithHTTPAdapter and DialerOption switches in decision 0071, and
+the migration-only AnchorCacheTTL setting described in decisions 0026/0037.
+Historical decision and provider evidence records remain unchanged.
+
+The SDK constructs native HTTP or raw WSS from each source's Transport.
+HTTP has one production implementation, so the facade and runtime no longer
+expose adapter selection or dialer injection. The retired cache field and its
+special validation are removed; the configuration parser still rejects unknown
+YAML fields. References continue to be established per invocation.
+
+Livecanary always records native for new runs. Its Executor, CLI and workflows
+have no adapter override. Manifest.HTTPAdapter and NormalizeHTTPAdapter remain
+historical provenance: geth evidence is readable and retains its identity, but
+rerun and recheck reject it instead of relabeling it or executing an old geth
+adapter. The capture collector requires an explicit retention budget; its unused
+transitional default is removed.
+
+The current contracts are design/transport-contract.md and
+design/codebase-topology.md. These deletions add no new transport, caching or
+provider compatibility guarantee.

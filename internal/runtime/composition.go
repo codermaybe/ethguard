@@ -15,17 +15,11 @@ import (
 	"github.com/codermaybe/ethguard/config"
 	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
-	"github.com/codermaybe/ethguard/internal/transport"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/internal/transport/wss"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
 )
-
-// Adapter names the HTTP adapter used for sources without a transport selection.
-type Adapter string
-
-const AdapterNative Adapter = "native"
 
 // TipTracking enables pool-side block-tip sampling and the freshness
 // eligibility gate. Zero values select the documented defaults (10s sampling,
@@ -37,7 +31,7 @@ type TipTracking struct {
 }
 
 // Composition is the business configuration one client runtime is composed
-// from: the source fleet with its adapter selection, the freshness sampler,
+// from: the source fleet with its per-source transport, the freshness sampler,
 // the observability sink, and the establishment strategy.
 type Composition struct {
 	// ChainID optionally constrains upstreams to one Ethereum network. Zero
@@ -46,12 +40,6 @@ type Composition struct {
 	// Upstreams is the configured source fleet, already validated by the
 	// configuration layer.
 	Upstreams []config.Upstream
-	// Adapter selects the connection adapter for sources without an explicit
-	// per-source transport. Empty keeps the strategic native default.
-	Adapter Adapter
-	// ExplicitDialer installs a connection adapter dialer for the whole pool.
-	// Sources with an explicit transport conflict with it.
-	ExplicitDialer transport.Dialer
 	// TipTracking enables the freshness sampler when non-nil.
 	TipTracking *TipTracking
 	// Recorder receives one event per aggregate decision. Nil degrades to a
@@ -75,29 +63,15 @@ func Compose(in Composition) (*Bundle, error) {
 	if in.TipTracking != nil {
 		poolOpts = append(poolOpts, pool.WithTipTracking(in.TipTracking.Interval, in.TipTracking.MaxBehind))
 	}
-	switch in.Adapter {
-	case "", AdapterNative:
-		// An explicitly injected dialer takes precedence over the default.
-		if in.ExplicitDialer == nil {
-			poolOpts = append(poolOpts, pool.WithDialer(nativehttp.NewDialer()))
-		}
-	default:
-		return nil, fmt.Errorf("unknown HTTP adapter %q (want %q)", in.Adapter, AdapterNative)
-	}
-	if in.ExplicitDialer != nil {
-		poolOpts = append(poolOpts, pool.WithDialer(in.ExplicitDialer))
-	}
+	poolOpts = append(poolOpts, pool.WithDialer(nativehttp.NewDialer()))
 
 	members := make([]pool.Member, 0, len(in.Upstreams))
 	for _, upstream := range in.Upstreams {
 		member := pool.Member{Name: upstream.ID, URL: upstream.Endpoint}
-		if upstream.Transport == "" && in.ExplicitDialer == nil {
+		if upstream.Transport == "" {
 			if endpoint, parseErr := url.Parse(upstream.Endpoint); parseErr == nil && (endpoint.Scheme == "ws" || endpoint.Scheme == "wss") {
 				return nil, fmt.Errorf("source %q: websocket endpoint requires transport: wss", upstream.ID)
 			}
-		}
-		if upstream.Transport != "" && in.ExplicitDialer != nil {
-			return nil, fmt.Errorf("source %q: explicit transport conflicts with injected dialer", upstream.ID)
 		}
 		switch upstream.Transport {
 		case config.TransportNativeHTTP:

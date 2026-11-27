@@ -204,11 +204,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("config: anchoring.preset must be strict or finalized, got %q", c.Anchoring.Preset)
 		}
 	}
-	if c.AnchorCacheTTL != "" {
-		if d, err := time.ParseDuration(c.AnchorCacheTTL); err != nil || d <= 0 {
-			return fmt.Errorf("config: anchor_cache_ttl must be a positive duration: %q", c.AnchorCacheTTL)
-		}
-	}
+
 	if c.CollectTimeout != "" {
 		if d, err := time.ParseDuration(c.CollectTimeout); err != nil || d <= 0 {
 			return fmt.Errorf("config: collect_timeout must be a positive duration: %q", c.CollectTimeout)

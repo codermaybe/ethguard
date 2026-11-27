@@ -489,6 +489,9 @@ func TestRunLiveWritesManifestAndReport(t *testing.T) {
 		body:   fetchRegistryBody("https://a.example", "https://b.example", "https://c.example"),
 	}, commandProvenance())
 	deps.runPlan = func(_ context.Context, input livecanary.RunInput) (livecanary.Report, error) {
+		if input.Manifest.HTTPAdapter != livecanary.HTTPAdapterNative {
+			t.Fatalf("new run adapter provenance = %q, want native", input.Manifest.HTTPAdapter)
+		}
 		if input.Membership != livecanary.MembershipFixed {
 			t.Fatalf("membership=%s, want fixed", input.Membership)
 		}
