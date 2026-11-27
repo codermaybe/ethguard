@@ -35,10 +35,3 @@ func (c *Client) simulateV1Exec(ctx context.Context, payload ethapi.SimulateV1Re
 	}
 	return result, CallResult{Decision: decisionOf(decision)}, nil
 }
-
-func (ec *EthClient) SimulateV1(ctx context.Context, payload ethapi.SimulateV1Request, base *ethapi.SimulateBlockReference) ([]ethapi.SimulateBlock, error) {
-	result, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]ethapi.SimulateBlock, CallResult, error) {
-		return ec.owner.simulateV1Exec(opCtx, payload, base)
-	})
-	return result, err
-}
