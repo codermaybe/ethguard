@@ -2,10 +2,13 @@ package projection
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"reflect"
 	"sync"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -44,10 +47,7 @@ func TestStandardProjectionPathContracts(t *testing.T) {
 			if !reflect.DeepEqual(projectionObservationPaths(got.Core), tt.core) || !reflect.DeepEqual(projectionObservationPaths(got.AcceptedExtensions), tt.extensions) || !reflect.DeepEqual(got.Missing, tt.missing) {
 				t.Fatalf("projection = core %q, extensions %q, missing %q; want %q, %q, %q", projectionObservationPaths(got.Core), projectionObservationPaths(got.AcceptedExtensions), got.Missing, tt.core, tt.extensions, tt.missing)
 			}
-			want, err := rpc.NewExtensionSet(json.RawMessage(`"0x1"`), projectionObservations(tt.extensions...))
-			if err != nil {
-				t.Fatal(err)
-			}
+			want := expectedProjectionExtensions("32d74fe09a60fb247229b49f6dfc2a06ba10e72cb813e62e8852415654381784", tt.extensions...)
 			projector := NewStandardProjector(tt.fields)
 			for i := 0; i < 2; i++ {
 				set, err := projector.ProjectObservation(json.RawMessage(`"0x1"`), evaluation)
@@ -69,10 +69,7 @@ func TestStandardProjectorOwnsDeclarationsAndDeliveredEvidence(t *testing.T) {
 	fields[1] = StandardField{Path: "/different/*"}
 
 	evaluation := rpc.Evaluation{Accepted: projectionObservations("/vendor", "", "/logs/0/address")}
-	want, err := rpc.NewExtensionSet(json.RawMessage(`"0x1"`), projectionObservations("/vendor"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	want := expectedProjectionExtensions("32d74fe09a60fb247229b49f6dfc2a06ba10e72cb813e62e8852415654381784", "/vendor")
 	first, err := projector.ProjectObservation(json.RawMessage(`"0x1"`), evaluation)
 	if err != nil || !reflect.DeepEqual(first, want) {
 		t.Fatalf("declaration mutation changed projector: %#v, %v; want %#v", first, err, want)
@@ -105,22 +102,37 @@ func TestStandardProjectionOwnsClassificationSlices(t *testing.T) {
 }
 
 func TestStandardProjectorPreservesFingerprintErrorsAndDiagnosticBoundary(t *testing.T) {
-	for _, core := range []string{`"0x1"`, `"0x00"`, `null`, `42`, `{"b":2,"a":1}`, ` { "a": 1, "b": 2 } `, ``, `{"broken":`, `true false`} {
+	for _, tt := range []struct {
+		core        string
+		fingerprint string
+		err         error
+	}{
+		{core: `"0x1"`, fingerprint: "32d74fe09a60fb247229b49f6dfc2a06ba10e72cb813e62e8852415654381784"},
+		{core: `"0x00"`, fingerprint: "24afb4c412c19e5493fef8e15a959f9a77c381d3adcd4ac4a40bdc3b8ebca4b2"},
+		{core: `null`, fingerprint: "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"},
+		{core: `42`, fingerprint: "73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049"},
+		{core: `{"b":2,"a":1}`, fingerprint: "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"},
+		{core: ` { "a": 1, "b": 2 } `, fingerprint: "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"},
+		{core: ``, err: io.EOF},
+		{core: `{"broken":`, err: io.EOF},
+		{core: `true false`, err: jsonsafe.ErrTrailingData},
+	} {
 		for _, withExtension := range []bool{false, true} {
-			t.Run(core+"/"+map[bool]string{false: "without-extension", true: "with-extension"}[withExtension], func(t *testing.T) {
+			t.Run(tt.core+"/"+map[bool]string{false: "without-extension", true: "with-extension"}[withExtension], func(t *testing.T) {
 				evaluation := rpc.Evaluation{Diagnostics: rpc.FieldDiagnostics{
 					Residuals: projectionObservations("/residual"),
 					Conflicts: []rpc.ConflictField{{Path: "/conflict", Values: projectionObservations("/conflict")}},
 				}}
-				var extensions []rpc.FieldObservation
+				want := rpc.ExtensionSet{}
 				if withExtension {
-					extensions = projectionObservations("/vendor")
-					evaluation.Accepted = extensions
+					evaluation.Accepted = projectionObservations("/vendor")
+					if tt.err == nil {
+						want = expectedProjectionExtensions(tt.fingerprint, "/vendor")
+					}
 				}
-				want, wantErr := rpc.NewExtensionSet(json.RawMessage(core), extensions)
-				got, err := ScalarStandardProjector().ProjectObservation(json.RawMessage(core), evaluation)
-				if (err == nil) != (wantErr == nil) || (err != nil && err.Error() != wantErr.Error()) || !reflect.DeepEqual(got, want) {
-					t.Fatalf("carrier = %#v, %v; want %#v, %v", got, err, want, wantErr)
+				got, err := ScalarStandardProjector().ProjectObservation(json.RawMessage(tt.core), evaluation)
+				if !errors.Is(err, tt.err) || !reflect.DeepEqual(got, want) {
+					t.Fatalf("carrier = %#v, %v; want %#v, %v", got, err, want, tt.err)
 				}
 				projection := ProjectStandard(evaluation, []StandardField{{Path: "", Required: true}})
 				if len(projection.Core) != 0 || !reflect.DeepEqual(projection.Missing, []string{""}) {
@@ -151,10 +163,7 @@ func TestStandardProjectorPreservesFingerprintErrorsAndDiagnosticBoundary(t *tes
 func TestStandardProjectorConcurrentReuse(t *testing.T) {
 	projector := NewStandardProjector([]StandardField{{Path: "", Required: true}, {Path: "/logs/*/address"}})
 	evaluation := rpc.Evaluation{Accepted: projectionObservations("/logs/0/address", "/vendor", "")}
-	want, err := rpc.NewExtensionSet(json.RawMessage(`"0x1"`), projectionObservations("/vendor"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	want := expectedProjectionExtensions("32d74fe09a60fb247229b49f6dfc2a06ba10e72cb813e62e8852415654381784", "/vendor")
 	var workers sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		workers.Go(func() {
@@ -170,6 +179,27 @@ func TestStandardProjectorConcurrentReuse(t *testing.T) {
 		})
 	}
 	workers.Wait()
+}
+
+func TestStandardProjectorKeepsFloat64OverflowError(t *testing.T) {
+	for _, accepted := range [][]rpc.FieldObservation{nil, projectionObservations("/vendor")} {
+		set, err := ScalarStandardProjector().ProjectObservation(json.RawMessage(`1e400`), rpc.Evaluation{Accepted: accepted})
+		var overflow *json.UnmarshalTypeError
+		if !errors.As(err, &overflow) || overflow.Type != reflect.TypeFor[float64]() || set.Fields != nil {
+			t.Fatalf("projection with %d extensions = %#v, %v; want float64 overflow and nil fields", len(accepted), set, err)
+		}
+	}
+}
+
+func expectedProjectionExtensions(fingerprint string, paths ...string) rpc.ExtensionSet {
+	var set rpc.ExtensionSet
+	for _, path := range paths {
+		set.Fields = append(set.Fields, rpc.ExtensionField{
+			Kind: rpc.AcceptedExtension, Path: path, Value: json.RawMessage(`"0x1"`),
+			Sources: []rpc.SourceRef{{ID: "a"}, {ID: "b"}}, CoreObjectFingerprint: fingerprint,
+		})
+	}
+	return set
 }
 
 func projectionObservations(paths ...string) []rpc.FieldObservation {

@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+
+	"github.com/codermaybe/ethguard/internal/jsonsafe"
 )
 
 // ExtensionKind describes the evidence level of a field outside a method's
@@ -33,6 +35,13 @@ type ExtensionSet struct {
 
 // NewExtensionSet binds fields to the canonical fingerprint of coreValue.
 func NewExtensionSet(coreValue json.RawMessage, accepted []FieldObservation) (ExtensionSet, error) {
+	if len(accepted) == 0 {
+		var decoded any
+		if err := jsonsafe.Decode(coreValue, &decoded); err != nil {
+			return ExtensionSet{}, err
+		}
+		return ExtensionSet{}, nil
+	}
 	fingerprint, err := CoreObjectFingerprint(coreValue)
 	if err != nil {
 		return ExtensionSet{}, err

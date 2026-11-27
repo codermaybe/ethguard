@@ -13,6 +13,7 @@ import (
 	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/rpc/projection"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -201,7 +202,9 @@ func TestProjectionErrorAttribution(t *testing.T) {
 		pool.Member{Name: "b", URL: b.URL()},
 	)
 	plan := rpc.ReadPlan{Method: "m", Resolver: eventPolicy(rpc.WithRPCErrorBodies()), ResolverKind: methods.ResolverStrict, ProjectorID: "m"}
+	recorder := &captureRecorder{}
 	agg := New(p, WithCorroboration(mustShared(t)),
+		WithRecorder(recorder),
 		WithProjectors(map[string]rpc.ObservationProjector{"m": failingProjector{}}),
 		WithPlans(map[string]rpc.ReadPlan{"m": plan}))
 	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
@@ -211,11 +214,146 @@ func TestProjectionErrorAttribution(t *testing.T) {
 	if len(decision.Faults) != 1 {
 		t.Fatalf("expected exactly the projection fault, got %+v", decision.Faults)
 	}
+	if decision.Extensions != nil || oneEvent(t, recorder).Faults != 1 {
+		t.Fatalf("failed projection must remain absent and record one event fault: %+v / %+v", decision.Extensions, recorder.events)
+	}
 	if _, sourceFaults, collectionFaults := faultTables(t, decision); sourceFaults != "" || collectionFaults != "" {
 		t.Fatalf("projection failure must not populate source tables: %q %q", sourceFaults, collectionFaults)
 	}
 	if decision.Diagnostics == nil {
 		t.Fatal("projection failure must not drop the field diagnostics")
+	}
+}
+
+func TestProjectionDeliveryStatesAndEventFaults(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		projector rpc.ObservationProjector
+		projected bool
+		faults    int
+	}{
+		{name: "unprojected"},
+		{name: "successful empty standard projection", projector: projection.ScalarStandardProjector(), projected: true},
+		{name: "failed custom projection", projector: failingProjector{}, faults: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := &captureRecorder{}
+			plan := rpc.ReadPlan{Method: "m", Resolver: eventPolicy(), ResolverKind: methods.ResolverStrict}
+			if tt.projector != nil {
+				plan.ProjectorID = "projection-state"
+			}
+			agg, nodes := faultAggregator(t, plan.Resolver, true, func(_ int, node *rpctest.Node) {
+				node.Return("m", "0x1")
+			}, WithRecorder(recorder), WithPlans(map[string]rpc.ReadPlan{"m": plan}),
+				WithProjectors(map[string]rpc.ObservationProjector{"projection-state": tt.projector}))
+			decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+			if err != nil || decision.Status != rpc.Corroborated || string(decision.Value) != `"0x1"` {
+				t.Fatalf("projection changed the business result: %+v / %v", decision, err)
+			}
+			if (decision.Extensions != nil) != tt.projected {
+				t.Fatalf("projection presence = %t, want %t", decision.Extensions != nil, tt.projected)
+			}
+			if decision.Extensions != nil && decision.Extensions.Fields != nil {
+				t.Fatalf("successful empty projection fields = %#v, want nil", decision.Extensions.Fields)
+			}
+			if len(decision.Faults) != tt.faults || len(decision.SourceFaults) != 0 || len(decision.CollectionFaults) != 0 {
+				t.Fatalf("projection changed fault attribution: %+v / %+v / %+v", decision.Faults, decision.SourceFaults, decision.CollectionFaults)
+			}
+			event := oneEvent(t, recorder)
+			if event.Faults != tt.faults || event.Status != rpc.Corroborated.String() {
+				t.Fatalf("projection event differs from decision: %+v", event)
+			}
+			for i, node := range nodes {
+				if calls := node.Calls(); len(calls) != 1 || calls[0].Method != "m" {
+					t.Fatalf("source %d requests = %+v, want one m request", i, calls)
+				}
+			}
+		})
+	}
+}
+
+type recordingEvaluationProjector struct {
+	delegate   rpc.ObservationProjector
+	evaluation rpc.Evaluation
+	calls      int
+}
+
+func (p *recordingEvaluationProjector) ProjectObservation(value json.RawMessage, evaluation rpc.Evaluation) (rpc.ExtensionSet, error) {
+	p.calls++
+	p.evaluation = evaluation
+	return p.delegate.ProjectObservation(value, evaluation)
+}
+
+func TestCustomProjectorReceivesCompleteAcceptedEvaluation(t *testing.T) {
+	projector := &recordingEvaluationProjector{delegate: projection.NewStandardProjector([]projection.StandardField{{Path: "/known", Required: true}})}
+	plan := rpc.ReadPlan{Method: "m", Resolver: rpc.Strict(rpc.CanonicalJSON), ResolverKind: methods.ResolverStrict, ProjectorID: "custom"}
+	agg, _ := faultAggregator(t, plan.Resolver, true, func(_ int, node *rpctest.Node) {
+		node.ReturnRaw("m", json.RawMessage(`{"known":1,"vendor":2}`))
+	}, WithPlans(map[string]rpc.ReadPlan{"m": plan}), WithProjectors(map[string]rpc.ObservationProjector{"custom": projector}))
+	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+	if err != nil || decision.Status != rpc.Corroborated || projector.calls != 1 {
+		t.Fatalf("custom projector call = %d, decision = %+v, error = %v", projector.calls, decision, err)
+	}
+	if len(projector.evaluation.Accepted) != 2 {
+		t.Fatalf("custom projector received filtered Accepted: %+v", projector.evaluation)
+	}
+	for i, path := range []string{"/known", "/vendor"} {
+		field := projector.evaluation.Accepted[i]
+		if field.Path != path || string(field.Value) != fmt.Sprint(i+1) || len(field.Sources) != 2 {
+			t.Fatalf("custom projector lost complete source-backed field: %+v", field)
+		}
+	}
+	if decision.Extensions == nil || len(decision.Extensions.Fields) != 1 || decision.Extensions.Fields[0].Path != "/vendor" {
+		t.Fatalf("delegated standard projection = %+v", decision.Extensions)
+	}
+}
+
+func TestEmptyLogsRetainsAcceptedRootBeforeStandardProjection(t *testing.T) {
+	spec, ok := methods.SpecFor(methods.MethodGetLogs)
+	if !ok {
+		t.Fatal("logs method missing")
+	}
+	plan, err := methods.CompilePlan(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	standard, err := projection.NewSchemaProjector(methods.MethodGetLogs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector := &recordingEvaluationProjector{delegate: standard}
+	members := make([]pool.Member, 3)
+	nodes := make([]*rpctest.Node, 3)
+	for i := range nodes {
+		nodes[i] = rpctest.NewNode(0)
+		t.Cleanup(nodes[i].Close)
+		nodes[i].ReturnRaw(methods.MethodGetLogs, json.RawMessage(`[]`))
+		members[i] = pool.Member{Name: fmt.Sprintf("source-%d", i), URL: nodes[i].URL()}
+	}
+	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
+	agg := New(p, WithCorroboration(mustShared(t)),
+		WithPlans(map[string]rpc.ReadPlan{methods.MethodGetLogs: plan}),
+		WithProjectors(map[string]rpc.ObservationProjector{plan.ProjectorID: projector}))
+	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: methods.MethodGetLogs, Params: []any{map[string]any{"fromBlock": "0x1", "toBlock": "0x1"}}})
+	if err != nil || decision.Status != rpc.Corroborated || string(decision.Value) != `[]` {
+		t.Fatalf("empty logs result = %+v / %v", decision, err)
+	}
+	if projector.calls != 1 || len(projector.evaluation.Accepted) != 1 {
+		t.Fatalf("root leaf disappeared before projection: calls=%d evaluation=%+v", projector.calls, projector.evaluation)
+	}
+	field := projector.evaluation.Accepted[0]
+	if field.Path != "" || string(field.Value) != `[]` || len(field.Sources) != 3 {
+		t.Fatalf("root leaf = %+v", field)
+	}
+	// The schema has no literal root declaration, but its /* container pattern
+	// matches the empty segment under the existing matcher contract.
+	if decision.Extensions == nil || decision.Extensions.Fields != nil {
+		t.Fatalf("standard empty logs projection = %+v, want a successful empty set", decision.Extensions)
+	}
+	for i, node := range nodes {
+		if calls := node.Calls(); len(calls) != 1 || calls[0].Method != methods.MethodGetLogs {
+			t.Fatalf("source %d requests = %+v, want one eth_getLogs request", i, calls)
+		}
 	}
 }
 

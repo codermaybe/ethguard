@@ -71,7 +71,18 @@ func compileStandardFields(fields []StandardField) standardProjector {
 }
 
 func (p standardProjector) ProjectObservation(value json.RawMessage, evaluation rpc.Evaluation) (rpc.ExtensionSet, error) {
-	return p.project(evaluation).Carrier(value)
+	return rpc.NewExtensionSet(value, p.acceptedExtensions(evaluation))
+}
+
+func (p standardProjector) acceptedExtensions(evaluation rpc.Evaluation) []rpc.FieldObservation {
+	var accepted []rpc.FieldObservation
+	for _, field := range evaluation.Accepted {
+		if !p.matchesPath(field.Path) {
+			accepted = append(accepted, field)
+		}
+	}
+	sort.Slice(accepted, func(i, j int) bool { return accepted[i].Path < accepted[j].Path })
+	return accepted
 }
 
 // ProjectStandard classifies already-accepted observations into a method's
