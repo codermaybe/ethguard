@@ -41,6 +41,7 @@ func TestConstCodeIntegerRange(t *testing.T) {
 func TestEmittedParsersPreserveSchemaSemantics(t *testing.T) {
 	reg := testRegistry()
 	reg.manifest.Aliases = nil
+	reg.manifest.ValueValidationResults = nil
 	root, err := reg.walk(testSchema(t, `{
 		"type":"object","title":"Emission fixture",
 		"required":["rows","selection","empty","exact","bounded"],

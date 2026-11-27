@@ -35,6 +35,7 @@ Manifest 同时驱动提取和编译，是二者共用的构建输入。`executi
 | 字段 | 责任 |
 | --- | --- |
 | `resultMethods` | 原始结果提取与生成范围 |
+| `valueValidationResults` | 选择完整结果根的只读 Go 值验证；必须是 `resultMethods` 的无重复子集，当前仅 AccessList |
 | `requestInventoryPrefixes` | 原始请求库存范围；不是 runtime 方法注册表 |
 | `requestRoots` | 实际生成的 method／parameter／RFC 6901 子节点，子选择绑定紧凑 schema 摘要 |
 | `names`／`titleNames` | 精确来源路径名称与通用标题名称 |
@@ -51,6 +52,16 @@ Manifest 的未知字段、重复条目、路径丢失／子分支漂移、未�
 `internal/wiregen` 是唯一离线编译器，`go generate ./ethapi` 与新鲜度门使用同一入口。它使用有序 schema 模型及 Jennifer 结构化输出，保留 required、nullable、组合、对象开放性、精确数值和所有已支持约束。不支持或无法忠实表达的约束直接报错，不能降级为宽松 Go 类型，也不能标记“由运行时保证”后放行。已删除 methods.list、requestRoots 硬编码切片和编译器内手写命名／别名／字段序表。
 
 `ethapi/types.gen.go` 与 `types.audit.json` 都是可再生产物，不是修正入口。普通生成离线运行；同一输入应得到字节一致的 Go 和 audit。来源、Overlay 或 Manifest 变化后都必须重生成并执行独立行为验证。
+
+## 结果值验证试点
+
+当前只生成公开 `ValidateCreateAccessListResult(v AccessListResult) error`，辅助对象验证函数私有。对可成功编码的值，其接受结果等价于 `NewCreateAccessListResult(v.MarshalJSON())`；实现从与 parser 相同的 IR 生成，共用标量谓词和约束输出，只读遍历值，不执行 JSON 往返，也不补字段或改变表示。
+
+验证针对编码后的语义：外层 nil 指针表示省略，指向 nil 的非 nullable 数组编码为 null 而被拒绝，空数组仍为合法 `[]`；nullable 数组的 nil 指针和指向 nil slice 均表示 null。required 的 Go 字段总会被编码，不能从其零值推断原始 JSON 缺失。自由 Text 中的非法 UTF-8 保留既有编码语义；带约束的 Text 在局部副本中按每个非法字节替换为 U+FFFD 后检查，调用方值不变。const／enum 与原 parser 一样选择保留字符串身份的 Text，不因 Address／HexByte 表示折合改变约束判定。
+
+选择根的完整可达图必须受支持：字符串及严格标量、pattern／const／enum、对象 required／optional／nullable／`not.required`、数组 minItems／maxItems。当前 uniqueItems、多个非 null 分支的 union、非字符串标量、字典及保留额外成员的对象会使生成失败；未选择值验证的根仍保持原有生成能力。未来升级触及这些形态时必须明确扩充能力或调整选择，不能静默跳过约束。
+
+AccessList 准备层继续消费 provider 的别名、扩展投影、null 折合和既有报错顺序；根值验证后只编码一次。官方封闭对象不改变准备层允许并投影 provider 扩展的合同。JSON 安全、原始输入身份和业务准入不属于值验证的证明。现场 schema 变异同时验证 New／Validate 和实际 accesslist 消费者；required 改变 Go 字段类型时，旧消费者的编译失败也是必须处理的升级信号。audit 在该结果根记录 `valueValidator`，不扩成全模型 Validate 接口。
 
 ## 请求构造与生成能力
 
@@ -219,7 +230,7 @@ go run ./internal/wiregen -source-dir /tmp/candidate/spec -manifest internal/exe
 
 这轮明确的接受域收紧包括：`net_version` 拒绝负非零值；FeeHistory 拒绝缺失／null 的 required `gasUsedRatio`，拒绝 `reward` 内 null 行。FeeHistory 可选字段的整体 null-as-absence、旧成员拼写和无关字段投影保留；这些属于具名兼容，不能伪称官方 schema 本身允许。`+1`、冗余零与负零等非负等价 net_version 拼写仍可前置转换，typed 可表示范围另验。
 
-AccessList 与 FeeHistory 在有限兼容后执行完整结果根。共享 Log 的 `Validate` 仍是旧方法必填／字段校验，`EncodeOne` 在构造 canonical 候选后执行完整 `NewLog`；GetLogs 的 Encode 路线使用逐项 Log 构造器和数组业务合同，不宣称执行了完整 GetLogs 方法根；不能只调用 Validate 就宣称完整 Log root 消费。交易、区块、收据及 nullable/数组外层分别按实际入口核对，不以“用了字段类型”替代 root，也不把 reference/header 范围写成完整 Block。
+AccessList 与 FeeHistory 在有限兼容后执行完整结果根；AccessList 使用上述生成值验证，FeeHistory 保持 JSON 根构造。共享 Log 的 `Validate` 仍是旧方法必填／字段校验，`EncodeOne` 在构造 canonical 候选后执行完整 `NewLog`；GetLogs 的 Encode 路线使用逐项 Log 构造器和数组业务合同，不宣称执行了完整 GetLogs 方法根；不能只调用 Validate 就宣称完整 Log root 消费。交易、区块、收据及 nullable/数组外层分别按实际入口核对，不以“用了字段类型”替代 root，也不把 reference/header 范围写成完整 Block。
 
 更多方法限制和发布行为说明仍归 [方法合同](method-contracts.md)、[返回值合同](return-value-design.md) 和 [路线图](project-roadmap.md)。新增收紧必须在消费审计与发布说明显式列出。
 

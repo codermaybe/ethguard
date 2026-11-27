@@ -19,14 +19,21 @@ func TestManifestStrictContract(t *testing.T) {
 	if len(manifest.ResultMethods) != 31 || len(manifest.RequestRoots) != 6 || manifest.SHA256 == "" {
 		t.Fatal("missing migrated contract")
 	}
+	if len(manifest.ValueValidationResults) != 1 || manifest.ValueValidationResults[0] != "eth_createAccessList" {
+		t.Fatal("value validation pilot must select only eth_createAccessList")
+	}
 	for name, edit := range map[string]func(map[string]any){
 		"unknown":          func(m map[string]any) { m["notAContractField"] = true },
 		"version":          func(m map[string]any) { m["formatVersion"] = 2 },
 		"duplicate-result": func(m map[string]any) { m["resultMethods"] = []string{"eth_call", "eth_call"} },
-		"missing-reason":   func(m map[string]any) { m["defaultExclusionReason"] = "" },
-		"alias-cycle":      func(m map[string]any) { m["aliases"] = map[string]string{"Alpha": "Beta", "Beta": "Alpha"} },
-		"bad-name":         func(m map[string]any) { m["titleNames"] = map[string]string{"title": "private"} },
-		"order-duplicate":  func(m map[string]any) { m["fieldOrder"] = map[string][]string{"Log": {"data", "data"}} },
+		"duplicate-validator": func(m map[string]any) {
+			m["valueValidationResults"] = []string{"eth_createAccessList", "eth_createAccessList"}
+		},
+		"unselected-validator": func(m map[string]any) { m["valueValidationResults"] = []string{"eth_missing"} },
+		"missing-reason":       func(m map[string]any) { m["defaultExclusionReason"] = "" },
+		"alias-cycle":          func(m map[string]any) { m["aliases"] = map[string]string{"Alpha": "Beta", "Beta": "Alpha"} },
+		"bad-name":             func(m map[string]any) { m["titleNames"] = map[string]string{"title": "private"} },
+		"order-duplicate":      func(m map[string]any) { m["fieldOrder"] = map[string][]string{"Log": {"data", "data"}} },
 		"subtree-without-identity": func(m map[string]any) {
 			m["requestRoots"] = []any{map[string]any{"source": map[string]any{"method": "eth_subscribe", "part": "request", "parameter": 1, "schemaPointer": "/oneOf/2"}}}
 		},

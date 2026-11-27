@@ -22,6 +22,7 @@ import (
 type Manifest struct {
 	FormatVersion            int                 `json:"formatVersion"`
 	ResultMethods            []string            `json:"resultMethods"`
+	ValueValidationResults   []string            `json:"valueValidationResults,omitempty"`
 	RequestInventoryPrefixes []string            `json:"requestInventoryPrefixes"`
 	DefaultExclusionReason   string              `json:"defaultExclusionReason"`
 	RequestRoots             []SchemaSelection   `json:"requestRoots"`
@@ -128,6 +129,13 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("duplicate result method %q", method)
 		}
 		seen[method] = true
+	}
+	validators := map[string]bool{}
+	for _, method := range m.ValueValidationResults {
+		if !seen[method] || validators[method] {
+			return fmt.Errorf("value validation result %q must select a unique result method", method)
+		}
+		validators[method] = true
 	}
 	seen = map[string]bool{}
 	for _, prefix := range m.RequestInventoryPrefixes {

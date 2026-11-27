@@ -29,10 +29,11 @@ type fieldAudit struct {
 	Required bool   `json:"required"`
 }
 type rootAudit struct {
-	Method      string `json:"method"`
-	Source      string `json:"source"`
-	Constructor string `json:"constructor"`
-	ReturnType  string `json:"returnType"`
+	Method         string `json:"method"`
+	Source         string `json:"source"`
+	Constructor    string `json:"constructor"`
+	ReturnType     string `json:"returnType"`
+	ValueValidator string `json:"valueValidator,omitempty"`
 }
 type constraintAudit struct {
 	Path        string         `json:"path"`
@@ -148,7 +149,13 @@ func buildGenerationAudit(bundle executionapi.Bundle, reg *registry, roots map[s
 		audit.Types = append(audit.Types, *entry)
 	}
 	for method, r := range roots {
-		audit.Results = append(audit.Results, rootAudit{method, method + ".result", methodShimName(method), fmt.Sprintf("%#v", typeCode(r))})
+		entry := rootAudit{Method: method, Source: method + ".result", Constructor: methodShimName(method), ReturnType: fmt.Sprintf("%#v", typeCode(r))}
+		for _, selected := range reg.manifest.ValueValidationResults {
+			if selected == method {
+				entry.ValueValidator = methodValidatorName(method)
+			}
+		}
+		audit.Results = append(audit.Results, entry)
 	}
 	for _, method := range bundle.Inventory {
 		_, resultCollected := bundle.Results[method.Name]

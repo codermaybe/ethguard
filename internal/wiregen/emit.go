@@ -28,6 +28,10 @@ func emit(reg *registry, version string, roots map[string]*ref, outPath string) 
 	if err := reg.validatePublicNames(roots); err != nil {
 		return err
 	}
+	valueObjects, err := reg.valueValidationObjects(roots)
+	if err != nil {
+		return err
+	}
 	reg.report.countUnions = len(reg.unionList)
 	reg.report.countShims = 0
 	for method, r := range roots {
@@ -98,6 +102,7 @@ func emit(reg *registry, version string, roots map[string]*ref, outPath string) 
 			jen.Return(jen.Id(r.parser).Call(jen.Id("raw"), jen.False())),
 		)
 	}
+	emitValueValidators(f, reg, roots, valueObjects)
 	if err := f.Save(outPath); err != nil {
 		return fmt.Errorf("emit: %w", err)
 	}
@@ -168,14 +173,7 @@ func emitNative(f *jen.File, n nativeDescriptor) {
 			jen.Return(jen.Lit(""), errorf("expected string: %w", jen.Err())),
 		)
 		if n.pattern != "" {
-			match := jen.Id(pattern).Dot("MatchString").Call(jen.Id("text"))
-			if strictValidator != "" {
-				match = jen.Qual(codecPackage, strictValidator).Call(jen.Id("text"))
-			}
-			if fixedHexDigits != 0 {
-				match = jen.Qual(codecPackage, "IsLowerFixedHex").Call(jen.Id("text"), jen.Lit(fixedHexDigits))
-			}
-			g.If(jen.Op("!").Add(match)).Block(
+			g.If(jen.Op("!").Add(nativePatternMatch(n, jen.Id("text")))).Block(
 				jen.Return(jen.Lit(""), errorf(n.name+": invalid input spelling %q", jen.Id("text"))),
 			)
 		}
@@ -276,40 +274,7 @@ func emitValue(f *jen.File, r *ref) {
 				jen.Id("out").Index(jen.Id("i")).Op("=").Id("value"),
 			)
 		}
-		if r.kind == refArray {
-			if r.minItems != nil {
-				g.If(jen.Len(jen.Id("out")).Op("<").Lit(*r.minItems)).Block(jen.Return(jen.Id("out"), errorf(r.path+": fewer than minItems")))
-			}
-			if r.maxItems != nil {
-				g.If(jen.Len(jen.Id("out")).Op(">").Lit(*r.maxItems)).Block(jen.Return(jen.Id("out"), errorf(r.path+": more than maxItems")))
-			}
-			if r.uniqueItems {
-				emitUniqueItems(g, r)
-			}
-		}
-		if r.hasEnum {
-			emitEnumCheck(g, r)
-		}
-		if r.hasConst && r.native != "int" {
-			var condition *jen.Statement
-			if r.native == "Number" {
-				condition = compareNumber(fmt.Sprint(r.constant)).Op("!=").Lit(0)
-			} else {
-				condition = jen.Id("out").Op("!=").Add(constCode(r.constant))
-			}
-			g.If(condition).Block(jen.Return(jen.Id("out"), errorf(r.path+": expected constant")))
-		}
-		if pattern != "" {
-			g.If(jen.Op("!").Id(r.parser + "Pattern").Dot("MatchString").Call(jen.String().Call(jen.Id("out")))).Block(
-				jen.Return(jen.Id("out"), errorf(r.path+": does not match official pattern")),
-			)
-		}
-		if r.minimum != nil {
-			g.If(compareNumber(r.minimum.String()).Op("<").Lit(0)).Block(jen.Return(jen.Id("out"), errorf(r.path+": below official minimum")))
-		}
-		if r.maximum != nil {
-			g.If(compareNumber(r.maximum.String()).Op(">").Lit(0)).Block(jen.Return(jen.Id("out"), errorf(r.path+": above official maximum")))
-		}
+		emitValueAssertions(g, r, func(err jen.Code) *jen.Statement { return jen.Return(jen.Id("out"), err) })
 		g.Return(jen.Id("out"), jen.Nil())
 	})
 }
@@ -568,7 +533,7 @@ func emitOpenObjectMarshal(f *jen.File, obj *objectModel) {
 	})
 }
 
-func emitEnumCheck(g *jen.Group, r *ref) {
+func emitEnumCheck(g *jen.Group, r *ref, fail func(jen.Code) *jen.Statement) {
 	failures := []jen.Code{}
 	for _, value := range r.enumValues {
 		switch value := value.(type) {
@@ -593,7 +558,7 @@ func emitEnumCheck(g *jen.Group, r *ref) {
 			condition.Op("&&").Add(failure)
 		}
 	}
-	g.If(condition).Block(jen.Return(jen.Id("out"), errorf(r.path+": value is outside enum")))
+	g.If(condition).Block(fail(errorf(r.path + ": value is outside enum")))
 }
 
 func emitUniqueItems(g *jen.Group, r *ref) {

@@ -36,7 +36,7 @@
 
 验收包含受影响包测试、生成新鲜度、全仓普通测试、相关 race、静态检查及实际注册消费者。耗时受调度噪声影响时分别报告确定的分配变化与不确定的延迟变化。零分配、数量级改善、错误顺序完全一致均为待证明命题。
 
-## Wave 2B 的已审定设计，尚未实现
+## Wave 2B 值验证合同（已实施 AccessList 试点）
 
 仅试点 `ValidateCreateAccessListResult(v AccessListResult) error`。对可成功编码的 v，其接受结果应等价于 `NewCreateAccessListResult(v.MarshalJSON())`；生产实现只读遍历模型，不执行这一 JSON 往返，不折合值或补字段。
 
@@ -46,7 +46,7 @@
 
 保留 AccessList 的逐字段检查和最终一次 Marshal，仅删除末尾整对象 New* 重解析。外层 nil 指针、指向 nil slice 和指向空 slice 依编码语义区分。生成选择进入既有 Manifest，不能在编译器硬编码方法；可达约束必须完整支持，否则生成失败。只公开一个方法根入口，其余辅助函数私有。新增约束的独立变异反例同时驱动 New*、Validate* 及实际消费者。
 
-试点收益应在 Wave 1A/1B/2A 之后重新测量。不得把当前已有编码分配宣称为试点能删除的成本；没有实测依据时不承诺 Validate 零堆分配。
+试点相对 Wave 1B 的独立增量测量见下文；Wave 2A 没有修改其生成器、标量或 AccessList 路径。最终一次编码仍保留，值验证与完整消费者的分配分别报告。
 
 ## 尚未解除的条件
 
@@ -148,3 +148,23 @@ Client 的两个成功 Receipt 读取路径改为 admitted 交付：准入、规
 64 条 Log 的 HTTP 样本区间分别为 27.74–29.35ms／20.16–22.13ms；这是本机固定 fixture 的实测，不是 provider 网络延迟保证。Bloom 独立树参考在 1000 条日志中分配 4,804 次，新实现固定 5 次，耗时约 1.55ms→1.33ms；整个函数并非零分配，空日志反而由 3 次增至 5 次，固定缓冲逃逸及最终 hex 字符串成本如实保留。typed raw／admitted 对照使用相同规范字节，仅解释交付成本，不能当作完整 RPC 的旧新收益。
 
 原始记录在 `/tmp/ethguard-continuation-review/evidence/` 的 `wave2a-*`，包括独立快照摘要、13 组汇总、Bloom 和交付单点对照。生成源码和消费者的后续变化独立记账。
+
+## 续轮 Wave 2B 验收
+
+AccessList 唯一试点已通过本地主控验收。Manifest 选择 `eth_createAccessList`，audit 记录方法根验证名；生成器从同一 IR 复用标量谓词和约束输出。Go 生成物只在末尾增加 56 行，原有构造器与 parser 逐字节不变。消费者保留准备层全部顺序，只将最后 Marshal→New 替为 Validate→Marshal。未推广到 Log／FeeHistory，也没有给所有模型增加 Validate 方法。
+
+独立 executionapi、wiregen、ethapi、accesslist、methods 全包通过，值验证等价 fuzz 完成 1,000,000 次；独立生成 Go／audit 与工作区字节一致。现场 schema 变异覆盖根 `not.required`、数组及嵌套 maxItems、字段 pattern／const／enum，并真实编译运行 accesslist 消费者。required 变更同时验证新值语义与旧消费者编译守门；未知能力、nullable nil/empty、连续非法 UTF-8、直接伪造标量及只读所有权另有确定性反例。Address／HexByte 加 const／enum 会按既有政策生成保留身份的 Text，独立反例证明两条入口不会因表示规范化漂移。
+
+隔离快照以 `31feb32` 为基线，仅叠加 15 份本阶段文件；Wave 2A 对 AccessList 路径无影响。五组比较按旧→新→新→旧，每次两份样本，微基准 250ms、HTTP 100 次。
+
+| 路径 | Wave 1B → Wave 2B | 分配次数旧 → 新 |
+| --- | --- | --- |
+| AccessList Encode，空列表 | 4.912µs → 2.526µs | 50 → 25 |
+| AccessList Encode，3 项 | 52.533µs → 28.325µs | 215 → 109 |
+| AccessList Encode，64 项 | 0.981ms → 0.542ms（−44.8%） | 3,334 → 1,699 |
+| 三源 HTTP，3 项 | 4.492ms → 4.453ms | 约 2,059 → 1,742 |
+| 三源 HTTP，64 项 | 6.348ms → 5.207ms | 约 23,492 → 18,584 |
+
+HTTP 64 项的旧新区间为 5.10–7.44ms／3.88–6.70ms，调度波动较大，不认定中位数 −18% 为稳定网络收益；分配字节下降约 22.4%。直接值验证在 0／1／32／256 项的成功样本均为 0 B/op、0 allocs/op，64 项完整 Encode 仍有 1,699 次分配。额外标量扫描是完整自证方法根的必要成本，JSON 编码及 typed 交付继续各自承担职责。生成能力增加局限于试点可达形态；unsupported graph 会显式阻止升级，不制造平行规则或运行时 schema 解释器。
+
+原始材料在同一证据目录的 `wave2b-*`。本阶段按流程统一、可读性和实测收益接受，终态全仓与 race 验收另列。

@@ -119,6 +119,9 @@ func compileBundle(bundle executionapi.Bundle, manifest executionapi.Manifest) (
 	if err := reg.validatePublicNames(roots); err != nil {
 		return nil, nil, err
 	}
+	if _, err := reg.valueValidationObjects(roots); err != nil {
+		return nil, nil, err
+	}
 	return reg, roots, nil
 }
 

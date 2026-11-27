@@ -14380,3 +14380,59 @@ func NewPeerCountResult(raw json.RawMessage) (Quantity, error) {
 func NewVersionResult(raw json.RawMessage) (DecimalString, error) {
 	return parseValue434(raw, false)
 }
+
+// ValidateCreateAccessListResult checks the value as encoded by MarshalJSON against the complete official eth_createAccessList result.
+// It reads without modifying or encoding the value. It does not validate original JSON input or safety budgets.
+func ValidateCreateAccessListResult(v AccessListResult) error {
+	if err := validateAccessListResultValue(v); err != nil {
+		return err
+	}
+	return nil
+}
+func validateAccessListItemValue(v AccessListItem) error {
+	{
+		out := v.Address
+		if !ethcodec.IsAddress(string(out)) {
+			return fmt.Errorf("eth_createAccessList.result/properties/accessList/items/properties/address: Address: invalid input spelling %q", out)
+		}
+	}
+	{
+		out := v.StorageKeys
+		if out == nil {
+			return fmt.Errorf("eth_createAccessList.result/properties/accessList/items/properties/storageKeys: expected a non-null value")
+		}
+		for _, value := range out {
+			{
+				out := value
+				if !ethcodec.IsLowerFixedHex(string(out), 64) {
+					return fmt.Errorf("eth_createAccessList.result/properties/accessList/items/properties/storageKeys/items: Hash: invalid input spelling %q", out)
+				}
+			}
+		}
+	}
+	return nil
+}
+func validateAccessListResultValue(v AccessListResult) error {
+	if v.AccessList != nil {
+		{
+			out := (*v.AccessList)
+			if out == nil {
+				return fmt.Errorf("eth_createAccessList.result/properties/accessList: expected a non-null value")
+			}
+			for _, value := range out {
+				if err := validateAccessListItemValue(value); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if v.GasUsed != nil {
+		{
+			out := (*v.GasUsed)
+			if !ethcodec.IsCanonicalQuantity(string(out)) {
+				return fmt.Errorf("eth_createAccessList.result/properties/gasUsed: Quantity: invalid input spelling %q", out)
+			}
+		}
+	}
+	return nil
+}

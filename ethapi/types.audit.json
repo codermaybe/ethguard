@@ -1800,7 +1800,7 @@
   ],
   "formatVersion": 2,
   "version": "981aa66d79364be8322a9c358aaf0a571cca0873",
-  "manifestSHA256": "100712173d924bd26a9f492e1467441126cf17253ec5595b3a32a3155e3a915c",
+  "manifestSHA256": "6d73df221c6e6f32dcda68544ba5adc368ca37b9fcda4018e67f2c596d183aec",
   "errata": [
     {
       "ID": "getlogs-empty-array-overlap",
@@ -14135,7 +14135,8 @@
       "method": "eth_createAccessList",
       "source": "eth_createAccessList.result",
       "constructor": "NewCreateAccessListResult",
-      "returnType": "AccessListResult"
+      "returnType": "AccessListResult",
+      "valueValidator": "ValidateCreateAccessListResult"
     },
     {
       "method": "eth_estimateGas",
@@ -27947,5 +27948,5 @@
     "txpool_status": "Not selected for the reviewed public model surface; inventory presence does not imply runtime support."
   },
   "runtimeConsumption": "Not inferred by generation; verified by method consumer contract tests",
-  "generatedSHA256": "7e9c4c73bbec8e7b7f87545775b8b230fa7341064491ec08247993c05e38ad9a"
+  "generatedSHA256": "8066fb3f0a721eed9f4c0d57e28075d5e18ee8cf6c92961584cce05d15cd67a2"
 }

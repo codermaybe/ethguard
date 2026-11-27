@@ -39,7 +39,7 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	}
 	// Assemble the generated members in the established field-check order so
 	// malformed provider input retains its existing diagnostics. The complete
-	// method constructor below deliberately repeats member validation to also
+	// method value validator below deliberately repeats member validation to also
 	// bind root constraints introduced by future official schema revisions.
 	var out ethapi.AccessListResult
 	out.AccessList = &items
@@ -57,19 +57,12 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 		}
 		out.GasUsed = &gas
 	}
-	// The generated marshaler already produces compact, non-HTML-escaped
-	// JSON. Wrapping it in another encoder repeats the same serialization.
-	candidate, err := out.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	// The canonical candidate is the output of the finite member/nullable
-	// compatibility above. Bind the complete method root so a future root
-	// constraint cannot be bypassed by field-only assembly.
-	if _, err := ethapi.NewCreateAccessListResult(candidate); err != nil {
+	// Bind the complete method root without encoding and parsing the assembled
+	// value again. Input compatibility and its error order stay above.
+	if err := ethapi.ValidateCreateAccessListResult(out); err != nil {
 		return nil, fmt.Errorf("accessList standard result: %w", err)
 	}
-	return candidate, nil
+	return out.MarshalJSON()
 }
 
 // checkItems validates the list one item at a time, in document order, with

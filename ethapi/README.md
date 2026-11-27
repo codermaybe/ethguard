@@ -21,6 +21,7 @@ quantity, err := ethapi.NewQuantity(json.RawMessage(`"0x1"`))
    - **有限兼容**：Provider 的大小写或历史拼写兼容属于调用端具名准备步骤，兼容产出仍须进入严格构造器；**前置兼容层永远不是规范**。
 4. **不变量边界**：
    - 直接构造 Go 结构体须由调用者自行维持相同不变量；`MarshalJSON` 编码既有值，不承诺重新执行完整 schema 校验（保留 union 分支选择与开放请求 extras 校验）。
+   - `ValidateCreateAccessListResult(v)` 可直接检查 AccessList 结果值的完整方法根约束。其接受结果等价于将 `v.MarshalJSON()` 交给 `NewCreateAccessListResult`，但不编码或修改 `v`。它不恢复原始字段存在性、别名顺序或 provider 扩展，也不承担 JSON 安全预算；目前仅开放这一方法根试点。
    - 模型构造通过只证明数据形态符合有效 schema，不替代请求绑定、区块／交易／收据内容承诺或多源裁决。
    - 下游消费保证按入口区分：typed Block／Header 要求相应完整模型；区块的 reference 分支只提供 number／hash 身份合同，通用 `Call(..., false)` 也能触达它，其裁决成功不意味着返回了完整官方 Block（见[消费测试](../internal/verification/facade/standard_block_contract_test.go)）。
 5. **依赖与构建红线**：

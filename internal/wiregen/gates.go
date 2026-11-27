@@ -158,5 +158,10 @@ func (reg *registry) validatePublicNames(roots map[string]*ref) error {
 			return err
 		}
 	}
+	for _, method := range reg.manifest.ValueValidationResults {
+		if err := add(methodValidatorName(method), "value validator of "+method); err != nil {
+			return err
+		}
+	}
 	return nil
 }
