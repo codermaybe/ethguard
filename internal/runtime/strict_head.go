@@ -29,7 +29,7 @@ func taggedOriginTag(tag string) string {
 //
 // It is the one implementation for strict head references. Both the
 // establishment stage (reference rounds inside a business invocation) and the
-// facade's StrictHeadService (direct resolver calls) drive it, so reference
+// facade's ReferenceService (direct queries) drive it, so reference
 // rounds and business rounds share members, thresholds, and error assembly.
 // The engine owns the round: collection binding, canonical head encoding, and
 // evidence projection; it deliberately does not own an invocation or a

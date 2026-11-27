@@ -126,22 +126,14 @@ func Compose(in Composition) (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	resolver := composeResolver(in, bundle.Stage, corrob)
+	referenceRule := corrob
+	if in.Anchoring != nil && in.Anchoring.Finalized {
+		// Standalone finalized queries retain the preset's majority floor,
+		// including strict safe queries and single-source clients.
+		referenceRule = rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
+	}
 	bundle.Pool = rpcPool
-	bundle.Resolver = resolver
+	bundle.Reference = NewReferenceService(bundle.Stage, referenceRule)
 	composed = true
 	return bundle, nil
-}
-
-// composeResolver selects the reference resolver for the composed runtime
-// over the one shared stage: the finalized preset hands the stage's
-// candidate-selection strategy to the finalized service; the default hands
-// the stage's strict head rounds to the strict head service. The facade and
-// the invocation's business reads therefore establish through one
-// establishment with one configuration.
-func composeResolver(in Composition, stage *ReferenceStage, corrob rpcengine.Corroboration) ReferenceResolver {
-	if in.Anchoring != nil && in.Anchoring.Finalized {
-		return &FinalizedHeadAnchor{anchorFacade{NewFinalizedHeadService(stage)}}
-	}
-	return &StrictHeadAnchor{anchorFacade{NewStrictHeadService(stage, corrob)}}
 }

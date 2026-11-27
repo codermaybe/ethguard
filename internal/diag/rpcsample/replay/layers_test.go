@@ -445,13 +445,13 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob rpcengine.Co
 	t.Cleanup(sources.Close)
 	var opts []aggregator.Option
 	strictStage := runtime.NewReferenceStage(runtime.ReferenceStageConfig{Pool: sources, Recorder: observe.Nop})
-	strictHead := runtime.NewStrictHeadService(strictStage, corrob)
+	strictHead := runtime.NewReferenceService(strictStage, corrob)
 	// The finalized preset routes safe through strict majority and finalized
 	// through candidate selection and confirmation, each over the same pool.
 	finalizedStage := runtime.NewReferenceStage(runtime.ReferenceStageConfig{
 		Pool: sources, Recorder: observe.Nop, FinalizedStrategy: true, MaxLag: runtime.DefaultMaxFinalizedLag,
 	})
-	finalizedHead := runtime.NewFinalizedHeadService(finalizedStage)
+	finalizedHead := runtime.NewReferenceService(finalizedStage, rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2})
 	reference := func(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 		var ref rpc.ReferenceEvidence
 		var err error

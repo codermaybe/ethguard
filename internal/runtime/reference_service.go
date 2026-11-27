@@ -68,97 +68,42 @@ func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
 	return strings.ToLower(head.Hash), height, nil
 }
 
-// StrictHeadService establishes corroborated latest and safe references
-// through the client's reference stage: the facade and the invocation's
-// business reads share one establishment, so the same fleet, tag, and request
-// produce the same evidence on both paths.
-type StrictHeadService struct {
-	stage  *ReferenceStage
-	corrob rpcengine.Corroboration
+// ReferenceService establishes standalone references through the client's
+// shared stage. The stage owns tag routing and candidate/confirmation rules;
+// the service supplies the construction-time rule and a fresh invocation.
+type ReferenceService struct {
+	stage *ReferenceStage
+	rule  rpcengine.Corroboration
 }
 
-// NewStrictHeadService builds the default latest-head establishment service
-// over the shared stage.
-func NewStrictHeadService(stage *ReferenceStage, corrob rpcengine.Corroboration) *StrictHeadService {
-	return &StrictHeadService{stage: stage, corrob: corrob}
+// NewReferenceService builds a reference query service over the shared stage.
+func NewReferenceService(stage *ReferenceStage, rule rpcengine.Corroboration) *ReferenceService {
+	return &ReferenceService{stage: stage, rule: rule}
 }
 
-// Reference establishes the default moving reference (latest). Each facade
-// call runs its own invocation: freshness is per call (decision 0026), and
-// the invocation's frozen basis is the pool's current voting membership.
-func (s *StrictHeadService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
+// Reference establishes the default moving reference. The finalized preset
+// routes latest through finalized candidate selection and confirmation.
+// Freshness is per call, with the pool's current voting membership frozen.
+func (s *ReferenceService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
 	return s.establish(ctx, rpc.ReferenceLatest)
 }
 
 // ReferenceForTag establishes the reference for exactly the requested tag.
-// Each level keeps its meaning — safe is anchored at the safe reference,
-// never silently latest — and the returned evidence records the original tag.
-func (s *StrictHeadService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
+// Safe always uses strict safe establishment. The stage records requested
+// intent in the evidence; that tag is not independent proof of the chain level.
+func (s *ReferenceService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 	if tag == "" || tag == string(rpc.ReferenceLatest) {
 		return s.Reference(ctx)
 	}
 	return s.establish(ctx, rpc.ReferenceKindForTag(tag))
 }
 
-// establish runs one stage round on a fresh invocation: the stage reads the
-// frozen basis's members and corroboration snapshot, exactly the inputs the
-// invocation path's business reads establish against. The stage returns the
-// evidence the round formed beside its error, so a failed round's partial
-// evidence stays visible on the reference the caller sees.
-func (s *StrictHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
-	snap := s.corrob
+// establish runs the shared stage on a fresh invocation with the current
+// members and this service's fixed rule. The stage returns its evidence
+// beside the error, preserving partial evidence from failed rounds.
+func (s *ReferenceService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
 	refs := s.stage.memberRefs()
-	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
-	if err != nil {
-		if evidence == nil {
-			return rpc.ReferenceEvidence{}, err
-		}
-		return *evidence, err
-	}
-	if evidence == nil {
-		return rpc.ReferenceEvidence{}, fmt.Errorf("anchor: establishment completed without evidence: %w", rpc.ErrReferenceRequired)
-	}
-	return *evidence, nil
-}
-
-// FinalizedHeadService establishes a common reference from provider-reported
-// finalized views through the client's finalized-strategy stage. The strict
-// levels still ride the strict head algorithm through the same stage.
-type FinalizedHeadService struct {
-	stage *ReferenceStage
-}
-
-// NewFinalizedHeadService builds the common finalized-reference service over
-// the shared stage. The stage's strategy (finalized preset with its lag
-// bound) and the composition-tuned collect timeout are the stage's own.
-func NewFinalizedHeadService(stage *ReferenceStage) *FinalizedHeadService {
-	return &FinalizedHeadService{stage: stage}
-}
-
-// Reference establishes the finalized reference: the finalized strategy pins
-// the default reference at the finalized level — the conservative preset's
-// whole point.
-func (s *FinalizedHeadService) Reference(ctx context.Context) (rpc.ReferenceEvidence, error) {
-	return s.establish(ctx, rpc.ReferenceLatest)
-}
-
-// ReferenceForTag routes default/latest and finalized through the finalized
-// candidate-selection and confirmation algorithm; safe uses the strict safe
-// algorithm. The evidence tag records the requested intent, not independent
-// proof of the actual chain level. Other tags fail.
-func (s *FinalizedHeadService) ReferenceForTag(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	if tag == "" || tag == "latest" {
-		return s.Reference(ctx)
-	}
-	return s.establish(ctx, rpc.ReferenceKindForTag(tag))
-}
-
-func (s *FinalizedHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
-	// The finalized preset defaults to the majority floor with the
-	// documented lag bound: the stage's own configuration.
-	snap := rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
-	refs := s.stage.memberRefs()
-	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
+	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, s.rule), rpc.ReferenceRequest{Kind: kind})
 	if err != nil {
 		if evidence == nil {
 			return rpc.ReferenceEvidence{}, err

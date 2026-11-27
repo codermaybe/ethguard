@@ -48,6 +48,8 @@
 
 目录必须隐藏实际行为并拥有清楚的 seam；不为视觉分组创建浅层 forwarding package。`internal/methods` 保持一个生产模块，不因文件数增加就拆成名词包。
 
+根层直接消费 `runtime.ReferenceService.Reference/ReferenceForTag`，从建立证据派生公开 hash／height 与 CallResult。runtime 不保留 Anchor 转发 facade、四方法 resolver 接口或按 preset 分裂的相同服务。单个服务持有共享 ReferenceStage 与构造规则；Compose 对默认 preset 传入 client 规则，对 finalized preset 的独立查询固定 Majority／Floor=2。候选、确认、tag 路由及失败的部分证据仍由既有 stage／reference owner 形成。
+
 `internal/subscription` 是三种订阅的唯一执行 owner，root 只保留公开入口/类型和 Client 生命周期适配。该 owner 通过注入能力编排，不拥有连接实现；固定成员快照回调保持查询/策略验证与成员获取的既有顺序，Source 的订阅、unary 与真实 Response 能力由调用方提供。Logs与Receipts的私有`contentSubscription[E]`只共用typed FIFO、版本提交、预算、请求登记、租约、窗口审计和关闭完成屏障；泛型参数仅表示交付值。各方法保留具体内容准备、过滤、证明、重试和公开事件。Receipts使用`internal/rpcengine.CanonicalOutcomeResolver`固定成员裁定，`pool.Source.Call`保留真实Response，`CallContext`只作投影；不新增通用pipeline或另一套Q算法。旧收据channel、事件Aggregator、Pull探测及累计票据预算已从工作区移除，最终方法验收状态见路线图。
 
 Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个runSource唯一拥有inner及锁外退订，生产机会耗尽与wg实际退出分开。reapWork只等待实际工作再释放工作资源，owner watcher独立保护未消费队列，并由各订阅Close单独等待。锁方向为Head→queue/gate/budget、content→budget；网络、等待和Estimate位于主锁外，不引入Head/content嵌套锁。Client.Close保留owner取消及Pool自身关闭义务，订阅Close提供各自完成屏障，不新增通用生命周期管理器。

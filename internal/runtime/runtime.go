@@ -49,11 +49,11 @@ type Inputs struct {
 // Bundle is the internal execution graph consumed by the root facade. It is
 // intentionally data-only: callers still use the facade's public Client.
 // Build preserves the explicit corroboration rule used by its aggregator;
-// Compose also fills the pool and facade reference resolver.
+// Compose also fills the pool and standalone reference service.
 type Bundle struct {
 	Pool          *pool.Pool
 	Corroboration rpcengine.Corroboration
-	Resolver      ReferenceResolver
+	Reference     *ReferenceService
 	Plans         map[string]rpcengine.ReadPlan
 	Aggregator    *aggregator.Aggregator
 	Stage         *ReferenceStage

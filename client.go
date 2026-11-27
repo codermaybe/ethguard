@@ -29,9 +29,9 @@ type Client struct {
 	// plans are the read methods driven by explicit execution plans; their
 	// Normalize capability supplies standalone comparison keys.
 	plans map[string]rpcengine.ReadPlan
-	// resolver is the runtime-owned anchor establishment strategy; the facade
+	// reference is the runtime-owned anchor establishment service; the facade
 	// only queries it (AnchorBlockHash and friends), never replaces it.
-	resolver runtime.ReferenceResolver
+	reference *runtime.ReferenceService
 	// corrob is the construction-time adjudication rule; callers do not
 	// configure its mode or support floor.
 	corrob rpcengine.Corroboration
@@ -66,7 +66,7 @@ type clientOptions struct {
 	collectTimeout time.Duration
 	// anchoring carries the business-read establishment strategy: the
 	// finalized preset selects the candidate-selection algorithm with its
-	// lag bound. The facade resolver keeps its own configuration.
+	// lag bound. Compose also selects the standalone service's rule.
 	useFinalizedAnchoring bool
 	finalizedMaxLag       uint64
 	// chainID pins the client to one Ethereum network when WithChainID was
@@ -215,7 +215,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		pool:           runtimeBundle.Pool,
 		aggregator:     runtimeBundle.Aggregator,
 		plans:          runtimeBundle.Plans,
-		resolver:       runtimeBundle.Resolver,
+		reference:      runtimeBundle.Reference,
 		corrob:         runtimeBundle.Corroboration,
 		collectTimeout: co.collectTimeout,
 		lifeCtx:        lifeCtx,

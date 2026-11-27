@@ -6,41 +6,50 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
+	"slices"
 	"testing"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/rpcengine"
-
 	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
 	"github.com/codermaybe/ethguard/rpc"
 	"github.com/codermaybe/ethguard/rpctest"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
-// The strict head establishment has exactly two callers: the facade's
-// resolver service (direct calls, no invocation) and the establishment stage
-// (reference rounds inside a business invocation). Both drive one engine, so
-// their evidence must agree on members, thresholds, and error assembly.
-// These tests pin that equality across the scenarios where two copies used
-// to diverge: partial failures, collection failures, malformed bodies, encode
-// failures, and the corroboration floors.
 const (
 	equivTimeout = 2 * time.Second
-	equivHead    = "0xabc"
 	equivHeight  = 100
 )
+
+// Use the complete, self-consistent Header shape from the block policy
+// fixtures. Changing the parent produces a distinct valid head; malformed
+// cases start from these bytes and corrupt only the field under test.
+func equivHeader(t *testing.T, height uint64, parent string) (json.RawMessage, string) {
+	t.Helper()
+	header := &types.Header{
+		ParentHash: common.HexToHash(parent), UncleHash: types.EmptyUncleHash,
+		Root: common.HexToHash("0x2"), TxHash: types.EmptyTxsHash,
+		ReceiptHash: common.HexToHash("0x3"), Difficulty: new(big.Int),
+		Number: new(big.Int).SetUint64(height), GasLimit: 1, Time: 1,
+	}
+	raw, err := header.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw, header.Hash().Hex()
+}
 
 type headHandler = rpctest.Handler
 
 func equivFleet(t *testing.T, serve ...headHandler) []*rpctest.Node {
 	t.Helper()
-	common := func(rpctest.Call) (any, error) {
-		return map[string]any{
-			"number": fmt.Sprintf("0x%x", equivHeight),
-			"hash":   equivHead,
-		}, nil
-	}
+	raw, _ := equivHeader(t, equivHeight, "0x1")
+	common := rpctest.Value(raw)
 	if len(serve) == 0 {
 		serve = []headHandler{common, common, common}
 	}
@@ -57,7 +66,7 @@ func equivFleet(t *testing.T, serve ...headHandler) []*rpctest.Node {
 	return nodes
 }
 
-func equivPool(t *testing.T, nodes []*rpctest.Node) (*pool.Pool, []*pool.Source) {
+func equivPool(t *testing.T, nodes []*rpctest.Node) *pool.Pool {
 	t.Helper()
 	members := make([]pool.Member, 0, len(nodes))
 	for i, node := range nodes {
@@ -68,121 +77,126 @@ func equivPool(t *testing.T, nodes []*rpctest.Node) (*pool.Pool, []*pool.Source)
 		t.Fatal(err)
 	}
 	t.Cleanup(p.Close)
-	return p, p.VotingMembers()
+	return p
 }
 
-// establishService runs the strict round the facade resolver service way: a
-// direct call over the pool's current voting members.
-// establishService establishes through the facade service, which since the
-// facade flattening runs the client's own reference stage — the same
-// establishment the invocation path drives.
-func establishService(t *testing.T, nodes []*rpctest.Node, shared rpcengine.Corroboration, tag string) (rpc.ReferenceEvidence, error) {
+func establishService(t *testing.T, nodes []*rpctest.Node, rule rpcengine.Corroboration, tag string) (rpc.ReferenceEvidence, error) {
 	t.Helper()
-	pool, _ := equivPool(t, nodes)
 	stage := NewReferenceStage(ReferenceStageConfig{
-		Pool:     pool,
-		Timeout:  equivTimeout,
-		Recorder: observe.Nop,
+		Pool: equivPool(t, nodes), Timeout: equivTimeout, Recorder: observe.Nop,
 	})
-	service := NewStrictHeadService(stage, shared)
-	if tag == "" || tag == string(rpc.ReferenceLatest) {
-		return service.Reference(context.Background())
-	}
-	return service.ReferenceForTag(context.Background(), tag)
+	return NewReferenceService(stage, rule).ReferenceForTag(context.Background(), tag)
 }
 
-// assertEvidenceAg mirror asserts that the service round and the stage round
-// produce the same evidence shape for the same fleet: identity, thresholds,
-// and fault assembly. ObservedAt is wall-clock by contract and compared for
-// presence only.
-// assertEvidenceShape pins one facade establishment's evidence shape: the
-// facade runs the shared stage, so the shape is the stage contract itself.
-func assertEvidenceShape(t *testing.T, name string, service rpc.ReferenceEvidence, serviceErr error) {
-	t.Helper()
-	if service.ObservedAt.IsZero() {
-		t.Fatalf("%s: missing observation timestamp", name)
+func referenceSourceNames(refs []rpc.SourceRef) []string {
+	names := make([]string, len(refs))
+	for i, ref := range refs {
+		names[i] = ref.Name
 	}
+	return names
 }
 
-func corroborationRule(t *testing.T, mode rpc.CorroborationMode, floor int) rpcengine.Corroboration {
-	t.Helper()
-	shared, err := rpcengine.NewCorroboration(mode, floor)
-	if err != nil {
-		t.Fatal(err)
+// Pin the service's concrete evidence contract, including the error path.
+// Agreement with another call through the same stage would not prove that
+// either call actually established the expected reference.
+func TestReferenceServiceStrictEvidence(t *testing.T) {
+	raw, hash := equivHeader(t, equivHeight, "0x1")
+	dissenting, _ := equivHeader(t, equivHeight, "0x4")
+	malformed := bytes.Replace(raw, []byte(`"number":"0x64"`), []byte(`"number":"wrong"`), 1)
+	if bytes.Equal(raw, malformed) {
+		t.Fatal("malformed-number fixture did not change the header")
 	}
-	return shared
-}
-
-// The core scenarios. Every case runs both callers over the same scripted
-// fleet and requires one evidence shape.
-func TestStrictHeadServiceAndStageEvidenceAgree(t *testing.T) {
-	dissenting := func(rpctest.Call) (any, error) {
-		return map[string]any{"number": "0x64", "hash": "0x999111"}, nil
-	}
-	refused := func(rpctest.Call) (any, error) { return nil, errors.New("connection refused") }
-	// A structurally valid JSON body the canonical object encoder rejects:
-	// a head shape with an unknown field picked up by the head codec's
-	// stricter view. Both callers must classify it identically inside the
-	// denominator.
-	encodeFailure := func(rpctest.Call) (any, error) {
-		return map[string]any{"number": "wrong", "hash": equivHead}, nil
-	}
-	scenarios := []struct {
-		name  string
-		serve []headHandler
-		tag   string
-		mode  rpc.CorroborationMode
-		floor int
+	all := []string{"node-0", "node-1", "node-2"}
+	pair := []string{"node-0", "node-1"}
+	for _, tc := range []struct {
+		name       string
+		serve      []headHandler
+		down       bool
+		tag        string
+		mode       rpc.CorroborationMode
+		floor      int
+		status     rpc.Status
+		err        error
+		support    []string
+		reject     []string
+		faults     int
+		candidates int
+		reason     rpc.DecisionReason
 	}{
-		{name: "unanimous-latest", mode: rpc.CorroborationMajority, floor: 2},
-		{name: "one-provider-down", serve: []headHandler{nil, nil, refused}, mode: rpc.CorroborationMajority, floor: 2},
-		{name: "one-dissenting-head", serve: []headHandler{nil, nil, dissenting}, mode: rpc.CorroborationMajority, floor: 2},
-		{
-			name:  "encode-failure-stays-in-denominator",
-			serve: []headHandler{nil, nil, encodeFailure},
-			mode:  rpc.CorroborationMajority, floor: 2,
-		},
-		{name: "unanimity-floor-with-one-failure", serve: []headHandler{nil, nil, refused}, mode: rpc.CorroborationUnanimity, floor: 3},
-		{name: "safe-tag", tag: string(rpc.ReferenceSafe), mode: rpc.CorroborationMajority, floor: 2},
-	}
-	for _, scenario := range scenarios {
-		t.Run(scenario.name, func(t *testing.T) {
-			nodes := equivFleet(t, scenario.serve...)
-			shared := corroborationRule(t, scenario.mode, scenario.floor)
-			tag := scenario.tag
-			if tag == "" {
-				tag = string(rpc.ReferenceLatest)
+		{name: "unanimous-latest", floor: 2, status: rpc.Corroborated, support: all, candidates: 1, reason: rpc.ReasonAccepted},
+		{name: "one-provider-down", down: true, floor: 2, status: rpc.Corroborated, support: pair, faults: 1, candidates: 1, reason: rpc.ReasonAccepted},
+		{name: "one-dissenting-head", serve: []headHandler{nil, nil, rpctest.Value(dissenting)}, floor: 2, status: rpc.Corroborated, support: pair, reject: []string{"node-2"}, candidates: 2, reason: rpc.ReasonAccepted},
+		{name: "encode-failure-stays-in-denominator", serve: []headHandler{nil, nil, rpctest.Value(malformed)}, floor: 2, status: rpc.Corroborated, support: pair, faults: 1, candidates: 1, reason: rpc.ReasonAccepted},
+		{name: "unanimity-floor-with-one-failure", down: true, mode: rpc.CorroborationUnanimity, floor: 3, status: rpc.Unknown, err: rpc.ErrInsufficientSupport, support: pair, faults: 1, candidates: 1, reason: rpc.ReasonInsufficientSupport},
+		{name: "safe-tag", tag: "safe", floor: 2, status: rpc.Corroborated, support: all, candidates: 1, reason: rpc.ReasonAccepted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			nodes := equivFleet(t, tc.serve...)
+			if tc.down {
+				nodes[2].Close()
 			}
-			serviceRef, serviceErr := establishService(t, nodes, shared, tag)
-			assertEvidenceShape(t, scenario.name, serviceRef, serviceErr)
+			ref, err := establishService(t, nodes, rpcengine.Corroboration{Mode: tc.mode, Floor: tc.floor}, tc.tag)
+			if !errors.Is(err, tc.err) || ref.Status != tc.status {
+				t.Fatalf("status/error = %s / %v, want %s / %v", ref.Status, err, tc.status, tc.err)
+			}
+			wantHash, wantHeight := hash, uint64(equivHeight)
+			if tc.err != nil {
+				wantHash, wantHeight = "", 0
+			}
+			if ref.Hash != wantHash || ref.Height != wantHeight {
+				t.Fatalf("reference = %s at %d, want %s at %d", ref.Hash, ref.Height, wantHash, wantHeight)
+			}
+			if ref.Adjudication.Basis != 3 || ref.Adjudication.Required != tc.floor || ref.Adjudication.Reason != tc.reason || len(ref.Adjudication.Candidates) != tc.candidates {
+				t.Fatalf("adjudication = %+v, want basis 3, required %d, reason %v, candidates %d", ref.Adjudication, tc.floor, tc.reason, tc.candidates)
+			}
+			if !slices.Equal(referenceSourceNames(ref.Support), tc.support) || !slices.Equal(referenceSourceNames(ref.Reject), tc.reject) || !slices.Equal(referenceSourceNames(ref.Participants), all) {
+				t.Fatalf("support/reject/participants = %v / %v / %v, want %v / %v / %v", ref.Support, ref.Reject, ref.Participants, tc.support, tc.reject, all)
+			}
+			if !slices.Equal(referenceSourceNames(ref.Adjudication.Candidates[0].Sources), tc.support) || (tc.candidates == 2 && !slices.Equal(referenceSourceNames(ref.Adjudication.Candidates[1].Sources), tc.reject)) {
+				t.Fatalf("candidate membership = %+v, want support %v and reject %v", ref.Adjudication.Candidates, tc.support, tc.reject)
+			}
+			if len(ref.Sources) != 3 || len(ref.SourceFaults) != tc.faults || len(ref.Faults) != tc.faults || len(ref.CollectionFaults) != 0 {
+				t.Fatalf("source/fault evidence = %+v", ref)
+			}
+			if tc.faults != 0 && (ref.SourceFaults[0].Source.Name != "node-2" || ref.SourceFaults[0].Err == nil || ref.Sources[2].Relation != rpc.VerdictUnusable) {
+				t.Fatalf("failed source lost its attribution: %+v", ref)
+			}
+			origin := "strict-head"
+			if tc.tag == "safe" {
+				origin = "tagged-head"
+			}
+			if ref.ObservedAt.IsZero() || ref.Tag != tc.tag || ref.Origin != origin {
+				t.Fatalf("reference timestamp/tag/origin = %v / %q / %q", ref.ObservedAt, ref.Tag, ref.Origin)
+			}
 		})
 	}
 }
 
-// A whole-fleet collection failure keeps the pool's own sentinel on both
-// callers, with the collection fault on the reference both publish.
-func TestStrictHeadCollectionFailureKeepsSentinelOnBothChannels(t *testing.T) {
+func TestReferenceServiceCollectionFailureKeepsPartialEvidence(t *testing.T) {
 	nodes := equivFleet(t)
 	for _, node := range nodes {
-		node.Close() // the fan-out fails at the transport level on every member
+		node.Close()
 	}
-	shared := corroborationRule(t, rpc.CorroborationMajority, 2)
-	serviceRef, serviceErr := establishService(t, nodes, shared, string(rpc.ReferenceLatest))
-	if !errors.Is(serviceErr, pool.ErrAllSourcesDown) {
-		t.Fatalf("collection failure = %v, want the pool sentinel", serviceErr)
+	ref, err := establishService(t, nodes, rpcengine.Corroboration{Floor: 2}, "latest")
+	if !errors.Is(err, pool.ErrAllSourcesDown) {
+		t.Fatalf("collection failure = %v, want the pool sentinel", err)
 	}
-	assertEvidenceShape(t, "collection-failure", serviceRef, serviceErr)
-	if len(serviceRef.CollectionFaults) == 0 {
-		t.Fatalf("collection faults = %v, want the collect fault on the reference", serviceRef.CollectionFaults)
+	if ref.Status != rpc.Unknown || ref.Hash != "" || ref.Height != 0 || ref.ObservedAt.IsZero() || ref.Tag != "" || ref.Origin != "strict-head" {
+		t.Fatalf("failed reference = %+v", ref)
+	}
+	if ref.Adjudication.Basis != 3 || ref.Adjudication.Required != 2 || len(ref.Adjudication.Candidates) != 0 || len(ref.Support) != 0 || len(ref.Reject) != 0 {
+		t.Fatalf("collection failure lost its basis or acquired votes: %+v", ref)
+	}
+	if len(ref.Participants) != 3 || len(ref.Sources) != 3 || len(ref.SourceFaults) != 3 || len(ref.CollectionFaults) != 1 || !errors.Is(ref.CollectionFaults[0], pool.ErrAllSourcesDown) {
+		t.Fatalf("collection failure lost its source/collection evidence: %+v", ref)
 	}
 }
 
-// Every delivered block body failing the structural admission stage is a
-// malformed-response failure on both channels, not a silent empty cluster.
-func TestStrictHeadMalformedBodyAgreesOnBothChannels(t *testing.T) {
-	// Deeply nested valid JSON the raw-data validator rejects.
+func TestReferenceServiceMalformedBodyKeepsPartialEvidence(t *testing.T) {
+	// Deeply nested valid JSON rejected by structural admission, before
+	// reference identity comparison or Header encoding.
 	var bloat bytes.Buffer
-	bloat.WriteString(`{"number":"0x64","hash":"` + equivHead + `","nest":[`)
+	bloat.WriteString(`{"number":"0x64","hash":"0xabc","nest":[`)
 	for i := 0; i < 4000; i++ {
 		bloat.WriteByte('[')
 	}
@@ -190,16 +204,21 @@ func TestStrictHeadMalformedBodyAgreesOnBothChannels(t *testing.T) {
 		bloat.WriteByte(']')
 	}
 	bloat.WriteString("]}")
-	raw := json.RawMessage(bloat.Bytes())
-
 	nodes := equivFleet(t)
 	for _, node := range nodes {
-		node.ReturnRaw("eth_getBlockByNumber", raw)
+		node.ReturnRaw("eth_getBlockByNumber", bloat.Bytes())
 	}
-	shared := corroborationRule(t, rpc.CorroborationMajority, 2)
-	serviceRef, serviceErr := establishService(t, nodes, shared, string(rpc.ReferenceLatest))
-	assertEvidenceShape(t, "malformed-body", serviceRef, serviceErr)
-	if !errors.Is(serviceErr, rpc.ErrMalformedResponse) {
-		t.Fatalf("service err = %v, want a malformed-response failure", serviceErr)
+	ref, err := establishService(t, nodes, rpcengine.Corroboration{Floor: 2}, "safe")
+	if !errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("service error = %v, want malformed response", err)
+	}
+	if ref.Status != rpc.Unknown || ref.Hash != "" || ref.Height != 0 || ref.ObservedAt.IsZero() || ref.Tag != "safe" || ref.Origin != "tagged-head" {
+		t.Fatalf("malformed reference = %+v", ref)
+	}
+	if ref.Adjudication.Basis != 3 || ref.Adjudication.Required != 2 || len(ref.Adjudication.Candidates) != 0 || len(ref.Support) != 0 || len(ref.Reject) != 0 {
+		t.Fatalf("malformed responses lost the basis or acquired votes: %+v", ref)
+	}
+	if len(ref.Participants) != 3 || len(ref.Sources) != 3 || len(ref.SourceFaults) != 3 || len(ref.CollectionFaults) != 0 {
+		t.Fatalf("malformed response lost its source evidence: %+v", ref)
 	}
 }

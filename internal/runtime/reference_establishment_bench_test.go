@@ -53,7 +53,7 @@ func establishmentBenchmark(b *testing.B, serve rpctest.Handler) {
 		Timeout:  2 * time.Second,
 		Recorder: observe.Nop,
 	})
-	service := NewStrictHeadService(stage, rpcengine.Corroboration{Floor: 2})
+	service := NewReferenceService(stage, rpcengine.Corroboration{Floor: 2})
 
 	nodeCalls := func(nodes []*rpctest.Node) int {
 		sent := 0
