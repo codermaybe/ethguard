@@ -13,8 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	blockobject "github.com/codermaybe/ethguard/internal/ethobject/block"
 	"github.com/codermaybe/ethguard/rpc"
-	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
 func TestBlockPolicyCanonicalizesCompleteOfficialValue(t *testing.T) {

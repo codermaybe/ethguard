@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/codermaybe/ethguard/internal/ethobject/transaction"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
 )
 
 const MethodGetTransactionByBlockHashAndIndex = "eth_getTransactionByBlockHashAndIndex"

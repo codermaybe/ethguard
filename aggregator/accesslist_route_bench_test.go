@@ -35,7 +35,7 @@ func accessListBenchValue(n int) json.RawMessage {
 }
 
 // baselineAccessListEncode is the pre-migration encoder, copied verbatim
-// from the c3188f8 implementation (rpc/internal/objects/accesslist/encode.go)
+// from the c3188f8 implementation (internal/ethobject/accesslist/encode.go)
 // with only the identifiers renamed: the same typed scalar checks
 // (ethcodec.ValidateWireFixedHex, ethcodec.CanonicalQuantity) and the same
 // serialization (ethcodec.MarshalNoEscape), so the route comparison pins

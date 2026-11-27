@@ -1,6 +1,6 @@
 # 代码库拓扑与模块所有权
 
-状态：2026-11-17 文档基线。本文统一定义模块所有权、依赖、ReadPlan／resolver／reference seam 与读取流程；后续目标与未实施改动按路线图推进。
+状态：2026-11-27 对象单树与编码生成归属已收敛。本文统一定义模块所有权、依赖、ReadPlan／resolver／reference seam 与读取流程；后续目标与未实施改动按路线图推进。
 
 ## 1. 模块地图
 
@@ -12,11 +12,12 @@
 | `aggregator` | invocation 顺序、reference／业务轮、收集与证据装配 | 具体 transport、字段语义、schema 解释 |
 | `rpc` | Request、Response、Observation、Decision、Policy、通用裁决与 evidence | 网络连接、`rpc/methods` 依赖 |
 | `rpc/methods` | 请求语义、admission、比较键、encoder 与 reference 需求的装配、catalog | transport 生命周期、另一套 quorum 循环 |
-| `rpc/internal/objects`／`wire` | 对象约束、请求绑定、承诺、规范化与字段裁剪 | pool、facade、客户端连接 |
 | `internal/reference` | finalized 等候选／确认算法及其 consumer-owned HeadReader／HeadCodec 接口 | 直接依赖 pool、methods 或构造 aggregator／policy |
 | `ethapi`／`internal/ethcodec` | 公开 schema 生成业务模型／共享数值和 JSON 原语 | 传输、投票、执行策略 |
 | `internal/executionapi` | 固定参考 bundle／显式标准勘误的统一读取与身份检查 | 按来源或调用动态改写 schema、响应兼容或方法注册 |
-| `internal/ethobject/{header,receipt,log,syncing}` | 跨入口共用的对象结构、显式输入投影及规范编码；Header／Receipt／Log另有内容检查，不依赖RPC私有包 | 方法装配、请求绑定、投票、网络 |
+| `internal/ethobject/{header,block,transaction,receipt,log,accesslist,feehistory,syncing}` | 唯一对象树：结构、显式投影、规范编码、内容承诺与请求绑定；查询和订阅共用相应内核，可消费 rpc 数据合同 | methods、aggregator、pool、runtime、facade 反依赖及投票 |
+| `internal/ethobject/wiremask` | 有效 schema 的比较字段 mask、剪枝与既有 hex 规范化；供仍使用此比较合同的对象及方法消费 | 方法装配、投票、网络 |
+| `internal/wiregen` | 离线 schema 编译、模型及 audit 生成；生成器测试与生产生成命令 | 运行期执行与 provider 接纳政策 |
 | `internal/ethobject/hexcompat` | BlockBody／Transaction／SimulateResult的有限已知字段拼写兼容及明确嵌套投影，字段形态取自生成模型 | 通用规则注册、任意未知字段遍历、schema校验、业务派生或承诺 |
 | `internal/typed` | Value 到公开 Go 类型的唯一生产 projection | source collection、投票、网络取数 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
@@ -50,11 +51,11 @@ Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个
 
 全部注册读方法采用同一组织：每个方法文件拥有自己的 RPC 名称、公开业务接口映射、现有 MethodSpec／只读 MethodDescriptor，以及方法特定的准备、完整 key 修正规则与请求绑定。公开 Go 签名仍在 root／EthClient；一个底层 RPC 策略可服务多个公开入口，不为目录整齐复制策略。
 
-`spec_inventory.go` 与 catalog 对全部方法只收集其所属文件给出的定义，不再次展开配置；集中方法名称表已退役，每个 RPC 拼写由其方法文件唯一声明。方法之间不得调用对方的准备／修正函数；共用对象校验和编码依赖相应 objects／ethobject，通用 codec 依赖 wire／ethcodec。按方法的白盒测试随同名文件，跨方法输出一致性与公开路径测试仍按既有验证 owner 保留。
+`spec_inventory.go` 与 catalog 对全部方法只收集其所属文件给出的定义，不再次展开配置；集中方法名称表已退役，每个 RPC 拼写由其方法文件唯一声明。方法之间不得调用对方的准备／修正函数；共用对象校验和编码依赖相应 internal/ethobject，通用 codec 依赖 internal/ethcodec。按方法的白盒测试随同名文件，跨方法输出一致性与公开路径测试仍按既有验证 owner 保留。
 
 该布局说明当前知识归属；本轮文档组织不增删公开接口、方法集合或兼容规则，不改变 quorum、保护域或证据合同。后续模块优化可以重选内部接口和表示，但须依据明确目标及行为验收，不借组织整理移除能力。
 
-已确认的规则组织为**外层按官方直接 key 分支，内层按该 key 的完整形态／状态分支**。方法文件拥有经审核的整 key 兼容转换和方法接受域；wire／ethcodec 拥有通用原语和来源驱动的投影；ethapi 拥有生成结构约束；objects 拥有共享对象一致性和规范编码；Header／Receipt／Log跨查询与订阅的共同内核位于root internal/ethobject，RPC对象包保留方法绑定与必要转发，typed只作类型投影，不复制内核检查。内层状态判断不授权嵌套路径或数组元素局部修正，不构成组合注册表；无额外兼容规则的方法不需要空 switch。
+已确认的规则组织为**外层按官方直接 key 分支，内层按该 key 的完整形态／状态分支**。方法文件拥有经审核的整 key 兼容转换和方法接受域；ethcodec 拥有通用原语，ethobject/wiremask 拥有来源驱动的比较投影；ethapi 拥有生成结构约束；ethobject 拥有共享对象一致性、规范编码和请求绑定。Receipt／Log 的绑定与跨查询、订阅内核在各自同一包中，typed只作类型投影，不复制内核检查。内层状态判断不授权嵌套路径或数组元素局部修正，不构成组合注册表；无额外兼容规则的方法不需要空 switch。
 
 状态判定读取原始同源只读上下文，修正写入独立候选；缺失规则与已有 key 去重，每个 key 只处理一次。未命中修正仍须完整校验、编码和比较。当前 PruneMethod 还包含 hex 规范化，消除职责重叠须检查实际实现，不能仅修改归属描述。两 transaction 方法已完成双 switch 收敛，全部方法已按本节自治组织。
 
@@ -74,7 +75,7 @@ flowchart TD
     Aggregator --> RPC[rpc core]
     Aggregator --> Collection[Collection interface]
     Methods --> RPC
-    Methods --> Objects[objects 与 wire]
+    Methods --> Objects[internal/ethobject 与 ethcodec]
     Pool --> Port[Transport Port]
     Adapters[Native HTTP and raw WSS adapters] --> Port
     Reference --> HeadPorts[自有 HeadReader 与 HeadCodec]
@@ -90,7 +91,8 @@ flowchart TD
 3. `rpc` 不导入 `rpc/methods`，不拥有网络 I/O；允许裁决所需的 JSON／wire 处理。canonical 处理 seam 属于 rpc core（`rpc/canonical.go` 的类型与 sentinel）与 aggregator（invocation 私有的路线冻结与每源处理阶段）；方法 processor 属于各自方法文件，经 MethodSpec/ReadPlan 声明装配——rpc 不解释字段，aggregator 不解释 schema，plan 是唯一通道，无第二份注册维度（合同见下文“Canonical 单源处理路线”）。
 4. pool 不解释 Ethereum 方法参数；aggregator 不解释字段表；生产不导入 verification／testkit。
 5. 只有一个 Composition Root 和一个 typed 实现。root 与官方形状 view 不得各自实现一套执行、重试、解析或证据链。
-6. geth 的具体 client／rpc 依赖按显式 adapter 与现有静态 interlock 白名单管理；不能从兼容逃生舱推导默认原生 build 已解除限制。
+6. 对象结构、编码与请求绑定只属于 internal/ethobject 单树；对象允许依赖 rpc 数据合同，禁止反向导入 methods、aggregator、pool、runtime 或 root facade。标量原语属于 ethcodec，离线生成器属于 wiregen；生产不得导入 testkit 的 encoder coverage helper。
+7. geth 的具体 client／rpc 依赖按显式 adapter 与现有静态 interlock 白名单管理；不能从兼容逃生舱推导默认原生 build 已解除限制。
 
 ## 3. 单次读取与阶段所有权
 
@@ -158,7 +160,7 @@ Policy只要求Normalize与Resolve；准备、准入及reference属于ReadPlan�
 | 现有结构 | 保留或收敛依据 |
 | --- | --- |
 | `blockAt` / `headerAt` | 请求路由相似，但 fullTx、返回投影、hash/height绑定与错误文案分别直观可见；抽成泛型回调会让调用者同时理解投影和错误模板，当前保留两个直接实现 |
-| `rpc/internal/objects/{receipt,log}` | 共享对象内核位于internal/ethobject，本层仍拥有方法的null/array接受域与请求hash/height绑定；删除本层会把这些规则散到方法调用者 |
+| `internal/ethobject/{receipt,log}` | 编码内核与null/array接受域、请求hash/height绑定在同一对象包；全部消费者直接使用该包，没有转发对象树 |
 | `projectSourceFaults` | Exchange→Interpretation→Answer是可消费的原因优先级，直接sourceFaultView断言标识本owner产物；不能用errors.As吞掉包装或Join中的独立诊断 |
 | Canonical invocation | prepare核对一次resolver能力，状态传递typed能力供resolve消费；缺能力仍按原collect后失败的时序，未改为提前返回 |
 | Logs过滤 | freezeFilterQuery共享已验证canonical副本，stream直接读取生成类型；unary继续保留UseNumber、扩展字段与原请求语义 |

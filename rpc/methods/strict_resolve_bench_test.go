@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethobject/receipt"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
 )
 
 // BenchmarkStrictResolveReceipt measures the clustering path a canonical

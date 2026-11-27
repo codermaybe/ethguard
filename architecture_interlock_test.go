@@ -26,23 +26,20 @@ var toolPackages = []string{
 // corePackages is the production core set the tool-import ban applies to:
 // the facade and every package below it except the tools themselves.
 var corePackages = map[string]bool{
-	modulePath:                                 true,
-	modulePath + "/rpc":                        true,
-	modulePath + "/rpc/methods":                true,
-	modulePath + "/pool":                       true,
-	modulePath + "/aggregator":                 true,
-	modulePath + "/config":                     true,
-	modulePath + "/observe":                    true,
-	modulePath + "/internal/runtime":           true,
-	modulePath + "/internal/reference":         true,
-	modulePath + "/internal/typed":             true,
-	modulePath + "/internal/ethobject/header":  true,
-	modulePath + "/internal/ethobject/receipt": true,
-	modulePath + "/internal/ethobject/log":     true,
-	modulePath + "/internal/transport":         true,
-	modulePath + "/internal/transport/http":    true,
-	modulePath + "/internal/transport/wss":     true,
-	modulePath + "/internal/rpcwire":           true,
+	modulePath:                              true,
+	modulePath + "/rpc":                     true,
+	modulePath + "/rpc/methods":             true,
+	modulePath + "/pool":                    true,
+	modulePath + "/aggregator":              true,
+	modulePath + "/config":                  true,
+	modulePath + "/observe":                 true,
+	modulePath + "/internal/runtime":        true,
+	modulePath + "/internal/reference":      true,
+	modulePath + "/internal/typed":          true,
+	modulePath + "/internal/transport":      true,
+	modulePath + "/internal/transport/http": true,
+	modulePath + "/internal/transport/wss":  true,
+	modulePath + "/internal/rpcwire":        true,
 }
 
 func banToolImports(t *testing.T, pkg packageImports, imports map[string]bool) {
@@ -64,6 +61,11 @@ type packageImports struct {
 // tests are allowed to consume production seams, while production code may
 // not depend on verification or testkit.
 func TestArchitectureDependencyInterlock(t *testing.T) {
+	for _, retired := range []string{"rpc/internal/objects", "rpc/internal/wire"} {
+		if _, err := os.Stat(retired); !os.IsNotExist(err) {
+			t.Errorf("retired package tree %s must not exist (stat: %v)", retired, err)
+		}
+	}
 	cmd := exec.CommandContext(t.Context(), "go", "list", "-json", "./...")
 	out, err := cmd.StdoutPipe()
 	if err != nil {
@@ -113,8 +115,27 @@ func TestArchitectureDependencyInterlock(t *testing.T) {
 		// The core runtime is strictly downstream of no tool: tools and
 		// evidence layers consume it (docs/design/method-verification-pipeline.md). A reverse edge
 		// would let probe or canary concerns steer production behavior.
-		if corePackages[pkg.ImportPath] {
+		if corePackages[pkg.ImportPath] || strings.HasPrefix(pkg.ImportPath, modulePath+"/internal/ethobject/") {
 			banToolImports(t, pkg, imports)
+		}
+
+		// Objects own representation, integrity and request binding in one
+		// tree. They may consume rpc data contracts, never the execution
+		// engine or the facade that assembles it.
+		if strings.HasPrefix(pkg.ImportPath, modulePath+"/internal/ethobject/") {
+			for _, imp := range pkg.Imports {
+				if imp == modulePath {
+					t.Errorf("object package %s imports the root facade", pkg.ImportPath)
+				}
+				for _, engine := range []string{
+					"/rpc/methods", "/aggregator", "/pool", "/internal/runtime",
+					"/internal/methods", "/internal/aggregator", "/internal/pool", "/internal/engine", "/internal/rpcengine",
+				} {
+					if imp == modulePath+engine || strings.HasPrefix(imp, modulePath+engine+"/") {
+						t.Errorf("object package %s imports execution package %s", pkg.ImportPath, imp)
+					}
+				}
+			}
 		}
 
 		switch pkg.ImportPath {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	accesslist "github.com/codermaybe/ethguard/internal/ethobject/accesslist"
 	"github.com/codermaybe/ethguard/rpc"
-	accesslist "github.com/codermaybe/ethguard/rpc/internal/objects/accesslist"
 )
 
 const (

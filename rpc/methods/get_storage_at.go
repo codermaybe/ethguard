@@ -3,7 +3,6 @@ package methods
 import (
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodGetStorageAt is the JSON-RPC method spelling this file owns: the
@@ -19,7 +18,7 @@ func getStorageAtSpec() MethodSpec {
 		Method:      MethodGetStorageAt,
 		Resolver:    ResolverStrict,
 		Normalize:   ethcodec.NormalizeStorageWord,
-		Encode:      wire.EncodeStorageWord,
+		Encode:      ethcodec.EncodeStorageWord,
 		KeySource:   rpc.RuleKeyCanonicalBytes,
 		CompareKind: rpc.RuleCompareMethodSpecific,
 		Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{2}, EIP1898: true},

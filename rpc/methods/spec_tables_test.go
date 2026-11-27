@@ -3,8 +3,8 @@ package methods
 import (
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
 	"github.com/codermaybe/ethguard/internal/spec"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // specAbsentAllow lists registered methods with no execution-apis entry, with
@@ -24,7 +24,7 @@ var specAbsentAllow = map[string]string{
 // a spec whitelist mask from the vendored bundle, except the explicitly
 // allowlisted spec-absent methods.
 func TestSpecMasksCoverCatalog(t *testing.T) {
-	masks, err := wire.MethodMasks()
+	masks, err := wiremask.MethodMasks()
 	if err != nil {
 		t.Fatalf("spec bundle failed to compile: %v", err)
 	}

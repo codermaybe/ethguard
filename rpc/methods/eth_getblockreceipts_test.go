@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	receiptobj "github.com/codermaybe/ethguard/internal/ethobject/receipt"
+	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
 	"github.com/codermaybe/ethguard/rpc"
-	receiptobj "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 func receiptArray(t *testing.T, rows ...json.RawMessage) json.RawMessage {
@@ -134,7 +134,7 @@ func TestBlockReceiptComparisonKeyIsASingleCanonicalPass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	direct, err := receiptobj.NormalizeBlock(raw, wire.PruneMethod, MethodGetBlockReceipts)
+	direct, err := receiptobj.NormalizeBlock(raw, wiremask.PruneMethod, MethodGetBlockReceipts)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -52,7 +52,7 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 | 写入 | 冻结原始字节，先本地解码与签名恢复检查，再广播并按relative-trust响应分类；非法签名在业务网络前拒绝 | 不签名、替换、自动重试或管理交易生命周期；不是读取 quorum |
 | 未注册／显式 unsupported | 按 catalog 和公开入口规则处理 | “未知方法曾可 Forward”不代表当前已注册只读 `Call` 会绕过 allow-list；不能以未知转发补齐兼容缺口 |
 
-实现入口为 `rpc/internal/objects/{block,transaction,receipt,log,feehistory,accesslist}` 与 `rpc/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。
+实现入口为 `internal/ethobject/{block,transaction,receipt,log,feehistory,accesslist}` 与 `rpc/methods`。表中的“未证明”不是待实现承诺；需要增加保证须独立评审。
 
 ### TransactionSender 的派生保证（2026-11-23，已验收）
 

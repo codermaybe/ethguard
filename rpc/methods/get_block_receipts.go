@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	receiptobject "github.com/codermaybe/ethguard/internal/ethobject/receipt"
+	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
 	"github.com/codermaybe/ethguard/rpc"
-	receiptobject "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodGetBlockReceipts is the JSON-RPC method spelling this file owns: the
@@ -73,7 +73,7 @@ func processBlockReceipts(_ context.Context, req rpc.Request, value json.RawMess
 // the committed value's encoder owns any further shaping. A second
 // marshal here would be an independent owner that can only drift.
 func normalizeBlockReceiptList(value json.RawMessage) (string, error) {
-	return receiptobject.NormalizeBlock(value, wire.PruneMethod, MethodGetBlockReceipts)
+	return receiptobject.NormalizeBlock(value, wiremask.PruneMethod, MethodGetBlockReceipts)
 }
 
 // validateBlockReceiptsRequest owns the local rejections the

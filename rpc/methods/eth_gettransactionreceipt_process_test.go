@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	receiptobj "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
+	receiptobj "github.com/codermaybe/ethguard/internal/ethobject/receipt"
 )
 import "github.com/codermaybe/ethguard/rpc"
 

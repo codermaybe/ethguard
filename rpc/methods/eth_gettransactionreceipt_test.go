@@ -12,9 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	receiptobj "github.com/codermaybe/ethguard/internal/ethobject/receipt"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
-	receiptobj "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
 )
 
 func TestReceiptSpellingsShareOneCanonicalValue(t *testing.T) {

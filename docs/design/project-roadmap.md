@@ -73,10 +73,10 @@ NewHead于2026-11-23完成实现与独立验收：单订阅Tip+DAG、连续原�
 
 可复现入口在已跟踪源码：
 
-- 对象基准：`rpc/internal/objects/accesslist/bench_test.go`；归因基准：同目录`cost_decomposition_bench_test.go`。
+- 对象基准：`internal/ethobject/accesslist/bench_test.go`；归因基准：同目录`cost_decomposition_bench_test.go`。
 - 真实聚合基准：`aggregator/accesslist_route_bench_test.go`，覆盖空／典型／64项和1/3/5来源；同一fixture保留冻结旧encoder控制组。
-- 独立字节对照及fuzz：`internal/ethcodec/helpers_test.go`；条目接受域与顺序反例：`rpc/internal/objects/accesslist/acceptance_domain_test.go`。
-- Log真实消费者反例：`internal/typed/log_alias_projection_test.go`、`rpc/internal/objects/receipt/log_alias_test.go`。
+- 独立字节对照及fuzz：`internal/ethcodec/helpers_test.go`；条目接受域与顺序反例：`internal/ethobject/accesslist/acceptance_domain_test.go`。
+- Log真实消费者反例：`internal/typed/log_alias_projection_test.go`、`internal/ethobject/receipt/log_alias_test.go`。
 
 临时日志可以缺失；根据以上基准、测试和Git历史重新验证即可，不能因临时文件不存在阻塞接续。
 

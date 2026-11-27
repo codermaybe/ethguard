@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	logobject "github.com/codermaybe/ethguard/internal/ethobject/log"
 	"github.com/codermaybe/ethguard/rpc"
-	logobject "github.com/codermaybe/ethguard/rpc/internal/objects/log"
 )
 
 func TestLogsPolicyRejectsMixedBlockSelectors(t *testing.T) {

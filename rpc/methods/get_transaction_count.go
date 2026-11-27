@@ -3,7 +3,6 @@ package methods
 import (
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodGetTransactionCount is the JSON-RPC method spelling this file owns:
@@ -20,7 +19,7 @@ func getTransactionCountSpec() MethodSpec {
 		Method:      MethodGetTransactionCount,
 		Resolver:    ResolverStrict,
 		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      wire.EncodeQuantity,
+		Encode:      ethcodec.EncodeQuantity,
 		KeySource:   rpc.RuleKeyCanonicalBytes,
 		CompareKind: rpc.RuleCompareQuantity,
 		Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},

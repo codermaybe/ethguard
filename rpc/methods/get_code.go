@@ -3,7 +3,6 @@ package methods
 import (
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodGetCode is the JSON-RPC method spelling this file owns: the account
@@ -19,7 +18,7 @@ func getCodeSpec() MethodSpec {
 		Method:      MethodGetCode,
 		Resolver:    ResolverStrict,
 		Normalize:   ethcodec.NormalizeHexData,
-		Encode:      wire.EncodeData,
+		Encode:      ethcodec.EncodeData,
 		KeySource:   rpc.RuleKeyCanonicalBytes,
 		CompareKind: rpc.RuleCompareMethodSpecific,
 		Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},

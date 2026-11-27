@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
 	"github.com/codermaybe/ethguard/internal/rpcsample/replay"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 func TestRealShapesAgreeAfterPruneAndCaseFold(t *testing.T) {
@@ -182,7 +182,7 @@ func TestReceiptFromAnotherTransactionIsRejected(t *testing.T) {
 
 func TestWireNormalizeDoesNotRejectUnknownFields(t *testing.T) {
 	raw := injectField(t, sampleResults(t, "block-receipt-tx", "receipt-one")[0], "vendorExtension", `{"nested":true}`)
-	key, err := wire.PruneMethod(MethodGetTransactionReceipt, raw)
+	key, err := wiremask.PruneMethod(MethodGetTransactionReceipt, raw)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethobject/feehistory"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
 
 // TestFeeHistoryAdmissionBindsRewardWidthToRequestedPercentiles pins the

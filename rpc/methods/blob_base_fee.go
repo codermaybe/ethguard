@@ -3,7 +3,6 @@ package methods
 import (
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodBlobBaseFee is the JSON-RPC method spelling this file owns: the
@@ -18,7 +17,7 @@ func blobBaseFeeSpec() MethodSpec {
 		Method:      MethodBlobBaseFee,
 		Resolver:    ResolverMedian,
 		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      wire.EncodeQuantity,
+		Encode:      ethcodec.EncodeQuantity,
 		CompareKind: rpc.RuleCompareQuantity,
 	}
 }

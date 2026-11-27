@@ -3,7 +3,6 @@ package methods
 import (
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodPeerCount is the JSON-RPC method spelling this file owns. Note the
@@ -20,7 +19,7 @@ func peerCountSpec() MethodSpec {
 		Method:      MethodPeerCount,
 		Resolver:    ResolverLocal,
 		Normalize:   ethcodec.NormalizeHexQuantity,
-		Encode:      wire.EncodeFoldedQuantity,
+		Encode:      ethcodec.EncodeFoldedQuantity,
 		CompareKind: rpc.RuleCompareQuantity,
 	}
 }

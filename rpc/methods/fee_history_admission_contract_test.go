@@ -10,8 +10,8 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethobject/feehistory"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
 
 // This is the original admission composition, retained as an independent

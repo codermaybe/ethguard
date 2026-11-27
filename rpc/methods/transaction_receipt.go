@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
+	receiptobject "github.com/codermaybe/ethguard/internal/ethobject/receipt"
+	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
 	"github.com/codermaybe/ethguard/rpc"
-	receiptobject "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodGetTransactionReceipt is the JSON-RPC method spelling this file
@@ -68,5 +68,5 @@ func processReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _
 }
 
 func normalizeReceiptObject(value json.RawMessage) (string, error) {
-	return receiptobject.Normalize(value, wire.PruneMethod, MethodGetTransactionReceipt)
+	return receiptobject.Normalize(value, wiremask.PruneMethod, MethodGetTransactionReceipt)
 }

@@ -9,7 +9,6 @@ import (
 
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodCall is the JSON-RPC method spelling this file owns: the read-only
@@ -97,7 +96,7 @@ func encodeCallSuccess(value json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(value, &text); err != nil {
 		return nil, rpc.ErrNotCanonicalScalar
 	}
-	return wire.EncodeData(value)
+	return ethcodec.EncodeData(value)
 }
 
 // revertDataState is the data half of a revert key. Missing, JSON null,

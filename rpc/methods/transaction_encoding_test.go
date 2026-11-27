@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	transactionobject "github.com/codermaybe/ethguard/internal/ethobject/transaction"
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/rpc"
-	transactionobject "github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
 )
 
 func TestTransactionPolicyCanonicalizesValueWithoutSplicingSources(t *testing.T) {

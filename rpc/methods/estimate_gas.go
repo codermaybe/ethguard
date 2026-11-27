@@ -3,7 +3,6 @@ package methods
 import (
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodEstimateGas is the JSON-RPC method spelling this file owns: the gas
@@ -20,7 +19,7 @@ func estimateGasSpec() MethodSpec {
 		Method:      MethodEstimateGas,
 		Resolver:    ResolverMedian,
 		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      wire.EncodeQuantity,
+		Encode:      ethcodec.EncodeQuantity,
 		CompareKind: rpc.RuleCompareQuantity,
 		Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
 		Pending:     PendingSpec{Mode: PendingObserve, Pos: 1},

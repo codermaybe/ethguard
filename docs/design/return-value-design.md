@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 官方 wire 合同 | 方法、结果字段、类型、required、nullable 和值约束是什么？ | 固定 execution-apis bundle 与对应版本的协议／方法说明；见 [spec 数据说明](../../internal/spec/README.md) |
 | EthGuard 保护合同 | 哪些内容经过请求绑定、内容承诺或跨源比较，可以进入受保护 Value？ | [方法合同](method-contracts.md)、适用对象检查与现行实现；历史理由见决策档案 |
-| 表示合同 | 同一个被接受的值如何编码成确定字节？ | `rpc/internal/wire` 与各对象 encoder；官方生成层见 [wire-codegen.md](wire-codegen.md) |
+| 表示合同 | 同一个被接受的值如何编码成确定字节？ | `internal/ethcodec` 与各对象 encoder；官方生成层见 [wire-codegen.md](wire-codegen.md) |
 
 项目接受政策单独说明哪些非标准拼写可兼容读入，以及哪些官方合法输入因方法语义被拒。它既不改写官方 schema，也不自动形成额外保护。
 
@@ -60,7 +60,7 @@ receipt 已采用官方形态与保护闭环：`from`／`effectiveGasPrice` 必�
 | 受保护 feeHistory ratio | 仍执行项目 `CanonicalRatio` 的 float64 最短十进制保值 gate；`0.50` 可折合，`0.30000000000000001` 被拒。这是项目接受域限制，不是官方 number 定义 |
 | 缺失与 null | 不全局补空值。对象查询合法 null、空数组、字段缺失和显式 null 按具体方法区分；现有 optional 字段的 null→省略例外及其冲突见问题记录。Header／区块共享的null→省略例外：`baseFeePerGas`／`withdrawalsRoot`／`blobGasUsed`／`excessBlobGas`／`parentBeaconBlockRoot`／`requestsHash`／`blockAccessListHash`／`slotNumber` 在官方 schema 为 optional 且 non-nullable，而 geth 头部 marshal 对未设指针字段输出显式 null——这是 pre-fork 区块事实上的 wire 形状，按显式八项政策折合为省略；baseFeePerGas与blockAccessListHash在完整模型接入时补入，依据同一锁定geth生成编码事实，required null与其余畸形值仍拒绝，使受保护值满足对应官方schema（与 log `blockTimestamp:null`→省略同类） |
 
-标量与 JSON 原语由 internal/ethcodec 及 wire 适配维护；对象规则位于 rpc/internal/objects 与共享 internal/ethobject，公开模型来自 ethapi。算法输入视图不能冒充第二份官方模型。不要在文档再维护一份可独立漂移的字段清单。
+标量与 JSON 原语由 internal/ethcodec 维护；对象规则与请求绑定统一位于 internal/ethobject，比较 mask 与剪枝位于其 wiremask 包，公开模型来自 ethapi。算法输入视图不能冒充第二份官方模型。不要在文档再维护一份可独立漂移的字段清单。
 
 ## 5. 代表源和证据
 

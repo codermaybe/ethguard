@@ -7,10 +7,9 @@ import (
 
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
+	"github.com/codermaybe/ethguard/internal/ethobject/transaction"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 const MethodGetTransactionByHash = "eth_getTransactionByHash"
@@ -204,7 +203,7 @@ func correctTransactionByHashKey(key string, value json.RawMessage, original map
 		encoded, err := canonical.MarshalJSON()
 		return encoded, true, err
 	case "input":
-		encoded, err := wire.EncodeData(value)
+		encoded, err := ethcodec.EncodeData(value)
 		return encoded, true, err
 	default:
 		return value, false, nil

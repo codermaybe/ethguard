@@ -113,7 +113,7 @@ jobs:
       - name: fuzz sprint (wire)
         run: |
           set -euo pipefail
-          go test -race -fuzz=FuzzNormalize -fuzztime=1000000x -parallel=2 -timeout=10m ./rpc/internal/wire/ 2>&1 | tee release-evidence/fuzz-wire.log
+          go test -race -fuzz=FuzzNormalize -fuzztime=1000000x -parallel=2 -timeout=10m ./internal/ethcodec/ 2>&1 | tee release-evidence/fuzz-wire.log
       - name: build and verify release payload
         run: |
           set -euo pipefail

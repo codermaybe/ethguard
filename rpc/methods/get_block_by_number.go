@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	blockobject "github.com/codermaybe/ethguard/internal/ethobject/block"
 	"github.com/codermaybe/ethguard/rpc"
-	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
 // MethodGetBlockByNumber is the JSON-RPC method spelling this file owns: the
@@ -22,7 +22,7 @@ func getBlockByNumberSpec() MethodSpec {
 		Method:                 MethodGetBlockByNumber,
 		Resolver:               ResolverStrict,
 		Normalize:              normalizeBlockIdentity,
-		Encode:                 blockobject.EncodeByNumber,
+		Encode:                 blockobject.Encode,
 		KeySource:              rpc.RuleKeyCanonicalBytes,
 		CompareKind:            rpc.RuleCompareMethodSpecific,
 		Pending:                PendingSpec{Mode: PendingObserve, Pos: 0},

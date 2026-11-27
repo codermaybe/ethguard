@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	blockobject "github.com/codermaybe/ethguard/internal/ethobject/block"
 	"github.com/codermaybe/ethguard/rpc"
-	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
 // admitBlockResponse validates a full-block response for the method's plan.

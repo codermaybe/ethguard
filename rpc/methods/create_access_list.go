@@ -3,9 +3,9 @@ package methods
 import (
 	"encoding/json"
 
+	accesslist "github.com/codermaybe/ethguard/internal/ethobject/accesslist"
+	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
 	"github.com/codermaybe/ethguard/rpc"
-	accesslist "github.com/codermaybe/ethguard/rpc/internal/objects/accesslist"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodCreateAccessList is the JSON-RPC method spelling this file owns: the
@@ -45,7 +45,7 @@ func createAccessListDescriptor() MethodDescriptor {
 // key: hexadecimal casing or JSON key ordering differences do not cause false
 // conflicts, and vendor extension fields do not either.
 func normalizeAccessList(value json.RawMessage) (string, error) {
-	key, err := wire.PruneMethod(MethodCreateAccessList, value)
+	key, err := wiremask.PruneMethod(MethodCreateAccessList, value)
 	if err != nil {
 		return "", err
 	}

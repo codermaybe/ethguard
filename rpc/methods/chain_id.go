@@ -3,7 +3,6 @@ package methods
 import (
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodChainID is the JSON-RPC method spelling this file owns: the chain
@@ -18,7 +17,7 @@ func chainIDSpec() MethodSpec {
 		Method:      MethodChainID,
 		Resolver:    ResolverStrict,
 		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      wire.EncodeQuantity,
+		Encode:      ethcodec.EncodeQuantity,
 		KeySource:   rpc.RuleKeyCanonicalBytes,
 		CompareKind: rpc.RuleCompareQuantity,
 	}

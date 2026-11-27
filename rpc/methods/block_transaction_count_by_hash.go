@@ -5,7 +5,6 @@ import (
 
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodGetBlockTransactionCountByHash is the JSON-RPC method spelling this
@@ -53,5 +52,5 @@ func encodeTransactionCount(value json.RawMessage) (json.RawMessage, error) {
 	if ethcodec.IsJSONNull(value) {
 		return json.RawMessage("null"), nil
 	}
-	return wire.EncodeQuantity(value)
+	return ethcodec.EncodeQuantity(value)
 }

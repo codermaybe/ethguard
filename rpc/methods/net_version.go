@@ -3,7 +3,6 @@ package methods
 import (
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodNetVersion is the JSON-RPC method spelling this file owns: the
@@ -18,7 +17,7 @@ func netVersionSpec() MethodSpec {
 		Method:      MethodNetVersion,
 		Resolver:    ResolverStrict,
 		Normalize:   ethcodec.NormalizeDecimalString,
-		Encode:      wire.EncodeDecimal,
+		Encode:      ethcodec.EncodeDecimal,
 		KeySource:   rpc.RuleKeyCanonicalBytes,
 		CompareKind: rpc.RuleCompareQuantity,
 	}

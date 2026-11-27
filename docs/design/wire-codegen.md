@@ -1,6 +1,6 @@
 # 官方来源与类型生成合同
 
-状态：2026-11-26 生成原则与前置增强修复已通过独立验收，结果和成本见 [路线图](project-roadmap.md)。公开业务类型与调用方迁移已完成；内部对象是否仍维护平行模型独立审查。本文件拥有来源、勘误、通用生成、presence／数值／分支、命名和新鲜度，不定义方法绑定、密码学承诺或多源保证。简短阅读入口为 [ethapi/README.md](../../ethapi/README.md)。
+状态：2026-11-27 生成原则与前置增强修复已通过独立验收，结果和成本见 [路线图](project-roadmap.md)。公开业务类型与调用方迁移已完成；内部对象是否仍维护平行模型独立审查。本文件拥有来源、勘误、通用生成、presence／数值／分支、命名和新鲜度，不定义方法绑定、密码学承诺或多源保证。简短阅读入口为 [ethapi/README.md](../../ethapi/README.md)。
 
 ## 1. 唯一来源与职责
 
@@ -22,7 +22,9 @@
 
 大小写、QUANTITY、DATA 等表示政策需分别审计输入接受域和规范输出。构造器先检查解码后的原始值，再处理合法值的表示；运行时 provider 兼容先形成候选再调用构造器，不能反向修改固定来源。
 
-Jennifer v1.7.1 使用结构化 API 与 File.Save，不保留字符串源码 emitter。gen/schema.go 保留属性顺序、composition 与原始分支，model.go／walk.go 表达约束与 presence，emit.go 共用值解析器。未知或无法忠实表达的约束在生成期失败，不产宽松替代；不引入运行时 schema 解释器或按 RPC 改 AST 的特判。
+离线生成器唯一位于 `internal/wiregen`，`ethapi/generate.go`、CI 与 release freshness 命令调用同一入口。标量规范编码位于 `internal/ethcodec`；运行期比较 mask 与剪枝位于 `internal/ethobject/wiremask`，仍保留已有 hex 规范化和交易开放分支成员。对象结构、承诺与请求绑定统一位于 `internal/ethobject`，不经第二层对象 facade。生成模型的公开合同与跨对象 parity 测试位于 `ethapi`，生成器翻译测试位于 `internal/wiregen`。
+
+Jennifer v1.7.1 使用结构化 API 与 File.Save，不保留字符串源码 emitter。`internal/wiregen/schema.go` 保留属性顺序、composition 与原始分支，model.go／walk.go 表达约束与 presence，emit.go 共用值解析器。未知或无法忠实表达的约束在生成期失败，不产宽松替代；不引入运行时 schema 解释器或按 RPC 改 AST 的特判。
 
 当前公开模型覆盖 Address／Hash、Block／Header／Transaction／Receipt／Log、CallMsg、FilterQuery、TransactionReceiptsQuery、FeeHistory／AccessList／SyncProgress 与 Simulate。请求结构和同名结果投影不因形似就共用接受策略。CreateAccessList 的 any 请求入口是现存公开扩展，不是尚未完成的 geth 类型迁移；完整请求生成库存仍按方法需要扩充。
 
@@ -96,7 +98,7 @@ nullable root 的 null 表示 nil。数组空值 `[]` 与 nullable root 的 `nul
 
 oneOf 要求恰好一个分支匹配，包括全部 null 匹配；anyOf 要求至少一个匹配，并按声明顺序选择规范表示。含显式 null 分支的 anyOf 将 JSON null 统一表示为空选择，即使更早的嵌套分支也接受 null；编码仍为 null，其余输入按首个成功分支表示。生成层与离线 conformance 都保留 oneOf／anyOf 的接受域区别。`BlockTransactions` 为 anyOf，空数组可合法匹配多个分支。
 
-开放结果投影可能删除未知字段，从而让另一 oneOf 分支开始匹配，或让 anyOf 改选更早分支。`gen/projection.go` 在生成期检查这种变化：oneOf 的可投影分支须对全部竞争分支证明稳定，anyOf 须对更早分支证明稳定。证明只采用互斥 JSON 类型、双方必填且保留的不同精确标量 const／已支持的单值 hex pattern，或数组元素类型互斥；空数组投影不变。无法证明时以双方来源路径和分支序号报 unsupported，不生成隐含失真的模型。请求模式保留开放对象的额外成员，无需该投影证明；其他约束仍由普通 walker 检查。
+开放结果投影可能删除未知字段，从而让另一 oneOf 分支开始匹配，或让 anyOf 改选更早分支。`internal/wiregen/projection.go` 在生成期检查这种变化：oneOf 的可投影分支须对全部竞争分支证明稳定，anyOf 须对更早分支证明稳定。证明只采用互斥 JSON 类型、双方必填且保留的不同精确标量 const／已支持的单值 hex pattern，或数组元素类型互斥；空数组投影不变。无法证明时以双方来源路径和分支序号报 unsupported，不生成隐含失真的模型。请求模式保留开放对象的额外成员，无需该投影证明；其他约束仍由普通 walker 检查。
 
 固定来源中的交易 type、Simulate status／error code，以及 object／null、object／boolean 和 hash-array／object-array 组合满足上述证明。该检查不进入库的运行时，也不是通用 schema 求解器。新增组合若不能可靠表达，须扩展有独立反例的生成能力或明确拒绝，不能丢失约束后选择首个成功分支。
 

@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/codermaybe/ethguard/internal/ethobject/feehistory"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/objects/feehistory"
 )
 
 // MethodFeeHistory is the JSON-RPC method spelling this file owns: the fee

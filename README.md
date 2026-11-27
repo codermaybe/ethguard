@@ -105,7 +105,7 @@ Close on either facade stops the shared Client. New operations fail before netwo
 | rpc / rpc/methods | Generic decision model and resolvers / method semantics and plans |
 | aggregator / pool | Invocation orchestration and evidence / fixed members, collection and health |
 | ethapi / internal/ethcodec | Generated business models / shared numeric and JSON primitives |
-| rpc/internal/objects / internal/ethobject | Method/object binding and shared object integrity |
+| internal/ethobject | Object integrity, canonical representation, and request binding |
 | internal/transport / internal/subscription | Native adapters / stream aggregation and sessions |
 | internal/typed | The sole production typed projection |
 | internal/verification / testkit / rpctest | Public-seam tests and local peers |

@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
+	receiptobj "github.com/codermaybe/ethguard/internal/ethobject/receipt"
 	"github.com/codermaybe/ethguard/rpc"
-	receiptobj "github.com/codermaybe/ethguard/rpc/internal/objects/receipt"
 )
 
 func blockReceiptProcessingRequest(t *testing.T, raw json.RawMessage) rpc.Request {

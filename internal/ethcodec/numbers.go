@@ -1,11 +1,8 @@
 package ethcodec
 
-// The numeric rules the generated native types rely on. CanonicalRatio is
-// moved here from rpc/internal/objects/feehistory (the objects packages
-// already depend on wire, so the rule lives beside the other canonicalizers
-// and both callers share one implementation). CanonicalHexByte is the
-// return-value-design.md section 5 rule: byte-like fields (type, v, yParity)
-// are admitted as 1-2 hex digits and shipped as canonical QUANTITY.
+// Shared numeric representation rules. CanonicalRatio serves protected fee
+// history encoding. CanonicalHexByte admits 1-2 hex digits and emits canonical
+// QUANTITY for byte-like fields (type, v, yParity).
 
 import (
 	"bytes"

@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	logobject "github.com/codermaybe/ethguard/internal/ethobject/log"
+	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
 	"github.com/codermaybe/ethguard/rpc"
-	logobject "github.com/codermaybe/ethguard/rpc/internal/objects/log"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // MethodGetLogs is the JSON-RPC method spelling this file owns: the filter
@@ -195,7 +195,7 @@ func normalizeLogs(value json.RawMessage) (string, error) {
 			return "", fmt.Errorf("logs[%d]: %w", i, err)
 		}
 	}
-	return wire.PruneMethod(MethodGetLogs, trimmed)
+	return wiremask.PruneMethod(MethodGetLogs, trimmed)
 }
 
 // validateLogsResponse is intentionally stricter than types.Log's JSON

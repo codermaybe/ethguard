@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/ethobject/transaction"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/objects/transaction"
 )
 
 // The baseline witnesses for the two transaction RPCs: the request-binding

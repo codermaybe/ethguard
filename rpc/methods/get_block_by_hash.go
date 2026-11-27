@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	blockobject "github.com/codermaybe/ethguard/internal/ethobject/block"
 	"github.com/codermaybe/ethguard/rpc"
-	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
 // MethodGetBlockByHash is the JSON-RPC method spelling this file owns: the

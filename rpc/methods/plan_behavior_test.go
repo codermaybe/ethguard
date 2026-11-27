@@ -7,7 +7,6 @@ import (
 
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 )
 
 // The plan behavior matrix: for every registered method, the compiled plan
@@ -374,7 +373,7 @@ func TestCompilePlanRejectsImpossibleDeclarations(t *testing.T) {
 		{
 			name: "encoder without a key source",
 			spec: MethodSpec{Method: "eth_broken", Resolver: ResolverStrict, Normalize: ethcodec.NormalizeWireQuantity,
-				Encode: wire.EncodeQuantity},
+				Encode: ethcodec.EncodeQuantity},
 		},
 		{
 			name: "median with a non-quantity compare kind",

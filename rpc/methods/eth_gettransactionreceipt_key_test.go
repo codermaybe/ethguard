@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/codermaybe/ethguard/internal/ethcodec"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
+	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
 )
 
 // PruneMethod owns the comparison key's hex folding and JSON encoding.
@@ -17,7 +17,7 @@ func TestPrunedReceiptKeyIsAlreadyCanonical(t *testing.T) {
 	// Uppercase hex at the top level, inside a nested log, and as a topic, so
 	// the claim covers nested objects and arrays, not just the top object.
 	raw := replaceReceiptField(t, sampleReceipt(t), "logs", `[{"address":"0xABCDEF0123456789ABCDEF0123456789ABCDEF01","topics":["0x00FF","0x00000000000000000000000000000000000000000000000000000000000000AB"],"data":"0xDEADBEEF","blockNumber":"0x00FF","transactionIndex":"0x0","transactionHash":"0xAA","blockHash":"0xBB","logIndex":"0x1","removed":false}]`)
-	key, err := wire.PruneMethod(MethodGetTransactionReceipt, raw)
+	key, err := wiremask.PruneMethod(MethodGetTransactionReceipt, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestPrunedReceiptKeyIsAlreadyCanonical(t *testing.T) {
 	// The key the method returns retains every official receipt field, including
 	// from, while still using the same canonical spellings as the spec mask.
 	stripped := foldReceiptHex(t, raw)
-	pruned, err := wire.PruneMethod(MethodGetTransactionReceipt, stripped)
+	pruned, err := wiremask.PruneMethod(MethodGetTransactionReceipt, stripped)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestPrunedReceiptKeyIsAlreadyCanonical(t *testing.T) {
 			if got == "null" {
 				return
 			}
-			pruned, err := wire.PruneMethod(MethodGetTransactionReceipt, input)
+			pruned, err := wiremask.PruneMethod(MethodGetTransactionReceipt, input)
 			if err != nil || pruned != tc.want {
 				t.Fatalf("pruned key = %s, error = %v; want %s", pruned, err, tc.want)
 			}

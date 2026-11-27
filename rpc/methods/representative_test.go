@@ -10,8 +10,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/internal/wire"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -309,17 +309,17 @@ func TestTypedCallSuccessReadsCanonicalData(t *testing.T) {
 }
 
 func TestScalarMutationCannotManufactureEquality(t *testing.T) {
-	if _, err := wire.EncodeQuantity(json.RawMessage(`"0x01"`)); err == nil {
+	if _, err := ethcodec.EncodeQuantity(json.RawMessage(`"0x01"`)); err == nil {
 		t.Fatal("leading-zero quantity encoded")
 	}
-	if _, err := wire.EncodeData(json.RawMessage(`"0xa"`)); err == nil {
+	if _, err := ethcodec.EncodeData(json.RawMessage(`"0xa"`)); err == nil {
 		t.Fatal("odd-length data encoded")
 	}
-	short, err := wire.EncodeData(json.RawMessage(`"0xab"`))
+	short, err := ethcodec.EncodeData(json.RawMessage(`"0xab"`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	padded, err := wire.EncodeData(json.RawMessage(`"0x00ab"`))
+	padded, err := ethcodec.EncodeData(json.RawMessage(`"0x00ab"`))
 	if err != nil {
 		t.Fatal(err)
 	}
