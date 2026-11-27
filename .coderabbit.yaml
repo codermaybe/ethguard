@@ -35,18 +35,19 @@ reviews:
       instructions: |
         Keep the README factual and user-facing. It must describe the current
         ReadPlan-driven runtime, the 27 registered read methods, the supported
-        ethclient-shaped subset, native HTTP, and raw WSS call transport.
-        Keep provider evidence gaps and intentionally deferred WSS lifecycle
-        features explicit. Do not describe the project as a complete ethclient
-        replacement or a consensus/light client.
+        ethclient-shaped subset, native HTTP, raw WSS calls, and bounded
+        notifications. Keep provider evidence gaps and the limits on transport
+        reconnect/replay and general keepalive explicit. Do not describe the
+        project as a complete ethclient replacement or a consensus/light client.
 
     - path: "README.zh-CN.md"
       instructions: |
         Keep this document semantically aligned with README.md. Review the
-        Chinese wording for the same boundaries: ReadPlan is the runtime fact,
-        Policy remains a resolver seam, the ethclient-shaped adapter is the
-        root EthClient view, and WSS is an EthGuard raw-call transport rather
-        than a general WebSocket client.
+        Chinese wording for the same boundaries: ReadPlan declares the runtime
+        execution contract, rpc exposes data contracts, execution belongs to
+        internal/rpcengine, the ethclient-shaped adapter is the root EthClient
+        view, and WSS provides raw calls and bounded notifications with explicit
+        lifecycle limits.
 
     - path: "docs/design/**"
       instructions: |
@@ -66,42 +67,46 @@ reviews:
         boundary, and what remains undecided. Do not silently convert an
         observation or a proposal into an implementation claim.
 
-    - path: "rpc/read_plan.go"
+    - path: "internal/rpcengine/read_plan.go"
       instructions: |
         ReadPlan is a value description of one method's execution facts. Check
-        that plans do not hold network callbacks, mutable shared state, a
-        second method registry, or hidden reference/basis construction. Stage
-        order must remain Validate/Prepare → Reference → Collect → Admit →
-        Resolve → Project, with invocation-scoped Basis and Outcome semantics.
+        that plans do not own connections, mutable shared state, a second
+        method registry, or hidden reference/basis construction. Raw
+        Resolver/Admit and Canonical Process/Resolver contracts are mutually
+        exclusive and must be validated before reference or business network
+        work. Normalize is an independent comparison-key capability. Invocation
+        membership and Basis freeze before Prepare. Stage order remains
+        Prepare → ReferenceStage → PrepareWithReference → Freeze prepared
+        request → Collect → Admit or Canonical Process → Resolve → Project,
+        with invocation-scoped Basis and Outcome semantics.
 
-    - path: "rpc/methods/**"
+    - path: "internal/methods/**"
       instructions: |
         MethodSpec is the business-semantic owner of registered read methods.
         Check normalization, request binding, reference and pending shapes,
         admission, resolver capability, projector identity, and typed-path
-        inventory together. New behavior must enter the spec inventory and pass
-        plan/legacy equivalence where the legacy seam is still retained.
-        Legacy Policy constructors are allowed as resolver, compatibility, and
-        equivalence seams; do not treat their existence alone as a runtime
-        decorator-chain defect.
+        inventory together. New behavior must enter the spec inventory and
+        compile to one explicit raw or canonical execution contract. Keep
+        standalone Normalize separate from canonical execution; canonical
+        failures must not retry through a raw resolver or encoder fallback.
 
     - path: "internal/runtime/**"
       instructions: |
         This is the sole production Composition Root. Check that it is the only
         place that compiles MethodSpec values, binds projectors, and assembles
         the reference stage and aggregator. Flag any second registry, method
-        name based projector fallback, runtime call into legacy constructors, or
-        method-specific network callback outside the runtime-owned seam.
+        name based projector fallback, runtime call into retired constructors,
+        or method-owned connections and independent network fan-out.
 
-    - path: "aggregator/**"
+    - path: "internal/aggregator/**"
       instructions: |
         Check the single Invocation/coordinator model, frozen Basis and
-        corroboration snapshot, one reference stage, explicit phase ordering,
-        and uniform Decision fault attribution across every exit path. A source
-        failure must remain diagnosable without silently shrinking the voting
-        denominator or lowering the support threshold.
+        construction-time corroboration rule, one reference stage, explicit
+        phase ordering, and uniform Decision fault attribution across every
+        exit path. A source failure must remain diagnosable without silently
+        shrinking the voting denominator or lowering the support threshold.
 
-    - path: "pool/**"
+    - path: "internal/pool/**"
       instructions: |
         Check fixed membership, basis and denominator preservation, health and
         cooldown classification, sampler and Close lifecycle, cancellation,
@@ -116,9 +121,13 @@ reviews:
         but they must preserve the same source, read/write, health, basis, and
         unknown-write-result semantics. For WSS, review handshake, masking,
         fragmentation, sticky failures, close behavior, pending cleanup,
-        cancellation, bounded reads, and error-data presence. Do not add
-        subscriptions, reconnect, keepalive, or queue behavior without an
-        explicit design record and lifecycle tests.
+        cancellation, bounded reads, error-data presence, and the implemented
+        bounded notification queues, ID binding, leases, and owner cleanup.
+        Transport owns raw calls and notifications; internal/subscription owns
+        stream aggregation, recovery, and source sessions. Automatic transport
+        reconnect/replay and general keepalive remain outside the current
+        contract; changes to those guarantees require an explicit design record
+        and lifecycle tests.
 
     - path: "internal/testkit/gethoracle/**"
       instructions: |

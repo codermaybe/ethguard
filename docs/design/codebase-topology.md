@@ -116,7 +116,7 @@ flowchart TD
     Runtime --> HeadPorts
 ```
 
-箭头表示依赖能力或契约，不授权 reference 直接 import pool。生产 `PoolHeadReader`、`MethodHeadCodec`、`ReferenceStage` 与 head services 由 runtime 绑定；reference 可消费 rpcengine 的共享裁决机制，但仍通过自有端口读取和解释 head；root anchor facade 不再自己构造 resolver／aggregator。一次移动标签读取只有一个 Invocation 和冻结 Basis，不嵌套启动另一轮顶层 Aggregate。
+箭头表示依赖能力或契约，不授权 reference 直接 import pool。生产 `PoolHeadReader`、`MethodHeadCodec`、`ReferenceStage` 与单个 `ReferenceService` 由 runtime 绑定；reference 可消费 rpcengine 的共享裁决机制，但仍通过自有端口读取和解释 head；root 直接消费该服务的证据，派生公开 hash／height 与 CallResult。一次移动标签读取只有一个 Invocation 和冻结 Basis，不嵌套启动另一轮顶层 Aggregate。
 
 硬规则：
 
