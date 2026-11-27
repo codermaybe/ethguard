@@ -1,5 +1,5 @@
-// 标量规范编码。已迁移的数量和成功 DATA，比较键就是这里返回的规范 JSON
-// 字节。EncodeCheck、比对和 EncodeCommit 看见同一串字节。
+// 标量规范编码。方法声明以规范字节比较的数量和成功 DATA，使用这里返回的
+// 规范 JSON；接纳检查、比较与最终值交付保持同一编码。
 //
 // 规范 QUANTITY 是 JSON 字符串：0x 加小写十六进制，无前导零，零写作 0x0。
 // 已经拒绝前导零的数量继续拒绝，不折成同一个键。NormalizeWireQuantity 仍返回
@@ -22,8 +22,8 @@ import (
 )
 
 // EncodeQuantity checks a wire QUANTITY and returns its canonical JSON string.
-// Leading zeros are rejected, matching NormalizeWireQuantity. For a migrated
-// quantity those bytes are the comparison key.
+// Leading zeros are rejected, matching NormalizeWireQuantity. Methods that
+// declare canonical-byte comparison use these bytes as their comparison key.
 func EncodeQuantity(value json.RawMessage) (json.RawMessage, error) {
 	decimal, err := NormalizeWireQuantity(value)
 	if err != nil {

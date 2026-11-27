@@ -1,4 +1,5 @@
-// Package transaction contains the Ethereum transaction object rules shared by RPC methods.
+// Package transaction owns transaction representation, payload integrity and
+// request binding shared by method execution, typed projection and subscriptions.
 package transaction
 
 import (
@@ -44,13 +45,9 @@ func Admit(req rpc.Request, value json.RawMessage) error {
 // eth_getTransactionByBlockHashAndIndex and binds its inclusion metadata to
 // the requested block hash and index. The raw entry over the
 // object kernel: root null first, then the request grammar, then one object
-// validation, then the inclusion binding. The old path's second full
-// validation — the inner Admit re-running Validate on the same value — is
-// retired: its requested hash was the value's own hash (unfailably parsed
-// from its own Hex() spelling), its repeated validation could not disagree
-// with the first, and its hash comparison bound the declared hash to itself.
-// The declared-hash-versus-payload fact is verified once inside the object
-// validation.
+// validation, then the inclusion binding. Object validation checks the
+// declared hash against the signed payload; this entry additionally binds
+// the returned block hash and transaction index to the request.
 func AdmitInBlock(req rpc.Request, value json.RawMessage) error {
 	if ethcodec.IsJSONNull(value) {
 		return nil

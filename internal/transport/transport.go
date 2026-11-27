@@ -1,7 +1,7 @@
 // Package transport is the Port-only physical home of the connection seam:
 // the Transport and Dialer interfaces pool consumes, and the neutral
 // sentinels core packages classify on. It owns no adapter implementation —
-// the native HTTP adapter lives in internal/transport/http.
+// native adapters live in internal/transport/http and internal/transport/wss.
 package transport
 
 import (
@@ -53,8 +53,9 @@ type BoundedSubscriber interface {
 	SubscribeBounded(context.Context, NotificationPolicy, string, ...any) (Subscription, error)
 }
 
-// Subscription is the transport-neutral lifecycle surface used by the root
-// facade. Event payloads stay raw until the typed facade projects them.
+// Subscription is the transport-neutral lifecycle surface consumed by the
+// subscription owner. Notifications retain their raw JSON for that owner to
+// validate and project.
 type Subscription interface {
 	Events() <-chan Notification
 	Err() <-chan error

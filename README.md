@@ -38,6 +38,12 @@ client, err := ethguard.DialUncorroborated("https://your-provider")
 
 Dial refuses a single endpoint and duplicate endpoint identities. Multiple URLs still do not prove independent operators. Construction makes no network requests; DialContext bounds construction only. Chain identity is not implicitly pinned; configure WithChainID or chain_id explicitly when required.
 
+## SDK boundary and diagnostics
+
+The public SDK exposes Client and its EthClient view, generated ethapi models, rpc data contracts, configuration and observation values. Execution owners live under internal: pool, aggregator, method plans, resolvers, references, transports and subscription state machines. Public subscription types alias the single internal owner. The former public execution packages and Client.Pool() have no forwarding replacements.
+
+Use client.Sources() for member identities and health snapshots in construction order. Use client.Sample(ctx, method, params...) for raw observations from currently eligible sources. Sampling freezes parameters once, follows the client lifecycle and collection timeout, applies cooldown and latest-tip gates, and updates transport health. It performs no reference establishment, method admission or adjudication. Returned response bytes are complete and caller-owned; observations can accompany a collection error. Normalize remains available separately for diagnostic comparison.
+
 ## Configuration
 
 ```go
@@ -100,20 +106,26 @@ Close on either facade stops the shared Client. New operations fail before netwo
 
 | Module | Responsibility |
 | --- | --- |
-| root Client / EthClient | Public methods, CallResult, lifecycle and the shared execution view |
+| root Client / EthClient | Public methods grouped by business, CallResult, lifecycle, diagnostics and one shared execution view |
 | internal/runtime | The sole production composition root |
 | rpc | Public request, response, decision and evidence contracts; pure value helpers |
 | internal/rpcengine | Resolvers, read plans, canonical processing and adjudication |
 | internal/methods / internal/projection | Method semantics and plans / official-field projection assembly |
 | internal/aggregator / internal/pool | Invocation orchestration and evidence / fixed members, collection and health |
+| internal/reference | Head selection algorithms behind injected read and decode capabilities |
 | ethapi / internal/ethcodec | Generated business models / shared numeric and JSON primitives |
-| internal/ethobject | Object integrity, canonical representation, and request binding |
+| internal/ethobject | One shared tree for object integrity, canonical representation and request binding |
 | internal/transport / internal/subscription | Native adapters / stream aggregation and sessions |
+| internal/rpcwire | Shared JSON-RPC envelopes, request IDs and protocol errors |
 | internal/typed | The sole production typed projection |
+| internal/uncertain | Bounded source material retention and capture budgets |
 | internal/diag/{livecanary,shapeprobe,rpcsample,chainlist} | Diagnostic consumers, capture/replay tools and their fixtures |
-| internal/verification / testkit / rpctest | Public-seam tests and local peers |
-| internal/spec / executionapi | Pinned raw sources / reviewed effective schemas |
-| cmd / observe | Explicit tools / passive operational events |
+| internal/verification / internal/testkit / rpctest | Public-seam tests and local peers |
+| internal/spec / internal/executionapi / internal/wiregen | Pinned sources, effective schemas and offline generation |
+| config / observe | Public configuration data / passive events and health snapshots |
+| cmd / examples | Explicit tools and runnable examples |
+
+Root reads are organized in state_reads.go, block_reads.go and transaction_reads.go; contract_execution.go owns calls, gas, fees and access lists, while simulate.go keeps simulation together. read_helpers.go holds shared typed-read and input helpers. ethclient_view.go calls the same private implementations; block and header projections retain their distinct contracts. Diagnostics consume the core through internal/diag; core production imports cannot depend on that tree.
 
 Start at the [documentation index](docs/design/README.md). It links current contracts, pending choices and dated evidence. Historical decisions remain an archive, not a second implementation plan. The response model uses two fact domains, exchange and answer meaning, across transport, methods and public decisions. The roadmap records migration acceptance and the remaining independent work.
 

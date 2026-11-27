@@ -1,12 +1,12 @@
 # 代码库拓扑与模块所有权
 
-状态：2026-11-27 对象单树、编码生成、内部执行引擎及订阅 owner已收敛。本文统一定义模块所有权、依赖、ReadPlan／resolver／reference seam 与读取流程；后续目标与未实施改动按路线图推进。
+状态：2026-11-27 对象单树、编码生成、内部执行引擎、订阅 owner、根门面业务归组及诊断目录已收敛。本文统一定义模块所有权、依赖、ReadPlan／resolver／reference seam 与读取流程；后续目标与未实施改动按路线图推进。
 
 ## 1. 模块地图
 
 | Module | 拥有的知识与入口 | 不应拥有 |
 | --- | --- | --- |
-| root `ethguard.Client`／`EthClient` view | 公共 API、单次 CallResult、捕获与 Client 生命周期；订阅入口注入固定来源能力并公开 owner 的稳定类型 alias | 第二套装配、typed decoder 或方法字段表 |
+| root `ethguard.Client`／`EthClient` view | 按业务组织的公共 API、单次 CallResult、捕获与 Client 生命周期；Sources／Sample诊断值；订阅入口注入固定来源能力并公开 owner 的稳定类型 alias | 第二套装配、typed decoder、方法字段表或公开pool执行句柄 |
 | `internal/runtime` | 唯一生产 Composition Root；pool、aggregator、method、reference、projector 的组装 | 公共 API、第二套业务规则 |
 | `internal/pool` | 固定成员、source 生命周期、健康、调度、fan-out，消费 Transport Port | Ethereum 字段含义、裁决公式 |
 | `internal/aggregator` | invocation 顺序、reference／业务轮、收集与证据装配 | 具体 transport、字段语义、schema 解释 |
@@ -17,7 +17,7 @@
 | `internal/reference` | finalized 等候选／确认算法及其 consumer-owned HeadReader／HeadCodec 接口 | 直接依赖 pool、methods、aggregator 或 runtime |
 | `ethapi`／`internal/ethcodec` | 公开 schema 生成业务模型／共享数值和 JSON 原语 | 传输、投票、执行策略 |
 | `internal/executionapi` | 固定参考 bundle／显式标准勘误的统一读取与身份检查 | 按来源或调用动态改写 schema、响应兼容或方法注册 |
-| `internal/ethobject/{header,block,transaction,receipt,log,accesslist,feehistory,syncing}` | 唯一对象树：结构、显式投影、规范编码、内容承诺与请求绑定；查询和订阅共用相应内核，可消费 rpc 数据合同 | rpcengine、methods、aggregator、pool、runtime、facade 反依赖及投票 |
+| `internal/ethobject/{header,block,transaction,receipt,log,accesslist,feehistory,syncing}` | 唯一对象树：结构、显式投影、规范编码、内容承诺与请求绑定；查询和订阅共用相应内核，可消费 rpc 数据合同 | rpcengine、methods、aggregator、pool、runtime、subscription、facade 反依赖及投票 |
 | `internal/ethobject/wiremask` | 有效 schema 的比较字段 mask、剪枝与既有 hex 规范化；供仍使用此比较合同的对象及方法消费 | 方法装配、投票、网络 |
 | `internal/wiregen` | 离线 schema 编译、模型及 audit 生成；生成器测试与生产生成命令 | 运行期执行与 provider 接纳政策 |
 | `internal/ethobject/hexcompat` | BlockBody／Transaction／SimulateResult的有限已知字段拼写兼容及明确嵌套投影，字段形态取自生成模型 | 通用规则注册、任意未知字段遍历、schema校验、业务派生或承诺 |
@@ -25,10 +25,22 @@
 | `internal/diag/{livecanary,shapeprobe,rpcsample,chainlist}` | canary、形态探测、采集／回放、registry读取及各自fixture；消费核心能力 | 被核心生产包反向导入、独立实现核心规则 |
 | `internal/transport` | Port-only 类型、能力与中立 sentinel | 方法 policy、quorum、安全裁决 |
 | `internal/transport/{http,wss}` | 原生 HTTP／raw WSS 的协议和保真 | 把 provider 错误重新解释为业务共识；依赖 ethclient |
+| `internal/rpcwire` | 两种原生adapter共用的JSON-RPC信封、请求ID关联与协议错误保真 | 方法解释、来源健康与裁决 |
 | `internal/subscription` | Head/Logs/Receipts 状态机、Tip+DAG、连续路径/重组、过滤与内容证明、worker/恢复、证人/审计、预算/队列与source/session归属；通过注入能力编排 | 连接实现、pool/runtime/methods 具体依赖、第二套内容投票器、复用unary CallResult假装流式生命周期 |
+| `internal/uncertain` | invocation采集材料、保留预算与截断事实；实现执行入口要求的capture能力 | 方法裁决、source连接与对rpcengine的反依赖 |
+| `internal/jsonsafe`／`internal/limits` | JSON结构与资源安全检查／共享响应大小边界 | Ethereum方法字段规则、执行编排 |
 | `internal/verification`、`internal/testkit`、`rpctest` | 公开 seam 的黑盒、跨模块和 fixture 验证 | 被生产 Module 反向导入或成为生产事实源 |
-| `observe` | 被动事件记录 | retry、调度与安全决策 |
+| `config` | 公开配置数据、装载及本地校验 | runtime装配与网络连接 |
+| `observe` | 被动事件记录与公开HealthSnapshot值 | retry、调度与安全决策 |
 | `cmd`／`examples` | 操作入口、捕获与示例 | 独立实现核心规则 |
+
+### 根门面与公开边界
+
+根读取按业务归组：`state_reads.go`拥有身份、账户状态与节点状态；`block_reads.go`拥有block、header与height；`transaction_reads.go`拥有交易、receipt与log查询；`contract_execution.go`拥有call、revert、gas、fee与access-list；`simulate.go`拥有模拟。`read_helpers.go`只集中共享typed读与输入校验；`ethclient_view.go`集中全部view方法，直接调用同一私有实现。`blockAt`与`headerAt`保留各自投影、绑定及错误合同，不通过泛型回调合并。
+
+公开SDK由Client/view、ethapi业务模型、rpc数据合同、config、observe及订阅稳定类型组成。`rpc`不暴露执行计划、resolver或裁决实现。原公开pool／aggregator／rpc方法和投影执行包已移入各自internal owner，无旧路径alias或forwarder；Client.Pool()已退出，诊断使用Sources值快照与Sample原始采样，不能获取pool/source执行能力。root订阅文件只保留稳定alias及入口适配，Head／Logs／Receipts实现均属于internal/subscription。
+
+`internal/diag`集中livecanary、shapeprobe、rpcsample/replay与chainlist，连同各自活动fixture一起归属。诊断消费核心，核心生产包禁止导入整个diag树；命令、rpctest、testkit和公开验证各留在原有边界。归档decisions与samples保留其历史provenance，不随代码路径迁移改写记录。
 
 公共 `gethcompat` 构造与单源 Simulate seam 退出。`internal/testkit/gethoracle` 仅供测试和显式诊断使用，不是生产 runtime；native 执行图不得依赖 `ethclient`。迁移边界见 [兼容政策](go-ethereum-compatibility-policy.md)。
 
