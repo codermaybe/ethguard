@@ -24,7 +24,7 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | `eth_getBalance` | Registered | `BalanceAt` | `BalanceAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | null、历史高度和跨 transport |
 | `eth_getTransactionReceipt` | Registered | `TransactionReceipt` | `TransactionReceipt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, `rpc/internal/objects/receipt` | 决策 0068；`TestReceiptWireOfficialVectors`／`TestReceiptWireCapturedReplay` 独立 shape oracle＋typed 保真，`TestReceiptWireRequiredFaultKeepsFrozenDenominator`／`TestReceiptWireDoesNotMergeDistinctClaims` 覆盖故障与等价边界；无新增 provider 观察 |
 | `eth_getTransactionByHash` | Registered | `TransactionByHash` | `TransactionByHash` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending 与 absent 的跨 transport 矩阵 |
-| `eth_getBlockReceipts` | Registered | `BlockReceipts` | `BlockReceipts` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, receipt objects | 与单 receipt 共用官方形态／保护合同；`TestReceiptWireDoesNotMergeDistinctClaims` 验证 nullable presence／DATA 异见；大数组、逐 receipt 绑定成本和真实 provider 非空批次证据仍待补 |
+| `eth_getBlockReceipts` | Registered | `BlockReceipts` | `BlockReceipts` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, receipt objects | 与单 receipt 共用官方形态／保护合同；nullable presence／DATA 异见、逐条绑定与首错顺序、整列表安全门及 1/16 条 receipt 的真实 HTTP 聚合成本已验收；更大批次和真实 provider 非空批次证据仍独立 |
 | `eth_getTransactionCount` | Registered | `NonceAt` | `NonceAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending-local、历史引用和跨 transport |
 | `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `compat_methods.go`, `typed`, `rpc/methods` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity`、`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
 | `eth_getBlockTransactionCountByNumber` | Registered | `PendingTransactionCount` | `PendingTransactionCount` | native HTTP/WSS raw call | 不适用 | `pending_count.go`, `typed`, `rpc/methods` | PendingObserve 的多源 dissent/malformed 已由 `TestPendingTransactionCountDissentStaysSelected`、`TestPendingTransactionCountSkipsMalformedSource`、`TestPendingTransactionCountAllMalformedIsUnknown` 覆盖；跨 transport 证据仍待补 |
@@ -91,10 +91,10 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 
 | 路径 | 当前事实 | 后续边界 |
 | --- | --- | --- |
-| 两个独立transaction查询 | 已接入canonical processor，Candidate共享表示、检查与绑定；raw适配保留 | pending／mined、类型与方言证据继续按方法验收 |
-| 单收据 | 873c5b8接入processor，复用DecodeWithCanonical已检查字节；真实Aggregator、错误／健康／材料与分配收益已验收 | 仅strict单收据；不扩张为大日志、高来源数或provider性能结论 |
-| BlockReceipts | raw AdmitBlock与EncodeBlock保留，共用receipt保护内核 | null／空数组／逐条绑定／大批次成本独立审查，不自动复制单收据结论 |
-| FeeHistory／AccessList／共享Log | 已定位内部手写平行定义与接受域差异 | 先完成本文档系列并保存Git，再按方法合同确定目标并实施 |
+| 两个独立transaction查询 | 已接入 canonical processor，Candidate 共享表示、检查与绑定；普通 strict 与有能力的 Forwarded 复用，raw 适配保留 | pending-local 保持 raw；pending／mined、类型与方言证据继续按方法验收 |
+| 单收据 | 873c5b8 接入 processor，复用 DecodeWithCanonical 已检查字节；2026-11-27 补齐 Forwarded 复用及完整交付对照 | 不扩张为大日志、高来源数或 provider 性能结论 |
+| BlockReceipts | b1ba5b0 接入 processor，复用逐条验证及绑定后的 canonical bytes，保留 raw AdmitBlock／EncodeBlock；普通 strict 和有能力的 Forwarded 均已验收 | null／空数组／逐条绑定首错、固定 Q、原始诊断与整列表安全门已覆盖；1/16 条本地成本不代表任意大批次或 provider 性能 |
+| FeeHistory／AccessList／共享Log | FeeHistory 复用已解析 count；AccessList 复用已有生成模型与解析成员；logs 包装器只解一次顶层数组，共享 Log 保留独立准入和编码约束 | 更深层平行表示和重复处理需按真实消费者核对；Logs timestamp 的错误阶段未授权变更，不以减少解析次数修改接受域 |
 | 完整Block／Header／Transaction／Receipt | 已有生成模型接入及算法／绑定检查 | 检查剩余重复而非重新迁移；Block仍为ResolverBlock，不能套Strict processor |
 | 标量、Median、Local、CallRevert | 保留各自比较或选择语义、错误阶段及保证范围 | 不以接入processor数量衡量完成，不在文档整理中统一错误归因 |
 
