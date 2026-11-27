@@ -31,7 +31,7 @@ func WithPlans(plans map[string]rpcengine.ReadPlan) Option {
 
 // resolvePlannedInvocation selects the request's frozen local/corroborating
 // semantics. Every route returns the same mandatory source judgments.
-func resolvePlannedInvocation(plan *rpcengine.ReadPlan, snap rpcengine.Corroboration, snapOK bool, pendingLocal bool, obs []rpc.Observation) (rpcengine.Outcome, error) {
+func resolvePlannedInvocation(plan *rpcengine.ReadPlan, snap rpcengine.Corroboration, pendingLocal bool, obs []rpc.Observation) (rpcengine.Outcome, error) {
 	if plan == nil || plan.Resolver == nil {
 		outcome := rpcengine.UnassessedOutcome(obs)
 		outcome.Decision.Adjudication.Reason = rpc.ReasonInternalFailure
@@ -43,7 +43,7 @@ func resolvePlannedInvocation(plan *rpcengine.ReadPlan, snap rpcengine.Corrobora
 	if pendingLocal {
 		return rpcengine.ResolveLocalObservation(plan.Normalize, plan.Resolver, obs)
 	}
-	if snapOK && plan.Corroborating() {
+	if plan.Corroborating() {
 		resolver, ok := plan.Resolver.(rpcengine.CorroboratingResolver)
 		if !ok {
 			outcome := rpcengine.UnassessedOutcome(obs)
@@ -61,14 +61,14 @@ func resolvePlannedInvocation(plan *rpcengine.ReadPlan, snap rpcengine.Corrobora
 // observation, except in Forwarded mode, where the pending shape still
 // forwards. Its result freezes into the invocation; nothing recomputes it
 // from the parameters after preparation.
-func planPendingLocalRoute(plan *rpcengine.ReadPlan, prepared rpc.Request, snap rpcengine.Corroboration, snapOK bool) bool {
+func planPendingLocalRoute(plan *rpcengine.ReadPlan, prepared rpc.Request, snap rpcengine.Corroboration) bool {
 	if plan.Pending.Mode != rpcengine.PendingObserve {
 		return false
 	}
 	if !pendingLocalShape(plan.Pending.Pos, prepared) {
 		return false
 	}
-	return !(snapOK && snap.Mode == rpc.CorroborationForwarded)
+	return snap.Mode != rpc.CorroborationForwarded
 }
 
 // pendingLocalShape reports whether the prepared request addresses pending

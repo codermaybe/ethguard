@@ -79,12 +79,11 @@ func canonicalAggregator(t *testing.T, plan rpcengine.ReadPlan, bodies ...string
 	}
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 	opts := []Option{WithPlans(map[string]rpcengine.ReadPlan{"m": plan})}
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts = append(opts, WithCorroboration(shared))
-	return New(p, opts...), nodes
+	return New(p, shared, opts...), nodes
 }
 
 // TestCanonicalRouteProcessesOncePerSource drives the full pipeline: the
@@ -132,11 +131,11 @@ func TestCanonicalRouteRetainsConfiguredQuorum(t *testing.T) {
 			plan := processingPlan(hooks, echoProcessor(hooks))
 
 			fixture, _ := canonicalAggregator(t, plan, tc.bodies...)
-			shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 3)
+			shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 3)
 			if err != nil {
 				t.Fatal(err)
 			}
-			agg := New(fixture.pool, WithPlans(map[string]rpcengine.ReadPlan{"m": plan}), WithCorroboration(shared))
+			agg := New(fixture.pool, shared, WithPlans(map[string]rpcengine.ReadPlan{"m": plan}))
 			decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
 			if !errors.Is(err, tc.err) || decision.Status != tc.status || decision.Adjudication.Required != 3 || decision.Adjudication.Basis != 3 {
 				t.Fatalf("constructor quorum was not retained: %+v, %v", decision, err)

@@ -18,10 +18,9 @@ func TestInvocationBasisStaysFrozenAcrossRounds(t *testing.T) {
 	sources := namedSources(t, "a", "b", "c")
 	snap := rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	state := &invocationState{
-		snap:   snap,
-		snapOK: true,
+		snap: snap,
 	}
-	state.invocation = beginInvocation(snap, true, sources, nil, false)
+	state.invocation = beginInvocation(snap, sources, nil, false)
 
 	basis := state.invocation.Basis()
 	if basis.Size() != 3 {
@@ -76,24 +75,23 @@ func TestCanonicalInternalFailureRetainsProviderAnswer(t *testing.T) {
 	}
 }
 
-func TestResolutionRetainsItsThresholdWithoutSnapshot(t *testing.T) {
+func TestResolutionUsesConstructionRuleAndFixedBasis(t *testing.T) {
 	for _, tc := range []struct {
-		name                        string
-		quorum, available, required int
-		status                      rpc.Status
-		err                         error
+		name                       string
+		floor, available, required int
+		status                     rpc.Status
+		err                        error
 	}{
-		{name: "classic partial response", available: 1, required: 1, status: rpc.Selected},
-		{name: "constructor quorum", quorum: 3, available: 2, required: 3, status: rpc.Unknown, err: rpc.ErrInsufficientSupport},
+		{name: "one response cannot shrink majority", floor: 1, available: 1, required: 2, status: rpc.Unknown, err: rpc.ErrInsufficientSupport},
+		{name: "construction floor", floor: 3, available: 2, required: 3, status: rpc.Unknown, err: rpc.ErrInsufficientSupport},
+		{name: "majority accepted", floor: 2, available: 2, required: 2, status: rpc.Corroborated},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := namedSources(t, "a", "b", "c")
-			var opts []rpcengine.StrictOption
-			if tc.quorum != 0 {
-				opts = append(opts, rpcengine.WithQuorum(tc.quorum))
-			}
-			state := invocationState{plan: &rpcengine.ReadPlan{Resolver: rpcengine.Strict(rpc.CanonicalJSON, opts...)},
-				invocation: beginInvocation(rpcengine.Corroboration{}, false, sources, nil, false)}
+			corrob := mustCorroboration(t, rpc.CorroborationMajority, tc.floor)
+			state := invocationState{snap: corrob,
+				plan:       &rpcengine.ReadPlan{Resolver: rpcengine.Strict(rpc.CanonicalJSON), ResolverKind: rpcengine.ResolverStrict},
+				invocation: beginInvocation(corrob, sources, nil, false)}
 			for i, source := range sources {
 				response := rpc.Response{Exchange: rpc.Exchange{Cause: errors.New("dial failed")}}
 				if i < tc.available {
@@ -135,14 +133,15 @@ func TestPoolCloseAfterFreezePreservesUnattemptedMembers(t *testing.T) {
 			}
 			recorder := &captureRecorder{}
 			opts := []Option{WithPlans(map[string]rpcengine.ReadPlan{"m": plan}), WithRecorder(recorder)}
+			corrob := rpcengine.Corroboration{Floor: 1}
 			if route == "voting" || route == "forward mode" {
 				mode, floor := rpc.CorroborationMajority, 2
 				if route == "forward mode" {
 					mode, floor = rpc.CorroborationForwarded, 0
 				}
-				opts = append(opts, WithCorroboration(mustCorroboration(t, mode, floor)))
+				corrob = mustCorroboration(t, mode, floor)
 			}
-			decision, err := New(p, opts...).Aggregate(context.Background(), rpc.Request{Method: "m"})
+			decision, err := New(p, corrob, opts...).Aggregate(context.Background(), rpc.Request{Method: "m"})
 			if !errors.Is(err, pool.ErrClosed) || errors.Is(err, rpc.ErrInvalidOutcome) || decision.Status != rpc.Unknown || decision.Adjudication.Reason != rpc.ReasonUnassessed {
 				t.Fatalf("close became a resolver failure: %+v, %v", decision, err)
 			}

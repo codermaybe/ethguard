@@ -76,14 +76,13 @@ func equivPool(t *testing.T, nodes []*rpctest.Node) (*pool.Pool, []*pool.Source)
 // establishService establishes through the facade service, which since the
 // facade flattening runs the client's own reference stage — the same
 // establishment the invocation path drives.
-func establishService(t *testing.T, nodes []*rpctest.Node, shared *rpcengine.CorroborationShared, opts []rpcengine.StrictOption, tag string) (rpc.ReferenceEvidence, error) {
+func establishService(t *testing.T, nodes []*rpctest.Node, shared rpcengine.Corroboration, tag string) (rpc.ReferenceEvidence, error) {
 	t.Helper()
 	pool, _ := equivPool(t, nodes)
 	stage := NewReferenceStage(ReferenceStageConfig{
-		Pool:          pool,
-		Timeout:       equivTimeout,
-		Recorder:      observe.Nop,
-		StrictOptions: opts,
+		Pool:     pool,
+		Timeout:  equivTimeout,
+		Recorder: observe.Nop,
 	})
 	service := NewStrictHeadService(stage, shared)
 	if tag == "" || tag == string(rpc.ReferenceLatest) {
@@ -105,9 +104,9 @@ func assertEvidenceShape(t *testing.T, name string, service rpc.ReferenceEvidenc
 	}
 }
 
-func sharedCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpcengine.CorroborationShared {
+func corroborationRule(t *testing.T, mode rpc.CorroborationMode, floor int) rpcengine.Corroboration {
 	t.Helper()
-	shared, err := rpcengine.NewCorroborationShared(mode, floor)
+	shared, err := rpcengine.NewCorroboration(mode, floor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,12 +148,12 @@ func TestStrictHeadServiceAndStageEvidenceAgree(t *testing.T) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			nodes := equivFleet(t, scenario.serve...)
-			shared := sharedCorroboration(t, scenario.mode, scenario.floor)
+			shared := corroborationRule(t, scenario.mode, scenario.floor)
 			tag := scenario.tag
 			if tag == "" {
 				tag = string(rpc.ReferenceLatest)
 			}
-			serviceRef, serviceErr := establishService(t, nodes, shared, nil, tag)
+			serviceRef, serviceErr := establishService(t, nodes, shared, tag)
 			assertEvidenceShape(t, scenario.name, serviceRef, serviceErr)
 		})
 	}
@@ -167,8 +166,8 @@ func TestStrictHeadCollectionFailureKeepsSentinelOnBothChannels(t *testing.T) {
 	for _, node := range nodes {
 		node.Close() // the fan-out fails at the transport level on every member
 	}
-	shared := sharedCorroboration(t, rpc.CorroborationMajority, 2)
-	serviceRef, serviceErr := establishService(t, nodes, shared, nil, string(rpc.ReferenceLatest))
+	shared := corroborationRule(t, rpc.CorroborationMajority, 2)
+	serviceRef, serviceErr := establishService(t, nodes, shared, string(rpc.ReferenceLatest))
 	if !errors.Is(serviceErr, pool.ErrAllSourcesDown) {
 		t.Fatalf("collection failure = %v, want the pool sentinel", serviceErr)
 	}
@@ -197,8 +196,8 @@ func TestStrictHeadMalformedBodyAgreesOnBothChannels(t *testing.T) {
 	for _, node := range nodes {
 		node.ReturnRaw("eth_getBlockByNumber", raw)
 	}
-	shared := sharedCorroboration(t, rpc.CorroborationMajority, 2)
-	serviceRef, serviceErr := establishService(t, nodes, shared, nil, string(rpc.ReferenceLatest))
+	shared := corroborationRule(t, rpc.CorroborationMajority, 2)
+	serviceRef, serviceErr := establishService(t, nodes, shared, string(rpc.ReferenceLatest))
 	assertEvidenceShape(t, "malformed-body", serviceRef, serviceErr)
 	if !errors.Is(serviceErr, rpc.ErrMalformedResponse) {
 		t.Fatalf("service err = %v, want a malformed-response failure", serviceErr)

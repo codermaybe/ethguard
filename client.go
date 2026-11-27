@@ -33,9 +33,9 @@ type Client struct {
 	// resolver is the runtime-owned anchor establishment strategy; the facade
 	// only queries it (AnchorBlockHash and friends), never replaces it.
 	resolver runtime.ReferenceResolver
-	// corrob is the internal adjudication snapshot source; callers do not
+	// corrob is the construction-time adjudication rule; callers do not
 	// configure its mode or support floor.
-	corrob *rpcengine.CorroborationShared
+	corrob rpcengine.Corroboration
 	// collectTimeout bounds each write and diagnostic fan-out; the read aggregator owns its
 	// own copy supplied at construction.
 	collectTimeout time.Duration
@@ -299,4 +299,4 @@ func (c *Client) isClosed() bool { return c.closed.Load() }
 
 // Mode reports the internally selected adapter route. It is derived from the
 // configured source count and cannot be changed by callers.
-func (c *Client) Mode() rpc.CorroborationMode { return c.corrob.Snapshot().Mode }
+func (c *Client) Mode() rpc.CorroborationMode { return c.corrob.Mode }

@@ -337,19 +337,6 @@ func (f canonicalStrict) canonicalCore(c Corroboration, cobs []CanonicalObservat
 	return completeOutcome(observationsOfCanonical(cobs), decision, verdicts, err)
 }
 
-// canonicalValidAnswers is the no-snapshot canonical route: the decision-0006
-// valid-answer agreement over processed results, sharing its cluster core
-// with the raw route and committing through the unconditional kernel.
-func (f canonicalStrict) canonicalValidAnswers(cobs []CanonicalObservation) (Outcome, error) {
-	ranked, skipped, err := clusterCanonical(cobs)
-	if err != nil {
-		decision := rpc.Decision{Status: rpc.Unknown, Faults: nil}
-		return completeOutcome(observationsOfCanonical(cobs), decision, verdictsFromCanonical(cobs, nil, skipped), err)
-	}
-	decision, verdicts, err := adjudicateValidAnswers(ranked, skipped, observationsOfCanonical(cobs), commitProcessed)
-	return completeOutcome(observationsOfCanonical(cobs), decision, verdicts, err)
-}
-
 func observationsOfCanonical(cobs []CanonicalObservation) []rpc.Observation {
 	obs := make([]rpc.Observation, len(cobs))
 	for i, item := range cobs {
@@ -358,12 +345,9 @@ func observationsOfCanonical(cobs []CanonicalObservation) []rpc.Observation {
 	return obs
 }
 
-// adjudicateValidAnswers is the shared decision-0006 core over already-clustered
-// answers: the winner's value, provenance, and representative; agreement
-// among every valid response with a lone response downgraded to Selected;
-// then the route's commit (the raw route gates on its encoder declaration,
-// the canonical route commits unconditionally) and the shared per-source
-// statement.
+// adjudicateValidAnswers is the direct raw Strict contract from decision 0006:
+// every valid response must agree and a lone response stays Selected. Its
+// encoder declaration controls commit; source judgments use the shared kernel.
 func adjudicateValidAnswers(ranked []cluster, skipped []skippedAnswer, obs []rpc.Observation, commit func(rpc.Decision, error, []cluster) (rpc.Decision, error)) (rpc.Decision, []SourceVerdict, error) {
 	winner := ranked[0]
 	decision := winnerDecision(ranked, nil)

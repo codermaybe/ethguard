@@ -37,7 +37,6 @@ type invocationState struct {
 	// at prepare time for the projection phase.
 	planPin string
 	snap    rpcengine.Corroboration
-	snapOK  bool
 	// reference is the evidence the establishment stage transferred for this
 	// invocation: non-nil whenever the stage ran and formed anything, whether
 	// the establishment succeeded or failed, nil when no round formed
@@ -142,25 +141,21 @@ func (state *invocationState) pendingLocalRoute() bool {
 
 // forwarded reports the invocation's frozen corroboration mode: an explicit
 // Forwarded snapshot forwards regardless of the method's declaration. Every
-// phase reads this one fact instead of re-evaluating the snapshot pair.
+// phase reads this same construction rule.
 func (state *invocationState) forwarded() bool {
-	return state.snapOK && state.snap.Mode == rpc.CorroborationForwarded
+	return state.snap.Mode == rpc.CorroborationForwarded
 }
 
 // resolve runs the plan's declared resolution semantics. The canonical route
 // resolves through its processed-only resolver; the raw route reads the
-// invocation's frozen pending
-// fact instead of the prepared parameters. The outcome is the resolution's
+// invocation's frozen pending fact instead of the prepared parameters. The outcome is the resolution's
 // one production fact: mandatory per-source verdicts travel with it;
 // every input has a judgment, including unassessed inputs on early exits.
 func (state *invocationState) resolve() (rpcengine.Outcome, error) {
 	if state.processorRoute != nil {
-		if state.snapOK && state.plan.Corroborating() {
-			return state.canonicalResolver.ResolveCanonicalCorroborated(state.snap, state.canonicalObservations)
-		}
-		return state.canonicalResolver.ResolveCanonical(state.canonicalObservations)
+		return state.canonicalResolver.ResolveCanonicalCorroborated(state.snap, state.canonicalObservations)
 	}
-	return resolvePlannedInvocation(state.plan, state.snap, state.snapOK, state.pendingLocal, state.observations)
+	return resolvePlannedInvocation(state.plan, state.snap, state.pendingLocal, state.observations)
 }
 
 // establishedReference returns a private copy of the evidence the
@@ -186,7 +181,7 @@ type earlyExit struct {
 // captured before any request, the corroboration snapshot, and the raw-data
 // capture. The typed facade's corroboration requirement rides the invocation
 // itself (AggregateStrict); nothing rides the context.
-func beginInvocation(snap rpcengine.Corroboration, snapOK bool, members []*pool.Source, capture *uncertain.Capture, requireCorroboration bool) rpcengine.Invocation {
+func beginInvocation(snap rpcengine.Corroboration, members []*pool.Source, capture *uncertain.Capture, requireCorroboration bool) rpcengine.Invocation {
 	refs := make([]rpc.SourceRef, 0, len(members))
 	for _, member := range members {
 		refs = append(refs, SourceRefOf(member))
@@ -214,7 +209,7 @@ func (a *Aggregator) collectPhase(state *invocationState, members []*pool.Source
 	case state.forwarded(), singleSourcePolicy(state.resolverPolicy()):
 		// The frozen mode or the resolver's single-source declaration forwards.
 		state.emissions, state.collectErr = a.pool.Forward(state.ctx, state.preparedMethod, state.wireParams, opts)
-	case state.snapOK && state.plan.Corroborating():
+	case state.plan.Corroborating():
 		// A corroborated read collects over the fixed voting basis — every
 		// member occupies the denominator even when a scheduling gate
 		// skipped its request (decisions 0025 and 0062).
@@ -477,7 +472,7 @@ func (a *Aggregator) resolvePhase(state *invocationState, started time.Time) *ea
 	// A field-aggregation failure only degrades this invocation to a decision
 	// without diagnostics; the error itself is kept so every return path
 	// below can attach it to Faults instead of dropping it silently.
-	if state.snapOK && !state.forwarded() {
+	if !state.forwarded() {
 		common, observationErr := rpcengine.AggregateFieldsWithCorroboration(state.observations, state.invocation.Basis())
 		if observationErr == nil {
 			state.evaluation = &common
@@ -555,9 +550,9 @@ func (state *invocationState) resolveValue() (rpc.Decision, error) {
 	}
 	outcome.ProjectSources(state.observations)
 	decision := outcome.Decision
-	// Required belongs to the selected resolution contract. Snapshot routes
-	// already supplied the frozen rule; constructor/default routes retain
-	// their own threshold. Validation never repairs a claimed basis or bound.
+	// Required belongs to the selected resolution contract. Corroborating
+	// routes consume the frozen rule; other resolver classes retain their
+	// own thresholds. Validation never repairs a claimed basis or bound.
 	state.verdicts = outcome.Verdicts
 	if resolveErr == nil && state.forwarded() {
 		decision.Status = rpc.Forwarded

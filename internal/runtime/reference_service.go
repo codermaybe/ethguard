@@ -19,24 +19,12 @@ const anchorMethodName = "anchor"
 // preserves the winning source's spelling in the decision value (the anchor
 // evidence keeps the source's own wire form; the request path lowercases the
 // derived hash separately), and requires a corroborated result.
-type headAnchorPolicy struct{ rpcengine.Resolver }
-
-func (p headAnchorPolicy) Resolve(obs []rpc.Observation) (rpcengine.Outcome, error) {
-	d, err := p.Resolver.Resolve(obs)
-	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
-	return p.requireCorroborated(d, err)
+type headAnchorPolicy struct {
+	resolver rpcengine.CorroboratingResolver
 }
 
 func (p headAnchorPolicy) ResolveCorroborated(c rpcengine.Corroboration, obs []rpc.Observation) (rpcengine.Outcome, error) {
-	var (
-		d   rpcengine.Outcome
-		err error
-	)
-	if cp, ok := p.Resolver.(rpcengine.CorroboratingResolver); ok {
-		d, err = cp.ResolveCorroborated(c, obs)
-	} else {
-		d, err = p.Resolver.Resolve(obs)
-	}
+	d, err := p.resolver.ResolveCorroborated(c, obs)
 	d.Decision = restoreAnchorSourceValue(d.Decision, obs)
 	return p.requireCorroborated(d, err)
 }
@@ -85,24 +73,14 @@ func blockRefFromDecision(d rpc.Decision) (string, uint64, error) {
 // business reads share one establishment, so the same fleet, tag, and request
 // produce the same evidence on both paths.
 type StrictHeadService struct {
-	stage    *ReferenceStage
-	corrob   *rpcengine.CorroborationShared
-	corrobOK bool
+	stage  *ReferenceStage
+	corrob rpcengine.Corroboration
 }
 
 // NewStrictHeadService builds the default latest-head establishment service
 // over the shared stage.
-func NewStrictHeadService(stage *ReferenceStage, corrob *rpcengine.CorroborationShared) *StrictHeadService {
-	return &StrictHeadService{stage: stage, corrob: corrob, corrobOK: corrob != nil}
-}
-
-// snapshot captures the service's shared adjudication configuration for one
-// round.
-func (s *StrictHeadService) snapshot() (rpcengine.Corroboration, bool) {
-	if !s.corrobOK {
-		return rpcengine.Corroboration{}, false
-	}
-	return s.corrob.Snapshot(), true
+func NewStrictHeadService(stage *ReferenceStage, corrob rpcengine.Corroboration) *StrictHeadService {
+	return &StrictHeadService{stage: stage, corrob: corrob}
 }
 
 // Reference establishes the default moving reference (latest). Each facade
@@ -128,7 +106,7 @@ func (s *StrictHeadService) ReferenceForTag(ctx context.Context, tag string) (rp
 // evidence the round formed beside its error, so a failed round's partial
 // evidence stays visible on the reference the caller sees.
 func (s *StrictHeadService) establish(ctx context.Context, kind rpc.ReferenceKind) (rpc.ReferenceEvidence, error) {
-	snap, _ := s.snapshot()
+	snap := s.corrob
 	refs := s.stage.memberRefs()
 	evidence, err := s.stage.Establish(ctx, facadeInvocation(ctx, refs, snap), rpc.ReferenceRequest{Kind: kind})
 	if err != nil {

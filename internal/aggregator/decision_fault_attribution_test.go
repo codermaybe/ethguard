@@ -33,7 +33,7 @@ func (failingProjector) ProjectObservation(json.RawMessage, rpcengine.Evaluation
 }
 
 // faultAggregator builds an aggregator over scripted in-process nodes on
-// method "m", with an optional corroboration snapshot.
+// method "m", with an explicit construction rule.
 func faultAggregator(t *testing.T, policy rpcengine.Resolver, corroborated bool, script func(i int, node *rpctest.Node), opts ...Option) (*Aggregator, []*rpctest.Node) {
 	t.Helper()
 	nodes := make([]*rpctest.Node, 2)
@@ -49,14 +49,15 @@ func faultAggregator(t *testing.T, policy rpcengine.Resolver, corroborated bool,
 	}
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 	opts = append([]Option{WithCollectTimeout(5 * time.Second)}, opts...)
+	corrob := rpcengine.Corroboration{Floor: 1}
 	if corroborated {
-		shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+		shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
-		opts = append(opts, WithCorroboration(shared))
+		corrob = shared
 	}
-	return New(p, append([]Option{WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}})}, opts...)...), nodes
+	return New(p, corrob, append([]Option{WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}})}, opts...)...), nodes
 }
 
 func faultTables(t *testing.T, decision rpc.Decision) (faults, sourceFaults, collectionFaults string) {
@@ -205,10 +206,7 @@ func TestProjectionErrorAttribution(t *testing.T) {
 	)
 	plan := rpcengine.ReadPlan{Method: "m", Resolver: eventPolicy(rpcengine.WithRPCErrorBodies()), ResolverKind: methods.ResolverStrict, ProjectorID: "m"}
 	recorder := &captureRecorder{}
-	agg := New(p, WithCorroboration(mustShared(t)),
-		WithRecorder(recorder),
-		WithProjectors(map[string]rpcengine.ObservationProjector{"m": failingProjector{}}),
-		WithPlans(map[string]rpcengine.ReadPlan{"m": plan}))
+	agg := New(p, mustMajorityRule(t), WithRecorder(recorder), WithProjectors(map[string]rpcengine.ObservationProjector{"m": failingProjector{}}), WithPlans(map[string]rpcengine.ReadPlan{"m": plan}))
 	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
 	if err != nil || decision.Status != rpc.Corroborated {
 		t.Fatalf("a projection failure must not fail the read: %+v %v", decision.Status, err)
@@ -333,9 +331,7 @@ func TestEmptyLogsRetainsAcceptedRootBeforeStandardProjection(t *testing.T) {
 		members[i] = pool.Member{Name: fmt.Sprintf("source-%d", i), URL: nodes[i].URL()}
 	}
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
-	agg := New(p, WithCorroboration(mustShared(t)),
-		WithPlans(map[string]rpcengine.ReadPlan{methods.MethodGetLogs: plan}),
-		WithProjectors(map[string]rpcengine.ObservationProjector{plan.ProjectorID: projector}))
+	agg := New(p, mustMajorityRule(t), WithPlans(map[string]rpcengine.ReadPlan{methods.MethodGetLogs: plan}), WithProjectors(map[string]rpcengine.ObservationProjector{plan.ProjectorID: projector}))
 	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: methods.MethodGetLogs, Params: []any{map[string]any{"fromBlock": "0x1", "toBlock": "0x1"}}})
 	if err != nil || decision.Status != rpc.Corroborated || string(decision.Value) != `[]` {
 		t.Fatalf("empty logs result = %+v / %v", decision, err)
@@ -377,7 +373,7 @@ func plannedFaultAggregator(t *testing.T, mutate func(*rpcengine.ReadPlan), stag
 	if stage != nil {
 		opts = append(opts, WithReferenceStage(stage))
 	}
-	return New(p, opts...)
+	return New(p, rpcengine.Corroboration{Floor: 1}, opts...)
 }
 
 // The planned pipeline's two local exits must meet the same fault contract

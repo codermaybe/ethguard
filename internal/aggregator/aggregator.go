@@ -22,10 +22,9 @@ type Aggregator struct {
 	rec            observe.Recorder
 	collectTimeout time.Duration
 	projectors     map[string]rpcengine.ObservationProjector
-	// corrob is the runtime-mutable adjudication configuration shared by one
-	// client's aggregators; nil leaves policies on construction-time
-	// defaults.
-	corrob *rpcengine.CorroborationShared
+	// corrob is the construction-time adjudication rule, copied into each
+	// invocation alongside its fixed voting membership.
+	corrob rpcengine.Corroboration
 	// stage establishes the plan's required reference within this invocation.
 	stage ReferenceStage
 	// plans own each registered method's execution declaration. Unknown
@@ -48,19 +47,6 @@ func WithRecorder(r observe.Recorder) Option {
 // WithCollectTimeout bounds the pool operation used by each aggregate call.
 func WithCollectTimeout(timeout time.Duration) Option {
 	return func(a *Aggregator) { a.collectTimeout = timeout }
-}
-
-// WithCorroboration shares one runtime-mutable corroboration configuration
-// across the client's aggregators. Each invocation snapshots the mode and
-// support floor at its start (decision 0025); corroborated reads then collect
-// the full voting basis and resolve under the snapshot instead of
-// construction-time defaults.
-func WithCorroboration(c *rpcengine.CorroborationShared) Option {
-	return func(a *Aggregator) {
-		if c != nil {
-			a.corrob = c
-		}
-	}
 }
 
 // WithReferenceStage installs the reference establishment seam. The stage is
@@ -86,22 +72,12 @@ func WithProjectors(projectors map[string]rpcengine.ObservationProjector) Option
 	}
 }
 
-func New(p *pool.Pool, opts ...Option) *Aggregator {
-	a := &Aggregator{pool: p, rec: observe.Nop, projectors: make(map[string]rpcengine.ObservationProjector), plans: make(map[string]rpcengine.ReadPlan)}
+func New(p *pool.Pool, corrob rpcengine.Corroboration, opts ...Option) *Aggregator {
+	a := &Aggregator{pool: p, corrob: corrob, rec: observe.Nop, projectors: make(map[string]rpcengine.ObservationProjector), plans: make(map[string]rpcengine.ReadPlan)}
 	for _, opt := range opts {
 		opt(a)
 	}
 	return a
-}
-
-// corroboration captures the shared configuration for one invocation. A nil
-// shared configuration yields no snapshot, so the aggregator falls back to
-// each policy's construction-time resolution.
-func (a *Aggregator) corroboration() (rpcengine.Corroboration, bool) {
-	if a.corrob == nil {
-		return rpcengine.Corroboration{}, false
-	}
-	return a.corrob.Snapshot(), true
 }
 
 // Aggregate collects one request and resolves it according to its policy.
@@ -143,10 +119,9 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 	// caller that wants material installs its own collector. Without a
 	// collector no material is recorded and no business path changes.
 	collector := uncertain.CollectorFromContext(ctx)
-	// The corroboration mode and support floor are frozen here, before
-	// preparation and any request: a concurrent Set only reaches
-	// invocations that start later (decision 0025).
-	snap, snapOK := a.corroboration()
+	// Freeze the construction rule and member identities before preparation
+	// or any request. Health and scheduling cannot shrink this basis.
+	snap := a.corrob
 	members := a.pool.VotingMembers()
 	// The plan is the only execution shape. A method outside the registry
 	// rides the explicit forward plan: one bounded single-source attempt, the
@@ -159,10 +134,9 @@ func (a *Aggregator) aggregate(ctx context.Context, req rpc.Request, requireCorr
 		ctx:       ctx,
 		plan:      &plan,
 		snap:      snap,
-		snapOK:    snapOK,
 		collector: collector,
 	}
-	state.invocation = beginInvocation(snap, snapOK, members, collector, requireCorroboration)
+	state.invocation = beginInvocation(snap, members, collector, requireCorroboration)
 	defer state.finalizeHealth()
 
 	if exit := a.planPreparePhase(state, started, req); exit != nil {

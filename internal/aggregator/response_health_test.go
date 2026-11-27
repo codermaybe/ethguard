@@ -30,18 +30,19 @@ func responseHealthAggregator(t *testing.T, plan rpcengine.ReadPlan, mode string
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 	plan.Method = "m"
 	opts := []Option{WithPlans(map[string]rpcengine.ReadPlan{"m": plan})}
+	corrob := rpcengine.Corroboration{Floor: 1}
 	if mode == "voting" || mode == "forward" {
 		corroborationMode, floor := rpc.CorroborationMajority, 2
 		if mode == "forward" {
 			corroborationMode, floor = rpc.CorroborationForwarded, 0
 		}
-		shared, err := rpcengine.NewCorroborationShared(corroborationMode, floor)
+		shared, err := rpcengine.NewCorroboration(corroborationMode, floor)
 		if err != nil {
 			t.Fatal(err)
 		}
-		opts = append(opts, WithCorroboration(shared))
+		corrob = shared
 	}
-	return New(p, opts...), nodes
+	return New(p, corrob, opts...), nodes
 }
 
 func rawHealthPlan() rpcengine.ReadPlan {
@@ -95,10 +96,8 @@ func TestResponseHealthMalformedReachesGateWithFixedBasis(t *testing.T) {
 			if h := badSource.Health(); h.Failures != 3 || h.Successes != 0 || len(nodes[2].Calls()) != 3 {
 				t.Fatalf("gated source was attempted or penalized: health=%+v calls=%d", h, len(nodes[2].Calls()))
 			}
-			if err := agg.corrob.Set(rpc.CorroborationMajority, 3); err != nil {
-				t.Fatal(err)
-			}
-			d, err := agg.Aggregate(context.Background(), rpc.Request{Method: "m"})
+			strict := New(agg.pool, mustCorroboration(t, rpc.CorroborationMajority, 3), WithPlans(agg.plans))
+			d, err := strict.Aggregate(context.Background(), rpc.Request{Method: "m"})
 			if !errors.Is(err, rpc.ErrInsufficientSupport) || len(d.Participants) != 3 || len(d.Support) != 2 {
 				t.Fatalf("gate weakened floor: decision=%+v err=%v", d, err)
 			}

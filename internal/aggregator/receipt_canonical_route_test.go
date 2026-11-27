@@ -273,17 +273,12 @@ type receiptRouteRun struct {
 func receiptRouteAggregate(t *testing.T, plan rpcengine.ReadPlan, members []pool.Member, req rpc.Request, mode rpc.CorroborationMode, floor int) receiptRouteRun {
 	t.Helper()
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
-	shared, err := rpcengine.NewCorroborationShared(mode, floor)
+	shared, err := rpcengine.NewCorroboration(mode, floor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	recorder := &captureRecorder{}
-	agg := New(p,
-		WithRecorder(recorder),
-		WithPlans(map[string]rpcengine.ReadPlan{req.Method: plan}),
-		WithCorroboration(shared),
-		WithProjectors(map[string]rpcengine.ObservationProjector{methods.ProjectorReceipt: receiptRouteProjector(t)}),
-	)
+	agg := New(p, shared, WithRecorder(recorder), WithPlans(map[string]rpcengine.ReadPlan{req.Method: plan}), WithProjectors(map[string]rpcengine.ObservationProjector{methods.ProjectorReceipt: receiptRouteProjector(t)}))
 	collector := uncertain.NewCollector(uncertain.Config{BudgetBytes: 1 << 20})
 	ctx := uncertain.WithCollector(context.Background(), collector)
 	decision, err := agg.Aggregate(ctx, req)
@@ -665,15 +660,11 @@ func receiptRouteBenchPool(b *testing.B, members []pool.Member) *pool.Pool {
 // receiptRouteBenchAggregator installs one plan and the production projector.
 func receiptRouteBenchAggregator(b *testing.B, p *pool.Pool, plan rpcengine.ReadPlan, mode rpc.CorroborationMode, floor int) *Aggregator {
 	b.Helper()
-	shared, err := rpcengine.NewCorroborationShared(mode, floor)
+	shared, err := rpcengine.NewCorroboration(mode, floor)
 	if err != nil {
 		b.Fatal(err)
 	}
-	return New(p,
-		WithPlans(map[string]rpcengine.ReadPlan{receiptRouteMethod: plan}),
-		WithCorroboration(shared),
-		WithProjectors(map[string]rpcengine.ObservationProjector{methods.ProjectorReceipt: receiptRouteProjector(b)}),
-	)
+	return New(p, shared, WithPlans(map[string]rpcengine.ReadPlan{receiptRouteMethod: plan}), WithProjectors(map[string]rpcengine.ObservationProjector{methods.ProjectorReceipt: receiptRouteProjector(b)}))
 }
 
 // BenchmarkReceiptCanonicalMicro measures the registered processor.
@@ -742,7 +733,7 @@ func TestReceiptAdmissionRetainsResponseFacts(t *testing.T) {
 				before := emissions[0].Response
 				plan := receiptRouteCompiledPlan(t)
 				state := &invocationState{ctx: context.Background(), plan: &plan, admissionRequest: req, preparedMethod: req.Method, processorRoute: plan.Canonical.Process, emissions: emissions}
-				New(p).admitPhase(state)
+				New(p, rpcengine.Corroboration{Floor: 1}).admitPhase(state)
 				got := state.emissions[0].Response
 				if got.Exchange != before.Exchange || got.Exchange.Progress != rpc.ExchangeCompleted || got.Exchange.HTTPStatus != 200 || got.Answer.Kind != rpc.AnswerResult || string(got.Answer.Result) != string(tc.raw) {
 					t.Fatalf("admission changed HTTP/protocol facts: %+v", got)

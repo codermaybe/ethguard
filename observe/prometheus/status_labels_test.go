@@ -124,14 +124,15 @@ func emitStatus(t *testing.T, count int, forwarded, wantErr bool, script func(in
 	}
 	t.Cleanup(p.Close)
 	opts := []aggregator.Option{aggregator.WithRecorder(metrics), aggregator.WithCollectTimeout(5 * time.Second)}
+	corrob := rpcengine.Corroboration{Floor: 1}
 	if forwarded {
-		shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationForwarded, 0)
+		shared, err := rpcengine.NewCorroboration(rpc.CorroborationForwarded, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		opts = append(opts, aggregator.WithCorroboration(shared))
+		corrob = shared
 	}
-	a := aggregator.New(p, append([]aggregator.Option{aggregator.WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: quantityPolicy()}})}, opts...)...)
+	a := aggregator.New(p, corrob, append([]aggregator.Option{aggregator.WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: quantityPolicy()}})}, opts...)...)
 	if _, err := a.Aggregate(context.Background(), rpc.Request{Method: "m"}); (err != nil) != wantErr {
 		t.Fatalf("aggregate error = %v, wantErr %v", err, wantErr)
 	}

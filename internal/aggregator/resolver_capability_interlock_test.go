@@ -45,7 +45,7 @@ func quantityObservations() []rpc.Observation {
 func TestPlannedCallRevertStatesItsExecutionVerdicts(t *testing.T) {
 	plan := planFor(t, methods.MethodCall)
 	snap := rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
-	outcome, err := resolvePlannedInvocation(&plan, snap, true, false, quantityObservations())
+	outcome, err := resolvePlannedInvocation(&plan, snap, false, quantityObservations())
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestPlannedSamplingClassesNeverCorroborate(t *testing.T) {
 	snap := rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 	for _, method := range []string{methods.MethodGasPrice, methods.MethodPeerCount} {
 		plan := planFor(t, method)
-		outcome, err := resolvePlannedInvocation(&plan, snap, true, false, quantityObservations())
+		outcome, err := resolvePlannedInvocation(&plan, snap, false, quantityObservations())
 		if err != nil {
 			t.Fatalf("%s: resolve: %v", method, err)
 		}

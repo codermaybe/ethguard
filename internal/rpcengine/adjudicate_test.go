@@ -101,43 +101,29 @@ func TestResolveCorroboratedOverridesConstruction(t *testing.T) {
 	}
 }
 
-func TestCorroborationSharedSetAndSnapshot(t *testing.T) {
-	s, err := NewCorroborationShared(rpc.CorroborationMajority, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snap := s.Snapshot(); snap.Mode != rpc.CorroborationMajority || snap.Floor != 2 {
-		t.Fatalf("unexpected snapshot %+v", snap)
-	}
-	if err := s.Set(rpc.CorroborationUnanimity, 3); err != nil {
-		t.Fatal(err)
-	}
-	if snap := s.Snapshot(); snap.Mode != rpc.CorroborationUnanimity || snap.Floor != 3 {
-		t.Fatalf("Set must replace mode and floor together, got %+v", snap)
-	}
-	// The zero receiver is a valid unset configuration.
-	var unset *CorroborationShared
-	if snap := unset.Snapshot(); snap.Mode != rpc.CorroborationMajority || snap.Floor != 0 {
-		t.Fatalf("unset snapshot must be the zero corroboration, got %+v", snap)
+func TestCorroborationConstruction(t *testing.T) {
+	for _, want := range []Corroboration{
+		{Mode: rpc.CorroborationMajority, Floor: 2},
+		{Mode: rpc.CorroborationUnanimity, Floor: 3},
+		{Mode: rpc.CorroborationForwarded},
+	} {
+		got, err := NewCorroboration(want.Mode, want.Floor)
+		if err != nil || got != want {
+			t.Fatalf("NewCorroboration(%+v) = %+v, %v", want, got, err)
+		}
 	}
 }
 
-func TestCorroborationSharedRejectsInvalidConfiguration(t *testing.T) {
-	if _, err := NewCorroborationShared(rpc.CorroborationMode(99), 2); err == nil {
-		t.Fatal("expected unknown-mode rejection")
-	}
-	if _, err := NewCorroborationShared(rpc.CorroborationMajority, 0); err == nil {
-		t.Fatal("expected zero-floor rejection")
-	}
-	s, err := NewCorroborationShared(rpc.CorroborationMajority, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Set(rpc.CorroborationUnanimity, 0); err == nil {
-		t.Fatal("expected floor validation on Set")
-	}
-	if snap := s.Snapshot(); snap.Mode != rpc.CorroborationMajority || snap.Floor != 2 {
-		t.Fatalf("failed Set must not change the configuration, got %+v", snap)
+func TestCorroborationRejectsInvalidConfiguration(t *testing.T) {
+	for _, invalid := range []Corroboration{
+		{Mode: rpc.CorroborationMode(99), Floor: 2},
+		{Mode: rpc.CorroborationMajority},
+		{Mode: rpc.CorroborationUnanimity},
+		{Mode: rpc.CorroborationForwarded, Floor: 1},
+	} {
+		if _, err := NewCorroboration(invalid.Mode, invalid.Floor); err == nil {
+			t.Fatalf("accepted invalid rule %+v", invalid)
+		}
 	}
 }
 

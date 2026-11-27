@@ -44,17 +44,11 @@ func TestAggregateRejectedEncodingDoesNotChangeVotingBasis(t *testing.T) {
 		}
 		return json.Marshal(x.Value)
 	}))
-	corrob, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	agg := New(sources, WithPlans(map[string]rpcengine.ReadPlan{method: {Method: method, Resolver: policy, ResolverKind: methods.ResolverStrict}}), WithCorroboration(corrob))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, floor := range []int{3, 4} {
-		if err := corrob.Set(rpc.CorroborationMajority, floor); err != nil {
-			t.Fatal(err)
-		}
+		corrob := mustCorroboration(t, rpc.CorroborationMajority, floor)
+		agg := New(sources, corrob, WithPlans(map[string]rpcengine.ReadPlan{method: {Method: method, Resolver: policy, ResolverKind: methods.ResolverStrict}}))
 		d, err := agg.Aggregate(ctx, rpc.Request{Method: method})
 		if floor == 3 {
 			if err != nil || d.Status != rpc.Corroborated {

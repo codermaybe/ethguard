@@ -26,7 +26,7 @@ func TestForwardPlanContactsOneSourceAndAcceptsProtocolAnswer(t *testing.T) {
 		pool.Member{Name: "b", URL: b.URL()},
 	)
 	rec := &captureRecorder{}
-	agg := New(p, WithPlans(map[string]rpcengine.ReadPlan{"custom_write": {Method: "custom_write", Resolver: rpcengine.ForwardResolver{}}}), WithRecorder(rec))
+	agg := New(p, rpcengine.Corroboration{Floor: 1}, WithPlans(map[string]rpcengine.ReadPlan{"custom_write": {Method: "custom_write", Resolver: rpcengine.ForwardResolver{}}}), WithRecorder(rec))
 	d, err := agg.Aggregate(context.Background(), rpc.Request{Method: "custom_write"})
 	// A forwarded protocol answer keeps its formed status beside the error.
 	if err == nil || d.Status != rpc.Forwarded || len(d.Support) != 1 || len(d.Faults) != 0 {
@@ -53,7 +53,7 @@ func TestUnregisteredMethodForwards(t *testing.T) {
 		pool.Member{Name: "a", URL: a.URL()},
 		pool.Member{Name: "b", URL: b.URL()},
 	)
-	d, err := New(p, WithRecorder(&captureRecorder{})).Aggregate(context.Background(), rpc.Request{Method: "eth_unlisted"})
+	d, err := New(p, rpcengine.Corroboration{Floor: 1}, WithRecorder(&captureRecorder{})).Aggregate(context.Background(), rpc.Request{Method: "eth_unlisted"})
 	if err != nil || d.Status != rpc.Forwarded {
 		t.Fatalf("unregistered method = %+v %v, want a forwarded answer", d, err)
 	}

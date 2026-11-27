@@ -137,21 +137,13 @@ func Compose(in Composition) (*Bundle, error) {
 	if mode == rpc.CorroborationForwarded {
 		floor = 0
 	}
-	corrob, err := rpcengine.NewCorroborationShared(mode, floor)
+	corrob, err := rpcengine.NewCorroboration(mode, floor)
 	if err != nil {
 		return nil, err
 	}
 
-	// Construction-time defaults mirror the shared configuration so policies
-	// resolved outside a snapshot-bearing aggregator agree with the client
-	// default.
-	var strictOpts []rpcengine.StrictOption
-	if floor > 0 {
-		strictOpts = append(strictOpts, rpcengine.WithQuorum(floor))
-	}
 	bundle, err := Build(Inputs{
 		Pool:           rpcPool,
-		StrictOptions:  strictOpts,
 		Recorder:       in.Recorder,
 		CollectTimeout: in.CollectTimeout,
 		Corroboration:  corrob,
@@ -160,9 +152,8 @@ func Compose(in Composition) (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	resolver := composeResolver(in, bundle.Stage, corrob, floor)
+	resolver := composeResolver(in, bundle.Stage, corrob)
 	bundle.Pool = rpcPool
-	bundle.Corroboration = corrob
 	bundle.Resolver = resolver
 	composed = true
 	return bundle, nil
@@ -174,7 +165,7 @@ func Compose(in Composition) (*Bundle, error) {
 // the stage's strict head rounds to the strict head service. The facade and
 // the invocation's business reads therefore establish through one
 // establishment with one configuration.
-func composeResolver(in Composition, stage *ReferenceStage, corrob *rpcengine.CorroborationShared, floor int) ReferenceResolver {
+func composeResolver(in Composition, stage *ReferenceStage, corrob rpcengine.Corroboration) ReferenceResolver {
 	if in.Anchoring != nil && in.Anchoring.Finalized {
 		return &FinalizedHeadAnchor{anchorFacade{NewFinalizedHeadService(stage)}}
 	}

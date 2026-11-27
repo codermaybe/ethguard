@@ -48,8 +48,7 @@ func TestPreparedPendingRouteStaysFrozenAfterPrepare(t *testing.T) {
 		mutated.Do(func() { pendingObject["blockNumber"] = "latest" })
 		return nil, nil
 	}
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", pendingObject}})
 	if aggErr != nil {
 		t.Fatalf("pending observation failed: %v", aggErr)
@@ -87,8 +86,7 @@ func TestPreparedRecordCarriesTheRealMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan.Method = "eth_planFieldStale"
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if aggErr != nil || decision.Status != rpc.Corroborated {
 		t.Fatalf("planned read failed: %v, %v", decision.Status, aggErr)
@@ -128,7 +126,7 @@ func TestWireParamsKeepNilAndEmptyDistinct(t *testing.T) {
 			node.Return("eth_unregistered", "0x64")
 			p := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
 				pool.Member{Name: "solo", URL: node.URL()})
-			agg := New(p, WithCorroboration(mustShared(t)))
+			agg := New(p, mustMajorityRule(t))
 			decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: "eth_unregistered", Params: tc.params})
 			if aggErr != nil {
 				t.Fatalf("forward read failed: %v", aggErr)
@@ -223,8 +221,7 @@ func TestFreezeFailureKeepsEvidenceAndZeroFanOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{failingMarshaler{}, "latest"}})
 	if !errors.Is(aggErr, rpc.ErrInvalidRequest) || decision.Status != rpc.Unknown {
 		t.Fatalf("freeze failure did not fail the read: %+v %v", decision, aggErr)
@@ -255,7 +252,7 @@ func TestUnencodableElementKeepsZeroFanOut(t *testing.T) {
 	plan.Admit = func(context.Context, rpc.Request, json.RawMessage, rpc.AdmissionCaller) (json.RawMessage, error) {
 		return nil, nil
 	}
-	agg := New(p, WithCorroboration(mustShared(t)), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", json.RawMessage(`{"blockNumber":`)}})
 	if !errors.Is(aggErr, rpc.ErrInvalidRequest) || decision.Status != rpc.Unknown {
 		t.Fatalf("unencodable element did not fail the read: %+v %v", decision, aggErr)
@@ -279,7 +276,7 @@ func TestMaterialFollowsTheInstalledCollector(t *testing.T) {
 		node.Return("eth_unregistered", "0x64")
 		p := fixedPoolWith(t, 1, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
 			pool.Member{Name: "solo", URL: node.URL()})
-		agg := New(p, WithCorroboration(mustShared(t)))
+		agg := New(p, mustMajorityRule(t))
 		decision, err := agg.Aggregate(ctx, request)
 		return nil, decision, err
 	}

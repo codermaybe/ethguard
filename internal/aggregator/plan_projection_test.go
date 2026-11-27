@@ -51,9 +51,7 @@ func TestPlannedReadResolvesTheDeclaredProjectorID(t *testing.T) {
 	_, p := probeNodes(t, "0x64", 3)
 	plan := probeProjectorPlan(t, projectorAlias)
 	projector := &probeProjector{}
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(&scriptedStage{}),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}),
-		WithProjectors(map[string]rpcengine.ObservationProjector{projectorAlias: projector}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(&scriptedStage{}), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}), WithProjectors(map[string]rpcengine.ObservationProjector{projectorAlias: projector}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
 	if aggErr != nil {
 		t.Fatalf("projected read failed: %v", aggErr)
@@ -74,9 +72,7 @@ func TestPlannedReadWithoutProjectorIDStaysUnprojected(t *testing.T) {
 	_, p := probeNodes(t, "0x64", 3)
 	plan := probeProjectorPlan(t, "")
 	projector := &probeProjector{}
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(&scriptedStage{}),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}),
-		WithProjectors(map[string]rpcengine.ObservationProjector{probeMethod: projector}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(&scriptedStage{}), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}), WithProjectors(map[string]rpcengine.ObservationProjector{probeMethod: projector}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
 	if aggErr != nil {
 		t.Fatalf("unprojected read failed: %v", aggErr)

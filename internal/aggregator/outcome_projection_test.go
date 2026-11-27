@@ -67,8 +67,7 @@ func TestDecoratedMandatoryOutcomeParity(t *testing.T) {
 				policy = decoratedOutcomePolicy{Resolver: policy}
 			}
 			rec := &captureRecorder{}
-			aggregate := New(p, WithPlans(map[string]rpcengine.ReadPlan{"eth_chainId": {Method: "eth_chainId", Resolver: policy}}),
-				WithRecorder(rec), WithCorroboration(corrob), WithCollectTimeout(2*time.Second))
+			aggregate := New(p, corrob, WithPlans(map[string]rpcengine.ReadPlan{"eth_chainId": {Method: "eth_chainId", Resolver: policy}}), WithRecorder(rec), WithCollectTimeout(2*time.Second))
 			decision, err := aggregate.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 			if err != nil {
 				t.Fatalf("Aggregate: %v", err)
@@ -138,7 +137,7 @@ func TestStatedVerdictsSkipSecondNormalize(t *testing.T) {
 	})
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())})
 	rec := &captureRecorder{}
-	a := New(p, WithRecorder(rec))
+	a := New(p, rpcengine.Corroboration{Floor: 1}, WithRecorder(rec))
 	sources := namedSources(t, "a")
 	obs := []rpc.Observation{
 		{Attempted: true, Source: rpc.SourceRef{Name: sources[0].Name(), ID: sources[0].ID()}, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"1"`)}}},
@@ -161,9 +160,9 @@ func TestStatedVerdictsSkipSecondNormalize(t *testing.T) {
 	}
 }
 
-func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpcengine.CorroborationShared {
+func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) rpcengine.Corroboration {
 	t.Helper()
-	shared, err := rpcengine.NewCorroborationShared(mode, floor)
+	shared, err := rpcengine.NewCorroboration(mode, floor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +254,7 @@ func TestCustomOutcomeGetsIdempotentSourceProjection(t *testing.T) {
 	calls := 0
 	policy := judgmentOnlyPolicy{Resolver: rpcengine.ForwardResolver{}, cause: methodErr, calls: &calls}
 	state := invocationState{plan: &rpcengine.ReadPlan{Resolver: policy}, emissions: emissions,
-		invocation: beginInvocation(rpcengine.Corroboration{}, true, sources, nil, false)}
+		invocation: beginInvocation(rpcengine.Corroboration{}, sources, nil, false)}
 	for _, emission := range emissions {
 		state.observations = append(state.observations, ObservationFromEmission(emission))
 	}

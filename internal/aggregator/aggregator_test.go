@@ -23,7 +23,7 @@ func (c *captureRecorder) RecordDecision(e observe.DecisionEvent) {
 }
 
 func TestAggregateEmptyPoolReturnsCollectionError(t *testing.T) {
-	a := New(fixedPool(t))
+	a := New(fixedPool(t), rpcengine.Corroboration{Floor: 1})
 	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 	if err == nil {
 		t.Fatal("expected empty pool to fail")
@@ -38,7 +38,7 @@ func TestAggregateEmptyPoolReturnsCollectionError(t *testing.T) {
 
 func TestAggregateAttachesSourceFaultsToDecision(t *testing.T) {
 	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
-	a := New(p)
+	a := New(p, rpcengine.Corroboration{Floor: 1})
 	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_unknown"})
 	if err == nil {
 		t.Fatal("expected unreachable source to fail the call")
@@ -59,7 +59,7 @@ func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	decision, err := New(p).Aggregate(ctx, rpc.Request{Method: "eth_unknown"})
+	decision, err := New(p, rpcengine.Corroboration{Floor: 1}).Aggregate(ctx, rpc.Request{Method: "eth_unknown"})
 	if err == nil {
 		t.Fatal("expected canceled collection to fail")
 	}
@@ -74,7 +74,7 @@ func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
 func TestAggregateEmitsDecisionEvent(t *testing.T) {
 	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
 	rec := &captureRecorder{}
-	a := New(p, WithRecorder(rec))
+	a := New(p, rpcengine.Corroboration{Floor: 1}, WithRecorder(rec))
 	if _, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_unknown"}); err == nil {
 		t.Fatal("expected call to fail")
 	}
@@ -97,7 +97,7 @@ func TestAggregateDefaultsToNopRecorder(t *testing.T) {
 		}
 	}()
 	p := fixedPool(t)
-	a := New(p)
+	a := New(p, rpcengine.Corroboration{Floor: 1})
 	_, _ = a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
 }
 
@@ -138,7 +138,7 @@ func eventPolicy(opts ...rpcengine.StrictOption) rpcengine.Resolver {
 
 func TestEventMarksOnlyUnusableAttemptsFailed(t *testing.T) {
 	policy := eventPolicy(rpcengine.WithRPCErrorBodies())
-	a := New(fixedPool(t), WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
+	a := New(fixedPool(t), rpcengine.Corroboration{Floor: 1}, WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
 	rec := &captureRecorder{}
 	a.rec = rec
 
@@ -172,7 +172,7 @@ func TestEventMethodDomainExclusionDoesNotBlameSource(t *testing.T) {
 	// Without WithRPCErrorBodies the protocol error is not part of the value
 	// domain, so the attempt provided no usable answer.
 	policy := eventPolicy()
-	a := New(fixedPool(t), WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
+	a := New(fixedPool(t), rpcengine.Corroboration{Floor: 1}, WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
 	rec := &captureRecorder{}
 	a.rec = rec
 
@@ -186,7 +186,7 @@ func TestEventMethodDomainExclusionDoesNotBlameSource(t *testing.T) {
 
 func TestEventMarksConflictAsFailed(t *testing.T) {
 	policy := eventPolicy()
-	a := New(fixedPool(t), WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
+	a := New(fixedPool(t), rpcengine.Corroboration{Floor: 1}, WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
 	rec := &captureRecorder{}
 	a.rec = rec
 
@@ -210,7 +210,7 @@ func TestNopRecorderSkipsEventAssembly(t *testing.T) {
 	// observable as no panic and no recorder allocation — Nop discards, so
 	// the assertion is that assembly is skipped entirely.
 	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
-	if _, err := New(p).Aggregate(context.Background(), rpc.Request{Method: "m"}); err == nil {
+	if _, err := New(p, rpcengine.Corroboration{Floor: 1}).Aggregate(context.Background(), rpc.Request{Method: "m"}); err == nil {
 		t.Fatal("expected the call to fail")
 	}
 }

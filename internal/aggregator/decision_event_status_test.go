@@ -145,14 +145,15 @@ func scriptedAggregate(t *testing.T, count int, rec observe.Recorder, forwarded 
 	}
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
 	opts := []Option{WithRecorder(rec), WithCollectTimeout(5 * time.Second)}
+	corrob := rpcengine.Corroboration{Floor: 1}
 	if forwarded {
-		shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationForwarded, 0)
+		shared, err := rpcengine.NewCorroboration(rpc.CorroborationForwarded, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		opts = append(opts, WithCorroboration(shared))
+		corrob = shared
 	}
-	return New(p, append([]Option{WithPlans(map[string]rpcengine.ReadPlan{"m": plan})}, opts...)...), nodes
+	return New(p, corrob, append([]Option{WithPlans(map[string]rpcengine.ReadPlan{"m": plan})}, opts...)...), nodes
 }
 
 func oneEvent(t *testing.T, rec *captureRecorder) observe.DecisionEvent {

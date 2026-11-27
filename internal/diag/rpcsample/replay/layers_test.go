@@ -158,7 +158,7 @@ func TestReplayErrorDataStatesStayDistinct(t *testing.T) {
 	}
 }
 
-func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
+func TestReplayCallFixedBasisPrecedesTypedGate(t *testing.T) {
 	plan, err := methods.PlanFor(methods.MethodCall)
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +173,7 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	}
 	// eth_call declares no admission hook: its payload contract is the
 	// normalizer's (a payload with no canonical form errors and stays a
-	// fault). The typed gate below is the assertion under test.
+	// fault). Production resolution applies the fixed basis before the typed gate.
 	if plan.Admit != nil {
 		t.Fatal("eth_call plan grew an admission hook")
 	}
@@ -188,33 +188,34 @@ func TestReplayTypedReadGateRejectsUncorroboratedCall(t *testing.T) {
 	nodes[1].Fail(methods.MethodCall, -32603, "panic")
 
 	openDecision, openErr := aggregateCall(t, agg, false)
-	sameDecision(t, policyDecision.Decision, policyErr, openDecision, openErr)
+	configured, configuredErr := policy.(rpcengine.CorroboratingResolver).ResolveCorroborated(rpcengine.Corroboration{Floor: 1}, []rpc.Observation{success, fault})
+	if !errors.Is(configuredErr, rpc.ErrInsufficientSupport) || configured.Decision.Status != rpc.Unknown || configured.Decision.Adjudication.Required != 2 {
+		t.Fatalf("configured policy lost its bound: %+v, %v", configured, configuredErr)
+	}
+	if !errors.Is(openErr, rpc.ErrInsufficientSupport) || openDecision.Status != rpc.Unknown || openDecision.Adjudication.Basis != 2 || openDecision.Adjudication.Required != 2 || len(openDecision.Support) != 1 {
+		t.Fatalf("failed member shrank the fixed basis: %+v, %v", openDecision, openErr)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	gated, gatedErr := agg.AggregateStrict(ctx, callRequest())
-	// The gate fails the call without rewriting the formed Status: the
-	// invocation resolved (Selected at best on this script), and the
-	// unmet corroboration requirement travels as the call error — the
-	// Decision contract's "failed call may still carry a non-Unknown
-	// Status" case.
-	if !errors.Is(gatedErr, rpc.ErrGuaranteeNotMet) || gated.Status != rpc.Selected || gated.Adjudication.Reason != rpc.ReasonGuaranteeNotMet {
+	// The fixed-basis resolver already rejects the lone supporter. The typed
+	// gate must preserve that failure instead of replacing it with a weaker
+	// Selected decision or a guarantee-only error.
+	if !errors.Is(gatedErr, rpc.ErrInsufficientSupport) || gated.Status != rpc.Unknown || gated.Adjudication.Reason != rpc.ReasonInsufficientSupport {
 		t.Fatalf("gated status %v err %v", gated.Status, gatedErr)
 	}
-	if errors.Is(gatedErr, rpc.ErrConflict) || len(gated.Adjudication.Candidates) != 1 || len(gated.Support) != 1 {
-		t.Fatalf("guarantee gate changed the formed candidate: %+v, err %v", gated, gatedErr)
+	if errors.Is(gatedErr, rpc.ErrConflict) || errors.Is(gatedErr, rpc.ErrGuaranteeNotMet) || len(gated.Adjudication.Candidates) != 1 || len(gated.Support) != 1 {
+		t.Fatalf("typed gate changed the formed candidate: %+v, err %v", gated, gatedErr)
 	}
 	if err := compareReplaySources(openDecision, gated); err != nil {
 		t.Fatal(err)
-	}
-	if gatedErr == nil || !bytes.Contains([]byte(gatedErr.Error()), []byte("typed read requires corroboration")) {
-		t.Fatalf("gate err = %v", gatedErr)
 	}
 	before := methodCount(nodes[0], methods.MethodGetBlockByNumber)
 	if before < 1 {
 		t.Fatal("first call did not establish latest")
 	}
-	if _, err := agg.AggregateStrict(ctx, callRequest()); !errors.Is(err, rpc.ErrGuaranteeNotMet) {
+	if _, err := agg.AggregateStrict(ctx, callRequest()); !errors.Is(err, rpc.ErrInsufficientSupport) {
 		t.Fatalf("second typed call err = %v", err)
 	}
 	if methodCount(nodes[0], methods.MethodGetBlockByNumber) <= before {
@@ -296,7 +297,7 @@ func assertReplay(t *testing.T, records []rpcsample.Record, plan rpcengine.ReadP
 				t.Fatal(err)
 			}
 		}
-		policyDecision, policyErr = plan.Canonical.Resolver.ResolveCanonical(processed)
+		policyDecision, policyErr = plan.Canonical.Resolver.ResolveCanonicalCorroborated(rpcengine.Corroboration{Floor: 1}, processed)
 	} else {
 		policyDecision, policyErr = plan.Resolver.Resolve(obs)
 	}
@@ -386,10 +387,10 @@ func newReplayAggregator(t *testing.T, count int) (*aggregator.Aggregator, []*rp
 	for i := range names {
 		names[i] = fmt.Sprintf("s%d", i+1)
 	}
-	return newNamedReplayAggregator(t, names, nil)
+	return newNamedReplayAggregator(t, names, rpcengine.Corroboration{Floor: 1})
 }
 
-func newNamedReplayAggregator(t *testing.T, names []string, corrob *rpcengine.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node) {
+func newNamedReplayAggregator(t *testing.T, names []string, corrob rpcengine.Corroboration) (*aggregator.Aggregator, []*rpctest.Node) {
 	t.Helper()
 	agg, nodes, _ := newSharedReplayAggregator(t, names, corrob)
 	return agg, nodes
@@ -427,7 +428,7 @@ func (s replayStage) Establish(ctx context.Context, invocation rpcengine.Invocat
 // layers (Policy Prepare and Aggregate) take this one resolver, so a moving
 // tag resolves to the same reference in both layers, against the same member
 // order and the same pool.
-func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpcengine.CorroborationShared) (*aggregator.Aggregator, []*rpctest.Node, func(string) (rpc.ReferenceEvidence, error)) {
+func newSharedReplayAggregator(t *testing.T, names []string, corrob rpcengine.Corroboration) (*aggregator.Aggregator, []*rpctest.Node, func(string) (rpc.ReferenceEvidence, error)) {
 	t.Helper()
 	nodes := make([]*rpctest.Node, 0, len(names))
 	members := make([]pool.Member, 0, len(names))
@@ -443,23 +444,22 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpcengine.C
 	}
 	t.Cleanup(sources.Close)
 	var opts []aggregator.Option
-	if corrob != nil {
-		opts = append(opts, aggregator.WithCorroboration(corrob))
-	}
-	strictHead := runtime.NewStrictHeadAnchor(sources, observe.Nop)
-	// safe/finalized use the production finalized-anchoring path: a strict
-	// majority for safe and reference.Finalized for finalized. The legacy
-	// strict anchor requires every valid head to agree, which would reject a
-	// lagging source before the business policy's majority snapshot is applied.
-	finalizedHead := runtime.NewFinalizedHeadAnchor(sources, observe.Nop)
+	strictStage := runtime.NewReferenceStage(runtime.ReferenceStageConfig{Pool: sources, Recorder: observe.Nop})
+	strictHead := runtime.NewStrictHeadService(strictStage, corrob)
+	// The finalized preset routes safe through strict majority and finalized
+	// through candidate selection and confirmation, each over the same pool.
+	finalizedStage := runtime.NewReferenceStage(runtime.ReferenceStageConfig{
+		Pool: sources, Recorder: observe.Nop, FinalizedStrategy: true, MaxLag: runtime.DefaultMaxFinalizedLag,
+	})
+	finalizedHead := runtime.NewFinalizedHeadService(finalizedStage)
 	reference := func(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
 		var ref rpc.ReferenceEvidence
 		var err error
 		switch tag {
 		case "safe", "finalized":
-			ref, err = finalizedHead.AnchorReferenceForTag(ctx, tag)
+			ref, err = finalizedHead.ReferenceForTag(ctx, tag)
 		default:
-			ref, err = strictHead.AnchorReference(ctx)
+			ref, err = strictHead.Reference(ctx)
 		}
 		ref.Tag = tag
 		if err != nil {
@@ -477,7 +477,7 @@ func newSharedReplayAggregator(t *testing.T, names []string, corrob *rpcengine.C
 	tagged := func(tag string) (rpc.ReferenceEvidence, error) {
 		return reference(context.Background(), tag)
 	}
-	return aggregator.New(sources, append([]aggregator.Option{aggregator.WithPlans(replayPlans(t))}, opts...)...), nodes, tagged
+	return aggregator.New(sources, corrob, append([]aggregator.Option{aggregator.WithPlans(replayPlans(t))}, opts...)...), nodes, tagged
 }
 
 // callPlan compiles the eth_call plan for the replay assertions.

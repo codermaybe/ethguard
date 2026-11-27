@@ -65,7 +65,7 @@ func assembleResolver(spec MethodSpec, opts []rpcengine.StrictOption) (rpcengine
 // reference shape, pending handling, hooks, projector binding — and no
 // network callback at all: reference data arrives as established evidence
 // at execution time, and the admission caller is a runtime dependency. The
-// resolver owns only normalization and adjudication; the plan owns the
+// resolver owns adjudication; Normalize remains a separate capability. The plan owns the
 // preparation, admission, reference, and pending declarations.
 //
 // Compilation rejects an impossible declaration before it can register:

@@ -24,11 +24,6 @@ type ReferenceStageConfig struct {
 	// finalized tag. The default (false) establishes every tag through the
 	// strict head algorithm, which is the strict-anchor client's behavior.
 	FinalizedStrategy bool
-	// StrictOptions carry the strict head policy options the community's
-	// establishment share with the facade's resolver service: identical
-	// options at both call sites, so the two paths cannot diverge on the
-	// comparison domain.
-	StrictOptions []rpcengine.StrictOption
 }
 
 // ReferenceStage implements the aggregator-owned establishment seam over the
@@ -59,7 +54,7 @@ func NewReferenceStage(cfg ReferenceStageConfig) *ReferenceStage {
 		timeout:   cfg.Timeout,
 		rec:       cfg.Recorder,
 		finalized: cfg.FinalizedStrategy,
-		strict:    NewStrictHeadEstablishment(cfg.Pool, cfg.Recorder, cfg.Timeout, cfg.StrictOptions...),
+		strict:    NewStrictHeadEstablishment(cfg.Pool, cfg.Recorder, cfg.Timeout),
 	}
 }
 
@@ -112,7 +107,7 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpcengine.Inv
 		// members, same snapshot, same assembly as the facade's resolver
 		// service.
 		snapshot := invocation.Basis().Corroboration
-		round, roundErr := s.strict.establish(ctx, members, snapshot, true, string(request.Kind))
+		round, roundErr := s.strict.establish(ctx, members, snapshot, string(request.Kind))
 		ref, emissions, err = round.reference, round.emissions, roundErr
 		collectErr = round.collectErr
 	default:

@@ -3,7 +3,6 @@ package rpcengine
 import (
 	"encoding/json"
 	"fmt"
-	"sync/atomic"
 
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -16,9 +15,8 @@ func rankedAdjudication(basis, required int, ranked []cluster) rpc.Adjudication 
 	return a
 }
 
-// Corroboration is the adjudication snapshot of one invocation: the mode and
-// the support floor H captured before any request is issued (decision 0025).
-// Later configuration changes never rewrite a captured snapshot.
+// Corroboration is a construction-time mode and support floor. Each invocation
+// copies this rule into its frozen membership Basis.
 type Corroboration struct {
 	// Mode is the adjudication mode; the zero value is majority.
 	Mode rpc.CorroborationMode
@@ -95,45 +93,12 @@ func (c Corroboration) adjudicate(n int, ranked []cluster, faults []error) (rpc.
 	return decision, nil
 }
 
-// CorroborationShared is the runtime-mutable corroboration configuration
-// shared by one client's aggregators. Set takes effect for invocations that
-// start after the call; an invocation in flight keeps the snapshot it
-// captured at its start (decisions 0025 and 0062). Mode and floor change
-// together or not at all.
-type CorroborationShared struct {
-	v atomic.Pointer[Corroboration]
-}
-
-// NewCorroborationShared builds the shared configuration, rejecting unknown
-// modes and floors below one.
-func NewCorroborationShared(mode rpc.CorroborationMode, floor int) (*CorroborationShared, error) {
+// NewCorroboration validates the client construction rule.
+func NewCorroboration(mode rpc.CorroborationMode, floor int) (Corroboration, error) {
 	if err := validateCorroboration(mode, floor); err != nil {
-		return nil, err
+		return Corroboration{}, err
 	}
-	s := &CorroborationShared{}
-	s.v.Store(&Corroboration{Mode: mode, Floor: floor})
-	return s, nil
-}
-
-// Snapshot returns the current mode and floor. The zero receiver behaves as
-// an unset configuration: majority with no floor.
-func (s *CorroborationShared) Snapshot() Corroboration {
-	if s == nil {
-		return Corroboration{}
-	}
-	if c := s.v.Load(); c != nil {
-		return *c
-	}
-	return Corroboration{}
-}
-
-// Set atomically replaces the mode and floor for subsequent invocations.
-func (s *CorroborationShared) Set(mode rpc.CorroborationMode, floor int) error {
-	if err := validateCorroboration(mode, floor); err != nil {
-		return err
-	}
-	s.v.Store(&Corroboration{Mode: mode, Floor: floor})
-	return nil
+	return Corroboration{Mode: mode, Floor: floor}, nil
 }
 
 func validateCorroboration(mode rpc.CorroborationMode, floor int) error {

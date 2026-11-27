@@ -122,11 +122,10 @@ func (c CanonicalObservation) Observation() rpc.Observation { return c.observati
 // Result returns the processed result.
 func (c CanonicalObservation) Result() CanonicalResult { return c.result }
 
-// CanonicalOutcomeResolver consumes only processed observations. Its explicit
-// corroboration entry and valid-answer entry share the raw resolver's
-// clustering, adjudication, verdict and commit kernel.
+// CanonicalOutcomeResolver consumes processed observations under an explicit
+// construction rule. It shares clustering, adjudication, verdict and commit
+// with the raw resolver.
 type CanonicalOutcomeResolver interface {
-	ResolveCanonical([]CanonicalObservation) (Outcome, error)
 	ResolveCanonicalCorroborated(Corroboration, []CanonicalObservation) (Outcome, error)
 }
 
@@ -140,10 +139,6 @@ type canonicalStrict struct{ compareKind string }
 
 func (f canonicalStrict) MethodRule() MethodRule {
 	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind, KeySource: RuleKeyCanonicalBytes, Result: RuleResultCanonical}
-}
-
-func (f canonicalStrict) ResolveCanonical(obs []CanonicalObservation) (Outcome, error) {
-	return f.canonicalValidAnswers(obs)
 }
 
 func (f canonicalStrict) ResolveCanonicalCorroborated(c Corroboration, obs []CanonicalObservation) (Outcome, error) {

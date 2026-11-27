@@ -115,14 +115,13 @@ type blockReceiptsRouteRun struct {
 func blockReceiptsRouteAggregate(t *testing.T, plan rpcengine.ReadPlan, members []pool.Member, req rpc.Request) blockReceiptsRouteRun {
 	t.Helper()
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	recorder := &captureRecorder{}
 	projector := &recordingEvaluationProjector{delegate: blockReceiptsRouteProjector(t)}
-	agg := New(p, WithRecorder(recorder), WithPlans(map[string]rpcengine.ReadPlan{req.Method: plan}), WithCorroboration(shared),
-		WithProjectors(map[string]rpcengine.ObservationProjector{methods.ProjectorBlockReceipts: projector}))
+	agg := New(p, shared, WithRecorder(recorder), WithPlans(map[string]rpcengine.ReadPlan{req.Method: plan}), WithProjectors(map[string]rpcengine.ObservationProjector{methods.ProjectorBlockReceipts: projector}))
 	collector := uncertain.NewCollector(uncertain.Config{BudgetBytes: 1 << 20})
 	decision, err := agg.Aggregate(uncertain.WithCollector(context.Background(), collector), req)
 	if event := oneEvent(t, recorder); event.Faults != len(decision.Faults) {
@@ -341,12 +340,12 @@ func TestBlockReceiptsCanonicalRouteSafetyBeforeProcessor(t *testing.T) {
 			if plan.Canonical.Process == nil {
 				t.Fatal("processor is not registered")
 			}
-			shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 1)
+			shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 1)
 			if err != nil {
 				t.Fatal(err)
 			}
 			recorder := &captureRecorder{}
-			agg := New(p, WithRecorder(recorder), WithPlans(map[string]rpcengine.ReadPlan{blockReceiptsRouteMethod: plan}), WithCorroboration(shared))
+			agg := New(p, shared, WithRecorder(recorder), WithPlans(map[string]rpcengine.ReadPlan{blockReceiptsRouteMethod: plan}))
 			d, err := agg.Aggregate(context.Background(), blockReceiptsRouteRequest(t, receipt))
 			if !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), tc.cause.Error()) || d.Status != rpc.Unknown || len(d.SourceFaults) != 1 {
 				t.Fatalf("unsafe response outcome = %+v, %v", d, err)
@@ -415,11 +414,11 @@ func BenchmarkBlockReceiptsCanonicalAggregate(b *testing.B) {
 					plan := blockReceiptsRoutePlan(b)
 
 					p := receiptRouteBenchPool(b, members)
-					shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+					shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 					if err != nil {
 						b.Fatal(err)
 					}
-					agg := New(p, WithPlans(map[string]rpcengine.ReadPlan{req.Method: plan}), WithCorroboration(shared), WithProjectors(map[string]rpcengine.ObservationProjector{methods.ProjectorBlockReceipts: blockReceiptsRouteProjector(b)}))
+					agg := New(p, shared, WithPlans(map[string]rpcengine.ReadPlan{req.Method: plan}), WithProjectors(map[string]rpcengine.ObservationProjector{methods.ProjectorBlockReceipts: blockReceiptsRouteProjector(b)}))
 					if d, err := agg.Aggregate(context.Background(), req); err != nil || d.Status != rpc.Corroborated || len(d.Support) != 3 {
 						b.Fatalf("warm-up: %+v, %v", d, err)
 					}

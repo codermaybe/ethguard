@@ -7,9 +7,14 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-func TestFreezeBasisCopiesMembers(t *testing.T) {
+func TestFreezeBasisCopiesMembersAndRule(t *testing.T) {
 	members := []rpc.SourceRef{{Name: "a", ID: "a"}, {Name: "b", ID: "b"}}
-	basis := FreezeBasis(members, Corroboration{Mode: rpc.CorroborationMajority, Floor: 2})
+	rule := Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
+	basis := FreezeBasis(members, rule)
+	rule.Floor = 3
+	if basis.Required() != 2 {
+		t.Fatalf("frozen basis followed a later rule: %+v", basis)
+	}
 	members[0].Name = "mutated"
 	if basis.Members[0].Name != "a" {
 		t.Fatalf("frozen basis shares the caller's member slice: %v", basis.Members)

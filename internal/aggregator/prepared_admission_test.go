@@ -188,7 +188,7 @@ func frozenAdmissionAggregator(t *testing.T, method string, raw json.RawMessage)
 	for _, node := range nodes {
 		node.ReturnRaw(method, raw)
 	}
-	return New(p, WithCorroboration(mustShared(t)), WithPlans(map[string]rpcengine.ReadPlan{method: planFor(t, method)}))
+	return New(p, mustMajorityRule(t), WithPlans(map[string]rpcengine.ReadPlan{method: planFor(t, method)}))
 }
 
 func frozenAdmissionBlock(t *testing.T, variant string) (json.RawMessage, common.Hash) {

@@ -39,13 +39,13 @@ func routeAggregateFleet(b *testing.B, method string, body json.RawMessage, n in
 // routeAggregateCorroboration picks the floor the fleet size admits: one
 // member resolves as a single-source Selected read, larger fleets
 // corroborate.
-func routeAggregateCorroboration(b *testing.B, sources int) *rpcengine.CorroborationShared {
+func routeAggregateCorroboration(b *testing.B, sources int) rpcengine.Corroboration {
 	b.Helper()
 	floor := 2
 	if sources == 1 {
 		floor = 1
 	}
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, floor)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, floor)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func BenchmarkTransactionRouteAggregate(b *testing.B) {
 					counts := &workCounters{}
 					plan := instrumentedPlan(b, method, counts)
 
-					agg := New(p, WithPlans(map[string]rpcengine.ReadPlan{method: plan}), WithCorroboration(shared))
+					agg := New(p, shared, WithPlans(map[string]rpcengine.ReadPlan{method: plan}))
 					warm, warmErr := agg.Aggregate(context.Background(), request)
 					if warmErr != nil || warm.Status != wantStatus || len(warm.Support) != sources {
 						b.Fatalf("warm-up = %v, %v (sources %d)", warm.Status, warmErr, sources)

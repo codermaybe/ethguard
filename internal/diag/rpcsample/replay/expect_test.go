@@ -212,7 +212,7 @@ func replayRevertCase(t *testing.T, snap rpcengine.Corroboration, records []rpcs
 	for i, record := range records {
 		names[i] = record.Source.ID
 	}
-	shared, err := rpcengine.NewCorroborationShared(snap.Mode, snap.Floor)
+	shared, err := rpcengine.NewCorroboration(snap.Mode, snap.Floor)
 	if err != nil {
 		return expectCase{}, err
 	}
@@ -327,7 +327,7 @@ func snapshotOf(mode string, floor int) (rpcengine.Corroboration, error) {
 	default:
 		return rpcengine.Corroboration{}, fmt.Errorf("unknown corroboration mode %q", mode)
 	}
-	if _, err := rpcengine.NewCorroborationShared(parsed, floor); err != nil {
+	if _, err := rpcengine.NewCorroboration(parsed, floor); err != nil {
 		return rpcengine.Corroboration{}, err
 	}
 	return rpcengine.Corroboration{Mode: parsed, Floor: floor}, nil

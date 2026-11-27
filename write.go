@@ -111,7 +111,7 @@ func (c *Client) sendRawTransaction(ctx context.Context, rawTx []byte) (CallResu
 	}
 	hash := strings.ToLower(tx.Hash().Hex())
 
-	snap := c.corrob.Snapshot()
+	snap := c.corrob
 	members := c.pool.VotingMembers()
 	basis := len(members)
 	params := []any{hexutil.Encode(rawTx)}

@@ -61,12 +61,12 @@ type forwardedCanonicalRun struct {
 func forwardedCanonicalAggregate(t *testing.T, ctx context.Context, plan rpcengine.ReadPlan, members []pool.Member, req rpc.Request, capture bool) forwardedCanonicalRun {
 	t.Helper()
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationForwarded, 0)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationForwarded, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	recorder := &captureRecorder{}
-	opts := []Option{WithRecorder(recorder), WithPlans(map[string]rpcengine.ReadPlan{req.Method: plan}), WithCorroboration(shared)}
+	opts := []Option{WithRecorder(recorder), WithPlans(map[string]rpcengine.ReadPlan{req.Method: plan})}
 	var projector *recordingEvaluationProjector
 	if plan.ProjectorID != "" {
 		// The runtime binds both transaction methods to the by-hash schema.
@@ -85,7 +85,7 @@ func forwardedCanonicalAggregate(t *testing.T, ctx context.Context, plan rpcengi
 	if capture {
 		ctx = uncertain.WithCollector(ctx, collector)
 	}
-	d, err := New(p, opts...).Aggregate(ctx, req)
+	d, err := New(p, shared, opts...).Aggregate(ctx, req)
 	if projector != nil && projector.calls != 0 {
 		t.Fatalf("Forwarded unexpectedly projected field evidence %d times", projector.calls)
 	}
@@ -424,11 +424,11 @@ func BenchmarkForwardedCanonicalAggregate(b *testing.B) {
 						})
 					}
 					p := receiptRouteBenchPool(b, members)
-					shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationForwarded, 0)
+					shared, err := rpcengine.NewCorroboration(rpc.CorroborationForwarded, 0)
 					if err != nil {
 						b.Fatal(err)
 					}
-					agg := New(p, WithPlans(map[string]rpcengine.ReadPlan{fixture.req.Method: plan}), WithCorroboration(shared))
+					agg := New(p, shared, WithPlans(map[string]rpcengine.ReadPlan{fixture.req.Method: plan}))
 					if d, err := agg.Aggregate(context.Background(), fixture.req); err != nil || d.Status != rpc.Forwarded || len(d.Support) != 1 {
 						b.Fatalf("warm-up: %+v, %v", d, err)
 					}

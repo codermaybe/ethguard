@@ -139,11 +139,11 @@ func transactionWorkFleet(tb testing.TB, method string, plan rpcengine.ReadPlan,
 		members = append(members, pool.Member{Name: fmt.Sprintf("work-%d", i), URL: node.URL()})
 	}
 	p := fixedPoolWith(tb, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 	if err != nil {
 		tb.Fatal(err)
 	}
-	return New(p, WithPlans(map[string]rpcengine.ReadPlan{method: plan}), WithCorroboration(shared))
+	return New(p, shared, WithPlans(map[string]rpcengine.ReadPlan{method: plan}))
 }
 
 // forwardedFleet installs one plan over one scripted source under the
@@ -156,11 +156,11 @@ func forwardedFleet(tb testing.TB, method string, plan rpcengine.ReadPlan, body 
 	tb.Cleanup(node.Close)
 	p := fixedPoolWith(tb, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())},
 		pool.Member{Name: "forwarded-0", URL: node.URL()})
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationForwarded, 0)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationForwarded, 0)
 	if err != nil {
 		tb.Fatal(err)
 	}
-	return New(p, WithPlans(map[string]rpcengine.ReadPlan{method: plan}), WithCorroboration(shared))
+	return New(p, shared, WithPlans(map[string]rpcengine.ReadPlan{method: plan}))
 }
 
 // Each invocation processes each source once; no prepared result is cached.

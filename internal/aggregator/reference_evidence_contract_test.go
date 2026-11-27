@@ -39,8 +39,7 @@ func TestEstablishmentSuccessWithoutEvidenceFailsWithReferenceRequired(t *testin
 	nodes, p := probeNodes(t, "0x64", 2)
 	stage := &scriptedStage{noEvidence: true}
 	plan := probePlanForTest(t)
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), probeAnchorRequest())
 	if aggErr == nil || decision.Status != rpc.Unknown {
 		t.Fatalf("evidence-less success did not fail the read: %+v %v", decision, aggErr)
@@ -74,8 +73,7 @@ func TestFailedEstablishmentKeepsItsPartialEvidence(t *testing.T) {
 	}
 	stage := &scriptedStage{err: cause, failEvidence: &partial}
 	plan := probePlanForTest(t)
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), probeAnchorRequest())
 	if aggErr == nil || decision.Status != rpc.Unknown {
 		t.Fatalf("failed establishment did not fail the read: %+v %v", decision, aggErr)
@@ -110,9 +108,9 @@ func TestSecondReferenceAttachFailsClosed(t *testing.T) {
 	_, p := probeNodes(t, "0x64", 2)
 	stage := &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Height: 16, Status: rpc.Corroborated}}
 	plan := probePlanForTest(t)
-	agg := New(p, WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, rpcengine.Corroboration{Floor: 1}, WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	state := &invocationState{ctx: context.Background(), plan: &plan}
-	state.invocation = beginInvocation(rpcengine.Corroboration{}, false, nil, nil, false)
+	state.invocation = beginInvocation(rpcengine.Corroboration{}, nil, nil, false)
 	pre, err := state.invocation.WithReference(rpc.ReferenceEvidence{Tag: "latest", Status: rpc.Corroborated})
 	if err != nil {
 		t.Fatal(err)

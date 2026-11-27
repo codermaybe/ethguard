@@ -62,15 +62,12 @@ func httpScenarioAggregator(t *testing.T, endpoints ...string) *Aggregator {
 		}
 	}
 	p := fixedPoolWith(t, 0, []pool.PoolOption{pool.WithDialer(nativehttp.NewDialer())}, members...)
-	return New(p,
-		WithCollectTimeout(0),
-		WithPlans(map[string]rpcengine.ReadPlan{
-			"m": {
-				Method:   "m",
-				Resolver: eventPolicy(rpcengine.WithRPCErrorBodies(), rpcengine.WithQuorum(1)),
-			},
-		}),
-	)
+	return New(p, rpcengine.Corroboration{Floor: 1}, WithCollectTimeout(0), WithPlans(map[string]rpcengine.ReadPlan{
+		"m": {
+			Method:   "m",
+			Resolver: eventPolicy(rpcengine.WithRPCErrorBodies(), rpcengine.WithQuorum(1)),
+		},
+	}))
 }
 
 func assertSingleSourceFault(t *testing.T, decision rpc.Decision, source string) error {

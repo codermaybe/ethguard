@@ -430,7 +430,7 @@ func replayCapturedCase(t *testing.T, mode string, floor int, group []rpcsample.
 	for i, record := range group {
 		names[i] = record.Source.ID
 	}
-	shared, err := rpcengine.NewCorroborationShared(snap.Mode, snap.Floor)
+	shared, err := rpcengine.NewCorroboration(snap.Mode, snap.Floor)
 	if err != nil {
 		return expectCase{}, err
 	}

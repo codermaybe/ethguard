@@ -72,9 +72,9 @@ func (r *traceRecorder) trace() ([]string, []rpcengine.Invocation, []rpc.Referen
 		append([]rpc.ReferenceKind(nil), r.kinds...)
 }
 
-func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) *rpcengine.CorroborationShared {
+func mustCorroboration(t *testing.T, mode rpc.CorroborationMode, floor int) rpcengine.Corroboration {
 	t.Helper()
-	shared, err := rpcengine.NewCorroborationShared(mode, floor)
+	shared, err := rpcengine.NewCorroboration(mode, floor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,12 +102,9 @@ func traceAggregator(t *testing.T, p *pool.Pool, anchoring *AnchoringStrategy) (
 	}
 	recorded := &traceRecorder{inner: bundle.Stage}
 	plan.Prepare = recorded.observe
-	return aggregator.New(p, aggregator.WithPlans(map[string]rpcengine.ReadPlan{
+	return aggregator.New(p, mustCorroboration(t, rpc.CorroborationMajority, 2), aggregator.WithPlans(map[string]rpcengine.ReadPlan{
 		methods.MethodGetBalance: plan,
-	}),
-		aggregator.WithCorroboration(mustCorroboration(t, rpc.CorroborationMajority, 2)),
-		aggregator.WithCollectTimeout(2*time.Second),
-		aggregator.WithReferenceStage(recorded)), recorded
+	}), aggregator.WithCollectTimeout(2*time.Second), aggregator.WithReferenceStage(recorded)), recorded
 }
 
 // The trace fixture for a latest moving-tag read: one invocation ID shared by

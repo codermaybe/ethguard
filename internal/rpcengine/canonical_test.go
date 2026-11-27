@@ -252,28 +252,10 @@ func TestStrictCanonicalRouteEquivalenceWithRawRoute(t *testing.T) {
 		t.Fatalf("cluster membership diverged: %+v vs %+v", rawDecision, canonicalDecision)
 	}
 
-	rawLegacy, err := rawPolicy.Resolve(rawObservations)
-	if err != nil {
-		t.Fatal(err)
-	}
-	canonicalLegacy, err := canonicalPolicy.ResolveCanonical(cobs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rawLegacy.Decision.Status != canonicalLegacy.Decision.Status || string(rawLegacy.Decision.Value) != string(canonicalLegacy.Decision.Value) {
-		t.Fatalf("legacy routes diverged: %+v vs %+v", rawLegacy.Decision, canonicalLegacy.Decision)
-	}
-	// The raw route's legacy decision carries the representative's raw value;
-	// the commit kernel overwrote it with the canonical bytes through the
-	// attached encoder, so the two routes agree byte for byte.
-	if string(rawLegacy.Decision.Value) != `{"k":"v"}` {
-		t.Fatalf("raw legacy value = %s", rawLegacy.Decision.Value)
-	}
 }
 
-// TestStrictCanonicalRouteFloorEnforcement pins the snapshot semantics: the
-// frozen floor applies to the canonical route unchanged, and the no-snapshot
-// entries keep valid-answer agreement and downgrade a lone answer.
+// The canonical route always consumes the invocation rule. A high floor
+// rejects insufficient support and a lone answer never claims corroboration.
 func TestStrictCanonicalRouteFloorEnforcement(t *testing.T) {
 	resolver := CanonicalStrict(RuleCompareMethodSpecific)
 	cobs := []CanonicalObservation{
@@ -283,16 +265,13 @@ func TestStrictCanonicalRouteFloorEnforcement(t *testing.T) {
 	if _, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 3}, cobs); !errors.Is(err, rpc.ErrInsufficientSupport) {
 		t.Fatalf("floor 3 over 2 supporters = %v", err)
 	}
-	legacy, err := resolver.ResolveCanonical(cobs)
-	if err != nil || legacy.Decision.Status != rpc.Corroborated {
-		t.Fatalf("two agreeing legacy answers = %+v, %v", legacy.Decision, err)
+	agreed, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 2}, cobs)
+	if err != nil || agreed.Decision.Status != rpc.Corroborated {
+		t.Fatalf("two agreeing answers = %+v, %v", agreed.Decision, err)
 	}
-	// A resolver without corroboration options keeps the decision-0006
-	// default on its canonical entries: a lone answer stays Selected.
-	legacyPolicy := CanonicalStrict(RuleCompareMethodSpecific)
-	single, err := legacyPolicy.ResolveCanonical([]CanonicalObservation{canonicalObservation(t, "a", `"x"`, `"x"`)})
+	single, err := resolver.ResolveCanonicalCorroborated(Corroboration{Floor: 1}, []CanonicalObservation{canonicalObservation(t, "a", `"x"`, `"x"`)})
 	if err != nil || single.Decision.Status != rpc.Selected {
-		t.Fatalf("lone legacy answer = %+v, %v (must stay Selected, not claim corroboration)", single.Decision, err)
+		t.Fatalf("lone answer = %+v, %v", single.Decision, err)
 	}
 }
 

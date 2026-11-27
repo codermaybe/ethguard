@@ -99,7 +99,7 @@ func probeNodes(t *testing.T, value string, n int) ([]*rpctest.Node, *pool.Pool)
 
 func probeAggregator(t *testing.T, p *pool.Pool, stage *scriptedStage) *Aggregator {
 	t.Helper()
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,11 +107,7 @@ func probeAggregator(t *testing.T, p *pool.Pool, stage *scriptedStage) *Aggregat
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(p,
-		WithCorroboration(shared),
-		WithCollectTimeout(2*time.Second),
-		WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	return New(p, shared, WithCollectTimeout(2*time.Second), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 }
 
 func probePlanWithoutResolver(t *testing.T) rpcengine.ReadPlan {
@@ -222,8 +218,7 @@ func TestPlannedValidationFailsBeforeAnyFanOut(t *testing.T) {
 	plan.Prepare = func(_ context.Context, req rpc.Request) (rpc.Request, error) {
 		return req, errors.New("rpc: probe rejects everything: rpc invalid request")
 	}
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if aggErr == nil || decision.Status != rpc.Unknown {
 		t.Fatalf("validation failure did not fail the read: %+v %v", decision, aggErr)
@@ -252,8 +247,7 @@ func TestPlannedPendingRejectFailsBeforeEstablishment(t *testing.T) {
 	// without a validate hook the pipeline owns the rejection.
 	plan.Pending.Mode = methods.PendingRefuse
 	plan.PendingReject = rpcengine.PendingRejectAt(plan.Pending.Pos, plan.Method)
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
 	if aggErr == nil || decision.Status != rpc.Unknown {
 		t.Fatalf("pending rejection did not fail the read: %+v %v", decision, aggErr)
@@ -289,7 +283,6 @@ func TestPlanWithoutResolverFailsBeforeReferenceAndFanOut(t *testing.T) {
 				return req, nil
 			}
 			opts := []Option{
-				WithCorroboration(mustShared(t)),
 				WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}),
 			}
 			var stage *scriptedStage
@@ -297,7 +290,7 @@ func TestPlanWithoutResolverFailsBeforeReferenceAndFanOut(t *testing.T) {
 				stage = &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Status: rpc.Corroborated}}
 				opts = append(opts, WithReferenceStage(stage))
 			}
-			decision, aggErr := New(p, opts...).Aggregate(context.Background(),
+			decision, aggErr := New(p, mustMajorityRule(t), opts...).Aggregate(context.Background(),
 				rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 			if decision.Status != rpc.Unknown {
 				t.Fatalf("status = %v, want Unknown", decision.Status)
@@ -326,8 +319,7 @@ func TestPendingRejectionPrecedesMissingResolver(t *testing.T) {
 	plan := probePlanWithoutResolver(t)
 	plan.Pending.Mode = methods.PendingRefuse
 	plan.PendingReject = rpcengine.PendingRejectAt(plan.Pending.Pos, plan.Method)
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(),
 		rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
 	if decision.Status != rpc.Unknown || !errors.Is(aggErr, rpc.ErrInvalidRequest) {
@@ -354,8 +346,7 @@ func TestPrepareRejectionPrecedesMissingResolver(t *testing.T) {
 	plan.Prepare = func(_ context.Context, _ rpc.Request) (rpc.Request, error) {
 		return rpc.Request{}, prepareErr
 	}
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(),
 		rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if decision.Status != rpc.Unknown || !errors.Is(aggErr, prepareErr) {
@@ -381,8 +372,7 @@ func TestPlannedPendingObservationStaysSelected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
 	if aggErr != nil {
 		t.Fatalf("pending observation failed: %v", aggErr)
@@ -426,8 +416,7 @@ func TestPlannedEstablishmentFailureKeepsZeroBusinessFanOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := New(p, WithCorroboration(mustShared(t)), WithReferenceStage(stage),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithReferenceStage(stage), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if aggErr == nil || decision.Status != rpc.Unknown {
 		t.Fatalf("failed establishment did not fail the read: %+v %v", decision, aggErr)
@@ -451,7 +440,7 @@ func TestPlannedReadRequiresAnEstablishmentStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := New(p, WithCorroboration(mustShared(t)), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, mustMajorityRule(t), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if aggErr == nil || decision.Status != rpc.Unknown {
 		t.Fatalf("missing stage did not fail the read: %+v %v", decision, aggErr)
@@ -480,13 +469,12 @@ func TestUnregisteredMethodForwardsBesidePlans(t *testing.T) {
 		pool.Member{Name: "a", URL: a.URL()},
 		pool.Member{Name: "b", URL: b.URL()},
 	)
-	shared := mustShared(t)
+	shared := mustMajorityRule(t)
 	plan, err := methods.CompilePlan(probeSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	agg := New(p, WithCorroboration(shared),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	agg := New(p, shared, WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 	decision, aggErr := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "pending"}})
 	if aggErr != nil || decision.Status != rpc.Selected {
 		t.Fatalf("planned read broken beside the forward branch: %+v %v", decision, aggErr)
@@ -497,9 +485,9 @@ func TestUnregisteredMethodForwardsBesidePlans(t *testing.T) {
 	}
 }
 
-func mustShared(t *testing.T) *rpcengine.CorroborationShared {
+func mustMajorityRule(t *testing.T) rpcengine.Corroboration {
 	t.Helper()
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

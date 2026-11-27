@@ -186,7 +186,7 @@ func BenchmarkAccessListRoute(b *testing.B) {
 				if sources == 1 {
 					floor, wantStatus = 1, rpc.Selected
 				}
-				shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, floor)
+				shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, floor)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -202,7 +202,7 @@ func BenchmarkAccessListRoute(b *testing.B) {
 					{"production-encode", plan},
 				} {
 					b.Run(variant.name, func(b *testing.B) {
-						agg := New(p, WithPlans(map[string]rpcengine.ReadPlan{methods.MethodCreateAccessList: variant.plan}), WithCorroboration(shared))
+						agg := New(p, shared, WithPlans(map[string]rpcengine.ReadPlan{methods.MethodCreateAccessList: variant.plan}))
 						warm, warmErr := agg.Aggregate(context.Background(), request)
 						if warmErr != nil || warm.Status != wantStatus || len(warm.Support) != sources {
 							b.Fatalf("warm-up = %v, %v (sources %d)", warm.Status, warmErr, sources)

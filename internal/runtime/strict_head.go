@@ -39,22 +39,25 @@ type StrictHeadEstablishment struct {
 	rec     observe.Recorder
 	timeout time.Duration
 	// head is the getBlockByNumber resolver the round's head identity rides:
-	// the plan compiler's own assembly, with the establishment's strict
-	// options.
-	head rpcengine.Resolver
+	// the plan compiler's own assembly. The invocation supplies its rule.
+	head rpcengine.CorroboratingResolver
 }
 
 // NewStrictHeadEstablishment builds the strict head establishment engine over
 // one pool. A zero timeout selects the pool's conservative collect default.
-func NewStrictHeadEstablishment(p *pool.Pool, rec observe.Recorder, timeout time.Duration, opts ...rpcengine.StrictOption) *StrictHeadEstablishment {
+func NewStrictHeadEstablishment(p *pool.Pool, rec observe.Recorder, timeout time.Duration) *StrictHeadEstablishment {
 	spec, _ := methods.SpecFor(methods.MethodGetBlockByNumber)
-	head, err := methods.CompileResolver(spec, opts)
+	head, err := methods.CompileResolver(spec, nil)
 	if err != nil {
 		// The registered spec always compiles; a failure here is a
 		// programmer error, not a runtime condition.
 		panic("runtime: compile the strict head resolver: " + err.Error())
 	}
-	return &StrictHeadEstablishment{pool: p, rec: rec, timeout: timeout, head: head}
+	corroborating, ok := head.(rpcengine.CorroboratingResolver)
+	if !ok {
+		panic("runtime: strict head resolver lacks corroboration")
+	}
+	return &StrictHeadEstablishment{pool: p, rec: rec, timeout: timeout, head: corroborating}
 }
 
 // strictHeadRound carries the outcome of one establishment round: the
@@ -81,12 +84,10 @@ func referenceTipFreshness(tag string) pool.TipFreshnessScope {
 // establish runs one round for the requested tag. A nil member snapshot
 // selects the pool's current voting members (direct facade calls); an
 // explicit snapshot is the invocation's frozen basis (establishment stage).
-// When the caller carries a corroboration snapshot the fan-out runs in the
-// fixed-basis voting mode with the snapshot adjudicating; without one the
-// round keeps the collection and the agreement semantics of direct
-// construction. A failed round returns the partial evidence alongside the
-// error: the faults stay on the reference the caller sees.
-func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool.Source, snap rpcengine.Corroboration, snapOK bool, tag string) (strictHeadRound, error) {
+// Every round uses fixed-basis voting with the caller's construction rule.
+// A failed round returns partial evidence alongside the error: the faults stay
+// on the reference the caller sees.
+func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool.Source, snap rpcengine.Corroboration, tag string) (strictHeadRound, error) {
 	started := time.Now()
 	policy := headAnchorPolicy{e.head}
 	if members == nil {
@@ -97,18 +98,7 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 		Sources:      members,
 		TipFreshness: referenceTipFreshness(tag),
 	}
-	var (
-		emissions  []pool.Emission
-		collectErr error
-	)
-	if snapOK {
-		// A corroborated read collects over the fixed voting basis — every
-		// member occupies the denominator even when a scheduling gate skipped
-		// its request.
-		emissions, collectErr = e.pool.CollectVoting(ctx, methods.MethodGetBlockByNumber, []any{tag, false}, collectOptions)
-	} else {
-		emissions, collectErr = e.pool.Collect(ctx, methods.MethodGetBlockByNumber, []any{tag, false}, collectOptions)
-	}
+	emissions, collectErr := e.pool.CollectVoting(ctx, methods.MethodGetBlockByNumber, []any{tag, false}, collectOptions)
 	// Admission's shape-reservation stage runs before resolution, exactly as
 	// the pipeline's does: a malformed body can never win a cluster. The raw
 	// response keeps its original bytes while admission records its judgment.
@@ -140,19 +130,7 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 		}
 	}
 
-	var resolveErr error
-	var outcome rpcengine.Outcome
-	var verdicts []rpcengine.SourceVerdict
-	var resolution rpcengine.Resolver = policy
-	if snapOK {
-		if corroborating, ok := resolution.(rpcengine.CorroboratingResolver); ok {
-			outcome, resolveErr = corroborating.ResolveCorroborated(snap, observations)
-		} else {
-			outcome, resolveErr = resolution.Resolve(observations)
-		}
-	} else {
-		outcome, resolveErr = resolution.Resolve(observations)
-	}
+	outcome, resolveErr := policy.ResolveCorroborated(snap, observations)
 	// The resolution's own decision does not carry the fan-out's membership;
 	// every emission keeps the participant slot the pipeline's project phase
 	// gives it.
@@ -161,7 +139,8 @@ func (e *StrictHeadEstablishment) establish(ctx context.Context, members []*pool
 		outcome = slotOutcome
 		outcome.Decision.Adjudication.Reason = rpc.ReasonInternalFailure
 	}
-	decision, verdicts = outcome.Decision, outcome.Verdicts
+	decision = outcome.Decision
+	verdicts := outcome.Verdicts
 	decision.Participants = participants
 	decision = attachRoundFaults(decision, collectErr)
 	e.record(started, decision, resolveErr, emissions, verdicts)

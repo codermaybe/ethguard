@@ -38,10 +38,9 @@ type AnchoringStrategy struct {
 // its consumption-only anchor readers.
 type Inputs struct {
 	Pool           *pool.Pool
-	StrictOptions  []rpcengine.StrictOption
 	Recorder       observe.Recorder
 	CollectTimeout time.Duration
-	Corroboration  *rpcengine.CorroborationShared
+	Corroboration  rpcengine.Corroboration
 	// Anchoring is nil for the strict-head strategy; the finalized preset
 	// passes the strategy with its lag bound.
 	Anchoring *AnchoringStrategy
@@ -49,11 +48,11 @@ type Inputs struct {
 
 // Bundle is the internal execution graph consumed by the root facade. It is
 // intentionally data-only: callers still use the facade's public Client.
-// Compose fills the pool, corroboration policy, and resolver; Build alone
-// (tests, synthetic fleets) leaves them zero.
+// Build preserves the explicit corroboration rule used by its aggregator;
+// Compose also fills the pool and facade reference resolver.
 type Bundle struct {
 	Pool          *pool.Pool
-	Corroboration *rpcengine.CorroborationShared
+	Corroboration rpcengine.Corroboration
 	Resolver      ReferenceResolver
 	Plans         map[string]rpcengine.ReadPlan
 	Aggregator    *aggregator.Aggregator
@@ -64,9 +63,8 @@ type Bundle struct {
 // projectors, and the aggregator. Method binding lives here; the
 // establishment algorithms remain owned by their respective modules. The
 // default registry drives every registered read from its explicit execution
-// plan. Read corroboration is governed by
-// the invocation's frozen snapshot, and the strict options input stays with
-// the establishment algorithms that own their own threshold formulas.
+// plan. Business and strict reference reads consume the invocation's frozen
+// rule; finalized establishment retains its candidate and confirmation rules.
 func Build(in Inputs) (*Bundle, error) {
 	if in.Pool == nil {
 		return nil, fmt.Errorf("runtime: nil pool")
@@ -77,7 +75,6 @@ func Build(in Inputs) (*Bundle, error) {
 		Recorder:          in.Recorder,
 		FinalizedStrategy: in.Anchoring != nil && in.Anchoring.Finalized,
 		MaxLag:            anchoringMaxLag(in.Anchoring),
-		StrictOptions:     in.StrictOptions,
 	})
 	// The plan registry is assembled from the frozen MethodSpec inventory:
 	// one explicit plan per registered method, and the projector binding the
@@ -95,11 +92,11 @@ func Build(in Inputs) (*Bundle, error) {
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
 	return &Bundle{
-		Plans: plans,
-		Aggregator: aggregator.New(in.Pool,
+		Plans:         plans,
+		Corroboration: in.Corroboration,
+		Aggregator: aggregator.New(in.Pool, in.Corroboration,
 			aggregator.WithRecorder(in.Recorder),
 			aggregator.WithCollectTimeout(in.CollectTimeout),
-			aggregator.WithCorroboration(in.Corroboration),
 			aggregator.WithReferenceStage(stage),
 			aggregator.WithPlans(plans),
 			aggregator.WithProjectors(projectors)),

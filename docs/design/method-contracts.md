@@ -20,9 +20,9 @@
 
 ## 2. 固定成员与裁定门槛
 
-业务 Strict 在 corroboration snapshot 下使用 `Q = max(H, floor(N/2)+1)`；默认 H=2。N 是完整冻结 Basis，每个失败、gated、不可准入或未尝试成员仍占一个槽位。N<=0 的历史阈值为 1，实际以无有效响应失败；单一支持者最高 Selected，Corroborated 至少需要两个支持源。Unanimity 在同一 Q 上另要求所有 admissible 答案一致。
+SDK 构造时固定成员与 Corroboration 值配置；每次 invocation 在请求前将成员身份与规则副本冻结到 Basis。业务 Strict 与 CanonicalStrict 使用 `Q = max(H, floor(N/2)+1)`；默认 H=2。N 是完整冻结 Basis，每个失败、gated、不可准入或未尝试成员仍占一个槽位。N<=0 的历史阈值为 1，实际以无有效响应失败；单一支持者最高 Selected，Corroborated 至少需要两个支持源。Unanimity 在同一 Q 上另要求所有 admissible 答案一致。
 
-未携带 snapshot 的底层 legacy Strict 仍按自身全体一致规则执行；默认公开路径使用冻结 snapshot。Forwarded 是显式调用模式，H=0 且不进行跨源裁决，仍执行适用方法检查。Median／Local 不套 Strict 成功公式，保持 Selected。
+直接引擎／reference 消费的 raw Strict 保留其构造合同：未指定 quorum 时要求所有有效回答一致，显式选项按对应规则执行；CallRevert 的直接构造语义也保留。生产 aggregator 不再提供无配置执行分支，canonical 只接收明确 Corroboration 规则。Forwarded 的 H=0，不进行字段聚合、投影或跨源裁决，仍执行适用方法检查。Median／Local 不套 Strict 成功公式，保持 Selected；eth_call revert 不因字段观察获得额外 agreement。此次固定配置取代旧共享可变容器，见决策 0074。
 
 reference 建立有自己的候选与确认算法，见 [reference 合同](reference-freshness-policy.md)；公式相似不授权合并。健康、freshness 和来源超时不能换成员、改票权、降门槛或自动退回 Forwarded。代表源是捕获成员顺序的第一个支持者，不能靠代表源原文补回未保护内容。
 

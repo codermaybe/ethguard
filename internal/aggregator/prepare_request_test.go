@@ -75,7 +75,7 @@ func TestSimulatePreparationFreezesUserInputBeforeReference(t *testing.T) {
 			}
 			pin := "0x" + strings.Repeat("ab", 32)
 			stage := &mutateInputStage{scriptedStage: scriptedStage{ref: rpc.ReferenceEvidence{Hash: pin, Height: 16, Status: rpc.Corroborated}}, mutate: mutate}
-			agg := New(p, WithCorroboration(mustShared(t)), WithPlans(map[string]rpcengine.ReadPlan{methods.MethodSimulateV1: plan}), WithReferenceStage(stage))
+			agg := New(p, mustMajorityRule(t), WithPlans(map[string]rpcengine.ReadPlan{methods.MethodSimulateV1: plan}), WithReferenceStage(stage))
 			decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: methods.MethodSimulateV1, Params: []any{payload, base}})
 			if err != nil || decision.Status != rpc.Corroborated || decision.Prepared == nil {
 				t.Fatalf("decision=%+v err=%v", decision, err)
@@ -126,7 +126,7 @@ func TestPreparationCannotChangeTheAllowedMethod(t *testing.T) {
 		return req, nil
 	}
 	stage := &scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Status: rpc.Corroborated}}
-	agg := New(p, WithCorroboration(mustShared(t)), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}), WithReferenceStage(stage))
+	agg := New(p, mustMajorityRule(t), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}), WithReferenceStage(stage))
 	decision, err := agg.Aggregate(context.Background(), rpc.Request{Method: probeMethod, Params: []any{"0x1", "latest"}})
 	if !errors.Is(err, rpc.ErrInvalidRequest) || decision.Status != rpc.Unknown || decision.Prepared != nil || len(decision.Faults) != 0 || len(decision.SourceFaults) != 0 {
 		t.Fatalf("method substitution: %+v %v", decision, err)

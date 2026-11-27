@@ -60,7 +60,7 @@ Head主锁串行拥有来源会话准入/退休、路径状态和停止；每个
 
 逐源数据使用同一个`rpc.Response`：`pool.Emission`附加Source、Attempted、RTT和同源准入evidence，`rpc.Observation`与reference的`HeadObservation`继续携带它，不复制平面的value/error三元组。`Answer.Interpretation`记录方法准入、完成验证、拒绝、局部候选排除或内部失败；它不重写Exchange，也不删除原Answer.Kind与载荷。候选高度不适用属于局部排除，不能伪造来源未回答。错误投影和候选资格读取集中在Response；下游不从error反向重建协议答案。
 
-内部执行接口统一为`rpcengine.Resolver.Resolve → rpcengine.Outcome`，声明跨源能力的resolver通过`ResolveCorroborated → Outcome`消费固定snapshot。Outcome拥有本次解释形成的方法判断及来源关系；输入Observation继续拥有通信及协议事实。公开`SourceSummary`把两者投影为Exchange、Answer摘要与Relation，不保留另一份完整result。健康与事件只消费这些判断，不能再次Normalize或CanonicalOf。canonical resolver仍因输入是已处理结果而保留独立入口，它不是可选Outcome旁路。
+内部执行接口统一为`rpcengine.Resolver.Resolve → rpcengine.Outcome`，声明跨源能力的resolver通过`ResolveCorroborated → Outcome`消费冻结Basis中的构造规则。Outcome拥有本次解释形成的方法判断及来源关系；输入Observation继续拥有通信及协议事实。公开`SourceSummary`把两者投影为Exchange、Answer摘要与Relation，不保留另一份完整result。健康与事件只消费这些判断，不能再次Normalize或CanonicalOf。canonical resolver仍因输入是已处理结果而保留独立入口，它不是可选Outcome旁路。
 
 `rpc/response.go`拥有两层事实及其合法性检查，`rpc/sources.go`拥有公开来源摘要，`rpc/adjudication.go`与`rpc/write.go`拥有可交付的裁定及写入数据。`internal/rpcengine/outcome.go`拥有逐源判断与摘要投影，`internal/rpcengine/adjudicate.go`拥有候选分组及裁定算法，`internal/rpcengine/write.go`拥有传播裁定及本地交易hash绑定。root的`call_result.go`、`write.go`与`result_capture.go`分别拥有操作结果、同步等待状态和复制交付。公开数据合同不导入执行引擎；内部算法直接消费这些合同，不保留旧路径的别名或转发入口。
 
@@ -157,10 +157,10 @@ ReferenceStage 通过 runtime 绑定的 HeadReader／HeadCodec 与 Transport Por
 | Strict／CanonicalStrict | raw Strict 接收原始观察；CanonicalStrict 只接收已处理观察；两者共用裁决内核 |
 | Block 方法 | 直接使用 Strict，以 canonical bytes 聚类；spec／plan 的 Admit 绑定 by-hash/by-number，reference HeadCodec 另用 number/hash 身份 |
 | CallRevert | execution 与 data 独立裁决，共享 Outcome 内核；data 弃权不冒充 Reject；provider 文案只是上下文 |
-| Median／Local | 强制返回逐源Outcome；普通解析与编码，Selected 封顶；有 corroboration snapshot 也不获得 agreement |
+| Median／Local | 强制返回逐源Outcome；普通解析与编码，Selected 封顶；构造规则与字段观察均不赋予 agreement |
 | Forward／pending-local | 强制返回逐源Outcome；只判断实际处理的来源，后续来源保持未评估，不推导跨源一致 |
 
-裁定的Required由实际执行的resolver合同形成：有snapshot的入口消费冻结配置，无snapshot的入口保留构造器或默认规则。coordinator核对输入与冻结成员一致，不能在Validate之后覆写Required，或靠覆盖Basis修补不一致。
+SDK 成员与 Corroboration 在构造时确定，aggregator／runtime 接收值配置；不再有共享可变配置、Set／Snapshot 或可选 snapOK 分支。每次 invocation 仍在请求前冻结成员身份和规则副本到 Basis。生产 Strict／CallRevert 与唯一 canonical 入口消费该规则；直接引擎与 reference 的 raw resolver 保留各自真实构造合同。Required 由实际 resolver 形成，coordinator 核对输入与冻结成员一致，不能在 Validate 后覆写 Required 或 Basis。详见决策 0074。
 
 Resolver只要求Resolve；Normalize是MethodSpec／ReadPlan独立能力；准备、准入及reference属于ReadPlan。MethodRule直接读取resolver与plan声明，CanonicalOf直接读取编码能力，不再遍历装饰链。Outcome是Resolver本身的强制合同，不是额外的可选能力。编译对resolver kind、实际Go能力、agreement、KeySource与processor配对双向校验，失败不注册；运行时仍对外部装配的能力矛盾和Outcome覆盖矛盾返回内部合同错误。KeySource 不从 encoder 是否存在推断；normalizer+encoder 可表达窄键与较宽值，具体装配见生成索引。Block 方法不再拥有 resolver wrapper；admission 由 spec／plan 直接声明。head 身份、full/header/null、请求绑定和 body 承诺分别验证。
 
@@ -196,7 +196,7 @@ ReadPlan 的执行合同互斥：raw 路线携带 Resolver 与可选 Admit；can
 | `blockAt` / `headerAt` | 请求路由相似，但 fullTx、返回投影、hash/height绑定与错误文案分别直观可见；抽成泛型回调会让调用者同时理解投影和错误模板，当前保留两个直接实现 |
 | `internal/ethobject/{receipt,log}` | 编码内核与null/array接受域、请求hash/height绑定在同一对象包；全部消费者直接使用该包，没有转发对象树 |
 | `projectSourceFaults` | Exchange→Interpretation→Answer是可消费的原因优先级，直接sourceFaultView断言标识本owner产物；不能用errors.As吞掉包装或Join中的独立诊断 |
-| Canonical invocation | prepare核对一次resolver能力，状态传递typed能力供resolve消费；缺能力仍按原collect后失败的时序，未改为提前返回 |
+| Canonical invocation | prepare在reference及业务网络前校验完整互斥执行合同，缺失／混合合同立即拒绝；状态传递typed能力供唯一显式规则入口resolve消费 |
 | Logs过滤 | ethobject/log.FreezeFilterQuery 共享已验证 canonical 副本；FilterArgument 拥有 unary wire 构造及 UseNumber/扩展字段，subscription 拥有 stream 过滤且拒绝未知扩展 |
 | Simulate冻结断言 | FreezeParams成功时逐项产生RawMessage且保留长度，私有消费者紧接校验两个参数；保留两个有构造证明的断言，避免为语法检查增加表示和转换 |
 | 工具与fixture错误 | 普通报告接受writer并返回写出错误；rpctest在提交HTTP响应前完成JSON编码。失败沿已有owner返回，取消后清理不误归RPC协议错误；不为静态规则新增统一错误包装层 |

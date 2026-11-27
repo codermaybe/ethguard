@@ -91,7 +91,7 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	// This is the last read of the prepared Go parameters — every later
 	// phase reads these frozen facts, never the caller's or the prepared
 	// request's mutable values.
-	state.pendingLocal = planPendingLocalRoute(plan, prepared, state.snap, state.snapOK)
+	state.pendingLocal = planPendingLocalRoute(plan, prepared, state.snap)
 	state.freshness = preparedTipFreshness(plan, prepared)
 	state.preparedMethod = prepared.Method
 	if plan.Canonical != nil {

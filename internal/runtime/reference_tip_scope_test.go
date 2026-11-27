@@ -60,11 +60,11 @@ func tipScopedFleet(t *testing.T) (*pool.Pool, []*rpctest.Node, []*pool.Source, 
 		}
 	}
 
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return p, nodes, sources, shared.Snapshot()
+	return p, nodes, sources, shared
 }
 
 func blockCallCounts(nodes []*rpctest.Node) []int {
@@ -96,7 +96,7 @@ func TestReferenceRoundTipScopeFollowsTag(t *testing.T) {
 			p, nodes, sources, snap := tipScopedFleet(t)
 			engine := NewStrictHeadEstablishment(p, observe.Nop, 2*time.Second)
 			before := blockCallCounts(nodes)
-			_, err := engine.establish(context.Background(), sources, snap, true, tc.tag)
+			_, err := engine.establish(context.Background(), sources, snap, tc.tag)
 			if err != nil {
 				t.Fatalf("establish %s: %v", tc.tag, err)
 			}

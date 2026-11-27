@@ -72,7 +72,7 @@ func preparationFleet(b *testing.B, n int) ([]*rpctest.Node, *pool.Pool) {
 // establishment stage: the full prepare order runs on every invocation.
 func probePreparationAggregator(b *testing.B, p *pool.Pool) *Aggregator {
 	b.Helper()
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -80,11 +80,7 @@ func probePreparationAggregator(b *testing.B, p *pool.Pool) *Aggregator {
 	if err != nil {
 		b.Fatal(err)
 	}
-	return New(p,
-		WithCorroboration(shared),
-		WithCollectTimeout(2*time.Second),
-		WithReferenceStage(&scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Height: 16, Status: rpc.Corroborated}}),
-		WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
+	return New(p, shared, WithCollectTimeout(2*time.Second), WithReferenceStage(&scriptedStage{ref: rpc.ReferenceEvidence{Hash: "0xabc", Height: 16, Status: rpc.Corroborated}}), WithPlans(map[string]rpcengine.ReadPlan{probeMethod: plan}))
 }
 
 // transactionPreparationAggregator assembles the transaction read with
@@ -127,11 +123,11 @@ func transactionPreparationAggregator(b *testing.B, p *pool.Pool, counts *prepar
 	if err != nil {
 		b.Fatalf("instrumented transaction plan does not compile: %v", err)
 	}
-	shared, err := rpcengine.NewCorroborationShared(rpc.CorroborationMajority, 2)
+	shared, err := rpcengine.NewCorroboration(rpc.CorroborationMajority, 2)
 	if err != nil {
 		b.Fatal(err)
 	}
-	return New(p, WithCorroboration(shared), WithPlans(map[string]rpcengine.ReadPlan{methods.MethodGetTransactionByHash: plan}))
+	return New(p, shared, WithPlans(map[string]rpcengine.ReadPlan{methods.MethodGetTransactionByHash: plan}))
 }
 
 // upstreamRequestsBefore snapshots the fleet's request count so the loop can
