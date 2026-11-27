@@ -90,7 +90,7 @@ NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观
 - 请求错误在 reference 和业务 fan-out 前拒绝。reference 失败保留已形成的诊断，不发业务请求。
 - pending-local 不建立 moving reference。它可以收集多个成员，但选取第一个可用本地观察，Selected 封顶；Support 恰为所选来源，Participants 仍表达实际冻结成员。
 - typed pending block/header、pending logs 和 block receipts 的拒绝与普通 pending 状态读取分别维护，不概括成全支持或全拒绝。
-- pending `eth_call` 的 raw Value 可保留 provider revert 信封；mined 路线只交付受保护 data。typed 边界按同一错误语义投影，差异不能被写成所有 raw 路线完全相同。
+- pending-local 与显式 Forwarded `eth_call` 的 raw Value 可保留 provider revert 信封；Corroborated mined 路线只交付受保护 data。typed 边界按同一错误语义投影为 `RevertError`，保留所属 Decision 的状态；差异不能被写成所有 raw 路线完全相同。
 - 单源响应的 malformed／请求绑定失败／无法规范编码不贡献支持，保留故障及分母；标准方法能力错误、合法异见和调用者取消不能一律归为 provider 不规范。
 - 公开 Call 本地拒绝未知方法；低层 Registry forwarding 不扩张公开 allow-list。主聚合失败清空公开 Decision.Value；后置 typed／派生绑定失败保留已经形成的聚合事实，业务返回值和最终错误仍表达失败。corroborated null／revert 的业务映射按返回值合同区分。
 

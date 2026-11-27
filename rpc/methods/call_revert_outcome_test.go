@@ -42,6 +42,77 @@ func invocationSnap() rpc.Corroboration {
 	return rpc.Corroboration{Mode: rpc.CorroborationMajority, Floor: 2}
 }
 
+func TestCallRevertForwardedPreservesSingleSourceOutcome(t *testing.T) {
+	plan, err := CompilePlan(callSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := plan.Resolver.(rpc.CorroboratingPolicy)
+	for _, tc := range []struct {
+		name    string
+		data    string
+		abstain bool
+	}{
+		{name: "missing", abstain: true},
+		{name: "null", data: `null`, abstain: true},
+		{name: "empty", data: `"0x"`},
+		{name: "hex", data: `"0xDEAD"`},
+		{name: "structured", data: `{"reason":"nope"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first := rpcErrorObs("a", 3, "execution reverted", tc.data)
+			obs := []rpc.Observation{
+				first,
+				{Source: rpc.SourceRef{ID: "b"}},
+				{Source: rpc.SourceRef{ID: "c"}},
+			}
+			outcome, err := resolver.ResolveCorroborated(rpc.Corroboration{Mode: rpc.CorroborationForwarded}, obs)
+			if err != nil {
+				t.Fatalf("forwarded revert: %v", err)
+			}
+			if err := outcome.Validate(obs); err != nil {
+				t.Fatal(err)
+			}
+			decision := outcome.Decision
+			if decision.Status != rpc.Forwarded || decision.Adjudication.Basis != 3 || decision.Adjudication.Required != 1 || decision.Adjudication.Reason != rpc.ReasonAccepted {
+				t.Fatalf("forwarded decision = %+v", decision)
+			}
+			// A forwarded revert preserves the selected source's envelope;
+			// it makes no cross-source claim or data-quorum deletion.
+			if string(decision.Value) != string(first.Response.Answer.RPCError.Raw()) || len(decision.DeletedFields) != 0 {
+				t.Fatalf("value = %s, deleted = %v", decision.Value, decision.DeletedFields)
+			}
+			if decision.Revert == nil || decision.Revert.Code != 3 || decision.Revert.Message != "execution reverted" || decision.Representative != first.Source {
+				t.Fatalf("revert context or representative changed: %+v", decision)
+			}
+			if !reflect.DeepEqual(decision.Support, []rpc.SourceRef{first.Source}) || len(decision.Reject) != 0 {
+				t.Fatalf("support = %+v, reject = %+v", decision.Support, decision.Reject)
+			}
+			wantVerdicts := []rpc.SourceVerdict{
+				{Source: first.Source, Kind: rpc.VerdictSupported, Method: rpc.Interpretation{State: rpc.InterpretationValidated}},
+				{Source: obs[1].Source, Kind: rpc.VerdictAbsent},
+				{Source: obs[2].Source, Kind: rpc.VerdictAbsent},
+			}
+			if !reflect.DeepEqual(outcome.Verdicts, wantVerdicts) {
+				t.Fatalf("verdicts = %+v, want %+v", outcome.Verdicts, wantVerdicts)
+			}
+			data := rpc.DimensionEvidence{Name: "data", Returned: !tc.abstain}
+			if tc.abstain {
+				data.Abstain = []rpc.SourceRef{first.Source}
+			} else {
+				data.Support = []rpc.SourceRef{first.Source}
+			}
+			wantDimensions := []rpc.DimensionEvidence{
+				{Name: "execution", Support: []rpc.SourceRef{first.Source}, Returned: true},
+				data,
+			}
+			if !reflect.DeepEqual(decision.Dimensions, wantDimensions) {
+				t.Fatalf("dimensions = %+v, want %+v", decision.Dimensions, wantDimensions)
+			}
+		})
+	}
+}
+
 // TestCallRevertOutcomeMatchesResolve pins that the outcome statement is the
 // same adjudication the plain and corroborated resolutions return: stating
 // per-source verdicts must not re-decide the value, status, support, or the

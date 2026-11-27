@@ -157,7 +157,8 @@ func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observat
 		}
 		return decision, verdicts, failed
 	}
-	if rep.success || decision.Status == Selected {
+	// Single-source outcomes do not enter the cross-source revert-data projection.
+	if rep.success || decision.Status == Selected || decision.Status == Forwarded {
 		decision.Dimensions = callExecutionDimensions(decision, winner)
 		return decision, verdicts, nil
 	}
