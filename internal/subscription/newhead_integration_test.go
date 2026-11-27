@@ -422,7 +422,7 @@ func TestHeadDisconnectRevokesBeforeSlowCleanupAndHealthyQuorumContinues(t *test
 	}
 	found := false
 	for record := range e.Audit.All() {
-		if record.Session.SourceID == "a" && record.Kind == HeadSessionDisconnected && record.Reason == HeadNotificationLimit {
+		if record.Session.SourceID == "a" && record.Kind == SessionDisconnected && record.Reason == ReasonNotificationLimit {
 			found = true
 		}
 	}
@@ -463,7 +463,7 @@ func TestHeadInvalidParentHeightRevokesOnlyThatSource(t *testing.T) {
 	}
 	found := false
 	for record := range e.Audit.All() {
-		if record.Session.SourceID == "a" && record.Reason == HeadInvalidPush {
+		if record.Session.SourceID == "a" && record.Reason == ReasonInvalidPush {
 			found = true
 		}
 	}
@@ -496,7 +496,7 @@ func TestHeadDisconnectAuditAdmissionFailureTerminates(t *testing.T) {
 	}
 	s.disconnectNow(SourceSession{SourceID: "b", Generation: 1}, errors.New("lost"), false)
 	release()
-	if _, err := s.Next(ctx); !errors.Is(err, ErrHeadMemoryBudget) {
+	if _, err := s.Next(ctx); !errors.Is(err, ErrMemoryBudget) {
 		t.Fatalf("disconnect audit failure disappeared: %v", err)
 	}
 }
@@ -587,13 +587,13 @@ func TestHeadAuditClockExpiresOldestFactWithUnreadQueue(t *testing.T) {
 		t.Fatalf("unread committed delta lost: %+v %v", e, err)
 	}
 	_, err = s.Next(ctx)
-	var terminal *HeadTerminalError
-	if !errors.As(err, &terminal) || !errors.Is(err, ErrHeadAuditTimeout) {
+	var terminal *TerminalError
+	if !errors.As(err, &terminal) || !errors.Is(err, ErrAuditTimeout) {
 		t.Fatalf("audit terminal: %v", err)
 	}
 	gate := false
 	for record := range terminal.Audit.All() {
-		gate = gate || record.Reason == HeadGateExpired
+		gate = gate || record.Reason == ReasonGateExpired
 	}
 	if !gate {
 		t.Fatal("waiting windows did not leave audit evidence")

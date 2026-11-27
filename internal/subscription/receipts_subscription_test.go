@@ -477,7 +477,7 @@ func TestReceiptsReorgPreBirthAndReentryRemainAtomic(t *testing.T) {
 		}
 		push(alt100.head)
 		replaced := nextReceipts(t, s)
-		if replaced.Path.Reason != HeadPreBirthReorg || len(replaced.Path.Appended) != 2 || replaced.Path.Appended[0].Node.Hash != alt99.head.Hash() || len(replaced.Path.Retracted) != 1 {
+		if replaced.Path.Reason != PreBirthReorg || len(replaced.Path.Appended) != 2 || replaced.Path.Appended[0].Node.Hash != alt99.head.Hash() || len(replaced.Path.Retracted) != 1 {
 			t.Fatalf("prebirth: %+v", replaced)
 		}
 		push(last99.head)
@@ -773,7 +773,7 @@ func TestReceiptsHeadProducerTerminalRetainsAudit(t *testing.T) {
 	close(feeds[0].errs)
 	_, err := s.Next(context.Background())
 	var terminal *ReceiptsTerminalError
-	var headTerminal *HeadTerminalError
+	var headTerminal *TerminalError
 	if !errors.As(err, &terminal) || !errors.As(err, &headTerminal) || terminal.Audit.First == 0 {
 		t.Fatalf("Head terminal audit: %v", err)
 	}

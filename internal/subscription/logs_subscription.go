@@ -44,7 +44,7 @@ type LogsDelivery struct {
 	// ContentSource is empty when the filter or committed header bloom proves
 	// the empty result without fetching block content.
 	ContentSource  string
-	ObjectSupplier HeadObjectSupplier
+	ObjectSupplier ObjectSupplier
 	Proof          LogsProofKind
 }
 
@@ -55,13 +55,13 @@ type LogsPathDelta struct {
 	Retracted     []AnchorNode
 	Appended      []LogsDelivery
 	PreBirthProof []AnchorNode
-	Reason        HeadPathChangeReason
+	Reason        PathChangeReason
 }
 
 type LogsEvent struct {
 	Path         LogsPathDelta
-	Evaluation   HeadEvaluation
-	Audit        HeadAuditRange
+	Evaluation   EvaluationSnapshot
+	Audit        AuditRange
 	ContentAudit []ContentAudit
 }
 
@@ -71,7 +71,7 @@ type LogsTerminalError struct {
 	PathVersion  uint64
 	// Audit contains the consumed Head delta or Head producer terminal that
 	// could not become a complete Logs event.
-	Audit        HeadAuditRange
+	Audit        AuditRange
 	ContentAudit []ContentAudit
 }
 
@@ -153,7 +153,7 @@ func (s *LogsSubscription) run() {
 				s.abort()
 				return
 			}
-			var audit HeadAuditRange
+			var audit AuditRange
 			var terminal *TerminalError
 			if errors.As(err, &terminal) {
 				audit = terminal.Audit
@@ -224,10 +224,10 @@ type logsFetchResult struct {
 	err      error
 	reason   ContentReason
 	release  func()
-	supplier HeadObjectSupplier
+	supplier ObjectSupplier
 }
 
-func (s *LogsSubscription) fetchBlock(head *types.Header, headerOwnership *contentOwnership, node AnchorNode) ([]ethapi.Log, HeadObjectSupplier, []func(), error) {
+func (s *LogsSubscription) fetchBlock(head *types.Header, headerOwnership *contentOwnership, node AnchorNode) ([]ethapi.Log, ObjectSupplier, []func(), error) {
 	ctx, cancel := context.WithCancel(s.life)
 	if s.policy.RecoveryTimeout > 0 {
 		cancel()
@@ -251,7 +251,7 @@ func (s *LogsSubscription) fetchBlock(head *types.Header, headerOwnership *conte
 				if err != nil {
 					<-s.slots
 					stop()
-					return nil, HeadObjectSupplier{}, holds, err
+					return nil, ObjectSupplier{}, holds, err
 				}
 				next++
 				active++
@@ -277,7 +277,7 @@ func (s *LogsSubscription) fetchBlock(head *types.Header, headerOwnership *conte
 						result.release()
 					}
 					stop()
-					return nil, HeadObjectSupplier{}, holds, err
+					return nil, ObjectSupplier{}, holds, err
 				}
 				if result.err == nil {
 					stop()
@@ -286,24 +286,24 @@ func (s *LogsSubscription) fetchBlock(head *types.Header, headerOwnership *conte
 				}
 				if errors.Is(result.err, ErrMemoryBudget) {
 					stop()
-					return nil, HeadObjectSupplier{}, holds, result.err
+					return nil, ObjectSupplier{}, holds, result.err
 				}
 			case <-ctx.Done():
 				stop()
-				return nil, HeadObjectSupplier{}, holds, ctx.Err()
+				return nil, ObjectSupplier{}, holds, ctx.Err()
 			}
 		}
 		stop()
 		if s.policy.RetryDelay == 0 || (s.policy.MaxRecoveryAttempts > 0 && attempt >= s.policy.MaxRecoveryAttempts) {
-			return nil, HeadObjectSupplier{}, holds, ErrRecoveryExhausted
+			return nil, ObjectSupplier{}, holds, ErrRecoveryExhausted
 		}
 		if !waitSubscriptionRetry(ctx.Done(), ctx, s.policy.RetryDelay) {
-			return nil, HeadObjectSupplier{}, holds, ctx.Err()
+			return nil, ObjectSupplier{}, holds, ctx.Err()
 		}
 	}
 }
 
-func (s *LogsSubscription) fetchSupplier(ctx context.Context, source Source, head *types.Header, supplier HeadObjectSupplier) (out logsFetchResult) {
+func (s *LogsSubscription) fetchSupplier(ctx context.Context, source Source, head *types.Header, supplier ObjectSupplier) (out logsFetchResult) {
 	out.source = source.ID()
 	out.supplier = supplier
 	if err := s.head.sessions.Accept(supplier.Session); err != nil {

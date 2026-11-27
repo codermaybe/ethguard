@@ -42,14 +42,14 @@ type ReceiptSupport struct {
 	Status          rpc.Status
 	Basis, Required int
 	Attempt         uint64
-	Representative  HeadObjectSupplier
-	Suppliers       []HeadObjectSupplier
+	Representative  ObjectSupplier
+	Suppliers       []ObjectSupplier
 }
 
 type ReceiptsDelivery struct {
 	Node           AnchorNode
 	Receipts       []ethapi.Receipt
-	BlockSupplier  HeadObjectSupplier
+	BlockSupplier  ObjectSupplier
 	ReceiptSupport ReceiptSupport
 	Proof          ReceiptsProofKind
 }
@@ -60,13 +60,13 @@ type ReceiptsPathDelta struct {
 	Retracted               []AnchorNode
 	Appended                []ReceiptsDelivery
 	PreBirthProof           []AnchorNode
-	Reason                  HeadPathChangeReason
+	Reason                  PathChangeReason
 }
 
 type ReceiptsEvent struct {
 	Path         ReceiptsPathDelta
-	Evaluation   HeadEvaluation
-	Audit        HeadAuditRange
+	Evaluation   EvaluationSnapshot
+	Audit        AuditRange
 	ContentAudit []ContentAudit
 }
 
@@ -74,7 +74,7 @@ type ReceiptsTerminalError struct {
 	Cause        error
 	CommittedTip AnchorNode
 	PathVersion  uint64
-	Audit        HeadAuditRange
+	Audit        AuditRange
 	ContentAudit []ContentAudit
 }
 
@@ -134,7 +134,7 @@ func NewReceipts(owner, setup context.Context, load func() ([]Source, error), q 
 	}
 	basis := shared.Basis()
 	rule := rpcengine.Corroboration{Mode: rpc.CorroborationMajority, Floor: basis.Quorum}
-	if basis.Tier == HeadForwarded {
+	if basis.Tier == Forwarded {
 		rule = rpcengine.Corroboration{Mode: rpc.CorroborationForwarded}
 	}
 	s := &ReceiptsSubscription{contentSubscription: shared, policy: p, filter: filter, rule: rule, resolver: resolver}
@@ -167,7 +167,7 @@ func (s *ReceiptsSubscription) run() {
 				s.abort()
 				return
 			}
-			var audit HeadAuditRange
+			var audit AuditRange
 			var terminal *TerminalError
 			if errors.As(err, &terminal) {
 				audit = terminal.Audit
@@ -261,13 +261,13 @@ func (s *ReceiptsSubscription) fetchBlock(head *types.Header, headerHold *conten
 
 type transactionContentResult struct {
 	txs      types.Transactions
-	supplier HeadObjectSupplier
+	supplier ObjectSupplier
 	hold     *contentOwnership
 	err      error
 	reason   ContentReason
 }
 
-func (s *ReceiptsSubscription) fetchTransactions(ctx context.Context, head *types.Header, headerHold *contentOwnership, node AnchorNode) (types.Transactions, HeadObjectSupplier, *contentOwnership, error) {
+func (s *ReceiptsSubscription) fetchTransactions(ctx context.Context, head *types.Header, headerHold *contentOwnership, node AnchorNode) (types.Transactions, ObjectSupplier, *contentOwnership, error) {
 	for attempt := uint64(1); ; attempt++ {
 		group, stop := context.WithCancel(ctx)
 		results := make(chan transactionContentResult)
@@ -284,7 +284,7 @@ func (s *ReceiptsSubscription) fetchTransactions(ctx context.Context, head *type
 				if err != nil {
 					<-s.slots
 					stop()
-					return nil, HeadObjectSupplier{}, nil, err
+					return nil, ObjectSupplier{}, nil, err
 				}
 				next++
 				active++
@@ -310,7 +310,7 @@ func (s *ReceiptsSubscription) fetchTransactions(ctx context.Context, head *type
 						result.hold.drop()
 					}
 					stop()
-					return nil, HeadObjectSupplier{}, nil, ctx.Err()
+					return nil, ObjectSupplier{}, nil, ctx.Err()
 				}
 				if result.err == nil {
 					stop()
@@ -318,16 +318,16 @@ func (s *ReceiptsSubscription) fetchTransactions(ctx context.Context, head *type
 				}
 				if fatalContentError(result.err) {
 					stop()
-					return nil, HeadObjectSupplier{}, nil, result.err
+					return nil, ObjectSupplier{}, nil, result.err
 				}
 			case <-ctx.Done():
 				stop()
-				return nil, HeadObjectSupplier{}, nil, ctx.Err()
+				return nil, ObjectSupplier{}, nil, ctx.Err()
 			}
 		}
 		stop()
 		if err := s.retry(ctx, attempt); err != nil {
-			return nil, HeadObjectSupplier{}, nil, err
+			return nil, ObjectSupplier{}, nil, err
 		}
 	}
 }
@@ -362,7 +362,7 @@ func fatalContentError(err error) bool {
 	return errors.Is(err, ErrMemoryBudget) || errors.Is(err, rpc.ErrInvalidCanonicalResult) || errors.Is(err, rpc.ErrInvalidOutcome)
 }
 
-func (s *ReceiptsSubscription) fetchTransactionSupplier(ctx context.Context, source Source, head *types.Header, supplier HeadObjectSupplier) (out transactionContentResult) {
+func (s *ReceiptsSubscription) fetchTransactionSupplier(ctx context.Context, source Source, head *types.Header, supplier ObjectSupplier) (out transactionContentResult) {
 	out.supplier, out.reason = supplier, ContentRequestFailure
 	if err := s.head.sessions.Accept(supplier.Session); err != nil {
 		out.err, out.reason = err, ContentStaleSession
@@ -448,7 +448,7 @@ type receiptContentResult struct {
 	index       int
 	observation rpc.Observation
 	canonical   rpcengine.CanonicalResult
-	supplier    HeadObjectSupplier
+	supplier    ObjectSupplier
 	release     func()
 	err         error
 	reason      ContentReason
@@ -591,7 +591,7 @@ func (s *ReceiptsSubscription) receiptAttempt(ctx context.Context, head *types.H
 	return nil, ReceiptSupport{}, nil, lastErr
 }
 
-func (s *ReceiptsSubscription) fetchReceiptSupplier(ctx context.Context, source Source, head *types.Header, txs types.Transactions, indices []int, supplier HeadObjectSupplier) (out receiptContentResult) {
+func (s *ReceiptsSubscription) fetchReceiptSupplier(ctx context.Context, source Source, head *types.Header, txs types.Transactions, indices []int, supplier ObjectSupplier) (out receiptContentResult) {
 	out.supplier, out.reason = supplier, ContentRequestFailure
 	out.observation = rpc.Observation{Attempted: true, Source: rpc.SourceRef{ID: source.ID()}, Response: rpc.Response{Exchange: rpc.Exchange{Cause: errReceiptNotRequested}}}
 	// Local failures before transport keep a truthful not-started response.

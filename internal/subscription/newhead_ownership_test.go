@@ -214,7 +214,7 @@ func TestHeadExhaustedSourcesPublishTerminalBeforeSlowCleanup(t *testing.T) {
 		synctest.Wait()
 		select {
 		case err := <-terminal:
-			var ended *HeadTerminalError
+			var ended *TerminalError
 			if !errors.As(err, &ended) || ended.Audit.First == 0 {
 				t.Errorf("terminal: %v", err)
 			}
@@ -380,7 +380,7 @@ func TestHeadSetupFailureRetiresSessionAndKeepsRetryOpportunity(t *testing.T) {
 		}
 		found := false
 		for audit := range event.Audit.All() {
-			found = found || audit.Reason == HeadSourceSetupFailure
+			found = found || audit.Reason == ReasonSourceSetupFailure
 		}
 		if !found {
 			t.Fatal("setup failure lost audit")

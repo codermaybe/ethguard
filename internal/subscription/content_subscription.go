@@ -49,7 +49,7 @@ type contentTerminalError struct {
 	Cause        error
 	CommittedTip AnchorNode
 	PathVersion  uint64
-	Audit        HeadAuditRange
+	Audit        AuditRange
 	ContentAudit []ContentAudit
 }
 
@@ -103,7 +103,7 @@ type contentAuditEntry struct {
 	next    *contentAuditEntry
 }
 type contentRequest struct {
-	supplier     HeadObjectSupplier
+	supplier     ObjectSupplier
 	kind         ContentRequestKind
 	attempt      uint64
 	node         AnchorNode
@@ -161,7 +161,7 @@ func newContentSubscription[E any](owner, setup context.Context, sources []Sourc
 	}()
 	return s, nil
 }
-func (s *contentSubscription[E]) Basis() HeadEvidenceBasis { return s.head.Basis() }
+func (s *contentSubscription[E]) Basis() EvidenceBasis { return s.head.Basis() }
 func (s *contentSubscription[E]) CommittedTip() (AnchorNode, uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -300,7 +300,7 @@ func (s *contentSubscription[E]) publish(event E, base, version uint64, tip Anch
 	s.signal()
 	return nil
 }
-func (s *contentSubscription[E]) finish(err error, audit HeadAuditRange, content []ContentAudit, releases []func()) {
+func (s *contentSubscription[E]) finish(err error, audit AuditRange, content []ContentAudit, releases []func()) {
 	s.cancel()
 	s.mu.Lock()
 	if s.closed {
@@ -374,7 +374,7 @@ func (s *contentSubscription[E]) beginRequest(source Source, node AnchorNode, at
 	}
 	s.requestSequence++
 	s.wg.Add(1)
-	request := &contentRequest{kind: kind, supplier: HeadObjectSupplier{Session: session, Acquisition: HeadByHash, RequestID: s.requestSequence, TargetHash: node.Hash}, attempt: attempt, node: node, release: release, auditRelease: auditRelease}
+	request := &contentRequest{kind: kind, supplier: ObjectSupplier{Session: session, Acquisition: ByHash, RequestID: s.requestSequence, TargetHash: node.Hash}, attempt: attempt, node: node, release: release, auditRelease: auditRelease}
 	s.active = append(s.active, request)
 	return request, nil
 }

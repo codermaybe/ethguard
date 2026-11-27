@@ -396,7 +396,7 @@ func TestLogsPreBirthReorgIncludesNewLowPathAndLaterRetraction(t *testing.T) {
 	}
 	pushLogsHead(feeds, alt100.head)
 	replacement := nextLogs(t, s)
-	if replacement.Path.Reason != HeadPreBirthReorg || len(replacement.Path.Appended) != 2 || replacement.Path.Appended[0].Node.Hash != alt99.head.Hash() || len(replacement.Path.Appended[0].Logs) != 1 {
+	if replacement.Path.Reason != PreBirthReorg || len(replacement.Path.Appended) != 2 || replacement.Path.Appended[0].Node.Hash != alt99.head.Hash() || len(replacement.Path.Appended[0].Logs) != 1 {
 		t.Fatalf("prebirth replacement: %+v", replacement)
 	}
 	pushLogsHead(feeds, last99.head)
@@ -651,7 +651,7 @@ func TestLogsPublishBudgetFailureKeepsVersionAndAudits(t *testing.T) {
 	}
 	s.auditFirst = &contentAuditEntry{record: ContentAudit{Sequence: 1, Reason: ContentInvalid}, release: auditHold}
 	s.auditLast = s.auditFirst
-	headAudit := HeadAuditRange{First: 9, Last: 10}
+	headAudit := AuditRange{First: 9, Last: 10}
 	e := LogsEvent{Path: LogsPathDelta{BaseVersion: 1, NewVersion: 2, Appended: []LogsDelivery{{Node: AnchorNode{Number: 101}, Logs: []ethapi.Log{}}}}, Audit: headAudit}
 	if err := s.publish(e, []func(){proofHold}); !errors.Is(err, ErrMemoryBudget) {
 		t.Fatalf("publish=%v", err)
@@ -682,7 +682,7 @@ func TestLogsHeadProducerTerminalRetainsItsAudit(t *testing.T) {
 	defer cancel()
 	_, err := s.Next(ctx)
 	var terminal *LogsTerminalError
-	var headTerminal *HeadTerminalError
+	var headTerminal *TerminalError
 	if !errors.As(err, &terminal) || !errors.As(err, &headTerminal) || terminal.Audit.First == 0 {
 		t.Fatalf("lost Head producer audit: %v", err)
 	}

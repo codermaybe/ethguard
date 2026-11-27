@@ -44,66 +44,11 @@ type HeadGatePolicy struct {
 	Initial, Min, Max time.Duration
 	Estimate          func(HeadCommittedSample) time.Duration
 }
-type HeadEvidenceTier = EvidenceTier
-type HeadPathWitness = PathWitness
-type HeadObjectSupplier = ObjectSupplier
-type HeadEvaluation = EvaluationSnapshot
-type HeadAuditRange = AuditRange
-type HeadAuditRecord = AuditRecord
-type HeadAuditKind = AuditKind
-type HeadAuditReason = AuditReason
-type HeadAcquisition = Acquisition
-type HeadEvidenceBasis = EvidenceBasis
-type HeadTerminalError = TerminalError
-type HeadPathChangeReason = PathChangeReason
-
-const (
-	HeadPush                 HeadAcquisition      = Push
-	HeadByHash               HeadAcquisition      = ByHash
-	HeadTipChanged           HeadAuditKind        = TipChanged
-	HeadTipInvalidated       HeadAuditKind        = TipInvalidated
-	HeadSessionDisconnected  HeadAuditKind        = SessionDisconnected
-	HeadInvalidObject        HeadAuditKind        = InvalidObject
-	HeadRequestFailed        HeadAuditKind        = RequestFailed
-	HeadEvaluationReplaced   HeadAuditKind        = EvaluationReplaced
-	HeadWaitExpired          HeadAuditKind        = WaitExpired
-	HeadObserved             HeadAuditReason      = ReasonObservation
-	HeadReconnected          HeadAuditReason      = ReasonReconnect
-	HeadDisconnected         HeadAuditReason      = ReasonDisconnected
-	HeadTipExpired           HeadAuditReason      = ReasonTipExpired
-	HeadInvalidPush          HeadAuditReason      = ReasonInvalidPush
-	HeadNullObject           HeadAuditReason      = ReasonNullObject
-	HeadMalformedObject      HeadAuditReason      = ReasonInvalidObject
-	HeadWrongTarget          HeadAuditReason      = ReasonWrongTarget
-	HeadRequestTimeout       HeadAuditReason      = ReasonRequestTimeout
-	HeadRequestFailure       HeadAuditReason      = ReasonRequestFailure
-	HeadTargetChanged        HeadAuditReason      = ReasonTargetChanged
-	HeadGateExpired          HeadAuditReason      = ReasonGateExpired
-	HeadNotificationLimit    HeadAuditReason      = ReasonNotificationLimit
-	HeadMessageTooLarge      HeadAuditReason      = ReasonMessageTooLarge
-	HeadSourceSetupFailure   HeadAuditReason      = ReasonSourceSetupFailure
-	HeadCorroborated         HeadEvidenceTier     = Corroborated
-	HeadSingleSourceSelected HeadEvidenceTier     = SingleSourceSelected
-	HeadForwarded            HeadEvidenceTier     = Forwarded
-	HeadInitialAnchor        HeadPathChangeReason = InitialAnchor
-	HeadContinuousAdvance    HeadPathChangeReason = ContinuousAdvance
-	HeadReorg                HeadPathChangeReason = Reorg
-	HeadPreBirthReorg        HeadPathChangeReason = PreBirthReorg
-)
-
-var (
-	ErrHeadMemoryBudget      = ErrMemoryBudget
-	ErrHeadRecoveryExhausted = ErrRecoveryExhausted
-	ErrHeadAuditTimeout      = ErrAuditTimeout
-	ErrHeadClosed            = ErrClosed
-	ErrHeadTerminalReturned  = ErrNextAfterTerminal
-)
-
 type HeadDelivery struct {
 	Node           AnchorNode
 	Header         *ethapi.Header
-	ObjectSupplier HeadObjectSupplier
-	Tier           HeadEvidenceTier
+	ObjectSupplier ObjectSupplier
+	Tier           EvidenceTier
 }
 type HeadPathDelta struct {
 	BaseVersion, NewVersion uint64
@@ -111,12 +56,12 @@ type HeadPathDelta struct {
 	Retracted               []AnchorNode
 	Appended                []HeadDelivery
 	PreBirthProof           []AnchorNode
-	Reason                  HeadPathChangeReason
+	Reason                  PathChangeReason
 }
 type HeadEvent struct {
 	Path       HeadPathDelta
-	Evaluation HeadEvaluation
-	Audit      HeadAuditRange
+	Evaluation EvaluationSnapshot
+	Audit      AuditRange
 }
 type headFetchTarget struct {
 	source  Source
@@ -162,7 +107,7 @@ type HeadSubscription struct {
 
 var headDomainSequence atomic.Uint64
 
-func (s *HeadSubscription) Basis() HeadEvidenceBasis {
+func (s *HeadSubscription) Basis() EvidenceBasis {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.tracker.Basis()
