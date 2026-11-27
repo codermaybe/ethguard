@@ -134,26 +134,19 @@ type Decision struct {
 	Reference    *ReferenceEvidence
 	Participants []SourceRef
 	Status       Status
-	// Value is the payload returned for this decision. Migrated quantities
-	// and successful DATA write the canonical encoding, which does not follow
-	// the representative source's spelling. eth_feeHistory writes the
-	// canonical object of its protected fields; its comparison key stays the
-	// feeHistory key. eth_getLogs writes the canonical array of the fields its
-	// mask retains; its comparison key stays the existing log key.
-	// eth_createAccessList writes the canonical object of the fields its mask
-	// retains; its comparison key stays the existing access-list key.
-	// eth_getTransactionReceipt writes the canonical object of its protected
-	// receipt fields, including the official from field when present. Its
-	// comparison key is the same canonical object. eth_getBlockReceipts uses the
-	// same protected receipt model in a canonical array. Other
-	// generic Strict decisions copy one admitted source value from the winning
-	// cluster and do not change its fields. A
-	// successful eth_call value is canonical DATA. An eth_call revert may
+	// Value is the payload returned for this decision. A method with a
+	// canonical processor or an explicit result encoder returns the canonical
+	// bytes that contract produces; their spelling need not match the
+	// representative source. The method declares whether its comparison key
+	// is those same bytes or a separate key. A raw resolver without a result
+	// encoder preserves its selected source value; a clustering resolver uses
+	// the first supporter of the winning cluster. Fields from different
+	// sources are never spliced into Value.
+	// A successful eth_call value is canonical DATA. An eth_call revert may
 	// apply a reductive projection (decision 0039 rule 4e, option (i)): it
 	// may delete a field that lacks corroboration, and it may not add,
 	// replace, or splice fields from another source. Revert code/message are
 	// carried in RevertContext; the protected Value keeps only accepted data.
-	// Methods that have not migrated keep their source value.
 	Value json.RawMessage
 	// Revert carries provider error context for a corroborated eth_call
 	// revert. Code and Message are diagnostics, not protected result fields;
@@ -181,18 +174,17 @@ type Decision struct {
 	// attempted-source, collection and internal diagnostic view.
 	SourceFaults     []SourceFault
 	CollectionFaults []error
-	// Provenance belongs to the selected value and is populated by an
-	// the plan admission hook. It is opaque to generic callers. eth_call also stores
+	// Provenance belongs to the selected value and is supplied by method
+	// admission or canonical processing. It is opaque to generic callers. eth_call also stores
 	// withheld revert-data bytes here when rule 4e removes them from Value;
 	// those bytes are audit material, not a corroborated field.
 	Provenance json.RawMessage
 	// Representative is the first supporter of the winning cluster in this
-	// call's captured member order. For a method that has not migrated, Value
-	// is that source's admitted payload. For a migrated quantity, successful
-	// DATA result, eth_feeHistory, eth_getLogs, eth_createAccessList, or
-	// eth_getTransactionReceipt, or eth_getBlockReceipts, Value
-	// is the canonical encoding and this field only records who was first. It
-	// is set wherever that cluster is
+	// call's captured member order. A raw resolver without a result encoder
+	// keeps that source's admitted payload in Value. With a canonical processor
+	// or explicit result encoder, Value follows the encoding contract and this
+	// field records source identity, not a promise of identical wire spelling.
+	// It is set wherever that cluster is
 	// carried out, including decisions that fail with the Value attached. It
 	// stays zero when there is no valid response, and on Local, Forward, and
 	// ResolveLocal. It carries no ordinal; the ordinal is the source's
