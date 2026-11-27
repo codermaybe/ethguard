@@ -38,7 +38,6 @@ func WithMedianCanonical(encode CanonicalEncoder) MedianOption {
 }
 
 type medianFunc struct {
-	requestPassthrough
 	normalize func(json.RawMessage) (string, error)
 	encode    CanonicalEncoder
 }
@@ -50,8 +49,8 @@ func (f medianFunc) Normalize(value json.RawMessage) (string, error) {
 // MethodRule reports median resolution. Median's contract is a base-10
 // integer key, so the coarse class is quantity. This method does not
 // participate in request handling.
-func (f medianFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverMedian, CompareKind: RuleCompareQuantity, Result: resultRule(f.encode)}, nil
+func (f medianFunc) MethodRule() MethodRule {
+	return MethodRule{Resolver: RuleResolverMedian, CompareKind: RuleCompareQuantity, Result: resultRule(f.encode)}
 }
 
 func (f medianFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {

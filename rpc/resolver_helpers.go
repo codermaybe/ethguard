@@ -1,24 +1,9 @@
 package rpc
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 )
-
-// The resolver shells share three pieces of plumbing that carry no method
-// semantics: a prepare that takes the caller's request unchanged, the
-// canonical-value shell over an optional encoder, and the no-usable-answer
-// sentinel. Method-specific preparation lives in the plan's Prepare hook, not
-// in the resolver.
-
-// requestPassthrough is the shared prepare of the resolver shells: these
-// policies take the caller's request unchanged and never rewrite it.
-type requestPassthrough struct{}
-
-func (requestPassthrough) Prepare(_ context.Context, req Request) (Request, error) {
-	return req, nil
-}
 
 // encodeCanonicalValue is the shared canonical-value shell of the resolvers
 // that carry one optional encoder: without one the value is not a canonical

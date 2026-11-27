@@ -43,7 +43,7 @@ func TestCompilePlanProcessorRequiresStrictCanonicalBytes(t *testing.T) {
 			s.KeySource = ""
 			s.CompareKind = rpc.RuleCompareQuantity
 		}},
-		{"block-resolver", func(s *MethodSpec) { s.Resolver = ResolverBlock; s.ByHash = true }},
+		{"local-resolver", func(s *MethodSpec) { s.Resolver = ResolverLocal; s.KeySource = "" }},
 		{"call-revert-resolver", func(s *MethodSpec) { s.Resolver = ResolverCallRevert; s.KeySource = "" }},
 		{"normalizer-key", func(s *MethodSpec) { s.KeySource = rpc.RuleKeyNormalizer }},
 		{"no-normalizer-adapter", func(s *MethodSpec) { s.Normalize = nil }},

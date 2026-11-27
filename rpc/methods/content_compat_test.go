@@ -125,8 +125,8 @@ func TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected(t *testing.T) {
 	if err := json.Unmarshal(empty, &head); err != nil {
 		t.Fatal(err)
 	}
-	policy := compiledPlan(t, MethodGetBlockByHash).Resolver.(rpc.AdmissionPolicy)
-	if _, err := policy.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{head.Hash, true}}, empty, nil); err != nil {
+	plan := compiledPlan(t, MethodGetBlockByHash)
+	if _, err := plan.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{head.Hash, true}}, empty, nil); err != nil {
 		t.Fatalf("empty uncle list and empty transaction list must be legal: %v", err)
 	}
 	var other struct {
@@ -135,7 +135,7 @@ func TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected(t *testing.T) {
 	if err := json.Unmarshal(filled, &other); err != nil {
 		t.Fatal(err)
 	}
-	_, err := policy.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{other.Hash, true}}, empty, nil)
+	_, err := plan.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{other.Hash, true}}, empty, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("foreign block content err = %v, want ErrMalformedResponse", err)
 	}
@@ -143,7 +143,7 @@ func TestEmptyBlockUnclesAreLegalAndForeignBlockIsRejected(t *testing.T) {
 		t.Fatalf("impersonation swallowed as %v", err)
 	}
 	tampered := injectField(t, empty, "uncles", `["0x`+strings.Repeat("ab", 32)+`"]`)
-	_, err = policy.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{head.Hash, true}}, tampered, nil)
+	_, err = plan.Admit(context.Background(), rpc.Request{Method: MethodGetBlockByHash, Params: []any{head.Hash, true}}, tampered, nil)
 	if !errors.Is(err, rpc.ErrMalformedResponse) {
 		t.Fatalf("non-empty uncles for an empty root: %v", err)
 	}

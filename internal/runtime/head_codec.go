@@ -13,8 +13,7 @@ import (
 // seam. The composition root owns the binding, so internal/reference decodes
 // heads through this interface without importing method policies: validation
 // and the comparison key stay the block method's own identity function, and
-// the height/hash extraction is the codec's. It does not construct a legacy
-// policy chain.
+// the height/hash extraction is the codec's.
 type MethodHeadCodec struct{}
 
 // Decode validates one raw block-head response and extracts its identity.

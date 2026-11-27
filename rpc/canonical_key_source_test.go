@@ -32,7 +32,7 @@ func TestClusterKeySourceGuardrail(t *testing.T) {
 		if !errors.Is(err, ErrConflict) || decision.Decision.Status != Unknown || len(decision.Decision.Support) != 1 || len(decision.Decision.Reject) != 1 || len(decision.Decision.Faults) != 0 {
 			t.Fatalf("key came from the folding normalizer, not the encoder: %+v err %v", decision, err)
 		}
-		if rule, _ := policy.(MethodRuleSource).MethodRule(); rule.KeySource != RuleKeyCanonicalBytes {
+		if rule := policy.(MethodRuleSource).MethodRule(); rule.KeySource != RuleKeyCanonicalBytes {
 			t.Fatalf("key source = %q, want %q", rule.KeySource, RuleKeyCanonicalBytes)
 		}
 	})
@@ -51,7 +51,7 @@ func TestClusterKeySourceGuardrail(t *testing.T) {
 		if len(decision.Decision.Support) != 2 || len(decision.Decision.Reject) != 0 {
 			t.Fatalf("guard changed membership: %+v", decision)
 		}
-		rule, _ := policy.(MethodRuleSource).MethodRule()
+		rule := policy.(MethodRuleSource).MethodRule()
 		if rule.KeySource != RuleKeyNormalizer {
 			t.Fatalf("key source = %q, want %q", rule.KeySource, RuleKeyNormalizer)
 		}
@@ -68,7 +68,7 @@ func TestClusterKeySourceGuardrail(t *testing.T) {
 	// case above.
 	t.Run("no encoder declares normalizer and raw", func(t *testing.T) {
 		policy := Strict(fold, WithQuorum(1))
-		rule, _ := policy.(MethodRuleSource).MethodRule()
+		rule := policy.(MethodRuleSource).MethodRule()
 		if rule.KeySource != RuleKeyNormalizer {
 			t.Fatalf("key source = %q, want %q", rule.KeySource, RuleKeyNormalizer)
 		}

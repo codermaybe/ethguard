@@ -64,7 +64,7 @@ type Bundle struct {
 // projectors, and the aggregator. Method binding lives here; the
 // establishment algorithms remain owned by their respective modules. The
 // default registry drives every registered read from its explicit execution
-// plan and generates no decorator chains: read corroboration is governed by
+// plan. Read corroboration is governed by
 // the invocation's frozen snapshot, and the strict options input stays with
 // the establishment algorithms that own their own threshold formulas.
 func Build(in Inputs) (*Bundle, error) {

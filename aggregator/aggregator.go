@@ -23,15 +23,12 @@ type Aggregator struct {
 	projectors     map[string]rpc.ObservationProjector
 	// corrob is the runtime-mutable adjudication configuration shared by one
 	// client's aggregators; nil leaves policies on construction-time
-	// defaults (direct construction, legacy tests).
+	// defaults.
 	corrob *rpc.CorroborationShared
-	// stage is the reference establishment seam. When set, the anchor readers
-	// inside policy Prepare resolve it from the invocation context, so
-	// establishment runs on the aggregator's invocation.
+	// stage establishes the plan's required reference within this invocation.
 	stage ReferenceStage
-	// plans are the read methods driven by explicit execution plans. A
-	// method with a plan runs the plan pipeline; every other method keeps
-	// the compiled policy path.
+	// plans own each registered method's execution declaration. Unknown
+	// methods use a forwarding plan in the same pipeline.
 	plans map[string]rpc.ReadPlan
 }
 
@@ -66,8 +63,8 @@ func WithCorroboration(c *rpc.CorroborationShared) Option {
 }
 
 // WithReferenceStage installs the reference establishment seam. The stage is
-// what the anchor readers resolve while preparing a moving-tag read, so the
-// reference rounds run on the aggregator's invocation.
+// coordinator calls it for the plan's declared moving-tag requirement, so
+// reference rounds share the aggregator's invocation.
 func WithReferenceStage(stage ReferenceStage) Option {
 	return func(a *Aggregator) {
 		if stage != nil {
@@ -76,15 +73,8 @@ func WithReferenceStage(stage ReferenceStage) Option {
 	}
 }
 
-// WithProjectors registers method-level semantic projectors separately from
-// policies. Keeping this assembly map outside Policy preserves every optional
-// policy capability (admission, anchoring, corroboration, forwarding).
-//
-// The map key is the projection's resolution key, which depends on the
-// route: a planned read resolves its projector by the plan's declared
-// projector ID (a business identity that may differ from the method name
-// and may be shared across reads), while a chained legacy read still
-// resolves by method name. Nil projectors are skipped.
+// WithProjectors binds each plan's declared projector ID to its projector.
+// Multiple methods may share one projector ID. Nil projectors are skipped.
 func WithProjectors(projectors map[string]rpc.ObservationProjector) Option {
 	return func(a *Aggregator) {
 		for key, projector := range projectors {

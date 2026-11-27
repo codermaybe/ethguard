@@ -182,7 +182,7 @@ type Decision struct {
 	SourceFaults     []SourceFault
 	CollectionFaults []error
 	// Provenance belongs to the selected value and is populated by an
-	// AdmissionPolicy. It is opaque to generic callers. eth_call also stores
+	// the plan admission hook. It is opaque to generic callers. eth_call also stores
 	// withheld revert-data bytes here when rule 4e removes them from Value;
 	// those bytes are audit material, not a corroborated field.
 	Provenance json.RawMessage

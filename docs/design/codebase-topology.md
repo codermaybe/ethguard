@@ -119,14 +119,14 @@ ReferenceStage 通过 runtime 绑定的 HeadReader／HeadCodec 与 Transport Por
 | 类别 | 现行能力与语义 |
 | --- | --- |
 | Strict | 普通与 corroborated Outcome；显式 KeySource；可声明 RPC error body 和 canonical 消费能力 |
-| Block | 包装 Strict，提供对应 Outcome／agreement 能力并绑定 by-hash/by-number；当前业务计划以 canonical bytes 聚类；reference HeadCodec 另用 number/hash 身份 |
+| Block 方法 | 直接使用 Strict，以 canonical bytes 聚类；spec／plan 的 Admit 绑定 by-hash/by-number，reference HeadCodec 另用 number/hash 身份 |
 | CallRevert | execution 与 data 独立裁决，共享 Outcome 内核；data 弃权不冒充 Reject；provider 文案只是上下文 |
 | Median／Local | 强制返回逐源Outcome；普通解析与编码，Selected 封顶；有 corroboration snapshot 也不获得 agreement |
 | Forward／pending-local | 强制返回逐源Outcome；只判断实际处理的来源，后续来源保持未评估，不推导跨源一致 |
 
 裁定的Required由实际执行的resolver合同形成：有snapshot的入口消费冻结配置，无snapshot的入口保留构造器或默认规则。coordinator核对输入与冻结成员一致，不能在Validate之后覆写Required，或靠覆盖Basis修补不一致。
 
-Outcome是Policy本身的强制合同，不是额外的可选能力。编译对resolver kind、实际Go能力、agreement、KeySource与processor配对双向校验，失败不注册；运行时仍对外部装配的能力矛盾和Outcome覆盖矛盾返回内部合同错误。KeySource 不从 encoder 是否存在推断；normalizer+encoder 可表达窄键与较宽值，具体装配见生成索引。block wrapper 当前直接委托结果，不再恢复代表源原始 spelling。head 身份、full/header/null、请求绑定和 body 承诺分别验证。
+Policy只要求Normalize与Resolve；准备、准入及reference属于ReadPlan。MethodRule直接读取resolver与plan声明，CanonicalOf直接读取编码能力，不再遍历装饰链。Outcome是Policy本身的强制合同，不是额外的可选能力。编译对resolver kind、实际Go能力、agreement、KeySource与processor配对双向校验，失败不注册；运行时仍对外部装配的能力矛盾和Outcome覆盖矛盾返回内部合同错误。KeySource 不从 encoder 是否存在推断；normalizer+encoder 可表达窄键与较宽值，具体装配见生成索引。Block 方法不再拥有 resolver wrapper；admission 由 spec／plan 直接声明。head 身份、full/header/null、请求绑定和 body 承诺分别验证。
 
 ### Canonical 单源处理路线
 
@@ -140,7 +140,7 @@ Outcome是Policy本身的强制合同，不是额外的可选能力。编译对r
 - 方法处理失败保持 `admission: %w` 归因、同源依赖捕获和并发槽位语义。raw 路线的 encode/normalize 故障阶段保持原合同。
 - BlockReceipts 复用逐条 receipt 准入已验证的 canonical bytes；保持 null、列表形状、请求、逐条完整验证与绑定的原顺序，成功后才编码数组。整列表的大小和深度由 coordinator 的 `RejectUnsafeJSON` 前置安全门保护；逐条检查不替代整列表检查，raw Admit 不为丢弃结果额外编码数组。
 - 两路共用聚类、排序、裁定、verdict 与提交内核；raw finish 保留 encoder 声明门，canonical 直接提交已验证结果。
-- 编译目前只允许 Strict + canonical-bytes + canonical 消费能力；保留 raw Normalize／Encode／原 Admit。Block、CallRevert、Median、Local 不直接套用此 seam；无 Admit 方法不能凭空补空 hook 改写错误阶段。
+- 编译目前只允许 Strict + canonical-bytes + canonical 消费能力；保留 raw Normalize／Encode／原 Admit。Block 方法尚未声明 processor；CallRevert、Median、Local 不直接套用此 seam；无 Admit 方法不能凭空补空 hook 改写错误阶段。
 
 ## 4. 后续整体优化的设计标准
 

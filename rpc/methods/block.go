@@ -12,42 +12,8 @@ import (
 	blockobject "github.com/codermaybe/ethguard/rpc/internal/objects/block"
 )
 
-type blockPolicy struct {
-	// Policy is the inner strict resolver. Both production block specs
-	// compare and deliver complete canonical values, including header-only
-	// responses. The wrapper forwards that result; Normalize separately
-	// exposes the block identity for independent consumers.
-	Policy rpc.Policy
-	byHash bool
-}
-
-// Prepare forwards the inner resolver's prepare: the plan pipeline never
-// calls it (the plan owns preparation), but the value satisfies rpc.Policy.
-func (p blockPolicy) Prepare(ctx context.Context, req rpc.Request) (rpc.Request, error) {
-	return p.Policy.Prepare(ctx, req)
-}
-
-// Normalize forwards the independent block identity normalizer. Production
-// comparison and delivery use the canonical value configured by the spec.
-func (p blockPolicy) Normalize(value json.RawMessage) (string, error) {
-	return p.Policy.Normalize(value)
-}
-
-// MethodRule composes the inner resolver's rule column and reports the
-// block wrapper as its owner, so capability walks (CanonicalOf and the
-// method-rule index) keep reaching the wrapped resolver.
-func (p blockPolicy) MethodRule() (rpc.MethodRule, rpc.Policy) {
-	var rule rpc.MethodRule
-	if inner, ok := p.Policy.(rpc.MethodRuleSource); ok {
-		rule, _ = inner.MethodRule()
-	}
-	return rule, p.Policy
-}
-
-// admitBlockResponse is the single full-block admission hook shared by the
-// explicit plan and the compatibility policy. The block identity is supplied
-// by the method assembly, so admission never infers hash-versus-number
-// semantics from a request method string.
+// admitBlockResponse validates a full-block response for the method's plan.
+// The method supplies hash-versus-number binding explicitly.
 func admitBlockResponse(ctx context.Context, req rpc.Request, value json.RawMessage, byHash bool, call rpc.AdmissionCaller) (json.RawMessage, error) {
 	if string(value) == "null" {
 		return nil, nil
@@ -74,34 +40,9 @@ func isTrueParam(value any) bool {
 	}
 }
 
-func (p blockPolicy) RequiresAgreement() bool {
-	if a, ok := p.Policy.(rpc.AgreementPolicy); ok {
-		return a.RequiresAgreement()
-	}
-	return true
-}
-
-func (p blockPolicy) ResolveCorroborated(c rpc.Corroboration, obs []rpc.Observation) (rpc.Outcome, error) {
-	if cp, ok := p.Policy.(rpc.CorroboratingPolicy); ok {
-		return cp.ResolveCorroborated(c, obs)
-	}
-	return p.Policy.Resolve(obs)
-}
-
-func (p blockPolicy) Resolve(obs []rpc.Observation) (rpc.Outcome, error) {
-	return p.Policy.Resolve(obs)
-}
-
-// Admit validates full block responses through the shared block object
-// admission implementation. Header-only calls remain anchor reads.
-func (p blockPolicy) Admit(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
-	return admitBlockResponse(ctx, req, value, p.byHash, call)
-}
-
 // NormalizeBlockHead exposes the block identity contract to the reference
-// head codec without constructing a legacy policy chain. Reference reads and
-// standalone Normalize calls share this identity extraction; production block
-// comparison and delivery use complete canonical values.
+// head codec. Reference reads and standalone Normalize calls share this
+// extraction; production block comparison and delivery use complete values.
 func NormalizeBlockHead(value json.RawMessage) (string, error) {
 	return normalizeBlockIdentity(value)
 }

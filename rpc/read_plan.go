@@ -11,7 +11,7 @@ import (
 // The read execution plan.
 //
 // A planned read runs through one fixed phase order, and every phase reads
-// its facts from the plan value instead of walking a decorator chain:
+// its facts from the plan value:
 //
 //	Validate / Prepare
 //	→ ReferenceRequirement
@@ -43,10 +43,8 @@ import (
 //
 // A plan carries no network callback: establishment data arrives as the
 // established evidence value, and the same-source admission caller is an
-// execution-time dependency the coordinator injects. The decorator chain
-// (Policy, Decorator, the WithAnchor family) stays as the migration-era
-// compatibility surface; the plan is the source of truth for the methods a
-// registry drives from plans.
+// execution-time dependency the coordinator injects. Registered methods and
+// unknown-method forwarding share this one execution pipeline.
 
 // ReferenceShape names the request shape that can carry a moving tag.
 type ReferenceShape string
@@ -92,10 +90,8 @@ type PendingSpec struct {
 	Pos  int
 }
 
-// ResolverKind names the resolver class a plan drives. The kind — not the
-// number of decorators around a resolver — decides every capability the plan
-// exposes: only strict and call-revert corroborate, only median and local
-// sample without clustering.
+// ResolverKind names the resolver class a plan drives: strict and
+// call-revert corroborate, while median and local sample without clustering.
 type ResolverKind string
 
 const (
@@ -103,9 +99,6 @@ const (
 	ResolverMedian     ResolverKind = "median"
 	ResolverLocal      ResolverKind = "local"
 	ResolverCallRevert ResolverKind = "call-revert"
-	// ResolverBlock is the strict resolver under the block wrapper: byHash
-	// identity + header-only source spelling restoration.
-	ResolverBlock ResolverKind = "block"
 )
 
 // corroboratingResolvers reports whether a resolver class resolves under an
@@ -113,7 +106,7 @@ const (
 // fixed voting basis.
 func corroboratingResolvers(kind ResolverKind) bool {
 	switch kind {
-	case ResolverStrict, ResolverBlock, ResolverCallRevert:
+	case ResolverStrict, ResolverCallRevert:
 		return true
 	}
 	return false
@@ -128,11 +121,8 @@ func corroboratingResolvers(kind ResolverKind) bool {
 type ReadPlan struct {
 	Method string
 
-	// Resolver is the method's resolver value, built by the rpc resolver
-	// constructors (Strict, Median, Local, NewCallRevertPolicy) or a method
-	// resolver wrapper such as the block wrapper. It owns normalization,
-	// clustering, and adjudication; the plan never wraps it in preparation
-	// decorators.
+	// Resolver owns normalization, clustering, and adjudication. Request
+	// preparation, admission, and reference handling are plan responsibilities.
 	Resolver Policy
 	// ResolverKind is the declared resolver class. It selects the collection
 	// mode and the resolution entry point; plan validation keeps it and the
@@ -202,7 +192,7 @@ func (p ReadPlan) ApplyReferenceDefault(req Request) Request {
 // derivation and the rewrite in PrepareWithReference read the same
 // declaration, so a position either declares and rewrites or does neither.
 // Mixed moving tags report "not needed" and let the rewrite own the local
-// rejection, exactly as the compat chains do.
+// rejection.
 func (p ReadPlan) ReferenceRequirement(req Request) (ReferenceRequest, bool) {
 	req = p.ApplyReferenceDefault(req)
 	if p.Reference.EIP1898 {
@@ -298,11 +288,9 @@ func (p ReadPlan) fieldsRequirement(req Request) (ReferenceRequest, bool) {
 // no context, and holds no network callback — and refOK is false when the
 // read declared no moving tag. The returned pin is the block reference the
 // rewrite introduced (empty for reads that rewrote nothing, including
-// pending shapes), so projection records the security-relevant pin without
-// walking decorators.
+// pending shapes), so projection records the security-relevant pin.
 //
-// The rewrite reproduces the compat chains' contract exactly: the EIP-1898
-// object form is validated and rewritten before the string positions are
+// The EIP-1898 object form is validated and rewritten before string positions are
 // considered, invalid objects fail locally with ErrInvalidRequest before any
 // upstream contact, and established evidence that does not serve the
 // request's tag fails the read the way a missing reference would.
@@ -511,7 +499,7 @@ func EvidenceServesTag(ref ReferenceEvidence, tag string) bool {
 }
 
 // anyMovingTagAt reports whether one of the positions carries a moving tag.
-// Out-of-range positions are skipped, as in the compat chains.
+// Out-of-range positions are skipped.
 func anyMovingTagAt(params []any, positions []int) bool {
 	for _, pos := range positions {
 		if pos < 0 || pos >= len(params) {
@@ -545,9 +533,8 @@ func singleAnchorTag(method string, params []any, positions []int) (string, erro
 }
 
 // PendingRejectAt returns the standard local pending rejection for one
-// parameter position: the same pending spellings the RejectPending
-// compatibility decorator matches, failing the read before any anchor or
-// upstream call. Methods that observe pending instead never install it.
+// parameter position, failing the read before reference establishment or
+// an upstream call. Methods that observe pending instead never install it.
 func PendingRejectAt(pos int, method string) func(Request) error {
 	return func(req Request) error {
 		if pos < 0 || pos >= len(req.Params) {
@@ -563,11 +550,11 @@ func PendingRejectAt(pos int, method string) func(Request) error {
 // MethodRule projects the method-rule index row from the plan's declared
 // facts and the resolver's own rule. The resolver fills Resolver,
 // CompareKind, KeySource, and Result; the plan fills Anchor, BlockRef, and
-// Pending from its declarations. Nothing walks decorators to build the row.
+// Pending from its declarations.
 func (p ReadPlan) MethodRule() MethodRule {
 	rule := MethodRule{}
 	if source, ok := p.Resolver.(MethodRuleSource); ok {
-		rule, _ = source.MethodRule()
+		rule = source.MethodRule()
 	}
 	switch p.Reference.Kind {
 	case ReferenceShapeHashAt:

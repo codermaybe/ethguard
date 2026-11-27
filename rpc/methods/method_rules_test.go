@@ -11,9 +11,8 @@ import (
 )
 
 // TestMethodRulesMatchIndex locks docs/design/method-rules.md to runtime
-// introspection of every RegisteredMethod. A layer that does not implement
-// MethodRuleSource fails the test with the method name and the concrete
-// type. There is no allow-undeclared exception.
+// declarations of every RegisteredMethod. Every compiled plan must name
+// its resolver and comparison class; there is no undeclared exception.
 //
 // ETHGUARD_UPDATE_METHOD_RULES=1 rewrites the file. The default does not.
 func TestMethodRulesMatchIndex(t *testing.T) {
@@ -82,7 +81,7 @@ func methodRuleRows() ([]methodRuleRow, error) {
 }
 
 // assertPendingSemantics locks the three pending mechanisms to methods whose
-// constructions differ. The values have to come from those layers; a single
+// declarations differ. The values come from each plan; a single
 // fixed label cannot satisfy all three.
 func assertPendingSemantics(rows []methodRuleRow) error {
 	got := map[string]string{}

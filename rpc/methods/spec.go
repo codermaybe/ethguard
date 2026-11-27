@@ -8,12 +8,7 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// ResolverKind names the resolver a compiled method assembles. It is the
-// plan-level resolver class in rpc: the kind — not the number of decorators
-// around it — decides every capability the composed policy exposes: only
-// strict and call-revert corroborate, only median and local sample without
-// clustering, and wrapping a non-corroborating resolver never acquires a
-// corroboration claim.
+// ResolverKind names the resolution algorithm compiled for a method.
 type ResolverKind = rpc.ResolverKind
 
 const (
@@ -21,9 +16,6 @@ const (
 	ResolverMedian     = rpc.ResolverMedian
 	ResolverLocal      = rpc.ResolverLocal
 	ResolverCallRevert = rpc.ResolverCallRevert
-	// ResolverBlock is the strict resolver under the block wrapper: byHash
-	// identity + header-only source spelling restoration.
-	ResolverBlock = rpc.ResolverBlock
 )
 
 // PendingMode declares a method's pending handling at one position.
@@ -50,9 +42,9 @@ const (
 
 // ReferenceSpec declares where a request can ride a moving tag. Declaring is
 // all a method does: the aggregator establishes the reference through the
-// reference stage on the invocation's frozen basis, and the anchor layers
-// rewrite from the established evidence. A zero spec means the method never
-// needs a reference. See docs/design/codebase-topology.md.
+// reference stage on the invocation's frozen basis, and the plan rewrites
+// from the established evidence. A zero spec needs no reference.
+// See docs/design/codebase-topology.md.
 type ReferenceSpec = rpc.ReferenceSpec
 
 // AdmissionFunc is the method-owned admission hook signature.
@@ -87,15 +79,13 @@ const (
 
 // MethodSpec is the data form of one read method's contract: resolver, value
 // domain, reference declaration, pending handling, and hooks. Compile turns
-// it into the one policy the registry installs; the field set is frozen —
+// it into the read plan the runtime installs; the field set is frozen —
 // a new dimension goes through the call-revert escape hatch first, never
 // through a new field for one method.
 type MethodSpec struct {
 	Method string
 
 	Resolver ResolverKind
-	// ByHash distinguishes the two block methods' admission and identity.
-	ByHash bool
 
 	// Normalize is the comparison-key function; Encode, when set, is the
 	// canonical value encoder. KeySource is the frozen three-state
@@ -112,9 +102,8 @@ type MethodSpec struct {
 	Reference ReferenceSpec
 	Pending   PendingSpec
 
-	// Prepare runs before any anchor layer; Admit runs after collection
-	// with the same-source caller. Both are v1 hooks: the order is fixed by
-	// Compile, not by the method.
+	// Prepare runs before reference establishment; Admit runs after collection
+	// with the same-source caller. The execution pipeline fixes their order.
 	Prepare func(context.Context, rpc.Request) (rpc.Request, error)
 	Admit   AdmissionFunc
 
@@ -123,9 +112,8 @@ type MethodSpec struct {
 	// a mode switch: the compiler accepts it only on a strict resolver
 	// declaring canonical-bytes, and the plan then carries the same processor
 	// so the coordinator can select the processing route for one invocation.
-	// The Normalize/Encode/Admit hooks stay available as the compatibility
-	// adapters of the same object kernel; declaring a processor never nils
-	// them out, and the raw route keeps working unchanged.
+	// The Normalize/Encode/Admit hooks expose the raw route through the same
+	// object kernel; declaring a processor keeps all raw hooks intact.
 	ProcessCanonical rpc.CanonicalProcessor
 
 	// ObservationProjectorID names the runtime-bound projector; the spec

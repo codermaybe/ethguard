@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -16,9 +15,6 @@ func (ForwardPolicy) SingleSource() bool { return true }
 // IncludeRPCError preserves authoritative protocol answers in observations.
 func (ForwardPolicy) IncludeRPCError() bool { return true }
 
-func (ForwardPolicy) Prepare(_ context.Context, req Request) (Request, error) {
-	return req, nil
-}
 func (ForwardPolicy) Normalize(value json.RawMessage) (string, error) { return string(value), nil }
 func (ForwardPolicy) Resolve(obs []Observation) (Outcome, error) {
 	verdicts := initialVerdicts(obs)

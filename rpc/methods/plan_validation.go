@@ -26,7 +26,7 @@ func validatePlanComposition(spec MethodSpec) error {
 		return fmt.Errorf("methods: %s declares no comparison-key normalizer", spec.Method)
 	}
 	switch spec.Resolver {
-	case ResolverStrict, ResolverMedian, ResolverLocal, ResolverCallRevert, ResolverBlock:
+	case ResolverStrict, ResolverMedian, ResolverLocal, ResolverCallRevert:
 	default:
 		return fmt.Errorf("methods: %s declares unknown resolver kind %q", spec.Method, spec.Resolver)
 	}
@@ -76,7 +76,7 @@ func validatePlanComposition(spec MethodSpec) error {
 	// sample by number or select without clustering and carry no key-source
 	// column, so their encoders ride the sampling options instead.
 	switch spec.Resolver {
-	case ResolverStrict, ResolverBlock, ResolverCallRevert:
+	case ResolverStrict, ResolverCallRevert:
 		switch spec.KeySource {
 		case rpc.RuleKeyCanonicalBytes:
 			if spec.Encode == nil {
@@ -94,10 +94,8 @@ func validatePlanComposition(spec MethodSpec) error {
 	// The canonical processing route is a strict-only assembly: clustering on
 	// canonical bytes requires the strict resolver's cluster/commit kernel,
 	// and a processor beside a different key source would make the declared
-	// key and the processed bytes disagree. The compatibility adapters are
-	// not optional for a processing method: the raw route must keep working
-	// unchanged, so a spec may not declare a processor and simultaneously
-	// drop its normalizer or encoder.
+	// key and the processed bytes disagree. The raw route also needs its
+	// normalizer and encoder, so both remain required with a processor.
 	if spec.ProcessCanonical != nil {
 		if spec.Resolver != ResolverStrict {
 			return fmt.Errorf("methods: %s declares a canonical processor with resolver %q; the processing route requires %q",
@@ -108,7 +106,7 @@ func validatePlanComposition(spec MethodSpec) error {
 				spec.Method, spec.KeySource, rpc.RuleKeyCanonicalBytes)
 		}
 		if spec.Normalize == nil || spec.Encode == nil {
-			return fmt.Errorf("methods: %s declares a canonical processor without its raw compatibility adapters", spec.Method)
+			return fmt.Errorf("methods: %s declares a canonical processor without its raw normalization and encoding hooks", spec.Method)
 		}
 	}
 	return nil
@@ -143,9 +141,9 @@ func validatePlanBindings(plan rpc.ReadPlan, spec MethodSpec) error {
 			spec.Method, spec.Resolver, agreement.RequiresAgreement(), agreementRequired)
 	}
 	if rule, ok := plan.Resolver.(rpc.MethodRuleSource); ok {
-		projected, _ := rule.MethodRule()
+		projected := rule.MethodRule()
 		switch spec.Resolver {
-		case ResolverStrict, ResolverBlock, ResolverCallRevert:
+		case ResolverStrict, ResolverCallRevert:
 			if spec.KeySource != "" && projected.KeySource != spec.KeySource {
 				return fmt.Errorf("methods: %s declares key source %q but its resolver projects %q",
 					spec.Method, spec.KeySource, projected.KeySource)

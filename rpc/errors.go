@@ -22,8 +22,7 @@ var ErrReorgDetected = errors.New("rpc: reorg detected")
 var ErrUnsupportedTypedObject = errors.New("rpc: unsupported typed object")
 
 // ErrReferenceRequired reports that a prepared read needs its reference
-// established before the request can be rewritten. The preparing decorator
-// returns it when the invocation carries no usable reference; the aggregator
-// answers it by running the reference stage and preparing again. It is a
-// pipeline-internal protocol, never a user-facing classification.
+// established before the request can be rewritten. The plan rejects missing
+// or unsuitable evidence before business collection; the coordinator also
+// rejects a missing stage or an establishment without evidence.
 var ErrReferenceRequired = errors.New("rpc: reference required for moving-tag read")

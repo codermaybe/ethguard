@@ -81,7 +81,7 @@ func WithRPCErrorBodies() StrictOption {
 }
 
 // WithRuleCompareKind records the coarse comparison-key class for the
-// method-rule index. It is not read by Prepare, Normalize, or Resolve.
+// method-rule index. It is not read by Normalize or Resolve.
 func WithRuleCompareKind(kind string) StrictOption {
 	return func(s *strictConfig) { s.compareKind = kind }
 }
@@ -113,9 +113,9 @@ func WithCanonicalObject(encode CanonicalEncoder) StrictOption {
 //
 // Corroboration options install the decision-0028 adjudication (majority or
 // unanimity over the invocation's fixed voting basis). Without one, the
-// legacy decision-0006 default applies: every valid response must agree, and
-// a single uncorroborated response is Selected rather than Corroborated. The
-// legacy default is retained for direct construction — the reference
+// decision-0006 valid-answer agreement applies: all valid responses must
+// agree, and a single response is Selected rather than Corroborated. The
+// valid-answer rule also serves direct construction: the reference
 // establishment paths depend on it by recorded decision
 // (docs/design/method-contracts.md) — while the client's default path
 // always resolves under a captured corroboration snapshot through
@@ -133,7 +133,6 @@ func Strict(normalize func(json.RawMessage) (string, error), opts ...StrictOptio
 }
 
 type strictFunc struct {
-	requestPassthrough
 	normalize       func(json.RawMessage) (string, error)
 	corroboration   *Corroboration
 	includeRPCError bool
@@ -160,8 +159,8 @@ func (f strictFunc) IncludeRPCError() bool { return f.includeRPCError }
 // attached", and "the key is the normalizer's and no encoder is attached yet".
 // Only this resolver declares it, so a median, local, or call-revert method
 // leaves it empty and renders as none.
-func (f strictFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind, KeySource: f.keySource(), Result: resultRule(f.canonicalEncoder())}, nil
+func (f strictFunc) MethodRule() MethodRule {
+	return MethodRule{Resolver: RuleResolverStrict, CompareKind: f.compareKind, KeySource: f.keySource(), Result: resultRule(f.canonicalEncoder())}
 }
 
 func (f strictFunc) keySource() string {
@@ -274,7 +273,7 @@ func containsSourceID(set map[string]struct{}, id string) bool {
 
 func (f strictFunc) Resolve(obs []Observation) (Outcome, error) {
 	if f.corroboration == nil {
-		return f.outcomeLegacy(obs)
+		return f.outcomeValidAnswers(obs)
 	}
 	return f.outcome(*f.corroboration, obs)
 }
@@ -288,11 +287,10 @@ func (f strictFunc) ResolveCorroborated(c Corroboration, obs []Observation) (Out
 // kernel out. The raw normalizer and encoder are never consulted here — the
 // canonical bytes are the comparison key and the commit material. The
 // construction-time corroboration configuration decides the mode exactly as
-// Resolve does; there is no zero-snapshot shortcut for the legacy
-// route.
+// Resolve does; without options, every valid answer must agree.
 func (f strictFunc) ResolveCanonical(cobs []CanonicalObservation) (Outcome, error) {
 	if f.corroboration == nil {
-		return f.canonicalLegacy(cobs)
+		return f.canonicalValidAnswers(cobs)
 	}
 	return f.canonicalCore(*f.corroboration, cobs)
 }
@@ -346,17 +344,17 @@ func (f strictFunc) outcome(c Corroboration, obs []Observation) (Outcome, error)
 	return completeOutcome(obs, decision, verdicts, err)
 }
 
-func (f strictFunc) outcomeLegacy(obs []Observation) (Outcome, error) {
-	decision, verdicts, err := f.legacyCore(obs)
+func (f strictFunc) outcomeValidAnswers(obs []Observation) (Outcome, error) {
+	decision, verdicts, err := f.validAnswersCore(obs)
 	return completeOutcome(obs, decision, verdicts, err)
 }
 
-func (f strictFunc) legacyCore(obs []Observation) (Decision, []SourceVerdict, error) {
+func (f strictFunc) validAnswersCore(obs []Observation) (Decision, []SourceVerdict, error) {
 	ranked, skipped, err := f.cluster(obs)
 	if err != nil {
 		return Decision{Status: Unknown, Adjudication: rankedAdjudication(len(obs), 1, nil), Faults: nil}, verdictsFromClusters(obs, nil, skipped), err
 	}
-	return legacyCoreClusters(ranked, skipped, obs, f.finish)
+	return adjudicateValidAnswers(ranked, skipped, obs, f.finish)
 }
 
 // canonicalCore is the corroborated canonical route: the same adjudication
@@ -373,16 +371,16 @@ func (f strictFunc) canonicalCore(c Corroboration, cobs []CanonicalObservation) 
 	return completeOutcome(observationsOfCanonical(cobs), decision, verdicts, err)
 }
 
-// canonicalLegacy is the no-snapshot canonical route: the decision-0006
-// default over processed results, sharing the legacy cluster core with the
-// raw route and committing through the unconditional kernel.
-func (f strictFunc) canonicalLegacy(cobs []CanonicalObservation) (Outcome, error) {
+// canonicalValidAnswers is the no-snapshot canonical route: the decision-0006
+// valid-answer agreement over processed results, sharing its cluster core
+// with the raw route and committing through the unconditional kernel.
+func (f strictFunc) canonicalValidAnswers(cobs []CanonicalObservation) (Outcome, error) {
 	ranked, skipped, err := clusterCanonical(cobs)
 	if err != nil {
 		decision := Decision{Status: Unknown, Faults: nil}
 		return completeOutcome(observationsOfCanonical(cobs), decision, verdictsFromCanonical(cobs, nil, skipped), err)
 	}
-	decision, verdicts, err := legacyCoreClusters(ranked, skipped, observationsOfCanonical(cobs), commitProcessed)
+	decision, verdicts, err := adjudicateValidAnswers(ranked, skipped, observationsOfCanonical(cobs), commitProcessed)
 	return completeOutcome(observationsOfCanonical(cobs), decision, verdicts, err)
 }
 
@@ -394,13 +392,13 @@ func observationsOfCanonical(cobs []CanonicalObservation) []Observation {
 	return obs
 }
 
-// legacyCoreClusters is the shared decision-0006 core over already-clustered
+// adjudicateValidAnswers is the shared decision-0006 core over already-clustered
 // answers: the winner's value, provenance, and representative; agreement
 // among every valid response with a lone response downgraded to Selected;
 // then the route's commit (the raw route gates on its encoder declaration,
 // the canonical route commits unconditionally) and the shared per-source
 // statement.
-func legacyCoreClusters(ranked []cluster, skipped []skippedAnswer, obs []Observation, commit func(Decision, error, []cluster) (Decision, error)) (Decision, []SourceVerdict, error) {
+func adjudicateValidAnswers(ranked []cluster, skipped []skippedAnswer, obs []Observation, commit func(Decision, error, []cluster) (Decision, error)) (Decision, []SourceVerdict, error) {
 	winner := ranked[0]
 	decision := winnerDecision(ranked, nil)
 	decision.Adjudication = rankedAdjudication(len(obs), 1, ranked)

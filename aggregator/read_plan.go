@@ -6,12 +6,8 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// The planned-read seam. A registry drives one read method either from its
-// explicit execution plan or from its compiled policy chain. Both run the
-// same fixed phase pipeline over one invocation; the plan path reads every
-// routing decision from the plan value instead of type-asserting optional
-// capabilities off a decorator chain. A method without a plan — known but
-// not yet migrated, or unknown — keeps the legacy policy path untouched.
+// Every read runs one execution plan through the fixed invocation pipeline.
+// Registered methods supply their plans; unknown methods use forwardPlan.
 
 // forwardPlan is the explicit forward semantics for a method outside the
 // registry: one bounded single-source attempt, the first usable answer wins,
@@ -23,8 +19,7 @@ func forwardPlan(method string) rpc.ReadPlan {
 }
 
 // WithPlans installs the read plans the aggregator executes through the
-// fixed phase pipeline. A method with a plan runs the plan path; every
-// other method keeps the compiled policy path. A non-empty plan with a local
+// fixed phase pipeline. A method without a plan uses forwardPlan. A non-empty plan with a local
 // hook but no resolver is installed so its local checks still run, then fails
 // closed during preparation. Empty plans without a resolver or hook are skipped.
 func WithPlans(plans map[string]rpc.ReadPlan) Option {

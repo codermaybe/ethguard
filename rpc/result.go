@@ -29,30 +29,19 @@ func EncodeCanonicalJSON(value json.RawMessage) (json.RawMessage, error) {
 var ErrNotCanonicalScalar = errors.New("rpc: result is not a canonical scalar")
 
 // CanonicalValue is the optional scalar encoder attached at method assembly.
-// Policies that do not implement it, and policies whose encoder is nil, are
-// not migrated. Request handling does not consult the method-rule index to
-// find an encoder.
+// Policies that do not implement it, and policies whose encoder is nil,
+// preserve the selected raw payload. Request handling does not consult the
+// method-rule index to find an encoder.
 type CanonicalValue interface {
 	CanonicalValue(json.RawMessage) (json.RawMessage, error)
 }
 
-// CanonicalOf walks the decorator chain and encodes one payload. A missing
-// encoder returns ErrNotCanonicalScalar. An encode failure is returned as-is
-// so the caller can record a Fault without shrinking the denominator.
+// CanonicalOf encodes one payload through the resolver's direct capability.
+// A missing encoder returns ErrNotCanonicalScalar. An encode failure is
+// returned as-is so the caller can record a Fault without shrinking the basis.
 func CanonicalOf(policy Policy, raw json.RawMessage) (json.RawMessage, error) {
-	for policy != nil {
-		if canonical, ok := policy.(CanonicalValue); ok {
-			return canonical.CanonicalValue(raw)
-		}
-		source, ok := policy.(MethodRuleSource)
-		if !ok {
-			break
-		}
-		_, next := source.MethodRule()
-		if next == policy {
-			break
-		}
-		policy = next
+	if canonical, ok := policy.(CanonicalValue); ok {
+		return canonical.CanonicalValue(raw)
 	}
 	return nil, ErrNotCanonicalScalar
 }

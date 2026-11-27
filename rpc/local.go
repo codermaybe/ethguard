@@ -25,7 +25,7 @@ func Local(normalize func(json.RawMessage) (string, error), opts ...LocalOption)
 }
 
 // LocalOption carries introspection or a scalar encoder for a local policy.
-// WithLocalRuleCompareKind is not read by Prepare, Normalize, or Resolve.
+// WithLocalRuleCompareKind is not read by Normalize or Resolve.
 // WithLocalCanonical encodes only the source Resolve already selected.
 type LocalOption func(*localFunc)
 
@@ -42,7 +42,6 @@ func WithLocalCanonical(encode CanonicalEncoder) LocalOption {
 }
 
 type localFunc struct {
-	requestPassthrough
 	normalize   func(json.RawMessage) (string, error)
 	compareKind string
 	encode      CanonicalEncoder
@@ -54,8 +53,8 @@ func (f localFunc) Normalize(value json.RawMessage) (string, error) {
 
 // MethodRule reports local resolution and the coarse comparison-key class
 // supplied at construction. It does not participate in request handling.
-func (f localFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverLocal, CompareKind: f.compareKind, Result: resultRule(f.encode)}, nil
+func (f localFunc) MethodRule() MethodRule {
+	return MethodRule{Resolver: RuleResolverLocal, CompareKind: f.compareKind, Result: resultRule(f.encode)}
 }
 
 func (f localFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {

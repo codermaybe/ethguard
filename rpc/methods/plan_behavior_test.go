@@ -210,7 +210,7 @@ func TestPlansDriveTheBehaviorMatrix(t *testing.T) {
 
 			// The capability projection follows the resolver class and the
 			// declared hooks.
-			if plan.Corroborating() != (spec.Resolver == ResolverStrict || spec.Resolver == ResolverBlock || spec.Resolver == ResolverCallRevert) {
+			if plan.Corroborating() != (spec.Resolver == ResolverStrict || spec.Resolver == ResolverCallRevert) {
 				t.Fatalf("corroborating = %v for resolver class %q", plan.Corroborating(), spec.Resolver)
 			}
 			if (plan.Admit != nil) != (spec.Admit != nil) {

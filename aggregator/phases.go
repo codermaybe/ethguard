@@ -11,8 +11,7 @@ import (
 )
 
 // The planned-read pipeline. The first four phases of the fixed phase order
-// run here, driven by the plan's declared facts instead of a decorator
-// chain's type assertions:
+// run here, driven by the plan's declarations:
 //
 //	Validate / Prepare
 //	→ ReferenceRequirement
@@ -24,8 +23,7 @@ import (
 // admission hook, resolution entry, and recorded pin. A local failure in any
 // planned phase — validation, pending rejection, a missing establishment
 // stage, a failed establishment, a rejected rewrite — fails the read before
-// any business fan-out, with the same decision shape the legacy path
-// reports.
+// any business fan-out.
 //
 // planPreparePhase returns a non-nil early exit when the read failed before
 // producing a prepared request; otherwise the state carries the prepared
@@ -192,8 +190,8 @@ func (a *Aggregator) establishPlannedReference(state *invocationState, started t
 	state.reference = evidence
 	if err != nil {
 		// A failed establishment keeps its evidence visible to the decision:
-		// the business fan-out never starts. The error carries the same
-		// "anchor:" prefix the preparing decorators wrap their cause with.
+		// the business fan-out never starts. The "anchor:" prefix identifies
+		// the reference-establishment failure.
 		err = fmt.Errorf("anchor: %w", err)
 		return a.requestFailureExit(state, started, req, err)
 	}
@@ -228,9 +226,7 @@ func (a *Aggregator) prepareFailureExit(state *invocationState, started time.Tim
 // requestFailureExit is the shared request-side failure exit of the prepare
 // and establishment phases: no source was attempted, so the fault tables
 // stay empty by contract, the returned error carries the cause, and the
-// decision keeps the reference evidence captured so far. The fault tables go
-// through the one invocation assembly point, so the planned path and the
-// legacy path keep the same contract.
+// decision keeps the reference evidence captured so far.
 func (a *Aggregator) requestFailureExit(state *invocationState, started time.Time, req rpc.Request, err error) *earlyExit {
 	decision := rpc.Decision{Status: rpc.Unknown, Reference: state.establishedReference(), Adjudication: rpc.Adjudication{Basis: state.invocation.Basis().Size(), Required: state.invocation.Basis().Required()}}
 	state.attachFaults(&decision)

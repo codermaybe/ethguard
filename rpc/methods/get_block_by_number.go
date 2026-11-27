@@ -14,13 +14,13 @@ import (
 const MethodGetBlockByNumber = "eth_getBlockByNumber"
 
 // getBlockByNumberSpec is the method's compiled contract: block-object
-// comparison under the block wrapper, pending observed at the height
+// strict comparison of canonical blocks, pending observed at the height
 // parameter, and the full-block admission binding. No whole-key
 // compatibility correction applies to this method.
 func getBlockByNumberSpec() MethodSpec {
 	return MethodSpec{
 		Method:                 MethodGetBlockByNumber,
-		Resolver:               ResolverBlock,
+		Resolver:               ResolverStrict,
 		Normalize:              normalizeBlockIdentity,
 		Encode:                 blockobject.EncodeByNumber,
 		KeySource:              rpc.RuleKeyCanonicalBytes,
@@ -44,8 +44,7 @@ func getBlockByNumberDescriptor() MethodDescriptor {
 }
 
 // admitBlockByNumberResponse binds the number-addressed block identity
-// explicitly so plan and compatibility admission cannot drift through
-// request-method inference.
+// explicitly instead of inferring it from the request method.
 func admitBlockByNumberResponse(ctx context.Context, req rpc.Request, value json.RawMessage, call rpc.AdmissionCaller) (json.RawMessage, error) {
 	return admitBlockResponse(ctx, req, value, false, call)
 }

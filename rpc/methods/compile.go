@@ -6,17 +6,11 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// assembleResolver builds the resolver value the spec names. It is the one
-// assembly for the value domain: the plan compiler builds the resolver here,
-// and the hand-written constructors assemble the same resolver shapes at
-// their call sites, so a plan and its constructor cannot diverge on what the
-// method compares and returns. The strict option plumbing mirrors the
-// constructors: canonical-value methods prepend their encoder, compare-kind
-// is pinned beside the normalizer, and the block and call-revert shapes
-// carry their wrapper-specific identity.
+// assembleResolver is the value-domain assembly shared by CompilePlan and
+// reference establishment. Preparation and admission remain plan hooks.
 func assembleResolver(spec MethodSpec, opts []rpc.StrictOption) (rpc.Policy, error) {
 	switch spec.Resolver {
-	case ResolverStrict, ResolverBlock, ResolverCallRevert:
+	case ResolverStrict, ResolverCallRevert:
 		opts = append([]rpc.StrictOption{rpc.WithRuleCompareKind(spec.CompareKind)}, opts...)
 		switch spec.KeySource {
 		case rpc.RuleKeyCanonicalBytes:
@@ -31,8 +25,6 @@ func assembleResolver(spec MethodSpec, opts []rpc.StrictOption) (rpc.Policy, err
 	switch spec.Resolver {
 	case ResolverStrict:
 		return rpc.Strict(spec.Normalize, opts...), nil
-	case ResolverBlock:
-		return blockPolicy{Policy: rpc.Strict(spec.Normalize, opts...), byHash: spec.ByHash}, nil
 	case ResolverMedian:
 		// The median resolver pins its comparison-key class internally; the
 		// spec's declaration is informational and must agree.
@@ -70,9 +62,8 @@ func assembleResolver(spec MethodSpec, opts []rpc.StrictOption) (rpc.Policy, err
 // reference shape, pending handling, hooks, projector binding — and no
 // network callback at all: reference data arrives as established evidence
 // at execution time, and the admission caller is a runtime dependency. The
-// resolver value is the same assembly the hand-written constructors use, so
-// the value domain has one owner; the plan replaces the decorator
-// composition with its declared reference and pending semantics.
+// resolver owns only normalization and adjudication; the plan owns the
+// preparation, admission, reference, and pending declarations.
 //
 // Compilation rejects an impossible declaration before it can register:
 // a missing comparison key, an unknown resolver class, an illegal

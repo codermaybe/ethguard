@@ -538,21 +538,8 @@ func TestReplayValueAgreesAllowsCanonicalCallData(t *testing.T) {
 }
 
 func isCallRevertPolicy(policy rpc.Policy) bool {
-	for policy != nil {
-		source, ok := policy.(rpc.MethodRuleSource)
-		if !ok {
-			return false
-		}
-		rule, next := source.MethodRule()
-		if rule.Resolver == rpc.RuleResolverCallRevert {
-			return true
-		}
-		if next == policy {
-			return false
-		}
-		policy = next
-	}
-	return false
+	source, ok := policy.(rpc.MethodRuleSource)
+	return ok && source.MethodRule().Resolver == rpc.RuleResolverCallRevert
 }
 
 func containsObjectFields(t *testing.T, raw json.RawMessage, fields []string) bool {

@@ -9,7 +9,7 @@ import (
 
 // The resolver capability interlock. The plan declares one resolver class,
 // and the class — never a decorator count — decides what the plan exposes:
-// only strict, block, and call-revert corroborate under an invocation's
+// only strict and call-revert corroborate under an invocation's
 // frozen snapshot, only median and local sample without clustering, and the
 // corroborating classes state their per-source outcomes through the same
 // resolver value. A plan that violates its own declaration cannot compile.
@@ -50,14 +50,13 @@ func assertClassBinding(t *testing.T, method string, plan rpc.ReadPlan) {
 }
 
 // TestDeclaredResolverClassesMapToTheirValues pins the frozen class table
-// the kind switch declares: strict, block, and call-revert corroborate
+// the kind switch declares: strict and call-revert corroborate
 // through their own resolver values; median and local never do, so their
 // values must not expose a corroboration entry point a decorator count could
 // later be confused for.
 func TestDeclaredResolverClassesMapToTheirValues(t *testing.T) {
 	kinds := map[rpc.ResolverKind]bool{
 		rpc.ResolverStrict:     true,
-		rpc.ResolverBlock:      true,
 		rpc.ResolverCallRevert: true,
 		rpc.ResolverMedian:     false,
 		rpc.ResolverLocal:      false,

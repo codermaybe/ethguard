@@ -1,7 +1,7 @@
 // Package rpc contains the small transport and decision model shared by the
 // pool, method policies, and aggregator. It owns the wire request shape, the
-// observation and decision vocabulary, the resolver and decorator building
-// blocks, and the execution-plan model; it does not own per-method rules
+// observation and decision vocabulary, resolvers, and the execution-plan
+// model; it does not own per-method rules
 // (rpc/methods), fleet execution (aggregator), or connection management
 // (pool).
 //

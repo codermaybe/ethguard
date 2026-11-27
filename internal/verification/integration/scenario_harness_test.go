@@ -368,7 +368,7 @@ func t09AssertNoPendingForm(t *testing.T, method string) {
 	if !ok {
 		t.Fatalf("%s: policy %T does not report a method rule", method, policy)
 	}
-	rule, _ := source.MethodRule()
+	rule := source.MethodRule()
 	if rule.Pending != "" {
 		t.Fatalf("%s: pending declaration = %q, want none", method, rule.Pending)
 	}

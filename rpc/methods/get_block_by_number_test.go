@@ -12,7 +12,7 @@ func TestGetBlockByNumberDefinition(t *testing.T) {
 	if spec.Method != MethodGetBlockByNumber || descriptor.Name != spec.Method {
 		t.Fatalf("method identity is not self-contained: spec=%+v descriptor=%+v", spec, descriptor)
 	}
-	if spec.Resolver != ResolverBlock || spec.Admit == nil {
+	if spec.Resolver != ResolverStrict || spec.Admit == nil {
 		t.Fatalf("block definition is incomplete: %+v", spec)
 	}
 	if descriptor.Adapter != "BlockByNumber" {

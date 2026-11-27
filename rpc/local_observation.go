@@ -16,9 +16,8 @@ import (
 //
 // The policy argument is the method's resolver value: normalization and the
 // canonical encoder are the resolver's own, and the value domain includes
-// structured RPC error bodies only when the resolver opted in. This helper is
-// the one implementation behind the PendingLocal compatibility decorator and
-// the pending branch of a planned read.
+// structured RPC error bodies only when the resolver opted in. The plan
+// selects this entry for its pending-local route.
 func ResolveLocalObservation(policy Policy, obs []Observation) (Outcome, error) {
 	return resolveLocal(policy, obs, true)
 }

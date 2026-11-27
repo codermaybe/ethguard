@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 )
 
-// Policy prepares requests and resolves raw observations. The contract lives
+// Policy normalizes responses and resolves raw observations. Preparation,
+// admission, and reference requirements belong to ReadPlan. The contract lives
 // beside the transport model; concrete per-method implementations live in
 // rpc/methods, one file per RPC method. Resolve must cover every input with
 // method judgment and relation. Outcome.ProjectSources derives default source
 // and fault views; custom resolvers only supply non-source diagnostics in Faults.
 type Policy interface {
-	Prepare(context.Context, Request) (Request, error)
 	Normalize(json.RawMessage) (string, error)
 	Resolve([]Observation) (Outcome, error)
 }
@@ -21,14 +21,6 @@ type Policy interface {
 // content that the primary JSON-RPC result references by commitment (for
 // example uncle headers referenced by an execution block).
 type AdmissionCaller func(context.Context, string, []any) (json.RawMessage, error)
-
-// AdmissionPolicy validates a response before it is allowed into a voting
-// cluster.  The returned evidence is attached to the winning Decision and is
-// available to typed decoders; it is deliberately opaque to the rpc package.
-// An admission error is a malformed source answer, not a transport failure.
-type AdmissionPolicy interface {
-	Admit(context.Context, Request, json.RawMessage, AdmissionCaller) (json.RawMessage, error)
-}
 
 // ObservationProjector is an optional semantic-room capability. It turns a
 // generic observation into source-bound extensions for the selected core
@@ -58,17 +50,14 @@ type RPCErrorPolicy interface {
 }
 
 // SingleSourcePolicy requests ordered forwarding instead of symmetric fan-out.
-// Prepare decorators preserve this execution requirement.
 type SingleSourcePolicy interface{ SingleSource() bool }
 
 // AgreementPolicy identifies deterministic answers that require corroboration
 // at an ethclient-shaped boundary, where callers cannot inspect Selected.
 type AgreementPolicy interface{ RequiresAgreement() bool }
 
-// MethodRule is one layer of the method-rule index. Zero strings mean this
-// layer does not declare that column. A decorator fills only its own fields
-// and adopts the rest from the inner layer through WithInner. A resolver
-// fills Resolver and CompareKind and is the end of the chain.
+// MethodRule records the method-rule index declarations. A resolver declares
+// its value semantics; ReadPlan adds reference and pending semantics.
 //
 // The index is a read-only projection. Nothing in request handling reads it.
 // Allowed values, and no finer classification. That phrase bounds the
@@ -85,9 +74,8 @@ type AgreementPolicy interface{ RequiresAgreement() bool }
 //	KeySource:   "canonical-bytes", "normalizer", empty renders "none"
 //	Result:      "canonical", "raw"
 //
-// Pending is the layer's own pending semantics, not the presence of a
-// decorator. local-observation is a node-local observation capped at
-// Selected. local-reject fails locally, contacts no upstream, and does not
+// Pending records the method's declared pending semantics. local-observation
+// is a node-local observation capped at Selected. local-reject fails locally, contacts no upstream, and does not
 // touch the anchor. none means that position has no pending form.
 //
 // CompareKind stays a coarse class. eth_call revert-data states and any
@@ -100,8 +88,8 @@ type AgreementPolicy interface{ RequiresAgreement() bool }
 // encoder's output. normalizer means the key comes from the normalizer,
 // whether or not an encoder is attached. Two cases share it: a method that
 // deliberately keeps a key narrower than its value, and a method that has no
-// encoder yet. Result tells them apart — a narrow-key migrated method is
-// canonical, an unmigrated one is raw. Only Strict declares this column:
+// encoder. Result tells them apart: an encoded narrow-key result is
+// canonical, and an unencoded result is raw. Only Strict declares this column:
 // median samples by number without clustering, local does not cluster, and
 // call-revert has a multi-dimensional key, so none of them has one key source
 // to report.
@@ -123,37 +111,10 @@ type MethodRule struct {
 	Result      string
 }
 
-// WithInner keeps this layer's declared fields and fills the gaps from inner.
-func (rule MethodRule) WithInner(inner MethodRule) MethodRule {
-	return MethodRule{
-		Anchor:      pickMethodRule(rule.Anchor, inner.Anchor),
-		BlockRef:    pickMethodRule(rule.BlockRef, inner.BlockRef),
-		Pending:     pickMethodRule(rule.Pending, inner.Pending),
-		Resolver:    pickMethodRule(rule.Resolver, inner.Resolver),
-		CompareKind: pickMethodRule(rule.CompareKind, inner.CompareKind),
-		KeySource:   pickMethodRule(rule.KeySource, inner.KeySource),
-		Result:      pickMethodRule(rule.Result, inner.Result),
-	}
-}
-
-func pickMethodRule(own, inner string) string {
-	if own != "" {
-		return own
-	}
-	return inner
-}
-
-// MethodRuleSource is an optional introspection capability. It reports this
-// layer's rule composition, including the inner layer, and the next policy
-// in the decorator chain. A nil next policy is the resolver.
-//
-// It is not part of Policy. Prepare, Normalize, and Resolve do not consult
-// it. ForwardPolicy is not a registered method rule and does not implement
-// it. The methods test fails, naming the method and the concrete type, when
-// a visited layer is missing. A walk of registered methods must not grow an
-// allow-undeclared exception.
+// MethodRuleSource reports a resolver's direct declarations. It does not
+// expose another policy or participate in normalization and resolution.
 type MethodRuleSource interface {
-	MethodRule() (MethodRule, Policy)
+	MethodRule() MethodRule
 }
 
 const (

@@ -35,7 +35,6 @@ func NewCallRevertPolicy(normalize func(json.RawMessage) (string, error), opts .
 }
 
 type callRevertFunc struct {
-	requestPassthrough
 	normalize       func(json.RawMessage) (string, error)
 	fallback        *Corroboration
 	includeRPCError bool
@@ -56,9 +55,9 @@ func (p callRevertFunc) IncludeRPCError() bool { return p.includeRPCError }
 
 // MethodRule reports the call-revert resolver and its coarse comparison-key
 // class. Revert-data states stay out of the index. This method does not
-// participate in Prepare, Normalize, or Resolve.
-func (p callRevertFunc) MethodRule() (MethodRule, Policy) {
-	return MethodRule{Resolver: RuleResolverCallRevert, CompareKind: RuleCompareMethodSpecific, Result: resultRule(p.encode)}, nil
+// participate in Normalize or Resolve.
+func (p callRevertFunc) MethodRule() MethodRule {
+	return MethodRule{Resolver: RuleResolverCallRevert, CompareKind: RuleCompareMethodSpecific, Result: resultRule(p.encode)}
 }
 
 func (p callRevertFunc) CanonicalValue(raw json.RawMessage) (json.RawMessage, error) {
@@ -76,14 +75,16 @@ func (p callRevertFunc) ResolveCorroborated(c Corroboration, obs []Observation) 
 	return p.outcome(c, false, obs)
 }
 
-func (p callRevertFunc) outcome(c Corroboration, legacy bool, obs []Observation) (Outcome, error) {
-	decision, verdicts, err := p.adjudicated(c, legacy, obs)
+func (p callRevertFunc) outcome(c Corroboration, validAnswersOnly bool, obs []Observation) (Outcome, error) {
+	decision, verdicts, err := p.adjudicated(c, validAnswersOnly, obs)
 	return completeOutcome(obs, decision, verdicts, err)
 }
 
 // adjudicated is the shared core of every resolution entry: admit, rank the
-// execution groups, decide, and classify each source once.
-func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observation) (Decision, []SourceVerdict, error) {
+// execution groups, decide, and classify each source once. validAnswersOnly
+// requires all usable execution answers to agree without a fixed-basis floor;
+// it applies only when Resolve has no construction-time corroboration options.
+func (p callRevertFunc) adjudicated(c Corroboration, validAnswersOnly bool, obs []Observation) (Decision, []SourceVerdict, error) {
 	admitted, skipped, err := p.admit(obs)
 	var faults []error
 	if err != nil {
@@ -108,7 +109,7 @@ func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observat
 		Reject:         sourcesOf(rejected),
 	}
 	decision.Adjudication = Adjudication{Basis: len(obs), Required: c.Required(len(obs)), Reason: ReasonAccepted}
-	if legacy || c.Mode == CorroborationForwarded {
+	if validAnswersOnly || c.Mode == CorroborationForwarded {
 		decision.Adjudication.Required = 1
 	}
 	for _, group := range ranked {
@@ -130,13 +131,13 @@ func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observat
 	}
 	var failed error
 	switch {
-	case legacy && len(ranked) != 1:
+	case validAnswersOnly && len(ranked) != 1:
 		decision.Adjudication.Reason = ReasonConflictingCandidates
 		failed = fmt.Errorf("call: %d disagreeing execution values: %w", len(ranked), ErrConflict)
-	case !legacy && c.Mode == CorroborationUnanimity && len(ranked) > 1:
+	case !validAnswersOnly && c.Mode == CorroborationUnanimity && len(ranked) > 1:
 		decision.Adjudication.Reason = ReasonConflictingCandidates
 		failed = fmt.Errorf("call: %d disagreeing execution values: %w", len(ranked), ErrConflict)
-	case !legacy && len(winner) < decision.Adjudication.Required:
+	case !validAnswersOnly && len(winner) < decision.Adjudication.Required:
 		required := decision.Adjudication.Required
 		cause := ErrInsufficientSupport
 		decision.Adjudication.Reason = ReasonInsufficientSupport
@@ -162,7 +163,7 @@ func (p callRevertFunc) adjudicated(c Corroboration, legacy bool, obs []Observat
 		decision.Dimensions = callExecutionDimensions(decision, winner)
 		return decision, verdicts, nil
 	}
-	decision, err = projectRevertData(c, legacy, len(obs), decision, winner)
+	decision, err = projectRevertData(c, validAnswersOnly, len(obs), decision, winner)
 	return decision, verdicts, err
 }
 
@@ -309,7 +310,7 @@ func callComparisonKey(flat string) string {
 // only when its own cluster meets the invocation quorum; otherwise the
 // protected Value loses the data field and the bytes move to Evidence. Error
 // code/message remain in RevertContext rather than Value.
-func projectRevertData(c Corroboration, legacy bool, voters int, decision Decision, winner []callAnswer) (Decision, error) {
+func projectRevertData(c Corroboration, validAnswersOnly bool, voters int, decision Decision, winner []callAnswer) (Decision, error) {
 	concrete, abstain := dataSplit(winner)
 	decision.Status = Corroborated
 	execution := callDimension(callDimensionExecution, decision.Support, decision.Reject, nil, true)
@@ -330,7 +331,7 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 	ranked := rankCallAnswers(concrete, func(a callAnswer) string { return a.data })
 	dataWinner := ranked[0]
 	dataRejected := flattenCall(ranked[1:])
-	if revertDataReturned(c, legacy, voters, ranked) {
+	if revertDataReturned(c, validAnswersOnly, voters, ranked) {
 		rep := representative(dataWinner)
 		decision.Value = revertValue(rep.value, true)
 		decision.Revert = cloneRevertContext(rep.revert)
@@ -356,16 +357,16 @@ func projectRevertData(c Corroboration, legacy bool, voters int, decision Decisi
 	return decision, nil
 }
 
-func revertDataReturned(c Corroboration, legacy bool, voters int, ranked [][]callAnswer) bool {
+func revertDataReturned(c Corroboration, validAnswersOnly bool, voters int, ranked [][]callAnswer) bool {
 	if len(ranked) == 0 {
 		return false
 	}
-	if legacy || c.Mode == CorroborationUnanimity {
+	if validAnswersOnly || c.Mode == CorroborationUnanimity {
 		if len(ranked) != 1 {
 			return false
 		}
 	}
-	if legacy {
+	if validAnswersOnly {
 		return len(ranked[0]) >= 2
 	}
 	return len(ranked[0]) >= c.Required(voters)
