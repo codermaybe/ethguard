@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"strconv"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -108,6 +109,30 @@ func parseFeeHistory(value json.RawMessage) (*feeHistoryModel, error) {
 				}
 			}
 		}
+	}
+	// Compatibility is limited to legacy struct member spelling, unknown
+	// result-member projection, hex case, and optional null-as-absence. Missing
+	// or null required arrays remain invalid; never synthesize empty arrays.
+	candidate := map[string]any{"oldestBlock": ethcodec.FoldHexSpelling(raw.Oldest), "baseFeePerGas": foldQuantityRows(raw.Base), "gasUsedRatio": raw.Gas}
+	if raw.Reward != nil {
+		rows := make([][]json.RawMessage, len(raw.Reward))
+		for i, row := range raw.Reward {
+			rows[i] = foldQuantityRows(row)
+		}
+		candidate["reward"] = rows
+	}
+	if raw.BaseBlob != nil {
+		candidate["baseFeePerBlobGas"] = foldQuantityRows(raw.BaseBlob)
+	}
+	if raw.BlobGasRatio != nil {
+		candidate["blobGasUsedRatio"] = raw.BlobGasRatio
+	}
+	prepared, err := ethcodec.MarshalNoEscape(candidate)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ethapi.NewFeeHistoryResult(prepared); err != nil {
+		return nil, fmt.Errorf("standard feeHistory result: %w", err)
 	}
 	return &feeHistoryModel{
 		oldest:       oldest,
@@ -269,4 +294,15 @@ func requestQuantity(value any) (uint64, error) {
 		}
 	}
 	return 0, fmt.Errorf("invalid block count")
+}
+
+func foldQuantityRows(values []json.RawMessage) []json.RawMessage {
+	if values == nil {
+		return nil
+	}
+	out := make([]json.RawMessage, len(values))
+	for i, value := range values {
+		out[i] = ethcodec.FoldHexSpelling(value)
+	}
+	return out
 }

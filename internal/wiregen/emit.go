@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/dave/jennifer/jen"
 )
 
@@ -17,7 +18,6 @@ const safePackage = "github.com/codermaybe/ethguard/internal/jsonsafe"
 const codecPackage = "github.com/codermaybe/ethguard/internal/ethcodec"
 
 type genReport struct {
-	nameCollisions                                []collision
 	visited                                       map[string]bool
 	methods                                       []string
 	errata                                        []string
@@ -25,6 +25,9 @@ type genReport struct {
 }
 
 func emit(reg *registry, version string, roots map[string]*ref, outPath string) error {
+	if err := reg.validatePublicNames(roots); err != nil {
+		return err
+	}
 	reg.report.countUnions = len(reg.unionList)
 	reg.report.countShims = 0
 	for method, r := range roots {
@@ -65,15 +68,15 @@ func emit(reg *registry, version string, roots map[string]*ref, outPath string) 
 	for _, u := range reg.unionList {
 		emitUnion(f, u)
 	}
-	aliases := make([]string, 0, len(modelAliases))
-	for alias := range modelAliases {
+	aliases := make([]string, 0, len(reg.manifest.Aliases))
+	for alias := range reg.manifest.Aliases {
 		aliases = append(aliases, alias)
 	}
 	sort.Strings(aliases)
 	for _, alias := range aliases {
-		target := modelAliases[alias]
+		target := reg.manifest.Aliases[alias]
 		if !reg.usedNames[target] {
-			continue
+			return fmt.Errorf("spec: alias %s targets absent model %s", alias, target)
 		}
 		f.Commentf("%s aliases the shared official %s model.", alias, target)
 		f.Type().Id(alias).Op("=").Id(target)
@@ -137,7 +140,8 @@ func emitNative(f *jen.File, n nativeDescriptor) {
 	f.Type().Id(n.name).String()
 	pattern := "native" + n.name + "Pattern"
 	fixedHexDigits := fixedLowerHexPatternDigits(n.pattern)
-	if n.pattern != "" && fixedHexDigits == 0 {
+	strictValidator := sharedStrictValidator(n.pattern)
+	if n.pattern != "" && fixedHexDigits == 0 && strictValidator == "" {
 		f.Var().Id(pattern).Op("=").Qual("regexp", "MustCompile").Call(jen.Lit(n.pattern))
 	}
 	constructor := "New" + n.name
@@ -165,6 +169,9 @@ func emitNative(f *jen.File, n nativeDescriptor) {
 		)
 		if n.pattern != "" {
 			match := jen.Id(pattern).Dot("MatchString").Call(jen.Id("text"))
+			if strictValidator != "" {
+				match = jen.Qual(codecPackage, strictValidator).Call(jen.Id("text"))
+			}
 			if fixedHexDigits != 0 {
 				match = jen.Qual(codecPackage, "IsLowerFixedHex").Call(jen.Id("text"), jen.Lit(fixedHexDigits))
 			}
@@ -641,4 +648,17 @@ func emitConstructor(f *jen.File, name string, request bool) {
 		}
 		g.Return(jen.Id("parse"+name).Call(jen.Id("raw"), jen.False()))
 	})
+}
+
+func sharedStrictValidator(pattern string) string {
+	switch pattern {
+	case ethcodec.QuantityPattern:
+		return "IsCanonicalQuantity"
+	case ethcodec.DataPattern:
+		return "IsWholeByteData"
+	case ethcodec.DecimalStringPattern:
+		return "IsCanonicalDecimal"
+	default:
+		return ""
+	}
 }

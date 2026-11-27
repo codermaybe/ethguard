@@ -222,7 +222,8 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          test "$(gh release view "$VERSION" --json assets --jq '.assets | length')" -eq 16
+          expected_assets=$(( $(wc -l < dist/checksums.sha256) + 1 ))
+          test "$(gh release view "$VERSION" --json assets --jq '.assets | length')" -eq "$expected_assets"
           mkdir candidate/download
           gh release download "$VERSION" --dir candidate/download
           cmp dist/checksums.sha256 candidate/download/checksums.sha256

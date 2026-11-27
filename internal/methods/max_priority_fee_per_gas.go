@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
@@ -17,8 +18,8 @@ func maxPriorityFeePerGasSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodMaxPriorityFeePerGas,
 		Resolver:    ResolverMedian,
-		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      ethcodec.EncodeQuantity,
+		Normalize:   standardQuantityResult(ethapi.NewMaxPriorityFeePerGasResult, ethcodec.FoldWireHexCase),
+		Encode:      standardQuantityEncoding(ethapi.NewMaxPriorityFeePerGasResult, ethcodec.FoldWireHexCase),
 		CompareKind: rpcengine.RuleCompareQuantity,
 	}
 }

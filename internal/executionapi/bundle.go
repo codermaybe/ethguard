@@ -13,10 +13,13 @@ import (
 )
 
 type Bundle struct {
-	Version  string
-	Results  map[string]json.RawMessage
-	Requests map[string][]Parameter
-	Errata   []AppliedErratum
+	Version        string
+	Results        map[string]json.RawMessage
+	Requests       map[string][]Parameter
+	Errata         []AppliedErratum
+	Source         SourceMetadata
+	Inventory      []InventoryMethod
+	DataExceptions []DataException
 }
 
 type Parameter struct {
@@ -28,29 +31,20 @@ type Parameter struct {
 // Read returns the effective schema view shared by generation, masks, and
 // projection. A stale or redundant erratum fails before any consumer runs.
 func Read() (Bundle, error) {
-	bundle, err := ReadOriginal()
-	if err != nil {
-		return Bundle{}, err
+	bundle, err := ReadFrom(spec.FS())
+	if err == nil && bundle.Source.Category != "official" {
+		return Bundle{}, fmt.Errorf("embedded source must be official")
 	}
-	if err := applyErrata(&bundle, spec.SourceJSON(), spec.ErrataFS()); err != nil {
-		return Bundle{}, err
-	}
-	return bundle, nil
+	return bundle, err
 }
 
-// ReadOriginal assembles only the unmodified upstream schemas. Independent
-// source conformance and upgrade audits must keep this view as their oracle.
+// ReadOriginal keeps the untouched official source as an independent oracle.
 func ReadOriginal() (Bundle, error) {
-	bundle, err := load(spec.MethodsJSON(), spec.Version())
-	if err != nil {
-		return Bundle{}, err
+	bundle, err := ReadOriginalFrom(spec.FS())
+	if err == nil && bundle.Source.Category != "official" {
+		return Bundle{}, fmt.Errorf("embedded source must be official")
 	}
-	requests, err := loadRequests(spec.RequestsJSON(), bundle.Version)
-	if err != nil {
-		return Bundle{}, err
-	}
-	bundle.Requests = requests
-	return bundle, nil
+	return bundle, err
 }
 
 func loadRequests(raw []byte, pin string) (map[string][]Parameter, error) {

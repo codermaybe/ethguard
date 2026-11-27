@@ -42,6 +42,13 @@ builds:
     flags: [-trimpath]
     ldflags: [-s -w]
     mod_timestamp: '{{ .CommitTimestamp }}'
+  - id: specsync
+    main: ./cmd/specsync
+    binary: specsync
+    targets: [linux_amd64, linux_arm64, darwin_arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: '{{ .CommitTimestamp }}'
 
 # Leave CGO unset: preserve native Go defaults and its normal cross-build behavior.
 # Binary format marks the existing raw binaries as uploadable, without compression.

@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
@@ -16,8 +17,8 @@ func chainIDSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodChainID,
 		Resolver:    ResolverStrict,
-		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      ethcodec.EncodeQuantity,
+		Normalize:   standardQuantityResult(ethapi.NewChainIdResult, ethcodec.FoldWireHexCase),
+		Encode:      standardQuantityEncoding(ethapi.NewChainIdResult, ethcodec.FoldWireHexCase),
 		KeySource:   rpcengine.RuleKeyCanonicalBytes,
 		CompareKind: rpcengine.RuleCompareQuantity,
 	}

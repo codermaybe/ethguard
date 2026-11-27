@@ -126,7 +126,7 @@ func validateSchema(n *schema, path string) error {
 	nulls := 0
 	for i, b := range n.branches {
 		if b.typeVal == "null" {
-			if err := validateSchema(b, fmt.Sprintf("%s.%s[%d]", path, n.compKind, i)); err != nil {
+			if err := validateSchema(b, schemaChild(path, n.compKind, itoa(i))); err != nil {
 				return err
 			}
 		}
@@ -241,7 +241,7 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 			return nil, fmt.Errorf("spec: %s: all-null composition unsupported", path)
 		}
 		if len(content) == 1 && n.hasNullBranch() && len(n.properties) == 0 {
-			inner, err := reg.walk(content[0], fmt.Sprintf("%s.%s[%d]", path, n.compKind, indexOfNonNull(n)))
+			inner, err := reg.walk(content[0], schemaChild(path, n.compKind, itoa(indexOfNonNull(n))))
 			if err != nil {
 				return nil, err
 			}
@@ -269,7 +269,7 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 		fp := reg.modelFingerprint(n)
 		if prev := reg.byFP[fp]; prev != nil {
 			prev.from = appendMethod(prev.from, methodOfPath(path))
-			if overrideNameByPath[path] == prev.name {
+			if reg.namesByPath[path] == prev.name {
 				reg.report.visited[path] = true
 			}
 			return &ref{kind: refObject, typeName: prev.name}, nil
@@ -282,7 +282,11 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 		if err != nil {
 			return nil, err
 		}
-		obj := &objectModel{name: name, fields: applyOrderOverride(name, fields), from: []string{methodOfPath(path)}, request: reg.strictRequests, closed: string(n.additionalProperties) == "false", retainAdditional: reg.strictRequests && string(n.additionalProperties) != "false"}
+		fields, err = reg.applyOrderOverride(name, fields)
+		if err != nil {
+			return nil, err
+		}
+		obj := &objectModel{name: name, fields: fields, from: []string{methodOfPath(path)}, request: reg.strictRequests, closed: string(n.additionalProperties) == "false", retainAdditional: reg.strictRequests && string(n.additionalProperties) != "false"}
 		for _, property := range n.properties {
 			obj.propertyNames = append(obj.propertyNames, property.name)
 		}
@@ -299,7 +303,7 @@ func (reg *registry) walkShape(n *schema, path string) (*ref, error) {
 		previous := reg.preserveStrings
 		reg.preserveStrings = previous || n.uniqueItems
 		defer func() { reg.preserveStrings = previous }()
-		elem, err := reg.walk(n.items, path+".items")
+		elem, err := reg.walk(n.items, schemaChild(path, "items"))
 		if err != nil {
 			return nil, err
 		}
@@ -346,7 +350,7 @@ func (reg *registry) fieldsOf(n *schema, path string) ([]fieldModel, error) {
 			return nil, fmt.Errorf("spec: %s: duplicate property %q", path, p.name)
 		}
 		names[p.name] = true
-		r, err := reg.walk(p.schema, path+".properties."+p.name)
+		r, err := reg.walk(p.schema, schemaChild(path, "properties", p.name))
 		if err != nil {
 			return nil, err
 		}
@@ -382,7 +386,7 @@ func (reg *registry) unionOf(n *schema, path string) (*ref, error) {
 		if isNullBranch(b) {
 			continue
 		}
-		branchPath := fmt.Sprintf("%s.%s[%d]", path, n.compKind, i)
+		branchPath := schemaChild(path, n.compKind, itoa(i))
 		if len(n.properties) > 0 {
 			b = mergeBranch(n, b)
 		}
@@ -391,9 +395,8 @@ func (reg *registry) unionOf(n *schema, path string) (*ref, error) {
 			return nil, err
 		}
 		name := reg.branchFieldName(b, i, r)
-		base := name
-		for suffix := 2; names[name]; suffix++ {
-			name = base + itoa(suffix)
+		if names[name] || name == "MarshalJSON" {
+			return nil, fmt.Errorf("spec: %s: conflicting Go union field %q", path, name)
 		}
 		names[name] = true
 		branches = append(branches, branchModel{goName: name, ref: r, title: b.title, index: i})
@@ -492,7 +495,7 @@ func canonicalQuantityLine(s string) bool {
 func (reg *registry) nameFor(n *schema, path string) (string, error) {
 	key := reg.modelFingerprint(n)
 	name := reg.preferredNames[key]
-	if explicit, ok := overrideNameByPath[path]; ok {
+	if explicit, ok := reg.namesByPath[path]; ok {
 		reg.report.visited[path] = true
 		if name != "" && name != explicit {
 			return "", fmt.Errorf("spec: naming conflict at %s: %s != %s", path, name, explicit)
@@ -506,19 +509,17 @@ func (reg *registry) nameFor(n *schema, path string) (string, error) {
 		reg.usedNames[name] = true
 		return name, nil
 	}
-	base := overrideNamesByTitle[n.title]
+	base := reg.manifest.TitleNames[n.title]
+	if base != "" {
+		reg.usedTitles[n.title] = true
+	}
 	if base == "" {
 		base = sanitizeTitle(n.title)
 	}
 	if base == "" {
-		reg.row++
-		base = fmt.Sprintf("Result%d", reg.row)
+		base = goFieldName(path)
 	}
-	// Reserved explicit names cannot be taken by an unrelated title fallback.
-	for reg.reservedNames[base] != "" {
-		base += "Model"
-	}
-	return reg.uniqueName(base, path), nil
+	return reg.uniqueName(base, path)
 }
 func (reg *registry) branchFieldName(n *schema, index int, r *ref) string {
 	if name := sanitizeTitle(n.title); name != "" {
@@ -544,11 +545,12 @@ func mergeBranch(base, branch *schema) *schema {
 	out.required = append(append([]string{}, base.required...), branch.required...)
 	return &out
 }
-func applyOrderOverride(name string, fields []fieldModel) []fieldModel {
-	order, ok := fieldOrderOverrides[name]
+func (reg *registry) applyOrderOverride(name string, fields []fieldModel) ([]fieldModel, error) {
+	order, ok := reg.manifest.FieldOrder[name]
 	if !ok {
-		return fields
+		return fields, nil
 	}
+	reg.usedOrders[name] = true
 	out := make([]fieldModel, 0, len(fields))
 	seen := map[string]bool{}
 	for _, key := range order {
@@ -559,12 +561,17 @@ func applyOrderOverride(name string, fields []fieldModel) []fieldModel {
 			}
 		}
 	}
+	for _, key := range order {
+		if !seen[key] {
+			return nil, fmt.Errorf("spec: field order %s references absent field %q", name, key)
+		}
+	}
 	for _, f := range fields {
 		if !seen[f.json] {
 			out = append(out, f)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // fingerprint includes every consumed semantic, but excludes presentation.
@@ -660,7 +667,7 @@ func (reg *registry) dictionaryOf(n *schema, path string) (*ref, error) {
 	if previous := reg.mapByFP[key]; previous != nil {
 		return &ref{kind: refMap, typeName: previous.name}, nil
 	}
-	value, err := reg.walk(n.patternProperties[0].schema, path+".patternProperties."+n.patternProperties[0].name)
+	value, err := reg.walk(n.patternProperties[0].schema, schemaChild(path, "patternProperties", n.patternProperties[0].name))
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
@@ -16,8 +17,8 @@ func gasPriceSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodGasPrice,
 		Resolver:    ResolverMedian,
-		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      ethcodec.EncodeQuantity,
+		Normalize:   standardQuantityResult(ethapi.NewGasPriceResult, ethcodec.FoldWireHexCase),
+		Encode:      standardQuantityEncoding(ethapi.NewGasPriceResult, ethcodec.FoldWireHexCase),
 		CompareKind: rpcengine.RuleCompareQuantity,
 	}
 }

@@ -1,45 +1,32 @@
-# ethapi：前置增强 + 官方兜底
+# ethapi：标准数据模型
 
-`types.gen.go` 是生成产物。理解它应先读前置增强、生成原则和官方定义；修改也从这三处开始，再重新生成。
+`ethapi` 提供 Ethereum Execution APIs 的 Request／Response 类型、标量、严格 JSON 构造器与编解码。它不依赖网络传输、执行引擎或 geth；RPC 调用入口属于 `ethguard.Client`。使用已提交的模型不需要运行生成器。
 
-## 两层职责
-
-**前置增强**显式处理固定官方标准中的冲突和缺失。原始定义保持不变，修复或补充须说明来源、作用对象、修改内容、依据、验证和退出条件。所有未增强的定义由固定官方 schema 决定。
-
-**官方兜底**由通用生成器忠实实现增强后的有效 schema：类型、字段、required、nullable、值约束和组合分支均来自定义。生成器不自行补方法规则，构造器不通过隐含转换扩大或缩小输入范围。合法值的表示政策须与接受域分开说明。
-
-```text
-固定官方原件 ── 显式修复／补充 ── 有效 schema
-                                  │
-                              通用生成原则
-                                  │
-                         types.gen.go + types.audit.json
+```go
+quantity, err := ethapi.NewQuantity(json.RawMessage(`"0x1"`))
 ```
 
-运行时的 provider 输入兼容由方法前置处理负责；它处理实际输入，标准增强处理定义，两者分别审计。方法绑定、内容承诺和多源保证由原有方法／对象模块负责。
+公开 `New…` 构造器验证相应的有效 schema，包括字段存在性、null、数组、数值约束和组合分支。`"0x01"` 不是严格 QUANTITY，奇数位 DATA 也不合法。直接构造 Go 值须由调用者保持同样的不变量；`MarshalJSON` 编码这些值，不重新执行完整 schema 校验。
 
-## 阅读入口
+标准定义分两层：固定 commit 的官方原件保存其原始含义；显式审定的 Overlay 修正已知定义缺陷，并记录依据、目标和退出条件。生成模型忠实于“固定官方定义 + 项目审定修正”，不把修正冒称为原始官方要求。合法输入的输出表示政策也有单独记录，例如地址转小写。
 
-| 要了解什么 | 唯一入口 |
+Provider 的大小写或历史拼写兼容发生在调用端的具名准备步骤，之后仍须经过严格校验。请求绑定、交易／区块内容承诺和多源裁决属于下游方法合同，不是模型构造成功自动提供的保证。
+
+下游消费保证按入口区分：typed Block／Header 要求相应完整模型；区块的 reference 分支只提供 number／hash 身份合同，通用 `Call(..., false)` 也能触达它，其裁决成功不意味着返回了完整官方 Block。三类分支的实际行为见[消费测试](../internal/verification/facade/standard_block_contract_test.go)。
+
+| 材料 | 用途 |
 | --- | --- |
-| 官方来源、版本与原始定义 | [internal/spec](../internal/spec/README.md)：`VERSION`、`SOURCE.json`、`methods.json`、`requests.json` |
-| 已有前置修复 | [errata](../internal/spec/errata/) 与 [executionapi](../internal/executionapi/bundle.go)：`ReadOriginal` 保留原件，`Read` 形成有效定义 |
-| 实际输入的有限兼容 | 各入口及 [ethobject](../internal/ethobject/)：选定字段后形成候选，保留原始来源证据；不混入标准勘误 |
-| 生成范围与表示政策 | [policy.go](../internal/wiregen/policy.go) |
-| schema 如何成为 Go 类型与构造校验 | [schema.go](../internal/wiregen/schema.go)、[model.go](../internal/wiregen/model.go)、[walk.go](../internal/wiregen/walk.go)、[emit.go](../internal/wiregen/emit.go) |
-| 详细合同与独立验证要求 | [wire-codegen](../docs/design/wire-codegen.md) |
+| [固定来源](../internal/spec/README.md) | 官方版本、原件与向量身份 |
+| [Manifest](../internal/executionapi/manifest.json) | 唯一生成范围、命名与表示契约 |
+| [审计总账](types.audit.json) | 实际类型及所有来源、逐节点约束、Overlay 应用与覆盖；不推断运行时消费 |
+| [完整工程合同](../docs/design/wire-codegen.md) | 维护者的提取、Overlay、编译、同步升级及验证流程 |
+| [消费者契约测试](../internal/methods/standard_consumption_test.go) | 已注册读方法的实际执行与严格输出验证 |
 
-遇到生成缺失，先区分官方无定义、已有定义错误、尚未选择生成、生成器不支持约束。各自修复对应入口；缺少依据的定义保持未覆盖，不生成宽松替代。
-
-## 修改与验证
-
-修改前置规则或通用生成器后，在仓库根目录执行：
+维护者在仓库根目录离线更新生成物：
 
 ```sh
 go generate ./ethapi
 go test ./internal/executionapi ./internal/wiregen ./ethapi
 ```
 
-`types.audit.json`记录来源、增强身份、覆盖和实际生成政策。验收同时检查原始／有效 schema 的独立预期、真实消费者以及重新生成的一致性；生成新鲜度和构造往返各自只证明部分合同。
-
-公开 `New…` 构造器检查相应定义。直接构造 Go 值仍须保持相同不变量；该调用方式和编码职责详见生成合同。
+上游同步、例外复核和完整发布门禁见工程合同；普通生成不会获取网络材料。

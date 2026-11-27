@@ -171,6 +171,10 @@ func TestTransactionStableModelsRetainPendingContextIsolation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			byIndex, err := ethapi.NewGetTransactionByBlockHashAndIndexResult(v.Result)
+			if err != nil || byIndex == nil {
+				t.Fatalf("new transaction method root rejected mined fixture: %v", err)
+			}
 			block, err := ethapi.NewBlockTransaction(v.Result)
 			if err != nil {
 				t.Fatal(err)
@@ -192,6 +196,9 @@ func TestTransactionStableModelsRetainPendingContextIsolation(t *testing.T) {
 			pending, _ := json.Marshal(tx)
 			if _, err := ethapi.NewTransaction(pending); err != nil {
 				t.Fatalf("query pending rejected: %v", err)
+			}
+			if _, err := ethapi.NewGetTransactionByBlockHashAndIndexResult(pending); err == nil {
+				t.Fatal("by-block-index root inherited pending erratum")
 			}
 			if _, err := ethapi.NewBlockTransaction(pending); err == nil {
 				t.Fatal("embedded model inherited pending erratum")

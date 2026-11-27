@@ -3421,6 +3421,8 @@
     }
    }
   ],
+  "net_listening": [],
+  "net_peerCount": [],
   "net_version": []
  }
 }

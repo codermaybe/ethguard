@@ -16,7 +16,7 @@ func TestResultProjectionRejectsUnstableComposition(t *testing.T) {
 			// {"a":"x","extra":1} matches only the open branch, but
 			// projecting extra creates a second oneOf match.
 			"oneOf open and closed", `{"oneOf":[` + open + `,` + closed + `]}`,
-			"example.result.oneOf[0]", "example.result.oneOf[1]",
+			"example.result/oneOf/0", "example.result/oneOf/1",
 		},
 		{
 			// {"a":"x","b":"kept","extra":1} selects branch 1.
@@ -26,7 +26,7 @@ func TestResultProjectionRejectsUnstableComposition(t *testing.T) {
 				{"type":"object","properties":{"a":{"type":"string"}},"required":["a"],"not":{"required":["extra"]}},
 				{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}},"required":["a","b"]}
 			]}`,
-			"example.result.anyOf[1]", "example.result.anyOf[0]",
+			"example.result/anyOf/1", "example.result/anyOf/0",
 		},
 		{
 			// The optional discriminator is unknown to branch 1. Losing it
@@ -35,18 +35,18 @@ func TestResultProjectionRejectsUnstableComposition(t *testing.T) {
 				{"type":"object","properties":{"a":{"type":"string"},"tag":{"const":"first"}},"required":["a"]},
 				{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}},"required":["a","b"]}
 			]}`,
-			"example.result.anyOf[1]", "example.result.anyOf[0]",
+			"example.result/anyOf/1", "example.result/anyOf/0",
 		},
 		{
 			"nested open object", `{"oneOf":[
 				{"type":"object","additionalProperties":false,"properties":{"child":` + open + `},"required":["child"]},
 				{"type":"object","additionalProperties":false,"properties":{"child":` + closed + `},"required":["child"]}
 			]}`,
-			"example.result.oneOf[0]", "example.result.oneOf[1]",
+			"example.result/oneOf/0", "example.result/oneOf/1",
 		},
 		{
 			"array open objects", `{"anyOf":[{"type":"array","items":` + closed + `},{"type":"array","items":` + open + `}]}`,
-			"example.result.anyOf[1]", "example.result.anyOf[0]",
+			"example.result/anyOf/1", "example.result/anyOf/0",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -104,7 +104,7 @@ func TestResultProjectionAdmitsStableKindsAndFirstAnyOfBranch(t *testing.T) {
 		`{"oneOf":[{"type":"null"},` + open + `]}`,
 		`{"oneOf":[{"type":"boolean"},` + open + `]}`,
 		`{"anyOf":[` + open + `,` + closed + `]}`,
-		`{"oneOf":[` + closed + `,` + closed + `]}`,
+		`{"oneOf":[` + strings.Replace(closed, `{"type"`, `{"title":"First","type"`, 1) + `,` + strings.Replace(closed, `{"type"`, `{"title":"Second","type"`, 1) + `]}`,
 		`{"anyOf":[{"type":"array","items":{"type":"string"}},{"type":"array","items":` + open + `}]}`,
 		`{"oneOf":[{"type":"array","items":` + open + `},{"type":"array","items":{"type":"string"}}]}`,
 		`{"type":"object","properties":{"common":{"type":"string"}},"required":["common"],"oneOf":[

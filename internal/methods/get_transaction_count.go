@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
@@ -18,8 +19,8 @@ func getTransactionCountSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodGetTransactionCount,
 		Resolver:    ResolverStrict,
-		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      ethcodec.EncodeQuantity,
+		Normalize:   standardQuantityResult(ethapi.NewGetTransactionCountResult, ethcodec.FoldWireHexCase),
+		Encode:      standardQuantityEncoding(ethapi.NewGetTransactionCountResult, ethcodec.FoldWireHexCase),
 		KeySource:   rpcengine.RuleKeyCanonicalBytes,
 		CompareKind: rpcengine.RuleCompareQuantity,
 		Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},

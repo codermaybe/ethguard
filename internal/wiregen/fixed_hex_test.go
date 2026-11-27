@@ -40,6 +40,10 @@ func TestNativeFixedHexSpecializationKeepsExactPatternBoundary(t *testing.T) {
 				if !strings.Contains(source, "IsLowerFixedHex(text, "+strconv.Itoa(fixture.digits)+")") || strings.Contains(source, "regexp.MustCompile") {
 					t.Fatalf("fixed native did not specialize its exact pattern:\n%s", source)
 				}
+			} else if shared := sharedStrictValidator(fixture.pattern); shared != "" {
+				if !strings.Contains(source, shared+"(text)") || strings.Contains(source, "regexp.MustCompile") {
+					t.Fatalf("recognized shared strict contract not bound:\n%s", source)
+				}
 			} else if strings.Contains(source, "IsLowerFixedHex") || !strings.Contains(source, "regexp.MustCompile("+strconv.Quote(fixture.pattern)+")") {
 				t.Fatalf("unrecognized pattern lost its regexp fallback:\n%s", source)
 			}

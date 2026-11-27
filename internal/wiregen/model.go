@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/codermaybe/ethguard/internal/ethcodec"
+	"github.com/codermaybe/ethguard/internal/executionapi"
 )
 
 // native describes the fixed generation-time scalar policy. String patterns
@@ -41,17 +44,17 @@ func nativeRewritesString(name string) bool {
 }
 
 var natives = []nativeDescriptor{
-	{"Quantity", `^0x(0|[1-9a-f][0-9a-f]*)$`, "canonical QUANTITY, zero as 0x0", preserveLiteral},
+	{"Quantity", ethcodec.QuantityPattern, "canonical QUANTITY, zero as 0x0", preserveLiteral},
 	{"Quantity64", `^0x(0|[1-9a-f][0-9a-f]{0,15})$`, "QUANTITY bounded to 64 bits", preserveLiteral},
 	{"Quantity256", `^0x(0|[1-9a-f][0-9a-f]{0,63})$`, "QUANTITY bounded to 256 bits (32 bytes)", preserveLiteral},
-	{"Data", `^0x([0-9a-f]{2})*$`, "hex encoded bytes, preserving content zeros", preserveLiteral},
+	{"Data", ethcodec.DataPattern, "hex encoded bytes, preserving content zeros", preserveLiteral},
 	{"Hash", `^0x[0-9a-f]{64}$`, "fixed 32-byte hex word", preserveLiteral},
 	{"Address", `^0x[0-9a-fA-F]{40}$`, "20-byte hex address", lowercaseAddress},
 	{"Bloom", `^0x[0-9a-f]{512}$`, "fixed 256-byte logs bloom", preserveLiteral},
 	{"BlockNonce", `^0x[0-9a-f]{16}$`, "fixed 8-byte header nonce", preserveLiteral},
 	{"StorageKey", `^0x[0-9a-f]{0,64}$`, "up-to-32-byte hex word", preserveLiteral},
 	{"HexByte", `^0x[0-9a-f]{1,2}$`, "1-2 lowercase hex digits", minimalHexByte},
-	{"DecimalString", `^(0|[1-9][0-9]*)$`, "nonnegative decimal string without leading zeros", preserveLiteral},
+	{"DecimalString", ethcodec.DecimalStringPattern, "nonnegative decimal string without leading zeros", preserveLiteral},
 	{"Number", "", "exact finite JSON number, without binary floating-point rounding", exactNumber},
 	{"Text", "", "free-form string content", preserveLiteral},
 }
@@ -140,6 +143,10 @@ type unionModel struct {
 }
 
 type registry struct {
+	manifest        executionapi.Manifest
+	namesByPath     map[string]string
+	usedTitles      map[string]bool
+	usedOrders      map[string]bool
 	byFP            map[string]*objectModel
 	unions          map[string]*unionModel
 	objects         []*objectModel // emission order
@@ -152,12 +159,12 @@ type registry struct {
 	preferredNames  map[string]string
 	reservedNames   map[string]string
 	usedNames       map[string]bool
-	row             int // fallback name counter
 	report          *genReport
 }
 
-func newRegistry(report *genReport) *registry {
+func newRegistry(manifest executionapi.Manifest, report *genReport) *registry {
 	r := &registry{
+		manifest: manifest, namesByPath: map[string]string{}, usedTitles: map[string]bool{}, usedOrders: map[string]bool{},
 		byFP:           map[string]*objectModel{},
 		mapByFP:        map[string]*mapModel{},
 		unions:         map[string]*unionModel{},
@@ -166,11 +173,14 @@ func newRegistry(report *genReport) *registry {
 		reservedNames:  map[string]string{},
 		report:         report,
 	}
+	for _, rule := range manifest.Names {
+		r.namesByPath[rule.Source.Path()] = rule.Name
+	}
 	// Reserve native names, including every pattern-derived one.
 	for _, n := range natives {
 		r.usedNames[n.name] = true
 	}
-	for alias := range modelAliases {
+	for alias := range manifest.Aliases {
 		r.usedNames[alias] = true
 	}
 	r.usedNames["bool"] = true
@@ -178,140 +188,13 @@ func newRegistry(report *genReport) *registry {
 	return r
 }
 
-type collision struct {
-	path     string
-	original string
-	resolved string
-}
-
-// uniqueName resolves rename collisions against already-used names. The
-// collisions it reports are expected only for context-distinct shapes
-// (envelope-merged transactions versus bare ones); anything else is drift the
-// release review must look at.
-func (reg *registry) uniqueName(base, path string) string {
-	name := base
-	for i := 2; reg.usedNames[name]; i++ {
-		name = fmt.Sprintf("%s%d", base, i)
-		reg.report.nameCollisions = append(reg.report.nameCollisions, collision{
-			path: path, original: base, resolved: name,
-		})
+// Public identifiers are never repaired by traversal-dependent suffixes.
+func (reg *registry) uniqueName(base, path string) (string, error) {
+	if reg.usedNames[base] || reg.reservedNames[base] != "" {
+		return "", fmt.Errorf("spec: naming conflict at %s: %s already occupied; declare an explicit name", path, base)
 	}
-	reg.usedNames[name] = true
-	return name
-}
-
-// --- Naming policy ---
-
-// Aliases preserve an existing public spelling for a schema-identical model.
-// They are generated, including their constructor forwarding function.
-var modelAliases = map[string]string{"SimulateBlockReference": "BlockReference"}
-
-// overrideNamesByTitle pins stable wire-level names for schemas the bundle
-// titles with lower-case or verbose spellings.
-var overrideNamesByTitle = map[string]string{
-	"log":                    "Log",
-	"Access list entry":      "AccessListItem",
-	"Validator withdrawal":   "Withdrawal",
-	"Syncing progress":       "SyncProgress",
-	"Result of call failure": "SimulateCallFailure",
-	"Result of call success": "SimulateCallSuccess",
-	"Result of eth_simulate block-level, with array of calls": "SimulateBlock",
-	"Receipt information":       "Receipt",
-	"Block object":              "Block",
-	"feeHistoryResults":         "FeeHistoryResult",
-	"Account proof":             "AccountProofResult",
-	"Transaction information":   "TransactionInformation",
-	"Signed Legacy Transaction": "LegacyTransaction",
-	"Signed 2930 Transaction":   "AccessListTransaction",
-	"Signed 1559 Transaction":   "EIP1559Transaction",
-	"Signed 4844 Transaction":   "BlobTransaction",
-	"Signed 7702 Transaction":   "SetCodeTransaction",
-	"Transaction hashes":        "TransactionHashes",
-	"Full transactions":         "FullTransactions",
-}
-
-// overrideNameByPath pins names for schema nodes whose titles are absent or
-// ambiguous: the simulate call-result error branches and unions, and the
-// EIP-7702 authorization tuple (an item schema with no official title).
-// Path keys are stable inside the pinned version; the emitted version
-// interlock forces regeneration if the pinned bundle ever moves.
-var overrideNameByPath = map[string]string{
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items":            "BlockTransaction",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0]":   "BlockSetCodeTransaction",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1]":   "BlockBlobTransaction",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2]":   "BlockEIP1559Transaction",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3]":   "BlockAccessListTransaction",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4]":   "BlockLegacyTransaction",
-	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items":          "BlockTransaction",
-	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0]": "BlockSetCodeTransaction",
-	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[1]": "BlockBlobTransaction",
-	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[2]": "BlockEIP1559Transaction",
-	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[3]": "BlockAccessListTransaction",
-	"eth_getBlockByNumber.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[4]": "BlockLegacyTransaction",
-	"eth_getTransactionByHash.result.oneOf[1]":                                             "Transaction",
-	"eth_getTransactionByHash.result.oneOf[1].oneOf[0]":                                    "SetCodeTransaction",
-	"eth_getTransactionByHash.result.oneOf[1].oneOf[1]":                                    "BlobTransaction",
-	"eth_getTransactionByHash.result.oneOf[1].oneOf[2]":                                    "EIP1559Transaction",
-	"eth_getTransactionByHash.result.oneOf[1].oneOf[3]":                                    "AccessListTransaction",
-	"eth_getTransactionByHash.result.oneOf[1].oneOf[4]":                                    "LegacyTransaction",
-
-	"eth_simulateV1.params[0]":                                                            "SimulateV1Request",
-	"eth_simulateV1.params[1]":                                                            "BlockReference",
-	"eth_getBlockReceipts.params[0]":                                                      "BlockReference",
-	"eth_getBlockReceipts.params[0].anyOf[3]":                                             "BlockNumberReference",
-	"eth_getBlockReceipts.params[0].anyOf[4]":                                             "BlockHashReference",
-	"eth_getLogs.params[0]":                                                               "FilterQuery",
-	"eth_getLogs.params[0].oneOf[0]":                                                      "FilterQueryRange",
-	"eth_getLogs.params[0].oneOf[1]":                                                      "FilterQueryHash",
-	"eth_getLogs.params[0].oneOf[0].properties.address":                                   "FilterAddress",
-	"eth_getLogs.params[0].oneOf[0].properties.fromBlock":                                 "FilterBlock",
-	"eth_getLogs.params[0].oneOf[0].properties.toBlock":                                   "FilterBlock",
-	"eth_getLogs.params[0].oneOf[0].properties.topics.oneOf[1].items":                     "FilterTopic",
-	"eth_subscribe.params[1]/oneOf/2":                                                     "TransactionReceiptsQuery",
-	"eth_getHeaderByHash.result.oneOf[1]":                                                 "Header",
-	"eth_getHeaderByNumber.result.oneOf[1]":                                               "Header",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items":                           "BlockStateCall",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides": "BlockOverrides",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items":    "SimulateCall",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides": "StateOverrides",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$":                  "AccountOverride",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.stateOverrides.patternProperties.^0x[a-fA-F0-9]{40}$.properties.state": "AccountStorage",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.blockOverrides.properties.withdrawals.items":                           "SimulateWithdrawal",
-	"eth_simulateV1.params[0].properties.blockStateCalls.items.properties.calls.items.properties.accessList.items":                               "SimulateAccessListItem",
-	"eth_simulateV1.params[1].anyOf[3]":                                                                                     "BlockNumberReference",
-	"eth_simulateV1.params[1].anyOf[4]":                                                                                     "BlockHashReference",
-	"eth_call.params[0]":                                                                                                    "CallMsg",
-	"eth_call.params[0].properties.accessList.items":                                                                        "SimulateAccessListItem",
-	"eth_call.params[0].properties.authorizationList.items":                                                                 "CallAuthorization",
-	"eth_simulateV1.result.items.properties.calls.items":                                                                    "SimulateCallResult",
-	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error":                                          "SimulateCallError",
-	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[0]":                                 "SimulateErrorRevert",
-	"eth_simulateV1.result.items.properties.calls.items.oneOf[0].properties.error.oneOf[1]":                                 "SimulateErrorVM",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items": "AuthorizationTuple",
-	"eth_getBlockByHash.result.oneOf[1].properties.transactions":                                                            "BlockTransactions",
-}
-
-// fieldOrderOverrides pin the field order of objects whose canonical byte
-// order is already fixed by hand-written protected encoders and golden tests.
-// Everything else keeps the official document order.
-var fieldOrderOverrides = map[string][]string{
-	"Log": {
-		"address", "topics", "data", "blockNumber",
-		"transactionHash", "transactionIndex", "blockHash", "logIndex",
-		"removed", "blockTimestamp",
-	},
-	"Receipt": {
-		"transactionHash", "transactionIndex", "blockHash", "blockNumber",
-		"from", "cumulativeGasUsed", "gasUsed", "effectiveGasPrice",
-		"logsBloom", "logs", "status", "root", "type",
-		"contractAddress", "to", "blobGasUsed", "blobGasPrice",
-	},
-	"AccessListResult": {"accessList", "error", "gasUsed"},
-	"AccessListItem":   {"address", "storageKeys"},
-	"FeeHistoryResult": {
-		"oldestBlock", "baseFeePerGas", "gasUsedRatio", "reward",
-		"baseFeePerBlobGas", "blobGasUsedRatio",
-	},
+	reg.usedNames[base] = true
+	return base, nil
 }
 
 // --- small naming helpers ---

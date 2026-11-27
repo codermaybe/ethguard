@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethobject/transaction"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/rpc"
@@ -67,6 +68,9 @@ func prepareTransactionCandidateInBlock(value json.RawMessage) (transaction.Cand
 	}
 	if candidate.Pending() {
 		return transaction.Candidate{}, fmt.Errorf("%w: pending transaction has no requested block/index", rpc.ErrMalformedResponse)
+	}
+	if _, err := ethapi.NewGetTransactionByBlockHashAndIndexResult(candidate.Canonical()); err != nil {
+		return transaction.Candidate{}, fmt.Errorf("%w: transaction in block standard result: %v", rpc.ErrMalformedResponse, err)
 	}
 	return candidate, nil
 }

@@ -1,0 +1,802 @@
+{
+  "id": "data-whole-bytes",
+  "kind": "data-pattern",
+  "dependsOn": [
+    "getlogs-empty-array-overlap",
+    "simulate-block-state-calls-items",
+    "transaction-query-pending-context"
+  ],
+  "reason": "EIP-1474 DATA encodes complete bytes. Apply only the individually reviewed schema nodes, preserving all other constraints.",
+  "references": [
+    "https://eips.ethereum.org/EIPS/eip-1474#data"
+  ],
+  "retireWhen": "Review each target on source upgrades. Already-satisfied targets are retirement candidates, never silently removed. Remove the rule when no reviewed target requires correction.",
+  "fromPattern": "^0x[0-9a-f]*$",
+  "toPattern": "^0x([0-9a-f]{2})*$",
+  "targets": [
+    {
+      "source": {
+        "method": "eth_call",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blobs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_call",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/commitments/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_call",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_call",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/proofs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_call",
+        "part": "result"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_createAccessList",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blobs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_createAccessList",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/commitments/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_createAccessList",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_createAccessList",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/proofs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_estimateGas",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blobs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_estimateGas",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/commitments/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_estimateGas",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_estimateGas",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/proofs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_fillTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blobs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_fillTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/commitments/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_fillTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_fillTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/proofs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/extraData"
+      },
+      "identity": {
+        "title": "Extra data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/0/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/1/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/2/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/3/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/4/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/extraData"
+      },
+      "identity": {
+        "title": "Extra data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/0/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/1/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/2/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/3/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/transactions/anyOf/1/items/oneOf/4/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getBlockReceipts",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/items/properties/logs/items/properties/data"
+      },
+      "identity": {
+        "title": "data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getCode",
+        "part": "result"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getHeaderByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/extraData"
+      },
+      "identity": {
+        "title": "Extra data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getHeaderByNumber",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/extraData"
+      },
+      "identity": {
+        "title": "Extra data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getLogs",
+        "part": "result",
+        "schemaPointer": "/anyOf/1/items/properties/data"
+      },
+      "identity": {
+        "title": "data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getProof",
+        "part": "result",
+        "schemaPointer": "/properties/accountProof/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getProof",
+        "part": "result",
+        "schemaPointer": "/properties/storageProof/items/properties/proof/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getStorageAt",
+        "part": "result"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByBlockHashAndIndex",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/0/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByBlockHashAndIndex",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/1/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByBlockHashAndIndex",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/2/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByBlockHashAndIndex",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/3/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByBlockHashAndIndex",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/4/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/0/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/1/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/2/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/3/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionByHash",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/oneOf/4/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_getTransactionReceipt",
+        "part": "result",
+        "schemaPointer": "/oneOf/1/properties/logs/items/properties/data"
+      },
+      "identity": {
+        "title": "data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_sendRawTransaction",
+        "part": "request",
+        "parameter": 0
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_sendTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blobs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_sendTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/commitments/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_sendTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_sendTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/proofs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_sign",
+        "part": "request",
+        "parameter": 1
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_signTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blobs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_signTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/commitments/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_signTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_signTransaction",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/proofs/items"
+      },
+      "identity": {
+        "title": "hex encoded bytes",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items/properties/calls/items/properties/input"
+      },
+      "identity": {
+        "description": "Default: no data",
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "request",
+        "parameter": 0,
+        "schemaPointer": "/properties/blockStateCalls/items/properties/stateOverrides/patternProperties/^0x[a-fA-F0-9]{40}$/properties/code"
+      },
+      "identity": {
+        "title": "Code",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/calls/items/oneOf/0/properties/returnData"
+      },
+      "identity": {
+        "title": "Return data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/calls/items/oneOf/1/properties/logs/items/properties/data"
+      },
+      "identity": {
+        "title": "data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/calls/items/oneOf/1/properties/returnData"
+      },
+      "identity": {
+        "title": "Return data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/extraData"
+      },
+      "identity": {
+        "title": "Extra data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/transactions/anyOf/1/items/oneOf/0/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/transactions/anyOf/1/items/oneOf/1/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/transactions/anyOf/1/items/oneOf/2/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/transactions/anyOf/1/items/oneOf/3/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    },
+    {
+      "source": {
+        "method": "eth_simulateV1",
+        "part": "result",
+        "schemaPointer": "/items/properties/transactions/anyOf/1/items/oneOf/4/properties/input"
+      },
+      "identity": {
+        "title": "input data",
+        "type": "string"
+      }
+    }
+  ],
+  "exceptions": []
+}

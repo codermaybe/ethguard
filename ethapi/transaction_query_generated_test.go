@@ -18,11 +18,26 @@ import (
 // rejects pending null metadata, independently exposing the upstream mismatch
 // rather than validating the correction against a patched copy of itself.
 func TestTransactionQueryRawBundleRemainsVerbatim(t *testing.T) {
-	// Header model coverage expands the source envelope without changing the
-	// original transaction schema (see the source coverage migration).
-	const want = "c600c7959d8ab76884f1db9d8fe5bd2c1a4f4a274afd2fdaf6f8cf5ff454f73a"
-	if got := fmt.Sprintf("%x", sha256.Sum256(spec.MethodsJSON())); got != want {
-		t.Fatalf("verbatim %s methods bundle changed: %s", spec.Version(), got)
+	// Freeze the original transaction root independently of selection changes.
+	var bundle struct {
+		Results map[string]json.RawMessage `json:"results"`
+	}
+	if err := json.Unmarshal(spec.MethodsJSON(), &bundle); err != nil {
+		t.Fatal(err)
+	}
+	var root any
+	decoder := json.NewDecoder(bytes.NewReader(bundle.Results["eth_getTransactionByHash"]))
+	decoder.UseNumber()
+	if err := decoder.Decode(&root); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "8e6738fff0992cca230d9cd8859b025de14030250c96404e6355a9b606fb7207"
+	if got := fmt.Sprintf("%x", sha256.Sum256(raw)); got != want {
+		t.Fatalf("verbatim %s transaction root changed: %s", spec.Version(), got)
 	}
 }
 

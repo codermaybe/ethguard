@@ -1,12 +1,11 @@
 package methods
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
+	"github.com/codermaybe/ethguard/ethapi"
+	"strconv"
 
 	"github.com/codermaybe/ethguard/internal/rpcengine"
-	"github.com/codermaybe/ethguard/rpc"
 )
 
 // MethodListening is the JSON-RPC method spelling this file owns: the root
@@ -22,7 +21,7 @@ func listeningSpec() MethodSpec {
 		Method:      MethodListening,
 		Resolver:    ResolverLocal,
 		Normalize:   normalizeListening,
-		Encode:      rpc.EncodeCanonicalJSON,
+		Encode:      encodeListening,
 		CompareKind: rpcengine.RuleCompareObject,
 	}
 }
@@ -42,11 +41,11 @@ func listeningDescriptor() MethodDescriptor {
 // normalizeListening admits only the method's boolean result. JSON null and
 // non-boolean bodies are malformed, not a negative listening state. The
 // registered plan resolves net_listening through rpc.Local with this
-// normalizer; the method has no constructor.
+// normalizer and the generated official boolean result constructor.
 func normalizeListening(value json.RawMessage) (string, error) {
-	trimmed := bytes.TrimSpace(value)
-	if bytes.Equal(trimmed, []byte("true")) || bytes.Equal(trimmed, []byte("false")) {
-		return string(trimmed), nil
+	parsed, err := ethapi.NewListeningResult(value)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("listening: expected a boolean")
+	return strconv.FormatBool(parsed), nil
 }

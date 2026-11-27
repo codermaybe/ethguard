@@ -1,6 +1,6 @@
 # 方法合同
 
-状态：2026-11-20 已核对当前方法事实；接受域政策与外部证据缺口独立维护。本文统一维护跨方法保证、裁定门槛、逐方法保护范围与独立交易规则。公开类型迁移已完成；已登记的接受域差异和证据缺口仍未关闭。
+状态：2026-11-20 方法基线；2026-11-28 同步标准流水线后的已决标量接受域。接受域政策与外部证据缺口独立维护。本文统一维护跨方法保证、裁定门槛、逐方法保护范围与独立交易规则。公开类型迁移已完成；剩余接受域差异和证据缺口按下文分别维护。
 
 ## 1. 权威来源与职责
 
@@ -36,7 +36,7 @@ reference 建立有自己的候选与确认算法，见 [reference 合同](refer
 
 | 方法族 | 保护与比较依据 | 明确未证明／例外 |
 | --- | --- | --- |
-| `eth_chainId`、`net_version` | 无块参考的身份事实，分别使用 hex quantity 与 decimal；net ID 不与 chain ID 互换 | 身份预检与单次裁决独立；`net_version` 的正值边界缺口已登记 |
+| `eth_chainId`、`net_version` | 无块参考的身份事实，分别使用 hex quantity 与非负 decimal；net ID 不与 chain ID 互换 | 身份预检与单次裁决独立；`net_version` 允许零，有限兼容后执行生成结果根，拒绝负非零值 |
 | balance／nonce／code／storage | 调用内共同参考上的数量或 DATA；storage word 为 32 字节 | 一致响应不等于验证 state trie proof；tag 与 pending 按专属矩阵 |
 | 完整 block（`fullTx=true`） | Header 自哈希、请求身份、完整有序交易 trie root、适用的 withdrawals root、完整 uncle 头承诺；完整官方规范对象字节作为比较键，保留并比较size与内嵌交易上下文／from声明 | 不重执行 EVM，不证明 canonical chain／finality；头中的根值受承诺不等于加载并验证其全部对应内容 |
 | header-only／`fullTx=false` block | reference可使用较窄number/hash身份；完整Header逐源在重编码前核对原声明hash与自算hash，生成Header投影检查required及fork字段，typed查询另绑定请求hash／高度 | 不外推完整body trie／withdrawals／uncle载荷承诺；纯Header不强制EmptyUncleHash，历史PoW非空uncle root合法 |
@@ -116,7 +116,7 @@ NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观
 
 新公网方言采集、更多交易类型的真实状态生命周期和完整 provider 兼容仍未完成；文档重组没有运行这些观察。验收必须覆盖合法表示聚合、真实内容不误合并、非法一致回答仍被拒绝、vendor 差异不干扰主裁决、固定分母、最终 typed 及来源材料。
 
-## 6. 待裁决与待实现事项
+## 6. 实施状态与剩余裁决
 
 | 事项 | 已知事实与处理边界 |
 | --- | --- |
@@ -124,7 +124,7 @@ NotFound、Conflict、InsufficientSupport 和 GuaranteeNotMet 均允许继续观
 | AccessList | 已消费生成的 AccessListItem／AccessListResult，方法适配仍强制 accessList 存在，并将 error／gasUsed 的 null 折合省略；保留基线别名、条目形态检查及错误顺序。适配成本单独实测，不因采用生成类型自动认定性能通过 |
 | 共享 Log | 内核保留手写 CanonicalLog 和完整字段校验；单遍尝试已恢复为基线的 Validate 与 EncodeOne 两段处理，以保留精确键准入、编码别名及错误优先级。生成 Log 的 optional／nullable 不同，后续替换仍需 query、receipt、订阅及 Pull 的等价证据 |
 | 本地观测 | local Provenance、无可尝试来源与 identity 错误优先级仍需逐模块复核，不将旧探针当现行缺陷证明 |
-| net_version | 当前方法 Normalize／Encode／typed quantity 路径没有正值 gate；public plan 实测接受零、负值、加号、前导零，拒绝 hex 字符串。是否收紧至非负或正值须单独裁决；NetworkID 与 ChainID 不强制相等，不额外查询。生成十进制模型的接受域不能直接冒充此方法现行规则 |
+| net_version（已实施） | 标准结果根接受规范非负十进制，允许零，拒绝负值、加号和冗余前导零。方法先应用具名兼容 `legacy-decimal-nonnegative-v1`，将 `+1`、前导零和 `-0` 折合为规范非负表示，再由生成结果根严格校验；负非零值与 hex 字符串拒绝。这是明确的接受域收紧。方法兼容与 typed 返回类型／范围分别负责，NetworkID 的 `*big.Int` 投影不另造标准规则；NetworkID 与 ChainID 不强制相等、不额外查询。公开边界由 [TestTypedScalarStandardAndFiniteCompatibility](../../internal/verification/facade/standard_scalar_contract_test.go) 验证 |
 
 文档基线之后的实现与审计已推进上述事项，剩余差异继续由本合同和路线图维护。静态候选不等于已经复现的漏洞或已授权的新合同；实现切片通过也不代替跨模块与成本验收。
 

@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
@@ -18,8 +19,8 @@ func estimateGasSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodEstimateGas,
 		Resolver:    ResolverMedian,
-		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      ethcodec.EncodeQuantity,
+		Normalize:   standardQuantityResult(ethapi.NewEstimateGasResult, ethcodec.FoldWireHexCase),
+		Encode:      standardQuantityEncoding(ethapi.NewEstimateGasResult, ethcodec.FoldWireHexCase),
 		CompareKind: rpcengine.RuleCompareQuantity,
 		Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},
 		Pending:     PendingSpec{Mode: PendingObserve, Pos: 1},

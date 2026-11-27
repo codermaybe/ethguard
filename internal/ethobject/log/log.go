@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 )
@@ -163,7 +164,7 @@ func EncodeOne(value json.RawMessage) (CanonicalLog, error) {
 		}
 		timestamp = &text
 	}
-	return CanonicalLog{
+	out := CanonicalLog{
 		Address:          address,
 		Topics:           topics,
 		Data:             data,
@@ -174,7 +175,17 @@ func EncodeOne(value json.RawMessage) (CanonicalLog, error) {
 		LogIndex:         logIndex,
 		Removed:          removed,
 		BlockTimestamp:   timestamp,
-	}, nil
+	}
+	candidate, err := ethcodec.MarshalNoEscape(out)
+	if err != nil {
+		return CanonicalLog{}, err
+	}
+	// Method-required fields were checked above. The generated complete Log
+	// schema now verifies the finite case/null/projection compatibility result.
+	if _, err := ethapi.NewLog(candidate); err != nil {
+		return CanonicalLog{}, fmt.Errorf("log standard result: %w", err)
+	}
+	return out, nil
 }
 
 // CanonicalLog is the protected log object shared by eth_getLogs and the log

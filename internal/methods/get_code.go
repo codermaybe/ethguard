@@ -1,7 +1,7 @@
 package methods
 
 import (
-	"github.com/codermaybe/ethguard/internal/ethcodec"
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
 
@@ -17,8 +17,8 @@ func getCodeSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodGetCode,
 		Resolver:    ResolverStrict,
-		Normalize:   ethcodec.NormalizeHexData,
-		Encode:      ethcodec.EncodeData,
+		Normalize:   standardDataResult(ethapi.NewGetCodeResult, 0),
+		Encode:      standardDataEncoding(ethapi.NewGetCodeResult, 0),
 		KeySource:   rpcengine.RuleKeyCanonicalBytes,
 		CompareKind: rpcengine.RuleCompareMethodSpecific,
 		Reference:   ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},

@@ -1,5 +1,4 @@
-// Command specdiff produces a reviewable field-level diff between two pinned
-// execution-apis result bundles. It never edits the active bundle.
+// Command specdiff compares original result and request bundles together.
 package main
 
 import (
@@ -12,77 +11,50 @@ import (
 )
 
 func main() {
-	beforePath := flag.String("before", "", "previous methods.json (required)")
-	afterPath := flag.String("after", "", "candidate methods.json (required)")
-	check := flag.Bool("check", false, "fail unless schema changes have an exact migration manifest and both verification checks")
-	migrationPath := flag.String("migration", "", "migration manifest used by -check")
-	jsonOutput := flag.Bool("json", false, "emit the complete schema diff as JSON")
+	before := flag.String("before-dir", "", "previous spec root")
+	after := flag.String("after-dir", "", "candidate spec root")
+	jsonOutput := flag.Bool("json", false, "emit complete machine-readable diff")
+	check := flag.Bool("check", false, "fail if any definition or representation differs")
 	flag.Parse()
-	if *beforePath == "" || *afterPath == "" {
+	if *before == "" || *after == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
-	before, err := os.ReadFile(*beforePath)
-	if err != nil {
-		fail("read before: %v", err)
-	}
-	after, err := os.ReadFile(*afterPath)
-	if err != nil {
-		fail("read after: %v", err)
-	}
-	diff, err := conformance.DiffBundles(before, after)
+	diff, err := conformance.DiffDirectories(os.DirFS(*before), os.DirFS(*after))
 	if err != nil {
 		fail("diff: %v", err)
 	}
-	if *check {
-		var manifest []byte
-		if *migrationPath != "" {
-			manifest, err = os.ReadFile(*migrationPath)
-			if err != nil {
-				fail("read migration: %v", err)
-			}
-		}
-		if err := conformance.ValidateMigration(diff, manifest); err != nil {
-			fail("migration gate: %v", err)
-		}
-	}
 	if *jsonOutput {
-		if err := json.NewEncoder(os.Stdout).Encode(diff); err != nil {
-			fail("write diff: %v", err)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(diff); err != nil {
+			fail("output: %v", err)
 		}
-		return
-	}
-	fmt.Printf("# execution-apis result schema diff\n\n- before: %s\n- after: %s\n", diff.BeforeVersion, diff.AfterVersion)
-	if len(diff.Methods) == 0 {
-		fmt.Println("\n- no result schema changes")
-		if *check {
-			fmt.Println("- migration gate: passed")
+	} else {
+		fmt.Printf("execution-apis %s -> %s\n", diff.BeforeVersion, diff.AfterVersion)
+		for _, part := range []struct {
+			name    string
+			methods []conformance.MethodDiff
+		}{{"result", diff.Results}, {"request", diff.Requests}} {
+			for _, method := range part.methods {
+				fmt.Printf("%s %s: added=%t removed=%t changes=%d\n", part.name, method.Method, method.Added, method.Removed, len(method.Changed))
+				for _, change := range method.Changed {
+					fmt.Printf("  %s %s\n", change.Kind, change.Path)
+				}
+			}
 		}
-		return
+		for _, artifact := range diff.Artifacts {
+			if artifact.Changed {
+				fmt.Printf("bytes changed: %s\n", artifact.Name)
+			}
+		}
 	}
 	if *check {
-		fmt.Println("\n- migration gate: passed")
-	}
-	for _, method := range diff.Methods {
-		switch {
-		case method.Added:
-			fmt.Printf("\n## %s\n\n- method: added\n", method.Method)
-		case method.Removed:
-			fmt.Printf("\n## %s\n\n- method: removed\n", method.Method)
-		default:
-			fmt.Printf("\n## %s\n", method.Method)
-			for _, change := range method.Changed {
-				fmt.Printf("\n- `%s`: %s", change.Path, change.Kind)
-				if change.Kind == "changed" {
-					fmt.Printf("; type %s -> %s; required %t -> %t", change.BeforeType, change.AfterType, change.BeforeRequired, change.AfterRequired)
-				}
-				fmt.Println()
+		for _, artifact := range diff.Artifacts {
+			if artifact.Changed {
+				fail("source changed; review diff and specsync execution evidence")
 			}
 		}
 	}
 }
-
-func fail(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
-	os.Exit(1)
-}
+func fail(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...); os.Exit(1) }

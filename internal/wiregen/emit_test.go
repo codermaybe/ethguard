@@ -40,6 +40,7 @@ func TestConstCodeIntegerRange(t *testing.T) {
 // types, or omitted constraints in the renderer.
 func TestEmittedParsersPreserveSchemaSemantics(t *testing.T) {
 	reg := testRegistry()
+	reg.manifest.Aliases = nil
 	root, err := reg.walk(testSchema(t, `{
 		"type":"object","title":"Emission fixture",
 		"required":["rows","selection","empty","exact","bounded"],
@@ -115,7 +116,7 @@ func TestEmittedParsersPreserveSchemaSemantics(t *testing.T) {
 	if !bytes.Equal(first, second) {
 		t.Fatal("emission changed without an input change")
 	}
-	for _, name := range []string{"helpers.go", "normalize.go", "numbers.go", "number.go", "equality.go", "fixed_hex.go"} {
+	for _, name := range []string{"helpers.go", "normalize.go", "strict.go", "compatibility.go", "numbers.go", "number.go", "equality.go", "fixed_hex.go"} {
 		data, err := os.ReadFile(filepath.Join("..", "ethcodec", name))
 		if err != nil {
 			t.Fatal(err)
@@ -180,7 +181,7 @@ func TestGeneratedBehavior(t *testing.T) {
 		{name:"optional const",field:"code",value:"-32015"},
 		{name:"integer constant decimal",field:"code",value:"-32015.0"},
 		{name:"string const preserves literal",field:"hexConst",value:"\"0xABCDEF0000000000000000000000000000000000\""},
-		{name:"string const rejects rewritten literal",field:"hexConst",value:"\"0xabcdef0000000000000000000000000000000000\"",wantErr:"eth_emitterFixture.result.properties.hexConst: expected constant"},
+		{name:"string const rejects rewritten literal",field:"hexConst",value:"\"0xabcdef0000000000000000000000000000000000\"",wantErr:"eth_emitterFixture.result/properties/hexConst: expected constant"},
 		{name:"oneOf native input identity",field:"nativeChoice",value:"\"0x4A\""},
 		{name:"anyOf native input identity",field:"nativeAlternative",value:"\"0x4A\""},
 		{name:"oneOf byte representation",field:"byteChoice",value:"\"0x04\""},
@@ -198,15 +199,15 @@ func TestGeneratedBehavior(t *testing.T) {
 		{name:"oneOf dictionary representation",field:"dictionaryChoice",value:"{\"x\":\"0x04\"}"},
 		{name:"exact equivalent",field:"exact",value:"1.000000000000000000000000100"},
 		{name:"upper bound",field:"bounded",value:"0.30000000000000002"},
-		{name:"optional pattern",field:"optional",value:"\"lost\"",wantErr:"eth_emitterFixture.result.properties.optional.anyOf[1]: does not match official pattern"},
-		{name:"optional constant",field:"code",value:"3",wantErr:"eth_emitterFixture.result.properties.code: expected constant"},
-		{name:"exact constant",field:"exact",value:"1",wantErr:"eth_emitterFixture.result.properties.exact: expected constant"},
-		{name:"minimum",field:"bounded",value:"0.3",wantErr:"eth_emitterFixture.result.properties.bounded: below official minimum"},
-		{name:"maximum",field:"bounded",value:"0.30000000000000003",wantErr:"eth_emitterFixture.result.properties.bounded: above official maximum"},
+		{name:"optional pattern",field:"optional",value:"\"lost\"",wantErr:"eth_emitterFixture.result/properties/optional/anyOf/1: does not match official pattern"},
+		{name:"optional constant",field:"code",value:"3",wantErr:"eth_emitterFixture.result/properties/code: expected constant"},
+		{name:"exact constant",field:"exact",value:"1",wantErr:"eth_emitterFixture.result/properties/exact: expected constant"},
+		{name:"minimum",field:"bounded",value:"0.3",wantErr:"eth_emitterFixture.result/properties/bounded: below official minimum"},
+		{name:"maximum",field:"bounded",value:"0.30000000000000003",wantErr:"eth_emitterFixture.result/properties/bounded: above official maximum"},
 		{name:"overlapping oneOf",field:"selection",value:"\"ok\"",wantErr:"Selection: expected oneOf branch match, got 2"},
 		{name:"unmatched oneOf",field:"selection",value:"\"bad\"",wantErr:"Selection: expected oneOf branch match, got 0"},
 		{name:"unmatched anyOf",field:"empty",value:"[1]",wantErr:"EmptyChoice: expected anyOf branch match"},
-		{name:"non-null array",field:"rows",value:"null",wantErr:"eth_emitterFixture.result.properties.rows: expected a non-null value"},
+		{name:"non-null array",field:"rows",value:"null",wantErr:"eth_emitterFixture.result/properties/rows: expected a non-null value"},
 		{name:"missing required",field:"rows",wantErr:"EmissionFixture: missing required field rows"},
 	} {
 		t.Run(tc.name,func(t *testing.T){

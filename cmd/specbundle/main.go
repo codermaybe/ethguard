@@ -1,5 +1,4 @@
-// Command specbundle rebuilds the pinned methods.json subset from an official
-// dereferenced execution-apis openrpc.json.
+// Command specbundle extracts original schemas using the shared build Manifest.
 package main
 
 import (
@@ -7,66 +6,42 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/codermaybe/ethguard/internal/executionapi"
 	"github.com/codermaybe/ethguard/internal/spec/builder"
 )
 
 func main() {
-	openRPCPath := flag.String("openrpc", "", "dereferenced official openrpc.json (required)")
-	version := flag.String("version", "", "official release tag (required)")
-	methodsPath := flag.String("methods-from", "", "existing methods.json whose method set is preserved")
-	methodsListPath := flag.String("methods", "", "newline-delimited project method policy (alternative to -methods-from)")
-	outPath := flag.String("out", "", "output methods.json (required)")
-	requestsPath := flag.String("requests-out", "", "also write the complete official Ethereum request-schema inventory")
+	openRPCPath := flag.String("openrpc", "", "dereferenced official OpenRPC input")
+	version := flag.String("version", "", "fixed complete upstream commit")
+	manifestPath := flag.String("manifest", "internal/executionapi/manifest.json", "shared generation contract")
+	outPath := flag.String("out", "", "output methods.json")
+	requestsPath := flag.String("requests-out", "", "output request inventory")
+	inventoryPath := flag.String("inventory-out", "", "output complete upstream inventory")
 	flag.Parse()
-	if *openRPCPath == "" || *version == "" || *outPath == "" || (*methodsPath == "" && *methodsListPath == "") || (*methodsPath != "" && *methodsListPath != "") {
+	if *openRPCPath == "" || *version == "" || *outPath == "" || *requestsPath == "" || *inventoryPath == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
-	openRPC, err := os.ReadFile(*openRPCPath)
+	raw, err := os.ReadFile(*openRPCPath)
 	if err != nil {
-		fail("read openrpc: %v", err)
+		fail("read OpenRPC: %v", err)
 	}
-	var methods []string
-	if *methodsListPath != "" {
-		list, err := os.ReadFile(*methodsListPath)
-		if err != nil {
-			fail("read method list: %v", err)
-		}
-		methods, err = builder.MethodsFromList(list)
-		if err != nil {
-			fail("read method list: %v", err)
-		}
-	} else {
-		base, err := os.ReadFile(*methodsPath)
-		if err != nil {
-			fail("read methods bundle: %v", err)
-		}
-		methods, err = builder.MethodsFromBundle(base)
-		if err != nil {
-			fail("read method set: %v", err)
-		}
-	}
-	bundle, err := builder.Build(openRPC, *version, methods)
+	manifest, err := executionapi.LoadManifest(*manifestPath)
 	if err != nil {
-		fail("build bundle: %v", err)
+		fail("manifest: %v", err)
 	}
-	if err := os.WriteFile(*outPath, bundle, 0o644); err != nil {
-		fail("write bundle: %v", err)
+	artifacts, err := builder.BuildSelected(raw, *version, manifest)
+	if err != nil {
+		fail("extract: %v", err)
 	}
-	fmt.Printf("wrote %s (%s, %d methods)\n", *outPath, *version, len(methods))
-	if *requestsPath != "" {
-		requests, err := builder.BuildRequests(openRPC, *version)
-		if err != nil {
-			fail("build requests: %v", err)
+	for _, output := range []struct {
+		path string
+		raw  []byte
+	}{{*outPath, artifacts.Methods}, {*requestsPath, artifacts.Requests}, {*inventoryPath, artifacts.Inventory}} {
+		if err := os.WriteFile(output.path, output.raw, 0644); err != nil {
+			fail("write %s: %v", output.path, err)
 		}
-		if err := os.WriteFile(*requestsPath, requests, 0o644); err != nil {
-			fail("write requests: %v", err)
-		}
-		fmt.Printf("wrote %s (%s request schemas)\n", *requestsPath, *version)
 	}
+	fmt.Printf("wrote original result, request and complete inventory at %s\n", *version)
 }
-
-func fail(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
-	os.Exit(1)
-}
+func fail(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...); os.Exit(1) }

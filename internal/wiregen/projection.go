@@ -27,7 +27,7 @@ func validateResultProjection(n *schema, path string) error {
 				continue
 			}
 			if !projectionKeepsBranch(selected, other) {
-				return fmt.Errorf("spec: %s.%s[%d]: unsupported result projection: cannot prove stable branch selection against %s.%s[%d]", path, n.compKind, i, path, n.compKind, j)
+				return fmt.Errorf("spec: %s: unsupported result projection: cannot prove stable branch selection against %s", schemaChild(path, n.compKind, itoa(i)), schemaChild(path, n.compKind, itoa(j)))
 			}
 		}
 	}

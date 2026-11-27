@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
@@ -16,8 +17,8 @@ func blobBaseFeeSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodBlobBaseFee,
 		Resolver:    ResolverMedian,
-		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      ethcodec.EncodeQuantity,
+		Normalize:   standardQuantityResult(ethapi.NewBlobBaseFeeResult, ethcodec.FoldWireHexCase),
+		Encode:      standardQuantityEncoding(ethapi.NewBlobBaseFeeResult, ethcodec.FoldWireHexCase),
 		CompareKind: rpcengine.RuleCompareQuantity,
 	}
 }

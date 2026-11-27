@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codermaybe/ethguard/internal/executionapi"
 	"github.com/codermaybe/ethguard/internal/spec"
 )
 
@@ -17,7 +18,16 @@ func testSchema(t *testing.T, raw string) *schema {
 	}
 	return n
 }
-func testRegistry() *registry { return newRegistry(&genReport{visited: map[string]bool{}}) }
+func testManifest() executionapi.Manifest {
+	manifest, err := executionapi.LoadManifest("../executionapi/manifest.json")
+	if err != nil {
+		panic(err)
+	}
+	return manifest
+}
+func testRegistry() *registry {
+	return newRegistry(testManifest(), &genReport{visited: map[string]bool{}})
+}
 
 func TestConstraintsFollowOptionalAndContainerValues(t *testing.T) {
 	reg := testRegistry()
@@ -116,8 +126,8 @@ func TestUnsupportedSemanticsFailAtTheirSchemaPath(t *testing.T) {
 		{"compound const", `{"const":{"x":1}}`, "example.result"},
 		{"null const", `{"const":null}`, "example.result"},
 		{"unconsumed required", `{"type":"boolean","required":["x"]}`, "example.result"},
-		{"unknown nested keyword", `{"type":"array","items":{"type":"string","minLength":2}}`, "example.result.items"},
-		{"composition path", `{"anyOf":[{"type":"null"},{"type":"string"},{"type":"number","exclusiveMaximum":2}]}`, "example.result.anyOf[2]"},
+		{"unknown nested keyword", `{"type":"array","items":{"type":"string","minLength":2}}`, "example.result/items"},
+		{"composition path", `{"anyOf":[{"type":"null"},{"type":"string"},{"type":"number","exclusiveMaximum":2}]}`, "example.result/anyOf/2"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -162,7 +172,7 @@ func TestCompositionKeepsOriginalBranchIndexes(t *testing.T) {
 	}
 	for i, b := range u.branches {
 		want := i + 1
-		if b.index != want || b.ref.path != "indexed.result.anyOf["+itoa(want)+"]" {
+		if b.index != want || b.ref.path != "indexed.result/anyOf/"+itoa(want) {
 			t.Fatalf("branch %d lost its original index/path: %+v", want, b)
 		}
 		if !b.ref.hasConst {
@@ -186,7 +196,7 @@ func TestPinnedNamingUsesRealAnyOfPaths(t *testing.T) {
 	if _, err := reg.walk(n, "eth_getBlockByHash.result"); err != nil {
 		t.Fatal(err)
 	}
-	path := "eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items.oneOf[0].properties.authorizationList.items"
+	path := "eth_getBlockByHash.result/oneOf/1/properties/transactions/anyOf/1/items/oneOf/0/properties/authorizationList/items"
 	if !reg.report.visited[path] {
 		t.Fatal("official anyOf authorization naming override was not consumed")
 	}
@@ -237,6 +247,8 @@ func TestConstraintFingerprintsAndRequestProjectionModesStayDistinct(t *testing.
 		}
 	}
 	reg := testRegistry()
+	reg.namesByPath["eth_generic.result"] = "SharedResult"
+	reg.namesByPath["eth_generic.params[0]"] = "SharedRequest"
 	schema := testSchema(t, `{"type":"object","title":"Shared","properties":{"x":{"type":"string"}},"additionalProperties":false}`)
 	result, err := reg.walk(schema, "eth_generic.result")
 	if err != nil {
@@ -266,13 +278,15 @@ func TestUniqueItemsPreservesStringsAndRejectsProjectedOpenObjects(t *testing.T)
 	if _, err := reg.walk(open, "eth_generic.result"); err == nil || !strings.Contains(err.Error(), "projected open object") {
 		t.Fatalf("uniqueItems lost open-object identity: %v", err)
 	}
+	reg.namesByPath["eth_generic.result"] = "OrdinaryHolder"
+	reg.namesByPath["eth_unique.result/items"] = "PreservedHolder"
 	address := testSchema(t, `{"type":"object","title":"Address holder","additionalProperties":false,"properties":{"address":{"type":"string","pattern":"^0x[0-9a-fA-F]{40}$"}}}`)
 	ordinary, err := reg.walk(address, "eth_generic.result")
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg.preserveStrings = true
-	preserved, err := reg.walk(address, "eth_unique.result.items")
+	preserved, err := reg.walk(address, "eth_unique.result/items")
 	if err != nil {
 		t.Fatal(err)
 	}

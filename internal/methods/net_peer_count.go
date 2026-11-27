@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
@@ -18,8 +19,8 @@ func peerCountSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodPeerCount,
 		Resolver:    ResolverLocal,
-		Normalize:   ethcodec.NormalizeHexQuantity,
-		Encode:      ethcodec.EncodeFoldedQuantity,
+		Normalize:   standardQuantityResult(ethapi.NewPeerCountResult, ethcodec.FoldPeerQuantity),
+		Encode:      standardQuantityEncoding(ethapi.NewPeerCountResult, ethcodec.FoldPeerQuantity),
 		CompareKind: rpcengine.RuleCompareQuantity,
 	}
 }

@@ -20,7 +20,7 @@
 MethodSpec／CompilePlan／ReadPlan 是运行时声明；method-rules.md 是只读生成投影，moving-tag-matrix.md 是人工行为对照，二者不成为第二套运行时字段表或 DSL。
 
 - Registered inventory、官方 schema 映射、引用矩阵、字段生命周期与场景声明双向互锁；缺行、重复和失效测试名失败。
-- 无官方 result schema 的 net_peerCount／net_listening 显式登记 noSchema；上游收录后移除豁免，不能静默沿用。
+- 当前固定 execution-apis 来源覆盖全部注册读方法，包括 net_peerCount／net_listening、两个区块交易计数方法与按区块 hash／index 查询交易。字段生命周期逐项核对有效 result schema，不保留 noSchema 豁免；标量声明 `$` 根，复杂结果声明完整嵌套路径。
 - 引用矩阵保持 16 列和每方法唯一行，Tests 只接受可由 Go AST 找到的完整 Test 名称；测试存在不等于每个 cell 已有行为断言。
 - `TestMethodRulesMatchIndex` 从代码渲染并逐字比较，默认不写文件；仅显式 ETHGUARD_UPDATE_METHOD_RULES=1 更新。TestAdmissionIndexRow 另核对 admission 声明。
 - 规则索引报告方法、reference、pending、resolver、compare、key source 和 result，不解释 eth_call 全部分支，也不新增注册维度。pending 使用 local-observation／local-reject／none。

@@ -34,8 +34,9 @@ if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
 fi
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is required'
 
-readonly commands=(soak rpcsample shapeprobe specbundle specdiff)
+readonly commands=(soak rpcsample shapeprobe specbundle specdiff specsync)
 readonly platforms=(linux_amd64 linux_arm64 darwin_arm64)
+readonly expected_binary_count=$((${#commands[@]} * ${#platforms[@]}))
 
 verify_artifacts() {
     local cmd platform name line
@@ -65,7 +66,7 @@ verify_artifacts() {
         seen["${name}"]=1
         count=$((count + 1))
     done < dist/checksums.sha256
-    [ "${count}" -eq 15 ] || fail "expected 15 checksum entries, found ${count}"
+    [ "${count}" -eq "${expected_binary_count}" ] || fail "expected ${expected_binary_count} checksum entries, found ${count}"
     (cd dist && sha256sum --check --strict checksums.sha256)
 }
 
@@ -73,7 +74,7 @@ verify_artifacts() {
 # It neither requires build tools nor executes downloaded binaries.
 if [ "${mode}" = verify ]; then
     verify_artifacts
-    echo 'release artifacts verified (15 binaries); files left unchanged'
+    echo "release artifacts verified (${expected_binary_count} binaries); files left unchanged"
     exit 0
 fi
 
@@ -82,7 +83,7 @@ if [ -e dist ] || [ -L dist ]; then
     fail 'dist already exists; inspect and move/remove it explicitly before building'
 fi
 [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] ||
-    fail 'build verification requires a Linux amd64 host to execute all five -h smoke checks'
+    fail "build verification requires a Linux amd64 host to execute all ${#commands[@]} -h smoke checks"
 command -v goreleaser >/dev/null 2>&1 ||
     fail "install GoReleaser OSS v${goreleaser_version} and put it on PATH"
 installed_version="$(goreleaser --version)"

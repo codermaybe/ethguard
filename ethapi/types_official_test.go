@@ -23,32 +23,37 @@ func resultConstructor[T any](parse func(json.RawMessage) (T, error)) resultPars
 
 func generatedResultParsers() map[string]resultParser {
 	return map[string]resultParser{
-		"eth_blobBaseFee":           resultConstructor(ethapi.NewBlobBaseFeeResult),
-		"eth_blockNumber":           resultConstructor(ethapi.NewBlockNumberResult),
-		"eth_call":                  resultConstructor(ethapi.NewCallResult),
-		"eth_chainId":               resultConstructor(ethapi.NewChainIdResult),
-		"eth_createAccessList":      resultConstructor(ethapi.NewCreateAccessListResult),
-		"eth_estimateGas":           resultConstructor(ethapi.NewEstimateGasResult),
-		"eth_feeHistory":            resultConstructor(ethapi.NewFeeHistoryResult),
-		"eth_gasPrice":              resultConstructor(ethapi.NewGasPriceResult),
-		"eth_getBalance":            resultConstructor(ethapi.NewGetBalanceResult),
-		"eth_getBlockByHash":        resultConstructor(ethapi.NewGetBlockByHashResult),
-		"eth_getBlockByNumber":      resultConstructor(ethapi.NewGetBlockByNumberResult),
-		"eth_getBlockReceipts":      resultConstructor(ethapi.NewGetBlockReceiptsResult),
-		"eth_getCode":               resultConstructor(ethapi.NewGetCodeResult),
-		"eth_getHeaderByHash":       resultConstructor(ethapi.NewGetHeaderByHashResult),
-		"eth_getHeaderByNumber":     resultConstructor(ethapi.NewGetHeaderByNumberResult),
-		"eth_getLogs":               resultConstructor(ethapi.NewGetLogsResult),
-		"eth_getProof":              resultConstructor(ethapi.NewGetProofResult),
-		"eth_getStorageAt":          resultConstructor(ethapi.NewGetStorageAtResult),
-		"eth_getTransactionByHash":  resultConstructor(ethapi.NewGetTransactionByHashResult),
-		"eth_getTransactionCount":   resultConstructor(ethapi.NewGetTransactionCountResult),
-		"eth_getTransactionReceipt": resultConstructor(ethapi.NewGetTransactionReceiptResult),
-		"eth_maxPriorityFeePerGas":  resultConstructor(ethapi.NewMaxPriorityFeePerGasResult),
-		"eth_sendRawTransaction":    resultConstructor(ethapi.NewSendRawTransactionResult),
-		"eth_simulateV1":            resultConstructor(ethapi.NewSimulateV1Result),
-		"eth_syncing":               resultConstructor(ethapi.NewSyncingResult),
-		"net_version":               resultConstructor(ethapi.NewVersionResult),
+		"eth_blobBaseFee":                       resultConstructor(ethapi.NewBlobBaseFeeResult),
+		"eth_blockNumber":                       resultConstructor(ethapi.NewBlockNumberResult),
+		"eth_call":                              resultConstructor(ethapi.NewCallResult),
+		"eth_chainId":                           resultConstructor(ethapi.NewChainIdResult),
+		"eth_createAccessList":                  resultConstructor(ethapi.NewCreateAccessListResult),
+		"eth_estimateGas":                       resultConstructor(ethapi.NewEstimateGasResult),
+		"eth_feeHistory":                        resultConstructor(ethapi.NewFeeHistoryResult),
+		"eth_gasPrice":                          resultConstructor(ethapi.NewGasPriceResult),
+		"eth_getBalance":                        resultConstructor(ethapi.NewGetBalanceResult),
+		"eth_getBlockByHash":                    resultConstructor(ethapi.NewGetBlockByHashResult),
+		"eth_getBlockByNumber":                  resultConstructor(ethapi.NewGetBlockByNumberResult),
+		"eth_getBlockReceipts":                  resultConstructor(ethapi.NewGetBlockReceiptsResult),
+		"eth_getCode":                           resultConstructor(ethapi.NewGetCodeResult),
+		"eth_getHeaderByHash":                   resultConstructor(ethapi.NewGetHeaderByHashResult),
+		"eth_getHeaderByNumber":                 resultConstructor(ethapi.NewGetHeaderByNumberResult),
+		"eth_getLogs":                           resultConstructor(ethapi.NewGetLogsResult),
+		"eth_getProof":                          resultConstructor(ethapi.NewGetProofResult),
+		"eth_getStorageAt":                      resultConstructor(ethapi.NewGetStorageAtResult),
+		"eth_getTransactionByHash":              resultConstructor(ethapi.NewGetTransactionByHashResult),
+		"eth_getTransactionCount":               resultConstructor(ethapi.NewGetTransactionCountResult),
+		"eth_getTransactionReceipt":             resultConstructor(ethapi.NewGetTransactionReceiptResult),
+		"eth_maxPriorityFeePerGas":              resultConstructor(ethapi.NewMaxPriorityFeePerGasResult),
+		"eth_sendRawTransaction":                resultConstructor(ethapi.NewSendRawTransactionResult),
+		"eth_simulateV1":                        resultConstructor(ethapi.NewSimulateV1Result),
+		"eth_syncing":                           resultConstructor(ethapi.NewSyncingResult),
+		"net_listening":                         resultConstructor(ethapi.NewListeningResult),
+		"net_peerCount":                         resultConstructor(ethapi.NewPeerCountResult),
+		"eth_getBlockTransactionCountByHash":    resultConstructor(ethapi.NewGetBlockTransactionCountByHashResult),
+		"eth_getBlockTransactionCountByNumber":  resultConstructor(ethapi.NewGetBlockTransactionCountByNumberResult),
+		"eth_getTransactionByBlockHashAndIndex": resultConstructor(ethapi.NewGetTransactionByBlockHashAndIndexResult),
+		"net_version":                           resultConstructor(ethapi.NewVersionResult),
 	}
 }
 
@@ -146,14 +151,8 @@ func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 			t.Errorf("missing official block transactions branch %s", shape)
 		}
 	}
-	// These methods have no success vectors in the shared corpus. Do not
-	// present synthetic inputs or constructor availability as vector coverage.
-	withoutVectors := map[string]bool{
-		"eth_getHeaderByHash":      true,
-		"eth_getHeaderByNumber":    true,
-		"eth_gasPrice":             true,
-		"eth_maxPriorityFeePerGas": true,
-	}
+	// Every selected method now has pinned official success vectors; keep the
+	// full selected set closed rather than retaining historical exceptions.
 	for method := range schemas {
 		count := counts[method]
 		if count.Total != count.Results+count.Errors || covered[method] != count.Results {
@@ -161,12 +160,7 @@ func TestGeneratedOfficialResultsPreserveContentAndSchema(t *testing.T) {
 		}
 		t.Logf("%s: %d interactions, %d results, %d top-level errors", method, count.Total, count.Results, count.Errors)
 		if covered[method] == 0 {
-			if !withoutVectors[method] {
-				t.Errorf("official result method unexpectedly lacks vector coverage: %s", method)
-			}
-			t.Logf("no pinned official success vectors: %s", method)
-		} else if withoutVectors[method] {
-			t.Errorf("%s now has official vectors; remove its no-vector exception", method)
+			t.Errorf("official result method unexpectedly lacks vector coverage: %s", method)
 		}
 	}
 }
@@ -368,13 +362,16 @@ func TestFeeHistoryConsumersRejectStringGasUsedRatio(t *testing.T) {
 
 func TestGeneratedNonNullableResultsRejectNull(t *testing.T) {
 	nullable := map[string]bool{
-		"eth_getHeaderByHash":       true,
-		"eth_getHeaderByNumber":     true,
-		"eth_getBlockByHash":        true,
-		"eth_getBlockByNumber":      true,
-		"eth_getBlockReceipts":      true,
-		"eth_getTransactionByHash":  true,
-		"eth_getTransactionReceipt": true,
+		"eth_getBlockTransactionCountByHash":    true,
+		"eth_getBlockTransactionCountByNumber":  true,
+		"eth_getTransactionByBlockHashAndIndex": true,
+		"eth_getHeaderByHash":                   true,
+		"eth_getHeaderByNumber":                 true,
+		"eth_getBlockByHash":                    true,
+		"eth_getBlockByNumber":                  true,
+		"eth_getBlockReceipts":                  true,
+		"eth_getTransactionByHash":              true,
+		"eth_getTransactionReceipt":             true,
 	}
 	for method, parse := range generatedResultParsers() {
 		if nullable[method] {

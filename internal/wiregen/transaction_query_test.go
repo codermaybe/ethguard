@@ -27,7 +27,7 @@ func TestPendingQueryModelSeparatesFromEmbeddedTransaction(t *testing.T) {
 		t.Fatal("missing official block transactions")
 	}
 	query := testSchema(t, string(effective.Results["eth_getTransactionByHash"]))
-	embeddedPath := "eth_getBlockByHash.result.oneOf[1].properties.transactions.anyOf[1].items"
+	embeddedPath := "eth_getBlockByHash.result/oneOf/1/properties/transactions/anyOf/1/items"
 	if err := reg.registerModelNames(original, embeddedPath); err != nil {
 		t.Fatal(err)
 	}

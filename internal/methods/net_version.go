@@ -1,7 +1,6 @@
 package methods
 
 import (
-	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
 
@@ -16,8 +15,8 @@ func netVersionSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodNetVersion,
 		Resolver:    ResolverStrict,
-		Normalize:   ethcodec.NormalizeDecimalString,
-		Encode:      ethcodec.EncodeDecimal,
+		Normalize:   normalizeNetworkVersion,
+		Encode:      encodeNetworkVersion,
 		KeySource:   rpcengine.RuleKeyCanonicalBytes,
 		CompareKind: rpcengine.RuleCompareQuantity,
 	}

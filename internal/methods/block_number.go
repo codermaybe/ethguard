@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
@@ -16,8 +17,8 @@ func blockNumberSpec() MethodSpec {
 	return MethodSpec{
 		Method:      MethodBlockNumber,
 		Resolver:    ResolverMedian,
-		Normalize:   ethcodec.NormalizeWireQuantity,
-		Encode:      ethcodec.EncodeQuantity,
+		Normalize:   standardQuantityResult(ethapi.NewBlockNumberResult, ethcodec.FoldWireHexCase),
+		Encode:      standardQuantityEncoding(ethapi.NewBlockNumberResult, ethcodec.FoldWireHexCase),
 		CompareKind: rpcengine.RuleCompareQuantity,
 	}
 }

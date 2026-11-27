@@ -1,6 +1,7 @@
 package methods
 
 import (
+	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 )
@@ -17,8 +18,8 @@ func getBalanceSpec() MethodSpec {
 	return MethodSpec{
 		Method:                 MethodGetBalance,
 		Resolver:               ResolverStrict,
-		Normalize:              ethcodec.NormalizeWireQuantity,
-		Encode:                 ethcodec.EncodeQuantity,
+		Normalize:              standardQuantityResult(ethapi.NewGetBalanceResult, ethcodec.FoldWireHexCase),
+		Encode:                 standardQuantityEncoding(ethapi.NewGetBalanceResult, ethcodec.FoldWireHexCase),
 		KeySource:              rpcengine.RuleKeyCanonicalBytes,
 		CompareKind:            rpcengine.RuleCompareQuantity,
 		Reference:              ReferenceSpec{Kind: ReferenceShapeHashAt, Positions: []int{1}, EIP1898: true},

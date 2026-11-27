@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/codermaybe/ethguard/ethapi"
 	"strings"
 
-	"github.com/codermaybe/ethguard/internal/ethcodec"
 	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/rpc"
 )
@@ -74,7 +74,7 @@ func normalizeCallComparisonKey(value json.RawMessage) (string, error) {
 func normalizeCallOutcome(value json.RawMessage) (string, error) {
 	var result string
 	if err := json.Unmarshal(value, &result); err == nil {
-		data, err := ethcodec.NormalizeHexData(value)
+		data, err := standardDataResult(ethapi.NewCallResult, 0)(value)
 		if err != nil {
 			return "", err
 		}
@@ -118,7 +118,7 @@ func encodeCallSuccess(value json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(value, &text); err != nil {
 		return nil, rpc.ErrNotCanonicalScalar
 	}
-	return ethcodec.EncodeData(value)
+	return standardDataEncoding(ethapi.NewCallResult, 0)(value)
 }
 
 // revertDataState is the data half of a revert key. Missing, JSON null,

@@ -5,20 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
 func TestHeaderCoverageExtensionPreservesOfficialSources(t *testing.T) {
-	read := func(name string) []byte {
-		t.Helper()
-		raw, err := os.ReadFile(filepath.Join("..", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return raw
-	}
+	read := func(name string) []byte { return historicalRead(t, name, true) }
 	var record struct {
 		Kind, Version, Commit, DereferencedOpenRPCSHA256                 string
 		BeforeMethodsSHA256, AfterMethodsSHA256, UnchangedRequestsSHA256 string
