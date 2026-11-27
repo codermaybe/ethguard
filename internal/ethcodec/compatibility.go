@@ -17,8 +17,8 @@ const (
 )
 
 func decodedScalarString(raw json.RawMessage, kind string) (string, error) {
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
+	value, err := DecodeJSONString(raw)
+	if err != nil {
 		if kind != "" {
 			kind += ": "
 		}

@@ -27947,5 +27947,5 @@
     "txpool_status": "Not selected for the reviewed public model surface; inventory presence does not imply runtime support."
   },
   "runtimeConsumption": "Not inferred by generation; verified by method consumer contract tests",
-  "generatedSHA256": "b7e63b78e5cc076e4c641f12eff82c28c8d95f17f0360be6347090b6b7bf1041"
+  "generatedSHA256": "7e9c4c73bbec8e7b7f87545775b8b230fa7341064491ec08247993c05e38ad9a"
 }

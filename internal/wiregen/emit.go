@@ -163,8 +163,8 @@ func emitNative(f *jen.File, n nativeDescriptor) {
 			g.Return(jen.Id(n.name).Call(jen.Id("number").Dot("String").Call()), jen.Nil())
 			return
 		}
-		g.Var().Id("text").String()
-		g.If(jen.Err().Op(":=").Qual("encoding/json", "Unmarshal").Call(jen.Id("raw"), jen.Op("&").Id("text")), jen.Err().Op("!=").Nil()).Block(
+		g.List(jen.Id("text"), jen.Err()).Op(":=").Qual(codecPackage, "DecodeJSONString").Call(jen.Id("raw"))
+		g.If(jen.Err().Op("!=").Nil()).Block(
 			jen.Return(jen.Lit(""), errorf("expected string: %w", jen.Err())),
 		)
 		if n.pattern != "" {

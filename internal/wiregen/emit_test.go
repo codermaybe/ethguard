@@ -116,7 +116,7 @@ func TestEmittedParsersPreserveSchemaSemantics(t *testing.T) {
 	if !bytes.Equal(first, second) {
 		t.Fatal("emission changed without an input change")
 	}
-	for _, name := range []string{"helpers.go", "normalize.go", "strict.go", "compatibility.go", "numbers.go", "number.go", "equality.go", "fixed_hex.go"} {
+	for _, name := range []string{"helpers.go", "normalize.go", "strict.go", "compatibility.go", "numbers.go", "number.go", "equality.go", "fixed_hex.go", "jsonstring.go"} {
 		data, err := os.ReadFile(filepath.Join("..", "ethcodec", name))
 		if err != nil {
 			t.Fatal(err)

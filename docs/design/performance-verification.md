@@ -1,6 +1,6 @@
 # 性能优化计划与首次验证
 
-本轮范围：Wave 0 → Wave 1A。主控负责设计、编排、只读审查与独立验收；两个执行者分别拥有 codec 与生成器。后续 Wave 保持独立，不因本轮通过而标记完成。
+首次验证范围为 Wave 0 → Wave 1A，已保存为 `23e24db`。用户随后授权按 Wave 1B → 2A → 2B → 3 持续实施与阶段提交。主控负责设计、编排、审查、独立验收和文档；两个执行者负责生产改动。各阶段分别记录证据，不将计划写成完成事实。
 
 ## 基线与阶段
 
@@ -12,7 +12,7 @@
 | Wave 1A | 严格标量 ASCII、native 精确 pattern 绑定、Quantity 去数值往返 | 接受域、规范输出、错误及附加 schema 约束保持；消费者收益实测 |
 | Wave 1B | 标量 JSON 成功快路径与兼容链重复编解码 | JSON 转义、非法输入、尾随内容及拒绝成本独立验证 |
 | Wave 2A | 安全检查结果复用、Receipt 已准入交付；Bloom 独立切片 | 所有权、安全预算与错误阶段保持 |
-| Wave 2B | AccessList 方法根值验证试点 | 同源规则、完整约束、无重解析；收益足以支持复杂度 |
+| Wave 2B | AccessList 方法根值验证试点 | 同源规则、完整约束、无重解析；结合流程统一与代码可读性评估，不以速度百分比单独决定取舍 |
 | Wave 3 | Block/Transaction 局部优化及条件性路线扩围 | 内容承诺、pending、证据、裁定与交付等价 |
 
 ## Wave 1A 实施合同
@@ -56,7 +56,7 @@ Log 精确 key 准入与大小写别名编码的双语义继续保留；blockTim
 
 Wave 0 → Wave 1A 已通过本地验收。最后补审发现的历史 Receipt 大样本基准也已单独修复和补测，不修改生产规则。
 
-本轮由 `performance_baseline` 执行 codec 与基准修正，`validator_foundation` 执行 wiregen 与生成资产；两者完成后交叉只读审查，主控负责独立验收和本文。所有生产改动限于 Wave 1A，尚未提交或推送。
+首次验证由 `performance_baseline` 执行 codec 与基准修正，`validator_foundation` 执行 wiregen 与生成资产；两者完成后交叉只读审查，主控负责独立验收和本文。该批生产改动限于 Wave 1A，已提交为 `23e24db`，未推送。
 
 Wave 0 新增两项持久基准：`BenchmarkLogResultEncode` 测量真正的整数组 Encode；`BenchmarkBlockObject` 的 1／100 笔交易样本包含真实签名、不同 nonce、正确交易根及 header hash，经 AdmitBlock 和 Transactions 验证，分别测 Encode 与完整准入。原 `BenchmarkLogArrayEncode` 是逐项 EncodeOne，不能混用名称。冻结参数对比先核对完整请求字节及 ID／method 错误，参数从同一数组拆为元素；两种方案仍执行 Marshal，没有实现直拼。
 
@@ -106,3 +106,22 @@ Transaction 方法 Normalize／Process 分配不变，耗时约 −2.7%／−1.6
 - **投影 Trie 保持次级局部候选。** Block100Tx 扩展投影样本中 strings.genSplit 约占 6% 分配，而 CoreObjectFingerprint 累计约 90%。先用单独基准约束 Trie 的收益上限；不能仅因路径拆分明显就宣称它是主瓶颈。异构 field aggregation 仍由候选收集、JSON 安全和树转换占主导。
 
 下一步仍为 Wave 1B → 2A → 2B → 3。Wave 1B 单独比较无转义合法值、含转义合法值、非法 UTF-8、裸控制字符、尾随 JSON 及长非法输入；保留标准库错误路径与接受域。Wave 2A 先写明“谁证明了哪份字节、预算是否变化、错误属于哪一阶段”，再删除相应重复检查。Wave 2B 只开放 AccessList 方法根试点，验收同源约束、只读不改值、当前模型到编码语义的等价性，并在前两阶段新基线上重新判断收益。未实施这些阶段，也没有改变 PendingObserve／CanonicalProcessor 的装配约束。
+
+## 续轮 Wave 1B 验收
+
+本阶段以 `23e24db` 为基线。`DecodeJSONString` 对完整无转义 ASCII 字符串复制返回，其他输入交给原始 `json.Unmarshal`；生成构造器和具名兼容层共用该实现。Quantity／Data 编码继续调用真实生成方法根，随后返回兼容层已产出的紧凑 JSON；可空 Quantity 编码不再做十进制转换或第二次折合。Number、null 门禁、字符串表示政策和未知 pattern 回退保持。
+
+独立验收：ethcodec、ethapi、methods、wiregen 全包通过，受影响包 lint 为 0 issues。JSON 字符串差分执行 1,000,000 次，兼容折合与生成标量各 100,000 次，方法路线 20,000 次；另有全部单字节、1MiB 长非法输入、错误对象与输入所有权测试。生成资产仅有 12 个 native 字符串解码调用和对应摘要变化。完整回归及 race 留到续轮最终状态统一执行。
+
+测量材料位于 `/tmp/ethguard-continuation-review/evidence/`，包含冻结源码摘要、测试／fuzz／lint 日志、旧新二进制、61 组微基准及汇总。固定 GOMAXPROCS=2；旧→新→新→旧，每次两份样本，构造器和标量方法 150ms、对象 200ms。基线和新版本使用同一方法基准代码。
+
+| 路径 | Wave 1A → Wave 1B | 分配次数变化 |
+| --- | --- | --- |
+| Quantity 构造，典型值 | 271ns → 60ns | 3 → 1 |
+| Quantity 方法编码，典型值 | 1.064µs → 0.270µs | 12 → 4 |
+| 可空 Quantity 方法编码，非 null | 1.512µs → 0.336µs | 18 → 5 |
+| Data 方法编码，4KiB 内容 | 121.6µs → 32.6µs | 10 → 4 |
+| 64 条 Log 整数组编码 | 5.285ms → 4.334ms | 约 34,387 → 30,675 |
+| 64 项 AccessList 编码 | 1.157ms → 0.976ms | 4,110 → 3,334 |
+
+拒绝成本单独测量 Standard／Fast，每组 150ms × 3：64KiB 尾部控制字符、坏转义、尾随内容分别约多 16%、17%、25% 时间，分配不变；原因是探测后仍由标准库完整报告错误。合法 64KiB ASCII 约快 88%；转义、Unicode、非法 UTF-8 的短输入基本持平。接受这一有界额外扫描，不以修改错误语义换取拒绝速度。以上是微基准，未推断 HTTP 聚合延迟。

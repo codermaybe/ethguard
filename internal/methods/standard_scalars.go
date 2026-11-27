@@ -29,46 +29,60 @@ func standardQuantityResult(parse func(json.RawMessage) (ethapi.Quantity, error)
 }
 func standardNullableQuantityResult(parse func(json.RawMessage) (*ethapi.Quantity, error), allowNull bool) func(json.RawMessage) (string, error) {
 	return func(raw json.RawMessage) (string, error) {
-		candidate := raw
-		if !ethcodec.IsJSONNull(raw) {
-			var err error
-			candidate, err = ethcodec.FoldWireHexCase(raw)
-			if err != nil {
-				return "", fmt.Errorf("hex quantity: %w", err)
-			}
-		}
-		value, err := parse(candidate)
+		value, _, err := prepareNullableQuantity(raw, parse, allowNull)
 		if err != nil {
-			return "", fmt.Errorf("hex quantity: %w", err)
+			return "", err
 		}
 		if value == nil {
-			if allowNull {
-				return "null", nil
-			}
-			return "", fmt.Errorf("hex quantity: null is not admitted by this method")
+			return "null", nil
 		}
 		return ethcodec.QuantityDecimal(string(*value))
 	}
 }
+
+func prepareNullableQuantity(raw json.RawMessage, parse func(json.RawMessage) (*ethapi.Quantity, error), allowNull bool) (*ethapi.Quantity, json.RawMessage, error) {
+	candidate := raw
+	if !ethcodec.IsJSONNull(raw) {
+		var err error
+		candidate, err = ethcodec.FoldWireHexCase(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("hex quantity: %w", err)
+		}
+	}
+	value, err := parse(candidate)
+	if err != nil {
+		return nil, nil, fmt.Errorf("hex quantity: %w", err)
+	}
+	if value == nil && !allowNull {
+		return nil, nil, fmt.Errorf("hex quantity: null is not admitted by this method")
+	}
+	return value, candidate, nil
+}
+
 func standardDataResult(parse func(json.RawMessage) (ethapi.Data, error), bytes int) func(json.RawMessage) (string, error) {
+	return func(raw json.RawMessage) (string, error) {
+		value, _, err := prepareStandardData(raw, parse, bytes)
+		return string(value), err
+	}
+}
+
+func prepareStandardData(raw json.RawMessage, parse func(json.RawMessage) (ethapi.Data, error), bytes int) (ethapi.Data, json.RawMessage, error) {
 	kind := "hex data"
 	if bytes > 0 {
 		kind = "storage word"
 	}
-	return func(raw json.RawMessage) (string, error) {
-		candidate, err := ethcodec.FoldLowerPrefixHexCase(raw)
-		if err != nil {
-			return "", fmt.Errorf("%s: %w", kind, err)
-		}
-		value, err := parse(candidate)
-		if err != nil {
-			return "", fmt.Errorf("%s: %w", kind, err)
-		}
-		if bytes > 0 && len(value) != 2+2*bytes {
-			return "", fmt.Errorf("storage word: expected %d-byte data", bytes)
-		}
-		return string(value), nil
+	candidate, err := ethcodec.FoldLowerPrefixHexCase(raw)
+	if err != nil {
+		return "", nil, fmt.Errorf("%s: %w", kind, err)
 	}
+	value, err := parse(candidate)
+	if err != nil {
+		return "", nil, fmt.Errorf("%s: %w", kind, err)
+	}
+	if bytes > 0 && len(value) != 2+2*bytes {
+		return "", nil, fmt.Errorf("storage word: expected %d-byte data", bytes)
+	}
+	return value, candidate, nil
 }
 func normalizeNetworkVersion(raw json.RawMessage) (string, error) {
 	candidate, err := ethcodec.FoldLegacyDecimal(raw)
@@ -88,33 +102,32 @@ func standardQuantityEncoding(parse func(json.RawMessage) (ethapi.Quantity, erro
 		if err != nil {
 			return nil, fmt.Errorf("hex quantity: %w", err)
 		}
-		value, err := parse(candidate)
-		if err != nil {
+		if _, err := parse(candidate); err != nil {
 			return nil, fmt.Errorf("hex quantity: %w", err)
 		}
-		return json.Marshal(value)
+		// Quantity constructors preserve the validated string; compatibility
+		// already encoded that spelling as compact JSON.
+		return candidate, nil
 	}
 }
 func standardNullableQuantityEncoding(parse func(json.RawMessage) (*ethapi.Quantity, error), allowNull bool) func(json.RawMessage) (json.RawMessage, error) {
-	normalize := standardNullableQuantityResult(parse, allowNull)
 	return func(raw json.RawMessage) (json.RawMessage, error) {
-		if _, err := normalize(raw); err != nil {
-			return nil, err
-		}
-		if ethcodec.IsJSONNull(raw) {
-			return json.RawMessage("null"), nil
-		}
-		return ethcodec.FoldWireHexCase(raw)
-	}
-}
-func standardDataEncoding(parse func(json.RawMessage) (ethapi.Data, error), size int) func(json.RawMessage) (json.RawMessage, error) {
-	normalize := standardDataResult(parse, size)
-	return func(raw json.RawMessage) (json.RawMessage, error) {
-		value, err := normalize(raw)
+		value, candidate, err := prepareNullableQuantity(raw, parse, allowNull)
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(value)
+		if value == nil {
+			return json.RawMessage("null"), nil
+		}
+		return candidate, nil
+	}
+}
+func standardDataEncoding(parse func(json.RawMessage) (ethapi.Data, error), size int) func(json.RawMessage) (json.RawMessage, error) {
+	return func(raw json.RawMessage) (json.RawMessage, error) {
+		// Data likewise preserves spelling after compatibility. Share the
+		// method-root and storage-width checks with the string result path.
+		_, candidate, err := prepareStandardData(raw, parse, size)
+		return candidate, err
 	}
 }
 func encodeNetworkVersion(raw json.RawMessage) (json.RawMessage, error) {

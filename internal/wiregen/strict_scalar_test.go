@@ -33,8 +33,8 @@ func TestNativeStrictScalarSpecializationKeepsExactPatternBoundary(t *testing.T)
 						t.Fatal(err)
 					}
 					source := buffer.String()
-					if !strings.Contains(source, "json.Unmarshal(raw, &text)") {
-						t.Fatal("native JSON string decoding changed")
+					if !strings.Contains(source, "ethcodec.DecodeJSONString(raw)") {
+						t.Fatal("native string bypasses the shared JSON decoder")
 					}
 					if pattern == fixture.pattern {
 						if !strings.Contains(source, fixture.validator+"(text)") || strings.Contains(source, "regexp.MustCompile") {

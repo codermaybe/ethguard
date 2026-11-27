@@ -33,8 +33,8 @@ func TestNativeFixedHexSpecializationKeepsExactPatternBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			source := buffer.String()
-			if !strings.Contains(source, "json.Unmarshal(raw, &text)") {
-				t.Fatal("native string decoder was removed")
+			if !strings.Contains(source, "ethcodec.DecodeJSONString(raw)") {
+				t.Fatal("native string bypasses the shared JSON decoder")
 			}
 			if fixture.digits != 0 {
 				if !strings.Contains(source, "IsLowerFixedHex(text, "+strconv.Itoa(fixture.digits)+")") || strings.Contains(source, "regexp.MustCompile") {

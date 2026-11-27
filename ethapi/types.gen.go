@@ -35,8 +35,8 @@ func NewQuantity(raw json.RawMessage) (Quantity, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Quantity: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsCanonicalQuantity(text) {
@@ -55,8 +55,8 @@ func NewQuantity64(raw json.RawMessage) (Quantity64, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Quantity64: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsCanonicalQuantity64(text) {
@@ -75,8 +75,8 @@ func NewQuantity256(raw json.RawMessage) (Quantity256, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Quantity256: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsCanonicalQuantity256(text) {
@@ -95,8 +95,8 @@ func NewData(raw json.RawMessage) (Data, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Data: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsWholeByteData(text) {
@@ -115,8 +115,8 @@ func NewHash(raw json.RawMessage) (Hash, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Hash: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsLowerFixedHex(text, 64) {
@@ -138,8 +138,8 @@ func parseAddress(raw json.RawMessage, keepStrings bool) (Address, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Address: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsAddress(text) {
@@ -162,8 +162,8 @@ func NewBloom(raw json.RawMessage) (Bloom, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Bloom: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsLowerFixedHex(text, 512) {
@@ -182,8 +182,8 @@ func NewBlockNonce(raw json.RawMessage) (BlockNonce, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("BlockNonce: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsLowerFixedHex(text, 16) {
@@ -202,8 +202,8 @@ func NewStorageKey(raw json.RawMessage) (StorageKey, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("StorageKey: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsStorageKey(text) {
@@ -225,8 +225,8 @@ func parseHexByte(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("HexByte: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsHexByte(text) {
@@ -251,8 +251,8 @@ func NewDecimalString(raw json.RawMessage) (DecimalString, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("DecimalString: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	if !ethcodec.IsCanonicalDecimal(text) {
@@ -288,8 +288,8 @@ func NewText(raw json.RawMessage) (Text, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Text: expected a non-null value")
 	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
+	text, err := ethcodec.DecodeJSONString(raw)
+	if err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
 	return Text(text), nil
