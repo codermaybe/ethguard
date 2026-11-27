@@ -15,185 +15,99 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// The object kernel's differential witnesses: Prepare is Encode's body
-// exposed as an immutable candidate, and the kernel admission bindings
-// reproduce the raw entries' verdicts and error classes on the
-// same inputs. The raw entries and the kernel must not drift.
-
-// TestPrepareMatchesEncodeOnOfficialVectors walks the official by-hash
-// vectors and the local fixtures: the kernel's canonical bytes and Encode's
-// output are identical, and Prepare is idempotent on its own output.
-func TestPrepareMatchesEncodeOnOfficialVectors(t *testing.T) {
-	fixtures := make([]json.RawMessage, 0, 16)
-	err := fs.WalkDir(spec.VectorsFS(), "vectors/eth_getTransactionByHash", func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || !strings.HasSuffix(path, ".io") {
-			return nil
-		}
-		vectors, err := conformance.ParseVector(spec.VectorsFS(), path)
-		if err != nil {
-			return err
-		}
-		for _, vector := range vectors {
-			if len(vector.Error) > 0 || bytes.Equal(bytes.TrimSpace(vector.Result), []byte("null")) {
-				continue
-			}
-			fixtures = append(fixtures, vector.Result)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+// Official success vectors must prepare, and their canonical representations
+// must remain valid and byte-stable when prepared again.
+func TestPrepareOfficialVectorsIsIdempotent(t *testing.T) {
+	fixtures := officialFixtures(t)
 	if len(fixtures) == 0 {
 		t.Fatal("no official vectors found")
 	}
 	for i, raw := range fixtures {
-		encodeOut, encodeErr := Encode(raw)
-		candidate, prepareErr := Prepare(raw)
-		if (encodeErr == nil) != (prepareErr == nil) {
-			t.Fatalf("fixture %d: encode/prepare verdicts differ: %v vs %v", i, encodeErr, prepareErr)
+		candidate, err := Prepare(raw)
+		if err != nil {
+			t.Fatalf("official fixture %d rejected: %v", i, err)
 		}
-		if prepareErr != nil {
-			continue
+		canonical := candidate.Canonical()
+		if !json.Valid(canonical) {
+			t.Fatalf("fixture %d produced invalid JSON: %s", i, canonical)
 		}
-		if !bytes.Equal(candidate.Canonical(), encodeOut) {
-			t.Fatalf("fixture %d: canonical bytes diverge: %s vs %s", i, candidate.Canonical(), encodeOut)
-		}
-		again, err := Prepare(candidate.Canonical())
-		if err != nil || !bytes.Equal(again.Canonical(), candidate.Canonical()) {
+		again, err := Prepare(canonical)
+		if err != nil || !bytes.Equal(again.Canonical(), canonical) {
 			t.Fatalf("fixture %d: prepare not idempotent: %v", i, err)
 		}
 	}
 }
 
-// TestCandidateBindingsMatchRawEntries runs the kernel bindings and the
-// raw entries on the same prepared material. The declared-identity
-// cases bind with the fixture's own hash, block hash, and index — unquoted,
-// the shape a real request carries — and must succeed outright; wrong-identity
-// and bad-grammar requests must be rejected. Verdicts and full sentinel sets
-// must not drift between kernel and raw entries, and each
-// acceptance direction must be exercised by at least one fixture so a
-// silently both-fail round cannot pass.
-func TestCandidateBindingsMatchRawEntries(t *testing.T) {
-	fixtures := officialFixtures(t)
+// Each official payload binds to its declared identity and rejects foreign
+// identities or invalid requests with independently specified error classes.
+func TestCandidateBindingsAcrossOfficialPayloads(t *testing.T) {
 	accepts := map[string]int{}
-	for _, raw := range fixtures {
-		candidate, err := Prepare(raw)
-		if err != nil {
-			continue // malformed fixtures: binding entries see the same prepare failure first
-		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(candidate.Canonical(), &fields); err != nil {
-			t.Fatal(err)
-		}
-		// The declared identity members are JSON strings on the wire; the
-		// request carries them unquoted, exactly as a caller sends them.
-		var declaredHash, declaredIndex, declaredBlockHash string
-		hasHash := json.Unmarshal(fields["hash"], &declaredHash) == nil && isHexHashString(declaredHash)
-		if !hasHash {
+	for _, raw := range officialFixtures(t) {
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			continue
 		}
-		hasIndex := json.Unmarshal(fields["transactionIndex"], &declaredIndex) == nil && strings.HasPrefix(declaredIndex, "0x")
-		hasBlockHash := json.Unmarshal(fields["blockHash"], &declaredBlockHash) == nil && isHexHashString(declaredBlockHash)
-		byHashReq := rpc.Request{Method: "eth_getTransactionByHash", Params: []any{declaredHash}}
-		otherHashReq := rpc.Request{Method: "eth_getTransactionByHash", Params: []any{"0x" + strings.Repeat("22", 32)}}
+		candidate, err := Prepare(raw)
+		if err != nil {
+			t.Fatalf("official fixture rejected: %v", err)
+		}
+		var fields struct {
+			Hash      string `json:"hash"`
+			BlockHash string `json:"blockHash"`
+			Index     string `json:"transactionIndex"`
+		}
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if !isHexHashString(fields.Hash) || !isHexHashString(fields.BlockHash) || fields.Index == "" {
+			t.Fatal("official fixture has no declared identity")
+		}
 		cases := []struct {
-			name   string
-			run    bool
-			accept bool
-			kernel func() error
-			compat func() error
+			name  string
+			bind  func() error
+			class error
+			text  string
 		}{
-			{
-				name:   "by-hash/declared",
-				run:    true,
-				accept: true,
-				kernel: func() error { return candidate.AdmitByHash(byHashReq) },
-				compat: func() error { return Admit(byHashReq, candidate.Canonical()) },
-			},
-			{
-				name:   "by-hash/other",
-				run:    true,
-				accept: false,
-				kernel: func() error { return candidate.AdmitByHash(otherHashReq) },
-				compat: func() error { return Admit(otherHashReq, candidate.Canonical()) },
-			},
-			{
-				name:   "in-block/self",
-				run:    hasBlockHash && hasIndex,
-				accept: true,
-				kernel: func() error {
-					return candidate.AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{declaredBlockHash, declaredIndex}})
-				},
-				compat: func() error {
-					return AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{declaredBlockHash, declaredIndex}}, candidate.Canonical())
-				},
-			},
-			{
-				name:   "in-block/bad-index",
-				run:    hasBlockHash,
-				accept: false,
-				kernel: func() error {
-					return candidate.AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{declaredBlockHash, "zz"}})
-				},
-				compat: func() error {
-					return AdmitInBlock(rpc.Request{Method: "eth_getTransactionByBlockHashAndIndex", Params: []any{declaredBlockHash, "zz"}}, candidate.Canonical())
-				},
-			},
+			{"by-hash/declared", func() error { return candidate.AdmitByHash(rpc.Request{Params: []any{fields.Hash}}) }, nil, ""},
+			{"by-hash/other", func() error {
+				return candidate.AdmitByHash(rpc.Request{Params: []any{"0x" + strings.Repeat("22", 32)}})
+			}, rpc.ErrMalformedResponse, "transaction hash does not match requested hash"},
+			{"by-hash/bad-request", func() error { return candidate.AdmitByHash(rpc.Request{Params: []any{"zz"}}) }, rpc.ErrInvalidRequest, "transaction hash must be a 32-byte hex string"},
+			{"in-block/declared", func() error {
+				return candidate.AdmitInBlock(rpc.Request{Params: []any{fields.BlockHash, fields.Index}})
+			}, nil, ""},
+			{"in-block/other-block", func() error {
+				return candidate.AdmitInBlock(rpc.Request{Params: []any{"0x" + strings.Repeat("33", 32), fields.Index}})
+			}, rpc.ErrMalformedResponse, "transaction block hash does not match requested block"},
+			{"in-block/bad-index", func() error { return candidate.AdmitInBlock(rpc.Request{Params: []any{fields.BlockHash, "zz"}}) }, rpc.ErrInvalidRequest, "transaction index:"},
 		}
 		for _, item := range cases {
-			if !item.run {
-				continue
-			}
 			t.Run(item.name, func(t *testing.T) {
-				kernelErr, compatErr := item.kernel(), item.compat()
-				if item.accept {
-					// A correct request binding must succeed through the
-					// real validation on both entries.
-					if kernelErr != nil || compatErr != nil {
-						t.Fatalf("declared-identity binding must accept: kernel=%v compat=%v", kernelErr, compatErr)
+				err := item.bind()
+				if item.class == nil {
+					if err != nil {
+						t.Fatal(err)
 					}
 					accepts[item.name]++
 					return
 				}
-				// A rejected request must fail on both entries with the same
-				// full sentinel set — never a single-class collapse.
-				if kernelErr == nil || compatErr == nil {
-					t.Fatalf("rejection verdicts differ: kernel=%v compat=%v", kernelErr, compatErr)
+				if !errors.Is(err, item.class) || !strings.Contains(err.Error(), item.text) {
+					t.Fatalf("binding = %v, want %v and %q", err, item.class, item.text)
 				}
-				if kernelSentinels, compatSentinels := sentinelSet(kernelErr), sentinelSet(compatErr); kernelSentinels == "" || kernelSentinels != compatSentinels {
-					t.Fatalf("sentinel sets differ: kernel=%q compat=%q (kernel=%v compat=%v)", kernelSentinels, compatSentinels, kernelErr, compatErr)
+				otherClass := rpc.ErrInvalidRequest
+				if errors.Is(item.class, rpc.ErrInvalidRequest) {
+					otherClass = rpc.ErrMalformedResponse
+				}
+				if errors.Is(err, otherClass) || errors.Is(err, rpc.ErrUnsupportedTypedObject) {
+					t.Fatalf("binding carries an unrelated error class: %v", err)
 				}
 			})
 		}
 	}
-	for _, name := range []string{"by-hash/declared", "in-block/self"} {
+	for _, name := range []string{"by-hash/declared", "in-block/declared"} {
 		if accepts[name] == 0 {
-			t.Fatalf("%s never exercised a real acceptance across %d prepared fixtures", name, len(fixtures))
+			t.Fatalf("%s never exercised a real acceptance", name)
 		}
 	}
-}
-
-// sentinelSet renders every project sentinel the error carries, so an
-// Unsupported+Malformed join and a bare Malformed can never compare equal.
-func sentinelSet(err error) string {
-	if err == nil {
-		return ""
-	}
-	var names []string
-	if errors.Is(err, rpc.ErrInvalidRequest) {
-		names = append(names, "invalid-request")
-	}
-	if errors.Is(err, rpc.ErrMalformedResponse) {
-		names = append(names, "malformed")
-	}
-	if errors.Is(err, rpc.ErrUnsupportedTypedObject) {
-		names = append(names, "unsupported")
-	}
-	return strings.Join(names, "+")
 }
 
 // isHexHashString reports whether the unquoted request value is a 32-byte hex
@@ -207,14 +121,27 @@ func isHexHashString(s string) bool {
 // needs no binding, and an unsupported typed payload keeps its joined
 // sentinel.
 func TestCandidateBindingErrorOrderPreserved(t *testing.T) {
-	// Request error beside a payload error: the request class fires first.
-	malformed := json.RawMessage(`{"type":"0x7f"}`)
-	candidate, prepareErr := Prepare(malformed)
-	if prepareErr == nil {
-		t.Fatal("unsupported payload prepared")
+	// Preparation succeeds for a structurally valid declaration with a forged
+	// hash. Binding checks request grammar before validating that payload.
+	malformed, err := editFixture(func(fields map[string]json.RawMessage) {
+		fields["hash"] = json.RawMessage(`"0x` + strings.Repeat("11", 32) + `"`)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := candidate.AdmitByHash(rpc.Request{Method: "eth_getTransactionByHash", Params: []any{"nothex"}}); !errors.Is(err, rpc.ErrInvalidRequest) {
-		t.Fatalf("request error must outrank the payload verdict, kernel binding returned %v", err)
+	candidate, err := Prepare(malformed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := candidate.AdmitByHash(rpc.Request{Params: []any{"nothex"}}); !errors.Is(err, rpc.ErrInvalidRequest) || errors.Is(err, rpc.ErrMalformedResponse) {
+		t.Fatalf("request error must outrank the payload verdict: %v", err)
+	}
+	if err := candidate.AdmitByHash(rpc.Request{Params: []any{"0x" + strings.Repeat("11", 32)}}); !errors.Is(err, rpc.ErrMalformedResponse) || !strings.Contains(err.Error(), "hash does not match signed payload") {
+		t.Fatalf("forged payload was not rejected: %v", err)
+	}
+	_, err = Prepare(json.RawMessage(`{"type":"0x7f"}`))
+	if !errors.Is(err, rpc.ErrMalformedResponse) || !errors.Is(err, rpc.ErrUnsupportedTypedObject) {
+		t.Fatalf("unsupported payload lost its joined error classes: %v", err)
 	}
 	// Root null: no binding, no request error.
 	nullCandidate, err := Prepare(json.RawMessage("null"))

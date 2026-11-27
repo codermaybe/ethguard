@@ -7,6 +7,50 @@ import (
 	"time"
 )
 
+func TestConstructorsRecordNativeProvenance(t *testing.T) {
+	raw := readTestdata(t, "registry.json")
+	snapshot := testSnapshot(raw)
+	for _, test := range []struct {
+		name  string
+		build func() (BuildResult, error)
+	}{
+		{"snapshot", func() (BuildResult, error) {
+			return Build(BuildInput{Snapshot: snapshot, Raw: raw, Provenance: testProvenance(), ChainID: ChainID})
+		}},
+		{"registry", func() (BuildResult, error) {
+			return BuildRegistry(snapshot.FetchedAt, raw, testProvenance())
+		}},
+		{"unavailable", func() (BuildResult, error) {
+			return BuildUnavailable(snapshot.FetchedAt, testProvenance())
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := test.build()
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := result.Manifest.Marshal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var document map[string]any
+			if err := json.Unmarshal(data, &document); err != nil {
+				t.Fatal(err)
+			}
+			if document["http_adapter"] != HTTPAdapterNative {
+				t.Fatalf("serialized http_adapter = %v, want explicit native", document["http_adapter"])
+			}
+			decoded, err := decodeJSON(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := loadManifestSchema(t).validate(decoded); err != nil {
+				t.Fatalf("published schema rejects generated manifest: %v", err)
+			}
+		})
+	}
+}
+
 func TestBuildMarksUnparsableRegistryUnavailable(t *testing.T) {
 	raw := []byte(`{"not":"a registry"}`)
 	result, err := Build(BuildInput{

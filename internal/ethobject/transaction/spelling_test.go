@@ -12,6 +12,7 @@ import (
 	"github.com/codermaybe/ethguard/internal/spec"
 	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/internal/typed"
+	"github.com/codermaybe/ethguard/rpc"
 )
 
 func TestTypedSignatureByteCompatibilityReachesPayloadBridge(t *testing.T) {
@@ -20,8 +21,12 @@ func TestTypedSignatureByteCompatibilityReachesPayloadBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := transaction.Encode(baseline)
+	want, err := transaction.Prepare(baseline)
 	if err != nil {
+		t.Fatal(err)
+	}
+	var requestedHash string
+	if err := json.Unmarshal(fields["hash"], &requestedHash); err != nil {
 		t.Fatal(err)
 	}
 	for _, value := range []string{`"0x00"`, `"0X00"`} {
@@ -32,11 +37,11 @@ func TestTypedSignatureByteCompatibilityReachesPayloadBridge(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := bytes.Clone(raw)
-			got, err := transaction.Encode(raw)
-			if err != nil || !bytes.Equal(got, want) {
+			got, err := transaction.Prepare(raw)
+			if err != nil || !bytes.Equal(got.Canonical(), want.Canonical()) {
 				t.Fatalf("equivalent signature byte changed canonical value: %v", err)
 			}
-			if err := transaction.Validate(raw); err != nil {
+			if err := got.AdmitByHash(rpc.Request{Params: []any{requestedHash}}); err != nil {
 				t.Fatalf("legal signature byte rejected by private payload bridge: %v", err)
 			}
 			if _, _, err := typed.DecodeTransaction(raw); err != nil {
@@ -49,7 +54,7 @@ func TestTypedSignatureByteCompatibilityReachesPayloadBridge(t *testing.T) {
 	}
 	fields["v"], fields["yParity"] = json.RawMessage(`"0x000"`), json.RawMessage(`"0x000"`)
 	invalid, _ := json.Marshal(fields)
-	if _, err := transaction.Encode(invalid); err == nil {
+	if _, err := transaction.Prepare(invalid); err == nil {
 		t.Fatal("invalid HexByte width was silently repaired")
 	}
 	if _, _, err := typed.DecodeTransaction(invalid); err == nil {
@@ -76,7 +81,7 @@ func TestLegacySignatureQuantityKeepsItsWidthContract(t *testing.T) {
 		}
 		fields["v"] = json.RawMessage(`"0x01"`)
 		invalid, _ := json.Marshal(fields)
-		if _, err := transaction.Encode(invalid); err == nil {
+		if _, err := transaction.Prepare(invalid); err == nil {
 			t.Fatal("legacy QUANTITY v was treated as HexByte and repaired")
 		}
 		if _, _, err := typed.DecodeTransaction(invalid); err == nil {

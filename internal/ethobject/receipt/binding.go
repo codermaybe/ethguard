@@ -16,16 +16,15 @@ import (
 // Pruner removes fields that are outside the method's comparison shape.
 type Pruner func(method string, raw json.RawMessage) (string, error)
 
-// PrepareTransaction runs the original AdmitTransaction order once and hands
-// out the canonical bytes it validated, so a caller that also commits those
-// bytes never encodes the response a second time. The fixed order: a JSON
+// PrepareTransaction validates and binds a receipt, returning the canonical
+// bytes it checked for the caller to commit. The fixed order: a JSON
 // null short-circuits to the canonical "null" before any request parsing;
 // the requested hash is parsed next so a request error keeps its class and
 // precedence over any payload verdict; DecodeWithCanonical then performs the
 // complete wire validation (encoder, private geth decode, nil and zero-hash
 // checks) and returns the already-validated canonical bytes; finally the
 // decoded receipt's transaction hash must match the request. Errors keep the
-// original admission texts and wrapping exactly.
+// admission classes and wrapping.
 func PrepareTransaction(req rpc.Request, value json.RawMessage) (json.RawMessage, error) {
 	if ethcodec.IsJSONNull(value) {
 		return json.RawMessage("null"), nil
@@ -44,43 +43,17 @@ func PrepareTransaction(req rpc.Request, value json.RawMessage) (json.RawMessage
 	return canonical, nil
 }
 
-func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
-	// The admission entry needs only the verdict; the canonical bytes it
-	// prepared are discarded here. The canonical processing entry hands the
-	// same bytes to the result instead of re-encoding.
-	_, err := PrepareTransaction(req, value)
-	return err
-}
-
-// AdmitBlock checks each receipt against the requested block. A JSON null
-// means the block itself is absent. An empty array is a legal empty block,
-// not a missing response. This is per-response integrity against the
-// request, not a completeness claim over every receipt that could exist.
-func AdmitBlock(req rpc.Request, value json.RawMessage) error {
-	_, err := prepareBlockRows(req, value)
-	return err
-}
-
-// PrepareBlock retains the canonical bytes already checked by block admission.
-// It keeps the original order: null, array shape, request, then each receipt's
-// complete validation and binding before visiting the next receipt. Like
-// AdmitBlock, this controlled method entry relies on the coordinator's prior
+// PrepareBlock checks each receipt against the requested block and returns
+// the canonical array. A JSON null means the block is absent; [] is an empty
+// block. This proves per-response integrity, not completeness of the receipts.
+// The order is null, array shape, request, then each receipt's complete
+// validation and binding before visiting the next receipt.
+// This controlled method entry relies on the coordinator's prior
 // RejectUnsafeJSON check for the whole list's byte and nesting bounds; it does
 // not replace that safety stage with per-row checks.
 func PrepareBlock(req rpc.Request, value json.RawMessage) (json.RawMessage, error) {
-	rows, err := prepareBlockRows(req, value)
-	if err != nil {
-		return nil, err
-	}
-	return ethcodec.MarshalNoEscape(rows)
-}
-
-// prepareBlockRows reuses the decoded row slice for the checked encodings. A
-// nil slice denotes null; an empty non-nil slice denotes []. Admission can
-// discard this result without paying for a complete array marshal.
-func prepareBlockRows(req rpc.Request, value json.RawMessage) ([]json.RawMessage, error) {
 	if ethcodec.IsJSONNull(value) {
-		return nil, nil
+		return json.RawMessage("null"), nil
 	}
 	var rows []json.RawMessage
 	if err := json.Unmarshal(value, &rows); err != nil || rows == nil {
@@ -103,7 +76,7 @@ func prepareBlockRows(req rpc.Request, value json.RawMessage) ([]json.RawMessage
 		}
 		rows[i] = canonical
 	}
-	return rows, nil
+	return ethcodec.MarshalNoEscape(rows)
 }
 
 func RequestedHash(req rpc.Request) (common.Hash, error) {
@@ -172,7 +145,7 @@ func ParseBlockHeight(value any) (*common.Hash, *big.Int, error) {
 // whitelist prune and are not rejected here. Any non-object payload and an
 // object carrying at most one field are incomplete answers, not votes. A
 // value with no canonical form errors. Required-field rejection belongs to
-// receipt decoding and the Admit functions.
+// receipt decoding and the Prepare functions.
 func Normalize(value json.RawMessage, prune Pruner, method string) (string, error) {
 	if ethcodec.IsJSONNull(value) {
 		return "null", nil

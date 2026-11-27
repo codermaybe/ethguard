@@ -10,11 +10,9 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// The PrepareTransaction contract: the admission order, error classes, and
-// texts are exactly AdmitTransaction's, with the validated canonical bytes
-// as the additional success output. Expectations below are written out
-// independently (literal texts, the encoder's own output, explicit sentinel
-// classes), so a drift in the fixed order or in any wrap is a failure here.
+// PrepareTransaction checks request grammar, receipt shape and binding in
+// that order, returning checked canonical bytes on success. Literal errors
+// and explicit sentinel classes pin rejection independently of the encoder.
 
 func TestPrepareTransactionNullShortCircuitBeforeRequest(t *testing.T) {
 	// The null short-circuit runs before the request is parsed: a JSON null
@@ -43,9 +41,6 @@ func TestPrepareTransactionRequestErrorPriority(t *testing.T) {
 		if canonical != nil || err == nil || !errors.Is(err, rpc.ErrInvalidRequest) {
 			t.Fatalf("params %v = %s, %v; want ErrInvalidRequest and a zero result", params, canonical, err)
 		}
-		if AdmitTransaction(rpc.Request{Params: params}, receiptFixture(t)) == nil {
-			t.Fatal("admit accepted a request the preparation rejected")
-		}
 	}
 }
 
@@ -55,8 +50,8 @@ func TestPrepareTransactionReturnsValidatedCanonicalBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Independent expectation: the encoder's own output for the same input,
-	// which the raw route commits today.
+	// Preparation returns the same protected representation as standalone
+	// encoding, with request binding checked before delivery.
 	want, err := Encode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -106,16 +101,11 @@ func TestPrepareTransactionMalformedWrapUnchanged(t *testing.T) {
 			if got := err.Error(); !strings.HasSuffix(got, ": "+item.want) {
 				t.Fatalf("err = %q, want the unchanged text with %q", got, item.want)
 			}
-			// The admission entry reports the identical error.
-			admitErr := AdmitTransaction(rpc.Request{Params: []any{receiptTxHash}}, item.raw)
-			if admitErr == nil || admitErr.Error() != err.Error() {
-				t.Fatalf("admit error = %v, preparation error = %v", admitErr, err)
-			}
 		})
 	}
 }
 
-// The raw route's priority: a payload shape error classifies before a
+// A payload shape error classifies before a
 // binding mismatch, because the payload is validated before the requested
 // hash is compared.
 func TestPrepareTransactionShapeBeforeBinding(t *testing.T) {
@@ -140,9 +130,6 @@ func TestPrepareTransactionBindingMismatch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "receipt transaction hash does not match requested hash") {
 		t.Fatalf("err = %v, want the binding text", err)
-	}
-	if AdmitTransaction(rpc.Request{Params: []any{otherHash}}, receiptFixture(t, logFixture())) == nil {
-		t.Fatal("admit accepted a foreign receipt")
 	}
 }
 

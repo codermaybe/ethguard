@@ -444,12 +444,14 @@ func checkSyncReceiptTimeoutEvidence(t *testing.T, entry syncWriteEntrypoint, co
 	raw, hash := writeTxFixture(t)
 	scriptSyncAccepted(nodes, hash)
 	wantRaw := make(map[string]json.RawMessage)
+	wantSources := make(map[string]rpc.SourceRef)
 	for i, node := range nodes {
 		value := json.RawMessage("null")
 		if conflict {
 			value = syncReceiptFixture(t, hash, int64(17+i))
 		}
 		wantRaw[node.URL()] = value
+		wantSources[node.URL()] = rpc.SourceRef{Name: fmt.Sprintf("node-%c", 'a'+i), URL: node.URL(), ID: node.URL()}
 		node.ReturnRaw(methods.MethodGetTransactionReceipt, value)
 	}
 	parent, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -471,13 +473,70 @@ func checkSyncReceiptTimeoutEvidence(t *testing.T, entry syncWriteEntrypoint, co
 		t.Fatalf("lost receipt facts at timeout: %+v", wait)
 	}
 	observation := wait.LastObservation
-	if conflict {
-		if !errors.Is(observation.Err, rpc.ErrConflict) || observation.Decision.Adjudication.Reason != rpc.ReasonConflictingCandidates || len(observation.Decision.Adjudication.Candidates) != 3 {
-			t.Fatalf("lost conflicting observation: %+v", observation)
+	decision := observation.Decision
+	if decision == nil || decision.Adjudication.Basis != 3 || decision.Adjudication.Required != 2 || len(decision.Sources) != 3 {
+		t.Fatalf("receipt observation lost its fixed voting basis: %+v", observation)
+	}
+	// The final poll may complete for only part of the fleet. Count only
+	// complete, validated answers; every other source must record the deadline.
+	validated := make(map[string]bool)
+	seen := make(map[string]bool)
+	for _, source := range decision.Sources {
+		want, ok := wantSources[source.Source.URL]
+		if !ok || source.Source != want || seen[source.Source.URL] {
+			t.Fatalf("unexpected or repeated observation source: %+v", source)
 		}
-	} else {
-		if !errors.Is(observation.Err, ethereum.NotFound) || observation.Decision.Adjudication.Reason != rpc.ReasonAccepted || string(observation.Decision.Value) != "null" {
-			t.Fatalf("lost corroborated absence: %+v", observation)
+		seen[source.Source.URL] = true
+		if source.Exchange.Cause != nil {
+			if !errors.Is(source.Exchange.Cause, context.DeadlineExceeded) || source.Relation == rpc.VerdictSupported || source.Relation == rpc.VerdictDissented {
+				t.Fatalf("interrupted observation source acquired a vote: %+v", source)
+			}
+			continue
+		}
+		if source.Exchange.Progress != rpc.ExchangeCompleted || source.Answer.Kind != rpc.AnswerResult || source.Answer.Cause != nil || source.Answer.Interpretation.State != rpc.InterpretationValidated || source.Answer.Interpretation.Cause != nil {
+			t.Fatalf("receipt source was not fully validated: %+v", source)
+		}
+		validated[source.Source.URL] = true
+	}
+	n := len(validated)
+	if n == 0 {
+		t.Fatalf("an entirely interrupted poll replaced the last observation: %+v", observation)
+	}
+	wantErr, wantReason, wantStatus := rpc.ErrInsufficientSupport, rpc.ReasonInsufficientSupport, rpc.Unknown
+	wantValue := ""
+	if n >= 2 {
+		if conflict {
+			wantErr, wantReason = rpc.ErrConflict, rpc.ReasonConflictingCandidates
+		} else {
+			wantErr, wantReason, wantStatus = ethereum.NotFound, rpc.ReasonAccepted, rpc.Corroborated
+			wantValue = "null"
+		}
+	}
+	if !errors.Is(observation.Err, wantErr) || decision.Adjudication.Reason != wantReason || decision.Status != wantStatus || string(decision.Value) != wantValue {
+		t.Fatalf("receipt observation with %d validated sources = %+v, want %v", n, observation, wantErr)
+	}
+	for _, other := range []error{context.DeadlineExceeded, rpc.ErrInsufficientSupport, rpc.ErrConflict, ethereum.NotFound} {
+		if !errors.Is(wantErr, other) && errors.Is(observation.Err, other) {
+			t.Fatalf("receipt observation mixed conclusions: %v", observation.Err)
+		}
+	}
+	wantGroups, wantGroupSize := 1, n
+	if conflict {
+		wantGroups, wantGroupSize = n, 1
+	}
+	if len(decision.Adjudication.Candidates) != wantGroups {
+		t.Fatalf("receipt candidate groups = %+v, want %d", decision.Adjudication.Candidates, wantGroups)
+	}
+	grouped := make(map[string]bool)
+	for _, group := range decision.Adjudication.Candidates {
+		if len(group.Sources) != wantGroupSize {
+			t.Fatalf("receipt candidate = %+v, want %d sources", group, wantGroupSize)
+		}
+		for _, source := range group.Sources {
+			if source != wantSources[source.URL] || !validated[source.URL] || grouped[source.URL] {
+				t.Fatalf("candidate borrowed an invalid or repeated source: %+v", source)
+			}
+			grouped[source.URL] = true
 		}
 	}
 	assertSyncWriteAccepted(t, got.captured, hash, nodes)
@@ -501,7 +560,67 @@ func checkSyncReceiptTimeoutEvidence(t *testing.T, entry syncWriteEntrypoint, co
 	if material.Truncated || material.Dropped != 0 {
 		t.Fatalf("bounded receipt observations unexpectedly truncated: %+v", material)
 	}
-	assertSyncRawEvidence(t, material, nodes, hash, wantRaw, 2)
+	// The deadline can fall between polls or interrupt the final poll. Keep
+	// its transport errors separate from the completed receipt observations.
+	successful, _, _ := assertSyncTimeoutRawEvidence(t, material, nodes, wait.LastAttempt, wantRaw)
+	assertSyncRawEvidence(t, successful, nodes, hash, wantRaw, 2)
+}
+
+func assertSyncTimeoutRawEvidence(t *testing.T, material *ethguard.UncertainResult, nodes []*rpctest.Node, last *ethguard.ReceiptAttempt, wantRaw map[string]json.RawMessage) (*ethguard.UncertainResult, int, int) {
+	t.Helper()
+	successful := *material
+	successful.Raw = nil
+	sources := make(map[string]rpc.SourceRef, len(nodes))
+	for i, node := range nodes {
+		sources[node.URL()] = rpc.SourceRef{Name: fmt.Sprintf("node-%c", 'a'+i), URL: node.URL(), ID: node.URL()}
+	}
+	timedOut := make(map[string]bool)
+	collectTimeouts := 0
+	collectionDeadline := false
+	if last.Decision != nil {
+		for _, fault := range last.Decision.CollectionFaults {
+			collectionDeadline = collectionDeadline || errors.Is(fault, context.DeadlineExceeded)
+		}
+	}
+	for _, item := range material.Raw {
+		if item.Error == "" {
+			successful.Raw = append(successful.Raw, item)
+			continue
+		}
+		if last.Decision == nil || (!errors.Is(last.Err, context.DeadlineExceeded) && !collectionDeadline) || item.Truncated || item.Method != methods.MethodGetTransactionReceipt || item.Error != context.DeadlineExceeded.Error() {
+			t.Fatalf("unexpected timeout evidence: %+v, last attempt: %+v", item, last)
+		}
+		switch item.Stage {
+		case "response":
+			want, ok := sources[item.Source.URL]
+			if !ok || item.Source != want || timedOut[item.Source.URL] {
+				t.Fatalf("unexpected or repeated source timeout: %+v", item)
+			}
+			sourceDeadline := false
+			for _, source := range last.Decision.Sources {
+				if source.Source == item.Source && errors.Is(source.Exchange.Cause, context.DeadlineExceeded) {
+					sourceDeadline = true
+				}
+			}
+			if !sourceDeadline {
+				t.Fatalf("raw timeout lacks the last attempt's source fault: %+v", item)
+			}
+			// A complete body may arrive just before the transport notices the
+			// deadline. It remains error evidence, never a successful response.
+			if len(item.Value) != 0 && string(item.Value) != string(wantRaw[item.Source.URL]) {
+				t.Fatalf("unexpected timed-out response body: %+v", item)
+			}
+			timedOut[item.Source.URL] = true
+		case "collect":
+			if !collectionDeadline || item.Source != (rpc.SourceRef{}) || len(item.Value) != 0 || collectTimeouts != 0 {
+				t.Fatalf("unexpected or repeated collection timeout: %+v", item)
+			}
+			collectTimeouts++
+		default:
+			t.Fatalf("unexpected timeout stage: %+v", item)
+		}
+	}
+	return &successful, len(timedOut), collectTimeouts
 }
 
 func assertSyncRawEvidence(t *testing.T, material *ethguard.UncertainResult, nodes []*rpctest.Node, hash common.Hash, wantRaw map[string]json.RawMessage, minReceipts int) {
@@ -836,8 +955,12 @@ func TestSyncWriteRetainsObservationBeforeInterruptedAttempt(t *testing.T) {
 				client, nodes := fleet(t, 1, 0, 3)
 				raw, hash := writeTxFixture(t)
 				scriptSyncAccepted(nodes, hash)
+				wantNull := make(map[string]json.RawMessage)
+				wantConflict := make(map[string]json.RawMessage)
 				for i, node := range nodes {
 					conflicting := syncReceiptFixture(t, hash, int64(17+i))
+					wantNull[node.URL()] = json.RawMessage("null")
+					wantConflict[node.URL()] = conflicting
 					var attempt atomic.Int32
 					node.Handle(methods.MethodGetTransactionReceipt, func(call rpctest.Call) (any, error) {
 						switch attempt.Add(1) {
@@ -884,14 +1007,47 @@ func TestSyncWriteRetainsObservationBeforeInterruptedAttempt(t *testing.T) {
 						t.Fatalf("interrupted source inherited judgment: %+v", source)
 					}
 				}
-				if budget == 0 && got.captured.Uncertain != nil {
+				material := got.captured.Uncertain
+				if budget == 0 && material != nil {
 					t.Fatal("default facts required material capture")
 				}
-				if budget == 1 && (got.captured.Uncertain == nil || !got.captured.Uncertain.Truncated) {
+				if budget != 0 && (material == nil || material.Limit != budget || material.Bytes > budget) {
+					t.Fatalf("source-evidence budget = %+v", material)
+				}
+				if budget == 1 && (!material.Truncated || material.Dropped == 0) {
 					t.Fatal("tiny material budget was not exhausted")
+				}
+				if budget > 1 {
+					if material.Truncated || material.Dropped != 0 {
+						t.Fatalf("bounded interrupted observation unexpectedly truncated: %+v", material)
+					}
+					successful, responseTimeouts, collectTimeouts := assertSyncTimeoutRawEvidence(t, material, nodes, last, nil)
+					if responseTimeouts != len(nodes) || collectTimeouts != 1 {
+						t.Fatalf("terminal raw timeouts: sources=%d, collection=%d", responseTimeouts, collectTimeouts)
+					}
+					// Both completed rounds retain their own original bytes. The
+					// broadcast belongs to the operation and is checked in each view.
+					first, second := *successful, *successful
+					first.Raw, second.Raw = nil, nil
+					for _, item := range successful.Raw {
+						if item.Method == methods.MethodGetTransactionReceipt && string(item.Value) == "null" {
+							first.Raw = append(first.Raw, item)
+						} else {
+							second.Raw = append(second.Raw, item)
+						}
+						if item.Method == methods.MethodSendRawTransaction {
+							first.Raw = append(first.Raw, item)
+						}
+					}
+					assertSyncRawEvidence(t, &first, nodes, hash, wantNull, 1)
+					assertSyncRawEvidence(t, &second, nodes, hash, wantConflict, 1)
+					if len(first.Raw) != 2*len(nodes) || len(second.Raw) != 2*len(nodes) {
+						t.Fatalf("completed raw rounds repeated: first=%d, second=%d", len(first.Raw), len(second.Raw))
+					}
 				}
 				assertSyncWriteAccepted(t, got.captured, hash, nodes)
 				assertSyncBroadcastOnce(t, nodes)
+				assertSyncReceiptCallsBound(t, nodes, hash)
 				assertSyncMethodCalls(t, nodes, methods.MethodGetTransactionReceipt, 3)
 			})
 		}

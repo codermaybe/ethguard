@@ -43,15 +43,9 @@ func getTransactionReceiptDescriptor() MethodDescriptor {
 	}
 }
 
-// processReceipt is the method's canonical processing entry: the single
-// admission preparation validates the raw response against the request and
-// hands out the very bytes it already checked, so the raw route's second
-// Encode (the resolver's clustering encoder over the admitted response) is
-// never repeated here. The raw route — Admit followed by the encoder —
-// stays intact beside this entry for pending-local and raw-declared
-// invocations. A failure returns the zero result with the
-// unchanged admission error; a success carries no evidence, exactly what the
-// raw admission returns for this method.
+// processReceipt validates and binds the response, then returns its checked
+// canonical bytes for resolution. Failure returns no result; success carries
+// no additional admission evidence.
 func processReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (rpcengine.CanonicalResult, error) {
 	canonical, err := receiptobject.PrepareTransaction(req, value)
 	if err != nil {

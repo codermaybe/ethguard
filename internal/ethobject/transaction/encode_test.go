@@ -7,12 +7,13 @@ import (
 	"testing"
 )
 
-func TestEncodeKeepsProtectedTransactionShape(t *testing.T) {
+func TestPrepareKeepsProtectedTransactionShape(t *testing.T) {
 	raw := sampleTransaction(t)
-	encoded, err := Encode(raw)
+	candidate, err := Prepare(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
+	encoded := candidate.Canonical()
 	for _, field := range []string{"hash", "from", "blockHash", "blockNumber", "transactionIndex"} {
 		if !bytes.Contains(encoded, []byte(`"`+field+`"`)) {
 			t.Fatalf("protected field %s missing: %s", field, encoded)

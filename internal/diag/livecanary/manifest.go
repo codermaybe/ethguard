@@ -69,8 +69,8 @@ type Manifest struct {
 	ToolVersion   string `json:"tool_version"`
 	GoVersion     string `json:"go_version"`
 	// HTTPAdapter binds the connection implementation to this observation.
-	// Empty is accepted only for legacy manifests and means the native adapter.
-	// The historical value "geth" remains valid provenance, but cannot be rerun.
+	// Missing or blank identity remains unspecified historical provenance.
+	// Historical manifests remain readable; only explicit native identity can run.
 	HTTPAdapter string      `json:"http_adapter,omitempty"`
 	Environment Environment `json:"environment"`
 	ChainID     uint64      `json:"chain_id"`
@@ -82,20 +82,29 @@ type Manifest struct {
 	Plan        Plan        `json:"plan"`
 }
 
-// NormalizeHTTPAdapter returns the canonical adapter name. An empty value
-// maps to the client's own default adapter spelling; both names must be
-// bound into the manifest before the first report is written.
+// NormalizeHTTPAdapter classifies recorded provenance without assigning a
+// default. Empty remains unspecified; parsing never changes the recorded value.
 func NormalizeHTTPAdapter(value string) (string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" {
-		return HTTPAdapterNative, nil
-	}
 	switch value {
-	case "geth", HTTPAdapterNative:
+	case "", "geth", HTTPAdapterNative:
 		return value, nil
 	default:
 		return "", fmt.Errorf("http_adapter: unknown adapter %q", value)
 	}
+}
+
+// CheckExecution rejects provenance this binary cannot execute. It is separate
+// from Validate so historical evidence can still be read and verified unchanged.
+func (m Manifest) CheckExecution() error {
+	adapter, err := NormalizeHTTPAdapter(m.HTTPAdapter)
+	if err != nil {
+		return err
+	}
+	if adapter != HTTPAdapterNative {
+		return fmt.Errorf("http_adapter: execution requires explicit native provenance, got %q", m.HTTPAdapter)
+	}
+	return nil
 }
 
 type Environment struct {

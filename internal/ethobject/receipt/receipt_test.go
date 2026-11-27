@@ -37,8 +37,8 @@ func assertReceiptRejected(t *testing.T, raw json.RawMessage) {
 	if _, err := Encode(raw); err == nil {
 		t.Fatalf("Encode accepted %s", raw)
 	}
-	if err := AdmitTransaction(rpc.Request{Params: []any{receiptTxHash}}, raw); err == nil {
-		t.Fatalf("AdmitTransaction accepted %s", raw)
+	if _, err := PrepareTransaction(rpc.Request{Params: []any{receiptTxHash}}, raw); err == nil {
+		t.Fatalf("PrepareTransaction accepted %s", raw)
 	}
 	block := append(append([]byte{'['}, raw...), ']')
 	if _, err := EncodeBlock(block); err == nil {
@@ -60,7 +60,7 @@ func TestReceiptOptionalNonnullableAndByteBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("type %s: %v", kind, err)
 		}
-		if err := AdmitTransaction(rpc.Request{Params: []any{receiptTxHash}}, raw); err != nil {
+		if _, err := PrepareTransaction(rpc.Request{Params: []any{receiptTxHash}}, raw); err != nil {
 			t.Fatalf("admit type %s: %v", kind, err)
 		}
 		again, err := Encode(encoded)
@@ -89,7 +89,7 @@ func TestReceiptNullableAddressesPreserveThreeStates(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := AdmitTransaction(rpc.Request{Params: []any{receiptTxHash}}, raw); err != nil {
+			if _, err := PrepareTransaction(rpc.Request{Params: []any{receiptTxHash}}, raw); err != nil {
 				t.Fatal(err)
 			}
 			outputs = append(outputs, encoded)

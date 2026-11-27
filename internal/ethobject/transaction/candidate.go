@@ -12,14 +12,6 @@ import (
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// The object kernel. Encode's representation work — safety validation, the
-// official-mask projection, the applicable generated-schema parse, the
-// pending/mined consistency guard, and the canonical merge — is kept once as
-// an immutable Candidate. The raw entries (Encode, Validate, Admit,
-// AdmitInBlock) and the method processors all consume the same candidate, so
-// the payload parse and the field/declaration checks run once per prepared
-// object instead of once per phase that re-encodes.
-
 // Candidate is one response's prepared representation. It is a processed
 // value, not an admitted one: request binding happens only through the
 // admission entries below, and a candidate carries no cross-call state —
@@ -40,8 +32,8 @@ type Candidate struct {
 // bounded JSON-safety gate, the official-mask projection with its hex
 // canonicalization, the applicable generated-schema parse (unsupported typed
 // payloads keep their joined sentinel), the pending/mined consistency guard,
-// and the canonical merge. The acceptance domain and the error order are
-// Encode's — this function is Encode's body, retained verbatim as the kernel.
+// and the canonical merge. Payload integrity and request binding are checked
+// by Candidate.AdmitByHash or Candidate.AdmitInBlock before commitment.
 func Prepare(raw json.RawMessage) (Candidate, error) {
 	canonical, err := encodeCanonical(raw)
 	if err != nil {
@@ -84,9 +76,8 @@ func fieldsOf(raw json.RawMessage) map[string]json.RawMessage {
 // grammar and payload match, the declared sender grammar, the signature
 // presence, the protected-legacy chainId declaration, and the inclusion
 // context grammar. Every check reads the candidate's already-parsed views —
-// no re-encode, no second schema parse. The checks keep Validate's order and
-// its error classes: the caller joins rpc.ErrMalformedResponse where the
-// raw entries always did.
+// no re-encode, no second schema parse. The admission methods classify these
+// failures with rpc.ErrMalformedResponse.
 func validatePrepared(c Candidate) error {
 	var tx *types.Transaction
 	if err := json.Unmarshal(c.canonical, &tx); err != nil || tx == nil {
@@ -157,8 +148,8 @@ func validatePrepared(c Candidate) error {
 	return nil
 }
 
-// AdmitByHash binds a prepared candidate to a by-hash request. The order is
-// the raw Admit's: a root null needs no binding, a request error
+// AdmitByHash binds a prepared candidate to a by-hash request. A root null
+// needs no binding, a request error
 // precedes any payload verdict, the object's payload validation runs once,
 // and the declared hash must equal the requested hash. The candidate is not
 // mutated and no successful value is produced — binding success is the
@@ -184,13 +175,9 @@ func (c Candidate) AdmitByHash(req rpc.Request) error {
 }
 
 // AdmitInBlock binds a prepared candidate to a block-hash-and-index request.
-// The order is the raw AdmitInBlock's: root null first, then the
-// request grammar, then the object's payload validation once, then the
-// inclusion binding. The raw path's second full validation — the
-// inner Admit re-running Validate on the same value — is gone: the declared-
-// hash-versus-payload check inside validatePrepared is the same fact the
-// inner round re-verified, and the requested-hash binding of this shape is
-// the block hash and index comparison below.
+// The order is root null, request grammar, payload validation, then inclusion
+// binding. Payload validation checks the declared hash against the signed
+// transaction; inclusion binding checks the requested block hash and index.
 func (c Candidate) AdmitInBlock(req rpc.Request) error {
 	if ethcodec.IsJSONNull(c.canonical) {
 		return nil

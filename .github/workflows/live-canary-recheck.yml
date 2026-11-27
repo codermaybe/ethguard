@@ -85,19 +85,6 @@ jobs:
             echo "::error::source artifact is a failed observation"
             exit 1
           fi
-          source_adapter="$(jq -r '(.http_adapter // "") | gsub("^\\s+|\\s+$"; "") | ascii_downcase | if . == "" then "native" else . end' manifest.json)"
-          case "${source_adapter}" in
-            native) ;;
-            geth)
-              echo "::error::rerunning historical geth-adapter manifests is unsupported"
-              exit 1
-              ;;
-            *)
-              echo "::error::unknown manifest adapter ${source_adapter}"
-              exit 1
-              ;;
-          esac
-          echo "source_adapter=${source_adapter}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: build current tool
         run: go build -trimpath -o "${RUNNER_TEMP}/livecanary-current" ./cmd/livecanary
@@ -108,6 +95,13 @@ jobs:
         run: |
           set -euo pipefail
           "${RUNNER_TEMP}/livecanary-current" verify -dir "${SOURCE_DIR}" | tee "${SOURCE_DIR}/verify.txt"
+
+      - name: check original execution provenance
+        env:
+          SOURCE_DIR: ${{ runner.temp }}/live-canary-source
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/livecanary-current" check-rerun -manifest "${SOURCE_DIR}/manifest.json"
 
       - name: checkout manifest source commit
         env:

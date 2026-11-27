@@ -1,12 +1,73 @@
 package livecanary
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestHistoricalProvenanceEvidenceCanBeVerifiedAndCompared(t *testing.T) {
+	_, exampleReport := compareExample(t)
+	artifact := []byte(`[{"chainId":1,"rpc":["https://rpc-a.example","https://rpc-b.example","https://rpc-c.example"]}]`)
+	for _, test := range []struct {
+		name    string
+		adapter any
+	}{
+		{name: "missing"},
+		{name: "null"},
+		{name: "empty", adapter: ""},
+		{name: "blank", adapter: " \t "},
+		{name: "geth", adapter: "geth"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			document := manifestExample(t)
+			delete(document, "http_adapter")
+			if test.name != "missing" {
+				document["http_adapter"] = test.adapter
+			}
+			registry := objectField(t, document, "registry")
+			registry["raw_sha256"] = ManifestSHA256(artifact)
+			registry["artifact_sha256"] = ManifestSHA256(artifact)
+			manifestBytes, err := json.MarshalIndent(document, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifestDigest := ManifestSHA256(manifestBytes)
+			reportBytes := mutateReport(t, exampleReport, func(report *Report) {
+				report.ManifestSHA256 = manifestDigest
+			})
+			dir := t.TempDir()
+			for name, data := range map[string][]byte{
+				ManifestArtifactName: manifestBytes,
+				ReportArtifactName:   reportBytes,
+				ArtifactName:         artifact,
+			} {
+				if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			verified, err := VerifyArtifacts(dir)
+			if err != nil || verified.ManifestSHA256 != manifestDigest {
+				t.Fatalf("historical verification=%+v, error=%v", verified, err)
+			}
+			comparison, err := CompareReports(manifestBytes, reportBytes, reportBytes)
+			if err != nil || !comparison.Repeatable || comparison.Classification != DiffIdentical {
+				t.Fatalf("historical comparison=%+v, error=%v", comparison, err)
+			}
+			after, err := os.ReadFile(filepath.Join(dir, ManifestArtifactName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(after, manifestBytes) || ManifestSHA256(after) != manifestDigest {
+				t.Fatal("verification changed historical bytes or digest")
+			}
+		})
+	}
+}
 
 func writeVerifiedBundle(t *testing.T, manifest Manifest, artifact []byte, report Report) string {
 	t.Helper()

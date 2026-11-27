@@ -4,7 +4,8 @@
 // acquires once, executes the fixed plan, and writes manifest, registry
 // artifact, and report. rerun executes the plan and membership fixed by an
 // existing manifest without another registry acquisition. compare checks two
-// observations of the same manifest. verify checks a published artifact
+// observations of the same manifest. check-rerun checks execution provenance
+// offline. verify checks a published artifact
 // directory offline. Exit code 2 means no conclusion (pre-plan failure or an
 // inconclusive run); exit code 1 means the run failed or the tool itself
 // failed.
@@ -83,7 +84,7 @@ func defaultDependencies() dependencies {
 
 func runWith(args []string, stdout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json> | livecanary run -out <manifest.json> | livecanary rerun -manifest <manifest.json> -out <report.json> | livecanary compare -manifest <manifest.json> -original <report.json> -recheck <report.json> -out <comparison.json> | livecanary verify -dir <artifact-dir>")
+		return errors.New("usage: livecanary manifest -snapshot <snapshot.json> -out <manifest.json> | livecanary fetch -out <manifest.json> | livecanary run -out <manifest.json> | livecanary rerun -manifest <manifest.json> -out <report.json> | livecanary check-rerun -manifest <manifest.json> | livecanary compare -manifest <manifest.json> -original <report.json> -recheck <report.json> -out <comparison.json> | livecanary verify -dir <artifact-dir>")
 	}
 	switch args[0] {
 	case "manifest":
@@ -94,6 +95,8 @@ func runWith(args []string, stdout io.Writer, deps dependencies) error {
 		return runLive(args[1:], stdout, deps)
 	case "rerun":
 		return runRerun(args[1:], stdout, deps)
+	case "check-rerun":
+		return runCheckRerun(args[1:], stdout)
 	case "compare":
 		return runCompare(args[1:], stdout)
 	case "verify":
@@ -300,7 +303,6 @@ func runLive(args []string, stdout io.Writer, deps dependencies) error {
 	if err != nil {
 		return err
 	}
-	result.Manifest.HTTPAdapter = livecanary.HTTPAdapterNative
 	manifestBytes, err := result.Manifest.Marshal()
 	if err != nil {
 		return err
@@ -349,6 +351,42 @@ func runLive(args []string, stdout io.Writer, deps dependencies) error {
 	}
 }
 
+func runCheckRerun(args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("check-rerun", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	manifestPath := flags.String("manifest", "", "existing manifest path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *manifestPath == "" {
+		return errors.New("check-rerun: -manifest is required")
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("check-rerun: unexpected arguments: %v", flags.Args())
+	}
+	manifestBytes, err := readExecutableManifest(*manifestPath)
+	if err != nil {
+		return fmt.Errorf("check-rerun: %w", err)
+	}
+	_, err = fmt.Fprintf(stdout, "manifest_sha256=%s\nrerun_supported=true\n", livecanary.ManifestSHA256(manifestBytes))
+	return err
+}
+
+func readExecutableManifest(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read manifest: %w", err)
+	}
+	manifest, err := livecanary.ParseManifest(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := manifest.CheckExecution(); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 func runRerun(args []string, stdout io.Writer, deps dependencies) error {
 	flags := flag.NewFlagSet("rerun", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -363,9 +401,9 @@ func runRerun(args []string, stdout io.Writer, deps dependencies) error {
 	if flags.NArg() != 0 {
 		return fmt.Errorf("rerun: unexpected arguments: %v", flags.Args())
 	}
-	manifestBytes, err := os.ReadFile(*manifestPath)
+	manifestBytes, err := readExecutableManifest(*manifestPath)
 	if err != nil {
-		return fmt.Errorf("rerun: read manifest: %w", err)
+		return fmt.Errorf("rerun: %w", err)
 	}
 	rerunPlan := deps.rerunPlan
 	if rerunPlan == nil {

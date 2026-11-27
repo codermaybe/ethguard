@@ -115,6 +115,7 @@ func testManifest(t *testing.T) Manifest {
 		SourceCommit:  "0123456789abcdef0123456789abcdef01234567",
 		ToolVersion:   ToolVersion,
 		GoVersion:     "go1.25.3",
+		HTTPAdapter:   HTTPAdapterNative,
 		Environment: Environment{
 			Kind:        "local",
 			RunnerClass: "local",

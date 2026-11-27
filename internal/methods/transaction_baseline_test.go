@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codermaybe/ethguard/internal/ethobject/transaction"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -62,74 +61,72 @@ func TestTransactionRequestBindingErrorClasses(t *testing.T) {
 	}
 }
 
-// TestTransactionAdmissionMatchesCompatChain pins the admission entries'
-// preparation-once binding against the retired chain — prepare the response,
-// then run the compatibility Admit/AdmitInBlock entry on the prepared
-// canonical bytes. Verdicts and full sentinel sets must not drift on the
-// official and recorded fixture corpus, and each direction must exercise a
-// real acceptance, so a silently both-failed round cannot pass.
-func TestTransactionAdmissionMatchesCompatChain(t *testing.T) {
+// The processors bind every non-null fixture to its own identity. Foreign
+// identities and invalid request grammar have explicit expected error classes;
+// null remains an absent result even when the request cannot name a hash.
+func TestTransactionProcessorsBindFixtureIdentities(t *testing.T) {
 	accepts := map[string]int{}
 	for _, raw := range transactionProcessorFixtures(t) {
 		requested, hasHash := declaredHash(t, raw)
+		nullShape := bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+		if !hasHash && !nullShape {
+			t.Fatal("fixture has no declared hash")
+		}
 		var inclusion struct {
-			BlockHash        *string `json:"blockHash"`
-			TransactionIndex *string `json:"transactionIndex"`
+			BlockHash *string `json:"blockHash"`
+			Index     *string `json:"transactionIndex"`
 		}
-		_ = json.Unmarshal(raw, &inclusion)
-		byHash := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{requested}}
-		if !hasHash {
-			byHash.Params = []any{"0x" + string(bytes.Repeat([]byte("11"), 32))}
+		if err := json.Unmarshal(raw, &inclusion); err != nil {
+			t.Fatal(err)
 		}
-		wrongHash := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{"0x" + string(bytes.Repeat([]byte("22"), 32))}}
-		badGrammar := rpc.Request{Method: MethodGetTransactionByHash, Params: []any{"zz"}}
 		type binding struct {
 			name    string
 			request rpc.Request
+			class   error
 		}
-		requests := []binding{
-			{"by-hash/declared", byHash},
-			{"by-hash/wrong", wrongHash},
-			{"by-hash/bad-grammar", badGrammar},
+		cases := []binding{
+			{"by-hash/declared", rpc.Request{Method: MethodGetTransactionByHash, Params: []any{requested}}, nil},
+			{"by-hash/wrong", rpc.Request{Method: MethodGetTransactionByHash, Params: []any{"0x" + strings.Repeat("22", 32)}}, rpc.ErrMalformedResponse},
+			{"by-hash/bad-grammar", rpc.Request{Method: MethodGetTransactionByHash, Params: []any{"zz"}}, rpc.ErrInvalidRequest},
 		}
-		if inclusion.BlockHash != nil && inclusion.TransactionIndex != nil {
-			requests = append(requests,
-				binding{"in-block/declared", rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: []any{*inclusion.BlockHash, *inclusion.TransactionIndex}}},
-				binding{"in-block/wrong-block", rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: []any{"0x" + string(bytes.Repeat([]byte("33"), 32)), *inclusion.TransactionIndex}}},
-				binding{"in-block/bad-index", rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: []any{*inclusion.BlockHash, "zz"}}},
+		if inclusion.BlockHash != nil && inclusion.Index != nil {
+			cases = append(cases,
+				binding{"in-block/declared", rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: []any{*inclusion.BlockHash, *inclusion.Index}}, nil},
+				binding{"in-block/wrong-block", rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: []any{"0x" + strings.Repeat("33", 32), *inclusion.Index}}, rpc.ErrMalformedResponse},
+				binding{"in-block/bad-index", rpc.Request{Method: MethodGetTransactionByBlockHashAndIndex, Params: []any{*inclusion.BlockHash, "zz"}}, rpc.ErrInvalidRequest},
 			)
 		}
-		prepared, prepareErr := prepareTransactionByHash(raw)
-		nullShape := prepareErr == nil && bytes.Equal(bytes.TrimSpace(prepared), []byte("null"))
-		for _, item := range requests {
-			var retiredErr, boundErr error
-			switch item.request.Method {
-			case MethodGetTransactionByHash:
-				canonical, err := prepareTransactionByHash(raw)
-				if err == nil {
-					retiredErr = transaction.Admit(item.request, canonical)
-				} else {
-					retiredErr = err
-				}
-				_, boundErr = processTransactionByHash(context.Background(), item.request, raw, nil)
-			default:
-				canonical, err := prepareTransactionInBlock(raw)
-				if err == nil {
-					retiredErr = transaction.AdmitInBlock(item.request, canonical)
-				} else {
-					retiredErr = err
-				}
-				_, boundErr = processTransactionInBlock(context.Background(), item.request, raw, nil)
+		for _, item := range cases {
+			processor := processTransactionByHash
+			if item.request.Method == MethodGetTransactionByBlockHashAndIndex {
+				processor = processTransactionInBlock
 			}
-			if retirementSentinels(retiredErr) != retirementSentinels(boundErr) {
-				t.Fatalf("%s sentinel sets differ: retired=%q (%v) bound=%q (%v)",
-					item.name, retirementSentinels(retiredErr), retiredErr, retirementSentinels(boundErr), boundErr)
+			result, err := processor(context.Background(), item.request, raw, nil)
+			if nullShape {
+				if err != nil || string(result.Value()) != "null" {
+					t.Fatalf("%s null result = %s, %v", item.name, result.Value(), err)
+				}
+				continue
 			}
-			accepts[item.name]++
-			rejection := strings.HasSuffix(item.name, "wrong") || strings.HasSuffix(item.name, "bad-grammar") ||
-				strings.HasSuffix(item.name, "wrong-block") || strings.HasSuffix(item.name, "bad-index")
-			if rejection && boundErr == nil && !nullShape {
-				t.Fatalf("%s accepted a rejected-direction request on a non-null fixture", item.name)
+			if item.class == nil {
+				if err != nil {
+					t.Fatalf("%s rejected declared identity: %v", item.name, err)
+				}
+				if !json.Valid(result.Value()) {
+					t.Fatalf("%s returned invalid canonical bytes", item.name)
+				}
+				accepts[item.name]++
+				continue
+			}
+			if !errors.Is(err, item.class) || result.Value() != nil {
+				t.Fatalf("%s = %s, %v; want no value and %v", item.name, result.Value(), err, item.class)
+			}
+			otherClass := rpc.ErrInvalidRequest
+			if errors.Is(item.class, rpc.ErrInvalidRequest) {
+				otherClass = rpc.ErrMalformedResponse
+			}
+			if errors.Is(err, otherClass) || errors.Is(err, rpc.ErrUnsupportedTypedObject) {
+				t.Fatalf("%s carries an unrelated error class: %v", item.name, err)
 			}
 		}
 	}
@@ -138,31 +135,6 @@ func TestTransactionAdmissionMatchesCompatChain(t *testing.T) {
 			t.Fatalf("%s never exercised a real acceptance", name)
 		}
 	}
-}
-
-// retirementSentinels renders every sentinel the error carries so an
-// Unsupported+Malformed join never compares equal to a bare class.
-func retirementSentinels(err error) string {
-	if err == nil {
-		return "ok"
-	}
-	names := ""
-	for _, item := range []struct {
-		name string
-		sent error
-	}{
-		{"invalid-request", rpc.ErrInvalidRequest},
-		{"malformed", rpc.ErrMalformedResponse},
-		{"unsupported", rpc.ErrUnsupportedTypedObject},
-	} {
-		if errors.Is(err, item.sent) {
-			names += item.name + "+"
-		}
-	}
-	if names == "" {
-		return "other"
-	}
-	return names
 }
 
 // TestTransactionJSONSafetyRejectsDuplicateKeys pins the bounded JSON-safety

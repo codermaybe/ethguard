@@ -70,6 +70,9 @@ func (e Executor) Run(ctx context.Context, input RunInput) (report Report, err e
 	if err != nil {
 		return Report{}, fmt.Errorf("run: %w", err)
 	}
+	if err := parsed.CheckExecution(); err != nil {
+		return Report{}, fmt.Errorf("run: %w", err)
+	}
 	manifest := *parsed
 	state = &runState{
 		manifest:       manifest,
@@ -138,13 +141,6 @@ func manifestStructureMatches(a, b Manifest) bool {
 func (e Executor) clientFor(manifest Manifest) (*ethguard.Client, error) {
 	if e.NewClient != nil {
 		return e.NewClient(manifest)
-	}
-	manifestAdapter, err := NormalizeHTTPAdapter(manifest.HTTPAdapter)
-	if err != nil {
-		return nil, err
-	}
-	if manifestAdapter == "geth" {
-		return nil, errors.New("livecanary: rerunning geth-adapter manifests is unsupported")
 	}
 	selected := manifest.Selection.Selected
 	upstreams := make([]config.Upstream, 0, len(selected))

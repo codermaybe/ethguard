@@ -27,18 +27,18 @@ func recordedMainnetTransaction(t *testing.T) map[string]json.RawMessage {
 	return fields
 }
 
-// TestEncodePreservesOfficiallyToleratedMembers pins the open-branch
+// TestPreparePreservesOfficiallyToleratedMembers pins the open-branch
 // contract: the official transaction branches declare no
 // additionalProperties:false, so a member outside the declared set is an
 // officially tolerated extra. It must reach the canonical value through the
 // pruned-key backfill instead of being silently dropped.
-func TestEncodePreservesOfficiallyToleratedMembers(t *testing.T) {
+func TestPreparePreservesOfficiallyToleratedMembers(t *testing.T) {
 	fields := recordedMainnetTransaction(t)
 	locked, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := Encode(locked)
+	candidate, err := Prepare(locked)
 	if err != nil {
 		t.Fatalf("recorded transaction stopped encoding: %v", err)
 	}
@@ -47,41 +47,42 @@ func TestEncodePreservesOfficiallyToleratedMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enriched, err := Encode(tolerated)
+	enriched, err := Prepare(tolerated)
 	if err != nil {
 		t.Fatalf("officially tolerated member rejected: %v", err)
 	}
 	var extra struct {
 		MaxFeePerBlobGas json.RawMessage `json:"maxFeePerBlobGas"`
 	}
-	if err := json.Unmarshal(enriched, &extra); err != nil {
+	if err := json.Unmarshal(enriched.Canonical(), &extra); err != nil {
 		t.Fatal(err)
 	}
 	if string(extra.MaxFeePerBlobGas) != `"0x0"` {
-		t.Fatalf("tolerated member lost from canonical value: %s", enriched)
+		t.Fatalf("tolerated member lost from canonical value: %s", enriched.Canonical())
 	}
-	if _, err := Encode(encoded); err != nil {
+	if _, err := Prepare(candidate.Canonical()); err != nil {
 		t.Fatalf("re-encoding canonical value failed: %v", err)
 	}
 }
 
-// TestEncodeMasksClosedObjectForeignMembers pins the closed-sub-object
+// TestPrepareMasksClosedObjectForeignMembers pins the closed-sub-object
 // contract: the official accessList item is a closed object
 // (additionalProperties:false), so an undeclared member is masked out of the
 // comparison key and the canonical value rather than silently merged into
 // either. The transaction keeps encoding: the item's official members
 // already validated through the typed branch.
-func TestEncodeMasksClosedObjectForeignMembers(t *testing.T) {
+func TestPrepareMasksClosedObjectForeignMembers(t *testing.T) {
 	fields := recordedMainnetTransaction(t)
 	fields["accessList"] = json.RawMessage(`[{"address":"0x0000000000000000000000000000000000000001","storageKeys":[],"vendor":"0x1"}]`)
 	annotated, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := Encode(annotated)
+	candidate, err := Prepare(annotated)
 	if err != nil {
 		t.Fatalf("annotated transaction stopped encoding: %v", err)
 	}
+	encoded := candidate.Canonical()
 	for _, payload := range []json.RawMessage{annotated, encoded} {
 		key, err := wiremask.PruneMethod("eth_getTransactionByHash", payload)
 		if err != nil {
@@ -121,14 +122,14 @@ func accessListHasMember(t *testing.T, key string, member string) bool {
 	return false
 }
 
-// TestEncodeTypePinsTheBranchAcrossForeignMembers pins the branch-selection
+// TestPrepareTypePinsTheBranchAcrossForeignMembers pins the branch-selection
 // rule behind the union mask: each official branch constrains the type value
 // by pattern, so a type=0x2 response is parsed as a 1559 transaction even
 // when it carries other branches' members (the 4844 blob hash list and blob
 // fee here). Those members are officially tolerated extras: the union mask
 // keeps them in the comparison key, the typed branch does not express them,
 // and the merge backfills them into the canonical value.
-func TestEncodeTypePinsTheBranchAcrossForeignMembers(t *testing.T) {
+func TestPrepareTypePinsTheBranchAcrossForeignMembers(t *testing.T) {
 	fields := recordedMainnetTransaction(t)
 	blobHash := `"0x` + strings.Repeat("ab", 32) + `"`
 	fields["blobVersionedHashes"] = json.RawMessage(`[` + blobHash + `]`)
@@ -137,10 +138,11 @@ func TestEncodeTypePinsTheBranchAcrossForeignMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := Encode(annotated)
+	candidate, err := Prepare(annotated)
 	if err != nil {
 		t.Fatalf("cross-branch tolerated members rejected: %v", err)
 	}
+	encoded := candidate.Canonical()
 	var carried struct {
 		Type                string          `json:"type"`
 		BlobVersionedHashes json.RawMessage `json:"blobVersionedHashes"`

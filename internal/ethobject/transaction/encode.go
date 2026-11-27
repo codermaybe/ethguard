@@ -9,32 +9,14 @@ import (
 
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
-	"github.com/codermaybe/ethguard/internal/ethobject/hexcompat"
 	"github.com/codermaybe/ethguard/internal/ethobject/wiremask"
 	"github.com/codermaybe/ethguard/internal/jsonsafe"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
-// Encode returns the canonical protected transaction result. It is the
-// raw entry over the object kernel: the representation work lives
-// in encodeCanonical, which Prepare exposes as the immutable Candidate the
-// validation and admission bindings reuse. The execution API schema retains
-// the signed transaction fields and the provider's inclusion context; that
-// context is corroborating response evidence, not an inclusion proof.
-// Admission validates the requested hash and typed payload before this
-// encoder is allowed to contribute to a cluster.
-func Encode(raw json.RawMessage) (json.RawMessage, error) {
-	candidate, err := Prepare(raw)
-	if err != nil {
-		return nil, err
-	}
-	return candidate.Canonical(), nil
-}
-
-// encodeCanonical is the object's representation work, retained verbatim as
-// the kernel body Prepare exposes: the bounded safety gate, the official-mask
-// projection with its hex canonicalization, the applicable generated-schema
-// parse (unsupported typed payloads keep their joined sentinel), the
+// encodeCanonical prepares the object's representation: the bounded safety
+// gate, official-mask projection with hex canonicalization, generated-schema
+// parsing (unsupported typed payloads keep their joined sentinel), the
 // pending/mined consistency guard, and the canonical merge.
 func encodeCanonical(raw json.RawMessage) (json.RawMessage, error) {
 	if err := jsonsafe.Validate(raw); err != nil {
@@ -44,14 +26,12 @@ func encodeCanonical(raw json.RawMessage) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The existing method mask has already selected and folded this candidate.
-	// Typed v/yParity also need their reviewed shortest HexByte representation
-	// before the generated union preserves strings for branch selection.
-	candidate, err := hexcompat.Transaction(json.RawMessage(key))
-	if err != nil {
+	// Pruning folds hex spelling and can expand strings through HTML escaping.
+	// Its output must pass the byte bound before entering generated parsing.
+	if err := jsonsafe.Validate([]byte(key)); err != nil {
 		return nil, err
 	}
-	value, err := ethapi.NewGetTransactionByHashResult(candidate)
+	value, err := ethapi.NewGetTransactionByHashResult(json.RawMessage(key))
 	if err != nil {
 		var payload types.Transaction
 		if payloadErr := json.Unmarshal(json.RawMessage(key), &payload); errors.Is(payloadErr, types.ErrTxTypeNotSupported) {
@@ -59,6 +39,7 @@ func encodeCanonical(raw json.RawMessage) (json.RawMessage, error) {
 		}
 		return nil, fmt.Errorf("%w: transaction information: %v", rpc.ErrMalformedResponse, err)
 	}
+	canonicalizeSignatureBytes(value)
 	encoded, err := ethcodec.MarshalNoEscape(value)
 	if err != nil {
 		return nil, fmt.Errorf("%w: transaction encoding: %v", rpc.ErrMalformedResponse, err)
@@ -92,4 +73,40 @@ func encodeCanonical(raw json.RawMessage) (json.RawMessage, error) {
 		}
 	}
 	return ethcodec.MarshalNoEscape(canonicalFields)
+}
+
+// The generated union preserves strings while selecting a complete branch.
+// Once validated, only typed signature bytes need a shorter spelling; the
+// mask already folded hex casing and projected the closed access-list items.
+func canonicalizeSignatureBytes(value *ethapi.Transaction) {
+	if value == nil {
+		return
+	}
+	var v, parity *ethapi.HexByte
+	switch {
+	case value.Signed7702Transaction != nil:
+		tx := value.Signed7702Transaction
+		v, parity = tx.V, &tx.YParity
+		for i := range tx.AuthorizationList {
+			canonicalizeHexByte(&tx.AuthorizationList[i].YParity)
+		}
+	case value.Signed4844Transaction != nil:
+		tx := value.Signed4844Transaction
+		v, parity = tx.V, &tx.YParity
+	case value.Signed1559Transaction != nil:
+		tx := value.Signed1559Transaction
+		v, parity = tx.V, &tx.YParity
+	case value.Signed2930Transaction != nil:
+		tx := value.Signed2930Transaction
+		v, parity = tx.V, &tx.YParity
+	}
+	canonicalizeHexByte(v)
+	canonicalizeHexByte(parity)
+}
+
+// Every value here has passed the generated one-or-two-digit HexByte grammar.
+func canonicalizeHexByte(value *ethapi.HexByte) {
+	if value != nil && len(*value) == 4 && (*value)[2] == '0' {
+		*value = (*value)[:2] + (*value)[3:]
+	}
 }

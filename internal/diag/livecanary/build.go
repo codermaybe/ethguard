@@ -117,6 +117,7 @@ func baseManifest(provenance Provenance) (Manifest, error) {
 		SourceCommit:  provenance.SourceCommit,
 		ToolVersion:   ToolVersion,
 		GoVersion:     provenance.GoVersion,
+		HTTPAdapter:   HTTPAdapterNative,
 		Environment:   provenance.Environment,
 		ChainID:       ChainID,
 		Reference: Reference{

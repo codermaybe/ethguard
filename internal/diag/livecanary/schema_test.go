@@ -1,11 +1,75 @@
 package livecanary
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestManifestSchemaAndParserAgreeOnAdapterProvenance(t *testing.T) {
+	const whitespace = "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+	for _, test := range []struct {
+		name       string
+		value      any
+		present    bool
+		readable   bool
+		executable bool
+	}{
+		{name: "missing", readable: true},
+		{name: "null", present: true, readable: true},
+		{name: "empty", present: true, value: "", readable: true},
+		{name: "whitespace", present: true, value: whitespace, readable: true},
+		{name: "geth", present: true, value: "geth", readable: true},
+		{name: "normalized geth", present: true, value: whitespace + "GeTh" + whitespace, readable: true},
+		{name: "native", present: true, value: "native", readable: true, executable: true},
+		{name: "normalized native", present: true, value: whitespace + "NaTiVe" + whitespace, readable: true, executable: true},
+		{name: "unicode lowercase native", present: true, value: "NAT\u0130VE", readable: true, executable: true},
+		{name: "unknown", present: true, value: "other"},
+		{name: "internal whitespace", present: true, value: "nat ive"},
+		{name: "zero width space", present: true, value: "\u200bnative"},
+		{name: "number", present: true, value: 1},
+		{name: "boolean", present: true, value: true},
+		{name: "array", present: true, value: []any{}},
+		{name: "object", present: true, value: map[string]any{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			document := manifestExample(t)
+			delete(document, "http_adapter")
+			if test.present {
+				document["http_adapter"] = test.value
+			}
+			data, err := json.MarshalIndent(document, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := bytes.Clone(data)
+			digest := ManifestSHA256(data)
+			decoded, err := decodeJSON(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			schemaErr := loadManifestSchema(t).validate(decoded)
+			manifest, parseErr := ParseManifest(data)
+			if (schemaErr == nil) != test.readable || (parseErr == nil) != test.readable {
+				t.Fatalf("readable=%t: schema=%v, parser=%v", test.readable, schemaErr, parseErr)
+			}
+			if parseErr == nil {
+				wantAdapter, _ := test.value.(string)
+				if manifest.HTTPAdapter != wantAdapter {
+					t.Fatalf("parser relabeled provenance %q as %q", wantAdapter, manifest.HTTPAdapter)
+				}
+				if err := manifest.CheckExecution(); (err == nil) != test.executable {
+					t.Fatalf("executable=%t: %v", test.executable, err)
+				}
+			}
+			if !bytes.Equal(data, original) || ManifestSHA256(data) != digest {
+				t.Fatal("reading provenance changed evidence bytes or digest")
+			}
+		})
+	}
+}
 
 func manifestExample(t *testing.T) map[string]any {
 	t.Helper()
@@ -94,6 +158,22 @@ func TestManifestSchemaAcceptsGeneratedManifest(t *testing.T) {
 	}
 	if err := schema.validate(decoded); err != nil {
 		t.Fatalf("schema rejected a generated manifest: %v", err)
+	}
+}
+
+func TestSerializedNativeManifestSatisfiesPublishedSchema(t *testing.T) {
+	manifest := buildFixture(t).Manifest
+	manifest.HTTPAdapter = HTTPAdapterNative
+	data, err := manifest.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	decoded, err := decodeJSON(data)
+	if err != nil {
+		t.Fatalf("decode generated manifest: %v", err)
+	}
+	if err := loadManifestSchema(t).validate(decoded); err != nil {
+		t.Fatalf("published schema rejects a serialized native manifest: %v", err)
 	}
 }
 

@@ -1,6 +1,6 @@
 # 方法与传输覆盖清单
 
-状态：2026-11-17 文档基线。go-ethereum v1.17.10 的47项目标方法名称集合与公开业务类型迁移已完成；27个注册读 RPC。入口存在、类型生成和测试存在均不等于逐方法语义、真实 provider 或稳定发布验收完成。
+状态：2026-11-27 按 `f251f67` 校准当前实现导航；历史能力及证据范围分别保留。go-ethereum v1.17.10 的47项目标方法名称集合与公开业务类型迁移已完成；27个注册读 RPC。入口存在、类型生成和测试存在均不等于逐方法语义、真实 provider 或稳定发布验收完成。
 
 ## 1. 计数与类型口径
 
@@ -18,31 +18,31 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 
 | RPC 方法 | Catalog | Root | View | HTTP/WSS request | Subscription | 主要实现 | 当前缺口 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `eth_chainId` | Registered | `ChainID` | `ChainID` | native HTTP/WSS raw call | 不适用 | `eth.go`, `ethclient_view.go`, `internal/methods` | 跨 transport 同 fixture 结果矩阵 |
-| `eth_getBlockByHash` | Registered | `BlockByHash` | `BlockByHash` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | full/header、uncle 和大区块成本 |
-| `eth_getBlockByNumber` | Registered | `BlockByNumber` | `BlockByNumber` | native HTTP/WSS raw call | 不适用 | `eth.go`, `anchor.go`, `typed` | moving tag、pending-local、历史块跨 transport |
-| `eth_getBalance` | Registered | `BalanceAt` | `BalanceAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | null、历史高度和跨 transport |
-| `eth_getTransactionReceipt` | Registered | `TransactionReceipt` | `TransactionReceipt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, `internal/ethobject/receipt` | 决策 0068；`TestReceiptWireOfficialVectors`／`TestReceiptWireCapturedReplay` 独立 shape oracle＋typed 保真，`TestReceiptWireRequiredFaultKeepsFrozenDenominator`／`TestReceiptWireDoesNotMergeDistinctClaims` 覆盖故障与等价边界；无新增 provider 观察 |
-| `eth_getTransactionByHash` | Registered | `TransactionByHash` | `TransactionByHash` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending 与 absent 的跨 transport 矩阵 |
-| `eth_getBlockReceipts` | Registered | `BlockReceipts` | `BlockReceipts` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, receipt objects | 与单 receipt 共用官方形态／保护合同；nullable presence／DATA 异见、逐条绑定与首错顺序、整列表安全门及 1/16 条 receipt 的真实 HTTP 聚合成本已验收；更大批次和真实 provider 非空批次证据仍独立 |
-| `eth_getTransactionCount` | Registered | `NonceAt` | `NonceAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | pending-local、历史引用和跨 transport |
-| `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `compat_methods.go`, `typed`, `internal/methods` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity`、`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
-| `eth_getBlockTransactionCountByNumber` | Registered | `PendingTransactionCount` | `PendingTransactionCount` | native HTTP/WSS raw call | 不适用 | `pending_count.go`, `typed`, `internal/methods` | PendingObserve 的多源 dissent/malformed 已由 `TestPendingTransactionCountDissentStaysSelected`、`TestPendingTransactionCountSkipsMalformedSource`、`TestPendingTransactionCountAllMalformedIsUnknown` 覆盖；跨 transport 证据仍待补 |
-| `eth_getStorageAt` | Registered | `StorageAt` | `StorageAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 空 bytes、EIP-1898 和跨 transport |
-| `eth_getCode` | Registered | `CodeAt` | `CodeAt` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | empty code、历史引用和跨 transport |
-| `eth_call` | Registered | `CallContract` | `CallContract` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed`, call rules | overrides、provider golden `error.data=null` |
-| `eth_estimateGas` | Registered | `EstimateGas` | `EstimateGas` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | provider revert golden、边界参数 |
-| `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | Logs订阅已改为Head+完整块承诺，不消费eth_getLogs子集 | `eth.go`, `typed`, `logs_subscription.go` | unary方法已验收；Logs连续流已验收，跨transport/provider及大范围成本独立 |
+| `eth_chainId` | Registered | `ChainID` | `ChainID` | native HTTP/WSS raw call | 不适用 | `state_reads.go`, `ethclient_view.go`, `internal/methods` | 跨 transport 同 fixture 结果矩阵 |
+| `eth_getBlockByHash` | Registered | `BlockByHash` | `BlockByHash` | native HTTP/WSS raw call | 不适用 | `block_reads.go`, `internal/typed` | full/header、uncle 和大区块成本 |
+| `eth_getBlockByNumber` | Registered | `BlockByNumber` | `BlockByNumber` | native HTTP/WSS raw call | 不适用 | `block_reads.go`, `anchor.go`, `internal/typed` | moving tag、pending-local、历史块跨 transport |
+| `eth_getBalance` | Registered | `BalanceAt` | `BalanceAt` | native HTTP/WSS raw call | 不适用 | `state_reads.go`, `internal/typed` | null、历史高度和跨 transport |
+| `eth_getTransactionReceipt` | Registered | `TransactionReceipt` | `TransactionReceipt` | native HTTP/WSS raw call | 不适用 | `transaction_reads.go`, `internal/typed`, `internal/ethobject/receipt` | 决策 0068；`TestReceiptWireOfficialVectors`／`TestReceiptWireCapturedReplay` 独立 shape oracle＋typed 保真，`TestReceiptWireRequiredFaultKeepsFrozenDenominator`／`TestReceiptWireDoesNotMergeDistinctClaims` 覆盖故障与等价边界；无新增 provider 观察 |
+| `eth_getTransactionByHash` | Registered | `TransactionByHash` | `TransactionByHash` | native HTTP/WSS raw call | 不适用 | `transaction_reads.go`, `internal/typed` | pending 与 absent 的跨 transport 矩阵 |
+| `eth_getBlockReceipts` | Registered | `BlockReceipts` | `BlockReceipts` | native HTTP/WSS raw call | 不适用 | `transaction_reads.go`, `internal/typed`, `internal/ethobject/receipt` | 与单 receipt 共用官方形态／保护合同；nullable presence／DATA 异见、逐条绑定与首错顺序、整列表安全门及 1/16 条 receipt 的真实 HTTP 聚合成本已验收；更大批次和真实 provider 非空批次证据仍独立 |
+| `eth_getTransactionCount` | Registered | `NonceAt` | `NonceAt` | native HTTP/WSS raw call | 不适用 | `state_reads.go`, `internal/typed` | pending-local、历史引用和跨 transport |
+| `eth_getBlockTransactionCountByHash` | Registered | `TransactionCount` | `TransactionCount` | native HTTP/WSS raw call | 不适用 | `transaction_reads.go`, `internal/typed`, `internal/methods` | 值/null/Conflict/Malformed 已有 facade 断言（`TestTypedTransactionCompatibilityTransportMatrix`、`TestTypedTransactionCompatibilityNullParity`、`TestTransactionCountMultiSourceConflictKeepsEvidence`、`TestTransactionCountMultiSourceMalformedFailsWithoutValue`）；跨 transport 负向 fixture 仍待补 |
+| `eth_getBlockTransactionCountByNumber` | Registered | `PendingTransactionCount` | `PendingTransactionCount` | native HTTP/WSS raw call | 不适用 | `transaction_reads.go`, `internal/typed`, `internal/methods` | PendingObserve 的多源 dissent/malformed 已由 `TestPendingTransactionCountDissentStaysSelected`、`TestPendingTransactionCountSkipsMalformedSource`、`TestPendingTransactionCountAllMalformedIsUnknown` 覆盖；跨 transport 证据仍待补 |
+| `eth_getStorageAt` | Registered | `StorageAt` | `StorageAt` | native HTTP/WSS raw call | 不适用 | `state_reads.go`, `internal/typed` | 空 bytes、EIP-1898 和跨 transport |
+| `eth_getCode` | Registered | `CodeAt` | `CodeAt` | native HTTP/WSS raw call | 不适用 | `state_reads.go`, `internal/typed` | empty code、历史引用和跨 transport |
+| `eth_call` | Registered | `CallContract` | `CallContract` | native HTTP/WSS raw call | 不适用 | `contract_execution.go`, `internal/typed`, call rules | overrides、provider golden `error.data=null` |
+| `eth_estimateGas` | Registered | `EstimateGas` | `EstimateGas` | native HTTP/WSS raw call | 不适用 | `contract_execution.go`, `internal/typed` | provider revert golden、边界参数 |
+| `eth_getLogs` | Registered | `FilterLogs` | `FilterLogs` | native HTTP/WSS raw call | Logs订阅已改为Head+完整块承诺，不消费eth_getLogs子集 | `transaction_reads.go`, `internal/typed`, `internal/subscription/logs_subscription.go` | unary方法已验收；Logs连续流已验收，跨transport/provider及大范围成本独立 |
 | `eth_simulateV1` | Registered | `SimulateV1` | `SimulateV1` | native HTTP/WSS raw call | 不适用 | `simulate.go`, `internal/methods/simulate.go` | 生成 payload/base；Prepare 统一校验及固定输入。逐方法模拟语义与 provider 证据继续验收。完整 base/reference 矩阵见 [moving-tag-matrix](moving-tag-matrix.md#c-execution-ranges-fee-history) |
-| `eth_feeHistory` | Registered | `FeeHistory` | `FeeHistory` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 历史高度、percentile 边界和跨 transport |
-| `eth_gasPrice` | Registered | `SuggestGasPrice` | `SuggestGasPrice` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
-| `eth_maxPriorityFeePerGas` | Registered | `SuggestGasTipCap` | `SuggestGasTipCap` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | selected 语义和异常来源 |
-| `eth_blobBaseFee` | Registered | `BlobBaseFee` | `BlobBaseFee` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | source 支持差异 |
-| `eth_blockNumber` | Registered | `BlockNumber` | `BlockNumber` | native HTTP/WSS raw call | 不适用 | `eth.go`, `anchor.go` | reference 附带事实、跨 transport |
-| `eth_createAccessList` | Registered | `CreateAccessList` | 不暴露 | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | extension 的官方生态边界 |
-| `net_peerCount` | Registered | `PeerCount` | `PeerCount` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | source-local selected 语义 |
-| `eth_syncing` | Registered | `SyncProgress` | `SyncProgress` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | 官方三个字段已迁生成模型；`TestSyncProgressTransportProjectionAndDone` 覆盖 Root／EthClient、HTTP／raw WSS、完整来源证据及三类 remaining counter 的独立检查；真实 provider 对象形态仍未观察 |
-| `net_version` | Registered | `NetworkID` | `NetworkID` | native HTTP/WSS raw call | 不适用 | `eth.go`, `typed` | decimal identity 与 ChainID 关系 |
+| `eth_feeHistory` | Registered | `FeeHistory` | `FeeHistory` | native HTTP/WSS raw call | 不适用 | `contract_execution.go`, `internal/typed` | 历史高度、percentile 边界和跨 transport |
+| `eth_gasPrice` | Registered | `SuggestGasPrice` | `SuggestGasPrice` | native HTTP/WSS raw call | 不适用 | `contract_execution.go`, `internal/typed` | selected 语义和异常来源 |
+| `eth_maxPriorityFeePerGas` | Registered | `SuggestGasTipCap` | `SuggestGasTipCap` | native HTTP/WSS raw call | 不适用 | `contract_execution.go`, `internal/typed` | selected 语义和异常来源 |
+| `eth_blobBaseFee` | Registered | `BlobBaseFee` | `BlobBaseFee` | native HTTP/WSS raw call | 不适用 | `contract_execution.go`, `internal/typed` | source 支持差异 |
+| `eth_blockNumber` | Registered | `BlockNumber` | `BlockNumber` | native HTTP/WSS raw call | 不适用 | `block_reads.go`, `anchor.go` | reference 附带事实、跨 transport |
+| `eth_createAccessList` | Registered | `CreateAccessList` | 不暴露 | native HTTP/WSS raw call | 不适用 | `contract_execution.go`, `internal/typed` | extension 的官方生态边界 |
+| `net_peerCount` | Registered | `PeerCount` | `PeerCount` | native HTTP/WSS raw call | 不适用 | `state_reads.go`, `internal/typed` | source-local selected 语义 |
+| `eth_syncing` | Registered | `SyncProgress` | `SyncProgress` | native HTTP/WSS raw call | 不适用 | `state_reads.go`, `internal/typed` | 官方三个字段已迁生成模型；`TestSyncProgressTransportProjectionAndDone` 覆盖 Root／EthClient、HTTP／raw WSS、完整来源证据及三类 remaining counter 的独立检查；真实 provider 对象形态仍未观察 |
+| `net_version` | Registered | `NetworkID` | `NetworkID` | native HTTP/WSS raw call | 不适用 | `state_reads.go`, `internal/typed` | decimal identity 与 ChainID 关系 |
 | `net_listening` | Registered | `Call` only | 不暴露 | raw dynamic read path | 不适用 | `call.go`, catalog | 没有 typed wrapper；需明确是否继续 Call-only |
 | `eth_sendRawTransaction` | Write | `SendRawTransaction` | `SendTransaction` | native HTTP/WSS raw call | 不适用 | `write.go`, write pipeline | accepted/unknown/rejected 与 receipt 关系 |
 | `eth_getProof` | Explicit unsupported | 不支持 | 不支持 | 不应 silent forward | 不适用 | catalog descriptor | 需要独立 proof admission/evidence contract |
@@ -78,8 +78,8 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 | `eth_syncing` | `syncing.go` | local 对象（canonical JSON） | `SyncProgress` |
 | `eth_feeHistory` | `fee_history.go` | strict feeHistory 对象 + heightAt reference + pending | `FeeHistory` |
 | `eth_createAccessList` | `create_access_list.go` | strict accessList 对象 + hashAt reference + pending | `CreateAccessList`（非 ethclient 表面） |
-| `eth_getBlockByHash` | `get_block_by_hash.go` | block 包装 strict | `BlockByHash`、`HeaderByHash` |
-| `eth_getBlockByNumber` | `get_block_by_number.go` | block 包装 strict；moving tag anchor | `BlockByNumber`、`HeaderByNumber` |
+| `eth_getBlockByHash` | `get_block_by_hash.go` | strict + raw block 准入 | `BlockByHash`、`HeaderByHash` |
+| `eth_getBlockByNumber` | `get_block_by_number.go` | strict + raw block 准入；moving tag reference | `BlockByNumber`、`HeaderByNumber` |
 | `eth_call` | `call.go` | call-revert 受控逃逸 + hashAt reference + pending | `CallContract`、`CallContractAtHash`、`PendingCallContract` |
 | `eth_estimateGas` | `estimate_gas.go` | median quantity + hashAt reference + pending | `EstimateGas`、`EstimateGasAtBlock`、`EstimateGasAtBlockHash` |
 | `eth_sendRawTransaction` | `send_raw_transaction.go` | WriteMethod；写入管线，无读 spec | `SendTransaction`、`SendRawTransaction`、`SendTransactionSync`、`SendRawTransactionSync` |
@@ -91,11 +91,11 @@ Root／View记录入口，RPC记录plan或写入执行路径，HTTP/WSS记录req
 
 | 路径 | 当前事实 | 后续边界 |
 | --- | --- | --- |
-| 两个独立transaction查询 | 已接入 canonical processor，Candidate 共享表示、检查与绑定；普通 strict 与有能力的 Forwarded 复用，raw 适配保留 | pending-local 保持 raw；pending／mined、类型与方言证据继续按方法验收 |
+| 两个独立transaction查询 | 已接入 canonical processor，Candidate 共享表示、检查与绑定；普通 strict 与有能力的 Forwarded 复用；Normalize 独立供辅助及诊断，方法不装配 raw fallback；仅测试消费的旧包级入口已删除 | by-hash 的 pending 与 in-block 的 mined-only 接受域不同；表示转换的重叠按独立合同与成本核对 |
 | 单收据 | 873c5b8 接入 processor，复用 DecodeWithCanonical 已检查字节；2026-11-27 补齐 Forwarded 复用及完整交付对照 | 不扩张为大日志、高来源数或 provider 性能结论 |
-| BlockReceipts | b1ba5b0 接入 processor，复用逐条验证及绑定后的 canonical bytes，保留 raw AdmitBlock／EncodeBlock；普通 strict 和有能力的 Forwarded 均已验收 | null／空数组／逐条绑定首错、固定 Q、原始诊断与整列表安全门已覆盖；1/16 条本地成本不代表任意大批次或 provider 性能 |
+| BlockReceipts | b1ba5b0 接入 processor，复用逐条验证及绑定后的 canonical bytes；当前方法 plan 只声明 canonical 执行，不携带 raw Admit／Encode；对象以 PrepareBlock 拥有逐条准入与输出，旧 AdmitBlock 已删除 | null／空数组／逐条绑定首错、固定 Q、原始诊断与整列表安全门已覆盖；1/16 条本地成本不代表任意大批次或 provider 性能 |
 | FeeHistory／AccessList／共享Log | FeeHistory 复用已解析 count；AccessList 复用已有生成模型与解析成员；logs 包装器只解一次顶层数组，共享 Log 保留独立准入和编码约束 | 更深层平行表示和重复处理需按真实消费者核对；Logs timestamp 的错误阶段未授权变更，不以减少解析次数修改接受域 |
-| 完整Block／Header／Transaction／Receipt | 已有生成模型接入及算法／绑定检查 | 检查剩余重复而非重新迁移；Block仍为ResolverBlock，不能套Strict processor |
+| 完整Block／Header／Transaction／Receipt | 已有生成模型接入及算法／绑定检查 | 对象已归 internal/ethobject 单树；Block 使用 Strict 与 raw Admit，仍须分别验证 fullTx、header/reference 及同源 uncle evidence，尚未接 canonical processor |
 | 标量、Median、Local、CallRevert | 保留各自比较或选择语义、错误阶段及保证范围 | 不以接入processor数量衡量完成，不在文档整理中统一错误归因 |
 
 公开生成模型与内部对象内核是两个验证面。共享Log仍有手写CanonicalLog；完整block admission当前使用transaction Candidate／私有geth处理。旧“Log全路径已生成化”“内嵌交易只做geth往返”等阶段描述不再作为现行事实。

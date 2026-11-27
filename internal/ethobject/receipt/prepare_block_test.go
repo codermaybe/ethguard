@@ -22,8 +22,8 @@ func blockReceiptArray(t *testing.T, rows ...json.RawMessage) json.RawMessage {
 	return raw
 }
 
-// These literal admission expectations are frozen before adding the processing
-// entry. In particular, each row binds before the next row is validated.
+// Each row binds before the next row is validated. Literal errors pin the
+// first failing stage independently of the object implementation.
 func TestBlockReceiptAdmissionOrder(t *testing.T) {
 	valid := receiptFixture(t)
 	badLogs := deleteField(t, valid, "logs")
@@ -37,8 +37,8 @@ func TestBlockReceiptAdmissionOrder(t *testing.T) {
 		class error
 		want  string
 	}{
-		{"null-before-request", badRequest, json.RawMessage(` null `), nil, ""},
-		{"empty", validRequest, json.RawMessage(`[]`), nil, ""},
+		{"null-before-request", badRequest, json.RawMessage(` null `), nil, "null"},
+		{"empty", validRequest, json.RawMessage(`[]`), nil, "[]"},
 		{"empty-still-checks-request", badRequest, json.RawMessage(`[]`), rpc.ErrInvalidRequest, "rpc: invalid request: block reference must be a string or object"},
 		{"shape-before-request", badRequest, json.RawMessage(`{}`), rpc.ErrMalformedResponse, "rpc: malformed response: block receipts must be an array"},
 		{"request-before-row", badRequest, json.RawMessage(`[null]`), rpc.ErrInvalidRequest, "rpc: invalid request: block reference must be a string or object"},
@@ -52,20 +52,15 @@ func TestBlockReceiptAdmissionOrder(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := AdmitBlock(tc.req, tc.raw)
 			canonical, preparedErr := PrepareBlock(tc.req, tc.raw)
 			if tc.class == nil {
-				if err != nil || preparedErr != nil {
-					t.Fatalf("admit=%v prepare=%v", err, preparedErr)
+				if preparedErr != nil {
+					t.Fatal(preparedErr)
 				}
-				want, encodeErr := EncodeBlock(tc.raw)
-				if encodeErr != nil || !bytes.Equal(canonical, want) {
-					t.Fatalf("prepare=%s, want encoder bytes %s: %v", canonical, want, encodeErr)
+				if string(canonical) != tc.want {
+					t.Fatalf("prepare=%s, want %s", canonical, tc.want)
 				}
 				return
-			}
-			if !errors.Is(err, tc.class) || err.Error() != tc.want {
-				t.Fatalf("admit = %v; want %q (%v)", err, tc.want, tc.class)
 			}
 			if canonical != nil || !errors.Is(preparedErr, tc.class) || preparedErr.Error() != tc.want {
 				t.Fatalf("prepare = %s, %v; want nil, %q (%v)", canonical, preparedErr, tc.want, tc.class)

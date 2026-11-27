@@ -178,6 +178,7 @@ ReadPlan 的执行合同互斥：raw 路线携带 Resolver 与可选 Admit；can
 - 失败来源保留槽位且无结果；成功必须有结果。非法 JSON、错误的槽位配对、成功缺结果、非零 result+error 是 `ErrInvalidCanonicalResult`，整轮失败，不能归罪 provider。
 - 内部合同错误不新增来源失败、连续失败或来源错误；确实完成的 transport 成功和延迟仍由 finalizer 记账一次，不跳过 finalizer。
 - 方法处理失败保持 `admission: %w` 归因、同源依赖捕获和并发槽位语义。raw 路线的 encode/normalize 故障阶段保持原合同。
+- Transaction 通过 `Prepare → Candidate.AdmitByHash/AdmitInBlock` 交付已绑定的规范值，包级旧 Encode／Admit／Validate 入口已删除。表示处理复用 wiremask 的字段投影与 hex 折叠；生成模型选定并验证完整分支后，只对该分支的 typed V／YParity（含 7702 授权项）形成最短 HexByte。该路径不再经过 hexcompat 的完整字段树；legacy QUANTITY、跨分支开放字段的回填、pending 一致性和原始字段绑定保持各自职责。裁剪重编码可能因 HTML 转义膨胀，故其输出仍须通过 JSON 安全门。
 - BlockReceipts 复用逐条 receipt 准入已验证的 canonical bytes；保持 null、列表形状、请求、逐条完整验证与绑定的原顺序，成功后才编码数组。整列表的大小和深度由 coordinator 的 `RejectUnsafeJSON` 前置安全门保护；逐条检查不替代整列表检查，不再保留重复准备的 raw Admit／Encode 适配器。
 - 两路共用聚类、排序、裁定、verdict 与提交内核；raw finish 保留 encoder 声明门，canonical 直接提交已验证结果。
 - 编译只允许 Strict + canonical-bytes 的 CanonicalRead；独立 Normalize 保留，raw Encode／Admit 必须为空。Block 方法尚未声明 processor；CallRevert、Median、Local 不直接套用此 seam；无 Admit 方法不能凭空补空 hook 改写错误阶段。

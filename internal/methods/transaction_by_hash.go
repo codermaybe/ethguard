@@ -49,10 +49,9 @@ func transactionByHashDescriptor() MethodDescriptor {
 // processTransactionByHash is the method's canonical processing entry: one
 // run prepares the candidate (safety gate, whole-key corrections over the
 // read-only original, object representation work), binds it to the requested
-// hash, and hands out the immutable canonical result. The raw normalizer and
-// encoder are never consulted on this route — the canonical bytes are both
-// the comparison key and the committed value. Evidence stays absent, exactly
-// what the raw admission returns for this method.
+// hash, and hands out the immutable canonical result. The canonical bytes are
+// both the comparison key and the committed value; no additional admission
+// evidence is needed.
 func processTransactionByHash(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (rpcengine.CanonicalResult, error) {
 	candidate, err := prepareTransactionCandidateByHash(value)
 	if err != nil {
@@ -64,10 +63,9 @@ func processTransactionByHash(_ context.Context, req rpc.Request, value json.Raw
 	return rpcengine.NewCanonicalResult(candidate.Canonical(), nil)
 }
 
-// prepareTransactionCandidateByHash is the by-hash preparation over the
-// object kernel: the same safety gate, whole-key corrections, and unique
-// missing-timestamp derivation as the raw preparation, ending in the
-// candidate instead of re-entering Encode.
+// prepareTransactionCandidateByHash applies the method's safety gate,
+// whole-key corrections and missing-timestamp derivation before preparing
+// the shared object representation.
 func prepareTransactionCandidateByHash(value json.RawMessage) (transaction.Candidate, error) {
 	candidateRaw, err := correctTransactionByHash(value)
 	if err != nil {

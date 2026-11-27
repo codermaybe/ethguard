@@ -2,7 +2,33 @@
 
 本文可直接用于重启对话：说明当前架构、验收状态和独立未决事项，不依赖旧聊天、`docs/tmp/`或`/tmp`材料。具体业务合同由末尾链接的正式文档维护。
 
-**当前状态（2026-11-27）：整体评估之后的架构与 SDK 边界收敛已完成，最终生产代码 `f251f67` 通过本地组合验收。** 代码按职责保存在 `audit/rpc-quality` 的本地提交；本轮有明确的公开 API 变化，具体范围与验证边界见下文。本轮不做 beta 发布，未推送。
+**当前状态（2026-11-28）：目录与 SDK 职责收敛已经落地，本轮对象旧入口删除、诊断执行身份收口及交易表示简化已通过独立组合验收。** 前轮生产基线 `f251f67` 的组合验收和对象分支 `10f3323` 的文档整理均已保留。主控负责规划、正式文档与独立验收，两个执行者承担互斥范围内的代码修改；本轮代码与文档补丁保留在接续分支的未提交工作区。
+
+本次已 fetch 并核对远端：`origin/master@c6855ca` 是 PR #12 的合并节点，文件树等于 `origin/audit/rpc-quality@3fba19c`。后续架构提交尚未进入该远端 master。当前接续分支为 `refactor/convergence-continuation`，合并节点 `de04b7d` 接合该 master 与对象分支 `10f3323`；引擎分支的等价改动没有重复拣选。`audit/rpc-quality` 保持 `f251f67`，不再在该分支提交；本轮未推送。
+
+## 本轮减法与验收
+
+1. **已完成 Git 恢复。** 纳入对象分支遗漏的路线图、拓扑及审查配置；保留未完成对象补丁和现行导航修正。先确认历史包含关系，不从旧 TMP 方案重新搬目录。
+2. **已删除六个仅测试消费的对象旧入口。** transaction 包级 `Encode/Admit/AdmitInBlock/Validate`、receipt 的 `AdmitTransaction/AdmitBlock` 退出。测试通过生产使用的 Prepare/Candidate 验证独立预期，保留 null、绑定、签名、canonical 值及错误顺序；旧新互比胶水退出，未新增兼容壳。
+3. **已封口 canary 历史执行身份。** `baseManifest` 唯一负责新材料的 native 身份；缺失、null、空白或 geth 的历史身份保持可读，不能默认转换成 native 执行。Executor 在建立状态／客户端前统一检查；CLI rerun 和离线 check-rerun 共用检查，recheck 在 checkout 历史源码之前执行准入。发布 schema 覆盖真实新输出与历史可读形态，原材料及 digest 保真。
+4. **已删除交易准备链的整树重复转换。** wiremask 已投影并折叠 hex，随后直接进入生成模型；分支验证成功后只规范该分支 typed V／YParity 与 7702 授权项的 HexByte。此路径不再调用 `hexcompat.Transaction`；独立 typed raw、block、simulate 的真实消费者继续使用 hexcompat。比较掩码、公开 schema、开放字段回填和 pending 检查各保留自身职责。裁剪可能因 HTML 转义扩大输入，故保留中间 JSON 安全门及其错误优先级。
+5. **已完成组合验收。** 两位执行者互相只读审查均无阻塞项；主控独立完成普通／race、反例、结构门、静态检查、工作流和生成一致性，并串行对照真实消费者成本。新验收与下方历史结果分别记账。
+
+本轮全仓普通与最终 race 均通过：各 53 个测试包、8197 个测试及子测试事件，另 8 包无测试文件，无失败或测试用例跳过。普通全仓之后只有同步写入测试断言修正，最终 integration 包普通复验 867 个事件通过，最终 race 覆盖该修正。交易表示的 355 输入冻结差分通过，完整 canonical 字节、错误文本／类型及 sentinel 分类一致；超大 HTML 转义膨胀另有确定性边界反例。此前独立确认的“缺 adapter 仍执行”及“新 native 输出被 schema 拒绝”两项反例均已修复并复验。
+
+默认／anvil 两路 lint、vet、build、anvil 编译、tidy、workflow 的 actionlint／ShellCheck、独立生成 Go／audit 逐字节对照均通过。deadcode 仅报告既有四个测试接口 stub，无生产死码。最终验收前后的 1071 份 Go／JSON／YAML 输入哈希一致；格式、diff 与旧目录／入口扫描通过。
+
+首次全仓 race 的 integration 包暴露既有测试问题：同步写入超时会保留终轮请求错误，测试却要求全部材料成功；没有 data race 报告。旧基线与当前实现的相同时序探针各 3 次同位置失败。修正仅涉及测试，保留成功原文、广播次数、预算与请求绑定的严格检查；完整响应与 deadline 可并存，但不能算作成功票。部分终轮仍可能形成 NotFound／Conflict／InsufficientSupport，观察结论与最终操作超时分别校验。主控独立四格真实客户端探针在旧断言下均失败、最终断言下均通过；17 格 helper 正反例验证正文、来源与故障绑定，防止以接受合法时序为由放过伪造或重复材料。全中断场景仍精确要求 LastAttempt=3／LastObservation=2、三源空正文错误及一次 collect 错误。上述修正已纳入最终普通 integration 与全仓 race 验收。
+
+本轮交易表示成本以 A2 前后实现为对照，同机 Go1.26.11、GOMAXPROCS=2，预编译二进制按旧→新→新→旧串行测量。只替换交易 encodeCanonical 实现，不重复计算前轮目录／P0 收益。
+
+| 本地固定 fixture | 分配次数变化 | 分配字节变化 | 耗时观察 |
+| --- | --- | --- | --- |
+| TransactionByHash Normalize／Process | 每次各减少 61 次（1616→1555／1682→1621） | 约 −3.8%／−3.7% | 初测 Normalize −3.4%、Process +3.7%；加长样本复测为 −4.8%／−2.3%，不据此宣称稳定提速 |
+| 实际 Aggregate，1／3／5 源 | 约 −3.1%／−3.5%／−3.6% | 约 −2.9%／−3.4%／−3.5% | 中位数变化 +0.8%／−0.5%／+0.1%；每组仍有约 2.5–2.7ms 与 5.8–5.9ms 双峰 |
+| 公开 TransactionByHash，8KB／64KB | 约 −4.0%／−5.0% | 约 −1.3%／−0.5% | 合并样本中位数 +2.9%／+1.6%；相对前后旧组的变化范围为 +1.4%～+5.4%／−1.5%～+4.1% |
+
+分配下降可重复，端到端耗时没有稳定改善。本轮接受的是删除重复表示工作及其确定分配收益，不将该表解释为生产延迟保证或已消除所有历史性能差距。方法初测每组 250ms×3、复测 500ms×5；真实聚合与公开载荷每组固定 100 次×2。可复现入口为 `internal/methods/transaction_bench_test.go`、`internal/aggregator/transaction_route_aggregate_bench_test.go`、`internal/verification/facade/transaction_fullpath_bench_test.go`；旧表示主体可由 `de04b7d` 的交易 encode.go 恢复，临时冻结副本与测量日志不作为恢复前置条件。
 
 ## 当前架构与接续
 
@@ -14,11 +40,11 @@
 
 以上是明确的公开 API 变化，不能用前序性能轮“公开签名不变”概括。当前细节以 [代码库拓扑](codebase-topology.md)、[Transport 合同](transport-contract.md)、[返回值合同](return-value-design.md) 与各方法／订阅合同为准。
 
-本轮结构收敛已合入 `6269d19`，后续 WSS 修复已保存为 `f251f67`。最终生产代码的全仓普通／race 各 53 个测试包、8072 个测试及子测试事件通过，另有 8 包无测试，无失败或测试用例跳过。Verification 以 race、`-count=2 -shuffle=on -run '^TestVerification'` 复验，1124 个测试及子测试事件通过，无失败或跳过。
+前轮结构收敛已合入 `6269d19`，后续 WSS 修复已保存为 `f251f67`。该生产基线的全仓普通／race 各 53 个测试包、8072 个测试及子测试事件通过，另有 8 包无测试，无失败或测试用例跳过。Verification 以 race、`-count=2 -shuffle=on -run '^TestVerification'` 复验，1124 个测试及子测试事件通过，无失败或跳过。恢复轮另外复跑该基线全仓普通测试和 subscription/runtime/WSS/facade 四包 race，均通过；这些结果不覆盖本次新补丁。
 
-Linux build／vet、Windows amd64（CGO=0）交叉 build／vet、anvil 编译、默认／anvil 两路 lint 与 staticcheck 均通过；deadcode 仅报告原有 4 个测试接口 stub，无生产死码。此前 tidy 结果及独立 wiregen Go／audit 产物在最终提交再次比对一致，全 Go 格式与 diff 检查通过。workflow 的 actionlint／ShellCheck 已通过，之后未修改 workflow。anvil 此次仅编译，未执行本地链；本轮未新增真实 provider 观察。
+前轮 Linux build／vet、Windows amd64（CGO=0）交叉 build／vet、anvil 编译、默认／anvil 两路 lint 与 staticcheck 均通过；deadcode 仅报告原有 4 个测试接口 stub，无生产死码。此前 tidy 结果及独立 wiregen Go／audit 产物在该提交再次比对一致，全 Go 格式与 diff 检查通过。workflow 当时通过 actionlint／ShellCheck；本次 workflow 修改另行检查。anvil 当时仅编译，未执行本地链；本轮未新增真实 provider 观察。
 
-IPC、geth 类型适配、完整 Simulate 语义、F1、共享 Hub／持久化、真实 provider／Anvil 执行及正式发布仍是独立议题，本轮结构收敛不自动完成这些工作。
+IPC、geth 类型适配、完整 Simulate 语义、F1、共享 Hub／持久化、真实 provider／Anvil 执行及正式发布仍是独立议题，本轮结构收敛不自动完成这些工作。Head RequestTimeout 是否覆盖解码及等锁后的接纳仍属未决合同，未认定为生产缺陷，也未在本轮修改其行为。
 
 组合验收中已修复 Head 既有的 recovery exhausted 故障（`b7e0150`）：没有 Q target 时恢复双方祖先，不以旧 committed tip 截断搜索，ledger 不回退。组合普通验收还暴露了旧 WSS 绑定前预算失败的清理窗口：失败的建立尝试尚未退出时，后续未知通知可重新建立缓存。该行为在旧基线也能复现；`f251f67` 按仍活跃的建立尝试判断缓存归属，保留失败标记及其他活跃尝试的通知，并在最后一个活跃尝试结束后清理。独立回归控制 pump 退出先后，不把 `Err` 接收改成完成屏障；实际合同归 [WSS wire](wss-wire-contract.md)。
 

@@ -3169,9 +3169,13 @@ YAML fields. References continue to be established per invocation.
 
 Livecanary always records native for new runs. Its Executor, CLI and workflows
 have no adapter override. Manifest.HTTPAdapter and NormalizeHTTPAdapter remain
-historical provenance: geth evidence is readable and retains its identity, but
-rerun and recheck reject it instead of relabeling it or executing an old geth
-adapter. The capture collector requires an explicit retention budget; its unused
+historical provenance: geth evidence is readable and retains its identity;
+missing, null or blank adapter identity stays unspecified. Only explicitly
+recorded native identity passes execution admission. Rerun checks before client
+creation, and recheck uses the current tool's offline check before checking out
+the historical source commit. Neither path relabels evidence or executes an old
+geth adapter. The published manifest schema covers new output and historical
+readable forms; validity alone does not authorize execution. The capture collector requires an explicit retention budget; its unused
 transitional default is removed.
 
 The current contracts are design/transport-contract.md and

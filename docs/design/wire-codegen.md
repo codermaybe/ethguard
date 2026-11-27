@@ -84,6 +84,8 @@ Jennifer v1.7.1 使用结构化 API 与 File.Save，不保留字符串源码 emi
 
 Block body、直接Transaction及Simulate结果的已有兼容由 `internal/ethobject/hexcompat` 共用：仅为显式生成模型建立有限已知字段树，折合白名单hex类型，保留Text／Number及未知内容。AccessListItem／Withdrawal／Log的前置字段投影明确登记；不接受外部规则或运行时schema。HexByte另执行合法值的最短表示，交易按明确type选择字段树，防止将typed交易的v规则误套给legacy的Quantity。原始来源保持不变，字段与内容检查仍由后置owner承担。
 
+交易对象的 canonical 准备已经通过 wiremask 完成比较字段投影和 hex 折叠，因此直接把裁剪结果交给生成构造器，不再重走 hexcompat 字段树。生成模型成功选中分支后，对 typed V／YParity 和 7702 授权项 YParity 作最短 HexByte 表示；legacy V 仍是 QUANTITY，其他分支不表达的开放成员按原比较投影回填。生成构造器和独立 typed raw 入口的合同不变。裁剪结果可能因 HTML 转义超过原输入大小，进入生成构造器前仍检查该结果的 JSON 预算。
+
 Block 的 header/body 合成和生成构造只由 `internal/ethobject/block` 维护，protected Encode 与 direct raw 解码共用。完整准入保存其已经检查的规范 Block，订阅交易交付复用该产物；这省去重复编码，不省略 shape 检查，也不把交付时的私有交易解析提前加入方法准入。原始解码与已准入投影保持独立信任入口，没有跳过验证的通用开关。
 
 公开Filter入口保留其已承诺的大小写兼容，按固定字段及数组层级处理冻结快照；调用方额外成员保持。CallMsg、Simulate原始请求及直接标准构造器遵守有效schema，不因旧构造器曾隐含接受大写或非规范十进制而扩张前置规则。直接Go赋值后Marshal仍不等于通过构造检查。

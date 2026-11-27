@@ -76,8 +76,8 @@ func normalizeTransactionInBlock(value json.RawMessage) (string, error) {
 	return string(candidate), err
 }
 
-// prepareTransactionInBlock is the raw route's preparation: the same
-// candidate the processing entry builds, carrying its canonical bytes.
+// prepareTransactionInBlock supplies the standalone normalizer with the
+// canonical bytes of a prepared, mined transaction.
 func prepareTransactionInBlock(value json.RawMessage) (json.RawMessage, error) {
 	candidate, err := prepareTransactionCandidateInBlock(value)
 	if err != nil {

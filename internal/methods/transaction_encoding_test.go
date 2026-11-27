@@ -28,12 +28,12 @@ func TestTransactionPolicyCanonicalizesValueWithoutSplicingSources(t *testing.T)
 	if err != nil || decision.Decision.Status != rpc.Corroborated {
 		t.Fatalf("decision = %+v err %v", decision, err)
 	}
-	want, err := transactionobject.Encode(raw)
+	want, err := transactionobject.Prepare(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(decision.Decision.Value, want) {
-		t.Fatalf("value = %s, want %s", decision.Decision.Value, want)
+	if !bytes.Equal(decision.Decision.Value, want.Canonical()) {
+		t.Fatalf("value = %s, want %s", decision.Decision.Value, want.Canonical())
 	}
 	if bytes.Contains(decision.Decision.Value, []byte("vendorExtension")) {
 		t.Fatalf("vendor field survived: %s", decision.Decision.Value)

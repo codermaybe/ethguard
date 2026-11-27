@@ -70,8 +70,8 @@ func EncodeBlock(value json.RawMessage) (json.RawMessage, error) {
 // fault rather than a default. Each log's nonzero transactionHash and blockHash
 // must match the receipt, and logsBloom must equal CreateBloom over the logs
 // this function just built: the bloom that ships is the bloom that
-// was checked. Binding a receipt to the request it answers is AdmitTransaction
-// and AdmitBlock, not this function.
+// was checked. PrepareTransaction and PrepareBlock additionally bind receipts
+// to the request they answer.
 // Addresses and hashes are lowercase. Quantities are canonical QUANTITY.
 // Log data keeps leading zeros. Array order is unchanged. JSON is compact,
 // HTML escaping is off, and field order is the encoder struct order.

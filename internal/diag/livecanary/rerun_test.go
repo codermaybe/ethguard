@@ -2,10 +2,43 @@ package livecanary
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/codermaybe/ethguard"
 )
+
+func TestExecutionRejectsUnspecifiedAndHistoricalAdapters(t *testing.T) {
+	for _, adapter := range []string{"", " \t ", "geth"} {
+		t.Run(adapter, func(t *testing.T) {
+			manifest := buildFixture(t).Manifest
+			manifest.HTTPAdapter = adapter
+			manifest.SourceCommit = "63d5ac7e91b1184e9b1d83653201eaf73e21d81d"
+			data, err := manifest.Marshal()
+			if err != nil {
+				t.Fatalf("historical manifest must remain readable: %v", err)
+			}
+			for _, entry := range []string{"rerun", "executor"} {
+				t.Run(entry, func(t *testing.T) {
+					calls := 0
+					executor := Executor{NewClient: func(Manifest) (*ethguard.Client, error) {
+						calls++
+						return nil, errors.New("unexpected client construction")
+					}}
+					var runErr error
+					if entry == "rerun" {
+						_, runErr = Rerun(t.Context(), data, executor)
+					} else {
+						_, runErr = executor.Run(t.Context(), RunInput{Manifest: manifest, ManifestBytes: data, ManifestSHA256: ManifestSHA256(data), Membership: MembershipFixed})
+					}
+					if calls != 0 || runErr == nil {
+						t.Fatalf("adapter %q: client calls=%d, error=%v; want rejection before client construction", adapter, calls, runErr)
+					}
+				})
+			}
+		})
+	}
+}
 
 func TestRerunUsesManifestBasis(t *testing.T) {
 	fleet := newExecutorFleet(t, 3)
