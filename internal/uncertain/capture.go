@@ -23,11 +23,8 @@ import (
 // metadata text (UTF-8), duplicate retention billed separately. It is a
 // budget metric, not a precise Go-heap measurement.
 const (
-	// DefaultBudget is the retention budget of the transitional
-	// material-only entry; explicit configuration replaces it.
-	DefaultBudget = 1 << 20
-	maxItemBytes  = 64 << 10
-	maxRecords    = 256
+	maxItemBytes = 64 << 10
+	maxRecords   = 256
 	// maxMetadataBytes caps one variable metadata text (an error string, a
 	// source identity component).
 	maxMetadataBytes = 4 << 10
@@ -93,17 +90,6 @@ type Response struct {
 	Value     json.RawMessage
 	Error     string
 	Truncated bool
-}
-
-// InvocationCapture adapts the collector to the rpc.InvocationCapture seam:
-// the one production binding both the aggregator pipeline and the runtime's
-// facade establishment rounds record through.
-func (c *Capture) InvocationCapture() rpc.InvocationCapture { return invocationCapture{c} }
-
-type invocationCapture struct{ c *Capture }
-
-func (a invocationCapture) Record(stage, method string, source rpc.SourceRef, value []byte, errText string) {
-	a.c.Record(stage, method, source, value, errText)
 }
 
 // Snapshot is the immutable collection snapshot.

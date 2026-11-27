@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/internal/reference"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -76,8 +77,8 @@ func TestCapturedHeadReaderRecordsBothRoundsAndCollectErrors(t *testing.T) {
 		},
 	}
 	capture := &recordingCapture{}
-	invocation := rpc.NewInvocation("capture-reader", rpc.FreezeBasis(nil, rpc.Corroboration{}),
-		rpc.WithInvocationCapture(capture))
+	invocation := rpcengine.NewInvocation("capture-reader", rpcengine.FreezeBasis(nil, rpcengine.Corroboration{}),
+		rpcengine.WithInvocationCapture(capture))
 	reader := capturedHeadReader{inner: inner, invocation: invocation}
 
 	if _, err := reader.Read(context.Background(), "finalized", time.Second); !errors.Is(err, collectErr) {

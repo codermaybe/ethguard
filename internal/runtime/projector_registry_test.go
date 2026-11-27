@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/codermaybe/ethguard/rpc/methods"
+	"github.com/codermaybe/ethguard/internal/methods"
 )
 
 // The projector-binding interlock. The default composition is data-driven:

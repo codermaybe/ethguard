@@ -5,9 +5,10 @@ package rpc
 // diagnostic fact only: resolver comparison keys continue to use RPCError.Raw
 // and never use this state.
 //
-// Unknown means the adapter exposed only the decoded DataError view, where a
-// missing member and an explicit JSON null both become nil. This is the
-// expected state for the current geth WebSocket path.
+// Unknown means wire presence could not be established. For example, a custom
+// transport or test oracle may expose only the decoded DataError view, where
+// a missing member and an explicit JSON null both become nil. The native HTTP
+// and WSS codecs preserve missing, null and value separately.
 type ErrorDataPresenceState uint8
 
 const (

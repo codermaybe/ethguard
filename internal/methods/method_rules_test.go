@@ -1,0 +1,215 @@
+package methods
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+)
+
+// TestMethodRulesMatchIndex locks docs/design/method-rules.md to runtime
+// declarations of every RegisteredMethod. Every compiled plan must name
+// its resolver and comparison class; there is no undeclared exception.
+//
+// ETHGUARD_UPDATE_METHOD_RULES=1 rewrites the file. The default does not.
+func TestMethodRulesMatchIndex(t *testing.T) {
+	rows, err := methodRuleRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != len(RegisteredNames()) {
+		t.Fatalf("rule rows = %d, registered methods = %d", len(rows), len(RegisteredNames()))
+	}
+	got := renderMethodRules(rows)
+	path := filepath.Join("..", "..", "docs", "design", "method-rules.md")
+	if os.Getenv("ETHGUARD_UPDATE_METHOD_RULES") == "1" {
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read method rules: %v\n%s", err, got)
+	}
+	if string(want) != got {
+		t.Fatalf("method rules index drifted:\n%s", methodRuleDiff(string(want), got))
+	}
+}
+
+func TestRegisteredMethodsHaveCanonicalResults(t *testing.T) {
+	rows, err := methodRuleRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Rule.Result == rpcengine.RuleResultRaw {
+			t.Fatalf("%s still declares raw result", row.Method)
+		}
+	}
+}
+
+func methodRuleRows() ([]methodRuleRow, error) {
+	var rows []methodRuleRow
+	for _, method := range Catalog() {
+		if method.Kind != RegisteredMethod {
+			continue
+		}
+		spec, ok := specForName(method.Name)
+		if !ok {
+			return nil, fmt.Errorf("%s: no spec for a registered method", method.Name)
+		}
+		plan, err := CompilePlan(spec)
+		if err != nil {
+			return nil, err
+		}
+		rule := plan.MethodRule()
+		if rule.Resolver == "" || rule.CompareKind == "" {
+			return nil, fmt.Errorf("%s: resolver or comparison-key class is empty", method.Name)
+		}
+		if rule.Result != rpcengine.RuleResultCanonical && rule.Result != rpcengine.RuleResultRaw {
+			return nil, fmt.Errorf("%s: result = %q, want canonical or raw", method.Name, rule.Result)
+		}
+		rows = append(rows, methodRuleRow{Method: method.Name, Rule: rule})
+	}
+	if err := assertPendingSemantics(rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// assertPendingSemantics locks the three pending mechanisms to methods whose
+// declarations differ. The values come from each plan; a single
+// fixed label cannot satisfy all three.
+func assertPendingSemantics(rows []methodRuleRow) error {
+	got := map[string]string{}
+	for _, row := range rows {
+		got[row.Method] = ruleOrNone(row.Rule.Pending)
+		if row.Method != MethodCall {
+			continue
+		}
+		want := rpcengine.MethodRule{
+			Anchor:      "hash@1",
+			BlockRef:    rpcengine.RuleBlockRefEIP1898,
+			Pending:     rpcengine.RulePendingLocalObservation,
+			Resolver:    rpcengine.RuleResolverCallRevert,
+			CompareKind: rpcengine.RuleCompareMethodSpecific,
+			Result:      rpcengine.RuleResultCanonical,
+		}
+		if row.Rule != want {
+			return fmt.Errorf("%s: column shape = %+v, want %+v", row.Method, row.Rule, want)
+		}
+	}
+	checks := []struct {
+		method  string
+		pending string
+	}{
+		{MethodGetLogs, rpcengine.RulePendingLocalReject},
+		{MethodCall, rpcengine.RulePendingLocalObservation},
+		{MethodChainID, "none"},
+		{MethodEstimateGas, rpcengine.RulePendingLocalObservation},
+	}
+	for _, check := range checks {
+		pending, ok := got[check.method]
+		if !ok {
+			return fmt.Errorf("%s: missing from the rule index", check.method)
+		}
+		if pending != check.pending {
+			return fmt.Errorf("%s: pending = %s, want %s", check.method, pending, check.pending)
+		}
+	}
+	return nil
+}
+
+// specForName looks up the registered spec. A registered method without a
+// spec is a registration error, not a skip.
+func specForName(name string) (MethodSpec, bool) {
+	for _, spec := range Specs() {
+		if spec.Method == name {
+			return spec, true
+		}
+	}
+	return MethodSpec{}, false
+}
+
+type methodRuleRow struct {
+	Method string
+	Rule   rpcengine.MethodRule
+}
+
+func renderMethodRules(rows []methodRuleRow) string {
+	var b strings.Builder
+	b.WriteString("由 TestMethodRulesMatchIndex 生成，勿手动编辑。\n")
+	b.WriteString("\n")
+	b.WriteString("| 方法 | 锚定 | 区块引用形态 | pending 处理 | resolver | 比较键种类 | 键来源 | result |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			row.Method,
+			ruleOrNone(row.Rule.Anchor),
+			ruleOrNone(row.Rule.BlockRef),
+			ruleOrNone(row.Rule.Pending),
+			row.Rule.Resolver,
+			row.Rule.CompareKind,
+			ruleOrNone(row.Rule.KeySource),
+			row.Rule.Result,
+		)
+	}
+	return b.String()
+}
+
+func ruleOrNone(value string) string {
+	if value == "" {
+		return "none"
+	}
+	return value
+}
+
+func methodRuleDiff(before, after string) string {
+	a := strings.Split(strings.TrimSuffix(before, "\n"), "\n")
+	b := strings.Split(strings.TrimSuffix(after, "\n"), "\n")
+	n, m := len(a), len(b)
+	dp := make([][]int, n+1)
+	for i := range dp {
+		dp[i] = make([]int, m+1)
+	}
+	for i := n - 1; i >= 0; i-- {
+		for j := m - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				dp[i][j] = dp[i+1][j+1] + 1
+				continue
+			}
+			if dp[i+1][j] >= dp[i][j+1] {
+				dp[i][j] = dp[i+1][j]
+				continue
+			}
+			dp[i][j] = dp[i][j+1]
+		}
+	}
+	var buf strings.Builder
+	buf.WriteString("--- docs/design/method-rules.md\n+++ introspected\n")
+	i, j := 0, 0
+	for i < n && j < m {
+		if a[i] == b[j] {
+			i++
+			j++
+			continue
+		}
+		if dp[i+1][j] >= dp[i][j+1] {
+			buf.WriteString("- " + a[i] + "\n")
+			i++
+			continue
+		}
+		buf.WriteString("+ " + b[j] + "\n")
+		j++
+	}
+	for ; i < n; i++ {
+		buf.WriteString("- " + a[i] + "\n")
+	}
+	for ; j < m; j++ {
+		buf.WriteString("+ " + b[j] + "\n")
+	}
+	return buf.String()
+}

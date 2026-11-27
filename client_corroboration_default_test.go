@@ -23,7 +23,7 @@ func TestDefaultCorroborationFloorIsTwo(t *testing.T) {
 		t.Fatalf("multi-upstream client construction failed: %v", err)
 	}
 	t.Cleanup(client.Close)
-	snap := client.corrob.Snapshot()
+	snap := client.corrob
 	if snap.Mode != rpc.CorroborationMajority {
 		t.Fatalf("mode = %v, want majority", snap.Mode)
 	}
@@ -43,7 +43,7 @@ func TestSingleUpstreamCorroborationForwardsWithoutFloor(t *testing.T) {
 		t.Fatalf("single-upstream client construction failed: %v", err)
 	}
 	t.Cleanup(client.Close)
-	snap := client.corrob.Snapshot()
+	snap := client.corrob
 	if snap.Mode != rpc.CorroborationForwarded {
 		t.Fatalf("mode = %v, want forwarded", snap.Mode)
 	}

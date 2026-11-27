@@ -19,7 +19,8 @@
 
 - `internal/transport` 是 Port-only 物理包：`Transport`、`Dialer`、`ErrBodyTooLarge`、
   `ErrConnectionClosed`。适配器实现不得进入该包。
-- native HTTP（`internal/transport/http`）是唯一生产 HTTP adapter。
+- native HTTP（`internal/transport/http`）是唯一生产 HTTP adapter。客户端按来源的 `config.Transport` 装配：省略或 `native-http` 使用原生 HTTP，`wss` 使用 raw WebSocket；不提供 HTTP adapter 单选开关或 dialer 注入。
+- livecanary 新运行固定记录 native provenance；CLI／workflow 不提供 adapter 选择。历史 manifest 的 `HTTPAdapter` 与解析能力保留，geth 观察不能重标为 native 或重跑。
 - native 生产执行图不得链接 `ethclient`；具体 geth RPC client 仅存在于 `internal/testkit/gethoracle`／显式诊断工具等允许位置；公开业务签名使用生成模型，私有算法桥不承担 transport。
 
 ## 2. L1 条款（suite 逐条对应）

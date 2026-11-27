@@ -3127,3 +3127,53 @@ introduced. The return-value, transport and method documents describe the
 implemented contract. Canary and replay consumers use the same source judgments;
 historical provider captures are unchanged. These checks do not replace a new
 external-provider observation or subscription-lifecycle acceptance.
+
+
+## 0074. Construction-time corroboration and one canonical execution contract
+
+Status: Accepted and implemented (2026-11-27). Refines decision 0025's
+configuration mechanism; its fixed membership and per-invocation voting basis
+remain requirements. The historical decision text remains unchanged.
+
+The SDK fixes members and corroboration mode/floor at construction. Aggregator
+and runtime accept a Corroboration value; there is no shared mutable container,
+Set/Snapshot API, nil configuration, or optional snapshot execution branch.
+Every invocation still freezes member identities and a copied rule into Basis
+before requests. Failed, gated, malformed and unattempted members keep their
+slots and cannot lower Q.
+
+Canonical plans contain a processor and a processed-result resolver, with one
+explicit corroboration entry. Normalize remains an independent method
+capability. Missing or mixed execution contracts fail before reference or
+business network work. Raw Strict, CallRevert and reference consumers retain
+their actual direct construction rules; they are not migration fallbacks.
+
+Field observations keep eligible original Answer.Result bytes and the same
+fixed Basis. Forwarded skips field aggregation and projection; eth_call revert
+does not gain an agreement claim. Current ownership and method semantics are
+maintained in design/codebase-topology.md and design/method-contracts.md.
+
+
+## 0075. Remove retired transport and capture configuration
+
+Status: Accepted and implemented (2026-11-27). Supersedes the retained
+HTTPAdapter/WithHTTPAdapter and DialerOption switches in decision 0071, and
+the migration-only AnchorCacheTTL setting described in decisions 0026/0037.
+Historical decision and provider evidence records remain unchanged.
+
+The SDK constructs native HTTP or raw WSS from each source's Transport.
+HTTP has one production implementation, so the facade and runtime no longer
+expose adapter selection or dialer injection. The retired cache field and its
+special validation are removed; the configuration parser still rejects unknown
+YAML fields. References continue to be established per invocation.
+
+Livecanary always records native for new runs. Its Executor, CLI and workflows
+have no adapter override. Manifest.HTTPAdapter and NormalizeHTTPAdapter remain
+historical provenance: geth evidence is readable and retains its identity, but
+rerun and recheck reject it instead of relabeling it or executing an old geth
+adapter. The capture collector requires an explicit retention budget; its unused
+transitional default is removed.
+
+The current contracts are design/transport-contract.md and
+design/codebase-topology.md. These deletions add no new transport, caching or
+provider compatibility guarantee.

@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/codermaybe/ethguard/internal/rpcsample"
+	"github.com/codermaybe/ethguard/internal/diag/rpcsample"
 )
 
 func main() {

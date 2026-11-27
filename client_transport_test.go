@@ -1,42 +1,11 @@
 package ethguard
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard/config"
-	"github.com/codermaybe/ethguard/internal/transport"
 )
-
-// stubDialer exercises composition selection rules without a concrete transport.
-type stubDialer struct{}
-
-func (stubDialer) DialContext(context.Context, string) (transport.Transport, error) {
-	return nil, context.Canceled
-}
-
-func TestExplicitSourceTransportCannotBeOverriddenByInjectedDialer(t *testing.T) {
-	for _, upstream := range []config.Upstream{
-		{ID: "http", Endpoint: "http://127.0.0.1:1", Transport: config.TransportNativeHTTP},
-		{ID: "wss", Endpoint: "ws://127.0.0.1:1", Transport: config.TransportWSS},
-	} {
-		t.Run(upstream.ID, func(t *testing.T) {
-			cfg := config.Config{Upstreams: []config.Upstream{upstream}}
-			if err := cfg.Validate(); err != nil {
-				t.Fatal(err)
-			}
-			client, err := New(cfg, DialerOption(stubDialer{}))
-			if client != nil {
-				client.Close()
-				t.Fatal("ambiguous adapter selection returned a client")
-			}
-			if err == nil {
-				t.Fatal("injected dialer silently overrode explicit source transport")
-			}
-		})
-	}
-}
 
 func TestDefaultClientRequiresExplicitWSSSelection(t *testing.T) {
 	cfg := config.Config{Upstreams: []config.Upstream{{ID: "ws", Endpoint: "wss://provider.example"}}}

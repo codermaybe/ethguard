@@ -38,6 +38,12 @@ client, err := ethguard.DialUncorroborated("https://your-provider")
 
 Dial 拒绝单URL与重复endpoint身份；多个URL不证明独立运营者。构造不联网，DialContext只约束构造。链身份不隐式固定，可通过WithChainID或配置chain_id声明。
 
+## SDK边界与诊断
+
+公开SDK包括Client及EthClient view、生成ethapi模型、rpc数据合同、配置与观察值。pool、aggregator、方法计划、resolver、reference、transport和订阅状态机归各自internal owner；公开订阅类型直接alias唯一owner。原公开执行包和Client.Pool()已退出，不保留转发替身。
+
+client.Sources()按构造顺序返回成员身份与健康值快照。client.Sample(ctx, method, params...)采样当前可用来源：参数冻结一次，遵循Client生命周期、收集超时、cooldown与latest-tip gate，记录transport健康；不建立reference、不做方法准入或裁决。返回的响应字节完整且归调用方独占，收集错误可以与已有观察同时返回。诊断比较另用Normalize。
+
 ## 配置
 
 ```go
@@ -54,7 +60,7 @@ upstreams:
     transport: wss
 ```
 
-省略transport使用native HTTP，显式wss使用raw WebSocket adapter；显式来源transport与DialerOption不能混用。两种来源均参与固定成员读取与写入。更换成员需新建Client。
+省略transport使用native HTTP，显式wss使用raw WebSocket。两种来源均参与固定成员读取与写入。更换成员需新建Client。
 
 Go构造使用config.FromEndpoints和ethguard.New，可配置WithChainID、WithFinalizedAnchoring等同一配置模型的选项；Go链选项覆盖文件值。可运行示例为 `go run ./examples/basic -config ./config.yaml`。
 
@@ -98,7 +104,9 @@ raw WSS提供ID demux与有界通知；adapter不自动重连／replay，root订
 
 ## 模块与验证
 
-唯一生产装配位于internal/runtime；rpc拥有通用裁决，methods拥有方法语义，aggregator编排调用，pool拥有成员／收集／健康。ethapi与ethcodec提供模型和原语，objects／ethobject拥有绑定与对象保护；typed只有一份。transport与subscription分别拥有协议和流，工具／测试消费核心而不被核心反向导入。
+唯一生产装配位于internal/runtime；rpc只拥有公开请求、响应、裁定与证据数据合同及纯值函数。internal/rpcengine拥有Resolver、执行计划与裁决算法，internal/methods拥有方法语义，internal/projection装配官方字段投影，internal/aggregator编排调用，internal/pool拥有成员／收集／健康，internal/reference通过注入能力选择head。ethapi与internal/ethcodec提供模型和原语，internal/ethobject单树拥有绑定与对象保护，internal/typed只有一份生产投影。internal/transport与internal/subscription分别拥有协议和流，两种native adapter共用internal/rpcwire信封及错误保真。internal/uncertain拥有材料保留与预算，observe拥有被动事件及健康快照。
+
+root读取按state_reads.go、block_reads.go、transaction_reads.go归组；contract_execution.go拥有call、gas、fee与access-list，simulate.go拥有模拟，read_helpers.go集中typed读与输入辅助。ethclient_view.go全部直接调用相同私有实现；block与header各自保留投影与错误合同。internal/diag集中livecanary、shapeprobe、rpcsample/replay、chainlist及活动fixture，核心生产包不得反向导入该树；cmd、internal/verification、internal/testkit与rpctest分别保留命令、公开验证和本地测试能力。
 
 从 [文档导航](docs/design/README.md)进入完整现行合同。历史decision供追溯，不是另一份执行计划。公共管线、响应模型、read精调、同步写入及NewHead已验收；其余方法、运行期专题和外部证据按路线图独立推进。
 

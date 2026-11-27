@@ -112,7 +112,7 @@ T10.1/T10.2 必须按以下顺序实现，selection 算法版本写入 manifest�
 6. path 含 URL template placeholder（`${...}` 或未展开的 `{...}`）、UUID
    segment、32 位以上十六进制 segment，或位于 `/v2/`、`/v3/` 之后的 provider
    key segment，记为 `credentials`。
-7. 计算 endpoint identity，规则与 `pool` 的 endpoint 去重键一致：
+7. 计算 endpoint identity，规则与 `internal/pool` 的 endpoint 去重键一致：
    scheme/host 小写、去默认端口、裸 `/` 路径归一为空；path/query 保留。
    endpoint identity 已出现时，保留 registry 顺序中的第一个，其余记为
    `duplicate`。
@@ -474,7 +474,7 @@ Manifest 生成纪律：
 - 所有字段由程序从输入、registry 和固定常量生成；人工和 AI 只能审阅，
   不得填写后再作为 run 产物。
 - `plan.sha256`、`voting_basis_sha256` 和 `manifest_sha256` 必须可重算。
-- 不写入历史 golden，不把 live 响应写进 `internal/rpcsample/testdata`。
+- 不写入历史 golden，不把 live 响应写进 `internal/diag/rpcsample/testdata`。
 
 ---
 

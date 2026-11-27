@@ -199,7 +199,7 @@ nil query、TransactionHashes未设置或空列表都表示全量实时收据；
 | ReceiptSupport | 字段一致声明的Status、固定Basis/Required、Attempt、Representative和Suppliers；零命中/空块不虚构支持者 |
 | Proof | TransactionsExcluded、EmptyBlock或BlockCommitment，区分无需收据请求与完整收据证明 |
 
-每块先从固定成员取得一份合法完整区块，复用GetBlockByHash准入及编码，验证目标头hash、完整有序交易列表和TransactionsRoot；随后冻结交易及命中索引。过滤集合零命中直接交付带身份空集合。全量空块也无需收据网络请求，但仍验证空收据列表与头的ReceiptsRoot一致，拒绝矛盾的非空收据根。
+每块先从固定成员取得一份合法完整区块，直接消费 block.AdmitBlock 的完整准入产物，验证目标头hash、完整有序交易列表和TransactionsRoot，并从保留的规范 Block 解码交易；随后冻结交易及命中索引。过滤集合零命中直接交付带身份空集合。全量空块也无需收据网络请求，但仍验证空收据列表与头的ReceiptsRoot一致，拒绝矛盾的非空收据根。
 
 有命中时，固定成员各自提供完整收据列表。共享receipt内核验证数量、顺序、块/交易身份、type和ReceiptsRoot；所有日志的块、交易及全块索引、removed和提供的时间戳在过滤前核对。非命中行的结构、身份或根错误仍拒绝整份回答。证明成功后才本地过滤，实际交付的完整规范官方字段进入既有CanonicalOutcomeResolver的固定Q裁定；非命中行的非根声明差异不改变过滤后的候选。
 
@@ -217,7 +217,7 @@ pool.Source.Call保留真实Response，CallContext仅投影，不从raw/error重
 
 ## 9. 验证与实现入口
 
-HeadTracker、内存预算、审计、队列和恢复事实位于internal/subscription；根newhead_subscription.go编排头网络与公开交付。私有contentSubscription[E]仅为Logs/Receipts共用typed FIFO、版本提交、预算、实际任务、审计及关闭；方法各自拥有run/fetch/过滤/证明与重试，receipts复用rpc的规范值裁定。logs_content.go、logs_filter.go、receipts_content.go消费既有方法/对象内核，root/view使用同一执行。WSS notification的缓存与租约由internal/transport/wss拥有，pool透传中立有界订阅能力并保留真实Response。
+internal/subscription 是 Head/Logs/Receipts 唯一 owner，拥有状态机、worker、队列、session、恢复、内容证明与交付。它通过注入能力编排，不拥有连接实现；Source 接口与固定成员快照回调由 root 的 Client 生命周期适配提供，允许消费中立 transport port，禁止依赖 pool/runtime/methods/具体 transport。root 仅保留公开入口和稳定类型 alias，view 复用同一执行。私有 contentSubscription[E] 为 Logs/Receipts 共用 typed FIFO、版本提交、预算、实际任务、审计及 Close 完成屏障；具体流各自拥有过滤、证明与重试，receipts 共用 internal/rpcengine 的规范值裁决。共享 FilterQuery 冻结与拼写兼容属于 ethobject/log；unary 保留未知扩展和精确数值，stream 编译时拒绝未知扩展。白盒测试随 owner 移动，公开客户端验收留 root/verification。WSS notification 的缓存与租约由 internal/transport/wss 拥有，注入来源透传中立有界订阅能力并保留真实 Response。
 
 反例覆盖共同祖先支持、迟到合票、会话撤票、完整 gap/reorg、证人替换、未知跳高与恢复活性、发布原子性、审计前缀/期限、慢消费者、长期保留、图缩容、并发关闭和 WSS pre-bind/原文释放。合成对象测试、完整 Header、真实本地 WSS peer、Anvil 和真实 provider 是不同证据层；本轮没有新增 Anvil 或 provider 采集。
 
@@ -263,7 +263,7 @@ Logs专项在root和facade共26个顶层、49个子测试普通/race通过；覆
 | 合成 tracker、3,000 步连续推进与分支变化 | 保留预算峰值 7,259 B |
 | 300 块恢复后裁剪 | 图容量缩回 16，旧表与 fetch 引用释放 |
 
-入口分别为 `newhead_integration_test.go` 的 `TestHeadRealHeaderLongAdvanceAndForkRetentionPlateaus` 及 `internal/subscription/head_tracker_test.go`。这些是具体负载下的预算账本测量，不是整个运行期间的分配峰值、Go heap/RSS 上限或任意负载的证明。
+入口分别为 `internal/subscription/newhead_integration_test.go` 的 `TestHeadRealHeaderLongAdvanceAndForkRetentionPlateaus` 及 `internal/subscription/head_tracker_test.go`。这些是具体负载下的预算账本测量，不是整个运行期间的分配峰值、Go heap/RSS 上限或任意负载的证明。
 
 Go 1.26.10、Intel i5-8300H、150ms 本地 benchmark：
 
@@ -280,4 +280,4 @@ Go 1.26.10、Intel i5-8300H、150ms 本地 benchmark：
 
 当前解码准入预留为 `256*len(raw)+16KiB`，上面两个解码样本分别预留 391,424 B 与 10,347,264 B。4,096 个额外字段已超过现有 JSON-safe 总键数限制，因此成功解码压力样本采用 4,000 个字段。字段多而短时结构与规范化成本明显高于原文字节，不能直接用 WireBytes 作为所需 MemoryBytes。
 
-复现入口为 `internal/subscription/head_benchmark_test.go` 与 `newhead_benchmark_test.go`。这些测量用于解释预算余量与局部成本，不代表生产吞吐、最坏情况上界或多源设计的极限。
+复现入口为 `internal/subscription/head_benchmark_test.go` 与 `internal/subscription/newhead_benchmark_test.go`。这些测量用于解释预算余量与局部成本，不代表生产吞吐、最坏情况上界或多源设计的极限。

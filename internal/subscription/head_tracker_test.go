@@ -364,6 +364,58 @@ func TestPrunedDeliveredPathRetractsEveryDeliveredBlock(t *testing.T) {
 	}
 }
 
+func TestHeadRecoveryFindsCommonSupportWhenOneSourceLeavesBirthBranch(t *testing.T) {
+	tr, q, _ := newTracker(t, 8)
+	common := chainNode(98, 1, AnchorNode{})
+	old99 := chainNode(99, 1, common)
+	old100 := chainNode(100, 1, old99)
+	alt99 := chainNode(99, 2, common)
+	alt100 := chainNode(100, 2, alt99)
+	objects := map[[32]byte]AnchorNode{common.Hash: common, old99.Hash: old99, alt99.Hash: alt99}
+	observeTip(t, tr, "a", 1, old100)
+	observeTip(t, tr, "b", 1, old100)
+	commitReady(t, tr, q)
+
+	// Keep b on the birth branch while a moves. Recovery must explore both
+	// current source paths to establish common support without changing the ledger.
+	observeTip(t, tr, "a", 2, alt100)
+	for attempts := 0; ; attempts++ {
+		p, request, err := tr.Prepare(time.Unix(0, 100))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p != nil {
+			tr.Discard(p)
+			t.Fatal("common-ancestor support retracted the committed path")
+		}
+		if request == nil {
+			break
+		}
+		if attempts >= 8 {
+			t.Fatal("recovery did not settle on common support")
+		}
+		node, ok := objects[request.Hash]
+		if !ok {
+			err := tr.ExhaustRequest(*request, time.Unix(0, 100), 0)
+			t.Fatalf("recovery requested height %d below the available common ancestor: %v", request.Number, err)
+		}
+		supplyObject(t, tr, request, node)
+	}
+	evaluation, err := tr.Evaluate()
+	if err != nil || evaluation.Target == nil || *evaluation.Target != common || len(evaluation.Witnesses) != 2 {
+		t.Fatalf("current source paths did not converge on common support: %+v %v", evaluation, err)
+	}
+	if tr.State().Tip != old100 || tr.State().PathVersion != 1 {
+		t.Fatal("common support changed the committed ledger")
+	}
+
+	observeTip(t, tr, "b", 2, alt100)
+	event := prepareWithObjects(t, tr, q, objects)
+	if event.Delta.Reason != PreBirthReorg || len(event.Delta.Appended) != 2 || event.Delta.Appended[0].Node != alt99 || event.Delta.Appended[1].Node != alt100 {
+		t.Fatalf("replacement lost the recovered low path: %+v", event.Delta)
+	}
+}
+
 func TestPreBirthReplacementBecomesDeliveredFloorForLaterRetraction(t *testing.T) {
 	tr, q, _ := newTracker(t, 2)
 	objects := map[[32]byte]AnchorNode{}

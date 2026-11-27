@@ -91,9 +91,9 @@ func Encode(value json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(fields["logs"], &rows); err != nil || rows == nil {
 		return nil, fmt.Errorf("receipt: logs must be an array")
 	}
-	logs := make([]canonicalReceiptLog, len(rows))
+	logs := make([]log.CanonicalLog, len(rows))
 	for i, row := range rows {
-		item, err := encodeReceiptLog(row)
+		item, err := log.EncodeOne(row)
 		if err != nil {
 			return nil, fmt.Errorf("receipt logs[%d]: %w", i, err)
 		}
@@ -148,7 +148,7 @@ var zeroHash = common.Hash{}.Hex()
 // checkLogBindings binds every log to the receipt that carries it. Both sides
 // are already canonical, so a mismatch is a source disagreeing with itself
 // rather than two spellings of one value.
-func checkLogBindings(logs []canonicalReceiptLog, transactionHash, blockHash string) error {
+func checkLogBindings(logs []log.CanonicalLog, transactionHash, blockHash string) error {
 	for i, item := range logs {
 		if item.TransactionHash != zeroHash && item.TransactionHash != transactionHash {
 			return fmt.Errorf("receipt logs[%d]: transactionHash %s does not match receipt transactionHash %s", i, item.TransactionHash, transactionHash)
@@ -163,7 +163,7 @@ func checkLogBindings(logs []canonicalReceiptLog, transactionHash, blockHash str
 // canonicalBloom builds the bloom of the logs this encoder just produced, so
 // the emitted logsBloom is checked against the value EthGuard ships rather
 // than against a second decoding of the source payload.
-func canonicalBloom(logs []canonicalReceiptLog) string {
+func canonicalBloom(logs []log.CanonicalLog) string {
 	decoded := make([]*types.Log, len(logs))
 	for i, item := range logs {
 		entry := &types.Log{Address: common.HexToAddress(item.Address)}
@@ -175,24 +175,6 @@ func canonicalBloom(logs []canonicalReceiptLog) string {
 	}
 	return hexutil.Encode(types.CreateBloom(&types.Receipt{Logs: decoded}).Bytes())
 }
-
-// encodeReceiptLog canonicalizes one log embedded in a receipt through the
-// shared log encoder: the receipt-side requiredness (missing topics, missing
-// removed, field shapes) is exactly log.Validate's rule set, with identical
-// messages, so both call sites of the log object accept and reject the same
-// payloads.
-func encodeReceiptLog(value json.RawMessage) (canonicalReceiptLog, error) {
-	out, err := log.EncodeOne(value)
-	if err != nil {
-		return canonicalReceiptLog{}, err
-	}
-	return out, nil
-}
-
-// canonicalReceiptLog is the shared protected log object; the receipt log's
-// JSON shape is byte-identical to the eth_getLogs log, so the field set and
-// its fixed order live once in the log package.
-type canonicalReceiptLog = log.CanonicalLog
 
 // Decode checks the canonical receipt, its logs and bloom, and its mined
 // identity before returning the private algorithm representation. Root null

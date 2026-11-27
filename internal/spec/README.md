@@ -101,7 +101,7 @@ conformance 与 replay 已通过 → 用
 ## 审计指引
 
 1. `git diff methods.json`：上游变更的精确清单（小文件，可逐行审）。
-2. `rpc/internal/wire/prune.go`：规范字段 mask、剪枝和现有 hex 规范化；字段归属不能替代值有效性检查。
+2. `internal/ethobject/wiremask/prune.go`：规范字段 mask、剪枝和现有 hex 规范化；字段归属不能替代值有效性检查。
 3. 向量 + R4 + 关键字段断言：可执行的一致性。
 4. `VERSION`：与 `methods.json` 内 `version` 的互锁由加载器强制（不一致直接报错）。
 5. `go test ./internal/executionapi -run '^TestErrata' -v`：核对审计摘要、来源漂移、重复／无效／冗余修正与原子失败。

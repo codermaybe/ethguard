@@ -1,0 +1,260 @@
+package aggregator
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
+	"github.com/codermaybe/ethguard/observe"
+	"github.com/codermaybe/ethguard/rpc"
+)
+
+type captureRecorder struct {
+	events []observe.DecisionEvent
+}
+
+func (c *captureRecorder) RecordDecision(e observe.DecisionEvent) {
+	c.events = append(c.events, e)
+}
+
+func TestAggregateEmptyPoolReturnsCollectionError(t *testing.T) {
+	a := New(fixedPool(t), rpcengine.Corroboration{Floor: 1})
+	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
+	if err == nil {
+		t.Fatal("expected empty pool to fail")
+	}
+	if err == nil {
+		t.Fatal("expected empty pool to fail")
+	}
+	if decision.Status != rpc.Unknown {
+		t.Fatalf("failed empty-pool decision must not claim a success class, got %s: %+v", decision.Status, decision)
+	}
+}
+
+func TestAggregateAttachesSourceFaultsToDecision(t *testing.T) {
+	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
+	a := New(p, rpcengine.Corroboration{Floor: 1})
+	decision, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_unknown"})
+	if err == nil {
+		t.Fatal("expected unreachable source to fail the call")
+	}
+	if len(decision.Faults) == 0 {
+		t.Fatal("expected collection faults on decision, got none")
+	}
+	if decision.Status != rpc.Unknown {
+		t.Fatalf("failed collection decision must not claim a success class, got %s: %+v", decision.Status, decision)
+	}
+}
+
+func TestAggregateDoesNotBlameSourcesWhoseCallsNeverStarted(t *testing.T) {
+	p := fixedPool(t,
+		pool.Member{Name: "a", URL: "http://127.0.0.1:1"},
+		pool.Member{Name: "b", URL: "http://127.0.0.1:2"},
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	decision, err := New(p, rpcengine.Corroboration{Floor: 1}).Aggregate(ctx, rpc.Request{Method: "eth_unknown"})
+	if err == nil {
+		t.Fatal("expected canceled collection to fail")
+	}
+	if len(decision.Faults) != 1 {
+		t.Fatalf("expected only the collection fault, got %+v", decision.Faults)
+	}
+	if decision.Status != rpc.Unknown {
+		t.Fatalf("canceled collection decision must not claim a success class, got %s: %+v", decision.Status, decision)
+	}
+}
+
+func TestAggregateEmitsDecisionEvent(t *testing.T) {
+	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
+	rec := &captureRecorder{}
+	a := New(p, rpcengine.Corroboration{Floor: 1}, WithRecorder(rec))
+	if _, err := a.Aggregate(context.Background(), rpc.Request{Method: "eth_unknown"}); err == nil {
+		t.Fatal("expected call to fail")
+	}
+	if len(rec.events) != 1 {
+		t.Fatalf("expected exactly one event per aggregate, got %d", len(rec.events))
+	}
+	event := rec.events[0]
+	if event.Method != "eth_unknown" || event.Status != "failed" || event.Conflict {
+		t.Fatalf("unexpected event: %+v", event)
+	}
+	if event.Duration > time.Second {
+		t.Fatalf("implausible duration %v", event.Duration)
+	}
+}
+
+func TestAggregateDefaultsToNopRecorder(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("default recorder panicked: %v", r)
+		}
+	}()
+	p := fixedPool(t)
+	a := New(p, rpcengine.Corroboration{Floor: 1})
+	_, _ = a.Aggregate(context.Background(), rpc.Request{Method: "eth_chainId"})
+}
+
+// fakeRPCError is a project-owned structured JSON-RPC error fixture: the
+// aggregator recognizes protocol errors through the rpc.ProtocolError
+// capability, so domain tests stay free of third-party error types.
+type fakeRPCError struct {
+	code int
+	msg  string
+}
+
+func (e fakeRPCError) Error() string  { return e.msg }
+func (e fakeRPCError) ErrorCode() int { return e.code }
+
+// eventPolicy mirrors the real answer-classifier shape: delivered values are
+// accepted except a "junk" spelling (malformed-but-delivered), and among
+// protocol error bodies only revert-class envelopes count as observations —
+// anything else the policy rejects.
+func eventPolicy(opts ...rpcengine.StrictOption) rpcengine.Resolver {
+	return rpcengine.Strict(func(v json.RawMessage) (string, error) {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			if s == "junk" {
+				return "", fmt.Errorf("not an observation")
+			}
+			return s, nil
+		}
+		var envelope struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(v, &envelope) == nil && envelope.Code == -32000 {
+			return "reverted", nil
+		}
+		return "", fmt.Errorf("not an observation")
+	}, opts...)
+}
+
+func TestEventMarksOnlyUnusableAttemptsFailed(t *testing.T) {
+	policy := eventPolicy(rpcengine.WithRPCErrorBodies())
+	a := New(fixedPool(t), rpcengine.Corroboration{Floor: 1}, WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
+	rec := &captureRecorder{}
+	a.rec = rec
+
+	sources := namedSources(t, "a", "b", "c", "d", "e", "f")
+	emissions := []pool.Emission{
+		{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"1"`)}}},    // valid answer
+		{Src: sources[1], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"junk"`)}}}, // delivered but malformed
+		{Src: sources[2], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: context.DeadlineExceeded}}},                                                 // transport/timeout fault
+		{Src: sources[3], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.ProtocolAnswer(fakeRPCError{-32000, "execution reverted"})}},        // opt-in: an observation
+		{Src: sources[4], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.ProtocolAnswer(fakeRPCError{-32603, "panic"})}},                     // opt-in: still rejected by the normalizer
+		{Src: sources[5]}, // never acquired a slot: absent from attempts
+	}
+	a.recordDecision(time.Now(), "m", rpc.Decision{Status: rpc.Corroborated}, nil, emissions, resolvedEventVerdicts(t, policy, emissions))
+
+	if len(rec.events) != 1 {
+		t.Fatalf("expected exactly one event, got %d", len(rec.events))
+	}
+	attempts := rec.events[0].Attempts
+	if len(attempts) != 5 {
+		t.Fatalf("expected five attempted sources, got %+v", attempts)
+	}
+	wantFailed := []bool{false, true, true, false, true}
+	for i, want := range wantFailed {
+		if attempts[i].Failed != want {
+			t.Fatalf("attempt %d (%s): Failed = %v, want %v", i, attempts[i].Source, attempts[i].Failed, want)
+		}
+	}
+}
+
+func TestEventMethodDomainExclusionDoesNotBlameSource(t *testing.T) {
+	// Without WithRPCErrorBodies the protocol error is not part of the value
+	// domain, so the attempt provided no usable answer.
+	policy := eventPolicy()
+	a := New(fixedPool(t), rpcengine.Corroboration{Floor: 1}, WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
+	rec := &captureRecorder{}
+	a.rec = rec
+
+	sources := namedSources(t, "a")
+	emissions := []pool.Emission{{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.ProtocolAnswer(fakeRPCError{-32000, "execution reverted"})}}}
+	a.recordDecision(time.Now(), "m", rpc.Decision{}, nil, emissions, resolvedEventVerdicts(t, policy, emissions))
+	if rec.events[0].Attempts[0].Failed {
+		t.Fatalf("a legal protocol answer excluded from the method domain must not blame the source")
+	}
+}
+
+func TestEventMarksConflictAsFailed(t *testing.T) {
+	policy := eventPolicy()
+	a := New(fixedPool(t), rpcengine.Corroboration{Floor: 1}, WithPlans(map[string]rpcengine.ReadPlan{"m": {Method: "m", Resolver: policy}}))
+	rec := &captureRecorder{}
+	a.rec = rec
+
+	sources := namedSources(t, "a")
+	a.recordDecision(time.Now(), "m", rpc.Decision{Status: rpc.Corroborated},
+		fmt.Errorf("strict: %w", rpc.ErrConflict), []pool.Emission{
+			{Src: sources[0], Attempted: true, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeCompleted}, Answer: rpc.Answer{Kind: rpc.AnswerResult, Result: json.RawMessage(`"2"`)}}},
+		}, nil)
+	event := rec.events[0]
+	if event.Status != "failed" || !event.Conflict {
+		t.Fatalf("expected failed conflict event, got %+v", event)
+	}
+	// The dissenting-but-valid answer is not a source failure.
+	if event.Attempts[0].Failed {
+		t.Fatalf("a valid dissenting answer must not count as failed: %+v", event.Attempts[0])
+	}
+}
+
+func TestNopRecorderSkipsEventAssembly(t *testing.T) {
+	// The default path must not pay for event building; the guarantee is
+	// observable as no panic and no recorder allocation — Nop discards, so
+	// the assertion is that assembly is skipped entirely.
+	p := fixedPool(t, pool.Member{Name: "dead", URL: "http://127.0.0.1:1"})
+	if _, err := New(p, rpcengine.Corroboration{Floor: 1}).Aggregate(context.Background(), rpc.Request{Method: "m"}); err == nil {
+		t.Fatal("expected the call to fail")
+	}
+}
+
+// namedSources admits display names at construction so events carry the
+// configured names; the sources are never dialed.
+func namedSources(t *testing.T, names ...string) []*pool.Source {
+	t.Helper()
+	members := make([]pool.Member, 0, len(names))
+	for i, name := range names {
+		members = append(members, pool.Member{Name: name, URL: fmt.Sprintf("http://127.0.0.1:%d", 9100+i)})
+	}
+	return fixedPool(t, members...).VotingMembers()
+}
+
+// A scheduling gate skips the request but keeps the member in the voting
+// basis. The structured diagnostic seam must still attribute that member as
+// unavailable even though no call was attempted and the human-readable Faults
+// list intentionally stays empty.
+func TestStructuredSourceFaultsIncludeGatedMember(t *testing.T) {
+	p := fixedPoolWith(t, 1, nil, pool.Member{Name: "node-01", URL: "https://rpc-a.example"})
+	source := p.VotingMembers()[0]
+	emissions := []pool.Emission{{
+		Src:       source,
+		Attempted: false, Response: rpc.Response{Exchange: rpc.Exchange{Progress: rpc.ExchangeStarted, Cause: pool.ErrSourceGated}},
+	}}
+	faults := RoundOutcome(emissions).Decision.SourceFaults
+	if len(faults) != 1 {
+		t.Fatalf("faults=%d, want 1", len(faults))
+	}
+	if faults[0].Source.Name != "node-01" || !errors.Is(faults[0].Err, pool.ErrSourceGated) {
+		t.Fatalf("unexpected fault: %+v", faults[0])
+	}
+	if !errors.Is(emissions[0].Response.Err(), pool.ErrSourceGated) {
+		t.Fatal("gate evidence was rewritten")
+	}
+}
+
+func resolvedEventVerdicts(t *testing.T, policy rpcengine.Resolver, emissions []pool.Emission) []rpcengine.SourceVerdict {
+	t.Helper()
+	obs := make([]rpc.Observation, len(emissions))
+	for i, emission := range emissions {
+		obs[i] = ObservationFromEmission(emission)
+	}
+	outcome, _ := policy.Resolve(obs)
+	return outcome.Verdicts
+}

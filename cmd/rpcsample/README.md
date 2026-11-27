@@ -138,7 +138,7 @@ provider failures are findings, never repaired or omitted from membership.
 Narrow deterministic checks (no provider contact):
 
 ```sh
-go test ./internal/rpcsample -run '^TestTransaction'
+go test ./internal/diag/rpcsample -run '^TestTransaction'
 ```
 
 Provenance also hashes the actual running executable and persisted redacted

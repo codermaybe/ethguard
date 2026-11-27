@@ -8,7 +8,9 @@
 
 显式 `WithFinalizedAnchoring` 是现有保守策略例外：default/latest 和 finalized 都进入 finalized 候选／确认算法，safe 仍走 strict safe。这同样适用于 `AnchorBlockHashForTag("latest")` 及依赖该 preset 的 Header 等移动读取，不能将默认 preset 的逐 tag 测试概括成所有配置同义。Reference.Tag 保存请求意图（默认/latest 的内部路径通常为空，ForTag 显式保留入参），不独立证明实际使用的链 level；确认实际来源须结合配置及本轮证据。这里记录既有运行行为，不改变 F1 的默认值、单源组合或策略待决项。
 
-默认 preset 的 latest／safe／finalized 使用 strict head；有 corroboration snapshot 时采用业务 Strict 门槛，无 snapshot 则为底层 legacy 全体一致与单源 Selected，再由 requireCorroborated 门拒绝非 Corroborated。共同参考是 provider-backed 证据，不是链共识或 finality。
+独立查询由一个 `runtime.ReferenceService` 通过共享 stage 建立，root 直接消费其证据，不经过额外 Anchor facade。默认 preset 的服务使用 client 构造规则；finalized preset 的服务固定 Majority／Floor=2，包括走 strict 算法的 safe 查询。单源默认服务保留 Forwarded 证据并因未获 Corroborated 失败，finalized 的 safe 查询则保留 Required=2 的不足支持失败；合并服务不统一这两种规则，也不改变业务 invocation、候选或确认门槛。
+
+默认 preset 的 latest／safe／finalized 使用 strict head，始终消费构造规则与本次冻结成员，再由 requireCorroborated 门拒绝非 Corroborated；不存在生产 reference 的无规则旁路。直接 raw Strict 的有效回答一致合同仍由引擎自身保留。共同参考是 provider-backed 证据，不是链共识或 finality。
 
 ### Anchor 三入口的交付与验收
 
@@ -29,7 +31,7 @@ ForTag 将输入转为小写，仅接受 latest／safe／finalized；其他值�
 | 确认 | 向缺失来源在候选高度补查，沿原第一轮成员集补位；hash 不符形成 reorg 证据，不缩基 |
 | 后置检查 | 使用同一冻结 `sel.required`，要求 Support 足够且 Status=Corroborated，不另算第二个门槛 |
 
-业务 Strict 的 N 与 finalized E／fresh 分别承担不同职责，不能因公式相似合并算法。`rpc/acceptance_thresholds_test.go` 与 `internal/reference/finalized_thresholds_test.go` 分别覆盖分母、下限、失败、候选与确认边界；测试存在不表示本次已重跑所有场景。
+业务 Strict 的 N 与 finalized E／fresh 分别承担不同职责，不能因公式相似合并算法。`internal/rpcengine/acceptance_thresholds_test.go` 与 `internal/reference/finalized_thresholds_test.go` 分别覆盖分母、下限、失败、候选与确认边界；测试存在不表示本次已重跑所有场景。
 
 响应模型迁移的证据合同：每个来源保留原`Response`，局部高度不适用以`InterpretationExcluded`表达，不能改写为未回答或连接故障。确认是新的实际交换，完成或失败都替换对应来源槽中的旧响应，不借旧成功内容填补新失败。reference仍拥有自己的选择算法，不把不同轮次的响应累计成额外票数。
 
@@ -63,6 +65,6 @@ ForTag 将输入转为小写，仅接受 latest／safe／finalized；其他值�
 | 自定义 reader 身份 | Confirm 的陌生成员身份处理属于 seam hardening 候选；普通冻结 reader 未证实可达，不登记为生产漏洞 |
 | 证据交付 | C 模块已改为 `ReferenceStage.Establish` 显式返回 `(*rpc.ReferenceEvidence, error)`，coordinator 保留部分失败证据并统一交付；`internal/refcontext` 已删除 |
 
-`pool/freshness_scope_test.go` 保存 gate 范围、24h 旧样本和不完整覆盖的现状基线；经裁决修复时应调整现状断言，不能让它们否决新合同。其他入口包括 TestTipTrackingQuarantinesLaggingSource、TestCollectVotingKeepsCoolingMemberInBasis、TestFinalizedAnchoringIsolatesStaleReporter 和 TestBroadcastTrailingSourceStillContacted。
+`internal/pool/freshness_scope_test.go` 保存 gate 范围、24h 旧样本和不完整覆盖的现状基线；经裁决修复时应调整现状断言，不能让它们否决新合同。其他入口包括 TestTipTrackingQuarantinesLaggingSource、TestCollectVotingKeepsCoolingMemberInBasis、TestFinalizedAnchoringIsolatesStaleReporter 和 TestBroadcastTrailingSourceStillContacted。
 
 历史 2026-10-31 两轮四源观察约 6分22秒，latest spread 最大1、safe224、finalized96，一个源的 safe/finalized 未变化；没有观察到 reorg 或同高 hash 分歧。这不足以选定阈值。本轮文档整理未重采 provider；后续分别补齐真实更新时间分布、回退／reorg、停止采样、样本过期、请求豁免与确认轮分母证据。

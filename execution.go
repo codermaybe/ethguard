@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/uncertain"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -37,9 +37,7 @@ type execution struct {
 	ctx context.Context
 	// cancel releases the merged context; the owner cause is recognizable
 	// through context.Cause when the owner fired first.
-	cancel context.CancelCauseFunc
-	// stop detaches the owner-close watcher.
-	stop func() bool
+	cancel func()
 	// capture is the caller's result capture; nil when none was bound.
 	capture *ResultCapture
 	// publishable reports that this operation won the capture binding and
@@ -60,9 +58,7 @@ func (c *Client) begin(ctx context.Context, view bool) *execution {
 	e := &execution{client: c, capture: captureFromContext(ctx)}
 	e.publishable = e.capture.bind()
 
-	merged, cancel := context.WithCancelCause(ctx)
-	e.ctx, e.cancel = merged, cancel
-	e.stop = context.AfterFunc(c.lifeCtx, func() { cancel(pool.ErrClosed) })
+	e.ctx, e.cancel = c.operationContext(ctx)
 
 	// Material collection: the per-call budget is this operation's own.
 	// A view call without a capture has no consumer and omits collection;
@@ -78,8 +74,7 @@ func (c *Client) begin(ctx context.Context, view bool) *execution {
 // completion result is published; the merged context lives exactly as long
 // as the operation.
 func (e *execution) done() {
-	e.stop()
-	e.cancel(nil)
+	e.cancel()
 }
 
 // closedGate rejects a new operation on a closed client before any network
@@ -107,12 +102,23 @@ func (e *execution) finish(result CallResult) CallResult {
 	return result
 }
 
+// operationContext binds a caller's work to the client lifetime without
+// binding a result capture or choosing a read/write execution path.
+func (c *Client) operationContext(ctx context.Context) (context.Context, func()) {
+	merged, cancel := context.WithCancelCause(ctx)
+	stop := context.AfterFunc(c.lifeCtx, func() { cancel(pool.ErrClosed) })
+	return merged, func() {
+		stop()
+		cancel(nil)
+	}
+}
+
 // mapLifecycleError keeps the two cancellation causes distinguishable: a
 // user cancellation or deadline that fired first keeps its context error;
 // an owner close that fired first is recognizable as ErrPoolClosed. The
 // joined error preserves both matches.
-func (e *execution) mapLifecycleError(err error) error {
-	cause := context.Cause(e.ctx)
+func mapLifecycleError(ctx context.Context, err error) error {
+	cause := context.Cause(ctx)
 	if cause == nil || !errors.Is(err, context.Canceled) {
 		return err
 	}
@@ -146,7 +152,7 @@ func operation[V any](c *Client, ctx context.Context, view bool, body func(opCtx
 	value, result, err := body(e.ctx)
 	result.Err = err
 	if result.Err != nil {
-		result.Err = e.mapLifecycleError(result.Err)
+		result.Err = mapLifecycleError(e.ctx, result.Err)
 	}
 	result = e.finish(result)
 	return value, result, result.Err
@@ -181,7 +187,7 @@ func writeOperation(c *Client, ctx context.Context, view bool, body func(opCtx c
 	}
 	result, err := body(e.ctx)
 	if err != nil {
-		err = e.mapLifecycleError(err)
+		err = mapLifecycleError(e.ctx, err)
 	}
 	result.Err = err
 	result = e.finish(result)
@@ -189,13 +195,14 @@ func writeOperation(c *Client, ctx context.Context, view bool, body func(opCtx c
 }
 
 // establishAnchor is the shared private anchor execution: it establishes the
-// reference for tag through the client's resolver and delivers the evidence
+// reference for tag through the client's service and delivers the evidence
 // explicitly to the caller. Internal sub-operations (moving-tag reads,
 // pending pinning) call this directly with their own context — never a
 // public anchor facade — so no nested capture binding and no early
-// completion can happen. An empty tag means the default latest reference.
+// completion can happen. An empty tag means the default reference. Each call
+// establishes afresh and keeps any partial evidence beside the error.
 func (c *Client) establishAnchor(ctx context.Context, tag string) (rpc.ReferenceEvidence, error) {
-	ref, err := resolveReference(ctx, c.resolver, tag)
+	ref, err := c.reference.ReferenceForTag(ctx, tag)
 	if err == nil && ref.Status != rpc.Corroborated {
 		err = fmt.Errorf("uncorroborated reference: %w", rpc.ErrGuaranteeNotMet)
 	}

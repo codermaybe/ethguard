@@ -1,0 +1,139 @@
+// Package log contains the shared Ethereum log object validation rules.
+package log
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"math/big"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/codermaybe/ethguard/internal/ethcodec"
+	"github.com/codermaybe/ethguard/rpc"
+)
+
+// ValidateResponse validates a getLogs response and binds it to its request.
+func ValidateResponse(req rpc.Request, value json.RawMessage) error {
+	trimmed := bytes.TrimSpace(value)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return fmt.Errorf("logs: expected an array")
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(trimmed, &rows); err != nil || rows == nil {
+		return fmt.Errorf("logs: expected an array")
+	}
+	for i, row := range rows {
+		if err := Validate(row); err != nil {
+			return fmt.Errorf("logs[%d]: %w", i, err)
+		}
+	}
+	return ValidateRequestBinding(req, rows)
+}
+
+// ValidateRequestBinding ensures logs match the requested hash or block range.
+func ValidateRequestBinding(req rpc.Request, rows []json.RawMessage) error {
+	if len(req.Params) != 1 {
+		return nil
+	}
+	filter, ok := req.Params[0].(map[string]any)
+	if !ok {
+		return nil
+	}
+	if requested, ok := filter["blockHash"]; ok {
+		want, ok := ValueHash(requested)
+		if !ok {
+			return fmt.Errorf("blockHash filter must be a 32-byte hash")
+		}
+		for i, row := range rows {
+			var obj map[string]json.RawMessage
+			_ = json.Unmarshal(row, &obj)
+			var got common.Hash
+			if err := json.Unmarshal(obj["blockHash"], &got); err != nil || got != want {
+				return fmt.Errorf("log %d blockHash does not match requested blockHash", i)
+			}
+		}
+		return nil
+	}
+	var from, to *uint64
+	if value, ok := filter["fromBlock"]; ok {
+		bound, err := requestQuantity(value)
+		if err != nil {
+			return fmt.Errorf("fromBlock is invalid: %w", err)
+		}
+		from = &bound
+	}
+	if value, ok := filter["toBlock"]; ok {
+		bound, err := requestQuantity(value)
+		if err != nil {
+			return fmt.Errorf("toBlock is invalid: %w", err)
+		}
+		to = &bound
+	}
+	if from != nil && to != nil && *from > *to {
+		return fmt.Errorf("fromBlock is greater than toBlock")
+	}
+	for i, row := range rows {
+		if from == nil && to == nil {
+			break
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(row, &obj); err != nil {
+			return fmt.Errorf("log %d is malformed: %w", i, err)
+		}
+		block, err := ethcodec.NormalizeWireQuantity(obj["blockNumber"])
+		if err != nil {
+			return fmt.Errorf("log %d blockNumber: %w", i, err)
+		}
+		value, ok := new(big.Int).SetString(block, 10)
+		if !ok || !value.IsUint64() {
+			return fmt.Errorf("log %d blockNumber is out of range", i)
+		}
+		height := value.Uint64()
+		if from != nil && height < *from || to != nil && height > *to {
+			return fmt.Errorf("log %d blockNumber is outside requested range", i)
+		}
+	}
+	return nil
+}
+
+// requestQuantity parses one block-range bound at admission time. It must
+// mirror the request-side grammar (validateLogBound / logBoundQuantity):
+// "earliest" is the genesis bound and compares as height 0, and both hex
+// prefixes are accepted, so a bound the plan layer let through can never
+// resurface here as a per-source response malformation. Pinned moving tags
+// never reach this point — the reference phase rewrites them into heights —
+// and an unpinned tag fails closed below.
+func requestQuantity(value any) (uint64, error) {
+	s, ok := value.(string)
+	if !ok {
+		return 0, fmt.Errorf("invalid quantity")
+	}
+	if strings.EqualFold(s, "earliest") {
+		return 0, nil
+	}
+	if len(s) < 3 || (s[:2] != "0x" && s[:2] != "0X") {
+		return 0, fmt.Errorf("invalid quantity")
+	}
+	n, ok := new(big.Int).SetString(s[2:], 16)
+	if !ok || n.Sign() < 0 || !n.IsUint64() {
+		return 0, fmt.Errorf("invalid quantity")
+	}
+	return n.Uint64(), nil
+}
+
+// ValueHash parses a typed or string hash filter.
+func ValueHash(value any) (common.Hash, bool) {
+	switch v := value.(type) {
+	case common.Hash:
+		return v, true
+	case string:
+		if len(v) != 66 || !common.IsHexHash(v) {
+			return common.Hash{}, false
+		}
+		return common.HexToHash(v), true
+	default:
+		return common.Hash{}, false
+	}
+}

@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/reference"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -23,11 +24,6 @@ type ReferenceStageConfig struct {
 	// finalized tag. The default (false) establishes every tag through the
 	// strict head algorithm, which is the strict-anchor client's behavior.
 	FinalizedStrategy bool
-	// StrictOptions carry the strict head policy options the community's
-	// establishment share with the facade's resolver service: identical
-	// options at both call sites, so the two paths cannot diverge on the
-	// comparison domain.
-	StrictOptions []rpc.StrictOption
 }
 
 // ReferenceStage implements the aggregator-owned establishment seam over the
@@ -58,7 +54,7 @@ func NewReferenceStage(cfg ReferenceStageConfig) *ReferenceStage {
 		timeout:   cfg.Timeout,
 		rec:       cfg.Recorder,
 		finalized: cfg.FinalizedStrategy,
-		strict:    NewStrictHeadEstablishment(cfg.Pool, cfg.Recorder, cfg.Timeout, cfg.StrictOptions...),
+		strict:    NewStrictHeadEstablishment(cfg.Pool, cfg.Recorder, cfg.Timeout),
 	}
 }
 
@@ -79,7 +75,7 @@ func (s *ReferenceStage) memberRefs() []rpc.SourceRef {
 // the evidence those rounds formed, whether or not the establishment
 // succeeded: the caller attaches success evidence to the invocation, and a
 // failed round's evidence stays visible to the decision.
-func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
+func (s *ReferenceStage) Establish(ctx context.Context, invocation rpcengine.Invocation, request rpc.ReferenceRequest) (*rpc.ReferenceEvidence, error) {
 	if !request.IsValid() {
 		return nil, fmt.Errorf("reference: unknown reference kind %q: %w", request.Kind, rpc.ErrInvalidRequest)
 	}
@@ -111,7 +107,7 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocatio
 		// members, same snapshot, same assembly as the facade's resolver
 		// service.
 		snapshot := invocation.Basis().Corroboration
-		round, roundErr := s.strict.establish(ctx, members, snapshot, true, string(request.Kind))
+		round, roundErr := s.strict.establish(ctx, members, snapshot, string(request.Kind))
 		ref, emissions, err = round.reference, round.emissions, roundErr
 		collectErr = round.collectErr
 	default:
@@ -141,7 +137,7 @@ func (s *ReferenceStage) Establish(ctx context.Context, invocation rpc.Invocatio
 // basisSources resolves the invocation's frozen basis against the pool, so
 // every round addresses exactly the voting basis and nothing else. Unknown
 // members fail before any network round starts.
-func (s *ReferenceStage) basisSources(basis rpc.Basis) ([]*pool.Source, error) {
+func (s *ReferenceStage) basisSources(basis rpcengine.Basis) ([]*pool.Source, error) {
 	members := make([]*pool.Source, 0, basis.Size())
 	for _, member := range basis.Members {
 		source, ok := s.pool.SourceByID(member.ID)
@@ -156,7 +152,7 @@ func (s *ReferenceStage) basisSources(basis rpc.Basis) ([]*pool.Source, error) {
 // captureEmission records the round's raw responses and the collection error
 // into the invocation's own raw-data collector, so a stage inside a business
 // invocation keeps the same raw trail the pipeline's collect phase keeps.
-func captureEmission(invocation rpc.Invocation, emissions []pool.Emission, collectErr error) {
+func captureEmission(invocation rpcengine.Invocation, emissions []pool.Emission, collectErr error) {
 	capture := invocation.Capture()
 	if capture == nil {
 		return

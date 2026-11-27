@@ -339,7 +339,7 @@ func (s *NotificationStream) bindSubscriptionID(id string) bool {
 		}
 	}
 	s.owner.removePendingNotificationsLocked(id)
-	if len(s.owner.setupStreams) == 0 {
+	if !s.owner.hasLiveSetupLocked() {
 		s.owner.clearPendingNotificationsLocked()
 	}
 	s.owner.mu.Unlock()
@@ -631,7 +631,7 @@ func (t *Transport) removeNotificationStream(stream *NotificationStream) {
 	t.mu.Lock()
 	delete(t.streams, stream)
 	delete(t.setupStreams, stream)
-	if len(t.setupStreams) == 0 {
+	if !t.hasLiveSetupLocked() {
 		t.clearPendingNotificationsLocked()
 	}
 	if stream.subscriptionID != "" && t.subscriptionIDs[stream.subscriptionID] == stream {
@@ -665,6 +665,17 @@ func (t *Transport) clearPendingNotificationsLocked() {
 	t.pendingBytes = 0
 }
 
+// Budget-failed setups remain registered until their pumps exit. Their
+// failure marker prevents binding and must also prevent pending retention.
+func (t *Transport) hasLiveSetupLocked() bool {
+	for _, failed := range t.setupStreams {
+		if !failed {
+			return true
+		}
+	}
+	return false
+}
+
 func (t *Transport) notificationStreams() []*NotificationStream {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -695,7 +706,7 @@ func (t *Transport) dispatchNotification(message []byte) {
 		streams = append(streams, stream)
 	}
 	var failed []*NotificationStream
-	if bound == nil && len(t.setupStreams) > 0 {
+	if bound == nil && t.hasLiveSetupLocked() {
 		bytes := notificationBytes(notification)
 		if t.pendingMessages >= t.pendingMessagesLimit || bytes > t.pendingBytesLimit || t.pendingBytes > t.pendingBytesLimit-bytes {
 			for stream := range t.setupStreams {

@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/pool"
 	"github.com/codermaybe/ethguard/internal/rpcwire"
 	"github.com/codermaybe/ethguard/internal/transport"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 

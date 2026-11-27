@@ -218,11 +218,11 @@ func TestUnifiedSourceWriteOutcomes(t *testing.T) {
 			if httpPeer.writes.Load() != 1 || wsPeer.writes.Load() != 1 || wsPeer.connections.Load() != 1 {
 				t.Fatalf("broadcast skipped or replayed source: http=%d ws=%d sockets=%d", httpPeer.writes.Load(), wsPeer.writes.Load(), wsPeer.connections.Load())
 			}
-			members := client.Pool().VotingMembers()
-			if len(members) != 2 || members[1].Name() != "wss" {
+			members := client.Sources()
+			if len(members) != 2 || members[1].Source.Name != "wss" {
 				t.Fatalf("membership=%+v", members)
 			}
-			h := members[1].Health()
+			h := members[1].Health
 			if h.Failures != tc.wantFailure || h.Successes != 1-tc.wantFailure {
 				t.Fatalf("write health=%+v", h)
 			}
@@ -381,9 +381,9 @@ func TestWriteRejectionDataAcrossEntrypoints(t *testing.T) {
 				if httpPeer.writes.Load() != 1 || wsPeer.writes.Load() != 1 || wsPeer.connections.Load() != 1 {
 					t.Fatalf("write skipped or replayed: http=%d ws=%d sockets=%d", httpPeer.writes.Load(), wsPeer.writes.Load(), wsPeer.connections.Load())
 				}
-				for _, source := range client.Pool().VotingMembers() {
-					if h := source.Health(); h.Failures != 0 || h.Successes != 1 {
-						t.Fatalf("source %s health=%+v", source.Name(), h)
+				for _, source := range client.Sources() {
+					if h := source.Health; h.Failures != 0 || h.Successes != 1 {
+						t.Fatalf("source %s health=%+v", source.Source.Name, h)
 					}
 				}
 			})

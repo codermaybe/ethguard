@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/codermaybe/ethguard/internal/reference"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -14,7 +15,7 @@ import (
 // invocation that owns the stage.
 type capturedHeadReader struct {
 	inner      reference.HeadReader
-	invocation rpc.Invocation
+	invocation rpcengine.Invocation
 }
 
 func (r capturedHeadReader) Read(ctx context.Context, tag string, timeout time.Duration) ([]reference.HeadObservation, error) {
@@ -32,7 +33,7 @@ func (r capturedHeadReader) Confirm(ctx context.Context, height uint64, sourceID
 // captureHeadObservations mirrors captureEmission's record shape for the
 // finalized algorithm's observation lists: one raw response per observed
 // member, plus one collection record for the round's collect error.
-func captureHeadObservations(invocation rpc.Invocation, observations []reference.HeadObservation, collectErr error) {
+func captureHeadObservations(invocation rpcengine.Invocation, observations []reference.HeadObservation, collectErr error) {
 	capture := invocation.Capture()
 	if capture == nil {
 		return

@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpctest"
 )
 
@@ -52,7 +53,7 @@ func establishmentBenchmark(b *testing.B, serve rpctest.Handler) {
 		Timeout:  2 * time.Second,
 		Recorder: observe.Nop,
 	})
-	service := NewStrictHeadService(stage, nil)
+	service := NewReferenceService(stage, rpcengine.Corroboration{Floor: 2})
 
 	nodeCalls := func(nodes []*rpctest.Node) int {
 		sent := 0

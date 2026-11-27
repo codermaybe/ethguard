@@ -49,7 +49,7 @@ func TestMixedSourcesPreserveCallErrorData(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			params := []any{map[string]any{"to": "0x0000000000000000000000000000000000000001", "data": "0x"}, "0x10"}
-			emissions, err := client.Pool().Broadcast(ctx, "eth_call", params)
+			emissions, err := client.Sample(ctx, "eth_call", params...)
 			if err != nil || len(emissions) != 2 {
 				t.Fatalf("raw call: %+v %v", emissions, err)
 			}
@@ -87,8 +87,8 @@ func TestMixedSourcesPreserveCallErrorData(t *testing.T) {
 					t.Fatalf("unconfirmed data exposed: %s", decision.Value)
 				}
 			}
-			for i, source := range client.Pool().VotingMembers() {
-				if h := source.Health(); h.Failures != 0 || h.Successes != 2 {
+			for i, source := range client.Sources() {
+				if h := source.Health; h.Failures != 0 || h.Successes != 2 {
 					t.Fatalf("source %d revert health=%+v", i, h)
 				}
 			}

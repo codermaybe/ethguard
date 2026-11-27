@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // SimulateV1 executes a generated simulation request through the native method plan.
@@ -34,11 +34,4 @@ func (c *Client) simulateV1Exec(ctx context.Context, payload ethapi.SimulateV1Re
 		return nil, CallResult{Decision: decisionOf(decision)}, fmt.Errorf("%w: simulate projection: %v", rpc.ErrMalformedResponse, err)
 	}
 	return result, CallResult{Decision: decisionOf(decision)}, nil
-}
-
-func (ec *EthClient) SimulateV1(ctx context.Context, payload ethapi.SimulateV1Request, base *ethapi.SimulateBlockReference) ([]ethapi.SimulateBlock, error) {
-	result, _, err := operation(ec.owner, ctx, true, func(opCtx context.Context) ([]ethapi.SimulateBlock, CallResult, error) {
-		return ec.owner.simulateV1Exec(opCtx, payload, base)
-	})
-	return result, err
 }

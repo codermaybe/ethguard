@@ -20,6 +20,7 @@ import (
 
 	"github.com/codermaybe/ethguard/ethapi"
 	"github.com/codermaybe/ethguard/internal/ethcodec"
+	blockobject "github.com/codermaybe/ethguard/internal/ethobject/block"
 	headerobject "github.com/codermaybe/ethguard/internal/ethobject/header"
 	"github.com/codermaybe/ethguard/internal/ethobject/hexcompat"
 	receiptobject "github.com/codermaybe/ethguard/internal/ethobject/receipt"
@@ -55,111 +56,11 @@ func DecodeBlockWithEvidence(raw json.RawMessage, evidence json.RawMessage) (*et
 	if jsonNull(raw) {
 		return nil, ethereum.NotFound
 	}
-	// Shared header check: the kernel verifies the declared wire hash
-	// against the hash recomputed from the header members before any other
-	// representation exists.
-	head, err := headerobject.Decode(raw)
-	if err != nil {
-		return nil, wrapMalformed("decode block header", err)
+	value, err := blockobject.DecodeWithEvidence(raw, evidence)
+	if err != nil && !errors.Is(err, rpc.ErrUnsupportedTypedObject) {
+		return nil, fmt.Errorf("%w: %w", rpc.ErrMalformedResponse, err)
 	}
-	var source map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &source); err != nil || source == nil {
-		return nil, wrapMalformed("decode block body", err)
-	}
-	// The public value composes exactly like the protected block encoder:
-	// the shared header projection (with its optional-null folding) plus the
-	// body members. The generated constructor is the first gate and the
-	// source of the canonical bytes every later check consumes.
-	projected, err := headerobject.Projection(raw)
-	if err != nil {
-		return nil, wrapMalformed("decode block header", err)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(projected, &fields); err != nil {
-		return nil, wrapMalformed("decode block body", err)
-	}
-	bodyCandidate, err := hexcompat.BlockBody(raw)
-	if err != nil {
-		return nil, wrapMalformed("decode block body", err)
-	}
-	if err := json.Unmarshal(bodyCandidate, &fields); err != nil {
-		return nil, wrapMalformed("decode block body", err)
-	}
-	candidate, err := ethcodec.MarshalNoEscape(fields)
-	if err != nil {
-		return nil, wrapMalformed("decode block", err)
-	}
-	value, err := ethapi.NewBlock(candidate)
-	if err != nil {
-		return nil, wrapMalformed("decode block", err)
-	}
-	// The canonical copy is the re-marshalled re-validated value: the
-	// generated constructor resolved equivalent JSON spellings, so the
-	// payload bridge consumes normalized transaction bytes — never the
-	// original raw spelling.
-	normalized, err := ethcodec.MarshalNoEscape(value)
-	if err != nil {
-		return nil, wrapMalformed("decode block", err)
-	}
-	var body struct {
-		Transactions []json.RawMessage `json:"transactions"`
-		UncleHashes  []common.Hash     `json:"uncles"`
-	}
-	if err := json.Unmarshal(normalized, &body); err != nil {
-		return nil, wrapMalformed("decode block body", err)
-	}
-	// The direct entry keeps the old per-transaction private payload parse,
-	// now over the canonical transaction bytes: geth's decoder rejects
-	// unsupported transaction types, quantities beyond their width, and
-	// malformed signatures — checks the generated schema cannot express.
-	// The failure class stays the response class; the trie proof stays with
-	// the admission owner.
-	for i, item := range body.Transactions {
-		if len(item) > 0 && item[0] == '"' {
-			return nil, wrapMalformed("hash-only transaction list; request the block with full transactions", nil)
-		}
-		tx := new(types.Transaction)
-		if err := json.Unmarshal(item, tx); err != nil {
-			if errors.Is(err, types.ErrTxTypeNotSupported) {
-				return nil, errors.Join(rpc.ErrUnsupportedTypedObject, err)
-			}
-			return nil, wrapMalformed(fmt.Sprintf("decode transaction %d", i), err)
-		}
-	}
-	if head.TxHash == types.EmptyTxsHash && len(body.Transactions) > 0 {
-		return nil, wrapMalformed("non-empty transactions for an empty transaction root", nil)
-	}
-	if head.TxHash != types.EmptyTxsHash && len(body.Transactions) == 0 {
-		return nil, wrapMalformed("empty transactions for a non-empty transaction root", nil)
-	}
-	if head.UncleHash == types.EmptyUncleHash && len(body.UncleHashes) > 0 {
-		return nil, wrapMalformed("server returned uncles for an uncle-free header", nil)
-	}
-	if head.UncleHash != types.EmptyUncleHash && len(body.UncleHashes) == 0 {
-		return nil, wrapMalformed("server returned no uncles for a non-empty uncle root", nil)
-	}
-	if len(body.UncleHashes) > 0 {
-		if len(evidence) == 0 {
-			return nil, wrapMalformed("uncle headers were not admitted", nil)
-		}
-		var uncleRaw []json.RawMessage
-		if err := json.Unmarshal(evidence, &uncleRaw); err != nil || len(uncleRaw) != len(body.UncleHashes) {
-			return nil, wrapMalformed("decode admitted uncle headers", err)
-		}
-		uncles := make([]*types.Header, len(uncleRaw))
-		for i, item := range uncleRaw {
-			if err := json.Unmarshal(item, &uncles[i]); err != nil || uncles[i] == nil {
-				return nil, wrapMalformed(fmt.Sprintf("decode uncle %d", i), err)
-			}
-			if uncles[i].Hash() != body.UncleHashes[i] {
-				return nil, wrapMalformed(fmt.Sprintf("uncle %d hash mismatch", i), nil)
-			}
-		}
-		if types.CalcUncleHash(uncles) != head.UncleHash {
-			return nil, wrapMalformed("uncle root mismatch", nil)
-		}
-	}
-	return &value, nil
+	return value, err
 }
 
 // DecodeBlockAdmitted projects a value that has already been through the

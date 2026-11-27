@@ -1,0 +1,268 @@
+package pool
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	upstream "github.com/codermaybe/ethguard/internal/transport"
+	"io"
+	"net"
+	nethttp "net/http"
+	"net/http/httptest"
+	"sync"
+	"testing"
+
+	gethadapter "github.com/codermaybe/ethguard/internal/testkit/gethoracle"
+	nativehttp "github.com/codermaybe/ethguard/internal/transport/http"
+	"github.com/codermaybe/ethguard/rpc"
+)
+
+// This file proves the native HTTP adapter's pool-observable outcomes match
+// the audited class A semantics, and pins the one deliberate health
+// difference: a degenerate JSON-RPC error member is a failure under the
+// native contract where the Geth baseline recorded a healthy usable answer.
+type poolEchoServer struct {
+	srv      *httptest.Server
+	listener *poolCountingListener
+
+	mu       sync.Mutex
+	requests []poolCapturedRequest
+}
+
+type poolCapturedRequest struct {
+	Header nethttp.Header
+	Body   []byte
+}
+
+type poolCountingListener struct {
+	net.Listener
+	mu sync.Mutex
+	n  int
+}
+
+func (l *poolCountingListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err == nil {
+		l.mu.Lock()
+		l.n++
+		l.mu.Unlock()
+	}
+	return c, err
+}
+
+// newPoolEchoServerHandler starts the loopback server with an explicit
+// handler, configured before Start so nothing is written on a live server.
+func newPoolEchoServerHandler(t *testing.T, handler nethttp.Handler) *poolEchoServer {
+	t.Helper()
+	s := &poolEchoServer{}
+	s.srv = httptest.NewUnstartedServer(handler)
+	s.listener = &poolCountingListener{Listener: s.srv.Listener}
+	s.srv.Listener = s.listener
+	s.srv.Start()
+	t.Cleanup(s.srv.Close)
+	return s
+}
+
+// newPoolEchoServer starts a loopback JSON-RPC server that echoes the request
+// id and answers with the nth body from respond.
+func newPoolEchoServer(t *testing.T, respond func(n int, req poolCapturedRequest) []byte) *poolEchoServer {
+	t.Helper()
+	var s *poolEchoServer
+	s = newPoolEchoServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read fixture request: %v", err)
+			return
+		}
+		req := poolCapturedRequest{Header: r.Header.Clone(), Body: body}
+		s.mu.Lock()
+		n := len(s.requests)
+		s.requests = append(s.requests, req)
+		s.mu.Unlock()
+		var parsed struct {
+			ID json.RawMessage `json:"id"`
+		}
+		if err := json.Unmarshal(req.Body, &parsed); err != nil {
+			t.Errorf("decode fixture request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,%s}`, parsed.ID, respond(n, req)); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
+	}))
+	return s
+}
+
+// TestNativeAdapterPoolHealthyAnswer runs a success and a revert (a healthy
+// JSON-RPC error) through the pool with the native adapter.
+func TestNativeAdapterPoolHealthyAnswer(t *testing.T) {
+	srv := newPoolEchoServer(t, func(n int, req poolCapturedRequest) []byte {
+		if n%2 == 0 {
+			return []byte(`"result":"0x2a"`)
+		}
+		return []byte(`"error":{"code":-32000,"message":"execution reverted","data":"0xdead"}`)
+	})
+	p := testPool(t, 0, WithDialer(nativehttp.NewDialer()))
+	t.Cleanup(p.Close)
+	src, err := p.join("native", srv.srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 2; i++ {
+		emissions, err := p.Collect(context.Background(), "eth_call", []any{"0x1"}, CollectOptions{Sources: []*Source{src}})
+		if err != nil {
+			t.Fatalf("Collect[%d] err = %v, want usable answer", i, err)
+		}
+		if len(emissions) != 1 {
+			t.Fatalf("Collect[%d] emissions = %+v", i, emissions)
+		}
+		e := emissions[0]
+		if !e.Attempted {
+			t.Fatalf("Collect[%d] emission not attempted", i)
+		}
+		if i == 0 && string(e.Response.Answer.Result) != `"0x2a"` {
+			t.Fatalf("Collect[0] val = %s", e.Response.Answer.Result)
+		}
+		if i == 1 {
+			var protocol rpc.ProtocolError
+			if !errors.As(e.Response.Err(),
+				&protocol) || protocol.ErrorCode() != -32000 {
+				t.Fatalf("Collect[1] err = %v, want revert protocol error", e.Response.Err())
+			}
+			var presence rpc.ErrorDataPresence
+			if !errors.As(e.Response.Err(),
+				&presence) {
+				t.Fatalf("Collect[1] err %v lost presence through the pool", e.Response.Err())
+			}
+			raw, present := presence.ErrorDataJSON()
+			if !present || string(raw) != `"0xdead"` {
+				t.Fatalf("Collect[1] presence = %s/%v", raw, present)
+			}
+		}
+	}
+	if got := src.Health(); got.Successes != 2 || got.Failures != 0 {
+		t.Fatalf("health = %+v, want two healthy observations (reverts stay healthy)", got)
+	}
+	if src.State() != SourceReady {
+		t.Fatalf("state = %v, want SourceReady", src.State())
+	}
+}
+
+// TestNativeAdapterPoolRateLimitClassifiesThrottling locks the 429 path: the
+// emission is a failure, not a usable answer, and the monitor counts explicit
+// throttling.
+func TestNativeAdapterPoolRateLimitClassifiesThrottling(t *testing.T) {
+	srv := newPoolEchoServerHandler(t, nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		nethttp.Error(w, `{"error":"slow down"}`, nethttp.StatusTooManyRequests)
+	}))
+	p := testPool(t, 0, WithDialer(nativehttp.NewDialer()))
+	t.Cleanup(p.Close)
+	src, err := p.join("native", srv.srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emissions, err := p.Collect(context.Background(), "eth_chainId", nil, CollectOptions{Sources: []*Source{src}})
+	if !errors.Is(err, ErrAllSourcesDown) {
+		t.Fatalf("Collect err = %v, want ErrAllSourcesDown (429 is not a usable answer)", err)
+	}
+	if len(emissions) != 1 || emissions[0].Response.Err() == nil {
+		t.Fatalf("emissions = %+v, want one failed emission", emissions)
+	}
+	var rateLimit rpc.RateLimitError
+	if !errors.As(emissions[0].Response.Err(),
+		&rateLimit) || !rateLimit.IsRateLimit() {
+		t.Fatalf("emission err = %v, want rate-limit capability", emissions[0].Response.Err())
+	}
+	got := src.Health()
+	if got.Failures != 1 || got.RateLimited != 1 || got.Successes != 0 {
+		t.Fatalf("health = %+v, want one failure counted as throttling", got)
+	}
+}
+
+// TestNativeAdapterPoolMalformedIsFailure locks that malformed and empty
+// responses stay transport failures through the pool.
+func TestNativeAdapterPoolMalformedIsFailure(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "truncated-json", body: `{"jsonrpc":"2.0","id":1,`},
+		{name: "missing-result", body: ``},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newPoolEchoServer(t, func(n int, req poolCapturedRequest) []byte {
+				return []byte(tc.body)
+			})
+			p := testPool(t, 0, WithDialer(nativehttp.NewDialer()))
+			t.Cleanup(p.Close)
+			src, err := p.join("native", srv.srv.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			emissions, err := p.Collect(context.Background(), "eth_chainId", nil, CollectOptions{Sources: []*Source{src}})
+			if !errors.Is(err, ErrAllSourcesDown) {
+				t.Fatalf("Collect err = %v, want ErrAllSourcesDown", err)
+			}
+			if len(emissions) != 1 || emissions[0].Response.Err() == nil {
+				t.Fatalf("emissions = %+v, want one failed emission", emissions)
+			}
+			var protocol rpc.ProtocolError
+			if errors.As(emissions[0].Response.Err(),
+				&protocol) {
+				t.Fatalf("malformed response became a protocol error: %v", emissions[0].Response.Err())
+			}
+			got := src.Health()
+			if got.Failures != 1 || got.Successes != 0 || got.RateLimited != 0 {
+				t.Fatalf("health = %+v, want one plain failure", got)
+			}
+		})
+	}
+}
+
+// TestDegenerateErrorMemberMalformedEverywhere asserts post-alignment
+// parity at pool level: both adapters classify a degenerate error member as
+// a malformed transport failure, so the pool records one plain failure and
+// no usable answer — a code-0 protocol error would have counted as a
+// healthy usable answer and could win a cluster.
+func TestDegenerateErrorMemberMalformedEverywhere(t *testing.T) {
+	srv := newPoolEchoServer(t, func(n int, req poolCapturedRequest) []byte {
+		return []byte(`"error":{}`)
+	})
+
+	for _, tc := range []struct {
+		name   string
+		dialer upstream.Dialer
+	}{
+		{name: "geth", dialer: gethadapter.StandardDialer{}},
+		{name: "native", dialer: nativehttp.NewDialer()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := testPool(t, 0, WithDialer(tc.dialer))
+			t.Cleanup(p.Close)
+			src, err := p.join(tc.name, srv.srv.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			emissions, err := p.Collect(context.Background(), "eth_chainId", nil, CollectOptions{Sources: []*Source{src}})
+			if !errors.Is(err, ErrAllSourcesDown) {
+				t.Fatalf("Collect err = %v, want ErrAllSourcesDown", err)
+			}
+			if len(emissions) != 1 || emissions[0].Response.Err() == nil {
+				t.Fatalf("emissions = %+v, want one failed emission", emissions)
+			}
+			var protocol rpc.ProtocolError
+			if errors.As(emissions[0].Response.Err(),
+				&protocol) {
+				t.Fatalf("degenerate error member surfaced as a protocol error: %v", emissions[0].Response.Err())
+			}
+			if got := src.Health(); got.Failures != 1 || got.Successes != 0 || got.RateLimited != 0 {
+				t.Fatalf("health = %+v, want one plain failure", got)
+			}
+		})
+	}
+}

@@ -21,9 +21,9 @@ import (
 
 	"github.com/codermaybe/ethguard"
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/methods"
 	"github.com/codermaybe/ethguard/internal/testkit/ethapitest"
 	"github.com/codermaybe/ethguard/internal/typed"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // Typed summary helpers. Every summary is the production typed shape's own

@@ -10,12 +10,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/codermaybe/ethguard/aggregator"
 	"github.com/codermaybe/ethguard/config"
+	"github.com/codermaybe/ethguard/internal/aggregator"
+	"github.com/codermaybe/ethguard/internal/pool"
+	"github.com/codermaybe/ethguard/internal/rpcengine"
 	"github.com/codermaybe/ethguard/internal/runtime"
-	"github.com/codermaybe/ethguard/internal/transport"
 	"github.com/codermaybe/ethguard/observe"
-	"github.com/codermaybe/ethguard/pool"
 	"github.com/codermaybe/ethguard/rpc"
 )
 
@@ -27,15 +27,15 @@ type Client struct {
 	pool       *pool.Pool
 	aggregator *aggregator.Aggregator
 	// plans are the read methods driven by explicit execution plans; their
-	// resolvers own canonical normalization at the facade boundary.
-	plans map[string]rpc.ReadPlan
-	// resolver is the runtime-owned anchor establishment strategy; the facade
+	// Normalize capability supplies standalone comparison keys.
+	plans map[string]rpcengine.ReadPlan
+	// reference is the runtime-owned anchor establishment service; the facade
 	// only queries it (AnchorBlockHash and friends), never replaces it.
-	resolver runtime.ReferenceResolver
-	// corrob is the internal adjudication snapshot source; callers do not
+	reference *runtime.ReferenceService
+	// corrob is the construction-time adjudication rule; callers do not
 	// configure its mode or support floor.
-	corrob *rpc.CorroborationShared
-	// collectTimeout bounds each write fan-out; the read aggregator owns its
+	corrob rpcengine.Corroboration
+	// collectTimeout bounds each write and diagnostic fan-out; the read aggregator owns its
 	// own copy supplied at construction.
 	collectTimeout time.Duration
 	// lifeCtx is the owner lifecycle signal: Close cancels it with the
@@ -54,47 +54,21 @@ type Client struct {
 	closed atomic.Bool
 }
 
-// HTTPAdapter names the connection adapter a Client's pool uses for HTTP.
-// The native adapter is the default.
-type HTTPAdapter = runtime.Adapter
-
-const HTTPAdapterNative = runtime.AdapterNative
-
-// WithHTTPAdapter selects the HTTP adapter. An empty name selects native.
-func WithHTTPAdapter(a HTTPAdapter) Option {
-	return func(o *clientOptions) { o.httpAdapter = a }
-}
-
 // Option tunes a Client at construction time.
 type Option func(*clientOptions)
-
-// DialerOption installs an explicit connection adapter dialer for the pool.
-// It cannot be combined with per-source transport selections.
-func DialerOption(d transport.Dialer) Option {
-	return func(o *clientOptions) {
-		if d != nil {
-			o.dialer = d
-		}
-	}
-}
 
 type clientOptions struct {
 	logger         *slog.Logger
 	recorder       observe.Recorder
-	anchorCache    time.Duration
 	tipEnabled     bool
 	tipInterval    time.Duration
 	tipMaxBehind   uint64
 	collectTimeout time.Duration
-	httpAdapter    HTTPAdapter
 	// anchoring carries the business-read establishment strategy: the
 	// finalized preset selects the candidate-selection algorithm with its
-	// lag bound. The facade resolver keeps its own configuration.
+	// lag bound. Compose also selects the standalone service's rule.
 	useFinalizedAnchoring bool
 	finalizedMaxLag       uint64
-	// dialer is a pool dialer injected by DialerOption; the default adapter
-	// selection yields to it.
-	dialer transport.Dialer
 	// chainID pins the client to one Ethereum network when WithChainID was
 	// used. A Go option always wins over the configuration value; nil leaves
 	// cfg.ChainID untouched.
@@ -114,7 +88,8 @@ func WithRecorder(r observe.Recorder) Option {
 	return func(o *clientOptions) { o.recorder = r }
 }
 
-// WithCollectTimeout bounds each aggregate collection or forwarded attempt.
+// WithCollectTimeout bounds each aggregate collection, diagnostic sample, or
+// forwarded attempt.
 // A non-positive timeout panics: an Option cannot return an error, and a
 // silently ignored timeout would trade a loud construction failure for
 // unbounded collections.
@@ -209,12 +184,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	if cfg.AnchorCacheTTL != "" {
-		co.anchorCache, _ = time.ParseDuration(cfg.AnchorCacheTTL)
-	}
-	if co.anchorCache != 0 {
-		return nil, fmt.Errorf("ethguard: anchor_cache_ttl is no longer supported; non-zero duration %s conflicts with decision 0026", co.anchorCache)
-	}
 	rec := co.recorder
 	if rec == nil && co.logger != nil {
 		rec = observe.NewLog(co.logger)
@@ -233,8 +202,6 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 	runtimeBundle, err := runtime.Compose(runtime.Composition{
 		ChainID:        cfg.ChainID,
 		Upstreams:      cfg.Upstreams,
-		Adapter:        co.httpAdapter,
-		ExplicitDialer: co.dialer,
 		TipTracking:    tip,
 		Recorder:       rec,
 		CollectTimeout: co.collectTimeout,
@@ -248,7 +215,7 @@ func New(cfg config.Config, opts ...Option) (*Client, error) {
 		pool:           runtimeBundle.Pool,
 		aggregator:     runtimeBundle.Aggregator,
 		plans:          runtimeBundle.Plans,
-		resolver:       runtimeBundle.Resolver,
+		reference:      runtimeBundle.Reference,
 		corrob:         runtimeBundle.Corroboration,
 		collectTimeout: co.collectTimeout,
 		lifeCtx:        lifeCtx,
@@ -270,15 +237,7 @@ func (c *Client) Normalize(method string, raw json.RawMessage) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("ethguard: %s has no canonical normalizer: %w", method, rpc.ErrInvalidRequest)
 	}
-	return plan.Resolver.Normalize(raw)
-}
-
-// Pool exposes the underlying multi-source manager for advanced diagnostics.
-// Membership is fixed at construction; the pool exposes no Join/Remove, and
-// health/scheduling can never change the voting basis. Prefer Client methods
-// for normal application code.
-func (c *Client) Pool() *pool.Pool {
-	return c.pool
+	return plan.Normalize(raw)
 }
 
 // Close stops the client: it marks the client closed, cancels the owner
@@ -305,4 +264,4 @@ func (c *Client) isClosed() bool { return c.closed.Load() }
 
 // Mode reports the internally selected adapter route. It is derived from the
 // configured source count and cannot be changed by callers.
-func (c *Client) Mode() rpc.CorroborationMode { return c.corrob.Snapshot().Mode }
+func (c *Client) Mode() rpc.CorroborationMode { return c.corrob.Mode }
