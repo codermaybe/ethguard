@@ -132,12 +132,13 @@ Outcome是Policy本身的强制合同，不是额外的可选能力。编译对r
 
 `CanonicalProcessor` 接收冻结语义请求、来源原文与同源 caller，返回不可变 `CanonicalResult`。结果只带 canonical JSON 与可选准入 evidence；不带来源、请求或跨调用缓存。合法 null 是非空的 `"null"`，零 result 表示无成功结果，getter 返回副本。
 
-处理路线在 prepare 末尾冻结一次：plan 声明 processor 且普通 strict 轮走 canonical；pending-local 与 Forwarded 保持 raw 路线。准入、resolve、fault/event 和 health 共同消费这个事实，不重复判断。当前生产接入为两个独立 transaction 查询和 `eth_getTransactionReceipt`。
+处理路线在 prepare 末尾冻结一次：plan 声明 processor 且普通 strict 轮走 canonical；Forwarded 在 resolver 具备 canonical 消费能力且未声明 SingleSource 时也可复用处理结果。pending-local、Forwarded 的 raw-only 或 SingleSource 自定义 resolver 保持 raw 路线；普通模式缺少 canonical 消费能力仍是内部合同错误。准入、resolve、fault/event 和 health 共同消费这个事实，不重复判断。当前生产接入为两个独立 transaction 查询、`eth_getTransactionReceipt` 和 `eth_getBlockReceipts`。Forwarded 的成员、单次请求、状态、reference 与字段证据语义不因处理路线变化。
 
 - 每可用来源执行一次 processor；canonical resolver 直接消费结果，不重跑 raw normalizer/encoder，不在失败后重试或回退。
 - 失败来源保留槽位且无结果；成功必须有结果。非法 JSON、错误的槽位配对、成功缺结果、非零 result+error 是 `ErrInvalidCanonicalResult`，整轮失败，不能归罪 provider。
 - 内部合同错误不新增来源失败、连续失败或来源错误；确实完成的 transport 成功和延迟仍由 finalizer 记账一次，不跳过 finalizer。
 - 方法处理失败保持 `admission: %w` 归因、同源依赖捕获和并发槽位语义。raw 路线的 encode/normalize 故障阶段保持原合同。
+- BlockReceipts 复用逐条 receipt 准入已验证的 canonical bytes；保持 null、列表形状、请求、逐条完整验证与绑定的原顺序，成功后才编码数组。整列表的大小和深度由 coordinator 的 `RejectUnsafeJSON` 前置安全门保护；逐条检查不替代整列表检查，raw Admit 不为丢弃结果额外编码数组。
 - 两路共用聚类、排序、裁定、verdict 与提交内核；raw finish 保留 encoder 声明门，canonical 直接提交已验证结果。
 - 编译目前只允许 Strict + canonical-bytes + canonical 消费能力；保留 raw Normalize／Encode／原 Admit。Block、CallRevert、Median、Local 不直接套用此 seam；无 Admit 方法不能凭空补空 hook 改写错误阶段。
 

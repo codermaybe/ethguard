@@ -66,6 +66,7 @@ Jennifer v1.7.1 使用结构化 API 与 File.Save，不保留字符串源码 emi
 有效 schema 定义字段、可选分支和输入接受域；representation policy 定义已通过检查的值如何表示，两者不得混为一谈。Go 名称与表示政策的映射可人工维护，但数值模型的增减和值域必须由 schema 的 type/pattern/minimum/maximum/const 驱动，不能由映射表另造约束。
 
 - 字符串只解码一次，先按有效 schema 检查原始字符串，再应用显式表示政策。Quantity、Hash、DATA、Bloom、BlockNonce、StorageKey、DecimalString 已有严格拼写，直接保留合法值；不再调用宽容 codec 后检查规范输出。DATA 保留空值、字节长度及前导零，完整字节限制来自显式 DATA 勘误。
+- Hash、Bloom、BlockNonce 的 native parser 仅对精确模式 `^0x[0-9a-f]{64}$`、`^0x[0-9a-f]{512}$`、`^0x[0-9a-f]{16}$` 使用共享固定宽 ASCII 检查；其它模式保留正则。该优化不改变 JSON 解码、null、错误包装或合法值表示，近似／未来模式不能借名称直接套用固定检查。
 - Address 的官方 pattern 允许混合大小写 hex digits、要求小写 `0x` 前缀；通过后可输出小写。HexByte 仅接受 `0x` 后 1–2 个小写 hex 字符，通过后折合一个冗余前导零：`0x04` → `0x4`、`0x00` → `0x0`；`0x4A`、`0X4a`、符号及三个 hex 字符均拒绝。
 - string const／enum 以及递归 uniqueItems 上下文保留原字符串语义值；即使 pattern 对应 Address，也不先改大小写而破坏字面常量、枚举或唯一性。普通字符串的 JSON 转义不属于语义值，编码可采用统一形式。
 - 真正多非null的oneOf／anyOf也递归保留已验证字符串：转换不能使原本唯一匹配的输入在输出后命中另一分支。私有parser传递 `keepStrings`，保持Address／HexByte等公开类型；单个nullable包装只传递已有上下文。独立子模型构造器从无组合上下文开始，其合法表示可能与经组合根构造不同，两者都须满足相应schema。

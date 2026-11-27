@@ -2,11 +2,25 @@
 
 本文可直接用于重启对话：说明当前基线、下一步、执行顺序和未完成事项，不依赖旧聊天、`docs/tmp/`或`/tmp`材料。具体业务合同由末尾链接的正式文档维护。
 
-**当前状态（2026-11-26）：ethapi“前置增强 + 官方兜底”的实现、交叉审查和最终独立验收已完成。** 本轮验收父基线为 `981683e`（`audit/rpc-quality`）；用户已确认任务结束并授权将实现、测试和正式文档本地保存，提交身份以 Git 历史为准，未授权推送。主控规划、编排与验收，最多两个执行者按互斥文件并行，用户主动要求后才降为一个。
+**当前状态（2026-11-27）：ethapi 标准生成与本轮 P0–P3 性能切片均已通过本地独立验收，并按业务语义保存提交。** 性能轮父基线为 `c8c7f82`（`audit/rpc-quality`）；用户授权先保存，再借助独立 agent 对整条分支做整体评估并修复确认问题，本轮不做 beta 发布。整体评估结论尚未返回，不等同此前两位执行者的交叉审查。主控规划与验收，最多两个执行者，总并发为 3；未推送。
 
 此前公共数据管线 A-G、27 个注册 read 方法、响应模型、广播/同步写入、Sender/Header/Anchor、NewHead/Logs/Receipts 及跨入口生命周期均已验收。旧订阅 channel 和事件聚合桥已删除。质量治理七切片和最小安全升级也已验收并保存为本地提交，未推送；Go1.26.11 基线普通/race各52包7096测试事件、17规则默认/anvil和漏洞复扫属于该历史范围，完整边界见发布合同，不替代本次 ethapi 验收。
 
-## 当前接续：标准生成已验收，下一轮规划IPC与外部调用适配
+## 当前接续：保存性能改造，整体评估后修复确认问题
+
+本轮代码提交按职责分开：字段聚合 `026b967`、扩展投影 `7b7493b`、根标量 JSON 验证 `a17ea9c`、固定 hex 生成 `8aa7e9d`、BlockReceipts canonical 复用 `b1ba5b0`、Forwarded 路线复用 `ebd33ae`。提交不改变公开签名、固定成员与门槛、完整 Evaluation、原始来源证据、错误阶段或指纹合同。
+
+- 聚合直接收集已验证树；仅全部有效结果原字节完全相同时复用解析，混合结果保留通用路径。标准观察投影只收集扩展；空扩展仍解码 core，省去重编码和哈希，保留浮点溢出等原错误。
+- JSON 仅以标准库接受合法根标量，容器和任何失败仍走原 Token walker。固定 hex 只覆盖三个精确 pattern，规则归属见 [生成合同](wire-codegen.md)。不扩大大小、深度或键数预算。
+- BlockReceipts 复用每条已验证的 canonical 字节；Forwarded 按 resolver 能力复用 processor，pending-local 和自定义 raw-only／SingleSource 保持原路线。整列表安全门、首错顺序及内部故障归因见 [代码库拓扑](codebase-topology.md)。
+
+最终组合普通/race 各 54 包、7994 测试及子测试通过，8 包无测试文件，无失败或测试用例跳过；JSON、固定 hex、字段聚合三组新旧差分 fuzz 各通过 100 万次（输入预算 64KiB，大边界另有确定性测试）。vet/build、tidy、固定 lint 2.15.0 默认/anvil、anvil 编译和生成源码/audit 一致性均通过，未运行真实链。首次构建曾有旧沙箱模块缓存只读警告，退出 0。
+
+本地串行基准以已验收 P0 为 P1–P3 基线：BlockReceipts 真实调用链 B/op 下降约 27%–34%，Forwarded 四方法约 22%–41%；端到端延迟仍约 19ms，无稳定改善。根标量典型 Validate 从 8 次分配降至 0；1MiB 字符串末尾非法转义的拒绝耗时约增加至 1.78 倍，保留此取舍。整容器预筛因非法前缀加大尾部导致拒绝成本放大已撤回。性能测试与冻结参考保存在对应源码包；本地表格/原始日志仍按临时材料规则保存，不成为第二份合同。
+
+后续先以本分支与 `master` 的共同祖先为范围做一次整体评估，确认问题按业务语义修复和提交。Logs 的 timestamp 错误阶段、Block fullTx/uncle 处理、reference/capture 简化、环境预算、IPC/geth 适配、真实 provider/Anvil 和发布均未因本轮自动完成。
+
+## 前序基线：标准生成与外部适配待办
 
 局部入口为 [ethapi README](../../ethapi/README.md)，来源、勘误、生成和表示的唯一详细合同为 [wire-codegen](wire-codegen.md)。本轮保留官方原件和原三份勘误，新增 22 份 DATA 勘误覆盖 64 个节点，显式修正完整字节约束。构造器先检查有效 schema，再执行合法值表示政策；精确字段名、封闭对象、数值 const 和组合字符串身份均有独立反例。开放结果投影可能改变组合分支时，生成期必须证明稳定，否则拒绝生成。该证明不进入库运行时。
 
@@ -46,7 +60,7 @@ NewHead于2026-11-23完成实现与独立验收：单订阅Tip+DAG、连续原�
 - 项目当前固定Go **1.26.11**，由用户授权的安全补丁从1.26.10提升。Go1.27.3只做过隔离评估，生产JSON import、生成器及生成资产保持。**Go1.27暂不引入**，后续整体评估，收益不计入现有实现优化。
 - 现行设计文档系列、公开`ethapi`类型迁移和首轮逐模块整理已完成。目标仍为固定go-ethereum v1.17.10的47项目标方法名称集合，已有27个注册读RPC以及独立写入、订阅和派生能力；这些数量不代表完整兼容。
 - A-G 公共管线已验收：准备事实冻结、显式 reference evidence、来源槽位与传输所有权、Outcome 裁定、双 facade 交付/观测均已核对；frozen params transport 仍等待端到端瓶颈证据，exported ReferenceStage 的兼容风险留待发布说明。
-- 两个交易查询与单收据strict canonical路径已接入。receipt复用已校验canonical字节；AccessList仍使用现有方法规则和生成模型，不以新增processor数量衡量完成度。
+- 两个交易查询、单收据与 BlockReceipts 的 strict canonical 路径已接入；有 canonical 消费能力的 Forwarded 也可复用。receipt 复用已校验 canonical 字节；AccessList 仍使用现有方法规则和生成模型，不以新增 processor 数量衡量完成度。
 - FeeHistory 准入已复用完整解析模型的 count 事实，删除生成后丢弃的比较键和独立 range 重解析；精确小写 reward 绑定仍独立。各阶段没有通用跨调用模型。共享 Log 继续保留 Validate 与 EncodeOne 两段处理，仅去掉方法包装器重复的顶层数组解析。receipt raw 比较键去掉无业务变换的 JSON 往返；默认 canonical processor 不变。
 
 ### 已知成本与验证边界
