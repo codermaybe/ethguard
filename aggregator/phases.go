@@ -96,10 +96,10 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 	state.pendingLocal = planPendingLocalRoute(plan, prepared, state.snap, state.snapOK)
 	state.freshness = preparedTipFreshness(plan, prepared)
 	state.preparedMethod = prepared.Method
-	// A plan processor resolves the canonical route for an ordinary strict
-	// round, while pending-local shapes and forwarded modes keep the
-	// complete raw route. Every later phase reads this frozen value; nothing
-	// re-derives it.
+	// A plan processor can serve strict rounds, including Forwarded rounds
+	// whose resolver supports canonical consumption. Pending-local and
+	// Forwarded custom raw-only/single-source resolvers retain their raw
+	// route. Every later phase reads this frozen value.
 	state.processorRoute = frozenProcessorRoute(plan, state.pendingLocal, state.snap, state.snapOK)
 	// A frozen canonical route needs the resolver's canonical consumption
 	// capability. The compiler rejects the mismatch for compiled specs; a
@@ -135,9 +135,10 @@ func (a *Aggregator) planPreparePhase(state *invocationState, started time.Time,
 
 // frozenProcessorRoute decides the invocation's processing route from the
 // plan's declarations, the frozen pending-local fact, and the captured
-// corroboration mode. The decision is by execution class — pending-local and
-// forwarded rounds keep the complete raw route — never by method name or a
-// second registry.
+// corroboration mode. Pending-local rounds keep their local raw resolution.
+// Forwarded rounds can reuse canonical processing when the resolver supports
+// it, while raw-only and explicitly single-source custom resolvers preserve
+// their existing Resolve entry. This is capability-based, not a method registry.
 func frozenProcessorRoute(plan *rpc.ReadPlan, pendingLocal bool, snap rpc.Corroboration, snapOK bool) rpc.CanonicalProcessor {
 	if plan.ProcessCanonical == nil {
 		return nil
@@ -146,7 +147,12 @@ func frozenProcessorRoute(plan *rpc.ReadPlan, pendingLocal bool, snap rpc.Corrob
 		return nil
 	}
 	if snapOK && snap.Mode == rpc.CorroborationForwarded {
-		return nil
+		if singleSourcePolicy(plan.Resolver) {
+			return nil
+		}
+		if _, ok := plan.Resolver.(rpc.CanonicalOutcomeResolver); !ok {
+			return nil
+		}
 	}
 	return plan.ProcessCanonical
 }

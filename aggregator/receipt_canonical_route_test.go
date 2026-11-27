@@ -725,9 +725,8 @@ func TestReceiptCanonicalRouteForeignRequest(t *testing.T) {
 	}
 }
 
-// TestReceiptCanonicalRouteForwarded keeps the raw route in Forwarded mode:
-// the processor is installed but never selected, and the raw admission plus
-// resolver encoder still run.
+// TestReceiptCanonicalRouteForwarded reuses validated canonical bytes in
+// Forwarded mode while preserving the complete raw route's delivery.
 func TestReceiptCanonicalRouteForwarded(t *testing.T) {
 	valid := receiptRouteFixture(t)
 	self := receiptRouteHash(t, valid)
@@ -742,7 +741,7 @@ func TestReceiptCanonicalRouteForwarded(t *testing.T) {
 	if candidate.decision.Status != rpc.Forwarded {
 		t.Fatalf("status = %v", candidate.decision.Status)
 	}
-	if counts.process.Load() != 0 || counts.admit.Load() != 1 || counts.encode.Load() != 1 || counts.normalize.Load() != 0 {
+	if counts.process.Load() != 1 || counts.admit.Load() != 0 || counts.encode.Load() != 0 || counts.normalize.Load() != 0 {
 		t.Fatalf("forwarded route work = process %d admit %d encode %d normalize %d",
 			counts.process.Load(), counts.admit.Load(), counts.encode.Load(), counts.normalize.Load())
 	}

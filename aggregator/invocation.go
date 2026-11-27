@@ -82,10 +82,9 @@ type invocationState struct {
 
 	// processorRoute is the invocation's frozen processing route: non-nil
 	// when this round resolves through the plan's canonical processor. The
-	// decision is made once at prepare time — pending-local shapes and
-	// forwarded modes keep the complete raw route — and every later phase
-	// (admission, resolution, faults, events, health) consults this value
-	// instead of re-deriving it.
+	// decision is made once at prepare time from the local route and resolver
+	// capabilities. Every later phase (admission, resolution, faults, events,
+	// health) consults this value instead of re-deriving it.
 	processorRoute rpc.CanonicalProcessor
 	// canonicalResolver carries the capability checked when prepare freezes
 	// the processing route. A missing capability records an internal fault,

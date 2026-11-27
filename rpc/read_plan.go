@@ -162,9 +162,9 @@ type ReadPlan struct {
 	// ProcessCanonical is the plan's controlled single-source processing
 	// entry. A nil value keeps the read entirely on the raw route; a declared
 	// processor is the coordinator's only signal that one frozen invocation
-	// may select the canonical route, and the raw route stays fully intact
-	// beside it (pending-local and forwarded invocations of the same method
-	// never skip their existing admission).
+	// may select the canonical route. The raw route stays intact for
+	// pending-local resolution and Forwarded resolvers without canonical
+	// consumption or with an explicit single-source Resolve contract.
 	ProcessCanonical CanonicalProcessor
 
 	// ProjectorID names the runtime-bound observation projector. The plan

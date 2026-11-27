@@ -55,8 +55,8 @@ func admitReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _ r
 // hands out the very bytes it already checked, so the raw route's second
 // Encode (the resolver's clustering encoder over the admitted response) is
 // never repeated here. The raw route — Admit followed by the encoder —
-// stays intact beside this entry for pending-local, forwarded, and
-// raw-declared invocations. A failure returns the zero result with the
+// stays intact beside this entry for pending-local and raw-declared
+// invocations. A failure returns the zero result with the
 // unchanged admission error; a success carries no evidence, exactly what the
 // raw admission returns for this method.
 func processReceipt(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (rpc.CanonicalResult, error) {

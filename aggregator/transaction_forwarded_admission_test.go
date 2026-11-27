@@ -10,12 +10,9 @@ import (
 	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
-// The pilot adapters' retained admission entry under Forwarded mode. A
-// Forwarded round keeps the complete raw route — the frozen route decision
-// never selects the processor for it — so the compiled plan's Admit hook
-// must run with the frozen request and bind the response payload to the
-// requested identity exactly as a non-forwarded round does. Losing that
-// entry would let a forwarded round commit an object no request asked for.
+// The pilot adapters retain their admission checks when Forwarded reuses
+// canonical processing. The processor binds the payload to the frozen request
+// exactly as the raw Admit hook did, then reuses the already-checked bytes.
 
 // TestTransactionForwardedAdmissionBindingKept pins the binding: a
 // Forwarded-mode by-hash round admits through the request's own hash, and a
@@ -37,10 +34,10 @@ func TestTransactionForwardedAdmissionBindingKept(t *testing.T) {
 			if err != nil || decision.Status != rpc.Forwarded {
 				t.Fatalf("forwarded round = %+v, %v", decision, err)
 			}
-			if counts.admit.Load() != 1 || counts.process.Load() != 0 {
-				t.Fatalf("forwarded round admission entries = %d, processor entries = %d; want the admission entry and no processing", counts.admit.Load(), counts.process.Load())
+			if counts.admit.Load() != 0 || counts.process.Load() != 1 || counts.encode.Load() != 0 {
+				t.Fatalf("forwarded round admission entries = %d, processor entries = %d, encoder entries = %d; want one processor", counts.admit.Load(), counts.process.Load(), counts.encode.Load())
 			}
-			// A mismatched identity goes through the same admission entry
+			// A mismatched identity goes through the same admission checks
 			// and is rejected by the binding, not silently committed.
 			mismatched := request
 			if method == methods.MethodGetTransactionByHash {
@@ -52,8 +49,8 @@ func TestTransactionForwardedAdmissionBindingKept(t *testing.T) {
 			if _, err := agg.Aggregate(context.Background(), mismatched); !errors.Is(err, rpc.ErrMalformedResponse) {
 				t.Fatalf("mismatched forwarded request = %v, want the binding's malformed class", err)
 			}
-			if counts.admit.Load() != 1 {
-				t.Fatalf("mismatched round bypassed the admission entry: %d", counts.admit.Load())
+			if counts.process.Load() != 1 || counts.admit.Load() != 0 || counts.encode.Load() != 0 {
+				t.Fatalf("mismatched round work: process=%d admit=%d encode=%d", counts.process.Load(), counts.admit.Load(), counts.encode.Load())
 			}
 		})
 	}
