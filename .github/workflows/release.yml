@@ -87,7 +87,7 @@ jobs:
           mkdir release-evidence
           printf '%s\n' "$EXPECTED_SHA" > release-evidence/commit.txt
           printf 'sha=%s\nversion=%s\nprevious=%s\n' "$EXPECTED_SHA" "$VERSION" "$previous" >> "$GITHUB_OUTPUT"
-          printf '### Candidate %s\n\nCommit: `%s`\nPrevious published release: `%s`\n' "$VERSION" "$EXPECTED_SHA" "$previous" >> "$GITHUB_STEP_SUMMARY"
+          printf '### Candidate %s\n\nCommit: %s\nPrevious published release: %s\n' "$VERSION" "\`$EXPECTED_SHA\`" "\`$previous\`" >> "$GITHUB_STEP_SUMMARY"
       - name: full quality gate
         env:
           VERSION: ${{ steps.candidate.outputs.version }}
@@ -130,7 +130,7 @@ jobs:
           PREVIOUS: ${{ steps.candidate.outputs.previous }}
         run: |
           set -euo pipefail
-          printf '# %s\n\nCommit: `%s`\n\n## Changes\n\n' "$VERSION" "$SHA" > release-evidence/notes.md
+          printf '# %s\n\nCommit: %s\n\n## Changes\n\n' "$VERSION" "\`$SHA\`" > release-evidence/notes.md
           range="$SHA"
           if [ -n "$PREVIOUS" ]; then range="$PREVIOUS..$SHA"; fi
           git log --format='- %s (%h)' "$range" >> release-evidence/notes.md

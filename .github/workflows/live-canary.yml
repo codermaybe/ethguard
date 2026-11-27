@@ -120,14 +120,16 @@ jobs:
           set -euo pipefail
           state="$(jq -er '.state' "${OUT_DIR}/report.json")"
           echo "state=${state}" >> "${GITHUB_OUTPUT}"
-          echo "### Live canary observation: ${state}" >> "${GITHUB_STEP_SUMMARY}"
-          if [ "${EVENT_NAME}" = schedule ] && [ "${state}" != passed ]; then
-            echo "Temporary scheduled report-only policy: non-approval is expected; this is not an audit pass or release approval." >> "${GITHUB_STEP_SUMMARY}"
-          fi
-          jq -r '.state_reasons[] | "- \(.category): \(.detail)"' "${OUT_DIR}/report.json" >> "${GITHUB_STEP_SUMMARY}"
-          echo '```' >> "${GITHUB_STEP_SUMMARY}"
-          cat "${OUT_DIR}/SHA256SUMS" >> "${GITHUB_STEP_SUMMARY}"
-          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          {
+            echo "### Live canary observation: ${state}"
+            if [ "${EVENT_NAME}" = schedule ] && [ "${state}" != passed ]; then
+              echo "Temporary scheduled report-only policy: non-approval is expected; this is not an audit pass or release approval."
+            fi
+            jq -r '.state_reasons[] | "- \(.category): \(.detail)"' "${OUT_DIR}/report.json"
+            echo '```'
+            cat "${OUT_DIR}/SHA256SUMS"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: upload immutable observation artifact
         if: always()
