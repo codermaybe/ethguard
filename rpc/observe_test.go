@@ -158,6 +158,177 @@ func TestAcceptanceCalculatorUsesTheFixedBasis(t *testing.T) {
 	}
 }
 
+func TestAggregateFieldsExactRawBucketsKeepInterleavedSourceVotes(t *testing.T) {
+	observations := []Observation{
+		aggregateObservation("a", `{"result":{"value":"same"}}`),
+		aggregateObservation("b", `{"result":{"value":"other"}}`),
+		aggregateObservation("c", `{"result":{"value":"same"}}`),
+		aggregateObservation("d", `{"result":{"value":"other"}}`),
+		aggregateObservation("e", `{"result":{"value":"same"}}`),
+	}
+
+	result, err := AggregateFields(observations, 3)
+	if err != nil {
+		t.Fatalf("AggregateFields() error = %v", err)
+	}
+	accepted := fieldObservationAt(result.Accepted, "/result/value")
+	if accepted == nil || string(accepted.Value) != `"same"` {
+		t.Fatalf("accepted value = %+v, want the three-source same bucket", accepted)
+	}
+	if got := sourceIDs(accepted.Sources); !equalStrings(got, []string{"a", "c", "e"}) {
+		t.Fatalf("accepted sources = %v, want [a c e]", got)
+	}
+	residual := fieldObservationAt(result.Diagnostics.Residuals, "/result/value")
+	if residual == nil || string(residual.Value) != `"other"` {
+		t.Fatalf("residual value = %+v, want the dissenting bucket", residual)
+	}
+	if got := sourceIDs(residual.Sources); !equalStrings(got, []string{"b", "d"}) {
+		t.Fatalf("residual sources = %v, want [b d]", got)
+	}
+}
+
+func TestAggregateFieldsDifferentEnvelopesStillVoteForSameLeaf(t *testing.T) {
+	observations := []Observation{
+		aggregateObservation("a", `{"jsonrpc":"2.0","id":1,"result":{"value":7}}`),
+		aggregateObservation("b", "{\n  \"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"value\": 7}\n}"),
+	}
+
+	result, err := AggregateFields(observations, 2)
+	if err != nil {
+		t.Fatalf("AggregateFields() error = %v", err)
+	}
+	value := fieldObservationAt(result.Accepted, "/result/value")
+	if value == nil || string(value.Value) != "7" {
+		t.Fatalf("accepted value = %+v, want 7", value)
+	}
+	if got := sourceIDs(value.Sources); !equalStrings(got, []string{"a", "b"}) {
+		t.Fatalf("leaf sources = %v, want [a b]", got)
+	}
+	if len(result.Diagnostics.Conflicts) != 0 {
+		t.Fatalf("conflicts = %+v, want none", result.Diagnostics.Conflicts)
+	}
+}
+
+func TestAggregateFieldsMalformedSourcesRemainInterleavedDiagnostics(t *testing.T) {
+	observations := []Observation{
+		aggregateObservation("a", `{"result":{"value":1}}`),
+		aggregateObservation("b", `{"result":{"value":NaN}}`),
+		aggregateObservation("c", `{"result":{"value":1}}`),
+		aggregateObservation("d", `{"result":{"value":NaN}}`),
+	}
+
+	result, err := AggregateFields(observations, 2)
+	if err != nil {
+		t.Fatalf("one valid bucket must survive malformed interleaving: %v", err)
+	}
+	value := fieldObservationAt(result.Accepted, "/result/value")
+	if value == nil || string(value.Value) != "1" {
+		t.Fatalf("accepted value = %+v, want 1", value)
+	}
+	if got := sourceIDs(value.Sources); !equalStrings(got, []string{"a", "c"}) {
+		t.Fatalf("accepted sources = %v, want [a c]", got)
+	}
+	if len(result.Malformed) != 2 || result.Malformed[0].Source.ID != "b" || result.Malformed[1].Source.ID != "d" {
+		t.Fatalf("malformed sources = %+v, want b then d", result.Malformed)
+	}
+}
+
+func TestAggregateFieldsPreservesRootLeavesAndEmptyContainers(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "root scalar", raw: `42`, want: "42"},
+		{name: "root null", raw: `null`, want: "null"},
+		{name: "root object", raw: `{}`, want: `{}`},
+		{name: "root array", raw: `[]`, want: `[]`},
+		{name: "nested leaves", raw: `{"result":null,"emptyObject":{},"emptyArray":[]}`, want: "nested"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := AggregateFields([]Observation{
+				aggregateObservation("a", test.raw),
+				aggregateObservation("b", test.raw),
+			}, 2)
+			if err != nil {
+				t.Fatalf("AggregateFields() error = %v", err)
+			}
+			if test.want == "nested" {
+				for path, want := range map[string]string{
+					"/result": "null", "/emptyObject": "{}", "/emptyArray": "[]",
+				} {
+					if got := fieldValue(result.Accepted, path); got != want {
+						t.Errorf("accepted %s = %s, want %s", path, got, want)
+					}
+				}
+				return
+			}
+			if got := fieldValue(result.Accepted, ""); got != test.want {
+				t.Fatalf("root accepted value = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestAggregateFieldsRejectsNBSPAsJSONWhitespace(t *testing.T) {
+	bad := `{"result":{"value":1}}` + string([]byte{0xc2, 0xa0})
+	result, err := AggregateFields([]Observation{
+		aggregateObservation("a", `{"result":{"value":1}}`),
+		aggregateObservation("b", bad),
+		aggregateObservation("c", `{"result":{"value":1}}`),
+	}, 2)
+	if err != nil {
+		t.Fatalf("valid sources must outvote NBSP-malformed source: %v", err)
+	}
+	if fieldValue(result.Accepted, "/result/value") != "1" {
+		t.Fatalf("accepted value = %s, want 1", fieldValue(result.Accepted, "/result/value"))
+	}
+	if len(result.Malformed) != 1 || result.Malformed[0].Source.ID != "b" {
+		t.Fatalf("malformed = %+v, want source b", result.Malformed)
+	}
+}
+
+func aggregateObservation(id, raw string) Observation {
+	return Observation{
+		Attempted: true,
+		Source:    SourceRef{ID: id},
+		Response: Response{
+			Exchange: Exchange{Progress: ExchangeCompleted},
+			Answer:   Answer{Kind: AnswerResult, Result: json.RawMessage(raw)},
+		},
+	}
+}
+
+func fieldObservationAt(fields []FieldObservation, path string) *FieldObservation {
+	for i := range fields {
+		if fields[i].Path == path {
+			return &fields[i]
+		}
+	}
+	return nil
+}
+
+func sourceIDs(sources []SourceRef) []string {
+	ids := make([]string, len(sources))
+	for i, source := range sources {
+		ids[i] = source.ID
+	}
+	return ids
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func errObserved() error { return errors.New("unavailable") }
 
 func fieldValue(fields []FieldObservation, path string) string {
