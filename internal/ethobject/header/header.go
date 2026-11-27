@@ -98,6 +98,13 @@ func Decode(raw json.RawMessage) (*types.Header, error) {
 	return head, err
 }
 
+// DecodeWithCanonical returns both products of the same original-header
+// check. Block admission can reuse the canonical projection without checking
+// the source hash and parsing the header again.
+func DecodeWithCanonical(raw json.RawMessage) (json.RawMessage, *types.Header, error) {
+	return prepare(raw)
+}
+
 // Normalize checks the original commitment and returns the independent
 // canonical official Header. It never manufactures a header from a
 // number/hash reference or re-encodes geth's self-computed hash as evidence.

@@ -94,22 +94,31 @@ func EncodeRequest(id json.RawMessage, method string, params []any) ([]byte, err
 		}
 		paramsJSON = raw
 	}
-	msg := struct {
+	header := struct {
 		Version string          `json:"jsonrpc"`
 		ID      json.RawMessage `json:"id"`
 		Method  string          `json:"method"`
-		Params  json.RawMessage `json:"params,omitempty"`
 	}{
 		Version: Version,
 		ID:      append(json.RawMessage(nil), id...),
 		Method:  method,
-		Params:  paramsJSON,
 	}
-	out, err := json.Marshal(msg)
+	out, err := json.Marshal(header)
 	if err != nil {
 		return nil, fmt.Errorf("rpcwire: encode request: %w", err)
 	}
-	return out, nil
+	if paramsJSON == nil {
+		return out, nil
+	}
+	// Params were already marshaled with the same compact, HTML-safe encoding.
+	// Append that complete array without asking an outer Marshal to scan it
+	// again. Keep header marshaling after params to preserve error precedence.
+	request := make([]byte, 0, len(out)+len(`,"params":`)+len(paramsJSON))
+	request = append(request, out[:len(out)-1]...)
+	request = append(request, `,"params":`...)
+	request = append(request, paramsJSON...)
+	request = append(request, '}')
+	return request, nil
 }
 
 // wireResponse mirrors the members DecodeResponse validates. json.RawMessage

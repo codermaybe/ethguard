@@ -71,20 +71,31 @@ func fieldsOf(raw json.RawMessage) map[string]json.RawMessage {
 	return fields
 }
 
+// validatedContext is local to one admission call. Returning the checked
+// identity avoids parsing canonical bytes again for request binding; it does
+// not cache validation or add mutable state to Candidate.
+type validatedContext struct {
+	hash         common.Hash
+	blockHash    *common.Hash
+	index        string
+	indexPresent bool
+}
+
 // validatePrepared is the object's one full payload validation: the
 // go-ethereum payload parse of the canonical bytes, the declared-hash
 // grammar and payload match, the declared sender grammar, the signature
 // presence, the protected-legacy chainId declaration, and the inclusion
-// context grammar. Every check reads the candidate's already-parsed views —
-// no re-encode, no second schema parse. The admission methods classify these
-// failures with rpc.ErrMalformedResponse.
-func validatePrepared(c Candidate) error {
+// context grammar. Wire grammar checks use the original exact-key field view.
+// The canonical payload and context are each decoded once here, without a
+// re-encode or second schema parse. Admission classifies these failures with
+// rpc.ErrMalformedResponse, then reuses the checked context for binding.
+func validatePrepared(c Candidate) (validatedContext, error) {
 	var tx *types.Transaction
 	if err := json.Unmarshal(c.canonical, &tx); err != nil || tx == nil {
 		if errors.Is(err, types.ErrTxTypeNotSupported) {
-			return errors.Join(rpc.ErrUnsupportedTypedObject, err)
+			return validatedContext{}, errors.Join(rpc.ErrUnsupportedTypedObject, err)
 		}
-		return fmt.Errorf("transaction: invalid payload")
+		return validatedContext{}, fmt.Errorf("transaction: invalid payload")
 	}
 	var wireValue struct {
 		Hash             *common.Hash    `json:"hash"`
@@ -94,58 +105,61 @@ func validatePrepared(c Candidate) error {
 		TransactionIndex json.RawMessage `json:"transactionIndex"`
 	}
 	if err := json.Unmarshal(c.canonical, &wireValue); err != nil {
-		return fmt.Errorf("transaction: invalid context: %w", err)
+		return validatedContext{}, fmt.Errorf("transaction: invalid context: %w", err)
 	}
 	if wireValue.Hash == nil {
-		return fmt.Errorf("transaction: missing hash")
+		return validatedContext{}, fmt.Errorf("transaction: missing hash")
 	}
 	if _, err := ethcodec.ValidateWireFixedHex(c.fields["hash"], 64, "hash"); err != nil {
-		return fmt.Errorf("transaction: hash: %w", err)
+		return validatedContext{}, fmt.Errorf("transaction: hash: %w", err)
 	}
 	if *wireValue.Hash != tx.Hash() {
-		return fmt.Errorf("transaction: hash does not match signed payload")
+		return validatedContext{}, fmt.Errorf("transaction: hash does not match signed payload")
 	}
 	if tx.Type() == types.LegacyTxType && tx.Protected() {
 		if declared, exists := c.fields["chainId"]; exists {
 			chainID, err := ethcodec.NormalizeWireQuantity(declared)
 			if err != nil {
-				return fmt.Errorf("transaction: chainId: %w", err)
+				return validatedContext{}, fmt.Errorf("transaction: chainId: %w", err)
 			}
 			if chainID != tx.ChainId().String() {
-				return fmt.Errorf("transaction: chainId does not match signed payload")
+				return validatedContext{}, fmt.Errorf("transaction: chainId does not match signed payload")
 			}
 		}
 	}
 	if wireValue.From == nil {
-		return fmt.Errorf("transaction: missing sender")
+		return validatedContext{}, fmt.Errorf("transaction: missing sender")
 	}
 	if _, err := ethcodec.ValidateWireFixedHex(c.fields["from"], 40, "from"); err != nil {
-		return fmt.Errorf("transaction: from: %w", err)
+		return validatedContext{}, fmt.Errorf("transaction: from: %w", err)
 	}
 	_, r, s := tx.RawSignatureValues()
 	if r == nil || s == nil || r.Sign() == 0 || s.Sign() == 0 {
-		return fmt.Errorf("transaction: missing signature")
+		return validatedContext{}, fmt.Errorf("transaction: missing signature")
 	}
 	blockSet, indexSet := ethcodec.PresentNonNull(wireValue.BlockNumber), ethcodec.PresentNonNull(wireValue.TransactionIndex)
 	if blockSet {
 		if _, err := ethcodec.NormalizeWireQuantity(wireValue.BlockNumber); err != nil {
-			return fmt.Errorf("transaction: blockNumber: %w", err)
+			return validatedContext{}, fmt.Errorf("transaction: blockNumber: %w", err)
 		}
 	}
+	var index string
 	if indexSet {
-		if _, err := ethcodec.NormalizeWireQuantity(wireValue.TransactionIndex); err != nil {
-			return fmt.Errorf("transaction: transactionIndex: %w", err)
+		var err error
+		index, err = ethcodec.NormalizeWireQuantity(wireValue.TransactionIndex)
+		if err != nil {
+			return validatedContext{}, fmt.Errorf("transaction: transactionIndex: %w", err)
 		}
 	}
 	if wireValue.BlockHash != nil {
 		if _, err := ethcodec.ValidateWireFixedHex(c.fields["blockHash"], 64, "blockHash"); err != nil {
-			return fmt.Errorf("transaction: blockHash: %w", err)
+			return validatedContext{}, fmt.Errorf("transaction: blockHash: %w", err)
 		}
 	}
 	if wireValue.BlockHash != nil && (!blockSet || !indexSet) {
-		return fmt.Errorf("transaction: incomplete inclusion context")
+		return validatedContext{}, fmt.Errorf("transaction: incomplete inclusion context")
 	}
-	return nil
+	return validatedContext{hash: *wireValue.Hash, blockHash: wireValue.BlockHash, index: index, indexPresent: indexSet}, nil
 }
 
 // AdmitByHash binds a prepared candidate to a by-hash request. A root null
@@ -162,13 +176,11 @@ func (c Candidate) AdmitByHash(req rpc.Request) error {
 	if err != nil {
 		return err
 	}
-	if err := validatePrepared(c); err != nil {
+	context, err := validatePrepared(c)
+	if err != nil {
 		return errors.Join(rpc.ErrMalformedResponse, err)
 	}
-	var shape struct {
-		Hash common.Hash `json:"hash"`
-	}
-	if err := json.Unmarshal(c.canonical, &shape); err != nil || shape.Hash != want {
+	if context.hash != want {
 		return fmt.Errorf("%w: transaction hash does not match requested hash", rpc.ErrMalformedResponse)
 	}
 	return nil
@@ -193,28 +205,17 @@ func (c Candidate) AdmitInBlock(req rpc.Request) error {
 	if err != nil {
 		return err
 	}
-	if err := validatePrepared(c); err != nil {
+	context, err := validatePrepared(c)
+	if err != nil {
 		return errors.Join(rpc.ErrMalformedResponse, err)
 	}
-	var wireValue struct {
-		Hash             *common.Hash    `json:"hash"`
-		BlockHash        *common.Hash    `json:"blockHash"`
-		TransactionIndex json.RawMessage `json:"transactionIndex"`
-	}
-	if err := json.Unmarshal(c.canonical, &wireValue); err != nil {
-		return fmt.Errorf("%w: transaction context: %v", rpc.ErrMalformedResponse, err)
-	}
-	if wireValue.Hash == nil || wireValue.BlockHash == nil || *wireValue.BlockHash != wantHash {
+	if context.blockHash == nil || *context.blockHash != wantHash {
 		return fmt.Errorf("%w: transaction block hash does not match requested block", rpc.ErrMalformedResponse)
 	}
-	if !ethcodec.PresentNonNull(wireValue.TransactionIndex) {
+	if !context.indexPresent {
 		return fmt.Errorf("%w: transaction missing index", rpc.ErrMalformedResponse)
 	}
-	gotIndex, err := ethcodec.NormalizeWireQuantity(wireValue.TransactionIndex)
-	if err != nil {
-		return fmt.Errorf("%w: transaction index: %v", rpc.ErrMalformedResponse, err)
-	}
-	if gotIndex != fmt.Sprintf("%d", wantIndex) {
+	if context.index != fmt.Sprintf("%d", wantIndex) {
 		return fmt.Errorf("%w: transaction index does not match requested index", rpc.ErrMalformedResponse)
 	}
 	return nil

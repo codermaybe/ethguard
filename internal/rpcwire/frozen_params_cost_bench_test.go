@@ -95,7 +95,9 @@ func TestPreparedArrayBenchmarkUsesEquivalentRequests(t *testing.T) {
 // BenchmarkRequestEncoding quantifies the per-source re-encoding of frozen
 // elements against reusing a prepared array, with the same synthetic string
 // parameter at three sizes. Array preparation and byte-equivalence checks
-// stay outside timing. Both variants still encode the complete envelope.
+// stay outside timing. Production marshals the element array once and joins
+// it to a separately marshaled header. The prepared-array prototype still
+// marshals the complete envelope; production does not consume that array API.
 func BenchmarkRequestEncoding(b *testing.B) {
 	for _, size := range []int{64, 512, 131072} {
 		paramsJSON := frozenParamsJSON(size)

@@ -126,7 +126,19 @@ func (p standardProjector) matchesPath(path string) bool {
 	if len(p.wildcardPatterns) == 0 {
 		return false
 	}
-	parts := strings.Split(path, "/")
+	// Split the candidate once for all declarations. Common paths fit on the
+	// stack; longer paths grow the slice without changing matching semantics.
+	var local [8]string
+	parts := local[:0]
+	for {
+		end := strings.IndexByte(path, '/')
+		if end < 0 {
+			parts = append(parts, path)
+			break
+		}
+		parts = append(parts, path[:end])
+		path = path[end+1:]
+	}
 	for _, pattern := range p.wildcardPatterns {
 		if matchJSONPointerParts(pattern, parts) {
 			return true

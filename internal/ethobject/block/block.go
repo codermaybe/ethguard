@@ -54,18 +54,35 @@ func (b *FullBlock) Transactions() (types.Transactions, error) {
 }
 
 // AdmitBlock validates the complete source-local value, request binding and
-// body commitments. It retains the same Encode result used by the shape check
-// so content delivery can consume it without encoding the original again.
+// body commitments. It retains the canonical value produced by the shape
+// check so content delivery can consume it without encoding the original again.
 func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHash bool, call rpc.AdmissionCaller) (*FullBlock, error) {
-	head, err := objectheader.Decode(raw)
+	canonicalHeader, head, err := objectheader.DecodeWithCanonical(raw)
 	if err != nil {
 		return nil, malformed("block header", err)
 	}
+	// Header preparation already checked this same source's syntax, required
+	// header fields and commitment. Keep one exact-key view for body presence
+	// and scalar checks; the separate transaction struct below retains its
+	// case-insensitive, document-order matching contract.
+	var source map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return nil, malformed("block shape", err)
+	}
 	// Validate the complete source-local official object before accepting any
 	// payload commitment. Required metadata cannot be supplied by another source.
-	canonicalBlock, err := Encode(raw)
-	if err != nil {
-		return nil, malformed("block shape", err)
+	canonicalBlock := canonicalHeader
+	_, hasTransactions := source["transactions"]
+	_, hasUncles := source["uncles"]
+	if hasTransactions || hasUncles {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(canonicalHeader, &fields); err != nil {
+			return nil, malformed("block shape", err)
+		}
+		canonicalBlock, err = encodeBody(raw, fields)
+		if err != nil {
+			return nil, malformed("block shape", err)
+		}
 	}
 	// The generated contract canonicalizes only this source's declarations.
 	// Algorithm-only geth body types consume those bytes, so valid JSON string
@@ -82,7 +99,7 @@ func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 		return nil, malformed("block transactions", err)
 	}
 	body.Transactions = original.Transactions
-	if err := validateBlockWireScalars(raw); err != nil {
+	if err := validateBlockWireScalars(source); err != nil {
 		return nil, malformed("block scalar", err)
 	}
 	if body.Hash == nil {
@@ -125,23 +142,19 @@ func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 		return nil, malformed("transactions root mismatch", nil)
 	}
 
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, malformed("block object", err)
-	}
 	for _, field := range []string{"transactions", "uncles"} {
-		item, present := obj[field]
+		item, present := source[field]
 		if !present || string(item) == "null" {
 			return nil, malformed("full block missing "+field, nil)
 		}
 	}
-	withdrawalsPresent := obj["withdrawals"] != nil
+	withdrawalsPresent := source["withdrawals"] != nil
 	if head.WithdrawalsHash == nil {
-		if withdrawalsPresent && string(obj["withdrawals"]) != "null" {
+		if withdrawalsPresent && string(source["withdrawals"]) != "null" {
 			return nil, malformed("withdrawals supplied before withdrawals fork", nil)
 		}
 	} else {
-		if !withdrawalsPresent || string(obj["withdrawals"]) == "null" {
+		if !withdrawalsPresent || string(source["withdrawals"]) == "null" {
 			return nil, malformed("withdrawals missing for header commitment", nil)
 		}
 		for i, withdrawal := range body.Withdrawals {
@@ -203,11 +216,7 @@ func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 // validateBlockWireScalars applies context-sensitive wire checks to fields
 // that are present in a block response. Fork-specific optional fields remain
 // optional; their presence still cannot bypass the scalar contract.
-func validateBlockWireScalars(raw json.RawMessage) error {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return err
-	}
+func validateBlockWireScalars(obj map[string]json.RawMessage) error {
 	for _, field := range []string{"hash", "parentHash", "sha3Uncles", "transactionsRoot", "stateRoot", "receiptsRoot", "withdrawalsRoot", "parentBeaconBlockRoot", "requestsHash"} {
 		if value, ok := obj[field]; ok && !ethcodec.IsJSONNull(value) {
 			if _, err := ethcodec.ValidateWireFixedHex(value, 64, field); err != nil {

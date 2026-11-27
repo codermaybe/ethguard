@@ -44,14 +44,19 @@ func Encode(raw json.RawMessage) (json.RawMessage, error) {
 	if reference {
 		return encodeHeaderOnly(source)
 	}
-	if _, err := objectheader.Decode(raw); err != nil {
+	canonicalHeader, _, err := objectheader.DecodeWithCanonical(raw)
+	if err != nil {
 		return nil, fmt.Errorf("block encode: %w", err)
 	}
 	if _, txs := source["transactions"]; !txs {
 		if _, uncles := source["uncles"]; !uncles {
-			return objectheader.Normalize(raw)
+			return canonicalHeader, nil
 		}
 	}
+	return encodeBody(raw, fields)
+}
+
+func encodeBody(raw json.RawMessage, fields map[string]json.RawMessage) (json.RawMessage, error) {
 	if err := projectBody(raw, fields); err != nil {
 		return nil, err
 	}
