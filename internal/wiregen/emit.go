@@ -650,12 +650,24 @@ func emitConstructor(f *jen.File, name string, request bool) {
 	})
 }
 
+// Native specialization follows exact schema text, independently of the Go
+// type name. Unknown patterns keep the generated regular-expression check.
 func sharedStrictValidator(pattern string) string {
 	switch pattern {
 	case ethcodec.QuantityPattern:
 		return "IsCanonicalQuantity"
+	case ethcodec.Quantity64Pattern:
+		return "IsCanonicalQuantity64"
+	case ethcodec.Quantity256Pattern:
+		return "IsCanonicalQuantity256"
 	case ethcodec.DataPattern:
 		return "IsWholeByteData"
+	case ethcodec.AddressPattern:
+		return "IsAddress"
+	case ethcodec.HexBytePattern:
+		return "IsHexByte"
+	case ethcodec.StorageKeyPattern:
+		return "IsStorageKey"
 	case ethcodec.DecimalStringPattern:
 		return "IsCanonicalDecimal"
 	default:

@@ -105,7 +105,7 @@ func reviewedScalarPolicies(manifest executionapi.Manifest) ([]scalarPolicy, err
 		if n.representation == exactNumber {
 			validator = "ethcodec.CanonicalNumber: exact JSON number"
 		} else if shared := sharedStrictValidator(n.pattern); shared != "" {
-			validator = "ethcodec." + shared + ": shared strict regexp"
+			validator = "ethcodec." + shared + ": shared strict ASCII"
 		} else if fixedLowerHexPatternDigits(n.pattern) != 0 {
 			validator = "ethcodec.IsLowerFixedHex: fixed-width ASCII"
 		} else if n.pattern != "" {

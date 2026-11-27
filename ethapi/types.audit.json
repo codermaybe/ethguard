@@ -3222,25 +3222,25 @@
     {
       "name": "Quantity",
       "inputPattern": "^0x(0|[1-9a-f][0-9a-f]*)$",
-      "validator": "ethcodec.IsCanonicalQuantity: shared strict regexp",
+      "validator": "ethcodec.IsCanonicalQuantity: shared strict ASCII",
       "representationPolicy": "literal-v1: validate decoded input against effective-schema constraints; preserve string value"
     },
     {
       "name": "Quantity64",
       "inputPattern": "^0x(0|[1-9a-f][0-9a-f]{0,15})$",
-      "validator": "generated exact-pattern regexp",
+      "validator": "ethcodec.IsCanonicalQuantity64: shared strict ASCII",
       "representationPolicy": "literal-v1: validate decoded input against effective-schema constraints; preserve string value"
     },
     {
       "name": "Quantity256",
       "inputPattern": "^0x(0|[1-9a-f][0-9a-f]{0,63})$",
-      "validator": "generated exact-pattern regexp",
+      "validator": "ethcodec.IsCanonicalQuantity256: shared strict ASCII",
       "representationPolicy": "literal-v1: validate decoded input against effective-schema constraints; preserve string value"
     },
     {
       "name": "Data",
       "inputPattern": "^0x([0-9a-f]{2})*$",
-      "validator": "ethcodec.IsWholeByteData: shared strict regexp",
+      "validator": "ethcodec.IsWholeByteData: shared strict ASCII",
       "representationPolicy": "literal-v1: validate decoded input against effective-schema constraints; preserve string value"
     },
     {
@@ -3252,7 +3252,7 @@
     {
       "name": "Address",
       "inputPattern": "^0x[0-9a-fA-F]{40}$",
-      "validator": "generated exact-pattern regexp",
+      "validator": "ethcodec.IsAddress: shared strict ASCII",
       "representationPolicy": "address-v2: validate decoded input against effective-schema constraints; lowercase accepted address digits"
     },
     {
@@ -3270,19 +3270,19 @@
     {
       "name": "StorageKey",
       "inputPattern": "^0x[0-9a-f]{0,64}$",
-      "validator": "generated exact-pattern regexp",
+      "validator": "ethcodec.IsStorageKey: shared strict ASCII",
       "representationPolicy": "literal-v1: validate decoded input against effective-schema constraints; preserve string value"
     },
     {
       "name": "HexByte",
       "inputPattern": "^0x[0-9a-f]{1,2}$",
-      "validator": "generated exact-pattern regexp",
+      "validator": "ethcodec.IsHexByte: shared strict ASCII",
       "representationPolicy": "hex-byte-v2: validate decoded input against effective-schema constraints; fold one redundant leading zero"
     },
     {
       "name": "DecimalString",
       "inputPattern": "^(0|[1-9][0-9]*)$",
-      "validator": "ethcodec.IsCanonicalDecimal: shared strict regexp",
+      "validator": "ethcodec.IsCanonicalDecimal: shared strict ASCII",
       "representationPolicy": "literal-v1: validate decoded input against effective-schema constraints; preserve string value"
     },
     {
@@ -27947,5 +27947,5 @@
     "txpool_status": "Not selected for the reviewed public model surface; inventory presence does not imply runtime support."
   },
   "runtimeConsumption": "Not inferred by generation; verified by method consumer contract tests",
-  "generatedSHA256": "89810815b29f060e335a5e283e0e46c927b8eff6ff203d29f8711e9545231f56"
+  "generatedSHA256": "b7e63b78e5cc076e4c641f12eff82c28c8d95f17f0360be6347090b6b7bf1041"
 }

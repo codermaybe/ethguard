@@ -59,3 +59,29 @@ func BenchmarkLogArrayEncode(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkLogResultEncode includes the array safety gate, per-row encoding
+// and final array serialization. The row benchmarks above isolate only the
+// per-item work and do not measure this complete result path.
+func BenchmarkLogResultEncode(b *testing.B) {
+	for _, n := range []int{0, 1, 64} {
+		b.Run(fmt.Sprintf("logs-%d", n), func(b *testing.B) {
+			rows := benchLogRows(b, n)
+			raw, err := json.Marshal(rows)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if _, err := Encode(raw); err != nil {
+				b.Fatalf("invalid fixture: %v", err)
+			}
+			b.SetBytes(int64(len(raw)))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				if _, err := Encode(raw); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

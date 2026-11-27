@@ -51,8 +51,6 @@ func (v Quantity) MarshalJSON() ([]byte, error) {
 // Quantity64 is the QUANTITY bounded to 64 bits.
 type Quantity64 string
 
-var nativeQuantity64Pattern = regexp.MustCompile("^0x(0|[1-9a-f][0-9a-f]{0,15})$")
-
 func NewQuantity64(raw json.RawMessage) (Quantity64, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Quantity64: expected a non-null value")
@@ -61,7 +59,7 @@ func NewQuantity64(raw json.RawMessage) (Quantity64, error) {
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
-	if !nativeQuantity64Pattern.MatchString(text) {
+	if !ethcodec.IsCanonicalQuantity64(text) {
 		return "", fmt.Errorf("Quantity64: invalid input spelling %q", text)
 	}
 	return Quantity64(text), nil
@@ -73,8 +71,6 @@ func (v Quantity64) MarshalJSON() ([]byte, error) {
 // Quantity256 is the QUANTITY bounded to 256 bits (32 bytes).
 type Quantity256 string
 
-var nativeQuantity256Pattern = regexp.MustCompile("^0x(0|[1-9a-f][0-9a-f]{0,63})$")
-
 func NewQuantity256(raw json.RawMessage) (Quantity256, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("Quantity256: expected a non-null value")
@@ -83,7 +79,7 @@ func NewQuantity256(raw json.RawMessage) (Quantity256, error) {
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
-	if !nativeQuantity256Pattern.MatchString(text) {
+	if !ethcodec.IsCanonicalQuantity256(text) {
 		return "", fmt.Errorf("Quantity256: invalid input spelling %q", text)
 	}
 	return Quantity256(text), nil
@@ -135,8 +131,6 @@ func (v Hash) MarshalJSON() ([]byte, error) {
 // Address is the 20-byte hex address.
 type Address string
 
-var nativeAddressPattern = regexp.MustCompile("^0x[0-9a-fA-F]{40}$")
-
 func NewAddress(raw json.RawMessage) (Address, error) {
 	return parseAddress(raw, false)
 }
@@ -148,7 +142,7 @@ func parseAddress(raw json.RawMessage, keepStrings bool) (Address, error) {
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
-	if !nativeAddressPattern.MatchString(text) {
+	if !ethcodec.IsAddress(text) {
 		return "", fmt.Errorf("Address: invalid input spelling %q", text)
 	}
 	if keepStrings {
@@ -204,8 +198,6 @@ func (v BlockNonce) MarshalJSON() ([]byte, error) {
 // StorageKey is the up-to-32-byte hex word.
 type StorageKey string
 
-var nativeStorageKeyPattern = regexp.MustCompile("^0x[0-9a-f]{0,64}$")
-
 func NewStorageKey(raw json.RawMessage) (StorageKey, error) {
 	if len(raw) == 0 || ethcodec.IsJSONNull(raw) {
 		return "", fmt.Errorf("StorageKey: expected a non-null value")
@@ -214,7 +206,7 @@ func NewStorageKey(raw json.RawMessage) (StorageKey, error) {
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
-	if !nativeStorageKeyPattern.MatchString(text) {
+	if !ethcodec.IsStorageKey(text) {
 		return "", fmt.Errorf("StorageKey: invalid input spelling %q", text)
 	}
 	return StorageKey(text), nil
@@ -225,8 +217,6 @@ func (v StorageKey) MarshalJSON() ([]byte, error) {
 
 // HexByte is the 1-2 lowercase hex digits.
 type HexByte string
-
-var nativeHexBytePattern = regexp.MustCompile("^0x[0-9a-f]{1,2}$")
 
 func NewHexByte(raw json.RawMessage) (HexByte, error) {
 	return parseHexByte(raw, false)
@@ -239,7 +229,7 @@ func parseHexByte(raw json.RawMessage, keepStrings bool) (HexByte, error) {
 	if err := json.Unmarshal(raw, &text); err != nil {
 		return "", fmt.Errorf("expected string: %w", err)
 	}
-	if !nativeHexBytePattern.MatchString(text) {
+	if !ethcodec.IsHexByte(text) {
 		return "", fmt.Errorf("HexByte: invalid input spelling %q", text)
 	}
 	if keepStrings {

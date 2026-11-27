@@ -25,11 +25,11 @@ import (
 // Leading zeros are rejected, matching NormalizeWireQuantity. Methods that
 // declare canonical-byte comparison use these bytes as their comparison key.
 func EncodeQuantity(value json.RawMessage) (json.RawMessage, error) {
-	decimal, err := NormalizeWireQuantity(value)
+	text, err := CanonicalQuantity(value)
 	if err != nil {
 		return nil, err
 	}
-	return quantityJSON(decimal)
+	return json.Marshal(text)
 }
 
 // EncodeFoldedQuantity accepts the spellings NormalizeHexQuantity already

@@ -225,18 +225,37 @@ func BenchmarkReceiptCanonicalValue(b *testing.B) {
 	raw := benchmarkReceipt(b)
 	for _, size := range []int{0, 100, 1000} {
 		b.Run(fmt.Sprintf("logs-%d", size), func(b *testing.B) {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				b.Fatal(err)
+			}
 			var r types.Receipt
 			if err := json.Unmarshal(raw, &r); err != nil {
 				b.Fatal(err)
 			}
 			r.Logs = make([]*types.Log, size)
 			for i := range r.Logs {
-				r.Logs[i] = &types.Log{Address: common.HexToAddress("0x1234"), Topics: []common.Hash{common.HexToHash("0xab")}, Data: make([]byte, 32), BlockNumber: r.BlockNumber.Uint64(), TxHash: r.TxHash, BlockHash: r.BlockHash, Index: uint(i)}
+				r.Logs[i] = &types.Log{Address: common.HexToAddress("0x1234"), Topics: []common.Hash{common.HexToHash("0xab")}, Data: make([]byte, 32), BlockNumber: r.BlockNumber.Uint64(), TxHash: r.TxHash, TxIndex: r.TransactionIndex, BlockHash: r.BlockHash, Index: uint(i)}
 			}
 			r.Bloom = types.CreateBloom(&r)
-			body, err := json.Marshal(&r)
+			// Preserve captured RPC fields such as from and to, which geth's
+			// receipt model does not serialize. Only the scaled logs and their
+			// matching bloom replace fields in the original object.
+			var err error
+			fields["logs"], err = json.Marshal(r.Logs)
 			if err != nil {
 				b.Fatal(err)
+			}
+			fields["logsBloom"], err = json.Marshal(r.Bloom)
+			if err != nil {
+				b.Fatal(err)
+			}
+			body, err := json.Marshal(fields)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if _, err := receiptobj.Encode(body); err != nil {
+				b.Fatalf("invalid fixture: %v", err)
 			}
 			b.ReportAllocs()
 			b.SetBytes(int64(len(body)))
