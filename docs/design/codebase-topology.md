@@ -29,6 +29,8 @@
 
 公共 `gethcompat` 构造与单源 Simulate seam 退出。`internal/testkit/gethoracle` 仅供测试和显式诊断使用，不是生产 runtime；native 执行图不得依赖 `ethclient`。迁移边界见 [兼容政策](go-ethereum-compatibility-policy.md)。
 
+完整块的对象 owner 同时供方法准入、订阅内容证明和 direct raw 解码使用。`block.AdmitBlock` 保留通过完整 shape 编码与承诺检查的 `FullBlock`；方法只复制叔块证据，订阅按需从保留的规范块解析交易，不再经方法 catalog 绕行或对原文执行第二次 Encode。原始字段证据与同源叔块调用保持原顺序。`block.DecodeWithEvidence` 共用该对象的 header/body 投影与生成构造，保留 direct raw 的 header/hash、payload、空非空根及叔块证据检查；它不证明完整交易 trie。typed 只做公开值交付、NotFound 与错误映射，已准入的 Block 仍仅检查生成形态，不重新要求已从 Value 剔除的叔块 bodies。
+
 目录必须隐藏实际行为并拥有清楚的 seam；不为视觉分组创建浅层 forwarding package。`rpc/methods` 保持一个生产模块，不因文件数增加就拆成名词包。
 
 Logs与Receipts的私有`contentSubscription[E]`只共用typed FIFO、版本提交、预算、请求登记、租约、窗口审计和关闭完成屏障；泛型参数仅表示交付值。各方法保留具体内容准备、过滤、证明、重试和公开事件。Receipts使用现有`CanonicalOutcomeResolver`固定成员裁定，`pool.Source.Call`保留真实Response，`CallContext`只作投影；不新增通用pipeline或另一套Q算法。旧收据channel、事件Aggregator、Pull探测及累计票据预算已从工作区移除，最终方法验收状态见路线图。

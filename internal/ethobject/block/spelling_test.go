@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/codermaybe/ethguard/internal/typed"
 )
 
-func TestBlockBodySpellingCompatibilityReachesAdmissionAndPublicDecode(t *testing.T) {
+func TestBlockBodySpellingCompatibilityReachesAdmissionAndRawDecode(t *testing.T) {
 	raw, req := completeBlock(t)
 	want, err := Encode(raw)
 	if err != nil {
@@ -31,8 +29,13 @@ func TestBlockBodySpellingCompatibilityReachesAdmissionAndPublicDecode(t *testin
 	if _, err := AdmitBlock(context.Background(), req, changed, true, nil); err != nil {
 		t.Fatalf("source-local body compatibility rejected during admission: %v", err)
 	}
-	if _, err := typed.DecodeBlock(changed); err != nil {
-		t.Fatalf("public raw block decoder rejected compatible body: %v", err)
+	value, err := DecodeWithEvidence(changed, nil)
+	if err != nil {
+		t.Fatalf("raw block decoder rejected compatible body: %v", err)
+	}
+	decoded, err := json.Marshal(value)
+	if err != nil || !bytes.Equal(decoded, want) {
+		t.Fatalf("raw decoder diverged from canonical encoding: %v", err)
 	}
 	if !bytes.Equal(before, changed) {
 		t.Fatal("source evidence mutated")
@@ -44,7 +47,7 @@ func TestBlockBodySpellingCompatibilityReachesAdmissionAndPublicDecode(t *testin
 		if _, err := Encode(invalid); err == nil {
 			t.Fatalf("block repaired invalid %s byte width", field)
 		}
-		if _, err := typed.DecodeBlock(invalid); err == nil {
+		if _, err := DecodeWithEvidence(invalid, nil); err == nil {
 			t.Fatalf("public block decoder repaired invalid %s byte width", field)
 		}
 	}

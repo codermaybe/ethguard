@@ -25,7 +25,38 @@ type blockWire struct {
 	Withdrawals  []*types.Withdrawal `json:"withdrawals"`
 }
 
-func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHash bool, call rpc.AdmissionCaller) (json.RawMessage, error) {
+// FullBlock retains the complete canonical value and same-source uncle
+// evidence produced by full-block admission. Its bytes are owned privately;
+// methods consume evidence while content delivery requests a transaction view.
+// The transaction view deliberately decodes the canonical Block representation,
+// not the separate transaction candidates used to verify its trie commitment.
+type FullBlock struct {
+	canonical json.RawMessage
+	uncles    json.RawMessage
+}
+
+// UncleEvidence returns an independent copy of the admitted uncle responses.
+func (b *FullBlock) UncleEvidence() json.RawMessage {
+	return append(json.RawMessage(nil), b.uncles...)
+}
+
+// Transactions parses the checked canonical Block's private payload view.
+// This delivery step is separate from admission: methods that only consume
+// evidence do not pay for it or acquire an additional failure stage.
+func (b *FullBlock) Transactions() (types.Transactions, error) {
+	var body struct {
+		Transactions types.Transactions `json:"transactions"`
+	}
+	if err := json.Unmarshal(b.canonical, &body); err != nil {
+		return nil, err
+	}
+	return body.Transactions, nil
+}
+
+// AdmitBlock validates the complete source-local value, request binding and
+// body commitments. It retains the same Encode result used by the shape check
+// so content delivery can consume it without encoding the original again.
+func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHash bool, call rpc.AdmissionCaller) (*FullBlock, error) {
 	head, err := objectheader.Decode(raw)
 	if err != nil {
 		return nil, malformed("block header", err)
@@ -131,7 +162,7 @@ func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 		if len(body.UncleHashes) != 0 {
 			return nil, malformed("uncle list is non-empty for empty uncle root", nil)
 		}
-		return nil, nil
+		return &FullBlock{canonical: canonicalBlock}, nil
 	}
 	if len(body.UncleHashes) == 0 {
 		return nil, malformed("uncle list missing for non-empty uncle root", nil)
@@ -162,7 +193,11 @@ func AdmitBlock(ctx context.Context, req rpc.Request, raw json.RawMessage, byHas
 	if got := types.CalcUncleHash(uncleHeaders); got != head.UncleHash {
 		return nil, malformed("uncle root mismatch", nil)
 	}
-	return json.Marshal(uncleEvidence)
+	encodedEvidence, err := json.Marshal(uncleEvidence)
+	if err != nil {
+		return nil, err
+	}
+	return &FullBlock{canonical: canonicalBlock, uncles: encodedEvidence}, nil
 }
 
 // validateBlockWireScalars applies context-sensitive wire checks to fields

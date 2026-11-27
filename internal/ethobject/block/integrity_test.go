@@ -176,13 +176,19 @@ func TestFullBlockUncleEvidenceStaysSourceBoundAndChecksOriginalHash(t *testing.
 		}
 		return uncleRaw, nil
 	}
-	evidence, err := AdmitBlock(context.Background(), req, raw, true, caller)
+	full, err := AdmitBlock(context.Background(), req, raw, true, caller)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var rows []json.RawMessage
-	if err := json.Unmarshal(evidence, &rows); err != nil || len(rows) != 1 || !bytes.Equal(rows[0], uncleRaw) {
+	if err := json.Unmarshal(full.UncleEvidence(), &rows); err != nil || len(rows) != 1 || !bytes.Equal(rows[0], uncleRaw) {
 		t.Fatal("source uncle evidence lost")
+	}
+	first := full.UncleEvidence()
+	wantEvidence := bytes.Clone(first)
+	first[0] = 'x'
+	if !bytes.Equal(full.UncleEvidence(), wantEvidence) {
+		t.Fatal("uncle evidence aliases caller-owned getter bytes")
 	}
 	if _, err := AdmitBlock(context.Background(), req, raw, true, nil); err == nil {
 		t.Fatal("unproved nonempty uncle root accepted")

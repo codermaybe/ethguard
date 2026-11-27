@@ -22,7 +22,11 @@ func admitBlockResponse(ctx context.Context, req rpc.Request, value json.RawMess
 	if !fullTx {
 		return nil, nil
 	}
-	return blockobject.AdmitBlock(ctx, req, value, byHash, call)
+	full, err := blockobject.AdmitBlock(ctx, req, value, byHash, call)
+	if err != nil {
+		return nil, err
+	}
+	return full.UncleEvidence(), nil
 }
 
 // isTrueParam recognizes the fullTx flag in the spellings a generic Call

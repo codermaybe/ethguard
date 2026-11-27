@@ -1,12 +1,16 @@
-package transaction
+package transaction_test
 
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	"github.com/codermaybe/ethguard/internal/ethobject/transaction"
+	"github.com/codermaybe/ethguard/internal/spec"
+	"github.com/codermaybe/ethguard/internal/spec/conformance"
 	"github.com/codermaybe/ethguard/internal/typed"
 )
 
@@ -16,7 +20,7 @@ func TestTypedSignatureByteCompatibilityReachesPayloadBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := Encode(baseline)
+	want, err := transaction.Encode(baseline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,11 +32,11 @@ func TestTypedSignatureByteCompatibilityReachesPayloadBridge(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := bytes.Clone(raw)
-			got, err := Encode(raw)
+			got, err := transaction.Encode(raw)
 			if err != nil || !bytes.Equal(got, want) {
 				t.Fatalf("equivalent signature byte changed canonical value: %v", err)
 			}
-			if err := Validate(raw); err != nil {
+			if err := transaction.Validate(raw); err != nil {
 				t.Fatalf("legal signature byte rejected by private payload bridge: %v", err)
 			}
 			if _, _, err := typed.DecodeTransaction(raw); err != nil {
@@ -45,7 +49,7 @@ func TestTypedSignatureByteCompatibilityReachesPayloadBridge(t *testing.T) {
 	}
 	fields["v"], fields["yParity"] = json.RawMessage(`"0x000"`), json.RawMessage(`"0x000"`)
 	invalid, _ := json.Marshal(fields)
-	if _, err := Encode(invalid); err == nil {
+	if _, err := transaction.Encode(invalid); err == nil {
 		t.Fatal("invalid HexByte width was silently repaired")
 	}
 	if _, _, err := typed.DecodeTransaction(invalid); err == nil {
@@ -54,7 +58,12 @@ func TestTypedSignatureByteCompatibilityReachesPayloadBridge(t *testing.T) {
 }
 
 func TestLegacySignatureQuantityKeepsItsWidthContract(t *testing.T) {
-	for _, raw := range officialFixtures(t) {
+	vectors, err := conformance.ParseVector(spec.VectorsFS(), "vectors/eth_getTransactionByHash/get-legacy-create.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, vector := range vectors {
+		raw := vector.Result
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err != nil {
 			t.Fatal(err)
@@ -67,7 +76,7 @@ func TestLegacySignatureQuantityKeepsItsWidthContract(t *testing.T) {
 		}
 		fields["v"] = json.RawMessage(`"0x01"`)
 		invalid, _ := json.Marshal(fields)
-		if _, err := Encode(invalid); err == nil {
+		if _, err := transaction.Encode(invalid); err == nil {
 			t.Fatal("legacy QUANTITY v was treated as HexByte and repaired")
 		}
 		if _, _, err := typed.DecodeTransaction(invalid); err == nil {
@@ -96,4 +105,20 @@ func TestPublicTransactionInBlockRetainsSenderCaseCompatibility(t *testing.T) {
 	if decoded.From != "0x2252f216f4a494a87025123425181ca1bb754fb8" {
 		t.Fatalf("declared sender changed: %s", decoded.From)
 	}
+}
+
+func recordedMainnetTransaction(t *testing.T) map[string]json.RawMessage {
+	t.Helper()
+	data, err := os.ReadFile("testdata/tx-one-mainnet-1559.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if string(fields["type"]) != `"0x2"` {
+		t.Fatalf("fixture is not a 1559 transaction: %s", fields["type"])
+	}
+	return fields
 }

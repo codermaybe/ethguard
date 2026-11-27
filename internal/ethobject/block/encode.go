@@ -29,12 +29,8 @@ func Encode(raw json.RawMessage) (json.RawMessage, error) {
 	if !hasBlockHead(source) {
 		return nil, fmt.Errorf("block head: missing number or hash")
 	}
-	projected, err := objectheader.Projection(raw)
+	fields, err := projectHeader(raw)
 	if err != nil {
-		return nil, err
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(projected, &fields); err != nil {
 		return nil, err
 	}
 	// Reference reads may carry provider extensions, but any declared official
@@ -56,22 +52,45 @@ func Encode(raw json.RawMessage) (json.RawMessage, error) {
 			return objectheader.Normalize(raw)
 		}
 	}
-	body, err := hexcompat.BlockBody(raw)
-	if err != nil {
+	if err := projectBody(raw, fields); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(body, &fields); err != nil {
-		return nil, err
-	}
-	candidate, err := ethcodec.MarshalNoEscape(fields)
-	if err != nil {
-		return nil, err
-	}
-	out, err := ethapi.NewBlock(candidate)
+	out, err := parseBlock(fields)
 	if err != nil {
 		return nil, fmt.Errorf("block encode: %w", err)
 	}
 	return ethcodec.MarshalNoEscape(out)
+}
+
+// Projection is shared by encoding and direct raw decoding. The entry points
+// retain their distinct order around header integrity and error attribution;
+// field selection, spelling compatibility and schema parsing live here once.
+func projectHeader(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	projected, err := objectheader.Projection(raw)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(projected, &fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+func projectBody(raw json.RawMessage, fields map[string]json.RawMessage) error {
+	body, err := hexcompat.BlockBody(raw)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, &fields)
+}
+
+func parseBlock(fields map[string]json.RawMessage) (ethapi.Block, error) {
+	candidate, err := ethcodec.MarshalNoEscape(fields)
+	if err != nil {
+		return ethapi.Block{}, err
+	}
+	return ethapi.NewBlock(candidate)
 }
 
 func hasBlockHead(source map[string]json.RawMessage) bool {

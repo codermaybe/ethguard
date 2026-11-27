@@ -8,38 +8,34 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/ethapi"
+	objectblock "github.com/codermaybe/ethguard/internal/ethobject/block"
 	objectlog "github.com/codermaybe/ethguard/internal/ethobject/log"
 	objectreceipt "github.com/codermaybe/ethguard/internal/ethobject/receipt"
 	"github.com/codermaybe/ethguard/rpc"
-	"github.com/codermaybe/ethguard/rpc/methods"
 )
 
 // verifyBlockTransactions uses the existing full-block admission, including the
 // transaction root and original declarations. The head is already selected by
 // the Head stream; a supplier only proves content beneath that fixed hash.
 func verifyBlockTransactions(ctx context.Context, head *types.Header, raw json.RawMessage, call rpc.AdmissionCaller) (types.Transactions, error) {
-	spec, ok := methods.SpecFor(methods.MethodGetBlockByHash)
-	if !ok || spec.Admit == nil || spec.Encode == nil {
-		return nil, fmt.Errorf("ethguard: full block admission unavailable")
-	}
 	if head == nil || head.Number == nil || !head.Number.IsUint64() {
 		return nil, fmt.Errorf("ethguard: invalid content header")
 	}
-	req := rpc.Request{Method: methods.MethodGetBlockByHash, Params: []any{head.Hash().Hex(), true}}
-	if _, err := spec.Admit(ctx, req, raw, call); err != nil {
-		return nil, err
+	// The method's exact null response used to bypass admission and reach
+	// the delivery shape check. Keep that absence stage and its error.
+	if string(raw) == "null" {
+		return nil, fmt.Errorf("ethguard: full block has no transaction list: %v", nil)
 	}
-	canonical, err := spec.Encode(raw)
+	req := rpc.Request{Params: []any{head.Hash().Hex(), true}}
+	full, err := objectblock.AdmitBlock(ctx, req, raw, true, call)
 	if err != nil {
 		return nil, err
 	}
-	var body struct {
-		Transactions types.Transactions `json:"transactions"`
-	}
-	if err := json.Unmarshal(canonical, &body); err != nil || body.Transactions == nil {
+	txs, err := full.Transactions()
+	if err != nil || txs == nil {
 		return nil, fmt.Errorf("ethguard: full block has no transaction list: %v", err)
 	}
-	return body.Transactions, nil
+	return txs, nil
 }
 
 // proveBlockLogs verifies the complete receipt commitment, then checks every
