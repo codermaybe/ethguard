@@ -12,9 +12,9 @@ import (
 // Compiler-side contracts of the canonical processing dimension: a declared
 // processor is a strict-only, canonical-bytes-only assembly with its raw
 // compatibility adapters intact, and the compiled plan carries the same
-// processor. The two transaction pilot methods declare theirs; the
-// TestRegisteredSpecsDeclareNoProcessor guard below pins that no OTHER
-// registered method picks the dimension up without a reviewed task.
+// processor. TestRegisteredSpecsDeclareOnlyReviewedProcessors below pins the
+// reviewed transaction and receipt methods in both directions: every reviewed
+// method declares a processor, and no other registered method does.
 func processingSpec(method string, mutate func(*MethodSpec)) MethodSpec {
 	spec := MethodSpec{
 		Method:      method,
@@ -96,19 +96,21 @@ func TestCompilePlanCarriesProcessorWithIntactAdapters(t *testing.T) {
 	}
 }
 
-func TestRegisteredSpecsDeclareNoProcessor(t *testing.T) {
-	allowed := map[string]bool{
+func TestRegisteredSpecsDeclareOnlyReviewedProcessors(t *testing.T) {
+	reviewed := map[string]bool{
 		MethodGetTransactionByHash:              true,
 		MethodGetTransactionByBlockHashAndIndex: true,
 		MethodGetTransactionReceipt:             true,
+		MethodGetBlockReceipts:                  true,
 	}
 	for _, spec := range Specs() {
-		if spec.ProcessCanonical == nil {
-			continue
+		if got, want := spec.ProcessCanonical != nil, reviewed[spec.Method]; got != want {
+			t.Errorf("registered method %s declares processor=%t, reviewed=%t", spec.Method, got, want)
 		}
-		if !allowed[spec.Method] {
-			t.Fatalf("registered method %s declares a processor outside the reviewed pilot", spec.Method)
-		}
+		delete(reviewed, spec.Method)
+	}
+	for method := range reviewed {
+		t.Errorf("reviewed processor method %s is not registered", method)
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/codermaybe/ethguard/internal/ethcodec"
 	objectreceipt "github.com/codermaybe/ethguard/internal/ethobject/receipt"
@@ -59,30 +58,53 @@ func AdmitTransaction(req rpc.Request, value json.RawMessage) error {
 // not a missing response. This is per-response integrity against the
 // request, not a completeness claim over every receipt that could exist.
 func AdmitBlock(req rpc.Request, value json.RawMessage) error {
+	_, err := prepareBlockRows(req, value)
+	return err
+}
+
+// PrepareBlock retains the canonical bytes already checked by block admission.
+// It keeps the original order: null, array shape, request, then each receipt's
+// complete validation and binding before visiting the next receipt. Like
+// AdmitBlock, this controlled method entry relies on the coordinator's prior
+// RejectUnsafeJSON check for the whole list's byte and nesting bounds; it does
+// not replace that safety stage with per-row checks.
+func PrepareBlock(req rpc.Request, value json.RawMessage) (json.RawMessage, error) {
+	rows, err := prepareBlockRows(req, value)
+	if err != nil {
+		return nil, err
+	}
+	return ethcodec.MarshalNoEscape(rows)
+}
+
+// prepareBlockRows reuses the decoded row slice for the checked encodings. A
+// nil slice denotes null; an empty non-nil slice denotes []. Admission can
+// discard this result without paying for a complete array marshal.
+func prepareBlockRows(req rpc.Request, value json.RawMessage) ([]json.RawMessage, error) {
 	if IsJSONNull(value) {
-		return nil
+		return nil, nil
 	}
 	var rows []json.RawMessage
 	if err := json.Unmarshal(value, &rows); err != nil || rows == nil {
-		return fmt.Errorf("%w: block receipts must be an array", rpc.ErrMalformedResponse)
+		return nil, fmt.Errorf("%w: block receipts must be an array", rpc.ErrMalformedResponse)
 	}
 	hash, height, err := RequestedBlockRef(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for i, row := range rows {
-		r, err := validateAndDecode(row)
+		canonical, r, err := objectreceipt.DecodeWithCanonical(row)
 		if err != nil || r == nil {
-			return fmt.Errorf("%w: receipt %d: %v", rpc.ErrMalformedResponse, i, err)
+			return nil, fmt.Errorf("%w: receipt %d: %v", rpc.ErrMalformedResponse, i, err)
 		}
 		if hash != nil && r.BlockHash != *hash {
-			return fmt.Errorf("%w: receipt %d block hash does not match requested hash", rpc.ErrMalformedResponse, i)
+			return nil, fmt.Errorf("%w: receipt %d block hash does not match requested hash", rpc.ErrMalformedResponse, i)
 		}
 		if height != nil && (r.BlockNumber == nil || r.BlockNumber.Cmp(height) != 0) {
-			return fmt.Errorf("%w: receipt %d block number does not match requested number", rpc.ErrMalformedResponse, i)
+			return nil, fmt.Errorf("%w: receipt %d block number does not match requested number", rpc.ErrMalformedResponse, i)
 		}
+		rows[i] = canonical
 	}
-	return nil
+	return rows, nil
 }
 
 func RequestedHash(req rpc.Request) (common.Hash, error) {
@@ -151,7 +173,7 @@ func ParseBlockHeight(value any) (*common.Hash, *big.Int, error) {
 // whitelist prune and are not rejected here. Any non-object payload and an
 // object carrying at most one field are incomplete answers, not votes. A
 // value with no canonical form errors. Required-field rejection belongs to
-// validateAndDecode and the Admit functions.
+// receipt decoding and the Admit functions.
 func Normalize(value json.RawMessage, prune Pruner, method string) (string, error) {
 	if IsJSONNull(value) {
 		return "null", nil
@@ -161,13 +183,6 @@ func Normalize(value json.RawMessage, prune Pruner, method string) (string, erro
 		return "", fmt.Errorf("receipt: incomplete object")
 	}
 	return prune(method, value)
-}
-
-// validateAndDecode runs every wire check and returns the decoded receipt, so
-// a caller that must bind the receipt to its request does not decode the same
-// bytes a second time.
-func validateAndDecode(value json.RawMessage) (*types.Receipt, error) {
-	return objectreceipt.Decode(value)
 }
 
 func NormalizeBlock(value json.RawMessage, prune Pruner, method string) (string, error) {

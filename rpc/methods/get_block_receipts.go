@@ -33,6 +33,7 @@ func getBlockReceiptsSpec() MethodSpec {
 			return req, validateBlockReceiptsRequest(ctx, req)
 		},
 		Admit:                  admitBlockReceipts,
+		ProcessCanonical:       processBlockReceipts,
 		ObservationProjectorID: ProjectorBlockReceipts,
 	}
 }
@@ -54,6 +55,17 @@ func admitBlockReceipts(_ context.Context, req rpc.Request, value json.RawMessag
 		return nil, err
 	}
 	return nil, nil
+}
+
+// processBlockReceipts reuses the canonical row bytes checked during admission.
+// Safety admission has already checked the complete raw list. The original raw
+// Admit/Encode route remains available to invocations without this processor.
+func processBlockReceipts(_ context.Context, req rpc.Request, value json.RawMessage, _ rpc.AdmissionCaller) (rpc.CanonicalResult, error) {
+	canonical, err := receiptobject.PrepareBlock(req, value)
+	if err != nil {
+		return rpc.CanonicalResult{}, err
+	}
+	return rpc.NewCanonicalResult(canonical, nil)
 }
 
 // normalizeBlockReceiptList is the single canonical pass: the pruner's
